@@ -1,3 +1,4 @@
+import { isEndpointAvailable, recordSuccess, recordFailure } from './circuit-breaker';
 import { ParsedIntent } from './intent-parser';
 import { findEndpoint } from '../config/api-registry';
 import { cacheGet, cacheSet, cacheKey } from '../cache/index';
@@ -72,13 +73,19 @@ async function executeStep(
     return { endpointId: step.endpointId, success: true, cached: true, durationMs: Date.now() - start, cost: 0, data: cached };
   }
 
+  if (!isEndpointAvailable(step.endpointId)) {
+    return { endpointId: step.endpointId, success: false, cached: false, durationMs: 0, cost: 0, error: 'CIRCUIT_OPEN' };
+  }
+
   try {
     const data = isSimulationMode ? mockData(step.endpointId) : await callClawApi(step.endpointId, step.params);
     await cacheSet(key, data);
+    recordSuccess(step.endpointId);
     return { endpointId: step.endpointId, success: true, cached: false, durationMs: Date.now() - start, cost: endpoint.costPerCall, data };
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
     logger.error({ endpointId: step.endpointId, error }, 'Step execution failed');
+    recordFailure(step.endpointId);
     return { endpointId: step.endpointId, success: false, cached: false, durationMs: Date.now() - start, cost: 0, error };
   }
 }

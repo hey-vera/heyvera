@@ -1,3 +1,4 @@
+import { insertOrchestration } from '../db/index';
 import { Hono } from 'hono';
 import { nanoid } from 'nanoid';
 import { parseIntent } from '../core/intent-parser';
@@ -62,7 +63,7 @@ apiRouter.post('/orchestrate', async (c) => {
     const savings = cacheHits * 0.002;
     const totalDurationMs = Date.now() - start;
 
-    logUsage({
+    const usageEntry = {
       requestId,
       timestamp: new Date().toISOString(),
       query,
@@ -76,7 +77,9 @@ apiRouter.post('/orchestrate', async (c) => {
       total,
       success: true,
       llmProvider: env.LLM_PROVIDER,
-    });
+    };
+    logUsage(usageEntry);
+    insertOrchestration({ id: requestId, ...usageEntry });
 
     const responsePayload = {
       answer: formatted.answer,

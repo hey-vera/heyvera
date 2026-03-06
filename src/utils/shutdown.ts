@@ -1,4 +1,5 @@
 import { logger } from './logger';
+import { closeDb } from '../db/index';
 import { closeRedis } from '../cache/index';
 import { stopHeartbeat } from '../core/heartbeat';
 
@@ -12,6 +13,7 @@ export function setupGracefulShutdown() {
     logger.info({ signal }, 'Shutdown signal received');
 
     stopHeartbeat();
+    closeDb();
 
     await new Promise((resolve) => setTimeout(resolve, 1000));
 

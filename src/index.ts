@@ -12,6 +12,8 @@ import { startHeartbeat } from './core/heartbeat';
 import { setupGracefulShutdown } from './utils/shutdown';
 import { feedbackRouter } from './routes/feedback';
 import { initTelegram, stopTelegram } from './integrations/telegram';
+import { initDb, closeDb } from './db/index';
+import { adminRouter } from './routes/admin';
 
 const app = new Hono();
 
@@ -36,12 +38,14 @@ app.get('/', (c) => c.json({
 // Auth only on orchestrate endpoint
 app.use('/v1/orchestrate', checkApiKey);
 app.route('/v1/feedback', feedbackRouter);
+app.route('/v1/admin', adminRouter);
 
 app.route('/v1', apiRouter);
 
 app.notFound((c) => c.json({ error: 'Not found', code: 'NOT_FOUND' }, 404));
 
 async function start() {
+  initDb();
   await initRedis();
   setupGracefulShutdown();
   startHeartbeat();
