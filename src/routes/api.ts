@@ -3,14 +3,19 @@ import { nanoid } from 'nanoid';
 import { parseIntent } from '../core/intent-parser';
 import { executePlan } from '../core/executor';
 import { formatResponse } from '../core/formatter';
-import { logUsage } from '../utils/usage';
-import { getRecentUsage, getUsageStats } from '../utils/usage';
-import { cacheStats } from '../cache/index';
+import { logUsage, getRecentUsage, getUsageStats } from '../utils/usage';
+import { cacheStats, cacheGet, cacheSet } from '../cache/index';
 import { apiRegistry } from '../config/api-registry';
 import { env, isSimulationMode } from '../config/index';
 import { logger } from '../utils/logger';
+import crypto from 'crypto';
 
 export const apiRouter = new Hono();
+
+function queryCacheKey(query: string): string {
+  const normalized = query.toLowerCase().trim().replace(/\s+/g, ' ');
+  return 'qcache:' + crypto.createHash('sha256').update(normalized).digest('hex').slice(0, 16);
+}
 
 // POST /v1/orchestrate
 apiRouter.post('/orchestrate', async (c) => {
@@ -29,35 +34,34 @@ apiRouter.post('/orchestrate', async (c) => {
     return c.json({ requestId, error: 'Missing required field: query', code: 'MISSING_QUERY', hint: 'Send { "query": "your question" }' }, 400);
   }
 
-  // Input sanitization
   if (query.length > 2000) {
     return c.json({ requestId, error: 'Query too long (max 2000 chars)', code: 'QUERY_TOO_LONG' }, 400);
+  }
+
+  // Query-level cache check
+  const qKey = queryCacheKey(query);
+  const cachedResponse = await cacheGet<Record<string, unknown>>(qKey);
+  if (cachedResponse) {
+    logger.info({ requestId, query: query.slice(0, 100) }, 'Query cache hit');
+    return c.json({ ...cachedResponse, requestId, metadata: { ...(cachedResponse.metadata as Record<string, unknown>), cacheHits: 1 } });
   }
 
   logger.info({ requestId, query: query.slice(0, 100) }, 'Orchestration request');
 
   try {
-    // Stage 1: Parse intent
     const intent = await parseIntent(query);
-    // Enforce max steps
     if (intent.steps.length > 10) intent.steps = intent.steps.slice(0, 10);
 
-    // Stage 2: Execute
     const execution = await executePlan(intent);
-
-    // Stage 3: Synthesize
     const formatted = await formatResponse(query, intent, execution);
 
-    // Stage 4: Cost engine
     const apiCosts = execution.totalCost;
     const markup = apiCosts * (env.MARKUP_PERCENT / 100);
     const total = apiCosts + markup;
     const cacheHits = execution.steps.filter((s) => s.cached).length;
-    const savings = cacheHits * 0.002; // avg endpoint cost estimate
-
+    const savings = cacheHits * 0.002;
     const totalDurationMs = Date.now() - start;
 
-    // Log usage
     logUsage({
       requestId,
       timestamp: new Date().toISOString(),
@@ -74,8 +78,7 @@ apiRouter.post('/orchestrate', async (c) => {
       llmProvider: env.LLM_PROVIDER,
     });
 
-    return c.json({
-      requestId,
+    const responsePayload = {
       answer: formatted.answer,
       ...(formatted.opportunityScore !== undefined && { opportunityScore: formatted.opportunityScore }),
       ...(formatted.riskScore !== undefined && { riskScore: formatted.riskScore }),
@@ -106,7 +109,13 @@ apiRouter.post('/orchestrate', async (c) => {
           ...(s.error && { error: s.error }),
         })),
       },
-    });
+    };
+
+    // Store in query cache
+    await cacheSet(qKey, responsePayload);
+
+    return c.json({ requestId, ...responsePayload });
+
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
     const code = (err as { code?: string }).code ?? 'INTERNAL_ERROR';
@@ -160,7 +169,6 @@ apiRouter.get('/registry', (c) => {
     acc[ep.category].push({ id: ep.id, name: ep.name, costPerCall: ep.costPerCall, description: ep.description });
     return acc;
   }, {} as Record<string, unknown[]>);
-
   return c.json({ totalEndpoints: apiRegistry.length, categories });
 });
 

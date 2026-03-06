@@ -25,9 +25,10 @@ async function callAnthropic(messages: LlmMessage[]): Promise<LlmResponse> {
     content: m.content,
   }));
 
-  const response = await client.messages.create({
+const response = await client.messages.create({
     model: env.ANTHROPIC_MODEL,
     max_tokens: 2048,
+    temperature: 0,
     system,
     messages: userMessages,
   });
@@ -49,6 +50,7 @@ async function callOpenAI(messages: LlmMessage[]): Promise<LlmResponse> {
     model: env.OPENAI_MODEL,
     messages,
     max_tokens: 2048,
+    temperature: 0,
   });
 
   return {
