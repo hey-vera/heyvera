@@ -10,6 +10,7 @@ import { checkApiKey } from './middleware/auth';
 import { rateLimiter } from './middleware/rate-limit';
 import { startHeartbeat } from './core/heartbeat';
 import { setupGracefulShutdown } from './utils/shutdown';
+import { feedbackRouter } from './routes/feedback';
 
 const app = new Hono();
 
@@ -33,6 +34,7 @@ app.get('/', (c) => c.json({
 
 // Auth only on orchestrate endpoint
 app.use('/v1/orchestrate', checkApiKey);
+app.route('/v1/feedback', feedbackRouter);
 
 app.route('/v1', apiRouter);
 
