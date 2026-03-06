@@ -1,4 +1,5 @@
 const BASE_URL = 'http://localhost:3402';
+const API_KEY = process.env.API_KEYS?.split(',')[0] ?? '';
 
 interface TestResult {
   name: string;
@@ -39,7 +40,10 @@ interface RegistryResponse {
 async function post(path: string, body: unknown): Promise<OrchestrationResponse> {
   const res = await fetch(`${BASE_URL}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 
+      'Content-Type': 'application/json',
+      ...(API_KEY && { 'X-API-Key': API_KEY }),
+    },
     body: JSON.stringify(body),
   });
   return res.json() as Promise<OrchestrationResponse>;
@@ -104,7 +108,15 @@ async function main() {
   }));
 
   results.push(await runTest('Error handling: missing query returns error', async () => {
-    const data = await post('/v1/orchestrate', {});
+    const res = await fetch(`${BASE_URL}/v1/orchestrate`, {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        ...(API_KEY && { 'X-API-Key': API_KEY }),
+      },
+      body: JSON.stringify({}),
+    });
+    const data = await res.json() as OrchestrationResponse;
     assert(data.code === 'MISSING_QUERY', `should return MISSING_QUERY, got ${data.code}`);
   }));
 

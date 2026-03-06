@@ -32,8 +32,8 @@ function saveSubscribers() {
 
 export async function initTelegram(): Promise<void> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
-  if (!token) {
-    logger.info('Telegram bot not configured (no TELEGRAM_BOT_TOKEN)');
+  if (!token || process.env.NODE_ENV !== 'production') {
+    logger.info('Telegram bot disabled in development mode');
     return;
   }
 
@@ -88,7 +88,6 @@ export async function initTelegram(): Promise<void> {
       );
     });
 
-    // Start polling
     bot.start({
       onStart: () => logger.info({ subscribers: subscribers.size }, 'Telegram bot started'),
     });
@@ -111,7 +110,6 @@ export async function sendTelegramAlert(message: string): Promise<void> {
     }
   }
 
-  // Remove subscribers that have blocked the bot
   for (const chatId of failed) {
     subscribers.delete(chatId);
   }
