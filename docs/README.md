@@ -29,7 +29,7 @@ npm run dev
 
 ### 4. Send your first request
 ```bash
-curl -X POST http://localhost:3402/v1/orchestrate \
+curl -X POST https://api.claw-net.org/v1/orchestrate \
   -H "Content-Type: application/json" \
   -d '{"query": "Analyze BONK token: price, risk, and sentiment"}'
 ```
