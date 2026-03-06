@@ -11,6 +11,7 @@ import { rateLimiter } from './middleware/rate-limit';
 import { startHeartbeat } from './core/heartbeat';
 import { setupGracefulShutdown } from './utils/shutdown';
 import { feedbackRouter } from './routes/feedback';
+import { initTelegram, stopTelegram } from './integrations/telegram';
 
 const app = new Hono();
 
@@ -44,6 +45,7 @@ async function start() {
   await initRedis();
   setupGracefulShutdown();
   startHeartbeat();
+  await initTelegram();
 
   serve({ fetch: app.fetch, port: env.PORT, hostname: '0.0.0.0' }, () => {
     logger.info(`ClawNet running on port ${env.PORT}`);
@@ -52,7 +54,8 @@ async function start() {
   });
 }
 
-start().catch((err) => {
+start().catch(async (err) => {
   logger.error({ err }, 'Failed to start server');
+  await stopTelegram();
   process.exit(1);
 });
