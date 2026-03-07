@@ -216,11 +216,11 @@ function getKeyStats(key: string): {
   const today = new Date().toISOString().split('T')[0];
 
   const total = db
-    .prepare('SELECT COUNT(*) as count FROM orchestrations WHERE request_id IN (SELECT id FROM orchestrations)')
+    .prepare('SELECT COUNT(*) as count FROM orchestrations')
     .get() as { count: number };
 
   const todayCount = db
-    .prepare(`SELECT COUNT(*) as count FROM orchestrations WHERE timestamp LIKE ?`)
+    .prepare('SELECT COUNT(*) as count FROM orchestrations WHERE timestamp LIKE ?')
     .get(`${today}%`) as { count: number };
 
   const lastUsed = db
