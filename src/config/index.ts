@@ -28,6 +28,9 @@ const envSchema = z.object({
 
   TELEGRAM_BOT_TOKEN: z.string().optional(),
   TELEGRAM_CHANNEL_ID: z.string().optional(),
+
+  SOLANA_PRIVATE_KEY: z.string().optional(),
+  X402_X_API_URL: z.string().default('https://clawapis.com'),
 });
 
 const parsed = envSchema.safeParse(process.env);

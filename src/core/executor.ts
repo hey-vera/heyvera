@@ -4,6 +4,7 @@ import { findEndpoint } from '../config/api-registry';
 import { cacheGet, cacheSet, cacheKey } from '../cache/index';
 import { env, isSimulationMode } from '../config/index';
 import { logger } from '../utils/logger';
+import { isClawApisReady, clawApiCall } from '../providers/clawapis';
 
 export interface StepResult {
   endpointId: string;
@@ -54,6 +55,27 @@ async function callClawApi(endpointId: string, params: Record<string, string>): 
   return response.json();
 }
 
+function endpointToPath(endpointId: string): string {
+  const map: Record<string, string> = {
+    'claw-token-price':      '/solscan/token/price',
+    'claw-token-metadata':   '/solscan/token/meta',
+    'claw-token-holders':    '/solscan/token/holders',
+    'claw-token-risk':       '/solscan/token/defi/activities',
+    'claw-wallet-portfolio': '/solscan/account/token-accounts',
+    'claw-tx-history':       '/solscan/account/transactions',
+    'claw-trending-tokens':  '/solscan/token/trending',
+    'claw-x-mentions':       '/x/2/tweets/search/recent',
+    'claw-x-profile':        '/x/2/users/by/username',
+    'claw-linkedin-profile': '/x/2/users/by/username',
+    'claw-instagram-check':  '/x/2/users/by/username',
+    'claw-reddit-sentiment': '/x/2/tweets/search/recent',
+    'claw-web-scrape':       '/helius/v0/addresses',
+    'claw-news-search':      '/x/2/tweets/search/recent',
+    'claw-wallet-risk':      '/solscan/account/risk',
+  };
+  return map[endpointId] ?? '/solscan/token/meta';
+}
+
 async function executeStep(
   stepIndex: number,
   intent: ParsedIntent
@@ -78,7 +100,9 @@ async function executeStep(
   }
 
   try {
-    const data = isSimulationMode ? mockData(step.endpointId) : await callClawApi(step.endpointId, step.params);
+    const data = isClawApisReady()
+      ? await clawApiCall(endpointToPath(step.endpointId), step.params)
+      : mockData(step.endpointId);
     await cacheSet(key, data);
     recordSuccess(step.endpointId);
     return { endpointId: step.endpointId, success: true, cached: false, durationMs: Date.now() - start, cost: endpoint.costPerCall, data };

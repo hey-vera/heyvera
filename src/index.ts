@@ -14,6 +14,7 @@ import { feedbackRouter } from './routes/feedback';
 import { initTelegram, stopTelegram } from './integrations/telegram';
 import { initDb, closeDb } from './db/index';
 import { adminRouter } from './routes/admin';
+import { initClawApis } from './providers/clawapis';
 
 const app = new Hono();
 
@@ -35,11 +36,9 @@ app.get('/', (c) => c.json({
   health: '/v1/health',
 }));
 
-// Auth only on orchestrate endpoint
 app.use('/v1/orchestrate', checkApiKey);
 app.route('/v1/feedback', feedbackRouter);
 app.route('/v1/admin', adminRouter);
-
 app.route('/v1', apiRouter);
 
 app.notFound((c) => c.json({ error: 'Not found', code: 'NOT_FOUND' }, 404));
@@ -47,6 +46,14 @@ app.notFound((c) => c.json({ error: 'Not found', code: 'NOT_FOUND' }, 404));
 async function start() {
   initDb();
   await initRedis();
+
+  const clawReady = await initClawApis();
+  if (clawReady) {
+    logger.info('ClawAPIs x402: ready for real API calls');
+  } else {
+    logger.info('ClawAPIs x402: no SOLANA_PRIVATE_KEY set, simulation mode active');
+  }
+
   setupGracefulShutdown();
   startHeartbeat();
   await initTelegram();
