@@ -2,7 +2,6 @@ import { isEndpointAvailable, recordSuccess, recordFailure } from './circuit-bre
 import { ParsedIntent } from './intent-parser';
 import { findEndpoint } from '../config/api-registry';
 import { cacheGet, cacheSet, cacheKey } from '../cache/index';
-import { env, isSimulationMode } from '../config/index';
 import { logger } from '../utils/logger';
 import { isClawApisReady, clawApiCall } from '../providers/clawapis';
 
@@ -43,25 +42,13 @@ function mockData(endpointId: string): unknown {
   return mocks[endpointId] ?? { result: 'mock data', endpointId };
 }
 
-async function callClawApi(endpointId: string, params: Record<string, string>): Promise<unknown> {
-  const url = `${env.CLAWAPIS_BASE_URL}/${endpointId}`;
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.CLAWAPIS_API_KEY}` },
-    body: JSON.stringify(params),
-    signal: AbortSignal.timeout(10000),
-  });
-  if (!response.ok) throw new Error(`ClawAPIs error: ${response.status}`);
-  return response.json();
-}
-
 function endpointToPath(endpointId: string): string {
   const map: Record<string, string> = {
-    'claw-token-price':      '/solscan/token/price',
+    'claw-token-price':      '/solscan/token/meta',
     'claw-token-metadata':   '/solscan/token/meta',
     'claw-token-holders':    '/solscan/token/holders',
-    'claw-token-risk':       '/solscan/token/defi/activities',
-    'claw-wallet-portfolio': '/solscan/account/token-accounts',
+    'claw-token-risk':       '/solscan/token/meta',
+    'claw-wallet-portfolio': '/solscan/account/portfolio',
     'claw-tx-history':       '/solscan/account/transactions',
     'claw-trending-tokens':  '/solscan/token/trending',
     'claw-x-mentions':       '/x/2/tweets/search/recent',
@@ -69,11 +56,42 @@ function endpointToPath(endpointId: string): string {
     'claw-linkedin-profile': '/x/2/users/by/username',
     'claw-instagram-check':  '/x/2/users/by/username',
     'claw-reddit-sentiment': '/x/2/tweets/search/recent',
-    'claw-web-scrape':       '/helius/v0/addresses',
+    'claw-web-scrape':       '/solscan/token/list',
     'claw-news-search':      '/x/2/tweets/search/recent',
-    'claw-wallet-risk':      '/solscan/account/risk',
+    'claw-wallet-risk':      '/solscan/account/detail',
   };
   return map[endpointId] ?? '/solscan/token/meta';
+}
+
+function normalizeParams(endpointId: string, params: Record<string, string>): Record<string, unknown> {
+  const normalized: Record<string, unknown> = { ...params };
+
+  // Solscan uses 'address' for token mint addresses
+  if (normalized.mintAddress) {
+    normalized.address = normalized.mintAddress;
+    delete normalized.mintAddress;
+  }
+
+  // X API search needs 'query' param
+  if (['claw-x-mentions', 'claw-reddit-sentiment', 'claw-news-search'].includes(endpointId)) {
+    if (!normalized.query && normalized.symbol) {
+      normalized.query = `${normalized.symbol} crypto`;
+    }
+    if (!normalized.query && normalized.token) {
+      normalized.query = `${normalized.token} crypto`;
+    }
+    normalized.max_results = normalized.max_results ?? '10';
+  }
+
+  // X user lookup needs 'username' not 'handle'
+  if (['claw-x-profile', 'claw-linkedin-profile', 'claw-instagram-check'].includes(endpointId)) {
+    if (normalized.handle) {
+      normalized.username = normalized.handle;
+      delete normalized.handle;
+    }
+  }
+
+  return normalized;
 }
 
 async function executeStep(
@@ -101,7 +119,7 @@ async function executeStep(
 
   try {
     const data = isClawApisReady()
-      ? await clawApiCall(endpointToPath(step.endpointId), step.params)
+      ? await clawApiCall(endpointToPath(step.endpointId), normalizeParams(step.endpointId, step.params))
       : mockData(step.endpointId);
     await cacheSet(key, data);
     recordSuccess(step.endpointId);
