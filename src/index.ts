@@ -1,3 +1,4 @@
+import { dashboardRouter } from './routes/dashboard';
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
@@ -39,6 +40,7 @@ app.get('/', (c) => c.json({
 
 // Stripe webhook — BEFORE auth middleware, needs raw body for signature verification
 app.route('/v1/webhooks', stripeRouter);
+app.route('/v1/dashboard', dashboardRouter);
 
 // Balance check — no credit deduction
 app.get('/v1/balance', async (c) => {

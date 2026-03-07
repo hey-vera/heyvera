@@ -44,7 +44,23 @@ export function initDb(): void {
       amount_paid REAL NOT NULL DEFAULT 0,
       active INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      last_used_at TEXT
+      last_used_at TEXT,
+      clerk_user_id TEXT
+    );
+    
+    CREATE TABLE IF NOT EXISTS claim_tokens (
+      token TEXT PRIMARY KEY,
+      clerk_user_id TEXT NOT NULL,
+      purchase_email TEXT NOT NULL,
+      api_key TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      used INTEGER NOT NULL DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS users (
+      clerk_user_id TEXT PRIMARY KEY,
+      email TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
     CREATE INDEX IF NOT EXISTS idx_orchestrations_timestamp ON orchestrations(timestamp);
