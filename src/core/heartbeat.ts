@@ -145,13 +145,18 @@ async function runHeartbeat() {
 }
 
 export function startHeartbeat() {
-  // First run 2 minutes after server start, then every hour
+  // Calculate ms until the next hour boundary (:00)
+  const now = new Date();
+  const msUntilNextHour =
+    (60 - now.getMinutes()) * 60 * 1000 - now.getSeconds() * 1000 - now.getMilliseconds();
+
   setTimeout(() => {
     runHeartbeat();
     intervalId = setInterval(runHeartbeat, INTERVAL_MS);
-  }, 2 * 60 * 1000);
+  }, msUntilNextHour);
 
-  logger.info('Heartbeat scheduler started (every 60 minutes, rotating queries)');
+  const minutesUntil = Math.round(msUntilNextHour / 60000);
+  logger.info(`Heartbeat scheduler started — first run in ${minutesUntil} min (next hour boundary)`);
 }
 
 export function stopHeartbeat() {
