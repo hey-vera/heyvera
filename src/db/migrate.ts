@@ -74,11 +74,11 @@ function migrateFeedback(): number {
     try {
       const entry = JSON.parse(line) as JsonlFeedback;
       insertFeedback({
+        id: entry.requestId,
         requestId: entry.requestId,
         rating: entry.rating,
         comment: entry.comment,
         timestamp: entry.timestamp,
-        ip: entry.ip ?? 'unknown',
       });
       count++;
     } catch {

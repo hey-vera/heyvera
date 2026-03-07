@@ -1,24 +1,80 @@
-import { MiddlewareHandler } from 'hono';
+import { createMiddleware } from 'hono/factory';
+import { getApiKey, deductCredit } from '../db/index';
 import { env } from '../config/index';
 import { logger } from '../utils/logger';
 
-export const checkApiKey: MiddlewareHandler = async (c, next) => {
-  if (!env.API_KEYS) {
-    await next();
-    return;
+// Attaches validated key info to context for use in route handlers
+declare module 'hono' {
+  interface ContextVariableMap {
+    apiKeyInfo: {
+      key: string;
+      email: string;
+      credits: number;
+      isEnvKey: boolean;
+    };
+  }
+}
+
+export const checkApiKey = createMiddleware(async (c, next) => {
+  const key = c.req.header('X-API-Key');
+
+  if (!key) {
+    return c.json(
+      { error: 'Missing X-API-Key header', code: 'INVALID_API_KEY', hint: 'Add X-API-Key header to your request' },
+      401
+    );
   }
 
-  const validKeys = env.API_KEYS.split(',').map((k) => k.trim()).filter(Boolean);
-  if (validKeys.length === 0) {
-    await next();
-    return;
+  // Check env-based keys first (test-key-123, admin keys etc.)
+  const envKeys = env.API_KEYS ? env.API_KEYS.split(',').map((k) => k.trim()).filter(Boolean) : [];
+  if (envKeys.includes(key)) {
+    c.set('apiKeyInfo', { key, email: 'env-key', credits: Infinity, isEnvKey: true });
+    return next();
   }
 
-  const providedKey = c.req.header('X-API-Key');
-  if (!providedKey || !validKeys.includes(providedKey)) {
-    logger.warn({ ip: c.req.header('x-forwarded-for') ?? 'unknown' }, 'Invalid API key');
-    return c.json({ error: 'Invalid or missing API key', code: 'INVALID_API_KEY', hint: 'Add X-API-Key header' }, 401);
+  // Check DB-based keys (purchased via Stripe)
+  const keyRecord = getApiKey(key);
+
+  if (!keyRecord) {
+    logger.warn({ key: key.slice(0, 8) + '...' }, 'Invalid API key attempt');
+    return c.json(
+      { error: 'Invalid or inactive API key', code: 'INVALID_API_KEY', hint: 'Purchase a key at claw-net.org' },
+      401
+    );
   }
 
-  await next();
-};
+  if (keyRecord.credits <= 0) {
+    return c.json(
+      {
+        error: 'Insufficient credits',
+        code: 'INSUFFICIENT_CREDITS',
+        hint: 'Top up your credits at claw-net.org',
+        credits: 0,
+      },
+      402
+    );
+  }
+
+  // Deduct 1 credit before processing
+  const deducted = deductCredit(key, 1);
+  if (!deducted) {
+    return c.json(
+      {
+        error: 'Insufficient credits',
+        code: 'INSUFFICIENT_CREDITS',
+        hint: 'Top up your credits at claw-net.org',
+        credits: keyRecord.credits,
+      },
+      402
+    );
+  }
+
+  c.set('apiKeyInfo', {
+    key,
+    email: keyRecord.email,
+    credits: keyRecord.credits - 1,
+    isEnvKey: false,
+  });
+
+  return next();
+});

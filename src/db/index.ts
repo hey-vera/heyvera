@@ -1,21 +1,11 @@
 import Database from 'better-sqlite3';
 import path from 'path';
-import fs from 'fs';
 import { logger } from '../utils/logger';
 
-const DATA_DIR = path.join(process.cwd(), 'data');
-const DB_PATH = path.join(DATA_DIR, 'orchestrator.db');
-
-let db: Database.Database | null = null;
-
-export function getDb(): Database.Database {
-  if (!db) throw new Error('Database not initialized');
-  return db;
-}
+const DB_PATH = path.join(process.cwd(), 'data', 'orchestrator.db');
+let db: Database.Database;
 
 export function initDb(): void {
-  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-
   db = new Database(DB_PATH);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
@@ -25,34 +15,59 @@ export function initDb(): void {
       id TEXT PRIMARY KEY,
       timestamp TEXT NOT NULL,
       query TEXT NOT NULL,
-      planned_steps INTEGER DEFAULT 0,
-      executed_steps INTEGER DEFAULT 0,
-      successful_steps INTEGER DEFAULT 0,
-      cache_hits INTEGER DEFAULT 0,
-      duration_ms INTEGER DEFAULT 0,
-      api_cost REAL DEFAULT 0,
-      markup REAL DEFAULT 0,
-      total REAL DEFAULT 0,
-      success INTEGER DEFAULT 1,
-      llm_provider TEXT DEFAULT 'openai'
+      planned_steps INTEGER,
+      executed_steps INTEGER,
+      successful_steps INTEGER,
+      cache_hits INTEGER,
+      total_duration_ms INTEGER,
+      api_cost REAL,
+      markup REAL,
+      total REAL,
+      success INTEGER,
+      llm_provider TEXT
     );
 
     CREATE TABLE IF NOT EXISTS feedback (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      request_id TEXT NOT NULL,
-      rating INTEGER NOT NULL,
+      id TEXT PRIMARY KEY,
+      request_id TEXT,
+      rating INTEGER,
       comment TEXT,
-      timestamp TEXT NOT NULL,
-      ip TEXT
+      timestamp TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS api_keys (
+      key TEXT PRIMARY KEY,
+      email TEXT NOT NULL,
+      credits INTEGER NOT NULL DEFAULT 0,
+      credits_used INTEGER NOT NULL DEFAULT 0,
+      stripe_session_id TEXT UNIQUE,
+      amount_paid REAL NOT NULL DEFAULT 0,
+      active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      last_used_at TEXT
     );
 
     CREATE INDEX IF NOT EXISTS idx_orchestrations_timestamp ON orchestrations(timestamp);
-    CREATE INDEX IF NOT EXISTS idx_orchestrations_success ON orchestrations(success);
-    CREATE INDEX IF NOT EXISTS idx_feedback_request_id ON feedback(request_id);
+    CREATE INDEX IF NOT EXISTS idx_api_keys_email ON api_keys(email);
+    CREATE INDEX IF NOT EXISTS idx_api_keys_stripe ON api_keys(stripe_session_id);
   `);
 
-  logger.info({ path: DB_PATH }, 'SQLite database initialized');
+  logger.info({ path: DB_PATH }, 'Database initialised');
 }
+
+export function getDb(): Database.Database {
+  if (!db) throw new Error('Database not initialised — call initDb() first');
+  return db;
+}
+
+export function closeDb(): void {
+  if (db) {
+    db.close();
+    logger.info('Database closed');
+  }
+}
+
+// ─── Orchestrations ───────────────────────────────────────────────────────────
 
 export function insertOrchestration(entry: {
   id: string;
@@ -70,77 +85,154 @@ export function insertOrchestration(entry: {
   llmProvider: string;
 }): void {
   try {
-    getDb().prepare(`
-      INSERT OR REPLACE INTO orchestrations 
-      (id, timestamp, query, planned_steps, executed_steps, successful_steps, 
-       cache_hits, duration_ms, api_cost, markup, total, success, llm_provider)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      entry.id, entry.timestamp, entry.query.slice(0, 500),
-      entry.plannedSteps, entry.executedSteps, entry.successfulSteps,
-      entry.cacheHits, entry.totalDurationMs, entry.apiCost,
-      entry.markup, entry.total, entry.success ? 1 : 0, entry.llmProvider
-    );
+    getDb()
+      .prepare(
+        `INSERT OR IGNORE INTO orchestrations
+          (id, timestamp, query, planned_steps, executed_steps, successful_steps,
+           cache_hits, total_duration_ms, api_cost, markup, total, success, llm_provider)
+         VALUES
+          (@id, @timestamp, @query, @plannedSteps, @executedSteps, @successfulSteps,
+           @cacheHits, @totalDurationMs, @apiCost, @markup, @total, @success, @llmProvider)`
+      )
+      .run({ ...entry, success: entry.success ? 1 : 0 });
   } catch (err) {
-    logger.warn({ err }, 'Failed to insert orchestration to SQLite');
+    logger.error({ err }, 'Failed to insert orchestration');
   }
 }
+
+// ─── Feedback ─────────────────────────────────────────────────────────────────
 
 export function insertFeedback(entry: {
+  id: string;
   requestId: string;
   rating: number;
-  comment?: string;
+  comment: string | undefined;
   timestamp: string;
-  ip: string;
 }): void {
   try {
-    getDb().prepare(`
-      INSERT INTO feedback (request_id, rating, comment, timestamp, ip)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(entry.requestId, entry.rating, entry.comment ?? null, entry.timestamp, entry.ip);
+    getDb()
+      .prepare(
+        `INSERT OR IGNORE INTO feedback (id, request_id, rating, comment, timestamp)
+         VALUES (@id, @requestId, @rating, @comment, @timestamp)`
+      )
+      .run(entry);
   } catch (err) {
-    logger.warn({ err }, 'Failed to insert feedback to SQLite');
+    logger.error({ err }, 'Failed to insert feedback');
   }
 }
 
-export function getDbStats() {
-  try {
-    const db = getDb();
-    const total = (db.prepare('SELECT COUNT(*) as count FROM orchestrations').get() as { count: number }).count;
-    const successful = (db.prepare('SELECT COUNT(*) as count FROM orchestrations WHERE success = 1').get() as { count: number }).count;
-    const totalRevenue = (db.prepare('SELECT COALESCE(SUM(markup), 0) as revenue FROM orchestrations').get() as { revenue: number }).revenue;
-    const avgDuration = (db.prepare('SELECT COALESCE(AVG(duration_ms), 0) as avg FROM orchestrations').get() as { avg: number }).avg;
-    const feedbackCount = (db.prepare('SELECT COUNT(*) as count FROM feedback').get() as { count: number }).count;
-    const avgRating = (db.prepare('SELECT COALESCE(AVG(rating), 0) as avg FROM feedback').get() as { avg: number }).avg;
+// ─── Stats ────────────────────────────────────────────────────────────────────
 
-    const topEndpoints = db.prepare(`
-      SELECT query, COUNT(*) as count 
-      FROM orchestrations 
-      GROUP BY query 
-      ORDER BY count DESC 
-      LIMIT 5
-    `).all() as { query: string; count: number }[];
+export function getDbStats(): {
+  totalOrchestrations: number;
+  total: number;
+  totalRevenue: number;
+  avgDurationMs: number;
+  successRate: number;
+  errorRate: number;
+  feedbackCount: number;
+  avgRating: number;
+  topQueries: { query: string; count: number }[];
+} {
+  const db = getDb();
 
-    return {
-      total,
-      successful,
-      errorRate: total > 0 ? Math.round(((total - successful) / total) * 100) : 0,
-      totalRevenue: Math.round(totalRevenue * 10000) / 10000,
-      avgDurationMs: Math.round(avgDuration),
-      feedbackCount,
-      avgRating: Math.round(avgRating * 10) / 10,
-      topQueries: topEndpoints,
-    };
-  } catch (err) {
-    logger.warn({ err }, 'Failed to get DB stats');
-    return null;
-  }
+  const totals = db.prepare(`
+    SELECT
+      COUNT(*) as total,
+      COALESCE(SUM(total), 0) as revenue,
+      COALESCE(AVG(total_duration_ms), 0) as avgDuration,
+      COALESCE(AVG(CASE WHEN success = 1 THEN 100.0 ELSE 0 END), 0) as successRate,
+      COALESCE(AVG(CASE WHEN success = 0 THEN 100.0 ELSE 0 END), 0) as errorRate
+    FROM orchestrations
+  `).get() as { total: number; revenue: number; avgDuration: number; successRate: number; errorRate: number };
+
+  const topQueries = db.prepare(`
+    SELECT query, COUNT(*) as count
+    FROM orchestrations
+    GROUP BY query
+    ORDER BY count DESC
+    LIMIT 10
+  `).all() as { query: string; count: number }[];
+
+  const feedbackStats = db.prepare(`
+    SELECT COUNT(*) as count, COALESCE(AVG(rating), 0) as avgRating FROM feedback
+  `).get() as { count: number; avgRating: number };
+
+  return {
+    totalOrchestrations: totals.total,
+    total: totals.total,
+    totalRevenue: Math.round(totals.revenue * 10000) / 10000,
+    avgDurationMs: Math.round(totals.avgDuration),
+    successRate: Math.round(totals.successRate),
+    errorRate: Math.round(totals.errorRate),
+    feedbackCount: feedbackStats.count,
+    avgRating: Math.round(feedbackStats.avgRating * 10) / 10,
+    topQueries,
+  };
 }
 
-export function closeDb(): void {
-  if (db) {
-    db.close();
-    db = null;
-    logger.info('SQLite database closed');
-  }
+// ─── API Keys ─────────────────────────────────────────────────────────────────
+
+export function createApiKey(params: {
+  key: string;
+  email: string;
+  credits: number;
+  stripeSessionId: string;
+  amountPaid: number;
+}): void {
+  getDb()
+    .prepare(
+      `INSERT INTO api_keys (key, email, credits, stripe_session_id, amount_paid)
+       VALUES (@key, @email, @credits, @stripeSessionId, @amountPaid)`
+    )
+    .run(params);
+}
+
+export function getApiKey(key: string): {
+  key: string;
+  email: string;
+  credits: number;
+  credits_used: number;
+  active: number;
+  last_used_at: string | null;
+} | undefined {
+  return getDb()
+    .prepare('SELECT * FROM api_keys WHERE key = ? AND active = 1')
+    .get(key) as ReturnType<typeof getApiKey>;
+}
+
+export function getApiKeyByStripeSession(sessionId: string): { key: string } | undefined {
+  return getDb()
+    .prepare('SELECT key FROM api_keys WHERE stripe_session_id = ?')
+    .get(sessionId) as { key: string } | undefined;
+}
+
+export function deductCredit(key: string, amount: number = 1): boolean {
+  const result = getDb()
+    .prepare(
+      `UPDATE api_keys
+       SET credits = credits - @amount,
+           credits_used = credits_used + @amount,
+           last_used_at = datetime('now')
+       WHERE key = @key AND credits >= @amount AND active = 1`
+    )
+    .run({ key, amount });
+  return result.changes > 0;
+}
+
+export function getApiKeyBalance(key: string): {
+  credits: number;
+  credits_used: number;
+  email: string;
+  created_at: string;
+} | undefined {
+  return getDb()
+    .prepare('SELECT credits, credits_used, email, created_at FROM api_keys WHERE key = ? AND active = 1')
+    .get(key) as ReturnType<typeof getApiKeyBalance>;
+}
+
+export function topUpCredits(key: string, credits: number): void {
+  getDb()
+    .prepare('UPDATE api_keys SET credits = credits + ? WHERE key = ?')
+    .run(credits, key);
 }

@@ -12,9 +12,10 @@ import { startHeartbeat } from './core/heartbeat';
 import { setupGracefulShutdown } from './utils/shutdown';
 import { feedbackRouter } from './routes/feedback';
 import { initTelegram, stopTelegram } from './integrations/telegram';
-import { initDb, closeDb } from './db/index';
+import { initDb, closeDb, getApiKeyBalance } from './db/index';
 import { adminRouter } from './routes/admin';
 import { initClawApis } from './providers/clawapis';
+import { stripeRouter } from './routes/stripe';
 
 const app = new Hono();
 
@@ -35,6 +36,22 @@ app.get('/', (c) => c.json({
   docs: '/v1/registry',
   health: '/v1/health',
 }));
+
+// Stripe webhook — BEFORE auth middleware, needs raw body for signature verification
+app.route('/v1/webhooks', stripeRouter);
+
+// Balance check — no credit deduction
+app.get('/v1/balance', async (c) => {
+  const key = c.req.header('X-API-Key');
+  if (!key) return c.json({ error: 'Missing X-API-Key header', code: 'INVALID_API_KEY' }, 401);
+  const balance = getApiKeyBalance(key);
+  if (!balance) return c.json({ error: 'Invalid or inactive key', code: 'INVALID_API_KEY' }, 401);
+  return c.json({
+    credits: balance.credits,
+    creditsUsed: balance.credits_used,
+    memberSince: balance.created_at,
+  });
+});
 
 app.use('/v1/orchestrate', checkApiKey);
 app.route('/v1/feedback', feedbackRouter);
