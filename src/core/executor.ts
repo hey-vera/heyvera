@@ -64,6 +64,10 @@ function endpointToPath(endpointId: string): string {
 }
 
 function normalizeParams(endpointId: string, params: Record<string, string>): Record<string, unknown> {
+  // These endpoints take no query params — strip everything the LLM adds
+  const noParamEndpoints = ['claw-trending-tokens', 'claw-token-risk'];
+  if (noParamEndpoints.includes(endpointId)) return {};
+
   const normalized: Record<string, unknown> = { ...params };
 
   // Solscan uses 'address' for token mint addresses
