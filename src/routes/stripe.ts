@@ -11,11 +11,11 @@ export const stripeRouter = new Hono();
 // Larger packages get bonus credits
 const PRICE_CREDITS: Record<string, { amount: number; credits: number }> = {
   'price_1T8CG1KQHzCcG1t83xGj2JRY': { amount: 5,    credits: 75 },
-  'price_1T8CG1KQHzCcG1t8idmuvj3H': { amount: 20,   credits: 300 },
-  'price_1T8CG1KQHzCcG1t8dx8GYc9l': { amount: 50,   credits: 750 },
-  'price_1T8CG1KQHzCcG1t8oCtoEEHe': { amount: 100,  credits: 1500 },
-  'price_1T8CG1KQHzCcG1t8pHDm1QYZ': { amount: 500,  credits: 8000 },  // +500 bonus
-  'price_1T8CG1KQHzCcG1t8nFvwR9W1': { amount: 1000, credits: 17000 }, // +2000 bonus
+  'price_1T8DlnKQHzCcG1t8VXWAMgJs': { amount: 20,   credits: 300 },
+  'price_1T8DmrKQHzCcG1t8zWDNm4Rp': { amount: 50,   credits: 750 },
+  'price_1T8DnfKQHzCcG1t85Fcs2lY1': { amount: 100,  credits: 1500 },
+  'price_1T8DoVKQHzCcG1t8kPpST5ws': { amount: 500,  credits: 8000 },
+  'price_1T8DpAKQHzCcG1t8kDyVt48A': { amount: 1000, credits: 17000 },
 };
 
 function generateApiKey(): string {
