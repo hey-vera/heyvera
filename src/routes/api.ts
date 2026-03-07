@@ -1,4 +1,4 @@
-import { insertOrchestration } from '../db/index';
+import { insertOrchestration, getApiKeyBalance, getApiKeyByStripeSession, getApiKeyByEmail } from '../db/index';
 import { Hono } from 'hono';
 import { nanoid } from 'nanoid';
 import { parseIntent } from '../core/intent-parser';
@@ -9,6 +9,7 @@ import { cacheStats, cacheGet, cacheSet } from '../cache/index';
 import { apiRegistry } from '../config/api-registry';
 import { env, isSimulationMode } from '../config/index';
 import { logger } from '../utils/logger';
+import { sendApiKeyEmail } from '../utils/email';
 import crypto from 'crypto';
 
 export const apiRouter = new Hono();
@@ -179,4 +180,71 @@ apiRouter.get('/registry', (c) => {
 // GET /v1/usage
 apiRouter.get('/usage', (c) => {
   return c.json({ stats: getUsageStats(), recent: getRecentUsage(20) });
+});
+
+// GET /v1/session/:sessionId — called by success page after Stripe redirect
+apiRouter.get('/session/:sessionId', async (c) => {
+  const { sessionId } = c.req.param();
+
+  if (!sessionId || sessionId.length < 20) {
+    return c.json({ error: 'Invalid session ID' }, 400);
+  }
+
+  const row = getApiKeyByStripeSession(sessionId);
+  if (!row) {
+    return c.json({ error: 'Session not found — payment may still be processing' }, 404);
+  }
+
+  const keyInfo = getApiKeyBalance(row.key);
+  if (!keyInfo) {
+    return c.json({ error: 'Key not found' }, 404);
+  }
+
+  // Mask email: jo****@gmail.com
+  const masked = keyInfo.email.replace(/^(.{2})(.*)(@.*)$/, (_: string, a: string, b: string, d: string) =>
+    a + '*'.repeat(Math.min(b.length, 4)) + d
+  );
+
+  return c.json({
+    apiKey: row.key,
+    credits: keyInfo.credits,
+    email: masked,
+  });
+});
+
+// POST /v1/resend-key — lost key recovery, no auth required
+const recentResends = new Map<string, number>();
+
+apiRouter.post('/resend-key', async (c) => {
+  let body: { email?: string };
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+
+  const email = (body.email ?? '').trim().toLowerCase();
+  if (!email || !email.includes('@')) {
+    return c.json({ error: 'Valid email required' }, 400);
+  }
+
+  // Rate limit: 1 resend per email per 5 minutes
+  const lastSent = recentResends.get(email) ?? 0;
+  if (Date.now() - lastSent < 5 * 60 * 1000) {
+    return c.json({ message: 'If an account exists for this email, your key has been sent.' });
+  }
+  recentResends.set(email, Date.now());
+
+  // Always return same message — don't reveal if email exists
+  const keyInfo = getApiKeyByEmail(email);
+  if (keyInfo) {
+    try {
+      await sendApiKeyEmail({
+        to: keyInfo.email,
+        apiKey: keyInfo.key,
+        credits: keyInfo.credits,
+        amountPaid: keyInfo.amount_paid,
+      });
+    } catch (err) {
+      logger.error({ err, email }, 'resend-key: email send failed');
+    }
+  }
+
+  return c.json({ message: 'If an account exists for this email, your key has been sent.' });
 });

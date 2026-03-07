@@ -231,6 +231,22 @@ export function getApiKeyBalance(key: string): {
     .get(key) as ReturnType<typeof getApiKeyBalance>;
 }
 
+export function getApiKeyByEmail(email: string): {
+  key: string;
+  email: string;
+  credits: number;
+  credits_used: number;
+  amount_paid: number;
+} | undefined {
+  return getDb()
+    .prepare(
+      `SELECT key, email, credits, credits_used, amount_paid
+       FROM api_keys WHERE email = ? AND active = 1
+       ORDER BY created_at DESC LIMIT 1`
+    )
+    .get(email) as ReturnType<typeof getApiKeyByEmail>;
+}
+
 export function topUpCredits(key: string, credits: number): void {
   getDb()
     .prepare('UPDATE api_keys SET credits = credits + ? WHERE key = ?')
