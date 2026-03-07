@@ -3,12 +3,11 @@ import Stripe from 'stripe';
 import crypto from 'crypto';
 import { logger } from '../utils/logger';
 import { sendApiKeyEmail } from '../utils/email';
-import { createApiKey, getApiKeyByStripeSession } from '../db/index';
+import { createApiKey, getApiKeyByStripeSession, getApiKeyByEmail, topUpCredits, getApiKeyBalance } from '../db/index';
 
 export const stripeRouter = new Hono();
 
 // Credit amounts per price ID — $1 = 15 queries
-// Larger packages get bonus credits
 const PRICE_CREDITS: Record<string, { amount: number; credits: number }> = {
   'price_1T8CG1KQHzCcG1t83xGj2JRY': { amount: 5,    credits: 75 },
   'price_1T8DlnKQHzCcG1t8VXWAMgJs': { amount: 20,   credits: 300 },
@@ -23,7 +22,6 @@ function generateApiKey(): string {
 }
 
 // POST /v1/webhooks/stripe
-// Raw body required for Stripe signature verification — registered before json middleware
 stripeRouter.post('/stripe', async (c) => {
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
   const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
@@ -33,7 +31,6 @@ stripeRouter.post('/stripe', async (c) => {
     return c.json({ error: 'Stripe not configured' }, 500);
   }
 
-  // Get raw body for signature verification
   const rawBody = await c.req.text();
   const signature = c.req.header('stripe-signature');
 
@@ -60,35 +57,27 @@ stripeRouter.post('/stripe', async (c) => {
 
   const session = event.data.object as Stripe.Checkout.Session;
 
-  // Idempotency check — don't process the same session twice
+  // Idempotency — don't process the same session twice
   const existing = getApiKeyByStripeSession(session.id);
   if (existing) {
     logger.info({ sessionId: session.id }, 'Stripe webhook: session already processed, skipping');
     return c.json({ received: true });
   }
 
-  // Extract email from custom field or customer_details
-  const emailField = session.custom_fields?.find(
-    (f) => f.label?.custom?.toLowerCase().includes('email')
-  );
-  const email =
-    emailField?.text?.value ??
-    session.customer_details?.email ??
-    null;
+  // Extract email from Stripe customer details
+  const email = session.customer_details?.email ?? null;
 
   if (!email) {
     logger.error({ sessionId: session.id }, 'Stripe webhook: no email found in session');
     return c.json({ error: 'No email found' }, 400);
   }
 
-  // Get line items to determine which price was purchased
+  // Determine credits from line items
   let credits = 0;
   let amountPaid = 0;
 
   try {
-    const stripe2 = new Stripe(stripeSecretKey);
-    const lineItems = await stripe2.checkout.sessions.listLineItems(session.id, { limit: 5 });
-
+    const lineItems = await stripe.checkout.sessions.listLineItems(session.id, { limit: 5 });
     for (const item of lineItems.data) {
       const priceId = item.price?.id;
       if (priceId && PRICE_CREDITS[priceId]) {
@@ -98,10 +87,9 @@ stripeRouter.post('/stripe', async (c) => {
       }
     }
   } catch (err) {
-    // Fallback: calculate from session amount
     logger.warn({ err }, 'Stripe webhook: could not fetch line items, using session amount');
     amountPaid = Math.round((session.amount_total ?? 0) / 100);
-    credits = amountPaid * 15; // base rate
+    credits = amountPaid * 15;
   }
 
   if (credits === 0) {
@@ -109,31 +97,45 @@ stripeRouter.post('/stripe', async (c) => {
     return c.json({ error: 'Could not determine credits' }, 400);
   }
 
-  // Generate and store the API key
-  const apiKey = generateApiKey();
+  const normalizedEmail = email.toLowerCase().trim();
 
-  try {
+  // Check if this email already has an active key
+  const existingKey = getApiKeyByEmail(normalizedEmail);
+
+  let apiKey: string;
+  let totalCredits: number;
+
+  if (existingKey) {
+    // Returning customer — top up their existing key
+    apiKey = existingKey.key;
+    topUpCredits(apiKey, credits, session.id);
+    const updated = getApiKeyBalance(apiKey);
+    totalCredits = updated?.credits ?? (existingKey.credits + credits);
+    logger.info({ email: normalizedEmail, addedCredits: credits, totalCredits }, 'Credits topped up for existing key');
+  } else {
+    // New customer — create a fresh key
+    apiKey = generateApiKey();
     createApiKey({
       key: apiKey,
-      email,
+      email: normalizedEmail,
       credits,
       stripeSessionId: session.id,
       amountPaid,
     });
-
-    logger.info({ email, credits, amountPaid }, 'API key created');
-  } catch (err) {
-    logger.error({ err, email }, 'Failed to create API key in DB');
-    return c.json({ error: 'Database error' }, 500);
+    totalCredits = credits;
+    logger.info({ email: normalizedEmail, credits, amountPaid }, 'New API key created');
   }
 
-  // Send email with the key
+  // Send email showing their key + current total balance
   try {
-    await sendApiKeyEmail({ to: email, apiKey, credits, amountPaid });
+    await sendApiKeyEmail({
+      to: normalizedEmail,
+      apiKey,
+      credits: totalCredits,
+      amountPaid,
+    });
   } catch (err) {
-    // Email failure is logged but doesn't fail the webhook
-    // Stripe would retry and we'd create a duplicate — idempotency check handles this
-    logger.error({ err, email }, 'Failed to send API key email — key was created in DB');
+    logger.error({ err, email: normalizedEmail }, 'Failed to send API key email — key was created/updated in DB');
   }
 
   return c.json({ received: true });
