@@ -1,64 +1,198 @@
-import { z } from 'zod';
-import { llmComplete } from '../providers/llm';
-import { ParsedIntent } from './intent-parser';
-import { ExecutionResult } from './executor';
+import crypto from 'crypto';
 import { logger } from '../utils/logger';
+import { llmComplete } from '../providers/llm';
+import { cacheGet, cacheSet } from '../cache/index';
+import type { ExecutionResult, StepResult } from './executor';
 
-const FormattedResponseSchema = z.object({
-  answer: z.string(),
-  opportunityScore: z.number().min(0).max(100).optional(),
-  riskScore: z.number().min(0).max(100).optional(),
-  suggestedActions: z.array(z.string()).default([]),
-});
+// ─── Types ────────────────────────────────────────────────────────────────────
 
-export type FormattedResponse = z.infer<typeof FormattedResponseSchema>;
+export interface ParsedIntent {
+  summary: string;
+  reasoning: string;
+  steps: Array<{
+    endpointId: string;
+    params: Record<string, unknown>;
+    dependsOn?: string[];
+    reason: string;
+  }>;
+  parallelGroups: string[][];
+}
+
+export interface FormattedResponse {
+  answer: string;
+  opportunityScore?: number;
+  riskScore?: number;
+  suggestedActions: string[];
+  synthesisCached: boolean;
+}
+
+// ─── Cache helpers ────────────────────────────────────────────────────────────
+
+const SYNTHESIS_TTL = 10 * 60; // 10 minutes — shorter than API data (300s)
+
+/**
+ * Build a deterministic cache key from the query + execution results.
+ * If the underlying data is identical (all cache hits, same results), the
+ * synthesis is also identical — no need to call the LLM again.
+ */
+function synthesisCacheKey(query: string, execution: ExecutionResult): string {
+  const payload = {
+    query: query.trim().toLowerCase(),
+    steps: execution.steps
+      .filter((s) => s.success)
+      .map((s) => ({ id: s.endpointId, data: s.data }))
+      .sort((a, b) => a.id.localeCompare(b.id)), // deterministic order
+  };
+  return 'synthesis:' + crypto.createHash('sha256').update(JSON.stringify(payload)).digest('hex');
+}
+
+// ─── Synthesis prompt ─────────────────────────────────────────────────────────
+
+function buildSynthesisPrompt(
+  query: string,
+  intent: ParsedIntent,
+  execution: ExecutionResult,
+): string {
+  const successfulSteps = execution.steps.filter((s) => s.success);
+  const failedSteps = execution.steps.filter((s) => !s.success);
+
+  const dataContext = successfulSteps
+    .map((s) => `### ${s.endpointId}\n${JSON.stringify(s.data, null, 2)}`)
+    .join('\n\n');
+
+  const failureNote =
+    failedSteps.length > 0
+      ? `\nNote: ${failedSteps.length} step(s) failed: ${failedSteps.map((s) => s.endpointId).join(', ')}. Work with what's available.`
+      : '';
+
+  return `You are a Solana market intelligence analyst. Synthesize the API data below into a clear, actionable analysis.
+
+Original query: "${query}"
+Plan summary: ${intent.summary}
+${failureNote}
+
+## Raw API Data
+${dataContext}
+
+## Instructions
+- Write a direct, specific answer to the query using the actual data values
+- Include concrete numbers (prices, holder counts, percentages) — no vague statements
+- If risk/opportunity is relevant, provide scores 0–100 and explain the key factors
+- Provide 2–4 specific suggested actions
+- Keep the answer under 400 words
+- Do NOT include filler phrases like "it's important to note" or "overall"
+
+## Required JSON output (no markdown fences)
+{
+  "answer": "...",
+  "opportunityScore": null,
+  "riskScore": null,
+  "suggestedActions": ["...", "..."]
+}`;
+}
+
+// ─── Response parser ──────────────────────────────────────────────────────────
+
+function parseSynthesisResponse(raw: string): Omit<FormattedResponse, 'synthesisCached'> {
+  // Strip markdown fences if present
+  const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
+
+  try {
+    const parsed = JSON.parse(cleaned) as {
+      answer?: string;
+      opportunityScore?: number | null;
+      riskScore?: number | null;
+      suggestedActions?: string[];
+    };
+
+    if (!parsed.answer || typeof parsed.answer !== 'string') {
+      throw new Error('Missing answer field');
+    }
+
+    return {
+      answer: parsed.answer,
+      opportunityScore:
+        typeof parsed.opportunityScore === 'number' ? parsed.opportunityScore : undefined,
+      riskScore: typeof parsed.riskScore === 'number' ? parsed.riskScore : undefined,
+      suggestedActions: Array.isArray(parsed.suggestedActions)
+        ? parsed.suggestedActions.filter((a) => typeof a === 'string')
+        : [],
+    };
+  } catch {
+    // Fallback: treat the whole response as a plain answer
+    logger.warn('Synthesis: JSON parse failed, using raw text as answer');
+    return {
+      answer: raw.slice(0, 1500),
+      suggestedActions: [],
+    };
+  }
+}
+
+// ─── Fallback: build a plain-text summary without LLM ────────────────────────
+
+function buildFallbackResponse(
+  query: string,
+  execution: ExecutionResult,
+): Omit<FormattedResponse, 'synthesisCached'> {
+  const successCount = execution.steps.filter((s) => s.success).length;
+  const failCount = execution.steps.filter((s) => !s.success).length;
+
+  const answer =
+    `Partial results for: "${query}"\n\n` +
+    execution.steps
+      .filter((s) => s.success)
+      .map((s) => `${s.endpointId}: ${JSON.stringify(s.data).slice(0, 200)}`)
+      .join('\n') +
+    (failCount > 0 ? `\n\n⚠️ ${failCount} step(s) failed.` : '') +
+    `\n\nCompleted ${successCount}/${execution.steps.length} steps in ${execution.totalDurationMs}ms.`;
+
+  return { answer, suggestedActions: [] };
+}
+
+// ─── Main export ──────────────────────────────────────────────────────────────
 
 export async function formatResponse(
   query: string,
   intent: ParsedIntent,
-  execution: ExecutionResult
+  execution: ExecutionResult,
 ): Promise<FormattedResponse> {
-  const successfulData = execution.steps
-    .filter((s) => s.success && s.data)
-    .map((s) => ({ endpointId: s.endpointId, data: s.data }));
+  // Skip synthesis entirely if no steps succeeded
+  if (execution.steps.filter((s) => s.success).length === 0) {
+    logger.warn('Synthesis: all steps failed, returning fallback response');
+    return { ...buildFallbackResponse(query, execution), synthesisCached: false };
+  }
 
-  const systemPrompt = `You are a crypto and blockchain analyst. Synthesize API data into a clear, actionable analysis.
-
-Always respond with valid JSON only — no markdown, no explanation.
-
-Schema:
-{
-  "answer": "detailed analysis paragraph(s)",
-  "opportunityScore": 0-100 (only for token/investment queries, omit otherwise),
-  "riskScore": 0-100 (only for token/risk queries, omit otherwise),
-  "suggestedActions": ["action 1", "action 2", "action 3"]
-}`;
-
-  const userPrompt = `User query: ${query}
-
-Plan: ${intent.summary}
-
-Data collected:
-${JSON.stringify(successfulData, null, 2)}
-
-${execution.steps.some((s) => !s.success) ? `Failed steps: ${execution.steps.filter((s) => !s.success).map((s) => s.endpointId).join(', ')}` : ''}
-
-Provide a clear analysis based on this data.`;
+  // ── Synthesis cache check ──────────────────────────────────────────────────
+  const cacheKey = synthesisCacheKey(query, execution);
 
   try {
-    const response = await llmComplete([
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: userPrompt },
-    ]);
-
-    const cleaned = response.content.replace(/```json|```/g, '').trim();
-    const parsed = JSON.parse(cleaned);
-    return FormattedResponseSchema.parse(parsed);
+    const cached = await cacheGet<Omit<FormattedResponse, 'synthesisCached'>>(cacheKey);
+    if (cached) {
+      logger.info({ cacheKey: cacheKey.slice(0, 16) }, 'Synthesis: cache hit — skipping LLM call');
+      return { ...cached, synthesisCached: true };
+    }
   } catch (err) {
-    logger.warn({ err }, 'Synthesis failed, returning raw data');
-    return {
-      answer: `Analysis based on ${successfulData.length} data sources: ${JSON.stringify(successfulData)}`,
-      suggestedActions: ['Review the raw data above', 'Try your query again'],
-    };
+    logger.warn({ err }, 'Synthesis: cache read failed, continuing to LLM');
+  }
+
+  // ── LLM synthesis call ─────────────────────────────────────────────────────
+  const prompt = buildSynthesisPrompt(query, intent, execution);
+
+  try {
+    const response = await llmComplete([{ role: 'user', content: prompt }]);
+    const result = parseSynthesisResponse(response.content);
+
+    // Store in cache (failures also cached briefly to avoid thundering herd)
+    try {
+      await cacheSet(cacheKey, result, SYNTHESIS_TTL);
+      logger.info({ cacheKey: cacheKey.slice(0, 16) }, 'Synthesis: result cached');
+    } catch (err) {
+      logger.warn({ err }, 'Synthesis: cache write failed');
+    }
+
+    return { ...result, synthesisCached: false };
+  } catch (err) {
+    logger.error({ err }, 'Synthesis: LLM call failed, returning fallback');
+    return { ...buildFallbackResponse(query, execution), synthesisCached: false };
   }
 }

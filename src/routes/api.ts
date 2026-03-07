@@ -97,6 +97,7 @@ apiRouter.post('/orchestrate', async (c) => {
         cacheHits,
         totalDurationMs,
         llmProvider: env.LLM_PROVIDER,
+        synthesisCached: formatted.synthesisCached,
         simulationMode: isSimulationMode,
       },
       route: {

@@ -88,8 +88,8 @@ export async function cacheGet<T>(key: string): Promise<T | null> {
   return null;
 }
 
-export async function cacheSet<T>(key: string, value: T): Promise<void> {
-  const ttl = parseInt(process.env.CACHE_TTL_SECONDS ?? '300');
+export async function cacheSet<T>(key: string, value: T, ttlSeconds?: number): Promise<void> {
+  const ttl = ttlSeconds ?? parseInt(process.env.CACHE_TTL_SECONDS ?? '300');
   getMemCache().set(key, value, ttl);
   if (redisClient) {
     try {
