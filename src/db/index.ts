@@ -247,8 +247,15 @@ export function getApiKeyByEmail(email: string): {
     .get(email) as ReturnType<typeof getApiKeyByEmail>;
 }
 
-export function topUpCredits(key: string, credits: number): void {
-  getDb()
-    .prepare('UPDATE api_keys SET credits = credits + ? WHERE key = ?')
-    .run(credits, key);
+export function topUpCredits(key: string, credits: number, stripeSessionId?: string): void {
+  if (stripeSessionId) {
+    getDb()
+      .prepare(`UPDATE api_keys SET credits = credits + ?, stripe_session_id = ?, amount_paid = amount_paid + ?
+                WHERE key = ?`)
+      .run(credits, stripeSessionId, credits / 15, key);
+  } else {
+    getDb()
+      .prepare('UPDATE api_keys SET credits = credits + ? WHERE key = ?')
+      .run(credits, key);
+  }
 }
