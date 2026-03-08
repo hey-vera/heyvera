@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sign In — Claw-Net.org</title>
+  <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png">
+  <link rel="apple-touch-icon" href="/favicon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&family=IBM+Plex+Serif:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --green: #00ff88;
+      --green-dim: #00cc6a;
+      --bg: #060606;
+      --surface: #0d0d0d;
+      --border: #1a1a1a;
+      --text: #e0e0e0;
+      --muted: #555;
+      --font: 'JetBrains Mono', monospace;
+    }
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      overflow: hidden;
+    }
+    .left {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 80px;
+      background: var(--bg);
+      border-right: 1px solid var(--border);
+      overflow: hidden;
+    }
+    .grid-bg {
+      position: absolute; inset: 0;
+      background-image:
+        linear-gradient(rgba(0,255,136,0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0,255,136,0.03) 1px, transparent 1px);
+      background-size: 40px 40px;
+      pointer-events: none;
+    }
+    .glow {
+      position: absolute; width: 400px; height: 400px;
+      background: radial-gradient(circle, rgba(0,255,136,0.06) 0%, transparent 70%);
+      bottom: -100px; left: -100px; pointer-events: none;
+    }
+    /* Home button top-left */
+    .home-btn {
+      position: absolute; top: 28px; left: 32px;
+      font-family: var(--font); font-size: 11px;
+      color: var(--muted); text-decoration: none;
+      display: flex; align-items: center; gap: 6px;
+      letter-spacing: 1px; text-transform: uppercase;
+      transition: color 0.15s;
+      z-index: 10;
+    }
+    .home-btn:hover { color: var(--green); }
+    .home-btn::before { content: '←'; }
+
+    .logo {
+      display: flex; align-items: center;
+      margin-bottom: 48px;
+      text-decoration: none;
+    }
+    .logo img {
+      height: 60px; width: auto; max-width: 280px;
+      object-fit: contain; display: block;
+      transition: opacity 0.15s;
+    }
+    .logo:hover img { opacity: 0.85; }
+    .logo span { display: none; }
+    .tagline {
+      font-size: 13px; color: var(--muted);
+      letter-spacing: 3px; text-transform: uppercase; margin-bottom: 16px;
+    }
+    h1 {
+      font-family: 'IBM Plex Serif', Georgia, serif;
+      font-size: 42px; font-weight: 700; color: #fff;
+      line-height: 1.1; letter-spacing: -1px; margin-bottom: 24px;
+    }
+    h1 span { color: var(--green); }
+    .desc {
+      font-size: 13px; color: var(--muted); line-height: 1.8;
+      max-width: 340px; margin-bottom: 48px;
+    }
+    .features { display: flex; flex-direction: column; gap: 12px; }
+    .feature {
+      display: flex; align-items: center; gap: 12px;
+      font-size: 12px; color: #444;
+    }
+    .feature::before { content: '▸'; color: var(--green); font-size: 10px; }
+    .right {
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      padding: 80px 60px;
+      background: var(--surface);
+      position: relative;
+    }
+    /* Home link top-right panel */
+    .home-btn-right {
+      position: absolute; top: 28px; right: 32px;
+      font-family: var(--font); font-size: 11px;
+      color: var(--muted); text-decoration: none;
+      display: flex; align-items: center; gap: 6px;
+      letter-spacing: 1px; text-transform: uppercase;
+      transition: color 0.15s;
+    }
+    .home-btn-right:hover { color: var(--green); }
+    .signin-card { width: 100%; max-width: 380px; }
+    .signin-title {
+      font-size: 22px; font-weight: 600; color: #fff;
+      margin-bottom: 6px; letter-spacing: -0.5px;
+    }
+    .signin-sub { font-size: 12px; color: var(--muted); margin-bottom: 40px; }
+    .oauth-btn {
+      width: 100%; display: flex; align-items: center;
+      justify-content: center; gap: 12px; padding: 13px;
+      background: transparent; border: 1px solid var(--border);
+      color: var(--text); font-family: var(--font); font-size: 13px;
+      cursor: pointer; transition: border-color 0.15s, background 0.15s;
+      margin-bottom: 10px; text-decoration: none;
+    }
+    .oauth-btn:hover { border-color: #333; background: rgba(255,255,255,0.02); }
+    .oauth-btn svg { width: 18px; height: 18px; flex-shrink: 0; }
+    .oauth-btn.google:hover { border-color: #4285f4; }
+    .oauth-btn.github:hover { border-color: #888; }
+    .oauth-btn.solana:hover { border-color: #9945ff; }
+    .divider { display: none; }
+      display: flex; align-items: center; gap: 16px; margin: 20px 0;
+    }
+    .divider::before, .divider::after {
+      content: ''; flex: 1; height: 1px; background: var(--border);
+    }
+    .divider span { font-size: 10px; color: var(--muted); letter-spacing: 2px; }
+    .email-form { margin-top: 4px; }
+    .email-input {
+      width: 100%; background: #000; border: 1px solid var(--border);
+      color: var(--text); font-family: var(--font); font-size: 13px;
+      padding: 13px 16px; outline: none;
+      transition: border-color 0.15s; margin-bottom: 10px;
+    }
+    .email-input:focus { border-color: var(--green); }
+    .email-input::placeholder { color: var(--muted); }
+    .email-submit {
+      width: 100%; background: var(--green); color: #000;
+      border: none; font-family: var(--font); font-size: 13px;
+      font-weight: 700; padding: 13px; cursor: pointer;
+      transition: background 0.15s; letter-spacing: 0.5px;
+    }
+    .email-submit:hover { background: #fff; }
+    .email-msg {
+      font-size: 11px; color: var(--muted); margin-top: 10px;
+      min-height: 16px; line-height: 1.5;
+    }
+    .email-msg.success { color: var(--green); }
+    .email-msg.error { color: #ff4444; }
+    .footer-note {
+      margin-top: 32px; font-size: 11px; color: var(--muted);
+      text-align: center; line-height: 1.6;
+    }
+    .footer-note a { color: var(--green); text-decoration: none; }
+    @media (max-width: 768px) {
+      body { grid-template-columns: 1fr; }
+      .left { display: none; }
+      .right { padding: 40px 24px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Left panel -->
+  <div class="left">
+    <div class="grid-bg"></div>
+    <div class="glow"></div>
+    <a href="https://claw-net.org" class="home-btn">Home</a>
+    <a href="https://claw-net.org" class="logo">
+      <img src="/logo.png" alt="Claw-Net.org">
+      <span>Claw-Net.org</span>
+    </a>
+    <div class="tagline">Solana Intelligence API</div>
+    <h1>Your<br><span>dashboard</span><br>awaits.</h1>
+    <p class="desc">Sign in to manage your API key, track credits, and monitor your Solana queries in real time.</p>
+    <div class="features">
+      <div class="feature">Masked API key with one-click reveal</div>
+      <div class="feature">Live credit balance + usage stats</div>
+      <div class="feature">Transfer credits from any purchase email</div>
+      <div class="feature">Top up instantly — credits never expire</div>
+    </div>
+  </div>
+
+  <!-- Right panel -->
+  <div class="right">
+    <a href="https://claw-net.org" class="home-btn-right">← Home</a>
+    <div class="signin-card">
+      <div class="signin-title">Sign in</div>
+      <div class="signin-sub">Continue with your preferred account</div>
+
+      <div id="auth-buttons">
+        <button class="oauth-btn google" onclick="signInWith('oauth_google')">
+          <svg viewBox="0 0 24 24" fill="none">
+            <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+            <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+            <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/>
+            <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+          </svg>
+          Continue with Google
+        </button>
+
+        <button class="oauth-btn github" onclick="signInWith('oauth_github')">
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+          </svg>
+          Continue with GitHub
+        </button>
+
+        <button class="oauth-btn solana" onclick="signInWith('web3_phantom_signature')">
+          <svg viewBox="0 0 24 24" fill="none">
+            <defs>
+              <linearGradient id="sol" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" style="stop-color:#9945ff"/>
+                <stop offset="100%" style="stop-color:#14f195"/>
+              </linearGradient>
+            </defs>
+            <path d="M4 7.5h12.5l-3 3H4l3-3zm0 6h12.5l-3-3H4l3 3zm3 3h12.5l-3-3H4l3 3z" fill="url(#sol)"/>
+          </svg>
+          Continue with Solana
+        </button>
+
+      </div>
+
+      <div class="footer-note">
+        By signing in you agree to our
+        <a href="https://claw-net.org">Terms of Service</a>.<br>
+        Already have a key? <a href="https://claw-net.org/dashboard.html">Go to dashboard →</a>
+      </div>
+    </div>
+  </div>
+
+  <script
+    data-clerk-publishable-key="pk_live_Y2xlcmsuY2xhdy1uZXQub3JnJA"
+    src="https://cdn.jsdelivr.net/npm/@clerk/clerk-js@5/dist/clerk.browser.js"
+  ></script>
+  <script>
+    const CLAIM_SESSION = new URLSearchParams(window.location.search).get('claim');
+    const REDIRECT = CLAIM_SESSION
+      ? `https://claw-net.org/dashboard.html?claim_session=${CLAIM_SESSION}`
+      : `https://claw-net.org/dashboard.html`;
+
+    // Load Clerk once on init
+    window.addEventListener('load', async () => {
+      await window.Clerk.load();
+      if (window.Clerk.user) window.location.href = REDIRECT;
+    });
+
+    async function signInWith(strategy) {
+      await window.Clerk.load();
+      await window.Clerk.client.signIn.authenticateWithRedirect({
+        strategy,
+        redirectUrl: 'https://claw-net.org/sso-callback.html',
+        redirectUrlComplete: REDIRECT,
+      });
+    }
+  </script>
+</body>
+</html>

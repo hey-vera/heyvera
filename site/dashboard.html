@@ -1,0 +1,1412 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard — Claw-Net.org</title>
+  <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png">
+  <link rel="apple-touch-icon" href="/favicon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&family=IBM+Plex+Serif:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --green: #00ff88;
+      --green-dim: rgba(0,255,136,0.1);
+      --bg: #060606;
+      --surface: #0d0d0d;
+      --surface2: #111;
+      --border: #1a1a1a;
+      --border2: #222;
+      --text: #e0e0e0;
+      --muted: #888;
+      --muted2: #c0c0c0;
+      --font: 'JetBrains Mono', monospace;
+      --red: #ff4444;
+      --yellow: #ffaa00;
+      --purple: #9945ff;
+    }
+    body { font-family: var(--font); background: var(--bg); color: var(--text); min-height: 100vh; }
+    body::before {
+      content: ''; position: fixed; inset: 0;
+      background-image:
+        linear-gradient(rgba(0,255,136,0.02) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0,255,136,0.02) 1px, transparent 1px);
+      background-size: 48px 48px; pointer-events: none; z-index: 0;
+    }
+
+    /* ── TOAST ── */
+    #toast-container { position: fixed; bottom: 32px; right: 32px; z-index: 9999; display: flex; flex-direction: column; gap: 10px; }
+    .toast { font-family: var(--font); font-size: 12px; padding: 14px 20px; border: 1px solid; display: flex; align-items: center; gap: 10px; min-width: 260px; max-width: 380px; animation: slideIn 0.2s ease; }
+    .toast.success { background: #050f08; border-color: #0a3a1a; color: #44bb77; }
+    .toast.error   { background: #0f0505; border-color: #3a0a0a; color: #ff6666; }
+    .toast.info    { background: var(--surface); border-color: var(--border2); color: var(--muted2); }
+    @keyframes slideIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+
+    /* ── NAV ── */
+    nav { position: sticky; top: 0; z-index: 100; display: flex; align-items: center; justify-content: space-between; padding: 0 32px; height: 68px; background: rgba(6,6,6,0.96); border-bottom: 1px solid var(--border); backdrop-filter: blur(12px); }
+    .nav-left { display: flex; align-items: center; gap: 24px; }
+    .nav-logo { display: flex; align-items: center; text-decoration: none; height: 100%; padding: 4px 0; }
+    .nav-logo img { height: 56px; width: auto; max-width: 220px; object-fit: contain; display: block; transition: opacity 0.15s; }
+    .nav-logo:hover img { opacity: 0.85; }
+    .nav-logo span { display: none; }
+    .nav-home { font-family: var(--font); font-size: 11px; color: var(--muted); text-decoration: none; letter-spacing: 1px; text-transform: uppercase; display: flex; align-items: center; gap: 6px; transition: color 0.15s; padding: 6px 0; }
+    .nav-home::before { content: '←'; }
+    .nav-home:hover { color: var(--green); }
+    .nav-right { display: flex; align-items: center; gap: 16px; }
+    .nav-credits { font-size: 11px; color: var(--green); display: none; align-items: center; gap: 6px; padding: 5px 12px; border: 1px solid rgba(0,255,136,0.2); }
+    .nav-credits.show { display: flex; }
+    .nav-credits-num { font-weight: 700; }
+    .nav-email { font-size: 11px; color: var(--muted); }
+    .btn-nav { font-family: var(--font); font-size: 11px; padding: 6px 14px; cursor: pointer; border: 1px solid var(--border2); color: var(--muted); background: transparent; transition: all 0.15s; text-decoration: none; letter-spacing: 0.5px; display: inline-flex; align-items: center; gap: 6px; }
+    .btn-nav:hover { border-color: var(--green); color: var(--green); }
+    .btn-nav.danger:hover { border-color: var(--red); color: var(--red); }
+
+    /* ── MAIN ── */
+    main { position: relative; z-index: 1; max-width: 1000px; margin: 0 auto; padding: 48px 32px; }
+    .page-header { margin-bottom: 40px; }
+    .page-label { font-size: 10px; color: #999; letter-spacing: 3px; text-transform: uppercase; margin-bottom: 8px; }
+    .page-title { font-family: 'IBM Plex Serif', Georgia, serif; font-size: 28px; font-weight: 700; color: #fff; letter-spacing: -0.5px; }
+
+    /* ── CARDS ── */
+    .card { background: var(--surface); border: 1px solid var(--border); padding: 28px; margin-bottom: 16px; }
+    .card-label { font-size: 10px; color: #999; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 20px; }
+
+    /* Stats */
+    .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 16px; }
+    .stat-card { background: var(--surface2); border: 1px solid var(--border); padding: 24px; position: relative; overflow: hidden; }
+    .stat-card::after { content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 2px; background: var(--green); opacity: 0.3; }
+    .stat-card.warning::after { background: var(--yellow); opacity: 0.6; }
+    .stat-card.danger::after  { background: var(--red);    opacity: 0.6; }
+    .stat-value { font-size: 32px; font-weight: 700; color: var(--green); letter-spacing: -1px; line-height: 1; margin-bottom: 8px; }
+    .stat-card.warning .stat-value { color: var(--yellow); }
+    .stat-card.danger  .stat-value { color: var(--red); }
+    .stat-label { font-size: 10px; color: #999; text-transform: uppercase; letter-spacing: 1.5px; }
+    .stat-sub { font-size: 10px; color: #aaa; margin-top: 4px; }
+
+    /* ── API KEY SECTION ── */
+    .key-block {
+      background: #000;
+      border: 1px solid var(--border2);
+      margin-bottom: 16px;
+    }
+    .key-block-header {
+      display: flex; align-items: center; gap: 10px;
+      padding: 12px 20px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(255,255,255,0.015);
+    }
+    .key-block-label {
+      font-size: 9px; color: var(--muted); letter-spacing: 2.5px; text-transform: uppercase; flex: 1;
+    }
+    .key-lock-icon {
+      display: flex; align-items: center; color: var(--muted);
+    }
+    .key-body {
+      display: flex; align-items: center; gap: 12px; padding: 18px 20px;
+    }
+    .key-masked {
+      flex: 1; font-size: 13px; color: var(--muted); letter-spacing: 3px;
+      word-break: break-all; line-height: 1.5; user-select: none;
+    }
+    .key-masked .key-prefix { color: var(--muted2); letter-spacing: 1px; }
+    .key-masked .key-dots   { color: #444; letter-spacing: 4px; }
+    .key-masked .key-suffix { color: var(--muted2); letter-spacing: 1px; }
+    .key-actions { display: flex; gap: 8px; flex-shrink: 0; }
+    .key-revealed-note {
+      font-size: 10px; color: var(--muted); display: flex; align-items: center; gap: 6px; white-space: nowrap;
+    }
+    .key-revealed-note svg { color: var(--green); }
+    .key-hint { font-size: 11px; color: #666; line-height: 1.6; padding: 0 20px 16px; }
+    .key-hint code { color: #888; font-family: var(--font); font-size: 11px; }
+
+    /* Danger zone */
+    .danger-zone {
+      border: 1px solid rgba(255,68,68,0.15);
+      background: rgba(255,68,68,0.02);
+      padding: 18px 20px;
+      display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+    }
+    .danger-zone-left { display: flex; flex-direction: column; gap: 3px; }
+    .danger-zone-title { font-size: 12px; font-weight: 700; color: #cc3333; }
+    .danger-zone-sub   { font-size: 10px; color: #884444; line-height: 1.5; }
+
+    /* Buttons */
+    .btn { font-family: var(--font); font-size: 11px; padding: 8px 16px; cursor: pointer; border: none; transition: all 0.15s; white-space: nowrap; font-weight: 600; letter-spacing: 0.5px; }
+    .btn-primary { background: var(--green); color: #000; }
+    .btn-primary:hover { background: #00cc6a; }
+    .btn-ghost { background: transparent; border: 1px solid var(--border2); color: var(--muted2); }
+    .btn-ghost:hover { border-color: var(--green); color: var(--green); }
+    .btn-danger { background: transparent; border: 1px solid rgba(255,68,68,0.4); color: #cc4444; }
+    .btn-danger:hover { border-color: var(--red); color: var(--red); background: rgba(255,68,68,0.06); }
+    .btn-danger-solid { background: var(--red); color: #fff; border: none; }
+    .btn-danger-solid:hover { background: #cc3333; }
+    .btn-confirm { background: transparent; border: 1px solid var(--border2); color: var(--muted2); margin-right: 8px; }
+    .btn-confirm:hover { border-color: var(--muted); }
+
+    /* Credit explainer */
+    .credit-explainer { display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid var(--border2); margin-bottom: 20px; background: rgba(0,255,136,0.02); }
+    .ce-item { padding: 14px 16px; border-right: 1px solid var(--border2); }
+    .ce-item:last-child { border-right: none; }
+    .ce-label { font-size: 9px; color: #999; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 5px; }
+    .ce-val   { font-size: 13px; color: var(--green); font-weight: 700; margin-bottom: 3px; }
+    .ce-note  { font-size: 10px; color: var(--muted2); line-height: 1.5; }
+
+    /* Top-up card packages */
+    .topup-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 20px; }
+    .topup-btn { background: transparent; border: 1px solid var(--border2); color: var(--text); font-family: var(--font); font-size: 12px; padding: 16px 14px; cursor: pointer; transition: all 0.15s; text-align: left; position: relative; }
+    .topup-btn:hover { border-color: var(--green); background: var(--green-dim); }
+    .topup-btn.featured { border-color: rgba(0,255,136,0.25); }
+    .topup-badge { position: absolute; top: -1px; right: 10px; font-size: 9px; background: var(--green); color: #000; padding: 2px 7px; font-weight: 700; letter-spacing: 0.5px; }
+    .topup-amount  { font-size: 18px; font-weight: 700; color: var(--green); display: block; margin-bottom: 3px; }
+    .topup-credits { font-size: 11px; color: var(--text); display: block; margin-bottom: 2px; }
+    .topup-est     { font-size: 10px; color: #aaa; display: block; }
+    .topup-bonus   { font-size: 10px; color: var(--yellow); display: block; margin-top: 2px; }
+
+    /* ── CRYPTO DIVIDER ── */
+    .or-divider { display: flex; align-items: center; gap: 16px; margin: 24px 0 20px; }
+    .or-divider::before, .or-divider::after { content: ''; flex: 1; height: 1px; background: var(--border2); }
+    .or-divider span { font-size: 10px; color: var(--muted); letter-spacing: 2px; text-transform: uppercase; white-space: nowrap; }
+
+    /* ── CRYPTO CTA BUTTON ── */
+    .crypto-cta-btn {
+      width: 100%; display: flex; align-items: center; justify-content: space-between;
+      padding: 20px 24px; cursor: pointer; border: 1px solid rgba(153,69,255,0.35);
+      background: linear-gradient(135deg, rgba(255,77,166,0.06) 0%, rgba(153,69,255,0.08) 100%);
+      transition: all 0.2s; position: relative; overflow: hidden;
+    }
+    .crypto-cta-btn:hover {
+      border-color: var(--purple);
+      background: linear-gradient(135deg, rgba(255,77,166,0.10) 0%, rgba(153,69,255,0.14) 100%);
+      box-shadow: 0 0 32px rgba(153,69,255,0.12);
+    }
+    .crypto-cta-left { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+    .crypto-cta-eyebrow { font-size: 9px; color: #9945ff; letter-spacing: 2.5px; text-transform: uppercase; }
+    .crypto-cta-title { font-family: var(--font); font-size: 16px; font-weight: 700; color: #fff; letter-spacing: -0.5px; display: flex; align-items: center; gap: 10px; }
+    .crypto-cta-badge { font-size: 9px; background: linear-gradient(135deg, #ff4da6, #9945ff); color: #fff; padding: 3px 8px; font-weight: 700; letter-spacing: 0.5px; vertical-align: middle; }
+    .crypto-cta-sub { font-size: 10px; color: #9945ff; margin-top: 2px; }
+    .crypto-cta-right { font-family: var(--font); font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: #9945ff; display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+    .crypto-cta-right svg { flex-shrink: 0; }
+    .crypto-cta-note { font-size: 10px; color: var(--muted); margin-top: 10px; }
+
+    /* Claim */
+    .claim-row { display: flex; gap: 8px; margin-bottom: 12px; }
+    .input { flex: 1; background: #000; border: 1px solid var(--border2); color: var(--text); font-family: var(--font); font-size: 12px; padding: 10px 14px; outline: none; transition: border-color 0.15s; }
+    .input:focus { border-color: var(--green); }
+    .input::placeholder { color: var(--muted); }
+    .claim-msg { font-size: 11px; min-height: 18px; line-height: 1.5; }
+    .claim-msg.success { color: var(--green); }
+    .claim-msg.error   { color: var(--red); }
+    .claim-msg.info    { color: var(--muted2); }
+
+    /* Notices */
+    .notice { display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px; border: 1px solid; font-size: 12px; margin-bottom: 16px; line-height: 1.6; }
+    .notice.success { border-color: #0a3a1a; background: #050f08; color: #44bb77; }
+    .notice.warning { border-color: #3a2a00; background: #0f0a00; color: #aa7700; }
+    .notice.info    { border-color: var(--border2); background: var(--surface2); color: var(--muted2); }
+
+    /* Loading / empty */
+    .loading-state { text-align: center; padding: 80px 0; }
+    .spinner { width: 32px; height: 32px; border: 2px solid var(--border2); border-top-color: var(--green); border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 16px; }
+    .spinner.red { border-top-color: var(--red); }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading-state p { font-size: 12px; color: var(--muted); }
+    .empty-state { text-align: center; padding: 60px 0; }
+    .empty-icon { font-size: 40px; margin-bottom: 16px; }
+    .empty-state h3 { font-size: 18px; color: #fff; margin-bottom: 8px; letter-spacing: -0.5px; }
+    .empty-state p { font-size: 12px; color: var(--muted); margin-bottom: 24px; }
+    .section-divider { border: none; border-top: 1px solid var(--border); margin: 24px 0; }
+
+    /* ── NETWORK STATS BAR ── */
+    .network-bar { position: relative; z-index: 2; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: stretch; overflow-x: auto; }
+    .nb-item { flex: 1; min-width: 130px; padding: 14px 20px; border-right: 1px solid var(--border); display: flex; flex-direction: column; gap: 3px; }
+    .nb-item:last-child { border-right: none; }
+    .nb-label { font-size: 9px; color: #999; letter-spacing: 2px; text-transform: uppercase; }
+    .nb-val { font-size: 18px; font-weight: 700; color: var(--green); letter-spacing: -0.5px; line-height: 1; }
+    .nb-sub { font-size: 9px; color: #888; }
+    .nb-val.purple { color: #9945ff; }
+    .nb-val.yellow { color: var(--yellow); }
+    .nb-val.white  { color: #fff; }
+    .nb-live-dot { display: inline-block; width: 5px; height: 5px; border-radius: 50%; background: var(--green); animation: pulse 2s infinite; margin-right: 5px; vertical-align: middle; }
+    @keyframes pulse {
+      0%,100% { opacity:1; box-shadow:0 0 0 0 rgba(0,255,136,0.4); }
+      50%      { opacity:.6; box-shadow:0 0 0 3px rgba(0,255,136,0); }
+    }
+
+    /* ── KEY MODALS (Reveal + Regen confirm) ── */
+    .key-overlay {
+      display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.92);
+      z-index: 600; align-items: center; justify-content: center; padding: 20px;
+      backdrop-filter: blur(4px);
+    }
+    .key-overlay.open { display: flex; }
+
+    /* Reveal modal */
+    .reveal-modal {
+      background: #070b0a;
+      border: 1px solid rgba(0,255,136,0.2);
+      max-width: 520px; width: 100%; position: relative;
+      box-shadow: 0 0 80px rgba(0,255,136,0.06), 0 40px 80px rgba(0,0,0,0.6);
+      animation: modalIn 0.2s ease;
+    }
+    @keyframes modalIn {
+      from { opacity: 0; transform: translateY(16px) scale(0.98); }
+      to   { opacity: 1; transform: translateY(0)   scale(1); }
+    }
+    .reveal-modal-header {
+      display: flex; align-items: center; gap: 10px;
+      padding: 20px 24px 16px;
+      border-bottom: 1px solid rgba(0,255,136,0.1);
+    }
+    .reveal-modal-eyebrow { font-size: 9px; color: var(--green); letter-spacing: 3px; text-transform: uppercase; }
+    .reveal-modal-title { font-size: 15px; font-weight: 700; color: #fff; margin-top: 4px; }
+    .reveal-modal-body { padding: 24px; }
+    .reveal-warning {
+      display: flex; align-items: flex-start; gap: 10px;
+      background: rgba(255,170,0,0.06); border: 1px solid rgba(255,170,0,0.2);
+      padding: 12px 16px; margin-bottom: 20px; font-size: 11px;
+      color: #ccaa44; line-height: 1.6;
+    }
+    .reveal-warning-icon { flex-shrink: 0; margin-top: 1px; }
+    .reveal-key-box {
+      background: #000; border: 1px solid rgba(0,255,136,0.25);
+      padding: 18px 20px; margin-bottom: 16px; position: relative;
+      border-left: 3px solid var(--green);
+    }
+    .reveal-key-text {
+      font-family: var(--font); font-size: 13px; color: var(--green);
+      word-break: break-all; letter-spacing: 0.5px; line-height: 1.6;
+      padding-right: 80px;
+      user-select: all;
+    }
+    .reveal-key-text.loading-key { color: var(--muted); animation: pulse-text 1s infinite; }
+    @keyframes pulse-text { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+    .reveal-copy-btn {
+      position: absolute; top: 50%; right: 16px; transform: translateY(-50%);
+      font-family: var(--font); font-size: 10px; font-weight: 700; letter-spacing: 0.5px;
+      padding: 6px 12px; cursor: pointer; border: 1px solid rgba(0,255,136,0.3);
+      background: rgba(0,255,136,0.06); color: var(--green);
+      transition: all 0.15s; white-space: nowrap;
+    }
+    .reveal-copy-btn:hover { background: rgba(0,255,136,0.14); border-color: var(--green); }
+    .reveal-copy-btn.copied {
+      color: #fff; background: rgba(0,255,136,0.2); border-color: var(--green);
+    }
+    .reveal-key-select-hint { font-size: 10px; color: #555; margin-bottom: 20px; }
+    .reveal-confirm-btn {
+      display: block; width: 100%; font-family: var(--font); font-size: 12px; font-weight: 700;
+      letter-spacing: 1px; text-transform: uppercase; padding: 14px; cursor: pointer;
+      background: var(--green); color: #000; border: none; transition: background 0.15s;
+    }
+    .reveal-confirm-btn:hover { background: #00cc6a; }
+
+    /* Regen confirm modal */
+    .regen-modal {
+      background: #0b0707;
+      border: 1px solid rgba(255,68,68,0.2);
+      max-width: 460px; width: 100%; position: relative;
+      box-shadow: 0 0 80px rgba(255,68,68,0.05), 0 40px 80px rgba(0,0,0,0.6);
+      animation: modalIn 0.2s ease;
+    }
+    .regen-modal-header {
+      display: flex; align-items: center; gap: 10px;
+      padding: 20px 24px 16px;
+      border-bottom: 1px solid rgba(255,68,68,0.12);
+    }
+    .regen-modal-eyebrow { font-size: 9px; color: var(--red); letter-spacing: 3px; text-transform: uppercase; }
+    .regen-modal-title { font-size: 15px; font-weight: 700; color: #fff; margin-top: 4px; }
+    .regen-modal-body { padding: 24px; }
+    .regen-modal-desc { font-size: 12px; color: #bbb; line-height: 1.7; margin-bottom: 16px; }
+    .regen-modal-key-preview {
+      background: #000; border: 1px solid rgba(255,68,68,0.15);
+      padding: 12px 16px; margin-bottom: 20px; font-size: 12px;
+      color: #884444; letter-spacing: 1px; word-break: break-all;
+      border-left: 3px solid rgba(255,68,68,0.4);
+    }
+    .regen-modal-actions { display: flex; gap: 10px; }
+    .regen-modal-actions .btn { flex: 1; padding: 12px; font-size: 12px; text-align: center; }
+    .regen-modal-status {
+      margin-top: 14px; font-size: 11px; padding: 12px 16px;
+      border: 1px solid rgba(255,68,68,0.2); background: rgba(255,68,68,0.04);
+      color: #ff6666; display: none; line-height: 1.6;
+    }
+    .regen-modal-status.show { display: block; }
+
+    /* Modal close (shared) */
+    .modal-close-x {
+      position: absolute; top: 14px; right: 18px; background: none; border: none;
+      color: var(--muted); font-size: 22px; cursor: pointer; line-height: 1;
+      font-family: var(--font); transition: color 0.15s; z-index: 1;
+    }
+    .modal-close-x:hover { color: var(--text); }
+
+    /* ── PRO SUBSCRIPTION ── */
+    .pro-sub-bar {
+      margin: 0 0 4px;
+      border: 1px solid rgba(255,170,0,0.22);
+      border-top: 2px solid var(--yellow);
+      background: rgba(255,170,0,0.03);
+      padding: 18px 22px;
+      display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+    }
+    .pro-sub-left { display: flex; flex-direction: column; gap: 4px; }
+    .pro-sub-eyebrow { font-size: 9px; color: var(--yellow); letter-spacing: 2px; text-transform: uppercase; }
+    .pro-sub-price { display: flex; align-items: baseline; gap: 4px; }
+    .pro-sub-price-num { font-size: 22px; font-weight: 800; color: var(--yellow); letter-spacing: -1px; line-height: 1; }
+    .pro-sub-price-per { font-size: 13px; font-weight: 400; color: var(--muted2); }
+    .pro-sub-desc { font-size: 11px; color: var(--text); }
+    .pro-sub-btn {
+      font-family: var(--font); font-size: 11px; font-weight: 700;
+      letter-spacing: 0.5px; text-transform: uppercase; cursor: pointer;
+      background: transparent; border: 1px solid rgba(255,170,0,0.4);
+      color: var(--yellow); padding: 9px 20px; white-space: nowrap; transition: all 0.15s;
+    }
+    .pro-sub-btn:hover { background: rgba(255,170,0,0.12); border-color: var(--yellow); }
+
+    /* ── USDC MODAL ── */
+    .usdc-overlay {
+      display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.88);
+      z-index: 500; align-items: center; justify-content: center; padding: 20px;
+    }
+    .usdc-overlay.open { display: flex; }
+    .usdc-modal {
+      background: #0a0812; border: 1px solid rgba(153,69,255,0.35);
+      max-width: 460px; width: 100%; padding: 40px; position: relative;
+      box-shadow: 0 0 80px rgba(153,69,255,0.12);
+    }
+    .usdc-modal-close {
+      position: absolute; top: 14px; right: 18px; background: none; border: none;
+      color: var(--muted); font-size: 22px; cursor: pointer; line-height: 1;
+      font-family: var(--font); transition: color 0.15s;
+    }
+    .usdc-modal-close:hover { color: var(--text); }
+    .usdc-modal-head { display: flex; align-items: center; gap: 10px; font-family: var(--font); font-size: 13px; font-weight: 700; color: #fff; margin-bottom: 20px; }
+    .usdc-modal-network { font-size: 10px; color: #9945ff; letter-spacing: 1px; text-transform: uppercase; border: 1px solid rgba(153,69,255,0.3); padding: 2px 8px; margin-left: auto; }
+    .usdc-amount-label { font-family: var(--font); font-size: 10px; color: var(--muted); letter-spacing: 2px; text-transform: uppercase; display: block; margin-bottom: 8px; }
+    .usdc-amount-row { display: flex; align-items: center; gap: 0; border: 1px solid rgba(153,69,255,0.35); background: rgba(153,69,255,0.04); margin-bottom: 6px; }
+    .usdc-amount-sym { font-family: var(--font); font-size: 16px; color: #9945ff; padding: 12px 14px; border-right: 1px solid rgba(153,69,255,0.2); }
+    .usdc-amount-input { flex: 1; background: transparent; border: none; outline: none; font-family: var(--font); font-size: 24px; font-weight: 800; color: #fff; padding: 10px 14px; letter-spacing: -1px; -moz-appearance: textfield; }
+    .usdc-amount-input::-webkit-outer-spin-button, .usdc-amount-input::-webkit-inner-spin-button { -webkit-appearance: none; }
+    .usdc-amount-unit { font-family: var(--font); font-size: 12px; color: #9945ff; font-weight: 700; padding: 12px 14px; border-left: 1px solid rgba(153,69,255,0.2); }
+    .usdc-amount-hint { font-family: var(--font); font-size: 10px; color: var(--muted); letter-spacing: 0.3px; margin-bottom: 16px; }
+    .usdc-deal-box { background: rgba(153,69,255,0.04); border: 1px solid rgba(153,69,255,0.15); padding: 16px 20px; margin-bottom: 20px; }
+    .usdc-deal-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; }
+    .usdc-deal-label { font-family: var(--font); font-size: 11px; color: #aaa; }
+    .usdc-deal-val { font-family: var(--font); font-size: 13px; font-weight: 700; }
+    .usdc-deal-val.green { color: var(--green); }
+    .usdc-deal-val.muted { color: #777; }
+    .usdc-deal-divider { border: none; border-top: 1px solid rgba(153,69,255,0.15); margin: 8px 0; }
+    .usdc-steps { margin-bottom: 24px; }
+    .usdc-step { display: flex; align-items: flex-start; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--border); font-family: var(--font); font-size: 11px; color: #ccc; line-height: 1.5; }
+    .usdc-step:last-child { border-bottom: none; }
+    .usdc-step-num { width: 20px; height: 20px; border: 1px solid rgba(153,69,255,0.3); color: #9945ff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 1px; }
+    .usdc-pay-btn { display: block; width: 100%; font-family: var(--font); font-size: 12px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; padding: 14px; cursor: pointer; border: none; background: #9945ff; color: #fff; transition: all 0.2s; }
+    .usdc-pay-btn:hover { background: #b366ff; }
+    .usdc-pay-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+    .usdc-status { margin-top: 14px; font-family: var(--font); font-size: 11px; padding: 12px 16px; border: 1px solid; display: none; line-height: 1.6; }
+    .usdc-status.show { display: block; }
+    .usdc-status.info    { border-color: rgba(153,69,255,0.3); color: #b07aff; background: rgba(153,69,255,0.06); }
+    .usdc-status.success { border-color: rgba(0,255,136,0.3);  color: var(--green); background: rgba(0,255,136,0.06); }
+    .usdc-status.error   { border-color: rgba(255,68,68,0.3);  color: #ff6666;      background: rgba(255,68,68,0.06); }
+    .usdc-modal-note { font-family: var(--font); font-size: 10px; color: #bbb; text-align: center; margin-top: 16px; line-height: 1.7; }
+
+    @media (max-width: 640px) {
+      main { padding: 24px 16px; }
+      .stats-grid { grid-template-columns: 1fr 1fr; }
+      .topup-grid { grid-template-columns: repeat(2, 1fr); }
+      .credit-explainer { grid-template-columns: repeat(2, 1fr); }
+      .ce-item:nth-child(2) { border-right: none; }
+      .key-body { flex-wrap: wrap; }
+      .nav-email { display: none; }
+      nav { padding: 0 16px; }
+      .nb-item { min-width: 110px; padding: 12px 14px; }
+      .nb-val { font-size: 15px; }
+      .crypto-cta-right span { display: none; }
+      .pro-sub-bar { flex-direction: column; align-items: flex-start; }
+      .regen-modal-actions { flex-direction: column; }
+    }
+
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+
+  <div id="toast-container"></div>
+
+  <!-- ═══════════════════════════════════════════════════════════
+       REVEAL KEY MODAL
+  ════════════════════════════════════════════════════════════ -->
+  <div class="key-overlay" id="revealOverlay" onclick="handleRevealOverlayClick(event)">
+    <div class="reveal-modal" id="revealModal">
+      <button class="modal-close-x" id="revealCloseX" onclick="closeRevealModal()">×</button>
+      <div class="reveal-modal-header">
+        <div>
+          <div class="reveal-modal-eyebrow" id="revealModalEyebrow">API Key</div>
+          <div class="reveal-modal-title" id="revealModalTitle">Your Full API Key</div>
+        </div>
+      </div>
+      <div class="reveal-modal-body">
+        <div class="reveal-warning">
+          <span class="reveal-warning-icon">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ccaa44" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+              <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
+          </span>
+          <span id="revealWarningText">This is the only time we show your full key in this session. Store it somewhere safe before closing.</span>
+        </div>
+        <div class="reveal-key-box">
+          <div class="reveal-key-text loading-key" id="revealKeyText">Fetching key…</div>
+          <button class="reveal-copy-btn" id="revealCopyBtn" onclick="copyRevealedKey()">Copy</button>
+        </div>
+        <div class="reveal-key-select-hint">Click the key to select all · stored in clipboard after copying</div>
+        <button class="reveal-confirm-btn" id="revealConfirmBtn" onclick="closeRevealModal()">
+          I've copied it — close
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════
+       REGENERATE CONFIRM MODAL
+  ════════════════════════════════════════════════════════════ -->
+  <div class="key-overlay" id="regenOverlay" onclick="handleRegenOverlayClick(event)">
+    <div class="regen-modal">
+      <button class="modal-close-x" onclick="closeRegenModal()">×</button>
+      <div class="regen-modal-header">
+        <div>
+          <div class="regen-modal-eyebrow">Danger Zone</div>
+          <div class="regen-modal-title">Regenerate API Key?</div>
+        </div>
+      </div>
+      <div class="regen-modal-body">
+        <div class="regen-modal-desc">
+          This will <strong style="color:#ff6666">permanently deactivate</strong> your current key.
+          Any integrations using your old key will stop working immediately.
+        </div>
+        <div class="regen-modal-key-preview" id="regenKeyPreview">Loading…</div>
+        <div class="regen-modal-desc" style="font-size:11px;color:#775555;margin-bottom:0">
+          A new key will be generated and shown once. You will not be able to recover the old key.
+        </div>
+        <div class="regen-modal-status" id="regenStatus"></div>
+        <div style="margin-top:20px">
+          <div class="regen-modal-actions">
+            <button class="btn btn-confirm" onclick="closeRegenModal()" id="regenCancelBtn">Cancel</button>
+            <button class="btn btn-danger-solid" onclick="confirmRegen()" id="regenConfirmBtn">Yes, regenerate</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- USDC Payment Modal -->
+  <div class="usdc-overlay" id="usdcOverlay" onclick="closeUSDCModal(event)">
+    <div class="usdc-modal">
+      <button class="usdc-modal-close" onclick="document.getElementById('usdcOverlay').classList.remove('open');document.body.style.overflow=''">×</button>
+      <div class="usdc-modal-head">
+        <svg width="20" height="20" viewBox="0 0 128 128" fill="#9945ff"><path d="M21.1 85.5a3.6 3.6 0 0 1 2.5-1h94.4c1.6 0 2.4 1.9 1.3 3L99.7 104a3.6 3.6 0 0 1-2.5 1H2.8c-1.6 0-2.4-1.9-1.3-3l19.6-16.5zm0-67a3.6 3.6 0 0 1 2.5-1h94.4c1.6 0 2.4 1.9 1.3 3L99.7 37a3.6 3.6 0 0 1-2.5 1H2.8c-1.6 0-2.4-1.9-1.3-3L21.1 18.5zm78.6 33.5a3.6 3.6 0 0 0-2.5-1H2.8c-1.6 0-2.4 1.9-1.3 3L21.1 71a3.6 3.6 0 0 0 2.5 1h94.4c1.6 0 2.4-1.9 1.3-3L99.7 52z"/></svg>
+        <span>Pay with USDC</span>
+        <span class="usdc-modal-network">Solana Mainnet</span>
+      </div>
+      <label class="usdc-amount-label">Enter amount (USDC)</label>
+      <div class="usdc-amount-row">
+        <span class="usdc-amount-sym">◎</span>
+        <input type="number" class="usdc-amount-input" id="usdcCustomAmount" min="1" step="1" value="20" oninput="recalcUSDC(this.value)" onchange="recalcUSDC(this.value)">
+        <span class="usdc-amount-unit">USDC</span>
+      </div>
+      <div class="usdc-amount-hint">Minimum 1 USDC · No maximum · Credits never expire</div>
+      <div class="usdc-deal-box">
+        <div class="usdc-deal-row">
+          <span class="usdc-deal-label">Credits you receive</span>
+          <span class="usdc-deal-val green" id="usdcDealCredits">22,000 credits</span>
+        </div>
+        <div class="usdc-deal-row">
+          <span class="usdc-deal-label">vs. paying by card</span>
+          <span class="usdc-deal-val muted" id="usdcDealCard">20,000 credits</span>
+        </div>
+        <div class="usdc-deal-divider"></div>
+        <div class="usdc-deal-row" style="background:rgba(255,77,166,0.06);margin:0 -20px;padding:10px 20px;border-left:3px solid #ff4da6">
+          <span class="usdc-deal-label" style="color:#ffb3d9;font-size:12px;font-weight:700">🎁 You save (vs card)</span>
+          <span id="usdcDealBonus" style="font-family:var(--font);font-size:22px;font-weight:900;background:linear-gradient(135deg,#ff4da6,#d946ef);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;letter-spacing:-1px">+2,000 free</span>
+        </div>
+        <div class="usdc-deal-row">
+          <span class="usdc-deal-label">Effective rate</span>
+          <span class="usdc-deal-val green" id="usdcDealRate">1,100 cr / USDC</span>
+        </div>
+      </div>
+      <div class="usdc-steps">
+        <div class="usdc-step"><div class="usdc-step-num">1</div><div>Credits are applied to your current account automatically.</div></div>
+        <div class="usdc-step"><div class="usdc-step-num">2</div><div>Phantom opens. Approve the exact USDC amount shown above.</div></div>
+        <div class="usdc-step"><div class="usdc-step-num">3</div><div>On-chain verification — credits land in your account instantly.</div></div>
+      </div>
+      <button class="usdc-pay-btn" id="usdcPayBtn" onclick="initiateUSDCPayment()">
+        Connect Phantom &amp; Pay <span id="usdcPayBtnAmt">20 USDC</span> →
+      </button>
+      <div class="usdc-status" id="usdcStatus"></div>
+      <div class="usdc-modal-note">
+        <div>Sending to: <span style="color:#aaa;font-size:10px;word-break:break-all">H6xbRyGEyoTdfBEShSt2H3oHJxL3gaJjVGdL5MLKwHN7</span></div>
+        <div style="margin-top:4px">USDC on Solana mainnet only · Zero fees · Non-refundable · Credits never expire</div>
+      </div>
+    </div>
+  </div>
+
+  <nav>
+    <div class="nav-left">
+      <a href="https://claw-net.org" class="nav-logo">
+        <img src="/logo.png" alt="Claw-Net.org">
+        <span>Claw-Net.org</span>
+      </a>
+      <a href="https://claw-net.org" class="nav-home">Home</a>
+    </div>
+    <div class="nav-right">
+      <div class="nav-credits" id="nav-credits">
+        <span>⚡</span>
+        <span class="nav-credits-num" id="nav-credits-num">—</span>
+        <span style="color:var(--muted)">credits</span>
+      </div>
+      <span class="nav-email" id="nav-email"></span>
+      <a href="https://claw-net.org/#contact" class="btn-nav">Support</a>
+      <button class="btn-nav danger" onclick="signOut()">Sign out</button>
+    </div>
+  </nav>
+
+  <!-- Network stats bar -->
+  <div class="network-bar" id="networkBar">
+    <div class="nb-item">
+      <div class="nb-label"><span class="nb-live-dot"></span>Live network</div>
+      <div class="nb-val" id="nb-endpoints">183</div>
+      <div class="nb-sub">API endpoints</div>
+    </div>
+    <div class="nb-item">
+      <div class="nb-label">Total calls</div>
+      <div class="nb-val white" id="nb-total">—</div>
+      <div class="nb-sub">all time</div>
+    </div>
+    <div class="nb-item">
+      <div class="nb-label">Avg cost / query</div>
+      <div class="nb-val" id="nb-avgcost">$0.001–$0.032</div>
+      <div class="nb-sub">live range</div>
+    </div>
+    <div class="nb-item">
+      <div class="nb-label">Cache hit rate</div>
+      <div class="nb-val yellow" id="nb-cache">—%</div>
+      <div class="nb-sub">semantic cache</div>
+    </div>
+    <div class="nb-item">
+      <div class="nb-label">Avg latency</div>
+      <div class="nb-val white" id="nb-latency">—</div>
+      <div class="nb-sub">P95 &lt;8s</div>
+    </div>
+    <div class="nb-item">
+      <div class="nb-label">Success rate</div>
+      <div class="nb-val" id="nb-success">—%</div>
+      <div class="nb-sub" id="nb-success-sub">last 20 queries</div>
+    </div>
+  </div>
+
+  <main>
+    <div id="loading-state" class="loading-state">
+      <div class="spinner"></div>
+      <p>Loading your dashboard...</p>
+    </div>
+
+    <div id="dashboard" class="hidden">
+      <div class="page-header">
+        <div class="page-label">Dashboard</div>
+        <div class="page-title" id="welcome-title">Welcome back.</div>
+      </div>
+
+      <div id="notices"></div>
+
+      <div class="stats-grid">
+        <div class="stat-card" id="credits-card">
+          <div class="stat-value" id="credits-value">—</div>
+          <div class="stat-label">Credits Remaining</div>
+          <div class="stat-sub" id="credits-usd"></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="used-value">—</div>
+          <div class="stat-label">Credits Used</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="today-value">—</div>
+          <div class="stat-label">Queries Today</div>
+        </div>
+      </div>
+
+      <!-- ── API KEY CARD ── -->
+      <div class="card">
+        <div class="card-label">Your API Key</div>
+
+        <div class="key-block">
+          <div class="key-block-header">
+            <span class="key-lock-icon">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+              </svg>
+            </span>
+            <span class="key-block-label">Secret API key — never share this</span>
+            <span style="font-size:9px;color:#444;letter-spacing:1px">X-API-Key header</span>
+          </div>
+          <div class="key-body">
+            <span class="key-masked" id="key-display">
+              <span class="key-prefix" id="key-prefix-part">cn-</span><span class="key-dots" id="key-dots-part">••••••••••••••••••••••••••••••••••••••</span><span class="key-suffix" id="key-suffix-part">••••</span>
+            </span>
+            <div class="key-actions" id="key-actions-group">
+              <button class="btn btn-ghost" id="reveal-btn" onclick="revealKey()">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                Reveal Key
+              </button>
+            </div>
+            <div class="key-revealed-note hidden" id="key-revealed-note">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+              Key was revealed this session
+            </div>
+          </div>
+          <div class="key-hint">
+            Use the <code>X-API-Key</code> header on every request to <code>api.claw-net.org/v1/orchestrate</code>
+          </div>
+        </div>
+
+        <!-- Danger zone -->
+        <div class="danger-zone">
+          <div class="danger-zone-left">
+            <div class="danger-zone-title">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right:5px;vertical-align:middle"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+              Regenerate API Key
+            </div>
+            <div class="danger-zone-sub">Permanently deactivates your current key. All existing integrations will break instantly.</div>
+          </div>
+          <button class="btn btn-danger" onclick="openRegenModal()">Regenerate Key →</button>
+        </div>
+      </div>
+
+      <!-- ── TOP UP CARD ── -->
+      <div class="card">
+        <div class="card-label">Top Up Credits</div>
+
+        <div class="credit-explainer">
+          <div class="ce-item">
+            <div class="ce-label">1 Credit =</div>
+            <div class="ce-val">$0.001</div>
+            <div class="ce-note">Transparent cost-based pricing</div>
+          </div>
+          <div class="ce-item">
+            <div class="ce-label">Simple query</div>
+            <div class="ce-val">~2–6 credits</div>
+            <div class="ce-note">1–2 endpoints</div>
+          </div>
+          <div class="ce-item">
+            <div class="ce-label">Complex query</div>
+            <div class="ce-val">~6–32 credits</div>
+            <div class="ce-note">4–6 endpoints</div>
+          </div>
+          <div class="ce-item">
+            <div class="ce-label">Cache hit</div>
+            <div class="ce-val">1 credit</div>
+            <div class="ce-note">Min cost, instant response</div>
+          </div>
+        </div>
+
+        <div style="font-size:9px;color:#666;letter-spacing:2px;text-transform:uppercase;margin-bottom:12px;">Pay with Card — One-Time</div>
+        <div class="topup-grid">
+          <button class="topup-btn" onclick="topUp('https://buy.stripe.com/fZufZigsDgva6HZ5Vk08g00')">
+            <span class="topup-amount">$5</span>
+            <span class="topup-credits">5,000 credits</span>
+            <span class="topup-est">≈ 150–2,500 queries</span>
+          </button>
+          <button class="topup-btn" onclick="topUp('https://buy.stripe.com/aFa9AUekv0wcearerQ08g01')">
+            <span class="topup-amount">$20</span>
+            <span class="topup-credits">20,000 credits</span>
+            <span class="topup-est">≈ 600–10,000 queries</span>
+          </button>
+          <button class="topup-btn featured" onclick="topUp('https://buy.stripe.com/5kQ5kE7W792I9UbabA08g02')">
+            <div class="topup-badge">Popular</div>
+            <span class="topup-amount">$50</span>
+            <span class="topup-credits">50,000 credits</span>
+            <span class="topup-est">≈ 1,500–25,000 queries</span>
+          </button>
+          <button class="topup-btn" onclick="topUp('https://buy.stripe.com/9B6aEY6S3en27M35Vk08g03')">
+            <span class="topup-amount">$100</span>
+            <span class="topup-credits">100,000 credits</span>
+            <span class="topup-est">≈ 3,000–50,000 queries</span>
+          </button>
+          <button class="topup-btn" onclick="topUp('https://buy.stripe.com/28EeVeekv0wcaYf1F408g04')">
+            <span class="topup-amount">$500</span>
+            <span class="topup-credits">550,000 credits</span>
+            <span class="topup-est">≈ 17,000–137,000 queries</span>
+            <span class="topup-bonus">★ +50,000 bonus credits</span>
+          </button>
+          <button class="topup-btn" onclick="topUp('https://buy.stripe.com/6oUdRab8j1Ag3vNerQ08g05')">
+            <span class="topup-amount">$1,000</span>
+            <span class="topup-credits">1,200,000 credits</span>
+            <span class="topup-est">≈ 37,500–300,000 queries</span>
+            <span class="topup-bonus">★ +200,000 bonus credits</span>
+          </button>
+        </div>
+
+        <div class="pro-sub-bar">
+          <div class="pro-sub-left">
+            <div class="pro-sub-eyebrow">Pro · Monthly Subscription</div>
+            <div class="pro-sub-price">
+              <span class="pro-sub-price-num">$29</span>
+              <span class="pro-sub-price-per">/mo</span>
+            </div>
+            <div class="pro-sub-desc">40,000 credits / month · renews automatically · cancel anytime</div>
+          </div>
+          <button class="pro-sub-btn" onclick="topUp('https://buy.stripe.com/eVqbJ24JV7YE4zR6Zo08g06')">Subscribe → $29/mo</button>
+        </div>
+
+        <div class="or-divider"><span>or pay with crypto</span></div>
+
+        <button class="crypto-cta-btn" onclick="openUSDCModal()">
+          <div class="crypto-cta-left">
+            <div class="crypto-cta-eyebrow">◎ Solana · USDC</div>
+            <div class="crypto-cta-title">
+              Pay with USDC
+              <span class="crypto-cta-badge">+10% Free Credits</span>
+            </div>
+            <div class="crypto-cta-sub">1,100 credits per USDC · any amount from $1 · instant on-chain</div>
+          </div>
+          <div class="crypto-cta-right">
+            <span>Open Phantom →</span>
+            <svg width="18" height="18" viewBox="0 0 128 128" fill="#9945ff"><path d="M21.1 85.5a3.6 3.6 0 0 1 2.5-1h94.4c1.6 0 2.4 1.9 1.3 3L99.7 104a3.6 3.6 0 0 1-2.5 1H2.8c-1.6 0-2.4-1.9-1.3-3l19.6-16.5zm0-67a3.6 3.6 0 0 1 2.5-1h94.4c1.6 0 2.4 1.9 1.3 3L99.7 37a3.6 3.6 0 0 1-2.5 1H2.8c-1.6 0-2.4-1.9-1.3-3L21.1 18.5zm78.6 33.5a3.6 3.6 0 0 0-2.5-1H2.8c-1.6 0-2.4 1.9-1.3 3L21.1 71a3.6 3.6 0 0 0 2.5 1h94.4c1.6 0 2.4-1.9 1.3-3L99.7 52z"/></svg>
+          </div>
+        </button>
+        <div class="crypto-cta-note">No card needed · Zero fees · Non-refundable · Credits never expire</div>
+        <div style="font-size:11px;color:#666;margin-top:16px">Credits are added to your existing key automatically after purchase.</div>
+      </div>
+
+      <!-- ── CLAIM CARD ── -->
+      <div class="card">
+        <div class="card-label">Claim Credits from Another Purchase</div>
+        <p style="font-size:12px;color:#bbb;margin-bottom:20px;line-height:1.7">
+          Bought credits with a different email? Enter that email below and we'll send a confirmation link to transfer the credits to your account.
+        </p>
+        <div class="claim-row">
+          <input type="email" class="input" id="claim-email" placeholder="purchase@email.com">
+          <button class="btn btn-primary" onclick="sendClaimEmail()">Send Claim Link</button>
+        </div>
+        <div class="claim-msg info" id="claim-msg"></div>
+      </div>
+    </div><!-- /#dashboard -->
+
+    <div id="no-key-state" class="hidden">
+      <div class="page-header">
+        <div class="page-label">Dashboard</div>
+        <div class="page-title">No credits yet.</div>
+      </div>
+      <div class="card">
+        <div class="empty-state">
+          <div class="empty-icon"><img src="/logo.png" style="width:48px;height:48px;object-fit:contain"></div>
+          <h3>Get started with Claw-Net.org</h3>
+          <p>Purchase credits to start making Solana intelligence queries.</p>
+          <button class="btn btn-primary" style="padding:12px 32px;font-size:13px" onclick="window.location.href='https://claw-net.org/#pricing'">
+            View Pricing →
+          </button>
+        </div>
+        <hr class="section-divider">
+        <div class="card-label">Already purchased?</div>
+        <p style="font-size:12px;color:#bbb;margin-bottom:16px;line-height:1.7">
+          If you bought credits with a different email, enter it below to transfer them here.
+        </p>
+        <div class="claim-row">
+          <input type="email" class="input" id="claim-email-2" placeholder="purchase@email.com">
+          <button class="btn btn-primary" onclick="sendClaimEmail2()">Send Claim Link</button>
+        </div>
+        <div class="claim-msg info" id="claim-msg-2"></div>
+      </div>
+    </div>
+  </main>
+
+  <script
+    data-clerk-publishable-key="pk_live_Y2xlcmsuY2xhdy1uZXQub3JnJA"
+    src="https://cdn.jsdelivr.net/npm/@clerk/clerk-js@5/dist/clerk.browser.js"
+  ></script>
+  <script>
+    const API_BASE = 'https://api.claw-net.org';
+
+    // Session-only state (not persisted across page loads)
+    let _keyRevealedThisSession = false;
+    let _currentMaskedKey       = '';   // from /me maskedKey
+    let _sessionFullKey         = null; // set after reveal/regen, cleared on close if no-store
+
+    // ─────────────────────────────────────────────────────────────
+    // TOAST
+    // ─────────────────────────────────────────────────────────────
+    function showToast(msg, type = 'info', duration = 3500) {
+      const container = document.getElementById('toast-container');
+      const toast = document.createElement('div');
+      toast.className = `toast ${type}`;
+      toast.textContent = msg;
+      container.appendChild(toast);
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transition = 'opacity 0.3s';
+        setTimeout(() => toast.remove(), 300);
+      }, duration);
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // NETWORK STATS BAR
+    // ─────────────────────────────────────────────────────────────
+    async function loadNetworkStats() {
+      let d = null;
+      try {
+        const r = await fetch(`${API_BASE}/v1/usage`);
+        if (r.ok) {
+          d = await r.json();
+          const s = d.stats || {};
+          const total = s.total || 0;
+          if (total) document.getElementById('nb-total').textContent = total.toLocaleString();
+          if (s.cacheHitRate != null) document.getElementById('nb-cache').textContent = s.cacheHitRate + '%';
+          if (s.avgDurationMs) document.getElementById('nb-latency').textContent = (s.avgDurationMs / 1000).toFixed(1) + 's avg';
+          if (s.avgCostUsd != null) {
+            const lo = (s.minCostUsd ?? 0.001).toFixed(4).replace(/0+$/, '').replace(/[.]$/, '');
+            const hi = (s.maxCostUsd ?? 0.032).toFixed(4).replace(/0+$/, '').replace(/[.]$/, '');
+            document.getElementById('nb-avgcost').textContent = '$' + lo + '–$' + hi;
+          }
+        }
+      } catch (e) {}
+      if (d && Array.isArray(d.recent) && d.recent.length > 0) {
+        const succeeded = d.recent.filter(x => x.success).length;
+        const rate = Math.round((succeeded / d.recent.length) * 100);
+        const el = document.getElementById('nb-success');
+        if (el) {
+          el.textContent = rate + '%';
+          el.style.color = rate >= 90 ? 'var(--green)' : rate >= 70 ? 'var(--yellow)' : 'var(--red)';
+        }
+        const sub = document.getElementById('nb-success-sub');
+        if (sub) sub.textContent = succeeded + '/' + d.recent.length + ' succeeded';
+      }
+    }
+    loadNetworkStats();
+    setInterval(loadNetworkStats, 60000);
+
+    // ─────────────────────────────────────────────────────────────
+    // MASKED KEY DISPLAY
+    // ─────────────────────────────────────────────────────────────
+    function renderMaskedKey(maskedKey) {
+      // maskedKey looks like: cn-xxxx••••••••••••••••••••••••••••••••••••••xxxx
+      // We just display it as-is, already formatted by backend
+      _currentMaskedKey = maskedKey || '';
+      const el = document.getElementById('key-display');
+      if (!el) return;
+      // Render with styled spans: try to split prefix/middle/suffix
+      const raw = maskedKey || '';
+      // Find the first run of non-dot chars, then dots, then trailing
+      const prefixMatch = raw.match(/^([^•]+)(•+)(.*)$/);
+      if (prefixMatch) {
+        el.innerHTML =
+          `<span class="key-prefix">${escHtml(prefixMatch[1])}</span>` +
+          `<span class="key-dots">${prefixMatch[2]}</span>` +
+          `<span class="key-suffix">${escHtml(prefixMatch[3])}</span>`;
+      } else {
+        el.textContent = raw;
+      }
+    }
+
+    function escHtml(s) {
+      return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // REVEAL KEY MODAL
+    // ─────────────────────────────────────────────────────────────
+    async function revealKey() {
+      // Open modal immediately with loading state
+      openRevealModal({
+        eyebrow: 'API Key',
+        title: 'Your Full API Key',
+        warningText: 'This is the only time we show your full key in this session. Store it somewhere safe before closing.',
+        keyText: null, // null = loading
+        confirmLabel: "I've copied it — close",
+      });
+
+      try {
+        const token = await window.Clerk.session.getToken();
+        const res = await fetch(`${API_BASE}/v1/dashboard/reveal-key`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error || `HTTP ${res.status}`);
+        }
+        const data = await res.json();
+        _sessionFullKey = data.apiKey;
+        setRevealModalKey(data.apiKey);
+        // Mark as revealed so button changes after modal closes
+        _keyRevealedThisSession = true;
+      } catch (err) {
+        setRevealModalKey(null, 'Failed to fetch key: ' + (err.message || 'Unknown error'));
+      }
+    }
+
+    function openRevealModal({ eyebrow, title, warningText, keyText, confirmLabel }) {
+      document.getElementById('revealModalEyebrow').textContent   = eyebrow   || 'API Key';
+      document.getElementById('revealModalTitle').textContent     = title     || 'Your Full API Key';
+      document.getElementById('revealWarningText').textContent    = warningText || '';
+      document.getElementById('revealConfirmBtn').textContent     = confirmLabel || "I've copied it — close";
+
+      const keyEl = document.getElementById('revealKeyText');
+      const copyBtn = document.getElementById('revealCopyBtn');
+      if (keyText) {
+        keyEl.textContent = keyText;
+        keyEl.classList.remove('loading-key');
+        copyBtn.style.display = '';
+      } else {
+        keyEl.textContent = 'Fetching key…';
+        keyEl.classList.add('loading-key');
+        copyBtn.style.display = 'none';
+      }
+
+      // Reset copy button state
+      copyBtn.textContent = 'Copy';
+      copyBtn.classList.remove('copied');
+
+      document.getElementById('revealOverlay').classList.add('open');
+      document.body.style.overflow = 'hidden';
+    }
+
+    function setRevealModalKey(apiKey, errorMsg) {
+      const keyEl = document.getElementById('revealKeyText');
+      const copyBtn = document.getElementById('revealCopyBtn');
+      if (errorMsg) {
+        keyEl.textContent = errorMsg;
+        keyEl.classList.remove('loading-key');
+        keyEl.style.color = 'var(--red)';
+        copyBtn.style.display = 'none';
+        return;
+      }
+      keyEl.textContent = apiKey;
+      keyEl.classList.remove('loading-key');
+      keyEl.style.color = '';
+      copyBtn.style.display = '';
+      _sessionFullKey = apiKey;
+    }
+
+    function closeRevealModal() {
+      document.getElementById('revealOverlay').classList.remove('open');
+      document.body.style.overflow = '';
+      // If key was revealed, update the button state
+      if (_keyRevealedThisSession) {
+        document.getElementById('reveal-btn').classList.add('hidden');
+        document.getElementById('key-revealed-note').classList.remove('hidden');
+      }
+    }
+
+    function handleRevealOverlayClick(e) {
+      if (e.target === document.getElementById('revealOverlay')) closeRevealModal();
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // COPY REVEALED KEY
+    // ─────────────────────────────────────────────────────────────
+    function copyRevealedKey() {
+      const key = _sessionFullKey || document.getElementById('revealKeyText').textContent;
+      if (!key || key === 'Fetching key…') return;
+      navigator.clipboard.writeText(key).then(() => {
+        const btn = document.getElementById('revealCopyBtn');
+        btn.textContent = '✓ Copied!';
+        btn.classList.add('copied');
+        setTimeout(() => {
+          btn.textContent = 'Copy';
+          btn.classList.remove('copied');
+        }, 2000);
+      }).catch(() => showToast('Copy failed — select the key manually', 'error'));
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // REGEN MODAL
+    // ─────────────────────────────────────────────────────────────
+    function openRegenModal() {
+      // Show the current masked key in the confirmation
+      document.getElementById('regenKeyPreview').textContent = _currentMaskedKey || 'Current key';
+      // Reset state
+      const status = document.getElementById('regenStatus');
+      status.className = 'regen-modal-status';
+      status.textContent = '';
+      document.getElementById('regenConfirmBtn').disabled = false;
+      document.getElementById('regenConfirmBtn').textContent = 'Yes, regenerate';
+      document.getElementById('regenCancelBtn').disabled = false;
+      document.getElementById('regenOverlay').classList.add('open');
+      document.body.style.overflow = 'hidden';
+    }
+
+    function closeRegenModal() {
+      document.getElementById('regenOverlay').classList.remove('open');
+      document.body.style.overflow = '';
+    }
+
+    function handleRegenOverlayClick(e) {
+      if (e.target === document.getElementById('regenOverlay')) closeRegenModal();
+    }
+
+    async function confirmRegen() {
+      const confirmBtn = document.getElementById('regenConfirmBtn');
+      const cancelBtn  = document.getElementById('regenCancelBtn');
+      const status     = document.getElementById('regenStatus');
+
+      confirmBtn.disabled = true;
+      confirmBtn.textContent = 'Regenerating…';
+      cancelBtn.disabled = true;
+      status.className = 'regen-modal-status show';
+      status.style.borderColor = 'rgba(255,170,0,0.2)';
+      status.style.color = '#ccaa44';
+      status.style.background = 'rgba(255,170,0,0.04)';
+      status.textContent = 'Generating new key — this takes a moment…';
+
+      try {
+        const token = await window.Clerk.session.getToken();
+        const res = await fetch(`${API_BASE}/v1/dashboard/regenerate-key`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error || `HTTP ${res.status}`);
+        }
+        const data = await res.json();
+
+        // Close regen modal
+        closeRegenModal();
+
+        // Update credits if returned
+        if (data.credits !== undefined) {
+          document.getElementById('credits-value').textContent = data.credits.toLocaleString();
+          document.getElementById('nav-credits-num').textContent = data.credits.toLocaleString();
+          document.getElementById('credits-usd').textContent = '~$' + (data.credits / 1000).toFixed(2) + ' remaining value';
+        }
+
+        // Update masked key display — backend may return maskedKey; derive it if not
+        const newMasked = data.maskedKey || maskKey(data.apiKey);
+        renderMaskedKey(newMasked);
+
+        // Show new key in reveal modal
+        _sessionFullKey = data.apiKey;
+        _keyRevealedThisSession = true;
+
+        openRevealModal({
+          eyebrow: 'New API Key Generated',
+          title: 'Your New API Key',
+          warningText: 'Your old key is now permanently deactivated. Store this new key somewhere safe — we will not show it again after you close this.',
+          keyText: data.apiKey,
+          confirmLabel: "I've saved it — close",
+        });
+
+        showToast('✓ New key active. Old key deactivated.', 'success', 5000);
+
+      } catch (err) {
+        status.style.borderColor = 'rgba(255,68,68,0.25)';
+        status.style.color = '#ff6666';
+        status.style.background = 'rgba(255,68,68,0.04)';
+        status.textContent = 'Error: ' + (err.message || 'Unknown error. Please try again.');
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = 'Yes, regenerate';
+        cancelBtn.disabled = false;
+      }
+    }
+
+    // Fallback mask if backend doesn't return maskedKey
+    function maskKey(k) {
+      if (!k || k.length < 8) return k || '••••••••';
+      return k.slice(0, 7) + '•'.repeat(Math.max(8, k.length - 11)) + k.slice(-4);
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // DASHBOARD LOAD
+    // ─────────────────────────────────────────────────────────────
+    async function loadDashboard() {
+      try {
+        const token = await window.Clerk.session.getToken();
+        const res = await fetch(`${API_BASE}/v1/dashboard/me`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        let data;
+        try { data = await res.json(); }
+        catch (parseErr) { throw new Error(`Server returned non-JSON (status ${res.status})`); }
+
+        if (res.status === 401) { window.location.href = '/login.html'; return; }
+
+        document.getElementById('loading-state').classList.add('hidden');
+
+        if (!res.ok || !data.hasKey) {
+          document.getElementById('no-key-state').classList.remove('hidden');
+          return;
+        }
+
+        document.getElementById('dashboard').classList.remove('hidden');
+        renderDashboard(data);
+      } catch (err) {
+        console.error('Failed to load dashboard:', err);
+        document.getElementById('loading-state').innerHTML = `
+          <div class="spinner red"></div>
+          <p style="color:#ff6666;margin-top:8px">Failed to connect to the API.</p>
+          <p style="margin-top:8px"><a href="javascript:location.reload()" style="color:var(--green);text-decoration:none;font-size:12px;">↺ Click to retry</a></p>`;
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // CLERK INIT
+    // ─────────────────────────────────────────────────────────────
+    async function init() {
+      try { await window.Clerk.load(); }
+      catch (e) {
+        document.getElementById('loading-state').innerHTML =
+          '<p style="color:#ff6666;font-size:12px">Authentication service unavailable. Please refresh.</p>';
+        return;
+      }
+
+      if (!window.Clerk.user) {
+        const params = new URLSearchParams(window.location.search);
+        const claim = params.get('claim_session') ?? params.get('claim');
+        window.location.href = claim ? `/login.html?claim=${claim}` : '/login.html';
+        return;
+      }
+
+      const email = window.Clerk.user.primaryEmailAddress?.emailAddress ?? '';
+      document.getElementById('nav-email').textContent = email;
+
+      const params = new URLSearchParams(window.location.search);
+      const claimSession = params.get('claim_session');
+      const claimResult  = params.get('claim');
+
+      if (claimSession) await autoClaimSession(claimSession);
+      if (claimResult) {
+        showClaimNotice(claimResult);
+        window.history.replaceState({}, '', '/dashboard.html');
+      }
+
+      await loadDashboard();
+    }
+
+    function renderDashboard(data) {
+      const name = window.Clerk.user?.firstName ?? window.Clerk.user?.username ?? 'back';
+      document.getElementById('welcome-title').textContent = `Welcome back, ${name}.`;
+      document.getElementById('credits-value').textContent = data.credits.toLocaleString();
+      document.getElementById('used-value').textContent    = data.creditsUsed.toLocaleString();
+      document.getElementById('today-value').textContent   = (data.stats?.queriesToday ?? 0).toLocaleString();
+
+      const usdVal = (data.credits / 1000).toFixed(2);
+      document.getElementById('credits-usd').textContent = `~$${usdVal} remaining value`;
+      document.getElementById('nav-credits-num').textContent = data.credits.toLocaleString();
+      document.getElementById('nav-credits').classList.add('show');
+
+      const creditsCard = document.getElementById('credits-card');
+      if (data.credits < 50) {
+        creditsCard.classList.add('danger');
+        addNotice('warning', '⚠️ Fewer than 50 credits remaining (~10 queries). Top up to keep your queries running.');
+      } else if (data.credits < 500) {
+        creditsCard.classList.add('warning');
+      }
+
+      // Render masked key from backend
+      const maskedKey = data.maskedKey || maskKey(data.apiKey || '');
+      renderMaskedKey(maskedKey);
+    }
+
+    function topUp(url) {
+      const userId = window.Clerk.user?.id ?? '';
+      window.open(`${url}?client_reference_id=${userId}`, '_blank');
+    }
+
+    async function autoClaimSession(sessionId) {
+      try {
+        const token = await window.Clerk.session.getToken();
+        await fetch(`${API_BASE}/v1/dashboard/claim-session`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sessionId }),
+        });
+      } catch (err) { console.error('Auto-claim failed:', err); }
+    }
+
+    async function sendClaimEmail() {
+      const email = document.getElementById('claim-email').value.trim();
+      const msg   = document.getElementById('claim-msg');
+      if (!email) { setMsg(msg, 'Enter an email address.', 'error'); return; }
+      setMsg(msg, 'Sending...', 'info');
+      await doSendClaim(email, msg);
+    }
+
+    async function sendClaimEmail2() {
+      const email = document.getElementById('claim-email-2').value.trim();
+      const msg   = document.getElementById('claim-msg-2');
+      if (!email) { setMsg(msg, 'Enter an email address.', 'error'); return; }
+      setMsg(msg, 'Sending...', 'info');
+      await doSendClaim(email, msg);
+    }
+
+    async function doSendClaim(email, msgEl) {
+      try {
+        const token = await window.Clerk.session.getToken();
+        await fetch(`${API_BASE}/v1/dashboard/send-claim-email`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ purchaseEmail: email }),
+        });
+        setMsg(msgEl, '✓ If a purchase exists for this email, a claim link has been sent.', 'success');
+        showToast('Claim email sent — check that inbox', 'success');
+      } catch {
+        setMsg(msgEl, 'Failed to send. Try again or contact support.', 'error');
+        showToast('Failed to send claim email', 'error');
+      }
+    }
+
+    function setMsg(el, text, type) { el.textContent = text; el.className = `claim-msg ${type}`; }
+
+    function addNotice(type, text) {
+      const el = document.createElement('div');
+      el.className = `notice ${type}`;
+      el.textContent = text;
+      document.getElementById('notices').appendChild(el);
+    }
+
+    function showClaimNotice(result) {
+      const messages = {
+        success: ['success', '✓ Credits successfully transferred to your account.'],
+        invalid: ['warning', 'Claim link was invalid. Please try again.'],
+        expired: ['warning', 'Claim link has expired (1 hour limit). Please request a new one.'],
+        used:    ['info',    'This claim link has already been used.'],
+      };
+      const [type, text] = messages[result] ?? ['info', 'Unknown claim status.'];
+      addNotice(type, text);
+      showToast(text, type);
+    }
+
+    async function signOut() {
+      await window.Clerk.signOut();
+      window.location.href = '/login.html';
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // USDC MODAL
+    // ─────────────────────────────────────────────────────────────
+    const USDC_RATE = 1100;
+    const CARD_RATE = 1000;
+
+    function recalcUSDC(val) {
+      const amt     = Math.max(0, parseFloat(val) || 0);
+      const credits = Math.round(amt * USDC_RATE);
+      const cardCr  = Math.round(amt * CARD_RATE);
+      const bonus   = credits - cardCr;
+      const fmt = n => n >= 1000000
+        ? (n / 1000000).toFixed(2).replace(/\.?0+$/, '') + 'M'
+        : n.toLocaleString();
+      const id = s => document.getElementById(s);
+      if (id('usdcDealCredits')) id('usdcDealCredits').textContent = fmt(credits) + ' credits';
+      if (id('usdcDealCard'))    id('usdcDealCard').textContent    = fmt(cardCr)  + ' credits';
+      if (id('usdcDealBonus'))   id('usdcDealBonus').textContent   = '+' + fmt(bonus) + ' credits free';
+      if (id('usdcDealRate'))    id('usdcDealRate').textContent    = USDC_RATE.toLocaleString() + ' cr / USDC';
+      if (id('usdcPayBtnAmt'))   id('usdcPayBtnAmt').textContent   = (amt > 0 ? amt : '—') + ' USDC';
+      window._usdcAmount  = amt;
+      window._usdcCredits = credits;
+    }
+
+    function openUSDCModal(amount) {
+      const defaultAmt = (amount && amount >= 1) ? amount : 20;
+      const inp = document.getElementById('usdcCustomAmount');
+      if (inp) inp.value = defaultAmt;
+      recalcUSDC(defaultAmt);
+      const s = document.getElementById('usdcStatus');
+      if (s) { s.className = 'usdc-status'; s.textContent = ''; }
+      const btn = document.getElementById('usdcPayBtn');
+      if (btn) { btn.disabled = false; btn.innerHTML = 'Connect Phantom &amp; Pay <span id="usdcPayBtnAmt">' + defaultAmt + ' USDC</span> →'; }
+      document.getElementById('usdcOverlay').classList.add('open');
+      document.body.style.overflow = 'hidden';
+    }
+
+    function closeUSDCModal(e) {
+      if (e && e.target !== document.getElementById('usdcOverlay')) return;
+      document.getElementById('usdcOverlay').classList.remove('open');
+      document.body.style.overflow = '';
+    }
+
+    function setUSDCStatus(msg, type) {
+      const el = document.getElementById('usdcStatus');
+      el.className = 'usdc-status show ' + type;
+      el.textContent = msg;
+    }
+
+    async function initiateUSDCPayment() {
+      const btn = document.getElementById('usdcPayBtn');
+      const phantom = window.phantom?.solana ?? window.solana;
+      if (!phantom?.isPhantom) {
+        setUSDCStatus('Phantom wallet not found. Install Phantom from phantom.app, then reload this page.', 'error');
+        return;
+      }
+      btn.disabled = true; btn.textContent = 'Connecting wallet…';
+      setUSDCStatus('Requesting wallet connection…', 'info');
+      try {
+        await phantom.connect();
+        const senderPubkey = phantom.publicKey.toString();
+        btn.textContent = 'Sending ' + (window._usdcAmount || '') + ' USDC…';
+        setUSDCStatus('Wallet connected. Preparing ' + (window._usdcAmount || '') + ' USDC transfer — approve in Phantom…', 'info');
+        const clerkToken = await window.Clerk.session.getToken();
+        const buildRes = await fetch(`${API_BASE}/v1/solana/build-tx`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + clerkToken },
+          body: JSON.stringify({ amountUsd: window._usdcAmount, senderWallet: senderPubkey })
+        });
+        if (!buildRes.ok) {
+          const err = await buildRes.json().catch(() => ({}));
+          throw new Error(err.error || 'Failed to build transaction');
+        }
+        const { serializedTx } = await buildRes.json();
+        setUSDCStatus('Waiting for Phantom approval…', 'info');
+        const txBytes = Uint8Array.from(atob(serializedTx), c => c.charCodeAt(0));
+        let signature;
+        try {
+          const result = await phantom.signAndSendTransaction({ message: txBytes });
+          signature = result.signature;
+        } catch (e) {
+          const result2 = await phantom.request({ method: 'signAndSendTransaction', params: { message: serializedTx } });
+          signature = result2.signature;
+        }
+        btn.textContent = 'Verifying on-chain…';
+        setUSDCStatus('Transaction sent (' + signature.slice(0, 16) + '…). Confirming…', 'info');
+        const verifyRes = await fetch(`${API_BASE}/v1/solana/verify`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + clerkToken },
+          body: JSON.stringify({ signature, expectedUsd: window._usdcAmount })
+        });
+        const result = await verifyRes.json();
+        if (verifyRes.ok && result.ok) {
+          const added = (result.creditsAdded || window._usdcCredits || 0).toLocaleString();
+          setUSDCStatus('✓ Payment verified. ' + added + ' credits added to your account.', 'success');
+          btn.textContent = 'Payment Complete ✓';
+          showToast('✓ ' + added + ' credits added!', 'success', 5000);
+          try {
+            const meRes = await fetch(`${API_BASE}/v1/dashboard/me`, { headers: { Authorization: 'Bearer ' + clerkToken } });
+            if (meRes.ok) {
+              const me = await meRes.json();
+              if (me.credits !== undefined) {
+                document.getElementById('credits-value').textContent = me.credits.toLocaleString();
+                document.getElementById('nav-credits-num').textContent = me.credits.toLocaleString();
+                document.getElementById('credits-usd').textContent = '~$' + (me.credits / 1000).toFixed(2) + ' remaining value';
+              }
+            }
+          } catch (e) {}
+        } else {
+          throw new Error(result.error || 'Verification failed. Contact support with your signature.');
+        }
+      } catch (err) {
+        const msg = err?.message || 'Unknown error';
+        setUSDCStatus(
+          msg.includes('rejected') || msg.includes('User rejected')
+            ? 'Transaction cancelled in Phantom.'
+            : 'Error: ' + msg,
+          'error'
+        );
+        btn.disabled = false;
+        btn.innerHTML = 'Connect Phantom &amp; Pay <span id="usdcPayBtnAmt">' + (window._usdcAmount || '') + ' USDC</span> →';
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>

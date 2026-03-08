@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Payment Successful — Claw-Net.org</title>
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&family=IBM+Plex+Serif:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'JetBrains Mono', 'Courier New', monospace;
+      background: #080808;
+      color: #e0e0e0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .card {
+      max-width: 600px;
+      width: 100%;
+      background: #111;
+      border: 1px solid #1e1e1e;
+      padding: 48px;
+    }
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 32px;
+      text-decoration: none;
+    }
+    .logo img { width: 30px; height: 30px; object-fit: contain; }
+    .logo span { color: #00ff88; font-size: 17px; font-weight: 700; letter-spacing: -0.5px; }
+    .status-icon { font-size: 48px; margin-bottom: 16px; }
+    h1 { font-family: 'IBM Plex Serif', Georgia, serif; font-size: 26px; color: #fff; margin-bottom: 8px; letter-spacing: -0.5px; }
+    .subtitle { color: #666; font-size: 13px; margin-bottom: 40px; line-height: 1.6; }
+
+    .loading { text-align: center; }
+    .spinner {
+      width: 32px; height: 32px;
+      border: 2px solid #1e1e1e;
+      border-top-color: #00ff88;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin: 0 auto 16px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .key-section { margin: 32px 0; }
+    .key-label { color: #555; font-size: 10px; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 10px; }
+    .key-box {
+      background: #000;
+      border: 1px solid #00ff88;
+      padding: 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .key-value { color: #00ff88; font-size: 13px; word-break: break-all; flex: 1; }
+    .copy-btn {
+      background: #00ff88; color: #000; border: none;
+      padding: 8px 16px; font-family: inherit; font-size: 11px;
+      font-weight: bold; cursor: pointer; white-space: nowrap; flex-shrink: 0;
+    }
+    .copy-btn:hover { background: #00cc70; }
+    .copy-btn.copied { background: #1e1e1e; color: #00ff88; }
+
+    .stats {
+      display: grid; grid-template-columns: repeat(3, 1fr);
+      border: 1px solid #1e1e1e; margin: 24px 0;
+    }
+    .stat { padding: 20px; text-align: center; border-right: 1px solid #1e1e1e; }
+    .stat:last-child { border-right: none; }
+    .stat-num { color: #00ff88; font-size: 22px; font-weight: bold; display: block; margin-bottom: 4px; }
+    .stat-label { color: #555; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; }
+
+    .code-section { margin: 32px 0; }
+    .code-label { color: #555; font-size: 10px; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 10px; }
+    .code-block {
+      background: #000; border: 1px solid #1e1e1e;
+      padding: 20px; font-size: 12px; color: #666;
+      overflow-x: auto; line-height: 1.8;
+    }
+    .code-block .hl { color: #00ff88; }
+
+    .notice {
+      background: #0a1a0a; border: 1px solid #1a3a1a;
+      padding: 16px; margin: 24px 0; font-size: 12px; color: #888; line-height: 1.6;
+    }
+    .notice strong { color: #00ff88; }
+
+    .actions { display: flex; gap: 12px; margin-top: 32px; flex-wrap: wrap; }
+    .btn {
+      padding: 12px 24px; font-family: inherit; font-size: 12px;
+      font-weight: bold; cursor: pointer; text-decoration: none; display: inline-block;
+    }
+    .btn-primary { background: #00ff88; color: #000; border: none; }
+    .btn-primary:hover { background: #00cc70; }
+    .btn-secondary { background: transparent; color: #555; border: 1px solid #333; }
+    .btn-secondary:hover { border-color: #555; color: #888; }
+    .btn-dashboard { background: transparent; color: #00ff88; border: 1px solid #00ff88; }
+    .btn-dashboard:hover { background: rgba(0,255,136,0.08); }
+
+    .error-box {
+      background: #1a0a0a; border: 1px solid #3a1a1a;
+      padding: 24px; text-align: center;
+    }
+    .error-box p { color: #888; font-size: 13px; margin: 8px 0; }
+    .error-box a { color: #00ff88; }
+
+    .resend-section { margin-top: 40px; padding-top: 32px; border-top: 1px solid #1e1e1e; }
+    .resend-title { color: #555; font-size: 11px; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 16px; }
+    .resend-form { display: flex; gap: 8px; }
+    .resend-input {
+      flex: 1; background: #000; border: 1px solid #333;
+      color: #e0e0e0; padding: 10px 14px; font-family: inherit; font-size: 13px;
+    }
+    .resend-input:focus { outline: none; border-color: #00ff88; }
+    .resend-btn {
+      background: transparent; border: 1px solid #333; color: #555;
+      padding: 10px 20px; font-family: inherit; font-size: 12px; cursor: pointer;
+    }
+    .resend-btn:hover { border-color: #555; color: #888; }
+    .resend-msg { font-size: 12px; color: #00ff88; margin-top: 8px; min-height: 18px; }
+
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <a href="https://claw-net.org" class="logo">
+      <img src="/logo.png" alt="Claw-Net.org">
+      <span>Claw-Net.org</span>
+    </a>
+
+    <!-- Loading state -->
+    <div id="loading" class="loading">
+      <div class="spinner"></div>
+      <p style="color:#555;font-size:13px;">Activating your API key...</p>
+    </div>
+
+    <!-- Success state -->
+    <div id="success" class="hidden">
+      <div class="status-icon">✅</div>
+      <h1>Payment confirmed.</h1>
+      <p class="subtitle">Your API key is active. Copy it now — it's also been sent to your email.</p>
+
+      <div class="key-section">
+        <div class="key-label">Your API Key</div>
+        <div class="key-box">
+          <span class="key-value" id="key-display">loading...</span>
+          <button class="copy-btn" id="copy-btn" onclick="copyKey()">Copy</button>
+        </div>
+      </div>
+
+      <div class="stats">
+        <div class="stat">
+          <span class="stat-num" id="credits-display">—</span>
+          <span class="stat-label">Queries</span>
+        </div>
+        <div class="stat">
+          <span class="stat-num" id="email-display">—</span>
+          <span class="stat-label">Sent To</span>
+        </div>
+        <div class="stat">
+          <span class="stat-num">Never</span>
+          <span class="stat-label">Expires</span>
+        </div>
+      </div>
+
+      <div class="notice">
+        <strong>Save your key.</strong> It's stored in our database — but for security we only display it once here. Your email has a backup copy. Sign in to your dashboard to view it anytime.
+      </div>
+
+      <div class="code-section">
+        <div class="code-label">Start immediately</div>
+        <div class="code-block" id="curl-example">
+          curl -X POST https://api.claw-net.org/v1/orchestrate \<br>
+          &nbsp;&nbsp;-H "<span class="hl">X-API-Key: loading...</span>" \<br>
+          &nbsp;&nbsp;-H "Content-Type: application/json" \<br>
+          &nbsp;&nbsp;-d '<span class="hl">{"query":"Is BONK safe to buy right now?"}</span>'
+        </div>
+      </div>
+
+      <div class="actions">
+        <a href="https://claw-net.org/dashboard.html" class="btn btn-dashboard">→ Go to Dashboard</a>
+        <a href="https://claw-net.org" class="btn btn-secondary">← Back to Home</a>
+      </div>
+    </div>
+
+    <!-- Error state -->
+    <div id="error" class="hidden">
+      <div class="status-icon">⚠️</div>
+      <h1>Key not found.</h1>
+      <p class="subtitle">Your payment may still be processing. Check your email in a few minutes.</p>
+      <div class="error-box">
+        <p>If you completed a purchase and haven't received your key, enter your email below to resend it.</p>
+        <p style="margin-top:12px">Questions? <a href="mailto:hello@claw-net.org">hello@claw-net.org</a></p>
+      </div>
+      <div class="actions">
+        <a href="https://claw-net.org" class="btn btn-secondary">← Back to Home</a>
+      </div>
+    </div>
+
+    <!-- Lost key recovery -->
+    <div class="resend-section">
+      <div class="resend-title">Lost your key? Resend it.</div>
+      <div class="resend-form">
+        <input type="email" class="resend-input" id="resend-email" placeholder="your@email.com">
+        <button class="resend-btn" onclick="resendKey()">Send Key</button>
+      </div>
+      <div class="resend-msg" id="resend-msg"></div>
+    </div>
+  </div>
+
+  <script>
+    const API_BASE = 'https://api.claw-net.org';
+    let currentKey = '';
+
+    async function loadKey() {
+      const params = new URLSearchParams(window.location.search);
+      const sessionId = params.get('session');
+      if (!sessionId) { showError(); return; }
+      try {
+        const res = await fetch(`${API_BASE}/v1/session/${sessionId}`);
+        if (!res.ok) { showError(); return; }
+        const data = await res.json();
+        showSuccess(data);
+      } catch (e) { showError(); }
+    }
+
+    function showSuccess(data) {
+      currentKey = data.apiKey;
+      document.getElementById('loading').classList.add('hidden');
+      document.getElementById('success').classList.remove('hidden');
+      document.getElementById('key-display').textContent = data.apiKey;
+      document.getElementById('credits-display').textContent = data.credits.toLocaleString();
+      document.getElementById('email-display').textContent = data.email;
+      document.getElementById('curl-example').innerHTML =
+        `curl -X POST ${API_BASE}/v1/orchestrate \\<br>` +
+        `&nbsp;&nbsp;-H "<span class="hl">X-API-Key: ${data.apiKey}</span>" \\<br>` +
+        `&nbsp;&nbsp;-H "Content-Type: application/json" \\<br>` +
+        `&nbsp;&nbsp;-d '<span class="hl">{"query":"Is BONK safe to buy right now?"}</span>'`;
+    }
+
+    function showError() {
+      document.getElementById('loading').classList.add('hidden');
+      document.getElementById('error').classList.remove('hidden');
+    }
+
+    function copyKey() {
+      navigator.clipboard.writeText(currentKey).then(() => {
+        const btn = document.getElementById('copy-btn');
+        btn.textContent = 'Copied!';
+        btn.classList.add('copied');
+        setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
+      });
+    }
+
+    async function resendKey() {
+      const email = document.getElementById('resend-email').value.trim();
+      const msg = document.getElementById('resend-msg');
+      if (!email) { msg.textContent = 'Enter your email address.'; return; }
+      msg.textContent = 'Sending...';
+      try {
+        await fetch(`${API_BASE}/v1/resend-key`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email }),
+        });
+        msg.textContent = '✓ Check your inbox.';
+      } catch { msg.textContent = 'Failed. Try again or email hello@claw-net.org'; }
+    }
+
+    loadKey();
+  </script>
+</body>
+</html>
