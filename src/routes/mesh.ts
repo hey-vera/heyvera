@@ -6,10 +6,11 @@ import { checkApiKey } from '../middleware/auth'
 const meshRouter = new Hono()
 
 meshRouter.get('/peers', checkApiKey, (c) => {
-  const meshNode = getMeshNode()
+  // getMeshNode() returns `unknown` to avoid importing ESM-only libp2p types here
+  const n = getMeshNode() as { peerId: { toString(): string }; getMultiaddrs(): { toString(): string }[] } | null
   return c.json({
-    nodeId: meshNode?.peerId.toString() ?? null,
-    listening: meshNode?.getMultiaddrs().map((a) => a.toString()) ?? [],
+    nodeId: n?.peerId.toString() ?? null,
+    listening: n?.getMultiaddrs().map((a) => a.toString()) ?? [],
     peers: getPeers(),
   })
 })
