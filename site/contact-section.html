@@ -1,0 +1,194 @@
+<!-- ============================================================
+  CONTACT SECTION — paste into index.html before </body>
+  Matches ClawNet theme: black bg, #00ff88 green, monospace font,
+  bordered panels identical to dashboard cards.
+  Add to nav: <a href="#contact">Contact</a>
+  ============================================================ -->
+
+<section id="contact" style="padding:100px 40px;max-width:760px;margin:0 auto;">
+
+  <div style="text-align:center;margin-bottom:48px;">
+    <p style="font-family:monospace;font-size:12px;letter-spacing:0.15em;color:#00ff88;margin:0 0 12px;text-transform:uppercase;">Support</p>
+    <h2 style="font-family:monospace;font-size:clamp(26px,4vw,38px);font-weight:700;color:#fff;margin:0 0 12px;letter-spacing:-0.01em;">Get in touch</h2>
+    <p style="font-family:monospace;color:#555;font-size:14px;margin:0;">Questions about billing, the API, or partnerships — we read everything.</p>
+  </div>
+
+  <!-- Outer card matches dashboard panel style -->
+  <div style="border:1px solid #1a1a1a;border-radius:4px;padding:32px;background:#060606;">
+
+    <form id="contactForm" novalidate style="display:flex;flex-direction:column;gap:24px;">
+
+      <!-- Honeypot -->
+      <input type="text" name="website" id="hpField" tabindex="-1" autocomplete="off"
+        style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0;" />
+
+      <!-- Name + Email -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+        <div class="cf-field">
+          <label for="cfName" class="cf-label">NAME</label>
+          <input type="text" id="cfName" name="name" placeholder="Your name"
+            autocomplete="name" class="cf-input" maxlength="100" required />
+          <span class="cf-error" id="errName"></span>
+        </div>
+        <div class="cf-field">
+          <label for="cfEmail" class="cf-label">EMAIL</label>
+          <input type="email" id="cfEmail" name="email" placeholder="you@example.com"
+            autocomplete="email" class="cf-input" maxlength="254" required />
+          <span class="cf-error" id="errEmail"></span>
+        </div>
+      </div>
+
+      <!-- Subject -->
+      <div class="cf-field">
+        <label for="cfSubject" class="cf-label">SUBJECT</label>
+        <select id="cfSubject" name="subject" class="cf-input" required>
+          <option value="" disabled selected>Select a topic…</option>
+          <option value="technical">Technical Support</option>
+          <option value="billing">Billing &amp; Credits</option>
+          <option value="partnership">Partnership</option>
+          <option value="general">General Inquiry</option>
+          <option value="other">Other</option>
+        </select>
+        <span class="cf-error" id="errSubject"></span>
+      </div>
+
+      <!-- Message -->
+      <div class="cf-field">
+        <label for="cfMessage" class="cf-label">MESSAGE</label>
+        <textarea id="cfMessage" name="message" placeholder="Describe your question or issue…"
+          class="cf-input" rows="5" maxlength="2000" required
+          style="resize:vertical;min-height:130px;"></textarea>
+        <div style="display:flex;justify-content:space-between;margin-top:6px;">
+          <span class="cf-error" id="errMessage"></span>
+          <span id="cfCharCount" style="font-family:monospace;font-size:11px;color:#333;margin-left:auto;">0 / 2000</span>
+        </div>
+      </div>
+
+      <!-- Submit -->
+      <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+        <button type="submit" id="cfSubmit" style="
+          font-family:monospace;font-size:13px;font-weight:600;
+          letter-spacing:0.08em;text-transform:uppercase;
+          padding:12px 28px;
+          background:#00ff88;color:#000;
+          border:none;border-radius:4px;cursor:pointer;
+          transition:opacity 0.15s,transform 0.1s;
+        ">Send Message</button>
+        <span style="font-family:monospace;font-size:12px;color:#333;">We typically respond within 24–48 hours.</span>
+      </div>
+
+      <!-- Status banner -->
+      <div id="cfStatus" style="display:none;font-family:monospace;font-size:13px;padding:14px 16px;border-radius:4px;"></div>
+
+    </form>
+  </div>
+
+</section>
+
+<style>
+  .cf-field { display:flex;flex-direction:column;gap:8px; }
+  .cf-label {
+    font-family:monospace;font-size:11px;font-weight:600;
+    letter-spacing:0.12em;color:#00ff88;
+  }
+  .cf-input {
+    font-family:monospace;font-size:13px;color:#e0e0e0;
+    background:#0a0a0a;
+    border:1px solid #1a1a1a;
+    border-radius:4px;
+    padding:11px 14px;
+    width:100%;box-sizing:border-box;
+    outline:none;
+    transition:border-color 0.15s,box-shadow 0.15s;
+  }
+  .cf-input::placeholder { color:#333; }
+  .cf-input:focus {
+    border-color:#00ff88;
+    box-shadow:0 0 0 2px rgba(0,255,136,0.07);
+  }
+  .cf-input.cf-invalid { border-color:#ff4444; }
+  .cf-input option { background:#0a0a0a;color:#e0e0e0; }
+  .cf-error { font-family:monospace;font-size:11px;color:#ff4444;min-height:14px; }
+  #cfSubmit:hover { opacity:0.85;transform:translateY(-1px); }
+  #cfSubmit:active { transform:translateY(0); }
+  #cfSubmit:disabled { opacity:0.35;cursor:not-allowed;transform:none; }
+  @media(max-width:540px){
+    #contactForm>div:first-of-type{grid-template-columns:1fr;}
+  }
+</style>
+
+<script>
+(function(){
+  const form=document.getElementById('contactForm');
+  const btn=document.getElementById('cfSubmit');
+  const status=document.getElementById('cfStatus');
+  const charCount=document.getElementById('cfCharCount');
+  const msgField=document.getElementById('cfMessage');
+
+  msgField.addEventListener('input',()=>{
+    charCount.textContent=`${msgField.value.length} / 2000`;
+  });
+
+  function setError(fId,eId,msg){
+    const f=document.getElementById(fId),e=document.getElementById(eId);
+    msg?f.classList.add('cf-invalid'):f.classList.remove('cf-invalid');
+    e.textContent=msg||'';
+  }
+  function clearErrors(){
+    ['Name','Email','Subject','Message'].forEach(n=>setError('cf'+n,'err'+n,''));
+  }
+  function validate(){
+    let ok=true;
+    const name=document.getElementById('cfName').value.trim();
+    const email=document.getElementById('cfEmail').value.trim();
+    const subject=document.getElementById('cfSubject').value;
+    const message=document.getElementById('cfMessage').value.trim();
+    if(!name){setError('cfName','errName','Required.');ok=false;}
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){setError('cfEmail','errEmail','Valid email required.');ok=false;}
+    if(!subject){setError('cfSubject','errSubject','Please select a topic.');ok=false;}
+    if(message.length<10){setError('cfMessage','errMessage','At least 10 characters.');ok=false;}
+    return ok;
+  }
+  function showStatus(msg,ok){
+    status.style.display='block';
+    status.style.background=ok?'rgba(0,255,136,0.06)':'rgba(255,68,68,0.06)';
+    status.style.border=`1px solid ${ok?'rgba(0,255,136,0.2)':'rgba(255,68,68,0.2)'}`;
+    status.style.color=ok?'#00ff88':'#ff6666';
+    status.textContent=msg;
+  }
+
+  form.addEventListener('submit',async(e)=>{
+    e.preventDefault();
+    clearErrors();
+    if(!validate())return;
+    const honeypot=document.getElementById('hpField').value;
+    btn.disabled=true;btn.textContent='Sending…';status.style.display='none';
+    try{
+      const res=await fetch('https://api.claw-net.org/v1/contact',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          name:document.getElementById('cfName').value.trim(),
+          email:document.getElementById('cfEmail').value.trim().toLowerCase(),
+          subject:document.getElementById('cfSubject').value,
+          message:document.getElementById('cfMessage').value.trim(),
+          website:honeypot
+        })
+      });
+      const data=await res.json();
+      if(res.ok&&data.ok){
+        showStatus(data.message||"Message sent. We'll be in touch within 24–48 hours.",true);
+        form.reset();charCount.textContent='0 / 2000';
+      } else if(res.status===429){
+        showStatus('Too many submissions. Please wait 10 minutes.',false);
+      } else {
+        showStatus(data.error||'Something went wrong. Please try again.',false);
+      }
+    }catch{
+      showStatus('Network error. Check your connection and try again.',false);
+    }finally{
+      btn.disabled=false;btn.textContent='Send Message';
+    }
+  });
+})();
+</script>
