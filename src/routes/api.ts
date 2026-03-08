@@ -65,7 +65,7 @@ apiRouter.post('/orchestrate', async (c) => {
     const totalDurationMs = Date.now() - start;
 
     // Deduct credits based on actual cost: 1 credit = $0.001, minimum 1
-    const creditsToDeduct = Math.max(1, Math.ceil(total * 1000));
+    const creditsToDeduct = Math.max(1, Math.ceil(apiCosts * 1000));
     const keyInfo = c.get('apiKeyInfo');
     if (!keyInfo.isEnvKey) {
       const deducted = deductCredit(keyInfo.key, creditsToDeduct);
@@ -101,9 +101,7 @@ apiRouter.post('/orchestrate', async (c) => {
       ...(formatted.riskScore !== undefined && { riskScore: formatted.riskScore }),
       suggestedActions: formatted.suggestedActions,
       costBreakdown: {
-        apiCostUsd: Math.round(apiCosts * 10000) / 10000,
-        markupUsd: Math.round(markup * 10000) / 10000,
-        totalUsd: Math.round(total * 10000) / 10000,
+        costUsd: Math.round(apiCosts * 10000) / 10000,
         creditsUsed: creditsToDeduct,
         savings: Math.round(savings * 10000) / 10000,
       },
