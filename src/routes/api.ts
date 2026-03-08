@@ -5,11 +5,12 @@ import { parseIntent } from '../core/intent-parser';
 import { executePlan } from '../core/executor';
 import { formatResponse } from '../core/formatter';
 import { logUsage, getRecentUsage, getUsageStats } from '../utils/usage';
-import { cacheStats, cacheGet, cacheSet } from '../cache/index';
+import { cacheStats, cacheGet, cacheSet, cacheIncr } from '../cache/index';
 import { apiRegistry } from '../config/api-registry';
 import { env, isSimulationMode } from '../config/index';
 import { logger } from '../utils/logger';
-import { sendApiKeyEmail } from '../utils/email';
+import { sendApiKeyEmail, sendLowBalanceEmail } from '../utils/email';
+import { wasEmailSentRecently, logEmailSend } from '../db/index';
 import crypto from 'crypto';
 
 export const apiRouter = new Hono();
@@ -48,6 +49,25 @@ apiRouter.post('/orchestrate', async (c) => {
     return c.json({ ...cachedResponse, requestId, metadata: { ...(cachedResponse.metadata as Record<string, unknown>), cacheHits: 1 } });
   }
 
+  // Per-key tiered rate limit (separate from global IP limit)
+  const keyInfo = c.get('apiKeyInfo');
+  if (!keyInfo.isEnvKey) {
+    const tierLimit = keyInfo.amountPaid >= 500 ? 300
+      : keyInfo.amountPaid >= 100 ? 120
+      : keyInfo.amountPaid >= 20  ? 60
+      : 30;
+    const rlCount = await cacheIncr(`rl:orch:${keyInfo.key}`, 60);
+    if (rlCount > tierLimit) {
+      return c.json({
+        requestId,
+        error: 'Orchestration rate limit exceeded for your tier',
+        code: 'RATE_LIMITED',
+        limit: tierLimit,
+        hint: 'Top up to $20+ for higher limits',
+      }, 429);
+    }
+  }
+
   logger.info({ requestId, query: query.slice(0, 100) }, 'Orchestration request');
 
   try {
@@ -65,14 +85,32 @@ apiRouter.post('/orchestrate', async (c) => {
 
     // Deduct credits based on actual cost: 1 credit = $0.001, minimum 1
     const creditsToDeduct = Math.max(1, Math.ceil(apiCosts * 2000));
-    const keyInfo = c.get('apiKeyInfo');
     if (!keyInfo.isEnvKey) {
       const deducted = deductCredit(keyInfo.key, creditsToDeduct);
       if (!deducted) {
         logger.warn(
           { requestId, credits: keyInfo.credits, creditsRequired: creditsToDeduct },
-          'Credit deduction failed — insufficient balance'
+          'Credit deduction failed — insufficient balance, returning 402'
         );
+        return c.json({
+          requestId,
+          error: 'Insufficient credits to complete this request',
+          code: 'INSUFFICIENT_CREDITS',
+          creditsRequired: creditsToDeduct,
+          creditsAvailable: keyInfo.credits,
+          hint: 'Top up your credits at claw-net.org',
+        }, 402);
+      }
+
+      // Low-balance alert: fire-and-forget, throttled to once per 24h per key
+      const remainingCredits = keyInfo.credits - creditsToDeduct;
+      const LOW_BALANCE_THRESHOLD = parseInt(process.env.LOW_BALANCE_THRESHOLD ?? '500');
+      if (remainingCredits < LOW_BALANCE_THRESHOLD && keyInfo.email && keyInfo.email !== 'env-key') {
+        if (!wasEmailSentRecently(keyInfo.email, 'low_balance', 24 * 60 * 60 * 1000)) {
+          logEmailSend(keyInfo.email, 'low_balance');
+          sendLowBalanceEmail({ to: keyInfo.email, credits: remainingCredits, apiKey: keyInfo.key })
+            .catch((err) => logger.warn({ err }, 'Low-balance email failed'));
+        }
       }
     }
 
@@ -237,8 +275,6 @@ apiRouter.get('/session/:sessionId', async (c) => {
 });
 
 // POST /v1/resend-key — lost key recovery, no auth required
-const recentResends = new Map<string, number>();
-
 apiRouter.post('/resend-key', async (c) => {
   let body: { email?: string };
   try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
@@ -248,12 +284,11 @@ apiRouter.post('/resend-key', async (c) => {
     return c.json({ error: 'Valid email required' }, 400);
   }
 
-  // Rate limit: 1 resend per email per 5 minutes
-  const lastSent = recentResends.get(email) ?? 0;
-  if (Date.now() - lastSent < 5 * 60 * 1000) {
+  // Rate limit: 1 resend per email per 5 minutes — persisted to DB so it survives restarts
+  if (wasEmailSentRecently(email, 'resend_key', 5 * 60 * 1000)) {
     return c.json({ message: 'If an account exists for this email, your key has been sent.' });
   }
-  recentResends.set(email, Date.now());
+  logEmailSend(email, 'resend_key');
 
   // Always return same message — don't reveal if email exists
   const keyInfo = getApiKeyByEmail(email);

@@ -4,8 +4,9 @@ import { z } from 'zod';
 import { Connection, PublicKey } from '@solana/web3.js';
 import { verifyToken } from '@clerk/backend';
 import { logger } from '../utils/logger';
-import { getApiKeyByClerkId, createApiKeyForClerk, topUpCreditsForClerk } from '../db/index';
+import { getApiKeyByClerkId, createApiKeyForClerk, topUpCreditsForClerk, isSignatureProcessed, markSignatureProcessed } from '../db/index';
 import { sendApiKeyEmail } from '../utils/email';
+import crypto from 'crypto';
 
 export const solanaRouter = new Hono();
 
@@ -30,8 +31,7 @@ const VerifySchema = z.object({
   replyEmail: z.string().email().optional(),
 });
 
-// In-memory processed signatures — prevent double-spend
-const processedSignatures = new Set<string>();
+// Processed signatures are persisted to SQLite — survives restarts
 
 // POST /v1/solana/verify
 solanaRouter.post('/verify', async (c) => {
@@ -75,7 +75,7 @@ solanaRouter.post('/verify', async (c) => {
   }
 
   // 4. Idempotency — reject duplicate signatures
-  if (processedSignatures.has(signature)) {
+  if (isSignatureProcessed(signature)) {
     return c.json({ error: 'Transaction already processed.' }, 409);
   }
 
@@ -144,7 +144,7 @@ solanaRouter.post('/verify', async (c) => {
   }
 
   // 7. Mark signature as processed
-  processedSignatures.add(signature);
+  markSignatureProcessed(signature);
 
   // 8. Assign credits to Clerk user
   const emailToUse = clerkEmail || replyEmail || '';
@@ -160,7 +160,7 @@ solanaRouter.post('/verify', async (c) => {
     logger.info({ clerkUserId, addedCredits: credits, totalCredits, signature }, 'USDC: credits topped up');
   } else {
     // Create new key linked to Clerk ID
-    apiKey = 'cn-' + Buffer.from(require('crypto').randomBytes(24)).toString('hex');
+    apiKey = 'cn-' + crypto.randomBytes(24).toString('hex');
     createApiKeyForClerk({
       key: apiKey,
       clerkUserId,

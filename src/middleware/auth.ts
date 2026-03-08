@@ -10,6 +10,7 @@ declare module 'hono' {
       key: string;
       email: string;
       credits: number;
+      amountPaid: number;
       isEnvKey: boolean;
     };
   }
@@ -28,7 +29,7 @@ export const checkApiKey = createMiddleware(async (c, next) => {
   // Check env-based keys first (test-key-123, admin keys etc.)
   const envKeys = env.API_KEYS ? env.API_KEYS.split(',').map((k) => k.trim()).filter(Boolean) : [];
   if (envKeys.includes(key)) {
-    c.set('apiKeyInfo', { key, email: 'env-key', credits: Infinity, isEnvKey: true });
+    c.set('apiKeyInfo', { key, email: 'env-key', credits: Infinity, amountPaid: 0, isEnvKey: true });
     return next();
   }
 
@@ -61,6 +62,7 @@ export const checkApiKey = createMiddleware(async (c, next) => {
     key,
     email: keyRecord.email,
     credits: keyRecord.credits,
+    amountPaid: (keyRecord as unknown as { amount_paid: number }).amount_paid ?? 0,
     isEnvKey: false,
   });
 

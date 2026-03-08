@@ -1,7 +1,14 @@
 import { z } from 'zod';
+import crypto from 'crypto';
 import { llmComplete } from '../providers/llm';
 import { registryToPromptContext } from '../config/api-registry';
+import { cacheGet, cacheSet } from '../cache/index';
 import { logger } from '../utils/logger';
+
+function intentCacheKey(query: string): string {
+  const normalized = query.toLowerCase().trim().replace(/\s+/g, ' ');
+  return 'intent:' + crypto.createHash('sha256').update(normalized).digest('hex').slice(0, 16);
+}
 
 const StepSchema = z.object({
   endpointId: z.string(),
@@ -48,6 +55,14 @@ Rules:
 - If a step depends on output from a previous step, put it in a later group`;
 
 export async function parseIntent(query: string): Promise<ParsedIntent> {
+  // Check intent cache first — 30-min TTL (plan is stable, data freshness handled by executor cache)
+  const cacheKey = intentCacheKey(query);
+  const cached = await cacheGet<ParsedIntent>(cacheKey);
+  if (cached) {
+    logger.info({ query: query.slice(0, 80) }, 'Intent cache hit');
+    return cached;
+  }
+
   const messages = [
     { role: 'system' as const, content: SYSTEM_PROMPT },
     { role: 'user' as const, content: `Query: ${query.slice(0, 2000)}` },
@@ -61,11 +76,15 @@ export async function parseIntent(query: string): Promise<ParsedIntent> {
   }
 
   try {
-    return await attempt();
+    const result = await attempt();
+    await cacheSet(cacheKey, result, 30 * 60);
+    return result;
   } catch (err) {
     logger.warn({ err }, 'Intent parse failed, retrying once');
     try {
-      return await attempt();
+      const result = await attempt();
+      await cacheSet(cacheKey, result, 30 * 60);
+      return result;
     } catch (retryErr) {
       logger.error({ retryErr }, 'Intent parse failed after retry');
       throw Object.assign(new Error('INTENT_PARSE_FAILED'), { code: 'INTENT_PARSE_FAILED' });

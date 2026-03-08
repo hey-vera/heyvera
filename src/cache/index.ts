@@ -107,3 +107,28 @@ export function cacheStats() {
 export async function closeRedis(): Promise<void> {
   if (redisClient) await redisClient.quit();
 }
+
+// Atomic increment with TTL — used for per-key rate limiting
+// Returns the new count after increment. Falls back to in-memory if Redis unavailable.
+const incrStore = new Map<string, { count: number; resetAt: number }>();
+
+export async function cacheIncr(key: string, ttlSeconds: number): Promise<number> {
+  if (redisClient) {
+    try {
+      const count = await redisClient.incr(key);
+      if (count === 1) await redisClient.expire(key, ttlSeconds);
+      return count;
+    } catch (err) {
+      logger.warn({ err }, 'Redis incr failed, falling back to memory');
+    }
+  }
+  // In-memory fallback
+  const now = Date.now();
+  const entry = incrStore.get(key);
+  if (!entry || now > entry.resetAt) {
+    incrStore.set(key, { count: 1, resetAt: now + ttlSeconds * 1000 });
+    return 1;
+  }
+  entry.count++;
+  return entry.count;
+}

@@ -20,6 +20,7 @@ import { initClawApis } from './providers/clawapis';
 import { stripeRouter } from './routes/stripe';
 import { solanaRouter } from './routes/solana';
 import { meshRouter } from './routes/mesh';
+import { referralRouter } from './routes/referral';
 import { startMeshNode } from './mesh/node';
 
 const app = new Hono();
@@ -65,6 +66,7 @@ app.use('/v1/orchestrate', checkApiKey);
 app.route('/v1/feedback', feedbackRouter);
 app.route('/v1/admin', adminRouter);
 app.route('/v1/mesh', meshRouter);
+app.route('/v1/referral', referralRouter);
 app.route('/v1', apiRouter);
 
 app.notFound((c) => c.json({ error: 'Not found', code: 'NOT_FOUND' }, 404));

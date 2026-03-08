@@ -10,6 +10,8 @@ import {
   topUpCredits,
   createApiKey,
   getDb,
+  wasEmailSentRecently,
+  logEmailSend,
 } from '../db/index';
 
 export const dashboardRouter = new Hono();
@@ -95,8 +97,6 @@ dashboardRouter.post('/claim-session', requireClerkAuth, async (c) => {
 
 // ─── POST /v1/dashboard/send-claim-email ──────────────────────────────────
 // Send magic link to purchase email so user can claim credits
-const recentClaimEmails = new Map<string, number>();
-
 dashboardRouter.post('/send-claim-email', requireClerkAuth, async (c) => {
   const clerkUserId = c.get('clerkUserId');
 
@@ -108,12 +108,11 @@ dashboardRouter.post('/send-claim-email', requireClerkAuth, async (c) => {
     return c.json({ error: 'Valid email required' }, 400);
   }
 
-  // Rate limit: 1 claim email per address per 10 minutes
-  const lastSent = recentClaimEmails.get(purchaseEmail) ?? 0;
-  if (Date.now() - lastSent < 10 * 60 * 1000) {
+  // Rate limit: 1 claim email per address per 10 minutes — persisted to DB
+  if (wasEmailSentRecently(purchaseEmail, 'claim_email', 10 * 60 * 1000)) {
     return c.json({ message: 'If a purchase exists for this email, a claim link has been sent.' });
   }
-  recentClaimEmails.set(purchaseEmail, Date.now());
+  logEmailSend(purchaseEmail, 'claim_email');
 
   // Check if key exists for this email
   const keyRow = getApiKeyByEmail(purchaseEmail);

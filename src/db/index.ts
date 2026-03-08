@@ -70,9 +70,39 @@ export function initDb(): void {
       metadata_json TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS solana_processed_sigs (
+      signature TEXT PRIMARY KEY,
+      processed_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS referral_codes (
+      code TEXT PRIMARY KEY,
+      owner_key TEXT NOT NULL,
+      uses INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS subscriptions (
+      subscription_id TEXT PRIMARY KEY,
+      api_key TEXT NOT NULL,
+      email TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      credits_per_month INTEGER NOT NULL DEFAULT 35000,
+      current_period_end TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS email_send_log (
+      id TEXT PRIMARY KEY,
+      email TEXT NOT NULL,
+      type TEXT NOT NULL,
+      sent_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE INDEX IF NOT EXISTS idx_orchestrations_timestamp ON orchestrations(timestamp);
     CREATE INDEX IF NOT EXISTS idx_api_keys_email ON api_keys(email);
     CREATE INDEX IF NOT EXISTS idx_api_keys_stripe ON api_keys(stripe_session_id);
+    CREATE INDEX IF NOT EXISTS idx_email_send_log ON email_send_log(email, type, sent_at);
   `);
 
   logger.info({ path: DB_PATH }, 'Database initialised');
@@ -315,6 +345,98 @@ export function topUpCredits(key: string, credits: number, stripeSessionId?: str
       .prepare('UPDATE api_keys SET credits = credits + ? WHERE key = ?')
       .run(credits, key);
   }
+}
+
+// ─── Solana Signature Dedup ───────────────────────────────────────────────────
+
+export function isSignatureProcessed(signature: string): boolean {
+  const row = getDb().prepare('SELECT 1 FROM solana_processed_sigs WHERE signature = ?').get(signature);
+  return row != null;
+}
+
+export function markSignatureProcessed(signature: string): void {
+  try {
+    getDb()
+      .prepare('INSERT OR IGNORE INTO solana_processed_sigs (signature) VALUES (?)')
+      .run(signature);
+  } catch (err) {
+    logger.error({ err }, 'Failed to mark signature processed');
+  }
+}
+
+// ─── Referral Codes ───────────────────────────────────────────────────────────
+
+export function createReferralCode(code: string, ownerKey: string): void {
+  getDb()
+    .prepare('INSERT OR IGNORE INTO referral_codes (code, owner_key) VALUES (?, ?)')
+    .run(code, ownerKey);
+}
+
+export function getReferralCode(code: string): { code: string; owner_key: string; uses: number } | undefined {
+  return getDb()
+    .prepare('SELECT code, owner_key, uses FROM referral_codes WHERE code = ?')
+    .get(code) as { code: string; owner_key: string; uses: number } | undefined;
+}
+
+export function incrementReferralUse(code: string): void {
+  getDb().prepare('UPDATE referral_codes SET uses = uses + 1 WHERE code = ?').run(code);
+}
+
+export function getReferralCodeByOwner(ownerKey: string): { code: string; uses: number } | undefined {
+  return getDb()
+    .prepare('SELECT code, uses FROM referral_codes WHERE owner_key = ? LIMIT 1')
+    .get(ownerKey) as { code: string; uses: number } | undefined;
+}
+
+// ─── Subscriptions ────────────────────────────────────────────────────────────
+
+export function upsertSubscription(params: {
+  subscriptionId: string;
+  apiKey: string;
+  email: string;
+  creditsPerMonth: number;
+  currentPeriodEnd: string;
+  status: string;
+}): void {
+  getDb()
+    .prepare(`INSERT OR REPLACE INTO subscriptions
+      (subscription_id, api_key, email, status, credits_per_month, current_period_end)
+      VALUES (?, ?, ?, ?, ?, ?)`)
+    .run(params.subscriptionId, params.apiKey, params.email, params.status, params.creditsPerMonth, params.currentPeriodEnd);
+}
+
+export function getSubscriptionByApiKey(apiKey: string): {
+  subscription_id: string; status: string; credits_per_month: number;
+} | undefined {
+  return getDb()
+    .prepare('SELECT subscription_id, status, credits_per_month FROM subscriptions WHERE api_key = ? AND status = \'active\' LIMIT 1')
+    .get(apiKey) as { subscription_id: string; status: string; credits_per_month: number } | undefined;
+}
+
+// ─── Email Send Log ───────────────────────────────────────────────────────────
+
+export function wasEmailSentRecently(email: string, type: string, withinMs: number): boolean {
+  const cutoff = new Date(Date.now() - withinMs).toISOString();
+  const row = getDb()
+    .prepare('SELECT 1 FROM email_send_log WHERE email = ? AND type = ? AND sent_at > ?')
+    .get(email, type, cutoff);
+  return row != null;
+}
+
+export function logEmailSend(email: string, type: string): void {
+  const { nanoid } = require('nanoid') as typeof import('nanoid');
+  getDb()
+    .prepare('INSERT INTO email_send_log (id, email, type) VALUES (?, ?, ?)')
+    .run(nanoid(12), email, type);
+}
+
+// ─── API Key Full Info (for tiered rate limiting) ─────────────────────────────
+
+export function getApiKeyAmountPaid(key: string): number {
+  const row = getDb()
+    .prepare('SELECT amount_paid FROM api_keys WHERE key = ? AND active = 1')
+    .get(key) as { amount_paid: number } | undefined;
+  return row?.amount_paid ?? 0;
 }
 
 // ─── Mesh Peers ───────────────────────────────────────────────────────────────
