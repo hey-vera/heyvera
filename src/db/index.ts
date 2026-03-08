@@ -47,7 +47,7 @@ export function initDb(): void {
       last_used_at TEXT,
       clerk_user_id TEXT
     );
-    
+
     CREATE TABLE IF NOT EXISTS claim_tokens (
       token TEXT PRIMARY KEY,
       clerk_user_id TEXT NOT NULL,
@@ -266,9 +266,14 @@ export function getApiKeyByEmail(email: string): {
 export function topUpCredits(key: string, credits: number, stripeSessionId?: string): void {
   if (stripeSessionId) {
     getDb()
-      .prepare(`UPDATE api_keys SET credits = credits + ?, stripe_session_id = ?, amount_paid = amount_paid + ?
-                WHERE key = ?`)
-      .run(credits, stripeSessionId, credits / 15, key);
+      .prepare(
+        `UPDATE api_keys
+         SET credits = credits + ?,
+             stripe_session_id = ?,
+             amount_paid = amount_paid + ?
+         WHERE key = ?`
+      )
+      .run(credits, stripeSessionId, credits / 1000, key); // credits / 1000 = dollar value
   } else {
     getDb()
       .prepare('UPDATE api_keys SET credits = credits + ? WHERE key = ?')

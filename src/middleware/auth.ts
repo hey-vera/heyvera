@@ -1,5 +1,5 @@
 import { createMiddleware } from 'hono/factory';
-import { getApiKey, deductCredit } from '../db/index';
+import { getApiKey } from '../db/index';
 import { env } from '../config/index';
 import { logger } from '../utils/logger';
 
@@ -43,21 +43,8 @@ export const checkApiKey = createMiddleware(async (c, next) => {
     );
   }
 
-  if (keyRecord.credits <= 0) {
-    return c.json(
-      {
-        error: 'Insufficient credits',
-        code: 'INSUFFICIENT_CREDITS',
-        hint: 'Top up your credits at claw-net.org',
-        credits: 0,
-      },
-      402
-    );
-  }
-
-  // Deduct 1 credit before processing
-  const deducted = deductCredit(key, 1);
-  if (!deducted) {
+  // Minimum 1 credit required to attempt a request
+  if (keyRecord.credits < 1) {
     return c.json(
       {
         error: 'Insufficient credits',
@@ -69,10 +56,11 @@ export const checkApiKey = createMiddleware(async (c, next) => {
     );
   }
 
+  // Pass key info to route — actual deduction happens in api.ts after we know real cost
   c.set('apiKeyInfo', {
     key,
     email: keyRecord.email,
-    credits: keyRecord.credits - 1,
+    credits: keyRecord.credits,
     isEnvKey: false,
   });
 

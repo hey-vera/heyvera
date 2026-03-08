@@ -1,4 +1,4 @@
-import { insertOrchestration, getApiKeyBalance, getApiKeyByStripeSession, getApiKeyByEmail } from '../db/index';
+import { insertOrchestration, getApiKeyBalance, getApiKeyByStripeSession, getApiKeyByEmail, deductCredit } from '../db/index';
 import { Hono } from 'hono';
 import { nanoid } from 'nanoid';
 import { parseIntent } from '../core/intent-parser';
@@ -64,6 +64,19 @@ apiRouter.post('/orchestrate', async (c) => {
     const savings = cacheHits * 0.002;
     const totalDurationMs = Date.now() - start;
 
+    // Deduct credits based on actual cost: 1 credit = $0.001, minimum 1
+    const creditsToDeduct = Math.max(1, Math.ceil(total * 1000));
+    const keyInfo = c.get('apiKeyInfo');
+    if (!keyInfo.isEnvKey) {
+      const deducted = deductCredit(keyInfo.key, creditsToDeduct);
+      if (!deducted) {
+        logger.warn(
+          { requestId, credits: keyInfo.credits, creditsRequired: creditsToDeduct },
+          'Credit deduction failed — insufficient balance'
+        );
+      }
+    }
+
     const usageEntry = {
       requestId,
       timestamp: new Date().toISOString(),
@@ -88,9 +101,10 @@ apiRouter.post('/orchestrate', async (c) => {
       ...(formatted.riskScore !== undefined && { riskScore: formatted.riskScore }),
       suggestedActions: formatted.suggestedActions,
       costBreakdown: {
-        apiCosts: Math.round(apiCosts * 10000) / 10000,
-        markup: Math.round(markup * 10000) / 10000,
-        total: Math.round(total * 10000) / 10000,
+        apiCostUsd: Math.round(apiCosts * 10000) / 10000,
+        markupUsd: Math.round(markup * 10000) / 10000,
+        totalUsd: Math.round(total * 10000) / 10000,
+        creditsUsed: creditsToDeduct,
         savings: Math.round(savings * 10000) / 10000,
       },
       metadata: {
@@ -180,6 +194,19 @@ apiRouter.get('/registry', (c) => {
 // GET /v1/usage
 apiRouter.get('/usage', (c) => {
   return c.json({ stats: getUsageStats(), recent: getRecentUsage(20) });
+});
+
+// GET /v1/balance
+apiRouter.get('/balance', async (c) => {
+  const key = c.req.header('X-API-Key');
+  if (!key) return c.json({ error: 'Missing X-API-Key header' }, 401);
+  const data = getApiKeyBalance(key);
+  if (!data) return c.json({ error: 'Invalid or inactive API key' }, 401);
+  return c.json({
+    credits: data.credits,
+    creditsUsed: data.credits_used,
+    memberSince: data.created_at,
+  });
 });
 
 // GET /v1/session/:sessionId — called by success page after Stripe redirect

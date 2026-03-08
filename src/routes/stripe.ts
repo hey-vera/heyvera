@@ -7,14 +7,14 @@ import { createApiKey, getApiKeyByStripeSession, getApiKeyByEmail, topUpCredits,
 
 export const stripeRouter = new Hono();
 
-// Credit amounts per price ID — $1 = 15 queries
+// Credit amounts per price ID — 1 credit = $0.001
 const PRICE_CREDITS: Record<string, { amount: number; credits: number }> = {
-  'price_1T8CG1KQHzCcG1t83xGj2JRY': { amount: 5,    credits: 75 },
-  'price_1T8DlnKQHzCcG1t8VXWAMgJs': { amount: 20,   credits: 300 },
-  'price_1T8DmrKQHzCcG1t8zWDNm4Rp': { amount: 50,   credits: 750 },
-  'price_1T8DnfKQHzCcG1t85Fcs2lY1': { amount: 100,  credits: 1500 },
-  'price_1T8DoVKQHzCcG1t8kPpST5ws': { amount: 500,  credits: 8000 },
-  'price_1T8DpAKQHzCcG1t8kDyVt48A': { amount: 1000, credits: 17000 },
+  'price_1T8CG1KQHzCcG1t83xGj2JRY': { amount: 5,    credits: 5_000 },
+  'price_1T8DlnKQHzCcG1t8VXWAMgJs': { amount: 20,   credits: 20_000 },
+  'price_1T8DmrKQHzCcG1t8zWDNm4Rp': { amount: 50,   credits: 50_000 },
+  'price_1T8DnfKQHzCcG1t85Fcs2lY1': { amount: 100,  credits: 100_000 },
+  'price_1T8DoVKQHzCcG1t8kPpST5ws': { amount: 500,  credits: 550_000 },   // +50k bonus
+  'price_1T8DpAKQHzCcG1t8kDyVt48A': { amount: 1000, credits: 1_200_000 }, // +200k bonus
 };
 
 function generateApiKey(): string {
@@ -89,7 +89,7 @@ stripeRouter.post('/stripe', async (c) => {
   } catch (err) {
     logger.warn({ err }, 'Stripe webhook: could not fetch line items, using session amount');
     amountPaid = Math.round((session.amount_total ?? 0) / 100);
-    credits = amountPaid * 15;
+    credits = amountPaid * 1000; // fallback: 1000 credits per dollar
   }
 
   if (credits === 0) {

@@ -3,6 +3,7 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { Resend } from 'resend'
 import { logger } from '../utils/logger'
+import { verifyToken } from '@clerk/backend'
 
 const contact = new Hono()
 
@@ -24,33 +25,56 @@ const SUBJECT_LABELS: Record<ContactInput['subject'], string> = {
   other: 'Other',
 }
 
-// In-memory rate limiter: max 3 submissions per IP per 10 minutes
+// In-memory rate limiter: max 3 submissions per user per 10 minutes
 const submissionLog = new Map<string, number[]>()
 const RATE_WINDOW_MS = 10 * 60 * 1000
 const RATE_MAX = 3
 
-function isRateLimited(ip: string): boolean {
+function isRateLimited(key: string): boolean {
   const now = Date.now()
-  const timestamps = (submissionLog.get(ip) ?? []).filter(
+  const timestamps = (submissionLog.get(key) ?? []).filter(
     (t) => now - t < RATE_WINDOW_MS
   )
   if (timestamps.length >= RATE_MAX) return true
   timestamps.push(now)
-  submissionLog.set(ip, timestamps)
+  submissionLog.set(key, timestamps)
   return false
 }
 
 setInterval(() => {
   const now = Date.now()
-  for (const [ip, timestamps] of submissionLog.entries()) {
+  for (const [key, timestamps] of submissionLog.entries()) {
     const fresh = timestamps.filter((t) => now - t < RATE_WINDOW_MS)
-    if (fresh.length === 0) submissionLog.delete(ip)
-    else submissionLog.set(ip, fresh)
+    if (fresh.length === 0) submissionLog.delete(key)
+    else submissionLog.set(key, fresh)
   }
 }, 60 * 60 * 1000)
 
 contact.post('/v1/contact', async (c) => {
-  // Parse + validate body manually
+  // 1. Require Clerk JWT
+  const authHeader = c.req.header('Authorization')
+  if (!authHeader?.startsWith('Bearer ')) {
+    return c.json({ error: 'Authentication required. Please sign in to contact support.' }, 401)
+  }
+
+  const token = authHeader.slice(7)
+  let verifiedEmail: string
+  let verifiedUserId: string
+
+  try {
+    const payload = await verifyToken(token, {
+      secretKey: process.env.CLERK_SECRET_KEY!,
+    })
+    verifiedUserId = payload.sub
+    verifiedEmail = ((payload as any).email ?? '').toLowerCase()
+    if (!verifiedEmail) {
+      return c.json({ error: 'Could not verify email from session. Please sign in again.' }, 401)
+    }
+  } catch {
+    return c.json({ error: 'Invalid or expired session. Please sign in again.' }, 401)
+  }
+
+  // 2. Parse + validate body
   let body: unknown
   try {
     body = await c.req.json()
@@ -68,19 +92,14 @@ contact.post('/v1/contact', async (c) => {
 
   const data = parsed.data
 
-  // Honeypot check
+  // 3. Honeypot check
   if (data.website && data.website.length > 0) {
     logger.warn({ msg: 'Honeypot triggered on contact form' })
     return c.json({ ok: true, message: 'Message received.' })
   }
 
-  // Rate limit by IP
-  const ip =
-    c.req.header('cf-connecting-ip') ??
-    c.req.header('x-forwarded-for')?.split(',')[0].trim() ??
-    'unknown'
-
-  if (isRateLimited(ip)) {
+  // 4. Rate limit by verified user ID — not IP, not submitted email
+  if (isRateLimited(verifiedUserId)) {
     return c.json(
       { error: 'Too many submissions. Please wait 10 minutes and try again.' },
       429
@@ -93,20 +112,20 @@ contact.post('/v1/contact', async (c) => {
   const timestamp = new Date().toISOString()
 
   try {
-    // 1. Notify admin
+    // Notify admin — email is verified, safe to trust
     await resend.emails.send({
       from: process.env.RESEND_FROM ?? 'noreply@claw-net.org',
       to: adminEmail,
-      replyTo: data.email,
+      replyTo: verifiedEmail,
       subject: `[ClawNet Contact] ${subjectLabel} from ${data.name}`,
       html: `
         <div style="font-family:monospace;max-width:600px;padding:24px;background:#0a0a0a;color:#e0e0e0;border:1px solid #1a1a1a;border-radius:8px;">
           <h2 style="color:#00ff88;margin-top:0;">New Contact Form Submission</h2>
           <table style="width:100%;border-collapse:collapse;">
             <tr><td style="padding:6px 0;color:#888;width:100px;">Name</td><td style="color:#fff;">${escapeHtml(data.name)}</td></tr>
-            <tr><td style="padding:6px 0;color:#888;">Email</td><td><a href="mailto:${escapeHtml(data.email)}" style="color:#00ff88;">${escapeHtml(data.email)}</a></td></tr>
+            <tr><td style="padding:6px 0;color:#888;">Email</td><td><a href="mailto:${escapeHtml(verifiedEmail)}" style="color:#00ff88;">${escapeHtml(verifiedEmail)}</a> <span style="color:#555;font-size:11px;">(verified via Clerk)</span></td></tr>
             <tr><td style="padding:6px 0;color:#888;">Subject</td><td style="color:#fff;">${subjectLabel}</td></tr>
-            <tr><td style="padding:6px 0;color:#888;">IP</td><td style="color:#555;font-size:12px;">${ip}</td></tr>
+            <tr><td style="padding:6px 0;color:#888;">User ID</td><td style="color:#555;font-size:12px;">${verifiedUserId}</td></tr>
             <tr><td style="padding:6px 0;color:#888;">Time</td><td style="color:#555;font-size:12px;">${timestamp}</td></tr>
           </table>
           <div style="margin-top:16px;padding:16px;background:#111;border-left:3px solid #00ff88;border-radius:4px;">
@@ -117,10 +136,10 @@ contact.post('/v1/contact', async (c) => {
       `,
     })
 
-    // 2. Confirmation to submitter
+    // Confirmation to user at their verified email
     await resend.emails.send({
       from: process.env.RESEND_FROM ?? 'noreply@claw-net.org',
-      to: data.email,
+      to: verifiedEmail,
       subject: `We received your message — ClawNet`,
       html: `
         <div style="font-family:monospace;max-width:600px;padding:24px;background:#0a0a0a;color:#e0e0e0;border:1px solid #1a1a1a;border-radius:8px;">
@@ -140,11 +159,11 @@ contact.post('/v1/contact', async (c) => {
       `,
     })
 
-    logger.info({ msg: 'Contact form submitted', subject: data.subject, ip })
+    logger.info({ msg: 'Contact form submitted', subject: data.subject, userId: verifiedUserId })
     return c.json({ ok: true, message: "Message sent. We'll be in touch within 24–48 hours." })
   } catch (err) {
     logger.error({ msg: 'Contact form email failed', err })
-    return c.json({ error: 'Failed to send message. Please try again or email us directly.' }, 500)
+    return c.json({ error: 'Failed to send message. Please try again.' }, 500)
   }
 })
 
