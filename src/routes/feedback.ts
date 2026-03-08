@@ -7,7 +7,7 @@ import { logger } from '../utils/logger';
 export const feedbackRouter = new Hono();
 
 const FeedbackSchema = z.object({
-  requestId: z.string().min(1),
+  requestId: z.string().min(1).max(50),
   rating: z.number().min(1).max(5),
   comment: z.string().max(1000).optional(),
 });

@@ -145,7 +145,7 @@ contact.post('/v1/contact', async (c) => {
     const confirmTo = verifiedEmail || data.email
     if (confirmTo) await resend.emails.send({
       from: process.env.RESEND_FROM ?? 'noreply@claw-net.org',
-      to: verifiedEmail,
+      to: confirmTo,
       subject: `We received your message — ClawNet`,
       html: `
         <div style="font-family:monospace;max-width:600px;padding:24px;background:#0a0a0a;color:#e0e0e0;border:1px solid #1a1a1a;border-radius:8px;">
