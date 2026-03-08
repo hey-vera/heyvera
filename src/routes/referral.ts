@@ -16,8 +16,8 @@ referralRouter.post('/generate', checkApiKey, (c) => {
     return c.json({ code: existing.code, uses: existing.uses });
   }
 
-  // Generate a short, readable code: CN-XXXXXX
-  const code = 'CN-' + crypto.randomBytes(3).toString('hex').toUpperCase();
+  // Generate a short, readable code: CN-XXXXXXXX (4 bytes = 2^32 combinations)
+  const code = 'CN-' + crypto.randomBytes(4).toString('hex').toUpperCase();
   createReferralCode(code, keyInfo.key);
   logger.info({ key: keyInfo.key.slice(0, 8), code }, 'Referral code created');
 
@@ -51,32 +51,26 @@ referralRouter.post('/apply', checkApiKey, async (c) => {
     return c.json({ error: 'Cannot apply your own referral code' }, 400);
   }
 
-  // Check not already used by this key (stored in a simple join table)
-  const db = getDb();
-  const alreadyUsed = db
-    .prepare('SELECT 1 FROM referral_uses WHERE referree_key = ?')
-    .get(keyInfo.key);
-  if (alreadyUsed) return c.json({ error: 'You have already used a referral code' }, 409);
-
-  // Ensure referral_uses table exists (idempotent)
-  db.exec(`CREATE TABLE IF NOT EXISTS referral_uses (
-    referree_key TEXT PRIMARY KEY,
-    code TEXT NOT NULL,
-    applied_at TEXT NOT NULL DEFAULT (datetime('now'))
-  )`);
-
   // Bonus = 5% of current credits (min 50, max 5000)
   const bonus = Math.min(5000, Math.max(50, Math.floor(keyInfo.credits * 0.05)));
 
-  // Give bonus to referree
-  topUpCredits(keyInfo.key, bonus);
+  // Atomic: INSERT referral_uses first — PRIMARY KEY constraint prevents double-spend
+  // If changes === 0, this key already used a referral code
+  const db = getDb();
+  const applyReferral = db.transaction(() => {
+    const result = db
+      .prepare('INSERT OR IGNORE INTO referral_uses (referree_key, code) VALUES (?, ?)')
+      .run(keyInfo.key, code);
+    if (result.changes === 0) return false;
 
-  // Give same bonus to referrer
-  topUpCredits(ref.owner_key, bonus);
+    topUpCredits(keyInfo.key, bonus);
+    topUpCredits(ref.owner_key, bonus);
+    incrementReferralUse(code);
+    return true;
+  });
 
-  // Record usage
-  db.prepare('INSERT OR IGNORE INTO referral_uses (referree_key, code) VALUES (?, ?)').run(keyInfo.key, code);
-  incrementReferralUse(code);
+  const applied = applyReferral();
+  if (!applied) return c.json({ error: 'You have already used a referral code' }, 409);
 
   logger.info({ referree: keyInfo.key.slice(0, 8), referrer: ref.owner_key.slice(0, 8), bonus, code }, 'Referral applied');
 

@@ -29,6 +29,13 @@ app.use('*', cors());
 app.use('*', honoLogger());
 app.use('*', rateLimiter);
 
+app.use('*', (c, next) => {
+  c.header('X-Content-Type-Options', 'nosniff');
+  c.header('X-Frame-Options', 'DENY');
+  c.header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  return next();
+});
+
 app.use('*', async (c, next) => {
   const { nanoid } = await import('nanoid');
   c.header('X-Request-ID', nanoid(12));

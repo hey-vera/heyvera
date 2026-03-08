@@ -135,8 +135,8 @@ solanaRouter.post('/verify', async (c) => {
     return c.json({ error: 'Failed to verify transaction. Please try again.' }, 500);
   }
 
-  // 6. Validate amount matches expected package (allow 0.5% tolerance for rounding)
-  const tolerance = expectedUsd * 0.005;
+  // 6. Validate amount matches expected package (allow 0.1% tolerance for rounding)
+  const tolerance = expectedUsd * 0.001;
   if (transferredUsd < expectedUsd - tolerance) {
     return c.json({
       error: `Payment amount mismatch. Expected $${expectedUsd} USDC, found $${transferredUsd.toFixed(2)} USDC going to receiving wallet.`,

@@ -99,6 +99,12 @@ export function initDb(): void {
       sent_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS referral_uses (
+      referree_key TEXT PRIMARY KEY,
+      code TEXT NOT NULL,
+      applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE INDEX IF NOT EXISTS idx_orchestrations_timestamp ON orchestrations(timestamp);
     CREATE INDEX IF NOT EXISTS idx_api_keys_email ON api_keys(email);
     CREATE INDEX IF NOT EXISTS idx_api_keys_stripe ON api_keys(stripe_session_id);

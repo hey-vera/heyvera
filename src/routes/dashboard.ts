@@ -159,6 +159,7 @@ dashboardRouter.post('/send-claim-email', requireClerkAuth, async (c) => {
 dashboardRouter.get('/verify-claim/:token', async (c) => {
   const { token } = c.req.param();
 
+  // Read claim data first (needed for api_key + clerk_user_id)
   const claim = getClaimToken(token);
 
   if (!claim) {
@@ -174,11 +175,17 @@ dashboardRouter.get('/verify-claim/:token', async (c) => {
     return c.redirect('https://claw-net.org/dashboard.html?claim=used');
   }
 
+  // Atomically mark as used — only one concurrent request wins; the rest see changes === 0
+  const result = getDb()
+    .prepare('UPDATE claim_tokens SET used = 1 WHERE token = ? AND used = 0')
+    .run(token);
+
+  if (result.changes === 0) {
+    return c.redirect('https://claw-net.org/dashboard.html?claim=used');
+  }
+
   // Transfer key to the claiming Clerk user
   linkKeyToClerkUser(claim.api_key, claim.clerk_user_id);
-
-  // Update the key's email to the Clerk user's email (optional — keeps data consistent)
-  markClaimTokenUsed(token);
 
   logger.info({ clerkUserId: claim.clerk_user_id, apiKey: claim.api_key }, 'Key claimed via magic link');
 
@@ -260,11 +267,6 @@ function getClaimToken(token: string): {
     .get(token) as ReturnType<typeof getClaimToken>;
 }
 
-function markClaimTokenUsed(token: string): void {
-  getDb()
-    .prepare('UPDATE claim_tokens SET used = 1 WHERE token = ?')
-    .run(token);
-}
 
 function deleteClaimToken(token: string): void {
   getDb()

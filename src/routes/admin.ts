@@ -5,6 +5,15 @@ import { getUsageStats } from '../utils/usage';
 import { getCircuitStats } from '../core/circuit-breaker';
 import { env } from '../config/index';
 
+function escapeHtml(s: string): string {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 export const adminRouter = new Hono();
 
 adminRouter.get('/dashboard', (c) => {
@@ -83,8 +92,8 @@ adminRouter.get('/dashboard', (c) => {
       <tr><th>Query</th><th>Count</th></tr>
       ${dbStats?.topQueries.map((q) => `
         <tr>
-          <td>${q.query.slice(0, 80)}${q.query.length > 80 ? '...' : ''}</td>
-          <td>${q.count}</td>
+          <td>${escapeHtml(q.query.slice(0, 80))}${q.query.length > 80 ? '...' : ''}</td>
+          <td>${escapeHtml(String(q.count))}</td>
         </tr>
       `).join('') ?? '<tr><td colspan="2">No data yet</td></tr>'}
     </table>
@@ -96,9 +105,9 @@ adminRouter.get('/dashboard', (c) => {
       <tr><th>Endpoint</th><th>State</th><th>Failures</th></tr>
       ${Object.entries(circuits).map(([id, s]) => `
         <tr>
-          <td>${id}</td>
-          <td><span class="badge ${s.state === 'CLOSED' ? 'badge-green' : s.state === 'OPEN' ? 'badge-red' : 'badge-yellow'}">${s.state}</span></td>
-          <td>${s.failures}</td>
+          <td>${escapeHtml(id)}</td>
+          <td><span class="badge ${s.state === 'CLOSED' ? 'badge-green' : s.state === 'OPEN' ? 'badge-red' : 'badge-yellow'}">${escapeHtml(s.state)}</span></td>
+          <td>${escapeHtml(String(s.failures))}</td>
         </tr>
       `).join('') || '<tr><td colspan="3">No circuit data yet</td></tr>'}
     </table>
