@@ -114,7 +114,9 @@ function cooldownRemaining(): string {
   const remainMs = GLOBAL_COOLDOWN_MS - (Date.now() - lastGlobalQuery);
   const h = Math.floor(remainMs / 3_600_000);
   const m = Math.floor((remainMs % 3_600_000) / 60_000);
-  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+  const ready = new Date(Date.now() + remainMs);
+  const timeStr = ready.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+  return h > 0 ? `${h}h ${m}m (ready at ${timeStr} UTC)` : `${m}m (ready at ${timeStr} UTC)`;
 }
 
 function setCooldown(): void {
@@ -221,7 +223,8 @@ function buildHelp(): string {
     `🦀 <b>ClawNet Bot</b>\n\n` +
     `I run live AI queries across <b>${endpointCount} endpoints</b> covering: ${categories.join(', ')}.\n\n` +
     `<b>Commands:</b>\n` +
-    `/analyze &lt;token&gt; — Deep dive on a token (price, risk, sentiment)\n` +
+    `/price &lt;token&gt; — Quick price check (no cooldown)\n` +
+    `/analyze &lt;token&gt; — Deep dive: price, risk, sentiment\n` +
     `/trending — What's hot on Solana right now\n` +
     `/wallet &lt;address&gt; — Portfolio + risk score for a wallet\n` +
     `/news &lt;topic&gt; — Latest news on any topic\n` +
@@ -231,8 +234,8 @@ function buildHelp(): string {
     `/ask &lt;question&gt; — Ask anything\n` +
     `/subscribe — Join the automated feed (every 15 min)\n` +
     `/unsubscribe — Leave the feed\n` +
-    `/status — Your subscription status\n\n` +
-    `<i>Or just type any question — I'll figure it out.</i>`
+    `/status — Bot status and subscriber count\n\n` +
+    `<i>⏳ On-demand queries: 1 per 12h (global). /price has no limit.</i>`
   );
 }
 
@@ -305,7 +308,6 @@ export async function initTelegram(): Promise<void> {
 
     // /trending
     bot.command('trending', async (ctx) => {
-      const chatId = ctx.chat.id;
       if (isOnCooldown()) { await ctx.reply(`⏳ You can ask 1 query every 12 hours. Next query available in ${cooldownRemaining()}.`); return; }
       setCooldown();
       await replyWithQuery(
@@ -317,7 +319,6 @@ export async function initTelegram(): Promise<void> {
 
     // /analyze <token>
     bot.command('analyze', async (ctx) => {
-      const chatId = ctx.chat.id;
       const input = ctx.match?.trim();
       if (!input) {
         await ctx.reply('Usage: /analyze &lt;token symbol or mint address&gt;\n\nExample: /analyze BONK', { parse_mode: 'HTML' });
@@ -336,7 +337,6 @@ export async function initTelegram(): Promise<void> {
 
     // /wallet <address>
     bot.command('wallet', async (ctx) => {
-      const chatId = ctx.chat.id;
       const address = ctx.match?.trim();
       if (!address || address.length < 32) {
         await ctx.reply('Usage: /wallet &lt;Solana wallet address&gt;', { parse_mode: 'HTML' });
@@ -353,7 +353,6 @@ export async function initTelegram(): Promise<void> {
 
     // /news <topic>
     bot.command('news', async (ctx) => {
-      const chatId = ctx.chat.id;
       const topic = ctx.match?.trim() || 'Solana crypto';
       if (isOnCooldown()) { await ctx.reply(`⏳ You can ask 1 query every 12 hours. Next query available in ${cooldownRemaining()}.`); return; }
       setCooldown();
@@ -366,7 +365,6 @@ export async function initTelegram(): Promise<void> {
 
     // /sentiment <token>
     bot.command('sentiment', async (ctx) => {
-      const chatId = ctx.chat.id;
       const token = ctx.match?.trim();
       if (!token) {
         await ctx.reply('Usage: /sentiment &lt;token symbol&gt;\n\nExample: /sentiment SOL', { parse_mode: 'HTML' });
@@ -378,6 +376,21 @@ export async function initTelegram(): Promise<void> {
         ctx,
         `Analyze Twitter and Reddit sentiment for ${token.toUpperCase()}. Show mention count, sentiment score, top posts, and whether the community is bullish or bearish.`,
         `💬 Sentiment: ${token.toUpperCase()}`
+      );
+    });
+
+    // /price <token> — quick price check, no cooldown (cached data only)
+    bot.command('price', async (ctx) => {
+      const token = ctx.match?.trim();
+      if (!token) {
+        await ctx.reply('Usage: /price &lt;token symbol or mint address&gt;\n\nExample: /price SOL', { parse_mode: 'HTML' });
+        return;
+      }
+      // Price checks are narrow queries that almost always hit cache — no cooldown applied
+      await replyWithQuery(
+        ctx,
+        `Get the current price, 24h change, volume, and market cap for the Solana token ${token.toUpperCase()}. Keep it brief.`,
+        `💰 Price: ${token.toUpperCase()}`
       );
     });
 
@@ -401,7 +414,6 @@ export async function initTelegram(): Promise<void> {
 
     // /skill <id> [key=value ...]
     bot.command('skill', async (ctx) => {
-      const chatId = ctx.chat.id;
       const args = ctx.match?.trim().split(/\s+/) ?? [];
       const skillId = args[0];
 
@@ -449,7 +461,6 @@ export async function initTelegram(): Promise<void> {
 
     // /ask <question>
     bot.command('ask', async (ctx) => {
-      const chatId = ctx.chat.id;
       const question = ctx.match?.trim();
       if (!question) {
         await ctx.reply('Usage: /ask &lt;your question&gt;\n\nOr just type your question directly.', { parse_mode: 'HTML' });
@@ -462,7 +473,6 @@ export async function initTelegram(): Promise<void> {
 
     // Plain text → treat as a query
     bot.on('message:text', async (ctx) => {
-      const chatId = ctx.chat.id;
       const text = ctx.message.text.trim();
 
       // Ignore commands (already handled above)
