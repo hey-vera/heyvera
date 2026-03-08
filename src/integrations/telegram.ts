@@ -1,4 +1,4 @@
-import { Bot } from 'grammy';
+import { Bot, Context } from 'grammy';
 import { logger } from '../utils/logger';
 import { parseIntent } from '../core/intent-parser';
 import { executePlan } from '../core/executor';
@@ -200,7 +200,7 @@ async function runQuery(query: string): Promise<{ result: FormattedResponse; dur
 }
 
 async function replyWithQuery(
-  ctx: { reply: (text: string, opts?: { parse_mode?: string }) => Promise<unknown> },
+  ctx: Context,
   query: string,
   label?: string,
 ): Promise<void> {
