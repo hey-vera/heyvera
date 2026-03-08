@@ -100,27 +100,25 @@ function nextFeedQuery(): string {
 }
 
 // ─── Rate limiting + cost budget ─────────────────────────────────────────────
-// Each user gets 1 on-demand query per 12 hours. Anyone can query — no subscription required.
+// Global limit: max 1 on-demand query every 12 hours across ALL users combined.
 // Feed runs are separate (scheduled, not counted here).
 
-const userCooldowns = new Map<number, number>();
-const COOLDOWN_MS = 12 * 60 * 60 * 1000; // 12 hours per user
+const GLOBAL_COOLDOWN_MS = 12 * 60 * 60 * 1000;
+let lastGlobalQuery = 0;
 
-function isOnCooldown(chatId: number): boolean {
-  const last = userCooldowns.get(chatId) ?? 0;
-  return Date.now() - last < COOLDOWN_MS;
+function isOnCooldown(): boolean {
+  return Date.now() - lastGlobalQuery < GLOBAL_COOLDOWN_MS;
 }
 
-function cooldownRemaining(chatId: number): string {
-  const last = userCooldowns.get(chatId) ?? 0;
-  const remainMs = COOLDOWN_MS - (Date.now() - last);
+function cooldownRemaining(): string {
+  const remainMs = GLOBAL_COOLDOWN_MS - (Date.now() - lastGlobalQuery);
   const h = Math.floor(remainMs / 3_600_000);
   const m = Math.floor((remainMs % 3_600_000) / 60_000);
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
-function setCooldown(chatId: number): void {
-  userCooldowns.set(chatId, Date.now());
+function setCooldown(): void {
+  lastGlobalQuery = Date.now();
 }
 
 // ─── Telegram HTML formatter ──────────────────────────────────────────────────
@@ -308,8 +306,8 @@ export async function initTelegram(): Promise<void> {
     // /trending
     bot.command('trending', async (ctx) => {
       const chatId = ctx.chat.id;
-      if (isOnCooldown(chatId)) { await ctx.reply(`⏳ You can ask 1 query every 12 hours. Next query available in ${cooldownRemaining(chatId)}.`); return; }
-      setCooldown(chatId);
+      if (isOnCooldown()) { await ctx.reply(`⏳ You can ask 1 query every 12 hours. Next query available in ${cooldownRemaining()}.`); return; }
+      setCooldown();
       await replyWithQuery(
         ctx,
         'Analyze the top trending Solana tokens right now. Show price, 24h change, risk score, and holder concentration for each. Rank them by opportunity.',
@@ -325,8 +323,8 @@ export async function initTelegram(): Promise<void> {
         await ctx.reply('Usage: /analyze &lt;token symbol or mint address&gt;\n\nExample: /analyze BONK', { parse_mode: 'HTML' });
         return;
       }
-      if (isOnCooldown(chatId)) { await ctx.reply(`⏳ You can ask 1 query every 12 hours. Next query available in ${cooldownRemaining(chatId)}.`); return; }
-      setCooldown(chatId);
+      if (isOnCooldown()) { await ctx.reply(`⏳ You can ask 1 query every 12 hours. Next query available in ${cooldownRemaining()}.`); return; }
+      setCooldown();
 
       const isAddress = input.length >= 32 && /^[1-9A-HJ-NP-Za-km-z]+$/.test(input);
       const query = isAddress
@@ -344,8 +342,8 @@ export async function initTelegram(): Promise<void> {
         await ctx.reply('Usage: /wallet &lt;Solana wallet address&gt;', { parse_mode: 'HTML' });
         return;
       }
-      if (isOnCooldown(chatId)) { await ctx.reply(`⏳ You can ask 1 query every 12 hours. Next query available in ${cooldownRemaining(chatId)}.`); return; }
-      setCooldown(chatId);
+      if (isOnCooldown()) { await ctx.reply(`⏳ You can ask 1 query every 12 hours. Next query available in ${cooldownRemaining()}.`); return; }
+      setCooldown();
       await replyWithQuery(
         ctx,
         `Analyze Solana wallet ${address}: total portfolio value, top holdings, wallet risk score, bot probability, and recent transaction activity.`,
@@ -357,8 +355,8 @@ export async function initTelegram(): Promise<void> {
     bot.command('news', async (ctx) => {
       const chatId = ctx.chat.id;
       const topic = ctx.match?.trim() || 'Solana crypto';
-      if (isOnCooldown(chatId)) { await ctx.reply(`⏳ You can ask 1 query every 12 hours. Next query available in ${cooldownRemaining(chatId)}.`); return; }
-      setCooldown(chatId);
+      if (isOnCooldown()) { await ctx.reply(`⏳ You can ask 1 query every 12 hours. Next query available in ${cooldownRemaining()}.`); return; }
+      setCooldown();
       await replyWithQuery(
         ctx,
         `Find the latest news about ${topic}. Summarize the top 5 stories and explain the likely market impact of each.`,
@@ -374,8 +372,8 @@ export async function initTelegram(): Promise<void> {
         await ctx.reply('Usage: /sentiment &lt;token symbol&gt;\n\nExample: /sentiment SOL', { parse_mode: 'HTML' });
         return;
       }
-      if (isOnCooldown(chatId)) { await ctx.reply(`⏳ You can ask 1 query every 12 hours. Next query available in ${cooldownRemaining(chatId)}.`); return; }
-      setCooldown(chatId);
+      if (isOnCooldown()) { await ctx.reply(`⏳ You can ask 1 query every 12 hours. Next query available in ${cooldownRemaining()}.`); return; }
+      setCooldown();
       await replyWithQuery(
         ctx,
         `Analyze Twitter and Reddit sentiment for ${token.toUpperCase()}. Show mention count, sentiment score, top posts, and whether the community is bullish or bearish.`,
@@ -418,8 +416,8 @@ export async function initTelegram(): Promise<void> {
         return;
       }
 
-      if (isOnCooldown(chatId)) { await ctx.reply(`⏳ You can ask 1 query every 12 hours. Next query available in ${cooldownRemaining(chatId)}.`); return; }
-      setCooldown(chatId);
+      if (isOnCooldown()) { await ctx.reply(`⏳ You can ask 1 query every 12 hours. Next query available in ${cooldownRemaining()}.`); return; }
+      setCooldown();
 
       // Parse key=value pairs from remaining args
       const variables: Record<string, string> = {};
@@ -457,8 +455,8 @@ export async function initTelegram(): Promise<void> {
         await ctx.reply('Usage: /ask &lt;your question&gt;\n\nOr just type your question directly.', { parse_mode: 'HTML' });
         return;
       }
-      if (isOnCooldown(chatId)) { await ctx.reply(`⏳ You can ask 1 query every 12 hours. Next query available in ${cooldownRemaining(chatId)}.`); return; }
-      setCooldown(chatId);
+      if (isOnCooldown()) { await ctx.reply(`⏳ You can ask 1 query every 12 hours. Next query available in ${cooldownRemaining()}.`); return; }
+      setCooldown();
       await replyWithQuery(ctx, question);
     });
 
@@ -475,8 +473,8 @@ export async function initTelegram(): Promise<void> {
         return;
       }
 
-      if (isOnCooldown(chatId)) { await ctx.reply(`⏳ You can ask 1 query every 12 hours. Next query available in ${cooldownRemaining(chatId)}.`); return; }
-      setCooldown(chatId);
+      if (isOnCooldown()) { await ctx.reply(`⏳ You can ask 1 query every 12 hours. Next query available in ${cooldownRemaining()}.`); return; }
+      setCooldown();
       await replyWithQuery(ctx, text);
     });
 
