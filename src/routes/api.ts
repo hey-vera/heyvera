@@ -65,7 +65,7 @@ apiRouter.post('/orchestrate', async (c) => {
     const totalDurationMs = Date.now() - start;
 
     // Deduct credits based on actual cost: 1 credit = $0.001, minimum 1
-    const creditsToDeduct = Math.max(1, Math.ceil(apiCosts * 1000));
+    const creditsToDeduct = Math.max(1, Math.ceil(apiCosts * 2000));
     const keyInfo = c.get('apiKeyInfo');
     if (!keyInfo.isEnvKey) {
       const deducted = deductCredit(keyInfo.key, creditsToDeduct);
