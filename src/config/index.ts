@@ -24,6 +24,7 @@ const envSchema = z.object({
   TREASURY_WALLET: z.string().optional(),
 
   API_KEYS: z.string().optional(),
+  ADMIN_API_KEY: z.string().optional(),
   RATE_LIMIT_PER_MIN: z.coerce.number().default(60),
 
   TELEGRAM_BOT_TOKEN: z.string().optional(),

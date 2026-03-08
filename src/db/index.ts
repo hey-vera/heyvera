@@ -123,6 +123,7 @@ export function initDb(): void {
     CREATE INDEX IF NOT EXISTS idx_skills_public ON skills(public);
 
     CREATE INDEX IF NOT EXISTS idx_orchestrations_timestamp ON orchestrations(timestamp);
+    CREATE INDEX IF NOT EXISTS idx_orchestrations_query ON orchestrations(query);
     CREATE INDEX IF NOT EXISTS idx_api_keys_email ON api_keys(email);
     CREATE INDEX IF NOT EXISTS idx_api_keys_stripe ON api_keys(stripe_session_id);
     CREATE INDEX IF NOT EXISTS idx_email_send_log ON email_send_log(email, type, sent_at);
@@ -269,7 +270,7 @@ export function createApiKeyForClerk(opts: {
   `).run(opts.key, opts.email, opts.credits, opts.solanaSignature, opts.clerkUserId);
 }
 
-export function topUpCreditsForClerk(clerkUserId: string, credits: number, signature: string) {
+export function topUpCreditsForClerk(clerkUserId: string, credits: number, _signature: string) {
   db.prepare(`
     UPDATE api_keys
     SET credits = credits + ?

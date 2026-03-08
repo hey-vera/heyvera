@@ -14,7 +14,7 @@ import { startHeartbeat } from './core/heartbeat';
 import { setupGracefulShutdown } from './utils/shutdown';
 import { feedbackRouter } from './routes/feedback';
 import { initTelegram, stopTelegram } from './integrations/telegram';
-import { initDb, closeDb, getApiKeyBalance } from './db/index';
+import { initDb, getApiKeyBalance } from './db/index';
 import { adminRouter } from './routes/admin';
 import { initClawApis } from './providers/clawapis';
 import { stripeRouter } from './routes/stripe';
@@ -48,8 +48,10 @@ app.get('/', (c) => c.json({
   version: '1.0.0',
   description: 'Universal Workflow Orchestration Layer for ClawAPIs',
   docs: '/v1/registry',
-  health: '/v1/health',
+  health: '/health',
 }));
+
+app.get('/health', (c) => c.json({ status: 'ok', version: '1.0.0', uptime: Math.floor(process.uptime()) }));
 
 // app routing
 app.route('/v1/webhooks', stripeRouter);
