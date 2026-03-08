@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3';
 import path from 'path';
+import { nanoid } from 'nanoid';
 import { logger } from '../utils/logger';
 
 const DB_PATH = path.join(process.cwd(), 'data', 'orchestrator.db');
@@ -247,10 +248,11 @@ export function getDbStats(): {
 }
 
 // ── Solana / Clerk helpers ─────────────────────────────────────
-export function getApiKeyByClerkId(clerkUserId: string) {
-  return db.prepare(`
-    SELECT * FROM api_keys WHERE clerk_user_id = ?
-  `).get(clerkUserId) as any;
+export function getApiKeyByClerkId(clerkUserId: string): {
+  key: string; email: string; credits: number; amount_paid: number;
+} | undefined {
+  return db.prepare('SELECT key, email, credits, amount_paid FROM api_keys WHERE clerk_user_id = ? AND active = 1')
+    .get(clerkUserId) as { key: string; email: string; credits: number; amount_paid: number } | undefined;
 }
 
 export function createApiKeyForClerk(opts: {
@@ -446,7 +448,6 @@ export function wasEmailSentRecently(email: string, type: string, withinMs: numb
 }
 
 export function logEmailSend(email: string, type: string): void {
-  const { nanoid } = require('nanoid') as typeof import('nanoid');
   getDb()
     .prepare('INSERT INTO email_send_log (id, email, type) VALUES (?, ?, ?)')
     .run(nanoid(12), email, type);

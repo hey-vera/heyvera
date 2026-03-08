@@ -206,14 +206,19 @@ stripeRouter.post('/stripe-subscriptions', async (c) => {
   if (event.type === 'customer.subscription.deleted') {
     const sub = event.data.object as Stripe.Subscription;
     const email = (sub as unknown as { customer_email?: string }).customer_email?.toLowerCase().trim();
-    upsertSubscription({
-      subscriptionId: sub.id,
-      apiKey: (email ? getApiKeyByEmail(email)?.key : undefined) ?? 'unknown',
-      email: email ?? 'unknown',
-      creditsPerMonth: SUBSCRIPTION_CREDITS_PER_MONTH,
-      currentPeriodEnd: new Date(((sub as unknown as { current_period_end: number }).current_period_end ?? 0) * 1000).toISOString(),
-      status: 'cancelled',
-    });
+    const apiKey = email ? getApiKeyByEmail(email)?.key : undefined;
+    if (!apiKey) {
+      logger.warn({ subscriptionId: sub.id }, 'Subscription cancelled but no API key found — skipping record');
+    } else {
+      upsertSubscription({
+        subscriptionId: sub.id,
+        apiKey,
+        email: email ?? '',
+        creditsPerMonth: SUBSCRIPTION_CREDITS_PER_MONTH,
+        currentPeriodEnd: new Date(((sub as unknown as { current_period_end: number }).current_period_end ?? 0) * 1000).toISOString(),
+        status: 'cancelled',
+      });
+    }
     logger.info({ subscriptionId: sub.id }, 'Subscription cancelled');
   }
 
