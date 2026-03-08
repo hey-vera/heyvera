@@ -12,7 +12,19 @@ import {
   getDb,
   wasEmailSentRecently,
   logEmailSend,
+  regenerateApiKey,
 } from '../db/index';
+
+function maskApiKey(key: string): string {
+  const prefix = 'cn-';
+  const rest = key.startsWith(prefix) ? key.slice(prefix.length) : key;
+  if (rest.length <= 8) return key;
+  return prefix + rest.slice(0, 4) + '••••••••••••••••••••••••••••••••••••••••' + rest.slice(-4);
+}
+
+function generateApiKey(): string {
+  return 'cn-' + crypto.randomBytes(24).toString('hex');
+}
 
 export const dashboardRouter = new Hono();
 
@@ -49,13 +61,36 @@ dashboardRouter.get('/me', requireClerkAuth, async (c) => {
 
   return c.json({
     hasKey: true,
-    apiKey: keyRow.key,
+    maskedKey: maskApiKey(keyRow.key),
     email: balance.email,
     credits: balance.credits,
     creditsUsed: balance.credits_used,
     memberSince: balance.created_at,
     stats,
   });
+});
+
+// ─── POST /v1/dashboard/reveal-key ────────────────────────────────────────────
+// Returns the full API key — called once when user clicks "Show Key" in dashboard.
+// Auth-gated: only the linked Clerk user can retrieve their own key.
+dashboardRouter.post('/reveal-key', requireClerkAuth, (c) => {
+  const clerkUserId = c.get('clerkUserId');
+  const keyRow = getApiKeyByClerkId(clerkUserId);
+  if (!keyRow) return c.json({ error: 'No API key found' }, 404);
+  logger.info({ clerkUserId }, 'API key revealed');
+  return c.json({ apiKey: keyRow.key });
+});
+
+// ─── POST /v1/dashboard/regenerate-key ───────────────────────────────────────
+// Deactivates the current key and creates a new one with the same credit balance.
+// The new key is returned once — store it immediately.
+dashboardRouter.post('/regenerate-key', requireClerkAuth, (c) => {
+  const clerkUserId = c.get('clerkUserId');
+  const newKey = generateApiKey();
+  const result = regenerateApiKey(clerkUserId, newKey);
+  if (!result) return c.json({ error: 'No active API key found' }, 404);
+  logger.info({ clerkUserId }, 'API key regenerated');
+  return c.json({ apiKey: newKey, credits: result.credits });
 });
 
 // ─── POST /v1/dashboard/claim-session ─────────────────────────────────────

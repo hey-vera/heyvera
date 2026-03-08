@@ -484,6 +484,42 @@ export function getPeers(): { id: string; multiaddr: string; last_seen: string; 
     .all() as { id: string; multiaddr: string; last_seen: string; metadata_json: string | null }[];
 }
 
+// ─── API Key Regeneration ─────────────────────────────────────────────────────
+
+/**
+ * Atomically deactivates the current key for a Clerk user and inserts a new one
+ * with the same credits, email, and amount_paid. Returns null if no active key found.
+ */
+export function regenerateApiKey(
+  clerkUserId: string,
+  newKey: string,
+): { oldKey: string; credits: number; email: string } | null {
+  const db = getDb();
+  return db.transaction(() => {
+    const row = db
+      .prepare(
+        'SELECT key, credits, credits_used, email, amount_paid FROM api_keys WHERE clerk_user_id = ? AND active = 1 LIMIT 1',
+      )
+      .get(clerkUserId) as
+      | { key: string; credits: number; credits_used: number; email: string; amount_paid: number }
+      | undefined;
+
+    if (!row) return null;
+
+    // Insert new key copying all financial data
+    db.prepare(`
+      INSERT INTO api_keys (key, email, credits, credits_used, amount_paid, clerk_user_id, active, stripe_session_id)
+      SELECT ?, email, credits, credits_used, amount_paid, clerk_user_id, 1, stripe_session_id
+      FROM api_keys WHERE key = ?
+    `).run(newKey, row.key);
+
+    // Deactivate old key
+    db.prepare('UPDATE api_keys SET active = 0 WHERE key = ?').run(row.key);
+
+    return { oldKey: row.key, credits: row.credits, email: row.email };
+  })();
+}
+
 // ─── Skills / ClawHub ─────────────────────────────────────────────────────────
 
 export interface Skill {

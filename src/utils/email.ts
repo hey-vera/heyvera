@@ -2,6 +2,14 @@ import { logger } from './logger';
 
 const RESEND_API_URL = 'https://api.resend.com/emails';
 
+// Format: cn-xxxx••••••••••••••••••••••••••••••••••••••••xxxx
+function maskApiKey(key: string): string {
+  const prefix = 'cn-';
+  const rest = key.startsWith(prefix) ? key.slice(prefix.length) : key;
+  if (rest.length <= 8) return key;
+  return prefix + rest.slice(0, 4) + '••••••••••••••••••••••••••••••••••••••••' + rest.slice(-4);
+}
+
 export async function sendApiKeyEmail(params: {
   to: string;
   apiKey: string;
@@ -17,6 +25,9 @@ export async function sendApiKeyEmail(params: {
     return;
   }
 
+  const masked = maskApiKey(apiKey);
+  const dashboardUrl = 'https://claw-net.org/dashboard.html';
+
   const html = `
 <!DOCTYPE html>
 <html>
@@ -28,40 +39,38 @@ export async function sendApiKeyEmail(params: {
     .logo { color: #00ff88; font-size: 20px; font-weight: bold; margin-bottom: 32px; }
     h1 { font-size: 22px; color: #fff; margin: 0 0 8px; }
     .sub { color: #888; font-size: 13px; margin-bottom: 32px; }
-    .key-box { background: #000; border: 1px solid #00ff88; padding: 20px; margin: 24px 0; }
+    .key-box { background: #000; border: 1px solid #333; padding: 20px; margin: 24px 0; }
     .key-label { color: #555; font-size: 10px; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 8px; }
-    .key-value { color: #00ff88; font-size: 14px; word-break: break-all; }
-    .stats { display: flex; gap: 0; margin: 24px 0; border: 1px solid #1e1e1e; }
-    .stat { flex: 1; padding: 16px; border-right: 1px solid #1e1e1e; text-align: center; }
-    .stat:last-child { border-right: none; }
-    .stat-num { color: #00ff88; font-size: 22px; font-weight: bold; display: block; }
-    .stat-label { color: #555; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; }
-    .code-block { background: #000; border: 1px solid #1e1e1e; padding: 16px; font-size: 12px; color: #888; margin: 24px 0; overflow-x: auto; }
-    .code-block span { color: #00ff88; }
+    .key-value { color: #666; font-size: 13px; word-break: break-all; font-family: 'Courier New', monospace; }
+    .key-note { color: #555; font-size: 11px; margin-top: 10px; }
+    .btn { display: inline-block; background: #00ff88; color: #000 !important; padding: 14px 32px; font-family: 'Courier New', monospace; font-weight: bold; font-size: 14px; text-decoration: none; margin: 24px 0; }
     .footer { margin-top: 40px; padding-top: 24px; border-top: 1px solid #1e1e1e; color: #555; font-size: 11px; }
     a { color: #00ff88; }
   </style>
 </head>
 <body>
   <div class="container">
-    <div class="logo">🦀 ClawNet</div>
+    <div class="logo">&#x1F9AE; ClawNet</div>
     <h1>Your API key is ready.</h1>
-    <p class="sub">Thanks for your $${amountPaid} purchase. Your credits have been loaded and your key is active immediately.</p>
+    <p class="sub">Thanks for your $${amountPaid} purchase. ${credits.toLocaleString()} credits are loaded and your key is active immediately.</p>
 
     <div class="key-box">
-      <div class="key-label">Your API Key</div>
-      <div class="key-value">${apiKey}</div>
+      <div class="key-label">Your API Key (partially visible)</div>
+      <div class="key-value">${masked}</div>
+      <div class="key-note">For security, your full key is only shown once in the dashboard. Log in below to copy it.</div>
     </div>
+
+    <a href="${dashboardUrl}" class="btn">View &amp; Copy Your API Key &rarr;</a>
 
     <table style="width:100%;border-collapse:collapse;border:1px solid #1e1e1e;margin:24px 0">
       <tr>
         <td style="padding:16px;border-right:1px solid #1e1e1e;text-align:center">
           <span style="color:#00ff88;font-size:22px;font-weight:bold;display:block">${credits.toLocaleString()}</span>
-          <span style="color:#555;font-size:10px;text-transform:uppercase;letter-spacing:1px">Queries Available</span>
+          <span style="color:#555;font-size:10px;text-transform:uppercase;letter-spacing:1px">Credits Loaded</span>
         </td>
         <td style="padding:16px;border-right:1px solid #1e1e1e;text-align:center">
           <span style="color:#00ff88;font-size:22px;font-weight:bold;display:block">$${amountPaid}</span>
-          <span style="color:#555;font-size:10px;text-transform:uppercase;letter-spacing:1px">Credits Loaded</span>
+          <span style="color:#555;font-size:10px;text-transform:uppercase;letter-spacing:1px">Amount Paid</span>
         </td>
         <td style="padding:16px;text-align:center">
           <span style="color:#00ff88;font-size:22px;font-weight:bold;display:block">Never</span>
@@ -70,20 +79,11 @@ export async function sendApiKeyEmail(params: {
       </tr>
     </table>
 
-    <p style="color:#888;font-size:12px;margin-bottom:8px">Start immediately:</p>
-    <div class="code-block">
-curl -X POST https://api.claw-net.org/v1/orchestrate \<br>
-&nbsp;&nbsp;-H <span>"X-API-Key: ${apiKey}"</span> \<br>
-&nbsp;&nbsp;-H <span>"Content-Type: application/json"</span> \<br>
-&nbsp;&nbsp;-d <span>'{"query":"Is BONK safe to buy right now?"}'</span>
-    </div>
-
-    <p style="color:#888;font-size:12px">Check your balance anytime: <a href="https://api.claw-net.org/v1/balance">api.claw-net.org/v1/balance</a></p>
-    <p style="color:#888;font-size:12px">Need more credits? <a href="https://buy.stripe.com/fZufZigsDgva6HZ5Vk08g00">Top up here</a></p>
+    <p style="color:#888;font-size:12px">If you lose your key, you can regenerate it anytime from the dashboard. Need more credits? <a href="https://claw-net.org/#pricing">Top up here</a>.</p>
 
     <div class="footer">
-      © 2026 ClawNet · <a href="mailto:hello@claw-net.org">hello@claw-net.org</a><br>
-      Keep this email — your API key is only sent once.
+      &copy; 2026 ClawNet &middot; <a href="mailto:hello@claw-net.org">hello@claw-net.org</a><br>
+      Your key is tied to this email address. <a href="${dashboardUrl}">Dashboard</a>
     </div>
   </div>
 </body>
