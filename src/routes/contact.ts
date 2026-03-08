@@ -67,9 +67,7 @@ contact.post('/v1/contact', async (c) => {
     })
     verifiedUserId = payload.sub
     verifiedEmail = ((payload as any).email ?? '').toLowerCase()
-    if (!verifiedEmail) {
-      return c.json({ error: 'Could not verify email from session. Please sign in again.' }, 401)
-    }
+    // Wallet users have no email in JWT — allowed through, use form-supplied email
   } catch {
     return c.json({ error: 'Invalid or expired session. Please sign in again.' }, 401)
   }
@@ -113,19 +111,26 @@ contact.post('/v1/contact', async (c) => {
 
   try {
     // Notify admin — email is verified, safe to trust
+    const replyToEmail = verifiedEmail || data.email
+    const authProvider = verifiedEmail ? 'Google / GitHub (verified)' : 'Solana wallet (Web3)'
+    const emailDisplay = verifiedEmail
+      ? `${escapeHtml(verifiedEmail)} <span style="color:#555;font-size:11px;">(verified via Clerk)</span>`
+      : `${escapeHtml(data.email)} <span style="color:#ffaa00;font-size:11px;">(user-supplied — wallet user)</span>`
+
     await resend.emails.send({
       from: process.env.RESEND_FROM ?? 'noreply@claw-net.org',
       to: adminEmail,
-      replyTo: verifiedEmail,
+      replyTo: replyToEmail,
       subject: `[ClawNet Contact] ${subjectLabel} from ${data.name}`,
       html: `
         <div style="font-family:monospace;max-width:600px;padding:24px;background:#0a0a0a;color:#e0e0e0;border:1px solid #1a1a1a;border-radius:8px;">
           <h2 style="color:#00ff88;margin-top:0;">New Contact Form Submission</h2>
           <table style="width:100%;border-collapse:collapse;">
-            <tr><td style="padding:6px 0;color:#888;width:100px;">Name</td><td style="color:#fff;">${escapeHtml(data.name)}</td></tr>
-            <tr><td style="padding:6px 0;color:#888;">Email</td><td><a href="mailto:${escapeHtml(verifiedEmail)}" style="color:#00ff88;">${escapeHtml(verifiedEmail)}</a> <span style="color:#555;font-size:11px;">(verified via Clerk)</span></td></tr>
+            <tr><td style="padding:6px 0;color:#888;width:120px;">Name</td><td style="color:#fff;">${escapeHtml(data.name)}</td></tr>
+            <tr><td style="padding:6px 0;color:#888;">Reply-to</td><td>${emailDisplay}</td></tr>
+            <tr><td style="padding:6px 0;color:#888;">Auth via</td><td style="color:#fff;">${authProvider}</td></tr>
             <tr><td style="padding:6px 0;color:#888;">Subject</td><td style="color:#fff;">${subjectLabel}</td></tr>
-            <tr><td style="padding:6px 0;color:#888;">User ID</td><td style="color:#555;font-size:12px;">${verifiedUserId}</td></tr>
+            <tr><td style="padding:6px 0;color:#888;">Clerk ID</td><td style="color:#555;font-size:12px;">${verifiedUserId}</td></tr>
             <tr><td style="padding:6px 0;color:#888;">Time</td><td style="color:#555;font-size:12px;">${timestamp}</td></tr>
           </table>
           <div style="margin-top:16px;padding:16px;background:#111;border-left:3px solid #00ff88;border-radius:4px;">
@@ -136,8 +141,9 @@ contact.post('/v1/contact', async (c) => {
       `,
     })
 
-    // Confirmation to user at their verified email
-    await resend.emails.send({
+// Confirmation to user — only if we have a verified email (wallet users may not)
+    const confirmTo = verifiedEmail || data.email
+    if (confirmTo) await resend.emails.send({
       from: process.env.RESEND_FROM ?? 'noreply@claw-net.org',
       to: verifiedEmail,
       subject: `We received your message — ClawNet`,
