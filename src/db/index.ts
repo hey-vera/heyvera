@@ -105,6 +105,22 @@ export function initDb(): void {
       applied_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS skills (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL,
+      prompt_template TEXT NOT NULL,
+      author_key TEXT NOT NULL,
+      public INTEGER NOT NULL DEFAULT 0,
+      credit_cost INTEGER NOT NULL DEFAULT 0,
+      revenue_share_pct REAL NOT NULL DEFAULT 0.10,
+      uses INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_skills_author ON skills(author_key);
+    CREATE INDEX IF NOT EXISTS idx_skills_public ON skills(public);
+
     CREATE INDEX IF NOT EXISTS idx_orchestrations_timestamp ON orchestrations(timestamp);
     CREATE INDEX IF NOT EXISTS idx_api_keys_email ON api_keys(email);
     CREATE INDEX IF NOT EXISTS idx_api_keys_stripe ON api_keys(stripe_session_id);
@@ -464,4 +480,75 @@ export function getPeers(): { id: string; multiaddr: string; last_seen: string; 
   return getDb()
     .prepare('SELECT id, multiaddr, last_seen, metadata_json FROM peers ORDER BY last_seen DESC')
     .all() as { id: string; multiaddr: string; last_seen: string; metadata_json: string | null }[];
+}
+
+// ─── Skills / ClawHub ─────────────────────────────────────────────────────────
+
+export interface Skill {
+  id: string;
+  name: string;
+  description: string;
+  prompt_template: string;
+  author_key: string;
+  public: number;
+  credit_cost: number;
+  revenue_share_pct: number;
+  uses: number;
+  created_at: string;
+}
+
+export function createSkill(params: {
+  id: string;
+  name: string;
+  description: string;
+  promptTemplate: string;
+  authorKey: string;
+  public: boolean;
+  creditCost: number;
+}): void {
+  getDb()
+    .prepare(`INSERT INTO skills (id, name, description, prompt_template, author_key, public, credit_cost)
+              VALUES (@id, @name, @description, @promptTemplate, @authorKey, @public, @creditCost)`)
+    .run({ ...params, public: params.public ? 1 : 0 });
+}
+
+export function getSkill(id: string): Skill | undefined {
+  return getDb().prepare('SELECT * FROM skills WHERE id = ?').get(id) as Skill | undefined;
+}
+
+export function listPublicSkills(): Skill[] {
+  return getDb()
+    .prepare('SELECT * FROM skills WHERE public = 1 ORDER BY uses DESC, created_at DESC')
+    .all() as Skill[];
+}
+
+export function getSkillsByAuthor(authorKey: string): Skill[] {
+  return getDb()
+    .prepare('SELECT * FROM skills WHERE author_key = ? ORDER BY created_at DESC')
+    .all(authorKey) as Skill[];
+}
+
+export function countSkillsByAuthor(authorKey: string): number {
+  const row = getDb()
+    .prepare('SELECT COUNT(*) as count FROM skills WHERE author_key = ?')
+    .get(authorKey) as { count: number };
+  return row.count;
+}
+
+export function incrementSkillUses(id: string): void {
+  getDb().prepare('UPDATE skills SET uses = uses + 1 WHERE id = ?').run(id);
+}
+
+export function deleteSkill(id: string, authorKey: string): boolean {
+  const result = getDb()
+    .prepare('DELETE FROM skills WHERE id = ? AND author_key = ?')
+    .run(id, authorKey);
+  return result.changes > 0;
+}
+
+export function updateSkillVisibility(id: string, authorKey: string, isPublic: boolean): boolean {
+  const result = getDb()
+    .prepare('UPDATE skills SET public = ? WHERE id = ? AND author_key = ?')
+    .run(isPublic ? 1 : 0, id, authorKey);
+  return result.changes > 0;
 }
