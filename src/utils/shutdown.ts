@@ -2,6 +2,7 @@ import { logger } from './logger';
 import { closeDb } from '../db/index';
 import { closeRedis } from '../cache/index';
 import { stopHeartbeat } from '../core/heartbeat';
+import { stopMeshNode } from '../mesh/node';
 
 let isShuttingDown = false;
 
@@ -21,6 +22,12 @@ export function setupGracefulShutdown() {
       await closeRedis();
     } catch (err) {
       logger.warn({ err }, 'Error closing Redis');
+    }
+
+    try {
+      await stopMeshNode();
+    } catch (err) {
+      logger.warn({ err }, 'Error stopping mesh node');
     }
 
     try {

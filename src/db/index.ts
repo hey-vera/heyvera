@@ -63,6 +63,13 @@ export function initDb(): void {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS peers (
+      id TEXT PRIMARY KEY,
+      multiaddr TEXT NOT NULL,
+      last_seen TEXT NOT NULL,
+      metadata_json TEXT
+    );
+
     CREATE INDEX IF NOT EXISTS idx_orchestrations_timestamp ON orchestrations(timestamp);
     CREATE INDEX IF NOT EXISTS idx_api_keys_email ON api_keys(email);
     CREATE INDEX IF NOT EXISTS idx_api_keys_stripe ON api_keys(stripe_session_id);
@@ -308,4 +315,25 @@ export function topUpCredits(key: string, credits: number, stripeSessionId?: str
       .prepare('UPDATE api_keys SET credits = credits + ? WHERE key = ?')
       .run(credits, key);
   }
+}
+
+// ─── Mesh Peers ───────────────────────────────────────────────────────────────
+
+export function upsertPeer(id: string, multiaddr: string, metadata?: Record<string, unknown>): void {
+  try {
+    getDb()
+      .prepare(
+        `INSERT OR REPLACE INTO peers (id, multiaddr, last_seen, metadata_json)
+         VALUES (?, ?, datetime('now'), ?)`
+      )
+      .run(id, multiaddr, metadata ? JSON.stringify(metadata) : null);
+  } catch (err) {
+    logger.error({ err }, 'Failed to upsert peer');
+  }
+}
+
+export function getPeers(): { id: string; multiaddr: string; last_seen: string; metadata_json: string | null }[] {
+  return getDb()
+    .prepare('SELECT id, multiaddr, last_seen, metadata_json FROM peers ORDER BY last_seen DESC')
+    .all() as { id: string; multiaddr: string; last_seen: string; metadata_json: string | null }[];
 }

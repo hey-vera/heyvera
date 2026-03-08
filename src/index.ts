@@ -19,6 +19,8 @@ import { adminRouter } from './routes/admin';
 import { initClawApis } from './providers/clawapis';
 import { stripeRouter } from './routes/stripe';
 import { solanaRouter } from './routes/solana';
+import { meshRouter } from './routes/mesh';
+import { startMeshNode } from './mesh/node';
 
 const app = new Hono();
 
@@ -62,6 +64,7 @@ app.get('/v1/balance', async (c) => {
 app.use('/v1/orchestrate', checkApiKey);
 app.route('/v1/feedback', feedbackRouter);
 app.route('/v1/admin', adminRouter);
+app.route('/v1/mesh', meshRouter);
 app.route('/v1', apiRouter);
 
 app.notFound((c) => c.json({ error: 'Not found', code: 'NOT_FOUND' }, 404));
@@ -80,6 +83,7 @@ async function start() {
   setupGracefulShutdown();
   startHeartbeat();
   await initTelegram();
+  await startMeshNode();
 
   serve({ fetch: app.fetch, port: env.PORT, hostname: '0.0.0.0' }, () => {
     logger.info(`ClawNet running on port ${env.PORT}`);
