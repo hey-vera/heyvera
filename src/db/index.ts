@@ -187,6 +187,35 @@ export function getDbStats(): {
   };
 }
 
+// ── Solana / Clerk helpers ─────────────────────────────────────
+export function getApiKeyByClerkId(clerkUserId: string) {
+  return db.prepare(`
+    SELECT * FROM api_keys WHERE clerk_user_id = ?
+  `).get(clerkUserId) as any;
+}
+
+export function createApiKeyForClerk(opts: {
+  key: string;
+  clerkUserId: string;
+  email: string;
+  credits: number;
+  solanaSignature: string;
+  amountPaid: number;
+}) {
+  db.prepare(`
+    INSERT INTO api_keys (key, email, credits, credits_used, created_at, stripe_session_id, clerk_user_id)
+    VALUES (?, ?, ?, 0, datetime('now'), ?, ?)
+  `).run(opts.key, opts.email, opts.credits, opts.solanaSignature, opts.clerkUserId);
+}
+
+export function topUpCreditsForClerk(clerkUserId: string, credits: number, signature: string) {
+  db.prepare(`
+    UPDATE api_keys
+    SET credits = credits + ?
+    WHERE clerk_user_id = ?
+  `).run(credits, clerkUserId);
+}
+
 // ─── API Keys ─────────────────────────────────────────────────────────────────
 
 export function createApiKey(params: {

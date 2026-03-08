@@ -18,6 +18,7 @@ import { initDb, closeDb, getApiKeyBalance } from './db/index';
 import { adminRouter } from './routes/admin';
 import { initClawApis } from './providers/clawapis';
 import { stripeRouter } from './routes/stripe';
+import { solanaRouter } from './routes/solana';
 
 const app = new Hono();
 
@@ -41,6 +42,7 @@ app.get('/', (c) => c.json({
 
 // app routing
 app.route('/v1/webhooks', stripeRouter);
+app.route('/v1/solana', solanaRouter);
 app.route('/v1/dashboard', dashboardRouter);
 app.route('/', contactRoute)
 
