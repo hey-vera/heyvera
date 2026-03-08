@@ -100,43 +100,28 @@ function nextFeedQuery(): string {
 }
 
 // ─── Rate limiting + cost budget ─────────────────────────────────────────────
+// Each user gets 1 on-demand query per 12 hours. Anyone can query — no subscription required.
+// Feed runs are separate (scheduled, not counted here).
 
 const userCooldowns = new Map<number, number>();
-const COOLDOWN_MS = 60_000; // 60s between on-demand queries per user
-
-// Global hourly query budget — caps total LLM spend across all bot users.
-// Each on-demand query = ~1 LLM parse + 1 LLM synthesis call.
-// Feed runs are not counted (scheduled, predictable cost).
-const HOURLY_BUDGET = parseInt(process.env.TG_HOURLY_QUERY_BUDGET ?? '40');
-let hourlyCount = 0;
-let hourlyResetAt = Date.now() + 3_600_000;
-
-function checkBudget(): boolean {
-  if (Date.now() > hourlyResetAt) {
-    hourlyCount = 0;
-    hourlyResetAt = Date.now() + 3_600_000;
-  }
-  if (hourlyCount >= HOURLY_BUDGET) return false;
-  hourlyCount++;
-  return true;
-}
+const COOLDOWN_MS = 12 * 60 * 60 * 1000; // 12 hours per user
 
 function isOnCooldown(chatId: number): boolean {
   const last = userCooldowns.get(chatId) ?? 0;
   return Date.now() - last < COOLDOWN_MS;
 }
 
+function cooldownRemaining(chatId: number): string {
+  const last = userCooldowns.get(chatId) ?? 0;
+  const remainMs = COOLDOWN_MS - (Date.now() - last);
+  const h = Math.floor(remainMs / 3_600_000);
+  const m = Math.floor((remainMs % 3_600_000) / 60_000);
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
 function setCooldown(chatId: number): void {
   userCooldowns.set(chatId, Date.now());
 }
-
-// On-demand queries require subscription to limit open-ended cost exposure.
-// /start, /help, /subscribe, /status, /skills are always free (no LLM call).
-function requiresSubscription(chatId: number): boolean {
-  return !subscribers.has(chatId);
-}
-
-const SUBSCRIBE_PROMPT = '🔒 On-demand queries are available to subscribers.\n\nUse /subscribe to join the feed and unlock all commands.';
 
 // ─── Telegram HTML formatter ──────────────────────────────────────────────────
 
@@ -323,9 +308,7 @@ export async function initTelegram(): Promise<void> {
     // /trending
     bot.command('trending', async (ctx) => {
       const chatId = ctx.chat.id;
-      if (requiresSubscription(chatId)) { await ctx.reply(SUBSCRIBE_PROMPT); return; }
-      if (isOnCooldown(chatId)) { await ctx.reply('⏳ Please wait 60 seconds between queries.'); return; }
-      if (!checkBudget()) { await ctx.reply('⚠️ Bot is busy — try again in a few minutes.'); return; }
+      if (isOnCooldown(chatId)) { await ctx.reply(`⏳ You can ask 1 query every 12 hours. Next query available in ${cooldownRemaining(chatId)}.`); return; }
       setCooldown(chatId);
       await replyWithQuery(
         ctx,
@@ -342,9 +325,7 @@ export async function initTelegram(): Promise<void> {
         await ctx.reply('Usage: /analyze &lt;token symbol or mint address&gt;\n\nExample: /analyze BONK', { parse_mode: 'HTML' });
         return;
       }
-      if (requiresSubscription(chatId)) { await ctx.reply(SUBSCRIBE_PROMPT); return; }
-      if (isOnCooldown(chatId)) { await ctx.reply('⏳ Please wait 60 seconds between queries.'); return; }
-      if (!checkBudget()) { await ctx.reply('⚠️ Bot is busy — try again in a few minutes.'); return; }
+      if (isOnCooldown(chatId)) { await ctx.reply(`⏳ You can ask 1 query every 12 hours. Next query available in ${cooldownRemaining(chatId)}.`); return; }
       setCooldown(chatId);
 
       const isAddress = input.length >= 32 && /^[1-9A-HJ-NP-Za-km-z]+$/.test(input);
@@ -363,9 +344,7 @@ export async function initTelegram(): Promise<void> {
         await ctx.reply('Usage: /wallet &lt;Solana wallet address&gt;', { parse_mode: 'HTML' });
         return;
       }
-      if (requiresSubscription(chatId)) { await ctx.reply(SUBSCRIBE_PROMPT); return; }
-      if (isOnCooldown(chatId)) { await ctx.reply('⏳ Please wait 60 seconds between queries.'); return; }
-      if (!checkBudget()) { await ctx.reply('⚠️ Bot is busy — try again in a few minutes.'); return; }
+      if (isOnCooldown(chatId)) { await ctx.reply(`⏳ You can ask 1 query every 12 hours. Next query available in ${cooldownRemaining(chatId)}.`); return; }
       setCooldown(chatId);
       await replyWithQuery(
         ctx,
@@ -378,9 +357,7 @@ export async function initTelegram(): Promise<void> {
     bot.command('news', async (ctx) => {
       const chatId = ctx.chat.id;
       const topic = ctx.match?.trim() || 'Solana crypto';
-      if (requiresSubscription(chatId)) { await ctx.reply(SUBSCRIBE_PROMPT); return; }
-      if (isOnCooldown(chatId)) { await ctx.reply('⏳ Please wait 60 seconds between queries.'); return; }
-      if (!checkBudget()) { await ctx.reply('⚠️ Bot is busy — try again in a few minutes.'); return; }
+      if (isOnCooldown(chatId)) { await ctx.reply(`⏳ You can ask 1 query every 12 hours. Next query available in ${cooldownRemaining(chatId)}.`); return; }
       setCooldown(chatId);
       await replyWithQuery(
         ctx,
@@ -397,9 +374,7 @@ export async function initTelegram(): Promise<void> {
         await ctx.reply('Usage: /sentiment &lt;token symbol&gt;\n\nExample: /sentiment SOL', { parse_mode: 'HTML' });
         return;
       }
-      if (requiresSubscription(chatId)) { await ctx.reply(SUBSCRIBE_PROMPT); return; }
-      if (isOnCooldown(chatId)) { await ctx.reply('⏳ Please wait 60 seconds between queries.'); return; }
-      if (!checkBudget()) { await ctx.reply('⚠️ Bot is busy — try again in a few minutes.'); return; }
+      if (isOnCooldown(chatId)) { await ctx.reply(`⏳ You can ask 1 query every 12 hours. Next query available in ${cooldownRemaining(chatId)}.`); return; }
       setCooldown(chatId);
       await replyWithQuery(
         ctx,
@@ -443,9 +418,7 @@ export async function initTelegram(): Promise<void> {
         return;
       }
 
-      if (requiresSubscription(chatId)) { await ctx.reply(SUBSCRIBE_PROMPT); return; }
-      if (isOnCooldown(chatId)) { await ctx.reply('⏳ Please wait 60 seconds between queries.'); return; }
-      if (!checkBudget()) { await ctx.reply('⚠️ Bot is busy — try again in a few minutes.'); return; }
+      if (isOnCooldown(chatId)) { await ctx.reply(`⏳ You can ask 1 query every 12 hours. Next query available in ${cooldownRemaining(chatId)}.`); return; }
       setCooldown(chatId);
 
       // Parse key=value pairs from remaining args
@@ -484,9 +457,7 @@ export async function initTelegram(): Promise<void> {
         await ctx.reply('Usage: /ask &lt;your question&gt;\n\nOr just type your question directly.', { parse_mode: 'HTML' });
         return;
       }
-      if (requiresSubscription(chatId)) { await ctx.reply(SUBSCRIBE_PROMPT); return; }
-      if (isOnCooldown(chatId)) { await ctx.reply('⏳ Please wait 60 seconds between queries.'); return; }
-      if (!checkBudget()) { await ctx.reply('⚠️ Bot is busy — try again in a few minutes.'); return; }
+      if (isOnCooldown(chatId)) { await ctx.reply(`⏳ You can ask 1 query every 12 hours. Next query available in ${cooldownRemaining(chatId)}.`); return; }
       setCooldown(chatId);
       await replyWithQuery(ctx, question);
     });
@@ -504,9 +475,7 @@ export async function initTelegram(): Promise<void> {
         return;
       }
 
-      if (requiresSubscription(chatId)) { await ctx.reply(SUBSCRIBE_PROMPT); return; }
-      if (isOnCooldown(chatId)) { await ctx.reply('⏳ Please wait 60 seconds between queries.'); return; }
-      if (!checkBudget()) { await ctx.reply('⚠️ Bot is busy — try again in a few minutes.'); return; }
+      if (isOnCooldown(chatId)) { await ctx.reply(`⏳ You can ask 1 query every 12 hours. Next query available in ${cooldownRemaining(chatId)}.`); return; }
       setCooldown(chatId);
       await replyWithQuery(ctx, text);
     });
