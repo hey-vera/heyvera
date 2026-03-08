@@ -58,8 +58,7 @@ apiRouter.post('/orchestrate', async (c) => {
     const formatted = await formatResponse(query, intent, execution);
 
     const apiCosts = execution.totalCost;
-    const markup = apiCosts * (env.MARKUP_PERCENT / 100);
-    const total = apiCosts + markup;
+// margin is in package spread, no runtime markup applied
     const cacheHits = execution.steps.filter((s) => s.cached).length;
     const savings = cacheHits * 0.002;
     const totalDurationMs = Date.now() - start;
@@ -87,8 +86,8 @@ apiRouter.post('/orchestrate', async (c) => {
       cacheHits,
       totalDurationMs,
       apiCost: apiCosts,
-      markup,
-      total,
+      markup: 0,
+      total: apiCosts,
       success: true,
       llmProvider: env.LLM_PROVIDER,
     };
