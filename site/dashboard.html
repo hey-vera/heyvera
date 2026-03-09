@@ -574,8 +574,8 @@
   <div class="network-bar" id="networkBar">
     <div class="nb-item">
       <div class="nb-label"><span class="nb-live-dot"></span>Live network</div>
-      <div class="nb-val" id="nb-endpoints">183</div>
-      <div class="nb-sub">API endpoints</div>
+      <div class="nb-val" id="nb-endpoints">—</div>
+      <div class="nb-sub" id="nb-endpoints-sub">API endpoints</div>
     </div>
     <div class="nb-item">
       <div class="nb-label">Total calls</div>
@@ -583,24 +583,19 @@
       <div class="nb-sub">all time</div>
     </div>
     <div class="nb-item">
-      <div class="nb-label">Avg cost / query</div>
-      <div class="nb-val" id="nb-avgcost">$0.001–$0.032</div>
-      <div class="nb-sub">live range</div>
-    </div>
-    <div class="nb-item">
-      <div class="nb-label">Cache hit rate</div>
-      <div class="nb-val yellow" id="nb-cache">—%</div>
-      <div class="nb-sub">semantic cache</div>
+      <div class="nb-label">Cost range</div>
+      <div class="nb-val" id="nb-avgcost">—</div>
+      <div class="nb-sub">per query</div>
     </div>
     <div class="nb-item">
       <div class="nb-label">Avg latency</div>
       <div class="nb-val white" id="nb-latency">—</div>
-      <div class="nb-sub">P95 &lt;8s</div>
+      <div class="nb-sub">across all calls</div>
     </div>
     <div class="nb-item">
       <div class="nb-label">Success rate</div>
-      <div class="nb-val" id="nb-success">—%</div>
-      <div class="nb-sub" id="nb-success-sub">last 20 queries</div>
+      <div class="nb-val" id="nb-success">—</div>
+      <div class="nb-sub">all time</div>
     </div>
   </div>
 
@@ -852,34 +847,43 @@
     // NETWORK STATS BAR
     // ─────────────────────────────────────────────────────────────
     async function loadNetworkStats() {
-      let d = null;
       try {
-        const r = await fetch(`${API_BASE}/v1/usage`);
-        if (r.ok) {
-          d = await r.json();
-          const s = d.stats || {};
-          const total = s.total || 0;
-          if (total) document.getElementById('nb-total').textContent = total.toLocaleString();
-          if (s.cacheHitRate != null) document.getElementById('nb-cache').textContent = s.cacheHitRate + '%';
-          if (s.avgDurationMs) document.getElementById('nb-latency').textContent = (s.avgDurationMs / 1000).toFixed(1) + 's avg';
-          if (s.avgCostUsd != null) {
-            const lo = (s.minCostUsd ?? 0.001).toFixed(4).replace(/0+$/, '').replace(/[.]$/, '');
-            const hi = (s.maxCostUsd ?? 0.032).toFixed(4).replace(/0+$/, '').replace(/[.]$/, '');
-            document.getElementById('nb-avgcost').textContent = '$' + lo + '–$' + hi;
-          }
+        const r = await fetch(`${API_BASE}/v1/stats`);
+        if (!r.ok) return;
+        const d = await r.json();
+
+        const epTotal = d.endpoints?.total ?? null;
+        const epOp = d.endpoints?.operational ?? null;
+        if (epTotal != null) {
+          document.getElementById('nb-endpoints').textContent = epTotal.toLocaleString();
+          document.getElementById('nb-endpoints-sub').textContent =
+            epOp != null ? epOp + ' operational' : 'API endpoints';
+        }
+
+        if (d.totalCalls != null) {
+          document.getElementById('nb-total').textContent = d.totalCalls.toLocaleString();
+        }
+
+        const lo = d.endpoints?.minCostUsd;
+        const hi = d.endpoints?.maxCostUsd;
+        if (lo != null && hi != null) {
+          document.getElementById('nb-avgcost').textContent =
+            '$' + lo.toFixed(3) + '–$' + hi.toFixed(3);
+        }
+
+        if (d.avgDurationMs) {
+          document.getElementById('nb-latency').textContent =
+            (d.avgDurationMs / 1000).toFixed(1) + 's avg';
+        }
+
+        const sr = d.successRate;
+        if (sr != null) {
+          const pct = Math.round(sr * 100);
+          const el = document.getElementById('nb-success');
+          el.textContent = pct + '%';
+          el.style.color = pct >= 90 ? 'var(--green)' : pct >= 70 ? 'var(--yellow)' : 'var(--red)';
         }
       } catch (e) {}
-      if (d && Array.isArray(d.recent) && d.recent.length > 0) {
-        const succeeded = d.recent.filter(x => x.success).length;
-        const rate = Math.round((succeeded / d.recent.length) * 100);
-        const el = document.getElementById('nb-success');
-        if (el) {
-          el.textContent = rate + '%';
-          el.style.color = rate >= 90 ? 'var(--green)' : rate >= 70 ? 'var(--yellow)' : 'var(--red)';
-        }
-        const sub = document.getElementById('nb-success-sub');
-        if (sub) sub.textContent = succeeded + '/' + d.recent.length + ' succeeded';
-      }
     }
     loadNetworkStats();
     setInterval(loadNetworkStats, 60000);
