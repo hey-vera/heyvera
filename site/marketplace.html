@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ClawHub Marketplace — Claw-Net.org</title>
+  <meta name="description" content="Buy, sell, and stake AI skills on the ClawHub marketplace. Powered by ClawNet credits.">
+  <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png">
+  <link rel="apple-touch-icon" href="/favicon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&family=IBM+Plex+Serif:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --green: #00ff88;
+      --green-dim: rgba(0,255,136,0.1);
+      --green-glow: rgba(0,255,136,0.06);
+      --bg: #060606;
+      --surface: #0d0d0d;
+      --surface2: #111;
+      --surface3: #161616;
+      --border: #1a1a1a;
+      --border2: #222;
+      --text: #e0e0e0;
+      --muted: #888;
+      --muted2: #c0c0c0;
+      --font: 'JetBrains Mono', monospace;
+      --red: #ff4444;
+      --yellow: #ffaa00;
+      --purple: #9945ff;
+      --blue: #4488ff;
+    }
+    body { font-family: var(--font); background: var(--bg); color: var(--text); min-height: 100vh; }
+    body::before {
+      content: ''; position: fixed; inset: 0;
+      background-image:
+        linear-gradient(rgba(0,255,136,0.02) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0,255,136,0.02) 1px, transparent 1px);
+      background-size: 48px 48px; pointer-events: none; z-index: 0;
+    }
+
+    /* ── TOAST ── */
+    #toast-container { position: fixed; bottom: 32px; right: 32px; z-index: 9999; display: flex; flex-direction: column; gap: 10px; }
+    .toast { font-family: var(--font); font-size: 12px; padding: 14px 20px; border: 1px solid; display: flex; align-items: center; gap: 10px; min-width: 260px; max-width: 380px; animation: slideIn 0.2s ease; }
+    .toast.success { background: #050f08; border-color: #0a3a1a; color: #44bb77; }
+    .toast.error   { background: #0f0505; border-color: #3a0a0a; color: #ff6666; }
+    .toast.info    { background: var(--surface); border-color: var(--border2); color: var(--muted2); }
+    @keyframes slideIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+
+    /* ── NAV ── */
+    nav { position: sticky; top: 0; z-index: 100; display: flex; align-items: center; justify-content: space-between; padding: 0 32px; height: 68px; background: rgba(6,6,6,0.97); border-bottom: 1px solid var(--border); backdrop-filter: blur(12px); }
+    .nav-left { display: flex; align-items: center; gap: 24px; }
+    .nav-logo { display: flex; align-items: center; text-decoration: none; height: 100%; padding: 4px 0; }
+    .nav-logo img { height: 56px; width: auto; max-width: 220px; object-fit: contain; display: block; transition: opacity 0.15s; }
+    .nav-logo:hover img { opacity: 0.85; }
+    .nav-link { font-family: var(--font); font-size: 11px; color: var(--muted); text-decoration: none; letter-spacing: 1px; text-transform: uppercase; padding: 6px 0; transition: color 0.15s; }
+    .nav-link:hover { color: var(--green); }
+    .nav-right { display: flex; align-items: center; gap: 16px; }
+    .nav-credits { font-size: 11px; color: var(--green); display: none; align-items: center; gap: 6px; padding: 5px 12px; border: 1px solid rgba(0,255,136,0.2); }
+    .nav-credits.show { display: flex; }
+    .btn-nav { font-family: var(--font); font-size: 11px; padding: 6px 14px; cursor: pointer; border: 1px solid var(--border2); color: var(--muted); background: transparent; transition: all 0.15s; text-decoration: none; letter-spacing: 0.5px; }
+    .btn-nav:hover { border-color: var(--green); color: var(--green); }
+    .btn-nav.primary { border-color: var(--green); color: var(--green); background: var(--green-dim); }
+    .btn-nav.primary:hover { background: rgba(0,255,136,0.2); }
+
+    /* ── MAIN ── */
+    main { position: relative; z-index: 1; max-width: 1200px; margin: 0 auto; padding: 40px 32px 80px; }
+
+    /* ── HERO ── */
+    .hero { text-align: center; padding: 60px 0 48px; border-bottom: 1px solid var(--border); margin-bottom: 40px; }
+    .hero-badge { display: inline-flex; align-items: center; gap: 8px; font-size: 10px; letter-spacing: 3px; text-transform: uppercase; color: var(--green); border: 1px solid rgba(0,255,136,0.25); padding: 6px 14px; margin-bottom: 24px; }
+    .hero-badge::before { content: '◆'; font-size: 8px; }
+    .hero-title { font-family: 'IBM Plex Serif', Georgia, serif; font-size: 42px; font-weight: 700; color: #fff; letter-spacing: -1px; margin-bottom: 16px; }
+    .hero-title span { color: var(--green); }
+    .hero-sub { font-size: 13px; color: var(--muted); max-width: 520px; margin: 0 auto 32px; line-height: 1.7; }
+    .hero-stats { display: flex; align-items: center; justify-content: center; gap: 40px; }
+    .hero-stat { text-align: center; }
+    .hero-stat-val { font-size: 24px; font-weight: 700; color: var(--green); letter-spacing: -0.5px; }
+    .hero-stat-lbl { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 1.5px; margin-top: 4px; }
+    .hero-divider { width: 1px; height: 32px; background: var(--border2); }
+
+    /* ── CONTROLS ── */
+    .controls { display: flex; align-items: center; gap: 12px; margin-bottom: 28px; flex-wrap: wrap; }
+    .search-wrap { flex: 1; min-width: 240px; position: relative; }
+    .search-wrap::before { content: '⌕'; position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: 16px; pointer-events: none; }
+    .search-input { width: 100%; font-family: var(--font); font-size: 12px; background: var(--surface); border: 1px solid var(--border2); color: var(--text); padding: 10px 14px 10px 38px; outline: none; transition: border-color 0.15s; }
+    .search-input:focus { border-color: rgba(0,255,136,0.4); }
+    .search-input::placeholder { color: var(--muted); }
+    .filter-select { font-family: var(--font); font-size: 11px; background: var(--surface); border: 1px solid var(--border2); color: var(--muted2); padding: 10px 14px; outline: none; cursor: pointer; transition: border-color 0.15s; appearance: none; -webkit-appearance: none; padding-right: 28px; }
+    .filter-select:focus { border-color: rgba(0,255,136,0.4); }
+    .filter-wrap { position: relative; }
+    .filter-wrap::after { content: '▾'; position: absolute; right: 10px; top: 50%; transform: translateY(-50%); pointer-events: none; font-size: 10px; color: var(--muted); }
+    .tag-filters { display: flex; gap: 8px; flex-wrap: wrap; }
+    .tag-btn { font-family: var(--font); font-size: 10px; padding: 5px 12px; border: 1px solid var(--border2); color: var(--muted); background: transparent; cursor: pointer; letter-spacing: 0.5px; transition: all 0.15s; }
+    .tag-btn:hover, .tag-btn.active { border-color: var(--green); color: var(--green); background: var(--green-dim); }
+
+    /* ── SKILL GRID ── */
+    .skills-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; }
+    .skill-card { background: var(--surface); border: 1px solid var(--border); padding: 24px; position: relative; transition: border-color 0.15s, transform 0.15s; cursor: default; }
+    .skill-card:hover { border-color: rgba(0,255,136,0.3); transform: translateY(-2px); }
+    .skill-card.official { border-color: rgba(0,255,136,0.2); }
+    .skill-card.official::before { content: 'OFFICIAL'; position: absolute; top: 12px; right: 12px; font-size: 9px; letter-spacing: 1.5px; color: var(--green); border: 1px solid rgba(0,255,136,0.3); padding: 3px 8px; background: var(--green-glow); }
+    .skill-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+    .skill-name { font-size: 14px; font-weight: 700; color: #fff; letter-spacing: -0.3px; }
+    .skill-version { font-size: 9px; color: var(--muted); margin-top: 3px; letter-spacing: 0.5px; }
+    .skill-price { text-align: right; flex-shrink: 0; }
+    .skill-price-val { font-size: 20px; font-weight: 700; color: var(--green); line-height: 1; }
+    .skill-price-lbl { font-size: 9px; color: var(--muted); margin-top: 2px; letter-spacing: 0.5px; }
+    .skill-desc { font-size: 12px; color: var(--muted2); line-height: 1.6; margin-bottom: 16px; }
+    .skill-tags { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
+    .skill-tag { font-size: 9px; padding: 3px 8px; border: 1px solid var(--border2); color: var(--muted); letter-spacing: 0.5px; text-transform: uppercase; }
+    .skill-meta { display: flex; gap: 20px; margin-bottom: 20px; }
+    .skill-meta-item { font-size: 10px; color: var(--muted); }
+    .skill-meta-item span { color: var(--muted2); font-weight: 600; }
+    .skill-actions { display: flex; gap: 8px; }
+    .btn-buy { flex: 1; font-family: var(--font); font-size: 11px; padding: 10px 16px; background: var(--green-dim); border: 1px solid var(--green); color: var(--green); cursor: pointer; letter-spacing: 0.5px; transition: all 0.15s; text-transform: uppercase; }
+    .btn-buy:hover { background: rgba(0,255,136,0.25); }
+    .btn-buy:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-detail { font-family: var(--font); font-size: 11px; padding: 10px 14px; background: transparent; border: 1px solid var(--border2); color: var(--muted); cursor: pointer; letter-spacing: 0.5px; transition: all 0.15s; }
+    .btn-detail:hover { border-color: var(--muted2); color: var(--muted2); }
+
+    /* Skeleton loading */
+    .skeleton { animation: pulse 1.5s ease-in-out infinite; }
+    @keyframes pulse { 0%,100% { opacity: 0.4; } 50% { opacity: 0.8; } }
+    .skeleton-card { background: var(--surface); border: 1px solid var(--border); padding: 24px; }
+    .skeleton-line { background: var(--border2); height: 12px; border-radius: 2px; margin-bottom: 10px; }
+
+    /* ── MODAL ── */
+    .modal-backdrop { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 500; align-items: center; justify-content: center; padding: 24px; }
+    .modal-backdrop.open { display: flex; }
+    .modal { background: var(--surface); border: 1px solid var(--border2); max-width: 600px; width: 100%; max-height: 90vh; overflow-y: auto; }
+    .modal-header { display: flex; align-items: center; justify-content: space-between; padding: 20px 24px; border-bottom: 1px solid var(--border); }
+    .modal-title { font-size: 14px; font-weight: 700; color: #fff; }
+    .modal-close { background: none; border: none; color: var(--muted); font-size: 20px; cursor: pointer; padding: 4px 8px; transition: color 0.15s; }
+    .modal-close:hover { color: #fff; }
+    .modal-body { padding: 24px; }
+    .modal-section { margin-bottom: 24px; }
+    .modal-label { font-size: 10px; color: var(--muted); letter-spacing: 2px; text-transform: uppercase; margin-bottom: 10px; }
+    .modal-desc { font-size: 12px; color: var(--muted2); line-height: 1.7; }
+    .schema-block { background: #000; border: 1px solid var(--border); padding: 16px; font-size: 11px; color: #7ec8a0; line-height: 1.6; white-space: pre-wrap; overflow-x: auto; }
+    .cost-breakdown { background: var(--surface3); border: 1px solid var(--border); padding: 16px; }
+    .cost-row { display: flex; justify-content: space-between; font-size: 12px; padding: 6px 0; border-bottom: 1px solid var(--border); }
+    .cost-row:last-child { border-bottom: none; font-weight: 700; color: var(--green); }
+    .cost-row:last-child .cost-label { color: var(--green); }
+    .cost-label { color: var(--muted2); }
+    .cost-val { color: var(--muted2); }
+    .modal-footer { display: flex; gap: 10px; padding: 16px 24px; border-top: 1px solid var(--border); }
+    .btn-modal-buy { flex: 1; font-family: var(--font); font-size: 12px; padding: 12px 20px; background: var(--green-dim); border: 1px solid var(--green); color: var(--green); cursor: pointer; letter-spacing: 0.5px; transition: all 0.15s; }
+    .btn-modal-buy:hover { background: rgba(0,255,136,0.25); }
+    .btn-modal-cancel { font-family: var(--font); font-size: 12px; padding: 12px 20px; background: transparent; border: 1px solid var(--border2); color: var(--muted); cursor: pointer; transition: all 0.15s; }
+    .btn-modal-cancel:hover { border-color: var(--muted); color: var(--muted2); }
+
+    /* ── KEY PROMPT ── */
+    .key-prompt { background: var(--surface); border: 1px solid var(--border2); padding: 32px; text-align: center; margin-bottom: 28px; display: none; }
+    .key-prompt.show { display: block; }
+    .key-prompt-title { font-size: 13px; color: var(--muted2); margin-bottom: 16px; }
+    .key-input-row { display: flex; gap: 8px; max-width: 480px; margin: 0 auto; }
+    .key-input { flex: 1; font-family: var(--font); font-size: 12px; background: #000; border: 1px solid var(--border2); color: var(--text); padding: 10px 14px; outline: none; }
+    .key-input:focus { border-color: rgba(0,255,136,0.4); }
+    .btn-set-key { font-family: var(--font); font-size: 11px; padding: 10px 18px; background: var(--green-dim); border: 1px solid var(--green); color: var(--green); cursor: pointer; white-space: nowrap; }
+
+    /* ── PAGINATION ── */
+    .pagination { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 40px; }
+    .page-btn { font-family: var(--font); font-size: 11px; padding: 8px 14px; border: 1px solid var(--border2); color: var(--muted); background: transparent; cursor: pointer; transition: all 0.15s; }
+    .page-btn:hover:not(:disabled) { border-color: var(--green); color: var(--green); }
+    .page-btn.active { border-color: var(--green); color: var(--green); background: var(--green-dim); }
+    .page-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+    /* ── EMPTY ── */
+    .empty-state { text-align: center; padding: 80px 32px; }
+    .empty-icon { font-size: 40px; margin-bottom: 16px; opacity: 0.3; }
+    .empty-title { font-size: 14px; color: var(--muted2); margin-bottom: 8px; }
+    .empty-sub { font-size: 12px; color: var(--muted); }
+
+    /* ── PUBLISH BANNER ── */
+    .publish-banner { background: linear-gradient(135deg, rgba(0,255,136,0.06), rgba(153,69,255,0.04)); border: 1px solid rgba(0,255,136,0.15); padding: 28px 32px; margin-bottom: 32px; display: flex; align-items: center; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
+    .publish-text h3 { font-size: 14px; color: #fff; margin-bottom: 6px; }
+    .publish-text p { font-size: 12px; color: var(--muted); line-height: 1.5; }
+    .btn-publish { font-family: var(--font); font-size: 11px; padding: 10px 20px; border: 1px solid rgba(0,255,136,0.4); color: var(--green); background: var(--green-dim); cursor: pointer; white-space: nowrap; letter-spacing: 0.5px; transition: all 0.15s; text-decoration: none; }
+    .btn-publish:hover { background: rgba(0,255,136,0.2); }
+
+    /* ── STAKE SECTION ── */
+    .stake-section { margin-top: 60px; padding-top: 40px; border-top: 1px solid var(--border); }
+    .section-title { font-family: 'IBM Plex Serif', Georgia, serif; font-size: 22px; font-weight: 700; color: #fff; margin-bottom: 8px; }
+    .section-sub { font-size: 12px; color: var(--muted); margin-bottom: 28px; line-height: 1.6; }
+
+    @media (max-width: 640px) {
+      main { padding: 24px 16px 60px; }
+      .hero-title { font-size: 28px; }
+      .hero-stats { gap: 20px; }
+      .controls { flex-direction: column; align-items: stretch; }
+      .search-wrap { min-width: unset; }
+    }
+  </style>
+</head>
+<body>
+<div id="toast-container"></div>
+
+<nav>
+  <div class="nav-left">
+    <a href="/" class="nav-logo"><img src="/claw-logo.png" alt="ClawNet" onerror="this.style.display='none';this.nextElementSibling.style.display='block'"><span style="display:none;color:#00ff88;font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:700">CLAW-NET</span></a>
+    <a href="/dashboard.html" class="nav-link">← Dashboard</a>
+  </div>
+  <div class="nav-right">
+    <div class="nav-credits" id="nav-credits">⬡ <span id="nav-credit-num">—</span> credits</div>
+    <a href="/dashboard.html" class="btn-nav">My Skills</a>
+  </div>
+</nav>
+
+<main>
+  <section class="hero">
+    <div class="hero-badge">ClawHub Marketplace</div>
+    <h1 class="hero-title">The <span>AI Skill</span> Economy</h1>
+    <p class="hero-sub">Discover, purchase, and deploy specialized AI skills. Each skill runs on the ClawNet orchestration layer — pay only when you use it.</p>
+    <div class="hero-stats">
+      <div class="hero-stat">
+        <div class="hero-stat-val" id="stat-skills">—</div>
+        <div class="hero-stat-lbl">Skills Available</div>
+      </div>
+      <div class="hero-divider"></div>
+      <div class="hero-stat">
+        <div class="hero-stat-val" id="stat-uses">—</div>
+        <div class="hero-stat-lbl">Total Invocations</div>
+      </div>
+      <div class="hero-divider"></div>
+      <div class="hero-stat">
+        <div class="hero-stat-val">3%</div>
+        <div class="hero-stat-lbl">Platform Fee</div>
+      </div>
+      <div class="hero-divider"></div>
+      <div class="hero-stat">
+        <div class="hero-stat-val">97%</div>
+        <div class="hero-stat-lbl">To Creator</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- API Key Prompt -->
+  <div class="key-prompt" id="key-prompt">
+    <p class="key-prompt-title">Enter your ClawNet API key to purchase skills</p>
+    <div class="key-input-row">
+      <input type="password" class="key-input" id="key-input" placeholder="sk-claw-...">
+      <button class="btn-set-key" onclick="saveKey()">Set Key</button>
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div class="controls">
+    <div class="search-wrap">
+      <input type="text" class="search-input" id="search-input" placeholder="Search skills..." oninput="debounceSearch()">
+    </div>
+    <div class="filter-wrap">
+      <select class="filter-select" id="sort-select" onchange="loadSkills()">
+        <option value="popular">Sort: Popular</option>
+        <option value="newest">Sort: Newest</option>
+        <option value="price_asc">Sort: Price ↑</option>
+        <option value="price_desc">Sort: Price ↓</option>
+        <option value="reputation">Sort: Reputation</option>
+      </select>
+    </div>
+    <div class="tag-filters" id="tag-filters">
+      <button class="tag-btn active" data-tag="" onclick="setTag(this, '')">All</button>
+      <button class="tag-btn" data-tag="defi" onclick="setTag(this, 'defi')">DeFi</button>
+      <button class="tag-btn" data-tag="solana" onclick="setTag(this, 'solana')">Solana</button>
+      <button class="tag-btn" data-tag="social" onclick="setTag(this, 'social')">Social</button>
+      <button class="tag-btn" data-tag="analysis" onclick="setTag(this, 'analysis')">Analysis</button>
+      <button class="tag-btn" data-tag="portfolio" onclick="setTag(this, 'portfolio')">Portfolio</button>
+    </div>
+  </div>
+
+  <!-- Skill Grid -->
+  <div class="skills-grid" id="skills-grid"></div>
+  <div class="pagination" id="pagination"></div>
+
+  <!-- Publish Banner -->
+  <div class="publish-banner" style="margin-top: 48px;">
+    <div class="publish-text">
+      <h3>Publish your own skill</h3>
+      <p>Build a prompt template, set your price in credits, and earn 97% of every purchase.<br>Skills are invoked via the ClawNet orchestration layer — no infra required.</p>
+    </div>
+    <a href="/dashboard.html#skills" class="btn-publish">Publish a Skill →</a>
+  </div>
+
+  <!-- Stake Section -->
+  <div class="stake-section">
+    <h2 class="section-title">Staking</h2>
+    <p class="section-sub">Lock credits to boost a skill's visibility in search rankings. Staked credits are returned after the lock period. Higher total stake = higher organic discovery score.</p>
+    <div style="background:var(--surface);border:1px solid var(--border);padding:24px;">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;">
+        <div>
+          <label style="font-size:10px;color:var(--muted);letter-spacing:1.5px;text-transform:uppercase;display:block;margin-bottom:8px;">Skill ID to boost</label>
+          <input type="text" id="stake-skill-id" placeholder="token-analysis" class="key-input" style="width:100%">
+        </div>
+        <div>
+          <label style="font-size:10px;color:var(--muted);letter-spacing:1.5px;text-transform:uppercase;display:block;margin-bottom:8px;">Credits to stake</label>
+          <input type="number" id="stake-amount" placeholder="100" min="1" class="key-input" style="width:100%">
+        </div>
+        <div>
+          <label style="font-size:10px;color:var(--muted);letter-spacing:1.5px;text-transform:uppercase;display:block;margin-bottom:8px;">Lock period (days)</label>
+          <input type="number" id="stake-days" placeholder="30" min="1" max="365" class="key-input" style="width:100%">
+        </div>
+      </div>
+      <button class="btn-buy" style="max-width:200px;" onclick="stakeCredits()">Stake Credits</button>
+      <div id="stake-result" style="margin-top:16px;font-size:12px;color:var(--muted);display:none;"></div>
+    </div>
+  </div>
+</main>
+
+<!-- Skill Detail Modal -->
+<div class="modal-backdrop" id="modal" onclick="closeModal(event)">
+  <div class="modal" id="modal-box">
+    <div class="modal-header">
+      <div class="modal-title" id="modal-title">Skill Details</div>
+      <button class="modal-close" onclick="closeModal()">×</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+    <div class="modal-footer">
+      <button class="btn-modal-cancel" onclick="closeModal()">Cancel</button>
+      <button class="btn-modal-buy" id="modal-buy-btn" onclick="buySkill()">Purchase Skill</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = '';
+let apiKey = localStorage.getItem('claw_api_key') || '';
+let currentPage = 1;
+let currentTag = '';
+let currentSort = 'popular';
+let selectedSkill = null;
+let searchTimer = null;
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+
+window.addEventListener('DOMContentLoaded', () => {
+  if (apiKey) {
+    showCredits();
+    document.getElementById('key-prompt').classList.remove('show');
+  } else {
+    document.getElementById('key-prompt').classList.add('show');
+  }
+  loadSkills();
+  loadHeroStats();
+});
+
+// ─── Key ──────────────────────────────────────────────────────────────────────
+
+function saveKey() {
+  const k = document.getElementById('key-input').value.trim();
+  if (!k) return;
+  apiKey = k;
+  localStorage.setItem('claw_api_key', k);
+  document.getElementById('key-prompt').classList.remove('show');
+  showCredits();
+  toast('API key saved', 'success');
+}
+
+async function showCredits() {
+  if (!apiKey) return;
+  try {
+    const r = await fetch(`${API}/v1/balance`, { headers: { 'X-API-Key': apiKey } });
+    if (!r.ok) return;
+    const d = await r.json();
+    document.getElementById('nav-credit-num').textContent = d.credits.toLocaleString();
+    document.getElementById('nav-credits').classList.add('show');
+  } catch {}
+}
+
+// ─── Hero Stats ───────────────────────────────────────────────────────────────
+
+async function loadHeroStats() {
+  try {
+    const r = await fetch(`${API}/v1/marketplace/skills?limit=1`);
+    if (!r.ok) return;
+    const d = await r.json();
+    document.getElementById('stat-skills').textContent = d.total;
+    const uses = d.skills.reduce((s, sk) => s + (sk.uses || 0), 0);
+    document.getElementById('stat-uses').textContent = formatNum(uses);
+  } catch {}
+}
+
+// ─── Skills ───────────────────────────────────────────────────────────────────
+
+function debounceSearch() {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => { currentPage = 1; loadSkills(); }, 350);
+}
+
+function setTag(el, tag) {
+  document.querySelectorAll('.tag-btn').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+  currentTag = tag;
+  currentPage = 1;
+  loadSkills();
+}
+
+async function loadSkills() {
+  const grid = document.getElementById('skills-grid');
+  const sort = document.getElementById('sort-select').value;
+  const search = document.getElementById('search-input').value.trim();
+  currentSort = sort;
+
+  // Show skeletons
+  grid.innerHTML = Array(6).fill(0).map(() => `
+    <div class="skeleton-card skeleton">
+      <div class="skeleton-line" style="width:60%;height:16px;margin-bottom:16px"></div>
+      <div class="skeleton-line" style="width:100%"></div>
+      <div class="skeleton-line" style="width:80%"></div>
+      <div class="skeleton-line" style="width:40%;margin-top:16px;height:32px"></div>
+    </div>
+  `).join('');
+
+  const params = new URLSearchParams({
+    page: currentPage,
+    limit: 12,
+    sort,
+    ...(search && { search }),
+    ...(currentTag && { tags: currentTag }),
+  });
+
+  try {
+    const r = await fetch(`${API}/v1/marketplace/skills?${params}`);
+    if (!r.ok) throw new Error('API error');
+    const d = await r.json();
+
+    // Update hero stat
+    document.getElementById('stat-skills').textContent = d.total;
+
+    if (d.skills.length === 0) {
+      grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">
+        <div class="empty-icon">◈</div>
+        <div class="empty-title">No skills found</div>
+        <div class="empty-sub">Try a different search or tag filter</div>
+      </div>`;
+      document.getElementById('pagination').innerHTML = '';
+      return;
+    }
+
+    grid.innerHTML = d.skills.map(s => renderSkillCard(s)).join('');
+    renderPagination(d.page, d.pages);
+  } catch (e) {
+    grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">
+      <div class="empty-icon">⚠</div>
+      <div class="empty-title">Could not load skills</div>
+      <div class="empty-sub">Check your connection and try again</div>
+    </div>`;
+  }
+}
+
+function renderSkillCard(s) {
+  const isOfficial = ['token-analysis','social-sentiment','portfolio-optimizer'].includes(s.id);
+  const tags = (s.tags || []).map(t => `<span class="skill-tag">${t}</span>`).join('');
+  return `<div class="skill-card${isOfficial?' official':''}" data-id="${s.id}">
+    <div class="skill-header">
+      <div>
+        <div class="skill-name">${esc(s.name)}</div>
+        <div class="skill-version">v${esc(s.version || '1.0.0')}</div>
+      </div>
+      <div class="skill-price">
+        <div class="skill-price-val">${s.creditCost}</div>
+        <div class="skill-price-lbl">credits</div>
+      </div>
+    </div>
+    <p class="skill-desc">${esc(s.description)}</p>
+    ${tags ? `<div class="skill-tags">${tags}</div>` : ''}
+    <div class="skill-meta">
+      <div class="skill-meta-item">Uses: <span>${formatNum(s.uses || 0)}</span></div>
+      <div class="skill-meta-item">Stake: <span>${formatNum(s.stakeTotal || 0)}</span></div>
+    </div>
+    <div class="skill-actions">
+      <button class="btn-buy" onclick="openModal('${s.id}')">Purchase &amp; Invoke</button>
+      <button class="btn-detail" onclick="openDetail('${s.id}')">Details</button>
+    </div>
+  </div>`;
+}
+
+function renderPagination(page, pages) {
+  const el = document.getElementById('pagination');
+  if (pages <= 1) { el.innerHTML = ''; return; }
+  const btns = [];
+  btns.push(`<button class="page-btn" onclick="goPage(${page-1})" ${page<=1?'disabled':''}>← Prev</button>`);
+  for (let i = Math.max(1,page-2); i <= Math.min(pages,page+2); i++) {
+    btns.push(`<button class="page-btn${i===page?' active':''}" onclick="goPage(${i})">${i}</button>`);
+  }
+  btns.push(`<button class="page-btn" onclick="goPage(${page+1})" ${page>=pages?'disabled':''}>Next →</button>`);
+  el.innerHTML = btns.join('');
+}
+
+function goPage(p) { currentPage = p; loadSkills(); window.scrollTo({top:0,behavior:'smooth'}); }
+
+// ─── Modal ────────────────────────────────────────────────────────────────────
+
+async function openModal(id) {
+  if (!apiKey) { toast('Set your API key first', 'error'); document.getElementById('key-prompt').classList.add('show'); return; }
+  selectedSkill = null;
+  document.getElementById('modal-title').textContent = 'Loading...';
+  document.getElementById('modal-body').innerHTML = '<div style="padding:40px;text-align:center;color:var(--muted)">Loading skill details...</div>';
+  document.getElementById('modal').classList.add('open');
+
+  try {
+    const r = await fetch(`${API}/v1/marketplace/skills/${id}`);
+    if (!r.ok) throw new Error('Not found');
+    const s = await r.json();
+    selectedSkill = s;
+    document.getElementById('modal-title').textContent = s.name;
+    document.getElementById('modal-body').innerHTML = `
+      <div class="modal-section">
+        <div class="modal-label">Description</div>
+        <p class="modal-desc">${esc(s.description)}</p>
+      </div>
+      <div class="modal-section">
+        <div class="modal-label">Cost Breakdown</div>
+        <div class="cost-breakdown">
+          <div class="cost-row"><span class="cost-label">Skill price</span><span class="cost-val">${s.creditCost} credits</span></div>
+          <div class="cost-row"><span class="cost-label">Platform fee (3%)</span><span class="cost-val">${s.feeCredits} credits</span></div>
+          <div class="cost-row"><span class="cost-label">Creator receives</span><span class="cost-val">${s.sellerReceives} credits</span></div>
+          <div class="cost-row"><span class="cost-label">You pay</span><span class="cost-val">${s.totalCost} credits</span></div>
+        </div>
+      </div>
+      ${s.inputSchema ? `<div class="modal-section">
+        <div class="modal-label">Input Schema</div>
+        <pre class="schema-block">${esc(JSON.stringify(s.inputSchema, null, 2))}</pre>
+      </div>` : ''}
+      <div class="modal-section" style="margin-bottom:0">
+        <div class="modal-label">After purchase</div>
+        <p class="modal-desc">Payment is settled atomically. Then call <code style="color:var(--green);font-size:11px">POST /v1/skills/${esc(s.id)}/invoke</code> with your variables.</p>
+      </div>
+    `;
+  } catch(e) {
+    document.getElementById('modal-body').innerHTML = '<div style="padding:24px;color:var(--red)">Failed to load skill details.</div>';
+  }
+}
+
+async function openDetail(id) {
+  await openModal(id);
+  document.getElementById('modal-buy-btn').style.display = 'none';
+}
+
+function closeModal(evt) {
+  if (evt && evt.target !== document.getElementById('modal')) return;
+  document.getElementById('modal').classList.remove('open');
+  document.getElementById('modal-buy-btn').style.display = '';
+  selectedSkill = null;
+}
+
+async function buySkill() {
+  if (!selectedSkill || !apiKey) return;
+  const btn = document.getElementById('modal-buy-btn');
+  btn.disabled = true;
+  btn.textContent = 'Processing...';
+
+  try {
+    const r = await fetch(`${API}/v1/marketplace/skills/${selectedSkill.id}/purchase`, {
+      method: 'POST',
+      headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ variables: {} }),
+    });
+    const d = await r.json();
+    if (!r.ok) {
+      const msg = d.error || 'Purchase failed';
+      const extra = d.creditsRequired ? ` (need ${d.creditsRequired}, have ${d.creditsAvailable})` : '';
+      toast(msg + extra, 'error');
+    } else {
+      toast(`Purchased! Tx: ${d.txId}`, 'success');
+      document.getElementById('modal').classList.remove('open');
+      showCredits();
+      loadSkills();
+    }
+  } catch(e) {
+    toast('Network error — try again', 'error');
+  }
+
+  btn.disabled = false;
+  btn.textContent = 'Purchase Skill';
+}
+
+// ─── Stake ────────────────────────────────────────────────────────────────────
+
+async function stakeCredits() {
+  if (!apiKey) { toast('Set your API key first', 'error'); return; }
+  const skillId = document.getElementById('stake-skill-id').value.trim();
+  const amount = parseInt(document.getElementById('stake-amount').value);
+  const days = parseInt(document.getElementById('stake-days').value) || 30;
+  if (!amount || amount < 1) { toast('Enter a valid credit amount', 'error'); return; }
+
+  try {
+    const r = await fetch(`${API}/v1/marketplace/stake`, {
+      method: 'POST',
+      headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ amountCredits: amount, ...(skillId && { skillId }), lockDays: days }),
+    });
+    const d = await r.json();
+    if (!r.ok) { toast(d.error || 'Stake failed', 'error'); return; }
+    toast(d.message, 'success');
+    const res = document.getElementById('stake-result');
+    res.style.display = 'block';
+    res.style.color = 'var(--green)';
+    res.textContent = `✓ Stake ID: ${d.stakeId} — ${d.amountCredits} credits locked for ${d.lockDays} days`;
+    showCredits();
+  } catch(e) {
+    toast('Network error', 'error');
+  }
+}
+
+// ─── Utils ────────────────────────────────────────────────────────────────────
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function formatNum(n) {
+  if (n >= 1000000) return (n/1000000).toFixed(1)+'M';
+  if (n >= 1000) return (n/1000).toFixed(1)+'k';
+  return n.toString();
+}
+function toast(msg, type='info') {
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  const icon = type==='success'?'✓':type==='error'?'✗':'ℹ';
+  el.innerHTML = `<span>${icon}</span><span>${esc(msg)}</span>`;
+  document.getElementById('toast-container').appendChild(el);
+  setTimeout(() => el.remove(), 4000);
+}
+</script>
+</body>
+</html>

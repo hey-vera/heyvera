@@ -33,6 +33,7 @@ import { startSkillAbCron } from './core/skill-ab-cron';
 import { startMeshNode } from './mesh/node';
 import { loadEmbeddingModel } from './core/embeddings';
 import { seedEmbeddings } from './core/seed-embeddings';
+import { seedOfficialSkills } from './core/seed-skills';
 
 if (process.env.SENTRY_DSN) {
   Sentry.init({ dsn: process.env.SENTRY_DSN, environment: process.env.NODE_ENV ?? 'development' });
@@ -103,6 +104,7 @@ app.notFound((c) => c.json({ error: 'Not found', code: 'NOT_FOUND' }, 404));
 
 async function start() {
   initDb();
+  seedOfficialSkills();
   await initRedis();
 
   const clawReady = await initClawApis();
