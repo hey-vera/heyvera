@@ -2,12 +2,14 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import { nanoid } from 'nanoid';
 import { logger } from '../utils/logger';
+import * as sqliteVec from 'sqlite-vec';
 
 const DB_PATH = path.join(process.cwd(), 'data', 'orchestrator.db');
 let db: Database.Database;
 
 export function initDb(): void {
   db = new Database(DB_PATH);
+  sqliteVec.load(db);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
 
@@ -137,11 +139,47 @@ export function initDb(): void {
     CREATE INDEX IF NOT EXISTS idx_email_send_log ON email_send_log(email, type, sent_at);
   `);
 
-  // Migrations for existing databases (safe to run repeatedly)
-  try { db.exec(`ALTER TABLE orchestrations ADD COLUMN api_key TEXT`); } catch { /* column already exists */ }
-  try { db.exec(`ALTER TABLE orchestrations ADD COLUMN skill_id TEXT`); } catch { /* column already exists */ }
+  // sqlite-vec virtual table (must be separate exec after extension is loaded)
+  db.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS skill_embeddings USING vec0(
+      embedding float[384]
+    );
+
+    CREATE TABLE IF NOT EXISTS discovery_cache (
+      id TEXT PRIMARY KEY,
+      skill_name TEXT,
+      skill_desc TEXT,
+      provider TEXT,
+      rowid_vec INTEGER,
+      ttl_expires TEXT
+    );
+  `);
+
+  runMigrations();
 
   logger.info({ path: DB_PATH }, 'Database initialised');
+}
+
+// ─── Migrations ───────────────────────────────────────────────────────────────
+
+const MIGRATIONS: { version: number; sql: string }[] = [
+  { version: 1, sql: `ALTER TABLE orchestrations ADD COLUMN api_key TEXT` },
+  { version: 2, sql: `ALTER TABLE orchestrations ADD COLUMN skill_id TEXT` },
+];
+
+function runMigrations(): void {
+  db.exec(`CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT (datetime('now')))`);
+  const applied = new Set(
+    (db.prepare('SELECT version FROM schema_migrations').all() as { version: number }[]).map(r => r.version)
+  );
+  for (const m of MIGRATIONS) {
+    if (applied.has(m.version)) continue;
+    try {
+      db.exec(m.sql);
+    } catch { /* column/index may already exist on fresh DBs */ }
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version) VALUES (?)').run(m.version);
+    logger.info({ version: m.version }, 'DB migration applied');
+  }
 }
 
 export function getDb(): Database.Database {
@@ -613,4 +651,65 @@ export function updateSkillVisibility(id: string, authorKey: string, isPublic: b
     .prepare('UPDATE skills SET public = ? WHERE id = ? AND author_key = ?')
     .run(isPublic ? 1 : 0, id, authorKey);
   return result.changes > 0;
+}
+
+// ─── Discovery / Vector Search ────────────────────────────────────────────────
+
+export function upsertDiscovery(params: {
+  id: string;
+  skillName: string;
+  skillDesc: string;
+  provider: string;
+  embedding: Float32Array;
+}): void {
+  const db = getDb();
+  db.transaction(() => {
+    // Remove old vector row if exists
+    const existing = db
+      .prepare('SELECT rowid_vec FROM discovery_cache WHERE id = ?')
+      .get(params.id) as { rowid_vec: number } | undefined;
+    if (existing?.rowid_vec) {
+      db.prepare('DELETE FROM skill_embeddings WHERE rowid = ?').run(existing.rowid_vec);
+    }
+
+    // Insert new vector, get its rowid
+    const insert = db.prepare('INSERT INTO skill_embeddings(embedding) VALUES (?)');
+    const result = insert.run(params.embedding);
+
+    db.prepare(`
+      INSERT OR REPLACE INTO discovery_cache (id, skill_name, skill_desc, provider, rowid_vec, ttl_expires)
+      VALUES (?, ?, ?, ?, ?, datetime('now', '+24 hours'))
+    `).run(params.id, params.skillName, params.skillDesc, params.provider, result.lastInsertRowid);
+  })();
+}
+
+export function searchDiscovery(queryEmbedding: Float32Array, limit = 10): {
+  id: string; skillName: string; skillDesc: string; provider: string; distance: number;
+}[] {
+  const db = getDb();
+  const rows = db.prepare(`
+    SELECT dc.id, dc.skill_name, dc.skill_desc, dc.provider, se.distance
+    FROM skill_embeddings se
+    JOIN discovery_cache dc ON dc.rowid_vec = se.rowid
+    WHERE se.embedding MATCH ?
+      AND k = ?
+    ORDER BY se.distance
+  `).all(queryEmbedding, limit) as {
+    id: string; skill_name: string; skill_desc: string; provider: string; distance: number;
+  }[];
+
+  return rows.map(r => ({
+    id: r.id,
+    skillName: r.skill_name,
+    skillDesc: r.skill_desc,
+    provider: r.provider,
+    distance: r.distance,
+  }));
+}
+
+export function getDiscoveryCacheIds(): string[] {
+  return (getDb()
+    .prepare('SELECT id FROM discovery_cache')
+    .all() as { id: string }[])
+    .map(r => r.id);
 }

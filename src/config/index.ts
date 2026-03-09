@@ -43,6 +43,7 @@ const envSchema = z.object({
   SOLANA_RECEIVING_WALLET: z.string().optional(),
   SOLANA_RPC_URL: z.string().default('https://api.mainnet-beta.solana.com'),
   ADMIN_EMAIL: z.string().optional(),
+  SENTRY_DSN: z.string().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);

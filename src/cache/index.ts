@@ -1,4 +1,5 @@
 import { logger } from '../utils/logger';
+import { setCircuitRedis } from '../core/circuit-breaker';
 import crypto from 'crypto';
 
 interface CacheEntry<T> {
@@ -57,6 +58,7 @@ export async function initRedis(): Promise<void> {
     const { default: Redis } = await import('ioredis');
     redisClient = new Redis(process.env.REDIS_URL, { lazyConnect: true, maxRetriesPerRequest: 1 });
     await redisClient.connect();
+    setCircuitRedis(redisClient);
     logger.info('Redis connected');
   } catch (err) {
     logger.warn({ err }, 'Redis connection failed, using memory-only cache');
@@ -105,7 +107,10 @@ export function cacheStats() {
 }
 
 export async function closeRedis(): Promise<void> {
-  if (redisClient) await redisClient.quit();
+  if (redisClient) {
+    setCircuitRedis(null);
+    await redisClient.quit();
+  }
 }
 
 // Atomic increment with TTL — used for per-key rate limiting
