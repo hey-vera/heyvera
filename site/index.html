@@ -58,22 +58,23 @@
     /* ── NAV ─────────────────────────────────────────────────────── */
     nav {
       position: fixed; top: 38px; left: 0; right: 0; z-index: 100;
-      display: flex; align-items: center; justify-content: space-between;
+      display: grid; grid-template-columns: auto 1fr auto; align-items: center;
       height: 68px; padding: 0 40px;
       border-bottom: 1px solid rgba(0,255,136,0.12);
       background: rgba(6,6,6,0.96);
       backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); overflow: visible;
     }
+    .nav-left { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
     .nav-logo { display: flex; align-items: center; text-decoration: none; height: 100%; overflow: visible; }
     .nav-logo img { height: 64px; width: auto; max-width: 320px; object-fit: contain; display: block; transition: opacity 0.15s; }
     .nav-logo:hover img { opacity: 0.85; }
     .nav-logo-text { display: none; }
-    .nav-links { display: flex; align-items: center; gap: 28px; list-style: none; position: absolute; left: 50%; transform: translateX(-50%); }
+    .nav-links { display: flex; align-items: center; justify-content: center; gap: 28px; list-style: none; }
     .nav-links a { font-family: var(--mono); font-size: 11px; color: rgba(255,255,255,0.72); text-decoration: none; letter-spacing: 1.5px; text-transform: uppercase; transition: color 0.2s; position: relative; padding-bottom: 2px; }
     .nav-links a::after { content: ''; position: absolute; bottom: -2px; left: 0; width: 0; height: 1px; background: var(--green); transition: width 0.2s; }
     .nav-links a:hover { color: var(--green); }
     .nav-links a:hover::after { width: 100%; }
-    .nav-actions { display: flex; align-items: center; gap: 10px; }
+    .nav-actions { display: flex; align-items: center; gap: 10px; justify-content: flex-end; }
     .nav-icons { display: flex; align-items: center; gap: 4px; }
     .nav-divider { width: 1px; height: 20px; background: rgba(255,255,255,0.1); margin: 0 4px; }
 
@@ -798,16 +799,20 @@
 </div>
 
 <nav>
-  <a href="https://claw-net.org" class="nav-logo">
-    <img src="/logo.png" alt="Claw-Net.org">
-  </a>
-  <!-- Credits badge — right of logo, only shown when logged in -->
-  <div class="nav-credits-badge" id="nav-credits-badge" style="margin-left:10px;flex-shrink:0">⚡ <span id="nav-credits-num">—</span> credits</div>
-  <!-- Live API status — right of credits -->
-  <div class="nav-api-status" id="navApiStatus" style="margin-left:6px;flex-shrink:0">
-    <span class="status-dot" id="statusDot"></span>
-    <span id="statusLabel" style="font-size:10px;letter-spacing:0.5px;color:#bbb">Live</span>
+  <!-- Left column: logo + credits + live -->
+  <div class="nav-left">
+    <a href="https://claw-net.org" class="nav-logo">
+      <img src="/logo.png" alt="Claw-Net.org">
+    </a>
+    <!-- Credits badge — only shown when logged in via JS .show class -->
+    <div class="nav-credits-badge" id="nav-credits-badge">⚡ <span id="nav-credits-num">—</span> credits</div>
+    <!-- Live API status -->
+    <div class="nav-api-status" id="navApiStatus">
+      <span class="status-dot" id="statusDot"></span>
+      <span id="statusLabel" style="font-size:10px;letter-spacing:0.5px;color:#888">Checking...</span>
+    </div>
   </div>
+  <!-- Center column: nav links (truly centered by grid) -->
   <ul class="nav-links">
     <li><a href="#how-it-works">How It Works</a></li>
     <li><a href="#pricing">Pricing</a></li>
