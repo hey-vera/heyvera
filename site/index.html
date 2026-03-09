@@ -806,6 +806,7 @@
     <li><a href="#pricing">Pricing</a></li>
     <li><a href="#contact">Contact</a></li>
     <li><a href="/docs.html">API Docs</a></li>
+    <li><a href="#openclaw-gateway" style="color:rgba(180,124,255,0.85)">OpenClaw</a></li>
     <li><a href="/marketplace.html">Marketplace</a></li>
     <li><a href="/endpoints.html">Endpoints</a></li>
   </ul>
@@ -1051,6 +1052,82 @@
     <span class="x402-accent">Any API that supports x402</span> can be added to ClawNet's registry.
     <span class="x402-accent">Zero code changes required.</span>
   </div>
+</section>
+
+<div class="full-divider"></div>
+
+<!-- ── OPENCLAW GATEWAY SECTION ───────────────────────────────────────────── -->
+<section id="openclaw-gateway" style="padding-top:80px;padding-bottom:80px">
+  <div class="section-label" style="color:#9945ff;--green-dim:rgba(153,69,255,0.3)">OpenClaw Gateway</div>
+  <h2>Any agent.<br><span style="color:#9945ff">One endpoint.</span></h2>
+  <p class="section-sub" style="max-width:580px">Connect any AI agent — GPT, Claude, LangChain, custom — to ClawNet's full registry in minutes. API key in, structured results out. Credits shared across every capability.</p>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px;background:#1e1e1e;border:1px solid rgba(153,69,255,0.2);margin-bottom:40px" class="reveal">
+    <div style="background:#111;padding:28px 32px;border-right:1px solid #1e1e1e">
+      <div style="font-family:var(--mono);font-size:10px;color:#9945ff;letter-spacing:2.5px;text-transform:uppercase;margin-bottom:10px">action: query</div>
+      <div style="font-family:var(--mono);font-size:13px;color:#fff;margin-bottom:8px">Natural language orchestration</div>
+      <div style="font-family:var(--mono);font-size:12px;color:#888;line-height:1.7">Routes your question through 75+ live endpoints, synthesises the answer. Same as <code style="color:#ccc">/v1/orchestrate</code> — but from a single unified action.</div>
+    </div>
+    <div style="background:#111;padding:28px 32px">
+      <div style="font-family:var(--mono);font-size:10px;color:#9945ff;letter-spacing:2.5px;text-transform:uppercase;margin-bottom:10px">action: skill</div>
+      <div style="font-family:var(--mono);font-size:13px;color:#fff;margin-bottom:8px">Invoke a registered skill</div>
+      <div style="font-family:var(--mono);font-size:12px;color:#888;line-height:1.7">Call any public skill by ID with variable substitution. A/B routing, caching, and 97% creator revenue share all happen automatically.</div>
+    </div>
+    <div style="background:#111;padding:28px 32px;border-right:1px solid #1e1e1e;border-top:2px solid #1e1e1e">
+      <div style="font-family:var(--mono);font-size:10px;color:#9945ff;letter-spacing:2.5px;text-transform:uppercase;margin-bottom:10px">action: discover</div>
+      <div style="font-family:var(--mono);font-size:13px;color:#fff;margin-bottom:8px">Trinity-layer capability search</div>
+      <div style="font-family:var(--mono);font-size:12px;color:#888;line-height:1.7">Semantic embedding + P2P mesh + on-chain registry search. Find the right skill before you invoke it. Free — no credits deducted.</div>
+    </div>
+    <div style="background:#111;padding:28px 32px;border-top:2px solid #1e1e1e">
+      <div style="font-family:var(--mono);font-size:10px;color:#9945ff;letter-spacing:2.5px;text-transform:uppercase;margin-bottom:10px">action: swarm</div>
+      <div style="font-family:var(--mono);font-size:13px;color:#fff;margin-bottom:8px">Parallel multi-skill decomposition</div>
+      <div style="font-family:var(--mono);font-size:12px;color:#888;line-height:1.7">LLM breaks a complex task into parallel sub-tasks, routes each to the best skill, then synthesises a single coherent result.</div>
+    </div>
+  </div>
+
+  <!-- Code preview -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start" class="reveal">
+    <div>
+      <div style="font-family:var(--mono);font-size:9px;letter-spacing:2px;text-transform:uppercase;color:#666;margin-bottom:6px">Request</div>
+      <div style="background:#111;border:1px solid rgba(153,69,255,0.2);padding:20px 22px;font-family:var(--mono);font-size:12px;line-height:1.9">
+        <span style="color:#9945ff">POST</span> /v1/openclaw/invoke<br>
+        <span style="color:#555">X-API-Key:</span> <span style="color:#aaa">cn-your-key</span><br><br>
+        <span style="color:#555">{</span><br>
+        &nbsp;&nbsp;<span style="color:#00ff88">"action"</span><span style="color:#555">:</span> <span style="color:#ffcc66">"skill"</span><span style="color:#555">,</span><br>
+        &nbsp;&nbsp;<span style="color:#00ff88">"skillId"</span><span style="color:#555">:</span> <span style="color:#ffcc66">"token-analysis"</span><span style="color:#555">,</span><br>
+        &nbsp;&nbsp;<span style="color:#00ff88">"variables"</span><span style="color:#555">:</span> <span style="color:#555">{</span><br>
+        &nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#00ff88">"symbol"</span><span style="color:#555">:</span> <span style="color:#ffcc66">"SOL"</span><br>
+        &nbsp;&nbsp;<span style="color:#555">}</span><br>
+        <span style="color:#555">}</span>
+      </div>
+    </div>
+    <div>
+      <div style="font-family:var(--mono);font-size:9px;letter-spacing:2px;text-transform:uppercase;color:#666;margin-bottom:6px">Response</div>
+      <div style="background:#111;border:1px solid rgba(0,255,136,0.12);padding:20px 22px;font-family:var(--mono);font-size:12px;line-height:1.9">
+        <span style="color:#555">{</span><br>
+        &nbsp;&nbsp;<span style="color:#00ff88">"ok"</span><span style="color:#555">:</span> <span style="color:#4488ff">true</span><span style="color:#555">,</span><br>
+        &nbsp;&nbsp;<span style="color:#00ff88">"action"</span><span style="color:#555">:</span> <span style="color:#ffcc66">"skill"</span><span style="color:#555">,</span><br>
+        &nbsp;&nbsp;<span style="color:#00ff88">"result"</span><span style="color:#555">:</span> <span style="color:#555">{ answer: "SOL up 8%..." }</span><span style="color:#555">,</span><br>
+        &nbsp;&nbsp;<span style="color:#00ff88">"credits"</span><span style="color:#555">:</span> <span style="color:#555">{</span><br>
+        &nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#00ff88">"used"</span><span style="color:#555">:</span> <span style="color:#4488ff">32</span><span style="color:#555">,</span><br>
+        &nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#00ff88">"remaining"</span><span style="color:#555">:</span> <span style="color:#4488ff">4968</span><br>
+        &nbsp;&nbsp;<span style="color:#555">},</span><br>
+        &nbsp;&nbsp;<span style="color:#00ff88">"meta"</span><span style="color:#555">:</span> <span style="color:#555">{ route: "skill:token-analysis" }</span><br>
+        <span style="color:#555">}</span>
+      </div>
+    </div>
+  </div>
+
+  <div style="margin-top:36px;display:flex;gap:16px;align-items:center;flex-wrap:wrap">
+    <a href="/docs.html#openclaw" style="font-family:var(--mono);font-size:12px;font-weight:700;letter-spacing:1px;background:rgba(153,69,255,0.12);border:1px solid rgba(153,69,255,0.4);color:#b47cff;padding:12px 28px;text-decoration:none;transition:all 0.2s" onmouseover="this.style.background='rgba(153,69,255,0.22)'" onmouseout="this.style.background='rgba(153,69,255,0.12)'">READ THE DOCS →</a>
+    <a href="/docs.html#openclaw-catalog" style="font-family:var(--mono);font-size:12px;letter-spacing:1px;color:#666;text-decoration:none;padding:12px 4px;transition:color 0.2s" onmouseover="this.style.color='#9945ff'" onmouseout="this.style.color='#666'">View Capability Catalog →</a>
+  </div>
+
+  <style>
+    @media(max-width:700px){
+      #openclaw-gateway [style*="grid-template-columns:1fr 1fr"]{grid-template-columns:1fr!important}
+    }
+  </style>
 </section>
 
 <div class="full-divider"></div>

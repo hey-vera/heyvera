@@ -248,6 +248,13 @@
       <a href="#creator-withdraw" class="sidebar-link"><span class="sidebar-method m-post">POST</span>/v1/marketplace/creator/withdraw</a>
     </div>
     <div class="sidebar-section">
+      <div class="sidebar-label">OpenClaw Gateway</div>
+      <a href="#openclaw" class="sidebar-link">Overview</a>
+      <a href="#openclaw-invoke" class="sidebar-link"><span class="sidebar-method m-post">POST</span>/v1/openclaw/invoke</a>
+      <a href="#openclaw-catalog" class="sidebar-link"><span class="sidebar-method m-get">GET</span>/v1/openclaw/catalog</a>
+      <a href="#openclaw-status" class="sidebar-link"><span class="sidebar-method m-get">GET</span>/v1/openclaw/status</a>
+    </div>
+    <div class="sidebar-section">
       <div class="sidebar-label">Reference</div>
       <a href="#errors" class="sidebar-link">Error Codes</a>
       <a href="#signing" class="sidebar-link">Response Signing</a>
@@ -267,6 +274,7 @@
         <a href="#quickstart" class="dql">Quick Start →</a>
         <a href="#orchestrate" class="dql">Orchestrate →</a>
         <a href="#skills-invoke" class="dql">Skills →</a>
+        <a href="#openclaw" class="dql" style="border-color:rgba(153,69,255,0.4);color:#b47cff">OpenClaw Gateway →</a>
         <a href="#errors" class="dql">Error Codes →</a>
         <a href="https://claw-net.org/#pricing" class="dql">Get API Key →</a>
       </div>
@@ -1049,6 +1057,226 @@ curl -X POST https://api.claw-net.org/v1/swarm/task \
 <span class="c-muted"># 2. Poll for result (swarmId from step 1)</span>
 curl https://api.claw-net.org/v1/swarm/swarm_abc123 \
   -H <span class="c-yellow">"X-API-Key: your-api-key"</span></div>
+    </div>
+
+    <hr class="doc-divider">
+
+    <!-- ── OPENCLAW GATEWAY ── -->
+    <div class="doc-section" id="openclaw">
+      <div class="doc-section-label" style="color:#9945ff">OpenClaw Gateway</div>
+      <h2>OpenClaw — Universal Agent Gateway</h2>
+      <p>Any external AI agent can route through ClawNet's full registry with a single endpoint and an API key. No need to learn individual routes — one request body, one standardised response envelope, full access to orchestration, skills, discovery, and swarm tasks.</p>
+
+      <div class="alert" style="border-color:#9945ff;background:rgba(153,69,255,0.06);color:var(--muted2)">
+        <strong style="color:#b47cff">Designed for agent-to-agent integration.</strong> Pass <code>X-API-Key</code>, choose an <code>action</code>, and ClawNet handles routing, credit deduction, caching, A/B skill selection, and reputation tracking automatically.
+      </div>
+
+      <h3>Response envelope (all actions)</h3>
+      <div class="code-block">{
+  <span class="c-green">"ok"</span>: <span class="c-blue">true</span>,
+  <span class="c-green">"requestId"</span>: <span class="c-yellow">"abc123def456"</span>,
+  <span class="c-green">"action"</span>: <span class="c-yellow">"query"</span>,          <span class="c-muted">// query | skill | discover | swarm</span>
+  <span class="c-green">"result"</span>: { <span class="c-muted">/* action-specific payload */</span> },
+  <span class="c-green">"credits"</span>: {
+    <span class="c-green">"used"</span>: <span class="c-blue">32</span>,
+    <span class="c-green">"remaining"</span>: <span class="c-blue">4968</span>
+  },
+  <span class="c-green">"meta"</span>: {
+    <span class="c-green">"durationMs"</span>: <span class="c-blue">1234</span>,
+    <span class="c-green">"route"</span>: <span class="c-yellow">"orchestrate"</span>,  <span class="c-muted">// internal path used</span>
+    <span class="c-green">"cacheHits"</span>: <span class="c-blue">1</span>,
+    <span class="c-green">"simulationMode"</span>: <span class="c-blue">false</span>
+  }
+}</div>
+    </div>
+
+    <hr class="doc-divider">
+
+    <!-- openclaw /invoke -->
+    <div class="doc-section" id="openclaw-invoke">
+      <div class="doc-section-label" style="color:#9945ff">OpenClaw Gateway</div>
+      <h2>POST /v1/openclaw/invoke</h2>
+      <p>Universal invoke — routes to the right internal service based on the <code>action</code> field. All four actions return the same envelope.</p>
+
+      <div class="endpoint-block">
+        <div class="endpoint-head">
+          <span class="method-badge post">POST</span>
+          <span class="endpoint-path">/v1/openclaw/invoke</span>
+          <span class="badge auth">AUTH</span>
+        </div>
+        <div class="endpoint-body">
+
+          <h3>action: "query" — natural language orchestration</h3>
+          <table class="param-table">
+            <tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr>
+            <tr><td class="param-name">action</td><td class="param-type">string</td><td class="param-req">required</td><td class="param-desc"><code>"query"</code></td></tr>
+            <tr><td class="param-name">query</td><td class="param-type">string</td><td class="param-req">required</td><td class="param-desc">Natural language question, max 2000 chars</td></tr>
+          </table>
+          <div class="code-label">Example</div>
+          <div class="code-block">curl -X POST https://api.claw-net.org/v1/openclaw/invoke \
+  -H <span class="c-yellow">"X-API-Key: your-api-key"</span> \
+  -H <span class="c-yellow">"Content-Type: application/json"</span> \
+  -d <span class="c-yellow">'{"action":"query","query":"What is the current SOL price and community sentiment?"}'</span></div>
+
+          <h3>action: "skill" — invoke a registered skill</h3>
+          <table class="param-table">
+            <tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr>
+            <tr><td class="param-name">action</td><td class="param-type">string</td><td class="param-req">required</td><td class="param-desc"><code>"skill"</code></td></tr>
+            <tr><td class="param-name">skillId</td><td class="param-type">string</td><td class="param-req">required</td><td class="param-desc">Skill ID from the catalog (e.g. <code>token-analysis</code>)</td></tr>
+            <tr><td class="param-name">variables</td><td class="param-type">object</td><td class="param-opt">optional</td><td class="param-desc">Key-value pairs to fill <code>{{variable}}</code> placeholders in the skill template</td></tr>
+          </table>
+          <div class="code-label">Example</div>
+          <div class="code-block">curl -X POST https://api.claw-net.org/v1/openclaw/invoke \
+  -H <span class="c-yellow">"X-API-Key: your-api-key"</span> \
+  -H <span class="c-yellow">"Content-Type: application/json"</span> \
+  -d <span class="c-yellow">'{"action":"skill","skillId":"token-analysis","variables":{"symbol":"SOL","timeframe":"7d"}}'</span></div>
+
+          <h3>action: "discover" — trinity search across skills + mesh + on-chain</h3>
+          <table class="param-table">
+            <tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr>
+            <tr><td class="param-name">action</td><td class="param-type">string</td><td class="param-req">required</td><td class="param-desc"><code>"discover"</code></td></tr>
+            <tr><td class="param-name">query</td><td class="param-type">string</td><td class="param-req">required</td><td class="param-desc">Capability search query, max 500 chars</td></tr>
+            <tr><td class="param-name">limit</td><td class="param-type">number</td><td class="param-opt">optional</td><td class="param-desc">Max results 1–50 (default 10)</td></tr>
+            <tr><td class="param-name">filters</td><td class="param-type">object</td><td class="param-opt">optional</td><td class="param-desc"><code>{ provider?, source? }</code> — filter by provider name or source layer</td></tr>
+            <tr><td class="param-name">weights</td><td class="param-type">object</td><td class="param-opt">optional</td><td class="param-desc"><code>{ semantic?, p2p?, onchain? }</code> — override default layer weights (must sum ≤ 1)</td></tr>
+          </table>
+          <div class="alert info">Discovery is free — no credits deducted. It's a pure search across the registered skill and peer network.</div>
+          <div class="code-label">Example</div>
+          <div class="code-block">curl -X POST https://api.claw-net.org/v1/openclaw/invoke \
+  -H <span class="c-yellow">"X-API-Key: your-api-key"</span> \
+  -H <span class="c-yellow">"Content-Type: application/json"</span> \
+  -d <span class="c-yellow">'{"action":"discover","query":"portfolio risk analysis","limit":5}'</span></div>
+
+          <h3>action: "swarm" — parallel multi-skill task decomposition</h3>
+          <table class="param-table">
+            <tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr>
+            <tr><td class="param-name">action</td><td class="param-type">string</td><td class="param-req">required</td><td class="param-desc"><code>"swarm"</code></td></tr>
+            <tr><td class="param-name">task</td><td class="param-type">string</td><td class="param-req">required</td><td class="param-desc">Complex task description, max 1000 chars</td></tr>
+            <tr><td class="param-name">skills</td><td class="param-type">string[]</td><td class="param-opt">optional</td><td class="param-desc">Preferred skill IDs for sub-task routing</td></tr>
+            <tr><td class="param-name">maxSubTasks</td><td class="param-type">number</td><td class="param-opt">optional</td><td class="param-desc">Max parallel sub-tasks 1–5 (default 4)</td></tr>
+          </table>
+          <div class="alert warn">Swarm deducts <strong>20 credits</strong> upfront for LLM decomposition + synthesis. Individual skill invocations within the swarm are charged separately. Poll <code>GET /v1/swarm/:id</code> for results.</div>
+          <div class="code-label">Example</div>
+          <div class="code-block">curl -X POST https://api.claw-net.org/v1/openclaw/invoke \
+  -H <span class="c-yellow">"X-API-Key: your-api-key"</span> \
+  -H <span class="c-yellow">"Content-Type: application/json"</span> \
+  -d <span class="c-yellow">'{"action":"swarm","task":"Compare SOL vs ETH — price trend, sentiment, and risk","maxSubTasks":3}'</span></div>
+          <div class="code-label">Response (swarm — async)</div>
+          <div class="code-block">{
+  <span class="c-green">"ok"</span>: <span class="c-blue">true</span>,
+  <span class="c-green">"action"</span>: <span class="c-yellow">"swarm"</span>,
+  <span class="c-green">"result"</span>: {
+    <span class="c-green">"swarmId"</span>: <span class="c-yellow">"swm_abc123xyz"</span>,
+    <span class="c-green">"status"</span>: <span class="c-yellow">"PENDING"</span>,
+    <span class="c-green">"pollUrl"</span>: <span class="c-yellow">"/v1/swarm/swm_abc123xyz"</span>,
+    <span class="c-green">"baseFeeCharged"</span>: <span class="c-blue">20</span>
+  },
+  <span class="c-green">"credits"</span>: { <span class="c-green">"used"</span>: <span class="c-blue">20</span>, <span class="c-green">"remaining"</span>: <span class="c-blue">4980</span> },
+  <span class="c-green">"meta"</span>: { <span class="c-green">"route"</span>: <span class="c-yellow">"swarm"</span>, <span class="c-green">"durationMs"</span>: <span class="c-blue">42</span> }
+}</div>
+        </div>
+      </div>
+    </div>
+
+    <hr class="doc-divider">
+
+    <!-- openclaw /catalog -->
+    <div class="doc-section" id="openclaw-catalog">
+      <div class="doc-section-label" style="color:#9945ff">OpenClaw Gateway</div>
+      <h2>GET /v1/openclaw/catalog</h2>
+      <p>Returns the full capability listing for this ClawNet node — all public skills, all registry endpoints grouped by category, supported actions, and the pricing table. Agents should call this once on startup to understand what's available.</p>
+
+      <div class="endpoint-block">
+        <div class="endpoint-head">
+          <span class="method-badge get">GET</span>
+          <span class="endpoint-path">/v1/openclaw/catalog</span>
+          <span class="badge auth">AUTH</span>
+          <span class="endpoint-desc">Paginated — add ?page=2 for more skills</span>
+        </div>
+        <div class="endpoint-body">
+          <div class="code-label">Example</div>
+          <div class="code-block">curl https://api.claw-net.org/v1/openclaw/catalog \
+  -H <span class="c-yellow">"X-API-Key: your-api-key"</span></div>
+          <div class="code-label">Response shape</div>
+          <div class="code-block">{
+  <span class="c-green">"version"</span>: <span class="c-yellow">"1.0"</span>,
+  <span class="c-green">"actions"</span>: [
+    { <span class="c-green">"action"</span>: <span class="c-yellow">"query"</span>, <span class="c-green">"description"</span>: <span class="c-yellow">"..."</span>, <span class="c-green">"creditEstimate"</span>: <span class="c-yellow">"5–100 credits"</span> },
+    { <span class="c-green">"action"</span>: <span class="c-yellow">"skill"</span>, <span class="c-green">"description"</span>: <span class="c-yellow">"..."</span>, <span class="c-green">"params"</span>: { <span class="c-green">"skillId"</span>: <span class="c-yellow">"string"</span> } },
+    { <span class="c-green">"action"</span>: <span class="c-yellow">"discover"</span>, <span class="c-green">"creditEstimate"</span>: <span class="c-yellow">"0 credits (free)"</span> },
+    { <span class="c-green">"action"</span>: <span class="c-yellow">"swarm"</span>, <span class="c-green">"creditEstimate"</span>: <span class="c-yellow">"20 credits base + per-skill"</span> }
+  ],
+  <span class="c-green">"skills"</span>: {
+    <span class="c-green">"page"</span>: <span class="c-blue">1</span>, <span class="c-green">"total"</span>: <span class="c-blue">12</span>,
+    <span class="c-green">"data"</span>: [
+      { <span class="c-green">"id"</span>: <span class="c-yellow">"token-analysis"</span>, <span class="c-green">"name"</span>: <span class="c-yellow">"Token Analysis"</span>, <span class="c-green">"creditCost"</span>: <span class="c-blue">32</span>,
+        <span class="c-green">"variables"</span>: [<span class="c-yellow">"symbol"</span>, <span class="c-yellow">"timeframe"</span>], <span class="c-green">"tags"</span>: [<span class="c-yellow">"defi"</span>, <span class="c-yellow">"solana"</span>] }
+    ]
+  },
+  <span class="c-green">"endpoints"</span>: {
+    <span class="c-green">"total"</span>: <span class="c-blue">75</span>,
+    <span class="c-green">"byCategory"</span>: { <span class="c-green">"solana"</span>: [...], <span class="c-green">"defi"</span>: [...], <span class="c-green">"social"</span>: [...] }
+  },
+  <span class="c-green">"pricing"</span>: {
+    <span class="c-green">"creditFormula"</span>: <span class="c-yellow">"max(1, ceil(apiCostUsd * 2000))"</span>,
+    <span class="c-green">"creditsPerDollar"</span>: <span class="c-blue">1000</span>
+  },
+  <span class="c-green">"authentication"</span>: { <span class="c-green">"header"</span>: <span class="c-yellow">"X-API-Key"</span>, <span class="c-green">"format"</span>: <span class="c-yellow">"cn-{48 hex chars}"</span> }
+}</div>
+        </div>
+      </div>
+    </div>
+
+    <hr class="doc-divider">
+
+    <!-- openclaw /status -->
+    <div class="doc-section" id="openclaw-status">
+      <div class="doc-section-label" style="color:#9945ff">OpenClaw Gateway</div>
+      <h2>GET /v1/openclaw/status</h2>
+      <p>Returns the calling agent's current state — credit balance, reputation score, usage totals, and remaining rate-limit quota. Agents can call this before expensive operations to self-throttle.</p>
+
+      <div class="endpoint-block">
+        <div class="endpoint-head">
+          <span class="method-badge get">GET</span>
+          <span class="endpoint-path">/v1/openclaw/status</span>
+          <span class="badge auth">AUTH</span>
+        </div>
+        <div class="endpoint-body">
+          <div class="code-label">Example</div>
+          <div class="code-block">curl https://api.claw-net.org/v1/openclaw/status \
+  -H <span class="c-yellow">"X-API-Key: your-api-key"</span></div>
+          <div class="code-label">Response</div>
+          <div class="code-block">{
+  <span class="c-green">"agentKey"</span>: <span class="c-yellow">"cn-1a2b...ef90"</span>,
+  <span class="c-green">"credits"</span>: {
+    <span class="c-green">"balance"</span>: <span class="c-blue">4968</span>,
+    <span class="c-green">"tier"</span>: <span class="c-yellow">"$20+"</span>,
+    <span class="c-green">"amountPaid"</span>: <span class="c-blue">20</span>
+  },
+  <span class="c-green">"reputation"</span>: <span class="c-blue">4.2</span>,
+  <span class="c-green">"usage"</span>: {
+    <span class="c-green">"totalOrchestrations"</span>: <span class="c-blue">312</span>,
+    <span class="c-green">"totalSkillInvocations"</span>: <span class="c-blue">89</span>,
+    <span class="c-green">"lastActive"</span>: <span class="c-yellow">"2026-03-09T14:22:11.000Z"</span>
+  },
+  <span class="c-green">"rateLimits"</span>: {
+    <span class="c-green">"perMinute"</span>: <span class="c-blue">60</span>,
+    <span class="c-green">"remaining"</span>: <span class="c-blue">54</span>,
+    <span class="c-green">"tier"</span>: <span class="c-yellow">"$20+"</span>
+  },
+  <span class="c-green">"capabilities"</span>: [<span class="c-yellow">"query"</span>, <span class="c-yellow">"skill"</span>, <span class="c-yellow">"discover"</span>, <span class="c-yellow">"swarm"</span>]
+}</div>
+
+          <h3>Rate tiers</h3>
+          <table class="param-table">
+            <tr><th>Spend</th><th>Requests / minute</th></tr>
+            <tr><td class="param-name">$0</td><td>30 / min</td></tr>
+            <tr><td class="param-name">$20+</td><td>60 / min</td></tr>
+            <tr><td class="param-name">$100+</td><td>120 / min</td></tr>
+            <tr><td class="param-name">$500+</td><td>300 / min</td></tr>
+          </table>
+        </div>
+      </div>
     </div>
 
   </main>
