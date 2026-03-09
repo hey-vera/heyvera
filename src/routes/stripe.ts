@@ -83,6 +83,10 @@ stripeRouter.post('/stripe', async (c) => {
       const priceId = item.price?.id;
       if (priceId && PRICE_CREDITS[priceId]) {
         const qty = item.quantity ?? 1;
+        if (qty > 100) {
+          logger.error({ sessionId: session.id, qty }, 'Stripe webhook: quantity exceeds max');
+          continue;
+        }
         credits += PRICE_CREDITS[priceId].credits * qty;
         amountPaid += PRICE_CREDITS[priceId].amount * qty;
       }

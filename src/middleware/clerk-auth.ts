@@ -6,6 +6,7 @@ import { env } from '../config/index';
 // Cache Clerk email lookups to avoid an external API call on every request
 const emailCache = new Map<string, { email: string | null; expiresAt: number }>();
 const EMAIL_CACHE_TTL_MS = 5 * 60 * 1000;
+const EMAIL_CACHE_MAX_SIZE = 10_000;
 
 // Purge expired entries every 10 minutes to prevent unbounded growth
 setInterval(() => {
@@ -52,6 +53,10 @@ export const requireClerkAuth = createMiddleware(async (c, next) => {
         const primaryEmail = user.emailAddresses.find(
           (e) => e.id === user.primaryEmailAddressId
         )?.emailAddress ?? null;
+        // Evict oldest entry if at capacity
+        if (emailCache.size >= EMAIL_CACHE_MAX_SIZE) {
+          emailCache.delete(emailCache.keys().next().value!);
+        }
         emailCache.set(payload.sub, { email: primaryEmail, expiresAt: Date.now() + EMAIL_CACHE_TTL_MS });
         c.set('clerkEmail', primaryEmail);
       } catch {

@@ -211,7 +211,7 @@
       <a href="#skills-list" class="sidebar-link"><span class="sidebar-method m-get">GET</span>/v1/marketplace/skills</a>
       <a href="#skills-invoke" class="sidebar-link"><span class="sidebar-method m-post">POST</span>/v1/skills/:id/invoke</a>
       <a href="#skills-publish" class="sidebar-link"><span class="sidebar-method m-post">POST</span>/v1/skills</a>
-      <a href="#skills-purchase" class="sidebar-link"><span class="sidebar-method m-post">POST</span>marketplace/purchase</a>
+      <a href="#skills-purchase" class="sidebar-link"><span class="sidebar-method m-post">POST</span>/v1/marketplace/purchase</a>
     </div>
     <div class="sidebar-section">
       <div class="sidebar-label">Swarm</div>
@@ -230,13 +230,22 @@
     <div class="sidebar-section">
       <div class="sidebar-label">Governance</div>
       <a href="#governance" class="sidebar-link"><span class="sidebar-method m-post">POST</span>/v1/governance/propose</a>
-      <a href="#vote" class="sidebar-link"><span class="sidebar-method m-post">POST</span>proposals/:id/vote</a>
+      <a href="#vote" class="sidebar-link"><span class="sidebar-method m-post">POST</span>/v1/governance/proposals/:id/vote</a>
     </div>
     <div class="sidebar-section">
       <div class="sidebar-label">Batch &amp; Streaming</div>
       <a href="#batch" class="sidebar-link"><span class="sidebar-method m-post">POST</span>/v1/batch</a>
       <a href="#stream" class="sidebar-link"><span class="sidebar-method m-get">GET</span>/v1/stream/orchestrate</a>
       <a href="#openapi" class="sidebar-link"><span class="sidebar-method m-get">GET</span>/v1/openapi.json</a>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-label">P2P Mesh &amp; Discovery</div>
+      <a href="#mesh-peers" class="sidebar-link"><span class="sidebar-method m-get">GET</span>/v1/mesh/peers</a>
+      <a href="#discover" class="sidebar-link"><span class="sidebar-method m-post">POST</span>/v1/discover</a>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-label">Creator Payouts</div>
+      <a href="#creator-withdraw" class="sidebar-link"><span class="sidebar-method m-post">POST</span>/v1/marketplace/creator/withdraw</a>
     </div>
     <div class="sidebar-section">
       <div class="sidebar-label">Reference</div>
@@ -860,6 +869,79 @@ npx @openapitools/openapi-generator-cli generate \
 openapi-generator generate \
   -i https://api.claw-net.org/v1/openapi.json \
   -g python -o ./clawnet-python</code></pre>
+    </div>
+
+    <hr class="doc-divider">
+
+    <!-- ── MESH PEERS ── -->
+    <div class="doc-section" id="mesh-peers">
+      <div class="doc-section-label">P2P Mesh</div>
+      <h2>GET /v1/mesh/peers <span class="badge auth">API KEY</span></h2>
+      <p>Returns the current P2P mesh node identity and list of known peers discovered via Kademlia DHT.</p>
+      <div class="endpoint-block">
+        <span class="endpoint-method m-get">GET</span>
+        <span class="endpoint-path">/v1/mesh/peers</span>
+      </div>
+      <h3>Response</h3>
+      <pre><code>{
+  "nodeId": "12D3KooW...",
+  "listening": ["/ip4/0.0.0.0/tcp/4001"],
+  "peers": [
+    { "id": "12D3KooX...", "multiaddr": "/ip4/1.2.3.4/tcp/4001", "last_seen": "2026-03-09T..." }
+  ]
+}</code></pre>
+    </div>
+
+    <hr class="doc-divider">
+
+    <!-- ── DISCOVER ── -->
+    <div class="doc-section" id="discover">
+      <div class="doc-section-label">Discovery</div>
+      <h2>POST /v1/discover <span class="badge auth">API KEY</span></h2>
+      <p>Semantic skill discovery using the Trinity engine — 60% vector similarity, 25% P2P mesh, 15% on-chain signals. Returns ranked skill matches for a natural-language query.</p>
+      <div class="endpoint-block">
+        <span class="endpoint-method m-post">POST</span>
+        <span class="endpoint-path">/v1/discover</span>
+      </div>
+      <h3>Request Body</h3>
+      <table class="param-table"><thead><tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td>query</td><td>string</td><td>✓</td><td>Natural language search (max 500 chars)</td></tr>
+        <tr><td>limit</td><td>number</td><td></td><td>Max results (1–50, default 10)</td></tr>
+        <tr><td>filters.source</td><td>string[]</td><td></td><td>Restrict sources: <code>["semantic","p2p","onchain"]</code></td></tr>
+        <tr><td>weights</td><td>object</td><td></td><td>Override layer weights: <code>{"semantic":0.7,"p2p":0.2,"onchain":0.1}</code></td></tr>
+      </tbody></table>
+      <h3>Response</h3>
+      <pre><code>{
+  "query": "token price analysis",
+  "results": [
+    { "id": "skill-abc", "name": "Token Analysis", "score": 0.94, "source": "semantic" }
+  ],
+  "layerStats": { "semantic": 8, "p2p": 2, "onchain": 0 }
+}</code></pre>
+      <div class="alert info">Returns <code>503</code> if the embedding model is still loading. Retry after a few seconds or use <code>GET /v1/skills</code> instead.</div>
+    </div>
+
+    <hr class="doc-divider">
+
+    <!-- ── CREATOR WITHDRAW ── -->
+    <div class="doc-section" id="creator-withdraw">
+      <div class="doc-section-label">Creator Payouts</div>
+      <h2>POST /v1/marketplace/creator/withdraw <span class="badge auth">API KEY</span></h2>
+      <p>Request a USDC payout of earned skill-sale revenue. Minimum 1,000 credits. Payouts are processed manually within 48 hours and sent to the specified Solana wallet.</p>
+      <div class="endpoint-block">
+        <span class="endpoint-method m-post">POST</span>
+        <span class="endpoint-path">/v1/marketplace/creator/withdraw</span>
+      </div>
+      <h3>Request Body</h3>
+      <table class="param-table"><thead><tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td>amountCredits</td><td>number</td><td>✓</td><td>Credits to withdraw (min 1,000)</td></tr>
+        <tr><td>usdcWallet</td><td>string</td><td>✓</td><td>Solana wallet address to receive USDC</td></tr>
+      </tbody></table>
+      <h3>Response</h3>
+      <pre><code>{ "ok": true, "id": "payout-abc123", "amountCredits": 5000, "estimatedUsdc": "5.00" }</code></pre>
+      <div class="alert info">Available balance = earned from skill sales − already paid − pending − staked. Credits locked in active stakes cannot be withdrawn until unlocked.</div>
     </div>
 
     <hr class="doc-divider">

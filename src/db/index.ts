@@ -333,6 +333,7 @@ export function initDb(): void {
   // Indexes on migration-added columns (safe only after migrations run)
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_orchestrations_api_key ON orchestrations(api_key);
+    CREATE INDEX IF NOT EXISTS idx_discovery_cache_ttl ON discovery_cache(ttl_expires);
   `);
 
   logger.info({ path: DB_PATH }, 'Database initialised');
@@ -363,7 +364,10 @@ function runMigrations(): void {
     if (applied.has(m.version)) continue;
     try {
       db.exec(m.sql);
-    } catch { /* column/index may already exist on fresh DBs */ }
+    } catch (err) {
+      // Column/index may already exist — log but don't fail startup
+      logger.warn({ version: m.version, err }, 'DB migration warning (may already be applied)');
+    }
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version) VALUES (?)').run(m.version);
     logger.info({ version: m.version }, 'DB migration applied');
   }
@@ -1566,7 +1570,11 @@ export function createPayoutRequest(params: {
       `SELECT COALESCE(SUM(amount_credits),0) as total FROM stakes WHERE agent_key = ?`
     ).get(params.agentKey) as { total: number }).total;
 
-    const available = earned - alreadyPaid - pendingTotal - staked;
+    // Liquid balance = actual key balance minus pending payouts already requested
+    const keyRow = db.prepare(`SELECT credits FROM api_keys WHERE key = ?`).get(params.agentKey) as { credits: number } | undefined;
+    const liquidBalance = (keyRow?.credits ?? 0) - pendingTotal - staked;
+
+    const available = Math.min(earned - alreadyPaid - pendingTotal - staked, liquidBalance);
     if (params.amountCredits > available) return { ok: false, error: `Only ${available} credits available for withdrawal (${staked} locked in stakes)` };
     if (params.amountCredits < MIN_CREDITS) return { ok: false, error: `Minimum withdrawal is ${MIN_CREDITS} credits` };
 

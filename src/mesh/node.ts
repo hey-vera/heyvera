@@ -48,13 +48,15 @@ export async function startMeshNode(): Promise<void> {
       'Mesh node started',
     )
 
-    node.addEventListener('peer:connect', (evt: { detail: { toString(): string } }) => {
+    const onPeerConnect = (evt: { detail: { toString(): string } }) => {
       const peerId = evt.detail.toString()
       const connections = node!.getConnections(evt.detail)
       const addr = connections[0]?.remoteAddr?.toString() ?? ''
       upsertPeer(peerId, addr)
       logger.info({ peerId }, 'Mesh peer connected')
-    })
+    }
+    node.addEventListener('peer:connect', onPeerConnect)
+    node._peerConnectListener = onPeerConnect
   } catch (err) {
     logger.error({ err }, 'Failed to start mesh node — continuing without P2P')
   }
@@ -62,6 +64,9 @@ export async function startMeshNode(): Promise<void> {
 
 export async function stopMeshNode(): Promise<void> {
   if (node) {
+    if (node._peerConnectListener) {
+      node.removeEventListener('peer:connect', node._peerConnectListener)
+    }
     await node.stop()
     logger.info('Mesh node stopped')
     node = null

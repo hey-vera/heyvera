@@ -54,7 +54,7 @@ app.use('*', cors({
     ? ['https://claw-net.org', 'https://www.claw-net.org', 'https://app.claw-net.org']
     : '*',
   allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization', 'X-API-Key', 'X-Admin-Key'],
+  allowHeaders: ['Content-Type', 'Authorization', 'X-API-Key'],
   exposeHeaders: ['X-Request-ID', 'X-ClawNet-Signature'],
   maxAge: 86400,
 }));
@@ -154,7 +154,7 @@ async function start() {
   // Load embedding model + seed in background — don't block server startup
   loadEmbeddingModel()
     .then(() => seedEmbeddings())
-    .catch((err) => logger.warn({ err }, 'Embedding init failed'));
+    .catch((err) => logger.error({ err }, 'Embedding model failed to load — /v1/discover will return 503'));
 
   const server = serve({ fetch: app.fetch, port: env.PORT, hostname: '0.0.0.0' }, () => {
     logger.info(`ClawNet running on port ${env.PORT}`);

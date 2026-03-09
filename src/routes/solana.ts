@@ -29,7 +29,7 @@ const USDC_PACKAGES: Record<number, number> = {
 };
 
 const VerifySchema = z.object({
-  signature: z.string().min(80).max(120),
+  signature: z.string().min(80).max(120).regex(/^[1-9A-HJ-NP-Za-km-z]+$/, 'Invalid base58 signature'),
   expectedUsd: z.number().int().positive(),
   replyEmail: z.string().email().optional(),
 });

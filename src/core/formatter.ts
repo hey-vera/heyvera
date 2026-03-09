@@ -105,8 +105,8 @@ function parseSynthesisResponse(raw: string): Omit<FormattedResponse, 'synthesis
       suggestedActions?: string[];
     };
 
-    if (!parsed.answer || typeof parsed.answer !== 'string') {
-      throw new Error('Missing answer field');
+    if (!parsed.answer || typeof parsed.answer !== 'string' || parsed.answer.trim().length === 0) {
+      throw new Error('Missing or empty answer field');
     }
 
     return {

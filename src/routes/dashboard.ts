@@ -107,8 +107,8 @@ dashboardRouter.post('/claim-session', requireClerkAuth, async (c) => {
   try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
 
   const { sessionId } = body;
-  if (!sessionId || sessionId.length < 20) {
-    return c.json({ error: 'Invalid session ID' }, 400);
+  if (!sessionId || !/^cs_(test_|live_)?[A-Za-z0-9]{20,}$/.test(sessionId)) {
+    return c.json({ error: 'Invalid session ID format' }, 400);
   }
 
   const row = getApiKeyByStripeSession(sessionId);

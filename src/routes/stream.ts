@@ -74,7 +74,11 @@ streamRouter.get('/orchestrate', checkApiKey, async (c) => {
 
           const creditsToDeduct = creditsForApiCost(execution.totalCost);
           if (!keyInfo.isEnvKey) {
-            deductCredit(keyInfo.key, creditsToDeduct);
+            const deducted = deductCredit(keyInfo.key, creditsToDeduct);
+            if (!deducted) {
+              emit('error', { requestId, error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS' });
+              return;
+            }
           }
 
           emit('done', {
