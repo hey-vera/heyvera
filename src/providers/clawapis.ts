@@ -1,9 +1,10 @@
 import { logger } from '../utils/logger';
+import { env } from '../config/index';
 
 let x402Client: { fetch: (input: string, init?: RequestInit) => Promise<Response> } | null = null;
 
 export async function initClawApis(): Promise<boolean> {
-  const privateKey = process.env.SOLANA_PRIVATE_KEY;
+  const privateKey = env.SOLANA_PRIVATE_KEY;
   if (!privateKey) return false;
 
   try {
@@ -38,15 +39,25 @@ export function isClawApisReady(): boolean {
   return x402Client !== null;
 }
 
+/**
+ * Make an x402-paid API call to any provider.
+ * The x402 client handles payment automatically for any URL that returns 402.
+ * @param endpointPath  — URL path (e.g. '/api/price') or full URL
+ * @param params        — query string parameters
+ * @param baseUrlOverride — provider base URL (overrides clawapis.com for multi-provider routing)
+ */
 export async function clawApiCall(
   endpointPath: string,
-  params: Record<string, unknown> = {}
+  params: Record<string, unknown> = {},
+  baseUrlOverride?: string,
 ): Promise<unknown> {
-  if (!x402Client) throw new Error('ClawAPIs not initialized');
+  if (!x402Client) throw new Error('ClawAPIs x402 not initialized');
 
-  const baseUrl = process.env.X402_X_API_URL ?? 'https://clawapis.com';
+  // If endpointPath is already a full URL, use it directly
+  const isFullUrl = endpointPath.startsWith('http');
+  const base = isFullUrl ? '' : (baseUrlOverride ?? env.CLAWAPIS_BASE_URL ?? 'https://clawapis.com');
+  const url = new URL(isFullUrl ? endpointPath : endpointPath, base || 'https://clawapis.com');
 
-  const url = new URL(endpointPath, baseUrl);
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== null) {
       url.searchParams.set(key, String(value));
@@ -57,7 +68,7 @@ export async function clawApiCall(
 
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`ClawAPIs error ${res.status}: ${text.slice(0, 200)}`);
+    throw new Error(`x402 call error ${res.status} from ${url.hostname}: ${text.slice(0, 200)}`);
   }
 
   return res.json();
