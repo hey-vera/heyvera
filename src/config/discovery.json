@@ -1,0 +1,12 @@
+{
+  "weights": {
+    "semantic": 0.60,
+    "p2p": 0.25,
+    "onchain": 0.15
+  },
+  "minInvocationsForFallback": 3,
+  "semanticLimit": 30,
+  "p2pLimit": 20,
+  "onchainLimit": 10,
+  "resultLimit": 20
+}
