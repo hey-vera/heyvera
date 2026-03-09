@@ -52,20 +52,7 @@ export const checkApiKey = createMiddleware(async (c, next) => {
     );
   }
 
-  // Minimum 1 credit required to attempt a request
-  if (keyRecord.credits < 1) {
-    return c.json(
-      {
-        error: 'Insufficient credits',
-        code: 'INSUFFICIENT_CREDITS',
-        hint: 'Top up your credits at claw-net.org',
-        credits: keyRecord.credits,
-      },
-      402
-    );
-  }
-
-  // Pass key info to route — actual deduction happens in api.ts after we know real cost
+  // Pass key info to route — credit checks happen per-endpoint before spending operations
   c.set('apiKeyInfo', {
     key,
     email: keyRecord.email,

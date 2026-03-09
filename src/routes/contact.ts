@@ -13,7 +13,7 @@ const ContactSchema = z.object({
   email: z.string().email().max(254).trim().toLowerCase(),
   subject: z.enum(['general', 'billing', 'technical', 'partnership', 'other']),
   message: z.string().min(10).max(2000).trim(),
-  website: z.string().max(0).optional(),
+  website: z.string().optional(),
 })
 
 type ContactInput = z.infer<typeof ContactSchema>

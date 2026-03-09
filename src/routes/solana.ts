@@ -194,12 +194,14 @@ solanaRouter.post('/verify', async (c) => {
     }
   }
 
+  // Never return the full API key in the response body — it was already emailed
+  const maskedKey = apiKey.slice(0, 6) + '••••••••••••••••••••••••••••••••••••••••' + apiKey.slice(-4);
   return c.json({
     ok: true,
     credits,
     totalCredits,
-    apiKey,
-    message: `${credits.toLocaleString()} credits added to your account.`,
+    maskedApiKey: maskedKey,
+    message: `${credits.toLocaleString()} credits added. Your API key has been sent to your email.`,
   });
 });
 

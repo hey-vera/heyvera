@@ -153,7 +153,7 @@ marketplaceRouter.get('/transactions', checkApiKey, (c) => {
       amountCredits: t.amount_credits,
       feeCredits: t.fee_credits,
       direction: t.from_agent === keyInfo.key ? 'OUT' : 'IN',
-      counterparty: t.from_agent === keyInfo.key ? t.to_agent : t.from_agent,
+      counterparty: (() => { const k = t.from_agent === keyInfo.key ? t.to_agent : t.from_agent; return k ? k.slice(0, 6) + '...' + k.slice(-4) : null; })(),
       createdAt: t.created_at,
     })),
   });

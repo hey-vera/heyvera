@@ -20,6 +20,7 @@ export async function loadEmbeddingModel(): Promise<void> {
       _pipeline = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2') as unknown as Pipeline;
       logger.info('Embedding model loaded: all-MiniLM-L6-v2');
     } catch (err) {
+      _loadPromise = null; // Allow retry after transient failure
       logger.error({ err }, 'Failed to load embedding model');
       throw err;
     } finally {

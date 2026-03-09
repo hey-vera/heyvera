@@ -3,6 +3,10 @@ import { createClerkClient, verifyToken } from '@clerk/backend';
 import { logger } from '../utils/logger';
 import { env } from '../config/index';
 
+// Cache Clerk email lookups to avoid an external API call on every request
+const emailCache = new Map<string, { email: string | null; expiresAt: number }>();
+const EMAIL_CACHE_TTL_MS = 5 * 60 * 1000;
+
 declare module 'hono' {
   interface ContextVariableMap {
     clerkUserId: string;
@@ -30,15 +34,21 @@ export const requireClerkAuth = createMiddleware(async (c, next) => {
 
     c.set('clerkUserId', payload.sub);
 
-    // Get email from Clerk user
-    try {
-      const user = await clerk.users.getUser(payload.sub);
-      const primaryEmail = user.emailAddresses.find(
-        (e) => e.id === user.primaryEmailAddressId
-      )?.emailAddress ?? null;
-      c.set('clerkEmail', primaryEmail);
-    } catch {
-      c.set('clerkEmail', null);
+    // Get email from Clerk user (cached to avoid API call on every request)
+    const cached = emailCache.get(payload.sub);
+    if (cached && Date.now() < cached.expiresAt) {
+      c.set('clerkEmail', cached.email);
+    } else {
+      try {
+        const user = await clerk.users.getUser(payload.sub);
+        const primaryEmail = user.emailAddresses.find(
+          (e) => e.id === user.primaryEmailAddressId
+        )?.emailAddress ?? null;
+        emailCache.set(payload.sub, { email: primaryEmail, expiresAt: Date.now() + EMAIL_CACHE_TTL_MS });
+        c.set('clerkEmail', primaryEmail);
+      } catch {
+        c.set('clerkEmail', null);
+      }
     }
 
     await next();

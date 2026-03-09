@@ -16,9 +16,14 @@ export const governanceRouter = new Hono();
 // ─── GET /v1/governance/proposals ─────────────────────────────────────────────
 
 governanceRouter.get('/proposals', (c) => {
-  const status = c.req.query('status'); // OPEN | CLOSED | EXECUTED
-  const proposals = getProposals(status);
-  return c.json({ total: proposals.length, proposals });
+  const rawStatus = c.req.query('status');
+  const status = rawStatus && ['OPEN', 'CLOSED', 'EXECUTED'].includes(rawStatus) ? rawStatus : undefined;
+  const page = Math.max(1, parseInt(c.req.query('page') ?? '1', 10) || 1);
+  const limit = Math.min(100, Math.max(1, parseInt(c.req.query('limit') ?? '50', 10) || 50));
+  const proposals = getProposals(status, limit, (page - 1) * limit);
+  const where = status ? `WHERE status = ?` : ``;
+  const countRow = getDb().prepare(`SELECT COUNT(*) as total FROM proposals ${where}`).get(...(status ? [status] : [])) as { total: number };
+  return c.json({ page, limit, total: countRow.total, proposals });
 });
 
 // ─── GET /v1/governance/proposals/:id ─────────────────────────────────────────
@@ -99,9 +104,10 @@ governanceRouter.post('/proposals/:id/vote', checkApiKey, async (c) => {
   }
 
   // Vote weight = sqrt(total credits ever spent on platform), min 1
+  // Exclude self-transfers and only count outgoing spend to prevent gaming
   const spent = (getDb()
-    .prepare(`SELECT COALESCE(SUM(amount_credits),0) as total FROM transactions WHERE from_agent = ?`)
-    .get(keyInfo.key) as { total: number }).total;
+    .prepare(`SELECT COALESCE(SUM(amount_credits),0) as total FROM transactions WHERE from_agent = ? AND (to_agent IS NULL OR to_agent != ?)`)
+    .get(keyInfo.key, keyInfo.key) as { total: number }).total;
   const weight = Math.max(1, Math.sqrt(spent));
 
   const result = castVote({

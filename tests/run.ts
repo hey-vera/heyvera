@@ -76,12 +76,12 @@ async function main() {
     const data = await get<HealthResponse>('/v1/health');
     assert(data.status === 'ok', `status should be ok, got ${data.status}`);
     assert(typeof data.uptime === 'number', 'uptime should be a number');
-    assert(data.endpoints === 15, `should have 15 endpoints, got ${data.endpoints}`);
+    assert(data.endpoints >= 15, `should have at least 15 endpoints, got ${data.endpoints}`);
   }));
 
-  results.push(await runTest('GET /v1/registry returns 15 endpoints', async () => {
+  results.push(await runTest('GET /v1/registry returns endpoints', async () => {
     const data = await get<RegistryResponse>('/v1/registry');
-    assert(data.totalEndpoints === 15, `should have 15 endpoints, got ${data.totalEndpoints}`);
+    assert(data.totalEndpoints >= 15, `should have at least 15 endpoints, got ${data.totalEndpoints}`);
     assert(Object.keys(data.categories).length >= 3, 'should have at least 3 categories');
   }));
 

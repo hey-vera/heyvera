@@ -15,9 +15,16 @@ export interface LlmResponse {
 
 const TIMEOUT_MS = 30000;
 
+// Singleton clients — avoid re-creating on every call
+let _anthropicClient: InstanceType<typeof import('@anthropic-ai/sdk').default> | null = null;
+let _openaiClient: InstanceType<typeof import('openai').default> | null = null;
+
 async function callAnthropic(messages: LlmMessage[]): Promise<LlmResponse> {
-  const { default: Anthropic } = await import('@anthropic-ai/sdk');
-  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+  if (!_anthropicClient) {
+    const { default: Anthropic } = await import('@anthropic-ai/sdk');
+    _anthropicClient = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+  }
+  const client = _anthropicClient;
 
   const system = messages.find((m) => m.role === 'system')?.content ?? '';
   const userMessages = messages.filter((m) => m.role !== 'system').map((m) => ({
@@ -43,8 +50,11 @@ const response = await client.messages.create({
 }
 
 async function callOpenAI(messages: LlmMessage[]): Promise<LlmResponse> {
-  const { default: OpenAI } = await import('openai');
-  const client = new OpenAI({ apiKey: env.OPENAI_API_KEY });
+  if (!_openaiClient) {
+    const { default: OpenAI } = await import('openai');
+    _openaiClient = new OpenAI({ apiKey: env.OPENAI_API_KEY });
+  }
+  const client = _openaiClient;
 
   const response = await client.chat.completions.create({
     model: env.OPENAI_MODEL,
@@ -73,9 +83,12 @@ async function callOpenClaw(messages: LlmMessage[]): Promise<LlmResponse> {
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
   return Promise.race([
-    promise,
-    new Promise<T>((_, reject) => setTimeout(() => reject(new Error(`LLM timeout after ${ms}ms`)), ms)),
+    promise.finally(() => clearTimeout(timer)),
+    new Promise<T>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`LLM timeout after ${ms}ms`)), ms);
+    }),
   ]);
 }
 

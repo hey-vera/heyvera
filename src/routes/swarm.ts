@@ -6,7 +6,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { checkApiKey } from '../middleware/auth';
-import { createSwarmTask, updateSwarmTask, getSwarmTask, listPublicSkills } from '../db/index';
+import { createSwarmTask, updateSwarmTask, getSwarmTask, listPublicSkills, deductCredit } from '../db/index';
 import { llmComplete } from '../providers/llm';
 import { logger } from '../utils/logger';
 import { env } from '../config/index';
@@ -26,9 +26,28 @@ swarmRouter.post('/task', checkApiKey, async (c) => {
     return c.json({ error: 'Invalid body', details: (err as Error).message }, 400);
   }
 
+  // Deduct swarm base fee upfront (covers LLM decomposition + synthesis calls)
+  // Individual skill invocations within the swarm are charged per-skill separately.
+  const SWARM_BASE_FEE = 20;
+  if (!keyInfo.isEnvKey) {
+    if (keyInfo.credits < SWARM_BASE_FEE) {
+      return c.json({
+        error: `Insufficient credits for swarm task (requires ${SWARM_BASE_FEE})`,
+        code: 'INSUFFICIENT_CREDITS',
+        creditsAvailable: keyInfo.credits,
+        creditsRequired: SWARM_BASE_FEE,
+        hint: 'Top up your credits at claw-net.org',
+      }, 402);
+    }
+    const deducted = deductCredit(keyInfo.key, SWARM_BASE_FEE);
+    if (!deducted) {
+      return c.json({ error: 'Credit deduction failed', code: 'INSUFFICIENT_CREDITS' }, 402);
+    }
+  }
+
   const swarmId = createSwarmTask(keyInfo.key, body.task);
 
-  runSwarm(swarmId, keyInfo.key, body).catch(err => {
+  runSwarm(swarmId, keyInfo.key, body, keyInfo.isEnvKey).catch(err => {
     logger.error({ err, swarmId }, 'Swarm task failed');
     updateSwarmTask(swarmId, { status: 'FAILED', error: String(err) });
   });
@@ -63,7 +82,7 @@ swarmRouter.get('/:id', checkApiKey, (c) => {
 
 // ─── Core swarm execution ─────────────────────────────────────────────────────
 
-async function runSwarm(swarmId: string, agentKey: string, body: z.infer<typeof SwarmBody>) {
+async function runSwarm(swarmId: string, agentKey: string, body: z.infer<typeof SwarmBody>, isEnvKey = false) {
   updateSwarmTask(swarmId, { status: 'RUNNING' });
 
   const skills = listPublicSkills().slice(0, 20);
@@ -86,11 +105,21 @@ async function runSwarm(swarmId: string, agentKey: string, body: z.infer<typeof 
 
   updateSwarmTask(swarmId, { status: 'RUNNING', subTasks });
 
+  // Validate and sanitize LLM-generated skillIds to prevent path traversal / SSRF
+  const SAFE_ID = /^[a-zA-Z0-9_-]+$/;
+  subTasks = subTasks.filter(st => {
+    if (st.skillId && !SAFE_ID.test(st.skillId)) {
+      logger.warn({ skillId: st.skillId, swarmId }, 'Rejected invalid skillId from LLM decomposition');
+      return false;
+    }
+    return true;
+  });
+
   // Step 2: Execute in parallel
   const results = await Promise.all(subTasks.map(async (st, i) => {
     try {
       if (st.skillId) {
-        const r = await fetch(`http://localhost:${env.PORT}/v1/skills/${st.skillId}/invoke`, {
+        const r = await fetch(`http://localhost:${env.PORT}/v1/skills/${encodeURIComponent(st.skillId)}/invoke`, {
           method: 'POST',
           headers: { 'X-API-Key': agentKey, 'Content-Type': 'application/json' },
           body: JSON.stringify({ variables: st.variables }),
@@ -117,6 +146,8 @@ async function runSwarm(swarmId: string, agentKey: string, body: z.infer<typeof 
   } catch {
     synthesis = results.map((r, i) => `[${i + 1}] ${r.subtask}: ${JSON.stringify(r.result)}`).join('\n\n');
   }
+
+  // Credits were deducted upfront in the route handler — no deduction needed here.
 
   updateSwarmTask(swarmId, {
     status: 'COMPLETED',

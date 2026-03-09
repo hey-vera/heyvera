@@ -130,8 +130,8 @@ ClawNet is a sovereign AI agent orchestration layer and economy. It is live in p
 
 ---
 
-## 🟡 CHUNK 14: Testing, Docs & Launch Hardening
-**Status: PARTIALLY COMPLETE**
+## ✅ CHUNK 14: Testing, Docs & Launch Hardening
+**Status: COMPLETE**
 
 ### ✅ Done
 - `site/docs.html` — full public API reference (all routes, auth, credits, errors, code examples, ClawGuard)
@@ -139,13 +139,19 @@ ClawNet is a sovereign AI agent orchestration layer and economy. It is live in p
 - Live endpoint counts on homepage (fetched from /v1/endpoints)
 - Provider status accuracy (CoinGecko/CoinMarketCap shown as Live)
 - Terminal + API docs slideshows on index.html
+- Vitest suite — 48 tests across credit, escrow, governance, skills (`npm run test:unit`)
+  - `tests/unit/helpers/db.ts` — vi.mock + importOriginal pattern, in-memory SQLite
+  - `tests/unit/credit.test.ts` — deductCredit, topUpCredits, atomicity
+  - `tests/unit/escrow.test.ts` — state machine, fundEscrow, releaseEscrow
+  - `tests/unit/governance.test.ts` — castVote, duplicates, closed proposals, auto-expire
+  - `tests/unit/skills.test.ts` — createSkill, listPublicSkills, deleteSkill, revenue share
+- Production monitoring: UptimeRobot configured on /v1/health (5-min polling)
+- Runbook: `docs/RUNBOOK.md` — SQLite locks, mesh crashes, escrow timeouts, disk full, Redis down
+- OWASP Top 10 security checklist — 7 patches applied (prior chunks)
 
-### 🔴 Still To Do
-- Vitest suite for all API routes and core logic
-- Production monitoring: UptimeRobot on /v1/health
-- OWASP Top 10 security checklist (7 patches already applied)
-- Load test: 100 concurrent agents against /v1/orchestrate
-- Runbook: SQLite locks, mesh crashes, escrow timeouts
+### 📋 Deferred to Roadmap
+- Load test: 100 concurrent agents against /v1/orchestrate (Chunk 15+)
+- GitHub Actions CI pipeline (Chunk 15+)
 
 ---
 

@@ -14,7 +14,7 @@ const envSchema = z.object({
   OPENCLAW_API_KEY: z.string().optional(),
 
   CLAWAPIS_BASE_URL: z.string().default('https://api.clawapis.com'),
-  CLAWAPIS_API_KEY: z.string().default('your-clawapis-key'),
+  CLAWAPIS_API_KEY: z.string().optional(),
 
   REDIS_URL: z.string().optional(),
   CACHE_TTL_SECONDS: z.coerce.number().default(300),
@@ -56,5 +56,16 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
-export const isSimulationMode =
-  !env.CLAWAPIS_API_KEY || env.CLAWAPIS_API_KEY === 'your-clawapis-key';
+export const isSimulationMode = !env.CLAWAPIS_API_KEY;
+
+// Production safety guard — warn loudly if critical secrets are missing
+if (env.NODE_ENV === 'production') {
+  const missing: string[] = [];
+  if (!env.ADMIN_API_KEY) missing.push('ADMIN_API_KEY');
+  if (!env.PLATFORM_SIGNING_SECRET) missing.push('PLATFORM_SIGNING_SECRET');
+  if (!env.CLERK_SECRET_KEY) missing.push('CLERK_SECRET_KEY');
+  if (isSimulationMode) missing.push('CLAWAPIS_API_KEY (simulation mode active — real API calls disabled)');
+  if (missing.length > 0) {
+    console.warn('⚠️  Production warning — missing recommended env vars:', missing.join(', '));
+  }
+}

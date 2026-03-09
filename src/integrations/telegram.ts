@@ -126,7 +126,7 @@ function setCooldown(): void {
 // ─── Telegram HTML formatter ──────────────────────────────────────────────────
 
 function scoreBar(score: number, outOf = 100): string {
-  const filled = Math.round((score / outOf) * 8);
+  const filled = Math.min(8, Math.max(0, Math.round((score / outOf) * 8)));
   return '█'.repeat(filled) + '░'.repeat(8 - filled);
 }
 
@@ -241,6 +241,21 @@ function buildHelp(): string {
 
 // ─── Bot init ─────────────────────────────────────────────────────────────────
 
+const ALLOWED_USER_IDS: Set<number> = (() => {
+  const raw = process.env.TELEGRAM_ALLOWED_USER_IDS ?? '';
+  if (!raw.trim()) return new Set<number>();
+  return new Set(raw.split(',').map((s) => parseInt(s.trim(), 10)).filter((n) => !isNaN(n)));
+})();
+
+function isAllowedUser(userId: number): boolean {
+  // If allowlist is empty, open to all (backwards-compatible default)
+  return ALLOWED_USER_IDS.size === 0 || ALLOWED_USER_IDS.has(userId);
+}
+
+// Per-user price cooldown: 1 per minute
+const priceCooldowns = new Map<number, number>();
+const PRICE_COOLDOWN_MS = 60_000;
+
 export async function initTelegram(): Promise<void> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token || process.env.NODE_ENV !== 'production') {
@@ -251,6 +266,16 @@ export async function initTelegram(): Promise<void> {
   try {
     loadSubscribers();
     bot = new Bot(token);
+
+    // Allowlist middleware — runs before every update
+    bot.use(async (ctx, next) => {
+      const userId = ctx.from?.id;
+      if (userId === undefined || !isAllowedUser(userId)) {
+        if (ALLOWED_USER_IDS.size > 0) await ctx.reply('Unauthorized.').catch(() => {});
+        return;
+      }
+      await next();
+    });
 
     // /start
     bot.command('start', async (ctx) => {
@@ -379,14 +404,20 @@ export async function initTelegram(): Promise<void> {
       );
     });
 
-    // /price <token> — quick price check, no cooldown (cached data only)
+    // /price <token> — quick price check, per-user 1/min cooldown
     bot.command('price', async (ctx) => {
       const token = ctx.match?.trim();
       if (!token) {
         await ctx.reply('Usage: /price &lt;token symbol or mint address&gt;\n\nExample: /price SOL', { parse_mode: 'HTML' });
         return;
       }
-      // Price checks are narrow queries that almost always hit cache — no cooldown applied
+      const userId = ctx.from!.id;
+      const lastPrice = priceCooldowns.get(userId) ?? 0;
+      if (Date.now() - lastPrice < PRICE_COOLDOWN_MS) {
+        await ctx.reply('⏳ /price is limited to once per minute. Try again shortly.');
+        return;
+      }
+      priceCooldowns.set(userId, Date.now());
       await replyWithQuery(
         ctx,
         `Get the current price, 24h change, volume, and market cap for the Solana token ${token.toUpperCase()}. Keep it brief.`,

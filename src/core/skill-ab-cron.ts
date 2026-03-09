@@ -22,7 +22,7 @@ function runAbCheck(): void {
   try {
     // Find all skills that have an active challenger
     const skills = getDb()
-      .prepare(`SELECT id, ab_challenger FROM skills WHERE ab_challenger IS NOT NULL AND public = 1`)
+      .prepare(`SELECT id, ab_challenger FROM skills WHERE ab_challenger IS NOT NULL AND public = 1 AND active = 1`)
       .all() as { id: string; ab_challenger: string }[];
 
     for (const skill of skills) {
@@ -37,8 +37,9 @@ function evaluateAndMaybePromote(originalId: string, challengerId: string): void
   const origMetrics = getSkillMetricsSummary(originalId);
   const challMetrics = getSkillMetricsSummary(challengerId);
 
-  const orig = origMetrics.find((m: SkillMetricsSummary) => true); // latest version
-  const chall = challMetrics.find((m: SkillMetricsSummary) => true);
+  // Get the most recent version's metrics for each (results are ORDER BY version DESC)
+  const orig = origMetrics[0];
+  const chall = challMetrics[0];
 
   if (!orig || !chall) return;
   if (chall.invocations < MIN_INVOCATIONS) return; // not enough data yet
@@ -66,8 +67,10 @@ function evaluateAndMaybePromote(originalId: string, challengerId: string): void
     }
   } else if (improvement < -PROMOTE_THRESHOLD && chall.invocations >= MIN_INVOCATIONS) {
     // Challenger is significantly worse — discard it
-    getDb().prepare(`UPDATE skills SET ab_challenger = NULL WHERE id = ?`).run(originalId);
-    getDb().prepare(`UPDATE skills SET active = 0 WHERE id = ?`).run(challengerId);
+    getDb().transaction(() => {
+      getDb().prepare(`UPDATE skills SET ab_challenger = NULL WHERE id = ?`).run(originalId);
+      getDb().prepare(`UPDATE skills SET active = 0 WHERE id = ?`).run(challengerId);
+    })();
     writeAuditLog({
       entityType: 'skill', entityId: originalId,
       action: 'CHALLENGER_DISCARDED', actorId: null,

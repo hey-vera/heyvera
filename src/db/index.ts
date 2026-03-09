@@ -16,6 +16,7 @@ export function initDb(): void {
   }
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
+  db.pragma('busy_timeout = 5000');
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS orchestrations (
@@ -89,6 +90,11 @@ export function initDb(): void {
       processed_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS stripe_processed_events (
+      event_id TEXT PRIMARY KEY,
+      processed_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE TABLE IF NOT EXISTS referral_codes (
       code TEXT PRIMARY KEY,
       owner_key TEXT NOT NULL,
@@ -127,13 +133,15 @@ export function initDb(): void {
       author_key TEXT NOT NULL,
       public INTEGER NOT NULL DEFAULT 0,
       credit_cost INTEGER NOT NULL DEFAULT 0,
-      revenue_share_pct REAL NOT NULL DEFAULT 0.10,
+      revenue_share_pct REAL NOT NULL DEFAULT 0.97,
       uses INTEGER NOT NULL DEFAULT 0,
+      active INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
     CREATE INDEX IF NOT EXISTS idx_skills_author ON skills(author_key);
     CREATE INDEX IF NOT EXISTS idx_skills_public ON skills(public);
+    CREATE INDEX IF NOT EXISTS idx_skills_active ON skills(active);
 
     CREATE TABLE IF NOT EXISTS reputation_events (
       id TEXT PRIMARY KEY,
@@ -197,6 +205,7 @@ export function initDb(): void {
     CREATE INDEX IF NOT EXISTS idx_transactions_from ON transactions(from_agent);
     CREATE INDEX IF NOT EXISTS idx_transactions_to ON transactions(to_agent);
     CREATE INDEX IF NOT EXISTS idx_transactions_skill ON transactions(skill_id);
+    CREATE INDEX IF NOT EXISTS idx_transactions_type ON transactions(type);
     CREATE INDEX IF NOT EXISTS idx_stakes_agent ON stakes(agent_key);
     CREATE INDEX IF NOT EXISTS idx_stakes_skill ON stakes(skill_id);
 
@@ -231,6 +240,7 @@ export function initDb(): void {
     CREATE INDEX IF NOT EXISTS idx_orchestrations_query ON orchestrations(query);
     CREATE INDEX IF NOT EXISTS idx_api_keys_email ON api_keys(email);
     CREATE INDEX IF NOT EXISTS idx_api_keys_stripe ON api_keys(stripe_session_id);
+    CREATE INDEX IF NOT EXISTS idx_api_keys_clerk ON api_keys(clerk_user_id);
     CREATE INDEX IF NOT EXISTS idx_email_send_log ON email_send_log(email, type, sent_at);
 
     CREATE TABLE IF NOT EXISTS payout_requests (
@@ -325,6 +335,8 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 7, sql: `ALTER TABLE skills ADD COLUMN tags_json TEXT` },
   { version: 8, sql: `ALTER TABLE skills ADD COLUMN forked_from TEXT` },
   { version: 9, sql: `ALTER TABLE skills ADD COLUMN ab_challenger TEXT` },
+  { version: 10, sql: `ALTER TABLE skills ADD COLUMN active INTEGER NOT NULL DEFAULT 1` },
+  { version: 11, sql: `UPDATE skills SET revenue_share_pct = 0.97 WHERE revenue_share_pct = 0.10` },
 ];
 
 function runMigrations(): void {
@@ -482,12 +494,13 @@ export function createApiKeyForClerk(opts: {
   `).run(opts.key, opts.email, opts.credits, opts.solanaSignature, opts.clerkUserId);
 }
 
-export function topUpCreditsForClerk(clerkUserId: string, credits: number, _signature: string) {
-  db.prepare(`
+export function topUpCreditsForClerk(clerkUserId: string, credits: number, _signature: string): { ok: boolean } {
+  const result = db.prepare(`
     UPDATE api_keys
     SET credits = credits + ?
-    WHERE clerk_user_id = ?
+    WHERE clerk_user_id = ? AND active = 1
   `).run(credits, clerkUserId);
+  return { ok: result.changes > 0 };
 }
 
 // ─── API Keys ─────────────────────────────────────────────────────────────────
@@ -522,7 +535,7 @@ export function getApiKey(key: string): {
 
 export function getApiKeyByStripeSession(sessionId: string): { key: string } | undefined {
   return getDb()
-    .prepare('SELECT key FROM api_keys WHERE stripe_session_id = ?')
+    .prepare('SELECT key FROM api_keys WHERE stripe_session_id = ? AND active = 1')
     .get(sessionId) as { key: string } | undefined;
 }
 
@@ -566,22 +579,24 @@ export function getApiKeyByEmail(email: string): {
     .get(email) as ReturnType<typeof getApiKeyByEmail>;
 }
 
-export function topUpCredits(key: string, credits: number, stripeSessionId?: string): void {
+export function topUpCredits(key: string, credits: number, stripeSessionId?: string): { ok: boolean } {
+  let result;
   if (stripeSessionId) {
-    getDb()
+    result = getDb()
       .prepare(
         `UPDATE api_keys
          SET credits = credits + ?,
              stripe_session_id = ?,
              amount_paid = amount_paid + ?
-         WHERE key = ?`
+         WHERE key = ? AND active = 1`
       )
       .run(credits, stripeSessionId, credits / 1000, key); // credits / 1000 = dollar value
   } else {
-    getDb()
-      .prepare('UPDATE api_keys SET credits = credits + ? WHERE key = ?')
+    result = getDb()
+      .prepare('UPDATE api_keys SET credits = credits + ? WHERE key = ? AND active = 1')
       .run(credits, key);
   }
+  return { ok: result.changes > 0 };
 }
 
 // ─── Stripe Session Dedup (atomic idempotency) ───────────────────────────────
@@ -608,6 +623,23 @@ export function markSignatureProcessed(signature: string): void {
       .run(signature);
   } catch (err) {
     logger.error({ err }, 'Failed to mark signature processed');
+  }
+}
+
+// ─── Stripe Event Dedup ──────────────────────────────────────────────────────
+
+export function isStripeEventProcessed(eventId: string): boolean {
+  const row = getDb().prepare('SELECT 1 FROM stripe_processed_events WHERE event_id = ?').get(eventId);
+  return row != null;
+}
+
+export function markStripeEventProcessed(eventId: string): void {
+  try {
+    getDb()
+      .prepare('INSERT OR IGNORE INTO stripe_processed_events (event_id) VALUES (?)')
+      .run(eventId);
+  } catch (err) {
+    logger.error({ err }, 'Failed to mark Stripe event processed');
   }
 }
 
@@ -688,6 +720,10 @@ export function getApiKeyAmountPaid(key: string): number {
 // ─── Mesh Peers ───────────────────────────────────────────────────────────────
 
 export function upsertPeer(id: string, multiaddr: string, metadata?: Record<string, unknown>): void {
+  if (!id || typeof id !== 'string' || id.length > 256) return;
+  if (typeof multiaddr !== 'string' || multiaddr.length > 512) return;
+  if (multiaddr && !multiaddr.startsWith('/')) return;
+
   try {
     getDb()
       .prepare(
@@ -728,10 +764,10 @@ export function regenerateApiKey(
 
     if (!row) return null;
 
-    // Insert new key copying all financial data
+    // Insert new key copying all financial data (stripe_session_id left NULL to avoid UNIQUE violation)
     db.prepare(`
-      INSERT INTO api_keys (key, email, credits, credits_used, amount_paid, clerk_user_id, active, stripe_session_id)
-      SELECT ?, email, credits, credits_used, amount_paid, clerk_user_id, 1, stripe_session_id
+      INSERT INTO api_keys (key, email, credits, credits_used, amount_paid, clerk_user_id, active)
+      SELECT ?, email, credits, credits_used, amount_paid, clerk_user_id, 1
       FROM api_keys WHERE key = ?
     `).run(newKey, row.key);
 
@@ -781,24 +817,24 @@ export function createSkill(params: {
 }
 
 export function getSkill(id: string): Skill | undefined {
-  return getDb().prepare('SELECT * FROM skills WHERE id = ?').get(id) as Skill | undefined;
+  return getDb().prepare('SELECT * FROM skills WHERE id = ? AND active = 1').get(id) as Skill | undefined;
 }
 
 export function listPublicSkills(): Skill[] {
   return getDb()
-    .prepare('SELECT * FROM skills WHERE public = 1 ORDER BY uses DESC, created_at DESC')
+    .prepare('SELECT * FROM skills WHERE public = 1 AND active = 1 ORDER BY uses DESC, created_at DESC LIMIT 200')
     .all() as Skill[];
 }
 
-export function getSkillsByAuthor(authorKey: string): Skill[] {
+export function getSkillsByAuthor(authorKey: string, limit = 200): Skill[] {
   return getDb()
-    .prepare('SELECT * FROM skills WHERE author_key = ? ORDER BY created_at DESC')
-    .all(authorKey) as Skill[];
+    .prepare('SELECT * FROM skills WHERE author_key = ? AND active = 1 ORDER BY created_at DESC LIMIT ?')
+    .all(authorKey, limit) as Skill[];
 }
 
 export function countSkillsByAuthor(authorKey: string): number {
   const row = getDb()
-    .prepare('SELECT COUNT(*) as count FROM skills WHERE author_key = ?')
+    .prepare('SELECT COUNT(*) as count FROM skills WHERE author_key = ? AND active = 1')
     .get(authorKey) as { count: number };
   return row.count;
 }
@@ -809,14 +845,14 @@ export function incrementSkillUses(id: string): void {
 
 export function deleteSkill(id: string, authorKey: string): boolean {
   const result = getDb()
-    .prepare('DELETE FROM skills WHERE id = ? AND author_key = ?')
+    .prepare('UPDATE skills SET active = 0 WHERE id = ? AND author_key = ? AND active = 1')
     .run(id, authorKey);
   return result.changes > 0;
 }
 
 export function updateSkillVisibility(id: string, authorKey: string, isPublic: boolean): boolean {
   const result = getDb()
-    .prepare('UPDATE skills SET public = ? WHERE id = ? AND author_key = ?')
+    .prepare('UPDATE skills SET public = ? WHERE id = ? AND author_key = ? AND active = 1')
     .run(isPublic ? 1 : 0, id, authorKey);
   return result.changes > 0;
 }
@@ -936,20 +972,22 @@ export function getEscrow(id: string): Escrow | undefined {
   return getDb().prepare('SELECT * FROM escrows WHERE id = ?').get(id) as Escrow | undefined;
 }
 
-export function listEscrowsForUser(clerkUserId: string): Escrow[] {
+export function listEscrowsForUser(clerkUserId: string, limit = 50, offset = 0): Escrow[] {
   return getDb()
-    .prepare('SELECT * FROM escrows WHERE hirer_id = ? OR worker_id = ? ORDER BY created_at DESC')
-    .all(clerkUserId, clerkUserId) as Escrow[];
+    .prepare('SELECT * FROM escrows WHERE hirer_id = ? OR worker_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?')
+    .all(clerkUserId, clerkUserId, limit, offset) as Escrow[];
 }
 
 /** Transition escrow state. Returns false if transition is not allowed. */
 export function transitionEscrow(id: string, to: EscrowState, completedAt?: string): boolean {
   const db = getDb();
-  const escrow = db.prepare('SELECT state FROM escrows WHERE id = ?').get(id) as { state: EscrowState } | undefined;
-  if (!escrow || !canTransition(escrow.state, to)) return false;
-  db.prepare(`UPDATE escrows SET state = ?, completed_at = ? WHERE id = ?`)
-    .run(to, completedAt ?? null, id);
-  return true;
+  return db.transaction(() => {
+    const escrow = db.prepare('SELECT state FROM escrows WHERE id = ?').get(id) as { state: EscrowState } | undefined;
+    if (!escrow || !canTransition(escrow.state, to)) return false;
+    db.prepare(`UPDATE escrows SET state = ?, completed_at = ? WHERE id = ?`)
+      .run(to, completedAt ?? null, id);
+    return true;
+  })();
 }
 
 /** Fund escrow: deduct credits from hirer atomically with state transition. */
@@ -974,54 +1012,71 @@ export function fundEscrow(escrowId: string, hirerId: string): { ok: boolean; er
 /** Release escrow: credit worker atomically with state transition. */
 export function releaseEscrow(escrowId: string): { ok: boolean; error?: string } {
   const db = getDb();
-  return db.transaction(() => {
-    const escrow = db.prepare('SELECT * FROM escrows WHERE id = ?').get(escrowId) as Escrow | undefined;
-    if (!escrow) return { ok: false, error: 'Escrow not found' };
-    if (!canTransition(escrow.state, 'COMPLETED')) return { ok: false, error: `Cannot release from state ${escrow.state}` };
+  try {
+    db.transaction(() => {
+      const escrow = db.prepare('SELECT * FROM escrows WHERE id = ?').get(escrowId) as Escrow | undefined;
+      if (!escrow) throw new Error('Escrow not found');
+      if (!canTransition(escrow.state, 'COMPLETED')) throw new Error(`Cannot release from state ${escrow.state}`);
 
-    db.prepare(`UPDATE api_keys SET credits = credits + ? WHERE clerk_user_id = ? AND active = 1`)
-      .run(escrow.amount_credits, escrow.worker_id);
-    db.prepare(`UPDATE escrows SET state = 'COMPLETED', completed_at = datetime('now') WHERE id = ?`).run(escrowId);
+      const result = db.prepare(`UPDATE api_keys SET credits = credits + ? WHERE clerk_user_id = ? AND active = 1`)
+        .run(escrow.amount_credits, escrow.worker_id);
+      if (result.changes === 0) throw new Error('Worker has no active API key — credits cannot be disbursed');
+      db.prepare(`UPDATE escrows SET state = 'COMPLETED', completed_at = datetime('now') WHERE id = ?`).run(escrowId);
+    })();
     return { ok: true };
-  })();
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
 }
 
 /** Refund escrow to hirer (timeout / cancellation). */
 export function refundEscrow(escrowId: string): { ok: boolean; error?: string } {
   const db = getDb();
-  return db.transaction(() => {
-    const escrow = db.prepare('SELECT * FROM escrows WHERE id = ?').get(escrowId) as Escrow | undefined;
-    if (!escrow) return { ok: false, error: 'Escrow not found' };
-    if (!canTransition(escrow.state, 'REFUNDED')) return { ok: false, error: `Cannot refund from state ${escrow.state}` };
+  try {
+    db.transaction(() => {
+      const escrow = db.prepare('SELECT * FROM escrows WHERE id = ?').get(escrowId) as Escrow | undefined;
+      if (!escrow) throw new Error('Escrow not found');
+      if (!canTransition(escrow.state, 'REFUNDED')) throw new Error(`Cannot refund from state ${escrow.state}`);
 
-    db.prepare(`UPDATE api_keys SET credits = credits + ? WHERE clerk_user_id = ? AND active = 1`)
-      .run(escrow.amount_credits, escrow.hirer_id);
-    db.prepare(`UPDATE escrows SET state = 'REFUNDED', completed_at = datetime('now') WHERE id = ?`).run(escrowId);
+      const result = db.prepare(`UPDATE api_keys SET credits = credits + ? WHERE clerk_user_id = ? AND active = 1`)
+        .run(escrow.amount_credits, escrow.hirer_id);
+      if (result.changes === 0) throw new Error('Hirer has no active API key — credits cannot be refunded');
+      db.prepare(`UPDATE escrows SET state = 'REFUNDED', completed_at = datetime('now') WHERE id = ?`).run(escrowId);
+    })();
     return { ok: true };
-  })();
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
 }
 
 /** Admin resolve: split credits between hirer and worker. */
 export function resolveEscrow(escrowId: string, workerPct: number): { ok: boolean; error?: string } {
   const db = getDb();
-  return db.transaction(() => {
-    const escrow = db.prepare('SELECT * FROM escrows WHERE id = ?').get(escrowId) as Escrow | undefined;
-    if (!escrow) return { ok: false, error: 'Escrow not found' };
-    if (!canTransition(escrow.state, 'RESOLVED')) return { ok: false, error: `Cannot resolve from state ${escrow.state}` };
+  const pct = Math.max(0, Math.min(100, Math.floor(workerPct)));
+  try {
+    db.transaction(() => {
+      const escrow = db.prepare('SELECT * FROM escrows WHERE id = ?').get(escrowId) as Escrow | undefined;
+      if (!escrow) throw new Error('Escrow not found');
+      if (!canTransition(escrow.state, 'RESOLVED')) throw new Error(`Cannot resolve from state ${escrow.state}`);
 
-    const workerShare = Math.floor(escrow.amount_credits * workerPct / 100);
-    const hirerShare = escrow.amount_credits - workerShare;
-    if (workerShare > 0) {
-      db.prepare(`UPDATE api_keys SET credits = credits + ? WHERE clerk_user_id = ? AND active = 1`)
-        .run(workerShare, escrow.worker_id);
-    }
-    if (hirerShare > 0) {
-      db.prepare(`UPDATE api_keys SET credits = credits + ? WHERE clerk_user_id = ? AND active = 1`)
-        .run(hirerShare, escrow.hirer_id);
-    }
-    db.prepare(`UPDATE escrows SET state = 'RESOLVED', completed_at = datetime('now') WHERE id = ?`).run(escrowId);
+      const workerShare = Math.floor(escrow.amount_credits * pct / 100);
+      const hirerShare = escrow.amount_credits - workerShare;
+      if (workerShare > 0) {
+        const r = db.prepare(`UPDATE api_keys SET credits = credits + ? WHERE clerk_user_id = ? AND active = 1`)
+          .run(workerShare, escrow.worker_id);
+        if (r.changes === 0) throw new Error('Worker has no active API key');
+      }
+      if (hirerShare > 0) {
+        const r = db.prepare(`UPDATE api_keys SET credits = credits + ? WHERE clerk_user_id = ? AND active = 1`)
+          .run(hirerShare, escrow.hirer_id);
+        if (r.changes === 0) throw new Error('Hirer has no active API key');
+      }
+      db.prepare(`UPDATE escrows SET state = 'RESOLVED', completed_at = datetime('now') WHERE id = ?`).run(escrowId);
+    })();
     return { ok: true };
-  })();
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
 }
 
 /** Find expired FUNDED/WORK_IN_PROGRESS escrows past their deadline. */
@@ -1055,12 +1110,12 @@ export function writeAuditLog(params: {
   }
 }
 
-export function getAuditLog(entityType: string, entityId: string): {
+export function getAuditLog(entityType: string, entityId: string, limit = 200): {
   id: string; action: string; actor_id: string | null; data_json: string | null; timestamp: string;
 }[] {
   return getDb()
-    .prepare('SELECT id, action, actor_id, data_json, timestamp FROM audit_log WHERE entity_type = ? AND entity_id = ? ORDER BY timestamp ASC')
-    .all(entityType, entityId) as { id: string; action: string; actor_id: string | null; data_json: string | null; timestamp: string; }[];
+    .prepare('SELECT id, action, actor_id, data_json, timestamp FROM audit_log WHERE entity_type = ? AND entity_id = ? ORDER BY timestamp ASC LIMIT ?')
+    .all(entityType, entityId, limit) as { id: string; action: string; actor_id: string | null; data_json: string | null; timestamp: string; }[];
 }
 
 // ─── Reputation ───────────────────────────────────────────────────────────────
@@ -1119,7 +1174,7 @@ export function updateSkillSchemas(id: string, params: {
   if (params.tagsJson !== undefined)      { fields.push('tags_json = ?');        values.push(params.tagsJson); }
   if (fields.length === 0) return;
   values.push(id);
-  getDb().prepare(`UPDATE skills SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+  getDb().prepare(`UPDATE skills SET ${fields.join(', ')} WHERE id = ? AND active = 1`).run(...values);
 }
 
 // ─── Skill Metrics ────────────────────────────────────────────────────────────
@@ -1189,9 +1244,13 @@ export function promoteChallenger(skillId: string): boolean {
     const challenger = db.prepare('SELECT * FROM skills WHERE id = ?').get(skill.ab_challenger) as Skill | undefined;
     if (!challenger) return false;
 
-    // Swap prompt template and version from challenger → original
-    db.prepare(`UPDATE skills SET prompt_template = ?, version = ?, ab_challenger = NULL WHERE id = ?`)
-      .run(challenger.prompt_template, challenger.version ?? '1.0.0', skillId);
+    // Swap all content fields from challenger → original
+    db.prepare(`UPDATE skills SET prompt_template = ?, description = ?, credit_cost = ?,
+      input_schema_json = ?, output_schema_json = ?, tags_json = ?,
+      version = ?, ab_challenger = NULL WHERE id = ?`)
+      .run(challenger.prompt_template, challenger.description, challenger.credit_cost,
+        challenger.input_schema_json, challenger.output_schema_json, challenger.tags_json,
+        challenger.version ?? '1.0.0', skillId);
 
     // Mark challenger as promoted in skill_versions
     db.prepare(`UPDATE skill_versions SET promoted = 1 WHERE skill_id = ?`).run(skill.ab_challenger);
@@ -1204,7 +1263,7 @@ export function promoteChallenger(skillId: string): boolean {
 }
 
 export function getSkillWithAb(id: string): Skill | undefined {
-  return getDb().prepare('SELECT * FROM skills WHERE id = ?').get(id) as Skill | undefined;
+  return getDb().prepare('SELECT * FROM skills WHERE id = ? AND active = 1').get(id) as Skill | undefined;
 }
 
 // ─── Marketplace: Transactions ────────────────────────────────────────────────
@@ -1284,29 +1343,36 @@ export function marketplacePurchase(params: {
   skillId: string;
 }): { ok: boolean; txId?: string; error?: string; feeCredits?: number; sellerCredits?: number } {
   const db = getDb();
-  return db.transaction(() => {
-    const feeCredits = Math.floor(params.amountCredits * params.feePct);
-    const sellerCredits = params.amountCredits - feeCredits;
+  let txId = '';
+  let feeCredits = 0;
+  let sellerCredits = 0;
+  try {
+    db.transaction(() => {
+      feeCredits = Math.floor(params.amountCredits * params.feePct);
+      sellerCredits = params.amountCredits - feeCredits;
 
-    // Deduct from buyer
-    const deducted = db.prepare(
-      `UPDATE api_keys SET credits = credits - ?, credits_used = credits_used + ?
-       WHERE key = ? AND credits >= ? AND active = 1`
-    ).run(params.amountCredits, params.amountCredits, params.buyerKey, params.amountCredits);
-    if (deducted.changes === 0) return { ok: false, error: 'Insufficient credits' };
+      // Deduct from buyer
+      const deducted = db.prepare(
+        `UPDATE api_keys SET credits = credits - ?, credits_used = credits_used + ?
+         WHERE key = ? AND credits >= ? AND active = 1`
+      ).run(params.amountCredits, params.amountCredits, params.buyerKey, params.amountCredits);
+      if (deducted.changes === 0) throw new Error('Insufficient credits');
 
-    // Credit seller (fee stays on platform — not redistributed in v1)
-    db.prepare(`UPDATE api_keys SET credits = credits + ? WHERE key = ? AND active = 1`)
-      .run(sellerCredits, params.sellerKey);
+      // Credit seller (fee stays on platform — not redistributed in v1)
+      const sellerResult = db.prepare(`UPDATE api_keys SET credits = credits + ? WHERE key = ? AND active = 1`)
+        .run(sellerCredits, params.sellerKey);
+      if (sellerResult.changes === 0) throw new Error('Seller has no active API key');
 
-    const txId = nanoid(16);
-    db.prepare(`INSERT INTO transactions (id, from_agent, to_agent, amount_credits, type, skill_id, fee_credits, metadata_json)
-                VALUES (?, ?, ?, ?, 'PURCHASE', ?, ?, ?)`)
-      .run(txId, params.buyerKey, params.sellerKey, params.amountCredits,
-        params.skillId, feeCredits, JSON.stringify({ feePct: params.feePct }));
-
+      txId = nanoid(16);
+      db.prepare(`INSERT INTO transactions (id, from_agent, to_agent, amount_credits, type, skill_id, fee_credits, metadata_json)
+                  VALUES (?, ?, ?, ?, 'SKILL_SALE', ?, ?, ?)`)
+        .run(txId, params.buyerKey, params.sellerKey, params.amountCredits,
+          params.skillId, feeCredits, JSON.stringify({ feePct: params.feePct }));
+    })();
     return { ok: true, txId, feeCredits, sellerCredits };
-  })();
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
 }
 
 // ─── Marketplace: Staking ─────────────────────────────────────────────────────
@@ -1327,39 +1393,49 @@ export function stakeCredits(params: {
   lockDays: number;
 }): { ok: boolean; stakeId?: string; error?: string } {
   const db = getDb();
-  return db.transaction(() => {
-    const deducted = db.prepare(
-      `UPDATE api_keys SET credits = credits - ? WHERE key = ? AND credits >= ? AND active = 1`
-    ).run(params.amountCredits, params.agentKey, params.amountCredits);
-    if (deducted.changes === 0) return { ok: false, error: 'Insufficient credits' };
+  const days = Math.max(1, Math.min(365, Math.floor(params.lockDays)));
+  let stakeId = '';
+  try {
+    db.transaction(() => {
+      const deducted = db.prepare(
+        `UPDATE api_keys SET credits = credits - ? WHERE key = ? AND credits >= ? AND active = 1`
+      ).run(params.amountCredits, params.agentKey, params.amountCredits);
+      if (deducted.changes === 0) throw new Error('Insufficient credits');
 
-    const stakeId = nanoid(12);
-    db.prepare(`INSERT INTO stakes (id, agent_key, skill_id, amount_credits, unlocks_at)
-                VALUES (?, ?, ?, ?, datetime('now', ?))`)
-      .run(stakeId, params.agentKey, params.skillId ?? null, params.amountCredits,
-        `+${params.lockDays} days`);
+      stakeId = nanoid(12);
+      db.prepare(`INSERT INTO stakes (id, agent_key, skill_id, amount_credits, unlocks_at)
+                  VALUES (?, ?, ?, ?, datetime('now', '+' || ? || ' days'))`)
+        .run(stakeId, params.agentKey, params.skillId ?? null, params.amountCredits, days);
+    })();
     return { ok: true, stakeId };
-  })();
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
 }
 
 export function unstakeCredits(stakeId: string, agentKey: string): { ok: boolean; error?: string } {
   const db = getDb();
-  return db.transaction(() => {
-    const stake = db.prepare(`SELECT * FROM stakes WHERE id = ? AND agent_key = ?`).get(stakeId, agentKey) as Stake | undefined;
-    if (!stake) return { ok: false, error: 'Stake not found' };
-    if (new Date(stake.unlocks_at) > new Date()) return { ok: false, error: `Locked until ${stake.unlocks_at}` };
+  try {
+    db.transaction(() => {
+      const stake = db.prepare(`SELECT * FROM stakes WHERE id = ? AND agent_key = ?`).get(stakeId, agentKey) as Stake | undefined;
+      if (!stake) throw new Error('Stake not found');
+      if (new Date(stake.unlocks_at) > new Date()) throw new Error(`Locked until ${stake.unlocks_at}`);
 
-    db.prepare(`DELETE FROM stakes WHERE id = ?`).run(stakeId);
-    db.prepare(`UPDATE api_keys SET credits = credits + ? WHERE key = ? AND active = 1`)
-      .run(stake.amount_credits, agentKey);
+      db.prepare(`DELETE FROM stakes WHERE id = ?`).run(stakeId);
+      const result = db.prepare(`UPDATE api_keys SET credits = credits + ? WHERE key = ? AND active = 1`)
+        .run(stake.amount_credits, agentKey);
+      if (result.changes === 0) throw new Error('API key inactive — credits cannot be returned');
+    })();
     return { ok: true };
-  })();
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
 }
 
-export function getStakes(agentKey: string): Stake[] {
+export function getStakes(agentKey: string, limit = 200): Stake[] {
   return getDb()
-    .prepare('SELECT * FROM stakes WHERE agent_key = ? ORDER BY staked_at DESC')
-    .all(agentKey) as Stake[];
+    .prepare('SELECT * FROM stakes WHERE agent_key = ? ORDER BY staked_at DESC LIMIT ?')
+    .all(agentKey, limit) as Stake[];
 }
 
 export function getSkillStakeTotal(skillId: string): number {
@@ -1386,16 +1462,17 @@ export function getMarketplaceSkills(params: {
   };
   const order = orderMap[params.sort] ?? 'uses DESC';
 
-  let where = `s.public = 1`;
+  let where = `s.public = 1 AND s.active = 1`;
   const args: unknown[] = [];
 
   if (params.tags) {
-    where += ` AND s.tags_json LIKE ?`;
-    args.push(`%${params.tags}%`);
+    where += ` AND s.tags_json LIKE ? ESCAPE '\\'`;
+    args.push(`%${params.tags.replace(/[%_\\]/g, '\\$&')}%`);
   }
   if (params.search) {
-    where += ` AND (s.name LIKE ? OR s.description LIKE ?)`;
-    args.push(`%${params.search}%`, `%${params.search}%`);
+    const escaped = params.search.replace(/[%_\\]/g, '\\$&');
+    where += ` AND (s.name LIKE ? ESCAPE '\\' OR s.description LIKE ? ESCAPE '\\')`;
+    args.push(`%${escaped}%`, `%${escaped}%`);
   }
 
   const countRow = getDb()
@@ -1459,7 +1536,6 @@ export function createPayoutRequest(params: {
     if (params.amountCredits > available) return { ok: false, error: `Only ${available} credits available for withdrawal` };
     if (params.amountCredits < MIN_CREDITS) return { ok: false, error: `Minimum withdrawal is ${MIN_CREDITS} credits` };
 
-    const { nanoid } = require('nanoid');
     const id = nanoid(16);
     db.prepare(`INSERT INTO payout_requests (id, agent_key, amount_credits, usdc_wallet) VALUES (?, ?, ?, ?)`)
       .run(id, params.agentKey, params.amountCredits, params.usdcWallet);
@@ -1500,7 +1576,6 @@ export interface SwarmTask {
 }
 
 export function createSwarmTask(agentKey: string, task: string): string {
-  const { nanoid } = require('nanoid');
   const id = nanoid(16);
   getDb().prepare(`INSERT INTO swarms (id, task, agent_key) VALUES (?, ?, ?)`)
     .run(id, task, agentKey);
@@ -1550,23 +1625,22 @@ export function createProposal(params: {
   proposedBy: string;
   closeDays?: number;
 }): string {
-  const { nanoid } = require('nanoid');
   const id = nanoid(16);
-  const days = params.closeDays ?? 7;
+  const days = Math.max(1, Math.min(90, Math.floor(params.closeDays ?? 7)));
   getDb().prepare(`
     INSERT INTO proposals (id, title, description, proposed_by, closes_at)
-    VALUES (?, ?, ?, ?, datetime('now', '+${days} days'))
-  `).run(id, params.title, params.description, params.proposedBy);
+    VALUES (?, ?, ?, ?, datetime('now', '+' || ? || ' days'))
+  `).run(id, params.title, params.description, params.proposedBy, days);
   return id;
 }
 
-export function getProposals(status?: string): Proposal[] {
+export function getProposals(status?: string, limit = 50, offset = 0): Proposal[] {
   const db = getDb();
   // Auto-close expired proposals
   db.prepare(`UPDATE proposals SET status = 'CLOSED' WHERE status = 'OPEN' AND closes_at < datetime('now')`).run();
   const where = status ? `WHERE status = ?` : ``;
-  return db.prepare(`SELECT * FROM proposals ${where} ORDER BY created_at DESC`)
-    .all(...(status ? [status] : [])) as Proposal[];
+  return db.prepare(`SELECT * FROM proposals ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`)
+    .all(...(status ? [status] : []), limit, offset) as Proposal[];
 }
 
 export function getProposal(id: string): Proposal | undefined {
@@ -1579,23 +1653,25 @@ export function castVote(params: {
   direction: 'FOR' | 'AGAINST';
   weight: number;
 }): { ok: boolean; error?: string } {
+  if (!Number.isFinite(params.weight) || params.weight <= 0) return { ok: false, error: 'Vote weight must be a positive number' };
+  const weight = Math.max(0, Math.min(1_000_000, params.weight));
+
   const db = getDb();
   return db.transaction(() => {
     const proposal = db.prepare(`SELECT * FROM proposals WHERE id = ?`).get(params.proposalId) as Proposal | undefined;
     if (!proposal) return { ok: false, error: 'Proposal not found' };
     if (proposal.status !== 'OPEN') return { ok: false, error: 'Proposal is not open for voting' };
 
-    const { nanoid } = require('nanoid');
     try {
       db.prepare(`INSERT INTO votes (id, proposal_id, voter_key, direction, weight) VALUES (?, ?, ?, ?, ?)`)
-        .run(nanoid(16), params.proposalId, params.voterKey, params.direction, params.weight);
+        .run(nanoid(16), params.proposalId, params.voterKey, params.direction, weight);
     } catch {
       return { ok: false, error: 'Already voted on this proposal' };
     }
 
     const col = params.direction === 'FOR' ? 'votes_for' : 'votes_against';
     db.prepare(`UPDATE proposals SET ${col} = ${col} + ? WHERE id = ?`)
-      .run(params.weight, params.proposalId);
+      .run(weight, params.proposalId);
     return { ok: true };
   })();
 }

@@ -1,8 +1,10 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
+import { checkApiKey } from '../middleware/auth';
 import { runDiscovery } from '../core/discovery-engine';
 
 const discoverRouter = new Hono();
+discoverRouter.use('*', checkApiKey);
 
 const DiscoverBody = z.object({
   query: z.string().min(1).max(500),

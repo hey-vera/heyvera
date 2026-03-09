@@ -6,12 +6,21 @@
 import type { MiddlewareHandler } from 'hono';
 import { createHmac } from 'crypto';
 import { env } from '../config/index';
+import { logger } from '../utils/logger';
+
+let warnedMissingSecret = false;
 
 export const signResponse: MiddlewareHandler = async (c, next) => {
   await next();
 
   const secret = env.PLATFORM_SIGNING_SECRET;
-  if (!secret) return; // Skip if not configured
+  if (!secret) {
+    if (!warnedMissingSecret) {
+      logger.warn('PLATFORM_SIGNING_SECRET not set — response signing disabled');
+      warnedMissingSecret = true;
+    }
+    return;
+  }
 
   try {
     const body = await c.res.clone().text();

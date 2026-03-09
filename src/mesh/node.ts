@@ -34,6 +34,7 @@ export async function startMeshNode(): Promise<void> {
       transports: [tcp()],
       streamMuxers: [yamux()],
       connectionEncrypters: [noise()],
+      connectionManager: { maxConnections: 50 },
       services: { dht: kadDHT({ clientMode: false }), ping: ping() },
     })
 

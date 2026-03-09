@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { z } from 'zod';
 import { nanoid } from 'nanoid';
 import { requireClerkAuth } from '../middleware/clerk-auth';
 import {
@@ -12,27 +13,28 @@ const escrowRouter = new Hono();
 
 // ── Create ────────────────────────────────────────────────────────────────────
 
+const CreateEscrowBody = z.object({
+  workerId: z.string().min(1).max(256),
+  amountCredits: z.number().int().min(1).max(100_000_000),
+  deadline: z.string().datetime().optional(),
+  metadata: z.record(z.unknown()).optional(),
+}).strict();
+
 escrowRouter.post('/create', requireClerkAuth, async (c) => {
   const hirerId = c.get('clerkUserId');
-  const body = await c.req.json().catch(() => null);
-  if (!body) return c.json({ error: 'Invalid JSON' }, 400);
+  const raw = await c.req.json().catch(() => null);
+  if (!raw) return c.json({ error: 'Invalid JSON' }, 400);
 
-  const { workerId, amountCredits, deadline, metadata } = body as {
-    workerId?: string;
-    amountCredits?: number;
-    deadline?: string;
-    metadata?: Record<string, unknown>;
-  };
+  const parsed = CreateEscrowBody.safeParse(raw);
+  if (!parsed.success) return c.json({ error: 'Invalid body', details: parsed.error.flatten().fieldErrors }, 400);
 
-  if (!workerId || typeof workerId !== 'string')
-    return c.json({ error: 'workerId required' }, 400);
-  if (!amountCredits || typeof amountCredits !== 'number' || amountCredits < 1)
-    return c.json({ error: 'amountCredits must be a positive integer' }, 400);
+  const { workerId, amountCredits, deadline, metadata } = parsed.data;
+
   if (hirerId === workerId)
     return c.json({ error: 'Hirer and worker cannot be the same user' }, 400);
 
   const id = 'esc_' + nanoid(16);
-  createEscrow({ id, hirerId, workerId, amountCredits: Math.floor(amountCredits), deadline, metadata });
+  createEscrow({ id, hirerId, workerId, amountCredits, deadline, metadata });
   writeAuditLog({ entityType: 'escrow', entityId: id, action: 'CREATED', actorId: hirerId,
     data: { workerId, amountCredits, deadline } });
 
@@ -95,6 +97,7 @@ escrowRouter.post('/:id/release', requireClerkAuth, async (c) => {
   const escrow = getEscrow(id);
   if (!escrow) return c.json({ error: 'Escrow not found' }, 404);
   if (escrow.hirer_id !== hirerId) return c.json({ error: 'Not the hirer' }, 403);
+  if (escrow.state !== 'WORK_IN_PROGRESS') return c.json({ error: `Cannot release from state ${escrow.state}` }, 400);
 
   const result = releaseEscrow(id);
   if (!result.ok) return c.json({ error: result.error }, 400);
@@ -106,10 +109,17 @@ escrowRouter.post('/:id/release', requireClerkAuth, async (c) => {
 
 // ── Dispute ───────────────────────────────────────────────────────────────────
 
+const DisputeBody = z.object({
+  reason: z.string().max(2000).optional(),
+}).strict();
+
 escrowRouter.post('/:id/dispute', requireClerkAuth, async (c) => {
   const actorId = c.get('clerkUserId');
   const { id } = c.req.param();
-  const body = await c.req.json().catch(() => ({})) as { reason?: string };
+  const raw = await c.req.json().catch(() => ({}));
+  const parsed = DisputeBody.safeParse(raw);
+  if (!parsed.success) return c.json({ error: 'Invalid body', details: parsed.error.flatten().fieldErrors }, 400);
+  const reason = parsed.data.reason ?? null;
 
   const escrow = getEscrow(id);
   if (!escrow) return c.json({ error: 'Escrow not found' }, 404);
@@ -120,17 +130,24 @@ escrowRouter.post('/:id/dispute', requireClerkAuth, async (c) => {
   if (!ok) return c.json({ error: `Cannot dispute from state ${escrow.state}` }, 400);
 
   writeAuditLog({ entityType: 'escrow', entityId: id, action: 'DISPUTED', actorId,
-    data: { reason: body.reason ?? null } });
+    data: { reason } });
   return c.json({ id, state: 'DISPUTED' });
 });
 
 // ── Evidence ──────────────────────────────────────────────────────────────────
 
+const EvidenceBody = z.object({
+  text: z.string().max(5000).optional(),
+  attachments: z.array(z.string().url().max(2000)).max(10).optional(),
+}).strict();
+
 escrowRouter.post('/:id/evidence', requireClerkAuth, async (c) => {
   const actorId = c.get('clerkUserId');
   const { id } = c.req.param();
-  const body = await c.req.json().catch(() => null);
-  if (!body) return c.json({ error: 'Invalid JSON' }, 400);
+  const raw = await c.req.json().catch(() => null);
+  if (!raw) return c.json({ error: 'Invalid JSON' }, 400);
+  const parsed = EvidenceBody.safeParse(raw);
+  if (!parsed.success) return c.json({ error: 'Invalid body', details: parsed.error.flatten().fieldErrors }, 400);
 
   const escrow = getEscrow(id);
   if (!escrow) return c.json({ error: 'Escrow not found' }, 404);
@@ -139,26 +156,33 @@ escrowRouter.post('/:id/evidence', requireClerkAuth, async (c) => {
   if (escrow.state !== 'DISPUTED') return c.json({ error: 'Escrow is not in DISPUTED state' }, 400);
 
   const role = escrow.hirer_id === actorId ? 'hirer' : 'worker';
+  const text = parsed.data.text ?? null;
+  const attachments = parsed.data.attachments ?? [];
   writeAuditLog({ entityType: 'escrow', entityId: id, action: 'EVIDENCE_SUBMITTED', actorId,
-    data: { role, text: body.text ?? null, attachments: body.attachments ?? [], submitted_at: new Date().toISOString() } });
+    data: { role, text, attachments, submitted_at: new Date().toISOString() } });
 
   return c.json({ ok: true, message: 'Evidence recorded' });
 });
 
 // ── Resolve (admin only) ──────────────────────────────────────────────────────
 
+const ResolveBody = z.object({
+  outcome: z.string().min(1).max(100),
+}).strict();
+
 escrowRouter.post('/:id/resolve', requireClerkAuth, async (c) => {
   const actorId = c.get('clerkUserId');
   const { id } = c.req.param();
-  const body = await c.req.json().catch(() => null);
-  if (!body) return c.json({ error: 'Invalid JSON' }, 400);
+  const raw = await c.req.json().catch(() => null);
+  if (!raw) return c.json({ error: 'Invalid JSON' }, 400);
+  const parsed = ResolveBody.safeParse(raw);
+  if (!parsed.success) return c.json({ error: 'outcome required: release_to_worker | refund_to_hirer | split:<pct>' }, 400);
 
   // Admin check: must have ADMIN_CLERK_IDS env var set
   const adminIds = (process.env.ADMIN_CLERK_IDS ?? '').split(',').map(s => s.trim()).filter(Boolean);
   if (!adminIds.includes(actorId)) return c.json({ error: 'Admin only' }, 403);
 
-  const { outcome } = body as { outcome?: string };
-  if (!outcome) return c.json({ error: 'outcome required: release_to_worker | refund_to_hirer | split:<pct>' }, 400);
+  const { outcome } = parsed.data;
 
   const escrow = getEscrow(id);
   if (!escrow) return c.json({ error: 'Escrow not found' }, 404);
@@ -220,7 +244,9 @@ escrowRouter.get('/:id', requireClerkAuth, async (c) => {
 
 escrowRouter.get('/', requireClerkAuth, async (c) => {
   const actorId = c.get('clerkUserId');
-  const escrows = listEscrowsForUser(actorId);
+  const page = Math.max(1, parseInt(c.req.query('page') ?? '1', 10) || 1);
+  const limit = Math.min(100, Math.max(1, parseInt(c.req.query('limit') ?? '50', 10) || 50));
+  const escrows = listEscrowsForUser(actorId, limit, (page - 1) * limit);
   return c.json(escrows.map(e => ({
     id: e.id,
     hirerId: e.hirer_id,

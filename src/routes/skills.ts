@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { nanoid } from 'nanoid';
+import crypto from 'crypto';
 import { checkApiKey } from '../middleware/auth';
 import {
   createSkill, getSkill, listPublicSkills, getSkillsByAuthor,
@@ -18,7 +19,6 @@ import { logUsage } from '../utils/usage';
 import { cacheGet, cacheSet, cacheIncr } from '../cache/index';
 import { logger } from '../utils/logger';
 import { env, isSimulationMode } from '../config/index';
-import crypto from 'crypto';
 
 export const skillsRouter = new Hono();
 
@@ -172,7 +172,8 @@ skillsRouter.get('/:id', (c) => {
   // Private skills only visible to author (check API key if provided)
   if (!skill.public) {
     const key = c.req.header('X-API-Key');
-    if (!key || key !== skill.author_key) {
+    if (!key || key.length !== skill.author_key.length ||
+        !crypto.timingSafeEqual(Buffer.from(key), Buffer.from(skill.author_key))) {
       return c.json({ error: 'Skill not found' }, 404);
     }
   }
@@ -206,12 +207,12 @@ skillsRouter.patch('/:id/visibility', checkApiKey, async (c) => {
   const keyInfo = c.get('apiKeyInfo');
   const { id } = c.req.param();
 
-  let body: { public?: boolean };
-  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
-
-  if (typeof body.public !== 'boolean') {
-    return c.json({ error: 'Field "public" (boolean) required' }, 400);
-  }
+  const VisibilityBody = z.object({ public: z.boolean() }).strict();
+  const raw = await c.req.json().catch(() => null);
+  if (!raw) return c.json({ error: 'Invalid JSON' }, 400);
+  const parsed = VisibilityBody.safeParse(raw);
+  if (!parsed.success) return c.json({ error: 'Field "public" (boolean) required', details: parsed.error.flatten().fieldErrors }, 400);
+  const body = parsed.data;
 
   const updated = updateSkillVisibility(id, keyInfo.key, body.public);
   if (!updated) return c.json({ error: 'Skill not found or not yours' }, 404);
@@ -263,11 +264,18 @@ skillsRouter.post('/:id/fork', checkApiKey, async (c) => {
   if (original.ab_challenger)
     return c.json({ error: 'Skill already has an active challenger — promote or discard it first' }, 409);
 
-  let body: { promptTemplate?: string; creditCost?: number; description?: string };
-  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  const ForkSchema = z.object({
+    promptTemplate: z.string().min(10).max(5000),
+    creditCost: z.number().int().min(0).max(10000).optional(),
+    description: z.string().max(500).optional(),
+  }).strict();
 
-  if (!body.promptTemplate || typeof body.promptTemplate !== 'string')
-    return c.json({ error: 'promptTemplate required' }, 400);
+  let raw: unknown;
+  try { raw = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  const parsed = ForkSchema.safeParse(raw);
+  if (!parsed.success)
+    return c.json({ error: 'Invalid fork data', code: 'VALIDATION_ERROR', details: parsed.error.flatten().fieldErrors }, 400);
+  const body = parsed.data;
 
   // Bump version: 1.0.0 → 1.1.0
   const parts = (original.version ?? '1.0.0').split('.').map(Number);
@@ -349,10 +357,13 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
     return c.json({ requestId, error: 'Skill not found' }, 404);
   }
 
-  let body: { variables?: Record<string, string> };
-  try { body = await c.req.json(); } catch { body = {}; }
+  let rawBody: unknown;
+  try { rawBody = await c.req.json(); } catch { rawBody = {}; }
 
-  const variables = body.variables ?? {};
+  const InvokeBody = z.object({ variables: z.record(z.string().max(500)).optional() });
+  const bodyParsed = InvokeBody.safeParse(rawBody);
+  if (!bodyParsed.success) return c.json({ requestId, error: 'Invalid variables', details: bodyParsed.error.flatten().fieldErrors }, 400);
+  const variables = bodyParsed.data.variables ?? {};
 
   // Render the prompt template
   let query: string;
@@ -374,8 +385,20 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
     }
   }
 
+  // Pre-check: reject zero-balance users BEFORE expensive LLM work
+  if (!keyInfo.isEnvKey && keyInfo.credits < Math.max(1, skill.credit_cost)) {
+    return c.json({
+      requestId,
+      error: 'Insufficient credits',
+      code: 'INSUFFICIENT_CREDITS',
+      creditsRequired: Math.max(1, skill.credit_cost),
+      creditsAvailable: keyInfo.credits,
+      hint: 'Top up your credits at claw-net.org',
+    }, 402);
+  }
+
   // Skill-level cache
-  const qKey = skillCacheKey(id, variables);
+  const qKey = skillCacheKey(activeSkillId, variables);
   const cachedResponse = await cacheGet<Record<string, unknown>>(qKey);
   if (cachedResponse) {
     logger.info({ requestId, skillId: id }, 'Skill cache hit');
@@ -401,7 +424,7 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
 
     if (!keyInfo.isEnvKey) {
       // Atomically deduct credits and pay revenue share in a single transaction
-      const revenueSharePct = Math.min(0.10, skill.revenue_share_pct); // cap at 10%
+      const revenueSharePct = skill.revenue_share_pct;
       const shouldPayAuthor = skill.author_key !== keyInfo.key && revenueSharePct > 0;
 
       const txResult = getDb().transaction(() => {
@@ -444,7 +467,7 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
         skillId: id,
         eventType: 'SKILL_INVOKED',
         scoreDelta: 0.1,
-        data: { invokerKey: keyInfo.key.slice(0, 8), creditsCharged: Math.max(1, Math.ceil(apiCosts * 2000)) },
+        data: { invokerKey: keyInfo.key.slice(0, 8), creditsCharged: creditsToDeduct },
       });
     }
 

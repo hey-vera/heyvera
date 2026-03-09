@@ -69,6 +69,17 @@ apiRouter.post('/orchestrate', async (c) => {
     }
   }
 
+  // Pre-check: reject zero-balance users BEFORE expensive LLM work
+  if (!keyInfo.isEnvKey && keyInfo.credits < 1) {
+    return c.json({
+      requestId,
+      error: 'Insufficient credits',
+      code: 'INSUFFICIENT_CREDITS',
+      creditsAvailable: keyInfo.credits,
+      hint: 'Top up your credits at claw-net.org',
+    }, 402);
+  }
+
   logger.info({ requestId, query: query.slice(0, 100) }, 'Orchestration request');
 
   try {
@@ -268,8 +279,11 @@ apiRouter.get('/session/:sessionId', async (c) => {
     a + '*'.repeat(Math.min(b.length, 4)) + d
   );
 
+  // Mask key: show first 6 and last 4 chars
+  const maskedKey = row.key.slice(0, 6) + '...' + row.key.slice(-4);
+
   return c.json({
-    apiKey: row.key,
+    apiKey: maskedKey,
     credits: keyInfo.credits,
     email: masked,
   });

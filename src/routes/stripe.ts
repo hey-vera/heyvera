@@ -3,7 +3,7 @@ import Stripe from 'stripe';
 import crypto from 'crypto';
 import { logger } from '../utils/logger';
 import { sendApiKeyEmail } from '../utils/email';
-import { createApiKey, getApiKeyByEmail, topUpCredits, getApiKeyBalance, upsertSubscription, claimStripeSession } from '../db/index';
+import { createApiKey, getApiKeyByEmail, topUpCredits, getApiKeyBalance, upsertSubscription, claimStripeSession, isStripeEventProcessed, markStripeEventProcessed } from '../db/index';
 
 export const stripeRouter = new Hono();
 
@@ -170,6 +170,12 @@ stripeRouter.post('/stripe-subscriptions', async (c) => {
 
   logger.info({ type: event.type, id: event.id }, 'Stripe subscription webhook received');
 
+  // Idempotency: skip already-processed events
+  if (isStripeEventProcessed(event.id)) {
+    logger.info({ eventId: event.id }, 'Stripe subscription event already processed — skipping');
+    return c.json({ received: true });
+  }
+
   // Monthly invoice paid — top up credits
   if (event.type === 'invoice.payment_succeeded') {
     const invoice = event.data.object as Stripe.Invoice;
@@ -222,5 +228,6 @@ stripeRouter.post('/stripe-subscriptions', async (c) => {
     logger.info({ subscriptionId: sub.id }, 'Subscription cancelled');
   }
 
+  markStripeEventProcessed(event.id);
   return c.json({ received: true });
 });

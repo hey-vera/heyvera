@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { nanoid } from 'nanoid';
 import { insertFeedback } from '../db/index';
 import { logger } from '../utils/logger';
+import { cacheIncr } from '../cache/index';
+import { getClientIp } from '../middleware/rate-limit';
 
 export const feedbackRouter = new Hono();
 
@@ -10,9 +12,16 @@ const FeedbackSchema = z.object({
   requestId: z.string().min(1).max(50),
   rating: z.number().min(1).max(5),
   comment: z.string().max(1000).optional(),
-});
+}).strict();
 
 feedbackRouter.post('/', async (c) => {
+  // Stricter per-IP rate limit: 10 feedback submissions per minute
+  const ip = getClientIp(c);
+  const fbCount = await cacheIncr(`rl:fb:${ip}`, 60);
+  if (fbCount > 10) {
+    return c.json({ error: 'Too many feedback submissions', code: 'RATE_LIMITED' }, 429);
+  }
+
   let body: unknown;
   try {
     body = await c.req.json();

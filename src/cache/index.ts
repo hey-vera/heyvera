@@ -56,7 +56,7 @@ export async function initRedis(): Promise<void> {
   if (!process.env.REDIS_URL) return;
   try {
     const { default: Redis } = await import('ioredis');
-    redisClient = new Redis(process.env.REDIS_URL, { lazyConnect: true, maxRetriesPerRequest: 1 });
+    redisClient = new Redis(process.env.REDIS_URL, { lazyConnect: true, maxRetriesPerRequest: 3 });
     await redisClient.connect();
     setCircuitRedis(redisClient);
     logger.info('Redis connected');
@@ -103,7 +103,7 @@ export async function cacheSet<T>(key: string, value: T, ttlSeconds?: number): P
 }
 
 export function cacheStats() {
-  return { memory: getMemCache().stats(), redisConnected: redisClient !== null };
+  return { memory: getMemCache().stats(), redisConnected: redisClient?.status === 'ready' };
 }
 
 export async function closeRedis(): Promise<void> {
@@ -117,12 +117,25 @@ export async function closeRedis(): Promise<void> {
 // Returns the new count after increment. Falls back to in-memory if Redis unavailable.
 const incrStore = new Map<string, { count: number; resetAt: number }>();
 
+// Periodically purge expired entries from the in-memory rate limit store
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of incrStore) {
+    if (now > entry.resetAt) incrStore.delete(key);
+  }
+}, 60_000).unref();
+
 export async function cacheIncr(key: string, ttlSeconds: number): Promise<number> {
   if (redisClient) {
     try {
-      const count = await redisClient.incr(key);
-      if (count === 1) await redisClient.expire(key, ttlSeconds);
-      return count;
+      const results = await redisClient.multi()
+        .incr(key)
+        .expire(key, ttlSeconds)
+        .exec();
+      // multi().exec() returns [[err, result], ...] — extract INCR result
+      const incrResult = results?.[0];
+      if (Array.isArray(incrResult) && typeof incrResult[1] === 'number') return incrResult[1];
+      return 1;
     } catch (err) {
       logger.warn({ err }, 'Redis incr failed, falling back to memory');
     }

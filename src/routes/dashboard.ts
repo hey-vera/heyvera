@@ -11,6 +11,7 @@ import {
   logEmailSend,
   regenerateApiKey,
 } from '../db/index';
+import { cacheIncr } from '../cache/index';
 
 function maskApiKey(key: string): string {
   const prefix = 'cn-';
@@ -81,8 +82,15 @@ dashboardRouter.post('/reveal-key', requireClerkAuth, (c) => {
 // ─── POST /v1/dashboard/regenerate-key ───────────────────────────────────────
 // Deactivates the current key and creates a new one with the same credit balance.
 // The new key is returned once — store it immediately.
-dashboardRouter.post('/regenerate-key', requireClerkAuth, (c) => {
+dashboardRouter.post('/regenerate-key', requireClerkAuth, async (c) => {
   const clerkUserId = c.get('clerkUserId');
+
+  // Rate limit: max 3 regenerations per hour per user
+  const rlCount = await cacheIncr(`rl:regen:${clerkUserId}`, 3600);
+  if (rlCount > 3) {
+    return c.json({ error: 'Too many key regenerations. Try again in 1 hour.', code: 'RATE_LIMITED' }, 429);
+  }
+
   const newKey = generateApiKey();
   const result = regenerateApiKey(clerkUserId, newKey);
   if (!result) return c.json({ error: 'No active API key found' }, 404);
@@ -118,12 +126,14 @@ dashboardRouter.post('/claim-session', requireClerkAuth, async (c) => {
   linkKeyToClerkUser(row.key, clerkUserId);
 
   const balance = getApiKeyBalance(row.key);
-  logger.info({ clerkUserId, key: row.key }, 'Key claimed via session ID');
+  logger.info({ clerkUserId, key: row.key.slice(0, 8) + '...' }, 'Key claimed via session ID');
 
+  // Never return the full API key via session claim — use reveal-key endpoint instead
   return c.json({
     success: true,
-    apiKey: row.key,
+    maskedKey: maskApiKey(row.key),
     credits: balance?.credits ?? 0,
+    message: 'Key linked successfully. Use the dashboard to reveal your full API key.',
   });
 });
 

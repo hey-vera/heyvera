@@ -1,4 +1,5 @@
 import * as Sentry from '@sentry/node';
+import { nanoid } from 'nanoid';
 import { contactRoute } from './routes/contact'
 import { dashboardRouter } from './routes/dashboard';
 import { serve } from '@hono/node-server';
@@ -8,14 +9,14 @@ import { logger as honoLogger } from 'hono/logger';
 import { env, isSimulationMode } from './config/index';
 import { logger } from './utils/logger';
 import { apiRouter } from './routes/api';
-import { initRedis } from './cache/index';
+import { initRedis, cacheStats } from './cache/index';
 import { checkApiKey } from './middleware/auth';
 import { rateLimiter } from './middleware/rate-limit';
 import { startHeartbeat } from './core/heartbeat';
-import { setupGracefulShutdown } from './utils/shutdown';
+import { setupGracefulShutdown, setHttpServer } from './utils/shutdown';
 import { feedbackRouter } from './routes/feedback';
 import { initTelegram, stopTelegram } from './integrations/telegram';
-import { initDb, getApiKeyBalance } from './db/index';
+import { initDb, getDb } from './db/index';
 import { adminRouter } from './routes/admin';
 import { initClawApis } from './providers/clawapis';
 import { stripeRouter } from './routes/stripe';
@@ -44,7 +45,15 @@ if (process.env.SENTRY_DSN) {
 
 const app = new Hono();
 
-app.use('*', cors());
+app.use('*', cors({
+  origin: env.NODE_ENV === 'production'
+    ? ['https://claw-net.org', 'https://www.claw-net.org', 'https://app.claw-net.org']
+    : '*',
+  allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowHeaders: ['Content-Type', 'Authorization', 'X-API-Key', 'X-Admin-Key'],
+  exposeHeaders: ['X-Request-ID', 'X-ClawNet-Signature'],
+  maxAge: 86400,
+}));
 app.use('*', honoLogger());
 app.use('*', rateLimiter);
 
@@ -52,13 +61,15 @@ app.use('*', (c, next) => {
   c.header('X-Content-Type-Options', 'nosniff');
   c.header('X-Frame-Options', 'DENY');
   c.header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  c.header('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'");
+  c.header('Referrer-Policy', 'strict-origin-when-cross-origin');
+  c.header('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
   return next();
 });
 
-app.use('*', async (c, next) => {
-  const { nanoid } = await import('nanoid');
+app.use('*', (c, next) => {
   c.header('X-Request-ID', nanoid(12));
-  await next();
+  return next();
 });
 
 app.get('/', (c) => c.json({
@@ -69,26 +80,30 @@ app.get('/', (c) => c.json({
   health: '/health',
 }));
 
-app.get('/health', (c) => c.json({ status: 'ok', version: '1.0.0', uptime: Math.floor(process.uptime()) }));
+app.get('/health', (c) => {
+  let dbOk = false;
+  try {
+    const row = getDb().prepare('SELECT 1 as ok').get() as { ok: number } | undefined;
+    dbOk = row?.ok === 1;
+  } catch { /* db unreachable */ }
+
+  const redis = cacheStats().redisConnected;
+  const status = dbOk ? 'ok' : 'error';
+
+  return c.json({
+    status,
+    version: '1.0.0',
+    uptime: Math.floor(process.uptime()),
+    db: dbOk ? 'ok' : 'unreachable',
+    redis: redis ? 'connected' : 'disconnected',
+  }, dbOk ? 200 : 503);
+});
 
 // app routing
 app.route('/v1/webhooks', stripeRouter);
 app.route('/v1/solana', solanaRouter);
 app.route('/v1/dashboard', dashboardRouter);
 app.route('/', contactRoute)
-
-// Balance check — no credit deduction
-app.get('/v1/balance', async (c) => {
-  const key = c.req.header('X-API-Key');
-  if (!key) return c.json({ error: 'Missing X-API-Key header', code: 'INVALID_API_KEY' }, 401);
-  const balance = getApiKeyBalance(key);
-  if (!balance) return c.json({ error: 'Invalid or inactive key', code: 'INVALID_API_KEY' }, 401);
-  return c.json({
-    credits: balance.credits,
-    creditsUsed: balance.credits_used,
-    memberSince: balance.created_at,
-  });
-});
 
 app.use('/v1/orchestrate', checkApiKey);
 app.route('/v1/feedback', feedbackRouter);
@@ -133,11 +148,12 @@ async function start() {
     .then(() => seedEmbeddings())
     .catch((err) => logger.warn({ err }, 'Embedding init failed'));
 
-  serve({ fetch: app.fetch, port: env.PORT, hostname: '0.0.0.0' }, () => {
+  const server = serve({ fetch: app.fetch, port: env.PORT, hostname: '0.0.0.0' }, () => {
     logger.info(`ClawNet running on port ${env.PORT}`);
     logger.info(`Mode: ${env.NODE_ENV} | Simulation: ${isSimulationMode}`);
     logger.info(`LLM: ${env.LLM_PROVIDER}`);
   });
+  setHttpServer(server);
 }
 
 start().catch(async (err) => {

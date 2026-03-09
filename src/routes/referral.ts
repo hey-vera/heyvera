@@ -63,8 +63,10 @@ referralRouter.post('/apply', checkApiKey, async (c) => {
       .run(keyInfo.key, code);
     if (result.changes === 0) return false;
 
-    topUpCredits(keyInfo.key, bonus);
-    topUpCredits(ref.owner_key, bonus);
+    const referreeResult = topUpCredits(keyInfo.key, bonus);
+    if (!referreeResult.ok) throw new Error('Referree API key inactive');
+    const referrerResult = topUpCredits(ref.owner_key, bonus);
+    if (!referrerResult.ok) throw new Error('Referrer API key inactive');
     incrementReferralUse(code);
     return true;
   });

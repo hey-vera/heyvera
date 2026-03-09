@@ -9,6 +9,20 @@ const INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 
 let intervalId: ReturnType<typeof setInterval> | null = null;
 let queryIndex = 0;
+const MAX_HEARTBEAT_LINES = 1000;
+
+function rotateHeartbeatFile(): void {
+  try {
+    if (!fs.existsSync(HEARTBEAT_FILE)) return;
+    const content = fs.readFileSync(HEARTBEAT_FILE, 'utf-8');
+    const lines = content.split('\n').filter(Boolean);
+    if (lines.length > MAX_HEARTBEAT_LINES) {
+      fs.writeFileSync(HEARTBEAT_FILE, lines.slice(-MAX_HEARTBEAT_LINES).join('\n') + '\n');
+    }
+  } catch (err) {
+    logger.warn({ err }, 'Heartbeat: file rotation failed');
+  }
+}
 
 // Rotate through 4 different analysis types each hour
 const QUERIES = [
@@ -113,6 +127,7 @@ async function runHeartbeat() {
 
     if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
     fs.appendFileSync(HEARTBEAT_FILE, JSON.stringify(entry) + '\n');
+    rotateHeartbeatFile();
 
     if (response.ok && typeof data.answer === 'string') {
       const bulletin = await formatAsBulletin(data.answer);
