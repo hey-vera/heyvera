@@ -3,7 +3,7 @@ import Stripe from 'stripe';
 import crypto from 'crypto';
 import { logger } from '../utils/logger';
 import { sendApiKeyEmail } from '../utils/email';
-import { createApiKey, getApiKeyByStripeSession, getApiKeyByEmail, topUpCredits, getApiKeyBalance, upsertSubscription } from '../db/index';
+import { createApiKey, getApiKeyByEmail, topUpCredits, getApiKeyBalance, upsertSubscription, claimStripeSession } from '../db/index';
 
 export const stripeRouter = new Hono();
 
@@ -58,9 +58,9 @@ stripeRouter.post('/stripe', async (c) => {
 
   const session = event.data.object as Stripe.Checkout.Session;
 
-  // Idempotency — don't process the same session twice
-  const existing = getApiKeyByStripeSession(session.id);
-  if (existing) {
+  // Atomic idempotency — INSERT OR IGNORE ensures only one concurrent request processes a session
+  const isNew = claimStripeSession(session.id);
+  if (!isNew) {
     logger.info({ sessionId: session.id }, 'Stripe webhook: session already processed, skipping');
     return c.json({ received: true });
   }

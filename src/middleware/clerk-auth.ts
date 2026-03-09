@@ -1,6 +1,7 @@
 import { createMiddleware } from 'hono/factory';
 import { createClerkClient, verifyToken } from '@clerk/backend';
 import { logger } from '../utils/logger';
+import { env } from '../config/index';
 
 declare module 'hono' {
   interface ContextVariableMap {
@@ -17,7 +18,7 @@ export const requireClerkAuth = createMiddleware(async (c, next) => {
     return c.json({ error: 'Unauthorized — missing Bearer token', code: 'UNAUTHORIZED' }, 401);
   }
 
-  const secretKey = process.env.CLERK_SECRET_KEY;
+  const secretKey = env.CLERK_SECRET_KEY ?? '';
   if (!secretKey) {
     logger.error('CLERK_SECRET_KEY not set');
     return c.json({ error: 'Auth not configured' }, 500);
@@ -25,9 +26,7 @@ export const requireClerkAuth = createMiddleware(async (c, next) => {
 
   try {
     const clerk = createClerkClient({ secretKey });
-    const payload = await verifyToken(token, {
-      secretKey,
-    });
+    const payload = await verifyToken(token, { secretKey });
 
     c.set('clerkUserId', payload.sub);
 

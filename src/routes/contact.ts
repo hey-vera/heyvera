@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { Resend } from 'resend'
 import { logger } from '../utils/logger'
 import { verifyToken } from '@clerk/backend'
+import { env } from '../config/index'
 
 const contact = new Hono()
 
@@ -63,7 +64,7 @@ contact.post('/v1/contact', async (c) => {
 
   try {
     const payload = await verifyToken(token, {
-      secretKey: process.env.CLERK_SECRET_KEY!,
+      secretKey: env.CLERK_SECRET_KEY ?? '',
     })
     verifiedUserId = payload.sub
     verifiedEmail = ((payload as any).email ?? '').toLowerCase()
@@ -104,8 +105,8 @@ contact.post('/v1/contact', async (c) => {
     )
   }
 
-  const resend = new Resend(process.env.RESEND_API_KEY)
-  const adminEmail = process.env.ADMIN_EMAIL ?? 'admin@claw-net.org'
+  const resend = new Resend(env.RESEND_API_KEY)
+  const adminEmail = env.ADMIN_EMAIL ?? 'admin@claw-net.org'
   const subjectLabel = SUBJECT_LABELS[data.subject]
   const timestamp = new Date().toISOString()
 
@@ -118,7 +119,7 @@ contact.post('/v1/contact', async (c) => {
       : `${escapeHtml(data.email)} <span style="color:#ffaa00;font-size:11px;">(user-supplied — wallet user)</span>`
 
     await resend.emails.send({
-      from: process.env.RESEND_FROM ?? 'noreply@claw-net.org',
+      from: env.RESEND_FROM ?? 'noreply@claw-net.org',
       to: adminEmail,
       replyTo: replyToEmail,
       subject: `[ClawNet Contact] ${subjectLabel} from ${data.name}`,
@@ -144,7 +145,7 @@ contact.post('/v1/contact', async (c) => {
 // Confirmation to user — only if we have a verified email (wallet users may not)
     const confirmTo = verifiedEmail || data.email
     if (confirmTo) await resend.emails.send({
-      from: process.env.RESEND_FROM ?? 'noreply@claw-net.org',
+      from: env.RESEND_FROM ?? 'noreply@claw-net.org',
       to: confirmTo,
       subject: `We received your message — ClawNet`,
       html: `

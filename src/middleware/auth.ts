@@ -33,6 +33,14 @@ export const checkApiKey = createMiddleware(async (c, next) => {
     return next();
   }
 
+  // Reject malformed keys before hitting the DB (cn- prefix + 48 hex chars)
+  if (!/^cn-[a-f0-9]{48}$/.test(key)) {
+    return c.json(
+      { error: 'Invalid or inactive API key', code: 'INVALID_API_KEY', hint: 'Purchase a key at claw-net.org' },
+      401
+    );
+  }
+
   // Check DB-based keys (purchased via Stripe)
   const keyRecord = getApiKey(key);
 

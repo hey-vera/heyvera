@@ -304,7 +304,7 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
       llmProvider: env.LLM_PROVIDER,
     };
     logUsage(usageEntry);
-    insertOrchestration({ id: requestId, ...usageEntry, apiKey: keyInfo.key });
+    insertOrchestration({ id: requestId, ...usageEntry, apiKey: keyInfo.key, skillId: skill.id });
 
     const responsePayload = {
       answer: formatted.answer,

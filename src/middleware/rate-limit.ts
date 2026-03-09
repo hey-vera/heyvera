@@ -29,6 +29,11 @@ export const rateLimiter: MiddlewareHandler = async (c, next) => {
   const entry = store.get(ip);
 
   if (!entry || now > entry.resetAt) {
+    // Evict oldest entry if store is at capacity (prevents OOM under IP flood)
+    if (!entry && store.size >= 50_000) {
+      const oldest = store.keys().next().value;
+      if (oldest) store.delete(oldest);
+    }
     store.set(ip, { count: 1, resetAt: now + windowMs });
     await next();
     return;

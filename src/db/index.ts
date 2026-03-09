@@ -26,7 +26,8 @@ export function initDb(): void {
       total REAL,
       success INTEGER,
       llm_provider TEXT,
-      api_key TEXT
+      api_key TEXT,
+      skill_id TEXT
     );
 
     CREATE TABLE IF NOT EXISTS feedback (
@@ -74,6 +75,11 @@ export function initDb(): void {
 
     CREATE TABLE IF NOT EXISTS solana_processed_sigs (
       signature TEXT PRIMARY KEY,
+      processed_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS stripe_processed_sessions (
+      session_id TEXT PRIMARY KEY,
       processed_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -133,6 +139,7 @@ export function initDb(): void {
 
   // Migrations for existing databases (safe to run repeatedly)
   try { db.exec(`ALTER TABLE orchestrations ADD COLUMN api_key TEXT`); } catch { /* column already exists */ }
+  try { db.exec(`ALTER TABLE orchestrations ADD COLUMN skill_id TEXT`); } catch { /* column already exists */ }
 
   logger.info({ path: DB_PATH }, 'Database initialised');
 }
@@ -166,18 +173,19 @@ export function insertOrchestration(entry: {
   success: boolean;
   llmProvider: string;
   apiKey?: string;
+  skillId?: string;
 }): void {
   try {
     getDb()
       .prepare(
         `INSERT OR IGNORE INTO orchestrations
           (id, timestamp, query, planned_steps, executed_steps, successful_steps,
-           cache_hits, total_duration_ms, api_cost, markup, total, success, llm_provider, api_key)
+           cache_hits, total_duration_ms, api_cost, markup, total, success, llm_provider, api_key, skill_id)
          VALUES
           (@id, @timestamp, @query, @plannedSteps, @executedSteps, @successfulSteps,
-           @cacheHits, @totalDurationMs, @apiCost, @markup, @total, @success, @llmProvider, @apiKey)`
+           @cacheHits, @totalDurationMs, @apiCost, @markup, @total, @success, @llmProvider, @apiKey, @skillId)`
       )
-      .run({ ...entry, success: entry.success ? 1 : 0, apiKey: entry.apiKey ?? null });
+      .run({ ...entry, success: entry.success ? 1 : 0, apiKey: entry.apiKey ?? null, skillId: entry.skillId ?? null });
   } catch (err) {
     logger.error({ err }, 'Failed to insert orchestration');
   }
@@ -376,6 +384,16 @@ export function topUpCredits(key: string, credits: number, stripeSessionId?: str
       .prepare('UPDATE api_keys SET credits = credits + ? WHERE key = ?')
       .run(credits, key);
   }
+}
+
+// ─── Stripe Session Dedup (atomic idempotency) ───────────────────────────────
+
+/** Returns true if this is the first time this session is seen (safe to process). */
+export function claimStripeSession(sessionId: string): boolean {
+  const result = getDb()
+    .prepare('INSERT OR IGNORE INTO stripe_processed_sessions (session_id) VALUES (?)')
+    .run(sessionId);
+  return result.changes > 0;
 }
 
 // ─── Solana Signature Dedup ───────────────────────────────────────────────────
