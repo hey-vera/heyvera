@@ -22,6 +22,7 @@ import { solanaRouter } from './routes/solana';
 import { meshRouter } from './routes/mesh';
 import { referralRouter } from './routes/referral';
 import { skillsRouter } from './routes/skills';
+import { endpointsRouter } from './routes/endpoints';
 import { startMeshNode } from './mesh/node';
 
 const app = new Hono();
@@ -78,6 +79,7 @@ app.route('/v1/admin', adminRouter);
 app.route('/v1/mesh', meshRouter);
 app.route('/v1/referral', referralRouter);
 app.route('/v1/skills', skillsRouter);
+app.route('/v1/endpoints', endpointsRouter);
 app.route('/v1', apiRouter);
 
 app.notFound((c) => c.json({ error: 'Not found', code: 'NOT_FOUND' }, 404));
