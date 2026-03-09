@@ -1647,6 +1647,29 @@ export function updateSwarmTask(id: string, params: {
   );
 }
 
+// ─── Agent Usage Stats (OpenClaw gateway) ─────────────────────────────────────
+
+export function getAgentUsageStats(apiKey: string): {
+  totalOrchestrations: number;
+  totalSkillInvocations: number;
+  lastActive: string | null;
+} {
+  const row = getDb()
+    .prepare(`
+      SELECT COUNT(*) as total,
+             SUM(CASE WHEN skill_id IS NOT NULL THEN 1 ELSE 0 END) as skill_invocations,
+             MAX(timestamp) as last_active
+      FROM orchestrations WHERE api_key = ?
+    `)
+    .get(apiKey) as { total: number; skill_invocations: number; last_active: string | null } | undefined;
+
+  return {
+    totalOrchestrations: row?.total ?? 0,
+    totalSkillInvocations: row?.skill_invocations ?? 0,
+    lastActive: row?.last_active ?? null,
+  };
+}
+
 // ─── Governance ────────────────────────────────────────────────────────────────
 
 export interface Proposal {

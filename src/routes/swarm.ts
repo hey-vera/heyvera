@@ -82,7 +82,13 @@ swarmRouter.get('/:id', checkApiKey, (c) => {
 
 // ─── Core swarm execution ─────────────────────────────────────────────────────
 
-async function runSwarm(swarmId: string, agentKey: string, body: z.infer<typeof SwarmBody>, isEnvKey = false) {
+export interface SwarmParams {
+  task: string;
+  skills?: string[];
+  maxSubTasks: number;
+}
+
+export async function runSwarm(swarmId: string, agentKey: string, body: SwarmParams, isEnvKey = false): Promise<void> {
   updateSwarmTask(swarmId, { status: 'RUNNING' });
 
   const skills = listPublicSkills().slice(0, 20);
