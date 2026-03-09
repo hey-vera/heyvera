@@ -97,6 +97,40 @@ function mockData(endpointId: string): unknown {
     'x402-route':            { recommended: 'clawapis.com', reason: 'lowest cost for Solana data', alternatives: [] },
     // PayAI
     'payai-discovery':       { agents: [{ id: 'claw-net', capabilities: ['solana', 'social', 'defi'], pricePerCall: 0.001 }] },
+    // nofxos — AI-coin rankings
+    'nofxos-ai500':          { coins: [{ rank: 1, symbol: 'TAO', name: 'Bittensor', compositeScore: 94.2, change24h: 3.1 }], totalCount: 500, lastUpdated: new Date().toISOString() },
+    'nofxos-ai300':          { coins: [{ rank: 1, symbol: 'TAO', name: 'Bittensor', compositeScore: 94.2 }], totalCount: 300, lastUpdated: new Date().toISOString() },
+    'nofxos-netflow':        { tokens: [{ symbol: 'SOL', netFlow: 42000000, direction: 'inflow' }], topInflow: ['SOL', 'TAO'], topOutflow: ['ETH'], marketNetFlow: 120000000 },
+    // RootData — VC / funding intelligence
+    'rootdata-search':       { projects: [{ name: 'Solana', category: 'Layer 1', fundingTotal: 320000000 }], vcs: [], people: [], totalResults: 1 },
+    'rootdata-funding':      { rounds: [{ project: 'Example', amount: 5000000, lead: 'a16z', stage: 'Series A', date: '2024-01-15' }], totalRaised: 5000000, topInvestors: ['a16z'], averageValuation: 50000000 },
+    'rootdata-hot-x':        { projects: [{ name: 'Solana', twitterEngagement: 48200, narrative: 'Layer 1' }], trendingNarratives: ['AI', 'RWA', 'DePIN'], hotInvestors: ['a16z', 'Multicoin'], lastUpdated: new Date().toISOString() },
+    // CoinAnk — market analytics
+    'coinank-kline':         { candles: [{ open: 144.0, high: 146.5, low: 143.2, close: 145.8, volume: 1200000, time: Date.now() }], symbol: 'SOL/USDT', exchange: 'binance', interval: '1h' },
+    'coinank-btc-etf-inflow': { totalNetFlow: 520000000, byIssuer: { blackrock: 420000000, fidelity: 100000000 }, totalAUM: 58000000000, date: new Date().toISOString().slice(0, 10), cumulativeInflow: 35000000000 },
+    'coinank-hyper-position': { positions: [{ trader: '0xabc...', asset: 'BTC', size: 10, leverage: 5, pnl: 42000 }], totalOI: 2400000000, largestPositions: [], topGainers: [], topLosers: [] },
+    'coinank-liquidation-map': { liquidationMap: [{ price: 140, amount: 82000000 }, { price: 120, amount: 210000000 }], nextKeyLevel: 140, longLiquidations: 180000000, shortLiquidations: 45000000, totalAtRisk: 225000000 },
+    'coinank-funding-rate':  { fundingRate: 0.0001, annualizedRate: 36.5, nextFundingTime: new Date(Date.now() + 3600000).toISOString(), byExchange: { binance: 0.0001, bybit: 0.00012 } },
+    'coinank-fear-greed':    { value: 72, classification: 'Greed', timestamp: new Date().toISOString(), history: [{ value: 68, classification: 'Greed', date: '2024-01-01' }] },
+    'coinank-long-short':    { longRatio: 54.2, shortRatio: 45.8, longShortRatio: 1.18, history: [{ longRatio: 52.1, shortRatio: 47.9, time: Date.now() - 3600000 }] },
+    // CoinMarketCap
+    'cmc-quotes':            { price: 145.20, volume24h: 4200000000, marketCap: 68000000000, percentChange24h: 3.1, rank: 5, circulatingSupply: 468000000 },
+    'cmc-rankings':          { coins: [{ rank: 1, symbol: 'BTC', name: 'Bitcoin', price: 65000, marketCap: 1280000000000 }], totalActive: 9800, lastUpdated: new Date().toISOString() },
+    // Alpha Vantage
+    'alphavantage-stock':    { price: '182.52', open: '181.00', high: '183.40', low: '180.20', volume: '55234000', change: '1.52', changePercent: '0.84%', latestTradingDay: new Date().toISOString().slice(0, 10) },
+    'alphavantage-technical': { values: [{ datetime: '2024-01-01', value: '68.42' }], indicator: 'RSI', lastRefreshed: new Date().toISOString().slice(0, 10) },
+    // Alpaca
+    'alpaca-stock-bars':     { bars: [{ o: 181.00, h: 183.40, l: 180.20, c: 182.52, v: 55234000, t: new Date().toISOString() }], symbol: 'AAPL', timeframe: '1Day', nextPageToken: null },
+    // Polygon.io
+    'polygon-ticker':        { name: 'Apple Inc.', ticker: 'AAPL', market: 'stocks', locale: 'us', type: 'CS', currency: 'usd', marketCap: 2900000000000, sharesOutstanding: 15700000000 },
+    'polygon-aggregates':    { results: [{ o: 181.00, h: 183.40, l: 180.20, c: 182.52, v: 55234000, t: Date.now() }], ticker: 'AAPL', queryCount: 1, resultsCount: 1, adjusted: true },
+    // TwelveData
+    'twelvedata-price':      { price: '145.2000', symbol: 'SOL/USD', timestamp: Math.floor(Date.now() / 1000) },
+    'twelvedata-time-series': { values: [{ datetime: new Date().toISOString().slice(0, 10), open: '144.0', high: '146.5', low: '143.2', close: '145.8', volume: '1200000' }], meta: { symbol: 'SOL/USD', interval: '1day' }, status: 'ok' },
+    // x402 Ecosystem Analytics
+    'x402list-search':       { providers: [{ name: 'claw402.ai', reliability: 0.99, avgPrice: 0.001, endpointCount: 260 }], endpoints: [], totalResults: 1, averagePrice: 0.001 },
+    'x402scan-tx':           { transactions: [], totalVolume: 12400, activeProviders: 13, topEndpoints: ['/api/v1/coinank/kline/lists'] },
+    'x402station-monitor':   { services: [{ name: 'claw402.ai', status: 'up', uptimePct: 99.8, avgLatency: 210 }], uptimePct: 99.8, avgLatency: 210, incidentCount: 0, healthScore: 98 },
   };
   return mocks[endpointId] ?? { result: 'mock data', endpointId };
 }
