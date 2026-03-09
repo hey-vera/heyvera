@@ -202,7 +202,8 @@ adminRouter.patch('/payouts/:id', async (c) => {
   const { id } = c.req.param();
   let body: z.infer<typeof UpdatePayoutBody>;
   try { body = UpdatePayoutBody.parse(await c.req.json()); } catch (err) {
-    return c.json({ error: 'Invalid body', details: (err as Error).message }, 400);
+    const details = err instanceof z.ZodError ? err.flatten().fieldErrors : undefined;
+    return c.json({ error: 'Invalid body', details }, 400);
   }
   updatePayoutStatus(id, body.status, body.notes);
   return c.json({ ok: true, id, status: body.status });

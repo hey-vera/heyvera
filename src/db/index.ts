@@ -611,10 +611,13 @@ export function getApiKeyByEmail(email: string): {
     .get(email) as ReturnType<typeof getApiKeyByEmail>;
 }
 
-export function topUpCredits(key: string, credits: number, stripeSessionId?: string): { ok: boolean } {
+export function topUpCredits(key: string, credits: number, stripeSessionId?: string, amountPaid?: number): { ok: boolean } {
   if (credits <= 0) throw new Error(`topUpCredits: credits must be positive, got ${credits}`);
   let result;
   if (stripeSessionId) {
+    // Use the explicit amountPaid when provided (avoids inflating amount_paid for bonus tiers).
+    // Fall back to credits / 1000 only for subscription top-ups that don't pass an amount.
+    const dollarValue = amountPaid != null ? amountPaid : credits / 1000;
     result = getDb()
       .prepare(
         `UPDATE api_keys
@@ -623,7 +626,7 @@ export function topUpCredits(key: string, credits: number, stripeSessionId?: str
              amount_paid = amount_paid + ?
          WHERE key = ? AND active = 1`
       )
-      .run(credits, stripeSessionId, credits / 1000, key); // credits / 1000 = dollar value
+      .run(credits, stripeSessionId, dollarValue, key);
   } else {
     result = getDb()
       .prepare('UPDATE api_keys SET credits = credits + ? WHERE key = ? AND active = 1')
@@ -634,7 +637,16 @@ export function topUpCredits(key: string, credits: number, stripeSessionId?: str
 
 // ─── Stripe Session Dedup (atomic idempotency) ───────────────────────────────
 
-/** Returns true if this is the first time this session is seen (safe to process). */
+/** Read-only check — returns true if this session has already been processed.
+ *  Use this as a fast pre-flight check before async Stripe API calls. */
+export function isStripeSessionClaimed(sessionId: string): boolean {
+  const row = getDb().prepare('SELECT 1 FROM stripe_processed_sessions WHERE session_id = ?').get(sessionId);
+  return row != null;
+}
+
+/** Atomically claim a session inside an already-open transaction.
+ *  Returns true if the INSERT succeeded (first caller), false if already claimed.
+ *  MUST be called inside getDb().transaction() alongside the credit grant. */
 export function claimStripeSession(sessionId: string): boolean {
   const result = getDb()
     .prepare('INSERT OR IGNORE INTO stripe_processed_sessions (session_id) VALUES (?)')

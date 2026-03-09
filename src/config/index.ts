@@ -24,7 +24,7 @@ const envSchema = z.object({
   TREASURY_WALLET: z.string().optional(),
 
   API_KEYS: z.string().optional(),
-  ADMIN_API_KEY: z.string().optional(),
+  ADMIN_API_KEY: z.string().min(16, 'ADMIN_API_KEY must be at least 16 characters').optional(),
   PLATFORM_SIGNING_SECRET: z.string().optional(),
   RATE_LIMIT_PER_MIN: z.coerce.number().default(60),
 

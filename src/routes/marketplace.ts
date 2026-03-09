@@ -382,7 +382,7 @@ marketplaceRouter.get('/creator/stats', checkApiKey, (c) => {
 
 const WithdrawBody = z.object({
   amountCredits: z.number().int().min(1000),
-  usdcWallet: z.string().min(32).max(64),
+  usdcWallet: z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/, 'Invalid Solana address'),
 });
 
 marketplaceRouter.post('/creator/withdraw', checkApiKey, async (c) => {
@@ -403,7 +403,7 @@ marketplaceRouter.post('/creator/withdraw', checkApiKey, async (c) => {
   writeAuditLog({
     entityType: 'payout', entityId: result.id!,
     action: 'WITHDRAW_REQUESTED', actorId: keyInfo.key,
-    data: { amountCredits: body.amountCredits, usdcWallet: body.usdcWallet },
+    data: { amountCredits: body.amountCredits, usdcWallet: body.usdcWallet.slice(0, 6) + '...' + body.usdcWallet.slice(-4) },
   });
 
   logger.info({ id: result.id, key: keyInfo.key.slice(0, 8), credits: body.amountCredits }, 'Payout requested');

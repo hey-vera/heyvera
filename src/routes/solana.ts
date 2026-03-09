@@ -53,7 +53,8 @@ solanaRouter.post('/verify', async (c) => {
       secretKey: env.CLERK_SECRET_KEY ?? '',
     });
     clerkUserId = payload.sub;
-    clerkEmail = ((payload as any).email ?? '').toLowerCase();
+    // Clerk JWTs don't embed email by default — rely on replyEmail from the request body instead
+    clerkEmail = ((payload as Record<string, unknown>).email_address as string ?? '').toLowerCase();
   } catch {
     return c.json({ error: 'Invalid or expired session.' }, 401);
   }

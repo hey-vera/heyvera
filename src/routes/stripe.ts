@@ -3,7 +3,7 @@ import Stripe from 'stripe';
 import crypto from 'crypto';
 import { logger } from '../utils/logger';
 import { sendApiKeyEmail } from '../utils/email';
-import { createApiKey, getApiKeyByEmail, topUpCredits, getApiKeyBalance, upsertSubscription, claimStripeSession, isStripeEventProcessed, markStripeEventProcessed } from '../db/index';
+import { createApiKey, getApiKeyByEmail, topUpCredits, getApiKeyBalance, upsertSubscription, claimStripeSession, isStripeSessionClaimed, isStripeEventProcessed, markStripeEventProcessed, getDb } from '../db/index';
 
 export const stripeRouter = new Hono();
 
@@ -58,9 +58,8 @@ stripeRouter.post('/stripe', async (c) => {
 
   const session = event.data.object as Stripe.Checkout.Session;
 
-  // Atomic idempotency — INSERT OR IGNORE ensures only one concurrent request processes a session
-  const isNew = claimStripeSession(session.id);
-  if (!isNew) {
+  // Fast pre-flight check (read-only) — skip the Stripe API call if already processed
+  if (isStripeSessionClaimed(session.id)) {
     logger.info({ sessionId: session.id }, 'Stripe webhook: session already processed, skipping');
     return c.json({ received: true });
   }
@@ -73,7 +72,7 @@ stripeRouter.post('/stripe', async (c) => {
     return c.json({ error: 'No email found' }, 400);
   }
 
-  // Determine credits from line items
+  // Determine credits from line items (async — must happen BEFORE the atomic claim+grant)
   let credits = 0;
   let amountPaid = 0;
 
@@ -83,8 +82,8 @@ stripeRouter.post('/stripe', async (c) => {
       const priceId = item.price?.id;
       if (priceId && PRICE_CREDITS[priceId]) {
         const qty = item.quantity ?? 1;
-        if (qty > 100) {
-          logger.error({ sessionId: session.id, qty }, 'Stripe webhook: quantity exceeds max');
+        if (qty < 1 || qty > 100) {
+          logger.error({ sessionId: session.id, qty }, 'Stripe webhook: quantity out of bounds');
           continue;
         }
         credits += PRICE_CREDITS[priceId].credits * qty;
@@ -104,31 +103,38 @@ stripeRouter.post('/stripe', async (c) => {
 
   const normalizedEmail = email.toLowerCase().trim();
 
-  // Check if this email already has an active key
-  const existingKey = getApiKeyByEmail(normalizedEmail);
-
+  // Atomic transaction: claim session + grant credits together.
+  // If the process crashed after a previous claim but before credits were granted,
+  // the claim row was rolled back with the transaction, so this attempt will succeed.
   let apiKey: string;
   let totalCredits: number;
 
-  if (existingKey) {
-    // Returning customer — top up their existing key
-    apiKey = existingKey.key;
-    topUpCredits(apiKey, credits, session.id);
-    const updated = getApiKeyBalance(apiKey);
-    totalCredits = updated?.credits ?? (existingKey.credits + credits);
-    logger.info({ email: normalizedEmail, addedCredits: credits, totalCredits }, 'Credits topped up for existing key');
-  } else {
-    // New customer — create a fresh key
-    apiKey = generateApiKey();
-    createApiKey({
-      key: apiKey,
-      email: normalizedEmail,
-      credits,
-      stripeSessionId: session.id,
-      amountPaid,
-    });
-    totalCredits = credits;
+  const txResult = getDb().transaction(() => {
+    // Claim inside the transaction — if already claimed, abort (return null)
+    if (!claimStripeSession(session.id)) return null;
+
+    const existingKey = getApiKeyByEmail(normalizedEmail);
+    if (existingKey) {
+      topUpCredits(existingKey.key, credits, session.id, amountPaid);
+      const updated = getApiKeyBalance(existingKey.key);
+      return { key: existingKey.key, total: updated?.credits ?? (existingKey.credits + credits), isNew: false };
+    }
+    const newKey = generateApiKey();
+    createApiKey({ key: newKey, email: normalizedEmail, credits, stripeSessionId: session.id, amountPaid });
+    return { key: newKey, total: credits, isNew: true };
+  })();
+
+  if (!txResult) {
+    logger.info({ sessionId: session.id }, 'Stripe webhook: session already processed (concurrent request), skipping');
+    return c.json({ received: true });
+  }
+
+  apiKey = txResult.key;
+  totalCredits = txResult.total;
+  if (txResult.isNew) {
     logger.info({ email: normalizedEmail, credits, amountPaid }, 'New API key created');
+  } else {
+    logger.info({ email: normalizedEmail, addedCredits: credits, totalCredits }, 'Credits topped up for existing key');
   }
 
   // Send email showing their key + current total balance
