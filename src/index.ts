@@ -25,6 +25,7 @@ import { referralRouter } from './routes/referral';
 import { skillsRouter } from './routes/skills';
 import { endpointsRouter } from './routes/endpoints';
 import { discoverRouter } from './routes/discover';
+import { statsRouter } from './routes/stats';
 import { startMeshNode } from './mesh/node';
 import { loadEmbeddingModel } from './core/embeddings';
 import { seedEmbeddings } from './core/seed-embeddings';
@@ -89,6 +90,7 @@ app.route('/v1/referral', referralRouter);
 app.route('/v1/skills', skillsRouter);
 app.route('/v1/endpoints', endpointsRouter);
 app.route('/v1/discover', discoverRouter);
+app.route('/v1/stats', statsRouter);
 app.route('/v1', apiRouter);
 
 app.notFound((c) => c.json({ error: 'Not found', code: 'NOT_FOUND' }, 404));

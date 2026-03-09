@@ -826,7 +826,7 @@
 </nav>
 
 <div class="hero">
-  <div class="hero-badge"><span class="live-dot"></span>Live · x402 Payments · 183 Endpoints</div>
+  <div class="hero-badge"><span class="live-dot"></span>Live · x402 Payments · <span id="heroBadgeCount">183</span> Endpoints</div>
   <h1>Ask anything.<br><span class="line2">Get intelligence.</span><span class="line3">Pay per answer.</span></h1>
   <p class="hero-sub">ClawNet orchestrates Solana blockchain data, X/Twitter sentiment, and on-chain analytics into a single natural-language API. No subscriptions. Pay only for what you use.</p>
   <div class="hero-actions">
@@ -860,7 +860,7 @@
 </div>
 
 <div class="stats-bar full-divider">
-  <div class="stat-item"><span class="stat-num">183</span><span class="stat-label">API Endpoints</span></div>
+  <div class="stat-item"><span class="stat-num" id="statEndpointCount">183</span><span class="stat-label">API Endpoints<span id="statEndpointSub" style="font-size:9px;color:#bbb;display:block;margin-top:3px;letter-spacing:0;font-weight:400;text-transform:none;font-family:var(--mono)">live · updating</span></span></div>
   <div class="stat-item">
     <span class="stat-num" id="statCostRange" style="font-size:22px;letter-spacing:-1px;line-height:1.1">$0.001<span style="color:var(--muted);font-size:16px;font-weight:400;margin:0 5px">–</span>$0.032</span>
     <span class="stat-label" style="margin-top:8px">Query Cost Range<span id="statAvgUpdated" style="font-size:9px;color:#bbb;display:block;margin-top:3px;letter-spacing:0;font-weight:400;text-transform:none;font-family:var(--mono)">cache hit → complex</span></span>
@@ -1273,57 +1273,51 @@
     requestAnimationFrame(step);
   }
 
+  const API = 'https://api.claw-net.org';
+
+  const fmt = v => {
+    const f = parseFloat(v);
+    if (f < 0.001) return '$0.001';
+    if (f < 0.01)  return '$' + f.toFixed(4).replace(/0+$/, '').replace(/[.]$/, '');
+    return '$' + f.toFixed(3).replace(/0+$/, '').replace(/[.]$/, '');
+  };
+
   async function fetchLiveStats() {
     try {
-      const r = await fetch('https://api.claw-net.org/v1/usage');
+      const r = await fetch(API + '/v1/stats', { signal: AbortSignal.timeout(6000) });
       if (!r.ok) return;
       const d = await r.json();
 
-      // ── Total calls: actual response shape is d.stats.total ──
-      const total = d.stats?.total || d.totalRequests || d.total || 0;
-      if (total) {
+      // ── Endpoint count ────────────────────────────────────────
+      if (d.endpoints?.total) {
+        const epEl = document.getElementById('statEndpointCount');
+        if (epEl) animateCounter(epEl, d.endpoints.total);
+        const epSub = document.getElementById('statEndpointSub');
+        if (epSub) epSub.textContent = d.endpoints.operational + ' operational · live';
+        const badge = document.getElementById('heroBadgeCount');
+        if (badge) badge.textContent = d.endpoints.total;
+      }
+
+      // ── Total calls ───────────────────────────────────────────
+      if (d.totalCalls != null) {
         const el = document.getElementById('statTotalCalls');
-        if (el) animateCounter(el, total);
+        if (el) animateCounter(el, d.totalCalls);
         const sub = document.getElementById('statCallsSub');
         if (sub) sub.textContent = 'live · verified';
       }
 
-      // ── Avg response time (live from avgDurationMs) ──────────
-      const ms = d.stats?.avgDurationMs;
-      if (ms) {
+      // ── Avg response time ─────────────────────────────────────
+      if (d.avgDurationMs) {
         const latEl = document.getElementById('statLatency');
         const latSub = document.getElementById('statLatencySub');
-        if (latEl) latEl.textContent = (ms / 1000).toFixed(1) + 's';
-        if (latSub) latSub.textContent = 'P95 target <8s · live';
+        if (latEl) latEl.textContent = (d.avgDurationMs / 1000).toFixed(1) + 's';
+        if (latSub) latSub.textContent = 'avg · live';
       }
 
-      // ── Cost range ─────────────────────────────────────────────
-      // Priority 1: backend exposes d.stats.minCostUsd / maxCostUsd / avgCostUsd
-      // Priority 2: compute from d.recent array (apiCost per request)
-      // Priority 3: static known bounds ($0.001 cache floor, $0.032 complex ceiling)
-      let minC = 0.001, maxC = 0.032, avg = null;
-
-      if (d.stats?.avgCostUsd != null) {
-        avg  = d.stats.avgCostUsd;
-        minC = d.stats.minCostUsd ?? 0.001;
-        maxC = d.stats.maxCostUsd ?? 0.032;
-      } else if (Array.isArray(d.recent) && d.recent.length > 0) {
-        const costs = d.recent.map(x => parseFloat(x.apiCost || x.cost || 0)).filter(x => x > 0);
-        if (costs.length) {
-          minC = Math.min(...costs);
-          maxC = Math.max(...costs);
-          avg  = costs.reduce((a, b) => a + b, 0) / costs.length;
-          // always anchor floor to theoretical minimum (1 credit cache hit)
-          minC = Math.min(minC, 0.001);
-        }
-      }
-
-      const fmt = v => {
-        const f = parseFloat(v);
-        if (f < 0.001) return '$0.001';
-        if (f < 0.01)  return '$' + f.toFixed(4).replace(/0+$/, '').replace(/[.]$/, '');
-        return '$' + f.toFixed(3).replace(/0+$/, '').replace(/[.]$/, '');
-      };
+      // ── Cost range ────────────────────────────────────────────
+      const minC = d.endpoints?.minCostUsd ?? 0.001;
+      const maxC = d.endpoints?.maxCostUsd ?? 0.032;
+      const avg  = d.endpoints?.avgCostUsd ?? null;
 
       const rangeEl = document.getElementById('statCostRange');
       if (rangeEl) {
@@ -1332,21 +1326,19 @@
           + fmt(maxC);
       }
       const upd = document.getElementById('statAvgUpdated');
-      if (upd) upd.textContent = avg != null
-        ? 'avg ' + fmt(avg) + ' · live'
-        : 'cache hit → complex';
+      if (upd) upd.textContent = avg != null ? 'avg ' + fmt(avg) + ' · live' : 'cache hit → complex';
 
     } catch(e) {}
   }
   fetchLiveStats();
-  setInterval(fetchLiveStats, 120000);
+  setInterval(fetchLiveStats, 60000);
 
   // ── API status indicator ──────────────────────────────────────
   async function fetchApiStatus() {
     const dot   = document.getElementById('statusDot');
     const label = document.getElementById('statusLabel');
     try {
-      const r = await fetch('https://api.claw-net.org/v1/health', { signal: AbortSignal.timeout(5000) });
+      const r = await fetch(API + '/v1/health', { signal: AbortSignal.timeout(5000) });
       if (r.ok) {
         if (dot)   { dot.className = 'status-dot ok'; }
         if (label) { label.textContent = 'Operational'; label.style.color = 'var(--green)'; }
