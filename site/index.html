@@ -801,27 +801,26 @@
   <a href="https://claw-net.org" class="nav-logo">
     <img src="/logo.png" alt="Claw-Net.org">
   </a>
+  <!-- Live API status — sits right of the logo -->
+  <div class="nav-api-status" id="navApiStatus" style="margin-left:14px;margin-right:4px;flex-shrink:0">
+    <span class="status-dot" id="statusDot"></span>
+    <span id="statusLabel" style="font-size:10px;letter-spacing:0.5px;color:#bbb">Live</span>
+  </div>
   <ul class="nav-links">
     <li><a href="#how-it-works">How It Works</a></li>
     <li><a href="#pricing">Pricing</a></li>
     <li><a href="#contact">Contact</a></li>
     <li><a href="/docs.html">API Docs</a></li>
-    <li><a href="#openclaw-gateway" style="color:rgba(180,124,255,0.85)">OpenClaw</a></li>
     <li><a href="/marketplace.html">Marketplace</a></li>
     <li><a href="/endpoints.html">Endpoints</a></li>
+    <!-- Social icon buttons — right of Endpoints, still in the link row -->
+    <li style="display:flex;align-items:center;gap:6px;margin-left:8px">
+      <a href="https://github.com/1xmint" target="_blank" class="nav-icon-link" title="GitHub"><svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 .3a12 12 0 0 0-3.8 23.4c.6.1.8-.3.8-.6v-2c-3.3.7-4-1.6-4-1.6-.6-1.4-1.4-1.8-1.4-1.8-1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.7-1.6-2.7-.3-5.5-1.3-5.5-5.9 0-1.3.5-2.4 1.2-3.2 0-.4-.5-1.6.2-3.2 0 0 1-.3 3.3 1.2a11.5 11.5 0 0 1 6 0C17 6.1 18 6.4 18 6.4c.7 1.6.2 2.8.1 3.2.8.8 1.2 1.9 1.2 3.2 0 4.6-2.8 5.6-5.5 5.9.5.4.9 1.2.9 2.3v3.3c0 .3.2.7.8.6A12 12 0 0 0 12 .3"/></svg></a>
+      <a href="https://t.me/claw_net" target="_blank" class="nav-icon-link tg" title="Telegram"><svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.894 8.221-1.97 9.28c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12L7.17 13.667l-2.956-.924c-.643-.204-.657-.643.136-.953l11.57-4.461c.537-.194 1.006.131.974.892z"/></svg></a>
+    </li>
   </ul>
   <!-- Nav actions -->
   <div class="nav-actions" id="nav-actions">
-    <!-- Social icons -->
-    <div class="nav-icons">
-      <a href="https://github.com/1xmint" target="_blank" class="nav-icon-link" title="GitHub"><svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 .3a12 12 0 0 0-3.8 23.4c.6.1.8-.3.8-.6v-2c-3.3.7-4-1.6-4-1.6-.6-1.4-1.4-1.8-1.4-1.8-1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.7-1.6-2.7-.3-5.5-1.3-5.5-5.9 0-1.3.5-2.4 1.2-3.2 0-.4-.5-1.6.2-3.2 0 0 1-.3 3.3 1.2a11.5 11.5 0 0 1 6 0C17 6.1 18 6.4 18 6.4c.7 1.6.2 2.8.1 3.2.8.8 1.2 1.9 1.2 3.2 0 4.6-2.8 5.6-5.5 5.9.5.4.9 1.2.9 2.3v3.3c0 .3.2.7.8.6A12 12 0 0 0 12 .3"/></svg></a>
-      <a href="https://t.me/claw_net" target="_blank" class="nav-icon-link tg" title="Telegram"><svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.894 8.221-1.97 9.28c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12L7.17 13.667l-2.956-.924c-.643-.204-.657-.643.136-.953l11.57-4.461c.537-.194 1.006.131.974.892z"/></svg></a>
-    </div>
-    <!-- API status -->
-    <div class="nav-api-status" id="navApiStatus">
-      <span class="status-dot" id="statusDot"></span>
-      <span id="statusLabel" style="font-size:10px;letter-spacing:0.5px;color:#bbb">Checking...</span>
-    </div>
     <!-- divider -->
     <div class="nav-divider"></div>
     <!-- logged-out (default) -->
