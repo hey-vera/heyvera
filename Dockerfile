@@ -13,12 +13,11 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install --omit=dev
 COPY --from=builder /app/dist ./dist
-# Create non-root user with UID 1000 to match the host 'guardian' user so
-# Docker volume mounts (data/) remain writable without chown on the host.
-RUN addgroup --system --gid 1000 appgroup \
- && adduser  --system --uid 1000 --ingroup appgroup appuser \
- && mkdir -p data && chown -R appuser:appgroup /app
-USER appuser
+# Use the built-in 'node' user (UID/GID 1000) from the base image.
+# This matches the host 'guardian' user (UID 1000) so Docker volume mounts
+# (data/) remain writable without chown on the host.
+RUN mkdir -p data && chown -R node:node /app
+USER node
 EXPOSE 3402
 ENV NODE_ENV=production
 CMD ["node", "dist/index.js"]
