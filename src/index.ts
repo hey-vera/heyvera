@@ -28,6 +28,7 @@ import { discoverRouter } from './routes/discover';
 import { statsRouter } from './routes/stats';
 import { escrowRouter } from './routes/escrow';
 import { startEscrowCron } from './core/escrow-cron';
+import { startSkillAbCron } from './core/skill-ab-cron';
 import { startMeshNode } from './mesh/node';
 import { loadEmbeddingModel } from './core/embeddings';
 import { seedEmbeddings } from './core/seed-embeddings';
@@ -114,6 +115,7 @@ async function start() {
   await initTelegram();
   await startMeshNode();
   startEscrowCron();
+  startSkillAbCron();
 
   // Load embedding model + seed in background — don't block server startup
   loadEmbeddingModel()

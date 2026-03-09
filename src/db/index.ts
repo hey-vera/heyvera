@@ -148,6 +148,31 @@ export function initDb(): void {
     CREATE INDEX IF NOT EXISTS idx_reputation_agent ON reputation_events(agent_id);
     CREATE INDEX IF NOT EXISTS idx_reputation_skill ON reputation_events(skill_id);
 
+    CREATE TABLE IF NOT EXISTS skill_versions (
+      id TEXT PRIMARY KEY,
+      skill_id TEXT NOT NULL,
+      version TEXT NOT NULL,
+      forked_from_skill TEXT,
+      forked_from_version TEXT,
+      forked_by_agent TEXT,
+      promoted INTEGER NOT NULL DEFAULT 0,
+      published_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS skill_metrics (
+      id TEXT PRIMARY KEY,
+      skill_id TEXT NOT NULL,
+      version TEXT NOT NULL DEFAULT '1.0.0',
+      latency_ms INTEGER,
+      success INTEGER NOT NULL DEFAULT 0,
+      cost_credits INTEGER,
+      timestamp TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_skill_versions_skill ON skill_versions(skill_id);
+    CREATE INDEX IF NOT EXISTS idx_skill_metrics_skill ON skill_metrics(skill_id);
+    CREATE INDEX IF NOT EXISTS idx_skill_metrics_version ON skill_metrics(skill_id, version);
+
     CREATE TABLE IF NOT EXISTS escrows (
       id TEXT PRIMARY KEY,
       hirer_id TEXT NOT NULL,
@@ -223,6 +248,8 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 5, sql: `ALTER TABLE skills ADD COLUMN output_schema_json TEXT` },
   { version: 6, sql: `ALTER TABLE skills ADD COLUMN published_at TEXT` },
   { version: 7, sql: `ALTER TABLE skills ADD COLUMN tags_json TEXT` },
+  { version: 8, sql: `ALTER TABLE skills ADD COLUMN forked_from TEXT` },
+  { version: 9, sql: `ALTER TABLE skills ADD COLUMN ab_challenger TEXT` },
 ];
 
 function runMigrations(): void {
@@ -653,6 +680,14 @@ export interface Skill {
   revenue_share_pct: number;
   uses: number;
   created_at: string;
+  // migration-added columns (may be null on old rows)
+  version: string;
+  input_schema_json: string | null;
+  output_schema_json: string | null;
+  published_at: string | null;
+  tags_json: string | null;
+  forked_from: string | null;
+  ab_challenger: string | null;
 }
 
 export function createSkill(params: {
@@ -1010,4 +1045,89 @@ export function updateSkillSchemas(id: string, params: {
   if (fields.length === 0) return;
   values.push(id);
   getDb().prepare(`UPDATE skills SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+}
+
+// ─── Skill Metrics ────────────────────────────────────────────────────────────
+
+export function recordSkillMetric(params: {
+  skillId: string;
+  version: string;
+  latencyMs: number;
+  success: boolean;
+  costCredits: number;
+}): void {
+  try {
+    getDb()
+      .prepare(`INSERT INTO skill_metrics (id, skill_id, version, latency_ms, success, cost_credits)
+                VALUES (?, ?, ?, ?, ?, ?)`)
+      .run(nanoid(12), params.skillId, params.version, params.latencyMs, params.success ? 1 : 0, params.costCredits);
+  } catch (err) {
+    logger.error({ err }, 'Failed to record skill metric');
+  }
+}
+
+export interface SkillMetricsSummary {
+  version: string;
+  invocations: number;
+  successRate: number;
+  avgLatencyMs: number;
+  avgCostCredits: number;
+}
+
+export function getSkillMetricsSummary(skillId: string): SkillMetricsSummary[] {
+  return getDb()
+    .prepare(`
+      SELECT version,
+             COUNT(*) as invocations,
+             ROUND(AVG(success) * 100, 1) as successRate,
+             ROUND(AVG(latency_ms), 0) as avgLatencyMs,
+             ROUND(AVG(cost_credits), 2) as avgCostCredits
+      FROM skill_metrics WHERE skill_id = ?
+      GROUP BY version ORDER BY version DESC
+    `)
+    .all(skillId) as SkillMetricsSummary[];
+}
+
+// ─── Skill Versions / Forking ─────────────────────────────────────────────────
+
+export function recordSkillVersion(params: {
+  id: string;
+  skillId: string;
+  version: string;
+  forkedFromSkill?: string;
+  forkedFromVersion?: string;
+  forkedByAgent?: string;
+}): void {
+  getDb()
+    .prepare(`INSERT OR IGNORE INTO skill_versions (id, skill_id, version, forked_from_skill, forked_from_version, forked_by_agent)
+              VALUES (?, ?, ?, ?, ?, ?)`)
+    .run(params.id, params.skillId, params.version,
+      params.forkedFromSkill ?? null, params.forkedFromVersion ?? null, params.forkedByAgent ?? null);
+}
+
+export function promoteChallenger(skillId: string): boolean {
+  const db = getDb();
+  return db.transaction(() => {
+    const skill = db.prepare('SELECT * FROM skills WHERE id = ?').get(skillId) as Skill | undefined;
+    if (!skill?.ab_challenger) return false;
+
+    const challenger = db.prepare('SELECT * FROM skills WHERE id = ?').get(skill.ab_challenger) as Skill | undefined;
+    if (!challenger) return false;
+
+    // Swap prompt template and version from challenger → original
+    db.prepare(`UPDATE skills SET prompt_template = ?, version = ?, ab_challenger = NULL WHERE id = ?`)
+      .run(challenger.prompt_template, challenger.version ?? '1.0.0', skillId);
+
+    // Mark challenger as promoted in skill_versions
+    db.prepare(`UPDATE skill_versions SET promoted = 1 WHERE skill_id = ?`).run(skill.ab_challenger);
+
+    // Deactivate challenger skill
+    db.prepare(`UPDATE skills SET active = 0 WHERE id = ?`).run(skill.ab_challenger);
+
+    return true;
+  })();
+}
+
+export function getSkillWithAb(id: string): Skill | undefined {
+  return getDb().prepare('SELECT * FROM skills WHERE id = ?').get(id) as Skill | undefined;
 }

@@ -4,6 +4,7 @@ import { closeRedis } from '../cache/index';
 import { stopHeartbeat } from '../core/heartbeat';
 import { stopMeshNode } from '../mesh/node';
 import { stopEscrowCron } from '../core/escrow-cron';
+import { stopSkillAbCron } from '../core/skill-ab-cron';
 
 let isShuttingDown = false;
 
@@ -16,6 +17,7 @@ export function setupGracefulShutdown() {
 
     stopHeartbeat();
     stopEscrowCron();
+    stopSkillAbCron();
     closeDb();
 
     await new Promise((resolve) => setTimeout(resolve, 1000));

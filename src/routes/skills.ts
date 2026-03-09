@@ -7,9 +7,10 @@ import {
   countSkillsByAuthor, incrementSkillUses, deleteSkill,
   updateSkillVisibility, topUpCredits, deductCredit, insertOrchestration, getDb,
   updateSkillSchemas, recordReputation, getReputationScore,
+  recordSkillMetric, getSkillMetricsSummary, recordSkillVersion, getSkillWithAb, promoteChallenger,
+  writeAuditLog, upsertDiscovery,
 } from '../db/index';
 import { embed } from '../core/embeddings';
-import { upsertDiscovery } from '../db/index';
 import { parseIntent } from '../core/intent-parser';
 import { executePlan } from '../core/executor';
 import { formatResponse } from '../core/formatter';
@@ -238,6 +239,95 @@ skillsRouter.delete('/:id', checkApiKey, (c) => {
   return c.json({ ok: true });
 });
 
+// ─── GET /v1/skills/:id/metrics — performance metrics by version ──────────────
+
+skillsRouter.get('/:id/metrics', (c) => {
+  const { id } = c.req.param();
+  const skill = getSkill(id);
+  if (!skill || !skill.public) return c.json({ error: 'Skill not found' }, 404);
+
+  const summary = getSkillMetricsSummary(id);
+  return c.json({ skillId: id, versions: summary });
+});
+
+// ─── POST /v1/skills/:id/fork — fork a skill into a challenger variant ────────
+
+skillsRouter.post('/:id/fork', checkApiKey, async (c) => {
+  const keyInfo = c.get('apiKeyInfo');
+  const { id } = c.req.param();
+
+  const original = getSkillWithAb(id);
+  if (!original) return c.json({ error: 'Skill not found' }, 404);
+  if (!original.public && original.author_key !== keyInfo.key)
+    return c.json({ error: 'Skill not found' }, 404);
+  if (original.ab_challenger)
+    return c.json({ error: 'Skill already has an active challenger — promote or discard it first' }, 409);
+
+  let body: { promptTemplate?: string; creditCost?: number; description?: string };
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+
+  if (!body.promptTemplate || typeof body.promptTemplate !== 'string')
+    return c.json({ error: 'promptTemplate required' }, 400);
+
+  // Bump version: 1.0.0 → 1.1.0
+  const parts = (original.version ?? '1.0.0').split('.').map(Number);
+  parts[1] = (parts[1] ?? 0) + 1;
+  parts[2] = 0;
+  const newVersion = parts.join('.');
+
+  const forkId = nanoid(12);
+  createSkill({
+    id: forkId,
+    name: original.name + '-v' + newVersion,
+    description: body.description ?? original.description,
+    promptTemplate: body.promptTemplate,
+    authorKey: keyInfo.key,
+    public: false, // challenger starts private
+    creditCost: body.creditCost ?? original.credit_cost,
+  });
+  updateSkillSchemas(forkId, {
+    version: newVersion,
+    inputSchemaJson: original.input_schema_json ?? undefined,
+    outputSchemaJson: original.output_schema_json ?? undefined,
+    tagsJson: original.tags_json ?? undefined,
+  });
+
+  // Record the fork relationship
+  recordSkillVersion({
+    id: nanoid(12), skillId: forkId, version: newVersion,
+    forkedFromSkill: id, forkedFromVersion: original.version ?? '1.0.0',
+    forkedByAgent: keyInfo.key,
+  });
+
+  // Only the original author can set a challenger for A/B testing
+  if (original.author_key === keyInfo.key) {
+    getDb().prepare(`UPDATE skills SET ab_challenger = ? WHERE id = ?`).run(forkId, id);
+  }
+
+  writeAuditLog({ entityType: 'skill', entityId: forkId, action: 'FORKED', actorId: keyInfo.key,
+    data: { originalId: id, newVersion, fromVersion: original.version } });
+
+  logger.info({ forkId, originalId: id, version: newVersion, author: keyInfo.key.slice(0, 8) }, 'Skill forked');
+  return c.json({ id: forkId, version: newVersion, forkedFrom: id, abEnabled: original.author_key === keyInfo.key }, 201);
+});
+
+// ─── POST /v1/skills/:id/promote — promote challenger to canonical ─────────────
+
+skillsRouter.post('/:id/promote', checkApiKey, (c) => {
+  const keyInfo = c.get('apiKeyInfo');
+  const { id } = c.req.param();
+
+  const skill = getSkill(id);
+  if (!skill) return c.json({ error: 'Skill not found' }, 404);
+  if (skill.author_key !== keyInfo.key) return c.json({ error: 'Not the author' }, 403);
+
+  const promoted = promoteChallenger(id);
+  if (!promoted) return c.json({ error: 'No active challenger to promote' }, 400);
+
+  writeAuditLog({ entityType: 'skill', entityId: id, action: 'CHALLENGER_PROMOTED', actorId: keyInfo.key });
+  return c.json({ ok: true, message: 'Challenger promoted to canonical version' });
+});
+
 // ─── POST /v1/skills/:id/invoke — run a skill ─────────────────────────────────
 
 skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
@@ -246,11 +336,16 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
   const keyInfo = c.get('apiKeyInfo');
   const { id } = c.req.param();
 
-  const skill = getSkill(id);
-  if (!skill) return c.json({ requestId, error: 'Skill not found' }, 404);
+  // A/B routing: 30% of requests go to challenger if one is active
+  const baseSkill = getSkillWithAb(id);
+  if (!baseSkill) return c.json({ requestId, error: 'Skill not found' }, 404);
+
+  const useChallenger = baseSkill.ab_challenger && Math.random() < 0.30;
+  const skill = useChallenger ? (getSkill(baseSkill.ab_challenger!) ?? baseSkill) : baseSkill;
+  const activeSkillId = useChallenger ? (baseSkill.ab_challenger ?? id) : id;
 
   // Access check: public skills anyone can invoke, private only the author
-  if (!skill.public && skill.author_key !== keyInfo.key) {
+  if (!baseSkill.public && baseSkill.author_key !== keyInfo.key) {
     return c.json({ requestId, error: 'Skill not found' }, 404);
   }
 
@@ -331,7 +426,16 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
       }
     }
 
-    incrementSkillUses(id);
+    incrementSkillUses(activeSkillId);
+
+    // Record performance metrics for A/B comparison
+    recordSkillMetric({
+      skillId: activeSkillId,
+      version: (skill as typeof skill & { version?: string }).version ?? '1.0.0',
+      latencyMs: Date.now() - start,
+      success: true,
+      costCredits: creditsToDeduct,
+    });
 
     // Reputation: reward the skill author for successful invocations
     if (skill.author_key && skill.author_key !== keyInfo.key) {
@@ -388,6 +492,14 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
     const error = err instanceof Error ? err : new Error(String(err));
     const code = (err as { code?: string }).code ?? 'INTERNAL_ERROR';
     logger.error({ requestId, skillId: id, error: error.message }, 'Skill invocation failed');
+
+    recordSkillMetric({
+      skillId: activeSkillId,
+      version: (skill as typeof skill & { version?: string }).version ?? '1.0.0',
+      latencyMs: Date.now() - start,
+      success: false,
+      costCredits: 0,
+    });
 
     if (skill.author_key && skill.author_key !== keyInfo.key) {
       recordReputation({
