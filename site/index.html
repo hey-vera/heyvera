@@ -474,8 +474,7 @@
     .ce-val.purple-val { color: #9945ff; }
     .ce-note { font-size: 11px; color: #aaa; margin-top: 3px; line-height: 1.5; }
 
-    /* ── BIG CRYPTO BUTTON ────────────────────────────────────────── */      .usdc-cta-sub, .usdc-cta-divider { display: none; }
-    }
+    /* ── BIG CRYPTO BUTTON ────────────────────────────────────────── */
 
     .crypto-pay-bar {
       margin: 8px 0 32px; text-align: center;
@@ -841,7 +840,7 @@
 </nav>
 
 <div class="hero">
-  <div class="hero-badge"><span class="live-dot"></span>Live · x402 Payments · <span id="heroBadgeCount">183</span> Endpoints</div>
+  <div class="hero-badge"><span class="live-dot"></span>Live · x402 Payments · <span id="heroBadgeCount">—</span> Endpoints</div>
   <h1>Ask anything.<br><span class="line2">Get intelligence.</span><span class="line3">Pay per answer.</span></h1>
   <p class="hero-sub">ClawNet orchestrates Solana blockchain data, X/Twitter sentiment, and on-chain analytics into a single natural-language API. No subscriptions. Pay only for what you use.</p>
   <div class="hero-actions">
@@ -965,7 +964,7 @@
 </div>
 
 <div class="stats-bar full-divider">
-  <div class="stat-item"><span class="stat-num" id="statEndpointCount">183</span><span class="stat-label">API Endpoints<span id="statEndpointSub" style="font-size:9px;color:#bbb;display:block;margin-top:3px;letter-spacing:0;font-weight:400;text-transform:none;font-family:var(--mono)">live · updating</span></span></div>
+  <div class="stat-item"><span class="stat-num" id="statEndpointCount">—</span><span class="stat-label">API Endpoints<span id="statEndpointSub" style="font-size:9px;color:#bbb;display:block;margin-top:3px;letter-spacing:0;font-weight:400;text-transform:none;font-family:var(--mono)">live · updating</span></span></div>
   <div class="stat-item">
     <span class="stat-num" id="statCostRange" style="font-size:22px;letter-spacing:-1px;line-height:1.1">$0.001<span style="color:var(--muted);font-size:16px;font-weight:400;margin:0 5px">–</span>$0.032</span>
     <span class="stat-label" style="margin-top:8px">Query Cost Range<span id="statAvgUpdated" style="font-size:9px;color:#bbb;display:block;margin-top:3px;letter-spacing:0;font-weight:400;text-transform:none;font-family:var(--mono)">cache hit → complex</span></span>
@@ -1245,7 +1244,7 @@
   </script>
   <div style="background:var(--bg2);border:1px solid var(--border);border-top:none;padding:20px 32px;display:flex;gap:40px;flex-wrap:wrap;">
     <div><div style="font-family:var(--mono);font-size:10px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">Health Check</div><code style="font-family:var(--mono);font-size:12px;color:var(--green)">GET /v1/health</code></div>
-    <div><div style="font-family:var(--mono);font-size:10px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">Endpoint Registry</div><code style="font-family:var(--mono);font-size:12px;color:var(--green)">GET /v1/registry</code></div>
+    <div><div style="font-family:var(--mono);font-size:10px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">Endpoint Registry</div><code style="font-family:var(--mono);font-size:12px;color:var(--green)">GET /v1/endpoints</code></div>
     <div><div style="font-family:var(--mono);font-size:10px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">Check Balance</div><code style="font-family:var(--mono);font-size:12px;color:var(--green)">GET /v1/balance</code></div>
     <div><div style="font-family:var(--mono);font-size:10px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">Base URL</div><code style="font-family:var(--mono);font-size:12px;color:#ffcc66">https://api.claw-net.org</code></div>
   </div>
@@ -1476,7 +1475,7 @@
   </a>
   <ul class="footer-links">
     <li><a href="https://api.claw-net.org/v1/health">API Status</a></li>
-    <li><a href="https://api.claw-net.org/v1/registry">Registry</a></li>
+    <li><a href="https://api.claw-net.org/v1/endpoints">Registry</a></li>
     <li><a href="#contact">Contact</a></li>
   </ul>
   <div class="footer-copy">© 2026 Claw-Net · Powered by x402</div>
@@ -1670,10 +1669,11 @@
   // Stripe card tiers for comparison
   const CARD_TIERS = { 5: 5000, 20: 21000, 50: 54000, 100: 112000, 500: 600000, 1000: 1300000 };
   const CARD_RATE = 1000;  // fallback credits per $ via card
+  const USDC_RATE = 1150;  // fallback credits per $ via USDC (+10% over card)
 
   function recalcUSDC(val) {
     const amt     = Math.max(0, parseFloat(val) || 0);
-    const credits = USDC_TIERS[amt] || Math.round(amt * 1150);
+    const credits = USDC_TIERS[amt] || Math.round(amt * USDC_RATE);
     const cardCr  = CARD_TIERS[amt] || Math.round(amt * CARD_RATE);
     const bonus   = credits - cardCr;
     const fmt = n => n >= 1000000
@@ -1683,7 +1683,7 @@
     if (id('usdcDealCredits')) id('usdcDealCredits').textContent = fmt(credits) + ' credits';
     if (id('usdcDealCard'))    id('usdcDealCard').textContent    = fmt(cardCr) + ' credits';
     if (id('usdcDealBonus'))   id('usdcDealBonus').textContent   = '+' + fmt(bonus) + ' credits free';
-    if (id('usdcDealRate'))    id('usdcDealRate').textContent    = USDC_RATE.toLocaleString() + ' cr / USDC';
+    if (id('usdcDealRate'))    id('usdcDealRate').textContent    = (amt > 0 ? Math.round(credits / amt).toLocaleString() : USDC_RATE.toLocaleString()) + ' cr / USDC';
     if (id('usdcPayBtnAmt'))   id('usdcPayBtnAmt').textContent   = (amt > 0 ? amt : '—') + ' USDC';
     window._usdcAmount  = amt;
     window._usdcCredits = credits;

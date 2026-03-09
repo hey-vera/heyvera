@@ -33,6 +33,17 @@ discoverRouter.post('/', async (c) => {
     return c.json({ error: 'Invalid request body', code: 'VALIDATION_ERROR' }, 400);
   }
 
+  // Validate custom weights sum to ~1.0 if all three are provided
+  if (body.weights) {
+    const w = body.weights;
+    if (w.semantic !== undefined && w.p2p !== undefined && w.onchain !== undefined) {
+      const sum = w.semantic + w.p2p + w.onchain;
+      if (Math.abs(sum - 1.0) > 0.01) {
+        return c.json({ error: 'weights must sum to 1.0', code: 'VALIDATION_ERROR' }, 400);
+      }
+    }
+  }
+
   const { results, layerStats } = await runDiscovery({
     query: body.query,
     limit: body.limit,

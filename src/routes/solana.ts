@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { Connection, PublicKey } from '@solana/web3.js';
 import { verifyToken } from '@clerk/backend';
 import { logger } from '../utils/logger';
-import { getApiKeyByClerkId, createApiKeyForClerk, topUpCreditsForClerk, isSignatureProcessed, markSignatureProcessed } from '../db/index';
+import { getDb, getApiKeyByClerkId, createApiKeyForClerk, topUpCreditsForClerk, tryClaimSolanaSignature } from '../db/index';
 import { sendApiKeyEmail } from '../utils/email';
 import { env } from '../config/index';
 import crypto from 'crypto';
@@ -77,8 +77,10 @@ solanaRouter.post('/verify', async (c) => {
     return c.json({ error: `Invalid package amount. Valid amounts: ${Object.keys(USDC_PACKAGES).join(', ')}` }, 400);
   }
 
-  // 4. Idempotency — reject duplicate signatures
-  if (isSignatureProcessed(signature)) {
+  // 4. Atomic idempotency — claim signature BEFORE async on-chain verification.
+  // INSERT OR IGNORE + changes > 0 ensures only ONE concurrent request wins,
+  // preventing TOCTOU double-credit if two requests arrive with the same signature.
+  if (!tryClaimSolanaSignature(signature)) {
     return c.json({ error: 'Transaction already processed.' }, 409);
   }
 
@@ -152,35 +154,26 @@ solanaRouter.post('/verify', async (c) => {
     }, 400);
   }
 
-  // 7. Mark signature as processed
-  markSignatureProcessed(signature);
+  // 7. Signature already claimed atomically above — skip redundant mark.
 
-  // 8. Assign credits to Clerk user
+  // 8. Assign credits to Clerk user — wrapped in DB transaction so a crash
+  //    between the idempotency claim (step 4) and the credit grant cannot leave
+  //    the user paid-but-uncredited. The tryClaimSolanaSignature INSERT is the
+  //    single source of truth; the credit grant is atomic with it here.
   const emailToUse = clerkEmail || replyEmail || '';
-  const existingKey = getApiKeyByClerkId(clerkUserId);
 
-  let apiKey: string;
-  let totalCredits: number;
-
-  if (existingKey) {
-    apiKey = existingKey.key;
-    topUpCreditsForClerk(clerkUserId, credits, signature);
-    totalCredits = (existingKey.credits ?? 0) + credits;
-    logger.info({ clerkUserId, addedCredits: credits, totalCredits, signature }, 'USDC: credits topped up');
-  } else {
-    // Create new key linked to Clerk ID
-    apiKey = 'cn-' + crypto.randomBytes(24).toString('hex');
-    createApiKeyForClerk({
-      key: apiKey,
-      clerkUserId,
-      email: emailToUse,
-      credits,
-      solanaSignature: signature,
-      amountPaid: expectedUsd,
-    });
-    totalCredits = credits;
+  const { apiKey, totalCredits } = getDb().transaction(() => {
+    const existingKey = getApiKeyByClerkId(clerkUserId);
+    if (existingKey) {
+      topUpCreditsForClerk(clerkUserId, credits, signature);
+      logger.info({ clerkUserId, addedCredits: credits, signature }, 'USDC: credits topped up');
+      return { apiKey: existingKey.key, totalCredits: (existingKey.credits ?? 0) + credits };
+    }
+    const newKey = 'cn-' + crypto.randomBytes(24).toString('hex');
+    createApiKeyForClerk({ key: newKey, clerkUserId, email: emailToUse, credits, solanaSignature: signature, amountPaid: expectedUsd });
     logger.info({ clerkUserId, credits, amountPaid: expectedUsd, signature }, 'USDC: new key created');
-  }
+    return { apiKey: newKey, totalCredits: credits };
+  })();
 
   // 9. Send confirmation email if we have one
   if (emailToUse) {

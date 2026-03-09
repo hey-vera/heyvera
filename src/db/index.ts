@@ -353,6 +353,17 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 9, sql: `ALTER TABLE skills ADD COLUMN ab_challenger TEXT` },
   { version: 10, sql: `ALTER TABLE skills ADD COLUMN active INTEGER NOT NULL DEFAULT 1` },
   { version: 11, sql: `UPDATE skills SET revenue_share_pct = 0.97 WHERE revenue_share_pct = 0.10` },
+  // Marketplace v2 columns
+  { version: 12, sql: `ALTER TABLE skills ADD COLUMN readme TEXT` },
+  { version: 13, sql: `ALTER TABLE skills ADD COLUMN license TEXT DEFAULT 'MIT'` },
+  { version: 14, sql: `ALTER TABLE skills ADD COLUMN runtime_json TEXT` },
+  { version: 15, sql: `ALTER TABLE skills ADD COLUMN stars INTEGER NOT NULL DEFAULT 0` },
+  { version: 16, sql: `ALTER TABLE skills ADD COLUMN views INTEGER NOT NULL DEFAULT 0` },
+  { version: 17, sql: `ALTER TABLE skills ADD COLUMN forks INTEGER NOT NULL DEFAULT 0` },
+  { version: 18, sql: `ALTER TABLE skills ADD COLUMN security_status TEXT NOT NULL DEFAULT 'UNSCANNED'` },
+  { version: 19, sql: `ALTER TABLE skills ADD COLUMN scanned_at TEXT` },
+  { version: 20, sql: `ALTER TABLE skills ADD COLUMN status TEXT NOT NULL DEFAULT 'PUBLISHED'` },
+  { version: 21, sql: `CREATE TABLE IF NOT EXISTS skill_stars (skill_id TEXT NOT NULL, agent_key TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (skill_id, agent_key))` },
 ];
 
 function runMigrations(): void {
@@ -514,6 +525,7 @@ export function createApiKeyForClerk(opts: {
 }
 
 export function topUpCreditsForClerk(clerkUserId: string, credits: number, _signature: string): { ok: boolean } {
+  if (credits <= 0) throw new Error(`topUpCreditsForClerk: credits must be positive, got ${credits}`);
   const result = db.prepare(`
     UPDATE api_keys
     SET credits = credits + ?
@@ -559,6 +571,7 @@ export function getApiKeyByStripeSession(sessionId: string): { key: string } | u
 }
 
 export function deductCredit(key: string, amount: number = 1): boolean {
+  if (amount <= 0) throw new Error(`deductCredit: amount must be positive, got ${amount}`);
   const result = getDb()
     .prepare(
       `UPDATE api_keys
@@ -599,6 +612,7 @@ export function getApiKeyByEmail(email: string): {
 }
 
 export function topUpCredits(key: string, credits: number, stripeSessionId?: string): { ok: boolean } {
+  if (credits <= 0) throw new Error(`topUpCredits: credits must be positive, got ${credits}`);
   let result;
   if (stripeSessionId) {
     result = getDb()
@@ -630,11 +644,23 @@ export function claimStripeSession(sessionId: string): boolean {
 
 // ─── Solana Signature Dedup ───────────────────────────────────────────────────
 
+/** Atomic claim: INSERT OR IGNORE + check changes. Returns true only for the first caller.
+ *  Use this as the idempotency gate BEFORE any async on-chain verification to prevent
+ *  TOCTOU race conditions where concurrent requests both pass an isProcessed SELECT check. */
+export function tryClaimSolanaSignature(signature: string): boolean {
+  const result = getDb()
+    .prepare('INSERT OR IGNORE INTO solana_processed_sigs (signature) VALUES (?)')
+    .run(signature);
+  return result.changes > 0;
+}
+
+/** @deprecated Use tryClaimSolanaSignature instead */
 export function isSignatureProcessed(signature: string): boolean {
   const row = getDb().prepare('SELECT 1 FROM solana_processed_sigs WHERE signature = ?').get(signature);
   return row != null;
 }
 
+/** @deprecated Use tryClaimSolanaSignature instead */
 export function markSignatureProcessed(signature: string): void {
   try {
     getDb()
@@ -818,6 +844,16 @@ export interface Skill {
   tags_json: string | null;
   forked_from: string | null;
   ab_challenger: string | null;
+  // v2 marketplace columns
+  readme: string | null;
+  license: string | null;
+  runtime_json: string | null;
+  stars: number;
+  views: number;
+  forks: number;
+  security_status: string;
+  scanned_at: string | null;
+  status: string;
 }
 
 export function createSkill(params: {
@@ -1477,12 +1513,38 @@ export function getSkillStakeTotal(skillId: string): number {
   return row.total;
 }
 
+export function incrementSkillViews(skillId: string): void {
+  getDb().prepare('UPDATE skills SET views = views + 1 WHERE id = ?').run(skillId);
+}
+
+export function starSkill(skillId: string, agentKey: string): { ok: boolean; alreadyStarred: boolean } {
+  const db = getDb();
+  const info = db.prepare('INSERT OR IGNORE INTO skill_stars (skill_id, agent_key) VALUES (?, ?)').run(skillId, agentKey);
+  if (info.changes === 0) return { ok: false, alreadyStarred: true };
+  db.prepare('UPDATE skills SET stars = stars + 1 WHERE id = ?').run(skillId);
+  return { ok: true, alreadyStarred: false };
+}
+
+export function unstarSkill(skillId: string, agentKey: string): { ok: boolean } {
+  const db = getDb();
+  const info = db.prepare('DELETE FROM skill_stars WHERE skill_id = ? AND agent_key = ?').run(skillId, agentKey);
+  if (info.changes === 0) return { ok: false };
+  db.prepare('UPDATE skills SET stars = MAX(0, stars - 1) WHERE id = ?').run(skillId);
+  return { ok: true };
+}
+
+export function hasStarred(skillId: string, agentKey: string): boolean {
+  const row = getDb().prepare('SELECT 1 FROM skill_stars WHERE skill_id = ? AND agent_key = ?').get(skillId, agentKey);
+  return !!row;
+}
+
 export function getMarketplaceSkills(params: {
   page: number;
   limit: number;
-  sort: 'popular' | 'price_asc' | 'price_desc' | 'newest' | 'reputation';
+  sort: 'popular' | 'price_asc' | 'price_desc' | 'newest' | 'reputation' | 'stars';
   tags?: string;
   search?: string;
+  category?: string;
 }): { skills: (Skill & { stake_total: number })[]; total: number } {
   const offset = (params.page - 1) * params.limit;
   const orderMap = {
@@ -1491,16 +1553,22 @@ export function getMarketplaceSkills(params: {
     price_desc:  'credit_cost DESC',
     newest:      'published_at DESC',
     reputation:  'uses DESC',
+    stars:       'stars DESC',
   };
   if (!(params.sort in orderMap)) throw new Error(`Invalid sort: ${params.sort}`);
   const order = orderMap[params.sort];
 
-  let where = `s.public = 1 AND s.active = 1`;
+  // Only show PUBLISHED skills (status column defaults to 'PUBLISHED' for existing rows)
+  let where = `s.public = 1 AND s.active = 1 AND (s.status IS NULL OR s.status = 'PUBLISHED')`;
   const args: unknown[] = [];
 
   if (params.tags) {
     where += ` AND s.tags_json LIKE ? ESCAPE '\\'`;
     args.push(`%${params.tags.replace(/[%_\\]/g, '\\$&')}%`);
+  }
+  if (params.category) {
+    where += ` AND s.tags_json LIKE ? ESCAPE '\\'`;
+    args.push(`%${params.category.replace(/[%_\\]/g, '\\$&')}%`);
   }
   if (params.search) {
     const escaped = params.search.replace(/[%_\\]/g, '\\$&');
@@ -1581,14 +1649,20 @@ export function createPayoutRequest(params: {
     const id = nanoid(16);
     db.prepare(`INSERT INTO payout_requests (id, agent_key, amount_credits, usdc_wallet) VALUES (?, ?, ?, ?)`)
       .run(id, params.agentKey, params.amountCredits, params.usdcWallet);
+
+    // Atomically hold the credits so they cannot be double-spent while payout is pending.
+    // Admin credits them back if the payout is rejected.
+    db.prepare(`UPDATE api_keys SET credits = credits - ? WHERE key = ? AND credits >= ?`)
+      .run(params.amountCredits, params.agentKey, params.amountCredits);
+
     return { ok: true, id };
   })();
 }
 
-export function getPayoutRequests(agentKey: string): PayoutRequest[] {
+export function getPayoutRequests(agentKey: string, limit = 100, offset = 0): PayoutRequest[] {
   return getDb()
-    .prepare(`SELECT * FROM payout_requests WHERE agent_key = ? ORDER BY created_at DESC`)
-    .all(agentKey) as PayoutRequest[];
+    .prepare(`SELECT * FROM payout_requests WHERE agent_key = ? ORDER BY created_at DESC LIMIT ? OFFSET ?`)
+    .all(agentKey, limit, offset) as PayoutRequest[];
 }
 
 export function getAllPendingPayouts(): PayoutRequest[] {

@@ -230,7 +230,7 @@ dashboardRouter.get('/verify-claim/:token', async (c) => {
   linkKeyToClerkUser(claim.api_key, claim.clerk_user_id);
   deleteClaimToken(token);
 
-  logger.info({ clerkUserId: claim.clerk_user_id, apiKey: claim.api_key }, 'Key claimed via magic link');
+  logger.info({ clerkUserId: claim.clerk_user_id, apiKey: claim.api_key.slice(0, 6) + '...' + claim.api_key.slice(-4) }, 'Key claimed via magic link');
 
   return c.redirect('https://claw-net.org/dashboard.html?claim=success');
 });

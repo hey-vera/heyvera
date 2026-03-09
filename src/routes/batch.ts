@@ -80,7 +80,7 @@ batchRouter.post('/', checkApiKey, async (c) => {
           index: idx,
           query,
           ok: false,
-          error: err instanceof Error ? err.message : String(err),
+          error: process.env.NODE_ENV === 'production' ? 'Query failed' : (err instanceof Error ? err.message : String(err)),
           durationMs: Date.now() - qStart,
         };
       }

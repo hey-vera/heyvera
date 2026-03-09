@@ -1,13 +1,19 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
+import { nanoid } from 'nanoid';
 import { checkApiKey } from '../middleware/auth';
 import {
   getMarketplaceSkills, marketplacePurchase, stakeCredits, unstakeCredits,
   getStakes, getSkillStakeTotal, getTransactions, getSkill, writeAuditLog,
   getCreatorStats, getSkillsByAuthor,
   createPayoutRequest, getPayoutRequests,
-  safeJsonParse,
+  safeJsonParse, incrementSkillUses, recordSkillMetric, recordReputation,
+  insertOrchestration, starSkill, unstarSkill, hasStarred, incrementSkillViews,
 } from '../db/index';
+import { parseIntent } from '../core/intent-parser';
+import { executePlan } from '../core/executor';
+import { formatResponse } from '../core/formatter';
+
 import { logger } from '../utils/logger';
 
 export const marketplaceRouter = new Hono();
@@ -17,11 +23,12 @@ const PLATFORM_FEE_PCT = 0.03; // 3% platform fee on all marketplace purchases
 // ─── GET /v1/marketplace/skills — browse the skill catalog ───────────────────
 
 const ListQuery = z.object({
-  page:   z.coerce.number().int().min(1).default(1),
-  limit:  z.coerce.number().int().min(1).max(100).default(20),
-  sort:   z.enum(['popular', 'price_asc', 'price_desc', 'newest', 'reputation']).default('popular'),
-  tags:   z.string().optional(),
-  search: z.string().optional(),
+  page:     z.coerce.number().int().min(1).default(1),
+  limit:    z.coerce.number().int().min(1).max(100).default(20),
+  sort:     z.enum(['popular', 'price_asc', 'price_desc', 'newest', 'reputation', 'stars']).default('popular'),
+  tags:     z.string().optional(),
+  search:   z.string().optional(),
+  category: z.string().optional(),
 });
 
 marketplaceRouter.get('/skills', (c) => {
@@ -30,7 +37,7 @@ marketplaceRouter.get('/skills', (c) => {
 
   const { skills, total } = getMarketplaceSkills({
     page: q.page, limit: q.limit, sort: q.sort,
-    tags: q.tags, search: q.search,
+    tags: q.tags, search: q.search, category: q.category,
   });
 
   return c.json({
@@ -45,8 +52,14 @@ marketplaceRouter.get('/skills', (c) => {
       version: s.version ?? '1.0.0',
       creditCost: s.credit_cost,
       uses: s.uses,
+      stars: s.stars ?? 0,
+      views: s.views ?? 0,
+      forks: s.forks ?? 0,
       stakeTotal: s.stake_total,
       tags: safeJsonParse(s.tags_json, []),
+      license: s.license ?? 'MIT',
+      securityStatus: s.security_status ?? 'UNSCANNED',
+      status: s.status ?? 'PUBLISHED',
       publishedAt: s.published_at,
       invokeUrl: `POST /v1/skills/${s.id}/invoke`,
     })),
@@ -61,6 +74,7 @@ marketplaceRouter.get('/skills/:id', (c) => {
   const skill = getSkill(id);
   if (!skill || !skill.public) return c.json({ error: 'Skill not found' }, 404);
 
+  incrementSkillViews(id);
   const stakeTotal = getSkillStakeTotal(id);
   return c.json({
     id: skill.id,
@@ -69,10 +83,19 @@ marketplaceRouter.get('/skills/:id', (c) => {
     version: skill.version ?? '1.0.0',
     creditCost: skill.credit_cost,
     uses: skill.uses,
+    stars: skill.stars ?? 0,
+    views: (skill.views ?? 0) + 1,
+    forks: skill.forks ?? 0,
     stakeTotal,
     tags: safeJsonParse(skill.tags_json, []),
     inputSchema: safeJsonParse(skill.input_schema_json, null),
     outputSchema: safeJsonParse(skill.output_schema_json, null),
+    readme: skill.readme ?? null,
+    license: skill.license ?? 'MIT',
+    runtime: safeJsonParse(skill.runtime_json, null),
+    securityStatus: skill.security_status ?? 'UNSCANNED',
+    scannedAt: skill.scanned_at ?? null,
+    status: skill.status ?? 'PUBLISHED',
     publishedAt: skill.published_at,
     platformFeePct: PLATFORM_FEE_PCT,
     totalCost: skill.credit_cost,
@@ -81,25 +104,70 @@ marketplaceRouter.get('/skills/:id', (c) => {
   });
 });
 
-// ─── POST /v1/marketplace/skills/:id/purchase — buy + invoke ──────────────────
+// ─── POST /v1/marketplace/skills/:id/star — star a skill ─────────────────────
+
+marketplaceRouter.post('/skills/:id/star', checkApiKey, (c) => {
+  const keyInfo = c.get('apiKeyInfo');
+  const { id } = c.req.param();
+  const skill = getSkill(id);
+  if (!skill || !skill.public) return c.json({ error: 'Skill not found' }, 404);
+
+  const result = starSkill(id, keyInfo.key);
+  if (!result.ok) return c.json({ error: 'Already starred' }, 409);
+  return c.json({ ok: true, stars: (skill.stars ?? 0) + 1 });
+});
+
+// ─── DELETE /v1/marketplace/skills/:id/star — unstar a skill ─────────────────
+
+marketplaceRouter.delete('/skills/:id/star', checkApiKey, (c) => {
+  const keyInfo = c.get('apiKeyInfo');
+  const { id } = c.req.param();
+  const skill = getSkill(id);
+  if (!skill || !skill.public) return c.json({ error: 'Skill not found' }, 404);
+
+  const result = unstarSkill(id, keyInfo.key);
+  if (!result.ok) return c.json({ error: 'Not starred' }, 409);
+  return c.json({ ok: true, stars: Math.max(0, (skill.stars ?? 0) - 1) });
+});
+
+// ─── GET /v1/marketplace/skills/:id/starred — check if you starred a skill ───
+
+marketplaceRouter.get('/skills/:id/starred', checkApiKey, (c) => {
+  const keyInfo = c.get('apiKeyInfo');
+  const { id } = c.req.param();
+  const skill = getSkill(id);
+  if (!skill || !skill.public) return c.json({ error: 'Skill not found' }, 404);
+  return c.json({ starred: hasStarred(id, keyInfo.key), stars: skill.stars ?? 0 });
+});
+
+// ─── POST /v1/marketplace/skills/:id/purchase — buy AND execute in one call ───
+// Payment is settled atomically, then the skill executes immediately.
+// The user is charged ONCE (credit_cost to seller). No second charge on invoke.
 
 const PurchaseBody = z.object({
-  variables: z.record(z.string()).optional().default({}),
+  variables: z.record(z.string().max(500)).optional().default({}),
 });
 
 marketplaceRouter.post('/skills/:id/purchase', checkApiKey, async (c) => {
+  const requestId = nanoid(12);
+  const start = Date.now();
   const keyInfo = c.get('apiKeyInfo');
   const { id } = c.req.param();
 
   const skill = getSkill(id);
-  if (!skill || !skill.public) return c.json({ error: 'Skill not found' }, 404);
-  if (skill.author_key === keyInfo.key) return c.json({ error: 'Cannot purchase your own skill' }, 400);
-  if (skill.credit_cost === 0) return c.json({ error: 'This skill is free — use POST /v1/skills/:id/invoke directly' }, 400);
+  if (!skill || !skill.public) return c.json({ requestId, error: 'Skill not found' }, 404);
+  if (skill.author_key === keyInfo.key) return c.json({ requestId, error: 'Cannot purchase your own skill' }, 400);
+  if (skill.credit_cost === 0) return c.json({ requestId, error: 'This skill is free — use POST /v1/skills/:id/invoke directly' }, 400);
 
   let body: z.infer<typeof PurchaseBody>;
-  try { body = PurchaseBody.parse(await c.req.json()); } catch { body = { variables: {} }; }
+  try {
+    body = PurchaseBody.parse(await c.req.json());
+  } catch (err) {
+    return c.json({ requestId, error: 'Invalid body', details: (err as Error).message }, 400);
+  }
 
-  // Process payment atomically
+  // Settle payment atomically BEFORE execution — buyer pays credit_cost to seller.
+  // The invoke endpoint is NOT called after this; execution happens inline below.
   const purchase = marketplacePurchase({
     buyerKey: keyInfo.key,
     sellerKey: skill.author_key,
@@ -110,6 +178,7 @@ marketplaceRouter.post('/skills/:id/purchase', checkApiKey, async (c) => {
 
   if (!purchase.ok) {
     return c.json({
+      requestId,
       error: purchase.error,
       code: 'INSUFFICIENT_CREDITS',
       creditsRequired: skill.credit_cost,
@@ -123,19 +192,64 @@ marketplaceRouter.post('/skills/:id/purchase', checkApiKey, async (c) => {
     data: { txId: purchase.txId, amount: skill.credit_cost, fee: purchase.feeCredits, sellerReceives: purchase.sellerCredits },
   });
 
-  logger.info({ skillId: id, buyer: keyInfo.key.slice(0, 8), txId: purchase.txId }, 'Marketplace purchase');
+  logger.info({ requestId, skillId: id, buyer: keyInfo.key.slice(0, 8), txId: purchase.txId }, 'Marketplace purchase + execute');
 
-  // Redirect buyer to invoke the skill directly (payment already settled)
-  return c.json({
-    ok: true,
-    txId: purchase.txId,
-    creditsCharged: skill.credit_cost,
-    feeCredits: purchase.feeCredits,
-    sellerReceives: purchase.sellerCredits,
-    message: 'Payment settled. Invoke the skill at POST /v1/skills/:id/invoke with your variables.',
-    invokeUrl: `POST /v1/skills/${id}/invoke`,
-    hint: `Pass { "variables": ${JSON.stringify(body.variables)} } to the invoke endpoint.`,
-  });
+  // Execute the skill inline — no second credit charge.
+  // Render the prompt template with provided variables.
+  let query: string;
+  try {
+    query = skill.prompt_template.replace(/\{\{(\w+)\}\}/g, (_, key) => {
+      if (!(key in body.variables)) throw new Error(`Missing required variable: ${key}`);
+      return String(body.variables[key]).slice(0, 500);
+    });
+  } catch (err) {
+    // Payment already settled — execution failed due to missing variables
+    return c.json({
+      requestId, ok: true,
+      txId: purchase.txId, creditsCharged: skill.credit_cost,
+      error: (err as Error).message, code: 'MISSING_VARIABLES',
+      hint: 'Payment settled. Call again with all required variables.',
+    }, 400);
+  }
+
+  try {
+    const intent = await parseIntent(query);
+    const execution = await executePlan(intent);
+    const formatted = await formatResponse(query, intent, execution);
+
+    incrementSkillUses(id);
+    recordSkillMetric({ skillId: id, version: skill.version ?? '1.0.0', latencyMs: Date.now() - start, success: true, costCredits: skill.credit_cost });
+    if (skill.author_key !== keyInfo.key) {
+      recordReputation({ agentId: skill.author_key, skillId: id, eventType: 'SKILL_INVOKED', scoreDelta: 0.1, data: { via: 'marketplace' } });
+    }
+    insertOrchestration({
+      id: requestId, timestamp: new Date().toISOString(), query: query.slice(0, 500), plannedSteps: intent.steps.length,
+      executedSteps: execution.steps.length, successfulSteps: execution.steps.filter(s => s.success).length,
+      cacheHits: execution.steps.filter(s => s.cached).length, totalDurationMs: Date.now() - start,
+      apiCost: execution.totalCost, markup: 0, total: skill.credit_cost,
+      success: true, llmProvider: 'openai', apiKey: keyInfo.key, skillId: id,
+    });
+
+    return c.json({
+      requestId, ok: true,
+      txId: purchase.txId,
+      creditsCharged: skill.credit_cost,
+      feeCredits: purchase.feeCredits,
+      sellerReceives: purchase.sellerCredits,
+      answer: formatted.answer,
+      steps: execution.steps.length,
+      durationMs: Date.now() - start,
+    });
+  } catch (err) {
+    logger.error({ requestId, skillId: id, err }, 'Marketplace execute failed after payment');
+    // Payment was settled — return partial success with error
+    return c.json({
+      requestId, ok: true,
+      txId: purchase.txId, creditsCharged: skill.credit_cost,
+      error: 'Skill execution failed after payment. Please retry via POST /v1/skills/:id/invoke.',
+      code: 'EXECUTION_ERROR',
+    }, 200);
+  }
 });
 
 // ─── GET /v1/marketplace/transactions — caller's transaction history ──────────
@@ -298,7 +412,7 @@ marketplaceRouter.post('/creator/withdraw', checkApiKey, async (c) => {
     ok: true,
     payoutId: result.id,
     amountCredits: body.amountCredits,
-    usdcEquivalent: (body.amountCredits * 0.001).toFixed(4),
+    usdcEquivalent: (body.amountCredits * 0.00075).toFixed(4), // $0.75/1K — below min buy rate to prevent arbitrage
     status: 'PENDING',
     message: 'Payout queued. USDC will be sent to your wallet within 48h. You will be notified.',
   }, 201);

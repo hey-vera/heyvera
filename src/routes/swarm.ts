@@ -17,9 +17,18 @@ const SwarmBody = z.object({
   task: z.string().min(1).max(1000),
   skills: z.array(z.string()).optional(),
   maxSubTasks: z.number().int().min(1).max(5).default(4),
+  maxBudget: z.number().int().min(20).max(5000).default(200), // total credit cap including sub-tasks
 });
 
+// Recursion guard — swarm tasks set this header; inner invoke calls that see it are blocked
+const SWARM_DEPTH_HEADER = 'X-Swarm-Depth';
+
 swarmRouter.post('/task', checkApiKey, async (c) => {
+  // Recursion guard — prevent nested swarms spawned from within a swarm
+  if (c.req.header(SWARM_DEPTH_HEADER)) {
+    return c.json({ error: 'Nested swarms are not permitted', code: 'SWARM_RECURSION_BLOCKED' }, 400);
+  }
+
   const keyInfo = c.get('apiKeyInfo');
   let body: z.infer<typeof SwarmBody>;
   try { body = SwarmBody.parse(await c.req.json()); } catch (err) {
@@ -27,7 +36,8 @@ swarmRouter.post('/task', checkApiKey, async (c) => {
   }
 
   // Deduct swarm base fee upfront (covers LLM decomposition + synthesis calls)
-  // Individual skill invocations within the swarm are charged per-skill separately.
+  // Individual skill invocations within the swarm are charged per-skill separately,
+  // up to maxBudget total (base fee included).
   const SWARM_BASE_FEE = 20;
   if (!keyInfo.isEnvKey) {
     if (keyInfo.credits < SWARM_BASE_FEE) {
@@ -86,6 +96,7 @@ export interface SwarmParams {
   task: string;
   skills?: string[];
   maxSubTasks: number;
+  maxBudget?: number;
 }
 
 export async function runSwarm(swarmId: string, agentKey: string, body: SwarmParams, isEnvKey = false): Promise<void> {
@@ -121,19 +132,33 @@ export async function runSwarm(swarmId: string, agentKey: string, body: SwarmPar
     return true;
   });
 
+  // Budget tracking — base fee already deducted; remaining budget for sub-tasks
+  const maxBudget = body.maxBudget ?? 200;
+  const SWARM_BASE_FEE = 20;
+  let budgetSpent = SWARM_BASE_FEE;
+
   // Step 2: Execute in parallel
   const results = await Promise.all(subTasks.map(async (st, i) => {
     try {
       if (st.skillId) {
+        // Enforce budget ceiling before invoking
+        if (budgetSpent >= maxBudget) {
+          return { index: i, subtask: st.subtask, skillId: st.skillId, result: null, ok: false, error: 'Budget cap reached' };
+        }
         const r = await fetch(`http://localhost:${env.PORT}/v1/skills/${encodeURIComponent(st.skillId)}/invoke`, {
           method: 'POST',
-          headers: { 'X-API-Key': agentKey, 'Content-Type': 'application/json' },
+          headers: {
+            'X-API-Key': agentKey,
+            'Content-Type': 'application/json',
+            [SWARM_DEPTH_HEADER]: '1', // block recursive swarms spawned by skills
+          },
           body: JSON.stringify({ variables: st.variables }),
         });
         if (!r.ok) {
           return { index: i, subtask: st.subtask, skillId: st.skillId, result: null, ok: false, error: `HTTP ${r.status}` };
         }
         const d = await r.json() as Record<string, unknown>;
+        budgetSpent += (d.creditsUsed as number) ?? 0;
         return { index: i, subtask: st.subtask, skillId: st.skillId, result: d.result ?? d, ok: true };
       } else {
         const resp = await llmComplete([{ role: 'user', content: st.subtask }]);

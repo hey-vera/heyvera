@@ -9,6 +9,7 @@
   <meta property="og:description" content="Buy, sell, and publish AI skills. Pay per use. Earn 97% as a creator.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://claw-net.org/marketplace.html">
+  <meta property="og:image" content="https://claw-net.org/og-marketplace.png">
   <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png">
   <link rel="apple-touch-icon" href="/favicon.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -145,6 +146,12 @@
     .btn-buy:disabled { opacity: 0.35; cursor: not-allowed; }
     .btn-ghost { font-family: var(--font); font-size: 11px; padding: 9px 12px; background: transparent; border: 1px solid var(--border2); color: var(--muted); cursor: pointer; transition: all 0.15s; }
     .btn-ghost:hover { border-color: var(--muted2); color: var(--muted2); }
+    .btn-star { font-family: var(--font); font-size: 10px; padding: 9px 10px; background: transparent; border: 1px solid var(--border2); color: var(--muted); cursor: pointer; transition: all 0.15s; line-height: 1; }
+    .btn-star:hover, .btn-star.starred { border-color: #ffaa00; color: #ffaa00; background: rgba(255,170,0,0.06); }
+    .sec-badge { font-size: 8px; padding: 2px 6px; border: 1px solid; letter-spacing: 0.5px; text-transform: uppercase; }
+    .sec-badge.clean { border-color: rgba(0,255,136,0.35); color: var(--green); }
+    .sec-badge.flagged { border-color: rgba(255,68,68,0.4); color: var(--red); }
+    .sec-badge.unscanned { border-color: var(--border2); color: var(--muted); }
 
     /* Skeleton */
     .skeleton { animation: pulse 1.4s ease-in-out infinite; }
@@ -324,6 +331,7 @@
       <div class="select-wrap">
         <select class="field" id="sort-select" onchange="loadSkills()">
           <option value="popular">Popular</option>
+          <option value="stars">Most Starred</option>
           <option value="newest">Newest</option>
           <option value="price_asc">Price ↑</option>
           <option value="price_desc">Price ↓</option>
@@ -549,6 +557,7 @@ let currentSort = 'popular';
 let searchTimer = null;
 let selectedSkill = null;
 let modalState = 'buy'; // 'buy' | 'invoke' | 'done'
+let starredIds = new Set(JSON.parse(localStorage.getItem('claw_starred') || '[]'));
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
@@ -679,21 +688,26 @@ async function loadSkills() {
 function renderCard(s) {
   const official = OFFICIAL_IDS.includes(s.id);
   const tags = (s.tags||[]).map(t=>`<span class="sk-tag">${esc(t)}</span>`).join('');
-  return `<div class="skill-card${official?' official':''}">
+  const starred = starredIds.has(s.id);
+  const secClass = { CLEAN: 'clean', FLAGGED: 'flagged', UNSCANNED: 'unscanned' }[s.securityStatus] || 'unscanned';
+  const secLabel = { CLEAN: '✓ Clean', FLAGGED: '⚠ Flagged', UNSCANNED: 'Unscanned' }[s.securityStatus] || 'Unscanned';
+  return `<div class="skill-card${official?' official':''}" id="card-${esc(s.id)}">
     ${official ? '<span class="official-badge">Official</span>' : ''}
     <div class="sk-header">
-      <div><div class="sk-name">${esc(s.name)}</div><div class="sk-ver">v${esc(s.version||'1.0.0')}</div></div>
+      <div><div class="sk-name">${esc(s.name)}</div><div class="sk-ver">v${esc(s.version||'1.0.0')} · <span class="sec-badge ${secClass}">${secLabel}</span></div></div>
       <div class="sk-price"><div class="sk-price-val">${s.creditCost}</div><div class="sk-price-lbl">credits</div></div>
     </div>
     <p class="sk-desc">${esc(s.description)}</p>
     ${tags ? `<div class="sk-tags">${tags}</div>` : ''}
     <div class="sk-meta">
       <span>Uses: <span>${fmt(s.uses||0)}</span></span>
-      <span>Staked: <span>${fmt(s.stakeTotal||0)}</span></span>
+      <span>★ <span>${fmt(s.stars||0)}</span></span>
+      <span>👁 <span>${fmt(s.views||0)}</span></span>
     </div>
     <div class="sk-actions">
-      <button class="btn-buy" onclick="openPurchaseModal('${s.id}')">Buy &amp; Use</button>
-      <button class="btn-ghost" onclick="openDetailModal('${s.id}')">Details</button>
+      <button class="btn-buy" onclick="openPurchaseModal('${esc(s.id)}')">Buy &amp; Use</button>
+      <button class="btn-ghost" onclick="openDetailModal('${esc(s.id)}')">Details</button>
+      <button class="btn-star${starred?' starred':''}" id="star-${esc(s.id)}" onclick="toggleStar('${esc(s.id)}',this)" title="${starred?'Unstar':'Star'} this skill">★ ${fmt(s.stars||0)}</button>
     </div>
   </div>`;
 }
@@ -734,11 +748,30 @@ async function openPurchaseModal(id) {
         <input type="text" class="field" id="var-${esc(k)}" placeholder="${esc(v.description||k)}" style="width:100%">
       </div>`).join('');
 
+    const secClass2 = { CLEAN: 'clean', FLAGGED: 'flagged', UNSCANNED: 'unscanned' }[s.securityStatus] || 'unscanned';
+    const secLabel2 = { CLEAN: '✓ Clean', FLAGGED: '⚠ Flagged', UNSCANNED: 'Unscanned' }[s.securityStatus] || 'Unscanned';
+    const isStarred = starredIds.has(s.id);
     document.getElementById('modal-body').innerHTML = `
       <div class="modal-section">
-        <div class="modal-lbl">About this skill</div>
-        <p style="font-size:12px;color:var(--muted2);line-height:1.6">${esc(s.description)}</p>
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px">
+          <div>
+            <div class="modal-lbl" style="margin-bottom:4px">About this skill</div>
+            <p style="font-size:12px;color:var(--muted2);line-height:1.6">${esc(s.description)}</p>
+          </div>
+          <button class="btn-star${isStarred?' starred':''}" id="modal-star-btn" onclick="toggleStar('${esc(s.id)}',this)" style="flex-shrink:0;white-space:nowrap">★ ${fmt(s.stars||0)}</button>
+        </div>
+        <div style="display:flex;gap:16px;font-size:10px;color:var(--muted);flex-wrap:wrap">
+          <span>👁 ${fmt(s.views||0)} views</span>
+          <span>⚡ ${fmt(s.uses||0)} uses</span>
+          ${s.forks ? `<span>🔀 ${fmt(s.forks)} forks</span>` : ''}
+          <span>License: <span style="color:var(--muted2)">${esc(s.license||'MIT')}</span></span>
+          <span class="sec-badge ${secClass2}">${secLabel2}</span>
+        </div>
       </div>
+      ${s.readme ? `<div class="modal-section">
+        <div class="modal-lbl">README</div>
+        <pre style="background:#000;border:1px solid var(--border);padding:14px;font-size:10px;color:#7ec8a0;line-height:1.6;white-space:pre-wrap;overflow-x:auto;max-height:180px;overflow-y:auto">${esc(s.readme)}</pre>
+      </div>` : ''}
       <div class="modal-section">
         <div class="modal-lbl">Cost</div>
         <div class="cost-table">
@@ -804,7 +837,7 @@ async function buyAndInvoke() {
   }
 
   try {
-    // Step 1: Purchase
+    // Purchase endpoint settles payment AND executes inline — one call, one charge.
     const pr = await fetch(`${API}/v1/marketplace/skills/${selectedSkill.id}/purchase`, {
       method: 'POST',
       headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' },
@@ -819,26 +852,20 @@ async function buyAndInvoke() {
       return;
     }
 
-    toast(`Payment settled (${pd.creditsCharged} credits)`, 'info');
+    toast(`Executed (${pd.creditsCharged} credits)`, 'success');
     refreshCredits();
 
-    // Step 2: Invoke
-    const ir = await fetch(`${API}/v1/skills/${selectedSkill.id}/invoke`, {
-      method: 'POST',
-      headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ variables }),
-    });
-    const id = await ir.json();
     const resultEl = document.getElementById('invoke-result');
     resultEl.style.display = 'block';
-    if (ir.ok) {
-      const answer = id.result?.answer || id.answer || JSON.stringify(id.result || id, null, 2);
+    if (pd.answer || pd.result) {
+      const answer = pd.answer || pd.result?.answer || JSON.stringify(pd.result, null, 2);
       resultEl.textContent = answer;
       resultEl.style.borderColor = 'rgba(0,255,136,0.3)';
-    } else {
-      resultEl.textContent = id.error || 'Invoke failed';
-      resultEl.style.borderColor = 'rgba(255,68,68,0.3)';
-      resultEl.style.color = '#ff8888';
+      resultEl.style.color = '#aee';
+    } else if (pd.error) {
+      resultEl.textContent = pd.error;
+      resultEl.style.borderColor = 'rgba(255,170,0,0.3)';
+      resultEl.style.color = 'var(--yellow)';
     }
     modalState = 'done';
     setModalFooter('done');
@@ -981,6 +1008,38 @@ async function deleteSkill(id) {
 
 function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function fmt(n) { return n>=1000000?(n/1e6).toFixed(1)+'M':n>=1000?(n/1000).toFixed(1)+'k':String(n); }
+
+// ─── Stars ────────────────────────────────────────────────────────────────────
+
+async function toggleStar(id, btn) {
+  if (!apiKey) { toast('Set your API key to star skills', 'error'); return; }
+  const already = starredIds.has(id);
+  const method = already ? 'DELETE' : 'POST';
+  try {
+    const r = await fetch(`${API}/v1/marketplace/skills/${id}/star`, { method, headers: { 'X-API-Key': apiKey } });
+    if (r.status === 409 && !already) { starredIds.add(id); saveStarred(); syncStarBtn(id, btn, true); return; }
+    if (!r.ok) { const d = await r.json(); toast(d.error || 'Failed', 'error'); return; }
+    const d = await r.json();
+    if (already) { starredIds.delete(id); } else { starredIds.add(id); }
+    saveStarred();
+    syncStarBtn(id, btn, !already, d.stars);
+  } catch { toast('Network error', 'error'); }
+}
+
+function syncStarBtn(id, btn, isStarred, count) {
+  // Update all buttons for this skill (card + modal)
+  [btn, document.getElementById(`star-${id}`), document.getElementById('modal-star-btn')]
+    .filter(Boolean)
+    .forEach(b => {
+      b.classList.toggle('starred', isStarred);
+      b.title = isStarred ? 'Unstar this skill' : 'Star this skill';
+      if (count !== undefined) b.textContent = `★ ${fmt(count)}`;
+    });
+}
+
+function saveStarred() {
+  localStorage.setItem('claw_starred', JSON.stringify([...starredIds]));
+}
 // ─── Withdraw ─────────────────────────────────────────────────────────────────
 
 async function requestWithdraw() {

@@ -1,0 +1,11 @@
+.env
+.env.*
+data/
+node_modules/
+.git/
+.gitignore
+*.md
+site/
+tests/
+docs/
+.dockerignore

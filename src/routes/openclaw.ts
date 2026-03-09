@@ -528,8 +528,8 @@ openclawRouter.get('/status', checkApiKey, async (c) => {
   const keyInfo = c.get('apiKeyInfo');
 
   const tier = rateTier(keyInfo.amountPaid);
-  const rlCount = await cacheIncr(`rl:orch:${keyInfo.key}`, 60).catch(() => 0);
-  // Undo the incr side-effect — just read, don't count this as a rate-limited request
+  // Use cacheGet (not cacheIncr) to read the rate limit counter without side effects
+  const rlCount = (await cacheGet<number>(`rl:orch:${keyInfo.key}`)) ?? 0;
   const usage = getAgentUsageStats(keyInfo.key);
   const reputation = getReputationScore(keyInfo.key);
 
@@ -537,7 +537,7 @@ openclawRouter.get('/status', checkApiKey, async (c) => {
     agentKey: keyInfo.key.slice(0, 6) + '...' + keyInfo.key.slice(-4),
     credits: {
       balance: keyInfo.credits,
-      used: 0, // credits_used not in keyInfo; returned from balance endpoint if needed
+      used: keyInfo.creditsUsed ?? 0,
       tier: tier.label,
       amountPaid: keyInfo.amountPaid,
     },

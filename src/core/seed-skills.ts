@@ -101,8 +101,21 @@ const OFFICIAL_SKILLS: OfficialSkill[] = [
 
 const CLAWHUB_KEY = 'clawhub-official';
 
+/** Ensure the platform's own api_keys row exists so revenue share credits
+ *  accumulate properly when official skills are invoked. */
+function ensurePlatformKey(db: ReturnType<typeof getDb>): void {
+  const existing = db.prepare('SELECT key FROM api_keys WHERE key = ?').get(CLAWHUB_KEY);
+  if (!existing) {
+    db.prepare(
+      `INSERT INTO api_keys (key, email, credits, credits_used, active, created_at)
+       VALUES (?, 'platform@claw-net.org', 0, 0, 1, datetime('now'))`
+    ).run(CLAWHUB_KEY);
+  }
+}
+
 export function seedOfficialSkills(): void {
   const db = getDb();
+  ensurePlatformKey(db);
   let seeded = 0;
 
   for (const skill of OFFICIAL_SKILLS) {

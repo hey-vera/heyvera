@@ -9,6 +9,7 @@
   <meta property="og:description" content="Full API reference for ClawNet orchestration layer. Authentication, endpoints, skills, escrow, and more.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://claw-net.org/docs.html">
+  <meta property="og:image" content="https://claw-net.org/og-docs.png">
   <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=IBM+Plex+Serif:ital,wght@0,400;0,600;0,700;1,400&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
@@ -241,7 +242,7 @@
     <div class="sidebar-section">
       <div class="sidebar-label">P2P Mesh &amp; Discovery</div>
       <a href="#mesh-peers" class="sidebar-link"><span class="sidebar-method m-get">GET</span>/v1/mesh/peers</a>
-      <a href="#discover" class="sidebar-link"><span class="sidebar-method m-post">POST</span>/v1/discover</a>
+      <a href="#discover-trinity" class="sidebar-link"><span class="sidebar-method m-post">POST</span>/v1/discover</a>
     </div>
     <div class="sidebar-section">
       <div class="sidebar-label">Creator Payouts</div>
@@ -725,9 +726,9 @@ FUNDED → REFUNDED (if expired before work starts)</div>
         <tr><th>Method</th><th>Path</th><th>Action</th></tr>
         <tr><td><span class="method-badge post">POST</span></td><td class="param-name">/v1/escrow</td><td class="param-desc">Create escrow (DRAFT)</td></tr>
         <tr><td><span class="method-badge post">POST</span></td><td class="param-name">/v1/escrow/:id/fund</td><td class="param-desc">Lock credits (FUNDED)</td></tr>
-        <tr><td><span class="method-badge post">POST</span></td><td class="param-name">/v1/escrow/:id/start</td><td class="param-desc">Begin work (IN_PROGRESS)</td></tr>
-        <tr><td><span class="method-badge post">POST</span></td><td class="param-name">/v1/escrow/:id/complete</td><td class="param-desc">Submit deliverable</td></tr>
-        <tr><td><span class="method-badge post">POST</span></td><td class="param-name">/v1/escrow/:id/release</td><td class="param-desc">Client releases payment (RELEASED)</td></tr>
+        <tr><td><span class="method-badge post">POST</span></td><td class="param-name">/v1/escrow/:id/start</td><td class="param-desc">Begin work (WORK_IN_PROGRESS)</td></tr>
+        <tr><td><span class="method-badge post">POST</span></td><td class="param-name">/v1/escrow/:id/complete</td><td class="param-desc">Submit deliverable (still WORK_IN_PROGRESS)</td></tr>
+        <tr><td><span class="method-badge post">POST</span></td><td class="param-name">/v1/escrow/:id/release</td><td class="param-desc">Client releases payment (COMPLETED)</td></tr>
         <tr><td><span class="method-badge post">POST</span></td><td class="param-name">/v1/escrow/:id/dispute</td><td class="param-desc">Open dispute</td></tr>
         <tr><td><span class="method-badge get">GET</span></td><td class="param-name">/v1/escrow/:id</td><td class="param-desc">Get escrow status</td></tr>
       </table>
@@ -847,16 +848,29 @@ FUNDED → REFUNDED (if expired before work starts)</div>
         <tr><td style="padding:8px;color:#ff4444;font-weight:700">error</td><td style="padding:8px">Orchestration failed — includes error message</td></tr>
       </table>
       <h3>Example (JavaScript)</h3>
-      <pre><code>const es = new EventSource(
+      <pre><code>// Native EventSource does not support custom headers.
+// Use fetch with a ReadableStream decoder instead:
+const res = await fetch(
   'https://api.claw-net.org/v1/stream/orchestrate?query=SOL+price',
   { headers: { 'X-API-Key': 'cn-your-key' } }
 );
-es.addEventListener('step', (e) => console.log('Step:', JSON.parse(e.data)));
-es.addEventListener('done', (e) => {
-  const result = JSON.parse(e.data);
-  console.log('Answer:', result.answer);
-  es.close();
-});</code></pre>
+const reader = res.body.getReader();
+const decoder = new TextDecoder();
+let buf = '';
+while (true) {
+  const { done, value } = await reader.read();
+  if (done) break;
+  buf += decoder.decode(value, { stream: true });
+  const lines = buf.split('\n\n');
+  buf = lines.pop();
+  for (const chunk of lines) {
+    const dataLine = chunk.split('\n').find(l => l.startsWith('data:'));
+    if (!dataLine) continue;
+    const event = JSON.parse(dataLine.slice(5));
+    if (event.type === 'done') { console.log('Answer:', event.answer); break; }
+    if (event.type === 'step') { console.log('Step:', event.step); }
+  }
+}</code></pre>
     </div>
 
     <div class="doc-section" id="openapi">
@@ -903,7 +917,7 @@ openapi-generator generate \
     <hr class="doc-divider">
 
     <!-- ── DISCOVER ── -->
-    <div class="doc-section" id="discover">
+    <div class="doc-section" id="discover-trinity">
       <div class="doc-section-label">Discovery</div>
       <h2>POST /v1/discover <span class="badge auth">API KEY</span></h2>
       <p>Semantic skill discovery using the Trinity engine — 60% vector similarity, 25% P2P mesh, 15% on-chain signals. Returns ranked skill matches for a natural-language query.</p>

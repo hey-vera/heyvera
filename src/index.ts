@@ -81,7 +81,7 @@ app.get('/', (c) => c.json({
   name: 'ClawNet Orchestrator',
   version: '1.0.0',
   description: 'Universal Workflow Orchestration Layer for ClawAPIs',
-  docs: '/v1/registry',
+  docs: '/v1/endpoints',
   health: '/health',
 }));
 
@@ -93,7 +93,7 @@ app.get('/health', (c) => {
   } catch { /* db unreachable */ }
 
   const redis = cacheStats().redisConnected;
-  const status = dbOk ? 'ok' : 'error';
+  const status = !dbOk ? 'error' : !redis ? 'degraded' : 'ok';
 
   return c.json({
     status,

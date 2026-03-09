@@ -36,19 +36,22 @@ streamRouter.get('/orchestrate', checkApiKey, async (c) => {
   }
 
   const start = Date.now();
+  const abortController = new AbortController();
+  const { signal } = abortController;
 
   return c.body(
     new ReadableStream({
       async start(controller) {
         const enc = new TextEncoder();
         const emit = (event: string, data: unknown) => {
-          controller.enqueue(enc.encode(sseEvent(event, data)));
+          try { controller.enqueue(enc.encode(sseEvent(event, data))); } catch { /* client gone */ }
         };
 
         try {
           emit('start', { requestId, query: query.slice(0, 100) });
 
           const intent = await parseIntent(query);
+          if (signal.aborted) return;
           emit('plan', {
             summary: intent.summary,
             steps: intent.steps.length,
@@ -56,6 +59,7 @@ streamRouter.get('/orchestrate', checkApiKey, async (c) => {
           });
 
           const execution = await executePlan(intent);
+          if (signal.aborted) return;
 
           // Emit per-step summaries
           for (let idx = 0; idx < execution.steps.length; idx++) {
@@ -71,6 +75,7 @@ streamRouter.get('/orchestrate', checkApiKey, async (c) => {
           }
 
           const formatted = await formatResponse(query, intent, execution);
+          if (signal.aborted) return;
 
           const creditsToDeduct = creditsForApiCost(execution.totalCost);
           if (!keyInfo.isEnvKey) {
@@ -90,6 +95,7 @@ streamRouter.get('/orchestrate', checkApiKey, async (c) => {
             cacheHits: execution.steps.filter((s) => s.cached).length,
           });
         } catch (err) {
+          if (signal.aborted) return;
           logger.error({ requestId, err }, 'SSE orchestration failed');
           emit('error', {
             requestId,
@@ -98,6 +104,10 @@ streamRouter.get('/orchestrate', checkApiKey, async (c) => {
         } finally {
           controller.close();
         }
+      },
+      cancel() {
+        abortController.abort();
+        logger.info({ requestId }, 'SSE client disconnected — orchestration cancelled');
       },
     }),
     200,
