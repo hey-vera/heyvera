@@ -937,8 +937,10 @@
         const data = await res.json();
         _sessionFullKey = data.apiKey;
         setRevealModalKey(data.apiKey);
-        // Mark as revealed so button changes after modal closes
+        // Mark as revealed — persisted to localStorage so button stays hidden after refresh
         _keyRevealedThisSession = true;
+        const uid = window.Clerk.user?.id ?? 'anon';
+        localStorage.setItem('key_revealed_' + uid, '1');
       } catch (err) {
         setRevealModalKey(null, 'Failed to fetch key: ' + (err.message || 'Unknown error'));
       }
@@ -1084,9 +1086,11 @@
         const newMasked = data.maskedKey || maskKey(data.apiKey);
         renderMaskedKey(newMasked);
 
-        // Show new key in reveal modal
+        // Show new key in reveal modal — reset localStorage so the new key can be revealed once
         _sessionFullKey = data.apiKey;
-        _keyRevealedThisSession = true;
+        _keyRevealedThisSession = false;
+        const uid = window.Clerk.user?.id ?? 'anon';
+        localStorage.removeItem('key_revealed_' + uid);
 
         openRevealModal({
           eyebrow: 'New API Key Generated',
@@ -1206,6 +1210,14 @@
       // Render masked key from backend
       const maskedKey = data.maskedKey || maskKey(data.apiKey || '');
       renderMaskedKey(maskedKey);
+
+      // Persist reveal state — if this user already revealed their key, keep the button hidden
+      const uid = window.Clerk.user?.id ?? 'anon';
+      if (localStorage.getItem('key_revealed_' + uid) === '1') {
+        document.getElementById('reveal-btn').classList.add('hidden');
+        document.getElementById('key-revealed-note').classList.remove('hidden');
+        _keyRevealedThisSession = true;
+      }
     }
 
     function topUp(url) {
