@@ -13,9 +13,10 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install --omit=dev
 COPY --from=builder /app/dist ./dist
-# Create non-root user and own the data directory
-RUN addgroup --system --gid 1001 appgroup \
- && adduser  --system --uid 1001 --ingroup appgroup appuser \
+# Create non-root user with UID 1000 to match the host 'guardian' user so
+# Docker volume mounts (data/) remain writable without chown on the host.
+RUN addgroup --system --gid 1000 appgroup \
+ && adduser  --system --uid 1000 --ingroup appgroup appuser \
  && mkdir -p data && chown -R appuser:appgroup /app
 USER appuser
 EXPOSE 3402
