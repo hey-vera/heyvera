@@ -9,7 +9,11 @@ let db: Database.Database;
 
 export function initDb(): void {
   db = new Database(DB_PATH);
-  sqliteVec.load(db);
+  try {
+    sqliteVec.load(db);
+  } catch (err) {
+    logger.warn({ err }, 'sqlite-vec failed to load — vector search unavailable (binary incompatibility?)');
+  }
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
 
@@ -139,12 +143,16 @@ export function initDb(): void {
     CREATE INDEX IF NOT EXISTS idx_email_send_log ON email_send_log(email, type, sent_at);
   `);
 
-  // sqlite-vec virtual table (must be separate exec after extension is loaded)
-  db.exec(`
-    CREATE VIRTUAL TABLE IF NOT EXISTS skill_embeddings USING vec0(
-      embedding float[384]
-    );
+  // sqlite-vec virtual table (only available if extension loaded successfully)
+  try {
+    db.exec(`
+      CREATE VIRTUAL TABLE IF NOT EXISTS skill_embeddings USING vec0(
+        embedding float[384]
+      );
+    `);
+  } catch { /* extension not loaded — skip virtual table */ }
 
+  db.exec(`
     CREATE TABLE IF NOT EXISTS discovery_cache (
       id TEXT PRIMARY KEY,
       skill_name TEXT,

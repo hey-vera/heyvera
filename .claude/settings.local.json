@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git add src/integrations/telegram.ts)",
+      "Bash(git push)",
+      "Bash(npx tsc --noEmit)"
+    ]
+  }
+}
