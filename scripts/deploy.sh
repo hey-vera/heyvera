@@ -10,8 +10,8 @@ echo "[git] Pulling latest..."
 git pull origin main
 
 echo "[site] Syncing site/ → $WWW_DIR"
-sudo mkdir -p "$WWW_DIR"
-sudo cp -r site/. "$WWW_DIR/"
+mkdir -p "$WWW_DIR"
+cp -r site/. "$WWW_DIR/"
 
 echo "[docker] Building and restarting containers..."
 docker compose up --build -d --remove-orphans
