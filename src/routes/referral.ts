@@ -16,8 +16,8 @@ referralRouter.post('/generate', checkApiKey, (c) => {
     return c.json({ code: existing.code, uses: existing.uses });
   }
 
-  // Generate a short, readable code: CN-XXXXXXXX (4 bytes = 2^32 combinations)
-  const code = 'CN-' + crypto.randomBytes(4).toString('hex').toUpperCase();
+  // Generate a code with strong entropy: CN-XXXXXXXXXXXXXXXX (8 bytes = 2^64 combinations)
+  const code = 'CN-' + crypto.randomBytes(8).toString('hex').toUpperCase();
   createReferralCode(code, keyInfo.key);
   logger.info({ key: keyInfo.key.slice(0, 8), code }, 'Referral code created');
 

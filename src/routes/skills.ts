@@ -5,7 +5,7 @@ import { checkApiKey } from '../middleware/auth';
 import {
   createSkill, getSkill, listPublicSkills, getSkillsByAuthor,
   countSkillsByAuthor, incrementSkillUses, deleteSkill,
-  updateSkillVisibility, topUpCredits, deductCredit, insertOrchestration,
+  updateSkillVisibility, topUpCredits, deductCredit, insertOrchestration, getDb,
 } from '../db/index';
 import { parseIntent } from '../core/intent-parser';
 import { executePlan } from '../core/executor';
@@ -260,8 +260,21 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
     const creditsToDeduct = Math.max(actualCost, skill.credit_cost);
 
     if (!keyInfo.isEnvKey) {
-      const deducted = deductCredit(keyInfo.key, creditsToDeduct);
-      if (!deducted) {
+      // Atomically deduct credits and pay revenue share in a single transaction
+      const revenueSharePct = Math.min(0.10, skill.revenue_share_pct); // cap at 10%
+      const shouldPayAuthor = skill.author_key !== keyInfo.key && revenueSharePct > 0;
+
+      const txResult = getDb().transaction(() => {
+        const deducted = deductCredit(keyInfo.key, creditsToDeduct);
+        if (!deducted) return false;
+        if (shouldPayAuthor) {
+          const authorShare = Math.floor(creditsToDeduct * revenueSharePct);
+          if (authorShare > 0) topUpCredits(skill.author_key, authorShare);
+        }
+        return true;
+      })();
+
+      if (!txResult) {
         return c.json({
           requestId,
           error: 'Insufficient credits',
@@ -270,12 +283,6 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
           creditsAvailable: keyInfo.credits,
           hint: 'Top up your credits at claw-net.org',
         }, 402);
-      }
-
-      // Revenue share: pay author a % of credits used (if author != invoker)
-      if (skill.author_key !== keyInfo.key && skill.revenue_share_pct > 0) {
-        const authorShare = Math.floor(creditsToDeduct * skill.revenue_share_pct);
-        if (authorShare > 0) topUpCredits(skill.author_key, authorShare);
       }
     }
 
@@ -297,7 +304,7 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
       llmProvider: env.LLM_PROVIDER,
     };
     logUsage(usageEntry);
-    insertOrchestration({ id: requestId, ...usageEntry });
+    insertOrchestration({ id: requestId, ...usageEntry, apiKey: keyInfo.key });
 
     const responsePayload = {
       answer: formatted.answer,

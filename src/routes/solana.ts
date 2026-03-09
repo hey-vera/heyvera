@@ -116,14 +116,20 @@ solanaRouter.post('/verify', async (c) => {
         p?.type === 'transferChecked' &&
         p?.info?.mint === USDC_MINT &&
         p?.info?.destination &&
+        p?.info?.source &&
         p?.info?.tokenAmount?.uiAmount
       ) {
-        // Verify the destination is an ATA owned by our receiving wallet
+        // Verify destination is owned by receiving wallet, source is NOT (prevent self-transfer double-counting)
         try {
           const destPubkey = new PublicKey(p.info.destination);
-          const accountInfo = await connection.getParsedAccountInfo(destPubkey);
-          const owner = (accountInfo.value?.data as any)?.parsed?.info?.owner;
-          if (owner === RECEIVING_WALLET) {
+          const destInfo = await connection.getParsedAccountInfo(destPubkey);
+          const destOwner = (destInfo.value?.data as any)?.parsed?.info?.owner;
+
+          const srcPubkey = new PublicKey(p.info.source);
+          const srcInfo = await connection.getParsedAccountInfo(srcPubkey);
+          const srcOwner = (srcInfo.value?.data as any)?.parsed?.info?.owner;
+
+          if (destOwner === RECEIVING_WALLET && srcOwner !== RECEIVING_WALLET) {
             transferredUsd += p.info.tokenAmount.uiAmount;
           }
         } catch {

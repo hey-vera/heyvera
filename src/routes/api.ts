@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { insertOrchestration, getApiKeyBalance, getApiKeyByStripeSession, getApiKeyByEmail, deductCredit } from '../db/index';
 import { Hono } from 'hono';
 import { nanoid } from 'nanoid';
@@ -130,7 +131,7 @@ apiRouter.post('/orchestrate', async (c) => {
       llmProvider: env.LLM_PROVIDER,
     };
     logUsage(usageEntry);
-    insertOrchestration({ id: requestId, ...usageEntry });
+    insertOrchestration({ id: requestId, ...usageEntry, apiKey: keyInfo?.key });
 
     const responsePayload = {
       answer: formatted.answer,
@@ -280,7 +281,8 @@ apiRouter.post('/resend-key', async (c) => {
   try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
 
   const email = (body.email ?? '').trim().toLowerCase();
-  if (!email || !email.includes('@')) {
+  const emailResult = z.string().email().safeParse(email);
+  if (!emailResult.success) {
     return c.json({ error: 'Valid email required' }, 400);
   }
 

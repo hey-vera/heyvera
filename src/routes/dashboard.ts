@@ -2,13 +2,10 @@ import { Hono } from 'hono';
 import crypto from 'crypto';
 import { requireClerkAuth } from '../middleware/clerk-auth';
 import { logger } from '../utils/logger';
-import { sendApiKeyEmail } from '../utils/email';
 import {
   getApiKeyByEmail,
   getApiKeyBalance,
   getApiKeyByStripeSession,
-  topUpCredits,
-  createApiKey,
   getDb,
   wasEmailSentRecently,
   logEmailSend,
@@ -139,7 +136,7 @@ dashboardRouter.post('/send-claim-email', requireClerkAuth, async (c) => {
   try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
 
   const purchaseEmail = (body.purchaseEmail ?? '').trim().toLowerCase();
-  if (!purchaseEmail || !purchaseEmail.includes('@')) {
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(purchaseEmail)) {
     return c.json({ error: 'Valid email required' }, 400);
   }
 

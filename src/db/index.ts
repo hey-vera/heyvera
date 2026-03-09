@@ -25,7 +25,8 @@ export function initDb(): void {
       markup REAL,
       total REAL,
       success INTEGER,
-      llm_provider TEXT
+      llm_provider TEXT,
+      api_key TEXT
     );
 
     CREATE TABLE IF NOT EXISTS feedback (
@@ -88,7 +89,7 @@ export function initDb(): void {
       api_key TEXT NOT NULL,
       email TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'active',
-      credits_per_month INTEGER NOT NULL DEFAULT 35000,
+      credits_per_month INTEGER NOT NULL DEFAULT 40000,
       current_period_end TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -124,10 +125,14 @@ export function initDb(): void {
 
     CREATE INDEX IF NOT EXISTS idx_orchestrations_timestamp ON orchestrations(timestamp);
     CREATE INDEX IF NOT EXISTS idx_orchestrations_query ON orchestrations(query);
+    CREATE INDEX IF NOT EXISTS idx_orchestrations_api_key ON orchestrations(api_key);
     CREATE INDEX IF NOT EXISTS idx_api_keys_email ON api_keys(email);
     CREATE INDEX IF NOT EXISTS idx_api_keys_stripe ON api_keys(stripe_session_id);
     CREATE INDEX IF NOT EXISTS idx_email_send_log ON email_send_log(email, type, sent_at);
   `);
+
+  // Migrations for existing databases (safe to run repeatedly)
+  try { db.exec(`ALTER TABLE orchestrations ADD COLUMN api_key TEXT`); } catch { /* column already exists */ }
 
   logger.info({ path: DB_PATH }, 'Database initialised');
 }
@@ -160,18 +165,19 @@ export function insertOrchestration(entry: {
   total: number;
   success: boolean;
   llmProvider: string;
+  apiKey?: string;
 }): void {
   try {
     getDb()
       .prepare(
         `INSERT OR IGNORE INTO orchestrations
           (id, timestamp, query, planned_steps, executed_steps, successful_steps,
-           cache_hits, total_duration_ms, api_cost, markup, total, success, llm_provider)
+           cache_hits, total_duration_ms, api_cost, markup, total, success, llm_provider, api_key)
          VALUES
           (@id, @timestamp, @query, @plannedSteps, @executedSteps, @successfulSteps,
-           @cacheHits, @totalDurationMs, @apiCost, @markup, @total, @success, @llmProvider)`
+           @cacheHits, @totalDurationMs, @apiCost, @markup, @total, @success, @llmProvider, @apiKey)`
       )
-      .run({ ...entry, success: entry.success ? 1 : 0 });
+      .run({ ...entry, success: entry.success ? 1 : 0, apiKey: entry.apiKey ?? null });
   } catch (err) {
     logger.error({ err }, 'Failed to insert orchestration');
   }
