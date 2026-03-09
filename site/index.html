@@ -58,7 +58,7 @@
     /* ── NAV ─────────────────────────────────────────────────────── */
     nav {
       position: fixed; top: 38px; left: 0; right: 0; z-index: 100;
-      display: grid; grid-template-columns: auto 1fr auto; align-items: center;
+      display: grid; grid-template-columns: 1fr auto 1fr; align-items: center;
       height: 68px; padding: 0 40px;
       border-bottom: 1px solid rgba(0,255,136,0.12);
       background: rgba(6,6,6,0.96);
@@ -1511,12 +1511,11 @@
       document.getElementById('nav-dash-btn').classList.add('show');
       document.getElementById('nav-signout-btn').classList.add('show');
 
-      // Fetch credit balance for nav badge (with localStorage fallback)
+      // Show credits badge immediately on login (cached or placeholder)
       const cachedCredits = localStorage.getItem('clawnet_credits');
-      if (cachedCredits !== null) {
-        document.getElementById('nav-credits-num').textContent = parseInt(cachedCredits).toLocaleString();
-        document.getElementById('nav-credits-badge').classList.add('show');
-      }
+      document.getElementById('nav-credits-num').textContent = cachedCredits !== null ? parseInt(cachedCredits).toLocaleString() : '—';
+      document.getElementById('nav-credits-badge').classList.add('show');
+      // Then fetch live value and update
       try {
         const token = await window.Clerk.session.getToken();
         const res = await fetch('https://api.claw-net.org/v1/dashboard/me', {
@@ -1527,10 +1526,9 @@
           if (data.credits !== undefined) {
             localStorage.setItem('clawnet_credits', data.credits);
             document.getElementById('nav-credits-num').textContent = data.credits.toLocaleString();
-            document.getElementById('nav-credits-badge').classList.add('show');
           }
         }
-      } catch (e) { /* credits badge shows cached value, fail silently */ }
+      } catch (e) { /* keep showing cached/placeholder */ }
 
     } catch (e) { /* Clerk failed to load, logged-out state remains */ }
   }
