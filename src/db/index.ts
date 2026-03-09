@@ -135,6 +135,19 @@ export function initDb(): void {
     CREATE INDEX IF NOT EXISTS idx_skills_author ON skills(author_key);
     CREATE INDEX IF NOT EXISTS idx_skills_public ON skills(public);
 
+    CREATE TABLE IF NOT EXISTS reputation_events (
+      id TEXT PRIMARY KEY,
+      agent_id TEXT NOT NULL,
+      skill_id TEXT,
+      event_type TEXT NOT NULL,
+      score_delta REAL,
+      data_json TEXT,
+      timestamp TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_reputation_agent ON reputation_events(agent_id);
+    CREATE INDEX IF NOT EXISTS idx_reputation_skill ON reputation_events(skill_id);
+
     CREATE TABLE IF NOT EXISTS escrows (
       id TEXT PRIMARY KEY,
       hirer_id TEXT NOT NULL,
@@ -205,6 +218,11 @@ export function initDb(): void {
 const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 1, sql: `ALTER TABLE orchestrations ADD COLUMN api_key TEXT` },
   { version: 2, sql: `ALTER TABLE orchestrations ADD COLUMN skill_id TEXT` },
+  { version: 3, sql: `ALTER TABLE skills ADD COLUMN version TEXT NOT NULL DEFAULT '1.0.0'` },
+  { version: 4, sql: `ALTER TABLE skills ADD COLUMN input_schema_json TEXT` },
+  { version: 5, sql: `ALTER TABLE skills ADD COLUMN output_schema_json TEXT` },
+  { version: 6, sql: `ALTER TABLE skills ADD COLUMN published_at TEXT` },
+  { version: 7, sql: `ALTER TABLE skills ADD COLUMN tags_json TEXT` },
 ];
 
 function runMigrations(): void {
@@ -933,4 +951,63 @@ export function getAuditLog(entityType: string, entityId: string): {
   return getDb()
     .prepare('SELECT id, action, actor_id, data_json, timestamp FROM audit_log WHERE entity_type = ? AND entity_id = ? ORDER BY timestamp ASC')
     .all(entityType, entityId) as { id: string; action: string; actor_id: string | null; data_json: string | null; timestamp: string; }[];
+}
+
+// ─── Reputation ───────────────────────────────────────────────────────────────
+
+export function recordReputation(params: {
+  agentId: string;
+  skillId?: string;
+  eventType: string;
+  scoreDelta?: number;
+  data?: Record<string, unknown>;
+}): void {
+  try {
+    getDb()
+      .prepare(`INSERT INTO reputation_events (id, agent_id, skill_id, event_type, score_delta, data_json)
+                VALUES (?, ?, ?, ?, ?, ?)`)
+      .run(
+        nanoid(16), params.agentId, params.skillId ?? null,
+        params.eventType, params.scoreDelta ?? null,
+        params.data ? JSON.stringify(params.data) : null
+      );
+  } catch (err) {
+    logger.error({ err }, 'Failed to record reputation event');
+  }
+}
+
+export function getReputationScore(agentId: string): number {
+  const row = getDb()
+    .prepare(`SELECT COALESCE(SUM(score_delta), 0) as score FROM reputation_events WHERE agent_id = ?`)
+    .get(agentId) as { score: number };
+  return Math.round((row.score ?? 0) * 100) / 100;
+}
+
+export function getReputationEvents(agentId: string, limit = 50): {
+  id: string; skill_id: string | null; event_type: string; score_delta: number | null; data_json: string | null; timestamp: string;
+}[] {
+  return getDb()
+    .prepare('SELECT id, skill_id, event_type, score_delta, data_json, timestamp FROM reputation_events WHERE agent_id = ? ORDER BY timestamp DESC LIMIT ?')
+    .all(agentId, limit) as { id: string; skill_id: string | null; event_type: string; score_delta: number | null; data_json: string | null; timestamp: string; }[];
+}
+
+// ─── Skills (extended) ────────────────────────────────────────────────────────
+
+export function updateSkillSchemas(id: string, params: {
+  version?: string;
+  inputSchemaJson?: string;
+  outputSchemaJson?: string;
+  publishedAt?: string;
+  tagsJson?: string;
+}): void {
+  const fields: string[] = [];
+  const values: unknown[] = [];
+  if (params.version !== undefined)       { fields.push('version = ?');          values.push(params.version); }
+  if (params.inputSchemaJson !== undefined){ fields.push('input_schema_json = ?'); values.push(params.inputSchemaJson); }
+  if (params.outputSchemaJson !== undefined){ fields.push('output_schema_json = ?'); values.push(params.outputSchemaJson); }
+  if (params.publishedAt !== undefined)   { fields.push('published_at = ?');     values.push(params.publishedAt); }
+  if (params.tagsJson !== undefined)      { fields.push('tags_json = ?');        values.push(params.tagsJson); }
+  if (fields.length === 0) return;
+  values.push(id);
+  getDb().prepare(`UPDATE skills SET ${fields.join(', ')} WHERE id = ?`).run(...values);
 }

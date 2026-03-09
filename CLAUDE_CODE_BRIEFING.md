@@ -4,7 +4,7 @@
 ---
 
 ## What This Project Is
-ClawNet is a sovereign AI agent orchestration layer and economy built on the ClawNet v3 roadmap. The roadmap has 14 chunks. **Chunks 1–4 plus a partial 5–7 are complete and live in production at claw-net.org.** We are continuing from roughly Chunk 5 onwards.
+ClawNet is a sovereign AI agent orchestration layer and economy built on the ClawNet v3 roadmap. The roadmap has 14 chunks. **Chunks 1–7 are complete and live in production at claw-net.org.** We are continuing from Chunk 8 onwards.
 
 The roadmap specified certain tools. **Some were intentionally swapped during development — do not revert these.** Always follow the "Actual Stack" column below, not the roadmap's original spec.
 
@@ -67,8 +67,8 @@ Work through these **in order** — each builds on the previous.
 
 ---
 
-### 🔴 CHUNK 5: P2P Mesh Network Foundation
-**Status: NOT STARTED**  
+### ✅ CHUNK 5: P2P Mesh Network Foundation
+**Status: COMPLETE**
 **Goal:** Add @libp2p/node peer-to-peer mesh so agents can discover and communicate directly.
 
 Key deliverables:
@@ -94,8 +94,8 @@ CREATE TABLE IF NOT EXISTS peers (
 
 ---
 
-### 🔴 CHUNK 6: Vector Search & Embeddings (ClawAPIs Social Layer)
-**Status: NOT STARTED**  
+### ✅ CHUNK 6: Vector Search & Embeddings (ClawAPIs Social Layer)
+**Status: COMPLETE**
 **Goal:** Add semantic skill/agent search using sqlite-vec and local ONNX embeddings.
 
 Key deliverables:
@@ -126,8 +126,8 @@ CREATE TABLE IF NOT EXISTS discovery_cache (
 
 ---
 
-### 🔴 CHUNK 7: Escrow & Trustless Hiring (ClawEarn)
-**Status: PARTIAL — Stripe exists but no P2P escrow**  
+### ✅ CHUNK 7: Escrow & Trustless Hiring (ClawEarn)
+**Status: COMPLETE**
 **Goal:** Implement a trustless escrow layer so agents can hire other agents and release payment on completion.
 
 Note: The roadmap specified `clawearn` but that may not be a real npm package. Implement the escrow logic directly using the existing payment infrastructure (Stripe + USDC) with a state machine in SQLite.
@@ -172,7 +172,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
 ---
 
 ### 🔴 CHUNK 8: Core Mesh Skill v3 — Part 1
-**Status: NOT STARTED**  
+**Status: IN PROGRESS**
 **Goal:** Build the first self-contained "skill" — a packaged capability that agents can discover, hire for, and execute. This is the core unit of the agent economy.
 
 Key deliverables:
@@ -431,9 +431,4 @@ TELEGRAM_CHANNEL_ID=<set>
 ---
 
 ## Where to Start
-**Next chunk = Chunk 5 (P2P Mesh).** Begin with:
-1. `npm install @libp2p/node @libp2p/kad-dht @libp2p/noise @libp2p/tcp @libp2p/mplex`
-2. Create `src/mesh/node.ts` — initialize libp2p node, export `startMeshNode()`
-3. Add `peers` table migration to `src/db/index.ts`
-4. Add `GET /v1/mesh/peers` diagnostic route
-5. Test locally with two Node processes discovering each other
+**Next chunk = Chunk 8 (Core Mesh Skill v3 — Part 1).** Chunks 1–7 are complete and live.

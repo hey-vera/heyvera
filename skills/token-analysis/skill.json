@@ -1,0 +1,35 @@
+{
+  "id": "token-analysis",
+  "name": "token-analysis",
+  "version": "1.0.0",
+  "description": "Deep token analysis: price action, on-chain metrics, sentiment, and risk scoring for any Solana token.",
+  "author": "clawhub-official",
+  "price_credits": 5,
+  "tags": ["defi", "solana", "token", "analysis"],
+  "input_schema": {
+    "type": "object",
+    "required": ["token"],
+    "properties": {
+      "token": {
+        "type": "string",
+        "description": "Token symbol or mint address (e.g. SOL, BONK, or a Solana mint pubkey)"
+      },
+      "depth": {
+        "type": "string",
+        "enum": ["quick", "standard", "deep"],
+        "default": "standard",
+        "description": "Analysis depth — quick is fastest, deep pulls all available sources"
+      }
+    }
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "answer": { "type": "string", "description": "Human-readable analysis summary" },
+      "opportunityScore": { "type": "number", "description": "0–10 opportunity rating" },
+      "riskScore": { "type": "number", "description": "0–10 risk rating" },
+      "suggestedActions": { "type": "array", "items": { "type": "string" } }
+    }
+  },
+  "prompt_template": "Analyze the Solana token {{token}} at {{depth}} analysis depth. Include: current price action and trend, on-chain transaction volume and holder count, top holder concentration risk, social sentiment signals, and a risk/opportunity score from 0-10 each. Conclude with 2-3 specific suggested actions for an investor."
+}

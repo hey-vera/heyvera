@@ -6,7 +6,10 @@ import {
   createSkill, getSkill, listPublicSkills, getSkillsByAuthor,
   countSkillsByAuthor, incrementSkillUses, deleteSkill,
   updateSkillVisibility, topUpCredits, deductCredit, insertOrchestration, getDb,
+  updateSkillSchemas, recordReputation, getReputationScore,
 } from '../db/index';
+import { embed } from '../core/embeddings';
+import { upsertDiscovery } from '../db/index';
 import { parseIntent } from '../core/intent-parser';
 import { executePlan } from '../core/executor';
 import { formatResponse } from '../core/formatter';
@@ -20,12 +23,23 @@ export const skillsRouter = new Hono();
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+function embedSkillInBackground(id: string, name: string, description: string, tags: string[]): void {
+  const text = `${name}: ${description}${tags.length ? '. Tags: ' + tags.join(', ') : ''}`;
+  embed(text)
+    .then((vector) => upsertDiscovery({ id: `skill:${id}`, skillName: name, skillDesc: description, provider: 'clawhub', embedding: vector }))
+    .catch((err) => logger.warn({ err, skillId: id }, 'Skill embedding failed'));
+}
+
 const CreateSkillSchema = z.object({
   name: z.string().min(2).max(50).regex(/^[a-z0-9-]+$/, 'Lowercase letters, numbers, hyphens only'),
   description: z.string().min(10).max(500).trim(),
   promptTemplate: z.string().min(10).max(2000).trim(),
   public: z.boolean().default(false),
   creditCost: z.number().int().min(0).max(10000).default(0),
+  version: z.string().regex(/^\d+\.\d+\.\d+$/).default('1.0.0'),
+  inputSchema: z.record(z.unknown()).optional(),
+  outputSchema: z.record(z.unknown()).optional(),
+  tags: z.array(z.string().max(32)).max(10).optional(),
 });
 
 // Extract {{variable}} placeholders from a template
@@ -80,12 +94,26 @@ skillsRouter.post('/', checkApiKey, async (c) => {
     creditCost: data.creditCost,
   });
 
+  updateSkillSchemas(id, {
+    version: data.version,
+    inputSchemaJson: data.inputSchema ? JSON.stringify(data.inputSchema) : undefined,
+    outputSchemaJson: data.outputSchema ? JSON.stringify(data.outputSchema) : undefined,
+    tagsJson: data.tags ? JSON.stringify(data.tags) : undefined,
+    publishedAt: data.public ? new Date().toISOString() : undefined,
+  });
+
+  // Embed into discovery index if published publicly
+  if (data.public) {
+    embedSkillInBackground(id, data.name, data.description, data.tags ?? []);
+  }
+
   logger.info({ id, name: data.name, author: keyInfo.key.slice(0, 8) }, 'Skill created');
 
   return c.json({
     id,
     name: data.name,
     description: data.description,
+    version: data.version,
     variables,
     public: data.public,
     creditCost: data.creditCost,
@@ -160,6 +188,17 @@ skillsRouter.get('/:id', (c) => {
   });
 });
 
+// ─── GET /v1/skills/:id/reputation — public reputation score ─────────────────
+
+skillsRouter.get('/:id/reputation', (c) => {
+  const { id } = c.req.param();
+  const skill = getSkill(id);
+  if (!skill || !skill.public) return c.json({ error: 'Skill not found' }, 404);
+
+  const score = getReputationScore(skill.author_key);
+  return c.json({ skillId: id, authorScore: score, skillUses: skill.uses });
+});
+
 // ─── PATCH /v1/skills/:id/visibility — publish or unpublish ───────────────────
 
 skillsRouter.patch('/:id/visibility', checkApiKey, async (c) => {
@@ -175,6 +214,12 @@ skillsRouter.patch('/:id/visibility', checkApiKey, async (c) => {
 
   const updated = updateSkillVisibility(id, keyInfo.key, body.public);
   if (!updated) return c.json({ error: 'Skill not found or not yours' }, 404);
+
+  if (body.public) {
+    updateSkillSchemas(id, { publishedAt: new Date().toISOString() });
+    const skill = getSkill(id);
+    if (skill) embedSkillInBackground(id, skill.name, skill.description, []);
+  }
 
   logger.info({ id, public: body.public, author: keyInfo.key.slice(0, 8) }, 'Skill visibility updated');
   return c.json({ ok: true, public: body.public });
@@ -288,6 +333,17 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
 
     incrementSkillUses(id);
 
+    // Reputation: reward the skill author for successful invocations
+    if (skill.author_key && skill.author_key !== keyInfo.key) {
+      recordReputation({
+        agentId: skill.author_key,
+        skillId: id,
+        eventType: 'SKILL_INVOKED',
+        scoreDelta: 0.1,
+        data: { invokerKey: keyInfo.key.slice(0, 8), creditsCharged: Math.max(1, Math.ceil(apiCosts * 2000)) },
+      });
+    }
+
     const usageEntry = {
       requestId,
       timestamp: new Date().toISOString(),
@@ -332,6 +388,14 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
     const error = err instanceof Error ? err : new Error(String(err));
     const code = (err as { code?: string }).code ?? 'INTERNAL_ERROR';
     logger.error({ requestId, skillId: id, error: error.message }, 'Skill invocation failed');
+
+    if (skill.author_key && skill.author_key !== keyInfo.key) {
+      recordReputation({
+        agentId: skill.author_key, skillId: id,
+        eventType: 'SKILL_FAILED', scoreDelta: -0.05,
+        data: { error: error.message },
+      });
+    }
 
     logUsage({
       requestId, timestamp: new Date().toISOString(), query,
