@@ -111,59 +111,41 @@ ClawNet is a sovereign AI agent orchestration layer and economy. It is live in p
 
 ---
 
-## 🔴 CHUNK 13: Swarms, Governance & Creator Payouts
-**Status: NOT STARTED — Start here**
+## ✅ CHUNK 13: Swarms, Governance & Creator Payouts (COMPLETE)
 
-This chunk has three independent sub-goals:
+### 13A — Creator Payout System ✅
+- `payout_requests` table + `POST /v1/marketplace/creator/withdraw` (min 1000cr, queues USDC payout)
+- `GET /v1/marketplace/creator/withdrawals` — payout history
+- `GET /v1/admin/payouts` + `PATCH /v1/admin/payouts/:id` — admin processes payouts manually
+- `site/marketplace.html` My Skills tab: Withdraw Credits button + withdrawal history
 
-### 13A — Creator Payout System (CRITICAL for viability)
-Creators earn credits but currently cannot convert them to real money. This kills serious creator participation.
+### 13B — Swarm Task Decomposition ✅
+- `swarms` table + `POST /v1/swarm/task` (202 async) + `GET /v1/swarm/:id`
+- LLM decomposes → parallel skill invocations → LLM synthesis
 
-**What to build:**
-- `payout_requests` table: `id, agent_key, amount_credits, usdc_wallet, status (PENDING|PROCESSING|PAID|REJECTED), created_at, processed_at, notes`
-- `POST /v1/marketplace/creator/withdraw` — authenticated, min 1000 credits earned, queues a payout request, debits credits atomically
-- `GET /v1/marketplace/creator/withdrawals` — list your payout history
-- Admin route: `GET /v1/admin/payouts` (ADMIN_API_KEY auth) — list all pending payouts for manual USDC processing
-- Admin route: `PATCH /v1/admin/payouts/:id` — mark as PAID/REJECTED with notes
-- Update `site/marketplace.html` My Skills tab to show a "Withdraw Credits" button and withdrawal history
-
-**Economy closure:** Credits earned → withdraw to USDC wallet → real money out. Min 1000 credits = $1.00 USDC.
-
-### 13B — Swarm Task Decomposition
-Multi-agent coordination: break a complex task into sub-tasks, route each to the best available skill, aggregate results.
-
-**What to build:**
-- `swarms` table: `id, task, status, sub_tasks_json, result_json, created_at, completed_at`
-- `POST /v1/swarm/task` — takes `{ task: string, skills?: string[] }`, decomposes task using LLM, invokes each sub-skill in parallel, aggregates into coherent response
-- `GET /v1/swarm/:id` — get swarm task status and results
-- LLM decomposition prompt: "Break this task into 2-4 independent sub-tasks that map to these available skills: {skill list}. Return JSON array."
-- Parallel skill invocation via `Promise.all`
-- Aggregation: LLM synthesizes sub-results into final answer
-
-### 13C — ClawGuard (Agent Identity & Governance)
-Trust infrastructure for the agent economy.
-
-**What to build:**
-- **ECDSA signing:** Each API response to `/v1/orchestrate` and skill invocations gets an `X-ClawNet-Signature` header (HMAC-SHA256 of response body + timestamp using a platform signing key). Callers can verify responses came from ClawNet.
-- **Governance proposals:** `proposals` table — `id, title, description, proposed_by, status (OPEN|CLOSED|EXECUTED), votes_for, votes_against, created_at, closes_at`
-- `POST /v1/governance/propose` — create a proposal (requires API key + min 100 credits balance)
-- `POST /v1/governance/proposals/:id/vote` — cast vote (for/against), weight = sqrt(credits_spent_on_platform). One vote per key per proposal.
-- `GET /v1/governance/proposals` — list open proposals
-- Reputation gating: skills with reputation score < -1.0 are auto-unpublished (add check in skill-ab-cron)
+### 13C — ClawGuard + Governance ✅
+- `src/middleware/sign-response.ts` — HMAC-SHA256 `X-ClawNet-Signature` on all orchestrate + skill responses
+- `proposals` + `votes` tables + full governance routes
+- Reputation gating: skills < -1.0 auto-unpublished in skill-ab-cron
 
 ---
 
-## 🔴 CHUNK 14: Testing, Docs & Launch Hardening
-**Status: NOT STARTED**
+## 🟡 CHUNK 14: Testing, Docs & Launch Hardening
+**Status: PARTIALLY COMPLETE**
 
+### ✅ Done
+- `site/docs.html` — full public API reference (all routes, auth, credits, errors, code examples, ClawGuard)
+- Nav updated: How It Works → Pricing → Contact → API Docs → Marketplace → Endpoints
+- Live endpoint counts on homepage (fetched from /v1/endpoints)
+- Provider status accuracy (CoinGecko/CoinMarketCap shown as Live)
+- Terminal + API docs slideshows on index.html
+
+### 🔴 Still To Do
 - Vitest suite for all API routes and core logic
-- Playwright E2E tests for dashboard flows
-- Full API reference documentation
-- Architecture diagrams (Mermaid)
-- Production monitoring: healthcheck endpoints, UptimeRobot alerts
-- OWASP Top 10 security checklist
+- Production monitoring: UptimeRobot on /v1/health
+- OWASP Top 10 security checklist (7 patches already applied)
+- Load test: 100 concurrent agents against /v1/orchestrate
 - Runbook: SQLite locks, mesh crashes, escrow timeouts
-- Load test: 100 concurrent agents
 
 ---
 
