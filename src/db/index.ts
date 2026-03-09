@@ -152,7 +152,6 @@ export function initDb(): void {
 
     CREATE INDEX IF NOT EXISTS idx_skills_author ON skills(author_key);
     CREATE INDEX IF NOT EXISTS idx_skills_public ON skills(public);
-    CREATE INDEX IF NOT EXISTS idx_skills_active ON skills(active);
 
     CREATE TABLE IF NOT EXISTS reputation_events (
       id TEXT PRIMARY KEY,
@@ -334,6 +333,7 @@ export function initDb(): void {
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_orchestrations_api_key ON orchestrations(api_key);
     CREATE INDEX IF NOT EXISTS idx_discovery_cache_ttl ON discovery_cache(ttl_expires);
+    CREATE INDEX IF NOT EXISTS idx_skills_active ON skills(active);
   `);
 
   logger.info({ path: DB_PATH }, 'Database initialised');
