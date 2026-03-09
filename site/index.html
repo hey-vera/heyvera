@@ -797,8 +797,8 @@
     <li><a href="#how-it-works">How It Works</a></li>
     <li><a href="#api">API Docs</a></li>
     <li><a href="#pricing">Pricing</a></li>
-    <li><a href="/marketplace.html">Marketplace</a></li>
     <li><a href="#contact">Contact</a></li>
+    <li><a href="/marketplace.html">Marketplace</a></li>
     <li><a href="/endpoints.html">Endpoints</a></li>
   </ul>
   <!-- Nav actions -->
@@ -844,21 +844,110 @@
       <div class="terminal-header">
         <div class="t-dot r"></div><div class="t-dot y"></div><div class="t-dot g"></div>
         <span class="terminal-title">api.claw-net.org — live</span>
+        <div class="t-slide-dots" id="tSlideDots"></div>
       </div>
-      <div class="terminal-body">
-        <div class="t-line"><span class="t-prompt">$</span><span>curl -X POST https://api.claw-net.org/v1/orchestrate \</span></div>
-        <div class="t-line"><span class="t-prompt"> </span><span>&nbsp;&nbsp;-H <span style="color:#ffcc66">"X-API-Key: your-key"</span> \</span></div>
-        <div class="t-line"><span class="t-prompt"> </span><span>&nbsp;&nbsp;-d <span style="color:#ffcc66">'{"query":"Is BONK safe to buy right now?"}'</span></span></div>
-        <div class="t-output">
-          <div><span class="t-key">"answer": </span><span class="t-str">"BONK shows moderate risk with 991,269 holders and healthy liquidity of $2.1M. Mint authority disabled ✓. LP locked ✓. Price down 4.2% on $2.25M volume. Social sentiment positive at 0.72/1.0 with 1,243 X mentions..."</span></div>
-          <br>
-          <div><span class="t-key">"riskScore": </span><span class="t-num">28</span><span class="t-key">, "opportunityScore": </span><span class="t-num">62</span></div>
-          <div><span class="t-key">"cost": </span><span class="t-num">$0.0048</span><span class="t-key"> · "credits_used": </span><span class="t-num">10</span><span class="t-key"> · "steps": </span><span class="t-num">4</span></div>
-        </div>
-        <div class="t-line"><span class="t-prompt">$</span><span><span class="t-cursor"></span></span></div>
+      <div class="terminal-body" id="terminalSlideBody">
+        <!-- filled by slideshow JS -->
       </div>
     </div>
   </div>
+  <style>
+    .t-slide-dots { display:flex; align-items:center; gap:6px; margin-left:auto; }
+    .t-slide-dot { width:6px; height:6px; border-radius:50%; background:rgba(255,255,255,0.15); cursor:pointer; transition:background 0.2s; }
+    .t-slide-dot.active { background:var(--green); }
+    .terminal-body { transition:opacity 0.3s; }
+    .terminal-body.fade { opacity:0; }
+  </style>
+  <script>
+  (function(){
+    const slides = [
+      {
+        query: '"Is BONK safe to buy right now?"',
+        answer: '"BONK shows moderate risk: 991,269 holders, liquidity $2.1M. Mint authority disabled ✓. LP locked ✓. Price -4.2% on $2.25M volume. Social sentiment 0.72/1.0 with 1,243 X mentions in 24h."',
+        extra: '"riskScore": <span class="t-num">28</span>, "opportunityScore": <span class="t-num">62</span>',
+        cost: '$0.0048', credits: '10', steps: '4'
+      },
+      {
+        query: '"Who are the top SOL whale wallets active in the last 24h?"',
+        answer: '"3 whale wallets moved 820K+ SOL in the last 24h. Largest: GhK...4xZ transferred 412,000 SOL to Binance hot wallet. Net flow: -290K SOL off-chain. Historically precedes 2–5% price action."',
+        extra: '"walletsScanned": <span class="t-num">10000</span>, "whalesFound": <span class="t-num">3</span>',
+        cost: '$0.0018', credits: '6', steps: '3'
+      },
+      {
+        query: '"What is the Twitter/X sentiment on Solana right now?"',
+        answer: '"Solana X sentiment: 0.81/1.0 (strongly positive). 4,821 mentions in 6h. Top themes: Firedancer upgrade, new DeFi TVL record, institutional buying. Influencer ratio 3:1 bullish. Momentum increasing."',
+        extra: '"positiveTweets": <span class="t-num">3210</span>, "negativeTweets": <span class="t-num">891</span>',
+        cost: '$0.0022', credits: '7', steps: '2'
+      },
+      {
+        query: '"Check my wallet DfZ3...mK9 — what DeFi positions am I in?"',
+        answer: '"Wallet holds $14,820 across 6 positions: Raydium USDC-SOL LP ($8,100, APY 22%), Marginfi SOL borrow ($3,200), Kamino vault ($2,100). 3 tokens with unrealized gains. Health ratio: 1.82 (safe)."',
+        extra: '"totalValue": <span class="t-num">$14,820</span>, "positionCount": <span class="t-num">6</span>',
+        cost: '$0.0064', credits: '13', steps: '5'
+      },
+      {
+        query: '"What is the floor price and volume for Mad Lads NFTs?"',
+        answer: '"Mad Lads floor: 78.2 SOL ($9,840). 7-day volume: 2,140 SOL ($269K). Unique holders: 4,712 of 10,000 (47%). Listed: 382 (3.8%). Floor trend: +12.4% in 7d. Royalties enforced ✓."',
+        extra: '"floorSOL": <span class="t-num">78.2</span>, "holderRate": <span class="t-str">"47%"</span>',
+        cost: '$0.0031', credits: '8', steps: '3'
+      }
+    ];
+
+    const body = document.getElementById('terminalSlideBody');
+    const dotsEl = document.getElementById('tSlideDots');
+    let current = 0, timer;
+
+    function renderDots() {
+      dotsEl.innerHTML = slides.map((_, i) =>
+        `<span class="t-slide-dot${i===current?' active':''}" onclick="window._tSlide(${i})"></span>`
+      ).join('');
+    }
+
+    function renderSlide(idx) {
+      const s = slides[idx];
+      body.innerHTML = `
+        <div class="t-line"><span class="t-prompt">$</span><span>curl -X POST https://api.claw-net.org/v1/orchestrate \\</span></div>
+        <div class="t-line"><span class="t-prompt"> </span><span>&nbsp;&nbsp;-H <span style="color:#ffcc66">"X-API-Key: your-key"</span> \\</span></div>
+        <div class="t-line"><span class="t-prompt"> </span><span>&nbsp;&nbsp;-d <span style="color:#ffcc66">\'{"query":${s.query}}\'</span></span></div>
+        <div class="t-output">
+          <div><span class="t-key">"answer": </span><span class="t-str">${s.answer}</span></div>
+          <br>
+          <div>${s.extra}</div>
+          <div><span class="t-key">"cost": </span><span class="t-num">${s.cost}</span><span class="t-key"> · "credits_used": </span><span class="t-num">${s.credits}</span><span class="t-key"> · "steps": </span><span class="t-num">${s.steps}</span></div>
+        </div>
+        <div class="t-line"><span class="t-prompt">$</span><span><span class="t-cursor"></span></span></div>`;
+    }
+
+    function goTo(idx, smooth) {
+      if (smooth) {
+        body.classList.add('fade');
+        setTimeout(() => {
+          current = idx;
+          renderSlide(current);
+          renderDots();
+          body.classList.remove('fade');
+        }, 300);
+      } else {
+        current = idx;
+        renderSlide(current);
+        renderDots();
+      }
+    }
+
+    window._tSlide = function(idx) {
+      clearInterval(timer);
+      goTo(idx, true);
+      timer = setInterval(advance, 5000);
+    };
+
+    function advance() {
+      goTo((current + 1) % slides.length, true);
+    }
+
+    goTo(0, false);
+    timer = setInterval(advance, 5000);
+  })();
+  </script>
 </div>
 
 <div class="stats-bar full-divider">
@@ -1343,23 +1432,23 @@
       const r = await fetch(API + '/v1/health', { signal: AbortSignal.timeout(5000) });
       if (r.ok) {
         if (dot)   { dot.className = 'status-dot ok'; }
-        if (label) { label.textContent = 'Operational'; label.style.color = 'var(--green)'; }
+        if (label) { label.textContent = 'Live'; label.style.color = 'var(--green)'; }
       } else {
         if (dot)   { dot.className = 'status-dot err'; }
         if (label) { label.textContent = 'Degraded'; label.style.color = 'var(--red)'; }
       }
     } catch(e) {
-      // Network error or timeout — API is likely up, show operational as safe default
+      // Network error or timeout — API is likely up, show live as safe default
       if (dot)   { dot.className = 'status-dot ok'; }
-      if (label) { label.textContent = 'Operational'; label.style.color = 'var(--green)'; }
+      if (label) { label.textContent = 'Live'; label.style.color = 'var(--green)'; }
     }
   }
-  // Show Operational immediately, then verify
+  // Show Live immediately, then verify
   (function() {
     const dot = document.getElementById('statusDot');
     const label = document.getElementById('statusLabel');
     if (dot) dot.className = 'status-dot ok';
-    if (label) { label.textContent = 'Operational'; label.style.color = 'var(--green)'; }
+    if (label) { label.textContent = 'Live'; label.style.color = 'var(--green)'; }
   })();
   fetchApiStatus();
   setInterval(fetchApiStatus, 30000);

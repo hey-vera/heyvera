@@ -268,14 +268,15 @@
 
   <nav>
     <a href="https://claw-net.org" class="nav-logo">
-      <img src="/claw-net-logo.png" alt="ClawNet" onerror="this.style.display='none'">
+      <img src="/logo.png" alt="Claw-Net.org" onerror="this.style.display='none'">
     </a>
     <ul class="nav-links">
       <li><a href="https://claw-net.org/#how-it-works">How It Works</a></li>
       <li><a href="https://claw-net.org/#api">API Docs</a></li>
-      <li><a href="/endpoints.html" class="active">Endpoints</a></li>
       <li><a href="https://claw-net.org/#pricing">Pricing</a></li>
       <li><a href="https://claw-net.org/#contact">Contact</a></li>
+      <li><a href="/marketplace.html">Marketplace</a></li>
+      <li><a href="/endpoints.html" class="active">Endpoints</a></li>
     </ul>
     <a href="https://claw-net.org/#pricing" class="nav-cta">Get API Key</a>
   </nav>
@@ -295,7 +296,7 @@
             <span class="stat-value" id="statTotal">—</span>
           </div>
           <div class="stat-cell">
-            <span class="stat-label">Operational</span>
+            <span class="stat-label">Live</span>
             <span class="stat-value" id="statOp">—</span>
           </div>
           <div class="stat-cell">
@@ -508,7 +509,7 @@ function render() {
 }
 
 function renderCard(ep) {
-  const statusLabel = { operational:'Operational', degraded:'Degraded', down:'Down' }[ep.status] || ep.status;
+  const statusLabel = { operational:'Live', degraded:'Degraded', down:'Down' }[ep.status] || ep.status;
   const circuitColor = { CLOSED:'green', HALF_OPEN:'yellow', OPEN:'red' }[ep.circuitState] || 'green';
   const catBadge = `badge-cat-${ep.category}`;
   const costStr  = ep.costPerCall < 0.01 ? `$${ep.costPerCall.toFixed(4)}` : `$${ep.costPerCall.toFixed(3)}`;

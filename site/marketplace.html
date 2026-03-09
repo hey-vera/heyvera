@@ -46,17 +46,27 @@
     @keyframes slideIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
 
     /* ── NAV ── */
-    nav { position: sticky; top: 0; z-index: 100; display: flex; align-items: center; justify-content: space-between; padding: 0 32px; height: 68px; background: rgba(6,6,6,0.97); border-bottom: 1px solid var(--border); backdrop-filter: blur(12px); }
-    .nav-left { display: flex; align-items: center; gap: 24px; }
-    .nav-logo { display: flex; align-items: center; text-decoration: none; height: 100%; padding: 4px 0; }
-    .nav-logo img { height: 56px; width: auto; max-width: 220px; object-fit: contain; display: block; }
-    .nav-logo-text { display: none; font-size: 14px; font-weight: 700; color: var(--green); }
-    .nav-link { font-size: 11px; color: var(--muted); text-decoration: none; letter-spacing: 1px; text-transform: uppercase; padding: 6px 0; transition: color 0.15s; }
-    .nav-link:hover { color: var(--green); }
-    .nav-right { display: flex; align-items: center; gap: 16px; }
+    nav { position: sticky; top: 0; z-index: 100; display: flex; align-items: center; justify-content: space-between; padding: 0 32px; height: 68px; background: rgba(6,6,6,0.97); border-bottom: 1px solid var(--border); backdrop-filter: blur(12px); gap: 16px; }
+    .nav-logo { display: flex; align-items: center; text-decoration: none; height: 100%; padding: 4px 0; flex-shrink: 0; }
+    .nav-logo img { height: 52px; width: auto; max-width: 200px; object-fit: contain; display: block; }
+    .nav-logo img:hover { opacity: 0.85; }
+    .nav-links { display: flex; align-items: center; gap: 24px; list-style: none; }
+    .nav-links a { font-size: 11px; color: rgba(255,255,255,0.6); text-decoration: none; letter-spacing: 1.5px; text-transform: uppercase; transition: color 0.2s; position: relative; padding-bottom: 2px; }
+    .nav-links a::after { content: ''; position: absolute; bottom: -2px; left: 0; width: 0; height: 1px; background: var(--green); transition: width 0.2s; }
+    .nav-links a:hover, .nav-links a.active { color: var(--green); }
+    .nav-links a:hover::after, .nav-links a.active::after { width: 100%; }
+    @media(max-width:800px) { .nav-links { display: none; } }
+    .nav-right { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
     .nav-credits { font-size: 11px; color: var(--green); display: none; align-items: center; gap: 6px; padding: 5px 12px; border: 1px solid rgba(0,255,136,0.2); }
     .nav-credits.show { display: flex; }
-    .btn-nav { font-size: 11px; padding: 7px 14px; cursor: pointer; border: 1px solid var(--border2); color: var(--muted); background: transparent; transition: all 0.15s; text-decoration: none; letter-spacing: 0.5px; }
+    .nav-apikey-wrap { display: flex; align-items: center; gap: 0; }
+    .nav-apikey-input { font-size: 11px; padding: 7px 12px; border: 1px solid var(--border2); border-right: none; color: var(--muted2); background: transparent; outline: none; width: 180px; letter-spacing: 0.5px; font-family: var(--font); transition: border-color 0.15s; }
+    .nav-apikey-input::placeholder { color: var(--muted); }
+    .nav-apikey-input:focus { border-color: rgba(0,255,136,0.4); }
+    .nav-apikey-btn { font-size: 10px; padding: 7px 12px; cursor: pointer; border: 1px solid var(--border2); color: var(--muted); background: transparent; transition: all 0.15s; letter-spacing: 0.5px; font-family: var(--font); white-space: nowrap; }
+    .nav-apikey-btn:hover { border-color: var(--green); color: var(--green); }
+    .nav-apikey-btn.saved { border-color: rgba(0,255,136,0.4); color: var(--green); }
+    .btn-nav { font-size: 11px; padding: 7px 14px; cursor: pointer; border: 1px solid var(--border2); color: var(--muted); background: transparent; transition: all 0.15s; text-decoration: none; letter-spacing: 0.5px; font-family: var(--font); }
     .btn-nav:hover { border-color: var(--green); color: var(--green); }
 
     /* ── MAIN ── */
@@ -248,17 +258,24 @@
 <div id="toast-container"></div>
 
 <nav>
-  <div class="nav-left">
-    <a href="/" class="nav-logo">
-      <img src="/logo.png" alt="ClawNet" onerror="this.style.display='none';this.nextElementSibling.style.display='block'">
-      <span class="nav-logo-text">CLAW-NET</span>
-    </a>
-    <a href="/" class="nav-link">← Home</a>
-    <a href="/dashboard.html" class="nav-link">Dashboard</a>
-  </div>
+  <a href="https://claw-net.org" class="nav-logo">
+    <img src="/logo.png" alt="Claw-Net.org" onerror="this.style.display='none'">
+  </a>
+  <ul class="nav-links">
+    <li><a href="https://claw-net.org/#how-it-works">How It Works</a></li>
+    <li><a href="https://claw-net.org/#api">API Docs</a></li>
+    <li><a href="https://claw-net.org/#pricing">Pricing</a></li>
+    <li><a href="https://claw-net.org/#contact">Contact</a></li>
+    <li><a href="/marketplace.html" class="active">Marketplace</a></li>
+    <li><a href="/endpoints.html">Endpoints</a></li>
+  </ul>
   <div class="nav-right">
     <div class="nav-credits" id="nav-credits">⬡ <span id="nav-credit-num">—</span> credits</div>
-    <button class="btn-nav" onclick="promptKey()">Set API Key</button>
+    <div class="nav-apikey-wrap">
+      <input type="password" class="nav-apikey-input" id="nav-apikey-input" placeholder="X-API-Key" autocomplete="off" title="Your ClawNet API key">
+      <button class="nav-apikey-btn" id="nav-apikey-btn" onclick="saveKeyFromNav()">Set Key</button>
+    </div>
+    <a href="/dashboard.html" class="btn-nav">Dashboard</a>
   </div>
 </nav>
 
@@ -532,7 +549,17 @@ let modalState = 'buy'; // 'buy' | 'invoke' | 'done'
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
 window.addEventListener('DOMContentLoaded', () => {
-  if (apiKey) refreshCredits();
+  // Pre-fill API key input if already saved
+  const inp = document.getElementById('nav-apikey-input');
+  if (inp && apiKey) {
+    inp.value = apiKey;
+    const btn = document.getElementById('nav-apikey-btn');
+    if (btn) btn.classList.add('saved');
+    refreshCredits();
+  }
+  if (inp) {
+    inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveKeyFromNav(); });
+  }
   loadSkills();
   loadHeroStats();
 });
@@ -550,8 +577,18 @@ function switchTab(name, el) {
 // ─── API Key ──────────────────────────────────────────────────────────────────
 
 function promptKey() {
-  const k = prompt('Enter your ClawNet API key:');
-  if (k && k.trim()) saveKey(k.trim());
+  // Focus the nav API key input instead of using a browser prompt
+  const inp = document.getElementById('nav-apikey-input');
+  if (inp) { inp.focus(); inp.select(); }
+}
+
+function saveKeyFromNav() {
+  const inp = document.getElementById('nav-apikey-input');
+  const btn = document.getElementById('nav-apikey-btn');
+  const k = inp ? inp.value.trim() : '';
+  if (!k) { toast('Enter your API key first', 'error'); return; }
+  saveKey(k);
+  if (btn) { btn.textContent = 'Saved ✓'; btn.classList.add('saved'); setTimeout(() => { btn.textContent = 'Set Key'; }, 2000); }
 }
 function saveKey(k) {
   if (!k) return;
