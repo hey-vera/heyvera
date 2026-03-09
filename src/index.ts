@@ -26,6 +26,8 @@ import { skillsRouter } from './routes/skills';
 import { endpointsRouter } from './routes/endpoints';
 import { discoverRouter } from './routes/discover';
 import { statsRouter } from './routes/stats';
+import { escrowRouter } from './routes/escrow';
+import { startEscrowCron } from './core/escrow-cron';
 import { startMeshNode } from './mesh/node';
 import { loadEmbeddingModel } from './core/embeddings';
 import { seedEmbeddings } from './core/seed-embeddings';
@@ -91,6 +93,7 @@ app.route('/v1/skills', skillsRouter);
 app.route('/v1/endpoints', endpointsRouter);
 app.route('/v1/discover', discoverRouter);
 app.route('/v1/stats', statsRouter);
+app.route('/v1/escrow', escrowRouter);
 app.route('/v1', apiRouter);
 
 app.notFound((c) => c.json({ error: 'Not found', code: 'NOT_FOUND' }, 404));
@@ -110,6 +113,7 @@ async function start() {
   startHeartbeat();
   await initTelegram();
   await startMeshNode();
+  startEscrowCron();
 
   // Load embedding model + seed in background — don't block server startup
   loadEmbeddingModel()

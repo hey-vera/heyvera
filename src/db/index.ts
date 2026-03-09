@@ -135,6 +135,33 @@ export function initDb(): void {
     CREATE INDEX IF NOT EXISTS idx_skills_author ON skills(author_key);
     CREATE INDEX IF NOT EXISTS idx_skills_public ON skills(public);
 
+    CREATE TABLE IF NOT EXISTS escrows (
+      id TEXT PRIMARY KEY,
+      hirer_id TEXT NOT NULL,
+      worker_id TEXT NOT NULL,
+      amount_credits INTEGER NOT NULL,
+      state TEXT NOT NULL DEFAULT 'CREATED',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      deadline TEXT,
+      completed_at TEXT,
+      metadata_json TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS audit_log (
+      id TEXT PRIMARY KEY,
+      entity_type TEXT NOT NULL,
+      entity_id TEXT NOT NULL,
+      action TEXT NOT NULL,
+      actor_id TEXT,
+      data_json TEXT,
+      timestamp TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_escrows_hirer ON escrows(hirer_id);
+    CREATE INDEX IF NOT EXISTS idx_escrows_worker ON escrows(worker_id);
+    CREATE INDEX IF NOT EXISTS idx_escrows_state ON escrows(state);
+    CREATE INDEX IF NOT EXISTS idx_audit_log_entity ON audit_log(entity_type, entity_id);
+
     CREATE INDEX IF NOT EXISTS idx_orchestrations_timestamp ON orchestrations(timestamp);
     CREATE INDEX IF NOT EXISTS idx_orchestrations_query ON orchestrations(query);
     CREATE INDEX IF NOT EXISTS idx_api_keys_email ON api_keys(email);
@@ -725,4 +752,185 @@ export function getDiscoveryCacheIds(): string[] {
     .prepare('SELECT id FROM discovery_cache')
     .all() as { id: string }[])
     .map(r => r.id);
+}
+
+// ─── Escrow ───────────────────────────────────────────────────────────────────
+
+export type EscrowState =
+  | 'CREATED' | 'FUNDED' | 'WORK_IN_PROGRESS'
+  | 'COMPLETED' | 'DISPUTED' | 'RESOLVED' | 'REFUNDED';
+
+export interface Escrow {
+  id: string;
+  hirer_id: string;
+  worker_id: string;
+  amount_credits: number;
+  state: EscrowState;
+  created_at: string;
+  deadline: string | null;
+  completed_at: string | null;
+  metadata_json: string | null;
+}
+
+const ALLOWED_TRANSITIONS: Record<EscrowState, EscrowState[]> = {
+  CREATED:          ['FUNDED'],
+  FUNDED:           ['WORK_IN_PROGRESS', 'REFUNDED'],
+  WORK_IN_PROGRESS: ['COMPLETED', 'DISPUTED'],
+  COMPLETED:        [],
+  DISPUTED:         ['RESOLVED'],
+  RESOLVED:         [],
+  REFUNDED:         [],
+};
+
+export function canTransition(from: EscrowState, to: EscrowState): boolean {
+  return ALLOWED_TRANSITIONS[from]?.includes(to) ?? false;
+}
+
+export function createEscrow(params: {
+  id: string;
+  hirerId: string;
+  workerId: string;
+  amountCredits: number;
+  deadline?: string;
+  metadata?: Record<string, unknown>;
+}): void {
+  getDb()
+    .prepare(`INSERT INTO escrows (id, hirer_id, worker_id, amount_credits, deadline, metadata_json)
+              VALUES (?, ?, ?, ?, ?, ?)`)
+    .run(
+      params.id, params.hirerId, params.workerId, params.amountCredits,
+      params.deadline ?? null,
+      params.metadata ? JSON.stringify(params.metadata) : null
+    );
+}
+
+export function getEscrow(id: string): Escrow | undefined {
+  return getDb().prepare('SELECT * FROM escrows WHERE id = ?').get(id) as Escrow | undefined;
+}
+
+export function listEscrowsForUser(clerkUserId: string): Escrow[] {
+  return getDb()
+    .prepare('SELECT * FROM escrows WHERE hirer_id = ? OR worker_id = ? ORDER BY created_at DESC')
+    .all(clerkUserId, clerkUserId) as Escrow[];
+}
+
+/** Transition escrow state. Returns false if transition is not allowed. */
+export function transitionEscrow(id: string, to: EscrowState, completedAt?: string): boolean {
+  const db = getDb();
+  const escrow = db.prepare('SELECT state FROM escrows WHERE id = ?').get(id) as { state: EscrowState } | undefined;
+  if (!escrow || !canTransition(escrow.state, to)) return false;
+  db.prepare(`UPDATE escrows SET state = ?, completed_at = ? WHERE id = ?`)
+    .run(to, completedAt ?? null, id);
+  return true;
+}
+
+/** Fund escrow: deduct credits from hirer atomically with state transition. */
+export function fundEscrow(escrowId: string, hirerId: string): { ok: boolean; error?: string } {
+  const db = getDb();
+  return db.transaction(() => {
+    const escrow = db.prepare('SELECT * FROM escrows WHERE id = ?').get(escrowId) as Escrow | undefined;
+    if (!escrow) return { ok: false, error: 'Escrow not found' };
+    if (escrow.hirer_id !== hirerId) return { ok: false, error: 'Not the hirer' };
+    if (!canTransition(escrow.state, 'FUNDED')) return { ok: false, error: `Cannot fund from state ${escrow.state}` };
+
+    const result = db.prepare(
+      `UPDATE api_keys SET credits = credits - ? WHERE clerk_user_id = ? AND credits >= ? AND active = 1`
+    ).run(escrow.amount_credits, hirerId, escrow.amount_credits);
+    if (result.changes === 0) return { ok: false, error: 'Insufficient credits' };
+
+    db.prepare(`UPDATE escrows SET state = 'FUNDED' WHERE id = ?`).run(escrowId);
+    return { ok: true };
+  })();
+}
+
+/** Release escrow: credit worker atomically with state transition. */
+export function releaseEscrow(escrowId: string): { ok: boolean; error?: string } {
+  const db = getDb();
+  return db.transaction(() => {
+    const escrow = db.prepare('SELECT * FROM escrows WHERE id = ?').get(escrowId) as Escrow | undefined;
+    if (!escrow) return { ok: false, error: 'Escrow not found' };
+    if (!canTransition(escrow.state, 'COMPLETED')) return { ok: false, error: `Cannot release from state ${escrow.state}` };
+
+    db.prepare(`UPDATE api_keys SET credits = credits + ? WHERE clerk_user_id = ? AND active = 1`)
+      .run(escrow.amount_credits, escrow.worker_id);
+    db.prepare(`UPDATE escrows SET state = 'COMPLETED', completed_at = datetime('now') WHERE id = ?`).run(escrowId);
+    return { ok: true };
+  })();
+}
+
+/** Refund escrow to hirer (timeout / cancellation). */
+export function refundEscrow(escrowId: string): { ok: boolean; error?: string } {
+  const db = getDb();
+  return db.transaction(() => {
+    const escrow = db.prepare('SELECT * FROM escrows WHERE id = ?').get(escrowId) as Escrow | undefined;
+    if (!escrow) return { ok: false, error: 'Escrow not found' };
+    if (!canTransition(escrow.state, 'REFUNDED')) return { ok: false, error: `Cannot refund from state ${escrow.state}` };
+
+    db.prepare(`UPDATE api_keys SET credits = credits + ? WHERE clerk_user_id = ? AND active = 1`)
+      .run(escrow.amount_credits, escrow.hirer_id);
+    db.prepare(`UPDATE escrows SET state = 'REFUNDED', completed_at = datetime('now') WHERE id = ?`).run(escrowId);
+    return { ok: true };
+  })();
+}
+
+/** Admin resolve: split credits between hirer and worker. */
+export function resolveEscrow(escrowId: string, workerPct: number): { ok: boolean; error?: string } {
+  const db = getDb();
+  return db.transaction(() => {
+    const escrow = db.prepare('SELECT * FROM escrows WHERE id = ?').get(escrowId) as Escrow | undefined;
+    if (!escrow) return { ok: false, error: 'Escrow not found' };
+    if (!canTransition(escrow.state, 'RESOLVED')) return { ok: false, error: `Cannot resolve from state ${escrow.state}` };
+
+    const workerShare = Math.floor(escrow.amount_credits * workerPct / 100);
+    const hirerShare = escrow.amount_credits - workerShare;
+    if (workerShare > 0) {
+      db.prepare(`UPDATE api_keys SET credits = credits + ? WHERE clerk_user_id = ? AND active = 1`)
+        .run(workerShare, escrow.worker_id);
+    }
+    if (hirerShare > 0) {
+      db.prepare(`UPDATE api_keys SET credits = credits + ? WHERE clerk_user_id = ? AND active = 1`)
+        .run(hirerShare, escrow.hirer_id);
+    }
+    db.prepare(`UPDATE escrows SET state = 'RESOLVED', completed_at = datetime('now') WHERE id = ?`).run(escrowId);
+    return { ok: true };
+  })();
+}
+
+/** Find expired FUNDED/WORK_IN_PROGRESS escrows past their deadline. */
+export function getExpiredEscrows(): Escrow[] {
+  return getDb()
+    .prepare(`SELECT * FROM escrows WHERE deadline IS NOT NULL AND deadline < datetime('now')
+              AND state IN ('FUNDED', 'WORK_IN_PROGRESS')`)
+    .all() as Escrow[];
+}
+
+// ─── Audit Log ────────────────────────────────────────────────────────────────
+
+export function writeAuditLog(params: {
+  entityType: string;
+  entityId: string;
+  action: string;
+  actorId?: string | null;
+  data?: Record<string, unknown>;
+}): void {
+  try {
+    getDb()
+      .prepare(`INSERT INTO audit_log (id, entity_type, entity_id, action, actor_id, data_json)
+                VALUES (?, ?, ?, ?, ?, ?)`)
+      .run(
+        nanoid(16), params.entityType, params.entityId, params.action,
+        params.actorId ?? null,
+        params.data ? JSON.stringify(params.data) : null
+      );
+  } catch (err) {
+    logger.error({ err }, 'Failed to write audit log');
+  }
+}
+
+export function getAuditLog(entityType: string, entityId: string): {
+  id: string; action: string; actor_id: string | null; data_json: string | null; timestamp: string;
+}[] {
+  return getDb()
+    .prepare('SELECT id, action, actor_id, data_json, timestamp FROM audit_log WHERE entity_type = ? AND entity_id = ? ORDER BY timestamp ASC')
+    .all(entityType, entityId) as { id: string; action: string; actor_id: string | null; data_json: string | null; timestamp: string; }[];
 }
