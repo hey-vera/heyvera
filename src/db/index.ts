@@ -137,7 +137,6 @@ export function initDb(): void {
 
     CREATE INDEX IF NOT EXISTS idx_orchestrations_timestamp ON orchestrations(timestamp);
     CREATE INDEX IF NOT EXISTS idx_orchestrations_query ON orchestrations(query);
-    CREATE INDEX IF NOT EXISTS idx_orchestrations_api_key ON orchestrations(api_key);
     CREATE INDEX IF NOT EXISTS idx_api_keys_email ON api_keys(email);
     CREATE INDEX IF NOT EXISTS idx_api_keys_stripe ON api_keys(stripe_session_id);
     CREATE INDEX IF NOT EXISTS idx_email_send_log ON email_send_log(email, type, sent_at);
@@ -163,7 +162,13 @@ export function initDb(): void {
     );
   `);
 
+  // Migrations run first so columns exist before we index them
   runMigrations();
+
+  // Indexes on migration-added columns (safe only after migrations run)
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_orchestrations_api_key ON orchestrations(api_key);
+  `);
 
   logger.info({ path: DB_PATH }, 'Database initialised');
 }
