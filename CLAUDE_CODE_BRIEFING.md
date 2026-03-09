@@ -9,7 +9,9 @@ ClawNet is a sovereign AI agent orchestration layer and economy. It is live in p
 
 **The product:** A pay-per-use API that orchestrates Solana/DeFi data (183 endpoints), X/Twitter sentiment, and AI analysis into a single natural-language response. Users buy credits (Stripe / USDC on Solana). Built on top: a skill marketplace where anyone can publish prompt-powered capabilities and earn 97% of every purchase.
 
-**The moat:** 183 Solana/DeFi endpoints packaged as one API, plus agent-to-agent payment infrastructure (escrow, skills, P2P mesh, discovery) before anyone else has built it cleanly.
+**The real moat:** The 183-endpoint registry (aggregation effort, API key costs, active maintenance) + agent-to-agent payment infrastructure (escrow, skills, P2P mesh, discovery). The routing logic alone is replicable; the registry and payment rails are not.
+
+**The public interface:** `POST /v1/openclaw/invoke` — the OpenClaw Gateway. This IS the product for external agents. 4 actions: `query`, `skill`, `discover`, `swarm`. All routing logic stays private.
 
 ---
 
@@ -27,8 +29,8 @@ ClawNet is a sovereign AI agent orchestration layer and economy. It is live in p
 | pnpm | **npm** | Use npm for all installs. |
 | systemd secrets via sops | **.env file** on VPS | Standard dotenv. |
 | @libp2p/node | **`libp2p` + `@chainsafe/libp2p-yamux`** | `@libp2p/node` does NOT exist on npm. `@libp2p/mplex` deprecated, use yamux. `kadDHT` requires `ping` service alongside it. libp2p v3 is ESM-only but tsx handles it fine. |
-| Vitest | **tests/run.ts** integration tests | Basic tests exist. Vitest is Chunk 14. |
-| GitHub Actions CI | **NOT SET UP** | No CI pipeline yet. Chunk 14. |
+| Vitest | **tests/run.ts** integration tests | Basic tests exist. Vitest added in Chunk 14. |
+| GitHub Actions CI | **NOT SET UP** | No CI pipeline yet. Deferred to Chunk 15+. |
 
 ---
 
@@ -44,7 +46,7 @@ ClawNet is a sovereign AI agent orchestration layer and economy. It is live in p
 
 ### VPS One-Time Pending Tasks
 - `sudo ufw allow 4001/tcp` — open libp2p swarm port (Chunk 5, still pending)
-- Ensure `ADMIN_API_KEY` is set in `/home/guardian/claw-net/.env`
+- Ensure `ADMIN_API_KEY` is set in `/home/guardian/claw-net/.env` (min 16 chars — now enforced by Zod)
 
 ---
 
@@ -81,7 +83,7 @@ ClawNet is a sovereign AI agent orchestration layer and economy. It is live in p
 
 ### ✅ CHUNK 8: Skill System — Part 1 (COMPLETE)
 - `src/routes/skills.ts` — POST /v1/skills, GET /list, GET /mine, GET /:id, POST /:id/invoke, PATCH /:id/visibility, DELETE /:id, GET /:id/reputation, GET /:id/metrics
-- `skills/token-analysis/skill.json` — first ClawHub skill package
+- `skills/token-analysis/skill.json` — first official skill package
 - `docs/SKILL.md` — skill format spec
 - Reputation recording on invoke (+0.1 success, -0.05 failure)
 - `skill_metrics` recorded per invocation
@@ -104,8 +106,8 @@ ClawNet is a sovereign AI agent orchestration layer and economy. It is live in p
 ### ✅ CHUNK 12: Marketplace & Economics (COMPLETE)
 - `src/routes/marketplace.ts` — GET /skills, GET /skills/:id, POST /skills/:id/purchase, GET /transactions, POST /stake, POST /unstake/:id, GET /stakes, GET /creator/stats
 - `src/core/seed-skills.ts` — seeds 3 official skills on startup: token-analysis (5cr), social-sentiment (3cr), portfolio-optimizer (8cr)
-- `site/marketplace.html` — full 4-tab UI: Browse, Publish, My Skills, How It Works
-- Purchase flow: buy + invoke in one modal step → result shown immediately
+- `site/marketplace.html` — full marketplace UI with hash routing, skill detail pages, star/unstar, security badges, category filters
+- Purchase flow: buy + invoke in one call → result shown immediately (single charge, no double-billing)
 - `transactions` + `stakes` tables, `getCreatorStats()`, `getSkillsByAuthor()`
 - 3% platform fee, 97% to creator, atomic SQLite transactions
 
@@ -122,6 +124,7 @@ ClawNet is a sovereign AI agent orchestration layer and economy. It is live in p
 ### 13B — Swarm Task Decomposition ✅
 - `swarms` table + `POST /v1/swarm/task` (202 async) + `GET /v1/swarm/:id`
 - LLM decomposes → parallel skill invocations → LLM synthesis
+- `maxBudget` cap + `X-Swarm-Depth` recursion guard
 
 ### 13C — ClawGuard + Governance ✅
 - `src/middleware/sign-response.ts` — HMAC-SHA256 `X-ClawNet-Signature` on all orchestrate + skill responses
@@ -130,15 +133,9 @@ ClawNet is a sovereign AI agent orchestration layer and economy. It is live in p
 
 ---
 
-## ✅ CHUNK 14: Testing, Docs & Launch Hardening
-**Status: COMPLETE**
+## ✅ CHUNK 14: Testing, Docs & Launch Hardening (COMPLETE)
 
-### ✅ Done
 - `site/docs.html` — full public API reference (all routes, auth, credits, errors, code examples, ClawGuard)
-- Nav updated: How It Works → Pricing → Contact → API Docs → Marketplace → Endpoints
-- Live endpoint counts on homepage (fetched from /v1/endpoints)
-- Provider status accuracy (CoinGecko/CoinMarketCap shown as Live)
-- Terminal + API docs slideshows on index.html
 - Vitest suite — 48 tests across credit, escrow, governance, skills (`npm run test:unit`)
   - `tests/unit/helpers/db.ts` — vi.mock + importOriginal pattern, in-memory SQLite
   - `tests/unit/credit.test.ts` — deductCredit, topUpCredits, atomicity
@@ -147,25 +144,146 @@ ClawNet is a sovereign AI agent orchestration layer and economy. It is live in p
   - `tests/unit/skills.test.ts` — createSkill, listPublicSkills, deleteSkill, revenue share
 - Production monitoring: UptimeRobot configured on /v1/health (5-min polling)
 - Runbook: `docs/RUNBOOK.md` — SQLite locks, mesh crashes, escrow timeouts, disk full, Redis down
-- OWASP Top 10 security checklist — 7 patches applied (prior chunks)
 
-### 📋 Deferred to Roadmap
-- Load test: 100 concurrent agents against /v1/orchestrate (Chunk 15+)
-- GitHub Actions CI pipeline (Chunk 15+)
+## ✅ Security Audits — Rounds 1–10 (ALL COMPLETE, 48/48 unit tests pass)
+
+**Round 10 fixes (most recent commit: `dbfdd5c`):**
+- `stripe.ts`: claim + credit grant now in one SQLite transaction — crash-safe, atomically idempotent
+- `stripe.ts`: read-only pre-flight check before async Stripe API call; qty < 1 rejected
+- `db/index.ts`: `topUpCredits()` accepts explicit `amountPaid` — fixes bonus-tier `amount_paid` inflation
+- `db/index.ts`: `isStripeSessionClaimed()` read-only helper added
+- `config/index.ts`: `ADMIN_API_KEY` requires ≥ 16 chars when set
+- `marketplace.ts`: `usdcWallet` validated as Solana base58 regex; masked in audit logs
+- `admin.ts`: payout PATCH returns Zod `fieldErrors` instead of raw `ZodError.message`
+- `solana.ts`: removed futile JWT email extraction (Clerk doesn't embed email in JWTs)
 
 ---
 
-## Product Viability Notes (read before building)
+## ✅ CHUNK 15+: Deferred (Next Priorities)
+
+- Load test: 100 concurrent agents against `/v1/orchestrate`
+- GitHub Actions CI pipeline
+- **User acquisition** (see Distribution Strategy below — this is the actual next step)
+
+---
+
+## Distribution & Product Strategy (Read Before Building Features)
+
+> This section captures hard-won strategic thinking. Read it before deciding what to build next.
+
+### What the Actual Moat Is
+
+The routing logic (intent parser → executor → formatter) is replicable in a weekend. The real moat candidates, in order:
+1. **183-endpoint registry** — aggregation effort, upstream API keys, cost tracking, maintenance
+2. **Credit/payment infrastructure** — Stripe + USDC, already working in production
+3. **Agent-to-agent payment rails** — escrow, skills economy, built but unused
+4. **Creator network effects** — doesn't exist yet (3 seeded skills, 0 third-party creators)
+
+### The Correct Next Step: Get Paying Users, Not More Features
+
+The platform is technically complete. The constraint is users, not code. Before any distribution decision:
+
+**Phase 0 (NOW):** Get 5 paying API users via direct outreach
+- Target: Solana dev communities (Superteam, Solana Discord, DeFi builder Telegram groups)
+- Offer: $20 in free starter credits
+- Watch: what queries they run, what fails, what's slow, what costs too much
+- Success signal: a user returns after week 1 and tops up credits
+
+**Do not** publish to external marketplaces until you have 10+ paying users who return after week 1.
+
+### Distribution Channel Strategy
+
+| Channel | Purpose | Timing | What Gets Listed |
+|---|---|---|---|
+| Direct API (claw-net.org) | Primary revenue | **NOW** | Full OpenClaw gateway |
+| ClawHub | Discovery / credibility signal | After 10+ paying users | Thin wrapper skill only |
+| claw-net.org Marketplace | Creator economy showcase | After 10+ third-party skills | Featured first-party skill |
+
+### The OpenClaw Gateway IS the Public Interface
+
+`POST /v1/openclaw/invoke` is already the right architecture. It is the thin, stable public contract. Do not build a separate skill wrapper until someone asks for it. The interface:
+
+```typescript
+// Input (already validated by InvokeSchema)
+{ action: "query",    query: string }
+{ action: "skill",   skillId: string, variables?: Record<string, string> }
+{ action: "discover", query: string, limit?: number }
+{ action: "swarm",   task: string, skills?: string[], maxSubTasks?: number }
+
+// Output (always the envelope)
+{ ok: true, requestId, action, result, credits: { used, remaining }, meta }
+```
+
+### What Stays Private (Never Expose)
+
+- Intent parsing prompts and logic (`src/core/intent-parser.ts`)
+- Endpoint selection algorithms (`src/core/executor.ts`)
+- API registry with upstream keys (`src/config/api-registry.ts`)
+- Credit formulas and pricing engine (`src/core/credits.ts`)
+- Caching strategies, A/B logic, all DB schemas
+
+### ClawHub Strategy (When the Time Comes)
+
+- Skill should be a 20-line prompt template that calls `/v1/openclaw/invoke` — zero logic in the skill
+- Free tier: 100 credits for first-time ClawHub users (acquisition cost only)
+- Clear "Full access at claw-net.org" upsell in every response
+- ClawHub tier: slightly worse pricing than direct (fewer credits, no USDC option, no bonus tiers)
+- Platform dependency mitigation: keep the ClawHub skill trivially replaceable
+
+### Avoiding Channel Conflict
+
+ClawHub = discovery. claw-net.org = monetization. They are not the same thing. Never put your full pricing, credit system, or USDC bonuses on ClawHub. Force serious users to your platform.
+
+### Security Guardrails Required Before Any Public Release
+
+- ✅ Rate limiting (tiered by amount paid)
+- ✅ Credit checks before execution
+- ✅ SWARM_BASE_FEE upfront, maxSubTasks cap
+- ✅ Prompt template variable validation (Zod `z.record(z.string().max(500))`)
+- ✅ Error messages sanitized in production
+- ✅ Execution only against hardcoded registry (no freeform URLs)
+- ⬜ Per-key daily spend cap (e.g. $10/day default, configurable)
+- ⬜ Admin key revocation endpoint
+- ⬜ Anomaly detection alert if a key's spend jumps 10x in a day
+- ⬜ Load test: 100 concurrent requests (no SQLite WAL lock contention, no credit races)
+
+### What to Log / Never Log
+
+**Log:** requestId, timestamp, action type, duration, credit cost, success/failure, query text (truncated to 200 chars), selected endpoints, cache hits, error types (aggregated)
+
+**Never log:** Full API keys (mask to first6...last4), full USDC wallet addresses, raw upstream API responses, LLM prompts containing user queries, Stripe webhook payloads
+
+### Pricing Model
+
+Stay with per-request credits. Add monthly subscription only after 5+ users ask for predictable pricing. Current formula is correct: `max(1, ceil(apiCosts * 2000))`.
+
+### Top Mistakes to Avoid
+
+1. Publishing to ClawHub before having paying users — you'd optimize discovery for an unvalidated product
+2. Putting routing logic in a skill definition — SKILL.md should be description + schema only
+3. Treating ClawHub free-tier clicks as demand signal — only count credit purchasers
+4. Building marketplace features before having marketplace supply (recruit 5 creators manually first)
+5. Competing with ClawHub publicly before your marketplace has traction — position as complementary
+6. Underpricing to attract users — your upstream API costs are real; subsidizing loses money
+7. Over-engineering skill packaging before testing the API directly
+8. Ignoring the cold start problem — the flywheel doesn't self-start; manually seed both sides
+9. Adding power-user config knobs to the public interface — every option is an attack surface
+10. Forgetting the registry is the moat — invest in expanding it, not just the routing logic
+
+---
+
+## Product Viability Notes
 
 **The beachhead:** Solana/DeFi data + AI analysis packaged as a pay-per-use API. 183 endpoints, no subscription. This is the wedge.
 
-**The flywheel:** Paying orchestration users → marketplace traffic → skill creators join → more skills → more buyers → more creators.
+**The flywheel:** Paying orchestration users → marketplace traffic → skill creators join → more skills → more buyers → more creators. This does NOT self-start. Both sides need to be manually seeded.
 
 **What needs to happen before the flywheel starts:**
-1. Creator payouts (USDC withdrawal) — serious creators won't build without real money out
-2. 10–20 real paying orchestration users (not marketplace, just the API)
-3. 10–15 high-quality skills in the marketplace (currently 3)
-4. Real results from the 3 seeded skills (test them and tune prompts)
+1. 5 paying orchestration API users (direct outreach, not marketplace) — signal: they return after week 1
+2. Fix the top pain points discovered from those 5 users
+3. 10 paying users total, each with >1 credit purchase
+4. Manually recruit 3-5 skill creators (may need to pay them or build the skills yourself)
+5. 10+ real skills in marketplace (currently 3 seeded, 0 third-party)
 
 **The long-game:** Agent-to-agent payments. AI agents discover skills via P2P mesh, pay via credits, escrow for trust. ClawNet becomes infrastructure for the agentic web.
 
@@ -185,6 +303,7 @@ src/
   middleware/rate-limit.ts    — 60 req/min/IP
   routes/
     api.ts                    — POST /v1/orchestrate
+    openclaw.ts               — POST /v1/openclaw/invoke (universal gateway)
     skills.ts                 — skill CRUD + invoke + A/B
     marketplace.ts            — marketplace + staking + creator stats
     escrow.ts                 — escrow state machine
@@ -194,6 +313,9 @@ src/
     admin.ts                  — admin routes (ADMIN_API_KEY)
     stripe.ts, solana.ts      — payment routes
     dashboard.ts, feedback.ts, referral.ts, endpoints.ts, contact.ts
+    batch.ts                  — POST /v1/batch (parallel multi-query)
+    stream.ts                 — GET /v1/stream/orchestrate (SSE)
+    swarm.ts                  — POST /v1/swarm/task
   core/
     discovery-engine.ts       — trinity aggregation
     embeddings.ts             — ONNX embed()
@@ -201,19 +323,22 @@ src/
     seed-skills.ts            — seeds 3 official skills on startup
     escrow-cron.ts            — 10min: expired escrow cleanup
     skill-ab-cron.ts          — 30min: A/B auto-promote
+    formatter.ts              — LLM response synthesis
     heartbeat.ts
   mesh/node.ts                — libp2p startMeshNode/stopMeshNode
   utils/shutdown.ts           — SIGTERM/SIGINT handlers
   integrations/telegram.ts
 site/
   index.html                  — landing page (copy to /var/www/claw-net/ after deploy)
-  marketplace.html            — skill marketplace (4 tabs)
+  marketplace.html            — skill marketplace (hash routing, skill detail pages)
   dashboard.html              — user dashboard
+  docs.html                   — public API reference
   endpoints.html, login.html, success.html, admin.html
 skills/token-analysis/        — official skill package
 docs/
   escrow-design.md
   SKILL.md
+  RUNBOOK.md
 ```
 
 ---
@@ -246,6 +371,9 @@ writeAuditLog({ entityType: 'x', entityId: id, action: 'ACTION', actorId: key })
 // nanoid for IDs
 const { nanoid } = await import('nanoid')
 const id = nanoid(16)
+
+// topUpCredits — always pass explicit amountPaid for Stripe purchases (bonus tiers inflate credits)
+topUpCredits(apiKey, credits, stripeSessionId, amountPaid)
 ```
 
 ---
@@ -273,11 +401,22 @@ CLERK_PUBLISHABLE_KEY=pk_live_Y2xlcmsuY2xhdy1uZXQub3JnJA
 SOLANA_RECEIVING_WALLET=H6xbRyGEyoTdfBEShSt2H3oHJxL3gaJjVGdL5MLKwHN7
 TELEGRAM_BOT_TOKEN=<set>
 TELEGRAM_CHANNEL_ID=<set>
-ADMIN_API_KEY=<set>
+ADMIN_API_KEY=<set, min 16 chars>
 PLATFORM_SIGNING_SECRET=<32-byte hex — generate with: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))">
 ```
 
 ---
 
 ## Where to Start
-**Next = Chunk 13.** Build sub-goals in order: 13A (creator payouts) → 13B (swarm tasks) → 13C (ClawGuard + governance).
+
+**Chunks 1–14 are COMPLETE. All security audits (Rounds 1–10) are COMPLETE.**
+
+**Next priority: user acquisition, not more features.**
+
+1. Outreach to 5 Solana/DeFi developers — offer free starter credits, watch what they query
+2. Fix the top 3 pain points they surface
+3. Once 10 paying users exist: add per-key daily spend cap + admin revocation endpoint
+4. Once 10+ paying users exist: run load test (100 concurrent), set up GitHub Actions CI
+5. Once 10+ paying users return after week 1: consider thin ClawHub wrapper skill
+
+The code is production-ready. The constraint is users.
