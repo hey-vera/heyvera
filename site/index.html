@@ -804,13 +804,13 @@
     <a href="https://claw-net.org" class="nav-logo">
       <img src="/logo.png" alt="Claw-Net.org">
     </a>
-    <!-- Credits badge — only shown when logged in via JS .show class -->
-    <div class="nav-credits-badge" id="nav-credits-badge">⚡ <span id="nav-credits-num">—</span> credits</div>
     <!-- Live API status -->
     <div class="nav-api-status" id="navApiStatus">
       <span class="status-dot" id="statusDot"></span>
       <span id="statusLabel" style="font-size:10px;letter-spacing:0.5px;color:#888">Checking...</span>
     </div>
+    <!-- Credits badge — only shown when logged in via JS .show class -->
+    <div class="nav-credits-badge" id="nav-credits-badge">⚡ <span id="nav-credits-num">—</span> credits</div>
   </div>
   <!-- Center column: nav links (truly centered by grid) -->
   <ul class="nav-links">
@@ -1511,7 +1511,12 @@
       document.getElementById('nav-dash-btn').classList.add('show');
       document.getElementById('nav-signout-btn').classList.add('show');
 
-      // Fetch credit balance for nav badge
+      // Fetch credit balance for nav badge (with localStorage fallback)
+      const cachedCredits = localStorage.getItem('clawnet_credits');
+      if (cachedCredits !== null) {
+        document.getElementById('nav-credits-num').textContent = parseInt(cachedCredits).toLocaleString();
+        document.getElementById('nav-credits-badge').classList.add('show');
+      }
       try {
         const token = await window.Clerk.session.getToken();
         const res = await fetch('https://api.claw-net.org/v1/dashboard/me', {
@@ -1520,11 +1525,12 @@
         if (res.ok) {
           const data = await res.json();
           if (data.credits !== undefined) {
+            localStorage.setItem('clawnet_credits', data.credits);
             document.getElementById('nav-credits-num').textContent = data.credits.toLocaleString();
             document.getElementById('nav-credits-badge').classList.add('show');
           }
         }
-      } catch (e) { /* credits badge is optional, fail silently */ }
+      } catch (e) { /* credits badge shows cached value, fail silently */ }
 
     } catch (e) { /* Clerk failed to load, logged-out state remains */ }
   }
@@ -1764,7 +1770,7 @@
         btn.textContent = 'Payment Complete \u2713';
         try {
           const meRes = await fetch('https://api.claw-net.org/v1/dashboard/me', { headers: { Authorization: 'Bearer ' + clerkToken } });
-          if (meRes.ok) { const me = await meRes.json(); if (me.credits !== undefined) { document.getElementById('nav-credits-num').textContent = me.credits.toLocaleString(); document.getElementById('nav-credits-badge').classList.add('show'); } }
+          if (meRes.ok) { const me = await meRes.json(); if (me.credits !== undefined) { localStorage.setItem('clawnet_credits', me.credits); document.getElementById('nav-credits-num').textContent = me.credits.toLocaleString(); document.getElementById('nav-credits-badge').classList.add('show'); } }
         } catch(e) {}
       } else {
         throw new Error(result.error || 'Verification failed. Contact support with your signature.');
