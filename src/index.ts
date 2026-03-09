@@ -37,6 +37,7 @@ import { openapiRouter } from './routes/openapi';
 import { signResponse } from './middleware/sign-response';
 import { startEscrowCron } from './core/escrow-cron';
 import { startSkillAbCron } from './core/skill-ab-cron';
+import { startStakeUnlockCron } from './core/stake-unlock-cron';
 import { startMeshNode } from './mesh/node';
 import { loadEmbeddingModel } from './core/embeddings';
 import { seedEmbeddings } from './core/seed-embeddings';
@@ -148,6 +149,7 @@ async function start() {
   await startMeshNode();
   startEscrowCron();
   startSkillAbCron();
+  startStakeUnlockCron();
 
   // Load embedding model + seed in background — don't block server startup
   loadEmbeddingModel()

@@ -4,7 +4,7 @@ import { nanoid } from 'nanoid';
 import crypto from 'crypto';
 import { checkApiKey } from '../middleware/auth';
 import {
-  createSkill, getSkill, listPublicSkills, getSkillsByAuthor,
+  createSkill, getSkill, listPublicSkills, countPublicSkills, getSkillsByAuthor,
   countSkillsByAuthor, incrementSkillUses, deleteSkill,
   updateSkillVisibility, topUpCredits, deductCredit, insertOrchestration, getDb,
   updateSkillSchemas, recordReputation, getReputationScore,
@@ -125,9 +125,18 @@ skillsRouter.post('/', checkApiKey, async (c) => {
 // ─── GET /v1/skills — list public skills (ClawHub registry) ───────────────────
 
 skillsRouter.get('/', (c) => {
-  const skills = listPublicSkills();
+  const page = Math.max(1, parseInt(c.req.query('page') ?? '1', 10) || 1);
+  const limit = Math.min(100, Math.max(1, parseInt(c.req.query('limit') ?? '50', 10) || 50));
+  const offset = (page - 1) * limit;
+
+  const skills = listPublicSkills(offset, limit);
+  const total = countPublicSkills();
+
   return c.json({
-    total: skills.length,
+    page,
+    limit,
+    total,
+    pages: Math.ceil(total / limit),
     skills: skills.map((s) => ({
       id: s.id,
       name: s.name,
@@ -358,7 +367,7 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
   }
 
   let rawBody: unknown;
-  try { rawBody = await c.req.json(); } catch { rawBody = {}; }
+  try { rawBody = await c.req.json(); } catch { rawBody = {}; } // empty body OK — variables optional
 
   const InvokeBody = z.object({ variables: z.record(z.string().max(500)).optional() });
   const bodyParsed = InvokeBody.safeParse(rawBody);

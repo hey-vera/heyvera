@@ -208,7 +208,7 @@ apiRouter.post('/orchestrate', async (c) => {
       requestId,
       error: env.NODE_ENV === 'production' ? 'Internal server error' : error.message,
       code,
-      hint: code === 'INTENT_PARSE_FAILED' ? 'Check your LLM provider config in .env' : undefined,
+      ...(env.NODE_ENV !== 'production' && code === 'INTENT_PARSE_FAILED' && { hint: 'Check your LLM provider config in .env' }),
     }, 500);
   }
 });

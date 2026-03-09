@@ -5,6 +5,17 @@ import { logger } from '../utils/logger';
 import * as sqliteVec from 'sqlite-vec';
 
 const DB_PATH = path.join(process.cwd(), 'data', 'orchestrator.db');
+
+/** Safe JSON.parse that returns a fallback on error instead of throwing. */
+export function safeJsonParse<T>(json: string | null | undefined, fallback: T): T {
+  if (!json) return fallback;
+  try {
+    return JSON.parse(json) as T;
+  } catch {
+    logger.warn({ json: json.slice(0, 100) }, 'Failed to parse stored JSON');
+    return fallback;
+  }
+}
 let db: Database.Database;
 
 export function initDb(): void {
@@ -208,6 +219,8 @@ export function initDb(): void {
     CREATE INDEX IF NOT EXISTS idx_transactions_type ON transactions(type);
     CREATE INDEX IF NOT EXISTS idx_stakes_agent ON stakes(agent_key);
     CREATE INDEX IF NOT EXISTS idx_stakes_skill ON stakes(skill_id);
+    CREATE INDEX IF NOT EXISTS idx_stakes_unlocks ON stakes(unlocks_at);
+    CREATE INDEX IF NOT EXISTS idx_transactions_created ON transactions(created_at DESC);
 
     CREATE TABLE IF NOT EXISTS escrows (
       id TEXT PRIMARY KEY,
@@ -822,10 +835,16 @@ export function getSkill(id: string): Skill | undefined {
   return getDb().prepare('SELECT * FROM skills WHERE id = ? AND active = 1').get(id) as Skill | undefined;
 }
 
-export function listPublicSkills(): Skill[] {
+export function listPublicSkills(offset = 0, limit = 50): Skill[] {
   return getDb()
-    .prepare('SELECT * FROM skills WHERE public = 1 AND active = 1 ORDER BY uses DESC, created_at DESC LIMIT 200')
-    .all() as Skill[];
+    .prepare('SELECT * FROM skills WHERE public = 1 AND active = 1 ORDER BY uses DESC, created_at DESC LIMIT ? OFFSET ?')
+    .all(Math.min(limit, 100), offset) as Skill[];
+}
+
+export function countPublicSkills(): number {
+  return (getDb()
+    .prepare('SELECT COUNT(*) as n FROM skills WHERE public = 1 AND active = 1')
+    .get() as { n: number }).n;
 }
 
 export function getSkillsByAuthor(authorKey: string, limit = 200): Skill[] {
@@ -918,6 +937,12 @@ export function getDiscoveryCacheIds(): string[] {
     .prepare('SELECT id FROM discovery_cache LIMIT 10000')
     .all() as { id: string }[])
     .map(r => r.id);
+}
+
+export function cleanExpiredDiscoveryCache(): number {
+  return getDb()
+    .prepare(`DELETE FROM discovery_cache WHERE ttl_expires < datetime('now')`)
+    .run().changes;
 }
 
 // ─── Escrow ───────────────────────────────────────────────────────────────────
@@ -1463,7 +1488,8 @@ export function getMarketplaceSkills(params: {
     newest:      'published_at DESC',
     reputation:  'uses DESC',
   };
-  const order = orderMap[params.sort] ?? 'uses DESC';
+  if (!(params.sort in orderMap)) throw new Error(`Invalid sort: ${params.sort}`);
+  const order = orderMap[params.sort];
 
   let where = `s.public = 1 AND s.active = 1`;
   const args: unknown[] = [];
@@ -1535,8 +1561,13 @@ export function createPayoutRequest(params: {
       `SELECT COALESCE(SUM(amount_credits),0) as total FROM payout_requests WHERE agent_key = ? AND status = 'PAID'`
     ).get(params.agentKey) as { total: number }).total;
 
-    const available = earned - alreadyPaid - pendingTotal;
-    if (params.amountCredits > available) return { ok: false, error: `Only ${available} credits available for withdrawal` };
+    // Subtract staked credits (locked, not liquid)
+    const staked = (db.prepare(
+      `SELECT COALESCE(SUM(amount_credits),0) as total FROM stakes WHERE agent_key = ?`
+    ).get(params.agentKey) as { total: number }).total;
+
+    const available = earned - alreadyPaid - pendingTotal - staked;
+    if (params.amountCredits > available) return { ok: false, error: `Only ${available} credits available for withdrawal (${staked} locked in stakes)` };
     if (params.amountCredits < MIN_CREDITS) return { ok: false, error: `Minimum withdrawal is ${MIN_CREDITS} credits` };
 
     const id = nanoid(16);

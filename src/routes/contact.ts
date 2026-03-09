@@ -31,6 +31,8 @@ const submissionLog = new Map<string, number[]>()
 const RATE_WINDOW_MS = 10 * 60 * 1000
 const RATE_MAX = 3
 
+const MAX_TRACKED_KEYS = 50_000
+
 function isRateLimited(key: string): boolean {
   const now = Date.now()
   const timestamps = (submissionLog.get(key) ?? []).filter(
@@ -38,6 +40,11 @@ function isRateLimited(key: string): boolean {
   )
   if (timestamps.length >= RATE_MAX) return true
   timestamps.push(now)
+  // Prevent unbounded memory growth from unique keys
+  if (submissionLog.size >= MAX_TRACKED_KEYS && !submissionLog.has(key)) {
+    const oldest = submissionLog.keys().next().value
+    if (oldest) submissionLog.delete(oldest)
+  }
   submissionLog.set(key, timestamps)
   return false
 }

@@ -6,6 +6,7 @@ import {
   getStakes, getSkillStakeTotal, getTransactions, getSkill, writeAuditLog,
   getCreatorStats, getSkillsByAuthor,
   createPayoutRequest, getPayoutRequests,
+  safeJsonParse,
 } from '../db/index';
 import { logger } from '../utils/logger';
 
@@ -45,7 +46,7 @@ marketplaceRouter.get('/skills', (c) => {
       creditCost: s.credit_cost,
       uses: s.uses,
       stakeTotal: s.stake_total,
-      tags: s.tags_json ? JSON.parse(s.tags_json) : [],
+      tags: safeJsonParse(s.tags_json, []),
       publishedAt: s.published_at,
       invokeUrl: `POST /v1/skills/${s.id}/invoke`,
     })),
@@ -69,9 +70,9 @@ marketplaceRouter.get('/skills/:id', (c) => {
     creditCost: skill.credit_cost,
     uses: skill.uses,
     stakeTotal,
-    tags: skill.tags_json ? JSON.parse(skill.tags_json) : [],
-    inputSchema: skill.input_schema_json ? JSON.parse(skill.input_schema_json) : null,
-    outputSchema: skill.output_schema_json ? JSON.parse(skill.output_schema_json) : null,
+    tags: safeJsonParse(skill.tags_json, []),
+    inputSchema: safeJsonParse(skill.input_schema_json, null),
+    outputSchema: safeJsonParse(skill.output_schema_json, null),
     publishedAt: skill.published_at,
     platformFeePct: PLATFORM_FEE_PCT,
     totalCost: skill.credit_cost,

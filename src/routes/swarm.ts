@@ -6,7 +6,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { checkApiKey } from '../middleware/auth';
-import { createSwarmTask, updateSwarmTask, getSwarmTask, listPublicSkills, deductCredit } from '../db/index';
+import { createSwarmTask, updateSwarmTask, getSwarmTask, listPublicSkills, deductCredit, safeJsonParse } from '../db/index';
 import { llmComplete } from '../providers/llm';
 import { logger } from '../utils/logger';
 import { env } from '../config/index';
@@ -72,8 +72,8 @@ swarmRouter.get('/:id', checkApiKey, (c) => {
     id: task.id,
     task: task.task,
     status: task.status,
-    subTasks: task.sub_tasks_json ? JSON.parse(task.sub_tasks_json) : null,
-    results: task.results_json ? JSON.parse(task.results_json) : null,
+    subTasks: safeJsonParse(task.sub_tasks_json, null),
+    results: safeJsonParse(task.results_json, null),
     error: task.error,
     createdAt: task.created_at,
     completedAt: task.completed_at,

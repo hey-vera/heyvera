@@ -6,6 +6,7 @@ import {
   createEscrow, getEscrow, listEscrowsForUser,
   fundEscrow, releaseEscrow, refundEscrow, resolveEscrow,
   transitionEscrow, writeAuditLog, getAuditLog,
+  safeJsonParse,
   type EscrowState,
 } from '../db/index';
 
@@ -180,6 +181,7 @@ escrowRouter.post('/:id/resolve', requireClerkAuth, async (c) => {
 
   // Admin check: must have ADMIN_CLERK_IDS env var set
   const adminIds = (process.env.ADMIN_CLERK_IDS ?? '').split(',').map(s => s.trim()).filter(Boolean);
+  if (adminIds.length === 0) return c.json({ error: 'Admin functionality not configured' }, 503);
   if (!adminIds.includes(actorId)) return c.json({ error: 'Admin only' }, 403);
 
   const { outcome } = parsed.data;
@@ -230,11 +232,11 @@ escrowRouter.get('/:id', requireClerkAuth, async (c) => {
 
   return c.json({
     ...escrow,
-    metadata: escrow.metadata_json ? JSON.parse(escrow.metadata_json) : null,
+    metadata: safeJsonParse(escrow.metadata_json, null),
     auditTrail: trail.map(r => ({
       action: r.action,
       actorId: r.actor_id,
-      data: r.data_json ? JSON.parse(r.data_json) : null,
+      data: safeJsonParse(r.data_json, null),
       timestamp: r.timestamp,
     })),
   });

@@ -1,4 +1,4 @@
-import { getExpiredEscrows, refundEscrow, transitionEscrow, writeAuditLog } from '../db/index';
+import { getExpiredEscrows, refundEscrow, transitionEscrow, writeAuditLog, cleanExpiredDiscoveryCache } from '../db/index';
 import { logger } from '../utils/logger';
 
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -46,6 +46,9 @@ function runExpiryCheck(): void {
         }
       }
     }
+    // Piggyback: clean expired discovery cache entries
+    const cleaned = cleanExpiredDiscoveryCache();
+    if (cleaned > 0) logger.info({ cleaned }, 'Cleaned expired discovery cache entries');
   } catch (err) {
     logger.error({ err }, 'Escrow expiry check failed');
   }

@@ -5,6 +5,7 @@ import { stopHeartbeat } from '../core/heartbeat';
 import { stopMeshNode } from '../mesh/node';
 import { stopEscrowCron } from '../core/escrow-cron';
 import { stopSkillAbCron } from '../core/skill-ab-cron';
+import { stopStakeUnlockCron } from '../core/stake-unlock-cron';
 let isShuttingDown = false;
 let httpServer: { close: () => void } | null = null;
 
@@ -40,6 +41,7 @@ export function setupGracefulShutdown() {
     stopHeartbeat();
     stopEscrowCron();
     stopSkillAbCron();
+    stopStakeUnlockCron();
 
     // 4. Stop external services (after drain — they may still use DB)
     try {

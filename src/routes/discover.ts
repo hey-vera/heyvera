@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { checkApiKey } from '../middleware/auth';
 import { runDiscovery } from '../core/discovery-engine';
+import { isEmbeddingModelReady } from '../core/embeddings';
 
 const discoverRouter = new Hono();
 discoverRouter.use('*', checkApiKey);
@@ -21,6 +22,10 @@ const DiscoverBody = z.object({
 });
 
 discoverRouter.post('/', async (c) => {
+  if (!isEmbeddingModelReady()) {
+    return c.json({ error: 'Vector search is still loading, try /v1/skills instead', code: 'SERVICE_UNAVAILABLE' }, 503);
+  }
+
   let body: z.infer<typeof DiscoverBody>;
   try {
     body = DiscoverBody.parse(await c.req.json());
