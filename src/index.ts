@@ -27,6 +27,7 @@ import { endpointsRouter } from './routes/endpoints';
 import { discoverRouter } from './routes/discover';
 import { statsRouter } from './routes/stats';
 import { escrowRouter } from './routes/escrow';
+import { marketplaceRouter } from './routes/marketplace';
 import { startEscrowCron } from './core/escrow-cron';
 import { startSkillAbCron } from './core/skill-ab-cron';
 import { startMeshNode } from './mesh/node';
@@ -95,6 +96,7 @@ app.route('/v1/endpoints', endpointsRouter);
 app.route('/v1/discover', discoverRouter);
 app.route('/v1/stats', statsRouter);
 app.route('/v1/escrow', escrowRouter);
+app.route('/v1/marketplace', marketplaceRouter);
 app.route('/v1', apiRouter);
 
 app.notFound((c) => c.json({ error: 'Not found', code: 'NOT_FOUND' }, 404));

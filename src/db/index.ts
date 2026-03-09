@@ -173,6 +173,33 @@ export function initDb(): void {
     CREATE INDEX IF NOT EXISTS idx_skill_metrics_skill ON skill_metrics(skill_id);
     CREATE INDEX IF NOT EXISTS idx_skill_metrics_version ON skill_metrics(skill_id, version);
 
+    CREATE TABLE IF NOT EXISTS transactions (
+      id TEXT PRIMARY KEY,
+      from_agent TEXT,
+      to_agent TEXT,
+      amount_credits INTEGER NOT NULL,
+      type TEXT NOT NULL,
+      skill_id TEXT,
+      fee_credits INTEGER NOT NULL DEFAULT 0,
+      metadata_json TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS stakes (
+      id TEXT PRIMARY KEY,
+      agent_key TEXT NOT NULL,
+      skill_id TEXT,
+      amount_credits INTEGER NOT NULL,
+      staked_at TEXT NOT NULL DEFAULT (datetime('now')),
+      unlocks_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_transactions_from ON transactions(from_agent);
+    CREATE INDEX IF NOT EXISTS idx_transactions_to ON transactions(to_agent);
+    CREATE INDEX IF NOT EXISTS idx_transactions_skill ON transactions(skill_id);
+    CREATE INDEX IF NOT EXISTS idx_stakes_agent ON stakes(agent_key);
+    CREATE INDEX IF NOT EXISTS idx_stakes_skill ON stakes(skill_id);
+
     CREATE TABLE IF NOT EXISTS escrows (
       id TEXT PRIMARY KEY,
       hirer_id TEXT NOT NULL,
@@ -1130,4 +1157,192 @@ export function promoteChallenger(skillId: string): boolean {
 
 export function getSkillWithAb(id: string): Skill | undefined {
   return getDb().prepare('SELECT * FROM skills WHERE id = ?').get(id) as Skill | undefined;
+}
+
+// ─── Marketplace: Transactions ────────────────────────────────────────────────
+
+export interface Transaction {
+  id: string;
+  from_agent: string | null;
+  to_agent: string | null;
+  amount_credits: number;
+  type: string;
+  skill_id: string | null;
+  fee_credits: number;
+  metadata_json: string | null;
+  created_at: string;
+}
+
+export function recordTransaction(params: {
+  fromAgent?: string;
+  toAgent?: string;
+  amountCredits: number;
+  type: string;
+  skillId?: string;
+  feeCredits?: number;
+  metadata?: Record<string, unknown>;
+}): string {
+  const id = nanoid(16);
+  getDb()
+    .prepare(`INSERT INTO transactions (id, from_agent, to_agent, amount_credits, type, skill_id, fee_credits, metadata_json)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(id, params.fromAgent ?? null, params.toAgent ?? null,
+      params.amountCredits, params.type, params.skillId ?? null,
+      params.feeCredits ?? 0, params.metadata ? JSON.stringify(params.metadata) : null);
+  return id;
+}
+
+export function getTransactions(agentKey: string, limit = 50): Transaction[] {
+  return getDb()
+    .prepare(`SELECT * FROM transactions WHERE from_agent = ? OR to_agent = ? ORDER BY created_at DESC LIMIT ?`)
+    .all(agentKey, agentKey, limit) as Transaction[];
+}
+
+/**
+ * Atomic marketplace purchase:
+ * - Deducts total from buyer
+ * - Applies platform fee (kept by platform, i.e. not distributed)
+ * - Credits seller with amount minus fee
+ * - Records transaction
+ * Returns transaction id or error
+ */
+export function marketplacePurchase(params: {
+  buyerKey: string;
+  sellerKey: string;
+  amountCredits: number;
+  feePct: number;        // e.g. 0.03 = 3%
+  skillId: string;
+}): { ok: boolean; txId?: string; error?: string; feeCredits?: number; sellerCredits?: number } {
+  const db = getDb();
+  return db.transaction(() => {
+    const feeCredits = Math.floor(params.amountCredits * params.feePct);
+    const sellerCredits = params.amountCredits - feeCredits;
+
+    // Deduct from buyer
+    const deducted = db.prepare(
+      `UPDATE api_keys SET credits = credits - ?, credits_used = credits_used + ?
+       WHERE key = ? AND credits >= ? AND active = 1`
+    ).run(params.amountCredits, params.amountCredits, params.buyerKey, params.amountCredits);
+    if (deducted.changes === 0) return { ok: false, error: 'Insufficient credits' };
+
+    // Credit seller (fee stays on platform — not redistributed in v1)
+    db.prepare(`UPDATE api_keys SET credits = credits + ? WHERE key = ? AND active = 1`)
+      .run(sellerCredits, params.sellerKey);
+
+    const txId = nanoid(16);
+    db.prepare(`INSERT INTO transactions (id, from_agent, to_agent, amount_credits, type, skill_id, fee_credits, metadata_json)
+                VALUES (?, ?, ?, ?, 'PURCHASE', ?, ?, ?)`)
+      .run(txId, params.buyerKey, params.sellerKey, params.amountCredits,
+        params.skillId, feeCredits, JSON.stringify({ feePct: params.feePct }));
+
+    return { ok: true, txId, feeCredits, sellerCredits };
+  })();
+}
+
+// ─── Marketplace: Staking ─────────────────────────────────────────────────────
+
+export interface Stake {
+  id: string;
+  agent_key: string;
+  skill_id: string | null;
+  amount_credits: number;
+  staked_at: string;
+  unlocks_at: string;
+}
+
+export function stakeCredits(params: {
+  agentKey: string;
+  amountCredits: number;
+  skillId?: string;
+  lockDays: number;
+}): { ok: boolean; stakeId?: string; error?: string } {
+  const db = getDb();
+  return db.transaction(() => {
+    const deducted = db.prepare(
+      `UPDATE api_keys SET credits = credits - ? WHERE key = ? AND credits >= ? AND active = 1`
+    ).run(params.amountCredits, params.agentKey, params.amountCredits);
+    if (deducted.changes === 0) return { ok: false, error: 'Insufficient credits' };
+
+    const stakeId = nanoid(12);
+    db.prepare(`INSERT INTO stakes (id, agent_key, skill_id, amount_credits, unlocks_at)
+                VALUES (?, ?, ?, ?, datetime('now', ?))`)
+      .run(stakeId, params.agentKey, params.skillId ?? null, params.amountCredits,
+        `+${params.lockDays} days`);
+    return { ok: true, stakeId };
+  })();
+}
+
+export function unstakeCredits(stakeId: string, agentKey: string): { ok: boolean; error?: string } {
+  const db = getDb();
+  return db.transaction(() => {
+    const stake = db.prepare(`SELECT * FROM stakes WHERE id = ? AND agent_key = ?`).get(stakeId, agentKey) as Stake | undefined;
+    if (!stake) return { ok: false, error: 'Stake not found' };
+    if (new Date(stake.unlocks_at) > new Date()) return { ok: false, error: `Locked until ${stake.unlocks_at}` };
+
+    db.prepare(`DELETE FROM stakes WHERE id = ?`).run(stakeId);
+    db.prepare(`UPDATE api_keys SET credits = credits + ? WHERE key = ? AND active = 1`)
+      .run(stake.amount_credits, agentKey);
+    return { ok: true };
+  })();
+}
+
+export function getStakes(agentKey: string): Stake[] {
+  return getDb()
+    .prepare('SELECT * FROM stakes WHERE agent_key = ? ORDER BY staked_at DESC')
+    .all(agentKey) as Stake[];
+}
+
+export function getSkillStakeTotal(skillId: string): number {
+  const row = getDb()
+    .prepare('SELECT COALESCE(SUM(amount_credits), 0) as total FROM stakes WHERE skill_id = ?')
+    .get(skillId) as { total: number };
+  return row.total;
+}
+
+export function getMarketplaceSkills(params: {
+  page: number;
+  limit: number;
+  sort: 'popular' | 'price_asc' | 'price_desc' | 'newest' | 'reputation';
+  tags?: string;
+  search?: string;
+}): { skills: (Skill & { stake_total: number })[]; total: number } {
+  const offset = (params.page - 1) * params.limit;
+  const orderMap = {
+    popular:     'uses DESC',
+    price_asc:   'credit_cost ASC',
+    price_desc:  'credit_cost DESC',
+    newest:      'published_at DESC',
+    reputation:  'uses DESC',
+  };
+  const order = orderMap[params.sort] ?? 'uses DESC';
+
+  let where = `s.public = 1`;
+  const args: unknown[] = [];
+
+  if (params.tags) {
+    where += ` AND s.tags_json LIKE ?`;
+    args.push(`%${params.tags}%`);
+  }
+  if (params.search) {
+    where += ` AND (s.name LIKE ? OR s.description LIKE ?)`;
+    args.push(`%${params.search}%`, `%${params.search}%`);
+  }
+
+  const countRow = getDb()
+    .prepare(`SELECT COUNT(*) as n FROM skills s WHERE ${where}`)
+    .get(...args) as { n: number };
+
+  const skills = getDb()
+    .prepare(`
+      SELECT s.*, COALESCE(st.total, 0) as stake_total
+      FROM skills s
+      LEFT JOIN (SELECT skill_id, SUM(amount_credits) as total FROM stakes GROUP BY skill_id) st
+        ON st.skill_id = s.id
+      WHERE ${where}
+      ORDER BY ${order}
+      LIMIT ? OFFSET ?
+    `)
+    .all(...args, params.limit, offset) as (Skill & { stake_total: number })[];
+
+  return { skills, total: countRow.n };
 }
