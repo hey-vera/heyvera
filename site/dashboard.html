@@ -878,7 +878,7 @@
 
         const sr = d.successRate;
         if (sr != null) {
-          const pct = Math.round(sr * 100);
+          const pct = Math.min(100, Math.round(sr));
           const el = document.getElementById('nb-success');
           el.textContent = pct + '%';
           el.style.color = pct >= 90 ? 'var(--green)' : pct >= 70 ? 'var(--yellow)' : 'var(--red)';
