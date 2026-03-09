@@ -8,7 +8,9 @@ import { checkApiKey } from '../middleware/auth';
 import { parseIntent } from '../core/intent-parser';
 import { executePlan } from '../core/executor';
 import { formatResponse } from '../core/formatter';
+import { env } from '../config/index';
 import { deductCredit } from '../db/index';
+import { creditsForApiCost } from '../core/credits';
 import { logger } from '../utils/logger';
 import { nanoid } from 'nanoid';
 
@@ -70,7 +72,7 @@ streamRouter.get('/orchestrate', checkApiKey, async (c) => {
 
           const formatted = await formatResponse(query, intent, execution);
 
-          const creditsToDeduct = Math.max(1, Math.ceil(execution.totalCost * 2000));
+          const creditsToDeduct = creditsForApiCost(execution.totalCost);
           if (!keyInfo.isEnvKey) {
             deductCredit(keyInfo.key, creditsToDeduct);
           }
@@ -87,7 +89,7 @@ streamRouter.get('/orchestrate', checkApiKey, async (c) => {
           logger.error({ requestId, err }, 'SSE orchestration failed');
           emit('error', {
             requestId,
-            error: err instanceof Error ? err.message : String(err),
+            error: env.NODE_ENV === 'production' ? 'Internal server error' : (err instanceof Error ? err.message : String(err)),
           });
         } finally {
           controller.close();

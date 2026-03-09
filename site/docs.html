@@ -229,6 +229,12 @@
       <a href="#vote" class="sidebar-link"><span class="sidebar-method m-post">POST</span>proposals/:id/vote</a>
     </div>
     <div class="sidebar-section">
+      <div class="sidebar-label">Batch &amp; Streaming</div>
+      <a href="#batch" class="sidebar-link"><span class="sidebar-method m-post">POST</span>/v1/batch</a>
+      <a href="#stream" class="sidebar-link"><span class="sidebar-method m-get">GET</span>/v1/stream/orchestrate</a>
+      <a href="#openapi" class="sidebar-link"><span class="sidebar-method m-get">GET</span>/v1/openapi.json</a>
+    </div>
+    <div class="sidebar-section">
       <div class="sidebar-label">Reference</div>
       <a href="#errors" class="sidebar-link">Error Codes</a>
       <a href="#signing" class="sidebar-link">Response Signing</a>
@@ -767,6 +773,89 @@ FUNDED → REFUNDED (if expired before work starts)</div>
           <div class="alert info">One vote per key per proposal. Vote weight = <code>Math.max(1, Math.sqrt(totalCreditsSpent))</code>.</div>
         </div>
       </div>
+    </div>
+
+    <hr class="doc-divider">
+
+    <!-- ── BATCH & STREAMING ── -->
+    <div class="doc-section" id="batch">
+      <div class="doc-section-label">Batch &amp; Streaming</div>
+      <h2>POST /v1/batch <span class="badge auth">AUTH</span></h2>
+      <p>Run up to 10 independent queries in parallel. Each query is billed separately. Returns all results in a single response.</p>
+      <div class="endpoint-block">
+        <span class="endpoint-method m-post">POST</span>
+        <span class="endpoint-path">/v1/batch</span>
+      </div>
+      <h3>Request Body</h3>
+      <pre><code>{
+  "queries": [
+    "What is the price of SOL?",
+    "Show me the top trending tokens",
+    "Analyze BONK for rug risk"
+  ]
+}</code></pre>
+      <h3>Response</h3>
+      <pre><code>{
+  "batchId": "abc123",
+  "totalQueries": 3,
+  "succeeded": 3,
+  "failed": 0,
+  "totalDurationMs": 4200,
+  "results": [
+    { "index": 0, "query": "...", "ok": true, "answer": "...", "creditsUsed": 3, "durationMs": 1800 },
+    { "index": 1, "query": "...", "ok": true, "answer": "...", "creditsUsed": 5, "durationMs": 2100 },
+    { "index": 2, "query": "...", "ok": true, "answer": "...", "creditsUsed": 4, "durationMs": 1900 }
+  ]
+}</code></pre>
+      <p><strong>Limits:</strong> 1–10 queries per batch. Max 2,000 characters per query. Requires at least 1 credit per query upfront.</p>
+    </div>
+
+    <div class="doc-section" id="stream">
+      <h2>GET /v1/stream/orchestrate <span class="badge auth">AUTH</span></h2>
+      <p>Real-time Server-Sent Events stream. Receive orchestration progress as it happens instead of waiting for the full response.</p>
+      <div class="endpoint-block">
+        <span class="endpoint-method m-get">GET</span>
+        <span class="endpoint-path">/v1/stream/orchestrate?query=your+question</span>
+      </div>
+      <h3>Event Types</h3>
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <tr style="border-bottom:1px solid var(--border)"><td style="padding:8px;color:var(--green);font-weight:700">start</td><td style="padding:8px">Request accepted, orchestration beginning</td></tr>
+        <tr style="border-bottom:1px solid var(--border)"><td style="padding:8px;color:var(--green);font-weight:700">plan</td><td style="padding:8px">AI planner selected endpoints — includes step count and summary</td></tr>
+        <tr style="border-bottom:1px solid var(--border)"><td style="padding:8px;color:var(--green);font-weight:700">step</td><td style="padding:8px">Individual endpoint completed — includes endpointId, success, cached, durationMs</td></tr>
+        <tr style="border-bottom:1px solid var(--border)"><td style="padding:8px;color:var(--green);font-weight:700">done</td><td style="padding:8px">Final answer ready — includes full answer, creditsUsed, totalDurationMs</td></tr>
+        <tr><td style="padding:8px;color:#ff4444;font-weight:700">error</td><td style="padding:8px">Orchestration failed — includes error message</td></tr>
+      </table>
+      <h3>Example (JavaScript)</h3>
+      <pre><code>const es = new EventSource(
+  'https://api.claw-net.org/v1/stream/orchestrate?query=SOL+price',
+  { headers: { 'X-API-Key': 'cn-your-key' } }
+);
+es.addEventListener('step', (e) => console.log('Step:', JSON.parse(e.data)));
+es.addEventListener('done', (e) => {
+  const result = JSON.parse(e.data);
+  console.log('Answer:', result.answer);
+  es.close();
+});</code></pre>
+    </div>
+
+    <div class="doc-section" id="openapi">
+      <h2>GET /v1/openapi.json</h2>
+      <p>Full OpenAPI 3.0 specification. Use this to auto-generate SDKs in any language with <code>openapi-generator</code>.</p>
+      <div class="endpoint-block">
+        <span class="endpoint-method m-get">GET</span>
+        <span class="endpoint-path">/v1/openapi.json</span>
+      </div>
+      <p>No authentication required. Returns the complete API schema including request/response types for all public endpoints.</p>
+      <h3>SDK Generation</h3>
+      <pre><code># Generate a TypeScript SDK
+npx @openapitools/openapi-generator-cli generate \
+  -i https://api.claw-net.org/v1/openapi.json \
+  -g typescript-fetch -o ./clawnet-sdk
+
+# Generate a Python SDK
+openapi-generator generate \
+  -i https://api.claw-net.org/v1/openapi.json \
+  -g python -o ./clawnet-python</code></pre>
     </div>
 
     <hr class="doc-divider">

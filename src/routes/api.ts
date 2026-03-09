@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { insertOrchestration, getApiKeyBalance, getApiKeyByStripeSession, getApiKeyByEmail, deductCredit } from '../db/index';
 import { Hono } from 'hono';
+import { creditsForApiCost } from '../core/credits';
 import { nanoid } from 'nanoid';
 import { parseIntent } from '../core/intent-parser';
 import { executePlan } from '../core/executor';
@@ -95,8 +96,7 @@ apiRouter.post('/orchestrate', async (c) => {
     const savings = cacheHits * 0.002;
     const totalDurationMs = Date.now() - start;
 
-    // Deduct credits based on actual cost: 1 credit = $0.001, minimum 1
-    const creditsToDeduct = Math.max(1, Math.ceil(apiCosts * 2000));
+    const creditsToDeduct = creditsForApiCost(apiCosts);
     if (!keyInfo.isEnvKey) {
       const deducted = deductCredit(keyInfo.key, creditsToDeduct);
       if (!deducted) {

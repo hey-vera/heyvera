@@ -10,6 +10,7 @@ import { parseIntent } from '../core/intent-parser';
 import { executePlan } from '../core/executor';
 import { formatResponse } from '../core/formatter';
 import { deductCredit } from '../db/index';
+import { creditsForApiCost } from '../core/credits';
 import { logger } from '../utils/logger';
 import { nanoid } from 'nanoid';
 
@@ -52,9 +53,16 @@ batchRouter.post('/', checkApiKey, async (c) => {
         const execution = await executePlan(intent);
         const formatted = await formatResponse(query, intent, execution);
 
-        const creditsToDeduct = Math.max(1, Math.ceil(execution.totalCost * 2000));
+        const creditsToDeduct = creditsForApiCost(execution.totalCost);
         if (!keyInfo.isEnvKey) {
-          deductCredit(keyInfo.key, creditsToDeduct);
+          const deducted = deductCredit(keyInfo.key, creditsToDeduct);
+          if (!deducted) {
+            return {
+              index: idx, query, ok: false,
+              error: 'Insufficient credits',
+              durationMs: Date.now() - qStart,
+            };
+          }
         }
 
         return {

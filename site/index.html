@@ -753,7 +753,7 @@
     <div class="usdc-deal-box">
       <div class="usdc-deal-row">
         <span class="usdc-deal-label">Credits you receive</span>
-        <span class="usdc-deal-val green" id="usdcDealCredits">22,000</span>
+        <span class="usdc-deal-val green" id="usdcDealCredits">23,000</span>
       </div>
       <div class="usdc-deal-row">
         <span class="usdc-deal-label">vs. paying by card</span>
@@ -1285,8 +1285,8 @@
     <div class="price-badge-crypto">+10% Free Credits</div>
     <div class="price-tier" style="color:#ff4da6;">◎ Crypto / USDC</div>
     <div class="price-amount" style="color:#fff;font-size:36px;">Pay with USDC<span style="color:#ff4da6;font-size:16px;"> +10% free</span></div>
-    <div class="price-credits" style="color:#ff4da6;">1,100 credits per USDC · vs 1,000 by card</div>
-    <div class="price-est">Any amount from $1 USDC · Phantom wallet · instant on-chain</div>
+    <div class="price-credits" style="color:#ff4da6;">+10% more credits than card at every tier</div>
+    <div class="price-est">$20–$1,000 USDC · Phantom wallet · instant on-chain</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--border);border:1px solid var(--border);margin:20px 0;">
       <div style="background:var(--bg2);padding:20px 24px;">
         <ul class="price-features">
@@ -1302,10 +1302,10 @@
         <div>
           <div style="font-family:var(--mono);font-size:10px;color:var(--muted);letter-spacing:2px;text-transform:uppercase;margin-bottom:10px;">Quick amounts</div>
           <div class="crypto-quick-row">
-            <button class="crypto-quick-btn" onclick="openUSDCModal(20)">$20<span class="cqb-cr">22,000 cr</span></button>
-            <button class="crypto-quick-btn" onclick="openUSDCModal(50)">$50<span class="cqb-cr">55,000 cr</span></button>
-            <button class="crypto-quick-btn" onclick="openUSDCModal(100)">$100<span class="cqb-cr">110,000 cr</span></button>
-            <button class="crypto-quick-btn" onclick="openUSDCModal(500)">$500<span class="cqb-cr">605,000 cr</span></button>
+            <button class="crypto-quick-btn" onclick="openUSDCModal(20)">$20<span class="cqb-cr">23,000 cr</span></button>
+            <button class="crypto-quick-btn" onclick="openUSDCModal(50)">$50<span class="cqb-cr">59,000 cr</span></button>
+            <button class="crypto-quick-btn" onclick="openUSDCModal(100)">$100<span class="cqb-cr">123,000 cr</span></button>
+            <button class="crypto-quick-btn" onclick="openUSDCModal(500)">$500<span class="cqb-cr">660,000 cr</span></button>
           </div>
         </div>
         <button class="price-btn-crypto" onclick="openUSDCModal(0)">Custom Amount — Pay with USDC →</button>
@@ -1572,13 +1572,16 @@
   setInterval(fetchApiStatus, 30000);
 
   // ── USDC Modal ─────────────────────────────────────────────────
-  const USDC_RATE = 1100;  // credits per USDC
-  const CARD_RATE = 1000;  // credits per $ via card
+  // Tiered USDC packages — must match backend USDC_PACKAGES exactly
+  const USDC_TIERS = { 20: 23000, 50: 59000, 100: 123000, 500: 660000, 1000: 1430000 };
+  // Stripe card tiers for comparison
+  const CARD_TIERS = { 5: 5000, 20: 21000, 50: 54000, 100: 112000, 500: 600000, 1000: 1300000 };
+  const CARD_RATE = 1000;  // fallback credits per $ via card
 
   function recalcUSDC(val) {
     const amt     = Math.max(0, parseFloat(val) || 0);
-    const credits = Math.round(amt * USDC_RATE);
-    const cardCr  = Math.round(amt * CARD_RATE);
+    const credits = USDC_TIERS[amt] || Math.round(amt * 1150);
+    const cardCr  = CARD_TIERS[amt] || Math.round(amt * CARD_RATE);
     const bonus   = credits - cardCr;
     const fmt = n => n >= 1000000
       ? (n/1000000).toFixed(2).replace(/\.?0+$/, '') + 'M'

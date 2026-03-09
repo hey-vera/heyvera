@@ -37,7 +37,7 @@
     "openai": "^4.77.0",
     "pino": "^9.5.0",
     "resend": "^6.9.3",
-    "sqlite-vec": "^0.1.7-alpha.2",
+    "sqlite-vec": "0.1.7-alpha.2",
     "stripe": "^20.4.1",
     "x402-solana": "^2.0.4",
     "zod": "^3.23.8"

@@ -20,6 +20,13 @@ export function setupGracefulShutdown() {
 
     logger.info({ signal }, 'Shutdown signal received');
 
+    // Hard deadline: force exit after 30s if graceful shutdown hangs
+    const forceTimer = setTimeout(() => {
+      logger.error('Shutdown timeout (30s) — force exiting');
+      process.exit(1);
+    }, 30_000);
+    forceTimer.unref();
+
     // 1. Stop accepting new connections
     if (httpServer) {
       httpServer.close();

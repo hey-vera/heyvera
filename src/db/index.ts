@@ -290,6 +290,8 @@ export function initDb(): void {
       UNIQUE(proposal_id, voter_key)
     );
     CREATE INDEX IF NOT EXISTS idx_votes_proposal ON votes(proposal_id);
+    CREATE INDEX IF NOT EXISTS idx_proposals_created ON proposals(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_payouts_created ON payout_requests(created_at DESC);
   `);
 
   // sqlite-vec virtual table (only available if extension loaded successfully)
@@ -913,7 +915,7 @@ export function searchDiscovery(queryEmbedding: Float32Array, limit = 10): {
 
 export function getDiscoveryCacheIds(): string[] {
   return (getDb()
-    .prepare('SELECT id FROM discovery_cache')
+    .prepare('SELECT id FROM discovery_cache LIMIT 10000')
     .all() as { id: string }[])
     .map(r => r.id);
 }
