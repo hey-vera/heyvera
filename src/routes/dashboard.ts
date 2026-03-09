@@ -221,6 +221,7 @@ dashboardRouter.get('/verify-claim/:token', async (c) => {
 
   // Transfer key to the claiming Clerk user
   linkKeyToClerkUser(claim.api_key, claim.clerk_user_id);
+  deleteClaimToken(token);
 
   logger.info({ clerkUserId: claim.clerk_user_id, apiKey: claim.api_key }, 'Key claimed via magic link');
 
@@ -257,12 +258,12 @@ function getKeyStats(key: string): {
   const today = new Date().toISOString().split('T')[0];
 
   const total = db
-    .prepare('SELECT COUNT(*) as count FROM orchestrations')
-    .get() as { count: number };
+    .prepare('SELECT COUNT(*) as count FROM orchestrations WHERE api_key = ?')
+    .get(key) as { count: number };
 
   const todayCount = db
-    .prepare('SELECT COUNT(*) as count FROM orchestrations WHERE timestamp LIKE ?')
-    .get(`${today}%`) as { count: number };
+    .prepare('SELECT COUNT(*) as count FROM orchestrations WHERE api_key = ? AND timestamp LIKE ?')
+    .get(key, `${today}%`) as { count: number };
 
   const lastUsed = db
     .prepare('SELECT last_used_at FROM api_keys WHERE key = ?')

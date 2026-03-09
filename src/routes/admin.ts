@@ -18,7 +18,7 @@ export const adminRouter = new Hono();
 
 adminRouter.get('/dashboard', (c) => {
   const adminKey = c.req.header('X-Admin-Key');
-  const expectedKey = env.ADMIN_API_KEY ?? env.API_KEYS?.split(',')[0];
+  const expectedKey = env.ADMIN_API_KEY;
   if (!adminKey || !expectedKey || adminKey !== expectedKey) {
     return c.json({ error: 'Unauthorized', code: 'UNAUTHORIZED' }, 401);
   }

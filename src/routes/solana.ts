@@ -6,6 +6,7 @@ import { verifyToken } from '@clerk/backend';
 import { logger } from '../utils/logger';
 import { getApiKeyByClerkId, createApiKeyForClerk, topUpCreditsForClerk, isSignatureProcessed, markSignatureProcessed } from '../db/index';
 import { sendApiKeyEmail } from '../utils/email';
+import { env } from '../config/index';
 import crypto from 'crypto';
 
 export const solanaRouter = new Hono();
@@ -13,8 +14,8 @@ export const solanaRouter = new Hono();
 // USDC mint on Solana mainnet
 const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 
-// Receiving wallet
-const RECEIVING_WALLET = process.env.SOLANA_RECEIVING_WALLET!;
+// Receiving wallet — sourced from validated env config
+const RECEIVING_WALLET = env.SOLANA_RECEIVING_WALLET ?? '';
 
 // Credit amounts — +10% bonus vs Stripe on $20+
 const USDC_PACKAGES: Record<number, number> = {
@@ -47,7 +48,7 @@ solanaRouter.post('/verify', async (c) => {
 
   try {
     const payload = await verifyToken(token, {
-      secretKey: process.env.CLERK_SECRET_KEY!,
+      secretKey: env.CLERK_SECRET_KEY ?? '',
     });
     clerkUserId = payload.sub;
     clerkEmail = ((payload as any).email ?? '').toLowerCase();
@@ -80,7 +81,7 @@ solanaRouter.post('/verify', async (c) => {
   }
 
   // 5. Verify transaction on-chain
-  const rpcUrl = process.env.SOLANA_RPC_URL ?? 'https://api.mainnet-beta.solana.com';
+  const rpcUrl = env.SOLANA_RPC_URL;
   const connection = new Connection(rpcUrl, 'confirmed');
 
   let transferredUsd = 0;
@@ -196,8 +197,17 @@ solanaRouter.post('/verify', async (c) => {
   });
 });
 
-// GET /v1/solana/packages — returns available USDC packages
-solanaRouter.get('/packages', (c) => {
+// GET /v1/solana/packages — returns available USDC packages (auth-gated to hide receiving wallet)
+solanaRouter.get('/packages', async (c) => {
+  const authHeader = c.req.header('Authorization');
+  if (!authHeader?.startsWith('Bearer ')) {
+    return c.json({ error: 'Authentication required.' }, 401);
+  }
+  try {
+    await verifyToken(authHeader.slice(7), { secretKey: process.env.CLERK_SECRET_KEY! });
+  } catch {
+    return c.json({ error: 'Invalid or expired session.' }, 401);
+  }
   return c.json({
     receivingWallet: RECEIVING_WALLET,
     usdcMint: USDC_MINT,
@@ -207,4 +217,84 @@ solanaRouter.get('/packages', (c) => {
       bonusVsStripe: Number(usd) >= 20 ? '+10%' : null,
     })),
   });
+});
+
+const BuildTxSchema = z.object({
+  amountUsd: z.number().int().positive(),
+  senderWallet: z.string().min(32).max(44),
+});
+
+// POST /v1/solana/build-tx — builds an unsigned USDC transfer transaction for Phantom to sign
+solanaRouter.post('/build-tx', async (c) => {
+  const authHeader = c.req.header('Authorization');
+  if (!authHeader?.startsWith('Bearer ')) {
+    return c.json({ error: 'Authentication required.' }, 401);
+  }
+  try {
+    await verifyToken(authHeader.slice(7), { secretKey: process.env.CLERK_SECRET_KEY! });
+  } catch {
+    return c.json({ error: 'Invalid or expired session.' }, 401);
+  }
+
+  let body: unknown;
+  try { body = await c.req.json(); } catch {
+    return c.json({ error: 'Invalid JSON body.' }, 400);
+  }
+
+  const parsed = BuildTxSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: 'Invalid request', details: parsed.error.flatten().fieldErrors }, 400);
+  }
+
+  const { amountUsd, senderWallet } = parsed.data;
+
+  if (!USDC_PACKAGES[amountUsd]) {
+    return c.json({ error: `Invalid amount. Valid amounts: ${Object.keys(USDC_PACKAGES).join(', ')} USD` }, 400);
+  }
+
+  if (!RECEIVING_WALLET) {
+    return c.json({ error: 'Solana payments not currently configured.' }, 503);
+  }
+
+  try {
+    const { getAssociatedTokenAddress, createTransferCheckedInstruction, TOKEN_PROGRAM_ID } = await import('@solana/spl-token');
+    const { Transaction } = await import('@solana/web3.js');
+
+    const rpcUrl = env.SOLANA_RPC_URL;
+    const connection = new Connection(rpcUrl, 'confirmed');
+
+    const senderPubkey = new PublicKey(senderWallet);
+    const receiverPubkey = new PublicKey(RECEIVING_WALLET);
+    const usdcMint = new PublicKey(USDC_MINT);
+
+    const senderAta = await getAssociatedTokenAddress(usdcMint, senderPubkey);
+    const receiverAta = await getAssociatedTokenAddress(usdcMint, receiverPubkey);
+
+    const usdcAmount = BigInt(amountUsd * 1_000_000); // USDC has 6 decimals
+
+    const transferIx = createTransferCheckedInstruction(
+      senderAta,
+      usdcMint,
+      receiverAta,
+      senderPubkey,
+      usdcAmount,
+      6,
+      [],
+      TOKEN_PROGRAM_ID,
+    );
+
+    const { blockhash } = await connection.getLatestBlockhash('confirmed');
+    const tx = new Transaction({ recentBlockhash: blockhash, feePayer: senderPubkey });
+    tx.add(transferIx);
+
+    const serialized = tx.serialize({ requireAllSignatures: false });
+    const serializedTx = Buffer.from(serialized).toString('base64');
+
+    logger.info({ amountUsd, senderWallet: senderWallet.slice(0, 8) + '...' }, 'USDC build-tx prepared');
+
+    return c.json({ serializedTx });
+  } catch (err) {
+    logger.error({ err }, 'Failed to build USDC transaction');
+    return c.json({ error: 'Failed to build transaction. Please try again.' }, 500);
+  }
 });
