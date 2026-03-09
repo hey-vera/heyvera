@@ -4,6 +4,7 @@ import { checkApiKey } from '../middleware/auth';
 import {
   getMarketplaceSkills, marketplacePurchase, stakeCredits, unstakeCredits,
   getStakes, getSkillStakeTotal, getTransactions, getSkill, writeAuditLog,
+  getCreatorStats, getSkillsByAuthor,
 } from '../db/index';
 import { logger } from '../utils/logger';
 
@@ -230,5 +231,33 @@ marketplaceRouter.get('/stakes', checkApiKey, (c) => {
       unlocksAt: s.unlocks_at,
       locked: new Date(s.unlocks_at) > new Date(),
     })),
+  });
+});
+
+// ─── GET /v1/marketplace/creator/stats — earnings dashboard ───────────────────
+
+marketplaceRouter.get('/creator/stats', checkApiKey, (c) => {
+  const keyInfo = c.get('apiKeyInfo');
+  const stats = getCreatorStats(keyInfo.key);
+  const mySkills = getSkillsByAuthor(keyInfo.key);
+
+  return c.json({
+    totalEarned: stats.totalEarned,
+    totalSales: stats.totalSales,
+    publishedSkills: mySkills.length,
+    skills: mySkills.map(s => {
+      const breakdown = stats.skillBreakdown.find(b => b.skillId === s.id);
+      return {
+        id: s.id,
+        name: s.name,
+        creditCost: s.credit_cost,
+        uses: s.uses,
+        public: !!s.public,
+        earned: breakdown?.earned ?? 0,
+        sales: breakdown?.sales ?? 0,
+        version: s.version ?? '1.0.0',
+        publishedAt: s.published_at,
+      };
+    }),
   });
 });

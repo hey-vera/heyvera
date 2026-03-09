@@ -1198,6 +1198,28 @@ export function getTransactions(agentKey: string, limit = 50): Transaction[] {
     .all(agentKey, agentKey, limit) as Transaction[];
 }
 
+export function getCreatorStats(authorKey: string): {
+  totalEarned: number;
+  totalSales: number;
+  skillBreakdown: { skillId: string; earned: number; sales: number }[];
+} {
+  const db = getDb();
+  const rows = db.prepare(`
+    SELECT skill_id, SUM(amount_credits) as earned, COUNT(*) as sales
+    FROM transactions
+    WHERE to_agent = ? AND type = 'SKILL_SALE'
+    GROUP BY skill_id
+  `).all(authorKey) as { skill_id: string; earned: number; sales: number }[];
+
+  const totalEarned = rows.reduce((s, r) => s + r.earned, 0);
+  const totalSales  = rows.reduce((s, r) => s + r.sales, 0);
+  return {
+    totalEarned,
+    totalSales,
+    skillBreakdown: rows.map(r => ({ skillId: r.skill_id, earned: r.earned, sales: r.sales })),
+  };
+}
+
 /**
  * Atomic marketplace purchase:
  * - Deducts total from buyer
