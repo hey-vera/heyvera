@@ -22,7 +22,7 @@ import { initClawApis } from './providers/clawapis';
 import { stripeRouter } from './routes/stripe';
 import { solanaRouter } from './routes/solana';
 import { meshRouter } from './routes/mesh';
-import { referralRouter } from './routes/referral';
+// import { referralRouter } from './routes/referral'; // INACTIVE — re-enable when ready
 import { skillsRouter } from './routes/skills';
 import { endpointsRouter } from './routes/endpoints';
 import { discoverRouter } from './routes/discover';
@@ -112,7 +112,7 @@ app.use('/v1/orchestrate', checkApiKey);
 app.route('/v1/feedback', feedbackRouter);
 app.route('/v1/admin', adminRouter);
 app.route('/v1/mesh', meshRouter);
-app.route('/v1/referral', referralRouter);
+// app.route('/v1/referral', referralRouter); // INACTIVE — re-enable when ready
 app.route('/v1/skills', skillsRouter);
 app.route('/v1/endpoints', endpointsRouter);
 app.route('/v1/discover', discoverRouter);
