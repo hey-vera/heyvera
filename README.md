@@ -127,6 +127,11 @@ curl -X POST https://api.claw-net.org/v1/skills/SKILL_ID/invoke \
 | `POST` | `/v1/webhooks/stripe` | Stripe one-time purchase webhook |
 | `POST` | `/v1/webhooks/stripe-subscriptions` | Stripe subscription webhook |
 | `POST` | `/v1/solana/verify` | USDC on-chain payment verification |
+| `GET` | `/v1/solana/packages` | USDC package list + receiving wallet (Clerk JWT) |
+| `POST` | `/v1/solana/build-tx` | Build unsigned USDC transfer for Phantom (Clerk JWT) |
+| `GET` | `/v1/session/:sessionId` | Retrieve API key after Stripe checkout |
+| `POST` | `/v1/resend-key` | Resend API key to email |
+| `GET` | `/v1/usage` | API key usage statistics |
 
 ### Social
 

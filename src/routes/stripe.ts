@@ -145,7 +145,7 @@ stripeRouter.post('/stripe', async (c) => {
 // POST /v1/webhooks/stripe-subscriptions
 // Handles monthly subscription events. Set STRIPE_SUBSCRIPTION_PRICE_ID in .env
 // and create the product in Stripe Dashboard ($29/mo → 35,000 credits/mo).
-const SUBSCRIPTION_CREDITS_PER_MONTH = parseInt(process.env.SUBSCRIPTION_CREDITS_PER_MONTH ?? '35000');
+const SUBSCRIPTION_CREDITS_PER_MONTH = parseInt(process.env.SUBSCRIPTION_CREDITS_PER_MONTH ?? '40000');
 
 stripeRouter.post('/stripe-subscriptions', async (c) => {
   const webhookSecret = process.env.STRIPE_SUBSCRIPTION_WEBHOOK_SECRET;
