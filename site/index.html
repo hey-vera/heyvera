@@ -982,16 +982,55 @@
   <div class="section-label">Data Sources</div>
   <h2>Live today.<br><span class="accent">Expanding everywhere.</span></h2>
   <p class="section-sub">ClawNet routes through any x402-compatible API. As the ecosystem grows, your access grows — zero code changes required.</p>
-  <div class="sources-grid reveal">
-    <div class="source-card"><div class="source-status live"><span class="status-dot"></span>Live Now</div><div class="source-name">Solscan Pro</div><div class="source-desc">Token metadata, holders, transfers, trending tokens, transactions</div><div class="source-endpoints">22 endpoints</div></div>
-    <div class="source-card"><div class="source-status live"><span class="status-dot"></span>Live Now</div><div class="source-name">Helius</div><div class="source-desc">Solana RPC, DAS API, asset ownership, NFT data, enhanced transactions</div><div class="source-endpoints">80 endpoints</div></div>
-    <div class="source-card"><div class="source-status live"><span class="status-dot"></span>Live Now</div><div class="source-name">X / Twitter</div><div class="source-desc">Real-time tweet search, user profiles, sentiment, engagement metrics</div><div class="source-endpoints">81 endpoints</div></div>
-    <div class="source-card"><div class="source-status soon"><span class="status-dot"></span>Coming Soon</div><div class="source-name">DeFi Llama</div><div class="source-desc">Protocol TVL, yield data, liquidity pools, DEX volumes across all chains</div><div class="source-endpoints">x402 integration pending</div></div>
-    <div class="source-card"><div class="source-status soon"><span class="status-dot"></span>Coming Soon</div><div class="source-name">CoinGecko</div><div class="source-desc">Price data, market caps, trending tokens, exchange data</div><div class="source-endpoints">x402 integration pending</div></div>
-    <div class="source-card"><div class="source-status soon"><span class="status-dot"></span>Coming Soon</div><div class="source-name">Reddit</div><div class="source-desc">Community sentiment, trending posts, subreddit analytics per token</div><div class="source-endpoints">x402 integration pending</div></div>
-    <div class="source-card"><div class="source-status planned"><span class="status-dot"></span>Planned</div><div class="source-name">GitHub</div><div class="source-desc">Developer activity, commit history, contributor analysis for any project</div><div class="source-endpoints">Any x402 provider</div></div>
-    <div class="source-card"><div class="source-status planned"><span class="status-dot"></span>Planned</div><div class="source-name">+ Many More</div><div class="source-desc">Any API that supports x402 payments is one config entry away from being routable</div><div class="source-endpoints">Open ecosystem</div></div>
+  <div class="sources-grid reveal" id="sourcesGrid">
+    <div class="source-card" id="src-solscan"><div class="source-status live"><span class="status-dot"></span>Live Now</div><div class="source-name">Solscan Pro</div><div class="source-desc">Token metadata, holders, transfers, trending tokens, transactions</div><div class="source-endpoints" id="src-solscan-count">— endpoints</div></div>
+    <div class="source-card" id="src-helius"><div class="source-status live"><span class="status-dot"></span>Live Now</div><div class="source-name">Helius</div><div class="source-desc">Solana RPC, DAS API, asset ownership, NFT data, enhanced transactions</div><div class="source-endpoints" id="src-helius-count">— endpoints</div></div>
+    <div class="source-card" id="src-twitter"><div class="source-status live"><span class="status-dot"></span>Live Now</div><div class="source-name">X / Twitter</div><div class="source-desc">Real-time tweet search, user profiles, sentiment, engagement metrics</div><div class="source-endpoints" id="src-twitter-count">— endpoints</div></div>
+    <div class="source-card" id="src-coingecko"><div class="source-status soon" id="src-coingecko-status"><span class="status-dot"></span><span id="src-coingecko-label">Checking...</span></div><div class="source-name">CoinGecko</div><div class="source-desc">Price data, market caps, trending tokens, exchange data</div><div class="source-endpoints" id="src-coingecko-count">—</div></div>
+    <div class="source-card" id="src-coinmarket"><div class="source-status soon" id="src-coinmarket-status"><span class="status-dot"></span><span id="src-coinmarket-label">Checking...</span></div><div class="source-name">CoinMarketCap</div><div class="source-desc">Token rankings, market data, volume, dominance and global crypto metrics</div><div class="source-endpoints" id="src-coinmarket-count">—</div></div>
+    <div class="source-card" id="src-defi"><div class="source-status soon" id="src-defi-status"><span class="status-dot"></span><span id="src-defi-label">Checking...</span></div><div class="source-name">DeFi Llama</div><div class="source-desc">Protocol TVL, yield data, liquidity pools, DEX volumes across all chains</div><div class="source-endpoints" id="src-defi-count">—</div></div>
+    <div class="source-card" id="src-others"><div class="source-status live"><span class="status-dot"></span>Live Now</div><div class="source-name">+ x402 Providers</div><div class="source-desc">CoinAnk, Einstein AI, Apollo Intelligence, Rug Munch, RootData, and more</div><div class="source-endpoints" id="src-others-count">— endpoints</div></div>
+    <div class="source-card"><div class="source-status planned"><span class="status-dot"></span>Planned</div><div class="source-name">Open Ecosystem</div><div class="source-desc">Any API that supports x402 payments is one config entry away from being routable. Zero code changes.</div><div class="source-endpoints">x402 compatible</div></div>
   </div>
+  <script>
+  (function(){
+    fetch('https://api.claw-net.org/v1/endpoints').then(r=>r.json()).then(d=>{
+      const eps = d.endpoints || [];
+      const count = (fn) => eps.filter(fn).length;
+      const liveClass = 'source-status live';
+      const soonClass = 'source-status soon';
+
+      // ClawAPIs sub-counts by path prefix
+      const solscan = count(e => e.provider === 'ClawAPIs' && (e.id||'').includes('solscan') || (e.id||'').includes('claw-token') || (e.id||'').includes('claw-account'));
+      const twitter = count(e => e.provider === 'ClawAPIs' && ((e.id||'').includes('tweet') || (e.id||'').includes('social') || (e.id||'').includes('twitter') || (e.id||'').includes('-x-') || (e.id||'').startsWith('user-')));
+      const helius  = count(e => e.provider === 'ClawAPIs') - solscan - twitter;
+      const cgCount = count(e => e.provider === 'CoinGecko');
+      const cmcCount= count(e => e.provider === 'CoinMarketCap');
+      const defiCount=count(e => e.provider === 'DeFi Llama' || e.provider === 'DefiLlama');
+      const others  = count(e => e.provider !== 'ClawAPIs' && e.provider !== 'CoinGecko' && e.provider !== 'CoinMarketCap' && e.provider !== 'DeFi Llama' && e.provider !== 'DefiLlama');
+
+      const setCount = (id, n, suffix) => { const el=document.getElementById(id); if(el) el.textContent = n > 0 ? `${n} ${suffix||'endpoints'}` : (suffix||'—'); };
+      const setStatus = (statusId, labelId, countId, n, suffix) => {
+        const sEl=document.getElementById(statusId), lEl=document.getElementById(labelId);
+        if(n > 0) { if(sEl) sEl.className=liveClass; if(lEl) lEl.textContent='Live Now'; setCount(countId, n, suffix); }
+        else { if(sEl) sEl.className=soonClass; if(lEl) lEl.textContent='Coming Soon'; const c=document.getElementById(countId); if(c) c.textContent='x402 integration pending'; }
+      };
+
+      setCount('src-solscan-count', Math.max(solscan, 1));
+      setCount('src-helius-count',  Math.max(helius, 1));
+      setCount('src-twitter-count', Math.max(twitter, 1));
+      setCount('src-others-count',  others);
+      setStatus('src-coingecko-status',  'src-coingecko-label',  'src-coingecko-count',  cgCount);
+      setStatus('src-coinmarket-status', 'src-coinmarket-label', 'src-coinmarket-count', cmcCount);
+      setStatus('src-defi-status',       'src-defi-label',       'src-defi-count',       defiCount);
+    }).catch(()=>{
+      // API unreachable — leave defaults
+      ['src-coingecko-label','src-coinmarket-label','src-defi-label'].forEach(id=>{
+        const el=document.getElementById(id); if(el) el.textContent='Coming Soon';
+      });
+    });
+  })();
+  </script>
   <div class="x402-statement">
     <span class="x402-accent">Any API that supports x402</span> can be added to ClawNet's registry.
     <span class="x402-accent">Zero code changes required.</span>
