@@ -1004,40 +1004,108 @@
   <div class="section-label">API Reference</div>
   <h2>One endpoint.<br><span class="accent">Infinite queries.</span></h2>
   <p class="section-sub">POST a natural language query. Get back a structured analysis with scores, actions, and exact credit cost per request.</p>
-  <div class="api-example reveal">
-    <div class="api-panel">
-      <div class="api-panel-label"><span class="method">POST</span>/v1/orchestrate</div>
-      <pre><span class="c-muted">// Request body</span>
+  <div class="api-example reveal" style="position:relative">
+    <div class="api-slide-nav" id="apiSlideDots" style="position:absolute;top:14px;right:16px;display:flex;gap:6px;z-index:2"></div>
+    <div id="apiSlideLeft" class="api-panel"></div>
+    <div id="apiSlideRight" class="api-panel"></div>
+  </div>
+  <style>
+    .api-panel { transition: opacity 0.3s; }
+    .api-panel.fade { opacity: 0; }
+    .api-slide-dot { width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,0.15);cursor:pointer;transition:background 0.2s;border:none;padding:0; }
+    .api-slide-dot.active { background:var(--green); }
+  </style>
+  <script>
+  (function(){
+    const apiSlides = [
+      {
+        label: 'Token Safety Analysis',
+        query: '"Analyze BONK: price, holders, risk, X sentiment"',
+        answer: '"BONK: 991K holders, LP locked ✓, mint disabled ✓. Price -4.2% on $2.25M vol. X sentiment 0.72/1.0 (1,243 mentions). Risk score low."',
+        opp: 62, risk: 28, steps: 4, credits: 10, ms: 7404
+      },
+      {
+        label: 'Whale Activity Tracker',
+        query: '"Who are the top SOL whale wallets active today?"',
+        answer: '"3 whales moved 820K SOL. GhK...4xZ transferred 412K SOL to Binance — likely distribution. Net: -290K SOL off-chain. Historically precedes 2–5% price move."',
+        opp: 45, risk: 55, steps: 3, credits: 6, ms: 4210
+      },
+      {
+        label: 'NFT Floor & Holder Stats',
+        query: '"What is the floor price and holder count for Mad Lads?"',
+        answer: '"Mad Lads floor: 78.2 SOL ($9,840). 7d volume: 2,140 SOL. Unique holders: 4,712 / 10,000 (47%). Listed: 382 (3.8%). Floor +12.4% in 7d. Royalties enforced ✓."',
+        opp: 70, risk: 18, steps: 3, credits: 8, ms: 3870
+      },
+      {
+        label: 'DeFi Portfolio Scan',
+        query: '"Scan wallet DfZ3...mK9 — what DeFi positions am I in?"',
+        answer: '"$14,820 across 6 positions. Raydium USDC-SOL LP $8,100 (APY 22%), Marginfi borrow $3,200, Kamino vault $2,100. Health ratio 1.82 — safe. 3 tokens with unrealized gains."',
+        opp: 58, risk: 22, steps: 5, credits: 13, ms: 9102
+      },
+      {
+        label: 'Social Sentiment Pulse',
+        query: '"What is the X/Twitter sentiment on Solana right now?"',
+        answer: '"Solana X sentiment: 0.81/1.0 (strongly positive). 4,821 mentions in 6h. Top themes: Firedancer, DeFi TVL record, institutional buying. Influencer ratio 3:1 bullish."',
+        opp: 78, risk: 12, steps: 2, credits: 7, ms: 2980
+      }
+    ];
+
+    let cur = 0, tmr;
+    const left = document.getElementById('apiSlideLeft');
+    const right = document.getElementById('apiSlideRight');
+    const dotsEl = document.getElementById('apiSlideDots');
+
+    function renderDots() {
+      dotsEl.innerHTML = apiSlides.map((s,i) =>
+        `<button class="api-slide-dot${i===cur?' active':''}" title="${s.label}" onclick="window._apiSlide(${i})"></button>`
+      ).join('');
+    }
+
+    function render(idx) {
+      const s = apiSlides[idx];
+      left.innerHTML = `<div class="api-panel-label"><span class="method">POST</span>/v1/orchestrate &nbsp;<span style="font-size:10px;color:var(--muted);font-weight:400">${s.label}</span></div><pre><span class="c-muted">// Request body</span>
 {
-  <span class="c-green">"query"</span>: <span class="c-yellow">"Analyze BONK: price,
-    holders, risk, X sentiment"</span>
+  <span class="c-green">"query"</span>: <span class="c-yellow">${s.query}</span>
 }
 
 <span class="c-muted">// Required headers</span>
 <span class="c-green">Content-Type</span>: application/json
-<span class="c-green">X-API-Key</span>: <span class="c-yellow">your-api-key</span></pre>
-    </div>
-    <div class="api-panel">
-      <div class="api-panel-label">Response · 200 OK</div>
-      <pre>{
-  <span class="c-green">"requestId"</span>: <span class="c-yellow">"abc123"</span>,
-  <span class="c-green">"answer"</span>: <span class="c-yellow">"Full analysis..."</span>,
-  <span class="c-green">"opportunityScore"</span>: <span class="c-blue">65</span>,
-  <span class="c-green">"riskScore"</span>: <span class="c-blue">28</span>,
-  <span class="c-green">"suggestedActions"</span>: [<span class="c-yellow">"..."</span>],
+<span class="c-green">X-API-Key</span>: <span class="c-yellow">your-api-key</span></pre>`;
+
+      right.innerHTML = `<div class="api-panel-label">Response · 200 OK</div><pre>{
+  <span class="c-green">"answer"</span>: <span class="c-yellow">${s.answer}</span>,
+  <span class="c-green">"opportunityScore"</span>: <span class="c-blue">${s.opp}</span>,
+  <span class="c-green">"riskScore"</span>: <span class="c-blue">${s.risk}</span>,
   <span class="c-green">"costBreakdown"</span>: {
-    <span class="c-green">"costUsd"</span>: <span class="c-blue">0.0024</span>,
-    <span class="c-green">"creditsUsed"</span>: <span class="c-blue">5</span>,
-    <span class="c-green">"savings"</span>: <span class="c-blue">0.002</span>
+    <span class="c-green">"creditsUsed"</span>: <span class="c-blue">${s.credits}</span>,
+    <span class="c-green">"costUsd"</span>: <span class="c-blue">${(s.credits * 0.001).toFixed(4)}</span>
   },
   <span class="c-green">"metadata"</span>: {
-    <span class="c-green">"stepsExecuted"</span>: <span class="c-blue">4</span>,
-    <span class="c-green">"cacheHits"</span>: <span class="c-blue">1</span>,
-    <span class="c-green">"totalDurationMs"</span>: <span class="c-blue">7404</span>
+    <span class="c-green">"stepsExecuted"</span>: <span class="c-blue">${s.steps}</span>,
+    <span class="c-green">"totalDurationMs"</span>: <span class="c-blue">${s.ms}</span>
   }
-}</pre>
-    </div>
-  </div>
+}</pre>`;
+    }
+
+    function goTo(idx, smooth) {
+      if (smooth) {
+        left.classList.add('fade'); right.classList.add('fade');
+        setTimeout(() => {
+          cur = idx; render(cur); renderDots();
+          left.classList.remove('fade'); right.classList.remove('fade');
+        }, 300);
+      } else { cur = idx; render(cur); renderDots(); }
+    }
+
+    window._apiSlide = function(idx) {
+      clearInterval(tmr); goTo(idx, true);
+      tmr = setInterval(() => goTo((cur+1)%apiSlides.length, true), 5500);
+    };
+
+    goTo(0, false);
+    tmr = setInterval(() => goTo((cur+1)%apiSlides.length, true), 5500);
+  })();
+  </script>
   <div style="background:var(--bg2);border:1px solid var(--border);border-top:none;padding:20px 32px;display:flex;gap:40px;flex-wrap:wrap;">
     <div><div style="font-family:var(--mono);font-size:10px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">Health Check</div><code style="font-family:var(--mono);font-size:12px;color:var(--green)">GET /v1/health</code></div>
     <div><div style="font-family:var(--mono);font-size:10px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">Endpoint Registry</div><code style="font-family:var(--mono);font-size:12px;color:var(--green)">GET /v1/registry</code></div>
