@@ -4,9 +4,12 @@
 ---
 
 ## What This Project Is
-ClawNet is a sovereign AI agent orchestration layer and economy built on the ClawNet v3 roadmap. The roadmap has 14 chunks. **Chunks 1–7 are complete and live in production at claw-net.org.** We are continuing from Chunk 8 onwards.
 
-The roadmap specified certain tools. **Some were intentionally swapped during development — do not revert these.** Always follow the "Actual Stack" column below, not the roadmap's original spec.
+ClawNet is a sovereign AI agent orchestration layer and economy. It is live in production at **claw-net.org**.
+
+**The product:** A pay-per-use API that orchestrates Solana/DeFi data (183 endpoints), X/Twitter sentiment, and AI analysis into a single natural-language response. Users buy credits (Stripe / USDC on Solana). Built on top: a skill marketplace where anyone can publish prompt-powered capabilities and earn 97% of every purchase.
+
+**The moat:** 183 Solana/DeFi endpoints packaged as one API, plus agent-to-agent payment infrastructure (escrow, skills, P2P mesh, discovery) before anyone else has built it cleanly.
 
 ---
 
@@ -17,394 +20,250 @@ The roadmap specified certain tools. **Some were intentionally swapped during de
 | Fastify 5 | **Hono 4.6+** | Same concepts, different API. All routes use Hono. Do not add Fastify. |
 | Turborepo + pnpm monorepo | **Single repo, npm** | No workspaces. Everything is flat in `claw-net/`. |
 | Vite + React SPA dashboard | **Plain HTML files** in `/var/www/claw-net/` | `dashboard.html`, `index.html` etc. Static files, NOT in git. |
-| Drizzle ORM | **Raw better-sqlite3** | No ORM. Direct SQL queries. |
-| ERC-8004 agent identity | **Clerk** (production auth) | Centralized for now. ERC-8004 is future work. |
-| x402 / XRP payments | **Stripe + USDC on Solana** | Stripe for card payments. USDC via Phantom wallet for crypto. |
-| Reown AppKit (wallet auth) | **Clerk** for auth, **Phantom** for USDC only | Phantom only used for USDC payment flow, not general auth. |
+| Drizzle ORM | **Raw better-sqlite3** | No ORM. Direct SQL queries. CREATE TABLE IF NOT EXISTS pattern. |
+| ERC-8004 agent identity | **Clerk** (production auth) | Centralized for now. ERC-8004 is future on-chain work. |
+| x402 / XRP payments | **Stripe + USDC on Solana** | Stripe for card. USDC via Phantom wallet for crypto. |
+| Reown AppKit (wallet auth) | **Clerk** for auth, **Phantom** for USDC only | Phantom only for USDC payment, not general auth. |
 | pnpm | **npm** | Use npm for all installs. |
 | systemd secrets via sops | **.env file** on VPS | Standard dotenv. |
-| @libp2p/node + kad-dht | **NOT YET BUILT** | This is the next major chunk to build. |
-| sqlite-vec | **NOT YET BUILT** | Vector search not yet added. |
-| Vitest | **tests/run.ts** integration tests | Basic tests exist but not Vitest. |
-| GitHub Actions CI | **NOT SET UP** | No CI pipeline yet. |
+| @libp2p/node | **`libp2p` + `@chainsafe/libp2p-yamux`** | `@libp2p/node` does NOT exist on npm. `@libp2p/mplex` deprecated, use yamux. `kadDHT` requires `ping` service alongside it. libp2p v3 is ESM-only but tsx handles it fine. |
+| Vitest | **tests/run.ts** integration tests | Basic tests exist. Vitest is Chunk 14. |
+| GitHub Actions CI | **NOT SET UP** | No CI pipeline yet. Chunk 14. |
 
 ---
 
 ## What's Live in Production
 
-**VPS:** DigitalOcean, Ubuntu 24.04.4, IP 24.199.121.137, Node 22.22.1, Docker 29.3.0  
-**SSH:** `guardian-vps` (alias for `guardian@24.199.121.137`)  
-**Deploy:** SSH in, run `deploy` (git pull + docker compose up + chown)
+**VPS:** DigitalOcean, Ubuntu 24.04.4, IP 24.199.121.137, Node 22.22.1, Docker 29.3.0
+**SSH:** `guardian-vps` (alias for `guardian@24.199.121.137`)
+**Deploy:** `deploy` alias — git pull + docker compose up --build + chown
 
-**Backend:** `/home/guardian/claw-net/` — Hono API on port 3402, Docker + Redis  
-**Frontend:** `/var/www/claw-net/` — static HTML (NOT in git, edit via nano on VPS)  
+**Backend:** `/home/guardian/claw-net/` — Hono API on port 3402, Docker + Redis
+**Frontend:** `/var/www/claw-net/` — static HTML served by Caddy (NOT in git — copy from `site/` after deploy)
 **Local repo:** `C:\Users\Josh\Desktop\GitHub\claw-net`
 
-### Completed (Phases 0–4):
-- ✅ VPS, Ubuntu 24.04, Node, Caddy (auto-TLS), UFW, fail2ban, Docker, swap
-- ✅ Hono API server with Pino logging, Zod validation, rate limiting (60/min/IP)
-- ✅ SQLite WAL mode database (better-sqlite3)
-- ✅ In-memory LRU cache + Redis L2 cache
-- ✅ Clerk auth (production) — login, dashboard, JWT middleware
-- ✅ Intent parser (GPT-4o primary, Claude fallback) → parallel executor → LLM synthesizer
-- ✅ x402/ClawAPIs integration — 183 endpoints (Solscan Pro 22, Helius 80, X/Twitter 81)
-- ✅ Stripe payments (live mode) — 6 credit packages $5–$1,000
-- ✅ USDC/Solana payments — Phantom wallet, on-chain verify, +10% bonus credits
-- ✅ Credit system: 1 credit = $0.001, deduction = `Math.max(1, Math.ceil(apiCosts * 2000))`
-- ✅ Resend email (API key delivery, claim tokens)
-- ✅ Telegram bot (grammy)
-- ✅ Circuit breaker
-- ✅ Admin dashboard endpoint
-- ✅ Log rotation + encrypted backup cron
-- ✅ Contact form endpoint (`POST /v1/contact`)
-- ✅ Frontend: landing page, pricing, USDC modal, dashboard, login, success pages
+### VPS One-Time Pending Tasks
+- `sudo ufw allow 4001/tcp` — open libp2p swarm port (Chunk 5, still pending)
+- Ensure `ADMIN_API_KEY` is set in `/home/guardian/claw-net/.env`
 
 ---
 
-## Remaining Roadmap Chunks
+## Chunk Status
 
-Work through these **in order** — each builds on the previous.
+### ✅ CHUNKS 1–4: Core Platform (COMPLETE)
+- VPS, Ubuntu, Node, Caddy (auto-TLS), UFW, fail2ban, Docker, swap
+- Hono API, Pino logging, Zod validation, rate limiting (60/min/IP)
+- SQLite WAL, LRU + Redis L2 cache, Clerk auth
+- Intent parser (GPT-4o primary, Claude fallback) → parallel executor → LLM synthesizer
+- ClawAPIs x402 integration — 183 endpoints (Solscan Pro 22, Helius 80, X/Twitter 81)
+- Stripe live payments — 6 credit packages $5–$1,000
+- USDC/Solana — Phantom wallet, on-chain verify, +10% bonus credits
+- Credit system: 1 credit = $0.001, deduction = `Math.max(1, Math.ceil(apiCosts * 2000))`
+- Resend email, Telegram bot, circuit breaker, admin endpoint
+- Frontend: landing page, pricing, USDC modal, dashboard, login, success pages
 
----
+### ✅ CHUNK 5: P2P Mesh Network (COMPLETE)
+- Packages: `libp2p`, `@libp2p/tcp`, `@libp2p/noise`, `@libp2p/kad-dht`, `@libp2p/ping`, `@chainsafe/libp2p-yamux`
+- `src/mesh/node.ts` — `startMeshNode()`, `stopMeshNode()`, `getMeshNode()`
+- `src/routes/mesh.ts` — `GET /v1/mesh/peers`
+- `peers` table in SQLite, `upsertPeer()`, `getPeers()`
 
-### ✅ CHUNK 5: P2P Mesh Network Foundation
-**Status: COMPLETE**
-**Goal:** Add @libp2p/node peer-to-peer mesh so agents can discover and communicate directly.
+### ✅ CHUNK 6: Vector Search & Embeddings (COMPLETE)
+- `src/core/embeddings.ts` — ONNX all-MiniLM-L6-v2 via @huggingface/transformers
+- `src/core/seed-embeddings.ts` — seeds all 183 endpoints into discovery_cache
+- `src/routes/discover.ts` — `POST /v1/discover` (rewired to discovery-engine)
+- `skill_embeddings` virtual table (sqlite-vec), `discovery_cache` table
 
-Key deliverables:
-- Install `@libp2p/node`, `@libp2p/kad-dht`, `@libp2p/noise` in the project
-- Configure a libp2p node with Kademlia DHT for peer discovery
-- Persist peer data to SQLite (add `peers` table to existing schema)
-- Expose mesh diagnostics via Hono route `GET /v1/mesh/peers`
-- Run as a background service (can use a simple `setInterval` keep-alive or worker thread — NOT a separate systemd unit yet since we're on Docker)
-- UFW: open port 4001 for libp2p swarm connections
-- Test: two instances discover each other via DHT and exchange a typed message
+### ✅ CHUNK 7: Escrow & Trustless Hiring (COMPLETE)
+- `src/routes/escrow.ts` — full CRUD: create, fund, start, complete, release, dispute, evidence, resolve, GET
+- `src/core/escrow-cron.ts` — every 10 min: expired FUNDED→REFUNDED, WIP→DISPUTED
+- `escrows` + `audit_log` tables, full state machine, `docs/escrow-design.md`
 
-**Schema to add:**
-```sql
-CREATE TABLE IF NOT EXISTS peers (
-  id TEXT PRIMARY KEY,
-  multiaddr TEXT NOT NULL,
-  last_seen TEXT NOT NULL,
-  metadata_json TEXT
-);
-```
+### ✅ CHUNK 8: Skill System — Part 1 (COMPLETE)
+- `src/routes/skills.ts` — POST /v1/skills, GET /list, GET /mine, GET /:id, POST /:id/invoke, PATCH /:id/visibility, DELETE /:id, GET /:id/reputation, GET /:id/metrics
+- `skills/token-analysis/skill.json` — first ClawHub skill package
+- `docs/SKILL.md` — skill format spec
+- Reputation recording on invoke (+0.1 success, -0.05 failure)
+- `skill_metrics` recorded per invocation
+- Discovery embedding on publish
 
-**Constraint:** Do NOT use the old `libp2p` monolith package. Use `@libp2p/node` (modular).
+### ✅ CHUNK 9: Skill System — Part 2 (COMPLETE)
+- A/B testing: `POST /v1/skills/:id/fork`, `POST /v1/skills/:id/promote`
+- 30% traffic to challenger automatically when `ab_challenger` set
+- `src/core/skill-ab-cron.ts` — every 30 min: auto-promote if +10% success rate (min 20 invocations), discard if -10%
+- `skill_versions` table, migration columns: version, input_schema_json, output_schema_json, published_at, tags_json, forked_from, ab_challenger
 
----
+### ✅ CHUNK 10: Discovery Trinity (COMPLETE)
+- `src/core/discovery-engine.ts` — semantic (60%) + P2P (25%) + on-chain mock (15%)
+- `src/config/discovery.json` — configurable weights, graceful degradation when layers return nothing
+- `POST /v1/discover` rewired to trinity engine with `filters.source[]`, `filters.provider`, `weights{}`
 
-### ✅ CHUNK 6: Vector Search & Embeddings (ClawAPIs Social Layer)
-**Status: COMPLETE**
-**Goal:** Add semantic skill/agent search using sqlite-vec and local ONNX embeddings.
+### 🟡 CHUNK 11: Dashboard Upgrade (SKIPPED)
+- Plain HTML dashboard works fine. Skip React migration unless explicitly requested.
 
-Key deliverables:
-- Install `sqlite-vec` extension (pure C, no Faiss dependency)
-- Install `@huggingface/transformers` (ONNX runtime, CPU, no Python needed) — use `all-MiniLM-L6-v2` model
-- Add vector columns to a new `discovery_cache` table
-- Build embedding pipeline: text → ONNX model → float32 vector → sqlite-vec storage
-- Expose `POST /v1/discover` endpoint: takes a natural language skill query, returns ranked results by cosine similarity
-- Seed with embeddings for the 183 existing ClawAPIs endpoints
-
-**Schema to add:**
-```sql
--- After loading sqlite-vec extension:
-CREATE VIRTUAL TABLE IF NOT EXISTS skill_embeddings USING vec0(
-  embedding float[384]  -- all-MiniLM-L6-v2 output dimension
-);
-CREATE TABLE IF NOT EXISTS discovery_cache (
-  id TEXT PRIMARY KEY,
-  skill_name TEXT,
-  skill_desc TEXT,
-  provider TEXT,
-  rowid_vec INTEGER,  -- FK to skill_embeddings rowid
-  ttl_expires TEXT
-);
-```
-
-**Constraint:** sqlite-vss is deprecated, do not install it. Use sqlite-vec only.
+### ✅ CHUNK 12: Marketplace & Economics (COMPLETE)
+- `src/routes/marketplace.ts` — GET /skills, GET /skills/:id, POST /skills/:id/purchase, GET /transactions, POST /stake, POST /unstake/:id, GET /stakes, GET /creator/stats
+- `src/core/seed-skills.ts` — seeds 3 official skills on startup: token-analysis (5cr), social-sentiment (3cr), portfolio-optimizer (8cr)
+- `site/marketplace.html` — full 4-tab UI: Browse, Publish, My Skills, How It Works
+- Purchase flow: buy + invoke in one modal step → result shown immediately
+- `transactions` + `stakes` tables, `getCreatorStats()`, `getSkillsByAuthor()`
+- 3% platform fee, 97% to creator, atomic SQLite transactions
 
 ---
 
-### ✅ CHUNK 7: Escrow & Trustless Hiring (ClawEarn)
-**Status: COMPLETE**
-**Goal:** Implement a trustless escrow layer so agents can hire other agents and release payment on completion.
+## 🔴 CHUNK 13: Swarms, Governance & Creator Payouts
+**Status: NOT STARTED — Start here**
 
-Note: The roadmap specified `clawearn` but that may not be a real npm package. Implement the escrow logic directly using the existing payment infrastructure (Stripe + USDC) with a state machine in SQLite.
+This chunk has three independent sub-goals:
 
-Key deliverables:
-- Add `escrows` and `audit_log` tables to SQLite
-- Escrow state machine: `CREATED → FUNDED → WORK_IN_PROGRESS → COMPLETED | DISPUTED → RESOLVED`
-- Hono routes:
-  - `POST /v1/escrow/create` — create escrow (hirer, worker, amount, deadline)
-  - `POST /v1/escrow/:id/fund` — fund from credits
-  - `POST /v1/escrow/:id/release` — mutual approval releases to worker
-  - `POST /v1/escrow/:id/dispute` — flags for arbitration
-  - `GET /v1/escrow/:id` — get status
-- Automatic release: cron job checks deadlines, auto-releases after timeout
-- All events written to `audit_log`
-- Write a sub-design doc (`docs/escrow-design.md`) covering: arbitration model, evidence format, timeout behavior, appeal process — BEFORE coding
+### 13A — Creator Payout System (CRITICAL for viability)
+Creators earn credits but currently cannot convert them to real money. This kills serious creator participation.
 
-**Schema to add:**
-```sql
-CREATE TABLE IF NOT EXISTS escrows (
-  id TEXT PRIMARY KEY,
-  hirer_id TEXT NOT NULL,
-  worker_id TEXT NOT NULL,
-  amount_credits INTEGER NOT NULL,
-  state TEXT NOT NULL DEFAULT 'CREATED',
-  created_at TEXT NOT NULL,
-  deadline TEXT,
-  completed_at TEXT,
-  metadata_json TEXT
-);
-CREATE TABLE IF NOT EXISTS audit_log (
-  id TEXT PRIMARY KEY,
-  entity_type TEXT NOT NULL,
-  entity_id TEXT NOT NULL,
-  action TEXT NOT NULL,
-  actor_id TEXT,
-  data_json TEXT,
-  timestamp TEXT NOT NULL
-);
-```
+**What to build:**
+- `payout_requests` table: `id, agent_key, amount_credits, usdc_wallet, status (PENDING|PROCESSING|PAID|REJECTED), created_at, processed_at, notes`
+- `POST /v1/marketplace/creator/withdraw` — authenticated, min 1000 credits earned, queues a payout request, debits credits atomically
+- `GET /v1/marketplace/creator/withdrawals` — list your payout history
+- Admin route: `GET /v1/admin/payouts` (ADMIN_API_KEY auth) — list all pending payouts for manual USDC processing
+- Admin route: `PATCH /v1/admin/payouts/:id` — mark as PAID/REJECTED with notes
+- Update `site/marketplace.html` My Skills tab to show a "Withdraw Credits" button and withdrawal history
+
+**Economy closure:** Credits earned → withdraw to USDC wallet → real money out. Min 1000 credits = $1.00 USDC.
+
+### 13B — Swarm Task Decomposition
+Multi-agent coordination: break a complex task into sub-tasks, route each to the best available skill, aggregate results.
+
+**What to build:**
+- `swarms` table: `id, task, status, sub_tasks_json, result_json, created_at, completed_at`
+- `POST /v1/swarm/task` — takes `{ task: string, skills?: string[] }`, decomposes task using LLM, invokes each sub-skill in parallel, aggregates into coherent response
+- `GET /v1/swarm/:id` — get swarm task status and results
+- LLM decomposition prompt: "Break this task into 2-4 independent sub-tasks that map to these available skills: {skill list}. Return JSON array."
+- Parallel skill invocation via `Promise.all`
+- Aggregation: LLM synthesizes sub-results into final answer
+
+### 13C — ClawGuard (Agent Identity & Governance)
+Trust infrastructure for the agent economy.
+
+**What to build:**
+- **ECDSA signing:** Each API response to `/v1/orchestrate` and skill invocations gets an `X-ClawNet-Signature` header (HMAC-SHA256 of response body + timestamp using a platform signing key). Callers can verify responses came from ClawNet.
+- **Governance proposals:** `proposals` table — `id, title, description, proposed_by, status (OPEN|CLOSED|EXECUTED), votes_for, votes_against, created_at, closes_at`
+- `POST /v1/governance/propose` — create a proposal (requires API key + min 100 credits balance)
+- `POST /v1/governance/proposals/:id/vote` — cast vote (for/against), weight = sqrt(credits_spent_on_platform). One vote per key per proposal.
+- `GET /v1/governance/proposals` — list open proposals
+- Reputation gating: skills with reputation score < -1.0 are auto-unpublished (add check in skill-ab-cron)
 
 ---
 
-### ✅ CHUNK 8: Core Mesh Skill v3 — Part 1
-**Status: COMPLETE**
-**Goal:** Build the first self-contained "skill" — a packaged capability that agents can discover, hire for, and execute. This is the core unit of the agent economy.
+## 🔴 CHUNK 14: Testing, Docs & Launch Hardening
+**Status: NOT STARTED**
 
-Key deliverables:
-- Define `SKILL.md` format spec (system prompt, input schema, output schema, pricing, metadata)
-- Build a `skills/` directory in the repo for ClawHub skill packages
-- Create first skill: **"Token Analysis"** — wraps existing orchestrator logic into a publishable skill
-- Skill metadata: name, description, version (semver), author, price_credits, input_schema (Zod), output_schema
-- Discovery integration: skill gets embedded via Chunk 6 pipeline on publish
-- Hiring integration: creates an escrow via Chunk 7 on invocation
-- Reputation tracking: record skill invocation results to `reputation_events` table
-- Vitest test suite covering skill invocation end-to-end
-
-**Schema to add:**
-```sql
-CREATE TABLE IF NOT EXISTS skills (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  version TEXT NOT NULL,
-  author_id TEXT NOT NULL,
-  description TEXT,
-  price_credits INTEGER NOT NULL DEFAULT 1,
-  input_schema_json TEXT,
-  output_schema_json TEXT,
-  published_at TEXT,
-  active INTEGER DEFAULT 1
-);
-CREATE TABLE IF NOT EXISTS reputation_events (
-  id TEXT PRIMARY KEY,
-  agent_id TEXT NOT NULL,
-  skill_id TEXT,
-  event_type TEXT NOT NULL,
-  score_delta REAL,
-  data_json TEXT,
-  timestamp TEXT NOT NULL
-);
-```
-
----
-
-### ✅ CHUNK 9: Core Mesh Skill v3 — Part 2
-**Status: COMPLETE**
-**Goal:** Add self-evolution — skills can fork themselves, A/B test variants, and auto-publish improvements.
-
-Key deliverables:
-- Skill forking: `POST /v1/skills/:id/fork` — creates a new version with provenance chain
-- A/B testing framework: run original vs fork on identical inputs, compare metrics (latency, success rate, cost, satisfaction)
-- Performance metrics collection — store in `skill_metrics` table
-- Auto-publish: if fork beats original by configurable threshold, promote it
-- Rollback: atomic version switch if new version underperforms
-- Royalty split: if a fork earns revenue, original author gets configurable % — track in `transactions` table
-
-**Schema to add:**
-```sql
-CREATE TABLE IF NOT EXISTS skill_versions (
-  id TEXT PRIMARY KEY,
-  skill_id TEXT NOT NULL,
-  version TEXT NOT NULL,
-  forked_from_version TEXT,
-  forked_by_agent TEXT,
-  published_at TEXT
-);
-CREATE TABLE IF NOT EXISTS skill_metrics (
-  id TEXT PRIMARY KEY,
-  skill_id TEXT NOT NULL,
-  version TEXT NOT NULL,
-  latency_ms INTEGER,
-  success INTEGER,
-  cost_credits INTEGER,
-  timestamp TEXT NOT NULL
-);
-```
-
----
-
-### ✅ CHUNK 10: Discovery Trinity
-**Status: COMPLETE**
-**Goal:** Combine all three discovery methods into one ranked, fault-tolerant system.
-
-Three discovery layers:
-1. **On-chain** — query ERC-8004 registry (or mock if not yet deployed) for agent identities
-2. **ClawAPIs semantic** — vector similarity search via sqlite-vec (Chunk 6)
-3. **P2P gossip** — real-time peer announcements via libp2p (Chunk 5)
-
-Key deliverables:
-- Aggregation engine with **configurable weights** in `config/discovery.json` (not hardcoded)
-- Graceful degradation: if one layer is down, re-weight the others automatically
-- Cache invalidation: TTL-based for on-chain, event-driven for P2P, embedding refresh for semantic
-- Hono route: `POST /v1/discover` accepts `{ query, filters, weights? }`, returns ranked agent/skill list
-- Discovery analytics written to `audit_log`
-- Test: disable each layer individually, verify results still return
-
----
-
-### 🟡 CHUNK 11: Dashboard Upgrade (Vite + React) — OPTIONAL
-**Status: Partially done as plain HTML. Decision needed.**
-
-The roadmap says Vite + React SPA. Currently you have plain HTML that works. **Do not do this chunk unless you decide to migrate** — it's a large refactor for the dashboard and doesn't affect the API.
-
-If you do it:
-- Init Vite + React in `dashboard/` directory
-- Reown AppKit for wallet auth (`@reown/appkit`)
-- TanStack Query for API data
-- TanStack Router for routing
-- Build outputs to `/var/www/claw-net/` (Caddy serves it as static files)
-
-If you skip it: keep the plain HTML dashboard and move on.
-
----
-
-### 🔴 CHUNK 12: Marketplace & Economics
-**Status: NOT STARTED**  
-**Goal:** Full skill marketplace — browse, purchase, earn royalties.
-
-Key deliverables:
-- Marketplace API: `GET /v1/marketplace/skills` — paginated, filterable, sorted by popularity/price
-- Purchase flow: buyer spends credits → escrow created → skill executed → credits released to seller
-- Royalty tracking: fork revenue splits tracked in `transactions` table
-- Staking: agents can stake credits to boost reputation/visibility
-- Referral system: referral codes, bounty tracking
-- Discovery fee: 2–4% optional platform fee on marketplace transactions
-- Agent spawner: local Docker container spawn for agent instances (docker-compose, NOT remote VPS)
-
----
-
-### 🔴 CHUNK 13: Swarms, Governance & Security
-**Status: NOT STARTED**  
-**Goal:** Multi-agent coordination, governance, and security hardening.
-
-Key deliverables:
-- Encrypted swarm comms: libp2p noise + group key exchange (requires Chunk 5)
-- Swarm primitives: task decomposition, work assignment, result aggregation
-- ClawGuard module: ECDSA message signing (standard, NOT ZK-SNARKs), sandbox skill testing, reputation gating
-- Governance: weighted voting (ERC-8004 identity weight) — proposal, vote, execute
-- Discord bot integration for community coordination
-- Telegram bot already exists — extend for agent notifications
-- Security review: audit all routes against OWASP Top 10
-
----
-
-### 🔴 CHUNK 14: Testing, Docs & Launch Hardening
-**Status: PARTIAL**  
-**Goal:** Production hardening, comprehensive tests, documentation.
-
-Key deliverables:
 - Vitest suite for all API routes and core logic
-- Playwright E2E tests for dashboard flows (`npx playwright install chromium`)
-- Load test: 100+ concurrent agents (use Docker Compose on separate machine, NOT prod VPS)
-- Security audit checklist document
-- Full API reference (auto-generated from Hono route schemas)
-- Installation guide, architecture diagrams (Mermaid)
-- 3–4 bootstrap skills published to ClawHub
-- Production monitoring: healthcheck endpoints, uptime alerts (UptimeRobot or Healthchecks.io)
-- Runbook: what to do when SQLite locks, mesh node crashes, escrow times out
+- Playwright E2E tests for dashboard flows
+- Full API reference documentation
+- Architecture diagrams (Mermaid)
+- Production monitoring: healthcheck endpoints, UptimeRobot alerts
+- OWASP Top 10 security checklist
+- Runbook: SQLite locks, mesh crashes, escrow timeouts
+- Load test: 100 concurrent agents
 
 ---
 
-## Current File Structure (what exists)
+## Product Viability Notes (read before building)
+
+**The beachhead:** Solana/DeFi data + AI analysis packaged as a pay-per-use API. 183 endpoints, no subscription. This is the wedge.
+
+**The flywheel:** Paying orchestration users → marketplace traffic → skill creators join → more skills → more buyers → more creators.
+
+**What needs to happen before the flywheel starts:**
+1. Creator payouts (USDC withdrawal) — serious creators won't build without real money out
+2. 10–20 real paying orchestration users (not marketplace, just the API)
+3. 10–15 high-quality skills in the marketplace (currently 3)
+4. Real results from the 3 seeded skills (test them and tune prompts)
+
+**The long-game:** Agent-to-agent payments. AI agents discover skills via P2P mesh, pay via credits, escrow for trust. ClawNet becomes infrastructure for the agentic web.
+
+---
+
+## Key File Paths
+
 ```
-claw-net/
-├── src/
-│   ├── config/index.ts          # Zod env config
-│   ├── config/api-registry.ts   # 183 endpoint definitions
-│   ├── core/
-│   │   ├── intent-parser.ts
-│   │   ├── executor.ts
-│   │   ├── formatter.ts
-│   │   ├── heartbeat.ts
-│   │   └── circuit-breaker.ts
-│   ├── providers/llm.ts
-│   ├── providers/clawapis.ts
-│   ├── db/index.ts              # SQLite WAL setup (better-sqlite3, no ORM)
-│   ├── cache/index.ts           # LRU + Redis wrapper
-│   ├── middleware/auth.ts        # X-API-Key check
-│   ├── middleware/rate-limit.ts
-│   ├── middleware/clerk-auth.ts  # Clerk JWT
-│   ├── routes/api.ts            # POST /v1/orchestrate
-│   ├── routes/feedback.ts
-│   ├── routes/admin.ts
-│   ├── routes/stripe.ts
-│   ├── routes/dashboard.ts
-│   ├── routes/solana.ts         # USDC payment routes
-│   ├── routes/contact.ts
-│   ├── integrations/telegram.ts
-│   └── utils/
-│       ├── logger.ts
-│       ├── usage.ts             # getUsageStats()
-│       ├── shutdown.ts
-│       ├── solana.ts
-│       └── email.ts
-├── tests/run.ts
-├── scripts/backup.sh
-├── scripts/rotate-logs.sh
-├── Dockerfile
-├── docker-compose.yml
-└── docs/README.md
+src/
+  index.ts                    — Hono app, route registration, startup
+  db/index.ts                 — ALL tables + helpers (no ORM)
+  config/index.ts             — Zod env validation
+  config/api-registry.ts      — 183 endpoint definitions
+  config/discovery.json       — Trinity weights
+  middleware/auth.ts          — X-API-Key checkApiKey middleware
+  middleware/clerk-auth.ts    — Clerk JWT clerkAuth middleware
+  middleware/rate-limit.ts    — 60 req/min/IP
+  routes/
+    api.ts                    — POST /v1/orchestrate
+    skills.ts                 — skill CRUD + invoke + A/B
+    marketplace.ts            — marketplace + staking + creator stats
+    escrow.ts                 — escrow state machine
+    discover.ts               — POST /v1/discover (trinity)
+    mesh.ts                   — GET /v1/mesh/peers
+    stats.ts                  — GET /v1/stats (public)
+    admin.ts                  — admin routes (ADMIN_API_KEY)
+    stripe.ts, solana.ts      — payment routes
+    dashboard.ts, feedback.ts, referral.ts, endpoints.ts, contact.ts
+  core/
+    discovery-engine.ts       — trinity aggregation
+    embeddings.ts             — ONNX embed()
+    seed-embeddings.ts        — seeds 183 endpoints
+    seed-skills.ts            — seeds 3 official skills on startup
+    escrow-cron.ts            — 10min: expired escrow cleanup
+    skill-ab-cron.ts          — 30min: A/B auto-promote
+    heartbeat.ts
+  mesh/node.ts                — libp2p startMeshNode/stopMeshNode
+  utils/shutdown.ts           — SIGTERM/SIGINT handlers
+  integrations/telegram.ts
+site/
+  index.html                  — landing page (copy to /var/www/claw-net/ after deploy)
+  marketplace.html            — skill marketplace (4 tabs)
+  dashboard.html              — user dashboard
+  endpoints.html, login.html, success.html, admin.html
+skills/token-analysis/        — official skill package
+docs/
+  escrow-design.md
+  SKILL.md
 ```
 
 ---
 
-## Key Technical Patterns to Follow
+## Code Patterns
 
-**Hono route pattern:**
 ```typescript
+// Route pattern (always Hono)
 import { Hono } from 'hono'
-const route = new Hono()
-route.post('/endpoint', clerkAuth, async (c) => {
-  const body = await c.req.json()
-  // ...
+const router = new Hono()
+router.post('/path', checkApiKey, async (c) => {
+  const keyInfo = c.get('apiKeyInfo') // { key, credits, ... }
   return c.json({ ok: true })
 })
-export default route
+export { router }
+
+// DB pattern (no ORM, always raw SQL)
+import { getDb } from '../db/index'
+const row = getDb().prepare('SELECT * FROM table WHERE id = ?').get(id)
+const tx = getDb().transaction(() => { /* atomic */ })()
+
+// Register route in src/index.ts (before app.notFound())
+app.route('/v1/something', someRouter)
+// Start background service in start() function
+// Stop in src/utils/shutdown.ts setupGracefulShutdown()
+
+// Audit log (use for all state changes)
+writeAuditLog({ entityType: 'x', entityId: id, action: 'ACTION', actorId: key })
+
+// nanoid for IDs
+const { nanoid } = await import('nanoid')
+const id = nanoid(16)
 ```
-
-**SQLite pattern (no ORM):**
-```typescript
-import Database from 'better-sqlite3'
-const db = new Database('./data/clawnet.db')
-db.pragma('journal_mode = WAL')
-const row = db.prepare('SELECT * FROM table WHERE id = ?').get(id)
-```
-
-**Clerk auth middleware already exists** at `src/middleware/clerk-auth.ts` — import and use it.
-
-**Stripe + dashboard routes must be registered BEFORE Clerk middleware** in `src/index.ts`.
-
-**Redis:** `REDIS_URL=redis://redis:6379` (Docker service name, not localhost).
-
-**pino redacts** any field matching `/key|token|secret|password/i`.
 
 ---
 
-## Environment (VPS .env)
+## Environment Variables (VPS .env)
+
 ```
 PORT=3402
 NODE_ENV=production
@@ -426,9 +285,11 @@ CLERK_PUBLISHABLE_KEY=pk_live_Y2xlcmsuY2xhdy1uZXQub3JnJA
 SOLANA_RECEIVING_WALLET=H6xbRyGEyoTdfBEShSt2H3oHJxL3gaJjVGdL5MLKwHN7
 TELEGRAM_BOT_TOKEN=<set>
 TELEGRAM_CHANNEL_ID=<set>
+ADMIN_API_KEY=<set>
+PLATFORM_SIGNING_SECRET=<32-byte hex — generate with: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))">
 ```
 
 ---
 
 ## Where to Start
-**Next chunk = Chunk 8 (Core Mesh Skill v3 — Part 1).** Chunks 1–7 are complete and live.
+**Next = Chunk 13.** Build sub-goals in order: 13A (creator payouts) → 13B (swarm tasks) → 13C (ClawGuard + governance).

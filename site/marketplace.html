@@ -418,6 +418,25 @@
         <div class="cstat"><div class="cstat-val" id="cs-skills">—</div><div class="cstat-lbl">Skills Published</div></div>
       </div>
       <div class="my-skills-list" id="my-skills-list"></div>
+
+      <!-- Withdraw Credits -->
+      <div style="margin-top:32px;padding-top:24px;border-top:1px solid var(--border)">
+        <div style="font-size:11px;font-weight:700;color:var(--muted2);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Withdraw Earnings</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:16px;line-height:1.6">Convert your earned credits to USDC. Minimum 1,000 credits ($1.00). Sent to your Solana wallet within 48h.</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:10px;max-width:640px;align-items:end">
+          <div>
+            <label class="form-label" style="margin-bottom:6px;display:block">Credits to withdraw</label>
+            <input type="number" class="field" id="wd-amount" placeholder="1000" min="1000" style="width:100%">
+          </div>
+          <div>
+            <label class="form-label" style="margin-bottom:6px;display:block">USDC wallet (Solana)</label>
+            <input type="text" class="field" id="wd-wallet" placeholder="Your Solana address..." style="width:100%">
+          </div>
+          <button class="btn-buy" style="white-space:nowrap;padding:9px 16px" onclick="requestWithdraw()">Request Payout</button>
+        </div>
+        <div id="wd-result" style="margin-top:12px;font-size:11px;display:none;padding:10px 14px;border:1px solid var(--border)"></div>
+        <div id="wd-history" style="margin-top:16px"></div>
+      </div>
     </div>
   </div>
 
@@ -867,6 +886,7 @@ async function loadMySkills() {
     document.getElementById('cs-earned').textContent = d.totalEarned;
     document.getElementById('cs-sales').textContent = d.totalSales;
     document.getElementById('cs-skills').textContent = d.publishedSkills;
+    loadWithdrawHistory();
 
     const list = document.getElementById('my-skills-list');
     if (!d.skills.length) {
@@ -920,6 +940,58 @@ async function deleteSkill(id) {
 
 function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function fmt(n) { return n>=1000000?(n/1e6).toFixed(1)+'M':n>=1000?(n/1000).toFixed(1)+'k':String(n); }
+// ─── Withdraw ─────────────────────────────────────────────────────────────────
+
+async function requestWithdraw() {
+  if (!apiKey) { toast('Set your API key first', 'error'); return; }
+  const amount = parseInt(document.getElementById('wd-amount').value);
+  const wallet = document.getElementById('wd-wallet').value.trim();
+  if (!amount || amount < 1000) { toast('Minimum 1,000 credits', 'error'); return; }
+  if (!wallet || wallet.length < 32) { toast('Enter a valid Solana wallet address', 'error'); return; }
+
+  try {
+    const r = await fetch(`${API}/v1/marketplace/creator/withdraw`, {
+      method: 'POST',
+      headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ amountCredits: amount, usdcWallet: wallet }),
+    });
+    const d = await r.json();
+    const res = document.getElementById('wd-result');
+    res.style.display = 'block';
+    if (r.ok) {
+      res.style.borderColor = 'rgba(0,255,136,0.3)';
+      res.style.color = 'var(--green)';
+      res.textContent = `✓ Payout queued — ${d.amountCredits} credits ($${d.usdcEquivalent} USDC) to ${wallet.slice(0,8)}...${wallet.slice(-4)}`;
+      toast('Withdrawal requested', 'success');
+      loadWithdrawHistory();
+    } else {
+      res.style.borderColor = 'rgba(255,68,68,0.3)';
+      res.style.color = 'var(--red)';
+      res.textContent = d.error || 'Request failed';
+    }
+  } catch { toast('Network error', 'error'); }
+}
+
+async function loadWithdrawHistory() {
+  if (!apiKey) return;
+  try {
+    const r = await fetch(`${API}/v1/marketplace/creator/withdrawals`, { headers: { 'X-API-Key': apiKey } });
+    if (!r.ok) return;
+    const d = await r.json();
+    const el = document.getElementById('wd-history');
+    if (!d.withdrawals.length) { el.innerHTML = ''; return; }
+    const statusColor = { PENDING: 'var(--yellow)', PROCESSING: 'var(--blue)', PAID: 'var(--green)', REJECTED: 'var(--red)' };
+    el.innerHTML = `<div style="font-size:10px;color:var(--muted);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:8px">Withdrawal History</div>` +
+      d.withdrawals.map(w => `<div style="font-size:11px;padding:8px 12px;border:1px solid var(--border);margin-bottom:6px;display:flex;gap:16px;align-items:center">
+        <span style="color:${statusColor[w.status]||'var(--muted)'};font-size:9px;letter-spacing:1px">${w.status}</span>
+        <span style="color:var(--muted2)">${w.amountCredits} credits ($${w.usdcEquivalent} USDC)</span>
+        <span style="color:var(--muted);font-size:10px">${w.usdcWallet.slice(0,8)}...${w.usdcWallet.slice(-4)}</span>
+        <span style="color:var(--muted);font-size:10px;margin-left:auto">${new Date(w.createdAt).toLocaleDateString()}</span>
+        ${w.notes ? `<span style="color:var(--muted);font-size:10px">${esc(w.notes)}</span>` : ''}
+      </div>`).join('');
+  } catch {}
+}
+
 function toast(msg, type='info') {
   const el=document.createElement('div'); el.className=`toast ${type}`;
   el.innerHTML=`<span>${type==='success'?'✓':type==='error'?'✗':'ℹ'}</span><span>${esc(msg)}</span>`;

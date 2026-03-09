@@ -25,6 +25,7 @@ const envSchema = z.object({
 
   API_KEYS: z.string().optional(),
   ADMIN_API_KEY: z.string().optional(),
+  PLATFORM_SIGNING_SECRET: z.string().optional(),
   RATE_LIMIT_PER_MIN: z.coerce.number().default(60),
 
   TELEGRAM_BOT_TOKEN: z.string().optional(),

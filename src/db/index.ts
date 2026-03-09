@@ -232,6 +232,54 @@ export function initDb(): void {
     CREATE INDEX IF NOT EXISTS idx_api_keys_email ON api_keys(email);
     CREATE INDEX IF NOT EXISTS idx_api_keys_stripe ON api_keys(stripe_session_id);
     CREATE INDEX IF NOT EXISTS idx_email_send_log ON email_send_log(email, type, sent_at);
+
+    CREATE TABLE IF NOT EXISTS payout_requests (
+      id TEXT PRIMARY KEY,
+      agent_key TEXT NOT NULL,
+      amount_credits INTEGER NOT NULL,
+      usdc_wallet TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'PENDING',
+      notes TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      processed_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_payouts_agent ON payout_requests(agent_key);
+    CREATE INDEX IF NOT EXISTS idx_payouts_status ON payout_requests(status);
+
+    CREATE TABLE IF NOT EXISTS swarms (
+      id TEXT PRIMARY KEY,
+      task TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'PENDING',
+      agent_key TEXT NOT NULL,
+      sub_tasks_json TEXT,
+      results_json TEXT,
+      error TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      completed_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_swarms_agent ON swarms(agent_key);
+
+    CREATE TABLE IF NOT EXISTS proposals (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL,
+      proposed_by TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'OPEN',
+      votes_for INTEGER NOT NULL DEFAULT 0,
+      votes_against INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      closes_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS votes (
+      id TEXT PRIMARY KEY,
+      proposal_id TEXT NOT NULL,
+      voter_key TEXT NOT NULL,
+      direction TEXT NOT NULL,
+      weight REAL NOT NULL DEFAULT 1.0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(proposal_id, voter_key)
+    );
+    CREATE INDEX IF NOT EXISTS idx_votes_proposal ON votes(proposal_id);
   `);
 
   // sqlite-vec virtual table (only available if extension loaded successfully)
@@ -1367,4 +1415,187 @@ export function getMarketplaceSkills(params: {
     .all(...args, params.limit, offset) as (Skill & { stake_total: number })[];
 
   return { skills, total: countRow.n };
+}
+
+// ─── Payout Requests ──────────────────────────────────────────────────────────
+
+export interface PayoutRequest {
+  id: string;
+  agent_key: string;
+  amount_credits: number;
+  usdc_wallet: string;
+  status: 'PENDING' | 'PROCESSING' | 'PAID' | 'REJECTED';
+  notes: string | null;
+  created_at: string;
+  processed_at: string | null;
+}
+
+export function createPayoutRequest(params: {
+  agentKey: string;
+  amountCredits: number;
+  usdcWallet: string;
+}): { ok: boolean; id?: string; error?: string } {
+  const db = getDb();
+  const MIN_CREDITS = 1000;
+
+  return db.transaction(() => {
+    // Verify earned enough
+    const earned = (db.prepare(
+      `SELECT COALESCE(SUM(amount_credits),0) as total FROM transactions WHERE to_agent = ? AND type = 'SKILL_SALE'`
+    ).get(params.agentKey) as { total: number }).total;
+
+    if (earned < MIN_CREDITS) return { ok: false, error: `Minimum ${MIN_CREDITS} credits earned required (you have ${earned})` };
+
+    // Check pending payouts won't exceed earned
+    const pendingTotal = (db.prepare(
+      `SELECT COALESCE(SUM(amount_credits),0) as total FROM payout_requests WHERE agent_key = ? AND status IN ('PENDING','PROCESSING')`
+    ).get(params.agentKey) as { total: number }).total;
+
+    const alreadyPaid = (db.prepare(
+      `SELECT COALESCE(SUM(amount_credits),0) as total FROM payout_requests WHERE agent_key = ? AND status = 'PAID'`
+    ).get(params.agentKey) as { total: number }).total;
+
+    const available = earned - alreadyPaid - pendingTotal;
+    if (params.amountCredits > available) return { ok: false, error: `Only ${available} credits available for withdrawal` };
+    if (params.amountCredits < MIN_CREDITS) return { ok: false, error: `Minimum withdrawal is ${MIN_CREDITS} credits` };
+
+    const { nanoid } = require('nanoid');
+    const id = nanoid(16);
+    db.prepare(`INSERT INTO payout_requests (id, agent_key, amount_credits, usdc_wallet) VALUES (?, ?, ?, ?)`)
+      .run(id, params.agentKey, params.amountCredits, params.usdcWallet);
+    return { ok: true, id };
+  })();
+}
+
+export function getPayoutRequests(agentKey: string): PayoutRequest[] {
+  return getDb()
+    .prepare(`SELECT * FROM payout_requests WHERE agent_key = ? ORDER BY created_at DESC`)
+    .all(agentKey) as PayoutRequest[];
+}
+
+export function getAllPendingPayouts(): PayoutRequest[] {
+  return getDb()
+    .prepare(`SELECT * FROM payout_requests WHERE status IN ('PENDING','PROCESSING') ORDER BY created_at ASC`)
+    .all() as PayoutRequest[];
+}
+
+export function updatePayoutStatus(id: string, status: PayoutRequest['status'], notes?: string): void {
+  getDb()
+    .prepare(`UPDATE payout_requests SET status = ?, notes = ?, processed_at = datetime('now') WHERE id = ?`)
+    .run(status, notes ?? null, id);
+}
+
+// ─── Swarms ────────────────────────────────────────────────────────────────────
+
+export interface SwarmTask {
+  id: string;
+  task: string;
+  status: 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED';
+  agent_key: string;
+  sub_tasks_json: string | null;
+  results_json: string | null;
+  error: string | null;
+  created_at: string;
+  completed_at: string | null;
+}
+
+export function createSwarmTask(agentKey: string, task: string): string {
+  const { nanoid } = require('nanoid');
+  const id = nanoid(16);
+  getDb().prepare(`INSERT INTO swarms (id, task, agent_key) VALUES (?, ?, ?)`)
+    .run(id, task, agentKey);
+  return id;
+}
+
+export function getSwarmTask(id: string): SwarmTask | undefined {
+  return getDb().prepare(`SELECT * FROM swarms WHERE id = ?`).get(id) as SwarmTask | undefined;
+}
+
+export function updateSwarmTask(id: string, params: {
+  status: SwarmTask['status'];
+  subTasks?: unknown[];
+  results?: unknown[];
+  error?: string;
+}): void {
+  getDb().prepare(`
+    UPDATE swarms SET status = ?, sub_tasks_json = ?, results_json = ?, error = ?,
+    completed_at = CASE WHEN ? IN ('COMPLETED','FAILED') THEN datetime('now') ELSE NULL END
+    WHERE id = ?
+  `).run(
+    params.status,
+    params.subTasks ? JSON.stringify(params.subTasks) : null,
+    params.results ? JSON.stringify(params.results) : null,
+    params.error ?? null,
+    params.status, id
+  );
+}
+
+// ─── Governance ────────────────────────────────────────────────────────────────
+
+export interface Proposal {
+  id: string;
+  title: string;
+  description: string;
+  proposed_by: string;
+  status: 'OPEN' | 'CLOSED' | 'EXECUTED';
+  votes_for: number;
+  votes_against: number;
+  created_at: string;
+  closes_at: string;
+}
+
+export function createProposal(params: {
+  title: string;
+  description: string;
+  proposedBy: string;
+  closeDays?: number;
+}): string {
+  const { nanoid } = require('nanoid');
+  const id = nanoid(16);
+  const days = params.closeDays ?? 7;
+  getDb().prepare(`
+    INSERT INTO proposals (id, title, description, proposed_by, closes_at)
+    VALUES (?, ?, ?, ?, datetime('now', '+${days} days'))
+  `).run(id, params.title, params.description, params.proposedBy);
+  return id;
+}
+
+export function getProposals(status?: string): Proposal[] {
+  const db = getDb();
+  // Auto-close expired proposals
+  db.prepare(`UPDATE proposals SET status = 'CLOSED' WHERE status = 'OPEN' AND closes_at < datetime('now')`).run();
+  const where = status ? `WHERE status = ?` : ``;
+  return db.prepare(`SELECT * FROM proposals ${where} ORDER BY created_at DESC`)
+    .all(...(status ? [status] : [])) as Proposal[];
+}
+
+export function getProposal(id: string): Proposal | undefined {
+  return getDb().prepare(`SELECT * FROM proposals WHERE id = ?`).get(id) as Proposal | undefined;
+}
+
+export function castVote(params: {
+  proposalId: string;
+  voterKey: string;
+  direction: 'FOR' | 'AGAINST';
+  weight: number;
+}): { ok: boolean; error?: string } {
+  const db = getDb();
+  return db.transaction(() => {
+    const proposal = db.prepare(`SELECT * FROM proposals WHERE id = ?`).get(params.proposalId) as Proposal | undefined;
+    if (!proposal) return { ok: false, error: 'Proposal not found' };
+    if (proposal.status !== 'OPEN') return { ok: false, error: 'Proposal is not open for voting' };
+
+    const { nanoid } = require('nanoid');
+    try {
+      db.prepare(`INSERT INTO votes (id, proposal_id, voter_key, direction, weight) VALUES (?, ?, ?, ?, ?)`)
+        .run(nanoid(16), params.proposalId, params.voterKey, params.direction, params.weight);
+    } catch {
+      return { ok: false, error: 'Already voted on this proposal' };
+    }
+
+    const col = params.direction === 'FOR' ? 'votes_for' : 'votes_against';
+    db.prepare(`UPDATE proposals SET ${col} = ${col} + ? WHERE id = ?`)
+      .run(params.weight, params.proposalId);
+    return { ok: true };
+  })();
 }

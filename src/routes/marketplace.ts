@@ -5,6 +5,7 @@ import {
   getMarketplaceSkills, marketplacePurchase, stakeCredits, unstakeCredits,
   getStakes, getSkillStakeTotal, getTransactions, getSkill, writeAuditLog,
   getCreatorStats, getSkillsByAuthor,
+  createPayoutRequest, getPayoutRequests,
 } from '../db/index';
 import { logger } from '../utils/logger';
 
@@ -259,5 +260,65 @@ marketplaceRouter.get('/creator/stats', checkApiKey, (c) => {
         publishedAt: s.published_at,
       };
     }),
+  });
+});
+
+// ─── POST /v1/marketplace/creator/withdraw — request USDC payout ───────────────
+
+const WithdrawBody = z.object({
+  amountCredits: z.number().int().min(1000),
+  usdcWallet: z.string().min(32).max(64),
+});
+
+marketplaceRouter.post('/creator/withdraw', checkApiKey, async (c) => {
+  const keyInfo = c.get('apiKeyInfo');
+  let body: z.infer<typeof WithdrawBody>;
+  try { body = WithdrawBody.parse(await c.req.json()); } catch (err) {
+    return c.json({ error: 'Invalid body', details: (err as Error).message }, 400);
+  }
+
+  const result = createPayoutRequest({
+    agentKey: keyInfo.key,
+    amountCredits: body.amountCredits,
+    usdcWallet: body.usdcWallet,
+  });
+
+  if (!result.ok) return c.json({ error: result.error }, 400);
+
+  writeAuditLog({
+    entityType: 'payout', entityId: result.id!,
+    action: 'WITHDRAW_REQUESTED', actorId: keyInfo.key,
+    data: { amountCredits: body.amountCredits, usdcWallet: body.usdcWallet },
+  });
+
+  logger.info({ id: result.id, key: keyInfo.key.slice(0, 8), credits: body.amountCredits }, 'Payout requested');
+
+  return c.json({
+    ok: true,
+    payoutId: result.id,
+    amountCredits: body.amountCredits,
+    usdcEquivalent: (body.amountCredits * 0.001).toFixed(4),
+    status: 'PENDING',
+    message: 'Payout queued. USDC will be sent to your wallet within 48h. You will be notified.',
+  }, 201);
+});
+
+// ─── GET /v1/marketplace/creator/withdrawals — payout history ─────────────────
+
+marketplaceRouter.get('/creator/withdrawals', checkApiKey, (c) => {
+  const keyInfo = c.get('apiKeyInfo');
+  const payouts = getPayoutRequests(keyInfo.key);
+  return c.json({
+    total: payouts.length,
+    withdrawals: payouts.map(p => ({
+      id: p.id,
+      amountCredits: p.amount_credits,
+      usdcEquivalent: (p.amount_credits * 0.001).toFixed(4),
+      usdcWallet: p.usdc_wallet,
+      status: p.status,
+      notes: p.notes,
+      createdAt: p.created_at,
+      processedAt: p.processed_at,
+    })),
   });
 });

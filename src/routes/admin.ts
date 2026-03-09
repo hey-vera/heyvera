@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
-import { getDbStats } from '../db/index';
+import { z } from 'zod';
+import { getDbStats, getAllPendingPayouts, updatePayoutStatus } from '../db/index';
 import { cacheStats } from '../cache/index';
 import { getUsageStats } from '../utils/usage';
 import { getCircuitStats } from '../core/circuit-breaker';
@@ -153,4 +154,48 @@ adminRouter.get('/dashboard', (c) => {
 </html>`;
 
   return c.html(html);
+});
+
+// ─── Admin auth helper ─────────────────────────────────────────────────────────
+
+function requireAdmin(c: { req: { header: (k: string) => string | undefined } }): boolean {
+  const key = c.req.header('X-Admin-Key');
+  return !!(key && env.ADMIN_API_KEY && key === env.ADMIN_API_KEY);
+}
+
+// ─── GET /v1/admin/payouts — list pending creator withdrawal requests ──────────
+
+adminRouter.get('/payouts', (c) => {
+  if (!requireAdmin(c)) return c.json({ error: 'Unauthorized' }, 401);
+  const payouts = getAllPendingPayouts();
+  return c.json({
+    total: payouts.length,
+    payouts: payouts.map(p => ({
+      id: p.id,
+      agentKey: p.agent_key,
+      amountCredits: p.amount_credits,
+      usdcEquivalent: (p.amount_credits * 0.001).toFixed(4),
+      usdcWallet: p.usdc_wallet,
+      status: p.status,
+      createdAt: p.created_at,
+    })),
+  });
+});
+
+// ─── PATCH /v1/admin/payouts/:id — mark payout as PAID or REJECTED ────────────
+
+const UpdatePayoutBody = z.object({
+  status: z.enum(['PAID', 'REJECTED', 'PROCESSING']),
+  notes: z.string().optional(),
+});
+
+adminRouter.patch('/payouts/:id', async (c) => {
+  if (!requireAdmin(c)) return c.json({ error: 'Unauthorized' }, 401);
+  const { id } = c.req.param();
+  let body: z.infer<typeof UpdatePayoutBody>;
+  try { body = UpdatePayoutBody.parse(await c.req.json()); } catch (err) {
+    return c.json({ error: 'Invalid body', details: (err as Error).message }, 400);
+  }
+  updatePayoutStatus(id, body.status, body.notes);
+  return c.json({ ok: true, id, status: body.status });
 });
