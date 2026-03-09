@@ -124,8 +124,11 @@ async function runSwarm(swarmId: string, agentKey: string, body: z.infer<typeof 
           headers: { 'X-API-Key': agentKey, 'Content-Type': 'application/json' },
           body: JSON.stringify({ variables: st.variables }),
         });
+        if (!r.ok) {
+          return { index: i, subtask: st.subtask, skillId: st.skillId, result: null, ok: false, error: `HTTP ${r.status}` };
+        }
         const d = await r.json() as Record<string, unknown>;
-        return { index: i, subtask: st.subtask, skillId: st.skillId, result: d.result ?? d, ok: r.ok };
+        return { index: i, subtask: st.subtask, skillId: st.skillId, result: d.result ?? d, ok: true };
       } else {
         const resp = await llmComplete([{ role: 'user', content: st.subtask }]);
         return { index: i, subtask: st.subtask, skillId: null, result: resp.content, ok: true };

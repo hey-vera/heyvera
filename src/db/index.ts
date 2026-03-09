@@ -1316,6 +1316,7 @@ export function getCreatorStats(authorKey: string): {
     FROM transactions
     WHERE to_agent = ? AND type = 'SKILL_SALE'
     GROUP BY skill_id
+    LIMIT 1000
   `).all(authorKey) as { skill_id: string; earned: number; sales: number }[];
 
   const totalEarned = rows.reduce((s, r) => s + r.earned, 0);
@@ -1669,9 +1670,11 @@ export function castVote(params: {
       return { ok: false, error: 'Already voted on this proposal' };
     }
 
-    const col = params.direction === 'FOR' ? 'votes_for' : 'votes_against';
-    db.prepare(`UPDATE proposals SET ${col} = ${col} + ? WHERE id = ?`)
-      .run(weight, params.proposalId);
+    if (params.direction === 'FOR') {
+      db.prepare(`UPDATE proposals SET votes_for = votes_for + ? WHERE id = ?`).run(weight, params.proposalId);
+    } else {
+      db.prepare(`UPDATE proposals SET votes_against = votes_against + ? WHERE id = ?`).run(weight, params.proposalId);
+    }
     return { ok: true };
   })();
 }

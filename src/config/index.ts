@@ -41,7 +41,7 @@ const envSchema = z.object({
   RESEND_FROM: z.string().optional(),
 
   CLERK_SECRET_KEY: z.string().optional(),
-  SOLANA_RECEIVING_WALLET: z.string().optional(),
+  SOLANA_RECEIVING_WALLET: z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/, 'Invalid Solana address').optional(),
   SOLANA_RPC_URL: z.string().default('https://api.mainnet-beta.solana.com'),
   ADMIN_EMAIL: z.string().optional(),
   SENTRY_DSN: z.string().optional(),
@@ -65,6 +65,10 @@ if (env.NODE_ENV === 'production') {
   if (!env.PLATFORM_SIGNING_SECRET) missing.push('PLATFORM_SIGNING_SECRET');
   if (!env.CLERK_SECRET_KEY) missing.push('CLERK_SECRET_KEY');
   if (isSimulationMode) missing.push('CLAWAPIS_API_KEY (simulation mode active — real API calls disabled)');
+  // Warn if the configured LLM provider has no API key
+  if (env.LLM_PROVIDER === 'anthropic' && !env.ANTHROPIC_API_KEY) missing.push('ANTHROPIC_API_KEY (LLM_PROVIDER=anthropic but key is missing)');
+  if (env.LLM_PROVIDER === 'openai' && !env.OPENAI_API_KEY) missing.push('OPENAI_API_KEY (LLM_PROVIDER=openai but key is missing)');
+  if (env.LLM_PROVIDER === 'openclaw' && !env.OPENCLAW_API_KEY) missing.push('OPENCLAW_API_KEY (LLM_PROVIDER=openclaw but key is missing)');
   if (missing.length > 0) {
     console.warn('⚠️  Production warning — missing recommended env vars:', missing.join(', '));
   }

@@ -118,3 +118,13 @@ export function getCircuitStats() {
   }
   return stats;
 }
+
+// Purge stale CLOSED entries every 24h to prevent unbounded Map growth
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, h] of health.entries()) {
+    if (h.state === 'CLOSED' && h.failures === 0 && now - h.lastFailure > 24 * 60 * 60 * 1000) {
+      health.delete(id);
+    }
+  }
+}, 24 * 60 * 60 * 1000).unref();

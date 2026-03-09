@@ -65,7 +65,7 @@ export async function parseIntent(query: string): Promise<ParsedIntent> {
 
   const messages = [
     { role: 'system' as const, content: SYSTEM_PROMPT },
-    { role: 'user' as const, content: `Query: ${query.slice(0, 2000)}` },
+    { role: 'user' as const, content: JSON.stringify({ query: query.slice(0, 2000) }) },
   ];
 
   async function attempt(): Promise<ParsedIntent> {

@@ -7,6 +7,14 @@ import { env } from '../config/index';
 const emailCache = new Map<string, { email: string | null; expiresAt: number }>();
 const EMAIL_CACHE_TTL_MS = 5 * 60 * 1000;
 
+// Purge expired entries every 10 minutes to prevent unbounded growth
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of emailCache.entries()) {
+    if (now >= entry.expiresAt) emailCache.delete(key);
+  }
+}, 10 * 60 * 1000).unref();
+
 declare module 'hono' {
   interface ContextVariableMap {
     clerkUserId: string;

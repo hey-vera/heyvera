@@ -256,6 +256,14 @@ function isAllowedUser(userId: number): boolean {
 const priceCooldowns = new Map<number, number>();
 const PRICE_COOLDOWN_MS = 60_000;
 
+// Purge expired cooldown entries every hour to prevent unbounded growth
+setInterval(() => {
+  const cutoff = Date.now() - PRICE_COOLDOWN_MS;
+  for (const [uid, ts] of priceCooldowns.entries()) {
+    if (ts < cutoff) priceCooldowns.delete(uid);
+  }
+}, 60 * 60 * 1000).unref();
+
 export async function initTelegram(): Promise<void> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token || process.env.NODE_ENV !== 'production') {

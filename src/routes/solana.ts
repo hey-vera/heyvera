@@ -17,13 +17,15 @@ const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 // Receiving wallet — sourced from validated env config
 const RECEIVING_WALLET = env.SOLANA_RECEIVING_WALLET ?? '';
 
-// Credit amounts — +10% bonus vs Stripe on $20+
+// Credit amounts — exactly +10% over equivalent Stripe package at every tier
+// Stripe: $20→21K, $50→54K, $100→112K, $500→600K, $1000→1.3M
+// USDC:   $20→23K, $50→59K, $100→123K, $500→660K, $1000→1.43M (+10% consistently)
 const USDC_PACKAGES: Record<number, number> = {
-  20:   22_000,
-  50:   55_000,
-  100:  110_000,
-  500:  605_000,
-  1000: 1_320_000,
+  20:   23_000,
+  50:   59_000,
+  100:  123_000,
+  500:  660_000,
+  1000: 1_430_000,
 };
 
 const VerifySchema = z.object({

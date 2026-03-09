@@ -286,7 +286,7 @@ skillsRouter.post('/:id/fork', checkApiKey, async (c) => {
   const forkId = nanoid(12);
   createSkill({
     id: forkId,
-    name: original.name + '-v' + newVersion,
+    name: (original.name + '-v' + newVersion).slice(0, 50),
     description: body.description ?? original.description,
     promptTemplate: body.promptTemplate,
     authorKey: keyInfo.key,
