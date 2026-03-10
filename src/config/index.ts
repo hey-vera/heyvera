@@ -28,7 +28,7 @@ const envSchema = z.object({
   ADMIN_API_KEY: z.string().min(16, 'ADMIN_API_KEY must be at least 16 characters').optional(),
   PLATFORM_SIGNING_SECRET: z.string().optional(),
   RATE_LIMIT_PER_MIN: z.coerce.number().default(60),
-  DAILY_SPEND_CAP: z.coerce.number().int().min(100).default(10000),   // credits/key/day — soft anti-abuse cap
+  DAILY_SPEND_CAP: z.coerce.number().int().min(0).default(0),          // 0 = disabled (agents should spend freely until credits run out)
   ANOMALY_THRESHOLD: z.coerce.number().int().min(100).default(5000),  // alert admin when a key hits this in one day
 
   TELEGRAM_BOT_TOKEN: z.string().optional(),

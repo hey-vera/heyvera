@@ -117,11 +117,13 @@ apiRouter.post('/orchestrate', async (c) => {
 
     const creditsToDeduct = creditsForApiCost(apiCosts);
     if (!keyInfo.isEnvKey) {
-      // Daily spend cap — soft anti-abuse limit, bypassed gracefully if Redis + memory both unavailable
+      // Daily spend tracking — used for anomaly detection and optional hard cap.
+      // DAILY_SPEND_CAP=0 (default): no cap — agents spend freely until credits run out.
+      // Set DAILY_SPEND_CAP > 0 only to protect a specific deployment from runaway automation.
       const today = new Date().toISOString().split('T')[0];
       const dailyKey = `daily_spend:${keyInfo.key}:${today}`;
       const dailySpent = (await cacheGet<number>(dailyKey)) ?? 0;
-      if (dailySpent + creditsToDeduct > env.DAILY_SPEND_CAP) {
+      if (env.DAILY_SPEND_CAP > 0 && dailySpent + creditsToDeduct > env.DAILY_SPEND_CAP) {
         logger.warn({ requestId, key: keyInfo.key.slice(0, 10), dailySpent, creditsToDeduct, cap: env.DAILY_SPEND_CAP }, 'Daily spend cap exceeded');
         return c.json({
           requestId,

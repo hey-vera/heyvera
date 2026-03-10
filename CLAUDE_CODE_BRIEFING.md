@@ -250,7 +250,7 @@ ClawHub = discovery. claw-net.org = monetization. They are not the same thing. N
 - ✅ Prompt template variable validation (Zod `z.record(z.string().max(500))`)
 - ✅ Error messages sanitized in production
 - ✅ Execution only against hardcoded registry (no freeform URLs)
-- ✅ Per-key daily spend cap — `DAILY_SPEND_CAP` env var (default 10K credits/day), HTTP 429 on breach
+- ✅ Per-key daily spend cap — `DAILY_SPEND_CAP` env var (default 0 = disabled; agents spend freely until balance runs out)
 - ✅ Admin key revocation — `POST /v1/admin/revoke-key` `{ key?, email?, reason? }`, logs `KEY_REVOKED`
 - ✅ Anomaly detection — email `ADMIN_EMAIL` when key crosses `ANOMALY_THRESHOLD` credits/day (default 5K)
 - ✅ Load test script ready (`scripts/loadtest.sh`) — run against production to verify p95 < 5s
