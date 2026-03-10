@@ -22,7 +22,12 @@ statsRouter.get('/', (c) => {
   const avgCost = costs.reduce((a, b) => a + b, 0) / costs.length;
 
   const { activeUsers } = getDb()
-    .prepare(`SELECT COUNT(*) as activeUsers FROM api_keys WHERE active = 1 AND credits >= 1`)
+    .prepare(`
+      SELECT COUNT(*) as activeUsers FROM api_keys
+      WHERE active = 1
+        AND credits >= 1
+        AND last_used_at >= datetime('now', '-30 days')
+    `)
     .get() as { activeUsers: number };
 
   return c.json({
