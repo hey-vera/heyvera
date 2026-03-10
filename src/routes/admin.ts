@@ -271,6 +271,47 @@ adminRouter.get('/revenue', (c) => {
   });
 });
 
+// ─── POST /v1/admin/revoke-key — deactivate an API key by key or email ──────
+
+const RevokeKeyBody = z.object({
+  key: z.string().optional(),
+  email: z.string().email().optional(),
+  reason: z.string().optional(),
+}).refine((d) => d.key || d.email, { message: 'Either key or email is required' });
+
+adminRouter.post('/revoke-key', async (c) => {
+  if (!requireAdmin(c)) return c.json({ error: 'Unauthorized' }, 401);
+  let body: z.infer<typeof RevokeKeyBody>;
+  try { body = RevokeKeyBody.parse(await c.req.json()); } catch (err) {
+    const details = err instanceof z.ZodError ? err.flatten().fieldErrors : undefined;
+    return c.json({ error: 'Invalid body', details }, 400);
+  }
+
+  const db = getDb();
+  let revoked = 0;
+
+  if (body.key) {
+    const result = db.prepare('UPDATE api_keys SET active = 0 WHERE key = ? AND active = 1').run(body.key);
+    revoked = result.changes;
+    if (revoked > 0) {
+      logAudit({ entityType: 'api_key', entityId: body.key, action: 'KEY_REVOKED', actorId: 'admin', data: { reason: body.reason } });
+    }
+  } else if (body.email) {
+    const keys = db.prepare('SELECT key FROM api_keys WHERE email = ? AND active = 1').all(body.email) as { key: string }[];
+    for (const row of keys) {
+      db.prepare('UPDATE api_keys SET active = 0 WHERE key = ?').run(row.key);
+      logAudit({ entityType: 'api_key', entityId: row.key, action: 'KEY_REVOKED', actorId: 'admin', data: { email: body.email, reason: body.reason } });
+    }
+    revoked = keys.length;
+  }
+
+  if (revoked === 0) {
+    return c.json({ ok: false, error: 'No active key found matching that identifier' }, 404);
+  }
+
+  return c.json({ ok: true, revokedCount: revoked });
+});
+
 adminRouter.patch('/payouts/:id', async (c) => {
   if (!requireAdmin(c)) return c.json({ error: 'Unauthorized' }, 401);
   const { id } = c.req.param();

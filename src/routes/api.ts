@@ -11,7 +11,7 @@ import { cacheStats, cacheGet, cacheSet, cacheIncr } from '../cache/index';
 import { apiRegistry, findEndpoint } from '../config/api-registry';
 import { env, isSimulationMode } from '../config/index';
 import { logger } from '../utils/logger';
-import { sendApiKeyEmail, sendLowBalanceEmail } from '../utils/email';
+import { sendApiKeyEmail, sendLowBalanceEmail, sendAdminAlert } from '../utils/email';
 import { wasEmailSentRecently, logEmailSend } from '../db/index';
 import crypto from 'crypto';
 
@@ -117,6 +117,21 @@ apiRouter.post('/orchestrate', async (c) => {
 
     const creditsToDeduct = creditsForApiCost(apiCosts);
     if (!keyInfo.isEnvKey) {
+      // Daily spend cap — soft anti-abuse limit, bypassed gracefully if Redis + memory both unavailable
+      const today = new Date().toISOString().split('T')[0];
+      const dailyKey = `daily_spend:${keyInfo.key}:${today}`;
+      const dailySpent = (await cacheGet<number>(dailyKey)) ?? 0;
+      if (dailySpent + creditsToDeduct > env.DAILY_SPEND_CAP) {
+        logger.warn({ requestId, key: keyInfo.key.slice(0, 10), dailySpent, creditsToDeduct, cap: env.DAILY_SPEND_CAP }, 'Daily spend cap exceeded');
+        return c.json({
+          requestId,
+          error: 'Daily spend cap reached. Try again tomorrow or contact support to raise your limit.',
+          code: 'DAILY_CAP_EXCEEDED',
+          dailyCapCredits: env.DAILY_SPEND_CAP,
+          spentToday: dailySpent,
+        }, 429);
+      }
+
       const deducted = deductCredit(keyInfo.key, creditsToDeduct);
       if (!deducted) {
         logger.warn(
@@ -131,6 +146,30 @@ apiRouter.post('/orchestrate', async (c) => {
           creditsAvailable: keyInfo.credits,
           hint: 'Top up your credits at claw-net.org',
         }, 402);
+      }
+
+      // Update daily spend counter (25h TTL covers day boundary)
+      const newDailySpent = dailySpent + creditsToDeduct;
+      cacheSet(dailyKey, newDailySpent, 90_000).catch(() => {});
+
+      // Anomaly detection: fire admin alert the first time a key crosses the threshold today
+      if (newDailySpent >= env.ANOMALY_THRESHOLD && dailySpent < env.ANOMALY_THRESHOLD) {
+        logger.warn({ key: keyInfo.key.slice(0, 10), email: keyInfo.email, newDailySpent }, 'Anomaly: daily spend threshold crossed');
+        sendAdminAlert({
+          subject: `Anomaly — key ${keyInfo.key.slice(0, 10)}... hit ${newDailySpent.toLocaleString()} credits today`,
+          body: [
+            `API key anomaly detected`,
+            ``,
+            `Key    : ${keyInfo.key.slice(0, 10)}...`,
+            `Email  : ${keyInfo.email}`,
+            `Today  : ${today}`,
+            `Spent  : ${newDailySpent.toLocaleString()} credits`,
+            `Cap    : ${env.DAILY_SPEND_CAP.toLocaleString()} credits`,
+            `Threshold: ${env.ANOMALY_THRESHOLD.toLocaleString()} credits`,
+            ``,
+            `Review at: ${env.NODE_ENV === 'production' ? 'https://api.claw-net.org' : 'http://localhost:3402'}/v1/admin/dashboard`,
+          ].join('\n'),
+        }).catch(() => {});
       }
 
       // Low-balance alert: fire-and-forget, throttled to once per 24h per key

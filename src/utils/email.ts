@@ -191,3 +191,29 @@ export async function sendLowBalanceEmail(params: {
     logger.error({ err, to }, 'Failed to send low-balance email');
   }
 }
+
+export async function sendAdminAlert(params: {
+  subject: string;
+  body: string;
+}): Promise<void> {
+  const adminEmail = process.env.ADMIN_EMAIL;
+  const resendKey = process.env.RESEND_API_KEY;
+  const from = process.env.RESEND_FROM ?? 'noreply@claw-net.org';
+
+  if (!adminEmail || !resendKey) return; // silently skip if not configured
+
+  try {
+    await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from,
+        to: adminEmail,
+        subject: `🦀 ClawNet Admin: ${params.subject}`,
+        html: `<pre style="font-family:monospace">${params.body.replace(/</g, '&lt;')}</pre>`,
+      }),
+    });
+  } catch (err) {
+    logger.warn({ err }, 'Admin alert email failed');
+  }
+}

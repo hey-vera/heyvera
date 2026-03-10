@@ -250,10 +250,11 @@ ClawHub = discovery. claw-net.org = monetization. They are not the same thing. N
 - ✅ Prompt template variable validation (Zod `z.record(z.string().max(500))`)
 - ✅ Error messages sanitized in production
 - ✅ Execution only against hardcoded registry (no freeform URLs)
-- ⬜ Per-key daily spend cap (e.g. $10/day default, configurable)
-- ⬜ Admin key revocation endpoint
-- ⬜ Anomaly detection alert if a key's spend jumps 10x in a day
+- ✅ Per-key daily spend cap — `DAILY_SPEND_CAP` env var (default 10K credits/day), HTTP 429 on breach
+- ✅ Admin key revocation — `POST /v1/admin/revoke-key` `{ key?, email?, reason? }`, logs `KEY_REVOKED`
+- ✅ Anomaly detection — email `ADMIN_EMAIL` when key crosses `ANOMALY_THRESHOLD` credits/day (default 5K)
 - ✅ Load test script ready (`scripts/loadtest.sh`) — run against production to verify p95 < 5s
+- ✅ GitHub Actions CI — `.github/workflows/ci.yml` (typecheck + unit tests on push/PR)
 
 ### What to Log / Never Log
 
@@ -426,14 +427,13 @@ PLATFORM_SIGNING_SECRET=<32-byte hex — generate with: node -e "console.log(req
 
 ## Where to Start
 
-**Chunks 1–14 are COMPLETE. Fintech audit backlog is COMPLETE. All security audits (Rounds 1–10) are COMPLETE.**
+**Chunks 1–14 are COMPLETE. Fintech audit backlog is COMPLETE. All security guardrails are COMPLETE. GitHub Actions CI is LIVE.**
 
 **Next priority: user acquisition, not more features.**
 
 1. Outreach to 5 Solana/DeFi developers — offer free starter credits, watch what they query
 2. Fix the top 3 pain points they surface
-3. Once 10 paying users exist: add per-key daily spend cap + admin revocation endpoint
-4. Once 10+ paying users exist: run `scripts/loadtest.sh` against production, set up GitHub Actions CI
-5. Once 10+ paying users return after week 1: consider thin ClawHub wrapper skill
+3. Once 10 paying users exist: run `scripts/loadtest.sh` against production
+4. Once 10+ paying users return after week 1: consider thin ClawHub wrapper skill
 
 The code is production-ready. The constraint is users.

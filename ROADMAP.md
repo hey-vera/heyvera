@@ -179,6 +179,13 @@ Quarterly rotation procedure added to `docs/RUNBOOK.md` §12. Includes steps, ve
 ### ✅ H4 — Admin Action Logging
 `logAudit(PAYOUT_STATUS)` added to `PATCH /v1/admin/payouts/:id`. Audit query guide added to `docs/RUNBOOK.md` §13.
 
+### ✅ Security Guardrails — ALL COMPLETE
+
+- **Per-key daily spend cap** — `DAILY_SPEND_CAP` env var (default 10,000 credits). Soft cap checked in `/v1/orchestrate` handler via Redis; returns HTTP 429 with `DAILY_CAP_EXCEEDED` code. `src/routes/api.ts`.
+- **Admin key revocation** — `POST /v1/admin/revoke-key` with `{ key?, email?, reason? }`. Deactivates key(s) immediately, logs to `audit_log` with `KEY_REVOKED` action. `src/routes/admin.ts`.
+- **Anomaly detection** — fires `sendAdminAlert` email the first time a key crosses `ANOMALY_THRESHOLD` credits in a day (default 5,000). Logged + emailed to `ADMIN_EMAIL`. `src/routes/api.ts`.
+- **GitHub Actions CI** — `.github/workflows/ci.yml` runs on push/PR to main: `npm ci` → `npm run typecheck` → `npm run test:unit`.
+
 ---
 
 ## In Progress / Next
