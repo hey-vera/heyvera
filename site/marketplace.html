@@ -183,6 +183,8 @@
     .dtab { font-size: 10px; letter-spacing: .5px; padding: 12px 18px; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all .15s; background: none; border-top: none; border-left: none; border-right: none; font-family: var(--font); }
     .dtab:hover { color: var(--muted2); }
     .dtab.active { color: var(--green); border-bottom-color: var(--green); }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
     .dtab-panel { display: none; }
     .dtab-panel.active { display: block; }
 
@@ -282,11 +284,11 @@
 <nav>
   <a href="https://claw-net.org" class="nav-logo"><img src="/logo.png" alt="Claw-Net.org" onerror="this.style.display='none'"></a>
   <ul class="nav-links">
-    <li><a href="/marketplace.html" class="active">Skills</a></li>
     <li><a href="/marketplace.html#publish">Upload</a></li>
     <li><a href="/marketplace.html#my-skills">My Skills</a></li>
     <li><a href="/marketplace.html#starred">Stars</a></li>
     <li><a href="/docs.html">Docs</a></li>
+    <li><a href="/marketplace.html" class="active">Marketplace</a></li>
     <li><a href="/endpoints.html">Endpoints</a></li>
   </ul>
   <div class="nav-right">
