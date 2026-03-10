@@ -70,18 +70,23 @@ if (!parsed.success) {
 export const env = parsed.data;
 export const isSimulationMode = !env.CLAWAPIS_API_KEY;
 
-// Production safety guard — warn loudly if critical secrets are missing
+// Production safety guard — block startup for security-critical secrets, warn for others
 if (env.NODE_ENV === 'production') {
-  const missing: string[] = [];
-  if (!env.ADMIN_API_KEY) missing.push('ADMIN_API_KEY');
-  if (!env.PLATFORM_SIGNING_SECRET) missing.push('PLATFORM_SIGNING_SECRET');
-  if (!env.CLERK_SECRET_KEY) missing.push('CLERK_SECRET_KEY');
-  if (isSimulationMode) missing.push('CLAWAPIS_API_KEY (simulation mode active — real API calls disabled)');
+  // ADMIN_API_KEY must be present: without it, all /v1/admin routes are wide open
+  if (!env.ADMIN_API_KEY) {
+    console.error('❌ FATAL: ADMIN_API_KEY is not set in production — admin routes unprotected. Exiting.');
+    process.exit(1);
+  }
+
+  const warnings: string[] = [];
+  if (!env.PLATFORM_SIGNING_SECRET) warnings.push('PLATFORM_SIGNING_SECRET (response signing disabled)');
+  if (!env.CLERK_SECRET_KEY) warnings.push('CLERK_SECRET_KEY');
+  if (isSimulationMode) warnings.push('CLAWAPIS_API_KEY (simulation mode active — real API calls disabled)');
   // Warn if the configured LLM provider has no API key
-  if (env.LLM_PROVIDER === 'anthropic' && !env.ANTHROPIC_API_KEY) missing.push('ANTHROPIC_API_KEY (LLM_PROVIDER=anthropic but key is missing)');
-  if (env.LLM_PROVIDER === 'openai' && !env.OPENAI_API_KEY) missing.push('OPENAI_API_KEY (LLM_PROVIDER=openai but key is missing)');
-  if (env.LLM_PROVIDER === 'openclaw' && !env.OPENCLAW_API_KEY) missing.push('OPENCLAW_API_KEY (LLM_PROVIDER=openclaw but key is missing)');
-  if (missing.length > 0) {
-    console.warn('⚠️  Production warning — missing recommended env vars:', missing.join(', '));
+  if (env.LLM_PROVIDER === 'anthropic' && !env.ANTHROPIC_API_KEY) warnings.push('ANTHROPIC_API_KEY (LLM_PROVIDER=anthropic but key is missing)');
+  if (env.LLM_PROVIDER === 'openai' && !env.OPENAI_API_KEY) warnings.push('OPENAI_API_KEY (LLM_PROVIDER=openai but key is missing)');
+  if (env.LLM_PROVIDER === 'openclaw' && !env.OPENCLAW_API_KEY) warnings.push('OPENCLAW_API_KEY (LLM_PROVIDER=openclaw but key is missing)');
+  if (warnings.length > 0) {
+    console.warn('⚠️  Production warning — missing recommended env vars:', warnings.join(', '));
   }
 }

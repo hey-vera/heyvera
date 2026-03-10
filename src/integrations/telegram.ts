@@ -65,13 +65,13 @@ function setCooldown(): void {
 const priceCooldowns = new Map<number, number>();
 const PRICE_COOLDOWN_MS = 60_000;
 
-// Purge stale cooldown entries hourly — prevents unbounded Map growth
+// Purge stale cooldown entries every 5 minutes — entries expire after 60s so hourly was wasteful
 setInterval(() => {
   const cutoff = Date.now() - PRICE_COOLDOWN_MS;
   for (const [uid, ts] of priceCooldowns.entries()) {
     if (ts < cutoff) priceCooldowns.delete(uid);
   }
-}, 60 * 60 * 1000).unref();
+}, 5 * 60 * 1000).unref();
 
 // ─── Telegram HTML helpers ────────────────────────────────────────────────────
 
@@ -224,18 +224,8 @@ async function replyWithQuery(
     // Broadcast to subscribers (skip the user who triggered this)
     if (broadcast) {
       const triggerChatId = ctx.chat?.id;
-      const subscribers = getTelegramSubscribers();
-      const failed: number[] = [];
-      for (const chatId of subscribers) {
-        if (chatId === triggerChatId) continue;
-        try {
-          await bot!.api.sendMessage(chatId, formatted, { parse_mode: 'HTML' });
-        } catch (err) {
-          logger.warn({ chatId, err }, 'Telegram: failed to broadcast to subscriber');
-          failed.push(chatId);
-        }
-      }
-      // Clean up unreachable subscribers
+      const targets = getTelegramSubscribers().filter((id) => id !== triggerChatId);
+      const failed = await broadcastBatched(targets, formatted);
       for (const chatId of failed) removeTelegramSubscriber(chatId);
     }
   } catch (err) {
@@ -606,6 +596,32 @@ export async function initTelegram(): Promise<void> {
   }
 }
 
+// ─── Batch broadcast helper ────────────────────────────────────────────────────
+
+/** Send a message to a list of chat IDs in batches of 5, with 100ms between batches.
+ *  Returns the list of chat IDs that failed (blocked / deactivated). */
+async function broadcastBatched(chatIds: number[], message: string): Promise<number[]> {
+  const BATCH_SIZE = 5;
+  const failed: number[] = [];
+  for (let i = 0; i < chatIds.length; i += BATCH_SIZE) {
+    const batch = chatIds.slice(i, i + BATCH_SIZE);
+    await Promise.all(
+      batch.map(async (chatId) => {
+        try {
+          await bot!.api.sendMessage(chatId, message, { parse_mode: 'HTML' });
+        } catch (err) {
+          logger.warn({ chatId, err }, 'Telegram: failed to send to subscriber');
+          failed.push(chatId);
+        }
+      })
+    );
+    if (i + BATCH_SIZE < chatIds.length) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+  return failed;
+}
+
 // ─── External broadcast (called by other modules with a pre-built message) ────
 
 export async function sendTelegramAlert(message: string): Promise<void> {
@@ -613,15 +629,7 @@ export async function sendTelegramAlert(message: string): Promise<void> {
   const subscribers = getTelegramSubscribers();
   if (subscribers.length === 0) return;
 
-  const failed: number[] = [];
-  for (const chatId of subscribers) {
-    try {
-      await bot.api.sendMessage(chatId, message, { parse_mode: 'HTML' });
-    } catch (err) {
-      logger.warn({ chatId, err }, 'Telegram: failed to send alert');
-      failed.push(chatId);
-    }
-  }
+  const failed = await broadcastBatched(subscribers, message);
   for (const chatId of failed) removeTelegramSubscriber(chatId);
 }
 

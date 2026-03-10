@@ -50,6 +50,7 @@
 
 ### ✅ Chunks 1–4: Core Platform
 - Hono API on port 3402, SQLite WAL, Redis L2 cache, Pino logging, Zod env validation
+- ClawAPIs x402 integration successfull — added more endpoints
 - Intent parser (GPT-4o primary, Claude fallback) → parallel executor → LLM synthesizer
 - Circuit breaker per endpoint (CLOSED → OPEN → HALF_OPEN)
 - ClawAPIs x402 integration successfull — added more endpoints, simulation mode when no SOLANA_PRIVATE_KEY
@@ -248,6 +249,26 @@
 - **`GET /v1/marketplace/skills/:id/versions`** — Returns version history from `skill_versions` table (changelog column from migration v24).
 - **`GET /v1/marketplace/search?q=`** — Marketplace text search endpoint.
 - `getSkillVersionHistory()` and `reportSkill()` exported from `db/index.ts`.
+
+---
+
+## ✅ Comprehensive Security Audit — ALL COMPLETE
+
+| # | Severity | Finding | Fix |
+|---|---|---|---|
+| C1 | CRITICAL | `stripe.ts` `charge.refunded`: non-idempotent — Stripe webhook retries would double-deduct credits | Added `stripe_refunded_charges` table (migration v32). Track cumulative `amount_refunded_cents` per charge. Only process the delta since last event. |
+| C2 | CRITICAL | `stripe.ts` refund credit calc used flat 1000 cr/$ — ignored bonus credits (users could keep thousands of bonus credits after full refund) | Proportional deduction: `round((refundedUsd / amount_paid) × totalGranted)`. Scales correctly for all tier bonuses. |
+| C3 | CRITICAL | `src/index.ts` missing global process error handlers — unhandled rejections silently swallowed | Added `process.on('unhandledRejection')` (log + continue) and `process.on('uncaughtException')` (log + `process.exit(1)`). |
+| H1 | HIGH | `marketplaceRefund()` seller debit clamped silently at 0 — no warning when seller had spent their earnings | Added explicit balance check + `logger.warn()` before `MAX(0, ...)` debit. |
+| H2 | HIGH | `escrow-cron.ts` `runExpiryCheck()` startup call had no `.catch()` — unhandled rejection on startup error | Wrapped startup call in `Promise.resolve().then(...).catch(logger.error)`. |
+| H3 | HIGH | `skill-ab-cron.ts` same issue | Same fix applied. |
+| H4 | HIGH | `shutdown.ts` missing `stopEndpointHealthCron()` — cron kept running after SIGTERM | Added import + call in step 3 of `shutdown()`. |
+| M1 | MEDIUM | Telegram broadcast: sequential `for-await` over all subscribers — Telegram rate-limits at ~30 msg/s | Added `broadcastBatched()` helper: parallel batches of 5, 100ms between batches. Used in both `replyWithQuery` and `sendTelegramAlert`. |
+| M2 | MEDIUM | `priceCooldowns` Map purged every 60 minutes but entries expire after 60 seconds — Map could grow unbounded during traffic spikes | Changed cleanup interval to every 5 minutes. |
+| M3 | MEDIUM | Circuit breaker: OPEN/HALF_OPEN states persisted forever with no reset path — endpoints permanently blocked after server restarts | Added 7-day auto-reset in 24h cleanup interval: stuck OPEN/HALF_OPEN → CLOSED + persist to Redis. |
+| M4 | MEDIUM | `config/index.ts`: `ADMIN_API_KEY` absence only warned — admin routes wide open in production | Changed to `process.exit(1)` in production if `ADMIN_API_KEY` unset. Kept `PLATFORM_SIGNING_SECRET` as warn (graceful degradation). |
+| M5 | MEDIUM | `mesh/node.ts` `stopMeshNode()`: `removeEventListener` unguarded — could throw during partial init | Wrapped in `try/catch` with `logger.warn`. |
+| M6 | MEDIUM | `rate-limit.ts` proxy detection missing IPv6 private ranges — ULA (`fc/fd`) and link-local (`fe80`) not trusted | Added `socketIp.startsWith('fc/fd/fe80')` to `isFromProxy` check. |
 
 ---
 

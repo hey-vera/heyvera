@@ -65,7 +65,11 @@ export async function startMeshNode(): Promise<void> {
 export async function stopMeshNode(): Promise<void> {
   if (node) {
     if (node._peerConnectListener) {
-      node.removeEventListener('peer:connect', node._peerConnectListener)
+      try {
+        node.removeEventListener('peer:connect', node._peerConnectListener)
+      } catch (err) {
+        logger.warn({ err }, 'Mesh: could not remove peer:connect listener')
+      }
     }
     await node.stop()
     logger.info('Mesh node stopped')

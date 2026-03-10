@@ -53,6 +53,16 @@ if (process.env.SENTRY_DSN) {
   Sentry.init({ dsn: process.env.SENTRY_DSN, environment: process.env.NODE_ENV ?? 'development' });
 }
 
+// Global safety net — catch unhandled promise rejections and exceptions before they silently crash the process.
+process.on('unhandledRejection', (reason) => {
+  logger.error({ reason }, 'Unhandled promise rejection — potential data loss risk');
+});
+
+process.on('uncaughtException', (err) => {
+  logger.error({ err }, 'Uncaught exception — exiting to prevent corrupt state');
+  process.exit(1);
+});
+
 const app = new Hono();
 
 app.use('*', cors({

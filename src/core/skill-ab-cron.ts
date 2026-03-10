@@ -10,7 +10,7 @@ let _running = false;
 
 export function startSkillAbCron(): void {
   if (timer) return;
-  runAbCheck();
+  Promise.resolve().then(() => runAbCheck()).catch((err) => logger.error({ err }, 'Skill A/B cron: startup check failed'));
   timer = setInterval(runAbCheck, 30 * 60 * 1000); // every 30 minutes
   logger.info('Skill A/B auto-promote cron started');
 }

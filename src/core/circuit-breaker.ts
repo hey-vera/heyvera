@@ -121,10 +121,20 @@ export function getCircuitStats() {
 
 const MAX_CIRCUITS = 500;
 
-// Purge stale CLOSED entries every 24h to prevent unbounded Map growth
+const STALE_OPEN_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+// Purge stale entries every 24h to prevent unbounded Map growth
 setInterval(() => {
   const now = Date.now();
   for (const [id, h] of health.entries()) {
+    // Auto-reset OPEN/HALF_OPEN circuits stuck for > 7 days (prevents permanent lockout)
+    if ((h.state === 'OPEN' || h.state === 'HALF_OPEN') && now - h.openedAt > STALE_OPEN_TTL_MS) {
+      h.state = 'CLOSED';
+      h.failures = 0;
+      logger.info({ endpointId: id }, 'Circuit breaker: auto-reset after 7 days in OPEN/HALF_OPEN');
+      void persistState(id, h);
+    }
+    // Remove CLOSED entries with no recent failures
     if (h.state === 'CLOSED' && h.failures === 0 && now - h.lastFailure > 24 * 60 * 60 * 1000) {
       health.delete(id);
     }

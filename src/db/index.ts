@@ -429,6 +429,11 @@ const MIGRATIONS: { version: number; sql: string }[] = [
     chat_id INTEGER PRIMARY KEY,
     subscribed_at TEXT NOT NULL DEFAULT (datetime('now'))
   )` },
+  { version: 32, sql: `CREATE TABLE IF NOT EXISTS stripe_refunded_charges (
+    charge_id TEXT PRIMARY KEY,
+    amount_refunded_cents INTEGER NOT NULL DEFAULT 0,
+    processed_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )` },
 ];
 
 function runMigrations(): void {
@@ -783,6 +788,28 @@ export function markStripeEventProcessed(eventId: string): void {
   } catch (err) {
     logger.error({ err }, 'Failed to mark Stripe event processed');
   }
+}
+
+// ─── Stripe Charge Refund Dedup ───────────────────────────────────────────────
+
+/** Returns how many cents of refund we have already processed for this charge. */
+export function getStripeChargeRefundedCents(chargeId: string): number {
+  const row = getDb()
+    .prepare('SELECT amount_refunded_cents FROM stripe_refunded_charges WHERE charge_id = ?')
+    .get(chargeId) as { amount_refunded_cents: number } | undefined;
+  return row?.amount_refunded_cents ?? 0;
+}
+
+/** Upserts the running total of refunded cents for a charge.
+ *  Call atomically alongside the credit deduction. */
+export function upsertStripeChargeRefundedCents(chargeId: string, totalCents: number): void {
+  getDb()
+    .prepare(`INSERT INTO stripe_refunded_charges (charge_id, amount_refunded_cents)
+              VALUES (?, ?)
+              ON CONFLICT(charge_id) DO UPDATE SET
+                amount_refunded_cents = excluded.amount_refunded_cents,
+                processed_at = datetime('now')`)
+    .run(chargeId, totalCents);
 }
 
 // ─── Referral Codes ───────────────────────────────────────────────────────────
@@ -1616,7 +1643,13 @@ export function marketplaceRefund(params: {
       db.prepare(`UPDATE api_keys SET credits = credits + ?, credits_used = credits_used - ? WHERE key = ? AND active = 1`)
         .run(params.amountCredits, params.amountCredits, params.buyerKey);
 
-      // Debit seller
+      // Debit seller — clamp at 0 if insufficient balance, but log a warning
+      const sellerBal = db.prepare('SELECT credits FROM api_keys WHERE key = ? AND active = 1')
+        .get(params.sellerKey) as { credits: number } | undefined;
+      if (!sellerBal || sellerBal.credits < params.sellerCredits) {
+        logger.warn({ sellerKey: params.sellerKey.slice(0, 8), requested: params.sellerCredits, available: sellerBal?.credits ?? 0 },
+          'marketplaceRefund: seller balance insufficient — partial debit (clamped to 0)');
+      }
       db.prepare(`UPDATE api_keys SET credits = MAX(0, credits - ?) WHERE key = ? AND active = 1`)
         .run(params.sellerCredits, params.sellerKey);
 

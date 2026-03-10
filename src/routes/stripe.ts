@@ -3,7 +3,7 @@ import Stripe from 'stripe';
 import crypto from 'crypto';
 import { logger } from '../utils/logger';
 import { sendApiKeyEmail } from '../utils/email';
-import { createApiKey, getApiKeyByEmail, topUpCredits, getApiKeyBalance, upsertSubscription, claimStripeSession, isStripeSessionClaimed, isStripeEventProcessed, markStripeEventProcessed, getDb } from '../db/index';
+import { createApiKey, getApiKeyByEmail, topUpCredits, getApiKeyBalance, upsertSubscription, claimStripeSession, isStripeSessionClaimed, isStripeEventProcessed, markStripeEventProcessed, getDb, getStripeChargeRefundedCents, upsertStripeChargeRefundedCents } from '../db/index';
 
 export const stripeRouter = new Hono();
 
@@ -66,7 +66,6 @@ stripeRouter.post('/stripe', async (c) => {
   // ── Refund handler ─────────────────────────────────────────────────────────
   if (event.type === 'charge.refunded') {
     const charge = event.data.object as Stripe.Charge;
-    const refundedAmount = charge.amount_refunded / 100; // cents → USD
     const email = charge.billing_details?.email?.toLowerCase().trim();
 
     if (!email) {
@@ -80,24 +79,53 @@ stripeRouter.post('/stripe', async (c) => {
       return c.json({ received: true });
     }
 
-    // Deduct credits proportional to refund amount (1000 credits per $1 base rate)
-    const creditsToDeduct = Math.floor(refundedAmount * 1000);
-    if (creditsToDeduct <= 0) {
-      logger.info({ chargeId: charge.id, refundedAmount }, 'Stripe refund: amount too small to affect credits');
+    // Idempotency: track cumulative refunded cents per charge.
+    // charge.amount_refunded is the running total (not just this webhook's delta),
+    // so we only process the delta since our last recorded amount.
+    const previousCents = getStripeChargeRefundedCents(charge.id);
+    const newCents = charge.amount_refunded - previousCents;
+
+    if (newCents <= 0) {
+      logger.info({ chargeId: charge.id, previousCents, totalCents: charge.amount_refunded },
+        'Stripe refund: already processed up to this amount — skipping');
       return c.json({ received: true });
     }
 
+    const newRefundedUsd = newCents / 100;
+
+    // Proportional credit deduction: use the user's actual credit-to-dollar ratio
+    // (accounts for bonus credits at higher tiers, not just flat 1000/dollar).
     const deducted = getDb().transaction(() => {
-      // Clamp: never go below 0
-      const bal = getDb().prepare('SELECT credits FROM api_keys WHERE key = ? AND active = 1').get(existingKey.key) as { credits: number } | undefined;
-      const deductAmount = Math.min(creditsToDeduct, bal?.credits ?? 0);
-      if (deductAmount <= 0) return 0;
-      getDb().prepare('UPDATE api_keys SET credits = credits - ?, amount_paid = MAX(0, amount_paid - ?) WHERE key = ? AND active = 1')
-        .run(deductAmount, refundedAmount, existingKey.key);
+      const bal = getDb()
+        .prepare('SELECT credits, credits_used, amount_paid FROM api_keys WHERE key = ? AND active = 1')
+        .get(existingKey.key) as { credits: number; credits_used: number; amount_paid: number } | undefined;
+
+      if (!bal) return 0;
+
+      // Calculate credits to deduct proportional to refund fraction
+      let creditsToDeduct: number;
+      if (bal.amount_paid > 0) {
+        const totalGranted = bal.credits + bal.credits_used;
+        const creditsPerDollar = totalGranted / bal.amount_paid;
+        creditsToDeduct = Math.round(newRefundedUsd * creditsPerDollar);
+      } else {
+        creditsToDeduct = Math.floor(newRefundedUsd * 1000); // fallback: base rate
+      }
+
+      const deductAmount = Math.min(creditsToDeduct, bal.credits);
+      if (deductAmount <= 0) {
+        upsertStripeChargeRefundedCents(charge.id, charge.amount_refunded);
+        return 0;
+      }
+
+      getDb()
+        .prepare('UPDATE api_keys SET credits = credits - ?, amount_paid = MAX(0, amount_paid - ?) WHERE key = ? AND active = 1')
+        .run(deductAmount, newRefundedUsd, existingKey.key);
+      upsertStripeChargeRefundedCents(charge.id, charge.amount_refunded);
       return deductAmount;
     })();
 
-    logger.info({ email, chargeId: charge.id, refundedAmount, creditsDeducted: deducted }, 'Stripe refund: credits deducted');
+    logger.info({ email, chargeId: charge.id, newRefundedUsd, creditsDeducted: deducted }, 'Stripe refund: credits deducted');
     return c.json({ received: true });
   }
 

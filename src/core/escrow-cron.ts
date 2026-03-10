@@ -7,7 +7,7 @@ let _running = false;
 export function startEscrowCron(): void {
   if (timer) return;
   // Run immediately on startup, then every 10 minutes
-  runExpiryCheck();
+  Promise.resolve().then(() => runExpiryCheck()).catch((err) => logger.error({ err }, 'Escrow cron: startup check failed'));
   timer = setInterval(runExpiryCheck, 10 * 60 * 1000);
   logger.info('Escrow expiry cron started');
 }
