@@ -181,6 +181,41 @@
 
 ---
 
+## ✅ Telegram Bot Rehaul (Latest Session)
+
+### Architecture
+- **User-driven model** — queries run ONLY when a real user types a command. No more automatic scheduled queries burning ~$15/month.
+- **12h global cooldown** — 1 heavy query per 12h shared across all users (max 2/day). Cooldown message shows exact reset time.
+- **Broadcast to subscribers** — when any user triggers `/demo`, `/trending`, `/analyze`, `/wallet`, `/sentiment`, `/news`, `/ask`, the result is automatically pushed to all subscribers.
+
+### heartbeat.ts
+- Removed all auto-queries, `formatAsBulletin()`, orchestration calls, and `sendTelegramAlert()` import.
+- Now a lightweight health pulse: logs uptime every hour to `data/heartbeat.jsonl`. Nothing more.
+
+### telegram.ts (complete rewrite)
+**New commands:**
+- `/demo` — runs the next rotating showcase query, broadcasts to all subscribers. This is the "example call" — only fires when a user explicitly requests it.
+- `/about` — ClawNet overview, stats, marketplace link.
+
+**Security fixes:**
+- `sanitizeInput()` strips control characters and hard-caps length on all user-supplied args.
+- `/wallet` validates Solana address format with regex before running query.
+- `/skill` shows skill info + API link **but does NOT invoke** — removes the credit bypass where users could run paid skills for free via Telegram.
+
+**UX improvements:**
+- `replyWithChatAction('typing')` shows "typing…" indicator during long queries.
+- `cooldownMsg()` shows friendly message with exact time until cooldown resets.
+- Demo query rotation built dynamically from `apiRegistry` categories — auto-expands as new endpoint categories are added.
+- `/price` remains exempt from global cooldown (per-user 1/min, not broadcast).
+- Improved `/skills` listing shows credit cost per skill.
+
+**Infrastructure:**
+- Subscribers moved from `data/subscribers.json` (flat file, lost on container rebuild) to SQLite `telegram_subscribers` table (migration v31).
+- DB helpers: `addTelegramSubscriber()`, `removeTelegramSubscriber()`, `getTelegramSubscribers()`, `isTelegramSubscriber()`.
+- `sendTelegramAlert(message)` now only accepts pre-built message strings (no auto-generation).
+
+---
+
 ## ✅ Marketplace Quality Batch (Latest Session)
 
 ### Bug Fixes
