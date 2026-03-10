@@ -137,6 +137,10 @@
     .tg-hero-link { display: inline-flex; align-items: center; gap: 7px; font-family: var(--mono); font-size: 11px; color: #29b6f6; text-decoration: none; margin-left: 20px; opacity: 0.8; transition: opacity 0.2s; letter-spacing: 0.5px; }
     .tg-hero-link:hover { opacity: 1; }
     .btn-primary:hover { background: #fff; box-shadow: 0 0 32px rgba(0,255,136,0.3); }
+    .hero-users-stat { display: inline-flex; align-items: center; gap: 10px; font-family: var(--mono); background: rgba(0,255,136,0.06); border: 1px solid rgba(0,255,136,0.25); border-radius: 4px; padding: 12px 24px; cursor: default; transition: border-color 0.2s; }
+    .hero-users-stat:hover { border-color: rgba(0,255,136,0.5); }
+    .hero-users-num { font-size: 22px; font-weight: 700; color: var(--green); letter-spacing: -1px; line-height: 1; }
+    .hero-users-label { font-size: 10px; text-transform: uppercase; letter-spacing: 2px; color: var(--muted); line-height: 1.3; }
     .btn-secondary { font-family: var(--mono); font-size: 12px; color: var(--muted2); padding: 14px 32px; text-decoration: none; letter-spacing: 1px; text-transform: uppercase; border: 1px solid var(--border2); transition: all 0.2s; display: inline-block; }
     .btn-secondary:hover { color: var(--green); border-color: var(--green-dim); }
     .terminal-wrap { width: 100%; max-width: 760px; text-align: left; animation: fadeUp 0.6s 0.4s ease both; }
@@ -844,7 +848,11 @@
   <h1>Ask anything.<br><span class="line2">Get intelligence.</span><span class="line3">Pay per answer.</span></h1>
   <p class="hero-sub">ClawNet orchestrates Solana blockchain data, X/Twitter sentiment, and on-chain analytics into a single natural-language API. No subscriptions. Pay only for what you use.</p>
   <div class="hero-actions">
-    <a href="#pricing" class="btn-primary">Get API Key →</a>
+    <div class="hero-users-stat" title="Active users with credits remaining">
+      <span class="live-dot"></span>
+      <span class="hero-users-num" id="heroActiveUsers">—</span>
+      <span class="hero-users-label">Active<br>Users</span>
+    </div>
     <a href="/marketplace.html" class="btn-secondary" style="font-family:var(--mono);font-size:12px;padding:14px 32px;text-decoration:none;font-weight:700;letter-spacing:1px;text-transform:uppercase;border:1px solid rgba(153,69,255,0.5);color:#9945ff;transition:all 0.2s;display:inline-block" onmouseover="this.style.background='rgba(153,69,255,0.12)'" onmouseout="this.style.background='transparent'">Skill Marketplace →</a>
   <a href="https://t.me/claw_net" target="_blank" class="tg-hero-link">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="#29b6f6"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.894 8.221-1.97 9.28c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12L7.17 13.667l-2.956-.924c-.643-.204-.657-.643.136-.953l11.57-4.461c.537-.194 1.006.131.974.892z"/></svg>
@@ -1614,6 +1622,12 @@
         const latSub = document.getElementById('statLatencySub');
         if (latEl) latEl.textContent = (d.avgDurationMs / 1000).toFixed(1) + 's';
         if (latSub) latSub.textContent = 'avg · live';
+      }
+
+      // ── Active users ──────────────────────────────────────────
+      if (d.activeUsers != null) {
+        const el = document.getElementById('heroActiveUsers');
+        if (el) animateCounter(el, d.activeUsers);
       }
 
       // ── Cost range ────────────────────────────────────────────

@@ -181,10 +181,11 @@ Quarterly rotation procedure added to `docs/RUNBOOK.md` §12. Includes steps, ve
 
 ### ✅ Security Guardrails — ALL COMPLETE
 
-- **Per-key daily spend cap** — `DAILY_SPEND_CAP` env var (default 10,000 credits). Soft cap checked in `/v1/orchestrate` handler via Redis; returns HTTP 429 with `DAILY_CAP_EXCEEDED` code. `src/routes/api.ts`.
+- **Per-key daily spend cap** — `DAILY_SPEND_CAP` env var (default 0 = disabled; agents spend freely until balance runs out). When set > 0, soft cap checked in `/v1/orchestrate` via Redis; returns HTTP 429 with `DAILY_CAP_EXCEEDED` code. `src/routes/api.ts`.
 - **Admin key revocation** — `POST /v1/admin/revoke-key` with `{ key?, email?, reason? }`. Deactivates key(s) immediately, logs to `audit_log` with `KEY_REVOKED` action. `src/routes/admin.ts`.
 - **Anomaly detection** — fires `sendAdminAlert` email the first time a key crosses `ANOMALY_THRESHOLD` credits in a day (default 5,000). Logged + emailed to `ADMIN_EMAIL`. `src/routes/api.ts`.
 - **GitHub Actions CI** — `.github/workflows/ci.yml` runs on push/PR to main: `npm ci` → `npm run typecheck` → `npm run test:unit`.
+- **Live USERS stat** — hero section of `site/index.html` shows live count of API keys with `credits >= 1`. Backed by `GET /v1/stats` → `activeUsers` field. Updates every 60s with animated counter.
 
 ---
 

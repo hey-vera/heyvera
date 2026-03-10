@@ -318,7 +318,7 @@ src/
     escrow.ts                 — escrow state machine
     discover.ts               — POST /v1/discover (trinity)
     mesh.ts                   — GET /v1/mesh/peers
-    stats.ts                  — GET /v1/stats (public)
+    stats.ts                  — GET /v1/stats (public) — includes activeUsers (api_keys WHERE active=1 AND credits>=1)
     admin.ts                  — admin routes (ADMIN_API_KEY)
     stripe.ts, solana.ts      — payment routes
     dashboard.ts              — dashboard routes + POST /v1/dashboard/billing-portal
@@ -339,7 +339,7 @@ src/
   utils/shutdown.ts           — SIGTERM/SIGINT handlers
   integrations/telegram.ts
 site/
-  index.html                  — landing page (copy to /var/www/claw-net/ after deploy)
+  index.html                  — landing page; hero shows live USERS stat (active keys w/ credits) via /v1/stats
   marketplace.html            — skill marketplace (hash routing, skill detail pages)
   dashboard.html              — user dashboard
   docs.html                   — public API reference
