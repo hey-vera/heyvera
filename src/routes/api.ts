@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { insertOrchestration, getApiKeyBalance, getApiKeyByStripeSession, getApiKeyByEmail, deductCredit } from '../db/index';
 import { Hono } from 'hono';
+import { maskApiKey } from '../utils/mask';
 import { creditsForApiCost } from '../core/credits';
 import { nanoid } from 'nanoid';
 import { parseIntent } from '../core/intent-parser';
@@ -362,8 +363,7 @@ apiRouter.get('/session/:sessionId', async (c) => {
     a + '*'.repeat(Math.min(b.length, 4)) + d
   );
 
-  // Mask key: show first 6 and last 4 chars
-  const maskedKey = row.key.slice(0, 6) + '...' + row.key.slice(-4);
+  const maskedKey = maskApiKey(row.key);
 
   return c.json({
     apiKey: maskedKey,

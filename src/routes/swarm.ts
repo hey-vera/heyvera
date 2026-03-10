@@ -136,14 +136,19 @@ export async function runSwarm(swarmId: string, agentKey: string, body: SwarmPar
   // Budget tracking — base fee already deducted; remaining budget for sub-tasks
   const maxBudget = body.maxBudget ?? 200;
   const SWARM_BASE_FEE = 20;
-  let budgetSpent = SWARM_BASE_FEE;
+
+  // Pre-allocate budget per subtask to avoid race conditions in parallel execution.
+  // Each task gets an equal share; remaining (from tasks that skip or underspend) is reported.
+  const skillSubtasks = subTasks.filter(st => st.skillId);
+  const budgetPerSubtask = skillSubtasks.length > 0
+    ? Math.floor((maxBudget - SWARM_BASE_FEE) / skillSubtasks.length)
+    : 0;
 
   // Step 2: Execute in parallel
   const results = await Promise.all(subTasks.map(async (st, i) => {
     try {
       if (st.skillId) {
-        // Enforce budget ceiling before invoking
-        if (budgetSpent >= maxBudget) {
+        if (budgetPerSubtask <= 0) {
           return { index: i, subtask: st.subtask, skillId: st.skillId, result: null, ok: false, error: 'Budget cap reached' };
         }
         const r = await fetch(`http://localhost:${env.PORT}/v1/skills/${encodeURIComponent(st.skillId)}/invoke`, {
@@ -159,8 +164,7 @@ export async function runSwarm(swarmId: string, agentKey: string, body: SwarmPar
           return { index: i, subtask: st.subtask, skillId: st.skillId, result: null, ok: false, error: `HTTP ${r.status}` };
         }
         const d = await r.json() as Record<string, unknown>;
-        budgetSpent += (d.creditsUsed as number) ?? 0;
-        return { index: i, subtask: st.subtask, skillId: st.skillId, result: d.result ?? d, ok: true };
+        return { index: i, subtask: st.subtask, skillId: st.skillId, result: d.result ?? d, ok: true, creditsUsed: (d.creditsUsed as number) ?? 0 };
       } else {
         const resp = await llmComplete([{ role: 'user', content: st.subtask }]);
         return { index: i, subtask: st.subtask, skillId: null, result: resp.content, ok: true };

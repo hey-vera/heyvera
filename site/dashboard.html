@@ -938,7 +938,7 @@
       });
 
       try {
-        const token = await window.Clerk.session.getToken();
+        const token = await window.Clerk?.session?.getToken();
         const res = await fetch(`${API_BASE}/v1/dashboard/reveal-key`, {
           method: 'POST',
           headers: { Authorization: `Bearer ${token}` },
@@ -1074,7 +1074,7 @@
       status.textContent = 'Generating new key — this takes a moment…';
 
       try {
-        const token = await window.Clerk.session.getToken();
+        const token = await window.Clerk?.session?.getToken();
         const res = await fetch(`${API_BASE}/v1/dashboard/regenerate-key`, {
           method: 'POST',
           headers: { Authorization: `Bearer ${token}` },
@@ -1137,7 +1137,7 @@
     // ─────────────────────────────────────────────────────────────
     async function loadDashboard() {
       try {
-        const token = await window.Clerk.session.getToken();
+        const token = await window.Clerk?.session?.getToken();
         const res = await fetch(`${API_BASE}/v1/dashboard/me`, {
           headers: { Authorization: `Bearer ${token}` },
         });
@@ -1240,7 +1240,7 @@
 
     async function autoClaimSession(sessionId) {
       try {
-        const token = await window.Clerk.session.getToken();
+        const token = await window.Clerk?.session?.getToken();
         await fetch(`${API_BASE}/v1/dashboard/claim-session`, {
           method: 'POST',
           headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -1267,7 +1267,7 @@
 
     async function doSendClaim(email, msgEl) {
       try {
-        const token = await window.Clerk.session.getToken();
+        const token = await window.Clerk?.session?.getToken();
         await fetch(`${API_BASE}/v1/dashboard/send-claim-email`, {
           method: 'POST',
           headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -1348,6 +1348,8 @@
       if (e && e.target !== document.getElementById('usdcOverlay')) return;
       document.getElementById('usdcOverlay').classList.remove('open');
       document.body.style.overflow = '';
+      window._usdcAmount = null;
+      window._usdcCredits = null;
     }
 
     function setUSDCStatus(msg, type) {
@@ -1370,7 +1372,7 @@
         const senderPubkey = phantom.publicKey.toString();
         btn.textContent = 'Sending ' + (window._usdcAmount || '') + ' USDC…';
         setUSDCStatus('Wallet connected. Preparing ' + (window._usdcAmount || '') + ' USDC transfer — approve in Phantom…', 'info');
-        const clerkToken = await window.Clerk.session.getToken();
+        const clerkToken = await window.Clerk?.session?.getToken();
         const buildRes = await fetch(`${API_BASE}/v1/solana/build-tx`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + clerkToken },

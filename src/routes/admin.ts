@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import crypto from 'crypto';
 import { getDbStats, getAllPendingPayouts, updatePayoutStatus, getDb, logAudit } from '../db/index';
+import { maskApiKey } from '../utils/mask';
 import { cacheStats } from '../cache/index';
 import { getUsageStats } from '../utils/usage';
 import { getCircuitStats } from '../core/circuit-breaker';
@@ -312,11 +313,11 @@ adminRouter.get('/treasury', (c) => {
     } : null,
     recentFeeTransactions: recentFees.map(t => ({
       ...t,
-      from_agent: t.from_agent?.slice(0, 8) + '...',
+      from_agent: t.from_agent ? maskApiKey(t.from_agent) : null,
     })),
     recentRefunds: refunds.map(t => ({
       ...t,
-      to_agent: t.to_agent?.slice(0, 8) + '...',
+      to_agent: t.to_agent ? maskApiKey(t.to_agent) : null,
     })),
   });
 });

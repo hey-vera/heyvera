@@ -770,7 +770,7 @@ function renderCard(s) {
     <div class="card-cat-badge">${catIcon} ${esc(cat)}</div>
     <div class="card-head">
       <div>
-        <div class="card-name" onclick="nav('skill/${esc(s.id)}')">${esc(displayName)}</div>
+        <div class="card-name" onclick="nav('skill/'+encodeURIComponent('${esc(s.id)}'))">${esc(displayName)}</div>
         ${displayName !== slug ? `<div class="card-slug">${esc(slug)}</div>` : ''}
         <div class="card-ver">v${esc(s.version||'1.0.0')} <span class="sec ${secCls}">${secTxt}</span></div>
       </div>
@@ -785,7 +785,7 @@ function renderCard(s) {
       ${s.license && s.license !== 'MIT' ? `<span>${esc(s.license)}</span>` : ''}
     </div>
     <div class="card-actions">
-      <button class="btn-primary" onclick="nav('skill/${esc(s.id)}')">View &amp; Buy</button>
+      <button class="btn-primary" onclick="nav('skill/'+encodeURIComponent('${esc(s.id)}'))">View &amp; Buy</button>
       <button class="btn-star${starred?' on':''}" id="star-${esc(s.id)}" onclick="toggleStar('${esc(s.id)}',this,event)">\u2605</button>
     </div>
   </div>`;

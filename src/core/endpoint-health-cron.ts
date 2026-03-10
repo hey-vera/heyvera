@@ -10,8 +10,11 @@
 
 import cron from 'node-cron';
 import { apiRegistry } from '../config/api-registry';
-import { recordEndpointHealth } from '../db/index';
+import { recordEndpointHealth, cleanupOldAuditLogs, cleanupOldSkillMetrics, cleanupOldSolanaSigs } from '../db/index';
 import { logger } from '../utils/logger';
+
+// Track last cleanup date to run at most once per day
+let _lastCleanupDay = '';
 
 // Endpoints to ping: use base URL + a simple path that responds quickly.
 // We check the provider's base URL rather than the actual endpoint (avoids auth/payment).
@@ -53,7 +56,12 @@ async function pingEndpoint(endpointId: string, url: string): Promise<{ status: 
   }
 }
 
+let _running = false;
+
 async function runHealthChecks(): Promise<void> {
+  if (_running) return;
+  _running = true;
+  try {
   const entries = Object.entries(HEALTH_CHECK_URLS);
   logger.debug({ count: entries.length }, 'Running endpoint health checks');
 
@@ -75,6 +83,21 @@ async function runHealthChecks(): Promise<void> {
         });
       })
     );
+  }
+
+  // Daily retention cleanup — at most once per calendar day
+  const today = new Date().toISOString().slice(0, 10);
+  if (_lastCleanupDay !== today) {
+    _lastCleanupDay = today;
+    const auditDel = cleanupOldAuditLogs(90);
+    const metricsDel = cleanupOldSkillMetrics(90);
+    const solDel = cleanupOldSolanaSigs(30);
+    if (auditDel + metricsDel + solDel > 0) {
+      logger.info({ auditDel, metricsDel, solDel }, 'Daily retention cleanup');
+    }
+  }
+  } finally {
+    _running = false;
   }
 }
 

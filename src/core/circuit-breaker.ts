@@ -119,11 +119,21 @@ export function getCircuitStats() {
   return stats;
 }
 
+const MAX_CIRCUITS = 500;
+
 // Purge stale CLOSED entries every 24h to prevent unbounded Map growth
 setInterval(() => {
   const now = Date.now();
   for (const [id, h] of health.entries()) {
     if (h.state === 'CLOSED' && h.failures === 0 && now - h.lastFailure > 24 * 60 * 60 * 1000) {
+      health.delete(id);
+    }
+  }
+  // Hard cap — evict oldest CLOSED entries if still over limit
+  if (health.size > MAX_CIRCUITS) {
+    const closed = [...health.entries()].filter(([, h]) => h.state === 'CLOSED');
+    closed.sort((a, b) => a[1].lastFailure - b[1].lastFailure);
+    for (const [id] of closed.slice(0, health.size - MAX_CIRCUITS)) {
       health.delete(id);
     }
   }

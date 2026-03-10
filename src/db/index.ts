@@ -368,6 +368,7 @@ export function initDb(): void {
     CREATE INDEX IF NOT EXISTS idx_skills_stars ON skills(stars DESC);
     CREATE INDEX IF NOT EXISTS idx_skills_published_at ON skills(published_at DESC);
     CREATE INDEX IF NOT EXISTS idx_skills_credit_cost ON skills(credit_cost ASC);
+    CREATE INDEX IF NOT EXISTS idx_skills_public_active ON skills(public, active);
   `);
 
   logger.info({ path: DB_PATH }, 'Database initialised');
@@ -2062,4 +2063,27 @@ export function getEndpointHealth(endpointId?: string): EndpointHealth[] {
     return row ? [row as EndpointHealth] : [];
   }
   return getDb().prepare('SELECT * FROM endpoint_health ORDER BY uptime_pct ASC, last_checked DESC').all() as EndpointHealth[];
+}
+
+// ─── Retention / Cleanup ───────────────────────────────────────────────────────
+
+export function cleanupOldAuditLogs(daysToKeep = 90): number {
+  const result = getDb()
+    .prepare(`DELETE FROM audit_log WHERE timestamp < datetime('now', '-' || ? || ' days')`)
+    .run(daysToKeep);
+  return result.changes;
+}
+
+export function cleanupOldSkillMetrics(daysToKeep = 90): number {
+  const result = getDb()
+    .prepare(`DELETE FROM skill_metrics WHERE recorded_at < datetime('now', '-' || ? || ' days')`)
+    .run(daysToKeep);
+  return result.changes;
+}
+
+export function cleanupOldSolanaSigs(daysToKeep = 30): number {
+  const result = getDb()
+    .prepare(`DELETE FROM solana_processed_sigs WHERE processed_at < datetime('now', '-' || ? || ' days')`)
+    .run(daysToKeep);
+  return result.changes;
 }

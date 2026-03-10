@@ -73,6 +73,11 @@ solanaRouter.post('/verify', async (c) => {
 
   const { signature, expectedUsd, replyEmail } = parsed.data;
 
+  // Require at least one email source so we can deliver the API key
+  if (!clerkEmail && !replyEmail) {
+    return c.json({ error: 'Email required — provide replyEmail to receive your API key.' }, 400);
+  }
+
   // 3. Check package is valid
   const credits = USDC_PACKAGES[expectedUsd];
   if (!credits) {

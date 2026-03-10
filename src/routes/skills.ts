@@ -439,6 +439,12 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
       });
       const proxyData = await proxyRes.json().catch(async () => ({ raw: await proxyRes.text() }));
 
+      if (!proxyRes.ok) {
+        recordSkillMetric({ skillId: activeSkillId, version: (skill as typeof skill & { version?: string }).version ?? '1.0.0',
+          latencyMs: Date.now() - start, success: false, costCredits: 0 });
+        return c.json({ requestId, error: 'Proxy upstream error', status: proxyRes.status, data: proxyData }, 502);
+      }
+
       const creditsToDeduct = Math.max(1, skill.credit_cost);
       if (!keyInfo.isEnvKey) {
         const ok = getDb().transaction(() => deductCredit(keyInfo.key, creditsToDeduct))();
@@ -449,7 +455,7 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
       }
       incrementSkillUses(activeSkillId);
       recordSkillMetric({ skillId: activeSkillId, version: (skill as typeof skill & { version?: string }).version ?? '1.0.0',
-        latencyMs: Date.now() - start, success: proxyRes.ok, costCredits: creditsToDeduct });
+        latencyMs: Date.now() - start, success: true, costCredits: creditsToDeduct });
 
       return c.json({ requestId, status: proxyRes.status, data: proxyData,
         skill: { id: skill.id, name: skill.name }, creditsUsed: creditsToDeduct });

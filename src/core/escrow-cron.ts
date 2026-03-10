@@ -2,6 +2,7 @@ import { getExpiredEscrows, refundEscrow, transitionEscrow, writeAuditLog, clean
 import { logger } from '../utils/logger';
 
 let timer: ReturnType<typeof setInterval> | null = null;
+let _running = false;
 
 export function startEscrowCron(): void {
   if (timer) return;
@@ -19,6 +20,8 @@ export function stopEscrowCron(): void {
 }
 
 function runExpiryCheck(): void {
+  if (_running) return;
+  _running = true;
   try {
     const expired = getExpiredEscrows();
     for (const escrow of expired) {
@@ -51,5 +54,7 @@ function runExpiryCheck(): void {
     if (cleaned > 0) logger.info({ cleaned }, 'Cleaned expired discovery cache entries');
   } catch (err) {
     logger.error({ err }, 'Escrow expiry check failed');
+  } finally {
+    _running = false;
   }
 }

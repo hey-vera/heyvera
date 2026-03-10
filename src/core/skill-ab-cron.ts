@@ -6,6 +6,7 @@ const PROMOTE_THRESHOLD = 0.10; // 10% better success rate
 const MIN_INVOCATIONS = 20;     // need at least 20 data points before deciding
 
 let timer: ReturnType<typeof setInterval> | null = null;
+let _running = false;
 
 export function startSkillAbCron(): void {
   if (timer) return;
@@ -19,6 +20,8 @@ export function stopSkillAbCron(): void {
 }
 
 function runAbCheck(): void {
+  if (_running) return;
+  _running = true;
   try {
     // Find all skills that have an active challenger
     const skills = getDb()
@@ -30,6 +33,8 @@ function runAbCheck(): void {
     }
   } catch (err) {
     logger.error({ err }, 'Skill A/B check failed');
+  } finally {
+    _running = false;
   }
 }
 

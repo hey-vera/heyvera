@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { nanoid } from 'nanoid';
+import { maskApiKey } from '../utils/mask';
 import { checkApiKey } from '../middleware/auth';
 import {
   getMarketplaceSkills, marketplacePurchase, marketplaceRefund, stakeCredits, unstakeCredits,
@@ -171,6 +172,13 @@ marketplaceRouter.post('/skills/:id/purchase', checkApiKey, async (c) => {
     return c.json({ requestId, error: 'Invalid body', details: (err as Error).message }, 400);
   }
 
+  // Pre-validate template variables BEFORE payment — avoid unnecessary refund transactions.
+  const requiredVars = [...skill.prompt_template.matchAll(/\{\{(\w+)\}\}/g)].map(m => m[1]);
+  const missingVars = requiredVars.filter(v => !(v in body.variables));
+  if (missingVars.length > 0) {
+    return c.json({ requestId, error: `Missing required variables: ${missingVars.join(', ')}`, code: 'MISSING_VARIABLES' }, 400);
+  }
+
   // Settle payment atomically BEFORE execution — buyer pays credit_cost to seller.
   // The invoke endpoint is NOT called after this; execution happens inline below.
   const purchase = marketplacePurchase({
@@ -286,7 +294,7 @@ marketplaceRouter.get('/transactions', checkApiKey, (c) => {
       amountCredits: t.amount_credits,
       feeCredits: t.fee_credits,
       direction: t.from_agent === keyInfo.key ? 'OUT' : 'IN',
-      counterparty: (() => { const k = t.from_agent === keyInfo.key ? t.to_agent : t.from_agent; return k ? k.slice(0, 6) + '...' + k.slice(-4) : null; })(),
+      counterparty: (() => { const k = t.from_agent === keyInfo.key ? t.to_agent : t.from_agent; return k ? maskApiKey(k) : null; })(),
       createdAt: t.created_at,
     })),
   });
@@ -421,7 +429,7 @@ marketplaceRouter.post('/creator/withdraw', checkApiKey, async (c) => {
   writeAuditLog({
     entityType: 'payout', entityId: result.id!,
     action: 'WITHDRAW_REQUESTED', actorId: keyInfo.key,
-    data: { amountCredits: body.amountCredits, usdcWallet: body.usdcWallet.slice(0, 6) + '...' + body.usdcWallet.slice(-4) },
+    data: { amountCredits: body.amountCredits, usdcWallet: maskApiKey(body.usdcWallet) },
   });
 
   logger.info({ id: result.id, key: keyInfo.key.slice(0, 8), credits: body.amountCredits }, 'Payout requested');
