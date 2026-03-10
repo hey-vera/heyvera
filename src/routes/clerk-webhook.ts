@@ -7,7 +7,9 @@ import { env } from '../config/index';
 
 export const clerkWebhookRouter = new Hono();
 
-const FREE_TRIAL_CREDITS = parseInt(process.env.FREE_TRIAL_CREDITS ?? '100', 10);
+// Free trial is DISABLED by default (0 = off). Set FREE_TRIAL_CREDITS=100 in .env to enable.
+// Kept here for when we're ready to activate — do not delete.
+const FREE_TRIAL_CREDITS = parseInt(process.env.FREE_TRIAL_CREDITS ?? '0', 10);
 
 /**
  * Verify Clerk webhook signature (svix-based HMAC-SHA256).
@@ -86,6 +88,12 @@ clerkWebhookRouter.post('/clerk', async (c) => {
 
     if (!clerkUserId) {
       logger.warn({ svixId }, 'Clerk user.created: missing user id');
+      return c.json({ received: true });
+    }
+
+    // Free trial is disabled — activate by setting FREE_TRIAL_CREDITS > 0 in .env
+    if (FREE_TRIAL_CREDITS <= 0) {
+      logger.info({ clerkUserId }, 'Clerk user.created: free trial disabled (FREE_TRIAL_CREDITS=0)');
       return c.json({ received: true });
     }
 
