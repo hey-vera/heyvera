@@ -1,108 +1,46 @@
+/**
+ * ClawNet Telegram Bot
+ *
+ * Design principles:
+ * - User-driven ONLY: no automatic scheduled queries. Queries run when a real
+ *   user explicitly requests them.
+ * - Global 12h cooldown: only 1 heavy query per 12 hours across ALL users
+ *   combined. This caps costs at max 2 queries/day.
+ * - Results broadcast to subscribers so they benefit from each query.
+ * - /price is exempt from the global cooldown (lightweight, per-user 1/min).
+ * - /skill shows skill info but does NOT invoke — avoids credit bypass.
+ * - Subscribers persisted in SQLite (survives container rebuilds).
+ */
 import { Bot, Context } from 'grammy';
 import { logger } from '../utils/logger';
 import { parseIntent } from '../core/intent-parser';
 import { executePlan } from '../core/executor';
 import { formatResponse, FormattedResponse } from '../core/formatter';
 import { apiRegistry } from '../config/api-registry';
-import { listPublicSkills, getSkill, incrementSkillUses } from '../db/index';
+import {
+  listPublicSkills, getSkill,
+  addTelegramSubscriber, removeTelegramSubscriber,
+  getTelegramSubscribers, isTelegramSubscriber,
+} from '../db/index';
 import { env } from '../config/index';
-import fs from 'fs';
-import path from 'path';
-
-// ─── Subscriber persistence ───────────────────────────────────────────────────
-
-const DATA_DIR = path.join(process.cwd(), 'data');
-const SUBSCRIBERS_FILE = path.join(DATA_DIR, 'subscribers.json');
 
 let bot: Bot | null = null;
-let subscribers: Set<number> = new Set();
 
-function loadSubscribers() {
-  try {
-    if (fs.existsSync(SUBSCRIBERS_FILE)) {
-      const data = JSON.parse(fs.readFileSync(SUBSCRIBERS_FILE, 'utf-8')) as number[];
-      subscribers = new Set(data);
-      logger.info({ count: subscribers.size }, 'Telegram subscribers loaded');
-    }
-  } catch (err) {
-    logger.warn({ err }, 'Failed to load subscribers');
-  }
+// ─── Input sanitization ───────────────────────────────────────────────────────
+
+/** Strip control characters and hard-cap length. Prevents prompt injection
+ *  from malicious Telegram users passing crafted input. */
+function sanitizeInput(raw: string, maxLen = 300): string {
+  return raw
+    .replace(/[\x00-\x1f\x7f]/g, ' ')  // Replace control chars with space
+    .trim()
+    .slice(0, maxLen);
 }
 
-function saveSubscribers() {
-  try {
-    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-    fs.writeFileSync(SUBSCRIBERS_FILE, JSON.stringify([...subscribers]));
-  } catch (err) {
-    logger.warn({ err }, 'Failed to save subscribers');
-  }
-}
+// ─── Rate limiting ────────────────────────────────────────────────────────────
 
-// ─── Feed query rotation ──────────────────────────────────────────────────────
-// Auto-adapts: queries are built from apiRegistry categories so adding new
-// endpoints automatically expands the feed's coverage over time.
-
-function buildFeedRotation(): string[] {
-  const categories = [...new Set(apiRegistry.map((e) => e.category))];
-  const hasSolana = categories.includes('solana');
-  const hasSocial = categories.includes('social');
-  const hasUtility = categories.includes('utility');
-
-  const queries: string[] = [];
-
-  if (hasSolana) {
-    queries.push(
-      'Analyze the top 3 trending Solana tokens right now. For each: current price, 24h change, risk score, and a one-line verdict. Which has the best risk/reward?',
-      'Which trending Solana tokens have the highest rug pull risk right now? Show risk scores and specific red flags for each.',
-      'Show me the Solana tokens with unusual volume spikes today. What is driving the volume and is it sustainable?',
-      'Which trending tokens have the lowest risk scores combined with positive price momentum? Score each by opportunity.',
-    );
-  }
-
-  if (hasSocial) {
-    queries.push(
-      'What tokens are getting the most buzz on Twitter and Reddit right now? Show sentiment scores and whether the hype matches the on-chain data.',
-      'Find tokens with extremely bullish social sentiment but high risk scores — potential pump-and-dump setups to watch.',
-      'Which crypto projects have the most authentic organic engagement on X/Twitter right now versus bot-driven hype?',
-    );
-  }
-
-  if (hasUtility) {
-    queries.push(
-      'What are the top 5 Solana and crypto news stories right now? For each, give a one-line summary and its likely market impact.',
-      'Search for news about Solana ecosystem developments this week. What should traders be paying attention to?',
-    );
-  }
-
-  if (hasSolana && hasSocial) {
-    queries.push(
-      'Cross-reference the top trending Solana tokens with their social sentiment and risk scores. Which has the strongest overall signal?',
-      'Find tokens where social sentiment and on-chain data tell opposite stories. What does the contradiction suggest?',
-    );
-  }
-
-  if (hasSolana && hasUtility) {
-    queries.push(
-      'Combine the latest crypto news with trending token data. Are any tokens directly affected by breaking news right now?',
-    );
-  }
-
-  return queries;
-}
-
-const FEED_ROTATION = buildFeedRotation();
-let feedIndex = 0;
-
-function nextFeedQuery(): string {
-  const q = FEED_ROTATION[feedIndex % FEED_ROTATION.length];
-  feedIndex++;
-  return q;
-}
-
-// ─── Rate limiting + cost budget ─────────────────────────────────────────────
-// Global limit: max 1 on-demand query every 12 hours across ALL users combined.
-// Feed runs are separate (scheduled, not counted here).
-
+// Global cooldown: max 1 heavy query per 12h across ALL users combined.
+// Resets to allow the 1st user who asks after cooldown to trigger a query.
 const GLOBAL_COOLDOWN_MS = 12 * 60 * 60 * 1000;
 let lastGlobalQuery = 0;
 
@@ -123,7 +61,23 @@ function setCooldown(): void {
   lastGlobalQuery = Date.now();
 }
 
-// ─── Telegram HTML formatter ──────────────────────────────────────────────────
+// Per-user price cooldown: 1 per minute
+const priceCooldowns = new Map<number, number>();
+const PRICE_COOLDOWN_MS = 60_000;
+
+// Purge stale cooldown entries hourly — prevents unbounded Map growth
+setInterval(() => {
+  const cutoff = Date.now() - PRICE_COOLDOWN_MS;
+  for (const [uid, ts] of priceCooldowns.entries()) {
+    if (ts < cutoff) priceCooldowns.delete(uid);
+  }
+}, 60 * 60 * 1000).unref();
+
+// ─── Telegram HTML helpers ────────────────────────────────────────────────────
+
+function escTg(str: string): string {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
 
 function scoreBar(score: number, outOf = 100): string {
   const filled = Math.min(8, Math.max(0, Math.round((score / outOf) * 8)));
@@ -139,16 +93,11 @@ function scoreEmoji(score: number, inverted = false): string {
   return low;
 }
 
-function formatForTelegram(
-  result: FormattedResponse,
-  durationMs: number,
-  label?: string,
-): string {
+function formatForTelegram(result: FormattedResponse, durationMs: number, label?: string): string {
   const parts: string[] = [];
 
   if (label) parts.push(`<b>${escTg(label)}</b>\n`);
 
-  // Scores
   const scores: string[] = [];
   if (result.opportunityScore !== undefined) {
     scores.push(
@@ -164,10 +113,8 @@ function formatForTelegram(
   }
   if (scores.length) parts.push(scores.join('\n') + '\n');
 
-  // Main answer — preserve line breaks, escape HTML
   parts.push(escTg(result.answer));
 
-  // Suggested actions
   if (result.suggestedActions.length > 0) {
     parts.push('\n<b>Actions:</b>');
     for (const action of result.suggestedActions) {
@@ -178,15 +125,72 @@ function formatForTelegram(
   parts.push(`\n<i>⚡ ${durationMs}ms · ClawNet</i>`);
 
   const msg = parts.join('\n');
-  // Telegram message limit is 4096 chars
   return msg.length > 4000 ? msg.slice(0, 3980) + '\n<i>…truncated</i>' : msg;
 }
 
-function escTg(str: string): string {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+// ─── Demo query rotation ──────────────────────────────────────────────────────
+// Built dynamically from apiRegistry so new endpoint categories automatically
+// expand the showcase over time.
+
+function buildDemoQueries(): string[] {
+  const categories = [...new Set(apiRegistry.map((e) => e.category))];
+  const hasSolana = categories.includes('solana');
+  const hasSocial = categories.includes('social');
+  const hasUtility = categories.includes('utility');
+  const hasDefi = categories.includes('defi');
+
+  const queries: string[] = [];
+
+  if (hasSolana) {
+    queries.push(
+      'Analyze the top 3 trending Solana tokens right now. For each: current price, 24h change, risk score, and a one-line verdict. Which has the best risk/reward?',
+      'Which trending Solana tokens have the highest rug pull risk right now? Show risk scores and specific red flags for each.',
+      'Show me Solana tokens with unusual volume spikes today. What is driving the volume and is it sustainable?',
+      'Which Solana tokens have the lowest risk scores combined with positive price momentum? Score each by opportunity.',
+    );
+  }
+
+  if (hasSocial) {
+    queries.push(
+      'What tokens are getting the most buzz on Twitter and Reddit right now? Show sentiment scores and whether the hype matches on-chain data.',
+      'Find tokens with extremely bullish social sentiment but high on-chain risk scores — potential pump-and-dump setups to watch.',
+    );
+  }
+
+  if (hasUtility) {
+    queries.push(
+      'What are the top 5 Solana and crypto news stories right now? For each, give a one-line summary and its likely market impact.',
+    );
+  }
+
+  if (hasDefi) {
+    queries.push(
+      'What are the best risk-adjusted yield opportunities in Solana DeFi right now? Compare lending rates and LP APYs.',
+    );
+  }
+
+  if (hasSolana && hasSocial) {
+    queries.push(
+      'Cross-reference the top trending Solana tokens with their social sentiment and risk scores. Which has the strongest overall signal?',
+      'Find tokens where social sentiment and on-chain data tell opposite stories. What does the contradiction suggest?',
+    );
+  }
+
+  // Fallback if registry is empty
+  if (queries.length === 0) {
+    queries.push('Give me a current overview of the Solana ecosystem: top tokens, market mood, and key developments this week.');
+  }
+
+  return queries;
+}
+
+const DEMO_QUERIES = buildDemoQueries();
+let demoIndex = 0;
+
+function nextDemoQuery(): string {
+  const q = DEMO_QUERIES[demoIndex % DEMO_QUERIES.length];
+  demoIndex++;
+  return q;
 }
 
 // ─── Core orchestration helper ────────────────────────────────────────────────
@@ -199,47 +203,101 @@ async function runQuery(query: string): Promise<{ result: FormattedResponse; dur
   return { result, durationMs: Date.now() - start };
 }
 
+/**
+ * Run a query and reply to the user.
+ * If broadcast=true, also push the result to all subscribers (except the user who triggered it).
+ */
 async function replyWithQuery(
   ctx: Context,
   query: string,
   label?: string,
+  broadcast = false,
 ): Promise<void> {
+  // Show typing indicator so user knows something is happening
+  try { await ctx.replyWithChatAction('typing'); } catch { /* ignore if unsupported */ }
+
   try {
     const { result, durationMs } = await runQuery(query);
-    await ctx.reply(formatForTelegram(result, durationMs, label), { parse_mode: 'HTML' });
+    const formatted = formatForTelegram(result, durationMs, label);
+    await ctx.reply(formatted, { parse_mode: 'HTML' });
+
+    // Broadcast to subscribers (skip the user who triggered this)
+    if (broadcast) {
+      const triggerChatId = ctx.chat?.id;
+      const subscribers = getTelegramSubscribers();
+      const failed: number[] = [];
+      for (const chatId of subscribers) {
+        if (chatId === triggerChatId) continue;
+        try {
+          await bot!.api.sendMessage(chatId, formatted, { parse_mode: 'HTML' });
+        } catch (err) {
+          logger.warn({ chatId, err }, 'Telegram: failed to broadcast to subscriber');
+          failed.push(chatId);
+        }
+      }
+      // Clean up unreachable subscribers
+      for (const chatId of failed) removeTelegramSubscriber(chatId);
+    }
   } catch (err) {
-    logger.error({ err, query }, 'Telegram query failed');
-    await ctx.reply('⚠️ Something went wrong running that query. Try again in a moment.');
+    logger.error({ err, query: query.slice(0, 100) }, 'Telegram query failed');
+    await ctx.reply(
+      '⚠️ Something went wrong running that query. The service may be briefly unavailable — try again after the cooldown resets.',
+    );
   }
 }
 
-// ─── Help text ────────────────────────────────────────────────────────────────
+function cooldownMsg(): string {
+  return `⏳ <b>Global cooldown active.</b>\n\nClawNet runs 1 live analysis per 12 hours (shared across all users) to keep costs sustainable.\n\nNext query available in <b>${cooldownRemaining()}</b>.\n\n💡 Use /price &lt;token&gt; for instant price checks (no cooldown).`;
+}
+
+// ─── Help & About text ────────────────────────────────────────────────────────
 
 function buildHelp(): string {
   const categories = [...new Set(apiRegistry.map((e) => e.category))];
   const endpointCount = apiRegistry.length;
 
   return (
-    `🦀 <b>ClawNet Bot</b>\n\n` +
-    `I run live AI queries across <b>${endpointCount} endpoints</b> covering: ${categories.join(', ')}.\n\n` +
-    `<b>Commands:</b>\n` +
-    `/price &lt;token&gt; — Quick price check (no cooldown)\n` +
-    `/analyze &lt;token&gt; — Deep dive: price, risk, sentiment\n` +
-    `/trending — What's hot on Solana right now\n` +
-    `/wallet &lt;address&gt; — Portfolio + risk score for a wallet\n` +
-    `/news &lt;topic&gt; — Latest news on any topic\n` +
-    `/sentiment &lt;token&gt; — Twitter + Reddit sentiment analysis\n` +
-    `/skills — Browse the ClawHub skill registry\n` +
-    `/skill &lt;id&gt; — Invoke a ClawHub skill\n` +
-    `/ask &lt;question&gt; — Ask anything\n` +
-    `/subscribe — Join the automated feed (every 15 min)\n` +
-    `/unsubscribe — Leave the feed\n` +
-    `/status — Bot status and subscriber count\n\n` +
-    `<i>⏳ On-demand queries: 1 per 12h (global). /price has no limit.</i>`
+    `🦀 <b>ClawNet</b> — Live AI analysis across <b>${endpointCount} endpoints</b>\n` +
+    `Data sources: ${categories.slice(0, 8).join(', ')}${categories.length > 8 ? ', +more' : ''}\n\n` +
+    `<b>⚡ Instant (no cooldown):</b>\n` +
+    `/price &lt;token&gt; — Quick price check (1/min per user)\n` +
+    `/skills — Browse the skill marketplace\n` +
+    `/skill &lt;id&gt; — View skill details\n` +
+    `/status — Bot health &amp; your subscription status\n` +
+    `/about — What is ClawNet\n\n` +
+    `<b>🔬 Analysis (1 per 12h, shared global cooldown):</b>\n` +
+    `/demo — Run a live showcase analysis\n` +
+    `/trending — Top Solana tokens by momentum\n` +
+    `/analyze &lt;token&gt; — Deep price/risk/sentiment dive\n` +
+    `/wallet &lt;address&gt; — Portfolio risk assessment\n` +
+    `/sentiment &lt;token&gt; — Twitter &amp; Reddit sentiment\n` +
+    `/news &lt;topic&gt; — Latest news digest\n` +
+    `/ask &lt;question&gt; — Freeform question\n\n` +
+    `/subscribe — Receive analysis results in this chat\n` +
+    `/unsubscribe — Stop receiving results\n\n` +
+    `<i>⏳ Analysis commands share a 12h global cooldown (max 2/day). Results are broadcast to all subscribers.</i>`
   );
 }
 
-// ─── Bot init ─────────────────────────────────────────────────────────────────
+function buildAbout(): string {
+  const endpointCount = apiRegistry.length;
+  const skillCount = listPublicSkills().length;
+  return (
+    `🦀 <b>ClawNet — Sovereign AI Orchestration</b>\n\n` +
+    `ClawNet routes natural language queries through <b>${endpointCount} real-time data endpoints</b> — Solana blockchain, DeFi protocols, social sentiment, crypto news, and more — then synthesizes everything into a structured intelligence report.\n\n` +
+    `<b>Platform stats:</b>\n` +
+    `• ${endpointCount} live data endpoints\n` +
+    `• ${skillCount} published skills in the marketplace\n` +
+    `• Credits-based pricing (no subscription required)\n` +
+    `• 97% revenue share for skill creators\n\n` +
+    `<b>Get started:</b>\n` +
+    `• API + docs: <a href="https://claw-net.org">claw-net.org</a>\n` +
+    `• Skill marketplace: <a href="https://claw-net.org/marketplace.html">claw-net.org/marketplace.html</a>\n\n` +
+    `<i>Type /demo to see a live analysis, or /help for all commands.</i>`
+  );
+}
+
+// ─── Allowlist middleware ─────────────────────────────────────────────────────
 
 const ALLOWED_USER_IDS: Set<number> = (() => {
   const raw = process.env.TELEGRAM_ALLOWED_USER_IDS ?? '';
@@ -248,31 +306,19 @@ const ALLOWED_USER_IDS: Set<number> = (() => {
 })();
 
 function isAllowedUser(userId: number): boolean {
-  // If allowlist is empty, open to all (backwards-compatible default)
   return ALLOWED_USER_IDS.size === 0 || ALLOWED_USER_IDS.has(userId);
 }
 
-// Per-user price cooldown: 1 per minute
-const priceCooldowns = new Map<number, number>();
-const PRICE_COOLDOWN_MS = 60_000;
-
-// Purge expired cooldown entries every hour to prevent unbounded growth
-setInterval(() => {
-  const cutoff = Date.now() - PRICE_COOLDOWN_MS;
-  for (const [uid, ts] of priceCooldowns.entries()) {
-    if (ts < cutoff) priceCooldowns.delete(uid);
-  }
-}, 60 * 60 * 1000).unref();
+// ─── Bot init ─────────────────────────────────────────────────────────────────
 
 export async function initTelegram(): Promise<void> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token || process.env.NODE_ENV !== 'production') {
-    logger.info('Telegram bot disabled in development mode');
+    logger.info('Telegram bot disabled (missing token or non-production env)');
     return;
   }
 
   try {
-    loadSubscribers();
     bot = new Bot(token);
 
     // Allowlist middleware — runs before every update
@@ -285,179 +331,225 @@ export async function initTelegram(): Promise<void> {
       await next();
     });
 
-    // /start
+    // ── /start ────────────────────────────────────────────────────────────────
     bot.command('start', async (ctx) => {
       await ctx.reply(buildHelp(), { parse_mode: 'HTML' });
     });
 
-    // /help
+    // ── /help ─────────────────────────────────────────────────────────────────
     bot.command('help', async (ctx) => {
       await ctx.reply(buildHelp(), { parse_mode: 'HTML' });
     });
 
-    // /subscribe
-    bot.command('subscribe', async (ctx) => {
-      const chatId = ctx.chat.id;
-      if (subscribers.has(chatId)) {
-        await ctx.reply('✅ Already subscribed. Feed runs every 15 minutes.');
-        return;
-      }
-      subscribers.add(chatId);
-      saveSubscribers();
-      logger.info({ chatId }, 'New Telegram subscriber');
-      await ctx.reply(
-        '✅ <b>Subscribed!</b>\n\nYou\'ll receive live Solana intelligence every 15 minutes.\n\nUse /help to see on-demand commands.',
-        { parse_mode: 'HTML' }
-      );
+    // ── /about ────────────────────────────────────────────────────────────────
+    bot.command('about', async (ctx) => {
+      await ctx.reply(buildAbout(), { parse_mode: 'HTML', link_preview_options: { is_disabled: true } });
     });
 
-    // /unsubscribe
-    bot.command('unsubscribe', async (ctx) => {
-      const chatId = ctx.chat.id;
-      if (!subscribers.has(chatId)) {
-        await ctx.reply('You\'re not subscribed. Use /subscribe to join the feed.');
-        return;
-      }
-      subscribers.delete(chatId);
-      saveSubscribers();
-      await ctx.reply('✅ Unsubscribed from the feed. On-demand commands still work.');
-    });
-
-    // /status
+    // ── /status ───────────────────────────────────────────────────────────────
     bot.command('status', async (ctx) => {
       const chatId = ctx.chat.id;
-      const isSubscribed = subscribers.has(chatId);
+      const subscribed = isTelegramSubscriber(chatId);
+      const subscriberCount = getTelegramSubscribers().length;
       const endpointCount = apiRegistry.length;
       const skillCount = listPublicSkills().length;
+      const cooldownStatus = isOnCooldown()
+        ? `⏳ Active — resets in ${cooldownRemaining()}`
+        : '✅ Ready — next query available now';
+
       await ctx.reply(
         `<b>ClawNet Status</b>\n\n` +
-        `Feed: ${isSubscribed ? '✅ Subscribed' : '❌ Not subscribed'}\n` +
-        `Endpoints online: <b>${endpointCount}</b>\n` +
+        `Subscription: ${subscribed ? '✅ Subscribed' : '❌ Not subscribed'}\n` +
+        `Subscribers: <b>${subscriberCount}</b>\n` +
+        `Endpoints: <b>${endpointCount}</b>\n` +
         `Public skills: <b>${skillCount}</b>\n` +
+        `Global cooldown: ${cooldownStatus}\n` +
         `Mode: <b>${env.NODE_ENV}</b>`,
-        { parse_mode: 'HTML' }
+        { parse_mode: 'HTML' },
       );
     });
 
-    // /trending
+    // ── /subscribe ────────────────────────────────────────────────────────────
+    bot.command('subscribe', async (ctx) => {
+      const chatId = ctx.chat.id;
+      if (isTelegramSubscriber(chatId)) {
+        await ctx.reply('✅ Already subscribed. You\'ll receive analysis results whenever a live query runs (up to 2×/day).');
+        return;
+      }
+      addTelegramSubscriber(chatId);
+      logger.info({ chatId }, 'New Telegram subscriber');
+      await ctx.reply(
+        '✅ <b>Subscribed!</b>\n\nYou\'ll receive ClawNet analysis results whenever a live query runs (up to 2× per day, user-triggered).\n\nUse /help to see on-demand commands.',
+        { parse_mode: 'HTML' },
+      );
+    });
+
+    // ── /unsubscribe ──────────────────────────────────────────────────────────
+    bot.command('unsubscribe', async (ctx) => {
+      const chatId = ctx.chat.id;
+      if (!isTelegramSubscriber(chatId)) {
+        await ctx.reply('You\'re not subscribed. Use /subscribe to join.');
+        return;
+      }
+      removeTelegramSubscriber(chatId);
+      await ctx.reply('✅ Unsubscribed. On-demand commands still work anytime.');
+    });
+
+    // ── /demo — live showcase, broadcasts to all subscribers ──────────────────
+    bot.command('demo', async (ctx) => {
+      if (isOnCooldown()) { await ctx.reply(cooldownMsg(), { parse_mode: 'HTML' }); return; }
+      setCooldown();
+      const query = nextDemoQuery();
+      await replyWithQuery(ctx, query, '🦀 ClawNet Live Demo', true);
+    });
+
+    // ── /trending ─────────────────────────────────────────────────────────────
     bot.command('trending', async (ctx) => {
-      if (isOnCooldown()) { await ctx.reply(`⏳ You can ask 1 query every 12 hours. Next query available in ${cooldownRemaining()}.`); return; }
+      if (isOnCooldown()) { await ctx.reply(cooldownMsg(), { parse_mode: 'HTML' }); return; }
       setCooldown();
       await replyWithQuery(
         ctx,
-        'Analyze the top trending Solana tokens right now. Show price, 24h change, risk score, and holder concentration for each. Rank them by opportunity.',
-        '📈 Trending Now'
+        'Analyze the top trending Solana tokens right now. Show price, 24h change, risk score, and holder concentration for each. Rank by opportunity score.',
+        '📈 Trending Now',
+        true,
       );
     });
 
-    // /analyze <token>
+    // ── /analyze <token> ──────────────────────────────────────────────────────
     bot.command('analyze', async (ctx) => {
-      const input = ctx.match?.trim();
-      if (!input) {
+      const raw = ctx.match?.trim() ?? '';
+      if (!raw) {
         await ctx.reply('Usage: /analyze &lt;token symbol or mint address&gt;\n\nExample: /analyze BONK', { parse_mode: 'HTML' });
         return;
       }
-      if (isOnCooldown()) { await ctx.reply(`⏳ You can ask 1 query every 12 hours. Next query available in ${cooldownRemaining()}.`); return; }
+      const input = sanitizeInput(raw, 100);
+      if (isOnCooldown()) { await ctx.reply(cooldownMsg(), { parse_mode: 'HTML' }); return; }
       setCooldown();
 
       const isAddress = input.length >= 32 && /^[1-9A-HJ-NP-Za-km-z]+$/.test(input);
       const query = isAddress
         ? `Full analysis of Solana token at mint address ${input}: price, 24h change, risk score, holder distribution, and social sentiment.`
-        : `Full analysis of the Solana token ${input.toUpperCase()}: current price, 24h change, risk score, top holder concentration, and Twitter/Reddit sentiment. Give a final verdict.`;
+        : `Full analysis of the Solana token ${input.toUpperCase()}: current price, 24h change, risk score, top holder concentration, and social sentiment. Give a final verdict.`;
 
-      await replyWithQuery(ctx, query, `🔬 Analysis: ${input.toUpperCase()}`);
+      await replyWithQuery(ctx, query, `🔬 Analysis: ${input.toUpperCase()}`, true);
     });
 
-    // /wallet <address>
+    // ── /wallet <address> ─────────────────────────────────────────────────────
     bot.command('wallet', async (ctx) => {
-      const address = ctx.match?.trim();
-      if (!address || address.length < 32) {
-        await ctx.reply('Usage: /wallet &lt;Solana wallet address&gt;', { parse_mode: 'HTML' });
+      const raw = ctx.match?.trim() ?? '';
+      if (!raw || raw.length < 32) {
+        await ctx.reply('Usage: /wallet &lt;Solana wallet address&gt;\n\nExample: /wallet 7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU', { parse_mode: 'HTML' });
         return;
       }
-      if (isOnCooldown()) { await ctx.reply(`⏳ You can ask 1 query every 12 hours. Next query available in ${cooldownRemaining()}.`); return; }
+      const address = sanitizeInput(raw, 100);
+      if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address)) {
+        await ctx.reply('⚠️ That doesn\'t look like a valid Solana address. Please check and try again.');
+        return;
+      }
+      if (isOnCooldown()) { await ctx.reply(cooldownMsg(), { parse_mode: 'HTML' }); return; }
       setCooldown();
       await replyWithQuery(
         ctx,
         `Analyze Solana wallet ${address}: total portfolio value, top holdings, wallet risk score, bot probability, and recent transaction activity.`,
-        `👛 Wallet Analysis`
+        '👛 Wallet Analysis',
+        true,
       );
     });
 
-    // /news <topic>
-    bot.command('news', async (ctx) => {
-      const topic = ctx.match?.trim() || 'Solana crypto';
-      if (isOnCooldown()) { await ctx.reply(`⏳ You can ask 1 query every 12 hours. Next query available in ${cooldownRemaining()}.`); return; }
-      setCooldown();
-      await replyWithQuery(
-        ctx,
-        `Find the latest news about ${topic}. Summarize the top 5 stories and explain the likely market impact of each.`,
-        `📰 News: ${topic}`
-      );
-    });
-
-    // /sentiment <token>
+    // ── /sentiment <token> ────────────────────────────────────────────────────
     bot.command('sentiment', async (ctx) => {
-      const token = ctx.match?.trim();
-      if (!token) {
+      const raw = ctx.match?.trim() ?? '';
+      if (!raw) {
         await ctx.reply('Usage: /sentiment &lt;token symbol&gt;\n\nExample: /sentiment SOL', { parse_mode: 'HTML' });
         return;
       }
-      if (isOnCooldown()) { await ctx.reply(`⏳ You can ask 1 query every 12 hours. Next query available in ${cooldownRemaining()}.`); return; }
+      const token = sanitizeInput(raw, 50);
+      if (isOnCooldown()) { await ctx.reply(cooldownMsg(), { parse_mode: 'HTML' }); return; }
       setCooldown();
       await replyWithQuery(
         ctx,
         `Analyze Twitter and Reddit sentiment for ${token.toUpperCase()}. Show mention count, sentiment score, top posts, and whether the community is bullish or bearish.`,
-        `💬 Sentiment: ${token.toUpperCase()}`
+        `💬 Sentiment: ${escTg(token.toUpperCase())}`,
+        true,
       );
     });
 
-    // /price <token> — quick price check, per-user 1/min cooldown
+    // ── /news <topic> ─────────────────────────────────────────────────────────
+    bot.command('news', async (ctx) => {
+      const raw = ctx.match?.trim() || 'Solana crypto';
+      const topic = sanitizeInput(raw, 100);
+      if (isOnCooldown()) { await ctx.reply(cooldownMsg(), { parse_mode: 'HTML' }); return; }
+      setCooldown();
+      await replyWithQuery(
+        ctx,
+        `Find the latest news about ${topic}. Summarize the top 5 stories and explain the likely market impact of each.`,
+        `📰 News: ${escTg(topic)}`,
+        true,
+      );
+    });
+
+    // ── /ask <question> ───────────────────────────────────────────────────────
+    bot.command('ask', async (ctx) => {
+      const raw = ctx.match?.trim() ?? '';
+      if (!raw) {
+        await ctx.reply('Usage: /ask &lt;your question&gt;\n\nOr just type your question directly.', { parse_mode: 'HTML' });
+        return;
+      }
+      const question = sanitizeInput(raw, 300);
+      if (isOnCooldown()) { await ctx.reply(cooldownMsg(), { parse_mode: 'HTML' }); return; }
+      setCooldown();
+      await replyWithQuery(ctx, question, '🤖 ClawNet', true);
+    });
+
+    // ── /price <token> — instant, per-user 1/min, no global cooldown ──────────
     bot.command('price', async (ctx) => {
-      const token = ctx.match?.trim();
-      if (!token) {
+      const raw = ctx.match?.trim() ?? '';
+      if (!raw) {
         await ctx.reply('Usage: /price &lt;token symbol or mint address&gt;\n\nExample: /price SOL', { parse_mode: 'HTML' });
         return;
       }
+      const token = sanitizeInput(raw, 50);
       const userId = ctx.from!.id;
       const lastPrice = priceCooldowns.get(userId) ?? 0;
       if (Date.now() - lastPrice < PRICE_COOLDOWN_MS) {
-        await ctx.reply('⏳ /price is limited to once per minute. Try again shortly.');
+        await ctx.reply('⏳ /price is limited to once per minute per user. Try again shortly.');
         return;
       }
       priceCooldowns.set(userId, Date.now());
       await replyWithQuery(
         ctx,
-        `Get the current price, 24h change, volume, and market cap for the Solana token ${token.toUpperCase()}. Keep it brief.`,
-        `💰 Price: ${token.toUpperCase()}`
+        `Get the current price, 24h change, volume, and market cap for ${token.toUpperCase()}. Keep it brief and factual.`,
+        `💰 Price: ${escTg(token.toUpperCase())}`,
+        false, // price checks are not broadcast — too frequent/lightweight
       );
     });
 
-    // /skills — list ClawHub registry
+    // ── /skills — list marketplace registry ───────────────────────────────────
     bot.command('skills', async (ctx) => {
       const skills = listPublicSkills();
       if (skills.length === 0) {
-        await ctx.reply('No public skills yet. Be the first — see claw-net.org to publish one.');
+        await ctx.reply('No public skills yet. Visit claw-net.org/marketplace.html to publish one.');
         return;
       }
-      const lines = [
-        `<b>🧩 ClawHub Skills (${skills.length})</b>\n`,
-        ...skills.slice(0, 15).map((s) =>
-          `<code>${s.id}</code> · <b>${s.name}</b>\n${escTg(s.description.slice(0, 80))}${s.description.length > 80 ? '…' : ''}\n<i>${s.uses} uses</i>`
+      const lines: string[] = [
+        `<b>🧩 ClawHub Skills (${skills.length} total)</b>\n`,
+        ...skills.slice(0, 12).map((s) =>
+          `<code>${escTg(s.id)}</code> · <b>${escTg(s.name)}</b> · ${s.credit_cost}cr\n` +
+          `<i>${escTg(s.description.slice(0, 70))}${s.description.length > 70 ? '…' : ''}</i>`
         ),
       ];
-      if (skills.length > 15) lines.push(`\n<i>…and ${skills.length - 15} more at claw-net.org</i>`);
-      lines.push('\nUse /skill &lt;id&gt; to invoke a skill.');
-      await ctx.reply(lines.join('\n'), { parse_mode: 'HTML' });
+      if (skills.length > 12) lines.push(`\n<i>…and ${skills.length - 12} more at <a href="https://claw-net.org/marketplace.html">claw-net.org/marketplace.html</a></i>`);
+      lines.push('\nUse /skill &lt;id&gt; to view a skill\'s details.');
+      await ctx.reply(lines.join('\n'), { parse_mode: 'HTML', link_preview_options: { is_disabled: true } });
     });
 
-    // /skill <id> [key=value ...]
+    // ── /skill <id> — view skill info (does NOT invoke — use the API) ─────────
     bot.command('skill', async (ctx) => {
-      const args = ctx.match?.trim().split(/\s+/) ?? [];
-      const skillId = args[0];
+      const args = (ctx.match?.trim() ?? '').split(/\s+/);
+      const skillId = sanitizeInput(args[0] ?? '', 50);
 
       if (!skillId) {
-        await ctx.reply('Usage: /skill &lt;id&gt; [key=value ...]\n\nGet skill IDs from /skills', { parse_mode: 'HTML' });
+        await ctx.reply('Usage: /skill &lt;id&gt;\n\nGet skill IDs from /skills', { parse_mode: 'HTML' });
         return;
       }
 
@@ -467,68 +559,46 @@ export async function initTelegram(): Promise<void> {
         return;
       }
 
-      if (isOnCooldown()) { await ctx.reply(`⏳ You can ask 1 query every 12 hours. Next query available in ${cooldownRemaining()}.`); return; }
-      setCooldown();
-
-      // Parse key=value pairs from remaining args
-      const variables: Record<string, string> = {};
-      for (const arg of args.slice(1)) {
-        const [k, ...v] = arg.split('=');
-        if (k && v.length) variables[k] = v.join('=');
-      }
-
-      // Render template
-      let query = skill.prompt_template;
+      let vars: string[] = [];
       try {
-        query = skill.prompt_template.replace(/\{\{(\w+)\}\}/g, (_, key) => {
-          if (!(key in variables)) throw new Error(`Missing variable: ${key}`);
-          return variables[key];
-        });
-      } catch (err) {
-        const missing = (skill.prompt_template.match(/\{\{(\w+)\}\}/g) ?? []).map((m) => m.slice(2, -2));
-        await ctx.reply(
-          `⚠️ This skill needs variables: <code>${missing.join(', ')}</code>\n\n` +
-          `Usage: /skill ${skillId} ${missing.map((k) => `${k}=value`).join(' ')}`,
-          { parse_mode: 'HTML' }
-        );
-        return;
-      }
+        const matches = skill.prompt_template.match(/\{\{(\w+)\}\}/g) ?? [];
+        vars = [...new Set(matches.map((m) => m.slice(2, -2)))];
+      } catch { /* ignore */ }
 
-      await replyWithQuery(ctx, query, `🧩 ${skill.name}`);
-      incrementSkillUses(skillId);
+      await ctx.reply(
+        `<b>🧩 ${escTg(skill.name)}</b>\n` +
+        `<code>${escTg(skill.id)}</code>\n\n` +
+        `${escTg(skill.description)}\n\n` +
+        `<b>Cost:</b> ${skill.credit_cost} credits\n` +
+        `<b>Uses:</b> ${skill.uses}\n` +
+        (vars.length ? `<b>Variables:</b> <code>${vars.join(', ')}</code>\n\n` : '\n') +
+        `<b>Invoke via API:</b>\n` +
+        `<code>POST /v1/marketplace/skills/${escTg(skill.id)}/purchase</code>\n\n` +
+        `<a href="https://claw-net.org/marketplace.html#skill/${encodeURIComponent(skill.id)}">View on marketplace →</a>`,
+        { parse_mode: 'HTML', link_preview_options: { is_disabled: true } },
+      );
     });
 
-    // /ask <question>
-    bot.command('ask', async (ctx) => {
-      const question = ctx.match?.trim();
-      if (!question) {
-        await ctx.reply('Usage: /ask &lt;your question&gt;\n\nOr just type your question directly.', { parse_mode: 'HTML' });
-        return;
-      }
-      if (isOnCooldown()) { await ctx.reply(`⏳ You can ask 1 query every 12 hours. Next query available in ${cooldownRemaining()}.`); return; }
-      setCooldown();
-      await replyWithQuery(ctx, question);
-    });
-
-    // Plain text → treat as a query
+    // ── Plain text → treat as a query ─────────────────────────────────────────
     bot.on('message:text', async (ctx) => {
       const text = ctx.message.text.trim();
-
-      // Ignore commands (already handled above)
       if (text.startsWith('/')) return;
       if (text.length < 5) return;
-      if (text.length > 1000) {
-        await ctx.reply('Query too long. Keep it under 1000 characters.');
+      if (text.length > 500) {
+        await ctx.reply('Query too long. Please keep it under 500 characters.');
         return;
       }
-
-      if (isOnCooldown()) { await ctx.reply(`⏳ You can ask 1 query every 12 hours. Next query available in ${cooldownRemaining()}.`); return; }
+      if (isOnCooldown()) { await ctx.reply(cooldownMsg(), { parse_mode: 'HTML' }); return; }
       setCooldown();
-      await replyWithQuery(ctx, text);
+      const query = sanitizeInput(text, 500);
+      await replyWithQuery(ctx, query, '🤖 ClawNet', true);
     });
 
     bot.start({
-      onStart: () => logger.info({ subscribers: subscribers.size }, 'Telegram bot started'),
+      onStart: () => {
+        const subs = getTelegramSubscribers().length;
+        logger.info({ subscribers: subs, demoQueries: DEMO_QUERIES.length }, 'Telegram bot started');
+      },
     });
 
   } catch (err) {
@@ -536,42 +606,23 @@ export async function initTelegram(): Promise<void> {
   }
 }
 
-// ─── Automated feed broadcast ─────────────────────────────────────────────────
+// ─── External broadcast (called by other modules with a pre-built message) ────
 
-export async function sendTelegramAlert(message?: string): Promise<void> {
-  if (!bot || subscribers.size === 0) return;
-
-  let text: string;
-
-  if (message) {
-    // External override (e.g. from heartbeat with a pre-built message)
-    text = message;
-  } else {
-    // Auto-generate from feed rotation
-    const query = nextFeedQuery();
-    try {
-      const { result, durationMs } = await runQuery(query);
-      text = formatForTelegram(result, durationMs, '🦀 ClawNet Feed');
-    } catch (err) {
-      logger.error({ err }, 'Feed query failed — skipping broadcast');
-      return;
-    }
-  }
+export async function sendTelegramAlert(message: string): Promise<void> {
+  if (!bot) return;
+  const subscribers = getTelegramSubscribers();
+  if (subscribers.length === 0) return;
 
   const failed: number[] = [];
   for (const chatId of subscribers) {
     try {
-      await bot.api.sendMessage(chatId, text, { parse_mode: 'HTML' });
+      await bot.api.sendMessage(chatId, message, { parse_mode: 'HTML' });
     } catch (err) {
-      logger.warn({ chatId, err }, 'Failed to send Telegram message');
+      logger.warn({ chatId, err }, 'Telegram: failed to send alert');
       failed.push(chatId);
     }
   }
-
-  if (failed.length > 0) {
-    for (const chatId of failed) subscribers.delete(chatId);
-    saveSubscribers();
-  }
+  for (const chatId of failed) removeTelegramSubscriber(chatId);
 }
 
 // ─── Shutdown ─────────────────────────────────────────────────────────────────

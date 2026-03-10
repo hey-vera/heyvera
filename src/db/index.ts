@@ -425,6 +425,10 @@ const MIGRATIONS: { version: number; sql: string }[] = [
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE(skill_id, reporter_key)
   )` },
+  { version: 31, sql: `CREATE TABLE IF NOT EXISTS telegram_subscribers (
+    chat_id INTEGER PRIMARY KEY,
+    subscribed_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )` },
 ];
 
 function runMigrations(): void {
@@ -2143,4 +2147,34 @@ export function cleanupOldSolanaSigs(daysToKeep = 30): number {
     .prepare(`DELETE FROM solana_processed_sigs WHERE processed_at < datetime('now', '-' || ? || ' days')`)
     .run(daysToKeep);
   return result.changes;
+}
+
+// ─── Telegram Subscribers (SQLite-backed) ─────────────────────────────────────
+
+export function addTelegramSubscriber(chatId: number): boolean {
+  const info = getDb()
+    .prepare(`INSERT OR IGNORE INTO telegram_subscribers (chat_id) VALUES (?)`)
+    .run(chatId);
+  return info.changes > 0;
+}
+
+export function removeTelegramSubscriber(chatId: number): boolean {
+  const info = getDb()
+    .prepare(`DELETE FROM telegram_subscribers WHERE chat_id = ?`)
+    .run(chatId);
+  return info.changes > 0;
+}
+
+export function getTelegramSubscribers(): number[] {
+  const rows = getDb()
+    .prepare(`SELECT chat_id FROM telegram_subscribers`)
+    .all() as { chat_id: number }[];
+  return rows.map((r) => r.chat_id);
+}
+
+export function isTelegramSubscriber(chatId: number): boolean {
+  const row = getDb()
+    .prepare(`SELECT 1 FROM telegram_subscribers WHERE chat_id = ?`)
+    .get(chatId);
+  return !!row;
 }
