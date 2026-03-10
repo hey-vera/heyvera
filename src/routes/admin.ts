@@ -267,7 +267,57 @@ adminRouter.get('/revenue', (c) => {
       swarmFees: { credits: swarmFees.total ?? 0, transactions: swarmFees.txCount ?? 0 },
     },
     payments: { totalUsd: payments.totalUsd ?? 0, keyCount: payments.keyCount ?? 0 },
-    note: 'credits are platform-retained revenue (not paid out to authors)',
+    note: 'Marketplace fees are credited to clawhub-treasury. Use GET /v1/admin/treasury for treasury balance.',
+  });
+});
+
+// ─── GET /v1/admin/treasury — platform treasury balance and transaction history ─
+
+adminRouter.get('/treasury', (c) => {
+  if (!requireAdmin(c)) return c.json({ error: 'Unauthorized' }, 401);
+  const db = getDb();
+
+  const treasury = db.prepare(
+    `SELECT credits, credits_used, created_at FROM api_keys WHERE key = 'clawhub-treasury' AND active = 1`
+  ).get() as { credits: number; credits_used: number; created_at: string } | undefined;
+
+  const official = db.prepare(
+    `SELECT credits, credits_used, created_at FROM api_keys WHERE key = 'clawhub-official' AND active = 1`
+  ).get() as { credits: number; credits_used: number; created_at: string } | undefined;
+
+  const recentFees = db.prepare(`
+    SELECT id, from_agent, amount_credits, fee_credits, skill_id, created_at
+    FROM transactions WHERE type = 'SKILL_SALE' AND fee_credits > 0
+    ORDER BY created_at DESC LIMIT 20
+  `).all() as { id: string; from_agent: string; amount_credits: number; fee_credits: number; skill_id: string; created_at: string }[];
+
+  const refunds = db.prepare(`
+    SELECT id, to_agent, amount_credits, fee_credits, skill_id, created_at
+    FROM transactions WHERE type = 'SKILL_REFUND'
+    ORDER BY created_at DESC LIMIT 20
+  `).all() as { id: string; to_agent: string; amount_credits: number; fee_credits: number; skill_id: string; created_at: string }[];
+
+  return c.json({
+    treasury: treasury ? {
+      credits: treasury.credits,
+      creditsUsed: treasury.credits_used,
+      usdEquivalent: (treasury.credits * 0.001).toFixed(2),
+      createdAt: treasury.created_at,
+    } : null,
+    officialCreator: official ? {
+      credits: official.credits,
+      creditsUsed: official.credits_used,
+      usdEquivalent: (official.credits * 0.001).toFixed(2),
+      createdAt: official.created_at,
+    } : null,
+    recentFeeTransactions: recentFees.map(t => ({
+      ...t,
+      from_agent: t.from_agent?.slice(0, 8) + '...',
+    })),
+    recentRefunds: refunds.map(t => ({
+      ...t,
+      to_agent: t.to_agent?.slice(0, 8) + '...',
+    })),
   });
 });
 

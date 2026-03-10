@@ -187,6 +187,47 @@ Comprehensive audit of all money-touching code paths (Stripe, Solana/USDC, credi
 
 ---
 
+## ✅ Marketplace Security Audit + Official Skills (COMPLETE)
+
+### Marketplace Audit — Batch A (Security & Money Flow)
+Full 26-finding audit performed. Critical fixes applied:
+
+| Fix | Detail |
+|---|---|
+| **Treasury fee routing** | 3% platform fee now credited to `clawhub-treasury` key (was burned). `ensureTreasuryKey()` in `seed-skills.ts` creates it on boot. `marketplacePurchase()` in `db/index.ts` credits `feeCredits` to treasury row. |
+| **Refund on failed execution** | New `marketplaceRefund()` in `db/index.ts`. Called on both failure paths in `POST /v1/marketplace/skills/:id/purchase`: missing template variables AND execution error. Reverses buyer deduction, seller credit, and treasury fee. Records `SKILL_REFUND` transaction. |
+| **Self-purchase prevention (secondary key)** | `marketplacePurchase()` now queries both buyer and seller emails and rejects if they match — prevents owning two keys and buying your own skill. |
+| **Price immutability** | Confirmed by architecture — no update endpoint for `credit_cost` exists. Set at creation only. |
+| **Admin treasury endpoint** | `GET /v1/admin/treasury` — shows treasury balance, official creator balance, recent fee transactions, recent refunds. |
+
+### Marketplace Audit — Batch B (7 New Official Skills)
+Added to `src/core/seed-skills.ts`. All author_key = `clawhub-official`.
+
+| ID | Name | Credits | Purpose |
+|---|---|---|---|
+| `wallet-profiler` | Wallet Profiler | 6 | PnL, holdings, whale classification |
+| `trending-tokens` | Trending Tokens | 4 | Volume surge, social buzz, momentum |
+| `whale-tracker` | Whale Tracker | 5 | Smart money movements, sentiment |
+| `defi-yield-scanner` | DeFi Yield Scanner | 5 | LP APYs, lending rates, risk-adjusted |
+| `token-launch-radar` | Token Launch Radar | 4 | Presales, IDOs, red flag scoring |
+| `price-oracle` | Price Oracle | 3 | RSI/MACD, support/resistance, signals |
+| `nft-collection-intel` | NFT Collection Intel | 5 | Floor trends, wash trading, recommendations |
+
+### Batch C (Skill Template Upgrades)
+Original 3 skills upgraded to v2.0.0 templates — richer prompts, structured numbered steps, more output fields.
+
+| ID | Old Name | New Name | Key Upgrades |
+|---|---|---|---|
+| `token-analysis` | Token Analyst | Token Analyst Pro | Added liquidity depth, rug pull flags, BUY/HOLD/AVOID, `timeframe` input, `liquidityScore`+`recommendation` outputs |
+| `social-sentiment` | Social Sentiment | Social Sentiment Scanner | Added Telegram/Discord, platform filter, momentum tracking, contrarian alert |
+| `portfolio-optimizer` | Portfolio Optimizer | Portfolio Optimizer Pro | Added Herfindahl concentration, correlation analysis, beta vs SOL, `includeStables` input, `swaps` array output |
+
+`seedOfficialSkills()` now also runs an **update pass** on every boot — idempotently updates name, description, prompt_template, schemas, version for all existing official skill rows (won't re-insert, just UPDATE WHERE author_key = 'clawhub-official').
+
+**Total official skills: 10.** All verified with `tsc --noEmit` clean + 48/48 unit tests passing.
+
+---
+
 ## ✅ BATCHES 1–8: Registry Expansion & Protocol Layer (COMPLETE)
 
 ### Batch 1 — API Registry Expansion ✅
@@ -254,7 +295,7 @@ The routing logic (intent parser → executor → formatter) is replicable in a 
 1. **183-endpoint registry** — aggregation effort, upstream API keys, cost tracking, maintenance
 2. **Credit/payment infrastructure** — Stripe + USDC, already working in production
 3. **Agent-to-agent payment rails** — escrow, skills economy, built but unused
-4. **Creator network effects** — doesn't exist yet (3 seeded skills, 0 third-party creators)
+4. **Creator network effects** — foundation set (10 official skills live, 0 third-party creators yet)
 
 ### The Correct Next Step: Get Paying Users, Not More Features
 

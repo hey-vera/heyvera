@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { nanoid } from 'nanoid';
 import { checkApiKey } from '../middleware/auth';
 import {
-  getMarketplaceSkills, marketplacePurchase, stakeCredits, unstakeCredits,
+  getMarketplaceSkills, marketplacePurchase, marketplaceRefund, stakeCredits, unstakeCredits,
   getStakes, getSkillStakeTotal, getTransactions, getSkill, writeAuditLog,
   getCreatorStats, getSkillsByAuthor,
   createPayoutRequest, getPayoutRequests,
@@ -208,12 +208,18 @@ marketplaceRouter.post('/skills/:id/purchase', checkApiKey, async (c) => {
       return String(body.variables[key]).slice(0, 500);
     });
   } catch (err) {
-    // Payment already settled — execution failed due to missing variables
+    // Refund — execution failed due to missing variables (user error, but no work was done)
+    const refund = marketplaceRefund({
+      buyerKey: keyInfo.key, sellerKey: skill.author_key,
+      amountCredits: skill.credit_cost, feeCredits: purchase.feeCredits ?? 0,
+      sellerCredits: purchase.sellerCredits ?? 0, originalTxId: purchase.txId!,
+      skillId: id, reason: 'Missing template variables',
+    });
     return c.json({
-      requestId, ok: true,
-      txId: purchase.txId, creditsCharged: skill.credit_cost,
+      requestId, ok: false,
+      refunded: refund.ok, refundTxId: refund.refundTxId,
       error: (err as Error).message, code: 'MISSING_VARIABLES',
-      hint: 'Payment settled. Call again with all required variables.',
+      hint: 'Payment refunded. Call again with all required variables.',
     }, 400);
   }
 
@@ -246,14 +252,21 @@ marketplaceRouter.post('/skills/:id/purchase', checkApiKey, async (c) => {
       durationMs: Date.now() - start,
     });
   } catch (err) {
-    logger.error({ requestId, skillId: id, err }, 'Marketplace execute failed after payment');
-    // Payment was settled — return partial success with error
+    logger.error({ requestId, skillId: id, err }, 'Marketplace execute failed after payment — refunding');
+    // Refund buyer — skill execution failed, no value delivered
+    const refund = marketplaceRefund({
+      buyerKey: keyInfo.key, sellerKey: skill.author_key,
+      amountCredits: skill.credit_cost, feeCredits: purchase.feeCredits ?? 0,
+      sellerCredits: purchase.sellerCredits ?? 0, originalTxId: purchase.txId!,
+      skillId: id, reason: 'Execution failed',
+    });
+    recordSkillMetric({ skillId: id, version: skill.version ?? '1.0.0', latencyMs: Date.now() - start, success: false, costCredits: 0 });
     return c.json({
-      requestId, ok: true,
-      txId: purchase.txId, creditsCharged: skill.credit_cost,
-      error: 'Skill execution failed after payment. Please retry via POST /v1/skills/:id/invoke.',
+      requestId, ok: false,
+      refunded: refund.ok, refundTxId: refund.refundTxId,
+      error: 'Skill execution failed. Payment has been refunded.',
       code: 'EXECUTION_ERROR',
-    }, 200);
+    }, 500);
   }
 });
 

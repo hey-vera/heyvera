@@ -1525,6 +1525,10 @@ export function marketplacePurchase(params: {
   skillId: string;
 }): { ok: boolean; txId?: string; error?: string; feeCredits?: number; sellerCredits?: number } {
   const db = getDb();
+  if (params.buyerKey === params.sellerKey) {
+    return { ok: false, error: 'Cannot purchase your own skill' };
+  }
+
   let txId = '';
   let feeCredits = 0;
   let sellerCredits = 0;
@@ -1533,6 +1537,13 @@ export function marketplacePurchase(params: {
       feeCredits = Math.floor(params.amountCredits * params.feePct);
       sellerCredits = params.amountCredits - feeCredits;
 
+      // Check buyer and seller emails don't match (prevents secondary-key self-purchase)
+      const buyerEmail = (db.prepare('SELECT email FROM api_keys WHERE key = ? AND active = 1').get(params.buyerKey) as { email: string } | undefined)?.email;
+      const sellerEmail = (db.prepare('SELECT email FROM api_keys WHERE key = ? AND active = 1').get(params.sellerKey) as { email: string } | undefined)?.email;
+      if (buyerEmail && sellerEmail && buyerEmail === sellerEmail) {
+        throw new Error('Cannot purchase your own skill');
+      }
+
       // Deduct from buyer
       const deducted = db.prepare(
         `UPDATE api_keys SET credits = credits - ?, credits_used = credits_used + ?
@@ -1540,10 +1551,16 @@ export function marketplacePurchase(params: {
       ).run(params.amountCredits, params.amountCredits, params.buyerKey, params.amountCredits);
       if (deducted.changes === 0) throw new Error('Insufficient credits');
 
-      // Credit seller (fee stays on platform — not redistributed in v1)
+      // Credit seller (97%)
       const sellerResult = db.prepare(`UPDATE api_keys SET credits = credits + ? WHERE key = ? AND active = 1`)
         .run(sellerCredits, params.sellerKey);
       if (sellerResult.changes === 0) throw new Error('Seller has no active API key');
+
+      // Credit treasury with platform fee (3%)
+      if (feeCredits > 0) {
+        db.prepare(`UPDATE api_keys SET credits = credits + ? WHERE key = 'clawhub-treasury' AND active = 1`)
+          .run(feeCredits);
+      }
 
       txId = nanoid(16);
       db.prepare(`INSERT INTO transactions (id, from_agent, to_agent, amount_credits, type, skill_id, fee_credits, metadata_json)
@@ -1554,6 +1571,50 @@ export function marketplacePurchase(params: {
     return { ok: true, txId, feeCredits, sellerCredits };
   } catch (err) {
     return { ok: false, error: (err as Error).message };
+  }
+}
+
+/**
+ * Refund a marketplace purchase — reverses buyer deduction, seller credit, and treasury fee.
+ * Used when skill execution fails after payment was settled.
+ */
+export function marketplaceRefund(params: {
+  buyerKey: string;
+  sellerKey: string;
+  amountCredits: number;
+  feeCredits: number;
+  sellerCredits: number;
+  originalTxId: string;
+  skillId: string;
+  reason: string;
+}): { ok: boolean; refundTxId?: string } {
+  const db = getDb();
+  try {
+    let refundTxId = '';
+    db.transaction(() => {
+      // Refund buyer
+      db.prepare(`UPDATE api_keys SET credits = credits + ?, credits_used = credits_used - ? WHERE key = ? AND active = 1`)
+        .run(params.amountCredits, params.amountCredits, params.buyerKey);
+
+      // Debit seller
+      db.prepare(`UPDATE api_keys SET credits = MAX(0, credits - ?) WHERE key = ? AND active = 1`)
+        .run(params.sellerCredits, params.sellerKey);
+
+      // Debit treasury
+      if (params.feeCredits > 0) {
+        db.prepare(`UPDATE api_keys SET credits = MAX(0, credits - ?) WHERE key = 'clawhub-treasury' AND active = 1`)
+          .run(params.feeCredits);
+      }
+
+      refundTxId = nanoid(16);
+      db.prepare(`INSERT INTO transactions (id, from_agent, to_agent, amount_credits, type, skill_id, fee_credits, metadata_json)
+                  VALUES (?, ?, ?, ?, 'SKILL_REFUND', ?, ?, ?)`)
+        .run(refundTxId, params.sellerKey, params.buyerKey, params.amountCredits,
+          params.skillId, params.feeCredits, JSON.stringify({ originalTxId: params.originalTxId, reason: params.reason }));
+    })();
+    return { ok: true, refundTxId };
+  } catch {
+    return { ok: false };
   }
 }
 
