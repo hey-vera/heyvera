@@ -39,6 +39,8 @@ import { openapiRouter } from './routes/openapi';
 import { x402SkillsRouter } from './routes/x402-skills';
 import { llmRouter } from './routes/llm';
 import { registryRouter } from './routes/registry';
+import { tasksRouter } from './routes/tasks';
+import { authRouter } from './routes/auth-tokens';
 import { startEndpointHealthCron } from './core/endpoint-health-cron';
 import { signResponse } from './middleware/sign-response';
 import { startEscrowCron } from './core/escrow-cron';
@@ -158,6 +160,8 @@ app.route('/v1', apiRouter);
 app.route('/x402', x402SkillsRouter);
 app.route('/v1/llm', llmRouter);
 app.route('/v1/registry', registryRouter);
+app.route('/v1/tasks', tasksRouter);
+app.route('/v1/auth', authRouter);
 
 app.notFound((c) => c.json({ error: 'Not found', code: 'NOT_FOUND' }, 404));
 

@@ -434,6 +434,36 @@ const MIGRATIONS: { version: number; sql: string }[] = [
     amount_refunded_cents INTEGER NOT NULL DEFAULT 0,
     processed_at TEXT NOT NULL DEFAULT (datetime('now'))
   )` },
+  { version: 33, sql: `CREATE TABLE IF NOT EXISTS tasks (
+    id TEXT PRIMARY KEY,
+    requester_key TEXT NOT NULL,
+    skill_id TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'PENDING',
+    input_json TEXT NOT NULL DEFAULT '{}',
+    result_json TEXT,
+    error TEXT,
+    idempotency_key TEXT UNIQUE,
+    webhook_url TEXT,
+    cost_credits INTEGER NOT NULL DEFAULT 0,
+    duration_ms INTEGER,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    started_at TEXT,
+    completed_at TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_tasks_requester ON tasks(requester_key);
+  CREATE INDEX IF NOT EXISTS idx_tasks_skill ON tasks(skill_id);
+  CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+  CREATE INDEX IF NOT EXISTS idx_tasks_created ON tasks(created_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_tasks_idempotency ON tasks(idempotency_key)` },
+  { version: 34, sql: `CREATE TABLE IF NOT EXISTS task_ratings (
+    id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL UNIQUE,
+    rated_by TEXT NOT NULL,
+    rating INTEGER NOT NULL CHECK(rating >= 1 AND rating <= 5),
+    comment TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_task_ratings_task ON task_ratings(task_id)` },
 ];
 
 function runMigrations(): void {
@@ -2210,4 +2240,122 @@ export function isTelegramSubscriber(chatId: number): boolean {
     .prepare(`SELECT 1 FROM telegram_subscribers WHERE chat_id = ?`)
     .get(chatId);
   return !!row;
+}
+
+// ─── Tasks ────────────────────────────────────────────────────────────────────
+
+export type TaskStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+
+export interface Task {
+  id: string;
+  requester_key: string;
+  skill_id: string;
+  status: TaskStatus;
+  input_json: string;
+  result_json: string | null;
+  error: string | null;
+  idempotency_key: string | null;
+  webhook_url: string | null;
+  cost_credits: number;
+  duration_ms: number | null;
+  created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+}
+
+export function createTask(params: {
+  id: string;
+  requesterKey: string;
+  skillId: string;
+  inputJson: string;
+  idempotencyKey?: string;
+  webhookUrl?: string;
+}): void {
+  getDb()
+    .prepare(`INSERT INTO tasks (id, requester_key, skill_id, input_json, idempotency_key, webhook_url)
+              VALUES (?, ?, ?, ?, ?, ?)`)
+    .run(params.id, params.requesterKey, params.skillId, params.inputJson,
+      params.idempotencyKey ?? null, params.webhookUrl ?? null);
+}
+
+export function getTask(id: string): Task | undefined {
+  return getDb().prepare('SELECT * FROM tasks WHERE id = ?').get(id) as Task | undefined;
+}
+
+export function getTaskByIdempotencyKey(idempotencyKey: string): Task | undefined {
+  return getDb()
+    .prepare('SELECT * FROM tasks WHERE idempotency_key = ?')
+    .get(idempotencyKey) as Task | undefined;
+}
+
+export function listTasks(requesterKey: string, limit = 50, offset = 0): Task[] {
+  return getDb()
+    .prepare('SELECT * FROM tasks WHERE requester_key = ? ORDER BY created_at DESC LIMIT ? OFFSET ?')
+    .all(requesterKey, Math.min(limit, 100), offset) as Task[];
+}
+
+export function countTasks(requesterKey: string): number {
+  const row = getDb()
+    .prepare('SELECT COUNT(*) as n FROM tasks WHERE requester_key = ?')
+    .get(requesterKey) as { n: number };
+  return row.n;
+}
+
+export function updateTaskRunning(id: string): void {
+  getDb()
+    .prepare(`UPDATE tasks SET status = 'RUNNING', started_at = datetime('now') WHERE id = ?`)
+    .run(id);
+}
+
+export function updateTaskCompleted(id: string, resultJson: string, costCredits: number, durationMs: number): void {
+  getDb()
+    .prepare(`UPDATE tasks SET status = 'COMPLETED', result_json = ?, cost_credits = ?, duration_ms = ?,
+              completed_at = datetime('now') WHERE id = ?`)
+    .run(resultJson, costCredits, durationMs, id);
+}
+
+export function updateTaskFailed(id: string, error: string, durationMs: number): void {
+  getDb()
+    .prepare(`UPDATE tasks SET status = 'FAILED', error = ?, duration_ms = ?,
+              completed_at = datetime('now') WHERE id = ?`)
+    .run(error, durationMs, id);
+}
+
+export function updateTaskCancelled(id: string): boolean {
+  const result = getDb()
+    .prepare(`UPDATE tasks SET status = 'CANCELLED', completed_at = datetime('now')
+              WHERE id = ? AND status = 'PENDING'`)
+    .run(id);
+  return result.changes > 0;
+}
+
+// ─── Task Ratings ─────────────────────────────────────────────────────────────
+
+export interface TaskRating {
+  id: string;
+  task_id: string;
+  rated_by: string;
+  rating: number;
+  comment: string | null;
+  created_at: string;
+}
+
+export function createTaskRating(params: {
+  taskId: string;
+  ratedBy: string;
+  rating: number;
+  comment?: string;
+}): { ok: boolean; error?: string } {
+  try {
+    getDb()
+      .prepare(`INSERT INTO task_ratings (id, task_id, rated_by, rating, comment) VALUES (?, ?, ?, ?, ?)`)
+      .run(nanoid(12), params.taskId, params.ratedBy, params.rating, params.comment ?? null);
+    return { ok: true };
+  } catch {
+    return { ok: false, error: 'Already rated or task not found' };
+  }
+}
+
+export function getTaskRating(taskId: string): TaskRating | undefined {
+  return getDb().prepare('SELECT * FROM task_ratings WHERE task_id = ?').get(taskId) as TaskRating | undefined;
 }
