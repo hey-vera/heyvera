@@ -208,7 +208,14 @@ async function executeStep(
     } else {
       data = mockData(step.endpointId);
     }
-    await cacheSet(key, data);
+    // YELLOW-8: Reject oversized responses before caching to prevent cache poisoning / memory DoS
+    const MAX_RESPONSE_BYTES = 1_000_000; // 1MB
+    const responseSize = JSON.stringify(data).length;
+    if (responseSize > MAX_RESPONSE_BYTES) {
+      logger.warn({ endpointId: step.endpointId, responseSize }, 'API response exceeds max size — skipping cache');
+    } else {
+      await cacheSet(key, data);
+    }
     recordSuccess(step.endpointId);
     return { endpointId: step.endpointId, success: true, cached: false, durationMs: Date.now() - start, cost: endpoint.costPerCall, data };
   } catch (err) {

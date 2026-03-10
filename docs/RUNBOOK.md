@@ -16,6 +16,8 @@ Operations reference for on-call and production incidents.
 9. [Database Restore From Backup](#9-database-restore-from-backup)
 10. [Verify Production Mode (Not Simulation)](#10-verify-production-mode-not-simulation)
 11. [Credit Accounting Drift](#11-credit-accounting-drift)
+14. [Admin Key Rotation](#14-admin-key-rotation)
+15. [VPS Environment File Security](#15-vps-environment-file-security)
 
 ---
 
@@ -518,3 +520,71 @@ docker compose exec api node -e "
 | `STAKE_LOCK` | Credits staked on a skill |
 | `STAKE_UNLOCK` | Stake returned after timeout |
 | `PAYOUT_STATUS` | Admin updates a creator payout |
+| `KEY_REVOKED` | Admin revokes an API key |
+
+---
+
+## §14 — Admin Key Rotation
+
+The `ADMIN_API_KEY` is a static secret stored in `/home/guardian/claw-net/.env`. Rotate it any time you suspect exposure.
+
+### Procedure
+
+```bash
+# 1. Generate a new key (min 32 chars)
+NEW_KEY=$(openssl rand -hex 32)
+echo "New key: $NEW_KEY"
+
+# 2. Update .env on the VPS
+ssh guardian-vps
+nano /home/guardian/claw-net/.env
+# Edit ADMIN_API_KEY=<new-key>
+
+# 3. Restart container to pick up new key
+cd /home/guardian/claw-net
+docker compose up -d
+
+# 4. Verify new key works
+curl -H "X-Admin-Key: $NEW_KEY" https://api.claw-net.org/v1/admin/dashboard | head -c 200
+
+# 5. Update any scripts or monitoring tools that use the old key
+```
+
+### Rotation log
+| Date | Rotated by | Reason |
+|---|---|---|
+| (first rotation) | — | — |
+
+---
+
+## §15 — VPS Environment File Security
+
+The `.env` file at `/home/guardian/claw-net/.env` contains all production secrets. Verify it is readable only by the `guardian` user.
+
+```bash
+ssh guardian-vps
+
+# Check permissions (should be -rw-------)
+ls -la /home/guardian/claw-net/.env
+
+# Fix if permissions are too open
+chmod 600 /home/guardian/claw-net/.env
+
+# Verify owner
+stat /home/guardian/claw-net/.env
+# Should show: Uid: (1000/guardian)
+```
+
+### Redis password activation
+
+To enable Redis authentication in production:
+
+1. Add to `/home/guardian/claw-net/.env`:
+   ```
+   REDIS_PASSWORD=<strong-random-password>
+   REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379
+   ```
+
+2. Restart with `deploy` — the compose file will automatically pass `--requirepass` to Redis and include credentials in the health check.
+
+3. Verify: `docker compose exec redis redis-cli -a $REDIS_PASSWORD ping` → `PONG`

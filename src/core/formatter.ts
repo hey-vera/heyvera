@@ -56,8 +56,18 @@ function buildSynthesisPrompt(
   const successfulSteps = execution.steps.filter((s) => s.success);
   const failedSteps = execution.steps.filter((s) => !s.success);
 
+  // YELLOW-7: Truncate each API response before interpolating into the LLM prompt.
+  // A malicious or compromised endpoint could return a payload crafted to hijack the
+  // synthesis instruction. Truncation and structured delimiters limit the blast radius.
+  const MAX_DATA_BYTES_PER_STEP = 10_000;
   const dataContext = successfulSteps
-    .map((s) => `### ${s.endpointId}\n${JSON.stringify(s.data, null, 2)}`)
+    .map((s) => {
+      const raw = JSON.stringify(s.data, null, 2);
+      const truncated = raw.length > MAX_DATA_BYTES_PER_STEP
+        ? raw.slice(0, MAX_DATA_BYTES_PER_STEP) + '\n... [truncated]'
+        : raw;
+      return `<api-data endpoint="${s.endpointId}">\n${truncated}\n</api-data>`;
+    })
     .join('\n\n');
 
   const failureNote =

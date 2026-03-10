@@ -17,6 +17,7 @@ const envSchema = z.object({
   CLAWAPIS_API_KEY: z.string().optional(),
 
   REDIS_URL: z.string().optional(),
+  REDIS_PASSWORD: z.string().optional(),
   CACHE_TTL_SECONDS: z.coerce.number().default(300),
   CACHE_MAX_MEMORY_ITEMS: z.coerce.number().default(10000),
 

@@ -255,7 +255,16 @@ openclawRouter.post('/invoke', checkApiKey, async (c) => {
     const cached = await cacheGet<Record<string, unknown>>(qKey);
     if (cached) {
       const creditsUsed = (cached.costBreakdown as Record<string, unknown> | undefined)?.creditsUsed as number ?? 0;
-      return c.json(envelope(requestId, 'skill', { ...cached, cacheHit: true }, creditsUsed, keyInfo.credits, {
+      // Deduct credits even on cache hit — real API calls were made when result was cached
+      if (!keyInfo.isEnvKey && creditsUsed > 0) {
+        const deducted = deductCredit(keyInfo.key, creditsUsed);
+        if (!deducted) {
+          return c.json({ ok: false, requestId, error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS',
+            creditsRequired: creditsUsed, creditsAvailable: keyInfo.credits }, 402);
+        }
+      }
+      const remaining = keyInfo.isEnvKey ? keyInfo.credits : keyInfo.credits - creditsUsed;
+      return c.json(envelope(requestId, 'skill', { ...cached, cacheHit: true }, creditsUsed, remaining, {
         durationMs: Date.now() - start, cacheHit: true, route: `skill:${skillId}`,
       }));
     }

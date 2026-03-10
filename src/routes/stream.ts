@@ -16,6 +16,10 @@ import { nanoid } from 'nanoid';
 
 export const streamRouter = new Hono();
 
+// Track concurrent SSE streams per API key (module-level, single-process safe)
+const activeStreams = new Map<string, number>();
+const MAX_CONCURRENT_STREAMS = 5;
+
 function sseEvent(event: string, data: unknown): string {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
 }
@@ -33,6 +37,15 @@ streamRouter.get('/orchestrate', checkApiKey, async (c) => {
   }
   if (!keyInfo.isEnvKey && keyInfo.credits < 1) {
     return c.json({ error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS' }, 402);
+  }
+
+  // YELLOW-5: Reject if this key already has too many concurrent streams
+  if (!keyInfo.isEnvKey) {
+    const current = activeStreams.get(keyInfo.key) ?? 0;
+    if (current >= MAX_CONCURRENT_STREAMS) {
+      return c.json({ error: 'Too many concurrent streams for this key', code: 'STREAM_LIMIT_EXCEEDED', limit: MAX_CONCURRENT_STREAMS }, 429);
+    }
+    activeStreams.set(keyInfo.key, current + 1);
   }
 
   const start = Date.now();
@@ -59,24 +72,10 @@ streamRouter.get('/orchestrate', checkApiKey, async (c) => {
           });
 
           const execution = await executePlan(intent);
-          if (signal.aborted) return;
 
-          // Emit per-step summaries
-          for (let idx = 0; idx < execution.steps.length; idx++) {
-            const s = execution.steps[idx];
-            emit('step', {
-              index: idx,
-              endpointId: s.endpointId,
-              success: s.success,
-              cached: s.cached,
-              durationMs: s.durationMs,
-              cost: s.cost,
-            });
-          }
-
-          const formatted = await formatResponse(query, intent, execution);
-          if (signal.aborted) return;
-
+          // RED-2: Deduct credits immediately after execution — API calls have already been
+          // made at this point. Do this BEFORE checking signal.aborted so that clients
+          // cannot get free execution by disconnecting after executePlan() completes.
           const creditsToDeduct = creditsForApiCost(execution.totalCost);
           if (!keyInfo.isEnvKey) {
             const deducted = deductCredit(keyInfo.key, creditsToDeduct);
@@ -85,6 +84,23 @@ streamRouter.get('/orchestrate', checkApiKey, async (c) => {
               return;
             }
           }
+
+          if (signal.aborted) return;
+
+          // Emit per-step summaries (omit cost to avoid leaking pricing internals)
+          for (let idx = 0; idx < execution.steps.length; idx++) {
+            const s = execution.steps[idx];
+            emit('step', {
+              index: idx,
+              endpointId: s.endpointId,
+              success: s.success,
+              cached: s.cached,
+              durationMs: s.durationMs,
+            });
+          }
+
+          const formatted = await formatResponse(query, intent, execution);
+          if (signal.aborted) return;
 
           emit('done', {
             requestId,
@@ -103,11 +119,21 @@ streamRouter.get('/orchestrate', checkApiKey, async (c) => {
           });
         } finally {
           controller.close();
+          if (!keyInfo.isEnvKey) {
+            const n = (activeStreams.get(keyInfo.key) ?? 1) - 1;
+            if (n <= 0) activeStreams.delete(keyInfo.key);
+            else activeStreams.set(keyInfo.key, n);
+          }
         }
       },
       cancel() {
         abortController.abort();
         logger.info({ requestId }, 'SSE client disconnected — orchestration cancelled');
+        if (!keyInfo.isEnvKey) {
+          const n = (activeStreams.get(keyInfo.key) ?? 1) - 1;
+          if (n <= 0) activeStreams.delete(keyInfo.key);
+          else activeStreams.set(keyInfo.key, n);
+        }
       },
     }),
     200,

@@ -11,8 +11,14 @@ import { executePlan } from '../core/executor';
 import { formatResponse } from '../core/formatter';
 import { deductCredit } from '../db/index';
 import { creditsForApiCost } from '../core/credits';
+import { cacheIncr } from '../cache/index';
+import { apiRegistry } from '../config/api-registry';
 import { logger } from '../utils/logger';
 import { nanoid } from 'nanoid';
+
+// Maximum total execution steps across all queries in a single batch request.
+// Prevents 10 queries × 10 steps each = 100 external API calls from one HTTP request.
+const MAX_BATCH_STEPS = 30;
 
 export const batchRouter = new Hono();
 
@@ -43,13 +49,85 @@ batchRouter.post('/', checkApiKey, async (c) => {
     }, 402);
   }
 
+  // RED-4: Enforce per-key tiered rate limit (counts each query in the batch separately)
+  if (!keyInfo.isEnvKey) {
+    const tierLimit = keyInfo.amountPaid >= 500 ? 300
+      : keyInfo.amountPaid >= 100 ? 120
+      : keyInfo.amountPaid >= 20  ? 60
+      : 30;
+    // Increment rate limit counter by queries.length (each query consumes one slot)
+    const rlCounts = await Promise.all(
+      Array.from({ length: body.queries.length }, () => cacheIncr(`rl:orch:${keyInfo.key}`, 60))
+    );
+    const maxRlCount = Math.max(...rlCounts);
+    if (maxRlCount > tierLimit) {
+      return c.json({
+        batchId,
+        error: 'Orchestration rate limit exceeded for your tier',
+        code: 'RATE_LIMITED',
+        limit: tierLimit,
+        hint: 'Top up to $20+ for higher limits',
+      }, 429);
+    }
+  }
+
   const start = Date.now();
 
+  // YELLOW-3: Parse all intents first so we can check total step count and estimate
+  // cost upfront — then deduct atomically before any expensive API execution.
+  const intents = await Promise.allSettled(
+    body.queries.map((query) => parseIntent(query))
+  );
+
+  const parsedIntents = intents.map((r, idx) =>
+    r.status === 'fulfilled' ? { ok: true as const, intent: r.value, query: body.queries[idx] }
+      : { ok: false as const, error: r.reason, query: body.queries[idx] }
+  );
+
+  // YELLOW-6: Cap total execution steps across all queries
+  const totalSteps = parsedIntents.reduce((sum, p) => sum + (p.ok ? p.intent.steps.length : 0), 0);
+  if (totalSteps > MAX_BATCH_STEPS) {
+    return c.json({
+      batchId,
+      error: `Batch would require ${totalSteps} API steps, exceeding max of ${MAX_BATCH_STEPS}. Simplify your queries or reduce batch size.`,
+      code: 'BATCH_STEP_LIMIT_EXCEEDED',
+      totalSteps,
+      limit: MAX_BATCH_STEPS,
+    }, 400);
+  }
+
+  // YELLOW-3: Estimate total credits needed and deduct upfront atomically.
+  // This prevents partial execution where some queries succeed and some fail due to credit depletion.
+  if (!keyInfo.isEnvKey) {
+    const estimatedCredits = parsedIntents.reduce((sum, p) => {
+      if (!p.ok) return sum;
+      const estimatedCost = p.intent.steps.reduce((s, step) => {
+        const ep = apiRegistry.find((e) => e.id === step.endpointId);
+        return s + (ep?.costPerCall ?? 0.001);
+      }, 0);
+      return sum + Math.max(1, Math.ceil(estimatedCost * 2000));
+    }, 0);
+
+    if (estimatedCredits > keyInfo.credits) {
+      return c.json({
+        batchId,
+        error: 'Insufficient credits for estimated batch cost',
+        code: 'INSUFFICIENT_CREDITS',
+        creditsAvailable: keyInfo.credits,
+        estimatedCredits,
+        hint: 'Top up your credits at claw-net.org',
+      }, 402);
+    }
+  }
+
   const results = await Promise.allSettled(
-    body.queries.map(async (query, idx) => {
+    parsedIntents.map(async (parsed, idx) => {
       const qStart = Date.now();
+      if (!parsed.ok) {
+        return { index: idx, query: parsed.query, ok: false, error: 'Intent parsing failed', durationMs: 0 };
+      }
+      const { intent, query } = parsed;
       try {
-        const intent = await parseIntent(query);
         const execution = await executePlan(intent);
         const formatted = await formatResponse(query, intent, execution);
 
