@@ -6,6 +6,9 @@ WWW_DIR="/var/www/claw-net"
 
 cd "$REPO_DIR"
 
+echo "[backup] Pre-deploy database backup..."
+bash "$REPO_DIR/scripts/backup.sh" || echo "[backup] WARNING: backup failed — continuing deploy"
+
 echo "[git] Pulling latest..."
 git pull origin main
 

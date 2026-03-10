@@ -13,6 +13,9 @@ Operations reference for on-call and production incidents.
 6. [High Credit Deduction Failures](#6-high-credit-deduction-failures)
 7. [Stripe / Solana Webhook Failures](#7-stripe--solana-webhook-failures)
 8. [Disk Full](#8-disk-full)
+9. [Database Restore From Backup](#9-database-restore-from-backup)
+10. [Verify Production Mode (Not Simulation)](#10-verify-production-mode-not-simulation)
+11. [Credit Accounting Drift](#11-credit-accounting-drift)
 
 ---
 
@@ -361,3 +364,77 @@ docker compose exec api node -e "
 3. Check UptimeRobot status page
 4. If data integrity is at risk — **stop writes first, investigate second**
 5. Post incident summary in `docs/incident-log.md`
+
+---
+
+## 9. Database Restore From Backup
+
+**Symptom:** DB corruption, accidental deletion, or data loss.
+
+### Diagnosis
+```bash
+ssh guardian-vps
+ls -lh ~/backups/orchestrator_*.db.gz | tail -5
+```
+
+### Fix
+```bash
+# Stop the API to prevent writes during restore
+docker compose stop orchestrator
+
+# Restore latest backup
+LATEST=$(ls -t ~/backups/orchestrator_*.db.gz | head -1)
+gunzip -c "$LATEST" > /home/guardian/claw-net/data/orchestrator.db.restore
+mv /home/guardian/claw-net/data/orchestrator.db /home/guardian/claw-net/data/orchestrator.db.broken
+mv /home/guardian/claw-net/data/orchestrator.db.restore /home/guardian/claw-net/data/orchestrator.db
+
+# Verify integrity
+sqlite3 /home/guardian/claw-net/data/orchestrator.db "PRAGMA integrity_check;"
+
+# Restart
+docker compose start orchestrator
+docker compose logs -f orchestrator
+```
+
+---
+
+## 10. Verify Production Mode (Not Simulation)
+
+**Symptom:** Users report answers look generic / identical regardless of query. `/v1/health` shows `simulationMode: true`.
+
+### Diagnosis
+```bash
+ssh guardian-vps
+grep CLAWAPIS_API_KEY /home/guardian/claw-net/.env
+docker compose exec orchestrator env | grep CLAWAPIS
+```
+
+### Fix
+```bash
+# Add/update CLAWAPIS_API_KEY in .env
+echo "CLAWAPIS_API_KEY=your_key_here" >> /home/guardian/claw-net/.env
+docker compose up -d --no-build
+# Verify
+curl -s https://api.claw-net.org/v1/health | grep simulationMode
+```
+
+**simulationMode must be `false` in production.**
+
+---
+
+## 11. Credit Accounting Drift
+
+**Symptom:** `GET /v1/admin/reconcile` shows non-zero `drift`.
+
+### Diagnosis
+```bash
+curl -H "X-Admin-Key: $ADMIN_KEY" https://api.claw-net.org/v1/admin/reconcile
+```
+Drift = `expectedCirculating - totalGranted`. Positive drift means credits appeared from nowhere. Negative drift means credits were lost.
+
+### Fix
+1. Check `audit_log` table for recent anomalies
+2. Check for failed DB transactions that may have partially applied
+3. Check if `tryClaimSolanaSignature` or `claimStripeSession` had any duplicate grants
+4. If drift < 100 credits, it may be floating point rounding in revenue share — monitor
+5. If drift > 1000 credits, treat as incident — investigate before allowing new payments
