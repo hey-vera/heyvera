@@ -59,7 +59,7 @@ ClawNet is a sovereign AI agent orchestration layer and economy. It is live in p
 - Intent parser (GPT-4o primary, Claude fallback) → parallel executor → LLM synthesizer
 - ClawAPIs x402 integration — 183 endpoints (Solscan Pro 22, Helius 80, X/Twitter 81)
 - Stripe live payments — 6 credit packages $5–$1,000
-- USDC/Solana — Phantom wallet, on-chain verify, +10% bonus credits
+- USDC/Solana — Phantom wallet, on-chain verify, +7% bonus credits (capped at Stripe fee savings)
 - Credit system: 1 credit = $0.001, deduction = `Math.max(1, Math.ceil(apiCosts * 2000))`
 - Resend email, Telegram bot, circuit breaker, admin endpoint
 - Frontend: landing page, pricing, USDC modal, dashboard, login, success pages
@@ -147,22 +147,30 @@ ClawNet is a sovereign AI agent orchestration layer and economy. It is live in p
 
 ## ✅ Security Audits — Rounds 1–10 (ALL COMPLETE, 48/48 unit tests pass)
 
-**Round 10 fixes (most recent commit: `dbfdd5c`):**
-- `stripe.ts`: claim + credit grant now in one SQLite transaction — crash-safe, atomically idempotent
-- `stripe.ts`: read-only pre-flight check before async Stripe API call; qty < 1 rejected
-- `db/index.ts`: `topUpCredits()` accepts explicit `amountPaid` — fixes bonus-tier `amount_paid` inflation
-- `db/index.ts`: `isStripeSessionClaimed()` read-only helper added
-- `config/index.ts`: `ADMIN_API_KEY` requires ≥ 16 chars when set
-- `marketplace.ts`: `usdcWallet` validated as Solana base58 regex; masked in audit logs
-- `admin.ts`: payout PATCH returns Zod `fieldErrors` instead of raw `ZodError.message`
-- `solana.ts`: removed futile JWT email extraction (Clerk doesn't embed email in JWTs)
+**Round 10 fixes:** `stripe.ts` crash-safe atomic claim+grant transaction; `db/index.ts` `isStripeSessionClaimed()` read-only helper; `ADMIN_API_KEY` ≥ 16 chars enforced; `marketplace.ts` usdcWallet validated as Solana base58.
+
+## ✅ Fintech & Billing Audit — ALL COMPLETE
+
+- **A2** — USDC bonus reduced +10% → +7% (`src/routes/solana.ts`)
+- **C1** — Fallback Solana RPC via `SOLANA_RPC_FALLBACK` env var (`src/routes/solana.ts`)
+- **D3** — Rate limit tier policy documented in `src/routes/api.ts` (lifetime `amount_paid` basis)
+- **D4** — `POST /v1/dashboard/billing-portal` — Stripe Customer Portal redirect (`src/routes/dashboard.ts`)
+- **E3** — Subscription rollover capped at 3× monthly credits in `invoice.payment_succeeded` (`src/routes/stripe.ts`)
+- **F4** — `scripts/loadtest.sh` — 100 concurrent requests, p50/p95/p99 report, pass/fail targets
+- **G1** — Free trial code built + disabled (`FREE_TRIAL_CREDITS=0` default); activate via env var when ready
+- **G2** — `GET /v1/estimate?query=` — intent-only, no credits charged, per-step breakdown (`src/routes/api.ts`)
+- **G3** — Annual pricing slots via `STRIPE_ANNUAL_PRICE_100/500/1000` env vars; +15% credits over monthly
+- **G4** — Per-endpoint pricing table in `site/docs.html`; `/v1/estimate` in OpenAPI spec
+- **H2** — 64KB webhook payload size guard on `/v1/webhooks/*` (`src/index.ts`)
+- **H3** — Stripe secret rotation procedure in `docs/RUNBOOK.md` §12
+- **H4** — `logAudit(PAYOUT_STATUS)` on admin payout PATCH; audit query guide in `docs/RUNBOOK.md` §13
 
 ---
 
 ## ✅ CHUNK 15+: Deferred (Next Priorities)
 
-- Load test: 100 concurrent agents against `/v1/orchestrate`
-- GitHub Actions CI pipeline
+- `scripts/loadtest.sh` exists — run it against production when ready (target: p95 < 5s, 0 server errors)
+- GitHub Actions CI pipeline — not yet set up
 - **User acquisition** (see Distribution Strategy below — this is the actual next step)
 
 ---
@@ -245,7 +253,7 @@ ClawHub = discovery. claw-net.org = monetization. They are not the same thing. N
 - ⬜ Per-key daily spend cap (e.g. $10/day default, configurable)
 - ⬜ Admin key revocation endpoint
 - ⬜ Anomaly detection alert if a key's spend jumps 10x in a day
-- ⬜ Load test: 100 concurrent requests (no SQLite WAL lock contention, no credit races)
+- ✅ Load test script ready (`scripts/loadtest.sh`) — run against production to verify p95 < 5s
 
 ### What to Log / Never Log
 
@@ -302,7 +310,7 @@ src/
   middleware/clerk-auth.ts    — Clerk JWT clerkAuth middleware
   middleware/rate-limit.ts    — 60 req/min/IP
   routes/
-    api.ts                    — POST /v1/orchestrate
+    api.ts                    — POST /v1/orchestrate, GET /v1/estimate
     openclaw.ts               — POST /v1/openclaw/invoke (universal gateway)
     skills.ts                 — skill CRUD + invoke + A/B
     marketplace.ts            — marketplace + staking + creator stats
@@ -312,7 +320,8 @@ src/
     stats.ts                  — GET /v1/stats (public)
     admin.ts                  — admin routes (ADMIN_API_KEY)
     stripe.ts, solana.ts      — payment routes
-    dashboard.ts, feedback.ts, referral.ts, endpoints.ts, contact.ts
+    dashboard.ts              — dashboard routes + POST /v1/dashboard/billing-portal
+    feedback.ts, referral.ts, endpoints.ts, contact.ts
     batch.ts                  — POST /v1/batch (parallel multi-query)
     stream.ts                 — GET /v1/stream/orchestrate (SSE)
     swarm.ts                  — POST /v1/swarm/task
@@ -365,8 +374,8 @@ app.route('/v1/something', someRouter)
 // Start background service in start() function
 // Stop in src/utils/shutdown.ts setupGracefulShutdown()
 
-// Audit log (use for all state changes)
-writeAuditLog({ entityType: 'x', entityId: id, action: 'ACTION', actorId: key })
+// Audit log (use for all state changes — fire-and-forget, never throws)
+logAudit({ entityType: 'x', entityId: id, action: 'ACTION', actorId: key, data: {} })
 
 // nanoid for IDs
 const { nanoid } = await import('nanoid')
@@ -399,24 +408,32 @@ RESEND_FROM=noreply@claw-net.org
 CLERK_SECRET_KEY=sk_live_...
 CLERK_PUBLISHABLE_KEY=pk_live_Y2xlcmsuY2xhdy1uZXQub3JnJA
 SOLANA_RECEIVING_WALLET=H6xbRyGEyoTdfBEShSt2H3oHJxL3gaJjVGdL5MLKwHN7
+SOLANA_RPC_FALLBACK=<optional secondary RPC URL>
 TELEGRAM_BOT_TOKEN=<set>
 TELEGRAM_CHANNEL_ID=<set>
 ADMIN_API_KEY=<set, min 16 chars>
 PLATFORM_SIGNING_SECRET=<32-byte hex — generate with: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))">
+
+# Optional — activate when ready:
+# CLERK_WEBHOOK_SECRET=whsec_...        (free trial — also register endpoint in Clerk dashboard)
+# FREE_TRIAL_CREDITS=100               (free trial credits on signup, default 0 = disabled)
+# STRIPE_ANNUAL_PRICE_100=price_...    (annual $1,200/yr → 1,612,800 credits)
+# STRIPE_ANNUAL_PRICE_500=price_...    (annual $6,000/yr → 8,280,000 credits)
+# STRIPE_ANNUAL_PRICE_1000=price_...   (annual $12,000/yr → 17,940,000 credits)
 ```
 
 ---
 
 ## Where to Start
 
-**Chunks 1–14 are COMPLETE. All security audits (Rounds 1–10) are COMPLETE.**
+**Chunks 1–14 are COMPLETE. Fintech audit backlog is COMPLETE. All security audits (Rounds 1–10) are COMPLETE.**
 
 **Next priority: user acquisition, not more features.**
 
 1. Outreach to 5 Solana/DeFi developers — offer free starter credits, watch what they query
 2. Fix the top 3 pain points they surface
 3. Once 10 paying users exist: add per-key daily spend cap + admin revocation endpoint
-4. Once 10+ paying users exist: run load test (100 concurrent), set up GitHub Actions CI
+4. Once 10+ paying users exist: run `scripts/loadtest.sh` against production, set up GitHub Actions CI
 5. Once 10+ paying users return after week 1: consider thin ClawHub wrapper skill
 
 The code is production-ready. The constraint is users.
