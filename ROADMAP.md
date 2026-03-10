@@ -50,7 +50,6 @@
 
 ### ✅ Chunks 1–4: Core Platform
 - Hono API on port 3402, SQLite WAL, Redis L2 cache, Pino logging, Zod env validation
-- ClawAPIs x402 integration successfull — added more endpoints
 - Intent parser (GPT-4o primary, Claude fallback) → parallel executor → LLM synthesizer
 - Circuit breaker per endpoint (CLOSED → OPEN → HALF_OPEN)
 - ClawAPIs x402 integration successfull — added more endpoints, simulation mode when no SOLANA_PRIVATE_KEY
@@ -269,6 +268,29 @@
 | M4 | MEDIUM | `config/index.ts`: `ADMIN_API_KEY` absence only warned — admin routes wide open in production | Changed to `process.exit(1)` in production if `ADMIN_API_KEY` unset. Kept `PLATFORM_SIGNING_SECRET` as warn (graceful degradation). |
 | M5 | MEDIUM | `mesh/node.ts` `stopMeshNode()`: `removeEventListener` unguarded — could throw during partial init | Wrapped in `try/catch` with `logger.warn`. |
 | M6 | MEDIUM | `rate-limit.ts` proxy detection missing IPv6 private ranges — ULA (`fc/fd`) and link-local (`fe80`) not trusted | Added `socketIp.startsWith('fc/fd/fe80')` to `isFromProxy` check. |
+
+---
+
+## ✅ SkillMarketplace Blueprint — Task API COMPLETE
+
+Implemented from the Opus-authored SkillMarketplace.md blueprint (24-section architecture doc).
+
+| # | What Was Built |
+|---|---|
+| **DB v33** | `tasks` table — id, requester_key, skill_id, status, input_json, result_json, error, idempotency_key, webhook_url, cost_credits, duration_ms, timestamps. Full indexes. |
+| **DB v34** | `task_ratings` table — task_id UNIQUE, rated_by, rating (1-5 CHECK), comment. |
+| **Task helpers** | `createTask`, `getTask`, `getTaskByIdempotencyKey`, `listTasks`, `countTasks`, `updateTaskRunning`, `updateTaskCompleted`, `updateTaskFailed`, `updateTaskCancelled` |
+| **Rating helpers** | `createTaskRating`, `getTaskRating` |
+| **POST /v1/tasks** | Submit a skill task: idempotency-key dedup, A/B routing, prompt_template + api_proxy execution, credit deduction with revenue share, fire-and-forget webhook, result stored |
+| **GET /v1/tasks** | List requester's tasks (paginated, limit/offset) |
+| **GET /v1/tasks/:id** | Task detail with result, error, duration, rating |
+| **POST /v1/tasks/:id/cancel** | Cancel PENDING tasks only |
+| **POST /v1/tasks/:id/rate** | 1-5 star rating → reputation delta for skill author |
+| **GET /v1/auth/me** | Masked key + email + credits + amountPaid |
+| **GET /v1/auth/estimate?skillId=** | Credit cost estimate + canAfford flag |
+| **GET /v1/auth/usage** | Task stats + marketplace spend summary |
+
+**Deferred (out of scope for now):** double-entry ledger, API token SHA-256 hashing, BullMQ async queue, org/team keys, DID-based signing.
 
 ---
 
@@ -503,3 +525,5 @@ ClawAPIs.com adds new endpoint
 ```
 
 The flywheel doesn't self-start. Both sides (creators and consumers) need to be manually seeded.
+
+
