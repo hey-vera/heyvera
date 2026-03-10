@@ -417,6 +417,14 @@ const MIGRATIONS: { version: number; sql: string }[] = [
     failure_count INTEGER NOT NULL DEFAULT 0,
     last_error TEXT
   )` },
+  { version: 30, sql: `CREATE TABLE IF NOT EXISTS skill_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    skill_id TEXT NOT NULL,
+    reporter_key TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(skill_id, reporter_key)
+  )` },
 ];
 
 function runMigrations(): void {
@@ -1535,7 +1543,14 @@ export function marketplacePurchase(params: {
   let sellerCredits = 0;
   try {
     db.transaction(() => {
-      feeCredits = Math.floor(params.amountCredits * params.feePct);
+      // Official platform skills are fee-exempt (seller and treasury are both platform-owned)
+      feeCredits = params.sellerKey === 'clawhub-official'
+        ? 0
+        : Math.floor(params.amountCredits * params.feePct);
+      // Minimum 1-credit fee for third-party skills priced ≥10 credits (prevents fee rounding to 0)
+      if (feeCredits === 0 && params.sellerKey !== 'clawhub-official' && params.amountCredits >= 10) {
+        feeCredits = 1;
+      }
       sellerCredits = params.amountCredits - feeCredits;
 
       // Check buyer and seller emails don't match (prevents secondary-key self-purchase)
@@ -1714,6 +1729,48 @@ export function unstarSkill(skillId: string, agentKey: string): { ok: boolean } 
 export function hasStarred(skillId: string, agentKey: string): boolean {
   const row = getDb().prepare('SELECT 1 FROM skill_stars WHERE skill_id = ? AND agent_key = ?').get(skillId, agentKey);
   return !!row;
+}
+
+// ─── Skill Security / Reporting ───────────────────────────────────────────────
+
+export function updateSkillSecurityStatus(skillId: string, status: 'UNSCANNED' | 'CLEAN' | 'SUSPICIOUS' | 'FLAGGED' | 'VERIFIED', flags?: string[]): void {
+  getDb().prepare(
+    `UPDATE skills SET security_status = ?, scanned_at = datetime('now') WHERE id = ?`
+  ).run(status, skillId);
+  if (flags && flags.length > 0) {
+    logger.warn({ skillId, status, flags }, 'Skill security scan flagged');
+  }
+}
+
+export function reportSkill(skillId: string, reporterKey: string, reason: string): { ok: boolean; error?: string; reportCount?: number } {
+  const db = getDb();
+  const info = db.prepare(
+    `INSERT OR IGNORE INTO skill_reports (skill_id, reporter_key, reason) VALUES (?, ?, ?)`
+  ).run(skillId, reporterKey, reason);
+  if (info.changes === 0) return { ok: false, error: 'Already reported' };
+
+  const { count } = db.prepare(
+    `SELECT COUNT(*) as count FROM skill_reports WHERE skill_id = ?`
+  ).get(skillId) as { count: number };
+
+  // Auto-flag at 3+ community reports
+  if (count >= 3) {
+    db.prepare(`UPDATE skills SET security_status = 'FLAGGED' WHERE id = ? AND security_status NOT IN ('VERIFIED','FLAGGED')`).run(skillId);
+  }
+  return { ok: true, reportCount: count };
+}
+
+export function getSkillReportCount(skillId: string): number {
+  const row = getDb()
+    .prepare('SELECT COUNT(*) as count FROM skill_reports WHERE skill_id = ?')
+    .get(skillId) as { count: number };
+  return row.count;
+}
+
+export function getSkillVersionHistory(skillId: string): { id: string; version: string; changelog: string | null; published_at: string }[] {
+  return getDb()
+    .prepare(`SELECT id, version, changelog, published_at FROM skill_versions WHERE skill_id = ? ORDER BY published_at DESC LIMIT 20`)
+    .all(skillId) as { id: string; version: string; changelog: string | null; published_at: string }[];
 }
 
 export function getMarketplaceSkills(params: {

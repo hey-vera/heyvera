@@ -9,9 +9,10 @@ import {
   updateSkillVisibility, topUpCredits, deductCredit, insertOrchestration, getDb,
   updateSkillSchemas, recordReputation, getReputationScore,
   recordSkillMetric, getSkillMetricsSummary, recordSkillVersion, getSkillWithAb, promoteChallenger,
-  writeAuditLog, upsertDiscovery,
+  writeAuditLog, upsertDiscovery, updateSkillSecurityStatus,
 } from '../db/index';
 import { embed } from '../core/embeddings';
+import { scanSkillTemplate } from '../core/skill-scanner';
 import { parseIntent } from '../core/intent-parser';
 import { executePlan } from '../core/executor';
 import { formatResponse } from '../core/formatter';
@@ -106,6 +107,15 @@ skillsRouter.post('/', checkApiKey, async (c) => {
     proxyUrl: data.proxyUrl,
     proxyMethod: data.proxyMethod,
   });
+
+  // Scan prompt template for injection patterns
+  const scan = scanSkillTemplate(data.promptTemplate);
+  if (scan.status !== 'CLEAN') {
+    updateSkillSecurityStatus(id, scan.status, scan.flags);
+    logger.warn({ id, flags: scan.flags }, 'Skill template flagged by scanner');
+  } else {
+    updateSkillSecurityStatus(id, 'CLEAN');
+  }
 
   updateSkillSchemas(id, {
     version: data.version,

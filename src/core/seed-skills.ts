@@ -328,10 +328,12 @@ export function seedOfficialSkills(): void {
     db.prepare(`
       INSERT INTO skills
         (id, name, description, prompt_template, author_key, public, credit_cost,
-         version, tags_json, input_schema_json, output_schema_json, published_at)
+         version, tags_json, input_schema_json, output_schema_json, published_at,
+         security_status, scanned_at)
       VALUES
         (@id, @name, @description, @promptTemplate, @authorKey, 1, @creditCost,
-         @version, @tagsJson, @inputSchemaJson, @outputSchemaJson, datetime('now'))
+         @version, @tagsJson, @inputSchemaJson, @outputSchemaJson, datetime('now'),
+         'VERIFIED', datetime('now'))
     `).run({
       id: skill.id,
       name: skill.name,
@@ -363,7 +365,9 @@ export function seedOfficialSkills(): void {
         tags_json = @tagsJson,
         input_schema_json = @inputSchemaJson,
         output_schema_json = @outputSchemaJson,
-        version = @version
+        version = @version,
+        security_status = 'VERIFIED',
+        scanned_at = datetime('now')
       WHERE id = @id AND author_key = @authorKey
     `).run({
       id: skill.id,

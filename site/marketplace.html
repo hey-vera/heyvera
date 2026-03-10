@@ -156,8 +156,10 @@
     /* ── SECURITY BADGE ── */
     .sec { font-size: 7px; padding: 2px 5px; border: 1px solid; letter-spacing: .5px; text-transform: uppercase; display: inline-block; }
     .sec.clean { border-color: rgba(0,255,136,0.35); color: var(--green); }
+    .sec.verified { border-color: rgba(0,255,136,0.6); color: var(--green); background: rgba(0,255,136,0.08); }
     .sec.flagged { border-color: rgba(255,68,68,0.4); color: var(--red); }
     .sec.unscanned { border-color: var(--border2); color: var(--muted); }
+    .sec.suspicious { border-color: rgba(255,170,0,0.5); color: #fa0; }
 
     /* ── PAGINATION ── */
     .pg { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 28px; }
@@ -778,8 +780,8 @@ function renderCard(s) {
   const slug = s.name;
   const tags = (s.tags||[]).slice(0,3).map(t => `<span class="card-tag">${esc(t)}</span>`).join('');
   const starred = starredIds.has(s.id);
-  const secCls = ({CLEAN:'clean',FLAGGED:'flagged'})[s.securityStatus] || 'unscanned';
-  const secTxt = ({CLEAN:'\u2713 Verified',FLAGGED:'\u26A0 Flagged'})[s.securityStatus] || 'Unscanned';
+  const secCls = ({VERIFIED:'verified',CLEAN:'clean',FLAGGED:'flagged',SUSPICIOUS:'suspicious'})[s.securityStatus] || 'unscanned';
+  const secTxt = ({VERIFIED:'\u2713 Verified',CLEAN:'\u2713 Clean',FLAGGED:'\u26A0 Flagged',SUSPICIOUS:'\u26A0 Suspicious'})[s.securityStatus] || 'Unscanned';
   const cat = s.category || 'general';
   const catIcon = CAT_ICONS[cat] || '◆';
   return `<div class="card${off?' official':''}">
@@ -833,8 +835,8 @@ async function loadSkillDetail(id) {
     const displayName = s.displayName || s.name;
     const slug = s.name;
     const starred = starredIds.has(s.id);
-    const secCls = ({CLEAN:'clean',FLAGGED:'flagged'})[s.securityStatus] || 'unscanned';
-    const secTxt = ({CLEAN:'\u2713 Verified',FLAGGED:'\u26A0 Flagged'})[s.securityStatus] || 'Unscanned';
+    const secCls = ({VERIFIED:'verified',CLEAN:'clean',FLAGGED:'flagged',SUSPICIOUS:'suspicious'})[s.securityStatus] || 'unscanned';
+    const secTxt = ({VERIFIED:'\u2713 Verified',CLEAN:'\u2713 Clean',FLAGGED:'\u26A0 Flagged',SUSPICIOUS:'\u26A0 Suspicious'})[s.securityStatus] || 'Unscanned';
     const tags = (s.tags||[]).map(t => `<span class="card-tag">${esc(t)}</span>`).join('');
     const runtime = s.runtime || {};
     const inputSchema = s.inputSchema;
@@ -856,6 +858,7 @@ async function loadSkillDetail(id) {
           </div>
         </div>
         <div class="detail-actions">
+          <button class="btn-ghost" style="font-size:9px;padding:10px 10px;color:var(--muted)" onclick="doReport('${esc(s.id)}')" title="Report this skill">&#9873; Report</button>
           <button class="btn-star${starred?' on':''}" id="d-star-btn" onclick="toggleStar('${esc(s.id)}',this,event)" style="padding:10px 14px;font-size:11px">\u2605 ${fmt(s.stars||0)}</button>
           <button class="btn-primary" style="font-size:11px;padding:10px 18px" id="d-buy-btn" onclick="doBuy()">Purchase &amp; Execute &mdash; ${s.creditCost} credits</button>
         </div>
@@ -877,6 +880,7 @@ async function loadSkillDetail(id) {
         <button class="dtab" data-dt="schema">Input / Output</button>
         <button class="dtab" data-dt="invoke">Invoke</button>
         ${hasChangelog ? '<button class="dtab" data-dt="changelog">Changelog</button>' : ''}
+        <button class="dtab" data-dt="history" id="d-history-tab">History</button>
         ${Object.keys(runtime).length ? '<button class="dtab" data-dt="runtime">Runtime</button>' : ''}
       </div>
 
@@ -919,6 +923,11 @@ async function loadSkillDetail(id) {
         <div class="changelog-entry">${esc(s.changelog)}</div>
       </div>` : ''}
 
+      <div class="dtab-panel" id="dtp-history">
+        <div style="font-size:9px;color:var(--muted);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:10px">Version History</div>
+        <div id="d-history-list" style="color:var(--muted);font-size:10px">Loading...</div>
+      </div>
+
       <div class="dtab-panel" id="dtp-runtime">
         <div class="runtime-card">
           <div style="font-size:9px;color:var(--green);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:10px">Runtime Requirements</div>
@@ -928,10 +937,34 @@ async function loadSkillDetail(id) {
     `;
 
     window._detailSkill = s;
+    let historyLoaded = false;
     document.querySelectorAll('#d-tabs .dtab').forEach(t => {
-      t.addEventListener('click', () => {
+      t.addEventListener('click', async () => {
         document.querySelectorAll('#d-tabs .dtab').forEach(x => x.classList.toggle('active', x === t));
         document.querySelectorAll('.dtab-panel').forEach(p => p.classList.toggle('active', p.id === 'dtp-' + t.dataset.dt));
+        // Lazy-load version history on first click
+        if (t.dataset.dt === 'history' && !historyLoaded) {
+          historyLoaded = true;
+          const listEl = document.getElementById('d-history-list');
+          try {
+            const hr = await fetch(`${API}/v1/marketplace/skills/${encodeURIComponent(s.id)}/versions`);
+            const hd = await hr.json();
+            if (!hd.versions || hd.versions.length === 0) {
+              listEl.innerHTML = '<span style="color:var(--muted)">No version history recorded yet.</span>';
+            } else {
+              listEl.innerHTML = hd.versions.map(v => `
+                <div style="border-bottom:1px solid var(--border);padding:10px 0;display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
+                  <div>
+                    <span style="color:#fff;font-weight:600">v${esc(v.version)}</span>
+                    ${v.changelog ? `<div style="font-size:10px;color:var(--muted2);margin-top:3px;white-space:pre-wrap">${esc(v.changelog)}</div>` : ''}
+                  </div>
+                  <span style="font-size:9px;color:var(--muted);flex-shrink:0">${new Date(v.published_at).toLocaleDateString()}</span>
+                </div>`).join('');
+            }
+          } catch {
+            if (listEl) listEl.innerHTML = '<span style="color:var(--red)">Failed to load history.</span>';
+          }
+        }
       });
     });
 
@@ -1022,6 +1055,23 @@ async function toggleStar(id, btn, evt) {
 }
 
 function saveStarred() { localStorage.setItem('claw_starred', JSON.stringify([...starredIds])); }
+
+// ─── Report Skill ──────────────────────────────────────────────────
+async function doReport(skillId) {
+  if (!apiKey) { toast('Set API key to report skills', 'error'); return; }
+  const reason = prompt('Reason for report (min 5 chars):\n\nExamples: "Contains prompt injection", "Malicious code", "Spam/misleading description"');
+  if (!reason || reason.trim().length < 5) return;
+  try {
+    const r = await fetch(`${API}/v1/marketplace/skills/${encodeURIComponent(skillId)}/report`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+      body: JSON.stringify({ reason: reason.trim() }),
+    });
+    const d = await r.json();
+    if (!r.ok) { toast(d.error || 'Report failed', 'error'); return; }
+    toast(d.message || 'Skill reported', 'success');
+  } catch { toast('Network error', 'error'); }
+}
 
 async function loadStarredView() {
   const el = document.getElementById('starred-list');

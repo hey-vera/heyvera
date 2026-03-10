@@ -10,6 +10,7 @@ import {
   createPayoutRequest, getPayoutRequests,
   safeJsonParse, incrementSkillUses, recordSkillMetric, recordReputation,
   insertOrchestration, starSkill, unstarSkill, hasStarred, incrementSkillViews,
+  reportSkill, getSkillVersionHistory,
 } from '../db/index';
 import { parseIntent } from '../core/intent-parser';
 import { executePlan } from '../core/executor';
@@ -20,6 +21,14 @@ import { logger } from '../utils/logger';
 export const marketplaceRouter = new Hono();
 
 const PLATFORM_FEE_PCT = 0.03; // 3% platform fee on all marketplace purchases
+
+/** Calculate platform fee credits for a skill. Official skills are fee-exempt.
+ *  Third-party skills priced ≥10 credits pay at least 1 credit. */
+function calcFee(creditCost: number, authorKey: string): number {
+  if (authorKey === 'clawhub-official') return 0;
+  const fee = Math.floor(creditCost * PLATFORM_FEE_PCT);
+  return fee === 0 && creditCost >= 10 ? 1 : fee;
+}
 
 // ─── GET /v1/marketplace/skills — browse the skill catalog ───────────────────
 
@@ -105,8 +114,8 @@ marketplaceRouter.get('/skills/:id', (c) => {
     publishedAt: skill.published_at,
     platformFeePct: PLATFORM_FEE_PCT,
     totalCost: skill.credit_cost,
-    feeCredits: Math.floor(skill.credit_cost * PLATFORM_FEE_PCT),
-    sellerReceives: skill.credit_cost - Math.floor(skill.credit_cost * PLATFORM_FEE_PCT),
+    feeCredits: calcFee(skill.credit_cost, skill.author_key),
+    sellerReceives: skill.credit_cost - calcFee(skill.credit_cost, skill.author_key),
   });
 });
 
@@ -460,6 +469,64 @@ marketplaceRouter.get('/creator/withdrawals', checkApiKey, (c) => {
       notes: p.notes,
       createdAt: p.created_at,
       processedAt: p.processed_at,
+    })),
+  });
+});
+
+// ─── POST /v1/marketplace/skills/:id/report — community flagging ──────────────
+
+const ReportBody = z.object({
+  reason: z.string().min(5).max(500).trim(),
+});
+
+marketplaceRouter.post('/skills/:id/report', checkApiKey, async (c) => {
+  const keyInfo = c.get('apiKeyInfo');
+  const { id } = c.req.param();
+  const skill = getSkill(id);
+  if (!skill || !skill.public) return c.json({ error: 'Skill not found' }, 404);
+
+  let body: z.infer<typeof ReportBody>;
+  try { body = ReportBody.parse(await c.req.json()); }
+  catch { return c.json({ error: 'reason is required (5-500 chars)' }, 400); }
+
+  const result = reportSkill(id, keyInfo.key, body.reason);
+  if (!result.ok) return c.json({ error: result.error ?? 'Report failed' }, 409);
+
+  return c.json({ ok: true, reportCount: result.reportCount, message: 'Thank you for your report. Our team will review it.' });
+});
+
+// ─── GET /v1/marketplace/skills/:id/versions — version history ────────────────
+
+marketplaceRouter.get('/skills/:id/versions', (c) => {
+  const { id } = c.req.param();
+  const skill = getSkill(id);
+  if (!skill || !skill.public) return c.json({ error: 'Skill not found' }, 404);
+
+  const versions = getSkillVersionHistory(id);
+  return c.json({ skillId: id, versions });
+});
+
+// ─── GET /v1/marketplace/search — semantic skill search ───────────────────────
+
+marketplaceRouter.get('/search', async (c) => {
+  const q = c.req.query('q')?.trim();
+  if (!q || q.length < 2) return c.json({ error: 'q is required (min 2 chars)' }, 400);
+
+  // Fall back to text-based marketplace search
+  const { skills } = getMarketplaceSkills({ page: 1, limit: 20, sort: 'popular', search: q });
+  return c.json({
+    query: q,
+    results: skills.map(s => ({
+      id: s.id,
+      name: s.name,
+      displayName: s.display_name ?? s.name,
+      description: s.description,
+      creditCost: s.credit_cost,
+      uses: s.uses,
+      stars: s.stars ?? 0,
+      securityStatus: s.security_status ?? 'UNSCANNED',
+      category: s.category ?? 'general',
+      tags: safeJsonParse(s.tags_json, []),
     })),
   });
 });
