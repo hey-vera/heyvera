@@ -36,6 +36,10 @@ import { batchRouter } from './routes/batch';
 import { streamRouter } from './routes/stream';
 import { openclawRouter } from './routes/openclaw';
 import { openapiRouter } from './routes/openapi';
+import { x402SkillsRouter } from './routes/x402-skills';
+import { llmRouter } from './routes/llm';
+import { registryRouter } from './routes/registry';
+import { startEndpointHealthCron } from './core/endpoint-health-cron';
 import { signResponse } from './middleware/sign-response';
 import { startEscrowCron } from './core/escrow-cron';
 import { startSkillAbCron } from './core/skill-ab-cron';
@@ -141,6 +145,9 @@ app.route('/v1', openapiRouter);
 app.use('/v1/orchestrate', signResponse);
 app.use('/v1/skills/*/invoke', signResponse);
 app.route('/v1', apiRouter);
+app.route('/x402', x402SkillsRouter);
+app.route('/v1/llm', llmRouter);
+app.route('/v1/registry', registryRouter);
 
 app.notFound((c) => c.json({ error: 'Not found', code: 'NOT_FOUND' }, 404));
 
@@ -161,6 +168,7 @@ async function start() {
   await initTelegram();
   await startMeshNode();
   startEscrowCron();
+  startEndpointHealthCron();
   startSkillAbCron();
   startStakeUnlockCron();
 

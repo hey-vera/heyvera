@@ -246,27 +246,39 @@ stripeRouter.post('/stripe-subscriptions', async (c) => {
       return c.json({ received: true });
     }
 
-    // E3 — Cap rollover at 3× monthly allotment to prevent unbounded accumulation.
-    // e.g., Scout tier: max 120,000 credits stored at any time.
-    const MAX_ROLLOVER = SUBSCRIPTION_CREDITS_PER_MONTH * 3;
-    const currentBal = getApiKeyBalance(existingKey.key);
-    const currentCredits = currentBal?.credits ?? 0;
-    const creditsToAdd = Math.max(0, Math.min(SUBSCRIPTION_CREDITS_PER_MONTH, MAX_ROLLOVER - currentCredits));
-    if (creditsToAdd > 0) {
-      topUpCredits(existingKey.key, creditsToAdd);
-    } else {
-      logger.info({ email, currentCredits, cap: MAX_ROLLOVER }, 'Subscription: balance at rollover cap — skipping topup');
-    }
-    upsertSubscription({
-      subscriptionId,
-      apiKey: existingKey.key,
-      email,
-      creditsPerMonth: SUBSCRIPTION_CREDITS_PER_MONTH,
-      currentPeriodEnd: periodEnd,
-      status: 'active',
-    });
+    // Atomic: claim event + topUp + upsertSubscription in one transaction.
+    // If the process crashes mid-flight, the event row is rolled back and Stripe's retry succeeds.
+    const subResult = getDb().transaction(() => {
+      // Idempotency inside transaction — INSERT OR IGNORE, abort if already done
+      const claimed = getDb()
+        .prepare('INSERT OR IGNORE INTO stripe_processed_events (event_id) VALUES (?)')
+        .run(event.id);
+      if (claimed.changes === 0) return null; // already processed by a concurrent request
 
-    logger.info({ email, creditsAdded: creditsToAdd, currentCredits, subscriptionId }, 'Subscription credits applied');
+      // E3 — Cap rollover at 3× monthly allotment to prevent unbounded accumulation.
+      const MAX_ROLLOVER = SUBSCRIPTION_CREDITS_PER_MONTH * 3;
+      const currentBal = getApiKeyBalance(existingKey.key);
+      const currentCredits = currentBal?.credits ?? 0;
+      const creditsToAdd = Math.max(0, Math.min(SUBSCRIPTION_CREDITS_PER_MONTH, MAX_ROLLOVER - currentCredits));
+      if (creditsToAdd > 0) {
+        topUpCredits(existingKey.key, creditsToAdd);
+      }
+      upsertSubscription({
+        subscriptionId,
+        apiKey: existingKey.key,
+        email,
+        creditsPerMonth: SUBSCRIPTION_CREDITS_PER_MONTH,
+        currentPeriodEnd: periodEnd,
+        status: 'active',
+      });
+      return { creditsToAdd, currentCredits };
+    })();
+
+    if (!subResult) {
+      logger.info({ eventId: event.id }, 'Subscription: event already processed by concurrent request — skipping');
+      return c.json({ received: true });
+    }
+    logger.info({ email, creditsAdded: subResult.creditsToAdd, currentCredits: subResult.currentCredits, subscriptionId }, 'Subscription credits applied');
   }
 
   // Subscription cancelled
@@ -289,6 +301,10 @@ stripeRouter.post('/stripe-subscriptions', async (c) => {
     logger.info({ subscriptionId: sub.id }, 'Subscription cancelled');
   }
 
-  markStripeEventProcessed(event.id);
+  // Note: stripe_processed_events row is inserted inside the invoice.payment_succeeded transaction above.
+  // For other event types (e.g., customer.subscription.deleted) we mark here.
+  if (event.type !== 'invoice.payment_succeeded') {
+    markStripeEventProcessed(event.id);
+  }
   return c.json({ received: true });
 });

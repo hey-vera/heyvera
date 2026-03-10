@@ -33,14 +33,20 @@ function embedSkillInBackground(id: string, name: string, description: string, t
 
 const CreateSkillSchema = z.object({
   name: z.string().min(2).max(50).regex(/^[a-z0-9-]+$/, 'Lowercase letters, numbers, hyphens only'),
+  displayName: z.string().min(2).max(80).trim().optional(),
+  category: z.enum(['general', 'defi', 'security', 'social', 'ai', 'search', 'media', 'enrichment', 'utility', 'infrastructure', 'weather', 'analytics']).default('general'),
   description: z.string().min(10).max(500).trim(),
   promptTemplate: z.string().min(10).max(2000).trim(),
   public: z.boolean().default(false),
   creditCost: z.number().int().min(0).max(10000).default(0),
   version: z.string().regex(/^\d+\.\d+\.\d+$/).default('1.0.0'),
+  changelog: z.string().max(1000).trim().optional(),
   inputSchema: z.record(z.unknown()).optional(),
   outputSchema: z.record(z.unknown()).optional(),
   tags: z.array(z.string().max(32)).max(10).optional(),
+  skillType: z.enum(['prompt_template', 'api_proxy']).default('prompt_template'),
+  proxyUrl: z.string().url().optional(),
+  proxyMethod: z.enum(['GET', 'POST', 'PUT', 'PATCH']).default('POST'),
 });
 
 // Extract {{variable}} placeholders from a template
@@ -88,11 +94,17 @@ skillsRouter.post('/', checkApiKey, async (c) => {
   createSkill({
     id,
     name: data.name,
+    displayName: data.displayName,
     description: data.description,
     promptTemplate: data.promptTemplate,
     authorKey: keyInfo.key,
     public: data.public,
     creditCost: data.creditCost,
+    changelog: data.changelog,
+    category: data.category,
+    skillType: data.skillType,
+    proxyUrl: data.proxyUrl,
+    proxyMethod: data.proxyMethod,
   });
 
   updateSkillSchemas(id, {
@@ -415,6 +427,37 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
   }
 
   logger.info({ requestId, skillId: id, name: skill.name }, 'Skill invocation');
+
+  // ── API proxy execution (skill_type = 'api_proxy') ───────────────────────
+  if (skill.skill_type === 'api_proxy' && skill.proxy_url) {
+    try {
+      const proxyRes = await fetch(skill.proxy_url, {
+        method: skill.proxy_method ?? 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: skill.proxy_method !== 'GET' ? JSON.stringify(variables) : undefined,
+        signal: AbortSignal.timeout(15000),
+      });
+      const proxyData = await proxyRes.json().catch(async () => ({ raw: await proxyRes.text() }));
+
+      const creditsToDeduct = Math.max(1, skill.credit_cost);
+      if (!keyInfo.isEnvKey) {
+        const ok = getDb().transaction(() => deductCredit(keyInfo.key, creditsToDeduct))();
+        if (!ok) {
+          return c.json({ requestId, error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS',
+            creditsRequired: creditsToDeduct, creditsAvailable: keyInfo.credits }, 402);
+        }
+      }
+      incrementSkillUses(activeSkillId);
+      recordSkillMetric({ skillId: activeSkillId, version: (skill as typeof skill & { version?: string }).version ?? '1.0.0',
+        latencyMs: Date.now() - start, success: proxyRes.ok, costCredits: creditsToDeduct });
+
+      return c.json({ requestId, status: proxyRes.status, data: proxyData,
+        skill: { id: skill.id, name: skill.name }, creditsUsed: creditsToDeduct });
+    } catch (err) {
+      logger.error({ requestId, skillId: id, err }, 'API proxy skill failed');
+      return c.json({ requestId, error: 'Proxy request failed', details: String(err) }, 502);
+    }
+  }
 
   try {
     const intent = await parseIntent(query);

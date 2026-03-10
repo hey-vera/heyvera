@@ -19,24 +19,25 @@
     :root {
       --green: #00ff88; --green-dim: rgba(0,255,136,0.1); --green-glow: rgba(0,255,136,0.05);
       --bg: #060606; --surface: #0d0d0d; --surface2: #111; --surface3: #161616;
-      --border: #1a1a1a; --border2: #242424;
+      --border: #1a1a1a; --border2: #242424; --border3: #2e2e2e;
       --text: #e0e0e0; --muted: #888; --muted2: #c0c0c0;
-      --font: 'JetBrains Mono', monospace;
+      --font: 'JetBrains Mono', monospace; --serif: 'IBM Plex Serif', Georgia, serif;
       --red: #ff4444; --yellow: #ffaa00; --purple: #9945ff; --purple-dim: rgba(153,69,255,0.12);
-      --blue: #4488ff;
+      --blue: #4488ff; --cyan: #00d4ff;
     }
     body { font-family: var(--font); background: var(--bg); color: var(--text); min-height: 100vh; }
     body::before {
       content: ''; position: fixed; inset: 0;
-      background-image: linear-gradient(rgba(0,255,136,0.015) 1px, transparent 1px), linear-gradient(90deg, rgba(0,255,136,0.015) 1px, transparent 1px);
+      background-image: linear-gradient(rgba(0,255,136,0.012) 1px, transparent 1px), linear-gradient(90deg, rgba(0,255,136,0.012) 1px, transparent 1px);
       background-size: 48px 48px; pointer-events: none; z-index: 0;
     }
     a { color: var(--green); text-decoration: none; }
     a:hover { text-decoration: underline; }
+    ::selection { background: rgba(0,255,136,0.2); color: #fff; }
 
     /* ── TOAST ── */
     #toast-container { position: fixed; bottom: 32px; right: 32px; z-index: 9999; display: flex; flex-direction: column; gap: 10px; }
-    .toast { font-family: var(--font); font-size: 12px; padding: 14px 20px; border: 1px solid; display: flex; align-items: center; gap: 10px; min-width: 260px; max-width: 400px; animation: slideIn .2s ease; backdrop-filter: blur(8px); }
+    .toast { font-family: var(--font); font-size: 12px; padding: 14px 20px; border: 1px solid; display: flex; align-items: center; gap: 10px; min-width: 260px; max-width: 420px; animation: slideIn .2s ease; backdrop-filter: blur(8px); border-radius: 2px; }
     .toast.success { background: rgba(5,15,8,0.95); border-color: #0a3a1a; color: #44bb77; }
     .toast.error   { background: rgba(15,5,5,0.95); border-color: #3a0a0a; color: #ff6666; }
     .toast.info    { background: rgba(13,13,13,0.95); border-color: var(--border2); color: var(--muted2); }
@@ -67,7 +68,7 @@
     .btn-nav:hover { border-color: var(--green); color: var(--green); text-decoration: none; }
 
     /* ── LAYOUT ── */
-    main { position: relative; z-index: 1; max-width: 1200px; margin: 0 auto; padding: 0 32px 80px; }
+    main { position: relative; z-index: 1; max-width: 1240px; margin: 0 auto; padding: 0 32px 80px; }
     .view { display: none; }
     .view.active { display: block; }
 
@@ -75,7 +76,7 @@
     .hero { padding: 40px 0 28px; border-bottom: 1px solid var(--border); margin-bottom: 0; display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
     .hero-eyebrow { font-size: 9px; letter-spacing: 3px; text-transform: uppercase; color: var(--green); margin-bottom: 10px; display: flex; align-items: center; gap: 7px; }
     .hero-eyebrow::before { content: '\25C6'; font-size: 6px; }
-    .hero-title { font-family: 'IBM Plex Serif', Georgia, serif; font-size: 32px; font-weight: 700; color: #fff; letter-spacing: -.5px; margin-bottom: 8px; }
+    .hero-title { font-family: var(--serif); font-size: 32px; font-weight: 700; color: #fff; letter-spacing: -.5px; margin-bottom: 8px; }
     .hero-title em { color: var(--green); font-style: normal; }
     .hero-sub { font-size: 11px; color: var(--muted); line-height: 1.7; max-width: 480px; }
     .hero-stats { display: flex; gap: 28px; }
@@ -85,7 +86,7 @@
     .hstat-val.p { color: var(--purple); }
     .hstat-lbl { font-size: 8px; color: var(--muted); letter-spacing: 1.5px; text-transform: uppercase; margin-top: 3px; }
 
-    /* ── TABS (main) ── */
+    /* ── TABS ── */
     .tabs { display: flex; border-bottom: 1px solid var(--border); margin-bottom: 28px; overflow-x: auto; }
     .tab { font-size: 10px; letter-spacing: 1px; text-transform: uppercase; padding: 14px 20px; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all .15s; background: none; border-top: none; border-left: none; border-right: none; white-space: nowrap; font-family: var(--font); }
     .tab:hover { color: var(--muted2); }
@@ -98,6 +99,7 @@
     .search-input { width: 100%; font-family: var(--font); font-size: 11px; background: var(--surface); border: 1px solid var(--border2); color: var(--text); padding: 8px 11px 8px 30px; outline: none; }
     .search-input:focus { border-color: rgba(0,255,136,0.35); }
     .search-input::placeholder { color: #555; }
+    .search-kbd { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); font-size: 8px; color: #444; border: 1px solid #333; padding: 1px 5px; pointer-events: none; }
     .sel-wrap { position: relative; }
     .sel-wrap::after { content: '\25BE'; position: absolute; right: 9px; top: 50%; transform: translateY(-50%); pointer-events: none; font-size: 8px; color: var(--muted); }
     select.ctl { font-family: var(--font); font-size: 11px; background: #000; border: 1px solid var(--border2); color: var(--text); padding: 8px 28px 8px 11px; outline: none; appearance: none; -webkit-appearance: none; cursor: pointer; }
@@ -112,6 +114,8 @@
     .field::placeholder { color: #555; }
     textarea.field { width: 100%; resize: vertical; min-height: 80px; line-height: 1.5; }
     input.field, select.field { width: 100%; }
+    .field.error { border-color: rgba(255,68,68,0.5); }
+    .field-hint { font-size: 8px; color: #555; margin-top: 3px; }
 
     /* ── CARD GRID ── */
     .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 12px; }
@@ -120,13 +124,15 @@
     .card.official { border-color: rgba(0,255,136,0.15); }
     .card-badge { position: absolute; top: 9px; right: 9px; font-size: 7px; letter-spacing: 1.5px; color: var(--green); border: 1px solid rgba(0,255,136,0.3); padding: 2px 6px; background: var(--green-glow); text-transform: uppercase; }
     .card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
-    .card-name { font-size: 13px; font-weight: 700; color: #fff; cursor: pointer; }
+    .card-name { font-size: 13px; font-weight: 700; color: #fff; cursor: pointer; line-height: 1.3; }
     .card-name:hover { color: var(--green); }
-    .card-ver { font-size: 9px; color: var(--muted); margin-top: 2px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .card-slug { font-size: 9px; color: var(--muted); margin-top: 2px; font-weight: 400; }
+    .card-ver { font-size: 9px; color: var(--muted); margin-top: 3px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
     .card-price { text-align: right; flex-shrink: 0; }
     .card-price-n { font-size: 20px; font-weight: 700; color: var(--green); line-height: 1; }
     .card-price-l { font-size: 8px; color: var(--muted); margin-top: 1px; }
     .card-desc { font-size: 11px; color: var(--muted2); line-height: 1.6; margin-bottom: 10px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .card-cat-badge { font-size: 8px; letter-spacing: .8px; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; opacity: .7; }
     .card-tags { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 10px; }
     .card-tag { font-size: 7px; padding: 2px 6px; border: 1px solid var(--border2); color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
     .card-metrics { display: flex; gap: 14px; margin-bottom: 14px; font-size: 9px; color: var(--muted); }
@@ -153,85 +159,72 @@
     .pg-btn.on { border-color: var(--green); color: var(--green); background: var(--green-dim); }
     .pg-btn:disabled { opacity: .3; cursor: not-allowed; }
 
-    /* ── EMPTY STATE ── */
+    /* ── EMPTY / SKELETON ── */
     .empty { text-align: center; padding: 60px 20px; }
     .empty-icon { font-size: 32px; opacity: .2; margin-bottom: 12px; }
     .empty-title { font-size: 12px; color: var(--muted2); margin-bottom: 4px; }
     .empty-sub { font-size: 10px; color: var(--muted); }
-
-    /* ── SKELETON ── */
-    .skel { animation: pulse 1.4s ease-in-out infinite; }
-    @keyframes pulse { 0%,100% { opacity:.35 } 50% { opacity:.65 } }
+    .skel { animation: skel-pulse 1.4s ease-in-out infinite; }
+    @keyframes skel-pulse { 0%,100% { opacity:.35 } 50% { opacity:.65 } }
     .skel-card { background: var(--surface); border: 1px solid var(--border); padding: 20px; }
     .skel-line { background: var(--border2); border-radius: 2px; margin-bottom: 8px; }
 
-    /* ═══════════════════════ SKILL DETAIL PAGE ═══════════════════════ */
+    /* ═══════════ SKILL DETAIL ═══════════ */
     .detail-back { font-size: 10px; color: var(--muted); display: inline-flex; align-items: center; gap: 5px; margin: 20px 0 24px; cursor: pointer; transition: color .15s; background: none; border: none; font-family: var(--font); }
     .detail-back:hover { color: var(--green); }
     .detail-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; flex-wrap: wrap; margin-bottom: 20px; }
-    .detail-title { font-family: 'IBM Plex Serif', Georgia, serif; font-size: 24px; font-weight: 700; color: #fff; margin-bottom: 4px; }
+    .detail-title { font-family: var(--serif); font-size: 24px; font-weight: 700; color: #fff; margin-bottom: 4px; }
+    .detail-slug { font-size: 10px; color: var(--muted); margin-bottom: 6px; }
     .detail-subtitle { font-size: 10px; color: var(--muted); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
     .detail-actions { display: flex; gap: 8px; flex-shrink: 0; }
-
-    .detail-meta { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; margin-bottom: 24px; }
+    .detail-meta { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; margin-bottom: 24px; }
     .meta-card { background: var(--surface); border: 1px solid var(--border); padding: 14px 16px; }
     .meta-label { font-size: 8px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
     .meta-val { font-size: 12px; color: var(--muted2); font-weight: 600; }
     .meta-val.g { color: var(--green); }
-
     .detail-tabs { display: flex; border-bottom: 1px solid var(--border); margin-bottom: 24px; }
     .dtab { font-size: 10px; letter-spacing: .5px; padding: 12px 18px; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all .15s; background: none; border-top: none; border-left: none; border-right: none; font-family: var(--font); }
     .dtab:hover { color: var(--muted2); }
     .dtab.active { color: var(--green); border-bottom-color: var(--green); }
-    .tab-panel { display: none; }
-    .tab-panel.active { display: block; }
     .dtab-panel { display: none; }
     .dtab-panel.active { display: block; }
-
     .detail-desc { font-size: 12px; color: var(--muted2); line-height: 1.7; margin-bottom: 20px; max-width: 720px; }
     .detail-readme { background: #000; border: 1px solid var(--border); padding: 18px 20px; font-size: 11px; color: #7ec8a0; line-height: 1.6; white-space: pre-wrap; max-height: 400px; overflow-y: auto; margin-bottom: 20px; }
-
     .cost-table { background: #000; border: 1px solid var(--border); max-width: 360px; }
     .cost-row { display: flex; justify-content: space-between; font-size: 11px; padding: 8px 14px; border-bottom: 1px solid var(--border); }
     .cost-row:last-child { border-bottom: none; color: var(--green); font-weight: 700; }
-
     .schema-block { background: #000; border: 1px solid var(--border); padding: 16px; font-size: 10px; color: #7ec8a0; line-height: 1.5; overflow-x: auto; white-space: pre-wrap; max-height: 360px; overflow-y: auto; }
-
-    /* Invoke form inside detail */
     .invoke-section { background: var(--surface3); border: 1px solid var(--border); padding: 20px; margin-top: 20px; }
     .invoke-title { font-size: 9px; color: var(--green); letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 14px; }
     .invoke-result { background: #000; border: 1px solid rgba(0,255,136,0.2); padding: 16px; font-size: 11px; color: #aee; line-height: 1.7; white-space: pre-wrap; display: none; margin-top: 12px; max-height: 300px; overflow-y: auto; }
-
-    /* Runtime requirements card (like ClawHub) */
     .runtime-card { background: var(--surface); border: 1px solid var(--border); padding: 16px; margin-bottom: 16px; }
     .runtime-row { display: flex; justify-content: space-between; font-size: 10px; padding: 5px 0; border-bottom: 1px solid var(--border); }
     .runtime-row:last-child { border-bottom: none; }
     .runtime-row .k { color: var(--muted); }
     .runtime-row .v { color: var(--muted2); }
+    .changelog-entry { background: var(--surface); border: 1px solid var(--border); padding: 14px 18px; font-size: 11px; color: var(--muted2); line-height: 1.7; white-space: pre-wrap; }
 
-    /* Versions list */
-    .version-item { background: var(--surface); border: 1px solid var(--border); padding: 16px 18px; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
-    .version-tag { font-size: 10px; color: var(--green); font-weight: 700; }
-    .version-date { font-size: 9px; color: var(--muted); }
-    .version-badge { font-size: 8px; padding: 2px 7px; border: 1px solid rgba(0,255,136,0.3); color: var(--green); letter-spacing: .5px; }
-
-    /* ═══════════════════════ PUBLISH TAB ═══════════════════════ */
-    .pub-layout { display: grid; grid-template-columns: 1fr 340px; gap: 20px; align-items: start; }
+    /* ═══════════ PUBLISH TAB ═══════════ */
+    .pub-layout { display: grid; grid-template-columns: 1fr 320px; gap: 20px; align-items: start; }
     @media(max-width:860px) { .pub-layout { grid-template-columns: 1fr; } }
     .form-card { background: var(--surface); border: 1px solid var(--border); padding: 24px; }
-    .form-title { font-family: 'IBM Plex Serif', Georgia, serif; font-size: 18px; font-weight: 700; color: #fff; margin-bottom: 4px; }
+    .form-title { font-family: var(--serif); font-size: 18px; font-weight: 700; color: #fff; margin-bottom: 4px; }
     .form-sub { font-size: 10px; color: var(--muted); margin-bottom: 24px; line-height: 1.6; }
     .form-group { margin-bottom: 16px; }
     .form-label { font-size: 9px; color: var(--muted); letter-spacing: 1.5px; text-transform: uppercase; display: block; margin-bottom: 5px; }
     .form-label .hint { font-size: 8px; color: #555; text-transform: none; letter-spacing: 0; margin-left: 6px; }
     .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .form-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
     .form-check { display: flex; align-items: center; gap: 8px; cursor: pointer; }
     .form-check input { accent-color: var(--green); width: 13px; height: 13px; cursor: pointer; }
     .form-check span { font-size: 11px; color: var(--muted2); }
     .btn-submit { font-family: var(--font); font-size: 11px; padding: 10px 20px; background: var(--green-dim); border: 1px solid var(--green); color: var(--green); cursor: pointer; width: 100%; text-transform: uppercase; transition: all .15s; margin-top: 6px; }
     .btn-submit:hover { background: rgba(0,255,136,0.2); }
     .btn-submit:disabled { opacity: .4; cursor: not-allowed; }
+    .var-preview { background: #000; border: 1px solid var(--border); padding: 10px 14px; font-size: 9px; color: #7ec8a0; line-height: 1.7; margin-top: 6px; }
+    .var-preview .var-tag { display: inline-block; background: rgba(0,255,136,0.1); border: 1px solid rgba(0,255,136,0.3); padding: 1px 6px; margin: 0 2px; color: var(--green); font-weight: 600; }
 
+    /* Validation sidebar */
     .info-card { background: var(--surface); border: 1px solid var(--border); padding: 18px; }
     .info-card + .info-card { margin-top: 12px; }
     .info-title { font-size: 10px; font-weight: 700; color: var(--muted2); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 1px; }
@@ -240,8 +233,14 @@
     .info-row .l { color: var(--muted); }
     .info-row .v { color: var(--green); font-weight: 600; }
     .info-row .v.n { color: var(--muted2); }
+    .val-item { display: flex; align-items: center; gap: 8px; font-size: 10px; padding: 5px 0; color: var(--muted); }
+    .val-item.pass { color: var(--green); }
+    .val-item.fail { color: var(--red); }
+    .val-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--border2); flex-shrink: 0; }
+    .val-item.pass .val-dot { background: var(--green); }
+    .val-item.fail .val-dot { background: var(--red); }
 
-    /* ═══════════════════════ MY SKILLS TAB ═══════════════════════ */
+    /* ═══════════ MY SKILLS ═══════════ */
     .cstat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 24px; }
     .cstat { background: var(--surface); border: 1px solid var(--border); padding: 16px; }
     .cstat-val { font-size: 24px; font-weight: 700; color: var(--green); letter-spacing: -.5px; margin-bottom: 3px; }
@@ -259,7 +258,7 @@
     .btn-sm:hover { border-color: var(--green); color: var(--green); }
     .btn-sm.danger:hover { border-color: var(--red); color: var(--red); }
 
-    /* ── ECONOMY TAB ── */
+    /* ── ECONOMY ── */
     .econ-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
     .econ-card { background: var(--surface3); border: 1px solid var(--border); padding: 18px; }
     .econ-icon { font-size: 20px; margin-bottom: 10px; }
@@ -275,6 +274,8 @@
       .cstat-grid { grid-template-columns: 1fr 1fr; }
       .detail-meta { grid-template-columns: 1fr 1fr; }
       .my-skill-row { flex-direction: column; align-items: flex-start; }
+      .form-row, .form-row-3 { grid-template-columns: 1fr; }
+      .search-kbd { display: none; }
     }
   </style>
 </head>
@@ -284,11 +285,11 @@
 <nav>
   <a href="https://claw-net.org" class="nav-logo"><img src="/logo.png" alt="Claw-Net.org" onerror="this.style.display='none'"></a>
   <ul class="nav-links">
+    <li><a href="/marketplace.html" class="active">Skills</a></li>
     <li><a href="/marketplace.html#publish">Upload</a></li>
     <li><a href="/marketplace.html#my-skills">My Skills</a></li>
     <li><a href="/marketplace.html#starred">Stars</a></li>
     <li><a href="/docs.html">Docs</a></li>
-    <li><a href="/marketplace.html" class="active">Marketplace</a></li>
     <li><a href="/endpoints.html">Endpoints</a></li>
   </ul>
   <div class="nav-right">
@@ -303,7 +304,7 @@
 
 <main>
 
-  <!-- ═══════════════════════ BROWSE VIEW ═══════════════════════ -->
+  <!-- ═══════════ BROWSE VIEW ═══════════ -->
   <div class="view active" id="v-browse">
     <div class="hero">
       <div>
@@ -330,6 +331,7 @@
       <div class="controls">
         <div class="search-wrap">
           <input type="text" class="search-input" id="search-input" placeholder="Search skills..." oninput="debounceSearch()">
+          <span class="search-kbd">Ctrl+K</span>
         </div>
         <div class="sel-wrap">
           <select class="ctl" id="sort-select" onchange="loadSkills()">
@@ -343,12 +345,17 @@
         </div>
         <div class="cat-pills" id="cat-pills">
           <button class="cat-pill on" data-cat="">All</button>
-          <button class="cat-pill" data-cat="defi">DeFi</button>
-          <button class="cat-pill" data-cat="solana">Solana</button>
-          <button class="cat-pill" data-cat="social">Social</button>
-          <button class="cat-pill" data-cat="analysis">Analysis</button>
-          <button class="cat-pill" data-cat="portfolio">Portfolio</button>
-          <button class="cat-pill" data-cat="nft">NFT</button>
+          <button class="cat-pill" data-cat="defi">⬡ DeFi</button>
+          <button class="cat-pill" data-cat="security">🔒 Security</button>
+          <button class="cat-pill" data-cat="social">◎ Social</button>
+          <button class="cat-pill" data-cat="ai">✦ AI</button>
+          <button class="cat-pill" data-cat="search">⌕ Search</button>
+          <button class="cat-pill" data-cat="media">▶ Media</button>
+          <button class="cat-pill" data-cat="enrichment">⊕ Enrichment</button>
+          <button class="cat-pill" data-cat="analytics">∿ Analytics</button>
+          <button class="cat-pill" data-cat="infrastructure">⚙ Infrastructure</button>
+          <button class="cat-pill" data-cat="utility">◇ Utility</button>
+          <button class="cat-pill" data-cat="weather">☁ Weather</button>
         </div>
       </div>
       <div class="grid" id="skills-grid"></div>
@@ -360,34 +367,117 @@
       <div class="pub-layout">
         <div class="form-card">
           <h2 class="form-title">Publish a Skill</h2>
-          <p class="form-sub">Create a prompt-powered skill and earn 97% of every purchase. Skills run on the ClawNet orchestration layer &mdash; no infra needed.</p>
-          <div class="form-group"><label class="form-label">Skill Name</label><input type="text" class="field" id="pub-name" placeholder="e.g. NFT Floor Analyst"></div>
-          <div class="form-group"><label class="form-label">Description <span class="hint">&mdash; what does this skill do?</span></label><textarea class="field" id="pub-desc" rows="3" placeholder="Analyze NFT collection floor prices, volume trends, and whale activity on Solana."></textarea></div>
-          <div class="form-group">
-            <label class="form-label">Prompt Template <span class="hint">&mdash; use &#123;&#123;variable&#125;&#125; for inputs</span></label>
-            <textarea class="field" id="pub-prompt" rows="5" placeholder="Analyze the NFT collection {{collection}} on Solana. Include floor price, 24h volume, top holders, rarity distribution. Provide a buy/hold/sell recommendation."></textarea>
-            <div style="background:#000;border:1px solid var(--border);padding:10px;font-size:9px;color:#7ec8a0;line-height:1.7;margin-top:6px">
-              Variables: <b>&#123;&#123;collection&#125;&#125;</b> <b>&#123;&#123;token&#125;&#125;</b> <b>&#123;&#123;wallet&#125;&#125;</b><br>
-              Passed at invoke: POST /v1/skills/:id/invoke &rarr; { "variables": { "collection": "DeGods" } }
+          <p class="form-sub">Create a prompt-powered AI skill. Skills run on the ClawNet orchestration layer &mdash; no infra needed. You earn 97% of every purchase.</p>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Slug <span class="hint">&mdash; unique identifier</span></label>
+              <input type="text" class="field" id="pub-slug" placeholder="my-skill-name" oninput="onSlugInput()">
+              <div class="field-hint">Lowercase letters, numbers, hyphens only</div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Display Name</label>
+              <input type="text" class="field" id="pub-display" placeholder="My Skill Name" oninput="updateValidation()">
             </div>
           </div>
+
+          <div class="form-group">
+            <label class="form-label">Description <span class="hint">&mdash; what does this skill do?</span></label>
+            <textarea class="field" id="pub-desc" rows="3" placeholder="Analyze NFT collection floor prices, volume trends, and whale activity on Solana." oninput="updateValidation()"></textarea>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Prompt Template <span class="hint">&mdash; use &#123;&#123;variable&#125;&#125; for inputs</span></label>
+            <textarea class="field" id="pub-prompt" rows="5" placeholder="Analyze the NFT collection {{collection}} on Solana. Include floor price, 24h volume, top holders." oninput="updateValidation()"></textarea>
+            <div class="var-preview" id="var-preview" style="display:none"></div>
+          </div>
+
+          <div class="form-row-3">
+            <div class="form-group">
+              <label class="form-label">Price (credits)</label>
+              <input type="number" class="field" id="pub-price" min="0" max="10000" placeholder="5" oninput="updateValidation()">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Version</label>
+              <input type="text" class="field" id="pub-version" value="1.0.0" placeholder="1.0.0">
+            </div>
+            <div class="form-group">
+              <label class="form-label">License</label>
+              <select class="field" id="pub-license">
+                <option value="MIT">MIT</option>
+                <option value="MIT-0">MIT-0 (No Attribution)</option>
+                <option value="Apache-2.0">Apache 2.0</option>
+                <option value="GPL-3.0">GPL 3.0</option>
+                <option value="Proprietary">Proprietary</option>
+              </select>
+            </div>
+          </div>
+
           <div class="form-row">
-            <div class="form-group" style="margin-bottom:0"><label class="form-label">Price (credits)</label><input type="number" class="field" id="pub-price" min="1" placeholder="5"></div>
-            <div class="form-group" style="margin-bottom:0"><label class="form-label">Tags <span class="hint">comma-separated</span></label><input type="text" class="field" id="pub-tags" placeholder="solana, nft, analysis"></div>
+            <div class="form-group">
+              <label class="form-label">Category</label>
+              <select class="field" id="pub-category">
+                <option value="general">General</option>
+                <option value="defi">DeFi</option>
+                <option value="security">Security</option>
+                <option value="social">Social</option>
+                <option value="ai">AI / ML</option>
+                <option value="search">Search</option>
+                <option value="media">Media</option>
+                <option value="enrichment">Lead Enrichment</option>
+                <option value="analytics">Analytics</option>
+                <option value="infrastructure">Infrastructure</option>
+                <option value="utility">Utility</option>
+                <option value="weather">Weather</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Tags <span class="hint">&mdash; comma-separated, max 10</span></label>
+              <input type="text" class="field" id="pub-tags" placeholder="solana, nft, analysis" oninput="updateValidation()">
+            </div>
           </div>
-          <div class="form-group" style="margin-top:16px">
+
+          <div class="form-group">
+            <label class="form-label">Changelog <span class="hint">&mdash; what's in this version?</span></label>
+            <textarea class="field" id="pub-changelog" rows="2" placeholder="Initial release with core analysis features."></textarea>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">README <span class="hint">&mdash; optional, detailed usage guide</span></label>
+            <textarea class="field" id="pub-readme" rows="4" placeholder="# My Skill&#10;&#10;Detailed description, usage examples, caveats..."></textarea>
+          </div>
+
+          <div style="display:flex;gap:16px;margin-top:16px;margin-bottom:12px;flex-wrap:wrap">
             <label class="form-check"><input type="checkbox" id="pub-public" checked><span>List publicly in marketplace</span></label>
+            <label class="form-check"><input type="checkbox" id="pub-license-agree"><span>I have the rights and agree to the license terms</span></label>
           </div>
+
           <button class="btn-submit" id="pub-btn" onclick="publishSkill()">Publish Skill &rarr;</button>
           <div id="pub-result" style="margin-top:12px;font-size:10px;display:none;padding:10px;border:1px solid var(--border)"></div>
         </div>
+
+        <!-- Right sidebar: Validation + Economics -->
         <div>
+          <div class="info-card">
+            <div class="info-title">Validation</div>
+            <div id="validation-list">
+              <div class="val-item fail"><span class="val-dot"></span>Slug is required</div>
+              <div class="val-item fail"><span class="val-dot"></span>Display name is required</div>
+              <div class="val-item fail"><span class="val-dot"></span>Description (min 10 chars)</div>
+              <div class="val-item fail"><span class="val-dot"></span>Prompt template (min 10 chars)</div>
+              <div class="val-item fail"><span class="val-dot"></span>Accept license terms</div>
+            </div>
+          </div>
           <div class="info-card">
             <div class="info-title">Creator Economics</div>
             <div class="info-row"><span class="l">Your cut</span><span class="v">97%</span></div>
             <div class="info-row"><span class="l">Platform fee</span><span class="v n">3%</span></div>
             <div class="info-row"><span class="l">Payment</span><span class="v n">Instant credit transfer</span></div>
-            <div class="info-row"><span class="l">Min price</span><span class="v n">1 credit ($0.001)</span></div>
+            <div class="info-row"><span class="l">Min price</span><span class="v n">0 credits (free)</span></div>
+            <div id="earnings-preview" style="display:none;margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">
+              <div class="info-row"><span class="l">Per sale you earn</span><span class="v" id="ep-earn">0</span></div>
+              <div class="info-row"><span class="l">Platform takes</span><span class="v n" id="ep-fee">0</span></div>
+            </div>
           </div>
           <div class="info-card">
             <div class="info-title">After Publishing</div>
@@ -439,7 +529,7 @@
     <!-- TAB: HOW IT WORKS -->
     <div class="tab-panel" id="tp-economy">
       <div style="max-width:720px">
-        <h2 style="font-family:'IBM Plex Serif',Georgia,serif;font-size:22px;font-weight:700;color:#fff;margin-bottom:8px">How the Skill Economy Works</h2>
+        <h2 style="font-family:var(--serif);font-size:22px;font-weight:700;color:#fff;margin-bottom:8px">How the Skill Economy Works</h2>
         <p style="font-size:11px;color:var(--muted);margin-bottom:28px;line-height:1.8">A closed-loop credit economy. Credits flow in from real money (Stripe/USDC), circulate through the skill ecosystem, and accumulate as reputation.</p>
         <div class="econ-grid" style="margin-bottom:32px">
           <div class="econ-card"><div class="econ-icon">&#x1F4B3;</div><div class="econ-title">Buy Credits</div><div class="econ-desc">Stripe (card) or USDC on Solana. 1 credit = $0.001. No subscriptions.</div></div>
@@ -465,7 +555,7 @@
     </div>
   </div>
 
-  <!-- ═══════════════════════ SKILL DETAIL VIEW ═══════════════════════ -->
+  <!-- ═══════════ SKILL DETAIL VIEW ═══════════ -->
   <div class="view" id="v-detail">
     <button class="detail-back" onclick="nav('')">&larr; Back to Marketplace</button>
     <div id="detail-content"></div>
@@ -512,15 +602,25 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // Route
+  // License checkbox wires to validation
+  const lc = document.getElementById('pub-license-agree');
+  if (lc) lc.addEventListener('change', updateValidation);
+
+  // Ctrl+K / Cmd+K search shortcut
+  document.addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+      e.preventDefault();
+      const si = document.getElementById('search-input');
+      if (si) { nav(''); setTimeout(() => si.focus(), 50); }
+    }
+  });
+
   handleRoute();
   window.addEventListener('hashchange', handleRoute);
 });
 
 // ─── Routing ──────────────────────────────────────────────────────
-function nav(hash) {
-  window.location.hash = hash;
-}
+function nav(hash) { window.location.hash = hash; }
 
 function handleRoute() {
   const hash = (window.location.hash || '#').slice(1);
@@ -537,7 +637,6 @@ function handleRoute() {
   detailView.classList.remove('active');
   browseView.classList.add('active');
 
-  // Activate tab
   const tabName = hash || 'browse';
   document.querySelectorAll('#main-tabs .tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tabName));
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === 'tp-' + tabName));
@@ -545,6 +644,7 @@ function handleRoute() {
   if (tabName === 'browse') { loadSkills(); loadHeroStats(); }
   if (tabName === 'my-skills') loadMySkills();
   if (tabName === 'starred') loadStarredView();
+  if (tabName === 'publish') updateValidation();
 }
 
 // ─── API Key ──────────────────────────────────────────────────────
@@ -620,17 +720,25 @@ async function loadSkills() {
   }
 }
 
+const CAT_ICONS = {defi:'⬡',security:'🔒',social:'◎',ai:'✦',search:'⌕',media:'▶',enrichment:'⊕',analytics:'∿',infrastructure:'⚙',utility:'◇',weather:'☁',general:'◆'};
+
 function renderCard(s) {
   const off = OFFICIAL.has(s.id);
-  const tags = (s.tags||[]).map(t => `<span class="card-tag">${esc(t)}</span>`).join('');
+  const displayName = s.displayName || s.name;
+  const slug = s.name;
+  const tags = (s.tags||[]).slice(0,3).map(t => `<span class="card-tag">${esc(t)}</span>`).join('');
   const starred = starredIds.has(s.id);
   const secCls = ({CLEAN:'clean',FLAGGED:'flagged'})[s.securityStatus] || 'unscanned';
   const secTxt = ({CLEAN:'\u2713 Verified',FLAGGED:'\u26A0 Flagged'})[s.securityStatus] || 'Unscanned';
+  const cat = s.category || 'general';
+  const catIcon = CAT_ICONS[cat] || '◆';
   return `<div class="card${off?' official':''}">
     ${off ? '<span class="card-badge">Official</span>' : ''}
+    <div class="card-cat-badge">${catIcon} ${esc(cat)}</div>
     <div class="card-head">
       <div>
-        <div class="card-name" onclick="nav('skill/${esc(s.id)}')">${esc(s.name)}</div>
+        <div class="card-name" onclick="nav('skill/${esc(s.id)}')">${esc(displayName)}</div>
+        ${displayName !== slug ? `<div class="card-slug">${esc(slug)}</div>` : ''}
         <div class="card-ver">v${esc(s.version||'1.0.0')} <span class="sec ${secCls}">${secTxt}</span></div>
       </div>
       <div class="card-price"><div class="card-price-n">${s.creditCost}</div><div class="card-price-l">credits</div></div>
@@ -645,7 +753,7 @@ function renderCard(s) {
     </div>
     <div class="card-actions">
       <button class="btn-primary" onclick="nav('skill/${esc(s.id)}')">View &amp; Buy</button>
-      <button class="btn-star${starred?' on':''}" onclick="toggleStar('${esc(s.id)}',this,event)">\u2605</button>
+      <button class="btn-star${starred?' on':''}" id="star-${esc(s.id)}" onclick="toggleStar('${esc(s.id)}',this,event)">\u2605</button>
     </div>
   </div>`;
 }
@@ -662,7 +770,7 @@ function renderPagination(page, pages) {
 }
 function goPage(p) { currentPage = p; loadSkills(); window.scrollTo({top:0,behavior:'smooth'}); }
 
-// ═══════════════════════ SKILL DETAIL ═══════════════════════
+// ═══════════ SKILL DETAIL ═══════════
 async function loadSkillDetail(id) {
   const container = document.getElementById('detail-content');
   container.innerHTML = `<div style="padding:40px;text-align:center;color:var(--muted)">Loading skill...</div>`;
@@ -672,6 +780,8 @@ async function loadSkillDetail(id) {
     if (!r.ok) { container.innerHTML = `<div class="empty"><div class="empty-icon">&#x26A0;</div><div class="empty-title">Skill not found</div></div>`; return; }
     const s = await r.json();
 
+    const displayName = s.displayName || s.name;
+    const slug = s.name;
     const starred = starredIds.has(s.id);
     const secCls = ({CLEAN:'clean',FLAGGED:'flagged'})[s.securityStatus] || 'unscanned';
     const secTxt = ({CLEAN:'\u2713 Verified',FLAGGED:'\u26A0 Flagged'})[s.securityStatus] || 'Unscanned';
@@ -680,16 +790,19 @@ async function loadSkillDetail(id) {
     const inputSchema = s.inputSchema;
     const outputSchema = s.outputSchema;
     const vars = inputSchema?.properties ? Object.entries(inputSchema.properties) : [];
+    const hasChangelog = s.changelog && s.changelog.trim();
 
     container.innerHTML = `
       <div class="detail-header">
         <div>
-          <h1 class="detail-title">${esc(s.name)}</h1>
+          <h1 class="detail-title">${esc(displayName)}</h1>
+          ${displayName !== slug ? `<div class="detail-slug">${esc(slug)}</div>` : ''}
           <div class="detail-subtitle">
             <span>v${esc(s.version||'1.0.0')}</span>
             ${OFFICIAL.has(s.id) ? '<span class="card-badge" style="position:static">Official</span>' : ''}
             <span class="sec ${secCls}">${secTxt}</span>
-            ${s.scannedAt ? `<span style="font-size:8px;color:var(--muted)">Scanned ${new Date(s.scannedAt).toLocaleDateString()}</span>` : ''}
+            <span>${esc(s.license||'MIT')}</span>
+            ${s.publishedAt ? `<span style="font-size:8px;color:var(--muted)">Published ${new Date(s.publishedAt).toLocaleDateString()}</span>` : ''}
           </div>
         </div>
         <div class="detail-actions">
@@ -711,12 +824,12 @@ async function loadSkillDetail(id) {
 
       <div class="detail-tabs" id="d-tabs">
         <button class="dtab active" data-dt="overview">Overview</button>
-        <button class="dtab" data-dt="schema">Input / Output Schema</button>
+        <button class="dtab" data-dt="schema">Input / Output</button>
         <button class="dtab" data-dt="invoke">Invoke</button>
+        ${hasChangelog ? '<button class="dtab" data-dt="changelog">Changelog</button>' : ''}
         ${Object.keys(runtime).length ? '<button class="dtab" data-dt="runtime">Runtime</button>' : ''}
       </div>
 
-      <!-- DETAIL TAB: OVERVIEW -->
       <div class="dtab-panel active" id="dtp-overview">
         <div class="detail-desc">${esc(s.description)}</div>
         ${s.readme ? `<div style="margin-bottom:16px"><div style="font-size:9px;color:var(--muted);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:8px">README</div><div class="detail-readme">${esc(s.readme)}</div></div>` : ''}
@@ -731,13 +844,11 @@ async function loadSkillDetail(id) {
         </div>
       </div>
 
-      <!-- DETAIL TAB: SCHEMA -->
       <div class="dtab-panel" id="dtp-schema">
         ${inputSchema ? `<div style="margin-bottom:16px"><div style="font-size:9px;color:var(--muted);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:8px">Input Schema</div><pre class="schema-block">${esc(JSON.stringify(inputSchema, null, 2))}</pre></div>` : '<p style="color:var(--muted);font-size:11px">No input schema defined.</p>'}
         ${outputSchema ? `<div><div style="font-size:9px;color:var(--muted);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:8px">Output Schema</div><pre class="schema-block">${esc(JSON.stringify(outputSchema, null, 2))}</pre></div>` : ''}
       </div>
 
-      <!-- DETAIL TAB: INVOKE -->
       <div class="dtab-panel" id="dtp-invoke">
         <div class="invoke-section">
           <div class="invoke-title">Purchase &amp; Execute</div>
@@ -753,7 +864,11 @@ async function loadSkillDetail(id) {
         </div>
       </div>
 
-      <!-- DETAIL TAB: RUNTIME -->
+      ${hasChangelog ? `<div class="dtab-panel" id="dtp-changelog">
+        <div style="font-size:9px;color:var(--green);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:10px">Version ${esc(s.version||'1.0.0')} Changelog</div>
+        <div class="changelog-entry">${esc(s.changelog)}</div>
+      </div>` : ''}
+
       <div class="dtab-panel" id="dtp-runtime">
         <div class="runtime-card">
           <div style="font-size:9px;color:var(--green);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:10px">Runtime Requirements</div>
@@ -762,7 +877,6 @@ async function loadSkillDetail(id) {
       </div>
     `;
 
-    // Wire detail tab switching
     window._detailSkill = s;
     document.querySelectorAll('#d-tabs .dtab').forEach(t => {
       t.addEventListener('click', () => {
@@ -786,7 +900,6 @@ async function doBuy() {
   const invokeBtn = document.getElementById('invoke-btn');
   [buyBtn, invokeBtn].forEach(b => { if (b) { b.disabled = true; b.textContent = 'Running...'; } });
 
-  // Collect variables
   const props = s.inputSchema?.properties || {};
   const variables = {};
   for (const k of Object.keys(props)) {
@@ -811,7 +924,6 @@ async function doBuy() {
     toast(`Executed (${d.creditsCharged} credits)`, 'success');
     refreshCredits();
 
-    // Show result
     const resultEl = document.getElementById('invoke-result');
     if (resultEl) {
       resultEl.style.display = 'block';
@@ -825,7 +937,6 @@ async function doBuy() {
         resultEl.style.color = 'var(--yellow)';
       }
     }
-    // Switch to invoke tab to show result
     document.querySelectorAll('#d-tabs .dtab').forEach(t => t.classList.toggle('active', t.dataset.dt === 'invoke'));
     document.querySelectorAll('.dtab-panel').forEach(p => p.classList.toggle('active', p.id === 'dtp-invoke'));
 
@@ -851,8 +962,7 @@ async function toggleStar(id, btn, evt) {
     const d = await r.json();
     if (already) starredIds.delete(id); else starredIds.add(id);
     saveStarred();
-    // Update all star buttons for this skill
-    document.querySelectorAll(`.btn-star`).forEach(b => {
+    document.querySelectorAll('.btn-star').forEach(b => {
       if (b.id === `star-${id}` || b === btn || b.id === 'd-star-btn') {
         b.classList.toggle('on', !already);
         if (d.stars !== undefined) b.textContent = `\u2605 ${fmt(d.stars)}`;
@@ -870,7 +980,6 @@ async function loadStarredView() {
     return;
   }
   el.innerHTML = '<div style="color:var(--muted);font-size:10px">Loading starred skills...</div>';
-  // Load each starred skill
   const cards = [];
   for (const id of starredIds) {
     try {
@@ -884,36 +993,116 @@ async function loadStarredView() {
 }
 
 // ─── Publish ──────────────────────────────────────────────────────
+function onSlugInput() {
+  const el = document.getElementById('pub-slug');
+  if (el) el.value = el.value.toLowerCase().replace(/[^a-z0-9-]/g, '');
+  updateValidation();
+}
+
+function updateValidation() {
+  const slug = (document.getElementById('pub-slug')?.value || '').trim();
+  const display = (document.getElementById('pub-display')?.value || '').trim();
+  const desc = (document.getElementById('pub-desc')?.value || '').trim();
+  const prompt = (document.getElementById('pub-prompt')?.value || '').trim();
+  const licenseOk = document.getElementById('pub-license-agree')?.checked;
+  const price = parseInt(document.getElementById('pub-price')?.value) || 0;
+
+  const checks = [
+    { pass: slug.length >= 2 && /^[a-z0-9-]+$/.test(slug), text: 'Slug is valid (2+ chars)' },
+    { pass: display.length >= 2, text: 'Display name is required' },
+    { pass: desc.length >= 10, text: 'Description (min 10 chars)' },
+    { pass: prompt.length >= 10, text: 'Prompt template (min 10 chars)' },
+    { pass: !!licenseOk, text: 'Accept license terms' },
+  ];
+
+  const vl = document.getElementById('validation-list');
+  if (vl) {
+    vl.innerHTML = checks.map(c =>
+      `<div class="val-item ${c.pass ? 'pass' : 'fail'}"><span class="val-dot"></span>${esc(c.text)}</div>`
+    ).join('');
+  }
+
+  // Variable preview
+  const varPreview = document.getElementById('var-preview');
+  if (varPreview) {
+    const vars = (prompt.match(/\{\{(\w+)\}\}/g) || []).map(m => m.slice(2, -2));
+    const unique = [...new Set(vars)];
+    if (unique.length) {
+      varPreview.style.display = 'block';
+      varPreview.innerHTML = 'Detected variables: ' + unique.map(v => `<span class="var-tag">{{${esc(v)}}}</span>`).join(' ');
+    } else {
+      varPreview.style.display = 'none';
+    }
+  }
+
+  // Earnings preview
+  const ep = document.getElementById('earnings-preview');
+  if (ep && price > 0) {
+    ep.style.display = 'block';
+    const fee = Math.floor(price * 0.03);
+    document.getElementById('ep-earn').textContent = (price - fee) + ' credits';
+    document.getElementById('ep-fee').textContent = fee + ' credits';
+  } else if (ep) {
+    ep.style.display = 'none';
+  }
+
+  // Enable/disable submit
+  const btn = document.getElementById('pub-btn');
+  if (btn) btn.disabled = !checks.every(c => c.pass);
+}
+
 async function publishSkill() {
   if (!apiKey) { toast('Set your API key first', 'error'); return; }
-  const name = document.getElementById('pub-name').value.trim();
+  const slug = document.getElementById('pub-slug').value.trim();
+  const displayName = document.getElementById('pub-display').value.trim();
   const desc = document.getElementById('pub-desc').value.trim();
   const prompt = document.getElementById('pub-prompt').value.trim();
-  const price = parseInt(document.getElementById('pub-price').value) || 1;
+  const price = parseInt(document.getElementById('pub-price').value) || 0;
+  const version = document.getElementById('pub-version').value.trim() || '1.0.0';
+  const changelog = document.getElementById('pub-changelog').value.trim();
   const tagsRaw = document.getElementById('pub-tags').value.trim();
   const isPublic = document.getElementById('pub-public').checked;
-  if (!name) { toast('Enter a skill name', 'error'); return; }
-  if (!desc) { toast('Enter a description', 'error'); return; }
-  if (!prompt) { toast('Enter a prompt template', 'error'); return; }
 
-  const tags = tagsRaw ? tagsRaw.split(',').map(t => t.trim()).filter(Boolean) : [];
+  if (!slug || slug.length < 2) { toast('Enter a valid slug', 'error'); return; }
+  if (!displayName) { toast('Enter a display name', 'error'); return; }
+  if (!desc || desc.length < 10) { toast('Description must be at least 10 chars', 'error'); return; }
+  if (!prompt || prompt.length < 10) { toast('Prompt template must be at least 10 chars', 'error'); return; }
+
+  const tags = tagsRaw ? tagsRaw.split(',').map(t => t.trim()).filter(Boolean).slice(0, 10) : [];
+  const category = document.getElementById('pub-category')?.value || 'general';
   const btn = document.getElementById('pub-btn');
   btn.disabled = true; btn.textContent = 'Publishing...';
 
   try {
+    const body = {
+      name: slug,
+      displayName,
+      description: desc,
+      promptTemplate: prompt,
+      creditCost: price,
+      public: isPublic,
+      tags,
+      version,
+      category,
+    };
+    if (changelog) body.changelog = changelog;
+
     const r = await fetch(`${API}/v1/skills`, {
       method: 'POST',
       headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, description: desc, promptTemplate: prompt, creditCost: price, public: isPublic, tags, version: '1.0.0' }),
+      body: JSON.stringify(body),
     });
     const d = await r.json();
-    if (!r.ok) { toast(d.error || 'Publish failed', 'error'); }
+    if (!r.ok) { toast(d.error || d.details?.name?.[0] || 'Publish failed', 'error'); }
     else {
       const res = document.getElementById('pub-result');
       res.style.display = 'block'; res.style.color = 'var(--green)'; res.style.borderColor = 'rgba(0,255,136,0.3)';
-      res.innerHTML = `\u2713 Published! ID: <span style="color:var(--muted)">${d.id}</span>`;
+      res.innerHTML = `\u2713 Published! ID: <span style="color:var(--muted)">${esc(d.id)}</span> &mdash; <a href="#skill/${esc(d.id)}">View skill</a>`;
       toast('Skill published', 'success');
-      ['pub-name','pub-desc','pub-prompt','pub-price','pub-tags'].forEach(id => document.getElementById(id).value = '');
+      ['pub-slug','pub-display','pub-desc','pub-prompt','pub-price','pub-tags','pub-changelog','pub-readme'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+      document.getElementById('pub-version').value = '1.0.0';
+      document.getElementById('pub-license-agree').checked = false;
+      updateValidation();
     }
   } catch { toast('Network error', 'error'); }
   btn.disabled = false; btn.textContent = 'Publish Skill \u2192';
@@ -930,14 +1119,14 @@ async function loadMySkills() {
     const r = await fetch(`${API}/v1/marketplace/creator/stats`, { headers: { 'X-API-Key': apiKey } });
     if (!r.ok) throw new Error();
     const d = await r.json();
-    document.getElementById('cs-earned').textContent = d.totalEarned;
-    document.getElementById('cs-sales').textContent = d.totalSales;
+    document.getElementById('cs-earned').textContent = d.totalEarned.toLocaleString();
+    document.getElementById('cs-sales').textContent = d.totalSales.toLocaleString();
     document.getElementById('cs-skills').textContent = d.publishedSkills;
     loadWithdrawHistory();
 
     const list = document.getElementById('my-skills-list');
     if (!d.skills.length) {
-      list.innerHTML = `<div class="empty"><div class="empty-icon">&#x25C8;</div><div class="empty-title">No skills published yet</div><div class="empty-sub">Go to Publish tab to get started</div></div>`;
+      list.innerHTML = `<div class="empty"><div class="empty-icon">&#x25C8;</div><div class="empty-title">No skills published yet</div><div class="empty-sub">Go to the Publish tab to create your first skill</div></div>`;
       return;
     }
     list.innerHTML = d.skills.map(s => `
@@ -947,9 +1136,9 @@ async function loadMySkills() {
           <div class="my-skill-id">${esc(s.id)} \u00B7 v${esc(s.version||'1.0.0')}</div>
         </div>
         <span class="status-badge ${s.public?'live':'draft'}">${s.public?'Live':'Draft'}</span>
-        <div class="my-skill-stat"><div class="v">${s.uses||0}</div><div class="l">Uses</div></div>
-        <div class="my-skill-stat"><div class="v">${s.sales||0}</div><div class="l">Sales</div></div>
-        <div class="my-skill-stat"><div class="v" style="color:var(--green)">${s.earned||0}</div><div class="l">Earned</div></div>
+        <div class="my-skill-stat"><div class="v">${fmt(s.uses||0)}</div><div class="l">Uses</div></div>
+        <div class="my-skill-stat"><div class="v">${fmt(s.sales||0)}</div><div class="l">Sales</div></div>
+        <div class="my-skill-stat"><div class="v" style="color:var(--green)">${fmt(s.earned||0)}</div><div class="l">Earned</div></div>
         <div style="display:flex;gap:6px">
           <button class="btn-sm" onclick="toggleVis('${esc(s.id)}',${s.public})">${s.public?'Unpublish':'Publish'}</button>
           <button class="btn-sm danger" onclick="delSkill('${esc(s.id)}')">Delete</button>
@@ -1013,9 +1202,9 @@ async function loadWithdrawHistory() {
     const sc = { PENDING:'var(--yellow)', PROCESSING:'var(--blue)', PAID:'var(--green)', REJECTED:'var(--red)' };
     el.innerHTML = `<div style="font-size:9px;color:var(--muted);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:6px">Withdrawal History</div>` +
       d.withdrawals.map(w => `<div style="font-size:10px;padding:7px 10px;border:1px solid var(--border);margin-bottom:4px;display:flex;gap:12px;align-items:center">
-        <span style="color:${sc[w.status]||'var(--muted)'};font-size:8px;letter-spacing:1px">${w.status}</span>
-        <span style="color:var(--muted2)">${w.amountCredits} cr</span>
-        <span style="color:var(--muted);font-size:9px">${w.usdcWallet.slice(0,6)}...${w.usdcWallet.slice(-4)}</span>
+        <span style="color:${sc[w.status]||'var(--muted)'};font-size:8px;letter-spacing:1px">${esc(w.status)}</span>
+        <span style="color:var(--muted2)">${w.amountCredits.toLocaleString()} cr</span>
+        <span style="color:var(--muted);font-size:9px">${esc(w.usdcWallet.slice(0,6))}...${esc(w.usdcWallet.slice(-4))}</span>
         <span style="color:var(--muted);font-size:9px;margin-left:auto">${new Date(w.createdAt).toLocaleDateString()}</span>
       </div>`).join('');
   } catch {}

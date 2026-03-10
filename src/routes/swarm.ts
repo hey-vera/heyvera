@@ -35,19 +35,19 @@ swarmRouter.post('/task', checkApiKey, async (c) => {
     return c.json({ error: 'Invalid body', details: (err as Error).message }, 400);
   }
 
-  // Pre-flight: require enough credits to cover the full maxBudget, not just the base fee.
-  // Sub-task invocations are billed separately and can consume up to maxBudget total.
-  // If the user can't cover maxBudget, they should reduce it before submitting.
+  // Pre-flight: require enough credits to cover maxBudget PLUS the base fee.
+  // SWARM_BASE_FEE is deducted immediately on top of sub-task costs, so the true
+  // worst-case spend is maxBudget + SWARM_BASE_FEE.
   const SWARM_BASE_FEE = 20;
   if (!keyInfo.isEnvKey) {
-    const required = body.maxBudget; // user-declared ceiling is the worst case
+    const required = body.maxBudget + SWARM_BASE_FEE;
     if (keyInfo.credits < required) {
       return c.json({
-        error: `Insufficient credits for swarm task (requires ${required} to cover maxBudget)`,
+        error: `Insufficient credits for swarm task (requires ${required}: ${body.maxBudget} maxBudget + ${SWARM_BASE_FEE} base fee)`,
         code: 'INSUFFICIENT_CREDITS',
         creditsAvailable: keyInfo.credits,
         creditsRequired: required,
-        hint: `Lower maxBudget to ${keyInfo.credits} or top up at claw-net.org`,
+        hint: `Lower maxBudget to ${Math.max(0, keyInfo.credits - SWARM_BASE_FEE)} or top up at claw-net.org`,
       }, 402);
     }
     const deducted = deductCredit(keyInfo.key, SWARM_BASE_FEE);

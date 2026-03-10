@@ -10,7 +10,8 @@
     "test:unit": "vitest run",
     "test:unit:watch": "vitest",
     "test:unit:coverage": "vitest run --coverage",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "mcp": "tsx src/mcp/server.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
@@ -22,9 +23,12 @@
     "@libp2p/kad-dht": "^16.1.5",
     "@libp2p/noise": "^1.0.1",
     "@libp2p/tcp": "^11.0.12",
+    "@modelcontextprotocol/sdk": "^1.27.1",
     "@sentry/node": "^10.42.0",
     "@solana/spl-token": "^0.4.14",
     "@solana/web3.js": "^1.98.4",
+    "@x402/core": "^2.6.0",
+    "@x402/hono": "^2.6.0",
     "better-sqlite3": "^12.6.2",
     "bs58": "^6.0.0",
     "dotenv": "^16.4.5",

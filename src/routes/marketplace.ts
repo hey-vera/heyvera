@@ -48,6 +48,7 @@ marketplaceRouter.get('/skills', (c) => {
     skills: skills.map(s => ({
       id: s.id,
       name: s.name,
+      displayName: s.display_name ?? s.name,
       description: s.description,
       version: s.version ?? '1.0.0',
       creditCost: s.credit_cost,
@@ -57,6 +58,7 @@ marketplaceRouter.get('/skills', (c) => {
       forks: s.forks ?? 0,
       stakeTotal: s.stake_total,
       tags: safeJsonParse(s.tags_json, []),
+      category: s.category ?? 'general',
       license: s.license ?? 'MIT',
       securityStatus: s.security_status ?? 'UNSCANNED',
       status: s.status ?? 'PUBLISHED',
@@ -79,8 +81,10 @@ marketplaceRouter.get('/skills/:id', (c) => {
   return c.json({
     id: skill.id,
     name: skill.name,
+    displayName: skill.display_name ?? skill.name,
     description: skill.description,
     version: skill.version ?? '1.0.0',
+    changelog: skill.changelog ?? null,
     creditCost: skill.credit_cost,
     uses: skill.uses,
     stars: skill.stars ?? 0,
@@ -88,6 +92,7 @@ marketplaceRouter.get('/skills/:id', (c) => {
     forks: skill.forks ?? 0,
     stakeTotal,
     tags: safeJsonParse(skill.tags_json, []),
+    category: skill.category ?? 'general',
     inputSchema: safeJsonParse(skill.input_schema_json, null),
     outputSchema: safeJsonParse(skill.output_schema_json, null),
     readme: skill.readme ?? null,
@@ -428,7 +433,7 @@ marketplaceRouter.get('/creator/withdrawals', checkApiKey, (c) => {
     withdrawals: payouts.map(p => ({
       id: p.id,
       amountCredits: p.amount_credits,
-      usdcEquivalent: (p.amount_credits * 0.001).toFixed(4),
+      usdcEquivalent: (p.amount_credits * 0.00075).toFixed(4),
       usdcWallet: p.usdc_wallet,
       status: p.status,
       notes: p.notes,

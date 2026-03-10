@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { Connection, PublicKey } from '@solana/web3.js';
 import { verifyToken } from '@clerk/backend';
 import { logger } from '../utils/logger';
-import { getDb, getApiKeyByClerkId, createApiKeyForClerk, topUpCreditsForClerk, tryClaimSolanaSignature } from '../db/index';
+import { getDb, getApiKeyByClerkId, createApiKeyForClerk, topUpCreditsForClerk, tryClaimSolanaSignature, releaseClaimSolanaSignature } from '../db/index';
 import { sendApiKeyEmail } from '../utils/email';
 import { env } from '../config/index';
 import crypto from 'crypto';
@@ -116,10 +116,12 @@ solanaRouter.post('/verify', async (c) => {
     const connection = activeConnection;
 
     if (!tx) {
+      releaseClaimSolanaSignature(signature);
       return c.json({ error: 'Transaction not found. It may still be confirming — wait a few seconds and try again.' }, 404);
     }
 
     if (tx.meta?.err) {
+      releaseClaimSolanaSignature(signature);
       return c.json({ error: 'Transaction failed on-chain.' }, 400);
     }
 
@@ -162,12 +164,14 @@ solanaRouter.post('/verify', async (c) => {
     }
   } catch (err) {
     logger.error({ err, signature }, 'Solana tx verification failed');
+    releaseClaimSolanaSignature(signature);
     return c.json({ error: 'Failed to verify transaction. Please try again.' }, 500);
   }
 
   // 6. Validate amount matches expected package (allow 0.1% tolerance for rounding)
   const tolerance = expectedUsd * 0.001;
   if (transferredUsd < expectedUsd - tolerance) {
+    releaseClaimSolanaSignature(signature);
     return c.json({
       error: `Payment amount mismatch. Expected $${expectedUsd} USDC, found $${transferredUsd.toFixed(2)} USDC going to receiving wallet.`,
     }, 400);
@@ -184,7 +188,7 @@ solanaRouter.post('/verify', async (c) => {
   const { apiKey, totalCredits } = getDb().transaction(() => {
     const existingKey = getApiKeyByClerkId(clerkUserId);
     if (existingKey) {
-      topUpCreditsForClerk(clerkUserId, credits, signature);
+      topUpCreditsForClerk(clerkUserId, credits, signature, expectedUsd);
       logger.info({ clerkUserId, addedCredits: credits, signature }, 'USDC: credits topped up');
       return { apiKey: existingKey.key, totalCredits: (existingKey.credits ?? 0) + credits };
     }
@@ -228,7 +232,7 @@ solanaRouter.get('/packages', async (c) => {
     packages: Object.entries(USDC_PACKAGES).map(([usd, credits]) => ({
       usd: Number(usd),
       credits,
-      bonusVsStripe: Number(usd) >= 20 ? '+10%' : null,
+      bonusVsStripe: Number(usd) >= 20 ? '+7%' : null,
     })),
   });
 });

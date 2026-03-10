@@ -364,6 +364,10 @@ export function initDb(): void {
     CREATE INDEX IF NOT EXISTS idx_orchestrations_api_key ON orchestrations(api_key);
     CREATE INDEX IF NOT EXISTS idx_discovery_cache_ttl ON discovery_cache(ttl_expires);
     CREATE INDEX IF NOT EXISTS idx_skills_active ON skills(active);
+    CREATE INDEX IF NOT EXISTS idx_skills_uses ON skills(uses DESC);
+    CREATE INDEX IF NOT EXISTS idx_skills_stars ON skills(stars DESC);
+    CREATE INDEX IF NOT EXISTS idx_skills_published_at ON skills(published_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_skills_credit_cost ON skills(credit_cost ASC);
   `);
 
   logger.info({ path: DB_PATH }, 'Database initialised');
@@ -394,6 +398,24 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 19, sql: `ALTER TABLE skills ADD COLUMN scanned_at TEXT` },
   { version: 20, sql: `ALTER TABLE skills ADD COLUMN status TEXT NOT NULL DEFAULT 'PUBLISHED'` },
   { version: 21, sql: `CREATE TABLE IF NOT EXISTS skill_stars (skill_id TEXT NOT NULL, agent_key TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (skill_id, agent_key))` },
+  { version: 22, sql: `ALTER TABLE skills ADD COLUMN display_name TEXT` },
+  { version: 23, sql: `ALTER TABLE skills ADD COLUMN changelog TEXT` },
+  { version: 24, sql: `ALTER TABLE skill_versions ADD COLUMN changelog TEXT` },
+  { version: 25, sql: `ALTER TABLE skills ADD COLUMN category TEXT NOT NULL DEFAULT 'general'` },
+  { version: 26, sql: `ALTER TABLE skills ADD COLUMN skill_type TEXT NOT NULL DEFAULT 'prompt_template'` },
+  { version: 27, sql: `ALTER TABLE skills ADD COLUMN proxy_url TEXT` },
+  { version: 28, sql: `ALTER TABLE skills ADD COLUMN proxy_method TEXT NOT NULL DEFAULT 'POST'` },
+  { version: 29, sql: `CREATE TABLE IF NOT EXISTS endpoint_health (
+    endpoint_id TEXT PRIMARY KEY,
+    provider TEXT NOT NULL,
+    last_checked TEXT,
+    last_status TEXT NOT NULL DEFAULT 'unknown',
+    uptime_pct REAL NOT NULL DEFAULT 100.0,
+    avg_latency_ms INTEGER NOT NULL DEFAULT 0,
+    success_count INTEGER NOT NULL DEFAULT 0,
+    failure_count INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT
+  )` },
 ];
 
 function runMigrations(): void {
@@ -555,15 +577,16 @@ export function createApiKeyForClerk(opts: {
   logAudit({ entityType: 'api_key', entityId: opts.key, action: 'CREDIT_GRANT', actorId: opts.clerkUserId, data: { credits: opts.credits, amountPaid: opts.amountPaid, via: 'usdc' } });
 }
 
-export function topUpCreditsForClerk(clerkUserId: string, credits: number, _signature: string): { ok: boolean } {
+export function topUpCreditsForClerk(clerkUserId: string, credits: number, _signature: string, amountPaid = 0): { ok: boolean } {
   if (credits <= 0) throw new Error(`topUpCreditsForClerk: credits must be positive, got ${credits}`);
   const result = db.prepare(`
     UPDATE api_keys
-    SET credits = credits + ?
+    SET credits = credits + ?,
+        amount_paid = amount_paid + ?
     WHERE clerk_user_id = ? AND active = 1
-  `).run(credits, clerkUserId);
+  `).run(credits, amountPaid, clerkUserId);
   if (result.changes > 0) {
-    logAudit({ entityType: 'api_key', entityId: clerkUserId, action: 'CREDIT_TOPUP', data: { credits, via: 'usdc' } });
+    logAudit({ entityType: 'api_key', entityId: clerkUserId, action: 'CREDIT_TOPUP', data: { credits, amountPaid, via: 'usdc' } });
   }
   return { ok: result.changes > 0 };
 }
@@ -705,6 +728,14 @@ export function tryClaimSolanaSignature(signature: string): boolean {
     .prepare('INSERT OR IGNORE INTO solana_processed_sigs (signature) VALUES (?)')
     .run(signature);
   return result.changes > 0;
+}
+
+/** Release a previously claimed signature so the user can retry verification.
+ *  Call this on ALL non-success paths after tryClaimSolanaSignature returns true
+ *  (tx not found, on-chain fail, amount mismatch, RPC error) so a user whose
+ *  legitimate tx had a transient RPC error is not permanently locked out. */
+export function releaseClaimSolanaSignature(signature: string): void {
+  getDb().prepare('DELETE FROM solana_processed_sigs WHERE signature = ?').run(signature);
 }
 
 /** @deprecated Use tryClaimSolanaSignature instead */
@@ -907,6 +938,12 @@ export interface Skill {
   security_status: string;
   scanned_at: string | null;
   status: string;
+  display_name: string | null;
+  changelog: string | null;
+  category: string;
+  skill_type: 'prompt_template' | 'api_proxy';
+  proxy_url: string | null;
+  proxy_method: string;
 }
 
 export function createSkill(params: {
@@ -917,11 +954,26 @@ export function createSkill(params: {
   authorKey: string;
   public: boolean;
   creditCost: number;
+  displayName?: string;
+  changelog?: string;
+  category?: string;
+  skillType?: 'prompt_template' | 'api_proxy';
+  proxyUrl?: string;
+  proxyMethod?: string;
 }): void {
   getDb()
-    .prepare(`INSERT INTO skills (id, name, description, prompt_template, author_key, public, credit_cost)
-              VALUES (@id, @name, @description, @promptTemplate, @authorKey, @public, @creditCost)`)
-    .run({ ...params, public: params.public ? 1 : 0 });
+    .prepare(`INSERT INTO skills (id, name, description, prompt_template, author_key, public, credit_cost, display_name, changelog, category, skill_type, proxy_url, proxy_method)
+              VALUES (@id, @name, @description, @promptTemplate, @authorKey, @public, @creditCost, @displayName, @changelog, @category, @skillType, @proxyUrl, @proxyMethod)`)
+    .run({
+      ...params,
+      public: params.public ? 1 : 0,
+      displayName: params.displayName ?? null,
+      changelog: params.changelog ?? null,
+      category: params.category ?? 'general',
+      skillType: params.skillType ?? 'prompt_template',
+      proxyUrl: params.proxyUrl ?? null,
+      proxyMethod: params.proxyMethod ?? 'POST',
+    });
 }
 
 export function getSkill(id: string): Skill | undefined {
@@ -1448,6 +1500,15 @@ export function getCreatorStats(authorKey: string): {
   };
 }
 
+/** Total credits collected by the platform as fees across all SKILL_SALE transactions. */
+export function getPlatformRevenue(): { totalFeeCredits: number; totalSales: number } {
+  const row = getDb()
+    .prepare(`SELECT COALESCE(SUM(fee_credits), 0) as totalFeeCredits, COUNT(*) as totalSales
+              FROM transactions WHERE type = 'SKILL_SALE'`)
+    .get() as { totalFeeCredits: number; totalSales: number };
+  return row;
+}
+
 /**
  * Atomic marketplace purchase:
  * - Deducts total from buyer
@@ -1584,7 +1645,7 @@ export function unstarSkill(skillId: string, agentKey: string): { ok: boolean } 
   const db = getDb();
   const info = db.prepare('DELETE FROM skill_stars WHERE skill_id = ? AND agent_key = ?').run(skillId, agentKey);
   if (info.changes === 0) return { ok: false };
-  db.prepare('UPDATE skills SET stars = MAX(0, stars - 1) WHERE id = ?').run(skillId);
+  db.prepare('UPDATE skills SET stars = CASE WHEN stars > 0 THEN stars - 1 ELSE 0 END WHERE id = ?').run(skillId);
   return { ok: true };
 }
 
@@ -1622,8 +1683,9 @@ export function getMarketplaceSkills(params: {
     args.push(`%${params.tags.replace(/[%_\\]/g, '\\$&')}%`);
   }
   if (params.category) {
-    where += ` AND s.tags_json LIKE ? ESCAPE '\\'`;
-    args.push(`%${params.category.replace(/[%_\\]/g, '\\$&')}%`);
+    where += ` AND (s.category = ? OR s.tags_json LIKE ? ESCAPE '\\')`;
+    const escaped = params.category.replace(/[%_\\]/g, '\\$&');
+    args.push(params.category, `%${escaped}%`);
   }
   if (params.search) {
     const escaped = params.search.replace(/[%_\\]/g, '\\$&');
@@ -1870,4 +1932,73 @@ export function castVote(params: {
     }
     return { ok: true };
   })();
+}
+
+// ─── Endpoint Health ──────────────────────────────────────────────────────────
+
+export interface EndpointHealth {
+  endpoint_id: string;
+  provider: string;
+  last_checked: string | null;
+  last_status: 'up' | 'down' | 'degraded' | 'unknown';
+  uptime_pct: number;
+  avg_latency_ms: number;
+  success_count: number;
+  failure_count: number;
+  last_error: string | null;
+}
+
+export function recordEndpointHealth(params: {
+  endpointId: string;
+  provider: string;
+  status: 'up' | 'down' | 'degraded';
+  latencyMs: number;
+  error?: string;
+}): void {
+  const existing = getDb()
+    .prepare('SELECT success_count, failure_count, avg_latency_ms FROM endpoint_health WHERE endpoint_id = ?')
+    .get(params.endpointId) as { success_count: number; failure_count: number; avg_latency_ms: number } | undefined;
+
+  const isSuccess = params.status === 'up';
+  const successCount = (existing?.success_count ?? 0) + (isSuccess ? 1 : 0);
+  const failureCount = (existing?.failure_count ?? 0) + (isSuccess ? 0 : 1);
+  const totalChecks = successCount + failureCount;
+  const uptimePct = totalChecks > 0 ? (successCount / totalChecks) * 100 : 100;
+
+  // Rolling average latency
+  const prevAvg = existing?.avg_latency_ms ?? 0;
+  const prevTotal = (existing?.success_count ?? 0) + (existing?.failure_count ?? 0);
+  const avgLatency = prevTotal > 0
+    ? Math.round((prevAvg * prevTotal + params.latencyMs) / (prevTotal + 1))
+    : params.latencyMs;
+
+  getDb().prepare(`
+    INSERT INTO endpoint_health (endpoint_id, provider, last_checked, last_status, uptime_pct, avg_latency_ms, success_count, failure_count, last_error)
+    VALUES (@endpointId, @provider, datetime('now'), @status, @uptimePct, @avgLatency, @successCount, @failureCount, @error)
+    ON CONFLICT(endpoint_id) DO UPDATE SET
+      last_checked = datetime('now'),
+      last_status = @status,
+      uptime_pct = @uptimePct,
+      avg_latency_ms = @avgLatency,
+      success_count = @successCount,
+      failure_count = @failureCount,
+      last_error = @error
+  `).run({
+    endpointId: params.endpointId,
+    provider: params.provider,
+    status: params.status,
+    uptimePct,
+    avgLatency,
+    successCount,
+    failureCount,
+    error: params.error ?? null,
+  });
+}
+
+export function getEndpointHealth(endpointId?: string): EndpointHealth[] {
+  if (endpointId) {
+    const row = getDb().prepare('SELECT * FROM endpoint_health WHERE endpoint_id = ?').get(endpointId);
+    return row ? [row as EndpointHealth] : [];
+  }
+  return getDb().prepare('SELECT * FROM endpoint_health ORDER BY uptime_pct ASC, last_checked DESC').all() as EndpointHealth[];
 }

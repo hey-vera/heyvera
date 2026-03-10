@@ -165,6 +165,75 @@ ClawNet is a sovereign AI agent orchestration layer and economy. It is live in p
 - **H3** — Stripe secret rotation procedure in `docs/RUNBOOK.md` §12
 - **H4** — `logAudit(PAYOUT_STATUS)` on admin payout PATCH; audit query guide in `docs/RUNBOOK.md` §13
 
+## ✅ Money Flow Integrity Audit — ALL COMPLETE
+
+Comprehensive audit of all money-touching code paths (Stripe, Solana/USDC, credits, marketplace, escrow, swarm, batch). 5 bugs found and fixed:
+
+| # | Severity | File | Bug | Fix |
+|---|---|---|---|---|
+| 1 | CRITICAL | `solana.ts` | `tryClaimSolanaSignature` permanently locks sig on ANY verification failure (tx not found, RPC error, amount mismatch) — user who paid USDC can never retry | Added `releaseClaimSolanaSignature()` in `db/index.ts`; call it before all non-success returns after the claim (tx not found, on-chain fail, amount mismatch, RPC error) |
+| 2 | CRITICAL | `stripe.ts` | Subscription handler: `topUpCredits` + `upsertSubscription` not atomic with `markStripeEventProcessed` — Stripe retry after crash between them grants double credits | Wrapped entire `invoice.payment_succeeded` handler in one `getDb().transaction()` with INSERT OR IGNORE idempotency inside |
+| 3 | HIGH | `db/index.ts` | `topUpCreditsForClerk` didn't update `amount_paid` column — repeat USDC purchases never accumulated toward tier tracking | Added `amount_paid = amount_paid + ?` to the UPDATE; added `amountPaid` param (default 0) to function signature; updated call site in `solana.ts` to pass `expectedUsd` |
+| 4 | HIGH | `solana.ts` | `GET /v1/solana/packages` returned `bonusVsStripe: '+10%'` but USDC packages actually grant +7% | Changed string to `'+7%'` to match actual credit amounts |
+| 5 | MEDIUM | `swarm.ts` | Pre-flight checked `credits >= maxBudget` but then deducted `SWARM_BASE_FEE=20` on top — user with exactly maxBudget credits would fail the base fee deduction | Changed required to `maxBudget + SWARM_BASE_FEE`; updated error message and hint accordingly |
+
+**Confirmed safe (no bugs):**
+- `deductCredit()` — `WHERE credits >= amount` atomic, race-safe ✅
+- `marketplacePurchase()` — deduct buyer + credit seller + insert tx in one `db.transaction()` ✅
+- `fundEscrow()`, `releaseEscrow()`, `refundEscrow()`, `resolveEscrow()` — all atomic ✅
+- `stakeCredits()`, `unstakeCredits()` — both atomic ✅
+- `claimStripeSession()` inside `getDb().transaction()` in one-time purchase handler ✅
+- Batch pre-flight uses stale credits but actual protection is per-query atomic `deductCredit` ✅
+
+---
+
+## ✅ BATCHES 1–8: Registry Expansion & Protocol Layer (COMPLETE)
+
+### Batch 1 — API Registry Expansion ✅
+- `src/config/api-registry.ts` — 75 → **158 endpoints**, 15 categories
+- New categories: `solana | social | utility | defi | intelligence | oracle | scraping | discovery | infrastructure | search | media | enrichment | weather | ai-ml | security`
+- New providers: Pinata, Firecrawl, cnvrt.ing, didit, TextBelt, Chronos, AgentMail, Jina, Tavily, Sybil, Zyte, Notte, ScrapeGraph, Nansen, Zapper, BlockSec, Dome, Spraay, dTelecom, AIBeats, Genbase, Freepik, Bittensor, QuiverAI, Tavus, Apollo, Hunter, CoreSignal, Precip, x402engine (images/audio/LLM/web/travel/IPFS), and more
+
+### Batch 2 — x402 Provider Mode ✅
+- `src/routes/x402-skills.ts` — serve ClawNet skills as x402-payable HTTP endpoints
+- `POST /x402/skills/:id` — execute skill after x402 USDC payment (no credit charge)
+- `GET /x402/skills` — list public skills with USDC pricing
+- `GET /x402` — discovery/info endpoint
+- Uses `require('@x402/hono')` CJS workaround (ESM-only package); activates only if `X402_RECIPIENT_ADDRESS` set
+- `DynamicPrice` function reads skill's `credit_cost` × `X402_USDC_PER_CREDIT` from DB at request time
+
+### Batch 3 — MCP Server ✅
+- `src/mcp/server.ts` — MCP server exposing ClawNet skills as native tools for Claude Code/Cursor/VSCode
+- 6 tools: `list-skills`, `get-skill`, `invoke-skill`, `search-registry`, `orchestrate`, `get-credits`
+- `npm run mcp` script; `CLAWNET_BASE_URL` + `CLAWNET_API_KEY` env vars
+- TS2589 deep generic suppressed with `// @ts-expect-error` on `server.tool()` calls
+
+### Batch 4 — LLM Proxy Gateway ✅
+- `src/routes/llm.ts` — OpenAI-compatible LLM proxy via x402engine
+- `GET /v1/llm/models` — 23 models across OpenAI/Anthropic/Google/xAI/DeepSeek/Meta/Qwen/Mistral/Perplexity/MiniMax
+- `POST /v1/llm/chat` — standard messages array, 15% markup, 5-min response cache
+- `POST /v1/llm/embeddings` — 2 credits/call
+- `POST /v1/llm/code/run` — sandboxed Python/JS/TS execution, 10 credits
+
+### Batch 5 — Skill Category Taxonomy ✅
+- DB migration v25: `category TEXT NOT NULL DEFAULT 'general'` on skills table
+- 12 categories: `general | defi | security | social | ai | search | media | enrichment | utility | infrastructure | weather | analytics`
+- `site/marketplace.html` — category pill filters with icons, card badges, publish form category select
+- `src/routes/skills.ts` `CreateSkillSchema` — `category` enum field
+
+### Batch 6 — Endpoint Health Dashboard ✅
+- `src/core/endpoint-health-cron.ts` — HEAD-pings 12 provider base URLs every 5 min, rolling avg latency
+- DB migration v29: `endpoint_health` table (`endpoint_id`, `last_status`, `avg_latency_ms`, `uptime_pct`, `success_count`, `failure_count`, `last_checked`, `last_error`)
+- `src/routes/registry.ts` — `GET /v1/registry` (search/filter 158 endpoints), `GET /v1/registry/health` (live status + summary), `GET /v1/registry/:id`
+
+### Batch 7 — API Proxy Skill Type ✅
+- DB migrations v26–v28: `skill_type`, `proxy_url`, `proxy_method` columns on skills
+- `src/routes/skills.ts` — `CreateSkillSchema` accepts `skillType` / `proxyUrl` / `proxyMethod`
+- Invoke handler: if `skill_type === 'api_proxy'`, fetches `proxy_url` directly with variables as body (no LLM pipeline); 15s timeout
+
+### Batch 8 — Multi-chain x402 Config ✅
+- `src/config/index.ts` — `EVM_PRIVATE_KEY` optional env var (Base/EVM wallet for paying x402 APIs on Base chain)
+
 ---
 
 ## ✅ CHUNK 15+: Deferred (Next Priorities)
@@ -326,7 +395,12 @@ src/
     batch.ts                  — POST /v1/batch (parallel multi-query)
     stream.ts                 — GET /v1/stream/orchestrate (SSE)
     swarm.ts                  — POST /v1/swarm/task
+    llm.ts                    — GET /v1/llm/models, POST /v1/llm/chat (OpenAI-compat), /embeddings, /code/run
+    registry.ts               — GET /v1/registry, /v1/registry/health, /v1/registry/:id
+    x402-skills.ts            — POST /x402/skills/:id, GET /x402/skills, GET /x402
+  mcp/server.ts               — MCP server (npm run mcp) — list-skills, get-skill, invoke-skill, search-registry, orchestrate, get-credits
   core/
+    endpoint-health-cron.ts   — HEAD-pings 12 providers every 5 min, writes endpoint_health table
     discovery-engine.ts       — trinity aggregation
     embeddings.ts             — ONNX embed()
     seed-embeddings.ts        — seeds 183 endpoints

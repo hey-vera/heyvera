@@ -36,7 +36,14 @@ const envSchema = z.object({
   TELEGRAM_CHANNEL_ID: z.string().optional(),
 
   SOLANA_PRIVATE_KEY: z.string().optional(),
+  EVM_PRIVATE_KEY: z.string().optional(), // Base/EVM wallet private key for paying x402 APIs on Base chain
   X402_X_API_URL: z.string().default('https://clawapis.com'),
+
+  // x402 provider mode (serve skills as x402 endpoints)
+  X402_FACILITATOR_URL: z.string().default('https://x402.org/facilitator'),
+  X402_NETWORK: z.enum(['base-mainnet', 'base-sepolia']).default('base-mainnet'),
+  X402_RECIPIENT_ADDRESS: z.string().optional(), // EVM address to receive USDC on Base
+  X402_USDC_PER_CREDIT: z.coerce.number().default(0.0005), // 1 credit = $0.0005 USDC (= $1/2000 credits per dollar)
 
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
