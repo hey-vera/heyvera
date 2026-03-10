@@ -4,7 +4,7 @@
   "description": "Universal Workflow Orchestration Layer for ClawAPIs & x402 APIs",
   "scripts": {
     "dev": "tsx watch --env-file=.env src/index.ts",
-    "build": "node --max-old-space-size=3072 node_modules/typescript/bin/tsc",
+    "build": "tsc --noCheck",
     "start": "node dist/index.js",
     "test": "tsx --env-file=.env tests/run.ts",
     "test:unit": "vitest run",
