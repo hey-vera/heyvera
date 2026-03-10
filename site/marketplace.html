@@ -193,6 +193,8 @@
     .dtab { font-size: 10px; letter-spacing: .5px; padding: 12px 18px; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all .15s; background: none; border-top: none; border-left: none; border-right: none; font-family: var(--font); }
     .dtab:hover { color: var(--muted2); }
     .dtab.active { color: var(--green); border-bottom-color: var(--green); }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
     .dtab-panel { display: none; }
     .dtab-panel.active { display: block; }
     .detail-desc { font-size: 12px; color: var(--muted2); line-height: 1.7; margin-bottom: 20px; max-width: 720px; }
@@ -461,9 +463,24 @@
             <textarea class="field" id="pub-readme" rows="4" placeholder="# My Skill&#10;&#10;Detailed description, usage examples, caveats..."></textarea>
           </div>
 
-          <div style="display:flex;gap:16px;margin-top:16px;margin-bottom:12px;flex-wrap:wrap">
+          <div style="margin-top:20px;border:1px solid var(--border);background:rgba(0,255,136,0.02);padding:18px 20px">
+            <div style="font-size:10px;font-weight:700;color:var(--muted2);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">License &amp; Terms</div>
+            <div style="font-size:10px;color:var(--muted);line-height:1.7;margin-bottom:14px">
+              <p style="margin-bottom:8px">Your selected license determines how buyers can use the skill output:</p>
+              <div style="display:grid;gap:6px;padding-left:2px">
+                <div><strong style="color:var(--muted2)">MIT</strong> &mdash; Buyers can use, modify, and redistribute skill outputs freely. Attribution appreciated but not required.</div>
+                <div><strong style="color:var(--muted2)">MIT-0</strong> &mdash; Same as MIT but explicitly waives attribution. Maximum freedom for buyers.</div>
+                <div><strong style="color:var(--muted2)">Apache 2.0</strong> &mdash; Like MIT but includes a patent grant. Good for enterprise/commercial use.</div>
+                <div><strong style="color:var(--muted2)">GPL 3.0</strong> &mdash; Outputs must remain open. Buyers who build on your skill must also share their work openly.</div>
+                <div><strong style="color:var(--muted2)">Proprietary</strong> &mdash; Buyers may only use outputs as-is. No modification, redistribution, or derivative works.</div>
+              </div>
+              <p style="margin-top:10px;font-size:9px;color:var(--muted)">All skills are prompt templates executed on the ClawNet orchestration layer. You retain authorship. The 3% platform fee applies to all purchases. Earnings can be withdrawn as USDC or reinvested.</p>
+            </div>
+            <label class="form-check" style="margin-top:0"><input type="checkbox" id="pub-license-agree"><span>I have the rights to publish this skill and agree to the selected license terms</span></label>
+          </div>
+
+          <div style="margin-top:14px;margin-bottom:12px">
             <label class="form-check"><input type="checkbox" id="pub-public" checked><span>List publicly in marketplace</span></label>
-            <label class="form-check"><input type="checkbox" id="pub-license-agree"><span>I have the rights and agree to the license terms</span></label>
           </div>
 
           <button class="btn-submit" id="pub-btn" onclick="publishSkill()">Publish Skill &rarr;</button>
@@ -579,7 +596,7 @@
 
 <script>
 const API = 'https://api.claw-net.org';
-const OFFICIAL = new Set(['token-analysis','social-sentiment','portfolio-optimizer']);
+const OFFICIAL = new Set(['token-analysis','social-sentiment','portfolio-optimizer','wallet-profiler','trending-tokens','whale-tracker','defi-yield-scanner','token-launch-radar','price-oracle','nft-collection-intel']);
 
 let apiKey = localStorage.getItem('claw_api_key') || '';
 let currentPage = 1, currentCat = '', currentSort = 'popular';
@@ -636,7 +653,7 @@ function handleRoute() {
   if (hash.startsWith('skill/')) {
     browseView.classList.remove('active');
     detailView.classList.add('active');
-    loadSkillDetail(hash.slice(6));
+    try { loadSkillDetail(decodeURIComponent(hash.slice(6))); } catch { loadSkillDetail(hash.slice(6)); }
     return;
   }
 
