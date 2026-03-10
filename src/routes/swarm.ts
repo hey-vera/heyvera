@@ -35,18 +35,19 @@ swarmRouter.post('/task', checkApiKey, async (c) => {
     return c.json({ error: 'Invalid body', details: (err as Error).message }, 400);
   }
 
-  // Deduct swarm base fee upfront (covers LLM decomposition + synthesis calls)
-  // Individual skill invocations within the swarm are charged per-skill separately,
-  // up to maxBudget total (base fee included).
+  // Pre-flight: require enough credits to cover the full maxBudget, not just the base fee.
+  // Sub-task invocations are billed separately and can consume up to maxBudget total.
+  // If the user can't cover maxBudget, they should reduce it before submitting.
   const SWARM_BASE_FEE = 20;
   if (!keyInfo.isEnvKey) {
-    if (keyInfo.credits < SWARM_BASE_FEE) {
+    const required = body.maxBudget; // user-declared ceiling is the worst case
+    if (keyInfo.credits < required) {
       return c.json({
-        error: `Insufficient credits for swarm task (requires ${SWARM_BASE_FEE})`,
+        error: `Insufficient credits for swarm task (requires ${required} to cover maxBudget)`,
         code: 'INSUFFICIENT_CREDITS',
         creditsAvailable: keyInfo.credits,
-        creditsRequired: SWARM_BASE_FEE,
-        hint: 'Top up your credits at claw-net.org',
+        creditsRequired: required,
+        hint: `Lower maxBudget to ${keyInfo.credits} or top up at claw-net.org`,
       }, 402);
     }
     const deducted = deductCredit(keyInfo.key, SWARM_BASE_FEE);

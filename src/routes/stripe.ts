@@ -52,6 +52,44 @@ stripeRouter.post('/stripe', async (c) => {
 
   logger.info({ type: event.type, id: event.id }, 'Stripe webhook received');
 
+  // ── Refund handler ─────────────────────────────────────────────────────────
+  if (event.type === 'charge.refunded') {
+    const charge = event.data.object as Stripe.Charge;
+    const refundedAmount = charge.amount_refunded / 100; // cents → USD
+    const email = charge.billing_details?.email?.toLowerCase().trim();
+
+    if (!email) {
+      logger.warn({ chargeId: charge.id }, 'Stripe refund: no email on charge — cannot deduct credits');
+      return c.json({ received: true });
+    }
+
+    const existingKey = getApiKeyByEmail(email);
+    if (!existingKey) {
+      logger.warn({ email, chargeId: charge.id }, 'Stripe refund: no API key found for email');
+      return c.json({ received: true });
+    }
+
+    // Deduct credits proportional to refund amount (1000 credits per $1 base rate)
+    const creditsToDeduct = Math.floor(refundedAmount * 1000);
+    if (creditsToDeduct <= 0) {
+      logger.info({ chargeId: charge.id, refundedAmount }, 'Stripe refund: amount too small to affect credits');
+      return c.json({ received: true });
+    }
+
+    const deducted = getDb().transaction(() => {
+      // Clamp: never go below 0
+      const bal = getDb().prepare('SELECT credits FROM api_keys WHERE key = ? AND active = 1').get(existingKey.key) as { credits: number } | undefined;
+      const deductAmount = Math.min(creditsToDeduct, bal?.credits ?? 0);
+      if (deductAmount <= 0) return 0;
+      getDb().prepare('UPDATE api_keys SET credits = credits - ?, amount_paid = MAX(0, amount_paid - ?) WHERE key = ? AND active = 1')
+        .run(deductAmount, refundedAmount, existingKey.key);
+      return deductAmount;
+    })();
+
+    logger.info({ email, chargeId: charge.id, refundedAmount, creditsDeducted: deducted }, 'Stripe refund: credits deducted');
+    return c.json({ received: true });
+  }
+
   if (event.type !== 'checkout.session.completed') {
     return c.json({ received: true });
   }
@@ -137,17 +175,9 @@ stripeRouter.post('/stripe', async (c) => {
     logger.info({ email: normalizedEmail, addedCredits: credits, totalCredits }, 'Credits topped up for existing key');
   }
 
-  // Send email showing their key + current total balance
-  try {
-    await sendApiKeyEmail({
-      to: normalizedEmail,
-      apiKey,
-      credits: totalCredits,
-      amountPaid,
-    });
-  } catch (err) {
-    logger.error({ err, email: normalizedEmail }, 'Failed to send API key email — key was created/updated in DB');
-  }
+  // Fire-and-forget — don't block the webhook response (Stripe retries on slow responses)
+  sendApiKeyEmail({ to: normalizedEmail, apiKey, credits: totalCredits, amountPaid })
+    .catch((err) => logger.error({ err, email: normalizedEmail }, 'Failed to send API key email — key was created/updated in DB'));
 
   return c.json({ received: true });
 });

@@ -226,6 +226,51 @@ adminRouter.get('/reconcile', (c) => {
   });
 });
 
+// ─── GET /v1/admin/revenue — platform revenue breakdown ──────────────────────
+
+adminRouter.get('/revenue', (c) => {
+  if (!requireAdmin(c)) return c.json({ error: 'Unauthorized' }, 401);
+  const db = getDb();
+
+  // Marketplace fees collected (3% of each skill sale)
+  const mktFees = db.prepare(`
+    SELECT COALESCE(SUM(fee_credits),0) AS total, COUNT(*) AS txCount
+    FROM transactions WHERE type = 'SKILL_SALE'
+  `).get() as { total: number; txCount: number };
+
+  // Skill invocation revenue (3% kept from author share)
+  const invokeRevenue = db.prepare(`
+    SELECT COALESCE(SUM(fee_credits),0) AS total, COUNT(*) AS txCount
+    FROM transactions WHERE type = 'SKILL_INVOKE'
+  `).get() as { total: number; txCount: number };
+
+  // Swarm base fees
+  const swarmFees = db.prepare(`
+    SELECT COALESCE(SUM(amount_credits),0) AS total, COUNT(*) AS txCount
+    FROM transactions WHERE type = 'SWARM_FEE'
+  `).get() as { total: number; txCount: number };
+
+  // Total USD paid in
+  const payments = db.prepare(`
+    SELECT COALESCE(SUM(amount_paid),0) AS totalUsd, COUNT(*) AS keyCount
+    FROM api_keys WHERE active = 1 AND amount_paid > 0
+  `).get() as { totalUsd: number; keyCount: number };
+
+  const totalPlatformCredits = (mktFees.total ?? 0) + (invokeRevenue.total ?? 0) + (swarmFees.total ?? 0);
+
+  return c.json({
+    totalPlatformCredits,
+    totalPlatformUsdEquiv: Math.round(totalPlatformCredits / 10) / 100, // credits / 1000 credits per $
+    breakdown: {
+      marketplaceFees: { credits: mktFees.total ?? 0, transactions: mktFees.txCount ?? 0 },
+      invokeFees: { credits: invokeRevenue.total ?? 0, transactions: invokeRevenue.txCount ?? 0 },
+      swarmFees: { credits: swarmFees.total ?? 0, transactions: swarmFees.txCount ?? 0 },
+    },
+    payments: { totalUsd: payments.totalUsd ?? 0, keyCount: payments.keyCount ?? 0 },
+    note: 'credits are platform-retained revenue (not paid out to authors)',
+  });
+});
+
 adminRouter.patch('/payouts/:id', async (c) => {
   if (!requireAdmin(c)) return c.json({ error: 'Unauthorized' }, 401);
   const { id } = c.req.param();

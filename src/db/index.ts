@@ -16,6 +16,36 @@ export function safeJsonParse<T>(json: string | null | undefined, fallback: T): 
     return fallback;
   }
 }
+
+/**
+ * Append a row to audit_log — fire-and-forget, never throws.
+ * Used to track all credit movements for accounting and debugging.
+ */
+export function logAudit(params: {
+  entityType: string;
+  entityId: string;
+  action: string;
+  actorId?: string;
+  data?: Record<string, unknown>;
+}): void {
+  try {
+    getDb()
+      .prepare(
+        `INSERT INTO audit_log (id, entity_type, entity_id, action, actor_id, data_json)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        nanoid(16),
+        params.entityType,
+        params.entityId,
+        params.action,
+        params.actorId ?? null,
+        params.data ? JSON.stringify(params.data) : null,
+      );
+  } catch {
+    // Never let audit failures crash the caller
+  }
+}
 let db: Database.Database;
 
 export function initDb(): void {
@@ -522,6 +552,7 @@ export function createApiKeyForClerk(opts: {
     INSERT INTO api_keys (key, email, credits, credits_used, created_at, stripe_session_id, clerk_user_id)
     VALUES (?, ?, ?, 0, datetime('now'), ?, ?)
   `).run(opts.key, opts.email, opts.credits, opts.solanaSignature, opts.clerkUserId);
+  logAudit({ entityType: 'api_key', entityId: opts.key, action: 'CREDIT_GRANT', actorId: opts.clerkUserId, data: { credits: opts.credits, amountPaid: opts.amountPaid, via: 'usdc' } });
 }
 
 export function topUpCreditsForClerk(clerkUserId: string, credits: number, _signature: string): { ok: boolean } {
@@ -531,6 +562,9 @@ export function topUpCreditsForClerk(clerkUserId: string, credits: number, _sign
     SET credits = credits + ?
     WHERE clerk_user_id = ? AND active = 1
   `).run(credits, clerkUserId);
+  if (result.changes > 0) {
+    logAudit({ entityType: 'api_key', entityId: clerkUserId, action: 'CREDIT_TOPUP', data: { credits, via: 'usdc' } });
+  }
   return { ok: result.changes > 0 };
 }
 
@@ -549,6 +583,7 @@ export function createApiKey(params: {
        VALUES (@key, @email, @credits, @stripeSessionId, @amountPaid)`
     )
     .run(params);
+  logAudit({ entityType: 'api_key', entityId: params.key, action: 'CREDIT_GRANT', data: { credits: params.credits, amountPaid: params.amountPaid, via: 'stripe' } });
 }
 
 export function getApiKey(key: string): {
@@ -581,6 +616,9 @@ export function deductCredit(key: string, amount: number = 1): boolean {
        WHERE key = @key AND credits >= @amount AND active = 1`
     )
     .run({ key, amount });
+  if (result.changes > 0) {
+    logAudit({ entityType: 'api_key', entityId: key, action: 'CREDIT_DEDUCT', data: { amount } });
+  }
   return result.changes > 0;
 }
 
@@ -631,6 +669,9 @@ export function topUpCredits(key: string, credits: number, stripeSessionId?: str
     result = getDb()
       .prepare('UPDATE api_keys SET credits = credits + ? WHERE key = ? AND active = 1')
       .run(credits, key);
+  }
+  if (result.changes > 0) {
+    logAudit({ entityType: 'api_key', entityId: key, action: 'CREDIT_TOPUP', data: { credits, stripeSessionId, amountPaid } });
   }
   return { ok: result.changes > 0 };
 }
@@ -1487,6 +1528,7 @@ export function stakeCredits(params: {
                   VALUES (?, ?, ?, ?, datetime('now', '+' || ? || ' days'))`)
         .run(stakeId, params.agentKey, params.skillId ?? null, params.amountCredits, days);
     })();
+    logAudit({ entityType: 'stake', entityId: stakeId, action: 'STAKE_LOCK', actorId: params.agentKey, data: { amount: params.amountCredits, lockDays: days, skillId: params.skillId } });
     return { ok: true, stakeId };
   } catch (err) {
     return { ok: false, error: (err as Error).message };
@@ -1506,6 +1548,7 @@ export function unstakeCredits(stakeId: string, agentKey: string): { ok: boolean
         .run(stake.amount_credits, agentKey);
       if (result.changes === 0) throw new Error('API key inactive — credits cannot be returned');
     })();
+    logAudit({ entityType: 'stake', entityId: stakeId, action: 'STAKE_UNLOCK', actorId: agentKey });
     return { ok: true };
   } catch (err) {
     return { ok: false, error: (err as Error).message };

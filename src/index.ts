@@ -20,6 +20,7 @@ import { initDb, getDb } from './db/index';
 import { adminRouter } from './routes/admin';
 import { initClawApis } from './providers/clawapis';
 import { stripeRouter } from './routes/stripe';
+import { clerkWebhookRouter } from './routes/clerk-webhook';
 import { solanaRouter } from './routes/solana';
 import { meshRouter } from './routes/mesh';
 // import { referralRouter } from './routes/referral'; // INACTIVE — re-enable when ready
@@ -106,6 +107,7 @@ app.get('/health', (c) => {
 
 // app routing
 app.route('/v1/webhooks', stripeRouter);
+app.route('/v1/webhooks', clerkWebhookRouter);
 app.route('/v1/solana', solanaRouter);
 app.route('/v1/dashboard', dashboardRouter);
 app.route('/', contactRoute)

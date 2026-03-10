@@ -176,18 +176,10 @@ solanaRouter.post('/verify', async (c) => {
     return { apiKey: newKey, totalCredits: credits };
   })();
 
-  // 9. Send confirmation email if we have one
+  // 9. Send confirmation email fire-and-forget — credits are already assigned
   if (emailToUse) {
-    try {
-      await sendApiKeyEmail({
-        to: emailToUse,
-        apiKey,
-        credits: totalCredits,
-        amountPaid: expectedUsd,
-      });
-    } catch (err) {
-      logger.error({ err, clerkUserId }, 'USDC: confirmation email failed — credits were assigned');
-    }
+    sendApiKeyEmail({ to: emailToUse, apiKey, credits: totalCredits, amountPaid: expectedUsd })
+      .catch((err) => logger.error({ err, clerkUserId }, 'USDC: confirmation email failed — credits were assigned'));
   }
 
   // Never return the full API key in the response body — it was already emailed
