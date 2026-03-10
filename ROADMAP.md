@@ -8,7 +8,7 @@
 
 **Product:** A pay-per-use API that orchestrates Solana/DeFi data (183 endpoints), X/Twitter sentiment, and AI analysis into a single natural-language response. Users buy credits (Stripe / USDC on Solana). On top: a skill marketplace where anyone can publish prompt-powered capabilities and earn 97% of every purchase.
 
-**The real moat:** The 183-endpoint registry (aggregation effort, API key costs, active maintenance) + agent-to-agent payment infrastructure (escrow, skills, P2P mesh, discovery).
+**The real moat:** The infinite-endpoint registry (aggregation effort, API key costs, active maintenance) + agent-to-agent payment infrastructure (escrow, skills, P2P mesh, discovery).
 
 **Public interface:** `POST /v1/openclaw/invoke` — the OpenClaw Gateway. 4 actions: `query`, `skill`, `discover`, `swarm`. All routing logic stays private.
 
@@ -52,7 +52,7 @@
 - Hono API on port 3402, SQLite WAL, Redis L2 cache, Pino logging, Zod env validation
 - Intent parser (GPT-4o primary, Claude fallback) → parallel executor → LLM synthesizer
 - Circuit breaker per endpoint (CLOSED → OPEN → HALF_OPEN)
-- ClawAPIs x402 integration — 183 endpoints, simulation mode when no SOLANA_PRIVATE_KEY
+- ClawAPIs x402 integration successfull — added more endpoints, simulation mode when no SOLANA_PRIVATE_KEY
 - Stripe live payments — 6 credit packages $5–$1,000
 - USDC/Solana — Phantom wallet, on-chain verify, +7% bonus credits
 - Credit formula: `max(1, ceil(apiCosts * 2000))`, 1 credit = $0.001
@@ -67,7 +67,7 @@
 
 ### ✅ Chunk 6: Vector Search & Embeddings
 - `src/core/embeddings.ts` — ONNX all-MiniLM-L6-v2 via @huggingface/transformers, exponential backoff on failure
-- `src/core/seed-embeddings.ts` — seeds all 183 endpoints into discovery_cache
+- `src/core/seed-embeddings.ts` — seeds all available endpoints into discovery_cache
 - `src/routes/discover.ts` — `POST /v1/discover` (rewired to discovery-engine)
 - `skill_embeddings` virtual table (sqlite-vec), `discovery_cache` table
 
@@ -178,6 +178,41 @@
 - **H2** — 64KB webhook payload size guard
 - **H3** — Stripe secret rotation procedure in `docs/RUNBOOK.md`
 - **H4** — `logAudit(PAYOUT_STATUS)` on admin payout PATCH
+
+---
+
+## ✅ Marketplace Quality Batch (Latest Session)
+
+### Bug Fixes
+- **Tab switching root cause fixed** — Added missing `.tab-panel { display: none }` / `.tab-panel.active { display: block }` CSS rules. All main tabs (Browse/Publish/My Skills/Starred/How It Works) were showing simultaneously.
+- **OFFICIAL set expanded** — Frontend's `OFFICIAL` Set updated from 3 → 10 skills (all Batch B skills added).
+- **Double-encoding fixed** — `decodeURIComponent` in `handleRoute` prevents double-encoding when `nav()` and `loadSkillDetail` both called `encodeURIComponent`.
+- **License info section** — Added to publish form: descriptions for MIT, MIT-0, Apache 2.0, GPL 3.0, Proprietary. Accept-terms checkbox moved inside the license info block.
+
+### Security — Prompt Injection Scanner
+- `src/core/skill-scanner.ts` — 14 regex patterns detect: prompt injection, system marker override, credential extraction, code execution, base64 obfuscation, XSS, SQL injection, env access.
+- Wire in `skills.ts` POST create handler — every new user skill scanned on publish. Sets `security_status` to `CLEAN` or `SUSPICIOUS`. Official skills bypass scanner (seed sets `VERIFIED`).
+- `updateSkillSecurityStatus()` DB helper added to `db/index.ts`.
+
+### Security — Community Reporting
+- DB migration v30: `skill_reports` table (`skill_id`, `reporter_key`, `reason`, `UNIQUE(skill_id, reporter_key)`).
+- `reportSkill()` — one report per user per skill. Auto-flags skill (`FLAGGED`) at 3+ reports if not already `VERIFIED`.
+- `POST /v1/marketplace/skills/:id/report` — requires auth, returns report count.
+- Report button added to skill detail view in marketplace.html.
+
+### Fee Model Fixes
+- **Official skills fee-exempt** — `marketplacePurchase()` and `calcFee()` return `feeCredits = 0` when `sellerKey === 'clawhub-official'`. Moving credits between platform-owned keys is pointless.
+- **Minimum 1-credit fee** — Third-party skills priced ≥10 credits pay at least 1 credit fee (prevents `Math.floor` rounding to 0 for cheap skills).
+- **Cost breakdown in detail view updated** — Now shows correct fee and seller-receives for official vs. third-party skills.
+- **`calcFee()` helper** — centralizes fee logic so both GET detail and POST purchase use same rules.
+
+### Marketplace Enhancements
+- **Official skills → VERIFIED** — `seed-skills.ts` INSERT and UPDATE queries now set `security_status = 'VERIFIED'`, `scanned_at = datetime('now')`. Applies on every boot (update pass).
+- **VERIFIED badge CSS** — `.sec.verified` and `.sec.suspicious` added. `secCls`/`secTxt` JS maps updated in both card and detail views.
+- **Version history tab** — `History` tab in skill detail page. Lazy-loads from `GET /v1/marketplace/skills/:id/versions` on first click. Renders version, changelog, and date.
+- **`GET /v1/marketplace/skills/:id/versions`** — Returns version history from `skill_versions` table (changelog column from migration v24).
+- **`GET /v1/marketplace/search?q=`** — Marketplace text search endpoint.
+- `getSkillVersionHistory()` and `reportSkill()` exported from `db/index.ts`.
 
 ---
 
