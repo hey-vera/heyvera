@@ -50,6 +50,7 @@ export async function clawApiCall(
   endpointPath: string,
   params: Record<string, unknown> = {},
   baseUrlOverride?: string,
+  signal?: AbortSignal,
 ): Promise<unknown> {
   if (!x402Client) throw new Error('ClawAPIs x402 not initialized');
 
@@ -64,7 +65,7 @@ export async function clawApiCall(
     }
   }
 
-  const res = await x402Client.fetch(url.toString());
+  const res = await x402Client.fetch(url.toString(), signal ? { signal } : undefined);
 
   if (!res.ok) {
     const text = await res.text();

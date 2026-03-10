@@ -43,16 +43,25 @@ apiRouter.post('/orchestrate', async (c) => {
     return c.json({ requestId, error: 'Query too long (max 2000 chars)', code: 'QUERY_TOO_LONG' }, 400);
   }
 
-  // Query-level cache check
+  // keyInfo is set by checkApiKey middleware — available from handler start
+  const keyInfo = c.get('apiKeyInfo');
+
+  // Query-level cache check — still bill credits for cache hits (prevents free-ride abuse)
   const qKey = queryCacheKey(query);
   const cachedResponse = await cacheGet<Record<string, unknown>>(qKey);
   if (cachedResponse) {
-    logger.info({ requestId, query: query.slice(0, 100) }, 'Query cache hit');
-    return c.json({ ...cachedResponse, requestId, metadata: { ...(cachedResponse.metadata as Record<string, unknown>), cacheHits: 1 } });
+    const cachedCredits = (cachedResponse.costBreakdown as Record<string, unknown> | undefined)?.creditsUsed as number ?? 1;
+    if (!keyInfo.isEnvKey) {
+      if (keyInfo.credits < cachedCredits) {
+        return c.json({ requestId, error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS', creditsAvailable: keyInfo.credits }, 402);
+      }
+      deductCredit(keyInfo.key, cachedCredits);
+    }
+    logger.info({ requestId, query: query.slice(0, 100), creditsUsed: cachedCredits }, 'Query cache hit');
+    return c.json({ ...cachedResponse, requestId, metadata: { ...(cachedResponse.metadata as Record<string, unknown>), cacheHits: 1, fromCache: true } });
   }
 
   // Per-key tiered rate limit (separate from global IP limit)
-  const keyInfo = c.get('apiKeyInfo');
   if (!keyInfo.isEnvKey) {
     const tierLimit = keyInfo.amountPaid >= 500 ? 300
       : keyInfo.amountPaid >= 100 ? 120

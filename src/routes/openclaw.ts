@@ -151,8 +151,14 @@ openclawRouter.post('/invoke', checkApiKey, async (c) => {
     const qKey = queryCacheKey(query);
     const cached = await cacheGet<Record<string, unknown>>(qKey);
     if (cached) {
-      const creditsUsed = (cached.costBreakdown as Record<string, unknown> | undefined)?.creditsUsed as number ?? 0;
-      return c.json(envelope(requestId, 'query', cached, creditsUsed, keyInfo.credits, {
+      const creditsUsed = (cached.costBreakdown as Record<string, unknown> | undefined)?.creditsUsed as number ?? 1;
+      if (!keyInfo.isEnvKey) {
+        if (keyInfo.credits < creditsUsed) {
+          return c.json({ ok: false, requestId, error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS', creditsAvailable: keyInfo.credits }, 402);
+        }
+        deductCredit(keyInfo.key, creditsUsed);
+      }
+      return c.json(envelope(requestId, 'query', cached, creditsUsed, keyInfo.credits - creditsUsed, {
         durationMs: Date.now() - start, cacheHit: true, route: 'orchestrate',
       }));
     }

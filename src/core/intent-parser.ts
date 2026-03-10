@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import crypto from 'crypto';
 import { llmComplete } from '../providers/llm';
-import { registryToPromptContext } from '../config/api-registry';
+import { registryToPromptContext, findEndpoint } from '../config/api-registry';
 import { cacheGet, cacheSet } from '../cache/index';
 import { logger } from '../utils/logger';
 
@@ -72,7 +72,22 @@ export async function parseIntent(query: string): Promise<ParsedIntent> {
     const response = await llmComplete(messages);
     const cleaned = response.content.replace(/```json|```/g, '').trim();
     const parsed = JSON.parse(cleaned);
-    return ParsedIntentSchema.parse(parsed);
+    const result = ParsedIntentSchema.parse(parsed);
+    // Validate that all endpoint IDs exist in the registry — drop hallucinated ones
+    const validSteps = result.steps.filter(step => {
+      const exists = !!findEndpoint(step.endpointId);
+      if (!exists) logger.warn({ endpointId: step.endpointId }, 'Intent parser: unknown endpoint ID dropped');
+      return exists;
+    });
+    if (validSteps.length < result.steps.length) {
+      // Rebuild parallelGroups to only reference surviving step indices
+      const validIndices = new Set(validSteps.map(s => result.steps.indexOf(s)));
+      const newGroups = result.parallelGroups
+        .map(group => group.filter(idx => validIndices.has(parseInt(idx))))
+        .filter(group => group.length > 0);
+      return { ...result, steps: validSteps, parallelGroups: newGroups };
+    }
+    return result;
   }
 
   try {

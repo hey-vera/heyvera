@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import crypto from 'crypto';
-import { getDbStats, getAllPendingPayouts, updatePayoutStatus } from '../db/index';
+import { getDbStats, getAllPendingPayouts, updatePayoutStatus, getDb } from '../db/index';
 import { cacheStats } from '../cache/index';
 import { getUsageStats } from '../utils/usage';
 import { getCircuitStats } from '../core/circuit-breaker';
@@ -195,6 +195,35 @@ adminRouter.get('/payouts', (c) => {
 const UpdatePayoutBody = z.object({
   status: z.enum(['PAID', 'REJECTED', 'PROCESSING']),
   notes: z.string().optional(),
+});
+
+// ─── GET /v1/admin/reconcile — verify credit accounting invariants ────────────
+
+adminRouter.get('/reconcile', (c) => {
+  if (!requireAdmin(c)) return c.json({ error: 'Unauthorized' }, 401);
+  const db = getDb();
+  const totals = db.prepare(`
+    SELECT
+      SUM(credits)        AS creditsRemaining,
+      SUM(credits_used)   AS creditsUsed,
+      SUM(amount_paid)    AS totalAmountPaid
+    FROM api_keys WHERE active = 1
+  `).get() as { creditsRemaining: number; creditsUsed: number; totalAmountPaid: number };
+  const staked = db.prepare('SELECT COALESCE(SUM(amount_credits),0) AS total FROM stakes').get() as { total: number };
+  const escrow = db.prepare("SELECT COALESCE(SUM(amount_credits),0) AS total FROM escrows WHERE state IN ('FUNDED','WORK_IN_PROGRESS','DISPUTED')").get() as { total: number };
+  const granted = db.prepare('SELECT COALESCE(SUM(credits),0) AS total FROM api_keys').get() as { total: number };
+  const expectedCirculating = (totals.creditsRemaining ?? 0) + (totals.creditsUsed ?? 0) + (staked.total ?? 0) + (escrow.total ?? 0);
+  return c.json({
+    creditsRemaining: totals.creditsRemaining ?? 0,
+    creditsUsed: totals.creditsUsed ?? 0,
+    creditsStaked: staked.total ?? 0,
+    creditsInEscrow: escrow.total ?? 0,
+    totalGranted: granted.total ?? 0,
+    expectedCirculating,
+    drift: expectedCirculating - (granted.total ?? 0),
+    totalAmountPaid: totals.totalAmountPaid ?? 0,
+    note: 'drift should be 0. Nonzero indicates accounting inconsistency.',
+  });
 });
 
 adminRouter.patch('/payouts/:id', async (c) => {

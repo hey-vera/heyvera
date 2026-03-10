@@ -193,19 +193,30 @@ async function executeStep(
     return { endpointId: step.endpointId, success: false, cached: false, durationMs: 0, cost: 0, error: 'CIRCUIT_OPEN' };
   }
 
+  const STEP_TIMEOUT_MS = 15_000;
   try {
     const apiPath = endpoint.path ?? '/solscan/token/meta';
-    const data = isClawApisReady()
-      ? await clawApiCall(apiPath, normalizeParams(step.endpointId, step.params), endpoint.baseUrl)
-      : mockData(step.endpointId);
+    let data: unknown;
+    if (isClawApisReady()) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), STEP_TIMEOUT_MS);
+      try {
+        data = await clawApiCall(apiPath, normalizeParams(step.endpointId, step.params), endpoint.baseUrl, controller.signal);
+      } finally {
+        clearTimeout(timer);
+      }
+    } else {
+      data = mockData(step.endpointId);
+    }
     await cacheSet(key, data);
     recordSuccess(step.endpointId);
     return { endpointId: step.endpointId, success: true, cached: false, durationMs: Date.now() - start, cost: endpoint.costPerCall, data };
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
-    logger.error({ endpointId: step.endpointId, error }, 'Step execution failed');
+    const isTimeout = err instanceof Error && err.name === 'AbortError';
+    logger.error({ endpointId: step.endpointId, error, timeout: isTimeout }, 'Step execution failed');
     recordFailure(step.endpointId);
-    return { endpointId: step.endpointId, success: false, cached: false, durationMs: Date.now() - start, cost: 0, error };
+    return { endpointId: step.endpointId, success: false, cached: false, durationMs: Date.now() - start, cost: 0, error: isTimeout ? 'STEP_TIMEOUT' : error };
   }
 }
 
