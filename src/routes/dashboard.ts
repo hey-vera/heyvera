@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import crypto from 'crypto';
+import Stripe from 'stripe';
 import { requireClerkAuth } from '../middleware/clerk-auth';
 import { logger } from '../utils/logger';
 import {
@@ -96,6 +97,41 @@ dashboardRouter.post('/regenerate-key', requireClerkAuth, async (c) => {
   if (!result) return c.json({ error: 'No active API key found' }, 404);
   logger.info({ clerkUserId }, 'API key regenerated');
   return c.json({ apiKey: newKey, credits: result.credits });
+});
+
+// ─── POST /v1/dashboard/billing-portal ────────────────────────────────────
+// Returns a Stripe Customer Portal URL for subscription management.
+// The user is redirected back to the dashboard after managing their subscription.
+dashboardRouter.post('/billing-portal', requireClerkAuth, async (c) => {
+  const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+  if (!stripeSecretKey) {
+    return c.json({ error: 'Stripe not configured' }, 503);
+  }
+
+  const clerkEmail = c.get('clerkEmail');
+  if (!clerkEmail) {
+    return c.json({ error: 'Could not determine account email' }, 400);
+  }
+
+  const stripe = new Stripe(stripeSecretKey);
+
+  // Search Stripe for the customer by email
+  const customers = await stripe.customers.search({
+    query: `email:"${clerkEmail}"`,
+    limit: 1,
+  }).catch(() => null);
+
+  if (!customers?.data.length) {
+    return c.json({ error: 'No Stripe customer found for this account. Make a purchase first to manage billing.' }, 404);
+  }
+
+  const session = await stripe.billingPortal.sessions.create({
+    customer: customers.data[0].id,
+    return_url: 'https://app.claw-net.org/dashboard',
+  });
+
+  logger.info({ clerkEmail }, 'Billing portal session created');
+  return c.json({ url: session.url });
 });
 
 // ─── POST /v1/dashboard/claim-session ─────────────────────────────────────

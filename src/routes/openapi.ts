@@ -206,6 +206,53 @@ openapiRouter.get('/openapi.json', (c) => {
           },
         },
       },
+      '/v1/estimate': {
+        get: {
+          summary: 'Estimate credit cost for a query',
+          description: 'Runs intent parsing only (no execution, no credit charge) and returns the estimated credits required. Use this to budget before calling /v1/orchestrate.',
+          operationId: 'estimateQuery',
+          tags: ['Core'],
+          security: [],
+          parameters: [
+            {
+              name: 'query',
+              in: 'query',
+              required: true,
+              schema: { type: 'string', maxLength: 2000 },
+              description: 'Natural language query to estimate cost for',
+            },
+          ],
+          responses: {
+            '200': {
+              description: 'Estimated credit cost breakdown',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      query: { type: 'string' },
+                      estimatedCredits: { type: 'integer', description: 'Total credits this query would cost' },
+                      steps: { type: 'integer', description: 'Number of API calls planned' },
+                      summary: { type: 'string' },
+                      breakdown: {
+                        type: 'array',
+                        items: {
+                          type: 'object',
+                          properties: {
+                            endpointId: { type: 'string' },
+                            credits: { type: 'integer' },
+                            reason: { type: 'string' },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
       '/v1/balance': {
         get: {
           summary: 'Get credit balance',

@@ -44,6 +44,7 @@ const envSchema = z.object({
   CLERK_SECRET_KEY: z.string().optional(),
   SOLANA_RECEIVING_WALLET: z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/, 'Invalid Solana address').optional(),
   SOLANA_RPC_URL: z.string().default('https://api.mainnet-beta.solana.com'),
+  SOLANA_RPC_FALLBACK: z.string().optional(),
   ADMIN_EMAIL: z.string().optional(),
   SENTRY_DSN: z.string().optional(),
 });

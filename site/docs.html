@@ -202,6 +202,7 @@
     </div>
     <div class="sidebar-section">
       <div class="sidebar-label">Core API</div>
+      <a href="#estimate" class="sidebar-link"><span class="sidebar-method m-get">GET</span>/v1/estimate</a>
       <a href="#orchestrate" class="sidebar-link"><span class="sidebar-method m-post">POST</span>/v1/orchestrate</a>
       <a href="#balance" class="sidebar-link"><span class="sidebar-method m-get">GET</span>/v1/balance</a>
       <a href="#health" class="sidebar-link"><span class="sidebar-method m-get">GET</span>/v1/health</a>
@@ -379,6 +380,58 @@ X-API-Key: cn-xxxxxxxxxxxxxxxxxxxxxxxxxxxx</div>
       </table>
 
       <div class="alert info">Formula: <code>Math.max(1, Math.ceil(apiCosts × 2000))</code> — where <code>apiCosts</code> is the sum of provider costs for all endpoints called.</div>
+
+      <h3 style="margin-top:20px">Per-endpoint credit cost</h3>
+      <p style="margin-bottom:8px">Typical costs by endpoint category. Exact cost depends on the endpoints selected by the intent planner.</p>
+      <table class="param-table">
+        <tr><th>Endpoint category</th><th>Credits per call</th><th>Example query</th></tr>
+        <tr><td>Token price</td><td>1</td><td>"What is the SOL price?"</td></tr>
+        <tr><td>Token metadata / holders</td><td>1–2</td><td>"How many holders does BONK have?"</td></tr>
+        <tr><td>Token risk score</td><td>2</td><td>"Is this token safe?"</td></tr>
+        <tr><td>Wallet portfolio</td><td>2</td><td>"Show my wallet holdings"</td></tr>
+        <tr><td>Wallet risk score</td><td>2</td><td>"Is this wallet risky?"</td></tr>
+        <tr><td>Trending tokens</td><td>1</td><td>"What's trending on Solana?"</td></tr>
+        <tr><td>Twitter mentions / profile</td><td>2–4</td><td>"What is Twitter saying about SOL?"</td></tr>
+        <tr><td>Reddit sentiment</td><td>3</td><td>"What does Reddit think of BTC?"</td></tr>
+        <tr><td>News search</td><td>2</td><td>"Latest crypto news"</td></tr>
+        <tr><td>Web scrape</td><td>4–8</td><td>"Summarize this URL"</td></tr>
+        <tr><td>LinkedIn / Instagram</td><td>3–5</td><td>"Check this founder's LinkedIn"</td></tr>
+        <tr><td>Transaction history</td><td>2</td><td>"Recent wallet activity"</td></tr>
+      </table>
+      <p style="margin-top:8px">Use <code>GET /v1/estimate?query=...</code> to get the exact estimated cost for any query before committing credits.</p>
+    </div>
+
+    <hr class="doc-divider">
+
+    <!-- ── ESTIMATE ── -->
+    <div class="doc-section" id="estimate">
+      <div class="doc-section-label">Core API</div>
+      <h2>GET /v1/estimate</h2>
+      <p>Run intent parsing only — no API calls, no credits charged. Returns the planned steps and estimated credit cost for any query. Use this to let your users see costs before executing.</p>
+      <div class="endpoint-block">
+        <div class="endpoint-head">
+          <span class="method-badge get">GET</span>
+          <span class="endpoint-path">/v1/estimate</span>
+          <span class="endpoint-desc">Estimate credit cost before orchestrating</span>
+        </div>
+        <div class="endpoint-body">
+          <h3>Query parameters</h3>
+          <table class="param-table">
+            <tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr>
+            <tr><td class="param-name">query</td><td class="param-type">string</td><td class="param-req">required</td><td class="param-desc">The query to estimate. Max 2,000 chars.</td></tr>
+          </table>
+          <h3>Response</h3>
+          <table class="param-table">
+            <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+            <tr><td class="param-name">estimatedCredits</td><td class="param-type">integer</td><td class="param-desc">Total credits this query would cost</td></tr>
+            <tr><td class="param-name">steps</td><td class="param-type">integer</td><td class="param-desc">Number of API endpoints planned</td></tr>
+            <tr><td class="param-name">summary</td><td class="param-type">string</td><td class="param-desc">One-line description of the plan</td></tr>
+            <tr><td class="param-name">breakdown</td><td class="param-type">array</td><td class="param-desc">Per-step breakdown: <code>endpointId</code>, <code>credits</code>, <code>reason</code></td></tr>
+          </table>
+          <div class="code-block"><span class="c-muted"># Example</span>
+curl "https://api.claw-net.org/v1/estimate?query=Is+BONK+safe+to+buy"</div>
+        </div>
+      </div>
     </div>
 
     <hr class="doc-divider">

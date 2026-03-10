@@ -105,6 +105,15 @@ app.get('/health', (c) => {
   }, dbOk ? 200 : 503);
 });
 
+// Webhook body size guard — 64KB max, applied before signature reads
+app.use('/v1/webhooks/*', async (c, next) => {
+  const contentLength = parseInt(c.req.header('content-length') ?? '0', 10);
+  if (contentLength > 65536) {
+    return c.json({ error: 'Payload too large' }, 413);
+  }
+  return next();
+});
+
 // app routing
 app.route('/v1/webhooks', stripeRouter);
 app.route('/v1/webhooks', clerkWebhookRouter);

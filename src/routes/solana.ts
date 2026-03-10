@@ -17,15 +17,16 @@ const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 // Receiving wallet — sourced from validated env config
 const RECEIVING_WALLET = env.SOLANA_RECEIVING_WALLET ?? '';
 
-// Credit amounts — exactly +10% over equivalent Stripe package at every tier
+// Credit amounts — +7% over equivalent Stripe package (USDC saves ~3% processing fee;
+// bonus capped at fee savings to protect margin).
 // Stripe: $20→21K, $50→54K, $100→112K, $500→600K, $1000→1.3M
-// USDC:   $20→23K, $50→59K, $100→123K, $500→660K, $1000→1.43M (+10% consistently)
+// USDC:   $20→22.5K, $50→58K, $100→120K, $500→642K, $1000→1.39M (+7%)
 const USDC_PACKAGES: Record<number, number> = {
-  20:   23_000,
-  50:   59_000,
-  100:  123_000,
-  500:  660_000,
-  1000: 1_430_000,
+  20:   22_500,
+  50:   58_000,
+  100:  120_000,
+  500:  642_000,
+  1000: 1_390_000,
 };
 
 const VerifySchema = z.object({
@@ -85,17 +86,34 @@ solanaRouter.post('/verify', async (c) => {
     return c.json({ error: 'Transaction already processed.' }, 409);
   }
 
-  // 5. Verify transaction on-chain
-  const rpcUrl = env.SOLANA_RPC_URL;
-  const connection = new Connection(rpcUrl, 'confirmed');
+  // 5. Verify transaction on-chain — try primary RPC, fall back to secondary on failure
+  const rpcUrls = [env.SOLANA_RPC_URL, env.SOLANA_RPC_FALLBACK].filter(Boolean) as string[];
 
   let transferredUsd = 0;
 
   try {
-    const tx = await connection.getParsedTransaction(signature, {
-      maxSupportedTransactionVersion: 0,
-      commitment: 'confirmed',
-    });
+    let tx = null;
+    let activeConnection: Connection = new Connection(rpcUrls[0], 'confirmed');
+    let lastErr: unknown;
+    for (const rpcUrl of rpcUrls) {
+      try {
+        const conn = new Connection(rpcUrl, 'confirmed');
+        tx = await conn.getParsedTransaction(signature, {
+          maxSupportedTransactionVersion: 0,
+          commitment: 'confirmed',
+        });
+        if (tx !== null) {
+          activeConnection = conn; // reuse for account info lookups
+          break;
+        }
+      } catch (err) {
+        lastErr = err;
+        logger.warn({ rpcUrl, err }, 'Solana RPC failed, trying fallback');
+      }
+    }
+    if (tx === null && lastErr) throw lastErr;
+
+    const connection = activeConnection;
 
     if (!tx) {
       return c.json({ error: 'Transaction not found. It may still be confirming — wait a few seconds and try again.' }, 404);

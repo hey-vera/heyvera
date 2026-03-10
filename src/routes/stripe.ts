@@ -9,6 +9,16 @@ export const stripeRouter = new Hono();
 
 // Credit amounts per price ID — 1 credit = $0.001
 // Bonus curve: graduated to reward higher-tier purchases and match Solana +10% at every level
+// Annual pricing: ~15% more credits than 12× equivalent monthly tier.
+// Create products in Stripe Dashboard, then set these env vars to the resulting price IDs:
+//   STRIPE_ANNUAL_PRICE_100  → $1,200/yr → 1,612,800 credits (15% over 12×$100=1,344,000)
+//   STRIPE_ANNUAL_PRICE_500  → $6,000/yr → 8,280,000 credits (15% over 12×$500=7,200,000)
+//   STRIPE_ANNUAL_PRICE_1000 → $12,000/yr → 17,940,000 credits (15% over 12×$1000=15,600,000)
+const annualPrices: Record<string, { amount: number; credits: number }> = {};
+if (process.env.STRIPE_ANNUAL_PRICE_100)  annualPrices[process.env.STRIPE_ANNUAL_PRICE_100]  = { amount: 1200,  credits: 1_612_800 };
+if (process.env.STRIPE_ANNUAL_PRICE_500)  annualPrices[process.env.STRIPE_ANNUAL_PRICE_500]  = { amount: 6000,  credits: 8_280_000 };
+if (process.env.STRIPE_ANNUAL_PRICE_1000) annualPrices[process.env.STRIPE_ANNUAL_PRICE_1000] = { amount: 12000, credits: 17_940_000 };
+
 const PRICE_CREDITS: Record<string, { amount: number; credits: number }> = {
   'price_1T8CG1KQHzCcG1t83xGj2JRY': { amount: 5,    credits: 5_000 },      // no bonus (entry tier)
   'price_1T8DlnKQHzCcG1t8VXWAMgJs': { amount: 20,   credits: 21_000 },     // +5%
@@ -16,6 +26,7 @@ const PRICE_CREDITS: Record<string, { amount: number; credits: number }> = {
   'price_1T8DnfKQHzCcG1t85Fcs2lY1': { amount: 100,  credits: 112_000 },    // +12%
   'price_1T8DoVKQHzCcG1t8kPpST5ws': { amount: 500,  credits: 600_000 },    // +20%
   'price_1T8DpAKQHzCcG1t8kDyVt48A': { amount: 1000, credits: 1_300_000 },  // +30%
+  ...annualPrices,
 };
 
 function generateApiKey(): string {
@@ -235,7 +246,17 @@ stripeRouter.post('/stripe-subscriptions', async (c) => {
       return c.json({ received: true });
     }
 
-    topUpCredits(existingKey.key, SUBSCRIPTION_CREDITS_PER_MONTH);
+    // E3 — Cap rollover at 3× monthly allotment to prevent unbounded accumulation.
+    // e.g., Scout tier: max 120,000 credits stored at any time.
+    const MAX_ROLLOVER = SUBSCRIPTION_CREDITS_PER_MONTH * 3;
+    const currentBal = getApiKeyBalance(existingKey.key);
+    const currentCredits = currentBal?.credits ?? 0;
+    const creditsToAdd = Math.max(0, Math.min(SUBSCRIPTION_CREDITS_PER_MONTH, MAX_ROLLOVER - currentCredits));
+    if (creditsToAdd > 0) {
+      topUpCredits(existingKey.key, creditsToAdd);
+    } else {
+      logger.info({ email, currentCredits, cap: MAX_ROLLOVER }, 'Subscription: balance at rollover cap — skipping topup');
+    }
     upsertSubscription({
       subscriptionId,
       apiKey: existingKey.key,
@@ -245,7 +266,7 @@ stripeRouter.post('/stripe-subscriptions', async (c) => {
       status: 'active',
     });
 
-    logger.info({ email, credits: SUBSCRIPTION_CREDITS_PER_MONTH, subscriptionId }, 'Subscription credits applied');
+    logger.info({ email, creditsAdded: creditsToAdd, currentCredits, subscriptionId }, 'Subscription credits applied');
   }
 
   // Subscription cancelled

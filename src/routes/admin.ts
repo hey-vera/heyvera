@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import crypto from 'crypto';
-import { getDbStats, getAllPendingPayouts, updatePayoutStatus, getDb } from '../db/index';
+import { getDbStats, getAllPendingPayouts, updatePayoutStatus, getDb, logAudit } from '../db/index';
 import { cacheStats } from '../cache/index';
 import { getUsageStats } from '../utils/usage';
 import { getCircuitStats } from '../core/circuit-breaker';
@@ -280,5 +280,6 @@ adminRouter.patch('/payouts/:id', async (c) => {
     return c.json({ error: 'Invalid body', details }, 400);
   }
   updatePayoutStatus(id, body.status, body.notes);
+  logAudit({ entityType: 'payout', entityId: id, action: 'PAYOUT_STATUS', actorId: 'admin', data: { status: body.status, notes: body.notes } });
   return c.json({ ok: true, id, status: body.status });
 });

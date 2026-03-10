@@ -8,7 +8,7 @@ import { executePlan } from '../core/executor';
 import { formatResponse } from '../core/formatter';
 import { logUsage, getRecentUsage, getUsageStats } from '../utils/usage';
 import { cacheStats, cacheGet, cacheSet, cacheIncr } from '../cache/index';
-import { apiRegistry } from '../config/api-registry';
+import { apiRegistry, findEndpoint } from '../config/api-registry';
 import { env, isSimulationMode } from '../config/index';
 import { logger } from '../utils/logger';
 import { sendApiKeyEmail, sendLowBalanceEmail } from '../utils/email';
@@ -61,7 +61,17 @@ apiRouter.post('/orchestrate', async (c) => {
     return c.json({ ...cachedResponse, requestId, metadata: { ...(cachedResponse.metadata as Record<string, unknown>), cacheHits: 1, fromCache: true } });
   }
 
-  // Per-key tiered rate limit (separate from global IP limit)
+  // Per-key tiered rate limit (separate from global IP limit).
+  // POLICY (D3): tier is based on lifetime amount_paid (cumulative across all purchases).
+  // This rewards total investment, not just the most recent transaction.
+  // Tiers (per 60-second window):
+  //   < $20 paid  →  30 req/min  (new / casual users)
+  //   $20–$99     →  60 req/min  (active developers)
+  //   $100–$499   → 120 req/min  (power users)
+  //   $500+       → 300 req/min  (enterprise / high-volume)
+  // Alternative considered: tier by active subscription level — rejected because
+  // it would downgrade heavy one-time purchasers. Revisit if subscription adoption
+  // warrants a separate policy (see D3 in ROADMAP.md).
   if (!keyInfo.isEnvKey) {
     const tierLimit = keyInfo.amountPaid >= 500 ? 300
       : keyInfo.amountPaid >= 100 ? 120
@@ -263,6 +273,29 @@ apiRouter.get('/balance', async (c) => {
     creditsUsed: data.credits_used,
     memberSince: data.created_at,
   });
+});
+
+// GET /v1/estimate?query=... — runs intent parsing only, returns estimated credit cost
+// No credits are deducted. Useful for budgeting before committing to an orchestration.
+apiRouter.get('/estimate', async (c) => {
+  const query = c.req.query('query')?.trim();
+  if (!query) return c.json({ error: 'Missing required query parameter: query' }, 400);
+  if (query.length > 2000) return c.json({ error: 'Query too long (max 2000 chars)' }, 400);
+
+  try {
+    const plan = await parseIntent(query);
+    let estimatedCredits = 0;
+    const breakdown = plan.steps.map((step) => {
+      const endpoint = findEndpoint(step.endpointId);
+      const credits = endpoint ? creditsForApiCost(endpoint.costPerCall) : 1;
+      estimatedCredits += credits;
+      return { endpointId: step.endpointId, credits, reason: step.reason };
+    });
+    return c.json({ query, estimatedCredits, steps: plan.steps.length, breakdown, summary: plan.summary });
+  } catch (err) {
+    logger.error({ err }, '/v1/estimate failed');
+    return c.json({ error: 'Failed to estimate query cost' }, 500);
+  }
 });
 
 // GET /v1/session/:sessionId — called by success page after Stripe redirect

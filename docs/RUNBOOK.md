@@ -438,3 +438,83 @@ Drift = `expectedCirculating - totalGranted`. Positive drift means credits appea
 3. Check if `tryClaimSolanaSignature` or `claimStripeSession` had any duplicate grants
 4. If drift < 100 credits, it may be floating point rounding in revenue share — monitor
 5. If drift > 1000 credits, treat as incident — investigate before allowing new payments
+
+---
+
+## 12. Stripe Webhook Secret Rotation
+
+Rotate `STRIPE_WEBHOOK_SECRET` and `STRIPE_SUBSCRIPTION_WEBHOOK_SECRET` **quarterly** (every 3 months) to limit exposure window if a secret leaks.
+
+### Steps
+
+**1. Generate a new secret in the Stripe Dashboard**
+- Go to [Stripe Dashboard → Developers → Webhooks](https://dashboard.stripe.com/webhooks)
+- Click the webhook endpoint → **Roll secret**
+- Copy the new `whsec_...` value
+
+**2. Update VPS `.env` (hot-swap — no downtime)**
+```bash
+ssh guardian-vps
+nano /home/guardian/claw-net/.env
+# Update: STRIPE_WEBHOOK_SECRET=whsec_newvalue
+# If subscription webhook: STRIPE_SUBSCRIPTION_WEBHOOK_SECRET=whsec_newvalue
+```
+
+**3. Restart to pick up new secret**
+```bash
+cd ~/claw-net
+docker compose up -d --no-build
+```
+
+**4. Verify**
+```bash
+# Make a test payment in Stripe Dashboard → Developers → Webhooks → Send test event
+docker compose logs api | grep "Stripe webhook received"
+```
+
+### Notes
+- Stripe supports a brief overlap window (~10 minutes) where both old and new secrets are valid during a roll — no dropped webhooks.
+- If you suspect a leaked secret, roll immediately and check the Stripe Dashboard for unauthorized replays.
+- Record rotation date in this file below:
+
+| Date | Rotated by | Scope |
+|---|---|---|
+| (first rotation) | — | — |
+
+---
+
+## 13. Admin Action Audit Trail
+
+All credit movements are logged to the `audit_log` table via `logAudit()`. Admin payout updates are also logged.
+
+### Query recent admin actions
+```bash
+docker compose exec api node -e "
+  const Database = require('better-sqlite3');
+  const db = new Database('/app/data/orchestrator.db', { readonly: true });
+  const rows = db.prepare(\"SELECT * FROM audit_log WHERE actor_id = 'admin' ORDER BY id DESC LIMIT 50\").all();
+  console.table(rows);
+  db.close();
+"
+```
+
+### Query credit movements for a specific key
+```bash
+docker compose exec api node -e "
+  const Database = require('better-sqlite3');
+  const db = new Database('/app/data/orchestrator.db', { readonly: true });
+  const rows = db.prepare(\"SELECT * FROM audit_log WHERE entity_id = '<API_KEY>' ORDER BY id DESC LIMIT 20\").all();
+  console.table(rows);
+  db.close();
+"
+```
+
+### Actions logged
+| Action | Trigger |
+|---|---|
+| `CREDIT_DEDUCT` | Every orchestration call |
+| `CREDIT_TOPUP` | Stripe checkout, USDC payment, subscription renewal |
+| `CREDIT_GRANT` | New API key creation |
+| `STAKE_LOCK` | Credits staked on a skill |
+| `STAKE_UNLOCK` | Stake returned after timeout |
+| `PAYOUT_STATUS` | Admin updates a creator payout |
