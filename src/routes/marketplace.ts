@@ -301,11 +301,16 @@ marketplaceRouter.post('/skills/:id/purchase', checkApiKey, async (c) => {
       sellerCredits: purchase.sellerCredits ?? 0, originalTxId: purchase.txId!,
       skillId: id, reason: 'Execution failed',
     });
+    if (!refund.ok) {
+      logger.error({ requestId, skillId: id, refundError: refund.error }, 'CRITICAL: skill execution failed AND refund failed — manual intervention required');
+    }
     recordSkillMetric({ skillId: id, version: skill.version ?? '1.0.0', latencyMs: Date.now() - start, success: false, costCredits: 0 });
     return c.json({
       requestId, ok: false,
       refunded: refund.ok, refundTxId: refund.refundTxId,
-      error: 'Skill execution failed. Payment has been refunded.',
+      error: refund.ok
+        ? 'Skill execution failed. Payment has been refunded.'
+        : 'Skill execution failed. Refund also failed — please contact support.',
       code: 'EXECUTION_ERROR',
     }, 500);
   }

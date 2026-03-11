@@ -1652,8 +1652,9 @@ export function marketplacePurchase(params: {
 
       // Credit treasury with platform fee (3%)
       if (feeCredits > 0) {
-        db.prepare(`UPDATE api_keys SET credits = credits + ? WHERE key = 'clawhub-treasury' AND active = 1`)
+        const treasuryResult = db.prepare(`UPDATE api_keys SET credits = credits + ? WHERE key = 'clawhub-treasury' AND active = 1`)
           .run(feeCredits);
+        if (treasuryResult.changes === 0) throw new Error('Treasury account not found or inactive');
       }
 
       txId = nanoid(16);
@@ -1681,7 +1682,7 @@ export function marketplaceRefund(params: {
   originalTxId: string;
   skillId: string;
   reason: string;
-}): { ok: boolean; refundTxId?: string } {
+}): { ok: boolean; refundTxId?: string; error?: string } {
   const db = getDb();
   try {
     let refundTxId = '';
@@ -1713,8 +1714,9 @@ export function marketplaceRefund(params: {
           params.skillId, params.feeCredits, JSON.stringify({ originalTxId: params.originalTxId, reason: params.reason }));
     })();
     return { ok: true, refundTxId };
-  } catch {
-    return { ok: false };
+  } catch (err) {
+    logger.error({ err, buyerKey: params.buyerKey.slice(0, 8), skillId: params.skillId }, 'marketplaceRefund: transaction failed — manual intervention may be required');
+    return { ok: false, error: (err as Error).message };
   }
 }
 
