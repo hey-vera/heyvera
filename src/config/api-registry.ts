@@ -13,6 +13,8 @@ export interface ApiEndpoint {
   inputSchema: Record<string, string>;
   outputFields: string[];
   rateLimit?: number;
+  /** Override cache TTL in seconds. Omit to use global CACHE_TTL_SECONDS (300s default). */
+  cacheTtl?: number;
 }
 
 export const apiRegistry: ApiEndpoint[] = [
@@ -28,6 +30,7 @@ export const apiRegistry: ApiEndpoint[] = [
     category: 'solana',
     costPerCall: 0.001,
     latencyMs: 300,
+    cacheTtl: 86400, // 24h — metadata rarely changes
     inputSchema: { mintAddress: 'Solana token mint address (base58)' },
     outputFields: ['name', 'symbol', 'decimals', 'totalSupply', 'logoURI', 'description', 'website', 'twitter'],
   },
@@ -40,6 +43,7 @@ export const apiRegistry: ApiEndpoint[] = [
     category: 'solana',
     costPerCall: 0.001,
     latencyMs: 200,
+    cacheTtl: 60, // 60s — price is highly volatile
     inputSchema: { mintAddress: 'Solana token mint address (base58)' },
     outputFields: ['priceUsd', 'change24h', 'volume24h', 'marketCap', 'liquidity'],
   },
@@ -52,6 +56,7 @@ export const apiRegistry: ApiEndpoint[] = [
     category: 'solana',
     costPerCall: 0.002,
     latencyMs: 500,
+    cacheTtl: 1800, // 30min — holder distribution changes slowly
     inputSchema: { mintAddress: 'Solana token mint address (base58)', limit: 'Number of top holders to return (default 20)' },
     outputFields: ['totalHolders', 'topHolders', 'top10Concentration', 'top25Concentration'],
   },
@@ -64,6 +69,7 @@ export const apiRegistry: ApiEndpoint[] = [
     category: 'solana',
     costPerCall: 0.003,
     latencyMs: 800,
+    cacheTtl: 3600, // 1h — risk score is stable unless major event
     inputSchema: { mintAddress: 'Solana token mint address (base58)' },
     outputFields: ['riskScore', 'riskLevel', 'flags', 'mintAuthority', 'freezeAuthority', 'lpLocked'],
   },
@@ -112,6 +118,7 @@ export const apiRegistry: ApiEndpoint[] = [
     category: 'social',
     costPerCall: 0.002,
     latencyMs: 600,
+    cacheTtl: 600, // 10min — social sentiment shifts frequently
     inputSchema: { query: 'Token symbol, name, or search query', limit: 'Number of tweets (default 20)' },
     outputFields: ['mentionCount', 'sentimentScore', 'sentimentLabel', 'topTweets', 'engagementTotal'],
   },
@@ -160,6 +167,7 @@ export const apiRegistry: ApiEndpoint[] = [
     category: 'utility',
     costPerCall: 0.002,
     latencyMs: 600,
+    cacheTtl: 600, // 10min — news updates frequently
     inputSchema: { query: 'Search query (token name, project, topic)', limit: 'Number of articles (default 5)' },
     outputFields: ['articles', 'totalResults', 'query'],
   },
@@ -884,6 +892,7 @@ export const apiRegistry: ApiEndpoint[] = [
     category: 'oracle',
     costPerCall: 0.001,
     latencyMs: 250,
+    cacheTtl: 900, // 15min — index updates hourly, 15min is a good balance
     inputSchema: { days: 'Days of history (default 1, max 90)' },
     outputFields: ['value', 'classification', 'timestamp', 'history'],
   },

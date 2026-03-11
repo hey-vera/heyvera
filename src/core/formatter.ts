@@ -189,7 +189,7 @@ export async function formatResponse(
   const prompt = buildSynthesisPrompt(query, intent, execution);
 
   try {
-    const response = await llmComplete([{ role: 'user', content: prompt }]);
+    const response = await llmComplete([{ role: 'user', content: prompt }], 'synthesis');
     const result = parseSynthesisResponse(response.content);
 
     // Store in cache (failures also cached briefly to avoid thundering herd)

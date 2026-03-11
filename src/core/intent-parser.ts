@@ -4,6 +4,7 @@ import { llmComplete } from '../providers/llm';
 import { registryToPromptContext, findEndpoint } from '../config/api-registry';
 import { cacheGet, cacheSet } from '../cache/index';
 import { logger } from '../utils/logger';
+import { matchTemplate } from './plan-templates';
 
 function intentCacheKey(query: string): string {
   const normalized = query.toLowerCase().trim().replace(/\s+/g, ' ');
@@ -63,13 +64,21 @@ export async function parseIntent(query: string): Promise<ParsedIntent> {
     return cached;
   }
 
+  // Check plan templates — skip LLM entirely for common queries (~3-5s saved)
+  const templateMatch = matchTemplate(query);
+  if (templateMatch) {
+    logger.info({ query: query.slice(0, 80), template: templateMatch.templateName }, 'Template match — skipping LLM');
+    await cacheSet(cacheKey, templateMatch.intent, 30 * 60);
+    return templateMatch.intent;
+  }
+
   const messages = [
     { role: 'system' as const, content: SYSTEM_PROMPT },
     { role: 'user' as const, content: JSON.stringify({ query: query.slice(0, 2000) }) },
   ];
 
   async function attempt(): Promise<ParsedIntent> {
-    const response = await llmComplete(messages);
+    const response = await llmComplete(messages, 'intent');
     const cleaned = response.content.replace(/```json|```/g, '').trim();
     const parsed = JSON.parse(cleaned);
     const result = ParsedIntentSchema.parse(parsed);

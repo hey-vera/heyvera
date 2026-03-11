@@ -8,8 +8,10 @@ const envSchema = z.object({
   LLM_PROVIDER: z.enum(['anthropic', 'openai', 'openclaw']).default('anthropic'),
   ANTHROPIC_API_KEY: z.string().optional(),
   ANTHROPIC_MODEL: z.string().default('claude-sonnet-4-20250514'),
+  ANTHROPIC_INTENT_MODEL: z.string().default('claude-haiku-4-5-20251001'),
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_MODEL: z.string().default('gpt-4o'),
+  OPENAI_INTENT_MODEL: z.string().default('gpt-4o-mini'),
   OPENCLAW_API_URL: z.string().default('http://localhost:3000'),
   OPENCLAW_API_KEY: z.string().optional(),
 

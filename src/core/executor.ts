@@ -214,7 +214,7 @@ async function executeStep(
     if (responseSize > MAX_RESPONSE_BYTES) {
       logger.warn({ endpointId: step.endpointId, responseSize }, 'API response exceeds max size — skipping cache');
     } else {
-      await cacheSet(key, data);
+      await cacheSet(key, data, endpoint.cacheTtl);
     }
     recordSuccess(step.endpointId);
     return { endpointId: step.endpointId, success: true, cached: false, durationMs: Date.now() - start, cost: endpoint.costPerCall, data };
