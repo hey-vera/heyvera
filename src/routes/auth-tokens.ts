@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { checkApiKey } from '../middleware/auth';
-import { getSkill, getDb } from '../db/index';
+import { getSkill, getUsageStats } from '../db/index';
 import { maskApiKey } from '../utils/mask';
 
 export const authRouter = new Hono();
@@ -51,33 +51,10 @@ authRouter.get('/estimate', checkApiKey, (c) => {
 
 authRouter.get('/usage', checkApiKey, (c) => {
   const keyInfo = c.get('apiKeyInfo');
-  const db = getDb();
-
-  const taskStats = db.prepare(`
-    SELECT COUNT(*) as total,
-           SUM(CASE WHEN status = 'COMPLETED' THEN 1 ELSE 0 END) as completed,
-           SUM(CASE WHEN status = 'FAILED' THEN 1 ELSE 0 END) as failed,
-           COALESCE(SUM(cost_credits), 0) as creditsSpent
-    FROM tasks WHERE requester_key = ?
-  `).get(keyInfo.key) as { total: number; completed: number; failed: number; creditsSpent: number } | undefined;
-
-  const skillStats = db.prepare(`
-    SELECT COUNT(*) as total, COALESCE(SUM(amount_credits), 0) as totalSpent
-    FROM transactions WHERE from_agent = ? AND type = 'SKILL_SALE'
-  `).get(keyInfo.key) as { total: number; totalSpent: number } | undefined;
-
+  const stats = getUsageStats(keyInfo.key);
   return c.json({
     credits: keyInfo.credits === Infinity ? null : keyInfo.credits,
     creditsUsed: keyInfo.creditsUsed,
-    tasks: {
-      total: taskStats?.total ?? 0,
-      completed: taskStats?.completed ?? 0,
-      failed: taskStats?.failed ?? 0,
-      creditsSpent: taskStats?.creditsSpent ?? 0,
-    },
-    marketplace: {
-      purchases: skillStats?.total ?? 0,
-      creditsSpent: skillStats?.totalSpent ?? 0,
-    },
+    ...stats,
   });
 });

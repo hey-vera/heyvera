@@ -9,7 +9,7 @@ import { checkApiKey } from '../middleware/auth';
 import { createSwarmTask, updateSwarmTask, getSwarmTask, listPublicSkills, deductCredit, safeJsonParse } from '../db/index';
 import { llmComplete } from '../providers/llm';
 import { logger } from '../utils/logger';
-import { env } from '../config/index';
+import { env, SWARM_BASE_FEE } from '../config/index';
 
 export const swarmRouter = new Hono();
 
@@ -30,15 +30,15 @@ swarmRouter.post('/task', checkApiKey, async (c) => {
   }
 
   const keyInfo = c.get('apiKeyInfo');
-  let body: z.infer<typeof SwarmBody>;
-  try { body = SwarmBody.parse(await c.req.json()); } catch (err) {
-    return c.json({ error: 'Invalid body', details: (err as Error).message }, 400);
+  const parsed = SwarmBody.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) {
+    return c.json({ error: 'Invalid body', details: parsed.error.flatten().fieldErrors }, 400);
   }
+  const body = parsed.data;
 
   // Pre-flight: require enough credits to cover maxBudget PLUS the base fee.
   // SWARM_BASE_FEE is deducted immediately on top of sub-task costs, so the true
   // worst-case spend is maxBudget + SWARM_BASE_FEE.
-  const SWARM_BASE_FEE = 20;
   if (!keyInfo.isEnvKey) {
     const required = body.maxBudget + SWARM_BASE_FEE;
     if (keyInfo.credits < required) {
@@ -135,7 +135,6 @@ export async function runSwarm(swarmId: string, agentKey: string, body: SwarmPar
 
   // Budget tracking — base fee already deducted; remaining budget for sub-tasks
   const maxBudget = body.maxBudget ?? 200;
-  const SWARM_BASE_FEE = 20;
 
   // Pre-allocate budget per subtask to avoid race conditions in parallel execution.
   // Each task gets an equal share; remaining (from tasks that skip or underspend) is reported.

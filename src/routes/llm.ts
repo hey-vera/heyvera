@@ -21,6 +21,7 @@
 
 import { Hono } from 'hono';
 import { z } from 'zod';
+import crypto from 'crypto';
 import { checkApiKey } from '../middleware/auth';
 import { deductCredit, getDb } from '../db/index';
 import { cacheGet, cacheSet } from '../cache/index';
@@ -149,12 +150,20 @@ llmRouter.post('/chat', checkApiKey, async (c) => {
     }, 402);
   }
 
-  // Cache check for deterministic queries (no randomness in last message)
-  const cacheKey = `llm:${model}:${Buffer.from(JSON.stringify(messages)).toString('base64').slice(0, 32)}`;
+  // Cache check — use SHA-256 hash to avoid key collisions from truncated base64
+  const cacheKey = `llm:${model}:${crypto.createHash('sha256').update(JSON.stringify(messages)).digest('hex').slice(0, 16)}`;
   const cached = await cacheGet<{ content: string; model: string; usage: unknown }>(cacheKey);
   if (cached) {
+    // Cache hits cost the platform zero — charge 1 credit (prevents unlimited free repetitions)
+    const CACHE_HIT_CREDIT = 1;
+    if (!keyInfo.isEnvKey) {
+      if (keyInfo.credits < CACHE_HIT_CREDIT) {
+        return c.json({ error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS', creditsAvailable: keyInfo.credits }, 402);
+      }
+      deductCredit(keyInfo.key, CACHE_HIT_CREDIT);
+    }
     logger.info({ model, cached: true }, 'LLM cache hit');
-    return c.json({ ...cached, cached: true, creditsCharged: 0 });
+    return c.json({ ...cached, cached: true, creditsCharged: CACHE_HIT_CREDIT });
   }
 
   logger.info({ model, messages: messages.length, credits: creditCost }, 'LLM proxy request');
@@ -247,7 +256,10 @@ llmRouter.post('/embeddings', checkApiKey, async (c) => {
     const result = await clawApiCall('/api/embeddings', { input, model }, X402ENGINE_BASE) as Record<string, unknown>;
 
     if (!keyInfo.isEnvKey) {
-      getDb().transaction(() => deductCredit(keyInfo.key, creditCost))();
+      const ok = getDb().transaction(() => deductCredit(keyInfo.key, creditCost))();
+      if (!ok) {
+        return c.json({ error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS', creditsRequired: creditCost }, 402);
+      }
     }
 
     return c.json({ ...result, creditsCharged: creditCost, model });
@@ -285,7 +297,10 @@ llmRouter.post('/code/run', checkApiKey, async (c) => {
     const result = await clawApiCall('/api/code/run', parsed.data, X402ENGINE_BASE);
 
     if (!keyInfo.isEnvKey) {
-      getDb().transaction(() => deductCredit(keyInfo.key, creditCost))();
+      const ok = getDb().transaction(() => deductCredit(keyInfo.key, creditCost))();
+      if (!ok) {
+        return c.json({ error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS', creditsRequired: creditCost }, 402);
+      }
     }
 
     return c.json({ ...(result as object), creditsCharged: creditCost });

@@ -31,9 +31,15 @@ let bot: Bot | null = null;
 /** Strip control characters and hard-cap length. Prevents prompt injection
  *  from malicious Telegram users passing crafted input. */
 function sanitizeInput(raw: string, maxLen = 300): string {
-  return raw
-    .replace(/[\x00-\x1f\x7f]/g, ' ')  // Replace control chars with space
+  // NFKC normalises Unicode lookalikes (e.g. fullwidth letters, confusables)
+  const normalized = raw.normalize('NFKC');
+  return normalized
+    // ASCII control chars
+    .replace(/[\x00-\x1f\x7f]/g, ' ')
+    // Unicode control / bidi / zero-width / formatting characters
+    .replace(/[\u200b-\u200f\u2028-\u202f\u2060-\u206f\ufeff]/g, '')
     .trim()
+    // Slice on codePoints to avoid splitting surrogate pairs
     .slice(0, maxLen);
 }
 
@@ -630,7 +636,13 @@ export async function sendTelegramAlert(message: string): Promise<void> {
   if (subscribers.length === 0) return;
 
   const failed = await broadcastBatched(subscribers, message);
-  for (const chatId of failed) removeTelegramSubscriber(chatId);
+  for (const chatId of failed) {
+    try {
+      removeTelegramSubscriber(chatId);
+    } catch (err) {
+      logger.warn({ chatId, err }, 'Telegram: failed to remove dead subscriber — will retry on next broadcast');
+    }
+  }
 }
 
 // ─── Shutdown ─────────────────────────────────────────────────────────────────

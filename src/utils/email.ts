@@ -129,7 +129,7 @@ export async function sendLowBalanceEmail(params: {
 
   if (!resendKey) return;
 
-  const maskedKey = apiKey.slice(0, 6) + '…' + apiKey.slice(-4);
+  const maskedKey = maskApiKey(apiKey);
   const topUpUrl = 'https://claw-net.org/#pricing';
 
   const html = `

@@ -16,6 +16,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { nanoid } from 'nanoid';
 import crypto from 'crypto';
+import { renderTemplate } from '../utils/template';
 import { checkApiKey } from '../middleware/auth';
 import {
   getSkillWithAb, getSkill, listPublicSkills, countPublicSkills,
@@ -33,7 +34,7 @@ import { isEmbeddingModelReady } from '../core/embeddings';
 import { cacheGet, cacheSet, cacheIncr } from '../cache/index';
 import { logUsage } from '../utils/usage';
 import { logger } from '../utils/logger';
-import { env, isSimulationMode } from '../config/index';
+import { env, isSimulationMode, SWARM_BASE_FEE, rateTier } from '../config/index';
 import { apiRegistry } from '../config/api-registry';
 import { runSwarm } from './swarm';
 
@@ -41,12 +42,6 @@ export const openclawRouter = new Hono();
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function renderTemplate(template: string, variables: Record<string, string>): string {
-  return template.replace(/\{\{(\w+)\}\}/g, (_, key) => {
-    if (!(key in variables)) throw new Error(`Missing required variable: ${key}`);
-    return String(variables[key]).slice(0, 500);
-  });
-}
 
 function queryCacheKey(query: string): string {
   const normalized = query.toLowerCase().trim().replace(/\s+/g, ' ');
@@ -58,12 +53,6 @@ function skillCacheKey(skillId: string, variables: Record<string, string>): stri
   return 'skill:' + crypto.createHash('sha256').update(normalized).digest('hex').slice(0, 16);
 }
 
-function rateTier(amountPaid: number): { label: string; perMinute: number } {
-  if (amountPaid >= 500) return { label: '$500+', perMinute: 300 };
-  if (amountPaid >= 100) return { label: '$100+', perMinute: 120 };
-  if (amountPaid >= 20)  return { label: '$20+',  perMinute: 60  };
-  return { label: 'free', perMinute: 30 };
-}
 
 /** Standard response envelope for all openclaw actions. */
 function envelope(requestId: string, action: string, result: unknown, creditsUsed: number, creditsRemaining: number, meta: Record<string, unknown>) {
@@ -413,8 +402,6 @@ openclawRouter.post('/invoke', checkApiKey, async (c) => {
   // ── action: swarm ────────────────────────────────────────────────────────────
 
   if (body.action === 'swarm') {
-    const SWARM_BASE_FEE = 20;
-
     if (!keyInfo.isEnvKey) {
       if (keyInfo.credits < SWARM_BASE_FEE) {
         return c.json({

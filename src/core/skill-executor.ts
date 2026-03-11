@@ -30,8 +30,13 @@ export type SkillExecutionPlan = SkillStep[];
  * Interpolate {varName} placeholders in a string with values from variables.
  * Unknown placeholders are replaced with empty string.
  */
-function interpolate(template: string, variables: Record<string, string>): string {
-  return template.replace(/\{(\w+)\}/g, (_, key) => variables[key] ?? '');
+function interpolate(template: string, variables: Record<string, string>, context?: string): string {
+  return template.replace(/\{(\w+)\}/g, (_, key) => {
+    if (variables[key] === undefined) {
+      logger.warn({ key, context }, 'Skill interpolation: placeholder has no matching variable — substituting empty string');
+    }
+    return variables[key] ?? '';
+  });
 }
 
 /**
@@ -64,7 +69,7 @@ export function buildIntentFromPlan(
     }
     const resolvedParams: Record<string, string> = {};
     for (const [key, value] of Object.entries(step.params ?? {})) {
-      resolvedParams[key] = interpolate(value, variables);
+      resolvedParams[key] = interpolate(value, variables, `${skillName}/${step.endpointId}/${key}`);
     }
     steps.push({
       endpointId: step.endpointId,

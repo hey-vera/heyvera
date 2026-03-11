@@ -63,10 +63,12 @@ function buildSynthesisPrompt(
   const dataContext = successfulSteps
     .map((s) => {
       const raw = JSON.stringify(s.data, null, 2);
-      const truncated = raw.length > MAX_DATA_BYTES_PER_STEP
+      const sliced = raw.length > MAX_DATA_BYTES_PER_STEP
         ? raw.slice(0, MAX_DATA_BYTES_PER_STEP) + '\n... [truncated]'
         : raw;
-      return `<api-data endpoint="${s.endpointId}">\n${truncated}\n</api-data>`;
+      // Escape both opening and closing api-data tags to prevent XML injection from adversarial API responses
+      const sanitized = sliced.replace(/<\/?api-data[\s>]/gi, (m) => m.replace('<', '&lt;'));
+      return `<api-data endpoint="${s.endpointId}">\n${sanitized}\n</api-data>`;
     })
     .join('\n\n');
 
@@ -151,9 +153,9 @@ function buildFallbackResponse(
     `Partial results for: "${query}"\n\n` +
     execution.steps
       .filter((s) => s.success)
-      .map((s) => `${s.endpointId}: ${JSON.stringify(s.data).slice(0, 200)}`)
+      .map((s) => `- ${s.endpointId}: data retrieved successfully`)
       .join('\n') +
-    (failCount > 0 ? `\n\n⚠️ ${failCount} step(s) failed.` : '') +
+    (failCount > 0 ? `\n\n${failCount} step(s) failed.` : '') +
     `\n\nCompleted ${successCount}/${execution.steps.length} steps in ${execution.totalDurationMs}ms.`;
 
   return { answer, suggestedActions: [] };

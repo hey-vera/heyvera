@@ -7,10 +7,17 @@ import {
   getApiKeyByEmail,
   getApiKeyBalance,
   getApiKeyByStripeSession,
-  getDb,
+  getApiKeyByClerkId,
   wasEmailSentRecently,
   logEmailSend,
   regenerateApiKey,
+  getClerkIdForKey,
+  linkKeyToClerkUser,
+  getKeyStats,
+  storeClaimToken,
+  getClaimToken,
+  deleteClaimToken,
+  markClaimTokenUsed,
 } from '../db/index';
 import { cacheIncr } from '../cache/index';
 import { maskApiKey } from '../utils/mask';
@@ -36,7 +43,7 @@ dashboardRouter.get('/me', requireClerkAuth, async (c) => {
     if (emailRow) {
       // Auto-link this key to their Clerk account
       linkKeyToClerkUser(emailRow.key, clerkUserId);
-      keyRow = { key: emailRow.key, email: emailRow.email };
+      keyRow = emailRow;
     }
   }
 
@@ -172,6 +179,12 @@ dashboardRouter.post('/claim-session', requireClerkAuth, async (c) => {
 dashboardRouter.post('/send-claim-email', requireClerkAuth, async (c) => {
   const clerkUserId = c.get('clerkUserId');
 
+  // Per-user rate limit: max 3 claim emails per hour
+  const claimRlCount = await cacheIncr(`rl:claim-email:${clerkUserId}`, 3600);
+  if (claimRlCount > 3) {
+    return c.json({ error: 'Too many claim emails — try again in 1 hour', code: 'RATE_LIMITED' }, 429);
+  }
+
   let body: { purchaseEmail?: string };
   try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
 
@@ -247,12 +260,8 @@ dashboardRouter.get('/verify-claim/:token', async (c) => {
     return c.redirect('https://claw-net.org/dashboard.html?claim=used');
   }
 
-  // Atomically mark as used — only one concurrent request wins; the rest see changes === 0
-  const result = getDb()
-    .prepare('UPDATE claim_tokens SET used = 1 WHERE token = ? AND used = 0')
-    .run(token);
-
-  if (result.changes === 0) {
+  // Atomically mark as used — only one concurrent request wins
+  if (!markClaimTokenUsed(token)) {
     return c.redirect('https://claw-net.org/dashboard.html?claim=used');
   }
 
@@ -260,92 +269,10 @@ dashboardRouter.get('/verify-claim/:token', async (c) => {
   linkKeyToClerkUser(claim.api_key, claim.clerk_user_id);
   deleteClaimToken(token);
 
-  logger.info({ clerkUserId: claim.clerk_user_id, apiKey: claim.api_key.slice(0, 6) + '...' + claim.api_key.slice(-4) }, 'Key claimed via magic link');
+  logger.info({ clerkUserId: claim.clerk_user_id, apiKey: maskApiKey(claim.api_key) }, 'Key claimed via magic link');
 
   return c.redirect('https://claw-net.org/dashboard.html?claim=success');
 });
-
-// ─── DB helpers (inline — these operate on the existing DB) ───────────────
-
-function getApiKeyByClerkId(clerkUserId: string): { key: string; email: string } | undefined {
-  return getDb()
-    .prepare('SELECT key, email FROM api_keys WHERE clerk_user_id = ? AND active = 1 LIMIT 1')
-    .get(clerkUserId) as { key: string; email: string } | undefined;
-}
-
-function getClerkIdForKey(key: string): string | undefined {
-  const row = getDb()
-    .prepare('SELECT clerk_user_id FROM api_keys WHERE key = ?')
-    .get(key) as { clerk_user_id: string | null } | undefined;
-  return row?.clerk_user_id ?? undefined;
-}
-
-function linkKeyToClerkUser(key: string, clerkUserId: string): void {
-  getDb()
-    .prepare('UPDATE api_keys SET clerk_user_id = ? WHERE key = ?')
-    .run(clerkUserId, key);
-}
-
-function getKeyStats(key: string): {
-  queriesToday: number;
-  queriesTotal: number;
-  lastUsed: string | null;
-} {
-  const db = getDb();
-  const today = new Date().toISOString().split('T')[0];
-
-  const total = db
-    .prepare('SELECT COUNT(*) as count FROM orchestrations WHERE api_key = ?')
-    .get(key) as { count: number };
-
-  const todayCount = db
-    .prepare('SELECT COUNT(*) as count FROM orchestrations WHERE api_key = ? AND timestamp LIKE ?')
-    .get(key, `${today}%`) as { count: number };
-
-  const lastUsed = db
-    .prepare('SELECT last_used_at FROM api_keys WHERE key = ?')
-    .get(key) as { last_used_at: string | null } | undefined;
-
-  return {
-    queriesToday: todayCount.count,
-    queriesTotal: total.count,
-    lastUsed: lastUsed?.last_used_at ?? null,
-  };
-}
-
-function storeClaimToken(params: {
-  token: string;
-  clerkUserId: string;
-  purchaseEmail: string;
-  apiKey: string;
-  expiresAt: string;
-}): void {
-  getDb()
-    .prepare(`INSERT OR REPLACE INTO claim_tokens
-      (token, clerk_user_id, purchase_email, api_key, expires_at, used)
-      VALUES (@token, @clerkUserId, @purchaseEmail, @apiKey, @expiresAt, 0)`)
-    .run(params);
-}
-
-function getClaimToken(token: string): {
-  token: string;
-  clerk_user_id: string;
-  purchase_email: string;
-  api_key: string;
-  expires_at: string;
-  used: number;
-} | undefined {
-  return getDb()
-    .prepare('SELECT * FROM claim_tokens WHERE token = ?')
-    .get(token) as ReturnType<typeof getClaimToken>;
-}
-
-
-function deleteClaimToken(token: string): void {
-  getDb()
-    .prepare('DELETE FROM claim_tokens WHERE token = ?')
-    .run(token);
-}
 
 async function sendClaimEmail(params: {
   to: string;

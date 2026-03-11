@@ -6,6 +6,7 @@ import { verifyToken } from '@clerk/backend';
 import { logger } from '../utils/logger';
 import { getDb, getApiKeyByClerkId, createApiKeyForClerk, topUpCreditsForClerk, tryClaimSolanaSignature, releaseClaimSolanaSignature } from '../db/index';
 import { sendApiKeyEmail } from '../utils/email';
+import { maskApiKey } from '../utils/mask';
 import { env } from '../config/index';
 import crypto from 'crypto';
 
@@ -210,7 +211,7 @@ solanaRouter.post('/verify', async (c) => {
   }
 
   // Never return the full API key in the response body — it was already emailed
-  const maskedKey = apiKey.slice(0, 6) + '••••••••••••••••••••••••••••••••••••••••' + apiKey.slice(-4);
+  const maskedKey = maskApiKey(apiKey);
   return c.json({
     ok: true,
     credits,

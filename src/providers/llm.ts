@@ -33,21 +33,27 @@ async function callAnthropic(messages: LlmMessage[], role: 'intent' | 'synthesis
   }));
 
   const model = role === 'intent' ? env.ANTHROPIC_INTENT_MODEL : env.ANTHROPIC_MODEL;
-  const response = await client.messages.create({
-    model,
-    max_tokens: 2048,
-    temperature: 0,
-    system,
-    messages: userMessages,
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  try {
+    const response = await client.messages.create({
+      model,
+      max_tokens: 2048,
+      temperature: 0,
+      system,
+      messages: userMessages,
+    }, { signal: controller.signal });
 
-  const content = response.content[0].type === 'text' ? response.content[0].text : '';
-  return {
-    content,
-    provider: 'anthropic',
-    inputTokens: response.usage.input_tokens,
-    outputTokens: response.usage.output_tokens,
-  };
+    const content = response.content[0].type === 'text' ? response.content[0].text : '';
+    return {
+      content,
+      provider: 'anthropic',
+      inputTokens: response.usage.input_tokens,
+      outputTokens: response.usage.output_tokens,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function callOpenAI(messages: LlmMessage[], role: 'intent' | 'synthesis'): Promise<LlmResponse> {
@@ -58,40 +64,43 @@ async function callOpenAI(messages: LlmMessage[], role: 'intent' | 'synthesis'):
   const client = _openaiClient;
 
   const model = role === 'intent' ? env.OPENAI_INTENT_MODEL : env.OPENAI_MODEL;
-  const response = await client.chat.completions.create({
-    model,
-    messages,
-    max_tokens: 2048,
-    temperature: 0,
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  try {
+    const response = await client.chat.completions.create({
+      model,
+      messages,
+      max_tokens: 2048,
+      temperature: 0,
+    }, { signal: controller.signal });
 
-  return {
-    content: response.choices[0]?.message?.content ?? '',
-    provider: 'openai',
-    inputTokens: response.usage?.prompt_tokens,
-    outputTokens: response.usage?.completion_tokens,
-  };
+    return {
+      content: response.choices[0]?.message?.content ?? '',
+      provider: 'openai',
+      inputTokens: response.usage?.prompt_tokens,
+      outputTokens: response.usage?.completion_tokens,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function callOpenClaw(messages: LlmMessage[], _role: 'intent' | 'synthesis'): Promise<LlmResponse> {
-  const response = await fetch(`${env.OPENCLAW_API_URL}/v1/chat`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...(env.OPENCLAW_API_KEY && { Authorization: `Bearer ${env.OPENCLAW_API_KEY}` }) },
-    body: JSON.stringify({ messages }),
-  });
-  if (!response.ok) throw new Error(`OpenClaw error: ${response.status}`);
-  const data = await response.json() as { content: string };
-  return { content: data.content, provider: 'openclaw' };
-}
-
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
-  let timer: ReturnType<typeof setTimeout>;
-  return Promise.race([
-    promise.finally(() => clearTimeout(timer)),
-    new Promise<T>((_, reject) => {
-      timer = setTimeout(() => reject(new Error(`LLM timeout after ${ms}ms`)), ms);
-    }),
-  ]);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  try {
+    const response = await fetch(`${env.OPENCLAW_API_URL}/v1/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(env.OPENCLAW_API_KEY && { Authorization: `Bearer ${env.OPENCLAW_API_KEY}` }) },
+      body: JSON.stringify({ messages }),
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error(`OpenClaw error: ${response.status}`);
+    const data = await response.json() as { content: string };
+    return { content: data.content, provider: 'openclaw' };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export async function llmComplete(messages: LlmMessage[], role: 'intent' | 'synthesis' = 'synthesis'): Promise<LlmResponse> {
@@ -111,7 +120,7 @@ export async function llmComplete(messages: LlmMessage[], role: 'intent' | 'synt
 
   for (const provider of providers) {
     try {
-      return await withTimeout(provider(), TIMEOUT_MS);
+      return await provider();
     } catch (err) {
       logger.warn({ err }, 'LLM provider failed, trying next');
     }

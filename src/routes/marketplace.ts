@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { nanoid } from 'nanoid';
 import { maskApiKey } from '../utils/mask';
+import { renderTemplate } from '../utils/template';
 import { checkApiKey } from '../middleware/auth';
 import { requireAdmin } from '../middleware/admin-auth';
 import {
@@ -13,13 +14,14 @@ import {
   insertOrchestration, starSkill, unstarSkill, hasStarred, incrementSkillViews,
   reportSkill, getSkillVersionHistory,
   rateSkill, getSkillRatings, getSkillRatingStats, getSkillMetricsSummary,
-  setSkillFeatured, getFeaturedSkills, getDb,
+  setSkillFeatured, getFeaturedSkills, getPurchaseHistory,
 } from '../db/index';
 import { parseIntent } from '../core/intent-parser';
 import { executePlan } from '../core/executor';
 import { formatResponse } from '../core/formatter';
 import { buildIntentFromPlan } from '../core/skill-executor';
 import { isSimulationMode } from '../config/index';
+import { cacheGet, cacheSet } from '../cache/index';
 import { logger } from '../utils/logger';
 
 export const marketplaceRouter = new Hono();
@@ -85,12 +87,20 @@ marketplaceRouter.get('/skills', (c) => {
 
 // ─── GET /v1/marketplace/skills/:id — single skill detail ─────────────────────
 
-marketplaceRouter.get('/skills/:id', (c) => {
+marketplaceRouter.get('/skills/:id', async (c) => {
   const { id } = c.req.param();
   const skill = getSkill(id);
   if (!skill || !skill.public) return c.json({ error: 'Skill not found' }, 404);
 
-  incrementSkillViews(id);
+  // Rate-limit view increments: 1 per IP per skill per 5 min to prevent inflation
+  const viewerIp = c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown';
+  const viewKey = `view:${id}:${viewerIp}`;
+  const alreadyViewed = await cacheGet(viewKey);
+  if (!alreadyViewed) {
+    incrementSkillViews(id);
+    await cacheSet(viewKey, '1', 300); // 5-min TTL
+  }
+
   const stakeTotal = getSkillStakeTotal(id);
   return c.json({
     id: skill.id,
@@ -102,7 +112,7 @@ marketplaceRouter.get('/skills/:id', (c) => {
     creditCost: skill.credit_cost,
     uses: skill.uses,
     stars: skill.stars ?? 0,
-    views: (skill.views ?? 0) + 1,
+    views: skill.views ?? 0,
     forks: skill.forks ?? 0,
     stakeTotal,
     tags: safeJsonParse(skill.tags_json, []),
@@ -177,13 +187,13 @@ marketplaceRouter.post('/skills/:id/purchase', checkApiKey, async (c) => {
   if (!skill || !skill.public) return c.json({ requestId, error: 'Skill not found' }, 404);
   if (skill.author_key === keyInfo.key) return c.json({ requestId, error: 'Cannot purchase your own skill' }, 400);
   if (skill.credit_cost === 0) return c.json({ requestId, error: 'This skill is free — use POST /v1/skills/:id/invoke directly' }, 400);
+  if (skill.security_status === 'FLAGGED') return c.json({ requestId, error: 'This skill has been flagged for review and cannot be purchased', code: 'SKILL_FLAGGED' }, 403);
 
-  let body: z.infer<typeof PurchaseBody>;
-  try {
-    body = PurchaseBody.parse(await c.req.json());
-  } catch (err) {
-    return c.json({ requestId, error: 'Invalid body', details: (err as Error).message }, 400);
+  const parsedBody = PurchaseBody.safeParse(await c.req.json().catch(() => null));
+  if (!parsedBody.success) {
+    return c.json({ requestId, error: 'Invalid body', details: parsedBody.error.flatten().fieldErrors }, 400);
   }
+  const body = parsedBody.data;
 
   // Pre-validate template variables BEFORE payment — avoid unnecessary refund transactions.
   const requiredVars = [...skill.prompt_template.matchAll(/\{\{(\w+)\}\}/g)].map(m => m[1]);
@@ -236,10 +246,7 @@ marketplaceRouter.post('/skills/:id/purchase', checkApiKey, async (c) => {
   // Render the prompt template with provided variables.
   let query: string;
   try {
-    query = skill.prompt_template.replace(/\{\{(\w+)\}\}/g, (_, key) => {
-      if (!(key in body.variables)) throw new Error(`Missing required variable: ${key}`);
-      return String(body.variables[key]).slice(0, 500);
-    });
+    query = renderTemplate(skill.prompt_template, body.variables);
   } catch (err) {
     // Refund — execution failed due to missing variables (user error, but no work was done)
     const refund = marketplaceRefund({
@@ -321,23 +328,7 @@ marketplaceRouter.post('/skills/:id/purchase', checkApiKey, async (c) => {
 
 marketplaceRouter.get('/purchases', checkApiKey, (c) => {
   const keyInfo = c.get('apiKeyInfo');
-  const db = getDb();
-  // Get unique skills purchased, most recent first
-  const rows = db.prepare(`
-    SELECT DISTINCT t.skill_id, MAX(t.created_at) as last_purchased, COUNT(*) as times,
-           SUM(t.amount_credits) as total_spent,
-           s.name, s.display_name, s.description, s.credit_cost, s.uses, s.stars, s.category
-    FROM transactions t
-    LEFT JOIN skills s ON s.id = t.skill_id AND s.active = 1
-    WHERE t.from_agent = ? AND t.type = 'SKILL_SALE' AND t.skill_id IS NOT NULL
-    GROUP BY t.skill_id
-    ORDER BY last_purchased DESC
-    LIMIT 100
-  `).all(keyInfo.key) as Array<{
-    skill_id: string; last_purchased: string; times: number; total_spent: number;
-    name: string | null; display_name: string | null; description: string | null;
-    credit_cost: number | null; uses: number | null; stars: number | null; category: string | null;
-  }>;
+  const rows = getPurchaseHistory(keyInfo.key);
 
   return c.json({
     total: rows.length,
@@ -389,10 +380,11 @@ const StakeBody = z.object({
 
 marketplaceRouter.post('/stake', checkApiKey, async (c) => {
   const keyInfo = c.get('apiKeyInfo');
-  let body: z.infer<typeof StakeBody>;
-  try { body = StakeBody.parse(await c.req.json()); } catch (err) {
-    return c.json({ error: 'Invalid body', details: (err as Error).message }, 400);
+  const parsedStake = StakeBody.safeParse(await c.req.json().catch(() => null));
+  if (!parsedStake.success) {
+    return c.json({ error: 'Invalid body', details: parsedStake.error.flatten().fieldErrors }, 400);
   }
+  const body = parsedStake.data;
 
   // Validate skill exists if provided
   if (body.skillId) {
@@ -492,10 +484,11 @@ const WithdrawBody = z.object({
 
 marketplaceRouter.post('/creator/withdraw', checkApiKey, async (c) => {
   const keyInfo = c.get('apiKeyInfo');
-  let body: z.infer<typeof WithdrawBody>;
-  try { body = WithdrawBody.parse(await c.req.json()); } catch (err) {
-    return c.json({ error: 'Invalid body', details: (err as Error).message }, 400);
+  const parsedWithdraw = WithdrawBody.safeParse(await c.req.json().catch(() => null));
+  if (!parsedWithdraw.success) {
+    return c.json({ error: 'Invalid body', details: parsedWithdraw.error.flatten().fieldErrors }, 400);
   }
+  const body = parsedWithdraw.data;
 
   const result = createPayoutRequest({
     agentKey: keyInfo.key,

@@ -54,8 +54,3 @@ export async function embed(text: string): Promise<Float32Array> {
   return output[0].data;
 }
 
-export async function embedBatch(texts: string[]): Promise<Float32Array[]> {
-  if (!_pipeline) await loadEmbeddingModel();
-  const outputs = await _pipeline!(texts, { pooling: 'mean', normalize: true });
-  return outputs.map(o => o.data);
-}

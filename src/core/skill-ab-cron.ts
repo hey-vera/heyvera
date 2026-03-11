@@ -39,6 +39,14 @@ function runAbCheck(): void {
 }
 
 function evaluateAndMaybePromote(originalId: string, challengerId: string): void {
+  // Verify challenger still exists and is active — may have been manually deleted
+  const challActive = getDb().prepare('SELECT 1 FROM skills WHERE id = ? AND active = 1').get(challengerId);
+  if (!challActive) {
+    getDb().prepare('UPDATE skills SET ab_challenger = NULL WHERE id = ?').run(originalId);
+    logger.info({ originalId, challengerId }, 'A/B cron: challenger no longer active — reference cleared');
+    return;
+  }
+
   const origMetrics = getSkillMetricsSummary(originalId);
   const challMetrics = getSkillMetricsSummary(challengerId);
 

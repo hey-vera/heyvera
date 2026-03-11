@@ -29,7 +29,7 @@ export const signResponse: MiddlewareHandler = async (c, next) => {
       .update(`${ts}.${body}`)
       .digest('hex');
     c.res.headers.set('X-ClawNet-Signature', `t=${ts},v1=${sig}`);
-  } catch {
-    // Non-fatal — don't break the response
+  } catch (err) {
+    logger.warn({ err }, 'Response signing failed — sending unsigned response');
   }
 };

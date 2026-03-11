@@ -8,6 +8,7 @@ interface EndpointHealth {
   successes: number;
   lastFailure: number;
   openedAt: number;
+  probing: boolean; // true while a HALF_OPEN probe request is in-flight
 }
 
 const health = new Map<string, EndpointHealth>();
@@ -46,6 +47,7 @@ function getHealth(endpointId: string): EndpointHealth {
       successes: 0,
       lastFailure: 0,
       openedAt: 0,
+      probing: false,
     });
   }
   return health.get(endpointId)!;
@@ -72,13 +74,16 @@ export function isEndpointAvailable(endpointId: string): boolean {
     return false;
   }
 
-  // HALF_OPEN — allow one request through
+  // HALF_OPEN — allow exactly one probe request through to test recovery
+  if (h.probing) return false;
+  h.probing = true;
   return true;
 }
 
 export function recordSuccess(endpointId: string): void {
   const h = getHealth(endpointId);
   h.failures = 0;
+  h.probing = false;
 
   if (h.state === 'HALF_OPEN') {
     h.successes++;
@@ -98,6 +103,7 @@ export function recordFailure(endpointId: string): void {
   if (h.state === 'HALF_OPEN') {
     h.state = 'OPEN';
     h.openedAt = Date.now();
+    h.probing = false;
     logger.warn({ endpointId }, 'Circuit breaker: OPEN (half-open failed)');
     void persistState(endpointId, h);
     return;

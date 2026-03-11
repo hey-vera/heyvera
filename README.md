@@ -4,39 +4,19 @@
 
 ClawNet is an intelligent API orchestration layer that turns natural language queries into multi-step agent workflows. Ask it anything about Solana tokens, wallets, sentiment, or on-chain data — it plans, executes, and synthesizes an answer using real-time API calls.
 
-Built to be the reference implementation for [x402](https://x402.org) micropayment-gated AI services and the backbone of the [OpenClaw](https://openclaw.io) skill ecosystem.
-
----
-
-## What it does
-
-```
-User query: "Is this Solana token safe to buy right now?"
-
-ClawNet:
-  1. Parses intent → selects relevant API endpoints
-  2. Executes steps in parallel where possible
-  3. Synthesizes results via LLM into a clear, actionable answer
-  4. Returns scores, suggested actions, and cost breakdown
-```
-
-All of this is cached, rate-limited, circuit-broken, and billed per credit.
+Built as the reference implementation for [x402](https://x402.org) micropayment-gated AI services and the backbone of the [OpenClaw](https://openclaw.io) skill ecosystem.
 
 ---
 
 ## Quick Start
 
 ```bash
-# 1. Get an API key at claw-net.org
-# 2. Make your first query
-
 curl -X POST https://api.claw-net.org/v1/orchestrate \
   -H "X-API-Key: cn-your-key-here" \
   -H "Content-Type: application/json" \
   -d '{"query": "What are the top trending Solana tokens right now?"}'
 ```
 
-Response:
 ```json
 {
   "requestId": "abc123",
@@ -49,161 +29,180 @@ Response:
 }
 ```
 
+Get a key at [claw-net.org](https://claw-net.org). Full OpenAPI spec at `GET /v1/openapi.json`.
+
 ---
 
-## Authentication
+## Stack
 
-All protected endpoints require `X-API-Key: cn-your-key` in the header.
-
-Get a key at [claw-net.org](https://claw-net.org). Keys are tied to a credit balance — no subscription required to start.
-
-| Action | Endpoint |
+| Layer | Technology |
 |---|---|
-| Check balance | `GET /v1/balance` |
-| View dashboard | [claw-net.org/dashboard.html](https://claw-net.org/dashboard.html) |
+| Runtime | Node.js + TypeScript + [Hono](https://hono.dev) |
+| Database | SQLite via `better-sqlite3` (WAL mode, no ORM) |
+| Cache | Redis (L2) + in-memory (L1) |
+| Auth | [Clerk](https://clerk.com) (dashboard JWT) + API key (orchestration) |
+| Payments | Stripe + USDC/Solana + x402 (Base/Solana) |
+| P2P | libp2p (Kademlia DHT, TCP, Noise, Yamux) |
+| LLM | Anthropic Claude / OpenAI (two-model: fast intent + smart synthesis) |
+| Email | Resend |
+| Monitoring | Sentry (optional), Pino structured logging |
+| CI | GitHub Actions (typecheck + 48 Vitest unit tests) |
 
----
-
-## API Reference
-
-### Core
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `POST` | `/v1/orchestrate` | Natural language → multi-step agent execution |
-| `GET` | `/v1/balance` | Check credit balance |
-| `GET` | `/v1/registry` | List available API endpoints |
-| `GET` | `/health` | Health check (uptime, version) |
-
-### ClawHub Skills
-
-Skills are reusable, shareable orchestration templates with `{{variable}}` placeholders. Build once, share with the community, earn revenue share when others use your skill.
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `POST` | `/v1/skills` | Create a skill |
-| `GET` | `/v1/skills` | Browse public skills |
-| `GET` | `/v1/skills/mine` | Your skills |
-| `GET` | `/v1/skills/:id` | Skill details |
-| `POST` | `/v1/skills/:id/invoke` | Run a skill |
-| `PATCH` | `/v1/skills/:id/visibility` | Publish / unpublish |
-| `DELETE` | `/v1/skills/:id` | Delete a skill |
-
-**Create a skill:**
-```bash
-curl -X POST https://api.claw-net.org/v1/skills \
-  -H "X-API-Key: cn-your-key" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "token-risk-check",
-    "description": "Full risk analysis for any Solana token",
-    "promptTemplate": "Analyze {{mintAddress}} for rug pull risk, holder concentration, and social sentiment",
-    "public": true,
-    "creditCost": 10
-  }'
-```
-
-**Invoke a skill:**
-```bash
-curl -X POST https://api.claw-net.org/v1/skills/SKILL_ID/invoke \
-  -H "X-API-Key: cn-your-key" \
-  -H "Content-Type: application/json" \
-  -d '{"variables": {"mintAddress": "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263"}}'
-```
-
-### Dashboard
-
-| Method | Endpoint | Auth | Description |
-|---|---|---|---|
-| `GET` | `/v1/dashboard/me` | Clerk JWT | Account info + masked key |
-| `POST` | `/v1/dashboard/reveal-key` | Clerk JWT | Get full API key |
-| `POST` | `/v1/dashboard/regenerate-key` | Clerk JWT | Rotate key (keeps credits) |
-| `POST` | `/v1/dashboard/claim-session` | Clerk JWT | Link Stripe purchase to account |
-
-### Payments
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `POST` | `/v1/webhooks/stripe` | Stripe one-time purchase webhook |
-| `POST` | `/v1/webhooks/stripe-subscriptions` | Stripe subscription webhook |
-| `POST` | `/v1/solana/verify` | USDC on-chain payment verification |
-| `GET` | `/v1/solana/packages` | USDC package list + receiving wallet (Clerk JWT) |
-| `POST` | `/v1/solana/build-tx` | Build unsigned USDC transfer for Phantom (Clerk JWT) |
-| `GET` | `/v1/session/:sessionId` | Retrieve API key after Stripe checkout |
-| `POST` | `/v1/resend-key` | Resend API key to email |
-| `GET` | `/v1/usage` | API key usage statistics |
-
-### Social
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `POST` | `/v1/contact` | Contact form |
-| `POST` | `/v1/feedback` | Submit query rating |
-| `GET/POST` | `/v1/referral` | Referral code generation + redemption |
-
-### Mesh (P2P)
-
-| Method | Endpoint | Auth | Description |
-|---|---|---|---|
-| `GET` | `/v1/mesh/peers` | API key | Known libp2p peers |
-
----
-
-## Credits & Pricing
-
-Credits are the unit of account. 1 credit ≈ $0.001 in API cost.
-
-| Package | Price | Credits | Per Dollar |
-|---|---|---|---|
-| Starter | $5 | 5,000 | 1,000/$ |
-| Builder | $20 | 21,000 | 1,050/$ |
-| Pro | $50 | 54,000 | 1,080/$ |
-| Growth | $100 | 112,000 | 1,120/$ |
-| Scale | $500 | 600,000 | 1,200/$ |
-| Enterprise | $1,000 | 1,300,000 | 1,300/$ |
-| ClawNet Scout (sub) | $29/mo | 40,000/mo | 1,379/$ |
-
-Credits never expire. Subscriptions top up monthly on top of your existing balance.
-
-**Solana/USDC payments** receive an automatic +10% bonus on all tiers.
-
----
-
-## ClawHub Skills — Revenue Share
-
-When you publish a skill and other users invoke it:
-- They pay the credit cost you set (+ actual API cost)
-- You earn **10% of credits consumed** automatically
-- Credits are deposited to your key immediately after each invocation
-
-This creates a marketplace where the best skills earn passively.
+**Critical stack rules:**
+| Use | NOT |
+|---|---|
+| `Hono` | Fastify |
+| `npm` | pnpm |
+| `better-sqlite3` raw SQL | Drizzle/any ORM |
+| Single flat repo | Turborepo/monorepo |
+| Plain HTML (`site/`) | Vite/React SPA |
+| Clerk + Phantom | Reown AppKit |
+| `libp2p` + `@chainsafe/libp2p-yamux` | `@libp2p/node` (doesn't exist) |
 
 ---
 
 ## Architecture
 
 ```
-Request → Rate Limit → Auth → Intent Parser (LLM)
-                                    ↓
-                          Execution Plan (parallel groups)
-                                    ↓
-                    ClawAPIs (x402 micropayments) ← Circuit Breaker
-                                    ↓
-                          Response Synthesis (LLM)
-                                    ↓
-                              Cache + Return
+Request → Rate Limit (60/min/IP) → Auth (X-API-Key or Clerk JWT)
+                                        ↓
+                              Intent Parser (fast LLM or regex template)
+                                        ↓
+                              Execution Plan (parallel groups)
+                                        ↓
+                    ClawAPIs (163 endpoints, x402 micropayments) ← Circuit Breaker
+                                        ↓
+                              Response Synthesis (smart LLM) + Cache
+                                        ↓
+                              Signed Response → Client
 ```
 
-**Stack:**
-- Runtime: Node.js + TypeScript + [Hono](https://hono.dev)
-- Database: SQLite via `better-sqlite3` (no ORM)
-- Cache: Redis (L2) + in-memory (L1)
-- Auth: [Clerk](https://clerk.com) (dashboard) + API key (orchestration)
-- Payments: Stripe + USDC/Solana via x402
-- P2P: libp2p (Kademlia DHT, TCP, Noise, Yamux)
-- LLM: Anthropic Claude / OpenAI / OpenClaw
-- Email: Resend
-- Deploy: Single VPS, systemd, Nginx reverse proxy
+---
+
+## API Reference
+
+All protected endpoints require `X-API-Key: cn-your-key` header.
+
+### Core Orchestration
+
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| `POST` | `/v1/orchestrate` | API key | Natural language → multi-step execution |
+| `POST` | `/v1/batch` | API key | Up to 10 parallel queries |
+| `GET` | `/v1/stream/orchestrate?query=` | API key | SSE streaming orchestration |
+| `GET` | `/v1/estimate?query=` | None | Estimate credit cost (no charge) |
+| `GET` | `/v1/balance` | API key | Check credit balance |
+
+### Skills
+
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| `POST` | `/v1/skills` | API key | Create a skill |
+| `GET` | `/v1/skills` | None | Browse public skills (paginated) |
+| `GET` | `/v1/skills/mine` | API key | Your skills |
+| `GET` | `/v1/skills/:id` | None | Skill details |
+| `POST` | `/v1/skills/:id/invoke` | API key | Execute a skill |
+| `POST` | `/v1/skills/:id/test` | API key | Owner-only dry run (free) |
+| `POST` | `/v1/skills/:id/fork` | API key | Fork as A/B challenger |
+| `PATCH` | `/v1/skills/:id/visibility` | API key | Publish/unpublish |
+| `DELETE` | `/v1/skills/:id` | API key | Delete a skill |
+
+### Marketplace
+
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| `GET` | `/v1/marketplace/skills` | None | Browse marketplace (search, sort, filter) |
+| `GET` | `/v1/marketplace/skills/:id` | None | Skill detail + ratings |
+| `POST` | `/v1/marketplace/skills/:id/purchase` | API key | Purchase + execute |
+| `POST` | `/v1/marketplace/skills/:id/rate` | API key | Rate (verified buyers only) |
+| `POST` | `/v1/marketplace/stake` | API key | Stake credits on a skill |
+| `GET` | `/v1/marketplace/creator/stats` | API key | Creator earnings dashboard |
+| `POST` | `/v1/marketplace/creator/withdraw` | API key | Request credit withdrawal |
+
+### Tasks
+
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| `POST` | `/v1/tasks` | API key | Submit async skill task (webhook support) |
+| `GET` | `/v1/tasks` | API key | List your tasks |
+| `GET` | `/v1/tasks/:id` | API key | Task status + result |
+| `POST` | `/v1/tasks/:id/cancel` | API key | Cancel pending task |
+| `POST` | `/v1/tasks/:id/rate` | API key | Rate a completed task |
+
+### Account & Auth
+
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| `GET` | `/v1/auth/me` | API key | Key info, tier, usage |
+| `GET` | `/v1/auth/usage` | API key | Usage breakdown |
+| `GET` | `/v1/auth/estimate?skillId=` | API key | Estimate skill cost |
+| `GET` | `/v1/dashboard/me` | Clerk JWT | Account info + masked key |
+| `POST` | `/v1/dashboard/reveal-key` | Clerk JWT | Get full API key |
+| `POST` | `/v1/dashboard/regenerate-key` | Clerk JWT | Rotate key (keeps credits) |
+| `POST` | `/v1/dashboard/billing-portal` | Clerk JWT | Stripe billing portal |
+
+### Discovery & Registry
+
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| `GET` | `/v1/registry` | None | All 163 endpoints by category |
+| `GET` | `/v1/registry/health` | None | Endpoint health status |
+| `POST` | `/v1/discover` | None | Semantic skill search (embedding similarity) |
+| `GET` | `/v1/mesh/peers` | None | P2P mesh network peers |
+
+### Governance
+
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| `GET` | `/v1/governance/proposals` | None | List proposals (filter by status) |
+| `POST` | `/v1/governance/propose` | API key | Create proposal (100+ credits) |
+| `POST` | `/v1/governance/proposals/:id/vote` | API key | Vote FOR/AGAINST |
+
+### Other
+
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| `POST` | `/v1/openclaw/invoke` | API key | OpenClaw universal gateway (query/skill/discover/swarm) |
+| `POST` | `/v1/swarm/task` | API key | Multi-skill swarm (async) |
+| `GET` | `/v1/llm/models` | None | Available LLM models |
+| `POST` | `/v1/llm/chat` | API key | LLM proxy (OpenAI-compatible) |
+| `POST` | `/v1/contact` | Clerk JWT | Contact form |
+| `POST` | `/v1/feedback` | None | Query rating feedback |
+| `GET` | `/v1/openapi.json` | None | OpenAPI 3.0 spec |
+| `GET` | `/health` | None | Health check |
+| `GET` | `/v1/stats` | None | Public platform stats |
+
+### Payments
+
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| `POST` | `/v1/webhooks/stripe` | Stripe sig | One-time purchase webhook |
+| `POST` | `/v1/webhooks/stripe-subscriptions` | Stripe sig | Subscription webhook |
+| `POST` | `/v1/solana/verify` | Clerk JWT | USDC on-chain payment verify |
+| `GET` | `/v1/solana/packages` | Clerk JWT | USDC package list |
+| `POST` | `/v1/solana/build-tx` | Clerk JWT | Build unsigned USDC transfer |
+| `GET` | `/v1/session/:sessionId` | None | Retrieve key after Stripe checkout |
+| `POST` | `/v1/resend-key` | None | Resend API key to email |
+
+---
+
+## Credits & Pricing
+
+1 credit ≈ $0.001. Credits never expire.
+
+| Package | Price | Credits | Bonus |
+|---|---|---|---|
+| Starter | $5 | 5,000 | — |
+| Builder | $20 | 21,000 | +5% |
+| Pro | $50 | 54,000 | +8% |
+| Growth | $100 | 112,000 | +12% |
+| Scale | $500 | 600,000 | +20% |
+| Enterprise | $1,000 | 1,300,000 | +30% |
+| Scout (sub) | $29/mo | 40,000/mo | — |
+
+**USDC/Solana payments** receive +7% bonus on all tiers.
+
+Revenue share on skills: **97% to creator**, 3% platform fee.
 
 ---
 
@@ -213,27 +212,99 @@ Request → Rate Limit → Auth → Intent Parser (LLM)
 git clone https://github.com/your-org/claw-net
 cd claw-net
 npm install
-cp .env.example .env
-# Fill in .env (see config/index.ts for all vars)
-npm run dev
+cp .env.example .env  # fill in values
+npm run dev            # development
+npm run mcp            # MCP server for Claude Code/Cursor
+npm run test:unit      # 48 unit tests
 ```
 
-Required env vars:
+### Required Environment Variables
+
 ```
-ANTHROPIC_API_KEY=sk-ant-...
-CLAWAPIS_API_KEY=your-key
+PORT=3402
+NODE_ENV=production
+LLM_PROVIDER=openai
+OPENAI_API_KEY=
+OPENAI_MODEL=gpt-4o
+OPENAI_INTENT_MODEL=gpt-4o-mini
+ANTHROPIC_API_KEY=
+CLAWAPIS_BASE_URL=https://clawapis.com
 REDIS_URL=redis://localhost:6379
 STRIPE_SECRET_KEY=sk_live_...
 STRIPE_WEBHOOK_SECRET=whsec_...
-RESEND_API_KEY=re_...
+STRIPE_SUBSCRIPTION_WEBHOOK_SECRET=whsec_...
+RESEND_API_KEY=
+RESEND_FROM=noreply@claw-net.org
 CLERK_SECRET_KEY=sk_...
+SOLANA_RECEIVING_WALLET=
+SOLANA_RPC_URL=https://api.mainnet-beta.solana.com
+ADMIN_API_KEY=           # min 16 chars, required in production
+PLATFORM_SIGNING_SECRET= # 32-byte hex for response HMAC signing
 ```
 
-Optional:
+### Optional
+
 ```
-SOLANA_PRIVATE_KEY=...        # Enable x402 micropayments
-ADMIN_API_KEY=...              # Admin dashboard key
-TELEGRAM_BOT_TOKEN=...         # Telegram intelligence feed
+SOLANA_PRIVATE_KEY=      # enables x402 API calls, disables simulation mode
+EVM_PRIVATE_KEY=         # Base/EVM wallet for x402 payments
+X402_RECIPIENT_ADDRESS=  # enables x402 provider mode
+TELEGRAM_BOT_TOKEN=      # Telegram intelligence bot
+TELEGRAM_CHANNEL_ID=
+ADMIN_EMAIL=
+SENTRY_DSN=
+FREE_TRIAL_CREDITS=0
+DAILY_SPEND_CAP=0        # 0=disabled
+ANOMALY_THRESHOLD=5000
+```
+
+---
+
+## Infrastructure
+
+| | |
+|---|---|
+| **VPS** | DigitalOcean, Ubuntu 24.04.4, `24.199.121.137` |
+| **SSH** | `guardian-vps` → `guardian@24.199.121.137` |
+| **Deploy** | `deploy` alias → git pull + docker compose up --build |
+| **Backend** | `/home/guardian/claw-net/` — port 3402, Docker + Redis |
+| **Frontend** | `/var/www/claw-net/` — static HTML served by Caddy |
+| **Database** | `data/orchestrator.db` (SQLite WAL, 41 migrations) |
+
+---
+
+## Frontend Pages (`site/`)
+
+| Page | Purpose |
+|---|---|
+| `index.html` | Landing page, pricing, Stripe/USDC payments |
+| `dashboard.html` | Clerk auth, API key management, credits |
+| `marketplace.html` | Browse/publish/starred/purchases, ratings, featured |
+| `docs.html` | API reference, per-endpoint pricing |
+| `endpoints.html` | Searchable endpoint catalog |
+| `success.html` | Payment confirmation + API key reveal |
+| `admin.html` | Admin dashboard (ADMIN_API_KEY gated) |
+| `contact-section.html` | Contact form |
+
+Design: muted dark theme, teal accent (#10b981), Inter + JetBrains Mono.
+
+---
+
+## MCP Server
+
+ClawNet exposes skills as MCP tools for Claude Code, Cursor, and VSCode.
+
+6 tools: `list-skills`, `get-skill`, `invoke-skill`, `search-registry`, `orchestrate`, `get-credits`
+
+```json
+{
+  "mcpServers": {
+    "clawnet": {
+      "command": "npx",
+      "args": ["tsx", "src/mcp/server.ts"],
+      "env": { "CLAWNET_API_KEY": "cn-...", "CLAWNET_BASE_URL": "https://api.claw-net.org" }
+    }
+  }
+}
 ```
 
 ---
@@ -241,12 +312,8 @@ TELEGRAM_BOT_TOKEN=...         # Telegram intelligence feed
 ## Community
 
 - Website: [claw-net.org](https://claw-net.org)
-- Support: [hello@claw-net.org](mailto:hello@claw-net.org)
-- GitHub Discussions: [github.com/your-org/claw-net/discussions](https://github.com/your-org/claw-net/discussions)
-- Sponsor: [claw-net.org](https://claw-net.org)
-
----
+- Support: [support@claw-net.org](mailto:support@claw-net.org)
 
 ## License
 
-MIT — build on it, extend it, publish skills.
+MIT

@@ -1,4 +1,4 @@
-import { getExpiredEscrows, refundEscrow, transitionEscrow, writeAuditLog, cleanExpiredDiscoveryCache } from '../db/index';
+import { getExpiredEscrows, refundEscrow, transitionEscrow, writeAuditLog, cleanExpiredDiscoveryCache, pruneStalePeers } from '../db/index';
 import { logger } from '../utils/logger';
 
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -49,9 +49,11 @@ function runExpiryCheck(): void {
         }
       }
     }
-    // Piggyback: clean expired discovery cache entries
+    // Piggyback: clean expired discovery cache + stale mesh peers
     const cleaned = cleanExpiredDiscoveryCache();
     if (cleaned > 0) logger.info({ cleaned }, 'Cleaned expired discovery cache entries');
+    const pruned = pruneStalePeers();
+    if (pruned > 0) logger.info({ pruned }, 'Pruned stale mesh peers (>7 days)');
   } catch (err) {
     logger.error({ err }, 'Escrow expiry check failed');
   } finally {

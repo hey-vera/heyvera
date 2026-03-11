@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { getDb, getDbStats } from '../db/index';
+import { getDbStats, getActiveUserCount } from '../db/index';
 import { apiRegistry } from '../config/api-registry';
 import { getCircuitStats } from '../core/circuit-breaker';
 
@@ -21,20 +21,12 @@ statsRouter.get('/', (c) => {
   const maxCost = Math.max(...costs);
   const avgCost = costs.reduce((a, b) => a + b, 0) / costs.length;
 
-  const { activeUsers } = getDb()
-    .prepare(`
-      SELECT COUNT(*) as activeUsers FROM api_keys
-      WHERE active = 1
-        AND credits >= 1
-        AND last_used_at >= datetime('now', '-30 days')
-    `)
-    .get() as { activeUsers: number };
+  const activeUsers = getActiveUserCount();
 
   return c.json({
     totalCalls: db.totalOrchestrations,
     avgDurationMs: db.avgDurationMs,
     successRate: db.successRate,
-    totalRevenue: db.totalRevenue,
     activeUsers,
     endpoints: {
       total: endpointCount,

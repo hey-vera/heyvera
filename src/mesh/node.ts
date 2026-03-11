@@ -22,41 +22,52 @@ async function loadLibp2p() {
   return { createLibp2p, tcp, yamux, noise, kadDHT, ping }
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let node: any | null = null
+interface MeshNode {
+  peerId: { toString(): string };
+  getMultiaddrs(): Array<{ toString(): string }>;
+  getConnections(peerId?: unknown): Array<{ remoteAddr?: { toString(): string } }>;
+  start(): void | Promise<void>;
+  stop(): void | Promise<void>;
+  addEventListener(event: string, handler: (evt: { detail: { toString(): string } }) => void): void;
+  removeEventListener(event: string, handler: (evt: { detail: { toString(): string } }) => void): void;
+  _peerConnectListener?: (evt: { detail: { toString(): string } }) => void;
+  [key: string]: unknown;
+}
+let node: MeshNode | null = null;
 
 export async function startMeshNode(): Promise<void> {
   try {
     const { createLibp2p, tcp, yamux, noise, kadDHT, ping } = await loadLibp2p()
 
-    node = await createLibp2p({
+    const n = await createLibp2p({
       addresses: { listen: ['/ip4/0.0.0.0/tcp/4001'] },
       transports: [tcp()],
       streamMuxers: [yamux()],
       connectionEncrypters: [noise()],
       connectionManager: { maxConnections: 50 },
       services: { dht: kadDHT({ clientMode: false }), ping: ping() },
-    })
+    }) as unknown as MeshNode
 
-    await node.start()
+    await n.start()
 
     logger.info(
       {
-        peerId: node.peerId.toString(),
-        addrs: node.getMultiaddrs().map((a: { toString(): string }) => a.toString()),
+        peerId: n.peerId.toString(),
+        addrs: n.getMultiaddrs().map((a) => a.toString()),
       },
       'Mesh node started',
     )
 
     const onPeerConnect = (evt: { detail: { toString(): string } }) => {
       const peerId = evt.detail.toString()
-      const connections = node!.getConnections(evt.detail)
+      const connections = n.getConnections(evt.detail)
       const addr = connections[0]?.remoteAddr?.toString() ?? ''
       upsertPeer(peerId, addr)
       logger.info({ peerId }, 'Mesh peer connected')
     }
-    node.addEventListener('peer:connect', onPeerConnect)
-    node._peerConnectListener = onPeerConnect
+    n.addEventListener('peer:connect', onPeerConnect)
+    n._peerConnectListener = onPeerConnect
+    node = n
   } catch (err) {
     logger.error({ err }, 'Failed to start mesh node — continuing without P2P')
   }
@@ -71,12 +82,16 @@ export async function stopMeshNode(): Promise<void> {
         logger.warn({ err }, 'Mesh: could not remove peer:connect listener')
       }
     }
-    await node.stop()
-    logger.info('Mesh node stopped')
+    try {
+      await node.stop()
+      logger.info('Mesh node stopped')
+    } catch (err) {
+      logger.error({ err }, 'Mesh node stop failed — continuing shutdown')
+    }
     node = null
   }
 }
 
-export function getMeshNode(): unknown {
+export function getMeshNode(): MeshNode | null {
   return node
 }

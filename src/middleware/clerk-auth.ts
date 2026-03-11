@@ -46,6 +46,9 @@ export const requireClerkAuth = createMiddleware(async (c, next) => {
     // Get email from Clerk user (cached to avoid API call on every request)
     const cached = emailCache.get(payload.sub);
     if (cached && Date.now() < cached.expiresAt) {
+      // Move to end of Map insertion order (LRU behaviour)
+      emailCache.delete(payload.sub);
+      emailCache.set(payload.sub, cached);
       c.set('clerkEmail', cached.email);
     } else {
       try {

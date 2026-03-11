@@ -4,7 +4,7 @@
  * Gracefully degrades if any layer fails or returns no results.
  */
 import { embed, isEmbeddingModelReady } from './embeddings';
-import { searchDiscovery, getPeers, writeAuditLog } from '../db/index';
+import { searchDiscovery, getPeers } from '../db/index';
 import { getMeshNode } from '../mesh/node';
 import { logger } from '../utils/logger';
 import discoveryConfig from '../config/discovery.json';
@@ -55,13 +55,16 @@ function p2pLayer(query: string, limit: number): DiscoveryResult[] {
     if (peers.length === 0) return [];
 
     const q = query.toLowerCase();
+    // Filter out very short words (≤2 chars) to prevent false-positive matches on "a", "to", etc.
+    const words = q.split(/\s+/).filter(w => w.length > 2);
+    if (words.length === 0) return [];
+
     return peers
       .filter(p => p.metadata_json)
       .map(p => {
         let meta: { name?: string; description?: string; capabilities?: string[] } = {};
         try { meta = JSON.parse(p.metadata_json!); } catch { return null; }
         const text = [meta.name, meta.description, ...(meta.capabilities ?? [])].join(' ').toLowerCase();
-        const words = q.split(/\s+/);
         const matchCount = words.filter(w => text.includes(w)).length;
         if (matchCount === 0) return null;
         return {
@@ -95,7 +98,8 @@ function onchainLayer(query: string, limit: number): DiscoveryResult[] {
       { id: 'onchain:claw-token-analyst', name: 'Token Analyst', description: 'Solana token analysis: price, on-chain metrics, sentiment', capabilities: ['token', 'defi', 'solana', 'analysis', 'crypto'] },
       { id: 'onchain:claw-social', name: 'Social Intelligence', description: 'Twitter/X sentiment analysis and social monitoring', capabilities: ['twitter', 'social', 'sentiment', 'x', 'monitoring'] },
     ];
-    const words = q.split(/\s+/);
+    const words = q.split(/\s+/).filter(w => w.length > 2);
+    if (words.length === 0) return [];
     return mockAgents
       .map(agent => {
         const text = [agent.name, agent.description, ...agent.capabilities].join(' ').toLowerCase();
@@ -193,12 +197,7 @@ export async function runDiscovery(opts: DiscoveryOptions): Promise<{
     onchain:  { count: onchainResults.length,  weight: +activeWeights.onchain.toFixed(3),  active: onchainResults.length > 0 },
   };
 
-  // Analytics
-  writeAuditLog({
-    entityType: 'discovery', entityId: 'query',
-    action: 'DISCOVERY_RUN',
-    data: { query: opts.query, layerStats, resultsReturned: results.length },
-  });
+  logger.debug({ query: opts.query, layerStats, resultsReturned: results.length }, 'Discovery query completed');
 
   return { results, layerStats };
 }

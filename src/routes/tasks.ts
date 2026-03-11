@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { nanoid } from 'nanoid';
 import crypto from 'crypto';
+import { renderTemplate } from '../utils/template';
 import { checkApiKey } from '../middleware/auth';
 import {
   getSkill, getSkillWithAb, deductCredit, topUpCredits, incrementSkillUses,
@@ -13,6 +14,7 @@ import {
 import { parseIntent } from '../core/intent-parser';
 import { executePlan } from '../core/executor';
 import { formatResponse } from '../core/formatter';
+import { creditsForApiCost } from '../core/credits';
 import { logger } from '../utils/logger';
 import { cacheGet, cacheSet } from '../cache/index';
 
@@ -25,12 +27,6 @@ function extractVariables(template: string): string[] {
   return [...new Set(matches.map((m) => m.slice(2, -2)))];
 }
 
-function renderTemplate(template: string, variables: Record<string, string>): string {
-  return template.replace(/\{\{(\w+)\}\}/g, (_, key) => {
-    if (!(key in variables)) throw new Error(`Missing required variable: ${key}`);
-    return String(variables[key]).slice(0, 500);
-  });
-}
 
 function skillCacheKey(skillId: string, variables: Record<string, string>): string {
   const normalized = JSON.stringify({ skillId, variables: Object.fromEntries(Object.entries(variables).sort()) });
@@ -175,7 +171,7 @@ tasksRouter.post('/', checkApiKey, async (c) => {
     const formatted = await formatResponse(query, intent, execution);
 
     const apiCosts = execution.totalCost;
-    const actualCost = Math.max(1, Math.ceil(apiCosts * 2000));
+    const actualCost = creditsForApiCost(apiCosts);
     const creditsToDeduct = Math.max(actualCost, skill.credit_cost);
 
     if (!keyInfo.isEnvKey) {

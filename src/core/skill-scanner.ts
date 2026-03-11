@@ -27,13 +27,28 @@ const SUSPICIOUS_PATTERNS: { pattern: RegExp; label: string }[] = [
   { pattern: /<script|javascript:|data:text\/html|on(?:load|error|click)\s*=/i, label: 'xss:html-injection' },
   { pattern: /;\s*DROP\s+TABLE|UNION\s+SELECT|OR\s+1\s*=\s*1/i, label: 'sql-injection' },
   { pattern: /\{\{.*\}\}.*\{\{.*\}\}.*\{\{.*\}\}.*\{\{.*\}\}.*\{\{.*\}\}/i, label: 'template-abuse:excessive-variables' },
+  { pattern: /ignoring\s+(previous|prior|all|above)\s+/i, label: 'prompt-injection:ignoring-instructions' },
+  { pattern: /respond\s+(as\s+if|like)\s+you\s+(are|were)\s+/i, label: 'prompt-injection:persona-override-v2' },
+  { pattern: /act\s+as\s+if\s+you\s+(are|were|have\s+no)\s+/i, label: 'prompt-injection:act-as-override' },
+  { pattern: /\{\{\s*(system|hidden|secret|admin|root)\s*\}\}/i, label: 'template-abuse:reserved-variable-name' },
 ];
+
+function normalizeForScan(text: string): string {
+  return text
+    // Strip zero-width characters (ZWS, ZWNJ, ZWJ, BOM)
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    // Normalize fullwidth ASCII (U+FF01–U+FF5E → U+0021–U+007E)
+    .replace(/[\uFF01-\uFF5E]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0))
+    // Collapse whitespace
+    .replace(/\s+/g, ' ');
+}
 
 export function scanSkillTemplate(promptTemplate: string): ScanResult {
   const flags: string[] = [];
+  const normalized = normalizeForScan(promptTemplate);
 
   for (const { pattern, label } of SUSPICIOUS_PATTERNS) {
-    if (pattern.test(promptTemplate)) {
+    if (pattern.test(normalized)) {
       flags.push(label);
     }
   }

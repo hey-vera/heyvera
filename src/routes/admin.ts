@@ -1,20 +1,12 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { getDbStats, getAllPendingPayouts, updatePayoutStatus, getDb, logAudit } from '../db/index';
-import { maskApiKey } from '../utils/mask';
+import { getDbStats, getAllPendingPayouts, updatePayoutStatus, getReconciliation, getRevenueBreakdown, getTreasuryStatus, revokeKeyByKey, revokeKeysByEmail, logAudit } from '../db/index';
 import { cacheStats } from '../cache/index';
 import { getUsageStats } from '../utils/usage';
 import { getCircuitStats } from '../core/circuit-breaker';
 import { requireAdmin } from '../middleware/admin-auth';
-
-function escapeHtml(s: string): string {
-  return String(s)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
+import { escapeHtml } from '../utils/html';
+import { maskApiKey } from '../utils/mask';
 
 export const adminRouter = new Hono();
 
@@ -164,7 +156,7 @@ adminRouter.get('/payouts', (c) => {
     total: payouts.length,
     payouts: payouts.map(p => ({
       id: p.id,
-      agentKey: p.agent_key,
+      agentKey: maskApiKey(p.agent_key),
       amountCredits: p.amount_credits,
       usdcEquivalent: (p.amount_credits * 0.001).toFixed(4),
       usdcWallet: p.usdc_wallet,
@@ -185,27 +177,8 @@ const UpdatePayoutBody = z.object({
 
 adminRouter.get('/reconcile', (c) => {
   if (!requireAdmin(c)) return c.json({ error: 'Unauthorized' }, 401);
-  const db = getDb();
-  const totals = db.prepare(`
-    SELECT
-      SUM(credits)        AS creditsRemaining,
-      SUM(credits_used)   AS creditsUsed,
-      SUM(amount_paid)    AS totalAmountPaid
-    FROM api_keys WHERE active = 1
-  `).get() as { creditsRemaining: number; creditsUsed: number; totalAmountPaid: number };
-  const staked = db.prepare('SELECT COALESCE(SUM(amount_credits),0) AS total FROM stakes').get() as { total: number };
-  const escrow = db.prepare("SELECT COALESCE(SUM(amount_credits),0) AS total FROM escrows WHERE state IN ('FUNDED','WORK_IN_PROGRESS','DISPUTED')").get() as { total: number };
-  const granted = db.prepare('SELECT COALESCE(SUM(credits),0) AS total FROM api_keys').get() as { total: number };
-  const expectedCirculating = (totals.creditsRemaining ?? 0) + (totals.creditsUsed ?? 0) + (staked.total ?? 0) + (escrow.total ?? 0);
   return c.json({
-    creditsRemaining: totals.creditsRemaining ?? 0,
-    creditsUsed: totals.creditsUsed ?? 0,
-    creditsStaked: staked.total ?? 0,
-    creditsInEscrow: escrow.total ?? 0,
-    totalGranted: granted.total ?? 0,
-    expectedCirculating,
-    drift: expectedCirculating - (granted.total ?? 0),
-    totalAmountPaid: totals.totalAmountPaid ?? 0,
+    ...getReconciliation(),
     note: 'drift should be 0. Nonzero indicates accounting inconsistency.',
   });
 });
@@ -214,43 +187,8 @@ adminRouter.get('/reconcile', (c) => {
 
 adminRouter.get('/revenue', (c) => {
   if (!requireAdmin(c)) return c.json({ error: 'Unauthorized' }, 401);
-  const db = getDb();
-
-  // Marketplace fees collected (3% of each skill sale)
-  const mktFees = db.prepare(`
-    SELECT COALESCE(SUM(fee_credits),0) AS total, COUNT(*) AS txCount
-    FROM transactions WHERE type = 'SKILL_SALE'
-  `).get() as { total: number; txCount: number };
-
-  // Skill invocation revenue (3% kept from author share)
-  const invokeRevenue = db.prepare(`
-    SELECT COALESCE(SUM(fee_credits),0) AS total, COUNT(*) AS txCount
-    FROM transactions WHERE type = 'SKILL_INVOKE'
-  `).get() as { total: number; txCount: number };
-
-  // Swarm base fees
-  const swarmFees = db.prepare(`
-    SELECT COALESCE(SUM(amount_credits),0) AS total, COUNT(*) AS txCount
-    FROM transactions WHERE type = 'SWARM_FEE'
-  `).get() as { total: number; txCount: number };
-
-  // Total USD paid in
-  const payments = db.prepare(`
-    SELECT COALESCE(SUM(amount_paid),0) AS totalUsd, COUNT(*) AS keyCount
-    FROM api_keys WHERE active = 1 AND amount_paid > 0
-  `).get() as { totalUsd: number; keyCount: number };
-
-  const totalPlatformCredits = (mktFees.total ?? 0) + (invokeRevenue.total ?? 0) + (swarmFees.total ?? 0);
-
   return c.json({
-    totalPlatformCredits,
-    totalPlatformUsdEquiv: Math.round(totalPlatformCredits / 10) / 100, // credits / 1000 credits per $
-    breakdown: {
-      marketplaceFees: { credits: mktFees.total ?? 0, transactions: mktFees.txCount ?? 0 },
-      invokeFees: { credits: invokeRevenue.total ?? 0, transactions: invokeRevenue.txCount ?? 0 },
-      swarmFees: { credits: swarmFees.total ?? 0, transactions: swarmFees.txCount ?? 0 },
-    },
-    payments: { totalUsd: payments.totalUsd ?? 0, keyCount: payments.keyCount ?? 0 },
+    ...getRevenueBreakdown(),
     note: 'Marketplace fees are credited to clawhub-treasury. Use GET /v1/admin/treasury for treasury balance.',
   });
 });
@@ -259,50 +197,7 @@ adminRouter.get('/revenue', (c) => {
 
 adminRouter.get('/treasury', (c) => {
   if (!requireAdmin(c)) return c.json({ error: 'Unauthorized' }, 401);
-  const db = getDb();
-
-  const treasury = db.prepare(
-    `SELECT credits, credits_used, created_at FROM api_keys WHERE key = 'clawhub-treasury' AND active = 1`
-  ).get() as { credits: number; credits_used: number; created_at: string } | undefined;
-
-  const official = db.prepare(
-    `SELECT credits, credits_used, created_at FROM api_keys WHERE key = 'clawhub-official' AND active = 1`
-  ).get() as { credits: number; credits_used: number; created_at: string } | undefined;
-
-  const recentFees = db.prepare(`
-    SELECT id, from_agent, amount_credits, fee_credits, skill_id, created_at
-    FROM transactions WHERE type = 'SKILL_SALE' AND fee_credits > 0
-    ORDER BY created_at DESC LIMIT 20
-  `).all() as { id: string; from_agent: string; amount_credits: number; fee_credits: number; skill_id: string; created_at: string }[];
-
-  const refunds = db.prepare(`
-    SELECT id, to_agent, amount_credits, fee_credits, skill_id, created_at
-    FROM transactions WHERE type = 'SKILL_REFUND'
-    ORDER BY created_at DESC LIMIT 20
-  `).all() as { id: string; to_agent: string; amount_credits: number; fee_credits: number; skill_id: string; created_at: string }[];
-
-  return c.json({
-    treasury: treasury ? {
-      credits: treasury.credits,
-      creditsUsed: treasury.credits_used,
-      usdEquivalent: (treasury.credits * 0.001).toFixed(2),
-      createdAt: treasury.created_at,
-    } : null,
-    officialCreator: official ? {
-      credits: official.credits,
-      creditsUsed: official.credits_used,
-      usdEquivalent: (official.credits * 0.001).toFixed(2),
-      createdAt: official.created_at,
-    } : null,
-    recentFeeTransactions: recentFees.map(t => ({
-      ...t,
-      from_agent: t.from_agent ? maskApiKey(t.from_agent) : null,
-    })),
-    recentRefunds: refunds.map(t => ({
-      ...t,
-      to_agent: t.to_agent ? maskApiKey(t.to_agent) : null,
-    })),
-  });
+  return c.json(getTreasuryStatus());
 });
 
 // ─── POST /v1/admin/revoke-key — deactivate an API key by key or email ──────
@@ -321,23 +216,9 @@ adminRouter.post('/revoke-key', async (c) => {
     return c.json({ error: 'Invalid body', details }, 400);
   }
 
-  const db = getDb();
-  let revoked = 0;
-
-  if (body.key) {
-    const result = db.prepare('UPDATE api_keys SET active = 0 WHERE key = ? AND active = 1').run(body.key);
-    revoked = result.changes;
-    if (revoked > 0) {
-      logAudit({ entityType: 'api_key', entityId: body.key, action: 'KEY_REVOKED', actorId: 'admin', data: { reason: body.reason } });
-    }
-  } else if (body.email) {
-    const keys = db.prepare('SELECT key FROM api_keys WHERE email = ? AND active = 1').all(body.email) as { key: string }[];
-    for (const row of keys) {
-      db.prepare('UPDATE api_keys SET active = 0 WHERE key = ?').run(row.key);
-      logAudit({ entityType: 'api_key', entityId: row.key, action: 'KEY_REVOKED', actorId: 'admin', data: { email: body.email, reason: body.reason } });
-    }
-    revoked = keys.length;
-  }
+  const revoked = body.key
+    ? revokeKeyByKey(body.key, body.reason)
+    : revokeKeysByEmail(body.email!, body.reason);
 
   if (revoked === 0) {
     return c.json({ ok: false, error: 'No active key found matching that identifier' }, 404);

@@ -95,8 +95,9 @@ stripeRouter.post('/stripe', async (c) => {
 
     // Proportional credit deduction: use the user's actual credit-to-dollar ratio
     // (accounts for bonus credits at higher tiers, not just flat 1000/dollar).
-    const deducted = getDb().transaction(() => {
-      const bal = getDb()
+    const db = getDb();
+    const deducted = db.transaction(() => {
+      const bal = db
         .prepare('SELECT credits, credits_used, amount_paid FROM api_keys WHERE key = ? AND active = 1')
         .get(existingKey.key) as { credits: number; credits_used: number; amount_paid: number } | undefined;
 
@@ -118,8 +119,7 @@ stripeRouter.post('/stripe', async (c) => {
         return 0;
       }
 
-      getDb()
-        .prepare('UPDATE api_keys SET credits = credits - ?, amount_paid = MAX(0, amount_paid - ?) WHERE key = ? AND active = 1')
+      db.prepare('UPDATE api_keys SET credits = credits - ?, amount_paid = MAX(0, amount_paid - ?) WHERE key = ? AND active = 1')
         .run(deductAmount, newRefundedUsd, existingKey.key);
       upsertStripeChargeRefundedCents(charge.id, charge.amount_refunded);
       return deductAmount;
@@ -288,6 +288,13 @@ stripeRouter.post('/stripe-subscriptions', async (c) => {
       const currentBal = getApiKeyBalance(existingKey.key);
       const currentCredits = currentBal?.credits ?? 0;
       const creditsToAdd = Math.max(0, Math.min(SUBSCRIPTION_CREDITS_PER_MONTH, MAX_ROLLOVER - currentCredits));
+      if (creditsToAdd < SUBSCRIPTION_CREDITS_PER_MONTH) {
+        logger.warn({
+          email, currentCredits, monthlyAllotment: SUBSCRIPTION_CREDITS_PER_MONTH,
+          maxRollover: MAX_ROLLOVER, creditsAdded: creditsToAdd,
+          creditsCapped: SUBSCRIPTION_CREDITS_PER_MONTH - creditsToAdd,
+        }, 'Subscription rollover cap: credits reduced to prevent exceeding 3x monthly limit');
+      }
       if (creditsToAdd > 0) {
         topUpCredits(existingKey.key, creditsToAdd);
       }
@@ -309,28 +316,32 @@ stripeRouter.post('/stripe-subscriptions', async (c) => {
     logger.info({ email, creditsAdded: subResult.creditsToAdd, currentCredits: subResult.currentCredits, subscriptionId }, 'Subscription credits applied');
   }
 
-  // Subscription cancelled
+  // Subscription cancelled — wrap in transaction to be idempotent on Stripe retries
   if (event.type === 'customer.subscription.deleted') {
     const sub = event.data.object as Stripe.Subscription;
     const email = (sub as unknown as { customer_email?: string }).customer_email?.toLowerCase().trim();
-    const apiKey = email ? getApiKeyByEmail(email)?.key : undefined;
-    if (!apiKey) {
-      logger.warn({ subscriptionId: sub.id }, 'Subscription cancelled but no API key found — skipping record');
-    } else {
-      upsertSubscription({
-        subscriptionId: sub.id,
-        apiKey,
-        email: email ?? '',
-        creditsPerMonth: SUBSCRIPTION_CREDITS_PER_MONTH,
-        currentPeriodEnd: new Date(((sub as unknown as { current_period_end: number }).current_period_end ?? 0) * 1000).toISOString(),
-        status: 'cancelled',
-      });
-    }
+    getDb().transaction(() => {
+      const apiKey = email ? getApiKeyByEmail(email)?.key : undefined;
+      if (!apiKey) {
+        logger.warn({ subscriptionId: sub.id }, 'Subscription cancelled but no API key found — skipping record');
+      } else {
+        upsertSubscription({
+          subscriptionId: sub.id,
+          apiKey,
+          email: email ?? '',
+          creditsPerMonth: SUBSCRIPTION_CREDITS_PER_MONTH,
+          currentPeriodEnd: new Date(((sub as unknown as { current_period_end: number }).current_period_end ?? 0) * 1000).toISOString(),
+          status: 'cancelled',
+        });
+      }
+      markStripeEventProcessed(event.id);
+    })();
     logger.info({ subscriptionId: sub.id }, 'Subscription cancelled');
+    return c.json({ received: true });
   }
 
   // Note: stripe_processed_events row is inserted inside the invoice.payment_succeeded transaction above.
-  // For other event types (e.g., customer.subscription.deleted) we mark here.
+  // For other non-invoice event types, mark here.
   if (event.type !== 'invoice.payment_succeeded') {
     markStripeEventProcessed(event.id);
   }

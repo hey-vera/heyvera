@@ -3,6 +3,7 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { Resend } from 'resend'
 import { logger } from '../utils/logger'
+import { escapeHtml } from '../utils/html'
 import { verifyToken } from '@clerk/backend'
 import { env } from '../config/index'
 
@@ -74,7 +75,7 @@ contact.post('/v1/contact', async (c) => {
       secretKey: env.CLERK_SECRET_KEY ?? '',
     })
     verifiedUserId = payload.sub
-    verifiedEmail = ((payload as any).email ?? '').toLowerCase()
+    verifiedEmail = ((payload as { email?: string }).email ?? '').toLowerCase()
     // Wallet users have no email in JWT — allowed through, use form-supplied email
   } catch {
     return c.json({ error: 'Invalid or expired session. Please sign in again.' }, 401)
@@ -181,13 +182,5 @@ contact.post('/v1/contact', async (c) => {
   }
 })
 
-function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;')
-}
 
 export { contact as contactRoute }

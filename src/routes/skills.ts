@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { nanoid } from 'nanoid';
 import crypto from 'crypto';
+import { renderTemplate } from '../utils/template';
 import { checkApiKey } from '../middleware/auth';
 import {
   createSkill, getSkill, listPublicSkills, countPublicSkills, getSkillsByAuthor,
@@ -9,7 +10,7 @@ import {
   updateSkillVisibility, topUpCredits, deductCredit, insertOrchestration, getDb,
   updateSkillSchemas, recordReputation, getReputationScore,
   recordSkillMetric, getSkillMetricsSummary, recordSkillVersion, getSkillWithAb, promoteChallenger,
-  writeAuditLog, upsertDiscovery, updateSkillSecurityStatus,
+  writeAuditLog, upsertDiscovery, updateSkillSecurityStatus, setAbChallenger, recordTransaction,
 } from '../db/index';
 import { embed } from '../core/embeddings';
 import { scanSkillTemplate } from '../core/skill-scanner';
@@ -17,10 +18,11 @@ import { parseIntent } from '../core/intent-parser';
 import { executePlan } from '../core/executor';
 import { formatResponse } from '../core/formatter';
 import { buildIntentFromPlan } from '../core/skill-executor';
+import { creditsForApiCost } from '../core/credits';
 import { logUsage } from '../utils/usage';
 import { cacheGet, cacheSet, cacheIncr } from '../cache/index';
 import { logger } from '../utils/logger';
-import { env, isSimulationMode } from '../config/index';
+import { env, isSimulationMode, rateTier } from '../config/index';
 
 export const skillsRouter = new Hono();
 
@@ -58,13 +60,6 @@ function extractVariables(template: string): string[] {
   return [...new Set(matches.map((m) => m.slice(2, -2)))];
 }
 
-// Replace {{variable}} placeholders with provided values
-function renderTemplate(template: string, variables: Record<string, string>): string {
-  return template.replace(/\{\{(\w+)\}\}/g, (_, key) => {
-    if (!(key in variables)) throw new Error(`Missing required variable: ${key}`);
-    return String(variables[key]).slice(0, 500); // cap individual variable length
-  });
-}
 
 function skillCacheKey(skillId: string, variables: Record<string, string>): string {
   const normalized = JSON.stringify({ skillId, variables: Object.fromEntries(Object.entries(variables).sort()) });
@@ -334,6 +329,15 @@ skillsRouter.post('/:id/fork', checkApiKey, async (c) => {
     tagsJson: original.tags_json ?? undefined,
   });
 
+  // Scan forked template for injection patterns
+  const forkScan = scanSkillTemplate(body.promptTemplate);
+  if (forkScan.status !== 'CLEAN') {
+    updateSkillSecurityStatus(forkId, forkScan.status, forkScan.flags);
+    logger.warn({ forkId, flags: forkScan.flags }, 'Forked skill template flagged by scanner');
+  } else {
+    updateSkillSecurityStatus(forkId, 'CLEAN');
+  }
+
   // Record the fork relationship
   recordSkillVersion({
     id: nanoid(12), skillId: forkId, version: newVersion,
@@ -343,7 +347,7 @@ skillsRouter.post('/:id/fork', checkApiKey, async (c) => {
 
   // Only the original author can set a challenger for A/B testing
   if (original.author_key === keyInfo.key) {
-    getDb().prepare(`UPDATE skills SET ab_challenger = ? WHERE id = ?`).run(forkId, id);
+    setAbChallenger(id, forkId);
   }
 
   writeAuditLog({ entityType: 'skill', entityId: forkId, action: 'FORKED', actorId: keyInfo.key,
@@ -391,6 +395,11 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
     return c.json({ requestId, error: 'Skill not found' }, 404);
   }
 
+  // Block invocation of flagged skills
+  if (baseSkill.security_status === 'FLAGGED') {
+    return c.json({ requestId, error: 'This skill has been flagged for review', code: 'SKILL_FLAGGED' }, 403);
+  }
+
   let rawBody: unknown;
   try { rawBody = await c.req.json(); } catch { rawBody = {}; } // empty body OK — variables optional
 
@@ -398,6 +407,15 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
   const bodyParsed = InvokeBody.safeParse(rawBody);
   if (!bodyParsed.success) return c.json({ requestId, error: 'Invalid variables', details: bodyParsed.error.flatten().fieldErrors }, 400);
   const variables = bodyParsed.data.variables ?? {};
+
+  // Check variable values against injection patterns — prevent bypassing template-level scanning
+  if (Object.keys(variables).length > 0) {
+    const varScan = scanSkillTemplate(Object.values(variables).join(' '));
+    if (varScan.status !== 'CLEAN') {
+      logger.warn({ requestId, skillId: id, flags: varScan.flags }, 'Skill invoke: variable values flagged');
+      return c.json({ requestId, error: 'Variable values contain suspicious content', code: 'INJECTION_DETECTED', flags: varScan.flags }, 400);
+    }
+  }
 
   // Render the prompt template
   let query: string;
@@ -409,10 +427,7 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
 
   // Per-key rate limit (same tiered system as orchestrate)
   if (!keyInfo.isEnvKey) {
-    const tierLimit = keyInfo.amountPaid >= 500 ? 300
-      : keyInfo.amountPaid >= 100 ? 120
-      : keyInfo.amountPaid >= 20  ? 60
-      : 30;
+    const tierLimit = rateTier(keyInfo.amountPaid).perMinute;
     const rlCount = await cacheIncr(`rl:orch:${keyInfo.key}`, 60);
     if (rlCount > tierLimit) {
       return c.json({ requestId, error: 'Rate limit exceeded', code: 'RATE_LIMITED', limit: tierLimit }, 429);
@@ -436,7 +451,15 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
   const cachedResponse = await cacheGet<Record<string, unknown>>(qKey);
   if (cachedResponse) {
     logger.info({ requestId, skillId: id }, 'Skill cache hit');
-    return c.json({ ...cachedResponse, requestId, metadata: { ...(cachedResponse.metadata as Record<string, unknown>), cacheHit: true } });
+    // Charge 1 credit for cache hits — prevents unlimited free re-invocations
+    if (!keyInfo.isEnvKey) {
+      const ok = deductCredit(keyInfo.key, 1);
+      if (!ok) {
+        return c.json({ requestId, error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS' }, 402);
+      }
+    }
+    incrementSkillUses(activeSkillId);
+    return c.json({ ...cachedResponse, requestId, metadata: { ...(cachedResponse.metadata as Record<string, unknown>), cacheHit: true, creditsUsed: 1 } });
   }
 
   logger.info({ requestId, skillId: id, name: skill.name }, 'Skill invocation');
@@ -460,7 +483,24 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
 
       const creditsToDeduct = Math.max(1, skill.credit_cost);
       if (!keyInfo.isEnvKey) {
-        const ok = getDb().transaction(() => deductCredit(keyInfo.key, creditsToDeduct))();
+        const revenueSharePct = skill.revenue_share_pct;
+        const shouldPayAuthor = skill.author_key !== keyInfo.key && revenueSharePct > 0;
+        const ok = getDb().transaction(() => {
+          const deducted = deductCredit(keyInfo.key, creditsToDeduct);
+          if (!deducted) return false;
+          if (shouldPayAuthor) {
+            const authorShare = Math.floor(creditsToDeduct * revenueSharePct);
+            if (authorShare > 0) {
+              topUpCredits(skill.author_key, authorShare);
+              recordTransaction({
+                fromAgent: keyInfo.key, toAgent: skill.author_key,
+                amountCredits: creditsToDeduct, type: 'SKILL_SALE',
+                skillId: activeSkillId, feeCredits: creditsToDeduct - authorShare,
+              });
+            }
+          }
+          return true;
+        })();
         if (!ok) {
           return c.json({ requestId, error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS',
             creditsRequired: creditsToDeduct, creditsAvailable: keyInfo.credits }, 402);
@@ -474,7 +514,7 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
         skill: { id: skill.id, name: skill.name }, creditsUsed: creditsToDeduct });
     } catch (err) {
       logger.error({ requestId, skillId: id, err }, 'API proxy skill failed');
-      return c.json({ requestId, error: 'Proxy request failed', details: String(err) }, 502);
+      return c.json({ requestId, error: 'Proxy request failed', details: env.NODE_ENV === 'production' ? undefined : String(err) }, 502);
     }
   }
 
@@ -506,7 +546,7 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
     const totalDurationMs = Date.now() - start;
 
     // Credit cost: max of skill's fixed price and actual cost
-    const actualCost = Math.max(1, Math.ceil(apiCosts * 2000));
+    const actualCost = creditsForApiCost(apiCosts);
     const creditsToDeduct = Math.max(actualCost, skill.credit_cost);
 
     if (!keyInfo.isEnvKey) {
@@ -519,7 +559,18 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
         if (!deducted) return false;
         if (shouldPayAuthor) {
           const authorShare = Math.floor(creditsToDeduct * revenueSharePct);
-          if (authorShare > 0) topUpCredits(skill.author_key, authorShare);
+          if (authorShare > 0) {
+            topUpCredits(skill.author_key, authorShare);
+            // Record in ledger so creator stats and payout availability are accurate
+            recordTransaction({
+              fromAgent: keyInfo.key,
+              toAgent: skill.author_key,
+              amountCredits: creditsToDeduct,
+              type: 'SKILL_SALE',
+              skillId: activeSkillId,
+              feeCredits: creditsToDeduct - authorShare,
+            });
+          }
         }
         return true;
       })();
@@ -551,7 +602,7 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
     if (skill.author_key && skill.author_key !== keyInfo.key) {
       recordReputation({
         agentId: skill.author_key,
-        skillId: id,
+        skillId: activeSkillId,
         eventType: 'SKILL_INVOKED',
         scoreDelta: 0.1,
         data: { invokerKey: keyInfo.key.slice(0, 8), creditsCharged: creditsToDeduct },
@@ -613,7 +664,7 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
 
     if (skill.author_key && skill.author_key !== keyInfo.key) {
       recordReputation({
-        agentId: skill.author_key, skillId: id,
+        agentId: skill.author_key, skillId: activeSkillId,
         eventType: 'SKILL_FAILED', scoreDelta: -0.05,
         data: { error: error.message },
       });

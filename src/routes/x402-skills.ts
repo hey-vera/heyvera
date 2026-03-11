@@ -24,6 +24,7 @@ const { HTTPFacilitatorClient } = require('@x402/core/server') as {
 };
 type HTTPRequestContext = { path: string; method: string; paymentHeader?: string };
 import { getSkill, listPublicSkills, incrementSkillUses } from '../db/index';
+import { renderTemplate } from '../utils/template';
 import { parseIntent } from '../core/intent-parser';
 import { executePlan } from '../core/executor';
 import { formatResponse } from '../core/formatter';
@@ -118,10 +119,7 @@ x402SkillsRouter.post('/skills/:id', async (c) => {
   // Render the prompt template
   let query: string;
   try {
-    query = skill.prompt_template.replace(/\{\{(\w+)\}\}/g, (_, key) => {
-      if (!(key in variables)) throw new Error(`Missing required variable: ${key}`);
-      return String(variables[key]).slice(0, 500);
-    });
+    query = renderTemplate(skill.prompt_template, variables);
   } catch (err) {
     return c.json({ requestId, error: (err as Error).message, code: 'MISSING_VARIABLES' }, 400);
   }
