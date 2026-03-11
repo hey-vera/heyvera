@@ -3,120 +3,340 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ClawNet Admin Dashboard</title>
+  <title>Admin Dashboard — ClawNet</title>
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0a0a0a; color: #e0e0e0; padding: 24px; }
-    h1 { color: #00ff88; margin-bottom: 24px; font-size: 24px; }
-    h2 { color: #888; font-size: 14px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 32px; }
-    .card { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 8px; padding: 20px; }
-    .metric { font-size: 32px; font-weight: bold; color: #00ff88; }
-    .label { font-size: 12px; color: #666; margin-top: 4px; }
-    .table { width: 100%; border-collapse: collapse; }
-    .table th { text-align: left; padding: 8px 12px; background: #1a1a1a; color: #666; font-size: 12px; }
-    .table td { padding: 8px 12px; border-bottom: 1px solid #1a1a1a; font-size: 13px; }
-    .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; }
-    .badge-green { background: #00ff8820; color: #00ff88; }
-    .badge-red { background: #ff444420; color: #ff4444; }
-    .badge-yellow { background: #ffaa0020; color: #ffaa00; }
-    .section { margin-bottom: 32px; }
-    a { color: #00ff88; text-decoration: none; margin-left: 16px; font-size: 14px; }
+    :root {
+      --bg-primary:    #0a0a0b;
+      --bg-surface:    #111113;
+      --bg-surface-2:  #18181b;
+      --bg-surface-3:  #1f1f23;
+      --border-subtle: #1e1e22;
+      --border-default:#27272a;
+      --border-strong: #3f3f46;
+      --text-primary:  #fafafa;
+      --text-secondary:#a1a1aa;
+      --text-tertiary: #71717a;
+      --text-muted:    #52525b;
+      --accent:        #10b981;
+      --accent-dim:    rgba(16,185,129,0.12);
+      --accent-hover:  #34d399;
+      --danger:        #ef4444;
+      --danger-dim:    rgba(239,68,68,0.12);
+      --warning:       #f59e0b;
+      --warning-dim:   rgba(245,158,11,0.12);
+      --info:          #3b82f6;
+      --info-dim:      rgba(59,130,246,0.12);
+      --purple:        #8b5cf6;
+      --font-sans:     'Inter', system-ui, sans-serif;
+      --font-mono:     'JetBrains Mono', monospace;
+      --radius-lg:     8px;
+      --radius-md:     6px;
+      --radius-sm:     4px;
+    }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { background:var(--bg-primary); color:var(--text-primary); font-family:var(--font-sans); min-height:100vh; }
+
+    /* HEADER */
+    .admin-header {
+      padding:24px; border-bottom:1px solid var(--border-subtle);
+      display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap;
+    }
+    .admin-title { font-size:18px; font-weight:600; color:var(--text-primary); }
+    .admin-badge { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:0.08em; padding:2px 8px; background:var(--warning-dim); color:var(--warning); border:1px solid rgba(245,158,11,0.25); border-radius:var(--radius-sm); }
+    .header-right { display:flex; align-items:center; gap:10px; }
+
+    /* KEY INPUT */
+    .key-bar { display:flex; gap:8px; max-width:480px; }
+    .key-input {
+      flex:1; background:var(--bg-surface); border:1px solid var(--border-default);
+      color:var(--text-primary); font-family:var(--font-mono); font-size:12px;
+      padding:8px 12px; border-radius:var(--radius-md); outline:none; transition:border-color 0.15s;
+    }
+    .key-input:focus { border-color:var(--accent); }
+    .btn { padding:8px 16px; font-family:var(--font-sans); font-size:13px; font-weight:500; cursor:pointer; border-radius:var(--radius-md); transition:all 0.15s; border:none; }
+    .btn-primary { background:var(--accent); color:#000; }
+    .btn-primary:hover { background:var(--accent-hover); }
+    .btn-ghost { background:var(--bg-surface); color:var(--text-secondary); border:1px solid var(--border-default); }
+    .btn-ghost:hover { color:var(--text-primary); border-color:var(--border-strong); }
+
+    /* LAYOUT */
+    .page { padding:24px; max-width:1200px; margin:0 auto; }
+    .section { margin-bottom:32px; }
+    .section-title { font-size:11px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.08em; margin-bottom:14px; }
+
+    /* STAT GRID */
+    .stat-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:12px; }
+    .stat-card {
+      background:var(--bg-surface); border:1px solid var(--border-subtle);
+      border-radius:var(--radius-lg); padding:20px;
+    }
+    .stat-value { font-family:var(--font-mono); font-size:24px; font-weight:700; color:var(--text-primary); margin-bottom:4px; }
+    .stat-value.accent  { color:var(--accent); }
+    .stat-value.warning { color:var(--warning); }
+    .stat-value.danger  { color:var(--danger); }
+    .stat-value.info    { color:var(--info); }
+    .stat-label { font-size:12px; color:var(--text-tertiary); }
+
+    /* TABLES */
+    .table-wrap {
+      background:var(--bg-surface); border:1px solid var(--border-subtle);
+      border-radius:var(--radius-lg); overflow:hidden;
+    }
+    .admin-table { width:100%; border-collapse:collapse; font-size:13px; }
+    .admin-table th {
+      font-size:11px; font-weight:500; color:var(--text-muted); text-transform:uppercase;
+      letter-spacing:0.06em; text-align:left; padding:10px 16px;
+      border-bottom:1px solid var(--border-subtle); background:var(--bg-surface-2);
+    }
+    .admin-table td { padding:11px 16px; border-bottom:1px solid var(--border-subtle); color:var(--text-secondary); }
+    .admin-table tr:last-child td { border-bottom:none; }
+    .admin-table tr:hover td { background:var(--bg-surface-2); }
+    .admin-table .mono { font-family:var(--font-mono); font-size:11px; }
+
+    /* BADGES */
+    .badge { display:inline-flex; align-items:center; gap:4px; font-size:11px; font-weight:500; padding:2px 8px; border-radius:var(--radius-sm); border:1px solid; }
+    .badge-success { background:var(--accent-dim); color:var(--accent); border-color:rgba(16,185,129,0.25); }
+    .badge-danger  { background:var(--danger-dim); color:var(--danger); border-color:rgba(239,68,68,0.25); }
+    .badge-warning { background:var(--warning-dim); color:var(--warning); border-color:rgba(245,158,11,0.25); }
+    .badge-neutral { background:var(--bg-surface-2); color:var(--text-tertiary); border-color:var(--border-default); }
+    .badge-info    { background:var(--info-dim); color:var(--info); border-color:rgba(59,130,246,0.25); }
+
+    /* AUTH GATE */
+    .auth-gate { text-align:center; padding:80px 24px; }
+    .auth-gate h2 { font-size:20px; font-weight:600; margin-bottom:8px; }
+    .auth-gate p { font-size:14px; color:var(--text-tertiary); margin-bottom:24px; }
+
+    .toast-container { position:fixed; bottom:24px; right:24px; display:flex; flex-direction:column; gap:8px; z-index:1000; }
+    .toast { padding:10px 16px; border-radius:var(--radius-md); font-size:13px; font-weight:500; max-width:320px; animation:fadeIn 0.2s; }
+    .toast-success { background:var(--accent-dim); border:1px solid rgba(16,185,129,0.3); color:var(--accent); }
+    .toast-error   { background:var(--danger-dim); border:1px solid rgba(239,68,68,0.3); color:var(--danger); }
+    @keyframes fadeIn { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:none; } }
+
+    @media(max-width:640px) { .stat-grid { grid-template-columns:1fr 1fr; } }
   </style>
 </head>
 <body>
-  <h1>🦀 ClawNet Admin <a href="javascript:location.reload()">Refresh</a></h1>
 
+<!-- HEADER -->
+<div class="admin-header">
+  <div style="display:flex;align-items:center;gap:10px">
+    <a href="/"><img src="/logo.png" alt="ClawNet" style="height:24px"></a>
+    <span class="admin-title">Admin Dashboard</span>
+    <span class="admin-badge">Internal</span>
+  </div>
+  <div class="header-right">
+    <div class="key-bar">
+      <input type="password" class="key-input" id="admin-key" placeholder="ADMIN_API_KEY" onkeydown="if(event.key==='Enter')loadAdmin()">
+      <button class="btn btn-primary" onclick="loadAdmin()">Load</button>
+    </div>
+    <button class="btn btn-ghost" onclick="loadAdmin()">Refresh</button>
+  </div>
+</div>
+
+<!-- AUTH GATE -->
+<div class="auth-gate" id="auth-gate">
+  <h2>Admin Access Required</h2>
+  <p>Enter your <code style="font-family:var(--font-mono);font-size:12px;background:var(--bg-surface-2);padding:2px 6px;border-radius:4px">ADMIN_API_KEY</code> above to view platform metrics.</p>
+</div>
+
+<!-- DASHBOARD (hidden until auth) -->
+<div class="page" id="dashboard" style="display:none">
+
+  <!-- OVERVIEW -->
   <div class="section">
-    <h2>Overview</h2>
-    <div class="grid">
-      <div class="card">
-        <div class="metric">2</div>
-        <div class="label">Total Requests</div>
-      </div>
-      <div class="card">
-        <div class="metric">$0.0013</div>
-        <div class="label">Total Revenue (Markup)</div>
-      </div>
-      <div class="card">
-        <div class="metric">0%</div>
-        <div class="label">Error Rate</div>
-      </div>
-      <div class="card">
-        <div class="metric">8280ms</div>
-        <div class="label">Avg Response Time</div>
-      </div>
-      <div class="card">
-        <div class="metric">0%</div>
-        <div class="label">Cache Hit Rate</div>
-      </div>
-      <div class="card">
-        <div class="metric">7</div>
-        <div class="label">Cached Items</div>
-      </div>
+    <div class="section-title">Overview</div>
+    <div class="stat-grid">
+      <div class="stat-card"><div class="stat-value accent" id="st-revenue">—</div><div class="stat-label">Platform Revenue</div></div>
+      <div class="stat-card"><div class="stat-value" id="st-users">—</div><div class="stat-label">Total API Keys</div></div>
+      <div class="stat-card"><div class="stat-value info" id="st-requests">—</div><div class="stat-label">Total Requests</div></div>
+      <div class="stat-card"><div class="stat-value warning" id="st-error-rate">—</div><div class="stat-label">Error Rate</div></div>
+      <div class="stat-card"><div class="stat-value" id="st-latency">—</div><div class="stat-label">Avg Latency</div></div>
+      <div class="stat-card"><div class="stat-value" id="st-uptime">—</div><div class="stat-label">Uptime</div></div>
+      <div class="stat-card"><div class="stat-value accent" id="st-cache-rate">—</div><div class="stat-label">Cache Hit Rate</div></div>
+      <div class="stat-card"><div class="stat-value" id="st-memory">—</div><div class="stat-label">Memory Usage</div></div>
     </div>
   </div>
 
+  <!-- TREASURY -->
   <div class="section">
-    <h2>Top Queries</h2>
-    <table class="table">
-      <tr><th>Query</th><th>Count</th></tr>
-      
-        <tr>
-          <td>What is the price of BONK token?</td>
-          <td>1</td>
-        </tr>
-      
-        <tr>
-          <td>Analyze BONK token: price, holders, risk score, and X sentiment</td>
-          <td>1</td>
-        </tr>
-      
-    </table>
-  </div>
-
-  <div class="section">
-    <h2>Circuit Breakers</h2>
-    <table class="table">
-      <tr><th>Endpoint</th><th>State</th><th>Failures</th></tr>
-      <tr><td colspan="3">No circuit data yet</td></tr>
-    </table>
-  </div>
-
-  <div class="section">
-    <h2>Infrastructure</h2>
-    <div class="grid">
-      <div class="card">
-        <div class="metric">
-          <span class="badge badge-red">
-            Disconnected
-          </span>
-        </div>
-        <div class="label">Redis</div>
-      </div>
-      <div class="card">
-        <div class="metric">614s</div>
-        <div class="label">Uptime</div>
-      </div>
-      <div class="card">
-        <div class="metric">130MB</div>
-        <div class="label">Memory Usage</div>
-      </div>
+    <div class="section-title">Treasury & Official Balances</div>
+    <div class="table-wrap">
+      <table class="admin-table">
+        <thead><tr><th>Account</th><th>Credits</th><th>Amount Paid (USD)</th><th>Status</th></tr></thead>
+        <tbody id="treasury-tbody"><tr><td colspan="4" style="text-align:center;color:var(--text-muted)">Loading...</td></tr></tbody>
+      </table>
     </div>
   </div>
 
+  <!-- REVENUE -->
   <div class="section">
-    <h2>Feedback</h2>
-    <div class="grid">
-      <div class="card">
-        <div class="metric">0</div>
-        <div class="label">Total Feedback</div>
-      </div>
-      <div class="card">
-        <div class="metric">0/5</div>
-        <div class="label">Average Rating</div>
-      </div>
+    <div class="section-title">Revenue Breakdown</div>
+    <div class="table-wrap">
+      <table class="admin-table">
+        <thead><tr><th>Source</th><th>Amount</th><th>Count</th><th>Period</th></tr></thead>
+        <tbody id="revenue-tbody"><tr><td colspan="4" style="text-align:center;color:var(--text-muted)">Loading...</td></tr></tbody>
+      </table>
     </div>
   </div>
+
+  <!-- PAYOUTS -->
+  <div class="section">
+    <div class="section-title">Pending Payouts</div>
+    <div class="table-wrap">
+      <table class="admin-table">
+        <thead><tr><th>Key</th><th>Amount (USDC)</th><th>Wallet</th><th>Requested</th><th>Status</th></tr></thead>
+        <tbody id="payouts-tbody"><tr><td colspan="5" style="text-align:center;color:var(--text-muted)">Loading...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- CIRCUIT BREAKERS -->
+  <div class="section">
+    <div class="section-title">Circuit Breaker Status</div>
+    <div class="table-wrap">
+      <table class="admin-table">
+        <thead><tr><th>Endpoint</th><th>State</th><th>Failures</th><th>Last Checked</th></tr></thead>
+        <tbody id="circuit-tbody"><tr><td colspan="4" style="text-align:center;color:var(--text-muted)">Loading...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<div class="toast-container" id="toasts"></div>
+
+<script>
+const API_BASE = 'https://api.claw-net.org';
+let adminKey = '';
+
+function toast(msg, type = 'error') {
+  const el = document.createElement('div');
+  el.className = `toast toast-${type}`;
+  el.textContent = msg;
+  document.getElementById('toasts').appendChild(el);
+  setTimeout(() => el.remove(), 4000);
+}
+
+async function loadAdmin() {
+  const keyEl = document.getElementById('admin-key');
+  adminKey = keyEl.value.trim();
+  if (!adminKey) { toast('Enter your ADMIN_API_KEY'); return; }
+
+  document.getElementById('auth-gate').style.display = 'none';
+  document.getElementById('dashboard').style.display = 'block';
+
+  const headers = { 'X-API-Key': adminKey };
+
+  try {
+    const [dashRes, revRes, treasRes, payRes] = await Promise.all([
+      fetch(`${API_BASE}/v1/admin/dashboard`, { headers }),
+      fetch(`${API_BASE}/v1/admin/revenue`, { headers }),
+      fetch(`${API_BASE}/v1/admin/treasury`, { headers }),
+      fetch(`${API_BASE}/v1/admin/payouts`, { headers }),
+    ]);
+
+    if (!dashRes.ok) {
+      toast('Invalid admin key or API error', 'error');
+      document.getElementById('auth-gate').style.display = 'block';
+      document.getElementById('dashboard').style.display = 'none';
+      return;
+    }
+
+    const [dash, rev, treas, pays] = await Promise.all([
+      dashRes.json(), revRes.json(), treasRes.json(), payRes.json()
+    ]);
+
+    renderOverview(dash);
+    renderTreasury(treas);
+    renderRevenue(rev);
+    renderPayouts(pays);
+    renderCircuits(dash);
+  } catch(e) {
+    toast('Network error: ' + e.message, 'error');
+  }
+}
+
+function renderOverview(d) {
+  const m = d.metrics || d;
+  set('st-revenue', fmt(m.platformRevenue ?? m.totalRevenue, '$'));
+  set('st-users', num(m.totalKeys ?? m.totalUsers));
+  set('st-requests', num(m.totalRequests));
+  set('st-error-rate', pct(m.errorRate));
+  set('st-latency', (m.avgLatency ?? 0) + 'ms');
+  set('st-uptime', fmtUptime(m.uptimeSeconds ?? m.uptime));
+  set('st-cache-rate', pct(m.cacheHitRate));
+  set('st-memory', (m.memoryMb ?? m.memory ?? 0) + 'MB');
+}
+
+function renderTreasury(d) {
+  const rows = d.accounts || d.treasury || [];
+  const tbody = document.getElementById('treasury-tbody');
+  if (!rows.length) { tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-muted)">No data</td></tr>'; return; }
+  tbody.innerHTML = rows.map(r => `
+    <tr>
+      <td class="mono">${esc(r.key || r.name || '—')}</td>
+      <td class="mono">${num(r.credits)}</td>
+      <td class="mono">$${num(r.amountPaid ?? r.amount_paid ?? 0)}</td>
+      <td><span class="badge badge-success">Active</span></td>
+    </tr>`).join('');
+}
+
+function renderRevenue(d) {
+  const rows = d.breakdown || d.revenue || [];
+  const tbody = document.getElementById('revenue-tbody');
+  if (!rows.length) { tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-muted)">No revenue data yet</td></tr>'; return; }
+  tbody.innerHTML = rows.map(r => `
+    <tr>
+      <td>${esc(r.source || r.type || '—')}</td>
+      <td class="mono">${fmt(r.amount, '$')}</td>
+      <td class="mono">${num(r.count)}</td>
+      <td style="color:var(--text-muted)">${esc(r.period || 'All time')}</td>
+    </tr>`).join('');
+}
+
+function renderPayouts(d) {
+  const rows = d.payouts || d.pending || [];
+  const tbody = document.getElementById('payouts-tbody');
+  if (!rows.length) { tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-muted)">No pending payouts</td></tr>'; return; }
+  tbody.innerHTML = rows.map(r => `
+    <tr>
+      <td class="mono">${esc(r.apiKey || r.key || '—')}</td>
+      <td class="mono">${num(r.amountUsdc ?? r.amount)}</td>
+      <td class="mono" style="font-size:10px;word-break:break-all">${esc(r.walletAddress || r.wallet || '—')}</td>
+      <td style="color:var(--text-muted)">${fmtDate(r.createdAt || r.created_at)}</td>
+      <td><span class="badge badge-warning">${esc(r.status || 'PENDING')}</span></td>
+    </tr>`).join('');
+}
+
+function renderCircuits(d) {
+  const circuits = d.circuits || d.circuitBreakers || [];
+  const tbody = document.getElementById('circuit-tbody');
+  if (!circuits.length) { tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-muted)">No circuit data</td></tr>'; return; }
+  tbody.innerHTML = circuits.map(c => {
+    const cls = c.state === 'CLOSED' ? 'badge-success' : c.state === 'HALF_OPEN' ? 'badge-warning' : 'badge-danger';
+    return `<tr>
+      <td class="mono">${esc(c.endpoint || c.id)}</td>
+      <td><span class="badge ${cls}">${esc(c.state)}</span></td>
+      <td class="mono ${(c.failures||0)>0?'style="color:var(--warning)"':''}">${c.failures ?? 0}</td>
+      <td style="color:var(--text-muted)">${fmtDate(c.lastCheck || c.last_check)}</td>
+    </tr>`;
+  }).join('');
+}
+
+function set(id, val) { const el = document.getElementById(id); if (el) el.textContent = val; }
+function num(n) { return (n ?? 0).toLocaleString(); }
+function fmt(n, prefix = '') { return prefix + ((n ?? 0).toLocaleString()); }
+function pct(n) { return ((n ?? 0) * 100).toFixed(1) + '%'; }
+function fmtDate(s) { if (!s) return '—'; try { return new Date(s).toLocaleString(); } catch { return s; } }
+function fmtUptime(secs) {
+  if (!secs) return '—';
+  const h = Math.floor(secs/3600), m = Math.floor((secs%3600)/60);
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+function esc(s) { return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+</script>
 </body>
 </html>

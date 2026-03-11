@@ -22,11 +22,11 @@
 | 2 | `site/dashboard.html` | [rehaul_dashboard.md](rehaul_dashboard.md) | COMPLETED | — |
 | 3 | `site/marketplace.html` | [rehaul_marketplace.md](rehaul_marketplace.md) | COMPLETED | Very High |
 | 4 | `site/docs.html` | [rehaul_docs.md](rehaul_docs.md) | COMPLETED | High |
-| 5 | `site/endpoints.html` | [rehaul_endpoints.md](rehaul_endpoints.md) | NOT STARTED | Medium |
-| 6 | `site/login.html` | [rehaul_login.md](rehaul_login.md) | NOT STARTED | Low |
-| 7 | `site/success.html` | [rehaul_success.md](rehaul_success.md) | NOT STARTED | Low |
-| 8 | `site/admin.html` | [rehaul_admin.md](rehaul_admin.md) | NOT STARTED | Low |
-| 9 | `site/contact-section.html` | [rehaul_contact.md](rehaul_contact.md) | NOT STARTED | Low |
+| 5 | `site/endpoints.html` | [rehaul_endpoints.md](rehaul_endpoints.md) | COMPLETED | Medium |
+| 6 | `site/login.html` | [rehaul_login.md](rehaul_login.md) | COMPLETED | Low |
+| 7 | `site/success.html` | [rehaul_success.md](rehaul_success.md) | COMPLETED | Low |
+| 8 | `site/admin.html` | [rehaul_admin.md](rehaul_admin.md) | COMPLETED | Low |
+| 9 | `site/contact-section.html` | [rehaul_contact.md](rehaul_contact.md) | COMPLETED | Low |
 
 ---
 

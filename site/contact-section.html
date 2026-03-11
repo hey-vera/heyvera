@@ -1,194 +1,265 @@
-<!-- ============================================================
-  CONTACT SECTION — paste into index.html before </body>
-  Matches ClawNet theme: black bg, #00ff88 green, monospace font,
-  bordered panels identical to dashboard cards.
-  Add to nav: <a href="#contact">Contact</a>
-  ============================================================ -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Contact — ClawNet</title>
+  <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-primary:    #0a0a0b;
+      --bg-surface:    #111113;
+      --bg-surface-2:  #18181b;
+      --border-subtle: #1e1e22;
+      --border-default:#27272a;
+      --border-strong: #3f3f46;
+      --text-primary:  #fafafa;
+      --text-secondary:#a1a1aa;
+      --text-tertiary: #71717a;
+      --text-muted:    #52525b;
+      --accent:        #10b981;
+      --accent-dim:    rgba(16,185,129,0.12);
+      --accent-subtle: rgba(16,185,129,0.06);
+      --accent-hover:  #34d399;
+      --danger:        #ef4444;
+      --danger-dim:    rgba(239,68,68,0.12);
+      --font-sans:     'Inter', system-ui, sans-serif;
+      --font-mono:     'JetBrains Mono', monospace;
+      --radius-lg:     8px;
+      --radius-md:     6px;
+      --radius-sm:     4px;
+    }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { background:var(--bg-primary); color:var(--text-primary); font-family:var(--font-sans); min-height:100vh; display:flex; flex-direction:column; }
 
-<section id="contact" style="padding:100px 40px;max-width:760px;margin:0 auto;">
+    /* NAV */
+    nav {
+      display:flex; align-items:center; justify-content:space-between;
+      height:56px; padding:0 24px; border-bottom:1px solid var(--border-subtle);
+      background:rgba(10,10,11,0.95); position:sticky; top:0; z-index:10;
+    }
+    .nav-left { display:flex; align-items:center; gap:32px; }
+    .nav-logo img { height:28px; display:block; }
+    .nav-links { display:flex; gap:4px; list-style:none; }
+    .nav-links a { font-size:13px; font-weight:500; color:var(--text-tertiary); text-decoration:none; padding:6px 10px; border-radius:var(--radius-sm); transition:color 0.15s, background 0.15s; }
+    .nav-links a:hover { color:var(--text-primary); background:var(--bg-surface-2); }
+    @media(max-width:640px) { .nav-links { display:none; } }
 
-  <div style="text-align:center;margin-bottom:48px;">
-    <p style="font-family:monospace;font-size:12px;letter-spacing:0.15em;color:#00ff88;margin:0 0 12px;text-transform:uppercase;">Support</p>
-    <h2 style="font-family:monospace;font-size:clamp(26px,4vw,38px);font-weight:700;color:#fff;margin:0 0 12px;letter-spacing:-0.01em;">Get in touch</h2>
-    <p style="font-family:monospace;color:#555;font-size:14px;margin:0;">Questions about billing, the API, or partnerships — we read everything.</p>
+    /* MAIN */
+    .main { flex:1; padding:64px 24px 80px; }
+    .inner { max-width:600px; margin:0 auto; }
+
+    .page-eyebrow { font-size:11px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.08em; margin-bottom:12px; }
+    h1 { font-size:28px; font-weight:600; color:var(--text-primary); letter-spacing:-0.02em; margin-bottom:8px; }
+    .page-sub { font-size:15px; color:var(--text-secondary); margin-bottom:40px; line-height:1.6; }
+
+    /* CARD */
+    .card { background:var(--bg-surface); border:1px solid var(--border-subtle); border-radius:var(--radius-lg); padding:32px; }
+
+    /* FORM */
+    .field { display:flex; flex-direction:column; gap:6px; margin-bottom:18px; }
+    .field-row { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:18px; }
+    label { font-size:12px; font-weight:500; color:var(--text-tertiary); }
+    .input {
+      background:var(--bg-primary); border:1px solid var(--border-default);
+      color:var(--text-primary); font-family:var(--font-sans); font-size:13px;
+      padding:9px 12px; border-radius:var(--radius-md); outline:none;
+      transition:border-color 0.15s, box-shadow 0.15s; width:100%;
+    }
+    .input::placeholder { color:var(--text-muted); }
+    .input:focus { border-color:var(--accent); box-shadow:0 0 0 3px rgba(16,185,129,0.08); }
+    .input.invalid { border-color:var(--danger); }
+    select.input option { background:var(--bg-surface-2); color:var(--text-primary); }
+    textarea.input { resize:vertical; min-height:120px; }
+    .field-error { font-size:11px; color:var(--danger); min-height:14px; }
+    .char-count { font-size:11px; color:var(--text-muted); text-align:right; margin-top:4px; }
+
+    /* SUBMIT */
+    .btn-primary {
+      background:var(--accent); color:#000; border:none; font-family:var(--font-sans);
+      font-size:13px; font-weight:600; padding:10px 24px; border-radius:var(--radius-md);
+      cursor:pointer; transition:background 0.15s;
+    }
+    .btn-primary:hover { background:var(--accent-hover); }
+    .btn-primary:disabled { opacity:0.4; cursor:not-allowed; }
+
+    /* STATUS */
+    .status-box { display:none; margin-top:16px; padding:12px 14px; border-radius:var(--radius-md); font-size:13px; line-height:1.5; }
+    .status-box.success { background:rgba(16,185,129,0.08); border:1px solid rgba(16,185,129,0.2); color:var(--accent); }
+    .status-box.error   { background:var(--danger-dim); border:1px solid rgba(239,68,68,0.2); color:var(--danger); }
+
+    /* FOOTER */
+    footer {
+      display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px;
+      padding:20px 24px; border-top:1px solid var(--border-subtle); font-size:12px; color:var(--text-muted);
+    }
+    .footer-links { display:flex; gap:16px; list-style:none; }
+    .footer-links a { color:var(--text-muted); text-decoration:none; }
+    .footer-links a:hover { color:var(--text-secondary); }
+
+    @media(max-width:540px) { .field-row { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+<nav>
+  <div class="nav-left">
+    <a href="/" class="nav-logo"><img src="/logo.png" alt="ClawNet"></a>
+    <ul class="nav-links">
+      <li><a href="/">Home</a></li>
+      <li><a href="/docs.html">Docs</a></li>
+      <li><a href="/marketplace.html">Marketplace</a></li>
+      <li><a href="/endpoints.html">Endpoints</a></li>
+      <li><a href="/dashboard.html">Dashboard</a></li>
+    </ul>
   </div>
+</nav>
 
-  <!-- Outer card matches dashboard panel style -->
-  <div style="border:1px solid #1a1a1a;border-radius:4px;padding:32px;background:#060606;">
+<div class="main">
+  <div class="inner">
+    <div class="page-eyebrow">Support</div>
+    <h1>Get in Touch</h1>
+    <p class="page-sub">Questions about billing, the API, or partnerships — we read everything and typically respond within 24–48 hours.</p>
 
-    <form id="contactForm" novalidate style="display:flex;flex-direction:column;gap:24px;">
-
-      <!-- Honeypot -->
-      <input type="text" name="website" id="hpField" tabindex="-1" autocomplete="off"
-        style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0;" />
-
-      <!-- Name + Email -->
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
-        <div class="cf-field">
-          <label for="cfName" class="cf-label">NAME</label>
-          <input type="text" id="cfName" name="name" placeholder="Your name"
-            autocomplete="name" class="cf-input" maxlength="100" required />
-          <span class="cf-error" id="errName"></span>
+    <div class="card">
+      <form id="contact-form" novalidate>
+        <!-- Honeypot -->
+        <div style="position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden" aria-hidden="true">
+          <input type="text" name="website" id="hp-field" tabindex="-1" autocomplete="off">
         </div>
-        <div class="cf-field">
-          <label for="cfEmail" class="cf-label">EMAIL</label>
-          <input type="email" id="cfEmail" name="email" placeholder="you@example.com"
-            autocomplete="email" class="cf-input" maxlength="254" required />
-          <span class="cf-error" id="errEmail"></span>
+
+        <div class="field-row">
+          <div class="field">
+            <label for="cf-name">Name</label>
+            <input type="text" id="cf-name" name="name" class="input" placeholder="Your name" autocomplete="name" maxlength="100" required>
+            <span class="field-error" id="err-name"></span>
+          </div>
+          <div class="field">
+            <label for="cf-email">Email</label>
+            <input type="email" id="cf-email" name="email" class="input" placeholder="you@example.com" autocomplete="email" maxlength="254" required>
+            <span class="field-error" id="err-email"></span>
+          </div>
         </div>
-      </div>
 
-      <!-- Subject -->
-      <div class="cf-field">
-        <label for="cfSubject" class="cf-label">SUBJECT</label>
-        <select id="cfSubject" name="subject" class="cf-input" required>
-          <option value="" disabled selected>Select a topic…</option>
-          <option value="technical">Technical Support</option>
-          <option value="billing">Billing &amp; Credits</option>
-          <option value="partnership">Partnership</option>
-          <option value="general">General Inquiry</option>
-          <option value="other">Other</option>
-        </select>
-        <span class="cf-error" id="errSubject"></span>
-      </div>
-
-      <!-- Message -->
-      <div class="cf-field">
-        <label for="cfMessage" class="cf-label">MESSAGE</label>
-        <textarea id="cfMessage" name="message" placeholder="Describe your question or issue…"
-          class="cf-input" rows="5" maxlength="2000" required
-          style="resize:vertical;min-height:130px;"></textarea>
-        <div style="display:flex;justify-content:space-between;margin-top:6px;">
-          <span class="cf-error" id="errMessage"></span>
-          <span id="cfCharCount" style="font-family:monospace;font-size:11px;color:#333;margin-left:auto;">0 / 2000</span>
+        <div class="field">
+          <label for="cf-subject">Subject</label>
+          <select id="cf-subject" name="subject" class="input" required>
+            <option value="" disabled selected>Select a topic…</option>
+            <option value="technical">Technical Support</option>
+            <option value="billing">Billing &amp; Credits</option>
+            <option value="marketplace">Marketplace</option>
+            <option value="partnership">Partnership</option>
+            <option value="general">General Inquiry</option>
+            <option value="other">Other</option>
+          </select>
+          <span class="field-error" id="err-subject"></span>
         </div>
-      </div>
 
-      <!-- Submit -->
-      <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
-        <button type="submit" id="cfSubmit" style="
-          font-family:monospace;font-size:13px;font-weight:600;
-          letter-spacing:0.08em;text-transform:uppercase;
-          padding:12px 28px;
-          background:#00ff88;color:#000;
-          border:none;border-radius:4px;cursor:pointer;
-          transition:opacity 0.15s,transform 0.1s;
-        ">Send Message</button>
-        <span style="font-family:monospace;font-size:12px;color:#333;">We typically respond within 24–48 hours.</span>
-      </div>
+        <div class="field">
+          <label for="cf-message">Message</label>
+          <textarea id="cf-message" name="message" class="input" placeholder="Describe your question or issue…" rows="5" maxlength="2000" required></textarea>
+          <div style="display:flex;justify-content:space-between">
+            <span class="field-error" id="err-message"></span>
+            <span class="char-count" id="char-count">0 / 2000</span>
+          </div>
+        </div>
 
-      <!-- Status banner -->
-      <div id="cfStatus" style="display:none;font-family:monospace;font-size:13px;padding:14px 16px;border-radius:4px;"></div>
+        <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+          <button type="submit" class="btn-primary" id="cf-submit">Send Message</button>
+          <span style="font-size:12px;color:var(--text-muted)">24–48 hour response time</span>
+        </div>
 
-    </form>
+        <div class="status-box" id="cf-status"></div>
+      </form>
+    </div>
   </div>
+</div>
 
-</section>
-
-<style>
-  .cf-field { display:flex;flex-direction:column;gap:8px; }
-  .cf-label {
-    font-family:monospace;font-size:11px;font-weight:600;
-    letter-spacing:0.12em;color:#00ff88;
-  }
-  .cf-input {
-    font-family:monospace;font-size:13px;color:#e0e0e0;
-    background:#0a0a0a;
-    border:1px solid #1a1a1a;
-    border-radius:4px;
-    padding:11px 14px;
-    width:100%;box-sizing:border-box;
-    outline:none;
-    transition:border-color 0.15s,box-shadow 0.15s;
-  }
-  .cf-input::placeholder { color:#333; }
-  .cf-input:focus {
-    border-color:#00ff88;
-    box-shadow:0 0 0 2px rgba(0,255,136,0.07);
-  }
-  .cf-input.cf-invalid { border-color:#ff4444; }
-  .cf-input option { background:#0a0a0a;color:#e0e0e0; }
-  .cf-error { font-family:monospace;font-size:11px;color:#ff4444;min-height:14px; }
-  #cfSubmit:hover { opacity:0.85;transform:translateY(-1px); }
-  #cfSubmit:active { transform:translateY(0); }
-  #cfSubmit:disabled { opacity:0.35;cursor:not-allowed;transform:none; }
-  @media(max-width:540px){
-    #contactForm>div:first-of-type{grid-template-columns:1fr;}
-  }
-</style>
+<footer>
+  <ul class="footer-links">
+    <li><a href="/">Home</a></li>
+    <li><a href="/docs.html">Docs</a></li>
+    <li><a href="/marketplace.html">Marketplace</a></li>
+    <li><a href="/endpoints.html">Endpoints</a></li>
+    <li><a href="/dashboard.html">Dashboard</a></li>
+    <li><a href="https://github.com/1xmint" target="_blank">GitHub</a></li>
+    <li><a href="https://t.me/claw_net" target="_blank">Telegram</a></li>
+  </ul>
+  <span>&copy; 2026 ClawNet &middot; Powered by x402</span>
+</footer>
 
 <script>
-(function(){
-  const form=document.getElementById('contactForm');
-  const btn=document.getElementById('cfSubmit');
-  const status=document.getElementById('cfStatus');
-  const charCount=document.getElementById('cfCharCount');
-  const msgField=document.getElementById('cfMessage');
+(function() {
+  const form    = document.getElementById('contact-form');
+  const btn     = document.getElementById('cf-submit');
+  const status  = document.getElementById('cf-status');
+  const msgEl   = document.getElementById('cf-message');
+  const charEl  = document.getElementById('char-count');
 
-  msgField.addEventListener('input',()=>{
-    charCount.textContent=`${msgField.value.length} / 2000`;
+  msgEl.addEventListener('input', () => {
+    charEl.textContent = `${msgEl.value.length} / 2000`;
   });
 
-  function setError(fId,eId,msg){
-    const f=document.getElementById(fId),e=document.getElementById(eId);
-    msg?f.classList.add('cf-invalid'):f.classList.remove('cf-invalid');
-    e.textContent=msg||'';
+  function setErr(fieldId, errId, msg) {
+    const f = document.getElementById(fieldId), e = document.getElementById(errId);
+    msg ? f.classList.add('invalid') : f.classList.remove('invalid');
+    e.textContent = msg || '';
   }
-  function clearErrors(){
-    ['Name','Email','Subject','Message'].forEach(n=>setError('cf'+n,'err'+n,''));
+  function clearErrors() {
+    [['cf-name','err-name'],['cf-email','err-email'],['cf-subject','err-subject'],['cf-message','err-message']].forEach(([f,e]) => setErr(f,e,''));
   }
-  function validate(){
-    let ok=true;
-    const name=document.getElementById('cfName').value.trim();
-    const email=document.getElementById('cfEmail').value.trim();
-    const subject=document.getElementById('cfSubject').value;
-    const message=document.getElementById('cfMessage').value.trim();
-    if(!name){setError('cfName','errName','Required.');ok=false;}
-    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){setError('cfEmail','errEmail','Valid email required.');ok=false;}
-    if(!subject){setError('cfSubject','errSubject','Please select a topic.');ok=false;}
-    if(message.length<10){setError('cfMessage','errMessage','At least 10 characters.');ok=false;}
+  function validate() {
+    let ok = true;
+    const name    = document.getElementById('cf-name').value.trim();
+    const email   = document.getElementById('cf-email').value.trim();
+    const subject = document.getElementById('cf-subject').value;
+    const message = msgEl.value.trim();
+    if (!name)                                         { setErr('cf-name','err-name','Required.'); ok=false; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))   { setErr('cf-email','err-email','Valid email required.'); ok=false; }
+    if (!subject)                                      { setErr('cf-subject','err-subject','Please select a topic.'); ok=false; }
+    if (message.length < 10)                           { setErr('cf-message','err-message','At least 10 characters.'); ok=false; }
     return ok;
   }
-  function showStatus(msg,ok){
-    status.style.display='block';
-    status.style.background=ok?'rgba(0,255,136,0.06)':'rgba(255,68,68,0.06)';
-    status.style.border=`1px solid ${ok?'rgba(0,255,136,0.2)':'rgba(255,68,68,0.2)'}`;
-    status.style.color=ok?'#00ff88':'#ff6666';
-    status.textContent=msg;
+  function showStatus(msg, ok) {
+    status.className = 'status-box ' + (ok ? 'success' : 'error');
+    status.style.display = 'block';
+    status.textContent = msg;
   }
 
-  form.addEventListener('submit',async(e)=>{
+  form.addEventListener('submit', async (e) => {
     e.preventDefault();
     clearErrors();
-    if(!validate())return;
-    const honeypot=document.getElementById('hpField').value;
-    btn.disabled=true;btn.textContent='Sending…';status.style.display='none';
-    try{
-      const res=await fetch('https://api.claw-net.org/v1/contact',{
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({
-          name:document.getElementById('cfName').value.trim(),
-          email:document.getElementById('cfEmail').value.trim().toLowerCase(),
-          subject:document.getElementById('cfSubject').value,
-          message:document.getElementById('cfMessage').value.trim(),
-          website:honeypot
-        })
+    if (!validate()) return;
+    btn.disabled = true; btn.textContent = 'Sending…'; status.style.display = 'none';
+    try {
+      const res = await fetch('https://api.claw-net.org/v1/contact', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name:    document.getElementById('cf-name').value.trim(),
+          email:   document.getElementById('cf-email').value.trim().toLowerCase(),
+          subject: document.getElementById('cf-subject').value,
+          message: msgEl.value.trim(),
+          website: document.getElementById('hp-field').value,
+        }),
       });
-      const data=await res.json();
-      if(res.ok&&data.ok){
-        showStatus(data.message||"Message sent. We'll be in touch within 24–48 hours.",true);
-        form.reset();charCount.textContent='0 / 2000';
-      } else if(res.status===429){
-        showStatus('Too many submissions. Please wait 10 minutes.',false);
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        showStatus(data.message || "Message sent. We'll be in touch within 24–48 hours.", true);
+        form.reset(); charEl.textContent = '0 / 2000';
+      } else if (res.status === 429) {
+        showStatus('Too many submissions. Please wait 10 minutes.', false);
       } else {
-        showStatus(data.error||'Something went wrong. Please try again.',false);
+        showStatus(data.error || 'Something went wrong. Please try again.', false);
       }
-    }catch{
-      showStatus('Network error. Check your connection and try again.',false);
-    }finally{
-      btn.disabled=false;btn.textContent='Send Message';
+    } catch {
+      showStatus('Network error. Check your connection and try again.', false);
+    } finally {
+      btn.disabled = false; btn.textContent = 'Send Message';
     }
   });
 })();
 </script>
+</body>
+</html>

@@ -3,400 +3,503 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>API Endpoints — Claw-Net.org</title>
-  <meta name="description" content="Browse all ClawNet API endpoints with live status, latency, and pricing. Search and filter 60+ endpoints across Solana, DeFi, social, and market intelligence providers.">
+  <title>API Endpoints — ClawNet</title>
+  <meta name="description" content="Browse all ClawNet API endpoints with live status, latency, and credit costs. Search and filter 158+ endpoints across Solana, DeFi, social, and market intelligence providers.">
   <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png">
   <link rel="apple-touch-icon" href="/favicon.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
   <style>
     :root {
-      --green:      #00ff88;
-      --green-dim:  rgba(0,255,136,0.18);
-      --green-glow: rgba(0,255,136,0.06);
-      --red:        #ff4444;
-      --yellow:     #ffaa00;
-      --blue:       #4488ff;
-      --purple:     #9945ff;
-      --bg:         #080808;
-      --bg2:        #111111;
-      --bg3:        #1a1a1a;
-      --bg4:        #1e1e1e;
-      --border:     #1e1e1e;
-      --border2:    #2a2a2a;
-      --text:       #e0e0e0;
-      --muted:      #888;
-      --muted2:     #bbb;
-      --mono:       'Space Mono', monospace;
-      --sans:       'Inter', system-ui, sans-serif;
+      --bg-primary:    #0a0a0b;
+      --bg-surface:    #111113;
+      --bg-surface-2:  #18181b;
+      --bg-surface-3:  #1f1f23;
+      --border-subtle: #1e1e22;
+      --border-default:#27272a;
+      --border-strong: #3f3f46;
+      --text-primary:  #fafafa;
+      --text-secondary:#a1a1aa;
+      --text-tertiary: #71717a;
+      --text-muted:    #52525b;
+      --accent:        #10b981;
+      --accent-dim:    rgba(16,185,129,0.12);
+      --accent-subtle: rgba(16,185,129,0.06);
+      --accent-hover:  #34d399;
+      --danger:        #ef4444;
+      --danger-dim:    rgba(239,68,68,0.12);
+      --warning:       #f59e0b;
+      --warning-dim:   rgba(245,158,11,0.12);
+      --info:          #3b82f6;
+      --info-dim:      rgba(59,130,246,0.12);
+      --purple:        #8b5cf6;
+      --purple-dim:    rgba(139,92,246,0.12);
+      --font-sans:     'Inter', system-ui, sans-serif;
+      --font-mono:     'JetBrains Mono', monospace;
+      --font-display:  'Inter', system-ui, sans-serif;
+      --radius-lg:     8px;
+      --radius-md:     6px;
+      --radius-sm:     4px;
     }
     * { margin:0; padding:0; box-sizing:border-box; }
     html { scroll-behavior:smooth; }
-    body { background:var(--bg); color:var(--text); font-family:var(--sans); overflow-x:hidden; min-height:100vh; }
-
-    /* grain + grid */
-    body::before {
-      content:''; position:fixed; inset:0;
-      background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E");
-      pointer-events:none; z-index:999; opacity:0.5;
-    }
-    .grid-bg {
-      position:fixed; inset:0;
-      background-image:linear-gradient(var(--border) 1px, transparent 1px),linear-gradient(90deg, var(--border) 1px, transparent 1px);
-      background-size:64px 64px;
-      pointer-events:none; z-index:0; opacity:0.35;
-    }
+    body { background:var(--bg-primary); color:var(--text-primary); font-family:var(--font-sans); overflow-x:hidden; min-height:100vh; }
 
     /* ── NAV ── */
     nav {
       position:fixed; top:0; left:0; right:0; z-index:100;
       display:flex; align-items:center; justify-content:space-between;
-      height:64px; padding:0 40px;
-      border-bottom:1px solid rgba(0,255,136,0.12);
-      background:rgba(8,8,8,0.92);
-      backdrop-filter:blur(20px);
+      height:56px; padding:0 24px;
+      border-bottom:1px solid var(--border-subtle);
+      background:rgba(10,10,11,0.92);
+      backdrop-filter:blur(12px);
     }
-    .nav-logo { display:flex; align-items:center; text-decoration:none; }
-    .nav-logo img { height:48px; width:auto; object-fit:contain; }
-    .nav-links { display:flex; align-items:center; gap:28px; list-style:none; }
-    .nav-links a { font-family:var(--mono); font-size:11px; color:rgba(255,255,255,0.6); text-decoration:none; letter-spacing:1.5px; text-transform:uppercase; transition:color 0.2s; position:relative; padding-bottom:2px; }
-    .nav-links a::after { content:''; position:absolute; bottom:-2px; left:0; width:0; height:1px; background:var(--green); transition:width 0.2s; }
-    .nav-links a:hover { color:var(--green); }
-    .nav-links a:hover::after { width:100%; }
-    .nav-links a.active { color:var(--green); }
-    .nav-links a.active::after { width:100%; }
-    .nav-cta { font-family:var(--mono); font-size:11px; background:var(--green); color:#000; padding:9px 20px; text-decoration:none; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; transition:all 0.25s; border-radius:2px; border:1px solid var(--green); }
-    .nav-cta:hover { background:#000; color:var(--green); box-shadow:0 0 24px rgba(0,255,136,0.3); }
-    @media(max-width:700px) { nav { padding:0 20px; } .nav-links { display:none; } }
+    .nav-left { display:flex; align-items:center; gap:32px; }
+    .nav-logo img { height:28px; width:auto; display:block; }
+    .nav-links { display:flex; align-items:center; gap:4px; list-style:none; }
+    .nav-links a {
+      font-size:13px; font-weight:500; color:var(--text-tertiary);
+      text-decoration:none; padding:6px 10px; border-radius:var(--radius-sm);
+      transition:color 0.15s, background 0.15s;
+    }
+    .nav-links a:hover { color:var(--text-primary); background:var(--bg-surface-2); }
+    .nav-links a.active { color:var(--text-primary); }
+    .nav-right { display:flex; align-items:center; gap:8px; }
+    .nav-status { display:flex; align-items:center; gap:6px; font-size:12px; color:var(--text-tertiary); padding:0 8px; }
+    .status-dot { width:7px; height:7px; border-radius:50%; background:var(--border-strong); }
+    .status-dot.ok  { background:var(--accent); box-shadow:0 0 6px rgba(16,185,129,0.5); }
+    .status-dot.err { background:var(--danger); }
+    .nav-credits {
+      display:none; font-family:var(--font-mono); font-size:11px;
+      background:var(--accent-dim); color:var(--accent);
+      padding:4px 10px; border-radius:var(--radius-sm); border:1px solid rgba(16,185,129,0.2);
+    }
+    .nav-email { font-size:12px; color:var(--text-tertiary); padding:0 4px; }
+    .nav-login { font-size:13px; font-weight:500; color:var(--text-secondary); text-decoration:none; padding:6px 12px; border-radius:var(--radius-sm); transition:color 0.15s; }
+    .nav-login:hover { color:var(--text-primary); }
+    .nav-cta { font-size:12px; font-weight:600; background:var(--accent); color:#000; padding:7px 16px; border-radius:var(--radius-sm); text-decoration:none; transition:background 0.15s; white-space:nowrap; }
+    .nav-cta:hover { background:var(--accent-hover); }
+    .nav-btn-ghost { font-size:13px; font-weight:500; color:var(--text-secondary); background:none; border:1px solid var(--border-default); padding:6px 14px; border-radius:var(--radius-sm); text-decoration:none; cursor:pointer; font-family:var(--font-sans); transition:all 0.15s; }
+    .nav-btn-ghost:hover { color:var(--text-primary); border-color:var(--border-strong); }
+    .nav-btn-ghost.danger:hover { color:var(--danger); border-color:var(--danger); }
+    @media(max-width:768px) { .nav-links { display:none; } }
 
     /* ── LAYOUT ── */
-    .page { position:relative; z-index:1; padding-top:64px; }
-    .container { max-width:1400px; margin:0 auto; padding:0 40px; }
-    @media(max-width:700px) { .container { padding:0 16px; } }
+    .page { padding-top:56px; min-height:100vh; }
+    .container { max-width:1200px; margin:0 auto; padding:0 24px; }
 
     /* ── HERO ── */
-    .hero {
-      padding:64px 0 48px;
-      border-bottom:1px solid var(--border2);
-    }
-    .hero-eyebrow { font-family:var(--mono); font-size:10px; letter-spacing:3px; text-transform:uppercase; color:var(--green); margin-bottom:16px; }
-    .hero-title { font-size:clamp(28px,4vw,44px); font-weight:700; letter-spacing:-0.5px; color:#fff; margin-bottom:12px; line-height:1.1; }
-    .hero-sub { font-size:15px; color:var(--muted2); max-width:600px; line-height:1.6; }
+    .hero { padding:56px 0 40px; border-bottom:1px solid var(--border-subtle); }
+    .hero-eyebrow { font-size:11px; font-weight:600; color:var(--text-tertiary); text-transform:uppercase; letter-spacing:0.08em; margin-bottom:12px; }
+    .hero-title { font-family:var(--font-display); font-size:clamp(28px,4vw,40px); font-weight:600; color:var(--text-primary); letter-spacing:-0.02em; margin-bottom:10px; }
+    .hero-sub { font-size:15px; color:var(--text-secondary); max-width:580px; line-height:1.65; margin-bottom:32px; }
 
-    /* ── STAT BAR ── */
-    .stat-bar {
-      display:flex; gap:0; border:1px solid var(--border2); border-radius:4px; overflow:hidden;
-      margin:36px 0 0; width:fit-content;
-    }
-    .stat-cell {
-      padding:14px 28px; border-right:1px solid var(--border2); background:var(--bg2);
-      display:flex; flex-direction:column; gap:4px;
-    }
-    .stat-cell:last-child { border-right:none; }
-    .stat-label { font-family:var(--mono); font-size:9px; letter-spacing:2px; text-transform:uppercase; color:var(--muted); }
-    .stat-value { font-family:var(--mono); font-size:20px; font-weight:700; color:var(--green); }
-    .stat-value.neutral { color:#fff; }
-    @media(max-width:700px) { .stat-bar { flex-wrap:wrap; width:100%; } .stat-cell { flex:1 1 45%; border-right:1px solid var(--border2); border-bottom:1px solid var(--border2); } }
+    /* ── STAT STRIP ── */
+    .stat-strip { display:flex; gap:32px; flex-wrap:wrap; }
+    .stat-item { display:flex; flex-direction:column; gap:3px; }
+    .stat-value { font-family:var(--font-mono); font-size:22px; font-weight:700; color:var(--text-primary); }
+    .stat-value.accent { color:var(--accent); }
+    .stat-value.warning { color:var(--warning); }
+    .stat-label { font-size:11px; color:var(--text-tertiary); }
 
     /* ── CONTROLS ── */
-    .controls { padding:28px 0 0; display:flex; flex-direction:column; gap:16px; }
-    .search-row { display:flex; align-items:center; gap:12px; }
-    .search-wrap {
-      position:relative; flex:1; max-width:540px;
-    }
-    .search-icon {
-      position:absolute; left:14px; top:50%; transform:translateY(-50%);
-      color:var(--muted); pointer-events:none;
-    }
+    .controls { padding:28px 0 0; display:flex; flex-direction:column; gap:14px; }
+    .controls-row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+    .search-wrap { position:relative; flex:1; min-width:200px; max-width:500px; }
+    .search-icon { position:absolute; left:12px; top:50%; transform:translateY(-50%); color:var(--text-tertiary); pointer-events:none; }
     .search-input {
-      width:100%; padding:12px 14px 12px 40px;
-      background:var(--bg2); border:1px solid var(--border2); color:var(--text);
-      font-family:var(--mono); font-size:13px; border-radius:3px;
-      outline:none; transition:border-color 0.2s, box-shadow 0.2s;
+      width:100%; padding:9px 12px 9px 36px;
+      background:var(--bg-surface); border:1px solid var(--border-default); color:var(--text-primary);
+      font-family:var(--font-sans); font-size:13px; border-radius:var(--radius-md);
+      outline:none; transition:border-color 0.15s, box-shadow 0.15s;
     }
-    .search-input::placeholder { color:var(--muted); }
-    .search-input:focus { border-color:rgba(0,255,136,0.5); box-shadow:0 0 0 3px rgba(0,255,136,0.06); }
-    .search-clear { display:none; position:absolute; right:12px; top:50%; transform:translateY(-50%); background:none; border:none; color:var(--muted); cursor:pointer; font-size:16px; line-height:1; padding:2px 4px; }
+    .search-input::placeholder { color:var(--text-muted); }
+    .search-input:focus { border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-subtle); }
+    .search-clear { display:none; position:absolute; right:10px; top:50%; transform:translateY(-50%); background:none; border:none; color:var(--text-tertiary); cursor:pointer; font-size:16px; line-height:1; }
     .search-clear.show { display:block; }
-
     .sort-select {
-      background:var(--bg2); border:1px solid var(--border2); color:var(--muted2);
-      font-family:var(--mono); font-size:11px; padding:11px 14px; border-radius:3px;
-      cursor:pointer; outline:none; letter-spacing:0.5px;
+      background:var(--bg-surface); border:1px solid var(--border-default); color:var(--text-secondary);
+      font-family:var(--font-sans); font-size:13px; padding:9px 12px; border-radius:var(--radius-md);
+      cursor:pointer; outline:none;
     }
-    .sort-select:focus { border-color:rgba(0,255,136,0.4); }
-
+    .sort-select:focus { border-color:var(--accent); }
     .refresh-btn {
-      background:none; border:1px solid var(--border2); color:var(--muted); cursor:pointer;
-      font-family:var(--mono); font-size:11px; padding:11px 16px; border-radius:3px;
-      display:flex; align-items:center; gap:6px; transition:all 0.2s; letter-spacing:0.5px;
-      white-space:nowrap;
+      background:var(--bg-surface); border:1px solid var(--border-default); color:var(--text-tertiary);
+      cursor:pointer; font-family:var(--font-sans); font-size:12px; font-weight:500;
+      padding:9px 14px; border-radius:var(--radius-md);
+      display:flex; align-items:center; gap:6px; transition:all 0.15s; white-space:nowrap;
     }
-    .refresh-btn:hover { border-color:var(--green); color:var(--green); }
+    .refresh-btn:hover { border-color:var(--border-strong); color:var(--text-primary); }
     .refresh-btn svg { transition:transform 0.4s; }
     .refresh-btn.spinning svg { animation:spin 0.8s linear infinite; }
     @keyframes spin { to { transform:rotate(360deg); } }
 
     /* filter chips */
-    .filter-row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
-    .filter-label { font-family:var(--mono); font-size:10px; letter-spacing:1.5px; text-transform:uppercase; color:var(--muted); margin-right:4px; }
+    .filter-row { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+    .filter-label { font-size:11px; font-weight:500; color:var(--text-muted); margin-right:4px; text-transform:uppercase; letter-spacing:0.06em; }
     .chip {
-      font-family:var(--mono); font-size:10px; letter-spacing:1px; text-transform:uppercase;
-      padding:6px 14px; border-radius:2px; border:1px solid var(--border2);
-      background:transparent; color:var(--muted); cursor:pointer; transition:all 0.15s;
+      font-size:12px; font-weight:500; padding:5px 12px; border-radius:var(--radius-sm);
+      border:1px solid var(--border-default); background:transparent;
+      color:var(--text-tertiary); cursor:pointer; transition:all 0.15s;
     }
-    .chip:hover { border-color:rgba(0,255,136,0.4); color:var(--muted2); }
-    .chip.active { background:var(--green-dim); border-color:rgba(0,255,136,0.5); color:var(--green); }
-    .chip .dot { display:inline-block; width:5px; height:5px; border-radius:50%; margin-right:5px; vertical-align:middle; margin-top:-1px; }
-    .chip.status-op  { --dot-col:#00ff88; }
-    .chip.status-deg { --dot-col:#ffaa00; }
-    .chip.status-dn  { --dot-col:#ff4444; }
-    .chip .dot { background:var(--dot-col, var(--muted)); }
+    .chip:hover { color:var(--text-primary); border-color:var(--border-strong); background:var(--bg-surface-2); }
+    .chip.active { background:var(--accent-dim); border-color:rgba(16,185,129,0.3); color:var(--accent); }
+    .chip .dot { display:inline-block; width:5px; height:5px; border-radius:50%; margin-right:5px; vertical-align:middle; }
+    .chip.status-op  .dot { background:var(--accent); }
+    .chip.status-deg .dot { background:var(--warning); }
+    .chip.status-dn  .dot { background:var(--danger); }
 
-    /* result count */
-    .result-meta { font-family:var(--mono); font-size:11px; color:var(--muted); margin-top:16px; display:flex; align-items:center; gap:16px; }
-    .live-dot { display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--green); margin-right:4px; animation:pulse 2s infinite; }
+    /* result meta */
+    .result-meta { display:flex; align-items:center; gap:16px; font-size:12px; color:var(--text-tertiary); margin-top:4px; }
+    .live-dot { display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--accent); margin-right:5px; animation:pulse 2s infinite; }
     @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
 
-    /* ── ENDPOINT GRID ── */
+    /* ── GRID ── */
     .endpoint-grid {
       display:grid;
-      grid-template-columns:repeat(auto-fill, minmax(380px, 1fr));
+      grid-template-columns:repeat(auto-fill, minmax(360px, 1fr));
       gap:12px;
-      padding:20px 0 64px;
+      padding:24px 0 80px;
     }
-    @media(max-width:860px) { .endpoint-grid { grid-template-columns:1fr; } }
+    @media(max-width:800px) { .endpoint-grid { grid-template-columns:1fr; } }
 
-    /* ── ENDPOINT CARD ── */
+    /* ── CARD ── */
     .ep-card {
-      background:var(--bg2); border:1px solid var(--border2); border-radius:4px;
-      cursor:pointer; transition:border-color 0.2s, box-shadow 0.2s;
+      background:var(--bg-surface); border:1px solid var(--border-subtle);
+      border-radius:var(--radius-lg); cursor:pointer;
+      transition:border-color 0.15s, box-shadow 0.15s;
       overflow:hidden;
     }
-    .ep-card:hover { border-color:rgba(0,255,136,0.3); box-shadow:0 4px 24px rgba(0,0,0,0.4); }
-    .ep-card.expanded { border-color:rgba(0,255,136,0.45); box-shadow:0 0 0 1px rgba(0,255,136,0.1), 0 8px 32px rgba(0,0,0,0.5); }
+    .ep-card:hover { border-color:var(--border-strong); box-shadow:0 4px 20px rgba(0,0,0,0.3); }
+    .ep-card.expanded { border-color:rgba(16,185,129,0.3); box-shadow:0 0 0 1px rgba(16,185,129,0.08), 0 8px 32px rgba(0,0,0,0.4); }
 
-    .ep-header { padding:18px 20px 14px; display:flex; align-items:flex-start; gap:14px; }
-    .ep-status-col { padding-top:4px; flex-shrink:0; }
-    .status-dot { width:9px; height:9px; border-radius:50%; flex-shrink:0; }
-    .status-dot.operational { background:var(--green); box-shadow:0 0 6px rgba(0,255,136,0.6); }
-    .status-dot.degraded    { background:var(--yellow); box-shadow:0 0 6px rgba(255,170,0,0.5); }
-    .status-dot.down        { background:var(--red); box-shadow:0 0 6px rgba(255,68,68,0.5); }
-    .status-dot.skeleton    { background:var(--border2); animation:shimmer 1.5s infinite; }
+    .ep-header { padding:16px 18px 12px; display:flex; align-items:flex-start; gap:12px; }
+    .ep-status-col { padding-top:3px; flex-shrink:0; }
+    .ep-status-dot { width:8px; height:8px; border-radius:50%; }
+    .ep-status-dot.operational { background:var(--accent); box-shadow:0 0 5px rgba(16,185,129,0.5); }
+    .ep-status-dot.degraded    { background:var(--warning); box-shadow:0 0 5px rgba(245,158,11,0.4); }
+    .ep-status-dot.down        { background:var(--danger); box-shadow:0 0 5px rgba(239,68,68,0.4); }
+    .ep-status-dot.skeleton    { background:var(--border-default); animation:shimmer 1.5s infinite; }
     @keyframes shimmer { 0%,100%{opacity:0.4} 50%{opacity:1} }
 
     .ep-main { flex:1; min-width:0; }
-    .ep-name { font-size:14px; font-weight:600; color:#fff; margin-bottom:4px; line-height:1.3; }
-    .ep-provider { font-family:var(--mono); font-size:10px; letter-spacing:1px; color:var(--muted); text-transform:uppercase; margin-bottom:6px; }
-    .ep-desc { font-size:13px; color:var(--muted2); line-height:1.55; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+    .ep-name { font-size:14px; font-weight:600; color:var(--text-primary); margin-bottom:3px; }
+    .ep-provider { font-family:var(--font-mono); font-size:10px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:6px; }
+    .ep-desc { font-size:13px; color:var(--text-secondary); line-height:1.5; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
 
-    .ep-badges { padding:0 20px 12px; display:flex; gap:6px; flex-wrap:wrap; }
-    .badge {
-      font-family:var(--mono); font-size:9px; letter-spacing:1.5px; text-transform:uppercase;
-      padding:3px 8px; border-radius:2px; border:1px solid;
+    .ep-badges { padding:0 18px 10px; display:flex; gap:5px; flex-wrap:wrap; }
+    .ep-badge {
+      font-size:10px; font-weight:500; padding:2px 8px; border-radius:var(--radius-sm); border:1px solid;
     }
-    .badge-cat-solana      { color:#9945ff; border-color:rgba(153,69,255,0.35); background:rgba(153,69,255,0.07); }
-    .badge-cat-social      { color:#4488ff; border-color:rgba(68,136,255,0.35); background:rgba(68,136,255,0.07); }
-    .badge-cat-defi        { color:#00d4ff; border-color:rgba(0,212,255,0.35); background:rgba(0,212,255,0.07); }
-    .badge-cat-oracle      { color:#ffaa00; border-color:rgba(255,170,0,0.35); background:rgba(255,170,0,0.07); }
-    .badge-cat-intelligence{ color:#ff6b6b; border-color:rgba(255,107,107,0.35); background:rgba(255,107,107,0.07); }
-    .badge-cat-scraping    { color:#a8e6cf; border-color:rgba(168,230,207,0.35); background:rgba(168,230,207,0.07); }
-    .badge-cat-utility     { color:#ddd; border-color:rgba(255,255,255,0.2); background:rgba(255,255,255,0.04); }
-    .badge-cat-discovery   { color:#c084fc; border-color:rgba(192,132,252,0.35); background:rgba(192,132,252,0.07); }
+    .badge-solana      { color:var(--purple); border-color:rgba(139,92,246,0.3); background:var(--purple-dim); }
+    .badge-social      { color:var(--info); border-color:rgba(59,130,246,0.3); background:var(--info-dim); }
+    .badge-defi        { color:#06b6d4; border-color:rgba(6,182,212,0.3); background:rgba(6,182,212,0.1); }
+    .badge-oracle      { color:var(--warning); border-color:rgba(245,158,11,0.3); background:var(--warning-dim); }
+    .badge-intelligence{ color:var(--danger); border-color:rgba(239,68,68,0.3); background:var(--danger-dim); }
+    .badge-scraping    { color:var(--accent); border-color:rgba(16,185,129,0.3); background:var(--accent-dim); }
+    .badge-utility     { color:var(--text-secondary); border-color:var(--border-default); background:var(--bg-surface-2); }
+    .badge-discovery   { color:#c084fc; border-color:rgba(192,132,252,0.3); background:rgba(192,132,252,0.1); }
+    .badge-security    { color:var(--danger); border-color:rgba(239,68,68,0.3); background:var(--danger-dim); }
+    .badge-search      { color:var(--info); border-color:rgba(59,130,246,0.3); background:var(--info-dim); }
+    .badge-media       { color:#f97316; border-color:rgba(249,115,22,0.3); background:rgba(249,115,22,0.1); }
+    .badge-enrichment  { color:var(--accent); border-color:rgba(16,185,129,0.3); background:var(--accent-dim); }
+    .badge-weather     { color:#38bdf8; border-color:rgba(56,189,248,0.3); background:rgba(56,189,248,0.1); }
+    .badge-ai-ml       { color:var(--purple); border-color:rgba(139,92,246,0.3); background:var(--purple-dim); }
+    .badge-infrastructure { color:var(--text-tertiary); border-color:var(--border-default); background:var(--bg-surface-2); }
+    .badge-status-operational { color:var(--accent); border-color:rgba(16,185,129,0.25); background:transparent; }
+    .badge-status-degraded    { color:var(--warning); border-color:rgba(245,158,11,0.25); background:transparent; }
+    .badge-status-down        { color:var(--danger); border-color:rgba(239,68,68,0.25); background:transparent; }
 
-    .ep-metrics { padding:0 20px 16px; display:flex; gap:16px; }
+    .ep-metrics { padding:0 18px 14px; display:flex; gap:20px; }
     .metric { display:flex; flex-direction:column; gap:2px; }
-    .metric-label { font-family:var(--mono); font-size:9px; letter-spacing:1.5px; text-transform:uppercase; color:var(--muted); }
-    .metric-value { font-family:var(--mono); font-size:13px; color:var(--muted2); font-weight:700; }
-    .metric-value.green { color:var(--green); }
+    .metric-label { font-size:10px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.06em; }
+    .metric-value { font-family:var(--font-mono); font-size:12px; font-weight:700; color:var(--text-secondary); }
+    .metric-value.accent { color:var(--accent); }
 
-    .ep-divider { border:none; border-top:1px solid var(--border); margin:0 20px; }
-    .ep-id-row { padding:10px 20px; display:flex; align-items:center; justify-content:space-between; }
-    .ep-id { font-family:var(--mono); font-size:11px; color:var(--muted); letter-spacing:0.5px; }
-    .ep-chevron { color:var(--muted); transition:transform 0.2s; font-size:12px; }
+    .ep-divider { border:none; border-top:1px solid var(--border-subtle); margin:0 18px; }
+    .ep-id-row { padding:9px 18px; display:flex; align-items:center; justify-content:space-between; }
+    .ep-id { font-family:var(--font-mono); font-size:11px; color:var(--text-muted); }
+    .ep-chevron { color:var(--text-muted); font-size:11px; transition:transform 0.2s; }
     .ep-card.expanded .ep-chevron { transform:rotate(180deg); }
 
-    /* ── EXPANDED DETAIL ── */
-    .ep-detail {
-      display:none; padding:0 20px 20px;
-      border-top:1px solid var(--border);
-    }
+    /* ── DETAIL ── */
+    .ep-detail { display:none; padding:0 18px 18px; border-top:1px solid var(--border-subtle); }
     .ep-card.expanded .ep-detail { display:block; }
 
-    .detail-section { margin-top:16px; }
-    .detail-title { font-family:var(--mono); font-size:9px; letter-spacing:2px; text-transform:uppercase; color:var(--muted); margin-bottom:10px; }
+    .detail-section { margin-top:14px; }
+    .detail-title { font-size:10px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.08em; margin-bottom:8px; }
     .schema-table { width:100%; border-collapse:collapse; }
-    .schema-table td { padding:7px 10px; font-size:12px; border-bottom:1px solid var(--border); vertical-align:top; }
-    .schema-table td:first-child { font-family:var(--mono); font-size:11px; color:var(--green); width:38%; }
-    .schema-table td:last-child { color:var(--muted2); }
+    .schema-table td { padding:6px 8px; font-size:12px; border-bottom:1px solid var(--border-subtle); vertical-align:top; }
+    .schema-table td:first-child { font-family:var(--font-mono); font-size:11px; color:var(--accent); width:38%; }
+    .schema-table td:last-child { color:var(--text-secondary); }
     .schema-table tr:last-child td { border-bottom:none; }
-    .output-list { display:flex; flex-wrap:wrap; gap:6px; }
-    .output-tag { font-family:var(--mono); font-size:10px; padding:4px 8px; background:var(--bg3); border:1px solid var(--border2); color:var(--muted2); border-radius:2px; }
+    .output-list { display:flex; flex-wrap:wrap; gap:5px; }
+    .output-tag { font-family:var(--font-mono); font-size:10px; padding:3px 8px; background:var(--bg-surface-2); border:1px solid var(--border-default); color:var(--text-secondary); border-radius:var(--radius-sm); }
 
-    .detail-status-row { display:flex; align-items:center; gap:20px; margin-top:16px; padding:12px 14px; background:var(--bg3); border:1px solid var(--border2); border-radius:3px; }
-    .ds-item { display:flex; flex-direction:column; gap:3px; }
-    .ds-label { font-family:var(--mono); font-size:9px; letter-spacing:1.5px; text-transform:uppercase; color:var(--muted); }
-    .ds-value { font-family:var(--mono); font-size:12px; color:var(--muted2); }
-    .ds-value.green { color:var(--green); }
-    .ds-value.yellow { color:var(--yellow); }
-    .ds-value.red { color:var(--red); }
+    .detail-status-row {
+      display:flex; align-items:center; gap:20px; margin-top:14px;
+      padding:12px 14px; background:var(--bg-primary);
+      border:1px solid var(--border-subtle); border-radius:var(--radius-md);
+      flex-wrap:wrap; gap:12px;
+    }
+    .ds-item { display:flex; flex-direction:column; gap:2px; }
+    .ds-label { font-size:10px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.06em; }
+    .ds-value { font-family:var(--font-mono); font-size:12px; color:var(--text-secondary); }
+    .ds-value.accent  { color:var(--accent); }
+    .ds-value.warning { color:var(--warning); }
+    .ds-value.danger  { color:var(--danger); }
 
-    .copy-row { display:flex; align-items:center; gap:8px; margin-top:14px; }
-    .copy-code { font-family:var(--mono); font-size:11px; background:var(--bg3); border:1px solid var(--border2); padding:8px 12px; flex:1; color:var(--muted2); border-radius:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .copy-btn { background:none; border:1px solid var(--border2); color:var(--muted); font-family:var(--mono); font-size:10px; padding:8px 12px; cursor:pointer; border-radius:3px; letter-spacing:0.5px; transition:all 0.15s; white-space:nowrap; flex-shrink:0; }
-    .copy-btn:hover { border-color:var(--green); color:var(--green); }
-    .copy-btn.copied { border-color:var(--green); color:var(--green); }
+    .copy-row { display:flex; align-items:center; gap:8px; margin-top:12px; }
+    .copy-code {
+      font-family:var(--font-mono); font-size:11px;
+      background:var(--bg-primary); border:1px solid var(--border-subtle);
+      padding:8px 12px; flex:1; color:var(--text-secondary);
+      border-radius:var(--radius-md); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    }
+    .copy-btn {
+      background:var(--bg-surface-2); border:1px solid var(--border-default);
+      color:var(--text-tertiary); font-family:var(--font-sans); font-size:11px; font-weight:500;
+      padding:7px 12px; cursor:pointer; border-radius:var(--radius-md);
+      transition:all 0.15s; white-space:nowrap; flex-shrink:0;
+    }
+    .copy-btn:hover { border-color:var(--border-strong); color:var(--text-primary); }
+    .copy-btn.copied { border-color:rgba(16,185,129,0.4); color:var(--accent); }
 
-    /* ── EMPTY STATE ── */
-    .empty-state { padding:80px 0; text-align:center; }
-    .empty-state-icon { font-size:40px; margin-bottom:16px; opacity:0.4; }
-    .empty-state-title { font-family:var(--mono); font-size:14px; color:var(--muted); margin-bottom:8px; }
-    .empty-state-sub { font-size:13px; color:var(--muted); }
+    /* ── EMPTY / SKELETON ── */
+    .empty-state { padding:80px 0; text-align:center; grid-column:1/-1; }
+    .empty-state-title { font-size:15px; font-weight:500; color:var(--text-tertiary); margin-bottom:8px; }
+    .empty-state-sub { font-size:13px; color:var(--text-muted); }
+    .skeleton-card { background:var(--bg-surface); border:1px solid var(--border-subtle); border-radius:var(--radius-lg); padding:20px; height:180px; }
+    .skel { background:var(--border-subtle); border-radius:var(--radius-sm); animation:shimmer 1.5s infinite; }
 
-    /* ── LOADING SKELETON ── */
-    .skeleton-card { background:var(--bg2); border:1px solid var(--border2); border-radius:4px; padding:20px; height:180px; }
-    .skel { background:var(--border2); border-radius:2px; animation:shimmer 1.5s infinite; }
-
-    /* ── FOOTER NOTE ── */
-    .page-footer { text-align:center; padding:40px 0 24px; border-top:1px solid var(--border); margin-top:0; }
-    .page-footer p { font-family:var(--mono); font-size:11px; color:var(--muted); line-height:1.8; }
-    .page-footer a { color:var(--green); text-decoration:none; }
+    /* ── FOOTER ── */
+    footer {
+      display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:16px;
+      padding:24px; border-top:1px solid var(--border-subtle);
+      font-size:12px; color:var(--text-muted);
+    }
+    .footer-left { display:flex; align-items:center; gap:24px; flex-wrap:wrap; }
+    .footer-logo img { height:20px; width:auto; display:block; opacity:0.6; }
+    .footer-links { display:flex; gap:16px; list-style:none; flex-wrap:wrap; }
+    .footer-links a { color:var(--text-muted); text-decoration:none; transition:color 0.15s; }
+    .footer-links a:hover { color:var(--text-secondary); }
+    .footer-copy { color:var(--text-muted); }
   </style>
 </head>
 <body>
-  <div class="grid-bg"></div>
-
-  <nav>
-    <a href="https://claw-net.org" class="nav-logo">
-      <img src="/logo.png" alt="Claw-Net.org" onerror="this.style.display='none'">
-    </a>
+<!-- NAV -->
+<nav>
+  <div class="nav-left">
+    <a href="/" class="nav-logo"><img src="/logo.png" alt="ClawNet"></a>
     <ul class="nav-links">
-      <li><a href="https://claw-net.org/#how-it-works">How It Works</a></li>
-      <li><a href="https://claw-net.org/#pricing">Pricing</a></li>
-      <li><a href="https://claw-net.org/#contact">Contact</a></li>
-      <li><a href="/docs.html">API Docs</a></li>
+      <li><a href="/">Home</a></li>
+      <li><a href="/docs.html">Docs</a></li>
       <li><a href="/marketplace.html">Marketplace</a></li>
       <li><a href="/endpoints.html" class="active">Endpoints</a></li>
+      <li><a href="/dashboard.html">Dashboard</a></li>
     </ul>
-    <a href="https://claw-net.org/#pricing" class="nav-cta">Get API Key</a>
-  </nav>
+  </div>
+  <div class="nav-right">
+    <div class="nav-status" id="navApiStatus">
+      <span class="status-dot" id="statusDot"></span>
+      <span id="statusLabel">Checking...</span>
+    </div>
+    <div class="nav-credits" id="nav-credits-badge"><span id="nav-credits-num">&mdash;</span> credits</div>
+    <span class="nav-email" id="nav-user-email"></span>
+    <a href="/login.html" class="nav-login" id="nav-login-btn">Sign In</a>
+    <a href="#" class="nav-cta" id="nav-getkey-btn" style="display:none">Get API Key</a>
+    <a href="/dashboard.html" class="nav-btn-ghost" id="nav-dash-btn" style="display:none">Dashboard</a>
+    <button class="nav-btn-ghost danger" id="nav-signout-btn" onclick="navSignOut()" style="cursor:pointer;display:none">Sign Out</button>
+  </div>
+</nav>
 
-  <div class="page">
-    <div class="container">
+<div class="page">
+  <div class="container">
 
-      <!-- HERO -->
-      <div class="hero">
-        <div class="hero-eyebrow">API Reference</div>
-        <h1 class="hero-title">Endpoint Catalog</h1>
-        <p class="hero-sub">Browse every API endpoint available through ClawNet — live status, real-time latency, and pricing. All routed automatically by our orchestration layer via x402 micropayments.</p>
+    <!-- HERO -->
+    <div class="hero">
+      <div class="hero-eyebrow">API Registry</div>
+      <h1 class="hero-title">Endpoint Catalog</h1>
+      <p class="hero-sub">Live catalog of all API endpoints available through ClawNet orchestration. Real-time status, latency, and credit costs — routed automatically via x402 micropayments.</p>
 
-        <div class="stat-bar" id="statBar">
-          <div class="stat-cell">
-            <span class="stat-label">Total Endpoints</span>
-            <span class="stat-value" id="statTotal">—</span>
-          </div>
-          <div class="stat-cell">
-            <span class="stat-label">Live</span>
-            <span class="stat-value" id="statOp">—</span>
-          </div>
-          <div class="stat-cell">
-            <span class="stat-label">Providers</span>
-            <span class="stat-value neutral" id="statProviders">—</span>
-          </div>
-          <div class="stat-cell">
-            <span class="stat-label">Avg Latency</span>
-            <span class="stat-value neutral" id="statLatency">—</span>
-          </div>
-          <div class="stat-cell">
-            <span class="stat-label">Avg Cost</span>
-            <span class="stat-value neutral" id="statCost">—</span>
-          </div>
+      <div class="stat-strip">
+        <div class="stat-item">
+          <span class="stat-value" id="statTotal">—</span>
+          <span class="stat-label">Total Endpoints</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-value accent" id="statOp">—</span>
+          <span class="stat-label">Operational</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-value warning" id="statDegraded">—</span>
+          <span class="stat-label">Degraded</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-value" id="statProviders">—</span>
+          <span class="stat-label">Providers</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-value" id="statLatency">—</span>
+          <span class="stat-label">Avg Latency</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-value" id="statCost">—</span>
+          <span class="stat-label">Avg Cost</span>
         </div>
       </div>
+    </div>
 
-      <!-- CONTROLS -->
-      <div class="controls">
-        <div class="search-row">
-          <div class="search-wrap">
-            <span class="search-icon">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-            </span>
-            <input id="searchInput" class="search-input" type="text" placeholder="Search endpoints, providers, capabilities…" autocomplete="off" spellcheck="false">
-            <button class="search-clear" id="searchClear" onclick="clearSearch()" title="Clear">×</button>
-          </div>
-          <select class="sort-select" id="sortSelect" onchange="render()">
-            <option value="name">Sort: Name</option>
-            <option value="cost-asc">Sort: Cheapest First</option>
-            <option value="cost-desc">Sort: Most Expensive</option>
-            <option value="latency-asc">Sort: Fastest First</option>
-            <option value="latency-desc">Sort: Slowest First</option>
-            <option value="status">Sort: Status</option>
-            <option value="provider">Sort: Provider</option>
-          </select>
-          <button class="refresh-btn" id="refreshBtn" onclick="loadEndpoints(true)">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-            Refresh
-          </button>
+    <!-- CONTROLS -->
+    <div class="controls">
+      <div class="controls-row">
+        <div class="search-wrap">
+          <span class="search-icon">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          </span>
+          <input id="searchInput" class="search-input" type="text" placeholder="Search endpoints, providers, capabilities…" autocomplete="off" spellcheck="false">
+          <button class="search-clear" id="searchClear" onclick="clearSearch()" title="Clear">×</button>
         </div>
-
-        <div class="filter-row">
-          <span class="filter-label">Category</span>
-          <button class="chip active" data-filter="category" data-value="all" onclick="setFilter('category','all',this)">All</button>
-          <button class="chip" data-filter="category" data-value="solana" onclick="setFilter('category','solana',this)">Solana</button>
-          <button class="chip" data-filter="category" data-value="defi" onclick="setFilter('category','defi',this)">DeFi</button>
-          <button class="chip" data-filter="category" data-value="oracle" onclick="setFilter('category','oracle',this)">Oracle</button>
-          <button class="chip" data-filter="category" data-value="intelligence" onclick="setFilter('category','intelligence',this)">Intelligence</button>
-          <button class="chip" data-filter="category" data-value="social" onclick="setFilter('category','social',this)">Social</button>
-          <button class="chip" data-filter="category" data-value="scraping" onclick="setFilter('category','scraping',this)">Scraping</button>
-          <button class="chip" data-filter="category" data-value="utility" onclick="setFilter('category','utility',this)">Utility</button>
-          <button class="chip" data-filter="category" data-value="discovery" onclick="setFilter('category','discovery',this)">Discovery</button>
-        </div>
-
-        <div class="filter-row">
-          <span class="filter-label">Status</span>
-          <button class="chip active" data-filter="status" data-value="all" onclick="setFilter('status','all',this)">All</button>
-          <button class="chip status-op"  data-filter="status" data-value="operational" onclick="setFilter('status','operational',this)"><span class="dot"></span>Operational</button>
-          <button class="chip status-deg" data-filter="status" data-value="degraded"    onclick="setFilter('status','degraded',this)"><span class="dot"></span>Degraded</button>
-          <button class="chip status-dn"  data-filter="status" data-value="down"        onclick="setFilter('status','down',this)"><span class="dot"></span>Down</button>
-        </div>
-
-        <div class="result-meta">
-          <span><span class="live-dot"></span><span id="resultCount">Loading…</span></span>
-          <span id="lastUpdated" style="color:var(--muted)"></span>
-        </div>
+        <select class="sort-select" id="sortSelect" onchange="render()">
+          <option value="name">Sort: Name</option>
+          <option value="cost-asc">Cheapest First</option>
+          <option value="cost-desc">Most Expensive</option>
+          <option value="latency-asc">Fastest First</option>
+          <option value="latency-desc">Slowest First</option>
+          <option value="status">By Status</option>
+          <option value="provider">By Provider</option>
+        </select>
+        <button class="refresh-btn" id="refreshBtn" onclick="loadEndpoints(true)">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+          Refresh
+        </button>
       </div>
 
-      <!-- GRID -->
-      <div class="endpoint-grid" id="endpointGrid">
-        <!-- skeleton -->
-        <div class="skeleton-card"><div class="skel" style="height:12px;width:60%;margin-bottom:10px"></div><div class="skel" style="height:10px;width:40%;margin-bottom:18px"></div><div class="skel" style="height:10px;width:90%;margin-bottom:6px"></div><div class="skel" style="height:10px;width:75%"></div></div>
-        <div class="skeleton-card"><div class="skel" style="height:12px;width:55%;margin-bottom:10px"></div><div class="skel" style="height:10px;width:35%;margin-bottom:18px"></div><div class="skel" style="height:10px;width:85%;margin-bottom:6px"></div><div class="skel" style="height:10px;width:70%"></div></div>
-        <div class="skeleton-card"><div class="skel" style="height:12px;width:65%;margin-bottom:10px"></div><div class="skel" style="height:10px;width:45%;margin-bottom:18px"></div><div class="skel" style="height:10px;width:80%;margin-bottom:6px"></div><div class="skel" style="height:10px;width:65%"></div></div>
+      <div class="filter-row">
+        <span class="filter-label">Category</span>
+        <button class="chip active" data-filter="category" data-value="all" onclick="setFilter('category','all',this)">All</button>
+        <button class="chip" data-filter="category" data-value="solana" onclick="setFilter('category','solana',this)">Solana</button>
+        <button class="chip" data-filter="category" data-value="defi" onclick="setFilter('category','defi',this)">DeFi</button>
+        <button class="chip" data-filter="category" data-value="oracle" onclick="setFilter('category','oracle',this)">Oracle</button>
+        <button class="chip" data-filter="category" data-value="intelligence" onclick="setFilter('category','intelligence',this)">Intelligence</button>
+        <button class="chip" data-filter="category" data-value="social" onclick="setFilter('category','social',this)">Social</button>
+        <button class="chip" data-filter="category" data-value="scraping" onclick="setFilter('category','scraping',this)">Scraping</button>
+        <button class="chip" data-filter="category" data-value="utility" onclick="setFilter('category','utility',this)">Utility</button>
+        <button class="chip" data-filter="category" data-value="discovery" onclick="setFilter('category','discovery',this)">Discovery</button>
+        <button class="chip" data-filter="category" data-value="ai-ml" onclick="setFilter('category','ai-ml',this)">AI/ML</button>
+        <button class="chip" data-filter="category" data-value="security" onclick="setFilter('category','security',this)">Security</button>
       </div>
 
-      <div class="page-footer">
-        <p>
-          Status reflects live circuit breaker state — refreshed every 30 seconds.<br>
-          All pricing is in USD per API call, charged in credits.<br>
-          <a href="https://claw-net.org/#api">API Documentation</a> · <a href="https://claw-net.org/#pricing">Pricing Plans</a> · <a href="https://claw-net.org/#contact">Contact</a> · <a href="https://stats.uptimerobot.com/BtyHzXcO5p" target="_blank" rel="noopener">Status</a>
-        </p>
+      <div class="filter-row">
+        <span class="filter-label">Status</span>
+        <button class="chip active" data-filter="status" data-value="all" onclick="setFilter('status','all',this)">All</button>
+        <button class="chip status-op"  data-filter="status" data-value="operational" onclick="setFilter('status','operational',this)"><span class="dot"></span>Operational</button>
+        <button class="chip status-deg" data-filter="status" data-value="degraded"    onclick="setFilter('status','degraded',this)"><span class="dot"></span>Degraded</button>
+        <button class="chip status-dn"  data-filter="status" data-value="down"        onclick="setFilter('status','down',this)"><span class="dot"></span>Down</button>
       </div>
 
-    </div><!-- /container -->
-  </div><!-- /page -->
+      <div class="result-meta">
+        <span><span class="live-dot"></span><span id="resultCount">Loading…</span></span>
+        <span id="lastUpdated"></span>
+      </div>
+    </div>
+
+    <!-- GRID -->
+    <div class="endpoint-grid" id="endpointGrid">
+      <div class="skeleton-card"><div class="skel" style="height:12px;width:60%;margin-bottom:10px"></div><div class="skel" style="height:10px;width:40%;margin-bottom:18px"></div><div class="skel" style="height:10px;width:90%;margin-bottom:6px"></div><div class="skel" style="height:10px;width:75%"></div></div>
+      <div class="skeleton-card"><div class="skel" style="height:12px;width:55%;margin-bottom:10px"></div><div class="skel" style="height:10px;width:35%;margin-bottom:18px"></div><div class="skel" style="height:10px;width:85%;margin-bottom:6px"></div><div class="skel" style="height:10px;width:70%"></div></div>
+      <div class="skeleton-card"><div class="skel" style="height:12px;width:65%;margin-bottom:10px"></div><div class="skel" style="height:10px;width:45%;margin-bottom:18px"></div><div class="skel" style="height:10px;width:80%;margin-bottom:6px"></div><div class="skel" style="height:10px;width:65%"></div></div>
+    </div>
+
+  </div><!-- /container -->
+
+  <!-- FOOTER -->
+  <footer>
+    <div class="footer-left">
+      <a href="/" class="footer-logo"><img src="/logo.png" alt="ClawNet"></a>
+      <ul class="footer-links">
+        <li><a href="/">Home</a></li>
+        <li><a href="/docs.html">Docs</a></li>
+        <li><a href="/marketplace.html">Marketplace</a></li>
+        <li><a href="/endpoints.html">Endpoints</a></li>
+        <li><a href="/dashboard.html">Dashboard</a></li>
+        <li><a href="https://github.com/1xmint" target="_blank">GitHub</a></li>
+        <li><a href="https://t.me/claw_net" target="_blank">Telegram</a></li>
+        <li><a href="https://stats.uptimerobot.com/BtyHzXcO5p" target="_blank">Status</a></li>
+      </ul>
+    </div>
+    <div class="footer-copy">&copy; 2026 ClawNet &middot; Powered by x402</div>
+  </footer>
+</div><!-- /page -->
 
 <script>
 const API_BASE = 'https://api.claw-net.org';
-
 let allEndpoints = [];
 let filters = { category: 'all', status: 'all' };
 let expandedId = null;
 
-// ── FETCH ──────────────────────────────────────────────────────────────────
+// ── NAV ─────────────────────────────────────────────────────────────────────
+async function initNav() {
+  try {
+    await Clerk.load();
+    const user = Clerk.user;
+    const loginBtn  = document.getElementById('nav-login-btn');
+    const getkeyBtn = document.getElementById('nav-getkey-btn');
+    const dashBtn   = document.getElementById('nav-dash-btn');
+    const signoutBtn= document.getElementById('nav-signout-btn');
+    const emailEl   = document.getElementById('nav-user-email');
+    if (user) {
+      loginBtn.style.display  = 'none';
+      getkeyBtn.style.display = 'none';
+      dashBtn.style.display   = '';
+      signoutBtn.style.display= '';
+      emailEl.textContent = user.primaryEmailAddress?.emailAddress || '';
+      refreshCredits();
+    } else {
+      dashBtn.style.display   = 'none';
+      signoutBtn.style.display= 'none';
+    }
+  } catch(e) {}
+  fetchApiStatus();
+}
+
+async function navSignOut() {
+  try { await Clerk.signOut(); location.href = '/'; } catch(e) {}
+}
+
+async function refreshCredits() {
+  try {
+    const token = await Clerk.session?.getToken();
+    if (!token) return;
+    const r = await fetch(`${API_BASE}/v1/auth/me`, { headers: { 'Authorization': `Bearer ${token}` } });
+    if (!r.ok) return;
+    const d = await r.json();
+    const badge = document.getElementById('nav-credits-badge');
+    const num   = document.getElementById('nav-credits-num');
+    if (d.credits !== undefined) {
+      num.textContent = d.credits.toLocaleString();
+      badge.style.display = '';
+    }
+  } catch(e) {}
+}
+
+async function fetchApiStatus() {
+  try {
+    const r = await fetch(`${API_BASE}/health`, { signal: AbortSignal.timeout(4000) });
+    const dot   = document.getElementById('statusDot');
+    const label = document.getElementById('statusLabel');
+    if (r.ok) { dot.className = 'status-dot ok'; label.textContent = 'API Online'; }
+    else       { dot.className = 'status-dot err'; label.textContent = 'API Error'; }
+  } catch(e) {
+    document.getElementById('statusDot').className = 'status-dot err';
+    document.getElementById('statusLabel').textContent = 'API Offline';
+  }
+}
+
+// ── FETCH ────────────────────────────────────────────────────────────────────
 async function loadEndpoints(forceRefresh = false) {
   const btn = document.getElementById('refreshBtn');
   btn.classList.add('spinning');
-
   try {
     const res = await fetch(`${API_BASE}/v1/endpoints`, { cache: forceRefresh ? 'no-store' : 'default' });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -404,12 +507,11 @@ async function loadEndpoints(forceRefresh = false) {
     allEndpoints = json.endpoints || [];
     updateStats(json.meta);
     document.getElementById('lastUpdated').textContent = 'Updated ' + new Date().toLocaleTimeString();
-  } catch (e) {
-    console.error('Failed to load endpoints:', e);
-    document.getElementById('lastUpdated').textContent = 'Live status unavailable — showing catalog';
-    // Fallback: mark everything operational so at least the catalog renders
+  } catch(e) {
+    document.getElementById('lastUpdated').textContent = 'Live status unavailable';
     if (allEndpoints.length === 0) {
-      document.getElementById('endpointGrid').innerHTML = '<div class="empty-state"><div class="empty-state-icon">⚠</div><div class="empty-state-title">Could not reach API</div><div class="empty-state-sub">Check your connection or try again.</div></div>';
+      document.getElementById('endpointGrid').innerHTML =
+        '<div class="empty-state"><div class="empty-state-title">Could not reach API</div><div class="empty-state-sub">Check your connection or try again.</div></div>';
       btn.classList.remove('spinning');
       return;
     }
@@ -421,14 +523,15 @@ async function loadEndpoints(forceRefresh = false) {
 
 function updateStats(meta) {
   if (!meta) return;
-  document.getElementById('statTotal').textContent     = meta.total;
-  document.getElementById('statOp').textContent        = meta.operational;
-  document.getElementById('statProviders').textContent = meta.providers;
-  document.getElementById('statLatency').textContent   = meta.avgLatency + 'ms';
-  document.getElementById('statCost').textContent      = '$' + meta.avgCost.toFixed(4);
+  document.getElementById('statTotal').textContent    = (meta.total || 0).toLocaleString();
+  document.getElementById('statOp').textContent       = (meta.operational || 0).toLocaleString();
+  document.getElementById('statDegraded').textContent = (meta.degraded || 0).toLocaleString();
+  document.getElementById('statProviders').textContent= (meta.providers || 0).toLocaleString();
+  document.getElementById('statLatency').textContent  = (meta.avgLatency || 0) + 'ms';
+  document.getElementById('statCost').textContent     = '$' + ((meta.avgCost || 0).toFixed(4));
 }
 
-// ── FILTER + SORT ──────────────────────────────────────────────────────────
+// ── FILTER + SORT ────────────────────────────────────────────────────────────
 function setFilter(type, value, el) {
   filters[type] = value;
   document.querySelectorAll(`[data-filter="${type}"]`).forEach(b => b.classList.remove('active'));
@@ -443,108 +546,103 @@ function clearSearch() {
 }
 
 function getFiltered() {
-  const q = document.getElementById('searchInput').value.trim().toLowerCase();
+  const q    = document.getElementById('searchInput').value.trim().toLowerCase();
   const sort = document.getElementById('sortSelect').value;
 
   let list = allEndpoints.filter(ep => {
     if (filters.category !== 'all' && ep.category !== filters.category) return false;
-    if (filters.status !== 'all' && ep.status !== filters.status) return false;
+    if (filters.status   !== 'all' && ep.status   !== filters.status)   return false;
     if (q) {
       const hay = [ep.id, ep.name, ep.provider, ep.description, ep.category,
-                   ...ep.outputFields, ...Object.values(ep.inputSchema || {})].join(' ').toLowerCase();
+                   ...(ep.outputFields || []), ...Object.values(ep.inputSchema || {})].join(' ').toLowerCase();
       if (!hay.includes(q)) return false;
     }
     return true;
   });
 
   list.sort((a, b) => {
-    switch (sort) {
+    switch(sort) {
       case 'cost-asc':     return a.costPerCall - b.costPerCall;
       case 'cost-desc':    return b.costPerCall - a.costPerCall;
       case 'latency-asc':  return a.latencyMs - b.latencyMs;
       case 'latency-desc': return b.latencyMs - a.latencyMs;
       case 'status': {
-        const o = {operational:0, degraded:1, down:2};
-        return (o[a.status]??3) - (o[b.status]??3);
+        const o = { operational:0, degraded:1, down:2 };
+        return (o[a.status] ?? 3) - (o[b.status] ?? 3);
       }
       case 'provider': return a.provider.localeCompare(b.provider);
-      default:            return a.name.localeCompare(b.name);
+      default:         return a.name.localeCompare(b.name);
     }
   });
-
   return list;
 }
 
-// ── RENDER ─────────────────────────────────────────────────────────────────
+// ── RENDER ───────────────────────────────────────────────────────────────────
 function render() {
   const list = getFiltered();
   const grid = document.getElementById('endpointGrid');
-  document.getElementById('resultCount').textContent = `${list.length} endpoint${list.length !== 1 ? 's' : ''}`;
+  document.getElementById('resultCount').textContent = `${list.length.toLocaleString()} endpoint${list.length !== 1 ? 's' : ''}`;
 
   if (list.length === 0) {
-    grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1"><div class="empty-state-icon">⌀</div><div class="empty-state-title">No endpoints match your search</div><div class="empty-state-sub">Try different keywords or clear your filters.</div></div>`;
+    grid.innerHTML = `<div class="empty-state"><div class="empty-state-title">No endpoints match your search</div><div class="empty-state-sub">Try different keywords or clear your filters.</div></div>`;
     return;
   }
 
   grid.innerHTML = list.map(ep => renderCard(ep)).join('');
 
-  // Re-attach expand listeners
   grid.querySelectorAll('.ep-card').forEach(card => {
     card.addEventListener('click', e => {
       if (e.target.closest('.copy-btn')) return;
       const id = card.dataset.id;
       const wasOpen = card.classList.contains('expanded');
-      // Collapse all
       grid.querySelectorAll('.ep-card').forEach(c => c.classList.remove('expanded'));
       if (!wasOpen) card.classList.add('expanded');
       expandedId = wasOpen ? null : id;
     });
   });
 
-  // Re-expand previously open card
   if (expandedId) {
-    const c = grid.querySelector(`[data-id="${expandedId}"]`);
+    const c = grid.querySelector(`[data-id="${CSS.escape(expandedId)}"]`);
     if (c) c.classList.add('expanded');
   }
 }
 
 function renderCard(ep) {
   const statusLabel = { operational:'Live', degraded:'Degraded', down:'Down' }[ep.status] || ep.status;
-  const circuitColor = { CLOSED:'green', HALF_OPEN:'yellow', OPEN:'red' }[ep.circuitState] || 'green';
-  const catBadge = `badge-cat-${ep.category}`;
-  const costStr  = ep.costPerCall < 0.01 ? `$${ep.costPerCall.toFixed(4)}` : `$${ep.costPerCall.toFixed(3)}`;
-  const latStr   = ep.latencyMs >= 1000 ? `${(ep.latencyMs/1000).toFixed(1)}s` : `${ep.latencyMs}ms`;
+  const circuitColor = { CLOSED:'accent', HALF_OPEN:'warning', OPEN:'danger' }[ep.circuitState] || 'accent';
+  const cat    = (ep.category || 'utility').replace(/[^a-z0-9-]/gi, '-');
+  const costStr = ep.costPerCall < 0.01 ? `$${ep.costPerCall.toFixed(4)}` : `$${ep.costPerCall.toFixed(3)}`;
+  const latStr  = ep.latencyMs >= 1000 ? `${(ep.latencyMs/1000).toFixed(1)}s` : `${ep.latencyMs}ms`;
 
   const inputRows = Object.entries(ep.inputSchema || {}).map(([k,v]) =>
-    `<tr><td>${escHtml(k)}</td><td>${escHtml(String(v))}</td></tr>`).join('');
+    `<tr><td>${esc(k)}</td><td>${esc(String(v))}</td></tr>`).join('');
 
   const outputTags = (ep.outputFields || []).map(f =>
-    `<span class="output-tag">${escHtml(f)}</span>`).join('');
+    `<span class="output-tag">${esc(f)}</span>`).join('');
 
-  const exampleId = escHtml(ep.id);
+  const epId = esc(ep.id);
+  const statusBadgeCls = { operational:'badge-status-operational', degraded:'badge-status-degraded', down:'badge-status-down' }[ep.status] || '';
 
   return `
-<div class="ep-card" data-id="${escHtml(ep.id)}">
+<div class="ep-card" data-id="${epId}">
   <div class="ep-header">
     <div class="ep-status-col">
-      <div class="status-dot ${escHtml(ep.status)}" title="${statusLabel}"></div>
+      <div class="ep-status-dot ${esc(ep.status)}" title="${statusLabel}"></div>
     </div>
     <div class="ep-main">
-      <div class="ep-name">${escHtml(ep.name)}</div>
-      <div class="ep-provider">${escHtml(ep.provider)}</div>
-      <div class="ep-desc">${escHtml(ep.description)}</div>
+      <div class="ep-name">${esc(ep.name)}</div>
+      <div class="ep-provider">${esc(ep.provider)}</div>
+      <div class="ep-desc">${esc(ep.description)}</div>
     </div>
   </div>
-
   <div class="ep-badges">
-    <span class="badge ${catBadge}">${escHtml(ep.category)}</span>
-    <span class="badge" style="color:${ep.status==='operational'?'var(--green)':ep.status==='degraded'?'var(--yellow)':'var(--red)'};border-color:currentColor;background:transparent;opacity:0.8">${statusLabel}</span>
+    <span class="ep-badge badge-${cat}">${esc(ep.category)}</span>
+    <span class="ep-badge ${statusBadgeCls}">${statusLabel}</span>
   </div>
-
   <div class="ep-metrics">
     <div class="metric">
       <span class="metric-label">Cost / Call</span>
-      <span class="metric-value green">${costStr}</span>
+      <span class="metric-value accent">${costStr}</span>
     </div>
     <div class="metric">
       <span class="metric-label">Avg Latency</span>
@@ -559,22 +657,20 @@ function renderCard(ep) {
       <span class="metric-value">${(ep.outputFields||[]).length} field${(ep.outputFields||[]).length!==1?'s':''}</span>
     </div>
   </div>
-
   <hr class="ep-divider">
   <div class="ep-id-row">
-    <span class="ep-id">${exampleId}</span>
+    <span class="ep-id">${epId}</span>
     <span class="ep-chevron">▾</span>
   </div>
-
   <div class="ep-detail">
     <div class="detail-status-row">
       <div class="ds-item">
         <span class="ds-label">Circuit</span>
-        <span class="ds-value ${circuitColor}">${ep.circuitState ?? 'CLOSED'}</span>
+        <span class="ds-value ${circuitColor}">${esc(ep.circuitState ?? 'CLOSED')}</span>
       </div>
       <div class="ds-item">
         <span class="ds-label">Failures</span>
-        <span class="ds-value ${(ep.failures||0)>0?'yellow':'green'}">${ep.failures ?? 0}</span>
+        <span class="ds-value ${(ep.failures||0)>0?'warning':'accent'}">${ep.failures ?? 0}</span>
       </div>
       <div class="ds-item">
         <span class="ds-label">Rate Limit</span>
@@ -582,54 +678,55 @@ function renderCard(ep) {
       </div>
       <div class="ds-item">
         <span class="ds-label">Category</span>
-        <span class="ds-value">${escHtml(ep.category)}</span>
+        <span class="ds-value">${esc(ep.category)}</span>
       </div>
     </div>
-
     ${inputRows ? `
     <div class="detail-section">
       <div class="detail-title">Input Parameters</div>
       <table class="schema-table">${inputRows}</table>
     </div>` : ''}
-
     ${outputTags ? `
     <div class="detail-section">
       <div class="detail-title">Output Fields</div>
       <div class="output-list">${outputTags}</div>
     </div>` : ''}
-
     <div class="detail-section">
       <div class="detail-title">Endpoint ID — use in orchestration requests</div>
       <div class="copy-row">
-        <div class="copy-code" id="code-${exampleId}">${exampleId}</div>
-        <button class="copy-btn" onclick="copyId('${exampleId}')">Copy ID</button>
+        <div class="copy-code">${epId}</div>
+        <button class="copy-btn" onclick="copyId('${epId}',this)">Copy ID</button>
       </div>
     </div>
   </div>
 </div>`;
 }
 
-// ── HELPERS ────────────────────────────────────────────────────────────────
-function escHtml(s) {
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+// ── HELPERS ──────────────────────────────────────────────────────────────────
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
-function copyId(id) {
+function copyId(id, btn) {
   navigator.clipboard.writeText(id).then(() => {
-    const btn = document.querySelector(`[onclick="copyId('${id}')"]`);
-    if (btn) { btn.textContent = 'Copied!'; btn.classList.add('copied'); setTimeout(() => { btn.textContent = 'Copy ID'; btn.classList.remove('copied'); }, 2000); }
+    btn.textContent = 'Copied!'; btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = 'Copy ID'; btn.classList.remove('copied'); }, 2000);
   });
 }
 
-// ── SEARCH WIRING ──────────────────────────────────────────────────────────
+// ── SEARCH WIRING ─────────────────────────────────────────────────────────────
 document.getElementById('searchInput').addEventListener('input', function() {
   document.getElementById('searchClear').classList.toggle('show', this.value.length > 0);
   render();
 });
 
-// ── AUTO REFRESH (30s) ─────────────────────────────────────────────────────
+// ── INIT ─────────────────────────────────────────────────────────────────────
 loadEndpoints();
 setInterval(() => loadEndpoints(false), 30000);
 </script>
+
+<script data-clerk-publishable-key="pk_live_Y2xlcmsuY2xhdy1uZXQub3JnJA"
+  src="https://cdn.jsdelivr.net/npm/@clerk/clerk-js@5/dist/clerk.browser.js"
+  onload="initNav()"></script>
 </body>
 </html>
