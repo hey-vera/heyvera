@@ -15,8 +15,7 @@ const envSchema = z.object({
   OPENCLAW_API_URL: z.string().default('http://localhost:3000'),
   OPENCLAW_API_KEY: z.string().optional(),
 
-  CLAWAPIS_BASE_URL: z.string().default('https://api.clawapis.com'),
-  CLAWAPIS_API_KEY: z.string().optional(),
+  CLAWAPIS_BASE_URL: z.string().default('https://clawapis.com'),
 
   REDIS_URL: z.string().optional(),
   REDIS_PASSWORD: z.string().optional(),
@@ -70,7 +69,8 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
-export const isSimulationMode = !env.CLAWAPIS_API_KEY;
+// Simulation mode: real API calls only when SOLANA_PRIVATE_KEY is set (x402-solana payment provider)
+export const isSimulationMode = !env.SOLANA_PRIVATE_KEY;
 
 // Production safety guard — block startup for security-critical secrets, warn for others
 if (env.NODE_ENV === 'production') {
@@ -83,7 +83,7 @@ if (env.NODE_ENV === 'production') {
   const warnings: string[] = [];
   if (!env.PLATFORM_SIGNING_SECRET) warnings.push('PLATFORM_SIGNING_SECRET (response signing disabled)');
   if (!env.CLERK_SECRET_KEY) warnings.push('CLERK_SECRET_KEY');
-  if (isSimulationMode) warnings.push('CLAWAPIS_API_KEY (simulation mode active — real API calls disabled)');
+  if (isSimulationMode) warnings.push('SOLANA_PRIVATE_KEY (simulation mode active — real x402 API calls disabled)');
   // Warn if the configured LLM provider has no API key
   if (env.LLM_PROVIDER === 'anthropic' && !env.ANTHROPIC_API_KEY) warnings.push('ANTHROPIC_API_KEY (LLM_PROVIDER=anthropic but key is missing)');
   if (env.LLM_PROVIDER === 'openai' && !env.OPENAI_API_KEY) warnings.push('OPENAI_API_KEY (LLM_PROVIDER=openai but key is missing)');
