@@ -12,7 +12,7 @@
 | 1 | ✅ Financial Integrity | CRITICAL | Money flow, credits, refunds, revenue share | 7 |
 | 2 | ✅ Auth & Access Control | CRITICAL | Admin auth, rate limits, key exposure | 8 |
 | 3 | ✅ Database & Performance | HIGH | Column bugs, missing indexes, query perf | 6 |
-| 4 | Concurrency & Atomicity | HIGH | Race conditions, cron guards, transactions | 7 |
+| 4 | ✅ Concurrency & Atomicity | HIGH | Race conditions, cron guards, transactions | 7 |
 | 5 | LLM Pipeline Safety | HIGH | Prompt injection, cache corruption, scanning | 6 |
 | 6 | Resource Management | MEDIUM | Memory leaks, cleanup, shutdown | 6 |
 | 7 | API Robustness | MEDIUM | Error handling, validation, response consistency | 8 |

@@ -165,16 +165,20 @@ All v2.0.0 with deterministic execution plans. `seedOfficialSkills()` runs updat
 
 ### Security & Auth
 - Clerk JWT auth (`clerkAuth` middleware), API key auth (`checkApiKey` middleware)
+- Admin auth: `requireAdmin()` in `src/middleware/admin-auth.ts` — timing-safe SHA-256 normalized comparison, `X-Admin-Key` only (used by all admin routes)
 - `ADMIN_API_KEY` required in production (process.exit(1) if missing)
 - HSTS headers, rate limiting (60/min/IP, IPv6 private ranges trusted)
 - Response signing: HMAC-SHA256 `X-ClawNet-Signature` (when `PLATFORM_SIGNING_SECRET` set)
-- `maskApiKey()` for all key display (first4+••••+last4)
+- `maskApiKey()` from `src/utils/mask.ts` for all key display — never inline
 - Atomic credit deduction (`WHERE credits >= amount`)
 - 64KB webhook payload size guard
 - Stripe idempotency: `stripe_refunded_charges` table tracks cumulative refund amounts
 - Proportional refund credit calc: `round((refundedUsd / amount_paid) × totalGranted)`
+- Treasury credit in `marketplacePurchase()` validated: throws if treasury key missing/inactive
+- `marketplaceRefund()` logs CRITICAL on failure; marketplace route reports honest refund status
 - Process error handlers: `unhandledRejection` (log + continue), `uncaughtException` (log + exit)
 - Solana signature claim: `releaseClaimSolanaSignature()` on all non-success verification paths
+- Stake unlock: preserves stake row if API key missing (credits recoverable by admin)
 
 ### Testing & CI
 - 48 Vitest unit tests: credit, escrow, governance, skills (`npm run test:unit`)
@@ -201,7 +205,7 @@ Design system: Linear/Vercel/Stripe aesthetic — muted dark theme, teal accent 
 
 **Engine:** better-sqlite3, WAL mode, no ORM
 **Path:** `data/orchestrator.db`
-**Migrations:** 37 total (v1–v37), run in `runMigrations()` inside `initDb()`
+**Migrations:** 38 total (v1–v38), run in `runMigrations()` inside `initDb()`
 **Retention:** daily cleanup — audit_log (90d), skill_metrics (90d), solana_sigs (30d)
 
 Key tables: `api_keys`, `transactions`, `skills`, `skill_metrics`, `skill_ratings`, `skill_versions`, `skill_reports`, `stakes`, `escrows`, `audit_log`, `proposals`, `votes`, `tasks`, `task_ratings`, `peers`, `discovery_cache`, `skill_embeddings`, `endpoint_health`, `telegram_subscribers`, `stripe_refunded_charges`, `payout_requests`, `swarms`
@@ -213,13 +217,14 @@ Key tables: `api_keys`, `transactions`, `skills`, `skill_metrics`, `skill_rating
 ```
 src/
   index.ts                    — Hono app, route registration, startup
-  db/index.ts                 — ALL tables + helpers (no ORM); 37 migrations
+  db/index.ts                 — ALL tables + helpers (no ORM); 38 migrations
   config/index.ts             — Zod env validation
   config/api-registry.ts      — 163 endpoint definitions
   config/discovery.json       — Trinity weights
   middleware/auth.ts           — X-API-Key checkApiKey middleware
   middleware/clerk-auth.ts     — Clerk JWT clerkAuth middleware
   middleware/rate-limit.ts     — 60 req/min/IP
+  middleware/admin-auth.ts     — requireAdmin() timing-safe check (X-Admin-Key only)
   middleware/sign-response.ts  — HMAC-SHA256 response signing
   utils/mask.ts               — maskApiKey() helper (first4+••••+last4)
   utils/shutdown.ts            — SIGTERM/SIGINT handlers
