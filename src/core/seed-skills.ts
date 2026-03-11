@@ -15,6 +15,8 @@ interface OfficialSkill {
   tags: string[];
   inputSchema: object;
   outputSchema: object;
+  /** Deterministic execution plan — bypasses LLM intent parsing */
+  executionPlan: Array<{ endpointId: string; params: Record<string, string> }>;
 }
 
 const OFFICIAL_SKILLS: OfficialSkill[] = [
@@ -46,6 +48,12 @@ const OFFICIAL_SKILLS: OfficialSkill[] = [
         suggestedActions: { type: 'array', items: { type: 'string' } },
       },
     },
+    executionPlan: [
+      { endpointId: 'claw-token-price',   params: { symbol: '{token}' } },
+      { endpointId: 'claw-token-risk',    params: { symbol: '{token}' } },
+      { endpointId: 'claw-token-holders', params: { symbol: '{token}' } },
+      { endpointId: 'claw-x-mentions',    params: { query: '{token} crypto' } },
+    ],
   },
   {
     id: 'social-sentiment',
@@ -76,6 +84,10 @@ const OFFICIAL_SKILLS: OfficialSkill[] = [
         summary: { type: 'string' },
       },
     },
+    executionPlan: [
+      { endpointId: 'claw-x-mentions',      params: { query: '{topic}' } },
+      { endpointId: 'claw-reddit-sentiment', params: { query: '{topic}' } },
+    ],
   },
   {
     id: 'portfolio-optimizer',
@@ -105,6 +117,10 @@ const OFFICIAL_SKILLS: OfficialSkill[] = [
         summary: { type: 'string' },
       },
     },
+    executionPlan: [
+      { endpointId: 'claw-wallet-portfolio', params: { walletAddress: '{wallet}' } },
+      { endpointId: 'claw-tx-history',       params: { walletAddress: '{wallet}' } },
+    ],
   },
   {
     id: 'wallet-profiler',
@@ -132,6 +148,11 @@ const OFFICIAL_SKILLS: OfficialSkill[] = [
         summary: { type: 'string' },
       },
     },
+    executionPlan: [
+      { endpointId: 'claw-wallet-portfolio', params: { walletAddress: '{wallet}' } },
+      { endpointId: 'claw-tx-history',       params: { walletAddress: '{wallet}' } },
+      { endpointId: 'claw-wallet-risk',      params: { walletAddress: '{wallet}' } },
+    ],
   },
   {
     id: 'trending-tokens',
@@ -156,6 +177,10 @@ const OFFICIAL_SKILLS: OfficialSkill[] = [
         summary: { type: 'string' },
       },
     },
+    executionPlan: [
+      { endpointId: 'claw-trending-tokens', params: {} },
+      { endpointId: 'claw-x-mentions',      params: { query: 'solana trending tokens' } },
+    ],
   },
   {
     id: 'whale-tracker',
@@ -182,6 +207,11 @@ const OFFICIAL_SKILLS: OfficialSkill[] = [
         summary: { type: 'string' },
       },
     },
+    executionPlan: [
+      { endpointId: 'claw-token-price',   params: { symbol: '{token}' } },
+      { endpointId: 'claw-token-holders', params: { symbol: '{token}' } },
+      { endpointId: 'einstein-whales',    params: { symbol: '{token}' } },
+    ],
   },
   {
     id: 'defi-yield-scanner',
@@ -207,6 +237,10 @@ const OFFICIAL_SKILLS: OfficialSkill[] = [
         summary: { type: 'string' },
       },
     },
+    executionPlan: [
+      { endpointId: 'apollo-defi-yields',  params: {} },
+      { endpointId: 'diamondclaws-yield',  params: {} },
+    ],
   },
   {
     id: 'token-launch-radar',
@@ -231,6 +265,10 @@ const OFFICIAL_SKILLS: OfficialSkill[] = [
         summary: { type: 'string' },
       },
     },
+    executionPlan: [
+      { endpointId: 'claw-trending-tokens', params: {} },
+      { endpointId: 'rootdata-hot-x',       params: {} },
+    ],
   },
   {
     id: 'price-oracle',
@@ -259,6 +297,10 @@ const OFFICIAL_SKILLS: OfficialSkill[] = [
         summary: { type: 'string' },
       },
     },
+    executionPlan: [
+      { endpointId: 'claw-token-price', params: { symbol: '{token}' } },
+      { endpointId: 'coinank-kline',    params: { symbol: '{token}/USDT', interval: '1h' } },
+    ],
   },
   {
     id: 'nft-collection-intel',
@@ -286,6 +328,10 @@ const OFFICIAL_SKILLS: OfficialSkill[] = [
         summary: { type: 'string' },
       },
     },
+    executionPlan: [
+      { endpointId: 'claw-token-price',   params: { symbol: '{collection}' } },
+      { endpointId: 'claw-token-holders', params: { symbol: '{collection}' } },
+    ],
   },
 ];
 
@@ -329,11 +375,11 @@ export function seedOfficialSkills(): void {
       INSERT INTO skills
         (id, name, description, prompt_template, author_key, public, credit_cost,
          version, tags_json, input_schema_json, output_schema_json, published_at,
-         security_status, scanned_at)
+         security_status, scanned_at, execution_plan_json)
       VALUES
         (@id, @name, @description, @promptTemplate, @authorKey, 1, @creditCost,
          @version, @tagsJson, @inputSchemaJson, @outputSchemaJson, datetime('now'),
-         'VERIFIED', datetime('now'))
+         'VERIFIED', datetime('now'), @executionPlanJson)
     `).run({
       id: skill.id,
       name: skill.name,
@@ -345,6 +391,7 @@ export function seedOfficialSkills(): void {
       tagsJson: JSON.stringify(skill.tags),
       inputSchemaJson: JSON.stringify(skill.inputSchema),
       outputSchemaJson: JSON.stringify(skill.outputSchema),
+      executionPlanJson: JSON.stringify(skill.executionPlan),
     });
     seeded++;
   }
@@ -367,7 +414,8 @@ export function seedOfficialSkills(): void {
         output_schema_json = @outputSchemaJson,
         version = @version,
         security_status = 'VERIFIED',
-        scanned_at = datetime('now')
+        scanned_at = datetime('now'),
+        execution_plan_json = @executionPlanJson
       WHERE id = @id AND author_key = @authorKey
     `).run({
       id: skill.id,
@@ -379,6 +427,7 @@ export function seedOfficialSkills(): void {
       outputSchemaJson: JSON.stringify(skill.outputSchema),
       version: skill.version,
       authorKey: CLAWHUB_KEY,
+      executionPlanJson: JSON.stringify(skill.executionPlan),
     });
     if (result.changes > 0) updated++;
   }

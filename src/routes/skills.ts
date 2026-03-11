@@ -16,6 +16,7 @@ import { scanSkillTemplate } from '../core/skill-scanner';
 import { parseIntent } from '../core/intent-parser';
 import { executePlan } from '../core/executor';
 import { formatResponse } from '../core/formatter';
+import { buildIntentFromPlan } from '../core/skill-executor';
 import { logUsage } from '../utils/usage';
 import { cacheGet, cacheSet, cacheIncr } from '../cache/index';
 import { logger } from '../utils/logger';
@@ -487,7 +488,12 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
   }
 
   try {
-    const intent = await parseIntent(query);
+    // Use deterministic execution plan if skill has one — skips LLM intent parsing (~3-5s saved)
+    const skillWithPlan = skill as typeof skill & { execution_plan_json?: string | null };
+    const intentFromPlan = skillWithPlan.execution_plan_json
+      ? buildIntentFromPlan(skillWithPlan.execution_plan_json, variables, skill.name)
+      : null;
+    const intent = intentFromPlan ?? await parseIntent(query);
     if (intent.steps.length > 10) intent.steps = intent.steps.slice(0, 10);
 
     const execution = await executePlan(intent);

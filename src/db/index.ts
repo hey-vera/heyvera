@@ -464,6 +464,7 @@ const MIGRATIONS: { version: number; sql: string }[] = [
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
   CREATE INDEX IF NOT EXISTS idx_task_ratings_task ON task_ratings(task_id)` },
+  { version: 35, sql: `ALTER TABLE skills ADD COLUMN execution_plan_json TEXT` },
 ];
 
 function runMigrations(): void {
@@ -1014,6 +1015,8 @@ export interface Skill {
   skill_type: 'prompt_template' | 'api_proxy';
   proxy_url: string | null;
   proxy_method: string;
+  /** JSON-serialised SkillExecutionPlan — if present, bypasses LLM intent parsing */
+  execution_plan_json: string | null;
 }
 
 export function createSkill(params: {
@@ -1030,10 +1033,11 @@ export function createSkill(params: {
   skillType?: 'prompt_template' | 'api_proxy';
   proxyUrl?: string;
   proxyMethod?: string;
+  executionPlanJson?: string;
 }): void {
   getDb()
-    .prepare(`INSERT INTO skills (id, name, description, prompt_template, author_key, public, credit_cost, display_name, changelog, category, skill_type, proxy_url, proxy_method)
-              VALUES (@id, @name, @description, @promptTemplate, @authorKey, @public, @creditCost, @displayName, @changelog, @category, @skillType, @proxyUrl, @proxyMethod)`)
+    .prepare(`INSERT INTO skills (id, name, description, prompt_template, author_key, public, credit_cost, display_name, changelog, category, skill_type, proxy_url, proxy_method, execution_plan_json)
+              VALUES (@id, @name, @description, @promptTemplate, @authorKey, @public, @creditCost, @displayName, @changelog, @category, @skillType, @proxyUrl, @proxyMethod, @executionPlanJson)`)
     .run({
       ...params,
       public: params.public ? 1 : 0,
@@ -1043,6 +1047,7 @@ export function createSkill(params: {
       skillType: params.skillType ?? 'prompt_template',
       proxyUrl: params.proxyUrl ?? null,
       proxyMethod: params.proxyMethod ?? 'POST',
+      executionPlanJson: params.executionPlanJson ?? null,
     });
 }
 

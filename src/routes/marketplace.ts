@@ -15,6 +15,7 @@ import {
 import { parseIntent } from '../core/intent-parser';
 import { executePlan } from '../core/executor';
 import { formatResponse } from '../core/formatter';
+import { buildIntentFromPlan } from '../core/skill-executor';
 import { isSimulationMode } from '../config/index';
 import { logger } from '../utils/logger';
 
@@ -253,7 +254,11 @@ marketplaceRouter.post('/skills/:id/purchase', checkApiKey, async (c) => {
   }
 
   try {
-    const intent = await parseIntent(query);
+    // Use deterministic execution plan if skill has one — skips LLM intent parsing (~3-5s saved)
+    const skillWithPlan = skill as typeof skill & { execution_plan_json?: string | null };
+    const intent = (skillWithPlan.execution_plan_json
+      ? buildIntentFromPlan(skillWithPlan.execution_plan_json, body.variables, skill.name)
+      : null) ?? await parseIntent(query);
     const execution = await executePlan(intent);
     const formatted = await formatResponse(query, intent, execution);
 
