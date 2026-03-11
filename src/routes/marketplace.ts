@@ -15,7 +15,7 @@ import {
 import { parseIntent } from '../core/intent-parser';
 import { executePlan } from '../core/executor';
 import { formatResponse } from '../core/formatter';
-
+import { isSimulationMode } from '../config/index';
 import { logger } from '../utils/logger';
 
 export const marketplaceRouter = new Hono();
@@ -186,6 +186,18 @@ marketplaceRouter.post('/skills/:id/purchase', checkApiKey, async (c) => {
   const missingVars = requiredVars.filter(v => !(v in body.variables));
   if (missingVars.length > 0) {
     return c.json({ requestId, error: `Missing required variables: ${missingVars.join(', ')}`, code: 'MISSING_VARIABLES' }, 400);
+  }
+
+  // Block prompt_template skills when data providers are offline (simulation mode).
+  // api_proxy skills fetch external URLs directly and are unaffected.
+  const skillType = (skill as typeof skill & { skill_type?: string }).skill_type ?? 'prompt_template';
+  if (isSimulationMode && skillType !== 'api_proxy') {
+    return c.json({
+      requestId,
+      error: 'Live data provider offline',
+      code: 'SIMULATION_MODE',
+      hint: 'This skill requires live blockchain data. The data provider is not currently connected. No credits were charged.',
+    }, 503);
   }
 
   // Settle payment atomically BEFORE execution — buyer pays credit_cost to seller.

@@ -475,6 +475,17 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
     }
   }
 
+  // Block prompt_template execution when data providers are offline.
+  // api_proxy skills already returned above; this path always uses the LLM pipeline.
+  if (isSimulationMode) {
+    return c.json({
+      requestId,
+      error: 'Live data provider offline',
+      code: 'SIMULATION_MODE',
+      hint: 'This skill requires live blockchain data. The data provider is not currently connected. No credits were charged.',
+    }, 503);
+  }
+
   try {
     const intent = await parseIntent(query);
     if (intent.steps.length > 10) intent.steps = intent.steps.slice(0, 10);
