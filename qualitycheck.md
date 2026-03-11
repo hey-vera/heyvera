@@ -10,7 +10,7 @@
 | # | Chunk | Severity | Scope | Est. Fixes |
 |---|-------|----------|-------|-----------|
 | 1 | ✅ Financial Integrity | CRITICAL | Money flow, credits, refunds, revenue share | 7 |
-| 2 | Auth & Access Control | CRITICAL | Admin auth, rate limits, key exposure | 8 |
+| 2 | ✅ Auth & Access Control | CRITICAL | Admin auth, rate limits, key exposure | 8 |
 | 3 | Database & Performance | HIGH | Column bugs, missing indexes, query perf | 6 |
 | 4 | Concurrency & Atomicity | HIGH | Race conditions, cron guards, transactions | 7 |
 | 5 | LLM Pipeline Safety | HIGH | Prompt injection, cache corruption, scanning | 6 |

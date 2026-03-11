@@ -1,12 +1,11 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import crypto from 'crypto';
 import { getDbStats, getAllPendingPayouts, updatePayoutStatus, getDb, logAudit } from '../db/index';
 import { maskApiKey } from '../utils/mask';
 import { cacheStats } from '../cache/index';
 import { getUsageStats } from '../utils/usage';
 import { getCircuitStats } from '../core/circuit-breaker';
-import { env } from '../config/index';
+import { requireAdmin } from '../middleware/admin-auth';
 
 function escapeHtml(s: string): string {
   return String(s)
@@ -20,9 +19,7 @@ function escapeHtml(s: string): string {
 export const adminRouter = new Hono();
 
 adminRouter.get('/dashboard', (c) => {
-  const adminKey = c.req.header('X-Admin-Key');
-  const expectedKey = env.ADMIN_API_KEY;
-  if (!adminKey || !expectedKey || !safeEqual(adminKey, expectedKey)) {
+  if (!requireAdmin(c)) {
     return c.json({ error: 'Unauthorized', code: 'UNAUTHORIZED' }, 401);
   }
 
@@ -157,20 +154,6 @@ adminRouter.get('/dashboard', (c) => {
 
   return c.html(html);
 });
-
-// ─── Admin auth helper ─────────────────────────────────────────────────────────
-
-function safeEqual(a: string, b: string): boolean {
-  // Hash both to normalize length — avoids leaking secret length via timing
-  const ha = crypto.createHash('sha256').update(a).digest();
-  const hb = crypto.createHash('sha256').update(b).digest();
-  return crypto.timingSafeEqual(ha, hb);
-}
-
-function requireAdmin(c: { req: { header: (k: string) => string | undefined } }): boolean {
-  const key = c.req.header('X-Admin-Key');
-  return !!(key && env.ADMIN_API_KEY && safeEqual(key, env.ADMIN_API_KEY));
-}
 
 // ─── GET /v1/admin/payouts — list pending creator withdrawal requests ──────────
 

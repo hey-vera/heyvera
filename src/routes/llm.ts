@@ -22,7 +22,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { checkApiKey } from '../middleware/auth';
-import { deductCredit, getDb, topUpCredits } from '../db/index';
+import { deductCredit, getDb } from '../db/index';
 import { cacheGet, cacheSet } from '../cache/index';
 import { clawApiCall } from '../providers/clawapis';
 import { logger } from '../utils/logger';
@@ -130,7 +130,7 @@ llmRouter.post('/chat', checkApiKey, async (c) => {
   const modelMeta = LLM_MODELS[model as LlmModelId];
   if (!modelMeta) {
     return c.json({
-      error: `Unknown model: ${model}`,
+      error: 'Unknown model. See availableModels for valid options.',
       availableModels: Object.keys(LLM_MODELS),
     }, 400);
   }

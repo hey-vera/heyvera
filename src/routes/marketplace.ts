@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { nanoid } from 'nanoid';
 import { maskApiKey } from '../utils/mask';
 import { checkApiKey } from '../middleware/auth';
+import { requireAdmin } from '../middleware/admin-auth';
 import {
   getMarketplaceSkills, marketplacePurchase, marketplaceRefund, stakeCredits, unstakeCredits,
   getStakes, getSkillStakeTotal, getTransactions, getSkill, writeAuditLog,
@@ -660,9 +661,7 @@ marketplaceRouter.get('/featured', (c) => {
 // ─── PATCH /v1/admin/marketplace/skills/:id/feature — toggle featured ─────────
 
 marketplaceRouter.patch('/admin/feature/:id', async (c) => {
-  const adminKey = c.req.header('X-Admin-Key') ?? c.req.header('X-API-Key');
-  const { env } = await import('../config/index');
-  if (!env.ADMIN_API_KEY || adminKey !== env.ADMIN_API_KEY) {
+  if (!requireAdmin(c)) {
     return c.json({ error: 'Unauthorized' }, 401);
   }
 

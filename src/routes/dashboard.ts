@@ -13,13 +13,7 @@ import {
   regenerateApiKey,
 } from '../db/index';
 import { cacheIncr } from '../cache/index';
-
-function maskApiKey(key: string): string {
-  const prefix = 'cn-';
-  const rest = key.startsWith(prefix) ? key.slice(prefix.length) : key;
-  if (rest.length <= 8) return key;
-  return prefix + rest.slice(0, 4) + '••••••••••••••••••••••••••••••••••••••••' + rest.slice(-4);
-}
+import { maskApiKey } from '../utils/mask';
 
 function generateApiKey(): string {
   return 'cn-' + crypto.randomBytes(24).toString('hex');
