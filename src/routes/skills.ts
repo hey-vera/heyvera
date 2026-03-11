@@ -49,6 +49,7 @@ const CreateSkillSchema = z.object({
   skillType: z.enum(['prompt_template', 'api_proxy']).default('prompt_template'),
   proxyUrl: z.string().url().optional(),
   proxyMethod: z.enum(['GET', 'POST', 'PUT', 'PATCH']).default('POST'),
+  executionPlanJson: z.string().max(10000).optional(), // third-party deterministic execution plan
 });
 
 // Extract {{variable}} placeholders from a template
@@ -107,6 +108,7 @@ skillsRouter.post('/', checkApiKey, async (c) => {
     skillType: data.skillType,
     proxyUrl: data.proxyUrl,
     proxyMethod: data.proxyMethod,
+    executionPlanJson: data.executionPlanJson,
   });
 
   // Scan prompt template for injection patterns
@@ -628,6 +630,80 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
       requestId,
       error: env.NODE_ENV === 'production' ? 'Internal server error' : error.message,
       code,
+    }, 500);
+  }
+});
+
+// ─── POST /v1/skills/:id/test — dry-run a skill (owner only, no billing) ──────
+
+skillsRouter.post('/:id/test', checkApiKey, async (c) => {
+  const requestId = nanoid(12);
+  const start = Date.now();
+  const keyInfo = c.get('apiKeyInfo');
+  const { id } = c.req.param();
+
+  const skill = getSkill(id);
+  if (!skill) return c.json({ requestId, error: 'Skill not found' }, 404);
+
+  // Owner-only: only the author can dry-run their skill
+  if (skill.author_key !== keyInfo.key) {
+    return c.json({ requestId, error: 'Only the skill author can run a test' }, 403);
+  }
+
+  let rawBody: unknown;
+  try { rawBody = await c.req.json(); } catch { rawBody = {}; }
+
+  const TestBody = z.object({ variables: z.record(z.string().max(500)).optional() });
+  const bodyParsed = TestBody.safeParse(rawBody);
+  if (!bodyParsed.success) return c.json({ requestId, error: 'Invalid variables' }, 400);
+  const variables = bodyParsed.data.variables ?? {};
+
+  let query: string;
+  try {
+    query = renderTemplate(skill.prompt_template, variables);
+  } catch (err) {
+    return c.json({ requestId, error: (err as Error).message, code: 'MISSING_VARIABLES' }, 400);
+  }
+
+  if (isSimulationMode) {
+    return c.json({
+      requestId, test: true,
+      error: 'Live data provider offline (SIMULATION_MODE) — no credits charged',
+      code: 'SIMULATION_MODE',
+      hint: 'Set SOLANA_PRIVATE_KEY to enable live data',
+    }, 503);
+  }
+
+  try {
+    const skillWithPlan = skill as typeof skill & { execution_plan_json?: string | null };
+    const intentFromPlan = skillWithPlan.execution_plan_json
+      ? buildIntentFromPlan(skillWithPlan.execution_plan_json, variables, skill.name)
+      : null;
+    const intent = intentFromPlan ?? await parseIntent(query);
+    if (intent.steps.length > 10) intent.steps = intent.steps.slice(0, 10);
+
+    const execution = await executePlan(intent);
+    const formatted = await formatResponse(query, intent, execution);
+
+    logger.info({ requestId, skillId: id, durationMs: Date.now() - start }, 'Skill test run complete');
+
+    return c.json({
+      requestId, test: true,
+      answer: formatted.answer,
+      ...(formatted.opportunityScore !== undefined && { opportunityScore: formatted.opportunityScore }),
+      ...(formatted.riskScore !== undefined && { riskScore: formatted.riskScore }),
+      suggestedActions: formatted.suggestedActions ?? [],
+      dataSources: execution.steps.filter(s => s.success).map(s => s.endpointId),
+      cachedSteps: execution.steps.filter(s => s.cached).length,
+      steps: execution.steps.length,
+      durationMs: Date.now() - start,
+    });
+  } catch (err) {
+    logger.error({ requestId, skillId: id, err }, 'Skill test run failed');
+    return c.json({
+      requestId, test: true,
+      error: env.NODE_ENV === 'production' ? 'Test run failed' : (err as Error).message,
+      code: 'EXECUTION_ERROR',
     }, 500);
   }
 });

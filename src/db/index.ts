@@ -465,6 +465,18 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   );
   CREATE INDEX IF NOT EXISTS idx_task_ratings_task ON task_ratings(task_id)` },
   { version: 35, sql: `ALTER TABLE skills ADD COLUMN execution_plan_json TEXT` },
+  { version: 36, sql: `CREATE TABLE IF NOT EXISTS skill_ratings (
+    id TEXT PRIMARY KEY,
+    skill_id TEXT NOT NULL,
+    buyer_key TEXT NOT NULL,
+    rating INTEGER NOT NULL CHECK(rating >= 1 AND rating <= 5),
+    comment TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(skill_id, buyer_key)
+  );
+  CREATE INDEX IF NOT EXISTS idx_skill_ratings_skill ON skill_ratings(skill_id);
+  CREATE INDEX IF NOT EXISTS idx_skill_ratings_buyer ON skill_ratings(buyer_key)` },
+  { version: 37, sql: `ALTER TABLE skills ADD COLUMN featured INTEGER NOT NULL DEFAULT 0` },
 ];
 
 function runMigrations(): void {
@@ -2363,4 +2375,82 @@ export function createTaskRating(params: {
 
 export function getTaskRating(taskId: string): TaskRating | undefined {
   return getDb().prepare('SELECT * FROM task_ratings WHERE task_id = ?').get(taskId) as TaskRating | undefined;
+}
+
+// ─── Skill Ratings ────────────────────────────────────────────────────────────
+
+export interface SkillRating {
+  id: string;
+  skill_id: string;
+  buyer_key: string;
+  rating: number;
+  comment: string | null;
+  created_at: string;
+}
+
+export interface SkillRatingStats {
+  avgRating: number;
+  ratingCount: number;
+  distribution: Record<1 | 2 | 3 | 4 | 5, number>;
+}
+
+export function rateSkill(params: {
+  skillId: string;
+  buyerKey: string;
+  rating: number;
+  comment?: string;
+}): { ok: boolean; error?: string } {
+  const db = getDb();
+  // Verify the buyer has actually purchased this skill
+  const hasPurchased = db.prepare(
+    `SELECT 1 FROM transactions WHERE from_agent = ? AND skill_id = ? AND type = 'SKILL_SALE' LIMIT 1`
+  ).get(params.buyerKey, params.skillId);
+  if (!hasPurchased) {
+    return { ok: false, error: 'Must purchase a skill before rating it' };
+  }
+  try {
+    db.prepare(`INSERT OR REPLACE INTO skill_ratings (id, skill_id, buyer_key, rating, comment)
+                VALUES (?, ?, ?, ?, ?)`)
+      .run(nanoid(12), params.skillId, params.buyerKey, params.rating, params.comment ?? null);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+}
+
+export function getSkillRatings(skillId: string, limit = 20): SkillRating[] {
+  return getDb()
+    .prepare(`SELECT * FROM skill_ratings WHERE skill_id = ? ORDER BY created_at DESC LIMIT ?`)
+    .all(skillId, limit) as SkillRating[];
+}
+
+export function getSkillRatingStats(skillId: string): SkillRatingStats {
+  const db = getDb();
+  const rows = db
+    .prepare(`SELECT rating, COUNT(*) as cnt FROM skill_ratings WHERE skill_id = ? GROUP BY rating`)
+    .all(skillId) as { rating: number; cnt: number }[];
+  const distribution = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 } as Record<1 | 2 | 3 | 4 | 5, number>;
+  let total = 0;
+  let sum = 0;
+  for (const row of rows) {
+    const r = row.rating as 1 | 2 | 3 | 4 | 5;
+    distribution[r] = row.cnt;
+    total += row.cnt;
+    sum += row.rating * row.cnt;
+  }
+  return {
+    avgRating: total > 0 ? Math.round((sum / total) * 10) / 10 : 0,
+    ratingCount: total,
+    distribution,
+  };
+}
+
+export function setSkillFeatured(skillId: string, featured: boolean): void {
+  getDb().prepare(`UPDATE skills SET featured = ? WHERE id = ? AND active = 1`).run(featured ? 1 : 0, skillId);
+}
+
+export function getFeaturedSkills(limit = 6): Skill[] {
+  return getDb()
+    .prepare(`SELECT * FROM skills WHERE public = 1 AND active = 1 AND featured = 1 ORDER BY stars DESC, uses DESC LIMIT ?`)
+    .all(limit) as Skill[];
 }

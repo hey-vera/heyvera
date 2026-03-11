@@ -332,6 +332,63 @@ All 9 site pages rebuilt from scratch. Philosophy: Linear/Vercel/Stripe-inspired
 
 ---
 
+## ✅ Skill Marketplace Overhaul — Chunks 1 & 2
+
+### Chunk 1: Production Data Guard
+- `marketplace.ts`: 503 SIMULATION_MODE before any payment if `SOLANA_PRIVATE_KEY` not set — `prompt_template` skills blocked, `api_proxy` skills pass through
+- `skills.ts`: same guard before LLM pipeline path
+- Users are never charged credits when real blockchain data is unavailable
+- `isSimulationMode` now correctly checks `SOLANA_PRIVATE_KEY` (x402 payment credential) instead of non-existent `CLAWAPIS_API_KEY`
+- `CLAWAPIS_BASE_URL` corrected to `https://clawapis.com`
+
+### Chunk 2: Skill Execution Plans (LLM Intent Parsing Bypassed)
+- `src/core/skill-executor.ts` — `buildIntentFromPlan()`: resolves `{var}` interpolation, validates endpoint IDs, returns `ParsedIntent` directly. Falls back to `parseIntent()` on null return
+- Migration v35: `execution_plan_json TEXT` column on skills table
+- All 10 official skills updated with deterministic execution plans (seeded every boot)
+- Both `marketplace.ts` and `skills.ts` check `execution_plan_json` first — LLM intent parsing only used for third-party skills without a plan
+- Official skill response time: ~14s → ~8s (LLM intent parse eliminated)
+
+| Skill | Endpoints (all parallel) |
+|---|---|
+| Token Analyst Pro | price + risk + holders + x-mentions |
+| Social Sentiment | x-mentions + reddit |
+| Portfolio Optimizer | wallet-portfolio + tx-history |
+| Wallet Profiler | wallet-portfolio + tx-history + wallet-risk |
+| Trending Tokens | trending-tokens + x-mentions |
+| Whale Tracker | price + holders + whales |
+| DeFi Yield Scanner | apollo-defi-yields + diamondclaws-yield |
+| Token Launch Radar | trending-tokens + rootdata-hot-x |
+| Price Oracle | price + coinank-kline |
+| NFT Collection Intel | price + holders |
+
+---
+
+## ✅ Skill Marketplace Overhaul — Chunks 3, 4 & 5
+
+### Chunk 3: Skill Results Display & Transparency
+- **Backend** (`marketplace.ts`): Purchase success response now includes `opportunityScore`, `riskScore`, `suggestedActions`, `dataSources` (successful endpoint IDs), `cachedSteps`
+- **Frontend** (`marketplace.html`): `renderResult(d)` — rich result component with answer box, score bars (0-100 gauges for opportunity/risk), suggested action items, execution metadata chips (duration, step count, cached count, data sources)
+- `escHtml()` helper — all API/user-derived strings XSS-escaped before innerHTML injection
+
+### Chunk 4: Skill Creation Flow for Third-Party Developers
+- **Backend** (`skills.ts`): `POST /v1/skills/:id/test` — owner-only dry-run: full execution pipeline, no credit charge, no billing records. Returns same rich response as production (answer, scores, actions, dataSources, durationMs). Simulation mode guard included.
+- **Backend** (`skills.ts`): `CreateSkillSchema` accepts `executionPlanJson` — third-party skills can ship with a deterministic execution plan just like official skills.
+- **Frontend** — Endpoint Picker: Loads registry via `GET /v1/registry`, filterable list, click to add endpoints to execution plan. `buildPlanJson()` serializes to JSON sent on publish.
+- **Frontend** — Test Run Panel: Appears after successful publish. Auto-populates variable inputs from detected `{{variables}}` in the prompt. "Run Test →" calls `/test` endpoint, shows rich result via `renderResult()`.
+- **Frontend** — Variable inputs in test panel stay in sync with prompt template changes via `updateValidation()`.
+
+### Chunk 5: Quality & Trust
+- **DB** (migrations v36–v37): `skill_ratings` table (one rating per buyer, verified by purchase), `featured INTEGER` column on skills
+- **DB helpers**: `rateSkill()` (verifies SKILL_SALE transaction before inserting), `getSkillRatings()`, `getSkillRatingStats()` (avg, count, 1-5 distribution), `setSkillFeatured()`, `getFeaturedSkills()`
+- **Backend** (`marketplace.ts`): `POST /v1/marketplace/skills/:id/rate` — only verified buyers can rate (checks transactions table); `GET /v1/marketplace/skills/:id/ratings` — reviews list + stats; `GET /v1/marketplace/skills/:id/stats` — metrics + rating stats; `GET /v1/marketplace/featured` — up to 6 featured skills; `PATCH /v1/marketplace/admin/feature/:id` — admin toggle
+- **Frontend** — Featured section at top of Browse tab (hidden when no featured skills exist)
+- **Frontend** — "Featured" badge on skill cards and detail header
+- **Frontend** — Stats tab: invocations, success rate, avg latency, avg rating, rating count + distribution bar chart
+- **Frontend** — Reviews tab: star rating header, per-review display, rate-this-skill panel (5-star clicker + optional text, lazy-shown after first purchase)
+- After purchase: "Rate this skill" panel auto-shows in Reviews tab after 2s delay
+
+---
+
 ## ✅ Performance Optimization — Smarter Routing & Cache
 
 **Problem:** 14.6s avg response time from two sequential LLM calls + suboptimal cache TTLs.

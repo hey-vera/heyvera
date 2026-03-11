@@ -11,6 +11,8 @@ import {
   safeJsonParse, incrementSkillUses, recordSkillMetric, recordReputation,
   insertOrchestration, starSkill, unstarSkill, hasStarred, incrementSkillViews,
   reportSkill, getSkillVersionHistory,
+  rateSkill, getSkillRatings, getSkillRatingStats, getSkillMetricsSummary,
+  setSkillFeatured, getFeaturedSkills,
 } from '../db/index';
 import { parseIntent } from '../core/intent-parser';
 import { executePlan } from '../core/executor';
@@ -282,6 +284,11 @@ marketplaceRouter.post('/skills/:id/purchase', checkApiKey, async (c) => {
       feeCredits: purchase.feeCredits,
       sellerReceives: purchase.sellerCredits,
       answer: formatted.answer,
+      ...(formatted.opportunityScore !== undefined && { opportunityScore: formatted.opportunityScore }),
+      ...(formatted.riskScore !== undefined && { riskScore: formatted.riskScore }),
+      suggestedActions: formatted.suggestedActions ?? [],
+      dataSources: execution.steps.filter(s => s.success).map(s => s.endpointId),
+      cachedSteps: execution.steps.filter(s => s.cached).length,
       steps: execution.steps.length,
       durationMs: Date.now() - start,
     });
@@ -521,6 +528,112 @@ marketplaceRouter.get('/skills/:id/versions', (c) => {
 
   const versions = getSkillVersionHistory(id);
   return c.json({ skillId: id, versions });
+});
+
+// ─── POST /v1/marketplace/skills/:id/rate — rate a purchased skill ────────────
+
+marketplaceRouter.post('/skills/:id/rate', checkApiKey, async (c) => {
+  const keyInfo = c.get('apiKeyInfo');
+  const { id } = c.req.param();
+
+  const skill = getSkill(id);
+  if (!skill || !skill.public) return c.json({ error: 'Skill not found' }, 404);
+
+  let raw: unknown;
+  try { raw = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+
+  const RateSchema = z.object({
+    rating: z.number().int().min(1).max(5),
+    comment: z.string().max(500).trim().optional(),
+  });
+  const parsed = RateSchema.safeParse(raw);
+  if (!parsed.success) return c.json({ error: 'rating must be 1-5', details: parsed.error.flatten().fieldErrors }, 400);
+
+  const result = rateSkill({ skillId: id, buyerKey: keyInfo.key, rating: parsed.data.rating, comment: parsed.data.comment });
+  if (!result.ok) return c.json({ error: result.error }, 400);
+
+  const stats = getSkillRatingStats(id);
+  writeAuditLog({ entityType: 'skill', entityId: id, action: 'RATED', actorId: keyInfo.key,
+    data: { rating: parsed.data.rating } });
+
+  return c.json({ ok: true, ...stats });
+});
+
+// ─── GET /v1/marketplace/skills/:id/ratings — list reviews ────────────────────
+
+marketplaceRouter.get('/skills/:id/ratings', (c) => {
+  const { id } = c.req.param();
+  const skill = getSkill(id);
+  if (!skill || !skill.public) return c.json({ error: 'Skill not found' }, 404);
+
+  const stats = getSkillRatingStats(id);
+  const reviews = getSkillRatings(id, 20);
+
+  return c.json({
+    skillId: id,
+    ...stats,
+    reviews: reviews.map(r => ({
+      rating: r.rating,
+      comment: r.comment,
+      createdAt: r.created_at,
+    })),
+  });
+});
+
+// ─── GET /v1/marketplace/skills/:id/stats — execution stats ───────────────────
+
+marketplaceRouter.get('/skills/:id/stats', (c) => {
+  const { id } = c.req.param();
+  const skill = getSkill(id);
+  if (!skill || !skill.public) return c.json({ error: 'Skill not found' }, 404);
+
+  const metrics = getSkillMetricsSummary(id);
+  const ratingStats = getSkillRatingStats(id);
+  return c.json({ skillId: id, metrics, ...ratingStats });
+});
+
+// ─── GET /v1/marketplace/featured — featured skills ───────────────────────────
+
+marketplaceRouter.get('/featured', (c) => {
+  const skills = getFeaturedSkills(6);
+  const { safeJsonParse: spj } = { safeJsonParse };
+  return c.json({
+    skills: skills.map(s => ({
+      id: s.id,
+      name: s.name,
+      displayName: s.display_name ?? s.name,
+      description: s.description,
+      creditCost: s.credit_cost,
+      uses: s.uses,
+      stars: s.stars ?? 0,
+      category: s.category ?? 'general',
+      tags: spj(s.tags_json, []),
+    })),
+  });
+});
+
+// ─── PATCH /v1/admin/marketplace/skills/:id/feature — toggle featured ─────────
+
+marketplaceRouter.patch('/admin/feature/:id', async (c) => {
+  const adminKey = c.req.header('X-Admin-Key') ?? c.req.header('X-API-Key');
+  const { env } = await import('../config/index');
+  if (!env.ADMIN_API_KEY || adminKey !== env.ADMIN_API_KEY) {
+    return c.json({ error: 'Unauthorized' }, 401);
+  }
+
+  const { id } = c.req.param();
+  const skill = getSkill(id);
+  if (!skill) return c.json({ error: 'Skill not found' }, 404);
+
+  let raw: unknown;
+  try { raw = await c.req.json(); } catch { raw = {}; }
+  const featured = (raw as { featured?: boolean }).featured ?? true;
+
+  setSkillFeatured(id, featured);
+  writeAuditLog({ entityType: 'skill', entityId: id, action: featured ? 'FEATURED' : 'UNFEATURED', actorId: 'admin', data: {} });
+  logger.info({ skillId: id, featured }, 'Skill featured status updated');
+
+  return c.json({ ok: true, skillId: id, featured });
 });
 
 // ─── GET /v1/marketplace/search — semantic skill search ───────────────────────

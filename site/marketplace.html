@@ -194,7 +194,24 @@
     .schema-block { background: var(--bg-primary); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 16px; font-size: 12px; font-family: var(--font-mono); color: var(--text-secondary); line-height: 1.5; overflow-x: auto; white-space: pre-wrap; max-height: 360px; overflow-y: auto; }
     .invoke-section { background: var(--bg-surface-2); border: 1px solid var(--border-default); border-radius: var(--radius-lg); padding: 24px; margin-top: 20px; }
     .invoke-title { font-size: 12px; font-weight: 600; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 14px; }
-    .invoke-result { background: var(--bg-primary); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 16px; font-size: 13px; font-family: var(--font-mono); color: var(--text-secondary); line-height: 1.7; white-space: pre-wrap; display: none; margin-top: 14px; max-height: 300px; overflow-y: auto; }
+    .invoke-result { display: none; margin-top: 14px; }
+    .result-answer { background: var(--bg-primary); border: 1px solid var(--accent-dim); border-radius: var(--radius-md); padding: 16px; font-size: 13px; color: var(--accent-text); line-height: 1.7; white-space: pre-wrap; max-height: 320px; overflow-y: auto; margin-bottom: 12px; }
+    .result-scores { display: flex; gap: 12px; margin-bottom: 12px; }
+    .score-card { flex: 1; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 12px 14px; }
+    .score-label { font-size: 11px; font-weight: 600; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+    .score-bar-wrap { background: var(--bg-primary); border-radius: 4px; height: 6px; overflow: hidden; margin-bottom: 4px; }
+    .score-bar { height: 100%; border-radius: 4px; transition: width 0.4s ease; }
+    .score-bar.opportunity { background: var(--accent); }
+    .score-bar.risk { background: var(--warning); }
+    .score-num { font-size: 13px; font-weight: 600; font-family: var(--font-mono); }
+    .score-num.opportunity { color: var(--accent); }
+    .score-num.risk { color: var(--warning); }
+    .result-actions { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 12px 14px; margin-bottom: 12px; }
+    .result-actions-title { font-size: 11px; font-weight: 600; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
+    .result-action-item { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; color: var(--text-secondary); padding: 4px 0; }
+    .result-action-item::before { content: '→'; color: var(--accent); font-weight: 700; flex-shrink: 0; margin-top: 1px; }
+    .result-meta { display: flex; flex-wrap: wrap; gap: 6px; }
+    .meta-chip { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 20px; padding: 3px 10px; font-size: 11px; color: var(--text-tertiary); font-family: var(--font-mono); }
     .runtime-card { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 16px; margin-bottom: 16px; }
     .runtime-row { display: flex; justify-content: space-between; font-size: 13px; padding: 6px 0; border-bottom: 1px solid var(--border-subtle); }
     .runtime-row:last-child { border-bottom: none; }
@@ -202,6 +219,38 @@
     .runtime-row .v { color: var(--text-secondary); font-family: var(--font-mono); }
     .changelog-entry { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 16px 20px; font-size: 13px; color: var(--text-secondary); line-height: 1.7; white-space: pre-wrap; }
 
+    .endpoint-picker { background: var(--bg-primary); border: 1px solid var(--border-default); border-radius: var(--radius-md); max-height: 220px; overflow-y: auto; margin-top: 6px; }
+    .endpoint-item { display: flex; align-items: center; justify-content: space-between; padding: 7px 12px; font-size: 12px; border-bottom: 1px solid var(--border-subtle); cursor: pointer; transition: background 0.1s; }
+    .endpoint-item:last-child { border-bottom: none; }
+    .endpoint-item:hover { background: var(--bg-surface-2); }
+    .endpoint-item .ep-id { font-family: var(--font-mono); color: var(--text-primary); }
+    .endpoint-item .ep-cat { color: var(--text-muted); font-size: 11px; }
+    .endpoint-item .ep-add { font-size: 11px; font-weight: 600; color: var(--accent); padding: 2px 8px; border: 1px solid var(--accent-dim); border-radius: var(--radius-sm); }
+    .plan-step-list { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+    .plan-step { display: flex; align-items: center; gap: 8px; background: var(--bg-surface-2); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 5px 10px; font-size: 12px; font-family: var(--font-mono); color: var(--text-secondary); }
+    .plan-step-rm { margin-left: auto; cursor: pointer; color: var(--text-muted); font-size: 14px; line-height: 1; padding: 0 2px; }
+    .plan-step-rm:hover { color: var(--danger); }
+    .badge-featured { display: inline-flex; align-items: center; gap: 4px; background: linear-gradient(135deg,#f59e0b22,#f59e0b11); border: 1px solid #f59e0b55; color: #f59e0b; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 9999px; letter-spacing: 0.03em; }
+    .star-rating { display: flex; gap: 4px; margin-bottom: 12px; }
+    .star-btn { font-size: 24px; cursor: pointer; background: none; border: none; color: var(--border-strong); line-height: 1; padding: 2px; transition: color 0.1s, transform 0.1s; }
+    .star-btn:hover, .star-btn.on { color: #f59e0b; transform: scale(1.15); }
+    .review-item { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 12px 14px; margin-bottom: 8px; }
+    .review-stars { color: #f59e0b; font-size: 13px; margin-bottom: 4px; }
+    .review-comment { font-size: 13px; color: var(--text-secondary); line-height: 1.6; }
+    .review-date { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; margin-bottom: 20px; }
+    .stat-card { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 14px; text-align: center; }
+    .stat-val { font-size: 22px; font-weight: 700; font-family: var(--font-mono); color: var(--accent); line-height: 1; margin-bottom: 4px; }
+    .stat-lbl { font-size: 11px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.04em; }
+    .dist-row { display: flex; align-items: center; gap: 8px; font-size: 12px; margin-bottom: 4px; }
+    .dist-bar-wrap { flex: 1; background: var(--bg-primary); border-radius: 4px; height: 6px; overflow: hidden; }
+    .dist-bar { height: 100%; background: #f59e0b; border-radius: 4px; }
+    .featured-section { margin-bottom: 24px; }
+    .featured-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: #f59e0b; margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
+    .featured-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+    .test-panel { background: var(--bg-surface-2); border: 1px solid var(--accent-dim); border-radius: var(--radius-lg); padding: 20px; margin-top: 14px; }
+    .test-panel-title { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--accent); margin-bottom: 12px; }
+    .test-var-inputs { display: grid; gap: 10px; margin-bottom: 12px; }
     .pub-layout { display: grid; grid-template-columns: 1fr 300px; gap: 20px; align-items: start; }
     @media(max-width:860px) { .pub-layout { grid-template-columns: 1fr; } }
     .form-card { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 28px; }
@@ -332,6 +381,10 @@
 
     <!-- BROWSE -->
     <div class="tab-panel active" id="tp-browse">
+      <div class="featured-section" id="featured-section" style="display:none">
+        <div class="featured-label">★ Featured Skills</div>
+        <div class="featured-grid" id="featured-grid"></div>
+      </div>
       <div class="controls">
         <div class="search-wrap">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
@@ -434,6 +487,12 @@
             <label class="form-label">README <span class="hint">— optional</span></label>
             <textarea class="field" id="pub-readme" rows="4" placeholder="# My Skill&#10;&#10;Detailed description, usage examples, caveats..."></textarea>
           </div>
+          <div class="form-group" style="margin-top:20px;padding-top:20px;border-top:1px solid var(--border-subtle)">
+            <label class="form-label">Execution Plan <span class="hint">— optional: pick registry endpoints to bypass LLM intent parsing</span></label>
+            <input type="text" class="field" id="ep-search" placeholder="Search endpoints (e.g. price, wallet, sentiment)..." oninput="filterEndpoints()" onfocus="loadRegistryEndpoints()">
+            <div class="endpoint-picker" id="endpoint-picker" style="display:none"></div>
+            <div class="plan-step-list" id="plan-step-list"></div>
+          </div>
           <div style="margin-top:20px;border:1px solid var(--border-subtle);background:var(--accent-subtle);padding:18px 20px;border-radius:var(--radius-md)">
             <div style="font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:10px">License &amp; Terms</div>
             <div style="font-size:13px;color:var(--text-tertiary);line-height:1.6;margin-bottom:12px">
@@ -452,6 +511,12 @@
           </div>
           <button class="btn-submit" id="pub-btn" onclick="publishSkill()">Publish Skill &rarr;</button>
           <div id="pub-result" style="margin-top:12px;font-size:13px;display:none;padding:10px 14px;border:1px solid var(--border-subtle);border-radius:var(--radius-md)"></div>
+          <div class="test-panel" id="test-panel" style="display:none">
+            <div class="test-panel-title">Test Run — no credits charged</div>
+            <div class="test-var-inputs" id="test-var-inputs"></div>
+            <button class="btn-submit" id="test-btn" onclick="doSkillTest()" style="background:transparent;border-color:var(--accent);color:var(--accent)">Run Test &rarr;</button>
+            <div id="test-result" class="invoke-result" style="margin-top:12px"></div>
+          </div>
         </div>
         <div>
           <div class="info-card">
@@ -649,7 +714,34 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   handleRoute();
   window.addEventListener('hashchange', handleRoute);
+  loadFeaturedSkills();
 });
+
+// ── Featured Skills ───────────────────────────────────────────────
+async function loadFeaturedSkills() {
+  try {
+    const r = await fetch(`${API}/v1/marketplace/featured`);
+    if (!r.ok) return;
+    const d = await r.json();
+    if (!d.skills || d.skills.length === 0) return;
+    const section = document.getElementById('featured-section');
+    const grid = document.getElementById('featured-grid');
+    if (!section || !grid) return;
+    grid.innerHTML = d.skills.map(s => `
+      <div class="card" onclick="nav('skill/${esc(s.id)}')" style="cursor:pointer">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:6px">
+          <div class="card-name">${esc(s.displayName || s.name)}</div>
+          <span class="badge-featured" style="flex-shrink:0">★ Featured</span>
+        </div>
+        <div class="card-desc">${esc(s.description)}</div>
+        <div class="card-footer">
+          <span class="card-price">${s.creditCost} credits</span>
+          <span style="font-size:11px;color:var(--text-muted)">★ ${s.stars} · ${s.uses} uses</span>
+        </div>
+      </div>`).join('');
+    section.style.display = 'block';
+  } catch { /* silent */ }
+}
 
 // ── Routing ───────────────────────────────────────────────────────
 function nav(hash) { window.location.hash = hash; }
@@ -857,6 +949,7 @@ async function loadSkillDetail(id) {
           <div class="detail-subtitle">
             <span>v${esc(s.version||'1.0.0')}</span>
             ${OFFICIAL.has(s.id) ? '<span class="badge badge-success">Official</span>' : ''}
+            ${s.featured ? '<span class="badge-featured">★ Featured</span>' : ''}
             <span class="sec ${secCls}">${secTxt}</span>
             <span>${esc(s.license||'MIT')}</span>
             ${s.publishedAt ? `<span>${new Date(s.publishedAt).toLocaleDateString()}</span>` : ''}
@@ -885,6 +978,8 @@ async function loadSkillDetail(id) {
         <button class="dtab active" data-dt="overview">Overview</button>
         <button class="dtab" data-dt="schema">Input / Output</button>
         <button class="dtab" data-dt="invoke">Invoke</button>
+        <button class="dtab" data-dt="stats">Stats</button>
+        <button class="dtab" data-dt="reviews">Reviews</button>
         ${hasChangelog ? '<button class="dtab" data-dt="changelog">Changelog</button>' : ''}
         <button class="dtab" data-dt="history">History</button>
         ${Object.keys(runtime).length ? '<button class="dtab" data-dt="runtime">Runtime</button>' : ''}
@@ -929,6 +1024,24 @@ async function loadSkillDetail(id) {
         <div class="changelog-entry">${esc(s.changelog)}</div>
       </div>` : ''}
 
+      <div class="dtab-panel" id="dtp-stats">
+        <div class="stats-grid" id="d-stats-grid"><div style="color:var(--text-tertiary);font-size:13px">Loading...</div></div>
+        <div id="d-stats-dist"></div>
+      </div>
+
+      <div class="dtab-panel" id="dtp-reviews">
+        <div id="d-reviews-header" style="margin-bottom:16px"></div>
+        <div id="d-reviews-rate" style="display:none;background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--radius-md);padding:16px;margin-bottom:16px">
+          <div style="font-size:12px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px">Rate this skill</div>
+          <div class="star-rating" id="d-star-rating">
+            ${[1,2,3,4,5].map(n => `<button class="star-btn" data-star="${n}" onclick="setRatingStar(${n})">★</button>`).join('')}
+          </div>
+          <textarea class="field" id="d-review-text" rows="2" placeholder="Optional review (max 500 chars)..." style="margin-bottom:10px;max-height:100px"></textarea>
+          <button class="btn btn-primary" style="font-size:13px;padding:7px 16px" onclick="submitRating()">Submit Rating</button>
+        </div>
+        <div id="d-reviews-list" style="color:var(--text-tertiary);font-size:13px">Loading reviews...</div>
+      </div>
+
       <div class="dtab-panel" id="dtp-history">
         <div style="font-size:11px;font-weight:500;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:10px">Version History</div>
         <div id="d-history-list" style="color:var(--text-tertiary);font-size:13px">Loading...</div>
@@ -944,6 +1057,8 @@ async function loadSkillDetail(id) {
 
     window._detailSkill = s;
     let historyLoaded = false;
+    let statsLoaded = false;
+    let reviewsLoaded = false;
     document.querySelectorAll('#d-tabs .dtab').forEach(t => {
       t.addEventListener('click', async () => {
         document.querySelectorAll('#d-tabs .dtab').forEach(x => x.classList.toggle('active', x === t));
@@ -970,12 +1085,157 @@ async function loadSkillDetail(id) {
             if (listEl) listEl.innerHTML = '<span style="color:var(--danger)">Failed to load history.</span>';
           }
         }
+        if (t.dataset.dt === 'stats' && !statsLoaded) {
+          statsLoaded = true;
+          loadSkillStats(s.id);
+        }
+        if (t.dataset.dt === 'reviews' && !reviewsLoaded) {
+          reviewsLoaded = true;
+          loadSkillReviews(s.id);
+        }
       });
     });
     loadCostEstimate(s.id);
   } catch (err) {
     container.innerHTML = `<div class="empty"><div class="empty-icon">⚠</div><div class="empty-title">Failed to load skill</div><div class="empty-sub">${esc(err.message)}</div></div>`;
   }
+}
+
+// ── Skill Stats & Reviews ─────────────────────────────────────────
+async function loadSkillStats(skillId) {
+  const grid = document.getElementById('d-stats-grid');
+  const dist = document.getElementById('d-stats-dist');
+  try {
+    const r = await fetch(`${API}/v1/marketplace/skills/${encodeURIComponent(skillId)}/stats`);
+    const d = await r.json();
+    if (!r.ok) { if (grid) grid.innerHTML = '<span style="color:var(--danger)">Failed to load stats.</span>'; return; }
+
+    const metrics = d.metrics || [];
+    const combined = metrics.reduce((a, m) => ({
+      invocations: a.invocations + (m.invocations || 0),
+      successRate: a.invocations + m.invocations > 0
+        ? ((a.successRate * a.invocations + m.successRate * m.invocations) / (a.invocations + m.invocations))
+        : 0,
+      avgLatencyMs: a.invocations + m.invocations > 0
+        ? Math.round((a.avgLatencyMs * a.invocations + m.avgLatencyMs * m.invocations) / (a.invocations + m.invocations))
+        : 0,
+    }), { invocations: 0, successRate: 0, avgLatencyMs: 0 });
+
+    if (grid) grid.innerHTML = `
+      <div class="stat-card"><div class="stat-val">${d.ratingCount ? d.avgRating.toFixed(1) : '—'}</div><div class="stat-lbl">Avg Rating</div></div>
+      <div class="stat-card"><div class="stat-val">${d.ratingCount || 0}</div><div class="stat-lbl">Reviews</div></div>
+      <div class="stat-card"><div class="stat-val">${combined.invocations}</div><div class="stat-lbl">Invocations</div></div>
+      <div class="stat-card"><div class="stat-val">${combined.invocations ? combined.successRate.toFixed(1) + '%' : '—'}</div><div class="stat-lbl">Success Rate</div></div>
+      <div class="stat-card"><div class="stat-val">${combined.avgLatencyMs ? (combined.avgLatencyMs / 1000).toFixed(1) + 's' : '—'}</div><div class="stat-lbl">Avg Latency</div></div>
+    `;
+    if (dist && d.distribution && d.ratingCount > 0) {
+      const total = d.ratingCount;
+      dist.innerHTML = '<div style="font-size:12px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:8px">Rating Distribution</div>' +
+        [5,4,3,2,1].map(n => {
+          const cnt = d.distribution[n] || 0;
+          const pct = total > 0 ? Math.round(cnt / total * 100) : 0;
+          return `<div class="dist-row"><span style="color:#f59e0b;min-width:20px">${'★'.repeat(n)}</span><div class="dist-bar-wrap"><div class="dist-bar" style="width:${pct}%"></div></div><span style="color:var(--text-muted);min-width:28px;text-align:right">${cnt}</span></div>`;
+        }).join('');
+    }
+  } catch {
+    if (grid) grid.innerHTML = '<span style="color:var(--danger)">Failed to load stats.</span>';
+  }
+}
+
+async function loadSkillReviews(skillId) {
+  const listEl = document.getElementById('d-reviews-list');
+  const headerEl = document.getElementById('d-reviews-header');
+  const rateEl = document.getElementById('d-reviews-rate');
+  try {
+    const r = await fetch(`${API}/v1/marketplace/skills/${encodeURIComponent(skillId)}/ratings`);
+    const d = await r.json();
+    if (!r.ok) { if (listEl) listEl.textContent = 'Failed to load reviews.'; return; }
+
+    if (headerEl) {
+      headerEl.innerHTML = d.ratingCount
+        ? `<div style="display:flex;align-items:center;gap:12px"><span style="font-size:28px;font-weight:700;font-family:var(--font-mono);color:#f59e0b">${d.avgRating.toFixed(1)}</span><div><div style="color:#f59e0b;font-size:16px">${'★'.repeat(Math.round(d.avgRating))}${'☆'.repeat(5-Math.round(d.avgRating))}</div><div style="font-size:12px;color:var(--text-muted)">${d.ratingCount} review${d.ratingCount !== 1 ? 's' : ''}</div></div></div>`
+        : '<div style="color:var(--text-tertiary);font-size:13px">No reviews yet — be the first to rate!</div>';
+    }
+    if (rateEl && apiKey) rateEl.style.display = 'block';
+    if (listEl) {
+      listEl.innerHTML = d.reviews.length
+        ? d.reviews.map(rv => `<div class="review-item"><div class="review-stars">${'★'.repeat(rv.rating)}${'☆'.repeat(5-rv.rating)}</div>${rv.comment ? `<div class="review-comment">${escHtml(rv.comment)}</div>` : ''}<div class="review-date">${new Date(rv.createdAt).toLocaleDateString()}</div></div>`).join('')
+        : '<span style="color:var(--text-tertiary)">No reviews yet.</span>';
+    }
+  } catch {
+    if (listEl) listEl.textContent = 'Failed to load reviews.';
+  }
+}
+
+let _selectedRating = 0;
+function setRatingStar(n) {
+  _selectedRating = n;
+  document.querySelectorAll('#d-star-rating .star-btn').forEach(b => {
+    b.classList.toggle('on', parseInt(b.dataset.star) <= n);
+  });
+}
+
+async function submitRating() {
+  const s = window._detailSkill;
+  if (!s || !apiKey) { toast('Set API key first', 'error'); return; }
+  if (!_selectedRating) { toast('Select a star rating first', 'error'); return; }
+  const comment = document.getElementById('d-review-text')?.value.trim() || undefined;
+  try {
+    const r = await fetch(`${API}/v1/marketplace/skills/${encodeURIComponent(s.id)}/rate`, {
+      method: 'POST',
+      headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rating: _selectedRating, comment }),
+    });
+    const d = await r.json();
+    if (!r.ok) { toast(d.error || 'Rating failed', 'error'); return; }
+    toast('Rating submitted — thank you!', 'success');
+    document.getElementById('d-reviews-rate').style.display = 'none';
+    // Refresh reviews list
+    const listEl = document.getElementById('d-reviews-list');
+    if (listEl) await loadSkillReviews(s.id);
+  } catch { toast('Network error', 'error'); }
+}
+
+// ── Result Renderer ───────────────────────────────────────────────
+function renderResult(d, el) {
+  if (d.error) {
+    el.innerHTML = `<div class="result-answer" style="border-color:var(--warning-dim);color:var(--warning)">${escHtml(d.error)}</div>`;
+    return;
+  }
+  let html = '';
+  if (d.answer) {
+    html += `<div class="result-answer">${escHtml(d.answer)}</div>`;
+  }
+  if (d.opportunityScore != null || d.riskScore != null) {
+    html += '<div class="result-scores">';
+    if (d.opportunityScore != null) {
+      const pct = Math.min(100, Math.max(0, d.opportunityScore));
+      html += `<div class="score-card"><div class="score-label">Opportunity</div><div class="score-bar-wrap"><div class="score-bar opportunity" style="width:${pct}%"></div></div><div class="score-num opportunity">${d.opportunityScore}/100</div></div>`;
+    }
+    if (d.riskScore != null) {
+      const pct = Math.min(100, Math.max(0, d.riskScore));
+      html += `<div class="score-card"><div class="score-label">Risk</div><div class="score-bar-wrap"><div class="score-bar risk" style="width:${pct}%"></div></div><div class="score-num risk">${d.riskScore}/100</div></div>`;
+    }
+    html += '</div>';
+  }
+  if (d.suggestedActions && d.suggestedActions.length) {
+    html += '<div class="result-actions"><div class="result-actions-title">Suggested Actions</div>';
+    d.suggestedActions.forEach(a => { html += `<div class="result-action-item">${escHtml(a)}</div>`; });
+    html += '</div>';
+  }
+  const chips = [];
+  if (d.durationMs != null) chips.push(`${d.durationMs}ms`);
+  if (d.steps != null) chips.push(`${d.steps} step${d.steps !== 1 ? 's' : ''}`);
+  if (d.cachedSteps) chips.push(`${d.cachedSteps} cached`);
+  if (d.dataSources && d.dataSources.length) chips.push(...d.dataSources.map(escHtml));
+  if (chips.length) {
+    html += '<div class="result-meta">' + chips.map(c => `<span class="meta-chip">${c}</span>`).join('') + '</div>';
+  }
+  el.innerHTML = html;
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
 // ── Buy & Execute ─────────────────────────────────────────────────
@@ -1011,19 +1271,16 @@ async function doBuy() {
 
     toast(`Executed (${d.creditsCharged} credits)`, 'success');
     refreshCredits();
+    // Show rating prompt after a short delay
+    setTimeout(() => {
+      const rateEl = document.getElementById('d-reviews-rate');
+      if (rateEl) rateEl.style.display = 'block';
+    }, 2000);
 
     const resultEl = document.getElementById('invoke-result');
     if (resultEl) {
       resultEl.style.display = 'block';
-      if (d.answer) {
-        resultEl.textContent = d.answer;
-        resultEl.style.borderColor = 'var(--accent-dim)';
-        resultEl.style.color = 'var(--accent-text)';
-      } else if (d.error) {
-        resultEl.textContent = d.error;
-        resultEl.style.borderColor = 'var(--warning-dim)';
-        resultEl.style.color = 'var(--warning)';
-      }
+      renderResult(d, resultEl);
     }
     document.querySelectorAll('#d-tabs .dtab').forEach(t => t.classList.toggle('active', t.dataset.dt === 'invoke'));
     document.querySelectorAll('.dtab-panel').forEach(p => p.classList.toggle('active', p.id === 'dtp-invoke'));
@@ -1096,6 +1353,111 @@ async function loadStarredView() {
   el.innerHTML = cards.length ? `<div class="grid">${cards.join('')}</div>` : `<div class="empty"><div class="empty-icon">★</div><div class="empty-title">Could not load starred skills</div></div>`;
 }
 
+// ── Endpoint Picker ───────────────────────────────────────────────
+let _registryEndpoints = null;
+let _planSteps = []; // [{ endpointId, params }]
+
+async function loadRegistryEndpoints() {
+  if (_registryEndpoints) { showEndpointPicker(); return; }
+  try {
+    const r = await fetch(`${API}/v1/registry`);
+    if (!r.ok) return;
+    const d = await r.json();
+    _registryEndpoints = d.endpoints || [];
+    showEndpointPicker();
+  } catch { /* silent — endpoint picker is optional */ }
+}
+
+function filterEndpoints() {
+  showEndpointPicker();
+}
+
+function showEndpointPicker() {
+  const picker = document.getElementById('endpoint-picker');
+  if (!picker || !_registryEndpoints) return;
+  const q = (document.getElementById('ep-search')?.value || '').toLowerCase();
+  const filtered = _registryEndpoints.filter(e =>
+    !q || e.id?.toLowerCase().includes(q) || e.category?.toLowerCase().includes(q) || e.description?.toLowerCase().includes(q)
+  ).slice(0, 40);
+  picker.style.display = filtered.length ? 'block' : 'none';
+  picker.innerHTML = filtered.map(e =>
+    `<div class="endpoint-item" onclick="addEndpointToPlan(${JSON.stringify(e.id)})">
+      <span class="ep-id">${esc(e.id)}</span>
+      <span class="ep-cat">${esc(e.category || '')}</span>
+      <span class="ep-add">+ Add</span>
+    </div>`
+  ).join('');
+}
+
+function addEndpointToPlan(endpointId) {
+  if (_planSteps.find(s => s.endpointId === endpointId)) return; // no dupes
+  _planSteps.push({ endpointId, params: {} });
+  renderPlanSteps();
+  document.getElementById('endpoint-picker').style.display = 'none';
+  document.getElementById('ep-search').value = '';
+}
+
+function removePlanStep(endpointId) {
+  _planSteps = _planSteps.filter(s => s.endpointId !== endpointId);
+  renderPlanSteps();
+}
+
+function renderPlanSteps() {
+  const list = document.getElementById('plan-step-list');
+  if (!list) return;
+  if (!_planSteps.length) { list.innerHTML = ''; return; }
+  list.innerHTML = _planSteps.map((s, i) =>
+    `<div class="plan-step">
+      <span style="color:var(--text-muted);min-width:20px">${i + 1}.</span>
+      <span>${esc(s.endpointId)}</span>
+      <span class="plan-step-rm" onclick="removePlanStep(${JSON.stringify(s.endpointId)})" title="Remove">✕</span>
+    </div>`
+  ).join('');
+}
+
+function buildPlanJson() {
+  if (!_planSteps.length) return null;
+  return JSON.stringify(_planSteps.map(s => ({ endpointId: s.endpointId, params: {} })));
+}
+
+// ── Skill Test Run ────────────────────────────────────────────────
+async function doSkillTest() {
+  const skillId = window._testSkillId;
+  if (!skillId) { toast('No skill to test — publish first', 'error'); return; }
+  if (!apiKey) { toast('Set your API key first', 'error'); return; }
+
+  const btn = document.getElementById('test-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Running...'; }
+
+  // Collect variable values from test panel inputs
+  const testVarInputs = document.getElementById('test-var-inputs');
+  const variables = {};
+  if (testVarInputs) {
+    testVarInputs.querySelectorAll('input[id^="tv-"]').forEach(el => {
+      const varName = el.id.slice(3);
+      variables[varName] = el.value.trim();
+    });
+  }
+
+  try {
+    const r = await fetch(`${API}/v1/skills/${skillId}/test`, {
+      method: 'POST',
+      headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ variables }),
+    });
+    const d = await r.json();
+    const resultEl = document.getElementById('test-result');
+    if (resultEl) {
+      resultEl.style.display = 'block';
+      renderResult(d, resultEl);
+    }
+    if (!r.ok) toast(d.error || 'Test failed', 'error');
+    else toast('Test complete', 'success');
+  } catch { toast('Network error', 'error'); }
+
+  if (btn) { btn.disabled = false; btn.textContent = 'Run Test →'; }
+}
+
 // ── Publish ───────────────────────────────────────────────────────
 function onSlugInput() {
   const el = document.getElementById('pub-slug');
@@ -1133,6 +1495,13 @@ function updateValidation() {
     if (unique.length) {
       varPreview.style.display = 'block';
       varPreview.innerHTML = 'Detected variables: ' + unique.map(v => `<span class="var-tag">{{${esc(v)}}}</span>`).join(' ');
+      // Keep test panel variable inputs in sync
+      const testVarInputs = document.getElementById('test-var-inputs');
+      if (testVarInputs) {
+        testVarInputs.innerHTML = unique.map(v =>
+          `<div><label class="form-label" style="margin-bottom:4px">${esc(v)}</label><input type="text" class="field" id="tv-${esc(v)}" placeholder="Test value for ${esc(v)}..."></div>`
+        ).join('');
+      }
     } else {
       varPreview.style.display = 'none';
     }
@@ -1175,8 +1544,10 @@ async function publishSkill() {
   btn.disabled = true; btn.textContent = 'Publishing...';
 
   try {
+    const planJson = buildPlanJson();
     const body = { name: slug, displayName, description: desc, promptTemplate: prompt, creditCost: price, public: isPublic, tags, version, category };
     if (changelog) body.changelog = changelog;
+    if (planJson) body.executionPlanJson = planJson;
 
     const r = await fetch(`${API}/v1/skills`, {
       method: 'POST',
@@ -1190,6 +1561,10 @@ async function publishSkill() {
       res.style.display = 'block'; res.style.color = 'var(--accent)'; res.style.borderColor = 'var(--accent-dim)';
       res.innerHTML = `✓ Published! ID: <span style="color:var(--text-muted);font-family:var(--font-mono)">${esc(d.id)}</span> — <a href="#skill/${esc(d.id)}" style="color:var(--accent)">View skill</a>`;
       toast('Skill published', 'success');
+      // Show test panel
+      window._testSkillId = d.id;
+      const testPanel = document.getElementById('test-panel');
+      if (testPanel) testPanel.style.display = 'block';
       ['pub-slug','pub-display','pub-desc','pub-prompt','pub-price','pub-tags','pub-changelog','pub-readme'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
       document.getElementById('pub-version').value = '1.0.0';
       document.getElementById('pub-license-agree').checked = false;
