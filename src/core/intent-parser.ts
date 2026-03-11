@@ -55,9 +55,10 @@ Rules:
 - Max 10 steps total
 - If a step depends on output from a previous step, put it in a later group`;
 
-export async function parseIntent(query: string): Promise<ParsedIntent> {
+export async function parseIntent(query: string, pricingHint?: string): Promise<ParsedIntent> {
   // Check intent cache first — 30-min TTL (plan is stable, data freshness handled by executor cache)
-  const cacheKey = intentCacheKey(query);
+  // When pricing hint is present, include it in the cache key so different budgets get different plans
+  const cacheKey = intentCacheKey(query + (pricingHint ?? ''));
   const cached = await cacheGet<ParsedIntent>(cacheKey);
   if (cached) {
     logger.info({ query: query.slice(0, 80) }, 'Intent cache hit');
@@ -65,6 +66,7 @@ export async function parseIntent(query: string): Promise<ParsedIntent> {
   }
 
   // Check plan templates — skip LLM entirely for common queries (~3-5s saved)
+  // Templates are used even with pricing hints — the optimizer handles budget swaps post-parse
   const templateMatch = matchTemplate(query);
   if (templateMatch) {
     logger.info({ query: query.slice(0, 80), template: templateMatch.templateName }, 'Template match — skipping LLM');
@@ -72,8 +74,9 @@ export async function parseIntent(query: string): Promise<ParsedIntent> {
     return templateMatch.intent;
   }
 
+  const systemContent = pricingHint ? SYSTEM_PROMPT + '\n\n' + pricingHint : SYSTEM_PROMPT;
   const messages = [
-    { role: 'system' as const, content: SYSTEM_PROMPT },
+    { role: 'system' as const, content: systemContent },
     { role: 'user' as const, content: JSON.stringify({ query: query.slice(0, 2000) }) },
   ];
 
@@ -89,10 +92,16 @@ export async function parseIntent(query: string): Promise<ParsedIntent> {
       return exists;
     });
     if (validSteps.length < result.steps.length) {
-      // Rebuild parallelGroups to only reference surviving step indices
-      const validIndices = new Set(validSteps.map(s => result.steps.indexOf(s)));
+      // Remap parallelGroups to new indices — old indices are stale after filtering
+      const oldToNew = new Map<number, number>();
+      validSteps.forEach((step, newIdx) => {
+        oldToNew.set(result.steps.indexOf(step), newIdx);
+      });
       const newGroups = result.parallelGroups
-        .map(group => group.filter(idx => validIndices.has(parseInt(idx))))
+        .map(group => group
+          .filter(idx => oldToNew.has(parseInt(idx)))
+          .map(idx => String(oldToNew.get(parseInt(idx))!))
+        )
         .filter(group => group.length > 0);
       return { ...result, steps: validSteps, parallelGroups: newGroups };
     }
@@ -104,9 +113,29 @@ export async function parseIntent(query: string): Promise<ParsedIntent> {
     await cacheSet(cacheKey, result, 30 * 60);
     return result;
   } catch (err) {
-    logger.warn({ err }, 'Intent parse failed, retrying once');
+    logger.warn({ err }, 'Intent parse failed, retrying with correction hint');
     try {
-      const result = await attempt();
+      // Add a correction hint so the LLM knows to fix its output — avoids identical retry
+      const retryMessages = [
+        ...messages,
+        { role: 'assistant' as const, content: '(previous attempt returned invalid JSON)' },
+        { role: 'user' as const, content: 'Your previous response was not valid JSON. Respond with ONLY a valid JSON object matching the schema. No markdown, no explanation.' },
+      ];
+      const response = await llmComplete(retryMessages, 'intent');
+      const cleaned = response.content.replace(/```json|```/g, '').trim();
+      const parsed = JSON.parse(cleaned);
+      const result = ParsedIntentSchema.parse(parsed);
+      const validSteps = result.steps.filter(step => !!findEndpoint(step.endpointId));
+      if (validSteps.length < result.steps.length) {
+        const oldToNew = new Map<number, number>();
+        validSteps.forEach((step, newIdx) => { oldToNew.set(result.steps.indexOf(step), newIdx); });
+        const newGroups = result.parallelGroups
+          .map(group => group.filter(idx => oldToNew.has(parseInt(idx))).map(idx => String(oldToNew.get(parseInt(idx))!)))
+          .filter(group => group.length > 0);
+        const fixed = { ...result, steps: validSteps, parallelGroups: newGroups };
+        await cacheSet(cacheKey, fixed, 30 * 60);
+        return fixed;
+      }
       await cacheSet(cacheKey, result, 30 * 60);
       return result;
     } catch (retryErr) {

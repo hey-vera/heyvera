@@ -11,6 +11,9 @@ import { formatResponse } from '../core/formatter';
 import { env } from '../config/index';
 import { deductCredit } from '../db/index';
 import { creditsForApiCost } from '../core/credits';
+import {
+  PricingPreferencesSchema, pricingPromptHint, checkBudget, optimizePlan,
+} from '../core/pricing';
 import { logger } from '../utils/logger';
 import { nanoid } from 'nanoid';
 
@@ -35,8 +38,24 @@ streamRouter.get('/orchestrate', checkApiKey, async (c) => {
   if (query.length > 2000) {
     return c.json({ error: 'Query too long (max 2000 chars)', code: 'QUERY_TOO_LONG' }, 400);
   }
-  if (!keyInfo.isEnvKey && keyInfo.credits < 1) {
-    return c.json({ error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS' }, 402);
+
+  // Optional pricing from query params: ?strategy=cheapest&maxCredits=10
+  const strategyParam = c.req.query('strategy');
+  const maxCreditsParam = c.req.query('maxCredits');
+  const pricing = (strategyParam || maxCreditsParam)
+    ? PricingPreferencesSchema.safeParse({
+        strategy: strategyParam ?? 'balanced',
+        maxCredits: maxCreditsParam ? parseInt(maxCreditsParam) : undefined,
+      })
+    : null;
+  const pricingData = pricing?.success ? pricing.data : undefined;
+  // Require at least 10 credits before opening the SSE stream. The actual cost is
+  // determined post-execution, so we cannot know the exact amount upfront. If this
+  // threshold is not met, API calls would run but credit deduction would fail —
+  // the platform absorbs the cost with no recovery.
+  const MIN_STREAM_CREDITS = 10;
+  if (!keyInfo.isEnvKey && keyInfo.credits < MIN_STREAM_CREDITS) {
+    return c.json({ error: `Insufficient credits (minimum ${MIN_STREAM_CREDITS} required for streaming)`, code: 'INSUFFICIENT_CREDITS' }, 402);
   }
 
   // YELLOW-5: Reject if this key already has too many concurrent streams
@@ -51,6 +70,16 @@ streamRouter.get('/orchestrate', checkApiKey, async (c) => {
   const start = Date.now();
   const abortController = new AbortController();
   const { signal } = abortController;
+  // Guard against double-decrement: both finally and cancel() can fire on disconnect
+  let streamCounted = !keyInfo.isEnvKey;
+
+  const decrementStream = () => {
+    if (!streamCounted) return;
+    streamCounted = false;
+    const n = (activeStreams.get(keyInfo.key) ?? 1) - 1;
+    if (n <= 0) activeStreams.delete(keyInfo.key);
+    else activeStreams.set(keyInfo.key, n);
+  };
 
   return c.body(
     new ReadableStream({
@@ -63,15 +92,35 @@ streamRouter.get('/orchestrate', checkApiKey, async (c) => {
         try {
           emit('start', { requestId, query: query.slice(0, 100) });
 
-          const intent = await parseIntent(query);
+          const hint = pricingData ? pricingPromptHint(pricingData) : undefined;
+          let intent = await parseIntent(query, hint);
           if (signal.aborted) return;
+
+          // Apply pricing optimization
+          if (pricingData) {
+            const budgetCheck = checkBudget(intent, pricingData);
+            if (!budgetCheck.ok) {
+              const opt = optimizePlan(intent, { ...pricingData, strategy: 'cheapest' });
+              const recheck = checkBudget(opt.intent, pricingData);
+              if (!recheck.ok) {
+                emit('error', { requestId, error: recheck.error, code: 'BUDGET_EXCEEDED' });
+                return;
+              }
+              intent = opt.intent;
+            } else {
+              const opt = optimizePlan(intent, pricingData);
+              if (opt.swaps.length > 0) intent = opt.intent;
+            }
+          }
+
           emit('plan', {
             summary: intent.summary,
             steps: intent.steps.length,
             parallelGroups: intent.parallelGroups.length,
           });
 
-          const execution = await executePlan(intent);
+          const budgetConstraint = pricingData?.maxCredits ? { maxCredits: pricingData.maxCredits } : undefined;
+          const execution = await executePlan(intent, budgetConstraint);
 
           // RED-2: Deduct credits immediately after execution — API calls have already been
           // made at this point. Do this BEFORE checking signal.aborted so that clients
@@ -119,21 +168,13 @@ streamRouter.get('/orchestrate', checkApiKey, async (c) => {
           });
         } finally {
           controller.close();
-          if (!keyInfo.isEnvKey) {
-            const n = (activeStreams.get(keyInfo.key) ?? 1) - 1;
-            if (n <= 0) activeStreams.delete(keyInfo.key);
-            else activeStreams.set(keyInfo.key, n);
-          }
+          decrementStream();
         }
       },
       cancel() {
         abortController.abort();
         logger.info({ requestId }, 'SSE client disconnected — orchestration cancelled');
-        if (!keyInfo.isEnvKey) {
-          const n = (activeStreams.get(keyInfo.key) ?? 1) - 1;
-          if (n <= 0) activeStreams.delete(keyInfo.key);
-          else activeStreams.set(keyInfo.key, n);
-        }
+        decrementStream();
       },
     }),
     200,

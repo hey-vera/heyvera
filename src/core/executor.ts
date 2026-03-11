@@ -227,18 +227,46 @@ async function executeStep(
   }
 }
 
-export async function executePlan(intent: ParsedIntent): Promise<ExecutionResult> {
+export interface BudgetConstraint {
+  /** Maximum credits to spend. Steps that would exceed this are skipped. */
+  maxCredits: number;
+}
+
+export async function executePlan(intent: ParsedIntent, budget?: BudgetConstraint): Promise<ExecutionResult> {
   const start = Date.now();
   const allResults: StepResult[] = new Array(intent.steps.length);
+  let runningCostUsd = 0;
 
   for (const group of intent.parallelGroups) {
+    // If budget constraint exists, skip steps that would blow the limit
+    const stepsToRun = budget
+      ? group.filter((indexStr) => {
+          const step = intent.steps[parseInt(indexStr)];
+          const ep = step ? findEndpoint(step.endpointId) : null;
+          const stepCostUsd = ep?.costPerCall ?? 0.001;
+          // Estimate whether adding this step would exceed the credit budget
+          const projectedCredits = Math.max(1, Math.ceil((runningCostUsd + stepCostUsd) * 2000));
+          if (projectedCredits > budget.maxCredits) {
+            logger.info({ endpointId: step?.endpointId, projectedCredits, maxCredits: budget.maxCredits }, 'Skipping step — budget exceeded');
+            allResults[parseInt(indexStr)] = {
+              endpointId: step?.endpointId ?? 'unknown',
+              success: false, cached: false, durationMs: 0, cost: 0,
+              error: 'BUDGET_EXCEEDED',
+            };
+            return false;
+          }
+          return true;
+        })
+      : group;
+
     const groupResults = await Promise.allSettled(
-      group.map((indexStr) => executeStep(parseInt(indexStr), intent))
+      stepsToRun.map((indexStr) => executeStep(parseInt(indexStr), intent))
     );
     groupResults.forEach((result, i) => {
-      const stepIndex = parseInt(group[i]);
+      const stepIndex = parseInt(stepsToRun[i]);
       if (result.status === 'fulfilled') {
         allResults[stepIndex] = result.value;
+        runningCostUsd += result.value.cost;
       } else {
         allResults[stepIndex] = {
           endpointId: intent.steps[stepIndex]?.endpointId ?? 'unknown',

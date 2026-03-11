@@ -9,10 +9,15 @@ import { checkApiKey } from '../middleware/auth';
 import { parseIntent } from '../core/intent-parser';
 import { executePlan } from '../core/executor';
 import { formatResponse } from '../core/formatter';
-import { deductCredit } from '../db/index';
+import { deductCredit, topUpCredits } from '../db/index';
 import { creditsForApiCost } from '../core/credits';
+import {
+  PricingPreferencesSchema, type PricingPreferences,
+  pricingPromptHint, optimizePlan, checkBudget,
+} from '../core/pricing';
 import { cacheIncr } from '../cache/index';
 import { apiRegistry } from '../config/api-registry';
+import { rateTier, env } from '../config/index';
 import { logger } from '../utils/logger';
 import { nanoid } from 'nanoid';
 
@@ -24,18 +29,18 @@ export const batchRouter = new Hono();
 
 const BatchSchema = z.object({
   queries: z.array(z.string().min(1).max(2000)).min(1).max(10),
+  pricing: PricingPreferencesSchema.optional(),
 });
 
 batchRouter.post('/', checkApiKey, async (c) => {
   const batchId = nanoid(12);
   const keyInfo = c.get('apiKeyInfo');
 
-  let body: z.infer<typeof BatchSchema>;
-  try {
-    body = BatchSchema.parse(await c.req.json());
-  } catch (err) {
-    return c.json({ batchId, error: 'Invalid body', details: (err as Error).message }, 400);
+  const parsed = BatchSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) {
+    return c.json({ batchId, error: 'Invalid body', details: parsed.error.flatten().fieldErrors }, 400);
   }
+  const body = parsed.data;
 
   // Pre-flight: require at least 1 credit per query
   if (!keyInfo.isEnvKey && keyInfo.credits < body.queries.length) {
@@ -51,10 +56,7 @@ batchRouter.post('/', checkApiKey, async (c) => {
 
   // RED-4: Enforce per-key tiered rate limit (counts each query in the batch separately)
   if (!keyInfo.isEnvKey) {
-    const tierLimit = keyInfo.amountPaid >= 500 ? 300
-      : keyInfo.amountPaid >= 100 ? 120
-      : keyInfo.amountPaid >= 20  ? 60
-      : 30;
+    const tierLimit = rateTier(keyInfo.amountPaid).perMinute;
     // Increment rate limit counter by queries.length (each query consumes one slot)
     const rlCounts = await Promise.all(
       Array.from({ length: body.queries.length }, () => cacheIncr(`rl:orch:${keyInfo.key}`, 60))
@@ -73,16 +75,39 @@ batchRouter.post('/', checkApiKey, async (c) => {
 
   const start = Date.now();
 
+  // Parse optional pricing preferences (shared across all queries in the batch)
+  const pricing: PricingPreferences | undefined = body.pricing;
+  const hint = pricing ? pricingPromptHint(pricing) : undefined;
+
   // YELLOW-3: Parse all intents first so we can check total step count and estimate
   // cost upfront — then deduct atomically before any expensive API execution.
   const intents = await Promise.allSettled(
-    body.queries.map((query) => parseIntent(query))
+    body.queries.map((query) => parseIntent(query, hint))
   );
 
-  const parsedIntents = intents.map((r, idx) =>
-    r.status === 'fulfilled' ? { ok: true as const, intent: r.value, query: body.queries[idx] }
-      : { ok: false as const, error: r.reason, query: body.queries[idx] }
-  );
+  const parsedIntents = intents.map((r, idx) => {
+    if (r.status !== 'fulfilled') {
+      return { ok: false as const, error: r.reason, query: body.queries[idx] };
+    }
+    let intent = r.value;
+    // Apply pricing optimization per-query
+    if (pricing) {
+      const budgetCheck = checkBudget(intent, pricing);
+      if (!budgetCheck.ok) {
+        // Try cheapest alternatives to rescue the query
+        const opt = optimizePlan(intent, { ...pricing, strategy: 'cheapest' });
+        const recheck = checkBudget(opt.intent, pricing);
+        if (!recheck.ok) {
+          return { ok: false as const, error: new Error(recheck.error), query: body.queries[idx] };
+        }
+        intent = opt.intent;
+      } else {
+        const opt = optimizePlan(intent, pricing);
+        if (opt.swaps.length > 0) intent = opt.intent;
+      }
+    }
+    return { ok: true as const, intent, query: body.queries[idx] };
+  });
 
   // YELLOW-6: Cap total execution steps across all queries
   const totalSteps = parsedIntents.reduce((sum, p) => sum + (p.ok ? p.intent.steps.length : 0), 0);
@@ -96,19 +121,21 @@ batchRouter.post('/', checkApiKey, async (c) => {
     }, 400);
   }
 
-  // YELLOW-3: Estimate total credits needed and deduct upfront atomically.
-  // This prevents partial execution where some queries succeed and some fail due to credit depletion.
+  // Estimate total credits and deduct upfront atomically — prevents mid-batch credit
+  // exhaustion where early queries succeed but later ones fail after API calls are made.
+  let estimatedCredits = 0;
   if (!keyInfo.isEnvKey) {
-    const estimatedCredits = parsedIntents.reduce((sum, p) => {
+    estimatedCredits = parsedIntents.reduce((sum, p) => {
       if (!p.ok) return sum;
       const estimatedCost = p.intent.steps.reduce((s, step) => {
         const ep = apiRegistry.find((e) => e.id === step.endpointId);
         return s + (ep?.costPerCall ?? 0.001);
       }, 0);
-      return sum + Math.max(1, Math.ceil(estimatedCost * 2000));
+      return sum + creditsForApiCost(estimatedCost);
     }, 0);
 
-    if (estimatedCredits > keyInfo.credits) {
+    const deducted = deductCredit(keyInfo.key, estimatedCredits);
+    if (!deducted) {
       return c.json({
         batchId,
         error: 'Insufficient credits for estimated batch cost',
@@ -124,31 +151,21 @@ batchRouter.post('/', checkApiKey, async (c) => {
     parsedIntents.map(async (parsed, idx) => {
       const qStart = Date.now();
       if (!parsed.ok) {
-        return { index: idx, query: parsed.query, ok: false, error: 'Intent parsing failed', durationMs: 0 };
+        return { index: idx, query: parsed.query, ok: false, error: 'Intent parsing failed', durationMs: 0, creditsUsed: 0 };
       }
       const { intent, query } = parsed;
       try {
-        const execution = await executePlan(intent);
+        const budgetConstraint = pricing?.maxCredits ? { maxCredits: pricing.maxCredits } : undefined;
+        const execution = await executePlan(intent, budgetConstraint);
         const formatted = await formatResponse(query, intent, execution);
-
-        const creditsToDeduct = creditsForApiCost(execution.totalCost);
-        if (!keyInfo.isEnvKey) {
-          const deducted = deductCredit(keyInfo.key, creditsToDeduct);
-          if (!deducted) {
-            return {
-              index: idx, query, ok: false,
-              error: 'Insufficient credits',
-              durationMs: Date.now() - qStart,
-            };
-          }
-        }
+        const creditsUsed = creditsForApiCost(execution.totalCost);
 
         return {
           index: idx,
           query,
           ok: true,
           answer: formatted.answer,
-          creditsUsed: creditsToDeduct,
+          creditsUsed,
           durationMs: Date.now() - qStart,
           steps: execution.steps.length,
         };
@@ -158,7 +175,8 @@ batchRouter.post('/', checkApiKey, async (c) => {
           index: idx,
           query,
           ok: false,
-          error: process.env.NODE_ENV === 'production' ? 'Query failed' : (err instanceof Error ? err.message : String(err)),
+          creditsUsed: 0,
+          error: env.NODE_ENV === 'production' ? 'Query failed' : (err instanceof Error ? err.message : String(err)),
           durationMs: Date.now() - qStart,
         };
       }
@@ -166,8 +184,15 @@ batchRouter.post('/', checkApiKey, async (c) => {
   );
 
   const items = results.map((r) =>
-    r.status === 'fulfilled' ? r.value : { ok: false, error: String(r.reason) }
+    r.status === 'fulfilled' ? r.value : { ok: false, creditsUsed: 0, error: String(r.reason) }
   );
+
+  // Refund the difference between estimate and actual cost
+  if (!keyInfo.isEnvKey && estimatedCredits > 0) {
+    const actualTotal = items.reduce((sum, r) => sum + ((r as { creditsUsed?: number }).creditsUsed ?? 0), 0);
+    const refund = estimatedCredits - actualTotal;
+    if (refund > 0) topUpCredits(keyInfo.key, refund);
+  }
 
   const succeeded = items.filter((r) => r.ok).length;
 

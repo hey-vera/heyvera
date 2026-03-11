@@ -7,10 +7,15 @@ import { nanoid } from 'nanoid';
 import { parseIntent } from '../core/intent-parser';
 import { executePlan } from '../core/executor';
 import { formatResponse } from '../core/formatter';
+import {
+  PricingPreferencesSchema, type PricingPreferences,
+  pricingPromptHint, checkBudget, optimizePlan, estimatePlanCost,
+  getAlternativesForEndpoint,
+} from '../core/pricing';
 import { logUsage, getRecentUsage, getUsageStats } from '../utils/usage';
 import { cacheStats, cacheGet, cacheSet, cacheIncr } from '../cache/index';
-import { apiRegistry, findEndpoint } from '../config/api-registry';
-import { env, isSimulationMode } from '../config/index';
+import { apiRegistry } from '../config/api-registry';
+import { env, isSimulationMode, rateTier } from '../config/index';
 import { logger } from '../utils/logger';
 import { sendApiKeyEmail, sendLowBalanceEmail, sendAdminAlert } from '../utils/email';
 import { wasEmailSentRecently, logEmailSend } from '../db/index';
@@ -28,7 +33,7 @@ apiRouter.post('/orchestrate', async (c) => {
   const requestId = nanoid(12);
   const start = Date.now();
 
-  let body: { query?: string };
+  let body: { query?: string; pricing?: unknown };
   try {
     body = await c.req.json();
   } catch {
@@ -44,22 +49,37 @@ apiRouter.post('/orchestrate', async (c) => {
     return c.json({ requestId, error: 'Query too long (max 2000 chars)', code: 'QUERY_TOO_LONG' }, 400);
   }
 
+  // Parse optional pricing preferences
+  let pricing: PricingPreferences | undefined;
+  if (body.pricing) {
+    const pricingResult = PricingPreferencesSchema.safeParse(body.pricing);
+    if (!pricingResult.success) {
+      return c.json({ requestId, error: 'Invalid pricing preferences', code: 'INVALID_PRICING', details: pricingResult.error.flatten().fieldErrors }, 400);
+    }
+    pricing = pricingResult.data;
+  }
+
   // keyInfo is set by checkApiKey middleware — available from handler start
   const keyInfo = c.get('apiKeyInfo');
 
-  // Query-level cache check — still bill credits for cache hits (prevents free-ride abuse)
+  // Query-level cache check — charge 1 credit for cache hits (zero cost to platform, prevents free-riding)
   const qKey = queryCacheKey(query);
   const cachedResponse = await cacheGet<Record<string, unknown>>(qKey);
   if (cachedResponse) {
-    const cachedCredits = (cachedResponse.costBreakdown as Record<string, unknown> | undefined)?.creditsUsed as number ?? 1;
+    const CACHE_HIT_CREDIT = 1;
     if (!keyInfo.isEnvKey) {
-      if (keyInfo.credits < cachedCredits) {
+      if (keyInfo.credits < CACHE_HIT_CREDIT) {
         return c.json({ requestId, error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS', creditsAvailable: keyInfo.credits }, 402);
       }
-      deductCredit(keyInfo.key, cachedCredits);
+      deductCredit(keyInfo.key, CACHE_HIT_CREDIT);
     }
-    logger.info({ requestId, query: query.slice(0, 100), creditsUsed: cachedCredits }, 'Query cache hit');
-    return c.json({ ...cachedResponse, requestId, metadata: { ...(cachedResponse.metadata as Record<string, unknown>), cacheHits: 1, fromCache: true } });
+    logger.info({ requestId, query: query.slice(0, 100), creditsUsed: CACHE_HIT_CREDIT }, 'Query cache hit');
+    return c.json({
+      ...cachedResponse,
+      requestId,
+      costBreakdown: { ...(cachedResponse.costBreakdown as Record<string, unknown>), creditsUsed: CACHE_HIT_CREDIT },
+      metadata: { ...(cachedResponse.metadata as Record<string, unknown>), cacheHits: 1, fromCache: true },
+    });
   }
 
   // Per-key tiered rate limit (separate from global IP limit).
@@ -74,10 +94,7 @@ apiRouter.post('/orchestrate', async (c) => {
   // it would downgrade heavy one-time purchasers. Revisit if subscription adoption
   // warrants a separate policy (see D3 in ROADMAP.md).
   if (!keyInfo.isEnvKey) {
-    const tierLimit = keyInfo.amountPaid >= 500 ? 300
-      : keyInfo.amountPaid >= 100 ? 120
-      : keyInfo.amountPaid >= 20  ? 60
-      : 30;
+    const tierLimit = rateTier(keyInfo.amountPaid).perMinute;
     const rlCount = await cacheIncr(`rl:orch:${keyInfo.key}`, 60);
     if (rlCount > tierLimit) {
       return c.json({
@@ -104,10 +121,43 @@ apiRouter.post('/orchestrate', async (c) => {
   logger.info({ requestId, query: query.slice(0, 100) }, 'Orchestration request');
 
   try {
-    const intent = await parseIntent(query);
+    // Build pricing-aware LLM hint (if pricing preferences provided)
+    const hint = pricing ? pricingPromptHint(pricing) : undefined;
+    let intent = await parseIntent(query, hint);
     if (intent.steps.length > 10) intent.steps = intent.steps.slice(0, 10);
 
-    const execution = await executePlan(intent);
+    // Budget pre-flight: reject if estimated cost > maxCredits before any API calls
+    if (pricing) {
+      const budgetCheck = checkBudget(intent, pricing);
+      if (!budgetCheck.ok) {
+        // Try optimizing first — maybe cheaper alternatives fit the budget
+        const optimized = optimizePlan(intent, { ...pricing, strategy: 'cheapest' });
+        const recheck = checkBudget(optimized.intent, pricing);
+        if (!recheck.ok) {
+          return c.json({
+            requestId,
+            error: recheck.error,
+            code: 'BUDGET_EXCEEDED',
+            estimatedCredits: recheck.estimatedCredits,
+            maxCredits: pricing.maxCredits,
+            hint: 'Increase maxCredits or simplify your query',
+          }, 402);
+        }
+        intent = optimized.intent;
+        logger.info({ requestId, swaps: optimized.swaps.length, saved: optimized.originalCredits - optimized.optimizedCredits }, 'Budget rescue — swapped to cheaper endpoints');
+      } else {
+        // Within budget — still optimize per strategy
+        const optimized = optimizePlan(intent, pricing);
+        if (optimized.swaps.length > 0) {
+          intent = optimized.intent;
+          logger.info({ requestId, strategy: pricing.strategy, swaps: optimized.swaps.length, saved: optimized.originalCredits - optimized.optimizedCredits }, 'Plan optimized per pricing strategy');
+        }
+      }
+    }
+
+    // Execute with optional budget constraint for runtime step-skipping
+    const budgetConstraint = pricing?.maxCredits ? { maxCredits: pricing.maxCredits } : undefined;
+    const execution = await executePlan(intent, budgetConstraint);
     const formatted = await formatResponse(query, intent, execution);
 
     const apiCosts = execution.totalCost;
@@ -214,6 +264,12 @@ apiRouter.post('/orchestrate', async (c) => {
         costUsd: Math.round(apiCosts * 10000) / 10000,
         creditsUsed: creditsToDeduct,
         savings: Math.round(savings * 10000) / 10000,
+        ...(pricing && {
+          strategy: pricing.strategy,
+          maxCredits: pricing.maxCredits,
+          targetCredits: pricing.targetCredits,
+          budgetSkippedSteps: execution.steps.filter((s) => s.error === 'BUDGET_EXCEEDED').length,
+        }),
       },
       metadata: {
         stepsExecuted: execution.steps.length,
@@ -305,11 +361,11 @@ apiRouter.get('/usage', (c) => {
 });
 
 // GET /v1/balance
-apiRouter.get('/balance', async (c) => {
+apiRouter.get('/balance', (c) => {
   const key = c.req.header('X-API-Key');
-  if (!key) return c.json({ error: 'Missing X-API-Key header' }, 401);
+  if (!key) return c.json({ error: 'Missing X-API-Key header', code: 'MISSING_API_KEY' }, 401);
   const data = getApiKeyBalance(key);
-  if (!data) return c.json({ error: 'Invalid or inactive API key' }, 401);
+  if (!data) return c.json({ error: 'Invalid or inactive API key', code: 'INVALID_API_KEY' }, 401);
   return c.json({
     credits: data.credits,
     creditsUsed: data.credits_used,
@@ -317,23 +373,59 @@ apiRouter.get('/balance', async (c) => {
   });
 });
 
-// GET /v1/estimate?query=... — runs intent parsing only, returns estimated credit cost
+// GET /v1/estimate?query=...&strategy=...&maxCredits=... — runs intent parsing only, returns estimated credit cost
 // No credits are deducted. Useful for budgeting before committing to an orchestration.
 apiRouter.get('/estimate', async (c) => {
   const query = c.req.query('query')?.trim();
   if (!query) return c.json({ error: 'Missing required query parameter: query' }, 400);
   if (query.length > 2000) return c.json({ error: 'Query too long (max 2000 chars)' }, 400);
 
-  try {
-    const plan = await parseIntent(query);
-    let estimatedCredits = 0;
-    const breakdown = plan.steps.map((step) => {
-      const endpoint = findEndpoint(step.endpointId);
-      const credits = endpoint ? creditsForApiCost(endpoint.costPerCall) : 1;
-      estimatedCredits += credits;
-      return { endpointId: step.endpointId, credits, reason: step.reason };
+  // Optional pricing params from query string
+  const strategyParam = c.req.query('strategy');
+  const maxCreditsParam = c.req.query('maxCredits');
+  let pricing: PricingPreferences | undefined;
+  if (strategyParam || maxCreditsParam) {
+    const parsed = PricingPreferencesSchema.safeParse({
+      strategy: strategyParam ?? 'balanced',
+      maxCredits: maxCreditsParam ? parseInt(maxCreditsParam) : undefined,
     });
-    return c.json({ query, estimatedCredits, steps: plan.steps.length, breakdown, summary: plan.summary });
+    if (parsed.success) pricing = parsed.data;
+  }
+
+  try {
+    const hint = pricing ? pricingPromptHint(pricing) : undefined;
+    const plan = await parseIntent(query, hint);
+
+    // Default estimate
+    const estimate = estimatePlanCost(plan);
+
+    // If pricing provided, show optimized estimate too
+    let optimized: { estimatedCredits: number; swaps: { from: string; to: string; savedCredits: number }[] } | undefined;
+    if (pricing) {
+      const opt = optimizePlan(plan, pricing);
+      if (opt.swaps.length > 0) {
+        optimized = {
+          estimatedCredits: opt.optimizedCredits,
+          swaps: opt.swaps.map((s) => ({ from: s.from, to: s.to, savedCredits: s.savedCredits })),
+        };
+      }
+    }
+
+    const breakdown = estimate.perStep.map((s, i) => ({
+      endpointId: s.endpointId,
+      credits: s.credits,
+      reason: plan.steps[i]?.reason ?? '',
+      alternatives: getAlternativesForEndpoint(s.endpointId).slice(0, 3),
+    }));
+
+    return c.json({
+      query,
+      estimatedCredits: estimate.totalCredits,
+      steps: plan.steps.length,
+      breakdown,
+      summary: plan.summary,
+      ...(optimized && { optimized }),
+    });
   } catch (err) {
     logger.error({ err }, '/v1/estimate failed');
     return c.json({ error: 'Failed to estimate query cost' }, 500);
