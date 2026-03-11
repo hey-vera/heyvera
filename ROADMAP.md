@@ -1,3 +1,5 @@
+Always commit and push after big updates, I will do the deploy.
+
 # ClawNet — Project Roadmap & Briefing
 
 > **Vision:** ClawNet is the sovereign orchestration layer for the x402 and OpenClaw ecosystem — the intelligence router between AI agents, real-time data, and micropayment rails across Solana and beyond.
@@ -291,6 +293,42 @@ Implemented from the Opus-authored SkillMarketplace.md blueprint (24-section arc
 | **GET /v1/auth/usage** | Task stats + marketplace spend summary |
 
 **Deferred (out of scope for now):** double-entry ledger, API token SHA-256 hashing, BullMQ async queue, org/team keys, DID-based signing.
+
+---
+
+## ✅ Frontend Rehaul — Complete Visual Redesign
+
+All 9 site pages rebuilt from scratch. Philosophy: Linear/Vercel/Stripe-inspired developer tool aesthetic — muted dark theme, restrained teal accent (`#10b981`), Inter + JetBrains Mono, information-dense, no gimmicks.
+
+### Design System (all pages)
+- CSS variables standardized across every page (no more `#00ff88`, IBM Plex Serif, Space Mono, grid background, noise texture, or terminal animations)
+- 8px spacing rhythm, `clamp()` responsive typography, 60%+ whitespace
+- Shared nav (Clerk auth state, credits badge, API status dot) + footer on every page
+
+### index.html — Ground-Up Rewrite
+- **Hero**: Massive `clamp(40–64px)` heading, live status pill, 2 CTAs (not 4), terminal code snippet showing real API request/response
+- **Social proof strip**: Provider logos (Solana, Helius, CoinGecko, DeFi Llama, x402, Stripe) + 4 live metrics
+- **Pipeline**: `01/02/03` numbered cards with arrow connectors (mobile-stacks vertically)
+- **API demo**: Tabbed cURL / JavaScript / Python — static, copyable, split request/response
+- **Feature grid**: 6 cards (Natural Language API, Parallel Execution, Pay Per Query, Skill Marketplace, Circuit Breakers, x402 Native)
+- **Pricing**: 3 main tiers (Starter $5, Pro $50 featured, Scale $500) + 3 more in expandable `<details>`
+- **Removed**: Balance checker, contact form (both moved to dedicated pages)
+- **Preserved exactly**: All 6 Stripe payment links, USDC modal + Phantom flow, Clerk auth, API status polling, data sources dynamic fetch
+
+### Other Pages Rehauled
+- `dashboard.html` — full dynamic dashboard with Clerk auth, API key management, credit display
+- `marketplace.html` — full skill marketplace with browse/publish/my-skills/starred tabs
+- `docs.html` — complete API reference with copy-able code blocks
+- `endpoints.html` — searchable endpoint catalog with category/status filters
+- `login.html` — clean centered Clerk auth card
+- `success.html` — payment confirmation with API key reveal + curl quick-start
+- `admin.html` — dynamic admin dashboard (ADMIN_API_KEY gated)
+- `contact-section.html` — standalone contact page with honeypot + validation
+
+### Plan files (for future reference)
+- `FRONTEND_REHAUL.md` — master design spec (colors, fonts, component classes)
+- `FRONTEND_REHAUL_PLAN.md` — per-page status tracker
+- `rehaul_*.md` — per-page detailed execution plans (index, dashboard, marketplace, docs, endpoints, login, success, admin, contact)
 
 ---
 

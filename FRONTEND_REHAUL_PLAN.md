@@ -18,7 +18,7 @@
 
 | # | File | Plan | Status | Complexity |
 |---|---|---|---|---|
-| 1 | `site/index.html` | [rehaul_index.md](rehaul_index.md) | COMPLETED | — |
+| 1 | `site/index.html` | [rehaul_index.md](rehaul_index.md) | COMPLETED (v2 rehaul) | Very High |
 | 2 | `site/dashboard.html` | [rehaul_dashboard.md](rehaul_dashboard.md) | COMPLETED | — |
 | 3 | `site/marketplace.html` | [rehaul_marketplace.md](rehaul_marketplace.md) | COMPLETED | Very High |
 | 4 | `site/docs.html` | [rehaul_docs.md](rehaul_docs.md) | COMPLETED | High |
