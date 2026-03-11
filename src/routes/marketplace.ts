@@ -12,7 +12,7 @@ import {
   insertOrchestration, starSkill, unstarSkill, hasStarred, incrementSkillViews,
   reportSkill, getSkillVersionHistory,
   rateSkill, getSkillRatings, getSkillRatingStats, getSkillMetricsSummary,
-  setSkillFeatured, getFeaturedSkills,
+  setSkillFeatured, getFeaturedSkills, getDb,
 } from '../db/index';
 import { parseIntent } from '../core/intent-parser';
 import { executePlan } from '../core/executor';
@@ -309,6 +309,46 @@ marketplaceRouter.post('/skills/:id/purchase', checkApiKey, async (c) => {
       code: 'EXECUTION_ERROR',
     }, 500);
   }
+});
+
+// ─── GET /v1/marketplace/purchases — skills the caller has purchased ──────────
+
+marketplaceRouter.get('/purchases', checkApiKey, (c) => {
+  const keyInfo = c.get('apiKeyInfo');
+  const db = getDb();
+  // Get unique skills purchased, most recent first
+  const rows = db.prepare(`
+    SELECT DISTINCT t.skill_id, MAX(t.created_at) as last_purchased, COUNT(*) as times,
+           SUM(t.amount_credits) as total_spent,
+           s.name, s.display_name, s.description, s.credit_cost, s.uses, s.stars, s.category
+    FROM transactions t
+    LEFT JOIN skills s ON s.id = t.skill_id AND s.active = 1
+    WHERE t.from_agent = ? AND t.type = 'SKILL_SALE' AND t.skill_id IS NOT NULL
+    GROUP BY t.skill_id
+    ORDER BY last_purchased DESC
+    LIMIT 100
+  `).all(keyInfo.key) as Array<{
+    skill_id: string; last_purchased: string; times: number; total_spent: number;
+    name: string | null; display_name: string | null; description: string | null;
+    credit_cost: number | null; uses: number | null; stars: number | null; category: string | null;
+  }>;
+
+  return c.json({
+    total: rows.length,
+    purchases: rows.map(r => ({
+      skillId: r.skill_id,
+      name: r.display_name ?? r.name ?? r.skill_id,
+      slug: r.name ?? r.skill_id,
+      description: r.description ?? '',
+      creditCost: r.credit_cost ?? 0,
+      uses: r.uses ?? 0,
+      stars: r.stars ?? 0,
+      category: r.category ?? 'general',
+      lastPurchased: r.last_purchased,
+      timesPurchased: r.times,
+      totalSpent: r.total_spent,
+    })),
+  });
 });
 
 // ─── GET /v1/marketplace/transactions — caller's transaction history ──────────

@@ -374,6 +374,7 @@
       <button class="tab active" data-tab="browse">Browse</button>
       <button class="tab" data-tab="publish">Publish</button>
       <button class="tab" data-tab="my-skills">My Skills</button>
+      <button class="tab" data-tab="purchases">Purchases</button>
       <button class="tab" data-tab="starred">Starred</button>
       <button class="tab" data-tab="tasks">Task History</button>
       <button class="tab" data-tab="economy">How It Works</button>
@@ -388,8 +389,9 @@
       <div class="controls">
         <div class="search-wrap">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-          <input type="text" class="search-input" id="search-input" placeholder="Search skills..." oninput="debounceSearch()">
+          <input type="text" class="search-input" id="search-input" placeholder="Search skills... (Ctrl+K)" oninput="debounceSearch()">
         </div>
+        <div id="search-count" style="font-size:12px;color:var(--text-muted);white-space:nowrap"></div>
         <select class="sort-select" id="sort-select" onchange="loadSkills()">
           <option value="popular">Popular</option>
           <option value="stars">Most Starred</option>
@@ -584,6 +586,24 @@
       </div>
     </div>
 
+    <!-- PURCHASES -->
+    <div class="tab-panel" id="tp-purchases">
+      <div id="purch-auth" style="display:none">
+        <div class="card" style="text-align:center;padding:40px">
+          <p style="color:var(--text-tertiary);margin-bottom:12px">Set your API key to view purchased skills</p>
+          <a href="/dashboard.html" class="btn btn-primary">Go to Dashboard</a>
+        </div>
+      </div>
+      <div id="purch-content" style="display:none">
+        <div class="cstat-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:20px">
+          <div class="cstat"><div class="cstat-val" id="pc-count">&mdash;</div><div class="cstat-lbl">Skills Purchased</div></div>
+          <div class="cstat"><div class="cstat-val" id="pc-spent">&mdash;</div><div class="cstat-lbl">Credits Spent</div></div>
+          <div class="cstat"><div class="cstat-val" id="pc-usd">&mdash;</div><div class="cstat-lbl">USD Equivalent</div></div>
+        </div>
+        <div id="purch-list"></div>
+      </div>
+    </div>
+
     <!-- STARRED -->
     <div class="tab-panel" id="tp-starred">
       <div id="starred-list" style="display:flex;flex-direction:column;gap:10px"></div>
@@ -678,6 +698,13 @@ const API = 'https://api.claw-net.org';
 const OFFICIAL = new Set(['token-analysis','social-sentiment','portfolio-optimizer','wallet-profiler','trending-tokens','whale-tracker','defi-yield-scanner','token-launch-radar','price-oracle','nft-collection-intel']);
 const CAT_ICONS = {defi:'⬡',security:'🔒',social:'◎',ai:'✦',search:'⌕',media:'▶',enrichment:'⊕',analytics:'∿',infrastructure:'⚙',utility:'◇',weather:'☁',general:'◆'};
 
+// 1 credit = $0.001
+function creditsToUsd(n) {
+  const usd = n * 0.001;
+  if (usd < 0.01) return '<$0.01';
+  return '$' + usd.toFixed(usd >= 1 ? 2 : 3).replace(/\.?0+$/, '');
+}
+
 let apiKey = localStorage.getItem('claw_api_key') || '';
 let currentPage = 1, currentCat = '', currentSort = 'popular';
 let searchTimer = null;
@@ -767,6 +794,7 @@ function handleRoute() {
 
   if (tabName === 'browse') { loadSkills(); loadHeroStats(); }
   if (tabName === 'my-skills') loadMySkills();
+  if (tabName === 'purchases') loadPurchases();
   if (tabName === 'starred') loadStarredView();
   if (tabName === 'publish') updateValidation();
   if (tabName === 'tasks') loadTaskHistory();
@@ -860,8 +888,10 @@ async function loadSkills() {
     if (!r.ok) throw new Error();
     const d = await r.json();
     document.getElementById('stat-total').textContent = d.total;
+    const countEl = document.getElementById('search-count');
+    if (countEl) countEl.textContent = search ? `${d.total} result${d.total !== 1 ? 's' : ''} for "${search}"` : '';
     if (!d.skills.length) {
-      grid.innerHTML = `<div class="empty" style="grid-column:1/-1"><div class="empty-icon">◈</div><div class="empty-title">No skills found</div><div class="empty-sub">Try a different search or filter</div></div>`;
+      grid.innerHTML = `<div class="empty" style="grid-column:1/-1"><div class="empty-icon">◈</div><div class="empty-title">No skills found</div><div class="empty-sub">${search ? `No results for "${esc(search)}" — try a shorter keyword or browse by category` : 'Try a different filter'}</div></div>`;
       document.getElementById('pagination').innerHTML = '';
       return;
     }
@@ -891,15 +921,15 @@ function renderCard(s) {
         ${displayName !== slug ? `<div class="card-slug">${esc(slug)}</div>` : ''}
         <div class="card-ver">v${esc(s.version||'1.0.0')} <span class="sec ${secCls}">${secTxt}</span></div>
       </div>
-      <div class="card-price"><div class="card-price-n">${s.creditCost}</div><div class="card-price-l">credits</div></div>
+      <div class="card-price"><div class="card-price-n">${s.creditCost}</div><div class="card-price-l">cr · ${creditsToUsd(s.creditCost)}</div></div>
     </div>
     <p class="card-desc">${esc(s.description)}</p>
     ${tags ? `<div class="card-tags">${tags}</div>` : ''}
     <div class="card-metrics">
       <span>⚡ <b>${fmt(s.uses||0)}</b> uses</span>
-      <span>★ <b>${fmt(s.stars||0)}</b></span>
+      ${s.avgRating ? `<span style="color:#f59e0b">★ <b>${s.avgRating.toFixed(1)}</b> <span style="color:var(--text-muted)">(${s.ratingCount})</span></span>` : `<span>★ <b>${fmt(s.stars||0)}</b></span>`}
       <span>👁 <b>${fmt(s.views||0)}</b></span>
-      ${s.license && s.license !== 'MIT' ? `<span>${esc(s.license)}</span>` : ''}
+      ${s.featured ? '<span class="badge-featured">Featured</span>' : ''}
     </div>
     <div class="card-actions">
       <button class="btn-buy" onclick="nav('skill/'+encodeURIComponent('${esc(s.id)}'))">View &amp; Buy</button>
@@ -963,7 +993,7 @@ async function loadSkillDetail(id) {
       </div>
 
       <div class="detail-meta">
-        <div class="meta-card"><div class="meta-label">Price</div><div class="meta-val g">${s.creditCost} cr</div></div>
+        <div class="meta-card"><div class="meta-label">Price</div><div class="meta-val g">${s.creditCost} cr</div><div style="font-size:11px;color:var(--text-muted);margin-top:2px">${creditsToUsd(s.creditCost)}</div></div>
         <div class="meta-card"><div class="meta-label">Uses</div><div class="meta-val">${fmt(s.uses||0)}</div></div>
         <div class="meta-card"><div class="meta-label">Stars</div><div class="meta-val">★ ${fmt(s.stars||0)}</div></div>
         <div class="meta-card"><div class="meta-label">Views</div><div class="meta-val">${fmt(s.views||0)}</div></div>
@@ -1574,6 +1604,43 @@ async function publishSkill() {
   btn.disabled = false; btn.textContent = 'Publish Skill →';
 }
 
+// ── Purchases ─────────────────────────────────────────────────────
+async function loadPurchases() {
+  const auth = document.getElementById('purch-auth');
+  const content = document.getElementById('purch-content');
+  if (!apiKey) { auth.style.display = 'block'; content.style.display = 'none'; return; }
+  auth.style.display = 'none'; content.style.display = 'block';
+
+  try {
+    const r = await fetch(`${API}/v1/marketplace/purchases`, { headers: { 'X-API-Key': apiKey } });
+    if (!r.ok) throw new Error();
+    const d = await r.json();
+
+    document.getElementById('pc-count').textContent = d.total;
+    const totalSpent = d.purchases.reduce((a, p) => a + p.totalSpent, 0);
+    document.getElementById('pc-spent').textContent = totalSpent.toLocaleString();
+    document.getElementById('pc-usd').textContent = creditsToUsd(totalSpent);
+
+    const list = document.getElementById('purch-list');
+    if (!d.purchases.length) {
+      list.innerHTML = `<div class="empty"><div class="empty-icon">◈</div><div class="empty-title">No purchases yet</div><div class="empty-sub">Browse skills and make your first purchase</div></div>`;
+      return;
+    }
+    list.innerHTML = d.purchases.map(p => `
+      <div class="my-skill-row" style="cursor:pointer" onclick="nav('skill/${esc(p.skillId)}')">
+        <div style="flex:1;min-width:140px">
+          <div class="my-skill-name">${esc(p.name)}</div>
+          <div class="my-skill-id">${esc(p.slug)} · ${esc(p.category)}</div>
+        </div>
+        <div class="my-skill-stat"><div class="v">${p.creditCost}</div><div class="l">cr/run</div></div>
+        <div class="my-skill-stat"><div class="v">${p.timesPurchased}</div><div class="l">Runs</div></div>
+        <div class="my-skill-stat"><div class="v" style="color:var(--warning)">${p.totalSpent}</div><div class="l">Spent</div></div>
+        <div style="font-size:11px;color:var(--text-muted)">Last: ${new Date(p.lastPurchased).toLocaleDateString()}</div>
+        <button class="btn-sm" onclick="event.stopPropagation();nav('skill/${esc(p.skillId)}')">Run Again</button>
+      </div>`).join('');
+  } catch { toast('Could not load purchases', 'error'); }
+}
+
 // ── My Skills ─────────────────────────────────────────────────────
 async function loadMySkills() {
   const content = document.getElementById('my-content');
@@ -1598,14 +1665,15 @@ async function loadMySkills() {
     list.innerHTML = d.skills.map(s => `
       <div class="my-skill-row">
         <div style="flex:1;min-width:140px">
-          <div class="my-skill-name" onclick="nav('skill/${esc(s.id)}')">${esc(s.name)}</div>
-          <div class="my-skill-id">${esc(s.id)} · v${esc(s.version||'1.0.0')}</div>
+          <div class="my-skill-name" onclick="nav('skill/${esc(s.id)}')">${esc(s.displayName||s.name)}</div>
+          <div class="my-skill-id">${esc(s.id)} · v${esc(s.version||'1.0.0')} · ${creditsToUsd(s.creditCost||0)}/run</div>
         </div>
         <span class="status-badge ${s.public?'live':'draft'}">${s.public?'Live':'Draft'}</span>
         <div class="my-skill-stat"><div class="v">${fmt(s.uses||0)}</div><div class="l">Uses</div></div>
         <div class="my-skill-stat"><div class="v">${fmt(s.sales||0)}</div><div class="l">Sales</div></div>
         <div class="my-skill-stat"><div class="v" style="color:var(--accent)">${fmt(s.earned||0)}</div><div class="l">Earned</div></div>
         <div style="display:flex;gap:6px">
+          <button class="btn-sm" onclick="nav('skill/${esc(s.id)}')" title="View in marketplace">View</button>
           <button class="btn-sm" onclick="toggleVis('${esc(s.id)}',${s.public})">${s.public?'Unpublish':'Publish'}</button>
           <button class="btn-sm danger" onclick="delSkill('${esc(s.id)}')">Delete</button>
         </div>

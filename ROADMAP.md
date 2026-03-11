@@ -387,6 +387,14 @@ All 9 site pages rebuilt from scratch. Philosophy: Linear/Vercel/Stripe-inspired
 - **Frontend** — Reviews tab: star rating header, per-review display, rate-this-skill panel (5-star clicker + optional text, lazy-shown after first purchase)
 - After purchase: "Rate this skill" panel auto-shows in Reviews tab after 2s delay
 
+### Chunk 6: Marketplace UI Polish
+- **Backend** (`marketplace.ts`): `GET /v1/marketplace/purchases` — caller's purchased skills (SKILL_SALE transactions joined with skills, grouped by skill_id, most recent first)
+- **Frontend** — `creditsToUsd(n)` helper: 1 credit = $0.001, shown on skill cards, detail meta, My Skills rows
+- **Frontend** — "Purchases" tab: stats (count, credits spent, USD equivalent) + skill rows with run count, total spent, "Run Again" button
+- **Frontend** — Skill cards: USD price alongside credits, featured badge in metrics row, avg rating + review count when available
+- **Frontend** — Search: result count "X results for …" shown inline next to search bar; improved empty state with contextual hint
+- **Frontend** — My Skills: "View" quick link per skill, price-in-USD in skill ID line, displayName shown instead of slug
+
 ---
 
 ## ✅ Performance Optimization — Smarter Routing & Cache
