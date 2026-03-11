@@ -6,6 +6,7 @@ import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger as honoLogger } from 'hono/logger';
+import { bodyLimit } from 'hono/body-limit';
 import { env, isSimulationMode } from './config/index';
 import { logger } from './utils/logger';
 import { apiRouter } from './routes/api';
@@ -23,7 +24,6 @@ import { stripeRouter } from './routes/stripe';
 import { clerkWebhookRouter } from './routes/clerk-webhook';
 import { solanaRouter } from './routes/solana';
 import { meshRouter } from './routes/mesh';
-// import { referralRouter } from './routes/referral'; // INACTIVE — re-enable when ready
 import { skillsRouter } from './routes/skills';
 import { endpointsRouter } from './routes/endpoints';
 import { discoverRouter } from './routes/discover';
@@ -73,7 +73,7 @@ app.use('*', cors({
     : '*',
   allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization', 'X-API-Key'],
-  exposeHeaders: ['X-Request-ID', 'X-ClawNet-Signature'],
+  exposeHeaders: ['X-Request-ID', 'X-ClawNet-Signature', 'X-RateLimit-Limit', 'X-RateLimit-Remaining', 'Retry-After'],
   maxAge: 86400,
 }));
 app.use('*', honoLogger());
@@ -93,6 +93,13 @@ app.use('*', (c, next) => {
   c.header('X-Request-ID', nanoid(12));
   return next();
 });
+
+// Global body size limit — 256KB for all non-webhook routes
+// (webhooks have their own tighter 64KB guard applied before signature reads)
+app.use('*', bodyLimit({
+  maxSize: 256 * 1024,
+  onError: (c) => c.json({ error: 'Payload too large', code: 'PAYLOAD_TOO_LARGE' }, 413),
+}));
 
 app.get('/', (c) => c.json({
   name: 'ClawNet Orchestrator',
@@ -125,7 +132,7 @@ app.get('/health', (c) => {
 app.use('/v1/webhooks/*', async (c, next) => {
   const contentLength = parseInt(c.req.header('content-length') ?? '0', 10);
   if (contentLength > 65536) {
-    return c.json({ error: 'Payload too large' }, 413);
+    return c.json({ error: 'Payload too large', code: 'PAYLOAD_TOO_LARGE' }, 413);
   }
   return next();
 });
@@ -141,7 +148,6 @@ app.use('/v1/orchestrate', checkApiKey);
 app.route('/v1/feedback', feedbackRouter);
 app.route('/v1/admin', adminRouter);
 app.route('/v1/mesh', meshRouter);
-// app.route('/v1/referral', referralRouter); // INACTIVE — re-enable when ready
 app.route('/v1/skills', skillsRouter);
 app.route('/v1/endpoints', endpointsRouter);
 app.route('/v1/discover', discoverRouter);
@@ -156,6 +162,9 @@ app.route('/v1/openclaw', openclawRouter);
 app.route('/v1', openapiRouter);
 app.use('/v1/orchestrate', signResponse);
 app.use('/v1/skills/*/invoke', signResponse);
+app.use('/v1/batch', signResponse);
+app.use('/v1/balance', signResponse);
+app.use('/v1/tasks', signResponse);
 app.route('/v1', apiRouter);
 app.route('/x402', x402SkillsRouter);
 app.route('/v1/llm', llmRouter);
@@ -179,8 +188,15 @@ async function start() {
 
   setupGracefulShutdown();
   startHeartbeat();
-  await initTelegram();
-  await startMeshNode();
+
+  // Non-critical services: isolate failures so the HTTP server still starts
+  try { await initTelegram(); } catch (err) {
+    logger.error({ err }, 'Telegram init failed — continuing without bot');
+  }
+  try { await startMeshNode(); } catch (err) {
+    logger.error({ err }, 'Mesh node init failed — continuing without P2P');
+  }
+
   startEscrowCron();
   startEndpointHealthCron();
   startSkillAbCron();
@@ -192,9 +208,17 @@ async function start() {
     .catch((err) => logger.error({ err }, 'Embedding model failed to load — /v1/discover will return 503'));
 
   const server = serve({ fetch: app.fetch, port: env.PORT, hostname: '0.0.0.0' }, () => {
-    logger.info(`ClawNet running on port ${env.PORT}`);
-    logger.info(`Mode: ${env.NODE_ENV} | Simulation: ${isSimulationMode}`);
-    logger.info(`LLM: ${env.LLM_PROVIDER}`);
+    logger.info({
+      port: env.PORT,
+      env: env.NODE_ENV,
+      simulation: isSimulationMode,
+      llm: env.LLM_PROVIDER,
+      redis: !!env.REDIS_URL,
+      signing: !!env.PLATFORM_SIGNING_SECRET,
+      x402: !!env.X402_RECIPIENT_ADDRESS,
+      freeTrial: env.FREE_TRIAL_CREDITS,
+      rateLimit: env.RATE_LIMIT_PER_MIN,
+    }, 'ClawNet started');
   });
   setHttpServer(server);
 }

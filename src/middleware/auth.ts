@@ -1,4 +1,5 @@
 import { createMiddleware } from 'hono/factory';
+import crypto from 'crypto';
 import { getApiKey } from '../db/index';
 import { env } from '../config/index';
 import { logger } from '../utils/logger';
@@ -29,7 +30,11 @@ export const checkApiKey = createMiddleware(async (c, next) => {
 
   // Check env-based keys first (test-key-123, admin keys etc.)
   const envKeys = env.API_KEYS ? env.API_KEYS.split(',').map((k) => k.trim()).filter(Boolean) : [];
-  if (envKeys.includes(key)) {
+  const isEnvKeyMatch = envKeys.some((ek) => {
+    if (ek.length !== key.length) return false;
+    return crypto.timingSafeEqual(Buffer.from(ek), Buffer.from(key));
+  });
+  if (isEnvKeyMatch) {
     c.set('apiKeyInfo', { key, email: 'env-key', credits: Infinity, creditsUsed: 0, amountPaid: 0, isEnvKey: true });
     return next();
   }
@@ -58,8 +63,8 @@ export const checkApiKey = createMiddleware(async (c, next) => {
     key,
     email: keyRecord.email,
     credits: keyRecord.credits,
-    creditsUsed: (keyRecord as unknown as { credits_used: number }).credits_used ?? 0,
-    amountPaid: (keyRecord as unknown as { amount_paid: number }).amount_paid ?? 0,
+    creditsUsed: keyRecord.credits_used ?? 0,
+    amountPaid: keyRecord.amount_paid ?? 0,
     isEnvKey: false,
   });
 

@@ -45,6 +45,10 @@ export const rateLimiter: MiddlewareHandler = async (c, next) => {
 
   const count = await cacheIncr(key, 60);
 
+  // Always set rate limit headers so clients can self-throttle
+  c.header('X-RateLimit-Limit', String(limit));
+  c.header('X-RateLimit-Remaining', String(Math.max(0, limit - count)));
+
   if (count > limit) {
     logger.warn({ ip, count }, 'Rate limit exceeded');
     c.header('Retry-After', '60');

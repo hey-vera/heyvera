@@ -1,15 +1,13 @@
 import { Hono } from 'hono';
 import crypto from 'crypto';
 import { logger } from '../utils/logger';
-import { getDb, logAudit } from '../db/index';
-import { nanoid } from 'nanoid';
+import { getApiKeyByClerkId, createFreeTrialKey } from '../db/index';
 import { env } from '../config/index';
 
 export const clerkWebhookRouter = new Hono();
 
 // Free trial is DISABLED by default (0 = off). Set FREE_TRIAL_CREDITS=100 in .env to enable.
-// Kept here for when we're ready to activate — do not delete.
-const FREE_TRIAL_CREDITS = parseInt(process.env.FREE_TRIAL_CREDITS ?? '0', 10);
+// Uses Zod-validated env config — no raw process.env access.
 
 /**
  * Verify Clerk webhook signature (svix-based HMAC-SHA256).
@@ -33,7 +31,11 @@ function verifyClerkSignature(
     const signatures = headers.svixSignature.split(' ');
     return signatures.some((sig) => {
       const [, sigValue] = sig.split(',');
-      return sigValue === expectedSig;
+      if (!sigValue) return false;
+      const a = Buffer.from(sigValue);
+      const b = Buffer.from(expectedSig);
+      if (a.length !== b.length) return false;
+      return crypto.timingSafeEqual(a, b);
     });
   } catch {
     return false;
@@ -82,9 +84,7 @@ clerkWebhookRouter.post('/clerk', async (c) => {
   if (event.type === 'user.created') {
     const clerkUserId = event.data.id as string;
     const emailAddresses = event.data.email_addresses as Array<{ email_address: string; verification?: { status: string } }> | undefined;
-    const primaryEmail = emailAddresses?.find((e) => e.verification?.status === 'verified')?.email_address
-      ?? emailAddresses?.[0]?.email_address
-      ?? '';
+    const primaryEmail = emailAddresses?.find((e) => e.verification?.status === 'verified')?.email_address ?? '';
 
     if (!clerkUserId) {
       logger.warn({ svixId }, 'Clerk user.created: missing user id');
@@ -92,36 +92,26 @@ clerkWebhookRouter.post('/clerk', async (c) => {
     }
 
     // Free trial is disabled — activate by setting FREE_TRIAL_CREDITS > 0 in .env
-    if (FREE_TRIAL_CREDITS <= 0) {
-      logger.info({ clerkUserId }, 'Clerk user.created: free trial disabled (FREE_TRIAL_CREDITS=0)');
+    if (env.FREE_TRIAL_CREDITS <= 0) {
+      logger.info({ clerkUserId }, 'Clerk user.created: free trial disabled (env.FREE_TRIAL_CREDITS=0)');
+      return c.json({ received: true });
+    }
+
+    // Require verified email before granting free trial credits
+    if (!primaryEmail) {
+      logger.info({ clerkUserId }, 'Clerk user.created: no verified email — skipping free trial');
       return c.json({ received: true });
     }
 
     // Idempotency: only grant once per Clerk user
-    const db = getDb();
-    const existing = db.prepare('SELECT key FROM api_keys WHERE clerk_user_id = ? AND active = 1 LIMIT 1').get(clerkUserId);
-    if (existing) {
+    if (getApiKeyByClerkId(clerkUserId)) {
       logger.info({ clerkUserId }, 'Clerk user.created: API key already exists — skipping free trial grant');
       return c.json({ received: true });
     }
 
-    // Create API key with free trial credits
-    const key = 'cn-' + crypto.randomBytes(24).toString('hex');
     try {
-      db.prepare(`
-        INSERT INTO api_keys (key, email, credits, credits_used, created_at, clerk_user_id, amount_paid)
-        VALUES (?, ?, ?, 0, datetime('now'), ?, 0)
-      `).run(key, primaryEmail.toLowerCase() || `clerk:${clerkUserId}`, FREE_TRIAL_CREDITS, clerkUserId);
-
-      logAudit({
-        entityType: 'api_key',
-        entityId: key,
-        action: 'CREDIT_GRANT',
-        actorId: 'system',
-        data: { credits: FREE_TRIAL_CREDITS, via: 'free_trial', clerkUserId },
-      });
-
-      logger.info({ clerkUserId, email: primaryEmail, credits: FREE_TRIAL_CREDITS }, 'Free trial credits granted');
+      const key = createFreeTrialKey(clerkUserId, primaryEmail.toLowerCase() || `clerk:${clerkUserId}`, env.FREE_TRIAL_CREDITS);
+      logger.info({ clerkUserId, email: primaryEmail, credits: env.FREE_TRIAL_CREDITS, key: key.slice(0, 8) }, 'Free trial credits granted');
     } catch (err) {
       logger.error({ err, clerkUserId }, 'Failed to create free trial API key');
     }

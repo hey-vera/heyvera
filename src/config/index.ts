@@ -29,7 +29,8 @@ const envSchema = z.object({
   API_KEYS: z.string().optional(),
   ADMIN_API_KEY: z.string().min(16, 'ADMIN_API_KEY must be at least 16 characters').optional(),
   PLATFORM_SIGNING_SECRET: z.string().optional(),
-  RATE_LIMIT_PER_MIN: z.coerce.number().default(60),
+  RATE_LIMIT_PER_MIN: z.coerce.number().int().min(1).max(10000).default(60),
+  FREE_TRIAL_CREDITS: z.coerce.number().int().min(0).max(10000).default(0),
   DAILY_SPEND_CAP: z.coerce.number().int().min(0).default(0),          // 0 = disabled (agents should spend freely until credits run out)
   ANOMALY_THRESHOLD: z.coerce.number().int().min(100).default(5000),  // alert admin when a key hits this in one day
 
@@ -53,6 +54,7 @@ const envSchema = z.object({
   RESEND_FROM: z.string().optional(),
 
   CLERK_SECRET_KEY: z.string().optional(),
+  ADMIN_CLERK_IDS: z.string().optional(), // Comma-separated Clerk user IDs allowed to resolve escrow disputes
   SOLANA_RECEIVING_WALLET: z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/, 'Invalid Solana address').optional(),
   SOLANA_RPC_URL: z.string().default('https://api.mainnet-beta.solana.com'),
   SOLANA_RPC_FALLBACK: z.string().optional(),
@@ -72,12 +74,27 @@ export const env = parsed.data;
 // Simulation mode: real API calls only when SOLANA_PRIVATE_KEY is set (x402-solana payment provider)
 export const isSimulationMode = !env.SOLANA_PRIVATE_KEY;
 
+// Swarm base fee — deducted upfront before sub-task budget; shared by swarm.ts and openclaw.ts
+export const SWARM_BASE_FEE = 20;
+
+// Tiered per-minute rate limit based on lifetime spend
+export function rateTier(amountPaid: number): { label: string; perMinute: number } {
+  if (amountPaid >= 500) return { label: '$500+', perMinute: 300 };
+  if (amountPaid >= 100) return { label: '$100+', perMinute: 120 };
+  if (amountPaid >= 20)  return { label: '$20+',  perMinute: 60  };
+  return { label: 'free', perMinute: 30 };
+}
+
 // Production safety guard — block startup for security-critical secrets, warn for others
 if (env.NODE_ENV === 'production') {
   // ADMIN_API_KEY must be present: without it, all /v1/admin routes are wide open
   if (!env.ADMIN_API_KEY) {
     console.error('❌ FATAL: ADMIN_API_KEY is not set in production — admin routes unprotected. Exiting.');
     process.exit(1);
+  }
+
+  if (!env.ADMIN_CLERK_IDS) {
+    console.warn('⚠️  ADMIN_CLERK_IDS not set — escrow dispute resolution will be unavailable');
   }
 
   const warnings: string[] = [];
