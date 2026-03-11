@@ -3,1346 +3,949 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>API Reference — Claw-Net.org</title>
-  <meta name="description" content="Full API reference for ClawNet. Authentication, endpoints, skills, swarm tasks, escrow, governance, error codes, and code examples.">
-  <meta property="og:title" content="API Reference — Claw-Net.org">
-  <meta property="og:description" content="Full API reference for ClawNet orchestration layer. Authentication, endpoints, skills, escrow, and more.">
+  <title>API Reference — ClawNet</title>
+  <meta name="description" content="Full API reference for ClawNet. Authentication, skills, tasks, marketplace, escrow, governance, and more.">
+  <meta property="og:title" content="API Reference — ClawNet">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://claw-net.org/docs.html">
-  <meta property="og:image" content="https://claw-net.org/og-docs.png">
   <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=IBM+Plex+Serif:ital,wght@0,400;0,600;0,700;1,400&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
   <style>
     :root {
-      --green: #00ff88;
-      --green-dim: rgba(0,255,136,0.18);
-      --red: #ff4444;
-      --yellow: #ffaa00;
-      --blue: #4488ff;
-      --purple: #9945ff;
-      --bg: #080808;
-      --bg2: #111111;
-      --bg3: #1a1a1a;
-      --border: #1e1e1e;
-      --border2: #2a2a2a;
-      --text: #e0e0e0;
-      --muted: #888;
-      --muted2: #c0c0c0;
-      --mono: 'Space Mono', monospace;
-      --sans: 'Inter', system-ui, sans-serif;
-      --display: 'IBM Plex Serif', Georgia, serif;
+      --bg-primary: #0a0a0b; --bg-surface: #111113; --bg-surface-2: #18181b; --bg-surface-3: #1f1f23;
+      --border-subtle: #1e1e22; --border-default: #27272a; --border-strong: #3f3f46;
+      --text-primary: #fafafa; --text-secondary: #a1a1aa; --text-tertiary: #71717a; --text-muted: #52525b;
+      --accent: #10b981; --accent-dim: rgba(16,185,129,0.12); --accent-subtle: rgba(16,185,129,0.06);
+      --accent-hover: #34d399;
+      --danger: #ef4444; --danger-dim: rgba(239,68,68,0.12);
+      --warning: #f59e0b; --warning-dim: rgba(245,158,11,0.12);
+      --info: #3b82f6; --info-dim: rgba(59,130,246,0.12);
+      --purple: #8b5cf6; --purple-dim: rgba(139,92,246,0.12);
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', Consolas, monospace;
+      --font-display: 'Inter', -apple-system, system-ui, sans-serif;
+      --radius-sm: 4px; --radius-md: 6px; --radius-lg: 8px;
     }
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     html { scroll-behavior: smooth; }
-    body { background: var(--bg); color: var(--text); font-family: var(--sans); overflow-x: hidden; }
-    body::before {
-      content: ''; position: fixed; inset: 0;
-      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E");
-      pointer-events: none; z-index: 999; opacity: 0.5;
-    }
+    body { font-family: var(--font-sans); background: var(--bg-primary); color: var(--text-secondary); font-size: 14px; line-height: 1.6; overflow-x: hidden; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    ::selection { background: var(--accent-dim); }
 
-    /* ── NAV ── */
-    nav {
-      position: sticky; top: 0; z-index: 100;
-      display: flex; align-items: center; justify-content: space-between;
-      height: 64px; padding: 0 40px;
-      border-bottom: 1px solid rgba(0,255,136,0.12);
-      background: rgba(8,8,8,0.96); backdrop-filter: blur(20px);
-    }
-    .nav-logo { display: flex; align-items: center; text-decoration: none; }
-    .nav-logo img { height: 48px; width: auto; object-fit: contain; }
-    .nav-links { display: flex; align-items: center; gap: 28px; list-style: none; }
-    .nav-links a { font-family: var(--mono); font-size: 11px; color: rgba(255,255,255,0.6); text-decoration: none; letter-spacing: 1.5px; text-transform: uppercase; transition: color 0.2s; position: relative; padding-bottom: 2px; }
-    .nav-links a::after { content: ''; position: absolute; bottom: -2px; left: 0; width: 0; height: 1px; background: var(--green); transition: width 0.2s; }
-    .nav-links a:hover, .nav-links a.active { color: var(--green); }
-    .nav-links a:hover::after, .nav-links a.active::after { width: 100%; }
-    .nav-cta { font-family: var(--mono); font-size: 11px; background: var(--green); color: #000; padding: 9px 20px; text-decoration: none; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; transition: all 0.25s; border: 1px solid var(--green); }
-    .nav-cta:hover { background: #000; color: var(--green); }
-    @media(max-width:800px) { nav { padding: 0 20px; } .nav-links { display: none; } }
+    /* NAV */
+    nav { position: fixed; top: 0; left: 0; right: 0; z-index: 100; height: 56px; padding: 0 24px; display: flex; align-items: center; justify-content: space-between; background: rgba(10,10,11,0.95); border-bottom: 1px solid var(--border-subtle); backdrop-filter: blur(12px); }
+    .nav-left { display: flex; align-items: center; gap: 20px; }
+    .nav-logo img { height: 36px; width: auto; object-fit: contain; }
+    .nav-links { display: flex; align-items: center; gap: 4px; list-style: none; }
+    .nav-links a { font-size: 13px; font-weight: 500; color: var(--text-tertiary); padding: 6px 12px; border-radius: var(--radius-md); transition: color 0.15s, background 0.15s; position: relative; }
+    .nav-links a:hover { color: var(--text-primary); background: var(--bg-surface-2); text-decoration: none; }
+    .nav-links a.active { color: var(--text-primary); }
+    .nav-links a.active::after { content: ''; position: absolute; bottom: -1px; left: 12px; right: 12px; height: 2px; background: var(--accent); border-radius: 1px; }
+    @media(max-width:900px) { .nav-links { display: none; } }
+    .nav-right { display: flex; align-items: center; gap: 12px; }
+    .nav-status { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-tertiary); padding: 4px 10px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); }
+    .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); transition: background 0.3s; flex-shrink: 0; }
+    .status-dot.ok { background: var(--accent); }
+    .status-dot.err { background: var(--danger); }
+    .nav-credits { font-family: var(--font-mono); font-size: 12px; color: var(--accent); padding: 4px 10px; border: 1px solid var(--accent-dim); border-radius: var(--radius-md); display: none; align-items: center; }
+    .nav-credits.show { display: flex; }
+    .nav-email { font-size: 12px; color: var(--text-tertiary); display: none; }
+    .nav-email.show { display: block; }
+    .nav-btn-ghost { background: transparent; color: var(--text-secondary); border: 1px solid var(--border-default); display: none; text-decoration: none; padding: 6px 14px; font-size: 13px; border-radius: var(--radius-md); cursor: pointer; font-family: var(--font-sans); }
+    .nav-btn-ghost.show { display: inline-block; }
+    .nav-btn-ghost:hover { border-color: var(--border-strong); color: var(--text-primary); text-decoration: none; }
+    .nav-btn-ghost.danger:hover { border-color: var(--danger); color: var(--danger); }
+    .nav-login { color: var(--text-secondary); border: 1px solid var(--border-default); background: transparent; text-decoration: none; padding: 6px 14px; font-size: 13px; border-radius: var(--radius-md); }
+    .nav-login:hover { border-color: var(--border-strong); color: var(--text-primary); text-decoration: none; }
+    .nav-cta { background: var(--accent); color: #000; font-weight: 600; text-decoration: none; padding: 6px 14px; font-size: 13px; border-radius: var(--radius-md); }
+    .nav-cta:hover { background: var(--accent-hover); text-decoration: none; }
 
-    /* ── LAYOUT ── */
-    .docs-layout { display: grid; grid-template-columns: 260px 1fr; min-height: calc(100vh - 64px); }
-    @media(max-width:900px) { .docs-layout { grid-template-columns: 1fr; } .docs-sidebar { display: none; } }
-
-    /* ── SIDEBAR ── */
+    /* DOCS LAYOUT */
+    .docs-wrap { padding-top: 56px; display: flex; min-height: 100vh; }
     .docs-sidebar {
-      position: sticky; top: 64px; height: calc(100vh - 64px); overflow-y: auto;
-      border-right: 1px solid var(--border); padding: 32px 0;
-      background: var(--bg);
+      position: fixed; top: 56px; left: 0; width: 240px; height: calc(100vh - 56px);
+      overflow-y: auto; border-right: 1px solid var(--border-subtle);
+      background: var(--bg-surface); padding: 20px 0;
     }
     .docs-sidebar::-webkit-scrollbar { width: 4px; }
     .docs-sidebar::-webkit-scrollbar-track { background: transparent; }
-    .docs-sidebar::-webkit-scrollbar-thumb { background: var(--border2); }
-    .sidebar-section { padding: 0 24px; margin-bottom: 28px; }
-    .sidebar-label { font-family: var(--mono); font-size: 9px; color: var(--muted); letter-spacing: 2.5px; text-transform: uppercase; margin-bottom: 10px; }
-    .sidebar-link { display: block; font-family: var(--mono); font-size: 11px; color: var(--muted2); text-decoration: none; padding: 5px 8px; margin: 1px 0; letter-spacing: 0.5px; transition: all 0.15s; border-left: 2px solid transparent; }
-    .sidebar-link:hover { color: var(--green); border-left-color: var(--green-dim); }
-    .sidebar-link.active { color: var(--green); border-left-color: var(--green); }
-    .sidebar-method { display: inline-block; font-size: 9px; font-weight: 700; padding: 1px 5px; margin-right: 5px; border-radius: 2px; }
-    .m-post { background: rgba(0,255,136,0.15); color: var(--green); }
-    .m-get  { background: rgba(68,136,255,0.15); color: var(--blue); }
-    .m-patch{ background: rgba(255,170,0,0.15);  color: var(--yellow); }
-    .m-del  { background: rgba(255,68,68,0.15);  color: var(--red); }
+    .docs-sidebar::-webkit-scrollbar-thumb { background: var(--border-default); border-radius: 2px; }
+    .sidebar-search { margin: 0 16px 12px; position: relative; }
+    .sidebar-search input { width: 100%; font-family: var(--font-sans); font-size: 12px; background: var(--bg-primary); border: 1px solid var(--border-default); color: var(--text-primary); padding: 6px 10px; border-radius: var(--radius-md); outline: none; }
+    .sidebar-search input:focus { border-color: var(--accent); }
+    .sidebar-search input::placeholder { color: var(--text-muted); }
+    .sidebar-heading { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; padding: 12px 20px 4px; margin-top: 4px; }
+    .sidebar-link { display: block; font-size: 13px; color: var(--text-tertiary); padding: 5px 20px; transition: color 0.12s, background 0.12s; text-decoration: none; border-right: 2px solid transparent; }
+    .sidebar-link:hover { color: var(--text-primary); background: var(--bg-surface-2); text-decoration: none; }
+    .sidebar-link.active { color: var(--accent); border-right-color: var(--accent); background: var(--accent-subtle); }
 
-    /* ── MAIN CONTENT ── */
-    .docs-main { padding: 48px 56px 80px; max-width: 860px; }
-    @media(max-width:700px) { .docs-main { padding: 32px 20px; } }
+    .docs-content { margin-left: 240px; padding: 40px 56px 80px; max-width: 1000px; width: 100%; }
+    @media(max-width:768px) {
+      .docs-sidebar { position: static; width: 100%; height: auto; border-right: none; border-bottom: 1px solid var(--border-subtle); }
+      .docs-content { margin-left: 0; padding: 24px 20px 60px; }
+    }
 
-    /* ── SECTION ── */
-    .doc-section { margin-bottom: 72px; }
-    .doc-section-label { font-family: var(--mono); font-size: 10px; color: var(--green); letter-spacing: 3px; text-transform: uppercase; margin-bottom: 12px; display: flex; align-items: center; gap: 10px; }
-    .doc-section-label::after { content: ''; height: 1px; width: 32px; background: var(--green-dim); }
-    .doc-section h2 { font-family: var(--display); font-size: 28px; font-weight: 700; letter-spacing: -0.5px; margin-bottom: 12px; }
-    .doc-section p { font-size: 15px; color: var(--muted2); line-height: 1.8; margin-bottom: 16px; }
-    .doc-section h3 { font-family: var(--mono); font-size: 13px; color: var(--text); letter-spacing: 0.5px; margin: 28px 0 10px; text-transform: uppercase; }
+    /* SECTIONS */
+    .docs-section { margin-bottom: 60px; scroll-margin-top: 72px; }
+    .docs-section-title { font-family: var(--font-display); font-size: 22px; font-weight: 600; color: var(--text-primary); margin-bottom: 6px; letter-spacing: -0.02em; padding-bottom: 12px; border-bottom: 1px solid var(--border-subtle); }
+    .docs-section-desc { font-size: 14px; color: var(--text-secondary); line-height: 1.7; margin-bottom: 24px; }
+    .endpoint { margin-bottom: 40px; padding-bottom: 40px; border-bottom: 1px solid var(--border-subtle); scroll-margin-top: 72px; }
+    .endpoint:last-child { border-bottom: none; }
+    .endpoint-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+    .endpoint-path { font-family: var(--font-mono); font-size: 15px; font-weight: 600; color: var(--text-primary); }
+    .endpoint-desc { font-size: 14px; color: var(--text-secondary); margin-bottom: 14px; line-height: 1.6; }
+    .endpoint-auth { font-size: 12px; color: var(--text-tertiary); margin-bottom: 16px; padding: 6px 10px; background: var(--bg-surface-2); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); display: inline-block; }
+    .endpoint-auth code { font-family: var(--font-mono); color: var(--accent); font-size: 12px; }
 
-    /* ── ENDPOINT BLOCK ── */
-    .endpoint-block { border: 1px solid var(--border2); margin-bottom: 24px; }
-    .endpoint-head { display: flex; align-items: center; gap: 12px; padding: 14px 20px; background: var(--bg2); border-bottom: 1px solid var(--border); }
-    .method-badge { font-family: var(--mono); font-size: 11px; font-weight: 700; padding: 4px 10px; letter-spacing: 1px; }
-    .method-badge.post  { background: rgba(0,255,136,0.12); color: var(--green); border: 1px solid rgba(0,255,136,0.25); }
-    .method-badge.get   { background: rgba(68,136,255,0.12); color: var(--blue);  border: 1px solid rgba(68,136,255,0.25); }
-    .method-badge.patch { background: rgba(255,170,0,0.12);  color: var(--yellow);border: 1px solid rgba(255,170,0,0.25); }
-    .method-badge.delete{ background: rgba(255,68,68,0.12);  color: var(--red);   border: 1px solid rgba(255,68,68,0.25); }
-    .endpoint-path { font-family: var(--mono); font-size: 14px; color: #fff; }
-    .endpoint-desc { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-left: auto; }
-    .endpoint-body { padding: 20px; }
+    h4 { font-size: 12px; font-weight: 600; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.06em; margin: 16px 0 8px; }
 
-    /* ── CODE BLOCK ── */
-    pre, code { font-family: var(--mono); }
-    .code-block { background: var(--bg3); border: 1px solid var(--border); padding: 18px 20px; font-size: 12px; line-height: 1.8; overflow-x: auto; margin: 12px 0; white-space: pre; }
-    .code-block .c-green  { color: var(--green); }
-    .code-block .c-yellow { color: #ffcc66; }
-    .code-block .c-blue   { color: #88aaff; }
-    .code-block .c-muted  { color: var(--muted); }
-    .code-block .c-red    { color: var(--red); }
-    .code-label { font-family: var(--mono); font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+    /* METHOD BADGES */
+    .method-badge { font-family: var(--font-mono); font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: var(--radius-sm); text-transform: uppercase; letter-spacing: 0.02em; flex-shrink: 0; }
+    .method-badge.get { background: var(--info-dim); color: var(--info); }
+    .method-badge.post { background: var(--accent-dim); color: var(--accent); }
+    .method-badge.delete { background: var(--danger-dim); color: var(--danger); }
+    .method-badge.patch { background: var(--warning-dim); color: var(--warning); }
+    .method-badge.put { background: var(--purple-dim); color: var(--purple); }
 
-    /* ── TABLE ── */
-    .param-table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 12px 0; }
-    .param-table th { font-family: var(--mono); font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted); padding: 8px 12px; border-bottom: 1px solid var(--border2); text-align: left; }
-    .param-table td { padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; line-height: 1.6; }
-    .param-table tr:last-child td { border-bottom: none; }
-    .param-name { font-family: var(--mono); font-size: 12px; color: var(--green); }
-    .param-type { font-family: var(--mono); font-size: 11px; color: var(--blue); }
-    .param-req  { font-family: var(--mono); font-size: 10px; color: var(--red); }
-    .param-opt  { font-family: var(--mono); font-size: 10px; color: var(--muted); }
-    .param-desc { color: var(--muted2); font-size: 13px; }
+    /* PARAMS TABLE */
+    .params-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 20px; }
+    .params-table th { font-size: 11px; font-weight: 500; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.04em; text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border-subtle); }
+    .params-table td { padding: 10px 12px; border-bottom: 1px solid var(--border-subtle); color: var(--text-secondary); vertical-align: top; }
+    .params-table tr:last-child td { border-bottom: none; }
+    .params-table code { font-family: var(--font-mono); font-size: 12px; color: var(--accent); background: var(--accent-dim); padding: 1px 5px; border-radius: var(--radius-sm); }
+    .param-type { font-family: var(--font-mono); font-size: 11px; color: var(--info); }
+    .param-req { font-size: 11px; font-weight: 500; color: var(--warning); }
+    .param-opt { font-size: 11px; color: var(--text-muted); }
 
-    /* ── ALERT ── */
-    .alert { padding: 14px 18px; border-left: 3px solid; margin: 16px 0; font-size: 13px; line-height: 1.7; }
-    .alert.info  { border-color: var(--blue);   background: rgba(68,136,255,0.06);  color: var(--muted2); }
-    .alert.warn  { border-color: var(--yellow);  background: rgba(255,170,0,0.06);   color: var(--muted2); }
-    .alert.green { border-color: var(--green);   background: rgba(0,255,136,0.04);   color: var(--muted2); }
+    /* CODE BLOCKS */
+    .code-block { position: relative; background: var(--bg-primary); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); overflow-x: auto; margin: 10px 0 20px; }
+    .code-block pre { padding: 16px; margin: 0; }
+    .code-block code { font-family: var(--font-mono); font-size: 12px; color: var(--text-secondary); line-height: 1.6; white-space: pre; }
+    .copy-btn { position: absolute; top: 8px; right: 8px; font-family: var(--font-sans); font-size: 11px; padding: 3px 8px; background: var(--bg-surface-2); border: 1px solid var(--border-default); border-radius: var(--radius-sm); color: var(--text-tertiary); cursor: pointer; transition: all 0.15s; }
+    .copy-btn:hover { color: var(--text-primary); border-color: var(--border-strong); }
 
-    /* ── TABS ── */
-    .code-tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border2); margin-bottom: 0; }
-    .code-tab { font-family: var(--mono); font-size: 11px; padding: 8px 16px; cursor: pointer; color: var(--muted); border: none; background: transparent; letter-spacing: 0.5px; border-bottom: 2px solid transparent; transition: all 0.15s; }
-    .code-tab:hover { color: var(--text); }
-    .code-tab.active { color: var(--green); border-bottom-color: var(--green); }
-    .code-tab-panel { display: none; }
-    .code-tab-panel.active { display: block; }
+    /* INTRO CARDS */
+    .intro-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; margin-bottom: 32px; }
+    .intro-card { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 16px; }
+    .intro-card-title { font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px; }
+    .intro-card-desc { font-size: 12px; color: var(--text-tertiary); line-height: 1.5; }
+    .intro-card code { font-family: var(--font-mono); font-size: 11px; color: var(--accent); }
 
-    /* ── BADGE ── */
-    .badge { display: inline-block; font-family: var(--mono); font-size: 10px; padding: 2px 8px; letter-spacing: 1px; }
-    .badge.auth  { background: rgba(153,69,255,0.15); color: var(--purple); border: 1px solid rgba(153,69,255,0.3); }
-    .badge.pub   { background: rgba(68,136,255,0.12);  color: var(--blue);   border: 1px solid rgba(68,136,255,0.25); }
-    .badge.admin { background: rgba(255,68,68,0.12);   color: var(--red);    border: 1px solid rgba(255,68,68,0.25); }
+    /* ALERT */
+    .alert { padding: 12px 16px; border-radius: var(--radius-md); border: 1px solid; font-size: 13px; margin-bottom: 16px; line-height: 1.6; }
+    .alert-info { background: var(--info-dim); border-color: rgba(59,130,246,0.25); color: var(--text-secondary); }
+    .alert-warning { background: var(--warning-dim); border-color: rgba(245,158,11,0.25); color: var(--text-secondary); }
+    .alert-success { background: var(--accent-dim); border-color: rgba(16,185,129,0.25); color: var(--text-secondary); }
 
-    /* ── ERROR TABLE ── */
-    .error-row td:first-child { font-family: var(--mono); font-size: 12px; color: var(--red); }
-    .error-row td:nth-child(2) { font-family: var(--mono); font-size: 11px; color: var(--yellow); }
-
-    /* ── HERO ── */
-    .docs-hero { padding: 48px 0 36px; border-bottom: 1px solid var(--border); margin-bottom: 48px; }
-    .docs-eyebrow { font-family: var(--mono); font-size: 10px; letter-spacing: 3px; text-transform: uppercase; color: var(--green); margin-bottom: 14px; }
-    .docs-hero h1 { font-family: var(--display); font-size: clamp(28px,4vw,44px); font-weight: 700; letter-spacing: -0.5px; margin-bottom: 12px; }
-    .docs-hero p { font-size: 15px; color: var(--muted2); max-width: 560px; line-height: 1.7; }
-    .docs-quick-links { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 24px; }
-    .dql { font-family: var(--mono); font-size: 11px; padding: 8px 14px; border: 1px solid var(--border2); color: var(--muted2); text-decoration: none; letter-spacing: 0.5px; transition: all 0.15s; }
-    .dql:hover { border-color: var(--green-dim); color: var(--green); }
-
-    /* ── DIVIDER ── */
-    .doc-divider { border: none; border-top: 1px solid var(--border); margin: 48px 0; }
-
-    /* ── FOOTER ── */
-    footer { border-top: 1px solid var(--border); padding: 32px 40px; display: flex; justify-content: space-between; align-items: center; font-family: var(--mono); font-size: 11px; color: var(--muted); flex-wrap: wrap; gap: 12px; }
-    footer a { color: var(--muted); text-decoration: none; }
-    footer a:hover { color: var(--green); }
+    /* FOOTER */
+    footer { border-top: 1px solid var(--border-subtle); padding: 28px 24px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; }
+    .footer-left { display: flex; align-items: center; gap: 24px; }
+    .footer-logo img { height: 28px; width: auto; object-fit: contain; opacity: 0.7; }
+    .footer-links { display: flex; align-items: center; gap: 16px; list-style: none; flex-wrap: wrap; }
+    .footer-links a { font-size: 12px; color: var(--text-muted); text-decoration: none; }
+    .footer-links a:hover { color: var(--text-tertiary); }
+    .footer-copy { font-size: 12px; color: var(--text-muted); }
   </style>
 </head>
 <body>
 
 <nav>
-  <a href="https://claw-net.org" class="nav-logo">
-    <img src="/logo.png" alt="Claw-Net.org" onerror="this.style.display='none'">
-  </a>
-  <ul class="nav-links">
-    <li><a href="https://claw-net.org/#how-it-works">How It Works</a></li>
-    <li><a href="https://claw-net.org/#pricing">Pricing</a></li>
-    <li><a href="https://claw-net.org/#contact">Contact</a></li>
-    <li><a href="/docs.html" class="active">API Docs</a></li>
-    <li><a href="/marketplace.html">Marketplace</a></li>
-    <li><a href="/endpoints.html">Endpoints</a></li>
-  </ul>
-  <a href="https://claw-net.org/#pricing" class="nav-cta">Get API Key</a>
+  <div class="nav-left">
+    <a href="/" class="nav-logo"><img src="/logo.png" alt="ClawNet"></a>
+    <ul class="nav-links">
+      <li><a href="/">Home</a></li>
+      <li><a href="/docs.html" class="active">Docs</a></li>
+      <li><a href="/marketplace.html">Marketplace</a></li>
+      <li><a href="/endpoints.html">Endpoints</a></li>
+      <li><a href="/dashboard.html">Dashboard</a></li>
+    </ul>
+  </div>
+  <div class="nav-right">
+    <div class="nav-status" id="navApiStatus"><span class="status-dot" id="statusDot"></span><span id="statusLabel">Checking...</span></div>
+    <div class="nav-credits" id="nav-credits-badge"><span id="nav-credits-num">&mdash;</span> credits</div>
+    <span class="nav-email" id="nav-user-email"></span>
+    <a href="/login.html" class="nav-login" id="nav-login-btn">Sign In</a>
+    <a href="/dashboard.html" class="nav-cta" id="nav-getkey-btn">Get API Key</a>
+    <a href="/dashboard.html" class="nav-btn-ghost" id="nav-dash-btn">Dashboard</a>
+    <button class="nav-btn-ghost danger" id="nav-signout-btn" onclick="navSignOut()" style="cursor:pointer">Sign Out</button>
+  </div>
 </nav>
 
-<div class="docs-layout">
-
-  <!-- ── SIDEBAR ── -->
+<div class="docs-wrap">
+  <!-- SIDEBAR -->
   <aside class="docs-sidebar">
-    <div class="sidebar-section">
-      <div class="sidebar-label">Getting Started</div>
-      <a href="#quickstart" class="sidebar-link">Quick Start</a>
-      <a href="#auth" class="sidebar-link">Authentication</a>
-      <a href="#baseurl" class="sidebar-link">Base URL & Limits</a>
-      <a href="#credits" class="sidebar-link">Credits & Pricing</a>
-    </div>
-    <div class="sidebar-section">
-      <div class="sidebar-label">Core API</div>
-      <a href="#estimate" class="sidebar-link"><span class="sidebar-method m-get">GET</span>/v1/estimate</a>
-      <a href="#orchestrate" class="sidebar-link"><span class="sidebar-method m-post">POST</span>/v1/orchestrate</a>
-      <a href="#balance" class="sidebar-link"><span class="sidebar-method m-get">GET</span>/v1/balance</a>
-      <a href="#health" class="sidebar-link"><span class="sidebar-method m-get">GET</span>/v1/health</a>
-      <a href="#registry" class="sidebar-link"><span class="sidebar-method m-get">GET</span>/v1/endpoints</a>
-    </div>
-    <div class="sidebar-section">
-      <div class="sidebar-label">Skills & Marketplace</div>
-      <a href="#skills-list" class="sidebar-link"><span class="sidebar-method m-get">GET</span>/v1/marketplace/skills</a>
-      <a href="#skills-invoke" class="sidebar-link"><span class="sidebar-method m-post">POST</span>/v1/skills/:id/invoke</a>
-      <a href="#skills-publish" class="sidebar-link"><span class="sidebar-method m-post">POST</span>/v1/skills</a>
-      <a href="#skills-purchase" class="sidebar-link"><span class="sidebar-method m-post">POST</span>/v1/marketplace/purchase</a>
-    </div>
-    <div class="sidebar-section">
-      <div class="sidebar-label">Swarm</div>
-      <a href="#swarm-create" class="sidebar-link"><span class="sidebar-method m-post">POST</span>/v1/swarm/task</a>
-      <a href="#swarm-get" class="sidebar-link"><span class="sidebar-method m-get">GET</span>/v1/swarm/:id</a>
-    </div>
-    <div class="sidebar-section">
-      <div class="sidebar-label">Discovery</div>
-      <a href="#discover" class="sidebar-link"><span class="sidebar-method m-post">POST</span>/v1/discover</a>
-    </div>
-    <div class="sidebar-section">
-      <div class="sidebar-label">Escrow</div>
-      <a href="#escrow" class="sidebar-link">Escrow Overview</a>
-      <a href="#escrow-create" class="sidebar-link"><span class="sidebar-method m-post">POST</span>/v1/escrow</a>
-    </div>
-    <div class="sidebar-section">
-      <div class="sidebar-label">Governance</div>
-      <a href="#governance" class="sidebar-link"><span class="sidebar-method m-post">POST</span>/v1/governance/propose</a>
-      <a href="#vote" class="sidebar-link"><span class="sidebar-method m-post">POST</span>/v1/governance/proposals/:id/vote</a>
-    </div>
-    <div class="sidebar-section">
-      <div class="sidebar-label">Batch &amp; Streaming</div>
-      <a href="#batch" class="sidebar-link"><span class="sidebar-method m-post">POST</span>/v1/batch</a>
-      <a href="#stream" class="sidebar-link"><span class="sidebar-method m-get">GET</span>/v1/stream/orchestrate</a>
-      <a href="#openapi" class="sidebar-link"><span class="sidebar-method m-get">GET</span>/v1/openapi.json</a>
-    </div>
-    <div class="sidebar-section">
-      <div class="sidebar-label">P2P Mesh &amp; Discovery</div>
-      <a href="#mesh-peers" class="sidebar-link"><span class="sidebar-method m-get">GET</span>/v1/mesh/peers</a>
-      <a href="#discover-trinity" class="sidebar-link"><span class="sidebar-method m-post">POST</span>/v1/discover</a>
-    </div>
-    <div class="sidebar-section">
-      <div class="sidebar-label">Creator Payouts</div>
-      <a href="#creator-withdraw" class="sidebar-link"><span class="sidebar-method m-post">POST</span>/v1/marketplace/creator/withdraw</a>
-    </div>
-    <div class="sidebar-section">
-      <div class="sidebar-label">OpenClaw Gateway</div>
-      <a href="#openclaw" class="sidebar-link">Overview</a>
-      <a href="#openclaw-invoke" class="sidebar-link"><span class="sidebar-method m-post">POST</span>/v1/openclaw/invoke</a>
-      <a href="#openclaw-catalog" class="sidebar-link"><span class="sidebar-method m-get">GET</span>/v1/openclaw/catalog</a>
-      <a href="#openclaw-status" class="sidebar-link"><span class="sidebar-method m-get">GET</span>/v1/openclaw/status</a>
-    </div>
-    <div class="sidebar-section">
-      <div class="sidebar-label">Reference</div>
-      <a href="#errors" class="sidebar-link">Error Codes</a>
-      <a href="#signing" class="sidebar-link">Response Signing</a>
-      <a href="#sdks" class="sidebar-link">Code Examples</a>
+    <div class="sidebar-search"><input type="text" placeholder="Search docs..." oninput="filterSidebar(this.value)"></div>
+    <div id="sidebar-content">
+      <div class="sidebar-heading">Getting Started</div>
+      <a class="sidebar-link" href="#overview">Overview</a>
+      <a class="sidebar-link" href="#auth">Authentication</a>
+      <a class="sidebar-link" href="#errors">Errors</a>
+      <a class="sidebar-link" href="#rate-limits">Rate Limits</a>
+
+      <div class="sidebar-heading">Orchestration</div>
+      <a class="sidebar-link" href="#orchestrate">POST /v1/orchestrate</a>
+      <a class="sidebar-link" href="#batch">POST /v1/batch</a>
+      <a class="sidebar-link" href="#stream">GET /v1/stream/orchestrate</a>
+
+      <div class="sidebar-heading">Skills</div>
+      <a class="sidebar-link" href="#skills-create">POST /v1/skills</a>
+      <a class="sidebar-link" href="#skills-mine">GET /v1/skills/mine</a>
+      <a class="sidebar-link" href="#skills-get">GET /v1/skills/:id</a>
+      <a class="sidebar-link" href="#skills-invoke">POST /v1/skills/:id/invoke</a>
+      <a class="sidebar-link" href="#skills-visibility">PATCH /v1/skills/:id/visibility</a>
+      <a class="sidebar-link" href="#skills-delete">DELETE /v1/skills/:id</a>
+      <a class="sidebar-link" href="#skills-metrics">GET /v1/skills/:id/metrics</a>
+
+      <div class="sidebar-heading">Tasks</div>
+      <a class="sidebar-link" href="#tasks-submit">POST /v1/tasks</a>
+      <a class="sidebar-link" href="#tasks-list">GET /v1/tasks</a>
+      <a class="sidebar-link" href="#tasks-get">GET /v1/tasks/:id</a>
+      <a class="sidebar-link" href="#tasks-cancel">POST /v1/tasks/:id/cancel</a>
+      <a class="sidebar-link" href="#tasks-rate">POST /v1/tasks/:id/rate</a>
+
+      <div class="sidebar-heading">Marketplace</div>
+      <a class="sidebar-link" href="#mkt-browse">GET /v1/marketplace/skills</a>
+      <a class="sidebar-link" href="#mkt-get">GET /v1/marketplace/skills/:id</a>
+      <a class="sidebar-link" href="#mkt-purchase">POST /v1/marketplace/skills/:id/purchase</a>
+      <a class="sidebar-link" href="#mkt-star">POST/DELETE /v1/marketplace/skills/:id/star</a>
+      <a class="sidebar-link" href="#mkt-report">POST /v1/marketplace/skills/:id/report</a>
+      <a class="sidebar-link" href="#mkt-creator">GET /v1/marketplace/creator/stats</a>
+      <a class="sidebar-link" href="#mkt-withdraw">POST /v1/marketplace/creator/withdraw</a>
+      <a class="sidebar-link" href="#mkt-transactions">GET /v1/marketplace/transactions</a>
+      <a class="sidebar-link" href="#mkt-stake">POST /v1/marketplace/stake</a>
+
+      <div class="sidebar-heading">Auth &amp; Credits</div>
+      <a class="sidebar-link" href="#auth-me">GET /v1/auth/me</a>
+      <a class="sidebar-link" href="#auth-estimate">GET /v1/auth/estimate</a>
+      <a class="sidebar-link" href="#auth-usage">GET /v1/auth/usage</a>
+
+      <div class="sidebar-heading">Discovery</div>
+      <a class="sidebar-link" href="#discover">POST /v1/discover</a>
+
+      <div class="sidebar-heading">Escrow</div>
+      <a class="sidebar-link" href="#escrow-create">POST /v1/escrow</a>
+      <a class="sidebar-link" href="#escrow-list">GET /v1/escrow</a>
+      <a class="sidebar-link" href="#escrow-submit">POST /v1/escrow/:id/submit</a>
+      <a class="sidebar-link" href="#escrow-approve">POST /v1/escrow/:id/approve</a>
+      <a class="sidebar-link" href="#escrow-dispute">POST /v1/escrow/:id/dispute</a>
+
+      <div class="sidebar-heading">Governance</div>
+      <a class="sidebar-link" href="#gov-create">POST /v1/governance/proposals</a>
+      <a class="sidebar-link" href="#gov-list">GET /v1/governance/proposals</a>
+      <a class="sidebar-link" href="#gov-vote">POST /v1/governance/proposals/:id/vote</a>
+
+      <div class="sidebar-heading">Registry</div>
+      <a class="sidebar-link" href="#registry">GET /v1/registry</a>
+      <a class="sidebar-link" href="#registry-health">GET /v1/registry/health</a>
+
+      <div class="sidebar-heading">LLM Proxy</div>
+      <a class="sidebar-link" href="#llm-models">GET /v1/llm/models</a>
+      <a class="sidebar-link" href="#llm-chat">POST /v1/llm/chat</a>
+      <a class="sidebar-link" href="#llm-embeddings">POST /v1/llm/embeddings</a>
+
+      <div class="sidebar-heading">Mesh</div>
+      <a class="sidebar-link" href="#mesh-peers">GET /v1/mesh/peers</a>
+
+      <div class="sidebar-heading">Admin</div>
+      <a class="sidebar-link" href="#admin-dashboard">GET /v1/admin/dashboard</a>
+      <a class="sidebar-link" href="#admin-revenue">GET /v1/admin/revenue</a>
+      <a class="sidebar-link" href="#admin-treasury">GET /v1/admin/treasury</a>
+      <a class="sidebar-link" href="#admin-payouts">GET /v1/admin/payouts</a>
     </div>
   </aside>
 
-  <!-- ── MAIN ── -->
-  <main class="docs-main">
+  <!-- MAIN CONTENT -->
+  <main class="docs-content">
 
-    <!-- HERO -->
-    <div class="docs-hero">
-      <div class="docs-eyebrow">API Reference</div>
-      <h1>ClawNet API Docs</h1>
-      <p>One natural language query orchestrates Solana on-chain data, DeFi analytics, social sentiment, and AI skills into a single structured response. Pay per query. No subscriptions.</p>
-      <div class="docs-quick-links">
-        <a href="#quickstart" class="dql">Quick Start →</a>
-        <a href="#orchestrate" class="dql">Orchestrate →</a>
-        <a href="#skills-invoke" class="dql">Skills →</a>
-        <a href="#openclaw" class="dql" style="border-color:rgba(153,69,255,0.4);color:#b47cff">OpenClaw Gateway →</a>
-        <a href="#errors" class="dql">Error Codes →</a>
-        <a href="https://claw-net.org/#pricing" class="dql">Get API Key →</a>
+    <!-- OVERVIEW -->
+    <div class="docs-section" id="overview">
+      <h1 class="docs-section-title">API Reference</h1>
+      <p class="docs-section-desc">ClawNet is a sovereign AI agent orchestration layer. All API endpoints are available at <code style="font-family:var(--font-mono);color:var(--accent)">https://api.claw-net.org</code>. The API uses JSON for all requests and responses.</p>
+
+      <div class="intro-grid">
+        <div class="intro-card"><div class="intro-card-title">Base URL</div><div class="intro-card-desc"><code>https://api.claw-net.org</code></div></div>
+        <div class="intro-card"><div class="intro-card-title">Auth Header</div><div class="intro-card-desc"><code>X-API-Key: your_key</code></div></div>
+        <div class="intro-card"><div class="intro-card-title">Rate Limit</div><div class="intro-card-desc">60 requests per minute per IP</div></div>
+        <div class="intro-card"><div class="intro-card-title">Credits</div><div class="intro-card-desc">1 credit = $0.001. Buy via Stripe or USDC.</div></div>
       </div>
     </div>
 
-    <!-- ── QUICK START ── -->
-    <div class="doc-section" id="quickstart">
-      <div class="doc-section-label">Getting Started</div>
-      <h2>Quick Start</h2>
-      <p>Get your first response in under 60 seconds.</p>
+    <!-- AUTH -->
+    <div class="docs-section" id="auth">
+      <h2 class="docs-section-title">Authentication</h2>
+      <p class="docs-section-desc">ClawNet supports two authentication methods. Most endpoints require an API Key. Some endpoints additionally support Clerk JWT for browser-based flows.</p>
 
-      <div class="alert green">
-        <strong>1.</strong> <a href="https://claw-net.org/#pricing" style="color:var(--green)">Buy credits</a> — you'll receive an API key by email instantly.<br>
-        <strong>2.</strong> Add <code>X-API-Key: your-key</code> to every request.<br>
-        <strong>3.</strong> POST a natural language query to <code>/v1/orchestrate</code>.
+      <div class="endpoint" id="auth-api-key">
+        <div class="endpoint-header">
+          <span class="method-badge get">Header</span>
+          <code class="endpoint-path">X-API-Key</code>
+        </div>
+        <p class="endpoint-desc">Include your API key in every request. Obtain your key from the dashboard after purchasing credits.</p>
+        <div class="code-block">
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <pre><code>curl https://api.claw-net.org/v1/auth/me \
+  -H "X-API-Key: cn_your_api_key_here"</code></pre>
+        </div>
       </div>
 
-      <div class="code-label">cURL</div>
-      <div class="code-block"><span class="c-muted"># Your first ClawNet request</span>
-curl -X POST https://api.claw-net.org/v1/orchestrate \
-  -H <span class="c-yellow">"Content-Type: application/json"</span> \
-  -H <span class="c-yellow">"X-API-Key: your-api-key"</span> \
-  -d <span class="c-yellow">'{"query": "Is SOL a good buy right now?"}'</span></div>
-
-      <div class="code-label">Response</div>
-      <div class="code-block">{
-  <span class="c-green">"answer"</span>: <span class="c-yellow">"SOL is showing strong momentum with price up 8.2% in 24h..."</span>,
-  <span class="c-green">"opportunityScore"</span>: <span class="c-blue">72</span>,
-  <span class="c-green">"riskScore"</span>: <span class="c-blue">31</span>,
-  <span class="c-green">"suggestedActions"</span>: [<span class="c-yellow">"monitor_price"</span>, <span class="c-yellow">"check_whale_activity"</span>],
-  <span class="c-green">"costBreakdown"</span>: {
-    <span class="c-green">"creditsUsed"</span>: <span class="c-blue">8</span>,
-    <span class="c-green">"costUsd"</span>: <span class="c-blue">0.0080</span>,
-    <span class="c-green">"savings"</span>: <span class="c-blue">0.0041</span>
-  },
-  <span class="c-green">"metadata"</span>: {
-    <span class="c-green">"stepsExecuted"</span>: <span class="c-blue">4</span>,
-    <span class="c-green">"cacheHits"</span>: <span class="c-blue">1</span>,
-    <span class="c-green">"totalDurationMs"</span>: <span class="c-blue">6240</span>,
-    <span class="c-green">"requestId"</span>: <span class="c-yellow">"req_abc123xyz"</span>
-  }
-}</div>
+      <div class="endpoint" id="auth-clerk">
+        <div class="endpoint-header">
+          <span class="method-badge get">Header</span>
+          <code class="endpoint-path">Authorization: Bearer {token}</code>
+        </div>
+        <p class="endpoint-desc">Alternatively, use a Clerk JWT session token obtained from <code style="font-family:var(--font-mono);color:var(--accent)">window.Clerk.session.getToken()</code> in browser contexts.</p>
+      </div>
     </div>
 
-    <hr class="doc-divider">
+    <!-- ERRORS -->
+    <div class="docs-section" id="errors">
+      <h2 class="docs-section-title">Errors</h2>
+      <p class="docs-section-desc">All errors return a JSON object with an <code style="font-family:var(--font-mono);color:var(--accent)">error</code> field and appropriate HTTP status codes.</p>
+      <table class="params-table">
+        <thead><tr><th>Code</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td><span class="param-type">400</span></td><td>Bad Request — invalid parameters</td></tr>
+          <tr><td><span class="param-type">401</span></td><td>Unauthorized — missing or invalid API key</td></tr>
+          <tr><td><span class="param-type">402</span></td><td>Payment Required — insufficient credits</td></tr>
+          <tr><td><span class="param-type">403</span></td><td>Forbidden — you don't own this resource</td></tr>
+          <tr><td><span class="param-type">404</span></td><td>Not Found</td></tr>
+          <tr><td><span class="param-type">409</span></td><td>Conflict — duplicate idempotency key or already starred</td></tr>
+          <tr><td><span class="param-type">429</span></td><td>Too Many Requests — rate limit exceeded</td></tr>
+          <tr><td><span class="param-type">500</span></td><td>Internal Server Error</td></tr>
+        </tbody>
+      </table>
+      <div class="code-block">
+        <pre><code>{ "error": "Insufficient credits", "creditsRequired": 5, "creditsAvailable": 2 }</code></pre>
+      </div>
+    </div>
 
-    <!-- ── AUTH ── -->
-    <div class="doc-section" id="auth">
-      <div class="doc-section-label">Authentication</div>
-      <h2>API Key Auth</h2>
-      <p>All authenticated endpoints require an <code>X-API-Key</code> header. Keys are issued instantly after credit purchase.</p>
-
-      <div class="code-block"><span class="c-muted"># Include on every authenticated request</span>
-X-API-Key: cn-xxxxxxxxxxxxxxxxxxxxxxxxxxxx</div>
-
-      <div class="alert warn">Keys are prefixed <code>cn-</code>. Keep your key secret — it controls your credit balance. Rotate it from the dashboard if compromised.</div>
-
-      <h3>Auth levels</h3>
-      <table class="param-table">
-        <tr><th>Badge</th><th>Requirement</th><th>Used by</th></tr>
-        <tr><td><span class="badge pub">PUBLIC</span></td><td>No key required</td><td>GET /v1/health, GET /v1/endpoints, GET /v1/governance/proposals</td></tr>
-        <tr><td><span class="badge auth">AUTH</span></td><td>Valid X-API-Key</td><td>Most routes — orchestrate, skills, swarm, escrow</td></tr>
-        <tr><td><span class="badge admin">ADMIN</span></td><td>ADMIN_API_KEY env var</td><td>GET /v1/admin/payouts, PATCH /v1/admin/payouts/:id</td></tr>
+    <!-- RATE LIMITS -->
+    <div class="docs-section" id="rate-limits">
+      <h2 class="docs-section-title">Rate Limits</h2>
+      <p class="docs-section-desc">The API enforces a limit of <strong style="color:var(--text-primary)">60 requests per minute per IP address</strong>. When exceeded, the API returns HTTP 429. Rate limit headers are included in all responses.</p>
+      <table class="params-table">
+        <thead><tr><th>Header</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>X-RateLimit-Limit</code></td><td>Max requests per window</td></tr>
+          <tr><td><code>X-RateLimit-Remaining</code></td><td>Requests remaining in current window</td></tr>
+          <tr><td><code>X-RateLimit-Reset</code></td><td>Unix timestamp when window resets</td></tr>
+        </tbody>
       </table>
     </div>
 
-    <hr class="doc-divider">
+    <!-- ORCHESTRATION -->
+    <div class="docs-section" id="orchestrate">
+      <h2 class="docs-section-title">Orchestration</h2>
+      <p class="docs-section-desc">Submit natural language queries. The orchestration layer automatically selects APIs, fetches data, and returns a structured answer.</p>
 
-    <!-- ── BASE URL ── -->
-    <div class="doc-section" id="baseurl">
-      <div class="doc-section-label">Base URL & Limits</div>
-      <h2>Base URL & Rate Limits</h2>
-
-      <table class="param-table">
-        <tr><th>Property</th><th>Value</th></tr>
-        <tr><td class="param-name">Base URL</td><td><code>https://api.claw-net.org</code></td></tr>
-        <tr><td class="param-name">Rate limit</td><td>60 requests / minute / IP</td></tr>
-        <tr><td class="param-name">Timeout</td><td>30s per request (orchestrate may take up to 15s)</td></tr>
-        <tr><td class="param-name">Content-Type</td><td><code>application/json</code> required for POST/PATCH</td></tr>
-        <tr><td class="param-name">Request ID</td><td>Every response includes <code>X-Request-ID</code> header</td></tr>
-        <tr><td class="param-name">Response signing</td><td>Orchestrate + skill invocations include <code>X-ClawNet-Signature</code> — <a href="#signing" style="color:var(--green)">see ClawGuard</a></td></tr>
-      </table>
-    </div>
-
-    <hr class="doc-divider">
-
-    <!-- ── CREDITS ── -->
-    <div class="doc-section" id="credits">
-      <div class="doc-section-label">Credits</div>
-      <h2>Credit System</h2>
-      <p>ClawNet uses a credit-based billing model. No subscriptions. Credits never expire.</p>
-
-      <table class="param-table">
-        <tr><th>Scenario</th><th>Cost</th><th>Notes</th></tr>
-        <tr><td>1 credit</td><td>$0.001 USD</td><td>Base unit</td></tr>
-        <tr><td>Cache hit (semantic)</td><td>1 credit</td><td>Result served from cache</td></tr>
-        <tr><td>Simple query (1–2 endpoints)</td><td>2–6 credits</td><td>Single token price, quick lookup</td></tr>
-        <tr><td>Complex query (4–6 endpoints)</td><td>6–32 credits</td><td>Full on-chain + social + analysis</td></tr>
-        <tr><td>Skill invocation</td><td>Skill price in credits</td><td>Set by creator, shown in marketplace</td></tr>
-        <tr><td>Swarm task</td><td>Sum of sub-task costs</td><td>Each sub-task billed individually</td></tr>
-      </table>
-
-      <div class="alert info">Formula: <code>Math.max(1, Math.ceil(apiCosts × 2000))</code> — where <code>apiCosts</code> is the sum of provider costs for all endpoints called.</div>
-
-      <h3 style="margin-top:20px">Per-endpoint credit cost</h3>
-      <p style="margin-bottom:8px">Typical costs by endpoint category. Exact cost depends on the endpoints selected by the intent planner.</p>
-      <table class="param-table">
-        <tr><th>Endpoint category</th><th>Credits per call</th><th>Example query</th></tr>
-        <tr><td>Token price</td><td>1</td><td>"What is the SOL price?"</td></tr>
-        <tr><td>Token metadata / holders</td><td>1–2</td><td>"How many holders does BONK have?"</td></tr>
-        <tr><td>Token risk score</td><td>2</td><td>"Is this token safe?"</td></tr>
-        <tr><td>Wallet portfolio</td><td>2</td><td>"Show my wallet holdings"</td></tr>
-        <tr><td>Wallet risk score</td><td>2</td><td>"Is this wallet risky?"</td></tr>
-        <tr><td>Trending tokens</td><td>1</td><td>"What's trending on Solana?"</td></tr>
-        <tr><td>Twitter mentions / profile</td><td>2–4</td><td>"What is Twitter saying about SOL?"</td></tr>
-        <tr><td>Reddit sentiment</td><td>3</td><td>"What does Reddit think of BTC?"</td></tr>
-        <tr><td>News search</td><td>2</td><td>"Latest crypto news"</td></tr>
-        <tr><td>Web scrape</td><td>4–8</td><td>"Summarize this URL"</td></tr>
-        <tr><td>LinkedIn / Instagram</td><td>3–5</td><td>"Check this founder's LinkedIn"</td></tr>
-        <tr><td>Transaction history</td><td>2</td><td>"Recent wallet activity"</td></tr>
-      </table>
-      <p style="margin-top:8px">Use <code>GET /v1/estimate?query=...</code> to get the exact estimated cost for any query before committing credits.</p>
-    </div>
-
-    <hr class="doc-divider">
-
-    <!-- ── ESTIMATE ── -->
-    <div class="doc-section" id="estimate">
-      <div class="doc-section-label">Core API</div>
-      <h2>GET /v1/estimate</h2>
-      <p>Run intent parsing only — no API calls, no credits charged. Returns the planned steps and estimated credit cost for any query. Use this to let your users see costs before executing.</p>
-      <div class="endpoint-block">
-        <div class="endpoint-head">
-          <span class="method-badge get">GET</span>
-          <span class="endpoint-path">/v1/estimate</span>
-          <span class="endpoint-desc">Estimate credit cost before orchestrating</span>
-        </div>
-        <div class="endpoint-body">
-          <h3>Query parameters</h3>
-          <table class="param-table">
-            <tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr>
-            <tr><td class="param-name">query</td><td class="param-type">string</td><td class="param-req">required</td><td class="param-desc">The query to estimate. Max 2,000 chars.</td></tr>
-          </table>
-          <h3>Response</h3>
-          <table class="param-table">
-            <tr><th>Field</th><th>Type</th><th>Description</th></tr>
-            <tr><td class="param-name">estimatedCredits</td><td class="param-type">integer</td><td class="param-desc">Total credits this query would cost</td></tr>
-            <tr><td class="param-name">steps</td><td class="param-type">integer</td><td class="param-desc">Number of API endpoints planned</td></tr>
-            <tr><td class="param-name">summary</td><td class="param-type">string</td><td class="param-desc">One-line description of the plan</td></tr>
-            <tr><td class="param-name">breakdown</td><td class="param-type">array</td><td class="param-desc">Per-step breakdown: <code>endpointId</code>, <code>credits</code>, <code>reason</code></td></tr>
-          </table>
-          <div class="code-block"><span class="c-muted"># Example</span>
-curl "https://api.claw-net.org/v1/estimate?query=Is+BONK+safe+to+buy"</div>
-        </div>
-      </div>
-    </div>
-
-    <hr class="doc-divider">
-
-    <!-- ── ORCHESTRATE ── -->
-    <div class="doc-section" id="orchestrate">
-      <div class="doc-section-label">Core API</div>
-      <h2>POST /v1/orchestrate <span class="badge auth">AUTH</span></h2>
-      <p>The primary endpoint. Send any natural language query — ClawNet parses your intent, routes to the optimal set of API endpoints in parallel, and synthesizes a structured answer.</p>
-
-      <div class="endpoint-block">
-        <div class="endpoint-head">
+      <div class="endpoint" id="orchestrate-post">
+        <div class="endpoint-header">
           <span class="method-badge post">POST</span>
-          <span class="endpoint-path">/v1/orchestrate</span>
-          <span class="endpoint-desc">Natural language → structured analysis</span>
+          <code class="endpoint-path">/v1/orchestrate</code>
         </div>
-        <div class="endpoint-body">
-          <h3>Request body</h3>
-          <table class="param-table">
-            <tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr>
-            <tr><td class="param-name">query</td><td class="param-type">string</td><td class="param-req">required</td><td class="param-desc">Natural language question. Max 1,000 chars. E.g. "Is BONK safe to buy right now?"</td></tr>
-            <tr><td class="param-name">context</td><td class="param-type">object</td><td class="param-opt">optional</td><td class="param-desc">Additional context: <code>{"walletAddress": "..."}</code> for portfolio queries</td></tr>
-          </table>
-
-          <h3>Response fields</h3>
-          <table class="param-table">
-            <tr><th>Field</th><th>Type</th><th>Description</th></tr>
-            <tr><td class="param-name">answer</td><td class="param-type">string</td><td class="param-desc">Full synthesized analysis in plain English</td></tr>
-            <tr><td class="param-name">opportunityScore</td><td class="param-type">number 0–100</td><td class="param-desc">Upside potential score</td></tr>
-            <tr><td class="param-name">riskScore</td><td class="param-type">number 0–100</td><td class="param-desc">Risk level (lower is safer)</td></tr>
-            <tr><td class="param-name">suggestedActions</td><td class="param-type">string[]</td><td class="param-desc">Recommended next steps</td></tr>
-            <tr><td class="param-name">costBreakdown.creditsUsed</td><td class="param-type">number</td><td class="param-desc">Credits deducted for this request</td></tr>
-            <tr><td class="param-name">costBreakdown.costUsd</td><td class="param-type">number</td><td class="param-desc">USD equivalent</td></tr>
-            <tr><td class="param-name">costBreakdown.savings</td><td class="param-type">number</td><td class="param-desc">USD saved via semantic caching</td></tr>
-            <tr><td class="param-name">metadata.stepsExecuted</td><td class="param-type">number</td><td class="param-desc">Number of API endpoints called</td></tr>
-            <tr><td class="param-name">metadata.cacheHits</td><td class="param-type">number</td><td class="param-desc">Results served from cache</td></tr>
-            <tr><td class="param-name">metadata.totalDurationMs</td><td class="param-type">number</td><td class="param-desc">End-to-end latency in ms</td></tr>
-          </table>
-
-          <h3>Example queries</h3>
-          <div class="code-block"><span class="c-muted"># Token safety analysis</span>
-{"query": "Is BONK safe to buy right now?"}
-
-<span class="c-muted"># Wallet portfolio scan</span>
-{"query": "Analyze my wallet", "context": {"walletAddress": "DfZ3...mK9"}}
-
-<span class="c-muted"># Social sentiment</span>
-{"query": "What is the Twitter sentiment on Solana right now?"}
-
-<span class="c-muted"># Whale tracking</span>
-{"query": "Show me the top SOL whale wallets active in the last 24h"}
-
-<span class="c-muted"># NFT floor</span>
-{"query": "What is the floor price and holder count for Mad Lads?"}</div>
+        <p class="endpoint-desc">Submit a query and receive an orchestrated answer. Credits are deducted based on APIs used.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+        <h4>Body Parameters</h4>
+        <table class="params-table">
+          <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>query</code></td><td><span class="param-type">string</span></td><td><span class="param-req">Yes</span></td><td>Natural language query (max 2000 chars)</td></tr>
+            <tr><td><code>context</code></td><td><span class="param-type">object</span></td><td><span class="param-opt">No</span></td><td>Additional context passed to the orchestrator</td></tr>
+          </tbody>
+        </table>
+        <h4>Example Request</h4>
+        <div class="code-block">
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <pre><code>curl -X POST https://api.claw-net.org/v1/orchestrate \
+  -H "X-API-Key: YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"What is the current SOL price and top holder distribution?"}'</code></pre>
         </div>
-      </div>
-    </div>
-
-    <hr class="doc-divider">
-
-    <!-- ── BALANCE ── -->
-    <div class="doc-section" id="balance">
-      <h2>GET /v1/balance <span class="badge auth">AUTH</span></h2>
-      <p>Check your current credit balance. Does not deduct credits.</p>
-
-      <div class="endpoint-block">
-        <div class="endpoint-head">
-          <span class="method-badge get">GET</span>
-          <span class="endpoint-path">/v1/balance</span>
-        </div>
-        <div class="endpoint-body">
-          <div class="code-label">Response</div>
-          <div class="code-block">{
-  <span class="c-green">"credits"</span>: <span class="c-blue">4832</span>,
-  <span class="c-green">"creditsUsed"</span>: <span class="c-blue">168</span>,
-  <span class="c-green">"memberSince"</span>: <span class="c-yellow">"2025-03-01T12:00:00.000Z"</span>
-}</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ── HEALTH ── -->
-    <div class="doc-section" id="health">
-      <h2>GET /v1/health <span class="badge pub">PUBLIC</span></h2>
-      <div class="endpoint-block">
-        <div class="endpoint-head">
-          <span class="method-badge get">GET</span>
-          <span class="endpoint-path">/v1/health</span>
-        </div>
-        <div class="endpoint-body">
-          <div class="code-block">{
-  <span class="c-green">"status"</span>: <span class="c-yellow">"ok"</span>,
-  <span class="c-green">"version"</span>: <span class="c-yellow">"1.0.0"</span>,
-  <span class="c-green">"uptime"</span>: <span class="c-blue">86400</span>
-}</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ── ENDPOINTS REGISTRY ── -->
-    <div class="doc-section" id="registry">
-      <h2>GET /v1/endpoints <span class="badge pub">PUBLIC</span></h2>
-      <p>Returns all registered API endpoints with live status, latency, and circuit breaker state. Used by the <a href="/endpoints.html" style="color:var(--green)">Endpoint Catalog</a> page.</p>
-      <div class="endpoint-block">
-        <div class="endpoint-head">
-          <span class="method-badge get">GET</span>
-          <span class="endpoint-path">/v1/endpoints</span>
-        </div>
-        <div class="endpoint-body">
-          <div class="code-block">{
-  <span class="c-green">"meta"</span>: {
-    <span class="c-green">"total"</span>: <span class="c-blue">77</span>,
-    <span class="c-green">"operational"</span>: <span class="c-blue">75</span>,
-    <span class="c-green">"providers"</span>: <span class="c-blue">34</span>,
-    <span class="c-green">"avgCost"</span>: <span class="c-blue">0.0021</span>
-  },
-  <span class="c-green">"endpoints"</span>: [
-    {
-      <span class="c-green">"id"</span>: <span class="c-yellow">"claw-token-price"</span>,
-      <span class="c-green">"provider"</span>: <span class="c-yellow">"ClawAPIs"</span>,
-      <span class="c-green">"name"</span>: <span class="c-yellow">"Token Price"</span>,
-      <span class="c-green">"status"</span>: <span class="c-yellow">"operational"</span>,
-      <span class="c-green">"circuitState"</span>: <span class="c-yellow">"CLOSED"</span>,
-      <span class="c-green">"costPerCall"</span>: <span class="c-blue">0.001</span>,
-      <span class="c-green">"latencyMs"</span>: <span class="c-blue">200</span>
-    }
-    <span class="c-muted">// ... more endpoints</span>
-  ]
-}</div>
-        </div>
-      </div>
-    </div>
-
-    <hr class="doc-divider">
-
-    <!-- ── SKILLS ── -->
-    <div class="doc-section" id="skills-list">
-      <div class="doc-section-label">Skills & Marketplace</div>
-      <h2>Skills API</h2>
-      <p>Skills are prompt-powered AI capabilities published on the ClawNet marketplace. Anyone can publish a skill and earn 97% of every invocation. Creators set the credit price.</p>
-
-      <div class="alert green">Creator revenue split: <strong>97% to creator</strong>, 3% platform fee. Minimum withdrawal: 1,000 credits ($1.00 USDC).</div>
-
-      <h2>GET /v1/marketplace/skills <span class="badge pub">PUBLIC</span></h2>
-      <div class="endpoint-block">
-        <div class="endpoint-head">
-          <span class="method-badge get">GET</span>
-          <span class="endpoint-path">/v1/marketplace/skills</span>
-          <span class="endpoint-desc">Browse all public skills</span>
-        </div>
-        <div class="endpoint-body">
-          <h3>Query params</h3>
-          <table class="param-table">
-            <tr><th>Param</th><th>Type</th><th>Description</th></tr>
-            <tr><td class="param-name">q</td><td class="param-type">string</td><td class="param-desc">Search by name or description</td></tr>
-            <tr><td class="param-name">tag</td><td class="param-type">string</td><td class="param-desc">Filter by tag (e.g. "solana", "defi")</td></tr>
-            <tr><td class="param-name">sort</td><td class="param-type">string</td><td class="param-desc"><code>popular</code> | <code>newest</code> | <code>cheapest</code> | <code>top-rated</code></td></tr>
-            <tr><td class="param-name">limit</td><td class="param-type">number</td><td class="param-desc">Results per page (max 50, default 20)</td></tr>
-            <tr><td class="param-name">offset</td><td class="param-type">number</td><td class="param-desc">Pagination offset</td></tr>
-          </table>
-        </div>
-      </div>
-    </div>
-
-    <div class="doc-section" id="skills-invoke">
-      <h2>POST /v1/skills/:id/invoke <span class="badge auth">AUTH</span></h2>
-      <p>Invoke a skill directly. Credits are deducted at the skill's listed price. A purchase record is created automatically on first use.</p>
-
-      <div class="endpoint-block">
-        <div class="endpoint-head">
-          <span class="method-badge post">POST</span>
-          <span class="endpoint-path">/v1/skills/:id/invoke</span>
-        </div>
-        <div class="endpoint-body">
-          <h3>Request body</h3>
-          <table class="param-table">
-            <tr><th>Field</th><th>Type</th><th>Description</th></tr>
-            <tr><td class="param-name">variables</td><td class="param-type">object</td><td class="param-desc">Key-value pairs matching the skill's <code>input_schema</code>. Check the skill definition for required fields.</td></tr>
-          </table>
-
-          <div class="code-label">Example — invoke token-analysis skill</div>
-          <div class="code-block">POST /v1/skills/token-analysis/invoke
-X-API-Key: your-key
-
-{
-  <span class="c-green">"variables"</span>: {
-    <span class="c-green">"token"</span>: <span class="c-yellow">"BONK"</span>,
-    <span class="c-green">"mintAddress"</span>: <span class="c-yellow">"DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263"</span>
-  }
-}</div>
-
-          <div class="code-label">Response</div>
-          <div class="code-block">{
-  <span class="c-green">"ok"</span>: <span class="c-blue">true</span>,
-  <span class="c-green">"result"</span>: <span class="c-yellow">"BONK analysis: 991K holders, LP locked ✓, risk score 28..."</span>,
-  <span class="c-green">"creditsUsed"</span>: <span class="c-blue">5</span>,
-  <span class="c-green">"skillId"</span>: <span class="c-yellow">"token-analysis"</span>
-}</div>
-        </div>
-      </div>
-    </div>
-
-    <div class="doc-section" id="skills-publish">
-      <h2>POST /v1/skills <span class="badge auth">AUTH</span></h2>
-      <p>Publish a new skill to the marketplace. Skills are prompt templates with variable slots. You earn 97% of every invocation.</p>
-
-      <div class="endpoint-block">
-        <div class="endpoint-head">
-          <span class="method-badge post">POST</span>
-          <span class="endpoint-path">/v1/skills</span>
-          <span class="endpoint-desc">Publish a skill</span>
-        </div>
-        <div class="endpoint-body">
-          <table class="param-table">
-            <tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr>
-            <tr><td class="param-name">name</td><td class="param-type">string</td><td class="param-req">required</td><td class="param-desc">Display name (max 80 chars)</td></tr>
-            <tr><td class="param-name">description</td><td class="param-type">string</td><td class="param-req">required</td><td class="param-desc">What this skill does (max 500 chars)</td></tr>
-            <tr><td class="param-name">promptTemplate</td><td class="param-type">string</td><td class="param-req">required</td><td class="param-desc">Prompt with <code>{{variable}}</code> slots</td></tr>
-            <tr><td class="param-name">priceCredits</td><td class="param-type">number</td><td class="param-req">required</td><td class="param-desc">Credits charged per invocation (min 1)</td></tr>
-            <tr><td class="param-name">inputSchema</td><td class="param-type">object</td><td class="param-opt">optional</td><td class="param-desc">Variable definitions: <code>{"token": "Token symbol"}</code></td></tr>
-            <tr><td class="param-name">tags</td><td class="param-type">string[]</td><td class="param-opt">optional</td><td class="param-desc">Up to 5 tags for discovery</td></tr>
-            <tr><td class="param-name">visibility</td><td class="param-type">string</td><td class="param-opt">optional</td><td class="param-desc"><code>public</code> (default) or <code>private</code></td></tr>
-          </table>
-        </div>
-      </div>
-    </div>
-
-    <div class="doc-section" id="skills-purchase">
-      <h2>POST /v1/marketplace/skills/:id/purchase <span class="badge auth">AUTH</span></h2>
-      <p>Purchase and immediately invoke a skill in one step. Deducts credits, invokes the skill, and returns the result.</p>
-      <div class="endpoint-block">
-        <div class="endpoint-head">
-          <span class="method-badge post">POST</span>
-          <span class="endpoint-path">/v1/marketplace/skills/:id/purchase</span>
-        </div>
-        <div class="endpoint-body">
-          <div class="code-block">{ <span class="c-green">"variables"</span>: { <span class="c-green">"token"</span>: <span class="c-yellow">"SOL"</span> } }</div>
-        </div>
-      </div>
-    </div>
-
-    <hr class="doc-divider">
-
-    <!-- ── SWARM ── -->
-    <div class="doc-section" id="swarm-create">
-      <div class="doc-section-label">Swarm</div>
-      <h2>Multi-Agent Swarm Tasks</h2>
-      <p>Submit a complex task — ClawNet decomposes it into sub-tasks using an LLM, routes each to the best available skill, executes them in parallel, then synthesizes all results into a single coherent answer.</p>
-
-      <div class="alert info">Swarm tasks are <strong>async</strong>. The POST returns a <code>202 Accepted</code> with a <code>swarmId</code>. Poll GET to check status.</div>
-
-      <h2>POST /v1/swarm/task <span class="badge auth">AUTH</span></h2>
-      <div class="endpoint-block">
-        <div class="endpoint-head">
-          <span class="method-badge post">POST</span>
-          <span class="endpoint-path">/v1/swarm/task</span>
-          <span class="endpoint-desc">Returns 202 immediately</span>
-        </div>
-        <div class="endpoint-body">
-          <table class="param-table">
-            <tr><th>Field</th><th>Type</th><th>Description</th></tr>
-            <tr><td class="param-name">task</td><td class="param-type">string</td><td class="param-desc">Complex task description (max 1,000 chars)</td></tr>
-            <tr><td class="param-name">skills</td><td class="param-type">string[]</td><td class="param-desc">Optional: hint at which skill IDs to use</td></tr>
-            <tr><td class="param-name">maxSubTasks</td><td class="param-type">number</td><td class="param-desc">Max sub-tasks to decompose into (1–5, default 4)</td></tr>
-          </table>
-
-          <div class="code-label">Response (202)</div>
-          <div class="code-block">{
-  <span class="c-green">"swarmId"</span>: <span class="c-yellow">"swarm_abc123"</span>,
-  <span class="c-green">"status"</span>: <span class="c-yellow">"PENDING"</span>,
-  <span class="c-green">"pollUrl"</span>: <span class="c-yellow">"/v1/swarm/swarm_abc123"</span>
-}</div>
-        </div>
-      </div>
-    </div>
-
-    <div class="doc-section" id="swarm-get">
-      <h2>GET /v1/swarm/:id <span class="badge auth">AUTH</span></h2>
-      <div class="endpoint-block">
-        <div class="endpoint-head">
-          <span class="method-badge get">GET</span>
-          <span class="endpoint-path">/v1/swarm/:id</span>
-        </div>
-        <div class="endpoint-body">
-          <p style="margin-bottom:12px;font-size:13px;color:var(--muted2)">Status values: <code>PENDING</code> → <code>RUNNING</code> → <code>COMPLETED</code> | <code>FAILED</code></p>
-          <div class="code-block">{
-  <span class="c-green">"id"</span>: <span class="c-yellow">"swarm_abc123"</span>,
-  <span class="c-green">"status"</span>: <span class="c-yellow">"COMPLETED"</span>,
-  <span class="c-green">"subTasks"</span>: [
-    { <span class="c-green">"subtask"</span>: <span class="c-yellow">"Check token price"</span>, <span class="c-green">"skillId"</span>: <span class="c-yellow">"token-analysis"</span> }
-  ],
-  <span class="c-green">"results"</span>: [
-    { <span class="c-green">"index"</span>: <span class="c-blue">0</span>, <span class="c-green">"result"</span>: <span class="c-yellow">"..."</span>, <span class="c-green">"ok"</span>: <span class="c-blue">true</span> },
-    { <span class="c-green">"synthesis"</span>: <span class="c-yellow">"Combined answer..."</span> }
-  ],
-  <span class="c-green">"completedAt"</span>: <span class="c-yellow">"2025-03-09T10:00:00.000Z"</span>
-}</div>
-        </div>
-      </div>
-    </div>
-
-    <hr class="doc-divider">
-
-    <!-- ── DISCOVER ── -->
-    <div class="doc-section" id="discover">
-      <div class="doc-section-label">Discovery</div>
-      <h2>POST /v1/discover <span class="badge pub">PUBLIC</span></h2>
-      <p>Find the best skill or endpoint for a given task using the Discovery Trinity: semantic vector search (60%), P2P mesh (25%), and on-chain signals (15%).</p>
-
-      <div class="endpoint-block">
-        <div class="endpoint-head">
-          <span class="method-badge post">POST</span>
-          <span class="endpoint-path">/v1/discover</span>
-        </div>
-        <div class="endpoint-body">
-          <table class="param-table">
-            <tr><th>Field</th><th>Type</th><th>Description</th></tr>
-            <tr><td class="param-name">query</td><td class="param-type">string</td><td class="param-desc">Natural language description of what you need</td></tr>
-            <tr><td class="param-name">limit</td><td class="param-type">number</td><td class="param-desc">Max results (default 10)</td></tr>
-            <tr><td class="param-name">filters.source</td><td class="param-type">string[]</td><td class="param-desc"><code>["semantic","p2p","onchain"]</code> — enable specific layers</td></tr>
-            <tr><td class="param-name">weights</td><td class="param-type">object</td><td class="param-desc">Override layer weights: <code>{"semantic":0.6,"p2p":0.25,"onchain":0.15}</code></td></tr>
-          </table>
-        </div>
-      </div>
-    </div>
-
-    <hr class="doc-divider">
-
-    <!-- ── ESCROW ── -->
-    <div class="doc-section" id="escrow">
-      <div class="doc-section-label">Escrow</div>
-      <h2>Trustless Hiring with Escrow</h2>
-      <p>Create escrow agreements between agents or users. Credits are locked until work is verified — either released by the client or resolved via dispute.</p>
-
-      <div class="alert info">Escrow is credit-denominated. 1 credit = $0.001. All state transitions are logged to the audit trail.</div>
-
-      <h3>State machine</h3>
-      <div class="code-block">DRAFT → FUNDED → IN_PROGRESS → COMPLETED → RELEASED
-                                    ↓
-                               DISPUTED → RESOLVED
-FUNDED → REFUNDED (if expired before work starts)</div>
-
-      <h3>Endpoints</h3>
-      <table class="param-table">
-        <tr><th>Method</th><th>Path</th><th>Action</th></tr>
-        <tr><td><span class="method-badge post">POST</span></td><td class="param-name">/v1/escrow</td><td class="param-desc">Create escrow (DRAFT)</td></tr>
-        <tr><td><span class="method-badge post">POST</span></td><td class="param-name">/v1/escrow/:id/fund</td><td class="param-desc">Lock credits (FUNDED)</td></tr>
-        <tr><td><span class="method-badge post">POST</span></td><td class="param-name">/v1/escrow/:id/start</td><td class="param-desc">Begin work (WORK_IN_PROGRESS)</td></tr>
-        <tr><td><span class="method-badge post">POST</span></td><td class="param-name">/v1/escrow/:id/complete</td><td class="param-desc">Submit deliverable (still WORK_IN_PROGRESS)</td></tr>
-        <tr><td><span class="method-badge post">POST</span></td><td class="param-name">/v1/escrow/:id/release</td><td class="param-desc">Client releases payment (COMPLETED)</td></tr>
-        <tr><td><span class="method-badge post">POST</span></td><td class="param-name">/v1/escrow/:id/dispute</td><td class="param-desc">Open dispute</td></tr>
-        <tr><td><span class="method-badge get">GET</span></td><td class="param-name">/v1/escrow/:id</td><td class="param-desc">Get escrow status</td></tr>
-      </table>
-    </div>
-
-    <div class="doc-section" id="escrow-create">
-      <h2>POST /v1/escrow <span class="badge auth">AUTH</span></h2>
-      <div class="endpoint-block">
-        <div class="endpoint-head">
-          <span class="method-badge post">POST</span>
-          <span class="endpoint-path">/v1/escrow</span>
-        </div>
-        <div class="endpoint-body">
-          <table class="param-table">
-            <tr><th>Field</th><th>Type</th><th>Description</th></tr>
-            <tr><td class="param-name">title</td><td class="param-type">string</td><td class="param-desc">Job title (max 120 chars)</td></tr>
-            <tr><td class="param-name">description</td><td class="param-type">string</td><td class="param-desc">Scope of work (max 2,000 chars)</td></tr>
-            <tr><td class="param-name">amountCredits</td><td class="param-type">number</td><td class="param-desc">Credits to lock (min 10)</td></tr>
-            <tr><td class="param-name">providerKey</td><td class="param-type">string</td><td class="param-desc">API key of the worker/agent being hired</td></tr>
-            <tr><td class="param-name">daysToComplete</td><td class="param-type">number</td><td class="param-desc">Deadline in days (1–90)</td></tr>
-          </table>
-        </div>
-      </div>
-    </div>
-
-    <hr class="doc-divider">
-
-    <!-- ── GOVERNANCE ── -->
-    <div class="doc-section" id="governance">
-      <div class="doc-section-label">Governance</div>
-      <h2>On-Platform Governance</h2>
-      <p>Token holders can create proposals and vote on platform changes. Voting weight uses quadratic-lite scoring: <code>√(total credits spent)</code> — rewarding participation without enabling whale capture.</p>
-
-      <h2>POST /v1/governance/propose <span class="badge auth">AUTH</span></h2>
-      <p>Requires minimum 100 credits balance to create a proposal.</p>
-      <div class="endpoint-block">
-        <div class="endpoint-head">
-          <span class="method-badge post">POST</span>
-          <span class="endpoint-path">/v1/governance/propose</span>
-        </div>
-        <div class="endpoint-body">
-          <table class="param-table">
-            <tr><th>Field</th><th>Type</th><th>Description</th></tr>
-            <tr><td class="param-name">title</td><td class="param-type">string</td><td class="param-desc">Proposal title (5–120 chars)</td></tr>
-            <tr><td class="param-name">description</td><td class="param-type">string</td><td class="param-desc">Full proposal text (20–2,000 chars)</td></tr>
-            <tr><td class="param-name">closeDays</td><td class="param-type">number</td><td class="param-desc">Voting window in days (1–30, default 7)</td></tr>
-          </table>
-        </div>
-      </div>
-    </div>
-
-    <div class="doc-section" id="vote">
-      <h2>POST /v1/governance/proposals/:id/vote <span class="badge auth">AUTH</span></h2>
-      <div class="endpoint-block">
-        <div class="endpoint-head">
-          <span class="method-badge post">POST</span>
-          <span class="endpoint-path">/v1/governance/proposals/:id/vote</span>
-        </div>
-        <div class="endpoint-body">
-          <table class="param-table">
-            <tr><th>Field</th><th>Type</th><th>Description</th></tr>
-            <tr><td class="param-name">direction</td><td class="param-type">string</td><td class="param-desc"><code>FOR</code> or <code>AGAINST</code></td></tr>
-          </table>
-          <div class="alert info">One vote per key per proposal. Vote weight = <code>Math.max(1, Math.sqrt(totalCreditsSpent))</code>.</div>
-        </div>
-      </div>
-    </div>
-
-    <hr class="doc-divider">
-
-    <!-- ── BATCH & STREAMING ── -->
-    <div class="doc-section" id="batch">
-      <div class="doc-section-label">Batch &amp; Streaming</div>
-      <h2>POST /v1/batch <span class="badge auth">AUTH</span></h2>
-      <p>Run up to 10 independent queries in parallel. Each query is billed separately. Returns all results in a single response.</p>
-      <div class="endpoint-block">
-        <span class="endpoint-method m-post">POST</span>
-        <span class="endpoint-path">/v1/batch</span>
-      </div>
-      <h3>Request Body</h3>
-      <pre><code>{
-  "queries": [
-    "What is the price of SOL?",
-    "Show me the top trending tokens",
-    "Analyze BONK for rug risk"
-  ]
+        <h4>Example Response</h4>
+        <div class="code-block">
+          <pre><code>{
+  "answer": "SOL is trading at $180.42...",
+  "sources": ["price-oracle", "whale-tracker"],
+  "creditsUsed": 8,
+  "durationMs": 1840
 }</code></pre>
-      <h3>Response</h3>
-      <pre><code>{
-  "batchId": "abc123",
-  "totalQueries": 3,
-  "succeeded": 3,
-  "failed": 0,
-  "totalDurationMs": 4200,
-  "results": [
-    { "index": 0, "query": "...", "ok": true, "answer": "...", "creditsUsed": 3, "durationMs": 1800 },
-    { "index": 1, "query": "...", "ok": true, "answer": "...", "creditsUsed": 5, "durationMs": 2100 },
-    { "index": 2, "query": "...", "ok": true, "answer": "...", "creditsUsed": 4, "durationMs": 1900 }
-  ]
-}</code></pre>
-      <p><strong>Limits:</strong> 1–10 queries per batch. Max 2,000 characters per query. Requires at least 1 credit per query upfront.</p>
+        </div>
+      </div>
     </div>
 
-    <div class="doc-section" id="stream">
-      <h2>GET /v1/stream/orchestrate <span class="badge auth">AUTH</span></h2>
-      <p>Real-time Server-Sent Events stream. Receive orchestration progress as it happens instead of waiting for the full response.</p>
-      <div class="endpoint-block">
-        <span class="endpoint-method m-get">GET</span>
-        <span class="endpoint-path">/v1/stream/orchestrate?query=your+question</span>
+    <!-- BATCH -->
+    <div class="docs-section" id="batch">
+      <h2 class="docs-section-title">Batch Orchestration</h2>
+      <div class="endpoint" id="batch-post">
+        <div class="endpoint-header">
+          <span class="method-badge post">POST</span>
+          <code class="endpoint-path">/v1/batch</code>
+        </div>
+        <p class="endpoint-desc">Submit up to 10 queries in parallel. Each query is billed separately. Results are returned as an array in the same order.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+        <h4>Body Parameters</h4>
+        <table class="params-table">
+          <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>queries</code></td><td><span class="param-type">string[]</span></td><td><span class="param-req">Yes</span></td><td>Array of query strings (max 10)</td></tr>
+          </tbody>
+        </table>
+        <h4>Example Request</h4>
+        <div class="code-block">
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <pre><code>curl -X POST https://api.claw-net.org/v1/batch \
+  -H "X-API-Key: YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"queries":["SOL price?","ETH gas?","BTC dominance?"]}'</code></pre>
+        </div>
       </div>
-      <h3>Event Types</h3>
-      <table style="width:100%;border-collapse:collapse;font-size:13px;">
-        <tr style="border-bottom:1px solid var(--border)"><td style="padding:8px;color:var(--green);font-weight:700">start</td><td style="padding:8px">Request accepted, orchestration beginning</td></tr>
-        <tr style="border-bottom:1px solid var(--border)"><td style="padding:8px;color:var(--green);font-weight:700">plan</td><td style="padding:8px">AI planner selected endpoints — includes step count and summary</td></tr>
-        <tr style="border-bottom:1px solid var(--border)"><td style="padding:8px;color:var(--green);font-weight:700">step</td><td style="padding:8px">Individual endpoint completed — includes endpointId, success, cached, durationMs</td></tr>
-        <tr style="border-bottom:1px solid var(--border)"><td style="padding:8px;color:var(--green);font-weight:700">done</td><td style="padding:8px">Final answer ready — includes full answer, creditsUsed, totalDurationMs</td></tr>
-        <tr><td style="padding:8px;color:#ff4444;font-weight:700">error</td><td style="padding:8px">Orchestration failed — includes error message</td></tr>
-      </table>
-      <h3>Example (JavaScript)</h3>
-      <pre><code>// Native EventSource does not support custom headers.
-// Use fetch with a ReadableStream decoder instead:
-const res = await fetch(
-  'https://api.claw-net.org/v1/stream/orchestrate?query=SOL+price',
-  { headers: { 'X-API-Key': 'cn-your-key' } }
+    </div>
+
+    <!-- STREAM -->
+    <div class="docs-section" id="stream">
+      <h2 class="docs-section-title">Streaming</h2>
+      <div class="endpoint">
+        <div class="endpoint-header">
+          <span class="method-badge get">GET</span>
+          <code class="endpoint-path">/v1/stream/orchestrate</code>
+        </div>
+        <p class="endpoint-desc">Server-Sent Events (SSE) stream. Emits events as the orchestrator works: <code style="font-family:var(--font-mono);color:var(--accent)">start</code>, <code style="font-family:var(--font-mono);color:var(--accent)">plan</code>, <code style="font-family:var(--font-mono);color:var(--accent)">step</code>, <code style="font-family:var(--font-mono);color:var(--accent)">done</code>, <code style="font-family:var(--font-mono);color:var(--accent)">error</code>.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code> (query param or header)</div>
+        <h4>Query Parameters</h4>
+        <table class="params-table">
+          <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>query</code></td><td><span class="param-type">string</span></td><td><span class="param-req">Yes</span></td><td>The query to stream</td></tr>
+            <tr><td><code>apiKey</code></td><td><span class="param-type">string</span></td><td><span class="param-opt">No</span></td><td>API key as query param (alternative to header)</td></tr>
+          </tbody>
+        </table>
+        <h4>Example</h4>
+        <div class="code-block">
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <pre><code>const es = new EventSource(
+  'https://api.claw-net.org/v1/stream/orchestrate?query=SOL+price&apiKey=YOUR_KEY'
 );
-const reader = res.body.getReader();
-const decoder = new TextDecoder();
-let buf = '';
-while (true) {
-  const { done, value } = await reader.read();
-  if (done) break;
-  buf += decoder.decode(value, { stream: true });
-  const lines = buf.split('\n\n');
-  buf = lines.pop();
-  for (const chunk of lines) {
-    const dataLine = chunk.split('\n').find(l => l.startsWith('data:'));
-    if (!dataLine) continue;
-    const event = JSON.parse(dataLine.slice(5));
-    if (event.type === 'done') { console.log('Answer:', event.answer); break; }
-    if (event.type === 'step') { console.log('Step:', event.step); }
-  }
+es.onmessage = (e) => console.log(JSON.parse(e.data));</code></pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- SKILLS -->
+    <div class="docs-section" id="skills-create">
+      <h2 class="docs-section-title">Skills</h2>
+      <p class="docs-section-desc">Skills are prompt-powered AI services. Publish a skill to the marketplace and earn 97% of every purchase.</p>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/skills</code></div>
+        <p class="endpoint-desc">Create and optionally publish a new skill.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+        <h4>Body Parameters</h4>
+        <table class="params-table">
+          <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>name</code></td><td><span class="param-type">string</span></td><td><span class="param-req">Yes</span></td><td>Unique slug (lowercase, hyphens, max 64)</td></tr>
+            <tr><td><code>displayName</code></td><td><span class="param-type">string</span></td><td><span class="param-req">Yes</span></td><td>Human-readable name</td></tr>
+            <tr><td><code>description</code></td><td><span class="param-type">string</span></td><td><span class="param-req">Yes</span></td><td>What the skill does</td></tr>
+            <tr><td><code>promptTemplate</code></td><td><span class="param-type">string</span></td><td><span class="param-req">Yes</span></td><td>Prompt with <code>&#123;&#123;variable&#125;&#125;</code> placeholders</td></tr>
+            <tr><td><code>creditCost</code></td><td><span class="param-type">number</span></td><td><span class="param-req">Yes</span></td><td>Price in credits (0–10000)</td></tr>
+            <tr><td><code>public</code></td><td><span class="param-type">boolean</span></td><td><span class="param-opt">No</span></td><td>List in marketplace (default: false)</td></tr>
+            <tr><td><code>tags</code></td><td><span class="param-type">string[]</span></td><td><span class="param-opt">No</span></td><td>Up to 10 tags</td></tr>
+            <tr><td><code>category</code></td><td><span class="param-type">string</span></td><td><span class="param-opt">No</span></td><td>defi, security, social, ai, search, media, enrichment, analytics, infrastructure, utility, weather, general</td></tr>
+            <tr><td><code>version</code></td><td><span class="param-type">string</span></td><td><span class="param-opt">No</span></td><td>Semver (default: 1.0.0)</td></tr>
+            <tr><td><code>changelog</code></td><td><span class="param-type">string</span></td><td><span class="param-opt">No</span></td><td>What's new in this version</td></tr>
+            <tr><td><code>readme</code></td><td><span class="param-type">string</span></td><td><span class="param-opt">No</span></td><td>Detailed usage guide</td></tr>
+          </tbody>
+        </table>
+        <div class="code-block">
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <pre><code>curl -X POST https://api.claw-net.org/v1/skills \
+  -H "X-API-Key: YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "token-sentiment",
+    "displayName": "Token Sentiment",
+    "description": "Analyze social sentiment for any token",
+    "promptTemplate": "Analyze the social sentiment for {{token}} on Twitter and Reddit.",
+    "creditCost": 3,
+    "public": true,
+    "category": "social"
+  }'</code></pre>
+        </div>
+      </div>
+
+      <div class="endpoint" id="skills-mine">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/skills/mine</code></div>
+        <p class="endpoint-desc">List all skills owned by the authenticated key.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+      </div>
+
+      <div class="endpoint" id="skills-get">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/skills/:id</code></div>
+        <p class="endpoint-desc">Get full details of a skill by ID. Public skills are accessible without auth.</p>
+      </div>
+
+      <div class="endpoint" id="skills-invoke">
+        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/skills/:id/invoke</code></div>
+        <p class="endpoint-desc">Invoke a skill you own for free (no credit charge). Purchased skills can also be invoked this way.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+        <h4>Body Parameters</h4>
+        <table class="params-table">
+          <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>variables</code></td><td><span class="param-type">object</span></td><td><span class="param-opt">No</span></td><td>Key-value pairs for template variables</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="endpoint" id="skills-visibility">
+        <div class="endpoint-header"><span class="method-badge patch">PATCH</span><code class="endpoint-path">/v1/skills/:id/visibility</code></div>
+        <p class="endpoint-desc">Toggle a skill between public (listed in marketplace) and private (draft).</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code> (must own skill)</div>
+        <h4>Body</h4>
+        <div class="code-block"><pre><code>{ "public": true }</code></pre></div>
+      </div>
+
+      <div class="endpoint" id="skills-delete">
+        <div class="endpoint-header"><span class="method-badge delete">DELETE</span><code class="endpoint-path">/v1/skills/:id</code></div>
+        <p class="endpoint-desc">Permanently delete a skill. Cannot be undone. All associated purchase history is retained.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code> (must own skill)</div>
+      </div>
+
+      <div class="endpoint" id="skills-metrics">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/skills/:id/metrics</code></div>
+        <p class="endpoint-desc">Get performance metrics for a skill: success rate, avg duration, total uses, revenue.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code> (must own skill)</div>
+      </div>
+    </div>
+
+    <!-- TASKS -->
+    <div class="docs-section" id="tasks-submit">
+      <h2 class="docs-section-title">Tasks</h2>
+      <p class="docs-section-desc">Tasks represent asynchronous skill executions. Each marketplace purchase creates a task. Tasks can be listed, inspected, cancelled (if pending), and rated (when completed).</p>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/tasks</code></div>
+        <p class="endpoint-desc">Submit a task for execution. Deducts credits atomically. Returns the task result when complete or a task ID for async polling.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+        <h4>Body Parameters</h4>
+        <table class="params-table">
+          <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>skillId</code></td><td><span class="param-type">string</span></td><td><span class="param-req">Yes</span></td><td>The skill to execute</td></tr>
+            <tr><td><code>variables</code></td><td><span class="param-type">object</span></td><td><span class="param-opt">No</span></td><td>Template variable values</td></tr>
+            <tr><td><code>idempotencyKey</code></td><td><span class="param-type">string</span></td><td><span class="param-opt">No</span></td><td>Prevent duplicate execution (max 128 chars)</td></tr>
+            <tr><td><code>webhookUrl</code></td><td><span class="param-type">string</span></td><td><span class="param-opt">No</span></td><td>URL to POST results to when complete</td></tr>
+          </tbody>
+        </table>
+        <div class="code-block">
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <pre><code>curl -X POST https://api.claw-net.org/v1/tasks \
+  -H "X-API-Key: YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "skillId": "token-analysis",
+    "variables": {"token": "SOL"},
+    "idempotencyKey": "req_abc123"
+  }'</code></pre>
+        </div>
+        <h4>Response</h4>
+        <div class="code-block">
+          <pre><code>{
+  "taskId": "tsk_abc123",
+  "status": "COMPLETED",
+  "result": { "answer": "SOL analysis..." },
+  "costCredits": 5,
+  "durationMs": 1240
 }</code></pre>
+        </div>
+      </div>
+
+      <div class="endpoint" id="tasks-list">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/tasks</code></div>
+        <p class="endpoint-desc">List your task history, paginated. Includes status, credits charged, and duration.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+        <h4>Query Parameters</h4>
+        <table class="params-table">
+          <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>limit</code></td><td><span class="param-type">number</span></td><td><span class="param-opt">No</span></td><td>Results per page (default: 20, max: 100)</td></tr>
+            <tr><td><code>offset</code></td><td><span class="param-type">number</span></td><td><span class="param-opt">No</span></td><td>Pagination offset</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="endpoint" id="tasks-get">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/tasks/:id</code></div>
+        <p class="endpoint-desc">Get full detail of a single task including result and error if any.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code> (must own task)</div>
+      </div>
+
+      <div class="endpoint" id="tasks-cancel">
+        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/tasks/:id/cancel</code></div>
+        <p class="endpoint-desc">Cancel a task in PENDING status. Credits are refunded if not yet consumed.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code> (must own task)</div>
+        <div class="alert alert-warning">Only PENDING tasks can be cancelled. RUNNING or COMPLETED tasks cannot be cancelled.</div>
+      </div>
+
+      <div class="endpoint" id="tasks-rate">
+        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/tasks/:id/rate</code></div>
+        <p class="endpoint-desc">Rate a completed task. Rating contributes to the skill's reputation score.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code> (must own task)</div>
+        <h4>Body Parameters</h4>
+        <table class="params-table">
+          <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>rating</code></td><td><span class="param-type">number</span></td><td><span class="param-req">Yes</span></td><td>1–5 stars</td></tr>
+            <tr><td><code>comment</code></td><td><span class="param-type">string</span></td><td><span class="param-opt">No</span></td><td>Optional written feedback</td></tr>
+          </tbody>
+        </table>
+        <div class="code-block">
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <pre><code>curl -X POST https://api.claw-net.org/v1/tasks/tsk_abc123/rate \
+  -H "X-API-Key: YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"rating": 5, "comment": "Accurate and fast"}'</code></pre>
+        </div>
+      </div>
     </div>
 
-    <div class="doc-section" id="openapi">
-      <h2>GET /v1/openapi.json</h2>
-      <p>Full OpenAPI 3.0 specification. Use this to auto-generate SDKs in any language with <code>openapi-generator</code>.</p>
-      <div class="endpoint-block">
-        <span class="endpoint-method m-get">GET</span>
-        <span class="endpoint-path">/v1/openapi.json</span>
-      </div>
-      <p>No authentication required. Returns the complete API schema including request/response types for all public endpoints.</p>
-      <h3>SDK Generation</h3>
-      <pre><code># Generate a TypeScript SDK
-npx @openapitools/openapi-generator-cli generate \
-  -i https://api.claw-net.org/v1/openapi.json \
-  -g typescript-fetch -o ./clawnet-sdk
+    <!-- MARKETPLACE -->
+    <div class="docs-section" id="mkt-browse">
+      <h2 class="docs-section-title">Marketplace</h2>
+      <p class="docs-section-desc">Browse, purchase, and star skills. Creators earn 97% of every purchase. The 3% platform fee funds infrastructure and treasury.</p>
 
-# Generate a Python SDK
-openapi-generator generate \
-  -i https://api.claw-net.org/v1/openapi.json \
-  -g python -o ./clawnet-python</code></pre>
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/marketplace/skills</code></div>
+        <p class="endpoint-desc">Browse the public skill catalog. Supports search, category filter, and sorting.</p>
+        <h4>Query Parameters</h4>
+        <table class="params-table">
+          <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>page</code></td><td><span class="param-type">number</span></td><td><span class="param-opt">No</span></td><td>Page number (default: 1)</td></tr>
+            <tr><td><code>limit</code></td><td><span class="param-type">number</span></td><td><span class="param-opt">No</span></td><td>Per page (default: 12, max: 50)</td></tr>
+            <tr><td><code>sort</code></td><td><span class="param-type">string</span></td><td><span class="param-opt">No</span></td><td>popular, stars, newest, price_asc, price_desc, reputation</td></tr>
+            <tr><td><code>search</code></td><td><span class="param-type">string</span></td><td><span class="param-opt">No</span></td><td>Full-text search</td></tr>
+            <tr><td><code>category</code></td><td><span class="param-type">string</span></td><td><span class="param-opt">No</span></td><td>Filter by category</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="endpoint" id="mkt-get">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/marketplace/skills/:id</code></div>
+        <p class="endpoint-desc">Get full skill detail including cost breakdown, schema, runtime info, and creator stats.</p>
+      </div>
+
+      <div class="endpoint" id="mkt-purchase">
+        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/marketplace/skills/:id/purchase</code></div>
+        <p class="endpoint-desc">Purchase and immediately execute a skill. Credits are deducted atomically. 97% go to the creator, 3% to the platform treasury.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+        <div class="alert alert-info">Self-purchase is blocked. You cannot buy your own skills.</div>
+        <h4>Body Parameters</h4>
+        <table class="params-table">
+          <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>variables</code></td><td><span class="param-type">object</span></td><td><span class="param-opt">No</span></td><td>Template variable values</td></tr>
+          </tbody>
+        </table>
+        <div class="code-block">
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <pre><code>curl -X POST https://api.claw-net.org/v1/marketplace/skills/token-analysis/purchase \
+  -H "X-API-Key: YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"variables": {"token": "SOL"}}'</code></pre>
+        </div>
+        <h4>Response</h4>
+        <div class="code-block">
+          <pre><code>{
+  "answer": "SOL is currently trading at...",
+  "creditsCharged": 5,
+  "taskId": "tsk_xyz789",
+  "durationMs": 980
+}</code></pre>
+        </div>
+      </div>
+
+      <div class="endpoint" id="mkt-star">
+        <div class="endpoint-header"><span class="method-badge post">POST</span> / <span class="method-badge delete">DELETE</span><code class="endpoint-path">/v1/marketplace/skills/:id/star</code></div>
+        <p class="endpoint-desc">Star (POST) or unstar (DELETE) a skill. Stars affect the skill's popularity ranking.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+      </div>
+
+      <div class="endpoint" id="mkt-report">
+        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/marketplace/skills/:id/report</code></div>
+        <p class="endpoint-desc">Report a skill for malicious content, spam, or misleading description.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+        <h4>Body</h4>
+        <div class="code-block"><pre><code>{ "reason": "Contains prompt injection attempt" }</code></pre></div>
+      </div>
+
+      <div class="endpoint" id="mkt-creator">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/marketplace/creator/stats</code></div>
+        <p class="endpoint-desc">Get your creator dashboard: total earned, total sales, and a list of your published skills with per-skill stats.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+      </div>
+
+      <div class="endpoint" id="mkt-withdraw">
+        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/marketplace/creator/withdraw</code></div>
+        <p class="endpoint-desc">Request a USDC payout of your earned credits. Minimum 1,000 credits ($0.75). Processed within 48 hours.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+        <h4>Body</h4>
+        <table class="params-table">
+          <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>amountCredits</code></td><td><span class="param-type">number</span></td><td><span class="param-req">Yes</span></td><td>Credits to withdraw (min 1000)</td></tr>
+            <tr><td><code>usdcWallet</code></td><td><span class="param-type">string</span></td><td><span class="param-req">Yes</span></td><td>Solana wallet address</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="endpoint" id="mkt-transactions">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/marketplace/transactions</code></div>
+        <p class="endpoint-desc">Your marketplace transaction history. Includes purchases, earnings, and refunds.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+      </div>
+
+      <div class="endpoint" id="mkt-stake">
+        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/marketplace/stake</code></div>
+        <p class="endpoint-desc">Stake credits to boost a skill's discovery ranking. Credits are locked for the duration and returned when unstaked.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+        <h4>Body</h4>
+        <table class="params-table">
+          <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>skillId</code></td><td><span class="param-type">string</span></td><td><span class="param-req">Yes</span></td><td>Skill to stake on</td></tr>
+            <tr><td><code>amount</code></td><td><span class="param-type">number</span></td><td><span class="param-req">Yes</span></td><td>Credits to stake</td></tr>
+            <tr><td><code>lockDays</code></td><td><span class="param-type">number</span></td><td><span class="param-req">Yes</span></td><td>Lock period: 1–365 days</td></tr>
+          </tbody>
+        </table>
+      </div>
     </div>
 
-    <hr class="doc-divider">
+    <!-- AUTH & CREDITS -->
+    <div class="docs-section" id="auth-me">
+      <h2 class="docs-section-title">Auth &amp; Credits</h2>
 
-    <!-- ── MESH PEERS ── -->
-    <div class="doc-section" id="mesh-peers">
-      <div class="doc-section-label">P2P Mesh</div>
-      <h2>GET /v1/mesh/peers <span class="badge auth">API KEY</span></h2>
-      <p>Returns the current P2P mesh node identity and list of known peers discovered via Kademlia DHT.</p>
-      <div class="endpoint-block">
-        <span class="endpoint-method m-get">GET</span>
-        <span class="endpoint-path">/v1/mesh/peers</span>
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/auth/me</code></div>
+        <p class="endpoint-desc">Get info about the current API key: credit balance, email, usage summary, key creation date.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+        <div class="code-block">
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <pre><code>curl https://api.claw-net.org/v1/auth/me \
+  -H "X-API-Key: YOUR_KEY"</code></pre>
+        </div>
+        <h4>Response</h4>
+        <div class="code-block"><pre><code>{
+  "credits": 4850,
+  "email": "user@example.com",
+  "keyMasked": "cn_ab••••••cd",
+  "createdAt": "2026-01-15T10:00:00Z",
+  "totalSpent": 150
+}</code></pre></div>
       </div>
-      <h3>Response</h3>
-      <pre><code>{
+
+      <div class="endpoint" id="auth-estimate">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/auth/estimate</code></div>
+        <p class="endpoint-desc">Get a cost estimate for purchasing a skill. Returns estimated credits needed and whether you can afford it.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+        <h4>Query Parameters</h4>
+        <table class="params-table">
+          <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>skillId</code></td><td><span class="param-type">string</span></td><td><span class="param-req">Yes</span></td><td>The skill to estimate</td></tr>
+          </tbody>
+        </table>
+        <h4>Response</h4>
+        <div class="code-block"><pre><code>{
+  "skillId": "token-analysis",
+  "skillName": "Token Analysis",
+  "creditCost": 5,
+  "estimatedCredits": 5,
+  "canAfford": true,
+  "note": null
+}</code></pre></div>
+      </div>
+
+      <div class="endpoint" id="auth-usage">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/auth/usage</code></div>
+        <p class="endpoint-desc">Get usage summary for your key: task stats (total, completed, credits spent) and marketplace stats.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+        <h4>Response</h4>
+        <div class="code-block"><pre><code>{
+  "tasks": { "total": 42, "completed": 38, "failed": 2, "creditsSpent": 190 },
+  "marketplace": { "purchases": 15, "creditsSpent": 75 }
+}</code></pre></div>
+      </div>
+    </div>
+
+    <!-- DISCOVERY -->
+    <div class="docs-section" id="discover">
+      <h2 class="docs-section-title">Discovery</h2>
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/discover</code></div>
+        <p class="endpoint-desc">Semantic skill discovery using the Trinity algorithm: 60% semantic similarity, 25% P2P mesh reputation, 15% on-chain signals. Returns ranked skill recommendations.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+        <h4>Body</h4>
+        <div class="code-block"><pre><code>{ "query": "analyze whale movements for any Solana token", "limit": 5 }</code></pre></div>
+      </div>
+    </div>
+
+    <!-- ESCROW -->
+    <div class="docs-section" id="escrow-create">
+      <h2 class="docs-section-title">Escrow</h2>
+      <p class="docs-section-desc">Trustless credit escrow for freelance work. Credits are locked until work is approved or disputed.</p>
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/escrow</code></div>
+        <p class="endpoint-desc">Create an escrow. Locks the specified credits until the work is approved.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+        <h4>Body</h4>
+        <table class="params-table">
+          <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>counterpartyEmail</code></td><td><span class="param-type">string</span></td><td><span class="param-req">Yes</span></td><td>Email of the worker</td></tr>
+            <tr><td><code>amount</code></td><td><span class="param-type">number</span></td><td><span class="param-req">Yes</span></td><td>Credits to lock</td></tr>
+            <tr><td><code>description</code></td><td><span class="param-type">string</span></td><td><span class="param-req">Yes</span></td><td>Work description</td></tr>
+            <tr><td><code>timeoutHours</code></td><td><span class="param-type">number</span></td><td><span class="param-opt">No</span></td><td>Auto-expire timeout (default: 72h)</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="endpoint" id="escrow-list">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/escrow</code></div>
+        <p class="endpoint-desc">List all escrows you are party to (as payer or worker).</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+      </div>
+      <div class="endpoint" id="escrow-submit">
+        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/escrow/:id/submit</code></div>
+        <p class="endpoint-desc">Worker submits completed work. Moves escrow to WORK_IN_PROGRESS → awaiting approval.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code> (worker only)</div>
+      </div>
+      <div class="endpoint" id="escrow-approve">
+        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/escrow/:id/approve</code></div>
+        <p class="endpoint-desc">Payer approves the work. Credits are released to the worker immediately.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code> (payer only)</div>
+      </div>
+      <div class="endpoint" id="escrow-dispute">
+        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/escrow/:id/dispute</code></div>
+        <p class="endpoint-desc">Either party can open a dispute. Credits are frozen pending resolution. Include a reason.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+      </div>
+    </div>
+
+    <!-- GOVERNANCE -->
+    <div class="docs-section" id="gov-create">
+      <h2 class="docs-section-title">Governance</h2>
+      <p class="docs-section-desc">On-chain style governance. Proposals are voted on by key holders. Auto-closes after 7 days.</p>
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/governance/proposals</code></div>
+        <p class="endpoint-desc">Create a governance proposal. Anyone with a valid API key can submit.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+        <h4>Body</h4>
+        <div class="code-block"><pre><code>{ "title": "Reduce platform fee to 2%", "description": "..." }</code></pre></div>
+      </div>
+      <div class="endpoint" id="gov-list">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/governance/proposals</code></div>
+        <p class="endpoint-desc">List proposals. Filter by status: OPEN, CLOSED, or EXECUTED.</p>
+        <h4>Query</h4>
+        <table class="params-table">
+          <thead><tr><th>Name</th><th>Type</th><th>Description</th></tr></thead>
+          <tbody><tr><td><code>status</code></td><td><span class="param-type">string</span></td><td>OPEN | CLOSED | EXECUTED</td></tr></tbody>
+        </table>
+      </div>
+      <div class="endpoint" id="gov-vote">
+        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/governance/proposals/:id/vote</code></div>
+        <p class="endpoint-desc">Cast your vote on an open proposal. One vote per key. Cannot be changed after submission.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+        <h4>Body</h4>
+        <div class="code-block"><pre><code>{ "vote": "FOR" }  // or "AGAINST"</code></pre></div>
+      </div>
+    </div>
+
+    <!-- REGISTRY -->
+    <div class="docs-section" id="registry">
+      <h2 class="docs-section-title">Registry</h2>
+      <p class="docs-section-desc">The API registry catalogs all 158+ external API endpoints available for orchestration, with live health status.</p>
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/registry</code></div>
+        <p class="endpoint-desc">List all registered API endpoints with category, provider, and description.</p>
+      </div>
+      <div class="endpoint" id="registry-health">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/registry/health</code></div>
+        <p class="endpoint-desc">Live health status for all registered endpoints. Updated every 5 minutes via HEAD requests.</p>
+      </div>
+    </div>
+
+    <!-- LLM PROXY -->
+    <div class="docs-section" id="llm-models">
+      <h2 class="docs-section-title">LLM Proxy</h2>
+      <p class="docs-section-desc">OpenAI-compatible LLM gateway. 23 models available. 15% markup over cost. Use the same interface as the OpenAI API.</p>
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/llm/models</code></div>
+        <p class="endpoint-desc">List all available LLM models with credit cost per 1K tokens.</p>
+      </div>
+      <div class="endpoint" id="llm-chat">
+        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/llm/chat</code></div>
+        <p class="endpoint-desc">OpenAI-compatible chat completion. Drop-in replacement for <code style="font-family:var(--font-mono);color:var(--accent)">api.openai.com/v1/chat/completions</code>.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+        <div class="code-block">
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <pre><code>curl -X POST https://api.claw-net.org/v1/llm/chat \
+  -H "X-API-Key: YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "claude-3-haiku-20240307",
+    "messages": [{"role": "user", "content": "Hello"}]
+  }'</code></pre>
+        </div>
+      </div>
+      <div class="endpoint" id="llm-embeddings">
+        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/llm/embeddings</code></div>
+        <p class="endpoint-desc">Generate text embeddings for semantic search and similarity matching.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+      </div>
+    </div>
+
+    <!-- MESH -->
+    <div class="docs-section" id="mesh-peers">
+      <h2 class="docs-section-title">Mesh</h2>
+      <p class="docs-section-desc">ClawNet runs a libp2p mesh network for peer discovery via Kademlia DHT. Peers are discovered automatically on port 4001.</p>
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/mesh/peers</code></div>
+        <p class="endpoint-desc">List connected mesh peers with peer IDs, multiaddrs, and last-seen timestamps.</p>
+        <h4>Response</h4>
+        <div class="code-block"><pre><code>{
   "nodeId": "12D3KooW...",
   "listening": ["/ip4/0.0.0.0/tcp/4001"],
-  "peers": [
-    { "id": "12D3KooX...", "multiaddr": "/ip4/1.2.3.4/tcp/4001", "last_seen": "2026-03-09T..." }
-  ]
-}</code></pre>
-    </div>
-
-    <hr class="doc-divider">
-
-    <!-- ── DISCOVER ── -->
-    <div class="doc-section" id="discover-trinity">
-      <div class="doc-section-label">Discovery</div>
-      <h2>POST /v1/discover <span class="badge auth">API KEY</span></h2>
-      <p>Semantic skill discovery using the Trinity engine — 60% vector similarity, 25% P2P mesh, 15% on-chain signals. Returns ranked skill matches for a natural-language query.</p>
-      <div class="endpoint-block">
-        <span class="endpoint-method m-post">POST</span>
-        <span class="endpoint-path">/v1/discover</span>
-      </div>
-      <h3>Request Body</h3>
-      <table class="param-table"><thead><tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
-      <tbody>
-        <tr><td>query</td><td>string</td><td>✓</td><td>Natural language search (max 500 chars)</td></tr>
-        <tr><td>limit</td><td>number</td><td></td><td>Max results (1–50, default 10)</td></tr>
-        <tr><td>filters.source</td><td>string[]</td><td></td><td>Restrict sources: <code>["semantic","p2p","onchain"]</code></td></tr>
-        <tr><td>weights</td><td>object</td><td></td><td>Override layer weights: <code>{"semantic":0.7,"p2p":0.2,"onchain":0.1}</code></td></tr>
-      </tbody></table>
-      <h3>Response</h3>
-      <pre><code>{
-  "query": "token price analysis",
-  "results": [
-    { "id": "skill-abc", "name": "Token Analysis", "score": 0.94, "source": "semantic" }
-  ],
-  "layerStats": { "semantic": 8, "p2p": 2, "onchain": 0 }
-}</code></pre>
-      <div class="alert info">Returns <code>503</code> if the embedding model is still loading. Retry after a few seconds or use <code>GET /v1/skills</code> instead.</div>
-    </div>
-
-    <hr class="doc-divider">
-
-    <!-- ── CREATOR WITHDRAW ── -->
-    <div class="doc-section" id="creator-withdraw">
-      <div class="doc-section-label">Creator Payouts</div>
-      <h2>POST /v1/marketplace/creator/withdraw <span class="badge auth">API KEY</span></h2>
-      <p>Request a USDC payout of earned skill-sale revenue. Minimum 1,000 credits. Payouts are processed manually within 48 hours and sent to the specified Solana wallet.</p>
-      <div class="endpoint-block">
-        <span class="endpoint-method m-post">POST</span>
-        <span class="endpoint-path">/v1/marketplace/creator/withdraw</span>
-      </div>
-      <h3>Request Body</h3>
-      <table class="param-table"><thead><tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
-      <tbody>
-        <tr><td>amountCredits</td><td>number</td><td>✓</td><td>Credits to withdraw (min 1,000)</td></tr>
-        <tr><td>usdcWallet</td><td>string</td><td>✓</td><td>Solana wallet address to receive USDC</td></tr>
-      </tbody></table>
-      <h3>Response</h3>
-      <pre><code>{ "ok": true, "id": "payout-abc123", "amountCredits": 5000, "estimatedUsdc": "5.00" }</code></pre>
-      <div class="alert info">Available balance = earned from skill sales − already paid − pending − staked. Credits locked in active stakes cannot be withdrawn until unlocked.</div>
-    </div>
-
-    <hr class="doc-divider">
-
-    <!-- ── ERRORS ── -->
-    <div class="doc-section" id="errors">
-      <div class="doc-section-label">Reference</div>
-      <h2>Error Codes</h2>
-      <p>All errors return a JSON body with <code>error</code> (human message) and <code>code</code> (machine-readable).</p>
-
-      <div class="code-block">{
-  <span class="c-green">"error"</span>: <span class="c-yellow">"Invalid or inactive key"</span>,
-  <span class="c-green">"code"</span>: <span class="c-yellow">"INVALID_API_KEY"</span>
-}</div>
-
-      <table class="param-table">
-        <tr><th>HTTP</th><th>Code</th><th>Meaning</th></tr>
-        <tr class="error-row"><td>401</td><td>INVALID_API_KEY</td><td class="param-desc">Missing, expired, or inactive API key</td></tr>
-        <tr class="error-row"><td>402</td><td>INSUFFICIENT_CREDITS</td><td class="param-desc">Not enough credits for this operation</td></tr>
-        <tr class="error-row"><td>400</td><td>INVALID_BODY</td><td class="param-desc">Request body failed validation</td></tr>
-        <tr class="error-row"><td>403</td><td>FORBIDDEN</td><td class="param-desc">Action not permitted (e.g. proposal requires 100+ credits)</td></tr>
-        <tr class="error-row"><td>404</td><td>NOT_FOUND</td><td class="param-desc">Resource does not exist or belongs to another key</td></tr>
-        <tr class="error-row"><td>429</td><td>RATE_LIMITED</td><td class="param-desc">60 requests/min/IP exceeded</td></tr>
-        <tr class="error-row"><td>500</td><td>INTERNAL_ERROR</td><td class="param-desc">Server error — retry with exponential backoff</td></tr>
-      </table>
-    </div>
-
-    <hr class="doc-divider">
-
-    <!-- ── SIGNING ── -->
-    <div class="doc-section" id="signing">
-      <h2>ClawGuard — Response Signing</h2>
-      <p>All <code>/v1/orchestrate</code> and skill invocation responses include an <code>X-ClawNet-Signature</code> header so you can verify the response is authentic and unmodified.</p>
-
-      <h3>Header format</h3>
-      <div class="code-block">X-ClawNet-Signature: t=1709123456789,v1=abc123def456...</div>
-
-      <h3>Verification (Node.js)</h3>
-      <div class="code-block"><span class="c-blue">const</span> crypto = require(<span class="c-yellow">'crypto'</span>);
-
-<span class="c-blue">function</span> <span class="c-green">verifySignature</span>(body, sigHeader, secret) {
-  <span class="c-blue">const</span> [tPart, v1Part] = sigHeader.split(<span class="c-yellow">','</span>);
-  <span class="c-blue">const</span> ts  = tPart.replace(<span class="c-yellow">'t='</span>, <span class="c-yellow">''</span>);
-  <span class="c-blue">const</span> sig = v1Part.replace(<span class="c-yellow">'v1='</span>, <span class="c-yellow">''</span>);
-  <span class="c-blue">const</span> expected = crypto
-    .createHmac(<span class="c-yellow">'sha256'</span>, secret)
-    .update(`${ts}.${body}`)
-    .digest(<span class="c-yellow">'hex'</span>);
-  <span class="c-blue">return</span> crypto.timingSafeEqual(
-    Buffer.from(sig), Buffer.from(expected)
-  );
-}</div>
-      <div class="alert warn">The signing secret (<code>PLATFORM_SIGNING_SECRET</code>) is a server-side secret — never expose it to clients.</div>
-    </div>
-
-    <hr class="doc-divider">
-
-    <!-- ── SDK EXAMPLES ── -->
-    <div class="doc-section" id="sdks">
-      <h2>Code Examples</h2>
-
-      <h3>JavaScript / Node.js</h3>
-      <div class="code-block"><span class="c-blue">const</span> res = <span class="c-blue">await</span> fetch(<span class="c-yellow">'https://api.claw-net.org/v1/orchestrate'</span>, {
-  method: <span class="c-yellow">'POST'</span>,
-  headers: {
-    <span class="c-yellow">'Content-Type'</span>: <span class="c-yellow">'application/json'</span>,
-    <span class="c-yellow">'X-API-Key'</span>: process.env.CLAWNET_API_KEY,
-  },
-  body: JSON.stringify({ query: <span class="c-yellow">'Analyze SOL risk right now'</span> }),
-});
-<span class="c-blue">const</span> data = <span class="c-blue">await</span> res.json();
-console.log(data.answer, data.opportunityScore);</div>
-
-      <h3>Python</h3>
-      <div class="code-block"><span class="c-blue">import</span> requests
-
-resp = requests.post(
-    <span class="c-yellow">"https://api.claw-net.org/v1/orchestrate"</span>,
-    headers={
-        <span class="c-yellow">"Content-Type"</span>: <span class="c-yellow">"application/json"</span>,
-        <span class="c-yellow">"X-API-Key"</span>: <span class="c-yellow">"your-api-key"</span>,
-    },
-    json={<span class="c-yellow">"query"</span>: <span class="c-yellow">"Is BONK safe to buy right now?"</span>},
-)
-data = resp.json()
-print(data[<span class="c-yellow">"answer"</span>], data[<span class="c-yellow">"riskScore"</span>])</div>
-
-      <h3>Check balance (any language)</h3>
-      <div class="code-block">curl https://api.claw-net.org/v1/balance \
-  -H <span class="c-yellow">"X-API-Key: your-api-key"</span></div>
-
-      <h3>Invoke a skill</h3>
-      <div class="code-block">curl -X POST https://api.claw-net.org/v1/skills/token-analysis/invoke \
-  -H <span class="c-yellow">"X-API-Key: your-api-key"</span> \
-  -H <span class="c-yellow">"Content-Type: application/json"</span> \
-  -d <span class="c-yellow">'{"variables":{"token":"BONK","mintAddress":"DezXAZ8..."}}'</span></div>
-
-      <h3>Swarm task (async)</h3>
-      <div class="code-block"><span class="c-muted"># 1. Submit task</span>
-curl -X POST https://api.claw-net.org/v1/swarm/task \
-  -H <span class="c-yellow">"X-API-Key: your-api-key"</span> \
-  -H <span class="c-yellow">"Content-Type: application/json"</span> \
-  -d <span class="c-yellow">'{"task":"Analyze top 3 trending Solana tokens and compare risk"}'</span>
-
-<span class="c-muted"># 2. Poll for result (swarmId from step 1)</span>
-curl https://api.claw-net.org/v1/swarm/swarm_abc123 \
-  -H <span class="c-yellow">"X-API-Key: your-api-key"</span></div>
-    </div>
-
-    <hr class="doc-divider">
-
-    <!-- ── OPENCLAW GATEWAY ── -->
-    <div class="doc-section" id="openclaw">
-      <div class="doc-section-label" style="color:#9945ff">OpenClaw Gateway</div>
-      <h2>OpenClaw — Universal Agent Gateway</h2>
-      <p>Any external AI agent can route through ClawNet's full registry with a single endpoint and an API key. No need to learn individual routes — one request body, one standardised response envelope, full access to orchestration, skills, discovery, and swarm tasks.</p>
-
-      <div class="alert" style="border-color:#9945ff;background:rgba(153,69,255,0.06);color:var(--muted2)">
-        <strong style="color:#b47cff">Designed for agent-to-agent integration.</strong> Pass <code>X-API-Key</code>, choose an <code>action</code>, and ClawNet handles routing, credit deduction, caching, A/B skill selection, and reputation tracking automatically.
-      </div>
-
-      <h3>Response envelope (all actions)</h3>
-      <div class="code-block">{
-  <span class="c-green">"ok"</span>: <span class="c-blue">true</span>,
-  <span class="c-green">"requestId"</span>: <span class="c-yellow">"abc123def456"</span>,
-  <span class="c-green">"action"</span>: <span class="c-yellow">"query"</span>,          <span class="c-muted">// query | skill | discover | swarm</span>
-  <span class="c-green">"result"</span>: { <span class="c-muted">/* action-specific payload */</span> },
-  <span class="c-green">"credits"</span>: {
-    <span class="c-green">"used"</span>: <span class="c-blue">32</span>,
-    <span class="c-green">"remaining"</span>: <span class="c-blue">4968</span>
-  },
-  <span class="c-green">"meta"</span>: {
-    <span class="c-green">"durationMs"</span>: <span class="c-blue">1234</span>,
-    <span class="c-green">"route"</span>: <span class="c-yellow">"orchestrate"</span>,  <span class="c-muted">// internal path used</span>
-    <span class="c-green">"cacheHits"</span>: <span class="c-blue">1</span>,
-    <span class="c-green">"simulationMode"</span>: <span class="c-blue">false</span>
-  }
-}</div>
-    </div>
-
-    <hr class="doc-divider">
-
-    <!-- openclaw /invoke -->
-    <div class="doc-section" id="openclaw-invoke">
-      <div class="doc-section-label" style="color:#9945ff">OpenClaw Gateway</div>
-      <h2>POST /v1/openclaw/invoke</h2>
-      <p>Universal invoke — routes to the right internal service based on the <code>action</code> field. All four actions return the same envelope.</p>
-
-      <div class="endpoint-block">
-        <div class="endpoint-head">
-          <span class="method-badge post">POST</span>
-          <span class="endpoint-path">/v1/openclaw/invoke</span>
-          <span class="badge auth">AUTH</span>
-        </div>
-        <div class="endpoint-body">
-
-          <h3>action: "query" — natural language orchestration</h3>
-          <table class="param-table">
-            <tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr>
-            <tr><td class="param-name">action</td><td class="param-type">string</td><td class="param-req">required</td><td class="param-desc"><code>"query"</code></td></tr>
-            <tr><td class="param-name">query</td><td class="param-type">string</td><td class="param-req">required</td><td class="param-desc">Natural language question, max 2000 chars</td></tr>
-          </table>
-          <div class="code-label">Example</div>
-          <div class="code-block">curl -X POST https://api.claw-net.org/v1/openclaw/invoke \
-  -H <span class="c-yellow">"X-API-Key: your-api-key"</span> \
-  -H <span class="c-yellow">"Content-Type: application/json"</span> \
-  -d <span class="c-yellow">'{"action":"query","query":"What is the current SOL price and community sentiment?"}'</span></div>
-
-          <h3>action: "skill" — invoke a registered skill</h3>
-          <table class="param-table">
-            <tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr>
-            <tr><td class="param-name">action</td><td class="param-type">string</td><td class="param-req">required</td><td class="param-desc"><code>"skill"</code></td></tr>
-            <tr><td class="param-name">skillId</td><td class="param-type">string</td><td class="param-req">required</td><td class="param-desc">Skill ID from the catalog (e.g. <code>token-analysis</code>)</td></tr>
-            <tr><td class="param-name">variables</td><td class="param-type">object</td><td class="param-opt">optional</td><td class="param-desc">Key-value pairs to fill <code>{{variable}}</code> placeholders in the skill template</td></tr>
-          </table>
-          <div class="code-label">Example</div>
-          <div class="code-block">curl -X POST https://api.claw-net.org/v1/openclaw/invoke \
-  -H <span class="c-yellow">"X-API-Key: your-api-key"</span> \
-  -H <span class="c-yellow">"Content-Type: application/json"</span> \
-  -d <span class="c-yellow">'{"action":"skill","skillId":"token-analysis","variables":{"symbol":"SOL","timeframe":"7d"}}'</span></div>
-
-          <h3>action: "discover" — trinity search across skills + mesh + on-chain</h3>
-          <table class="param-table">
-            <tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr>
-            <tr><td class="param-name">action</td><td class="param-type">string</td><td class="param-req">required</td><td class="param-desc"><code>"discover"</code></td></tr>
-            <tr><td class="param-name">query</td><td class="param-type">string</td><td class="param-req">required</td><td class="param-desc">Capability search query, max 500 chars</td></tr>
-            <tr><td class="param-name">limit</td><td class="param-type">number</td><td class="param-opt">optional</td><td class="param-desc">Max results 1–50 (default 10)</td></tr>
-            <tr><td class="param-name">filters</td><td class="param-type">object</td><td class="param-opt">optional</td><td class="param-desc"><code>{ provider?, source? }</code> — filter by provider name or source layer</td></tr>
-            <tr><td class="param-name">weights</td><td class="param-type">object</td><td class="param-opt">optional</td><td class="param-desc"><code>{ semantic?, p2p?, onchain? }</code> — override default layer weights (must sum ≤ 1)</td></tr>
-          </table>
-          <div class="alert info">Discovery is free — no credits deducted. It's a pure search across the registered skill and peer network.</div>
-          <div class="code-label">Example</div>
-          <div class="code-block">curl -X POST https://api.claw-net.org/v1/openclaw/invoke \
-  -H <span class="c-yellow">"X-API-Key: your-api-key"</span> \
-  -H <span class="c-yellow">"Content-Type: application/json"</span> \
-  -d <span class="c-yellow">'{"action":"discover","query":"portfolio risk analysis","limit":5}'</span></div>
-
-          <h3>action: "swarm" — parallel multi-skill task decomposition</h3>
-          <table class="param-table">
-            <tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr>
-            <tr><td class="param-name">action</td><td class="param-type">string</td><td class="param-req">required</td><td class="param-desc"><code>"swarm"</code></td></tr>
-            <tr><td class="param-name">task</td><td class="param-type">string</td><td class="param-req">required</td><td class="param-desc">Complex task description, max 1000 chars</td></tr>
-            <tr><td class="param-name">skills</td><td class="param-type">string[]</td><td class="param-opt">optional</td><td class="param-desc">Preferred skill IDs for sub-task routing</td></tr>
-            <tr><td class="param-name">maxSubTasks</td><td class="param-type">number</td><td class="param-opt">optional</td><td class="param-desc">Max parallel sub-tasks 1–5 (default 4)</td></tr>
-          </table>
-          <div class="alert warn">Swarm deducts <strong>20 credits</strong> upfront for LLM decomposition + synthesis. Individual skill invocations within the swarm are charged separately. Poll <code>GET /v1/swarm/:id</code> for results.</div>
-          <div class="code-label">Example</div>
-          <div class="code-block">curl -X POST https://api.claw-net.org/v1/openclaw/invoke \
-  -H <span class="c-yellow">"X-API-Key: your-api-key"</span> \
-  -H <span class="c-yellow">"Content-Type: application/json"</span> \
-  -d <span class="c-yellow">'{"action":"swarm","task":"Compare SOL vs ETH — price trend, sentiment, and risk","maxSubTasks":3}'</span></div>
-          <div class="code-label">Response (swarm — async)</div>
-          <div class="code-block">{
-  <span class="c-green">"ok"</span>: <span class="c-blue">true</span>,
-  <span class="c-green">"action"</span>: <span class="c-yellow">"swarm"</span>,
-  <span class="c-green">"result"</span>: {
-    <span class="c-green">"swarmId"</span>: <span class="c-yellow">"swm_abc123xyz"</span>,
-    <span class="c-green">"status"</span>: <span class="c-yellow">"PENDING"</span>,
-    <span class="c-green">"pollUrl"</span>: <span class="c-yellow">"/v1/swarm/swm_abc123xyz"</span>,
-    <span class="c-green">"baseFeeCharged"</span>: <span class="c-blue">20</span>
-  },
-  <span class="c-green">"credits"</span>: { <span class="c-green">"used"</span>: <span class="c-blue">20</span>, <span class="c-green">"remaining"</span>: <span class="c-blue">4980</span> },
-  <span class="c-green">"meta"</span>: { <span class="c-green">"route"</span>: <span class="c-yellow">"swarm"</span>, <span class="c-green">"durationMs"</span>: <span class="c-blue">42</span> }
-}</div>
-        </div>
+  "peers": [{ "id": "12D3KooW...", "multiaddr": "/ip4/...", "last_seen": "2026-03-10T..." }]
+}</code></pre></div>
       </div>
     </div>
 
-    <hr class="doc-divider">
-
-    <!-- openclaw /catalog -->
-    <div class="doc-section" id="openclaw-catalog">
-      <div class="doc-section-label" style="color:#9945ff">OpenClaw Gateway</div>
-      <h2>GET /v1/openclaw/catalog</h2>
-      <p>Returns the full capability listing for this ClawNet node — all public skills, all registry endpoints grouped by category, supported actions, and the pricing table. Agents should call this once on startup to understand what's available.</p>
-
-      <div class="endpoint-block">
-        <div class="endpoint-head">
-          <span class="method-badge get">GET</span>
-          <span class="endpoint-path">/v1/openclaw/catalog</span>
-          <span class="badge auth">AUTH</span>
-          <span class="endpoint-desc">Paginated — add ?page=2 for more skills</span>
-        </div>
-        <div class="endpoint-body">
-          <div class="code-label">Example</div>
-          <div class="code-block">curl https://api.claw-net.org/v1/openclaw/catalog \
-  -H <span class="c-yellow">"X-API-Key: your-api-key"</span></div>
-          <div class="code-label">Response shape</div>
-          <div class="code-block">{
-  <span class="c-green">"version"</span>: <span class="c-yellow">"1.0"</span>,
-  <span class="c-green">"actions"</span>: [
-    { <span class="c-green">"action"</span>: <span class="c-yellow">"query"</span>, <span class="c-green">"description"</span>: <span class="c-yellow">"..."</span>, <span class="c-green">"creditEstimate"</span>: <span class="c-yellow">"5–100 credits"</span> },
-    { <span class="c-green">"action"</span>: <span class="c-yellow">"skill"</span>, <span class="c-green">"description"</span>: <span class="c-yellow">"..."</span>, <span class="c-green">"params"</span>: { <span class="c-green">"skillId"</span>: <span class="c-yellow">"string"</span> } },
-    { <span class="c-green">"action"</span>: <span class="c-yellow">"discover"</span>, <span class="c-green">"creditEstimate"</span>: <span class="c-yellow">"0 credits (free)"</span> },
-    { <span class="c-green">"action"</span>: <span class="c-yellow">"swarm"</span>, <span class="c-green">"creditEstimate"</span>: <span class="c-yellow">"20 credits base + per-skill"</span> }
-  ],
-  <span class="c-green">"skills"</span>: {
-    <span class="c-green">"page"</span>: <span class="c-blue">1</span>, <span class="c-green">"total"</span>: <span class="c-blue">12</span>,
-    <span class="c-green">"data"</span>: [
-      { <span class="c-green">"id"</span>: <span class="c-yellow">"token-analysis"</span>, <span class="c-green">"name"</span>: <span class="c-yellow">"Token Analysis"</span>, <span class="c-green">"creditCost"</span>: <span class="c-blue">32</span>,
-        <span class="c-green">"variables"</span>: [<span class="c-yellow">"symbol"</span>, <span class="c-yellow">"timeframe"</span>], <span class="c-green">"tags"</span>: [<span class="c-yellow">"defi"</span>, <span class="c-yellow">"solana"</span>] }
-    ]
-  },
-  <span class="c-green">"endpoints"</span>: {
-    <span class="c-green">"total"</span>: <span class="c-blue">75</span>,
-    <span class="c-green">"byCategory"</span>: { <span class="c-green">"solana"</span>: [...], <span class="c-green">"defi"</span>: [...], <span class="c-green">"social"</span>: [...] }
-  },
-  <span class="c-green">"pricing"</span>: {
-    <span class="c-green">"creditFormula"</span>: <span class="c-yellow">"max(1, ceil(apiCostUsd * 2000))"</span>,
-    <span class="c-green">"creditsPerDollar"</span>: <span class="c-blue">1000</span>
-  },
-  <span class="c-green">"authentication"</span>: { <span class="c-green">"header"</span>: <span class="c-yellow">"X-API-Key"</span>, <span class="c-green">"format"</span>: <span class="c-yellow">"cn-{48 hex chars}"</span> }
-}</div>
-        </div>
+    <!-- ADMIN -->
+    <div class="docs-section" id="admin-dashboard">
+      <h2 class="docs-section-title">Admin</h2>
+      <p class="docs-section-desc">Admin endpoints require the <code style="font-family:var(--font-mono);color:var(--accent)">X-API-Key: ADMIN_API_KEY</code> header. These endpoints are not for public use.</p>
+      <div class="alert alert-warning">All admin endpoints require the server-side ADMIN_API_KEY environment variable to be set and matched.</div>
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/admin/dashboard</code></div>
+        <p class="endpoint-desc">Platform-wide metrics: total users, total credits issued, revenue, active circuit breakers.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key: ADMIN_API_KEY</code></div>
       </div>
-    </div>
-
-    <hr class="doc-divider">
-
-    <!-- openclaw /status -->
-    <div class="doc-section" id="openclaw-status">
-      <div class="doc-section-label" style="color:#9945ff">OpenClaw Gateway</div>
-      <h2>GET /v1/openclaw/status</h2>
-      <p>Returns the calling agent's current state — credit balance, reputation score, usage totals, and remaining rate-limit quota. Agents can call this before expensive operations to self-throttle.</p>
-
-      <div class="endpoint-block">
-        <div class="endpoint-head">
-          <span class="method-badge get">GET</span>
-          <span class="endpoint-path">/v1/openclaw/status</span>
-          <span class="badge auth">AUTH</span>
-        </div>
-        <div class="endpoint-body">
-          <div class="code-label">Example</div>
-          <div class="code-block">curl https://api.claw-net.org/v1/openclaw/status \
-  -H <span class="c-yellow">"X-API-Key: your-api-key"</span></div>
-          <div class="code-label">Response</div>
-          <div class="code-block">{
-  <span class="c-green">"agentKey"</span>: <span class="c-yellow">"cn-1a2b...ef90"</span>,
-  <span class="c-green">"credits"</span>: {
-    <span class="c-green">"balance"</span>: <span class="c-blue">4968</span>,
-    <span class="c-green">"tier"</span>: <span class="c-yellow">"$20+"</span>,
-    <span class="c-green">"amountPaid"</span>: <span class="c-blue">20</span>
-  },
-  <span class="c-green">"reputation"</span>: <span class="c-blue">4.2</span>,
-  <span class="c-green">"usage"</span>: {
-    <span class="c-green">"totalOrchestrations"</span>: <span class="c-blue">312</span>,
-    <span class="c-green">"totalSkillInvocations"</span>: <span class="c-blue">89</span>,
-    <span class="c-green">"lastActive"</span>: <span class="c-yellow">"2026-03-09T14:22:11.000Z"</span>
-  },
-  <span class="c-green">"rateLimits"</span>: {
-    <span class="c-green">"perMinute"</span>: <span class="c-blue">60</span>,
-    <span class="c-green">"remaining"</span>: <span class="c-blue">54</span>,
-    <span class="c-green">"tier"</span>: <span class="c-yellow">"$20+"</span>
-  },
-  <span class="c-green">"capabilities"</span>: [<span class="c-yellow">"query"</span>, <span class="c-yellow">"skill"</span>, <span class="c-yellow">"discover"</span>, <span class="c-yellow">"swarm"</span>]
-}</div>
-
-          <h3>Rate tiers</h3>
-          <table class="param-table">
-            <tr><th>Spend</th><th>Requests / minute</th></tr>
-            <tr><td class="param-name">$0</td><td>30 / min</td></tr>
-            <tr><td class="param-name">$20+</td><td>60 / min</td></tr>
-            <tr><td class="param-name">$100+</td><td>120 / min</td></tr>
-            <tr><td class="param-name">$500+</td><td>300 / min</td></tr>
-          </table>
-        </div>
+      <div class="endpoint" id="admin-revenue">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/admin/revenue</code></div>
+        <p class="endpoint-desc">Platform revenue breakdown by source: Stripe, USDC, marketplace fees, LLM proxy.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key: ADMIN_API_KEY</code></div>
+      </div>
+      <div class="endpoint" id="admin-treasury">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/admin/treasury</code></div>
+        <p class="endpoint-desc">Treasury and official key balances, recent fee receipts and refunds.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key: ADMIN_API_KEY</code></div>
+      </div>
+      <div class="endpoint" id="admin-payouts">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/admin/payouts</code></div>
+        <p class="endpoint-desc">List all pending creator USDC payout requests.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key: ADMIN_API_KEY</code></div>
       </div>
     </div>
 
@@ -1350,31 +953,97 @@ curl https://api.claw-net.org/v1/swarm/swarm_abc123 \
 </div>
 
 <footer>
-  <span>© 2026 Claw-Net.org — <a href="https://claw-net.org">Home</a> · <a href="/endpoints.html">Endpoints</a> · <a href="/marketplace.html">Marketplace</a> · <a href="https://stats.uptimerobot.com/BtyHzXcO5p" target="_blank" rel="noopener">Status</a></span>
-  <span><a href="https://claw-net.org/#pricing">Get API Key →</a></span>
+  <div class="footer-left">
+    <a href="/" class="footer-logo"><img src="/logo.png" alt="ClawNet"></a>
+    <ul class="footer-links">
+      <li><a href="/">Home</a></li>
+      <li><a href="/docs.html">Docs</a></li>
+      <li><a href="/marketplace.html">Marketplace</a></li>
+      <li><a href="/endpoints.html">Endpoints</a></li>
+      <li><a href="/dashboard.html">Dashboard</a></li>
+      <li><a href="https://github.com/1xmint" target="_blank">GitHub</a></li>
+      <li><a href="https://t.me/claw_net" target="_blank">Telegram</a></li>
+      <li><a href="https://stats.uptimerobot.com/BtyHzXcO5p" target="_blank">Status</a></li>
+    </ul>
+  </div>
+  <div class="footer-copy">&copy; 2026 ClawNet &middot; Powered by x402</div>
 </footer>
 
 <script>
-// Sidebar active link tracking
-(function(){
-  const links = document.querySelectorAll('.sidebar-link');
-  const sections = [];
-  links.forEach(l => {
-    const id = l.getAttribute('href').replace('#','');
-    const el = document.getElementById(id);
-    if (el) sections.push({ el, link: l });
+// Copy code button
+function copyCode(btn) {
+  const code = btn.parentElement.querySelector('code').textContent;
+  navigator.clipboard.writeText(code).then(() => {
+    btn.textContent = 'Copied!';
+    setTimeout(() => btn.textContent = 'Copy', 2000);
   });
-  function update() {
-    let active = sections[0];
-    sections.forEach(s => {
-      if (s.el.getBoundingClientRect().top <= 100) active = s;
-    });
-    links.forEach(l => l.classList.remove('active'));
-    if (active) active.link.classList.add('active');
-  }
-  window.addEventListener('scroll', update, { passive: true });
-  update();
-})();
+}
+
+// Sidebar search filter
+function filterSidebar(q) {
+  const term = q.toLowerCase();
+  document.querySelectorAll('#sidebar-content .sidebar-link').forEach(a => {
+    a.style.display = (!term || a.textContent.toLowerCase().includes(term)) ? '' : 'none';
+  });
+  document.querySelectorAll('#sidebar-content .sidebar-heading').forEach(h => {
+    const links = [];
+    let el = h.nextElementSibling;
+    while (el && !el.classList.contains('sidebar-heading')) {
+      if (el.classList.contains('sidebar-link')) links.push(el);
+      el = el.nextElementSibling;
+    }
+    h.style.display = links.some(l => l.style.display !== 'none') ? '' : 'none';
+  });
+}
+
+// Scroll spy for active sidebar link
+const sections = document.querySelectorAll('[id]');
+const links = document.querySelectorAll('.sidebar-link');
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      links.forEach(l => {
+        l.classList.toggle('active', l.getAttribute('href') === '#' + entry.target.id);
+      });
+    }
+  });
+}, { rootMargin: '-56px 0px -70% 0px' });
+sections.forEach(s => observer.observe(s));
+
+// API status
+async function fetchApiStatus() {
+  const dot = document.getElementById('statusDot');
+  const label = document.getElementById('statusLabel');
+  try {
+    const r = await fetch('https://api.claw-net.org/v1/health', { signal: AbortSignal.timeout(5000) });
+    if (r.ok) { dot.className = 'status-dot ok'; label.textContent = 'Live'; label.style.color = 'var(--accent)'; }
+    else { dot.className = 'status-dot err'; label.textContent = 'Degraded'; label.style.color = 'var(--danger)'; }
+  } catch { dot.className = 'status-dot err'; label.textContent = 'Offline'; label.style.color = 'var(--danger)'; }
+}
+fetchApiStatus();
+setInterval(fetchApiStatus, 30000);
+
+// Nav auth
+async function initNav() {
+  try {
+    await window.Clerk.load();
+    const user = window.Clerk.user;
+    if (!user) return;
+    document.getElementById('nav-login-btn').style.display = 'none';
+    document.getElementById('nav-getkey-btn').style.display = 'none';
+    const email = user.primaryEmailAddress?.emailAddress ?? user.username ?? '';
+    if (email) { document.getElementById('nav-user-email').textContent = email; document.getElementById('nav-user-email').classList.add('show'); }
+    document.getElementById('nav-dash-btn').classList.add('show');
+    document.getElementById('nav-signout-btn').classList.add('show');
+    const cached = localStorage.getItem('clawnet_credits');
+    document.getElementById('nav-credits-num').textContent = cached !== null ? parseInt(cached).toLocaleString() : '—';
+    document.getElementById('nav-credits-badge').classList.add('show');
+  } catch {}
+}
+async function navSignOut() { await window.Clerk.signOut(); window.location.reload(); }
 </script>
+<script data-clerk-publishable-key="pk_live_Y2xlcmsuY2xhdy1uZXQub3JnJA"
+  src="https://cdn.jsdelivr.net/npm/@clerk/clerk-js@5/dist/clerk.browser.js"
+  onload="initNav()"></script>
 </body>
 </html>
