@@ -35,8 +35,10 @@ export function setupGracefulShutdown() {
       logger.info('HTTP server closed — no new connections');
     }
 
-    // 2. Drain in-flight requests before stopping anything (5s grace period)
-    await new Promise((resolve) => setTimeout(resolve, 5_000));
+    // 2. Drain in-flight requests before stopping anything (15s grace period)
+    // SSE streams can run 30s+ and batch queries take 10-20s — 5s was too aggressive.
+    // 15s covers the vast majority of in-flight work while keeping deploys snappy.
+    await new Promise((resolve) => setTimeout(resolve, 15_000));
 
     // 3. Stop cron jobs and heartbeat
     stopHeartbeat();
@@ -63,7 +65,12 @@ export function setupGracefulShutdown() {
     closeDb();
 
     try {
-      await closeRedis();
+      await Promise.race([
+        closeRedis(),
+        new Promise<void>((_, reject) =>
+          setTimeout(() => reject(new Error('Redis close timeout')), 5_000)
+        ),
+      ]);
     } catch (err) {
       logger.warn({ err }, 'Error closing Redis');
     }

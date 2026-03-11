@@ -67,6 +67,27 @@ process.on('uncaughtException', (err) => {
 
 const app = new Hono();
 
+// Health check BEFORE middleware — monitoring/Docker hits this every few seconds,
+// no need for CORS, rate limit, security headers, body limit, or request logging.
+app.get('/health', (c) => {
+  let dbOk = false;
+  try {
+    const row = getDb().prepare('SELECT 1 as ok').get() as { ok: number } | undefined;
+    dbOk = row?.ok === 1;
+  } catch { /* db unreachable */ }
+
+  const redis = cacheStats().redisConnected;
+  const status = !dbOk ? 'error' : !redis ? 'degraded' : 'ok';
+
+  return c.json({
+    status,
+    version: '1.0.0',
+    uptime: Math.floor(process.uptime()),
+    db: dbOk ? 'ok' : 'unreachable',
+    redis: redis ? 'connected' : 'disconnected',
+  }, dbOk ? 200 : 503);
+});
+
 app.use('*', cors({
   origin: env.NODE_ENV === 'production'
     ? ['https://claw-net.org', 'https://www.claw-net.org', 'https://app.claw-net.org']
@@ -108,25 +129,6 @@ app.get('/', (c) => c.json({
   docs: '/v1/endpoints',
   health: '/health',
 }));
-
-app.get('/health', (c) => {
-  let dbOk = false;
-  try {
-    const row = getDb().prepare('SELECT 1 as ok').get() as { ok: number } | undefined;
-    dbOk = row?.ok === 1;
-  } catch { /* db unreachable */ }
-
-  const redis = cacheStats().redisConnected;
-  const status = !dbOk ? 'error' : !redis ? 'degraded' : 'ok';
-
-  return c.json({
-    status,
-    version: '1.0.0',
-    uptime: Math.floor(process.uptime()),
-    db: dbOk ? 'ok' : 'unreachable',
-    redis: redis ? 'connected' : 'disconnected',
-  }, dbOk ? 200 : 503);
-});
 
 // Webhook body size guard — 64KB max, applied before signature reads
 app.use('/v1/webhooks/*', async (c, next) => {

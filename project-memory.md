@@ -8,7 +8,9 @@
 
 **Startup:** initDb → seedSkills → initRedis → initClawApis → shutdown handlers → heartbeat → Telegram (try/catch isolated) → mesh (try/catch isolated) → crons → embeddings (background) → serve. Structured boot log: `{ port, env, simulation, llm, redis, signing, x402, freeTrial, rateLimit }`.
 
-**Request flow:** Query → rate limit (60/min/IP, tiered per-key, headers on every response) → auth → intent parser → executor → synthesizer → cache → signed response
+**Shutdown:** SIGTERM/SIGINT → stop HTTP (no new connections) → 15s drain (covers SSE streams + batch queries) → stop crons/heartbeat → stop mesh/Telegram → close DB → close Redis (5s timeout) → exit. 30s force-kill deadline.
+
+**Request flow:** Query → rate limit (60/min/IP, tiered per-key, headers on every response) → auth → intent parser → executor → synthesizer → cache → signed response. Health endpoint (`/health`) is registered BEFORE the middleware stack — bypasses CORS, security headers, rate limiter, body limit, and hono logger for zero-overhead monitoring.
 
 **Intent parsing:** 12 regex plan templates match ~60-80% of queries (skip LLM). Fallback: fast LLM (`claude-haiku-4-5-20251001` / `gpt-4o-mini`). `parallelGroups` indices remapped after hallucinated endpoint filtering. Retry includes correction hint.
 

@@ -122,6 +122,29 @@ tsconfig.json                       — ES2022 target, CJS module, strict mode, 
 - **Config hot reload** — watch `.env` for changes without restart (rate limits, feature flags).
 - **Structured startup log** — single log line at boot: `{ port, dbVersion, redisConnected, meshActive, cronsStarted, embeddingReady }`.
 
+### Fixes Applied (Initial Pass)
+
+1. **HIGH** — Startup isolation: Telegram + mesh wrapped in try/catch so failures don't crash boot
+2. **MEDIUM** — Config bounds: `RATE_LIMIT_PER_MIN` min:1/max:10000, `FREE_TRIAL_CREDITS` in Zod schema
+3. **LOW** — Webhook 413 response now includes `code: 'PAYLOAD_TOO_LARGE'`
+4. **MEDIUM** — Auth type safety: `getApiKey()` returns typed `credits_used` + `amount_paid`, no unsafe casts
+5. **LOW** — Structured boot log with operational fields
+6. **MEDIUM** — Rate limit headers (`X-RateLimit-Limit`, `X-RateLimit-Remaining`) on every response
+
+### Fixes Applied (Recheck)
+
+7. **MEDIUM** — Health check moved BEFORE middleware stack: monitoring/Docker pings no longer run through CORS, security headers, rate limiter, body limit, hono logger, or nanoid generation. At 10K+ health pings/day this eliminates ~6 middleware hops per ping.
+8. **HIGH** — Drain timeout increased from 5s → 15s: SSE streams run up to 30s, batch queries up to 20s. The 5s drain was killing active requests on every deploy. 15s covers the vast majority of in-flight work while keeping deploy latency reasonable.
+
+### Recheck Verdict
+
+Per-key tiered rate limiting (`rateTier()`) is enforced on all credit-spending routes (api.ts, batch.ts, skills.ts, openclaw.ts) via separate `rl:orch:{key}` counters — confirmed correct. Two-layer rate limiting (IP global + per-key tiered) is the right architecture for an agent economy.
+
+**Deferred to later chapters:**
+- Request timeouts on slow LLM/API calls → Ch03 (Executor pipeline)
+- `nanoid(12)` vs UUIDv7 for request IDs → Ch08 (API Design)
+- Route lazy loading for rarely-used endpoints → Ch15 (Scalability)
+
 ### Why It Matters
 
 The architecture is the load-bearing wall. A misconfigured middleware chain means every request is vulnerable. A startup ordering bug means the server accepts traffic before it's ready. A missing error handler means one bad webhook crashes the entire platform. At millions of requests, every millisecond of middleware overhead compounds. Every startup dependency that can fail needs isolation. The foundation must be bulletproof because every other chapter builds on it.
