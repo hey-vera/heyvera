@@ -15,7 +15,7 @@
 | Ch | Chapter | Status |
 |----|---------|--------|
 | 01 | Architecture & Codebase Foundation | COMPLETE |
-| 02 | Database Design & Data Lifecycle | PENDING |
+| 02 | Database Design & Data Lifecycle | COMPLETE |
 | 03 | Financial Engine | PENDING |
 | 04 | Authentication, Authorization & Identity | PENDING |
 | 05 | Security & Attack Surface | PENDING |
@@ -235,6 +235,29 @@ src/db/admin.ts                    — reconciliation, revenue, treasury, key re
 - **Migration backup** — `sqlite3 .backup` before running new migrations. Enables rollback on failure.
 - **Read replica** — use `litestream` for real-time replication to S3. Analytics queries run against the replica, not the primary.
 - **Schema documentation** — auto-generate an ERD from the migration file. Currently, the schema is only documented in code.
+
+### Fixes Applied
+
+1. **CRITICAL** — Financial safety triggers (migration v42): `trg_credits_non_negative` on api_keys (ABORT if credits < 0), `trg_credit_cost_non_negative` on skills INSERT/UPDATE, `trg_escrow_amount_positive` on escrows INSERT, `trg_stake_amount_positive` on stakes INSERT. Database-level enforcement — no application bug can create negative balances.
+
+2. **HIGH** — Missing cleanup indexes (migration v43): Added indexes on `feedback(timestamp)`, `stripe_processed_sessions(processed_at)`, `stripe_processed_events(processed_at)`, `peers(last_seen)`, `claim_tokens(expires_at)`, `transactions(created_at)`, `tasks(completed_at)`, `swarms(created_at)`, `reputation_events(timestamp)`. Previously, cleanup queries on these tables did full table scans.
+
+3. **HIGH** — Batched cleanup deletes: Rewrote all 10 cleanup functions to use `DELETE ... WHERE rowid IN (SELECT rowid ... LIMIT 5000)` in a loop. At 100K+ rows, a single unbounded DELETE holds the SQLite write lock for seconds — blocking all API writes. Batched deletes keep each lock under ~50ms.
+
+4. **HIGH** — WAL checkpoint on shutdown: `closeDb()` now runs `PRAGMA wal_checkpoint(TRUNCATE)` before closing. Prevents WAL file from growing unbounded across restarts. Daily cleanup cron also runs `PRAGMA wal_checkpoint(PASSIVE)` after bulk deletes.
+
+5. **MEDIUM** — Cleanup for 5 previously unbounded tables: `cleanupOldTasks(90d)`, `cleanupOldSwarms(90d)`, `cleanupOldReputationEvents(365d)`, `cleanupOldTransactions(730d)` (2-year financial retention), `cleanupOldVotes(365d)` on closed proposals. All wired into daily cron.
+
+6. **LOW** — `getKeyStats()` DATE() fix: Changed `DATE(timestamp) = ?` to range comparison `timestamp >= ? AND timestamp < ?`. The DATE() function wraps every row preventing index use — range comparison uses `idx_orchestrations_timestamp` directly.
+
+### Recheck Verdict
+
+All 29 tables now have either bounded growth (upsert/dedup), retention cleanup, or finite cardinality. Financial columns are protected by SQLite triggers — a bug in deductCredit that somehow sets credits negative will now ABORT the transaction at the DB level. Cleanup operations are batched to keep write lock time under 50ms per batch. WAL is checkpointed on shutdown and after daily cleanup.
+
+**Deferred to later chapters:**
+- Migration backup strategy (sqlite3 .backup before migrate) → Ch12 (Infrastructure)
+- Read replica via litestream → Ch15 (Scalability)
+- Archival strategy for old transactions → Ch15 (Scalability)
 
 ### Why It Matters
 

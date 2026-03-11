@@ -10,7 +10,15 @@
 
 import cron from 'node-cron';
 import { apiRegistry } from '../config/api-registry';
-import { recordEndpointHealth, cleanupOldAuditLogs, cleanupOldSkillMetrics, cleanupOldSolanaSigs } from '../db/index';
+import {
+  recordEndpointHealth,
+  cleanupOldAuditLogs, cleanupOldSkillMetrics, cleanupOldSolanaSigs,
+  cleanupOldOrchestrations, cleanupOldFeedback, cleanupOldEmailLog,
+  cleanupStalePeers, cleanupOldStripeSessions, cleanupOldStripeEvents,
+  cleanupExpiredClaimTokens, cleanupOldTasks, cleanupOldSwarms,
+  cleanupOldReputationEvents, cleanupOldTransactions, cleanupOldVotes,
+  getDb,
+} from '../db/index';
 import { logger } from '../utils/logger';
 
 // Track last cleanup date to run at most once per day
@@ -89,12 +97,29 @@ async function runHealthChecks(): Promise<void> {
   const today = new Date().toISOString().slice(0, 10);
   if (_lastCleanupDay !== today) {
     _lastCleanupDay = today;
-    const auditDel = cleanupOldAuditLogs(90);
-    const metricsDel = cleanupOldSkillMetrics(90);
-    const solDel = cleanupOldSolanaSigs(30);
-    if (auditDel + metricsDel + solDel > 0) {
-      logger.info({ auditDel, metricsDel, solDel }, 'Daily retention cleanup');
+    // Existing cleanup (now batched — each delete is LIMIT 5000 per iteration)
+    const auditDel        = cleanupOldAuditLogs(90);
+    const metricsDel      = cleanupOldSkillMetrics(90);
+    const solDel          = cleanupOldSolanaSigs(30);
+    const orchDel         = cleanupOldOrchestrations(180);
+    const feedDel         = cleanupOldFeedback(365);
+    const emailDel        = cleanupOldEmailLog(30);
+    const peersDel        = cleanupStalePeers(7);
+    const stripeSessDel   = cleanupOldStripeSessions(90);
+    const stripeEvtDel    = cleanupOldStripeEvents(90);
+    const claimDel        = cleanupExpiredClaimTokens();
+    // Ch02: previously unbounded tables now cleaned
+    const tasksDel        = cleanupOldTasks(90);
+    const swarmsDel       = cleanupOldSwarms(90);
+    const repDel          = cleanupOldReputationEvents(365);
+    const txDel           = cleanupOldTransactions(730);  // 2-year financial record retention
+    const votesDel        = cleanupOldVotes(365);
+    const total = auditDel + metricsDel + solDel + orchDel + feedDel + emailDel + peersDel + stripeSessDel + stripeEvtDel + claimDel + tasksDel + swarmsDel + repDel + txDel + votesDel;
+    if (total > 0) {
+      logger.info({ auditDel, metricsDel, solDel, orchDel, feedDel, emailDel, peersDel, stripeSessDel, stripeEvtDel, claimDel, tasksDel, swarmsDel, repDel, txDel, votesDel }, 'Daily retention cleanup');
     }
+    // WAL checkpoint after bulk deletes — prevents WAL bloat
+    try { getDb().pragma('wal_checkpoint(PASSIVE)'); } catch { /* non-critical */ }
   }
   } finally {
     _running = false;

@@ -130,9 +130,13 @@ User-driven only (no auto-queries). 12h global cooldown shared across users. `/p
 
 ## Database
 
-SQLite WAL mode, `data/orchestrator.db`, 41 migrations. 9 domain modules: `connection`, `keys`, `credits`, `skills`, `marketplace`, `escrow`, `governance`, `services`, `audit`. Barrel re-exported from `src/db/index.ts`.
+SQLite WAL mode, `data/orchestrator.db`, 43 migrations. 9 domain modules: `connection`, `keys`, `credits`, `skills`, `marketplace`, `escrow`, `governance`, `services`, `audit`. Barrel re-exported from `src/db/index.ts`.
 
-Daily cleanup: audit_log (90d), skill_metrics (90d), solana_sigs (30d), orchestrations, feedback, email log, peers, Stripe sessions/events, claim tokens.
+**Pragmas:** `journal_mode=WAL`, `foreign_keys=ON`, `busy_timeout=5000`. WAL checkpoint (TRUNCATE) on shutdown in `closeDb()`. Passive checkpoint after daily cleanup cron.
+
+**Financial triggers (v42):** `trg_credits_non_negative` (api_keys), `trg_credit_cost_non_negative` (skills), `trg_escrow_amount_positive` (escrows), `trg_stake_amount_positive` (stakes). DB-level enforcement — no application bug can create negative balances or zero-cost escrows.
+
+**Daily cleanup (all batched — LIMIT 5000/iteration):** audit_log (90d), skill_metrics (90d), solana_sigs (30d), orchestrations (180d), feedback (365d), email_log (30d), peers (7d), Stripe sessions/events (90d), claim tokens, tasks (90d), swarms (90d), reputation_events (365d), transactions (730d), votes on closed proposals (365d).
 
 Key tables: `api_keys`, `transactions`, `skills`, `skill_metrics`, `skill_ratings`, `skill_versions`, `skill_reports`, `stakes`, `escrows`, `audit_log`, `proposals`, `votes`, `tasks`, `task_ratings`, `peers`, `discovery_cache`, `skill_embeddings`, `endpoint_health`, `telegram_subscribers`, `stripe_refunded_charges`, `payout_requests`, `swarms`
 

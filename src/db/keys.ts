@@ -351,9 +351,11 @@ export function getKeyStats(key: string): { queriesToday: number; queriesTotal: 
     .prepare('SELECT COUNT(*) as count FROM orchestrations WHERE api_key = ?')
     .get(key) as { count: number };
 
+  // Use range comparison instead of DATE() function — allows the idx_orchestrations_timestamp index to be used.
+  // DATE(timestamp) wraps every row in a function call, preventing index use on large tables.
   const todayCount = db
-    .prepare('SELECT COUNT(*) as count FROM orchestrations WHERE api_key = ? AND DATE(timestamp) = ?')
-    .get(key, today) as { count: number };
+    .prepare('SELECT COUNT(*) as count FROM orchestrations WHERE api_key = ? AND timestamp >= ? AND timestamp < ?')
+    .get(key, today + 'T00:00:00.000Z', today + 'T23:59:59.999Z') as { count: number };
 
   const lastUsed = db
     .prepare('SELECT last_used_at FROM api_keys WHERE key = ?')
