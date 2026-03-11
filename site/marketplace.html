@@ -3,9 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Skill Marketplace — Claw-Net.org</title>
+  <title>Skill Marketplace — ClawNet</title>
   <meta name="description" content="Buy, sell, and publish AI skills on the ClawNet marketplace. Pay per use. Earn 97% as a creator.">
-  <meta property="og:title" content="Skill Marketplace — Claw-Net.org">
+  <meta property="og:title" content="Skill Marketplace — ClawNet">
   <meta property="og:description" content="Buy, sell, and publish AI skills. Pay per use. Earn 97% as a creator.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://claw-net.org/marketplace.html">
@@ -13,280 +13,272 @@
   <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png">
   <link rel="apple-touch-icon" href="/favicon.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&family=IBM+Plex+Serif:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
   <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
-      --green: #00ff88; --green-dim: rgba(0,255,136,0.1); --green-glow: rgba(0,255,136,0.05);
-      --bg: #060606; --surface: #0d0d0d; --surface2: #111; --surface3: #161616;
-      --border: #1a1a1a; --border2: #242424; --border3: #2e2e2e;
-      --text: #e0e0e0; --muted: #888; --muted2: #c0c0c0;
-      --font: 'JetBrains Mono', monospace; --serif: 'IBM Plex Serif', Georgia, serif;
-      --red: #ff4444; --yellow: #ffaa00; --purple: #9945ff; --purple-dim: rgba(153,69,255,0.12);
-      --blue: #4488ff; --cyan: #00d4ff;
+      --bg-primary: #0a0a0b; --bg-surface: #111113; --bg-surface-2: #18181b; --bg-surface-3: #1f1f23;
+      --border-subtle: #1e1e22; --border-default: #27272a; --border-strong: #3f3f46;
+      --text-primary: #fafafa; --text-secondary: #a1a1aa; --text-tertiary: #71717a; --text-muted: #52525b;
+      --accent: #10b981; --accent-dim: rgba(16,185,129,0.12); --accent-subtle: rgba(16,185,129,0.06);
+      --accent-hover: #34d399; --accent-text: #6ee7b7;
+      --danger: #ef4444; --danger-dim: rgba(239,68,68,0.12);
+      --warning: #f59e0b; --warning-dim: rgba(245,158,11,0.12);
+      --info: #3b82f6; --info-dim: rgba(59,130,246,0.12);
+      --purple: #8b5cf6; --purple-dim: rgba(139,92,246,0.12);
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', Consolas, monospace;
+      --font-display: 'Inter', -apple-system, system-ui, sans-serif;
+      --radius-sm: 4px; --radius-md: 6px; --radius-lg: 8px; --radius-xl: 12px;
     }
-    body { font-family: var(--font); background: var(--bg); color: var(--text); min-height: 100vh; }
-    body::before {
-      content: ''; position: fixed; inset: 0;
-      background-image: linear-gradient(rgba(0,255,136,0.012) 1px, transparent 1px), linear-gradient(90deg, rgba(0,255,136,0.012) 1px, transparent 1px);
-      background-size: 48px 48px; pointer-events: none; z-index: 0;
-    }
-    a { color: var(--green); text-decoration: none; }
-    a:hover { text-decoration: underline; }
-    ::selection { background: rgba(0,255,136,0.2); color: #fff; }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: var(--font-sans); background: var(--bg-primary); color: var(--text-secondary); font-size: 14px; line-height: 1.6; overflow-x: hidden; }
+    a { color: inherit; text-decoration: none; }
+    ::selection { background: var(--accent-dim); }
 
-    /* ── TOAST ── */
+    .btn { font-family: var(--font-sans); font-size: 13px; font-weight: 500; padding: 8px 16px; border-radius: var(--radius-md); cursor: pointer; transition: all 0.15s; border: 1px solid transparent; display: inline-flex; align-items: center; gap: 6px; }
+    .btn-primary { background: var(--accent); color: #000; border-color: var(--accent); }
+    .btn-primary:hover { background: var(--accent-hover); }
+    .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-ghost { background: transparent; color: var(--text-secondary); border: 1px solid var(--border-default); }
+    .btn-ghost:hover { border-color: var(--border-strong); color: var(--text-primary); background: var(--bg-surface-2); }
+    .btn-ghost:disabled { opacity: 0.4; cursor: not-allowed; }
+    .card { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 24px; }
+    .card:hover { border-color: var(--border-default); }
+    .badge { font-family: var(--font-sans); font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 9999px; display: inline-flex; align-items: center; gap: 4px; }
+    .badge-success { background: var(--accent-dim); color: var(--accent); }
+    .badge-danger { background: var(--danger-dim); color: var(--danger); }
+    .badge-warning { background: var(--warning-dim); color: var(--warning); }
+    .badge-info { background: var(--info-dim); color: var(--info); }
+    .badge-neutral { background: rgba(113,113,122,0.15); color: var(--text-tertiary); }
+
     #toast-container { position: fixed; bottom: 32px; right: 32px; z-index: 9999; display: flex; flex-direction: column; gap: 10px; }
-    .toast { font-family: var(--font); font-size: 12px; padding: 14px 20px; border: 1px solid; display: flex; align-items: center; gap: 10px; min-width: 260px; max-width: 420px; animation: slideIn .2s ease; backdrop-filter: blur(8px); border-radius: 2px; }
-    .toast.success { background: rgba(5,15,8,0.95); border-color: #0a3a1a; color: #44bb77; }
-    .toast.error   { background: rgba(15,5,5,0.95); border-color: #3a0a0a; color: #ff6666; }
-    .toast.info    { background: rgba(13,13,13,0.95); border-color: var(--border2); color: var(--muted2); }
-    @keyframes slideIn { from { opacity:0; transform:translateY(12px) } to { opacity:1; transform:translateY(0) } }
+    .toast { font-family: var(--font-sans); font-size: 13px; padding: 12px 18px; border: 1px solid; border-radius: var(--radius-md); display: flex; align-items: center; gap: 10px; min-width: 240px; max-width: 400px; animation: toastIn 0.2s ease; box-shadow: 0 4px 12px rgba(0,0,0,0.4); }
+    .toast.success { background: var(--bg-surface-2); border-color: var(--accent-dim); color: var(--accent); }
+    .toast.error   { background: var(--bg-surface-2); border-color: var(--danger-dim); color: var(--danger); }
+    .toast.info    { background: var(--bg-surface-2); border-color: var(--border-default); color: var(--text-secondary); }
+    @keyframes toastIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 
-    /* ── NAV ── */
-    nav { position: sticky; top: 0; z-index: 100; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; height: 56px; padding: 0 32px; background: rgba(6,6,6,0.97); border-bottom: 1px solid rgba(0,255,136,0.12); backdrop-filter: blur(12px); }
-    .nav-left { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
-    .nav-logo { display: flex; align-items: center; text-decoration: none; height: 100%; padding: 4px 0; }
-    .nav-logo img { height: 40px; width: auto; max-width: 180px; object-fit: contain; }
-    .nav-logo:hover img { opacity: .85; }
-    .nav-links { display: flex; align-items: center; justify-content: center; gap: 20px; list-style: none; }
-    .nav-links a { font-family: var(--font); font-size: 10px; color: rgba(255,255,255,0.72); text-decoration: none; letter-spacing: 1.5px; text-transform: uppercase; transition: color .2s; position: relative; padding-bottom: 2px; }
-    .nav-links a::after { content: ''; position: absolute; bottom: -2px; left: 0; width: 0; height: 1px; background: var(--green); transition: width .2s; }
-    .nav-links a:hover, .nav-links a.active { color: var(--green); }
-    .nav-links a:hover::after, .nav-links a.active::after { width: 100%; }
+    nav { position: fixed; top: 0; left: 0; right: 0; z-index: 100; height: 56px; padding: 0 24px; display: flex; align-items: center; justify-content: space-between; background: rgba(10,10,11,0.95); border-bottom: 1px solid var(--border-subtle); backdrop-filter: blur(12px); }
+    .nav-left { display: flex; align-items: center; gap: 20px; }
+    .nav-logo img { height: 36px; width: auto; object-fit: contain; }
+    .nav-links { display: flex; align-items: center; gap: 4px; list-style: none; }
+    .nav-links a { font-size: 13px; font-weight: 500; color: var(--text-tertiary); padding: 6px 12px; border-radius: var(--radius-md); transition: color 0.15s, background 0.15s; position: relative; }
+    .nav-links a:hover { color: var(--text-primary); background: var(--bg-surface-2); }
+    .nav-links a.active { color: var(--text-primary); }
+    .nav-links a.active::after { content: ''; position: absolute; bottom: -1px; left: 12px; right: 12px; height: 2px; background: var(--accent); border-radius: 1px; }
     @media(max-width:900px) { .nav-links { display: none; } }
-    .nav-api-status { display: flex; align-items: center; gap: 6px; font-family: var(--font); font-size: 10px; padding: 4px 10px; border: 1px solid var(--border); background: var(--surface); }
-    .status-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; background: #444; transition: background 0.3s; }
-    .status-dot.ok  { background: var(--green); }
-    .status-dot.err { background: var(--red); }
-    .nav-credits-badge { font-family: var(--font); font-size: 10px; color: var(--green); border: 1px solid rgba(0,255,136,0.2); padding: 4px 10px; letter-spacing: 0.5px; display: none; align-items: center; gap: 5px; }
-    .nav-credits-badge.show { display: flex; }
-    .nav-actions { display: flex; align-items: center; gap: 10px; justify-content: flex-end; }
-    .nav-divider { width: 1px; height: 20px; background: rgba(255,255,255,0.1); margin: 0 4px; }
-    .nav-dashboard { font-family: var(--font); font-size: 10px; color: var(--green); border: 1px solid rgba(0,255,136,0.35); padding: 6px 14px; text-decoration: none; letter-spacing: 1.5px; text-transform: uppercase; transition: all 0.2s; }
-    .nav-dashboard:hover { background: rgba(0,255,136,0.1); }
-    .nav-cta { font-family: var(--font); font-size: 10px; background: var(--green); color: #000; padding: 7px 14px; text-decoration: none; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; transition: all 0.25s; border: 1px solid var(--green); }
-    .nav-cta:hover { background: #000; color: var(--green); }
-    .nav-user-email { font-family: var(--font); font-size: 10px; color: var(--muted); display: none; }
-    .nav-user-email.show { display: block; }
-    .nav-btn-ghost { font-family: var(--font); font-size: 10px; color: var(--muted); border: 1px solid var(--border2); padding: 6px 14px; background: transparent; cursor: pointer; letter-spacing: 1px; text-transform: uppercase; transition: all 0.2s; text-decoration: none; display: none; }
+    .nav-right { display: flex; align-items: center; gap: 12px; }
+    .nav-status { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-tertiary); padding: 4px 10px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); }
+    .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); transition: background 0.3s; flex-shrink: 0; }
+    .status-dot.ok { background: var(--accent); }
+    .status-dot.err { background: var(--danger); }
+    .nav-credits { font-family: var(--font-mono); font-size: 12px; color: var(--accent); padding: 4px 10px; border: 1px solid var(--accent-dim); border-radius: var(--radius-md); display: none; align-items: center; gap: 4px; }
+    .nav-credits.show { display: flex; }
+    .nav-email { font-size: 12px; color: var(--text-tertiary); display: none; }
+    .nav-email.show { display: block; }
+    .nav-btn-ghost { background: transparent; color: var(--text-secondary); border: 1px solid var(--border-default); display: none; text-decoration: none; padding: 6px 14px; font-size: 13px; border-radius: var(--radius-md); cursor: pointer; font-family: var(--font-sans); }
     .nav-btn-ghost.show { display: inline-block; }
-    .nav-btn-ghost:hover { border-color: var(--green); color: var(--green); }
-    .nav-btn-ghost.danger:hover { border-color: var(--red); color: var(--red); }
+    .nav-btn-ghost:hover { border-color: var(--border-strong); color: var(--text-primary); }
+    .nav-btn-ghost.danger:hover { border-color: var(--danger); color: var(--danger); }
+    .nav-login { color: var(--text-secondary); border: 1px solid var(--border-default); background: transparent; text-decoration: none; padding: 6px 14px; font-size: 13px; border-radius: var(--radius-md); }
+    .nav-login:hover { border-color: var(--border-strong); color: var(--text-primary); }
+    .nav-cta { background: var(--accent); color: #000; font-weight: 600; text-decoration: none; padding: 6px 14px; font-size: 13px; border-radius: var(--radius-md); }
+    .nav-cta:hover { background: var(--accent-hover); }
 
-    /* ── LAYOUT ── */
-    main { position: relative; z-index: 1; max-width: 1240px; margin: 0 auto; padding: 0 32px 80px; }
+    main { max-width: 1240px; margin: 0 auto; padding: 72px 32px 80px; }
     .view { display: none; }
     .view.active { display: block; }
 
-    /* ── HERO ── */
-    .hero { padding: 40px 0 28px; border-bottom: 1px solid var(--border); margin-bottom: 0; display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
-    .hero-eyebrow { font-size: 9px; letter-spacing: 3px; text-transform: uppercase; color: var(--green); margin-bottom: 10px; display: flex; align-items: center; gap: 7px; }
-    .hero-eyebrow::before { content: '\25C6'; font-size: 6px; }
-    .hero-title { font-family: var(--serif); font-size: 32px; font-weight: 700; color: #fff; letter-spacing: -.5px; margin-bottom: 8px; }
-    .hero-title em { color: var(--green); font-style: normal; }
-    .hero-sub { font-size: 11px; color: var(--muted); line-height: 1.7; max-width: 480px; }
-    .hero-stats { display: flex; gap: 28px; }
+    .mkt-hero { padding: 32px 0 24px; border-bottom: 1px solid var(--border-subtle); display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
+    .mkt-hero-title { font-family: var(--font-display); font-size: 28px; font-weight: 600; color: var(--text-primary); letter-spacing: -0.02em; margin-bottom: 6px; }
+    .mkt-hero-title span { color: var(--accent); }
+    .mkt-hero-sub { font-size: 14px; color: var(--text-tertiary); line-height: 1.6; max-width: 480px; }
+    .mkt-hero-stats { display: flex; gap: 28px; }
     .hstat { text-align: right; }
-    .hstat-val { font-size: 24px; font-weight: 700; letter-spacing: -1px; line-height: 1; }
-    .hstat-val.g { color: var(--green); }
+    .hstat-val { font-family: var(--font-mono); font-size: 22px; font-weight: 700; color: var(--text-primary); line-height: 1; }
+    .hstat-val.g { color: var(--accent); }
     .hstat-val.p { color: var(--purple); }
-    .hstat-lbl { font-size: 8px; color: var(--muted); letter-spacing: 1.5px; text-transform: uppercase; margin-top: 3px; }
+    .hstat-lbl { font-size: 11px; color: var(--text-tertiary); margin-top: 3px; }
 
-    /* ── TABS ── */
-    .tabs { display: flex; border-bottom: 1px solid var(--border); margin-bottom: 28px; overflow-x: auto; }
-    .tab { font-size: 10px; letter-spacing: 1px; text-transform: uppercase; padding: 14px 20px; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all .15s; background: none; border-top: none; border-left: none; border-right: none; white-space: nowrap; font-family: var(--font); }
-    .tab:hover { color: var(--muted2); }
-    .tab.active { color: var(--green); border-bottom-color: var(--green); }
-
-    /* ── SEARCH & CONTROLS ── */
-    .controls { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
-    .search-wrap { flex: 1; min-width: 200px; position: relative; }
-    .search-wrap::before { content: '\2315'; position: absolute; left: 11px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: 14px; pointer-events: none; }
-    .search-input { width: 100%; font-family: var(--font); font-size: 11px; background: var(--surface); border: 1px solid var(--border2); color: var(--text); padding: 8px 11px 8px 30px; outline: none; }
-    .search-input:focus { border-color: rgba(0,255,136,0.35); }
-    .search-input::placeholder { color: #555; }
-    .search-kbd { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); font-size: 8px; color: #444; border: 1px solid #333; padding: 1px 5px; pointer-events: none; }
-    .sel-wrap { position: relative; }
-    .sel-wrap::after { content: '\25BE'; position: absolute; right: 9px; top: 50%; transform: translateY(-50%); pointer-events: none; font-size: 8px; color: var(--muted); }
-    select.ctl { font-family: var(--font); font-size: 11px; background: #000; border: 1px solid var(--border2); color: var(--text); padding: 8px 28px 8px 11px; outline: none; appearance: none; -webkit-appearance: none; cursor: pointer; }
-    select.ctl:focus { border-color: rgba(0,255,136,0.4); }
-    .cat-pills { display: flex; gap: 5px; flex-wrap: wrap; }
-    .cat-pill { font-size: 9px; padding: 5px 11px; border: 1px solid var(--border2); color: var(--muted); background: transparent; cursor: pointer; letter-spacing: .5px; text-transform: uppercase; transition: all .15s; font-family: var(--font); }
-    .cat-pill:hover, .cat-pill.on { border-color: var(--green); color: var(--green); background: var(--green-dim); }
-
-    /* ── FIELDS ── */
-    .field { font-family: var(--font); font-size: 11px; background: #000; border: 1px solid var(--border2); color: var(--text); padding: 8px 12px; outline: none; transition: border-color .15s; }
-    .field:focus { border-color: rgba(0,255,136,0.4); }
-    .field::placeholder { color: #555; }
-    textarea.field { width: 100%; resize: vertical; min-height: 80px; line-height: 1.5; }
-    input.field, select.field { width: 100%; }
-    .field.error { border-color: rgba(255,68,68,0.5); }
-    .field-hint { font-size: 8px; color: #555; margin-top: 3px; }
-
-    /* ── CARD GRID ── */
-    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 12px; }
-    .card { background: var(--surface); border: 1px solid var(--border); padding: 20px; position: relative; transition: border-color .15s, box-shadow .15s; cursor: default; }
-    .card:hover { border-color: rgba(0,255,136,0.2); box-shadow: 0 2px 20px rgba(0,255,136,0.03); }
-    .card.official { border-color: rgba(0,255,136,0.15); }
-    .card-badge { position: absolute; top: 9px; right: 9px; font-size: 7px; letter-spacing: 1.5px; color: var(--green); border: 1px solid rgba(0,255,136,0.3); padding: 2px 6px; background: var(--green-glow); text-transform: uppercase; }
-    .card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
-    .card-name { font-size: 13px; font-weight: 700; color: #fff; cursor: pointer; line-height: 1.3; }
-    .card-name:hover { color: var(--green); }
-    .card-slug { font-size: 9px; color: var(--muted); margin-top: 2px; font-weight: 400; }
-    .card-ver { font-size: 9px; color: var(--muted); margin-top: 3px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-    .card-price { text-align: right; flex-shrink: 0; }
-    .card-price-n { font-size: 20px; font-weight: 700; color: var(--green); line-height: 1; }
-    .card-price-l { font-size: 8px; color: var(--muted); margin-top: 1px; }
-    .card-desc { font-size: 11px; color: var(--muted2); line-height: 1.6; margin-bottom: 10px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-    .card-cat-badge { font-size: 8px; letter-spacing: .8px; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; opacity: .7; }
-    .card-tags { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 10px; }
-    .card-tag { font-size: 7px; padding: 2px 6px; border: 1px solid var(--border2); color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
-    .card-metrics { display: flex; gap: 14px; margin-bottom: 14px; font-size: 9px; color: var(--muted); }
-    .card-metrics b { color: var(--muted2); font-weight: 600; }
-    .card-actions { display: flex; gap: 6px; }
-    .btn-primary { flex: 1; font-family: var(--font); font-size: 10px; padding: 8px 12px; background: var(--green-dim); border: 1px solid var(--green); color: var(--green); cursor: pointer; letter-spacing: .5px; text-transform: uppercase; transition: all .15s; }
-    .btn-primary:hover { background: rgba(0,255,136,0.2); }
-    .btn-primary:disabled { opacity: .35; cursor: not-allowed; }
-    .btn-ghost { font-family: var(--font); font-size: 10px; padding: 8px 10px; background: transparent; border: 1px solid var(--border2); color: var(--muted); cursor: pointer; transition: all .15s; }
-    .btn-ghost:hover { border-color: var(--muted2); color: var(--muted2); }
-    .btn-star { font-family: var(--font); font-size: 9px; padding: 8px 8px; background: transparent; border: 1px solid var(--border2); color: var(--muted); cursor: pointer; transition: all .15s; line-height: 1; }
-    .btn-star:hover, .btn-star.on { border-color: var(--yellow); color: var(--yellow); background: rgba(255,170,0,0.06); }
-
-    /* ── SECURITY BADGE ── */
-    .sec { font-size: 7px; padding: 2px 5px; border: 1px solid; letter-spacing: .5px; text-transform: uppercase; display: inline-block; }
-    .sec.clean { border-color: rgba(0,255,136,0.35); color: var(--green); }
-    .sec.verified { border-color: rgba(0,255,136,0.6); color: var(--green); background: rgba(0,255,136,0.08); }
-    .sec.flagged { border-color: rgba(255,68,68,0.4); color: var(--red); }
-    .sec.unscanned { border-color: var(--border2); color: var(--muted); }
-    .sec.suspicious { border-color: rgba(255,170,0,0.5); color: #fa0; }
-
-    /* ── PAGINATION ── */
-    .pg { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 28px; }
-    .pg-btn { font-family: var(--font); font-size: 10px; padding: 6px 10px; border: 1px solid var(--border2); color: var(--muted); background: transparent; cursor: pointer; transition: all .15s; }
-    .pg-btn:hover:not(:disabled) { border-color: var(--green); color: var(--green); }
-    .pg-btn.on { border-color: var(--green); color: var(--green); background: var(--green-dim); }
-    .pg-btn:disabled { opacity: .3; cursor: not-allowed; }
-
-    /* ── EMPTY / SKELETON ── */
-    .empty { text-align: center; padding: 60px 20px; }
-    .empty-icon { font-size: 32px; opacity: .2; margin-bottom: 12px; }
-    .empty-title { font-size: 12px; color: var(--muted2); margin-bottom: 4px; }
-    .empty-sub { font-size: 10px; color: var(--muted); }
-    .skel { animation: skel-pulse 1.4s ease-in-out infinite; }
-    @keyframes skel-pulse { 0%,100% { opacity:.35 } 50% { opacity:.65 } }
-    .skel-card { background: var(--surface); border: 1px solid var(--border); padding: 20px; }
-    .skel-line { background: var(--border2); border-radius: 2px; margin-bottom: 8px; }
-
-    /* ═══════════ SKILL DETAIL ═══════════ */
-    .detail-back { font-size: 10px; color: var(--muted); display: inline-flex; align-items: center; gap: 5px; margin: 20px 0 24px; cursor: pointer; transition: color .15s; background: none; border: none; font-family: var(--font); }
-    .detail-back:hover { color: var(--green); }
-    .detail-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; flex-wrap: wrap; margin-bottom: 20px; }
-    .detail-title { font-family: var(--serif); font-size: 24px; font-weight: 700; color: #fff; margin-bottom: 4px; }
-    .detail-slug { font-size: 10px; color: var(--muted); margin-bottom: 6px; }
-    .detail-subtitle { font-size: 10px; color: var(--muted); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-    .detail-actions { display: flex; gap: 8px; flex-shrink: 0; }
-    .detail-meta { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; margin-bottom: 24px; }
-    .meta-card { background: var(--surface); border: 1px solid var(--border); padding: 14px 16px; }
-    .meta-label { font-size: 8px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
-    .meta-val { font-size: 12px; color: var(--muted2); font-weight: 600; }
-    .meta-val.g { color: var(--green); }
-    .detail-tabs { display: flex; border-bottom: 1px solid var(--border); margin-bottom: 24px; }
-    .dtab { font-size: 10px; letter-spacing: .5px; padding: 12px 18px; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all .15s; background: none; border-top: none; border-left: none; border-right: none; font-family: var(--font); }
-    .dtab:hover { color: var(--muted2); }
-    .dtab.active { color: var(--green); border-bottom-color: var(--green); }
+    .tabs { display: flex; border-bottom: 1px solid var(--border-subtle); margin-bottom: 28px; overflow-x: auto; }
+    .tab { font-size: 13px; font-weight: 500; padding: 12px 16px; color: var(--text-tertiary); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all 0.15s; background: none; border-top: none; border-left: none; border-right: none; white-space: nowrap; font-family: var(--font-sans); }
+    .tab:hover { color: var(--text-secondary); }
+    .tab.active { color: var(--text-primary); border-bottom-color: var(--accent); }
     .tab-panel { display: none; }
     .tab-panel.active { display: block; }
+
+    .controls { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
+    .search-wrap { flex: 1; min-width: 200px; position: relative; }
+    .search-wrap svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--text-muted); pointer-events: none; }
+    .search-input { width: 100%; font-family: var(--font-sans); font-size: 13px; background: var(--bg-primary); border: 1px solid var(--border-default); color: var(--text-primary); padding: 8px 12px 8px 34px; border-radius: var(--radius-md); outline: none; transition: border-color 0.15s; }
+    .search-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }
+    .search-input::placeholder { color: var(--text-muted); }
+    .sort-select { font-family: var(--font-sans); font-size: 13px; background: var(--bg-primary); border: 1px solid var(--border-default); color: var(--text-secondary); padding: 8px 12px; border-radius: var(--radius-md); outline: none; cursor: pointer; }
+    .sort-select:focus { border-color: var(--accent); }
+    .cat-pills { display: flex; gap: 6px; flex-wrap: wrap; }
+    .cat-pill { font-size: 12px; font-weight: 500; padding: 5px 12px; border: 1px solid var(--border-default); color: var(--text-tertiary); background: transparent; cursor: pointer; border-radius: 9999px; transition: all 0.15s; font-family: var(--font-sans); }
+    .cat-pill:hover { border-color: var(--border-strong); color: var(--text-secondary); }
+    .cat-pill.on { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 12px; }
+    .skill-card { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 20px; position: relative; transition: border-color 0.15s; }
+    .skill-card:hover { border-color: var(--border-default); }
+    .skill-card.official { border-color: var(--accent-dim); }
+    .card-badge { position: absolute; top: 12px; right: 12px; font-size: 11px; font-weight: 500; color: var(--accent); border: 1px solid var(--accent-dim); padding: 2px 8px; background: var(--accent-subtle); border-radius: 9999px; }
+    .card-cat { font-size: 11px; color: var(--text-muted); margin-bottom: 8px; }
+    .card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+    .card-name { font-size: 14px; font-weight: 600; color: var(--text-primary); cursor: pointer; line-height: 1.3; }
+    .card-name:hover { color: var(--accent); }
+    .card-slug { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+    .card-ver { font-size: 11px; color: var(--text-tertiary); margin-top: 4px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .card-price { text-align: right; flex-shrink: 0; }
+    .card-price-n { font-family: var(--font-mono); font-size: 20px; font-weight: 700; color: var(--accent); line-height: 1; }
+    .card-price-l { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+    .card-desc { font-size: 13px; color: var(--text-secondary); line-height: 1.6; margin-bottom: 10px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .card-tags { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 10px; }
+    .card-tag { font-size: 11px; padding: 2px 8px; border: 1px solid var(--border-subtle); color: var(--text-muted); border-radius: var(--radius-sm); }
+    .card-metrics { display: flex; gap: 14px; margin-bottom: 14px; font-size: 12px; color: var(--text-tertiary); }
+    .card-metrics b { color: var(--text-secondary); font-weight: 600; }
+    .card-actions { display: flex; gap: 6px; }
+    .btn-buy { flex: 1; font-family: var(--font-sans); font-size: 13px; font-weight: 500; padding: 8px 12px; background: var(--accent-dim); border: 1px solid var(--accent-dim); color: var(--accent); cursor: pointer; border-radius: var(--radius-md); transition: all 0.15s; }
+    .btn-buy:hover { background: rgba(16,185,129,0.2); border-color: var(--accent); }
+    .btn-buy:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-star { font-family: var(--font-sans); font-size: 13px; padding: 8px 10px; background: transparent; border: 1px solid var(--border-default); color: var(--text-tertiary); cursor: pointer; border-radius: var(--radius-md); transition: all 0.15s; }
+    .btn-star:hover, .btn-star.on { border-color: var(--warning); color: var(--warning); background: var(--warning-dim); }
+
+    .sec { font-size: 11px; padding: 1px 6px; border: 1px solid; border-radius: var(--radius-sm); display: inline-block; }
+    .sec.clean { border-color: var(--accent-dim); color: var(--accent); }
+    .sec.verified { border-color: rgba(16,185,129,0.4); color: var(--accent); background: var(--accent-subtle); }
+    .sec.flagged { border-color: var(--danger-dim); color: var(--danger); }
+    .sec.unscanned { border-color: var(--border-default); color: var(--text-muted); }
+    .sec.suspicious { border-color: var(--warning-dim); color: var(--warning); }
+
+    .pg { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 28px; }
+    .pg-btn { font-family: var(--font-sans); font-size: 13px; padding: 6px 12px; border: 1px solid var(--border-default); color: var(--text-tertiary); background: transparent; cursor: pointer; border-radius: var(--radius-md); transition: all 0.15s; }
+    .pg-btn:hover:not(:disabled) { border-color: var(--border-strong); color: var(--text-primary); }
+    .pg-btn.on { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+    .pg-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+    .empty { text-align: center; padding: 60px 20px; }
+    .empty-icon { font-size: 28px; opacity: 0.3; margin-bottom: 12px; }
+    .empty-title { font-size: 14px; color: var(--text-secondary); font-weight: 500; margin-bottom: 4px; }
+    .empty-sub { font-size: 13px; color: var(--text-tertiary); }
+    .skel { animation: skel-pulse 1.4s ease-in-out infinite; }
+    @keyframes skel-pulse { 0%,100% { opacity: 0.35; } 50% { opacity: 0.6; } }
+    .skel-card { background: var(--bg-surface); border: 1px solid var(--border-subtle); padding: 20px; border-radius: var(--radius-lg); }
+    .skel-line { background: var(--border-default); border-radius: var(--radius-sm); margin-bottom: 8px; }
+
+    .detail-back { font-size: 13px; color: var(--text-tertiary); display: inline-flex; align-items: center; gap: 6px; margin: 20px 0 24px; cursor: pointer; transition: color 0.15s; background: none; border: none; font-family: var(--font-sans); }
+    .detail-back:hover { color: var(--text-primary); }
+    .detail-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; flex-wrap: wrap; margin-bottom: 20px; }
+    .detail-title { font-family: var(--font-display); font-size: 24px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px; letter-spacing: -0.02em; }
+    .detail-slug { font-size: 12px; color: var(--text-muted); margin-bottom: 6px; }
+    .detail-subtitle { font-size: 12px; color: var(--text-tertiary); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .detail-actions { display: flex; gap: 8px; flex-shrink: 0; }
+    .detail-meta { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; margin-bottom: 24px; }
+    .meta-card { background: var(--bg-surface); border: 1px solid var(--border-subtle); padding: 14px 16px; border-radius: var(--radius-md); }
+    .meta-label { font-size: 11px; font-weight: 500; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px; }
+    .meta-val { font-size: 14px; color: var(--text-secondary); font-weight: 600; font-family: var(--font-mono); }
+    .meta-val.g { color: var(--accent); }
+    .detail-tabs { display: flex; border-bottom: 1px solid var(--border-subtle); margin-bottom: 24px; }
+    .dtab { font-size: 13px; font-weight: 500; padding: 10px 16px; color: var(--text-tertiary); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all 0.15s; background: none; border-top: none; border-left: none; border-right: none; font-family: var(--font-sans); }
+    .dtab:hover { color: var(--text-secondary); }
+    .dtab.active { color: var(--text-primary); border-bottom-color: var(--accent); }
     .dtab-panel { display: none; }
     .dtab-panel.active { display: block; }
-    .detail-desc { font-size: 12px; color: var(--muted2); line-height: 1.7; margin-bottom: 20px; max-width: 720px; }
-    .detail-readme { background: #000; border: 1px solid var(--border); padding: 18px 20px; font-size: 11px; color: #7ec8a0; line-height: 1.6; white-space: pre-wrap; max-height: 400px; overflow-y: auto; margin-bottom: 20px; }
-    .cost-table { background: #000; border: 1px solid var(--border); max-width: 360px; }
-    .cost-row { display: flex; justify-content: space-between; font-size: 11px; padding: 8px 14px; border-bottom: 1px solid var(--border); }
-    .cost-row:last-child { border-bottom: none; color: var(--green); font-weight: 700; }
-    .schema-block { background: #000; border: 1px solid var(--border); padding: 16px; font-size: 10px; color: #7ec8a0; line-height: 1.5; overflow-x: auto; white-space: pre-wrap; max-height: 360px; overflow-y: auto; }
-    .invoke-section { background: var(--surface3); border: 1px solid var(--border); padding: 20px; margin-top: 20px; }
-    .invoke-title { font-size: 9px; color: var(--green); letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 14px; }
-    .invoke-result { background: #000; border: 1px solid rgba(0,255,136,0.2); padding: 16px; font-size: 11px; color: #aee; line-height: 1.7; white-space: pre-wrap; display: none; margin-top: 12px; max-height: 300px; overflow-y: auto; }
-    .runtime-card { background: var(--surface); border: 1px solid var(--border); padding: 16px; margin-bottom: 16px; }
-    .runtime-row { display: flex; justify-content: space-between; font-size: 10px; padding: 5px 0; border-bottom: 1px solid var(--border); }
+    .detail-desc { font-size: 14px; color: var(--text-secondary); line-height: 1.7; margin-bottom: 20px; max-width: 720px; }
+    .detail-readme { background: var(--bg-primary); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 16px 20px; font-size: 13px; font-family: var(--font-mono); color: var(--text-secondary); line-height: 1.6; white-space: pre-wrap; max-height: 400px; overflow-y: auto; margin-bottom: 20px; }
+    .cost-table { background: var(--bg-primary); border: 1px solid var(--border-subtle); max-width: 360px; border-radius: var(--radius-md); overflow: hidden; }
+    .cost-row { display: flex; justify-content: space-between; font-size: 13px; padding: 10px 16px; border-bottom: 1px solid var(--border-subtle); color: var(--text-secondary); }
+    .cost-row:last-child { border-bottom: none; color: var(--accent); font-weight: 600; font-family: var(--font-mono); }
+    .schema-block { background: var(--bg-primary); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 16px; font-size: 12px; font-family: var(--font-mono); color: var(--text-secondary); line-height: 1.5; overflow-x: auto; white-space: pre-wrap; max-height: 360px; overflow-y: auto; }
+    .invoke-section { background: var(--bg-surface-2); border: 1px solid var(--border-default); border-radius: var(--radius-lg); padding: 24px; margin-top: 20px; }
+    .invoke-title { font-size: 12px; font-weight: 600; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 14px; }
+    .invoke-result { background: var(--bg-primary); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 16px; font-size: 13px; font-family: var(--font-mono); color: var(--text-secondary); line-height: 1.7; white-space: pre-wrap; display: none; margin-top: 14px; max-height: 300px; overflow-y: auto; }
+    .runtime-card { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 16px; margin-bottom: 16px; }
+    .runtime-row { display: flex; justify-content: space-between; font-size: 13px; padding: 6px 0; border-bottom: 1px solid var(--border-subtle); }
     .runtime-row:last-child { border-bottom: none; }
-    .runtime-row .k { color: var(--muted); }
-    .runtime-row .v { color: var(--muted2); }
-    .changelog-entry { background: var(--surface); border: 1px solid var(--border); padding: 14px 18px; font-size: 11px; color: var(--muted2); line-height: 1.7; white-space: pre-wrap; }
+    .runtime-row .k { color: var(--text-tertiary); }
+    .runtime-row .v { color: var(--text-secondary); font-family: var(--font-mono); }
+    .changelog-entry { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 16px 20px; font-size: 13px; color: var(--text-secondary); line-height: 1.7; white-space: pre-wrap; }
 
-    /* ═══════════ PUBLISH TAB ═══════════ */
-    .pub-layout { display: grid; grid-template-columns: 1fr 320px; gap: 20px; align-items: start; }
+    .pub-layout { display: grid; grid-template-columns: 1fr 300px; gap: 20px; align-items: start; }
     @media(max-width:860px) { .pub-layout { grid-template-columns: 1fr; } }
-    .form-card { background: var(--surface); border: 1px solid var(--border); padding: 24px; }
-    .form-title { font-family: var(--serif); font-size: 18px; font-weight: 700; color: #fff; margin-bottom: 4px; }
-    .form-sub { font-size: 10px; color: var(--muted); margin-bottom: 24px; line-height: 1.6; }
+    .form-card { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 28px; }
+    .form-title { font-family: var(--font-display); font-size: 18px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px; }
+    .form-sub { font-size: 13px; color: var(--text-tertiary); margin-bottom: 24px; line-height: 1.6; }
     .form-group { margin-bottom: 16px; }
-    .form-label { font-size: 9px; color: var(--muted); letter-spacing: 1.5px; text-transform: uppercase; display: block; margin-bottom: 5px; }
-    .form-label .hint { font-size: 8px; color: #555; text-transform: none; letter-spacing: 0; margin-left: 6px; }
+    .form-label { font-size: 12px; font-weight: 500; color: var(--text-tertiary); display: block; margin-bottom: 6px; }
+    .form-label .hint { font-size: 11px; color: var(--text-muted); font-weight: 400; margin-left: 4px; }
     .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
     .form-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
     .form-check { display: flex; align-items: center; gap: 8px; cursor: pointer; }
-    .form-check input { accent-color: var(--green); width: 13px; height: 13px; cursor: pointer; }
-    .form-check span { font-size: 11px; color: var(--muted2); }
-    .btn-submit { font-family: var(--font); font-size: 11px; padding: 10px 20px; background: var(--green-dim); border: 1px solid var(--green); color: var(--green); cursor: pointer; width: 100%; text-transform: uppercase; transition: all .15s; margin-top: 6px; }
-    .btn-submit:hover { background: rgba(0,255,136,0.2); }
-    .btn-submit:disabled { opacity: .4; cursor: not-allowed; }
-    .var-preview { background: #000; border: 1px solid var(--border); padding: 10px 14px; font-size: 9px; color: #7ec8a0; line-height: 1.7; margin-top: 6px; }
-    .var-preview .var-tag { display: inline-block; background: rgba(0,255,136,0.1); border: 1px solid rgba(0,255,136,0.3); padding: 1px 6px; margin: 0 2px; color: var(--green); font-weight: 600; }
+    .form-check input { accent-color: var(--accent); width: 14px; height: 14px; cursor: pointer; }
+    .form-check span { font-size: 13px; color: var(--text-secondary); }
+    .field { font-family: var(--font-sans); font-size: 13px; background: var(--bg-primary); border: 1px solid var(--border-default); color: var(--text-primary); padding: 8px 12px; border-radius: var(--radius-md); outline: none; transition: border-color 0.15s; }
+    .field:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }
+    .field::placeholder { color: var(--text-muted); }
+    textarea.field { width: 100%; resize: vertical; min-height: 80px; line-height: 1.5; }
+    input.field, select.field { width: 100%; }
+    .var-preview { background: var(--bg-surface-2); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 10px 14px; font-size: 12px; color: var(--text-secondary); line-height: 1.7; margin-top: 6px; }
+    .var-tag { display: inline-block; background: var(--accent-dim); border: 1px solid rgba(16,185,129,0.3); padding: 1px 6px; border-radius: var(--radius-sm); color: var(--accent); font-weight: 600; font-family: var(--font-mono); margin: 0 2px; }
+    .btn-submit { font-family: var(--font-sans); font-size: 13px; font-weight: 500; padding: 10px 20px; background: var(--accent); border: 1px solid var(--accent); color: #000; cursor: pointer; width: 100%; border-radius: var(--radius-md); transition: all 0.15s; margin-top: 6px; }
+    .btn-submit:hover { background: var(--accent-hover); }
+    .btn-submit:disabled { opacity: 0.4; cursor: not-allowed; }
 
-    /* Validation sidebar */
-    .info-card { background: var(--surface); border: 1px solid var(--border); padding: 18px; }
+    .info-card { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 18px; }
     .info-card + .info-card { margin-top: 12px; }
-    .info-title { font-size: 10px; font-weight: 700; color: var(--muted2); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 1px; }
-    .info-row { display: flex; justify-content: space-between; align-items: center; font-size: 10px; padding: 6px 0; border-bottom: 1px solid var(--border); }
+    .info-title { font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.06em; }
+    .info-row { display: flex; justify-content: space-between; align-items: center; font-size: 13px; padding: 6px 0; border-bottom: 1px solid var(--border-subtle); }
     .info-row:last-child { border-bottom: none; }
-    .info-row .l { color: var(--muted); }
-    .info-row .v { color: var(--green); font-weight: 600; }
-    .info-row .v.n { color: var(--muted2); }
-    .val-item { display: flex; align-items: center; gap: 8px; font-size: 10px; padding: 5px 0; color: var(--muted); }
-    .val-item.pass { color: var(--green); }
-    .val-item.fail { color: var(--red); }
-    .val-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--border2); flex-shrink: 0; }
-    .val-item.pass .val-dot { background: var(--green); }
-    .val-item.fail .val-dot { background: var(--red); }
+    .info-row .l { color: var(--text-tertiary); }
+    .info-row .v { color: var(--accent); font-weight: 600; font-family: var(--font-mono); }
+    .info-row .v.n { color: var(--text-secondary); font-family: var(--font-sans); }
+    .val-item { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 5px 0; color: var(--text-tertiary); }
+    .val-item.pass { color: var(--accent); }
+    .val-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--border-default); flex-shrink: 0; }
+    .val-item.pass .val-dot { background: var(--accent); }
 
-    /* ═══════════ MY SKILLS ═══════════ */
     .cstat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 24px; }
-    .cstat { background: var(--surface); border: 1px solid var(--border); padding: 16px; }
-    .cstat-val { font-size: 24px; font-weight: 700; color: var(--green); letter-spacing: -.5px; margin-bottom: 3px; }
-    .cstat-lbl { font-size: 8px; color: var(--muted); text-transform: uppercase; letter-spacing: 1.5px; }
-    .my-skill-row { background: var(--surface); border: 1px solid var(--border); padding: 14px 18px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 8px; }
-    .my-skill-name { font-size: 12px; font-weight: 700; color: #fff; flex: 1; min-width: 140px; }
-    .my-skill-id { font-size: 9px; color: var(--muted); margin-top: 1px; }
+    .cstat { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 16px; }
+    .cstat-val { font-family: var(--font-mono); font-size: 24px; font-weight: 700; color: var(--accent); letter-spacing: -0.5px; margin-bottom: 4px; }
+    .cstat-lbl { font-size: 11px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.04em; }
+    .my-skill-row { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 14px 18px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 8px; }
+    .my-skill-name { font-size: 14px; font-weight: 600; color: var(--text-primary); flex: 1; min-width: 140px; cursor: pointer; }
+    .my-skill-name:hover { color: var(--accent); }
+    .my-skill-id { font-size: 11px; color: var(--text-muted); margin-top: 2px; font-family: var(--font-mono); }
     .my-skill-stat { text-align: center; }
-    .my-skill-stat .v { font-size: 16px; font-weight: 700; color: var(--green); line-height: 1; }
-    .my-skill-stat .l { font-size: 8px; color: var(--muted); margin-top: 1px; text-transform: uppercase; }
-    .status-badge { font-size: 8px; padding: 2px 7px; border: 1px solid; letter-spacing: 1px; text-transform: uppercase; }
-    .status-badge.live { border-color: rgba(0,255,136,0.4); color: var(--green); }
-    .status-badge.draft { border-color: rgba(136,136,136,0.4); color: var(--muted); }
-    .btn-sm { font-family: var(--font); font-size: 9px; padding: 5px 10px; border: 1px solid var(--border2); color: var(--muted); background: transparent; cursor: pointer; transition: all .15s; }
-    .btn-sm:hover { border-color: var(--green); color: var(--green); }
-    .btn-sm.danger:hover { border-color: var(--red); color: var(--red); }
+    .my-skill-stat .v { font-family: var(--font-mono); font-size: 16px; font-weight: 700; color: var(--accent); line-height: 1; }
+    .my-skill-stat .l { font-size: 11px; color: var(--text-tertiary); margin-top: 2px; text-transform: uppercase; }
+    .status-badge { font-size: 11px; padding: 2px 8px; border: 1px solid; border-radius: 9999px; font-weight: 500; }
+    .status-badge.live { border-color: var(--accent-dim); color: var(--accent); background: var(--accent-subtle); }
+    .status-badge.draft { border-color: var(--border-default); color: var(--text-tertiary); }
+    .btn-sm { font-family: var(--font-sans); font-size: 12px; padding: 5px 10px; border: 1px solid var(--border-default); color: var(--text-tertiary); background: transparent; cursor: pointer; border-radius: var(--radius-sm); transition: all 0.15s; }
+    .btn-sm:hover { border-color: var(--border-strong); color: var(--text-primary); }
+    .btn-sm.danger:hover { border-color: var(--danger); color: var(--danger); }
 
-    /* ── ECONOMY ── */
     .econ-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
-    .econ-card { background: var(--surface3); border: 1px solid var(--border); padding: 18px; }
+    .econ-card { background: var(--bg-surface-2); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 20px; }
     .econ-icon { font-size: 20px; margin-bottom: 10px; }
-    .econ-title { font-size: 10px; font-weight: 700; color: var(--muted2); margin-bottom: 6px; text-transform: uppercase; letter-spacing: .5px; }
-    .econ-desc { font-size: 10px; color: var(--muted); line-height: 1.6; }
+    .econ-title { font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 6px; }
+    .econ-desc { font-size: 13px; color: var(--text-tertiary); line-height: 1.6; }
 
-    /* ── RESPONSIVE ── */
+    footer { border-top: 1px solid var(--border-subtle); padding: 28px 24px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; }
+    .footer-left { display: flex; align-items: center; gap: 24px; }
+    .footer-logo img { height: 28px; width: auto; object-fit: contain; opacity: 0.7; }
+    .footer-links { display: flex; align-items: center; gap: 16px; list-style: none; flex-wrap: wrap; }
+    .footer-links a { font-size: 12px; color: var(--text-muted); }
+    .footer-links a:hover { color: var(--text-tertiary); }
+    .footer-copy { font-size: 12px; color: var(--text-muted); }
+
     @media(max-width:640px) {
-      main { padding: 0 16px 60px; }
-      .hero { flex-direction: column; align-items: flex-start; }
-      .hero-stats { flex-wrap: wrap; }
+      main { padding: 64px 16px 60px; }
+      .mkt-hero { flex-direction: column; align-items: flex-start; }
       .grid { grid-template-columns: 1fr; }
       .cstat-grid { grid-template-columns: 1fr 1fr; }
       .detail-meta { grid-template-columns: 1fr 1fr; }
       .my-skill-row { flex-direction: column; align-items: flex-start; }
       .form-row, .form-row-3 { grid-template-columns: 1fr; }
-      .search-kbd { display: none; }
     }
   </style>
 </head>
@@ -295,72 +287,64 @@
 
 <nav>
   <div class="nav-left">
-    <a href="https://claw-net.org" class="nav-logo"><img src="/logo.png" alt="Claw-Net.org" onerror="this.style.display='none'"></a>
-    <div class="nav-api-status" id="navApiStatus">
-      <span class="status-dot" id="statusDot"></span>
-      <span id="statusLabel" style="font-size:10px;letter-spacing:0.5px;color:#888">Checking...</span>
-    </div>
-    <div class="nav-credits-badge" id="nav-credits-badge">⚡ <span id="nav-credits-num">—</span> credits</div>
+    <a href="/" class="nav-logo"><img src="/logo.png" alt="ClawNet"></a>
+    <ul class="nav-links">
+      <li><a href="/">Home</a></li>
+      <li><a href="/docs.html">Docs</a></li>
+      <li><a href="/marketplace.html" class="active">Marketplace</a></li>
+      <li><a href="/endpoints.html">Endpoints</a></li>
+      <li><a href="/dashboard.html">Dashboard</a></li>
+    </ul>
   </div>
-  <ul class="nav-links">
-    <li><a href="https://claw-net.org/#how-it-works">How It Works</a></li>
-    <li><a href="https://claw-net.org/#pricing">Pricing</a></li>
-    <li><a href="https://claw-net.org/#contact">Contact</a></li>
-    <li><a href="/docs.html">API Docs</a></li>
-    <li><a href="/marketplace.html" class="active">Marketplace</a></li>
-    <li><a href="/endpoints.html">Endpoints</a></li>
-  </ul>
-  <div class="nav-actions">
-    <div class="nav-divider"></div>
-    <a href="/login.html" class="nav-dashboard" id="nav-login-btn">Login</a>
-    <a href="https://claw-net.org/#pricing" class="nav-cta" id="nav-getkey-btn">Get API Key →</a>
-    <span class="nav-user-email" id="nav-user-email"></span>
+  <div class="nav-right">
+    <div class="nav-status" id="navApiStatus"><span class="status-dot" id="statusDot"></span><span id="statusLabel">Checking...</span></div>
+    <div class="nav-credits" id="nav-credits-badge"><span id="nav-credits-num">&mdash;</span> credits</div>
+    <span class="nav-email" id="nav-user-email"></span>
+    <a href="/login.html" class="nav-login" id="nav-login-btn">Sign In</a>
+    <a href="/dashboard.html" class="nav-cta" id="nav-getkey-btn">Get API Key</a>
     <a href="/dashboard.html" class="nav-btn-ghost" id="nav-dash-btn">Dashboard</a>
-    <button class="nav-btn-ghost danger" id="nav-signout-btn" onclick="navSignOut()">Sign Out</button>
+    <button class="nav-btn-ghost danger" id="nav-signout-btn" onclick="navSignOut()" style="cursor:pointer">Sign Out</button>
   </div>
 </nav>
 
 <main>
-
-  <!-- ═══════════ BROWSE VIEW ═══════════ -->
   <div class="view active" id="v-browse">
-    <div class="hero">
+    <div class="mkt-hero">
       <div>
-        <div class="hero-eyebrow">ClawNet Skill Marketplace</div>
-        <h1 class="hero-title">The <em>AI Skill</em> Economy</h1>
-        <p class="hero-sub">Discover, purchase, and publish AI skills. Pay per use. Earn 97% as a creator. One API call to buy and execute.</p>
+        <h1 class="mkt-hero-title">The <span>AI Skill</span> Economy</h1>
+        <p class="mkt-hero-sub">Discover, purchase, and publish AI skills. Pay per use. Earn 97% as a creator. One API call to buy and execute.</p>
       </div>
-      <div class="hero-stats">
+      <div class="mkt-hero-stats">
         <div class="hstat"><div class="hstat-val g" id="stat-total">&mdash;</div><div class="hstat-lbl">Skills</div></div>
         <div class="hstat"><div class="hstat-val g">97%</div><div class="hstat-lbl">To Creator</div></div>
         <div class="hstat"><div class="hstat-val p">3%</div><div class="hstat-lbl">Platform</div></div>
       </div>
     </div>
+
     <div class="tabs" id="main-tabs">
       <button class="tab active" data-tab="browse">Browse</button>
       <button class="tab" data-tab="publish">Publish</button>
       <button class="tab" data-tab="my-skills">My Skills</button>
       <button class="tab" data-tab="starred">Starred</button>
+      <button class="tab" data-tab="tasks">Task History</button>
       <button class="tab" data-tab="economy">How It Works</button>
     </div>
 
-    <!-- TAB: BROWSE -->
+    <!-- BROWSE -->
     <div class="tab-panel active" id="tp-browse">
       <div class="controls">
         <div class="search-wrap">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
           <input type="text" class="search-input" id="search-input" placeholder="Search skills..." oninput="debounceSearch()">
-          <span class="search-kbd">Ctrl+K</span>
         </div>
-        <div class="sel-wrap">
-          <select class="ctl" id="sort-select" onchange="loadSkills()">
-            <option value="popular">Popular</option>
-            <option value="stars">Most Starred</option>
-            <option value="newest">Newest</option>
-            <option value="price_asc">Price Low</option>
-            <option value="price_desc">Price High</option>
-            <option value="reputation">Reputation</option>
-          </select>
-        </div>
+        <select class="sort-select" id="sort-select" onchange="loadSkills()">
+          <option value="popular">Popular</option>
+          <option value="stars">Most Starred</option>
+          <option value="newest">Newest</option>
+          <option value="price_asc">Price: Low</option>
+          <option value="price_desc">Price: High</option>
+          <option value="reputation">Reputation</option>
+        </select>
         <div class="cat-pills" id="cat-pills">
           <button class="cat-pill on" data-cat="">All</button>
           <button class="cat-pill" data-cat="defi">⬡ DeFi</button>
@@ -371,7 +355,7 @@
           <button class="cat-pill" data-cat="media">▶ Media</button>
           <button class="cat-pill" data-cat="enrichment">⊕ Enrichment</button>
           <button class="cat-pill" data-cat="analytics">∿ Analytics</button>
-          <button class="cat-pill" data-cat="infrastructure">⚙ Infrastructure</button>
+          <button class="cat-pill" data-cat="infrastructure">⚙ Infra</button>
           <button class="cat-pill" data-cat="utility">◇ Utility</button>
           <button class="cat-pill" data-cat="weather">☁ Weather</button>
         </div>
@@ -380,36 +364,31 @@
       <div class="pg" id="pagination"></div>
     </div>
 
-    <!-- TAB: PUBLISH -->
+    <!-- PUBLISH -->
     <div class="tab-panel" id="tp-publish">
       <div class="pub-layout">
         <div class="form-card">
           <h2 class="form-title">Publish a Skill</h2>
-          <p class="form-sub">Create a prompt-powered AI skill. Skills run on the ClawNet orchestration layer &mdash; no infra needed. You earn 97% of every purchase.</p>
-
+          <p class="form-sub">Create a prompt-powered AI skill. Skills run on the ClawNet orchestration layer — no infra needed. You earn 97% of every purchase.</p>
           <div class="form-row">
             <div class="form-group">
-              <label class="form-label">Slug <span class="hint">&mdash; unique identifier</span></label>
+              <label class="form-label">Slug <span class="hint">— unique identifier</span></label>
               <input type="text" class="field" id="pub-slug" placeholder="my-skill-name" oninput="onSlugInput()">
-              <div class="field-hint">Lowercase letters, numbers, hyphens only</div>
             </div>
             <div class="form-group">
               <label class="form-label">Display Name</label>
               <input type="text" class="field" id="pub-display" placeholder="My Skill Name" oninput="updateValidation()">
             </div>
           </div>
-
           <div class="form-group">
-            <label class="form-label">Description <span class="hint">&mdash; what does this skill do?</span></label>
+            <label class="form-label">Description <span class="hint">— what does this skill do?</span></label>
             <textarea class="field" id="pub-desc" rows="3" placeholder="Analyze NFT collection floor prices, volume trends, and whale activity on Solana." oninput="updateValidation()"></textarea>
           </div>
-
           <div class="form-group">
-            <label class="form-label">Prompt Template <span class="hint">&mdash; use &#123;&#123;variable&#125;&#125; for inputs</span></label>
+            <label class="form-label">Prompt Template <span class="hint">— use &#123;&#123;variable&#125;&#125; for inputs</span></label>
             <textarea class="field" id="pub-prompt" rows="5" placeholder="Analyze the NFT collection {{collection}} on Solana. Include floor price, 24h volume, top holders." oninput="updateValidation()"></textarea>
             <div class="var-preview" id="var-preview" style="display:none"></div>
           </div>
-
           <div class="form-row-3">
             <div class="form-group">
               <label class="form-label">Price (credits)</label>
@@ -423,102 +402,85 @@
               <label class="form-label">License</label>
               <select class="field" id="pub-license">
                 <option value="MIT">MIT</option>
-                <option value="MIT-0">MIT-0 (No Attribution)</option>
+                <option value="MIT-0">MIT-0</option>
                 <option value="Apache-2.0">Apache 2.0</option>
                 <option value="GPL-3.0">GPL 3.0</option>
                 <option value="Proprietary">Proprietary</option>
               </select>
             </div>
           </div>
-
           <div class="form-row">
             <div class="form-group">
               <label class="form-label">Category</label>
               <select class="field" id="pub-category">
-                <option value="general">General</option>
-                <option value="defi">DeFi</option>
-                <option value="security">Security</option>
-                <option value="social">Social</option>
-                <option value="ai">AI / ML</option>
-                <option value="search">Search</option>
-                <option value="media">Media</option>
-                <option value="enrichment">Lead Enrichment</option>
-                <option value="analytics">Analytics</option>
-                <option value="infrastructure">Infrastructure</option>
-                <option value="utility">Utility</option>
-                <option value="weather">Weather</option>
+                <option value="general">General</option><option value="defi">DeFi</option>
+                <option value="security">Security</option><option value="social">Social</option>
+                <option value="ai">AI / ML</option><option value="search">Search</option>
+                <option value="media">Media</option><option value="enrichment">Lead Enrichment</option>
+                <option value="analytics">Analytics</option><option value="infrastructure">Infrastructure</option>
+                <option value="utility">Utility</option><option value="weather">Weather</option>
               </select>
             </div>
             <div class="form-group">
-              <label class="form-label">Tags <span class="hint">&mdash; comma-separated, max 10</span></label>
+              <label class="form-label">Tags <span class="hint">— comma-separated, max 10</span></label>
               <input type="text" class="field" id="pub-tags" placeholder="solana, nft, analysis" oninput="updateValidation()">
             </div>
           </div>
-
           <div class="form-group">
-            <label class="form-label">Changelog <span class="hint">&mdash; what's in this version?</span></label>
-            <textarea class="field" id="pub-changelog" rows="2" placeholder="Initial release with core analysis features."></textarea>
+            <label class="form-label">Changelog <span class="hint">— what's in this version?</span></label>
+            <textarea class="field" id="pub-changelog" rows="2" placeholder="Initial release."></textarea>
           </div>
-
           <div class="form-group">
-            <label class="form-label">README <span class="hint">&mdash; optional, detailed usage guide</span></label>
+            <label class="form-label">README <span class="hint">— optional</span></label>
             <textarea class="field" id="pub-readme" rows="4" placeholder="# My Skill&#10;&#10;Detailed description, usage examples, caveats..."></textarea>
           </div>
-
-          <div style="margin-top:20px;border:1px solid var(--border);background:rgba(0,255,136,0.02);padding:18px 20px">
-            <div style="font-size:10px;font-weight:700;color:var(--muted2);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">License &amp; Terms</div>
-            <div style="font-size:10px;color:var(--muted);line-height:1.7;margin-bottom:14px">
-              <p style="margin-bottom:8px">Your selected license determines how buyers can use the skill output:</p>
-              <div style="display:grid;gap:6px;padding-left:2px">
-                <div><strong style="color:var(--muted2)">MIT</strong> &mdash; Buyers can use, modify, and redistribute skill outputs freely. Attribution appreciated but not required.</div>
-                <div><strong style="color:var(--muted2)">MIT-0</strong> &mdash; Same as MIT but explicitly waives attribution. Maximum freedom for buyers.</div>
-                <div><strong style="color:var(--muted2)">Apache 2.0</strong> &mdash; Like MIT but includes a patent grant. Good for enterprise/commercial use.</div>
-                <div><strong style="color:var(--muted2)">GPL 3.0</strong> &mdash; Outputs must remain open. Buyers who build on your skill must also share their work openly.</div>
-                <div><strong style="color:var(--muted2)">Proprietary</strong> &mdash; Buyers may only use outputs as-is. No modification, redistribution, or derivative works.</div>
+          <div style="margin-top:20px;border:1px solid var(--border-subtle);background:var(--accent-subtle);padding:18px 20px;border-radius:var(--radius-md)">
+            <div style="font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:10px">License &amp; Terms</div>
+            <div style="font-size:13px;color:var(--text-tertiary);line-height:1.6;margin-bottom:12px">
+              <div style="display:grid;gap:4px">
+                <div><strong style="color:var(--text-secondary)">MIT</strong> — Freely use, modify, redistribute.</div>
+                <div><strong style="color:var(--text-secondary)">Apache 2.0</strong> — Like MIT with patent grant.</div>
+                <div><strong style="color:var(--text-secondary)">GPL 3.0</strong> — Outputs must remain open source.</div>
+                <div><strong style="color:var(--text-secondary)">Proprietary</strong> — Use as-is only.</div>
               </div>
-              <p style="margin-top:10px;font-size:9px;color:var(--muted)">All skills are prompt templates executed on the ClawNet orchestration layer. You retain authorship. The 3% platform fee applies to all purchases. Earnings can be withdrawn as USDC or reinvested.</p>
+              <p style="margin-top:8px;font-size:12px;color:var(--text-muted)">3% platform fee applies to all purchases. Earnings withdrawable as USDC.</p>
             </div>
-            <label class="form-check" style="margin-top:0"><input type="checkbox" id="pub-license-agree"><span>I have the rights to publish this skill and agree to the selected license terms</span></label>
+            <label class="form-check"><input type="checkbox" id="pub-license-agree"><span>I have the rights to publish this skill and agree to the license terms</span></label>
           </div>
-
           <div style="margin-top:14px;margin-bottom:12px">
             <label class="form-check"><input type="checkbox" id="pub-public" checked><span>List publicly in marketplace</span></label>
           </div>
-
           <button class="btn-submit" id="pub-btn" onclick="publishSkill()">Publish Skill &rarr;</button>
-          <div id="pub-result" style="margin-top:12px;font-size:10px;display:none;padding:10px;border:1px solid var(--border)"></div>
+          <div id="pub-result" style="margin-top:12px;font-size:13px;display:none;padding:10px 14px;border:1px solid var(--border-subtle);border-radius:var(--radius-md)"></div>
         </div>
-
-        <!-- Right sidebar: Validation + Economics -->
         <div>
           <div class="info-card">
             <div class="info-title">Validation</div>
             <div id="validation-list">
-              <div class="val-item fail"><span class="val-dot"></span>Slug is required</div>
-              <div class="val-item fail"><span class="val-dot"></span>Display name is required</div>
-              <div class="val-item fail"><span class="val-dot"></span>Description (min 10 chars)</div>
-              <div class="val-item fail"><span class="val-dot"></span>Prompt template (min 10 chars)</div>
-              <div class="val-item fail"><span class="val-dot"></span>Accept license terms</div>
+              <div class="val-item"><span class="val-dot"></span>Slug is required</div>
+              <div class="val-item"><span class="val-dot"></span>Display name is required</div>
+              <div class="val-item"><span class="val-dot"></span>Description (min 10 chars)</div>
+              <div class="val-item"><span class="val-dot"></span>Prompt template (min 10 chars)</div>
+              <div class="val-item"><span class="val-dot"></span>Accept license terms</div>
             </div>
           </div>
           <div class="info-card">
             <div class="info-title">Creator Economics</div>
             <div class="info-row"><span class="l">Your cut</span><span class="v">97%</span></div>
             <div class="info-row"><span class="l">Platform fee</span><span class="v n">3%</span></div>
-            <div class="info-row"><span class="l">Payment</span><span class="v n">Instant credit transfer</span></div>
-            <div class="info-row"><span class="l">Min price</span><span class="v n">0 credits (free)</span></div>
-            <div id="earnings-preview" style="display:none;margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">
+            <div class="info-row"><span class="l">Payment</span><span class="v n">Instant</span></div>
+            <div class="info-row"><span class="l">Min price</span><span class="v n">0 credits</span></div>
+            <div id="earnings-preview" style="display:none;margin-top:8px;padding-top:8px;border-top:1px solid var(--border-subtle)">
               <div class="info-row"><span class="l">Per sale you earn</span><span class="v" id="ep-earn">0</span></div>
               <div class="info-row"><span class="l">Platform takes</span><span class="v n" id="ep-fee">0</span></div>
             </div>
           </div>
           <div class="info-card">
             <div class="info-title">After Publishing</div>
-            <div style="font-size:10px;color:var(--muted);line-height:1.7">
-              <p>Your skill appears immediately. Every purchase atomically transfers credits. Credits can be:</p>
-              <ul style="margin:8px 0 0 14px;display:flex;flex-direction:column;gap:4px">
+            <div style="font-size:13px;color:var(--text-tertiary);line-height:1.7">
+              <p>Your skill appears immediately. Credits can be:</p>
+              <ul style="margin:8px 0 0 16px;display:flex;flex-direction:column;gap:4px">
                 <li>Used to invoke other skills</li>
-                <li>Used for orchestration queries</li>
                 <li>Staked to boost visibility</li>
                 <li>Withdrawn as USDC</li>
               </ul>
@@ -528,10 +490,13 @@
       </div>
     </div>
 
-    <!-- TAB: MY SKILLS -->
+    <!-- MY SKILLS -->
     <div class="tab-panel" id="tp-my-skills">
-      <div id="my-auth" style="display:none;padding:28px;text-align:center;border:1px solid var(--border);background:var(--surface)">
-        <p style="font-size:11px;color:var(--muted);margin-bottom:14px">Set your API key to view your skills and earnings</p>
+      <div id="my-auth" style="display:none">
+        <div class="card" style="text-align:center;padding:40px">
+          <p style="color:var(--text-tertiary);margin-bottom:12px">Set your API key to view your skills and earnings</p>
+          <a href="/dashboard.html" class="btn btn-primary">Go to Dashboard</a>
+        </div>
       </div>
       <div id="my-content" style="display:none">
         <div class="cstat-grid">
@@ -540,74 +505,123 @@
           <div class="cstat"><div class="cstat-val" id="cs-skills">&mdash;</div><div class="cstat-lbl">Published</div></div>
         </div>
         <div id="my-skills-list"></div>
-        <div style="margin-top:28px;padding-top:20px;border-top:1px solid var(--border)">
-          <div style="font-size:10px;font-weight:700;color:var(--muted2);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Withdraw Earnings</div>
-          <div style="font-size:10px;color:var(--muted);margin-bottom:14px">Convert credits to USDC. Min 1,000 credits ($0.75). Sent within 48h.</div>
+        <div style="margin-top:28px;padding-top:20px;border-top:1px solid var(--border-subtle)">
+          <div style="font-size:14px;font-weight:600;color:var(--text-secondary);margin-bottom:4px">Withdraw Earnings</div>
+          <div style="font-size:13px;color:var(--text-tertiary);margin-bottom:14px">Convert credits to USDC. Min 1,000 credits ($0.75). Sent within 48h.</div>
           <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:8px;max-width:600px;align-items:end">
             <div><label class="form-label">Credits</label><input type="number" class="field" id="wd-amount" placeholder="1000" min="1000" style="width:100%"></div>
             <div><label class="form-label">USDC wallet (Solana)</label><input type="text" class="field" id="wd-wallet" placeholder="Solana address" style="width:100%"></div>
-            <button class="btn-primary" style="white-space:nowrap;padding:8px 14px" onclick="requestWithdraw()">Withdraw</button>
+            <button class="btn btn-primary" onclick="requestWithdraw()">Withdraw</button>
           </div>
-          <div id="wd-result" style="margin-top:10px;font-size:10px;display:none;padding:8px 12px;border:1px solid var(--border)"></div>
+          <div id="wd-result" style="margin-top:10px;font-size:13px;display:none;padding:10px 14px;border:1px solid var(--border-subtle);border-radius:var(--radius-md)"></div>
           <div id="wd-history" style="margin-top:14px"></div>
         </div>
       </div>
     </div>
 
-    <!-- TAB: STARRED -->
+    <!-- STARRED -->
     <div class="tab-panel" id="tp-starred">
       <div id="starred-list" style="display:flex;flex-direction:column;gap:10px"></div>
     </div>
 
-    <!-- TAB: HOW IT WORKS -->
+    <!-- TASK HISTORY -->
+    <div class="tab-panel" id="tp-tasks">
+      <div id="tasks-auth" style="display:none">
+        <div class="card" style="text-align:center;padding:40px">
+          <p style="color:var(--text-tertiary);margin-bottom:12px">Set your API key to view task history</p>
+          <a href="/dashboard.html" class="btn btn-primary">Go to Dashboard</a>
+        </div>
+      </div>
+      <div id="tasks-content" style="display:none">
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:24px">
+          <div class="card"><div style="font-family:var(--font-mono);font-size:28px;font-weight:700;color:var(--text-primary)" id="ts-total">—</div><div style="font-size:12px;color:var(--text-tertiary);margin-top:4px">Total Tasks</div></div>
+          <div class="card"><div style="font-family:var(--font-mono);font-size:28px;font-weight:700;color:var(--accent)" id="ts-completed">—</div><div style="font-size:12px;color:var(--text-tertiary);margin-top:4px">Completed</div></div>
+          <div class="card"><div style="font-family:var(--font-mono);font-size:28px;font-weight:700;color:var(--text-primary)" id="ts-credits">—</div><div style="font-size:12px;color:var(--text-tertiary);margin-top:4px">Credits Spent</div></div>
+        </div>
+        <div class="card" style="padding:0;overflow:hidden">
+          <table style="width:100%;border-collapse:collapse;font-size:13px">
+            <thead><tr style="border-bottom:1px solid var(--border-subtle)">
+              <th style="font-size:11px;font-weight:500;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em;text-align:left;padding:10px 16px">Task ID</th>
+              <th style="font-size:11px;font-weight:500;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em;text-align:left;padding:10px 16px">Skill</th>
+              <th style="font-size:11px;font-weight:500;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em;text-align:left;padding:10px 16px">Status</th>
+              <th style="font-size:11px;font-weight:500;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em;text-align:left;padding:10px 16px">Credits</th>
+              <th style="font-size:11px;font-weight:500;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em;text-align:left;padding:10px 16px">Duration</th>
+              <th style="font-size:11px;font-weight:500;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em;text-align:left;padding:10px 16px">Created</th>
+              <th style="font-size:11px;font-weight:500;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em;text-align:left;padding:10px 16px">Actions</th>
+            </tr></thead>
+            <tbody id="tasks-tbody"></tbody>
+          </table>
+        </div>
+        <div id="tasks-pagination" style="margin-top:16px"></div>
+      </div>
+    </div>
+
+    <!-- HOW IT WORKS -->
     <div class="tab-panel" id="tp-economy">
       <div style="max-width:720px">
-        <h2 style="font-family:var(--serif);font-size:22px;font-weight:700;color:#fff;margin-bottom:8px">How the Skill Economy Works</h2>
-        <p style="font-size:11px;color:var(--muted);margin-bottom:28px;line-height:1.8">A closed-loop credit economy. Credits flow in from real money (Stripe/USDC), circulate through the skill ecosystem, and accumulate as reputation.</p>
+        <h2 style="font-family:var(--font-display);font-size:22px;font-weight:600;color:var(--text-primary);margin-bottom:8px;letter-spacing:-0.02em">How the Skill Economy Works</h2>
+        <p style="font-size:14px;color:var(--text-tertiary);margin-bottom:28px;line-height:1.8">A closed-loop credit economy. Credits flow in from real money (Stripe/USDC), circulate through the skill ecosystem, and accumulate as reputation.</p>
         <div class="econ-grid" style="margin-bottom:32px">
-          <div class="econ-card"><div class="econ-icon">&#x1F4B3;</div><div class="econ-title">Buy Credits</div><div class="econ-desc">Stripe (card) or USDC on Solana. 1 credit = $0.001. No subscriptions.</div></div>
-          <div class="econ-card"><div class="econ-icon">&#x1F6D2;</div><div class="econ-title">Purchase &amp; Execute</div><div class="econ-desc">One API call: pay + run. Atomic settlement in SQLite &mdash; no partial states.</div></div>
-          <div class="econ-card"><div class="econ-icon">&#x26A1;</div><div class="econ-title">Instant Results</div><div class="econ-desc">Variables fill the prompt template, orchestrator runs it, structured answer back.</div></div>
-          <div class="econ-card"><div class="econ-icon">&#x1F4B0;</div><div class="econ-title">97% to Creator</div><div class="econ-desc">Every purchase instantly credits the author. 3% platform fee. No delays.</div></div>
-          <div class="econ-card"><div class="econ-icon">&#x1F512;</div><div class="econ-title">Staking</div><div class="econ-desc">Lock credits to boost discovery ranking. Returned after lock period (1&ndash;365d).</div></div>
-          <div class="econ-card"><div class="econ-icon">&#x1F4CA;</div><div class="econ-title">Reputation</div><div class="econ-desc">Success rate + staking = better ranking = more organic sales.</div></div>
+          <div class="econ-card"><div class="econ-icon">💳</div><div class="econ-title">Buy Credits</div><div class="econ-desc">Stripe or USDC on Solana. 1 credit = $0.001. No subscriptions.</div></div>
+          <div class="econ-card"><div class="econ-icon">🛒</div><div class="econ-title">Purchase &amp; Execute</div><div class="econ-desc">One API call: pay + run. Atomic settlement — no partial states.</div></div>
+          <div class="econ-card"><div class="econ-icon">⚡</div><div class="econ-title">Instant Results</div><div class="econ-desc">Variables fill the prompt template, orchestrator runs it, answer back.</div></div>
+          <div class="econ-card"><div class="econ-icon">💰</div><div class="econ-title">97% to Creator</div><div class="econ-desc">Every purchase instantly credits the author. 3% platform fee.</div></div>
+          <div class="econ-card"><div class="econ-icon">🔒</div><div class="econ-title">Staking</div><div class="econ-desc">Lock credits to boost discovery ranking. Returned after lock period.</div></div>
+          <div class="econ-card"><div class="econ-icon">📊</div><div class="econ-title">Reputation</div><div class="econ-desc">Success rate + staking = better ranking = more organic sales.</div></div>
         </div>
-        <div style="background:var(--surface);border:1px solid var(--border);padding:22px">
-          <h3 style="font-size:11px;font-weight:700;color:#fff;margin-bottom:12px;text-transform:uppercase;letter-spacing:1px">The Credit Loop</h3>
-          <div style="display:flex;align-items:center;gap:0;flex-wrap:wrap;font-size:10px;color:var(--muted);row-gap:6px">
-            <div style="background:var(--surface3);border:1px solid var(--border2);padding:8px 14px;color:var(--muted2)">Buy credits<br><span style="color:var(--muted);font-size:8px">Stripe / USDC</span></div>
-            <div style="padding:0 8px;color:var(--green)">&rarr;</div>
-            <div style="background:var(--surface3);border:1px solid var(--border2);padding:8px 14px;color:var(--muted2)">Purchase skill<br><span style="color:var(--muted);font-size:8px">&minus;credits from buyer</span></div>
-            <div style="padding:0 8px;color:var(--green)">&rarr;</div>
-            <div style="background:var(--surface3);border:1px solid var(--border2);padding:8px 14px;color:var(--muted2)">Creator earns<br><span style="color:var(--muted);font-size:8px">+97% instant</span></div>
-            <div style="padding:0 8px;color:var(--green)">&rarr;</div>
-            <div style="background:var(--surface3);border:1px solid var(--border2);padding:8px 14px;color:var(--green)">Re-invest / withdraw<br><span style="color:rgba(0,255,136,0.5);font-size:8px">or stake for visibility</span></div>
+        <div class="card" style="padding:20px">
+          <div style="font-size:12px;font-weight:600;color:var(--text-primary);margin-bottom:12px;text-transform:uppercase;letter-spacing:0.06em">The Credit Loop</div>
+          <div style="display:flex;align-items:center;flex-wrap:wrap;font-size:13px;gap:0;row-gap:8px">
+            <div style="background:var(--bg-surface-2);border:1px solid var(--border-default);padding:8px 14px;color:var(--text-secondary);border-radius:var(--radius-md)">Buy credits<br><span style="color:var(--text-muted);font-size:11px">Stripe / USDC</span></div>
+            <div style="padding:0 10px;color:var(--accent)">&rarr;</div>
+            <div style="background:var(--bg-surface-2);border:1px solid var(--border-default);padding:8px 14px;color:var(--text-secondary);border-radius:var(--radius-md)">Purchase skill<br><span style="color:var(--text-muted);font-size:11px">&minus;credits from buyer</span></div>
+            <div style="padding:0 10px;color:var(--accent)">&rarr;</div>
+            <div style="background:var(--bg-surface-2);border:1px solid var(--border-default);padding:8px 14px;color:var(--text-secondary);border-radius:var(--radius-md)">Creator earns<br><span style="color:var(--text-muted);font-size:11px">+97% instant</span></div>
+            <div style="padding:0 10px;color:var(--accent)">&rarr;</div>
+            <div style="background:var(--accent-dim);border:1px solid var(--accent-dim);padding:8px 14px;color:var(--accent);border-radius:var(--radius-md)">Re-invest / withdraw<br><span style="color:var(--accent-text);font-size:11px">or stake for visibility</span></div>
           </div>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- ═══════════ SKILL DETAIL VIEW ═══════════ -->
   <div class="view" id="v-detail">
     <button class="detail-back" onclick="nav('')">&larr; Back to Marketplace</button>
     <div id="detail-content"></div>
   </div>
-
 </main>
+
+<footer>
+  <div class="footer-left">
+    <a href="/" class="footer-logo"><img src="/logo.png" alt="ClawNet"></a>
+    <ul class="footer-links">
+      <li><a href="/">Home</a></li>
+      <li><a href="/docs.html">Docs</a></li>
+      <li><a href="/marketplace.html">Marketplace</a></li>
+      <li><a href="/endpoints.html">Endpoints</a></li>
+      <li><a href="/dashboard.html">Dashboard</a></li>
+      <li><a href="https://github.com/1xmint" target="_blank">GitHub</a></li>
+      <li><a href="https://t.me/claw_net" target="_blank">Telegram</a></li>
+      <li><a href="https://stats.uptimerobot.com/BtyHzXcO5p" target="_blank">Status</a></li>
+    </ul>
+  </div>
+  <div class="footer-copy">&copy; 2026 ClawNet &middot; Powered by x402</div>
+</footer>
 
 <script>
 const API = 'https://api.claw-net.org';
 const OFFICIAL = new Set(['token-analysis','social-sentiment','portfolio-optimizer','wallet-profiler','trending-tokens','whale-tracker','defi-yield-scanner','token-launch-radar','price-oracle','nft-collection-intel']);
+const CAT_ICONS = {defi:'⬡',security:'🔒',social:'◎',ai:'✦',search:'⌕',media:'▶',enrichment:'⊕',analytics:'∿',infrastructure:'⚙',utility:'◇',weather:'☁',general:'◆'};
 
 let apiKey = localStorage.getItem('claw_api_key') || '';
 let currentPage = 1, currentCat = '', currentSort = 'popular';
 let searchTimer = null;
 let starredIds = new Set(JSON.parse(localStorage.getItem('claw_starred') || '[]'));
+let taskPage = 0;
+const TASK_LIMIT = 20;
 
-// ─── Init ─────────────────────────────────────────────────────────
+// ── Init ──────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
-  // Tab switching
   document.querySelectorAll('#main-tabs .tab').forEach(t => {
     t.addEventListener('click', () => {
       const tab = t.dataset.tab;
@@ -615,8 +629,6 @@ document.addEventListener('DOMContentLoaded', () => {
       else nav(tab);
     });
   });
-
-  // Category pills
   document.querySelectorAll('.cat-pill').forEach(p => {
     p.addEventListener('click', () => {
       document.querySelectorAll('.cat-pill').forEach(x => x.classList.remove('on'));
@@ -626,12 +638,8 @@ document.addEventListener('DOMContentLoaded', () => {
       loadSkills();
     });
   });
-
-  // License checkbox wires to validation
   const lc = document.getElementById('pub-license-agree');
   if (lc) lc.addEventListener('change', updateValidation);
-
-  // Ctrl+K / Cmd+K search shortcut
   document.addEventListener('keydown', e => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
       e.preventDefault();
@@ -639,12 +647,11 @@ document.addEventListener('DOMContentLoaded', () => {
       if (si) { nav(''); setTimeout(() => si.focus(), 50); }
     }
   });
-
   handleRoute();
   window.addEventListener('hashchange', handleRoute);
 });
 
-// ─── Routing ──────────────────────────────────────────────────────
+// ── Routing ───────────────────────────────────────────────────────
 function nav(hash) { window.location.hash = hash; }
 
 function handleRoute() {
@@ -670,9 +677,10 @@ function handleRoute() {
   if (tabName === 'my-skills') loadMySkills();
   if (tabName === 'starred') loadStarredView();
   if (tabName === 'publish') updateValidation();
+  if (tabName === 'tasks') loadTaskHistory();
 }
 
-// ─── Nav auth + credits ───────────────────────────────────────────
+// ── Nav auth + credits ────────────────────────────────────────────
 async function initNav() {
   try {
     await window.Clerk.load();
@@ -718,14 +726,14 @@ async function fetchApiStatus() {
   const label = document.getElementById('statusLabel');
   try {
     const r = await fetch(API + '/v1/health', { signal: AbortSignal.timeout(5000) });
-    if (r.ok) { dot.className = 'status-dot ok'; label.textContent = 'Live'; label.style.color = 'var(--green)'; }
-    else { dot.className = 'status-dot err'; label.textContent = 'Degraded'; label.style.color = 'var(--red)'; }
-  } catch { dot.className = 'status-dot err'; label.textContent = 'Offline'; label.style.color = 'var(--red)'; }
+    if (r.ok) { dot.className = 'status-dot ok'; label.textContent = 'Live'; label.style.color = 'var(--accent)'; }
+    else { dot.className = 'status-dot err'; label.textContent = 'Degraded'; label.style.color = 'var(--danger)'; }
+  } catch { dot.className = 'status-dot err'; label.textContent = 'Offline'; label.style.color = 'var(--danger)'; }
 }
 fetchApiStatus();
 setInterval(fetchApiStatus, 30000);
 
-// ─── Hero Stats ───────────────────────────────────────────────────
+// ── Hero Stats ────────────────────────────────────────────────────
 async function loadHeroStats() {
   try {
     const r = await fetch(`${API}/v1/marketplace/skills?limit=1`);
@@ -735,7 +743,7 @@ async function loadHeroStats() {
   } catch {}
 }
 
-// ─── Browse ───────────────────────────────────────────────────────
+// ── Browse ────────────────────────────────────────────────────────
 function debounceSearch() {
   clearTimeout(searchTimer);
   searchTimer = setTimeout(() => { currentPage = 1; loadSkills(); }, 300);
@@ -761,18 +769,16 @@ async function loadSkills() {
     const d = await r.json();
     document.getElementById('stat-total').textContent = d.total;
     if (!d.skills.length) {
-      grid.innerHTML = `<div class="empty" style="grid-column:1/-1"><div class="empty-icon">&#x25C8;</div><div class="empty-title">No skills found</div><div class="empty-sub">Try a different search or filter</div></div>`;
+      grid.innerHTML = `<div class="empty" style="grid-column:1/-1"><div class="empty-icon">◈</div><div class="empty-title">No skills found</div><div class="empty-sub">Try a different search or filter</div></div>`;
       document.getElementById('pagination').innerHTML = '';
       return;
     }
     grid.innerHTML = d.skills.map(renderCard).join('');
     renderPagination(d.page, d.pages);
   } catch {
-    grid.innerHTML = `<div class="empty" style="grid-column:1/-1"><div class="empty-icon">&#x26A0;</div><div class="empty-title">Could not load skills</div><div class="empty-sub">Check your connection</div></div>`;
+    grid.innerHTML = `<div class="empty" style="grid-column:1/-1"><div class="empty-icon">⚠</div><div class="empty-title">Could not load skills</div><div class="empty-sub">Check your connection</div></div>`;
   }
 }
-
-const CAT_ICONS = {defi:'⬡',security:'🔒',social:'◎',ai:'✦',search:'⌕',media:'▶',enrichment:'⊕',analytics:'∿',infrastructure:'⚙',utility:'◇',weather:'☁',general:'◆'};
 
 function renderCard(s) {
   const off = OFFICIAL.has(s.id);
@@ -781,12 +787,12 @@ function renderCard(s) {
   const tags = (s.tags||[]).slice(0,3).map(t => `<span class="card-tag">${esc(t)}</span>`).join('');
   const starred = starredIds.has(s.id);
   const secCls = ({VERIFIED:'verified',CLEAN:'clean',FLAGGED:'flagged',SUSPICIOUS:'suspicious'})[s.securityStatus] || 'unscanned';
-  const secTxt = ({VERIFIED:'\u2713 Verified',CLEAN:'\u2713 Clean',FLAGGED:'\u26A0 Flagged',SUSPICIOUS:'\u26A0 Suspicious'})[s.securityStatus] || 'Unscanned';
+  const secTxt = ({VERIFIED:'✓ Verified',CLEAN:'✓ Clean',FLAGGED:'⚠ Flagged',SUSPICIOUS:'⚠ Suspicious'})[s.securityStatus] || 'Unscanned';
   const cat = s.category || 'general';
   const catIcon = CAT_ICONS[cat] || '◆';
-  return `<div class="card${off?' official':''}">
+  return `<div class="skill-card${off?' official':''}">
     ${off ? '<span class="card-badge">Official</span>' : ''}
-    <div class="card-cat-badge">${catIcon} ${esc(cat)}</div>
+    <div class="card-cat">${catIcon} ${esc(cat)}</div>
     <div class="card-head">
       <div>
         <div class="card-name" onclick="nav('skill/'+encodeURIComponent('${esc(s.id)}'))">${esc(displayName)}</div>
@@ -798,14 +804,14 @@ function renderCard(s) {
     <p class="card-desc">${esc(s.description)}</p>
     ${tags ? `<div class="card-tags">${tags}</div>` : ''}
     <div class="card-metrics">
-      <span>\u26A1 <b>${fmt(s.uses||0)}</b> uses</span>
-      <span>\u2605 <b>${fmt(s.stars||0)}</b></span>
-      <span>\uD83D\uDC41 <b>${fmt(s.views||0)}</b></span>
+      <span>⚡ <b>${fmt(s.uses||0)}</b> uses</span>
+      <span>★ <b>${fmt(s.stars||0)}</b></span>
+      <span>👁 <b>${fmt(s.views||0)}</b></span>
       ${s.license && s.license !== 'MIT' ? `<span>${esc(s.license)}</span>` : ''}
     </div>
     <div class="card-actions">
-      <button class="btn-primary" onclick="nav('skill/'+encodeURIComponent('${esc(s.id)}'))">View &amp; Buy</button>
-      <button class="btn-star${starred?' on':''}" id="star-${esc(s.id)}" onclick="toggleStar('${esc(s.id)}',this,event)">\u2605</button>
+      <button class="btn-buy" onclick="nav('skill/'+encodeURIComponent('${esc(s.id)}'))">View &amp; Buy</button>
+      <button class="btn-star${starred?' on':''}" id="star-${esc(s.id)}" onclick="toggleStar('${esc(s.id)}',this,event)">★</button>
     </div>
   </div>`;
 }
@@ -822,21 +828,20 @@ function renderPagination(page, pages) {
 }
 function goPage(p) { currentPage = p; loadSkills(); window.scrollTo({top:0,behavior:'smooth'}); }
 
-// ═══════════ SKILL DETAIL ═══════════
+// ── Skill Detail ─────────────────────────────────────────────────
 async function loadSkillDetail(id) {
   const container = document.getElementById('detail-content');
-  container.innerHTML = `<div style="padding:40px;text-align:center;color:var(--muted)">Loading skill...</div>`;
-
+  container.innerHTML = `<div style="padding:40px;text-align:center;color:var(--text-tertiary)">Loading skill...</div>`;
   try {
     const r = await fetch(`${API}/v1/marketplace/skills/${encodeURIComponent(id)}`);
-    if (!r.ok) { container.innerHTML = `<div class="empty"><div class="empty-icon">&#x26A0;</div><div class="empty-title">Skill not found</div></div>`; return; }
+    if (!r.ok) { container.innerHTML = `<div class="empty"><div class="empty-icon">⚠</div><div class="empty-title">Skill not found</div></div>`; return; }
     const s = await r.json();
 
     const displayName = s.displayName || s.name;
     const slug = s.name;
     const starred = starredIds.has(s.id);
     const secCls = ({VERIFIED:'verified',CLEAN:'clean',FLAGGED:'flagged',SUSPICIOUS:'suspicious'})[s.securityStatus] || 'unscanned';
-    const secTxt = ({VERIFIED:'\u2713 Verified',CLEAN:'\u2713 Clean',FLAGGED:'\u26A0 Flagged',SUSPICIOUS:'\u26A0 Suspicious'})[s.securityStatus] || 'Unscanned';
+    const secTxt = ({VERIFIED:'✓ Verified',CLEAN:'✓ Clean',FLAGGED:'⚠ Flagged',SUSPICIOUS:'⚠ Suspicious'})[s.securityStatus] || 'Unscanned';
     const tags = (s.tags||[]).map(t => `<span class="card-tag">${esc(t)}</span>`).join('');
     const runtime = s.runtime || {};
     const inputSchema = s.inputSchema;
@@ -851,87 +856,88 @@ async function loadSkillDetail(id) {
           ${displayName !== slug ? `<div class="detail-slug">${esc(slug)}</div>` : ''}
           <div class="detail-subtitle">
             <span>v${esc(s.version||'1.0.0')}</span>
-            ${OFFICIAL.has(s.id) ? '<span class="card-badge" style="position:static">Official</span>' : ''}
+            ${OFFICIAL.has(s.id) ? '<span class="badge badge-success">Official</span>' : ''}
             <span class="sec ${secCls}">${secTxt}</span>
             <span>${esc(s.license||'MIT')}</span>
-            ${s.publishedAt ? `<span style="font-size:8px;color:var(--muted)">Published ${new Date(s.publishedAt).toLocaleDateString()}</span>` : ''}
+            ${s.publishedAt ? `<span>${new Date(s.publishedAt).toLocaleDateString()}</span>` : ''}
           </div>
         </div>
         <div class="detail-actions">
-          <button class="btn-ghost" style="font-size:9px;padding:10px 10px;color:var(--muted)" onclick="doReport('${esc(s.id)}')" title="Report this skill">&#9873; Report</button>
-          <button class="btn-star${starred?' on':''}" id="d-star-btn" onclick="toggleStar('${esc(s.id)}',this,event)" style="padding:10px 14px;font-size:11px">\u2605 ${fmt(s.stars||0)}</button>
-          <button class="btn-primary" style="font-size:11px;padding:10px 18px" id="d-buy-btn" onclick="doBuy()">Purchase &amp; Execute &mdash; ${s.creditCost} credits</button>
+          <button class="btn btn-ghost" style="font-size:12px" onclick="doReport('${esc(s.id)}')" title="Report">⚑ Report</button>
+          <button class="btn-star${starred?' on':''}" id="d-star-btn" onclick="toggleStar('${esc(s.id)}',this,event)" style="padding:8px 14px">★ ${fmt(s.stars||0)}</button>
+          <button class="btn btn-primary" id="d-buy-btn" onclick="doBuy()">Purchase &amp; Execute — ${s.creditCost} cr</button>
         </div>
       </div>
 
       <div class="detail-meta">
-        <div class="meta-card"><div class="meta-label">Price</div><div class="meta-val g">${s.creditCost} credits</div></div>
+        <div class="meta-card"><div class="meta-label">Price</div><div class="meta-val g">${s.creditCost} cr</div></div>
         <div class="meta-card"><div class="meta-label">Uses</div><div class="meta-val">${fmt(s.uses||0)}</div></div>
-        <div class="meta-card"><div class="meta-label">Stars</div><div class="meta-val">\u2605 ${fmt(s.stars||0)}</div></div>
+        <div class="meta-card"><div class="meta-label">Stars</div><div class="meta-val">★ ${fmt(s.stars||0)}</div></div>
         <div class="meta-card"><div class="meta-label">Views</div><div class="meta-val">${fmt(s.views||0)}</div></div>
         <div class="meta-card"><div class="meta-label">License</div><div class="meta-val">${esc(s.license||'MIT')}</div></div>
-        <div class="meta-card"><div class="meta-label">Security</div><div class="meta-val"><span class="sec ${secCls}" style="font-size:9px">${secTxt}</span></div></div>
+        <div class="meta-card"><div class="meta-label">Security</div><div class="meta-val"><span class="sec ${secCls}" style="font-size:11px">${secTxt}</span></div></div>
       </div>
 
       ${tags ? `<div class="card-tags" style="margin-bottom:20px">${tags}</div>` : ''}
+      <div id="cost-estimate" style="display:none;margin-bottom:16px"></div>
 
       <div class="detail-tabs" id="d-tabs">
         <button class="dtab active" data-dt="overview">Overview</button>
         <button class="dtab" data-dt="schema">Input / Output</button>
         <button class="dtab" data-dt="invoke">Invoke</button>
         ${hasChangelog ? '<button class="dtab" data-dt="changelog">Changelog</button>' : ''}
-        <button class="dtab" data-dt="history" id="d-history-tab">History</button>
+        <button class="dtab" data-dt="history">History</button>
         ${Object.keys(runtime).length ? '<button class="dtab" data-dt="runtime">Runtime</button>' : ''}
       </div>
 
       <div class="dtab-panel active" id="dtp-overview">
         <div class="detail-desc">${esc(s.description)}</div>
-        ${s.readme ? `<div style="margin-bottom:16px"><div style="font-size:9px;color:var(--muted);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:8px">README</div><div class="detail-readme">${esc(s.readme)}</div></div>` : ''}
+        ${s.readme ? `<div style="margin-bottom:16px"><div style="font-size:11px;font-weight:500;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:8px">README</div><div class="detail-readme">${esc(s.readme)}</div></div>` : ''}
         <div style="margin-bottom:16px">
-          <div style="font-size:9px;color:var(--muted);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:8px">Cost Breakdown</div>
+          <div style="font-size:11px;font-weight:500;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:8px">Cost Breakdown</div>
           <div class="cost-table">
-            <div class="cost-row"><span style="color:var(--muted2)">Skill price</span><span>${s.creditCost} credits</span></div>
-            <div class="cost-row"><span style="color:var(--muted2)">Platform fee (3%)</span><span>${s.feeCredits} credits</span></div>
-            <div class="cost-row"><span style="color:var(--muted2)">Creator receives</span><span>${s.sellerReceives} credits</span></div>
-            <div class="cost-row"><span style="color:var(--muted2)">You pay</span><span>${s.totalCost} credits</span></div>
+            <div class="cost-row"><span style="color:var(--text-secondary)">Skill price</span><span>${s.creditCost} credits</span></div>
+            <div class="cost-row"><span style="color:var(--text-secondary)">Platform fee (3%)</span><span>${s.feeCredits} credits</span></div>
+            <div class="cost-row"><span style="color:var(--text-secondary)">Creator receives</span><span>${s.sellerReceives} credits</span></div>
+            <div class="cost-row"><span style="color:var(--text-secondary)">You pay</span><span>${s.totalCost} credits</span></div>
           </div>
         </div>
       </div>
 
       <div class="dtab-panel" id="dtp-schema">
-        ${inputSchema ? `<div style="margin-bottom:16px"><div style="font-size:9px;color:var(--muted);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:8px">Input Schema</div><pre class="schema-block">${esc(JSON.stringify(inputSchema, null, 2))}</pre></div>` : '<p style="color:var(--muted);font-size:11px">No input schema defined.</p>'}
-        ${outputSchema ? `<div><div style="font-size:9px;color:var(--muted);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:8px">Output Schema</div><pre class="schema-block">${esc(JSON.stringify(outputSchema, null, 2))}</pre></div>` : ''}
+        ${inputSchema ? `<div style="margin-bottom:16px"><div style="font-size:11px;font-weight:500;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:8px">Input Schema</div><pre class="schema-block">${esc(JSON.stringify(inputSchema, null, 2))}</pre></div>` : '<p style="color:var(--text-tertiary);font-size:13px">No input schema defined.</p>'}
+        ${outputSchema ? `<div><div style="font-size:11px;font-weight:500;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:8px">Output Schema</div><pre class="schema-block">${esc(JSON.stringify(outputSchema, null, 2))}</pre></div>` : ''}
       </div>
 
       <div class="dtab-panel" id="dtp-invoke">
         <div class="invoke-section">
           <div class="invoke-title">Purchase &amp; Execute</div>
-          <p style="font-size:10px;color:var(--muted);margin-bottom:14px">Fill variables below. Payment settles atomically, then the skill runs immediately. One charge.</p>
+          <p style="font-size:13px;color:var(--text-tertiary);margin-bottom:14px">Fill variables below. Payment settles atomically, then the skill runs immediately.</p>
           ${vars.map(([k,v]) => `
             <div class="form-group">
               <label class="form-label">${esc(k)}${inputSchema.required?.includes(k) ? ' *' : ''}</label>
               <input type="text" class="field" id="var-${esc(k)}" placeholder="${esc(v.description||k)}" style="width:100%">
             </div>`).join('')}
-          ${!vars.length ? '<p style="font-size:10px;color:var(--muted)">This skill has no input variables.</p>' : ''}
-          <button class="btn-primary" style="margin-top:8px" id="invoke-btn" onclick="doBuy()">Purchase &amp; Execute &mdash; ${s.creditCost} credits</button>
+          ${!vars.length ? '<p style="font-size:13px;color:var(--text-tertiary)">This skill has no input variables.</p>' : ''}
+          <button class="btn btn-primary" style="margin-top:8px" id="invoke-btn" onclick="doBuy()">Purchase &amp; Execute — ${s.creditCost} credits</button>
           <div class="invoke-result" id="invoke-result"></div>
         </div>
       </div>
 
       ${hasChangelog ? `<div class="dtab-panel" id="dtp-changelog">
-        <div style="font-size:9px;color:var(--green);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:10px">Version ${esc(s.version||'1.0.0')} Changelog</div>
+        <div style="font-size:11px;font-weight:500;color:var(--accent);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:10px">Version ${esc(s.version||'1.0.0')} Changelog</div>
         <div class="changelog-entry">${esc(s.changelog)}</div>
       </div>` : ''}
 
       <div class="dtab-panel" id="dtp-history">
-        <div style="font-size:9px;color:var(--muted);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:10px">Version History</div>
-        <div id="d-history-list" style="color:var(--muted);font-size:10px">Loading...</div>
+        <div style="font-size:11px;font-weight:500;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:10px">Version History</div>
+        <div id="d-history-list" style="color:var(--text-tertiary);font-size:13px">Loading...</div>
       </div>
 
       <div class="dtab-panel" id="dtp-runtime">
         <div class="runtime-card">
-          <div style="font-size:9px;color:var(--green);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:10px">Runtime Requirements</div>
-          ${Object.entries(runtime).map(([k,v]) => `<div class="runtime-row"><span class="k">${esc(k)}</span><span class="v">${esc(String(v))}</span></div>`).join('') || '<div style="font-size:10px;color:var(--muted)">No runtime requirements specified.</div>'}
+          <div style="font-size:11px;font-weight:500;color:var(--accent);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:10px">Runtime Requirements</div>
+          ${Object.entries(runtime).map(([k,v]) => `<div class="runtime-row"><span class="k">${esc(k)}</span><span class="v">${esc(String(v))}</span></div>`).join('') || '<div style="font-size:13px;color:var(--text-tertiary)">No runtime requirements specified.</div>'}
         </div>
       </div>
     `;
@@ -942,7 +948,6 @@ async function loadSkillDetail(id) {
       t.addEventListener('click', async () => {
         document.querySelectorAll('#d-tabs .dtab').forEach(x => x.classList.toggle('active', x === t));
         document.querySelectorAll('.dtab-panel').forEach(p => p.classList.toggle('active', p.id === 'dtp-' + t.dataset.dt));
-        // Lazy-load version history on first click
         if (t.dataset.dt === 'history' && !historyLoaded) {
           historyLoaded = true;
           const listEl = document.getElementById('d-history-list');
@@ -950,30 +955,30 @@ async function loadSkillDetail(id) {
             const hr = await fetch(`${API}/v1/marketplace/skills/${encodeURIComponent(s.id)}/versions`);
             const hd = await hr.json();
             if (!hd.versions || hd.versions.length === 0) {
-              listEl.innerHTML = '<span style="color:var(--muted)">No version history recorded yet.</span>';
+              listEl.innerHTML = '<span style="color:var(--text-tertiary)">No version history recorded yet.</span>';
             } else {
               listEl.innerHTML = hd.versions.map(v => `
-                <div style="border-bottom:1px solid var(--border);padding:10px 0;display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
+                <div style="border-bottom:1px solid var(--border-subtle);padding:10px 0;display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
                   <div>
-                    <span style="color:#fff;font-weight:600">v${esc(v.version)}</span>
-                    ${v.changelog ? `<div style="font-size:10px;color:var(--muted2);margin-top:3px;white-space:pre-wrap">${esc(v.changelog)}</div>` : ''}
+                    <span style="color:var(--text-primary);font-weight:600;font-family:var(--font-mono)">v${esc(v.version)}</span>
+                    ${v.changelog ? `<div style="font-size:13px;color:var(--text-secondary);margin-top:3px;white-space:pre-wrap">${esc(v.changelog)}</div>` : ''}
                   </div>
-                  <span style="font-size:9px;color:var(--muted);flex-shrink:0">${new Date(v.published_at).toLocaleDateString()}</span>
+                  <span style="font-size:12px;color:var(--text-muted);flex-shrink:0">${new Date(v.published_at).toLocaleDateString()}</span>
                 </div>`).join('');
             }
           } catch {
-            if (listEl) listEl.innerHTML = '<span style="color:var(--red)">Failed to load history.</span>';
+            if (listEl) listEl.innerHTML = '<span style="color:var(--danger)">Failed to load history.</span>';
           }
         }
       });
     });
-
+    loadCostEstimate(s.id);
   } catch (err) {
-    container.innerHTML = `<div class="empty"><div class="empty-icon">&#x26A0;</div><div class="empty-title">Failed to load skill</div><div class="empty-sub">${esc(err.message)}</div></div>`;
+    container.innerHTML = `<div class="empty"><div class="empty-icon">⚠</div><div class="empty-title">Failed to load skill</div><div class="empty-sub">${esc(err.message)}</div></div>`;
   }
 }
 
-// ─── Buy & Execute ─────────────────────────────────────────────────
+// ── Buy & Execute ─────────────────────────────────────────────────
 async function doBuy() {
   const s = window._detailSkill;
   if (!s) return;
@@ -998,9 +1003,9 @@ async function doBuy() {
     });
     const d = await r.json();
     if (!r.ok) {
-      const extra = d.creditsRequired ? ` \u2014 need ${d.creditsRequired} credits` : '';
+      const extra = d.creditsRequired ? ` — need ${d.creditsRequired} credits` : '';
       toast((d.error || 'Purchase failed') + extra, 'error');
-      [buyBtn, invokeBtn].forEach(b => { if (b) { b.disabled = false; b.textContent = `Purchase & Execute \u2014 ${s.creditCost} credits`; } });
+      [buyBtn, invokeBtn].forEach(b => { if (b) { b.disabled = false; b.textContent = `Purchase & Execute — ${s.creditCost} credits`; } });
       return;
     }
 
@@ -1012,25 +1017,24 @@ async function doBuy() {
       resultEl.style.display = 'block';
       if (d.answer) {
         resultEl.textContent = d.answer;
-        resultEl.style.borderColor = 'rgba(0,255,136,0.3)';
-        resultEl.style.color = '#aee';
+        resultEl.style.borderColor = 'var(--accent-dim)';
+        resultEl.style.color = 'var(--accent-text)';
       } else if (d.error) {
         resultEl.textContent = d.error;
-        resultEl.style.borderColor = 'rgba(255,170,0,0.3)';
-        resultEl.style.color = 'var(--yellow)';
+        resultEl.style.borderColor = 'var(--warning-dim)';
+        resultEl.style.color = 'var(--warning)';
       }
     }
     document.querySelectorAll('#d-tabs .dtab').forEach(t => t.classList.toggle('active', t.dataset.dt === 'invoke'));
     document.querySelectorAll('.dtab-panel').forEach(p => p.classList.toggle('active', p.id === 'dtp-invoke'));
-
     [buyBtn, invokeBtn].forEach(b => { if (b) { b.disabled = false; b.textContent = 'Run Again'; } });
   } catch {
     toast('Network error', 'error');
-    [buyBtn, invokeBtn].forEach(b => { if (b) { b.disabled = false; b.textContent = `Purchase & Execute \u2014 ${s.creditCost} credits`; } });
+    [buyBtn, invokeBtn].forEach(b => { if (b) { b.disabled = false; b.textContent = `Purchase & Execute — ${s.creditCost} credits`; } });
   }
 }
 
-// ─── Stars ────────────────────────────────────────────────────────
+// ── Stars ─────────────────────────────────────────────────────────
 async function toggleStar(id, btn, evt) {
   if (evt) evt.stopPropagation();
   if (!apiKey) { toast('Set API key to star skills', 'error'); return; }
@@ -1048,7 +1052,7 @@ async function toggleStar(id, btn, evt) {
     document.querySelectorAll('.btn-star').forEach(b => {
       if (b.id === `star-${id}` || b === btn || b.id === 'd-star-btn') {
         b.classList.toggle('on', !already);
-        if (d.stars !== undefined) b.textContent = `\u2605 ${fmt(d.stars)}`;
+        if (d.stars !== undefined) b.textContent = `★ ${fmt(d.stars)}`;
       }
     });
   } catch { toast('Network error', 'error'); }
@@ -1056,10 +1060,10 @@ async function toggleStar(id, btn, evt) {
 
 function saveStarred() { localStorage.setItem('claw_starred', JSON.stringify([...starredIds])); }
 
-// ─── Report Skill ──────────────────────────────────────────────────
+// ── Report ────────────────────────────────────────────────────────
 async function doReport(skillId) {
   if (!apiKey) { toast('Set API key to report skills', 'error'); return; }
-  const reason = prompt('Reason for report (min 5 chars):\n\nExamples: "Contains prompt injection", "Malicious code", "Spam/misleading description"');
+  const reason = prompt('Reason for report (min 5 chars):\n\nExamples: "Contains prompt injection", "Spam/misleading description"');
   if (!reason || reason.trim().length < 5) return;
   try {
     const r = await fetch(`${API}/v1/marketplace/skills/${encodeURIComponent(skillId)}/report`, {
@@ -1076,10 +1080,10 @@ async function doReport(skillId) {
 async function loadStarredView() {
   const el = document.getElementById('starred-list');
   if (!starredIds.size) {
-    el.innerHTML = `<div class="empty"><div class="empty-icon">\u2605</div><div class="empty-title">No starred skills</div><div class="empty-sub">Star skills to save them here</div></div>`;
+    el.innerHTML = `<div class="empty"><div class="empty-icon">★</div><div class="empty-title">No starred skills</div><div class="empty-sub">Star skills to save them here</div></div>`;
     return;
   }
-  el.innerHTML = '<div style="color:var(--muted);font-size:10px">Loading starred skills...</div>';
+  el.innerHTML = '<div style="color:var(--text-tertiary);font-size:13px">Loading starred skills...</div>';
   const cards = [];
   for (const id of starredIds) {
     try {
@@ -1089,10 +1093,10 @@ async function loadStarredView() {
       cards.push(renderCard(s));
     } catch {}
   }
-  el.innerHTML = cards.length ? `<div class="grid">${cards.join('')}</div>` : `<div class="empty"><div class="empty-icon">\u2605</div><div class="empty-title">Could not load starred skills</div></div>`;
+  el.innerHTML = cards.length ? `<div class="grid">${cards.join('')}</div>` : `<div class="empty"><div class="empty-icon">★</div><div class="empty-title">Could not load starred skills</div></div>`;
 }
 
-// ─── Publish ──────────────────────────────────────────────────────
+// ── Publish ───────────────────────────────────────────────────────
 function onSlugInput() {
   const el = document.getElementById('pub-slug');
   if (el) el.value = el.value.toLowerCase().replace(/[^a-z0-9-]/g, '');
@@ -1118,11 +1122,10 @@ function updateValidation() {
   const vl = document.getElementById('validation-list');
   if (vl) {
     vl.innerHTML = checks.map(c =>
-      `<div class="val-item ${c.pass ? 'pass' : 'fail'}"><span class="val-dot"></span>${esc(c.text)}</div>`
+      `<div class="val-item ${c.pass ? 'pass' : ''}"><span class="val-dot"></span>${esc(c.text)}</div>`
     ).join('');
   }
 
-  // Variable preview
   const varPreview = document.getElementById('var-preview');
   if (varPreview) {
     const vars = (prompt.match(/\{\{(\w+)\}\}/g) || []).map(m => m.slice(2, -2));
@@ -1135,7 +1138,6 @@ function updateValidation() {
     }
   }
 
-  // Earnings preview
   const ep = document.getElementById('earnings-preview');
   if (ep && price > 0) {
     ep.style.display = 'block';
@@ -1146,7 +1148,6 @@ function updateValidation() {
     ep.style.display = 'none';
   }
 
-  // Enable/disable submit
   const btn = document.getElementById('pub-btn');
   if (btn) btn.disabled = !checks.every(c => c.pass);
 }
@@ -1174,17 +1175,7 @@ async function publishSkill() {
   btn.disabled = true; btn.textContent = 'Publishing...';
 
   try {
-    const body = {
-      name: slug,
-      displayName,
-      description: desc,
-      promptTemplate: prompt,
-      creditCost: price,
-      public: isPublic,
-      tags,
-      version,
-      category,
-    };
+    const body = { name: slug, displayName, description: desc, promptTemplate: prompt, creditCost: price, public: isPublic, tags, version, category };
     if (changelog) body.changelog = changelog;
 
     const r = await fetch(`${API}/v1/skills`, {
@@ -1196,8 +1187,8 @@ async function publishSkill() {
     if (!r.ok) { toast(d.error || d.details?.name?.[0] || 'Publish failed', 'error'); }
     else {
       const res = document.getElementById('pub-result');
-      res.style.display = 'block'; res.style.color = 'var(--green)'; res.style.borderColor = 'rgba(0,255,136,0.3)';
-      res.innerHTML = `\u2713 Published! ID: <span style="color:var(--muted)">${esc(d.id)}</span> &mdash; <a href="#skill/${esc(d.id)}">View skill</a>`;
+      res.style.display = 'block'; res.style.color = 'var(--accent)'; res.style.borderColor = 'var(--accent-dim)';
+      res.innerHTML = `✓ Published! ID: <span style="color:var(--text-muted);font-family:var(--font-mono)">${esc(d.id)}</span> — <a href="#skill/${esc(d.id)}" style="color:var(--accent)">View skill</a>`;
       toast('Skill published', 'success');
       ['pub-slug','pub-display','pub-desc','pub-prompt','pub-price','pub-tags','pub-changelog','pub-readme'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
       document.getElementById('pub-version').value = '1.0.0';
@@ -1205,10 +1196,10 @@ async function publishSkill() {
       updateValidation();
     }
   } catch { toast('Network error', 'error'); }
-  btn.disabled = false; btn.textContent = 'Publish Skill \u2192';
+  btn.disabled = false; btn.textContent = 'Publish Skill →';
 }
 
-// ─── My Skills ────────────────────────────────────────────────────
+// ── My Skills ─────────────────────────────────────────────────────
 async function loadMySkills() {
   const content = document.getElementById('my-content');
   const auth = document.getElementById('my-auth');
@@ -1226,19 +1217,19 @@ async function loadMySkills() {
 
     const list = document.getElementById('my-skills-list');
     if (!d.skills.length) {
-      list.innerHTML = `<div class="empty"><div class="empty-icon">&#x25C8;</div><div class="empty-title">No skills published yet</div><div class="empty-sub">Go to the Publish tab to create your first skill</div></div>`;
+      list.innerHTML = `<div class="empty"><div class="empty-icon">◈</div><div class="empty-title">No skills published yet</div><div class="empty-sub">Go to the Publish tab to create your first skill</div></div>`;
       return;
     }
     list.innerHTML = d.skills.map(s => `
       <div class="my-skill-row">
         <div style="flex:1;min-width:140px">
-          <div class="my-skill-name" style="cursor:pointer" onclick="nav('skill/${esc(s.id)}')">${esc(s.name)}</div>
-          <div class="my-skill-id">${esc(s.id)} \u00B7 v${esc(s.version||'1.0.0')}</div>
+          <div class="my-skill-name" onclick="nav('skill/${esc(s.id)}')">${esc(s.name)}</div>
+          <div class="my-skill-id">${esc(s.id)} · v${esc(s.version||'1.0.0')}</div>
         </div>
         <span class="status-badge ${s.public?'live':'draft'}">${s.public?'Live':'Draft'}</span>
         <div class="my-skill-stat"><div class="v">${fmt(s.uses||0)}</div><div class="l">Uses</div></div>
         <div class="my-skill-stat"><div class="v">${fmt(s.sales||0)}</div><div class="l">Sales</div></div>
-        <div class="my-skill-stat"><div class="v" style="color:var(--green)">${fmt(s.earned||0)}</div><div class="l">Earned</div></div>
+        <div class="my-skill-stat"><div class="v" style="color:var(--accent)">${fmt(s.earned||0)}</div><div class="l">Earned</div></div>
         <div style="display:flex;gap:6px">
           <button class="btn-sm" onclick="toggleVis('${esc(s.id)}',${s.public})">${s.public?'Unpublish':'Publish'}</button>
           <button class="btn-sm danger" onclick="delSkill('${esc(s.id)}')">Delete</button>
@@ -1265,7 +1256,7 @@ async function delSkill(id) {
   } catch { toast('Network error', 'error'); }
 }
 
-// ─── Withdraw ─────────────────────────────────────────────────────
+// ── Withdraw ──────────────────────────────────────────────────────
 async function requestWithdraw() {
   if (!apiKey) { toast('Set API key', 'error'); return; }
   const amount = parseInt(document.getElementById('wd-amount').value);
@@ -1281,11 +1272,11 @@ async function requestWithdraw() {
     const res = document.getElementById('wd-result');
     res.style.display = 'block';
     if (r.ok) {
-      res.style.borderColor = 'rgba(0,255,136,0.3)'; res.style.color = 'var(--green)';
-      res.textContent = `\u2713 Payout queued \u2014 ${d.amountCredits} credits ($${d.usdcEquivalent} USDC)`;
+      res.style.borderColor = 'var(--accent-dim)'; res.style.color = 'var(--accent)';
+      res.textContent = `✓ Payout queued — ${d.amountCredits} credits ($${d.usdcEquivalent} USDC)`;
       toast('Withdrawal requested', 'success'); loadWithdrawHistory();
     } else {
-      res.style.borderColor = 'rgba(255,68,68,0.3)'; res.style.color = 'var(--red)';
+      res.style.borderColor = 'var(--danger-dim)'; res.style.color = 'var(--danger)';
       res.textContent = d.error || 'Request failed';
     }
   } catch { toast('Network error', 'error'); }
@@ -1299,23 +1290,159 @@ async function loadWithdrawHistory() {
     const d = await r.json();
     const el = document.getElementById('wd-history');
     if (!d.withdrawals.length) { el.innerHTML = ''; return; }
-    const sc = { PENDING:'var(--yellow)', PROCESSING:'var(--blue)', PAID:'var(--green)', REJECTED:'var(--red)' };
-    el.innerHTML = `<div style="font-size:9px;color:var(--muted);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:6px">Withdrawal History</div>` +
-      d.withdrawals.map(w => `<div style="font-size:10px;padding:7px 10px;border:1px solid var(--border);margin-bottom:4px;display:flex;gap:12px;align-items:center">
-        <span style="color:${sc[w.status]||'var(--muted)'};font-size:8px;letter-spacing:1px">${esc(w.status)}</span>
-        <span style="color:var(--muted2)">${w.amountCredits.toLocaleString()} cr</span>
-        <span style="color:var(--muted);font-size:9px">${esc(w.usdcWallet.slice(0,6))}...${esc(w.usdcWallet.slice(-4))}</span>
-        <span style="color:var(--muted);font-size:9px;margin-left:auto">${new Date(w.createdAt).toLocaleDateString()}</span>
+    const sc = { PENDING:'var(--warning)', PROCESSING:'var(--info)', PAID:'var(--accent)', REJECTED:'var(--danger)' };
+    el.innerHTML = `<div style="font-size:11px;font-weight:500;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:8px">Withdrawal History</div>` +
+      d.withdrawals.map(w => `<div style="font-size:13px;padding:8px 12px;border:1px solid var(--border-subtle);border-radius:var(--radius-md);margin-bottom:6px;display:flex;gap:12px;align-items:center">
+        <span style="color:${sc[w.status]||'var(--text-muted)'};font-size:11px;font-weight:500">${esc(w.status)}</span>
+        <span style="color:var(--text-secondary);font-family:var(--font-mono)">${w.amountCredits.toLocaleString()} cr</span>
+        <span style="color:var(--text-muted);font-family:var(--font-mono)">${esc(w.usdcWallet.slice(0,6))}...${esc(w.usdcWallet.slice(-4))}</span>
+        <span style="color:var(--text-muted);font-size:12px;margin-left:auto">${new Date(w.createdAt).toLocaleDateString()}</span>
       </div>`).join('');
   } catch {}
 }
 
-// ─── Utils ────────────────────────────────────────────────────────
+// ── Task History (NEW) ────────────────────────────────────────────
+async function loadTaskHistory() {
+  const auth = document.getElementById('tasks-auth');
+  const content = document.getElementById('tasks-content');
+  if (!apiKey) { auth.style.display = 'block'; content.style.display = 'none'; return; }
+  auth.style.display = 'none'; content.style.display = 'block';
+
+  const tbody = document.getElementById('tasks-tbody');
+  tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--text-tertiary)">Loading...</td></tr>';
+
+  try {
+    const ur = await fetch(`${API}/v1/auth/usage`, { headers: { 'X-API-Key': apiKey } });
+    if (ur.ok) {
+      const ud = await ur.json();
+      document.getElementById('ts-total').textContent = (ud.tasks?.total ?? 0).toLocaleString();
+      document.getElementById('ts-completed').textContent = (ud.tasks?.completed ?? 0).toLocaleString();
+      document.getElementById('ts-credits').textContent = (ud.tasks?.creditsSpent ?? 0).toLocaleString();
+    }
+
+    const r = await fetch(`${API}/v1/tasks?limit=${TASK_LIMIT}&offset=${taskPage * TASK_LIMIT}`, {
+      headers: { 'X-API-Key': apiKey }
+    });
+    if (!r.ok) throw new Error();
+    const d = await r.json();
+
+    if (!d.tasks.length) {
+      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--text-tertiary)">No tasks yet. Purchase and run a skill to see tasks here.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = d.tasks.map(t => `
+      <tr style="border-bottom:1px solid var(--border-subtle)">
+        <td style="padding:12px 16px;font-family:var(--font-mono);font-size:12px;color:var(--text-secondary)">${esc(t.id.slice(0,10))}…</td>
+        <td style="padding:12px 16px;color:var(--text-secondary)">${esc(t.skillId)}</td>
+        <td style="padding:12px 16px"><span class="badge badge-${statusClass(t.status)}">${t.status}</span></td>
+        <td style="padding:12px 16px;font-family:var(--font-mono);color:var(--text-secondary)">${t.costCredits != null ? t.costCredits.toLocaleString() : '—'}</td>
+        <td style="padding:12px 16px;font-family:var(--font-mono);color:var(--text-tertiary)">${t.durationMs ? t.durationMs + 'ms' : '—'}</td>
+        <td style="padding:12px 16px;color:var(--text-tertiary)">${timeAgo(t.createdAt)}</td>
+        <td style="padding:12px 16px">${taskActions(t)}</td>
+      </tr>
+    `).join('');
+
+    renderTaskPagination(d.total);
+  } catch {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--danger)">Failed to load tasks</td></tr>';
+  }
+}
+
+function statusClass(s) {
+  return { COMPLETED:'success', FAILED:'danger', RUNNING:'info', PENDING:'neutral', CANCELLED:'warning' }[s] || 'neutral';
+}
+
+function taskActions(t) {
+  let html = '';
+  if (t.status === 'COMPLETED') html += `<button class="btn btn-ghost" style="font-size:11px;padding:4px 8px" onclick="rateTask('${esc(t.id)}')">Rate</button>`;
+  if (t.status === 'PENDING') html += `<button class="btn btn-ghost" style="font-size:11px;padding:4px 8px;color:var(--danger);border-color:var(--danger-dim)" onclick="cancelTask('${esc(t.id)}')">Cancel</button>`;
+  return html || '<span style="color:var(--text-muted)">—</span>';
+}
+
+function renderTaskPagination(total) {
+  const el = document.getElementById('tasks-pagination');
+  const pages = Math.ceil(total / TASK_LIMIT);
+  if (pages <= 1) { el.innerHTML = ''; return; }
+  const btns = [];
+  btns.push(`<button class="btn btn-ghost" style="font-size:12px;padding:6px 10px" onclick="goTaskPage(${taskPage-1})" ${taskPage<=0?'disabled':''}>Prev</button>`);
+  btns.push(`<span style="font-size:12px;color:var(--text-tertiary);padding:0 8px">Page ${taskPage+1} of ${pages}</span>`);
+  btns.push(`<button class="btn btn-ghost" style="font-size:12px;padding:6px 10px" onclick="goTaskPage(${taskPage+1})" ${taskPage>=pages-1?'disabled':''}>Next</button>`);
+  el.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;gap:8px">${btns.join('')}</div>`;
+}
+
+function goTaskPage(p) { taskPage = p; loadTaskHistory(); }
+
+async function rateTask(taskId) {
+  if (!apiKey) { toast('Set API key first', 'error'); return; }
+  const rating = prompt('Rate this task (1-5 stars):');
+  const n = parseInt(rating);
+  if (!n || n < 1 || n > 5) { if (rating !== null) toast('Enter a number 1-5', 'error'); return; }
+  const comment = prompt('Optional comment (or leave blank):') || undefined;
+  try {
+    const r = await fetch(`${API}/v1/tasks/${taskId}/rate`, {
+      method: 'POST',
+      headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rating: n, comment }),
+    });
+    const d = await r.json();
+    if (!r.ok) { toast(d.error || 'Rating failed', 'error'); return; }
+    toast(`Rated ${n}/5`, 'success');
+    loadTaskHistory();
+  } catch { toast('Network error', 'error'); }
+}
+
+async function cancelTask(taskId) {
+  if (!confirm('Cancel this task?')) return;
+  try {
+    const r = await fetch(`${API}/v1/tasks/${taskId}/cancel`, {
+      method: 'POST',
+      headers: { 'X-API-Key': apiKey },
+    });
+    const d = await r.json();
+    if (!r.ok) { toast(d.error || 'Cancel failed', 'error'); return; }
+    toast('Task cancelled', 'success');
+    loadTaskHistory();
+  } catch { toast('Network error', 'error'); }
+}
+
+async function loadCostEstimate(skillId) {
+  if (!apiKey) return;
+  try {
+    const r = await fetch(`${API}/v1/auth/estimate?skillId=${encodeURIComponent(skillId)}`, {
+      headers: { 'X-API-Key': apiKey }
+    });
+    if (!r.ok) return;
+    const d = await r.json();
+    const el = document.getElementById('cost-estimate');
+    if (!el) return;
+    el.style.display = 'block';
+    el.innerHTML = `<div class="card" style="display:flex;align-items:center;gap:12px;padding:14px 16px">
+      <span style="font-size:13px;color:var(--text-secondary)">Estimated cost:</span>
+      <strong style="font-family:var(--font-mono);color:var(--accent)">${d.estimatedCredits} credits</strong>
+      ${d.canAfford ? '<span class="badge badge-success">You can afford this</span>' : '<span class="badge badge-danger">Insufficient credits</span>'}
+      ${d.note ? `<span style="font-size:12px;color:var(--text-tertiary)">${esc(d.note)}</span>` : ''}
+    </div>`;
+  } catch {}
+}
+
+// ── Utils ─────────────────────────────────────────────────────────
 function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function fmt(n) { return n >= 1e6 ? (n/1e6).toFixed(1)+'M' : n >= 1000 ? (n/1000).toFixed(1)+'k' : String(n); }
+function timeAgo(dateStr) {
+  const seconds = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
+  if (seconds < 60) return 'just now';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return minutes + 'm ago';
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return hours + 'h ago';
+  const days = Math.floor(hours / 24);
+  if (days < 30) return days + 'd ago';
+  return new Date(dateStr).toLocaleDateString();
+}
 function toast(msg, type='info') {
   const el = document.createElement('div'); el.className = `toast ${type}`;
-  el.innerHTML = `<span>${type==='success'?'\u2713':type==='error'?'\u2717':'\u2139'}</span><span>${esc(msg)}</span>`;
+  el.innerHTML = `<span>${type==='success'?'✓':type==='error'?'✗':'ℹ'}</span><span>${esc(msg)}</span>`;
   document.getElementById('toast-container').appendChild(el);
   setTimeout(() => el.remove(), 4500);
 }
