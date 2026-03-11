@@ -365,6 +365,39 @@ src/routes/swarm.ts                — SWARM_BASE_FEE=20 upfront deduction
 
 Credits are real money. Every credit represents ~$0.0005 that a user paid via Stripe or USDC. A rounding error in marketplace purchase that loses 1 credit per transaction compounds to thousands of dollars at scale. A missing idempotency guard means Stripe webhook replay grants double credits. A race condition in deductCredit means a user can spend more than they have. The financial engine must be provably correct — not "works most of the time" but "mathematically guaranteed to never lose or create money."
 
+### Status: ✅ COMPLETE
+
+### Audit Verdicts
+
+| # | Question | Verdict | Action |
+|---|----------|---------|--------|
+| Q1 | deductCredit negative balance | ✅ PASS | `WHERE credits >= amount` + `trg_credits_non_negative` trigger (v42) — double protection |
+| Q2 | Marketplace purchase atomicity | ✅ PASS | Treasury missing → exception → full rollback |
+| Q3 | Escrow resolve rounding | ✅ PASS | `Math.floor(amount * pct / 100)`, remainder goes to hirer — no credits vanish |
+| Q4 | Stripe refund negative delta | ✅ PASS | `newCents <= 0 → skip` — dispute reversals safely ignored |
+| Q5 | Solana RPC race | ✅ PASS | Second request gets `changes === 0` → 409, no wasted RPC |
+| Q6 | Key regeneration transfers | 🔴 BUG FIXED | Stakes and pending payouts were orphaned on key regen. Added `UPDATE stakes/payout_requests SET agent_key = newKey` inside the transaction |
+| Q7 | Payout rejection credit restore | 🔴 BUG FIXED | `REJECTED` status set but credits never returned. Added atomic credit restoration in `PATCH /v1/admin/payouts/:id` when status=REJECTED |
+| Q8 | Subscription cancellation | ✅ PASS | Credits already granted are kept — correct UX behavior |
+| Q9 | Deficit tracking followup | ⚠️ IMPROVED | Added `sendAdminAlert()` on refund deficit (seller/treasury balance insufficient) |
+| Q10 | Swarm base fee on failure | ✅ PASS | Fee consumed by design (covers LLM decomposition cost) |
+| Q11 | Cache hit billing | ✅ PASS | 1 credit for cache hit is acceptable (fast response, TTL prevents staleness) |
+| Q12 | Batch pre-flight estimation | ✅ PASS | Deducts estimate upfront, refunds difference. Costs are deterministic from registry |
+
+### Production-Scale Fix
+
+- **Migration v44:** Added covering index `idx_transactions_creator_stats` on `transactions(to_agent, type, skill_id, amount_credits, fee_credits) WHERE type = 'SKILL_SALE'` — eliminates full table scan in `getCreatorStats()` at 100K+ transactions
+
+### Fixes Applied
+
+1. **Q6 — `regenerateApiKey` orphaned stakes** (`src/db/keys.ts`): Added `UPDATE stakes SET agent_key = newKey` and `UPDATE payout_requests SET agent_key = newKey` inside the regen transaction. Without this, regenerating a key would orphan locked credits in stakes (user could never unstake) and disconnect pending payout requests from the new key.
+
+2. **Q7 — Payout rejection didn't restore credits** (`src/routes/admin.ts`): When admin marks a payout as REJECTED, credits are now atomically restored to the user's balance. Previously, rejection just updated the status field — credits were permanently lost. Also added state guards (can't reject an already-rejected or already-paid payout).
+
+3. **Q9 — Refund deficit admin alert** (`src/db/marketplace.ts`): `marketplaceRefund()` now fires `sendAdminAlert()` when a refund creates a seller or treasury deficit. Previously, deficits were logged and recorded in tx metadata but nobody was notified.
+
+4. **Migration v44 — Creator stats index** (`src/db/connection.ts`): Covering index for `getCreatorStats()` so `SUM(amount_credits)` across transactions doesn't require a full table scan at scale.
+
 ---
 
 ## Chapter 04 — Authentication, Authorization & Identity

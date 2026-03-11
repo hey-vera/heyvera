@@ -234,6 +234,12 @@ const MIGRATIONS: { version: number; sql: string }[] = [
     CREATE INDEX IF NOT EXISTS idx_swarms_created ON swarms(created_at);
     CREATE INDEX IF NOT EXISTS idx_reputation_timestamp ON reputation_events(timestamp)
   ` },
+  // Ch03 audit: covering index for getCreatorStats — avoids full table scan on transactions
+  { version: 44, sql: `
+    CREATE INDEX IF NOT EXISTS idx_transactions_creator_stats
+      ON transactions(to_agent, type, skill_id, amount_credits, fee_credits)
+      WHERE type = 'SKILL_SALE'
+  ` },
 ];
 
 function runMigrations(): void {

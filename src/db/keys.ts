@@ -139,6 +139,13 @@ export function regenerateApiKey(
       FROM api_keys WHERE key = ?
     `).run(newKey, row.key);
 
+    // Transfer stakes from old key to new key (prevents orphaned locked credits)
+    db.prepare('UPDATE stakes SET agent_key = ? WHERE agent_key = ?').run(newKey, row.key);
+
+    // Transfer pending payout requests to new key
+    db.prepare(`UPDATE payout_requests SET agent_key = ? WHERE agent_key = ? AND status IN ('PENDING','PROCESSING')`)
+      .run(newKey, row.key);
+
     // Deactivate old key
     db.prepare('UPDATE api_keys SET active = 0 WHERE key = ?').run(row.key);
 

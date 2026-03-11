@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { getDbStats, getAllPendingPayouts, updatePayoutStatus, getReconciliation, getRevenueBreakdown, getTreasuryStatus, revokeKeyByKey, revokeKeysByEmail, logAudit } from '../db/index';
+import { getDbStats, getAllPendingPayouts, updatePayoutStatus, getReconciliation, getRevenueBreakdown, getTreasuryStatus, revokeKeyByKey, revokeKeysByEmail, logAudit, getDb } from '../db/index';
 import { cacheStats } from '../cache/index';
 import { getUsageStats } from '../utils/usage';
 import { getCircuitStats } from '../core/circuit-breaker';
@@ -235,6 +235,27 @@ adminRouter.patch('/payouts/:id', async (c) => {
     const details = err instanceof z.ZodError ? err.flatten().fieldErrors : undefined;
     return c.json({ error: 'Invalid body', details }, 400);
   }
+
+  // Q7: Restore credits on REJECTED — credits were deducted when the payout request was created.
+  // If admin rejects, the credits must be returned to the user's balance.
+  if (body.status === 'REJECTED') {
+    const db = getDb();
+    db.transaction(() => {
+      const payout = db.prepare('SELECT agent_key, amount_credits, status FROM payout_requests WHERE id = ?')
+        .get(id) as { agent_key: string; amount_credits: number; status: string } | undefined;
+      if (!payout) throw new Error('Payout not found');
+      if (payout.status === 'REJECTED' || payout.status === 'PAID') {
+        throw new Error(`Cannot reject payout in ${payout.status} state`);
+      }
+      // Restore credits to user
+      db.prepare('UPDATE api_keys SET credits = credits + ? WHERE key = ? AND active = 1')
+        .run(payout.amount_credits, payout.agent_key);
+      updatePayoutStatus(id, 'REJECTED', body.notes);
+    })();
+    logAudit({ entityType: 'payout', entityId: id, action: 'PAYOUT_REJECTED_CREDITS_RESTORED', actorId: 'admin', data: { notes: body.notes } });
+    return c.json({ ok: true, id, status: 'REJECTED', creditsRestored: true });
+  }
+
   updatePayoutStatus(id, body.status, body.notes);
   logAudit({ entityType: 'payout', entityId: id, action: 'PAYOUT_STATUS', actorId: 'admin', data: { status: body.status, notes: body.notes } });
   return c.json({ ok: true, id, status: body.status });

@@ -1,5 +1,6 @@
 import { nanoid } from 'nanoid';
 import { logger } from '../utils/logger';
+import { sendAdminAlert } from '../utils/email';
 import { getDb, logAudit } from './connection';
 import type { Skill } from './skills';
 
@@ -187,6 +188,31 @@ export function marketplaceRefund(params: {
             treasuryDeficit,
           }));
     })();
+
+    // Q9: Fire admin alert if there was a deficit (seller or treasury couldn't cover the refund)
+    // Done outside the transaction so the async email doesn't block or roll back the DB work.
+    const metadata = refundTxId ? (db.prepare('SELECT metadata_json FROM transactions WHERE id = ?').get(refundTxId) as { metadata_json: string } | undefined) : null;
+    if (metadata) {
+      const meta = JSON.parse(metadata.metadata_json) as { sellerDeficit?: number; treasuryDeficit?: number };
+      if ((meta.sellerDeficit ?? 0) > 0 || (meta.treasuryDeficit ?? 0) > 0) {
+        sendAdminAlert({
+          subject: `Refund deficit — skill ${params.skillId}`,
+          body: [
+            'Marketplace refund completed with credit deficit:',
+            '',
+            `Skill: ${params.skillId}`,
+            `Buyer: ${params.buyerKey.slice(0, 8)}...`,
+            `Seller: ${params.sellerKey.slice(0, 8)}...`,
+            `Seller deficit: ${meta.sellerDeficit ?? 0} credits`,
+            `Treasury deficit: ${meta.treasuryDeficit ?? 0} credits`,
+            `Refund TX: ${refundTxId}`,
+            '',
+            'Action: Review seller account for potential abuse or negative balance recovery.',
+          ].join('\n'),
+        }).catch(() => {});
+      }
+    }
+
     return { ok: true, refundTxId };
   } catch (err) {
     logger.error({ err, buyerKey: params.buyerKey.slice(0, 8), skillId: params.skillId }, 'marketplaceRefund: transaction failed — manual intervention may be required');
