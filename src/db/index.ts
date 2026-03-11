@@ -477,6 +477,11 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   CREATE INDEX IF NOT EXISTS idx_skill_ratings_skill ON skill_ratings(skill_id);
   CREATE INDEX IF NOT EXISTS idx_skill_ratings_buyer ON skill_ratings(buyer_key)` },
   { version: 37, sql: `ALTER TABLE skills ADD COLUMN featured INTEGER NOT NULL DEFAULT 0` },
+  { version: 38, sql: `
+    CREATE INDEX IF NOT EXISTS idx_skill_metrics_timestamp ON skill_metrics(timestamp);
+    CREATE INDEX IF NOT EXISTS idx_audit_log_timestamp ON audit_log(timestamp);
+    CREATE INDEX IF NOT EXISTS idx_solana_sigs_processed_at ON solana_processed_sigs(processed_at)
+  ` },
 ];
 
 function runMigrations(): void {
@@ -2219,7 +2224,7 @@ export function cleanupOldAuditLogs(daysToKeep = 90): number {
 
 export function cleanupOldSkillMetrics(daysToKeep = 90): number {
   const result = getDb()
-    .prepare(`DELETE FROM skill_metrics WHERE recorded_at < datetime('now', '-' || ? || ' days')`)
+    .prepare(`DELETE FROM skill_metrics WHERE timestamp < datetime('now', '-' || ? || ' days')`)
     .run(daysToKeep);
   return result.changes;
 }
