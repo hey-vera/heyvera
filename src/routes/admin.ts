@@ -10,6 +10,15 @@ import { maskApiKey } from '../utils/mask';
 
 export const adminRouter = new Hono();
 
+// Router-level guard — every route below is protected. Defense-in-depth: individual
+// routes also call requireAdmin() so adding a new route without the check is safe.
+adminRouter.use('*', async (c, next) => {
+  if (!requireAdmin(c)) {
+    return c.json({ error: 'Unauthorized', code: 'UNAUTHORIZED' }, 401);
+  }
+  return next();
+});
+
 adminRouter.get('/dashboard', (c) => {
   if (!requireAdmin(c)) {
     return c.json({ error: 'Unauthorized', code: 'UNAUTHORIZED' }, 401);

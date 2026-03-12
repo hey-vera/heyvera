@@ -44,8 +44,13 @@ function isProxyUrlSafe(urlStr: string): boolean {
     if (/^10\./.test(host) || /^172\.(1[6-9]|2\d|3[01])\./.test(host) || /^192\.168\./.test(host)) return false;
     // Block link-local and metadata
     if (/^169\.254\./.test(host)) return false;
-    // Block IPv6 private ranges
-    if (host.startsWith('[fc') || host.startsWith('[fd') || host.startsWith('[fe80')) return false;
+    // Block IPv6 private ranges — after URL parsing, hostname has NO brackets
+    // ULA (fc00::/7): fc** and fd**
+    if (host.startsWith('fc') || host.startsWith('fd')) return false;
+    // Link-local (fe80::/10): fe80 through febf
+    if (host.startsWith('fe8') || host.startsWith('fe9') || host.startsWith('fea') || host.startsWith('feb')) return false;
+    // IPv4-mapped IPv6 (::ffff:192.168.x.x bypasses IPv4 blocks)
+    if (host.startsWith('::ffff:')) return false;
     return true;
   } catch {
     return false;
@@ -282,11 +287,13 @@ skillsRouter.get('/:id', (c) => {
 
   if (!skill) return c.json({ error: 'Skill not found' }, 404);
 
-  // Private skills only visible to author (check API key if provided)
+  // Private skills only visible to author — SHA-256 normalization gives constant-time
+  // comparison without leaking key length (same pattern as admin-auth.ts).
   if (!skill.public) {
-    const key = c.req.header('X-API-Key');
-    if (!key || key.length !== skill.author_key.length ||
-        !crypto.timingSafeEqual(Buffer.from(key), Buffer.from(skill.author_key))) {
+    const key = c.req.header('X-API-Key') ?? '';
+    const keyHash = crypto.createHash('sha256').update(key).digest();
+    const authorHash = crypto.createHash('sha256').update(skill.author_key).digest();
+    if (!crypto.timingSafeEqual(keyHash, authorHash)) {
       return c.json({ error: 'Skill not found' }, 404);
     }
   }

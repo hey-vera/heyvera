@@ -98,22 +98,22 @@ export function getSkill(id: string): Skill | undefined {
 export function listPublicSkills(offset = 0, limit = 50, skillType?: string): Skill[] {
   if (skillType) {
     return getDb()
-      .prepare('SELECT * FROM skills WHERE public = 1 AND active = 1 AND skill_type = ? ORDER BY uses DESC, created_at DESC LIMIT ? OFFSET ?')
+      .prepare("SELECT * FROM skills WHERE public = 1 AND active = 1 AND security_status != 'FLAGGED' AND skill_type = ? ORDER BY uses DESC, created_at DESC LIMIT ? OFFSET ?")
       .all(skillType, Math.min(limit, 100), offset) as Skill[];
   }
   return getDb()
-    .prepare('SELECT * FROM skills WHERE public = 1 AND active = 1 ORDER BY uses DESC, created_at DESC LIMIT ? OFFSET ?')
+    .prepare("SELECT * FROM skills WHERE public = 1 AND active = 1 AND security_status != 'FLAGGED' ORDER BY uses DESC, created_at DESC LIMIT ? OFFSET ?")
     .all(Math.min(limit, 100), offset) as Skill[];
 }
 
 export function countPublicSkills(skillType?: string): number {
   if (skillType) {
     return (getDb()
-      .prepare('SELECT COUNT(*) as n FROM skills WHERE public = 1 AND active = 1 AND skill_type = ?')
+      .prepare("SELECT COUNT(*) as n FROM skills WHERE public = 1 AND active = 1 AND security_status != 'FLAGGED' AND skill_type = ?")
       .get(skillType) as { n: number }).n;
   }
   return (getDb()
-    .prepare('SELECT COUNT(*) as n FROM skills WHERE public = 1 AND active = 1')
+    .prepare("SELECT COUNT(*) as n FROM skills WHERE public = 1 AND active = 1 AND security_status != 'FLAGGED'")
     .get() as { n: number }).n;
 }
 
