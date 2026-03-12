@@ -430,9 +430,9 @@
 
     /* ── PRICING CAROUSEL ── */
     .pricing-carousel { position: relative; max-width: 900px; margin: 0 auto; overflow: visible; padding: 0 48px; }
+    .pricing-track-clip { overflow: hidden; padding-top: 20px; margin-top: -20px; }
     .pricing-track {
       display: flex; gap: 16px; transition: transform 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-      overflow: hidden;
     }
     .pricing-track .pricing-card { min-width: calc(33.333% - 11px); flex-shrink: 0; }
     .carousel-dots { display: flex; justify-content: center; gap: 8px; margin-top: 20px; }
@@ -742,7 +742,7 @@
     <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:48px">
       <a href="#pricing" class="btn btn-primary btn-lg">Start Building</a>
       <a href="/docs.html" class="btn btn-ghost btn-lg">Documentation</a>
-      <span style="font-size:12px;color:var(--text-muted);display:flex;align-items:center;gap:4px"><span style="width:5px;height:5px;border-radius:50%;background:var(--accent);display:inline-block"></span> Free tier available</span>
+      <span style="font-size:12px;color:var(--text-muted);display:flex;align-items:center;gap:4px"><span style="width:5px;height:5px;border-radius:50%;background:var(--accent);display:inline-block"></span> No subscriptions required</span>
     </div>
 
     <div class="hero-code" id="heroCode">
@@ -810,7 +810,8 @@
       <div><div style="font-family:var(--font-mono);font-size:28px;font-weight:700;color:var(--text-primary)" id="proofEndpoints">&mdash;</div><div style="font-size:12px;color:var(--text-tertiary);margin-top:2px">API Endpoints</div></div>
       <div><div style="font-family:var(--font-mono);font-size:28px;font-weight:700;color:var(--accent)" id="proofDataSpeed">&lt;1s</div><div style="font-size:12px;color:var(--text-tertiary);margin-top:2px">Data Skills</div></div>
       <div><div style="font-family:var(--font-mono);font-size:28px;font-weight:700;color:var(--text-primary)" id="proofLlmSpeed">&mdash;</div><div style="font-size:12px;color:var(--text-tertiary);margin-top:2px">LLM Queries</div></div>
-      <div><div style="font-family:var(--font-mono);font-size:28px;font-weight:700;color:var(--accent)">$0.001</div><div style="font-size:12px;color:var(--text-tertiary);margin-top:2px">Per Credit</div></div>
+      <div><div style="font-family:var(--font-mono);font-size:28px;font-weight:700;color:var(--accent)">$0.0001</div><div style="font-size:12px;color:var(--text-tertiary);margin-top:2px">Cached Queries</div></div>
+      <div><div style="font-family:var(--font-mono);font-size:28px;font-weight:700;color:var(--text-primary)">$0.001</div><div style="font-size:12px;color:var(--text-tertiary);margin-top:2px">Per Credit</div></div>
       <div><div style="font-family:var(--font-mono);font-size:28px;font-weight:700;color:var(--warning)">$29<span style="font-size:14px;font-weight:400;color:var(--text-muted)">/mo</span></div><div style="font-size:12px;color:var(--text-tertiary);margin-top:2px">Unlimited Access</div></div>
     </div>
   </div>
@@ -925,7 +926,7 @@
       <div class="feature-card">
         <div class="feature-icon" style="color:var(--warning)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg></div>
         <h3 class="heading-md" style="margin:12px 0 6px">Lowest Cost Wins</h3>
-        <p class="body">Subscribe for $29/mo or pay per credit ($0.001 each). Cached results cost a fraction of live. Data skills return in under 1 second.</p>
+        <p class="body">Subscribe for $29/mo or pay per credit ($0.001 each). Smart-cached queries as low as <strong style="color:var(--accent)">$0.0001</strong>. Data skills return in under 1 second.</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon" style="color:var(--purple)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></div>
@@ -1063,6 +1064,7 @@
 
     <div class="pricing-carousel" id="pricingCarousel">
       <button class="carousel-btn prev" onclick="movePricingCarousel(-1)">&#8249;</button>
+      <div class="pricing-track-clip">
       <div class="pricing-track" id="pricingTrack">
         <!-- Starter -->
         <div class="pricing-card">
@@ -1153,6 +1155,7 @@
           </ul>
           <a href="https://buy.stripe.com/6oUdRab8j1Ag3vNerQ08g05" target="_blank" class="price-btn">Pay with Card</a>
         </div>
+      </div>
       </div>
       <button class="carousel-btn next" onclick="movePricingCarousel(1)">&#8250;</button>
       <div class="carousel-dots" id="carouselDots">
