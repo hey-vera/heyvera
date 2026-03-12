@@ -15,6 +15,7 @@
   <meta name="twitter:description" content="One query. Any API. One intelligent answer.">
   <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png">
   <link rel="apple-touch-icon" href="/favicon.png">
+  <script>if(localStorage.getItem('clawnet_theme')==='light')document.documentElement.setAttribute('data-theme','light')</script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
   <style>
@@ -52,10 +53,42 @@
       --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
       --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
       --shadow-lg: 0 8px 24px rgba(0,0,0,0.5);
+      --grid-color: rgba(255,255,255,0.03);
+      --nav-bg: rgba(10,10,11,0.8);
+    }
+    /* ── LIGHT THEME ── */
+    [data-theme="light"] {
+      --bg-primary: #f5f5f5;
+      --bg-surface: #ffffff;
+      --bg-surface-2: #f0f0f2;
+      --bg-surface-3: #e8e8ec;
+      --bg-overlay: rgba(255,255,255,0.85);
+      --border-subtle: #e4e4e7;
+      --border-default: #d4d4d8;
+      --border-strong: #a1a1aa;
+      --text-primary: #09090b;
+      --text-secondary: #3f3f46;
+      --text-tertiary: #71717a;
+      --text-muted: #a1a1aa;
+      --accent-dim: rgba(16,185,129,0.10);
+      --accent-subtle: rgba(16,185,129,0.05);
+      --danger-dim: rgba(239,68,68,0.10);
+      --warning-dim: rgba(245,158,11,0.10);
+      --info-dim: rgba(59,130,246,0.10);
+      --purple-dim: rgba(139,92,246,0.10);
+      --shadow-sm: 0 1px 2px rgba(0,0,0,0.06);
+      --shadow-md: 0 4px 12px rgba(0,0,0,0.08);
+      --shadow-lg: 0 8px 24px rgba(0,0,0,0.1);
+      --grid-color: rgba(0,0,0,0.04);
+      --nav-bg: rgba(245,245,245,0.85);
     }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html { scroll-behavior: smooth; }
-    body { background: var(--bg-primary); color: var(--text-secondary); font-family: var(--font-sans); font-size: 14px; line-height: 1.6; overflow-x: hidden; }
+    body {
+      background: var(--bg-primary); color: var(--text-secondary); font-family: var(--font-sans); font-size: 14px; line-height: 1.6; overflow-x: hidden;
+      background-image: linear-gradient(var(--grid-color) 1px, transparent 1px), linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
+      background-size: 48px 48px;
+    }
     a { color: inherit; text-decoration: none; }
 
     /* ── LAYOUT ── */
@@ -105,7 +138,7 @@
       position: fixed; top: 0; left: 0; right: 0; z-index: 100;
       height: 56px; padding: 0 24px;
       display: flex; align-items: center; justify-content: space-between;
-      background: rgba(10,10,11,0.8); border-bottom: 1px solid var(--border-subtle);
+      background: var(--nav-bg); border-bottom: 1px solid var(--border-subtle);
       backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
     }
     .nav-left { display: flex; align-items: center; gap: 20px; }
@@ -380,6 +413,82 @@
     .usdc-status.error { border-color: rgba(239,68,68,0.3); color: var(--danger); background: var(--danger-dim); }
     .usdc-modal-note { font-size: 11px; color: var(--text-tertiary); text-align: center; margin-top: 16px; line-height: 1.7; }
 
+    /* ── THEME TOGGLE ── */
+    .theme-toggle {
+      background: var(--bg-surface-2); border: 1px solid var(--border-default);
+      border-radius: var(--radius-md); width: 34px; height: 34px;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; color: var(--text-tertiary); transition: all 0.15s;
+      padding: 0; flex-shrink: 0;
+    }
+    .theme-toggle:hover { color: var(--text-primary); border-color: var(--border-strong); }
+    .theme-toggle .icon-sun, .theme-toggle .icon-moon { width: 16px; height: 16px; }
+    .theme-toggle .icon-sun { display: none; }
+    [data-theme="light"] .theme-toggle .icon-sun { display: block; }
+    [data-theme="light"] .theme-toggle .icon-moon { display: none; }
+
+    /* ── PRICING CAROUSEL ── */
+    .pricing-carousel { position: relative; max-width: 900px; margin: 0 auto; overflow: hidden; }
+    .pricing-track {
+      display: flex; gap: 16px; transition: transform 0.4s ease;
+    }
+    .pricing-track .pricing-card { min-width: calc(33.333% - 11px); flex-shrink: 0; }
+    .carousel-btn {
+      position: absolute; top: 50%; transform: translateY(-50%); z-index: 5;
+      width: 36px; height: 36px; border-radius: 50%;
+      background: var(--bg-surface); border: 1px solid var(--border-default);
+      color: var(--text-secondary); cursor: pointer; display: flex;
+      align-items: center; justify-content: center; transition: all 0.15s;
+    }
+    .carousel-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--bg-surface-2); }
+    .carousel-btn.prev { left: -18px; }
+    .carousel-btn.next { right: -18px; }
+    .carousel-dots { display: flex; justify-content: center; gap: 8px; margin-top: 20px; }
+    .carousel-dot {
+      width: 8px; height: 8px; border-radius: 50%; background: var(--border-default);
+      border: none; cursor: pointer; transition: background 0.15s; padding: 0;
+    }
+    .carousel-dot.active { background: var(--accent); }
+
+    /* ── HERO CODE ROTATION ── */
+    .hero-code-body { position: relative; min-height: 180px; }
+    .hero-example { position: absolute; inset: 0; padding: 20px; opacity: 0; transition: opacity 0.5s ease; pointer-events: none; }
+    .hero-example.active { opacity: 1; pointer-events: auto; }
+    .hero-code-dots { display: flex; justify-content: center; gap: 6px; padding: 8px 0; border-top: 1px solid var(--border-subtle); }
+    .hero-code-dot {
+      width: 6px; height: 6px; border-radius: 50%; background: var(--border-default);
+      border: none; cursor: pointer; transition: background 0.15s; padding: 0;
+    }
+    .hero-code-dot.active { background: var(--accent); }
+
+    /* ── ENDPOINT VOTING ── */
+    .vote-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+    .vote-card {
+      padding: 20px; background: var(--bg-surface); border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg); display: flex; align-items: center; gap: 16px;
+      transition: border-color 0.15s;
+    }
+    .vote-card:hover { border-color: var(--border-default); }
+    .vote-btn {
+      display: flex; flex-direction: column; align-items: center; gap: 2px;
+      background: var(--bg-surface-2); border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md); padding: 8px 12px; cursor: pointer;
+      transition: all 0.15s; flex-shrink: 0; color: var(--text-tertiary);
+    }
+    .vote-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+    .vote-btn.voted { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+    .vote-count { font-family: var(--font-mono); font-size: 14px; font-weight: 700; }
+    .vote-arrow { font-size: 12px; }
+    .vote-info { flex: 1; }
+    .vote-name { font-size: 14px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px; }
+    .vote-desc { font-size: 12px; color: var(--text-tertiary); line-height: 1.4; }
+    .vote-suggest {
+      padding: 20px; background: var(--bg-surface); border: 2px dashed var(--border-default);
+      border-radius: var(--radius-lg); text-align: center; cursor: pointer;
+      transition: border-color 0.15s; color: var(--text-tertiary); font-size: 13px;
+    }
+    .vote-suggest:hover { border-color: var(--accent); color: var(--accent); }
+
     /* ── FOOTER ── */
     footer {
       border-top: 1px solid var(--border-subtle); padding: 32px 24px;
@@ -398,6 +507,7 @@
       .feature-grid { grid-template-columns: repeat(2, 1fr); }
       .api-panels { grid-template-columns: 1fr; }
       .api-req { border-right: none; border-bottom: 1px solid var(--border-subtle); }
+      .pricing-track .pricing-card { min-width: calc(50% - 8px); }
       .pricing-grid, .more-tiers-grid { grid-template-columns: repeat(2, 1fr); }
     }
     @media (max-width: 768px) {
@@ -410,6 +520,7 @@
       .pipeline-connector { width: auto; padding: 0; transform: rotate(90deg); }
       .feature-grid { grid-template-columns: 1fr; }
       .pricing-grid, .more-tiers-grid { grid-template-columns: 1fr; max-width: 400px; }
+      .pricing-track .pricing-card { min-width: calc(100% - 0px); }
       .crypto-quick-row { grid-template-columns: repeat(2, 1fr); }
       .source-grid { grid-template-columns: 1fr; }
       footer { padding: 24px 16px; flex-direction: column; text-align: center; }
@@ -486,6 +597,10 @@
     </ul>
   </div>
   <div class="nav-right">
+    <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Toggle light/dark mode">
+      <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+    </button>
     <div class="nav-status" id="navApiStatus">
       <span class="status-dot" id="statusDot"></span>
       <span id="statusLabel">Checking...</span>
@@ -516,7 +631,7 @@
       One query.<br>Any API.<br>One answer.
     </h1>
     <p class="body-lg" style="max-width:520px;margin-bottom:36px">
-      ClawNet orchestrates 158+ blockchain, social, and market APIs into a single natural-language endpoint. No subscriptions &mdash; pay per query.
+      ClawNet orchestrates <span id="heroEndpointCount">100</span>+ blockchain, social, and market APIs into a single natural-language endpoint. No subscriptions &mdash; pay per query.
     </p>
 
     <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:48px">
@@ -524,7 +639,7 @@
       <a href="/docs.html" class="btn btn-ghost btn-lg">Documentation</a>
     </div>
 
-    <div class="hero-code">
+    <div class="hero-code" id="heroCode">
       <div class="hero-code-header">
         <span style="display:flex;gap:5px">
           <span style="width:10px;height:10px;border-radius:50%;background:#3f3f46"></span>
@@ -533,18 +648,42 @@
         </span>
         <span style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted)">terminal</span>
       </div>
-      <pre class="hero-code-body"><span style="color:var(--text-muted)">$</span> curl -X POST https://api.claw-net.org/v1/orchestrate \
-  -H <span style="color:var(--accent)">"X-API-Key: cn-your-key"</span> \
-  -H <span style="color:var(--accent)">"Content-Type: application/json"</span> \
+      <pre class="hero-code-body"><div class="hero-example active" id="heroEx0"><span style="color:var(--text-muted)">$</span> curl -X POST /v1/orchestrate \
   -d <span style="color:var(--accent)">'{"query":"Analyze BONK: price, holders, risk score"}'</span>
 
-<span style="color:var(--text-muted)">// Response (7.4s, 10 credits)</span>
+<span style="color:var(--text-muted)">// 7.4s &middot; 10 credits &middot; 4 APIs</span>
 {
   <span style="color:var(--accent)">"answer"</span>: <span style="color:#f59e0b">"BONK: 991K holders, LP locked, mint disabled..."</span>,
   <span style="color:var(--accent)">"riskScore"</span>: <span style="color:var(--info)">28</span>,
-  <span style="color:var(--accent)">"creditsUsed"</span>: <span style="color:var(--info)">10</span>,
-  <span style="color:var(--accent)">"stepsExecuted"</span>: <span style="color:var(--info)">4</span>
-}</pre>
+  <span style="color:var(--accent)">"creditsUsed"</span>: <span style="color:var(--info)">10</span>
+}</div><div class="hero-example" id="heroEx1"><span style="color:var(--text-muted)">$</span> curl -X POST /v1/orchestrate \
+  -d <span style="color:var(--accent)">'{"query":"Top 5 Solana tokens by volume today"}'</span>
+
+<span style="color:var(--text-muted)">// 4.1s &middot; 6 credits &middot; 2 APIs</span>
+{
+  <span style="color:var(--accent)">"answer"</span>: <span style="color:#f59e0b">"1. SOL $2.4B  2. JUP $890M  3. BONK $412M..."</span>,
+  <span style="color:var(--accent)">"creditsUsed"</span>: <span style="color:var(--info)">6</span>
+}</div><div class="hero-example" id="heroEx2"><span style="color:var(--text-muted)">$</span> curl -X POST /v1/orchestrate \
+  -d <span style="color:var(--accent)">'{"query":"What is @aaboronmeth tweeting about?"}'</span>
+
+<span style="color:var(--text-muted)">// 5.8s &middot; 8 credits &middot; 3 APIs</span>
+{
+  <span style="color:var(--accent)">"answer"</span>: <span style="color:#f59e0b">"Recent tweets focus on AI agents, DeFi yield..."</span>,
+  <span style="color:var(--accent)">"creditsUsed"</span>: <span style="color:var(--info)">8</span>
+}</div><div class="hero-example" id="heroEx3"><span style="color:var(--text-muted)">$</span> curl /v1/skills/sp500-daily/query
+
+<span style="color:var(--text-muted)">// 0.3s &middot; 1 credit &middot; cached</span>
+{
+  <span style="color:var(--accent)">"data"</span>: { <span style="color:var(--accent)">"close"</span>: <span style="color:var(--info)">5234.18</span>, <span style="color:var(--accent)">"change"</span>: <span style="color:var(--info)">+0.8%</span> },
+  <span style="color:var(--accent)">"cached"</span>: <span style="color:var(--info)">true</span>,
+  <span style="color:var(--accent)">"creditsUsed"</span>: <span style="color:var(--info)">1</span>
+}</div></pre>
+      <div class="hero-code-dots" id="heroCodeDots">
+        <button class="hero-code-dot active" onclick="showHeroExample(0)"></button>
+        <button class="hero-code-dot" onclick="showHeroExample(1)"></button>
+        <button class="hero-code-dot" onclick="showHeroExample(2)"></button>
+        <button class="hero-code-dot" onclick="showHeroExample(3)"></button>
+      </div>
     </div>
   </div>
 </section>
@@ -674,7 +813,7 @@
       <div class="feature-card">
         <div class="feature-icon" style="color:var(--warning)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg></div>
         <h3 class="heading-md" style="margin:12px 0 6px">Pay Per Query</h3>
-        <p class="body">No subscriptions, no monthly fees. Credits start at $0.001 each and never expire. Cache hits: 1 credit.</p>
+        <p class="body">No subscriptions, no monthly fees. Credits start at $0.001 each and never expire. Cached queries save up to 90%.</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon" style="color:var(--purple)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></div>
@@ -696,22 +835,45 @@
 </section>
 
 <!-- ═══════════════════════════════════════════════════════════════ -->
-<!-- DATA SOURCES                                                   -->
+<!-- ENDPOINT VOTING                                                -->
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <section class="section" id="data-sources" style="border-top:1px solid var(--border-subtle)">
   <div class="container">
-    <p class="caption" style="margin-bottom:12px">Data Sources</p>
-    <h2 class="heading-lg" style="margin-bottom:16px">Live today. Expanding everywhere.</h2>
-    <p class="body" style="max-width:520px;margin-bottom:48px">ClawNet routes through any x402-compatible API. As the ecosystem grows, your access grows &mdash; zero code changes required.</p>
-    <div class="source-grid" id="sourcesGrid">
-      <div class="source-card" id="src-solscan"><div class="source-status live"><span class="status-dot ok"></span> Live</div><div class="source-name">Solscan Pro</div><div class="source-desc">Token metadata, holders, transfers, trending tokens, transactions</div><div class="source-count" id="src-solscan-count">&mdash; endpoints</div></div>
-      <div class="source-card" id="src-helius"><div class="source-status live"><span class="status-dot ok"></span> Live</div><div class="source-name">Helius</div><div class="source-desc">Solana RPC, DAS API, asset ownership, NFT data, enhanced transactions</div><div class="source-count" id="src-helius-count">&mdash; endpoints</div></div>
-      <div class="source-card" id="src-twitter"><div class="source-status live"><span class="status-dot ok"></span> Live</div><div class="source-name">X / Twitter</div><div class="source-desc">Real-time tweet search, user profiles, sentiment, engagement metrics</div><div class="source-count" id="src-twitter-count">&mdash; endpoints</div></div>
-      <div class="source-card" id="src-coingecko"><div class="source-status soon" id="src-coingecko-status"><span class="status-dot"></span> <span id="src-coingecko-label">Checking...</span></div><div class="source-name">CoinGecko</div><div class="source-desc">Price data, market caps, trending tokens, exchange data</div><div class="source-count" id="src-coingecko-count">&mdash;</div></div>
-      <div class="source-card" id="src-coinmarket"><div class="source-status soon" id="src-coinmarket-status"><span class="status-dot"></span> <span id="src-coinmarket-label">Checking...</span></div><div class="source-name">CoinMarketCap</div><div class="source-desc">Token rankings, market data, volume, dominance and global crypto metrics</div><div class="source-count" id="src-coinmarket-count">&mdash;</div></div>
-      <div class="source-card" id="src-defi"><div class="source-status soon" id="src-defi-status"><span class="status-dot"></span> <span id="src-defi-label">Checking...</span></div><div class="source-name">DeFi Llama</div><div class="source-desc">Protocol TVL, yield data, liquidity pools, DEX volumes across all chains</div><div class="source-count" id="src-defi-count">&mdash;</div></div>
-      <div class="source-card" id="src-others"><div class="source-status live"><span class="status-dot ok"></span> Live</div><div class="source-name">+ x402 Providers</div><div class="source-desc">CoinAnk, Einstein AI, Apollo Intelligence, Rug Munch, RootData, and more</div><div class="source-count" id="src-others-count">&mdash; endpoints</div></div>
-      <div class="source-card"><div class="source-status soon"><span class="status-dot"></span> Planned</div><div class="source-name">Open Ecosystem</div><div class="source-desc">Any API that supports x402 payments is one config entry away from being routable.</div><div class="source-count">x402 compatible</div></div>
+    <p class="caption" style="margin-bottom:12px">Community</p>
+    <h2 class="heading-lg" style="margin-bottom:16px">Vote for the next integration.</h2>
+    <p class="body" style="max-width:520px;margin-bottom:48px">Tell us which APIs matter to you. The most voted integrations get built first. Already live: <strong id="liveProviderSummary">Solscan, Helius, X/Twitter, and more</strong>.</p>
+    <div class="vote-grid" id="voteGrid">
+      <div class="vote-card">
+        <button class="vote-btn" onclick="castVote(this,'coingecko')"><span class="vote-arrow">&#9650;</span><span class="vote-count" id="vote-coingecko">0</span></button>
+        <div class="vote-info"><div class="vote-name">CoinGecko</div><div class="vote-desc">Price data, market caps, trending tokens, exchange volumes</div></div>
+      </div>
+      <div class="vote-card">
+        <button class="vote-btn" onclick="castVote(this,'coinmarketcap')"><span class="vote-arrow">&#9650;</span><span class="vote-count" id="vote-coinmarketcap">0</span></button>
+        <div class="vote-info"><div class="vote-name">CoinMarketCap</div><div class="vote-desc">Token rankings, global metrics, dominance, volume data</div></div>
+      </div>
+      <div class="vote-card">
+        <button class="vote-btn" onclick="castVote(this,'defillama')"><span class="vote-arrow">&#9650;</span><span class="vote-count" id="vote-defillama">0</span></button>
+        <div class="vote-info"><div class="vote-name">DeFi Llama</div><div class="vote-desc">Protocol TVL, yield data, DEX volumes across all chains</div></div>
+      </div>
+      <div class="vote-card">
+        <button class="vote-btn" onclick="castVote(this,'dune')"><span class="vote-arrow">&#9650;</span><span class="vote-count" id="vote-dune">0</span></button>
+        <div class="vote-info"><div class="vote-name">Dune Analytics</div><div class="vote-desc">On-chain SQL queries, custom dashboards, wallet analytics</div></div>
+      </div>
+      <div class="vote-card">
+        <button class="vote-btn" onclick="castVote(this,'flipside')"><span class="vote-arrow">&#9650;</span><span class="vote-count" id="vote-flipside">0</span></button>
+        <div class="vote-info"><div class="vote-name">Flipside</div><div class="vote-desc">Cross-chain analytics, governance data, user behavior metrics</div></div>
+      </div>
+      <div class="vote-card">
+        <button class="vote-btn" onclick="castVote(this,'chainlink')"><span class="vote-arrow">&#9650;</span><span class="vote-count" id="vote-chainlink">0</span></button>
+        <div class="vote-info"><div class="vote-name">Chainlink Feeds</div><div class="vote-desc">Oracle price feeds, VRF, cross-chain data, CCIP</div></div>
+      </div>
+      <div class="vote-card">
+        <button class="vote-btn" onclick="castVote(this,'nansen')"><span class="vote-arrow">&#9650;</span><span class="vote-count" id="vote-nansen">0</span></button>
+        <div class="vote-info"><div class="vote-name">Nansen</div><div class="vote-desc">Smart money tracking, wallet labels, token flow analysis</div></div>
+      </div>
+      <div class="vote-card vote-suggest" onclick="suggestEndpoint()">
+        + Suggest an API
+      </div>
     </div>
   </div>
 </section>
@@ -723,100 +885,107 @@
   <div class="container">
     <p class="caption" style="margin-bottom:12px">Pricing</p>
     <h2 class="heading-lg" style="margin-bottom:16px">Buy credits. Start building.</h2>
-    <p class="body" style="max-width:520px;margin-bottom:48px">No subscriptions. No monthly fees. Credits never expire. Cache hits cost just 1 credit.</p>
+    <p class="body" style="max-width:520px;margin-bottom:48px">No subscriptions. No monthly fees. Credits never expire. Cache hits save up to 90%.</p>
 
-    <div class="pricing-grid">
-      <!-- Starter -->
-      <div class="pricing-card">
-        <div class="pricing-tier">Starter</div>
-        <div class="pricing-price">$5</div>
-        <div class="pricing-credits">5,000 credits</div>
-        <div class="pricing-bonus">&nbsp;</div>
-        <ul class="pricing-features">
-          <li>Instant API key via email</li>
-          <li><span class="ep-count">&mdash;</span>+ endpoint access</li>
-          <li>Semantic caching</li>
-          <li>Credits never expire</li>
-        </ul>
-        <a href="https://buy.stripe.com/fZufZigsDgva6HZ5Vk08g00" target="_blank" class="price-btn">Pay with Card</a>
-      </div>
-
-      <!-- Pro (Featured) -->
-      <div class="pricing-card featured">
-        <div class="pricing-badge">Most Popular</div>
-        <div class="pricing-tier">Pro</div>
-        <div class="pricing-price">$50</div>
-        <div class="pricing-credits">54,000 credits</div>
-        <div class="pricing-bonus">+4,000 bonus credits free</div>
-        <ul class="pricing-features">
-          <li>Instant API key via email</li>
-          <li><span class="ep-count">&mdash;</span>+ endpoint access</li>
-          <li>Semantic caching</li>
-          <li>Credits never expire</li>
-          <li>~1,600-27,000 queries</li>
-        </ul>
-        <a href="https://buy.stripe.com/5kQ5kE7W792I9UbabA08g02" target="_blank" class="price-btn featured">Pay with Card</a>
-      </div>
-
-      <!-- Scale -->
-      <div class="pricing-card">
-        <div class="pricing-tier">Scale</div>
-        <div class="pricing-price">$500</div>
-        <div class="pricing-credits">600,000 credits</div>
-        <div class="pricing-bonus">+100,000 bonus credits free</div>
-        <ul class="pricing-features">
-          <li>Instant API key via email</li>
-          <li><span class="ep-count">&mdash;</span>+ endpoint access</li>
-          <li>Semantic caching</li>
-          <li>Credits never expire</li>
-          <li>~18,000-300,000 queries</li>
-        </ul>
-        <a href="https://buy.stripe.com/28EeVeekv0wcaYf1F408g04" target="_blank" class="price-btn">Pay with Card</a>
-      </div>
-    </div>
-
-    <!-- More tiers -->
-    <details class="more-tiers">
-      <summary>View all 6 pricing tiers</summary>
-      <div class="more-tiers-grid">
+    <div class="pricing-carousel" id="pricingCarousel">
+      <button class="carousel-btn prev" onclick="movePricingCarousel(-1)">&#8249;</button>
+      <div class="pricing-track" id="pricingTrack">
+        <!-- Starter -->
+        <div class="pricing-card">
+          <div class="pricing-tier">Starter</div>
+          <div class="pricing-price">$5</div>
+          <div class="pricing-credits">5,000 credits</div>
+          <div class="pricing-bonus">&nbsp;</div>
+          <ul class="pricing-features">
+            <li>Instant API key access</li>
+            <li><span class="ep-count">&mdash;</span>+ endpoint access</li>
+            <li>Smart caching</li>
+            <li>Credits never expire</li>
+          </ul>
+          <a href="https://buy.stripe.com/fZufZigsDgva6HZ5Vk08g00" target="_blank" class="price-btn">Pay with Card</a>
+        </div>
+        <!-- Builder -->
         <div class="pricing-card">
           <div class="pricing-tier">Builder</div>
           <div class="pricing-price">$20</div>
           <div class="pricing-credits">21,000 credits</div>
           <div class="pricing-bonus">+1,000 bonus credits free</div>
           <ul class="pricing-features">
-            <li>Instant API key via email</li>
-            <li>All endpoints</li>
+            <li>Instant API key access</li>
+            <li><span class="ep-count">&mdash;</span>+ endpoint access</li>
+            <li>Smart caching</li>
             <li>Credits never expire</li>
           </ul>
           <a href="https://buy.stripe.com/aFa9AUekv0wcearerQ08g01" target="_blank" class="price-btn">Pay with Card</a>
         </div>
+        <!-- Pro (Featured) -->
+        <div class="pricing-card featured">
+          <div class="pricing-badge">Most Popular</div>
+          <div class="pricing-tier">Pro</div>
+          <div class="pricing-price">$50</div>
+          <div class="pricing-credits">54,000 credits</div>
+          <div class="pricing-bonus">+4,000 bonus credits free</div>
+          <ul class="pricing-features">
+            <li>Instant API key access</li>
+            <li><span class="ep-count">&mdash;</span>+ endpoint access</li>
+            <li>Smart caching</li>
+            <li>Credits never expire</li>
+            <li>~1,600-27,000 queries</li>
+          </ul>
+          <a href="https://buy.stripe.com/5kQ5kE7W792I9UbabA08g02" target="_blank" class="price-btn featured">Pay with Card</a>
+        </div>
+        <!-- Growth -->
         <div class="pricing-card">
           <div class="pricing-tier">Growth</div>
           <div class="pricing-price">$100</div>
           <div class="pricing-credits">112,000 credits</div>
           <div class="pricing-bonus">+12,000 bonus credits free</div>
           <ul class="pricing-features">
-            <li>Instant API key via email</li>
-            <li>All endpoints</li>
+            <li>Instant API key access</li>
+            <li><span class="ep-count">&mdash;</span>+ endpoint access</li>
+            <li>Smart caching</li>
             <li>Credits never expire</li>
+            <li>~3,300-56,000 queries</li>
           </ul>
           <a href="https://buy.stripe.com/9B6aEY6S3en27M35Vk08g03" target="_blank" class="price-btn">Pay with Card</a>
         </div>
+        <!-- Scale -->
+        <div class="pricing-card">
+          <div class="pricing-tier">Scale</div>
+          <div class="pricing-price">$500</div>
+          <div class="pricing-credits">600,000 credits</div>
+          <div class="pricing-bonus">+100,000 bonus credits free</div>
+          <ul class="pricing-features">
+            <li>Instant API key access</li>
+            <li><span class="ep-count">&mdash;</span>+ endpoint access</li>
+            <li>Smart caching</li>
+            <li>Credits never expire</li>
+            <li>~18,000-300,000 queries</li>
+          </ul>
+          <a href="https://buy.stripe.com/28EeVeekv0wcaYf1F408g04" target="_blank" class="price-btn">Pay with Card</a>
+        </div>
+        <!-- Enterprise -->
         <div class="pricing-card">
           <div class="pricing-tier">Enterprise</div>
           <div class="pricing-price">$1,000</div>
           <div class="pricing-credits">1,300,000 credits</div>
           <div class="pricing-bonus">+300,000 bonus credits free</div>
           <ul class="pricing-features">
-            <li>Instant API key via email</li>
-            <li>All endpoints</li>
+            <li>Instant API key access</li>
+            <li><span class="ep-count">&mdash;</span>+ endpoint access</li>
+            <li>Smart caching</li>
             <li>Credits never expire</li>
+            <li>~39,000-650,000 queries</li>
           </ul>
           <a href="https://buy.stripe.com/6oUdRab8j1Ag3vNerQ08g05" target="_blank" class="price-btn">Pay with Card</a>
         </div>
       </div>
-    </details>
+      <button class="carousel-btn next" onclick="movePricingCarousel(1)">&#8250;</button>
+      <div class="carousel-dots" id="carouselDots">
+        <button class="carousel-dot active" onclick="goToCarouselPage(0)"></button>
+        <button class="carousel-dot" onclick="goToCarouselPage(1)"></button>
+      </div>
+    </div>
 
     <!-- USDC Crypto Option -->
     <div class="crypto-card">
@@ -866,6 +1035,8 @@
       <li><a href="https://t.me/claw_net" target="_blank">Telegram</a></li>
       <li><a href="https://stats.uptimerobot.com/BtyHzXcO5p" target="_blank">Status</a></li>
       <li><a href="/contact-section.html">Contact</a></li>
+      <li><a href="/terms.html">Terms</a></li>
+      <li><a href="/privacy.html">Privacy</a></li>
     </ul>
   </div>
   <div class="footer-copy">&copy; 2026 ClawNet &middot; Powered by x402</div>
@@ -932,43 +1103,127 @@
   fetchApiStatus();
   setInterval(fetchApiStatus, 60000);
 
-  // ── Data Sources fetch ────────────────────────────────────────
-  (function(){
-    fetch(API + '/v1/endpoints').then(r=>r.json()).then(d=>{
-      const eps = d.endpoints || [];
-      const count = (fn) => eps.filter(fn).length;
-      const solscan = count(e => e.provider === 'ClawAPIs' && ((e.id||'').includes('solscan') || (e.id||'').includes('claw-token') || (e.id||'').includes('claw-account')));
-      const twitter = count(e => e.provider === 'ClawAPIs' && ((e.id||'').includes('tweet') || (e.id||'').includes('social') || (e.id||'').includes('twitter') || (e.id||'').includes('-x-') || (e.id||'').startsWith('user-')));
-      const helius = count(e => e.provider === 'ClawAPIs') - solscan - twitter;
-      const cgCount = count(e => e.provider === 'CoinGecko');
-      const cmcCount = count(e => e.provider === 'CoinMarketCap');
-      const defiCount = count(e => e.provider === 'DeFi Llama' || e.provider === 'DefiLlama');
-      const others = count(e => e.provider !== 'ClawAPIs' && e.provider !== 'CoinGecko' && e.provider !== 'CoinMarketCap' && e.provider !== 'DeFi Llama' && e.provider !== 'DefiLlama');
-      const setCount = (id, n, suffix) => { const el=document.getElementById(id); if(el) el.textContent = n > 0 ? `${n} ${suffix||'endpoints'}` : (suffix||'\u2014'); };
-      const setStatus = (statusId, labelId, countId, n) => {
-        const sEl=document.getElementById(statusId), lEl=document.getElementById(labelId);
-        if(n > 0) { if(sEl) sEl.className='source-status live'; if(lEl) lEl.textContent='Live'; setCount(countId, n); }
-        else { if(sEl) sEl.className='source-status soon'; if(lEl) lEl.textContent='Coming Soon'; const c=document.getElementById(countId); if(c) c.textContent='x402 integration pending'; }
-      };
-      setCount('src-solscan-count', Math.max(solscan, 1));
-      setCount('src-helius-count', Math.max(helius, 1));
-      setCount('src-twitter-count', Math.max(twitter, 1));
-      setCount('src-others-count', others);
-      setStatus('src-coingecko-status', 'src-coingecko-label', 'src-coingecko-count', cgCount);
-      setStatus('src-coinmarket-status', 'src-coinmarket-label', 'src-coinmarket-count', cmcCount);
-      setStatus('src-defi-status', 'src-defi-label', 'src-defi-count', defiCount);
-      const total = d.meta ? d.meta.total : eps.length;
-      document.querySelectorAll('.ep-count').forEach(el => el.textContent = total);
-      const statCount = document.getElementById('statEndpointCount');
-      if (statCount) statCount.textContent = total;
-      const proofEl = document.getElementById('proofEndpoints');
-      if (proofEl) proofEl.textContent = total;
-    }).catch(()=>{
-      ['src-coingecko-label','src-coinmarket-label','src-defi-label'].forEach(id=>{
-        const el=document.getElementById(id); if(el) el.textContent='Coming Soon';
-      });
-    });
+  // ── Theme toggle ────────────────────────────────────────────
+  function toggleTheme() {
+    const html = document.documentElement;
+    const current = html.getAttribute('data-theme');
+    const next = current === 'light' ? 'dark' : 'light';
+    if (next === 'dark') html.removeAttribute('data-theme');
+    else html.setAttribute('data-theme', 'light');
+    localStorage.setItem('clawnet_theme', next);
+  }
+  (function initTheme() {
+    const saved = localStorage.getItem('clawnet_theme');
+    if (saved === 'light') document.documentElement.setAttribute('data-theme', 'light');
   })();
+
+  // ── Live stats from /v1/stats ──────────────────────────────
+  async function fetchLiveStats() {
+    try {
+      const r = await fetch(API + '/v1/stats', { signal: AbortSignal.timeout(5000) });
+      if (!r.ok) return;
+      const s = await r.json();
+      const total = s.endpoints?.total ?? 0;
+      if (total > 0) {
+        document.querySelectorAll('.ep-count').forEach(el => el.textContent = total);
+        const ids = ['statEndpointCount','proofEndpoints','heroEndpointCount'];
+        ids.forEach(id => { const el = document.getElementById(id); if (el) el.textContent = total; });
+      }
+    } catch(e) {}
+  }
+  fetchLiveStats();
+  setInterval(fetchLiveStats, 60000);
+
+  // ── Hero code rotation ─────────────────────────────────────
+  let heroIdx = 0;
+  let heroTimer = null;
+  function showHeroExample(idx) {
+    heroIdx = idx;
+    document.querySelectorAll('.hero-example').forEach((el, i) => el.classList.toggle('active', i === idx));
+    document.querySelectorAll('.hero-code-dot').forEach((el, i) => el.classList.toggle('active', i === idx));
+    resetHeroTimer();
+  }
+  function nextHeroExample() {
+    const count = document.querySelectorAll('.hero-example').length;
+    showHeroExample((heroIdx + 1) % count);
+  }
+  function resetHeroTimer() {
+    if (heroTimer) clearInterval(heroTimer);
+    heroTimer = setInterval(nextHeroExample, 6000);
+  }
+  resetHeroTimer();
+
+  // ── Pricing carousel ───────────────────────────────────────
+  let carouselPage = 0;
+  const CARDS_PER_PAGE = () => window.innerWidth <= 768 ? 1 : window.innerWidth <= 1024 ? 2 : 3;
+  function movePricingCarousel(dir) {
+    const perPage = CARDS_PER_PAGE();
+    const totalCards = document.querySelectorAll('#pricingTrack .pricing-card').length;
+    const maxPage = Math.max(0, Math.ceil(totalCards / perPage) - 1);
+    carouselPage = Math.max(0, Math.min(maxPage, carouselPage + dir));
+    updateCarousel();
+  }
+  function goToCarouselPage(page) {
+    carouselPage = page;
+    updateCarousel();
+  }
+  function updateCarousel() {
+    const track = document.getElementById('pricingTrack');
+    const perPage = CARDS_PER_PAGE();
+    const cardW = track.querySelector('.pricing-card')?.offsetWidth ?? 280;
+    const gap = 16;
+    track.style.transform = `translateX(-${carouselPage * (cardW + gap) * perPage}px)`;
+    const totalCards = track.querySelectorAll('.pricing-card').length;
+    const maxPage = Math.max(0, Math.ceil(totalCards / perPage) - 1);
+    const dotsEl = document.getElementById('carouselDots');
+    dotsEl.innerHTML = '';
+    for (let i = 0; i <= maxPage; i++) {
+      const dot = document.createElement('button');
+      dot.className = 'carousel-dot' + (i === carouselPage ? ' active' : '');
+      dot.onclick = () => goToCarouselPage(i);
+      dotsEl.appendChild(dot);
+    }
+  }
+  window.addEventListener('resize', () => { carouselPage = 0; updateCarousel(); });
+  setTimeout(updateCarousel, 100);
+
+  // ── Endpoint voting (localStorage-based) ───────────────────
+  function getVotes() {
+    try { return JSON.parse(localStorage.getItem('clawnet_votes') || '{}'); } catch(e) { return {}; }
+  }
+  function getUserVoted() {
+    try { return JSON.parse(localStorage.getItem('clawnet_voted') || '[]'); } catch(e) { return []; }
+  }
+  function castVote(btn, id) {
+    const voted = getUserVoted();
+    if (voted.includes(id)) return;
+    voted.push(id);
+    localStorage.setItem('clawnet_voted', JSON.stringify(voted));
+    const votes = getVotes();
+    votes[id] = (votes[id] || 0) + 1;
+    localStorage.setItem('clawnet_votes', JSON.stringify(votes));
+    btn.classList.add('voted');
+    renderVotes();
+  }
+  function renderVotes() {
+    const votes = getVotes();
+    const voted = getUserVoted();
+    Object.keys(votes).forEach(id => {
+      const el = document.getElementById('vote-' + id);
+      if (el) el.textContent = votes[id];
+    });
+    voted.forEach(id => {
+      const card = document.querySelector(`[onclick*="'${id}'"]`);
+      if (card) card.classList.add('voted');
+    });
+  }
+  function suggestEndpoint() {
+    const name = prompt('Which API should ClawNet integrate next?');
+    if (name && name.trim()) {
+      alert('Thanks! We\'ve noted your suggestion: ' + name.trim());
+    }
+  }
+  renderVotes();
 
   // ── API Demo — tabbed languages ───────────────────────────────
   const CODE_SNIPPETS = {
