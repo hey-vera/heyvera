@@ -7,7 +7,9 @@ export default defineConfig({
     include: ['tests/unit/**/*.test.ts'],
     coverage: {
       provider: 'v8',
-      include: ['src/db/index.ts', 'src/routes/escrow.ts', 'src/routes/governance.ts'],
+      // src/db/index.ts is a barrel re-export; actual implementations are in domain files.
+      // Include all domain files so coverage reflects real function-level coverage.
+      include: ['src/db/**/*.ts', 'src/routes/escrow.ts', 'src/routes/governance.ts'],
       reporter: ['text', 'lcov'],
     },
     // Each test file runs in its own context so DB mocks don't bleed across

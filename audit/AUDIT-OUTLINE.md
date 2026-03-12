@@ -29,8 +29,8 @@
 | 13 | Frontend & User Experience | COMPLETE |
 | 14 | Observability & Operations | COMPLETE |
 | 15 | Scalability & Performance | COMPLETE |
-| 16 | Governance & Community | PENDING |
-| 17 | Testing & Verification | PENDING |
+| 16 | Governance & Community | COMPLETE |
+| 17 | Testing & Verification | COMPLETE |
 | 18 | Resilience & Shutdown | PENDING |
 | 19 | Product Completeness & Market Readiness | PENDING |
 | 20 | Compliance, Risk & Trust | PENDING |
@@ -1926,6 +1926,25 @@ tests/run.ts                        — 6 integration tests
 ### Why It Matters
 
 Tests are the safety net for every future change. 48 tests covering 4 modules means 20+ modules have zero test coverage. No integration tests means the route → middleware → DB chain is untested as a whole. No E2E tests means payment flows, webhook handling, and SSE streaming are verified only manually. Every untested path is a regression waiting to happen. At ClawNet's scale ambition, deploying without comprehensive tests is deploying blind.
+
+### Verdicts
+
+| # | Question | Verdict |
+|---|----------|---------|
+| Q1 | Coverage gaps | **KNOWN LIMITATION** — 20+ modules have zero coverage; 51 tests cover 4 DB/route modules. Routes, middleware, core pipeline untested |
+| Q2 | Financial flow testing | **KNOWN LIMITATION** — DB-level credit ops tested; full Stripe/Solana webhook → purchase → refund flows not tested end-to-end |
+| Q3 | Error path testing | **PASS** — insufficient credits, inactive key, duplicate vote, closed proposal, invalid proposal all tested |
+| Q4 | Test isolation | **PASS** — `isolate: true` per file; `beforeEach` clears relevant tables; no shared global state |
+| Q5 | Mock fidelity | **PASS** — mock uses real `better-sqlite3` in-memory instance with real schema via `initDb()`; UNIQUE constraints and foreign keys work exactly as in production |
+| Q6 | CI coverage threshold | **KNOWN LIMITATION** — no `thresholds` config; coverage not enforced in CI (only run via `test:unit:coverage` script) |
+| Q7 | Integration test reliability | **KNOWN LIMITATION** — `tests/run.ts` requires live server; not run in CI pipeline |
+| Q8 | Load testing | **KNOWN LIMITATION** — no load tests; performance regressions discovered in production |
+| Q9 | Security testing | **KNOWN LIMITATION** — no auth bypass, SQL injection, or rate limit evasion tests |
+| Q10 | Regression tests | **FIXED** — added 3 `getVoterWeight()` tests covering the Ch16 Sybil fix (zero-spend weight=0, spent weight=sqrt(n), zero-weight vote rejection) |
+
+**Bugs fixed (2):**
+1. **LOW** `vitest.config.ts`: coverage `include` listed barrel `src/db/index.ts` — after Ch01 DB split, actual implementations are in domain files (`src/db/credits.ts`, `src/db/governance.ts`, etc.). Fixed to `src/db/**/*.ts` so coverage tracks real function-level data.
+2. **LOW** `tests/unit/governance.test.ts`: no test for `getVoterWeight()` — the Ch16 Sybil voting fix was completely untested. Added 3 regression tests: zero-spend key returns weight=0, spent key returns sqrt(spent), zero-weight vote rejected by castVote(). Tests now 51/51.
 
 ---
 

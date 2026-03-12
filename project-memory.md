@@ -116,6 +116,8 @@ Proposals + weighted voting. Vote weight: `sqrt(total credits spent)` (quadratic
 
 **Ch16 audit fix:** `getVoterWeight()` previously used `Math.max(1, sqrt(spent))` — this floored all keys at weight=1 including zero-spend keys, enabling free Sybil voting. Fixed to `sqrt(spent)` with no floor; `castVote()` already rejects `weight <= 0`. VERIFIED skills immune to community auto-flagging (3 reports). Proposal balance check (100 credits) is NOT a spend — one key can spam proposals (known limitation, rate-limited by IP). No quorum minimum (known limitation).
 
+**Ch17 audit fixes:** `vitest.config.ts` coverage `include` was `src/db/index.ts` (barrel re-export after Ch01 split) — changed to `src/db/**/*.ts` for real domain-file coverage. Added 3 `getVoterWeight()` regression tests to governance.test.ts (zero-spend=0, sqrt(spent), zero-weight-vote rejected). Tests now 51/51.
+
 ---
 
 ## LLM Proxy & MCP

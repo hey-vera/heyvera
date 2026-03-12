@@ -20,6 +20,7 @@ import {
   getProposal,
   getProposals,
   castVote,
+  getVoterWeight,
 } from '../../src/db/index';
 
 beforeAll(() => {
@@ -130,6 +131,33 @@ describe('castVote', () => {
     expect(result.ok).toBe(false);
     expect(result.error).toMatch(/not open/i);
     expect(getProposal(id)?.votes_for).toBe(0);
+  });
+});
+
+describe('getVoterWeight', () => {
+  it('returns 0 for a key with no credit spend (Sybil guard)', () => {
+    // Zero-spend key must get weight=0 so castVote() rejects it
+    const { key } = seedApiKey(getTestDb(), { credits: 100 });
+    // No transactions recorded — spent = 0, weight = sqrt(0) = 0
+    const w = getVoterWeight(key);
+    expect(w).toBe(0);
+  });
+
+  it('returns sqrt(spent) for a key that has spent credits', () => {
+    const { key } = seedApiKey(getTestDb(), { credits: 0 });
+    // Simulate spending 100 credits
+    getTestDb().prepare(
+      `INSERT INTO transactions (id, from_agent, amount_credits, type) VALUES ('t1', ?, 100, 'ORCHESTRATION')`
+    ).run(key);
+    const w = getVoterWeight(key);
+    expect(w).toBeCloseTo(10, 5); // sqrt(100) = 10
+  });
+
+  it('zero-weight vote is rejected by castVote', () => {
+    const id = makeProposal();
+    const result = castVote({ proposalId: id, voterKey: 'cn-zero-spend', direction: 'FOR', weight: 0 });
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/positive/i);
   });
 });
 
