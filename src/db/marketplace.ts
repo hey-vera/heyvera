@@ -227,6 +227,7 @@ export function getMarketplaceSkills(params: {
   tags?: string;
   search?: string;
   category?: string;
+  type?: 'prompt_template' | 'api_proxy' | 'data';
 }): { skills: (Skill & { stake_total: number })[]; total: number } {
   const offset = (params.page - 1) * params.limit;
   const orderMap = {
@@ -254,6 +255,10 @@ export function getMarketplaceSkills(params: {
   if (params.search) {
     where += ` AND (s.name LIKE ? ESCAPE '\\' OR s.description LIKE ? ESCAPE '\\')`;
     args.push(`%${escapeLike(params.search)}%`, `%${escapeLike(params.search)}%`);
+  }
+  if (params.type) {
+    where += ` AND s.skill_type = ?`;
+    args.push(params.type);
   }
 
   const countRow = getDb()

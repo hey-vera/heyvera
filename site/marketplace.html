@@ -29,7 +29,29 @@
       --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', Consolas, monospace;
       --font-display: 'Inter', -apple-system, system-ui, sans-serif;
       --radius-sm: 4px; --radius-md: 6px; --radius-lg: 8px; --radius-xl: 12px;
+      --nav-bg: rgba(10,10,11,0.8);
     }
+    [data-theme="light"] {
+      --bg-primary: #f5f5f5; --bg-surface: #ffffff; --bg-surface-2: #f0f0f2; --bg-surface-3: #e8e8ec;
+      --bg-overlay: rgba(255,255,255,0.85); --border-subtle: #e4e4e7; --border-default: #d4d4d8; --border-strong: #a1a1aa;
+      --text-primary: #09090b; --text-secondary: #3f3f46; --text-tertiary: #71717a; --text-muted: #a1a1aa;
+      --accent-dim: rgba(16,185,129,0.10); --accent-subtle: rgba(16,185,129,0.05);
+      --danger-dim: rgba(239,68,68,0.10); --warning-dim: rgba(245,158,11,0.10);
+      --info-dim: rgba(59,130,246,0.10); --purple-dim: rgba(139,92,246,0.10);
+      --nav-bg: rgba(245,245,245,0.85);
+    }
+    .nav-logo-text { font-family: var(--font-sans); font-size: 18px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.02em; white-space: nowrap; }
+    .nav-logo-text span { color: var(--accent); }
+    .theme-toggle {
+      background: var(--bg-surface-2); border: 1px solid var(--border-default); border-radius: 6px;
+      width: 34px; height: 34px; display: flex; align-items: center; justify-content: center;
+      cursor: pointer; color: var(--text-tertiary); transition: all 0.15s; padding: 0; flex-shrink: 0;
+    }
+    .theme-toggle:hover { color: var(--text-primary); border-color: var(--border-strong); }
+    .theme-toggle .icon-sun, .theme-toggle .icon-moon { width: 16px; height: 16px; }
+    .theme-toggle .icon-sun { display: none; }
+    [data-theme="light"] .theme-toggle .icon-sun { display: block; }
+    [data-theme="light"] .theme-toggle .icon-moon { display: none; }
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: var(--font-sans); background: var(--bg-primary); color: var(--text-secondary); font-size: 14px; line-height: 1.6; overflow-x: hidden; }
     a { color: inherit; text-decoration: none; }
@@ -58,7 +80,7 @@
     .toast.info    { background: var(--bg-surface-2); border-color: var(--border-default); color: var(--text-secondary); }
     @keyframes toastIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 
-    nav { position: fixed; top: 0; left: 0; right: 0; z-index: 100; height: 56px; padding: 0 24px; display: flex; align-items: center; justify-content: space-between; background: rgba(10,10,11,0.95); border-bottom: 1px solid var(--border-subtle); backdrop-filter: blur(12px); }
+    nav { position: fixed; top: 0; left: 0; right: 0; z-index: 100; height: 56px; padding: 0 24px; display: flex; align-items: center; justify-content: space-between; background: var(--nav-bg); border-bottom: 1px solid var(--border-subtle); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }
     .nav-left { display: flex; align-items: center; gap: 20px; }
     .nav-logo img { height: 36px; width: auto; object-fit: contain; }
     .nav-links { display: flex; align-items: center; gap: 4px; list-style: none; }
@@ -125,7 +147,14 @@
     .skill-card:hover { border-color: var(--border-default); }
     .skill-card.official { border-color: var(--accent-dim); }
     .card-badge { position: absolute; top: 12px; right: 12px; font-size: 11px; font-weight: 500; color: var(--accent); border: 1px solid var(--accent-dim); padding: 2px 8px; background: var(--accent-subtle); border-radius: 9999px; }
-    .card-cat { font-size: 11px; color: var(--text-muted); margin-bottom: 8px; }
+    .card-cat { font-size: 11px; color: var(--text-muted); margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+    .skill-type-badge { font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; padding: 2px 7px; border-radius: 3px; }
+    .skill-type-badge.data { color: #ef4444; background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.25); }
+    .skill-type-badge.api_proxy { color: #3b82f6; background: rgba(59,130,246,0.12); border: 1px solid rgba(59,130,246,0.25); }
+    .skill-type-badge.prompt { color: #8b5cf6; background: rgba(139,92,246,0.12); border: 1px solid rgba(139,92,246,0.25); }
+    .type-pill { display:flex; align-items:center; gap:6px; padding:8px 14px; border:1px solid var(--border-default); border-radius:var(--radius-md); cursor:pointer; font-size:12px; color:var(--text-secondary); transition:all 0.15s; background:var(--bg-surface); }
+    .type-pill:hover { border-color:var(--border-strong); }
+    .type-pill.active { border-color:var(--accent); background:var(--accent-subtle); color:var(--text-primary); }
     .card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
     .card-name { font-size: 14px; font-weight: 600; color: var(--text-primary); cursor: pointer; line-height: 1.3; }
     .card-name:hover { color: var(--accent); }
@@ -330,13 +359,14 @@
       .form-row, .form-row-3 { grid-template-columns: 1fr; }
     }
   </style>
+<script>if(localStorage.getItem('clawnet_theme')==='light')document.documentElement.setAttribute('data-theme','light')</script>
 </head>
 <body>
 <div id="toast-container"></div>
 
 <nav>
   <div class="nav-left">
-    <a href="/" class="nav-logo"><img src="/logo.png" alt="ClawNet"></a>
+    <a href="/" class="nav-logo"><span class="nav-logo-text">Claw <span>Network</span></span></a>
     <ul class="nav-links">
       <li><a href="/">Home</a></li>
       <li><a href="/docs.html">Docs</a></li>
@@ -346,6 +376,10 @@
     </ul>
   </div>
   <div class="nav-right">
+    <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Toggle theme">
+      <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+    </button>
     <div class="nav-status" id="navApiStatus"><span class="status-dot" id="statusDot"></span><span id="statusLabel">Checking...</span></div>
     <div class="nav-credits" id="nav-credits-badge"><span id="nav-credits-num">&mdash;</span> credits</div>
     <span class="nav-email" id="nav-user-email"></span>
@@ -400,6 +434,12 @@
           <option value="price_desc">Price: High</option>
           <option value="reputation">Reputation</option>
         </select>
+        <div class="cat-pills" id="type-pills" style="margin-bottom:4px">
+          <button class="cat-pill on" data-type="" onclick="setTypeFilter('',this)">All Types</button>
+          <button class="cat-pill" data-type="prompt_template" onclick="setTypeFilter('prompt_template',this)"><span class="skill-type-badge prompt" style="font-size:9px;padding:1px 5px">PROMPT</span></button>
+          <button class="cat-pill" data-type="api_proxy" onclick="setTypeFilter('api_proxy',this)"><span class="skill-type-badge api_proxy" style="font-size:9px;padding:1px 5px">API PROXY</span></button>
+          <button class="cat-pill" data-type="data" onclick="setTypeFilter('data',this)"><span class="skill-type-badge data" style="font-size:9px;padding:1px 5px">DATA SKILL</span></button>
+        </div>
         <div class="cat-pills" id="cat-pills">
           <button class="cat-pill on" data-cat="">All</button>
           <button class="cat-pill" data-cat="defi">⬡ DeFi</button>
@@ -424,7 +464,15 @@
       <div class="pub-layout">
         <div class="form-card">
           <h2 class="form-title">Publish a Skill</h2>
-          <p class="form-sub">Create a prompt-powered AI skill. Skills run on the ClawNet orchestration layer — no infra needed. You earn 97% of every purchase.</p>
+          <p class="form-sub">Create a prompt-powered AI skill, API proxy, or live data feed. Skills run on the ClawNet orchestration layer — no infra needed. You earn 97% of every purchase.</p>
+          <div class="form-group" style="margin-bottom:16px">
+            <label class="form-label">Skill Type</label>
+            <div style="display:flex;gap:8px">
+              <label class="type-pill active" id="tp-prompt_template" onclick="setSkillType('prompt_template')"><input type="radio" name="pub-type" value="prompt_template" checked style="display:none"><span class="skill-type-badge prompt">PROMPT</span> AI prompt template</label>
+              <label class="type-pill" id="tp-api_proxy" onclick="setSkillType('api_proxy')"><input type="radio" name="pub-type" value="api_proxy" style="display:none"><span class="skill-type-badge api_proxy">API PROXY</span> Forward to external API</label>
+              <label class="type-pill" id="tp-data" onclick="setSkillType('data')"><input type="radio" name="pub-type" value="data" style="display:none"><span class="skill-type-badge data">DATA SKILL</span> Live data feed</label>
+            </div>
+          </div>
           <div class="form-row">
             <div class="form-group">
               <label class="form-label">Slug <span class="hint">— unique identifier</span></label>
@@ -439,10 +487,32 @@
             <label class="form-label">Description <span class="hint">— what does this skill do?</span></label>
             <textarea class="field" id="pub-desc" rows="3" placeholder="Analyze NFT collection floor prices, volume trends, and whale activity on Solana." oninput="updateValidation()"></textarea>
           </div>
-          <div class="form-group">
+          <div class="form-group" id="fg-prompt">
             <label class="form-label">Prompt Template <span class="hint">— use &#123;&#123;variable&#125;&#125; for inputs</span></label>
             <textarea class="field" id="pub-prompt" rows="5" placeholder="Analyze the NFT collection {{collection}} on Solana. Include floor price, 24h volume, top holders." oninput="updateValidation()"></textarea>
             <div class="var-preview" id="var-preview" style="display:none"></div>
+          </div>
+          <div class="form-group" id="fg-proxy" style="display:none">
+            <label class="form-label">Proxy URL <span class="hint">— external HTTPS endpoint to forward requests to</span></label>
+            <input type="url" class="field" id="pub-proxy-url" placeholder="https://api.example.com/v1/data" oninput="updateValidation()">
+          </div>
+          <div id="fg-data-fields" style="display:none">
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">Update Frequency</label>
+                <select class="field" id="pub-frequency">
+                  <option value="realtime">Realtime (60s cache)</option>
+                  <option value="hourly">Hourly</option>
+                  <option value="daily" selected>Daily</option>
+                  <option value="weekly">Weekly</option>
+                  <option value="static">Static (30d cache)</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Sample Output JSON <span class="hint">— example response shown on marketplace card</span></label>
+              <textarea class="field" id="pub-sample-output" rows="4" placeholder='{ "date": "2026-03-12", "close": 5234.18, "volume": 1234567 }' oninput="updateValidation()"></textarea>
+            </div>
           </div>
           <div class="form-row-3">
             <div class="form-group">
@@ -678,7 +748,7 @@
 
 <footer>
   <div class="footer-left">
-    <a href="/" class="footer-logo"><img src="/logo.png" alt="ClawNet"></a>
+    <a href="/" class="footer-logo"><span class="nav-logo-text">Claw <span>Network</span></span></a>
     <ul class="footer-links">
       <li><a href="/">Home</a></li>
       <li><a href="/docs.html">Docs</a></li>
@@ -698,6 +768,24 @@ const API = 'https://api.claw-net.org';
 const OFFICIAL = new Set(['token-analysis','social-sentiment','portfolio-optimizer','wallet-profiler','trending-tokens','whale-tracker','defi-yield-scanner','token-launch-radar','price-oracle','nft-collection-intel']);
 const CAT_ICONS = {defi:'⬡',security:'🔒',social:'◎',ai:'✦',search:'⌕',media:'▶',enrichment:'⊕',analytics:'∿',infrastructure:'⚙',utility:'◇',weather:'☁',general:'◆'};
 
+let currentSkillType = 'prompt_template';
+function setSkillType(type) {
+  currentSkillType = type;
+  document.querySelectorAll('.type-pill').forEach(p => p.classList.remove('active'));
+  document.getElementById('tp-' + type)?.classList.add('active');
+  const fgPrompt = document.getElementById('fg-prompt');
+  const fgProxy = document.getElementById('fg-proxy');
+  const fgData = document.getElementById('fg-data-fields');
+  if (type === 'prompt_template') {
+    fgPrompt.style.display = ''; fgProxy.style.display = 'none'; fgData.style.display = 'none';
+  } else if (type === 'api_proxy') {
+    fgPrompt.style.display = 'none'; fgProxy.style.display = ''; fgData.style.display = 'none';
+  } else if (type === 'data') {
+    fgPrompt.style.display = 'none'; fgProxy.style.display = ''; fgData.style.display = '';
+  }
+  updateValidation();
+}
+
 // 1 credit = $0.001
 function creditsToUsd(n) {
   const usd = n * 0.001;
@@ -706,7 +794,7 @@ function creditsToUsd(n) {
 }
 
 let apiKey = localStorage.getItem('claw_api_key') || '';
-let currentPage = 1, currentCat = '', currentSort = 'popular';
+let currentPage = 1, currentCat = '', currentSort = 'popular', currentType = '';
 let searchTimer = null;
 let starredIds = new Set(JSON.parse(localStorage.getItem('claw_starred') || '[]'));
 let taskPage = 0;
@@ -819,6 +907,14 @@ async function initNav() {
   } catch (e) {}
 }
 
+function toggleTheme() {
+  const html = document.documentElement;
+  const next = html.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+  if (next === 'dark') html.removeAttribute('data-theme');
+  else html.setAttribute('data-theme', 'light');
+  localStorage.setItem('clawnet_theme', next);
+}
+
 async function navSignOut() {
   await window.Clerk.signOut();
   window.location.reload();
@@ -845,13 +941,21 @@ async function fetchApiStatus() {
   const dot = document.getElementById('statusDot');
   const label = document.getElementById('statusLabel');
   try {
-    const r = await fetch(API + '/v1/health', { signal: AbortSignal.timeout(5000) });
-    if (r.ok) { dot.className = 'status-dot ok'; label.textContent = 'Live'; label.style.color = 'var(--accent)'; }
-    else { dot.className = 'status-dot err'; label.textContent = 'Degraded'; label.style.color = 'var(--danger)'; }
-  } catch { dot.className = 'status-dot err'; label.textContent = 'Offline'; label.style.color = 'var(--danger)'; }
+    const r = await fetch(API + '/health', { signal: AbortSignal.timeout(5000) });
+    if (r.ok) {
+      if (dot) dot.className = 'status-dot ok';
+      if (label) { label.textContent = 'Operational'; label.style.color = 'var(--accent)'; }
+    } else {
+      if (dot) dot.className = 'status-dot err';
+      if (label) { label.textContent = 'Degraded'; label.style.color = 'var(--danger)'; }
+    }
+  } catch(e) {
+    if (dot) dot.className = 'status-dot err';
+    if (label) { label.textContent = 'Offline'; label.style.color = 'var(--danger)'; }
+  }
 }
 fetchApiStatus();
-setInterval(fetchApiStatus, 30000);
+setInterval(fetchApiStatus, 60000);
 
 // ── Hero Stats ────────────────────────────────────────────────────
 async function loadHeroStats() {
@@ -861,6 +965,14 @@ async function loadHeroStats() {
     const d = await r.json();
     document.getElementById('stat-total').textContent = d.total;
   } catch {}
+}
+
+function setTypeFilter(type, el) {
+  currentType = type;
+  document.querySelectorAll('#type-pills .cat-pill').forEach(p => p.classList.remove('on'));
+  if (el) el.classList.add('on');
+  currentPage = 1;
+  loadSkills();
 }
 
 // ── Browse ────────────────────────────────────────────────────────
@@ -882,6 +994,7 @@ async function loadSkills() {
   const p = new URLSearchParams({ page: currentPage, limit: 12, sort });
   if (search) p.set('search', search);
   if (currentCat) p.set('category', currentCat);
+  if (currentType) p.set('type', currentType);
 
   try {
     const r = await fetch(`${API}/v1/marketplace/skills?${p}`);
@@ -912,9 +1025,13 @@ function renderCard(s) {
   const secTxt = ({VERIFIED:'✓ Verified',CLEAN:'✓ Clean',FLAGGED:'⚠ Flagged',SUSPICIOUS:'⚠ Suspicious'})[s.securityStatus] || 'Unscanned';
   const cat = s.category || 'general';
   const catIcon = CAT_ICONS[cat] || '◆';
+  const skillType = s.skillType || 'prompt_template';
+  const typeBadge = skillType === 'data' ? '<span class="skill-type-badge data">DATA SKILL</span>'
+    : skillType === 'api_proxy' ? '<span class="skill-type-badge api_proxy">API PROXY</span>'
+    : '<span class="skill-type-badge prompt">PROMPT</span>';
   return `<div class="skill-card${off?' official':''}">
     ${off ? '<span class="card-badge">Official</span>' : ''}
-    <div class="card-cat">${catIcon} ${esc(cat)}</div>
+    <div class="card-cat">${typeBadge} ${catIcon} ${esc(cat)}</div>
     <div class="card-head">
       <div>
         <div class="card-name" onclick="nav('skill/'+encodeURIComponent('${esc(s.id)}'))">${esc(displayName)}</div>
@@ -977,12 +1094,14 @@ async function loadSkillDetail(id) {
           <h1 class="detail-title">${esc(displayName)}</h1>
           ${displayName !== slug ? `<div class="detail-slug">${esc(slug)}</div>` : ''}
           <div class="detail-subtitle">
+            ${s.skillType === 'data' ? '<span class="skill-type-badge data">DATA SKILL</span>' : s.skillType === 'api_proxy' ? '<span class="skill-type-badge api_proxy">API PROXY</span>' : '<span class="skill-type-badge prompt">PROMPT</span>'}
             <span>v${esc(s.version||'1.0.0')}</span>
             ${OFFICIAL.has(s.id) ? '<span class="badge badge-success">Official</span>' : ''}
             ${s.featured ? '<span class="badge-featured">★ Featured</span>' : ''}
             <span class="sec ${secCls}">${secTxt}</span>
             <span>${esc(s.license||'MIT')}</span>
             ${s.publishedAt ? `<span>${new Date(s.publishedAt).toLocaleDateString()}</span>` : ''}
+            ${s.updateFrequency ? `<span style="color:var(--info)">↻ ${esc(s.updateFrequency)}</span>` : ''}
           </div>
         </div>
         <div class="detail-actions">
@@ -1017,6 +1136,7 @@ async function loadSkillDetail(id) {
 
       <div class="dtab-panel active" id="dtp-overview">
         <div class="detail-desc">${esc(s.description)}</div>
+        ${s.sampleOutput ? `<div style="margin-bottom:16px"><div style="font-size:11px;font-weight:500;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:8px">Sample Output</div><pre class="schema-block">${esc(typeof s.sampleOutput === 'string' ? s.sampleOutput : JSON.stringify(s.sampleOutput, null, 2))}</pre></div>` : ''}
         ${s.readme ? `<div style="margin-bottom:16px"><div style="font-size:11px;font-weight:500;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:8px">README</div><div class="detail-readme">${esc(s.readme)}</div></div>` : ''}
         <div style="margin-bottom:16px">
           <div style="font-size:11px;font-weight:500;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:8px">Cost Breakdown</div>
@@ -1563,10 +1683,15 @@ async function publishSkill() {
   const tagsRaw = document.getElementById('pub-tags').value.trim();
   const isPublic = document.getElementById('pub-public').checked;
 
+  const proxyUrl = document.getElementById('pub-proxy-url')?.value.trim() || '';
+  const frequency = document.getElementById('pub-frequency')?.value || 'daily';
+  const sampleRaw = document.getElementById('pub-sample-output')?.value.trim() || '';
+
   if (!slug || slug.length < 2) { toast('Enter a valid slug', 'error'); return; }
   if (!displayName) { toast('Enter a display name', 'error'); return; }
   if (!desc || desc.length < 10) { toast('Description must be at least 10 chars', 'error'); return; }
-  if (!prompt || prompt.length < 10) { toast('Prompt template must be at least 10 chars', 'error'); return; }
+  if (currentSkillType === 'prompt_template' && (!prompt || prompt.length < 10)) { toast('Prompt template must be at least 10 chars', 'error'); return; }
+  if ((currentSkillType === 'api_proxy' || currentSkillType === 'data') && !proxyUrl) { toast('Proxy URL is required for this skill type', 'error'); return; }
 
   const tags = tagsRaw ? tagsRaw.split(',').map(t => t.trim()).filter(Boolean).slice(0, 10) : [];
   const category = document.getElementById('pub-category')?.value || 'general';
@@ -1575,7 +1700,15 @@ async function publishSkill() {
 
   try {
     const planJson = buildPlanJson();
-    const body = { name: slug, displayName, description: desc, promptTemplate: prompt, creditCost: price, public: isPublic, tags, version, category };
+    const body = { name: slug, displayName, description: desc, creditCost: price, public: isPublic, tags, version, category, skillType: currentSkillType };
+    if (currentSkillType === 'prompt_template') body.promptTemplate = prompt;
+    if (proxyUrl) body.proxyUrl = proxyUrl;
+    if (currentSkillType === 'data') {
+      body.updateFrequency = frequency;
+      body.promptTemplate = desc; // data skills need a non-empty prompt template for the DB
+      if (sampleRaw) { try { body.sampleOutput = JSON.parse(sampleRaw); } catch { body.sampleOutput = sampleRaw; } }
+    }
+    if (currentSkillType === 'api_proxy') body.promptTemplate = desc;
     if (changelog) body.changelog = changelog;
     if (planJson) body.executionPlanJson = planJson;
 

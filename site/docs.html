@@ -26,7 +26,29 @@
       --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', Consolas, monospace;
       --font-display: 'Inter', -apple-system, system-ui, sans-serif;
       --radius-sm: 4px; --radius-md: 6px; --radius-lg: 8px;
+      --nav-bg: rgba(10,10,11,0.8);
     }
+    [data-theme="light"] {
+      --bg-primary: #f5f5f5; --bg-surface: #ffffff; --bg-surface-2: #f0f0f2; --bg-surface-3: #e8e8ec;
+      --bg-overlay: rgba(255,255,255,0.85); --border-subtle: #e4e4e7; --border-default: #d4d4d8; --border-strong: #a1a1aa;
+      --text-primary: #09090b; --text-secondary: #3f3f46; --text-tertiary: #71717a; --text-muted: #a1a1aa;
+      --accent-dim: rgba(16,185,129,0.10); --accent-subtle: rgba(16,185,129,0.05);
+      --danger-dim: rgba(239,68,68,0.10); --warning-dim: rgba(245,158,11,0.10);
+      --info-dim: rgba(59,130,246,0.10); --purple-dim: rgba(139,92,246,0.10);
+      --nav-bg: rgba(245,245,245,0.85);
+    }
+    .nav-logo-text { font-family: var(--font-sans); font-size: 18px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.02em; white-space: nowrap; }
+    .nav-logo-text span { color: var(--accent); }
+    .theme-toggle {
+      background: var(--bg-surface-2); border: 1px solid var(--border-default); border-radius: 6px;
+      width: 34px; height: 34px; display: flex; align-items: center; justify-content: center;
+      cursor: pointer; color: var(--text-tertiary); transition: all 0.15s; padding: 0; flex-shrink: 0;
+    }
+    .theme-toggle:hover { color: var(--text-primary); border-color: var(--border-strong); }
+    .theme-toggle .icon-sun, .theme-toggle .icon-moon { width: 16px; height: 16px; }
+    .theme-toggle .icon-sun { display: none; }
+    [data-theme="light"] .theme-toggle .icon-sun { display: block; }
+    [data-theme="light"] .theme-toggle .icon-moon { display: none; }
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     html { scroll-behavior: smooth; }
     body { font-family: var(--font-sans); background: var(--bg-primary); color: var(--text-secondary); font-size: 14px; line-height: 1.6; overflow-x: hidden; }
@@ -35,7 +57,7 @@
     ::selection { background: var(--accent-dim); }
 
     /* NAV */
-    nav { position: fixed; top: 0; left: 0; right: 0; z-index: 100; height: 56px; padding: 0 24px; display: flex; align-items: center; justify-content: space-between; background: rgba(10,10,11,0.95); border-bottom: 1px solid var(--border-subtle); backdrop-filter: blur(12px); }
+    nav { position: fixed; top: 0; left: 0; right: 0; z-index: 100; height: 56px; padding: 0 24px; display: flex; align-items: center; justify-content: space-between; background: var(--nav-bg); border-bottom: 1px solid var(--border-subtle); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }
     .nav-left { display: flex; align-items: center; gap: 20px; }
     .nav-logo img { height: 36px; width: auto; object-fit: contain; }
     .nav-links { display: flex; align-items: center; gap: 4px; list-style: none; }
@@ -148,12 +170,13 @@
     .footer-links a:hover { color: var(--text-tertiary); }
     .footer-copy { font-size: 12px; color: var(--text-muted); }
   </style>
+  <script>if(localStorage.getItem('clawnet_theme')==='light')document.documentElement.setAttribute('data-theme','light')</script>
 </head>
 <body>
 
 <nav>
   <div class="nav-left">
-    <a href="/" class="nav-logo"><img src="/logo.png" alt="ClawNet"></a>
+    <a href="/" class="nav-logo"><span class="nav-logo-text">Claw <span>Network</span></span></a>
     <ul class="nav-links">
       <li><a href="/">Home</a></li>
       <li><a href="/docs.html" class="active">Docs</a></li>
@@ -163,6 +186,10 @@
     </ul>
   </div>
   <div class="nav-right">
+    <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Toggle theme">
+      <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+    </button>
     <div class="nav-status" id="navApiStatus"><span class="status-dot" id="statusDot"></span><span id="statusLabel">Checking...</span></div>
     <div class="nav-credits" id="nav-credits-badge"><span id="nav-credits-num">&mdash;</span> credits</div>
     <span class="nav-email" id="nav-user-email"></span>
@@ -954,7 +981,7 @@ es.onmessage = (e) => console.log(JSON.parse(e.data));</code></pre>
 
 <footer>
   <div class="footer-left">
-    <a href="/" class="footer-logo"><img src="/logo.png" alt="ClawNet"></a>
+    <a href="/" class="footer-logo"><span class="nav-logo-text">Claw <span>Network</span></span></a>
     <ul class="footer-links">
       <li><a href="/">Home</a></li>
       <li><a href="/docs.html">Docs</a></li>
@@ -970,6 +997,15 @@ es.onmessage = (e) => console.log(JSON.parse(e.data));</code></pre>
 </footer>
 
 <script>
+// Theme toggle
+function toggleTheme() {
+  const html = document.documentElement;
+  const next = html.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+  if (next === 'dark') html.removeAttribute('data-theme');
+  else html.setAttribute('data-theme', 'light');
+  localStorage.setItem('clawnet_theme', next);
+}
+
 // Copy code button
 function copyCode(btn) {
   const code = btn.parentElement.querySelector('code').textContent;
@@ -1015,13 +1051,21 @@ async function fetchApiStatus() {
   const dot = document.getElementById('statusDot');
   const label = document.getElementById('statusLabel');
   try {
-    const r = await fetch('https://api.claw-net.org/v1/health', { signal: AbortSignal.timeout(5000) });
-    if (r.ok) { dot.className = 'status-dot ok'; label.textContent = 'Live'; label.style.color = 'var(--accent)'; }
-    else { dot.className = 'status-dot err'; label.textContent = 'Degraded'; label.style.color = 'var(--danger)'; }
-  } catch { dot.className = 'status-dot err'; label.textContent = 'Offline'; label.style.color = 'var(--danger)'; }
+    const r = await fetch('https://api.claw-net.org/health', { signal: AbortSignal.timeout(5000) });
+    if (r.ok) {
+      if (dot) dot.className = 'status-dot ok';
+      if (label) { label.textContent = 'Operational'; label.style.color = 'var(--accent)'; }
+    } else {
+      if (dot) dot.className = 'status-dot err';
+      if (label) { label.textContent = 'Degraded'; label.style.color = 'var(--danger)'; }
+    }
+  } catch(e) {
+    if (dot) dot.className = 'status-dot err';
+    if (label) { label.textContent = 'Offline'; label.style.color = 'var(--danger)'; }
+  }
 }
 fetchApiStatus();
-setInterval(fetchApiStatus, 30000);
+setInterval(fetchApiStatus, 60000);
 
 // Nav auth
 async function initNav() {
@@ -1032,13 +1076,27 @@ async function initNav() {
     document.getElementById('nav-login-btn').style.display = 'none';
     document.getElementById('nav-getkey-btn').style.display = 'none';
     const email = user.primaryEmailAddress?.emailAddress ?? user.username ?? '';
-    if (email) { document.getElementById('nav-user-email').textContent = email; document.getElementById('nav-user-email').classList.add('show'); }
+    if (email) {
+      document.getElementById('nav-user-email').textContent = email;
+      document.getElementById('nav-user-email').classList.add('show');
+    }
     document.getElementById('nav-dash-btn').classList.add('show');
     document.getElementById('nav-signout-btn').classList.add('show');
-    const cached = localStorage.getItem('clawnet_credits');
-    document.getElementById('nav-credits-num').textContent = cached !== null ? parseInt(cached).toLocaleString() : '—';
+    const cachedCredits = localStorage.getItem('clawnet_credits');
+    document.getElementById('nav-credits-num').textContent = cachedCredits !== null ? parseInt(cachedCredits).toLocaleString() : '\u2014';
     document.getElementById('nav-credits-badge').classList.add('show');
-  } catch {}
+    try {
+      const token = await window.Clerk.session.getToken();
+      const res = await fetch('https://api.claw-net.org/v1/dashboard/me', { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.credits !== undefined) {
+          localStorage.setItem('clawnet_credits', data.credits);
+          document.getElementById('nav-credits-num').textContent = data.credits.toLocaleString();
+        }
+      }
+    } catch (e) {}
+  } catch (e) {}
 }
 async function navSignOut() { await window.Clerk.signOut(); window.location.reload(); }
 </script>

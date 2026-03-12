@@ -42,10 +42,12 @@
     .status-dot.ok { background: var(--accent); } .status-dot.err { background: var(--danger); }
     .nav-credits { font-family: var(--font-mono); font-size: 12px; color: var(--accent); padding: 4px 10px; border: 1px solid var(--accent-dim); border-radius: var(--radius-md); display: none; align-items: center; gap: 4px; }
     .nav-credits.show { display: flex; }
-    .nav-email { font-size: 12px; color: var(--text-tertiary); }
-    .nav-btn { font-size: 13px; font-weight: 500; padding: 6px 14px; border-radius: var(--radius-md); cursor: pointer; transition: all 0.15s; border: 1px solid var(--border-default); background: transparent; color: var(--text-secondary); }
-    .nav-btn:hover { border-color: var(--border-strong); color: var(--text-primary); }
-    .nav-btn.danger:hover { border-color: var(--danger); color: var(--danger); }
+    .nav-email { font-size: 12px; color: var(--text-tertiary); display: none; }
+    .nav-email.show { display: block; }
+    .nav-btn-ghost { background: transparent; color: var(--text-secondary); border: 1px solid var(--border-default); display: none; text-decoration: none; padding: 6px 14px; font-size: 13px; border-radius: var(--radius-md); cursor: pointer; transition: all 0.15s; }
+    .nav-btn-ghost.show { display: inline-block; }
+    .nav-btn-ghost:hover { border-color: var(--border-strong); color: var(--text-primary); }
+    .nav-btn-ghost.danger:hover { border-color: var(--danger); color: var(--danger); }
 
     /* ── TOAST ── */
     #toast-container { position: fixed; bottom: 24px; right: 24px; z-index: 9999; display: flex; flex-direction: column; gap: 8px; }
@@ -261,7 +263,30 @@
 
     /* Helper for timeAgo */
     .text-mono { font-family: var(--font-mono); }
+
+    /* LIGHT THEME */
+    [data-theme="light"] {
+      --bg-primary: #f5f5f5; --bg-surface: #ffffff; --bg-surface-2: #f0f0f2; --bg-surface-3: #e8e8ec;
+      --bg-overlay: rgba(255,255,255,0.85); --border-subtle: #e4e4e7; --border-default: #d4d4d8; --border-strong: #a1a1aa;
+      --text-primary: #09090b; --text-secondary: #3f3f46; --text-tertiary: #71717a; --text-muted: #a1a1aa;
+      --accent-dim: rgba(16,185,129,0.10); --danger-dim: rgba(239,68,68,0.10); --warning-dim: rgba(245,158,11,0.10);
+      --info-dim: rgba(59,130,246,0.10); --purple-dim: rgba(139,92,246,0.10);
+    }
+    [data-theme="light"] nav { background: rgba(255,255,255,0.92); }
+    .nav-logo-text { font-family: var(--font-sans); font-size: 18px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.02em; white-space: nowrap; }
+    .nav-logo-text span { color: var(--accent); }
+    .theme-toggle {
+      background: var(--bg-surface-2); border: 1px solid var(--border-default); border-radius: 6px;
+      width: 34px; height: 34px; display: flex; align-items: center; justify-content: center;
+      cursor: pointer; color: var(--text-tertiary); transition: all 0.15s; padding: 0; flex-shrink: 0;
+    }
+    .theme-toggle:hover { color: var(--text-primary); border-color: var(--border-strong); }
+    .theme-toggle .icon-sun, .theme-toggle .icon-moon { width: 16px; height: 16px; }
+    .theme-toggle .icon-sun { display: none; }
+    [data-theme="light"] .theme-toggle .icon-sun { display: block; }
+    [data-theme="light"] .theme-toggle .icon-moon { display: none; }
   </style>
+  <script>if(localStorage.getItem('clawnet_theme')==='light')document.documentElement.setAttribute('data-theme','light')</script>
 </head>
 <body>
   <div id="toast-container"></div>
@@ -352,7 +377,7 @@
   <!-- NAV -->
   <nav>
     <div class="nav-left">
-      <a href="/" class="nav-logo"><img src="/logo.png" alt="ClawNet"></a>
+      <a href="/" class="nav-logo"><span class="nav-logo-text">Claw <span>Network</span></span></a>
       <ul class="nav-links">
         <li><a href="/">Home</a></li>
         <li><a href="/docs.html">Docs</a></li>
@@ -362,11 +387,16 @@
       </ul>
     </div>
     <div class="nav-right">
+      <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Toggle theme">
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+      </button>
       <div class="nav-status" id="navApiStatus"><span class="status-dot" id="statusDot"></span><span id="statusLabel">Checking...</span></div>
-      <div class="nav-credits" id="nav-credits"><span id="nav-credits-num">&mdash;</span> credits</div>
-      <span class="nav-email" id="nav-email"></span>
-      <a href="/#contact" class="nav-btn">Support</a>
-      <button class="nav-btn danger" onclick="signOut()">Sign Out</button>
+      <div class="nav-credits" id="nav-credits-badge"><span id="nav-credits-num">&mdash;</span> credits</div>
+      <span class="nav-email" id="nav-user-email"></span>
+      <a href="/login.html" class="nav-btn-ghost" id="nav-login-btn">Sign In</a>
+      <a href="/dashboard.html" class="nav-btn-ghost" id="nav-dash-btn">Dashboard</a>
+      <button class="nav-btn-ghost danger" id="nav-signout-btn" onclick="navSignOut()" style="cursor:pointer">Sign Out</button>
     </div>
   </nav>
 
@@ -535,7 +565,7 @@
         <div class="page-title">No credits yet.</div>
       </div>
       <div class="card" style="text-align:center;padding:48px">
-        <img src="/logo.png" style="width:48px;height:48px;object-fit:contain;margin-bottom:16px">
+        <span class="nav-logo-text" style="font-size:24px;margin-bottom:16px;display:inline-block">Claw <span>Network</span></span>
         <h3 style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:8px">Get started with ClawNet</h3>
         <p style="font-size:13px;color:var(--text-tertiary);margin-bottom:24px">Purchase credits to start making queries.</p>
         <a href="/#pricing" class="btn btn-primary" style="padding:10px 24px;font-size:14px">View Pricing</a>
@@ -551,7 +581,7 @@
   <!-- FOOTER -->
   <footer>
     <div class="footer-left">
-      <a href="/" class="footer-logo"><img src="/logo.png" alt="ClawNet"></a>
+      <a href="/" class="footer-logo"><span class="nav-logo-text">Claw <span>Network</span></span></a>
       <ul class="footer-links">
         <li><a href="/">Home</a></li><li><a href="/docs.html">Docs</a></li><li><a href="/marketplace.html">Marketplace</a></li>
         <li><a href="/endpoints.html">Endpoints</a></li><li><a href="https://github.com/1xmint" target="_blank">GitHub</a></li>
@@ -564,6 +594,15 @@
   <script data-clerk-publishable-key="pk_live_Y2xlcmsuY2xhdy1uZXQub3JnJA" src="https://cdn.jsdelivr.net/npm/@clerk/clerk-js@5/dist/clerk.browser.js"></script>
   <script>
     const API_BASE = 'https://api.claw-net.org';
+
+    function toggleTheme() {
+      const html = document.documentElement;
+      const next = html.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+      if (next === 'dark') html.removeAttribute('data-theme');
+      else html.setAttribute('data-theme', 'light');
+      localStorage.setItem('clawnet_theme', next);
+    }
+
     let _keyRevealedThisSession = false;
     let _currentMaskedKey = '';
     let _sessionFullKey = null;
@@ -718,7 +757,7 @@
       document.getElementById('paid-value').textContent='$'+(data.amountPaid/100||0).toFixed(2);
       document.getElementById('credits-usd').textContent='~$'+(data.credits/1000).toFixed(2)+' value';
       document.getElementById('nav-credits-num').textContent=data.credits.toLocaleString();
-      document.getElementById('nav-credits').classList.add('show');
+      document.getElementById('nav-credits-badge').classList.add('show');
       const cc=document.getElementById('credits-card');
       if(data.credits<50){cc.querySelector('.stat-value').classList.replace('accent','danger');addNotice('warning','Fewer than 50 credits remaining. Top up to keep queries running.');}
       else if(data.credits<500){cc.querySelector('.stat-value').classList.replace('accent','warning');}
@@ -826,7 +865,7 @@
     function setMsg(el,text,type){el.textContent=text;el.className=`claim-msg ${type}`;}
     function addNotice(type,text){const el=document.createElement('div');el.className=`notice ${type}`;el.textContent=text;document.getElementById('notices').appendChild(el);}
     function showClaimNotice(result){const m={success:['success','\u2713 Credits transferred to your account.'],invalid:['warning','Claim link was invalid.'],expired:['warning','Claim link has expired.'],used:['info','This claim link has already been used.']};const[t,x]=m[result]??['info','Unknown claim status.'];addNotice(t,x);showToast(x,t);}
-    async function signOut(){await window.Clerk.signOut();window.location.href='/login.html';}
+    async function navSignOut(){await window.Clerk.signOut();window.location.reload();}
 
     // ── USDC MODAL ──
     const USDC_RATE=1100,CARD_RATE=1000;
@@ -837,7 +876,7 @@
     async function initiateUSDCPayment(){const btn=document.getElementById('usdcPayBtn');const phantom=window.phantom?.solana??window.solana;if(!phantom?.isPhantom){setUSDCStatus('Phantom wallet not found. Install from phantom.app.','error');return;}btn.disabled=true;btn.textContent='Connecting wallet\u2026';setUSDCStatus('Requesting wallet connection\u2026','info');try{await phantom.connect();const pk=phantom.publicKey.toString();btn.textContent='Sending '+(window._usdcAmount||'')+' USDC\u2026';setUSDCStatus('Wallet connected. Approve in Phantom\u2026','info');const ct=await window.Clerk?.session?.getToken();const br=await fetch(`${API_BASE}/v1/solana/build-tx`,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+ct},body:JSON.stringify({amountUsd:window._usdcAmount,senderWallet:pk})});if(!br.ok){const err=await br.json().catch(()=>({}));throw new Error(err.error||'Failed to build transaction');}const{serializedTx}=await br.json();setUSDCStatus('Waiting for Phantom approval\u2026','info');const txB=Uint8Array.from(atob(serializedTx),c=>c.charCodeAt(0));let sig;try{const r=await phantom.signAndSendTransaction({message:txB});sig=r.signature;}catch(e){const r2=await phantom.request({method:'signAndSendTransaction',params:{message:serializedTx}});sig=r2.signature;}btn.textContent='Verifying on-chain\u2026';setUSDCStatus('Transaction sent ('+sig.slice(0,16)+'\u2026). Confirming\u2026','info');const vr=await fetch(`${API_BASE}/v1/solana/verify`,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+ct},body:JSON.stringify({signature:sig,expectedUsd:window._usdcAmount})});const result=await vr.json();if(vr.ok&&result.ok){const added=(result.creditsAdded||window._usdcCredits||0).toLocaleString();setUSDCStatus('\u2713 Payment verified. '+added+' credits added.','success');btn.textContent='Payment Complete \u2713';showToast('\u2713 '+added+' credits added!','success',5000);try{const mr=await fetch(`${API_BASE}/v1/dashboard/me`,{headers:{Authorization:'Bearer '+ct}});if(mr.ok){const me=await mr.json();if(me.credits!==undefined){document.getElementById('credits-value').textContent=me.credits.toLocaleString();document.getElementById('nav-credits-num').textContent=me.credits.toLocaleString();document.getElementById('credits-usd').textContent='~$'+(me.credits/1000).toFixed(2)+' value';}}}catch(e){}}else{throw new Error(result.error||'Verification failed.');}}catch(err){const msg=err?.message||'Unknown error';setUSDCStatus(msg.includes('rejected')||msg.includes('User rejected')?'Transaction cancelled.':'Error: '+msg,'error');btn.disabled=false;btn.innerHTML='Connect Phantom &amp; Pay <span id="usdcPayBtnAmt">'+(window._usdcAmount||'')+' USDC</span>';}}
 
     // ── INIT ──
-    async function init(){try{await window.Clerk.load();}catch(e){document.getElementById('loading-state').innerHTML='<p style="color:var(--danger);font-size:13px">Authentication unavailable. Please refresh.</p>';return;}if(!window.Clerk.user){const p=new URLSearchParams(window.location.search);const c=p.get('claim_session')??p.get('claim');window.location.href=c?`/login.html?claim=${c}`:'/login.html';return;}document.getElementById('nav-email').textContent=window.Clerk.user.primaryEmailAddress?.emailAddress??'';const p=new URLSearchParams(window.location.search);const cs=p.get('claim_session'),cr=p.get('claim');if(cs)await autoClaimSession(cs);if(cr){showClaimNotice(cr);window.history.replaceState({},'','/dashboard.html');}await loadDashboard();}
+    async function init(){try{await window.Clerk.load();}catch(e){document.getElementById('loading-state').innerHTML='<p style="color:var(--danger);font-size:13px">Authentication unavailable. Please refresh.</p>';return;}if(!window.Clerk.user){const p=new URLSearchParams(window.location.search);const c=p.get('claim_session')??p.get('claim');window.location.href=c?`/login.html?claim=${c}`:'/login.html';return;}document.getElementById('nav-user-email').textContent=window.Clerk.user.primaryEmailAddress?.emailAddress??'';document.getElementById('nav-user-email').classList.add('show');document.getElementById('nav-dash-btn').classList.add('show');document.getElementById('nav-signout-btn').classList.add('show');document.getElementById('nav-login-btn').style.display='none';const cachedCr=localStorage.getItem('clawnet_credits');document.getElementById('nav-credits-num').textContent=cachedCr!==null?parseInt(cachedCr).toLocaleString():'\u2014';document.getElementById('nav-credits-badge').classList.add('show');const p=new URLSearchParams(window.location.search);const cs=p.get('claim_session'),cr=p.get('claim');if(cs)await autoClaimSession(cs);if(cr){showClaimNotice(cr);window.history.replaceState({},'','/dashboard.html');}await loadDashboard();}
     async function autoClaimSession(sessionId){try{const token=await window.Clerk?.session?.getToken();await fetch(`${API_BASE}/v1/dashboard/claim-session`,{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({sessionId})});}catch(err){console.error('Auto-claim failed:',err);}}
     init();
   </script>

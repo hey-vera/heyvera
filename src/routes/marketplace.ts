@@ -45,6 +45,7 @@ const ListQuery = z.object({
   tags:     z.string().optional(),
   search:   z.string().optional(),
   category: z.string().optional(),
+  type:     z.enum(['prompt_template', 'api_proxy', 'data']).optional(),
 });
 
 marketplaceRouter.get('/skills', (c) => {
@@ -53,7 +54,7 @@ marketplaceRouter.get('/skills', (c) => {
 
   const { skills, total } = getMarketplaceSkills({
     page: q.page, limit: q.limit, sort: q.sort,
-    tags: q.tags, search: q.search, category: q.category,
+    tags: q.tags, search: q.search, category: q.category, type: q.type,
   });
 
   return c.json({
@@ -74,12 +75,14 @@ marketplaceRouter.get('/skills', (c) => {
       forks: s.forks ?? 0,
       stakeTotal: s.stake_total,
       tags: safeJsonParse(s.tags_json, []),
+      skillType: s.skill_type ?? 'prompt_template',
       category: s.category ?? 'general',
       license: s.license ?? 'MIT',
       securityStatus: s.security_status ?? 'UNSCANNED',
       status: s.status ?? 'PUBLISHED',
       publishedAt: s.published_at,
-      invokeUrl: `POST /v1/skills/${s.id}/invoke`,
+      invokeUrl: s.skill_type === 'data' ? `GET /v1/skills/${s.id}/query` : `POST /v1/skills/${s.id}/invoke`,
+      ...(s.skill_type === 'data' && { updateFrequency: s.update_frequency }),
     })),
     platformFeePct: PLATFORM_FEE_PCT,
   });
@@ -116,6 +119,7 @@ marketplaceRouter.get('/skills/:id', async (c) => {
     forks: skill.forks ?? 0,
     stakeTotal,
     tags: safeJsonParse(skill.tags_json, []),
+    skillType: skill.skill_type ?? 'prompt_template',
     category: skill.category ?? 'general',
     inputSchema: safeJsonParse(skill.input_schema_json, null),
     outputSchema: safeJsonParse(skill.output_schema_json, null),
@@ -126,6 +130,10 @@ marketplaceRouter.get('/skills/:id', async (c) => {
     scannedAt: skill.scanned_at ?? null,
     status: skill.status ?? 'PUBLISHED',
     publishedAt: skill.published_at,
+    ...(skill.skill_type === 'data' && {
+      updateFrequency: skill.update_frequency,
+      sampleOutput: safeJsonParse(skill.sample_output_json, null),
+    }),
     platformFeePct: PLATFORM_FEE_PCT,
     totalCost: skill.credit_cost,
     feeCredits: calcFee(skill.credit_cost, skill.author_key),

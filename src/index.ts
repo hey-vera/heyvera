@@ -73,8 +73,15 @@ process.on('uncaughtException', (err) => {
 const app = new Hono();
 
 // Health check BEFORE middleware — monitoring/Docker hits this every few seconds,
-// no need for CORS, rate limit, security headers, body limit, or request logging.
+// no need for rate limit, security headers, body limit, or request logging.
+// CORS headers added so the frontend status indicator works cross-origin.
 app.get('/health', (c) => {
+  const origin = c.req.header('origin') ?? '';
+  const allowed = ['https://claw-net.org', 'https://www.claw-net.org', 'https://app.claw-net.org'];
+  if (env.NODE_ENV !== 'production' || allowed.includes(origin)) {
+    c.header('Access-Control-Allow-Origin', env.NODE_ENV === 'production' ? origin : '*');
+  }
+
   let dbOk = false;
   try {
     const row = getDb().prepare('SELECT 1 as ok').get() as { ok: number } | undefined;

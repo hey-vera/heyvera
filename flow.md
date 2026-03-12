@@ -2018,4 +2018,78 @@ SECURITY:
 
 ---
 
-*Generated from codebase analysis. Last updated: 2026-03-12. Decimal credits (v3), treasury auto-sweep, surcharge-to-treasury fix, 3-wallet architecture, endpoint auto-discovery (183 ClawAPIs endpoints), proportional cache pricing (10% of live, min 0.1cr), agent economy layer (transfers, delegated keys, auto-payout, receipts, reputation).*
+## 34. Site Architecture & UX
+
+```
+PAGES (site/):
+├─ index.html          — Homepage: hero, pricing carousel, API demo, voting, features
+├─ dashboard.html      — Authenticated: stats, key management, top-up, subscription, USDC
+├─ marketplace.html    — Skill browse/publish/manage, semantic search
+├─ docs.html           — Full API reference with sidebar navigation
+├─ endpoints.html      — Endpoint catalog with live status
+├─ login.html          — Clerk sign-in (minimal nav)
+├─ success.html        — Post-payment confirmation (minimal nav)
+├─ contact-section.html— Contact form
+├─ terms.html          — Terms of service
+├─ privacy.html        — Privacy policy
+├─ admin.html          — Admin dashboard (no public nav)
+├─ admin-vps.html      — VPS admin (no public nav)
+└─ rehaul_marketplace.html — Marketplace redesign (staging)
+
+DESIGN SYSTEM:
+├─ Dark theme default (--bg-primary: #0a0a0b)
+├─ Light theme via [data-theme="light"] CSS variables
+├─ Theme persists via localStorage key: clawnet_theme
+├─ Toggle button: sun/moon SVG icons
+├─ Font stack: Inter (sans) + JetBrains Mono (code)
+├─ Accent: #10b981 (emerald green)
+└─ All pages monolithic (inline CSS + JS, no shared files)
+
+CONSISTENT NAV (all public pages):
+├─ Logo: "Claw Network" text (no image)
+├─ Links: Home, Docs, Marketplace, Endpoints, Dashboard
+├─ Right: Theme toggle, API status dot, credits badge, auth buttons
+├─ Auth states: Sign In + Get API Key (logged out) → Dashboard + Sign Out (logged in)
+├─ Social: GitHub, Telegram, X Community in footer
+└─ Mobile: nav-links hidden below 900px
+
+STATUS INDICATOR:
+├─ Fetches /health with explicit CORS headers
+├─ Shows: Operational (green) / Degraded (yellow) / Offline (red)
+├─ Polls every 60 seconds
+└─ Live avg response time from /v1/stats → avgDurationMs
+
+PRICING DISPLAY (index.html):
+├─ Subscription hero: $29/mo = 40,000 credits (best value, shown first)
+├─ Credit carousel: 6 tiers ($5–$1,000) with horizontal scroll-snap
+├─ USDC option: +7% bonus, Phantom wallet integration
+├─ Lowest advertised cost: $0.001/query (1 credit cache hit)
+├─ Subscription rate: $0.000725/credit (27% cheaper than card)
+└─ Carousel: hide prev btn at start, next btn at end
+
+API DEMO (index.html):
+├─ Tabbed: cURL / JavaScript / Python
+├─ Rotating examples: token analysis, portfolio, market data, data skill
+├─ Response panel: scrollable with max-height
+├─ Auto-rotate every 8 seconds with dot navigation
+└─ Copy button for code snippets
+
+VOTING SECTION (index.html):
+├─ API integration suggestions with upvote
+├─ "Suggest an API" opens modal form (name + description + use case)
+├─ Suggestions stored via POST /v1/vote/suggest
+├─ localStorage tracks user's votes (client-side dedup)
+└─ Future: display community suggestions as voteable cards
+
+INTERACTIVE ELEMENTS:
+├─ Animated number counters (stats, response time)
+├─ Hero code examples rotate every 6s with dots
+├─ Pricing carousel with scroll-snap and dot indicators
+├─ API demo rotates every 8s with transition
+├─ Theme toggle with smooth CSS transitions
+└─ Live status + credit balance polling
+```
+
+---
+
+*Generated from codebase analysis. Last updated: 2026-03-12. Decimal credits (v3), treasury auto-sweep, surcharge-to-treasury fix, 3-wallet architecture, endpoint auto-discovery (183 ClawAPIs endpoints), proportional cache pricing (10% of live, min 0.1cr), agent economy layer (transfers, delegated keys, auto-payout, receipts, reputation), site UX overhaul (consistent nav, theme toggle, subscription hero, interactive displays).*

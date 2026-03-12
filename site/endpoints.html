@@ -41,6 +41,25 @@
       --radius-md:     6px;
       --radius-sm:     4px;
     }
+    [data-theme="light"] {
+      --bg-primary: #f5f5f5; --bg-surface: #ffffff; --bg-surface-2: #f0f0f2; --bg-surface-3: #e8e8ec;
+      --border-subtle: #e4e4e7; --border-default: #d4d4d8; --border-strong: #a1a1aa;
+      --text-primary: #09090b; --text-secondary: #3f3f46; --text-tertiary: #71717a; --text-muted: #a1a1aa;
+      --accent-dim: rgba(16,185,129,0.10); --danger-dim: rgba(239,68,68,0.10);
+      --warning-dim: rgba(245,158,11,0.10); --info-dim: rgba(59,130,246,0.10); --purple-dim: rgba(139,92,246,0.10);
+    }
+    .nav-logo-text { font-family: var(--font-sans); font-size: 18px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.02em; white-space: nowrap; }
+    .nav-logo-text span { color: var(--accent); }
+    .theme-toggle {
+      background: var(--bg-surface-2); border: 1px solid var(--border-default); border-radius: 6px;
+      width: 34px; height: 34px; display: flex; align-items: center; justify-content: center;
+      cursor: pointer; color: var(--text-tertiary); transition: all 0.15s; padding: 0; flex-shrink: 0;
+    }
+    .theme-toggle:hover { color: var(--text-primary); border-color: var(--border-strong); }
+    .theme-toggle .icon-sun, .theme-toggle .icon-moon { width: 16px; height: 16px; }
+    .theme-toggle .icon-sun { display: none; }
+    [data-theme="light"] .theme-toggle .icon-sun { display: block; }
+    [data-theme="light"] .theme-toggle .icon-moon { display: none; }
     * { margin:0; padding:0; box-sizing:border-box; }
     html { scroll-behavior:smooth; }
     body { background:var(--bg-primary); color:var(--text-primary); font-family:var(--font-sans); overflow-x:hidden; min-height:100vh; }
@@ -52,9 +71,10 @@
       height:56px; padding:0 24px;
       border-bottom:1px solid var(--border-subtle);
       background:rgba(10,10,11,0.92);
-      backdrop-filter:blur(12px);
+      backdrop-filter:blur(16px);
     }
-    .nav-left { display:flex; align-items:center; gap:32px; }
+    [data-theme="light"] nav { background:rgba(255,255,255,0.92); }
+    .nav-left { display:flex; align-items:center; gap:20px; }
     .nav-logo img { height:28px; width:auto; display:block; }
     .nav-links { display:flex; align-items:center; gap:4px; list-style:none; }
     .nav-links a {
@@ -64,23 +84,35 @@
     }
     .nav-links a:hover { color:var(--text-primary); background:var(--bg-surface-2); }
     .nav-links a.active { color:var(--text-primary); }
-    .nav-right { display:flex; align-items:center; gap:8px; }
-    .nav-status { display:flex; align-items:center; gap:6px; font-size:12px; color:var(--text-tertiary); padding:0 8px; }
-    .status-dot { width:7px; height:7px; border-radius:50%; background:var(--border-strong); }
-    .status-dot.ok  { background:var(--accent); box-shadow:0 0 6px rgba(16,185,129,0.5); }
+    .nav-links a.active::after {
+      content:''; position:absolute; bottom:-1px; left:12px; right:12px;
+      height:2px; background:var(--accent); border-radius:1px;
+    }
+    .nav-links a { position:relative; }
+    .nav-right { display:flex; align-items:center; gap:12px; }
+    .nav-status {
+      display:flex; align-items:center; gap:6px;
+      font-size:12px; color:var(--text-tertiary); padding:4px 10px;
+      border:1px solid var(--border-subtle); border-radius:var(--radius-md);
+    }
+    .status-dot { width:6px; height:6px; border-radius:50%; background:var(--text-muted); transition:background 0.3s; flex-shrink:0; }
+    .status-dot.ok { background:var(--accent); }
     .status-dot.err { background:var(--danger); }
     .nav-credits {
-      display:none; font-family:var(--font-mono); font-size:11px;
-      background:var(--accent-dim); color:var(--accent);
-      padding:4px 10px; border-radius:var(--radius-sm); border:1px solid rgba(16,185,129,0.2);
+      font-family:var(--font-mono); font-size:12px; color:var(--accent);
+      padding:4px 10px; border:1px solid var(--accent-dim);
+      border-radius:var(--radius-md); display:none; align-items:center; gap:4px;
     }
-    .nav-email { font-size:12px; color:var(--text-tertiary); padding:0 4px; }
-    .nav-login { font-size:13px; font-weight:500; color:var(--text-secondary); text-decoration:none; padding:6px 12px; border-radius:var(--radius-sm); transition:color 0.15s; }
-    .nav-login:hover { color:var(--text-primary); }
-    .nav-cta { font-size:12px; font-weight:600; background:var(--accent); color:#000; padding:7px 16px; border-radius:var(--radius-sm); text-decoration:none; transition:background 0.15s; white-space:nowrap; }
+    .nav-credits.show { display:flex; }
+    .nav-email { font-size:12px; color:var(--text-tertiary); display:none; }
+    .nav-email.show { display:block; }
+    .nav-login { color:var(--text-secondary); border:1px solid var(--border-default); background:transparent; text-decoration:none; padding:6px 14px; font-size:13px; border-radius:var(--radius-md); }
+    .nav-login:hover { border-color:var(--border-strong); color:var(--text-primary); }
+    .nav-cta { background:var(--accent); color:#000; font-weight:600; text-decoration:none; padding:6px 14px; font-size:13px; border-radius:var(--radius-md); }
     .nav-cta:hover { background:var(--accent-hover); }
-    .nav-btn-ghost { font-size:13px; font-weight:500; color:var(--text-secondary); background:none; border:1px solid var(--border-default); padding:6px 14px; border-radius:var(--radius-sm); text-decoration:none; cursor:pointer; font-family:var(--font-sans); transition:all 0.15s; }
-    .nav-btn-ghost:hover { color:var(--text-primary); border-color:var(--border-strong); }
+    .nav-btn-ghost { background:transparent; color:var(--text-secondary); border:1px solid var(--border-default); display:none; text-decoration:none; padding:6px 14px; font-size:13px; border-radius:var(--radius-md); cursor:pointer; font-family:var(--font-sans); }
+    .nav-btn-ghost.show { display:inline-block; }
+    .nav-btn-ghost:hover { border-color:var(--border-strong); color:var(--text-primary); }
     .nav-btn-ghost.danger:hover { color:var(--danger); border-color:var(--danger); }
     @media(max-width:768px) { .nav-links { display:none; } }
 
@@ -285,12 +317,13 @@
     .footer-links a:hover { color:var(--text-secondary); }
     .footer-copy { color:var(--text-muted); }
   </style>
+<script>if(localStorage.getItem('clawnet_theme')==='light')document.documentElement.setAttribute('data-theme','light')</script>
 </head>
 <body>
 <!-- NAV -->
 <nav>
   <div class="nav-left">
-    <a href="/" class="nav-logo"><img src="/logo.png" alt="ClawNet"></a>
+    <a href="/" class="nav-logo"><span class="nav-logo-text">Claw <span>Network</span></span></a>
     <ul class="nav-links">
       <li><a href="/">Home</a></li>
       <li><a href="/docs.html">Docs</a></li>
@@ -300,6 +333,10 @@
     </ul>
   </div>
   <div class="nav-right">
+    <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Toggle theme">
+      <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+    </button>
     <div class="nav-status" id="navApiStatus">
       <span class="status-dot" id="statusDot"></span>
       <span id="statusLabel">Checking...</span>
@@ -307,9 +344,9 @@
     <div class="nav-credits" id="nav-credits-badge"><span id="nav-credits-num">&mdash;</span> credits</div>
     <span class="nav-email" id="nav-user-email"></span>
     <a href="/login.html" class="nav-login" id="nav-login-btn">Sign In</a>
-    <a href="#" class="nav-cta" id="nav-getkey-btn" style="display:none">Get API Key</a>
-    <a href="/dashboard.html" class="nav-btn-ghost" id="nav-dash-btn" style="display:none">Dashboard</a>
-    <button class="nav-btn-ghost danger" id="nav-signout-btn" onclick="navSignOut()" style="cursor:pointer;display:none">Sign Out</button>
+    <a href="#pricing" class="nav-cta" id="nav-getkey-btn">Get API Key</a>
+    <a href="/dashboard.html" class="nav-btn-ghost" id="nav-dash-btn">Dashboard</a>
+    <button class="nav-btn-ghost danger" id="nav-signout-btn" onclick="navSignOut()" style="cursor:pointer">Sign Out</button>
   </div>
 </nav>
 
@@ -416,7 +453,7 @@
   <!-- FOOTER -->
   <footer>
     <div class="footer-left">
-      <a href="/" class="footer-logo"><img src="/logo.png" alt="ClawNet"></a>
+      <a href="/" class="footer-logo"><span class="nav-logo-text">Claw <span>Network</span></span></a>
       <ul class="footer-links">
         <li><a href="/">Home</a></li>
         <li><a href="/docs.html">Docs</a></li>
@@ -433,6 +470,14 @@
 </div><!-- /page -->
 
 <script>
+function toggleTheme() {
+  const html = document.documentElement;
+  const next = html.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+  if (next === 'dark') html.removeAttribute('data-theme');
+  else html.setAttribute('data-theme', 'light');
+  localStorage.setItem('clawnet_theme', next);
+}
+
 const API_BASE = 'https://api.claw-net.org';
 let allEndpoints = [];
 let filters = { category: 'all', status: 'all' };
@@ -443,58 +488,58 @@ async function initNav() {
   try {
     await Clerk.load();
     const user = Clerk.user;
-    const loginBtn  = document.getElementById('nav-login-btn');
-    const getkeyBtn = document.getElementById('nav-getkey-btn');
-    const dashBtn   = document.getElementById('nav-dash-btn');
-    const signoutBtn= document.getElementById('nav-signout-btn');
-    const emailEl   = document.getElementById('nav-user-email');
-    if (user) {
-      loginBtn.style.display  = 'none';
-      getkeyBtn.style.display = 'none';
-      dashBtn.style.display   = '';
-      signoutBtn.style.display= '';
-      emailEl.textContent = user.primaryEmailAddress?.emailAddress || '';
-      refreshCredits();
-    } else {
-      dashBtn.style.display   = 'none';
-      signoutBtn.style.display= 'none';
+    if (!user) return;
+    document.getElementById('nav-login-btn').style.display = 'none';
+    document.getElementById('nav-getkey-btn').style.display = 'none';
+    const email = user.primaryEmailAddress?.emailAddress ?? user.username ?? '';
+    if (email) {
+      document.getElementById('nav-user-email').textContent = email;
+      document.getElementById('nav-user-email').classList.add('show');
     }
+    document.getElementById('nav-dash-btn').classList.add('show');
+    document.getElementById('nav-signout-btn').classList.add('show');
+    // Show cached credits instantly, then refresh
+    const cachedCredits = localStorage.getItem('clawnet_credits');
+    document.getElementById('nav-credits-num').textContent = cachedCredits !== null ? parseInt(cachedCredits).toLocaleString() : '\u2014';
+    document.getElementById('nav-credits-badge').classList.add('show');
+    try {
+      const token = await Clerk.session.getToken();
+      const res = await fetch(API_BASE + '/v1/dashboard/me', { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.credits !== undefined) {
+          localStorage.setItem('clawnet_credits', data.credits);
+          document.getElementById('nav-credits-num').textContent = data.credits.toLocaleString();
+        }
+      }
+    } catch(e) {}
   } catch(e) {}
   fetchApiStatus();
 }
 
 async function navSignOut() {
-  try { await Clerk.signOut(); location.href = '/'; } catch(e) {}
-}
-
-async function refreshCredits() {
-  try {
-    const token = await Clerk.session?.getToken();
-    if (!token) return;
-    const r = await fetch(`${API_BASE}/v1/auth/me`, { headers: { 'Authorization': `Bearer ${token}` } });
-    if (!r.ok) return;
-    const d = await r.json();
-    const badge = document.getElementById('nav-credits-badge');
-    const num   = document.getElementById('nav-credits-num');
-    if (d.credits !== undefined) {
-      num.textContent = d.credits.toLocaleString();
-      badge.style.display = '';
-    }
-  } catch(e) {}
+  await Clerk.signOut();
+  window.location.reload();
 }
 
 async function fetchApiStatus() {
+  const dot = document.getElementById('statusDot');
+  const label = document.getElementById('statusLabel');
   try {
-    const r = await fetch(`${API_BASE}/health`, { signal: AbortSignal.timeout(4000) });
-    const dot   = document.getElementById('statusDot');
-    const label = document.getElementById('statusLabel');
-    if (r.ok) { dot.className = 'status-dot ok'; label.textContent = 'API Online'; }
-    else       { dot.className = 'status-dot err'; label.textContent = 'API Error'; }
+    const r = await fetch(API_BASE + '/health', { signal: AbortSignal.timeout(5000) });
+    if (r.ok) {
+      if (dot) dot.className = 'status-dot ok';
+      if (label) { label.textContent = 'Operational'; label.style.color = 'var(--accent)'; }
+    } else {
+      if (dot) dot.className = 'status-dot err';
+      if (label) { label.textContent = 'Degraded'; label.style.color = 'var(--danger)'; }
+    }
   } catch(e) {
-    document.getElementById('statusDot').className = 'status-dot err';
-    document.getElementById('statusLabel').textContent = 'API Offline';
+    if (dot) dot.className = 'status-dot err';
+    if (label) { label.textContent = 'Offline'; label.style.color = 'var(--danger)'; }
   }
 }
+setInterval(fetchApiStatus, 60000);
 
 // ── FETCH ────────────────────────────────────────────────────────────────────
 async function loadEndpoints(forceRefresh = false) {
