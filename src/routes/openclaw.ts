@@ -25,7 +25,7 @@ import {
   createSwarmTask, getAgentUsageStats, getReputationScore,
   writeAuditLog, safeJsonParse,
 } from '../db/index';
-import { creditsForExecution, creditsToUsd, x402SurchargeCredits, round6 } from '../core/credits';
+import { creditsForExecution, creditsToUsd, x402SurchargeCredits, round6, cacheCreditCost } from '../core/credits';
 import { parseIntent } from '../core/intent-parser';
 import { executePlan } from '../core/executor';
 import { formatResponse } from '../core/formatter';
@@ -140,15 +140,16 @@ openclawRouter.post('/invoke', checkApiKey, async (c) => {
     const qKey = queryCacheKey(query);
     const cached = await cacheGet<Record<string, unknown>>(qKey);
     if (cached) {
-      // Charge 1 credit for cache hits — consistent with api.ts (zero cost to platform, prevents free-riding)
-      const CACHE_HIT_CREDIT = 1;
+      // Proportional cache pricing — 10% of original live cost, min 0.1 credits
+      const originalCredits = (cached as Record<string, unknown>).creditsUsed as number | undefined;
+      const cacheCredits = cacheCreditCost(originalCredits ?? 2);
       if (!keyInfo.isEnvKey) {
-        if (keyInfo.credits < CACHE_HIT_CREDIT) {
+        if (keyInfo.credits < cacheCredits) {
           return c.json({ ok: false, requestId, error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS', creditsAvailable: keyInfo.credits }, 402);
         }
-        deductCredit(keyInfo.key, CACHE_HIT_CREDIT);
+        deductCredit(keyInfo.key, cacheCredits);
       }
-      return c.json(envelope(requestId, 'query', cached, CACHE_HIT_CREDIT, keyInfo.credits - CACHE_HIT_CREDIT, {
+      return c.json(envelope(requestId, 'query', cached, cacheCredits, keyInfo.credits - cacheCredits, {
         durationMs: Date.now() - start, cacheHit: true, route: 'orchestrate',
       }));
     }

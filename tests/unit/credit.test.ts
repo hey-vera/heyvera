@@ -12,7 +12,7 @@ import { setupTestDb, getTestDb, seedApiKey } from './helpers/db';
 setupTestDb(); // must be called before any src import
 
 import { initDb, deductCredit, topUpCredits, getApiKeyBalance } from '../../src/db/index';
-import { round6, creditCostForEndpoint, creditsForExecution } from '../../src/core/credits';
+import { round6, creditCostForEndpoint, creditsForExecution, cacheCreditCost } from '../../src/core/credits';
 
 beforeAll(() => {
   initDb();
@@ -211,5 +211,45 @@ describe('core credit functions (decimal)', () => {
       return { costPerCall: 0.001 }; // won't count (cached)
     };
     expect(creditsForExecution(steps, lookup)).toBeCloseTo(0.9, 6);
+  });
+});
+
+describe('cacheCreditCost (proportional cache pricing)', () => {
+  it('returns 10% of live cost for standard endpoints', () => {
+    // 1.5 credits live → 0.15 cache
+    expect(cacheCreditCost(1.5)).toBe(0.15);
+    // 15 credits live → 1.5 cache
+    expect(cacheCreditCost(15)).toBe(1.5);
+    // 75 credits live → 7.5 cache
+    expect(cacheCreditCost(75)).toBe(7.5);
+  });
+
+  it('enforces minimum 0.1 credits', () => {
+    // 0.15 credits live → 10% = 0.015, but min is 0.1
+    expect(cacheCreditCost(0.15)).toBe(0.1);
+    // 0.75 credits live → 10% = 0.075, but min is 0.1
+    expect(cacheCreditCost(0.75)).toBe(0.1);
+    // 0.001 credits live → 10% = 0.0001, but min is 0.1
+    expect(cacheCreditCost(0.001)).toBe(0.1);
+  });
+
+  it('handles expensive endpoints proportionally', () => {
+    // X API bulk: 37500 credits live → 3750 cache (not flat 1!)
+    expect(cacheCreditCost(37500)).toBe(3750);
+    // X API tier 2: 150 credits live → 15 cache
+    expect(cacheCreditCost(150)).toBe(15);
+  });
+
+  it('always returns less than live cost', () => {
+    for (const live of [0.15, 0.75, 1.5, 7.5, 15, 75, 150, 37500]) {
+      expect(cacheCreditCost(live)).toBeLessThan(live);
+    }
+  });
+
+  it('uses round6 precision', () => {
+    // 3 credits live → 0.3 exactly (no floating point drift)
+    expect(cacheCreditCost(3)).toBe(0.3);
+    // 7 credits → 0.7
+    expect(cacheCreditCost(7)).toBe(0.7);
   });
 });

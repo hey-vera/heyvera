@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { insertOrchestration, getApiKeyBalance, getApiKeyByStripeSession, getApiKeyByEmail, deductCredit } from '../db/index';
 import { Hono } from 'hono';
 import { maskApiKey } from '../utils/mask';
-import { creditsForExecution, creditsToUsd } from '../core/credits';
+import { creditsForExecution, creditsToUsd, cacheCreditCost } from '../core/credits';
 import { nanoid } from 'nanoid';
 import { parseIntent } from '../core/intent-parser';
 import { executePlan } from '../core/executor';
@@ -62,22 +62,23 @@ apiRouter.post('/orchestrate', async (c) => {
   // keyInfo is set by checkApiKey middleware — available from handler start
   const keyInfo = c.get('apiKeyInfo');
 
-  // Query-level cache check — charge 1 credit for cache hits (zero cost to platform, prevents free-riding)
+  // Query-level cache check — proportional cache pricing (10% of live cost, min 0.1 credits)
   const qKey = queryCacheKey(query);
   const cachedResponse = await cacheGet<Record<string, unknown>>(qKey);
   if (cachedResponse) {
-    const CACHE_HIT_CREDIT = 1;
+    const originalCredits = (cachedResponse.costBreakdown as Record<string, unknown>)?.creditsUsed as number | undefined;
+    const cacheCredits = cacheCreditCost(originalCredits ?? 2); // fallback to orch fee if missing
     if (!keyInfo.isEnvKey) {
-      if (keyInfo.credits < CACHE_HIT_CREDIT) {
+      if (keyInfo.credits < cacheCredits) {
         return c.json({ requestId, error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS', creditsAvailable: keyInfo.credits, hint: 'Top up your credits at claw-net.org' }, 402);
       }
-      deductCredit(keyInfo.key, CACHE_HIT_CREDIT);
+      deductCredit(keyInfo.key, cacheCredits);
     }
-    logger.info({ requestId, query: query.slice(0, 100), creditsUsed: CACHE_HIT_CREDIT }, 'Query cache hit');
+    logger.info({ requestId, query: query.slice(0, 100), creditsUsed: cacheCredits }, 'Query cache hit');
     return c.json({
       ...cachedResponse,
       requestId,
-      costBreakdown: { ...(cachedResponse.costBreakdown as Record<string, unknown>), creditsUsed: CACHE_HIT_CREDIT },
+      costBreakdown: { ...(cachedResponse.costBreakdown as Record<string, unknown>), creditsUsed: cacheCredits, fromCache: true },
       metadata: { ...(cachedResponse.metadata as Record<string, unknown>), cacheHits: 1, fromCache: true },
     });
   }

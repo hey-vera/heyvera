@@ -111,6 +111,23 @@ export function x402SurchargeCredits(apiCostUsd: number): number {
   return round6(apiCostUsd * CREDITS_PER_USD);
 }
 
+/**
+ * Smart cache pricing: 10% of live cost, minimum 0.1 credits.
+ *
+ * Why proportional:
+ * - Flat 1cr was unfair: a $25 bulk endpoint cached for $0.001 (giving it away),
+ *   while a $0.0001 endpoint cached for $0.001 (barely a discount).
+ * - 10% of live = consistent 90% savings for users, proportional revenue for platform.
+ * - Creator still earns full credit_cost on cache hits (unchanged).
+ * - Minimum 0.1 credits ($0.0001) ensures even the cheapest endpoints generate revenue.
+ */
+export const CACHE_DISCOUNT_PCT = 0.10;
+export const CACHE_MIN_CREDITS = 0.1;
+
+export function cacheCreditCost(liveCreditCost: number): number {
+  return round6(Math.max(CACHE_MIN_CREDITS, liveCreditCost * CACHE_DISCOUNT_PCT));
+}
+
 /** Expose for health/admin endpoints */
 export function getCreditsPerUsd(): number {
   return CREDITS_PER_USD;

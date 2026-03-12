@@ -24,7 +24,7 @@ import { z } from 'zod';
 import crypto from 'crypto';
 import { checkApiKey } from '../middleware/auth';
 import { deductCredit, getDb } from '../db/index';
-import { round6 } from '../core/credits';
+import { round6, cacheCreditCost } from '../core/credits';
 import { cacheGet, cacheSet } from '../cache/index';
 import { clawApiCall } from '../providers/clawapis';
 import { logger } from '../utils/logger';
@@ -155,16 +155,16 @@ llmRouter.post('/chat', checkApiKey, async (c) => {
   const cacheKey = `llm:${model}:${crypto.createHash('sha256').update(JSON.stringify(messages)).digest('hex').slice(0, 16)}`;
   const cached = await cacheGet<{ content: string; model: string; usage: unknown }>(cacheKey);
   if (cached) {
-    // Cache hits cost the platform zero — charge 1 credit (prevents unlimited free repetitions)
-    const CACHE_HIT_CREDIT = 1;
+    // Proportional cache pricing — 10% of live cost, min 0.1 credits
+    const cacheCredits = cacheCreditCost(creditCost);
     if (!keyInfo.isEnvKey) {
-      if (keyInfo.credits < CACHE_HIT_CREDIT) {
+      if (keyInfo.credits < cacheCredits) {
         return c.json({ error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS', creditsAvailable: keyInfo.credits }, 402);
       }
-      deductCredit(keyInfo.key, CACHE_HIT_CREDIT);
+      deductCredit(keyInfo.key, cacheCredits);
     }
-    logger.info({ model, cached: true }, 'LLM cache hit');
-    return c.json({ ...cached, cached: true, creditsCharged: CACHE_HIT_CREDIT });
+    logger.info({ model, cached: true, creditsUsed: cacheCredits }, 'LLM cache hit');
+    return c.json({ ...cached, cached: true, creditsCharged: cacheCredits });
   }
 
   logger.info({ model, messages: messages.length, credits: creditCost }, 'LLM proxy request');

@@ -315,8 +315,8 @@ Agent calls POST /v1/orchestrate
 ├─ Step 3: Cache check
 │  ├─ Key: claw:SHA256(query + strategy)[:16]
 │  ├─ L1 memory → L2 Redis
-│  ├─ HIT? → return cached response, deduct 1 credit
-│  │  └─ CACHE_HIT_CREDIT = 1 ($0.001)
+│  ├─ HIT? → return cached response, deduct proportional cache fee
+│  │  └─ cacheCreditCost(liveCost) = 10% of live, min 0.1 credits
 │  └─ MISS? → proceed to LLM
 │
 ├─ Step 4: parseIntent(query, pricingHint)
@@ -424,7 +424,7 @@ Agent calls POST /v1/skills/token-analysis/invoke
 │
 ├─ Step 3: Skill-level cache check
 │  ├─ Key: claw:skill:{skillId}:SHA256(variables)[:16]
-│  ├─ HIT? → return cached, bill 1 credit (cache hit)
+│  ├─ HIT? → return cached, bill cacheCreditCost(skill.credit_cost) — 10% of live
 │  └─ MISS? → continue
 │
 ├─ Step 4: Check for deterministic execution plan
@@ -571,8 +571,8 @@ Agent calls GET /v1/skills/price-oracle-data/query?token=SOL
 │  │
 │  ├─ HIT? →
 │  │  ├─ Return cached JSON immediately
-│  │  ├─ Bill: 1 credit (CACHE_HIT_CREDIT)
-│  │  ├─ Creator still gets credited (platform absorbs cost delta)
+│  │  ├─ Bill: cacheCreditCost(skill.credit_cost) — 10% of live, min 0.1cr
+│  │  ├─ Creator still earns full credit_cost (platform absorbs delta)
 │  │  └─ Response time: ~5ms (Redis lookup only)
 │  │
 │  └─ MISS? → live fetch
@@ -747,7 +747,7 @@ Agent calls POST /v1/openclaw/invoke
 │  ├─ Body: { action: "query", query: "Price of ETH", pricing: { ... } }
 │  ├─ Same flow as POST /v1/orchestrate (§6)
 │  ├─ Billing: stepCredits + ORCHESTRATION_FEE
-│  └─ Cache hit: 1 credit (CACHE_HIT_CREDIT)
+│  └─ Cache hit: cacheCreditCost(liveCost) — 10% of original, min 0.1cr
 │
 ├─ action: "skill"
 │  ├─ Body: { action: "skill", skillId: "token-analysis", variables: { token: "SOL" } }
@@ -1159,13 +1159,13 @@ Cache key format: claw:SHA256(endpointId + JSON.stringify(params))[:16]
 Query-level cache (orchestration):
 ├─ Key: claw:query:SHA256(query + strategy)[:16]
 ├─ TTL: 30 minutes (default)
-├─ Cost: 1 credit on cache hit
+├─ Cost: cacheCreditCost(originalLiveCost) — 10% of live, min 0.1cr
 └─ Stored after successful orchestration
 
 Skill-level cache:
 ├─ Key: claw:skill:{skillId}:SHA256(variables)[:16]
 ├─ TTL: 300 seconds (5 min)
-└─ Cost: 1 credit on cache hit
+└─ Cost: cacheCreditCost(skill.credit_cost) — 10% of live, min 0.1cr
 
 Data skill cache:
 ├─ Key: claw:data:{skillId}:SHA256(params)[:16]
@@ -1175,7 +1175,7 @@ Data skill cache:
 │  ├─ daily:     86,400s
 │  ├─ weekly:    604,800s
 │  └─ static:    2,592,000s (30 days)
-└─ Cost: 1 credit on cache hit
+└─ Cost: cacheCreditCost(skill.credit_cost) — 10% of live, min 0.1cr
 
 Endpoint step cache:
 ├─ Key: claw:SHA256(endpointId + params)[:16]
@@ -1875,25 +1875,39 @@ CREDIT PRICING (all sub-$0.001 on cheapest endpoints):
   $0.05   (X API tier 1)  × 1500  =  75 credits    ($0.075)
   $0.10   (X API tier 2)  × 1500  =  150 credits   ($0.15)
 
-  Cache hit (any endpoint) =  1 credit  ($0.001)
-  Orchestration fee        =  2 credits ($0.002) — LLM planning + synthesis
-  Minimum possible charge  =  0.001 credits ($0.000001)
+  SMART CACHE PRICING (proportional — 10% of live, min 0.1 credits):
+    Live Cost    → Cache Cost   (USD)       Savings
+    ─────────────────────────────────────────────────
+    0.15 cr      → 0.1 cr      ($0.0001)   33% off (minimum floor)
+    0.75 cr      → 0.1 cr      ($0.0001)   87% off (minimum floor)
+    1.5 cr       → 0.15 cr     ($0.00015)  90% off
+    7.5 cr       → 0.75 cr     ($0.00075)  90% off
+    15 cr        → 1.5 cr      ($0.0015)   90% off
+    75 cr        → 7.5 cr      ($0.0075)   90% off
+    150 cr       → 15 cr       ($0.015)    90% off
+    37,500 cr    → 3,750 cr    ($3.75)     90% off
+
+  Formula: cacheCreditCost(live) = round6(max(0.1, live × 0.10))
+
+  Orchestration fee = 2 credits ($0.002) — LLM planning + synthesis
+  Minimum possible charge = 0.001 credits ($0.000001)
 
 MARGIN ANALYSIS:
 ├─ Buy rate:    1 credit = $0.001 (Stripe/USDC purchase)
 ├─ Cost rate:   1 credit covers $0.000667 API cost (at 1500× markup)
 ├─ Margin:      33% gross on every live endpoint call
 ├─ Orch fee:    100% margin (LLM cost ≈ $0.0004, fee = $0.002)
-├─ Cache hits:  Platform absorbs 1-credit charge (pays $0 upstream)
+├─ Cache hits:  10% of live price retained — proportional platform revenue
+│               (was flat 1cr — unfair on expensive endpoints)
 └─ Payout rate: $0.00075/credit (25% below buy rate — prevents arbitrage)
 
 CACHE FAIRNESS (all 3 parties win):
-├─ User:     1 credit ($0.001) for instant cached data — cheaper than live
+├─ User:     90% cheaper than live (always), instant response
 ├─ Creator:  earns full credit_cost regardless of cache vs live
 │            (IP compensated identically, zero incentive to fight caching)
-├─ Platform: pays $0 upstream for cache hits — pure operating leverage
-│            (subsidizes cache to reduce x402 costs at scale)
-└─ Net: high cache-hit ratio = lower costs for everyone
+├─ Platform: proportional revenue on cache hits, pays $0 upstream
+│            (no longer subsidizing expensive data for flat $0.001)
+└─ Net: high cache-hit ratio = lower costs for users, proportional revenue for platform
 
 REVENUE SPLIT (per skill invocation):
 ├─ 97% → creator (via round6, not Math.floor)
@@ -1911,4 +1925,4 @@ PRICING OPTIMIZER STRATEGIES:
 
 ---
 
-*Generated from codebase analysis. Last updated: 2026-03-12. Decimal credits (v3), treasury auto-sweep, surcharge-to-treasury fix, 3-wallet architecture, endpoint auto-discovery (183 ClawAPIs endpoints).*
+*Generated from codebase analysis. Last updated: 2026-03-12. Decimal credits (v3), treasury auto-sweep, surcharge-to-treasury fix, 3-wallet architecture, endpoint auto-discovery (183 ClawAPIs endpoints), proportional cache pricing (10% of live, min 0.1cr).*

@@ -19,7 +19,7 @@ import { parseIntent } from '../core/intent-parser';
 import { executePlan } from '../core/executor';
 import { formatResponse } from '../core/formatter';
 import { buildIntentFromPlan } from '../core/skill-executor';
-import { creditsForExecution, x402SurchargeCredits, round6 } from '../core/credits';
+import { creditsForExecution, x402SurchargeCredits, round6, cacheCreditCost } from '../core/credits';
 import { findEndpoint } from '../config/api-registry';
 import { logUsage } from '../utils/usage';
 import { cacheGet, cacheSet, cacheIncr } from '../cache/index';
@@ -431,16 +431,18 @@ skillsRouter.get('/:id/query', checkApiKey, async (c) => {
   const cached = await cacheGet<Record<string, unknown>>(cacheKey);
 
   if (cached) {
+    const liveCost = Math.max(0.001, skill.credit_cost);
+    const cacheCredits = cacheCreditCost(liveCost);
     if (!keyInfo.isEnvKey) {
-      const ok = deductCredit(keyInfo.key, 1);
+      const ok = deductCredit(keyInfo.key, cacheCredits);
       if (!ok) return c.json({ requestId, error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS' }, 402);
     }
     incrementSkillUses(id);
-    logger.info({ requestId, skillId: id }, 'Data skill cache hit');
+    logger.info({ requestId, skillId: id, creditsUsed: cacheCredits }, 'Data skill cache hit');
     return c.json({
       requestId, skillId: id,
       data: cached,
-      _meta: { cacheHit: true, creditsUsed: 1, updateFrequency: skill.update_frequency ?? 'static' },
+      _meta: { cacheHit: true, creditsUsed: cacheCredits, updateFrequency: skill.update_frequency ?? 'static' },
     });
   }
 
@@ -766,16 +768,17 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
   const qKey = skillCacheKey(activeSkillId, variables);
   const cachedResponse = await cacheGet<Record<string, unknown>>(qKey);
   if (cachedResponse) {
-    logger.info({ requestId, skillId: id }, 'Skill cache hit');
-    // Charge 1 credit for cache hits — prevents unlimited free re-invocations
+    const liveCost = Math.max(0.001, skill.credit_cost);
+    const cacheCredits = cacheCreditCost(liveCost);
+    logger.info({ requestId, skillId: id, creditsUsed: cacheCredits }, 'Skill cache hit');
     if (!keyInfo.isEnvKey) {
-      const ok = deductCredit(keyInfo.key, 1);
+      const ok = deductCredit(keyInfo.key, cacheCredits);
       if (!ok) {
         return c.json({ requestId, error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS' }, 402);
       }
     }
     incrementSkillUses(activeSkillId);
-    return c.json({ ...cachedResponse, requestId, metadata: { ...(cachedResponse.metadata as Record<string, unknown>), cacheHit: true, creditsUsed: 1 } });
+    return c.json({ ...cachedResponse, requestId, metadata: { ...(cachedResponse.metadata as Record<string, unknown>), cacheHit: true, creditsUsed: cacheCredits } });
   }
 
   logger.info({ requestId, skillId: id, name: skill.name }, 'Skill invocation');
