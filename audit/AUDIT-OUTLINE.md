@@ -28,7 +28,7 @@
 | 12 | Infrastructure & Deployment | COMPLETE |
 | 13 | Frontend & User Experience | COMPLETE |
 | 14 | Observability & Operations | COMPLETE |
-| 15 | Scalability & Performance | PENDING |
+| 15 | Scalability & Performance | COMPLETE |
 | 16 | Governance & Community | PENDING |
 | 17 | Testing & Verification | PENDING |
 | 18 | Resilience & Shutdown | PENDING |
@@ -1729,6 +1729,23 @@ src/config/index.ts                 — rate limit + timeout env vars
 ### Why It Matters
 
 ClawNet currently runs on a single VPS. Every scalability ceiling is a hard wall — not a gradual degradation. SQLite write serialization means a traffic spike blocks all writes. Redis going down falls back to no-cache mode, multiplying API costs by 10x. The circuit breaker prevents cascading failures from a single bad provider, but misconfigured thresholds mean either false-tripping (lost revenue) or not tripping (wasted API budget on dead endpoints). Performance optimization at this stage is about extending the runway before needing infrastructure migration.
+
+### Verdicts
+
+| # | Question | Verdict |
+|---|----------|---------|
+| 1 | Memory cache FIFO eviction | PASS — actually LRU: get() promotes keys to tail via delete+re-insert; audit outline description was incorrect |
+| 2 | Redis failure mode | PASS — graceful degradation: in-memory rate limits, no-cache mode, circuit breaker memory-only |
+| 3 | SQLite write contention | PASS — busy_timeout=5000ms, WAL mode, crons are the primary writers |
+| 4 | LLM timeout cascade | KNOWN LIMITATION — 30s timeout for both intent+synthesis; split timeouts would improve UX |
+| 5 | Batch amplification DoS | PASS — MAX_BATCH_STEPS=30 caps total API calls regardless of query count |
+| 6 | SSE stream memory leak | PASS — streamCounted flag prevents double-decrement; both finally and cancel() handled |
+| 7 | Circuit breaker MAX_CIRCUITS=500 | PASS — endpoint IDs are registry-static (163) or skill IDs, not user-arbitrary |
+| 8 | Cache stampede | KNOWN LIMITATION — no stale-while-revalidate or distributed lock on expiry |
+| 9 | Response size guard | PASS — oversized responses (>1MB) served uncached but not truncated |
+| 10 | In-memory state inventory | PASS — all maps bounded: cache (10K), rate limits (purged 60s), circuits (500), streams (5/key), Clerk cache (10K LRU) |
+
+**Bugs fixed (0):** No code bugs found. All issues are architectural known limitations or performance improvement opportunities.
 
 ---
 
