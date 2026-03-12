@@ -46,7 +46,9 @@ Health monitoring: HEAD pings every 5 min (`endpoint-health-cron.ts`), daily ret
 
 ## Skill System
 
-**Types:** `prompt_template` (LLM pipeline) and `api_proxy` (direct proxy, no LLM, 15s timeout, SSRF-protected — `isProxyUrlSafe()` blocks localhost/private IPs/metadata at creation and invoke). Skills with `execution_plan_json` bypass LLM intent parser for deterministic routing.
+**Types:** `prompt_template` (LLM pipeline), `api_proxy` (direct proxy, no LLM, 15s timeout), and `data` (smart-cached GET fetch, no LLM). Skills with `execution_plan_json` bypass LLM intent parser for deterministic routing.
+
+**Data skills:** `GET /v1/skills/:id/query?params` — fetches upstream JSON, caches in Redis by `update_frequency` (realtime=60s, hourly=3600s, daily=86400s, weekly=604800s, static=30d). Cache hit = 1cr; live fetch = `max(1, skill.credit_cost)` + 97/3 split. New columns: `sample_output_json` (canonical example shown on marketplace card), `update_frequency`. SSRF check (`isProxyUrlSafe()`) runs at creation AND query time. Requires `proxyUrl`; `promptTemplate` defaults to `''`. `POST /:id/invoke` returns 400 with redirect hint for data skills. `GET /v1/skills?type=data` filters by type.
 
 **Skill classes (`skill_class` column, v45):** `standard` (default), `recursive` (re-invokes with refined input — 1 extra pass, max 5 steps), `self_checking` (validates output against `output_schema_json`, retries once if required fields missing). Set at creation via `skillClass` param. Extra LLM/API costs from refinement/retry are included in the final credit charge.
 
@@ -157,11 +159,13 @@ User-driven only (no auto-queries). 12h global cooldown shared across users. `/p
 
 ## Security Layer
 
-**Auth:** Clerk JWT (`requireClerkAuth`), API key (`checkApiKey` — `getApiKey()` returns typed `credits_used` + `amount_paid`, no unsafe casts), Admin (`requireAdmin` — timing-safe SHA-256, `X-Admin-Key`). `ADMIN_API_KEY` required in production.
+**Auth:** Clerk JWT (`requireClerkAuth`), API key (`checkApiKey` — `getApiKey()` returns typed `credits_used` + `amount_paid`, no unsafe casts), Admin (`requireAdmin` — timing-safe SHA-256, `X-Admin-Key`). `ADMIN_API_KEY` required in production. `adminRouter.use('*', ...)` middleware guard added — all admin routes protected even if handler forgets the per-route check.
 
 **Request protection:** HSTS + security headers, 256KB body limit (64KB for webhooks), rate limiting (60/min/IP + tiered per-key, `X-RateLimit-Limit` + `X-RateLimit-Remaining` headers on every response). Response signing: HMAC-SHA256 `X-ClawNet-Signature` on orchestrate, skill invoke, batch, balance, tasks.
 
 **Financial safety:** Atomic credit deduction (`WHERE credits >= amount`). `deductCredit()` return value always checked. Batch: upfront deduction + refund. SSE: 10-credit pre-check.
+
+**Security audit fixes (2026-03-12):** `isProxyUrlSafe()` IPv6 fix — `url.hostname` strips brackets, so check `host.startsWith('fc')` not `'[fc'`; also blocks `::ffff:` (IPv4-mapped). Rate limiter proxy detection: Docker is `172.16-31.x.x` — uses `/^172\.(1[6-9]|2\d|3[01])\./` not `startsWith('172.')` (which matched public IPs). `listPublicSkills()` excludes `security_status = 'FLAGGED'`. Private skill `GET /:id` uses SHA-256 hash normalization for constant-time key compare (handles empty key, no length leak). `ensureTreasuryKey()` + `ensurePlatformKey()` now check `active` and re-activate on startup if deactivated.
 
 **Key handling:** `maskApiKey()` from `src/utils/mask.ts` always — never `.slice()` directly. `email.ts` consolidated to use centralized import (ch10 fix). Clerk email cache with LRU eviction. Timing-safe env key comparison.
 
@@ -171,7 +175,7 @@ User-driven only (no auto-queries). 12h global cooldown shared across users. `/p
 
 ## Database
 
-SQLite WAL mode, `data/orchestrator.db`, 47 migrations. 10 domain modules: `connection`, `keys`, `credits`, `skills`, `marketplace`, `escrow`, `governance`, `services`, `audit`, `contexts`. Barrel re-exported from `src/db/index.ts`.
+SQLite WAL mode, `data/orchestrator.db`, 51 migrations (v50: `sample_output_json`, v51: `update_frequency`). 10 domain modules: `connection`, `keys`, `credits`, `skills`, `marketplace`, `escrow`, `governance`, `services`, `audit`, `contexts`. Barrel re-exported from `src/db/index.ts`.
 
 **Pragmas:** `journal_mode=WAL`, `foreign_keys=ON`, `busy_timeout=5000`. WAL checkpoint (TRUNCATE) on shutdown in `closeDb()`. Passive checkpoint after daily cleanup cron.
 
@@ -191,6 +195,7 @@ Key tables: `api_keys`, `transactions`, `skills`, `skill_metrics`, `skill_rating
 | Escrow expiry | 10 min | `escrow-cron.ts` |
 | Skill A/B auto-promote | 30 min | `skill-ab-cron.ts` |
 | Stake unlock | 60s | `stake-unlock-cron.ts` |
+| USDC payout | 4h | `payout-cron.ts` |
 | Heartbeat | hourly | `heartbeat.ts` |
 | Daily retention cleanup | 24h | `endpoint-health-cron.ts` |
 
@@ -268,3 +273,24 @@ src/providers/llm.ts             — llmComplete() two-model strategy
 10. **Error responses always include `code`** — `{ error, code, details? }`
 11. **Docker log rotation** — both services use `json-file` driver with `max-size: 10m` + `max-file: 3` (ch12 fix)
 12. **CI builds artifact** — `npm run build` step added to pipeline between typecheck and tests (ch12 fix)
+
+
+npm is a snapshot registry — each version is frozen forever once published. Changes to the server don't automatically update the package. Here's the full picture:
+
+Server-side changes (routes, DB, business logic):
+Changes to src/ deploy to the VPS via git push → deploy. The published npm package immediately benefits because it just calls api.claw-net.org — the bundle doesn't change, but the API it hits does. No npm republish needed.
+
+MCP client changes (tool descriptions, new tools, bug fixes in packages/mcp/src/index.ts):
+These require a manual republish:
+
+
+# bump version in packages/mcp/package.json (e.g. 1.0.0 → 1.0.1)
+cd packages/mcp
+npm publish --access public
+Users on npx -y @clawnet/mcp get the latest version automatically on next run (npx caches but respects semver). Users who pinned a version stay on the old one until they update.
+
+Bottom line:
+
+Adding a new route to the server → just deploy, no npm action
+Adding a new MCP tool or fixing tool descriptions → bump version + republish
+Publishng is a deliberate step you control, not continuous
