@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import { getApiKey } from '../db/index';
 import { env } from '../config/index';
 import { logger } from '../utils/logger';
+import { maskApiKey } from '../utils/mask';
 
 // Attaches validated key info to context for use in route handlers
 declare module 'hono' {
@@ -51,7 +52,7 @@ export const checkApiKey = createMiddleware(async (c, next) => {
   const keyRecord = getApiKey(key);
 
   if (!keyRecord) {
-    logger.warn({ key: key.slice(0, 8) + '...' }, 'Invalid API key attempt');
+    logger.warn({ key: maskApiKey(key) }, 'Invalid API key attempt');
     return c.json(
       { error: 'Invalid or inactive API key', code: 'INVALID_API_KEY', hint: 'Purchase a key at claw-net.org' },
       401

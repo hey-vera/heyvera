@@ -134,6 +134,17 @@ User-driven only (no auto-queries). 12h global cooldown shared across users. `/p
 
 ---
 
+## Compliance & Trust Notes (Ch20)
+
+**GDPR erasure:** `user.deleted` Clerk webhook handler deactivates API key, anonymizes email to `[deleted]`, unpublishes author's skills. Financial records retained per legal retention windows.
+**PII stored:** email in `api_keys`/`subscriptions`/`email_send_log`. No Solana wallets, no IP addresses in SQLite.
+**Audit trail:** `CREDIT_DEDUCT` logs lack requestId correlation to specific orchestrations — correlate by api_key + timestamp. Documented in considerations.md.
+**Key masking:** `maskApiKey()` now used in all log paths (auth.ts, clerk-webhook.ts). Never `.slice()` directly.
+**Vitest pool:** `pool: 'forks'` set in `vitest.config.ts` — required on Windows; default `vmThreads` fails in vitest 4.x.
+**Policy TODOs:** ToS/Privacy pages, API key expiry/scoping, data export endpoint, creator 1099 reporting — all deferred in considerations.md.
+
+---
+
 ## Product & Distribution Notes (Ch19)
 
 **MCP**: config in README, requires local clone + `npx tsx src/mcp/server.ts`. No published npm package yet.

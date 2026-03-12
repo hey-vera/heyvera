@@ -1,7 +1,8 @@
 import { Hono } from 'hono';
 import crypto from 'crypto';
 import { logger } from '../utils/logger';
-import { getApiKeyByClerkId, createFreeTrialKey } from '../db/index';
+import { getApiKeyByClerkId, createFreeTrialKey, getDb, logAudit } from '../db/index';
+import { maskApiKey } from '../utils/mask';
 import { env } from '../config/index';
 
 export const clerkWebhookRouter = new Hono();
@@ -111,9 +112,39 @@ clerkWebhookRouter.post('/clerk', async (c) => {
 
     try {
       const key = createFreeTrialKey(clerkUserId, primaryEmail.toLowerCase() || `clerk:${clerkUserId}`, env.FREE_TRIAL_CREDITS);
-      logger.info({ clerkUserId, email: primaryEmail, credits: env.FREE_TRIAL_CREDITS, key: key.slice(0, 8) }, 'Free trial credits granted');
+      logger.info({ clerkUserId, email: primaryEmail, credits: env.FREE_TRIAL_CREDITS, key: maskApiKey(key) }, 'Free trial credits granted');
     } catch (err) {
       logger.error({ err, clerkUserId }, 'Failed to create free trial API key');
+    }
+  }
+
+  // GDPR right to erasure: deactivate API key and anonymize email when user deletes their Clerk account.
+  // Financial records (transactions, orchestrations, audit_log) are kept for legal/tax compliance per
+  // their own retention windows (730 days / 180 days / 90 days respectively).
+  // Skills are unpublished (public=0, active=0) to prevent continued use, but records are retained
+  // for creator earnings and marketplace integrity.
+  if (event.type === 'user.deleted') {
+    const clerkUserId = event.data.id as string;
+    if (!clerkUserId) {
+      logger.warn({ svixId }, 'Clerk user.deleted: missing user id');
+      return c.json({ received: true });
+    }
+
+    try {
+      const db = getDb();
+      db.transaction(() => {
+        // Deactivate key and anonymize email — removes PII while preserving credit balance record
+        db.prepare(`UPDATE api_keys SET active = 0, email = '[deleted]' WHERE clerk_user_id = ?`).run(clerkUserId);
+        // Unpublish all skills by this user — they can no longer be discovered or purchased
+        db.prepare(`
+          UPDATE skills SET public = 0, active = 0
+          WHERE author_key IN (SELECT key FROM api_keys WHERE clerk_user_id = ?)
+        `).run(clerkUserId);
+      })();
+      logAudit({ entityType: 'clerk_user', entityId: clerkUserId, action: 'USER_DELETED', actorId: 'clerk' });
+      logger.info({ clerkUserId }, 'Clerk user.deleted: API key deactivated, email anonymized, skills unpublished');
+    } catch (err) {
+      logger.error({ err, clerkUserId }, 'Clerk user.deleted: failed to process deletion');
     }
   }
 

@@ -130,3 +130,54 @@
 - Categories require frontend changes + migration of existing report rows.
 
 **Revisit when:** Report volume exceeds 20/week and admin triage time becomes a bottleneck.
+
+---
+
+## Audit Trail Request Correlation
+
+**What:** Add a `request_id` / `orchestration_id` field to `CREDIT_DEDUCT` and `CREDIT_TOPUP` audit log entries so financial records can be directly correlated to the specific orchestration or task that caused each deduction — without relying on api_key + approximate timestamp matching.
+
+**Why deferred:**
+- Currently `deductCredit(key, amount)` is called from 10+ call sites (api.ts, batch.ts, tasks.ts, marketplace.ts, etc.). Threading a `requestId` through all of them requires a signature change across all callers and tests.
+- Current correlation is feasible: `orchestrations` table has `api_key`, `total` (credits charged), `timestamp`. `audit_log` has `api_key` (entityId), `amount`, `timestamp`. Timestamp ± 1 second uniquely identifies most operations.
+- No financial dispute has required sub-second audit resolution at current scale.
+
+**Revisit when:** A financial dispute arises that can't be resolved by timestamp correlation, or when credit volume is high enough that two deductions for the same key within the same second becomes common.
+
+---
+
+## API Key Scoping & Expiry
+
+**What:** Allow API keys to have optional expiry dates and permission scopes (e.g., read-only, specific-skills-only, spend cap). Rotation alerts when a key hasn't been rotated in 90+ days.
+
+**Why deferred:**
+- Current threat model: keys are 48-char cryptographically random hex. Brute force infeasible. Primary risk is key leak (phishing, env file exposure), not guessing.
+- Scoping adds significant complexity: per-key permission checks in every middleware, scope validation in every endpoint, UI for scope configuration.
+- No enterprise customers requesting scoped keys yet.
+
+**Revisit when:** Enterprise customers request SSO/key scoping, or when the first key leak incident occurs.
+
+---
+
+## GDPR Data Export (Right to Portability)
+
+**What:** `GET /v1/auth/export` endpoint that returns all user data in a machine-readable JSON format: credit balance, transaction history, tasks, skills created, orchestrations, ratings given.
+
+**Why deferred:**
+- Requires significant engineering: joining across 8+ tables, streaming large result sets, rate-limiting to prevent abuse.
+- GDPR right to portability applies to data "provided by the data subject" — transaction history qualifies; orchestration queries qualify. Most data is user-generated.
+- No user has requested data export yet.
+
+**Revisit when:** First user data export request arrives, or when preparing for GDPR compliance audit.
+
+---
+
+## Terms of Service & Privacy Policy Pages
+
+**What:** Add `/terms` and `/privacy` static HTML pages to `site/`. Content should cover: credit non-refundability policy, skill creator responsibilities and content policy, platform liability limitations, acceptable use, data collection disclosure, retention periods, third-party sharing (Clerk, Stripe, Resend).
+
+**Why deferred:**
+- Pure policy/legal work, not engineering. Platform is pre-revenue at current scale.
+- Standard boilerplate templates are widely available; the risk is in accepting terms without legal review.
+
+**Revisit when:** Processing more than $1,000/month in payments, or before any marketing push that significantly grows the user base.

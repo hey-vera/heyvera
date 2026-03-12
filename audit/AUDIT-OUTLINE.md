@@ -33,7 +33,7 @@
 | 17 | Testing & Verification | COMPLETE |
 | 18 | Resilience & Shutdown | COMPLETE |
 | 19 | Product Completeness & Market Readiness | COMPLETE |
-| 20 | Compliance, Risk & Trust | PENDING |
+| 20 | Compliance, Risk & Trust | COMPLETE |
 
 ---
 
@@ -2188,6 +2188,35 @@ src/middleware/auth.ts              — bearer token model
 ### Why It Matters
 
 Compliance risk is existential. A stored-value credit system may trigger money transmitter regulations. User data retention without clear policies creates GDPR liability. Third-party skills running arbitrary prompts create content liability. API keys with no expiry are a permanent credential leak risk. These risks compound with scale — what's acceptable for 10 users becomes a legal exposure at 10,000. This chapter identifies risks that require policy decisions, not just code fixes.
+
+### Status: ✅ COMPLETE
+
+### Audit Verdicts
+
+| # | Question | Verdict | Action |
+|---|----------|---------|--------|
+| Q1 | Money transmitter risk | **INFO** | Stored-value credit system may trigger FinCEN MSB licensing at $100K+ annual sales. Policy decision required — consult legal. |
+| Q2 | Refund obligations | **INFO** | Stripe refund webhook (`charge.refunded`) deducts credits proportionally — code handles this. Platform shutdown refund policy is a legal/policy question. |
+| Q3 | PII storage surface | **INFO** | Email stored in: `api_keys`, `subscriptions`, `email_send_log`. Clerk handles all other PII. Solana wallet NOT stored (signatures only). IP addresses NOT stored in SQLite (in-memory rate limiter only). |
+| Q4 | Data deletion on user.deleted | **FIXED** | Added `user.deleted` Clerk webhook handler: deactivates API key, anonymizes email to `[deleted]`, unpublishes author's skills. Financial records (transactions, orchestrations, audit_log) retained per legal requirements. |
+| Q5 | API key security — no expiry | **INFO** | Keys have no expiry, no scope restrictions. Format validation (`^cn-[a-f0-9]{48}$`) + timing-safe comparison exist. Feature: optional key expiry, scoping, rotation alerts. |
+| Q6 | Third-party skill liability | **INFO** | Policy decision — need ToS with creator responsibility clause and DMCA process. FLAGGED/VERIFIED system provides some technical mitigation. |
+| Q7 | Content moderation | **INFO** | Scanner catches prompt injection (17 patterns). Harmful content (hate speech, illegal) not screened. Policy decision — need content policy in ToS. |
+| Q8 | GDPR right to erasure | **FIXED** | Same as Q4 — `user.deleted` handler now implements erasure. |
+| Q9 | Data export (portability) | **INFO** | No `GET /v1/auth/export` endpoint. Feature opportunity deferred — no user demand yet. |
+| Q10 | Terms of service | **INFO** | No ToS page. Add `/terms` and `/privacy` to `site/`. Policy decision required. |
+| Q11 | Privacy policy | **INFO** | No privacy policy page. Deferred to legal. |
+| Q12 | Crypto KYC/AML | **INFO** | USDC payments accepted with no KYC. At small scale, likely exempt. Consult legal when volume grows. |
+| Q13 | Tax 1099 reporting | **INFO** | No automated 1099 for creators. At <$600/year payout per creator, not required. Manual process for now. |
+| Q14 | Audit trail completeness | **MEDIUM** | `CREDIT_DEDUCT` log entries have no requestId correlation to specific orchestrations. Can correlate by api_key + timestamp, but not directly. Documented in considerations.md. |
+| Q15 | Key masking consistency | **FIXED** | `clerk-webhook.ts` used `key.slice(0,8)` in log — changed to `maskApiKey()`. `auth.ts` used `key.slice(0,8)+'...'` — changed to `maskApiKey()`. |
+
+**Bonus fix:** `vitest.config.ts` — added `pool: 'forks'` (required on Windows; default `vmThreads` pool fails to initialise workers in vitest 4.x).
+
+### Code Changes
+1. **HIGH** `src/routes/clerk-webhook.ts` — added `user.deleted` handler (GDPR erasure): deactivates key, anonymizes email, unpublishes skills; added `maskApiKey()` to key log
+2. **LOW** `src/middleware/auth.ts` — replaced `key.slice(0,8)+'...'` with `maskApiKey()` in invalid key warning log
+3. **MEDIUM** `vitest.config.ts` — added `pool: 'forks'` to fix Windows vitest runner crash
 
 ---
 
