@@ -35,6 +35,7 @@ Every flow in the system, from boot to shutdown. Tree diagrams show exact paths 
 27. [Graceful Shutdown](#27-graceful-shutdown)
 28. [P2P Mesh Network](#28-p2p-mesh-network)
 29. [Billing Summary Table](#29-billing-summary-table)
+30. [Complete USDC Money Flow](#30-complete-usdc-money-flow)
 
 ---
 
@@ -1684,13 +1685,120 @@ Platform margin per credit:
 └─ No arbitrage possible: buy at $0.001, withdraw at $0.00075 = loss
 
 x402 surcharge (third-party prompt_template skills):
-├─ Caller pays: skill.credit_cost + ceil(apiCostUsd × CREDITS_PER_USD)
+├─ Caller pays: skill.credit_cost + round6(apiCostUsd × CREDITS_PER_USD)
 ├─ Creator gets: 97% of skill.credit_cost (unchanged)
-├─ Platform gets: 3% treasury + surcharge (covers x402 cost at 1:1)
+├─ Treasury gets: 3% fee + surcharge (surcharge → treasury → auto-sweep → operations wallet)
+├─ Surcharge covers: real USDC spent by operations wallet on x402 API calls
 ├─ Applies to: third-party prompt_template skills only
 └─ Does NOT apply to: official skills, api_proxy, data skills, cache hits
+
+Decimal credits (v3):
+├─ Credits can be fractional: 0.15, 0.75, 1.5, etc.
+├─ Minimum charge: 0.001 credits ($0.000001)
+├─ All credit math uses round6() — 6 decimal places, no floating-point drift
+├─ A $0.0001 x402 endpoint = 0.15 credits (not rounded up to 1)
+└─ Display: user sees exact decimal balance (e.g. "40.953 credits")
 ```
 
 ---
 
-*Generated from codebase analysis. Last updated: 2026-03-12. Pricing corrected: CREDITS_PER_USD=1000, x402 surcharge implemented.*
+## 30. Complete USDC Money Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        3-WALLET ARCHITECTURE                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  RECEIVING WALLET (H6xbRy...)                                              │
+│  ├─ Purpose: Collects USDC from credit purchases                           │
+│  ├─ Env: SOLANA_RECEIVING_WALLET (public address only, no key in .env)     │
+│  ├─ IN:  Users send USDC to buy credits (solana.ts verify route)           │
+│  ├─ OUT: Manual sweep to Operations + Payout wallets                       │
+│  └─ Risk: LOW — no private key on server                                   │
+│                                                                             │
+│  OPERATIONS WALLET (AqYkp3...)                                             │
+│  ├─ Purpose: Pays x402 API providers + receives treasury fee sweeps        │
+│  ├─ Env: SOLANA_PRIVATE_KEY (bs58 private key)                             │
+│  │       TREASURY_SWEEP_WALLET (same public address)                       │
+│  ├─ IN:  Treasury auto-sweep (every 4h, 3% fees + x402 surcharges)        │
+│  │       Manual top-up from Receiving wallet                               │
+│  ├─ OUT: Pays ClawAPIs/x402 providers for API calls                       │
+│  └─ Risk: MEDIUM — private key in .env, but only working capital at risk   │
+│                                                                             │
+│  PAYOUT WALLET (dedicated, separate)                                       │
+│  ├─ Purpose: Sends USDC to skill creators                                  │
+│  ├─ Env: PLATFORM_PAYOUT_PRIVATE_KEY (bs58 private key)                   │
+│  ├─ IN:  Manual top-up from Receiving wallet                               │
+│  ├─ OUT: Creator payouts (every 4h cron, rate: $0.00075/credit)           │
+│  └─ Risk: MEDIUM — limited float, isolated from main funds                 │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+COMPLETE MONEY FLOW — $20 USDC purchase + skill invocations:
+
+User sends $20 USDC to buy credits
+│
+├─ $20 USDC → RECEIVING wallet (H6xbRy...)
+├─ 20,000 credits minted to user's DB balance
+│
+├─ User invokes third-party skill (credit_cost=10, x402 API cost=$0.003)
+│  ├─ skillCredits = 10
+│  ├─ surcharge = round6(0.003 × 1000) = 3 credits
+│  ├─ TOTAL DEDUCTED from user: 13 credits
+│  │
+│  ├─ Creator gets: round6(10 × 0.97) = 9.7 credits  → topUpCredits(author)
+│  ├─ Treasury gets: round6(10 - 9.7) = 0.3 credits   → topUpCredits(treasury)
+│  ├─ Treasury gets: 3 credits (surcharge)              → topUpCredits(treasury)
+│  └─ Total treasury: 3.3 credits per call
+│
+├─ Meanwhile, Operations wallet paid $0.003 to x402 provider
+│  └─ Treasury has 3.3 credits → sweep converts at $0.00075/cr = $0.002475
+│     └─ Net cost to platform: $0.003 - $0.002475 = $0.000525 (covered by margin)
+│
+├─ User invokes orchestration query (3 API steps, total cost = 5.4 credits)
+│  ├─ stepCredits = 5.4 credits (creditsForExecution)
+│  ├─ orchestration fee = 2 credits
+│  ├─ TOTAL DEDUCTED: 7.4 credits
+│  ├─ Nobody gets paid — credits burned (reduces platform obligation)
+│  └─ Platform profit = 7.4 credits × $0.001 = $0.0074 in reduced liability
+│
+├─ Treasury auto-sweep (every 4h, payout-cron.ts)
+│  ├─ Check clawhub-treasury balance (3% fees + surcharges accumulated)
+│  ├─ If balance >= TREASURY_SWEEP_MIN (default 10,000 credits)
+│  ├─ Convert: credits × PAYOUT_USDC_PER_CREDIT = USDC amount
+│  ├─ deductTreasuryForSweep(balance)
+│  ├─ sendSolanaUsdc(TREASURY_SWEEP_WALLET, amountUsdc)
+│  └─ USDC arrives in Operations wallet → refills x402 calling funds
+│
+├─ Creator requests payout
+│  ├─ Creator has 9.7 credits earned → POST /v1/marketplace/payout-request
+│  ├─ Credits deducted from creator's balance
+│  ├─ Payout cron picks up PENDING request
+│  ├─ Convert: 9.7 × $0.00075 = $0.007275 USDC
+│  ├─ sendSolanaUsdc(creatorWallet, $0.007275) from PAYOUT wallet
+│  └─ Creator receives USDC
+│
+└─ Hot wallet balance check (every 4h)
+   ├─ getHotWalletUsdcBalance() checks PAYOUT wallet
+   ├─ If below HOT_WALLET_LOW_BALANCE_USDC ($50 default)
+   └─ Telegram alert: "Top up PLATFORM_PAYOUT_PRIVATE_KEY wallet"
+
+STRIPE FLOW:
+├─ User pays $20 via Stripe checkout
+├─ $20 → Stripe balance (your Stripe account)
+├─ 20,000 credits minted to user's DB balance
+├─ Stripe auto-payout → your bank account (Stripe settings)
+└─ Manual: bank → buy USDC → send to Receiving/Operations/Payout wallets
+
+CREDIT ACCOUNTING INVARIANT:
+├─ credits_minted = SUM(all topUpCredits from purchases)
+├─ credits_in_circulation = SUM(api_keys.credits) + SUM(stakes) + SUM(escrows)
+├─ credits_burned = SUM(orchestration fees + cache hits)
+├─ credits_transferred = SUM(transactions: author shares + treasury fees + surcharges)
+├─ MUST HOLD: credits_minted = credits_in_circulation + credits_burned + credits_paid_out
+└─ Check: GET /v1/admin/reconcile → drift should be 0
+```
+
+---
+
+*Generated from codebase analysis. Last updated: 2026-03-12. Decimal credits (v3), treasury auto-sweep, surcharge-to-treasury fix, 3-wallet architecture.*

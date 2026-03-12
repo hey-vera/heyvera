@@ -15,7 +15,7 @@ import {
 import { parseIntent } from '../core/intent-parser';
 import { executePlan } from '../core/executor';
 import { formatResponse } from '../core/formatter';
-import { creditsForExecution, x402SurchargeCredits } from '../core/credits';
+import { creditsForExecution, x402SurchargeCredits, round6 } from '../core/credits';
 import { findEndpoint } from '../config/api-registry';
 import { scanProxyResponse } from '../core/skill-scanner';
 import { logger } from '../utils/logger';
@@ -119,7 +119,7 @@ tasksRouter.post('/', checkApiKey, async (c) => {
     return c.json({ error: 'Skill not found' }, 404);
   }
 
-  const creditsNeeded = Math.max(1, skill.credit_cost);
+  const creditsNeeded = Math.max(0.001, skill.credit_cost);
   if (!keyInfo.isEnvKey && keyInfo.credits < creditsNeeded) {
     return c.json({
       error: 'Insufficient credits',
@@ -167,7 +167,7 @@ tasksRouter.post('/', checkApiKey, async (c) => {
         return c.json({ taskId, status: 'FAILED', error: 'Response flagged for safety review', code: 'CONTENT_UNSAFE' }, 451);
       }
 
-      const creditsToDeduct = Math.max(1, skill.credit_cost);
+      const creditsToDeduct = Math.max(0.001, skill.credit_cost);
       if (!keyInfo.isEnvKey) {
         const ok = getDb().transaction(() => deductCredit(keyInfo.key, creditsToDeduct))();
         if (!ok) {
@@ -225,17 +225,19 @@ tasksRouter.post('/', checkApiKey, async (c) => {
         const deducted = deductCredit(keyInfo.key, creditsToDeduct);
         if (!deducted) return false;
         if (shouldPayAuthor) {
-          // Revenue split applies to skillCredits only — surcharge goes 100% to platform
-          const authorShare = Math.floor(skillCredits * revenueSharePct);
-          const feeCredits = skillCredits - authorShare;
+          const authorShare = round6(skillCredits * revenueSharePct);
+          const feeCredits = round6(skillCredits - authorShare);
           if (authorShare > 0) topUpCredits(skill.author_key, authorShare);
           if (feeCredits > 0) topUpCredits('clawhub-treasury', feeCredits);
           recordTransaction({
             fromAgent: keyInfo.key, toAgent: skill.author_key,
             amountCredits: skillCredits, type: 'SKILL_SALE',
             skillId: activeSkillId, feeCredits,
+            ...(surcharge > 0 && { metadata: { x402Surcharge: surcharge } }),
           });
         }
+        // Credit x402 surcharge to treasury — covers real USDC spent by operations wallet
+        if (surcharge > 0) topUpCredits('clawhub-treasury', surcharge);
         return true;
       })();
 

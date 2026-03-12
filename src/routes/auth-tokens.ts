@@ -33,7 +33,7 @@ authRouter.get('/estimate', checkApiKey, (c) => {
     return c.json({ error: 'Skill not found' }, 404);
   }
 
-  const minCost = Math.max(1, skill.credit_cost);
+  const minCost = Math.max(0.001, skill.credit_cost);
 
   return c.json({
     skillId,

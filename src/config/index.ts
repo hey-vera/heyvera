@@ -67,6 +67,11 @@ const envSchema = z.object({
   PLATFORM_PAYOUT_PRIVATE_KEY: z.string().optional(), // bs58 Solana private key — used by payout cron to send USDC
   PAYOUT_USDC_PER_CREDIT: z.coerce.number().default(0.00075), // 25% below buy rate ($0.001) — prevents arbitrage
   BASE_RPC_URL: z.string().optional(), // Optional custom Base RPC (defaults to public mainnet.base.org)
+
+  // Treasury auto-sweep — sends accumulated 3% fees to owner's Solana wallet
+  TREASURY_SWEEP_WALLET: z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/, 'Invalid Solana address').optional(),
+  TREASURY_SWEEP_MIN: z.coerce.number().int().min(100).default(10000), // minimum credits to trigger sweep (10000 = $10 at $0.001/cr)
+  HOT_WALLET_LOW_BALANCE_USDC: z.coerce.number().default(50), // Telegram alert when hot wallet drops below this
 });
 
 const parsed = envSchema.safeParse(process.env);

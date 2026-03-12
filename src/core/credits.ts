@@ -1,12 +1,13 @@
 /**
  * Credit cost calculation — single source of truth.
  *
- * Value-based pricing model (v2):
- * - Each endpoint can declare an explicit creditCost override
+ * Value-based pricing model (v3 — decimal credits):
+ * - Each endpoint can declare an explicit creditCost override (can be fractional)
  * - Without override, auto-priced at 1.5× API cost (COST_MARKUP_FACTOR = 1500)
  * - Guarantees minimum ~33% margin on every API call at $0.001/credit sale price
  * - Orchestration fee (default 2cr) covers LLM intent parsing + synthesis
  * - Cache hits = 0 credits (no flat tax on cached responses)
+ * - Fractional credits supported: a $0.0001 endpoint = 0.15 credits (not rounded up to 1)
  *
  * Economics:
  *   Purchase rate: 1 credit = $0.001 (1000 credits/$1 at base Stripe tier)
@@ -15,11 +16,12 @@
  *   Payout rate:   $0.00075/credit (25% below buy rate — prevents arbitrage)
  *
  * Example pricing at 1500× markup:
- *   $0.0005 endpoint → 1 credit  ($0.001 revenue, 50% margin)
- *   $0.001 endpoint  → 2 credits ($0.002 revenue, 50% margin)
- *   $0.005 endpoint  → 8 credits ($0.008 revenue, 38% margin)
- *   $0.010 endpoint  → 15 credits ($0.015 revenue, 33% margin)
- *   $0.050 endpoint  → 75 credits ($0.075 revenue, 33% margin)
+ *   $0.0001 endpoint → 0.15 credits  ($0.00015 revenue, 33% margin)
+ *   $0.0005 endpoint → 0.75 credits  ($0.00075 revenue, 33% margin)
+ *   $0.001 endpoint  → 1.5 credits   ($0.0015 revenue, 33% margin)
+ *   $0.005 endpoint  → 7.5 credits   ($0.0075 revenue, 33% margin)
+ *   $0.010 endpoint  → 15 credits    ($0.015 revenue, 33% margin)
+ *   $0.050 endpoint  → 75 credits    ($0.075 revenue, 33% margin)
  *
  * x402 surcharge (third-party prompt_template skills):
  *   When a third-party skill triggers x402 API calls, the platform pays those
@@ -40,21 +42,29 @@ const CREDITS_PER_USD = parseInt(process.env.CREDITS_PER_USD ?? '1000', 10);
 const COST_MARKUP_FACTOR = parseInt(process.env.COST_MARKUP_FACTOR ?? '1500', 10);
 
 /**
- * Legacy formula: derive credits from raw API cost using CREDITS_PER_USD (100% markup).
- * Still used by some callsites during migration; prefer creditCostForEndpoint() for new code.
+ * Round a credit value to 6 decimal places to prevent floating-point drift.
+ * All credit math should pass through this before DB writes.
+ */
+export function round6(n: number): number {
+  return Math.round(n * 1_000_000) / 1_000_000;
+}
+
+/**
+ * Legacy formula: derive credits from raw API cost using CREDITS_PER_USD.
+ * Now returns fractional credits (e.g. 0.1 credits for a $0.0001 call).
  */
 export function creditsForApiCost(apiCostUsd: number): number {
-  return Math.max(1, Math.ceil(apiCostUsd * CREDITS_PER_USD));
+  return round6(Math.max(0.001, apiCostUsd * CREDITS_PER_USD));
 }
 
 /**
  * Value-based credit cost for a single endpoint invocation.
  * Uses explicit creditCost if set, otherwise auto-prices at COST_MARKUP_FACTOR × costPerCall.
- * Minimum 1 credit per endpoint to prevent free-riding.
+ * Minimum 0.001 credits per endpoint to prevent free-riding.
  */
 export function creditCostForEndpoint(endpoint: { creditCost?: number; costPerCall: number }): number {
   if (endpoint.creditCost != null) return endpoint.creditCost;
-  return Math.max(1, Math.ceil(endpoint.costPerCall * COST_MARKUP_FACTOR));
+  return round6(Math.max(0.001, endpoint.costPerCall * COST_MARKUP_FACTOR));
 }
 
 /**
@@ -62,7 +72,7 @@ export function creditCostForEndpoint(endpoint: { creditCost?: number; costPerCa
  * Does NOT include orchestration fee — caller adds that separately.
  */
 export function creditsForPlan(steps: Array<{ creditCost?: number; costPerCall: number }>): number {
-  return steps.reduce((sum, step) => sum + creditCostForEndpoint(step), 0);
+  return round6(steps.reduce((sum, step) => sum + creditCostForEndpoint(step), 0));
 }
 
 /**
@@ -70,7 +80,7 @@ export function creditsForPlan(steps: Array<{ creditCost?: number; costPerCall: 
  * Based on purchase price: CREDITS_PER_USD credits = $1.
  */
 export function creditsToUsd(credits: number): number {
-  return parseFloat((credits / CREDITS_PER_USD).toFixed(4));
+  return parseFloat((credits / CREDITS_PER_USD).toFixed(6));
 }
 
 /**
@@ -82,11 +92,11 @@ export function creditsForExecution(
   steps: Array<{ endpointId: string; success: boolean; cached: boolean }>,
   endpointLookup: (id: string) => { creditCost?: number; costPerCall: number } | undefined,
 ): number {
-  return steps.reduce((sum, step) => {
+  return round6(steps.reduce((sum, step) => {
     if (!step.success || step.cached) return sum;
     const ep = endpointLookup(step.endpointId);
-    return sum + (ep ? creditCostForEndpoint(ep) : 1);
-  }, 0);
+    return sum + (ep ? creditCostForEndpoint(ep) : 0.001);
+  }, 0));
 }
 
 /**
@@ -98,7 +108,7 @@ export function creditsForExecution(
  */
 export function x402SurchargeCredits(apiCostUsd: number): number {
   if (apiCostUsd <= 0) return 0;
-  return Math.ceil(apiCostUsd * CREDITS_PER_USD);
+  return round6(apiCostUsd * CREDITS_PER_USD);
 }
 
 /** Expose for health/admin endpoints */

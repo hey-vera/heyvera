@@ -2,6 +2,7 @@ import { nanoid } from 'nanoid';
 import { logger } from '../utils/logger';
 import { sendAdminAlert } from '../utils/email';
 import { getDb, logAudit } from './connection';
+import { round6 } from '../core/credits';
 import type { Skill } from './skills';
 
 function escapeLike(value: string): string {
@@ -99,11 +100,8 @@ export function marketplacePurchase(params: {
     db.transaction(() => {
       feeCredits = params.sellerKey === 'clawhub-official'
         ? 0
-        : Math.floor(params.amountCredits * params.feePct);
-      if (feeCredits === 0 && params.sellerKey !== 'clawhub-official' && params.amountCredits >= 10) {
-        feeCredits = 1;
-      }
-      sellerCredits = params.amountCredits - feeCredits;
+        : round6(params.amountCredits * params.feePct);
+      sellerCredits = round6(params.amountCredits - feeCredits);
 
       const buyerEmail = (db.prepare('SELECT email FROM api_keys WHERE key = ? AND active = 1').get(params.buyerKey) as { email: string } | undefined)?.email;
       const sellerEmail = (db.prepare('SELECT email FROM api_keys WHERE key = ? AND active = 1').get(params.sellerKey) as { email: string } | undefined)?.email;

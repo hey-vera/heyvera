@@ -15,8 +15,8 @@
  */
 
 import cron from 'node-cron';
-import { getAllPendingPayouts, markPayoutPaid, updatePayoutStatus } from '../db/index';
-import { sendSolanaUsdc } from '../utils/solana-payout';
+import { getAllPendingPayouts, markPayoutPaid, updatePayoutStatus, getTreasuryBalance, deductTreasuryForSweep, recordTransaction } from '../db/index';
+import { sendSolanaUsdc, getHotWalletUsdcBalance } from '../utils/solana-payout';
 import { sendTelegramAlert } from '../integrations/telegram';
 import { logger } from '../utils/logger';
 import { env } from '../config/index';
@@ -26,13 +26,79 @@ const MIN_PAYOUT_USDC = 1.0;           // hold requests below $1 until they accu
 
 let cronTask: ReturnType<typeof cron.schedule> | null = null;
 
+/**
+ * Sweep accumulated treasury credits to the owner's Solana wallet.
+ * Only fires when TREASURY_SWEEP_WALLET is set and balance >= TREASURY_SWEEP_MIN.
+ */
+async function sweepTreasury(): Promise<{ swept: boolean; credits?: number; usdc?: number; txHash?: string; error?: string }> {
+  if (!env.TREASURY_SWEEP_WALLET) return { swept: false };
+
+  const balance = getTreasuryBalance();
+  if (balance < env.TREASURY_SWEEP_MIN) {
+    logger.debug({ balance, min: env.TREASURY_SWEEP_MIN }, 'Treasury sweep: below minimum — skipping');
+    return { swept: false };
+  }
+
+  const amountUsdc = balance * env.PAYOUT_USDC_PER_CREDIT;
+  if (amountUsdc < MIN_PAYOUT_USDC) {
+    logger.debug({ balance, amountUsdc }, 'Treasury sweep: USDC amount below $1 minimum — skipping');
+    return { swept: false };
+  }
+
+  // Deduct first — if send fails, credits stay deducted (we'll re-credit on failure)
+  if (!deductTreasuryForSweep(balance)) {
+    logger.warn({ balance }, 'Treasury sweep: deduction failed — balance may have changed');
+    return { swept: false, error: 'Deduction failed' };
+  }
+
+  try {
+    const txHash = await sendSolanaUsdc(env.TREASURY_SWEEP_WALLET, amountUsdc);
+
+    // Record in transactions ledger for full audit trail
+    recordTransaction({
+      fromAgent: 'clawhub-treasury',
+      amountCredits: balance,
+      type: 'TREASURY_SWEEP',
+      metadata: { txHash, amountUsdc, wallet: env.TREASURY_SWEEP_WALLET },
+    });
+
+    logger.info({ txHash, credits: balance, amountUsdc, wallet: env.TREASURY_SWEEP_WALLET }, 'Treasury sweep: USDC sent');
+    return { swept: true, credits: balance, usdc: amountUsdc, txHash };
+  } catch (err) {
+    // Re-credit treasury on send failure so credits aren't lost
+    const { topUpCredits } = await import('../db/index');
+    topUpCredits('clawhub-treasury', balance);
+    const errMsg = err instanceof Error ? err.message : String(err);
+    logger.error({ err, balance, amountUsdc }, 'Treasury sweep: send failed — credits re-credited');
+    return { swept: false, credits: balance, error: errMsg };
+  }
+}
+
+/**
+ * Check hot wallet USDC balance and alert if below threshold.
+ */
+async function checkHotWalletBalance(): Promise<string | null> {
+  if (!env.PLATFORM_PAYOUT_PRIVATE_KEY) return null;
+
+  try {
+    const balance = await getHotWalletUsdcBalance();
+    if (balance < env.HOT_WALLET_LOW_BALANCE_USDC) {
+      const msg = `⚠️ Hot wallet low: $${balance.toFixed(2)} USDC (threshold: $${env.HOT_WALLET_LOW_BALANCE_USDC}).\nTop up the PLATFORM_PAYOUT_PRIVATE_KEY wallet to continue automated payouts.`;
+      logger.warn({ balance, threshold: env.HOT_WALLET_LOW_BALANCE_USDC }, 'Hot wallet balance low');
+      return msg;
+    }
+    logger.debug({ balance }, 'Hot wallet balance OK');
+  } catch (err) {
+    logger.error({ err }, 'Failed to check hot wallet balance');
+  }
+  return null;
+}
+
 async function runPayoutCron(): Promise<void> {
   if (!env.PLATFORM_PAYOUT_PRIVATE_KEY) return; // silently skip — cron still registered but is a no-op
 
+  // ─── 1. Process creator payouts ───────────────────────────────────────────
   const pending = getAllPendingPayouts();
-  if (pending.length === 0) return;
-
-  logger.info({ count: pending.length }, 'Payout cron: processing pending requests');
 
   let paid = 0;
   let failed = 0;
@@ -62,9 +128,35 @@ async function runPayoutCron(): Promise<void> {
     }
   }
 
-  const summary = `Payout cron complete\nPaid: ${paid} | Failed: ${failed} | Skipped (< $${MIN_PAYOUT_USDC}): ${skipped}\nTotal sent: $${totalUsdc.toFixed(4)} USDC`;
-  logger.info({ paid, failed, skipped, totalUsdc }, 'Payout cron complete');
-  await sendTelegramAlert(summary).catch(() => undefined);
+  // ─── 2. Treasury auto-sweep ───────────────────────────────────────────────
+  const sweep = await sweepTreasury();
+
+  // ─── 3. Hot wallet balance check ──────────────────────────────────────────
+  const walletWarning = await checkHotWalletBalance();
+
+  // ─── 4. Telegram summary ──────────────────────────────────────────────────
+  const lines: string[] = [];
+
+  if (pending.length > 0 || sweep.swept) {
+    lines.push('💰 Payout cron complete');
+    if (pending.length > 0) {
+      lines.push(`Creators — Paid: ${paid} | Failed: ${failed} | Skipped (< $${MIN_PAYOUT_USDC}): ${skipped}`);
+      lines.push(`Total sent to creators: $${totalUsdc.toFixed(4)} USDC`);
+    }
+    if (sweep.swept) {
+      lines.push(`Treasury sweep: ${sweep.credits} credits → $${sweep.usdc!.toFixed(4)} USDC (tx: ${sweep.txHash!.slice(0, 12)}...)`);
+    } else if (sweep.error) {
+      lines.push(`Treasury sweep FAILED: ${sweep.error}`);
+    }
+  }
+
+  if (walletWarning) lines.push('', walletWarning);
+
+  logger.info({ paid, failed, skipped, totalUsdc, sweep: sweep.swept ? sweep.usdc : null }, 'Payout cron complete');
+
+  if (lines.length > 0) {
+    await sendTelegramAlert(lines.join('\n')).catch(() => undefined);
+  }
 }
 
 export function startPayoutCron(): void {

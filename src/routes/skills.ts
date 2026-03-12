@@ -19,7 +19,7 @@ import { parseIntent } from '../core/intent-parser';
 import { executePlan } from '../core/executor';
 import { formatResponse } from '../core/formatter';
 import { buildIntentFromPlan } from '../core/skill-executor';
-import { creditsForExecution, x402SurchargeCredits } from '../core/credits';
+import { creditsForExecution, x402SurchargeCredits, round6 } from '../core/credits';
 import { findEndpoint } from '../config/api-registry';
 import { logUsage } from '../utils/usage';
 import { cacheGet, cacheSet, cacheIncr } from '../cache/index';
@@ -412,7 +412,7 @@ skillsRouter.get('/:id/query', checkApiKey, async (c) => {
     return c.json({ requestId, error: 'Data skill has no source URL configured', code: 'NO_SOURCE' }, 503);
   }
 
-  const creditCost = Math.max(1, skill.credit_cost);
+  const creditCost = Math.max(0.001, skill.credit_cost);
   if (!keyInfo.isEnvKey && keyInfo.credits < 1) {
     return c.json({ requestId, error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS', creditsRequired: 1 }, 402);
   }
@@ -479,8 +479,8 @@ skillsRouter.get('/:id/query', checkApiKey, async (c) => {
         const deducted = deductCredit(keyInfo.key, creditCost);
         if (!deducted) return false;
         if (shouldPayAuthor) {
-          const authorShare = Math.floor(creditCost * revenueSharePct);
-          const feeCredits = creditCost - authorShare;
+          const authorShare = round6(creditCost * revenueSharePct);
+          const feeCredits = round6(creditCost - authorShare);
           if (authorShare > 0) {
             topUpCredits(skill.author_key, authorShare);
             if (feeCredits > 0) topUpCredits('clawhub-treasury', feeCredits);
@@ -751,12 +751,12 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
   }
 
   // Pre-check: reject zero-balance users BEFORE expensive LLM work
-  if (!keyInfo.isEnvKey && keyInfo.credits < Math.max(1, skill.credit_cost)) {
+  if (!keyInfo.isEnvKey && keyInfo.credits < Math.max(0.001, skill.credit_cost)) {
     return c.json({
       requestId,
       error: 'Insufficient credits',
       code: 'INSUFFICIENT_CREDITS',
-      creditsRequired: Math.max(1, skill.credit_cost),
+      creditsRequired: Math.max(0.001, skill.credit_cost),
       creditsAvailable: keyInfo.credits,
       hint: 'Top up your credits at claw-net.org',
     }, 402);
@@ -812,7 +812,7 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
         return c.json({ requestId, error: 'Response flagged for safety review', code: 'CONTENT_UNSAFE', flags: responseScan.flags }, 451);
       }
 
-      const creditsToDeduct = Math.max(1, skill.credit_cost);
+      const creditsToDeduct = Math.max(0.001, skill.credit_cost);
       if (!keyInfo.isEnvKey) {
         const revenueSharePct = skill.revenue_share_pct;
         const shouldPayAuthor = skill.author_key !== keyInfo.key && revenueSharePct > 0;
@@ -820,8 +820,8 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
           const deducted = deductCredit(keyInfo.key, creditsToDeduct);
           if (!deducted) return false;
           if (shouldPayAuthor) {
-            const authorShare = Math.floor(creditsToDeduct * revenueSharePct);
-            const feeCredits = creditsToDeduct - authorShare;
+            const authorShare = round6(creditsToDeduct * revenueSharePct);
+            const feeCredits = round6(creditsToDeduct - authorShare);
             if (authorShare > 0) {
               topUpCredits(skill.author_key, authorShare);
               // Credit platform fee to treasury (was missing — fees were being destroyed)
@@ -951,15 +951,11 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
         if (!deducted) return false;
         if (shouldPayAuthor) {
           // Revenue split applies to skillCredits only — surcharge goes 100% to platform
-          const authorShare = Math.floor(skillCredits * revenueSharePct);
-          const feeCredits = skillCredits - authorShare;
+          const authorShare = round6(skillCredits * revenueSharePct);
+          const feeCredits = round6(skillCredits - authorShare);
           if (authorShare > 0) {
             topUpCredits(skill.author_key, authorShare);
-            // Credit platform fee to treasury (was missing — fees were being destroyed)
-            if (feeCredits > 0) {
-              topUpCredits('clawhub-treasury', feeCredits);
-            }
-            // Record in ledger so creator stats and payout availability are accurate
+            if (feeCredits > 0) topUpCredits('clawhub-treasury', feeCredits);
             recordTransaction({
               fromAgent: keyInfo.key,
               toAgent: skill.author_key,
@@ -967,9 +963,12 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
               type: 'SKILL_SALE',
               skillId: activeSkillId,
               feeCredits,
+              ...(surcharge > 0 && { metadata: { x402Surcharge: surcharge } }),
             });
           }
         }
+        // Credit x402 surcharge to treasury — covers real USDC spent by operations wallet
+        if (surcharge > 0) topUpCredits('clawhub-treasury', surcharge);
         return true;
       })();
 

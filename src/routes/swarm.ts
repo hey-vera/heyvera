@@ -140,7 +140,7 @@ export async function runSwarm(swarmId: string, agentKey: string, body: SwarmPar
   // Each task gets an equal share; remaining (from tasks that skip or underspend) is reported.
   const skillSubtasks = subTasks.filter(st => st.skillId);
   const budgetPerSubtask = skillSubtasks.length > 0
-    ? Math.floor((maxBudget - SWARM_BASE_FEE) / skillSubtasks.length)
+    ? (maxBudget - SWARM_BASE_FEE) / skillSubtasks.length
     : 0;
 
   // Step 2: Execute in parallel

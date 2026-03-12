@@ -129,7 +129,7 @@ batchRouter.post('/', checkApiKey, async (c) => {
       if (!p.ok) return sum;
       const stepCredits = p.intent.steps.reduce((s, step) => {
         const ep = findEndpoint(step.endpointId);
-        return s + (ep ? creditCostForEndpoint(ep) : 1);
+        return s + (ep ? creditCostForEndpoint(ep) : 0.001);
       }, 0);
       return sum + stepCredits + ORCHESTRATION_FEE;
     }, 0);

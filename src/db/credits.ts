@@ -4,7 +4,8 @@ import { getDb, logAudit } from './connection';
 // ─── Credit Operations ────────────────────────────────────────────────────────
 
 export function deductCredit(key: string, amount: number = 1): boolean {
-  if (amount <= 0) throw new Error(`deductCredit: amount must be positive, got ${amount}`);
+  if (amount < 0) throw new Error(`deductCredit: amount must be non-negative, got ${amount}`);
+  if (amount === 0) return true; // no-op (e.g. all steps cached)
   const result = getDb()
     .prepare(
       `UPDATE api_keys
@@ -21,7 +22,8 @@ export function deductCredit(key: string, amount: number = 1): boolean {
 }
 
 export function topUpCredits(key: string, credits: number, stripeSessionId?: string, amountPaid?: number): { ok: boolean } {
-  if (credits <= 0) throw new Error(`topUpCredits: credits must be positive, got ${credits}`);
+  if (credits < 0) throw new Error(`topUpCredits: credits must be non-negative, got ${credits}`);
+  if (credits === 0) return { ok: true }; // no-op
   let result;
   if (stripeSessionId) {
     const dollarValue = amountPaid != null ? amountPaid : credits / 1000;

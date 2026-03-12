@@ -12,6 +12,7 @@ import { setupTestDb, getTestDb, seedApiKey } from './helpers/db';
 setupTestDb(); // must be called before any src import
 
 import { initDb, deductCredit, topUpCredits, getApiKeyBalance } from '../../src/db/index';
+import { round6, creditCostForEndpoint, creditsForExecution } from '../../src/core/credits';
 
 beforeAll(() => {
   initDb();
@@ -105,6 +106,56 @@ describe('topUpCredits', () => {
   });
 });
 
+describe('decimal credits', () => {
+  it('deducts fractional credits correctly', () => {
+    const { key } = seedApiKey(getTestDb(), { credits: 10 });
+
+    const ok = deductCredit(key, 0.75);
+
+    expect(ok).toBe(true);
+    const bal = getApiKeyBalance(key);
+    expect(bal?.credits).toBeCloseTo(9.25, 6);
+    expect(bal?.credits_used).toBeCloseTo(0.75, 6);
+  });
+
+  it('tops up fractional credits correctly', () => {
+    const { key } = seedApiKey(getTestDb(), { credits: 0 });
+
+    topUpCredits(key, 0.15);
+
+    expect(getApiKeyBalance(key)?.credits).toBeCloseTo(0.15, 6);
+  });
+
+  it('accumulates fractional deductions without drift', () => {
+    const { key } = seedApiKey(getTestDb(), { credits: 1 });
+
+    // 10 deductions of 0.1 each = 1.0 total
+    for (let i = 0; i < 10; i++) deductCredit(key, 0.1);
+
+    const bal = getApiKeyBalance(key);
+    expect(bal?.credits).toBeCloseTo(0, 6);
+    expect(bal?.credits_used).toBeCloseTo(1, 6);
+  });
+
+  it('rejects fractional deduction that exceeds balance', () => {
+    const { key } = seedApiKey(getTestDb(), { credits: 0.5 });
+
+    const ok = deductCredit(key, 0.75);
+
+    expect(ok).toBe(false);
+    expect(getApiKeyBalance(key)?.credits).toBeCloseTo(0.5, 6);
+  });
+
+  it('allows deducting zero credits (no-op)', () => {
+    const { key } = seedApiKey(getTestDb(), { credits: 100 });
+
+    const ok = deductCredit(key, 0);
+
+    expect(ok).toBe(true);
+    expect(getApiKeyBalance(key)?.credits).toBe(100);
+  });
+});
+
 describe('credit atomicity', () => {
   it('simultaneous deductions never result in negative balance', () => {
     const { key } = seedApiKey(getTestDb(), { credits: 100 });
@@ -119,5 +170,46 @@ describe('credit atomicity', () => {
     expect(successful).toBe(10);
     expect(bal?.credits).toBe(0);
     expect(bal?.credits_used).toBe(100);
+  });
+});
+
+describe('core credit functions (decimal)', () => {
+  it('round6 prevents floating-point drift', () => {
+    expect(round6(0.1 + 0.2)).toBe(0.3);
+    expect(round6(1.0000001)).toBe(1);
+    expect(round6(0.123456789)).toBe(0.123457);
+  });
+
+  it('creditCostForEndpoint returns fractional credits for cheap endpoints', () => {
+    // $0.0001 endpoint × 1500 markup = 0.15 credits
+    expect(creditCostForEndpoint({ costPerCall: 0.0001 })).toBe(0.15);
+    // $0.0005 endpoint × 1500 markup = 0.75 credits
+    expect(creditCostForEndpoint({ costPerCall: 0.0005 })).toBe(0.75);
+    // $0.001 endpoint × 1500 markup = 1.5 credits
+    expect(creditCostForEndpoint({ costPerCall: 0.001 })).toBe(1.5);
+  });
+
+  it('creditCostForEndpoint uses explicit creditCost when set', () => {
+    expect(creditCostForEndpoint({ costPerCall: 0.01, creditCost: 5 })).toBe(5);
+    expect(creditCostForEndpoint({ costPerCall: 0.01, creditCost: 0.5 })).toBe(0.5);
+  });
+
+  it('creditCostForEndpoint enforces minimum 0.001', () => {
+    expect(creditCostForEndpoint({ costPerCall: 0 })).toBe(0.001);
+    expect(creditCostForEndpoint({ costPerCall: 0.0000001 })).toBe(0.001);
+  });
+
+  it('creditsForExecution sums fractional costs correctly', () => {
+    const steps = [
+      { endpointId: 'a', success: true, cached: false },
+      { endpointId: 'b', success: true, cached: false },
+      { endpointId: 'c', success: true, cached: true }, // cached = 0
+    ];
+    const lookup = (id: string) => {
+      if (id === 'a') return { costPerCall: 0.0001 }; // 0.15 credits
+      if (id === 'b') return { costPerCall: 0.0005 }; // 0.75 credits
+      return { costPerCall: 0.001 }; // won't count (cached)
+    };
+    expect(creditsForExecution(steps, lookup)).toBeCloseTo(0.9, 6);
   });
 });

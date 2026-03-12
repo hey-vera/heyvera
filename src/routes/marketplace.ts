@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { nanoid } from 'nanoid';
 import { maskApiKey } from '../utils/mask';
+import { round6 } from '../core/credits';
 import { renderTemplate } from '../utils/template';
 import { checkApiKey } from '../middleware/auth';
 import { requireAdmin } from '../middleware/admin-auth';
@@ -32,8 +33,7 @@ const PLATFORM_FEE_PCT = 0.03; // 3% platform fee on all marketplace purchases
  *  Third-party skills priced ≥10 credits pay at least 1 credit. */
 function calcFee(creditCost: number, authorKey: string): number {
   if (authorKey === 'clawhub-official') return 0;
-  const fee = Math.floor(creditCost * PLATFORM_FEE_PCT);
-  return fee === 0 && creditCost >= 10 ? 1 : fee;
+  return round6(creditCost * PLATFORM_FEE_PCT);
 }
 
 // ─── GET /v1/marketplace/skills — browse the skill catalog ───────────────────

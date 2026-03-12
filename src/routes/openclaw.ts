@@ -25,7 +25,7 @@ import {
   createSwarmTask, getAgentUsageStats, getReputationScore,
   writeAuditLog, safeJsonParse,
 } from '../db/index';
-import { creditsForExecution, creditsToUsd, x402SurchargeCredits } from '../core/credits';
+import { creditsForExecution, creditsToUsd, x402SurchargeCredits, round6 } from '../core/credits';
 import { parseIntent } from '../core/intent-parser';
 import { executePlan } from '../core/executor';
 import { formatResponse } from '../core/formatter';
@@ -235,10 +235,10 @@ openclawRouter.post('/invoke', checkApiKey, async (c) => {
     const skill = useChallenger ? (getSkill(baseSkill.ab_challenger!) ?? baseSkill) : baseSkill;
     const activeSkillId = useChallenger ? (baseSkill.ab_challenger ?? skillId) : skillId;
 
-    if (!keyInfo.isEnvKey && keyInfo.credits < Math.max(1, skill.credit_cost)) {
+    if (!keyInfo.isEnvKey && keyInfo.credits < Math.max(0.001, skill.credit_cost)) {
       return c.json({
         ok: false, requestId, error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS',
-        creditsRequired: Math.max(1, skill.credit_cost), creditsAvailable: keyInfo.credits,
+        creditsRequired: Math.max(0.001, skill.credit_cost), creditsAvailable: keyInfo.credits,
       }, 402);
     }
 
@@ -293,11 +293,13 @@ openclawRouter.post('/invoke', checkApiKey, async (c) => {
           if (!deducted) return false;
           if (shouldPayAuthor) {
             // Revenue split applies to skillCredits only — surcharge goes 100% to platform
-            const authorShare = Math.floor(skillCredits * revenueSharePct);
-            const feeCredits = skillCredits - authorShare;
+            const authorShare = round6(skillCredits * revenueSharePct);
+            const feeCredits = round6(skillCredits - authorShare);
             if (authorShare > 0) topUpCredits(skill.author_key, authorShare);
             if (feeCredits > 0) topUpCredits('clawhub-treasury', feeCredits);
           }
+          // Credit x402 surcharge to treasury — covers real USDC spent by operations wallet
+          if (surcharge > 0) topUpCredits('clawhub-treasury', surcharge);
           return true;
         })();
 

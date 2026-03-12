@@ -19,6 +19,7 @@ import {
   createTransferCheckedInstruction,
   getAssociatedTokenAddress,
   getOrCreateAssociatedTokenAccount,
+  getAccount,
 } from '@solana/spl-token';
 import bs58 from 'bs58';
 import { env } from '../config/index';
@@ -81,4 +82,23 @@ export async function sendSolanaUsdc(toWallet: string, amountUsdc: number): Prom
 
   logger.info({ sig, toWallet, amountUsdc }, 'Solana USDC payout sent');
   return sig;
+}
+
+/**
+ * Check the USDC balance of the platform's hot wallet.
+ * Used by the payout cron to alert when balance is low.
+ * Returns balance in USDC (e.g. 42.50).
+ */
+export async function getHotWalletUsdcBalance(): Promise<number> {
+  const connection = getConnection();
+  const payer = getPlatformKeypair();
+  const ata = await getAssociatedTokenAddress(USDC_MINT, payer.publicKey);
+
+  try {
+    const account = await getAccount(connection, ata);
+    return Number(account.amount) / 10 ** USDC_DECIMALS;
+  } catch {
+    // ATA doesn't exist yet — balance is 0
+    return 0;
+  }
 }

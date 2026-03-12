@@ -134,6 +134,31 @@ export function getTreasuryStatus(): {
   };
 }
 
+// ─── Treasury Sweep Helpers ──────────────────────────────────────────────────
+
+/** Get the current credit balance of the clawhub-treasury key. Returns 0 if not found. */
+export function getTreasuryBalance(): number {
+  const row = getDb()
+    .prepare(`SELECT credits FROM api_keys WHERE key = 'clawhub-treasury' AND active = 1`)
+    .get() as { credits: number } | undefined;
+  return row?.credits ?? 0;
+}
+
+/**
+ * Deduct credits from the treasury for auto-sweep payout.
+ * Returns true if successful, false if insufficient balance.
+ */
+export function deductTreasuryForSweep(amount: number): boolean {
+  if (amount <= 0) return false;
+  const result = getDb()
+    .prepare(`UPDATE api_keys SET credits = credits - ?, credits_used = credits_used + ? WHERE key = 'clawhub-treasury' AND credits >= ? AND active = 1`)
+    .run(amount, amount, amount);
+  if (result.changes > 0) {
+    logAudit({ entityType: 'api_key', entityId: 'clawhub-treasury', action: 'TREASURY_SWEEP', actorId: 'system', data: { amount } });
+  }
+  return result.changes > 0;
+}
+
 // ─── Key Revocation ────────────────────────────────────────────────────────────
 
 export function revokeKeyByKey(key: string, reason?: string): number {

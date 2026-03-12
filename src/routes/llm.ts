@@ -24,6 +24,7 @@ import { z } from 'zod';
 import crypto from 'crypto';
 import { checkApiKey } from '../middleware/auth';
 import { deductCredit, getDb } from '../db/index';
+import { round6 } from '../core/credits';
 import { cacheGet, cacheSet } from '../cache/index';
 import { clawApiCall } from '../providers/clawapis';
 import { logger } from '../utils/logger';
@@ -95,7 +96,7 @@ llmRouter.get('/models', (c) => {
     models: Object.entries(LLM_MODELS).map(([id, meta]) => ({
       id,
       description: meta.description,
-      creditCost: Math.ceil(meta.creditCost * MARKUP),
+      creditCost: round6(meta.creditCost * MARKUP),
       costUsd: (meta.costPerCall * MARKUP).toFixed(4),
       provider: id.startsWith('claude') ? 'Anthropic'
         : id.startsWith('gemini') ? 'Google'
@@ -136,7 +137,7 @@ llmRouter.post('/chat', checkApiKey, async (c) => {
     }, 400);
   }
 
-  const creditCost = Math.ceil(modelMeta.creditCost * MARKUP);
+  const creditCost = round6(modelMeta.creditCost * MARKUP);
 
   // Pre-flight credit check
   if (!keyInfo.isEnvKey && keyInfo.credits < creditCost) {
