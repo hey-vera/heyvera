@@ -246,6 +246,10 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 46, sql: `ALTER TABLE tasks ADD COLUMN webhook_attempts INTEGER NOT NULL DEFAULT 0;
     ALTER TABLE tasks ADD COLUMN webhook_status TEXT` },
   // Agent Context Layer — per-agent persistent cache for sub-10ms lookups
+  // EVM wallet for x402 auto-split payouts (Option C lite)
+  { version: 48, sql: `ALTER TABLE skills ADD COLUMN creator_evm_wallet TEXT` },
+  // Payout tx hash — track on-chain tx after cron settlement
+  { version: 49, sql: `ALTER TABLE payout_requests ADD COLUMN tx_hash TEXT` },
   { version: 47, sql: `
     CREATE TABLE IF NOT EXISTS agent_contexts (
       id TEXT PRIMARY KEY,

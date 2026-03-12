@@ -48,6 +48,7 @@ import { signResponse } from './middleware/sign-response';
 import { startEscrowCron } from './core/escrow-cron';
 import { startSkillAbCron } from './core/skill-ab-cron';
 import { startStakeUnlockCron } from './core/stake-unlock-cron';
+import { startPayoutCron } from './core/payout-cron';
 import { startMeshNode } from './mesh/node';
 import { loadEmbeddingModel } from './core/embeddings';
 import { seedEmbeddings } from './core/seed-embeddings';
@@ -207,6 +208,7 @@ async function start() {
   startEndpointHealthCron();
   startSkillAbCron();
   startStakeUnlockCron();
+  startPayoutCron();
 
   // Load embedding model + seed in background — don't block server startup
   loadEmbeddingModel()

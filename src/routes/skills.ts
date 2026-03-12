@@ -79,6 +79,7 @@ const CreateSkillSchema = z.object({
   proxyMethod: z.enum(['GET', 'POST', 'PUT', 'PATCH']).default('POST'),
   executionPlanJson: z.string().max(10000).optional(), // third-party deterministic execution plan
   skillClass: z.enum(['standard', 'recursive', 'self_checking']).default('standard'),
+  creatorEvmWallet: z.string().regex(/^0x[0-9a-fA-F]{40}$/, 'Must be a valid EVM address (0x...)').optional(),
 });
 
 // Extract {{variable}} placeholders from a template
@@ -138,6 +139,7 @@ skillsRouter.post('/', checkApiKey, async (c) => {
     proxyMethod: data.proxyMethod,
     executionPlanJson: data.executionPlanJson,
     skillClass: data.skillClass,
+    creatorEvmWallet: data.creatorEvmWallet,
   });
 
   // Scan prompt template for injection patterns

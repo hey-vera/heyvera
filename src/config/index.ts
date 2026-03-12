@@ -62,6 +62,11 @@ const envSchema = z.object({
   SOLANA_RPC_FALLBACK: z.string().optional(),
   ADMIN_EMAIL: z.string().optional(),
   SENTRY_DSN: z.string().optional(),
+
+  // Payout hot wallets
+  PLATFORM_PAYOUT_PRIVATE_KEY: z.string().optional(), // bs58 Solana private key — used by payout cron to send USDC
+  PAYOUT_USDC_PER_CREDIT: z.coerce.number().default(0.00075), // 25% below buy rate ($0.001) — prevents arbitrage
+  BASE_RPC_URL: z.string().optional(), // Optional custom Base RPC (defaults to public mainnet.base.org)
 });
 
 const parsed = envSchema.safeParse(process.env);

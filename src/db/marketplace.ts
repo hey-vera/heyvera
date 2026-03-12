@@ -358,6 +358,7 @@ export interface PayoutRequest {
   usdc_wallet: string;
   status: 'PENDING' | 'PROCESSING' | 'PAID' | 'REJECTED';
   notes: string | null;
+  tx_hash: string | null;
   created_at: string;
   processed_at: string | null;
 }
@@ -434,6 +435,13 @@ export function updatePayoutStatus(id: string, status: PayoutRequest['status'], 
   getDb()
     .prepare(`UPDATE payout_requests SET status = ?, notes = ?, processed_at = datetime('now') WHERE id = ?`)
     .run(status, notes ?? null, id);
+}
+
+/** Mark a payout as PAID and record the on-chain transaction hash. */
+export function markPayoutPaid(id: string, txHash: string): void {
+  getDb()
+    .prepare(`UPDATE payout_requests SET status = 'PAID', tx_hash = ?, processed_at = datetime('now') WHERE id = ?`)
+    .run(txHash, id);
 }
 
 export function getPurchaseHistory(buyerKey: string): Array<{

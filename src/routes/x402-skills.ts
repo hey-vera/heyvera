@@ -28,6 +28,7 @@ import { renderTemplate } from '../utils/template';
 import { parseIntent } from '../core/intent-parser';
 import { executePlan } from '../core/executor';
 import { formatResponse } from '../core/formatter';
+import { sendBaseUsdc } from '../utils/evm-payout';
 import { logger } from '../utils/logger';
 import { env } from '../config/index';
 
@@ -136,6 +137,17 @@ x402SkillsRouter.post('/skills/:id', async (c) => {
     const totalDurationMs = Date.now() - start;
 
     incrementSkillUses(id);
+
+    // Option C lite: auto-split 97% of x402 revenue to creator's Base wallet (fire-and-forget)
+    if (skill.creator_evm_wallet && env.EVM_PRIVATE_KEY) {
+      const priceUsdc = Math.max(skill.credit_cost, 1) * env.X402_USDC_PER_CREDIT;
+      const creatorShare = parseFloat((priceUsdc * 0.97).toFixed(6));
+      if (creatorShare > 0) {
+        sendBaseUsdc(skill.creator_evm_wallet, creatorShare).catch((err) =>
+          logger.error({ skillId: id, wallet: skill.creator_evm_wallet, err }, 'x402 creator split failed')
+        );
+      }
+    }
 
     return c.json({
       requestId,

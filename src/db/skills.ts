@@ -43,6 +43,8 @@ export interface Skill {
   execution_plan_json: string | null;
   /** Skill class: standard (default), recursive (self-refining), self_checking (output validation) */
   skill_class: 'standard' | 'recursive' | 'self_checking';
+  /** EVM wallet address on Base — if set, 97% of x402 revenue is auto-split here */
+  creator_evm_wallet: string | null;
 }
 
 export function createSkill(params: {
@@ -61,10 +63,11 @@ export function createSkill(params: {
   proxyMethod?: string;
   executionPlanJson?: string;
   skillClass?: 'standard' | 'recursive' | 'self_checking';
+  creatorEvmWallet?: string;
 }): void {
   getDb()
-    .prepare(`INSERT INTO skills (id, name, description, prompt_template, author_key, public, credit_cost, display_name, changelog, category, skill_type, proxy_url, proxy_method, execution_plan_json, skill_class)
-              VALUES (@id, @name, @description, @promptTemplate, @authorKey, @public, @creditCost, @displayName, @changelog, @category, @skillType, @proxyUrl, @proxyMethod, @executionPlanJson, @skillClass)`)
+    .prepare(`INSERT INTO skills (id, name, description, prompt_template, author_key, public, credit_cost, display_name, changelog, category, skill_type, proxy_url, proxy_method, execution_plan_json, skill_class, creator_evm_wallet)
+              VALUES (@id, @name, @description, @promptTemplate, @authorKey, @public, @creditCost, @displayName, @changelog, @category, @skillType, @proxyUrl, @proxyMethod, @executionPlanJson, @skillClass, @creatorEvmWallet)`)
     .run({
       ...params,
       public: params.public ? 1 : 0,
@@ -76,6 +79,7 @@ export function createSkill(params: {
       proxyMethod: params.proxyMethod ?? 'POST',
       executionPlanJson: params.executionPlanJson ?? null,
       skillClass: params.skillClass ?? 'standard',
+      creatorEvmWallet: params.creatorEvmWallet ?? null,
     });
 }
 
