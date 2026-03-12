@@ -85,7 +85,9 @@ const CreateSkillSchema = z.object({
   proxyMethod: z.enum(['GET', 'POST', 'PUT', 'PATCH']).default('POST'),
   executionPlanJson: z.string().max(10000).optional(), // third-party deterministic execution plan
   skillClass: z.enum(['standard', 'recursive', 'self_checking']).default('standard'),
-  creatorEvmWallet: z.string().regex(/^0x[0-9a-fA-F]{40}$/, 'Must be a valid EVM address (0x...)').optional(),
+  creatorEvmWallet: z.string().regex(/^0x[0-9a-fA-F]{40}$/, 'Must be a valid EVM address (0x...)')
+    .refine(addr => addr !== '0x0000000000000000000000000000000000000000', 'Cannot use zero/burn address')
+    .optional(),
   // ── Data skill fields ───────────────────────────────────────────────────────
   /** A real example of what this skill returns. Shown on marketplace card so agents know exactly what they'll get. */
   sampleOutput: z.record(z.unknown()).optional(),
@@ -182,12 +184,16 @@ skillsRouter.post('/', checkApiKey, async (c) => {
       .run(id, data.pairedSkillId, keyInfo.key);
   }
 
-  // Scan prompt template for injection patterns (data skills have no template to scan)
+  // Scan prompt template + execution plan for injection patterns (data skills have no template)
   if (data.skillType !== 'data') {
-    const scan = scanSkillTemplate(data.promptTemplate);
+    // Scan both the prompt template and execution plan param values
+    const scanTarget = data.executionPlanJson
+      ? data.promptTemplate + ' ' + data.executionPlanJson
+      : data.promptTemplate;
+    const scan = scanSkillTemplate(scanTarget);
     if (scan.status !== 'CLEAN') {
       updateSkillSecurityStatus(id, scan.status, scan.flags);
-      logger.warn({ id, flags: scan.flags }, 'Skill template flagged by scanner');
+      logger.warn({ id, flags: scan.flags }, 'Skill template/plan flagged by scanner');
     } else {
       updateSkillSecurityStatus(id, 'CLEAN');
     }
@@ -413,6 +419,10 @@ skillsRouter.get('/:id/query', checkApiKey, async (c) => {
 
   // Build cache key: skill id + sorted query params
   const params = c.req.query();
+  // Cap query params to prevent upstream URL abuse
+  if (Object.keys(params).length > 20) {
+    return c.json({ requestId, error: 'Too many query parameters (max 20)', code: 'VALIDATION_ERROR' }, 400);
+  }
   const cacheKey = 'data:' + crypto.createHash('sha256')
     .update(JSON.stringify({ id, p: Object.fromEntries(Object.entries(params).sort()) }))
     .digest('hex').slice(0, 16);
