@@ -36,7 +36,7 @@ export interface Skill {
   display_name: string | null;
   changelog: string | null;
   category: string;
-  skill_type: 'prompt_template' | 'api_proxy';
+  skill_type: 'prompt_template' | 'api_proxy' | 'data';
   proxy_url: string | null;
   proxy_method: string;
   /** JSON-serialised SkillExecutionPlan — if present, bypasses LLM intent parsing */
@@ -45,6 +45,10 @@ export interface Skill {
   skill_class: 'standard' | 'recursive' | 'self_checking';
   /** EVM wallet address on Base — if set, 97% of x402 revenue is auto-split here */
   creator_evm_wallet: string | null;
+  /** Canonical example response — shown on skill cards so agents know exactly what they'll receive */
+  sample_output_json: string | null;
+  /** How often the underlying data refreshes: realtime | hourly | daily | weekly | static */
+  update_frequency: string;
 }
 
 export function createSkill(params: {
@@ -58,16 +62,18 @@ export function createSkill(params: {
   displayName?: string;
   changelog?: string;
   category?: string;
-  skillType?: 'prompt_template' | 'api_proxy';
+  skillType?: 'prompt_template' | 'api_proxy' | 'data';
   proxyUrl?: string;
   proxyMethod?: string;
   executionPlanJson?: string;
   skillClass?: 'standard' | 'recursive' | 'self_checking';
   creatorEvmWallet?: string;
+  sampleOutputJson?: string;
+  updateFrequency?: string;
 }): void {
   getDb()
-    .prepare(`INSERT INTO skills (id, name, description, prompt_template, author_key, public, credit_cost, display_name, changelog, category, skill_type, proxy_url, proxy_method, execution_plan_json, skill_class, creator_evm_wallet)
-              VALUES (@id, @name, @description, @promptTemplate, @authorKey, @public, @creditCost, @displayName, @changelog, @category, @skillType, @proxyUrl, @proxyMethod, @executionPlanJson, @skillClass, @creatorEvmWallet)`)
+    .prepare(`INSERT INTO skills (id, name, description, prompt_template, author_key, public, credit_cost, display_name, changelog, category, skill_type, proxy_url, proxy_method, execution_plan_json, skill_class, creator_evm_wallet, sample_output_json, update_frequency)
+              VALUES (@id, @name, @description, @promptTemplate, @authorKey, @public, @creditCost, @displayName, @changelog, @category, @skillType, @proxyUrl, @proxyMethod, @executionPlanJson, @skillClass, @creatorEvmWallet, @sampleOutputJson, @updateFrequency)`)
     .run({
       ...params,
       public: params.public ? 1 : 0,
@@ -80,6 +86,8 @@ export function createSkill(params: {
       executionPlanJson: params.executionPlanJson ?? null,
       skillClass: params.skillClass ?? 'standard',
       creatorEvmWallet: params.creatorEvmWallet ?? null,
+      sampleOutputJson: params.sampleOutputJson ?? null,
+      updateFrequency: params.updateFrequency ?? 'static',
     });
 }
 
@@ -87,13 +95,23 @@ export function getSkill(id: string): Skill | undefined {
   return getDb().prepare('SELECT * FROM skills WHERE id = ? AND active = 1').get(id) as Skill | undefined;
 }
 
-export function listPublicSkills(offset = 0, limit = 50): Skill[] {
+export function listPublicSkills(offset = 0, limit = 50, skillType?: string): Skill[] {
+  if (skillType) {
+    return getDb()
+      .prepare('SELECT * FROM skills WHERE public = 1 AND active = 1 AND skill_type = ? ORDER BY uses DESC, created_at DESC LIMIT ? OFFSET ?')
+      .all(skillType, Math.min(limit, 100), offset) as Skill[];
+  }
   return getDb()
     .prepare('SELECT * FROM skills WHERE public = 1 AND active = 1 ORDER BY uses DESC, created_at DESC LIMIT ? OFFSET ?')
     .all(Math.min(limit, 100), offset) as Skill[];
 }
 
-export function countPublicSkills(): number {
+export function countPublicSkills(skillType?: string): number {
+  if (skillType) {
+    return (getDb()
+      .prepare('SELECT COUNT(*) as n FROM skills WHERE public = 1 AND active = 1 AND skill_type = ?')
+      .get(skillType) as { n: number }).n;
+  }
   return (getDb()
     .prepare('SELECT COUNT(*) as n FROM skills WHERE public = 1 AND active = 1')
     .get() as { n: number }).n;

@@ -250,6 +250,9 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 48, sql: `ALTER TABLE skills ADD COLUMN creator_evm_wallet TEXT` },
   // Payout tx hash — track on-chain tx after cron settlement
   { version: 49, sql: `ALTER TABLE payout_requests ADD COLUMN tx_hash TEXT` },
+  // Data skills: sample output for marketplace cards + smart cache TTL by update frequency
+  { version: 50, sql: `ALTER TABLE skills ADD COLUMN sample_output_json TEXT` },
+  { version: 51, sql: `ALTER TABLE skills ADD COLUMN update_frequency TEXT NOT NULL DEFAULT 'static'` },
   { version: 47, sql: `
     CREATE TABLE IF NOT EXISTS agent_contexts (
       id TEXT PRIMARY KEY,

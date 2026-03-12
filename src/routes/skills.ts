@@ -11,7 +11,7 @@ import {
   updateSkillSchemas, recordReputation, getReputationScore,
   recordSkillMetric, getSkillMetricsSummary, recordSkillVersion, getSkillWithAb, promoteChallenger,
   writeAuditLog, upsertDiscovery, updateSkillSecurityStatus, setAbChallenger, recordTransaction,
-  getSkillCostAnalytics, checkVerificationEligibility, autoVerifyPublisher,
+  getSkillCostAnalytics, checkVerificationEligibility, autoVerifyPublisher, safeJsonParse,
 } from '../db/index';
 import { embed } from '../core/embeddings';
 import { scanSkillTemplate, scanProxyResponse } from '../core/skill-scanner';
@@ -64,9 +64,10 @@ function embedSkillInBackground(id: string, name: string, description: string, t
 const CreateSkillSchema = z.object({
   name: z.string().min(2).max(50).regex(/^[a-z0-9-]+$/, 'Lowercase letters, numbers, hyphens only'),
   displayName: z.string().min(2).max(80).trim().optional(),
-  category: z.enum(['general', 'defi', 'security', 'social', 'ai', 'search', 'media', 'enrichment', 'utility', 'infrastructure', 'weather', 'analytics']).default('general'),
+  category: z.enum(['general', 'defi', 'security', 'social', 'ai', 'search', 'media', 'enrichment', 'utility', 'infrastructure', 'weather', 'analytics', 'data']).default('general'),
   description: z.string().min(10).max(500).trim(),
-  promptTemplate: z.string().min(10).max(2000).trim(),
+  // prompt_template and data skills don't need a prompt — defaults to '' for data skills
+  promptTemplate: z.string().max(2000).trim().default(''),
   public: z.boolean().default(false),
   creditCost: z.number().int().min(0).max(10000).default(0),
   version: z.string().regex(/^\d+\.\d+\.\d+$/).default('1.0.0'),
@@ -74,12 +75,17 @@ const CreateSkillSchema = z.object({
   inputSchema: z.record(z.unknown()).optional(),
   outputSchema: z.record(z.unknown()).optional(),
   tags: z.array(z.string().max(32)).max(10).optional(),
-  skillType: z.enum(['prompt_template', 'api_proxy']).default('prompt_template'),
+  skillType: z.enum(['prompt_template', 'api_proxy', 'data']).default('prompt_template'),
   proxyUrl: z.string().url().optional(),
   proxyMethod: z.enum(['GET', 'POST', 'PUT', 'PATCH']).default('POST'),
   executionPlanJson: z.string().max(10000).optional(), // third-party deterministic execution plan
   skillClass: z.enum(['standard', 'recursive', 'self_checking']).default('standard'),
   creatorEvmWallet: z.string().regex(/^0x[0-9a-fA-F]{40}$/, 'Must be a valid EVM address (0x...)').optional(),
+  // ── Data skill fields ───────────────────────────────────────────────────────
+  /** A real example of what this skill returns. Shown on marketplace card so agents know exactly what they'll get. */
+  sampleOutput: z.record(z.unknown()).optional(),
+  /** How often the underlying data source updates. Controls Redis cache TTL automatically. */
+  updateFrequency: z.enum(['realtime', 'hourly', 'daily', 'weekly', 'static']).default('static'),
 });
 
 // Extract {{variable}} placeholders from a template
@@ -115,12 +121,22 @@ skillsRouter.post('/', checkApiKey, async (c) => {
 
   const data = parsed.data;
 
-  // Q8: SSRF prevention — block proxy URLs pointing to internal addresses
-  if (data.skillType === 'api_proxy' && data.proxyUrl && !isProxyUrlSafe(data.proxyUrl)) {
-    return c.json({ error: 'Proxy URL must be a public HTTPS URL (no localhost, private IPs, or metadata endpoints)', code: 'INVALID_PROXY_URL' }, 400);
+  // SSRF prevention — block proxy/data source URLs pointing to internal addresses
+  if ((data.skillType === 'api_proxy' || data.skillType === 'data') && data.proxyUrl && !isProxyUrlSafe(data.proxyUrl)) {
+    return c.json({ error: 'Source URL must be a public HTTPS URL (no localhost, private IPs, or metadata endpoints)', code: 'INVALID_PROXY_URL' }, 400);
   }
 
-  const variables = extractVariables(data.promptTemplate);
+  // Data skills must have a source URL
+  if (data.skillType === 'data' && !data.proxyUrl) {
+    return c.json({ error: 'Data skills require a proxyUrl (the URL of your data source)', code: 'MISSING_DATA_SOURCE' }, 400);
+  }
+
+  // prompt_template skills must have a non-empty template
+  if (data.skillType === 'prompt_template' && data.promptTemplate.length < 10) {
+    return c.json({ error: 'prompt_template skills require a promptTemplate of at least 10 characters', code: 'MISSING_PROMPT' }, 400);
+  }
+
+  const variables = data.skillType === 'data' ? [] : extractVariables(data.promptTemplate);
   const id = nanoid(12);
 
   createSkill({
@@ -136,17 +152,23 @@ skillsRouter.post('/', checkApiKey, async (c) => {
     category: data.category,
     skillType: data.skillType,
     proxyUrl: data.proxyUrl,
-    proxyMethod: data.proxyMethod,
+    proxyMethod: data.skillType === 'data' ? 'GET' : data.proxyMethod,
     executionPlanJson: data.executionPlanJson,
     skillClass: data.skillClass,
     creatorEvmWallet: data.creatorEvmWallet,
+    sampleOutputJson: data.sampleOutput ? JSON.stringify(data.sampleOutput) : undefined,
+    updateFrequency: data.updateFrequency,
   });
 
-  // Scan prompt template for injection patterns
-  const scan = scanSkillTemplate(data.promptTemplate);
-  if (scan.status !== 'CLEAN') {
-    updateSkillSecurityStatus(id, scan.status, scan.flags);
-    logger.warn({ id, flags: scan.flags }, 'Skill template flagged by scanner');
+  // Scan prompt template for injection patterns (data skills have no template to scan)
+  if (data.skillType !== 'data') {
+    const scan = scanSkillTemplate(data.promptTemplate);
+    if (scan.status !== 'CLEAN') {
+      updateSkillSecurityStatus(id, scan.status, scan.flags);
+      logger.warn({ id, flags: scan.flags }, 'Skill template flagged by scanner');
+    } else {
+      updateSkillSecurityStatus(id, 'CLEAN');
+    }
   } else {
     updateSkillSecurityStatus(id, 'CLEAN');
   }
@@ -170,11 +192,14 @@ skillsRouter.post('/', checkApiKey, async (c) => {
     id,
     name: data.name,
     description: data.description,
+    skillType: data.skillType,
     version: data.version,
-    variables,
     public: data.public,
     creditCost: data.creditCost,
-    invokeUrl: `POST /v1/skills/${id}/invoke`,
+    ...(data.skillType === 'data'
+      ? { updateFrequency: data.updateFrequency, queryUrl: `GET /v1/skills/${id}/query` }
+      : { variables, invokeUrl: `POST /v1/skills/${id}/invoke` }
+    ),
   }, 201);
 });
 
@@ -184,9 +209,11 @@ skillsRouter.get('/', (c) => {
   const page = Math.max(1, parseInt(c.req.query('page') ?? '1', 10) || 1);
   const limit = Math.min(100, Math.max(1, parseInt(c.req.query('limit') ?? '50', 10) || 50));
   const offset = (page - 1) * limit;
+  // Optional filter: ?type=data | prompt_template | api_proxy
+  const typeFilter = c.req.query('type') as string | undefined;
 
-  const skills = listPublicSkills(offset, limit);
-  const total = countPublicSkills();
+  const skills = listPublicSkills(offset, limit, typeFilter);
+  const total = countPublicSkills(typeFilter);
 
   return c.json({
     page,
@@ -196,10 +223,24 @@ skillsRouter.get('/', (c) => {
     skills: skills.map((s) => ({
       id: s.id,
       name: s.name,
+      displayName: s.display_name ?? s.name,
       description: s.description,
-      variables: extractVariables(s.prompt_template),
+      skillType: s.skill_type,
+      category: s.category,
       creditCost: s.credit_cost,
       uses: s.uses,
+      stars: s.stars,
+      // Data skills: expose update cadence + whether sample output is available
+      ...(s.skill_type === 'data' && {
+        updateFrequency: s.update_frequency,
+        hasSampleOutput: !!s.sample_output_json,
+        queryUrl: `GET /v1/skills/${s.id}/query`,
+      }),
+      // Other skills: expose template variables
+      ...(s.skill_type !== 'data' && {
+        variables: extractVariables(s.prompt_template),
+        invokeUrl: `POST /v1/skills/${s.id}/invoke`,
+      }),
       createdAt: s.created_at,
     })),
   });
@@ -215,12 +256,19 @@ skillsRouter.get('/mine', checkApiKey, (c) => {
     skills: skills.map((s) => ({
       id: s.id,
       name: s.name,
+      displayName: s.display_name ?? s.name,
       description: s.description,
-      variables: extractVariables(s.prompt_template),
+      skillType: s.skill_type,
+      category: s.category,
       public: s.public === 1,
       creditCost: s.credit_cost,
       revenueSharePct: s.revenue_share_pct,
       uses: s.uses,
+      stars: s.stars,
+      ...(s.skill_type === 'data'
+        ? { updateFrequency: s.update_frequency, hasSampleOutput: !!s.sample_output_json, queryUrl: `GET /v1/skills/${s.id}/query` }
+        : { variables: extractVariables(s.prompt_template), invokeUrl: `POST /v1/skills/${s.id}/invoke` }
+      ),
       createdAt: s.created_at,
     })),
   });
@@ -246,13 +294,182 @@ skillsRouter.get('/:id', (c) => {
   return c.json({
     id: skill.id,
     name: skill.name,
+    displayName: skill.display_name ?? skill.name,
     description: skill.description,
-    variables: extractVariables(skill.prompt_template),
+    readme: skill.readme,
+    skillType: skill.skill_type,
+    skillClass: skill.skill_class ?? 'standard',
+    category: skill.category,
+    version: skill.version,
+    tags: safeJsonParse(skill.tags_json, []),
+    inputSchema: safeJsonParse(skill.input_schema_json, null),
+    outputSchema: safeJsonParse(skill.output_schema_json, null),
     public: skill.public === 1,
     creditCost: skill.credit_cost,
     uses: skill.uses,
+    stars: skill.stars,
+    securityStatus: skill.security_status,
     createdAt: skill.created_at,
+    // Data skills: full contract so agents know exactly what they'll receive
+    ...(skill.skill_type === 'data' && {
+      updateFrequency: skill.update_frequency,
+      sampleOutput: safeJsonParse(skill.sample_output_json, null),
+      queryUrl: `GET /v1/skills/${skill.id}/query`,
+    }),
+    // Other skills: template variables + invoke endpoint
+    ...(skill.skill_type !== 'data' && {
+      variables: extractVariables(skill.prompt_template),
+      invokeUrl: `POST /v1/skills/${skill.id}/invoke`,
+    }),
   });
+});
+
+// ─── GET /v1/skills/:id/query — query a data skill ───────────────────────────
+// Data skills return structured JSON directly. No LLM, no orchestration.
+// Smart Redis caching with TTL driven by the skill's update_frequency.
+// Cache hits cost 1 credit; live fetches cost skill.credit_cost (min 1).
+
+function getDataSkillTtl(updateFrequency: string): number {
+  switch (updateFrequency) {
+    case 'realtime': return 60;        // 1 min — still cache to protect source
+    case 'hourly':   return 3_600;     // 1 hour
+    case 'daily':    return 86_400;    // 24 hours
+    case 'weekly':   return 604_800;   // 7 days
+    case 'static':   return 2_592_000; // 30 days
+    default:         return 3_600;
+  }
+}
+
+skillsRouter.get('/:id/query', checkApiKey, async (c) => {
+  const requestId = nanoid(12);
+  const start = Date.now();
+  const keyInfo = c.get('apiKeyInfo');
+  const { id } = c.req.param();
+
+  const skill = getSkill(id);
+  if (!skill || skill.skill_type !== 'data') {
+    return c.json({ requestId, error: 'Data skill not found', code: 'NOT_FOUND' }, 404);
+  }
+
+  if (!skill.public && skill.author_key !== keyInfo.key) {
+    return c.json({ requestId, error: 'Skill not found' }, 404);
+  }
+
+  if (skill.security_status === 'FLAGGED') {
+    return c.json({ requestId, error: 'This skill has been flagged for review', code: 'SKILL_FLAGGED' }, 403);
+  }
+
+  if (!skill.proxy_url) {
+    return c.json({ requestId, error: 'Data skill has no source URL configured', code: 'NO_SOURCE' }, 503);
+  }
+
+  const creditCost = Math.max(1, skill.credit_cost);
+  if (!keyInfo.isEnvKey && keyInfo.credits < 1) {
+    return c.json({ requestId, error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS', creditsRequired: 1 }, 402);
+  }
+
+  // Build cache key: skill id + sorted query params
+  const params = c.req.query();
+  const cacheKey = 'data:' + crypto.createHash('sha256')
+    .update(JSON.stringify({ id, p: Object.fromEntries(Object.entries(params).sort()) }))
+    .digest('hex').slice(0, 16);
+
+  const ttl = getDataSkillTtl(skill.update_frequency ?? 'static');
+  const cached = await cacheGet<Record<string, unknown>>(cacheKey);
+
+  if (cached) {
+    if (!keyInfo.isEnvKey) {
+      const ok = deductCredit(keyInfo.key, 1);
+      if (!ok) return c.json({ requestId, error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS' }, 402);
+    }
+    incrementSkillUses(id);
+    logger.info({ requestId, skillId: id }, 'Data skill cache hit');
+    return c.json({
+      requestId, skillId: id,
+      data: cached,
+      _meta: { cacheHit: true, creditsUsed: 1, updateFrequency: skill.update_frequency ?? 'static' },
+    });
+  }
+
+  // SSRF guard on source URL at query time (creator may have misconfigured after creation)
+  if (!isProxyUrlSafe(skill.proxy_url)) {
+    return c.json({ requestId, error: 'Data source URL is blocked', code: 'SSRF_BLOCKED' }, 403);
+  }
+
+  try {
+    const url = new URL(skill.proxy_url);
+    // Forward caller query params to the upstream data source
+    for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+
+    const res = await fetch(url.toString(), {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+      signal: AbortSignal.timeout(15_000),
+    });
+
+    if (!res.ok) {
+      logger.warn({ requestId, skillId: id, status: res.status }, 'Data skill source error');
+      recordSkillMetric({ skillId: id, version: skill.version ?? '1.0.0', latencyMs: Date.now() - start, success: false, costCredits: 0 });
+      return c.json({ requestId, error: 'Data source error', status: res.status, code: 'SOURCE_ERROR' }, 502);
+    }
+
+    const data = await res.json().catch(async () => ({ raw: await res.text() }));
+
+    // Cache result with TTL appropriate to data freshness
+    await cacheSet(cacheKey, data, ttl);
+
+    // Billing + 97/3 revenue share (same as invoke)
+    if (!keyInfo.isEnvKey) {
+      const revenueSharePct = skill.revenue_share_pct;
+      const shouldPayAuthor = skill.author_key !== keyInfo.key && revenueSharePct > 0;
+      const ok = getDb().transaction(() => {
+        const deducted = deductCredit(keyInfo.key, creditCost);
+        if (!deducted) return false;
+        if (shouldPayAuthor) {
+          const authorShare = Math.floor(creditCost * revenueSharePct);
+          const feeCredits = creditCost - authorShare;
+          if (authorShare > 0) {
+            topUpCredits(skill.author_key, authorShare);
+            if (feeCredits > 0) topUpCredits('clawhub-treasury', feeCredits);
+            recordTransaction({
+              fromAgent: keyInfo.key, toAgent: skill.author_key,
+              amountCredits: creditCost, type: 'SKILL_SALE',
+              skillId: id, feeCredits,
+            });
+          }
+        }
+        return true;
+      })();
+      if (!ok) {
+        return c.json({ requestId, error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS', creditsRequired: creditCost }, 402);
+      }
+    }
+
+    incrementSkillUses(id);
+    recordSkillMetric({ skillId: id, version: skill.version ?? '1.0.0', latencyMs: Date.now() - start, success: true, costCredits: creditCost });
+
+    if (skill.author_key && skill.author_key !== keyInfo.key) {
+      recordReputation({ agentId: skill.author_key, skillId: id, eventType: 'SKILL_INVOKED', scoreDelta: 0.1 });
+    }
+
+    logger.info({ requestId, skillId: id, durationMs: Date.now() - start }, 'Data skill query complete');
+
+    return c.json({
+      requestId, skillId: id,
+      data,
+      _meta: {
+        cacheHit: false, creditsUsed: creditCost,
+        updateFrequency: skill.update_frequency ?? 'static',
+        ttlSeconds: ttl,
+        sourceLatencyMs: Date.now() - start,
+      },
+    });
+
+  } catch (err) {
+    logger.error({ requestId, skillId: id, err }, 'Data skill query failed');
+    recordSkillMetric({ skillId: id, version: skill.version ?? '1.0.0', latencyMs: Date.now() - start, success: false, costCredits: 0 });
+    return c.json({ requestId, error: 'Data fetch failed', code: 'FETCH_ERROR' }, 502);
+  }
 });
 
 // ─── GET /v1/skills/:id/reputation — public reputation score ─────────────────
@@ -429,6 +646,16 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
   // Access check: public skills anyone can invoke, private only the author
   if (!baseSkill.public && baseSkill.author_key !== keyInfo.key) {
     return c.json({ requestId, error: 'Skill not found' }, 404);
+  }
+
+  // Data skills are queried, not invoked — redirect callers to the right endpoint
+  if (baseSkill.skill_type === 'data') {
+    return c.json({
+      requestId,
+      error: 'Data skills use GET /v1/skills/:id/query — not the invoke endpoint',
+      code: 'USE_QUERY_ENDPOINT',
+      queryUrl: `GET /v1/skills/${id}/query`,
+    }, 400);
   }
 
   // Block invocation of flagged skills
