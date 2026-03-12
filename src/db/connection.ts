@@ -253,6 +253,8 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   // Data skills: sample output for marketplace cards + smart cache TTL by update frequency
   { version: 50, sql: `ALTER TABLE skills ADD COLUMN sample_output_json TEXT` },
   { version: 51, sql: `ALTER TABLE skills ADD COLUMN update_frequency TEXT NOT NULL DEFAULT 'static'` },
+  // Paired skills: link LLM analysis ↔ data variant for marketplace toggle cards
+  { version: 52, sql: `ALTER TABLE skills ADD COLUMN paired_skill_id TEXT` },
   { version: 47, sql: `
     CREATE TABLE IF NOT EXISTS agent_contexts (
       id TEXT PRIMARY KEY,

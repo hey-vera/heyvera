@@ -91,6 +91,8 @@ const CreateSkillSchema = z.object({
   sampleOutput: z.record(z.unknown()).optional(),
   /** How often the underlying data source updates. Controls Redis cache TTL automatically. */
   updateFrequency: z.enum(['realtime', 'hourly', 'daily', 'weekly', 'static']).default('static'),
+  /** Link to the paired skill (LLM ↔ data variant) for marketplace toggle cards. Must be a skill you own. */
+  pairedSkillId: z.string().max(50).optional(),
 });
 
 // Extract {{variable}} placeholders from a template
@@ -141,6 +143,14 @@ skillsRouter.post('/', checkApiKey, async (c) => {
     return c.json({ error: 'prompt_template skills require a promptTemplate of at least 10 characters', code: 'MISSING_PROMPT' }, 400);
   }
 
+  // Validate pairedSkillId — must exist and belong to the same author
+  if (data.pairedSkillId) {
+    const paired = getSkill(data.pairedSkillId);
+    if (!paired || paired.author_key !== keyInfo.key) {
+      return c.json({ error: 'pairedSkillId must reference a skill you own', code: 'INVALID_PAIRED_SKILL' }, 400);
+    }
+  }
+
   const variables = data.skillType === 'data' ? [] : extractVariables(data.promptTemplate);
   const id = nanoid(12);
 
@@ -163,7 +173,14 @@ skillsRouter.post('/', checkApiKey, async (c) => {
     creatorEvmWallet: data.creatorEvmWallet,
     sampleOutputJson: data.sampleOutput ? JSON.stringify(data.sampleOutput) : undefined,
     updateFrequency: data.updateFrequency,
+    pairedSkillId: data.pairedSkillId,
   });
+
+  // Set reverse link on the paired skill so both point at each other
+  if (data.pairedSkillId) {
+    getDb().prepare('UPDATE skills SET paired_skill_id = ? WHERE id = ? AND author_key = ?')
+      .run(id, data.pairedSkillId, keyInfo.key);
+  }
 
   // Scan prompt template for injection patterns (data skills have no template to scan)
   if (data.skillType !== 'data') {
@@ -246,6 +263,7 @@ skillsRouter.get('/', (c) => {
         variables: extractVariables(s.prompt_template),
         invokeUrl: `POST /v1/skills/${s.id}/invoke`,
       }),
+      ...(s.paired_skill_id && { pairedSkillId: s.paired_skill_id }),
       createdAt: s.created_at,
     })),
   });
@@ -274,6 +292,7 @@ skillsRouter.get('/mine', checkApiKey, (c) => {
         ? { updateFrequency: s.update_frequency, hasSampleOutput: !!s.sample_output_json, queryUrl: `GET /v1/skills/${s.id}/query` }
         : { variables: extractVariables(s.prompt_template), invokeUrl: `POST /v1/skills/${s.id}/invoke` }
       ),
+      ...(s.paired_skill_id && { pairedSkillId: s.paired_skill_id }),
       createdAt: s.created_at,
     })),
   });
@@ -295,6 +314,21 @@ skillsRouter.get('/:id', (c) => {
     const authorHash = crypto.createHash('sha256').update(skill.author_key).digest();
     if (!crypto.timingSafeEqual(keyHash, authorHash)) {
       return c.json({ error: 'Skill not found' }, 404);
+    }
+  }
+
+  // Resolve paired skill summary (LLM ↔ data toggle for marketplace cards)
+  let pairedSkill: { id: string; name: string; skillType: string; creditCost: number; updateFrequency?: string } | undefined;
+  if (skill.paired_skill_id) {
+    const pair = getSkill(skill.paired_skill_id);
+    if (pair && pair.public && pair.security_status !== 'FLAGGED') {
+      pairedSkill = {
+        id: pair.id,
+        name: pair.name,
+        skillType: pair.skill_type,
+        creditCost: pair.credit_cost,
+        ...(pair.skill_type === 'data' && { updateFrequency: pair.update_frequency }),
+      };
     }
   }
 
@@ -328,6 +362,8 @@ skillsRouter.get('/:id', (c) => {
       variables: extractVariables(skill.prompt_template),
       invokeUrl: `POST /v1/skills/${skill.id}/invoke`,
     }),
+    // Paired skill for marketplace toggle card (LLM Analysis ↔ Data)
+    ...(pairedSkill && { pairedSkill }),
   });
 });
 

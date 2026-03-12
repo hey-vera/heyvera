@@ -49,6 +49,8 @@ export interface Skill {
   sample_output_json: string | null;
   /** How often the underlying data refreshes: realtime | hourly | daily | weekly | static */
   update_frequency: string;
+  /** ID of the paired skill (LLM ↔ data variant) for marketplace toggle cards */
+  paired_skill_id: string | null;
 }
 
 export function createSkill(params: {
@@ -70,10 +72,11 @@ export function createSkill(params: {
   creatorEvmWallet?: string;
   sampleOutputJson?: string;
   updateFrequency?: string;
+  pairedSkillId?: string;
 }): void {
   getDb()
-    .prepare(`INSERT INTO skills (id, name, description, prompt_template, author_key, public, credit_cost, display_name, changelog, category, skill_type, proxy_url, proxy_method, execution_plan_json, skill_class, creator_evm_wallet, sample_output_json, update_frequency)
-              VALUES (@id, @name, @description, @promptTemplate, @authorKey, @public, @creditCost, @displayName, @changelog, @category, @skillType, @proxyUrl, @proxyMethod, @executionPlanJson, @skillClass, @creatorEvmWallet, @sampleOutputJson, @updateFrequency)`)
+    .prepare(`INSERT INTO skills (id, name, description, prompt_template, author_key, public, credit_cost, display_name, changelog, category, skill_type, proxy_url, proxy_method, execution_plan_json, skill_class, creator_evm_wallet, sample_output_json, update_frequency, paired_skill_id)
+              VALUES (@id, @name, @description, @promptTemplate, @authorKey, @public, @creditCost, @displayName, @changelog, @category, @skillType, @proxyUrl, @proxyMethod, @executionPlanJson, @skillClass, @creatorEvmWallet, @sampleOutputJson, @updateFrequency, @pairedSkillId)`)
     .run({
       ...params,
       public: params.public ? 1 : 0,
@@ -88,6 +91,7 @@ export function createSkill(params: {
       creatorEvmWallet: params.creatorEvmWallet ?? null,
       sampleOutputJson: params.sampleOutputJson ?? null,
       updateFrequency: params.updateFrequency ?? 'static',
+      pairedSkillId: params.pairedSkillId ?? null,
     });
 }
 
