@@ -32,7 +32,7 @@
 | 16 | Governance & Community | COMPLETE |
 | 17 | Testing & Verification | COMPLETE |
 | 18 | Resilience & Shutdown | COMPLETE |
-| 19 | Product Completeness & Market Readiness | PENDING |
+| 19 | Product Completeness & Market Readiness | COMPLETE |
 | 20 | Compliance, Risk & Trust | PENDING |
 
 ---
@@ -2104,6 +2104,30 @@ project-memory.md                   — internal state reference
 ### Why It Matters
 
 Technical excellence means nothing if the product doesn't reach users. A confusing onboarding flow loses developers in the first 5 minutes. Missing documentation means support tickets instead of self-service. No distribution strategy means building features for an empty room. This chapter bridges the gap between "works correctly" and "people will pay for this." The focus should be on removing every friction point between discovery and first paid API call.
+
+### Verdicts
+
+| # | Question | Verdict |
+|---|----------|---------|
+| Q1 | First 5 minutes | **PASS** — landing → Clerk signup → Stripe/USDC checkout → success.html shows key → curl. ~4 steps. README has explicit Quick Start curl example |
+| Q2 | Documentation completeness | **KNOWN LIMITATION** — README covers all endpoints in tables. OpenAPI spec covers ~60% (missing: escrow, swarm, LLM proxy, openclaw, payout, feedback, context, x402). No per-endpoint error code docs |
+| Q3 | Pricing clarity | **PASS** — pricing table in README + landing page. `GET /v1/estimate` gives pre-flight cost. `GET /v1/auth/estimate?skillId=` for skills |
+| Q4 | Free trial | **KNOWN LIMITATION** — infrastructure built (clerk-webhook.ts + `createFreeTrialKey()`), `FREE_TRIAL_CREDITS=0` default. One env var enables it — deploy decision |
+| Q5 | Key delivery | **PASS** — success.html + email (Resend). `GET /v1/session/:sessionId` retrieves key. `POST /v1/resend-key` for re-delivery |
+| Q6 | SDK availability | **KNOWN LIMITATION** — OpenAPI spec at `/v1/openapi.json` enables generation; no generated SDKs published yet |
+| Q7 | MCP distribution | **KNOWN LIMITATION** — config in README, but requires local repo clone + `npx tsx`. No published `@clawnet/mcp` npm package for one-command install |
+| Q8 | Competitive positioning | **PASS** — x402 micropayments + 163-endpoint orchestration + skill marketplace differentiates clearly from LangChain (framework), OpenRouter (LLM-only), AutoGPT (no API economy) |
+| Q9 | Referral system | **KNOWN LIMITATION** — `referral.ts` route deleted (Ch01); DB functions (`createReferralCode`, `applyReferralCode`) remain in `src/db/keys.ts` but no HTTP endpoint. Tables exist, unreachable via API |
+| Q10 | Community | **KNOWN LIMITATION** — support@claw-net.org only; no Discord/Telegram group |
+| Q11 | Changelog | **KNOWN LIMITATION** — no public changelog; commit history is the only record |
+| Q12 | Status page | **KNOWN LIMITATION** — no external status page; `/health` endpoint is internal-only |
+| Q13 | Rate limit communication | **PASS** — `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `Retry-After` headers returned on every response; tier limits documented in README |
+| Q14 | Credits-exhausted UX | **FIXED** — cache-hit 402 path was missing `hint` field; all 3 INSUFFICIENT_CREDITS paths now return `hint: 'Top up your credits at claw-net.org'` |
+| Q15 | Creator experience | **PASS** — skill creation via API + marketplace.html publish form; `GET /v1/marketplace/creator/stats` for earnings; 97% revenue share documented |
+
+**Bugs fixed (2):**
+1. **LOW** `src/routes/api.ts`: cache-hit 402 response was the only INSUFFICIENT_CREDITS path missing a `hint` field — fixed to match the other two 402 paths which already had `hint: 'Top up your credits at claw-net.org'`
+2. **LOW** `README.md`: test count stated as 48 — corrected to 51 after Ch17 additions
 
 ---
 

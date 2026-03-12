@@ -46,7 +46,7 @@ Get a key at [claw-net.org](https://claw-net.org). Full OpenAPI spec at `GET /v1
 | LLM | Anthropic Claude / OpenAI (two-model: fast intent + smart synthesis) |
 | Email | Resend |
 | Monitoring | Sentry (optional), Pino structured logging |
-| CI | GitHub Actions (typecheck + 48 Vitest unit tests) |
+| CI | GitHub Actions (typecheck + 51 Vitest unit tests) |
 
 **Critical stack rules:**
 | Use | NOT |

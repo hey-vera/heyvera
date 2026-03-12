@@ -134,6 +134,16 @@ User-driven only (no auto-queries). 12h global cooldown shared across users. `/p
 
 ---
 
+## Product & Distribution Notes (Ch19)
+
+**MCP**: config in README, requires local clone + `npx tsx src/mcp/server.ts`. No published npm package yet.
+**Free trial**: infrastructure complete (`createFreeTrialKey()` + clerk-webhook.ts); `FREE_TRIAL_CREDITS=0` default — one env var to enable.
+**Referral routes**: deleted in Ch01 audit but DB functions remain in `src/db/keys.ts` (`createReferralCode`, `applyReferralCode`, etc.); tables exist but no HTTP endpoints expose them.
+**OpenAPI coverage**: ~60% of routes documented in spec. Missing: escrow, swarm, LLM proxy, openclaw, payout, context, x402.
+**402 errors**: all INSUFFICIENT_CREDITS paths now include `hint: 'Top up your credits at claw-net.org'`.
+
+---
+
 ## Security Layer
 
 **Auth:** Clerk JWT (`requireClerkAuth`), API key (`checkApiKey` — `getApiKey()` returns typed `credits_used` + `amount_paid`, no unsafe casts), Admin (`requireAdmin` — timing-safe SHA-256, `X-Admin-Key`). `ADMIN_API_KEY` required in production.

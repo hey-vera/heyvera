@@ -69,7 +69,7 @@ apiRouter.post('/orchestrate', async (c) => {
     const CACHE_HIT_CREDIT = 1;
     if (!keyInfo.isEnvKey) {
       if (keyInfo.credits < CACHE_HIT_CREDIT) {
-        return c.json({ requestId, error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS', creditsAvailable: keyInfo.credits }, 402);
+        return c.json({ requestId, error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS', creditsAvailable: keyInfo.credits, hint: 'Top up your credits at claw-net.org' }, 402);
       }
       deductCredit(keyInfo.key, CACHE_HIT_CREDIT);
     }
