@@ -166,3 +166,17 @@ export function cleanupOldVotes(daysToKeep = 365): number {
     [daysToKeep]
   );
 }
+
+/** Q9: Clean deactivated API keys older than retention period.
+ *  Only deletes keys with zero remaining balance (credits=0) so we don't lose
+ *  financial records for keys that still hold credits (shouldn't happen but safety first). */
+export function cleanupDeactivatedKeys(daysToKeep = 90): number {
+  return batchedDelete(
+    `DELETE FROM api_keys WHERE rowid IN (
+       SELECT rowid FROM api_keys
+       WHERE active = 0 AND credits = 0
+         AND created_at < datetime('now', '-' || ? || ' days')
+     )`,
+    [daysToKeep]
+  );
+}

@@ -269,7 +269,7 @@ marketplaceRouter.post('/skills/:id/purchase', checkApiKey, async (c) => {
     const intent = (skillWithPlan.execution_plan_json
       ? buildIntentFromPlan(skillWithPlan.execution_plan_json, body.variables, skill.name)
       : null) ?? await parseIntent(query);
-    const execution = await executePlan(intent);
+    const execution = await executePlan(intent, undefined, keyInfo.key);
     const formatted = await formatResponse(query, intent, execution);
 
     incrementSkillUses(id);

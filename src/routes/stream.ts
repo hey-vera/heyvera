@@ -8,12 +8,13 @@ import { checkApiKey } from '../middleware/auth';
 import { parseIntent } from '../core/intent-parser';
 import { executePlan } from '../core/executor';
 import { formatResponse } from '../core/formatter';
-import { env } from '../config/index';
+import { env, isSimulationMode, ORCHESTRATION_FEE } from '../config/index';
 import { deductCredit } from '../db/index';
-import { creditsForApiCost } from '../core/credits';
+import { creditsForExecution, creditsToUsd } from '../core/credits';
 import {
   PricingPreferencesSchema, pricingPromptHint, checkBudget, optimizePlan,
 } from '../core/pricing';
+import { findEndpoint } from '../config/api-registry';
 import { logger } from '../utils/logger';
 import { nanoid } from 'nanoid';
 
@@ -120,12 +121,13 @@ streamRouter.get('/orchestrate', checkApiKey, async (c) => {
           });
 
           const budgetConstraint = pricingData?.maxCredits ? { maxCredits: pricingData.maxCredits } : undefined;
-          const execution = await executePlan(intent, budgetConstraint);
+          const execution = await executePlan(intent, budgetConstraint, keyInfo.key);
 
           // RED-2: Deduct credits immediately after execution — API calls have already been
           // made at this point. Do this BEFORE checking signal.aborted so that clients
           // cannot get free execution by disconnecting after executePlan() completes.
-          const creditsToDeduct = creditsForApiCost(execution.totalCost);
+          const stepCredits = creditsForExecution(execution.steps, findEndpoint);
+          const creditsToDeduct = stepCredits + ORCHESTRATION_FEE;
           if (!keyInfo.isEnvKey) {
             const deducted = deductCredit(keyInfo.key, creditsToDeduct);
             if (!deducted) {
@@ -158,6 +160,7 @@ streamRouter.get('/orchestrate', checkApiKey, async (c) => {
             totalDurationMs: Date.now() - start,
             steps: execution.steps.length,
             cacheHits: execution.steps.filter((s) => s.cached).length,
+            simulationMode: isSimulationMode,
           });
         } catch (err) {
           if (signal.aborted) return;

@@ -20,11 +20,26 @@ export interface UsageEntry {
 
 const ring: UsageEntry[] = [];
 const RING_SIZE = 1000;
+const MAX_USAGE_LINES = 10_000;
 const DATA_DIR = path.join(process.cwd(), 'data');
 const USAGE_FILE = path.join(DATA_DIR, 'usage.jsonl');
+let _writesSinceRotation = 0;
 
 function ensureDataDir() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+}
+
+function rotateUsageFile(): void {
+  try {
+    if (!fs.existsSync(USAGE_FILE)) return;
+    const content = fs.readFileSync(USAGE_FILE, 'utf-8');
+    const lines = content.split('\n').filter(Boolean);
+    if (lines.length > MAX_USAGE_LINES) {
+      fs.writeFileSync(USAGE_FILE, lines.slice(-MAX_USAGE_LINES).join('\n') + '\n');
+    }
+  } catch (err) {
+    logger.warn({ err }, 'Usage: file rotation failed');
+  }
 }
 
 export function logUsage(entry: UsageEntry): void {
@@ -34,6 +49,12 @@ export function logUsage(entry: UsageEntry): void {
   try {
     ensureDataDir();
     fs.appendFileSync(USAGE_FILE, JSON.stringify(entry) + '\n');
+    _writesSinceRotation++;
+    // Rotate every 1000 writes to avoid checking file size on every request
+    if (_writesSinceRotation >= 1000) {
+      _writesSinceRotation = 0;
+      rotateUsageFile();
+    }
   } catch (err) {
     logger.warn({ err }, 'Failed to write usage log');
   }

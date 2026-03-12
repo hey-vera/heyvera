@@ -59,11 +59,15 @@ export async function startMeshNode(): Promise<void> {
     )
 
     const onPeerConnect = (evt: { detail: { toString(): string } }) => {
-      const peerId = evt.detail.toString()
-      const connections = n.getConnections(evt.detail)
-      const addr = connections[0]?.remoteAddr?.toString() ?? ''
-      upsertPeer(peerId, addr)
-      logger.info({ peerId }, 'Mesh peer connected')
+      try {
+        const peerId = evt.detail.toString()
+        const connections = n.getConnections(evt.detail)
+        const addr = connections[0]?.remoteAddr?.toString() ?? ''
+        upsertPeer(peerId, addr)
+        logger.info({ peerId }, 'Mesh peer connected')
+      } catch (err) {
+        logger.warn({ err }, 'Mesh: peer:connect handler error — ignored')
+      }
     }
     n.addEventListener('peer:connect', onPeerConnect)
     n._peerConnectListener = onPeerConnect

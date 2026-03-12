@@ -12,6 +12,7 @@ const HEARTBEAT_FILE = path.join(DATA_DIR, 'heartbeat.jsonl');
 const INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 
 let intervalId: ReturnType<typeof setInterval> | null = null;
+let startupTimerId: ReturnType<typeof setTimeout> | null = null;
 const MAX_HEARTBEAT_LINES = 1000;
 
 function rotateHeartbeatFile(): void {
@@ -49,7 +50,8 @@ export function startHeartbeat() {
   const msUntilNextHour =
     (60 - now.getMinutes()) * 60 * 1000 - now.getSeconds() * 1000 - now.getMilliseconds();
 
-  setTimeout(() => {
+  startupTimerId = setTimeout(() => {
+    startupTimerId = null;
     runHeartbeat();
     intervalId = setInterval(runHeartbeat, INTERVAL_MS);
   }, msUntilNextHour);
@@ -59,9 +61,13 @@ export function startHeartbeat() {
 }
 
 export function stopHeartbeat() {
+  if (startupTimerId) {
+    clearTimeout(startupTimerId);
+    startupTimerId = null;
+  }
   if (intervalId) {
     clearInterval(intervalId);
     intervalId = null;
-    logger.info('Heartbeat scheduler stopped');
   }
+  logger.info('Heartbeat scheduler stopped');
 }

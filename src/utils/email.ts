@@ -1,14 +1,8 @@
 import { logger } from './logger';
+import { escapeHtml } from './html';
+import { maskApiKey } from './mask';
 
 const RESEND_API_URL = 'https://api.resend.com/emails';
-
-// Format: cn-xxxx••••••••••••••••••••••••••••••••••••••••xxxx
-function maskApiKey(key: string): string {
-  const prefix = 'cn-';
-  const rest = key.startsWith(prefix) ? key.slice(prefix.length) : key;
-  if (rest.length <= 8) return key;
-  return prefix + rest.slice(0, 4) + '••••••••••••••••••••••••••••••••••••••••' + rest.slice(-4);
-}
 
 export async function sendApiKeyEmail(params: {
   to: string;
@@ -210,7 +204,7 @@ export async function sendAdminAlert(params: {
         from,
         to: adminEmail,
         subject: `🦀 ClawNet Admin: ${params.subject}`,
-        html: `<pre style="font-family:monospace">${params.body.replace(/</g, '&lt;')}</pre>`,
+        html: `<pre style="font-family:monospace">${escapeHtml(params.body)}</pre>`,
       }),
     });
   } catch (err) {

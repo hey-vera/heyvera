@@ -10,14 +10,14 @@ import { parseIntent } from '../core/intent-parser';
 import { executePlan } from '../core/executor';
 import { formatResponse } from '../core/formatter';
 import { deductCredit, topUpCredits } from '../db/index';
-import { creditsForApiCost } from '../core/credits';
+import { creditsForExecution, creditCostForEndpoint } from '../core/credits';
 import {
   PricingPreferencesSchema, type PricingPreferences,
   pricingPromptHint, optimizePlan, checkBudget,
 } from '../core/pricing';
 import { cacheIncr } from '../cache/index';
-import { apiRegistry } from '../config/api-registry';
-import { rateTier, env } from '../config/index';
+import { findEndpoint } from '../config/api-registry';
+import { rateTier, env, isSimulationMode, ORCHESTRATION_FEE } from '../config/index';
 import { logger } from '../utils/logger';
 import { nanoid } from 'nanoid';
 
@@ -38,7 +38,7 @@ batchRouter.post('/', checkApiKey, async (c) => {
 
   const parsed = BatchSchema.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) {
-    return c.json({ batchId, error: 'Invalid body', details: parsed.error.flatten().fieldErrors }, 400);
+    return c.json({ batchId, error: 'Invalid body', code: 'VALIDATION_ERROR', details: parsed.error.flatten().fieldErrors }, 400);
   }
   const body = parsed.data;
 
@@ -127,11 +127,11 @@ batchRouter.post('/', checkApiKey, async (c) => {
   if (!keyInfo.isEnvKey) {
     estimatedCredits = parsedIntents.reduce((sum, p) => {
       if (!p.ok) return sum;
-      const estimatedCost = p.intent.steps.reduce((s, step) => {
-        const ep = apiRegistry.find((e) => e.id === step.endpointId);
-        return s + (ep?.costPerCall ?? 0.001);
+      const stepCredits = p.intent.steps.reduce((s, step) => {
+        const ep = findEndpoint(step.endpointId);
+        return s + (ep ? creditCostForEndpoint(ep) : 1);
       }, 0);
-      return sum + creditsForApiCost(estimatedCost);
+      return sum + stepCredits + ORCHESTRATION_FEE;
     }, 0);
 
     const deducted = deductCredit(keyInfo.key, estimatedCredits);
@@ -156,9 +156,9 @@ batchRouter.post('/', checkApiKey, async (c) => {
       const { intent, query } = parsed;
       try {
         const budgetConstraint = pricing?.maxCredits ? { maxCredits: pricing.maxCredits } : undefined;
-        const execution = await executePlan(intent, budgetConstraint);
+        const execution = await executePlan(intent, budgetConstraint, keyInfo.key);
         const formatted = await formatResponse(query, intent, execution);
-        const creditsUsed = creditsForApiCost(execution.totalCost);
+        const creditsUsed = creditsForExecution(execution.steps, findEndpoint) + ORCHESTRATION_FEE;
 
         return {
           index: idx,
@@ -202,6 +202,7 @@ batchRouter.post('/', checkApiKey, async (c) => {
     succeeded,
     failed: body.queries.length - succeeded,
     totalDurationMs: Date.now() - start,
+    simulationMode: isSimulationMode,
     results: items,
   });
 });

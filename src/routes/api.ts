@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { insertOrchestration, getApiKeyBalance, getApiKeyByStripeSession, getApiKeyByEmail, deductCredit } from '../db/index';
 import { Hono } from 'hono';
 import { maskApiKey } from '../utils/mask';
-import { creditsForApiCost } from '../core/credits';
+import { creditsForExecution, creditsToUsd } from '../core/credits';
 import { nanoid } from 'nanoid';
 import { parseIntent } from '../core/intent-parser';
 import { executePlan } from '../core/executor';
@@ -14,8 +14,8 @@ import {
 } from '../core/pricing';
 import { logUsage, getRecentUsage, getUsageStats } from '../utils/usage';
 import { cacheStats, cacheGet, cacheSet, cacheIncr } from '../cache/index';
-import { apiRegistry } from '../config/api-registry';
-import { env, isSimulationMode, rateTier } from '../config/index';
+import { apiRegistry, findEndpoint } from '../config/api-registry';
+import { env, isSimulationMode, rateTier, ORCHESTRATION_FEE } from '../config/index';
 import { logger } from '../utils/logger';
 import { sendApiKeyEmail, sendLowBalanceEmail, sendAdminAlert } from '../utils/email';
 import { wasEmailSentRecently, logEmailSend } from '../db/index';
@@ -157,16 +157,16 @@ apiRouter.post('/orchestrate', async (c) => {
 
     // Execute with optional budget constraint for runtime step-skipping
     const budgetConstraint = pricing?.maxCredits ? { maxCredits: pricing.maxCredits } : undefined;
-    const execution = await executePlan(intent, budgetConstraint);
+    const execution = await executePlan(intent, budgetConstraint, keyInfo.key);
     const formatted = await formatResponse(query, intent, execution);
 
     const apiCosts = execution.totalCost;
-// margin is in package spread, no runtime markup applied
     const cacheHits = execution.steps.filter((s) => s.cached).length;
-    const savings = cacheHits * 0.002;
     const totalDurationMs = Date.now() - start;
 
-    const creditsToDeduct = creditsForApiCost(apiCosts);
+    // Value-based pricing: sum per-endpoint credit tiers + orchestration fee
+    const stepCredits = creditsForExecution(execution.steps, findEndpoint);
+    const creditsToDeduct = stepCredits + ORCHESTRATION_FEE;
     if (!keyInfo.isEnvKey) {
       // Daily spend tracking — used for anomaly detection and optional hard cap.
       // DAILY_SPEND_CAP=0 (default): no cap — agents spend freely until credits run out.
@@ -261,9 +261,11 @@ apiRouter.post('/orchestrate', async (c) => {
       ...(formatted.riskScore !== undefined && { riskScore: formatted.riskScore }),
       suggestedActions: formatted.suggestedActions,
       costBreakdown: {
-        costUsd: Math.round(apiCosts * 10000) / 10000,
         creditsUsed: creditsToDeduct,
-        savings: Math.round(savings * 10000) / 10000,
+        stepCredits,
+        orchestrationFee: ORCHESTRATION_FEE,
+        estimatedUsd: creditsToUsd(creditsToDeduct),
+        cacheHitsSaved: cacheHits,
         ...(pricing && {
           strategy: pricing.strategy,
           maxCredits: pricing.maxCredits,
@@ -377,8 +379,8 @@ apiRouter.get('/balance', (c) => {
 // No credits are deducted. Useful for budgeting before committing to an orchestration.
 apiRouter.get('/estimate', async (c) => {
   const query = c.req.query('query')?.trim();
-  if (!query) return c.json({ error: 'Missing required query parameter: query' }, 400);
-  if (query.length > 2000) return c.json({ error: 'Query too long (max 2000 chars)' }, 400);
+  if (!query) return c.json({ error: 'Missing required query parameter: query', code: 'MISSING_QUERY' }, 400);
+  if (query.length > 2000) return c.json({ error: 'Query too long (max 2000 chars)', code: 'QUERY_TOO_LONG' }, 400);
 
   // Optional pricing params from query string
   const strategyParam = c.req.query('strategy');
@@ -428,7 +430,7 @@ apiRouter.get('/estimate', async (c) => {
     });
   } catch (err) {
     logger.error({ err }, '/v1/estimate failed');
-    return c.json({ error: 'Failed to estimate query cost' }, 500);
+    return c.json({ error: 'Failed to estimate query cost', code: 'ESTIMATE_FAILED' }, 500);
   }
 });
 
@@ -437,17 +439,17 @@ apiRouter.get('/session/:sessionId', async (c) => {
   const { sessionId } = c.req.param();
 
   if (!sessionId || sessionId.length < 20) {
-    return c.json({ error: 'Invalid session ID' }, 400);
+    return c.json({ error: 'Invalid session ID', code: 'INVALID_SESSION' }, 400);
   }
 
   const row = getApiKeyByStripeSession(sessionId);
   if (!row) {
-    return c.json({ error: 'Session not found — payment may still be processing' }, 404);
+    return c.json({ error: 'Session not found — payment may still be processing', code: 'SESSION_NOT_FOUND' }, 404);
   }
 
   const keyInfo = getApiKeyBalance(row.key);
   if (!keyInfo) {
-    return c.json({ error: 'Key not found' }, 404);
+    return c.json({ error: 'Key not found', code: 'KEY_NOT_FOUND' }, 404);
   }
 
   // Mask email: jo****@gmail.com
@@ -467,12 +469,12 @@ apiRouter.get('/session/:sessionId', async (c) => {
 // POST /v1/resend-key — lost key recovery, no auth required
 apiRouter.post('/resend-key', async (c) => {
   let body: { email?: string };
-  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON', code: 'INVALID_BODY' }, 400); }
 
   const email = (body.email ?? '').trim().toLowerCase();
   const emailResult = z.string().email().safeParse(email);
   if (!emailResult.success) {
-    return c.json({ error: 'Valid email required' }, 400);
+    return c.json({ error: 'Valid email required', code: 'INVALID_EMAIL' }, 400);
   }
 
   // Rate limit: 1 resend per email per 5 minutes — persisted to DB so it survives restarts

@@ -58,3 +58,66 @@ export function scanSkillTemplate(promptTemplate: string): ScanResult {
     flags,
   };
 }
+
+// ─── Proxy Response Content Scanner ──────────────────────────────────────────
+// Scans api_proxy skill responses for social engineering, phishing, wallet drainers.
+// Runs on every proxy response before returning to the user.
+
+export interface ResponseScanResult {
+  safe: boolean;
+  flags: string[];
+}
+
+const RESPONSE_DANGER_PATTERNS: { pattern: RegExp; label: string }[] = [
+  // Wallet drainer patterns — urgency + wallet address
+  { pattern: /send\s+(all\s+)?(funds?|tokens?|sol|usdc|crypto|balance)\s+to\b/i, label: 'social-eng:fund-transfer-request' },
+  { pattern: /transfer\s+(immediately|now|urgently|asap)\s/i, label: 'social-eng:urgent-transfer' },
+  { pattern: /your\s+(wallet|account|funds?)\s+(is|are|has\s+been)\s+(compromised|hacked|at\s+risk|locked)/i, label: 'social-eng:account-compromised' },
+  { pattern: /claim\s+(your|free|airdrop|reward|bonus)\s/i, label: 'social-eng:fake-claim' },
+  // Phishing URLs and redirects
+  { pattern: /click\s+(here|this|the\s+link)\s+(to|for)\s+(verify|confirm|secure|unlock|claim)/i, label: 'phishing:click-bait' },
+  { pattern: /enter\s+(your|the)\s+(seed\s+phrase|private\s+key|mnemonic|recovery\s+phrase|secret\s+key)/i, label: 'phishing:key-harvest' },
+  // Impersonation
+  { pattern: /official\s+(support|team|admin|staff)\s+(message|notice|alert)/i, label: 'social-eng:impersonation' },
+  { pattern: /this\s+is\s+(an?\s+)?(automated\s+)?(security|fraud|compliance)\s+(alert|warning|notice)/i, label: 'social-eng:fake-alert' },
+  // Script injection in response data
+  { pattern: /<script[\s>]|javascript\s*:|on(?:load|error|click)\s*=/i, label: 'xss:response-injection' },
+];
+
+// Solana base58 address pattern (32-44 chars of base58 alphabet)
+const SOLANA_ADDRESS_PATTERN = /[1-9A-HJ-NP-Za-km-z]{32,44}/g;
+
+/**
+ * Scan a proxy skill response for malicious content.
+ * Returns { safe: true } for clean responses, { safe: false, flags } for dangerous ones.
+ */
+export function scanProxyResponse(data: unknown): ResponseScanResult {
+  const flags: string[] = [];
+  const text = typeof data === 'string' ? data : JSON.stringify(data);
+  const normalized = normalizeForScan(text);
+
+  // Check against danger patterns
+  for (const { pattern, label } of RESPONSE_DANGER_PATTERNS) {
+    if (pattern.test(normalized)) {
+      flags.push(label);
+    }
+  }
+
+  // Flag responses with Solana addresses + urgency language (wallet drainer signature)
+  const addresses = normalized.match(SOLANA_ADDRESS_PATTERN) ?? [];
+  const hasUrgency = /urgent|immediately|now|hurry|quick|fast|limited\s+time/i.test(normalized);
+  if (addresses.length > 0 && hasUrgency) {
+    flags.push('social-eng:address-with-urgency');
+  }
+
+  // Flag excessive wallet addresses (>3 unique) — normal APIs don't return many addresses unsolicited
+  const uniqueAddresses = new Set(addresses.filter(a => a.length >= 32 && a.length <= 44));
+  if (uniqueAddresses.size > 5) {
+    flags.push('suspicious:excessive-addresses');
+  }
+
+  return {
+    safe: flags.length === 0,
+    flags,
+  };
+}

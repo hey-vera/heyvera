@@ -45,7 +45,7 @@ const envSchema = z.object({
   X402_FACILITATOR_URL: z.string().default('https://x402.org/facilitator'),
   X402_NETWORK: z.enum(['base-mainnet', 'base-sepolia']).default('base-mainnet'),
   X402_RECIPIENT_ADDRESS: z.string().optional(), // EVM address to receive USDC on Base
-  X402_USDC_PER_CREDIT: z.coerce.number().default(0.0005), // 1 credit = $0.0005 USDC (= $1/2000 credits per dollar)
+  X402_USDC_PER_CREDIT: z.coerce.number().default(0.001), // 1 credit = $0.001 USDC (matches Stripe base rate of 1000 credits/$1)
 
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
@@ -76,6 +76,9 @@ export const isSimulationMode = !env.SOLANA_PRIVATE_KEY;
 
 // Swarm base fee — deducted upfront before sub-task budget; shared by swarm.ts and openclaw.ts
 export const SWARM_BASE_FEE = 20;
+
+// Orchestration fee — flat charge per LLM-orchestrated query (covers intent parsing + synthesis)
+export const ORCHESTRATION_FEE = parseInt(process.env.ORCHESTRATION_FEE ?? '2', 10);
 
 // Tiered per-minute rate limit based on lifetime spend
 export function rateTier(amountPaid: number): { label: string; perMinute: number } {

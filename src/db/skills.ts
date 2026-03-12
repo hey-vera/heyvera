@@ -41,6 +41,8 @@ export interface Skill {
   proxy_method: string;
   /** JSON-serialised SkillExecutionPlan — if present, bypasses LLM intent parsing */
   execution_plan_json: string | null;
+  /** Skill class: standard (default), recursive (self-refining), self_checking (output validation) */
+  skill_class: 'standard' | 'recursive' | 'self_checking';
 }
 
 export function createSkill(params: {
@@ -58,10 +60,11 @@ export function createSkill(params: {
   proxyUrl?: string;
   proxyMethod?: string;
   executionPlanJson?: string;
+  skillClass?: 'standard' | 'recursive' | 'self_checking';
 }): void {
   getDb()
-    .prepare(`INSERT INTO skills (id, name, description, prompt_template, author_key, public, credit_cost, display_name, changelog, category, skill_type, proxy_url, proxy_method, execution_plan_json)
-              VALUES (@id, @name, @description, @promptTemplate, @authorKey, @public, @creditCost, @displayName, @changelog, @category, @skillType, @proxyUrl, @proxyMethod, @executionPlanJson)`)
+    .prepare(`INSERT INTO skills (id, name, description, prompt_template, author_key, public, credit_cost, display_name, changelog, category, skill_type, proxy_url, proxy_method, execution_plan_json, skill_class)
+              VALUES (@id, @name, @description, @promptTemplate, @authorKey, @public, @creditCost, @displayName, @changelog, @category, @skillType, @proxyUrl, @proxyMethod, @executionPlanJson, @skillClass)`)
     .run({
       ...params,
       public: params.public ? 1 : 0,
@@ -72,6 +75,7 @@ export function createSkill(params: {
       proxyUrl: params.proxyUrl ?? null,
       proxyMethod: params.proxyMethod ?? 'POST',
       executionPlanJson: params.executionPlanJson ?? null,
+      skillClass: params.skillClass ?? 'standard',
     });
 }
 
@@ -324,6 +328,100 @@ export function hasStarred(skillId: string, agentKey: string): boolean {
   return !!row;
 }
 
+// ─── Verified Publisher Program ───────────────────────────────────────────────
+
+export interface VerificationEligibility {
+  eligible: boolean;
+  reasons: string[];
+  metrics: {
+    reputationScore: number;
+    totalSkills: number;
+    skillsWith100Invocations: number;
+    avgSuccessRate: number;
+    hasClerkAccount: boolean;
+    reportCount: number;
+  };
+}
+
+/**
+ * Check if a publisher meets automated verification criteria:
+ * - Reputation score >= 5.0
+ * - At least 3 public skills with >= 100 invocations each
+ * - Average success rate >= 90% across all skills
+ * - Linked Clerk account (email verified)
+ * - No flagged skills (0 active reports)
+ */
+export function checkVerificationEligibility(authorKey: string): VerificationEligibility {
+  const db = getDb();
+  const reasons: string[] = [];
+
+  // Reputation score
+  const repRow = db.prepare(
+    `SELECT COALESCE(SUM(score_delta), 0) as score FROM reputation_events WHERE agent_id = ?`
+  ).get(authorKey) as { score: number };
+  const reputationScore = Math.round((repRow.score ?? 0) * 100) / 100;
+  if (reputationScore < 5.0) reasons.push(`Reputation score ${reputationScore} < 5.0 required`);
+
+  // Skills with 100+ invocations
+  const skillStats = db.prepare(`
+    SELECT COUNT(*) as total,
+           SUM(CASE WHEN uses >= 100 THEN 1 ELSE 0 END) as high_use
+    FROM skills WHERE author_key = ? AND active = 1 AND public = 1
+  `).get(authorKey) as { total: number; high_use: number };
+  if (skillStats.high_use < 3) reasons.push(`${skillStats.high_use}/3 skills with 100+ invocations`);
+
+  // Average success rate across all author's skills
+  const successRow = db.prepare(`
+    SELECT ROUND(AVG(success) * 100, 1) as avgRate
+    FROM skill_metrics sm
+    JOIN skills s ON s.id = sm.skill_id
+    WHERE s.author_key = ? AND s.active = 1
+  `).get(authorKey) as { avgRate: number | null };
+  const avgSuccessRate = successRow.avgRate ?? 0;
+  if (avgSuccessRate < 90) reasons.push(`Success rate ${avgSuccessRate}% < 90% required`);
+
+  // Clerk account linked
+  const clerkRow = db.prepare(
+    `SELECT clerk_user_id FROM api_keys WHERE key = ?`
+  ).get(authorKey) as { clerk_user_id: string | null } | undefined;
+  const hasClerkAccount = !!clerkRow?.clerk_user_id;
+  if (!hasClerkAccount) reasons.push('No linked Clerk account');
+
+  // No flagged/reported skills
+  const reportRow = db.prepare(`
+    SELECT COUNT(*) as cnt FROM skill_reports sr
+    JOIN skills s ON s.id = sr.skill_id
+    WHERE s.author_key = ? AND s.active = 1
+  `).get(authorKey) as { cnt: number };
+  if (reportRow.cnt > 0) reasons.push(`${reportRow.cnt} active report(s) on skills`);
+
+  return {
+    eligible: reasons.length === 0,
+    reasons,
+    metrics: {
+      reputationScore,
+      totalSkills: skillStats.total,
+      skillsWith100Invocations: skillStats.high_use,
+      avgSuccessRate,
+      hasClerkAccount,
+      reportCount: reportRow.cnt,
+    },
+  };
+}
+
+/**
+ * Auto-verify all eligible skills from a publisher.
+ * Only promotes CLEAN/UNSCANNED skills (not FLAGGED or SUSPICIOUS).
+ */
+export function autoVerifyPublisher(authorKey: string): number {
+  const db = getDb();
+  const result = db.prepare(`
+    UPDATE skills SET security_status = 'VERIFIED', scanned_at = datetime('now')
+    WHERE author_key = ? AND active = 1 AND security_status IN ('CLEAN', 'UNSCANNED')
+  `).run(authorKey);
+  return result.changes;
+}
+
 // ─── Skill Security / Reporting ───────────────────────────────────────────────
 
 export function updateSkillSecurityStatus(skillId: string, status: 'UNSCANNED' | 'CLEAN' | 'SUSPICIOUS' | 'FLAGGED' | 'VERIFIED', flags?: string[]): void {
@@ -486,4 +584,84 @@ export function setAbChallenger(skillId: string, challengerId: string): void {
   getDb()
     .prepare(`UPDATE skills SET ab_challenger = ? WHERE id = ?`)
     .run(challengerId, skillId);
+}
+
+// ─── Skill Cost Analytics ────────────────────────────────────────────────────
+
+export interface SkillCostAnalytics {
+  totalInvocations: number;
+  totalCreditsEarned: number;
+  avgCostCredits: number;
+  medianCostCredits: number;
+  p95LatencyMs: number;
+  avgLatencyMs: number;
+  successRate: number;
+  completionRate: number;
+  costTrend: { period: string; avgCost: number; invocations: number }[];
+}
+
+export function getSkillCostAnalytics(skillId: string): SkillCostAnalytics {
+  const db = getDb();
+
+  // Aggregate from skill_metrics
+  const agg = db.prepare(`
+    SELECT COUNT(*) as total,
+           ROUND(AVG(cost_credits), 2) as avgCost,
+           ROUND(AVG(latency_ms), 0) as avgLatency,
+           ROUND(AVG(success) * 100, 1) as successRate
+    FROM skill_metrics WHERE skill_id = ?
+  `).get(skillId) as { total: number; avgCost: number; avgLatency: number; successRate: number } | undefined;
+
+  // P95 latency
+  const p95Row = db.prepare(`
+    SELECT latency_ms FROM skill_metrics
+    WHERE skill_id = ? AND latency_ms IS NOT NULL
+    ORDER BY latency_ms ASC
+    LIMIT 1 OFFSET (SELECT CAST(COUNT(*) * 0.95 AS INTEGER) FROM skill_metrics WHERE skill_id = ? AND latency_ms IS NOT NULL)
+  `).get(skillId, skillId) as { latency_ms: number } | undefined;
+
+  // Median cost
+  const medianRow = db.prepare(`
+    SELECT cost_credits FROM skill_metrics
+    WHERE skill_id = ? AND cost_credits IS NOT NULL
+    ORDER BY cost_credits ASC
+    LIMIT 1 OFFSET (SELECT COUNT(*) / 2 FROM skill_metrics WHERE skill_id = ? AND cost_credits IS NOT NULL)
+  `).get(skillId, skillId) as { cost_credits: number } | undefined;
+
+  // Total credits earned (from transactions)
+  const earnings = db.prepare(`
+    SELECT COALESCE(SUM(amount_credits - fee_credits), 0) as earned
+    FROM transactions WHERE skill_id = ? AND type = 'SKILL_SALE'
+  `).get(skillId) as { earned: number };
+
+  // Task completion rate
+  const taskAgg = db.prepare(`
+    SELECT COUNT(*) as total,
+           SUM(CASE WHEN status = 'COMPLETED' THEN 1 ELSE 0 END) as completed
+    FROM tasks WHERE skill_id = ?
+  `).get(skillId) as { total: number; completed: number } | undefined;
+
+  // Weekly cost trend (last 8 weeks)
+  const trend = db.prepare(`
+    SELECT strftime('%Y-W%W', timestamp) as period,
+           ROUND(AVG(cost_credits), 2) as avgCost,
+           COUNT(*) as invocations
+    FROM skill_metrics WHERE skill_id = ?
+      AND timestamp > datetime('now', '-56 days')
+    GROUP BY period ORDER BY period ASC
+  `).all(skillId) as { period: string; avgCost: number; invocations: number }[];
+
+  return {
+    totalInvocations: agg?.total ?? 0,
+    totalCreditsEarned: earnings.earned,
+    avgCostCredits: agg?.avgCost ?? 0,
+    medianCostCredits: medianRow?.cost_credits ?? 0,
+    p95LatencyMs: p95Row?.latency_ms ?? 0,
+    avgLatencyMs: agg?.avgLatency ?? 0,
+    successRate: agg?.successRate ?? 0,
+    completionRate: taskAgg && taskAgg.total > 0
+      ? Math.round((taskAgg.completed / taskAgg.total) * 1000) / 10
+      : 0,
+    costTrend: trend,
+  };
 }

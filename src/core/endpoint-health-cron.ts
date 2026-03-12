@@ -17,6 +17,7 @@ import {
   cleanupStalePeers, cleanupOldStripeSessions, cleanupOldStripeEvents,
   cleanupExpiredClaimTokens, cleanupOldTasks, cleanupOldSwarms,
   cleanupOldReputationEvents, cleanupOldTransactions, cleanupOldVotes,
+  cleanupDeactivatedKeys, purgeExpiredContexts,
   getDb,
 } from '../db/index';
 import { logger } from '../utils/logger';
@@ -114,9 +115,11 @@ async function runHealthChecks(): Promise<void> {
     const repDel          = cleanupOldReputationEvents(365);
     const txDel           = cleanupOldTransactions(730);  // 2-year financial record retention
     const votesDel        = cleanupOldVotes(365);
-    const total = auditDel + metricsDel + solDel + orchDel + feedDel + emailDel + peersDel + stripeSessDel + stripeEvtDel + claimDel + tasksDel + swarmsDel + repDel + txDel + votesDel;
+    const keysDel         = cleanupDeactivatedKeys(90);  // Q9: purge deactivated keys with zero balance
+    const ctxDel          = purgeExpiredContexts();       // Agent context layer: expired entries
+    const total = auditDel + metricsDel + solDel + orchDel + feedDel + emailDel + peersDel + stripeSessDel + stripeEvtDel + claimDel + tasksDel + swarmsDel + repDel + txDel + votesDel + keysDel + ctxDel;
     if (total > 0) {
-      logger.info({ auditDel, metricsDel, solDel, orchDel, feedDel, emailDel, peersDel, stripeSessDel, stripeEvtDel, claimDel, tasksDel, swarmsDel, repDel, txDel, votesDel }, 'Daily retention cleanup');
+      logger.info({ auditDel, metricsDel, solDel, orchDel, feedDel, emailDel, peersDel, stripeSessDel, stripeEvtDel, claimDel, tasksDel, swarmsDel, repDel, txDel, votesDel, keysDel, ctxDel }, 'Daily retention cleanup');
     }
     // WAL checkpoint after bulk deletes — prevents WAL bloat
     try { getDb().pragma('wal_checkpoint(PASSIVE)'); } catch { /* non-critical */ }

@@ -12,7 +12,7 @@
 
 import { z } from 'zod';
 import { findEndpoint, apiRegistry, type ApiEndpoint } from '../config/api-registry';
-import { creditsForApiCost } from './credits';
+import { creditCostForEndpoint } from './credits';
 import type { ParsedIntent } from './intent-parser';
 import { logger } from '../utils/logger';
 
@@ -145,7 +145,7 @@ export function estimatePlanCost(intent: ParsedIntent): PlanEstimate {
   const perStep = intent.steps.map((step) => {
     const ep = findEndpoint(step.endpointId);
     const costUsd = ep?.costPerCall ?? 0.001;
-    return { endpointId: step.endpointId, credits: creditsForApiCost(costUsd), costUsd };
+    return { endpointId: step.endpointId, credits: ep ? creditCostForEndpoint(ep) : 1, costUsd };
   });
   const totalCredits = perStep.reduce((sum, s) => sum + s.credits, 0);
   return { totalCredits, perStep };
@@ -253,7 +253,7 @@ export function optimizePlan(intent: ParsedIntent, pricing: PricingPreferences):
 
     if (bestId && bestId !== step.endpointId) {
       const savedUsd = currentCost - bestCost;
-      const savedCredits = creditsForApiCost(currentCost) - creditsForApiCost(bestCost);
+      const savedCredits = creditCostForEndpoint(currentEp) - (findEndpoint(bestId) ? creditCostForEndpoint(findEndpoint(bestId)!) : 1);
 
       // Don't swap below minCredits floor
       if (pricing.minCredits && (currentCredits - savedCredits) < pricing.minCredits) {

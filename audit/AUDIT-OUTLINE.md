@@ -16,18 +16,18 @@
 |----|---------|--------|
 | 01 | Architecture & Codebase Foundation | COMPLETE |
 | 02 | Database Design & Data Lifecycle | COMPLETE |
-| 03 | Financial Engine | PENDING |
-| 04 | Authentication, Authorization & Identity | PENDING |
-| 05 | Security & Attack Surface | PENDING |
-| 06 | AI Orchestration Pipeline | PENDING |
-| 07 | Skill Marketplace & Economy | PENDING |
-| 08 | API Design & Developer Experience | PENDING |
-| 09 | Mesh Network & Discovery | PENDING |
-| 10 | Integrations & External Services | PENDING |
-| 11 | Background Jobs & Cron System | PENDING |
-| 12 | Infrastructure & Deployment | PENDING |
-| 13 | Frontend & User Experience | PENDING |
-| 14 | Observability & Operations | PENDING |
+| 03 | Financial Engine | COMPLETE |
+| 04 | Authentication, Authorization & Identity | COMPLETE |
+| 05 | Security & Attack Surface | COMPLETE |
+| 06 | AI Orchestration Pipeline | COMPLETE |
+| 07 | Skill Marketplace & Economy | COMPLETE |
+| 08 | API Design & Developer Experience | COMPLETE |
+| 09 | Mesh Network & Discovery | COMPLETE |
+| 10 | Integrations & External Services | COMPLETE |
+| 11 | Background Jobs & Cron System | COMPLETE |
+| 12 | Infrastructure & Deployment | COMPLETE |
+| 13 | Frontend & User Experience | COMPLETE |
+| 14 | Observability & Operations | COMPLETE |
 | 15 | Scalability & Performance | PENDING |
 | 16 | Governance & Community | PENDING |
 | 17 | Testing & Verification | PENDING |
@@ -483,6 +483,27 @@ src/config/index.ts                — ADMIN_API_KEY enforcement, ADMIN_CLERK_ID
 - **Rate limit headers** — return `X-RateLimit-Remaining`, `X-RateLimit-Reset`, `X-RateLimit-Limit` on every response.
 - **Key rotation alerts** — email users when their key hasn't been rotated in 90+ days.
 
+### Status: ✅ COMPLETE
+
+| # | Question | Verdict |
+|---|----------|---------|
+| Q1 | Timing-safe DB lookup | **SAFE** — keys are fixed 51 chars (`cn-` + 48 hex), regex pre-filter rejects wrong lengths before DB hit |
+| Q2 | Rate limit Redis failover | **ACCEPTABLE** — worst case = 60 extra requests in 60s window, `cacheIncr` memory fallback sufficient |
+| Q3 | Clerk email cache stale 5 min | **LOW RISK** — email changes rare, auto-linking only matches own existing key |
+| Q4 | Key regen race condition | **SAFE** — single `db.transaction()`, SQLite serializes, no double-spend window |
+| Q5 | Admin key rotation | **ACCEPTABLE** — env-based admin fine for single VPS, `ADMIN_CLERK_IDS` exists for Clerk-based admin |
+| Q6 | Claim token entropy | **SAFE** — `crypto.randomBytes(32)` = 256 bits, 1-hour expiry, atomic single-use |
+| Q7 | API key in URL | **NOT FOUND** — all routes use `X-API-Key` header only |
+| Q8 | Rate tier on lifetime spend | **BY DESIGN** — rewards loyal customers, doesn't affect credit deduction |
+| Q9 | Deactivated key cleanup | **FIXED** — added `cleanupDeactivatedKeys(90)` to daily retention cron |
+| Q10 | Multi-key per user | **BY DESIGN** — rate limiting is per-IP, multi-key doesn't bypass limits. Stripe tops up existing keys; `createApiKey` only fires for genuinely new users |
+| Q11 | IP trust / port 3402 | **SAFE** — `getClientIp()` uses raw socket IP in production when not from proxy range; direct access can't spoof |
+| Q12 | Public endpoint recon | **ACCEPTABLE** — only public data exposed (stats, public skills, health), no user/key enumeration |
+
+### Fixes Applied
+
+- **Q9**: Added `cleanupDeactivatedKeys()` in `src/db/audit.ts` — batched delete of `active=0, credits=0` keys older than 90 days. Wired into daily retention cron in `endpoint-health-cron.ts`.
+
 ### Why It Matters
 
 Auth is the front door. A timing attack on key comparison lets an attacker recover the key byte by byte. A rate limit bypass lets a single user DDoS the platform. A key regeneration race condition creates double-spend. Identity linking bugs mean one user can access another's credits. At scale, every auth decision is made millions of times per day — the cost of getting it wrong even 0.01% of the time is thousands of unauthorized operations.
@@ -572,6 +593,31 @@ src/middleware/rate-limit.ts        — IP extraction with proxy trust validatio
 - **Rate limiting per-skill** — prevent abuse of a single popular skill by adding per-skill rate limits.
 - **SSRF protection** — deny-list for proxy URLs: block localhost, private IPs, metadata endpoints (169.254.169.254).
 - **Signature verification SDK** — provide client SDKs that verify X-ClawNet-Signature automatically.
+
+### Status: ✅ COMPLETE
+
+| # | Question | Verdict |
+|---|----------|---------|
+| Q1 | Scanner bypass via encoding | **PARTIAL** — handles fullwidth + zero-width, not URL-encoding/HTML-entities/homoglyphs. Defense-in-depth (scanner is supplementary, not sole guard) |
+| Q2 | Template injection depth | **SAFE** — template is author-controlled, variable values sanitized |
+| Q3 | SQL injection via skill names | **SAFE** — all queries use parameterized `?` placeholders, no string interpolation |
+| Q4 | XSS in email templates | **FIXED** — `sendAdminAlert` now uses `escapeHtml()` instead of partial `<` replacement |
+| Q5 | HMAC replay attack | **BY DESIGN** — signature proves authenticity not freshness; client responsibility |
+| Q6 | Circuit breaker poisoning | **SAFE** — circuit keys are server-controlled endpoint IDs from registry, not user input |
+| Q7 | Double interpolation | **SAFE** — `{single}` and `{{double}}` brace formats don't collide, single-pass only |
+| Q8 | SSRF via API proxy | **FIXED** — added `isProxyUrlSafe()` blocking localhost, private IPs, metadata endpoints at both creation and invoke time |
+| Q9 | Telegram Unicode logging | **SAFE** — Pino JSON-encodes all values, SQLite handles UTF-8 natively |
+| Q10 | Unsigned endpoints | **ACCEPTABLE** — unsigned routes are write-ops protected by auth, not integrity-sensitive reads |
+| Q11 | Env key logging | **SAFE** — env key value never logged, auth middleware returns early on env match |
+| Q12 | Query string length | **SAFE** — `query.length > 2000` check on stream endpoint, body limit on POST routes |
+
+### Fixes Applied
+
+- **Q4**: `sendAdminAlert` in `src/utils/email.ts` now uses `escapeHtml()` (was only replacing `<` with `&lt;`, missing `"`, `&`, `>`, `'`).
+- **Q8**: Added `isProxyUrlSafe()` in `src/routes/skills.ts` — blocks localhost, private IPs (10.x, 172.16-31.x, 192.168.x), link-local (169.254.x), IPv6 private ranges. Applied at skill creation (400 error) AND invoke time (403 error for pre-existing unsafe skills).
+- **Proxy response scanning (post-Ch05)**: `scanProxyResponse()` in `src/core/skill-scanner.ts` — 10 danger patterns (wallet drainers, phishing, social engineering, XSS) + Solana address/urgency combo + excessive addresses. Wired into `skills.ts` and `tasks.ts` invoke paths. Unsafe content returns HTTP 451 and auto-flags skill as FLAGGED.
+- **Verified Publisher Program (post-Ch05)**: Automated verification in `src/db/skills.ts` — 5 criteria (reputation ≥5.0, 3+ skills with 100+ uses, 90%+ success, Clerk linked, 0 reports). `GET /v1/skills/verification/status` + `POST /v1/skills/verification/apply`. Promotes CLEAN/UNSCANNED skills to VERIFIED on approval.
+- **Skill classes (post-Ch05)**: `skill_class` column (v45) — `standard`, `recursive` (self-refining 2nd pass), `self_checking` (validates output against schema, retries). Extra passes billed to user.
 
 ### Why It Matters
 
@@ -669,6 +715,30 @@ Query → Intent Parser (fast LLM, ~2s) → Execution Plan
 - **Cost estimation endpoint** — `GET /v1/estimate?query=...` parses intent without executing, returns estimated credits. Already exists but verify accuracy.
 - **Execution plan caching** — cache the full execution plan (not just intent) for identical queries. Avoid redundant LLM calls.
 - **Provider health-aware routing** — if a provider's circuit is HALF_OPEN, prefer alternative endpoints that return equivalent data.
+
+### Status: ✅ COMPLETE
+
+| # | Question | Verdict |
+|---|----------|---------|
+| Q1 | Registry context size (16KB) | **BY DESIGN** — template matching skips LLM for 60-80% of queries, cache covers repeats |
+| Q2 | Template matching false positives | **ACCEPTABLE** — matches specific phrases, LLM fallback for novel queries |
+| Q3 | Parallel group failure handling | **SAFE** — `Promise.allSettled()` used, synthesis receives partial results |
+| Q4 | LLM hallucinated endpoints | **HARDENED** — `findEndpoint()` validates IDs + hallucinated params stripped against `inputSchema` keys |
+| Q5 | Synthesis injection via API responses | **SAFE** — 10KB truncation + XML tag escaping + structured delimiters |
+| Q6 | Simulation mode detection | **FIXED** — `simulationMode` field now on batch and stream responses (was already on orchestrate/openclaw/skills) |
+| Q7 | LLM timeout (30s) | **ACCEPTABLE** — fast LLM (Haiku/GPT-4o-mini) responds in 1-3s, templates bypass entirely |
+| Q8 | Executor step retry | **BY DESIGN** — no retry (doubles latency/cost), circuit breaker provides failure isolation |
+| Q9 | Cost reconciliation | **ACCEPTABLE** — static registry costs are consistent with `creditsForApiCost()` formula |
+| Q10 | Cache key collision / normalization | **SAFE** — `toLowerCase().trim().replace(/\s+/g, ' ')` + SHA256, pricing hint included |
+| Q11 | Skill executor plan cost drift | **LOW RISK** — billed on actual execution cost, not `credit_cost` |
+| Q12 | Circuit breaker thundering herd | **SAFE** — `probing` flag allows one request at HALF_OPEN, needs 2 successes to close |
+
+### Fixes Applied
+
+- **Q6**: Added `simulationMode: isSimulationMode` to batch response (`src/routes/batch.ts`) and SSE stream `done` event (`src/routes/stream.ts`). Was already present on orchestrate, openclaw, and skills invoke.
+- **Q4 (hardened)**: Intent parser now strips hallucinated params — only keys declared in endpoint's `inputSchema` survive. Applied on both primary and retry paths (`src/core/intent-parser.ts`).
+- **Post-fetch validation**: Executor checks response keys against endpoint's `outputFields` — warns at <30% match ratio for schema mismatch detection (`src/core/executor.ts`).
+- **Agent Context Layer (v47)**: Per-agent persistent SQLite cache (`agent_contexts` table). Three-tier lookup: agent context (sub-1ms) → Redis/memory → live API. 3x TTL multiplier, 500 entries/5MB per agent, LRU eviction. Routes: `GET/DELETE /v1/context`. Cleanup in daily retention cron.
 
 ### Why It Matters
 
@@ -774,6 +844,49 @@ token-analysis(5cr), social-sentiment(3cr), portfolio-optimizer(8cr), wallet-pro
 
 The marketplace is ClawNet's growth engine. It's how third-party developers join the ecosystem, build on top of the platform, and create value that attracts users. A broken purchase flow means lost revenue for creators and the platform. Unfair A/B promotion means bad skills outrank good ones. Missing SSRF protection in API proxy skills means the marketplace is an attack vector. At scale, the marketplace handles millions of dollars in transactions — every edge case in the purchase/refund/payout flow has real financial consequences.
 
+### Status: ✅ COMPLETE
+
+### Audit Verdicts
+
+| # | Question | Verdict | Action |
+|---|----------|---------|--------|
+| Q1 | Skill price manipulation via A/B | ✅ PASS | Only author can set challenger; price change via fork+promote is legitimate (author's own skill) |
+| Q2 | Fork ownership | ✅ PASS | Forker owns the fork; original author gets no revenue from forks. A/B only for own skills. |
+| Q3 | A/B sample size | ✅ PASS | `MIN_INVOCATIONS=20` + 10% threshold. Statistically acceptable for MVP. Discards underperformers. |
+| Q4 | Self-purchase via multiple keys | ⚠️ KNOWN | Email match prevents same-account bypass. Multi-Clerk-account bypass requires KYC — deferred. |
+| Q5 | Staking as griefing | ✅ PASS | 1 credit minimum + lock period means griefing costs real money. Stake total is signal, not ranking. |
+| Q6 | Rating authenticity | ⚠️ KNOWN | Purchase required to rate. Multi-email bypass is same limitation as Q4 — deferred. |
+| Q7 | Featured skill fairness | ✅ PASS | Admin-only, audit-logged. No rotation needed at current scale. |
+| Q8 | Skill deletion with active stakes | ✅ PASS | Stakes survive `active=0` soft delete. Unstake still works on deleted skills. |
+| Q9 | API proxy SSRF | 🔴 BUG FIXED | HTTP was allowed in production — enforced HTTPS for production proxy URLs. String-based IP check + HTTPS covers primary attack surface. DNS rebinding deferred to Ch12 (infrastructure). |
+| Q10 | Execution plan trust | ✅ PASS | `/v1/skills/:id/invoke` charges `Math.max(actualCost, skill.credit_cost)` — buyer pays true cost. Marketplace purchase pays fixed `credit_cost` — platform absorbs overrun but creator can't profit from it. |
+| Q11 | Skill version rollback | ✅ PASS | Versions recorded. No rollback mechanism — feature opportunity, not security risk. |
+| Q12 | Marketplace search injection | ✅ PASS | `escapeLike()` escapes `%`, `_`, `\`. Queries are parameterized (`?` binding). SQL injection not possible. |
+
+### Fixes Applied
+
+1. **CRITICAL — Treasury fee leak in `/v1/skills/:id/invoke`** (`src/routes/skills.ts`): Both `api_proxy` and `prompt_template` billing paths calculated platform fees (`creditsToDeduct - authorShare`) but never credited `clawhub-treasury`. Fees were being destroyed — credits disappeared from the system. At 3% of all skill invocations, this leaked platform revenue on every non-marketplace skill call. Fixed by adding `topUpCredits('clawhub-treasury', feeCredits)` inside both billing transactions. Note: the `/v1/marketplace/skills/:id/purchase` path was already correct (uses `marketplacePurchase()` which explicitly credits treasury).
+
+2. **HIGH — Recursive/self_checking skills undercharge** (`src/routes/skills.ts`): `creditsForExecution(execution.steps)` only counted the LAST execution's steps. For `self_checking` skills that retry on schema validation failure, and `recursive` skills that run a refinement pass, the first execution's API costs were absorbed by the platform (not billed). Fixed by accumulating all execution steps into `allExecutionSteps[]` across all passes. `creditsForExecution(allExecutionSteps, findEndpoint)` now bills for every API call made.
+
+3. **MEDIUM — HTTP allowed for api_proxy in production** (`src/routes/skills.ts`): `isProxyUrlSafe()` allowed `http://` protocol even in production. API proxy skills making HTTP requests are vulnerable to MITM attacks on the proxy connection. Fixed by enforcing `url.protocol === 'https:'` when `NODE_ENV === 'production'`. HTTP still allowed in development for local testing.
+
+4. **MEDIUM — Test endpoint lacks per-key rate limit** (`src/routes/skills.ts`): `/v1/skills/:id/test` makes real `executePlan()` calls (external API hits) with no billing. No per-key rate limit existed — an author could make thousands of free API calls per day. Added 10/min per-key rate limit via `cacheIncr('rl:skill-test:{key}', 60)`.
+
+### Recheck Verdict
+
+All marketplace financial flows are now consistent:
+- **Marketplace purchase** (`/v1/marketplace/skills/:id/purchase`): buyer→seller 97%, buyer→treasury 3% ✅
+- **Skill invoke** (`/v1/skills/:id/invoke`): buyer→author 97%, buyer→treasury 3% ✅ (was missing treasury credit)
+- **Refund** (`marketplaceRefund()`): reverses seller credit + treasury fee, deficit tracking + admin alert ✅
+
+Recursive/self_checking skills now bill for all API calls across all passes. SSRF protection enforces HTTPS in production. Test endpoint rate-limited to prevent free API abuse.
+
+**Deferred to later chapters:**
+- DNS rebinding in SSRF check (resolve hostname before fetch) → Ch12 (Infrastructure)
+- Multi-Clerk-account self-purchase prevention (requires KYC) → Ch20 (Compliance)
+- A/B statistical significance testing (larger sample sizes) → Ch15 (Scalability)
+
 ---
 
 ## Chapter 08 — API Design & Developer Experience
@@ -871,6 +984,41 @@ src/routes/contact.ts              — POST /v1/contact. Contact form with honey
 
 The API is ClawNet's product. Every developer interaction starts with `curl /v1/orchestrate`. If the error message is confusing, they abandon the platform. If rate limiting is opaque, they over-request and get blocked. If the batch endpoint has a partial failure bug, their production integration breaks silently. Good API design is the difference between "works in a demo" and "trusted in production." At scale, API consistency reduces support tickets and increases developer retention.
 
+### Audit Verdicts — COMPLETE
+
+| # | Question | Verdict | Fix |
+|---|----------|---------|-----|
+| 1 | Error code consistency | **BUG** | Added `code` field to 9 error responses in api.ts + batch.ts |
+| 2 | Rate limit headers | **DEFERRED** | Feature opportunity — no X-RateLimit headers yet |
+| 3 | Batch partial failure | **PASS** | `Promise.allSettled` returns all results with error objects |
+| 4 | SSE reconnection | **PASS** | By design — stateless orchestration, no replay needed |
+| 5 | SSE memory leak | **PASS** | `streamCounted` guard + dual decrement in finally/cancel |
+| 6 | OpenAPI spec accuracy | **PASS** | Spot-checked, matches actual routes |
+| 7 | Pagination consistency | **PASS** | `page`+`limit` pattern consistent across endpoints |
+| 8 | CORS for SDK generation | **DEFERRED** | Server-side SDK gen doesn't need CORS |
+| 9 | Query length limit | **PASS** | 2000 char limit enforced on all endpoints |
+| 10 | Idempotency (non-financial) | **DEFERRED** | Feature opportunity — X-Idempotency-Key |
+| 11 | Versioning strategy | **DEFERRED** | All under /v1/, future concern |
+| 12 | Stats info leakage | **BUG** | Removed circuit breaker state + endpoint costs from public /v1/stats |
+
+**Bugs fixed (5):**
+
+1. **CRITICAL** `openclaw.ts` line 288-296: Skill invoke billing didn't credit treasury — `feeCredits` (3%) destroyed. Added `topUpCredits('clawhub-treasury', feeCredits)` inside the transaction. Same bug pattern as Ch07 Fix 1 but in the OpenClaw gateway path.
+
+2. **MEDIUM** `openclaw.ts` line 142-148: Query cache hit deducted full original `creditsUsed` instead of 1 credit. api.ts charges `CACHE_HIT_CREDIT = 1` for cache hits (zero cost to platform). OpenClaw charged the full original amount — users paid full price for a cached response. Fixed to match api.ts behavior.
+
+3. **LOW** `openclaw.ts` line 510: Catalog pricing formula showed `"max(1, ceil(apiCostUsd * 2000))"` — the old flat-rate formula. Updated to reflect value-based per-endpoint tiers + orchestration fee.
+
+4. **LOW** `api.ts` + `batch.ts`: 9 error responses missing `code` field — inconsistent with the documented `{ error, code }` contract. Added machine-readable codes: `MISSING_QUERY`, `QUERY_TOO_LONG`, `ESTIMATE_FAILED`, `INVALID_SESSION`, `SESSION_NOT_FOUND`, `KEY_NOT_FOUND`, `INVALID_BODY`, `INVALID_EMAIL`, `VALIDATION_ERROR`.
+
+5. **LOW** `stats.ts`: Public `/v1/stats` exposed `operationalCount` (circuit breaker state reveals which providers are down) and per-endpoint cost breakdown (`minCostUsd`, `maxCostUsd`, `avgCostUsd`). Removed — public endpoint now shows only aggregate stats (`totalCalls`, `avgDurationMs`, `successRate`, `activeUsers`, `endpoints.total`).
+
+**Deferred to later chapters:**
+- Rate limit headers (X-RateLimit-Limit/Remaining/Reset) → Feature sprint
+- Idempotency keys for POST /v1/orchestrate → Feature sprint
+- CORS configuration for browser-based API playground → Ch19 (Frontend)
+- API versioning strategy → Ch20 (Compliance)
+
 ---
 
 ## Chapter 09 — Mesh Network & Discovery
@@ -956,6 +1104,33 @@ src/db/services.ts                 — upsertPeer, getPeers (24h TTL, LIMIT 500)
 ### Why It Matters
 
 Discovery is how users find skills. A marketplace with 10,000 skills but bad search is useless. Semantic search must be accurate — returning "price oracle" when the user asked for "portfolio optimization" erodes trust. The mesh network is the foundation for ClawNet's decentralization story — agents discovering each other without a central registry. But a mesh with no peers, mock onchain data, and alpha-quality vector search is a prototype, not production. This chapter identifies what's needed to make discovery reliable enough that users trust the results.
+
+### Audit Verdicts — COMPLETE
+
+| # | Question | Verdict | Detail |
+|---|----------|---------|--------|
+| 1 | Mesh node port exposure | **KNOWN LIMITATION** | No peer auth; maxConnections=50 is DoS mitigation only |
+| 2 | Peer metadata trust | **PASS** | P2P layer is 25% weight, results are informational only |
+| 3 | Embedding model memory | **KNOWN LIMITATION** | ~90MB RAM, no pre-check |
+| 4 | Embedding seed blocking | **PASS** | Runs in background after serve() |
+| 5 | Discovery cache stale results | **PASS** | New skills embed at publish (skills.ts:59) |
+| 6 | Onchain layer is mock | **KNOWN LIMITATION** | 15% to 3 hardcoded entries; graceful degradation if 0 matches |
+| 7 | Weight override abuse | **PASS** | Weights normalized; user gets what they ask for |
+| 8 | sqlite-vec stability | **PASS** | try/catch in semanticLayer, graceful degradation |
+| 9 | Peer connection listener leak | **PASS** | removeEventListener in stopMeshNode, double-call safe |
+| 10 | Discovery result relevance | **DEFERRED** | Quality concern, needs real-world testing |
+| 11 | Mesh node crash isolation | **BUG** | `onPeerConnect` handler had no try/catch |
+| 12 | Seed skill embedding drift | **PASS** | Skills embed at publish; registry endpoints stable |
+
+**Bugs fixed (1):**
+
+1. **MEDIUM** `src/mesh/node.ts` line 61-67: `onPeerConnect` event handler had no try/catch. If `getConnections()` or `toString()` throws (e.g., during shutdown race or malicious peer), the error propagates uncaught through libp2p's event emitter and could crash the entire Node.js process. Wrapped handler body in try/catch.
+
+**Known limitations (accepted):**
+- Mesh port 4001 open to any libp2p peer — no auth/allowlist (acceptable for discovery-only use)
+- Embedding model ~90MB RAM — no pre-check (VPS has 4GB)
+- Onchain layer returns mock data — 15% weight redistributes to active layers when 0 matches
+- Single mesh node with no bootstrap peers — mesh is non-functional until multi-node deployment
 
 ---
 
@@ -1047,6 +1222,26 @@ src/config/index.ts                — env vars for all integrations
 
 Each integration is a trust boundary where the platform hands control to an external system. Webhook signature verification prevents spoofed financial events. Solana claim flow must handle RPC failures without losing money. x402 is a novel payment rail — bugs there have no established recovery playbook. At scale, each external service introduces latency, rate limits, and failure modes that compound. A Telegram bot crash shouldn't affect payment processing. A Stripe outage shouldn't block orchestration. Graceful degradation per-integration is the difference between "some features are slow" and "the platform is down."
 
+### Verdicts
+
+| # | Question | Verdict |
+|---|----------|---------|
+| 1 | Telegram cooldown resets on restart | KNOWN LIMITATION — in-memory only, acceptable for current scale |
+| 2 | Telegram admin broadcast | PASS — empty allowlist blocks all users, broadcastBatched parallel-safe |
+| 3 | Stripe webhook replay | PASS — claimStripeSession + stripe_processed_events prevent double credit |
+| 4 | Stripe partial refund edge case | KNOWN LIMITATION — negative delta on dispute reversal not handled |
+| 5 | Solana RPC single point of failure | PASS — SOLANA_RPC_FALLBACK already implemented |
+| 6 | Solana signature race | PASS — INSERT OR IGNORE is atomic |
+| 7 | Clerk user.deleted | KNOWN LIMITATION — not handled, orphaned credits possible |
+| 8 | x402 CJS workaround | PASS — require() cast works at runtime, fragile but functional |
+| 9 | Email deliverability | DEFERRED — SPF/DKIM config is DNS-level, outside code audit scope |
+| 10 | Webhook body size | PASS — 64KB sufficient for Stripe events |
+
+**Bugs fixed (3):**
+1. **MEDIUM** `x402-skills.ts`: Error details leaked in production → hidden behind `NODE_ENV` check
+2. **LOW** `x402-skills.ts`: `JSON.parse(s.tags_json)` → `safeJsonParse<string[]>(s.tags_json, [])` for crash safety
+3. **LOW** `email.ts`: Duplicate local `maskApiKey()` removed → uses centralized import from `src/utils/mask.ts`
+
 ---
 
 ## Chapter 11 — Background Jobs & Cron System
@@ -1125,6 +1320,25 @@ function run() {
 ### Why It Matters
 
 Crons are invisible until they break. A stuck escrow cron means funded escrows never expire — users' credits are locked forever. A stuck A/B cron means challenger skills never promote, freezing marketplace evolution. The cleanup cron failing means tables grow unbounded until disk fills (SQLite has no built-in retention). Each cron runs unsupervised — the only signal of failure is a log line that nobody is watching unless observability is set up correctly.
+
+### Verdicts
+
+| # | Question | Verdict |
+|---|----------|---------|
+| 1 | Are all cleanup functions called? | PASS — 17 cleanup fns called in daily cron + 2 in escrow cron |
+| 2 | Tables with NO cleanup | KNOWN LIMITATION — task_ratings, escrows, proposals, skill_stars, skill_reports have no cleanup (low-volume, acceptable) |
+| 3 | Escrow cron timing | PASS — 10-min granularity acceptable for hours/days-scale deadlines |
+| 4 | A/B cron promotion threshold | PASS — MIN_INVOCATIONS=20 prevents small-sample promotion |
+| 5 | Stake unlock timing | PASS — runs every 60s via setInterval |
+| 6 | Heartbeat file rotation | PASS — 1000-line cap at hourly writes = ~41 days, useful for basic uptime checks |
+| 7 | Seed skills idempotency | PASS — SELECT-before-INSERT + UPDATE on every boot |
+| 8 | Seed embeddings blocking | PASS — runs in background via loadEmbeddingModel().then(seedEmbeddings) |
+| 9 | Cron drift | PASS — setInterval drift negligible for these intervals (5-60 min) |
+| 10 | Shutdown race | PASS — 15s drain period lets in-flight cron ticks complete before DB close |
+
+**Bugs fixed (2):**
+1. **MEDIUM** `stake-unlock-cron.ts`: Missing `_running` concurrency guard — added flag + finally block (consistent with all other crons)
+2. **MEDIUM** `heartbeat.ts`: Initial `setTimeout` not stored — `stopHeartbeat()` during startup wait leaked the timer. Stored as `startupTimerId`, cleared in `stopHeartbeat()`
 
 ---
 
@@ -1211,6 +1425,27 @@ tsconfig.json                       — TypeScript strict config
 
 Infrastructure is the difference between "works on my machine" and "works for 10,000 users." A misconfigured Docker restart policy means a crash at 3am stays down until morning. No backup strategy means a disk failure loses all user data and all credits — real money gone. CI that doesn't catch regressions means broken deploys reach production. Single VPS means zero redundancy — every failure is a full outage.
 
+### Verdicts
+
+| # | Question | Verdict |
+|---|----------|---------|
+| 1 | Docker layer caching | PASS — package*.json copied before source code |
+| 2 | Docker restart + health check | PASS — 30s interval, 3 retries, hits /v1/health |
+| 3 | Redis data persistence | PASS — Redis is L2 cache, loss on restart acceptable |
+| 4 | No Docker log rotation | FIXED — added max-size 10m + max-file 3 to both services |
+| 5 | SQLite backup strategy | DEFERRED — operational task, not code |
+| 6 | SSL certificate renewal | DEFERRED — Caddy handles, outside code scope |
+| 7 | Firewall rules | DEFERRED — VPS-level config |
+| 8 | Single VPS | KNOWN LIMITATION — acceptable for current scale |
+| 9 | CI doesn't build | FIXED — added `npm run build` step to CI pipeline |
+| 10 | Dependency vulnerabilities | KNOWN LIMITATION — bigint-buffer (Solana transitive) has no fix |
+| 11 | No pre-commit hooks | PASS — CI enforces quality, hooks are optional |
+| 12 | Deploy is manual | KNOWN LIMITATION — acceptable for early-stage |
+
+**Bugs fixed (2):**
+1. **MEDIUM** `docker-compose.yml`: No log rotation — added `json-file` driver with `max-size: 10m` + `max-file: 3` to both orchestrator and redis services
+2. **LOW** `.github/workflows/ci.yml`: Missing build step — added `npm run build` between typecheck and tests
+
 ---
 
 ## Chapter 13 — Frontend & User Experience
@@ -1276,6 +1511,23 @@ site/admin-vps.html           — 3.7 KB, VPS admin tools
 ### Why It Matters
 
 The frontend is the first (and often only) impression. A confusing dashboard means users don't understand their credits. A broken payment flow means lost revenue. Poor marketplace UX means developers don't publish skills. The frontend is plain HTML (no framework) — which means no component reuse, no state management, and every page is independently maintained. At the scale ClawNet is targeting, the frontend needs to convert visitors into paying API users efficiently.
+
+### Verdicts
+
+| # | Question | Verdict |
+|---|----------|---------|
+| 1 | Landing page conversion | PASS — clear CTA flow, Stripe + USDC paths |
+| 2 | Dashboard key reveal | PASS — one-time per session, memory-only storage, regenerate available |
+| 3 | Marketplace UX | PASS — search/filter/purchase/rating flows work, all data escaped via esc() |
+| 4 | Mobile responsiveness | PASS — viewport meta tags on all pages, media queries, fluid typography |
+| 5 | Accessibility | UX IMPROVEMENT — missing ARIA labels on buttons, no skip-to-content, no focus trap in modals |
+| 6 | Page load performance | UX IMPROVEMENT — large inline scripts (~45KB in dashboard), no code splitting |
+| 7 | Error states | PASS — all fetch calls have error handling, user-facing toast/modal messages |
+| 8 | Docs completeness | PASS — endpoints documented, admin endpoints noted |
+| 9 | USDC payment UX | PASS — Phantom detection with fallback message, multi-step status updates |
+| 10 | Onboarding | UX IMPROVEMENT — no guided first-API-call experience after signup |
+
+**Bugs fixed (0):** No security or code bugs found. All user-controlled data properly escaped (esc() function). API keys handled safely (memory-only, never in URL or localStorage). All issues are UX/accessibility improvements, not bugs.
 
 ---
 
@@ -1367,6 +1619,24 @@ src/cache/index.ts                  — cache stats function
 ### Why It Matters
 
 You can't fix what you can't see. Without structured observability, debugging production issues means SSH-ing into the VPS and grep-ing log files. Missing metrics means capacity problems are discovered by users, not by alerts. The admin dashboard is the operator's window into platform health — if it's incomplete or misleading, operational decisions are made blind. At scale, observability is the difference between proactive ops and reactive firefighting.
+
+### Verdicts
+
+| # | Question | Verdict |
+|---|----------|---------|
+| 1 | Log volume | PASS — Docker log rotation added in Ch12 (10m × 3 files) |
+| 2 | Sensitive data in logs | PASS — 16 redaction paths cover all secrets; emails logged for ops debugging (acceptable) |
+| 3 | Heartbeat utility | PASS — useful for basic VPS uptime checks via SSH |
+| 4 | Circuit breaker visibility | KNOWN LIMITATION — logs warn on open, no proactive alert (email/Telegram) |
+| 5 | Admin dashboard XSS | PASS — all data escaped via escapeHtml() |
+| 6 | Audit log completeness | KNOWN LIMITATION — skill creation not audit-logged (low priority) |
+| 7 | Cache stats exposed | PASS — available in admin HTML dashboard |
+| 8 | Error alerting | KNOWN LIMITATION — sendAdminAlert() used for spend anomaly + marketplace deficit only, not circuit breaker/cron failures |
+| 9 | Per-key usage tracking | PASS — GET /v1/auth/usage provides per-key stats |
+| 10 | Incident response / p99 latency | KNOWN LIMITATION — only avgDurationMs tracked, no percentiles |
+
+**Bugs fixed (1):**
+1. **MEDIUM** `usage.ts`: `usage.jsonl` appended on every request with no rotation — grows unbounded (~720MB/day at scale). Added `rotateUsageFile()` with 10K-line cap, triggered every 1000 writes.
 
 ---
 

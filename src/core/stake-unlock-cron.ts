@@ -2,6 +2,7 @@ import { getDb } from '../db/index';
 import { logger } from '../utils/logger';
 
 let timer: ReturnType<typeof setInterval> | null = null;
+let _running = false;
 
 export function startStakeUnlockCron(): void {
   if (timer) return;
@@ -18,6 +19,8 @@ export function stopStakeUnlockCron(): void {
 }
 
 function runUnlockCheck(): void {
+  if (_running) return;
+  _running = true;
   try {
     const db = getDb();
     const now = new Date().toISOString();
@@ -48,5 +51,7 @@ function runUnlockCheck(): void {
     }
   } catch (err) {
     logger.error({ err }, 'Stake unlock cron failed');
+  } finally {
+    _running = false;
   }
 }

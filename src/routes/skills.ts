@@ -11,20 +11,46 @@ import {
   updateSkillSchemas, recordReputation, getReputationScore,
   recordSkillMetric, getSkillMetricsSummary, recordSkillVersion, getSkillWithAb, promoteChallenger,
   writeAuditLog, upsertDiscovery, updateSkillSecurityStatus, setAbChallenger, recordTransaction,
+  getSkillCostAnalytics, checkVerificationEligibility, autoVerifyPublisher,
 } from '../db/index';
 import { embed } from '../core/embeddings';
-import { scanSkillTemplate } from '../core/skill-scanner';
+import { scanSkillTemplate, scanProxyResponse } from '../core/skill-scanner';
 import { parseIntent } from '../core/intent-parser';
 import { executePlan } from '../core/executor';
 import { formatResponse } from '../core/formatter';
 import { buildIntentFromPlan } from '../core/skill-executor';
-import { creditsForApiCost } from '../core/credits';
+import { creditsForExecution } from '../core/credits';
+import { findEndpoint } from '../config/api-registry';
 import { logUsage } from '../utils/usage';
 import { cacheGet, cacheSet, cacheIncr } from '../cache/index';
 import { logger } from '../utils/logger';
 import { env, isSimulationMode, rateTier } from '../config/index';
 
 export const skillsRouter = new Hono();
+
+// ─── SSRF protection for api_proxy skills ────────────────────────────────────
+
+/** Block proxy URLs pointing to private/internal addresses (SSRF prevention). */
+function isProxyUrlSafe(urlStr: string): boolean {
+  try {
+    const url = new URL(urlStr);
+    // Enforce HTTPS in production (HTTP only allowed in dev for local testing)
+    if (env.NODE_ENV === 'production' && url.protocol !== 'https:') return false;
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') return false;
+    const host = url.hostname.toLowerCase();
+    // Block localhost variants
+    if (host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '0.0.0.0') return false;
+    // Block private IP ranges
+    if (/^10\./.test(host) || /^172\.(1[6-9]|2\d|3[01])\./.test(host) || /^192\.168\./.test(host)) return false;
+    // Block link-local and metadata
+    if (/^169\.254\./.test(host)) return false;
+    // Block IPv6 private ranges
+    if (host.startsWith('[fc') || host.startsWith('[fd') || host.startsWith('[fe80')) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -52,6 +78,7 @@ const CreateSkillSchema = z.object({
   proxyUrl: z.string().url().optional(),
   proxyMethod: z.enum(['GET', 'POST', 'PUT', 'PATCH']).default('POST'),
   executionPlanJson: z.string().max(10000).optional(), // third-party deterministic execution plan
+  skillClass: z.enum(['standard', 'recursive', 'self_checking']).default('standard'),
 });
 
 // Extract {{variable}} placeholders from a template
@@ -86,6 +113,12 @@ skillsRouter.post('/', checkApiKey, async (c) => {
   }
 
   const data = parsed.data;
+
+  // Q8: SSRF prevention — block proxy URLs pointing to internal addresses
+  if (data.skillType === 'api_proxy' && data.proxyUrl && !isProxyUrlSafe(data.proxyUrl)) {
+    return c.json({ error: 'Proxy URL must be a public HTTPS URL (no localhost, private IPs, or metadata endpoints)', code: 'INVALID_PROXY_URL' }, 400);
+  }
+
   const variables = extractVariables(data.promptTemplate);
   const id = nanoid(12);
 
@@ -104,6 +137,7 @@ skillsRouter.post('/', checkApiKey, async (c) => {
     proxyUrl: data.proxyUrl,
     proxyMethod: data.proxyMethod,
     executionPlanJson: data.executionPlanJson,
+    skillClass: data.skillClass,
   });
 
   // Scan prompt template for injection patterns
@@ -466,6 +500,10 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
 
   // ── API proxy execution (skill_type = 'api_proxy') ───────────────────────
   if (skill.skill_type === 'api_proxy' && skill.proxy_url) {
+    // Q8: Runtime SSRF check — prevents pre-existing skills with internal URLs from being exploited
+    if (!isProxyUrlSafe(skill.proxy_url)) {
+      return c.json({ error: 'Skill proxy URL points to a blocked address', code: 'SSRF_BLOCKED' }, 403);
+    }
     try {
       const proxyRes = await fetch(skill.proxy_url, {
         method: skill.proxy_method ?? 'POST',
@@ -481,6 +519,17 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
         return c.json({ requestId, error: 'Proxy upstream error', status: proxyRes.status, data: proxyData }, 502);
       }
 
+      // Content safety scan — catches wallet drainers, phishing, social engineering
+      const responseScan = scanProxyResponse(proxyData);
+      if (!responseScan.safe) {
+        logger.warn({ requestId, skillId: id, flags: responseScan.flags }, 'Proxy response flagged as unsafe');
+        recordSkillMetric({ skillId: activeSkillId, version: (skill as typeof skill & { version?: string }).version ?? '1.0.0',
+          latencyMs: Date.now() - start, success: false, costCredits: 0 });
+        // Auto-flag the skill after dangerous response
+        updateSkillSecurityStatus(id, 'FLAGGED', responseScan.flags);
+        return c.json({ requestId, error: 'Response flagged for safety review', code: 'CONTENT_UNSAFE', flags: responseScan.flags }, 451);
+      }
+
       const creditsToDeduct = Math.max(1, skill.credit_cost);
       if (!keyInfo.isEnvKey) {
         const revenueSharePct = skill.revenue_share_pct;
@@ -490,12 +539,17 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
           if (!deducted) return false;
           if (shouldPayAuthor) {
             const authorShare = Math.floor(creditsToDeduct * revenueSharePct);
+            const feeCredits = creditsToDeduct - authorShare;
             if (authorShare > 0) {
               topUpCredits(skill.author_key, authorShare);
+              // Credit platform fee to treasury (was missing — fees were being destroyed)
+              if (feeCredits > 0) {
+                topUpCredits('clawhub-treasury', feeCredits);
+              }
               recordTransaction({
                 fromAgent: keyInfo.key, toAgent: skill.author_key,
                 amountCredits: creditsToDeduct, type: 'SKILL_SALE',
-                skillId: activeSkillId, feeCredits: creditsToDeduct - authorShare,
+                skillId: activeSkillId, feeCredits,
               });
             }
           }
@@ -538,15 +592,65 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
     const intent = intentFromPlan ?? await parseIntent(query);
     if (intent.steps.length > 10) intent.steps = intent.steps.slice(0, 10);
 
-    const execution = await executePlan(intent);
-    const formatted = await formatResponse(query, intent, execution);
+    let execution = await executePlan(intent, undefined, keyInfo.key);
+    let formatted = await formatResponse(query, intent, execution);
+    let totalApiCosts = execution.totalCost;
+    // Accumulate ALL execution steps for accurate credit billing (recursive/self_checking run 2 passes)
+    const allExecutionSteps = [...execution.steps];
 
-    const apiCosts = execution.totalCost;
-    const cacheHits = execution.steps.filter((s) => s.cached).length;
+    // ── Self-checking: validate output, retry once if schema validation fails ──
+    if (skill.skill_class === 'self_checking' && skill.output_schema_json) {
+      try {
+        const schema = JSON.parse(skill.output_schema_json);
+        const requiredFields = schema.required ?? Object.keys(schema.properties ?? {});
+        const answerObj = JSON.parse(formatted.answer);
+        const missing = requiredFields.filter((f: string) => !(f in answerObj));
+        if (missing.length > 0) {
+          logger.info({ requestId, missing }, 'Self-checking skill: output missing fields, retrying');
+          const refinedQuery = `${query}\n\nIMPORTANT: Your response MUST include these fields: ${missing.join(', ')}`;
+          const retryIntent = intentFromPlan
+            ? buildIntentFromPlan(skillWithPlan.execution_plan_json!, variables, skill.name)
+            : await parseIntent(refinedQuery);
+          if (retryIntent) {
+            const retryExec = await executePlan(retryIntent, undefined, keyInfo.key);
+            const retryFormatted = await formatResponse(refinedQuery, retryIntent, retryExec);
+            execution = retryExec;
+            formatted = retryFormatted;
+            totalApiCosts += retryExec.totalCost;
+            allExecutionSteps.push(...retryExec.steps);
+          }
+        }
+      } catch {
+        // Schema parse or answer parse failed — use original response
+        logger.debug({ requestId }, 'Self-checking: validation skipped (parse error)');
+      }
+    }
+
+    // ── Recursive: refine output with a second pass (max 1 refinement) ─────────
+    if (skill.skill_class === 'recursive' && formatted.answer) {
+      try {
+        const refineQuery = `Given this initial analysis:\n"${formatted.answer.slice(0, 1000)}"\n\nRefine and improve the analysis for: "${query}"`;
+        const refineIntent = await parseIntent(refineQuery);
+        if (refineIntent.steps.length > 5) refineIntent.steps = refineIntent.steps.slice(0, 5);
+        const refineExec = await executePlan(refineIntent, undefined, keyInfo.key);
+        const refineFormatted = await formatResponse(refineQuery, refineIntent, refineExec);
+        if (refineFormatted.answer && refineFormatted.answer.length > formatted.answer.length * 0.5) {
+          formatted = refineFormatted;
+          totalApiCosts += refineExec.totalCost;
+          execution = refineExec; // for step counts below
+          allExecutionSteps.push(...refineExec.steps);
+        }
+      } catch (refineErr) {
+        logger.warn({ requestId, err: refineErr }, 'Recursive refinement failed, using initial result');
+      }
+    }
+
+    const apiCosts = totalApiCosts;
+    const cacheHits = allExecutionSteps.filter((s) => s.cached).length;
     const totalDurationMs = Date.now() - start;
 
-    // Credit cost: max of skill's fixed price and actual cost
-    const actualCost = creditsForApiCost(apiCosts);
+    // Credit cost: max of skill's fixed price and actual execution cost across ALL passes
+    const actualCost = creditsForExecution(allExecutionSteps, findEndpoint);
     const creditsToDeduct = Math.max(actualCost, skill.credit_cost);
 
     if (!keyInfo.isEnvKey) {
@@ -559,8 +663,13 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
         if (!deducted) return false;
         if (shouldPayAuthor) {
           const authorShare = Math.floor(creditsToDeduct * revenueSharePct);
+          const feeCredits = creditsToDeduct - authorShare;
           if (authorShare > 0) {
             topUpCredits(skill.author_key, authorShare);
+            // Credit platform fee to treasury (was missing — fees were being destroyed)
+            if (feeCredits > 0) {
+              topUpCredits('clawhub-treasury', feeCredits);
+            }
             // Record in ledger so creator stats and payout availability are accurate
             recordTransaction({
               fromAgent: keyInfo.key,
@@ -568,7 +677,7 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
               amountCredits: creditsToDeduct,
               type: 'SKILL_SALE',
               skillId: activeSkillId,
-              feeCredits: creditsToDeduct - authorShare,
+              feeCredits,
             });
           }
         }
@@ -632,7 +741,7 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
       ...(formatted.opportunityScore !== undefined && { opportunityScore: formatted.opportunityScore }),
       ...(formatted.riskScore !== undefined && { riskScore: formatted.riskScore }),
       suggestedActions: formatted.suggestedActions,
-      skill: { id: skill.id, name: skill.name },
+      skill: { id: skill.id, name: skill.name, class: skill.skill_class ?? 'standard' },
       costBreakdown: {
         costUsd: Math.round(apiCosts * 10000) / 10000,
         creditsUsed: creditsToDeduct,
@@ -643,6 +752,7 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
         totalDurationMs,
         llmProvider: env.LLM_PROVIDER,
         simulationMode: isSimulationMode,
+        ...(skill.skill_class !== 'standard' && { skillClass: skill.skill_class }),
       },
     };
 
@@ -685,6 +795,61 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
   }
 });
 
+// ─── GET /v1/skills/:id/analytics — per-skill cost & performance analytics ────
+
+skillsRouter.get('/:id/analytics', (c) => {
+  const { id } = c.req.param();
+  const skill = getSkill(id);
+  if (!skill || !skill.public) return c.json({ error: 'Skill not found' }, 404);
+
+  const analytics = getSkillCostAnalytics(id);
+  return c.json({
+    skillId: id,
+    skillName: skill.name,
+    skillClass: skill.skill_class ?? 'standard',
+    ...analytics,
+  });
+});
+
+// ─── GET /v1/skills/verification/status — check publisher verification eligibility ──
+
+skillsRouter.get('/verification/status', checkApiKey, (c) => {
+  const keyInfo = c.get('apiKeyInfo');
+  const eligibility = checkVerificationEligibility(keyInfo.key);
+  return c.json(eligibility);
+});
+
+// ─── POST /v1/skills/verification/apply — apply for verified publisher status ──
+
+skillsRouter.post('/verification/apply', checkApiKey, (c) => {
+  const keyInfo = c.get('apiKeyInfo');
+  const eligibility = checkVerificationEligibility(keyInfo.key);
+
+  if (!eligibility.eligible) {
+    return c.json({
+      ok: false,
+      error: 'Not yet eligible for verification',
+      code: 'NOT_ELIGIBLE',
+      reasons: eligibility.reasons,
+      metrics: eligibility.metrics,
+    }, 403);
+  }
+
+  const verified = autoVerifyPublisher(keyInfo.key);
+  writeAuditLog({
+    entityType: 'publisher', entityId: keyInfo.key,
+    action: 'VERIFIED', actorId: keyInfo.key,
+    data: { skillsVerified: verified, metrics: eligibility.metrics },
+  });
+  logger.info({ authorKey: keyInfo.key.slice(0, 8), skillsVerified: verified }, 'Publisher verified');
+
+  return c.json({
+    ok: true,
+    skillsVerified: verified,
+    metrics: eligibility.metrics,
+  });
+});
+
 // ─── POST /v1/skills/:id/test — dry-run a skill (owner only, no billing) ──────
 
 skillsRouter.post('/:id/test', checkApiKey, async (c) => {
@@ -699,6 +864,14 @@ skillsRouter.post('/:id/test', checkApiKey, async (c) => {
   // Owner-only: only the author can dry-run their skill
   if (skill.author_key !== keyInfo.key) {
     return c.json({ requestId, error: 'Only the skill author can run a test' }, 403);
+  }
+
+  // Rate limit test runs: 10/min per key (prevents free API resource abuse)
+  if (!keyInfo.isEnvKey) {
+    const rlCount = await cacheIncr(`rl:skill-test:${keyInfo.key}`, 60);
+    if (rlCount > 10) {
+      return c.json({ requestId, error: 'Test rate limit exceeded (max 10/min)', code: 'RATE_LIMITED' }, 429);
+    }
   }
 
   let rawBody: unknown;
@@ -733,7 +906,7 @@ skillsRouter.post('/:id/test', checkApiKey, async (c) => {
     const intent = intentFromPlan ?? await parseIntent(query);
     if (intent.steps.length > 10) intent.steps = intent.steps.slice(0, 10);
 
-    const execution = await executePlan(intent);
+    const execution = await executePlan(intent, undefined, keyInfo.key);
     const formatted = await formatResponse(query, intent, execution);
 
     logger.info({ requestId, skillId: id, durationMs: Date.now() - start }, 'Skill test run complete');

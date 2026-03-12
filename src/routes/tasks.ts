@@ -9,12 +9,15 @@ import {
   recordSkillMetric, recordReputation, getDb,
   createTask, getTask, getTaskByIdempotencyKey, listTasks, countTasks,
   updateTaskRunning, updateTaskCompleted, updateTaskFailed, updateTaskCancelled,
-  createTaskRating, getTaskRating,
+  createTaskRating, getTaskRating, updateWebhookStatus,
+  type Task,
 } from '../db/index';
 import { parseIntent } from '../core/intent-parser';
 import { executePlan } from '../core/executor';
 import { formatResponse } from '../core/formatter';
-import { creditsForApiCost } from '../core/credits';
+import { creditsForExecution } from '../core/credits';
+import { findEndpoint } from '../config/api-registry';
+import { scanProxyResponse } from '../core/skill-scanner';
 import { logger } from '../utils/logger';
 import { cacheGet, cacheSet } from '../cache/index';
 
@@ -33,14 +36,44 @@ function skillCacheKey(skillId: string, variables: Record<string, string>): stri
   return 'task:' + crypto.createHash('sha256').update(normalized).digest('hex').slice(0, 16);
 }
 
-/** Fire-and-forget webhook delivery after task completion */
+/** Webhook delivery with exponential backoff retry (3 attempts: 0s, 1s, 3s) */
 function fireWebhook(webhookUrl: string, taskId: string, payload: unknown): void {
-  fetch(webhookUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-ClawNet-Task-ID': taskId },
-    body: JSON.stringify(payload),
-    signal: AbortSignal.timeout(10_000),
-  }).catch((err) => logger.warn({ taskId, err }, 'Webhook delivery failed'));
+  const MAX_ATTEMPTS = 3;
+  const BACKOFF_MS = [0, 1000, 3000];
+
+  async function attempt(n: number): Promise<void> {
+    try {
+      const res = await fetch(webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-ClawNet-Task-ID': taskId, 'X-ClawNet-Attempt': String(n + 1) },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (res.ok) {
+        updateWebhookStatus(taskId, n + 1, 'delivered');
+        logger.debug({ taskId, attempt: n + 1 }, 'Webhook delivered');
+        return;
+      }
+      // Non-2xx: retry if attempts remain
+      if (n + 1 < MAX_ATTEMPTS) {
+        logger.warn({ taskId, status: res.status, attempt: n + 1 }, 'Webhook non-2xx, retrying');
+        await new Promise(r => setTimeout(r, BACKOFF_MS[n + 1]));
+        return attempt(n + 1);
+      }
+      updateWebhookStatus(taskId, n + 1, `failed:${res.status}`);
+      logger.error({ taskId, status: res.status }, 'Webhook delivery failed after all retries');
+    } catch (err) {
+      if (n + 1 < MAX_ATTEMPTS) {
+        logger.warn({ taskId, err, attempt: n + 1 }, 'Webhook error, retrying');
+        await new Promise(r => setTimeout(r, BACKOFF_MS[n + 1]));
+        return attempt(n + 1);
+      }
+      updateWebhookStatus(taskId, n + 1, 'failed:error');
+      logger.error({ taskId, err }, 'Webhook delivery failed after all retries');
+    }
+  }
+
+  void attempt(0);
 }
 
 // ─── POST /v1/tasks — submit a task ───────────────────────────────────────────
@@ -126,6 +159,14 @@ tasksRouter.post('/', checkApiKey, async (c) => {
         return c.json({ taskId, status: 'FAILED', error: 'Proxy upstream error', httpStatus: proxyRes.status }, 502);
       }
 
+      // Content safety scan — catches wallet drainers, phishing, social engineering
+      const responseScan = scanProxyResponse(proxyData);
+      if (!responseScan.safe) {
+        logger.warn({ taskId, skillId, flags: responseScan.flags }, 'Task proxy response flagged as unsafe');
+        updateTaskFailed(taskId, `Response flagged: ${responseScan.flags.join(', ')}`, Date.now() - start);
+        return c.json({ taskId, status: 'FAILED', error: 'Response flagged for safety review', code: 'CONTENT_UNSAFE' }, 451);
+      }
+
       const creditsToDeduct = Math.max(1, skill.credit_cost);
       if (!keyInfo.isEnvKey) {
         const ok = getDb().transaction(() => deductCredit(keyInfo.key, creditsToDeduct))();
@@ -167,11 +208,11 @@ tasksRouter.post('/', checkApiKey, async (c) => {
     const intent = await parseIntent(query);
     if (intent.steps.length > 10) intent.steps = intent.steps.slice(0, 10);
 
-    const execution = await executePlan(intent);
+    const execution = await executePlan(intent, undefined, keyInfo.key);
     const formatted = await formatResponse(query, intent, execution);
 
     const apiCosts = execution.totalCost;
-    const actualCost = creditsForApiCost(apiCosts);
+    const actualCost = creditsForExecution(execution.steps, findEndpoint);
     const creditsToDeduct = Math.max(actualCost, skill.credit_cost);
 
     if (!keyInfo.isEnvKey) {
@@ -282,6 +323,13 @@ tasksRouter.get('/:id', checkApiKey, (c) => {
     startedAt: task.started_at,
     completedAt: task.completed_at,
     rating: rating ? { rating: rating.rating, comment: rating.comment } : null,
+    ...(task.webhook_url && {
+      webhook: {
+        url: task.webhook_url,
+        attempts: (task as Task & { webhook_attempts?: number }).webhook_attempts ?? 0,
+        status: (task as Task & { webhook_status?: string }).webhook_status ?? null,
+      },
+    }),
   });
 });
 

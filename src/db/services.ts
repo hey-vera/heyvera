@@ -153,6 +153,17 @@ export function updateTaskCancelled(id: string): boolean {
   return result.changes > 0;
 }
 
+/** Track webhook delivery attempts and final status */
+export function updateWebhookStatus(taskId: string, attempts: number, status: string): void {
+  try {
+    getDb()
+      .prepare(`UPDATE tasks SET webhook_attempts = ?, webhook_status = ? WHERE id = ?`)
+      .run(attempts, status, taskId);
+  } catch {
+    // Don't let webhook tracking failures affect anything
+  }
+}
+
 // ─── Task Ratings ─────────────────────────────────────────────────────────────
 
 export interface TaskRating {

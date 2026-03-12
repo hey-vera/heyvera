@@ -15,6 +15,8 @@ export interface ApiEndpoint {
   rateLimit?: number;
   /** Override cache TTL in seconds. Omit to use global CACHE_TTL_SECONDS (300s default). */
   cacheTtl?: number;
+  /** Fixed credit cost per invocation (value-based pricing). Omit to auto-tier from costPerCall. */
+  creditCost?: number;
 }
 
 export const apiRegistry: ApiEndpoint[] = [

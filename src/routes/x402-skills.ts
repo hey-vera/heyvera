@@ -23,7 +23,7 @@ const { HTTPFacilitatorClient } = require('@x402/core/server') as {
   HTTPFacilitatorClient: new (url: string) => unknown;
 };
 type HTTPRequestContext = { path: string; method: string; paymentHeader?: string };
-import { getSkill, listPublicSkills, incrementSkillUses } from '../db/index';
+import { getSkill, listPublicSkills, incrementSkillUses, safeJsonParse } from '../db/index';
 import { renderTemplate } from '../utils/template';
 import { parseIntent } from '../core/intent-parser';
 import { executePlan } from '../core/executor';
@@ -154,7 +154,11 @@ x402SkillsRouter.post('/skills/:id', async (c) => {
     });
   } catch (err) {
     logger.error({ requestId, skillId: id, err }, 'x402 skill execution error');
-    return c.json({ requestId, error: 'Skill execution failed', details: String(err) }, 500);
+    return c.json({
+      requestId,
+      error: env.NODE_ENV === 'production' ? 'Skill execution failed' : String(err),
+      code: 'EXECUTION_FAILED',
+    }, 500);
   }
 });
 
@@ -182,7 +186,7 @@ x402SkillsRouter.get('/skills', (c) => {
       creditCost: s.credit_cost,
       priceUsdc: (Math.max(s.credit_cost, 1) * env.X402_USDC_PER_CREDIT).toFixed(6),
       invokeEndpoint: `POST /x402/skills/${s.id}`,
-      tags: s.tags_json ? JSON.parse(s.tags_json as string) : [],
+      tags: safeJsonParse<string[]>(s.tags_json, []),
     })),
     totalSkills: skills.length,
   });

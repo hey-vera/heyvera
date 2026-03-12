@@ -25,7 +25,7 @@ import {
   createSwarmTask, getAgentUsageStats, getReputationScore,
   writeAuditLog, safeJsonParse,
 } from '../db/index';
-import { creditsForApiCost } from '../core/credits';
+import { creditsForExecution, creditsToUsd } from '../core/credits';
 import { parseIntent } from '../core/intent-parser';
 import { executePlan } from '../core/executor';
 import { formatResponse } from '../core/formatter';
@@ -34,8 +34,8 @@ import { isEmbeddingModelReady } from '../core/embeddings';
 import { cacheGet, cacheSet, cacheIncr } from '../cache/index';
 import { logUsage } from '../utils/usage';
 import { logger } from '../utils/logger';
-import { env, isSimulationMode, SWARM_BASE_FEE, rateTier } from '../config/index';
-import { apiRegistry } from '../config/api-registry';
+import { env, isSimulationMode, SWARM_BASE_FEE, ORCHESTRATION_FEE, rateTier } from '../config/index';
+import { apiRegistry, findEndpoint } from '../config/api-registry';
 import { runSwarm } from './swarm';
 
 export const openclawRouter = new Hono();
@@ -140,14 +140,15 @@ openclawRouter.post('/invoke', checkApiKey, async (c) => {
     const qKey = queryCacheKey(query);
     const cached = await cacheGet<Record<string, unknown>>(qKey);
     if (cached) {
-      const creditsUsed = (cached.costBreakdown as Record<string, unknown> | undefined)?.creditsUsed as number ?? 1;
+      // Charge 1 credit for cache hits — consistent with api.ts (zero cost to platform, prevents free-riding)
+      const CACHE_HIT_CREDIT = 1;
       if (!keyInfo.isEnvKey) {
-        if (keyInfo.credits < creditsUsed) {
+        if (keyInfo.credits < CACHE_HIT_CREDIT) {
           return c.json({ ok: false, requestId, error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS', creditsAvailable: keyInfo.credits }, 402);
         }
-        deductCredit(keyInfo.key, creditsUsed);
+        deductCredit(keyInfo.key, CACHE_HIT_CREDIT);
       }
-      return c.json(envelope(requestId, 'query', cached, creditsUsed, keyInfo.credits - creditsUsed, {
+      return c.json(envelope(requestId, 'query', cached, CACHE_HIT_CREDIT, keyInfo.credits - CACHE_HIT_CREDIT, {
         durationMs: Date.now() - start, cacheHit: true, route: 'orchestrate',
       }));
     }
@@ -157,12 +158,13 @@ openclawRouter.post('/invoke', checkApiKey, async (c) => {
     try {
       const intent = await parseIntent(query);
       if (intent.steps.length > 10) intent.steps = intent.steps.slice(0, 10);
-      const execution = await executePlan(intent);
+      const execution = await executePlan(intent, undefined, keyInfo.key);
       const formatted = await formatResponse(query, intent, execution);
 
       const apiCosts = execution.totalCost;
       const cacheHits = execution.steps.filter((s) => s.cached).length;
-      const creditsUsed = creditsForApiCost(apiCosts);
+      const stepCredits = creditsForExecution(execution.steps, findEndpoint);
+      const creditsUsed = stepCredits + ORCHESTRATION_FEE;
       const totalDurationMs = Date.now() - start;
 
       if (!keyInfo.isEnvKey) {
@@ -270,14 +272,14 @@ openclawRouter.post('/invoke', checkApiKey, async (c) => {
     try {
       const intent = await parseIntent(query);
       if (intent.steps.length > 10) intent.steps = intent.steps.slice(0, 10);
-      const execution = await executePlan(intent);
+      const execution = await executePlan(intent, undefined, keyInfo.key);
       const formatted = await formatResponse(query, intent, execution);
 
       const apiCosts = execution.totalCost;
       const cacheHits = execution.steps.filter((s) => s.cached).length;
       const totalDurationMs = Date.now() - start;
 
-      const actualCost = Math.max(1, Math.ceil(apiCosts * 2000));
+      const actualCost = creditsForExecution(execution.steps, findEndpoint);
       const creditsUsed = Math.max(actualCost, skill.credit_cost);
 
       if (!keyInfo.isEnvKey) {
@@ -289,7 +291,10 @@ openclawRouter.post('/invoke', checkApiKey, async (c) => {
           if (!deducted) return false;
           if (shouldPayAuthor) {
             const authorShare = Math.floor(creditsUsed * revenueSharePct);
+            const feeCredits = creditsUsed - authorShare;
             if (authorShare > 0) topUpCredits(skill.author_key, authorShare);
+            // Credit platform fee to treasury (was missing — fees were being destroyed)
+            if (feeCredits > 0) topUpCredits('clawhub-treasury', feeCredits);
           }
           return true;
         })();
@@ -506,7 +511,7 @@ openclawRouter.get('/catalog', checkApiKey, (c) => {
     skills: { page, total: countPublicSkills(), data: skills },
     endpoints: { total: apiRegistry.length, byCategory: endpointsByCategory },
     pricing: {
-      creditFormula: 'max(1, ceil(apiCostUsd * 2000))',
+      creditFormula: 'value-based per-endpoint tiers + orchestration fee (2 credits)',
       creditsPerDollar: 1000,
       packages: [
         { usd: 20,   credits: 21000  },

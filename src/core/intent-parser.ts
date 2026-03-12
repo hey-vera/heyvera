@@ -87,9 +87,23 @@ export async function parseIntent(query: string, pricingHint?: string): Promise<
     const result = ParsedIntentSchema.parse(parsed);
     // Validate that all endpoint IDs exist in the registry — drop hallucinated ones
     const validSteps = result.steps.filter(step => {
-      const exists = !!findEndpoint(step.endpointId);
-      if (!exists) logger.warn({ endpointId: step.endpointId }, 'Intent parser: unknown endpoint ID dropped');
-      return exists;
+      const endpoint = findEndpoint(step.endpointId);
+      if (!endpoint) {
+        logger.warn({ endpointId: step.endpointId }, 'Intent parser: unknown endpoint ID dropped');
+        return false;
+      }
+      // Strip hallucinated params — only keep keys declared in inputSchema
+      const validParamKeys = new Set(Object.keys(endpoint.inputSchema ?? {}));
+      if (validParamKeys.size > 0) {
+        const originalKeys = Object.keys(step.params);
+        for (const key of originalKeys) {
+          if (!validParamKeys.has(key)) {
+            logger.debug({ endpointId: step.endpointId, param: key }, 'Intent parser: unknown param stripped');
+            delete step.params[key];
+          }
+        }
+      }
+      return true;
     });
     if (validSteps.length < result.steps.length) {
       // Remap parallelGroups to new indices — old indices are stale after filtering
@@ -125,7 +139,18 @@ export async function parseIntent(query: string, pricingHint?: string): Promise<
       const cleaned = response.content.replace(/```json|```/g, '').trim();
       const parsed = JSON.parse(cleaned);
       const result = ParsedIntentSchema.parse(parsed);
-      const validSteps = result.steps.filter(step => !!findEndpoint(step.endpointId));
+      const validSteps = result.steps.filter(step => {
+        const ep = findEndpoint(step.endpointId);
+        if (!ep) return false;
+        // Strip hallucinated params on retry path too
+        const validKeys = new Set(Object.keys(ep.inputSchema ?? {}));
+        if (validKeys.size > 0) {
+          for (const key of Object.keys(step.params)) {
+            if (!validKeys.has(key)) delete step.params[key];
+          }
+        }
+        return true;
+      });
       if (validSteps.length < result.steps.length) {
         const oldToNew = new Map<number, number>();
         validSteps.forEach((step, newIdx) => { oldToNew.set(result.steps.indexOf(step), newIdx); });

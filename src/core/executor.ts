@@ -4,6 +4,8 @@ import { findEndpoint } from '../config/api-registry';
 import { cacheGet, cacheSet, cacheKey } from '../cache/index';
 import { logger } from '../utils/logger';
 import { isClawApisReady, clawApiCall } from '../providers/clawapis';
+import { getAgentContext, setAgentContext } from '../db/index';
+import { creditCostForEndpoint } from './credits';
 
 export interface StepResult {
   endpointId: string;
@@ -172,7 +174,8 @@ function normalizeParams(endpointId: string, params: Record<string, string>): Re
 
 async function executeStep(
   stepIndex: number,
-  intent: ParsedIntent
+  intent: ParsedIntent,
+  agentKey?: string,
 ): Promise<StepResult> {
   const step = intent.steps[stepIndex];
   const endpoint = findEndpoint(step.endpointId);
@@ -180,6 +183,15 @@ async function executeStep(
 
   if (!endpoint) {
     return { endpointId: step.endpointId, success: false, cached: false, durationMs: 0, cost: 0, error: 'ENDPOINT_NOT_FOUND' };
+  }
+
+  // Agent Context Layer — check per-agent SQLite cache first (sub-1ms)
+  if (agentKey) {
+    const ctxData = getAgentContext(agentKey, step.endpointId, step.params);
+    if (ctxData !== null) {
+      logger.debug({ endpointId: step.endpointId }, 'Agent context hit');
+      return { endpointId: step.endpointId, success: true, cached: true, durationMs: Date.now() - start, cost: 0, data: ctxData };
+    }
   }
 
   const key = cacheKey(step.endpointId, step.params);
@@ -210,12 +222,34 @@ async function executeStep(
     }
     // YELLOW-8: Reject oversized responses before caching to prevent cache poisoning / memory DoS
     const MAX_RESPONSE_BYTES = 1_000_000; // 1MB
-    const responseSize = JSON.stringify(data).length;
+    const serialized = JSON.stringify(data);
+    const responseSize = serialized.length;
     if (responseSize > MAX_RESPONSE_BYTES) {
       logger.warn({ endpointId: step.endpointId, responseSize }, 'API response exceeds max size — skipping cache');
     } else {
       await cacheSet(key, data, endpoint.cacheTtl);
+      // Store in agent context for persistent per-agent cache (3x TTL)
+      if (agentKey) {
+        setAgentContext(agentKey, step.endpointId, step.params, data, endpoint.category ?? null, endpoint.cacheTtl ?? 300);
+      }
     }
+
+    // Post-fetch validation: verify response contains expected output fields
+    if (endpoint.outputFields && endpoint.outputFields.length > 0 && data && typeof data === 'object') {
+      const dataKeys = new Set(Object.keys(data as Record<string, unknown>));
+      const matchCount = endpoint.outputFields.filter(f => dataKeys.has(f)).length;
+      const matchRatio = matchCount / endpoint.outputFields.length;
+      if (matchRatio < 0.3 && endpoint.outputFields.length > 1) {
+        // Response doesn't match expected schema — likely wrong endpoint or stale data
+        logger.warn({
+          endpointId: step.endpointId,
+          expected: endpoint.outputFields.slice(0, 5),
+          got: [...dataKeys].slice(0, 5),
+          matchRatio,
+        }, 'Post-fetch: response schema mismatch (using data but flagging)');
+      }
+    }
+
     recordSuccess(step.endpointId);
     return { endpointId: step.endpointId, success: true, cached: false, durationMs: Date.now() - start, cost: endpoint.costPerCall, data };
   } catch (err) {
@@ -232,10 +266,11 @@ export interface BudgetConstraint {
   maxCredits: number;
 }
 
-export async function executePlan(intent: ParsedIntent, budget?: BudgetConstraint): Promise<ExecutionResult> {
+export async function executePlan(intent: ParsedIntent, budget?: BudgetConstraint, agentKey?: string): Promise<ExecutionResult> {
   const start = Date.now();
   const allResults: StepResult[] = new Array(intent.steps.length);
   let runningCostUsd = 0;
+  let runningCredits = 0;
 
   for (const group of intent.parallelGroups) {
     // If budget constraint exists, skip steps that would blow the limit
@@ -243,9 +278,9 @@ export async function executePlan(intent: ParsedIntent, budget?: BudgetConstrain
       ? group.filter((indexStr) => {
           const step = intent.steps[parseInt(indexStr)];
           const ep = step ? findEndpoint(step.endpointId) : null;
-          const stepCostUsd = ep?.costPerCall ?? 0.001;
+          const stepCredits = ep ? creditCostForEndpoint(ep) : 1;
           // Estimate whether adding this step would exceed the credit budget
-          const projectedCredits = Math.max(1, Math.ceil((runningCostUsd + stepCostUsd) * 2000));
+          const projectedCredits = runningCredits + stepCredits;
           if (projectedCredits > budget.maxCredits) {
             logger.info({ endpointId: step?.endpointId, projectedCredits, maxCredits: budget.maxCredits }, 'Skipping step — budget exceeded');
             allResults[parseInt(indexStr)] = {
@@ -260,13 +295,17 @@ export async function executePlan(intent: ParsedIntent, budget?: BudgetConstrain
       : group;
 
     const groupResults = await Promise.allSettled(
-      stepsToRun.map((indexStr) => executeStep(parseInt(indexStr), intent))
+      stepsToRun.map((indexStr) => executeStep(parseInt(indexStr), intent, agentKey))
     );
     groupResults.forEach((result, i) => {
       const stepIndex = parseInt(stepsToRun[i]);
       if (result.status === 'fulfilled') {
         allResults[stepIndex] = result.value;
         runningCostUsd += result.value.cost;
+        if (result.value.success && !result.value.cached) {
+          const ep = findEndpoint(result.value.endpointId);
+          runningCredits += ep ? creditCostForEndpoint(ep) : 1;
+        }
       } else {
         allResults[stepIndex] = {
           endpointId: intent.steps[stepIndex]?.endpointId ?? 'unknown',

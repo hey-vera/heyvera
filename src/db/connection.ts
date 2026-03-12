@@ -240,6 +240,30 @@ const MIGRATIONS: { version: number; sql: string }[] = [
       ON transactions(to_agent, type, skill_id, amount_credits, fee_credits)
       WHERE type = 'SKILL_SALE'
   ` },
+  // Skill classes: standard, recursive, self_checking — foundation for composable skills
+  { version: 45, sql: `ALTER TABLE skills ADD COLUMN skill_class TEXT NOT NULL DEFAULT 'standard'` },
+  // Webhook delivery tracking for retry reliability
+  { version: 46, sql: `ALTER TABLE tasks ADD COLUMN webhook_attempts INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE tasks ADD COLUMN webhook_status TEXT` },
+  // Agent Context Layer — per-agent persistent cache for sub-10ms lookups
+  { version: 47, sql: `
+    CREATE TABLE IF NOT EXISTS agent_contexts (
+      id TEXT PRIMARY KEY,
+      api_key TEXT NOT NULL,
+      endpoint_id TEXT NOT NULL,
+      params_hash TEXT NOT NULL,
+      category TEXT,
+      data_json TEXT NOT NULL,
+      size_bytes INTEGER NOT NULL DEFAULT 0,
+      hit_count INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      expires_at TEXT NOT NULL,
+      UNIQUE(api_key, endpoint_id, params_hash)
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_ctx_key ON agent_contexts(api_key);
+    CREATE INDEX IF NOT EXISTS idx_agent_ctx_expires ON agent_contexts(expires_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_ctx_lookup ON agent_contexts(api_key, endpoint_id, params_hash);
+  ` },
 ];
 
 function runMigrations(): void {
