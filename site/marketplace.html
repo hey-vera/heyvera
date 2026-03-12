@@ -122,7 +122,8 @@
     .hstat-val.p { color: var(--purple); }
     .hstat-lbl { font-size: 11px; color: var(--text-tertiary); margin-top: 3px; }
 
-    .tabs { display: flex; border-bottom: 1px solid var(--border-subtle); margin-bottom: 28px; overflow-x: auto; }
+    .tabs { display: flex; border-bottom: 1px solid var(--border-subtle); margin-bottom: 28px; overflow-x: auto; scrollbar-width: none; -ms-overflow-style: none; }
+    .tabs::-webkit-scrollbar { display: none; }
     .tab { font-size: 13px; font-weight: 500; padding: 12px 16px; color: var(--text-tertiary); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all 0.15s; background: none; border-top: none; border-left: none; border-right: none; white-space: nowrap; font-family: var(--font-sans); }
     .tab:hover { color: var(--text-secondary); }
     .tab.active { color: var(--text-primary); border-bottom-color: var(--accent); }
@@ -789,7 +790,7 @@ function setSkillType(type) {
 // 1 credit = $0.001
 function creditsToUsd(n) {
   const usd = n * 0.001;
-  if (usd < 0.01) return '<$0.01';
+  if (usd < 0.01) return '$' + usd.toFixed(4).replace(/0+$/, '');
   return '$' + usd.toFixed(usd >= 1 ? 2 : 3).replace(/\.?0+$/, '');
 }
 
@@ -915,6 +916,14 @@ async function initNav() {
     document.getElementById('nav-credits-num').textContent = cached !== null ? parseInt(cached).toLocaleString() : '—';
     document.getElementById('nav-credits-badge').classList.add('show');
     await refreshCredits();
+    // Auto-fetch and cache API key for Clerk users so marketplace actions work
+    if (!apiKey) {
+      try {
+        const token = await window.Clerk.session.getToken();
+        const kr = await fetch(`${API}/v1/dashboard/reveal-key`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+        if (kr.ok) { const kd = await kr.json(); if (kd.apiKey) { apiKey = kd.apiKey; localStorage.setItem('claw_api_key', apiKey); } }
+      } catch {}
+    }
   } catch (e) {}
 }
 
@@ -1030,8 +1039,6 @@ function renderCard(s) {
   const slug = s.name;
   const tags = (s.tags||[]).slice(0,3).map(t => `<span class="card-tag">${esc(t)}</span>`).join('');
   const starred = starredIds.has(s.id);
-  const cat = s.category || 'general';
-  const catIcon = CAT_ICONS[cat] || '◆';
   const skillType = s.skillType || 'prompt_template';
   const typeBadge = skillType === 'data' ? '<span class="skill-type-badge data">DATA SKILL</span>'
     : skillType === 'api_proxy' ? '<span class="skill-type-badge api_proxy">API PROXY</span>'
@@ -1039,14 +1046,14 @@ function renderCard(s) {
   const license = s.license || 'MIT';
   return `<div class="skill-card${off?' official':''}">
     ${off ? '<span class="card-badge">Official</span>' : ''}
-    <div class="card-cat">${typeBadge} ${catIcon} ${esc(cat)}</div>
+    <div class="card-cat">${typeBadge}</div>
     <div class="card-head">
       <div>
         <div class="card-name" onclick="nav('skill/'+encodeURIComponent('${esc(s.id)}'))">${esc(displayName)}</div>
         ${displayName !== slug ? `<div class="card-slug">${esc(slug)}</div>` : ''}
         <div class="card-ver">v${esc(s.version||'1.0.0')} <span class="sec clean">${esc(license)}</span></div>
       </div>
-      <div class="card-price"><div class="card-price-n">${s.creditCost}</div><div class="card-price-l">cr · ${creditsToUsd(s.creditCost)}</div></div>
+      <div class="card-price"><div class="card-price-n">${s.creditCost} <span style="font-size:12px;font-weight:500;color:var(--text-tertiary)">credits</span></div><div class="card-price-l" style="color:var(--accent)">${creditsToUsd(s.creditCost)}/call</div></div>
     </div>
     <p class="card-desc">${esc(s.description)}</p>
     ${tags ? `<div class="card-tags">${tags}</div>` : ''}
@@ -1134,7 +1141,7 @@ async function loadSkillDetail(id) {
       <div class="detail-tabs" id="d-tabs">
         <button class="dtab active" data-dt="overview">Overview</button>
         <button class="dtab" data-dt="schema">Input / Output</button>
-        <button class="dtab" data-dt="invoke">Invoke</button>
+        <button class="dtab" data-dt="invoke">Integration</button>
         <button class="dtab" data-dt="stats">Stats</button>
         <button class="dtab" data-dt="reviews">Reviews</button>
         ${hasChangelog ? '<button class="dtab" data-dt="changelog">Changelog</button>' : ''}
@@ -1149,11 +1156,12 @@ async function loadSkillDetail(id) {
         <div style="margin-bottom:16px">
           <div style="font-size:11px;font-weight:500;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:8px">Cost Breakdown</div>
           <div class="cost-table">
-            <div class="cost-row"><span style="color:var(--text-secondary)">Skill price</span><span>${s.creditCost} credits</span></div>
+            <div class="cost-row"><span style="color:var(--text-secondary)">You pay per call</span><span style="color:var(--accent);font-weight:600">${s.creditCost} credits (${creditsToUsd(s.creditCost)})</span></div>
+            <div class="cost-row"><span style="color:var(--text-secondary)">Creator receives (97%)</span><span>${s.sellerReceives} credits</span></div>
             <div class="cost-row"><span style="color:var(--text-secondary)">Platform fee (3%)</span><span>${s.feeCredits} credits</span></div>
-            <div class="cost-row"><span style="color:var(--text-secondary)">Creator receives</span><span>${s.sellerReceives} credits</span></div>
-            <div class="cost-row"><span style="color:var(--text-secondary)">You pay</span><span>${s.totalCost} credits</span></div>
+            ${s.skillType === 'data' ? '<div class="cost-row" style="border-top:1px solid var(--border-subtle);padding-top:8px;margin-top:4px"><span style="color:var(--accent)">Cached response price</span><span style="color:var(--accent);font-weight:600">1 credit ($0.001)</span></div>' : ''}
           </div>
+          <p style="font-size:12px;color:var(--text-muted);margin-top:8px">1 credit = $0.001. Credits are deducted from your balance instantly on each call.${s.skillType === 'data' ? ' Data skills cache results — repeat calls cost just 1 credit until the cache expires.' : ''}</p>
         </div>
       </div>
 
@@ -1439,40 +1447,63 @@ res = requests.post("${endpoint}",
 )
 data = res.json()`;
 
+  // Cost per call text
+  const costText = isData
+    ? `<strong style="color:var(--accent)">${s.creditCost} credits</strong> per live call &middot; <strong style="color:var(--accent)">1 credit</strong> if cached`
+    : `<strong style="color:var(--accent)">${s.creditCost} credits</strong> per call`;
+
   return `
-    <div style="display:flex;flex-direction:column;gap:20px">
-      <!-- How It Works -->
-      <div class="invoke-section">
-        <div class="invoke-title">How It Works</div>
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:6px">
-          <div style="font-size:13px;color:var(--text-secondary);display:flex;align-items:flex-start;gap:8px">
-            <span style="color:var(--accent);font-weight:700;font-size:16px;line-height:1">1</span>
-            <span>Add your <strong style="color:var(--text-primary)">ClawNet API key</strong> to your app</span>
+    <div style="display:flex;flex-direction:column;gap:24px">
+      <!-- Integration Steps -->
+      <div class="invoke-section" style="padding:28px">
+        <div class="invoke-title" style="font-size:14px;margin-bottom:20px">Integrate This Skill</div>
+        <div style="display:flex;flex-direction:column;gap:24px">
+
+          <div style="display:flex;align-items:flex-start;gap:16px">
+            <div style="width:36px;height:36px;border-radius:50%;background:var(--accent-dim);color:var(--accent);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;flex-shrink:0">A</div>
+            <div style="flex:1;padding-top:4px">
+              <div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Get your API key</div>
+              <div style="font-size:13px;color:var(--text-secondary);line-height:1.6">Go to your <a href="/dashboard.html" style="color:var(--accent);text-decoration:underline">Dashboard</a> and copy your API key. Add it to your app as an environment variable or config.</div>
+            </div>
           </div>
-          <div style="font-size:13px;color:var(--text-secondary);display:flex;align-items:flex-start;gap:8px">
-            <span style="color:var(--accent);font-weight:700;font-size:16px;line-height:1">2</span>
-            <span><strong style="color:var(--text-primary)">${method}</strong> the endpoint below ${isData ? 'with query params' : 'with variables JSON'}</span>
+
+          <div style="display:flex;align-items:center;gap:16px;padding-left:18px">
+            <div style="width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-top:8px solid var(--accent);opacity:0.5"></div>
           </div>
-          <div style="font-size:13px;color:var(--text-secondary);display:flex;align-items:flex-start;gap:8px">
-            <span style="color:var(--accent);font-weight:700;font-size:16px;line-height:1">3</span>
-            <span><strong style="color:var(--text-primary)">${s.creditCost} credits</strong> deducted per call${isData ? ' (1 cr if cached)' : ''}</span>
+
+          <div style="display:flex;align-items:flex-start;gap:16px">
+            <div style="width:36px;height:36px;border-radius:50%;background:var(--accent-dim);color:var(--accent);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;flex-shrink:0">B</div>
+            <div style="flex:1;padding-top:4px">
+              <div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Call the endpoint</div>
+              <div style="font-size:13px;color:var(--text-secondary);line-height:1.6">Send a <strong style="color:var(--text-primary)">${method}</strong> request to the endpoint below${isData ? ' with your query parameters' : vars.length ? ' with your variables as JSON' : ''}. See the code examples for copy-paste snippets.</div>
+            </div>
           </div>
+
+          <div style="display:flex;align-items:center;gap:16px;padding-left:18px">
+            <div style="width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-top:8px solid var(--accent);opacity:0.5"></div>
+          </div>
+
+          <div style="display:flex;align-items:flex-start;gap:16px">
+            <div style="width:36px;height:36px;border-radius:50%;background:var(--accent-dim);color:var(--accent);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;flex-shrink:0">C</div>
+            <div style="flex:1;padding-top:4px">
+              <div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Get structured data back</div>
+              <div style="font-size:13px;color:var(--text-secondary);line-height:1.6">Credits are deducted automatically: ${costText}. You receive clean JSON — parse it and use it in your app, agent, or workflow.</div>
+            </div>
+          </div>
+
         </div>
-        ${isData ? '<p style="font-size:12px;color:var(--text-muted);margin-top:4px">Data skills cache results automatically. Cached responses cost only 1 credit.</p>' : ''}
-        ${isProxy ? '<p style="font-size:12px;color:var(--text-muted);margin-top:4px">API proxy skills forward your request to the backing API. You get structured JSON back.</p>' : ''}
       </div>
 
       <!-- Endpoint -->
       <div class="invoke-section">
         <div class="invoke-title">Endpoint</div>
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
           <span style="font-size:11px;font-weight:700;padding:3px 8px;border-radius:4px;background:${isData ? 'var(--accent-dim)' : 'var(--info-dim)'};color:${isData ? 'var(--accent)' : 'var(--info)'}">${method}</span>
           <code style="font-family:var(--font-mono);font-size:13px;color:var(--text-primary);word-break:break-all">${endpoint}</code>
           <button class="btn btn-ghost" style="font-size:11px;padding:4px 8px;flex-shrink:0" onclick="navigator.clipboard.writeText('${endpoint}');toast('Copied','success')">Copy</button>
         </div>
         <div style="font-size:12px;color:var(--text-muted)">
-          Auth: <code style="font-family:var(--font-mono);color:var(--text-tertiary)">X-API-Key: YOUR_API_KEY</code>
-          &nbsp;or&nbsp; <code style="font-family:var(--font-mono);color:var(--text-tertiary)">Authorization: Bearer CLERK_JWT</code>
+          Auth header: <code style="font-family:var(--font-mono);color:var(--text-tertiary)">X-API-Key: YOUR_API_KEY</code>
         </div>
       </div>
 
@@ -1488,20 +1519,6 @@ data = res.json()`;
         <pre class="schema-block code-example" id="code-js" style="display:none">${esc(jsExample)}</pre>
         <pre class="schema-block code-example" id="code-py" style="display:none">${esc(pyExample)}</pre>
         <button class="btn btn-ghost" style="font-size:11px;margin-top:8px" onclick="copyCodeExample()">Copy to Clipboard</button>
-      </div>
-
-      <!-- Try It -->
-      <div class="invoke-section">
-        <div class="invoke-title">Try It Now</div>
-        <p style="font-size:13px;color:var(--text-tertiary);margin-bottom:14px">Test this skill in your browser. Credits are deducted on execution.</p>
-        ${vars.map(([k,v]) => `
-          <div class="form-group">
-            <label class="form-label">${esc(k)}${inputSchema.required?.includes(k) ? ' *' : ''}</label>
-            <input type="text" class="field" id="var-${esc(k)}" placeholder="${esc(v.description||k)}" style="width:100%">
-          </div>`).join('')}
-        ${!vars.length ? '<p style="font-size:13px;color:var(--text-tertiary);margin-bottom:8px">This skill has no input variables — just hit Run.</p>' : ''}
-        <button class="btn btn-primary" style="margin-top:8px" id="invoke-btn" onclick="doBuy()">Run Skill — ${s.creditCost} credits</button>
-        <div class="invoke-result" id="invoke-result"></div>
       </div>
     </div>`;
 }
@@ -1527,49 +1544,32 @@ async function doBuy() {
   if (!auth) { toast('Sign in to purchase skills', 'error'); return; }
 
   const buyBtn = document.getElementById('d-buy-btn');
-  const invokeBtn = document.getElementById('invoke-btn');
-  [buyBtn, invokeBtn].forEach(b => { if (b) { b.disabled = true; b.textContent = 'Running...'; } });
-
-  const props = s.inputSchema?.properties || {};
-  const variables = {};
-  for (const k of Object.keys(props)) {
-    const el = document.getElementById(`var-${k}`);
-    if (el) variables[k] = el.value.trim();
-  }
+  if (buyBtn) { buyBtn.disabled = true; buyBtn.textContent = 'Running...'; }
 
   try {
     const r = await fetch(`${API}/v1/marketplace/skills/${s.id}/purchase`, {
       method: 'POST',
       headers: { ...auth, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ variables }),
+      body: JSON.stringify({}),
     });
     const d = await r.json();
     if (!r.ok) {
       const extra = d.creditsRequired ? ` — need ${d.creditsRequired} credits` : '';
       toast((d.error || 'Purchase failed') + extra, 'error');
-      [buyBtn, invokeBtn].forEach(b => { if (b) { b.disabled = false; b.textContent = `Run Skill — ${s.creditCost} credits`; } });
+      if (buyBtn) { buyBtn.disabled = false; buyBtn.textContent = `Run Skill — ${s.creditCost} cr`; }
       return;
     }
 
     toast(`Executed (${d.creditsCharged} credits)`, 'success');
     refreshCredits();
-    // Show rating prompt after a short delay
     setTimeout(() => {
       const rateEl = document.getElementById('d-reviews-rate');
       if (rateEl) rateEl.style.display = 'block';
     }, 2000);
-
-    const resultEl = document.getElementById('invoke-result');
-    if (resultEl) {
-      resultEl.style.display = 'block';
-      renderResult(d, resultEl);
-    }
-    document.querySelectorAll('#d-tabs .dtab').forEach(t => t.classList.toggle('active', t.dataset.dt === 'invoke'));
-    document.querySelectorAll('.dtab-panel').forEach(p => p.classList.toggle('active', p.id === 'dtp-invoke'));
-    [buyBtn, invokeBtn].forEach(b => { if (b) { b.disabled = false; b.textContent = 'Run Again'; } });
+    if (buyBtn) { buyBtn.disabled = false; buyBtn.textContent = 'Run Again'; }
   } catch {
     toast('Network error', 'error');
-    [buyBtn, invokeBtn].forEach(b => { if (b) { b.disabled = false; b.textContent = `Run Skill — ${s.creditCost} credits`; } });
+    if (buyBtn) { buyBtn.disabled = false; buyBtn.textContent = `Run Skill — ${s.creditCost} cr`; }
   }
 }
 
