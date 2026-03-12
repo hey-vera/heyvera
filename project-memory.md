@@ -112,7 +112,9 @@ Creator tools: stats dashboard, withdrawal requests (min 1000cr, max 3 pending).
 
 ## Governance
 
-Proposals + weighted voting. Vote weight: `sqrt(total credits spent)` (quadratic-lite). 100+ credits to propose. Auto-expire on closed. Duplicate vote prevention. All errors have `code` field.
+Proposals + weighted voting. Vote weight: `sqrt(total credits spent)` (quadratic-lite, no floor). 100+ credits to propose. Auto-expire on closed. Duplicate vote prevention. All errors have `code` field.
+
+**Ch16 audit fix:** `getVoterWeight()` previously used `Math.max(1, sqrt(spent))` — this floored all keys at weight=1 including zero-spend keys, enabling free Sybil voting. Fixed to `sqrt(spent)` with no floor; `castVote()` already rejects `weight <= 0`. VERIFIED skills immune to community auto-flagging (3 reports). Proposal balance check (100 credits) is NOT a spend — one key can spam proposals (known limitation, rate-limited by IP). No quorum minimum (known limitation).
 
 ---
 

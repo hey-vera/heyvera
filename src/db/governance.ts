@@ -86,7 +86,9 @@ export function getVoterWeight(agentKey: string): number {
   const spent = (getDb()
     .prepare(`SELECT COALESCE(SUM(amount_credits),0) as total FROM transactions WHERE from_agent = ? AND (to_agent IS NULL OR to_agent != ?)`)
     .get(agentKey, agentKey) as { total: number }).total;
-  return Math.max(1, Math.sqrt(Math.max(0, spent)));
+  // No Math.max(1,...) floor — keys with 0 credits spent get weight=0 and are
+  // rejected by castVote()'s weight<=0 guard. Prevents Sybil voting via cheap/free keys.
+  return Math.sqrt(Math.max(0, spent));
 }
 
 export function getProposalVotes(proposalId: string): { voter_key: string; direction: string; weight: number; created_at: string }[] {

@@ -1823,6 +1823,24 @@ src/core/skill-ab-cron.ts           — A/B auto-promotion (community-driven qua
 
 Governance is the mechanism for community-driven platform evolution. A broken voting weight formula means plutocratic capture or Sybil attacks. Community reports are the first line of defense against malicious skills — if the flagging threshold is wrong, either legitimate skills get buried or dangerous ones stay live. The trust hierarchy (CLEAN → VERIFIED → FLAGGED) determines what users see and trust. At scale, governance becomes the primary way the platform self-regulates without centralized admin intervention.
 
+### Verdicts
+
+| # | Question | Verdict |
+|---|----------|---------|
+| Q1 | Sybil attack on voting | **FIXED** — removed `Math.max(1,...)` floor from `getVoterWeight()` so zero-spend keys get weight=0 and are rejected by `castVote()`'s existing `weight<=0` guard |
+| Q2 | Sybil attack on reports | **KNOWN LIMITATION** — VERIFIED skills are protected; full Sybil prevention requires identity verification beyond API key |
+| Q3 | Proposal execution | **KNOWN LIMITATION** — EXECUTED status set manually by admin via direct DB; no API endpoint for execution |
+| Q4 | Vote weight whale | **BY DESIGN** — quadratic-lite intentionally rewards platform engagement; sqrt(1M)=1000 is the intended ceiling |
+| Q5 | Report reason quality | **KNOWN LIMITATION** — free-text sufficient at current scale; categories are a feature opportunity |
+| Q6 | VERIFIED badge abuse | **PASS** — `autoVerifyPublisher()` enforces 5 measurable criteria; `updateSkillSecurityStatus()` allows revocation |
+| Q7 | Flagged skill recovery | **KNOWN LIMITATION** — admin can clear via `updateSkillSecurityStatus()`; no self-service appeal endpoint |
+| Q8 | Governance quorum | **KNOWN LIMITATION** — no minimum quorum; acceptable at current user scale |
+| Q9 | Proposal spam | **KNOWN LIMITATION** — balance check (not spend) is by design; IP rate limiter (60/min) provides some protection |
+| Q10 | Historical proposals | **KNOWN LIMITATION** — no archival strategy; acceptable at current scale |
+
+**Bugs fixed (1):**
+1. **MEDIUM** `src/db/governance.ts`: `getVoterWeight()` floored weight at 1 for all keys including zero-spend keys — removed `Math.max(1,...)` so Sybil keys with no platform activity get weight=0 and are blocked by `castVote()`'s existing positive-weight guard
+
 ---
 
 ## Chapter 17 — Testing & Verification
