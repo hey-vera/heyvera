@@ -12,18 +12,25 @@
  *   Purchase rate: 1 credit = $0.001 (1000 credits/$1 at base Stripe tier)
  *   Cost markup:   1.5× raw API cost → ~33-50% gross margin
  *   Orch fee:      2 credits per query → pure profit (covers LLM ~$0.0004/call)
+ *   Payout rate:   $0.00075/credit (25% below buy rate — prevents arbitrage)
  *
  * Example pricing at 1500× markup:
- *   $0.001 endpoint → 2 credits  ($0.002 revenue, 50% margin)
- *   $0.005 endpoint → 8 credits  ($0.008 revenue, 38% margin)
- *   $0.010 endpoint → 15 credits ($0.015 revenue, 33% margin)
- *   $0.050 endpoint → 75 credits ($0.075 revenue, 33% margin)
- *   $0.500 endpoint → 750 credits ($0.75 revenue, 33% margin)
+ *   $0.0005 endpoint → 1 credit  ($0.001 revenue, 50% margin)
+ *   $0.001 endpoint  → 2 credits ($0.002 revenue, 50% margin)
+ *   $0.005 endpoint  → 8 credits ($0.008 revenue, 38% margin)
+ *   $0.010 endpoint  → 15 credits ($0.015 revenue, 33% margin)
+ *   $0.050 endpoint  → 75 credits ($0.075 revenue, 33% margin)
+ *
+ * x402 surcharge (third-party prompt_template skills):
+ *   When a third-party skill triggers x402 API calls, the platform pays those
+ *   upstream costs. The surcharge passes that cost through to the caller at the
+ *   buy rate (1:1 cost recovery). Creator revenue is unaffected — surcharge is
+ *   separate from the 97/3 split.
  *
  * Legacy fallback: creditsForApiCost() still available for backward compat.
  */
 
-const CREDITS_PER_USD = parseInt(process.env.CREDITS_PER_USD ?? '2000', 10);
+const CREDITS_PER_USD = parseInt(process.env.CREDITS_PER_USD ?? '1000', 10);
 
 /**
  * Cost-to-credit markup factor. At sale price $0.001/credit:
@@ -60,10 +67,10 @@ export function creditsForPlan(steps: Array<{ creditCost?: number; costPerCall: 
 
 /**
  * Convert credits to estimated USD for transparency.
- * Based on purchase price: 1000 credits = $1.
+ * Based on purchase price: CREDITS_PER_USD credits = $1.
  */
 export function creditsToUsd(credits: number): number {
-  return parseFloat((credits / 1000).toFixed(4));
+  return parseFloat((credits / CREDITS_PER_USD).toFixed(4));
 }
 
 /**
@@ -80,6 +87,18 @@ export function creditsForExecution(
     const ep = endpointLookup(step.endpointId);
     return sum + (ep ? creditCostForEndpoint(ep) : 1);
   }, 0);
+}
+
+/**
+ * x402 surcharge: convert raw USD API cost to credits at the buy rate.
+ * This is 1:1 cost recovery — the platform charges exactly what it paid upstream.
+ * Only applied to third-party prompt_template skills where the platform pays x402 costs.
+ *
+ * Returns 0 if apiCostUsd is 0 or negative (e.g. all steps cached).
+ */
+export function x402SurchargeCredits(apiCostUsd: number): number {
+  if (apiCostUsd <= 0) return 0;
+  return Math.ceil(apiCostUsd * CREDITS_PER_USD);
 }
 
 /** Expose for health/admin endpoints */

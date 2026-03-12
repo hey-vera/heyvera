@@ -6,7 +6,7 @@ import { renderTemplate } from '../utils/template';
 import { checkApiKey } from '../middleware/auth';
 import {
   getSkill, getSkillWithAb, deductCredit, topUpCredits, incrementSkillUses,
-  recordSkillMetric, recordReputation, getDb,
+  recordSkillMetric, recordReputation, recordTransaction, getDb,
   createTask, getTask, getTaskByIdempotencyKey, listTasks, countTasks,
   updateTaskRunning, updateTaskCompleted, updateTaskFailed, updateTaskCancelled,
   createTaskRating, getTaskRating, updateWebhookStatus,
@@ -15,7 +15,7 @@ import {
 import { parseIntent } from '../core/intent-parser';
 import { executePlan } from '../core/executor';
 import { formatResponse } from '../core/formatter';
-import { creditsForExecution } from '../core/credits';
+import { creditsForExecution, x402SurchargeCredits } from '../core/credits';
 import { findEndpoint } from '../config/api-registry';
 import { scanProxyResponse } from '../core/skill-scanner';
 import { logger } from '../utils/logger';
@@ -213,7 +213,9 @@ tasksRouter.post('/', checkApiKey, async (c) => {
 
     const apiCosts = execution.totalCost;
     const actualCost = creditsForExecution(execution.steps, findEndpoint);
-    const creditsToDeduct = Math.max(actualCost, skill.credit_cost);
+    const skillCredits = Math.max(actualCost, skill.credit_cost);
+    const surcharge = skill.author_key !== 'clawhub-official' ? x402SurchargeCredits(apiCosts) : 0;
+    const creditsToDeduct = skillCredits + surcharge;
 
     if (!keyInfo.isEnvKey) {
       const revenueSharePct = skill.revenue_share_pct;
@@ -223,8 +225,16 @@ tasksRouter.post('/', checkApiKey, async (c) => {
         const deducted = deductCredit(keyInfo.key, creditsToDeduct);
         if (!deducted) return false;
         if (shouldPayAuthor) {
-          const authorShare = Math.floor(creditsToDeduct * revenueSharePct);
+          // Revenue split applies to skillCredits only — surcharge goes 100% to platform
+          const authorShare = Math.floor(skillCredits * revenueSharePct);
+          const feeCredits = skillCredits - authorShare;
           if (authorShare > 0) topUpCredits(skill.author_key, authorShare);
+          if (feeCredits > 0) topUpCredits('clawhub-treasury', feeCredits);
+          recordTransaction({
+            fromAgent: keyInfo.key, toAgent: skill.author_key,
+            amountCredits: skillCredits, type: 'SKILL_SALE',
+            skillId: activeSkillId, feeCredits,
+          });
         }
         return true;
       })();

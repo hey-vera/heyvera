@@ -19,7 +19,7 @@ import { parseIntent } from '../core/intent-parser';
 import { executePlan } from '../core/executor';
 import { formatResponse } from '../core/formatter';
 import { buildIntentFromPlan } from '../core/skill-executor';
-import { creditsForExecution } from '../core/credits';
+import { creditsForExecution, x402SurchargeCredits } from '../core/credits';
 import { findEndpoint } from '../config/api-registry';
 import { logUsage } from '../utils/usage';
 import { cacheGet, cacheSet, cacheIncr } from '../cache/index';
@@ -933,7 +933,13 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
 
     // Credit cost: max of skill's fixed price and actual execution cost across ALL passes
     const actualCost = creditsForExecution(allExecutionSteps, findEndpoint);
-    const creditsToDeduct = Math.max(actualCost, skill.credit_cost);
+    const skillCredits = Math.max(actualCost, skill.credit_cost);
+
+    // x402 surcharge: pass upstream API cost through to caller for third-party skills.
+    // Official skills bake x402 cost into their credit_cost — no surcharge needed.
+    // api_proxy/data skills don't use x402 — surcharge is always 0 for them.
+    const surcharge = skill.author_key !== 'clawhub-official' ? x402SurchargeCredits(apiCosts) : 0;
+    const creditsToDeduct = skillCredits + surcharge;
 
     if (!keyInfo.isEnvKey) {
       // Atomically deduct credits and pay revenue share in a single transaction
@@ -944,8 +950,9 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
         const deducted = deductCredit(keyInfo.key, creditsToDeduct);
         if (!deducted) return false;
         if (shouldPayAuthor) {
-          const authorShare = Math.floor(creditsToDeduct * revenueSharePct);
-          const feeCredits = creditsToDeduct - authorShare;
+          // Revenue split applies to skillCredits only — surcharge goes 100% to platform
+          const authorShare = Math.floor(skillCredits * revenueSharePct);
+          const feeCredits = skillCredits - authorShare;
           if (authorShare > 0) {
             topUpCredits(skill.author_key, authorShare);
             // Credit platform fee to treasury (was missing — fees were being destroyed)
@@ -956,7 +963,7 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
             recordTransaction({
               fromAgent: keyInfo.key,
               toAgent: skill.author_key,
-              amountCredits: creditsToDeduct,
+              amountCredits: skillCredits,
               type: 'SKILL_SALE',
               skillId: activeSkillId,
               feeCredits,
@@ -1027,6 +1034,7 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
       costBreakdown: {
         costUsd: Math.round(apiCosts * 10000) / 10000,
         creditsUsed: creditsToDeduct,
+        ...(surcharge > 0 && { skillCost: skillCredits, x402Surcharge: surcharge }),
       },
       metadata: {
         stepsExecuted: execution.steps.length,

@@ -25,7 +25,7 @@ import {
   createSwarmTask, getAgentUsageStats, getReputationScore,
   writeAuditLog, safeJsonParse,
 } from '../db/index';
-import { creditsForExecution, creditsToUsd } from '../core/credits';
+import { creditsForExecution, creditsToUsd, x402SurchargeCredits } from '../core/credits';
 import { parseIntent } from '../core/intent-parser';
 import { executePlan } from '../core/executor';
 import { formatResponse } from '../core/formatter';
@@ -280,7 +280,9 @@ openclawRouter.post('/invoke', checkApiKey, async (c) => {
       const totalDurationMs = Date.now() - start;
 
       const actualCost = creditsForExecution(execution.steps, findEndpoint);
-      const creditsUsed = Math.max(actualCost, skill.credit_cost);
+      const skillCredits = Math.max(actualCost, skill.credit_cost);
+      const surcharge = skill.author_key !== 'clawhub-official' ? x402SurchargeCredits(apiCosts) : 0;
+      const creditsUsed = skillCredits + surcharge;
 
       if (!keyInfo.isEnvKey) {
         const revenueSharePct = skill.revenue_share_pct;
@@ -290,10 +292,10 @@ openclawRouter.post('/invoke', checkApiKey, async (c) => {
           const deducted = deductCredit(keyInfo.key, creditsUsed);
           if (!deducted) return false;
           if (shouldPayAuthor) {
-            const authorShare = Math.floor(creditsUsed * revenueSharePct);
-            const feeCredits = creditsUsed - authorShare;
+            // Revenue split applies to skillCredits only — surcharge goes 100% to platform
+            const authorShare = Math.floor(skillCredits * revenueSharePct);
+            const feeCredits = skillCredits - authorShare;
             if (authorShare > 0) topUpCredits(skill.author_key, authorShare);
-            // Credit platform fee to treasury (was missing — fees were being destroyed)
             if (feeCredits > 0) topUpCredits('clawhub-treasury', feeCredits);
           }
           return true;
@@ -336,7 +338,7 @@ openclawRouter.post('/invoke', checkApiKey, async (c) => {
         ...(formatted.riskScore !== undefined && { riskScore: formatted.riskScore }),
         suggestedActions: formatted.suggestedActions,
         skill: { id: skill.id, name: skill.name },
-        costBreakdown: { costUsd: Math.round(apiCosts * 10000) / 10000, creditsUsed },
+        costBreakdown: { costUsd: Math.round(apiCosts * 10000) / 10000, creditsUsed, ...(surcharge > 0 && { skillCost: skillCredits, x402Surcharge: surcharge }) },
       };
 
       await cacheSet(qKey, result);
