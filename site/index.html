@@ -696,9 +696,9 @@
     <ul class="nav-links">
       <li><a href="/" class="active">Home</a></li>
       <li><a href="/docs.html">Docs</a></li>
+      <li><a href="/#pricing">Pricing</a></li>
       <li><a href="/marketplace.html">Marketplace</a></li>
       <li><a href="/endpoints.html">Endpoints</a></li>
-      <li><a href="/dashboard.html">Dashboard</a></li>
     </ul>
   </div>
   <div class="nav-right">
@@ -710,7 +710,7 @@
       <span class="status-dot" id="statusDot"></span>
       <span id="statusLabel">Checking...</span>
     </div>
-    <div class="nav-credits" id="nav-credits-badge"><span id="nav-credits-num">&mdash;</span> credits</div>
+    <div class="nav-credits" id="nav-credits-badge">&#x1FA99; <span id="nav-credits-num">&mdash;</span> credits</div>
     <span class="nav-email" id="nav-user-email"></span>
     <a href="/login.html" class="nav-login" id="nav-login-btn">Sign In</a>
     <a href="#pricing" class="nav-cta" id="nav-getkey-btn">Get API Key</a>
@@ -806,13 +806,32 @@
       <span style="font-family:var(--font-mono);font-size:13px;color:var(--text-tertiary)">Stripe</span>
       <span style="font-family:var(--font-mono);font-size:13px;color:var(--text-tertiary)">Solana</span>
     </div>
-    <div style="display:flex;justify-content:center;gap:48px;margin-top:32px;flex-wrap:wrap">
-      <div><div style="font-family:var(--font-mono);font-size:28px;font-weight:700;color:var(--text-primary)" id="proofEndpoints">&mdash;</div><div style="font-size:12px;color:var(--text-tertiary);margin-top:2px">API Endpoints</div></div>
-      <div><div style="font-family:var(--font-mono);font-size:28px;font-weight:700;color:var(--accent)" id="proofDataSpeed">&lt;1s</div><div style="font-size:12px;color:var(--text-tertiary);margin-top:2px">Data Skills</div></div>
-      <div><div style="font-family:var(--font-mono);font-size:28px;font-weight:700;color:var(--text-primary)" id="proofLlmSpeed">&mdash;</div><div style="font-size:12px;color:var(--text-tertiary);margin-top:2px">LLM Queries</div></div>
-      <div><div style="font-family:var(--font-mono);font-size:28px;font-weight:700;color:var(--accent)">$0.0001</div><div style="font-size:12px;color:var(--text-tertiary);margin-top:2px">Cached Queries</div></div>
-      <div><div style="font-family:var(--font-mono);font-size:28px;font-weight:700;color:var(--text-primary)">$0.001</div><div style="font-size:12px;color:var(--text-tertiary);margin-top:2px">Per Credit</div></div>
-      <div><div style="font-family:var(--font-mono);font-size:28px;font-weight:700;color:var(--warning)">$29<span style="font-size:14px;font-weight:400;color:var(--text-muted)">/mo</span></div><div style="font-size:12px;color:var(--text-tertiary);margin-top:2px">Unlimited Access</div></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:20px;margin-top:32px;max-width:960px;margin-left:auto;margin-right:auto">
+      <div style="background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);padding:20px;text-align:center">
+        <div style="font-family:var(--font-mono);font-size:32px;font-weight:700;color:var(--accent)" id="proofEndpoints">&mdash;</div>
+        <div style="font-size:13px;color:var(--text-secondary);margin-top:4px">Live API Endpoints</div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Auto-discovered every 4h</div>
+      </div>
+      <div style="background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);padding:20px;text-align:center">
+        <div style="font-family:var(--font-mono);font-size:32px;font-weight:700;color:var(--text-primary)">97%</div>
+        <div style="font-size:13px;color:var(--text-secondary);margin-top:4px">Creator Revenue Share</div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Publish skills, earn per call</div>
+      </div>
+      <div style="background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);padding:20px;text-align:center">
+        <div style="font-family:var(--font-mono);font-size:32px;font-weight:700;color:var(--accent)">$0.001</div>
+        <div style="font-size:13px;color:var(--text-secondary);margin-top:4px">Per Credit</div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:2px">As low as $0.0001 cached</div>
+      </div>
+      <div style="background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);padding:20px;text-align:center">
+        <div style="font-family:var(--font-mono);font-size:32px;font-weight:700;color:var(--text-primary)">&lt;1s</div>
+        <div style="font-size:13px;color:var(--text-secondary);margin-top:4px">Data Skill Response</div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Cached data served instantly</div>
+      </div>
+      <div style="background:var(--bg-surface);border:1px solid var(--accent-dim);border-radius:var(--radius-lg);padding:20px;text-align:center">
+        <div style="font-family:var(--font-mono);font-size:32px;font-weight:700;color:var(--warning)">$29<span style="font-size:14px;font-weight:400;color:var(--text-muted)">/mo</span></div>
+        <div style="font-size:13px;color:var(--text-secondary);margin-top:4px">Unlimited Plan</div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Or pay-as-you-go, no minimums</div>
+      </div>
     </div>
   </div>
 </section>
@@ -1205,6 +1224,7 @@
     <ul class="footer-links">
       <li><a href="/">Home</a></li>
       <li><a href="/docs.html">Docs</a></li>
+      <li><a href="/#pricing">Pricing</a></li>
       <li><a href="/marketplace.html">Marketplace</a></li>
       <li><a href="/endpoints.html">Endpoints</a></li>
       <li><a href="/dashboard.html">Dashboard</a></li>
@@ -1270,7 +1290,7 @@
       const r = await fetch(API + '/health', { signal: AbortSignal.timeout(5000) });
       if (r.ok) {
         if (dot) dot.className = 'status-dot ok';
-        if (label) { label.textContent = 'Operational'; label.style.color = 'var(--accent)'; }
+        if (label) { label.textContent = 'Live'; label.style.color = 'var(--accent)'; }
       } else {
         if (dot) dot.className = 'status-dot err';
         if (label) { label.textContent = 'Degraded'; label.style.color = 'var(--danger)'; }

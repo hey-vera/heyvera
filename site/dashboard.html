@@ -381,9 +381,9 @@
       <ul class="nav-links">
         <li><a href="/">Home</a></li>
         <li><a href="/docs.html">Docs</a></li>
+        <li><a href="/#pricing">Pricing</a></li>
         <li><a href="/marketplace.html">Marketplace</a></li>
         <li><a href="/endpoints.html">Endpoints</a></li>
-        <li><a href="/dashboard.html" class="active">Dashboard</a></li>
       </ul>
     </div>
     <div class="nav-right">
@@ -392,7 +392,7 @@
         <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
       </button>
       <div class="nav-status" id="navApiStatus"><span class="status-dot" id="statusDot"></span><span id="statusLabel">Checking...</span></div>
-      <div class="nav-credits" id="nav-credits-badge"><span id="nav-credits-num">&mdash;</span> credits</div>
+      <div class="nav-credits" id="nav-credits-badge">&#x1FA99; <span id="nav-credits-num">&mdash;</span> credits</div>
       <span class="nav-email" id="nav-user-email"></span>
       <a href="/login.html" class="nav-btn-ghost" id="nav-login-btn">Sign In</a>
       <a href="/dashboard.html" class="nav-btn-ghost" id="nav-dash-btn">Dashboard</a>
@@ -583,7 +583,7 @@
     <div class="footer-left">
       <a href="/" class="footer-logo"><span class="nav-logo-text">Claw <span>Network</span></span></a>
       <ul class="footer-links">
-        <li><a href="/">Home</a></li><li><a href="/docs.html">Docs</a></li><li><a href="/marketplace.html">Marketplace</a></li>
+        <li><a href="/">Home</a></li><li><a href="/docs.html">Docs</a></li><li><a href="/#pricing">Pricing</a></li><li><a href="/marketplace.html">Marketplace</a></li>
         <li><a href="/endpoints.html">Endpoints</a></li><li><a href="https://github.com/1xmint" target="_blank">GitHub</a></li>
         <li><a href="https://t.me/claw_net" target="_blank">Telegram</a></li><li><a href="#contact">Contact</a></li>
       </ul>
@@ -633,7 +633,7 @@
       const dot = document.getElementById('statusDot'), label = document.getElementById('statusLabel');
       try {
         const r = await fetch(API_BASE + '/health', { signal: AbortSignal.timeout(5000) });
-        if (r.ok) { if(dot) dot.className='status-dot ok'; if(label){label.textContent='Operational';label.style.color='var(--accent)';} }
+        if (r.ok) { if(dot) dot.className='status-dot ok'; if(label){label.textContent='Live';label.style.color='var(--accent)';} }
         else { if(dot) dot.className='status-dot err'; if(label){label.textContent='Degraded';label.style.color='var(--danger)';} }
       } catch { if(dot) dot.className='status-dot err'; if(label){label.textContent='Offline';label.style.color='var(--danger)';} }
     }
