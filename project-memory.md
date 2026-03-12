@@ -8,7 +8,7 @@
 
 **Startup:** initDb → seedSkills → initRedis → initClawApis → shutdown handlers → heartbeat → Telegram (try/catch isolated) → mesh (try/catch isolated) → crons → embeddings (background) → serve. Structured boot log: `{ port, env, simulation, llm, redis, signing, x402, freeTrial, rateLimit }`.
 
-**Shutdown:** SIGTERM/SIGINT → stop HTTP (no new connections) → 15s drain (covers SSE streams + batch queries) → stop crons/heartbeat → stop mesh/Telegram → close DB → close Redis (5s timeout) → exit. 30s force-kill deadline.
+**Shutdown:** SIGTERM/SIGINT → stop HTTP (no new connections) → 15s drain (covers SSE streams + batch queries) → stop crons/heartbeat → stop mesh/Telegram → close DB (WAL checkpoint TRUNCATE) → close Redis (5s timeout) → exit. 30s force-kill deadline. Docker `stop_grace_period: 40s` (> 30s; ch18 fix — was missing, Docker SIGKILL fired at 10s during drain).
 
 **Request flow:** Query → rate limit (60/min/IP, tiered per-key, headers on every response) → auth → intent parser → pricing optimization → budget pre-flight → executor → synthesizer → cache → signed response. Health endpoint (`/health`) is registered BEFORE the middleware stack — bypasses CORS, security headers, rate limiter, body limit, and hono logger for zero-overhead monitoring.
 

@@ -31,7 +31,7 @@
 | 15 | Scalability & Performance | COMPLETE |
 | 16 | Governance & Community | COMPLETE |
 | 17 | Testing & Verification | COMPLETE |
-| 18 | Resilience & Shutdown | PENDING |
+| 18 | Resilience & Shutdown | COMPLETE |
 | 19 | Product Completeness & Market Readiness | PENDING |
 | 20 | Compliance, Risk & Trust | PENDING |
 
@@ -2030,6 +2030,24 @@ src/core/escrow-cron.ts             — cron start/stop
 ### Why It Matters
 
 Resilience determines whether a transient failure becomes a permanent outage. An ungraceful shutdown corrupts SQLite. A missing error handler crashes the process on a single bad webhook. Redis going down should degrade performance, not crash the server. The difference between "5 minutes of degraded service" and "2 hours of downtime" is entirely in how failures are handled. At production scale, the server WILL crash — the question is whether it recovers gracefully or loses data.
+
+### Verdicts
+
+| # | Question | Verdict |
+|---|----------|---------|
+| Q1 | Drain vs cron race | **PASS** — crons stopped in step 3, closeDb() in step 5; no race possible |
+| Q2 | Redis disconnect mid-operation | **PASS** — `cacheIncr()` try/catch falls back to in-memory rate limit; request proceeds with degraded but still-active rate limiting |
+| Q3 | SQLite WAL corruption | **PASS** — `closeDb()` explicitly calls `db.pragma('wal_checkpoint(TRUNCATE)')` before close; WAL auto-recovers on next open after SIGKILL |
+| Q4 | Concurrent shutdown signals | **PASS** — `isShuttingDown` guard at top of shutdown function; second SIGTERM is ignored |
+| Q5 | Embedding model OOM | **KNOWN LIMITATION** — ~86MB model on 1GB VPS is acceptable; loaded in background, won't crash startup |
+| Q6 | Telegram error isolation | **PASS** — `initTelegram()` wrapped in try/catch; global `unhandledRejection` logs but doesn't exit |
+| Q7 | Startup ordering | **PASS** — HTTP server starts last; Redis connects async with graceful memory-only fallback |
+| Q8 | Graceful shutdown completeness | **PASS** — all timers/intervals stopped or `.unref()`'d; no persistent file handles; mesh event listeners cleaned by libp2p stop() |
+| Q9 | Recovery after OOM | **KNOWN LIMITATION** — Docker has built-in restart backoff; no application-level crash loop detection |
+| Q10 | Partial startup (mesh fail) | **PASS** — `startMeshNode()` isolated in try/catch; server continues without P2P |
+
+**Bugs fixed (1):**
+1. **HIGH** `docker-compose.yml`: Missing `stop_grace_period` — Docker default is 10s but shutdown has a 15s drain alone before any cleanup begins. Docker was sending SIGKILL mid-drain, killing in-flight requests and preventing WAL checkpoint. Fixed: `stop_grace_period: 40s` (> 30s force-exit timer).
 
 ---
 

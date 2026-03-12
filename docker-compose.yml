@@ -13,6 +13,10 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
+    # Process has a 15s drain + cron/mesh/DB/Redis cleanup before 30s force-exit.
+    # Docker default stop_grace_period is 10s — SIGKILL fires during drain, killing
+    # in-flight requests and skipping WAL checkpoint. Set to 40s > 30s force-exit.
+    stop_grace_period: 40s
     logging:
       driver: json-file
       options:
