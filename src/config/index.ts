@@ -61,6 +61,7 @@ const envSchema = z.object({
   SOLANA_RPC_URL: z.string().default('https://api.mainnet-beta.solana.com'),
   SOLANA_RPC_FALLBACK: z.string().optional(),
   ADMIN_EMAIL: z.string().optional(),
+  ADMIN_EMAILS: z.string().optional(), // Comma-separated emails with admin dashboard access
   SENTRY_DSN: z.string().optional(),
 
   // Payout hot wallets

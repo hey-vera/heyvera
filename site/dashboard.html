@@ -286,6 +286,41 @@
     [data-theme="light"] .theme-toggle .icon-sun { display: block; }
     [data-theme="light"] .theme-toggle .icon-moon { display: none; }
   </style>
+    /* ── ADMIN DASHBOARD ── */
+    .admin-section { margin-top: 32px; border-top: 1px solid var(--border-subtle); padding-top: 32px; }
+    .admin-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
+    .admin-header-left { display: flex; align-items: center; gap: 12px; }
+    .admin-title { font-size: 20px; font-weight: 600; color: var(--text-primary); letter-spacing: -0.02em; }
+    .admin-badge { font-size: 10px; font-weight: 600; background: var(--danger-dim); color: var(--danger); padding: 3px 8px; border-radius: 9999px; text-transform: uppercase; letter-spacing: 0.04em; }
+    .admin-period-btns { display: flex; gap: 4px; }
+    .admin-period-btn { font-family: var(--font-sans); font-size: 12px; font-weight: 500; padding: 6px 14px; border-radius: var(--radius-md); border: 1px solid var(--border-default); background: transparent; color: var(--text-tertiary); cursor: pointer; transition: all 0.15s; }
+    .admin-period-btn:hover { color: var(--text-primary); border-color: var(--border-strong); }
+    .admin-period-btn.active { background: var(--accent-dim); color: var(--accent); border-color: rgba(16,185,129,0.3); }
+    .admin-stats-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 20px; }
+    .admin-stat { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 16px; text-align: center; }
+    .admin-stat-val { font-family: var(--font-mono); font-size: 22px; font-weight: 700; color: var(--text-primary); margin-bottom: 2px; }
+    .admin-stat-label { font-size: 11px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.04em; }
+    .admin-chart-card { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 20px; margin-bottom: 16px; }
+    .admin-chart-title { font-size: 12px; font-weight: 500; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 16px; }
+    .admin-chart { display: flex; align-items: flex-end; gap: 4px; height: 120px; padding: 0 4px; }
+    .admin-bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; }
+    .admin-bar { width: 100%; background: var(--accent); border-radius: 3px 3px 0 0; min-height: 2px; transition: height 0.3s ease; position: relative; }
+    .admin-bar:hover { background: var(--accent-hover); }
+    .admin-bar-label { font-size: 9px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+    .admin-bar-val { font-size: 9px; color: var(--text-tertiary); font-family: var(--font-mono); }
+    .admin-revenue-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 16px; }
+    .admin-rev-card { background: var(--bg-surface-2); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 14px; }
+    .admin-rev-label { font-size: 11px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px; }
+    .admin-rev-val { font-family: var(--font-mono); font-size: 16px; font-weight: 700; color: var(--text-primary); }
+    .admin-rev-sub { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+    .admin-table-card { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 20px; margin-bottom: 16px; }
+    .admin-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .admin-table th { font-size: 10px; font-weight: 500; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.04em; text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border-subtle); }
+    .admin-table td { padding: 8px 10px; border-bottom: 1px solid var(--border-subtle); color: var(--text-secondary); }
+    .admin-table tr:hover td { background: var(--bg-surface-2); }
+    .admin-table .mono { font-family: var(--font-mono); font-size: 11px; }
+    @media (max-width: 768px) { .admin-stats-grid { grid-template-columns: repeat(2, 1fr); } .admin-revenue-grid { grid-template-columns: 1fr; } .admin-table { font-size: 11px; } }
+  </style>
   <script>if(localStorage.getItem('clawnet_theme')==='light')document.documentElement.setAttribute('data-theme','light')</script>
 </head>
 <body>
@@ -875,8 +910,151 @@
     function setUSDCStatus(msg,type){const el=document.getElementById('usdcStatus');el.className='usdc-status show '+type;el.textContent=msg;}
     async function initiateUSDCPayment(){const btn=document.getElementById('usdcPayBtn');const phantom=window.phantom?.solana??window.solana;if(!phantom?.isPhantom){setUSDCStatus('Phantom wallet not found. Install from phantom.app.','error');return;}btn.disabled=true;btn.textContent='Connecting wallet\u2026';setUSDCStatus('Requesting wallet connection\u2026','info');try{await phantom.connect();const pk=phantom.publicKey.toString();btn.textContent='Sending '+(window._usdcAmount||'')+' USDC\u2026';setUSDCStatus('Wallet connected. Approve in Phantom\u2026','info');const ct=await window.Clerk?.session?.getToken();const br=await fetch(`${API_BASE}/v1/solana/build-tx`,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+ct},body:JSON.stringify({amountUsd:window._usdcAmount,senderWallet:pk})});if(!br.ok){const err=await br.json().catch(()=>({}));throw new Error(err.error||'Failed to build transaction');}const{serializedTx}=await br.json();setUSDCStatus('Waiting for Phantom approval\u2026','info');const txB=Uint8Array.from(atob(serializedTx),c=>c.charCodeAt(0));let sig;try{const r=await phantom.signAndSendTransaction({message:txB});sig=r.signature;}catch(e){const r2=await phantom.request({method:'signAndSendTransaction',params:{message:serializedTx}});sig=r2.signature;}btn.textContent='Verifying on-chain\u2026';setUSDCStatus('Transaction sent ('+sig.slice(0,16)+'\u2026). Confirming\u2026','info');const vr=await fetch(`${API_BASE}/v1/solana/verify`,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+ct},body:JSON.stringify({signature:sig,expectedUsd:window._usdcAmount})});const result=await vr.json();if(vr.ok&&result.ok){const added=(result.creditsAdded||window._usdcCredits||0).toLocaleString();setUSDCStatus('\u2713 Payment verified. '+added+' credits added.','success');btn.textContent='Payment Complete \u2713';showToast('\u2713 '+added+' credits added!','success',5000);try{const mr=await fetch(`${API_BASE}/v1/dashboard/me`,{headers:{Authorization:'Bearer '+ct}});if(mr.ok){const me=await mr.json();if(me.credits!==undefined){document.getElementById('credits-value').textContent=me.credits.toLocaleString();document.getElementById('nav-credits-num').textContent=me.credits.toLocaleString();document.getElementById('credits-usd').textContent='~$'+(me.credits/1000).toFixed(2)+' value';}}}catch(e){}}else{throw new Error(result.error||'Verification failed.');}}catch(err){const msg=err?.message||'Unknown error';setUSDCStatus(msg.includes('rejected')||msg.includes('User rejected')?'Transaction cancelled.':'Error: '+msg,'error');btn.disabled=false;btn.innerHTML='Connect Phantom &amp; Pay <span id="usdcPayBtnAmt">'+(window._usdcAmount||'')+' USDC</span>';}}
 
+    // ── ADMIN DASHBOARD ──
+    let _adminPeriod = 'week';
+    async function checkAdmin() {
+      try {
+        const token = await window.Clerk?.session?.getToken();
+        const res = await fetch(`${API_BASE}/v1/dashboard/admin-check`, { headers: { Authorization: `Bearer ${token}` } });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.isAdmin) renderAdminSection();
+      } catch {}
+    }
+    function renderAdminSection() {
+      const dashboard = document.getElementById('dashboard');
+      if (!dashboard || document.getElementById('admin-section')) return;
+      const section = document.createElement('div');
+      section.id = 'admin-section';
+      section.className = 'admin-section';
+      section.innerHTML = `
+        <div class="admin-header">
+          <div class="admin-header-left">
+            <div class="admin-title">Admin Dashboard</div>
+            <span class="admin-badge">Admin</span>
+          </div>
+          <div class="admin-period-btns">
+            <button class="admin-period-btn active" onclick="setAdminPeriod('week',this)">Week</button>
+            <button class="admin-period-btn" onclick="setAdminPeriod('month',this)">Month</button>
+          </div>
+        </div>
+        <div class="admin-stats-grid" id="admin-stats-grid">
+          <div class="admin-stat"><div class="admin-stat-val" id="admin-calls">—</div><div class="admin-stat-label">Calls</div></div>
+          <div class="admin-stat"><div class="admin-stat-val" id="admin-revenue">—</div><div class="admin-stat-label">Revenue</div></div>
+          <div class="admin-stat"><div class="admin-stat-val" id="admin-profit">—</div><div class="admin-stat-label">Net Profit</div></div>
+          <div class="admin-stat"><div class="admin-stat-val" id="admin-users">—</div><div class="admin-stat-label">Active Users</div></div>
+          <div class="admin-stat"><div class="admin-stat-val" id="admin-skills">—</div><div class="admin-stat-label">Skills</div></div>
+        </div>
+        <div class="admin-chart-card">
+          <div class="admin-chart-title">Calls Over Time</div>
+          <div class="admin-chart" id="admin-chart"></div>
+        </div>
+        <div class="admin-chart-card">
+          <div class="admin-chart-title">Revenue Breakdown</div>
+          <div class="admin-revenue-grid" id="admin-revenue-grid"></div>
+        </div>
+        <div class="admin-table-card">
+          <div class="admin-chart-title">Recent API Calls</div>
+          <table class="admin-table">
+            <thead><tr><th>Time</th><th>Query</th><th>Skill</th><th>Credits</th><th>Key</th><th>Status</th></tr></thead>
+            <tbody id="admin-calls-tbody"></tbody>
+          </table>
+        </div>
+        <div class="admin-table-card">
+          <div class="admin-chart-title">Skill Invocations</div>
+          <table class="admin-table">
+            <thead><tr><th>Skill</th><th>Name</th><th>Invocations</th><th>Revenue</th><th>Users</th></tr></thead>
+            <tbody id="admin-skills-tbody"></tbody>
+          </table>
+        </div>
+      `;
+      dashboard.appendChild(section);
+      loadAdminData(_adminPeriod);
+    }
+    function setAdminPeriod(period, btn) {
+      _adminPeriod = period;
+      document.querySelectorAll('.admin-period-btn').forEach(b => b.classList.remove('active'));
+      if (btn) btn.classList.add('active');
+      loadAdminData(period);
+    }
+    async function loadAdminData(period) {
+      try {
+        const token = await window.Clerk?.session?.getToken();
+        const headers = { Authorization: `Bearer ${token}` };
+        const [statsRes, logsRes] = await Promise.all([
+          fetch(`${API_BASE}/v1/dashboard/admin-stats?period=${period}`, { headers }),
+          fetch(`${API_BASE}/v1/dashboard/admin-logs?period=${period}`, { headers }),
+        ]);
+        if (!statsRes.ok || !logsRes.ok) return;
+        const stats = await statsRes.json();
+        const logs = await logsRes.json();
+        // Stats
+        document.getElementById('admin-calls').textContent = (stats.stats.totalCalls || 0).toLocaleString();
+        document.getElementById('admin-revenue').textContent = '$' + ((stats.stats.totalRevenue || 0) * 0.001).toFixed(2);
+        document.getElementById('admin-profit').textContent = '$' + ((stats.stats.netProfit || 0) * 0.001).toFixed(2);
+        document.getElementById('admin-users').textContent = (stats.stats.activeUsers || 0).toLocaleString();
+        document.getElementById('admin-skills').textContent = (stats.stats.totalSkills || 0).toLocaleString();
+        // Chart
+        renderAdminChart(stats.chart || []);
+        // Revenue breakdown
+        renderRevenueBreakdown(stats);
+        // Call logs
+        renderCallLogs(logs.callLogs || []);
+        // Skill logs
+        renderSkillLogs(logs.skillLogs || []);
+      } catch (err) { console.error('Admin data load failed:', err); }
+    }
+    function renderAdminChart(data) {
+      const el = document.getElementById('admin-chart');
+      if (!data.length) { el.innerHTML = '<div style="color:var(--text-muted);font-size:12px;margin:auto">No data for this period</div>'; return; }
+      const max = Math.max(...data.map(d => d.calls), 1);
+      el.innerHTML = data.map(d => {
+        const pct = Math.max(2, (d.calls / max) * 100);
+        const label = d.date.slice(5); // MM-DD
+        return `<div class="admin-bar-col"><div class="admin-bar-val">${d.calls}</div><div class="admin-bar" style="height:${pct}%"></div><div class="admin-bar-label">${label}</div></div>`;
+      }).join('');
+    }
+    function renderRevenueBreakdown(stats) {
+      const r = stats.revenue || {};
+      const rec = stats.reconciliation || {};
+      const t = stats.treasury || {};
+      const grid = document.getElementById('admin-revenue-grid');
+      const cr2usd = (cr) => '$' + (cr * 0.001).toFixed(2);
+      grid.innerHTML = `
+        <div class="admin-rev-card"><div class="admin-rev-label">Total Revenue</div><div class="admin-rev-val">${cr2usd(r.totalPlatformCredits || 0)}</div><div class="admin-rev-sub">${(r.totalPlatformCredits || 0).toLocaleString()} credits</div></div>
+        <div class="admin-rev-card"><div class="admin-rev-label">Marketplace Fees</div><div class="admin-rev-val">${cr2usd(r.breakdown?.marketplaceFees?.credits || 0)}</div><div class="admin-rev-sub">${(r.breakdown?.marketplaceFees?.transactions || 0)} txns</div></div>
+        <div class="admin-rev-card"><div class="admin-rev-label">Invoke Fees</div><div class="admin-rev-val">${cr2usd(r.breakdown?.invokeFees?.credits || 0)}</div><div class="admin-rev-sub">${(r.breakdown?.invokeFees?.transactions || 0)} txns</div></div>
+        <div class="admin-rev-card"><div class="admin-rev-label">Swarm Fees</div><div class="admin-rev-val">${cr2usd(r.breakdown?.swarmFees?.credits || 0)}</div><div class="admin-rev-sub">${(r.breakdown?.swarmFees?.transactions || 0)} txns</div></div>
+        <div class="admin-rev-card"><div class="admin-rev-label">Treasury Balance</div><div class="admin-rev-val">${t.treasury ? t.treasury.credits.toLocaleString() + ' cr' : 'N/A'}</div><div class="admin-rev-sub">${t.treasury ? t.treasury.usdEquivalent : '—'}</div></div>
+        <div class="admin-rev-card"><div class="admin-rev-label">Total Payments</div><div class="admin-rev-val">$${((r.payments?.totalUsd || 0) / 100).toFixed(2)}</div><div class="admin-rev-sub">${r.payments?.keyCount || 0} paying keys</div></div>
+      `;
+    }
+    function renderCallLogs(logs) {
+      const tbody = document.getElementById('admin-calls-tbody');
+      if (!logs.length) { tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:16px">No calls in this period</td></tr>'; return; }
+      tbody.innerHTML = logs.map(l => `<tr>
+        <td style="white-space:nowrap;color:var(--text-tertiary)">${timeAgo(l.timestamp)}</td>
+        <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(l.query || '')}">${esc((l.query || '').slice(0, 50))}</td>
+        <td class="mono">${esc(l.skill_id || '—')}</td>
+        <td class="mono">${l.credits}</td>
+        <td class="mono" style="color:var(--text-muted)">${esc(l.api_key || '—')}</td>
+        <td>${l.success ? '<span class="badge badge-success">OK</span>' : '<span class="badge badge-danger">FAIL</span>'}</td>
+      </tr>`).join('');
+    }
+    function renderSkillLogs(logs) {
+      const tbody = document.getElementById('admin-skills-tbody');
+      if (!logs.length) { tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:16px">No skill invocations in this period</td></tr>'; return; }
+      tbody.innerHTML = logs.map(l => `<tr>
+        <td class="mono">${esc((l.skill_id || '').slice(0, 12))}</td>
+        <td>${esc(l.name || '—')}</td>
+        <td class="mono">${(l.invocations || 0).toLocaleString()}</td>
+        <td class="mono">${(l.revenue || 0).toLocaleString()} cr</td>
+        <td class="mono">${l.unique_users || 0}</td>
+      </tr>`).join('');
+    }
+
     // ── INIT ──
-    async function init(){try{await window.Clerk.load();}catch(e){document.getElementById('loading-state').innerHTML='<p style="color:var(--danger);font-size:13px">Authentication unavailable. Please refresh.</p>';return;}if(!window.Clerk.user){const p=new URLSearchParams(window.location.search);const c=p.get('claim_session')??p.get('claim');window.location.href=c?`/login.html?claim=${c}`:'/login.html';return;}document.getElementById('nav-user-email').textContent=window.Clerk.user.primaryEmailAddress?.emailAddress??'';document.getElementById('nav-user-email').classList.add('show');document.getElementById('nav-dash-btn').classList.add('show');document.getElementById('nav-signout-btn').classList.add('show');document.getElementById('nav-login-btn').style.display='none';const cachedCr=localStorage.getItem('clawnet_credits');document.getElementById('nav-credits-num').textContent=cachedCr!==null?parseInt(cachedCr).toLocaleString():'\u2014';document.getElementById('nav-credits-badge').classList.add('show');const p=new URLSearchParams(window.location.search);const cs=p.get('claim_session'),cr=p.get('claim');if(cs)await autoClaimSession(cs);if(cr){showClaimNotice(cr);window.history.replaceState({},'','/dashboard.html');}await loadDashboard();}
+    async function init(){try{await window.Clerk.load();}catch(e){document.getElementById('loading-state').innerHTML='<p style="color:var(--danger);font-size:13px">Authentication unavailable. Please refresh.</p>';return;}if(!window.Clerk.user){const p=new URLSearchParams(window.location.search);const c=p.get('claim_session')??p.get('claim');window.location.href=c?`/login.html?claim=${c}`:'/login.html';return;}document.getElementById('nav-user-email').textContent=window.Clerk.user.primaryEmailAddress?.emailAddress??'';document.getElementById('nav-user-email').classList.add('show');document.getElementById('nav-dash-btn').classList.add('show');document.getElementById('nav-signout-btn').classList.add('show');document.getElementById('nav-login-btn').style.display='none';const cachedCr=localStorage.getItem('clawnet_credits');document.getElementById('nav-credits-num').textContent=cachedCr!==null?parseInt(cachedCr).toLocaleString():'\u2014';document.getElementById('nav-credits-badge').classList.add('show');const p=new URLSearchParams(window.location.search);const cs=p.get('claim_session'),cr=p.get('claim');if(cs)await autoClaimSession(cs);if(cr){showClaimNotice(cr);window.history.replaceState({},'','/dashboard.html');}await loadDashboard();checkAdmin();}
     async function autoClaimSession(sessionId){try{const token=await window.Clerk?.session?.getToken();await fetch(`${API_BASE}/v1/dashboard/claim-session`,{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({sessionId})});}catch(err){console.error('Auto-claim failed:',err);}}
     init();
   </script>

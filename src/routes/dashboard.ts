@@ -18,7 +18,15 @@ import {
   getClaimToken,
   deleteClaimToken,
   markClaimTokenUsed,
+  getAdminDashboardStats,
+  getCallsOverTime,
+  getRecentCallLogs,
+  getSkillInvocationLogs,
+  getRevenueBreakdown,
+  getReconciliation,
+  getTreasuryStatus,
 } from '../db/index';
+import { env } from '../config/index';
 import { cacheIncr } from '../cache/index';
 import { maskApiKey } from '../utils/mask';
 
@@ -272,6 +280,49 @@ dashboardRouter.get('/verify-claim/:token', async (c) => {
   logger.info({ clerkUserId: claim.clerk_user_id, apiKey: maskApiKey(claim.api_key) }, 'Key claimed via magic link');
 
   return c.redirect('https://claw-net.org/dashboard.html?claim=success');
+});
+
+// ─── Admin Dashboard ────────────────────────────────────────────────────────
+
+function isAdminEmail(email: string | null | undefined): boolean {
+  if (!email || !env.ADMIN_EMAILS) return false;
+  const allowed = env.ADMIN_EMAILS.split(',').map(e => e.trim().toLowerCase());
+  return allowed.includes(email.toLowerCase());
+}
+
+function parsePeriod(raw: unknown): 'week' | 'month' {
+  return raw === 'month' ? 'month' : 'week';
+}
+
+// Check if current Clerk user is admin (no data leaked — just a boolean)
+dashboardRouter.get('/admin-check', requireClerkAuth, (c) => {
+  const email = c.get('clerkEmail');
+  return c.json({ isAdmin: isAdminEmail(email) });
+});
+
+// Full admin stats + chart data + revenue
+dashboardRouter.get('/admin-stats', requireClerkAuth, (c) => {
+  if (!isAdminEmail(c.get('clerkEmail'))) {
+    return c.json({ error: 'Forbidden', code: 'FORBIDDEN' }, 403);
+  }
+  const period = parsePeriod(c.req.query('period'));
+  const stats = getAdminDashboardStats(period);
+  const chart = getCallsOverTime(period);
+  const revenue = getRevenueBreakdown();
+  const reconciliation = getReconciliation();
+  const treasury = getTreasuryStatus();
+  return c.json({ period, stats, chart, revenue, reconciliation, treasury });
+});
+
+// Call logs + skill invocation logs (all keys masked server-side)
+dashboardRouter.get('/admin-logs', requireClerkAuth, (c) => {
+  if (!isAdminEmail(c.get('clerkEmail'))) {
+    return c.json({ error: 'Forbidden', code: 'FORBIDDEN' }, 403);
+  }
+  const period = parsePeriod(c.req.query('period'));
+  const callLogs = getRecentCallLogs(period);
+  const skillLogs = getSkillInvocationLogs(period);
+  return c.json({ period, callLogs, skillLogs });
 });
 
 async function sendClaimEmail(params: {

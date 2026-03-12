@@ -1,6 +1,12 @@
 import { getDb, logAudit } from './connection';
 import { maskApiKey } from '../utils/mask';
 
+type Period = 'week' | 'month';
+function periodDays(p: Period): number { return p === 'week' ? 7 : 30; }
+function periodStart(p: Period): string {
+  return `-${periodDays(p)} days`;
+}
+
 // ─── Reconciliation ────────────────────────────────────────────────────────────
 
 export function getReconciliation(): {
@@ -181,4 +187,95 @@ export function revokeKeysByEmail(email: string, reason?: string): number {
     }
     return keys.length;
   })();
+}
+
+// ─── Admin Dashboard Queries ────────────────────────────────────────────────
+
+export function getAdminDashboardStats(period: Period): {
+  totalCalls: number;
+  totalRevenue: number;
+  netProfit: number;
+  activeUsers: number;
+  totalSkills: number;
+} {
+  const db = getDb();
+  const since = periodStart(period);
+  const calls = db.prepare(`
+    SELECT COUNT(*) AS total FROM orchestrations
+    WHERE timestamp >= datetime('now', ?)
+  `).get(since) as { total: number };
+  const revenue = db.prepare(`
+    SELECT COALESCE(SUM(amount_credits), 0) AS total,
+           COALESCE(SUM(fee_credits), 0) AS fees
+    FROM transactions
+    WHERE created_at >= datetime('now', ?) AND type IN ('SKILL_SALE', 'SKILL_INVOKE', 'SWARM_FEE')
+  `).get(since) as { total: number; fees: number };
+  const users = db.prepare(`
+    SELECT COUNT(DISTINCT api_key) AS total FROM orchestrations
+    WHERE timestamp >= datetime('now', ?) AND api_key IS NOT NULL
+  `).get(since) as { total: number };
+  const skills = db.prepare(`SELECT COUNT(*) AS total FROM skills`).get() as { total: number };
+  return {
+    totalCalls: calls.total ?? 0,
+    totalRevenue: revenue.total ?? 0,
+    netProfit: revenue.fees ?? 0,
+    activeUsers: users.total ?? 0,
+    totalSkills: skills.total ?? 0,
+  };
+}
+
+export function getCallsOverTime(period: Period): Array<{ date: string; calls: number }> {
+  const db = getDb();
+  const since = periodStart(period);
+  return db.prepare(`
+    SELECT date(timestamp) AS date, COUNT(*) AS calls
+    FROM orchestrations
+    WHERE timestamp >= datetime('now', ?)
+    GROUP BY date(timestamp)
+    ORDER BY date ASC
+  `).all(since) as Array<{ date: string; calls: number }>;
+}
+
+export function getRecentCallLogs(period: Period, limit = 50): Array<{
+  id: string; timestamp: string; query: string; credits: number;
+  api_key: string | null; skill_id: string | null; success: number;
+}> {
+  const db = getDb();
+  const since = periodStart(period);
+  const rows = db.prepare(`
+    SELECT id, timestamp, query, COALESCE(total, 0) AS credits,
+           api_key, skill_id, success
+    FROM orchestrations
+    WHERE timestamp >= datetime('now', ?)
+    ORDER BY timestamp DESC LIMIT ?
+  `).all(since, limit) as Array<{
+    id: string; timestamp: string; query: string; credits: number;
+    api_key: string | null; skill_id: string | null; success: number;
+  }>;
+  return rows.map(r => ({
+    ...r,
+    api_key: r.api_key ? maskApiKey(r.api_key) : null,
+  }));
+}
+
+export function getSkillInvocationLogs(period: Period, limit = 50): Array<{
+  skill_id: string; name: string | null; invocations: number;
+  revenue: number; unique_users: number;
+}> {
+  const db = getDb();
+  const since = periodStart(period);
+  return db.prepare(`
+    SELECT t.skill_id, s.name, COUNT(*) AS invocations,
+           COALESCE(SUM(t.amount_credits), 0) AS revenue,
+           COUNT(DISTINCT t.from_agent) AS unique_users
+    FROM transactions t
+    LEFT JOIN skills s ON s.id = t.skill_id
+    WHERE t.created_at >= datetime('now', ?) AND t.type IN ('SKILL_SALE', 'SKILL_INVOKE')
+    AND t.skill_id IS NOT NULL
+    GROUP BY t.skill_id
+    ORDER BY invocations DESC LIMIT ?
+  `).all(since, limit) as Array<{
+    skill_id: string; name: string | null; invocations: number;
+    revenue: number; unique_users: number;
+  }>;
 }
