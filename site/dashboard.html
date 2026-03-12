@@ -493,6 +493,32 @@
         </div>
       </div>
 
+      <!-- Referral -->
+      <div class="card" id="referral-card">
+        <div class="card-label">Refer a Friend</div>
+        <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px;">Share your code. When a friend applies it, you both get free credits.</p>
+        <div id="referral-loading" style="font-size:13px;color:var(--text-tertiary)">Loading…</div>
+        <div id="referral-content" style="display:none">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+            <code id="referral-code" style="font-family:var(--font-mono);font-size:18px;font-weight:700;color:var(--accent);letter-spacing:0.1em;padding:10px 18px;background:var(--accent-dim);border:1px solid rgba(16,185,129,0.25);border-radius:var(--radius-md)">--------</code>
+            <button class="btn btn-ghost" onclick="copyReferralCode()" id="referral-copy-btn">Copy</button>
+            <button class="btn btn-ghost" onclick="shareReferral()">Share</button>
+          </div>
+          <p style="font-size:12px;color:var(--text-tertiary);margin-bottom:4px">
+            You earn <span id="referral-bonus-owner" style="color:var(--accent)">250</span> credits per referral.
+            Your friend gets <span id="referral-bonus-receiver" style="color:var(--accent)">500</span> credits when they apply your code.
+          </p>
+          <p style="font-size:12px;color:var(--text-muted)" id="referral-uses-text">0 friends referred so far</p>
+        </div>
+        <div style="border-top:1px solid var(--border-subtle);margin:16px 0"></div>
+        <div class="card-label" style="margin-bottom:8px">Apply a Friend's Code</div>
+        <div class="claim-row">
+          <input type="text" class="input" id="referral-apply-input" placeholder="ABCD1234" style="flex:1;text-transform:uppercase;letter-spacing:0.05em" maxlength="20">
+          <button class="btn btn-primary" onclick="applyReferral()">Apply Code</button>
+        </div>
+        <div class="claim-msg info" id="referral-apply-msg"></div>
+      </div>
+
       <!-- Claim -->
       <div class="card">
         <div class="card-label">Claim Credits from Another Purchase</div>
@@ -678,6 +704,7 @@
         renderDashboard(data);
         loadTaskHistory();
         loadUsageBreakdown();
+        loadReferral();
       } catch(err) {
         console.error('Dashboard load failed:',err);
         document.getElementById('loading-state').innerHTML=`<div class="spinner red"></div><p style="color:var(--danger);font-size:13px;margin-top:8px">Failed to connect to the API.</p><p style="margin-top:8px"><a href="javascript:location.reload()" style="color:var(--accent);font-size:13px">\u21BA Retry</a></p>`;
@@ -745,6 +772,54 @@
     function topUp(url) { const userId=window.Clerk.user?.id??''; window.open(`${url}?client_reference_id=${userId}`,'_blank'); }
 
     // ── CLAIM ──
+    // ── REFERRAL ──
+    let _referralCode = '';
+    async function loadReferral() {
+      try {
+        const token = await window.Clerk?.session?.getToken();
+        const res = await fetch(`${API_BASE}/v1/referral/my-code`, { headers: { Authorization: `Bearer ${token}` } });
+        if (!res.ok) { document.getElementById('referral-loading').textContent = 'Unavailable'; return; }
+        const data = await res.json();
+        _referralCode = data.code;
+        document.getElementById('referral-code').textContent = data.code;
+        document.getElementById('referral-bonus-owner').textContent = (data.bonusCreditsForYou || 250).toLocaleString();
+        document.getElementById('referral-bonus-receiver').textContent = (data.bonusCreditsForFriend || 500).toLocaleString();
+        document.getElementById('referral-uses-text').textContent = `${data.uses || 0} friend${data.uses === 1 ? '' : 's'} referred so far`;
+        document.getElementById('referral-loading').style.display = 'none';
+        document.getElementById('referral-content').style.display = '';
+      } catch { document.getElementById('referral-loading').textContent = 'Unavailable'; }
+    }
+    function copyReferralCode() {
+      if (!_referralCode) return;
+      navigator.clipboard.writeText(_referralCode).then(() => { showToast('Code copied!', 'success'); const b = document.getElementById('referral-copy-btn'); if (b) { const t = b.textContent; b.textContent = 'Copied!'; setTimeout(() => b.textContent = t, 1500); } });
+    }
+    function shareReferral() {
+      const url = `https://claw-net.org/?ref=${_referralCode}`;
+      if (navigator.share) { navigator.share({ title: 'ClawNet', text: `Use my referral code ${_referralCode} to get free credits on ClawNet!`, url }); }
+      else { navigator.clipboard.writeText(url).then(() => showToast('Share link copied!', 'success')); }
+    }
+    async function applyReferral() {
+      const inp = document.getElementById('referral-apply-input');
+      const msg = document.getElementById('referral-apply-msg');
+      const code = (inp.value || '').trim().toUpperCase();
+      if (!code) { setMsg(msg, 'Enter a referral code.', 'error'); return; }
+      setMsg(msg, 'Applying…', 'info');
+      try {
+        const token = await window.Clerk?.session?.getToken();
+        const res = await fetch(`${API_BASE}/v1/referral/apply`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code }),
+        });
+        const data = await res.json();
+        if (res.ok) { setMsg(msg, `✓ ${data.message || data.creditsAdded + ' credits added!'}`, 'success'); showToast('Credits added!', 'success'); inp.value = ''; }
+        else if (data.code === 'ALREADY_USED') { setMsg(msg, 'You have already applied a referral code.', 'warning'); }
+        else if (data.code === 'SELF_REFERRAL') { setMsg(msg, 'You cannot apply your own code.', 'error'); }
+        else if (data.code === 'NOT_FOUND') { setMsg(msg, 'Referral code not found. Check and try again.', 'error'); }
+        else { setMsg(msg, data.error || 'Failed to apply code.', 'error'); }
+      } catch { setMsg(msg, 'Network error. Try again.', 'error'); }
+    }
+
     async function sendClaimEmail(){const e=document.getElementById('claim-email').value.trim(),m=document.getElementById('claim-msg');if(!e){setMsg(m,'Enter an email address.','error');return;}setMsg(m,'Sending...','info');await doSendClaim(e,m);}
     async function sendClaimEmail2(){const e=document.getElementById('claim-email-2').value.trim(),m=document.getElementById('claim-msg-2');if(!e){setMsg(m,'Enter an email address.','error');return;}setMsg(m,'Sending...','info');await doSendClaim(e,m);}
     async function doSendClaim(email,msgEl){try{const token=await window.Clerk?.session?.getToken();await fetch(`${API_BASE}/v1/dashboard/send-claim-email`,{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({purchaseEmail:email})});setMsg(msgEl,'\u2713 If a purchase exists, a claim link has been sent.','success');showToast('Claim email sent','success');}catch{setMsg(msgEl,'Failed to send. Try again.','error');showToast('Failed to send claim email','error');}}

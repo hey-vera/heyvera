@@ -31,6 +31,8 @@ const envSchema = z.object({
   PLATFORM_SIGNING_SECRET: z.string().optional(),
   RATE_LIMIT_PER_MIN: z.coerce.number().int().min(1).max(10000).default(60),
   FREE_TRIAL_CREDITS: z.coerce.number().int().min(0).max(10000).default(0),
+  REFERRAL_BONUS_RECEIVER: z.coerce.number().int().min(0).max(10000).default(500), // credits granted to the user who applies a referral code
+  REFERRAL_BONUS_OWNER: z.coerce.number().int().min(0).max(10000).default(250),    // credits granted to the referral code owner
   DAILY_SPEND_CAP: z.coerce.number().int().min(0).default(0),          // 0 = disabled (agents should spend freely until credits run out)
   ANOMALY_THRESHOLD: z.coerce.number().int().min(100).default(5000),  // alert admin when a key hits this in one day
 

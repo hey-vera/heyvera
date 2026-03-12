@@ -177,6 +177,40 @@ export function getReferralCodeByOwner(ownerKey: string): { code: string; uses: 
     .get(ownerKey) as { code: string; uses: number } | undefined;
 }
 
+export function hasAppliedReferral(referreeKey: string): boolean {
+  const row = getDb().prepare('SELECT 1 FROM referral_uses WHERE referree_key = ?').get(referreeKey);
+  return row != null;
+}
+
+export function applyReferralCode(
+  referreeKey: string,
+  code: string,
+  ownerKey: string,
+  bonusReceiver: number,
+  bonusOwner: number,
+): 'ok' | 'already_used' | 'self_referral' {
+  if (referreeKey === ownerKey) return 'self_referral';
+  const db = getDb();
+  return db.transaction(() => {
+    const already = db.prepare('SELECT 1 FROM referral_uses WHERE referree_key = ?').get(referreeKey);
+    if (already) return 'already_used';
+
+    db.prepare('INSERT INTO referral_uses (referree_key, code) VALUES (?, ?)').run(referreeKey, code);
+    db.prepare('UPDATE referral_codes SET uses = uses + 1 WHERE code = ?').run(code);
+
+    if (bonusReceiver > 0) {
+      db.prepare('UPDATE api_keys SET credits = credits + ? WHERE key = ? AND active = 1').run(bonusReceiver, referreeKey);
+      logAudit({ entityType: 'api_key', entityId: referreeKey, action: 'CREDIT_GRANT', actorId: 'system', data: { credits: bonusReceiver, via: 'referral_receiver', code } });
+    }
+    if (bonusOwner > 0) {
+      db.prepare('UPDATE api_keys SET credits = credits + ? WHERE key = ? AND active = 1').run(bonusOwner, ownerKey);
+      logAudit({ entityType: 'api_key', entityId: ownerKey, action: 'CREDIT_GRANT', actorId: 'system', data: { credits: bonusOwner, via: 'referral_owner', code } });
+    }
+
+    return 'ok';
+  })();
+}
+
 // ─── Subscriptions ────────────────────────────────────────────────────────────
 
 export function upsertSubscription(params: {

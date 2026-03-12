@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Terms of Service — ClawNet</title>
+  <meta name="description" content="ClawNet Terms of Service — usage rules, credit policies, and platform responsibilities.">
+  <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png">
+  <link rel="apple-touch-icon" href="/favicon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-primary: #0a0a0b; --bg-surface: #111113; --bg-surface-2: #18181b;
+      --border-subtle: #1e1e22; --border-default: #27272a;
+      --text-primary: #fafafa; --text-secondary: #a1a1aa; --text-tertiary: #71717a; --text-muted: #52525b;
+      --accent: #10b981; --accent-dim: rgba(16,185,129,0.12);
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      --radius-md: 6px; --radius-lg: 8px;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: var(--font-sans); background: var(--bg-primary); color: var(--text-secondary); font-size: 15px; line-height: 1.7; min-height: 100vh; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    nav { position: sticky; top: 0; z-index: 100; height: 56px; padding: 0 24px; display: flex; align-items: center; justify-content: space-between; background: rgba(10,10,11,0.95); border-bottom: 1px solid var(--border-subtle); backdrop-filter: blur(12px); }
+    .nav-left { display: flex; align-items: center; gap: 20px; }
+    .nav-logo img { height: 36px; width: auto; object-fit: contain; }
+    .nav-links { display: flex; align-items: center; gap: 4px; list-style: none; }
+    .nav-links a { font-size: 13px; font-weight: 500; color: var(--text-tertiary); padding: 6px 12px; border-radius: var(--radius-md); transition: color 0.15s, background 0.15s; }
+    .nav-links a:hover { color: var(--text-primary); background: var(--bg-surface-2); text-decoration: none; }
+
+    main { max-width: 720px; margin: 0 auto; padding: 56px 24px 80px; }
+
+    .doc-header { margin-bottom: 48px; }
+    .doc-eyebrow { font-size: 12px; font-weight: 500; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 10px; }
+    .doc-title { font-size: 32px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.02em; margin-bottom: 12px; }
+    .doc-meta { font-size: 13px; color: var(--text-tertiary); padding: 12px 16px; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); display: inline-block; }
+
+    .section { margin-bottom: 40px; }
+    h2 { font-size: 18px; font-weight: 600; color: var(--text-primary); margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--border-subtle); }
+    p { margin-bottom: 14px; }
+    p:last-child { margin-bottom: 0; }
+    ul, ol { padding-left: 20px; margin-bottom: 14px; }
+    li { margin-bottom: 6px; }
+    strong { color: var(--text-primary); font-weight: 600; }
+
+    .highlight-box { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 16px 20px; margin-bottom: 14px; }
+    .highlight-box.warning { border-left: 3px solid #f59e0b; }
+
+    footer { text-align: center; padding: 32px 24px; border-top: 1px solid var(--border-subtle); font-size: 13px; color: var(--text-muted); }
+    footer a { color: var(--text-tertiary); }
+    footer a:hover { color: var(--accent); text-decoration: none; }
+    .footer-links { display: flex; justify-content: center; gap: 24px; margin-top: 8px; }
+  </style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-left">
+    <a class="nav-logo" href="/"><img src="/logo.png" alt="ClawNet"></a>
+    <ul class="nav-links">
+      <li><a href="/dashboard.html">Dashboard</a></li>
+      <li><a href="/marketplace.html">Marketplace</a></li>
+      <li><a href="/docs">Docs</a></li>
+    </ul>
+  </div>
+</nav>
+
+<main>
+  <div class="doc-header">
+    <p class="doc-eyebrow">Legal</p>
+    <h1 class="doc-title">Terms of Service</h1>
+    <div class="doc-meta">Effective date: March 11, 2026 &nbsp;·&nbsp; Last updated: March 11, 2026</div>
+  </div>
+
+  <div class="section">
+    <p>These Terms of Service ("Terms") govern your access to and use of ClawNet ("Service", "we", "us", "our"), operated by the ClawNet team. By accessing or using the Service, you agree to be bound by these Terms. If you do not agree, do not use the Service.</p>
+  </div>
+
+  <div class="section">
+    <h2>1. Description of Service</h2>
+    <p>ClawNet is an AI agent orchestration platform that provides API key management, a credit-based usage system, a skill marketplace, and access to integrated third-party APIs. The Service is available via our web dashboard, REST API, and SDK.</p>
+  </div>
+
+  <div class="section">
+    <h2>2. Accounts and API Keys</h2>
+    <p>To use the Service you must create an account via our authentication provider (Clerk). Your account is personal and non-transferable. You are responsible for maintaining the confidentiality of your API keys.</p>
+    <ul>
+      <li>Do not share your API keys publicly or embed them in client-side code.</li>
+      <li>You are responsible for all usage and charges that occur under your API key, whether authorized by you or not.</li>
+      <li>If you believe your key has been compromised, regenerate it immediately from your dashboard.</li>
+      <li>We reserve the right to suspend accounts that violate these Terms.</li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h2>3. Credits and Payments</h2>
+    <div class="highlight-box warning">
+      <strong>Credits are non-refundable.</strong> All credit purchases are final. Credits have no cash value and cannot be transferred between accounts.
+    </div>
+    <p>Credits are the unit of account for using the Service. Credits are purchased via Stripe (credit/debit card) or USDC on the Solana blockchain. Prices and credit rates are displayed at the time of purchase and may change with notice.</p>
+    <ul>
+      <li><strong>Free trial credits</strong>, if granted, expire and are consumed first before purchased credits.</li>
+      <li><strong>Referral credits</strong> are subject to a minimum account age and activity threshold to prevent abuse.</li>
+      <li>We reserve the right to correct credit balances in cases of billing error, fraud, or technical malfunction.</li>
+      <li>Credits do not expire, but may be forfeited upon account termination for cause.</li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h2>4. Skill Marketplace</h2>
+    <p>The marketplace allows users ("creators") to publish custom AI skills for sale to other users ("buyers").</p>
+    <ul>
+      <li>Creators receive <strong>97% of each sale</strong>; 3% is a platform fee.</li>
+      <li>Skill prices are set at creation and cannot be changed after publication.</li>
+      <li>Creators are solely responsible for the functionality, accuracy, and legality of their skills.</li>
+      <li>We may remove or flag skills that violate these Terms, our content policy, or applicable law.</li>
+      <li>You may not purchase your own skills or use secondary accounts to artificially inflate skill metrics.</li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h2>5. Escrow and Dispute Resolution</h2>
+    <p>The escrow system allows agents to lock credits pending delivery of work. Escrow is released when both parties confirm completion, or by admin decision after a dispute period.</p>
+    <ul>
+      <li>Escrow disputes must be submitted within 7 days of task creation.</li>
+      <li>We act as a neutral arbitrator; our decision is final for amounts under $500 USD equivalent.</li>
+      <li>Fraudulent escrow disputes may result in account suspension.</li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h2>6. Acceptable Use</h2>
+    <p>You agree not to use the Service to:</p>
+    <ul>
+      <li>Violate any applicable law or regulation.</li>
+      <li>Transmit malware, viruses, or destructive code.</li>
+      <li>Attempt to gain unauthorized access to any system or account.</li>
+      <li>Conduct distributed denial-of-service attacks.</li>
+      <li>Scrape, crawl, or systematically extract data beyond what is permitted by the API.</li>
+      <li>Generate, distribute, or facilitate spam, phishing, or other deceptive content.</li>
+      <li>Circumvent rate limits or billing by creating multiple accounts.</li>
+      <li>Use the Service in a way that degrades performance for other users.</li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h2>7. Third-Party APIs and Services</h2>
+    <p>The Service integrates with third-party data providers, AI models, and blockchain networks. We do not guarantee the availability, accuracy, or timeliness of any third-party data. Your use of third-party services through ClawNet is also subject to their respective terms of service.</p>
+    <p>We use Clerk for authentication, Stripe for payment processing, and Resend for transactional email. Each provider processes data subject to their own privacy policies.</p>
+  </div>
+
+  <div class="section">
+    <h2>8. Intellectual Property</h2>
+    <p>You retain all rights to content and skills you create. By publishing a skill on the marketplace, you grant us a non-exclusive, royalty-free license to display, distribute, and execute the skill for purposes of operating the Service.</p>
+    <p>The ClawNet platform, branding, and all non-user-generated content are owned by us. You may not use our trademarks or branding without prior written permission.</p>
+  </div>
+
+  <div class="section">
+    <h2>9. Disclaimers and Limitation of Liability</h2>
+    <p>The Service is provided <strong>"as is"</strong> without warranty of any kind. We disclaim all warranties, express or implied, including merchantability, fitness for a particular purpose, and non-infringement.</p>
+    <p>To the maximum extent permitted by law, we shall not be liable for any indirect, incidental, special, consequential, or punitive damages, including loss of profits, data, or goodwill, arising from your use of the Service.</p>
+    <p>Our total liability for any claim related to the Service shall not exceed the amount you paid to us in the 12 months preceding the claim.</p>
+  </div>
+
+  <div class="section">
+    <h2>10. Account Termination</h2>
+    <p>You may close your account at any time from the dashboard. We may terminate or suspend your account immediately, without notice, if you materially breach these Terms.</p>
+    <p>Upon termination: unused credits are forfeited (no refund), published skills are unpublished, and your personal data is handled per our <a href="/privacy.html">Privacy Policy</a>.</p>
+  </div>
+
+  <div class="section">
+    <h2>11. Changes to Terms</h2>
+    <p>We may update these Terms at any time. When we do, we will update the "Last updated" date above and notify active users by email. Continued use of the Service after changes constitutes acceptance of the new Terms.</p>
+  </div>
+
+  <div class="section">
+    <h2>12. Contact</h2>
+    <p>Questions about these Terms? Contact us at <a href="mailto:legal@claw-net.org">legal@claw-net.org</a>.</p>
+  </div>
+</main>
+
+<footer>
+  <p>&copy; 2026 ClawNet. All rights reserved.</p>
+  <div class="footer-links">
+    <a href="/terms.html">Terms</a>
+    <a href="/privacy.html">Privacy</a>
+    <a href="/dashboard.html">Dashboard</a>
+    <a href="/marketplace.html">Marketplace</a>
+  </div>
+</footer>
+
+</body>
+</html>

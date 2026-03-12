@@ -42,6 +42,7 @@ import { registryRouter } from './routes/registry';
 import { tasksRouter } from './routes/tasks';
 import { authRouter } from './routes/auth-tokens';
 import { contextRouter } from './routes/context';
+import { referralRouter } from './routes/referral';
 import { startEndpointHealthCron } from './core/endpoint-health-cron';
 import { signResponse } from './middleware/sign-response';
 import { startEscrowCron } from './core/escrow-cron';
@@ -175,6 +176,7 @@ app.route('/v1/registry', registryRouter);
 app.route('/v1/tasks', tasksRouter);
 app.route('/v1/auth', authRouter);
 app.route('/v1/context', contextRouter);
+app.route('/v1/referral', referralRouter);
 
 app.notFound((c) => c.json({ error: 'Not found', code: 'NOT_FOUND' }, 404));
 
