@@ -1,0 +1,30 @@
+{
+  "name": "@clawnet/mcp",
+  "version": "1.0.0",
+  "description": "ClawNet MCP server — expose 160+ AI skills to Claude Code, Cursor, Windsurf, and any MCP-compatible host",
+  "keywords": ["mcp", "clawnet", "ai", "agents", "solana", "web3", "skills", "orchestration", "claude"],
+  "homepage": "https://claw-net.org",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/clawnet/clawnet.git"
+  },
+  "license": "MIT",
+  "bin": {
+    "clawnet-mcp": "dist/index.js"
+  },
+  "main": "dist/index.js",
+  "files": [
+    "dist/"
+  ],
+  "scripts": {
+    "build": "npx esbuild src/index.ts --bundle --platform=node --target=node18 --outfile=dist/index.js",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "zod": "^3.23.8"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

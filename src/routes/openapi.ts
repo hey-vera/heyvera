@@ -419,6 +419,351 @@ openapiRouter.get('/openapi.json', (c) => {
           responses: { '200': { description: 'Vote recorded' }, '400': { description: 'Vote failed', content: errContent } },
         },
       },
+      // ── Escrow ──────────────────────────────────────────────────────
+      '/v1/escrow': {
+        get: {
+          summary: 'List escrows for current user',
+          description: 'Returns escrows where the caller is hirer or worker.',
+          operationId: 'listEscrows',
+          tags: ['Escrow'],
+          security: [{ ClerkAuth: [] }],
+          responses: { '200': { description: 'Escrow list' }, '401': err401 },
+        },
+      },
+      '/v1/escrow/create': {
+        post: {
+          summary: 'Create an escrow',
+          description: 'Creates a new escrow agreement between a hirer and worker. Credits are not locked until /fund is called.',
+          operationId: 'createEscrow',
+          tags: ['Escrow'],
+          security: [{ ClerkAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    workerEmail: { type: 'string', format: 'email', description: 'Worker\'s ClawNet email' },
+                    amountCredits: { type: 'integer', minimum: 1, description: 'Credits to lock for the work' },
+                    description: { type: 'string', maxLength: 500 },
+                    deliverableDescription: { type: 'string', maxLength: 1000 },
+                    deadlineHours: { type: 'integer', minimum: 1, maximum: 8760 },
+                  },
+                  required: ['workerEmail', 'amountCredits', 'description'],
+                },
+              },
+            },
+          },
+          responses: { '201': { description: 'Escrow created' }, '400': { description: 'Validation error', content: errContent }, '401': err401 },
+        },
+      },
+      '/v1/escrow/{id}/fund': {
+        post: {
+          summary: 'Fund an escrow',
+          description: 'Locks credits from hirer\'s balance. Transitions CREATED → FUNDED.',
+          operationId: 'fundEscrow',
+          tags: ['Escrow'],
+          security: [{ ClerkAuth: [] }],
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: { '200': { description: 'Escrow funded' }, '402': err402, '401': err401 },
+        },
+      },
+      '/v1/escrow/{id}/start': {
+        post: {
+          summary: 'Start work on an escrow',
+          description: 'Worker acknowledges they have started. Transitions FUNDED → WORK_IN_PROGRESS.',
+          operationId: 'startEscrow',
+          tags: ['Escrow'],
+          security: [{ ClerkAuth: [] }],
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: { '200': { description: 'Work started' }, '401': err401 },
+        },
+      },
+      '/v1/escrow/{id}/complete': {
+        post: {
+          summary: 'Mark work as complete',
+          description: 'Worker submits deliverable. Transitions WORK_IN_PROGRESS → COMPLETED.',
+          operationId: 'completeEscrow',
+          tags: ['Escrow'],
+          security: [{ ClerkAuth: [] }],
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          requestBody: { content: { 'application/json': { schema: { type: 'object', properties: { deliverableUrl: { type: 'string', format: 'uri' }, notes: { type: 'string' } } } } } },
+          responses: { '200': { description: 'Completed' }, '401': err401 },
+        },
+      },
+      '/v1/escrow/{id}/release': {
+        post: {
+          summary: 'Release escrow funds to worker',
+          description: 'Hirer approves the work. Credits transfer to worker. Transitions COMPLETED → RELEASED.',
+          operationId: 'releaseEscrow',
+          tags: ['Escrow'],
+          security: [{ ClerkAuth: [] }],
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: { '200': { description: 'Funds released' }, '401': err401 },
+        },
+      },
+      '/v1/escrow/{id}/dispute': {
+        post: {
+          summary: 'Open a dispute',
+          description: 'Either party can raise a dispute. Transitions to DISPUTED state for admin review.',
+          operationId: 'disputeEscrow',
+          tags: ['Escrow'],
+          security: [{ ClerkAuth: [] }],
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          requestBody: { content: { 'application/json': { schema: { type: 'object', properties: { reason: { type: 'string', maxLength: 1000 } }, required: ['reason'] } } } },
+          responses: { '200': { description: 'Dispute opened' }, '401': err401 },
+        },
+      },
+      '/v1/escrow/{id}': {
+        get: {
+          summary: 'Get escrow details',
+          operationId: 'getEscrow',
+          tags: ['Escrow'],
+          security: [{ ClerkAuth: [] }],
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: { '200': { description: 'Escrow details' }, '404': { description: 'Not found', content: errContent } },
+        },
+      },
+      // ── Swarm ────────────────────────────────────────────────────────
+      '/v1/swarm/task': {
+        post: {
+          summary: 'Run a swarm task',
+          description: 'Decomposes a complex goal into parallel sub-tasks using LLM planning, then executes them across the skill network. Charges SWARM_BASE_FEE (20cr) upfront plus per-subtask costs.',
+          operationId: 'runSwarmTask',
+          tags: ['Swarm'],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    goal: { type: 'string', maxLength: 2000, description: 'High-level goal for the swarm to achieve' },
+                    maxBudget: { type: 'integer', minimum: 20, description: 'Maximum credits to spend (must be ≥ 20 for base fee)' },
+                    strategy: { type: 'string', enum: ['cheapest', 'balanced', 'fastest', 'reliable'], default: 'balanced' },
+                  },
+                  required: ['goal'],
+                },
+              },
+            },
+          },
+          responses: {
+            '200': { description: 'Swarm task results with sub-task breakdown' },
+            '402': err402,
+            '429': err429,
+          },
+        },
+      },
+      '/v1/swarm/{id}': {
+        get: {
+          summary: 'Get swarm task status',
+          operationId: 'getSwarmTask',
+          tags: ['Swarm'],
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: { '200': { description: 'Swarm task details' }, '404': { description: 'Not found', content: errContent } },
+        },
+      },
+      // ── LLM Proxy ────────────────────────────────────────────────────
+      '/v1/llm/models': {
+        get: {
+          summary: 'List available LLM models',
+          description: 'Returns all models available through the LLM proxy gateway with credit costs and capabilities.',
+          operationId: 'listLlmModels',
+          tags: ['LLM Proxy'],
+          security: [],
+          responses: {
+            '200': {
+              description: 'Available models',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      models: {
+                        type: 'array',
+                        items: {
+                          type: 'object',
+                          properties: {
+                            id: { type: 'string' },
+                            name: { type: 'string' },
+                            provider: { type: 'string' },
+                            creditCost: { type: 'integer', description: 'Credits per 1K tokens' },
+                            contextWindow: { type: 'integer' },
+                            capabilities: { type: 'array', items: { type: 'string' } },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      '/v1/llm/chat': {
+        post: {
+          summary: 'Chat completion (OpenAI-compatible)',
+          description: 'OpenAI-compatible chat completions endpoint. Supports 23 models via the ClawNet LLM proxy. Billed in credits per 1K tokens with 15% platform markup.',
+          operationId: 'llmChat',
+          tags: ['LLM Proxy'],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    model: { type: 'string', description: 'Model ID from /v1/llm/models (e.g. claude-sonnet-4-6, gpt-4o)' },
+                    messages: {
+                      type: 'array',
+                      items: {
+                        type: 'object',
+                        properties: {
+                          role: { type: 'string', enum: ['system', 'user', 'assistant'] },
+                          content: { type: 'string' },
+                        },
+                        required: ['role', 'content'],
+                      },
+                    },
+                    maxTokens: { type: 'integer' },
+                    temperature: { type: 'number', minimum: 0, maximum: 2 },
+                  },
+                  required: ['model', 'messages'],
+                },
+              },
+            },
+          },
+          responses: {
+            '200': { description: 'Chat completion result with creditsCharged' },
+            '402': err402,
+            '400': { description: 'Invalid model or parameters', content: errContent },
+          },
+        },
+      },
+      '/v1/llm/embeddings': {
+        post: {
+          summary: 'Generate embeddings',
+          description: 'Generate vector embeddings for text using the specified embedding model.',
+          operationId: 'llmEmbeddings',
+          tags: ['LLM Proxy'],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    model: { type: 'string' },
+                    input: { oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }] },
+                  },
+                  required: ['model', 'input'],
+                },
+              },
+            },
+          },
+          responses: { '200': { description: 'Embedding vectors' }, '402': err402 },
+        },
+      },
+      // ── x402 ─────────────────────────────────────────────────────────
+      '/x402': {
+        get: {
+          summary: 'x402 provider info',
+          description: 'Returns x402 payment provider metadata: supported networks, USDC recipient, and skill count.',
+          operationId: 'getX402Info',
+          tags: ['x402'],
+          security: [],
+          responses: { '200': { description: 'x402 provider metadata' } },
+        },
+      },
+      '/x402/skills': {
+        get: {
+          summary: 'List skills available via x402',
+          description: 'Returns public skills that can be invoked using USDC micropayments on Base via the x402 protocol.',
+          operationId: 'listX402Skills',
+          tags: ['x402'],
+          security: [],
+          responses: { '200': { description: 'x402-enabled skill list with USDC prices' } },
+        },
+      },
+      '/x402/skills/{id}': {
+        post: {
+          summary: 'Invoke a skill via x402 micropayment',
+          description: 'Invoke a skill by paying with USDC on Base. Requires a valid x402 payment header. Compatible with x402-js and any x402-compliant agent.',
+          operationId: 'invokeX402Skill',
+          tags: ['x402'],
+          security: [],
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          requestBody: { content: { 'application/json': { schema: { type: 'object', properties: { variables: { type: 'object', additionalProperties: { type: 'string' } } } } } } },
+          responses: {
+            '200': { description: 'Skill result' },
+            '402': { description: 'Payment required — response includes x402 payment details' },
+          },
+        },
+      },
+      // ── Agent Context ─────────────────────────────────────────────────
+      '/v1/context': {
+        get: {
+          summary: 'List agent context entries',
+          description: 'Returns all cached context entries for the current API key. Context persists across requests to avoid re-fetching the same data.',
+          operationId: 'listContext',
+          tags: ['Agent Context'],
+          responses: {
+            '200': {
+              description: 'Context entries',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      count: { type: 'integer' },
+                      entries: {
+                        type: 'array',
+                        items: {
+                          type: 'object',
+                          properties: {
+                            endpointId: { type: 'string' },
+                            category: { type: 'string' },
+                            data: { type: 'object' },
+                            fetchedAt: { type: 'string', format: 'date-time' },
+                            expiresAt: { type: 'string', format: 'date-time' },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        delete: {
+          summary: 'Clear all agent context',
+          description: 'Deletes all context entries for the current API key.',
+          operationId: 'clearContext',
+          tags: ['Agent Context'],
+          responses: { '200': { description: 'Context cleared' } },
+        },
+      },
+      '/v1/context/stats': {
+        get: {
+          summary: 'Agent context usage stats',
+          description: 'Returns entry count, total size, and oldest/newest entry timestamps for the current agent.',
+          operationId: 'getContextStats',
+          tags: ['Agent Context'],
+          responses: { '200': { description: 'Context statistics' } },
+        },
+      },
+      '/v1/context/{endpointId}': {
+        delete: {
+          summary: 'Delete a specific context entry',
+          operationId: 'deleteContextEntry',
+          tags: ['Agent Context'],
+          parameters: [{ name: 'endpointId', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: { '200': { description: 'Entry deleted' }, '404': { description: 'Entry not found', content: errContent } },
+        },
+      },
       // ── Mesh ────────────────────────────────────────────────────────
       '/v1/mesh/peers': {
         get: {
@@ -477,6 +822,11 @@ openapiRouter.get('/openapi.json', (c) => {
       { name: 'Tasks', description: 'Async task submission and tracking' },
       { name: 'Discovery', description: 'Skill and endpoint discovery (semantic + registry)' },
       { name: 'Governance', description: 'On-platform proposals and weighted voting' },
+      { name: 'Escrow', description: 'Credit-locked escrow for agent-to-agent work agreements' },
+      { name: 'Swarm', description: 'Multi-agent decomposition and parallel task execution' },
+      { name: 'LLM Proxy', description: 'OpenAI-compatible gateway to 23 models with credit billing' },
+      { name: 'x402', description: 'Pay-per-call skill invocation via USDC micropayments on Base' },
+      { name: 'Agent Context', description: 'Persistent per-agent data cache to avoid redundant API calls' },
       { name: 'Mesh', description: 'P2P mesh network peer discovery' },
       { name: 'System', description: 'Health, stats, and documentation' },
     ],
