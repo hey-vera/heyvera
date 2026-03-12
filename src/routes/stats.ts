@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { getDbStats, getActiveUserCount } from '../db/index';
-import { apiRegistry } from '../config/api-registry';
+import { apiRegistry, getRegistryStats } from '../config/api-registry';
+import { getLastDiscoveryResult } from '../core/endpoint-discovery';
 
 const statsRouter = new Hono();
 
@@ -13,6 +14,9 @@ statsRouter.get('/', (c) => {
   const endpointCount = apiRegistry.length;
   const activeUsers = getActiveUserCount();
 
+  const registryStats = getRegistryStats();
+  const lastDiscovery = getLastDiscoveryResult();
+
   return c.json({
     totalCalls: db.totalOrchestrations,
     avgDurationMs: db.avgDurationMs,
@@ -20,7 +24,11 @@ statsRouter.get('/', (c) => {
     activeUsers,
     endpoints: {
       total: endpointCount,
+      static: endpointCount - registryStats.discovered,
+      discovered: registryStats.discovered,
+      byProvider: registryStats.byProvider,
     },
+    discovery: lastDiscovery ?? { status: 'pending' },
     updatedAt: new Date().toISOString(),
   });
 });

@@ -11,7 +11,7 @@
  */
 
 import { z } from 'zod';
-import { findEndpoint, apiRegistry, type ApiEndpoint } from '../config/api-registry';
+import { findEndpoint, apiRegistry, dynamicAlternatives, type ApiEndpoint } from '../config/api-registry';
 import { creditCostForEndpoint } from './credits';
 import type { ParsedIntent } from './intent-parser';
 import { logger } from '../utils/logger';
@@ -134,6 +134,33 @@ for (const [capability, endpoints] of Object.entries(ENDPOINT_ALTERNATIVES)) {
   }
 }
 
+/**
+ * Get all alternatives for an endpoint, merging static + discovered.
+ * Called by the optimizer to find swap candidates.
+ */
+function getAllAlternatives(capability: string): string[] {
+  const staticAlts = ENDPOINT_ALTERNATIVES[capability] ?? [];
+  const discoveredAlts = dynamicAlternatives.get(capability) ?? [];
+  // Merge without duplicates
+  const merged = [...staticAlts];
+  for (const id of discoveredAlts) {
+    if (!merged.includes(id)) merged.push(id);
+  }
+  return merged;
+}
+
+/** Build full capability lookup including discovered endpoints */
+function getCapabilityForEndpoint(endpointId: string): string | undefined {
+  // Check static first
+  const staticCap = endpointToCapability.get(endpointId);
+  if (staticCap) return staticCap;
+  // Check dynamic alternatives
+  for (const [group, ids] of dynamicAlternatives) {
+    if (ids.includes(endpointId)) return group;
+  }
+  return undefined;
+}
+
 // ─── Plan Cost Estimation ────────────────────────────────────────────────────
 
 export interface PlanEstimate {
@@ -202,10 +229,10 @@ export function optimizePlan(intent: ParsedIntent, pricing: PricingPreferences):
 
   for (let i = 0; i < optimizedSteps.length; i++) {
     const step = optimizedSteps[i];
-    const capability = endpointToCapability.get(step.endpointId);
+    const capability = getCapabilityForEndpoint(step.endpointId);
     if (!capability) continue;
 
-    const alternatives = ENDPOINT_ALTERNATIVES[capability];
+    const alternatives = getAllAlternatives(capability);
     if (!alternatives || alternatives.length <= 1) continue;
 
     const currentEp = findEndpoint(step.endpointId);
@@ -314,10 +341,10 @@ export function pricingPromptHint(pricing: PricingPreferences): string {
 // ─── Exports for endpoint alternatives (used by /v1/estimate) ────────────────
 
 export function getAlternativesForEndpoint(endpointId: string): { id: string; costPerCall: number; latencyMs: number }[] {
-  const capability = endpointToCapability.get(endpointId);
+  const capability = getCapabilityForEndpoint(endpointId);
   if (!capability) return [];
 
-  return (ENDPOINT_ALTERNATIVES[capability] ?? [])
+  return getAllAlternatives(capability)
     .filter((id) => id !== endpointId)
     .map((id) => {
       const ep = findEndpoint(id);

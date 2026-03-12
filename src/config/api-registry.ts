@@ -2217,6 +2217,11 @@ export const apiRegistry: ApiEndpoint[] = [
   },
 ];
 
+// ─── Registry Index (O(1) lookups) ──────────────────────────────────────────
+
+const _registryMap = new Map<string, ApiEndpoint>();
+for (const ep of apiRegistry) _registryMap.set(ep.id, ep);
+
 export function registryToPromptContext(): string {
   const lines: string[] = ['Available API endpoints:\n'];
   for (const ep of apiRegistry) {
@@ -2231,7 +2236,7 @@ export function registryToPromptContext(): string {
 }
 
 export function findEndpoint(id: string): ApiEndpoint | undefined {
-  return apiRegistry.find((ep) => ep.id === id);
+  return _registryMap.get(id);
 }
 
 export function findByCategory(category: ApiEndpoint['category']): ApiEndpoint[] {
@@ -2240,4 +2245,69 @@ export function findByCategory(category: ApiEndpoint['category']): ApiEndpoint[]
 
 export function findByProvider(provider: string): ApiEndpoint[] {
   return apiRegistry.filter((ep) => ep.provider.toLowerCase().includes(provider.toLowerCase()));
+}
+
+// ─── Dynamic Endpoint Discovery ─────────────────────────────────────────────
+
+/** Endpoint alternatives map — shared with pricing.ts optimizer */
+export const dynamicAlternatives = new Map<string, string[]>();
+
+/**
+ * Merge discovered endpoints into the live registry.
+ * - New endpoints are appended to apiRegistry + indexed in the Map
+ * - Existing endpoints get costPerCall updated if upstream price changed
+ * - Returns counts of added/updated endpoints
+ */
+export function mergeDiscoveredEndpoints(
+  endpoints: ApiEndpoint[],
+  capabilities?: Map<string, string[]>,
+): { added: number; updated: number } {
+  let added = 0;
+  let updated = 0;
+
+  for (const ep of endpoints) {
+    const existing = _registryMap.get(ep.id);
+    if (existing) {
+      // Update cost if changed upstream
+      if (existing.costPerCall !== ep.costPerCall) {
+        existing.costPerCall = ep.costPerCall;
+        updated++;
+      }
+      // Update description if it changed
+      if (existing.description !== ep.description) {
+        existing.description = ep.description;
+      }
+    } else {
+      // New endpoint — append to registry
+      apiRegistry.push(ep);
+      _registryMap.set(ep.id, ep);
+      added++;
+    }
+  }
+
+  // Merge capability groups into dynamic alternatives
+  if (capabilities) {
+    for (const [group, ids] of capabilities) {
+      const existing = dynamicAlternatives.get(group) ?? [];
+      for (const id of ids) {
+        if (!existing.includes(id)) existing.push(id);
+      }
+      dynamicAlternatives.set(group, existing);
+    }
+  }
+
+  return { added, updated };
+}
+
+/** Get registry statistics */
+export function getRegistryStats(): { total: number; byProvider: Record<string, number>; discovered: number } {
+  const byProvider: Record<string, number> = {};
+  let discovered = 0;
+
+  for (const ep of apiRegistry) {
+    byProvider[ep.provider] = (byProvider[ep.provider] ?? 0) + 1;
+    if (ep.id.startsWith('clawapis-')) discovered++;
+  }
+
+  return { total: apiRegistry.length, byProvider, discovered };
 }

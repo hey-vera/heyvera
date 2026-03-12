@@ -44,6 +44,7 @@ import { authRouter } from './routes/auth-tokens';
 import { contextRouter } from './routes/context';
 // import { referralRouter } from './routes/referral'; // disabled — re-enable when referral program launches
 import { startEndpointHealthCron } from './core/endpoint-health-cron';
+import { startEndpointDiscoveryCron } from './core/endpoint-discovery';
 import { signResponse } from './middleware/sign-response';
 import { startEscrowCron } from './core/escrow-cron';
 import { startSkillAbCron } from './core/skill-ab-cron';
@@ -206,6 +207,7 @@ async function start() {
 
   startEscrowCron();
   startEndpointHealthCron();
+  startEndpointDiscoveryCron();
   startSkillAbCron();
   startStakeUnlockCron();
   startPayoutCron();

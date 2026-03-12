@@ -36,6 +36,8 @@ Every flow in the system, from boot to shutdown. Tree diagrams show exact paths 
 28. [P2P Mesh Network](#28-p2p-mesh-network)
 29. [Billing Summary Table](#29-billing-summary-table)
 30. [Complete USDC Money Flow](#30-complete-usdc-money-flow)
+31. [Endpoint Auto-Discovery](#31-endpoint-auto-discovery)
+32. [Pricing Economics](#32-pricing-economics)
 
 ---
 
@@ -1566,6 +1568,7 @@ SIGTERM or SIGINT received (Docker stop, Ctrl+C, deploy)
 │  ├─ stopSkillAbCron()
 │  ├─ stopStakeUnlockCron()
 │  ├─ stopEndpointHealthCron()
+│  ├─ stopEndpointDiscoveryCron()
 │  ├─ stopMeshNode() — libp2p graceful disconnect
 │  └─ stopTelegram()
 │
@@ -1801,4 +1804,111 @@ CREDIT ACCOUNTING INVARIANT:
 
 ---
 
-*Generated from codebase analysis. Last updated: 2026-03-12. Decimal credits (v3), treasury auto-sweep, surcharge-to-treasury fix, 3-wallet architecture.*
+## 31. Endpoint Auto-Discovery
+
+```
+ClawNet starts → 30s delay → runEndpointDiscovery()
+│
+├─ Fetch https://clawapis.com/api/pricing (15s timeout)
+│  └─ Returns JSON: { x: {81 endpoints}, helius: {80 endpoints}, solscan: {22 endpoints} }
+│
+├─ Parse each API section:
+│  ├─ X/Twitter (81 endpoints)
+│  │  ├─ Key format: "GET /x/2/tweets/*" → id: "clawapis-x-2-tweets"
+│  │  ├─ Pricing: $0.05 (tier 1), $0.10 (tier 2), $0.15 (tier 3)
+│  │  └─ Category: social (most), intelligence (trends), utility (compliance)
+│  │
+│  ├─ Helius (80 endpoints)
+│  │  ├─ Key format: "getBalance" → id: "clawapis-helius-getbalance"
+│  │  ├─ Pricing: $0.001 (standard RPC), $0.005 (DAS), $0.05 (enhanced)
+│  │  └─ Category: solana (tokens/assets), infrastructure (RPC)
+│  │
+│  └─ SolScan (22 endpoints)
+│     ├─ Key format: "GET /solscan/account/tokens" → id: "clawapis-solscan-account-tokens"
+│     ├─ Pricing: $0.01 flat (all endpoints)
+│     └─ Category: solana (tokens/NFT), defi (market data)
+│
+├─ For each discovered endpoint:
+│  ├─ Generate stable ID: clawapis-{api}-{path}
+│  ├─ Auto-classify category from description keywords
+│  ├─ Infer input/output schemas from API type + description
+│  ├─ Compute credit cost: creditCostForEndpoint({ costPerCall })
+│  └─ Assign to capability group if applicable (for optimizer swaps)
+│
+├─ Merge into live registry:
+│  ├─ New endpoint? → append to apiRegistry + index in Map
+│  ├─ Existing endpoint? → update costPerCall if changed upstream
+│  └─ Capability groups merge into dynamicAlternatives (used by optimizer)
+│
+├─ Registry structure:
+│  ├─ Static: 161 hardcoded endpoints (all providers)
+│  ├─ Discovered: 183 ClawAPIs endpoints (auto-refreshed)
+│  ├─ Total: 344 endpoints available to orchestrator
+│  └─ Map index: O(1) findEndpoint() lookups (was O(n))
+│
+├─ Cron: repeats every 4 hours
+│  └─ New endpoints added by ClawAPIs appear automatically within 4h
+│
+└─ Stats: GET /v1/stats shows { endpoints: { total, static, discovered, byProvider } }
+
+EXTENSIBILITY:
+├─ Architecture supports any provider with a discovery endpoint
+├─ Add new provider: ~10 lines in endpoint-discovery.ts
+├─ Current: only ClawAPIs has standardized /api/pricing
+└─ Future: x402engine, DeFi Llama, etc. when they add discovery APIs
+```
+
+---
+
+## 32. Pricing Economics
+
+```
+CREDIT PRICING (all sub-$0.001 on cheapest endpoints):
+
+  Endpoint USD Cost × 1500 (COST_MARKUP_FACTOR) = Credits Charged
+  ─────────────────────────────────────────────────────────────────
+  $0.0001 (cheapest)      × 1500  =  0.15 credits  ($0.00015)
+  $0.0005 (mid-cheap)     × 1500  =  0.75 credits  ($0.00075)
+  $0.001  (standard RPC)  × 1500  =  1.5 credits   ($0.0015)
+  $0.005  (DAS/enhanced)  × 1500  =  7.5 credits   ($0.0075)
+  $0.01   (SolScan flat)  × 1500  =  15 credits    ($0.015)
+  $0.05   (X API tier 1)  × 1500  =  75 credits    ($0.075)
+  $0.10   (X API tier 2)  × 1500  =  150 credits   ($0.15)
+
+  Cache hit (any endpoint) =  1 credit  ($0.001)
+  Orchestration fee        =  2 credits ($0.002) — LLM planning + synthesis
+  Minimum possible charge  =  0.001 credits ($0.000001)
+
+MARGIN ANALYSIS:
+├─ Buy rate:    1 credit = $0.001 (Stripe/USDC purchase)
+├─ Cost rate:   1 credit covers $0.000667 API cost (at 1500× markup)
+├─ Margin:      33% gross on every live endpoint call
+├─ Orch fee:    100% margin (LLM cost ≈ $0.0004, fee = $0.002)
+├─ Cache hits:  Platform absorbs 1-credit charge (pays $0 upstream)
+└─ Payout rate: $0.00075/credit (25% below buy rate — prevents arbitrage)
+
+CACHE FAIRNESS (all 3 parties win):
+├─ User:     1 credit ($0.001) for instant cached data — cheaper than live
+├─ Creator:  earns full credit_cost regardless of cache vs live
+│            (IP compensated identically, zero incentive to fight caching)
+├─ Platform: pays $0 upstream for cache hits — pure operating leverage
+│            (subsidizes cache to reduce x402 costs at scale)
+└─ Net: high cache-hit ratio = lower costs for everyone
+
+REVENUE SPLIT (per skill invocation):
+├─ 97% → creator (via round6, not Math.floor)
+├─ 3%  → clawhub-treasury
+├─ x402 surcharge → treasury (1:1 cost recovery, separate from 97/3)
+└─ Treasury → auto-sweep every 4h → operations wallet (USDC)
+
+PRICING OPTIMIZER STRATEGIES:
+├─ cheapest:  swap to lowest-cost alternative in capability group
+├─ balanced:  only swap if over targetCredits budget
+├─ fastest:   swap to lowest-latency alternative
+├─ reliable:  no swaps — use LLM's original selection
+└─ Dynamic alternatives from discovery merge with static map
+```
+
+---
+
+*Generated from codebase analysis. Last updated: 2026-03-12. Decimal credits (v3), treasury auto-sweep, surcharge-to-treasury fix, 3-wallet architecture, endpoint auto-discovery (183 ClawAPIs endpoints).*

@@ -7,6 +7,7 @@ import { stopEscrowCron } from '../core/escrow-cron';
 import { stopSkillAbCron } from '../core/skill-ab-cron';
 import { stopStakeUnlockCron } from '../core/stake-unlock-cron';
 import { stopEndpointHealthCron } from '../core/endpoint-health-cron';
+import { stopEndpointDiscoveryCron } from '../core/endpoint-discovery';
 import { stopPayoutCron } from '../core/payout-cron';
 let isShuttingDown = false;
 let httpServer: { close: () => void } | null = null;
@@ -47,6 +48,7 @@ export function setupGracefulShutdown() {
     stopSkillAbCron();
     stopStakeUnlockCron();
     stopEndpointHealthCron();
+    stopEndpointDiscoveryCron();
     stopPayoutCron();
 
     // 4. Stop external services (after drain — they may still use DB)
