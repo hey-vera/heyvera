@@ -14,9 +14,11 @@ export function getClientIp(c: Parameters<MiddlewareHandler>[0]): string {
 
   if (env.NODE_ENV === 'production' && socketIp) {
     // Trust X-Forwarded-For when request comes from localhost or Docker bridge
-    // (Nginx on the host → Docker container arrives as 172.x.x.x, not 127.0.0.1)
+    // (Nginx on the host → Docker container arrives as 172.16-31.x.x, not 127.0.0.1)
+    // IMPORTANT: Docker uses 172.16.0.0/12 (172.16–31.x.x). Do NOT use startsWith('172.')
+    // which would also match public IPs like 172.0.x.x or 172.100.x.x, enabling rate-limit bypass.
     const isFromProxy = socketIp === '127.0.0.1' || socketIp === '::1' || socketIp === '::ffff:127.0.0.1'
-      || socketIp.startsWith('172.') || socketIp.startsWith('10.') || socketIp.startsWith('192.168.')
+      || /^172\.(1[6-9]|2\d|3[01])\./.test(socketIp) || socketIp.startsWith('10.') || socketIp.startsWith('192.168.')
       // IPv6 private ranges: ULA (fc00::/7) and link-local (fe80::/10)
       || socketIp.startsWith('fc') || socketIp.startsWith('fd') || socketIp.startsWith('fe80');
     if (isFromProxy) {

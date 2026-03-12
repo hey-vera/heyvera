@@ -341,23 +341,33 @@ export const TREASURY_KEY = 'clawhub-treasury';
 /** Ensure the platform's own api_keys row exists so revenue share credits
  *  accumulate properly when official skills are invoked. */
 function ensurePlatformKey(db: ReturnType<typeof getDb>): void {
-  const existing = db.prepare('SELECT key FROM api_keys WHERE key = ?').get(CLAWHUB_KEY);
+  const existing = db.prepare('SELECT key, active FROM api_keys WHERE key = ?').get(CLAWHUB_KEY) as { key: string; active: number } | undefined;
   if (!existing) {
     db.prepare(
       `INSERT INTO api_keys (key, email, credits, credits_used, active, created_at)
        VALUES (?, 'platform@claw-net.org', 0, 0, 1, datetime('now'))`
     ).run(CLAWHUB_KEY);
+  } else if (existing.active === 0) {
+    // Should never happen, but guard against admin accidentally revoking the platform key
+    db.prepare('UPDATE api_keys SET active = 1 WHERE key = ?').run(CLAWHUB_KEY);
+    logger.warn('clawhub-official was deactivated — re-activated to restore skill invocation');
   }
 }
 
-/** Ensure the treasury key exists to collect 3% platform fees from marketplace sales. */
+/** Ensure the treasury key exists and is active to collect 3% platform fees from
+ *  marketplace sales. If deactivated (e.g. via admin revoke), all marketplace purchases
+ *  will fail — re-activate automatically on startup to prevent a silent outage. */
 function ensureTreasuryKey(db: ReturnType<typeof getDb>): void {
-  const existing = db.prepare('SELECT key FROM api_keys WHERE key = ?').get(TREASURY_KEY);
+  const existing = db.prepare('SELECT key, active FROM api_keys WHERE key = ?').get(TREASURY_KEY) as { key: string; active: number } | undefined;
   if (!existing) {
     db.prepare(
       `INSERT INTO api_keys (key, email, credits, credits_used, active, created_at)
        VALUES (?, 'treasury@claw-net.org', 0, 0, 1, datetime('now'))`
     ).run(TREASURY_KEY);
+  } else if (existing.active === 0) {
+    // Treasury deactivated → every marketplace purchase would fail — re-activate immediately.
+    db.prepare('UPDATE api_keys SET active = 1 WHERE key = ?').run(TREASURY_KEY);
+    logger.warn('clawhub-treasury was deactivated — re-activated to restore marketplace function');
   }
 }
 
