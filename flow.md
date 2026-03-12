@@ -38,6 +38,7 @@ Every flow in the system, from boot to shutdown. Tree diagrams show exact paths 
 30. [Complete USDC Money Flow](#30-complete-usdc-money-flow)
 31. [Endpoint Auto-Discovery](#31-endpoint-auto-discovery)
 32. [Pricing Economics](#32-pricing-economics)
+33. [Agent Economy Layer](#33-agent-economy-layer)
 
 ---
 
@@ -1925,4 +1926,96 @@ PRICING OPTIMIZER STRATEGIES:
 
 ---
 
-*Generated from codebase analysis. Last updated: 2026-03-12. Decimal credits (v3), treasury auto-sweep, surcharge-to-treasury fix, 3-wallet architecture, endpoint auto-discovery (183 ClawAPIs endpoints), proportional cache pricing (10% of live, min 0.1cr).*
+## 33. Agent Economy Layer
+
+```
+PURPOSE:
+  Transforms ClawNet from a consumption-only platform into a full agent economy
+  where AI agents can pay each other, delegate spending, and auto-cashout.
+
+CREDIT TRANSFERS (POST /v1/economy/transfer):
+├─ Agent A pays Agent B directly (peer-to-peer credit movement)
+├─ 1% platform fee (min 1 credit) → clawhub-treasury
+├─ Min 10 credits, max 100,000 per transfer
+├─ Self-transfer blocked (fromKey === toKey)
+├─ Idempotency key support (prevent double-transfers on retries)
+├─ Audit trail: logAudit() + transactions ledger (type: CREDIT_TRANSFER)
+└─ Transfer history: GET /v1/economy/transfers?direction=sent|received|all
+
+DELEGATED KEYS (POST /v1/economy/keys/delegate):
+├─ Create child API keys with spending caps
+├─ Auth middleware resolves parent → billing deducts from parent balance
+├─ Spend limit tracked: incrementDelegatedSpend() after each deduction
+├─ Permissions: invoke, query, transfer (transfer NOT default)
+├─ Max 1 level deep (no sub-sub-keys), max 20 per parent
+├─ Expiry support: expiresInHours parameter
+├─ Revoke: DELETE /v1/economy/keys/delegated/:childKey
+└─ List: GET /v1/economy/keys/delegated
+
+RECEIPTS API (GET /v1/economy/receipts):
+├─ Machine-readable proof of payment for agent accounting
+├─ Merges credit_transfers + transactions into unified view
+├─ Filter by type: ?type=CREDIT_TRANSFER|SKILL_SALE|PAYOUT_REQUEST
+├─ Counterparty keys masked via maskApiKey()
+└─ Includes tx_hash for on-chain payouts
+
+AUTO-PAYOUT THRESHOLD (PUT /v1/economy/auto-payout):
+├─ Set threshold: "when my earnings exceed N credits, auto-request USDC payout"
+├─ Payout cron checks every 4h: if earned >= threshold → createPayoutRequest()
+├─ Threshold minimum: 1000 credits
+├─ Requires valid Solana wallet address
+├─ Disable: DELETE /v1/economy/auto-payout
+└─ Credits flow: earned via SKILL_SALE → threshold hit → PENDING payout → cron sends USDC
+
+REPUTATION (GET /v1/economy/reputation):
+├─ Score from reputation_events table (SUM of score_delta)
+├─ Trust levels: new (0-9), emerging (10-49), established (50-199), trusted (200+)
+├─ Public lookup: GET /v1/economy/reputation/:key (masked key in response)
+└─ Events recorded by skill system on invocations, task completions
+
+FLOW: Agent-to-Agent Payment
+  Agent A                    ClawNet                    Agent B
+    │                           │                           │
+    ├─ POST /transfer ─────────>│                           │
+    │   { toKey, amount, memo } │                           │
+    │                           ├─ Validate (min/max/self)  │
+    │                           ├─ Deduct A: amount + 1% fee│
+    │                           ├─ Credit B: amount         │
+    │                           ├─ Fee → treasury           │
+    │                           ├─ Record in credit_transfers
+    │                           ├─ Record in transactions   │
+    │<── { transferId, fee } ───┤                           │
+    │                           │                           │
+
+FLOW: Delegated Key Billing
+  Sub-Key Request      Auth Middleware        Billing Route
+    │                       │                      │
+    ├─ X-API-Key: cn-child->│                      │
+    │                       ├─ getDelegationInfo()  │
+    │                       ├─ Check expiry/limit   │
+    │                       ├─ Resolve parent key   │
+    │                       ├─ Set keyInfo.key=parent│
+    │                       ├───────────────────────>│
+    │                       │                       ├─ deductCredit(parent)
+    │                       │                       ├─ trackDelegatedSpend(child)
+    │                       │                       └─ Response
+    │<──────────────────────┤                       │
+
+DB TABLES:
+├─ credit_transfers: id, from_key, to_key, amount, fee, memo, idempotency_key
+├─ delegated_keys: child_key, parent_key, label, spend_limit, spent, expires_at, permissions_json
+├─ auto_payout_config: agent_key, threshold_credits, usdc_wallet, enabled
+└─ Triggers: trg_transfer_amount_positive (amount > 0)
+
+SECURITY:
+├─ Transfer rate limiting via existing rate-limit middleware
+├─ Min/max transfer bounds (10-100,000 credits)
+├─ Delegated keys cannot create sub-sub-keys (1 level max)
+├─ transfer permission NOT default on delegated keys
+├─ Env keys (test-key-123) blocked from transfer/delegate
+└─ All operations logged to audit_log
+```
+
+---
+
+*Generated from codebase analysis. Last updated: 2026-03-12. Decimal credits (v3), treasury auto-sweep, surcharge-to-treasury fix, 3-wallet architecture, endpoint auto-discovery (183 ClawAPIs endpoints), proportional cache pricing (10% of live, min 0.1cr), agent economy layer (transfers, delegated keys, auto-payout, receipts, reputation).*

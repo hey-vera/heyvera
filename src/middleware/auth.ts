@@ -1,6 +1,6 @@
 import { createMiddleware } from 'hono/factory';
 import crypto from 'crypto';
-import { getApiKey } from '../db/index';
+import { getApiKey, getDelegationInfo } from '../db/index';
 import { env } from '../config/index';
 import { logger } from '../utils/logger';
 import { maskApiKey } from '../utils/mask';
@@ -15,6 +15,10 @@ declare module 'hono' {
       creditsUsed: number;
       amountPaid: number;
       isEnvKey: boolean;
+      /** Set when request uses a delegated sub-key — billing deducts from parent */
+      delegatedFrom?: string;
+      /** Spend limit info for delegated keys */
+      delegation?: { parentKey: string; spendLimit: number; spent: number; permissions: string[] };
     };
   }
 }
@@ -57,6 +61,41 @@ export const checkApiKey = createMiddleware(async (c, next) => {
       { error: 'Invalid or inactive API key', code: 'INVALID_API_KEY', hint: 'Purchase a key at claw-net.org' },
       401
     );
+  }
+
+  // Check if this is a delegated sub-key
+  const delegation = getDelegationInfo(key);
+  if (delegation) {
+    // Check expiry
+    if (delegation.expires_at && new Date(delegation.expires_at) < new Date()) {
+      return c.json({ error: 'Delegated key expired', code: 'KEY_EXPIRED' }, 401);
+    }
+    // Check spend limit
+    if (delegation.spent >= delegation.spend_limit) {
+      return c.json({ error: 'Delegated key spend limit reached', code: 'SPEND_LIMIT_REACHED' }, 402);
+    }
+    // Resolve parent key for billing
+    const parentRecord = getApiKey(delegation.parent_key);
+    if (!parentRecord) {
+      return c.json({ error: 'Parent key inactive', code: 'PARENT_KEY_INACTIVE' }, 401);
+    }
+    const perms: string[] = JSON.parse(delegation.permissions_json);
+    c.set('apiKeyInfo', {
+      key: delegation.parent_key,
+      email: parentRecord.email,
+      credits: parentRecord.credits,
+      creditsUsed: parentRecord.credits_used ?? 0,
+      amountPaid: parentRecord.amount_paid ?? 0,
+      isEnvKey: false,
+      delegatedFrom: key,
+      delegation: {
+        parentKey: delegation.parent_key,
+        spendLimit: delegation.spend_limit,
+        spent: delegation.spent,
+        permissions: perms,
+      },
+    });
+    return next();
   }
 
   // Pass key info to route — credit checks happen per-endpoint before spending operations

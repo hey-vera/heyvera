@@ -15,7 +15,7 @@
  */
 
 import cron from 'node-cron';
-import { getAllPendingPayouts, markPayoutPaid, updatePayoutStatus, getTreasuryBalance, deductTreasuryForSweep, recordTransaction } from '../db/index';
+import { getAllPendingPayouts, markPayoutPaid, updatePayoutStatus, getTreasuryBalance, deductTreasuryForSweep, recordTransaction, getAllAutoPayoutConfigs, getCreatorEarnedBalance, createPayoutRequest, logAudit } from '../db/index';
 import { sendSolanaUsdc, getHotWalletUsdcBalance } from '../utils/solana-payout';
 import { sendTelegramAlert } from '../integrations/telegram';
 import { logger } from '../utils/logger';
@@ -128,6 +128,30 @@ async function runPayoutCron(): Promise<void> {
     }
   }
 
+  // ─── 1b. Auto-payout threshold checks ────────────────────────────────────
+  let autoTriggered = 0;
+  try {
+    const autoConfigs = getAllAutoPayoutConfigs();
+    for (const config of autoConfigs) {
+      const earned = getCreatorEarnedBalance(config.agent_key);
+      if (earned >= config.threshold_credits) {
+        const result = createPayoutRequest({
+          agentKey: config.agent_key,
+          amountCredits: earned,
+          usdcWallet: config.usdc_wallet,
+        });
+        if (result.ok) {
+          autoTriggered++;
+          logAudit({ entityType: 'payout', entityId: result.id!, action: 'AUTO_PAYOUT_TRIGGERED', actorId: 'system',
+            data: { threshold: config.threshold_credits, amount: earned } });
+          logger.info({ agentKey: config.agent_key.slice(0, 8), earned, threshold: config.threshold_credits }, 'Auto-payout triggered');
+        }
+      }
+    }
+  } catch (err) {
+    logger.error({ err }, 'Auto-payout threshold check failed');
+  }
+
   // ─── 2. Treasury auto-sweep ───────────────────────────────────────────────
   const sweep = await sweepTreasury();
 
@@ -137,8 +161,11 @@ async function runPayoutCron(): Promise<void> {
   // ─── 4. Telegram summary ──────────────────────────────────────────────────
   const lines: string[] = [];
 
-  if (pending.length > 0 || sweep.swept) {
+  if (pending.length > 0 || sweep.swept || autoTriggered > 0) {
     lines.push('💰 Payout cron complete');
+    if (autoTriggered > 0) {
+      lines.push(`Auto-payouts triggered: ${autoTriggered}`);
+    }
     if (pending.length > 0) {
       lines.push(`Creators — Paid: ${paid} | Failed: ${failed} | Skipped (< $${MIN_PAYOUT_USDC}): ${skipped}`);
       lines.push(`Total sent to creators: $${totalUsdc.toFixed(4)} USDC`);
@@ -152,7 +179,7 @@ async function runPayoutCron(): Promise<void> {
 
   if (walletWarning) lines.push('', walletWarning);
 
-  logger.info({ paid, failed, skipped, totalUsdc, sweep: sweep.swept ? sweep.usdc : null }, 'Payout cron complete');
+  logger.info({ paid, failed, skipped, totalUsdc, autoTriggered, sweep: sweep.swept ? sweep.usdc : null }, 'Payout cron complete');
 
   if (lines.length > 0) {
     await sendTelegramAlert(lines.join('\n')).catch(() => undefined);

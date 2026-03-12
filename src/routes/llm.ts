@@ -23,6 +23,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import crypto from 'crypto';
 import { checkApiKey } from '../middleware/auth';
+import { trackDelegatedSpend } from '../utils/billing';
 import { deductCredit, getDb } from '../db/index';
 import { round6, cacheCreditCost } from '../core/credits';
 import { cacheGet, cacheSet } from '../cache/index';
@@ -162,6 +163,7 @@ llmRouter.post('/chat', checkApiKey, async (c) => {
         return c.json({ error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS', creditsAvailable: keyInfo.credits }, 402);
       }
       deductCredit(keyInfo.key, cacheCredits);
+      trackDelegatedSpend(keyInfo, cacheCredits);
     }
     logger.info({ model, cached: true, creditsUsed: cacheCredits }, 'LLM cache hit');
     return c.json({ ...cached, cached: true, creditsCharged: cacheCredits });
@@ -199,6 +201,7 @@ llmRouter.post('/chat', checkApiKey, async (c) => {
       if (!ok) {
         return c.json({ error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS' }, 402);
       }
+      trackDelegatedSpend(keyInfo, creditCost);
     }
 
     // Normalize response to OpenAI format
@@ -261,6 +264,7 @@ llmRouter.post('/embeddings', checkApiKey, async (c) => {
       if (!ok) {
         return c.json({ error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS', creditsRequired: creditCost }, 402);
       }
+      trackDelegatedSpend(keyInfo, creditCost);
     }
 
     return c.json({ ...result, creditsCharged: creditCost, model });
@@ -302,6 +306,7 @@ llmRouter.post('/code/run', checkApiKey, async (c) => {
       if (!ok) {
         return c.json({ error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS', creditsRequired: creditCost }, 402);
       }
+      trackDelegatedSpend(keyInfo, creditCost);
     }
 
     return c.json({ ...(result as object), creditsCharged: creditCost });

@@ -255,6 +255,56 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 51, sql: `ALTER TABLE skills ADD COLUMN update_frequency TEXT NOT NULL DEFAULT 'static'` },
   // Paired skills: link LLM analysis ↔ data variant for marketplace toggle cards
   { version: 52, sql: `ALTER TABLE skills ADD COLUMN paired_skill_id TEXT` },
+  // Agent Economy: credit transfers (agent-to-agent payments)
+  { version: 53, sql: `
+    CREATE TABLE IF NOT EXISTS credit_transfers (
+      id TEXT PRIMARY KEY,
+      from_key TEXT NOT NULL,
+      to_key TEXT NOT NULL,
+      amount REAL NOT NULL,
+      fee REAL NOT NULL DEFAULT 0,
+      memo TEXT,
+      idempotency_key TEXT UNIQUE,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_transfers_from ON credit_transfers(from_key, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_transfers_to ON credit_transfers(to_key, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_transfers_idempotency ON credit_transfers(idempotency_key)
+  ` },
+  // Agent Economy: delegated sub-keys with spending caps
+  { version: 54, sql: `
+    CREATE TABLE IF NOT EXISTS delegated_keys (
+      child_key TEXT PRIMARY KEY,
+      parent_key TEXT NOT NULL,
+      label TEXT,
+      spend_limit REAL NOT NULL,
+      spent REAL NOT NULL DEFAULT 0,
+      expires_at TEXT,
+      permissions_json TEXT NOT NULL DEFAULT '["invoke","query"]',
+      active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_delegated_parent ON delegated_keys(parent_key)
+  ` },
+  // Agent Economy: auto-payout threshold config
+  { version: 55, sql: `
+    CREATE TABLE IF NOT EXISTS auto_payout_config (
+      agent_key TEXT PRIMARY KEY,
+      threshold_credits REAL NOT NULL,
+      usdc_wallet TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  ` },
+  // Agent Economy: safety trigger — transfer amount must be positive
+  { version: 56, sql: `
+    CREATE TRIGGER IF NOT EXISTS trg_transfer_amount_positive
+    BEFORE INSERT ON credit_transfers
+    WHEN NEW.amount <= 0
+    BEGIN
+      SELECT RAISE(ABORT, 'transfer amount must be positive');
+    END
+  ` },
   { version: 47, sql: `
     CREATE TABLE IF NOT EXISTS agent_contexts (
       id TEXT PRIMARY KEY,

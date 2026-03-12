@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { nanoid } from 'nanoid';
+import { trackDelegatedSpend } from '../utils/billing';
 import crypto from 'crypto';
 import { renderTemplate } from '../utils/template';
 import { checkApiKey } from '../middleware/auth';
@@ -435,6 +436,7 @@ skillsRouter.get('/:id/query', checkApiKey, async (c) => {
     const cacheCredits = cacheCreditCost(liveCost);
     if (!keyInfo.isEnvKey) {
       const ok = deductCredit(keyInfo.key, cacheCredits);
+      if (ok) trackDelegatedSpend(keyInfo, cacheCredits);
       if (!ok) return c.json({ requestId, error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS' }, 402);
     }
     incrementSkillUses(id);
@@ -495,6 +497,7 @@ skillsRouter.get('/:id/query', checkApiKey, async (c) => {
         }
         return true;
       })();
+      if (ok) trackDelegatedSpend(keyInfo, creditCost);
       if (!ok) {
         return c.json({ requestId, error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS', creditsRequired: creditCost }, 402);
       }
@@ -773,6 +776,7 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
     logger.info({ requestId, skillId: id, creditsUsed: cacheCredits }, 'Skill cache hit');
     if (!keyInfo.isEnvKey) {
       const ok = deductCredit(keyInfo.key, cacheCredits);
+      if (ok) trackDelegatedSpend(keyInfo, cacheCredits);
       if (!ok) {
         return c.json({ requestId, error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS' }, 402);
       }
@@ -840,6 +844,7 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
           }
           return true;
         })();
+        if (ok) trackDelegatedSpend(keyInfo, creditsToDeduct);
         if (!ok) {
           return c.json({ requestId, error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS',
             creditsRequired: creditsToDeduct, creditsAvailable: keyInfo.credits }, 402);
@@ -974,6 +979,7 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
         if (surcharge > 0) topUpCredits('clawhub-treasury', surcharge);
         return true;
       })();
+      if (txResult) trackDelegatedSpend(keyInfo, creditsToDeduct);
 
       if (!txResult) {
         return c.json({

@@ -18,6 +18,7 @@ import { nanoid } from 'nanoid';
 import crypto from 'crypto';
 import { renderTemplate } from '../utils/template';
 import { checkApiKey } from '../middleware/auth';
+import { trackDelegatedSpend } from '../utils/billing';
 import {
   getSkillWithAb, getSkill, listPublicSkills, countPublicSkills,
   incrementSkillUses, deductCredit, topUpCredits, getDb,
@@ -148,6 +149,7 @@ openclawRouter.post('/invoke', checkApiKey, async (c) => {
           return c.json({ ok: false, requestId, error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS', creditsAvailable: keyInfo.credits }, 402);
         }
         deductCredit(keyInfo.key, cacheCredits);
+        trackDelegatedSpend(keyInfo, cacheCredits);
       }
       return c.json(envelope(requestId, 'query', cached, cacheCredits, keyInfo.credits - cacheCredits, {
         durationMs: Date.now() - start, cacheHit: true, route: 'orchestrate',
@@ -173,6 +175,7 @@ openclawRouter.post('/invoke', checkApiKey, async (c) => {
         if (!deducted) {
           return c.json({ ok: false, requestId, error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS', creditsRequired: creditsUsed, creditsAvailable: keyInfo.credits }, 402);
         }
+        trackDelegatedSpend(keyInfo, creditsUsed);
       }
 
       const usageEntry = {
@@ -254,6 +257,7 @@ openclawRouter.post('/invoke', checkApiKey, async (c) => {
           return c.json({ ok: false, requestId, error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS',
             creditsRequired: creditsUsed, creditsAvailable: keyInfo.credits }, 402);
         }
+        trackDelegatedSpend(keyInfo, creditsUsed);
       }
       const remaining = keyInfo.isEnvKey ? keyInfo.credits : keyInfo.credits - creditsUsed;
       return c.json(envelope(requestId, 'skill', { ...cached, cacheHit: true }, creditsUsed, remaining, {
@@ -307,6 +311,7 @@ openclawRouter.post('/invoke', checkApiKey, async (c) => {
         if (!txOk) {
           return c.json({ ok: false, requestId, error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS', creditsRequired: creditsUsed, creditsAvailable: keyInfo.credits }, 402);
         }
+        trackDelegatedSpend(keyInfo, creditsUsed);
       }
 
       incrementSkillUses(activeSkillId);
@@ -425,6 +430,7 @@ openclawRouter.post('/invoke', checkApiKey, async (c) => {
       if (!deducted) {
         return c.json({ ok: false, requestId, error: 'Credit deduction failed', code: 'INSUFFICIENT_CREDITS' }, 402);
       }
+      trackDelegatedSpend(keyInfo, SWARM_BASE_FEE);
     }
 
     const swarmId = createSwarmTask(keyInfo.key, body.task);

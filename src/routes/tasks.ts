@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
+import { trackDelegatedSpend } from '../utils/billing';
 import { nanoid } from 'nanoid';
 import crypto from 'crypto';
 import { renderTemplate } from '../utils/template';
@@ -174,6 +175,7 @@ tasksRouter.post('/', checkApiKey, async (c) => {
           updateTaskFailed(taskId, 'Insufficient credits at deduction time', Date.now() - start);
           return c.json({ taskId, status: 'FAILED', error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS' }, 402);
         }
+        trackDelegatedSpend(keyInfo, creditsToDeduct);
       }
 
       incrementSkillUses(activeSkillId);
@@ -245,6 +247,7 @@ tasksRouter.post('/', checkApiKey, async (c) => {
         updateTaskFailed(taskId, 'Insufficient credits at deduction time', Date.now() - start);
         return c.json({ taskId, status: 'FAILED', error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS' }, 402);
       }
+      trackDelegatedSpend(keyInfo, creditsToDeduct);
     }
 
     incrementSkillUses(activeSkillId);

@@ -6,6 +6,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { checkApiKey } from '../middleware/auth';
+import { trackDelegatedSpend } from '../utils/billing';
 import { createSwarmTask, updateSwarmTask, getSwarmTask, listPublicSkills, deductCredit, safeJsonParse } from '../db/index';
 import { llmComplete } from '../providers/llm';
 import { logger } from '../utils/logger';
@@ -54,6 +55,7 @@ swarmRouter.post('/task', checkApiKey, async (c) => {
     if (!deducted) {
       return c.json({ error: 'Credit deduction failed', code: 'INSUFFICIENT_CREDITS' }, 402);
     }
+    trackDelegatedSpend(keyInfo, SWARM_BASE_FEE);
   }
 
   const swarmId = createSwarmTask(keyInfo.key, body.task);

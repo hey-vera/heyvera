@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { insertOrchestration, getApiKeyBalance, getApiKeyByStripeSession, getApiKeyByEmail, deductCredit } from '../db/index';
+import { trackDelegatedSpend } from '../utils/billing';
 import { Hono } from 'hono';
 import { maskApiKey } from '../utils/mask';
 import { creditsForExecution, creditsToUsd, cacheCreditCost } from '../core/credits';
@@ -73,6 +74,7 @@ apiRouter.post('/orchestrate', async (c) => {
         return c.json({ requestId, error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS', creditsAvailable: keyInfo.credits, hint: 'Top up your credits at claw-net.org' }, 402);
       }
       deductCredit(keyInfo.key, cacheCredits);
+      trackDelegatedSpend(keyInfo, cacheCredits);
     }
     logger.info({ requestId, query: query.slice(0, 100), creditsUsed: cacheCredits }, 'Query cache hit');
     return c.json({
@@ -187,6 +189,7 @@ apiRouter.post('/orchestrate', async (c) => {
       }
 
       const deducted = deductCredit(keyInfo.key, creditsToDeduct);
+      if (deducted) trackDelegatedSpend(keyInfo, creditsToDeduct);
       if (!deducted) {
         logger.warn(
           { requestId, credits: keyInfo.credits, creditsRequired: creditsToDeduct },

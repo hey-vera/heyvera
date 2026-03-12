@@ -6,6 +6,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { checkApiKey } from '../middleware/auth';
+import { trackDelegatedSpend } from '../utils/billing';
 import { parseIntent } from '../core/intent-parser';
 import { executePlan } from '../core/executor';
 import { formatResponse } from '../core/formatter';
@@ -135,6 +136,7 @@ batchRouter.post('/', checkApiKey, async (c) => {
     }, 0);
 
     const deducted = deductCredit(keyInfo.key, estimatedCredits);
+    if (deducted) trackDelegatedSpend(keyInfo, estimatedCredits);
     if (!deducted) {
       return c.json({
         batchId,

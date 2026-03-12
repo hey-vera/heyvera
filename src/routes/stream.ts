@@ -5,6 +5,7 @@
  */
 import { Hono } from 'hono';
 import { checkApiKey } from '../middleware/auth';
+import { trackDelegatedSpend } from '../utils/billing';
 import { parseIntent } from '../core/intent-parser';
 import { executePlan } from '../core/executor';
 import { formatResponse } from '../core/formatter';
@@ -134,6 +135,7 @@ streamRouter.get('/orchestrate', checkApiKey, async (c) => {
               emit('error', { requestId, error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS' });
               return;
             }
+            trackDelegatedSpend(keyInfo, creditsToDeduct);
           }
 
           if (signal.aborted) return;
