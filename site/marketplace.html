@@ -631,7 +631,7 @@
     <div class="tab-panel" id="tp-my-skills">
       <div id="my-auth" style="display:none">
         <div class="card" style="text-align:center;padding:40px">
-          <p style="color:var(--text-tertiary);margin-bottom:12px">Set your API key to view your skills and earnings</p>
+          <p style="color:var(--text-tertiary);margin-bottom:12px">Sign in to view your skills and earnings</p>
           <a href="/dashboard.html" class="btn btn-primary">Go to Dashboard</a>
         </div>
       </div>
@@ -660,7 +660,7 @@
     <div class="tab-panel" id="tp-purchases">
       <div id="purch-auth" style="display:none">
         <div class="card" style="text-align:center;padding:40px">
-          <p style="color:var(--text-tertiary);margin-bottom:12px">Set your API key to view purchased skills</p>
+          <p style="color:var(--text-tertiary);margin-bottom:12px">Sign in to view purchased skills</p>
           <a href="/dashboard.html" class="btn btn-primary">Go to Dashboard</a>
         </div>
       </div>
@@ -683,7 +683,7 @@
     <div class="tab-panel" id="tp-tasks">
       <div id="tasks-auth" style="display:none">
         <div class="card" style="text-align:center;padding:40px">
-          <p style="color:var(--text-tertiary);margin-bottom:12px">Set your API key to view task history</p>
+          <p style="color:var(--text-tertiary);margin-bottom:12px">Sign in to view task history</p>
           <a href="/dashboard.html" class="btn btn-primary">Go to Dashboard</a>
         </div>
       </div>
@@ -794,6 +794,17 @@ function creditsToUsd(n) {
 }
 
 let apiKey = localStorage.getItem('claw_api_key') || '';
+
+// Auth helper — prefers Clerk JWT, falls back to API key
+async function getAuthHeaders() {
+  try {
+    const token = await window.Clerk?.session?.getToken();
+    if (token) return { Authorization: `Bearer ${token}` };
+  } catch {}
+  if (apiKey) return { 'X-API-Key': apiKey };
+  return null;
+}
+
 let currentPage = 1, currentCat = '', currentSort = 'popular', currentType = '';
 let searchTimer = null;
 let starredIds = new Set(JSON.parse(localStorage.getItem('claw_starred') || '[]'));
@@ -922,9 +933,7 @@ async function navSignOut() {
 
 async function refreshCredits() {
   try {
-    let token = null;
-    try { token = await window.Clerk?.session?.getToken(); } catch {}
-    const headers = token ? { Authorization: `Bearer ${token}` } : apiKey ? { 'X-API-Key': apiKey } : null;
+    const headers = await getAuthHeaders();
     if (!headers) return;
     const r = await fetch(`${API}/v1/dashboard/me`, { headers });
     if (!r.ok) return;
@@ -1021,14 +1030,13 @@ function renderCard(s) {
   const slug = s.name;
   const tags = (s.tags||[]).slice(0,3).map(t => `<span class="card-tag">${esc(t)}</span>`).join('');
   const starred = starredIds.has(s.id);
-  const secCls = ({VERIFIED:'verified',CLEAN:'clean',FLAGGED:'flagged',SUSPICIOUS:'suspicious'})[s.securityStatus] || 'unscanned';
-  const secTxt = ({VERIFIED:'✓ Verified',CLEAN:'✓ Clean',FLAGGED:'⚠ Flagged',SUSPICIOUS:'⚠ Suspicious'})[s.securityStatus] || 'Unscanned';
   const cat = s.category || 'general';
   const catIcon = CAT_ICONS[cat] || '◆';
   const skillType = s.skillType || 'prompt_template';
   const typeBadge = skillType === 'data' ? '<span class="skill-type-badge data">DATA SKILL</span>'
     : skillType === 'api_proxy' ? '<span class="skill-type-badge api_proxy">API PROXY</span>'
     : '<span class="skill-type-badge prompt">PROMPT</span>';
+  const license = s.license || 'MIT';
   return `<div class="skill-card${off?' official':''}">
     ${off ? '<span class="card-badge">Official</span>' : ''}
     <div class="card-cat">${typeBadge} ${catIcon} ${esc(cat)}</div>
@@ -1036,7 +1044,7 @@ function renderCard(s) {
       <div>
         <div class="card-name" onclick="nav('skill/'+encodeURIComponent('${esc(s.id)}'))">${esc(displayName)}</div>
         ${displayName !== slug ? `<div class="card-slug">${esc(slug)}</div>` : ''}
-        <div class="card-ver">v${esc(s.version||'1.0.0')} <span class="sec ${secCls}">${secTxt}</span></div>
+        <div class="card-ver">v${esc(s.version||'1.0.0')} <span class="sec clean">${esc(license)}</span></div>
       </div>
       <div class="card-price"><div class="card-price-n">${s.creditCost}</div><div class="card-price-l">cr · ${creditsToUsd(s.creditCost)}</div></div>
     </div>
@@ -1107,7 +1115,7 @@ async function loadSkillDetail(id) {
         <div class="detail-actions">
           <button class="btn btn-ghost" style="font-size:12px" onclick="doReport('${esc(s.id)}')" title="Report">⚑ Report</button>
           <button class="btn-star${starred?' on':''}" id="d-star-btn" onclick="toggleStar('${esc(s.id)}',this,event)" style="padding:8px 14px">★ ${fmt(s.stars||0)}</button>
-          <button class="btn btn-primary" id="d-buy-btn" onclick="doBuy()">Purchase &amp; Execute — ${s.creditCost} cr</button>
+          <button class="btn btn-primary" id="d-buy-btn" onclick="doBuy()">Run Skill — ${s.creditCost} cr</button>
         </div>
       </div>
 
@@ -1155,18 +1163,7 @@ async function loadSkillDetail(id) {
       </div>
 
       <div class="dtab-panel" id="dtp-invoke">
-        <div class="invoke-section">
-          <div class="invoke-title">Purchase &amp; Execute</div>
-          <p style="font-size:13px;color:var(--text-tertiary);margin-bottom:14px">Fill variables below. Payment settles atomically, then the skill runs immediately.</p>
-          ${vars.map(([k,v]) => `
-            <div class="form-group">
-              <label class="form-label">${esc(k)}${inputSchema.required?.includes(k) ? ' *' : ''}</label>
-              <input type="text" class="field" id="var-${esc(k)}" placeholder="${esc(v.description||k)}" style="width:100%">
-            </div>`).join('')}
-          ${!vars.length ? '<p style="font-size:13px;color:var(--text-tertiary)">This skill has no input variables.</p>' : ''}
-          <button class="btn btn-primary" style="margin-top:8px" id="invoke-btn" onclick="doBuy()">Purchase &amp; Execute — ${s.creditCost} credits</button>
-          <div class="invoke-result" id="invoke-result"></div>
-        </div>
+        ${buildInvokeTab(s, vars, inputSchema)}
       </div>
 
       ${hasChangelog ? `<div class="dtab-panel" id="dtp-changelog">
@@ -1306,7 +1303,7 @@ async function loadSkillReviews(skillId) {
         ? `<div style="display:flex;align-items:center;gap:12px"><span style="font-size:28px;font-weight:700;font-family:var(--font-mono);color:#f59e0b">${d.avgRating.toFixed(1)}</span><div><div style="color:#f59e0b;font-size:16px">${'★'.repeat(Math.round(d.avgRating))}${'☆'.repeat(5-Math.round(d.avgRating))}</div><div style="font-size:12px;color:var(--text-muted)">${d.ratingCount} review${d.ratingCount !== 1 ? 's' : ''}</div></div></div>`
         : '<div style="color:var(--text-tertiary);font-size:13px">No reviews yet — be the first to rate!</div>';
     }
-    if (rateEl && apiKey) rateEl.style.display = 'block';
+    if (rateEl) { getAuthHeaders().then(h => { if (h) rateEl.style.display = 'block'; }); }
     if (listEl) {
       listEl.innerHTML = d.reviews.length
         ? d.reviews.map(rv => `<div class="review-item"><div class="review-stars">${'★'.repeat(rv.rating)}${'☆'.repeat(5-rv.rating)}</div>${rv.comment ? `<div class="review-comment">${escHtml(rv.comment)}</div>` : ''}<div class="review-date">${new Date(rv.createdAt).toLocaleDateString()}</div></div>`).join('')
@@ -1327,13 +1324,15 @@ function setRatingStar(n) {
 
 async function submitRating() {
   const s = window._detailSkill;
-  if (!s || !apiKey) { toast('Set API key first', 'error'); return; }
+  if (!s) return;
+  const auth = await getAuthHeaders();
+  if (!auth) { toast('Sign in to rate skills', 'error'); return; }
   if (!_selectedRating) { toast('Select a star rating first', 'error'); return; }
   const comment = document.getElementById('d-review-text')?.value.trim() || undefined;
   try {
     const r = await fetch(`${API}/v1/marketplace/skills/${encodeURIComponent(s.id)}/rate`, {
       method: 'POST',
-      headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' },
+      headers: { ...auth, 'Content-Type': 'application/json' },
       body: JSON.stringify({ rating: _selectedRating, comment }),
     });
     const d = await r.json();
@@ -1388,11 +1387,144 @@ function escHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+// ── Invoke Tab Builder ────────────────────────────────────────────
+function buildInvokeTab(s, vars, inputSchema) {
+  const isData = s.skillType === 'data';
+  const isProxy = s.skillType === 'api_proxy';
+
+  // Build endpoint URL
+  const endpoint = isData
+    ? `${API}/v1/skills/${esc(s.id)}/query`
+    : `${API}/v1/skills/${esc(s.id)}/invoke`;
+  const method = isData ? 'GET' : 'POST';
+
+  // Build example params
+  const exampleParams = {};
+  if (vars.length) vars.forEach(([k, v]) => { exampleParams[k] = v.description || k; });
+
+  // Query string for data skills
+  const qs = vars.length ? '?' + vars.map(([k, v]) => `${k}=${encodeURIComponent(v.description || 'value')}`).join('&') : '';
+
+  // cURL example
+  const curlExample = isData
+    ? `curl "${endpoint}${qs}" \\\n  -H "X-API-Key: YOUR_API_KEY"`
+    : `curl -X POST "${endpoint}" \\\n  -H "X-API-Key: YOUR_API_KEY" \\\n  -H "Content-Type: application/json"${vars.length ? ` \\\n  -d '${JSON.stringify({ variables: exampleParams })}'` : ''}`;
+
+  // JS example
+  const jsExample = isData
+    ? `const res = await fetch("${endpoint}${qs}", {
+  headers: { "X-API-Key": "YOUR_API_KEY" }
+});
+const data = await res.json();`
+    : `const res = await fetch("${endpoint}", {
+  method: "POST",
+  headers: {
+    "X-API-Key": "YOUR_API_KEY",
+    "Content-Type": "application/json"
+  },${vars.length ? `\n  body: JSON.stringify({ variables: ${JSON.stringify(exampleParams)} })` : ''}
+});
+const data = await res.json();`;
+
+  // Python example
+  const pyExample = isData
+    ? `import requests
+
+res = requests.get("${endpoint}${qs}",
+    headers={"X-API-Key": "YOUR_API_KEY"})
+data = res.json()`
+    : `import requests
+
+res = requests.post("${endpoint}",
+    headers={"X-API-Key": "YOUR_API_KEY"},${vars.length ? `\n    json={"variables": ${JSON.stringify(exampleParams)}}` : ''}
+)
+data = res.json()`;
+
+  return `
+    <div style="display:flex;flex-direction:column;gap:20px">
+      <!-- How It Works -->
+      <div class="invoke-section">
+        <div class="invoke-title">How It Works</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:6px">
+          <div style="font-size:13px;color:var(--text-secondary);display:flex;align-items:flex-start;gap:8px">
+            <span style="color:var(--accent);font-weight:700;font-size:16px;line-height:1">1</span>
+            <span>Add your <strong style="color:var(--text-primary)">ClawNet API key</strong> to your app</span>
+          </div>
+          <div style="font-size:13px;color:var(--text-secondary);display:flex;align-items:flex-start;gap:8px">
+            <span style="color:var(--accent);font-weight:700;font-size:16px;line-height:1">2</span>
+            <span><strong style="color:var(--text-primary)">${method}</strong> the endpoint below ${isData ? 'with query params' : 'with variables JSON'}</span>
+          </div>
+          <div style="font-size:13px;color:var(--text-secondary);display:flex;align-items:flex-start;gap:8px">
+            <span style="color:var(--accent);font-weight:700;font-size:16px;line-height:1">3</span>
+            <span><strong style="color:var(--text-primary)">${s.creditCost} credits</strong> deducted per call${isData ? ' (1 cr if cached)' : ''}</span>
+          </div>
+        </div>
+        ${isData ? '<p style="font-size:12px;color:var(--text-muted);margin-top:4px">Data skills cache results automatically. Cached responses cost only 1 credit.</p>' : ''}
+        ${isProxy ? '<p style="font-size:12px;color:var(--text-muted);margin-top:4px">API proxy skills forward your request to the backing API. You get structured JSON back.</p>' : ''}
+      </div>
+
+      <!-- Endpoint -->
+      <div class="invoke-section">
+        <div class="invoke-title">Endpoint</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+          <span style="font-size:11px;font-weight:700;padding:3px 8px;border-radius:4px;background:${isData ? 'var(--accent-dim)' : 'var(--info-dim)'};color:${isData ? 'var(--accent)' : 'var(--info)'}">${method}</span>
+          <code style="font-family:var(--font-mono);font-size:13px;color:var(--text-primary);word-break:break-all">${endpoint}</code>
+          <button class="btn btn-ghost" style="font-size:11px;padding:4px 8px;flex-shrink:0" onclick="navigator.clipboard.writeText('${endpoint}');toast('Copied','success')">Copy</button>
+        </div>
+        <div style="font-size:12px;color:var(--text-muted)">
+          Auth: <code style="font-family:var(--font-mono);color:var(--text-tertiary)">X-API-Key: YOUR_API_KEY</code>
+          &nbsp;or&nbsp; <code style="font-family:var(--font-mono);color:var(--text-tertiary)">Authorization: Bearer CLERK_JWT</code>
+        </div>
+      </div>
+
+      <!-- Code Examples -->
+      <div class="invoke-section">
+        <div class="invoke-title">Code Examples</div>
+        <div style="display:flex;gap:4px;margin-bottom:12px">
+          <button class="cat-pill on" onclick="showCodeTab(this,'curl')" data-codetab="curl">cURL</button>
+          <button class="cat-pill" onclick="showCodeTab(this,'js')" data-codetab="js">JavaScript</button>
+          <button class="cat-pill" onclick="showCodeTab(this,'py')" data-codetab="py">Python</button>
+        </div>
+        <pre class="schema-block code-example" id="code-curl" style="display:block">${esc(curlExample)}</pre>
+        <pre class="schema-block code-example" id="code-js" style="display:none">${esc(jsExample)}</pre>
+        <pre class="schema-block code-example" id="code-py" style="display:none">${esc(pyExample)}</pre>
+        <button class="btn btn-ghost" style="font-size:11px;margin-top:8px" onclick="copyCodeExample()">Copy to Clipboard</button>
+      </div>
+
+      <!-- Try It -->
+      <div class="invoke-section">
+        <div class="invoke-title">Try It Now</div>
+        <p style="font-size:13px;color:var(--text-tertiary);margin-bottom:14px">Test this skill in your browser. Credits are deducted on execution.</p>
+        ${vars.map(([k,v]) => `
+          <div class="form-group">
+            <label class="form-label">${esc(k)}${inputSchema.required?.includes(k) ? ' *' : ''}</label>
+            <input type="text" class="field" id="var-${esc(k)}" placeholder="${esc(v.description||k)}" style="width:100%">
+          </div>`).join('')}
+        ${!vars.length ? '<p style="font-size:13px;color:var(--text-tertiary);margin-bottom:8px">This skill has no input variables — just hit Run.</p>' : ''}
+        <button class="btn btn-primary" style="margin-top:8px" id="invoke-btn" onclick="doBuy()">Run Skill — ${s.creditCost} credits</button>
+        <div class="invoke-result" id="invoke-result"></div>
+      </div>
+    </div>`;
+}
+
+function showCodeTab(btn, lang) {
+  document.querySelectorAll('.code-example').forEach(el => el.style.display = 'none');
+  document.querySelectorAll('[data-codetab]').forEach(b => b.classList.remove('on'));
+  btn.classList.add('on');
+  const el = document.getElementById('code-' + lang);
+  if (el) el.style.display = 'block';
+}
+
+function copyCodeExample() {
+  const visible = document.querySelector('.code-example[style*="display: block"], .code-example[style*="display:block"]');
+  if (visible) { navigator.clipboard.writeText(visible.textContent); toast('Copied', 'success'); }
+}
+
 // ── Buy & Execute ─────────────────────────────────────────────────
 async function doBuy() {
   const s = window._detailSkill;
   if (!s) return;
-  if (!apiKey) { toast('Set your API key first', 'error'); return; }
+  const auth = await getAuthHeaders();
+  if (!auth) { toast('Sign in to purchase skills', 'error'); return; }
 
   const buyBtn = document.getElementById('d-buy-btn');
   const invokeBtn = document.getElementById('invoke-btn');
@@ -1408,14 +1540,14 @@ async function doBuy() {
   try {
     const r = await fetch(`${API}/v1/marketplace/skills/${s.id}/purchase`, {
       method: 'POST',
-      headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' },
+      headers: { ...auth, 'Content-Type': 'application/json' },
       body: JSON.stringify({ variables }),
     });
     const d = await r.json();
     if (!r.ok) {
       const extra = d.creditsRequired ? ` — need ${d.creditsRequired} credits` : '';
       toast((d.error || 'Purchase failed') + extra, 'error');
-      [buyBtn, invokeBtn].forEach(b => { if (b) { b.disabled = false; b.textContent = `Purchase & Execute — ${s.creditCost} credits`; } });
+      [buyBtn, invokeBtn].forEach(b => { if (b) { b.disabled = false; b.textContent = `Run Skill — ${s.creditCost} credits`; } });
       return;
     }
 
@@ -1437,19 +1569,20 @@ async function doBuy() {
     [buyBtn, invokeBtn].forEach(b => { if (b) { b.disabled = false; b.textContent = 'Run Again'; } });
   } catch {
     toast('Network error', 'error');
-    [buyBtn, invokeBtn].forEach(b => { if (b) { b.disabled = false; b.textContent = `Purchase & Execute — ${s.creditCost} credits`; } });
+    [buyBtn, invokeBtn].forEach(b => { if (b) { b.disabled = false; b.textContent = `Run Skill — ${s.creditCost} credits`; } });
   }
 }
 
 // ── Stars ─────────────────────────────────────────────────────────
 async function toggleStar(id, btn, evt) {
   if (evt) evt.stopPropagation();
-  if (!apiKey) { toast('Set API key to star skills', 'error'); return; }
+  const auth = await getAuthHeaders();
+  if (!auth) { toast('Sign in to star skills', 'error'); return; }
   const already = starredIds.has(id);
   try {
     const r = await fetch(`${API}/v1/marketplace/skills/${id}/star`, {
       method: already ? 'DELETE' : 'POST',
-      headers: { 'X-API-Key': apiKey },
+      headers: auth,
     });
     if (r.status === 409 && !already) { starredIds.add(id); saveStarred(); return; }
     if (!r.ok) { toast('Failed', 'error'); return; }
@@ -1469,13 +1602,14 @@ function saveStarred() { localStorage.setItem('claw_starred', JSON.stringify([..
 
 // ── Report ────────────────────────────────────────────────────────
 async function doReport(skillId) {
-  if (!apiKey) { toast('Set API key to report skills', 'error'); return; }
+  const auth = await getAuthHeaders();
+  if (!auth) { toast('Sign in to report skills', 'error'); return; }
   const reason = prompt('Reason for report (min 5 chars):\n\nExamples: "Contains prompt injection", "Spam/misleading description"');
   if (!reason || reason.trim().length < 5) return;
   try {
     const r = await fetch(`${API}/v1/marketplace/skills/${encodeURIComponent(skillId)}/report`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+      headers: { ...auth, 'Content-Type': 'application/json' },
       body: JSON.stringify({ reason: reason.trim() }),
     });
     const d = await r.json();
@@ -1574,7 +1708,8 @@ function buildPlanJson() {
 async function doSkillTest() {
   const skillId = window._testSkillId;
   if (!skillId) { toast('No skill to test — publish first', 'error'); return; }
-  if (!apiKey) { toast('Set your API key first', 'error'); return; }
+  const auth = await getAuthHeaders();
+  if (!auth) { toast('Sign in first', 'error'); return; }
 
   const btn = document.getElementById('test-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'Running...'; }
@@ -1592,7 +1727,7 @@ async function doSkillTest() {
   try {
     const r = await fetch(`${API}/v1/skills/${skillId}/test`, {
       method: 'POST',
-      headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' },
+      headers: { ...auth, 'Content-Type': 'application/json' },
       body: JSON.stringify({ variables }),
     });
     const d = await r.json();
@@ -1672,7 +1807,8 @@ function updateValidation() {
 }
 
 async function publishSkill() {
-  if (!apiKey) { toast('Set your API key first', 'error'); return; }
+  const auth = await getAuthHeaders();
+  if (!auth) { toast('Sign in first', 'error'); return; }
   const slug = document.getElementById('pub-slug').value.trim();
   const displayName = document.getElementById('pub-display').value.trim();
   const desc = document.getElementById('pub-desc').value.trim();
@@ -1714,7 +1850,7 @@ async function publishSkill() {
 
     const r = await fetch(`${API}/v1/skills`, {
       method: 'POST',
-      headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' },
+      headers: { ...auth, 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
     const d = await r.json();
@@ -1739,13 +1875,14 @@ async function publishSkill() {
 
 // ── Purchases ─────────────────────────────────────────────────────
 async function loadPurchases() {
-  const auth = document.getElementById('purch-auth');
+  const authEl = document.getElementById('purch-auth');
   const content = document.getElementById('purch-content');
-  if (!apiKey) { auth.style.display = 'block'; content.style.display = 'none'; return; }
-  auth.style.display = 'none'; content.style.display = 'block';
+  const hdrs = await getAuthHeaders();
+  if (!hdrs) { authEl.style.display = 'block'; content.style.display = 'none'; return; }
+  authEl.style.display = 'none'; content.style.display = 'block';
 
   try {
-    const r = await fetch(`${API}/v1/marketplace/purchases`, { headers: { 'X-API-Key': apiKey } });
+    const r = await fetch(`${API}/v1/marketplace/purchases`, { headers: hdrs });
     if (!r.ok) throw new Error();
     const d = await r.json();
 
@@ -1777,12 +1914,13 @@ async function loadPurchases() {
 // ── My Skills ─────────────────────────────────────────────────────
 async function loadMySkills() {
   const content = document.getElementById('my-content');
-  const auth = document.getElementById('my-auth');
-  if (!apiKey) { auth.style.display = 'block'; content.style.display = 'none'; return; }
-  auth.style.display = 'none'; content.style.display = 'block';
+  const authEl = document.getElementById('my-auth');
+  const hdrs = await getAuthHeaders();
+  if (!hdrs) { authEl.style.display = 'block'; content.style.display = 'none'; return; }
+  authEl.style.display = 'none'; content.style.display = 'block';
 
   try {
-    const r = await fetch(`${API}/v1/marketplace/creator/stats`, { headers: { 'X-API-Key': apiKey } });
+    const r = await fetch(`${API}/v1/marketplace/creator/stats`, { headers: hdrs });
     if (!r.ok) throw new Error();
     const d = await r.json();
     document.getElementById('cs-earned').textContent = d.totalEarned.toLocaleString();
@@ -1815,9 +1953,10 @@ async function loadMySkills() {
 }
 
 async function toggleVis(id, pub) {
-  if (!apiKey) return;
+  const hdrs = await getAuthHeaders();
+  if (!hdrs) return;
   try {
-    const r = await fetch(`${API}/v1/skills/${id}/visibility`, { method: 'PATCH', headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' }, body: JSON.stringify({ public: !pub }) });
+    const r = await fetch(`${API}/v1/skills/${id}/visibility`, { method: 'PATCH', headers: { ...hdrs, 'Content-Type': 'application/json' }, body: JSON.stringify({ public: !pub }) });
     if (r.ok) { toast(pub ? 'Unpublished' : 'Published', 'success'); loadMySkills(); }
     else { const d = await r.json(); toast(d.error || 'Failed', 'error'); }
   } catch { toast('Network error', 'error'); }
@@ -1826,7 +1965,8 @@ async function toggleVis(id, pub) {
 async function delSkill(id) {
   if (!confirm(`Delete skill "${id}"? Cannot be undone.`)) return;
   try {
-    const r = await fetch(`${API}/v1/skills/${id}`, { method: 'DELETE', headers: { 'X-API-Key': apiKey } });
+    const hdrs = await getAuthHeaders();
+    const r = await fetch(`${API}/v1/skills/${id}`, { method: 'DELETE', headers: hdrs });
     if (r.ok) { toast('Deleted', 'success'); loadMySkills(); }
     else { const d = await r.json(); toast(d.error || 'Failed', 'error'); }
   } catch { toast('Network error', 'error'); }
@@ -1834,14 +1974,15 @@ async function delSkill(id) {
 
 // ── Withdraw ──────────────────────────────────────────────────────
 async function requestWithdraw() {
-  if (!apiKey) { toast('Set API key', 'error'); return; }
+  const hdrs = await getAuthHeaders();
+  if (!hdrs) { toast('Sign in first', 'error'); return; }
   const amount = parseInt(document.getElementById('wd-amount').value);
   const wallet = document.getElementById('wd-wallet').value.trim();
   if (!amount || amount < 1000) { toast('Min 1,000 credits', 'error'); return; }
   if (!wallet || wallet.length < 32) { toast('Enter a valid Solana address', 'error'); return; }
   try {
     const r = await fetch(`${API}/v1/marketplace/creator/withdraw`, {
-      method: 'POST', headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' },
+      method: 'POST', headers: { ...hdrs, 'Content-Type': 'application/json' },
       body: JSON.stringify({ amountCredits: amount, usdcWallet: wallet }),
     });
     const d = await r.json();
@@ -1859,9 +2000,10 @@ async function requestWithdraw() {
 }
 
 async function loadWithdrawHistory() {
-  if (!apiKey) return;
+  const hdrs = await getAuthHeaders();
+  if (!hdrs) return;
   try {
-    const r = await fetch(`${API}/v1/marketplace/creator/withdrawals`, { headers: { 'X-API-Key': apiKey } });
+    const r = await fetch(`${API}/v1/marketplace/creator/withdrawals`, { headers: hdrs });
     if (!r.ok) return;
     const d = await r.json();
     const el = document.getElementById('wd-history');
@@ -1879,16 +2021,17 @@ async function loadWithdrawHistory() {
 
 // ── Task History (NEW) ────────────────────────────────────────────
 async function loadTaskHistory() {
-  const auth = document.getElementById('tasks-auth');
+  const authEl = document.getElementById('tasks-auth');
   const content = document.getElementById('tasks-content');
-  if (!apiKey) { auth.style.display = 'block'; content.style.display = 'none'; return; }
-  auth.style.display = 'none'; content.style.display = 'block';
+  const hdrs = await getAuthHeaders();
+  if (!hdrs) { authEl.style.display = 'block'; content.style.display = 'none'; return; }
+  authEl.style.display = 'none'; content.style.display = 'block';
 
   const tbody = document.getElementById('tasks-tbody');
   tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--text-tertiary)">Loading...</td></tr>';
 
   try {
-    const ur = await fetch(`${API}/v1/auth/usage`, { headers: { 'X-API-Key': apiKey } });
+    const ur = await fetch(`${API}/v1/auth/usage`, { headers: hdrs });
     if (ur.ok) {
       const ud = await ur.json();
       document.getElementById('ts-total').textContent = (ud.tasks?.total ?? 0).toLocaleString();
@@ -1897,7 +2040,7 @@ async function loadTaskHistory() {
     }
 
     const r = await fetch(`${API}/v1/tasks?limit=${TASK_LIMIT}&offset=${taskPage * TASK_LIMIT}`, {
-      headers: { 'X-API-Key': apiKey }
+      headers: hdrs
     });
     if (!r.ok) throw new Error();
     const d = await r.json();
@@ -1950,7 +2093,8 @@ function renderTaskPagination(total) {
 function goTaskPage(p) { taskPage = p; loadTaskHistory(); }
 
 async function rateTask(taskId) {
-  if (!apiKey) { toast('Set API key first', 'error'); return; }
+  const hdrs = await getAuthHeaders();
+  if (!hdrs) { toast('Sign in first', 'error'); return; }
   const rating = prompt('Rate this task (1-5 stars):');
   const n = parseInt(rating);
   if (!n || n < 1 || n > 5) { if (rating !== null) toast('Enter a number 1-5', 'error'); return; }
@@ -1958,7 +2102,7 @@ async function rateTask(taskId) {
   try {
     const r = await fetch(`${API}/v1/tasks/${taskId}/rate`, {
       method: 'POST',
-      headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' },
+      headers: { ...hdrs, 'Content-Type': 'application/json' },
       body: JSON.stringify({ rating: n, comment }),
     });
     const d = await r.json();
@@ -1971,9 +2115,10 @@ async function rateTask(taskId) {
 async function cancelTask(taskId) {
   if (!confirm('Cancel this task?')) return;
   try {
+    const hdrs = await getAuthHeaders();
     const r = await fetch(`${API}/v1/tasks/${taskId}/cancel`, {
       method: 'POST',
-      headers: { 'X-API-Key': apiKey },
+      headers: hdrs,
     });
     const d = await r.json();
     if (!r.ok) { toast(d.error || 'Cancel failed', 'error'); return; }
@@ -1983,10 +2128,11 @@ async function cancelTask(taskId) {
 }
 
 async function loadCostEstimate(skillId) {
-  if (!apiKey) return;
+  const hdrs = await getAuthHeaders();
+  if (!hdrs) return;
   try {
     const r = await fetch(`${API}/v1/auth/estimate?skillId=${encodeURIComponent(skillId)}`, {
-      headers: { 'X-API-Key': apiKey }
+      headers: hdrs
     });
     if (!r.ok) return;
     const d = await r.json();
