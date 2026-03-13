@@ -658,12 +658,25 @@ function initGrid() {
   grid.addEventListener('click', e => {
     if (e.target.closest('.copy-btn')) return;
     const card = e.target.closest('.ep-card');
-    if (!card) return;
+    if (!card) {
+      // Clicked blank space inside grid — close any open card
+      grid.querySelectorAll('.ep-card.expanded').forEach(c => c.classList.remove('expanded'));
+      expandedId = null;
+      return;
+    }
     const id = card.dataset.id;
     const wasOpen = card.classList.contains('expanded');
     grid.querySelectorAll('.ep-card.expanded').forEach(c => c.classList.remove('expanded'));
     if (!wasOpen) { card.classList.add('expanded'); expandedId = id; }
     else { expandedId = null; }
+  });
+
+  // Click anywhere outside the grid also closes open card
+  document.addEventListener('click', e => {
+    if (!grid.contains(e.target)) {
+      grid.querySelectorAll('.ep-card.expanded').forEach(c => c.classList.remove('expanded'));
+      expandedId = null;
+    }
   });
 }
 
