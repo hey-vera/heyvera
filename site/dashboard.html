@@ -957,10 +957,12 @@
         </div>
         <div class="admin-table-card">
           <div class="admin-chart-title">Recent API Calls</div>
-          <table class="admin-table">
-            <thead><tr><th>Time</th><th>Query</th><th>Skill</th><th>Credits</th><th>Key</th><th>Status</th></tr></thead>
-            <tbody id="admin-calls-tbody"></tbody>
-          </table>
+          <div style="overflow-y:auto;max-height:525px;border-radius:4px">
+            <table class="admin-table" style="border-collapse:collapse">
+              <thead style="position:sticky;top:0;z-index:1;background:var(--bg-surface)"><tr><th>Time</th><th>Query</th><th>Skill</th><th>Credits</th><th>Key</th><th>Status</th></tr></thead>
+              <tbody id="admin-calls-tbody"></tbody>
+            </table>
+          </div>
         </div>
         <div class="admin-table-card">
           <div class="admin-chart-title">Skill Invocations</div>
