@@ -51,6 +51,12 @@ export interface Skill {
   update_frequency: string;
   /** ID of the paired skill (LLM ↔ data variant) for marketplace toggle cards */
   paired_skill_id: string | null;
+  /** Creator-configurable max invocations per hour. Null = unlimited. */
+  max_calls_per_hour: number | null;
+  /** Health status for data skill monitoring: HEALTHY | DEGRADED | DOWN */
+  health_status: string;
+  health_checked_at: string | null;
+  health_fail_count: number;
 }
 
 export function createSkill(params: {
@@ -99,26 +105,25 @@ export function getSkill(id: string): Skill | undefined {
   return getDb().prepare('SELECT * FROM skills WHERE id = ? AND active = 1').get(id) as Skill | undefined;
 }
 
-export function listPublicSkills(offset = 0, limit = 50, skillType?: string): Skill[] {
-  if (skillType) {
-    return getDb()
-      .prepare("SELECT * FROM skills WHERE public = 1 AND active = 1 AND security_status != 'FLAGGED' AND skill_type = ? ORDER BY uses DESC, created_at DESC LIMIT ? OFFSET ?")
-      .all(skillType, Math.min(limit, 100), offset) as Skill[];
-  }
+export function listPublicSkills(offset = 0, limit = 50, skillType?: string, tag?: string): Skill[] {
+  const clauses = ["public = 1", "active = 1", "security_status != 'FLAGGED'"];
+  const args: unknown[] = [];
+  if (skillType) { clauses.push('skill_type = ?'); args.push(skillType); }
+  if (tag) { clauses.push("tags_json LIKE '%' || ? || '%'"); args.push(`"${tag}"`); }
+  args.push(Math.min(limit, 100), offset);
   return getDb()
-    .prepare("SELECT * FROM skills WHERE public = 1 AND active = 1 AND security_status != 'FLAGGED' ORDER BY uses DESC, created_at DESC LIMIT ? OFFSET ?")
-    .all(Math.min(limit, 100), offset) as Skill[];
+    .prepare(`SELECT * FROM skills WHERE ${clauses.join(' AND ')} ORDER BY uses DESC, created_at DESC LIMIT ? OFFSET ?`)
+    .all(...args) as Skill[];
 }
 
-export function countPublicSkills(skillType?: string): number {
-  if (skillType) {
-    return (getDb()
-      .prepare("SELECT COUNT(*) as n FROM skills WHERE public = 1 AND active = 1 AND security_status != 'FLAGGED' AND skill_type = ?")
-      .get(skillType) as { n: number }).n;
-  }
+export function countPublicSkills(skillType?: string, tag?: string): number {
+  const clauses = ["public = 1", "active = 1", "security_status != 'FLAGGED'"];
+  const args: unknown[] = [];
+  if (skillType) { clauses.push('skill_type = ?'); args.push(skillType); }
+  if (tag) { clauses.push("tags_json LIKE '%' || ? || '%'"); args.push(`"${tag}"`); }
   return (getDb()
-    .prepare("SELECT COUNT(*) as n FROM skills WHERE public = 1 AND active = 1 AND security_status != 'FLAGGED'")
-    .get() as { n: number }).n;
+    .prepare(`SELECT COUNT(*) as n FROM skills WHERE ${clauses.join(' AND ')}`)
+    .get(...args) as { n: number }).n;
 }
 
 export function getSkillsByAuthor(authorKey: string, limit = 200): Skill[] {

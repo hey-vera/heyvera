@@ -342,6 +342,24 @@ const MIGRATIONS: { version: number; sql: string }[] = [
     CREATE INDEX IF NOT EXISTS idx_x402_receipts_skill ON x402_receipts(skill_id);
     CREATE INDEX IF NOT EXISTS idx_x402_receipts_created ON x402_receipts(created_at DESC);
   ` },
+  // v59: missing indexes on hot query columns — authentication, listing, filtering
+  { version: 59, sql: `
+    CREATE INDEX IF NOT EXISTS idx_api_keys_active ON api_keys(active);
+    CREATE INDEX IF NOT EXISTS idx_skills_security_status ON skills(security_status);
+    CREATE INDEX IF NOT EXISTS idx_skills_skill_type ON skills(skill_type);
+    CREATE INDEX IF NOT EXISTS idx_skills_skill_class ON skills(skill_class);
+    CREATE INDEX IF NOT EXISTS idx_skills_category ON skills(category);
+    CREATE INDEX IF NOT EXISTS idx_skills_public_active ON skills(public, active, security_status);
+    CREATE INDEX IF NOT EXISTS idx_orchestrations_skill_ts ON orchestrations(skill_id, timestamp);
+  ` },
+  // v60: per-skill rate limit — creator-configurable max calls per hour
+  { version: 60, sql: `ALTER TABLE skills ADD COLUMN max_calls_per_hour INTEGER` },
+  // v61: skill health status for data skill monitoring cron
+  { version: 61, sql: `ALTER TABLE skills ADD COLUMN health_status TEXT NOT NULL DEFAULT 'HEALTHY';
+    ALTER TABLE skills ADD COLUMN health_checked_at TEXT;
+    ALTER TABLE skills ADD COLUMN health_fail_count INTEGER NOT NULL DEFAULT 0` },
+  // v62: webhook signing secret per task creator — HMAC verification for outbound webhooks
+  { version: 62, sql: `ALTER TABLE api_keys ADD COLUMN webhook_secret TEXT` },
 ];
 
 function runMigrations(): void {

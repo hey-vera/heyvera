@@ -13,8 +13,9 @@ import {
   recordSkillMetric, getSkillMetricsSummary, recordSkillVersion, getSkillWithAb, promoteChallenger,
   writeAuditLog, upsertDiscovery, updateSkillSecurityStatus, setAbChallenger, recordTransaction,
   getSkillCostAnalytics, checkVerificationEligibility, autoVerifyPublisher, safeJsonParse,
+  searchDiscovery,
 } from '../db/index';
-import { embed } from '../core/embeddings';
+import { embed, isEmbeddingModelReady } from '../core/embeddings';
 import { scanSkillTemplate, scanProxyResponse } from '../core/skill-scanner';
 import { parseIntent } from '../core/intent-parser';
 import { executePlan } from '../core/executor';
@@ -96,6 +97,8 @@ const CreateSkillSchema = z.object({
   updateFrequency: z.enum(['realtime', 'hourly', 'daily', 'weekly', 'static']).default('static'),
   /** Link to the paired skill (LLM ↔ data variant) for marketplace toggle cards. Must be a skill you own. */
   pairedSkillId: z.string().max(50).optional(),
+  /** Max invocations per hour (rate limit). Null = unlimited. */
+  maxCallsPerHour: z.number().int().min(1).max(100000).optional(),
 });
 
 // Extract {{variable}} placeholders from a template
@@ -108,6 +111,19 @@ function extractVariables(template: string): string[] {
 function skillCacheKey(skillId: string, variables: Record<string, string>): string {
   const normalized = JSON.stringify({ skillId, variables: Object.fromEntries(Object.entries(variables).sort()) });
   return 'skill:' + crypto.createHash('sha256').update(normalized).digest('hex').slice(0, 16);
+}
+
+// ─── Per-Skill Rate Limit ────────────────────────────────────────────────────
+
+/** Check if a skill has a per-skill rate limit and enforce it via Redis INCR. */
+async function checkSkillRateLimit(skillId: string, maxCallsPerHour: number | null): Promise<{ allowed: boolean; remaining?: number }> {
+  if (!maxCallsPerHour || maxCallsPerHour <= 0) return { allowed: true };
+  const key = `skill_rl:${skillId}`;
+  const current = await cacheIncr(key, 3600); // 1-hour window
+  if (current > maxCallsPerHour) {
+    return { allowed: false, remaining: 0 };
+  }
+  return { allowed: true, remaining: maxCallsPerHour - current };
 }
 
 // ─── POST /v1/skills — create a skill ─────────────────────────────────────────
@@ -179,6 +195,11 @@ skillsRouter.post('/', checkApiKey, async (c) => {
     pairedSkillId: data.pairedSkillId,
   });
 
+  // Set per-skill rate limit if specified
+  if (data.maxCallsPerHour) {
+    getDb().prepare('UPDATE skills SET max_calls_per_hour = ? WHERE id = ?').run(data.maxCallsPerHour, id);
+  }
+
   // Set reverse link on the paired skill so both point at each other
   if (data.pairedSkillId) {
     getDb().prepare('UPDATE skills SET paired_skill_id = ? WHERE id = ? AND author_key = ?')
@@ -238,11 +259,12 @@ skillsRouter.get('/', (c) => {
   const page = Math.max(1, parseInt(c.req.query('page') ?? '1', 10) || 1);
   const limit = Math.min(100, Math.max(1, parseInt(c.req.query('limit') ?? '50', 10) || 50));
   const offset = (page - 1) * limit;
-  // Optional filter: ?type=data | prompt_template | api_proxy
+  // Optional filters: ?type=data | prompt_template | api_proxy  &  ?tag=defi
   const typeFilter = c.req.query('type') as string | undefined;
+  const tagFilter = c.req.query('tag') as string | undefined;
 
-  const skills = listPublicSkills(offset, limit, typeFilter);
-  const total = countPublicSkills(typeFilter);
+  const skills = listPublicSkills(offset, limit, typeFilter, tagFilter);
+  const total = countPublicSkills(typeFilter, tagFilter);
 
   return c.json({
     page,
@@ -257,6 +279,7 @@ skillsRouter.get('/', (c) => {
       skillType: s.skill_type,
       category: s.category,
       creditCost: s.credit_cost,
+      tags: safeJsonParse<string[]>(s.tags_json, []),
       uses: s.uses,
       stars: s.stars,
       // Data skills: expose update cadence + whether sample output is available
@@ -411,6 +434,15 @@ skillsRouter.get('/:id/query', checkApiKey, async (c) => {
 
   if (!skill.proxy_url) {
     return c.json({ requestId, error: 'Data skill has no source URL configured', code: 'NO_SOURCE' }, 503);
+  }
+
+  // Per-skill rate limit (creator-configurable)
+  const skillRow = skill as typeof skill & { max_calls_per_hour?: number | null };
+  if (skillRow.max_calls_per_hour) {
+    const rl = await checkSkillRateLimit(id, skillRow.max_calls_per_hour);
+    if (!rl.allowed) {
+      return c.json({ requestId, error: 'Skill rate limit exceeded', code: 'SKILL_RATE_LIMITED', retryAfterSeconds: 3600 }, 429);
+    }
   }
 
   const creditCost = Math.max(0.001, skill.credit_cost);
@@ -719,6 +751,15 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
   // Block invocation of flagged skills
   if (baseSkill.security_status === 'FLAGGED') {
     return c.json({ requestId, error: 'This skill has been flagged for review', code: 'SKILL_FLAGGED' }, 403);
+  }
+
+  // Per-skill rate limit (creator-configurable)
+  const invokeSkillRow = baseSkill as typeof baseSkill & { max_calls_per_hour?: number | null };
+  if (invokeSkillRow.max_calls_per_hour) {
+    const rl = await checkSkillRateLimit(id, invokeSkillRow.max_calls_per_hour);
+    if (!rl.allowed) {
+      return c.json({ requestId, error: 'Skill rate limit exceeded', code: 'SKILL_RATE_LIMITED', retryAfterSeconds: 3600 }, 429);
+    }
   }
 
   let rawBody: unknown;
@@ -1228,4 +1269,235 @@ skillsRouter.post('/:id/test', checkApiKey, async (c) => {
       code: 'EXECUTION_ERROR',
     }, 500);
   }
+});
+
+// ─── GET /v1/skills/:id/similar — vector similarity search ──────────────────
+
+skillsRouter.get('/:id/similar', async (c) => {
+  const { id } = c.req.param();
+  const skill = getSkill(id);
+  if (!skill || !skill.public) return c.json({ error: 'Skill not found' }, 404);
+
+  if (!isEmbeddingModelReady()) {
+    return c.json({ error: 'Embedding model not loaded', code: 'MODEL_UNAVAILABLE' }, 503);
+  }
+
+  const limitRaw = parseInt(c.req.query('limit') ?? '5', 10);
+  const limit = Math.max(1, Math.min(20, limitRaw));
+
+  try {
+    const text = `${skill.name}: ${skill.description}`;
+    const vec = await embed(text);
+    // Request limit+1 so we can exclude the skill itself
+    const results = searchDiscovery(vec, limit + 1);
+    const filtered = results
+      .filter(r => r.id !== `skill:${id}`)
+      .slice(0, limit);
+
+    return c.json({
+      skillId: id,
+      similar: filtered.map(r => ({
+        id: r.id.replace('skill:', ''),
+        name: r.skillName,
+        description: r.skillDesc,
+        similarity: +(1 - r.distance).toFixed(4),
+      })),
+    });
+  } catch (err) {
+    logger.warn({ skillId: id, err }, 'Similar skills search failed');
+    return c.json({ error: 'Similarity search failed', code: 'SEARCH_FAILED' }, 500);
+  }
+});
+
+// ─── GET /v1/skills/:id/mcp — MCP tool manifest for a single skill ──────────
+
+skillsRouter.get('/:id/mcp', (c) => {
+  const { id } = c.req.param();
+  const skill = getSkill(id);
+  if (!skill || !skill.public) return c.json({ error: 'Skill not found' }, 404);
+
+  const inputSchema = safeJsonParse<Record<string, unknown> | null>(skill.input_schema_json, null);
+  const outputSchema = safeJsonParse<Record<string, unknown> | null>(skill.output_schema_json, null);
+  const tags = safeJsonParse<string[]>(skill.tags_json, []);
+
+  // Build MCP-compatible tool definition (Model Context Protocol spec)
+  const mcpTool: Record<string, unknown> = {
+    name: `clawnet_${skill.name.replace(/-/g, '_')}`,
+    description: skill.description,
+    inputSchema: inputSchema ?? {
+      type: 'object',
+      properties: Object.fromEntries(
+        extractVariables(skill.prompt_template).map(v => [v, { type: 'string', description: `Input: ${v}` }])
+      ),
+      required: extractVariables(skill.prompt_template),
+    },
+  };
+
+  return c.json({
+    schema_version: '2024-11-05',
+    server_info: {
+      name: 'clawnet',
+      version: '1.0.0',
+    },
+    tool: mcpTool,
+    metadata: {
+      skillId: id,
+      skillType: skill.skill_type,
+      creditCost: skill.credit_cost,
+      category: skill.category,
+      tags,
+      ...(outputSchema && { outputSchema }),
+      ...(skill.skill_type === 'data' && {
+        queryEndpoint: `GET /v1/skills/${id}/query`,
+        updateFrequency: skill.update_frequency,
+        sampleOutput: safeJsonParse(skill.sample_output_json, null),
+      }),
+      ...(skill.skill_type !== 'data' && {
+        invokeEndpoint: `POST /v1/skills/${id}/invoke`,
+      }),
+    },
+  });
+});
+
+// ─── GET /v1/skills/:id/openapi — OpenAPI 3.1 spec for a single skill ──────
+
+skillsRouter.get('/:id/openapi', (c) => {
+  const { id } = c.req.param();
+  const skill = getSkill(id);
+  if (!skill || !skill.public) return c.json({ error: 'Skill not found' }, 404);
+
+  const inputSchema = safeJsonParse<Record<string, unknown> | null>(skill.input_schema_json, null);
+  const outputSchema = safeJsonParse<Record<string, unknown> | null>(skill.output_schema_json, null);
+  const tags = safeJsonParse<string[]>(skill.tags_json, []);
+  const isData = skill.skill_type === 'data';
+
+  const path = isData ? `/v1/skills/${id}/query` : `/v1/skills/${id}/invoke`;
+  const method = isData ? 'get' : 'post';
+
+  const requestBody = !isData ? {
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: inputSchema ?? {
+            type: 'object',
+            properties: {
+              variables: {
+                type: 'object',
+                properties: Object.fromEntries(
+                  extractVariables(skill.prompt_template).map(v => [v, { type: 'string' }])
+                ),
+              },
+            },
+          },
+        },
+      },
+    },
+  } : {};
+
+  const spec = {
+    openapi: '3.1.0',
+    info: {
+      title: `ClawNet Skill: ${skill.display_name ?? skill.name}`,
+      description: skill.description,
+      version: skill.version ?? '1.0.0',
+    },
+    servers: [{ url: 'https://api.claw-net.org' }],
+    paths: {
+      [path]: {
+        [method]: {
+          operationId: `${isData ? 'query' : 'invoke'}_${skill.name.replace(/-/g, '_')}`,
+          summary: skill.description,
+          tags,
+          security: [{ ApiKeyAuth: [] }],
+          ...requestBody,
+          responses: {
+            '200': {
+              description: 'Successful response',
+              content: {
+                'application/json': {
+                  schema: outputSchema ?? {
+                    type: 'object',
+                    ...(isData && skill.sample_output_json && {
+                      example: safeJsonParse(skill.sample_output_json, null),
+                    }),
+                  },
+                },
+              },
+            },
+            '402': { description: 'Insufficient credits' },
+            '404': { description: 'Skill not found' },
+          },
+        },
+      },
+    },
+    components: {
+      securitySchemes: {
+        ApiKeyAuth: {
+          type: 'apiKey',
+          in: 'header',
+          name: 'X-API-Key',
+        },
+      },
+    },
+  };
+
+  return c.json(spec);
+});
+
+// ─── POST /v1/skills/batch-query — parallel multi-skill queries ─────────────
+
+skillsRouter.post('/batch-query', checkApiKey, async (c) => {
+  const keyInfo = c.get('apiKeyInfo');
+
+  let body: { queries: { skillId: string; params?: Record<string, string> }[] };
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON', code: 'INVALID_BODY' }, 400); }
+
+  if (!Array.isArray(body.queries) || body.queries.length === 0) {
+    return c.json({ error: 'queries array required', code: 'MISSING_QUERIES' }, 400);
+  }
+  if (body.queries.length > 10) {
+    return c.json({ error: 'Maximum 10 queries per batch', code: 'BATCH_TOO_LARGE' }, 400);
+  }
+
+  // Validate all skills exist and are data skills before executing
+  const skills = body.queries.map(q => {
+    const skill = getSkill(q.skillId);
+    if (!skill || !skill.public) return { error: `Skill ${q.skillId} not found`, skillId: q.skillId };
+    if (skill.skill_type !== 'data') return { error: `Skill ${q.skillId} is not a data skill`, skillId: q.skillId };
+    return { skill, params: q.params ?? {} };
+  });
+
+  const errors = skills.filter(s => 'error' in s);
+  if (errors.length > 0) {
+    return c.json({ error: 'Some skills invalid', code: 'INVALID_SKILLS', details: errors }, 400);
+  }
+
+  // Execute all queries in parallel — redirect to internal /v1/skills/:id/query logic
+  const results = await Promise.allSettled(
+    skills.map(async (entry) => {
+      if ('error' in entry) return { error: entry.error };
+      const { skill, params } = entry;
+      const paramStr = new URLSearchParams(params).toString();
+      const url = `${c.req.url.split('/v1/skills')[0]}/v1/skills/${skill.id}/query${paramStr ? '?' + paramStr : ''}`;
+      try {
+        const res = await fetch(url, {
+          headers: { 'X-API-Key': keyInfo.key },
+          signal: AbortSignal.timeout(15_000),
+        });
+        return { skillId: skill.id, skillName: skill.name, status: res.status, data: await res.json() };
+      } catch (err) {
+        return { skillId: skill.id, skillName: skill.name, status: 500, error: (err as Error).message };
+      }
+    })
+  );
+
+  return c.json({
+    results: results.map((r, i) => {
+      const q = body.queries[i];
+      if (r.status === 'fulfilled') return { skillId: q.skillId, ...r.value };
+      return { skillId: q.skillId, error: r.reason?.message ?? 'Query failed' };
+    }),
+    totalQueries: body.queries.length,
+  });
 });

@@ -4,7 +4,7 @@
  * Gracefully degrades if any layer fails or returns no results.
  */
 import { embed, isEmbeddingModelReady } from './embeddings';
-import { searchDiscovery, getPeers } from '../db/index';
+import { searchDiscovery, getPeers, getDb } from '../db/index';
 import { getMeshNode } from '../mesh/node';
 import { logger } from '../utils/logger';
 import discoveryConfig from '../config/discovery.json';
@@ -186,6 +186,34 @@ export async function runDiscovery(opts: DiscoveryOptions): Promise<{
   }
   if (opts.filters?.source?.length) {
     merged = merged.filter(r => opts.filters!.source!.includes(r.source));
+  }
+
+  // Staking boost: skills with active stakes get a discovery ranking bonus
+  // Each 100 staked credits adds ~5% score boost (diminishing returns via sqrt)
+  try {
+    const skillIds = merged
+      .map(r => r.id.replace('skill:', ''))
+      .filter(id => !id.startsWith('peer:') && !id.startsWith('onchain:'));
+    if (skillIds.length > 0) {
+      const placeholders = skillIds.map(() => '?').join(',');
+      const stakeRows = getDb().prepare(
+        `SELECT skill_id, SUM(amount_credits) as total_staked
+         FROM stakes WHERE skill_id IN (${placeholders}) AND unlocked = 0
+         GROUP BY skill_id`
+      ).all(...skillIds) as { skill_id: string; total_staked: number }[];
+      const stakeMap = new Map(stakeRows.map(r => [r.skill_id, r.total_staked]));
+      for (const r of merged) {
+        const rawId = r.id.replace('skill:', '');
+        const staked = stakeMap.get(rawId);
+        if (staked && staked > 0) {
+          // sqrt-based diminishing boost: 100 cr → 5%, 400 cr → 10%, 1600 cr → 20%
+          const boost = Math.sqrt(staked / 100) * 0.05;
+          r.score = +(r.score * (1 + Math.min(boost, 0.5))).toFixed(4); // cap at 50% boost
+        }
+      }
+    }
+  } catch (err) {
+    logger.warn({ err }, 'Staking boost calculation failed — proceeding without boost');
   }
 
   merged.sort((a, b) => b.score - a.score);

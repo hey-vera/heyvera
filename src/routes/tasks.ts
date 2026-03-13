@@ -37,17 +37,33 @@ function skillCacheKey(skillId: string, variables: Record<string, string>): stri
   return 'task:' + crypto.createHash('sha256').update(normalized).digest('hex').slice(0, 16);
 }
 
+/** Compute HMAC-SHA256 signature for outbound webhook payload verification. */
+function signWebhookPayload(body: string, secret: string): string {
+  return crypto.createHmac('sha256', secret).update(body).digest('hex');
+}
+
 /** Webhook delivery with exponential backoff retry (3 attempts: 0s, 1s, 3s) */
-function fireWebhook(webhookUrl: string, taskId: string, payload: unknown): void {
+function fireWebhook(webhookUrl: string, taskId: string, payload: unknown, webhookSecret?: string | null): void {
   const MAX_ATTEMPTS = 3;
   const BACKOFF_MS = [0, 1000, 3000];
 
   async function attempt(n: number): Promise<void> {
     try {
+      const body = JSON.stringify(payload);
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'X-ClawNet-Task-ID': taskId,
+        'X-ClawNet-Attempt': String(n + 1),
+        'X-ClawNet-Timestamp': String(Math.floor(Date.now() / 1000)),
+      };
+      // HMAC signature if the requester has a webhook_secret configured
+      if (webhookSecret) {
+        headers['X-ClawNet-Signature'] = signWebhookPayload(body, webhookSecret);
+      }
       const res = await fetch(webhookUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-ClawNet-Task-ID': taskId, 'X-ClawNet-Attempt': String(n + 1) },
-        body: JSON.stringify(payload),
+        headers,
+        body,
         signal: AbortSignal.timeout(10_000),
       });
       if (res.ok) {
@@ -131,6 +147,12 @@ tasksRouter.post('/', checkApiKey, async (c) => {
   }
 
   const taskId = nanoid(16);
+
+  // Look up webhook signing secret for HMAC signatures on outbound webhooks
+  const webhookSecret = webhookUrl
+    ? (getDb().prepare('SELECT webhook_secret FROM api_keys WHERE key = ?').get(keyInfo.key) as { webhook_secret: string | null } | undefined)?.webhook_secret
+    : null;
+
   createTask({
     id: taskId,
     requesterKey: keyInfo.key,
@@ -184,7 +206,7 @@ tasksRouter.post('/', checkApiKey, async (c) => {
 
       const result = { data: proxyData, skill: { id: skill.id, name: skill.name }, creditsUsed: creditsToDeduct };
       updateTaskCompleted(taskId, JSON.stringify(result), creditsToDeduct, Date.now() - start);
-      if (webhookUrl) fireWebhook(webhookUrl, taskId, { taskId, status: 'COMPLETED', result });
+      if (webhookUrl) fireWebhook(webhookUrl, taskId, { taskId, status: 'COMPLETED', result }, webhookSecret);
       return c.json({ taskId, status: 'COMPLETED', result });
     }
 
@@ -203,7 +225,7 @@ tasksRouter.post('/', checkApiKey, async (c) => {
     if (cached) {
       const result = { ...cached, creditsUsed: 0, cacheHit: true };
       updateTaskCompleted(taskId, JSON.stringify(result), 0, Date.now() - start);
-      if (webhookUrl) fireWebhook(webhookUrl, taskId, { taskId, status: 'COMPLETED', result });
+      if (webhookUrl) fireWebhook(webhookUrl, taskId, { taskId, status: 'COMPLETED', result }, webhookSecret);
       return c.json({ taskId, status: 'COMPLETED', result });
     }
 
@@ -270,7 +292,7 @@ tasksRouter.post('/', checkApiKey, async (c) => {
 
     void cacheSet(qKey, result, 300);
     updateTaskCompleted(taskId, JSON.stringify(result), creditsToDeduct, durationMs);
-    if (webhookUrl) fireWebhook(webhookUrl, taskId, { taskId, status: 'COMPLETED', result });
+    if (webhookUrl) fireWebhook(webhookUrl, taskId, { taskId, status: 'COMPLETED', result }, webhookSecret);
 
     return c.json({ taskId, status: 'COMPLETED', result });
   } catch (err) {
@@ -278,7 +300,7 @@ tasksRouter.post('/', checkApiKey, async (c) => {
     const errMsg = (err as Error).message ?? String(err);
     updateTaskFailed(taskId, errMsg, durationMs);
     logger.error({ taskId, skillId, err }, 'Task execution failed');
-    if (webhookUrl) fireWebhook(webhookUrl, taskId, { taskId, status: 'FAILED', error: errMsg });
+    if (webhookUrl) fireWebhook(webhookUrl, taskId, { taskId, status: 'FAILED', error: errMsg }, webhookSecret);
     return c.json({ taskId, status: 'FAILED', error: 'Task execution failed', details: errMsg }, 500);
   }
 });

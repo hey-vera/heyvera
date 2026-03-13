@@ -20,7 +20,10 @@ import {
   deleteAutoPayoutConfig,
   getReputationScore,
   getReputationEvents,
+  logAudit,
+  getDb,
 } from '../db/index';
+import crypto from 'crypto';
 
 const economyRouter = new Hono();
 
@@ -241,6 +244,72 @@ economyRouter.get('/reputation', (c) => {
 economyRouter.get('/reputation/:key', (c) => {
   const targetKey = c.req.param('key');
   return reputationResponse(c, targetKey);
+});
+
+// ─── Credit Gifting ──────────────────────────────────────────────────────────
+
+economyRouter.post('/gift', async (c) => {
+  const keyInfo = c.get('apiKeyInfo');
+  if (keyInfo.isEnvKey) return c.json({ error: 'Env keys cannot gift credits', code: 'FORBIDDEN' }, 403);
+
+  let body: { toKey?: string; amount?: number; message?: string };
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON body', code: 'INVALID_BODY' }, 400); }
+
+  const { toKey, amount, message } = body;
+  if (!toKey || typeof toKey !== 'string') return c.json({ error: 'toKey is required', code: 'MISSING_TO_KEY' }, 400);
+  if (!amount || typeof amount !== 'number' || amount <= 0) return c.json({ error: 'amount must be positive', code: 'INVALID_AMOUNT' }, 400);
+  if (amount > 50000) return c.json({ error: 'Maximum gift is 50,000 credits', code: 'AMOUNT_TOO_LARGE' }, 400);
+
+  // Gifts use the transfer system with 0% fee (memo indicates gift)
+  const result = transferCredits({
+    fromKey: keyInfo.key,
+    toKey,
+    amount,
+    memo: `🎁 Gift${message ? ': ' + (typeof message === 'string' ? message.slice(0, 200) : '') : ''}`,
+  });
+
+  if (!result.ok) {
+    const status = result.error === 'Insufficient credits' ? 402 : 400;
+    return c.json({ error: result.error, code: 'GIFT_FAILED' }, status);
+  }
+
+  return c.json({
+    ok: true,
+    giftId: result.transferId,
+    amount,
+    fee: result.fee,
+    newBalance: result.newBalance,
+  });
+});
+
+// ─── Webhook Secret ──────────────────────────────────────────────────────────
+
+economyRouter.put('/webhook-secret', async (c) => {
+  const keyInfo = c.get('apiKeyInfo');
+  if (keyInfo.isEnvKey) return c.json({ error: 'Not available for env keys', code: 'FORBIDDEN' }, 403);
+
+  let body: { secret?: string; regenerate?: boolean };
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON', code: 'INVALID_BODY' }, 400); }
+
+  let secret: string;
+  if (body.regenerate) {
+    secret = crypto.randomBytes(32).toString('hex');
+  } else if (body.secret && typeof body.secret === 'string' && body.secret.length >= 16) {
+    secret = body.secret;
+  } else {
+    return c.json({ error: 'Provide secret (min 16 chars) or set regenerate: true', code: 'INVALID_SECRET' }, 400);
+  }
+
+  getDb().prepare('UPDATE api_keys SET webhook_secret = ? WHERE key = ?').run(secret, keyInfo.key);
+  logAudit({ entityType: 'webhook_secret', entityId: keyInfo.key, action: 'WEBHOOK_SECRET_SET' });
+
+  return c.json({ ok: true, secret, hint: 'Use this secret to verify X-ClawNet-Signature headers on webhook deliveries' });
+});
+
+economyRouter.delete('/webhook-secret', (c) => {
+  const keyInfo = c.get('apiKeyInfo');
+  getDb().prepare('UPDATE api_keys SET webhook_secret = NULL WHERE key = ?').run(keyInfo.key);
+  return c.json({ ok: true });
 });
 
 function reputationResponse(c: any, agentKey: string) {
