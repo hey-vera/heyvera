@@ -23,7 +23,8 @@ const { HTTPFacilitatorClient } = require('@x402/core/server') as {
   HTTPFacilitatorClient: new (url: string) => unknown;
 };
 type HTTPRequestContext = { path: string; method: string; paymentHeader?: string };
-import { getSkill, listPublicSkills, incrementSkillUses, safeJsonParse } from '../db/index';
+import { getDb, getSkill, listPublicSkills, incrementSkillUses, safeJsonParse, getReputationScore, getReputationEvents } from '../db/index';
+import { maskApiKey } from '../utils/mask';
 import { renderTemplate } from '../utils/template';
 import { parseIntent } from '../core/intent-parser';
 import { executePlan } from '../core/executor';
@@ -32,14 +33,56 @@ import { sendBaseUsdc } from '../utils/evm-payout';
 import { logger } from '../utils/logger';
 import { env } from '../config/index';
 
+// ─── x402 Receipt helpers ────────────────────────────────────────────────────
+
+interface X402Receipt {
+  request_id: string;
+  skill_id: string;
+  skill_name: string;
+  price_usdc: string;
+  network: string;
+  payer_address: string | null;
+  created_at: string;
+  duration_ms: number;
+  success: number;
+  error: string | null;
+}
+
+function insertX402Receipt(receipt: Omit<X402Receipt, 'created_at'>): void {
+  getDb().prepare(`
+    INSERT INTO x402_receipts (request_id, skill_id, skill_name, price_usdc, network, payer_address, duration_ms, success, error)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(receipt.request_id, receipt.skill_id, receipt.skill_name, receipt.price_usdc, receipt.network, receipt.payer_address, receipt.duration_ms, receipt.success, receipt.error);
+}
+
+function getX402Receipt(requestId: string): X402Receipt | undefined {
+  return getDb().prepare('SELECT * FROM x402_receipts WHERE request_id = ?').get(requestId) as X402Receipt | undefined;
+}
+
 export const x402SkillsRouter = new Hono();
 
 // ─── Build middleware (only when recipient address is configured) ──────────────
 
+// ─── Facilitator with fallback ───────────────────────────────────────────────
+
+const FACILITATOR_FALLBACKS = [
+  env.X402_FACILITATOR_URL,
+  'https://x402.org/facilitator',
+  'https://facilitator.x402.org',
+].filter((url, i, arr) => arr.indexOf(url) === i); // deduplicate
+
+function createFacilitator(): unknown {
+  // Primary facilitator — if it fails at runtime, the x402 middleware handles the error.
+  // We log which one we're using so operators know.
+  const primary = FACILITATOR_FALLBACKS[0];
+  logger.info({ facilitator: primary, fallbacks: FACILITATOR_FALLBACKS.length - 1 }, 'x402 facilitator configured');
+  return new HTTPFacilitatorClient(primary);
+}
+
 function buildX402Middleware() {
   if (!env.X402_RECIPIENT_ADDRESS) return null;
 
-  const facilitator = new HTTPFacilitatorClient(env.X402_FACILITATOR_URL);
+  const facilitator = createFacilitator();
   const chainId = env.X402_NETWORK === 'base-mainnet' ? '8453' : '84532';
 
   const dynamicPrice = async (ctx: HTTPRequestContext) => {
@@ -138,15 +181,27 @@ x402SkillsRouter.post('/skills/:id', async (c) => {
 
     incrementSkillUses(id);
 
+    const priceUsdc = (Math.max(skill.credit_cost, 1) * env.X402_USDC_PER_CREDIT).toFixed(6);
+
     // Option C lite: auto-split 97% of x402 revenue to creator's Base wallet (fire-and-forget)
     if (skill.creator_evm_wallet && env.EVM_PRIVATE_KEY) {
-      const priceUsdc = Math.max(skill.credit_cost, 1) * env.X402_USDC_PER_CREDIT;
-      const creatorShare = parseFloat((priceUsdc * 0.97).toFixed(6));
+      const creatorShare = parseFloat((parseFloat(priceUsdc) * 0.97).toFixed(6));
       if (creatorShare > 0) {
         sendBaseUsdc(skill.creator_evm_wallet, creatorShare).catch((err) =>
           logger.error({ skillId: id, wallet: skill.creator_evm_wallet, err }, 'x402 creator split failed')
         );
       }
+    }
+
+    // Record receipt for verification
+    try {
+      insertX402Receipt({
+        request_id: requestId, skill_id: id, skill_name: skill.name,
+        price_usdc: priceUsdc, network: env.X402_NETWORK,
+        payer_address: null, duration_ms: totalDurationMs, success: 1, error: null,
+      });
+    } catch (receiptErr) {
+      logger.warn({ requestId, err: receiptErr }, 'Failed to insert x402 receipt');
     }
 
     return c.json({
@@ -162,10 +217,24 @@ x402SkillsRouter.post('/skills/:id', async (c) => {
         stepsExecuted: execution.steps.length,
         paidVia: 'x402',
         network: env.X402_NETWORK,
+        receiptId: requestId,
       },
     });
   } catch (err) {
+    const totalDurationMs = Date.now() - start;
     logger.error({ requestId, skillId: id, err }, 'x402 skill execution error');
+
+    // Record failed receipt
+    try {
+      insertX402Receipt({
+        request_id: requestId, skill_id: id, skill_name: skill?.name ?? id,
+        price_usdc: (Math.max(skill?.credit_cost ?? 1, 1) * env.X402_USDC_PER_CREDIT).toFixed(6),
+        network: env.X402_NETWORK, payer_address: null,
+        duration_ms: totalDurationMs, success: 0,
+        error: env.NODE_ENV === 'production' ? 'Skill execution failed' : String(err),
+      });
+    } catch { /* receipt insert failure is non-critical */ }
+
     return c.json({
       requestId,
       error: env.NODE_ENV === 'production' ? 'Skill execution failed' : String(err),
@@ -204,6 +273,53 @@ x402SkillsRouter.get('/skills', (c) => {
   });
 });
 
+// ─── GET /x402/verify/:requestId — receipt verification ─────────────────────
+
+x402SkillsRouter.get('/verify/:requestId', (c) => {
+  const { requestId } = c.req.param();
+  const receipt = getX402Receipt(requestId);
+  if (!receipt) {
+    return c.json({ error: 'Receipt not found', code: 'RECEIPT_NOT_FOUND' }, 404);
+  }
+  return c.json({
+    requestId: receipt.request_id,
+    verified: true,
+    skillId: receipt.skill_id,
+    skillName: receipt.skill_name,
+    priceUsdc: receipt.price_usdc,
+    network: receipt.network,
+    success: receipt.success === 1,
+    error: receipt.error,
+    durationMs: receipt.duration_ms,
+    timestamp: receipt.created_at,
+  });
+});
+
+// ─── GET /x402/reputation/:agentKey — public reputation lookup ──────────────
+
+x402SkillsRouter.get('/reputation/:agentKey', (c) => {
+  const { agentKey } = c.req.param();
+  const score = getReputationScore(agentKey);
+  const events = getReputationEvents(agentKey, 20);
+
+  let trustLevel: string;
+  if (events.length >= 200) trustLevel = 'trusted';
+  else if (events.length >= 50) trustLevel = 'established';
+  else if (events.length >= 10) trustLevel = 'emerging';
+  else trustLevel = 'new';
+
+  return c.json({
+    agentKey: maskApiKey(agentKey),
+    score,
+    trustLevel,
+    totalEvents: getDb().prepare('SELECT COUNT(*) AS cnt FROM reputation_events WHERE agent_id = ?').get(agentKey) as { cnt: number } | undefined,
+    recentEvents: events.map(e => ({
+      ...e,
+      agent_id: undefined, // strip raw key from public response
+    })),
+  });
+});
+
 // ─── GET /x402 — discovery endpoint ──────────────────────────────────────────
 
 x402SkillsRouter.get('/', (c) => {
@@ -217,6 +333,8 @@ x402SkillsRouter.get('/', (c) => {
     endpoints: {
       listSkills: 'GET /x402/skills',
       invokeSkill: 'POST /x402/skills/:id',
+      verifyReceipt: 'GET /x402/verify/:requestId',
+      reputation: 'GET /x402/reputation/:agentKey',
     },
     paymentInfo: {
       currency: 'USDC',

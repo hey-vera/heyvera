@@ -325,6 +325,23 @@ const MIGRATIONS: { version: number; sql: string }[] = [
     CREATE INDEX IF NOT EXISTS idx_agent_ctx_expires ON agent_contexts(expires_at);
     CREATE INDEX IF NOT EXISTS idx_agent_ctx_lookup ON agent_contexts(api_key, endpoint_id, params_hash);
   ` },
+  // v58: x402 payment receipts — proof-of-payment for agent audit trails
+  { version: 58, sql: `
+    CREATE TABLE IF NOT EXISTS x402_receipts (
+      request_id TEXT PRIMARY KEY,
+      skill_id TEXT NOT NULL,
+      skill_name TEXT NOT NULL,
+      price_usdc TEXT NOT NULL,
+      network TEXT NOT NULL,
+      payer_address TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      duration_ms INTEGER NOT NULL DEFAULT 0,
+      success INTEGER NOT NULL DEFAULT 1,
+      error TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_x402_receipts_skill ON x402_receipts(skill_id);
+    CREATE INDEX IF NOT EXISTS idx_x402_receipts_created ON x402_receipts(created_at DESC);
+  ` },
 ];
 
 function runMigrations(): void {
