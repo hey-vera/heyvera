@@ -103,8 +103,8 @@ Agent/Dev wants to use ClawNet
 │  └─ Agent context updated (3× TTL persistent cache per agent)
 │
 └─ Step 6: Creator gets paid (if third-party skill)
-   ├─ 97% of skill.credit_cost → creator's credit balance
-   ├─ 3% of skill.credit_cost → clawhub-treasury
+   ├─ 85% of skill.credit_cost → creator's credit balance
+   ├─ 15% of skill.credit_cost → clawhub-treasury
    ├─ Creator withdraws: POST /v1/marketplace/creator/withdraw
    └─ Payout cron sends USDC to creator's Solana wallet every 4 hours
 ```
@@ -136,7 +136,7 @@ npm run dev → tsx src/index.ts
 │
 ├─ seedOfficialSkills()
 │  ├─ Ensures clawhub-official key exists (platform author, 0% fee)
-│  ├─ Ensures clawhub-treasury key exists (collects 3% fees)
+│  ├─ Ensures clawhub-treasury key exists (collects 15% fees)
 │  ├─ Re-activates both keys if deactivated (prevents silent marketplace outage)
 │  ├─ Seeds/updates 10 prompt_template skills:
 │  │  token-analysis, social-sentiment, portfolio-optimizer, wallet-profiler,
@@ -417,7 +417,7 @@ Example financials for this call:
 ├─ Agent pays: 8 step credits + 2 orchestration fee = 10 credits ($0.010)
 ├─ Platform pays: ~$0.002 x402 API costs + ~$0.0003 LLM cost
 ├─ Platform revenue: $0.010 - $0.0023 = $0.0077 profit
-└─ Cache hit on same query: next caller pays 1 credit ($0.001), $0 platform cost
+└─ Cache hit on same query: next caller pays cacheCreditCost (10% of live, min 0.1cr), $0 platform cost
 ```
 
 ---
@@ -478,7 +478,7 @@ Agent calls POST /v1/skills/token-analysis/invoke
 │  │  └─ Treasury fee: 0%
 │  │
 │  ├─ If third-party skill:
-│  │  ├─ authorShare = floor(chargedCredits × 0.97) → creator balance
+│  │  ├─ authorShare = round6(chargedCredits × 0.85) → creator balance
 │  │  ├─ feeCredits = chargedCredits - authorShare → clawhub-treasury
 │  │  └─ recordTransaction({ type: 'SKILL_INVOKE', ... })
 │  │
@@ -506,11 +506,11 @@ Example financials — OFFICIAL skill (token-analysis, 5cr):
 Example financials — THIRD-PARTY skill (defi-dashboard, 10cr, $0.004 x402 cost):
 ├─ x402 surcharge: ceil($0.004 × 1000) = 4 credits
 ├─ Agent pays: 10 + 4 = 14 credits ($0.014)
-├─ Creator gets: floor(10 × 0.97) = 9 credits (split on skillCredits only)
-├─ Treasury gets: 10 - 9 = 1 credit ($0.001)
+├─ Creator gets: round6(10 × 0.85) = 8.5 credits (split on skillCredits only)
+├─ Treasury gets: 10 - 8.5 = 1.5 credits ($0.0015)
 ├─ Platform x402 cost: $0.004 (covered by surcharge = $0.004)
-├─ Platform revenue: $0.001 treasury + $0.004 surcharge - $0.004 x402 = $0.001 profit
-└─ NET: +$0.001 per call ✓ (was -$0.0035 LOSS before surcharge fix)
+├─ Platform revenue: $0.0015 treasury + $0.004 surcharge - $0.004 x402 = $0.0015 profit
+└─ NET: +$0.0015 per call ✓ (was -$0.0035 LOSS before surcharge fix)
 ```
 
 ---
@@ -546,15 +546,15 @@ Agent calls POST /v1/skills/my-custom-api/invoke
 │
 ├─ Step 5: Billing
 │  ├─ chargedCredits = skill.credit_cost (no x402 involved!)
-│  ├─ 97% → creator, 3% → treasury
+│  ├─ 85% → creator, 15% → treasury
 │  └─ Platform cost: $0 (creator hosts the API, not us)
 │
 └─ Response: { answer: <creator API response>, skill: { id, version } }
 
 Financials — api_proxy skill (creator-hosted, 3cr):
 ├─ Agent pays: 3 credits ($0.003)
-├─ Creator gets: floor(3 × 0.97) = 2 credits
-├─ Treasury gets: 1 credit ($0.001)
+├─ Creator gets: round6(3 × 0.85) = 2.55 credits
+├─ Treasury gets: 0.45 credits ($0.00045)
 ├─ Platform x402 cost: $0 (creator's API, not our x402 endpoints)
 ├─ No surcharge (no x402 calls)
 └─ NET: +$0.001 pure profit (always profitable for platform)
@@ -607,8 +607,8 @@ Agent calls GET /v1/skills/price-oracle-data/query?token=SOL
 │  │  └─ Platform keeps 100% (no revenue share)
 │  │
 │  ├─ If third-party data skill:
-│  │  ├─ 97% → creator
-│  │  └─ 3% → treasury
+│  │  ├─ 85% → creator
+│  │  └─ 15% → treasury
 │  │
 │  └─ deductCredit(callerKey, 1)
 │
@@ -632,8 +632,8 @@ Financials — OFFICIAL data skill live fetch:
 
 Financials — THIRD-PARTY data skill (creator-hosted proxy_url, 3cr):
 ├─ Agent pays: 3 credits ($0.003)
-├─ Creator gets: floor(3 × 0.97) = 2 credits
-├─ Treasury gets: 1 credit ($0.001)
+├─ Creator gets: round6(3 × 0.85) = 2.55 credits
+├─ Treasury gets: 0.45 credits ($0.00045)
 ├─ Platform x402 cost: $0 (creator's URL, not x402)
 ├─ No surcharge (data skills don't use x402)
 └─ NET: +$0.001 profit (always profitable)
@@ -768,7 +768,7 @@ Agent calls POST /v1/openclaw/invoke
 ├─ action: "skill"
 │  ├─ Body: { action: "skill", skillId: "token-analysis", variables: { token: "SOL" } }
 │  ├─ Same flow as POST /v1/skills/:id/invoke (§7)
-│  ├─ Billing: max(actualCost, skill.credit_cost) with 97/3 split
+│  ├─ Billing: max(actualCost, skill.credit_cost) with 85/15 split
 │  └─ A/B variant routing active
 │
 ├─ action: "discover"
@@ -828,15 +828,15 @@ Agent calls POST /x402/skills/token-analysis
 ├─ Step 3: Creator auto-split (Option C lite)
 │  ├─ Does skill have creator_evm_wallet?
 │  │  ├─ YES → fire-and-forget:
-│  │  │  ├─ Calculate: 97% of payment = $0.00485 USDC
-│  │  │  ├─ sendBaseUsdc(creatorWallet, 0.00485)
+│  │  │  ├─ Calculate: 85% of payment = $0.00425 USDC
+│  │  │  ├─ sendBaseUsdc(creatorWallet, 0.00425)
 │  │  │  │  └─ EVM_PRIVATE_KEY signs tx on Base mainnet
 │  │  │  ├─ Wait 1 confirmation
 │  │  │  └─ Log tx hash (don't block response on failure)
 │  │  │
 │  │  └─ NO → platform keeps 100% (creator didn't set EVM wallet)
 │  │
-│  └─ Platform keeps: 3% = $0.00015 USDC (or 100% if no wallet)
+│  └─ Platform keeps: 15% = $0.00075 USDC (or 100% if no wallet)
 │
 └─ Response: { answer: "...", metadata: { durationMs, skill } }
 
@@ -846,8 +846,8 @@ x402 listing:
 
 Financials — x402 call on 5cr skill with creator_evm_wallet:
 ├─ Agent pays: $0.005 USDC (on Base)
-├─ Creator receives: $0.00485 USDC (97%, auto-split to Base wallet)
-├─ Platform keeps: $0.00015 USDC (3%)
+├─ Creator receives: $0.00425 USDC (85%, auto-split to Base wallet)
+├─ Platform keeps: $0.00075 USDC (15%)
 ├─ Platform pays: ~$0.002 x402 API costs + ~$0.0001 Base gas
 ├─ NET: -$0.00185 LOSS
 │
@@ -881,19 +881,19 @@ Agent calls POST /v1/marketplace/skills/defi-scanner/purchase
 │  │  │  UPDATE api_keys SET credits = credits - 10 WHERE key = ? AND credits >= 10
 │  │  │
 │  │  ├─ Calculate split:
-│  │  │  ├─ feePct = (author === 'clawhub-official') ? 0 : 3
-│  │  │  ├─ authorShare = floor(10 × 0.97) = 9 credits
-│  │  │  └─ feeCredits = 10 - 9 = 1 credit
+│  │  │  ├─ feePct = (author === 'clawhub-official') ? 0 : 15
+│  │  │  ├─ authorShare = round6(10 × 0.85) = 8.5 credits
+│  │  │  └─ feeCredits = 10 - 8.5 = 1.5 credits
 │  │  │
 │  │  ├─ Credit seller:
-│  │  │  UPDATE api_keys SET credits = credits + 9 WHERE key = ?
+│  │  │  UPDATE api_keys SET credits = credits + 8.5 WHERE key = ?
 │  │  │
 │  │  ├─ Credit treasury:
-│  │  │  UPDATE api_keys SET credits = credits + 1 WHERE key = 'clawhub-treasury'
+│  │  │  UPDATE api_keys SET credits = credits + 1.5 WHERE key = 'clawhub-treasury'
 │  │  │
 │  │  └─ Record transaction:
 │  │     INSERT INTO transactions (from_agent, to_agent, amount_credits, type, fee_credits, skill_id)
-│  │     VALUES (buyer, seller, 10, 'SKILL_SALE', 1, 'defi-scanner')
+│  │     VALUES (buyer, seller, 10, 'SKILL_SALE', 1.5, 'defi-scanner')
 │  │  })()
 │  │
 │  └─ Transaction failed? → 402 { error: "Insufficient credits" }
@@ -919,9 +919,9 @@ Agent calls POST /v1/marketplace/skills/defi-scanner/purchase
 
 Financials:
 ├─ Buyer pays: 10 credits ($0.010)
-├─ Seller receives: 9 credits (in their balance, withdrawable)
-├─ Treasury receives: 1 credit ($0.001)
-├─ Refund on failure: buyer gets 10 back, seller loses 9, treasury loses 1
+├─ Seller receives: 8.5 credits (in their balance, withdrawable)
+├─ Treasury receives: 1.5 credits ($0.0015)
+├─ Refund on failure: buyer gets 10 back, seller loses 8.5, treasury loses 1.5
 └─ Self-purchase blocked: prevents wash trading / inflating skill stats
 ```
 
@@ -1002,8 +1002,8 @@ x402 call triggers auto-split (fire-and-forget)
 ├─ Step 1: Calculate split
 │  ├─ Total payment: skill.credit_cost × X402_USDC_PER_CREDIT
 │  │  └─ 5 credits × $0.001 = $0.005 USDC
-│  ├─ Creator share: 97% = $0.00485 USDC
-│  └─ Platform keeps: 3% = $0.00015 USDC
+│  ├─ Creator share: 85% = $0.00425 USDC
+│  └─ Platform keeps: 15% = $0.00075 USDC
 │
 ├─ Step 2: Send USDC on Base
 │  │  (src/utils/evm-payout.ts → sendBaseUsdc())
@@ -1011,7 +1011,7 @@ x402 call triggers auto-split (fire-and-forget)
 │  ├─ Load EVM_PRIVATE_KEY (platform's Base wallet)
 │  ├─ USDC contract: 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
 │  ├─ Chain: Base mainnet (chainId: 8453)
-│  ├─ transfer(creatorWallet, 4850) — 6 decimals
+│  ├─ transfer(creatorWallet, 4250) — 6 decimals
 │  ├─ Wait 1 confirmation
 │  └─ Return txHash
 │
@@ -1486,7 +1486,7 @@ Agent calls POST /v1/tasks
 │  ├─ Status: PENDING → RUNNING
 │  ├─ Execute skill (same flow as §7-9 depending on skill_type)
 │  ├─ Status: RUNNING → COMPLETED (or FAILED)
-│  └─ Billing: max(actualCost, skill.credit_cost) with 97/3 split
+│  └─ Billing: max(actualCost, skill.credit_cost) with 85/15 split
 │
 ├─ Step 3: Webhook delivery (if webhookUrl set)
 │  ├─ POST https://my-agent.com/cb
@@ -1650,27 +1650,27 @@ Every route that costs credits, in one place:
 │ Route                          │ Cost                    │ Split        │
 ├──────────────────────────────────────────────────────────────────────────┤
 │ POST /v1/orchestrate           │ stepCredits + 2cr fee   │ 100% platform│
-│ POST /v1/orchestrate (cached)  │ 1 credit                │ 100% platform│
+│ POST /v1/orchestrate (cached)  │ cacheCreditCost (10%)    │ 100% platform│
 │ GET  /v1/stream/orchestrate    │ stepCredits + 2cr fee   │ 100% platform│
 │ POST /v1/batch                 │ (steps + 2cr) × queries │ 100% platform│
-│ POST /v1/skills/:id/invoke     │ max(steps, skill.cost)  │ 97/3 or 100 │
-│ POST /v1/skills/:id/invoke (c) │ 1 credit                │ 97/3 or 100 │
-│ GET  /v1/skills/:id/query      │ skill.cost (live)       │ 97/3 or 100 │
-│ GET  /v1/skills/:id/query (c)  │ 1 credit                │ 97/3 or 100 │
+│ POST /v1/skills/:id/invoke     │ max(steps, skill.cost)  │ 85/15 or 100│
+│ POST /v1/skills/:id/invoke (c) │ cacheCreditCost (10%)   │ 85/15 or 100│
+│ GET  /v1/skills/:id/query      │ skill.cost (live)       │ 85/15 or 100│
+│ GET  /v1/skills/:id/query (c)  │ cacheCreditCost (10%)   │ 85/15 or 100│
 │ POST /v1/openclaw/invoke query │ stepCredits + 2cr fee   │ 100% platform│
-│ POST /v1/openclaw/invoke skill │ max(steps, skill.cost)  │ 97/3 or 100 │
+│ POST /v1/openclaw/invoke skill │ max(steps, skill.cost)  │ 85/15 or 100│
 │ POST /v1/openclaw/invoke swarm │ 20cr base + sub-tasks   │ mixed        │
-│ POST /x402/skills/:id          │ USDC payment            │ 97/3 USDC    │
-│ POST /v1/marketplace/.../buy   │ skill.credit_cost       │ 97/3         │
-│ POST /v1/tasks                 │ max(steps, skill.cost)  │ 97/3 or 100 │
+│ POST /x402/skills/:id          │ USDC payment            │ 85/15 USDC   │
+│ POST /v1/marketplace/.../buy   │ skill.credit_cost       │ 85/15        │
+│ POST /v1/tasks                 │ max(steps, skill.cost)  │ 85/15 or 100│
 │ POST /v1/swarm/task            │ 20cr + sub-task costs   │ mixed        │
 │ POST /v1/marketplace/stake     │ amountCredits (locked)  │ n/a          │
 ├──────────────────────────────────────────────────────────────────────────┤
 │ (c) = cache hit                                                         │
-│ 97/3 = 97% creator + 3% treasury (third-party)                         │
+│ 85/15 = 85% creator + 15% treasury (third-party)                       │
 │ 100  = 100% platform (official skills, author = clawhub-official)      │
 │ mixed = base fee to platform + sub-task splits vary                     │
-│ USDC = direct crypto payment, 97% auto-split to creator EVM wallet     │
+│ USDC = direct crypto payment, 85% auto-split to creator EVM wallet     │
 ├──────────────────────────────────────────────────────────────────────────┤
 │ FREE routes (0 credits):                                                │
 │ GET  /v1/estimate, /v1/health, /v1/stats, /v1/balance                  │
@@ -1705,8 +1705,8 @@ Platform margin per credit:
 
 x402 surcharge (third-party prompt_template skills):
 ├─ Caller pays: skill.credit_cost + round6(apiCostUsd × CREDITS_PER_USD)
-├─ Creator gets: 97% of skill.credit_cost (unchanged)
-├─ Treasury gets: 3% fee + surcharge (surcharge → treasury → auto-sweep → operations wallet)
+├─ Creator gets: 85% of skill.credit_cost (unchanged)
+├─ Treasury gets: 15% fee + surcharge (surcharge → treasury → auto-sweep → operations wallet)
 ├─ Surcharge covers: real USDC spent by operations wallet on x402 API calls
 ├─ Applies to: third-party prompt_template skills only
 └─ Does NOT apply to: official skills, api_proxy, data skills, cache hits
@@ -1739,7 +1739,7 @@ Decimal credits (v3):
 │  ├─ Purpose: Pays x402 API providers + receives treasury fee sweeps        │
 │  ├─ Env: SOLANA_PRIVATE_KEY (bs58 private key)                             │
 │  │       TREASURY_SWEEP_WALLET (same public address)                       │
-│  ├─ IN:  Treasury auto-sweep (every 4h, 3% fees + x402 surcharges)        │
+│  ├─ IN:  Treasury auto-sweep (every 4h, 15% fees + x402 surcharges)        │
 │  │       Manual top-up from Receiving wallet                               │
 │  ├─ OUT: Pays ClawAPIs/x402 providers for API calls                       │
 │  └─ Risk: MEDIUM — private key in .env, but only working capital at risk   │
@@ -1765,14 +1765,14 @@ User sends $20 USDC to buy credits
 │  ├─ surcharge = round6(0.003 × 1000) = 3 credits
 │  ├─ TOTAL DEDUCTED from user: 13 credits
 │  │
-│  ├─ Creator gets: round6(10 × 0.97) = 9.7 credits  → topUpCredits(author)
-│  ├─ Treasury gets: round6(10 - 9.7) = 0.3 credits   → topUpCredits(treasury)
+│  ├─ Creator gets: round6(10 × 0.85) = 8.5 credits  → topUpCredits(author)
+│  ├─ Treasury gets: round6(10 - 8.5) = 1.5 credits   → topUpCredits(treasury)
 │  ├─ Treasury gets: 3 credits (surcharge)              → topUpCredits(treasury)
-│  └─ Total treasury: 3.3 credits per call
+│  └─ Total treasury: 4.5 credits per call
 │
 ├─ Meanwhile, Operations wallet paid $0.003 to x402 provider
-│  └─ Treasury has 3.3 credits → sweep converts at $0.00075/cr = $0.002475
-│     └─ Net cost to platform: $0.003 - $0.002475 = $0.000525 (covered by margin)
+│  └─ Treasury has 4.5 credits → sweep converts at $0.00075/cr = $0.003375
+│     └─ Net cost to platform: $0.003 - $0.003375 = -$0.000375 (surplus to platform)
 │
 ├─ User invokes orchestration query (3 API steps, total cost = 5.4 credits)
 │  ├─ stepCredits = 5.4 credits (creditsForExecution)
@@ -1782,7 +1782,7 @@ User sends $20 USDC to buy credits
 │  └─ Platform profit = 7.4 credits × $0.001 = $0.0074 in reduced liability
 │
 ├─ Treasury auto-sweep (every 4h, payout-cron.ts)
-│  ├─ Check clawhub-treasury balance (3% fees + surcharges accumulated)
+│  ├─ Check clawhub-treasury balance (15% fees + surcharges accumulated)
 │  ├─ If balance >= TREASURY_SWEEP_MIN (default 10,000 credits)
 │  ├─ Convert: credits × PAYOUT_USDC_PER_CREDIT = USDC amount
 │  ├─ deductTreasuryForSweep(balance)
@@ -1790,11 +1790,11 @@ User sends $20 USDC to buy credits
 │  └─ USDC arrives in Operations wallet → refills x402 calling funds
 │
 ├─ Creator requests payout
-│  ├─ Creator has 9.7 credits earned → POST /v1/marketplace/payout-request
+│  ├─ Creator has 8.5 credits earned → POST /v1/marketplace/payout-request
 │  ├─ Credits deducted from creator's balance
 │  ├─ Payout cron picks up PENDING request
-│  ├─ Convert: 9.7 × $0.00075 = $0.007275 USDC
-│  ├─ sendSolanaUsdc(creatorWallet, $0.007275) from PAYOUT wallet
+│  ├─ Convert: 8.5 × $0.00075 = $0.006375 USDC
+│  ├─ sendSolanaUsdc(creatorWallet, $0.006375) from PAYOUT wallet
 │  └─ Creator receives USDC
 │
 └─ Hot wallet balance check (every 4h)
@@ -1926,9 +1926,9 @@ CACHE FAIRNESS (all 3 parties win):
 └─ Net: high cache-hit ratio = lower costs for users, proportional revenue for platform
 
 REVENUE SPLIT (per skill invocation):
-├─ 97% → creator (via round6, not Math.floor)
-├─ 3%  → clawhub-treasury
-├─ x402 surcharge → treasury (1:1 cost recovery, separate from 97/3)
+├─ 85% → creator (via round6, not Math.floor)
+├─ 15% → clawhub-treasury
+├─ x402 surcharge → treasury (1:1 cost recovery, separate from 85/15)
 └─ Treasury → auto-sweep every 4h → operations wallet (USDC)
 
 PRICING OPTIMIZER STRATEGIES:
@@ -2078,7 +2078,7 @@ PRICING DISPLAY (index.html):
 ├─ Subscription hero: $29/mo = 40,000 credits (best value, shown first)
 ├─ Credit carousel: 6 tiers ($5–$1,000) with horizontal scroll-snap
 ├─ USDC option: +7% bonus, Phantom wallet integration
-├─ Lowest advertised cost: $0.001/query (1 credit cache hit)
+├─ Lowest advertised cost: $0.0001/query (0.1cr minimum cache hit)
 ├─ Subscription rate: $0.000725/credit (27% cheaper than card)
 └─ Carousel: hide prev btn at start, next btn at end
 
@@ -2440,7 +2440,7 @@ Stripe fires charge.refunded
 │   ├─ totalGranted = credits + credits_used
 │   ├─ creditsPerDollar = totalGranted / amount_paid
 │   ├─ creditsToDeduct = round(refundedUSD × creditsPerDollar)
-│   │   └─ Accounts for bonus tiers (user who bought $100 → 112K credits
+│   │   └─ Accounts for bonus tiers (user who bought $100 → 125K credits
 │   │      gets proportional deduction, not flat 1000/dollar)
 │   ├─ deductAmount = min(creditsToDeduct, currentBalance)
 │   │   └─ Can't go negative — deducts only what's available
@@ -2637,11 +2637,11 @@ There are **3 ways** money enters the system:
 | Package | Price | Credits  | Bonus  | You keep* |
 |---------|-------|----------|--------|-----------|
 | Starter | $5    | 5,000    | 0%     | ~$4.56    |
-| Basic   | $20   | 21,000   | +5%    | ~$19.12   |
-| Plus    | $50   | 54,000   | +8%    | ~$48.06   |
-| Pro     | $100  | 112,000  | +12%   | ~$96.80   |
-| Growth  | $500  | 600,000  | +20%   | ~$485.50  |
-| Scale   | $1000 | 1,300,000| +30%   | ~$971.00  |
+| Basic   | $20   | 22,000   | +10%   | ~$19.12   |
+| Plus    | $50   | 60,000   | +20%   | ~$48.06   |
+| Pro     | $100  | 125,000  | +25%   | ~$96.80   |
+| Growth  | $500  | 750,000  | +50%   | ~$485.50  |
+| Scale   | $1000 | 2,000,000| +100%  | ~$971.00  |
 
 *After Stripe's ~2.9% + $0.30 processing fee. All credits land in your database immediately.
 
@@ -2652,7 +2652,7 @@ Same dollar amounts, **+7% more credits** than Stripe at every level. No credit 
 | Package | Price   | Credits   | vs Stripe |
 |---------|---------|-----------|-----------|
 | Starter | $5 USDC | 5,350     | +350 more |
-| Scale   | $1000   | 1,391,000 | +91K more |
+| Scale   | $1000   | 2,140,000 | +140K more |
 
 ### Subscriptions (Monthly)
 
@@ -2679,15 +2679,15 @@ You make money **5 different ways** from every credit users spend:
 │   │                         │          │ per LLM-routed query.  │
 │   │                         │          │ LLM call costs ~$0.0004│
 ├───┼─────────────────────────┼──────────┼───────────────────────┤
-│ 3 │ Marketplace Fee (3%)    │ 100%     │ Creators sell skills.  │
-│   │                         │          │ You take 3% of every   │
-│   │                         │          │ sale. Creator gets 97%.│
+│ 3 │ Marketplace Fee (15%)   │ 100%     │ Creators sell skills.  │
+│   │                         │          │ You take 15% of every  │
+│   │                         │          │ sale. Creator gets 85%.│
 ├───┼─────────────────────────┼──────────┼───────────────────────┤
 │ 4 │ Cache Hit Spread        │ 100%     │ First call pays full   │
 │   │                         │          │ price (live API call). │
-│   │                         │          │ Repeat calls = 1 cr    │
-│   │                         │          │ from cache. No API     │
-│   │                         │          │ cost. Pure profit.     │
+│   │                         │          │ Repeat calls = 10% of  │
+│   │                         │          │ live (min 0.1cr) from  │
+│   │                         │          │ cache. Pure profit.    │
 ├───┼─────────────────────────┼──────────┼───────────────────────┤
 │ 5 │ Swarm Decomposition Fee │ ~100%    │ 20 credits upfront     │
 │   │                         │          │ for multi-agent queries.│
@@ -2706,7 +2706,7 @@ MONEY IN:
   Net received                              = $9,681
 
 CREDITS ISSUED:
-  100 users × 112,000 credits               = 11,200,000 credits
+  100 users × 125,000 credits               = 12,500,000 credits
 
 CREDITS SPENT (hypothetical usage):
   8,000,000 credits used across all calls
@@ -2720,8 +2720,8 @@ YOUR COSTS (what you pay for upstream APIs):
 
 YOUR PROFIT:
   $9,681 (net Stripe) - $5,360 (API costs)  = ~$4,321 gross profit
-  + marketplace 3% fees
-  + cache hits (zero cost, users still pay 1 credit)
+  + marketplace 15% fees
+  + cache hits (zero cost, users still pay cacheCreditCost)
   + orchestration fees (2cr × number of queries)
 
   Realistic margin: 40–60% after all costs
@@ -2735,13 +2735,13 @@ When creators build skills and sell them on your marketplace:
 ┌────────────────────────────────────────────────────┐
 │                   MONEY OUT                         │
 ├─────────────────────────┬──────────────────────────┤
-│ Creator earns credits   │ 97% of each skill sale   │
+│ Creator earns credits   │ 85% of each skill sale   │
 │ Creator requests payout │ POST /v1/marketplace/     │
 │                         │   creator/withdraw        │
 │ Minimum payout          │ 1,000 credits ($0.75)    │
 │ Payout rate             │ $0.00075 per credit       │
 │ Payout method           │ Solana USDC (auto, 4h)   │
-│ x402 EVM auto-split     │ 97% USDC to Base wallet  │
+│ x402 EVM auto-split     │ 85% USDC to Base wallet  │
 │                         │ (instant, per-call)       │
 └─────────────────────────┴──────────────────────────┘
 ```
@@ -2760,14 +2760,14 @@ Wallet 2: PLATFORM_PAYOUT_PRIVATE_KEY
   └─ Funded by: you (keep 7-day float)
 
 Wallet 3: EVM_PRIVATE_KEY
-  └─ x402 auto-split — sends 97% to creator's Base wallet
+  └─ x402 auto-split — sends 85% to creator's Base wallet
   └─ Funded by: incoming x402 payments (self-sustaining)
 ```
 
 ### Where Every Credit Ends Up (The Full Picture)
 
 ```
-User buys 112,000 credits for $100 (Pro tier)
+User buys 125,000 credits for $100 (Pro tier)
 │
 ├─ User makes an orchestrated query (e.g., "analyze AAPL")
 │   ├─ 2 credits → Platform (orchestration fee)
@@ -2777,14 +2777,14 @@ User buys 112,000 credits for $100 (Pro tier)
 │   └─ Total: 7 credits spent, you keep ~3.7 credits worth
 │
 ├─ User invokes a marketplace skill (e.g., "token-analyzer", costs 10cr)
-│   ├─ 9.7 credits → Creator (97%)
-│   ├─ 0.3 credits → Treasury (3% platform fee)
-│   └─ Creator cashes out 9.7 cr = $0.007275 USDC
+│   ├─ 8.5 credits → Creator (85%)
+│   ├─ 1.5 credits → Treasury (15% platform fee)
+│   └─ Creator cashes out 8.5 cr = $0.006375 USDC
 │
 ├─ User hits a cached result
-│   ├─ 1 credit charged (cache hit price)
+│   ├─ cacheCreditCost charged (10% of live, min 0.1cr)
 │   ├─ 0 API cost (served from Redis)
-│   └─ 1 credit = $0.001 pure profit
+│   └─ cacheCreditCost = pure profit
 │
 └─ Credits remaining sit in user's balance (no expiry)
 ```
@@ -2799,9 +2799,9 @@ User buys 112,000 credits for $100 (Pro tier)
 | Creator payout rate | $0.00075/credit | `PAYOUT_USDC_PER_CREDIT` env |
 | API cost markup | 1500× raw cost | `COST_MARKUP_FACTOR` env |
 | Orchestration fee | 2 credits/query | `ORCHESTRATION_FEE` env |
-| Marketplace cut | 3% to platform | Hardcoded (97/3 split) |
+| Marketplace cut | 15% to platform | Hardcoded (85/15 split) |
 | Swarm fee | 20 credits upfront | `SWARM_BASE_FEE` env |
-| Cache hit price | 1 credit | Hardcoded everywhere |
+| Cache hit price | cacheCreditCost (10% of live, min 0.1cr) | cacheCreditCost() in credits.ts |
 | Min creator payout | 1,000 credits | Hardcoded in withdraw route |
 | Subscription default | 50,000 cr/month | `SUBSCRIPTION_CREDITS_PER_MONTH` |
 | Rollover cap | 3× monthly | Hardcoded in stripe.ts |
@@ -2810,8 +2810,8 @@ User buys 112,000 credits for $100 (Pro tier)
 
 1. **Users pay you** via Stripe, Solana, or x402 — you get credits in your DB
 2. **You profit** from the markup between what users pay per credit ($0.001) and what upstream APIs actually cost (~$0.00067)
-3. **Creators profit** by selling skills — they get 97%, you get 3%
-4. **Cache hits** are free money — users pay 1 credit, you pay $0 in API costs
+3. **Creators profit** by selling skills — they get 85%, you get 15%
+4. **Cache hits** are free money — users pay cacheCreditCost (10% of live, min 0.1cr), you pay $0 in API costs
 5. **Anti-arbitrage** — buy at $0.001, sell at $0.00075 — no exploit possible
 6. **Realistic margin** — 40-60% of gross revenue after API costs and Stripe fees
 
