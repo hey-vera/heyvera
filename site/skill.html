@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Skill — ClawNet</title>
+  <meta name="description" content="View skill details, sample output, and pricing on ClawNet.">
+  <meta property="og:type" content="website">
+  <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png">
+  <link rel="apple-touch-icon" href="/favicon.png">
+  <script>if(localStorage.getItem('clawnet_theme')==='light')document.documentElement.setAttribute('data-theme','light')</script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-primary: #0a0a0b; --bg-surface: #111113; --bg-surface-2: #18181b; --bg-surface-3: #1f1f23;
+      --border-subtle: #1e1e22; --border-default: #27272a; --border-strong: #3f3f46;
+      --text-primary: #fafafa; --text-secondary: #a1a1aa; --text-tertiary: #71717a; --text-muted: #52525b;
+      --accent: #10b981; --accent-dim: rgba(16,185,129,0.12); --accent-subtle: rgba(16,185,129,0.06);
+      --accent-hover: #34d399; --accent-text: #6ee7b7;
+      --danger: #ef4444; --danger-dim: rgba(239,68,68,0.12);
+      --warning: #f59e0b; --warning-dim: rgba(245,158,11,0.12);
+      --info: #3b82f6; --info-dim: rgba(59,130,246,0.12);
+      --purple: #8b5cf6; --purple-dim: rgba(139,92,246,0.12);
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', Consolas, monospace;
+      --radius-sm: 4px; --radius-md: 6px; --radius-lg: 8px; --radius-xl: 12px;
+      --nav-bg: rgba(10,10,11,0.8);
+    }
+    [data-theme="light"] {
+      --bg-primary: #f5f5f5; --bg-surface: #ffffff; --bg-surface-2: #f0f0f2; --bg-surface-3: #e8e8ec;
+      --border-subtle: #e4e4e7; --border-default: #d4d4d8; --border-strong: #a1a1aa;
+      --text-primary: #09090b; --text-secondary: #3f3f46; --text-tertiary: #71717a; --text-muted: #a1a1aa;
+      --accent-dim: rgba(16,185,129,0.10); --accent-subtle: rgba(16,185,129,0.05);
+      --danger-dim: rgba(239,68,68,0.10); --warning-dim: rgba(245,158,11,0.10);
+      --info-dim: rgba(59,130,246,0.10); --purple-dim: rgba(139,92,246,0.10);
+      --nav-bg: rgba(245,245,245,0.85);
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: var(--font-sans); background: var(--bg-primary); color: var(--text-secondary); font-size: 14px; line-height: 1.6; }
+    a { color: inherit; text-decoration: none; }
+    ::selection { background: var(--accent-dim); }
+
+    nav { position: sticky; top: 0; z-index: 100; background: var(--nav-bg); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border-subtle); padding: 0 24px; height: 56px; display: flex; align-items: center; justify-content: space-between; }
+    .nav-left, .nav-right { display: flex; align-items: center; gap: 12px; }
+    .nav-logo-text { font-size: 18px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.02em; white-space: nowrap; }
+    .nav-logo-text span { color: var(--accent); }
+    .nav-links { list-style: none; display: flex; align-items: center; gap: 2px; margin-left: 20px; }
+    .nav-links a { font-size: 13px; font-weight: 500; color: var(--text-tertiary); padding: 6px 12px; border-radius: var(--radius-md); transition: color 0.15s, background 0.15s; }
+    .nav-links a:hover { color: var(--text-primary); background: var(--bg-surface-2); }
+    .theme-toggle { background: var(--bg-surface-2); border: 1px solid var(--border-default); border-radius: 6px; width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--text-tertiary); transition: all 0.15s; padding: 0; flex-shrink: 0; }
+    .theme-toggle:hover { color: var(--text-primary); border-color: var(--border-strong); }
+    .theme-toggle .icon-sun { display: none; }
+    [data-theme="light"] .theme-toggle .icon-sun { display: block; }
+    [data-theme="light"] .theme-toggle .icon-moon { display: none; }
+    .nav-status { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-tertiary); padding: 4px 10px; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 9999px; }
+    .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); }
+    .status-dot.ok { background: var(--accent); box-shadow: 0 0 4px rgba(16,185,129,0.4); }
+    .nav-credits { display: none; align-items: center; gap: 4px; font-family: var(--font-mono); font-size: 12px; color: var(--accent); padding: 4px 10px; background: var(--accent-dim); border: 1px solid rgba(16,185,129,0.15); border-radius: 9999px; }
+    .nav-credits.show { display: flex; }
+    .nav-email { font-size: 12px; color: var(--text-tertiary); display: none; }
+    .nav-email.show { display: inline-block; }
+    .nav-login { color: var(--text-secondary); border: 1px solid var(--border-default); background: transparent; padding: 6px 14px; font-size: 13px; border-radius: var(--radius-md); }
+    .nav-login:hover { border-color: var(--border-strong); color: var(--text-primary); }
+    .nav-cta { background: var(--accent); color: #000; font-weight: 600; padding: 6px 14px; font-size: 13px; border-radius: var(--radius-md); }
+    .nav-btn-ghost { background: transparent; color: var(--text-secondary); border: 1px solid var(--border-default); display: none; padding: 6px 14px; font-size: 13px; border-radius: var(--radius-md); cursor: pointer; font-family: var(--font-sans); }
+    .nav-btn-ghost.show { display: inline-block; }
+    .nav-btn-ghost.danger:hover { color: var(--danger); border-color: var(--danger); }
+    .hamburger { display: none; background: none; border: 1px solid var(--border-default); border-radius: var(--radius-md); padding: 6px; cursor: pointer; color: var(--text-secondary); }
+    .hamburger svg { width: 20px; height: 20px; display: block; }
+    .mobile-menu { display: none; position: fixed; top: 56px; left: 0; right: 0; background: var(--bg-surface); border-bottom: 1px solid var(--border-default); z-index: 99; padding: 12px 24px; }
+    .mobile-menu.open { display: block; }
+    .mobile-menu a { display: block; padding: 10px 0; font-size: 14px; color: var(--text-secondary); border-bottom: 1px solid var(--border-subtle); }
+    .mobile-menu a:last-child { border-bottom: none; }
+    .mobile-menu a:hover { color: var(--accent); }
+    @media (max-width: 900px) { .nav-links { display: none; } .hamburger { display: block; } }
+
+    .container { max-width: 900px; margin: 0 auto; padding: 0 24px; }
+
+    /* SKILL HEADER */
+    .sk-header { padding: 40px 0 24px; border-bottom: 1px solid var(--border-subtle); margin-bottom: 32px; }
+    .sk-header .breadcrumb { font-size: 12px; color: var(--text-muted); margin-bottom: 16px; }
+    .sk-header .breadcrumb a { color: var(--accent); }
+    .sk-header .breadcrumb a:hover { text-decoration: underline; }
+    .sk-header h1 { font-size: 28px; font-weight: 700; color: var(--text-primary); margin-bottom: 8px; }
+    .sk-header .subtitle { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; color: var(--text-tertiary); margin-bottom: 16px; }
+    .sk-header .actions { display: flex; gap: 10px; flex-wrap: wrap; }
+    .badge { font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 9999px; display: inline-flex; align-items: center; gap: 4px; }
+    .badge-success { background: var(--accent-dim); color: var(--accent); }
+    .badge-info { background: var(--info-dim); color: var(--info); }
+    .badge-warning { background: var(--warning-dim); color: var(--warning); }
+    .skill-type-badge { font-size: 10px; font-weight: 600; padding: 2px 6px; border-radius: 3px; text-transform: uppercase; letter-spacing: 0.03em; }
+    .skill-type-badge.prompt { background: var(--purple-dim); color: var(--purple); }
+    .skill-type-badge.api_proxy { background: var(--info-dim); color: var(--info); }
+    .skill-type-badge.data { background: var(--accent-dim); color: var(--accent); }
+    .btn { font-family: var(--font-sans); font-size: 13px; font-weight: 500; padding: 8px 16px; border-radius: var(--radius-md); cursor: pointer; transition: all 0.15s; border: 1px solid transparent; display: inline-flex; align-items: center; gap: 6px; text-decoration: none; }
+    .btn-primary { background: var(--accent); color: #000; border-color: var(--accent); }
+    .btn-primary:hover { background: var(--accent-hover); }
+    .btn-ghost { background: transparent; color: var(--text-secondary); border: 1px solid var(--border-default); }
+    .btn-ghost:hover { border-color: var(--border-strong); color: var(--text-primary); background: var(--bg-surface-2); }
+
+    /* STAT CARDS */
+    .stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 32px; }
+    .stat-card { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 16px; text-align: center; }
+    .stat-card .val { font-size: 22px; font-weight: 700; color: var(--text-primary); }
+    .stat-card .val.g { color: var(--accent); }
+    .stat-card .lbl { font-size: 11px; color: var(--text-muted); margin-top: 2px; text-transform: uppercase; letter-spacing: 0.05em; }
+
+    /* SECTIONS */
+    .section { margin-bottom: 32px; }
+    .section h2 { font-size: 14px; font-weight: 600; color: var(--text-primary); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border-subtle); }
+    .section .desc { font-size: 14px; color: var(--text-secondary); line-height: 1.7; }
+    .code-block { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 16px; font-family: var(--font-mono); font-size: 12px; line-height: 1.5; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word; color: var(--text-secondary); position: relative; }
+    .copy-btn { position: absolute; top: 8px; right: 8px; background: var(--bg-surface-2); border: 1px solid var(--border-default); color: var(--text-muted); font-size: 11px; padding: 4px 10px; border-radius: var(--radius-sm); cursor: pointer; font-family: var(--font-sans); }
+    .copy-btn:hover { color: var(--text-primary); border-color: var(--border-strong); }
+    .tag-list { display: flex; gap: 6px; flex-wrap: wrap; }
+    .tag { font-size: 11px; padding: 3px 10px; border-radius: 9999px; background: var(--bg-surface-2); border: 1px solid var(--border-subtle); color: var(--text-tertiary); }
+
+    /* COST TABLE */
+    .cost-table { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); overflow: hidden; }
+    .cost-row { display: flex; justify-content: space-between; padding: 10px 16px; border-bottom: 1px solid var(--border-subtle); font-size: 13px; }
+    .cost-row:last-child { border-bottom: none; }
+
+    /* INTEGRATION */
+    .int-tabs { display: flex; gap: 0; margin-bottom: 0; }
+    .int-tab { background: var(--bg-surface-2); border: 1px solid var(--border-subtle); border-bottom: none; color: var(--text-muted); font-family: var(--font-sans); font-size: 12px; font-weight: 500; padding: 8px 16px; cursor: pointer; border-radius: var(--radius-md) var(--radius-md) 0 0; }
+    .int-tab.active { background: var(--bg-surface); color: var(--text-primary); border-bottom-color: var(--bg-surface); }
+    .int-panel { display: none; }
+    .int-panel.active { display: block; }
+
+    /* SIMILAR */
+    .similar-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+    .similar-card { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 16px; cursor: pointer; transition: border-color 0.15s; }
+    .similar-card:hover { border-color: var(--accent-dim); }
+    .similar-card .sc-name { font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px; }
+    .similar-card .sc-desc { font-size: 12px; color: var(--text-muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .similar-card .sc-meta { font-size: 11px; color: var(--text-muted); margin-top: 8px; }
+
+    /* LOADING */
+    .loading { padding: 80px 0; text-align: center; color: var(--text-muted); }
+    .spinner { display: inline-block; width: 24px; height: 24px; border: 2px solid var(--border-default); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.6s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    footer { border-top: 1px solid var(--border-subtle); padding: 32px 24px; display: flex; justify-content: space-between; align-items: center; max-width: 900px; margin: 40px auto 0; flex-wrap: wrap; gap: 16px; }
+    .footer-links { list-style: none; display: flex; gap: 16px; flex-wrap: wrap; }
+    .footer-links a { font-size: 12px; color: var(--text-muted); }
+    .footer-links a:hover { color: var(--text-secondary); }
+    .footer-copy { font-size: 12px; color: var(--text-muted); }
+  </style>
+</head>
+<body>
+<nav>
+  <div class="nav-left">
+    <a href="/" class="nav-logo"><span class="nav-logo-text">Claw <span>Network</span></span></a>
+    <ul class="nav-links">
+      <li><a href="/">Home</a></li>
+      <li><a href="/docs.html">Docs</a></li>
+      <li><a href="/marketplace.html">Marketplace</a></li>
+      <li><a href="/endpoints.html">Endpoints</a></li>
+      <li><a href="/playground.html">Playground</a></li>
+    </ul>
+    <button class="hamburger" onclick="document.getElementById('mobileMenu').classList.toggle('open')" aria-label="Menu">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+    </button>
+  </div>
+  <div class="nav-right">
+    <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">
+      <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+    </button>
+    <div class="nav-status"><span class="status-dot" id="statusDot"></span><span id="statusLabel">Checking...</span></div>
+    <div class="nav-credits" id="nav-credits-badge"><svg width="14" height="14" viewBox="0 0 24 24" style="vertical-align:-2px;flex-shrink:0;margin-right:2px"><circle cx="12" cy="12" r="11" fill="#92400e"/><circle cx="12" cy="12" r="9.5" fill="#f59e0b"/><circle cx="12" cy="12" r="7.5" fill="#fbbf24"/><path d="M8.5 7.5 Q12 5.5 15.5 8" stroke="rgba(255,255,255,0.45)" stroke-width="1.5" fill="none" stroke-linecap="round"/><text x="12" y="16.5" text-anchor="middle" font-size="10" font-weight="800" fill="#78350f" font-family="Arial,sans-serif">C</text></svg> <span id="nav-credits-num">&mdash;</span> credits</div>
+    <span class="nav-email" id="nav-user-email"></span>
+    <a href="/login.html" class="nav-login" id="nav-login-btn">Sign In</a>
+    <a href="/dashboard.html" class="nav-cta" id="nav-getkey-btn">Get API Key</a>
+    <a href="/dashboard.html" class="nav-btn-ghost" id="nav-dash-btn">Dashboard</a>
+    <button class="nav-btn-ghost danger" id="nav-signout-btn" onclick="navSignOut()" style="cursor:pointer">Sign Out</button>
+  </div>
+</nav>
+<div class="mobile-menu" id="mobileMenu">
+  <a href="/">Home</a><a href="/docs.html">Docs</a><a href="/marketplace.html">Marketplace</a><a href="/endpoints.html">Endpoints</a><a href="/playground.html">Playground</a><a href="/dashboard.html">Dashboard</a>
+</div>
+
+<div class="container" id="main">
+  <div class="loading"><div class="spinner"></div><p style="margin-top:12px">Loading skill...</p></div>
+</div>
+
+<footer>
+  <div>
+    <a href="/" class="footer-logo"><span class="nav-logo-text">Claw <span>Network</span></span></a>
+    <ul class="footer-links">
+      <li><a href="/">Home</a></li><li><a href="/docs.html">Docs</a></li><li><a href="/marketplace.html">Marketplace</a></li><li><a href="/endpoints.html">Endpoints</a></li>
+      <li><a href="https://github.com/1xmint" target="_blank">GitHub</a></li><li><a href="https://t.me/claw_net" target="_blank">Telegram</a></li>
+    </ul>
+  </div>
+  <div class="footer-copy">&copy; 2026 ClawNet &middot; Powered by x402</div>
+</footer>
+
+<script>
+const API = 'https://api.claw-net.org';
+let apiKey = localStorage.getItem('claw_api_key') || '';
+
+function toggleTheme() { const l = document.documentElement.getAttribute('data-theme')==='light'; document.documentElement.setAttribute('data-theme', l?'':'light'); localStorage.setItem('clawnet_theme', l?'dark':'light'); }
+function navSignOut() { localStorage.removeItem('claw_api_key'); location.reload(); }
+function esc(s) { if (!s) return ''; const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function fmt(n) { return (n||0).toLocaleString(); }
+function creditsToUsd(n) { const u = n*0.001; return u<0.01?'$'+u.toFixed(4).replace(/0+$/,''):'$'+u.toFixed(u>=1?2:3).replace(/\.?0+$/,''); }
+function copyText(text) { navigator.clipboard.writeText(text); }
+
+async function initAuth() {
+  if (!apiKey) return;
+  try {
+    const r = await fetch(`${API}/v1/auth/me`, { headers: { 'X-API-Key': apiKey } });
+    if (!r.ok) return;
+    const d = await r.json();
+    document.getElementById('nav-credits-badge').classList.add('show');
+    document.getElementById('nav-credits-num').textContent = d.credits?.toLocaleString() ?? '0';
+    if (d.email) { document.getElementById('nav-user-email').textContent = d.email; document.getElementById('nav-user-email').classList.add('show'); }
+    document.getElementById('nav-login-btn').style.display = 'none';
+    document.getElementById('nav-getkey-btn').style.display = 'none';
+    document.getElementById('nav-dash-btn').classList.add('show');
+    document.getElementById('nav-signout-btn').classList.add('show');
+  } catch {}
+}
+
+async function checkStatus() {
+  try { const r = await fetch(`${API}/health`); document.getElementById('statusDot').classList.toggle('ok', r.ok); document.getElementById('statusLabel').textContent = r.ok?'Operational':'Degraded'; } catch { document.getElementById('statusLabel').textContent = 'Offline'; }
+}
+
+async function loadSkill() {
+  const params = new URLSearchParams(location.search);
+  const id = params.get('id');
+  if (!id) { document.getElementById('main').innerHTML = '<div class="loading"><p>No skill ID provided. <a href="/marketplace.html" style="color:var(--accent)">Browse marketplace</a></p></div>'; return; }
+
+  try {
+    const r = await fetch(`${API}/v1/marketplace/skills/${encodeURIComponent(id)}`);
+    if (!r.ok) throw new Error('Not found');
+    const s = await r.json();
+
+    document.title = `${s.displayName || s.name} — ClawNet`;
+    // Update OG tags
+    const ogTitle = document.querySelector('meta[property="og:title"]');
+    if (ogTitle) ogTitle.content = `${s.displayName || s.name} — ClawNet Skill`;
+
+    const displayName = s.displayName || s.name;
+    const typeCls = s.skillType === 'data' ? 'data' : s.skillType === 'api_proxy' ? 'api_proxy' : 'prompt';
+    const typeLbl = s.skillType === 'data' ? 'DATA SKILL' : s.skillType === 'api_proxy' ? 'API PROXY' : 'PROMPT';
+    const tags = (s.tags || []);
+    const sample = s.sampleOutput;
+    const sampleJson = sample ? (typeof sample === 'string' ? sample : JSON.stringify(sample, null, 2)) : null;
+
+    // Integration code snippets
+    const curlSnippet = s.skillType === 'data'
+      ? `curl "${API}/v1/skills/${id}/query" \\\n  -H "X-API-Key: YOUR_KEY"`
+      : `curl -X POST "${API}/v1/skills/${id}/invoke" \\\n  -H "X-API-Key: YOUR_KEY" \\\n  -H "Content-Type: application/json" \\\n  -d '{"variables": {}}'`;
+
+    const jsSnippet = s.skillType === 'data'
+      ? `const res = await fetch("${API}/v1/skills/${id}/query", {\n  headers: { "X-API-Key": "YOUR_KEY" }\n});\nconst data = await res.json();`
+      : `const res = await fetch("${API}/v1/skills/${id}/invoke", {\n  method: "POST",\n  headers: { "X-API-Key": "YOUR_KEY", "Content-Type": "application/json" },\n  body: JSON.stringify({ variables: {} })\n});\nconst data = await res.json();`;
+
+    const pySnippet = s.skillType === 'data'
+      ? `import requests\n\nres = requests.get("${API}/v1/skills/${id}/query",\n    headers={"X-API-Key": "YOUR_KEY"})\ndata = res.json()`
+      : `import requests\n\nres = requests.post("${API}/v1/skills/${id}/invoke",\n    headers={"X-API-Key": "YOUR_KEY"},\n    json={"variables": {}})\ndata = res.json()`;
+
+    document.getElementById('main').innerHTML = `
+      <div class="sk-header">
+        <div class="breadcrumb"><a href="/marketplace.html">Marketplace</a> / <span>${esc(displayName)}</span></div>
+        <h1>${esc(displayName)}</h1>
+        <div class="subtitle">
+          <span class="skill-type-badge ${typeCls}">${typeLbl}</span>
+          <span>v${esc(s.version || '1.0.0')}</span>
+          ${s.updateFrequency ? `<span class="badge badge-info">&#8635; ${esc(s.updateFrequency)}</span>` : ''}
+          ${s.healthStatus && s.healthStatus !== 'HEALTHY' ? `<span class="badge badge-warning">${esc(s.healthStatus)}</span>` : ''}
+          <span>${esc(s.license || 'MIT')}</span>
+        </div>
+        <div class="actions">
+          <a class="btn btn-primary" href="/playground.html?skill=${encodeURIComponent(id)}">Try in Playground</a>
+          <a class="btn btn-ghost" href="/marketplace.html#skill/${encodeURIComponent(id)}">View on Marketplace</a>
+          <button class="btn btn-ghost" onclick="navigator.clipboard.writeText(location.href);this.textContent='Copied!'">Share Link</button>
+        </div>
+      </div>
+
+      <div class="stat-row">
+        <div class="stat-card"><div class="val g">${s.creditCost}</div><div class="lbl">Credits / Call</div></div>
+        <div class="stat-card"><div class="val">${fmt(s.uses)}</div><div class="lbl">Total Uses</div></div>
+        <div class="stat-card"><div class="val">${fmt(s.stars)}</div><div class="lbl">Stars</div></div>
+        <div class="stat-card"><div class="val">${fmt(s.views)}</div><div class="lbl">Views</div></div>
+        <div class="stat-card"><div class="val">${creditsToUsd(s.creditCost)}</div><div class="lbl">USD / Call</div></div>
+      </div>
+
+      <div class="section">
+        <h2>Description</h2>
+        <p class="desc">${esc(s.description)}</p>
+      </div>
+
+      ${tags.length ? `<div class="section"><h2>Tags</h2><div class="tag-list">${tags.map(t => `<span class="tag">${esc(t)}</span>`).join('')}</div></div>` : ''}
+
+      ${sampleJson ? `<div class="section">
+        <h2>Sample Output</h2>
+        <div class="code-block"><button class="copy-btn" onclick="copyText(document.getElementById('samplePre').textContent)">Copy</button><pre id="samplePre">${esc(sampleJson)}</pre></div>
+        <p style="font-size:11px;color:var(--text-muted);margin-top:8px">This is an example of what this skill returns. Actual output may vary.</p>
+      </div>` : ''}
+
+      <div class="section">
+        <h2>Pricing</h2>
+        <div class="cost-table">
+          <div class="cost-row"><span>You pay per call</span><span style="color:var(--accent);font-weight:600">${s.creditCost} credits (${creditsToUsd(s.creditCost)})</span></div>
+          <div class="cost-row"><span>Creator receives (97%)</span><span>${s.sellerReceives || Math.round(s.creditCost * 0.97)} credits</span></div>
+          <div class="cost-row"><span>Platform fee (3%)</span><span>${s.feeCredits || Math.round(s.creditCost * 0.03)} credits</span></div>
+          ${s.skillType === 'data' ? `<div class="cost-row" style="border-top:1px solid var(--border-subtle);padding-top:10px"><span style="color:var(--accent)">Cached response</span><span style="color:var(--accent);font-weight:600">1 credit ($0.001)</span></div>` : ''}
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>Integration</h2>
+        <div class="int-tabs">
+          <button class="int-tab active" onclick="showIntTab('curl',this)">cURL</button>
+          <button class="int-tab" onclick="showIntTab('js',this)">JavaScript</button>
+          <button class="int-tab" onclick="showIntTab('py',this)">Python</button>
+        </div>
+        <div class="int-panel active" id="int-curl"><div class="code-block" style="border-top-left-radius:0"><button class="copy-btn" onclick="copyText(this.nextElementSibling.textContent)">Copy</button><pre>${esc(curlSnippet)}</pre></div></div>
+        <div class="int-panel" id="int-js"><div class="code-block" style="border-top-left-radius:0"><button class="copy-btn" onclick="copyText(this.nextElementSibling.textContent)">Copy</button><pre>${esc(jsSnippet)}</pre></div></div>
+        <div class="int-panel" id="int-py"><div class="code-block" style="border-top-left-radius:0"><button class="copy-btn" onclick="copyText(this.nextElementSibling.textContent)">Copy</button><pre>${esc(pySnippet)}</pre></div></div>
+      </div>
+
+      <div class="section" id="similarSection" style="display:none">
+        <h2>Similar Skills</h2>
+        <div class="similar-grid" id="similarGrid"></div>
+      </div>
+    `;
+
+    // Load similar skills
+    loadSimilar(id);
+
+  } catch (e) {
+    document.getElementById('main').innerHTML = `<div class="loading"><p style="color:var(--danger)">Skill not found. <a href="/marketplace.html" style="color:var(--accent)">Browse marketplace</a></p></div>`;
+  }
+}
+
+function showIntTab(tab, btn) {
+  document.querySelectorAll('.int-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.int-panel').forEach(p => p.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('int-' + tab).classList.add('active');
+}
+
+async function loadSimilar(id) {
+  try {
+    const r = await fetch(`${API}/v1/skills/${encodeURIComponent(id)}/similar?limit=4`);
+    if (!r.ok) return;
+    const d = await r.json();
+    const results = d.results || d.similar || [];
+    if (results.length === 0) return;
+    document.getElementById('similarSection').style.display = '';
+    document.getElementById('similarGrid').innerHTML = results.map(s => `
+      <a class="similar-card" href="/skill.html?id=${encodeURIComponent(s.id || s.name)}">
+        <div class="sc-name">${esc(s.name || s.displayName)}</div>
+        <div class="sc-desc">${esc(s.description)}</div>
+        <div class="sc-meta">${s.score ? `Score: ${(s.score * 100).toFixed(0)}%` : ''}</div>
+      </a>
+    `).join('');
+  } catch {}
+}
+
+checkStatus();
+initAuth();
+loadSkill();
+</script>
+</body>
+</html>

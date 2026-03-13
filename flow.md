@@ -39,6 +39,14 @@ Every flow in the system, from boot to shutdown. Tree diagrams show exact paths 
 31. [Endpoint Auto-Discovery](#31-endpoint-auto-discovery)
 32. [Pricing Economics](#32-pricing-economics)
 33. [Agent Economy Layer](#33-agent-economy-layer)
+34. [Site Architecture & UX](#34-site-architecture--ux)
+35. [Skill Health Monitoring](#35-skill-health-monitoring)
+36. [Per-Skill Rate Limiting](#36-per-skill-rate-limiting)
+37. [MCP & OpenAPI Manifests](#37-mcp--openapi-manifests)
+38. [Skill Discovery Extras](#38-skill-discovery-extras)
+39. [Webhook HMAC Signing](#39-webhook-hmac-signing)
+40. [Credit Gifting](#40-credit-gifting)
+41. [x402 Verification & Reputation](#41-x402-verification--reputation)
 
 ---
 
@@ -2092,4 +2100,281 @@ INTERACTIVE ELEMENTS:
 
 ---
 
-*Generated from codebase analysis. Last updated: 2026-03-12. Decimal credits (v3), treasury auto-sweep, surcharge-to-treasury fix, 3-wallet architecture, endpoint auto-discovery (183 ClawAPIs endpoints), proportional cache pricing (10% of live, min 0.1cr), agent economy layer (transfers, delegated keys, auto-payout, receipts, reputation), site UX overhaul (consistent nav, theme toggle, subscription hero, interactive displays).*
+## 35. Skill Health Monitoring
+
+```
+PURPOSE:
+  Automatically detect when data skill backing APIs go down.
+  Prevents agents from wasting credits on broken data sources.
+
+CRON: src/core/skill-health-cron.ts
+├─ Schedule: every 15 minutes (node-cron)
+├─ Scope: skills WHERE skill_type = 'data' AND proxy_url IS NOT NULL AND active = 1 AND public = 1
+├─ Batch size: up to 100 skills per run
+└─ Registered in src/index.ts alongside other crons
+
+HEALTH CHECK FLOW:
+  Cron fires every 15m
+  │
+  ├─ Query: SELECT data skills with proxy_url
+  ├─ For each skill:
+  │   ├─ HEAD request to proxy_url (10s timeout)
+  │   ├─ Result: 2xx or 405 → UP, anything else or timeout → DOWN
+  │   │
+  │   ├─ If UP:
+  │   │   ├─ Reset health_fail_count to 0
+  │   │   ├─ Set health_status = 'HEALTHY'
+  │   │   └─ Update health_checked_at = now()
+  │   │
+  │   └─ If DOWN:
+  │       ├─ Increment health_fail_count
+  │       ├─ If fail_count >= 3 → health_status = 'DEGRADED'
+  │       ├─ Log warning when status transitions to DEGRADED
+  │       └─ Update health_checked_at = now()
+  │
+  └─ Log summary: { checked, degraded, recovered }
+
+RECOVERY:
+├─ When a DEGRADED skill's proxy_url responds again → auto-reset to HEALTHY
+├─ No manual intervention needed
+└─ Skill remains visible in marketplace (health_status shown, not delisted)
+
+DB COLUMNS (migration v61):
+├─ health_status TEXT NOT NULL DEFAULT 'HEALTHY'
+├─ health_fail_count INTEGER NOT NULL DEFAULT 0
+└─ health_checked_at TEXT
+```
+
+---
+
+## 36. Per-Skill Rate Limiting
+
+```
+PURPOSE:
+  Creators can set max_calls_per_hour on their skills to prevent abuse
+  or manage upstream API quotas.
+
+SCHEMA (migration v60):
+└─ ALTER TABLE skills ADD COLUMN max_calls_per_hour INTEGER
+
+CREATOR SETS LIMIT:
+├─ POST /v1/skills { ..., maxCallsPerHour: 100 }
+└─ Stored in skills.max_calls_per_hour column
+
+ENFORCEMENT (src/routes/skills.ts):
+  Request arrives at skill invoke/query
+  │
+  ├─ Check: skill.max_calls_per_hour is set?
+  │   └─ No → skip rate limiting
+  │
+  ├─ Yes: cacheIncr(`skill-rate:${skillId}`, 3600)
+  │   ├─ Redis INCR with 1-hour TTL (auto-resets each hour)
+  │   ├─ If count > max_calls_per_hour → 429 Too Many Requests
+  │   │   └─ { error, code: 'SKILL_RATE_LIMITED', retryAfterSeconds }
+  │   └─ If count <= limit → proceed with invocation
+  │
+  └─ Applied to BOTH:
+      ├─ POST /v1/skills/:id/invoke (prompt_template + api_proxy)
+      └─ GET  /v1/skills/:id/query  (data skills)
+
+NOTE: This is per-skill global rate limit, separate from per-key rate limiting.
+Creator protects their upstream API; platform protects against key abuse.
+```
+
+---
+
+## 37. MCP & OpenAPI Manifests
+
+```
+PURPOSE:
+  Every skill auto-generates machine-readable tool definitions.
+  Agents can discover skills and invoke them without human documentation.
+
+MCP MANIFEST (GET /v1/skills/:id/mcp):
+├─ Returns Model Context Protocol tool definition
+├─ Schema version: 2024-11-05
+├─ Fields:
+│   ├─ name: skill name (kebab-case)
+│   ├─ description: skill description
+│   ├─ input_schema: JSON Schema from params_json or default query param
+│   ├─ invocation: { method, url, headers, priceCredits }
+│   └─ metadata: { provider, category, tags, updateFrequency, healthStatus }
+├─ Compatible with: Claude Code, Claude Desktop, Cursor, any MCP client
+└─ No auth required to read manifest (public skill discovery)
+
+OPENAPI SPEC (GET /v1/skills/:id/openapi):
+├─ Returns OpenAPI 3.1.0 specification per skill
+├─ Auto-generates paths based on skill_type:
+│   ├─ data: GET /v1/skills/{id}/query with query parameters
+│   ├─ prompt_template: POST /v1/skills/{id}/invoke with JSON body
+│   └─ api_proxy: POST /v1/skills/{id}/invoke with JSON body
+├─ Includes: security schemes (X-API-Key), pricing info, response schema
+├─ Compatible with: OpenAI function calling, LangChain, Vercel AI SDK
+└─ No auth required to read spec
+
+MCP PACKAGE (packages/mcp/):
+├─ @clawnet/mcp — standalone MCP server binary
+├─ Lists all public skills as callable tools
+├─ esbuild → dist/index.js (730KB)
+├─ Bin: clawnet-mcp
+├─ Status: built, ready to publish (npm publish --access public)
+└─ Config: claude_code_config.json for Claude Code/Desktop/Cursor setup
+```
+
+---
+
+## 38. Skill Discovery Extras
+
+```
+TAG FILTERING (GET /v1/skills?tag=defi):
+├─ Query parameter: ?tag=<tag>
+├─ SQL: tags_json LIKE '%"<tag>"%' (quoted to prevent partial matches)
+├─ Combinable with: ?type=data&tag=defi (type + tag filter)
+├─ Applied to both listPublicSkills() and countPublicSkills()
+└─ Tags stored as JSON array in tags_json column
+
+SIMILAR SKILLS (GET /v1/skills/:id/similar):
+├─ Uses embedding vector of the source skill
+├─ Queries searchDiscovery() with skill's own embedding as query
+├─ Excludes the source skill from results
+├─ Returns top N similar skills by cosine similarity
+├─ Requires embedding model to be loaded (graceful fallback if not)
+└─ Use case: agent-driven discovery — "skills like this one"
+
+STAKING DISCOVERY BOOST (in discovery-engine.ts):
+├─ Skills with active stakes get a discovery ranking bonus
+├─ Formula: boost = sqrt(staked / 100) * 0.05
+│   ├─ 100 staked credits → 5% score boost
+│   ├─ 400 staked credits → 10% score boost
+│   ├─ 1600 staked credits → 20% score boost
+│   └─ Capped at 50% maximum boost
+├─ Batch SQL: single query fetches all stake amounts for result skills
+├─ Wrapped in try/catch — fails gracefully if stakes table issues
+└─ Applied after merge/filter, before final sort
+
+BATCH QUERY (POST /v1/skills/batch-query):
+├─ Parallel multi-skill data queries in one HTTP call
+├─ Max 10 skills per batch
+├─ Body: [{ skillId: string, params?: Record<string, string> }]
+├─ Each skill queried independently, results collected
+├─ Credits deducted per skill (cache or live pricing)
+├─ Response: { results: [{ skillId, data, cached, credits }], totalCredits }
+└─ Data skills only (skill_type = 'data')
+```
+
+---
+
+## 39. Webhook HMAC Signing
+
+```
+PURPOSE:
+  Creators can verify that webhook payloads truly came from ClawNet.
+  Prevents spoofing of task completion and skill invocation webhooks.
+
+SECRET MANAGEMENT:
+├─ PUT  /v1/economy/webhook-secret → generate or set HMAC secret
+│   ├─ Auto-generate: omit body → crypto.randomBytes(32).toString('hex')
+│   ├─ User-provided: { secret: "..." } (min 16 chars)
+│   └─ Stored in api_keys.webhook_secret (migration v62)
+├─ DELETE /v1/economy/webhook-secret → remove secret (disable signing)
+└─ Audit logged: WEBHOOK_SECRET_SET / WEBHOOK_SECRET_REMOVED
+
+SIGNING FLOW (src/routes/tasks.ts):
+  Task completes → fireWebhook(url, payload, webhookSecret?)
+  │
+  ├─ If no secret → plain POST (backward compatible)
+  │
+  └─ If secret exists:
+      ├─ Serialize payload to JSON string
+      ├─ HMAC-SHA256: crypto.createHmac('sha256', secret).update(body).digest('hex')
+      ├─ Add headers:
+      │   ├─ X-ClawNet-Signature: sha256=<hex>
+      │   └─ X-ClawNet-Timestamp: <unix epoch seconds>
+      └─ Creator verifies: recompute HMAC, compare, check timestamp freshness
+
+VERIFICATION (creator side):
+  const expected = crypto.createHmac('sha256', secret)
+    .update(rawBody).digest('hex');
+  const valid = crypto.timingSafeEqual(
+    Buffer.from(signature.replace('sha256=', '')),
+    Buffer.from(expected)
+  );
+```
+
+---
+
+## 40. Credit Gifting
+
+```
+PURPOSE:
+  One agent gifts credits to another — zero-fee peer recognition.
+  Uses the transfer system under the hood with gift memo.
+
+ENDPOINT: POST /v1/economy/gift
+
+REQUEST:
+├─ { toKey: "cn-xxxx", amount: 500, memo?: "thanks for the data" }
+├─ Amount: min 1, max 50,000 credits
+├─ Memo: optional, stored in transfer record
+└─ Auth: X-API-Key header (sender)
+
+FLOW:
+  Sender calls POST /v1/economy/gift
+  │
+  ├─ Validate: env keys cannot gift, amount bounds, toKey exists
+  ├─ transferCredits(fromKey, toKey, amount, { memo: "gift: <memo>" })
+  │   ├─ Deducts from sender (no fee — gifts are free)
+  │   ├─ Credits to recipient
+  │   └─ Records in credit_transfers table
+  ├─ Audit: logAudit(entityType: 'gift', action: 'CREDIT_GIFT')
+  └─ Response: { ok: true, giftId, amount, toKey: masked }
+
+LIMITS:
+├─ Max 50,000 credits per gift (prevent accidental large transfers)
+├─ No fee (unlike regular transfers which charge 1%)
+├─ Rate limited by standard per-key rate limiter
+└─ Env keys (test-key-123, clawhub-treasury) blocked from gifting
+```
+
+---
+
+## 41. x402 Verification & Reputation
+
+```
+RECEIPT VERIFICATION (GET /x402/verify/:requestId):
+├─ Lookup x402_receipts by request_id
+├─ Returns: skillId, skillName, priceUsdc, network, payerAddress,
+│           durationMs, success, error, createdAt
+├─ Use case: agent proves it paid for a skill call
+├─ No auth required (receipts are publicly verifiable)
+└─ 404 if request_id not found
+
+DB TABLE: x402_receipts (migration v36)
+├─ request_id TEXT PRIMARY KEY
+├─ skill_id, skill_name, price_usdc, network
+├─ payer_address, created_at, duration_ms
+├─ success INTEGER, error TEXT
+└─ Inserted after every x402 skill invocation
+
+REPUTATION VIA x402 (GET /x402/reputation/:agentKey):
+├─ Public endpoint — no auth required
+├─ Queries reputation_events for the agent's API key
+├─ Returns:
+│   ├─ score: SUM of score_delta from reputation_events
+│   ├─ trustLevel: trusted (200+) / established (50-199) / emerging (10-49) / new (0-9)
+│   ├─ totalEvents: count of all events
+│   └─ recentEvents: count in last 30 days
+├─ API key masked in response (maskApiKey)
+└─ Mirrors GET /v1/economy/reputation/:key (same data, x402 namespace)
+
+FACILITATOR FALLBACK:
+├─ Primary: X402_FACILITATOR_URL env var (default: https://x402.org/facilitator)
+├─ Fallback URLs: hardcoded backup facilitators
+├─ Array deduplication: filter unique URLs
+├─ Used by createFacilitator() in x402-skills.ts
+└─ Runtime: if primary fails, middleware handles retry
+```
+
+---
+
+*Generated from codebase analysis. Last updated: 2026-03-12. 62 DB migrations, decimal credits (v3), treasury auto-sweep, surcharge-to-treasury fix, 3-wallet architecture, endpoint auto-discovery (183 ClawAPIs endpoints), proportional cache pricing (10% of live, min 0.1cr), agent economy layer, future-proofing pass (skill health cron, per-skill rate limiting, MCP/OpenAPI manifests, tag filtering, similar skills, staking boost, webhook HMAC signing, credit gifting, batch-query, x402 verification & reputation).*

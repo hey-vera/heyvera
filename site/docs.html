@@ -85,7 +85,17 @@
     .sidebar-link.active { color: var(--accent); border-right-color: var(--accent); background: var(--accent-subtle); }
 
     .docs-content { margin-left: 260px; padding: 40px 56px 80px; max-width: 860px; width: 100%; }
+    .hamburger { display:none; background:none; border:1px solid var(--border-default); border-radius:6px; padding:6px; cursor:pointer; color:var(--text-secondary); }
+    .hamburger:hover { color:var(--text-primary); border-color:var(--border-strong); }
+    .hamburger svg { width:20px; height:20px; display:block; }
+    .mobile-menu { display:none; position:fixed; top:56px; left:0; right:0; background:var(--bg-surface); border-bottom:1px solid var(--border-default); z-index:99; padding:12px 24px; }
+    .mobile-menu.open { display:block; }
+    .mobile-menu a { display:block; padding:10px 0; font-size:14px; color:var(--text-secondary); border-bottom:1px solid var(--border-subtle); text-decoration:none; }
+    .mobile-menu a:last-child { border-bottom:none; }
+    .mobile-menu a:hover { color:var(--accent); }
     @media(max-width:768px) {
+      .nav-links { display: none; }
+      .hamburger { display: block; }
       .docs-sidebar { position: static; width: 100%; height: auto; border-right: none; border-bottom: 1px solid var(--border-subtle); }
       .docs-content { margin-left: 0; padding: 24px 20px 60px; }
     }
@@ -197,6 +207,7 @@
       <li><a href="/endpoints.html">Endpoints</a></li>
       <li><a href="https://x.com/i/communities/2031805527043576245" target="_blank" rel="noopener" title="Follow on X" style="padding:6px 8px;display:flex;align-items:center"><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.748l7.73-8.835L1.254 2.25H8.08l4.253 5.622 5.91-5.622zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg></a></li>
     </ul>
+    <button class="hamburger" onclick="document.getElementById('mobileMenu').classList.toggle('open')" aria-label="Menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
   </div>
   <div class="nav-right">
     <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Toggle theme">
@@ -212,6 +223,7 @@
     <button class="nav-btn-ghost danger" id="nav-signout-btn" onclick="navSignOut()" style="cursor:pointer">Sign Out</button>
   </div>
 </nav>
+<div class="mobile-menu" id="mobileMenu"><a href="/">Home</a><a href="/docs.html">Docs</a><a href="/marketplace.html">Marketplace</a><a href="/endpoints.html">Endpoints</a><a href="/playground.html">Playground</a><a href="/dashboard.html">Dashboard</a></div>
 
 <div class="docs-wrap">
   <!-- SIDEBAR -->

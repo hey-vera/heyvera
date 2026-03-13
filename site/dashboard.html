@@ -248,9 +248,32 @@
     .footer-links a:hover { color: var(--text-primary); }
     .footer-copy { font-size: 12px; color: var(--text-muted); }
 
+    .hamburger { display:none; background:none; border:1px solid var(--border-default); border-radius:6px; padding:6px; cursor:pointer; color:var(--text-secondary); }
+    .hamburger:hover { color:var(--text-primary); border-color:var(--border-strong); }
+    .hamburger svg { width:20px; height:20px; display:block; }
+    .mobile-menu { display:none; position:fixed; top:56px; left:0; right:0; background:var(--bg-surface); border-bottom:1px solid var(--border-default); z-index:99; padding:12px 24px; }
+    .mobile-menu.open { display:block; }
+    .mobile-menu a { display:block; padding:10px 0; font-size:14px; color:var(--text-secondary); border-bottom:1px solid var(--border-subtle); text-decoration:none; }
+    .mobile-menu a:last-child { border-bottom:none; }
+    .mobile-menu a:hover { color:var(--accent); }
+
+    /* ── CREATOR TAB ── */
+    .creator-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 20px; }
+    .creator-stat { background: var(--bg-surface-2); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 16px; text-align: center; }
+    .creator-stat .val { font-size: 20px; font-weight: 700; color: var(--text-primary); font-family: var(--font-mono); }
+    .creator-stat .val.g { color: var(--accent); }
+    .creator-stat .lbl { font-size: 11px; color: var(--text-muted); margin-top: 2px; text-transform: uppercase; letter-spacing: 0.05em; }
+    .creator-skill-row { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; background: var(--bg-surface-2); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); margin-bottom: 8px; }
+    .creator-skill-row .csr-name { font-size: 13px; font-weight: 500; color: var(--text-primary); }
+    .creator-skill-row .csr-meta { font-size: 12px; color: var(--text-muted); display: flex; gap: 16px; }
+    .payout-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: var(--bg-surface-2); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); margin-bottom: 6px; font-size: 12px; }
+    .payout-status { font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 9999px; }
+    .payout-status.paid { background: var(--accent-dim); color: var(--accent); }
+    .payout-status.pending { background: var(--warning-dim); color: var(--warning); }
+
     /* ── RESPONSIVE ── */
     @media (max-width: 768px) {
-      nav { padding: 0 16px; } .nav-links { display: none; } .nav-email { display: none; }
+      nav { padding: 0 16px; } .nav-links { display: none; } .hamburger { display: block; } .nav-email { display: none; }
       main { padding: 24px 16px; }
       .stats-grid { grid-template-columns: 1fr 1fr; }
       .topup-grid { grid-template-columns: repeat(2, 1fr); }
@@ -424,6 +447,7 @@
         <li><a href="/endpoints.html">Endpoints</a></li>
         <li><a href="https://x.com/i/communities/2031805527043576245" target="_blank" rel="noopener" title="Follow on X" style="padding:6px 8px;display:flex;align-items:center"><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.748l7.73-8.835L1.254 2.25H8.08l4.253 5.622 5.91-5.622zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg></a></li>
       </ul>
+      <button class="hamburger" onclick="document.getElementById('mobileMenu').classList.toggle('open')" aria-label="Menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
     </div>
     <div class="nav-right">
       <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Toggle theme">
@@ -438,6 +462,7 @@
       <button class="nav-btn-ghost danger" id="nav-signout-btn" onclick="navSignOut()" style="cursor:pointer">Sign Out</button>
     </div>
   </nav>
+  <div class="mobile-menu" id="mobileMenu"><a href="/">Home</a><a href="/docs.html">Docs</a><a href="/marketplace.html">Marketplace</a><a href="/endpoints.html">Endpoints</a><a href="/playground.html">Playground</a><a href="/dashboard.html">Dashboard</a></div>
 
   <main>
     <div id="loading-state" class="loading-state">
@@ -923,6 +948,90 @@
     function setUSDCStatus(msg,type){const el=document.getElementById('usdcStatus');el.className='usdc-status show '+type;el.textContent=msg;}
     async function initiateUSDCPayment(){const btn=document.getElementById('usdcPayBtn');const phantom=window.phantom?.solana??window.solana;if(!phantom?.isPhantom){setUSDCStatus('Phantom wallet not found. Install from phantom.app.','error');return;}btn.disabled=true;btn.textContent='Connecting wallet\u2026';setUSDCStatus('Requesting wallet connection\u2026','info');try{await phantom.connect();const pk=phantom.publicKey.toString();btn.textContent='Sending '+(window._usdcAmount||'')+' USDC\u2026';setUSDCStatus('Wallet connected. Approve in Phantom\u2026','info');const ct=await window.Clerk?.session?.getToken();const br=await fetch(`${API_BASE}/v1/solana/build-tx`,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+ct},body:JSON.stringify({amountUsd:window._usdcAmount,senderWallet:pk})});if(!br.ok){const err=await br.json().catch(()=>({}));throw new Error(err.error||'Failed to build transaction');}const{serializedTx}=await br.json();setUSDCStatus('Waiting for Phantom approval\u2026','info');const txB=Uint8Array.from(atob(serializedTx),c=>c.charCodeAt(0));let sig;try{const r=await phantom.signAndSendTransaction({message:txB});sig=r.signature;}catch(e){const r2=await phantom.request({method:'signAndSendTransaction',params:{message:serializedTx}});sig=r2.signature;}btn.textContent='Verifying on-chain\u2026';setUSDCStatus('Transaction sent ('+sig.slice(0,16)+'\u2026). Confirming\u2026','info');const vr=await fetch(`${API_BASE}/v1/solana/verify`,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+ct},body:JSON.stringify({signature:sig,expectedUsd:window._usdcAmount})});const result=await vr.json();if(vr.ok&&result.ok){const added=(result.creditsAdded||window._usdcCredits||0).toLocaleString();setUSDCStatus('\u2713 Payment verified. '+added+' credits added.','success');btn.textContent='Payment Complete \u2713';showToast('\u2713 '+added+' credits added!','success',5000);try{const mr=await fetch(`${API_BASE}/v1/dashboard/me`,{headers:{Authorization:'Bearer '+ct}});if(mr.ok){const me=await mr.json();if(me.credits!==undefined){document.getElementById('credits-value').textContent=me.credits.toLocaleString();document.getElementById('nav-credits-num').textContent=me.credits.toLocaleString();document.getElementById('credits-usd').textContent='~$'+(me.credits/1000).toFixed(2)+' value';}}}catch(e){}}else{throw new Error(result.error||'Verification failed.');}}catch(err){const msg=err?.message||'Unknown error';setUSDCStatus(msg.includes('rejected')||msg.includes('User rejected')?'Transaction cancelled.':'Error: '+msg,'error');btn.disabled=false;btn.innerHTML='Connect Phantom &amp; Pay <span id="usdcPayBtnAmt">'+(window._usdcAmount||'')+' USDC</span>';}}
 
+    // ── CREATOR DASHBOARD ──
+    async function checkCreator() {
+      try {
+        const token = await window.Clerk?.session?.getToken();
+        const res = await fetch(`${API_BASE}/v1/dashboard/creator-stats`, { headers: { Authorization: `Bearer ${token}` } });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.isCreator) renderCreatorSection(data);
+      } catch {}
+    }
+    function renderCreatorSection(data) {
+      const dashboard = document.getElementById('dashboard');
+      if (!dashboard || document.getElementById('creator-section')) return;
+      const section = document.createElement('div');
+      section.id = 'creator-section';
+      section.className = 'card';
+      const earnedUsd = (data.totalEarned * 0.001).toFixed(2);
+      const pendingCr = data.skills.reduce((s, sk) => s + (sk.earned || 0), 0) - data.withdrawals.filter(w => w.status === 'PAID').reduce((s, w) => s + w.amountCredits, 0);
+      const pendingUsd = (Math.max(0, pendingCr) * 0.00075).toFixed(2);
+      section.innerHTML = `
+        <div class="card-label">Creator Dashboard</div>
+        <div class="creator-stats">
+          <div class="creator-stat"><div class="val g">${data.totalEarned.toLocaleString()}</div><div class="lbl">Credits Earned</div></div>
+          <div class="creator-stat"><div class="val g">$${earnedUsd}</div><div class="lbl">Total Revenue</div></div>
+          <div class="creator-stat"><div class="val">${data.totalSales.toLocaleString()}</div><div class="lbl">Total Sales</div></div>
+          <div class="creator-stat"><div class="val">${data.publishedSkills}</div><div class="lbl">Published Skills</div></div>
+          <div class="creator-stat"><div class="val">$${pendingUsd}</div><div class="lbl">Pending Payout</div></div>
+        </div>
+        <div style="margin-bottom:16px">
+          <div style="font-size:12px;font-weight:500;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:10px">Your Skills</div>
+          <div id="creator-skills-list">${data.skills.length === 0 ? '<div style="color:var(--text-muted);font-size:13px;padding:12px 0">No skills published yet. <a href="/docs.html#skills" style="color:var(--accent)">Create your first skill</a></div>' : ''}</div>
+        </div>
+        ${data.withdrawals.length > 0 ? `
+        <div>
+          <div style="font-size:12px;font-weight:500;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:10px">Payout History</div>
+          <div id="creator-payouts-list"></div>
+        </div>` : ''}
+      `;
+      // Insert before the claim card (second-to-last card in dashboard)
+      const claimCard = dashboard.querySelector('#referral-card')?.parentElement === dashboard ? document.getElementById('referral-card') : null;
+      if (claimCard) dashboard.insertBefore(section, claimCard);
+      else dashboard.appendChild(section);
+
+      // Render skill rows
+      const skillsList = document.getElementById('creator-skills-list');
+      data.skills.forEach(sk => {
+        const row = document.createElement('div');
+        row.className = 'creator-skill-row';
+        row.innerHTML = `
+          <div>
+            <div class="csr-name">${esc(sk.name)}</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${esc(sk.id.slice(0, 12))}… · ${sk.creditCost} cr · ${sk.public ? 'Public' : 'Private'}</div>
+          </div>
+          <div class="csr-meta">
+            <span>${(sk.uses || 0).toLocaleString()} uses</span>
+            <span style="color:var(--accent)">${(sk.earned || 0).toLocaleString()} cr earned</span>
+            <span>$${((sk.earned || 0) * 0.00075).toFixed(2)}</span>
+          </div>
+        `;
+        skillsList.appendChild(row);
+      });
+
+      // Render payout rows
+      if (data.withdrawals.length > 0) {
+        const payoutsList = document.getElementById('creator-payouts-list');
+        data.withdrawals.forEach(w => {
+          const row = document.createElement('div');
+          row.className = 'payout-row';
+          const statusClass = w.status === 'PAID' ? 'paid' : 'pending';
+          row.innerHTML = `
+            <div>
+              <span style="color:var(--text-primary);font-weight:500">${w.amountCredits.toLocaleString()} credits</span>
+              <span style="color:var(--text-muted);margin-left:8px">≈ $${w.usdcEquivalent} USDC</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px">
+              <span style="color:var(--text-muted)">${timeAgo(w.createdAt)}</span>
+              <span class="payout-status ${statusClass}">${w.status}</span>
+            </div>
+          `;
+          payoutsList.appendChild(row);
+        });
+      }
+    }
+
     // ── ADMIN DASHBOARD ──
     let _adminPeriod = 'week';
     async function checkAdmin() {
@@ -1071,7 +1180,7 @@
     }
 
     // ── INIT ──
-    async function init(){try{await window.Clerk.load();}catch(e){document.getElementById('loading-state').innerHTML='<p style="color:var(--danger);font-size:13px">Authentication unavailable. Please refresh.</p>';return;}if(!window.Clerk.user){const p=new URLSearchParams(window.location.search);const c=p.get('claim_session')??p.get('claim');window.location.href=c?`/login.html?claim=${c}`:'/login.html';return;}document.getElementById('nav-user-email').textContent=window.Clerk.user.primaryEmailAddress?.emailAddress??'';document.getElementById('nav-user-email').classList.add('show');document.getElementById('nav-dash-btn').classList.add('show');document.getElementById('nav-signout-btn').classList.add('show');document.getElementById('nav-login-btn').style.display='none';const cachedCr=localStorage.getItem('clawnet_credits');document.getElementById('nav-credits-num').textContent=cachedCr!==null?parseInt(cachedCr).toLocaleString():'\u2014';document.getElementById('nav-credits-badge').classList.add('show');const p=new URLSearchParams(window.location.search);const cs=p.get('claim_session'),cr=p.get('claim');if(cs)await autoClaimSession(cs);if(cr){showClaimNotice(cr);window.history.replaceState({},'','/dashboard.html');}await loadDashboard();checkAdmin();}
+    async function init(){try{await window.Clerk.load();}catch(e){document.getElementById('loading-state').innerHTML='<p style="color:var(--danger);font-size:13px">Authentication unavailable. Please refresh.</p>';return;}if(!window.Clerk.user){const p=new URLSearchParams(window.location.search);const c=p.get('claim_session')??p.get('claim');window.location.href=c?`/login.html?claim=${c}`:'/login.html';return;}document.getElementById('nav-user-email').textContent=window.Clerk.user.primaryEmailAddress?.emailAddress??'';document.getElementById('nav-user-email').classList.add('show');document.getElementById('nav-dash-btn').classList.add('show');document.getElementById('nav-signout-btn').classList.add('show');document.getElementById('nav-login-btn').style.display='none';const cachedCr=localStorage.getItem('clawnet_credits');document.getElementById('nav-credits-num').textContent=cachedCr!==null?parseInt(cachedCr).toLocaleString():'\u2014';document.getElementById('nav-credits-badge').classList.add('show');const p=new URLSearchParams(window.location.search);const cs=p.get('claim_session'),cr=p.get('claim');if(cs)await autoClaimSession(cs);if(cr){showClaimNotice(cr);window.history.replaceState({},'','/dashboard.html');}await loadDashboard();checkCreator();checkAdmin();}
     async function autoClaimSession(sessionId){try{const token=await window.Clerk?.session?.getToken();await fetch(`${API_BASE}/v1/dashboard/claim-session`,{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({sessionId})});}catch(err){console.error('Auto-claim failed:',err);}}
     init();
   </script>

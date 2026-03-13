@@ -174,10 +174,91 @@
 
 ## Terms of Service & Privacy Policy Pages
 
-**What:** Add `/terms` and `/privacy` static HTML pages to `site/`. Content should cover: credit non-refundability policy, skill creator responsibilities and content policy, platform liability limitations, acceptable use, data collection disclosure, retention periods, third-party sharing (Clerk, Stripe, Resend).
+**Status: IMPLEMENTED** — `site/terms.html` and `site/privacy.html` now exist with matching dark design system.
+
+---
+
+## x402 Discovery Protocol Compliance
+
+**What:** Implement the formal x402 discovery/manifest standard once published.
 
 **Why deferred:**
-- Pure policy/legal work, not engineering. Platform is pre-revenue at current scale.
-- Standard boilerplate templates are widely available; the risk is in accepting terms without legal review.
+- The spec isn't finalized yet. `GET /x402` already returns provider metadata, skill listings, and payment configuration.
+- Building against an unstable spec risks rework.
 
-**Revisit when:** Processing more than $1,000/month in payments, or before any marketing push that significantly grows the user base.
+**Revisit when:** x402 publishes a formal manifest/discovery standard.
+
+---
+
+## Per-Skill x402 Pricing (Agent vs Human Rates)
+
+**What:** Different USDC prices for x402 calls vs credit-based calls per skill. Enables creators to set agent-friendly pricing.
+
+**Why deferred:**
+- Adds schema + routing complexity for no current demand.
+- Nobody is asking for differentiated agent vs human prices yet.
+- Current unified rate (`X402_USDC_PER_CREDIT=0.001`) is simple and fair.
+
+**Revisit when:** x402 volume reaches 100+ calls/day and creators request price differentiation.
+
+---
+
+## x402 Subscription / Prepaid Model
+
+**What:** Agents pre-purchase a block of x402 calls at a discount, avoiding per-call payment overhead.
+
+**Why deferred:**
+- Premature optimization. Need actual high-frequency agents first.
+- Per-call x402 works fine for current volume.
+
+**Revisit when:** An agent makes 50+ x402 calls/day and the per-call overhead becomes a friction point.
+
+---
+
+## Own Facilitator Node
+
+**What:** Run a self-hosted x402 facilitator instead of relying on x402.org.
+
+**Why deferred:**
+- Heavy infrastructure — requires running a payment verification service.
+- Facilitator fallback (primary + 2 backups) already implemented.
+- Only matters if x402.org has reliability issues.
+
+**Revisit when:** x402.org uptime drops below 99.5% or facilitator response time exceeds 2 seconds consistently.
+
+---
+
+## Cross-Chain x402 (Solana Provider Mode)
+
+**What:** Serve x402 skills accepting SOL/USDC on Solana (not just Base/EVM).
+
+**Why deferred:**
+- x402 Solana provider mode isn't mature in the SDK.
+- Solana receiving infrastructure already exists for credit purchases — but x402 payment verification on Solana needs SDK support.
+
+**Revisit when:** `@x402/solana` SDK package is published and stable.
+
+---
+
+## MCP + x402 Payment Bridge
+
+**What:** MCP tool calls that auto-pay via x402 — agent calls a skill through MCP and payment happens transparently.
+
+**Why deferred:**
+- `@clawnet/mcp` package is built but unpublished. Ship basic MCP first.
+- Payment bridge adds significant complexity (wallet integration in MCP protocol).
+- MCP spec doesn't have a native payment primitive yet.
+
+**Revisit when:** MCP package is published, has 50+ installs, and users request payment integration.
+
+---
+
+## Data Marketplace Standard / Schema
+
+**What:** Publish a formal schema for data skill outputs — standard field names, types, update frequencies — so agents can consume any data skill without reading docs.
+
+**Why deferred:**
+- Standards play needs ecosystem traction. Need 50+ data skills before a "standard" matters to anyone.
+- `sample_output_json` already serves as an informal contract per skill.
+
+**Revisit when:** 50+ third-party data skills exist and inconsistent output formats become a developer pain point.

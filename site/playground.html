@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Skill Playground — ClawNet</title>
+  <meta name="description" content="Test any ClawNet skill in your browser. See sample output for free or execute live with credits.">
+  <meta property="og:title" content="Skill Playground — ClawNet">
+  <meta property="og:description" content="Test any AI skill live. See sample output for free, execute with credits.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://claw-net.org/playground.html">
+  <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png">
+  <link rel="apple-touch-icon" href="/favicon.png">
+  <script>if(localStorage.getItem('clawnet_theme')==='light')document.documentElement.setAttribute('data-theme','light')</script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-primary: #0a0a0b; --bg-surface: #111113; --bg-surface-2: #18181b; --bg-surface-3: #1f1f23;
+      --border-subtle: #1e1e22; --border-default: #27272a; --border-strong: #3f3f46;
+      --text-primary: #fafafa; --text-secondary: #a1a1aa; --text-tertiary: #71717a; --text-muted: #52525b;
+      --accent: #10b981; --accent-dim: rgba(16,185,129,0.12); --accent-subtle: rgba(16,185,129,0.06);
+      --accent-hover: #34d399; --accent-text: #6ee7b7;
+      --danger: #ef4444; --danger-dim: rgba(239,68,68,0.12);
+      --warning: #f59e0b; --warning-dim: rgba(245,158,11,0.12);
+      --info: #3b82f6; --info-dim: rgba(59,130,246,0.12);
+      --purple: #8b5cf6; --purple-dim: rgba(139,92,246,0.12);
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', Consolas, monospace;
+      --radius-sm: 4px; --radius-md: 6px; --radius-lg: 8px; --radius-xl: 12px;
+      --nav-bg: rgba(10,10,11,0.8);
+    }
+    [data-theme="light"] {
+      --bg-primary: #f5f5f5; --bg-surface: #ffffff; --bg-surface-2: #f0f0f2; --bg-surface-3: #e8e8ec;
+      --border-subtle: #e4e4e7; --border-default: #d4d4d8; --border-strong: #a1a1aa;
+      --text-primary: #09090b; --text-secondary: #3f3f46; --text-tertiary: #71717a; --text-muted: #a1a1aa;
+      --accent-dim: rgba(16,185,129,0.10); --accent-subtle: rgba(16,185,129,0.05);
+      --danger-dim: rgba(239,68,68,0.10); --warning-dim: rgba(245,158,11,0.10);
+      --info-dim: rgba(59,130,246,0.10); --purple-dim: rgba(139,92,246,0.10);
+      --nav-bg: rgba(245,245,245,0.85);
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: var(--font-sans); background: var(--bg-primary); color: var(--text-secondary); font-size: 14px; line-height: 1.6; }
+    a { color: inherit; text-decoration: none; }
+    ::selection { background: var(--accent-dim); }
+
+    /* NAV */
+    nav { position: sticky; top: 0; z-index: 100; background: var(--nav-bg); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border-subtle); padding: 0 24px; height: 56px; display: flex; align-items: center; justify-content: space-between; }
+    .nav-left, .nav-right { display: flex; align-items: center; gap: 12px; }
+    .nav-logo-text { font-size: 18px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.02em; white-space: nowrap; }
+    .nav-logo-text span { color: var(--accent); }
+    .nav-links { list-style: none; display: flex; align-items: center; gap: 2px; margin-left: 20px; }
+    .nav-links a { font-size: 13px; font-weight: 500; color: var(--text-tertiary); padding: 6px 12px; border-radius: var(--radius-md); transition: color 0.15s, background 0.15s; }
+    .nav-links a:hover { color: var(--text-primary); background: var(--bg-surface-2); }
+    .nav-links a.active { color: var(--text-primary); }
+    .theme-toggle { background: var(--bg-surface-2); border: 1px solid var(--border-default); border-radius: 6px; width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--text-tertiary); transition: all 0.15s; padding: 0; flex-shrink: 0; }
+    .theme-toggle:hover { color: var(--text-primary); border-color: var(--border-strong); }
+    .theme-toggle .icon-sun, .theme-toggle .icon-moon { width: 16px; height: 16px; }
+    .theme-toggle .icon-sun { display: none; }
+    [data-theme="light"] .theme-toggle .icon-sun { display: block; }
+    [data-theme="light"] .theme-toggle .icon-moon { display: none; }
+    .nav-status { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-tertiary); padding: 4px 10px; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 9999px; }
+    .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); }
+    .status-dot.ok { background: var(--accent); box-shadow: 0 0 4px rgba(16,185,129,0.4); }
+    .status-dot.err { background: var(--danger); }
+    .nav-credits { display: none; align-items: center; gap: 4px; font-family: var(--font-mono); font-size: 12px; color: var(--accent); padding: 4px 10px; background: var(--accent-dim); border: 1px solid rgba(16,185,129,0.15); border-radius: 9999px; }
+    .nav-credits.show { display: flex; }
+    .nav-email { font-size: 12px; color: var(--text-tertiary); display: none; }
+    .nav-email.show { display: inline-block; }
+    .nav-login { color: var(--text-secondary); border: 1px solid var(--border-default); background: transparent; padding: 6px 14px; font-size: 13px; border-radius: var(--radius-md); }
+    .nav-login:hover { border-color: var(--border-strong); color: var(--text-primary); }
+    .nav-cta { background: var(--accent); color: #000; font-weight: 600; padding: 6px 14px; font-size: 13px; border-radius: var(--radius-md); }
+    .nav-btn-ghost { background: transparent; color: var(--text-secondary); border: 1px solid var(--border-default); display: none; padding: 6px 14px; font-size: 13px; border-radius: var(--radius-md); cursor: pointer; font-family: var(--font-sans); }
+    .nav-btn-ghost:hover { border-color: var(--border-strong); color: var(--text-primary); }
+    .nav-btn-ghost.show { display: inline-block; }
+    .nav-btn-ghost.danger:hover { color: var(--danger); border-color: var(--danger); }
+    @media (max-width: 900px) { .nav-links { display: none; } }
+
+    /* HAMBURGER */
+    .hamburger { display: none; background: none; border: 1px solid var(--border-default); border-radius: var(--radius-md); padding: 6px; cursor: pointer; color: var(--text-secondary); }
+    .hamburger:hover { color: var(--text-primary); border-color: var(--border-strong); }
+    .hamburger svg { width: 20px; height: 20px; display: block; }
+    .mobile-menu { display: none; position: fixed; top: 56px; left: 0; right: 0; background: var(--bg-surface); border-bottom: 1px solid var(--border-default); z-index: 99; padding: 12px 24px; }
+    .mobile-menu.open { display: block; }
+    .mobile-menu a { display: block; padding: 10px 0; font-size: 14px; color: var(--text-secondary); border-bottom: 1px solid var(--border-subtle); }
+    .mobile-menu a:last-child { border-bottom: none; }
+    .mobile-menu a:hover { color: var(--accent); }
+    @media (max-width: 900px) { .hamburger { display: block; } }
+
+    /* LAYOUT */
+    .container { max-width: 1200px; margin: 0 auto; padding: 0 24px; }
+    .pg-hero { padding: 48px 0 32px; text-align: center; }
+    .pg-hero h1 { font-size: 28px; font-weight: 700; color: var(--text-primary); margin-bottom: 8px; }
+    .pg-hero h1 span { color: var(--accent); }
+    .pg-hero p { color: var(--text-tertiary); font-size: 15px; max-width: 540px; margin: 0 auto; }
+
+    /* PLAYGROUND LAYOUT */
+    .pg-layout { display: grid; grid-template-columns: 340px 1fr; gap: 24px; padding-bottom: 60px; }
+    @media (max-width: 900px) { .pg-layout { grid-template-columns: 1fr; } }
+
+    /* LEFT PANEL */
+    .pg-panel { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 20px; }
+    .pg-panel h3 { font-size: 13px; font-weight: 600; color: var(--text-primary); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 12px; }
+    .pg-search { width: 100%; background: var(--bg-primary); border: 1px solid var(--border-default); color: var(--text-primary); font-family: var(--font-sans); font-size: 13px; padding: 8px 12px; border-radius: var(--radius-md); outline: none; margin-bottom: 12px; }
+    .pg-search:focus { border-color: var(--accent); }
+    .pg-skill-list { max-height: 280px; overflow-y: auto; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); }
+    .pg-skill-item { padding: 10px 12px; cursor: pointer; border-bottom: 1px solid var(--border-subtle); transition: background 0.1s; }
+    .pg-skill-item:last-child { border-bottom: none; }
+    .pg-skill-item:hover { background: var(--bg-surface-2); }
+    .pg-skill-item.selected { background: var(--accent-dim); border-left: 3px solid var(--accent); }
+    .pg-skill-item .sk-name { font-size: 13px; font-weight: 500; color: var(--text-primary); }
+    .pg-skill-item .sk-meta { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+    .skill-type-badge { font-size: 9px; font-weight: 600; padding: 1px 5px; border-radius: 3px; text-transform: uppercase; letter-spacing: 0.03em; }
+    .skill-type-badge.prompt { background: var(--purple-dim); color: var(--purple); }
+    .skill-type-badge.api_proxy { background: var(--info-dim); color: var(--info); }
+    .skill-type-badge.data { background: var(--accent-dim); color: var(--accent); }
+
+    /* PARAMS */
+    .pg-params { margin-top: 20px; }
+    .pg-params .form-group { margin-bottom: 12px; }
+    .pg-params label { font-size: 12px; font-weight: 500; color: var(--text-tertiary); display: block; margin-bottom: 4px; }
+    .pg-params label .req { color: var(--danger); }
+    .pg-params input, .pg-params textarea { width: 100%; background: var(--bg-primary); border: 1px solid var(--border-default); color: var(--text-primary); font-family: var(--font-sans); font-size: 13px; padding: 8px 10px; border-radius: var(--radius-md); outline: none; }
+    .pg-params input:focus, .pg-params textarea:focus { border-color: var(--accent); }
+    .pg-params textarea { resize: vertical; min-height: 60px; }
+
+    /* BUTTONS */
+    .btn { font-family: var(--font-sans); font-size: 13px; font-weight: 500; padding: 8px 16px; border-radius: var(--radius-md); cursor: pointer; transition: all 0.15s; border: 1px solid transparent; display: inline-flex; align-items: center; gap: 6px; }
+    .btn-primary { background: var(--accent); color: #000; border-color: var(--accent); }
+    .btn-primary:hover { background: var(--accent-hover); }
+    .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-ghost { background: transparent; color: var(--text-secondary); border: 1px solid var(--border-default); }
+    .btn-ghost:hover { border-color: var(--border-strong); color: var(--text-primary); background: var(--bg-surface-2); }
+    .btn-sample { background: var(--purple-dim); color: var(--purple); border: 1px solid rgba(139,92,246,0.2); }
+    .btn-sample:hover { background: rgba(139,92,246,0.18); }
+
+    .btn-row { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
+    .cost-hint { font-size: 11px; color: var(--text-muted); margin-top: 8px; }
+    .cost-hint .live { color: var(--warning); font-weight: 500; }
+    .cost-hint .free { color: var(--accent); font-weight: 500; }
+
+    /* RIGHT PANEL - OUTPUT */
+    .pg-output { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); display: flex; flex-direction: column; min-height: 500px; }
+    .pg-output-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--border-subtle); }
+    .pg-output-header h3 { font-size: 13px; font-weight: 600; color: var(--text-primary); text-transform: uppercase; letter-spacing: 0.04em; margin: 0; }
+    .pg-output-meta { display: flex; gap: 12px; font-size: 11px; color: var(--text-muted); }
+    .pg-output-meta .tag { padding: 2px 8px; border-radius: 9999px; }
+    .pg-output-meta .tag.sample { background: var(--purple-dim); color: var(--purple); }
+    .pg-output-meta .tag.live { background: var(--accent-dim); color: var(--accent); }
+    .pg-output-meta .tag.error { background: var(--danger-dim); color: var(--danger); }
+    .pg-output-body { flex: 1; padding: 16px; overflow: auto; }
+    .pg-output-body pre { font-family: var(--font-mono); font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word; color: var(--text-secondary); }
+    .pg-output-body .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; min-height: 300px; color: var(--text-muted); text-align: center; }
+    .pg-output-body .empty-state .icon { font-size: 48px; margin-bottom: 16px; opacity: 0.4; }
+    .pg-output-body .empty-state h4 { font-size: 15px; color: var(--text-tertiary); margin-bottom: 4px; }
+
+    /* SKILL INFO BAR */
+    .pg-skill-info { background: var(--bg-surface-2); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 12px 16px; margin-bottom: 16px; display: none; }
+    .pg-skill-info.show { display: block; }
+    .pg-skill-info .si-name { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+    .pg-skill-info .si-desc { font-size: 12px; color: var(--text-tertiary); margin-top: 2px; }
+    .pg-skill-info .si-meta { display: flex; gap: 16px; margin-top: 8px; font-size: 11px; color: var(--text-muted); }
+    .pg-skill-info .si-meta span { display: flex; align-items: center; gap: 4px; }
+
+    /* TABS */
+    .pg-output-tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border-subtle); padding: 0 16px; }
+    .pg-output-tabs button { background: none; border: none; border-bottom: 2px solid transparent; color: var(--text-muted); font-family: var(--font-sans); font-size: 12px; font-weight: 500; padding: 10px 16px; cursor: pointer; transition: all 0.15s; }
+    .pg-output-tabs button:hover { color: var(--text-secondary); }
+    .pg-output-tabs button.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+    /* COPY BTN */
+    .copy-btn { position: absolute; top: 8px; right: 8px; background: var(--bg-surface-2); border: 1px solid var(--border-default); color: var(--text-muted); font-size: 11px; padding: 4px 10px; border-radius: var(--radius-sm); cursor: pointer; font-family: var(--font-sans); }
+    .copy-btn:hover { color: var(--text-primary); border-color: var(--border-strong); }
+
+    /* FOOTER */
+    footer { border-top: 1px solid var(--border-subtle); padding: 32px 24px; display: flex; justify-content: space-between; align-items: center; max-width: 1200px; margin: 0 auto; flex-wrap: wrap; gap: 16px; }
+    .footer-links { list-style: none; display: flex; gap: 16px; flex-wrap: wrap; }
+    .footer-links a { font-size: 12px; color: var(--text-muted); }
+    .footer-links a:hover { color: var(--text-secondary); }
+    .footer-copy { font-size: 12px; color: var(--text-muted); }
+
+    /* SPINNER */
+    .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid var(--border-default); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.6s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* TOAST */
+    #toast-container { position: fixed; bottom: 32px; right: 32px; z-index: 9999; display: flex; flex-direction: column; gap: 10px; }
+    .toast { font-size: 13px; padding: 12px 18px; border: 1px solid; border-radius: var(--radius-md); display: flex; align-items: center; gap: 10px; min-width: 240px; max-width: 400px; animation: toastIn 0.2s ease; box-shadow: 0 4px 12px rgba(0,0,0,0.4); }
+    .toast.success { background: var(--bg-surface-2); border-color: var(--accent-dim); color: var(--accent); }
+    .toast.error { background: var(--bg-surface-2); border-color: var(--danger-dim); color: var(--danger); }
+    @keyframes toastIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+  </style>
+</head>
+<body>
+<nav>
+  <div class="nav-left">
+    <a href="/" class="nav-logo"><span class="nav-logo-text">Claw <span>Network</span></span></a>
+    <ul class="nav-links">
+      <li><a href="/">Home</a></li>
+      <li><a href="/docs.html">Docs</a></li>
+      <li><a href="/marketplace.html">Marketplace</a></li>
+      <li><a href="/endpoints.html">Endpoints</a></li>
+      <li><a href="/playground.html" class="active">Playground</a></li>
+    </ul>
+    <button class="hamburger" onclick="toggleMobileMenu()" aria-label="Menu">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+    </button>
+  </div>
+  <div class="nav-right">
+    <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">
+      <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+    </button>
+    <div class="nav-status" id="navApiStatus"><span class="status-dot" id="statusDot"></span><span id="statusLabel">Checking...</span></div>
+    <div class="nav-credits" id="nav-credits-badge"><svg width="14" height="14" viewBox="0 0 24 24" style="vertical-align:-2px;flex-shrink:0;margin-right:2px"><circle cx="12" cy="12" r="11" fill="#92400e"/><circle cx="12" cy="12" r="9.5" fill="#f59e0b"/><circle cx="12" cy="12" r="7.5" fill="#fbbf24"/><path d="M8.5 7.5 Q12 5.5 15.5 8" stroke="rgba(255,255,255,0.45)" stroke-width="1.5" fill="none" stroke-linecap="round"/><text x="12" y="16.5" text-anchor="middle" font-size="10" font-weight="800" fill="#78350f" font-family="Arial,sans-serif">C</text></svg> <span id="nav-credits-num">&mdash;</span> credits</div>
+    <span class="nav-email" id="nav-user-email"></span>
+    <a href="/login.html" class="nav-login" id="nav-login-btn">Sign In</a>
+    <a href="/dashboard.html" class="nav-cta" id="nav-getkey-btn">Get API Key</a>
+    <a href="/dashboard.html" class="nav-btn-ghost" id="nav-dash-btn">Dashboard</a>
+    <button class="nav-btn-ghost danger" id="nav-signout-btn" onclick="navSignOut()" style="cursor:pointer">Sign Out</button>
+  </div>
+</nav>
+
+<div class="mobile-menu" id="mobileMenu">
+  <a href="/">Home</a>
+  <a href="/docs.html">Docs</a>
+  <a href="/marketplace.html">Marketplace</a>
+  <a href="/endpoints.html">Endpoints</a>
+  <a href="/playground.html">Playground</a>
+  <a href="/dashboard.html">Dashboard</a>
+</div>
+
+<div class="container">
+  <div class="pg-hero">
+    <h1>Skill <span>Playground</span></h1>
+    <p>Test any public skill in your browser. View sample output for free, or execute live with your API key.</p>
+  </div>
+
+  <div class="pg-layout">
+    <!-- LEFT: Skill selector + params -->
+    <div>
+      <div class="pg-panel">
+        <h3>Select Skill</h3>
+        <input type="text" class="pg-search" id="skillSearch" placeholder="Search skills..." oninput="filterSkills()">
+        <div class="pg-skill-list" id="skillList">
+          <div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12px">Loading skills...</div>
+        </div>
+      </div>
+
+      <div class="pg-skill-info" id="skillInfo">
+        <div class="si-name" id="siName"></div>
+        <div class="si-desc" id="siDesc"></div>
+        <div class="si-meta" id="siMeta"></div>
+      </div>
+
+      <div class="pg-panel pg-params" id="paramsPanel" style="display:none;margin-top:16px">
+        <h3>Parameters</h3>
+        <div id="paramsForm"></div>
+        <div class="btn-row">
+          <button class="btn btn-sample" onclick="showSampleOutput()">View Sample</button>
+          <button class="btn btn-primary" id="runBtn" onclick="runLive()" disabled>Execute Live</button>
+        </div>
+        <div class="cost-hint" id="costHint"></div>
+      </div>
+    </div>
+
+    <!-- RIGHT: Output -->
+    <div class="pg-output">
+      <div class="pg-output-header">
+        <h3>Response</h3>
+        <div class="pg-output-meta" id="outputMeta"></div>
+      </div>
+      <div class="pg-output-tabs" id="outputTabs" style="display:none">
+        <button class="active" data-tab="formatted" onclick="switchOutputTab('formatted',this)">Formatted</button>
+        <button data-tab="raw" onclick="switchOutputTab('raw',this)">Raw JSON</button>
+        <button data-tab="curl" onclick="switchOutputTab('curl',this)">cURL</button>
+      </div>
+      <div class="pg-output-body" id="outputBody">
+        <div class="empty-state">
+          <div class="icon">&#9881;</div>
+          <h4>Select a skill to get started</h4>
+          <p style="font-size:12px;margin-top:4px">Pick a skill from the left, then view sample output (free) or execute live with credits.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<footer>
+  <div class="footer-left">
+    <a href="/" class="footer-logo"><span class="nav-logo-text">Claw <span>Network</span></span></a>
+    <ul class="footer-links">
+      <li><a href="/">Home</a></li>
+      <li><a href="/docs.html">Docs</a></li>
+      <li><a href="/marketplace.html">Marketplace</a></li>
+      <li><a href="/endpoints.html">Endpoints</a></li>
+      <li><a href="https://github.com/1xmint" target="_blank">GitHub</a></li>
+      <li><a href="https://t.me/claw_net" target="_blank">Telegram</a></li>
+    </ul>
+  </div>
+  <div class="footer-copy">&copy; 2026 ClawNet &middot; Powered by x402</div>
+</footer>
+
+<div id="toast-container"></div>
+
+<script>
+const API = 'https://api.claw-net.org';
+let skills = [];
+let selectedSkill = null;
+let apiKey = localStorage.getItem('claw_api_key') || '';
+let lastResponse = null;
+
+// ── Theme ──────────────────────────────────────────────────────────
+function toggleTheme() {
+  const light = document.documentElement.getAttribute('data-theme') === 'light';
+  document.documentElement.setAttribute('data-theme', light ? '' : 'light');
+  localStorage.setItem('clawnet_theme', light ? 'dark' : 'light');
+}
+
+// ── Mobile menu ────────────────────────────────────────────────────
+function toggleMobileMenu() {
+  document.getElementById('mobileMenu').classList.toggle('open');
+}
+
+// ── Toast ──────────────────────────────────────────────────────────
+function toast(msg, type = 'success') {
+  const el = document.createElement('div');
+  el.className = 'toast ' + type;
+  el.textContent = msg;
+  document.getElementById('toast-container').appendChild(el);
+  setTimeout(() => el.remove(), 4000);
+}
+
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function creditsToUsd(n) { const u = n * 0.001; return u < 0.01 ? '$' + u.toFixed(4).replace(/0+$/, '') : '$' + u.toFixed(u >= 1 ? 2 : 3).replace(/\.?0+$/, ''); }
+
+// ── Auth / Nav ─────────────────────────────────────────────────────
+async function initAuth() {
+  if (!apiKey) return;
+  try {
+    const r = await fetch(`${API}/v1/auth/me`, { headers: { 'X-API-Key': apiKey } });
+    if (!r.ok) { apiKey = ''; return; }
+    const d = await r.json();
+    document.getElementById('nav-credits-badge').classList.add('show');
+    document.getElementById('nav-credits-num').textContent = d.credits?.toLocaleString() ?? '0';
+    if (d.email) { document.getElementById('nav-user-email').textContent = d.email; document.getElementById('nav-user-email').classList.add('show'); }
+    document.getElementById('nav-login-btn').style.display = 'none';
+    document.getElementById('nav-getkey-btn').style.display = 'none';
+    document.getElementById('nav-dash-btn').classList.add('show');
+    document.getElementById('nav-signout-btn').classList.add('show');
+    document.getElementById('runBtn').disabled = false;
+  } catch {}
+}
+function navSignOut() { localStorage.removeItem('claw_api_key'); location.reload(); }
+
+// ── Status ─────────────────────────────────────────────────────────
+async function checkStatus() {
+  try {
+    const r = await fetch(`${API}/health`);
+    document.getElementById('statusDot').classList.toggle('ok', r.ok);
+    document.getElementById('statusLabel').textContent = r.ok ? 'Operational' : 'Degraded';
+  } catch { document.getElementById('statusLabel').textContent = 'Offline'; document.getElementById('statusDot').classList.add('err'); }
+}
+
+// ── Load Skills ────────────────────────────────────────────────────
+async function loadSkills() {
+  try {
+    const r = await fetch(`${API}/v1/skills?limit=100`);
+    if (!r.ok) throw new Error('Failed to load');
+    const d = await r.json();
+    skills = d.skills || [];
+    renderSkillList(skills);
+
+    // Auto-select from URL param
+    const params = new URLSearchParams(location.search);
+    const preselect = params.get('skill') || params.get('id');
+    if (preselect) {
+      const match = skills.find(s => s.id === preselect || s.name === preselect);
+      if (match) selectSkill(match);
+    }
+  } catch (e) {
+    document.getElementById('skillList').innerHTML = `<div style="padding:20px;text-align:center;color:var(--danger);font-size:12px">Failed to load skills</div>`;
+  }
+}
+
+function renderSkillList(list) {
+  const el = document.getElementById('skillList');
+  if (list.length === 0) { el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12px">No skills found</div>'; return; }
+  el.innerHTML = list.map(s => {
+    const typeCls = s.skillType === 'data' ? 'data' : s.skillType === 'api_proxy' ? 'api_proxy' : 'prompt';
+    const typeLbl = s.skillType === 'data' ? 'DATA' : s.skillType === 'api_proxy' ? 'PROXY' : 'PROMPT';
+    const sel = selectedSkill && selectedSkill.id === s.id ? ' selected' : '';
+    return `<div class="pg-skill-item${sel}" onclick="selectSkillById('${esc(s.id)}')">
+      <div class="sk-name"><span class="skill-type-badge ${typeCls}" style="margin-right:6px">${typeLbl}</span>${esc(s.displayName || s.name)}</div>
+      <div class="sk-meta">${s.creditCost} cr (${creditsToUsd(s.creditCost)}) &middot; ${(s.uses||0).toLocaleString()} uses</div>
+    </div>`;
+  }).join('');
+}
+
+function filterSkills() {
+  const q = document.getElementById('skillSearch').value.toLowerCase().trim();
+  if (!q) { renderSkillList(skills); return; }
+  const filtered = skills.filter(s => (s.displayName || s.name).toLowerCase().includes(q) || (s.description || '').toLowerCase().includes(q));
+  renderSkillList(filtered);
+}
+
+// ── Select Skill ───────────────────────────────────────────────────
+function selectSkillById(id) {
+  const s = skills.find(sk => sk.id === id);
+  if (s) selectSkill(s);
+}
+
+async function selectSkill(skill) {
+  selectedSkill = skill;
+  renderSkillList(skills.filter(s => {
+    const q = document.getElementById('skillSearch').value.toLowerCase().trim();
+    return !q || (s.displayName || s.name).toLowerCase().includes(q) || (s.description || '').toLowerCase().includes(q);
+  }));
+
+  // Fetch full detail from marketplace
+  let detail = skill;
+  try {
+    const r = await fetch(`${API}/v1/marketplace/skills/${encodeURIComponent(skill.id)}`);
+    if (r.ok) detail = await r.json();
+  } catch {}
+
+  selectedSkill = { ...skill, ...detail };
+
+  // Show info bar
+  const info = document.getElementById('skillInfo');
+  info.classList.add('show');
+  document.getElementById('siName').textContent = detail.displayName || detail.name;
+  document.getElementById('siDesc').textContent = detail.description || '';
+  const typeLbl = detail.skillType === 'data' ? 'Data Skill' : detail.skillType === 'api_proxy' ? 'API Proxy' : 'Prompt Template';
+  document.getElementById('siMeta').innerHTML = `
+    <span>${typeLbl}</span>
+    <span>${detail.creditCost} cr/call</span>
+    <span>${(detail.uses || 0).toLocaleString()} uses</span>
+    ${detail.updateFrequency ? `<span style="color:var(--info)">&#8635; ${esc(detail.updateFrequency)}</span>` : ''}
+    ${detail.healthStatus && detail.healthStatus !== 'HEALTHY' ? `<span style="color:var(--warning)">${esc(detail.healthStatus)}</span>` : ''}
+  `;
+
+  // Build params form
+  buildParamsForm(detail);
+
+  // Update cost hint
+  const hint = document.getElementById('costHint');
+  hint.innerHTML = `<span class="free">Sample output: free</span> &middot; <span class="live">Live execution: ${detail.creditCost} credits (${creditsToUsd(detail.creditCost)})</span>`;
+  if (!apiKey) hint.innerHTML += `<br><span style="color:var(--text-muted);font-size:10px">Sign in with an API key to enable live execution</span>`;
+
+  // Update URL
+  history.replaceState(null, '', `?skill=${encodeURIComponent(skill.id)}`);
+
+  // Show sample by default
+  showSampleOutput();
+}
+
+function buildParamsForm(skill) {
+  const panel = document.getElementById('paramsPanel');
+  panel.style.display = '';
+  const form = document.getElementById('paramsForm');
+
+  // Get variables from input schema or prompt template
+  const schema = skill.inputSchema;
+  const vars = [];
+
+  if (schema && schema.properties) {
+    for (const [key, prop] of Object.entries(schema.properties)) {
+      const required = (schema.required || []).includes(key);
+      vars.push({ name: key, type: prop.type || 'string', description: prop.description || '', required, default: prop.default || '' });
+    }
+  } else if (skill.skillType === 'data') {
+    // Data skills take query params — offer a generic params field
+    vars.push({ name: 'params', type: 'text', description: 'Query parameters (key=value, one per line)', required: false, default: '' });
+  }
+
+  if (vars.length === 0) {
+    form.innerHTML = '<div style="font-size:12px;color:var(--text-muted)">This skill requires no input parameters.</div>';
+    return;
+  }
+
+  form.innerHTML = vars.map(v => {
+    const isTextarea = v.type === 'text' || v.description.length > 50;
+    return `<div class="form-group">
+      <label>${esc(v.name)} ${v.required ? '<span class="req">*</span>' : ''} ${v.description ? `<span style="font-size:10px;color:var(--text-muted);font-weight:400"> &mdash; ${esc(v.description)}</span>` : ''}</label>
+      ${isTextarea
+        ? `<textarea id="param-${esc(v.name)}" placeholder="${esc(v.default || v.name)}">${esc(v.default || '')}</textarea>`
+        : `<input type="text" id="param-${esc(v.name)}" placeholder="${esc(v.default || v.name)}" value="${esc(v.default || '')}">`
+      }
+    </div>`;
+  }).join('');
+}
+
+// ── Sample Output ──────────────────────────────────────────────────
+function showSampleOutput() {
+  if (!selectedSkill) return;
+  const s = selectedSkill;
+  const sample = s.sampleOutput;
+
+  const meta = document.getElementById('outputMeta');
+  meta.innerHTML = '<span class="tag sample">Sample Output</span><span>Free &mdash; no credits charged</span>';
+
+  const tabs = document.getElementById('outputTabs');
+  tabs.style.display = 'flex';
+
+  if (!sample) {
+    document.getElementById('outputBody').innerHTML = `<div class="empty-state"><div class="icon">&#128196;</div><h4>No sample output available</h4><p style="font-size:12px;margin-top:4px">This skill doesn't have sample output defined. Try executing it live.</p></div>`;
+    return;
+  }
+
+  const json = typeof sample === 'string' ? sample : JSON.stringify(sample, null, 2);
+  lastResponse = { type: 'sample', data: sample, json, skill: s };
+  renderOutput('formatted');
+}
+
+// ── Live Execution ─────────────────────────────────────────────────
+async function runLive() {
+  if (!selectedSkill || !apiKey) { toast('Sign in with an API key first', 'error'); return; }
+  const s = selectedSkill;
+  const btn = document.getElementById('runBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Executing...';
+
+  const meta = document.getElementById('outputMeta');
+  meta.innerHTML = '<span class="tag live">Live</span><span>Executing...</span>';
+
+  try {
+    let url, method, body, headers = { 'X-API-Key': apiKey, 'Content-Type': 'application/json' };
+
+    if (s.skillType === 'data') {
+      // Data skills use GET with query params
+      const paramsEl = document.getElementById('param-params');
+      let qs = '';
+      if (paramsEl && paramsEl.value.trim()) {
+        const lines = paramsEl.value.trim().split('\n');
+        const pairs = lines.map(l => l.trim()).filter(Boolean).map(l => {
+          const [k, ...v] = l.split('=');
+          return encodeURIComponent(k.trim()) + '=' + encodeURIComponent(v.join('=').trim());
+        });
+        qs = '?' + pairs.join('&');
+      }
+      url = `${API}/v1/skills/${encodeURIComponent(s.id)}/query${qs}`;
+      method = 'GET';
+      body = undefined;
+    } else {
+      // Prompt/proxy skills use POST with variables
+      url = `${API}/v1/skills/${encodeURIComponent(s.id)}/invoke`;
+      method = 'POST';
+      const variables = {};
+      const schema = s.inputSchema;
+      if (schema && schema.properties) {
+        for (const key of Object.keys(schema.properties)) {
+          const el = document.getElementById('param-' + key);
+          if (el && el.value.trim()) variables[key] = el.value.trim();
+        }
+      }
+      body = JSON.stringify({ variables });
+    }
+
+    const start = performance.now();
+    const r = await fetch(url, { method, headers, body });
+    const elapsed = Math.round(performance.now() - start);
+    const data = await r.json();
+
+    if (!r.ok) {
+      meta.innerHTML = `<span class="tag error">Error ${r.status}</span><span>${elapsed}ms</span>`;
+      lastResponse = { type: 'error', data, json: JSON.stringify(data, null, 2), skill: s, elapsed, status: r.status };
+    } else {
+      const credits = data.creditsCost || data.creditsCharged || s.creditCost;
+      meta.innerHTML = `<span class="tag live">Live Response</span><span>${elapsed}ms</span><span>${credits} cr charged</span>`;
+      lastResponse = { type: 'live', data, json: JSON.stringify(data, null, 2), skill: s, elapsed, status: r.status };
+      // Refresh credit balance
+      initAuth();
+    }
+
+    renderOutput('formatted');
+  } catch (e) {
+    meta.innerHTML = '<span class="tag error">Network Error</span>';
+    document.getElementById('outputBody').innerHTML = `<pre style="color:var(--danger)">${esc(e.message)}</pre>`;
+  } finally {
+    btn.disabled = !apiKey;
+    btn.textContent = `Execute Live`;
+  }
+}
+
+// ── Render Output ──────────────────────────────────────────────────
+function renderOutput(tab) {
+  if (!lastResponse) return;
+  const body = document.getElementById('outputBody');
+  const { type, data, json, skill, elapsed, status } = lastResponse;
+
+  if (tab === 'formatted') {
+    body.innerHTML = `<div style="position:relative"><button class="copy-btn" onclick="copyOutput()">Copy</button><pre>${syntaxHighlight(json)}</pre></div>`;
+  } else if (tab === 'raw') {
+    body.innerHTML = `<div style="position:relative"><button class="copy-btn" onclick="copyOutput()">Copy</button><pre>${esc(json)}</pre></div>`;
+  } else if (tab === 'curl') {
+    let curl;
+    if (skill.skillType === 'data') {
+      curl = `curl "${API}/v1/skills/${skill.id}/query" \\\n  -H "X-API-Key: YOUR_KEY"`;
+    } else {
+      const vars = {};
+      const schema = skill.inputSchema;
+      if (schema && schema.properties) {
+        for (const key of Object.keys(schema.properties)) {
+          const el = document.getElementById('param-' + key);
+          vars[key] = el ? el.value.trim() || key : key;
+        }
+      }
+      curl = `curl -X POST "${API}/v1/skills/${skill.id}/invoke" \\\n  -H "X-API-Key: YOUR_KEY" \\\n  -H "Content-Type: application/json" \\\n  -d '${JSON.stringify({ variables: vars })}'`;
+    }
+    body.innerHTML = `<div style="position:relative"><button class="copy-btn" onclick="copyOutput()">Copy</button><pre>${esc(curl)}</pre></div>`;
+  }
+}
+
+function switchOutputTab(tab, btn) {
+  document.querySelectorAll('#outputTabs button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderOutput(tab);
+}
+
+function copyOutput() {
+  const pre = document.querySelector('#outputBody pre');
+  if (pre) { navigator.clipboard.writeText(pre.textContent); toast('Copied to clipboard'); }
+}
+
+function syntaxHighlight(json) {
+  return esc(json).replace(/"([^"]+)":/g, '<span style="color:var(--info)">"$1"</span>:')
+    .replace(/"([^"]+)"/g, '<span style="color:var(--accent-text)">"$1"</span>')
+    .replace(/\b(true|false)\b/g, '<span style="color:var(--purple)">$1</span>')
+    .replace(/\b(null)\b/g, '<span style="color:var(--text-muted)">$1</span>')
+    .replace(/\b(\d+\.?\d*)\b/g, '<span style="color:var(--warning)">$1</span>');
+}
+
+// ── Init ───────────────────────────────────────────────────────────
+checkStatus();
+initAuth();
+loadSkills();
+</script>
+</body>
+</html>

@@ -25,6 +25,9 @@ import {
   getRevenueBreakdown,
   getReconciliation,
   getTreasuryStatus,
+  getCreatorStats,
+  getSkillsByAuthor,
+  getPayoutRequests,
 } from '../db/index';
 import { env } from '../config/index';
 import { cacheIncr } from '../cache/index';
@@ -323,6 +326,48 @@ dashboardRouter.get('/admin-logs', requireClerkAuth, (c) => {
   const callLogs = getRecentCallLogs(period);
   const skillLogs = getSkillInvocationLogs(period);
   return c.json({ period, callLogs, skillLogs });
+});
+
+// ─── GET /v1/dashboard/creator-stats — Clerk-auth'd creator earnings ──────────
+
+dashboardRouter.get('/creator-stats', requireClerkAuth, (c) => {
+  const clerkUserId = c.get('clerkUserId');
+  const clerkEmail = c.get('clerkEmail');
+  let keyRow = getApiKeyByClerkId(clerkUserId);
+  if (!keyRow && clerkEmail) keyRow = getApiKeyByEmail(clerkEmail);
+  if (!keyRow) return c.json({ isCreator: false, skills: [], withdrawals: [] });
+
+  const stats = getCreatorStats(keyRow.key);
+  const mySkills = getSkillsByAuthor(keyRow.key);
+  const payouts = getPayoutRequests(keyRow.key);
+
+  return c.json({
+    isCreator: mySkills.length > 0,
+    totalEarned: stats.totalEarned,
+    totalSales: stats.totalSales,
+    publishedSkills: mySkills.length,
+    skills: mySkills.map(s => {
+      const breakdown = stats.skillBreakdown.find((b: { skillId: string }) => b.skillId === s.id);
+      return {
+        id: s.id,
+        name: s.name,
+        creditCost: s.credit_cost,
+        uses: s.uses,
+        public: !!s.public,
+        earned: breakdown?.earned ?? 0,
+        sales: breakdown?.sales ?? 0,
+        publishedAt: s.published_at,
+      };
+    }),
+    withdrawals: payouts.map(p => ({
+      id: p.id,
+      amountCredits: p.amount_credits,
+      usdcEquivalent: (p.amount_credits * 0.00075).toFixed(4),
+      status: p.status,
+      createdAt: p.created_at,
+      processedAt: p.processed_at,
+    })),
+  });
 });
 
 async function sendClaimEmail(params: {

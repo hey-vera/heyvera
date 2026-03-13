@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>System Status — ClawNet</title>
+  <meta name="description" content="ClawNet system status. Live API health, skill health, latency, and uptime.">
+  <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png">
+  <script>if(localStorage.getItem('clawnet_theme')==='light')document.documentElement.setAttribute('data-theme','light')</script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-primary: #0a0a0b; --bg-surface: #111113; --bg-surface-2: #18181b; --bg-surface-3: #1f1f23;
+      --border-subtle: #1e1e22; --border-default: #27272a; --border-strong: #3f3f46;
+      --text-primary: #fafafa; --text-secondary: #a1a1aa; --text-tertiary: #71717a; --text-muted: #52525b;
+      --accent: #10b981; --accent-dim: rgba(16,185,129,0.12);
+      --accent-hover: #34d399; --accent-text: #6ee7b7;
+      --danger: #ef4444; --danger-dim: rgba(239,68,68,0.12);
+      --warning: #f59e0b; --warning-dim: rgba(245,158,11,0.12);
+      --info: #3b82f6; --info-dim: rgba(59,130,246,0.12);
+      --purple: #8b5cf6; --purple-dim: rgba(139,92,246,0.12);
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', Consolas, monospace;
+      --radius-sm: 4px; --radius-md: 6px; --radius-lg: 8px; --radius-xl: 12px;
+      --nav-bg: rgba(10,10,11,0.8);
+    }
+    [data-theme="light"] {
+      --bg-primary: #f5f5f5; --bg-surface: #ffffff; --bg-surface-2: #f0f0f2; --bg-surface-3: #e8e8ec;
+      --border-subtle: #e4e4e7; --border-default: #d4d4d8; --border-strong: #a1a1aa;
+      --text-primary: #09090b; --text-secondary: #3f3f46; --text-tertiary: #71717a; --text-muted: #a1a1aa;
+      --accent-dim: rgba(16,185,129,0.10); --danger-dim: rgba(239,68,68,0.10);
+      --warning-dim: rgba(245,158,11,0.10); --info-dim: rgba(59,130,246,0.10);
+      --purple-dim: rgba(139,92,246,0.10); --nav-bg: rgba(245,245,245,0.85);
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: var(--font-sans); background: var(--bg-primary); color: var(--text-secondary); font-size: 14px; line-height: 1.6; }
+    a { color: inherit; text-decoration: none; }
+    ::selection { background: var(--accent-dim); }
+
+    nav { position: sticky; top: 0; z-index: 100; background: var(--nav-bg); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border-subtle); padding: 0 24px; height: 56px; display: flex; align-items: center; justify-content: space-between; }
+    .nav-left, .nav-right { display: flex; align-items: center; gap: 12px; }
+    .nav-logo-text { font-size: 18px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.02em; }
+    .nav-logo-text span { color: var(--accent); }
+    .nav-links { list-style: none; display: flex; align-items: center; gap: 2px; margin-left: 20px; }
+    .nav-links a { font-size: 13px; font-weight: 500; color: var(--text-tertiary); padding: 6px 12px; border-radius: var(--radius-md); transition: color 0.15s, background 0.15s; }
+    .nav-links a:hover { color: var(--text-primary); background: var(--bg-surface-2); }
+    .nav-links a.active { color: var(--text-primary); }
+    .theme-toggle { background: var(--bg-surface-2); border: 1px solid var(--border-default); border-radius: 6px; width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--text-tertiary); padding: 0; flex-shrink: 0; }
+    .theme-toggle:hover { color: var(--text-primary); }
+    .theme-toggle .icon-sun { display: none; }
+    [data-theme="light"] .theme-toggle .icon-sun { display: block; }
+    [data-theme="light"] .theme-toggle .icon-moon { display: none; }
+    .hamburger { display: none; background: none; border: 1px solid var(--border-default); border-radius: var(--radius-md); padding: 6px; cursor: pointer; color: var(--text-secondary); }
+    .hamburger svg { width: 20px; height: 20px; display: block; }
+    .mobile-menu { display: none; position: fixed; top: 56px; left: 0; right: 0; background: var(--bg-surface); border-bottom: 1px solid var(--border-default); z-index: 99; padding: 12px 24px; }
+    .mobile-menu.open { display: block; }
+    .mobile-menu a { display: block; padding: 10px 0; font-size: 14px; color: var(--text-secondary); border-bottom: 1px solid var(--border-subtle); }
+    .mobile-menu a:last-child { border-bottom: none; }
+    .mobile-menu a:hover { color: var(--accent); }
+    @media (max-width: 900px) { .nav-links { display: none; } .hamburger { display: block; } }
+
+    .container { max-width: 800px; margin: 0 auto; padding: 0 24px; }
+
+    .hero { padding: 48px 0 32px; text-align: center; }
+    .hero h1 { font-size: 28px; font-weight: 700; color: var(--text-primary); margin-bottom: 8px; }
+    .hero h1 span { color: var(--accent); }
+    .hero p { color: var(--text-tertiary); font-size: 15px; }
+
+    /* OVERALL STATUS */
+    .overall { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-xl); padding: 32px; text-align: center; margin-bottom: 32px; }
+    .overall .status-icon { width: 48px; height: 48px; border-radius: 50%; margin: 0 auto 16px; display: flex; align-items: center; justify-content: center; font-size: 24px; }
+    .overall .status-icon.ok { background: var(--accent-dim); }
+    .overall .status-icon.warn { background: var(--warning-dim); }
+    .overall .status-icon.down { background: var(--danger-dim); }
+    .overall h2 { font-size: 22px; font-weight: 700; color: var(--text-primary); margin-bottom: 4px; }
+    .overall .sub { font-size: 13px; color: var(--text-muted); }
+
+    /* STAT ROW */
+    .stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 32px; }
+    @media (max-width: 600px) { .stat-row { grid-template-columns: repeat(2, 1fr); } }
+    .stat-card { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 16px; text-align: center; }
+    .stat-card .val { font-size: 22px; font-weight: 700; color: var(--text-primary); font-family: var(--font-mono); }
+    .stat-card .val.g { color: var(--accent); }
+    .stat-card .lbl { font-size: 11px; color: var(--text-muted); margin-top: 2px; text-transform: uppercase; letter-spacing: 0.05em; }
+
+    /* SERVICE LIST */
+    .services { margin-bottom: 32px; }
+    .services h3 { font-size: 13px; font-weight: 600; color: var(--text-primary); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 12px; }
+    .svc { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); margin-bottom: 8px; }
+    .svc .svc-left { display: flex; align-items: center; gap: 12px; }
+    .svc .svc-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .svc .svc-dot.ok { background: var(--accent); box-shadow: 0 0 6px rgba(16,185,129,0.4); }
+    .svc .svc-dot.warn { background: var(--warning); box-shadow: 0 0 6px rgba(245,158,11,0.4); }
+    .svc .svc-dot.down { background: var(--danger); box-shadow: 0 0 6px rgba(239,68,68,0.4); }
+    .svc .svc-dot.unknown { background: var(--text-muted); }
+    .svc .svc-name { font-size: 14px; font-weight: 500; color: var(--text-primary); }
+    .svc .svc-desc { font-size: 12px; color: var(--text-muted); }
+    .svc .svc-status { font-size: 12px; font-weight: 500; }
+    .svc .svc-status.ok { color: var(--accent); }
+    .svc .svc-status.warn { color: var(--warning); }
+    .svc .svc-status.down { color: var(--danger); }
+
+    /* SKILL HEALTH */
+    .skill-health { margin-bottom: 32px; }
+    .skill-health h3 { font-size: 13px; font-weight: 600; color: var(--text-primary); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 12px; }
+    .sh-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
+    .sh-item { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); }
+    .sh-item .sh-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+    .sh-item .sh-dot.ok { background: var(--accent); }
+    .sh-item .sh-dot.degraded { background: var(--warning); }
+    .sh-item .sh-name { font-size: 13px; color: var(--text-primary); flex: 1; }
+    .sh-item .sh-badge { font-size: 10px; padding: 1px 6px; border-radius: 9999px; }
+    .sh-item .sh-badge.ok { background: var(--accent-dim); color: var(--accent); }
+    .sh-item .sh-badge.degraded { background: var(--warning-dim); color: var(--warning); }
+
+    .refresh-note { text-align: center; font-size: 12px; color: var(--text-muted); padding: 20px 0 40px; }
+
+    footer { border-top: 1px solid var(--border-subtle); padding: 32px 24px; display: flex; justify-content: space-between; align-items: center; max-width: 800px; margin: 0 auto; flex-wrap: wrap; gap: 16px; }
+    .footer-links { list-style: none; display: flex; gap: 16px; flex-wrap: wrap; }
+    .footer-links a { font-size: 12px; color: var(--text-muted); }
+    .footer-links a:hover { color: var(--text-secondary); }
+    .footer-copy { font-size: 12px; color: var(--text-muted); }
+  </style>
+</head>
+<body>
+<nav>
+  <div class="nav-left">
+    <a href="/" class="nav-logo"><span class="nav-logo-text">Claw <span>Network</span></span></a>
+    <ul class="nav-links">
+      <li><a href="/">Home</a></li>
+      <li><a href="/docs.html">Docs</a></li>
+      <li><a href="/marketplace.html">Marketplace</a></li>
+      <li><a href="/endpoints.html">Endpoints</a></li>
+      <li><a href="/playground.html">Playground</a></li>
+    </ul>
+    <button class="hamburger" onclick="document.getElementById('mobileMenu').classList.toggle('open')" aria-label="Menu">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+    </button>
+  </div>
+  <div class="nav-right">
+    <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">
+      <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+    </button>
+  </div>
+</nav>
+<div class="mobile-menu" id="mobileMenu">
+  <a href="/">Home</a><a href="/docs.html">Docs</a><a href="/marketplace.html">Marketplace</a><a href="/endpoints.html">Endpoints</a><a href="/playground.html">Playground</a><a href="/dashboard.html">Dashboard</a>
+</div>
+
+<div class="container">
+  <div class="hero">
+    <h1>System <span>Status</span></h1>
+    <p>Real-time health of ClawNet services and data skills.</p>
+  </div>
+
+  <div class="overall" id="overallStatus">
+    <div class="status-icon unknown" id="overallIcon">...</div>
+    <h2 id="overallText">Checking...</h2>
+    <div class="sub" id="overallSub">Connecting to API</div>
+  </div>
+
+  <div class="stat-row" id="statRow">
+    <div class="stat-card"><div class="val" id="sLatency">&mdash;</div><div class="lbl">Avg Latency</div></div>
+    <div class="stat-card"><div class="val g" id="sEndpoints">&mdash;</div><div class="lbl">Endpoints</div></div>
+    <div class="stat-card"><div class="val" id="sSuccessRate">&mdash;</div><div class="lbl">Success Rate</div></div>
+    <div class="stat-card"><div class="val" id="sTotalCalls">&mdash;</div><div class="lbl">Total Calls</div></div>
+  </div>
+
+  <div class="services">
+    <h3>Core Services</h3>
+    <div id="serviceList">
+      <div class="svc"><div class="svc-left"><div class="svc-dot unknown"></div><div><div class="svc-name">Loading...</div></div></div></div>
+    </div>
+  </div>
+
+  <div class="skill-health" id="skillHealthSection" style="display:none">
+    <h3>Data Skill Health</h3>
+    <div class="sh-grid" id="skillHealthGrid"></div>
+  </div>
+
+  <div class="refresh-note">Auto-refreshes every 30 seconds &middot; <a href="https://stats.uptimerobot.com/BtyHzXcO5p" target="_blank" style="color:var(--accent)">External monitoring</a></div>
+</div>
+
+<footer>
+  <div>
+    <a href="/"><span class="nav-logo-text">Claw <span>Network</span></span></a>
+    <ul class="footer-links">
+      <li><a href="/">Home</a></li><li><a href="/docs.html">Docs</a></li><li><a href="/marketplace.html">Marketplace</a></li>
+      <li><a href="https://github.com/1xmint" target="_blank">GitHub</a></li><li><a href="https://t.me/claw_net" target="_blank">Telegram</a></li>
+    </ul>
+  </div>
+  <div class="footer-copy">&copy; 2026 ClawNet &middot; Powered by x402</div>
+</footer>
+
+<script>
+const API = 'https://api.claw-net.org';
+
+function toggleTheme() { const l = document.documentElement.getAttribute('data-theme')==='light'; document.documentElement.setAttribute('data-theme', l?'':'light'); localStorage.setItem('clawnet_theme', l?'dark':'light'); }
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+async function checkAll() {
+  const services = [
+    { name: 'API Server', desc: 'Core Hono API on port 3402', check: () => fetch(`${API}/health`).then(r => r.ok ? 'ok' : 'warn') },
+    { name: 'Authentication', desc: 'API key validation + Clerk JWT', check: () => fetch(`${API}/health`).then(r => r.ok ? 'ok' : 'warn') },
+    { name: 'Skill Registry', desc: 'Public skill listing + marketplace', check: () => fetch(`${API}/v1/skills?limit=1`).then(r => r.ok ? 'ok' : 'warn') },
+    { name: 'Discovery Engine', desc: 'Semantic + P2P + on-chain search', check: () => fetch(`${API}/v1/stats`).then(r => r.ok ? 'ok' : 'warn') },
+    { name: 'Cache Layer', desc: 'Redis L2 + in-memory L1 cache', check: () => fetch(`${API}/health`).then(r => r.ok ? 'ok' : 'warn') },
+  ];
+
+  let allOk = true;
+  let anyDown = false;
+
+  const results = await Promise.allSettled(services.map(async s => {
+    try { return await s.check(); } catch { return 'down'; }
+  }));
+
+  const list = document.getElementById('serviceList');
+  list.innerHTML = services.map((s, i) => {
+    const status = results[i].status === 'fulfilled' ? results[i].value : 'down';
+    if (status !== 'ok') allOk = false;
+    if (status === 'down') anyDown = true;
+    const label = status === 'ok' ? 'Operational' : status === 'warn' ? 'Degraded' : 'Down';
+    return `<div class="svc"><div class="svc-left"><div class="svc-dot ${status}"></div><div><div class="svc-name">${esc(s.name)}</div><div class="svc-desc">${esc(s.desc)}</div></div></div><div class="svc-status ${status}">${label}</div></div>`;
+  }).join('');
+
+  // Overall
+  const icon = document.getElementById('overallIcon');
+  const text = document.getElementById('overallText');
+  const sub = document.getElementById('overallSub');
+  if (allOk) {
+    icon.className = 'status-icon ok'; icon.textContent = '&#10003;';
+    text.textContent = 'All Systems Operational';
+    text.style.color = 'var(--accent)';
+    sub.textContent = 'All services running normally';
+  } else if (anyDown) {
+    icon.className = 'status-icon down'; icon.textContent = '&#10007;';
+    text.textContent = 'Service Disruption';
+    text.style.color = 'var(--danger)';
+    sub.textContent = 'Some services are experiencing issues';
+  } else {
+    icon.className = 'status-icon warn'; icon.textContent = '!';
+    text.textContent = 'Partial Degradation';
+    text.style.color = 'var(--warning)';
+    sub.textContent = 'Some services are degraded';
+  }
+
+  // Stats
+  try {
+    const r = await fetch(`${API}/v1/stats`);
+    if (r.ok) {
+      const d = await r.json();
+      document.getElementById('sLatency').textContent = (d.avgDurationMs || 0) + 'ms';
+      document.getElementById('sEndpoints').textContent = (d.endpointCount || d.totalEndpoints || 0).toLocaleString();
+      document.getElementById('sSuccessRate').textContent = d.successRate ? (d.successRate * 100).toFixed(1) + '%' : '—';
+      document.getElementById('sTotalCalls').textContent = (d.totalCalls || 0).toLocaleString();
+    }
+  } catch {}
+
+  // Skill health
+  try {
+    const r = await fetch(`${API}/v1/skills?limit=100&type=data`);
+    if (r.ok) {
+      const d = await r.json();
+      const skills = (d.skills || []).filter(s => s.healthStatus);
+      if (skills.length > 0) {
+        document.getElementById('skillHealthSection').style.display = '';
+        document.getElementById('skillHealthGrid').innerHTML = skills.map(s => {
+          const ok = s.healthStatus === 'HEALTHY';
+          return `<div class="sh-item"><div class="sh-dot ${ok ? 'ok' : 'degraded'}"></div><div class="sh-name">${esc(s.displayName || s.name)}</div><span class="sh-badge ${ok ? 'ok' : 'degraded'}">${ok ? 'Healthy' : s.healthStatus}</span></div>`;
+        }).join('');
+      }
+    }
+  } catch {}
+}
+
+checkAll();
+setInterval(checkAll, 30000);
+</script>
+</body>
+</html>
