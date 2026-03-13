@@ -1,6 +1,6 @@
 ---
 name: claw-net
-description: Query 344+ live crypto/DeFi data endpoints and 17 AI skills through one API. Orchestrate multi-step agent workflows with natural language — prices, wallets, whales, yields, token analysis. Pay-per-query credits ($0.001 each). Publish your own skills and earn revenue on every invocation.
+description: Query 344+ live crypto/DeFi data endpoints and a growing library of AI skills through one API. Orchestrate multi-step agent workflows with natural language — prices, wallets, whales, yields, token analysis. Pay-per-query credits ($0.001 each). New skills and endpoints are added continuously and discoverable at runtime.
 metadata:
   openclaw:
     requires:
@@ -12,6 +12,8 @@ metadata:
 # ClawNet
 
 One API for crypto data and AI agent workflows. Ask anything about Solana tokens, wallets, whales, or DeFi — ClawNet plans, executes, and returns structured answers using real-time API calls.
+
+The skill and endpoint catalog grows continuously. Always discover what's available at runtime rather than relying on hardcoded lists.
 
 ## Setup
 
@@ -57,55 +59,45 @@ Strategies: `cheapest`, `balanced`, `fastest`, `reliable`.
 ## Core Endpoints
 
 ### Orchestrate (Natural Language)
-- **POST /v1/orchestrate** — Ask anything, get a structured answer. Auto-routes across 344+ endpoints.
+- **POST /v1/orchestrate** — Ask anything, get a structured answer. Auto-routes across all available endpoints.
 - **POST /v1/batch** — Up to 10 parallel queries in one call.
 - **GET /v1/stream/orchestrate?query=...** — SSE streaming response.
 - **GET /v1/estimate?query=...** — Estimate cost before running (free, no charge).
 
-### Skills (Pre-built Tools)
-- **GET /v1/marketplace/skills** — Browse all available skills. Supports `?search=`, `?sort=popular`, `?tag=defi`.
-- **GET /v1/skills/:id** — Get skill details, input schema, pricing.
-- **POST /v1/skills/:id/invoke** — Run a prompt-template skill.
-- **GET /v1/skills/:id/query?params** — Query a data skill (structured JSON response).
+### Discover Skills & Endpoints
+The catalog changes over time. Always discover what's available before invoking:
 
-### Data Skills (Real-Time Structured Data)
-These return clean JSON — no LLM involved, just live data:
+- **GET /v1/marketplace/skills** — Browse all skills. Supports `?search=`, `?sort=popular`, `?tag=defi`.
+- **GET /v1/skills/:id** — Get a skill's full details including `input_schema` (lists every accepted parameter), `credit_cost`, `skill_type`, and `output_schema`.
+- **GET /v1/registry** — All raw API endpoints grouped by category.
+- **POST /v1/discover** — Semantic search for skills by natural language description.
+- **GET /v1/skills/:id/openapi** — OpenAPI 3.1 spec for any skill.
+- **GET /v1/skills/:id/mcp** — MCP tool manifest for any skill.
 
-| Skill ID | What It Returns | Credits | Example Query |
-|---|---|---|---|
-| `price-oracle-data` | Token price, volume, market cap | 1 cr | `?token=SOL` |
-| `trending-tokens-data` | Top trending tokens | 2 cr | `?sortBy=volume&limit=10` |
-| `whale-tracker-data` | Large wallet movements | 2 cr | `?token=SOL&limit=20` |
-| `defi-yield-data` | DeFi yield rates | 2 cr | `?riskLevel=low&minApy=5` |
-| `token-analysis-data` | On-chain token metrics | 2 cr | `?token=BONK` |
-| `wallet-profiler-data` | Wallet holdings & history | 2 cr | `?wallet=7xK...` |
-| `token-launch-data` | New token launches | 1 cr | `?launchType=new` |
+### Invoke Skills
+There are two types of skills. Check `skill_type` from `GET /v1/skills/:id` to know which:
 
-Example:
+**Data skills** (`skill_type: "data"`) — return raw structured JSON, no LLM involved:
 ```bash
+# Step 1: Get the skill's input_schema to learn accepted params
+curl "https://api.claw-net.org/v1/skills/price-oracle-data" \
+  -H "X-API-Key: $CLAWNET_API_KEY"
+# Response includes: input_schema.properties → { token: { type: "string" } }
+
+# Step 2: Query with those params
 curl "https://api.claw-net.org/v1/skills/price-oracle-data/query?token=SOL" \
   -H "X-API-Key: $CLAWNET_API_KEY"
 ```
 
-### AI Skills (LLM-Powered Analysis)
-These use AI to analyze and synthesize:
-
-| Skill ID | What It Does | Credits |
-|---|---|---|
-| `token-analysis` | Deep token analysis with risk/opportunity scoring | 5 cr |
-| `social-sentiment` | Social media sentiment analysis | 3 cr |
-| `portfolio-optimizer` | Portfolio optimization suggestions | 8 cr |
-| `whale-tracker` | Whale movement analysis with context | 5 cr |
-| `wallet-profiler` | Wallet behavior profiling | 6 cr |
-| `trending-tokens` | Trending token discovery and ranking | 4 cr |
-| `defi-yield-scanner` | DeFi yield opportunities across protocols | 5 cr |
-| `token-launch-radar` | New token launch detection and analysis | 4 cr |
-| `price-oracle` | Token price analysis and context | 3 cr |
-| `nft-collection-intel` | NFT collection analysis | 5 cr |
-
-Example:
+**Prompt skills** (`skill_type: "prompt_template"`) — use AI to analyze and synthesize:
 ```bash
-curl -X POST https://api.claw-net.org/v1/skills/token-analysis/invoke \
+# Step 1: Get the skill's input_schema to learn accepted params
+curl "https://api.claw-net.org/v1/skills/token-analysis" \
+  -H "X-API-Key: $CLAWNET_API_KEY"
+# Response includes: input_schema.properties → { token: {...}, depth: { enum: ["quick","standard","deep"] } }
+
+# Step 2: Invoke with those params
+curl -X POST "https://api.claw-net.org/v1/skills/token-analysis/invoke" \
   -H "X-API-Key: $CLAWNET_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"input": {"token": "SOL", "depth": "deep"}}'
@@ -116,20 +108,14 @@ curl -X POST https://api.claw-net.org/v1/skills/token-analysis/invoke \
 - **GET /v1/auth/me** — API key info, tier, usage stats.
 - **GET /v1/auth/usage** — Detailed usage breakdown.
 
-### Discovery
-- **GET /v1/registry** — All endpoints grouped by category (344+ total).
-- **POST /v1/discover** — Semantic search for skills by description.
-- **GET /v1/skills/:id/openapi** — OpenAPI 3.1 spec for any skill.
-- **GET /v1/skills/:id/mcp** — MCP tool manifest for any skill.
-
 ## Pricing
 
 1 credit = $0.001. Credits never expire.
 
-- **Data skill queries:** 1–2 credits per call (cached responses cost 90% less)
-- **AI skill invocations:** 3–8 credits per call (see tables above for exact pricing)
-- **Orchestrated queries:** varies by complexity + 2 credit orchestration fee
-- **Cost estimate:** Always free via `GET /v1/estimate?query=...`
+- **Skill costs** vary per skill — check `credit_cost` from `GET /v1/skills/:id`
+- **Cached responses** cost up to 90% less than live calls
+- **Orchestrated queries** vary by complexity + 2 credit orchestration fee
+- **Cost estimate** always free via `GET /v1/estimate?query=...`
 
 ## Error Handling
 
@@ -148,9 +134,10 @@ Common codes: `INSUFFICIENT_CREDITS` (402), `INVALID_API_KEY` (401), `RATE_LIMIT
 ## Tips for Agents
 
 1. **Start with orchestrate** — it handles routing automatically. Only use specific skill endpoints when you need precise control.
-2. **Use estimates first** — `GET /v1/estimate` is free and tells you the cost before committing.
-3. **Check balance** — `GET /v1/balance` before expensive operations.
-4. **Use cheapest strategy** — `"pricing": {"strategy": "cheapest"}` minimizes credit usage.
-5. **Data skills for structured data** — Use `/query` endpoints when you need raw JSON (faster, cheaper than orchestrate).
-6. **Browse available skills** — `GET /v1/marketplace/skills` to discover what's available. This list updates automatically as new skills are added.
-7. **Batch queries** — Use `POST /v1/batch` to run up to 10 queries in parallel.
+2. **Discover before invoking** — always call `GET /v1/skills/:id` first to read `input_schema` for accepted parameters. Don't guess params.
+3. **Use estimates first** — `GET /v1/estimate` is free and tells you the cost before committing.
+4. **Check balance** — `GET /v1/balance` before expensive operations.
+5. **Use cheapest strategy** — `"pricing": {"strategy": "cheapest"}` minimizes credit usage.
+6. **Data skills for structured data** — Use `/query` endpoints when you need raw JSON (faster, cheaper than orchestrate).
+7. **Browse for new skills** — `GET /v1/marketplace/skills` returns the live catalog. New skills are added regularly.
+8. **Batch queries** — Use `POST /v1/batch` to run up to 10 queries in parallel.
