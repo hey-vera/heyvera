@@ -204,7 +204,14 @@ export function getAdminDashboardStats(period: Period): {
     SELECT COUNT(*) AS total FROM orchestrations
     WHERE timestamp >= datetime('now', ?)
   `).get(since) as { total: number };
-  const revenue = db.prepare(`
+  // Credits consumed via direct orchestration calls (not routed through skills/marketplace)
+  const orchRevenue = db.prepare(`
+    SELECT COALESCE(SUM(COALESCE(total, 0)), 0) AS total
+    FROM orchestrations
+    WHERE timestamp >= datetime('now', ?) AND success = 1
+  `).get(since) as { total: number };
+  // Revenue + platform fees from skill/marketplace transactions
+  const txnRevenue = db.prepare(`
     SELECT COALESCE(SUM(amount_credits), 0) AS total,
            COALESCE(SUM(fee_credits), 0) AS fees
     FROM transactions
@@ -215,10 +222,13 @@ export function getAdminDashboardStats(period: Period): {
     WHERE timestamp >= datetime('now', ?) AND api_key IS NOT NULL
   `).get(since) as { total: number };
   const skills = db.prepare(`SELECT COUNT(*) AS total FROM skills`).get() as { total: number };
+  const totalRevenue = (orchRevenue.total ?? 0) + (txnRevenue.total ?? 0);
+  // Net profit = marketplace 3% fees + all orchestration revenue (low raw API cost vs. credit price)
+  const netProfit = (txnRevenue.fees ?? 0) + (orchRevenue.total ?? 0);
   return {
     totalCalls: calls.total ?? 0,
-    totalRevenue: revenue.total ?? 0,
-    netProfit: revenue.fees ?? 0,
+    totalRevenue,
+    netProfit,
     activeUsers: users.total ?? 0,
     totalSkills: skills.total ?? 0,
   };
