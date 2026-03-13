@@ -214,6 +214,23 @@
     .adv-input{width:100%;background:var(--bg-primary);border:1px solid var(--border-default);color:var(--text-primary);font-family:var(--font-sans);font-size:13px;padding:8px 10px;border-radius:var(--radius-md);outline:none}
     .adv-input:focus{border-color:var(--accent)} textarea.adv-input{resize:vertical;min-height:64px;font-family:var(--font-mono);font-size:12px}
 
+    /* Use badges */
+    .use-badges{display:inline-flex;gap:6px;font-size:10px;font-weight:600}
+    .use-badge{display:inline-flex;align-items:center;gap:3px;padding:1px 6px;border-radius:9999px}
+    .use-badge.sb{background:var(--accent-dim);color:var(--accent)}
+    .use-badge.lv{background:var(--danger-dim);color:var(--danger)}
+    .at-ep-card .use-badges{margin-top:6px}
+
+    /* Price stat box */
+    .price-stat-box{display:flex;align-items:center;gap:16px;background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);padding:14px 20px;margin-bottom:16px}
+    .price-stat-box .psb-label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted)}
+    .price-stat-box .psb-credits{font-family:var(--font-mono);font-size:24px;font-weight:700;color:var(--warning)}
+    .price-stat-box .psb-usd{font-family:var(--font-mono);font-size:16px;font-weight:600;color:var(--text-tertiary)}
+    .price-stat-box .psb-divider{width:1px;height:32px;background:var(--border-default)}
+    .price-stat-box .psb-mode{font-size:12px;font-weight:600;padding:4px 12px;border-radius:9999px}
+    .price-stat-box .psb-mode.sandbox{background:var(--accent-dim);color:var(--accent)}
+    .price-stat-box .psb-mode.live{background:var(--danger-dim);color:var(--danger)}
+
     /* Inline API key */
     .inline-key{background:var(--warning-dim);border:1px solid rgba(245,158,11,.2);border-radius:var(--radius-md);padding:14px;margin-bottom:16px}
     .inline-key p{font-size:12px;color:var(--warning);margin-bottom:8px;font-weight:500}
@@ -343,7 +360,7 @@
 
   <!-- ═══ API TESTER ═══ -->
   <div class="pg-tab-panel" id="panelTester">
-    <div class="at-head"><h2>API Tester</h2><p>Select an endpoint, edit the request, and hit Send. Requires Live mode with an API key.</p></div>
+    <div class="at-head"><h2>API Tester</h2><p>Select an endpoint, edit the request, and hit Send. Sandbox mode returns realistic mock data for free.</p></div>
     <div class="at-endpoints" id="atEndpoints"></div>
     <div class="at-workspace" id="atWorkspace">
       <div class="at-ws-head">
@@ -389,6 +406,13 @@ let currentMode='sandbox',activeTypeFilter='all',activeLang='javascript',activeR
 
 // ── Helpers ──────────────────────────────────────────────────────────
 function esc(s){const d=document.createElement('div');d.textContent=String(s??'');return d.innerHTML}
+
+// ── Use tracking (sandbox vs live) ───────────────────────────────────
+function _loadUses(){try{return JSON.parse(localStorage.getItem('claw_play_uses')||'{}')}catch{return{}}}
+function _saveUses(u){localStorage.setItem('claw_play_uses',JSON.stringify(u))}
+function trackUse(id,mode){const u=_loadUses();if(!u[id])u[id]={sandbox:0,live:0};u[id][mode]=(u[id][mode]||0)+1;_saveUses(u);return u[id]}
+function getUses(id){const u=_loadUses();return u[id]||{sandbox:0,live:0}}
+
 function creditsToUsd(n){const u=n*.001;return u<.01?'$'+u.toFixed(4).replace(/\.?0+$/,''):'$'+u.toFixed(u>=1?2:3).replace(/\.?0+$/,'')}
 function toast(m,t='success'){const e=document.createElement('div');e.className='toast '+t;e.textContent=m;document.getElementById('toast-container').appendChild(e);setTimeout(()=>e.remove(),4000)}
 function toggleTheme(){const l=document.documentElement.getAttribute('data-theme')==='light';document.documentElement.setAttribute('data-theme',l?'':'light');localStorage.setItem('clawnet_theme',l?'dark':'light')}
@@ -469,7 +493,8 @@ function renderSkillList(){
     const tc=s.skillType==='data'?'data':s.skillType==='api_proxy'?'proxy':'prompt';
     const tl=s.skillType==='data'?'DATA':s.skillType==='api_proxy'?'PROXY':'PROMPT';
     const sel=selectedSkill&&selectedSkill.id===s.id?' sel':'';
-    return`<div class="sb-skill${sel}" onclick="selectSkillById('${esc(s.id)}')"><div class="sb-skill-name"><span class="badge badge-${tc}">${tl}</span>${esc(s.displayName||s.name)}</div><div class="sb-skill-meta">${s.creditCost} cr &middot; ${(s.uses||0).toLocaleString()} uses</div></div>`;
+    const lu=getUses('skill:'+s.id);
+    return`<div class="sb-skill${sel}" onclick="selectSkillById('${esc(s.id)}')"><div class="sb-skill-name"><span class="badge badge-${tc}">${tl}</span>${esc(s.displayName||s.name)}</div><div class="sb-skill-meta">${s.creditCost} cr &middot; <span class="use-badges"><span class="use-badge sb" title="Sandbox runs">${lu.sandbox} sandbox</span><span class="use-badge lv" title="Live runs">${lu.live} live</span></span></div></div>`;
   }).join('');
 }
 
@@ -516,6 +541,10 @@ function renderSkillDetail(s){
 
   // Scenarios
   h+=`<div class="scenarios"><h4>Try it — click a scenario</h4><div class="scenario-grid">${scenarios.map((sc,i)=>`<div class="scenario-card" id="sc-${i}" onclick="runScenario(${i})"><div class="sc-icon">${sc.icon}</div><div class="sc-name">${esc(sc.name)}</div><div class="sc-desc">${esc(sc.desc)}</div></div>`).join('')}</div></div>`;
+
+  // Price stat box
+  const modeTag=currentMode==='live'?'<span class="psb-mode live">Live — credits charged</span>':'<span class="psb-mode sandbox">Sandbox — free</span>';
+  h+=`<div class="price-stat-box"><div><div class="psb-label">Cost per call</div><div class="psb-credits">${s.creditCost} credits</div></div><div class="psb-divider"></div><div><div class="psb-label">USD equivalent</div><div class="psb-usd">${creditsToUsd(s.creditCost)}</div></div><div class="psb-divider"></div><div>${modeTag}</div></div>`;
 
   // Result
   h+=`<div class="result-panel"><div class="result-header"><h4>Result</h4><div class="result-meta" id="resultMeta"></div></div>
@@ -567,8 +596,8 @@ function getSkillVars(s){
 
 // ── Scenarios ─────────────────────────────────────────────────────────
 const SC={
-  token:[{v:'ETH',n:'Ethereum',i:'💎',d:'Live ETH price, volume, market cap'},{v:'BTC',n:'Bitcoin',i:'🪙',d:'Live BTC price and 24h stats'},{v:'SOL',n:'Solana',i:'☀️',d:'Live SOL price and chain data'},{v:'DOGE',n:'Dogecoin',i:'🐕',d:'Live DOGE price and sentiment'}],
-  symbol:[{v:'ETH',n:'Ethereum',i:'💎',d:'ETH market data'},{v:'BTC',n:'Bitcoin',i:'🪙',d:'BTC market data'},{v:'SOL',n:'Solana',i:'☀️',d:'SOL market data'}],
+  token:[{v:'ETH',n:'Ethereum',i:'💎',d:'Live ETH price, volume, market cap'},{v:'BTC',n:'Bitcoin',i:'₿',d:'Live BTC price and 24h stats'},{v:'SOL',n:'Solana',i:'☀️',d:'Live SOL price and chain data'},{v:'DOGE',n:'Dogecoin',i:'🐕',d:'Live DOGE price and sentiment'}],
+  symbol:[{v:'ETH',n:'Ethereum',i:'💎',d:'ETH market data'},{v:'BTC',n:'Bitcoin',i:'₿',d:'BTC market data'},{v:'SOL',n:'Solana',i:'☀️',d:'SOL market data'}],
   query:[{v:'What are the top DeFi protocols by TVL?',n:'DeFi Overview',i:'📊',d:'Market analysis'},{v:'Summarize ETH staking rewards data',n:'ETH Staking',i:'🔒',d:'Yield analysis'},{v:'Current sentiment around BTC ETF news',n:'BTC Sentiment',i:'📰',d:'News sentiment'},{v:'Compare Arbitrum vs Optimism for devs',n:'L2 Comparison',i:'⚡',d:'Technical comparison'}],
   text:[{v:'ClawNet launched a data skills marketplace for AI agents.',n:'Bullish News',i:'📈',d:'Positive market signal'},{v:'SEC files enforcement action against exchange.',n:'Bearish News',i:'📉',d:'Regulatory risk'},{v:'ETH L2 transactions surpass mainnet by 15x.',n:'Tech Update',i:'🔧',d:'Infrastructure growth'}],
   address:[{v:'0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045',n:'Vitalik.eth',i:'👤',d:'Ethereum co-founder wallet'},{v:'0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D',n:'Uniswap Router',i:'🦄',d:'Uniswap V2 contract'}],
@@ -587,7 +616,7 @@ function runScenario(idx){
   // Auto-fill advanced params
   for(const[k,v]of Object.entries(sc.params)){const el=document.getElementById('param-'+k);if(el)el.value=v}
   window._activeScenarioIdx=idx;
-  if(currentMode==='live'&&apiKey){confirmRunLive();return}
+  // Always run sandbox preview — user must click Run button for live execution
   runSandbox();
 }
 
@@ -688,6 +717,7 @@ function runSandbox(){
     document.getElementById('resultMeta').innerHTML=`<span class="tag tag-sample">Sandbox</span><span>${elapsed}ms</span><span style="color:var(--accent)">Free — 0 credits</span>`;
     lastResponse={type:'sample',json,skill:selectedSkill};
     renderResult('formatted');
+    trackUse('skill:'+selectedSkill.id,'sandbox');renderSkillList();
   },500+Math.random()*300);
 }
 
@@ -718,7 +748,7 @@ async function runLiveConfirmed(){
     }
     const start=performance.now();const r=await fetch(url,{method,headers,body});const elapsed=Math.round(performance.now()-start);const data=await r.json();
     if(!r.ok){document.getElementById('resultMeta').innerHTML=`<span class="tag tag-err">Error ${r.status}</span><span>${elapsed}ms</span>`;lastResponse={type:'error',json:JSON.stringify(data,null,2),skill:s};toast(`Error: ${data.error||'Failed'}`,'error')}
-    else{const cr=data.creditsCost||data.creditsCharged||s.creditCost;document.getElementById('resultMeta').innerHTML=`<span class="tag tag-live">Live</span><span>${elapsed}ms</span><span style="color:var(--danger);font-weight:600">${cr} cr charged</span>`;lastResponse={type:'live',json:JSON.stringify(data,null,2),skill:s};toast(`Success — ${cr} credits charged`);initAuth()}
+    else{const cr=data.creditsCost||data.creditsCharged||s.creditCost;document.getElementById('resultMeta').innerHTML=`<span class="tag tag-live">Live</span><span>${elapsed}ms</span><span style="color:var(--danger);font-weight:600">${cr} cr charged</span>`;lastResponse={type:'live',json:JSON.stringify(data,null,2),skill:s};toast(`Success — ${cr} credits charged`);initAuth();trackUse('skill:'+s.id,'live');renderSkillList()}
     renderResult(activeResultTab);
   }catch(e){document.getElementById('resultBody').innerHTML=`<pre style="color:var(--danger)">${esc(e.message)}</pre>`}
 }
@@ -841,7 +871,8 @@ let selectedEp=null;
 function renderEndpoints(){
   document.getElementById('atEndpoints').innerHTML=ENDPOINTS.map((ep,i)=>{
     const mc=ep.method==='GET'?'get':'post';
-    return`<div class="at-ep-card" id="atep-${i}" onclick="selectEndpoint(${i})"><div class="ep-method"><span class="badge badge-${mc}">${ep.method}</span></div><div class="ep-name">${esc(ep.name)}</div><div class="ep-desc">${esc(ep.desc)}</div></div>`;
+    const eu=getUses('ep:'+ep.path);
+    return`<div class="at-ep-card" id="atep-${i}" onclick="selectEndpoint(${i})"><div class="ep-method"><span class="badge badge-${mc}">${ep.method}</span></div><div class="ep-name">${esc(ep.name)}</div><div class="ep-desc">${esc(ep.desc)}</div><div class="use-badges"><span class="use-badge sb">${eu.sandbox} sandbox</span><span class="use-badge lv">${eu.live} live</span></div></div>`;
   }).join('');
 }
 function selectEndpoint(idx){
@@ -872,6 +903,7 @@ async function atSend(){
       resStatus.innerHTML=`<span class="status-code s2">200</span><span style="font-size:11px;color:var(--text-muted)">${elapsed}ms</span><span style="font-size:11px;color:var(--accent);font-weight:500">Sandbox — 0 credits</span>`;
       resBody.innerHTML=syntaxHighlight(JSON.stringify(mock,null,2));resBody.style.color='';
       btn.disabled=false;btn.innerHTML='<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>Send';
+      trackUse('ep:'+ep.path,'sandbox');renderEndpoints();
     },400+Math.random()*400);
     return;
   }
@@ -889,6 +921,7 @@ async function atSend(){
     const sc=r.status,scCls=sc<300?'s2':sc<500?'s4':'s5';
     resStatus.innerHTML=`<span class="status-code ${scCls}">${sc}</span><span style="font-size:11px;color:var(--text-muted)">${elapsed}ms</span>`;
     resBody.innerHTML=syntaxHighlight(JSON.stringify(data,null,2));resBody.style.color='';
+    trackUse('ep:'+ep.path,'live');renderEndpoints();
   }catch(e){resBody.textContent='Network error: '+e.message;resBody.style.color='var(--danger)'}
   finally{btn.disabled=false;btn.innerHTML='<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>Send'}
 }
