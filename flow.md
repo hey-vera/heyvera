@@ -47,6 +47,13 @@ Every flow in the system, from boot to shutdown. Tree diagrams show exact paths 
 39. [Webhook HMAC Signing](#39-webhook-hmac-signing)
 40. [Credit Gifting](#40-credit-gifting)
 41. [x402 Verification & Reputation](#41-x402-verification--reputation)
+42. [Stripe Subscription Lifecycle](#42-stripe-subscription-lifecycle)
+43. [Stripe Refund Flow](#43-stripe-refund-flow)
+44. [Dashboard Authentication & Claim](#44-dashboard-authentication--claim)
+45. [Creator Revenue Dashboard](#45-creator-revenue-dashboard)
+46. [Clerk Webhooks & GDPR Erasure](#46-clerk-webhooks--gdpr-erasure)
+47. [Contact Form](#47-contact-form)
+48. [Dev Revenue Flow — Where the Money Goes](#48-dev-revenue-flow--where-the-money-goes)
 
 ---
 
@@ -2377,4 +2384,437 @@ FACILITATOR FALLBACK:
 
 ---
 
-*Generated from codebase analysis. Last updated: 2026-03-12. 62 DB migrations, decimal credits (v3), treasury auto-sweep, surcharge-to-treasury fix, 3-wallet architecture, endpoint auto-discovery (183 ClawAPIs endpoints), proportional cache pricing (10% of live, min 0.1cr), agent economy layer, future-proofing pass (skill health cron, per-skill rate limiting, MCP/OpenAPI manifests, tag filtering, similar skills, staking boost, webhook HMAC signing, credit gifting, batch-query, x402 verification & reputation).*
+## 42. Stripe Subscription Lifecycle
+
+```
+Stripe fires invoice.payment_succeeded
+│
+├─ POST /v1/webhooks/stripe-subscriptions
+│   ├─ Verify signature: stripe.webhooks.constructEvent()
+│   ├─ Idempotency: INSERT OR IGNORE into stripe_processed_events (event_id PK)
+│   │   └─ If already processed → return { received: true } (no double-credit)
+│   └─ Extract: email, subscriptionId, periodEnd from invoice
+│
+├─ Look up API key by email
+│   └─ No key found → warn + skip (credits not applied)
+│
+├─ Atomic transaction (claim + topUp + upsert):
+│   ├─ INSERT OR IGNORE event_id (concurrent-safe)
+│   ├─ Rollover cap: MAX_ROLLOVER = SUBSCRIPTION_CREDITS_PER_MONTH × 3
+│   │   ├─ creditsToAdd = min(monthlyAllotment, MAX_ROLLOVER − currentBalance)
+│   │   ├─ If currentBalance ≥ MAX_ROLLOVER → grant 0 (cap hit)
+│   │   └─ Prevents unbounded credit accumulation
+│   ├─ topUpCredits(key, creditsToAdd) — adds to balance
+│   └─ upsertSubscription(subscriptionId, key, email, creditsPerMonth, periodEnd, 'active')
+│
+└─ Cancellation: customer.subscription.deleted
+    ├─ Same webhook route, different event type
+    ├─ upsertSubscription(…, status: 'cancelled')
+    ├─ Credits already granted are KEPT (no clawback)
+    └─ No further monthly renewals after cancellation
+
+Default: SUBSCRIPTION_CREDITS_PER_MONTH = 50,000 ($29/mo plan)
+Rollover cap: 150,000 credits (3 months accumulated max)
+```
+
+---
+
+## 43. Stripe Refund Flow
+
+```
+Stripe fires charge.refunded
+│
+├─ POST /v1/webhooks/stripe (same checkout webhook route)
+│   ├─ Verify Stripe signature
+│   └─ Event type: charge.refunded
+│
+├─ Look up API key by billing email
+│   └─ No key → warn + skip
+│
+├─ Idempotency: cumulative refund tracking
+│   ├─ getStripeChargeRefundedCents(chargeId) → previousCents
+│   ├─ delta = charge.amount_refunded − previousCents
+│   └─ If delta ≤ 0 → already processed, skip
+│
+├─ Proportional credit deduction (inside transaction):
+│   ├─ totalGranted = credits + credits_used
+│   ├─ creditsPerDollar = totalGranted / amount_paid
+│   ├─ creditsToDeduct = round(refundedUSD × creditsPerDollar)
+│   │   └─ Accounts for bonus tiers (user who bought $100 → 112K credits
+│   │      gets proportional deduction, not flat 1000/dollar)
+│   ├─ deductAmount = min(creditsToDeduct, currentBalance)
+│   │   └─ Can't go negative — deducts only what's available
+│   ├─ UPDATE api_keys SET credits = credits − deductAmount, amount_paid = MAX(0, amount_paid − refundUSD)
+│   └─ upsertStripeChargeRefundedCents(chargeId, totalRefunded)
+│
+└─ Fallback: if amount_paid = 0, use base rate (1000 cr/$1)
+
+Anti-exploit: proportional deduction means a $100 buyer who got +12% bonus
+gets more credits deducted per dollar refunded (fair to platform).
+Partial refunds supported: delta-based tracking processes each chunk independently.
+```
+
+---
+
+## 44. Dashboard Authentication & Claim
+
+```
+User visits /dashboard.html
+│
+├─ Clerk JS loads → checks session
+│   ├─ Not signed in → redirect to /login.html
+│   └─ Signed in → get Clerk JWT token
+│
+├─ GET /v1/dashboard/me (Bearer token)
+│   ├─ requireClerkAuth middleware:
+│   │   ├─ Verify JWT signature with Clerk public key
+│   │   ├─ Extract clerkUserId + email
+│   │   └─ Set on Hono context: c.set('clerkUserId'), c.set('clerkEmail')
+│   │
+│   ├─ Key lookup (two strategies):
+│   │   ├─ Primary: getApiKeyByClerkId(clerkUserId) — linked account
+│   │   └─ Fallback: getApiKeyByEmail(email) — auto-links on first match
+│   │       └─ linkKeyToClerkUser(key, clerkUserId) — permanent binding
+│   │
+│   └─ Return: { hasKey, maskedKey, credits, creditsUsed, email, stats }
+│       └─ hasKey=false → show "No credits yet" state
+│
+├─ Credit claim flow (purchased with different email):
+│   ├─ POST /v1/dashboard/send-claim-email { purchaseEmail }
+│   │   ├─ Rate limit: wasEmailSentRecently(email) → 429
+│   │   ├─ Generate claim token (crypto.randomUUID)
+│   │   ├─ storeClaimToken(token, purchaseEmail, clerkUserId, 1hr expiry)
+│   │   ├─ Send Resend email with magic link
+│   │   └─ logEmailSend(email) for rate tracking
+│   │
+│   ├─ User clicks email link → GET /v1/dashboard/verify-claim/:token
+│   │   ├─ getClaimToken(token) → validate not expired or used
+│   │   ├─ markClaimTokenUsed(token)
+│   │   ├─ Transfer credits: find key by purchaseEmail → link to clerkUserId
+│   │   └─ Redirect to /dashboard.html?claim=success|expired|invalid|used
+│   │
+│   └─ Auto-claim: POST /v1/dashboard/claim-session { sessionId }
+│       └─ For Stripe checkout redirect → auto-link purchase to Clerk user
+│
+└─ POST /v1/dashboard/reveal-key → returns full API key (once per session)
+    ├─ Only returns the unmasked key, never stored in frontend
+    └─ Frontend tracks reveal state in localStorage
+```
+
+---
+
+## 45. Creator Revenue Dashboard
+
+```
+Dashboard loads → checkCreator() called after loadDashboard()
+│
+├─ GET /v1/dashboard/creator-stats (Clerk JWT auth)
+│   ├─ requireClerkAuth middleware
+│   ├─ Look up API key by clerkUserId → fallback by email
+│   ├─ No key → return { isCreator: false }
+│   │
+│   ├─ getCreatorStats(key) → { totalEarned, totalSales, skillBreakdown[] }
+│   ├─ getSkillsByAuthor(key) → all skills by this author
+│   ├─ getPayoutRequests(key) → withdrawal history
+│   │
+│   └─ Return:
+│       ├─ isCreator: true if skills.length > 0
+│       ├─ totalEarned: sum of all credit earnings
+│       ├─ totalSales: count of sales
+│       ├─ publishedSkills: count
+│       ├─ skills[]: { id, name, creditCost, uses, public, earned, sales }
+│       └─ withdrawals[]: { id, amountCredits, usdcEquivalent, status, createdAt }
+│
+├─ Frontend rendering (JS injection, no DOM if not creator):
+│   ├─ Creator stats grid: credits earned, revenue ($), sales, published, pending payout
+│   ├─ Skill rows: name, ID, cost, uses, earned credits, $ earned
+│   └─ Payout history: amount, USDC equivalent, time ago, status badge (PAID/PENDING)
+│
+├─ Related marketplace endpoints (API key auth, not Clerk):
+│   ├─ GET  /v1/marketplace/creator/stats       → same data, API-key authed
+│   ├─ POST /v1/marketplace/creator/withdraw     → request USDC payout (min 1000 credits)
+│   └─ GET  /v1/marketplace/creator/withdrawals  → payout history
+│
+└─ Payout rate: PAYOUT_USDC_PER_CREDIT = $0.00075
+    └─ 10,000 credits earned → $7.50 USDC withdrawal
+```
+
+---
+
+## 46. Clerk Webhooks & GDPR Erasure
+
+```
+Clerk fires webhook → POST /v1/webhooks/clerk
+│
+├─ Verify Svix signature (webhook verification)
+│   └─ Invalid signature → 400
+│
+├─ Event: user.created
+│   ├─ Check if API key already exists for this Clerk user
+│   │   └─ Already has key → skip (idempotent)
+│   ├─ createFreeTrialKey(clerkUserId, email, FREE_TRIAL_CREDITS)
+│   │   └─ Default: 100 free credits
+│   └─ Log: { clerkUserId, email, credits, maskedKey }
+│
+├─ Event: user.deleted (GDPR right to erasure)
+│   ├─ Atomic transaction:
+│   │   ├─ Deactivate API key: SET active = 0
+│   │   ├─ Anonymize email: SET email = '[deleted]'
+│   │   │   └─ Removes PII while preserving credit balance record
+│   │   └─ Unpublish all skills: SET public = 0, active = 0
+│   │       └─ Skills removed from registry/discovery
+│   │
+│   ├─ Financial records KEPT (legal/tax compliance):
+│   │   ├─ transactions: 730-day retention
+│   │   ├─ orchestrations: 180-day retention
+│   │   └─ audit_log: 90-day retention
+│   │
+│   └─ logAudit({ entityType: 'clerk_user', action: 'USER_DELETED' })
+│
+└─ All other event types → { received: true } (acknowledged, not processed)
+```
+
+---
+
+## 47. Contact Form
+
+```
+User submits contact form on website
+│
+├─ POST /v1/contact { name, email, subject, message, website? }
+│   ├─ Zod validation:
+│   │   ├─ name: 1-100 chars, trimmed
+│   │   ├─ email: valid email, max 254 chars, lowercased
+│   │   ├─ subject: enum [general, billing, technical, partnership, other]
+│   │   ├─ message: 10-2000 chars, trimmed
+│   │   └─ website: optional (honeypot field for spam bots)
+│   │
+│   ├─ Honeypot check: if website field has value → 200 OK (silently discard)
+│   │
+│   ├─ Rate limit: 3 submissions per IP per 10 minutes
+│   │   ├─ In-memory Map (bounded at 50K entries)
+│   │   ├─ Cleanup interval: hourly
+│   │   └─ Exceeded → 429 "Rate limit exceeded"
+│   │
+│   ├─ Send email via Resend API:
+│   │   ├─ To: hello@claw-net.org (or CONTACT_EMAIL env var)
+│   │   ├─ Subject: [ClawNet Contact] {Subject Label} from {Name}
+│   │   ├─ HTML body: styled email with all fields, sender email in reply-to
+│   │   └─ All user input escaped with escapeHtml()
+│   │
+│   └─ Return: { ok: true, message: "Message sent successfully" }
+│
+└─ No auth required — public endpoint
+```
+
+---
+
+---
+
+## 48. Dev Revenue Flow — Where the Money Goes
+
+This is the plain-English guide to how ClawNet makes money, where it comes from, and how much you keep. No jargon — just dollars and percentages.
+
+### How Users Pay You
+
+There are **3 ways** money enters the system:
+
+```
+┌──────────────────────────────────────────────────────────┐
+│                    MONEY IN                               │
+├──────────────┬──────────────────┬────────────────────────┤
+│ 1. Stripe    │ 2. Solana USDC   │ 3. x402 (per-call)    │
+│ Credit card  │ Crypto wallet    │ Pay-as-you-go crypto   │
+│ $5 – $1,000  │ Any amount       │ $0.001 per credit      │
+│ one-time     │ one-time         │ auto-deducted          │
+└──────────────┴──────────────────┴────────────────────────┘
+```
+
+**What they're buying:** Credits. 1 credit ≈ $0.001. Credits are spent on API calls.
+
+### Stripe Credit Card Tiers
+
+| Package | Price | Credits  | Bonus  | You keep* |
+|---------|-------|----------|--------|-----------|
+| Starter | $5    | 5,000    | 0%     | ~$4.56    |
+| Basic   | $20   | 21,000   | +5%    | ~$19.12   |
+| Plus    | $50   | 54,000   | +8%    | ~$48.06   |
+| Pro     | $100  | 112,000  | +12%   | ~$96.80   |
+| Growth  | $500  | 600,000  | +20%   | ~$485.50  |
+| Scale   | $1000 | 1,300,000| +30%   | ~$971.00  |
+
+*After Stripe's ~2.9% + $0.30 processing fee. All credits land in your database immediately.
+
+### Solana USDC Tiers
+
+Same dollar amounts, **+7% more credits** than Stripe at every level. No credit card processing fee — you keep 100% of the USDC.
+
+| Package | Price   | Credits   | vs Stripe |
+|---------|---------|-----------|-----------|
+| Starter | $5 USDC | 5,350     | +350 more |
+| Scale   | $1000   | 1,391,000 | +91K more |
+
+### Subscriptions (Monthly)
+
+- Default: 50,000 credits/month (configurable via `SUBSCRIPTION_CREDITS_PER_MONTH`)
+- Rollover capped at 3× monthly allotment (prevents hoarding)
+- Cancelled = no more credits, existing balance stays until spent
+
+### Where Your Revenue Comes From
+
+You make money **5 different ways** from every credit users spend:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                   💰 YOUR 5 REVENUE STREAMS                     │
+├───┬─────────────────────────┬──────────┬───────────────────────┤
+│ # │ Source                  │ Margin   │ How it works           │
+├───┼─────────────────────────┼──────────┼───────────────────────┤
+│ 1 │ API Markup              │ 33–50%   │ User pays 1500× the   │
+│   │                         │          │ actual API cost in     │
+│   │                         │          │ credits. You pocket    │
+│   │                         │          │ the difference.        │
+├───┼─────────────────────────┼──────────┼───────────────────────┤
+│ 2 │ Orchestration Fee       │ ~80%     │ 2 credits ($0.002)    │
+│   │                         │          │ per LLM-routed query.  │
+│   │                         │          │ LLM call costs ~$0.0004│
+├───┼─────────────────────────┼──────────┼───────────────────────┤
+│ 3 │ Marketplace Fee (3%)    │ 100%     │ Creators sell skills.  │
+│   │                         │          │ You take 3% of every   │
+│   │                         │          │ sale. Creator gets 97%.│
+├───┼─────────────────────────┼──────────┼───────────────────────┤
+│ 4 │ Cache Hit Spread        │ 100%     │ First call pays full   │
+│   │                         │          │ price (live API call). │
+│   │                         │          │ Repeat calls = 1 cr    │
+│   │                         │          │ from cache. No API     │
+│   │                         │          │ cost. Pure profit.     │
+├───┼─────────────────────────┼──────────┼───────────────────────┤
+│ 5 │ Swarm Decomposition Fee │ ~100%    │ 20 credits upfront     │
+│   │                         │          │ for multi-agent queries.│
+│   │                         │          │ Covers LLM planning.   │
+└───┴─────────────────────────┴──────────┴───────────────────────┘
+```
+
+### Show Me the Math — Example Month
+
+Say 100 users each buy the $100 Stripe package:
+
+```
+MONEY IN:
+  100 users × $100                          = $10,000 gross
+  Stripe fees (2.9% + $0.30 each)           = -$319
+  Net received                              = $9,681
+
+CREDITS ISSUED:
+  100 users × 112,000 credits               = 11,200,000 credits
+
+CREDITS SPENT (hypothetical usage):
+  8,000,000 credits used across all calls
+
+YOUR COSTS (what you pay for upstream APIs):
+  Credits go to live API calls.
+  COST_MARKUP_FACTOR = 1500 means:
+    If an API costs $0.001/call → user pays 1.5 credits ($0.0015)
+    Your cost per credit spent ≈ $0.00067
+  8,000,000 credits × $0.00067             = ~$5,360 in API costs
+
+YOUR PROFIT:
+  $9,681 (net Stripe) - $5,360 (API costs)  = ~$4,321 gross profit
+  + marketplace 3% fees
+  + cache hits (zero cost, users still pay 1 credit)
+  + orchestration fees (2cr × number of queries)
+
+  Realistic margin: 40–60% after all costs
+```
+
+### Money Going Out — Creator Payouts
+
+When creators build skills and sell them on your marketplace:
+
+```
+┌────────────────────────────────────────────────────┐
+│                   MONEY OUT                         │
+├─────────────────────────┬──────────────────────────┤
+│ Creator earns credits   │ 97% of each skill sale   │
+│ Creator requests payout │ POST /v1/marketplace/     │
+│                         │   creator/withdraw        │
+│ Minimum payout          │ 1,000 credits ($0.75)    │
+│ Payout rate             │ $0.00075 per credit       │
+│ Payout method           │ Solana USDC (auto, 4h)   │
+│ x402 EVM auto-split     │ 97% USDC to Base wallet  │
+│                         │ (instant, per-call)       │
+└─────────────────────────┴──────────────────────────┘
+```
+
+**Anti-arbitrage:** Users buy credits at $0.001 each. Creators cash out at $0.00075 each. That 25% spread means nobody can buy credits and immediately withdraw for profit.
+
+### The 3-Wallet Architecture
+
+```
+Wallet 1: SOLANA_PRIVATE_KEY
+  └─ Pays x402 API providers (upstream data sources)
+  └─ Funded by: you (operational expense)
+
+Wallet 2: PLATFORM_PAYOUT_PRIVATE_KEY
+  └─ Pays creators their USDC earnings
+  └─ Funded by: you (keep 7-day float)
+
+Wallet 3: EVM_PRIVATE_KEY
+  └─ x402 auto-split — sends 97% to creator's Base wallet
+  └─ Funded by: incoming x402 payments (self-sustaining)
+```
+
+### Where Every Credit Ends Up (The Full Picture)
+
+```
+User buys 112,000 credits for $100 (Pro tier)
+│
+├─ User makes an orchestrated query (e.g., "analyze AAPL")
+│   ├─ 2 credits → Platform (orchestration fee)
+│   ├─ 5 credits → API call (e.g., financial data endpoint)
+│   │   ├─ ~3.3 credits worth → Your API cost ($0.0033)
+│   │   └─ ~1.7 credits worth → Your margin ($0.0017)
+│   └─ Total: 7 credits spent, you keep ~3.7 credits worth
+│
+├─ User invokes a marketplace skill (e.g., "token-analyzer", costs 10cr)
+│   ├─ 9.7 credits → Creator (97%)
+│   ├─ 0.3 credits → Treasury (3% platform fee)
+│   └─ Creator cashes out 9.7 cr = $0.007275 USDC
+│
+├─ User hits a cached result
+│   ├─ 1 credit charged (cache hit price)
+│   ├─ 0 API cost (served from Redis)
+│   └─ 1 credit = $0.001 pure profit
+│
+└─ Credits remaining sit in user's balance (no expiry)
+```
+
+### Quick Reference — All the Numbers
+
+| Thing | Value | Where it's set |
+|-------|-------|----------------|
+| Credit buy price (Stripe) | $0.001/credit | Hardcoded in price tiers |
+| Credit buy price (Solana) | ~$0.00093/credit | +7% bonus built in |
+| Credit buy price (x402) | $0.001/credit | `X402_USDC_PER_CREDIT` env |
+| Creator payout rate | $0.00075/credit | `PAYOUT_USDC_PER_CREDIT` env |
+| API cost markup | 1500× raw cost | `COST_MARKUP_FACTOR` env |
+| Orchestration fee | 2 credits/query | `ORCHESTRATION_FEE` env |
+| Marketplace cut | 3% to platform | Hardcoded (97/3 split) |
+| Swarm fee | 20 credits upfront | `SWARM_BASE_FEE` env |
+| Cache hit price | 1 credit | Hardcoded everywhere |
+| Min creator payout | 1,000 credits | Hardcoded in withdraw route |
+| Subscription default | 50,000 cr/month | `SUBSCRIPTION_CREDITS_PER_MONTH` |
+| Rollover cap | 3× monthly | Hardcoded in stripe.ts |
+
+### TL;DR
+
+1. **Users pay you** via Stripe, Solana, or x402 — you get credits in your DB
+2. **You profit** from the markup between what users pay per credit ($0.001) and what upstream APIs actually cost (~$0.00067)
+3. **Creators profit** by selling skills — they get 97%, you get 3%
+4. **Cache hits** are free money — users pay 1 credit, you pay $0 in API costs
+5. **Anti-arbitrage** — buy at $0.001, sell at $0.00075 — no exploit possible
+6. **Realistic margin** — 40-60% of gross revenue after API costs and Stripe fees
+
+---
+
+*Generated from codebase analysis. Last updated: 2026-03-12. 62 DB migrations, decimal credits (v3), treasury auto-sweep, surcharge-to-treasury fix, 3-wallet architecture, endpoint auto-discovery (183 ClawAPIs endpoints), proportional cache pricing (10% of live, min 0.1cr), agent economy layer, future-proofing pass (skill health cron, per-skill rate limiting, MCP/OpenAPI manifests, tag filtering, similar skills, staking boost, webhook HMAC signing, credit gifting, batch-query, x402 verification & reputation, subscription lifecycle, refund flow, dashboard auth, creator dashboard, GDPR erasure, contact form, dev revenue flow).*
