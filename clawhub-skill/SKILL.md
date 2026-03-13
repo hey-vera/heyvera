@@ -71,15 +71,15 @@ Strategies: `cheapest`, `balanced`, `fastest`, `reliable`.
 ### Data Skills (Real-Time Structured Data)
 These return clean JSON — no LLM involved, just live data:
 
-| Skill ID | What It Returns | Example Query |
-|---|---|---|
-| `price-oracle-data` | Token price, volume, market cap | `?token=SOL` |
-| `trending-tokens-data` | Top trending tokens | `?chain=solana&limit=10` |
-| `whale-tracker-data` | Large wallet movements | `?token=SOL&minUsd=50000` |
-| `defi-yield-data` | DeFi yield rates | `?protocol=marinade` |
-| `token-analysis-data` | On-chain token metrics | `?token=BONK` |
-| `wallet-profiler-data` | Wallet holdings & history | `?address=7xK...` |
-| `token-launch-data` | New token launches | `?chain=solana&period=24h` |
+| Skill ID | What It Returns | Credits | Example Query |
+|---|---|---|---|
+| `price-oracle-data` | Token price, volume, market cap | 1 cr | `?token=SOL` |
+| `trending-tokens-data` | Top trending tokens | 2 cr | `?chain=solana&limit=10` |
+| `whale-tracker-data` | Large wallet movements | 2 cr | `?token=SOL&minUsd=50000` |
+| `defi-yield-data` | DeFi yield rates | 2 cr | `?protocol=marinade` |
+| `token-analysis-data` | On-chain token metrics | 2 cr | `?token=BONK` |
+| `wallet-profiler-data` | Wallet holdings & history | 2 cr | `?address=7xK...` |
+| `token-launch-data` | New token launches | 1 cr | `?chain=solana&period=24h` |
 
 Example:
 ```bash
@@ -90,14 +90,18 @@ curl "https://api.claw-net.org/v1/skills/price-oracle-data/query?token=SOL" \
 ### AI Skills (LLM-Powered Analysis)
 These use AI to analyze and synthesize:
 
-| Skill ID | What It Does |
-|---|---|
-| `token-analysis` | Deep token analysis with risk/opportunity scoring |
-| `social-sentiment` | Social media sentiment analysis |
-| `portfolio-optimizer` | Portfolio optimization suggestions |
-| `whale-tracker` | Whale movement analysis with context |
-| `wallet-profiler` | Wallet behavior profiling |
-| `nft-collection-intel` | NFT collection analysis |
+| Skill ID | What It Does | Credits |
+|---|---|---|
+| `token-analysis` | Deep token analysis with risk/opportunity scoring | 5 cr |
+| `social-sentiment` | Social media sentiment analysis | 3 cr |
+| `portfolio-optimizer` | Portfolio optimization suggestions | 8 cr |
+| `whale-tracker` | Whale movement analysis with context | 5 cr |
+| `wallet-profiler` | Wallet behavior profiling | 6 cr |
+| `trending-tokens` | Trending token discovery and ranking | 4 cr |
+| `defi-yield-scanner` | DeFi yield opportunities across protocols | 5 cr |
+| `token-launch-radar` | New token launch detection and analysis | 4 cr |
+| `price-oracle` | Token price analysis and context | 3 cr |
+| `nft-collection-intel` | NFT collection analysis | 5 cr |
 
 Example:
 ```bash
@@ -123,8 +127,8 @@ curl -X POST https://api.claw-net.org/v1/skills/token-analysis/invoke \
 
 1 credit = $0.001. Credits never expire.
 
-- **Data skill queries:** 1–5 credits (cached responses cost 90% less)
-- **AI skill invocations:** 2–10 credits depending on depth
+- **Data skill queries:** 1–2 credits per call (cached responses cost 90% less)
+- **AI skill invocations:** 3–8 credits per call (see tables above for exact pricing)
 - **Orchestrated queries:** varies by complexity + 2 credit orchestration fee
 - **Cost estimate:** Always free via `GET /v1/estimate?query=...`
 
