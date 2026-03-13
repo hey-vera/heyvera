@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Skill Playground — ClawNet</title>
-  <meta name="description" content="Test any ClawNet skill in your browser. Preview sample output for free, or run live with real credits.">
-  <meta property="og:title" content="Skill Playground — ClawNet">
-  <meta property="og:description" content="Interactive skill testing — free previews or live execution with API credits.">
+  <title>Playground — ClawNet</title>
+  <meta name="description" content="Test any ClawNet skill live in your browser. See real API responses, copy integration code, estimate costs — no sign-up needed.">
+  <meta property="og:title" content="Playground — ClawNet">
+  <meta property="og:description" content="Interactive API playground. Test skills, explore endpoints, ship in minutes.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://claw-net.org/playground.html">
   <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png">
@@ -15,305 +15,256 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
   <style>
+    /* ── DESIGN TOKENS ─────────────────────────────────────────────── */
     :root {
-      --bg-primary: #0a0a0b; --bg-surface: #111113; --bg-surface-2: #18181b; --bg-surface-3: #1f1f23;
-      --border-subtle: #1e1e22; --border-default: #27272a; --border-strong: #3f3f46;
-      --text-primary: #fafafa; --text-secondary: #a1a1aa; --text-tertiary: #71717a; --text-muted: #52525b;
-      --accent: #10b981; --accent-dim: rgba(16,185,129,0.12); --accent-subtle: rgba(16,185,129,0.06);
-      --accent-hover: #34d399; --accent-text: #6ee7b7;
-      --danger: #ef4444; --danger-dim: rgba(239,68,68,0.12);
-      --warning: #f59e0b; --warning-dim: rgba(245,158,11,0.12);
-      --info: #3b82f6; --info-dim: rgba(59,130,246,0.12);
-      --purple: #8b5cf6; --purple-dim: rgba(139,92,246,0.12);
-      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-      --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', Consolas, monospace;
-      --radius-sm: 4px; --radius-md: 6px; --radius-lg: 8px; --radius-xl: 12px;
-      --nav-bg: rgba(10,10,11,0.85);
+      --bg-primary:#0a0a0b;--bg-surface:#111113;--bg-surface-2:#18181b;--bg-surface-3:#1f1f23;
+      --border-subtle:#1e1e22;--border-default:#27272a;--border-strong:#3f3f46;
+      --text-primary:#fafafa;--text-secondary:#a1a1aa;--text-tertiary:#71717a;--text-muted:#52525b;
+      --accent:#10b981;--accent-dim:rgba(16,185,129,.12);--accent-hover:#34d399;--accent-text:#6ee7b7;
+      --danger:#ef4444;--danger-dim:rgba(239,68,68,.12);
+      --warning:#f59e0b;--warning-dim:rgba(245,158,11,.12);
+      --info:#3b82f6;--info-dim:rgba(59,130,246,.12);
+      --purple:#8b5cf6;--purple-dim:rgba(139,92,246,.12);
+      --font-sans:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
+      --font-mono:'JetBrains Mono','Fira Code','SF Mono',Consolas,monospace;
+      --radius-sm:4px;--radius-md:6px;--radius-lg:8px;--radius-xl:12px;
+      --nav-bg:rgba(10,10,11,.85);
     }
-    [data-theme="light"] {
-      --bg-primary: #f5f5f5; --bg-surface: #ffffff; --bg-surface-2: #f0f0f2; --bg-surface-3: #e8e8ec;
-      --border-subtle: #e4e4e7; --border-default: #d4d4d8; --border-strong: #a1a1aa;
-      --text-primary: #09090b; --text-secondary: #3f3f46; --text-tertiary: #71717a; --text-muted: #a1a1aa;
-      --accent-dim: rgba(16,185,129,0.10); --accent-subtle: rgba(16,185,129,0.05);
-      --danger-dim: rgba(239,68,68,0.10); --warning-dim: rgba(245,158,11,0.10);
-      --info-dim: rgba(59,130,246,0.10); --purple-dim: rgba(139,92,246,0.10);
-      --nav-bg: rgba(245,245,245,0.9);
+    [data-theme="light"]{
+      --bg-primary:#f5f5f5;--bg-surface:#ffffff;--bg-surface-2:#f0f0f2;--bg-surface-3:#e8e8ec;
+      --border-subtle:#e4e4e7;--border-default:#d4d4d8;--border-strong:#a1a1aa;
+      --text-primary:#09090b;--text-secondary:#3f3f46;--text-tertiary:#71717a;--text-muted:#a1a1aa;
+      --accent-dim:rgba(16,185,129,.10);--danger-dim:rgba(239,68,68,.10);
+      --warning-dim:rgba(245,158,11,.10);--info-dim:rgba(59,130,246,.10);--purple-dim:rgba(139,92,246,.10);
+      --nav-bg:rgba(245,245,245,.9);
     }
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: var(--font-sans); background: var(--bg-primary); color: var(--text-secondary); font-size: 14px; line-height: 1.6; }
-    a { color: inherit; text-decoration: none; }
-    ::selection { background: var(--accent-dim); }
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:var(--font-sans);background:var(--bg-primary);color:var(--text-secondary);font-size:14px;line-height:1.6}
+    a{color:inherit;text-decoration:none} ::selection{background:var(--accent-dim)}
 
-    /* NAV */
-    nav { position: sticky; top: 0; z-index: 100; background: var(--nav-bg); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border-subtle); padding: 0 24px; height: 56px; display: flex; align-items: center; justify-content: space-between; }
-    .nav-left, .nav-right { display: flex; align-items: center; gap: 12px; }
-    .nav-logo-text { font-size: 18px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.02em; white-space: nowrap; }
-    .nav-logo-text span { color: var(--accent); }
-    .nav-links { list-style: none; display: flex; align-items: center; gap: 2px; margin-left: 20px; }
-    .nav-links a { font-size: 13px; font-weight: 500; color: var(--text-tertiary); padding: 6px 12px; border-radius: var(--radius-md); transition: color 0.15s, background 0.15s; position: relative; }
-    .nav-links a:hover { color: var(--text-primary); background: var(--bg-surface-2); }
-    .nav-links a.active { color: var(--text-primary); }
-    .nav-links a.active::after { content: ''; position: absolute; bottom: -1px; left: 12px; right: 12px; height: 2px; background: var(--accent); border-radius: 1px; }
-    .theme-toggle { background: var(--bg-surface-2); border: 1px solid var(--border-default); border-radius: 6px; width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--text-tertiary); transition: all 0.15s; padding: 0; flex-shrink: 0; }
-    .theme-toggle:hover { color: var(--text-primary); border-color: var(--border-strong); }
-    .theme-toggle .icon-sun, .theme-toggle .icon-moon { width: 16px; height: 16px; }
-    .theme-toggle .icon-sun { display: none; }
-    [data-theme="light"] .theme-toggle .icon-sun { display: block; }
-    [data-theme="light"] .theme-toggle .icon-moon { display: none; }
-    .nav-status { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-tertiary); padding: 4px 10px; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 9999px; }
-    .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); }
-    .status-dot.ok { background: var(--accent); box-shadow: 0 0 4px rgba(16,185,129,0.4); }
-    .status-dot.err { background: var(--danger); }
-    .nav-credits { display: none; align-items: center; gap: 4px; font-family: var(--font-mono); font-size: 12px; color: var(--accent); padding: 4px 10px; background: var(--accent-dim); border: 1px solid rgba(16,185,129,0.15); border-radius: 9999px; }
-    .nav-credits.show { display: flex; }
-    .nav-email { font-size: 12px; color: var(--text-tertiary); display: none; }
-    .nav-email.show { display: inline-block; }
-    .nav-login { color: var(--text-secondary); border: 1px solid var(--border-default); background: transparent; padding: 6px 14px; font-size: 13px; border-radius: var(--radius-md); }
-    .nav-login:hover { border-color: var(--border-strong); color: var(--text-primary); }
-    .nav-cta { background: var(--accent); color: #000; font-weight: 600; padding: 6px 14px; font-size: 13px; border-radius: var(--radius-md); }
-    .nav-cta:hover { background: var(--accent-hover); }
-    .nav-btn-ghost { background: transparent; color: var(--text-secondary); border: 1px solid var(--border-default); display: none; padding: 6px 14px; font-size: 13px; border-radius: var(--radius-md); cursor: pointer; font-family: var(--font-sans); }
-    .nav-btn-ghost:hover { border-color: var(--border-strong); color: var(--text-primary); }
-    .nav-btn-ghost.show { display: inline-block; }
-    .nav-btn-ghost.danger:hover { color: var(--danger); border-color: var(--danger); }
-    @media (max-width: 900px) { .nav-links { display: none; } }
+    /* ── NAV ────────────────────────────────────────────────────────── */
+    nav{position:sticky;top:0;z-index:100;background:var(--nav-bg);backdrop-filter:blur(12px);border-bottom:1px solid var(--border-subtle);padding:0 24px;height:56px;display:flex;align-items:center;justify-content:space-between}
+    .nav-left,.nav-right{display:flex;align-items:center;gap:12px}
+    .nav-logo-text{font-size:18px;font-weight:700;color:var(--text-primary);letter-spacing:-.02em;white-space:nowrap} .nav-logo-text span{color:var(--accent)}
+    .nav-links{list-style:none;display:flex;align-items:center;gap:2px;margin-left:20px}
+    .nav-links a{font-size:13px;font-weight:500;color:var(--text-tertiary);padding:6px 12px;border-radius:var(--radius-md);transition:color .15s,background .15s;position:relative}
+    .nav-links a:hover{color:var(--text-primary);background:var(--bg-surface-2)}
+    .nav-links a.active{color:var(--text-primary)} .nav-links a.active::after{content:'';position:absolute;bottom:-1px;left:12px;right:12px;height:2px;background:var(--accent);border-radius:1px}
+    .theme-toggle{background:var(--bg-surface-2);border:1px solid var(--border-default);border-radius:6px;width:34px;height:34px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--text-tertiary);transition:all .15s;padding:0;flex-shrink:0}
+    .theme-toggle:hover{color:var(--text-primary);border-color:var(--border-strong)}
+    .theme-toggle .icon-sun,.theme-toggle .icon-moon{width:16px;height:16px}
+    .theme-toggle .icon-sun{display:none} [data-theme="light"] .theme-toggle .icon-sun{display:block} [data-theme="light"] .theme-toggle .icon-moon{display:none}
+    .nav-status{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-tertiary);padding:4px 10px;background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:9999px}
+    .status-dot{width:6px;height:6px;border-radius:50%;background:var(--text-muted)} .status-dot.ok{background:var(--accent);box-shadow:0 0 4px rgba(16,185,129,.4)} .status-dot.err{background:var(--danger)}
+    .nav-credits{display:none;align-items:center;gap:4px;font-family:var(--font-mono);font-size:12px;color:var(--accent);padding:4px 10px;background:var(--accent-dim);border:1px solid rgba(16,185,129,.15);border-radius:9999px} .nav-credits.show{display:flex}
+    .nav-email{font-size:12px;color:var(--text-tertiary);display:none} .nav-email.show{display:inline-block}
+    .nav-login{color:var(--text-secondary);border:1px solid var(--border-default);background:transparent;padding:6px 14px;font-size:13px;border-radius:var(--radius-md)} .nav-login:hover{border-color:var(--border-strong);color:var(--text-primary)}
+    .nav-cta{background:var(--accent);color:#000;font-weight:600;padding:6px 14px;font-size:13px;border-radius:var(--radius-md)} .nav-cta:hover{background:var(--accent-hover)}
+    .nav-btn-ghost{background:transparent;color:var(--text-secondary);border:1px solid var(--border-default);display:none;padding:6px 14px;font-size:13px;border-radius:var(--radius-md);cursor:pointer;font-family:var(--font-sans)}
+    .nav-btn-ghost:hover{border-color:var(--border-strong);color:var(--text-primary)} .nav-btn-ghost.show{display:inline-block} .nav-btn-ghost.danger:hover{color:var(--danger);border-color:var(--danger)}
+    @media(max-width:900px){.nav-links{display:none}}
+    .hamburger{display:none;background:none;border:1px solid var(--border-default);border-radius:var(--radius-md);padding:6px;cursor:pointer;color:var(--text-secondary)} .hamburger:hover{color:var(--text-primary);border-color:var(--border-strong)} .hamburger svg{width:20px;height:20px;display:block}
+    .mobile-menu{display:none;position:fixed;top:56px;left:0;right:0;background:var(--bg-surface);border-bottom:1px solid var(--border-default);z-index:99;padding:12px 24px}
+    .mobile-menu.open{display:block} .mobile-menu a{display:block;padding:10px 0;font-size:14px;color:var(--text-secondary);border-bottom:1px solid var(--border-subtle)} .mobile-menu a:last-child{border-bottom:none} .mobile-menu a:hover{color:var(--accent)}
+    @media(max-width:900px){.hamburger{display:block}}
 
-    /* HAMBURGER */
-    .hamburger { display: none; background: none; border: 1px solid var(--border-default); border-radius: var(--radius-md); padding: 6px; cursor: pointer; color: var(--text-secondary); }
-    .hamburger:hover { color: var(--text-primary); border-color: var(--border-strong); }
-    .hamburger svg { width: 20px; height: 20px; display: block; }
-    .mobile-menu { display: none; position: fixed; top: 56px; left: 0; right: 0; background: var(--bg-surface); border-bottom: 1px solid var(--border-default); z-index: 99; padding: 12px 24px; }
-    .mobile-menu.open { display: block; }
-    .mobile-menu a { display: block; padding: 10px 0; font-size: 14px; color: var(--text-secondary); border-bottom: 1px solid var(--border-subtle); }
-    .mobile-menu a:last-child { border-bottom: none; }
-    .mobile-menu a:hover { color: var(--accent); }
-    @media (max-width: 900px) { .hamburger { display: block; } }
+    /* ── SHARED ──────────────────────────────────────────────────────── */
+    .container{max-width:1240px;margin:0 auto;padding:0 24px}
+    .badge{font-size:9px;font-weight:700;padding:2px 6px;border-radius:3px;text-transform:uppercase;letter-spacing:.04em;display:inline-flex;align-items:center;gap:3px}
+    .badge-data{background:var(--danger-dim);color:var(--danger)} .badge-prompt{background:var(--purple-dim);color:var(--purple)} .badge-proxy{background:var(--info-dim);color:var(--info)}
+    .badge-get{background:var(--accent-dim);color:var(--accent)} .badge-post{background:var(--info-dim);color:var(--info)}
+    .btn{font-family:var(--font-sans);font-size:13px;font-weight:600;padding:9px 18px;border-radius:var(--radius-md);cursor:pointer;transition:all .15s;border:1px solid transparent;display:inline-flex;align-items:center;gap:6px;line-height:1}
+    .btn-primary{background:var(--accent);color:#000;border-color:var(--accent)} .btn-primary:hover{background:var(--accent-hover)} .btn-primary:disabled{opacity:.4;cursor:not-allowed}
+    .btn-ghost{background:transparent;color:var(--text-secondary);border-color:var(--border-default)} .btn-ghost:hover{border-color:var(--border-strong);color:var(--text-primary);background:var(--bg-surface-2)}
+    .mono{font-family:var(--font-mono)}
+    .spinner{display:inline-block;width:14px;height:14px;border:2px solid rgba(0,0,0,.25);border-top-color:#000;border-radius:50%;animation:spin .6s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
 
-    /* LAYOUT */
-    .container { max-width: 1240px; margin: 0 auto; padding: 0 24px; }
+    /* ── HERO ────────────────────────────────────────────────────────── */
+    .pg-hero{padding:40px 0 0;text-align:center}
+    .pg-hero h1{font-size:28px;font-weight:700;color:var(--text-primary);margin-bottom:8px;letter-spacing:-.02em}
+    .pg-hero h1 em{font-style:normal;color:var(--accent)}
+    .pg-hero p{color:var(--text-tertiary);font-size:14px;max-width:520px;margin:0 auto}
 
-    /* HERO */
-    .pg-hero { padding: 40px 0 8px; text-align: center; }
-    .pg-hero h1 { font-size: 26px; font-weight: 700; color: var(--text-primary); margin-bottom: 8px; letter-spacing: -0.02em; }
-    .pg-hero h1 span { color: var(--accent); }
-    .pg-hero p { color: var(--text-tertiary); font-size: 14px; max-width: 480px; margin: 0 auto; }
+    /* ── MODE BAR ────────────────────────────────────────────────────── */
+    .mode-bar{display:flex;align-items:center;justify-content:center;gap:16px;padding:20px 0 8px;flex-wrap:wrap}
+    .mode-toggle{display:flex;background:var(--bg-surface);border:1px solid var(--border-default);border-radius:9999px;overflow:hidden}
+    .mode-toggle button{font-family:var(--font-sans);font-size:13px;font-weight:600;padding:8px 22px;border:none;cursor:pointer;transition:all .2s;background:transparent;color:var(--text-muted);display:flex;align-items:center;gap:6px}
+    .mode-toggle button.active-sandbox{background:var(--purple-dim);color:var(--purple)}
+    .mode-toggle button.active-live{background:var(--accent-dim);color:var(--accent)}
+    .mode-label{font-size:12px;font-weight:500;color:var(--text-muted)}
 
-    /* MODE BAR */
-    .mode-bar { display: flex; align-items: center; justify-content: center; gap: 16px; padding: 20px 0 24px; flex-wrap: wrap; }
-    .mode-toggle { display: flex; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 9999px; overflow: hidden; }
-    .mode-toggle button { font-family: var(--font-sans); font-size: 13px; font-weight: 600; padding: 8px 22px; border: none; cursor: pointer; transition: all 0.2s; background: transparent; color: var(--text-muted); display: flex; align-items: center; gap: 6px; }
-    .mode-toggle button.active-sandbox { background: var(--purple-dim); color: var(--purple); }
-    .mode-toggle button.active-live { background: var(--accent-dim); color: var(--accent); }
-    .mode-toggle button:hover:not(.active-sandbox):not(.active-live) { color: var(--text-secondary); }
-    .mode-indicator { font-size: 12px; font-weight: 500; display: flex; align-items: center; gap: 6px; }
-    .mode-indicator.sandbox { color: var(--purple); }
-    .mode-indicator.live { color: var(--accent); }
-    .mode-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-    .mode-dot.sandbox { background: var(--purple); }
-    .mode-dot.live { background: var(--accent); animation: pulse-live 2s infinite; }
-    @keyframes pulse-live { 0%, 100% { box-shadow: 0 0 0 0 rgba(16,185,129,0.4); } 50% { box-shadow: 0 0 0 6px rgba(16,185,129,0); } }
+    /* ── SECTION TABS ────────────────────────────────────────────────── */
+    .pg-tabs{display:flex;gap:0;border-bottom:1px solid var(--border-default);margin-bottom:28px}
+    .pg-tabs button{background:none;border:none;border-bottom:2px solid transparent;color:var(--text-muted);font-family:var(--font-sans);font-size:14px;font-weight:600;padding:12px 24px;cursor:pointer;transition:all .15s;margin-bottom:-1px}
+    .pg-tabs button:hover{color:var(--text-secondary)}
+    .pg-tabs button.active{color:var(--text-primary);border-bottom-color:var(--accent)}
+    .pg-tab-panel{display:none} .pg-tab-panel.active{display:block}
 
-    /* LIVE BANNER */
-    .live-banner { display: none; background: rgba(16,185,129,0.06); border: 1px solid rgba(16,185,129,0.2); border-radius: var(--radius-md); padding: 10px 20px; margin: 0 auto 20px; max-width: 1240px; color: var(--accent); font-size: 13px; text-align: center; }
-    .live-banner.show { display: block; }
+    /* ── SKILL SANDBOX ────────────────────────────────────────────────── */
+    .sb-layout{display:grid;grid-template-columns:300px 1fr;gap:20px;align-items:start}
+    @media(max-width:900px){.sb-layout{grid-template-columns:1fr}}
+    .sb-browser{background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);overflow:hidden}
+    .sb-browser-head{padding:12px 14px;border-bottom:1px solid var(--border-subtle)}
+    .sb-browser-head h3{font-size:11px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.06em;margin:0}
+    .sb-search{width:calc(100% - 28px);background:var(--bg-primary);border:1px solid var(--border-default);color:var(--text-primary);font-family:var(--font-sans);font-size:13px;padding:8px 12px;border-radius:var(--radius-md);outline:none;margin:12px 14px 8px}
+    .sb-search:focus{border-color:var(--accent)}
+    .sb-filters{display:flex;gap:4px;padding:0 14px 10px;flex-wrap:wrap}
+    .sb-filters button{font-family:var(--font-sans);font-size:11px;font-weight:600;padding:3px 10px;border-radius:9999px;border:1px solid var(--border-default);background:transparent;color:var(--text-muted);cursor:pointer;transition:all .15s}
+    .sb-filters button:hover{border-color:var(--border-strong);color:var(--text-secondary)}
+    .sb-filters button.active{background:var(--bg-surface-3);border-color:var(--border-strong);color:var(--text-primary)}
+    .sb-filters button.active.f-data{background:var(--danger-dim);color:var(--danger);border-color:rgba(239,68,68,.35)}
+    .sb-filters button.active.f-prompt{background:var(--purple-dim);color:var(--purple);border-color:rgba(139,92,246,.35)}
+    .sb-filters button.active.f-proxy{background:var(--info-dim);color:var(--info);border-color:rgba(59,130,246,.35)}
+    .sb-list{max-height:420px;overflow-y:auto}
+    .sb-skill{padding:10px 14px;cursor:pointer;border-bottom:1px solid var(--border-subtle);transition:background .1s}
+    .sb-skill:last-child{border-bottom:none} .sb-skill:hover{background:var(--bg-surface-2)}
+    .sb-skill.sel{background:var(--accent-dim);border-left:3px solid var(--accent)}
+    .sb-skill-name{font-size:13px;font-weight:500;color:var(--text-primary);display:flex;align-items:center;gap:6px}
+    .sb-skill-meta{font-size:11px;color:var(--text-muted);margin-top:2px}
 
-    /* PLAYGROUND GRID */
-    .pg-layout { display: grid; grid-template-columns: 320px 1fr; gap: 20px; padding-bottom: 60px; align-items: start; }
-    @media (max-width: 900px) { .pg-layout { grid-template-columns: 1fr; } }
+    /* Featured cards */
+    .sb-featured{text-align:center;padding:40px 0}
+    .sb-featured h3{font-size:16px;font-weight:700;color:var(--text-primary);margin-bottom:6px}
+    .sb-featured>p{font-size:13px;color:var(--text-muted);margin-bottom:28px}
+    .sb-featured-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;text-align:left}
+    .sb-fcard{background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);padding:16px;cursor:pointer;transition:all .2s}
+    .sb-fcard:hover{border-color:var(--accent);transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,.3)}
+    .sb-fcard h4{font-size:13px;font-weight:600;color:var(--text-primary);margin:8px 0 4px}
+    .sb-fcard p{font-size:11px;color:var(--text-muted);line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+    .sb-fcard .card-foot{font-size:11px;color:var(--text-muted);margin-top:10px;display:flex;align-items:center;gap:8px}
+    .sb-fcard .card-foot .cost{color:var(--warning);font-weight:600}
 
-    /* PANELS */
-    .pg-panel { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); }
-    .panel-header { padding: 14px 16px; border-bottom: 1px solid var(--border-subtle); }
-    .panel-header h3 { font-size: 11px; font-weight: 600; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.06em; margin: 0; }
-    .panel-body { padding: 14px 16px; }
+    /* Skill header */
+    .sk-header{background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);padding:20px;margin-bottom:16px}
+    .sk-name{font-size:18px;font-weight:700;color:var(--text-primary);margin-bottom:4px}
+    .sk-desc{font-size:13px;color:var(--text-tertiary);line-height:1.5;margin-bottom:12px}
+    .sk-chips{display:flex;gap:8px;flex-wrap:wrap}
+    .sk-chip{font-size:11px;font-weight:500;padding:3px 10px;border-radius:9999px;border:1px solid var(--border-default);color:var(--text-muted);display:flex;align-items:center;gap:4px}
+    .sk-chip.cost{background:var(--warning-dim);border-color:rgba(245,158,11,.2);color:var(--warning)}
+    .sk-chip.freq{background:var(--info-dim);border-color:rgba(59,130,246,.2);color:var(--info)}
+    .sk-endpoint{margin-top:12px;padding:8px 12px;background:var(--bg-primary);border:1px solid var(--border-default);border-radius:var(--radius-md);font-family:var(--font-mono);font-size:12px;color:var(--text-muted);display:flex;align-items:center;gap:8px}
+    .sk-endpoint .ep-copy{margin-left:auto;background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:11px;font-family:var(--font-sans)} .sk-endpoint .ep-copy:hover{color:var(--text-primary)}
 
-    /* SKILL LIST */
-    .pg-search { width: 100%; background: var(--bg-primary); border: 1px solid var(--border-default); color: var(--text-primary); font-family: var(--font-sans); font-size: 13px; padding: 8px 12px; border-radius: var(--radius-md); outline: none; margin-bottom: 8px; }
-    .pg-search:focus { border-color: var(--accent); }
-    .pg-type-filter { display: flex; gap: 4px; margin-bottom: 10px; flex-wrap: wrap; }
-    .pg-type-filter button { font-family: var(--font-sans); font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 9999px; border: 1px solid var(--border-default); background: transparent; color: var(--text-muted); cursor: pointer; transition: all 0.15s; }
-    .pg-type-filter button:hover { border-color: var(--border-strong); color: var(--text-secondary); }
-    .pg-type-filter button.active { background: var(--bg-surface-2); border-color: var(--border-strong); color: var(--text-secondary); }
-    .pg-type-filter button.active.filter-all  { background: var(--bg-surface-3); color: var(--text-primary); }
-    .pg-type-filter button.active.filter-data { background: var(--danger-dim); color: var(--danger); border-color: rgba(239,68,68,0.35); }
-    .pg-type-filter button.active.filter-prompt { background: var(--purple-dim); color: var(--purple); border-color: rgba(139,92,246,0.35); }
-    .pg-type-filter button.active.filter-proxy { background: var(--info-dim); color: var(--info); border-color: rgba(59,130,246,0.35); }
+    /* Scenario cards */
+    .scenarios{margin-bottom:16px}
+    .scenarios h4{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:10px}
+    .scenario-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px}
+    .scenario-card{background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);padding:14px;cursor:pointer;transition:all .2s}
+    .scenario-card:hover{border-color:var(--accent);transform:translateY(-1px);box-shadow:0 4px 16px rgba(16,185,129,.08)}
+    .scenario-card.active{border-color:var(--accent);background:var(--accent-dim)}
+    .scenario-card .sc-icon{font-size:20px;margin-bottom:8px}
+    .scenario-card .sc-name{font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:3px}
+    .scenario-card .sc-desc{font-size:11px;color:var(--text-muted);line-height:1.4}
 
-    /* TYPE INFO EXPLAINER (shown when filter active, no skill selected) */
-    .type-explainer { background: var(--bg-surface-2); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 28px 32px; max-width: 520px; margin: 0 auto; text-align: left; }
-    .type-explainer-icon { font-size: 28px; margin-bottom: 14px; }
-    .type-explainer h4 { font-size: 16px; font-weight: 700; color: var(--text-primary); margin-bottom: 8px; }
-    .type-explainer .te-desc { font-size: 13px; color: var(--text-tertiary); line-height: 1.6; margin-bottom: 16px; }
-    .type-explainer .te-bullets { list-style: none; padding: 0; margin-bottom: 18px; }
-    .type-explainer .te-bullets li { font-size: 12px; color: var(--text-secondary); padding: 5px 0; border-bottom: 1px solid var(--border-subtle); display: flex; align-items: flex-start; gap: 8px; }
-    .type-explainer .te-bullets li:last-child { border-bottom: none; }
-    .type-explainer .te-bullets li::before { content: '→'; color: var(--text-muted); flex-shrink: 0; }
-    .type-explainer .te-example { background: var(--bg-primary); border: 1px solid var(--border-default); border-radius: var(--radius-md); padding: 12px 14px; font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); line-height: 1.6; }
-    .type-explainer .te-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 10px; }
-    .pg-skill-list { max-height: 300px; overflow-y: auto; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); }
-    .pg-skill-item { padding: 10px 12px; cursor: pointer; border-bottom: 1px solid var(--border-subtle); transition: background 0.1s; }
-    .pg-skill-item:last-child { border-bottom: none; }
-    .pg-skill-item:hover { background: var(--bg-surface-2); }
-    .pg-skill-item.selected { background: var(--accent-dim); border-left: 3px solid var(--accent); }
-    .pg-skill-item .sk-name { font-size: 13px; font-weight: 500; color: var(--text-primary); display: flex; align-items: center; gap: 6px; }
-    .pg-skill-item .sk-meta { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
-    .skill-type-badge { font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 3px; text-transform: uppercase; letter-spacing: 0.04em; flex-shrink: 0; }
-    .skill-type-badge.prompt { background: var(--purple-dim); color: var(--purple); }
-    .skill-type-badge.api_proxy { background: var(--info-dim); color: var(--info); }
-    .skill-type-badge.data { background: var(--danger-dim); color: var(--danger); }
+    /* Result panel */
+    .result-panel{background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);overflow:hidden;margin-bottom:16px}
+    .result-header{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-bottom:1px solid var(--border-subtle);flex-wrap:wrap;gap:8px}
+    .result-header h4{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-tertiary);margin:0}
+    .result-meta{display:flex;gap:8px;align-items:center;font-size:11px;color:var(--text-muted)}
+    .tag{padding:2px 9px;border-radius:9999px;font-weight:600;font-size:10px}
+    .tag-sample{background:var(--purple-dim);color:var(--purple)} .tag-live{background:var(--accent-dim);color:var(--accent)} .tag-err{background:var(--danger-dim);color:var(--danger)}
+    .result-tabs{display:flex;border-bottom:1px solid var(--border-subtle);padding:0 16px}
+    .result-tabs button{background:none;border:none;border-bottom:2px solid transparent;color:var(--text-muted);font-family:var(--font-sans);font-size:12px;font-weight:500;padding:8px 14px;cursor:pointer;transition:all .15s;margin-bottom:-1px}
+    .result-tabs button:hover{color:var(--text-secondary)} .result-tabs button.active{color:var(--accent);border-bottom-color:var(--accent)}
+    .result-body{padding:16px;position:relative;max-height:360px;overflow:auto}
+    .result-body pre{font-family:var(--font-mono);font-size:12px;line-height:1.6;white-space:pre-wrap;word-break:break-word;color:var(--text-secondary)}
+    .result-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px;text-align:center;color:var(--text-muted);min-height:200px}
+    .copy-btn{position:absolute;top:10px;right:12px;background:var(--bg-surface-2);border:1px solid var(--border-default);color:var(--text-muted);font-size:11px;padding:4px 10px;border-radius:var(--radius-sm);cursor:pointer;font-family:var(--font-sans);z-index:1} .copy-btn:hover{color:var(--text-primary);border-color:var(--border-strong)}
 
-    /* SKILL INFO CARD */
-    .skill-info-card { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); overflow: hidden; display: none; margin-top: 12px; }
-    .skill-info-card.show { display: block; }
-    .sic-header { padding: 14px 16px; background: var(--bg-surface-2); border-bottom: 1px solid var(--border-subtle); }
-    .sic-name { font-size: 15px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px; }
-    .sic-desc { font-size: 12px; color: var(--text-tertiary); line-height: 1.5; }
-    .sic-chips { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
-    .sic-chip { font-size: 11px; font-weight: 500; padding: 3px 10px; border-radius: 9999px; border: 1px solid var(--border-default); color: var(--text-muted); display: flex; align-items: center; gap: 4px; }
-    .sic-chip.cost { background: var(--warning-dim); border-color: rgba(245,158,11,0.2); color: var(--warning); }
-    .sic-chip.freq { background: var(--info-dim); border-color: rgba(59,130,246,0.2); color: var(--info); }
-    .sic-chip.uses { background: var(--bg-surface-3); }
+    /* Integration code */
+    .integrate{background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);overflow:hidden;margin-bottom:16px}
+    .integrate-head{padding:12px 16px;border-bottom:1px solid var(--border-subtle);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}
+    .integrate-head h4{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-tertiary);margin:0;display:flex;align-items:center;gap:8px}
+    .integrate-head h4 .ig-badge{font-size:10px;font-weight:700;padding:2px 7px;background:var(--accent-dim);color:var(--accent);border-radius:9999px}
+    .lang-tabs{display:flex;gap:4px}
+    .lang-tabs button{font-family:var(--font-sans);font-size:11px;font-weight:500;padding:3px 10px;border-radius:var(--radius-sm);border:1px solid var(--border-default);background:transparent;color:var(--text-muted);cursor:pointer;transition:all .15s}
+    .lang-tabs button.active{background:var(--info-dim);color:var(--info);border-color:rgba(59,130,246,.3)}
+    .integrate-body{padding:16px;position:relative}
+    .integrate-body pre{font-family:var(--font-mono);font-size:12px;line-height:1.6;color:var(--text-secondary);white-space:pre-wrap;word-break:break-word}
 
-    /* PARAMS */
-    .param-card { background: var(--bg-surface-2); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 12px 14px; margin-bottom: 10px; }
-    .param-card:last-child { margin-bottom: 0; }
-    .param-label-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-    .param-name { font-size: 13px; font-weight: 600; color: var(--text-primary); }
-    .param-req { font-size: 10px; font-weight: 700; color: var(--danger); padding: 1px 5px; background: var(--danger-dim); border-radius: 3px; text-transform: uppercase; }
-    .param-opt { font-size: 10px; color: var(--text-muted); }
-    .param-type { font-size: 10px; font-weight: 500; padding: 1px 6px; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 3px; color: var(--text-muted); font-family: var(--font-mono); }
-    .param-desc { font-size: 11px; color: var(--text-tertiary); margin-bottom: 8px; line-height: 1.4; }
-    .param-input { width: 100%; background: var(--bg-primary); border: 1px solid var(--border-default); color: var(--text-primary); font-family: var(--font-sans); font-size: 13px; padding: 8px 10px; border-radius: var(--radius-md); outline: none; transition: border-color 0.15s; }
-    .param-input:focus { border-color: var(--accent); }
-    textarea.param-input { resize: vertical; min-height: 64px; font-family: var(--font-mono); font-size: 12px; }
-    .param-hint { font-size: 10px; color: var(--text-muted); margin-top: 5px; }
+    /* Cost calculator */
+    .cost-calc{background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);padding:16px 20px;margin-bottom:16px}
+    .cost-calc h4{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-tertiary);margin-bottom:12px}
+    .cost-calc-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+    .cost-calc input[type=range]{flex:1;min-width:120px;accent-color:var(--accent)}
+    .cost-calc-num{font-family:var(--font-mono);font-size:13px;color:var(--text-primary);min-width:80px}
+    .cost-calc-results{display:flex;gap:20px;margin-top:12px;flex-wrap:wrap}
+    .ccr{text-align:center}
+    .ccr-val{font-family:var(--font-mono);font-size:16px;font-weight:700;color:var(--accent)}
+    .ccr-label{font-size:11px;color:var(--text-muted)}
 
-    /* BOOL TOGGLE */
-    .bool-toggle { display: flex; gap: 0; border: 1px solid var(--border-default); border-radius: var(--radius-md); overflow: hidden; width: fit-content; }
-    .bool-toggle button { font-family: var(--font-sans); font-size: 12px; font-weight: 500; padding: 5px 14px; border: none; cursor: pointer; background: transparent; color: var(--text-muted); transition: all 0.15s; }
-    .bool-toggle button.active-true { background: var(--accent-dim); color: var(--accent); }
-    .bool-toggle button.active-false { background: var(--danger-dim); color: var(--danger); }
+    /* Advanced params */
+    .advanced{border:1px solid var(--border-subtle);border-radius:var(--radius-lg);overflow:hidden;margin-bottom:16px}
+    .advanced-toggle{width:100%;display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:var(--bg-surface);border:none;cursor:pointer;color:var(--text-muted);font-family:var(--font-sans);font-size:12px;font-weight:600}
+    .advanced-toggle:hover{color:var(--text-secondary)} .advanced-toggle svg{transition:transform .2s} .advanced-toggle.open svg{transform:rotate(180deg)}
+    .advanced-body{display:none;padding:16px;background:var(--bg-surface)} .advanced-body.open{display:block}
+    .adv-field{background:var(--bg-surface-2);border:1px solid var(--border-subtle);border-radius:var(--radius-md);padding:12px 14px;margin-bottom:8px} .adv-field:last-child{margin-bottom:0}
+    .adv-field-head{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+    .adv-field-name{font-size:13px;font-weight:600;color:var(--text-primary)}
+    .adv-badge{font-size:10px;font-weight:700;padding:1px 5px;border-radius:3px}
+    .adv-badge.req{color:var(--danger);background:var(--danger-dim)} .adv-badge.opt{color:var(--text-muted)} .adv-badge.type{font-family:var(--font-mono);background:var(--bg-surface);border:1px solid var(--border-default);color:var(--text-muted)}
+    .adv-field-desc{font-size:11px;color:var(--text-tertiary);margin-bottom:8px}
+    .adv-input{width:100%;background:var(--bg-primary);border:1px solid var(--border-default);color:var(--text-primary);font-family:var(--font-sans);font-size:13px;padding:8px 10px;border-radius:var(--radius-md);outline:none}
+    .adv-input:focus{border-color:var(--accent)} textarea.adv-input{resize:vertical;min-height:64px;font-family:var(--font-mono);font-size:12px}
 
-    /* EXAMPLES DROPDOWN */
-    .examples-wrap { position: relative; }
-    .examples-btn { background: var(--bg-surface-2); color: var(--text-secondary); border: 1px solid var(--border-default); font-family: var(--font-sans); font-size: 12px; font-weight: 500; padding: 5px 12px; border-radius: var(--radius-md); cursor: pointer; display: flex; align-items: center; gap: 5px; transition: all 0.15s; }
-    .examples-btn:hover { border-color: var(--border-strong); color: var(--text-primary); background: var(--bg-surface-3); }
-    .examples-btn svg { transition: transform 0.2s; }
-    .examples-btn.open svg { transform: rotate(180deg); }
-    .examples-drop { display: none; position: absolute; top: calc(100% + 6px); right: 0; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: var(--radius-lg); box-shadow: 0 8px 32px rgba(0,0,0,0.4); z-index: 50; min-width: 260px; max-width: 320px; overflow: hidden; }
-    .examples-drop.open { display: block; }
-    .examples-drop-header { padding: 10px 14px 8px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); border-bottom: 1px solid var(--border-subtle); }
-    .example-item { padding: 10px 14px; cursor: pointer; border-bottom: 1px solid var(--border-subtle); transition: background 0.1s; }
-    .example-item:last-child { border-bottom: none; }
-    .example-item:hover { background: var(--bg-surface-2); }
-    .example-item-name { font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 2px; display: flex; align-items: center; gap: 6px; }
-    .example-item-desc { font-size: 11px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .example-item-num { font-size: 10px; font-weight: 700; width: 18px; height: 18px; border-radius: 50%; background: var(--bg-surface-3); border: 1px solid var(--border-default); display: flex; align-items: center; justify-content: center; color: var(--text-muted); flex-shrink: 0; }
+    /* Inline API key */
+    .inline-key{background:var(--warning-dim);border:1px solid rgba(245,158,11,.2);border-radius:var(--radius-md);padding:14px;margin-bottom:16px}
+    .inline-key p{font-size:12px;color:var(--warning);margin-bottom:8px;font-weight:500}
+    .inline-key-row{display:flex;gap:8px}
+    .inline-key input{flex:1;background:var(--bg-primary);border:1px solid var(--border-default);color:var(--text-primary);font-family:var(--font-mono);font-size:12px;padding:7px 10px;border-radius:var(--radius-md);outline:none} .inline-key input:focus{border-color:var(--warning)}
+    .inline-key button{font-family:var(--font-sans);font-size:12px;font-weight:600;padding:7px 14px;background:var(--warning);color:#000;border:none;border-radius:var(--radius-md);cursor:pointer;white-space:nowrap} .inline-key button:hover{opacity:.9}
+    .actions-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
 
-    /* API KEY INLINE */
-    .inline-apikey { background: var(--warning-dim); border: 1px solid rgba(245,158,11,0.2); border-radius: var(--radius-md); padding: 12px 14px; margin-top: 12px; }
-    .inline-apikey p { font-size: 12px; color: var(--warning); margin-bottom: 8px; font-weight: 500; }
-    .inline-apikey-row { display: flex; gap: 8px; }
-    .inline-apikey input { flex: 1; background: var(--bg-primary); border: 1px solid var(--border-default); color: var(--text-primary); font-family: var(--font-mono); font-size: 12px; padding: 7px 10px; border-radius: var(--radius-md); outline: none; }
-    .inline-apikey input:focus { border-color: var(--warning); }
-    .inline-apikey button { font-family: var(--font-sans); font-size: 12px; font-weight: 600; padding: 7px 14px; background: var(--warning); color: #000; border: none; border-radius: var(--radius-md); cursor: pointer; white-space: nowrap; }
-    .inline-apikey button:hover { opacity: 0.9; }
+    /* ── API TESTER ──────────────────────────────────────────────────── */
+    .at-head{margin-bottom:24px} .at-head h2{font-size:20px;font-weight:700;color:var(--text-primary);margin-bottom:4px} .at-head p{font-size:13px;color:var(--text-muted)}
+    .at-endpoints{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin-bottom:24px}
+    .at-ep-card{background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);padding:14px;cursor:pointer;transition:all .2s}
+    .at-ep-card:hover{border-color:var(--accent);transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.25)}
+    .at-ep-card.sel{border-color:var(--accent);background:var(--accent-dim)}
+    .at-ep-card .ep-method{font-size:10px;font-weight:700;margin-bottom:6px}
+    .at-ep-card .ep-name{font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:2px}
+    .at-ep-card .ep-desc{font-size:11px;color:var(--text-muted);line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+    .at-workspace{display:none;background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);overflow:hidden} .at-workspace.show{display:block}
+    .at-ws-head{padding:14px 16px;border-bottom:1px solid var(--border-subtle);display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+    .at-ws-url{flex:1;font-family:var(--font-mono);font-size:13px;color:var(--text-primary);background:var(--bg-primary);border:1px solid var(--border-default);border-radius:var(--radius-md);padding:8px 12px;outline:none;min-width:200px} .at-ws-url:focus{border-color:var(--accent)}
+    .at-ws-body{display:grid;grid-template-columns:1fr 1fr;min-height:300px}
+    @media(max-width:900px){.at-ws-body{grid-template-columns:1fr;grid-template-rows:1fr 1fr}}
+    .at-req{border-right:1px solid var(--border-subtle)} @media(max-width:900px){.at-req{border-right:none;border-bottom:1px solid var(--border-subtle)}}
+    .at-pane-head{padding:8px 14px;background:var(--bg-surface-2);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);border-bottom:1px solid var(--border-subtle);display:flex;align-items:center;justify-content:space-between}
+    .at-editor{flex:1;padding:14px;overflow:auto}
+    .at-editor textarea{width:100%;min-height:200px;background:var(--bg-primary);border:1px solid var(--border-default);color:var(--text-primary);font-family:var(--font-mono);font-size:12px;padding:12px;border-radius:var(--radius-md);outline:none;resize:vertical;line-height:1.6} .at-editor textarea:focus{border-color:var(--accent)}
+    .at-editor pre{font-family:var(--font-mono);font-size:12px;line-height:1.6;white-space:pre-wrap;word-break:break-word;color:var(--text-secondary);min-height:200px}
+    .at-res-status{display:flex;align-items:center;gap:8px}
+    .status-code{font-family:var(--font-mono);font-size:12px;font-weight:700}
+    .status-code.s2{color:var(--accent)} .status-code.s4{color:var(--warning)} .status-code.s5{color:var(--danger)}
 
-    /* CREDIT HINT */
-    .credit-hint { font-size: 11px; color: var(--text-muted); margin-top: 12px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-    .credit-hint .free { color: var(--purple); font-weight: 500; }
-    .credit-hint .live { color: var(--accent); font-weight: 500; }
-    .credit-hint .calc { color: var(--info); }
-
-    /* ACTION ROW */
-    .action-row { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
-    .btn { font-family: var(--font-sans); font-size: 13px; font-weight: 600; padding: 9px 18px; border-radius: var(--radius-md); cursor: pointer; transition: all 0.15s; border: 1px solid transparent; display: inline-flex; align-items: center; gap: 6px; line-height: 1; }
-    .btn-preview { background: var(--purple-dim); color: var(--purple); border-color: rgba(139,92,246,0.25); }
-    .btn-preview:hover { background: rgba(139,92,246,0.2); }
-    .btn-preview:disabled { opacity: 0.4; cursor: not-allowed; }
-    .btn-run { background: var(--accent); color: #000; border-color: var(--accent); }
-    .btn-run:hover { background: var(--accent-hover); }
-    .btn-run:disabled { opacity: 0.4; cursor: not-allowed; }
-    .btn-ghost { background: transparent; color: var(--text-secondary); border-color: var(--border-default); }
-    .btn-ghost:hover { border-color: var(--border-strong); color: var(--text-primary); background: var(--bg-surface-2); }
-    .btn-sm { padding: 5px 12px; font-size: 12px; }
-
-    /* RIGHT PANEL — OUTPUT */
-    .pg-output { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); display: flex; flex-direction: column; min-height: 520px; }
-    .output-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--border-subtle); }
-    .output-header h3 { font-size: 11px; font-weight: 600; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.06em; margin: 0; }
-    .output-meta { display: flex; gap: 10px; font-size: 11px; color: var(--text-muted); align-items: center; flex-wrap: wrap; }
-    .output-meta .tag { padding: 2px 9px; border-radius: 9999px; font-weight: 600; font-size: 10px; }
-    .output-meta .tag.sample { background: var(--purple-dim); color: var(--purple); }
-    .output-meta .tag.live { background: var(--accent-dim); color: var(--accent); }
-    .output-meta .tag.error { background: var(--danger-dim); color: var(--danger); }
-    .output-tabs { display: flex; border-bottom: 1px solid var(--border-subtle); padding: 0 16px; }
-    .output-tabs button { background: none; border: none; border-bottom: 2px solid transparent; color: var(--text-muted); font-family: var(--font-sans); font-size: 12px; font-weight: 500; padding: 10px 14px; cursor: pointer; transition: all 0.15s; margin-bottom: -1px; }
-    .output-tabs button:hover { color: var(--text-secondary); }
-    .output-tabs button.active { color: var(--accent); border-bottom-color: var(--accent); }
-    .output-body { flex: 1; padding: 16px; overflow: auto; position: relative; }
-    .output-body pre { font-family: var(--font-mono); font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; color: var(--text-secondary); }
-    .copy-btn { position: absolute; top: 10px; right: 12px; background: var(--bg-surface-2); border: 1px solid var(--border-default); color: var(--text-muted); font-size: 11px; padding: 4px 10px; border-radius: var(--radius-sm); cursor: pointer; font-family: var(--font-sans); z-index: 1; }
-    .copy-btn:hover { color: var(--text-primary); border-color: var(--border-strong); }
-
-    /* EMPTY STATE */
-    .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px 32px; text-align: center; min-height: 400px; }
-    .empty-state-icon { width: 52px; height: 52px; border-radius: var(--radius-xl); background: var(--bg-surface-2); border: 1px solid var(--border-default); display: flex; align-items: center; justify-content: center; margin-bottom: 20px; font-size: 24px; }
-    .empty-state h4 { font-size: 16px; font-weight: 600; color: var(--text-primary); margin-bottom: 6px; }
-    .empty-state p { font-size: 13px; color: var(--text-tertiary); max-width: 340px; margin: 0 auto; }
-    .how-it-works { display: flex; gap: 0; margin-top: 32px; width: 100%; max-width: 480px; }
-    .hiw-step { flex: 1; text-align: center; position: relative; }
-    .hiw-step:not(:last-child)::after { content: ''; position: absolute; top: 16px; right: 0; left: 50%; width: 100%; height: 1px; background: var(--border-default); z-index: 0; }
-    .hiw-num { width: 32px; height: 32px; border-radius: 50%; background: var(--bg-surface-3); border: 1px solid var(--border-default); font-size: 13px; font-weight: 700; color: var(--text-tertiary); display: flex; align-items: center; justify-content: center; margin: 0 auto 10px; position: relative; z-index: 1; }
-    .hiw-title { font-size: 12px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px; }
-    .hiw-desc { font-size: 11px; color: var(--text-muted); line-height: 1.4; }
-
-    /* CONFIRM MODAL */
-    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.65); backdrop-filter: blur(4px); z-index: 1000; align-items: center; justify-content: center; }
-    .modal-overlay.show { display: flex; }
-    .modal { background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: var(--radius-xl); padding: 28px; max-width: 400px; width: 90%; box-shadow: 0 24px 64px rgba(0,0,0,0.6); }
-    .modal h3 { font-size: 16px; font-weight: 700; color: var(--text-primary); margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
-    .modal-desc { font-size: 13px; color: var(--text-tertiary); margin-bottom: 20px; line-height: 1.5; }
-    .modal-cost { background: var(--bg-surface-2); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 14px 16px; margin-bottom: 20px; }
-    .modal-cost-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
-    .modal-cost-row:last-child { margin-bottom: 0; padding-top: 6px; border-top: 1px solid var(--border-subtle); }
-    .modal-cost-label { font-size: 12px; color: var(--text-tertiary); }
-    .modal-cost-val { font-family: var(--font-mono); font-size: 13px; font-weight: 700; color: var(--accent); }
-    .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
-
-    /* FOOTER */
-    footer { border-top: 1px solid var(--border-subtle); padding: 32px 24px; display: flex; justify-content: space-between; align-items: center; max-width: 1240px; margin: 0 auto; flex-wrap: wrap; gap: 16px; }
-    .footer-links { list-style: none; display: flex; gap: 16px; flex-wrap: wrap; }
-    .footer-links a { font-size: 12px; color: var(--text-muted); }
-    .footer-links a:hover { color: var(--text-secondary); }
-    .footer-copy { font-size: 12px; color: var(--text-muted); }
-
-    /* SPINNER + TOAST */
-    .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(0,0,0,0.25); border-top-color: #000; border-radius: 50%; animation: spin 0.6s linear infinite; }
-    .btn-preview .spinner { border-color: rgba(139,92,246,0.3); border-top-color: var(--purple); }
-    @keyframes spin { to { transform: rotate(360deg); } }
-    #toast-container { position: fixed; bottom: 32px; right: 32px; z-index: 9999; display: flex; flex-direction: column; gap: 10px; }
-    .toast { font-size: 13px; padding: 12px 18px; border: 1px solid; border-radius: var(--radius-md); display: flex; align-items: center; gap: 10px; min-width: 240px; max-width: 380px; animation: toastIn 0.2s ease; box-shadow: 0 4px 16px rgba(0,0,0,0.4); }
-    .toast.success { background: var(--bg-surface-2); border-color: rgba(16,185,129,0.3); color: var(--accent); }
-    .toast.error { background: var(--bg-surface-2); border-color: rgba(239,68,68,0.3); color: var(--danger); }
-    .toast.warning { background: var(--bg-surface-2); border-color: rgba(245,158,11,0.3); color: var(--warning); }
-    @keyframes toastIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-
-    /* NO SKILLS */
-    .no-skills { padding: 20px; text-align: center; color: var(--text-muted); font-size: 12px; }
-    .params-empty { font-size: 12px; color: var(--text-muted); padding: 8px 0; }
-    .divider { height: 1px; background: var(--border-subtle); margin: 14px 0; }
-
-    /* CODE SNIPPETS */
-    .snippet-lang-tabs { display: flex; gap: 4px; margin-bottom: 10px; flex-wrap: wrap; }
-    .snippet-lang-tabs button { font-family: var(--font-sans); font-size: 11px; font-weight: 500; padding: 3px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border-default); background: transparent; color: var(--text-muted); cursor: pointer; transition: all 0.15s; }
-    .snippet-lang-tabs button.active { background: var(--info-dim); color: var(--info); border-color: rgba(59,130,246,0.3); }
+    /* ── FOOTER + TOAST + MODAL ──────────────────────────────────────── */
+    footer{border-top:1px solid var(--border-subtle);padding:32px 24px;display:flex;justify-content:space-between;align-items:center;max-width:1240px;margin:0 auto;flex-wrap:wrap;gap:16px}
+    .footer-links{list-style:none;display:flex;gap:16px;flex-wrap:wrap} .footer-links a{font-size:12px;color:var(--text-muted)} .footer-links a:hover{color:var(--text-secondary)}
+    .footer-copy{font-size:12px;color:var(--text-muted)}
+    .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);backdrop-filter:blur(4px);z-index:1000;align-items:center;justify-content:center} .modal-overlay.show{display:flex}
+    .modal{background:var(--bg-surface);border:1px solid var(--border-default);border-radius:var(--radius-xl);padding:28px;max-width:400px;width:90%;box-shadow:0 24px 64px rgba(0,0,0,.6)}
+    .modal h3{font-size:16px;font-weight:700;color:var(--text-primary);margin-bottom:10px;display:flex;align-items:center;gap:8px}
+    .modal p{font-size:13px;color:var(--text-tertiary);margin-bottom:20px;line-height:1.5}
+    .modal-cost{background:var(--bg-surface-2);border:1px solid var(--border-subtle);border-radius:var(--radius-md);padding:14px 16px;margin-bottom:20px}
+    .modal-cost-row{display:flex;justify-content:space-between;align-items:center;padding:4px 0}
+    .modal-cost-row+.modal-cost-row{border-top:1px solid var(--border-subtle);margin-top:4px;padding-top:8px}
+    .modal-actions{display:flex;gap:8px;justify-content:flex-end}
+    #toast-container{position:fixed;bottom:32px;right:32px;z-index:9999;display:flex;flex-direction:column;gap:10px}
+    .toast{font-size:13px;padding:12px 18px;border:1px solid;border-radius:var(--radius-md);display:flex;align-items:center;gap:10px;min-width:240px;max-width:380px;animation:toastIn .2s ease;box-shadow:0 4px 16px rgba(0,0,0,.4)}
+    .toast.success{background:var(--bg-surface-2);border-color:rgba(16,185,129,.3);color:var(--accent)}
+    .toast.error{background:var(--bg-surface-2);border-color:rgba(239,68,68,.3);color:var(--danger)}
+    .toast.warning{background:var(--bg-surface-2);border-color:rgba(245,158,11,.3);color:var(--warning)}
+    @keyframes toastIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
   </style>
 </head>
 <body>
+
+<!-- NAV -->
 <nav>
   <div class="nav-left">
-    <a href="/" class="nav-logo"><span class="nav-logo-text">Claw <span>Network</span></span></a>
+    <a href="/"><span class="nav-logo-text">Claw <span>Network</span></span></a>
     <ul class="nav-links">
       <li><a href="/">Home</a></li>
       <li><a href="/#pricing">Pricing</a></li>
@@ -323,9 +274,7 @@
       <li><a href="/playground.html" class="active">Playground</a></li>
       <li><a href="https://x.com/i/communities/2031805527043576245" target="_blank" rel="noopener" title="Follow on X" style="padding:6px 8px;display:flex;align-items:center"><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.748l7.73-8.835L1.254 2.25H8.08l4.253 5.622 5.91-5.622zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg></a></li>
     </ul>
-    <button class="hamburger" onclick="toggleMobileMenu()" aria-label="Menu">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
-    </button>
+    <button class="hamburger" onclick="toggleMobileMenu()" aria-label="Menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
   </div>
   <div class="nav-right">
     <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">
@@ -333,10 +282,7 @@
       <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
     </button>
     <div class="nav-status" id="navApiStatus"><span class="status-dot" id="statusDot"></span><span id="statusLabel">Checking...</span></div>
-    <div class="nav-credits" id="nav-credits-badge">
-      <svg width="14" height="14" viewBox="0 0 24 24" style="flex-shrink:0"><circle cx="12" cy="12" r="11" fill="#92400e"/><circle cx="12" cy="12" r="9.5" fill="#f59e0b"/><circle cx="12" cy="12" r="7.5" fill="#fbbf24"/><text x="12" y="16.5" text-anchor="middle" font-size="10" font-weight="800" fill="#78350f" font-family="Arial,sans-serif">C</text></svg>
-      <span id="nav-credits-num">&mdash;</span> credits
-    </div>
+    <div class="nav-credits" id="nav-credits-badge"><svg width="14" height="14" viewBox="0 0 24 24" style="flex-shrink:0"><circle cx="12" cy="12" r="11" fill="#92400e"/><circle cx="12" cy="12" r="9.5" fill="#f59e0b"/><circle cx="12" cy="12" r="7.5" fill="#fbbf24"/><text x="12" y="16.5" text-anchor="middle" font-size="10" font-weight="800" fill="#78350f" font-family="Arial,sans-serif">C</text></svg><span id="nav-credits-num">&mdash;</span> credits</div>
     <span class="nav-email" id="nav-user-email"></span>
     <a href="/login.html" class="nav-login" id="nav-login-btn">Sign In</a>
     <a href="/#pricing" class="nav-cta" id="nav-getkey-btn">Get API Key</a>
@@ -344,991 +290,397 @@
     <button class="nav-btn-ghost danger" id="nav-signout-btn" onclick="navSignOut()">Sign Out</button>
   </div>
 </nav>
+<div class="mobile-menu" id="mobileMenu"><a href="/">Home</a><a href="/#pricing">Pricing</a><a href="/docs.html">Docs</a><a href="/marketplace.html">Marketplace</a><a href="/endpoints.html">Endpoints</a><a href="/playground.html">Playground</a><a href="/dashboard.html">Dashboard</a></div>
 
-<div class="mobile-menu" id="mobileMenu">
-  <a href="/">Home</a>
-  <a href="/#pricing">Pricing</a>
-  <a href="/docs.html">Docs</a>
-  <a href="/marketplace.html">Marketplace</a>
-  <a href="/endpoints.html">Endpoints</a>
-  <a href="/playground.html">Playground</a>
-  <a href="/dashboard.html">Dashboard</a>
-</div>
-
+<!-- HERO -->
 <div class="container">
   <div class="pg-hero">
-    <h1>Skill <span>Playground</span></h1>
-    <p>Explore every public skill. Preview outputs for free — no sign-in needed. Go live when you're ready.</p>
+    <h1>Test. Explore. <em>Integrate.</em></h1>
+    <p>Try any skill for free, test every endpoint live, and copy working code — all from your browser.</p>
   </div>
-
   <div class="mode-bar">
     <div class="mode-toggle">
-      <button id="modeSandbox" class="active-sandbox" onclick="setMode('sandbox')">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-        Sandbox
-      </button>
-      <button id="modeLive" onclick="setMode('live')">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
-        Live
-      </button>
+      <button id="modeSandbox" class="active-sandbox" onclick="setMode('sandbox')"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>Sandbox</button>
+      <button id="modeLive" onclick="setMode('live')"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>Live</button>
     </div>
-    <div class="mode-indicator sandbox" id="modeIndicator">
-      <span class="mode-dot sandbox" id="modeDot"></span>
-      <span id="modeLabel">Sandbox — preview sample outputs for free</span>
+    <span class="mode-label" id="modeLabel">Free preview — no sign-in needed</span>
+  </div>
+
+  <!-- SECTION TABS -->
+  <div class="pg-tabs" id="pgTabs">
+    <button class="active" onclick="switchSection('sandbox',this)">Skill Sandbox</button>
+    <button onclick="switchSection('tester',this)">API Tester</button>
+  </div>
+
+  <!-- ═══ SKILL SANDBOX ═══ -->
+  <div class="pg-tab-panel active" id="panelSandbox">
+    <div class="sb-layout">
+      <div class="sb-browser">
+        <div class="sb-browser-head"><h3>Skills</h3></div>
+        <input type="text" class="sb-search" id="skillSearch" placeholder="Search skills..." oninput="filterSkills()">
+        <div class="sb-filters" id="typeFilter">
+          <button class="active" onclick="setTypeFilter('all',this)">All</button>
+          <button class="f-data" onclick="setTypeFilter('data',this)">Data</button>
+          <button class="f-prompt" onclick="setTypeFilter('prompt_template',this)">Prompt</button>
+          <button class="f-proxy" onclick="setTypeFilter('api_proxy',this)">Proxy</button>
+        </div>
+        <div class="sb-list" id="skillList"><div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12px">Loading skills...</div></div>
+      </div>
+      <div id="sbDetail"></div>
     </div>
   </div>
-</div>
 
-<div class="live-banner" id="liveBanner">
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:6px"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
-  <strong>Live Mode</strong> — real API calls, real credit deductions. Each run costs the skill's listed credit price.
-</div>
-
-<div class="container">
-  <div class="pg-layout">
-
-    <!-- LEFT COLUMN -->
-    <div>
-      <!-- Skill Selector -->
-      <div class="pg-panel">
-        <div class="panel-header"><h3>Skills</h3></div>
-        <div class="panel-body">
-          <input type="text" class="pg-search" id="skillSearch" placeholder="Search by name or description..." oninput="filterSkills()">
-          <div class="pg-type-filter" id="typeFilter">
-            <button class="active filter-all" onclick="setTypeFilter('all',this)">All</button>
-            <button class="filter-data" onclick="setTypeFilter('data',this)">Data</button>
-            <button class="filter-prompt" onclick="setTypeFilter('prompt_template',this)">Prompt</button>
-            <button class="filter-proxy" onclick="setTypeFilter('api_proxy',this)">Proxy</button>
-          </div>
-          <div class="pg-skill-list" id="skillList">
-            <div class="no-skills">Loading skills...</div>
-          </div>
-        </div>
+  <!-- ═══ API TESTER ═══ -->
+  <div class="pg-tab-panel" id="panelTester">
+    <div class="at-head"><h2>API Tester</h2><p>Select an endpoint, edit the request, and hit Send. Requires Live mode with an API key.</p></div>
+    <div class="at-endpoints" id="atEndpoints"></div>
+    <div class="at-workspace" id="atWorkspace">
+      <div class="at-ws-head">
+        <span class="badge" id="atMethod">GET</span>
+        <input type="text" class="at-ws-url" id="atUrl" readonly>
+        <button class="btn btn-primary" id="atSendBtn" onclick="atSend()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>Send</button>
       </div>
-
-      <!-- Skill Info Card -->
-      <div class="skill-info-card" id="skillInfoCard">
-        <div class="sic-header">
-          <div class="sic-name" id="sicName"></div>
-          <div class="sic-desc" id="sicDesc"></div>
-          <div class="sic-chips" id="sicChips"></div>
-        </div>
-      </div>
-
-      <!-- Params + Actions -->
-      <div class="pg-panel" id="paramsPanel" style="display:none; margin-top:12px;">
-        <div class="panel-header" style="display:flex;align-items:center;justify-content:space-between">
-          <h3>Input Parameters</h3>
-          <div class="examples-wrap" id="examplesWrap" style="display:none">
-            <button class="examples-btn" id="examplesBtn" onclick="toggleExamplesDropdown()">
-              Examples
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
-            </button>
-            <div class="examples-drop" id="examplesDrop">
-              <div class="examples-drop-header">Try a real scenario</div>
-              <div id="examplesDropList"></div>
-            </div>
-          </div>
-        </div>
-        <div class="panel-body">
-          <div id="paramsForm"></div>
-
-          <!-- Inline API key (shown only when not signed in + live mode) -->
-          <div class="inline-apikey" id="inlineApiKey" style="display:none">
-            <p>⚡ Enter your API key to run live</p>
-            <div class="inline-apikey-row">
-              <input type="password" id="inlineKeyInput" placeholder="cn-••••••••" autocomplete="off">
-              <button onclick="applyInlineKey()">Connect</button>
-            </div>
-            <p style="margin-top:6px;font-size:11px;color:var(--text-muted)">Don't have one? <a href="/#pricing" style="color:var(--warning)">Get an API key →</a></p>
-          </div>
-
-          <div class="divider"></div>
-
-          <div class="action-row" id="actionRow">
-            <button class="btn btn-preview" id="previewBtn" onclick="showSampleOutput()">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/></svg>
-              Preview Sample
-            </button>
-            <button class="btn btn-run" id="runBtn" onclick="confirmRunLive()" style="display:none">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
-              Run Skill
-            </button>
-          </div>
-
-          <div class="credit-hint" id="creditHint"></div>
-        </div>
+      <div class="at-ws-body">
+        <div class="at-req"><div class="at-pane-head"><span>Request</span></div><div class="at-editor"><textarea id="atReqBody" spellcheck="false"></textarea></div></div>
+        <div class="at-res"><div class="at-pane-head"><span>Response</span><div class="at-res-status" id="atResStatus"></div></div><div class="at-editor"><pre id="atResBody" style="color:var(--text-muted)">Click "Send" to execute the request.</pre></div></div>
       </div>
     </div>
-
-    <!-- RIGHT COLUMN — OUTPUT -->
-    <div class="pg-output">
-      <div class="output-header">
-        <h3>Output</h3>
-        <div class="output-meta" id="outputMeta"></div>
-      </div>
-      <div class="output-tabs" id="outputTabs" style="display:none">
-        <button class="active" data-tab="formatted" onclick="switchTab('formatted',this)">Formatted</button>
-        <button data-tab="raw" onclick="switchTab('raw',this)">Raw JSON</button>
-        <button data-tab="code" onclick="switchTab('code',this)">Use in Code</button>
-        <button data-tab="curl" onclick="switchTab('curl',this)">cURL</button>
-      </div>
-      <div class="output-body" id="outputBody">
-        <!-- populated by showDefaultEmptyState() on init -->
-      </div>
-    </div>
-
   </div>
 </div>
 
 <!-- CONFIRM MODAL -->
 <div class="modal-overlay" id="confirmModal">
   <div class="modal">
-    <h3>
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
-      Confirm Live Run
-    </h3>
-    <p class="modal-desc">This will execute the skill using real credits. The charge is non-refundable.</p>
+    <h3><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>Confirm Live Run</h3>
+    <p>This executes the skill with real credits. The charge is non-refundable.</p>
     <div class="modal-cost">
-      <div class="modal-cost-row">
-        <span class="modal-cost-label">Skill</span>
-        <span style="font-size:13px;color:var(--text-primary);font-weight:600" id="confirmSkillName">—</span>
-      </div>
-      <div class="modal-cost-row">
-        <span class="modal-cost-label">Cost</span>
-        <span class="modal-cost-val" id="confirmCost">— cr</span>
-      </div>
-      <div class="modal-cost-row">
-        <span class="modal-cost-label">Your balance after</span>
-        <span style="font-family:var(--font-mono);font-size:12px;color:var(--text-muted)" id="confirmBalance">— cr</span>
-      </div>
+      <div class="modal-cost-row"><span style="font-size:12px;color:var(--text-tertiary)">Skill</span><span style="font-size:13px;font-weight:600;color:var(--text-primary)" id="cmSkill">—</span></div>
+      <div class="modal-cost-row"><span style="font-size:12px;color:var(--text-tertiary)">Cost</span><span class="mono" style="font-size:13px;font-weight:700;color:var(--accent)" id="cmCost">—</span></div>
+      <div class="modal-cost-row"><span style="font-size:12px;color:var(--text-tertiary)">Balance after</span><span class="mono" style="font-size:12px;color:var(--text-muted)" id="cmBalance">—</span></div>
     </div>
-    <div class="modal-actions">
-      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
-      <button class="btn btn-run" onclick="runLiveConfirmed()">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
-        Run &amp; Deduct Credits
-      </button>
-    </div>
+    <div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="runLiveConfirmed()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>Run &amp; Deduct</button></div>
   </div>
 </div>
 
 <footer>
-  <div class="footer-left">
-    <a href="/" class="footer-logo"><span class="nav-logo-text">Claw <span>Network</span></span></a>
-    <ul class="footer-links">
-      <li><a href="/">Home</a></li>
-      <li><a href="/docs.html">Docs</a></li>
-      <li><a href="/marketplace.html">Marketplace</a></li>
-      <li><a href="/endpoints.html">Endpoints</a></li>
-      <li><a href="/terms.html">Terms</a></li>
-      <li><a href="/privacy.html">Privacy</a></li>
-    </ul>
+  <div><a href="/"><span class="nav-logo-text">Claw <span>Network</span></span></a>
+    <ul class="footer-links"><li><a href="/">Home</a></li><li><a href="/docs.html">Docs</a></li><li><a href="/marketplace.html">Marketplace</a></li><li><a href="/endpoints.html">Endpoints</a></li><li><a href="/terms.html">Terms</a></li><li><a href="/privacy.html">Privacy</a></li></ul>
   </div>
   <div class="footer-copy">&copy; 2026 ClawNet &middot; Powered by x402</div>
 </footer>
-
 <div id="toast-container"></div>
 
 <script>
-const API = 'https://api.claw-net.org';
-let skills = [];
-let selectedSkill = null;
-let apiKey = localStorage.getItem('claw_api_key') || '';
-let userCredits = null;
-let lastResponse = null;
-let currentMode = 'sandbox';
-let activeTypeFilter = 'all';
-let activeCodeLang = 'javascript';
-let activeOutputTab = 'formatted';
+const API='https://api.claw-net.org';
+let skills=[],selectedSkill=null,lastResponse=null;
+let apiKey=localStorage.getItem('claw_api_key')||'',userCredits=null;
+let currentMode='sandbox',activeTypeFilter='all',activeLang='javascript',activeResultTab='formatted';
 
-// ── Helpers ────────────────────────────────────────────────────────────
-function esc(s) { const d = document.createElement('div'); d.textContent = String(s ?? ''); return d.innerHTML; }
-function creditsToUsd(n) { const u = n * 0.001; return u < 0.01 ? '$' + u.toFixed(4).replace(/\.?0+$/, '') : '$' + u.toFixed(u >= 1 ? 2 : 3).replace(/\.?0+$/, ''); }
+// ── Helpers ──────────────────────────────────────────────────────────
+function esc(s){const d=document.createElement('div');d.textContent=String(s??'');return d.innerHTML}
+function creditsToUsd(n){const u=n*.001;return u<.01?'$'+u.toFixed(4).replace(/\.?0+$/,''):'$'+u.toFixed(u>=1?2:3).replace(/\.?0+$/,'')}
+function toast(m,t='success'){const e=document.createElement('div');e.className='toast '+t;e.textContent=m;document.getElementById('toast-container').appendChild(e);setTimeout(()=>e.remove(),4000)}
+function toggleTheme(){const l=document.documentElement.getAttribute('data-theme')==='light';document.documentElement.setAttribute('data-theme',l?'':'light');localStorage.setItem('clawnet_theme',l?'dark':'light')}
+function toggleMobileMenu(){document.getElementById('mobileMenu').classList.toggle('open')}
 
-function toast(msg, type = 'success') {
-  const el = document.createElement('div');
-  el.className = 'toast ' + type;
-  el.textContent = msg;
-  document.getElementById('toast-container').appendChild(el);
-  setTimeout(() => el.remove(), 4000);
-}
-
-// ── Theme / Menu ───────────────────────────────────────────────────────
-function toggleTheme() {
-  const light = document.documentElement.getAttribute('data-theme') === 'light';
-  document.documentElement.setAttribute('data-theme', light ? '' : 'light');
-  localStorage.setItem('clawnet_theme', light ? 'dark' : 'light');
-}
-function toggleMobileMenu() { document.getElementById('mobileMenu').classList.toggle('open'); }
-
-// ── Auth / Nav ─────────────────────────────────────────────────────────
-async function initAuth() {
-  if (!apiKey) { updateNavGuest(); return; }
-  try {
-    const r = await fetch(`${API}/v1/auth/me`, { headers: { 'X-API-Key': apiKey } });
-    if (!r.ok) { apiKey = ''; localStorage.removeItem('claw_api_key'); updateNavGuest(); return; }
-    const d = await r.json();
-    userCredits = d.credits ?? 0;
+// ── Auth ─────────────────────────────────────────────────────────────
+async function initAuth(){
+  if(!apiKey){updateNavGuest();return}
+  try{const r=await fetch(`${API}/v1/auth/me`,{headers:{'X-API-Key':apiKey}});
+    if(!r.ok){apiKey='';localStorage.removeItem('claw_api_key');updateNavGuest();return}
+    const d=await r.json();userCredits=d.credits??0;
     document.getElementById('nav-credits-badge').classList.add('show');
-    document.getElementById('nav-credits-num').textContent = userCredits.toLocaleString();
-    if (d.email) { document.getElementById('nav-user-email').textContent = d.email; document.getElementById('nav-user-email').classList.add('show'); }
-    document.getElementById('nav-login-btn').style.display = 'none';
-    document.getElementById('nav-getkey-btn').style.display = 'none';
-    document.getElementById('nav-dash-btn').classList.add('show');
-    document.getElementById('nav-signout-btn').classList.add('show');
-    updateCreditHint();
-  } catch { updateNavGuest(); }
+    document.getElementById('nav-credits-num').textContent=userCredits.toLocaleString();
+    if(d.email){document.getElementById('nav-user-email').textContent=d.email;document.getElementById('nav-user-email').classList.add('show')}
+    document.getElementById('nav-login-btn').style.display='none';document.getElementById('nav-getkey-btn').style.display='none';
+    document.getElementById('nav-dash-btn').classList.add('show');document.getElementById('nav-signout-btn').classList.add('show');
+  }catch{updateNavGuest()}
 }
-function updateNavGuest() {
-  userCredits = null;
-  document.getElementById('nav-credits-badge').classList.remove('show');
-  document.getElementById('nav-dash-btn').classList.remove('show');
-  document.getElementById('nav-signout-btn').classList.remove('show');
-}
-function navSignOut() { localStorage.removeItem('claw_api_key'); location.reload(); }
-
-function applyInlineKey() {
-  const val = document.getElementById('inlineKeyInput').value.trim();
-  if (!val) { toast('Enter your API key first', 'error'); return; }
-  apiKey = val;
-  localStorage.setItem('claw_api_key', val);
-  document.getElementById('inlineApiKey').style.display = 'none';
-  initAuth().then(() => {
-    if (apiKey) { toast('Connected! You can now run skills live.', 'success'); updateRunButtons(); }
-    else toast('Invalid API key — check and try again', 'error');
-  });
+function updateNavGuest(){userCredits=null;document.getElementById('nav-credits-badge').classList.remove('show');document.getElementById('nav-dash-btn').classList.remove('show');document.getElementById('nav-signout-btn').classList.remove('show')}
+function navSignOut(){localStorage.removeItem('claw_api_key');location.reload()}
+function applyInlineKey(){
+  const v=document.getElementById('inlineKeyInput')?.value.trim();
+  if(!v){toast('Enter your API key','error');return}
+  apiKey=v;localStorage.setItem('claw_api_key',v);
+  document.querySelector('.inline-key')?.remove();
+  initAuth().then(()=>{if(apiKey){toast('Connected! Live mode ready.','success');if(selectedSkill)renderSkillDetail(selectedSkill)}else toast('Invalid API key','error')});
 }
 
-// ── Status ─────────────────────────────────────────────────────────────
-async function checkStatus() {
-  try {
-    const r = await fetch(`${API}/health`);
-    document.getElementById('statusDot').classList.toggle('ok', r.ok);
-    document.getElementById('statusDot').classList.toggle('err', !r.ok);
-    document.getElementById('statusLabel').textContent = r.ok ? 'Operational' : 'Degraded';
-  } catch {
-    document.getElementById('statusLabel').textContent = 'Offline';
-    document.getElementById('statusDot').classList.add('err');
-  }
+// ── Status ───────────────────────────────────────────────────────────
+async function checkStatus(){try{const r=await fetch(`${API}/health`);document.getElementById('statusDot').classList.toggle('ok',r.ok);document.getElementById('statusDot').classList.toggle('err',!r.ok);document.getElementById('statusLabel').textContent=r.ok?'Operational':'Degraded'}catch{document.getElementById('statusLabel').textContent='Offline';document.getElementById('statusDot').classList.add('err')}}
+
+// ── Mode ─────────────────────────────────────────────────────────────
+function setMode(m){
+  currentMode=m;
+  document.getElementById('modeSandbox').className=m==='sandbox'?'active-sandbox':'';
+  document.getElementById('modeLive').className=m==='live'?'active-live':'';
+  document.getElementById('modeLabel').textContent=m==='sandbox'?'Free preview — no sign-in needed':'Live mode — real API calls, real credits';
+  if(selectedSkill)renderSkillDetail(selectedSkill);
 }
 
-// ── Mode Toggle ────────────────────────────────────────────────────────
-function setMode(mode) {
-  if (mode === 'live' && !apiKey) {
-    // Don't hard-redirect — show inline key prompt instead
-    currentMode = 'live';
-    applyModeUI('live');
-    if (selectedSkill) document.getElementById('inlineApiKey').style.display = '';
-    toast('Enter your API key below to run skills live', 'warning');
-    return;
-  }
-  currentMode = mode;
-  applyModeUI(mode);
-  if (selectedSkill) updateRunButtons();
+// ── Section tabs ─────────────────────────────────────────────────────
+function switchSection(tab,btn){
+  document.querySelectorAll('#pgTabs button').forEach(b=>b.classList.remove('active'));btn.classList.add('active');
+  document.getElementById('panelSandbox').classList.toggle('active',tab==='sandbox');
+  document.getElementById('panelTester').classList.toggle('active',tab==='tester');
 }
 
-function applyModeUI(mode) {
-  document.getElementById('modeSandbox').className = mode === 'sandbox' ? 'active-sandbox' : '';
-  document.getElementById('modeLive').className = mode === 'live' ? 'active-live' : '';
-  const indicator = document.getElementById('modeIndicator');
-  const dot = document.getElementById('modeDot');
-  const label = document.getElementById('modeLabel');
-  const banner = document.getElementById('liveBanner');
-  if (mode === 'sandbox') {
-    indicator.className = 'mode-indicator sandbox';
-    dot.className = 'mode-dot sandbox';
-    label.textContent = 'Sandbox — preview sample outputs for free';
-    banner.classList.remove('show');
-  } else {
-    indicator.className = 'mode-indicator live';
-    dot.className = 'mode-dot live';
-    label.textContent = 'Live — calls deduct real credits';
-    banner.classList.add('show');
-  }
+// ── Load Skills ──────────────────────────────────────────────────────
+async function loadSkills(){
+  try{const r=await fetch(`${API}/v1/skills?limit=100`);if(!r.ok)throw 0;const d=await r.json();skills=d.skills||[];renderSkillList();
+    const p=new URLSearchParams(location.search);const pre=p.get('skill')||p.get('id');
+    if(pre){const m=skills.find(s=>s.id===pre||s.name===pre);if(m)selectSkill(m);else showFeatured()}else showFeatured();
+  }catch{document.getElementById('skillList').innerHTML='<div style="padding:20px;text-align:center;color:var(--danger);font-size:12px">Failed to load skills</div>';showFeatured()}
 }
-
-function updateRunButtons() {
-  const previewBtn = document.getElementById('previewBtn');
-  const runBtn = document.getElementById('runBtn');
-  const inlineKey = document.getElementById('inlineApiKey');
-  if (!selectedSkill) return;
-
-  if (currentMode === 'live' && apiKey) {
-    runBtn.style.display = '';
-    runBtn.textContent = '';
-    runBtn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg> Run Skill — ${selectedSkill.creditCost} cr`;
-    inlineKey.style.display = 'none';
-  } else if (currentMode === 'live' && !apiKey) {
-    runBtn.style.display = 'none';
-    inlineKey.style.display = '';
-  } else {
-    runBtn.style.display = 'none';
-    inlineKey.style.display = 'none';
-  }
-  updateCreditHint();
-}
-
-function updateCreditHint() {
-  const hint = document.getElementById('creditHint');
-  if (!hint || !selectedSkill) return;
-  const cost = selectedSkill.creditCost;
-  let html = `<span class="free">Preview: free</span>`;
-  if (currentMode === 'live') {
-    html += ` &nbsp;·&nbsp; <span class="live">Live: ${cost} cr (${creditsToUsd(cost)})</span>`;
-    if (userCredits !== null) {
-      const calls = Math.floor(userCredits / cost);
-      html += ` &nbsp;·&nbsp; <span class="calc">You have ${userCredits.toLocaleString()} cr = ${calls} calls</span>`;
-    }
-  }
-  hint.innerHTML = html;
-}
-
-// ── Load Skills ────────────────────────────────────────────────────────
-async function loadSkills() {
-  try {
-    const r = await fetch(`${API}/v1/skills?limit=100`);
-    if (!r.ok) throw new Error();
-    const d = await r.json();
-    skills = d.skills || [];
-    renderSkillList(getFiltered());
-    const params = new URLSearchParams(location.search);
-    const pre = params.get('skill') || params.get('id');
-    if (pre) {
-      const match = skills.find(s => s.id === pre || s.name === pre);
-      if (match) selectSkill(match);
-    }
-  } catch {
-    document.getElementById('skillList').innerHTML = '<div class="no-skills" style="color:var(--danger)">Failed to load skills — check your connection</div>';
-  }
-}
-
-function getFiltered() {
-  const q = document.getElementById('skillSearch').value.toLowerCase().trim();
-  return skills.filter(s => {
-    const matchText = !q || (s.displayName || s.name).toLowerCase().includes(q) || (s.description || '').toLowerCase().includes(q);
-    const matchType = activeTypeFilter === 'all' || s.skillType === activeTypeFilter;
-    return matchText && matchType;
-  });
-}
-
-const TYPE_INFO = {
-  data: {
-    icon: '📊',
-    color: 'var(--danger)',
-    label: 'Data Skills',
-    desc: 'Data skills deliver structured JSON directly from live APIs — no LLM involved. Think of them as real-time data feeds built for AI agents: numbers, prices, stats, and facts your model can immediately reason over.',
-    bullets: [
-      'Real-time token prices, market cap, 24h volume',
-      'Weather, exchange rates, sports scores, news feeds',
-      'First caller fetches live — all subsequent callers get cached result at 1 credit',
-      'Always returns clean JSON — no hallucinations, no guessing',
-    ],
-    example: '// GET /v1/skills/price-oracle/query\n{\n  "token": "ETH",\n  "price_usd": 3241.88,\n  "change_24h": "+2.4%",\n  "market_cap": "389B"\n}',
-  },
-  prompt_template: {
-    icon: '🧠',
-    color: 'var(--purple)',
-    label: 'Prompt Skills',
-    desc: 'Prompt skills wrap an LLM with a carefully engineered system prompt. You send a query, the skill handles all the model routing, context, and formatting — you get a structured answer back.',
-    bullets: [
-      'Sentiment analysis, summarization, classification, Q&A',
-      'Creator-crafted prompts refined for specific use cases',
-      'Cheaper than building your own LLM pipeline from scratch',
-      'Returns markdown or JSON depending on the skill config',
-    ],
-    example: '// POST /v1/skills/sentiment-analyzer/invoke\n{\n  "result": "positive",\n  "confidence": 0.94,\n  "summary": "Strongly bullish tone with...",\n  "creditsCharged": 2\n}',
-  },
-  api_proxy: {
-    icon: '🔌',
-    color: 'var(--info)',
-    label: 'Proxy Skills',
-    desc: 'Proxy skills are authenticated wrappers around third-party APIs. The creator handles API keys, rate limits, and request formatting — you just call ClawNet with credits and get the result.',
-    bullets: [
-      'Call any external API without managing auth or rate limits',
-      'Creator abstracts away complexity — one clean interface',
-      'Credits replace per-call billing from dozens of API providers',
-      'Ideal for social media, blockchain data, SaaS integrations',
-    ],
-    example: '// POST /v1/skills/twitter-search/invoke\n{\n  "results": [\n    { "text": "...", "likes": 412, "date": "2026-03-12" }\n  ],\n  "creditsCharged": 5\n}',
-  },
-};
-
-function setTypeFilter(type, btn) {
-  activeTypeFilter = type;
-  document.querySelectorAll('#typeFilter button').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  renderSkillList(getFiltered());
-  // If no skill selected, update the right panel with a type explainer
-  if (!selectedSkill) showTypeExplainer(type);
-}
-
-function showTypeExplainer(type) {
-  if (type === 'all' || !TYPE_INFO[type]) {
-    showDefaultEmptyState();
-    return;
-  }
-  const info = TYPE_INFO[type];
-  document.getElementById('outputMeta').innerHTML = '';
-  document.getElementById('outputTabs').style.display = 'none';
-  document.getElementById('outputBody').innerHTML = `
-    <div style="padding:24px;display:flex;align-items:flex-start;justify-content:center;min-height:400px">
-      <div class="type-explainer">
-        <div class="type-explainer-icon">${info.icon}</div>
-        <div class="te-label" style="color:${info.color}">${info.label}</div>
-        <h4>${info.label}</h4>
-        <p class="te-desc">${info.desc}</p>
-        <ul class="te-bullets">${info.bullets.map(b => `<li>${b}</li>`).join('')}</ul>
-        <div class="te-label" style="color:var(--text-muted);margin-bottom:8px">Example Response</div>
-        <div class="te-example">${esc(info.example)}</div>
-      </div>
-    </div>`;
-}
-
-function showDefaultEmptyState() {
-  document.getElementById('outputMeta').innerHTML = '';
-  document.getElementById('outputTabs').style.display = 'none';
-  document.getElementById('outputBody').innerHTML = `
-    <div class="empty-state">
-      <div class="empty-state-icon">⚡</div>
-      <h4>Pick a skill to explore</h4>
-      <p>Select any skill from the left panel. No sign-in needed to preview sample output.</p>
-      <div class="how-it-works">
-        <div class="hiw-step"><div class="hiw-num">1</div><div class="hiw-title">Choose a Skill</div><div class="hiw-desc">Browse the library or filter by type</div></div>
-        <div class="hiw-step"><div class="hiw-num">2</div><div class="hiw-title">Preview Free</div><div class="hiw-desc">See exactly what the skill returns — no credits</div></div>
-        <div class="hiw-step"><div class="hiw-num">3</div><div class="hiw-title">Run Live</div><div class="hiw-desc">Switch to Live mode for real-time execution</div></div>
-      </div>
-    </div>`;
-}
-
-function filterSkills() { renderSkillList(getFiltered()); }
-
-function renderSkillList(list) {
-  const el = document.getElementById('skillList');
-  if (!list.length) { el.innerHTML = '<div class="no-skills">No skills found</div>'; return; }
-  el.innerHTML = list.map(s => {
-    const typeCls = s.skillType === 'data' ? 'data' : s.skillType === 'api_proxy' ? 'api_proxy' : 'prompt';
-    const typeLbl = s.skillType === 'data' ? 'DATA' : s.skillType === 'api_proxy' ? 'PROXY' : 'PROMPT';
-    const sel = selectedSkill && selectedSkill.id === s.id ? ' selected' : '';
-    return `<div class="pg-skill-item${sel}" onclick="selectSkillById('${esc(s.id)}')">
-      <div class="sk-name"><span class="skill-type-badge ${typeCls}">${typeLbl}</span>${esc(s.displayName || s.name)}</div>
-      <div class="sk-meta">${s.creditCost} cr &nbsp;·&nbsp; ${(s.uses || 0).toLocaleString()} uses</div>
-    </div>`;
+function getFiltered(){const q=document.getElementById('skillSearch').value.toLowerCase().trim();return skills.filter(s=>{const mt=!q||(s.displayName||s.name).toLowerCase().includes(q)||(s.description||'').toLowerCase().includes(q);const mf=activeTypeFilter==='all'||s.skillType===activeTypeFilter;return mt&&mf})}
+function filterSkills(){renderSkillList()}
+function setTypeFilter(type,btn){activeTypeFilter=type;document.querySelectorAll('#typeFilter button').forEach(b=>b.classList.remove('active'));btn.classList.add('active');renderSkillList()}
+function renderSkillList(){
+  const list=getFiltered(),el=document.getElementById('skillList');
+  if(!list.length){el.innerHTML='<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12px">No skills found</div>';return}
+  el.innerHTML=list.map(s=>{
+    const tc=s.skillType==='data'?'data':s.skillType==='api_proxy'?'proxy':'prompt';
+    const tl=s.skillType==='data'?'DATA':s.skillType==='api_proxy'?'PROXY':'PROMPT';
+    const sel=selectedSkill&&selectedSkill.id===s.id?' sel':'';
+    return`<div class="sb-skill${sel}" onclick="selectSkillById('${esc(s.id)}')"><div class="sb-skill-name"><span class="badge badge-${tc}">${tl}</span>${esc(s.displayName||s.name)}</div><div class="sb-skill-meta">${s.creditCost} cr &middot; ${(s.uses||0).toLocaleString()} uses</div></div>`;
   }).join('');
 }
 
-// ── Select Skill ───────────────────────────────────────────────────────
-function selectSkillById(id) { const s = skills.find(sk => sk.id === id); if (s) selectSkill(s); }
-
-async function selectSkill(skill) {
-  selectedSkill = skill;
-  renderSkillList(getFiltered());
-
-  let detail = skill;
-  try {
-    const r = await fetch(`${API}/v1/marketplace/skills/${encodeURIComponent(skill.id)}`);
-    if (r.ok) detail = await r.json();
-  } catch {}
-  selectedSkill = { ...skill, ...detail };
-
-  // Skill info card
-  const card = document.getElementById('skillInfoCard');
-  card.classList.add('show');
-  document.getElementById('sicName').textContent = detail.displayName || detail.name;
-  document.getElementById('sicDesc').textContent = detail.description || '';
-  const typeLbl = { data: 'Data Skill', api_proxy: 'API Proxy', prompt_template: 'Prompt Template' }[detail.skillType] || detail.skillType;
-  const chips = [
-    `<span class="sic-chip cost">💰 ${detail.creditCost} cr (${creditsToUsd(detail.creditCost)})</span>`,
-    `<span class="sic-chip">${esc(typeLbl)}</span>`,
-    detail.updateFrequency ? `<span class="sic-chip freq">↻ ${esc(detail.updateFrequency)}</span>` : '',
-    `<span class="sic-chip uses">${(detail.uses || 0).toLocaleString()} uses</span>`,
-  ].filter(Boolean).join('');
-  document.getElementById('sicChips').innerHTML = chips;
-
-  // Build params form
-  buildParamsForm(selectedSkill);
-
-  // Show params panel
-  document.getElementById('paramsPanel').style.display = '';
-
-  // Update run buttons
-  updateRunButtons();
-  updateCreditHint();
-
-  // Update URL
-  history.replaceState(null, '', `?skill=${encodeURIComponent(skill.id)}`);
-
-  // Auto-show sample
-  showSampleOutput();
+// ── Featured skills (empty state) ────────────────────────────────────
+function showFeatured(){
+  const sorted=[...skills].sort((a,b)=>(b.uses||0)-(a.uses||0)).slice(0,6);
+  const detail=document.getElementById('sbDetail');
+  if(!sorted.length){detail.innerHTML='<div class="sb-featured"><h3>Skill Playground</h3><p>Skills appear here once loaded. Make sure the API is running.</p></div>';return}
+  detail.innerHTML=`<div class="sb-featured"><h3>Popular Skills</h3><p>Click any skill to see sample output instantly — no sign-in required.</p>
+    <div class="sb-featured-grid">${sorted.map(s=>{
+      const tc=s.skillType==='data'?'data':s.skillType==='api_proxy'?'proxy':'prompt';
+      const tl=s.skillType==='data'?'DATA':s.skillType==='api_proxy'?'PROXY':'PROMPT';
+      return`<div class="sb-fcard" onclick="selectSkillById('${esc(s.id)}')"><span class="badge badge-${tc}">${tl}</span><h4>${esc(s.displayName||s.name)}</h4><p>${esc(s.description||'')}</p><div class="card-foot"><span class="cost">${s.creditCost} cr</span><span>${(s.uses||0).toLocaleString()} uses</span></div></div>`}).join('')}
+    </div></div>`;
 }
 
-// ── Build Params Form ──────────────────────────────────────────────────
-function buildParamsForm(skill) {
-  const form = document.getElementById('paramsForm');
-  const schema = skill.inputSchema;
-  const vars = [];
+// ── Select Skill ─────────────────────────────────────────────────────
+function selectSkillById(id){const s=skills.find(sk=>sk.id===id);if(s)selectSkill(s)}
+async function selectSkill(skill){
+  selectedSkill=skill;renderSkillList();
+  let detail=skill;try{const r=await fetch(`${API}/v1/marketplace/skills/${encodeURIComponent(skill.id)}`);if(r.ok)detail=await r.json()}catch{}
+  selectedSkill={...skill,...detail};
+  history.replaceState(null,'',`?skill=${encodeURIComponent(skill.id)}`);
+  renderSkillDetail(selectedSkill);
+}
 
-  if (schema && schema.properties) {
-    for (const [key, prop] of Object.entries(schema.properties)) {
-      const required = (schema.required || []).includes(key);
-      vars.push({ name: key, type: prop.type || 'string', description: prop.description || '', required, default: prop.default ?? '', enum: prop.enum, minimum: prop.minimum, maximum: prop.maximum, example: prop.example });
-    }
-  } else if (skill.skillType === 'data') {
-    vars.push({ name: 'params', type: 'text', description: 'Optional query parameters. Enter one per line as key=value (e.g. limit=10)', required: false, default: '' });
-  } else if (skill.skillType === 'prompt_template') {
-    vars.push({ name: 'query', type: 'string', description: 'Your prompt or question to send to this skill', required: true, default: '' });
+// ── Render Skill Detail ──────────────────────────────────────────────
+function renderSkillDetail(s){
+  const panel=document.getElementById('sbDetail');
+  const isData=s.skillType==='data';
+  const tc=isData?'data':s.skillType==='api_proxy'?'proxy':'prompt';
+  const tl=isData?'DATA':s.skillType==='api_proxy'?'PROXY':'PROMPT';
+  const typeName=isData?'Data Skill':s.skillType==='api_proxy'?'API Proxy':'Prompt Template';
+  const epPath=isData?`/v1/skills/${s.id}/query`:`/v1/skills/${s.id}/invoke`;
+  const epMethod=isData?'GET':'POST';
+  const scenarios=buildScenarios(s);
+  const vars=getSkillVars(s);
+
+  let h='';
+  // Header
+  h+=`<div class="sk-header"><div class="sk-name">${esc(s.displayName||s.name)}</div><div class="sk-desc">${esc(s.description||'')}</div>
+    <div class="sk-chips"><span class="badge badge-${tc}">${tl}</span><span class="sk-chip cost">${s.creditCost} cr (${creditsToUsd(s.creditCost)})</span>${s.updateFrequency?`<span class="sk-chip freq">&#8635; ${esc(s.updateFrequency)}</span>`:''}<span class="sk-chip">${(s.uses||0).toLocaleString()} uses</span><span class="sk-chip">${esc(typeName)}</span></div>
+    <div class="sk-endpoint"><span class="badge badge-${isData?'get':'post'}">${epMethod}</span><code>${esc(API+epPath)}</code><button class="ep-copy" onclick="navigator.clipboard.writeText('${API}${epPath}');toast('Endpoint copied')">Copy URL</button></div></div>`;
+
+  // Scenarios
+  h+=`<div class="scenarios"><h4>Try it — click a scenario</h4><div class="scenario-grid">${scenarios.map((sc,i)=>`<div class="scenario-card" id="sc-${i}" onclick="runScenario(${i})"><div class="sc-icon">${sc.icon}</div><div class="sc-name">${esc(sc.name)}</div><div class="sc-desc">${esc(sc.desc)}</div></div>`).join('')}</div></div>`;
+
+  // Result
+  h+=`<div class="result-panel"><div class="result-header"><h4>Result</h4><div class="result-meta" id="resultMeta"></div></div>
+    <div class="result-tabs" id="resultTabs" style="display:none"><button class="active" onclick="switchResultTab('formatted',this)">Formatted</button><button onclick="switchResultTab('raw',this)">Raw JSON</button></div>
+    <div class="result-body" id="resultBody"><div class="result-empty"><div style="font-size:32px;margin-bottom:12px;opacity:.4">&#8593;</div><p>Click a scenario above to see results instantly</p></div></div></div>`;
+
+  // Integration code
+  h+=`<div class="integrate"><div class="integrate-head"><h4>Integrate in 4 lines <span class="ig-badge">Copy &amp; Ship</span></h4><div class="lang-tabs"><button class="${activeLang==='javascript'?'active':''}" onclick="switchLang('javascript',this)">JavaScript</button><button class="${activeLang==='python'?'active':''}" onclick="switchLang('python',this)">Python</button><button class="${activeLang==='curl'?'active':''}" onclick="switchLang('curl',this)">cURL</button></div></div>
+    <div class="integrate-body"><button class="copy-btn" onclick="copyIntegration()">Copy</button><pre id="integratePre">${esc(buildCodeSnippet(s,activeLang))}</pre></div></div>`;
+
+  // Cost calculator
+  h+=`<div class="cost-calc"><h4>Cost Calculator</h4>
+    <div class="cost-calc-row"><span style="font-size:12px;color:var(--text-tertiary)">Calls per day</span><input type="range" min="1" max="10000" value="100" oninput="updateCostCalc(this.value,${s.creditCost})"><span class="cost-calc-num" id="ccNum">100</span></div>
+    <div class="cost-calc-results"><div class="ccr"><div class="ccr-val" id="ccDaily">$0.20</div><div class="ccr-label">per day</div></div><div class="ccr"><div class="ccr-val" id="ccMonthly">$6.00</div><div class="ccr-label">per month</div></div><div class="ccr"><div class="ccr-val" id="ccCredits">${(100*s.creditCost).toLocaleString()}</div><div class="ccr-label">credits/day</div></div>${userCredits!=null?`<div class="ccr"><div class="ccr-val" id="ccRunway">${Math.floor(userCredits/s.creditCost).toLocaleString()}</div><div class="ccr-label">calls remaining</div></div>`:''}</div></div>`;
+
+  // Live mode: run button or API key prompt
+  if(currentMode==='live'){
+    if(!apiKey) h+=`<div class="inline-key"><p>Enter your API key to run skills live</p><div class="inline-key-row"><input type="password" id="inlineKeyInput" placeholder="cn-••••••••" autocomplete="off"><button onclick="applyInlineKey()">Connect</button></div><p style="margin-top:6px;font-size:11px;color:var(--text-muted)">Don't have one? <a href="/#pricing" style="color:var(--warning)">Get an API key &rarr;</a></p></div>`;
+    else h+=`<div class="actions-row"><button class="btn btn-primary" onclick="confirmRunLive()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>Run Skill Live &mdash; ${s.creditCost} cr</button></div>`;
   }
 
-  if (!vars.length) {
-    form.innerHTML = '<p class="params-empty">This skill takes no input — just hit Preview or Run.</p>';
-    document.getElementById('examplesWrap').style.display = 'none';
-    return;
+  // Advanced params (collapsed)
+  if(vars.length){
+    h+=`<div class="advanced"><button class="advanced-toggle" onclick="this.classList.toggle('open');this.nextElementSibling.classList.toggle('open')">Advanced Parameters<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg></button><div class="advanced-body">${vars.map(v=>`<div class="adv-field"><div class="adv-field-head"><span class="adv-field-name">${esc(v.name)}</span><span class="adv-badge ${v.required?'req':'opt'}">${v.required?'Required':'Optional'}</span><span class="adv-badge type">${esc(v.type)}</span></div>${v.description?`<div class="adv-field-desc">${esc(v.description)}</div>`:''}<input type="text" class="adv-input" id="param-${esc(v.name)}" placeholder="${esc(v.example||v.default||v.name)}" value="${esc(v.default||'')}"></div>`).join('')}</div></div>`;
   }
 
-  form.innerHTML = vars.map(v => buildParamCard(v)).join('');
-  buildExamplesDropdown(skill, vars);
+  panel.innerHTML=h;
+  updateCostCalc(100,s.creditCost);
+  window._scenarios=scenarios;
 }
 
-function buildParamCard(v) {
-  const reqBadge = v.required ? '<span class="param-req">Required</span>' : '<span class="param-opt">Optional</span>';
-  const typeBadge = `<span class="param-type">${esc(v.type)}</span>`;
-
-  let input = '';
-  if (v.type === 'boolean') {
-    input = `<div class="bool-toggle">
-      <button id="param-${esc(v.name)}-true" class="active-true" onclick="setBool('${esc(v.name)}', true, this)">true</button>
-      <button id="param-${esc(v.name)}-false" onclick="setBool('${esc(v.name)}', false, this)">false</button>
-    </div>
-    <input type="hidden" id="param-${esc(v.name)}" value="true">`;
-  } else if (v.enum && v.enum.length) {
-    const opts = v.enum.map(opt => `<option value="${esc(opt)}" ${String(v.default) === String(opt) ? 'selected' : ''}>${esc(opt)}</option>`).join('');
-    input = `<select id="param-${esc(v.name)}" class="param-input">${opts}</select>`;
-  } else if (v.type === 'text' || (v.description && v.description.length > 60)) {
-    input = `<textarea id="param-${esc(v.name)}" class="param-input" placeholder="${esc(v.example || v.default || v.name)}">${esc(v.default || '')}</textarea>`;
-  } else {
-    const inputType = v.type === 'number' || v.type === 'integer' ? 'number' : 'text';
-    const extra = v.minimum !== undefined ? `min="${v.minimum}"` : '';
-    const extra2 = v.maximum !== undefined ? `max="${v.maximum}"` : '';
-    input = `<input type="${inputType}" id="param-${esc(v.name)}" class="param-input" placeholder="${esc(v.example !== undefined ? String(v.example) : (v.default !== '' ? String(v.default) : v.name))}" value="${esc(v.default !== '' ? String(v.default) : '')}" ${extra} ${extra2}>`;
-  }
-
-  let hint = '';
-  if (v.minimum !== undefined || v.maximum !== undefined) hint = `Range: ${v.minimum ?? '—'} – ${v.maximum ?? '—'}`;
-  if (v.example !== undefined) hint = hint ? hint + ` &nbsp;·&nbsp; Example: ${esc(String(v.example))}` : `Example: ${esc(String(v.example))}`;
-
-  return `<div class="param-card">
-    <div class="param-label-row">
-      <span class="param-name">${esc(v.name)}</span>
-      ${reqBadge}
-      ${typeBadge}
-    </div>
-    ${v.description ? `<div class="param-desc">${esc(v.description)}</div>` : ''}
-    ${input}
-    ${hint ? `<div class="param-hint">${hint}</div>` : ''}
-  </div>`;
-}
-
-function setBool(name, val, btn) {
-  document.getElementById('param-' + name).value = val;
-  const trueBtn = document.getElementById('param-' + name + '-true');
-  const falseBtn = document.getElementById('param-' + name + '-false');
-  trueBtn.className = val ? 'active-true' : '';
-  falseBtn.className = val ? '' : 'active-false';
-}
-
-// Keyword-based example values for common param names
-const PARAM_EXAMPLES = {
-  // tokens / crypto
-  token: 'ETH', symbol: 'ETH', coin: 'bitcoin', ticker: 'BTC',
-  // text / content
-  query: 'What is the current market sentiment for Ethereum?',
-  text: 'ClawNet just launched a new data skills marketplace for AI agents.',
-  content: 'Breaking: Federal Reserve holds rates steady at 5.25%.',
-  prompt: 'Summarize the top DeFi trends this week.',
-  message: 'Hello, I need help understanding yield farming.',
-  input: 'Analyze the sentiment of this earnings call transcript.',
-  // numbers
-  limit: '10', count: '5', max: '20', top: '10', size: '10',
-  // sort / order
-  sortBy: 'volume', sort: 'desc', order: 'desc', orderBy: 'created_at',
-  // date / time
-  date: new Date().toISOString().slice(0,10), from: '2026-01-01', to: new Date().toISOString().slice(0,10),
-  // categories
-  category: 'defi', type: 'token', market: 'crypto', sector: 'technology',
-  // language
-  language: 'en', lang: 'en',
-  // addresses
-  address: '0x1234...abcd', wallet: '0x1234...abcd', contract: '0xabcd...1234',
-};
-
-// Keyword variations — each key maps to an array of values to cycle through for 3 scenarios
-const PARAM_VARIATIONS = {
-  token:    [['ETH', 'Ethereum price feed'],   ['BTC', 'Bitcoin price feed'],   ['SOL', 'Solana price feed']],
-  symbol:   [['ETH', 'Ethereum'],              ['BTC', 'Bitcoin'],              ['SOL', 'Solana']],
-  coin:     [['ethereum', 'Ethereum'],         ['bitcoin', 'Bitcoin'],          ['solana', 'Solana']],
-  ticker:   [['ETH', 'Ethereum'],              ['BTC', 'Bitcoin'],              ['AAPL', 'Apple stock']],
-  query: [
-    ['What are the top DeFi protocols by TVL right now?', 'DeFi market overview'],
-    ['Summarize the latest Ethereum staking rewards data.', 'ETH staking summary'],
-    ['What is the current sentiment around Bitcoin ETF news?', 'BTC ETF sentiment'],
-  ],
-  text: [
-    ['ClawNet just launched a data skills marketplace for AI agents — biggest release yet.', 'Bullish news'],
-    ['SEC files new enforcement action against major crypto exchange.', 'Bearish news'],
-    ['Ethereum developers approve EIP-4844 for lower L2 fees.', 'Neutral update'],
-  ],
-  prompt: [
-    ['Summarize the top DeFi trends this week.', 'Weekly summary'],
-    ['What are the risks of staking ETH on Lido?', 'Risk analysis'],
-    ['Compare Arbitrum and Optimism for a developer building a DEX.', 'Tech comparison'],
-  ],
-  content: [
-    ['The Federal Reserve held interest rates steady at 5.25% in its latest meeting.', 'Fed decision'],
-    ['Bitcoin hit a new all-time high of $105,000 as ETF inflows surge.', 'BTC ATH'],
-    ['Ethereum layer-2 transactions now surpass mainnet by 15x.', 'L2 growth'],
-  ],
-  input: [
-    ['Analyze the sentiment: "ETH looks incredibly bullish heading into the halving."', 'Sentiment input'],
-    ['Classify this tweet: "Just bought more BTC, not financial advice LOL"', 'Social post'],
-    ['Summarize: "Q4 revenue grew 34% YoY driven by institutional adoption."', 'Financial snippet'],
-  ],
-  address: [
-    ['0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045', 'Vitalik\'s address'],
-    ['0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D', 'Uniswap V2 Router'],
-    ['0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2', 'WETH contract'],
-  ],
-  limit:   [['10', '10 results'], ['25', '25 results'], ['50', 'max 50 results']],
-  count:   [['5', '5 items'],    ['10', '10 items'],   ['20', '20 items']],
-  sortBy:  [['volume', 'by volume'], ['price', 'by price'], ['change', 'by 24h change']],
-  category:[['defi', 'DeFi'],       ['nft', 'NFT'],        ['layer2', 'Layer 2']],
-  language:[['en', 'English'],      ['es', 'Spanish'],     ['fr', 'French']],
-  date:    [
-    [new Date().toISOString().slice(0,10), 'Today'],
-    [new Date(Date.now()-86400000).toISOString().slice(0,10), 'Yesterday'],
-    ['2026-01-01', 'Jan 1 2026'],
-  ],
-};
-
-// Generate 3 example scenarios from a skill's params
-function generateExamples(skill, vars) {
-  const examples = [{name:'', params:{}, label:''}, {name:'', params:{}, label:''}, {name:'', params:{}, label:''}];
-
-  // Track which key gives us the scenario name (first varied key)
-  let nameKey = null;
-
-  for (const v of vars) {
-    const k = v.name.toLowerCase();
-    const variations = PARAM_VARIATIONS[k];
-    if (variations) {
-      if (!nameKey) nameKey = k;
-      for (let i = 0; i < 3; i++) {
-        examples[i].params[v.name] = String(variations[i % variations.length][0]);
-        if (k === nameKey) {
-          examples[i].name = variations[i % variations.length][1] || String(variations[i % variations.length][0]);
-        }
-      }
-    } else {
-      // Non-varied param — use same value in all 3 examples
-      const baseVal = v.example !== undefined ? v.example
-        : v.default !== undefined && v.default !== '' ? v.default
-        : v.enum?.length ? v.enum[0]
-        : v.type === 'number' || v.type === 'integer' ? '10' : null;
-      if (baseVal !== null) for (let i = 0; i < 3; i++) examples[i].params[v.name] = String(baseVal);
-    }
-  }
-
-  // Fallbacks for unnamed examples
-  for (let i = 0; i < 3; i++) {
-    if (!examples[i].name) examples[i].name = `Example ${i+1}`;
-  }
-
-  // Build display labels (show key param values)
-  for (let i = 0; i < 3; i++) {
-    const first = Object.entries(examples[i].params)[0];
-    examples[i].label = first ? `${first[0]}: ${first[1]}` : 'Auto-filled';
-  }
-
-  // For skills with no varied params, return just one example
-  const allSame = examples.every(e => JSON.stringify(e.params) === JSON.stringify(examples[0].params));
-  return allSame ? [{ ...examples[0], name: 'Run with defaults' }] : examples;
-}
-
-function buildExamplesDropdown(skill, vars) {
-  const wrap = document.getElementById('examplesWrap');
-
-  // Data skills with free-form params box
-  if (!vars.length || (vars.length === 1 && vars[0].name === 'params')) {
-    if (skill.skillType === 'data') {
-      const dataExamples = [
-        { name: 'Top 10 by volume', params: { params: 'limit=10\nsortBy=volume' } },
-        { name: 'Top 5 by price',   params: { params: 'limit=5\nsortBy=price' } },
-        { name: 'Max results',      params: { params: 'limit=50' } },
-      ];
-      renderExampleItems(dataExamples);
-      wrap.style.display = '';
-    } else {
-      wrap.style.display = 'none';
-    }
-    return;
-  }
-
-  const exs = generateExamples(skill, vars);
-  renderExampleItems(exs);
-  wrap.style.display = '';
-}
-
-function renderExampleItems(exs) {
-  document.getElementById('examplesDropList').innerHTML = exs.map((ex, i) => `
-    <div class="example-item" onclick="applyExample(${i})">
-      <div class="example-item-name">
-        <span class="example-item-num">${i+1}</span>
-        ${esc(ex.name)}
-      </div>
-      <div class="example-item-desc">${esc(ex.label)}</div>
-    </div>`).join('');
-  // Store examples on window for applyExample
-  window._examples = exs;
-}
-
-function toggleExamplesDropdown() {
-  const btn = document.getElementById('examplesBtn');
-  const drop = document.getElementById('examplesDrop');
-  const open = drop.classList.toggle('open');
-  btn.classList.toggle('open', open);
-}
-
-function applyExample(idx) {
-  const ex = window._examples?.[idx];
-  if (!ex) return;
-  // Close dropdown
-  document.getElementById('examplesDrop').classList.remove('open');
-  document.getElementById('examplesBtn').classList.remove('open');
-  // Fill params
-  for (const [key, val] of Object.entries(ex.params)) {
-    const el = document.getElementById('param-' + key);
-    if (el) el.value = val;
-  }
-  // Auto-preview
-  showSampleOutput();
-  toast(`"${ex.name}" loaded — showing sample output`, 'success');
-}
-
-// Close dropdown when clicking outside
-document.addEventListener('click', e => {
-  const wrap = document.getElementById('examplesWrap');
-  if (wrap && !wrap.contains(e.target)) {
-    document.getElementById('examplesDrop')?.classList.remove('open');
-    document.getElementById('examplesBtn')?.classList.remove('open');
-  }
-});
-
-// ── Sample Output ──────────────────────────────────────────────────────
-function showSampleOutput() {
-  if (!selectedSkill) return;
-  const s = selectedSkill;
-  const sample = s.sampleOutput;
-
-  document.getElementById('outputMeta').innerHTML = '<span class="tag sample">Sample</span><span>Free preview — no credits charged</span>';
-  document.getElementById('outputTabs').style.display = 'flex';
-
-  if (!sample) {
-    document.getElementById('outputBody').innerHTML = `<div class="empty-state">
-      <div class="empty-state-icon">📄</div>
-      <h4>No sample output defined</h4>
-      <p>Switch to Live mode and run the skill to see real output.</p>
-    </div>`;
-    return;
-  }
-
-  const json = typeof sample === 'string' ? sample : JSON.stringify(sample, null, 2);
-  lastResponse = { type: 'sample', data: sample, json, skill: s };
-  renderOutput(activeOutputTab);
-}
-
-// ── Live Execution ─────────────────────────────────────────────────────
-function confirmRunLive() {
-  if (!selectedSkill) return;
-  if (!apiKey) { toast('Enter your API key first', 'error'); return; }
-  if (currentMode !== 'live') { toast('Switch to Live mode first', 'warning'); return; }
-
-  const s = selectedSkill;
-  document.getElementById('confirmSkillName').textContent = s.displayName || s.name;
-  document.getElementById('confirmCost').textContent = `${s.creditCost} credits (${creditsToUsd(s.creditCost)})`;
-  const after = userCredits !== null ? `${Math.max(0, userCredits - s.creditCost).toLocaleString()} cr` : '— cr';
-  document.getElementById('confirmBalance').textContent = after;
-  document.getElementById('confirmModal').classList.add('show');
-}
-
-function closeModal() { document.getElementById('confirmModal').classList.remove('show'); }
-
-async function runLiveConfirmed() {
-  closeModal();
-  if (!selectedSkill || !apiKey) return;
-  const s = selectedSkill;
-  const runBtn = document.getElementById('runBtn');
-  runBtn.disabled = true;
-  runBtn.innerHTML = '<span class="spinner"></span> Running...';
-
-  document.getElementById('outputMeta').innerHTML = '<span class="tag live">Live</span><span>Executing...</span>';
-  document.getElementById('outputTabs').style.display = 'flex';
-
-  try {
-    let url, method = 'POST', body;
-    const headers = { 'X-API-Key': apiKey, 'Content-Type': 'application/json' };
-
-    if (s.skillType === 'data') {
-      const paramsEl = document.getElementById('param-params');
-      let qs = '';
-      if (paramsEl && paramsEl.value.trim()) {
-        const pairs = paramsEl.value.trim().split('\n').map(l => l.trim()).filter(Boolean).map(l => {
-          const [k, ...v] = l.split('=');
-          return encodeURIComponent(k.trim()) + '=' + encodeURIComponent(v.join('=').trim());
-        });
-        qs = '?' + pairs.join('&');
-      }
-      url = `${API}/v1/skills/${encodeURIComponent(s.id)}/query${qs}`;
-      method = 'GET';
-      body = undefined;
-    } else {
-      url = `${API}/v1/skills/${encodeURIComponent(s.id)}/invoke`;
-      const variables = {};
-      const schema = s.inputSchema;
-      if (schema && schema.properties) {
-        for (const key of Object.keys(schema.properties)) {
-          const el = document.getElementById('param-' + key);
-          if (el && el.value.trim()) variables[key] = el.value.trim();
-        }
-      } else {
-        const el = document.getElementById('param-query');
-        if (el && el.value.trim()) variables['query'] = el.value.trim();
-      }
-      body = JSON.stringify({ variables });
-    }
-
-    const start = performance.now();
-    const r = await fetch(url, { method, headers, body });
-    const elapsed = Math.round(performance.now() - start);
-    const data = await r.json();
-
-    if (!r.ok) {
-      document.getElementById('outputMeta').innerHTML = `<span class="tag error">Error ${r.status}</span><span>${elapsed}ms</span>`;
-      lastResponse = { type: 'error', data, json: JSON.stringify(data, null, 2), skill: s, elapsed };
-      toast(`Error ${r.status}: ${data.error || 'Execution failed'}`, 'error');
-    } else {
-      const credits = data.creditsCost || data.creditsCharged || s.creditCost;
-      document.getElementById('outputMeta').innerHTML = `<span class="tag live">Live</span><span>${elapsed}ms</span><span>${credits} cr charged</span>`;
-      lastResponse = { type: 'live', data, json: JSON.stringify(data, null, 2), skill: s, elapsed };
-      toast(`Success — ${credits} credits charged`, 'success');
-      initAuth(); // refresh credit count
-    }
-
-    renderOutput(activeOutputTab);
-  } catch (e) {
-    document.getElementById('outputMeta').innerHTML = '<span class="tag error">Network Error</span>';
-    document.getElementById('outputBody').innerHTML = `<div style="padding:20px"><pre style="color:var(--danger)">${esc(e.message)}</pre></div>`;
-  } finally {
-    runBtn.disabled = false;
-    runBtn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg> Run Skill — ${s.creditCost} cr`;
-  }
-}
-
-// ── Output Rendering ───────────────────────────────────────────────────
-function switchTab(tab, btn) {
-  activeOutputTab = tab;
-  document.querySelectorAll('#outputTabs button').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  renderOutput(tab);
-}
-
-function renderOutput(tab) {
-  if (!lastResponse) return;
-  const body = document.getElementById('outputBody');
-  const { json, skill, elapsed } = lastResponse;
-
-  if (tab === 'formatted') {
-    body.innerHTML = `<button class="copy-btn" onclick="copyOutput()">Copy</button><pre>${syntaxHighlight(json)}</pre>`;
-  } else if (tab === 'raw') {
-    body.innerHTML = `<button class="copy-btn" onclick="copyOutput()">Copy</button><pre>${esc(json)}</pre>`;
-  } else if (tab === 'code') {
-    body.innerHTML = buildCodeSnippet(skill);
-  } else if (tab === 'curl') {
-    body.innerHTML = `<button class="copy-btn" onclick="copyOutput()">Copy</button><pre>${esc(buildCurl(skill))}</pre>`;
-  }
-}
-
-function buildCurl(skill) {
-  if (skill.skillType === 'data') {
-    return `curl "${API}/v1/skills/${skill.id}/query" \\\n  -H "X-API-Key: YOUR_API_KEY"`;
-  }
-  const vars = collectVars(skill);
-  return `curl -X POST "${API}/v1/skills/${skill.id}/invoke" \\\n  -H "X-API-Key: YOUR_API_KEY" \\\n  -H "Content-Type: application/json" \\\n  -d '${JSON.stringify({ variables: vars }, null, 2)}'`;
-}
-
-function collectVars(skill) {
-  const vars = {};
-  const schema = skill.inputSchema;
-  if (schema && schema.properties) {
-    for (const key of Object.keys(schema.properties)) {
-      const el = document.getElementById('param-' + key);
-      if (el) vars[key] = el.value.trim() || `<${key}>`;
-    }
-  }
+// ── Get skill variables ──────────────────────────────────────────────
+function getSkillVars(s){
+  const vars=[],schema=s.inputSchema;
+  if(schema&&schema.properties){for(const[k,p]of Object.entries(schema.properties))vars.push({name:k,type:p.type||'string',description:p.description||'',required:(schema.required||[]).includes(k),default:p.default??'',example:p.example})}
+  else if(s.skillType==='data')vars.push({name:'params',type:'text',description:'Query parameters (key=value per line)',required:false,default:''});
+  else if(s.skillType==='prompt_template')vars.push({name:'query',type:'string',description:'Your prompt or question',required:true,default:''});
   return vars;
 }
 
-function buildCodeSnippet(skill) {
-  const isData = skill.skillType === 'data';
-  const url = isData ? `${API}/v1/skills/${skill.id}/query` : `${API}/v1/skills/${skill.id}/invoke`;
-  const vars = isData ? null : collectVars(skill);
-
-  const js = isData
-    ? `const res = await fetch('${url}', {\n  headers: { 'X-API-Key': YOUR_API_KEY }\n});\nconst data = await res.json();\nconsole.log(data);`
-    : `const res = await fetch('${url}', {\n  method: 'POST',\n  headers: {\n    'X-API-Key': YOUR_API_KEY,\n    'Content-Type': 'application/json'\n  },\n  body: JSON.stringify({ variables: ${JSON.stringify(vars, null, 4)} })\n});\nconst data = await res.json();\nconsole.log(data);`;
-
-  const py = isData
-    ? `import requests\n\nres = requests.get(\n  '${url}',\n  headers={'X-API-Key': YOUR_API_KEY}\n)\nprint(res.json())`
-    : `import requests\n\nres = requests.post(\n  '${url}',\n  headers={\n    'X-API-Key': YOUR_API_KEY,\n    'Content-Type': 'application/json'\n  },\n  json={'variables': ${JSON.stringify(vars, null, 4)}}\n)\nprint(res.json())`;
-
-  const snippets = { javascript: js, python: py };
-
-  return `<div class="snippet-lang-tabs">
-    <button class="${activeCodeLang === 'javascript' ? 'active' : ''}" onclick="switchCodeLang('javascript',this)">JavaScript</button>
-    <button class="${activeCodeLang === 'python' ? 'active' : ''}" onclick="switchCodeLang('python',this)">Python</button>
-  </div>
-  <button class="copy-btn" onclick="copyOutput()">Copy</button>
-  <pre id="codeSnippetPre">${esc(snippets[activeCodeLang])}</pre>`;
+// ── Scenarios ─────────────────────────────────────────────────────────
+const SC={
+  token:[{v:'ETH',n:'Ethereum',i:'💎',d:'Live ETH price, volume, market cap'},{v:'BTC',n:'Bitcoin',i:'🪙',d:'Live BTC price and 24h stats'},{v:'SOL',n:'Solana',i:'☀️',d:'Live SOL price and chain data'},{v:'DOGE',n:'Dogecoin',i:'🐕',d:'Live DOGE price and sentiment'}],
+  symbol:[{v:'ETH',n:'Ethereum',i:'💎',d:'ETH market data'},{v:'BTC',n:'Bitcoin',i:'🪙',d:'BTC market data'},{v:'SOL',n:'Solana',i:'☀️',d:'SOL market data'}],
+  query:[{v:'What are the top DeFi protocols by TVL?',n:'DeFi Overview',i:'📊',d:'Market analysis'},{v:'Summarize ETH staking rewards data',n:'ETH Staking',i:'🔒',d:'Yield analysis'},{v:'Current sentiment around BTC ETF news',n:'BTC Sentiment',i:'📰',d:'News sentiment'},{v:'Compare Arbitrum vs Optimism for devs',n:'L2 Comparison',i:'⚡',d:'Technical comparison'}],
+  text:[{v:'ClawNet launched a data skills marketplace for AI agents.',n:'Bullish News',i:'📈',d:'Positive market signal'},{v:'SEC files enforcement action against exchange.',n:'Bearish News',i:'📉',d:'Regulatory risk'},{v:'ETH L2 transactions surpass mainnet by 15x.',n:'Tech Update',i:'🔧',d:'Infrastructure growth'}],
+  address:[{v:'0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045',n:'Vitalik.eth',i:'👤',d:'Ethereum co-founder wallet'},{v:'0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D',n:'Uniswap Router',i:'🦄',d:'Uniswap V2 contract'}],
+};
+function buildScenarios(s){
+  const vars=getSkillVars(s);
+  for(const v of vars){const sc=SC[v.name.toLowerCase()];if(sc)return sc.map(x=>({name:x.n,desc:x.d,icon:x.i,params:{[v.name]:x.v}}))}
+  if(s.skillType==='data')return[{name:'Top by Volume',desc:'limit=10, sortBy=volume',icon:'📊',params:{params:'limit=10\nsortBy=volume'}},{name:'Top by Price',desc:'limit=5, sortBy=price',icon:'💰',params:{params:'limit=5\nsortBy=price'}},{name:'Max Results',desc:'limit=50',icon:'📋',params:{params:'limit=50'}}];
+  if(s.skillType==='prompt_template')return[{name:'Quick Analysis',desc:'Market overview',icon:'📊',params:{query:'Give me a quick overview of current crypto market trends'}},{name:'Deep Dive',desc:'Detailed analysis',icon:'🔍',params:{query:'Do a deep analysis of Ethereum staking economics and risks'}},{name:'Comparison',desc:'Head-to-head',icon:'⚖️',params:{query:'Compare Solana and Ethereum for building a DEX'}}];
+  return[{name:'Default Run',desc:'Run with default parameters',icon:'▶️',params:{}}];
+}
+function runScenario(idx){
+  const sc=window._scenarios?.[idx];if(!sc)return;
+  document.querySelectorAll('.scenario-card').forEach(c=>c.classList.remove('active'));
+  document.getElementById('sc-'+idx)?.classList.add('active');
+  for(const[k,v]of Object.entries(sc.params)){const el=document.getElementById('param-'+k);if(el)el.value=v}
+  showSampleOutput();
 }
 
-function switchCodeLang(lang, btn) {
-  activeCodeLang = lang;
-  document.querySelectorAll('.snippet-lang-tabs button').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  if (lastResponse) renderOutput('code');
+// ── Sample Output ────────────────────────────────────────────────────
+function showSampleOutput(){
+  if(!selectedSkill)return;const s=selectedSkill,sample=s.sampleOutput;
+  document.getElementById('resultMeta').innerHTML='<span class="tag tag-sample">Sample</span><span>Free — 0 credits</span>';
+  document.getElementById('resultTabs').style.display='flex';
+  if(!sample){document.getElementById('resultBody').innerHTML='<div class="result-empty"><p>No sample output defined. Switch to Live mode to execute.</p></div>';return}
+  const json=typeof sample==='string'?sample:JSON.stringify(sample,null,2);
+  lastResponse={type:'sample',json,skill:s};renderResult('formatted');
 }
 
-function copyOutput() {
-  const pre = document.querySelector('#outputBody pre');
-  if (pre) { navigator.clipboard.writeText(pre.textContent).then(() => toast('Copied to clipboard')); }
+// ── Live execution ───────────────────────────────────────────────────
+function confirmRunLive(){
+  if(!selectedSkill||!apiKey)return;const s=selectedSkill;
+  document.getElementById('cmSkill').textContent=s.displayName||s.name;
+  document.getElementById('cmCost').textContent=`${s.creditCost} cr (${creditsToUsd(s.creditCost)})`;
+  document.getElementById('cmBalance').textContent=userCredits!=null?`${Math.max(0,userCredits-s.creditCost).toLocaleString()} cr`:'—';
+  document.getElementById('confirmModal').classList.add('show');
+}
+function closeModal(){document.getElementById('confirmModal').classList.remove('show')}
+async function runLiveConfirmed(){
+  closeModal();if(!selectedSkill||!apiKey)return;const s=selectedSkill;
+  document.getElementById('resultMeta').innerHTML='<span class="tag tag-live">Live</span><span>Executing...</span>';
+  document.getElementById('resultTabs').style.display='flex';
+  try{
+    let url,method='POST',body;const headers={'X-API-Key':apiKey,'Content-Type':'application/json'};
+    if(s.skillType==='data'){
+      const pe=document.getElementById('param-params');let qs='';
+      if(pe&&pe.value.trim()){qs='?'+pe.value.trim().split('\n').map(l=>l.trim()).filter(Boolean).map(l=>{const[k,...v]=l.split('=');return encodeURIComponent(k.trim())+'='+encodeURIComponent(v.join('=').trim())}).join('&')}
+      url=`${API}/v1/skills/${encodeURIComponent(s.id)}/query${qs}`;method='GET';body=undefined;
+    }else{
+      url=`${API}/v1/skills/${encodeURIComponent(s.id)}/invoke`;const variables={};const schema=s.inputSchema;
+      if(schema&&schema.properties){for(const k of Object.keys(schema.properties)){const el=document.getElementById('param-'+k);if(el&&el.value.trim())variables[k]=el.value.trim()}}
+      else{const el=document.getElementById('param-query');if(el&&el.value.trim())variables.query=el.value.trim()}
+      body=JSON.stringify({variables});
+    }
+    const start=performance.now();const r=await fetch(url,{method,headers,body});const elapsed=Math.round(performance.now()-start);const data=await r.json();
+    if(!r.ok){document.getElementById('resultMeta').innerHTML=`<span class="tag tag-err">Error ${r.status}</span><span>${elapsed}ms</span>`;lastResponse={type:'error',json:JSON.stringify(data,null,2),skill:s};toast(`Error: ${data.error||'Failed'}`,'error')}
+    else{const cr=data.creditsCost||data.creditsCharged||s.creditCost;document.getElementById('resultMeta').innerHTML=`<span class="tag tag-live">Live</span><span>${elapsed}ms</span><span>${cr} cr</span>`;lastResponse={type:'live',json:JSON.stringify(data,null,2),skill:s};toast(`Success — ${cr} credits charged`);initAuth()}
+    renderResult(activeResultTab);
+  }catch(e){document.getElementById('resultBody').innerHTML=`<pre style="color:var(--danger)">${esc(e.message)}</pre>`}
 }
 
-function syntaxHighlight(json) {
-  return esc(json)
-    .replace(/"([^"]+)":/g, '<span style="color:var(--info)">"$1"</span>:')
-    .replace(/: "([^"]*)"/g, ': <span style="color:var(--accent-text)">"$1"</span>')
-    .replace(/\b(true|false)\b/g, '<span style="color:var(--purple)">$1</span>')
-    .replace(/\b(null)\b/g, '<span style="color:var(--text-muted)">$1</span>')
-    .replace(/(?<!["\w])-?\b(\d+\.?\d*)\b/g, '<span style="color:var(--warning)">$1</span>');
+// ── Render result ────────────────────────────────────────────────────
+function switchResultTab(tab,btn){activeResultTab=tab;document.querySelectorAll('#resultTabs button').forEach(b=>b.classList.remove('active'));btn.classList.add('active');renderResult(tab)}
+function renderResult(tab){if(!lastResponse)return;const body=document.getElementById('resultBody');body.innerHTML=tab==='formatted'?`<button class="copy-btn" onclick="copyResult()">Copy</button><pre>${syntaxHighlight(lastResponse.json)}</pre>`:`<button class="copy-btn" onclick="copyResult()">Copy</button><pre>${esc(lastResponse.json)}</pre>`}
+function copyResult(){const p=document.querySelector('#resultBody pre');if(p)navigator.clipboard.writeText(p.textContent).then(()=>toast('Copied'))}
+
+// ── Integration code ─────────────────────────────────────────────────
+function switchLang(lang,btn){activeLang=lang;document.querySelectorAll('.lang-tabs button').forEach(b=>b.classList.remove('active'));btn.classList.add('active');if(selectedSkill)document.getElementById('integratePre').textContent=buildCodeSnippet(selectedSkill,lang)}
+function copyIntegration(){const p=document.getElementById('integratePre');if(p)navigator.clipboard.writeText(p.textContent).then(()=>toast('Code copied'))}
+function buildCodeSnippet(s,lang){
+  const isData=s.skillType==='data';const url=`${API}/v1/skills/${s.id}/${isData?'query':'invoke'}`;
+  if(lang==='curl')return isData?`curl "${url}" \\\n  -H "X-API-Key: YOUR_KEY"`:`curl -X POST "${url}" \\\n  -H "X-API-Key: YOUR_KEY" \\\n  -H "Content-Type: application/json" \\\n  -d '{"variables":{"query":"your prompt"}}'`;
+  if(lang==='python')return isData?`import requests\n\nres = requests.get("${url}",\n  headers={"X-API-Key": YOUR_KEY})\ndata = res.json()\nprint(data)`:`import requests\n\nres = requests.post("${url}",\n  headers={"X-API-Key": YOUR_KEY},\n  json={"variables":{"query":"your prompt"}})\ndata = res.json()\nprint(data)`;
+  return isData?`const res = await fetch("${url}", {\n  headers: { "X-API-Key": YOUR_KEY }\n});\nconst data = await res.json();`:`const res = await fetch("${url}", {\n  method: "POST",\n  headers: {\n    "X-API-Key": YOUR_KEY,\n    "Content-Type": "application/json"\n  },\n  body: JSON.stringify({\n    variables: { query: "your prompt" }\n  })\n});\nconst data = await res.json();`;
 }
 
-// ── Close modal on backdrop / Escape ──────────────────────────────────
-document.getElementById('confirmModal').addEventListener('click', e => { if (e.target.id === 'confirmModal') closeModal(); });
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+// ── Cost calculator ──────────────────────────────────────────────────
+function updateCostCalc(n,cost){
+  n=parseInt(n);const d=n*cost*.001,m=d*30;
+  const el=k=>document.getElementById(k);
+  if(el('ccNum'))el('ccNum').textContent=n.toLocaleString();
+  if(el('ccDaily'))el('ccDaily').textContent='$'+d.toFixed(2);
+  if(el('ccMonthly'))el('ccMonthly').textContent='$'+m.toFixed(2);
+  if(el('ccCredits'))el('ccCredits').textContent=(n*cost).toLocaleString();
+  if(el('ccRunway')&&userCredits!=null)el('ccRunway').textContent=Math.floor(userCredits/(n*cost)||0).toLocaleString()+' days';
+}
 
-// ── Init ───────────────────────────────────────────────────────────────
-checkStatus();
-initAuth();
-loadSkills();
-showDefaultEmptyState();
+// ── Syntax highlight ─────────────────────────────────────────────────
+function syntaxHighlight(json){return esc(json).replace(/"([^"]+)":/g,'<span style="color:var(--info)">"$1"</span>:').replace(/: "([^"]*)"/g,': <span style="color:var(--accent-text)">"$1"</span>').replace(/\b(true|false)\b/g,'<span style="color:var(--purple)">$1</span>').replace(/\b(null)\b/g,'<span style="color:var(--text-muted)">$1</span>').replace(/(?<!["\w])-?\b(\d+\.?\d*)\b/g,'<span style="color:var(--warning)">$1</span>')}
+
+// ═════════════════ API TESTER ═════════════════
+const ENDPOINTS=[
+  {method:'POST',path:'/v1/orchestrate',name:'Orchestrate',desc:'LLM-planned multi-step query — the core primitive',body:{query:'What is the current price of Ethereum?',pricing:{strategy:'balanced'}}},
+  {method:'POST',path:'/v1/skills/:id/invoke',name:'Invoke Skill',desc:'Run a prompt or proxy skill directly',body:{variables:{query:'Analyze ETH market sentiment'}},pp:'id',pd:'your-skill-id'},
+  {method:'GET',path:'/v1/skills/:id/query',name:'Query Data Skill',desc:'Fetch structured data from a data skill',pp:'id',pd:'price-oracle'},
+  {method:'POST',path:'/v1/batch',name:'Batch Query',desc:'Multiple queries in one request',body:{queries:[{query:'ETH price'},{query:'BTC market cap'}],pricing:{strategy:'cheapest'}}},
+  {method:'GET',path:'/v1/stream/orchestrate',name:'Stream',desc:'Streaming orchestration via SSE',qs:'query=ETH+price&strategy=balanced'},
+  {method:'POST',path:'/v1/discover',name:'Discover Skills',desc:'Semantic search over all public skills',body:{query:'real-time crypto price data',limit:5}},
+  {method:'GET',path:'/v1/skills',name:'List Skills',desc:'Browse and filter all public skills',qs:'limit=20&type=data'},
+  {method:'GET',path:'/v1/estimate',name:'Estimate Cost',desc:'Preview cost before execution — free',qs:'query=What+is+ETH+price'},
+  {method:'POST',path:'/v1/openclaw',name:'OpenClaw',desc:'Open-ended orchestration with any query',body:{query:'Tell me about top DeFi trends this week'}},
+];
+let selectedEp=null;
+
+function renderEndpoints(){
+  document.getElementById('atEndpoints').innerHTML=ENDPOINTS.map((ep,i)=>{
+    const mc=ep.method==='GET'?'get':'post';
+    return`<div class="at-ep-card" id="atep-${i}" onclick="selectEndpoint(${i})"><div class="ep-method"><span class="badge badge-${mc}">${ep.method}</span></div><div class="ep-name">${esc(ep.name)}</div><div class="ep-desc">${esc(ep.desc)}</div></div>`;
+  }).join('');
+}
+function selectEndpoint(idx){
+  const ep=ENDPOINTS[idx];selectedEp={...ep,idx};
+  document.querySelectorAll('.at-ep-card').forEach(c=>c.classList.remove('sel'));
+  document.getElementById('atep-'+idx)?.classList.add('sel');
+  document.getElementById('atWorkspace').classList.add('show');
+  const mb=document.getElementById('atMethod');mb.textContent=ep.method;mb.className='badge badge-'+(ep.method==='GET'?'get':'post');
+  let url=API+ep.path;if(ep.pp)url=url.replace(':'+ep.pp,ep.pd||'<id>');if(ep.qs)url+='?'+ep.qs;
+  document.getElementById('atUrl').value=url;
+  document.getElementById('atReqBody').value=ep.body?JSON.stringify(ep.body,null,2):'// No request body for GET endpoints';
+  document.getElementById('atResBody').textContent='Click "Send" to execute the request.';document.getElementById('atResBody').style.color='var(--text-muted)';
+  document.getElementById('atResStatus').innerHTML='';
+}
+async function atSend(){
+  if(!selectedEp){toast('Select an endpoint first','warning');return}
+  if(!apiKey){toast('Enter your API key and switch to Live mode','warning');return}
+  if(currentMode!=='live'){toast('Switch to Live mode to send requests','warning');return}
+  const ep=selectedEp,url=document.getElementById('atUrl').value;
+  const resBody=document.getElementById('atResBody'),resStatus=document.getElementById('atResStatus');
+  resBody.textContent='Sending...';resBody.style.color='var(--text-muted)';resStatus.innerHTML='';
+  const btn=document.getElementById('atSendBtn');btn.disabled=true;btn.innerHTML='<span class="spinner"></span>Sending...';
+  try{
+    const opts={method:ep.method,headers:{'X-API-Key':apiKey}};
+    if(ep.method==='POST'){opts.headers['Content-Type']='application/json';const ta=document.getElementById('atReqBody');try{opts.body=JSON.stringify(JSON.parse(ta.value))}catch{opts.body=ta.value}}
+    const start=performance.now();const r=await fetch(url,opts);const elapsed=Math.round(performance.now()-start);
+    let data;try{data=await r.json()}catch{data={raw:await r.text()}}
+    const sc=r.status,scCls=sc<300?'s2':sc<500?'s4':'s5';
+    resStatus.innerHTML=`<span class="status-code ${scCls}">${sc}</span><span style="font-size:11px;color:var(--text-muted)">${elapsed}ms</span>`;
+    resBody.innerHTML=syntaxHighlight(JSON.stringify(data,null,2));resBody.style.color='';
+  }catch(e){resBody.textContent='Network error: '+e.message;resBody.style.color='var(--danger)'}
+  finally{btn.disabled=false;btn.innerHTML='<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>Send'}
+}
+
+// ── Modal close ──────────────────────────────────────────────────────
+document.getElementById('confirmModal').addEventListener('click',e=>{if(e.target.id==='confirmModal')closeModal()});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal()});
+
+// ── Init ─────────────────────────────────────────────────────────────
+checkStatus();initAuth();loadSkills();renderEndpoints();
 </script>
 </body>
 </html>
