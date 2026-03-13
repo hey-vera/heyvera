@@ -252,7 +252,7 @@ apiRouter.post('/orchestrate', async (c) => {
       totalDurationMs,
       apiCost: apiCosts,
       markup: 0,
-      total: apiCosts,
+      total: creditsToDeduct,
       success: true,
       llmProvider: env.LLM_PROVIDER,
     };

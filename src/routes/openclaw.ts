@@ -182,7 +182,7 @@ openclawRouter.post('/invoke', checkApiKey, async (c) => {
         requestId, timestamp: new Date().toISOString(), query,
         plannedSteps: intent.steps.length, executedSteps: execution.steps.length,
         successfulSteps: execution.steps.filter((s) => s.success).length,
-        cacheHits, totalDurationMs, apiCost: apiCosts, markup: 0, total: apiCosts,
+        cacheHits, totalDurationMs, apiCost: apiCosts, markup: 0, total: creditsUsed,
         success: true, llmProvider: env.LLM_PROVIDER,
       };
       logUsage(usageEntry);
@@ -334,7 +334,7 @@ openclawRouter.post('/invoke', checkApiKey, async (c) => {
         requestId, timestamp: new Date().toISOString(), query,
         plannedSteps: intent.steps.length, executedSteps: execution.steps.length,
         successfulSteps: execution.steps.filter((s) => s.success).length,
-        cacheHits, totalDurationMs, apiCost: apiCosts, markup: 0, total: apiCosts,
+        cacheHits, totalDurationMs, apiCost: apiCosts, markup: 0, total: creditsUsed,
         success: true, llmProvider: env.LLM_PROVIDER,
       };
       logUsage(usageEntry);
