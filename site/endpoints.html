@@ -407,6 +407,9 @@
           <option value="status">By Status</option>
           <option value="provider">By Provider</option>
         </select>
+        <select class="sort-select" id="providerFilter" onchange="filters.provider=this.value;render()">
+          <option value="all">All Providers</option>
+        </select>
         <button class="refresh-btn" id="refreshBtn" onclick="loadEndpoints(true)">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
           Refresh
@@ -481,7 +484,7 @@ function toggleTheme() {
 
 const API_BASE = 'https://api.claw-net.org';
 let allEndpoints = [];
-let filters = { category: 'all', status: 'all' };
+let filters = { category: 'all', status: 'all', provider: 'all' };
 let expandedId = null;
 
 // ── NAV ─────────────────────────────────────────────────────────────────────
@@ -564,6 +567,11 @@ async function loadEndpoints(forceRefresh = false) {
   } finally {
     btn.classList.remove('spinning');
   }
+  // Auto-populate provider dropdown from loaded data
+  const provSelect = document.getElementById('providerFilter');
+  const providers = [...new Set(allEndpoints.map(ep => ep.provider).filter(Boolean))].sort();
+  const current = provSelect.value;
+  provSelect.innerHTML = '<option value="all">All Providers</option>' + providers.map(p => `<option value="${p}"${p===current?' selected':''}>${p}</option>`).join('');
   render();
 }
 
@@ -598,6 +606,7 @@ function getFiltered() {
   let list = allEndpoints.filter(ep => {
     if (filters.category !== 'all' && ep.category !== filters.category) return false;
     if (filters.status   !== 'all' && ep.status   !== filters.status)   return false;
+    if (filters.provider !== 'all' && ep.provider !== filters.provider) return false;
     if (q) {
       const hay = [ep.id, ep.name, ep.provider, ep.description, ep.category,
                    ...(ep.outputFields || []), ...Object.values(ep.inputSchema || {})].join(' ').toLowerCase();

@@ -225,6 +225,7 @@
       <a class="sidebar-link" href="#skills-visibility">PATCH /v1/skills/:id/visibility</a>
       <a class="sidebar-link" href="#skills-delete">DELETE /v1/skills/:id</a>
       <a class="sidebar-link" href="#skills-metrics">GET /v1/skills/:id/metrics</a>
+      <a class="sidebar-link" href="#skills-query">GET /v1/skills/:id/query</a>
 
       <div class="sidebar-heading">Tasks</div>
       <a class="sidebar-link" href="#tasks-submit">POST /v1/tasks</a>
@@ -276,11 +277,6 @@
       <div class="sidebar-heading">Mesh</div>
       <a class="sidebar-link" href="#mesh-peers">GET /v1/mesh/peers</a>
 
-      <div class="sidebar-heading">Admin</div>
-      <a class="sidebar-link" href="#admin-dashboard">GET /v1/admin/dashboard</a>
-      <a class="sidebar-link" href="#admin-revenue">GET /v1/admin/revenue</a>
-      <a class="sidebar-link" href="#admin-treasury">GET /v1/admin/treasury</a>
-      <a class="sidebar-link" href="#admin-payouts">GET /v1/admin/payouts</a>
     </div>
   </aside>
 
@@ -296,7 +292,7 @@
         <div class="intro-card"><div class="intro-card-title">Base URL</div><div class="intro-card-desc"><code>https://api.claw-net.org</code></div></div>
         <div class="intro-card"><div class="intro-card-title">Auth Header</div><div class="intro-card-desc"><code>X-API-Key: your_key</code></div></div>
         <div class="intro-card"><div class="intro-card-title">Rate Limit</div><div class="intro-card-desc">60 requests per minute per IP</div></div>
-        <div class="intro-card"><div class="intro-card-title">Credits</div><div class="intro-card-desc">1 credit = $0.001. Buy via Stripe or USDC.</div></div>
+        <div class="intro-card"><div class="intro-card-title">Credits</div><div class="intro-card-desc">1 credit = $0.001. Buy via Stripe or Solana USDC.</div></div>
       </div>
     </div>
 
@@ -381,6 +377,7 @@
           <tbody>
             <tr><td><code>query</code></td><td><span class="param-type">string</span></td><td><span class="param-req">Yes</span></td><td>Natural language query (max 2000 chars)</td></tr>
             <tr><td><code>context</code></td><td><span class="param-type">object</span></td><td><span class="param-opt">No</span></td><td>Additional context passed to the orchestrator</td></tr>
+            <tr><td><code>pricing</code></td><td><span class="param-type">object</span></td><td><span class="param-opt">No</span></td><td>Budget control: <code>{ "maxCredits": 10, "strategy": "cheapest" }</code>. Strategies: <code>cheapest</code>, <code>balanced</code>, <code>fastest</code>, <code>reliable</code></td></tr>
           </tbody>
         </table>
         <h4>Example Request</h4>
@@ -463,7 +460,7 @@ es.onmessage = (e) => console.log(JSON.parse(e.data));</code></pre>
     <!-- SKILLS -->
     <div class="docs-section" id="skills-create">
       <h2 class="docs-section-title">Skills</h2>
-      <p class="docs-section-desc">Skills are prompt-powered AI services. Publish a skill to the marketplace and earn 97% of every purchase.</p>
+      <p class="docs-section-desc">Skills are AI-powered services. Three types: <strong style="color:#10b981">Data</strong> (cached structured data), <strong style="color:#8b5cf6">Prompt</strong> (LLM orchestration), and <strong style="color:#3b82f6">API Proxy</strong> (forward to external URL). Publish to the marketplace and earn 97% of every call.</p>
 
       <div class="endpoint">
         <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/skills</code></div>
@@ -476,7 +473,7 @@ es.onmessage = (e) => console.log(JSON.parse(e.data));</code></pre>
             <tr><td><code>name</code></td><td><span class="param-type">string</span></td><td><span class="param-req">Yes</span></td><td>Unique slug (lowercase, hyphens, max 64)</td></tr>
             <tr><td><code>displayName</code></td><td><span class="param-type">string</span></td><td><span class="param-req">Yes</span></td><td>Human-readable name</td></tr>
             <tr><td><code>description</code></td><td><span class="param-type">string</span></td><td><span class="param-req">Yes</span></td><td>What the skill does</td></tr>
-            <tr><td><code>promptTemplate</code></td><td><span class="param-type">string</span></td><td><span class="param-req">Yes</span></td><td>Prompt with <code>&#123;&#123;variable&#125;&#125;</code> placeholders</td></tr>
+            <tr><td><code>promptTemplate</code></td><td><span class="param-type">string</span></td><td><span class="param-opt">No</span></td><td>Prompt with <code>&#123;&#123;variable&#125;&#125;</code> placeholders</td></tr>
             <tr><td><code>creditCost</code></td><td><span class="param-type">number</span></td><td><span class="param-req">Yes</span></td><td>Price in credits (0–10000)</td></tr>
             <tr><td><code>public</code></td><td><span class="param-type">boolean</span></td><td><span class="param-opt">No</span></td><td>List in marketplace (default: false)</td></tr>
             <tr><td><code>tags</code></td><td><span class="param-type">string[]</span></td><td><span class="param-opt">No</span></td><td>Up to 10 tags</td></tr>
@@ -484,6 +481,10 @@ es.onmessage = (e) => console.log(JSON.parse(e.data));</code></pre>
             <tr><td><code>version</code></td><td><span class="param-type">string</span></td><td><span class="param-opt">No</span></td><td>Semver (default: 1.0.0)</td></tr>
             <tr><td><code>changelog</code></td><td><span class="param-type">string</span></td><td><span class="param-opt">No</span></td><td>What's new in this version</td></tr>
             <tr><td><code>readme</code></td><td><span class="param-type">string</span></td><td><span class="param-opt">No</span></td><td>Detailed usage guide</td></tr>
+            <tr><td><code>skillType</code></td><td><span class="param-type">string</span></td><td><span class="param-opt">No</span></td><td><code>prompt_template</code> (default), <code>api_proxy</code>, or <code>data</code></td></tr>
+            <tr><td><code>proxyUrl</code></td><td><span class="param-type">string</span></td><td><span class="param-opt">No</span></td><td>Required for <code>api_proxy</code> and <code>data</code> types — the backing URL to fetch from</td></tr>
+            <tr><td><code>sampleOutput</code></td><td><span class="param-type">object</span></td><td><span class="param-opt">No</span></td><td>Example JSON output shown on marketplace card (recommended for data skills)</td></tr>
+            <tr><td><code>updateFrequency</code></td><td><span class="param-type">string</span></td><td><span class="param-opt">No</span></td><td>For data skills: <code>realtime</code>, <code>hourly</code>, <code>daily</code>, <code>weekly</code>, or <code>static</code>. Drives cache TTL.</td></tr>
           </tbody>
         </table>
         <div class="code-block">
@@ -516,7 +517,7 @@ es.onmessage = (e) => console.log(JSON.parse(e.data));</code></pre>
 
       <div class="endpoint" id="skills-invoke">
         <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/skills/:id/invoke</code></div>
-        <p class="endpoint-desc">Invoke a skill you own for free (no credit charge). Purchased skills can also be invoked this way.</p>
+        <p class="endpoint-desc">Execute a prompt or API proxy skill. Credits are deducted based on the skill's price. Skills you own are free to invoke.</p>
         <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
         <h4>Body Parameters</h4>
         <table class="params-table">
@@ -545,6 +546,30 @@ es.onmessage = (e) => console.log(JSON.parse(e.data));</code></pre>
         <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/skills/:id/metrics</code></div>
         <p class="endpoint-desc">Get performance metrics for a skill: success rate, avg duration, total uses, revenue.</p>
         <div class="endpoint-auth">Requires: <code>X-API-Key</code> (must own skill)</div>
+      </div>
+
+      <div class="endpoint" id="skills-query">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/skills/:id/query</code></div>
+        <p class="endpoint-desc">Query a data skill. Returns cached structured data (1 credit) or fetches live from the source (full credit cost). Only works with <code style="font-family:var(--font-mono);color:var(--accent)">skillType: "data"</code> skills.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+        <h4>Query Parameters</h4>
+        <table class="params-table">
+          <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>*</code></td><td><span class="param-type">any</span></td><td><span class="param-opt">No</span></td><td>Any query params are forwarded to the backing data source URL</td></tr>
+          </tbody>
+        </table>
+        <h4>Cache Behavior</h4>
+        <table class="params-table">
+          <thead><tr><th>Update Frequency</th><th>Cache TTL</th><th>Cost</th></tr></thead>
+          <tbody>
+            <tr><td><code>realtime</code></td><td>60 seconds</td><td>1 cr (cache) / full price (live)</td></tr>
+            <tr><td><code>hourly</code></td><td>1 hour</td><td>1 cr (cache) / full price (live)</td></tr>
+            <tr><td><code>daily</code></td><td>24 hours</td><td>1 cr (cache) / full price (live)</td></tr>
+            <tr><td><code>weekly</code></td><td>7 days</td><td>1 cr (cache) / full price (live)</td></tr>
+            <tr><td><code>static</code></td><td>30 days</td><td>1 cr (cache) / full price (live)</td></tr>
+          </tbody>
+        </table>
       </div>
     </div>
 
@@ -947,33 +972,6 @@ es.onmessage = (e) => console.log(JSON.parse(e.data));</code></pre>
   "listening": ["/ip4/0.0.0.0/tcp/4001"],
   "peers": [{ "id": "12D3KooW...", "multiaddr": "/ip4/...", "last_seen": "2026-03-10T..." }]
 }</code></pre></div>
-      </div>
-    </div>
-
-    <!-- ADMIN -->
-    <div class="docs-section" id="admin-dashboard">
-      <h2 class="docs-section-title">Admin</h2>
-      <p class="docs-section-desc">Admin endpoints require the <code style="font-family:var(--font-mono);color:var(--accent)">X-API-Key: ADMIN_API_KEY</code> header. These endpoints are not for public use.</p>
-      <div class="alert alert-warning">All admin endpoints require the server-side ADMIN_API_KEY environment variable to be set and matched.</div>
-      <div class="endpoint">
-        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/admin/dashboard</code></div>
-        <p class="endpoint-desc">Platform-wide metrics: total users, total credits issued, revenue, active circuit breakers.</p>
-        <div class="endpoint-auth">Requires: <code>X-API-Key: ADMIN_API_KEY</code></div>
-      </div>
-      <div class="endpoint" id="admin-revenue">
-        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/admin/revenue</code></div>
-        <p class="endpoint-desc">Platform revenue breakdown by source: Stripe, USDC, marketplace fees, LLM proxy.</p>
-        <div class="endpoint-auth">Requires: <code>X-API-Key: ADMIN_API_KEY</code></div>
-      </div>
-      <div class="endpoint" id="admin-treasury">
-        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/admin/treasury</code></div>
-        <p class="endpoint-desc">Treasury and official key balances, recent fee receipts and refunds.</p>
-        <div class="endpoint-auth">Requires: <code>X-API-Key: ADMIN_API_KEY</code></div>
-      </div>
-      <div class="endpoint" id="admin-payouts">
-        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/admin/payouts</code></div>
-        <p class="endpoint-desc">List all pending creator USDC payout requests.</p>
-        <div class="endpoint-auth">Requires: <code>X-API-Key: ADMIN_API_KEY</code></div>
       </div>
     </div>
 
