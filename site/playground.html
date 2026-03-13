@@ -286,6 +286,9 @@
     .inline-key-row{display:flex;gap:8px}
     .inline-key input{flex:1;background:var(--bg-primary);border:1px solid var(--border-default);color:var(--text-primary);font-family:var(--font-mono);font-size:12px;padding:7px 10px;border-radius:var(--radius-md);outline:none} .inline-key input:focus{border-color:var(--warning)}
     .inline-key button{font-family:var(--font-sans);font-size:12px;font-weight:600;padding:7px 14px;background:var(--warning);color:#000;border:none;border-radius:var(--radius-md);cursor:pointer;white-space:nowrap} .inline-key button:hover{opacity:.9}
+    .run-bar{width:100%;display:flex;align-items:center;justify-content:center;gap:10px;padding:14px 24px;font-family:var(--font-sans);font-size:15px;font-weight:700;letter-spacing:.01em;border:none;border-radius:var(--radius-lg);cursor:pointer;transition:all .15s;margin-bottom:16px}
+    .run-bar-sandbox{background:var(--accent);color:#000} .run-bar-sandbox:hover{background:var(--accent-hover);transform:translateY(-1px);box-shadow:0 4px 16px rgba(16,185,129,.25)}
+    .run-bar-live{background:var(--danger);color:#fff} .run-bar-live:hover{opacity:.9;transform:translateY(-1px);box-shadow:0 4px 16px rgba(239,68,68,.25)}
     .actions-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
 
     /* ── API TESTER ──────────────────────────────────────────────────── */
@@ -605,6 +608,14 @@ function renderSkillDetail(s){
   const modeTag=currentMode==='live'?'<span class="psb-mode live">Live — credits charged</span>':'<span class="psb-mode sandbox">Sandbox — free</span>';
   h+=`<div class="price-stat-box"><div><div class="psb-label">Cost per call</div><div class="psb-credits">${s.creditCost} credits</div></div><div class="psb-divider"></div><div><div class="psb-label">USD equivalent</div><div class="psb-usd">${creditsToUsd(s.creditCost)}</div></div><div class="psb-divider"></div><div>${modeTag}</div></div>`;
 
+  // Run bar — full-width, prominent
+  if(currentMode==='live'){
+    if(!apiKey) h+=`<div class="inline-key"><p>Enter your API key to run skills live</p><div class="inline-key-row"><input type="password" id="inlineKeyInput" placeholder="cn-••••••••" autocomplete="off"><button onclick="applyInlineKey()">Connect</button></div><p style="margin-top:6px;font-size:11px;color:var(--text-muted)">Don't have one? <a href="/#pricing" style="color:var(--warning)">Get an API key &rarr;</a></p></div>`;
+    else h+=`<button class="run-bar run-bar-live" onclick="confirmRunLive()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>Execute &mdash; ${s.creditCost} cr (${creditsToUsd(s.creditCost)})</button>`;
+  }else{
+    h+=`<button class="run-bar run-bar-sandbox" onclick="runSandbox()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>Execute</button>`;
+  }
+
   // ── Unified Simulation Flow: Code → Response → Cost ──
   h+=`<div class="sim-flow" id="simFlow">`;
 
@@ -634,14 +645,6 @@ function renderSkillDetail(s){
   h+=`<div class="cost-calc"><h4>Volume Calculator</h4>
     <div class="cost-calc-row"><span style="font-size:12px;color:var(--text-tertiary)">Calls per day</span><input type="range" min="1" max="10000" value="100" oninput="updateCostCalc(this.value,${s.creditCost})"><span class="cost-calc-num" id="ccNum">100</span></div>
     <div class="cost-calc-results"><div class="ccr"><div class="ccr-val" id="ccDaily">$0.20</div><div class="ccr-label">per day</div></div><div class="ccr"><div class="ccr-val" id="ccMonthly">$6.00</div><div class="ccr-label">per month</div></div><div class="ccr"><div class="ccr-val" id="ccCredits">${(100*s.creditCost).toLocaleString()}</div><div class="ccr-label">credits/day</div></div>${userCredits!=null?`<div class="ccr"><div class="ccr-val" id="ccRunway">${Math.floor(userCredits/s.creditCost).toLocaleString()}</div><div class="ccr-label">calls remaining</div></div>`:''}</div></div>`;
-
-  // Action buttons
-  if(currentMode==='live'){
-    if(!apiKey) h+=`<div class="inline-key"><p>Enter your API key to run skills live</p><div class="inline-key-row"><input type="password" id="inlineKeyInput" placeholder="cn-••••••••" autocomplete="off"><button onclick="applyInlineKey()">Connect</button></div><p style="margin-top:6px;font-size:11px;color:var(--text-muted)">Don't have one? <a href="/#pricing" style="color:var(--warning)">Get an API key &rarr;</a></p></div>`;
-    else h+=`<div class="actions-row"><button class="btn" style="background:var(--danger);color:#fff;border-color:var(--danger)" onclick="confirmRunLive()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>Run Live &mdash; ${s.creditCost} cr (${creditsToUsd(s.creditCost)})</button><span style="font-size:11px;color:var(--danger);display:flex;align-items:center;gap:4px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>Deducts credits from your balance</span></div>`;
-  }else{
-    h+=`<div class="actions-row"><button class="btn btn-primary" onclick="runSandbox()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>Run Skill (Sandbox)</button><span style="font-size:11px;color:var(--accent);display:flex;align-items:center;gap:4px">Free — no credits used</span></div>`;
-  }
 
   // Advanced params (collapsed)
   if(vars.length){
@@ -688,11 +691,11 @@ function runScenario(idx){
   const sc=window._scenarios?.[idx];if(!sc)return;
   document.querySelectorAll('.scenario-card').forEach(c=>c.classList.remove('active'));
   document.getElementById('sc-'+idx)?.classList.add('active');
-  // Auto-fill advanced params
+  // Auto-fill advanced params only — user clicks Run to execute
   for(const[k,v]of Object.entries(sc.params)){const el=document.getElementById('param-'+k);if(el)el.value=v}
   window._activeScenarioIdx=idx;
-  // Always run sandbox preview — user must click Run button for live execution
-  runSandbox();
+  // Update code block to reflect selected scenario
+  if(selectedSkill){const params={...sc.params};const codePre=document.getElementById('integratePre');if(codePre)codePre.textContent=buildCodeSnippet(selectedSkill,activeLang,params)}
 }
 
 // ── Mock Data Generator ─────────────────────────────────────────────
