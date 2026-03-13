@@ -753,6 +753,78 @@ function updateCostCalc(n,cost){
 function syntaxHighlight(json){return esc(json).replace(/"([^"]+)":/g,'<span style="color:var(--info)">"$1"</span>:').replace(/: "([^"]*)"/g,': <span style="color:var(--accent-text)">"$1"</span>').replace(/\b(true|false)\b/g,'<span style="color:var(--purple)">$1</span>').replace(/\b(null)\b/g,'<span style="color:var(--text-muted)">$1</span>').replace(/(?<!["\w])-?\b(\d+\.?\d*)\b/g,'<span style="color:var(--warning)">$1</span>')}
 
 // ═════════════════ API TESTER ═════════════════
+
+// ── Mock responses for each API endpoint ──
+function generateEndpointMock(ep){
+  const path=ep.path;
+  const reqId='req_'+R.i(100000,999999);
+  const elapsed=R.i(80,420);
+
+  // POST /v1/orchestrate
+  if(path==='/v1/orchestrate'){
+    const p=R.f(2200,4200);
+    return{success:true,requestId:reqId,query:ep.body?.query||'What is the current price of Ethereum?',plan:{steps:[{endpoint:'price-oracle',type:'data',cached:R.pick(true,false)},{endpoint:'token-analysis',type:'data',cached:false}]},result:{token:'ETH',priceUsd:p,change24h:R.f(-6,10),volume24h:R.i(8e9,25e9),marketCap:R.i(260e9,500e9),analysis:`Ethereum is trading at $${p.toLocaleString()} with ${R.pick('bullish','neutral','bearish')} momentum. Volume is ${R.pick('above','near','below')} the 30-day average.`},credits:{charged:R.f(3,8,1),cached:R.i(0,2),orchestrationFee:2},elapsedMs:elapsed,timestamp:R.ts()};
+  }
+
+  // POST /v1/skills/:id/invoke
+  if(path.includes('/invoke')){
+    return{success:true,requestId:reqId,skillId:ep.pd||'your-skill-id',result:{analysis:`Based on current on-chain data, the market shows ${R.pick('bullish momentum','neutral consolidation','cautious positioning')}. Key support at $${R.i(2000,3000).toLocaleString()}, resistance at $${R.i(3500,4500).toLocaleString()}. Social sentiment: ${R.pick('positive','mixed','cautious')} (${R.i(40,80)}% bullish). Recommendation: ${R.pick('accumulate on dips','hold current positions','reduce exposure')}.`,confidence:R.f(0.65,0.95),sources:R.i(4,12),processingMs:R.i(600,2000)},credits:{charged:R.f(1,5,1),cached:false},timestamp:R.ts()};
+  }
+
+  // GET /v1/skills/:id/query
+  if(path.includes('/query')){
+    const sym=R.pick('SOL','ETH','BTC');const td=TOKEN_DATA[sym]||TOKEN_DATA.SOL;
+    return{success:true,requestId:reqId,skillId:'price-oracle',data:{token:sym,priceUsd:R.f(td.price[0],td.price[1]),change24h:R.f(-8,12),volume24h:R.i(td.vol[0],td.vol[1]),marketCap:R.i(td.mcap[0],td.mcap[1]),updatedAt:R.ts()},credits:{charged:R.f(0.5,3,2),cached:R.pick(true,false)},timestamp:R.ts()};
+  }
+
+  // POST /v1/batch
+  if(path==='/v1/batch'){
+    return{success:true,requestId:reqId,results:[
+      {query:'ETH price',success:true,data:{token:'ETH',priceUsd:R.f(2200,4200),change24h:R.f(-6,10)},credits:R.f(1,4,1)},
+      {query:'BTC market cap',success:true,data:{token:'BTC',priceUsd:R.f(58000,105000),marketCap:R.i(1.1e12,2.1e12)},credits:R.f(1,4,1)}
+    ],totalCredits:R.f(4,10,1),elapsedMs:elapsed,timestamp:R.ts()};
+  }
+
+  // GET /v1/stream/orchestrate
+  if(path.includes('/stream')){
+    return{note:'Streaming responses appear as SSE events. In sandbox mode, here is what the final aggregated response would look like:',success:true,requestId:reqId,query:'ETH price',result:{token:'ETH',priceUsd:R.f(2200,4200),change24h:R.f(-6,10),volume24h:R.i(8e9,25e9)},credits:{charged:R.f(3,7,1)},chunks:R.i(3,8),timestamp:R.ts()};
+  }
+
+  // POST /v1/discover
+  if(path==='/v1/discover'){
+    const skills=[
+      {id:'price-oracle',name:'Price Oracle',type:'data',creditCost:R.f(0.5,2,1),relevance:R.f(0.85,0.99),description:'Real-time token prices with volume and market cap'},
+      {id:'whale-tracker',name:'Whale Tracker',type:'data',creditCost:R.f(1,3,1),relevance:R.f(0.7,0.92),description:'Track large wallet movements and holder concentration'},
+      {id:'defi-yield-scanner',name:'DeFi Yield Scanner',type:'data',creditCost:R.f(1,2,1),relevance:R.f(0.6,0.85),description:'Compare yields across DeFi protocols'},
+      {id:'token-analysis',name:'Token Metrics',type:'data',creditCost:R.f(1,4,1),relevance:R.f(0.55,0.8),description:'Comprehensive token analysis with risk scoring'},
+      {id:'market-sentiment',name:'Market Sentiment',type:'prompt_template',creditCost:R.f(2,5,1),relevance:R.f(0.5,0.75),description:'AI-powered market sentiment analysis'}
+    ];
+    return{success:true,requestId:reqId,query:ep.body?.query||'real-time crypto price data',results:skills.slice(0,ep.body?.limit||5),total:R.i(12,30),timestamp:R.ts()};
+  }
+
+  // GET /v1/skills
+  if(path==='/v1/skills'&&!path.includes(':')){
+    const types=['data','data','data','prompt_template','data','prompt_template','data'];
+    const names=['Price Oracle','Whale Tracker','DeFi Yield Scanner','Market Sentiment','Trending Tokens','Portfolio Analyzer','Token Metrics'];
+    const list=names.map((n,i)=>({id:n.toLowerCase().replace(/ /g,'-'),name:n,type:types[i],creditCost:R.f(0.5,5,1),invocations:R.i(50,5000),rating:R.f(3.5,5,1),creator:R.pick('clawnet-official','defi-wizard','crypto-labs')}));
+    return{success:true,skills:list,total:R.i(14,30),page:1,limit:20,timestamp:R.ts()};
+  }
+
+  // GET /v1/estimate
+  if(path==='/v1/estimate'){
+    const steps=R.i(1,4);
+    return{success:true,requestId:reqId,query:'What is ETH price',estimatedCredits:R.f(2,8,1),breakdown:{orchestrationFee:2,steps:Array.from({length:steps},(_,i)=>({endpoint:R.pick('price-oracle','token-analysis','whale-tracker'),estimatedCost:R.f(0.5,3,1),cached:R.pick(true,false)}))},strategy:'balanced',timestamp:R.ts()};
+  }
+
+  // POST /v1/openclaw
+  if(path==='/v1/openclaw'){
+    return{success:true,requestId:reqId,query:ep.body?.query||'Tell me about top DeFi trends this week',response:`The DeFi landscape this week shows ${R.pick('strong growth','steady activity','mixed signals')}. Key trends:\n\n1. **Liquid staking** continues to dominate with ${R.f(15,35)}% TVL growth on ${R.pick('Lido','Jito','Marinade')}.\n2. **DEX volumes** ${R.pick('surged','held steady','dipped')} — ${R.pick('Raydium','Uniswap','Orca')} leading at $${R.i(200,800)}M daily.\n3. **Yield farming** APYs averaging ${R.f(5,25)}% on stablecoin pairs.\n4. **New launches**: ${R.i(3,12)} protocols deployed this week across ${R.pick('Solana','Base','Arbitrum')}.`,sources:R.i(5,15),credits:{charged:R.f(4,10,1)},timestamp:R.ts()};
+  }
+
+  // Fallback
+  return{success:true,requestId:reqId,data:{message:'Response generated successfully'},timestamp:R.ts()};
+}
+
 const ENDPOINTS=[
   {method:'POST',path:'/v1/orchestrate',name:'Orchestrate',desc:'LLM-planned multi-step query — the core primitive',body:{query:'What is the current price of Ethereum?',pricing:{strategy:'balanced'}}},
   {method:'POST',path:'/v1/skills/:id/invoke',name:'Invoke Skill',desc:'Run a prompt or proxy skill directly',body:{variables:{query:'Analyze ETH market sentiment'}},pp:'id',pd:'your-skill-id'},
@@ -786,12 +858,29 @@ function selectEndpoint(idx){
 }
 async function atSend(){
   if(!selectedEp){toast('Select an endpoint first','warning');return}
-  if(!apiKey){toast('Enter your API key and switch to Live mode','warning');return}
-  if(currentMode!=='live'){toast('Switch to Live mode to send requests','warning');return}
-  const ep=selectedEp,url=document.getElementById('atUrl').value;
+  const ep=selectedEp;
   const resBody=document.getElementById('atResBody'),resStatus=document.getElementById('atResStatus');
+  const btn=document.getElementById('atSendBtn');
+
+  // ── Sandbox mode — generate mock response ──
+  if(currentMode!=='live'){
+    resBody.textContent='Sending...';resBody.style.color='var(--text-muted)';resStatus.innerHTML='';
+    btn.disabled=true;btn.innerHTML='<span class="spinner"></span>Sending...';
+    setTimeout(()=>{
+      const mock=generateEndpointMock(ep);
+      const elapsed=R.i(80,420);
+      resStatus.innerHTML=`<span class="status-code s2">200</span><span style="font-size:11px;color:var(--text-muted)">${elapsed}ms</span><span style="font-size:11px;color:var(--accent);font-weight:500">Sandbox — 0 credits</span>`;
+      resBody.innerHTML=syntaxHighlight(JSON.stringify(mock,null,2));resBody.style.color='';
+      btn.disabled=false;btn.innerHTML='<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>Send';
+    },400+Math.random()*400);
+    return;
+  }
+
+  // ── Live mode — real API call ──
+  if(!apiKey){toast('Enter your API key to send live requests','warning');return}
+  const url=document.getElementById('atUrl').value;
   resBody.textContent='Sending...';resBody.style.color='var(--text-muted)';resStatus.innerHTML='';
-  const btn=document.getElementById('atSendBtn');btn.disabled=true;btn.innerHTML='<span class="spinner"></span>Sending...';
+  btn.disabled=true;btn.innerHTML='<span class="spinner"></span>Sending...';
   try{
     const opts={method:ep.method,headers:{'X-API-Key':apiKey}};
     if(ep.method==='POST'){opts.headers['Content-Type']='application/json';const ta=document.getElementById('atReqBody');try{opts.body=JSON.stringify(JSON.parse(ta.value))}catch{opts.body=ta.value}}
