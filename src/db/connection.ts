@@ -360,6 +360,8 @@ const MIGRATIONS: { version: number; sql: string }[] = [
     ALTER TABLE skills ADD COLUMN health_fail_count INTEGER NOT NULL DEFAULT 0` },
   // v62: webhook signing secret per task creator — HMAC verification for outbound webhooks
   { version: 62, sql: `ALTER TABLE api_keys ADD COLUMN webhook_secret TEXT` },
+  // v63: revenue split 97/3 → 85/15 — 15% platform fee is competitive (industry norm 20-30%)
+  { version: 63, sql: `UPDATE skills SET revenue_share_pct = 0.85 WHERE revenue_share_pct = 0.97` },
 ];
 
 function runMigrations(): void {
@@ -506,7 +508,7 @@ export function initDb(): void {
       author_key TEXT NOT NULL,
       public INTEGER NOT NULL DEFAULT 0,
       credit_cost INTEGER NOT NULL DEFAULT 0,
-      revenue_share_pct REAL NOT NULL DEFAULT 0.97,
+      revenue_share_pct REAL NOT NULL DEFAULT 0.85,
       uses INTEGER NOT NULL DEFAULT 0,
       active INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))

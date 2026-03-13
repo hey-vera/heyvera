@@ -139,13 +139,13 @@ describe('skill invoke — credit + revenue share flow', () => {
    * The route charges the buyer (deductCredit) then credits 97% to the author
    * (topUpCredits). We test that sequence directly here.
    */
-  it('deducts from buyer and credits 97% to author', () => {
+  it('deducts from buyer and credits 85% to author', () => {
     const { key: buyerKey } = seedApiKey(getTestDb(), { credits: 500 });
     const { key: authorKey } = seedApiKey(getTestDb(), { credits: 0 });
     const skillId = makeSkill(authorKey, { creditCost: 100 });
 
     const cost = 100;
-    const authorShare = Math.floor(cost * 0.97); // 97
+    const authorShare = Math.floor(cost * 0.85); // 85
 
     const ok = deductCredit(buyerKey, cost);
     expect(ok).toBe(true);
@@ -155,21 +155,21 @@ describe('skill invoke — credit + revenue share flow', () => {
     expect(getApiKeyBalance(buyerKey)?.credits).toBe(400);
     expect(getApiKeyBalance(authorKey)?.credits).toBe(authorShare);
 
-    // Record the transaction (platform keeps 3%)
+    // Record the transaction (platform keeps 15%)
     const txId = recordTransaction({
       fromAgent: buyerKey,
       toAgent: authorKey,
       amountCredits: authorShare,
       type: 'SKILL_INVOKE',
       skillId,
-      feeCredits: cost - authorShare, // 3 credits platform fee
+      feeCredits: cost - authorShare, // 15 credits platform fee
     });
 
     const txs = getTransactions(buyerKey);
     expect(txs.length).toBe(1);
     expect(txs[0].id).toBe(txId);
     expect(txs[0].amount_credits).toBe(authorShare);
-    expect(txs[0].fee_credits).toBe(3);
+    expect(txs[0].fee_credits).toBe(15);
   });
 
   it('does not deduct if buyer has insufficient credits', () => {

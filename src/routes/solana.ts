@@ -20,14 +20,14 @@ const RECEIVING_WALLET = env.SOLANA_RECEIVING_WALLET ?? '';
 
 // Credit amounts — +7% over equivalent Stripe package (USDC saves ~3% processing fee;
 // bonus capped at fee savings to protect margin).
-// Stripe: $20→21K, $50→54K, $100→112K, $500→600K, $1000→1.3M
-// USDC:   $20→22.5K, $50→58K, $100→120K, $500→642K, $1000→1.39M (+7%)
+// Stripe: $20→22K, $50→60K, $100→125K, $500→750K, $1000→2M
+// USDC:   $20→23.5K, $50→64.2K, $100→133.75K, $500→802.5K, $1000→2.14M (+7%)
 const USDC_PACKAGES: Record<number, number> = {
-  20:   22_500,
-  50:   58_000,
-  100:  120_000,
-  500:  642_000,
-  1000: 1_390_000,
+  20:   23_500,
+  50:   64_200,
+  100:  133_750,
+  500:  802_500,
+  1000: 2_140_000,
 };
 
 const VerifySchema = z.object({

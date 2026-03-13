@@ -27,7 +27,7 @@ import { logger } from '../utils/logger';
 
 export const marketplaceRouter = new Hono();
 
-const PLATFORM_FEE_PCT = 0.03; // 3% platform fee on all marketplace purchases
+const PLATFORM_FEE_PCT = 0.15; // 15% platform fee on all marketplace purchases
 
 /** Calculate platform fee credits for a skill. Official skills are fee-exempt.
  *  Third-party skills priced ≥10 credits pay at least 1 credit. */

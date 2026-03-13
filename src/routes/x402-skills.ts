@@ -183,9 +183,9 @@ x402SkillsRouter.post('/skills/:id', async (c) => {
 
     const priceUsdc = (Math.max(skill.credit_cost, 1) * env.X402_USDC_PER_CREDIT).toFixed(6);
 
-    // Option C lite: auto-split 97% of x402 revenue to creator's Base wallet (fire-and-forget)
+    // Option C lite: auto-split 85% of x402 revenue to creator's Base wallet (fire-and-forget)
     if (skill.creator_evm_wallet && env.EVM_PRIVATE_KEY) {
-      const creatorShare = parseFloat((parseFloat(priceUsdc) * 0.97).toFixed(6));
+      const creatorShare = parseFloat((parseFloat(priceUsdc) * 0.85).toFixed(6));
       if (creatorShare > 0) {
         sendBaseUsdc(skill.creator_evm_wallet, creatorShare).catch((err) =>
           logger.error({ skillId: id, wallet: skill.creator_evm_wallet, err }, 'x402 creator split failed')
