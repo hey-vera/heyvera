@@ -50,9 +50,10 @@
     .nav-logo-text { font-size: 18px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.02em; white-space: nowrap; }
     .nav-logo-text span { color: var(--accent); }
     .nav-links { list-style: none; display: flex; align-items: center; gap: 2px; margin-left: 20px; }
-    .nav-links a { font-size: 13px; font-weight: 500; color: var(--text-tertiary); padding: 6px 12px; border-radius: var(--radius-md); transition: color 0.15s, background 0.15s; }
+    .nav-links a { font-size: 13px; font-weight: 500; color: var(--text-tertiary); padding: 6px 12px; border-radius: var(--radius-md); transition: color 0.15s, background 0.15s; position: relative; }
     .nav-links a:hover { color: var(--text-primary); background: var(--bg-surface-2); }
     .nav-links a.active { color: var(--text-primary); }
+    .nav-links a.active::after { content: ''; position: absolute; bottom: -1px; left: 12px; right: 12px; height: 2px; background: var(--accent); border-radius: 1px; }
     .theme-toggle { background: var(--bg-surface-2); border: 1px solid var(--border-default); border-radius: 6px; width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--text-tertiary); transition: all 0.15s; padding: 0; flex-shrink: 0; }
     .theme-toggle:hover { color: var(--text-primary); border-color: var(--border-strong); }
     .theme-toggle .icon-sun, .theme-toggle .icon-moon { width: 16px; height: 16px; }
@@ -70,6 +71,7 @@
     .nav-login { color: var(--text-secondary); border: 1px solid var(--border-default); background: transparent; padding: 6px 14px; font-size: 13px; border-radius: var(--radius-md); }
     .nav-login:hover { border-color: var(--border-strong); color: var(--text-primary); }
     .nav-cta { background: var(--accent); color: #000; font-weight: 600; padding: 6px 14px; font-size: 13px; border-radius: var(--radius-md); }
+    .nav-cta:hover { background: var(--accent-hover); }
     .nav-btn-ghost { background: transparent; color: var(--text-secondary); border: 1px solid var(--border-default); display: none; padding: 6px 14px; font-size: 13px; border-radius: var(--radius-md); cursor: pointer; font-family: var(--font-sans); }
     .nav-btn-ghost:hover { border-color: var(--border-strong); color: var(--text-primary); }
     .nav-btn-ghost.show { display: inline-block; }
@@ -89,10 +91,30 @@
 
     /* LAYOUT */
     .container { max-width: 1200px; margin: 0 auto; padding: 0 24px; }
-    .pg-hero { padding: 48px 0 32px; text-align: center; }
+    .pg-hero { padding: 48px 0 16px; text-align: center; }
     .pg-hero h1 { font-size: 28px; font-weight: 700; color: var(--text-primary); margin-bottom: 8px; }
     .pg-hero h1 span { color: var(--accent); }
     .pg-hero p { color: var(--text-tertiary); font-size: 15px; max-width: 540px; margin: 0 auto; }
+
+    /* MODE TOGGLE */
+    .mode-bar { display: flex; align-items: center; justify-content: center; gap: 16px; padding: 20px 0 28px; }
+    .mode-toggle { display: flex; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 9999px; overflow: hidden; }
+    .mode-toggle button { font-family: var(--font-sans); font-size: 13px; font-weight: 600; padding: 8px 24px; border: none; cursor: pointer; transition: all 0.2s; background: transparent; color: var(--text-muted); display: flex; align-items: center; gap: 6px; }
+    .mode-toggle button.active-sandbox { background: var(--purple-dim); color: var(--purple); }
+    .mode-toggle button.active-live { background: var(--danger-dim); color: var(--danger); }
+    .mode-toggle button:hover:not(.active-sandbox):not(.active-live) { color: var(--text-secondary); }
+    .mode-indicator { font-size: 12px; font-weight: 500; display: flex; align-items: center; gap: 6px; }
+    .mode-indicator.sandbox { color: var(--purple); }
+    .mode-indicator.live { color: var(--danger); }
+    .mode-dot { width: 8px; height: 8px; border-radius: 50%; }
+    .mode-dot.sandbox { background: var(--purple); }
+    .mode-dot.live { background: var(--danger); animation: pulse-danger 2s infinite; }
+    @keyframes pulse-danger { 0%, 100% { box-shadow: 0 0 0 0 rgba(239,68,68,0.4); } 50% { box-shadow: 0 0 0 6px rgba(239,68,68,0); } }
+
+    /* LIVE WARNING BANNER */
+    .live-warning { display: none; max-width: 1200px; margin: 0 auto 16px; padding: 10px 20px; background: var(--danger-dim); border: 1px solid rgba(239,68,68,0.25); border-radius: var(--radius-md); color: var(--danger); font-size: 13px; font-weight: 500; text-align: center; }
+    .live-warning.show { display: block; }
+    .live-warning svg { vertical-align: -2px; margin-right: 6px; }
 
     /* PLAYGROUND LAYOUT */
     .pg-layout { display: grid; grid-template-columns: 340px 1fr; gap: 24px; padding-bottom: 60px; }
@@ -101,8 +123,15 @@
     /* LEFT PANEL */
     .pg-panel { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 20px; }
     .pg-panel h3 { font-size: 13px; font-weight: 600; color: var(--text-primary); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 12px; }
-    .pg-search { width: 100%; background: var(--bg-primary); border: 1px solid var(--border-default); color: var(--text-primary); font-family: var(--font-sans); font-size: 13px; padding: 8px 12px; border-radius: var(--radius-md); outline: none; margin-bottom: 12px; }
+    .pg-search { width: 100%; background: var(--bg-primary); border: 1px solid var(--border-default); color: var(--text-primary); font-family: var(--font-sans); font-size: 13px; padding: 8px 12px; border-radius: var(--radius-md); outline: none; margin-bottom: 8px; }
     .pg-search:focus { border-color: var(--accent); }
+
+    /* TYPE FILTER TABS */
+    .pg-type-filter { display: flex; gap: 4px; margin-bottom: 12px; flex-wrap: wrap; }
+    .pg-type-filter button { font-family: var(--font-sans); font-size: 11px; font-weight: 500; padding: 3px 10px; border-radius: 9999px; border: 1px solid var(--border-default); background: transparent; color: var(--text-muted); cursor: pointer; transition: all 0.15s; }
+    .pg-type-filter button:hover { border-color: var(--border-strong); color: var(--text-secondary); }
+    .pg-type-filter button.active { background: var(--accent-dim); color: var(--accent); border-color: rgba(16,185,129,0.3); }
+
     .pg-skill-list { max-height: 280px; overflow-y: auto; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); }
     .pg-skill-item { padding: 10px 12px; cursor: pointer; border-bottom: 1px solid var(--border-subtle); transition: background 0.1s; }
     .pg-skill-item:last-child { border-bottom: none; }
@@ -129,6 +158,9 @@
     .btn-primary { background: var(--accent); color: #000; border-color: var(--accent); }
     .btn-primary:hover { background: var(--accent-hover); }
     .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-danger { background: var(--danger-dim); color: var(--danger); border: 1px solid rgba(239,68,68,0.25); }
+    .btn-danger:hover { background: rgba(239,68,68,0.18); }
+    .btn-danger:disabled { opacity: 0.3; cursor: not-allowed; }
     .btn-ghost { background: transparent; color: var(--text-secondary); border: 1px solid var(--border-default); }
     .btn-ghost:hover { border-color: var(--border-strong); color: var(--text-primary); background: var(--bg-surface-2); }
     .btn-sample { background: var(--purple-dim); color: var(--purple); border: 1px solid rgba(139,92,246,0.2); }
@@ -143,8 +175,8 @@
     .pg-output { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); display: flex; flex-direction: column; min-height: 500px; }
     .pg-output-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--border-subtle); }
     .pg-output-header h3 { font-size: 13px; font-weight: 600; color: var(--text-primary); text-transform: uppercase; letter-spacing: 0.04em; margin: 0; }
-    .pg-output-meta { display: flex; gap: 12px; font-size: 11px; color: var(--text-muted); }
-    .pg-output-meta .tag { padding: 2px 8px; border-radius: 9999px; }
+    .pg-output-meta { display: flex; gap: 12px; font-size: 11px; color: var(--text-muted); align-items: center; }
+    .pg-output-meta .tag { padding: 2px 8px; border-radius: 9999px; font-weight: 500; }
     .pg-output-meta .tag.sample { background: var(--purple-dim); color: var(--purple); }
     .pg-output-meta .tag.live { background: var(--accent-dim); color: var(--accent); }
     .pg-output-meta .tag.error { background: var(--danger-dim); color: var(--danger); }
@@ -159,7 +191,7 @@
     .pg-skill-info.show { display: block; }
     .pg-skill-info .si-name { font-size: 14px; font-weight: 600; color: var(--text-primary); }
     .pg-skill-info .si-desc { font-size: 12px; color: var(--text-tertiary); margin-top: 2px; }
-    .pg-skill-info .si-meta { display: flex; gap: 16px; margin-top: 8px; font-size: 11px; color: var(--text-muted); }
+    .pg-skill-info .si-meta { display: flex; gap: 16px; margin-top: 8px; font-size: 11px; color: var(--text-muted); flex-wrap: wrap; }
     .pg-skill-info .si-meta span { display: flex; align-items: center; gap: 4px; }
 
     /* TABS */
@@ -171,6 +203,17 @@
     /* COPY BTN */
     .copy-btn { position: absolute; top: 8px; right: 8px; background: var(--bg-surface-2); border: 1px solid var(--border-default); color: var(--text-muted); font-size: 11px; padding: 4px 10px; border-radius: var(--radius-sm); cursor: pointer; font-family: var(--font-sans); }
     .copy-btn:hover { color: var(--text-primary); border-color: var(--border-strong); }
+
+    /* CONFIRM MODAL */
+    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); z-index: 1000; align-items: center; justify-content: center; }
+    .modal-overlay.show { display: flex; }
+    .modal { background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: var(--radius-xl); padding: 28px; max-width: 420px; width: 90%; box-shadow: 0 20px 60px rgba(0,0,0,0.5); }
+    .modal h3 { font-size: 16px; font-weight: 600; color: var(--text-primary); margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+    .modal p { font-size: 13px; color: var(--text-tertiary); margin-bottom: 20px; line-height: 1.5; }
+    .modal .cost-box { background: var(--bg-surface-2); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 12px 16px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }
+    .modal .cost-box .cost-label { font-size: 12px; color: var(--text-tertiary); }
+    .modal .cost-box .cost-value { font-family: var(--font-mono); font-size: 14px; font-weight: 600; color: var(--warning); }
+    .modal .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
 
     /* FOOTER */
     footer { border-top: 1px solid var(--border-subtle); padding: 32px 24px; display: flex; justify-content: space-between; align-items: center; max-width: 1200px; margin: 0 auto; flex-wrap: wrap; gap: 16px; }
@@ -188,6 +231,7 @@
     .toast { font-size: 13px; padding: 12px 18px; border: 1px solid; border-radius: var(--radius-md); display: flex; align-items: center; gap: 10px; min-width: 240px; max-width: 400px; animation: toastIn 0.2s ease; box-shadow: 0 4px 12px rgba(0,0,0,0.4); }
     .toast.success { background: var(--bg-surface-2); border-color: var(--accent-dim); color: var(--accent); }
     .toast.error { background: var(--bg-surface-2); border-color: var(--danger-dim); color: var(--danger); }
+    .toast.warning { background: var(--bg-surface-2); border-color: var(--warning-dim); color: var(--warning); }
     @keyframes toastIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
   </style>
 </head>
@@ -197,10 +241,12 @@
     <a href="/" class="nav-logo"><span class="nav-logo-text">Claw <span>Network</span></span></a>
     <ul class="nav-links">
       <li><a href="/">Home</a></li>
+      <li><a href="/#pricing">Pricing</a></li>
       <li><a href="/docs.html">Docs</a></li>
       <li><a href="/marketplace.html">Marketplace</a></li>
       <li><a href="/endpoints.html">Endpoints</a></li>
       <li><a href="/playground.html" class="active">Playground</a></li>
+      <li><a href="https://x.com/i/communities/2031805527043576245" target="_blank" rel="noopener" title="Follow on X" style="padding:6px 8px;display:flex;align-items:center"><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.748l7.73-8.835L1.254 2.25H8.08l4.253 5.622 5.91-5.622zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg></a></li>
     </ul>
     <button class="hamburger" onclick="toggleMobileMenu()" aria-label="Menu">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
@@ -215,7 +261,7 @@
     <div class="nav-credits" id="nav-credits-badge"><svg width="14" height="14" viewBox="0 0 24 24" style="vertical-align:-2px;flex-shrink:0;margin-right:2px"><circle cx="12" cy="12" r="11" fill="#92400e"/><circle cx="12" cy="12" r="9.5" fill="#f59e0b"/><circle cx="12" cy="12" r="7.5" fill="#fbbf24"/><path d="M8.5 7.5 Q12 5.5 15.5 8" stroke="rgba(255,255,255,0.45)" stroke-width="1.5" fill="none" stroke-linecap="round"/><text x="12" y="16.5" text-anchor="middle" font-size="10" font-weight="800" fill="#78350f" font-family="Arial,sans-serif">C</text></svg> <span id="nav-credits-num">&mdash;</span> credits</div>
     <span class="nav-email" id="nav-user-email"></span>
     <a href="/login.html" class="nav-login" id="nav-login-btn">Sign In</a>
-    <a href="/dashboard.html" class="nav-cta" id="nav-getkey-btn">Get API Key</a>
+    <a href="/#pricing" class="nav-cta" id="nav-getkey-btn">Get API Key</a>
     <a href="/dashboard.html" class="nav-btn-ghost" id="nav-dash-btn">Dashboard</a>
     <button class="nav-btn-ghost danger" id="nav-signout-btn" onclick="navSignOut()" style="cursor:pointer">Sign Out</button>
   </div>
@@ -223,6 +269,7 @@
 
 <div class="mobile-menu" id="mobileMenu">
   <a href="/">Home</a>
+  <a href="/#pricing">Pricing</a>
   <a href="/docs.html">Docs</a>
   <a href="/marketplace.html">Marketplace</a>
   <a href="/endpoints.html">Endpoints</a>
@@ -233,15 +280,47 @@
 <div class="container">
   <div class="pg-hero">
     <h1>Skill <span>Playground</span></h1>
-    <p>Test any public skill in your browser. View sample output for free, or execute live with your API key.</p>
+    <p>Test any public skill in your browser. Preview sample output for free, or switch to live mode to execute with real credits.</p>
   </div>
 
+  <!-- MODE TOGGLE -->
+  <div class="mode-bar">
+    <div class="mode-toggle">
+      <button id="modeSandbox" class="active-sandbox" onclick="setMode('sandbox')">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        Sandbox
+      </button>
+      <button id="modeLive" onclick="setMode('live')">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+        Live
+      </button>
+    </div>
+    <div class="mode-indicator sandbox" id="modeIndicator">
+      <span class="mode-dot sandbox" id="modeDot"></span>
+      <span id="modeLabel">Sandbox Mode &mdash; free preview only</span>
+    </div>
+  </div>
+</div>
+
+<!-- LIVE WARNING BANNER -->
+<div class="live-warning" id="liveWarning">
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+  Live Mode &mdash; executing skills will deduct credits from your balance. Each call costs real credits.
+</div>
+
+<div class="container">
   <div class="pg-layout">
     <!-- LEFT: Skill selector + params -->
     <div>
       <div class="pg-panel">
         <h3>Select Skill</h3>
         <input type="text" class="pg-search" id="skillSearch" placeholder="Search skills..." oninput="filterSkills()">
+        <div class="pg-type-filter" id="typeFilter">
+          <button class="active" onclick="setTypeFilter('all',this)">All</button>
+          <button onclick="setTypeFilter('data',this)">Data</button>
+          <button onclick="setTypeFilter('prompt_template',this)">Prompt</button>
+          <button onclick="setTypeFilter('api_proxy',this)">Proxy</button>
+        </div>
         <div class="pg-skill-list" id="skillList">
           <div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12px">Loading skills...</div>
         </div>
@@ -256,9 +335,9 @@
       <div class="pg-panel pg-params" id="paramsPanel" style="display:none;margin-top:16px">
         <h3>Parameters</h3>
         <div id="paramsForm"></div>
-        <div class="btn-row">
+        <div class="btn-row" id="actionRow">
           <button class="btn btn-sample" onclick="showSampleOutput()">View Sample</button>
-          <button class="btn btn-primary" id="runBtn" onclick="runLive()" disabled>Execute Live</button>
+          <button class="btn btn-danger" id="runBtn" onclick="confirmRunLive()" style="display:none">Execute Live</button>
         </div>
         <div class="cost-hint" id="costHint"></div>
       </div>
@@ -279,9 +358,29 @@
         <div class="empty-state">
           <div class="icon">&#9881;</div>
           <h4>Select a skill to get started</h4>
-          <p style="font-size:12px;margin-top:4px">Pick a skill from the left, then view sample output (free) or execute live with credits.</p>
+          <p style="font-size:12px;margin-top:4px">Pick a skill from the left, then view sample output for free.</p>
+          <p style="font-size:11px;margin-top:8px;color:var(--text-muted)">Switch to Live mode to execute with real credits.</p>
         </div>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- CONFIRM MODAL -->
+<div class="modal-overlay" id="confirmModal">
+  <div class="modal">
+    <h3>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--warning)" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      Confirm Live Execution
+    </h3>
+    <p>This will make a real API call and deduct credits from your balance. This action cannot be undone.</p>
+    <div class="cost-box">
+      <span class="cost-label">Credit Cost</span>
+      <span class="cost-value" id="confirmCost">-- cr</span>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeConfirmModal()">Cancel</button>
+      <button class="btn btn-danger" onclick="runLiveConfirmed()">Execute &amp; Deduct Credits</button>
     </div>
   </div>
 </div>
@@ -309,6 +408,8 @@ let skills = [];
 let selectedSkill = null;
 let apiKey = localStorage.getItem('claw_api_key') || '';
 let lastResponse = null;
+let currentMode = 'sandbox'; // 'sandbox' or 'live'
+let activeTypeFilter = 'all';
 
 // ── Theme ──────────────────────────────────────────────────────────
 function toggleTheme() {
@@ -334,6 +435,41 @@ function toast(msg, type = 'success') {
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 function creditsToUsd(n) { const u = n * 0.001; return u < 0.01 ? '$' + u.toFixed(4).replace(/0+$/, '') : '$' + u.toFixed(u >= 1 ? 2 : 3).replace(/\.?0+$/, ''); }
 
+// ── Mode Toggle ────────────────────────────────────────────────────
+function setMode(mode) {
+  currentMode = mode;
+  const sandboxBtn = document.getElementById('modeSandbox');
+  const liveBtn = document.getElementById('modeLive');
+  const indicator = document.getElementById('modeIndicator');
+  const dot = document.getElementById('modeDot');
+  const label = document.getElementById('modeLabel');
+  const warning = document.getElementById('liveWarning');
+  const runBtn = document.getElementById('runBtn');
+
+  sandboxBtn.className = mode === 'sandbox' ? 'active-sandbox' : '';
+  liveBtn.className = mode === 'live' ? 'active-live' : '';
+
+  if (mode === 'sandbox') {
+    indicator.className = 'mode-indicator sandbox';
+    dot.className = 'mode-dot sandbox';
+    label.innerHTML = 'Sandbox Mode &mdash; free preview only';
+    warning.classList.remove('show');
+    runBtn.style.display = 'none';
+  } else {
+    if (!apiKey) {
+      toast('Sign in with an API key to use Live mode', 'warning');
+      setMode('sandbox');
+      return;
+    }
+    indicator.className = 'mode-indicator live';
+    dot.className = 'mode-dot live';
+    label.innerHTML = 'Live Mode &mdash; calls deduct credits';
+    warning.classList.add('show');
+    runBtn.style.display = '';
+    runBtn.disabled = false;
+  }
+}
+
 // ── Auth / Nav ─────────────────────────────────────────────────────
 async function initAuth() {
   if (!apiKey) return;
@@ -348,7 +484,6 @@ async function initAuth() {
     document.getElementById('nav-getkey-btn').style.display = 'none';
     document.getElementById('nav-dash-btn').classList.add('show');
     document.getElementById('nav-signout-btn').classList.add('show');
-    document.getElementById('runBtn').disabled = false;
   } catch {}
 }
 function navSignOut() { localStorage.removeItem('claw_api_key'); location.reload(); }
@@ -369,7 +504,7 @@ async function loadSkills() {
     if (!r.ok) throw new Error('Failed to load');
     const d = await r.json();
     skills = d.skills || [];
-    renderSkillList(skills);
+    renderSkillList(getFilteredSkills());
 
     // Auto-select from URL param
     const params = new URLSearchParams(location.search);
@@ -381,6 +516,22 @@ async function loadSkills() {
   } catch (e) {
     document.getElementById('skillList').innerHTML = `<div style="padding:20px;text-align:center;color:var(--danger);font-size:12px">Failed to load skills</div>`;
   }
+}
+
+function getFilteredSkills() {
+  const q = document.getElementById('skillSearch').value.toLowerCase().trim();
+  return skills.filter(s => {
+    const matchesText = !q || (s.displayName || s.name).toLowerCase().includes(q) || (s.description || '').toLowerCase().includes(q);
+    const matchesType = activeTypeFilter === 'all' || s.skillType === activeTypeFilter;
+    return matchesText && matchesType;
+  });
+}
+
+function setTypeFilter(type, btn) {
+  activeTypeFilter = type;
+  document.querySelectorAll('#typeFilter button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderSkillList(getFilteredSkills());
 }
 
 function renderSkillList(list) {
@@ -398,10 +549,7 @@ function renderSkillList(list) {
 }
 
 function filterSkills() {
-  const q = document.getElementById('skillSearch').value.toLowerCase().trim();
-  if (!q) { renderSkillList(skills); return; }
-  const filtered = skills.filter(s => (s.displayName || s.name).toLowerCase().includes(q) || (s.description || '').toLowerCase().includes(q));
-  renderSkillList(filtered);
+  renderSkillList(getFilteredSkills());
 }
 
 // ── Select Skill ───────────────────────────────────────────────────
@@ -412,10 +560,7 @@ function selectSkillById(id) {
 
 async function selectSkill(skill) {
   selectedSkill = skill;
-  renderSkillList(skills.filter(s => {
-    const q = document.getElementById('skillSearch').value.toLowerCase().trim();
-    return !q || (s.displayName || s.name).toLowerCase().includes(q) || (s.description || '').toLowerCase().includes(q);
-  }));
+  renderSkillList(getFilteredSkills());
 
   // Fetch full detail from marketplace
   let detail = skill;
@@ -446,7 +591,7 @@ async function selectSkill(skill) {
   // Update cost hint
   const hint = document.getElementById('costHint');
   hint.innerHTML = `<span class="free">Sample output: free</span> &middot; <span class="live">Live execution: ${detail.creditCost} credits (${creditsToUsd(detail.creditCost)})</span>`;
-  if (!apiKey) hint.innerHTML += `<br><span style="color:var(--text-muted);font-size:10px">Sign in with an API key to enable live execution</span>`;
+  if (!apiKey) hint.innerHTML += `<br><span style="color:var(--text-muted);font-size:10px">Sign in with an API key to enable live mode</span>`;
 
   // Update URL
   history.replaceState(null, '', `?skill=${encodeURIComponent(skill.id)}`);
@@ -470,7 +615,7 @@ function buildParamsForm(skill) {
       vars.push({ name: key, type: prop.type || 'string', description: prop.description || '', required, default: prop.default || '' });
     }
   } else if (skill.skillType === 'data') {
-    // Data skills take query params — offer a generic params field
+    // Data skills take query params
     vars.push({ name: 'params', type: 'text', description: 'Query parameters (key=value, one per line)', required: false, default: '' });
   }
 
@@ -504,7 +649,7 @@ function showSampleOutput() {
   tabs.style.display = 'flex';
 
   if (!sample) {
-    document.getElementById('outputBody').innerHTML = `<div class="empty-state"><div class="icon">&#128196;</div><h4>No sample output available</h4><p style="font-size:12px;margin-top:4px">This skill doesn't have sample output defined. Try executing it live.</p></div>`;
+    document.getElementById('outputBody').innerHTML = `<div class="empty-state"><div class="icon">&#128196;</div><h4>No sample output available</h4><p style="font-size:12px;margin-top:4px">This skill doesn't have sample output defined. Switch to Live mode to execute it.</p></div>`;
     return;
   }
 
@@ -514,8 +659,21 @@ function showSampleOutput() {
 }
 
 // ── Live Execution ─────────────────────────────────────────────────
-async function runLive() {
+function confirmRunLive() {
   if (!selectedSkill || !apiKey) { toast('Sign in with an API key first', 'error'); return; }
+  if (currentMode !== 'live') { toast('Switch to Live mode first', 'warning'); return; }
+
+  document.getElementById('confirmCost').textContent = selectedSkill.creditCost + ' credits (' + creditsToUsd(selectedSkill.creditCost) + ')';
+  document.getElementById('confirmModal').classList.add('show');
+}
+
+function closeConfirmModal() {
+  document.getElementById('confirmModal').classList.remove('show');
+}
+
+async function runLiveConfirmed() {
+  closeConfirmModal();
+  if (!selectedSkill || !apiKey) return;
   const s = selectedSkill;
   const btn = document.getElementById('runBtn');
   btn.disabled = true;
@@ -528,7 +686,6 @@ async function runLive() {
     let url, method, body, headers = { 'X-API-Key': apiKey, 'Content-Type': 'application/json' };
 
     if (s.skillType === 'data') {
-      // Data skills use GET with query params
       const paramsEl = document.getElementById('param-params');
       let qs = '';
       if (paramsEl && paramsEl.value.trim()) {
@@ -543,7 +700,6 @@ async function runLive() {
       method = 'GET';
       body = undefined;
     } else {
-      // Prompt/proxy skills use POST with variables
       url = `${API}/v1/skills/${encodeURIComponent(s.id)}/invoke`;
       method = 'POST';
       const variables = {};
@@ -569,7 +725,7 @@ async function runLive() {
       const credits = data.creditsCost || data.creditsCharged || s.creditCost;
       meta.innerHTML = `<span class="tag live">Live Response</span><span>${elapsed}ms</span><span>${credits} cr charged</span>`;
       lastResponse = { type: 'live', data, json: JSON.stringify(data, null, 2), skill: s, elapsed, status: r.status };
-      // Refresh credit balance
+      toast(`Executed successfully — ${credits} credits charged`, 'success');
       initAuth();
     }
 
@@ -578,8 +734,8 @@ async function runLive() {
     meta.innerHTML = '<span class="tag error">Network Error</span>';
     document.getElementById('outputBody').innerHTML = `<pre style="color:var(--danger)">${esc(e.message)}</pre>`;
   } finally {
-    btn.disabled = !apiKey;
-    btn.textContent = `Execute Live`;
+    btn.disabled = false;
+    btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg> Execute Live`;
   }
 }
 
@@ -630,6 +786,14 @@ function syntaxHighlight(json) {
     .replace(/\b(null)\b/g, '<span style="color:var(--text-muted)">$1</span>')
     .replace(/\b(\d+\.?\d*)\b/g, '<span style="color:var(--warning)">$1</span>');
 }
+
+// Close modal on overlay click or Escape
+document.getElementById('confirmModal').addEventListener('click', function(e) {
+  if (e.target === this) closeConfirmModal();
+});
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') closeConfirmModal();
+});
 
 // ── Init ───────────────────────────────────────────────────────────
 checkStatus();

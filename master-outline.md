@@ -138,11 +138,11 @@ tsconfig.json             — strict mode, module target, esModuleInterop
 ```
 
 ### State Snapshot (fill in at audit time)
-- Route count: __ routers mounted
-- Middleware layers (in order): _list_
-- Startup steps (in order): _list_
-- Dep count (prod/dev): __/__
-- Node.js target: __
+- Route count: 23 routers mounted (stripeRouter through economyRouter, plus contactRoute)
+- Middleware layers (in order): /health (no middleware) → CORS → honoLogger → rateLimiter → security headers (nosniff, DENY, HSTS, CSP, referrer, permissions) → X-Request-ID (nanoid 12) → bodyLimit 256KB → webhook bodyLimit 64KB → per-route auth (checkApiKey / requireClerkAuth) → signResponse (post-handler)
+- Startup steps (in order): initDb() → seedOfficialSkills() → initRedis() → initClawApis() → setupGracefulShutdown() → startHeartbeat() → initTelegram() (try/catch) → startMeshNode() (try/catch) → 7 crons → loadEmbeddingModel+seedEmbeddings (background) → serve()
+- Dep count (prod/dev): 31/8
+- Node.js target: ES2022, module: CommonJS
 
 ### Audit Questions
 
@@ -184,21 +184,24 @@ tsconfig.json             — strict mode, module target, esModuleInterop
 ### Verdict Table
 | Q# | Question | Verdict | Notes |
 |----|----------|---------|-------|
-| Q1 | Startup ordering | ✅ PASS | seedOfficialSkills() is pure DB, no Redis |
-| Q2 | Route registration order | ✅ PASS | All middleware before routes; signResponse applied correctly |
-| Q3 | Body limit enforcement | ✅ PASS | 256KB global, 64KB webhook (separate header check) |
-| Q4 | CORS production lock | ✅ PASS | Whitelist in prod; /health has custom CORS |
-| Q5 | Request ID collision | ✅ PASS | nanoid(12) = 64^12 ≈ 4.7e21; safe at 1M/day |
-| Q6 | Health check depth | ⚠️ CONCERN | No schema version in health response |
-| Q7 | Startup failure isolation | ✅ PASS | initTelegram/startMeshNode wrapped in try/catch |
-| Q8 | Config semantic bounds | ✅ PASS | Zod min/max on all critical vars |
-| Q9 | CJS + ESM stability | ✅ PASS | require() cast for x402; dynamic import() for libp2p |
-| Q10 | Dead dependencies | ✅ PASS | All deps referenced in src/ |
-| Q11 | Crash loop on uncaughtException | ✅ PASS | Docker restart: unless-stopped handles it |
-| Q12 | Structured boot log | ✅ PASS | { port, env, simulation, llm, redis, signing, x402, freeTrial } |
+| Q1 | Startup ordering | ✅ PASS | seedOfficialSkills() is pure SQLite (INSERT/UPDATE only), no Redis calls. Verified full call chain: ensurePlatformKey(), ensureTreasuryKey(), 18 skill upserts — all getDb() operations. Safe to run before initRedis(). |
+| Q2 | Route registration order | ✅ PASS | All 6 global middleware layers registered before any route mount (lines 104-136). signResponse applied via app.use() before apiRouter mount (line 178 before 183). notFound at line 193 after all 23 route mounts. No unreachable routes. |
+| Q3 | Body limit enforcement | 🔴 BUG → FIXED | **Was:** 64KB webhook guard only checked content-length header (line 147). Chunked transfer encoding has no content-length → defaulted to 0 → bypassed to 256KB global limit. **Fix:** Replaced content-length check with Hono bodyLimit() middleware that enforces on body stream regardless of encoding. |
+| Q4 | CORS production lock | ✅ PASS | Production whitelist: claw-net.org, www.claw-net.org, app.claw-net.org. Non-browser API calls (agents, curl) unaffected by CORS. /health has custom per-origin CORS at line 80-84, bypasses global CORS correctly. Intentional design. |
+| Q5 | Request ID collision | ✅ PASS | nanoid(12) uses 64-char alphabet (A-Za-z0-9_-) → 64^12 = 4.7×10^21 possible IDs. Birthday collision probability at 1M/day for 1 year: (365M)^2 / (2 × 4.7×10^21) ≈ 7×10^-6. Negligible. Not used for financial IDs (those use SQLite rowid). |
+| Q6 | Health check depth | ⚠️ CONCERN | `SELECT 1` proves SQLite responds but not that all 62 migrations ran. Health returns `{ status, version, uptime, db, redis }` — no `schemaVersion` or `migrationCount`. Acceptable at current scale; revisit if multi-instance deploys are considered. |
+| Q7 | Startup failure isolation | ✅ PASS | Critical services (initDb, initRedis, initClawApis) properly crash on failure via unhandled rejection → catch at line 247. Non-critical services (initTelegram line 211, startMeshNode line 214) wrapped in individual try/catch — failures logged, server continues. All 7 crons are fire-and-forget (no await, no throw). Embedding model loads in background Promise chain (line 227-229). |
+| Q8 | Config semantic bounds | ⚠️ CONCERN → FIXED | **Was:** COST_MARKUP_FACTOR (credits.ts) and ORCHESTRATION_FEE (config/index.ts) used raw parseInt() bypassing Zod. No min/max bounds — could be 0, negative, or absurd. **Fix:** Moved both into Zod schema with bounds: COST_MARKUP_FACTOR min(500) max(10000), ORCHESTRATION_FEE min(0) max(100). Also added NODE_ENV='test' to enum for vitest compatibility. All other env vars already had proper Zod bounds. |
+| Q9 | CJS + ESM stability | ✅ PASS | x402: CJS require() cast pattern in x402-skills.ts. libp2p: dynamic import() in mesh/node.ts. Both stable on Node 20+. tsconfig: module=CommonJS, target=ES2022, esModuleInterop=true. No ESM-related test failures. |
+| Q10 | Dead dependencies | ⚠️ CONCERN | 31 prod deps, 2 unused: (1) `@hono/zod-validator` — listed but never imported in src/. (2) `dotenv` — never imported; tsx uses `--env-file` flag (Node 20+ built-in). Each unused dep adds attack surface. Should remove from package.json. |
+| Q11 | Crash loop on uncaughtException | ✅ PASS | process.exit(1) at line 71 is correct — prevents corrupt state. Docker `restart: unless-stopped` has built-in exponential backoff (100ms, 200ms, 400ms... up to 60s). Not an infinite tight loop. A persistent exception will hit the 60s cap quickly. |
+| Q12 | Structured boot log | ⚠️ CONCERN | Boot log (line 232-242) includes: port, env, simulation, llm, redis, signing, x402, freeTrial, rateLimit. Missing: dbVersion/migrationCount, meshActive, cronsStarted, embeddingReady. Mesh and embedding load async after the log line fires. Not blocking but reduces startup observability. |
 
 ### Fixes Applied This Run
-> _Fill in: what was changed, file path, why_
+- **Q3 FIX** `src/index.ts:147-153` — Replaced content-length header check with Hono `bodyLimit({ maxSize: 64 * 1024 })` for `/v1/webhooks/*`. Prevents chunked-encoding bypass of 64KB webhook guard.
+- **Q8 FIX** `src/config/index.ts` — Added `COST_MARKUP_FACTOR: z.coerce.number().int().min(500).max(10000).default(1500)` and `ORCHESTRATION_FEE: z.coerce.number().int().min(0).max(100).default(2)` to Zod schema. Added `'test'` to NODE_ENV enum for vitest compatibility.
+- **Q8 FIX** `src/core/credits.ts` — Changed `COST_MARKUP_FACTOR` from raw `parseInt(process.env...)` to `env.COST_MARKUP_FACTOR` (Zod-validated). Added `import { env } from '../config/index'`.
+- **Q8 FIX** `src/config/index.ts:98` — Changed `ORCHESTRATION_FEE` from raw `parseInt(process.env...)` to `env.ORCHESTRATION_FEE` (Zod-validated).
 
 ---
 
