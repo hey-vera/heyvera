@@ -467,7 +467,7 @@ function trackUse(id,mode){const u=_loadUses();if(!u[id])u[id]={sandbox:0,live:0
 function getUses(id){const u=_loadUses();return u[id]||{sandbox:0,live:0}}
 
 const COIN_SVG='<svg width="12" height="12" viewBox="0 0 24 24" style="vertical-align:-1px"><circle cx="12" cy="12" r="11" fill="#92400e"/><circle cx="12" cy="12" r="9.5" fill="#f59e0b"/><circle cx="12" cy="12" r="7.5" fill="#fbbf24"/><text x="12" y="16.5" text-anchor="middle" font-size="10" font-weight="800" fill="#78350f" font-family="Arial,sans-serif">C</text></svg>';
-function creditBadge(n){return COIN_SVG+' '+n}
+function creditBadge(n){return `<span style="font-weight:700;color:var(--warning)">${n} cr</span>`}
 function creditsToUsd(n){const u=n*.001;return u<.01?'$'+u.toFixed(4).replace(/\.?0+$/,''):'$'+u.toFixed(u>=1?2:3).replace(/\.?0+$/,'')}
 function toast(m,t='success'){const e=document.createElement('div');e.className='toast '+t;e.textContent=m;document.getElementById('toast-container').appendChild(e);setTimeout(()=>e.remove(),4000)}
 function toggleTheme(){const l=document.documentElement.getAttribute('data-theme')==='light';document.documentElement.setAttribute('data-theme',l?'':'light');localStorage.setItem('clawnet_theme',l?'dark':'light')}
