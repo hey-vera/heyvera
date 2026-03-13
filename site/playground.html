@@ -446,6 +446,21 @@
   </div>
 </div>
 
+<!-- ERROR MODAL -->
+<div class="modal-overlay" id="errorModal">
+  <div class="modal">
+    <h3 style="gap:10px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9 12l2 2 4-4"/></svg><span style="color:var(--accent)">No Credits Charged</span></h3>
+    <p id="errModalDesc" style="line-height:1.6">—</p>
+    <div class="modal-cost" id="errModalDetails" style="border-left:3px solid var(--accent)">
+      <div class="modal-cost-row"><span style="font-size:12px;color:var(--text-tertiary)">Credits deducted</span><span class="mono" style="font-size:14px;font-weight:700;color:var(--accent)">0</span></div>
+      <div class="modal-cost-row"><span style="font-size:12px;color:var(--text-tertiary)">Error code</span><span class="mono" style="font-size:12px;color:var(--text-muted)" id="errModalCode">—</span></div>
+      <div class="modal-cost-row"><span style="font-size:12px;color:var(--text-tertiary)">Status</span><span class="mono" style="font-size:12px;color:var(--text-muted)" id="errModalStatus">—</span></div>
+    </div>
+    <div id="errModalHint" style="font-size:12px;color:var(--text-tertiary);line-height:1.6;padding:10px 12px;background:var(--bg-primary);border-radius:var(--radius-md);margin-bottom:16px;display:none"></div>
+    <div class="modal-actions"><button class="btn btn-ghost" onclick="closeErrorModal()">Got it</button></div>
+  </div>
+</div>
+
 <footer>
   <div><a href="/"><span class="nav-logo-text">Claw <span>Network</span></span></a>
     <ul class="footer-links"><li><a href="/">Home</a></li><li><a href="/docs.html">Docs</a></li><li><a href="/marketplace.html">Marketplace</a></li><li><a href="/endpoints.html">Endpoints</a></li><li><a href="/terms.html">Terms</a></li><li><a href="/privacy.html">Privacy</a></li></ul>
@@ -836,6 +851,32 @@ function confirmRunLive(){
   document.getElementById('confirmModal').classList.add('show');
 }
 function closeModal(){document.getElementById('confirmModal').classList.remove('show')}
+function closeErrorModal(){document.getElementById('errorModal').classList.remove('show')}
+function showErrorModal(data,httpStatus){
+  const code=data.code||'UNKNOWN';const status=data.status||httpStatus;
+  const msg=data.error||'The request failed';
+  // Build human-readable explanation
+  let desc='',hint='';
+  if(code==='SOURCE_ERROR'||code==='FETCH_ERROR'){
+    desc=`The upstream data source returned an error (HTTP ${status}). This usually means the data source doesn't support the token or parameters you provided. <strong>Your balance was not affected.</strong>`;
+    hint=data.hint||`<strong>Common fixes:</strong><ul style="margin:6px 0 0 16px"><li>Use the token's <strong>contract/mint address</strong> instead of its name (e.g. the Solana base58 address from pump.fun or Solscan)</li><li>Check that the token exists on the chain this skill queries</li><li>Try a different skill — some data sources only support major tokens</li></ul>`;
+  }else if(code==='INSUFFICIENT_CREDITS'){
+    desc=`You don't have enough credits for this call. <strong>No credits were deducted.</strong>`;
+    hint=`<a href="/#pricing" style="color:var(--warning);font-weight:600">Buy more credits &rarr;</a>`;
+  }else if(code==='RATE_LIMITED'){
+    desc=`This skill has a rate limit and you've exceeded it. <strong>No credits were deducted.</strong> Try again in a few minutes.`;
+  }else if(code==='SKILL_FLAGGED'){
+    desc=`This skill has been flagged by moderation and is temporarily unavailable. <strong>No credits were deducted.</strong>`;
+  }else{
+    desc=`${esc(msg)}. <strong>No credits were deducted for failed requests.</strong>`;
+  }
+  document.getElementById('errModalDesc').innerHTML=desc;
+  document.getElementById('errModalCode').textContent=code;
+  document.getElementById('errModalStatus').textContent='HTTP '+httpStatus;
+  const hintEl=document.getElementById('errModalHint');
+  if(hint){hintEl.innerHTML=hint;hintEl.style.display='block'}else{hintEl.style.display='none'}
+  document.getElementById('errorModal').classList.add('show');
+}
 async function runLiveConfirmed(){
   closeModal();if(!selectedSkill||!apiKey)return;const s=selectedSkill;
 
@@ -864,10 +905,10 @@ async function runLiveConfirmed(){
     }
     const start=performance.now();const r=await fetch(url,{method,headers,body:reqBody});const elapsed=Math.round(performance.now()-start);const data=await r.json();
     if(!r.ok){
-      if(meta)meta.innerHTML=`<span class="tag tag-err">Error ${r.status}</span><span>${elapsed}ms</span>`;
+      if(meta)meta.innerHTML=`<span class="tag tag-err">Error ${r.status}</span><span>${elapsed}ms</span><span style="color:var(--accent);font-weight:600">0 credits charged</span>`;
       lastResponse={type:'error',json:JSON.stringify(data,null,2),skill:s};
       updateCostReceipt({credits:0,usd:'$0.00',mode:'live',detail:`Error ${r.status} — no credits charged`});
-      toast(`Error: ${data.error||'Failed'}`,'error');
+      showErrorModal(data,r.status);
     }else{
       const cr=data.creditsCost||data.creditsCharged||s.creditCost;
       if(meta)meta.innerHTML=`<span class="tag tag-live">Live</span><span>${elapsed}ms</span><span style="color:var(--danger);font-weight:600">${cr} cr charged</span>`;
@@ -1085,7 +1126,8 @@ async function atSend(){
 
 // ── Modal close ──────────────────────────────────────────────────────
 document.getElementById('confirmModal').addEventListener('click',e=>{if(e.target.id==='confirmModal')closeModal()});
-document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal()});
+document.getElementById('errorModal').addEventListener('click',e=>{if(e.target.id==='errorModal')closeErrorModal()});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeModal();closeErrorModal()}});
 
 // ── Init ─────────────────────────────────────────────────────────────
 checkStatus();initAuth();loadSkills();renderEndpoints();

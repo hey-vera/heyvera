@@ -499,7 +499,11 @@ skillsRouter.get('/:id/query', checkApiKey, async (c) => {
     if (!res.ok) {
       logger.warn({ requestId, skillId: id, status: res.status }, 'Data skill source error');
       recordSkillMetric({ skillId: id, version: skill.version ?? '1.0.0', latencyMs: Date.now() - start, success: false, costCredits: 0 });
-      return c.json({ requestId, error: 'Data source error', status: res.status, code: 'SOURCE_ERROR' }, 502);
+      return c.json({
+        requestId, error: 'Data source error', status: res.status, code: 'SOURCE_ERROR',
+        hint: 'The upstream data source rejected this request. If you searched by token name or symbol, try using the contract/mint address instead (e.g. the Solana base58 address). Not all data sources support every token — meme coins and new launches may require the exact on-chain address.',
+        creditsCharged: 0,
+      }, 502);
     }
 
     const data = await res.json().catch(async () => ({ raw: await res.text() }));
@@ -558,7 +562,11 @@ skillsRouter.get('/:id/query', checkApiKey, async (c) => {
   } catch (err) {
     logger.error({ requestId, skillId: id, err }, 'Data skill query failed');
     recordSkillMetric({ skillId: id, version: skill.version ?? '1.0.0', latencyMs: Date.now() - start, success: false, costCredits: 0 });
-    return c.json({ requestId, error: 'Data fetch failed', code: 'FETCH_ERROR' }, 502);
+    return c.json({
+      requestId, error: 'Data fetch failed', code: 'FETCH_ERROR',
+      hint: 'The data source could not be reached (timeout or network error). Try again in a moment, or check if the skill\'s data source is currently healthy.',
+      creditsCharged: 0,
+    }, 502);
   }
 });
 
