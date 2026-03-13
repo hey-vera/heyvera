@@ -658,12 +658,21 @@
     // ── TIME AGO ──
     function timeAgo(dateStr) {
       const d = new Date(dateStr);
-      const now = new Date();
-      const s = Math.floor((now - d) / 1000);
-      if (s < 60) return 'just now';
-      if (s < 3600) return Math.floor(s / 60) + 'm ago';
-      if (s < 86400) return Math.floor(s / 3600) + 'h ago';
-      return Math.floor(s / 86400) + 'd ago';
+      const s = Math.floor((Date.now() - d) / 1000);
+      if (s < 60)     return 'just now';
+      if (s < 3600)   return Math.floor(s / 60) + 'min ago';
+      if (s < 86400)  return Math.floor(s / 3600) + 'hr ago';
+      if (s < 604800) return Math.floor(s / 86400) + 'd ago';
+      if (s < 2592000) return Math.floor(s / 604800) + 'w ago';
+      if (s < 31536000) return Math.floor(s / 2592000) + 'mo ago';
+      return Math.floor(s / 31536000) + 'yr ago';
+    }
+    function shortDate(dateStr) {
+      const d = new Date(dateStr);
+      const m = d.getMonth() + 1;
+      const day = String(d.getDate()).padStart(2, '0');
+      const yr = String(d.getFullYear()).slice(2);
+      return m + '/' + day + '/' + yr;
     }
 
     // ── API STATUS ──
@@ -1038,7 +1047,7 @@
       const tbody = document.getElementById('admin-calls-tbody');
       if (!logs.length) { tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:16px">No calls in this period</td></tr>'; return; }
       tbody.innerHTML = logs.map(l => `<tr>
-        <td style="white-space:nowrap;color:var(--text-tertiary)">${timeAgo(l.timestamp)}</td>
+        <td style="white-space:nowrap"><span style="color:var(--text-secondary);font-size:11px;font-weight:500">${timeAgo(l.timestamp)}</span><br><span style="color:var(--text-muted);font-size:10px;font-family:var(--font-mono)">${shortDate(l.timestamp)}</span></td>
         <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(l.query || '')}">${esc((l.query || '').slice(0, 50))}</td>
         <td class="mono">${esc(l.skill_id || '—')}</td>
         <td class="mono">${l.credits}</td>
