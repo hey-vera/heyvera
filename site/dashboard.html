@@ -304,12 +304,13 @@
     .admin-stat-label { font-size: 11px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.04em; }
     .admin-chart-card { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 20px; margin-bottom: 16px; }
     .admin-chart-title { font-size: 12px; font-weight: 500; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 16px; }
-    .admin-chart { display: flex; align-items: flex-end; gap: 4px; height: 120px; padding: 0 4px; }
-    .admin-bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; }
-    .admin-bar { width: 100%; background: var(--accent); border-radius: 3px 3px 0 0; min-height: 2px; transition: height 0.3s ease; position: relative; }
+    .admin-chart { display: flex; align-items: stretch; gap: 4px; height: 160px; padding: 0 4px; }
+    .admin-bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; min-width: 0; }
+    .admin-bar-spacer { flex: 1; }
+    .admin-bar { width: 100%; background: var(--accent); border-radius: 3px 3px 0 0; min-height: 2px; transition: height 0.3s ease; }
     .admin-bar:hover { background: var(--accent-hover); }
-    .admin-bar-label { font-size: 9px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
-    .admin-bar-val { font-size: 9px; color: var(--text-tertiary); font-family: var(--font-mono); }
+    .admin-bar-label { font-size: 9px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; margin-top: 3px; }
+    .admin-bar-val { font-size: 9px; color: var(--text-tertiary); font-family: var(--font-mono); margin-bottom: 2px; }
     .admin-revenue-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 16px; }
     .admin-rev-card { background: var(--bg-surface-2); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 14px; }
     .admin-rev-label { font-size: 11px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px; }
@@ -1022,10 +1023,12 @@
       const el = document.getElementById('admin-chart');
       if (!data.length) { el.innerHTML = '<div style="color:var(--text-muted);font-size:12px;margin:auto">No data for this period</div>'; return; }
       const max = Math.max(...data.map(d => d.calls), 1);
+      const BAR_MAX_PX = 110; // leaves room for val label + date label within 160px container
       el.innerHTML = data.map(d => {
-        const pct = Math.max(2, (d.calls / max) * 100);
+        const h = Math.max(2, Math.round((d.calls / max) * BAR_MAX_PX));
         const label = d.date.slice(5); // MM-DD
-        return `<div class="admin-bar-col"><div class="admin-bar-val">${d.calls}</div><div class="admin-bar" style="height:${pct}%"></div><div class="admin-bar-label">${label}</div></div>`;
+        const valLabel = d.calls >= 1000 ? (d.calls / 1000).toFixed(1) + 'k' : d.calls;
+        return `<div class="admin-bar-col"><div class="admin-bar-spacer"></div><div class="admin-bar-val">${valLabel}</div><div class="admin-bar" style="height:${h}px;width:100%"></div><div class="admin-bar-label">${label}</div></div>`;
       }).join('');
     }
     function renderRevenueBreakdown(stats) {
@@ -1040,7 +1043,7 @@
         <div class="admin-rev-card"><div class="admin-rev-label">Invoke Fees</div><div class="admin-rev-val">${cr2usd(r.breakdown?.invokeFees?.credits || 0)}</div><div class="admin-rev-sub">${(r.breakdown?.invokeFees?.transactions || 0)} txns</div></div>
         <div class="admin-rev-card"><div class="admin-rev-label">Swarm Fees</div><div class="admin-rev-val">${cr2usd(r.breakdown?.swarmFees?.credits || 0)}</div><div class="admin-rev-sub">${(r.breakdown?.swarmFees?.transactions || 0)} txns</div></div>
         <div class="admin-rev-card"><div class="admin-rev-label">Treasury Balance</div><div class="admin-rev-val">${t.treasury ? t.treasury.credits.toLocaleString() + ' cr' : 'N/A'}</div><div class="admin-rev-sub">${t.treasury ? t.treasury.usdEquivalent : '—'}</div></div>
-        <div class="admin-rev-card"><div class="admin-rev-label">Total Payments</div><div class="admin-rev-val">$${((r.payments?.totalUsd || 0) / 100).toFixed(2)}</div><div class="admin-rev-sub">${r.payments?.keyCount || 0} paying keys</div></div>
+        <div class="admin-rev-card"><div class="admin-rev-label">Total Payments</div><div class="admin-rev-val">$${((r.payments?.totalUsd || 0) / 100).toFixed(2)}</div><div class="admin-rev-sub">${r.payments?.keyCount || 0} paid customer${(r.payments?.keyCount || 0) !== 1 ? 's' : ''}</div></div>
       `;
     }
     function renderCallLogs(logs) {
