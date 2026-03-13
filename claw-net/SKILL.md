@@ -1,6 +1,6 @@
 ---
-name: clawnet
-description: Query 344+ live crypto/DeFi data endpoints and 17 AI skills through one API. Orchestrate multi-step agent workflows with natural language — prices, wallets, whales, yields, token analysis. Pay-per-query credits ($0.001 each), 97% creator revenue share.
+name: claw-net
+description: Query 344+ live crypto/DeFi data endpoints and 17 AI skills through one API. Orchestrate multi-step agent workflows with natural language — prices, wallets, whales, yields, token analysis. Pay-per-query credits ($0.001 each). Publish your own skills and earn revenue on every invocation.
 metadata:
   openclaw:
     requires:
@@ -74,12 +74,12 @@ These return clean JSON — no LLM involved, just live data:
 | Skill ID | What It Returns | Credits | Example Query |
 |---|---|---|---|
 | `price-oracle-data` | Token price, volume, market cap | 1 cr | `?token=SOL` |
-| `trending-tokens-data` | Top trending tokens | 2 cr | `?chain=solana&limit=10` |
-| `whale-tracker-data` | Large wallet movements | 2 cr | `?token=SOL&minUsd=50000` |
-| `defi-yield-data` | DeFi yield rates | 2 cr | `?protocol=marinade` |
+| `trending-tokens-data` | Top trending tokens | 2 cr | `?sortBy=volume&limit=10` |
+| `whale-tracker-data` | Large wallet movements | 2 cr | `?token=SOL&limit=20` |
+| `defi-yield-data` | DeFi yield rates | 2 cr | `?riskLevel=low&minApy=5` |
 | `token-analysis-data` | On-chain token metrics | 2 cr | `?token=BONK` |
-| `wallet-profiler-data` | Wallet holdings & history | 2 cr | `?address=7xK...` |
-| `token-launch-data` | New token launches | 1 cr | `?chain=solana&period=24h` |
+| `wallet-profiler-data` | Wallet holdings & history | 2 cr | `?wallet=7xK...` |
+| `token-launch-data` | New token launches | 1 cr | `?launchType=new` |
 
 Example:
 ```bash
@@ -117,8 +117,7 @@ curl -X POST https://api.claw-net.org/v1/skills/token-analysis/invoke \
 - **GET /v1/auth/usage** — Detailed usage breakdown.
 
 ### Discovery
-- **GET /v1/endpoints** — Search the full endpoint registry (344+ endpoints).
-- **GET /v1/registry** — All endpoints grouped by category.
+- **GET /v1/registry** — All endpoints grouped by category (344+ total).
 - **POST /v1/discover** — Semantic search for skills by description.
 - **GET /v1/skills/:id/openapi** — OpenAPI 3.1 spec for any skill.
 - **GET /v1/skills/:id/mcp** — MCP tool manifest for any skill.
