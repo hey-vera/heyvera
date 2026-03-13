@@ -135,7 +135,7 @@
     .pg-type-filter button:hover { border-color: var(--border-strong); color: var(--text-secondary); }
     .pg-type-filter button.active { background: var(--bg-surface-2); border-color: var(--border-strong); color: var(--text-secondary); }
     .pg-type-filter button.active.filter-all  { background: var(--bg-surface-3); color: var(--text-primary); }
-    .pg-type-filter button.active.filter-data { background: var(--accent-dim); color: var(--accent); border-color: rgba(16,185,129,0.35); }
+    .pg-type-filter button.active.filter-data { background: var(--danger-dim); color: var(--danger); border-color: rgba(239,68,68,0.35); }
     .pg-type-filter button.active.filter-prompt { background: var(--purple-dim); color: var(--purple); border-color: rgba(139,92,246,0.35); }
     .pg-type-filter button.active.filter-proxy { background: var(--info-dim); color: var(--info); border-color: rgba(59,130,246,0.35); }
 
@@ -160,7 +160,7 @@
     .skill-type-badge { font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 3px; text-transform: uppercase; letter-spacing: 0.04em; flex-shrink: 0; }
     .skill-type-badge.prompt { background: var(--purple-dim); color: var(--purple); }
     .skill-type-badge.api_proxy { background: var(--info-dim); color: var(--info); }
-    .skill-type-badge.data { background: var(--accent-dim); color: var(--accent); }
+    .skill-type-badge.data { background: var(--danger-dim); color: var(--danger); }
 
     /* SKILL INFO CARD */
     .skill-info-card { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); overflow: hidden; display: none; margin-top: 12px; }
@@ -193,6 +193,22 @@
     .bool-toggle button { font-family: var(--font-sans); font-size: 12px; font-weight: 500; padding: 5px 14px; border: none; cursor: pointer; background: transparent; color: var(--text-muted); transition: all 0.15s; }
     .bool-toggle button.active-true { background: var(--accent-dim); color: var(--accent); }
     .bool-toggle button.active-false { background: var(--danger-dim); color: var(--danger); }
+
+    /* EXAMPLES DROPDOWN */
+    .examples-wrap { position: relative; }
+    .examples-btn { background: var(--bg-surface-2); color: var(--text-secondary); border: 1px solid var(--border-default); font-family: var(--font-sans); font-size: 12px; font-weight: 500; padding: 5px 12px; border-radius: var(--radius-md); cursor: pointer; display: flex; align-items: center; gap: 5px; transition: all 0.15s; }
+    .examples-btn:hover { border-color: var(--border-strong); color: var(--text-primary); background: var(--bg-surface-3); }
+    .examples-btn svg { transition: transform 0.2s; }
+    .examples-btn.open svg { transform: rotate(180deg); }
+    .examples-drop { display: none; position: absolute; top: calc(100% + 6px); right: 0; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: var(--radius-lg); box-shadow: 0 8px 32px rgba(0,0,0,0.4); z-index: 50; min-width: 260px; max-width: 320px; overflow: hidden; }
+    .examples-drop.open { display: block; }
+    .examples-drop-header { padding: 10px 14px 8px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); border-bottom: 1px solid var(--border-subtle); }
+    .example-item { padding: 10px 14px; cursor: pointer; border-bottom: 1px solid var(--border-subtle); transition: background 0.1s; }
+    .example-item:last-child { border-bottom: none; }
+    .example-item:hover { background: var(--bg-surface-2); }
+    .example-item-name { font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 2px; display: flex; align-items: center; gap: 6px; }
+    .example-item-desc { font-size: 11px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .example-item-num { font-size: 10px; font-weight: 700; width: 18px; height: 18px; border-radius: 50%; background: var(--bg-surface-3); border: 1px solid var(--border-default); display: flex; align-items: center; justify-content: center; color: var(--text-muted); flex-shrink: 0; }
 
     /* API KEY INLINE */
     .inline-apikey { background: var(--warning-dim); border: 1px solid rgba(245,158,11,0.2); border-radius: var(--radius-md); padding: 12px 14px; margin-top: 12px; }
@@ -403,7 +419,16 @@
       <div class="pg-panel" id="paramsPanel" style="display:none; margin-top:12px;">
         <div class="panel-header" style="display:flex;align-items:center;justify-content:space-between">
           <h3>Input Parameters</h3>
-          <button class="btn btn-ghost btn-sm" onclick="tryExample()" id="tryExampleBtn" title="Fill with example values">Try Example</button>
+          <div class="examples-wrap" id="examplesWrap" style="display:none">
+            <button class="examples-btn" id="examplesBtn" onclick="toggleExamplesDropdown()">
+              Examples
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            <div class="examples-drop" id="examplesDrop">
+              <div class="examples-drop-header">Try a real scenario</div>
+              <div id="examplesDropList"></div>
+            </div>
+          </div>
         </div>
         <div class="panel-body">
           <div id="paramsForm"></div>
@@ -690,7 +715,7 @@ function getFiltered() {
 const TYPE_INFO = {
   data: {
     icon: '📊',
-    color: 'var(--accent)',
+    color: 'var(--danger)',
     label: 'Data Skills',
     desc: 'Data skills deliver structured JSON directly from live APIs — no LLM involved. Think of them as real-time data feeds built for AI agents: numbers, prices, stats, and facts your model can immediately reason over.',
     bullets: [
@@ -856,12 +881,12 @@ function buildParamsForm(skill) {
 
   if (!vars.length) {
     form.innerHTML = '<p class="params-empty">This skill takes no input — just hit Preview or Run.</p>';
-    document.getElementById('tryExampleBtn').style.display = 'none';
+    document.getElementById('examplesWrap').style.display = 'none';
     return;
   }
 
-  document.getElementById('tryExampleBtn').style.display = '';
   form.innerHTML = vars.map(v => buildParamCard(v)).join('');
+  buildExamplesDropdown(skill, vars);
 }
 
 function buildParamCard(v) {
@@ -936,42 +961,166 @@ const PARAM_EXAMPLES = {
   address: '0x1234...abcd', wallet: '0x1234...abcd', contract: '0xabcd...1234',
 };
 
-function tryExample() {
-  if (!selectedSkill) return;
-  const s = selectedSkill;
-  let filled = 0;
+// Keyword variations — each key maps to an array of values to cycle through for 3 scenarios
+const PARAM_VARIATIONS = {
+  token:    [['ETH', 'Ethereum price feed'],   ['BTC', 'Bitcoin price feed'],   ['SOL', 'Solana price feed']],
+  symbol:   [['ETH', 'Ethereum'],              ['BTC', 'Bitcoin'],              ['SOL', 'Solana']],
+  coin:     [['ethereum', 'Ethereum'],         ['bitcoin', 'Bitcoin'],          ['solana', 'Solana']],
+  ticker:   [['ETH', 'Ethereum'],              ['BTC', 'Bitcoin'],              ['AAPL', 'Apple stock']],
+  query: [
+    ['What are the top DeFi protocols by TVL right now?', 'DeFi market overview'],
+    ['Summarize the latest Ethereum staking rewards data.', 'ETH staking summary'],
+    ['What is the current sentiment around Bitcoin ETF news?', 'BTC ETF sentiment'],
+  ],
+  text: [
+    ['ClawNet just launched a data skills marketplace for AI agents — biggest release yet.', 'Bullish news'],
+    ['SEC files new enforcement action against major crypto exchange.', 'Bearish news'],
+    ['Ethereum developers approve EIP-4844 for lower L2 fees.', 'Neutral update'],
+  ],
+  prompt: [
+    ['Summarize the top DeFi trends this week.', 'Weekly summary'],
+    ['What are the risks of staking ETH on Lido?', 'Risk analysis'],
+    ['Compare Arbitrum and Optimism for a developer building a DEX.', 'Tech comparison'],
+  ],
+  content: [
+    ['The Federal Reserve held interest rates steady at 5.25% in its latest meeting.', 'Fed decision'],
+    ['Bitcoin hit a new all-time high of $105,000 as ETF inflows surge.', 'BTC ATH'],
+    ['Ethereum layer-2 transactions now surpass mainnet by 15x.', 'L2 growth'],
+  ],
+  input: [
+    ['Analyze the sentiment: "ETH looks incredibly bullish heading into the halving."', 'Sentiment input'],
+    ['Classify this tweet: "Just bought more BTC, not financial advice LOL"', 'Social post'],
+    ['Summarize: "Q4 revenue grew 34% YoY driven by institutional adoption."', 'Financial snippet'],
+  ],
+  address: [
+    ['0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045', 'Vitalik\'s address'],
+    ['0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D', 'Uniswap V2 Router'],
+    ['0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2', 'WETH contract'],
+  ],
+  limit:   [['10', '10 results'], ['25', '25 results'], ['50', 'max 50 results']],
+  count:   [['5', '5 items'],    ['10', '10 items'],   ['20', '20 items']],
+  sortBy:  [['volume', 'by volume'], ['price', 'by price'], ['change', 'by 24h change']],
+  category:[['defi', 'DeFi'],       ['nft', 'NFT'],        ['layer2', 'Layer 2']],
+  language:[['en', 'English'],      ['es', 'Spanish'],     ['fr', 'French']],
+  date:    [
+    [new Date().toISOString().slice(0,10), 'Today'],
+    [new Date(Date.now()-86400000).toISOString().slice(0,10), 'Yesterday'],
+    ['2026-01-01', 'Jan 1 2026'],
+  ],
+};
 
-  const schema = s.inputSchema;
-  if (schema && schema.properties) {
-    for (const [key, prop] of Object.entries(schema.properties)) {
-      const el = document.getElementById('param-' + key);
-      if (!el) continue;
-      // Priority: schema example > schema default > enum[0] > keyword map > type-based fallback
-      let val = prop.example !== undefined ? prop.example
-        : prop.default !== undefined && prop.default !== '' ? prop.default
-        : prop.enum?.length ? prop.enum[0]
-        : PARAM_EXAMPLES[key.toLowerCase()] !== undefined ? PARAM_EXAMPLES[key.toLowerCase()]
-        : prop.type === 'number' || prop.type === 'integer' ? '10'
-        : prop.type === 'boolean' ? 'true'
-        : null;
-      if (val !== null && val !== undefined) { el.value = val; filled++; }
+// Generate 3 example scenarios from a skill's params
+function generateExamples(skill, vars) {
+  const examples = [{name:'', params:{}, label:''}, {name:'', params:{}, label:''}, {name:'', params:{}, label:''}];
+
+  // Track which key gives us the scenario name (first varied key)
+  let nameKey = null;
+
+  for (const v of vars) {
+    const k = v.name.toLowerCase();
+    const variations = PARAM_VARIATIONS[k];
+    if (variations) {
+      if (!nameKey) nameKey = k;
+      for (let i = 0; i < 3; i++) {
+        examples[i].params[v.name] = String(variations[i % variations.length][0]);
+        if (k === nameKey) {
+          examples[i].name = variations[i % variations.length][1] || String(variations[i % variations.length][0]);
+        }
+      }
+    } else {
+      // Non-varied param — use same value in all 3 examples
+      const baseVal = v.example !== undefined ? v.example
+        : v.default !== undefined && v.default !== '' ? v.default
+        : v.enum?.length ? v.enum[0]
+        : v.type === 'number' || v.type === 'integer' ? '10' : null;
+      if (baseVal !== null) for (let i = 0; i < 3; i++) examples[i].params[v.name] = String(baseVal);
     }
-  } else if (s.skillType === 'data') {
-    const el = document.getElementById('param-params');
-    if (el) { el.value = 'limit=10\nsortBy=volume'; filled++; }
-  } else if (s.skillType === 'prompt_template') {
-    const el = document.getElementById('param-query');
-    if (el) { el.value = 'What are the top trends in AI agent infrastructure right now?'; filled++; }
   }
 
-  if (filled > 0) {
-    toast(`${filled} field${filled > 1 ? 's' : ''} filled with example values`, 'success');
-    // Auto-trigger preview so they immediately see something
-    showSampleOutput();
-  } else {
-    toast('No parameters to fill for this skill', 'warning');
+  // Fallbacks for unnamed examples
+  for (let i = 0; i < 3; i++) {
+    if (!examples[i].name) examples[i].name = `Example ${i+1}`;
   }
+
+  // Build display labels (show key param values)
+  for (let i = 0; i < 3; i++) {
+    const first = Object.entries(examples[i].params)[0];
+    examples[i].label = first ? `${first[0]}: ${first[1]}` : 'Auto-filled';
+  }
+
+  // For skills with no varied params, return just one example
+  const allSame = examples.every(e => JSON.stringify(e.params) === JSON.stringify(examples[0].params));
+  return allSame ? [{ ...examples[0], name: 'Run with defaults' }] : examples;
 }
+
+function buildExamplesDropdown(skill, vars) {
+  const wrap = document.getElementById('examplesWrap');
+
+  // Data skills with free-form params box
+  if (!vars.length || (vars.length === 1 && vars[0].name === 'params')) {
+    if (skill.skillType === 'data') {
+      const dataExamples = [
+        { name: 'Top 10 by volume', params: { params: 'limit=10\nsortBy=volume' } },
+        { name: 'Top 5 by price',   params: { params: 'limit=5\nsortBy=price' } },
+        { name: 'Max results',      params: { params: 'limit=50' } },
+      ];
+      renderExampleItems(dataExamples);
+      wrap.style.display = '';
+    } else {
+      wrap.style.display = 'none';
+    }
+    return;
+  }
+
+  const exs = generateExamples(skill, vars);
+  renderExampleItems(exs);
+  wrap.style.display = '';
+}
+
+function renderExampleItems(exs) {
+  document.getElementById('examplesDropList').innerHTML = exs.map((ex, i) => `
+    <div class="example-item" onclick="applyExample(${i})">
+      <div class="example-item-name">
+        <span class="example-item-num">${i+1}</span>
+        ${esc(ex.name)}
+      </div>
+      <div class="example-item-desc">${esc(ex.label)}</div>
+    </div>`).join('');
+  // Store examples on window for applyExample
+  window._examples = exs;
+}
+
+function toggleExamplesDropdown() {
+  const btn = document.getElementById('examplesBtn');
+  const drop = document.getElementById('examplesDrop');
+  const open = drop.classList.toggle('open');
+  btn.classList.toggle('open', open);
+}
+
+function applyExample(idx) {
+  const ex = window._examples?.[idx];
+  if (!ex) return;
+  // Close dropdown
+  document.getElementById('examplesDrop').classList.remove('open');
+  document.getElementById('examplesBtn').classList.remove('open');
+  // Fill params
+  for (const [key, val] of Object.entries(ex.params)) {
+    const el = document.getElementById('param-' + key);
+    if (el) el.value = val;
+  }
+  // Auto-preview
+  showSampleOutput();
+  toast(`"${ex.name}" loaded — showing sample output`, 'success');
+}
+
+// Close dropdown when clicking outside
+document.addEventListener('click', e => {
+  const wrap = document.getElementById('examplesWrap');
+  if (wrap && !wrap.contains(e.target)) {
+    document.getElementById('examplesDrop')?.classList.remove('open');
+    document.getElementById('examplesBtn')?.classList.remove('open');
+  }
+});
 
 // ── Sample Output ──────────────────────────────────────────────────────
 function showSampleOutput() {
