@@ -339,7 +339,7 @@
 
   <!-- SECTION TABS -->
   <div class="pg-tabs" id="pgTabs">
-    <button class="active" onclick="switchSection('sandbox',this)">Skill Sandbox</button>
+    <button class="active" onclick="switchSection('sandbox',this)">Skill Tester</button>
     <button onclick="switchSection('tester',this)">API Tester</button>
   </div>
 
@@ -422,6 +422,8 @@ function _saveUses(u){localStorage.setItem('claw_play_uses',JSON.stringify(u))}
 function trackUse(id,mode){const u=_loadUses();if(!u[id])u[id]={sandbox:0,live:0};u[id][mode]=(u[id][mode]||0)+1;_saveUses(u);return u[id]}
 function getUses(id){const u=_loadUses();return u[id]||{sandbox:0,live:0}}
 
+const COIN_SVG='<svg width="12" height="12" viewBox="0 0 24 24" style="vertical-align:-1px"><circle cx="12" cy="12" r="11" fill="#92400e"/><circle cx="12" cy="12" r="9.5" fill="#f59e0b"/><circle cx="12" cy="12" r="7.5" fill="#fbbf24"/><text x="12" y="16.5" text-anchor="middle" font-size="10" font-weight="800" fill="#78350f" font-family="Arial,sans-serif">C</text></svg>';
+function creditBadge(n){return COIN_SVG+' '+n}
 function creditsToUsd(n){const u=n*.001;return u<.01?'$'+u.toFixed(4).replace(/\.?0+$/,''):'$'+u.toFixed(u>=1?2:3).replace(/\.?0+$/,'')}
 function toast(m,t='success'){const e=document.createElement('div');e.className='toast '+t;e.textContent=m;document.getElementById('toast-container').appendChild(e);setTimeout(()=>e.remove(),4000)}
 function toggleTheme(){const l=document.documentElement.getAttribute('data-theme')==='light';document.documentElement.setAttribute('data-theme',l?'':'light');localStorage.setItem('clawnet_theme',l?'dark':'light')}
@@ -507,7 +509,7 @@ function renderSkillList(){
     const tl=s.skillType==='data'?'DATA':s.skillType==='api_proxy'?'PROXY':'PROMPT';
     const sel=selectedSkill&&selectedSkill.id===s.id?' sel':'';
     const lu=getUses('skill:'+s.id);
-    return`<div class="sb-skill${sel}" onclick="selectSkillById('${esc(s.id)}')"><div class="sb-skill-name"><span class="badge badge-${tc}">${tl}</span>${esc(s.displayName||s.name)}</div><div class="sb-skill-meta">${s.creditCost} cr &middot; <span class="use-badges"><span class="use-badge sb" title="Sandbox runs">${lu.sandbox} sandbox</span><span class="use-badge lv" title="Live runs">${lu.live} live</span></span></div></div>`;
+    return`<div class="sb-skill${sel}" onclick="selectSkillById('${esc(s.id)}')"><div class="sb-skill-name"><span class="badge badge-${tc}">${tl}</span>${esc(s.displayName||s.name)}</div><div class="sb-skill-meta">${creditBadge(s.creditCost)} &middot; <span class="use-badges"><span class="use-badge sb" title="Sandbox runs">${lu.sandbox} sandbox</span><span class="use-badge lv" title="Live runs">${lu.live} live</span></span></div></div>`;
   }).join('');
 }
 
