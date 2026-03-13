@@ -32,14 +32,16 @@
  * Legacy fallback: creditsForApiCost() still available for backward compat.
  */
 
+import { env } from '../config/index';
+
 const CREDITS_PER_USD = parseInt(process.env.CREDITS_PER_USD ?? '1000', 10);
 
 /**
  * Cost-to-credit markup factor. At sale price $0.001/credit:
  *   1000 = break-even, 1500 = 33-50% margin, 2000 = 50-100% margin
- * Override via COST_MARKUP_FACTOR env var for price adjustments without redeploy.
+ * Validated via Zod in src/config/index.ts (min 500, max 10000).
  */
-const COST_MARKUP_FACTOR = parseInt(process.env.COST_MARKUP_FACTOR ?? '1500', 10);
+const COST_MARKUP_FACTOR = env.COST_MARKUP_FACTOR;
 
 /**
  * Round a credit value to 6 decimal places to prevent floating-point drift.

@@ -84,9 +84,15 @@ app.get('/health', (c) => {
   }
 
   let dbOk = false;
+  let schemaVersion: number | null = null;
   try {
-    const row = getDb().prepare('SELECT 1 as ok').get() as { ok: number } | undefined;
+    const db = getDb();
+    const row = db.prepare('SELECT 1 as ok').get() as { ok: number } | undefined;
     dbOk = row?.ok === 1;
+    if (dbOk) {
+      const mv = db.prepare('SELECT MAX(version) as v FROM schema_migrations').get() as { v: number | null } | undefined;
+      schemaVersion = mv?.v ?? null;
+    }
   } catch { /* db unreachable */ }
 
   const redis = cacheStats().redisConnected;
@@ -98,6 +104,7 @@ app.get('/health', (c) => {
     uptime: Math.floor(process.uptime()),
     db: dbOk ? 'ok' : 'unreachable',
     redis: redis ? 'connected' : 'disconnected',
+    schemaVersion,
   }, dbOk ? 200 : 503);
 });
 
@@ -143,14 +150,12 @@ app.get('/', (c) => c.json({
   health: '/health',
 }));
 
-// Webhook body size guard — 64KB max, applied before signature reads
-app.use('/v1/webhooks/*', async (c, next) => {
-  const contentLength = parseInt(c.req.header('content-length') ?? '0', 10);
-  if (contentLength > 65536) {
-    return c.json({ error: 'Payload too large', code: 'PAYLOAD_TOO_LARGE' }, 413);
-  }
-  return next();
-});
+// Webhook body size guard — 64KB max, enforced on the body stream itself
+// (not just content-length header, which is absent with chunked encoding)
+app.use('/v1/webhooks/*', bodyLimit({
+  maxSize: 64 * 1024,
+  onError: (c) => c.json({ error: 'Payload too large', code: 'PAYLOAD_TOO_LARGE' }, 413),
+}));
 
 // app routing
 app.route('/v1/webhooks', stripeRouter);

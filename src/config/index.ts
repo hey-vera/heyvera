@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 const envSchema = z.object({
   PORT: z.coerce.number().default(3402),
-  NODE_ENV: z.enum(['development', 'production']).default('development'),
+  NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
 
   LLM_PROVIDER: z.enum(['anthropic', 'openai', 'openclaw']).default('anthropic'),
@@ -73,6 +73,10 @@ const envSchema = z.object({
   TREASURY_SWEEP_WALLET: z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/, 'Invalid Solana address').optional(),
   TREASURY_SWEEP_MIN: z.coerce.number().int().min(100).default(10000), // minimum credits to trigger sweep (10000 = $10 at $0.001/cr)
   HOT_WALLET_LOW_BALANCE_USDC: z.coerce.number().default(50), // Telegram alert when hot wallet drops below this
+
+  // Pricing engine — previously raw parseInt, now Zod-validated with bounds
+  COST_MARKUP_FACTOR: z.coerce.number().int().min(500).max(10000).default(1500), // 1000=break-even, 1500=33-50% margin
+  ORCHESTRATION_FEE: z.coerce.number().int().min(0).max(100).default(2),         // flat credits per LLM-routed query
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -90,8 +94,8 @@ export const isSimulationMode = !env.SOLANA_PRIVATE_KEY;
 // Swarm base fee — deducted upfront before sub-task budget; shared by swarm.ts and openclaw.ts
 export const SWARM_BASE_FEE = 20;
 
-// Orchestration fee — flat charge per LLM-orchestrated query (covers intent parsing + synthesis)
-export const ORCHESTRATION_FEE = parseInt(process.env.ORCHESTRATION_FEE ?? '2', 10);
+// Orchestration fee — now Zod-validated (min 0, max 100)
+export const ORCHESTRATION_FEE = env.ORCHESTRATION_FEE;
 
 // Tiered per-minute rate limit based on lifetime spend
 export function rateTier(amountPaid: number): { label: string; perMinute: number } {
