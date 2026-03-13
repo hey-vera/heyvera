@@ -668,7 +668,7 @@ function renderSkillDetail(s){
     h+=vars.map(v=>{
       const defHint=v.default?` Default: <strong style="color:var(--text-secondary)">${esc(v.default)}</strong>`:'';
       const exHint=v.example?` e.g. <span style="color:var(--text-secondary)">${esc(v.example)}</span>`:'';
-      return`<div class="adv-field"><div class="adv-field-head"><span class="adv-field-name">${esc(v.name)}</span><span class="adv-badge ${v.required?'req':'opt'}">${v.required?'Required':'Optional'}</span><span class="adv-badge type">${esc(v.type)}</span></div><div class="adv-field-desc">${esc(v.description||'No description')}${defHint}${exHint}</div><input type="text" class="adv-input" id="param-${esc(v.name)}" placeholder="${esc(v.example||v.default||v.name)}" value="${esc(v.default||'')}"></div>`;
+      return`<div class="adv-field"><div class="adv-field-head"><span class="adv-field-name">${esc(v.name)}</span><span class="adv-badge ${v.required?'req':'opt'}">${v.required?'Required':'Optional'}</span><span class="adv-badge type">${esc(v.type)}</span></div><div class="adv-field-desc">${esc(v.description||'No description')}${defHint}${exHint}</div><input type="text" class="adv-input" id="param-${esc(v.name)}" placeholder="${esc(v.example||v.default||v.name)}" value="${esc(v.default||'')}" oninput="liveUpdateCode()"></div>`;
     }).join('');
     h+=`</div></div>`;
   }
@@ -691,10 +691,10 @@ function getSkillVars(s){
 const SKILL_SCENARIOS={
   // ── Data skills ──
   'price-oracle-data':[
-    {name:'Solana',desc:'SOL price, volume, market cap',icon:'☀️',params:{token:'So11111111111111111111111111111111111111112'}},
-    {name:'Bonk',desc:'BONK meme coin price data',icon:'🐕',params:{token:'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263'}},
-    {name:'Jupiter',desc:'JUP aggregator token',icon:'🪐',params:{token:'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN'}},
-    {name:'Raydium',desc:'RAY DEX token',icon:'💜',params:{token:'4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R'}},
+    {name:'Solana',desc:'SOL price, volume, market cap',icon:'☀️',params:{token:'SOL'}},
+    {name:'Bonk',desc:'BONK meme coin price data',icon:'🐕',params:{token:'BONK'}},
+    {name:'Jupiter',desc:'JUP aggregator token',icon:'🪐',params:{token:'JUP'}},
+    {name:'Raydium',desc:'RAY DEX token',icon:'💜',params:{token:'RAY'}},
   ],
   'trending-tokens-data':[
     {name:'By Volume',desc:'Top tokens by 24h trading volume',icon:'📊',params:{sortBy:'volume',limit:'10'}},
@@ -703,10 +703,10 @@ const SKILL_SCENARIOS={
     {name:'Top 50',desc:'Extended list of trending tokens',icon:'📋',params:{sortBy:'volume',limit:'50'}},
   ],
   'whale-tracker-data':[
-    {name:'SOL Whales',desc:'Top SOL holders and net flow',icon:'☀️',params:{token:'So11111111111111111111111111111111111111112'}},
-    {name:'BONK Whales',desc:'Large BONK holders',icon:'🐕',params:{token:'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263'}},
-    {name:'JUP Whales',desc:'Jupiter token holder concentration',icon:'🪐',params:{token:'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN'}},
-    {name:'WIF Whales',desc:'dogwifhat whale movements',icon:'🎩',params:{token:'EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm'}},
+    {name:'SOL Whales',desc:'Top SOL holders and net flow',icon:'☀️',params:{token:'SOL'}},
+    {name:'BONK Whales',desc:'Large BONK holders',icon:'🐕',params:{token:'BONK'}},
+    {name:'JUP Whales',desc:'Jupiter token holder concentration',icon:'🪐',params:{token:'JUP'}},
+    {name:'WIF Whales',desc:'dogwifhat whale movements',icon:'🎩',params:{token:'WIF'}},
   ],
   'defi-yield-data':[
     {name:'All Yields',desc:'Every DeFi opportunity, no filter',icon:'💰',params:{riskLevel:'all'}},
@@ -715,10 +715,10 @@ const SKILL_SCENARIOS={
     {name:'Medium Risk',desc:'Balanced risk/reward LPs',icon:'⚖️',params:{riskLevel:'medium'}},
   ],
   'token-analysis-data':[
-    {name:'Solana',desc:'SOL full metrics + risk score',icon:'☀️',params:{token:'So11111111111111111111111111111111111111112'}},
-    {name:'Bonk',desc:'BONK risk analysis and holders',icon:'🐕',params:{token:'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263'}},
-    {name:'Jupiter',desc:'JUP comprehensive token metrics',icon:'🪐',params:{token:'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN'}},
-    {name:'Raydium',desc:'RAY token health and supply',icon:'💜',params:{token:'4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R'}},
+    {name:'Solana',desc:'SOL full metrics + risk score',icon:'☀️',params:{token:'SOL'}},
+    {name:'Bonk',desc:'BONK risk analysis and holders',icon:'🐕',params:{token:'BONK'}},
+    {name:'Jupiter',desc:'JUP comprehensive token metrics',icon:'🪐',params:{token:'JUP'}},
+    {name:'Raydium',desc:'RAY token health and supply',icon:'💜',params:{token:'RAY'}},
   ],
   'wallet-profiler-data':[
     {name:'Toly',desc:'Solana co-founder wallet',icon:'👤',params:{wallet:'toly9ci98XuMKzCSBK3t96SApELpGmpa1s2euVhDajR'}},
@@ -1045,6 +1045,12 @@ function gatherCurrentParams(){
   if(!selectedSkill)return{};const params={};const vars=getSkillVars(selectedSkill);
   for(const v of vars){const el=document.getElementById('param-'+v.name);if(el&&el.value.trim())params[v.name]=el.value.trim()}
   return params;
+}
+function liveUpdateCode(){
+  if(!selectedSkill)return;
+  const params=gatherCurrentParams();
+  const pre=document.getElementById('integratePre');
+  if(pre)pre.textContent=buildCodeSnippet(selectedSkill,activeLang,params);
 }
 function copyIntegration(){const p=document.getElementById('integratePre');if(p)navigator.clipboard.writeText(p.textContent).then(()=>toast('Code copied'))}
 function buildCodeSnippet(s,lang,params){
