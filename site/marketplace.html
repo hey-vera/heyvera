@@ -797,13 +797,15 @@ function creditsToUsd(n) {
 
 let apiKey = localStorage.getItem('claw_api_key') || '';
 
-// Auth helper — prefers Clerk JWT, falls back to API key
+// Auth helper — prefers API key (all marketplace endpoints use checkApiKey)
+// Clerk Bearer token is passed directly at call sites that need it (e.g. reveal-key)
 async function getAuthHeaders() {
+  if (apiKey) return { 'X-API-Key': apiKey };
+  // Fallback: try Clerk token in case API key hasn't loaded yet
   try {
     const token = await window.Clerk?.session?.getToken();
     if (token) return { Authorization: `Bearer ${token}` };
   } catch {}
-  if (apiKey) return { 'X-API-Key': apiKey };
   return null;
 }
 
