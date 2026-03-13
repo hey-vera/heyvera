@@ -522,7 +522,7 @@ function renderSkillDetail(s){
   // Advanced params (collapsed)
   if(vars.length){
     h+=`<div class="advanced"><button class="advanced-toggle" onclick="this.classList.toggle('open');this.nextElementSibling.classList.toggle('open')"><span>Advanced Parameters</span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg></button><div class="advanced-body">`;
-    h+=`<div style="font-size:12px;color:var(--text-tertiary);line-height:1.5;margin-bottom:12px;padding:10px 12px;background:var(--bg-primary);border-radius:var(--radius-md);border-left:3px solid var(--accent)">Override the default values below to customize the API call. Scenario cards above auto-fill these for you. Most users won't need to change anything.</div>`;
+    h+=`<div style="font-size:12px;color:var(--text-tertiary);line-height:1.5;margin-bottom:12px;padding:10px 12px;background:var(--bg-primary);border-radius:var(--radius-md);border-left:3px solid var(--accent)">These are the raw parameters sent to the API. Scenario cards above auto-fill them, or you can edit manually. Click <strong style="color:var(--text-secondary)">Run Skill</strong> after changing values to see updated results.</div>`;
     h+=vars.map(v=>{
       const defHint=v.default?` Default: <strong style="color:var(--text-secondary)">${esc(v.default)}</strong>`:'';
       const exHint=v.example?` e.g. <span style="color:var(--text-secondary)">${esc(v.example)}</span>`:'';
@@ -564,60 +564,111 @@ function runScenario(idx){
   const sc=window._scenarios?.[idx];if(!sc)return;
   document.querySelectorAll('.scenario-card').forEach(c=>c.classList.remove('active'));
   document.getElementById('sc-'+idx)?.classList.add('active');
+  // Auto-fill advanced params
   for(const[k,v]of Object.entries(sc.params)){const el=document.getElementById('param-'+k);if(el)el.value=v}
   window._activeScenarioIdx=idx;
   if(currentMode==='live'&&apiKey){confirmRunLive();return}
-  showSampleOutput(idx);
+  runSandbox();
 }
 
-// ── Sample Output ────────────────────────────────────────────────────
-function showSampleOutput(scenarioIdx){
-  if(!selectedSkill)return;const s=selectedSkill,sample=s.sampleOutput;
-  const sc=window._scenarios?.[scenarioIdx];
-  document.getElementById('resultMeta').innerHTML='<span class="tag tag-sample">Sandbox</span><span>Free preview — 0 credits</span>';
-  document.getElementById('resultTabs').style.display='flex';
-  if(!sample){document.getElementById('resultBody').innerHTML='<div class="result-empty"><p>No sample output available. Try Live mode to get real data.</p></div>';return}
-  // Build scenario-aware sample by injecting scenario params into the sample
-  let sampleData=typeof sample==='string'?JSON.parse(sample):JSON.parse(JSON.stringify(sample));
-  if(sc&&sc.params){sampleData=injectScenarioContext(sampleData,sc)}
-  const json=JSON.stringify(sampleData,null,2);
-  lastResponse={type:'sample',json,skill:s};renderResult('formatted');
+// ── Mock Data Generator ─────────────────────────────────────────────
+// Generates realistic random responses so each sandbox run looks different
+const R={
+  f:(min,max,dec=2)=>+(min+(max-min)*Math.random()).toFixed(dec),
+  i:(min,max)=>Math.floor(min+(max-min)*Math.random()),
+  pick:(...a)=>a[Math.floor(Math.random()*a.length)],
+  addr:()=>{const c='123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';let s='';for(let i=0;i<44;i++)s+=c[Math.floor(Math.random()*c.length)];return s},
+  eaddr:()=>'0x'+Array.from({length:40},()=>'0123456789abcdef'[Math.floor(Math.random()*16)]).join(''),
+  ts:()=>new Date(Date.now()-R.i(0,3600000)).toISOString(),
+};
+const TOKEN_DATA={
+  ETH:{name:'Ethereum',price:[2200,4200],mcap:[260e9,500e9],vol:[8e9,25e9],holders:[800000,1200000],conc:[9,16]},
+  BTC:{name:'Bitcoin',price:[58000,105000],mcap:[1.1e12,2.1e12],vol:[15e9,60e9],holders:[400000,900000],conc:[5,12]},
+  SOL:{name:'Solana',price:[80,250],mcap:[35e9,110e9],vol:[800e6,4e9],holders:[900000,2000000],conc:[14,22]},
+  DOGE:{name:'Dogecoin',price:[0.06,0.45],mcap:[8e9,60e9],vol:[400e6,4e9],holders:[3000000,6000000],conc:[25,40]},
+  BONK:{name:'Bonk',price:[0.000008,0.00005],mcap:[400e6,3e9],vol:[50e6,500e6],holders:[500000,1500000],conc:[20,35]},
+  WIF:{name:'dogwifhat',price:[0.3,4.5],mcap:[300e6,4.5e9],vol:[30e6,800e6],holders:[200000,600000],conc:[18,30]},
+};
+function getTokenInfo(params){
+  const sym=(params?.token||params?.symbol||'SOL').toUpperCase();
+  return TOKEN_DATA[sym]||TOKEN_DATA.SOL;
 }
-// Inject scenario params into sample output to make each scenario look different
-function injectScenarioContext(data,sc){
-  if(!sc.params)return data;
-  // Add a _scenario hint so user sees which scenario they ran
-  if(typeof data==='object'&&data!==null&&!Array.isArray(data)){
-    const copy={...data};
-    // If the sample has a top-level data/result key, inject into that; otherwise wrap
-    const p=Object.values(sc.params)[0];
-    const pKey=Object.keys(sc.params)[0];
-    if(pKey&&p){
-      // Replace common token/symbol references in string values
-      function patchStrings(obj,search,replace){
-        if(typeof obj==='string')return obj;
-        if(Array.isArray(obj))return obj.map(item=>patchStrings(item,search,replace));
-        if(typeof obj==='object'&&obj!==null){const r={};for(const[k,v]of Object.entries(obj)){if(typeof v==='string'&&(k==='symbol'||k==='token'||k==='name'||k==='asset'))r[k]=replace;else r[k]=patchStrings(v,search,replace)}return r}
-        return obj;
-      }
-      // Try to detect the "default" token in the sample and swap it
-      const defaults=['ETH','BTC','SOL','Ethereum','Bitcoin','Solana'];
-      for(const d of defaults){const patched=patchStrings(copy,d,p);if(JSON.stringify(patched)!==JSON.stringify(copy))return patched}
-      // If no swap possible, add a _query field
-      copy._query=p;
-    }
-    return copy;
+function generateMock(skill,params){
+  const id=skill.id||'',name=skill.name||'';
+  const sym=(params?.token||params?.symbol||'SOL').toUpperCase();
+  const td=getTokenInfo(params);
+  // ── Price Oracle ──
+  if(id.includes('price-oracle')||name.includes('Price Oracle')){
+    const p=R.f(td.price[0],td.price[1]);
+    return{token:sym,priceUsd:p,change24h:R.f(-8,12),volume24h:R.i(td.vol[0],td.vol[1]),marketCap:R.i(td.mcap[0],td.mcap[1]),liquidity:R.i(td.vol[0]*0.4,td.vol[0]*1.2),updatedAt:R.ts()};
   }
-  return data;
+  // ── Whale Tracker ──
+  if(id.includes('whale')||name.includes('Whale')){
+    const n=R.i(3,6);const holders=[];
+    for(let i=0;i<n;i++)holders.push({address:R.addr(),balanceUsd:R.i(2e6,120e6),changePct24h:R.f(-5,8)});
+    return{token:sym,topHolders:holders,totalHolders:R.i(td.holders[0],td.holders[1]),top10ConcentrationPct:R.f(td.conc[0],td.conc[1]),netFlowUsd24h:R.i(-5e6,15e6),updatedAt:R.ts()};
+  }
+  // ── Trending Tokens ──
+  if(id.includes('trending')||name.includes('Trending')){
+    const syms=['BONK','WIF','JTO','PYTH','JUP','RNDR','RAY','MNDE','ORCA','DRIFT'];
+    const tokens=syms.slice(0,R.i(5,10)).map((s,i)=>({symbol:s,priceUsd:R.f(0.001,8,4),volume24h:R.i(5e6,200e6),change24h:R.f(-10,35),rank:i+1}));
+    return{tokens,updatedAt:R.ts()};
+  }
+  // ── DeFi Yields ──
+  if(id.includes('defi-yield')||name.includes('DeFi Yield')){
+    const protos=[['Marinade','mSOL Staking','staking','low'],['Raydium','SOL-USDC','lp','medium'],['Orca','whirlpool SOL-USDT','lp','medium'],['Jito','jitoSOL','staking','low'],['Kamino','USDC Vault','vault','low'],['Drift','SOL-PERP LP','perp-lp','high']];
+    const ops=protos.slice(0,R.i(3,6)).map(p=>({protocol:p[0],pool:p[1],apy:R.f(3,45),tvlUsd:R.i(5e6,2e9),type:p[2],riskTier:p[3]}));
+    return{opportunities:ops,updatedAt:R.ts()};
+  }
+  // ── Token Metrics ──
+  if(id.includes('token-analysis')||name.includes('Token Metrics')){
+    const p=R.f(td.price[0],td.price[1]);
+    return{token:sym,priceUsd:p,change24h:R.f(-8,12),volume24h:R.i(td.vol[0],td.vol[1]),marketCap:R.i(td.mcap[0],td.mcap[1]),totalHolders:R.i(td.holders[0],td.holders[1]),top10ConcentrationPct:R.f(td.conc[0],td.conc[1]),riskScore:R.i(5,85),riskLevel:R.pick('low','medium','high'),mintAuthority:R.pick(true,false),freezeAuthority:false,updatedAt:R.ts()};
+  }
+  // ── Wallet Profiler ──
+  if(id.includes('wallet-profiler')||name.includes('Wallet')){
+    const addr=params?.wallet||R.addr();const sol=R.f(10,5000);
+    return{address:addr,totalValueUsd:R.f(1000,500000),solBalance:sol,tokens:[{symbol:'SOL',balance:sol,valueUsd:R.f(1000,400000)},{symbol:'BONK',balance:R.i(1e6,5e9),valueUsd:R.f(100,20000)},{symbol:R.pick('JUP','RAY','ORCA'),balance:R.f(10,50000),valueUsd:R.f(50,15000)}],nftCount:R.i(0,50),updatedAt:R.ts()};
+  }
+  // ── Token Launches ──
+  if(id.includes('launch')||name.includes('Launch')){
+    const launches=[{name:'NovaDEX',symbol:'NOVA',launchDate:'2026-03-'+R.i(14,28),type:R.pick('fair-launch','ido','presale'),communitySize:R.i(5000,120000),status:R.pick('upcoming','launched')},{name:'AstraProtocol',symbol:'ASTR',launchDate:'2026-03-'+R.i(14,28),type:R.pick('fair-launch','ido'),communitySize:R.i(2000,80000),status:R.pick('upcoming','launched')},{name:'PulseAI',symbol:'PULSE',launchDate:'2026-03-'+R.i(10,20),type:'presale',communitySize:R.i(10000,200000),status:'launched'}];
+    return{launches,updatedAt:R.ts()};
+  }
+  // ── Prompt / analysis skills ──
+  if(skill.skillType==='prompt_template'){
+    const query=params?.query||'market analysis';
+    return{success:true,result:{analysis:`Based on current on-chain data and market indicators, ${query.includes('ETH')||query.includes('Ethereum')?'Ethereum':'the asset'} shows ${R.pick('bullish momentum with','neutral positioning near','bearish pressure at')} key levels. Volume is ${R.pick('above','near','below')} the 30-day average. Key support at $${R.i(1000,3000).toLocaleString()}, resistance at $${R.i(3000,5000).toLocaleString()}. Social sentiment: ${R.pick('positive','mixed','cautious')} (${R.i(40,85)}% bullish). Recommendation: ${R.pick('accumulate on dips','hold current positions','reduce exposure and wait for confirmation')}.`,confidence:R.f(0.6,0.95),sources:R.i(3,12),processingMs:R.i(800,2400)},credits:{charged:skill.creditCost,cached:false},timestamp:R.ts()};
+  }
+  // ── Generic fallback ──
+  const sample=skill.sampleOutput;
+  if(sample){const d=typeof sample==='string'?JSON.parse(sample):JSON.parse(JSON.stringify(sample));return d}
+  return{success:true,data:{message:'Response generated successfully'},timestamp:R.ts()};
 }
+
+// ── Sandbox run ─────────────────────────────────────────────────────
 function runSandbox(){
+  if(!selectedSkill)return;
   const idx=window._activeScenarioIdx??0;
+  const sc=window._scenarios?.[idx];
   const body=document.getElementById('resultBody');
-  // Quick loading animation
+  // Gather params from advanced fields
+  const params={};
+  if(sc&&sc.params)Object.assign(params,sc.params);
+  const vars=getSkillVars(selectedSkill);
+  for(const v of vars){const el=document.getElementById('param-'+v.name);if(el&&el.value.trim())params[v.name]=el.value.trim()}
+  // Loading animation
+  const elapsed=R.i(120,380);
   document.getElementById('resultMeta').innerHTML='<span class="tag tag-sample">Sandbox</span><span>Running...</span>';
   document.getElementById('resultTabs').style.display='flex';
   body.innerHTML='<div style="text-align:center;padding:40px"><div class="spinner" style="border-color:var(--accent-dim);border-top-color:var(--accent);width:24px;height:24px;margin:0 auto 12px"></div><p style="font-size:12px;color:var(--text-muted)">Simulating API response...</p></div>';
-  setTimeout(()=>showSampleOutput(idx),600);
+  setTimeout(()=>{
+    const mock=generateMock(selectedSkill,params);
+    const json=JSON.stringify(mock,null,2);
+    document.getElementById('resultMeta').innerHTML=`<span class="tag tag-sample">Sandbox</span><span>${elapsed}ms</span><span style="color:var(--accent)">Free — 0 credits</span>`;
+    lastResponse={type:'sample',json,skill:selectedSkill};
+    renderResult('formatted');
+  },500+Math.random()*300);
 }
 
 // ── Live execution ───────────────────────────────────────────────────
