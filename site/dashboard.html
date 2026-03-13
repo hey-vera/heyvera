@@ -1043,7 +1043,7 @@
         <div class="admin-rev-card"><div class="admin-rev-label">Invoke Fees</div><div class="admin-rev-val">${cr2usd(r.breakdown?.invokeFees?.credits || 0)}</div><div class="admin-rev-sub">${(r.breakdown?.invokeFees?.transactions || 0)} txns</div></div>
         <div class="admin-rev-card"><div class="admin-rev-label">Swarm Fees</div><div class="admin-rev-val">${cr2usd(r.breakdown?.swarmFees?.credits || 0)}</div><div class="admin-rev-sub">${(r.breakdown?.swarmFees?.transactions || 0)} txns</div></div>
         <div class="admin-rev-card"><div class="admin-rev-label">Treasury Balance</div><div class="admin-rev-val">${t.treasury ? t.treasury.credits.toLocaleString() + ' cr' : 'N/A'}</div><div class="admin-rev-sub">${t.treasury ? t.treasury.usdEquivalent : '—'}</div></div>
-        <div class="admin-rev-card"><div class="admin-rev-label">Total Payments</div><div class="admin-rev-val">$${((r.payments?.totalUsd || 0) / 100).toFixed(2)}</div><div class="admin-rev-sub">${r.payments?.keyCount || 0} paid customer${(r.payments?.keyCount || 0) !== 1 ? 's' : ''}</div></div>
+        <div class="admin-rev-card"><div class="admin-rev-label">Total Payments</div><div class="admin-rev-val">$${((r.payments?.totalUsd || 0) / 100).toFixed(2)}</div><div class="admin-rev-sub">${r.payments?.keyCount || 0} active paid key${(r.payments?.keyCount || 0) !== 1 ? 's' : ''}</div></div>
       `;
     }
     function renderCallLogs(logs) {
