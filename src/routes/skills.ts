@@ -409,8 +409,19 @@ function getDataSkillTtl(updateFrequency: string): number {
     case 'daily':    return 86_400;    // 24 hours
     case 'weekly':   return 604_800;   // 7 days
     case 'static':   return 2_592_000; // 30 days
-    default:         return 3_600;
+    default: break;
   }
+  // Custom duration: "30s", "5m", "2h", "3d"
+  const match = updateFrequency.match(/^(\d+)(s|m|h|d)$/);
+  if (match) {
+    const n = parseInt(match[1], 10);
+    const unit = match[2];
+    const multiplier = unit === 's' ? 1 : unit === 'm' ? 60 : unit === 'h' ? 3_600 : 86_400;
+    const ttl = n * multiplier;
+    // Clamp: minimum 10s, maximum 30 days
+    return Math.max(10, Math.min(ttl, 2_592_000));
+  }
+  return 3_600; // fallback: 1 hour
 }
 
 skillsRouter.get('/:id/query', checkApiKey, async (c) => {

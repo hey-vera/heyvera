@@ -648,7 +648,7 @@ es.addEventListener('done', (e) => {
         </div>
         <div class="concept-card" style="border-color:rgba(239,68,68,0.25)">
           <div class="concept-title" style="color:#ef4444">Data Skills</div>
-          <div class="concept-desc">Structured data with guaranteed freshness. You point to a data source URL and declare how fresh data needs to be — realtime (60s), hourly, daily, or static. ClawNet fetches live when the window expires and serves cached within it. Agents always get data within the declared freshness window, automatically. As cheap as $0.0001 per call.</div>
+          <div class="concept-desc">Real-time crypto data as clean JSON. Prices, wallets, whales, yields — one query, structured output. ClawNet keeps data fresh automatically and caches it so repeat calls cost up to 90% less. As cheap as $0.0001 per call.</div>
         </div>
       </div>
     </div>
@@ -683,7 +683,7 @@ es.addEventListener('done', (e) => {
     <!-- DATA SKILLS -->
     <div class="docs-section" id="skills-data">
       <h2 class="docs-section-title">Data Skills</h2>
-      <p class="docs-section-desc">Data skills use a different endpoint because they return structured JSON data (not LLM-generated text). They also have smart caching — the first call fetches live data, and subsequent calls return the cached version for just 0.1 credits.</p>
+      <p class="docs-section-desc">Data skills return structured JSON — not AI-generated text. You call them with a simple GET request. ClawNet handles caching automatically, so repeat calls are up to 90% cheaper. You don't need to manage any caching logic yourself.</p>
 
       <div class="endpoint">
         <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/skills/:id/query</code></div>
@@ -691,21 +691,9 @@ es.addEventListener('done', (e) => {
         <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
         <div class="code-block">
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
-          <pre><code>curl "https://api.claw-net.org/v1/skills/sp500-daily/query?date=2026-03-12" \
+          <pre><code>curl "https://api.claw-net.org/v1/skills/price-oracle-data/query?token=SOL" \
   -H "X-API-Key: cn_your_key_here"</code></pre>
         </div>
-        <h4>Cache Behavior</h4>
-        <p class="endpoint-desc">How long data stays cached depends on the skill's <code style="font-family:var(--font-mono);color:var(--accent)">updateFrequency</code> setting:</p>
-        <table class="params-table">
-          <thead><tr><th>Frequency</th><th>Cache Lasts</th><th>Cache Hit Cost</th><th>Live Fetch Cost</th></tr></thead>
-          <tbody>
-            <tr><td><code>realtime</code></td><td>60 seconds</td><td>10% of live (min $0.0001)</td><td>Skill's full price</td></tr>
-            <tr><td><code>hourly</code></td><td>1 hour</td><td>10% of live (min $0.0001)</td><td>Skill's full price</td></tr>
-            <tr><td><code>daily</code></td><td>24 hours</td><td>10% of live (min $0.0001)</td><td>Skill's full price</td></tr>
-            <tr><td><code>weekly</code></td><td>7 days</td><td>10% of live (min $0.0001)</td><td>Skill's full price</td></tr>
-            <tr><td><code>static</code></td><td>30 days</td><td>10% of live (min $0.0001)</td><td>Skill's full price</td></tr>
-          </tbody>
-        </table>
       </div>
     </div>
 
@@ -728,13 +716,27 @@ es.addEventListener('done', (e) => {
             <tr><td><code>skillType</code></td><td><span class="param-type">string</span></td><td><span class="param-opt">No</span></td><td><code>prompt_template</code> (default), <code>api_proxy</code>, or <code>data</code></td></tr>
             <tr><td><code>promptTemplate</code></td><td><span class="param-type">string</span></td><td><span class="param-opt">No</span></td><td>For prompt skills: your prompt with <code>{{variable}}</code> placeholders</td></tr>
             <tr><td><code>proxyUrl</code></td><td><span class="param-type">string</span></td><td><span class="param-opt">No</span></td><td>For API proxy / data skills: the backing URL</td></tr>
-            <tr><td><code>updateFrequency</code></td><td><span class="param-type">string</span></td><td><span class="param-opt">No</span></td><td>For data skills: <code>realtime</code>, <code>hourly</code>, <code>daily</code>, <code>weekly</code>, or <code>static</code></td></tr>
+            <tr><td><code>updateFrequency</code></td><td><span class="param-type">string</span></td><td><span class="param-opt">No</span></td><td>For data skills: <code>realtime</code>, <code>hourly</code>, <code>daily</code>, <code>weekly</code>, <code>static</code>, or a custom value like <code>5m</code>, <code>2h</code>, <code>3d</code></td></tr>
             <tr><td><code>sampleOutput</code></td><td><span class="param-type">object</span></td><td><span class="param-opt">No</span></td><td>Example JSON output — shown to buyers on the marketplace card</td></tr>
             <tr><td><code>public</code></td><td><span class="param-type">boolean</span></td><td><span class="param-opt">No</span></td><td>Set <code>true</code> to list in the marketplace (default: false = private draft)</td></tr>
             <tr><td><code>tags</code></td><td><span class="param-type">string[]</span></td><td><span class="param-opt">No</span></td><td>Up to 10 tags for discoverability (e.g. <code>["solana", "defi"]</code>)</td></tr>
             <tr><td><code>category</code></td><td><span class="param-type">string</span></td><td><span class="param-opt">No</span></td><td>defi, security, social, ai, search, media, enrichment, analytics, utility, weather, general</td></tr>
             <tr><td><code>version</code></td><td><span class="param-type">string</span></td><td><span class="param-opt">No</span></td><td>Semver string (default: <code>1.0.0</code>)</td></tr>
             <tr><td><code>readme</code></td><td><span class="param-type">string</span></td><td><span class="param-opt">No</span></td><td>Detailed usage guide shown on the skill detail page</td></tr>
+          </tbody>
+        </table>
+
+        <h4>Cache Duration Reference</h4>
+        <p class="endpoint-desc">When you create a data skill, the <code style="font-family:var(--font-mono);color:var(--accent)">updateFrequency</code> controls how long responses are cached. Cached calls cost 90% less (min $0.0001). You can use presets or custom durations:</p>
+        <table class="params-table">
+          <thead><tr><th>Setting</th><th>Cache Duration</th><th>Best For</th></tr></thead>
+          <tbody>
+            <tr><td><code>realtime</code></td><td>60 seconds</td><td>Live prices, order books, gas fees</td></tr>
+            <tr><td><code>hourly</code></td><td>1 hour</td><td>Market summaries, holder stats</td></tr>
+            <tr><td><code>daily</code></td><td>24 hours</td><td>Analytics, yield data, risk scores</td></tr>
+            <tr><td><code>weekly</code></td><td>7 days</td><td>Reports, historical trends</td></tr>
+            <tr><td><code>static</code></td><td>30 days</td><td>Reference data, contract metadata</td></tr>
+            <tr><td><code>5m</code>, <code>30m</code>, <code>2h</code>, <code>3d</code>, etc.</td><td>Custom</td><td>Any duration — use <code>s</code>, <code>m</code>, <code>h</code>, or <code>d</code> suffix</td></tr>
           </tbody>
         </table>
 
