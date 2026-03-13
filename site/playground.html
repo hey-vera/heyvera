@@ -90,9 +90,10 @@
     .mode-bar{display:flex;align-items:center;justify-content:center;gap:16px;padding:20px 0 8px;flex-wrap:wrap}
     .mode-toggle{display:flex;background:var(--bg-surface);border:1px solid var(--border-default);border-radius:9999px;overflow:hidden}
     .mode-toggle button{font-family:var(--font-sans);font-size:13px;font-weight:600;padding:8px 22px;border:none;cursor:pointer;transition:all .2s;background:transparent;color:var(--text-muted);display:flex;align-items:center;gap:6px}
-    .mode-toggle button.active-sandbox{background:var(--purple-dim);color:var(--purple)}
-    .mode-toggle button.active-live{background:var(--accent-dim);color:var(--accent)}
+    .mode-toggle button.active-sandbox{background:var(--accent-dim);color:var(--accent)}
+    .mode-toggle button.active-live{background:var(--danger-dim);color:var(--danger)}
     .mode-label{font-size:12px;font-weight:500;color:var(--text-muted)}
+    .live-warning{background:var(--danger-dim);border:1px solid rgba(239,68,68,.2);border-radius:var(--radius-md);padding:10px 16px;margin-top:10px;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--danger);font-weight:500;max-width:600px;margin-left:auto;margin-right:auto}
 
     /* ── SECTION TABS ────────────────────────────────────────────────── */
     .pg-tabs{display:flex;gap:0;border-bottom:1px solid var(--border-default);margin-bottom:28px}
@@ -163,7 +164,7 @@
     .result-header h4{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-tertiary);margin:0}
     .result-meta{display:flex;gap:8px;align-items:center;font-size:11px;color:var(--text-muted)}
     .tag{padding:2px 9px;border-radius:9999px;font-weight:600;font-size:10px}
-    .tag-sample{background:var(--purple-dim);color:var(--purple)} .tag-live{background:var(--accent-dim);color:var(--accent)} .tag-err{background:var(--danger-dim);color:var(--danger)}
+    .tag-sample{background:var(--accent-dim);color:var(--accent)} .tag-live{background:var(--danger-dim);color:var(--danger)} .tag-err{background:var(--danger-dim);color:var(--danger)}
     .result-tabs{display:flex;border-bottom:1px solid var(--border-subtle);padding:0 16px}
     .result-tabs button{background:none;border:none;border-bottom:2px solid transparent;color:var(--text-muted);font-family:var(--font-sans);font-size:12px;font-weight:500;padding:8px 14px;cursor:pointer;transition:all .15s;margin-bottom:-1px}
     .result-tabs button:hover{color:var(--text-secondary)} .result-tabs button.active{color:var(--accent);border-bottom-color:var(--accent)}
@@ -304,6 +305,10 @@
       <button id="modeLive" onclick="setMode('live')"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>Live</button>
     </div>
     <span class="mode-label" id="modeLabel">Free preview — no sign-in needed</span>
+    <div class="live-warning" id="liveWarning" style="display:none">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      Live mode — API calls deduct real credits from your account
+    </div>
   </div>
 
   <!-- SECTION TABS -->
@@ -351,14 +356,14 @@
 <!-- CONFIRM MODAL -->
 <div class="modal-overlay" id="confirmModal">
   <div class="modal">
-    <h3><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>Confirm Live Run</h3>
-    <p>This executes the skill with real credits. The charge is non-refundable.</p>
+    <h3><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>Confirm Live Run</h3>
+    <p>This will make a <strong>real API call</strong> and deduct credits from your balance. This action is <strong>non-refundable</strong>.</p>
     <div class="modal-cost">
       <div class="modal-cost-row"><span style="font-size:12px;color:var(--text-tertiary)">Skill</span><span style="font-size:13px;font-weight:600;color:var(--text-primary)" id="cmSkill">—</span></div>
-      <div class="modal-cost-row"><span style="font-size:12px;color:var(--text-tertiary)">Cost</span><span class="mono" style="font-size:13px;font-weight:700;color:var(--accent)" id="cmCost">—</span></div>
+      <div class="modal-cost-row"><span style="font-size:12px;color:var(--text-tertiary)">Cost</span><span class="mono" style="font-size:13px;font-weight:700;color:var(--danger)" id="cmCost">—</span></div>
       <div class="modal-cost-row"><span style="font-size:12px;color:var(--text-tertiary)">Balance after</span><span class="mono" style="font-size:12px;color:var(--text-muted)" id="cmBalance">—</span></div>
     </div>
-    <div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="runLiveConfirmed()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>Run &amp; Deduct</button></div>
+    <div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn" style="background:var(--danger);color:#fff;border-color:var(--danger)" onclick="runLiveConfirmed()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>Run &amp; Deduct Credits</button></div>
   </div>
 </div>
 
@@ -415,6 +420,8 @@ function setMode(m){
   document.getElementById('modeSandbox').className=m==='sandbox'?'active-sandbox':'';
   document.getElementById('modeLive').className=m==='live'?'active-live':'';
   document.getElementById('modeLabel').textContent=m==='sandbox'?'Free preview — no sign-in needed':'Live mode — real API calls, real credits';
+  document.getElementById('modeLabel').style.color=m==='live'?'var(--danger)':'';
+  document.getElementById('liveWarning').style.display=m==='live'?'flex':'none';
   if(selectedSkill)renderSkillDetail(selectedSkill);
 }
 
@@ -504,15 +511,24 @@ function renderSkillDetail(s){
     <div class="cost-calc-row"><span style="font-size:12px;color:var(--text-tertiary)">Calls per day</span><input type="range" min="1" max="10000" value="100" oninput="updateCostCalc(this.value,${s.creditCost})"><span class="cost-calc-num" id="ccNum">100</span></div>
     <div class="cost-calc-results"><div class="ccr"><div class="ccr-val" id="ccDaily">$0.20</div><div class="ccr-label">per day</div></div><div class="ccr"><div class="ccr-val" id="ccMonthly">$6.00</div><div class="ccr-label">per month</div></div><div class="ccr"><div class="ccr-val" id="ccCredits">${(100*s.creditCost).toLocaleString()}</div><div class="ccr-label">credits/day</div></div>${userCredits!=null?`<div class="ccr"><div class="ccr-val" id="ccRunway">${Math.floor(userCredits/s.creditCost).toLocaleString()}</div><div class="ccr-label">calls remaining</div></div>`:''}</div></div>`;
 
-  // Live mode: run button or API key prompt
+  // Action buttons
   if(currentMode==='live'){
     if(!apiKey) h+=`<div class="inline-key"><p>Enter your API key to run skills live</p><div class="inline-key-row"><input type="password" id="inlineKeyInput" placeholder="cn-••••••••" autocomplete="off"><button onclick="applyInlineKey()">Connect</button></div><p style="margin-top:6px;font-size:11px;color:var(--text-muted)">Don't have one? <a href="/#pricing" style="color:var(--warning)">Get an API key &rarr;</a></p></div>`;
-    else h+=`<div class="actions-row"><button class="btn btn-primary" onclick="confirmRunLive()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>Run Skill Live &mdash; ${s.creditCost} cr</button></div>`;
+    else h+=`<div class="actions-row"><button class="btn" style="background:var(--danger);color:#fff;border-color:var(--danger)" onclick="confirmRunLive()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>Run Live &mdash; ${s.creditCost} cr (${creditsToUsd(s.creditCost)})</button><span style="font-size:11px;color:var(--danger);display:flex;align-items:center;gap:4px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>Deducts credits from your balance</span></div>`;
+  }else{
+    h+=`<div class="actions-row"><button class="btn btn-primary" onclick="runSandbox()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>Run Skill (Sandbox)</button><span style="font-size:11px;color:var(--accent);display:flex;align-items:center;gap:4px">Free — no credits used</span></div>`;
   }
 
   // Advanced params (collapsed)
   if(vars.length){
-    h+=`<div class="advanced"><button class="advanced-toggle" onclick="this.classList.toggle('open');this.nextElementSibling.classList.toggle('open')">Advanced Parameters<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg></button><div class="advanced-body">${vars.map(v=>`<div class="adv-field"><div class="adv-field-head"><span class="adv-field-name">${esc(v.name)}</span><span class="adv-badge ${v.required?'req':'opt'}">${v.required?'Required':'Optional'}</span><span class="adv-badge type">${esc(v.type)}</span></div>${v.description?`<div class="adv-field-desc">${esc(v.description)}</div>`:''}<input type="text" class="adv-input" id="param-${esc(v.name)}" placeholder="${esc(v.example||v.default||v.name)}" value="${esc(v.default||'')}"></div>`).join('')}</div></div>`;
+    h+=`<div class="advanced"><button class="advanced-toggle" onclick="this.classList.toggle('open');this.nextElementSibling.classList.toggle('open')"><span>Advanced Parameters</span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg></button><div class="advanced-body">`;
+    h+=`<div style="font-size:12px;color:var(--text-tertiary);line-height:1.5;margin-bottom:12px;padding:10px 12px;background:var(--bg-primary);border-radius:var(--radius-md);border-left:3px solid var(--accent)">Override the default values below to customize the API call. Scenario cards above auto-fill these for you. Most users won't need to change anything.</div>`;
+    h+=vars.map(v=>{
+      const defHint=v.default?` Default: <strong style="color:var(--text-secondary)">${esc(v.default)}</strong>`:'';
+      const exHint=v.example?` e.g. <span style="color:var(--text-secondary)">${esc(v.example)}</span>`:'';
+      return`<div class="adv-field"><div class="adv-field-head"><span class="adv-field-name">${esc(v.name)}</span><span class="adv-badge ${v.required?'req':'opt'}">${v.required?'Required':'Optional'}</span><span class="adv-badge type">${esc(v.type)}</span></div><div class="adv-field-desc">${esc(v.description||'No description')}${defHint}${exHint}</div><input type="text" class="adv-input" id="param-${esc(v.name)}" placeholder="${esc(v.example||v.default||v.name)}" value="${esc(v.default||'')}"></div>`;
+    }).join('');
+    h+=`</div></div>`;
   }
 
   panel.innerHTML=h;
@@ -549,17 +565,59 @@ function runScenario(idx){
   document.querySelectorAll('.scenario-card').forEach(c=>c.classList.remove('active'));
   document.getElementById('sc-'+idx)?.classList.add('active');
   for(const[k,v]of Object.entries(sc.params)){const el=document.getElementById('param-'+k);if(el)el.value=v}
-  showSampleOutput();
+  window._activeScenarioIdx=idx;
+  if(currentMode==='live'&&apiKey){confirmRunLive();return}
+  showSampleOutput(idx);
 }
 
 // ── Sample Output ────────────────────────────────────────────────────
-function showSampleOutput(){
+function showSampleOutput(scenarioIdx){
   if(!selectedSkill)return;const s=selectedSkill,sample=s.sampleOutput;
-  document.getElementById('resultMeta').innerHTML='<span class="tag tag-sample">Sample</span><span>Free — 0 credits</span>';
+  const sc=window._scenarios?.[scenarioIdx];
+  document.getElementById('resultMeta').innerHTML='<span class="tag tag-sample">Sandbox</span><span>Free preview — 0 credits</span>';
   document.getElementById('resultTabs').style.display='flex';
-  if(!sample){document.getElementById('resultBody').innerHTML='<div class="result-empty"><p>No sample output defined. Switch to Live mode to execute.</p></div>';return}
-  const json=typeof sample==='string'?sample:JSON.stringify(sample,null,2);
+  if(!sample){document.getElementById('resultBody').innerHTML='<div class="result-empty"><p>No sample output available. Try Live mode to get real data.</p></div>';return}
+  // Build scenario-aware sample by injecting scenario params into the sample
+  let sampleData=typeof sample==='string'?JSON.parse(sample):JSON.parse(JSON.stringify(sample));
+  if(sc&&sc.params){sampleData=injectScenarioContext(sampleData,sc)}
+  const json=JSON.stringify(sampleData,null,2);
   lastResponse={type:'sample',json,skill:s};renderResult('formatted');
+}
+// Inject scenario params into sample output to make each scenario look different
+function injectScenarioContext(data,sc){
+  if(!sc.params)return data;
+  // Add a _scenario hint so user sees which scenario they ran
+  if(typeof data==='object'&&data!==null&&!Array.isArray(data)){
+    const copy={...data};
+    // If the sample has a top-level data/result key, inject into that; otherwise wrap
+    const p=Object.values(sc.params)[0];
+    const pKey=Object.keys(sc.params)[0];
+    if(pKey&&p){
+      // Replace common token/symbol references in string values
+      function patchStrings(obj,search,replace){
+        if(typeof obj==='string')return obj;
+        if(Array.isArray(obj))return obj.map(item=>patchStrings(item,search,replace));
+        if(typeof obj==='object'&&obj!==null){const r={};for(const[k,v]of Object.entries(obj)){if(typeof v==='string'&&(k==='symbol'||k==='token'||k==='name'||k==='asset'))r[k]=replace;else r[k]=patchStrings(v,search,replace)}return r}
+        return obj;
+      }
+      // Try to detect the "default" token in the sample and swap it
+      const defaults=['ETH','BTC','SOL','Ethereum','Bitcoin','Solana'];
+      for(const d of defaults){const patched=patchStrings(copy,d,p);if(JSON.stringify(patched)!==JSON.stringify(copy))return patched}
+      // If no swap possible, add a _query field
+      copy._query=p;
+    }
+    return copy;
+  }
+  return data;
+}
+function runSandbox(){
+  const idx=window._activeScenarioIdx??0;
+  const body=document.getElementById('resultBody');
+  // Quick loading animation
+  document.getElementById('resultMeta').innerHTML='<span class="tag tag-sample">Sandbox</span><span>Running...</span>';
+  document.getElementById('resultTabs').style.display='flex';
+  body.innerHTML='<div style="text-align:center;padding:40px"><div class="spinner" style="border-color:var(--accent-dim);border-top-color:var(--accent);width:24px;height:24px;margin:0 auto 12px"></div><p style="font-size:12px;color:var(--text-muted)">Simulating API response...</p></div>';
+  setTimeout(()=>showSampleOutput(idx),600);
 }
 
 // ── Live execution ───────────────────────────────────────────────────
@@ -573,7 +631,7 @@ function confirmRunLive(){
 function closeModal(){document.getElementById('confirmModal').classList.remove('show')}
 async function runLiveConfirmed(){
   closeModal();if(!selectedSkill||!apiKey)return;const s=selectedSkill;
-  document.getElementById('resultMeta').innerHTML='<span class="tag tag-live">Live</span><span>Executing...</span>';
+  document.getElementById('resultMeta').innerHTML='<span class="tag tag-live">Live</span><span style="color:var(--danger)">Executing — credits will be charged...</span>';
   document.getElementById('resultTabs').style.display='flex';
   try{
     let url,method='POST',body;const headers={'X-API-Key':apiKey,'Content-Type':'application/json'};
@@ -589,7 +647,7 @@ async function runLiveConfirmed(){
     }
     const start=performance.now();const r=await fetch(url,{method,headers,body});const elapsed=Math.round(performance.now()-start);const data=await r.json();
     if(!r.ok){document.getElementById('resultMeta').innerHTML=`<span class="tag tag-err">Error ${r.status}</span><span>${elapsed}ms</span>`;lastResponse={type:'error',json:JSON.stringify(data,null,2),skill:s};toast(`Error: ${data.error||'Failed'}`,'error')}
-    else{const cr=data.creditsCost||data.creditsCharged||s.creditCost;document.getElementById('resultMeta').innerHTML=`<span class="tag tag-live">Live</span><span>${elapsed}ms</span><span>${cr} cr</span>`;lastResponse={type:'live',json:JSON.stringify(data,null,2),skill:s};toast(`Success — ${cr} credits charged`);initAuth()}
+    else{const cr=data.creditsCost||data.creditsCharged||s.creditCost;document.getElementById('resultMeta').innerHTML=`<span class="tag tag-live">Live</span><span>${elapsed}ms</span><span style="color:var(--danger);font-weight:600">${cr} cr charged</span>`;lastResponse={type:'live',json:JSON.stringify(data,null,2),skill:s};toast(`Success — ${cr} credits charged`);initAuth()}
     renderResult(activeResultTab);
   }catch(e){document.getElementById('resultBody').innerHTML=`<pre style="color:var(--danger)">${esc(e.message)}</pre>`}
 }
