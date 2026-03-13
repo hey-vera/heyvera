@@ -648,7 +648,7 @@ es.addEventListener('done', (e) => {
         </div>
         <div class="concept-card" style="border-color:rgba(239,68,68,0.25)">
           <div class="concept-title" style="color:#ef4444">Data Skills</div>
-          <div class="concept-desc">Structured data with smart caching. You point to a data source URL, set how often it updates (realtime to static), and ClawNet caches it. Repeat queries cost as little as $0.0001 — agents pay full price once, then a fraction on every call after. Publish a data source and earn on every query, cached or live.</div>
+          <div class="concept-desc">Structured data with guaranteed freshness. You point to a data source URL and declare how fresh data needs to be — realtime (60s), hourly, daily, or static. ClawNet fetches live when the window expires and serves cached within it. Agents always get data within the declared freshness window, automatically. As cheap as $0.0001 per call.</div>
         </div>
       </div>
     </div>
@@ -699,11 +699,11 @@ es.addEventListener('done', (e) => {
         <table class="params-table">
           <thead><tr><th>Frequency</th><th>Cache Lasts</th><th>Cache Hit Cost</th><th>Live Fetch Cost</th></tr></thead>
           <tbody>
-            <tr><td><code>realtime</code></td><td>60 seconds</td><td>1 credit</td><td>Skill's full price</td></tr>
-            <tr><td><code>hourly</code></td><td>1 hour</td><td>1 credit</td><td>Skill's full price</td></tr>
-            <tr><td><code>daily</code></td><td>24 hours</td><td>1 credit</td><td>Skill's full price</td></tr>
-            <tr><td><code>weekly</code></td><td>7 days</td><td>1 credit</td><td>Skill's full price</td></tr>
-            <tr><td><code>static</code></td><td>30 days</td><td>1 credit</td><td>Skill's full price</td></tr>
+            <tr><td><code>realtime</code></td><td>60 seconds</td><td>10% of live (min $0.0001)</td><td>Skill's full price</td></tr>
+            <tr><td><code>hourly</code></td><td>1 hour</td><td>10% of live (min $0.0001)</td><td>Skill's full price</td></tr>
+            <tr><td><code>daily</code></td><td>24 hours</td><td>10% of live (min $0.0001)</td><td>Skill's full price</td></tr>
+            <tr><td><code>weekly</code></td><td>7 days</td><td>10% of live (min $0.0001)</td><td>Skill's full price</td></tr>
+            <tr><td><code>static</code></td><td>30 days</td><td>10% of live (min $0.0001)</td><td>Skill's full price</td></tr>
           </tbody>
         </table>
       </div>
