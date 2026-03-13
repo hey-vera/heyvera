@@ -97,6 +97,26 @@
     .stat-label { font-size: 12px; font-weight: 500; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.04em; }
     .stat-sub { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
 
+    /* ── SMART CACHE CARD ── */
+    .cache-card { background: var(--bg-surface); border: 1px solid rgba(16,185,129,0.15); border-radius: var(--radius-lg); padding: 24px; margin-bottom: 16px; position: relative; overflow: hidden; }
+    .cache-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, var(--accent), rgba(16,185,129,0.3)); }
+    .cache-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+    .cache-header-left { display: flex; align-items: center; gap: 10px; }
+    .cache-icon { width: 32px; height: 32px; border-radius: var(--radius-md); background: var(--accent-dim); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .cache-title { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+    .cache-subtitle { font-size: 11px; color: var(--text-tertiary); margin-top: 1px; }
+    .cache-savings-pill { font-family: var(--font-mono); font-size: 13px; font-weight: 700; color: var(--accent); background: var(--accent-dim); border: 1px solid rgba(16,185,129,0.2); padding: 6px 14px; border-radius: 9999px; white-space: nowrap; }
+    .cache-metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+    .cache-metric { background: var(--bg-surface-2); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 14px; text-align: center; }
+    .cache-metric-val { font-family: var(--font-mono); font-size: 20px; font-weight: 700; color: var(--text-primary); margin-bottom: 2px; }
+    .cache-metric-val.green { color: var(--accent); }
+    .cache-metric-label { font-size: 11px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.04em; }
+    .cache-bar-wrap { background: var(--bg-surface-2); border-radius: 6px; height: 10px; overflow: hidden; margin-bottom: 8px; }
+    .cache-bar-fill { height: 100%; border-radius: 6px; background: linear-gradient(90deg, var(--accent), #34d399); transition: width 0.6s ease; }
+    .cache-bar-labels { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted); }
+    .cache-explainer { font-size: 12px; color: var(--text-tertiary); line-height: 1.6; margin-top: 12px; padding: 12px; background: var(--bg-surface-2); border-radius: var(--radius-md); border-left: 3px solid var(--accent); }
+    @media (max-width: 768px) { .cache-metrics { grid-template-columns: repeat(2, 1fr); } }
+
     /* ── KEY SECTION ── */
     .key-block { background: var(--bg-primary); border: 1px solid var(--border-default); border-radius: var(--radius-md); margin-bottom: 16px; overflow: hidden; }
     .key-block-header { display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--border-subtle); background: var(--bg-surface-2); font-size: 11px; color: var(--text-tertiary); }
@@ -325,6 +345,14 @@
     .admin-stat { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 16px; text-align: center; }
     .admin-stat-val { font-family: var(--font-mono); font-size: 22px; font-weight: 700; color: var(--text-primary); margin-bottom: 2px; }
     .admin-stat-label { font-size: 11px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.04em; }
+    .admin-cache-card { background: var(--bg-surface); border: 1px solid rgba(16,185,129,0.15); border-radius: var(--radius-lg); padding: 20px; margin-bottom: 16px; position: relative; overflow: hidden; }
+    .admin-cache-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, var(--accent), rgba(16,185,129,0.2)); }
+    .admin-cache-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
+    .admin-cache-stat { background: var(--bg-surface-2); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 14px; text-align: center; }
+    .admin-cache-val { font-family: var(--font-mono); font-size: 20px; font-weight: 700; margin-bottom: 2px; }
+    .admin-cache-val.green { color: var(--accent); }
+    .admin-cache-label { font-size: 10px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.04em; }
+    @media (max-width: 768px) { .admin-cache-grid { grid-template-columns: repeat(2, 1fr); } }
     .admin-chart-card { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 20px; margin-bottom: 16px; }
     .admin-chart-title { font-size: 12px; font-weight: 500; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 16px; }
     .admin-chart { display: flex; align-items: stretch; gap: 4px; height: 160px; padding: 0 4px; }
@@ -492,6 +520,50 @@
         <div class="stat-card">
           <div class="stat-value" id="paid-value">&mdash;</div>
           <div class="stat-label">Amount Paid</div>
+        </div>
+      </div>
+
+      <!-- Smart Cache Savings -->
+      <div class="cache-card hidden" id="cache-card">
+        <div class="cache-header">
+          <div class="cache-header-left">
+            <div class="cache-icon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+            </div>
+            <div>
+              <div class="cache-title">Smart Cache</div>
+              <div class="cache-subtitle">Automatic savings from cached responses</div>
+            </div>
+          </div>
+          <div class="cache-savings-pill" id="cache-savings-pill">$0.00 saved</div>
+        </div>
+        <div class="cache-metrics">
+          <div class="cache-metric">
+            <div class="cache-metric-val green" id="cache-hits-val">0</div>
+            <div class="cache-metric-label">Cache Hits</div>
+          </div>
+          <div class="cache-metric">
+            <div class="cache-metric-val" id="cache-total-val">0</div>
+            <div class="cache-metric-label">Total Calls</div>
+          </div>
+          <div class="cache-metric">
+            <div class="cache-metric-val green" id="cache-rate-val">0%</div>
+            <div class="cache-metric-label">Hit Rate</div>
+          </div>
+          <div class="cache-metric">
+            <div class="cache-metric-val green" id="cache-credits-val">0</div>
+            <div class="cache-metric-label">Credits Saved</div>
+          </div>
+        </div>
+        <div class="cache-bar-wrap">
+          <div class="cache-bar-fill" id="cache-bar-fill" style="width:0%"></div>
+        </div>
+        <div class="cache-bar-labels">
+          <span id="cache-bar-left">0 cached</span>
+          <span id="cache-bar-right">0 live</span>
+        </div>
+        <div class="cache-explainer">
+          When you make a query that's been answered before, ClawNet returns it instantly from cache at <strong style="color:var(--accent)">zero cost</strong> instead of calling the API again. The more you use ClawNet, the more you save.
         </div>
       </div>
 
@@ -837,6 +909,24 @@
       renderMaskedKey(data.maskedKey||maskKey(data.apiKey||''));
       const uid=window.Clerk.user?.id??'anon';
       if(localStorage.getItem('key_revealed_'+uid)==='1'){document.getElementById('reveal-btn').classList.add('hidden');document.getElementById('key-revealed-note').classList.remove('hidden');_keyRevealedThisSession=true;}
+      // Smart Cache card
+      if(data.cacheStats) renderCacheCard(data.cacheStats);
+    }
+    function renderCacheCard(cs) {
+      const card = document.getElementById('cache-card');
+      if (!cs || cs.totalCalls === 0) return; // hide if no usage yet
+      card.classList.remove('hidden');
+      const dollarsSaved = (cs.creditsSaved * 0.001).toFixed(2);
+      document.getElementById('cache-savings-pill').textContent = '$' + dollarsSaved + ' saved';
+      document.getElementById('cache-hits-val').textContent = cs.cacheHits.toLocaleString();
+      document.getElementById('cache-total-val').textContent = cs.totalCalls.toLocaleString();
+      document.getElementById('cache-rate-val').textContent = cs.cacheHitRate.toFixed(1) + '%';
+      document.getElementById('cache-credits-val').textContent = Math.round(cs.creditsSaved).toLocaleString();
+      // Progress bar
+      const pct = Math.min(100, cs.cacheHitRate);
+      document.getElementById('cache-bar-fill').style.width = pct + '%';
+      document.getElementById('cache-bar-left').textContent = cs.cacheHits.toLocaleString() + ' cached';
+      document.getElementById('cache-bar-right').textContent = (cs.totalCalls - cs.cacheHits).toLocaleString() + ' live';
     }
 
     // ── TASK HISTORY (NEW) ──
@@ -1067,6 +1157,19 @@
           <div class="admin-stat"><div class="admin-stat-val" id="admin-users">—</div><div class="admin-stat-label">Active Users</div></div>
           <div class="admin-stat"><div class="admin-stat-val" id="admin-skills">—</div><div class="admin-stat-label">Skills</div></div>
         </div>
+        <div class="admin-cache-card">
+          <div class="admin-chart-title" style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+            Smart Cache — Platform Savings
+          </div>
+          <div class="admin-cache-grid" id="admin-cache-grid">
+            <div class="admin-cache-stat"><div class="admin-cache-val green" id="admin-cache-hits">—</div><div class="admin-cache-label">Cache Hits</div></div>
+            <div class="admin-cache-stat"><div class="admin-cache-val" id="admin-cache-steps" style="color:var(--text-primary)">—</div><div class="admin-cache-label">Total Steps</div></div>
+            <div class="admin-cache-stat"><div class="admin-cache-val green" id="admin-cache-rate">—</div><div class="admin-cache-label">Hit Rate</div></div>
+            <div class="admin-cache-stat"><div class="admin-cache-val green" id="admin-cache-credits">—</div><div class="admin-cache-label">Credits Saved</div></div>
+            <div class="admin-cache-stat"><div class="admin-cache-val green" id="admin-cache-dollars">—</div><div class="admin-cache-label">$ Saved</div></div>
+          </div>
+        </div>
         <div class="admin-chart-card">
           <div class="admin-chart-title">Calls Over Time</div>
           <div class="admin-chart" id="admin-chart"></div>
@@ -1118,6 +1221,8 @@
         document.getElementById('admin-profit').textContent = '$' + ((stats.stats.netProfit || 0) * 0.001).toFixed(2);
         document.getElementById('admin-users').textContent = (stats.stats.activeUsers || 0).toLocaleString();
         document.getElementById('admin-skills').textContent = (stats.stats.totalSkills || 0).toLocaleString();
+        // Cache stats
+        if (stats.cacheStats) renderAdminCacheStats(stats.cacheStats);
         // Chart
         renderAdminChart(stats.chart || []);
         // Revenue breakdown
@@ -1127,6 +1232,13 @@
         // Skill logs
         renderSkillLogs(logs.skillLogs || []);
       } catch (err) { console.error('Admin data load failed:', err); }
+    }
+    function renderAdminCacheStats(cs) {
+      document.getElementById('admin-cache-hits').textContent = (cs.totalCacheHits || 0).toLocaleString();
+      document.getElementById('admin-cache-steps').textContent = (cs.totalSteps || 0).toLocaleString();
+      document.getElementById('admin-cache-rate').textContent = (cs.cacheHitRate || 0).toFixed(1) + '%';
+      document.getElementById('admin-cache-credits').textContent = Math.round(cs.creditsSaved || 0).toLocaleString();
+      document.getElementById('admin-cache-dollars').textContent = '$' + (cs.dollarsSaved || 0).toFixed(2);
     }
     function renderAdminChart(data) {
       const el = document.getElementById('admin-chart');

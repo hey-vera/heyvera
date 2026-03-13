@@ -28,6 +28,8 @@ import {
   getCreatorStats,
   getSkillsByAuthor,
   getPayoutRequests,
+  getUserCacheStats,
+  getAdminCacheStats,
 } from '../db/index';
 import { env } from '../config/index';
 import { cacheIncr } from '../cache/index';
@@ -67,8 +69,9 @@ dashboardRouter.get('/me', requireClerkAuth, async (c) => {
     return c.json({ hasKey: false });
   }
 
-  // Get usage stats
+  // Get usage stats + cache savings
   const stats = getKeyStats(keyRow.key);
+  const cacheStats = getUserCacheStats(keyRow.key);
 
   return c.json({
     hasKey: true,
@@ -78,6 +81,7 @@ dashboardRouter.get('/me', requireClerkAuth, async (c) => {
     creditsUsed: balance.credits_used,
     memberSince: balance.created_at,
     stats,
+    cacheStats,
   });
 });
 
@@ -314,7 +318,8 @@ dashboardRouter.get('/admin-stats', requireClerkAuth, (c) => {
   const revenue = getRevenueBreakdown();
   const reconciliation = getReconciliation();
   const treasury = getTreasuryStatus();
-  return c.json({ period, stats, chart, revenue, reconciliation, treasury });
+  const cacheStats = getAdminCacheStats(period);
+  return c.json({ period, stats, chart, revenue, reconciliation, treasury, cacheStats });
 });
 
 // Call logs + skill invocation logs (all keys masked server-side)

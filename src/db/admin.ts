@@ -189,6 +189,75 @@ export function revokeKeysByEmail(email: string, reason?: string): number {
   })();
 }
 
+// ─── Cache Stats ────────────────────────────────────────────────────────────
+
+/** Per-user cache savings: total calls, cache hits, credits saved */
+export function getUserCacheStats(apiKey: string): {
+  totalCalls: number;
+  cacheHits: number;
+  cacheHitRate: number;
+  creditsSaved: number;
+} {
+  const db = getDb();
+  const row = db.prepare(`
+    SELECT
+      COUNT(*) AS totalCalls,
+      COALESCE(SUM(cache_hits), 0) AS cacheHits,
+      COALESCE(SUM(executed_steps), 0) AS totalSteps,
+      COALESCE(SUM(CASE WHEN cache_hits > 0 THEN total ELSE 0 END), 0) AS cachedCallCredits,
+      COALESCE(SUM(CASE WHEN cache_hits > 0 THEN executed_steps ELSE 0 END), 0) AS cachedCallSteps,
+      COALESCE(SUM(total), 0) AS totalCreditsCharged
+    FROM orchestrations WHERE api_key = ? AND success = 1
+  `).get(apiKey) as {
+    totalCalls: number; cacheHits: number; totalSteps: number;
+    cachedCallCredits: number; cachedCallSteps: number; totalCreditsCharged: number;
+  };
+  // Estimate savings: each cache hit saved roughly (totalCredits / totalSteps) per step
+  const avgCreditPerStep = row.totalSteps > 0 ? row.totalCreditsCharged / row.totalSteps : 0;
+  const creditsSaved = Math.round(row.cacheHits * avgCreditPerStep * 100) / 100;
+  const cacheHitRate = row.totalSteps > 0
+    ? Math.round((row.cacheHits / row.totalSteps) * 10000) / 100
+    : 0;
+  return {
+    totalCalls: row.totalCalls,
+    cacheHits: row.cacheHits,
+    cacheHitRate,
+    creditsSaved,
+  };
+}
+
+/** Admin-level aggregate cache stats for a period */
+export function getAdminCacheStats(period: Period): {
+  totalCacheHits: number;
+  totalSteps: number;
+  cacheHitRate: number;
+  creditsSaved: number;
+  dollarsSaved: number;
+} {
+  const db = getDb();
+  const since = periodStart(period);
+  const row = db.prepare(`
+    SELECT
+      COALESCE(SUM(cache_hits), 0) AS totalCacheHits,
+      COALESCE(SUM(executed_steps), 0) AS totalSteps,
+      COALESCE(SUM(total), 0) AS totalCredits
+    FROM orchestrations
+    WHERE timestamp >= datetime('now', ?) AND success = 1
+  `).get(since) as { totalCacheHits: number; totalSteps: number; totalCredits: number };
+  const avgCreditPerStep = row.totalSteps > 0 ? row.totalCredits / row.totalSteps : 0;
+  const creditsSaved = Math.round(row.totalCacheHits * avgCreditPerStep * 100) / 100;
+  const cacheHitRate = row.totalSteps > 0
+    ? Math.round((row.totalCacheHits / row.totalSteps) * 10000) / 100
+    : 0;
+  return {
+    totalCacheHits: row.totalCacheHits,
+    totalSteps: row.totalSteps,
+    cacheHitRate,
+    creditsSaved,
+    dollarsSaved: Math.round(creditsSaved * 0.001 * 100) / 100,
+  };
+}
+
 // ─── Admin Dashboard Queries ────────────────────────────────────────────────
 
 export function getAdminDashboardStats(period: Period): {
