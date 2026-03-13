@@ -131,9 +131,25 @@
     .pg-search { width: 100%; background: var(--bg-primary); border: 1px solid var(--border-default); color: var(--text-primary); font-family: var(--font-sans); font-size: 13px; padding: 8px 12px; border-radius: var(--radius-md); outline: none; margin-bottom: 8px; }
     .pg-search:focus { border-color: var(--accent); }
     .pg-type-filter { display: flex; gap: 4px; margin-bottom: 10px; flex-wrap: wrap; }
-    .pg-type-filter button { font-family: var(--font-sans); font-size: 11px; font-weight: 500; padding: 3px 10px; border-radius: 9999px; border: 1px solid var(--border-default); background: transparent; color: var(--text-muted); cursor: pointer; transition: all 0.15s; }
+    .pg-type-filter button { font-family: var(--font-sans); font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 9999px; border: 1px solid var(--border-default); background: transparent; color: var(--text-muted); cursor: pointer; transition: all 0.15s; }
     .pg-type-filter button:hover { border-color: var(--border-strong); color: var(--text-secondary); }
-    .pg-type-filter button.active { background: var(--accent-dim); color: var(--accent); border-color: rgba(16,185,129,0.3); }
+    .pg-type-filter button.active { background: var(--bg-surface-2); border-color: var(--border-strong); color: var(--text-secondary); }
+    .pg-type-filter button.active.filter-all  { background: var(--bg-surface-3); color: var(--text-primary); }
+    .pg-type-filter button.active.filter-data { background: var(--accent-dim); color: var(--accent); border-color: rgba(16,185,129,0.35); }
+    .pg-type-filter button.active.filter-prompt { background: var(--purple-dim); color: var(--purple); border-color: rgba(139,92,246,0.35); }
+    .pg-type-filter button.active.filter-proxy { background: var(--info-dim); color: var(--info); border-color: rgba(59,130,246,0.35); }
+
+    /* TYPE INFO EXPLAINER (shown when filter active, no skill selected) */
+    .type-explainer { background: var(--bg-surface-2); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 28px 32px; max-width: 520px; margin: 0 auto; text-align: left; }
+    .type-explainer-icon { font-size: 28px; margin-bottom: 14px; }
+    .type-explainer h4 { font-size: 16px; font-weight: 700; color: var(--text-primary); margin-bottom: 8px; }
+    .type-explainer .te-desc { font-size: 13px; color: var(--text-tertiary); line-height: 1.6; margin-bottom: 16px; }
+    .type-explainer .te-bullets { list-style: none; padding: 0; margin-bottom: 18px; }
+    .type-explainer .te-bullets li { font-size: 12px; color: var(--text-secondary); padding: 5px 0; border-bottom: 1px solid var(--border-subtle); display: flex; align-items: flex-start; gap: 8px; }
+    .type-explainer .te-bullets li:last-child { border-bottom: none; }
+    .type-explainer .te-bullets li::before { content: '→'; color: var(--text-muted); flex-shrink: 0; }
+    .type-explainer .te-example { background: var(--bg-primary); border: 1px solid var(--border-default); border-radius: var(--radius-md); padding: 12px 14px; font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); line-height: 1.6; }
+    .type-explainer .te-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 10px; }
     .pg-skill-list { max-height: 300px; overflow-y: auto; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); }
     .pg-skill-item { padding: 10px 12px; cursor: pointer; border-bottom: 1px solid var(--border-subtle); transition: background 0.1s; }
     .pg-skill-item:last-child { border-bottom: none; }
@@ -363,10 +379,10 @@
         <div class="panel-body">
           <input type="text" class="pg-search" id="skillSearch" placeholder="Search by name or description..." oninput="filterSkills()">
           <div class="pg-type-filter" id="typeFilter">
-            <button class="active" onclick="setTypeFilter('all',this)">All</button>
-            <button onclick="setTypeFilter('data',this)">Data</button>
-            <button onclick="setTypeFilter('prompt_template',this)">Prompt</button>
-            <button onclick="setTypeFilter('api_proxy',this)">Proxy</button>
+            <button class="active filter-all" onclick="setTypeFilter('all',this)">All</button>
+            <button class="filter-data" onclick="setTypeFilter('data',this)">Data</button>
+            <button class="filter-prompt" onclick="setTypeFilter('prompt_template',this)">Prompt</button>
+            <button class="filter-proxy" onclick="setTypeFilter('api_proxy',this)">Proxy</button>
           </div>
           <div class="pg-skill-list" id="skillList">
             <div class="no-skills">Loading skills...</div>
@@ -433,28 +449,7 @@
         <button data-tab="curl" onclick="switchTab('curl',this)">cURL</button>
       </div>
       <div class="output-body" id="outputBody">
-        <div class="empty-state">
-          <div class="empty-state-icon">⚡</div>
-          <h4>Pick a skill to explore</h4>
-          <p>Select any skill from the left panel. No sign-in needed to preview sample output.</p>
-          <div class="how-it-works">
-            <div class="hiw-step">
-              <div class="hiw-num">1</div>
-              <div class="hiw-title">Choose a Skill</div>
-              <div class="hiw-desc">Browse the skill library or search by name</div>
-            </div>
-            <div class="hiw-step">
-              <div class="hiw-num">2</div>
-              <div class="hiw-title">Preview Free</div>
-              <div class="hiw-desc">See exactly what the skill returns — no credits</div>
-            </div>
-            <div class="hiw-step">
-              <div class="hiw-num">3</div>
-              <div class="hiw-title">Run Live</div>
-              <div class="hiw-desc">Switch to Live mode for real-time execution</div>
-            </div>
-          </div>
-        </div>
+        <!-- populated by showDefaultEmptyState() on init -->
       </div>
     </div>
 
@@ -692,11 +687,93 @@ function getFiltered() {
   });
 }
 
+const TYPE_INFO = {
+  data: {
+    icon: '📊',
+    color: 'var(--accent)',
+    label: 'Data Skills',
+    desc: 'Data skills deliver structured JSON directly from live APIs — no LLM involved. Think of them as real-time data feeds built for AI agents: numbers, prices, stats, and facts your model can immediately reason over.',
+    bullets: [
+      'Real-time token prices, market cap, 24h volume',
+      'Weather, exchange rates, sports scores, news feeds',
+      'First caller fetches live — all subsequent callers get cached result at 1 credit',
+      'Always returns clean JSON — no hallucinations, no guessing',
+    ],
+    example: '// GET /v1/skills/price-oracle/query\n{\n  "token": "ETH",\n  "price_usd": 3241.88,\n  "change_24h": "+2.4%",\n  "market_cap": "389B"\n}',
+  },
+  prompt_template: {
+    icon: '🧠',
+    color: 'var(--purple)',
+    label: 'Prompt Skills',
+    desc: 'Prompt skills wrap an LLM with a carefully engineered system prompt. You send a query, the skill handles all the model routing, context, and formatting — you get a structured answer back.',
+    bullets: [
+      'Sentiment analysis, summarization, classification, Q&A',
+      'Creator-crafted prompts refined for specific use cases',
+      'Cheaper than building your own LLM pipeline from scratch',
+      'Returns markdown or JSON depending on the skill config',
+    ],
+    example: '// POST /v1/skills/sentiment-analyzer/invoke\n{\n  "result": "positive",\n  "confidence": 0.94,\n  "summary": "Strongly bullish tone with...",\n  "creditsCharged": 2\n}',
+  },
+  api_proxy: {
+    icon: '🔌',
+    color: 'var(--info)',
+    label: 'Proxy Skills',
+    desc: 'Proxy skills are authenticated wrappers around third-party APIs. The creator handles API keys, rate limits, and request formatting — you just call ClawNet with credits and get the result.',
+    bullets: [
+      'Call any external API without managing auth or rate limits',
+      'Creator abstracts away complexity — one clean interface',
+      'Credits replace per-call billing from dozens of API providers',
+      'Ideal for social media, blockchain data, SaaS integrations',
+    ],
+    example: '// POST /v1/skills/twitter-search/invoke\n{\n  "results": [\n    { "text": "...", "likes": 412, "date": "2026-03-12" }\n  ],\n  "creditsCharged": 5\n}',
+  },
+};
+
 function setTypeFilter(type, btn) {
   activeTypeFilter = type;
   document.querySelectorAll('#typeFilter button').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
   renderSkillList(getFiltered());
+  // If no skill selected, update the right panel with a type explainer
+  if (!selectedSkill) showTypeExplainer(type);
+}
+
+function showTypeExplainer(type) {
+  if (type === 'all' || !TYPE_INFO[type]) {
+    showDefaultEmptyState();
+    return;
+  }
+  const info = TYPE_INFO[type];
+  document.getElementById('outputMeta').innerHTML = '';
+  document.getElementById('outputTabs').style.display = 'none';
+  document.getElementById('outputBody').innerHTML = `
+    <div style="padding:24px;display:flex;align-items:flex-start;justify-content:center;min-height:400px">
+      <div class="type-explainer">
+        <div class="type-explainer-icon">${info.icon}</div>
+        <div class="te-label" style="color:${info.color}">${info.label}</div>
+        <h4>${info.label}</h4>
+        <p class="te-desc">${info.desc}</p>
+        <ul class="te-bullets">${info.bullets.map(b => `<li>${b}</li>`).join('')}</ul>
+        <div class="te-label" style="color:var(--text-muted);margin-bottom:8px">Example Response</div>
+        <div class="te-example">${esc(info.example)}</div>
+      </div>
+    </div>`;
+}
+
+function showDefaultEmptyState() {
+  document.getElementById('outputMeta').innerHTML = '';
+  document.getElementById('outputTabs').style.display = 'none';
+  document.getElementById('outputBody').innerHTML = `
+    <div class="empty-state">
+      <div class="empty-state-icon">⚡</div>
+      <h4>Pick a skill to explore</h4>
+      <p>Select any skill from the left panel. No sign-in needed to preview sample output.</p>
+      <div class="how-it-works">
+        <div class="hiw-step"><div class="hiw-num">1</div><div class="hiw-title">Choose a Skill</div><div class="hiw-desc">Browse the library or filter by type</div></div>
+        <div class="hiw-step"><div class="hiw-num">2</div><div class="hiw-title">Preview Free</div><div class="hiw-desc">See exactly what the skill returns — no credits</div></div>
+        <div class="hiw-step"><div class="hiw-num">3</div><div class="hiw-title">Run Live</div><div class="hiw-desc">Switch to Live mode for real-time execution</div></div>
+      </div>
+    </div>`;
 }
 
 function filterSkills() { renderSkillList(getFiltered()); }
@@ -834,24 +911,66 @@ function setBool(name, val, btn) {
   falseBtn.className = val ? '' : 'active-false';
 }
 
+// Keyword-based example values for common param names
+const PARAM_EXAMPLES = {
+  // tokens / crypto
+  token: 'ETH', symbol: 'ETH', coin: 'bitcoin', ticker: 'BTC',
+  // text / content
+  query: 'What is the current market sentiment for Ethereum?',
+  text: 'ClawNet just launched a new data skills marketplace for AI agents.',
+  content: 'Breaking: Federal Reserve holds rates steady at 5.25%.',
+  prompt: 'Summarize the top DeFi trends this week.',
+  message: 'Hello, I need help understanding yield farming.',
+  input: 'Analyze the sentiment of this earnings call transcript.',
+  // numbers
+  limit: '10', count: '5', max: '20', top: '10', size: '10',
+  // sort / order
+  sortBy: 'volume', sort: 'desc', order: 'desc', orderBy: 'created_at',
+  // date / time
+  date: new Date().toISOString().slice(0,10), from: '2026-01-01', to: new Date().toISOString().slice(0,10),
+  // categories
+  category: 'defi', type: 'token', market: 'crypto', sector: 'technology',
+  // language
+  language: 'en', lang: 'en',
+  // addresses
+  address: '0x1234...abcd', wallet: '0x1234...abcd', contract: '0xabcd...1234',
+};
+
 function tryExample() {
   if (!selectedSkill) return;
-  const schema = selectedSkill.inputSchema;
+  const s = selectedSkill;
+  let filled = 0;
+
+  const schema = s.inputSchema;
   if (schema && schema.properties) {
     for (const [key, prop] of Object.entries(schema.properties)) {
       const el = document.getElementById('param-' + key);
       if (!el) continue;
-      const ex = prop.example !== undefined ? prop.example : (prop.default !== undefined ? prop.default : (prop.enum ? prop.enum[0] : null));
-      if (ex !== null && ex !== undefined) el.value = ex;
+      // Priority: schema example > schema default > enum[0] > keyword map > type-based fallback
+      let val = prop.example !== undefined ? prop.example
+        : prop.default !== undefined && prop.default !== '' ? prop.default
+        : prop.enum?.length ? prop.enum[0]
+        : PARAM_EXAMPLES[key.toLowerCase()] !== undefined ? PARAM_EXAMPLES[key.toLowerCase()]
+        : prop.type === 'number' || prop.type === 'integer' ? '10'
+        : prop.type === 'boolean' ? 'true'
+        : null;
+      if (val !== null && val !== undefined) { el.value = val; filled++; }
     }
-  } else if (selectedSkill.skillType === 'data') {
+  } else if (s.skillType === 'data') {
     const el = document.getElementById('param-params');
-    if (el) el.value = 'limit=10\nsortBy=volume';
-  } else if (selectedSkill.skillType === 'prompt_template') {
+    if (el) { el.value = 'limit=10\nsortBy=volume'; filled++; }
+  } else if (s.skillType === 'prompt_template') {
     const el = document.getElementById('param-query');
-    if (el && !el.value) el.value = 'Give me a quick summary';
+    if (el) { el.value = 'What are the top trends in AI agent infrastructure right now?'; filled++; }
   }
-  toast('Example values filled in', 'success');
+
+  if (filled > 0) {
+    toast(`${filled} field${filled > 1 ? 's' : ''} filled with example values`, 'success');
+    // Auto-trigger preview so they immediately see something
+    showSampleOutput();
+  } else {
+    toast('No parameters to fill for this skill', 'warning');
+  }
 }
 
 // ── Sample Output ──────────────────────────────────────────────────────
@@ -1060,6 +1179,7 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal()
 checkStatus();
 initAuth();
 loadSkills();
+showDefaultEmptyState();
 </script>
 </body>
 </html>
