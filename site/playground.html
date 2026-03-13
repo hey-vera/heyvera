@@ -4,9 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Skill Playground — ClawNet</title>
-  <meta name="description" content="Test any ClawNet skill in your browser. See sample output for free or execute live with credits.">
+  <meta name="description" content="Test any ClawNet skill in your browser. Preview sample output for free, or run live with real credits.">
   <meta property="og:title" content="Skill Playground — ClawNet">
-  <meta property="og:description" content="Test any AI skill live. See sample output for free, execute with credits.">
+  <meta property="og:description" content="Interactive skill testing — free previews or live execution with API credits.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://claw-net.org/playground.html">
   <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png">
@@ -28,7 +28,7 @@
       --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
       --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', Consolas, monospace;
       --radius-sm: 4px; --radius-md: 6px; --radius-lg: 8px; --radius-xl: 12px;
-      --nav-bg: rgba(10,10,11,0.8);
+      --nav-bg: rgba(10,10,11,0.85);
     }
     [data-theme="light"] {
       --bg-primary: #f5f5f5; --bg-surface: #ffffff; --bg-surface-2: #f0f0f2; --bg-surface-3: #e8e8ec;
@@ -37,7 +37,7 @@
       --accent-dim: rgba(16,185,129,0.10); --accent-subtle: rgba(16,185,129,0.05);
       --danger-dim: rgba(239,68,68,0.10); --warning-dim: rgba(245,158,11,0.10);
       --info-dim: rgba(59,130,246,0.10); --purple-dim: rgba(139,92,246,0.10);
-      --nav-bg: rgba(245,245,245,0.85);
+      --nav-bg: rgba(245,245,245,0.9);
     }
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: var(--font-sans); background: var(--bg-primary); color: var(--text-secondary); font-size: 14px; line-height: 1.6; }
@@ -90,149 +90,192 @@
     @media (max-width: 900px) { .hamburger { display: block; } }
 
     /* LAYOUT */
-    .container { max-width: 1200px; margin: 0 auto; padding: 0 24px; }
-    .pg-hero { padding: 48px 0 16px; text-align: center; }
-    .pg-hero h1 { font-size: 28px; font-weight: 700; color: var(--text-primary); margin-bottom: 8px; }
-    .pg-hero h1 span { color: var(--accent); }
-    .pg-hero p { color: var(--text-tertiary); font-size: 15px; max-width: 540px; margin: 0 auto; }
+    .container { max-width: 1240px; margin: 0 auto; padding: 0 24px; }
 
-    /* MODE TOGGLE */
-    .mode-bar { display: flex; align-items: center; justify-content: center; gap: 16px; padding: 20px 0 28px; }
+    /* HERO */
+    .pg-hero { padding: 40px 0 8px; text-align: center; }
+    .pg-hero h1 { font-size: 26px; font-weight: 700; color: var(--text-primary); margin-bottom: 8px; letter-spacing: -0.02em; }
+    .pg-hero h1 span { color: var(--accent); }
+    .pg-hero p { color: var(--text-tertiary); font-size: 14px; max-width: 480px; margin: 0 auto; }
+
+    /* MODE BAR */
+    .mode-bar { display: flex; align-items: center; justify-content: center; gap: 16px; padding: 20px 0 24px; flex-wrap: wrap; }
     .mode-toggle { display: flex; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 9999px; overflow: hidden; }
-    .mode-toggle button { font-family: var(--font-sans); font-size: 13px; font-weight: 600; padding: 8px 24px; border: none; cursor: pointer; transition: all 0.2s; background: transparent; color: var(--text-muted); display: flex; align-items: center; gap: 6px; }
+    .mode-toggle button { font-family: var(--font-sans); font-size: 13px; font-weight: 600; padding: 8px 22px; border: none; cursor: pointer; transition: all 0.2s; background: transparent; color: var(--text-muted); display: flex; align-items: center; gap: 6px; }
     .mode-toggle button.active-sandbox { background: var(--purple-dim); color: var(--purple); }
-    .mode-toggle button.active-live { background: var(--danger-dim); color: var(--danger); }
+    .mode-toggle button.active-live { background: var(--accent-dim); color: var(--accent); }
     .mode-toggle button:hover:not(.active-sandbox):not(.active-live) { color: var(--text-secondary); }
     .mode-indicator { font-size: 12px; font-weight: 500; display: flex; align-items: center; gap: 6px; }
     .mode-indicator.sandbox { color: var(--purple); }
-    .mode-indicator.live { color: var(--danger); }
-    .mode-dot { width: 8px; height: 8px; border-radius: 50%; }
+    .mode-indicator.live { color: var(--accent); }
+    .mode-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
     .mode-dot.sandbox { background: var(--purple); }
-    .mode-dot.live { background: var(--danger); animation: pulse-danger 2s infinite; }
-    @keyframes pulse-danger { 0%, 100% { box-shadow: 0 0 0 0 rgba(239,68,68,0.4); } 50% { box-shadow: 0 0 0 6px rgba(239,68,68,0); } }
+    .mode-dot.live { background: var(--accent); animation: pulse-live 2s infinite; }
+    @keyframes pulse-live { 0%, 100% { box-shadow: 0 0 0 0 rgba(16,185,129,0.4); } 50% { box-shadow: 0 0 0 6px rgba(16,185,129,0); } }
 
-    /* LIVE WARNING BANNER */
-    .live-warning { display: none; max-width: 1200px; margin: 0 auto 16px; padding: 10px 20px; background: var(--danger-dim); border: 1px solid rgba(239,68,68,0.25); border-radius: var(--radius-md); color: var(--danger); font-size: 13px; font-weight: 500; text-align: center; }
-    .live-warning.show { display: block; }
-    .live-warning svg { vertical-align: -2px; margin-right: 6px; }
+    /* LIVE BANNER */
+    .live-banner { display: none; background: rgba(16,185,129,0.06); border: 1px solid rgba(16,185,129,0.2); border-radius: var(--radius-md); padding: 10px 20px; margin: 0 auto 20px; max-width: 1240px; color: var(--accent); font-size: 13px; text-align: center; }
+    .live-banner.show { display: block; }
 
-    /* PLAYGROUND LAYOUT */
-    .pg-layout { display: grid; grid-template-columns: 340px 1fr; gap: 24px; padding-bottom: 60px; }
+    /* PLAYGROUND GRID */
+    .pg-layout { display: grid; grid-template-columns: 320px 1fr; gap: 20px; padding-bottom: 60px; align-items: start; }
     @media (max-width: 900px) { .pg-layout { grid-template-columns: 1fr; } }
 
-    /* LEFT PANEL */
-    .pg-panel { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 20px; }
-    .pg-panel h3 { font-size: 13px; font-weight: 600; color: var(--text-primary); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 12px; }
+    /* PANELS */
+    .pg-panel { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); }
+    .panel-header { padding: 14px 16px; border-bottom: 1px solid var(--border-subtle); }
+    .panel-header h3 { font-size: 11px; font-weight: 600; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.06em; margin: 0; }
+    .panel-body { padding: 14px 16px; }
+
+    /* SKILL LIST */
     .pg-search { width: 100%; background: var(--bg-primary); border: 1px solid var(--border-default); color: var(--text-primary); font-family: var(--font-sans); font-size: 13px; padding: 8px 12px; border-radius: var(--radius-md); outline: none; margin-bottom: 8px; }
     .pg-search:focus { border-color: var(--accent); }
-
-    /* TYPE FILTER TABS */
-    .pg-type-filter { display: flex; gap: 4px; margin-bottom: 12px; flex-wrap: wrap; }
+    .pg-type-filter { display: flex; gap: 4px; margin-bottom: 10px; flex-wrap: wrap; }
     .pg-type-filter button { font-family: var(--font-sans); font-size: 11px; font-weight: 500; padding: 3px 10px; border-radius: 9999px; border: 1px solid var(--border-default); background: transparent; color: var(--text-muted); cursor: pointer; transition: all 0.15s; }
     .pg-type-filter button:hover { border-color: var(--border-strong); color: var(--text-secondary); }
     .pg-type-filter button.active { background: var(--accent-dim); color: var(--accent); border-color: rgba(16,185,129,0.3); }
-
-    .pg-skill-list { max-height: 280px; overflow-y: auto; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); }
+    .pg-skill-list { max-height: 300px; overflow-y: auto; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); }
     .pg-skill-item { padding: 10px 12px; cursor: pointer; border-bottom: 1px solid var(--border-subtle); transition: background 0.1s; }
     .pg-skill-item:last-child { border-bottom: none; }
     .pg-skill-item:hover { background: var(--bg-surface-2); }
     .pg-skill-item.selected { background: var(--accent-dim); border-left: 3px solid var(--accent); }
-    .pg-skill-item .sk-name { font-size: 13px; font-weight: 500; color: var(--text-primary); }
+    .pg-skill-item .sk-name { font-size: 13px; font-weight: 500; color: var(--text-primary); display: flex; align-items: center; gap: 6px; }
     .pg-skill-item .sk-meta { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
-    .skill-type-badge { font-size: 9px; font-weight: 600; padding: 1px 5px; border-radius: 3px; text-transform: uppercase; letter-spacing: 0.03em; }
+    .skill-type-badge { font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 3px; text-transform: uppercase; letter-spacing: 0.04em; flex-shrink: 0; }
     .skill-type-badge.prompt { background: var(--purple-dim); color: var(--purple); }
     .skill-type-badge.api_proxy { background: var(--info-dim); color: var(--info); }
     .skill-type-badge.data { background: var(--accent-dim); color: var(--accent); }
 
+    /* SKILL INFO CARD */
+    .skill-info-card { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); overflow: hidden; display: none; margin-top: 12px; }
+    .skill-info-card.show { display: block; }
+    .sic-header { padding: 14px 16px; background: var(--bg-surface-2); border-bottom: 1px solid var(--border-subtle); }
+    .sic-name { font-size: 15px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px; }
+    .sic-desc { font-size: 12px; color: var(--text-tertiary); line-height: 1.5; }
+    .sic-chips { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+    .sic-chip { font-size: 11px; font-weight: 500; padding: 3px 10px; border-radius: 9999px; border: 1px solid var(--border-default); color: var(--text-muted); display: flex; align-items: center; gap: 4px; }
+    .sic-chip.cost { background: var(--warning-dim); border-color: rgba(245,158,11,0.2); color: var(--warning); }
+    .sic-chip.freq { background: var(--info-dim); border-color: rgba(59,130,246,0.2); color: var(--info); }
+    .sic-chip.uses { background: var(--bg-surface-3); }
+
     /* PARAMS */
-    .pg-params { margin-top: 20px; }
-    .pg-params .form-group { margin-bottom: 12px; }
-    .pg-params label { font-size: 12px; font-weight: 500; color: var(--text-tertiary); display: block; margin-bottom: 4px; }
-    .pg-params label .req { color: var(--danger); }
-    .pg-params input, .pg-params textarea { width: 100%; background: var(--bg-primary); border: 1px solid var(--border-default); color: var(--text-primary); font-family: var(--font-sans); font-size: 13px; padding: 8px 10px; border-radius: var(--radius-md); outline: none; }
-    .pg-params input:focus, .pg-params textarea:focus { border-color: var(--accent); }
-    .pg-params textarea { resize: vertical; min-height: 60px; }
+    .param-card { background: var(--bg-surface-2); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 12px 14px; margin-bottom: 10px; }
+    .param-card:last-child { margin-bottom: 0; }
+    .param-label-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+    .param-name { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+    .param-req { font-size: 10px; font-weight: 700; color: var(--danger); padding: 1px 5px; background: var(--danger-dim); border-radius: 3px; text-transform: uppercase; }
+    .param-opt { font-size: 10px; color: var(--text-muted); }
+    .param-type { font-size: 10px; font-weight: 500; padding: 1px 6px; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 3px; color: var(--text-muted); font-family: var(--font-mono); }
+    .param-desc { font-size: 11px; color: var(--text-tertiary); margin-bottom: 8px; line-height: 1.4; }
+    .param-input { width: 100%; background: var(--bg-primary); border: 1px solid var(--border-default); color: var(--text-primary); font-family: var(--font-sans); font-size: 13px; padding: 8px 10px; border-radius: var(--radius-md); outline: none; transition: border-color 0.15s; }
+    .param-input:focus { border-color: var(--accent); }
+    textarea.param-input { resize: vertical; min-height: 64px; font-family: var(--font-mono); font-size: 12px; }
+    .param-hint { font-size: 10px; color: var(--text-muted); margin-top: 5px; }
 
-    /* BUTTONS */
-    .btn { font-family: var(--font-sans); font-size: 13px; font-weight: 500; padding: 8px 16px; border-radius: var(--radius-md); cursor: pointer; transition: all 0.15s; border: 1px solid transparent; display: inline-flex; align-items: center; gap: 6px; }
-    .btn-primary { background: var(--accent); color: #000; border-color: var(--accent); }
-    .btn-primary:hover { background: var(--accent-hover); }
-    .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
-    .btn-danger { background: var(--danger-dim); color: var(--danger); border: 1px solid rgba(239,68,68,0.25); }
-    .btn-danger:hover { background: rgba(239,68,68,0.18); }
-    .btn-danger:disabled { opacity: 0.3; cursor: not-allowed; }
-    .btn-ghost { background: transparent; color: var(--text-secondary); border: 1px solid var(--border-default); }
+    /* BOOL TOGGLE */
+    .bool-toggle { display: flex; gap: 0; border: 1px solid var(--border-default); border-radius: var(--radius-md); overflow: hidden; width: fit-content; }
+    .bool-toggle button { font-family: var(--font-sans); font-size: 12px; font-weight: 500; padding: 5px 14px; border: none; cursor: pointer; background: transparent; color: var(--text-muted); transition: all 0.15s; }
+    .bool-toggle button.active-true { background: var(--accent-dim); color: var(--accent); }
+    .bool-toggle button.active-false { background: var(--danger-dim); color: var(--danger); }
+
+    /* API KEY INLINE */
+    .inline-apikey { background: var(--warning-dim); border: 1px solid rgba(245,158,11,0.2); border-radius: var(--radius-md); padding: 12px 14px; margin-top: 12px; }
+    .inline-apikey p { font-size: 12px; color: var(--warning); margin-bottom: 8px; font-weight: 500; }
+    .inline-apikey-row { display: flex; gap: 8px; }
+    .inline-apikey input { flex: 1; background: var(--bg-primary); border: 1px solid var(--border-default); color: var(--text-primary); font-family: var(--font-mono); font-size: 12px; padding: 7px 10px; border-radius: var(--radius-md); outline: none; }
+    .inline-apikey input:focus { border-color: var(--warning); }
+    .inline-apikey button { font-family: var(--font-sans); font-size: 12px; font-weight: 600; padding: 7px 14px; background: var(--warning); color: #000; border: none; border-radius: var(--radius-md); cursor: pointer; white-space: nowrap; }
+    .inline-apikey button:hover { opacity: 0.9; }
+
+    /* CREDIT HINT */
+    .credit-hint { font-size: 11px; color: var(--text-muted); margin-top: 12px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .credit-hint .free { color: var(--purple); font-weight: 500; }
+    .credit-hint .live { color: var(--accent); font-weight: 500; }
+    .credit-hint .calc { color: var(--info); }
+
+    /* ACTION ROW */
+    .action-row { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+    .btn { font-family: var(--font-sans); font-size: 13px; font-weight: 600; padding: 9px 18px; border-radius: var(--radius-md); cursor: pointer; transition: all 0.15s; border: 1px solid transparent; display: inline-flex; align-items: center; gap: 6px; line-height: 1; }
+    .btn-preview { background: var(--purple-dim); color: var(--purple); border-color: rgba(139,92,246,0.25); }
+    .btn-preview:hover { background: rgba(139,92,246,0.2); }
+    .btn-preview:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-run { background: var(--accent); color: #000; border-color: var(--accent); }
+    .btn-run:hover { background: var(--accent-hover); }
+    .btn-run:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-ghost { background: transparent; color: var(--text-secondary); border-color: var(--border-default); }
     .btn-ghost:hover { border-color: var(--border-strong); color: var(--text-primary); background: var(--bg-surface-2); }
-    .btn-sample { background: var(--purple-dim); color: var(--purple); border: 1px solid rgba(139,92,246,0.2); }
-    .btn-sample:hover { background: rgba(139,92,246,0.18); }
+    .btn-sm { padding: 5px 12px; font-size: 12px; }
 
-    .btn-row { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
-    .cost-hint { font-size: 11px; color: var(--text-muted); margin-top: 8px; }
-    .cost-hint .live { color: var(--warning); font-weight: 500; }
-    .cost-hint .free { color: var(--accent); font-weight: 500; }
-
-    /* RIGHT PANEL - OUTPUT */
-    .pg-output { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); display: flex; flex-direction: column; min-height: 500px; }
-    .pg-output-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--border-subtle); }
-    .pg-output-header h3 { font-size: 13px; font-weight: 600; color: var(--text-primary); text-transform: uppercase; letter-spacing: 0.04em; margin: 0; }
-    .pg-output-meta { display: flex; gap: 12px; font-size: 11px; color: var(--text-muted); align-items: center; }
-    .pg-output-meta .tag { padding: 2px 8px; border-radius: 9999px; font-weight: 500; }
-    .pg-output-meta .tag.sample { background: var(--purple-dim); color: var(--purple); }
-    .pg-output-meta .tag.live { background: var(--accent-dim); color: var(--accent); }
-    .pg-output-meta .tag.error { background: var(--danger-dim); color: var(--danger); }
-    .pg-output-body { flex: 1; padding: 16px; overflow: auto; }
-    .pg-output-body pre { font-family: var(--font-mono); font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word; color: var(--text-secondary); }
-    .pg-output-body .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; min-height: 300px; color: var(--text-muted); text-align: center; }
-    .pg-output-body .empty-state .icon { font-size: 48px; margin-bottom: 16px; opacity: 0.4; }
-    .pg-output-body .empty-state h4 { font-size: 15px; color: var(--text-tertiary); margin-bottom: 4px; }
-
-    /* SKILL INFO BAR */
-    .pg-skill-info { background: var(--bg-surface-2); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 12px 16px; margin-bottom: 16px; display: none; }
-    .pg-skill-info.show { display: block; }
-    .pg-skill-info .si-name { font-size: 14px; font-weight: 600; color: var(--text-primary); }
-    .pg-skill-info .si-desc { font-size: 12px; color: var(--text-tertiary); margin-top: 2px; }
-    .pg-skill-info .si-meta { display: flex; gap: 16px; margin-top: 8px; font-size: 11px; color: var(--text-muted); flex-wrap: wrap; }
-    .pg-skill-info .si-meta span { display: flex; align-items: center; gap: 4px; }
-
-    /* TABS */
-    .pg-output-tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border-subtle); padding: 0 16px; }
-    .pg-output-tabs button { background: none; border: none; border-bottom: 2px solid transparent; color: var(--text-muted); font-family: var(--font-sans); font-size: 12px; font-weight: 500; padding: 10px 16px; cursor: pointer; transition: all 0.15s; }
-    .pg-output-tabs button:hover { color: var(--text-secondary); }
-    .pg-output-tabs button.active { color: var(--accent); border-bottom-color: var(--accent); }
-
-    /* COPY BTN */
-    .copy-btn { position: absolute; top: 8px; right: 8px; background: var(--bg-surface-2); border: 1px solid var(--border-default); color: var(--text-muted); font-size: 11px; padding: 4px 10px; border-radius: var(--radius-sm); cursor: pointer; font-family: var(--font-sans); }
+    /* RIGHT PANEL — OUTPUT */
+    .pg-output { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); display: flex; flex-direction: column; min-height: 520px; }
+    .output-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--border-subtle); }
+    .output-header h3 { font-size: 11px; font-weight: 600; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.06em; margin: 0; }
+    .output-meta { display: flex; gap: 10px; font-size: 11px; color: var(--text-muted); align-items: center; flex-wrap: wrap; }
+    .output-meta .tag { padding: 2px 9px; border-radius: 9999px; font-weight: 600; font-size: 10px; }
+    .output-meta .tag.sample { background: var(--purple-dim); color: var(--purple); }
+    .output-meta .tag.live { background: var(--accent-dim); color: var(--accent); }
+    .output-meta .tag.error { background: var(--danger-dim); color: var(--danger); }
+    .output-tabs { display: flex; border-bottom: 1px solid var(--border-subtle); padding: 0 16px; }
+    .output-tabs button { background: none; border: none; border-bottom: 2px solid transparent; color: var(--text-muted); font-family: var(--font-sans); font-size: 12px; font-weight: 500; padding: 10px 14px; cursor: pointer; transition: all 0.15s; margin-bottom: -1px; }
+    .output-tabs button:hover { color: var(--text-secondary); }
+    .output-tabs button.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .output-body { flex: 1; padding: 16px; overflow: auto; position: relative; }
+    .output-body pre { font-family: var(--font-mono); font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; color: var(--text-secondary); }
+    .copy-btn { position: absolute; top: 10px; right: 12px; background: var(--bg-surface-2); border: 1px solid var(--border-default); color: var(--text-muted); font-size: 11px; padding: 4px 10px; border-radius: var(--radius-sm); cursor: pointer; font-family: var(--font-sans); z-index: 1; }
     .copy-btn:hover { color: var(--text-primary); border-color: var(--border-strong); }
 
+    /* EMPTY STATE */
+    .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px 32px; text-align: center; min-height: 400px; }
+    .empty-state-icon { width: 52px; height: 52px; border-radius: var(--radius-xl); background: var(--bg-surface-2); border: 1px solid var(--border-default); display: flex; align-items: center; justify-content: center; margin-bottom: 20px; font-size: 24px; }
+    .empty-state h4 { font-size: 16px; font-weight: 600; color: var(--text-primary); margin-bottom: 6px; }
+    .empty-state p { font-size: 13px; color: var(--text-tertiary); max-width: 340px; margin: 0 auto; }
+    .how-it-works { display: flex; gap: 0; margin-top: 32px; width: 100%; max-width: 480px; }
+    .hiw-step { flex: 1; text-align: center; position: relative; }
+    .hiw-step:not(:last-child)::after { content: ''; position: absolute; top: 16px; right: 0; left: 50%; width: 100%; height: 1px; background: var(--border-default); z-index: 0; }
+    .hiw-num { width: 32px; height: 32px; border-radius: 50%; background: var(--bg-surface-3); border: 1px solid var(--border-default); font-size: 13px; font-weight: 700; color: var(--text-tertiary); display: flex; align-items: center; justify-content: center; margin: 0 auto 10px; position: relative; z-index: 1; }
+    .hiw-title { font-size: 12px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px; }
+    .hiw-desc { font-size: 11px; color: var(--text-muted); line-height: 1.4; }
+
     /* CONFIRM MODAL */
-    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); z-index: 1000; align-items: center; justify-content: center; }
+    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.65); backdrop-filter: blur(4px); z-index: 1000; align-items: center; justify-content: center; }
     .modal-overlay.show { display: flex; }
-    .modal { background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: var(--radius-xl); padding: 28px; max-width: 420px; width: 90%; box-shadow: 0 20px 60px rgba(0,0,0,0.5); }
-    .modal h3 { font-size: 16px; font-weight: 600; color: var(--text-primary); margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
-    .modal p { font-size: 13px; color: var(--text-tertiary); margin-bottom: 20px; line-height: 1.5; }
-    .modal .cost-box { background: var(--bg-surface-2); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 12px 16px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }
-    .modal .cost-box .cost-label { font-size: 12px; color: var(--text-tertiary); }
-    .modal .cost-box .cost-value { font-family: var(--font-mono); font-size: 14px; font-weight: 600; color: var(--warning); }
-    .modal .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+    .modal { background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: var(--radius-xl); padding: 28px; max-width: 400px; width: 90%; box-shadow: 0 24px 64px rgba(0,0,0,0.6); }
+    .modal h3 { font-size: 16px; font-weight: 700; color: var(--text-primary); margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+    .modal-desc { font-size: 13px; color: var(--text-tertiary); margin-bottom: 20px; line-height: 1.5; }
+    .modal-cost { background: var(--bg-surface-2); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 14px 16px; margin-bottom: 20px; }
+    .modal-cost-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+    .modal-cost-row:last-child { margin-bottom: 0; padding-top: 6px; border-top: 1px solid var(--border-subtle); }
+    .modal-cost-label { font-size: 12px; color: var(--text-tertiary); }
+    .modal-cost-val { font-family: var(--font-mono); font-size: 13px; font-weight: 700; color: var(--accent); }
+    .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
 
     /* FOOTER */
-    footer { border-top: 1px solid var(--border-subtle); padding: 32px 24px; display: flex; justify-content: space-between; align-items: center; max-width: 1200px; margin: 0 auto; flex-wrap: wrap; gap: 16px; }
+    footer { border-top: 1px solid var(--border-subtle); padding: 32px 24px; display: flex; justify-content: space-between; align-items: center; max-width: 1240px; margin: 0 auto; flex-wrap: wrap; gap: 16px; }
     .footer-links { list-style: none; display: flex; gap: 16px; flex-wrap: wrap; }
     .footer-links a { font-size: 12px; color: var(--text-muted); }
     .footer-links a:hover { color: var(--text-secondary); }
     .footer-copy { font-size: 12px; color: var(--text-muted); }
 
-    /* SPINNER */
-    .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid var(--border-default); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.6s linear infinite; }
+    /* SPINNER + TOAST */
+    .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(0,0,0,0.25); border-top-color: #000; border-radius: 50%; animation: spin 0.6s linear infinite; }
+    .btn-preview .spinner { border-color: rgba(139,92,246,0.3); border-top-color: var(--purple); }
     @keyframes spin { to { transform: rotate(360deg); } }
-
-    /* TOAST */
     #toast-container { position: fixed; bottom: 32px; right: 32px; z-index: 9999; display: flex; flex-direction: column; gap: 10px; }
-    .toast { font-size: 13px; padding: 12px 18px; border: 1px solid; border-radius: var(--radius-md); display: flex; align-items: center; gap: 10px; min-width: 240px; max-width: 400px; animation: toastIn 0.2s ease; box-shadow: 0 4px 12px rgba(0,0,0,0.4); }
-    .toast.success { background: var(--bg-surface-2); border-color: var(--accent-dim); color: var(--accent); }
-    .toast.error { background: var(--bg-surface-2); border-color: var(--danger-dim); color: var(--danger); }
-    .toast.warning { background: var(--bg-surface-2); border-color: var(--warning-dim); color: var(--warning); }
-    @keyframes toastIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    .toast { font-size: 13px; padding: 12px 18px; border: 1px solid; border-radius: var(--radius-md); display: flex; align-items: center; gap: 10px; min-width: 240px; max-width: 380px; animation: toastIn 0.2s ease; box-shadow: 0 4px 16px rgba(0,0,0,0.4); }
+    .toast.success { background: var(--bg-surface-2); border-color: rgba(16,185,129,0.3); color: var(--accent); }
+    .toast.error { background: var(--bg-surface-2); border-color: rgba(239,68,68,0.3); color: var(--danger); }
+    .toast.warning { background: var(--bg-surface-2); border-color: rgba(245,158,11,0.3); color: var(--warning); }
+    @keyframes toastIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+    /* NO SKILLS */
+    .no-skills { padding: 20px; text-align: center; color: var(--text-muted); font-size: 12px; }
+    .params-empty { font-size: 12px; color: var(--text-muted); padding: 8px 0; }
+    .divider { height: 1px; background: var(--border-subtle); margin: 14px 0; }
+
+    /* CODE SNIPPETS */
+    .snippet-lang-tabs { display: flex; gap: 4px; margin-bottom: 10px; flex-wrap: wrap; }
+    .snippet-lang-tabs button { font-family: var(--font-sans); font-size: 11px; font-weight: 500; padding: 3px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border-default); background: transparent; color: var(--text-muted); cursor: pointer; transition: all 0.15s; }
+    .snippet-lang-tabs button.active { background: var(--info-dim); color: var(--info); border-color: rgba(59,130,246,0.3); }
   </style>
 </head>
 <body>
@@ -258,12 +301,15 @@
       <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
     </button>
     <div class="nav-status" id="navApiStatus"><span class="status-dot" id="statusDot"></span><span id="statusLabel">Checking...</span></div>
-    <div class="nav-credits" id="nav-credits-badge"><svg width="14" height="14" viewBox="0 0 24 24" style="vertical-align:-2px;flex-shrink:0;margin-right:2px"><circle cx="12" cy="12" r="11" fill="#92400e"/><circle cx="12" cy="12" r="9.5" fill="#f59e0b"/><circle cx="12" cy="12" r="7.5" fill="#fbbf24"/><path d="M8.5 7.5 Q12 5.5 15.5 8" stroke="rgba(255,255,255,0.45)" stroke-width="1.5" fill="none" stroke-linecap="round"/><text x="12" y="16.5" text-anchor="middle" font-size="10" font-weight="800" fill="#78350f" font-family="Arial,sans-serif">C</text></svg> <span id="nav-credits-num">&mdash;</span> credits</div>
+    <div class="nav-credits" id="nav-credits-badge">
+      <svg width="14" height="14" viewBox="0 0 24 24" style="flex-shrink:0"><circle cx="12" cy="12" r="11" fill="#92400e"/><circle cx="12" cy="12" r="9.5" fill="#f59e0b"/><circle cx="12" cy="12" r="7.5" fill="#fbbf24"/><text x="12" y="16.5" text-anchor="middle" font-size="10" font-weight="800" fill="#78350f" font-family="Arial,sans-serif">C</text></svg>
+      <span id="nav-credits-num">&mdash;</span> credits
+    </div>
     <span class="nav-email" id="nav-user-email"></span>
     <a href="/login.html" class="nav-login" id="nav-login-btn">Sign In</a>
     <a href="/#pricing" class="nav-cta" id="nav-getkey-btn">Get API Key</a>
     <a href="/dashboard.html" class="nav-btn-ghost" id="nav-dash-btn">Dashboard</a>
-    <button class="nav-btn-ghost danger" id="nav-signout-btn" onclick="navSignOut()" style="cursor:pointer">Sign Out</button>
+    <button class="nav-btn-ghost danger" id="nav-signout-btn" onclick="navSignOut()">Sign Out</button>
   </div>
 </nav>
 
@@ -280,89 +326,138 @@
 <div class="container">
   <div class="pg-hero">
     <h1>Skill <span>Playground</span></h1>
-    <p>Test any public skill in your browser. Preview sample output for free, or switch to live mode to execute with real credits.</p>
+    <p>Explore every public skill. Preview outputs for free — no sign-in needed. Go live when you're ready.</p>
   </div>
 
-  <!-- MODE TOGGLE -->
   <div class="mode-bar">
     <div class="mode-toggle">
       <button id="modeSandbox" class="active-sandbox" onclick="setMode('sandbox')">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
         Sandbox
       </button>
       <button id="modeLive" onclick="setMode('live')">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
         Live
       </button>
     </div>
     <div class="mode-indicator sandbox" id="modeIndicator">
       <span class="mode-dot sandbox" id="modeDot"></span>
-      <span id="modeLabel">Sandbox Mode &mdash; free preview only</span>
+      <span id="modeLabel">Sandbox — preview sample outputs for free</span>
     </div>
   </div>
 </div>
 
-<!-- LIVE WARNING BANNER -->
-<div class="live-warning" id="liveWarning">
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-  Live Mode &mdash; executing skills will deduct credits from your balance. Each call costs real credits.
+<div class="live-banner" id="liveBanner">
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:6px"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+  <strong>Live Mode</strong> — real API calls, real credit deductions. Each run costs the skill's listed credit price.
 </div>
 
 <div class="container">
   <div class="pg-layout">
-    <!-- LEFT: Skill selector + params -->
+
+    <!-- LEFT COLUMN -->
     <div>
+      <!-- Skill Selector -->
       <div class="pg-panel">
-        <h3>Select Skill</h3>
-        <input type="text" class="pg-search" id="skillSearch" placeholder="Search skills..." oninput="filterSkills()">
-        <div class="pg-type-filter" id="typeFilter">
-          <button class="active" onclick="setTypeFilter('all',this)">All</button>
-          <button onclick="setTypeFilter('data',this)">Data</button>
-          <button onclick="setTypeFilter('prompt_template',this)">Prompt</button>
-          <button onclick="setTypeFilter('api_proxy',this)">Proxy</button>
-        </div>
-        <div class="pg-skill-list" id="skillList">
-          <div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12px">Loading skills...</div>
+        <div class="panel-header"><h3>Skills</h3></div>
+        <div class="panel-body">
+          <input type="text" class="pg-search" id="skillSearch" placeholder="Search by name or description..." oninput="filterSkills()">
+          <div class="pg-type-filter" id="typeFilter">
+            <button class="active" onclick="setTypeFilter('all',this)">All</button>
+            <button onclick="setTypeFilter('data',this)">Data</button>
+            <button onclick="setTypeFilter('prompt_template',this)">Prompt</button>
+            <button onclick="setTypeFilter('api_proxy',this)">Proxy</button>
+          </div>
+          <div class="pg-skill-list" id="skillList">
+            <div class="no-skills">Loading skills...</div>
+          </div>
         </div>
       </div>
 
-      <div class="pg-skill-info" id="skillInfo">
-        <div class="si-name" id="siName"></div>
-        <div class="si-desc" id="siDesc"></div>
-        <div class="si-meta" id="siMeta"></div>
+      <!-- Skill Info Card -->
+      <div class="skill-info-card" id="skillInfoCard">
+        <div class="sic-header">
+          <div class="sic-name" id="sicName"></div>
+          <div class="sic-desc" id="sicDesc"></div>
+          <div class="sic-chips" id="sicChips"></div>
+        </div>
       </div>
 
-      <div class="pg-panel pg-params" id="paramsPanel" style="display:none;margin-top:16px">
-        <h3>Parameters</h3>
-        <div id="paramsForm"></div>
-        <div class="btn-row" id="actionRow">
-          <button class="btn btn-sample" onclick="showSampleOutput()">View Sample</button>
-          <button class="btn btn-danger" id="runBtn" onclick="confirmRunLive()" style="display:none">Execute Live</button>
+      <!-- Params + Actions -->
+      <div class="pg-panel" id="paramsPanel" style="display:none; margin-top:12px;">
+        <div class="panel-header" style="display:flex;align-items:center;justify-content:space-between">
+          <h3>Input Parameters</h3>
+          <button class="btn btn-ghost btn-sm" onclick="tryExample()" id="tryExampleBtn" title="Fill with example values">Try Example</button>
         </div>
-        <div class="cost-hint" id="costHint"></div>
+        <div class="panel-body">
+          <div id="paramsForm"></div>
+
+          <!-- Inline API key (shown only when not signed in + live mode) -->
+          <div class="inline-apikey" id="inlineApiKey" style="display:none">
+            <p>⚡ Enter your API key to run live</p>
+            <div class="inline-apikey-row">
+              <input type="password" id="inlineKeyInput" placeholder="cn-••••••••" autocomplete="off">
+              <button onclick="applyInlineKey()">Connect</button>
+            </div>
+            <p style="margin-top:6px;font-size:11px;color:var(--text-muted)">Don't have one? <a href="/#pricing" style="color:var(--warning)">Get an API key →</a></p>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="action-row" id="actionRow">
+            <button class="btn btn-preview" id="previewBtn" onclick="showSampleOutput()">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/></svg>
+              Preview Sample
+            </button>
+            <button class="btn btn-run" id="runBtn" onclick="confirmRunLive()" style="display:none">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+              Run Skill
+            </button>
+          </div>
+
+          <div class="credit-hint" id="creditHint"></div>
+        </div>
       </div>
     </div>
 
-    <!-- RIGHT: Output -->
+    <!-- RIGHT COLUMN — OUTPUT -->
     <div class="pg-output">
-      <div class="pg-output-header">
-        <h3>Response</h3>
-        <div class="pg-output-meta" id="outputMeta"></div>
+      <div class="output-header">
+        <h3>Output</h3>
+        <div class="output-meta" id="outputMeta"></div>
       </div>
-      <div class="pg-output-tabs" id="outputTabs" style="display:none">
-        <button class="active" data-tab="formatted" onclick="switchOutputTab('formatted',this)">Formatted</button>
-        <button data-tab="raw" onclick="switchOutputTab('raw',this)">Raw JSON</button>
-        <button data-tab="curl" onclick="switchOutputTab('curl',this)">cURL</button>
+      <div class="output-tabs" id="outputTabs" style="display:none">
+        <button class="active" data-tab="formatted" onclick="switchTab('formatted',this)">Formatted</button>
+        <button data-tab="raw" onclick="switchTab('raw',this)">Raw JSON</button>
+        <button data-tab="code" onclick="switchTab('code',this)">Use in Code</button>
+        <button data-tab="curl" onclick="switchTab('curl',this)">cURL</button>
       </div>
-      <div class="pg-output-body" id="outputBody">
+      <div class="output-body" id="outputBody">
         <div class="empty-state">
-          <div class="icon">&#9881;</div>
-          <h4>Select a skill to get started</h4>
-          <p style="font-size:12px;margin-top:4px">Pick a skill from the left, then view sample output for free.</p>
-          <p style="font-size:11px;margin-top:8px;color:var(--text-muted)">Switch to Live mode to execute with real credits.</p>
+          <div class="empty-state-icon">⚡</div>
+          <h4>Pick a skill to explore</h4>
+          <p>Select any skill from the left panel. No sign-in needed to preview sample output.</p>
+          <div class="how-it-works">
+            <div class="hiw-step">
+              <div class="hiw-num">1</div>
+              <div class="hiw-title">Choose a Skill</div>
+              <div class="hiw-desc">Browse the skill library or search by name</div>
+            </div>
+            <div class="hiw-step">
+              <div class="hiw-num">2</div>
+              <div class="hiw-title">Preview Free</div>
+              <div class="hiw-desc">See exactly what the skill returns — no credits</div>
+            </div>
+            <div class="hiw-step">
+              <div class="hiw-num">3</div>
+              <div class="hiw-title">Run Live</div>
+              <div class="hiw-desc">Switch to Live mode for real-time execution</div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
+
   </div>
 </div>
 
@@ -370,17 +465,30 @@
 <div class="modal-overlay" id="confirmModal">
   <div class="modal">
     <h3>
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--warning)" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-      Confirm Live Execution
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+      Confirm Live Run
     </h3>
-    <p>This will make a real API call and deduct credits from your balance. This action cannot be undone.</p>
-    <div class="cost-box">
-      <span class="cost-label">Credit Cost</span>
-      <span class="cost-value" id="confirmCost">-- cr</span>
+    <p class="modal-desc">This will execute the skill using real credits. The charge is non-refundable.</p>
+    <div class="modal-cost">
+      <div class="modal-cost-row">
+        <span class="modal-cost-label">Skill</span>
+        <span style="font-size:13px;color:var(--text-primary);font-weight:600" id="confirmSkillName">—</span>
+      </div>
+      <div class="modal-cost-row">
+        <span class="modal-cost-label">Cost</span>
+        <span class="modal-cost-val" id="confirmCost">— cr</span>
+      </div>
+      <div class="modal-cost-row">
+        <span class="modal-cost-label">Your balance after</span>
+        <span style="font-family:var(--font-mono);font-size:12px;color:var(--text-muted)" id="confirmBalance">— cr</span>
+      </div>
     </div>
     <div class="modal-actions">
-      <button class="btn btn-ghost" onclick="closeConfirmModal()">Cancel</button>
-      <button class="btn btn-danger" onclick="runLiveConfirmed()">Execute &amp; Deduct Credits</button>
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-run" onclick="runLiveConfirmed()">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+        Run &amp; Deduct Credits
+      </button>
     </div>
   </div>
 </div>
@@ -393,8 +501,8 @@
       <li><a href="/docs.html">Docs</a></li>
       <li><a href="/marketplace.html">Marketplace</a></li>
       <li><a href="/endpoints.html">Endpoints</a></li>
-      <li><a href="https://github.com/1xmint" target="_blank">GitHub</a></li>
-      <li><a href="https://t.me/claw_net" target="_blank">Telegram</a></li>
+      <li><a href="/terms.html">Terms</a></li>
+      <li><a href="/privacy.html">Privacy</a></li>
     </ul>
   </div>
   <div class="footer-copy">&copy; 2026 ClawNet &middot; Powered by x402</div>
@@ -407,23 +515,17 @@ const API = 'https://api.claw-net.org';
 let skills = [];
 let selectedSkill = null;
 let apiKey = localStorage.getItem('claw_api_key') || '';
+let userCredits = null;
 let lastResponse = null;
-let currentMode = 'sandbox'; // 'sandbox' or 'live'
+let currentMode = 'sandbox';
 let activeTypeFilter = 'all';
+let activeCodeLang = 'javascript';
+let activeOutputTab = 'formatted';
 
-// ── Theme ──────────────────────────────────────────────────────────
-function toggleTheme() {
-  const light = document.documentElement.getAttribute('data-theme') === 'light';
-  document.documentElement.setAttribute('data-theme', light ? '' : 'light');
-  localStorage.setItem('clawnet_theme', light ? 'dark' : 'light');
-}
+// ── Helpers ────────────────────────────────────────────────────────────
+function esc(s) { const d = document.createElement('div'); d.textContent = String(s ?? ''); return d.innerHTML; }
+function creditsToUsd(n) { const u = n * 0.001; return u < 0.01 ? '$' + u.toFixed(4).replace(/\.?0+$/, '') : '$' + u.toFixed(u >= 1 ? 2 : 3).replace(/\.?0+$/, ''); }
 
-// ── Mobile menu ────────────────────────────────────────────────────
-function toggleMobileMenu() {
-  document.getElementById('mobileMenu').classList.toggle('open');
-}
-
-// ── Toast ──────────────────────────────────────────────────────────
 function toast(msg, type = 'success') {
   const el = document.createElement('div');
   el.className = 'toast ' + type;
@@ -432,98 +534,161 @@ function toast(msg, type = 'success') {
   setTimeout(() => el.remove(), 4000);
 }
 
-function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
-function creditsToUsd(n) { const u = n * 0.001; return u < 0.01 ? '$' + u.toFixed(4).replace(/0+$/, '') : '$' + u.toFixed(u >= 1 ? 2 : 3).replace(/\.?0+$/, ''); }
-
-// ── Mode Toggle ────────────────────────────────────────────────────
-function setMode(mode) {
-  currentMode = mode;
-  const sandboxBtn = document.getElementById('modeSandbox');
-  const liveBtn = document.getElementById('modeLive');
-  const indicator = document.getElementById('modeIndicator');
-  const dot = document.getElementById('modeDot');
-  const label = document.getElementById('modeLabel');
-  const warning = document.getElementById('liveWarning');
-  const runBtn = document.getElementById('runBtn');
-
-  sandboxBtn.className = mode === 'sandbox' ? 'active-sandbox' : '';
-  liveBtn.className = mode === 'live' ? 'active-live' : '';
-
-  if (mode === 'sandbox') {
-    indicator.className = 'mode-indicator sandbox';
-    dot.className = 'mode-dot sandbox';
-    label.innerHTML = 'Sandbox Mode &mdash; free preview only';
-    warning.classList.remove('show');
-    runBtn.style.display = 'none';
-  } else {
-    if (!apiKey) {
-      toast('Sign in with an API key to use Live mode', 'warning');
-      setMode('sandbox');
-      return;
-    }
-    indicator.className = 'mode-indicator live';
-    dot.className = 'mode-dot live';
-    label.innerHTML = 'Live Mode &mdash; calls deduct credits';
-    warning.classList.add('show');
-    runBtn.style.display = '';
-    runBtn.disabled = false;
-  }
+// ── Theme / Menu ───────────────────────────────────────────────────────
+function toggleTheme() {
+  const light = document.documentElement.getAttribute('data-theme') === 'light';
+  document.documentElement.setAttribute('data-theme', light ? '' : 'light');
+  localStorage.setItem('clawnet_theme', light ? 'dark' : 'light');
 }
+function toggleMobileMenu() { document.getElementById('mobileMenu').classList.toggle('open'); }
 
-// ── Auth / Nav ─────────────────────────────────────────────────────
+// ── Auth / Nav ─────────────────────────────────────────────────────────
 async function initAuth() {
-  if (!apiKey) return;
+  if (!apiKey) { updateNavGuest(); return; }
   try {
     const r = await fetch(`${API}/v1/auth/me`, { headers: { 'X-API-Key': apiKey } });
-    if (!r.ok) { apiKey = ''; return; }
+    if (!r.ok) { apiKey = ''; localStorage.removeItem('claw_api_key'); updateNavGuest(); return; }
     const d = await r.json();
+    userCredits = d.credits ?? 0;
     document.getElementById('nav-credits-badge').classList.add('show');
-    document.getElementById('nav-credits-num').textContent = d.credits?.toLocaleString() ?? '0';
+    document.getElementById('nav-credits-num').textContent = userCredits.toLocaleString();
     if (d.email) { document.getElementById('nav-user-email').textContent = d.email; document.getElementById('nav-user-email').classList.add('show'); }
     document.getElementById('nav-login-btn').style.display = 'none';
     document.getElementById('nav-getkey-btn').style.display = 'none';
     document.getElementById('nav-dash-btn').classList.add('show');
     document.getElementById('nav-signout-btn').classList.add('show');
-  } catch {}
+    updateCreditHint();
+  } catch { updateNavGuest(); }
+}
+function updateNavGuest() {
+  userCredits = null;
+  document.getElementById('nav-credits-badge').classList.remove('show');
+  document.getElementById('nav-dash-btn').classList.remove('show');
+  document.getElementById('nav-signout-btn').classList.remove('show');
 }
 function navSignOut() { localStorage.removeItem('claw_api_key'); location.reload(); }
 
-// ── Status ─────────────────────────────────────────────────────────
+function applyInlineKey() {
+  const val = document.getElementById('inlineKeyInput').value.trim();
+  if (!val) { toast('Enter your API key first', 'error'); return; }
+  apiKey = val;
+  localStorage.setItem('claw_api_key', val);
+  document.getElementById('inlineApiKey').style.display = 'none';
+  initAuth().then(() => {
+    if (apiKey) { toast('Connected! You can now run skills live.', 'success'); updateRunButtons(); }
+    else toast('Invalid API key — check and try again', 'error');
+  });
+}
+
+// ── Status ─────────────────────────────────────────────────────────────
 async function checkStatus() {
   try {
     const r = await fetch(`${API}/health`);
     document.getElementById('statusDot').classList.toggle('ok', r.ok);
+    document.getElementById('statusDot').classList.toggle('err', !r.ok);
     document.getElementById('statusLabel').textContent = r.ok ? 'Operational' : 'Degraded';
-  } catch { document.getElementById('statusLabel').textContent = 'Offline'; document.getElementById('statusDot').classList.add('err'); }
-}
-
-// ── Load Skills ────────────────────────────────────────────────────
-async function loadSkills() {
-  try {
-    const r = await fetch(`${API}/v1/skills?limit=100`);
-    if (!r.ok) throw new Error('Failed to load');
-    const d = await r.json();
-    skills = d.skills || [];
-    renderSkillList(getFilteredSkills());
-
-    // Auto-select from URL param
-    const params = new URLSearchParams(location.search);
-    const preselect = params.get('skill') || params.get('id');
-    if (preselect) {
-      const match = skills.find(s => s.id === preselect || s.name === preselect);
-      if (match) selectSkill(match);
-    }
-  } catch (e) {
-    document.getElementById('skillList').innerHTML = `<div style="padding:20px;text-align:center;color:var(--danger);font-size:12px">Failed to load skills</div>`;
+  } catch {
+    document.getElementById('statusLabel').textContent = 'Offline';
+    document.getElementById('statusDot').classList.add('err');
   }
 }
 
-function getFilteredSkills() {
+// ── Mode Toggle ────────────────────────────────────────────────────────
+function setMode(mode) {
+  if (mode === 'live' && !apiKey) {
+    // Don't hard-redirect — show inline key prompt instead
+    currentMode = 'live';
+    applyModeUI('live');
+    if (selectedSkill) document.getElementById('inlineApiKey').style.display = '';
+    toast('Enter your API key below to run skills live', 'warning');
+    return;
+  }
+  currentMode = mode;
+  applyModeUI(mode);
+  if (selectedSkill) updateRunButtons();
+}
+
+function applyModeUI(mode) {
+  document.getElementById('modeSandbox').className = mode === 'sandbox' ? 'active-sandbox' : '';
+  document.getElementById('modeLive').className = mode === 'live' ? 'active-live' : '';
+  const indicator = document.getElementById('modeIndicator');
+  const dot = document.getElementById('modeDot');
+  const label = document.getElementById('modeLabel');
+  const banner = document.getElementById('liveBanner');
+  if (mode === 'sandbox') {
+    indicator.className = 'mode-indicator sandbox';
+    dot.className = 'mode-dot sandbox';
+    label.textContent = 'Sandbox — preview sample outputs for free';
+    banner.classList.remove('show');
+  } else {
+    indicator.className = 'mode-indicator live';
+    dot.className = 'mode-dot live';
+    label.textContent = 'Live — calls deduct real credits';
+    banner.classList.add('show');
+  }
+}
+
+function updateRunButtons() {
+  const previewBtn = document.getElementById('previewBtn');
+  const runBtn = document.getElementById('runBtn');
+  const inlineKey = document.getElementById('inlineApiKey');
+  if (!selectedSkill) return;
+
+  if (currentMode === 'live' && apiKey) {
+    runBtn.style.display = '';
+    runBtn.textContent = '';
+    runBtn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg> Run Skill — ${selectedSkill.creditCost} cr`;
+    inlineKey.style.display = 'none';
+  } else if (currentMode === 'live' && !apiKey) {
+    runBtn.style.display = 'none';
+    inlineKey.style.display = '';
+  } else {
+    runBtn.style.display = 'none';
+    inlineKey.style.display = 'none';
+  }
+  updateCreditHint();
+}
+
+function updateCreditHint() {
+  const hint = document.getElementById('creditHint');
+  if (!hint || !selectedSkill) return;
+  const cost = selectedSkill.creditCost;
+  let html = `<span class="free">Preview: free</span>`;
+  if (currentMode === 'live') {
+    html += ` &nbsp;·&nbsp; <span class="live">Live: ${cost} cr (${creditsToUsd(cost)})</span>`;
+    if (userCredits !== null) {
+      const calls = Math.floor(userCredits / cost);
+      html += ` &nbsp;·&nbsp; <span class="calc">You have ${userCredits.toLocaleString()} cr = ${calls} calls</span>`;
+    }
+  }
+  hint.innerHTML = html;
+}
+
+// ── Load Skills ────────────────────────────────────────────────────────
+async function loadSkills() {
+  try {
+    const r = await fetch(`${API}/v1/skills?limit=100`);
+    if (!r.ok) throw new Error();
+    const d = await r.json();
+    skills = d.skills || [];
+    renderSkillList(getFiltered());
+    const params = new URLSearchParams(location.search);
+    const pre = params.get('skill') || params.get('id');
+    if (pre) {
+      const match = skills.find(s => s.id === pre || s.name === pre);
+      if (match) selectSkill(match);
+    }
+  } catch {
+    document.getElementById('skillList').innerHTML = '<div class="no-skills" style="color:var(--danger)">Failed to load skills — check your connection</div>';
+  }
+}
+
+function getFiltered() {
   const q = document.getElementById('skillSearch').value.toLowerCase().trim();
   return skills.filter(s => {
-    const matchesText = !q || (s.displayName || s.name).toLowerCase().includes(q) || (s.description || '').toLowerCase().includes(q);
-    const matchesType = activeTypeFilter === 'all' || s.skillType === activeTypeFilter;
-    return matchesText && matchesType;
+    const matchText = !q || (s.displayName || s.name).toLowerCase().includes(q) || (s.description || '').toLowerCase().includes(q);
+    const matchType = activeTypeFilter === 'all' || s.skillType === activeTypeFilter;
+    return matchText && matchType;
   });
 }
 
@@ -531,166 +696,223 @@ function setTypeFilter(type, btn) {
   activeTypeFilter = type;
   document.querySelectorAll('#typeFilter button').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
-  renderSkillList(getFilteredSkills());
+  renderSkillList(getFiltered());
 }
+
+function filterSkills() { renderSkillList(getFiltered()); }
 
 function renderSkillList(list) {
   const el = document.getElementById('skillList');
-  if (list.length === 0) { el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12px">No skills found</div>'; return; }
+  if (!list.length) { el.innerHTML = '<div class="no-skills">No skills found</div>'; return; }
   el.innerHTML = list.map(s => {
     const typeCls = s.skillType === 'data' ? 'data' : s.skillType === 'api_proxy' ? 'api_proxy' : 'prompt';
     const typeLbl = s.skillType === 'data' ? 'DATA' : s.skillType === 'api_proxy' ? 'PROXY' : 'PROMPT';
     const sel = selectedSkill && selectedSkill.id === s.id ? ' selected' : '';
     return `<div class="pg-skill-item${sel}" onclick="selectSkillById('${esc(s.id)}')">
-      <div class="sk-name"><span class="skill-type-badge ${typeCls}" style="margin-right:6px">${typeLbl}</span>${esc(s.displayName || s.name)}</div>
-      <div class="sk-meta">${s.creditCost} cr (${creditsToUsd(s.creditCost)}) &middot; ${(s.uses||0).toLocaleString()} uses</div>
+      <div class="sk-name"><span class="skill-type-badge ${typeCls}">${typeLbl}</span>${esc(s.displayName || s.name)}</div>
+      <div class="sk-meta">${s.creditCost} cr &nbsp;·&nbsp; ${(s.uses || 0).toLocaleString()} uses</div>
     </div>`;
   }).join('');
 }
 
-function filterSkills() {
-  renderSkillList(getFilteredSkills());
-}
-
-// ── Select Skill ───────────────────────────────────────────────────
-function selectSkillById(id) {
-  const s = skills.find(sk => sk.id === id);
-  if (s) selectSkill(s);
-}
+// ── Select Skill ───────────────────────────────────────────────────────
+function selectSkillById(id) { const s = skills.find(sk => sk.id === id); if (s) selectSkill(s); }
 
 async function selectSkill(skill) {
   selectedSkill = skill;
-  renderSkillList(getFilteredSkills());
+  renderSkillList(getFiltered());
 
-  // Fetch full detail from marketplace
   let detail = skill;
   try {
     const r = await fetch(`${API}/v1/marketplace/skills/${encodeURIComponent(skill.id)}`);
     if (r.ok) detail = await r.json();
   } catch {}
-
   selectedSkill = { ...skill, ...detail };
 
-  // Show info bar
-  const info = document.getElementById('skillInfo');
-  info.classList.add('show');
-  document.getElementById('siName').textContent = detail.displayName || detail.name;
-  document.getElementById('siDesc').textContent = detail.description || '';
-  const typeLbl = detail.skillType === 'data' ? 'Data Skill' : detail.skillType === 'api_proxy' ? 'API Proxy' : 'Prompt Template';
-  document.getElementById('siMeta').innerHTML = `
-    <span>${typeLbl}</span>
-    <span>${detail.creditCost} cr/call</span>
-    <span>${(detail.uses || 0).toLocaleString()} uses</span>
-    ${detail.updateFrequency ? `<span style="color:var(--info)">&#8635; ${esc(detail.updateFrequency)}</span>` : ''}
-    ${detail.healthStatus && detail.healthStatus !== 'HEALTHY' ? `<span style="color:var(--warning)">${esc(detail.healthStatus)}</span>` : ''}
-  `;
+  // Skill info card
+  const card = document.getElementById('skillInfoCard');
+  card.classList.add('show');
+  document.getElementById('sicName').textContent = detail.displayName || detail.name;
+  document.getElementById('sicDesc').textContent = detail.description || '';
+  const typeLbl = { data: 'Data Skill', api_proxy: 'API Proxy', prompt_template: 'Prompt Template' }[detail.skillType] || detail.skillType;
+  const chips = [
+    `<span class="sic-chip cost">💰 ${detail.creditCost} cr (${creditsToUsd(detail.creditCost)})</span>`,
+    `<span class="sic-chip">${esc(typeLbl)}</span>`,
+    detail.updateFrequency ? `<span class="sic-chip freq">↻ ${esc(detail.updateFrequency)}</span>` : '',
+    `<span class="sic-chip uses">${(detail.uses || 0).toLocaleString()} uses</span>`,
+  ].filter(Boolean).join('');
+  document.getElementById('sicChips').innerHTML = chips;
 
   // Build params form
-  buildParamsForm(detail);
+  buildParamsForm(selectedSkill);
 
-  // Update cost hint
-  const hint = document.getElementById('costHint');
-  hint.innerHTML = `<span class="free">Sample output: free</span> &middot; <span class="live">Live execution: ${detail.creditCost} credits (${creditsToUsd(detail.creditCost)})</span>`;
-  if (!apiKey) hint.innerHTML += `<br><span style="color:var(--text-muted);font-size:10px">Sign in with an API key to enable live mode</span>`;
+  // Show params panel
+  document.getElementById('paramsPanel').style.display = '';
+
+  // Update run buttons
+  updateRunButtons();
+  updateCreditHint();
 
   // Update URL
   history.replaceState(null, '', `?skill=${encodeURIComponent(skill.id)}`);
 
-  // Show sample by default
+  // Auto-show sample
   showSampleOutput();
 }
 
+// ── Build Params Form ──────────────────────────────────────────────────
 function buildParamsForm(skill) {
-  const panel = document.getElementById('paramsPanel');
-  panel.style.display = '';
   const form = document.getElementById('paramsForm');
-
-  // Get variables from input schema or prompt template
   const schema = skill.inputSchema;
   const vars = [];
 
   if (schema && schema.properties) {
     for (const [key, prop] of Object.entries(schema.properties)) {
       const required = (schema.required || []).includes(key);
-      vars.push({ name: key, type: prop.type || 'string', description: prop.description || '', required, default: prop.default || '' });
+      vars.push({ name: key, type: prop.type || 'string', description: prop.description || '', required, default: prop.default ?? '', enum: prop.enum, minimum: prop.minimum, maximum: prop.maximum, example: prop.example });
     }
   } else if (skill.skillType === 'data') {
-    // Data skills take query params
-    vars.push({ name: 'params', type: 'text', description: 'Query parameters (key=value, one per line)', required: false, default: '' });
+    vars.push({ name: 'params', type: 'text', description: 'Optional query parameters. Enter one per line as key=value (e.g. limit=10)', required: false, default: '' });
+  } else if (skill.skillType === 'prompt_template') {
+    vars.push({ name: 'query', type: 'string', description: 'Your prompt or question to send to this skill', required: true, default: '' });
   }
 
-  if (vars.length === 0) {
-    form.innerHTML = '<div style="font-size:12px;color:var(--text-muted)">This skill requires no input parameters.</div>';
+  if (!vars.length) {
+    form.innerHTML = '<p class="params-empty">This skill takes no input — just hit Preview or Run.</p>';
+    document.getElementById('tryExampleBtn').style.display = 'none';
     return;
   }
 
-  form.innerHTML = vars.map(v => {
-    const isTextarea = v.type === 'text' || v.description.length > 50;
-    return `<div class="form-group">
-      <label>${esc(v.name)} ${v.required ? '<span class="req">*</span>' : ''} ${v.description ? `<span style="font-size:10px;color:var(--text-muted);font-weight:400"> &mdash; ${esc(v.description)}</span>` : ''}</label>
-      ${isTextarea
-        ? `<textarea id="param-${esc(v.name)}" placeholder="${esc(v.default || v.name)}">${esc(v.default || '')}</textarea>`
-        : `<input type="text" id="param-${esc(v.name)}" placeholder="${esc(v.default || v.name)}" value="${esc(v.default || '')}">`
-      }
-    </div>`;
-  }).join('');
+  document.getElementById('tryExampleBtn').style.display = '';
+  form.innerHTML = vars.map(v => buildParamCard(v)).join('');
 }
 
-// ── Sample Output ──────────────────────────────────────────────────
+function buildParamCard(v) {
+  const reqBadge = v.required ? '<span class="param-req">Required</span>' : '<span class="param-opt">Optional</span>';
+  const typeBadge = `<span class="param-type">${esc(v.type)}</span>`;
+
+  let input = '';
+  if (v.type === 'boolean') {
+    input = `<div class="bool-toggle">
+      <button id="param-${esc(v.name)}-true" class="active-true" onclick="setBool('${esc(v.name)}', true, this)">true</button>
+      <button id="param-${esc(v.name)}-false" onclick="setBool('${esc(v.name)}', false, this)">false</button>
+    </div>
+    <input type="hidden" id="param-${esc(v.name)}" value="true">`;
+  } else if (v.enum && v.enum.length) {
+    const opts = v.enum.map(opt => `<option value="${esc(opt)}" ${String(v.default) === String(opt) ? 'selected' : ''}>${esc(opt)}</option>`).join('');
+    input = `<select id="param-${esc(v.name)}" class="param-input">${opts}</select>`;
+  } else if (v.type === 'text' || (v.description && v.description.length > 60)) {
+    input = `<textarea id="param-${esc(v.name)}" class="param-input" placeholder="${esc(v.example || v.default || v.name)}">${esc(v.default || '')}</textarea>`;
+  } else {
+    const inputType = v.type === 'number' || v.type === 'integer' ? 'number' : 'text';
+    const extra = v.minimum !== undefined ? `min="${v.minimum}"` : '';
+    const extra2 = v.maximum !== undefined ? `max="${v.maximum}"` : '';
+    input = `<input type="${inputType}" id="param-${esc(v.name)}" class="param-input" placeholder="${esc(v.example !== undefined ? String(v.example) : (v.default !== '' ? String(v.default) : v.name))}" value="${esc(v.default !== '' ? String(v.default) : '')}" ${extra} ${extra2}>`;
+  }
+
+  let hint = '';
+  if (v.minimum !== undefined || v.maximum !== undefined) hint = `Range: ${v.minimum ?? '—'} – ${v.maximum ?? '—'}`;
+  if (v.example !== undefined) hint = hint ? hint + ` &nbsp;·&nbsp; Example: ${esc(String(v.example))}` : `Example: ${esc(String(v.example))}`;
+
+  return `<div class="param-card">
+    <div class="param-label-row">
+      <span class="param-name">${esc(v.name)}</span>
+      ${reqBadge}
+      ${typeBadge}
+    </div>
+    ${v.description ? `<div class="param-desc">${esc(v.description)}</div>` : ''}
+    ${input}
+    ${hint ? `<div class="param-hint">${hint}</div>` : ''}
+  </div>`;
+}
+
+function setBool(name, val, btn) {
+  document.getElementById('param-' + name).value = val;
+  const trueBtn = document.getElementById('param-' + name + '-true');
+  const falseBtn = document.getElementById('param-' + name + '-false');
+  trueBtn.className = val ? 'active-true' : '';
+  falseBtn.className = val ? '' : 'active-false';
+}
+
+function tryExample() {
+  if (!selectedSkill) return;
+  const schema = selectedSkill.inputSchema;
+  if (schema && schema.properties) {
+    for (const [key, prop] of Object.entries(schema.properties)) {
+      const el = document.getElementById('param-' + key);
+      if (!el) continue;
+      const ex = prop.example !== undefined ? prop.example : (prop.default !== undefined ? prop.default : (prop.enum ? prop.enum[0] : null));
+      if (ex !== null && ex !== undefined) el.value = ex;
+    }
+  } else if (selectedSkill.skillType === 'data') {
+    const el = document.getElementById('param-params');
+    if (el) el.value = 'limit=10\nsortBy=volume';
+  } else if (selectedSkill.skillType === 'prompt_template') {
+    const el = document.getElementById('param-query');
+    if (el && !el.value) el.value = 'Give me a quick summary';
+  }
+  toast('Example values filled in', 'success');
+}
+
+// ── Sample Output ──────────────────────────────────────────────────────
 function showSampleOutput() {
   if (!selectedSkill) return;
   const s = selectedSkill;
   const sample = s.sampleOutput;
 
-  const meta = document.getElementById('outputMeta');
-  meta.innerHTML = '<span class="tag sample">Sample Output</span><span>Free &mdash; no credits charged</span>';
-
-  const tabs = document.getElementById('outputTabs');
-  tabs.style.display = 'flex';
+  document.getElementById('outputMeta').innerHTML = '<span class="tag sample">Sample</span><span>Free preview — no credits charged</span>';
+  document.getElementById('outputTabs').style.display = 'flex';
 
   if (!sample) {
-    document.getElementById('outputBody').innerHTML = `<div class="empty-state"><div class="icon">&#128196;</div><h4>No sample output available</h4><p style="font-size:12px;margin-top:4px">This skill doesn't have sample output defined. Switch to Live mode to execute it.</p></div>`;
+    document.getElementById('outputBody').innerHTML = `<div class="empty-state">
+      <div class="empty-state-icon">📄</div>
+      <h4>No sample output defined</h4>
+      <p>Switch to Live mode and run the skill to see real output.</p>
+    </div>`;
     return;
   }
 
   const json = typeof sample === 'string' ? sample : JSON.stringify(sample, null, 2);
   lastResponse = { type: 'sample', data: sample, json, skill: s };
-  renderOutput('formatted');
+  renderOutput(activeOutputTab);
 }
 
-// ── Live Execution ─────────────────────────────────────────────────
+// ── Live Execution ─────────────────────────────────────────────────────
 function confirmRunLive() {
-  if (!selectedSkill || !apiKey) { toast('Sign in with an API key first', 'error'); return; }
+  if (!selectedSkill) return;
+  if (!apiKey) { toast('Enter your API key first', 'error'); return; }
   if (currentMode !== 'live') { toast('Switch to Live mode first', 'warning'); return; }
 
-  document.getElementById('confirmCost').textContent = selectedSkill.creditCost + ' credits (' + creditsToUsd(selectedSkill.creditCost) + ')';
+  const s = selectedSkill;
+  document.getElementById('confirmSkillName').textContent = s.displayName || s.name;
+  document.getElementById('confirmCost').textContent = `${s.creditCost} credits (${creditsToUsd(s.creditCost)})`;
+  const after = userCredits !== null ? `${Math.max(0, userCredits - s.creditCost).toLocaleString()} cr` : '— cr';
+  document.getElementById('confirmBalance').textContent = after;
   document.getElementById('confirmModal').classList.add('show');
 }
 
-function closeConfirmModal() {
-  document.getElementById('confirmModal').classList.remove('show');
-}
+function closeModal() { document.getElementById('confirmModal').classList.remove('show'); }
 
 async function runLiveConfirmed() {
-  closeConfirmModal();
+  closeModal();
   if (!selectedSkill || !apiKey) return;
   const s = selectedSkill;
-  const btn = document.getElementById('runBtn');
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span> Executing...';
+  const runBtn = document.getElementById('runBtn');
+  runBtn.disabled = true;
+  runBtn.innerHTML = '<span class="spinner"></span> Running...';
 
-  const meta = document.getElementById('outputMeta');
-  meta.innerHTML = '<span class="tag live">Live</span><span>Executing...</span>';
+  document.getElementById('outputMeta').innerHTML = '<span class="tag live">Live</span><span>Executing...</span>';
+  document.getElementById('outputTabs').style.display = 'flex';
 
   try {
-    let url, method, body, headers = { 'X-API-Key': apiKey, 'Content-Type': 'application/json' };
+    let url, method = 'POST', body;
+    const headers = { 'X-API-Key': apiKey, 'Content-Type': 'application/json' };
 
     if (s.skillType === 'data') {
       const paramsEl = document.getElementById('param-params');
       let qs = '';
       if (paramsEl && paramsEl.value.trim()) {
-        const lines = paramsEl.value.trim().split('\n');
-        const pairs = lines.map(l => l.trim()).filter(Boolean).map(l => {
+        const pairs = paramsEl.value.trim().split('\n').map(l => l.trim()).filter(Boolean).map(l => {
           const [k, ...v] = l.split('=');
           return encodeURIComponent(k.trim()) + '=' + encodeURIComponent(v.join('=').trim());
         });
@@ -701,7 +923,6 @@ async function runLiveConfirmed() {
       body = undefined;
     } else {
       url = `${API}/v1/skills/${encodeURIComponent(s.id)}/invoke`;
-      method = 'POST';
       const variables = {};
       const schema = s.inputSchema;
       if (schema && schema.properties) {
@@ -709,6 +930,9 @@ async function runLiveConfirmed() {
           const el = document.getElementById('param-' + key);
           if (el && el.value.trim()) variables[key] = el.value.trim();
         }
+      } else {
+        const el = document.getElementById('param-query');
+        if (el && el.value.trim()) variables['query'] = el.value.trim();
       }
       body = JSON.stringify({ variables });
     }
@@ -719,83 +943,120 @@ async function runLiveConfirmed() {
     const data = await r.json();
 
     if (!r.ok) {
-      meta.innerHTML = `<span class="tag error">Error ${r.status}</span><span>${elapsed}ms</span>`;
-      lastResponse = { type: 'error', data, json: JSON.stringify(data, null, 2), skill: s, elapsed, status: r.status };
+      document.getElementById('outputMeta').innerHTML = `<span class="tag error">Error ${r.status}</span><span>${elapsed}ms</span>`;
+      lastResponse = { type: 'error', data, json: JSON.stringify(data, null, 2), skill: s, elapsed };
+      toast(`Error ${r.status}: ${data.error || 'Execution failed'}`, 'error');
     } else {
       const credits = data.creditsCost || data.creditsCharged || s.creditCost;
-      meta.innerHTML = `<span class="tag live">Live Response</span><span>${elapsed}ms</span><span>${credits} cr charged</span>`;
-      lastResponse = { type: 'live', data, json: JSON.stringify(data, null, 2), skill: s, elapsed, status: r.status };
-      toast(`Executed successfully — ${credits} credits charged`, 'success');
-      initAuth();
+      document.getElementById('outputMeta').innerHTML = `<span class="tag live">Live</span><span>${elapsed}ms</span><span>${credits} cr charged</span>`;
+      lastResponse = { type: 'live', data, json: JSON.stringify(data, null, 2), skill: s, elapsed };
+      toast(`Success — ${credits} credits charged`, 'success');
+      initAuth(); // refresh credit count
     }
 
-    renderOutput('formatted');
+    renderOutput(activeOutputTab);
   } catch (e) {
-    meta.innerHTML = '<span class="tag error">Network Error</span>';
-    document.getElementById('outputBody').innerHTML = `<pre style="color:var(--danger)">${esc(e.message)}</pre>`;
+    document.getElementById('outputMeta').innerHTML = '<span class="tag error">Network Error</span>';
+    document.getElementById('outputBody').innerHTML = `<div style="padding:20px"><pre style="color:var(--danger)">${esc(e.message)}</pre></div>`;
   } finally {
-    btn.disabled = false;
-    btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg> Execute Live`;
+    runBtn.disabled = false;
+    runBtn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg> Run Skill — ${s.creditCost} cr`;
   }
 }
 
-// ── Render Output ──────────────────────────────────────────────────
-function renderOutput(tab) {
-  if (!lastResponse) return;
-  const body = document.getElementById('outputBody');
-  const { type, data, json, skill, elapsed, status } = lastResponse;
-
-  if (tab === 'formatted') {
-    body.innerHTML = `<div style="position:relative"><button class="copy-btn" onclick="copyOutput()">Copy</button><pre>${syntaxHighlight(json)}</pre></div>`;
-  } else if (tab === 'raw') {
-    body.innerHTML = `<div style="position:relative"><button class="copy-btn" onclick="copyOutput()">Copy</button><pre>${esc(json)}</pre></div>`;
-  } else if (tab === 'curl') {
-    let curl;
-    if (skill.skillType === 'data') {
-      curl = `curl "${API}/v1/skills/${skill.id}/query" \\\n  -H "X-API-Key: YOUR_KEY"`;
-    } else {
-      const vars = {};
-      const schema = skill.inputSchema;
-      if (schema && schema.properties) {
-        for (const key of Object.keys(schema.properties)) {
-          const el = document.getElementById('param-' + key);
-          vars[key] = el ? el.value.trim() || key : key;
-        }
-      }
-      curl = `curl -X POST "${API}/v1/skills/${skill.id}/invoke" \\\n  -H "X-API-Key: YOUR_KEY" \\\n  -H "Content-Type: application/json" \\\n  -d '${JSON.stringify({ variables: vars })}'`;
-    }
-    body.innerHTML = `<div style="position:relative"><button class="copy-btn" onclick="copyOutput()">Copy</button><pre>${esc(curl)}</pre></div>`;
-  }
-}
-
-function switchOutputTab(tab, btn) {
+// ── Output Rendering ───────────────────────────────────────────────────
+function switchTab(tab, btn) {
+  activeOutputTab = tab;
   document.querySelectorAll('#outputTabs button').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
   renderOutput(tab);
 }
 
+function renderOutput(tab) {
+  if (!lastResponse) return;
+  const body = document.getElementById('outputBody');
+  const { json, skill, elapsed } = lastResponse;
+
+  if (tab === 'formatted') {
+    body.innerHTML = `<button class="copy-btn" onclick="copyOutput()">Copy</button><pre>${syntaxHighlight(json)}</pre>`;
+  } else if (tab === 'raw') {
+    body.innerHTML = `<button class="copy-btn" onclick="copyOutput()">Copy</button><pre>${esc(json)}</pre>`;
+  } else if (tab === 'code') {
+    body.innerHTML = buildCodeSnippet(skill);
+  } else if (tab === 'curl') {
+    body.innerHTML = `<button class="copy-btn" onclick="copyOutput()">Copy</button><pre>${esc(buildCurl(skill))}</pre>`;
+  }
+}
+
+function buildCurl(skill) {
+  if (skill.skillType === 'data') {
+    return `curl "${API}/v1/skills/${skill.id}/query" \\\n  -H "X-API-Key: YOUR_API_KEY"`;
+  }
+  const vars = collectVars(skill);
+  return `curl -X POST "${API}/v1/skills/${skill.id}/invoke" \\\n  -H "X-API-Key: YOUR_API_KEY" \\\n  -H "Content-Type: application/json" \\\n  -d '${JSON.stringify({ variables: vars }, null, 2)}'`;
+}
+
+function collectVars(skill) {
+  const vars = {};
+  const schema = skill.inputSchema;
+  if (schema && schema.properties) {
+    for (const key of Object.keys(schema.properties)) {
+      const el = document.getElementById('param-' + key);
+      if (el) vars[key] = el.value.trim() || `<${key}>`;
+    }
+  }
+  return vars;
+}
+
+function buildCodeSnippet(skill) {
+  const isData = skill.skillType === 'data';
+  const url = isData ? `${API}/v1/skills/${skill.id}/query` : `${API}/v1/skills/${skill.id}/invoke`;
+  const vars = isData ? null : collectVars(skill);
+
+  const js = isData
+    ? `const res = await fetch('${url}', {\n  headers: { 'X-API-Key': YOUR_API_KEY }\n});\nconst data = await res.json();\nconsole.log(data);`
+    : `const res = await fetch('${url}', {\n  method: 'POST',\n  headers: {\n    'X-API-Key': YOUR_API_KEY,\n    'Content-Type': 'application/json'\n  },\n  body: JSON.stringify({ variables: ${JSON.stringify(vars, null, 4)} })\n});\nconst data = await res.json();\nconsole.log(data);`;
+
+  const py = isData
+    ? `import requests\n\nres = requests.get(\n  '${url}',\n  headers={'X-API-Key': YOUR_API_KEY}\n)\nprint(res.json())`
+    : `import requests\n\nres = requests.post(\n  '${url}',\n  headers={\n    'X-API-Key': YOUR_API_KEY,\n    'Content-Type': 'application/json'\n  },\n  json={'variables': ${JSON.stringify(vars, null, 4)}}\n)\nprint(res.json())`;
+
+  const snippets = { javascript: js, python: py };
+
+  return `<div class="snippet-lang-tabs">
+    <button class="${activeCodeLang === 'javascript' ? 'active' : ''}" onclick="switchCodeLang('javascript',this)">JavaScript</button>
+    <button class="${activeCodeLang === 'python' ? 'active' : ''}" onclick="switchCodeLang('python',this)">Python</button>
+  </div>
+  <button class="copy-btn" onclick="copyOutput()">Copy</button>
+  <pre id="codeSnippetPre">${esc(snippets[activeCodeLang])}</pre>`;
+}
+
+function switchCodeLang(lang, btn) {
+  activeCodeLang = lang;
+  document.querySelectorAll('.snippet-lang-tabs button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  if (lastResponse) renderOutput('code');
+}
+
 function copyOutput() {
   const pre = document.querySelector('#outputBody pre');
-  if (pre) { navigator.clipboard.writeText(pre.textContent); toast('Copied to clipboard'); }
+  if (pre) { navigator.clipboard.writeText(pre.textContent).then(() => toast('Copied to clipboard')); }
 }
 
 function syntaxHighlight(json) {
-  return esc(json).replace(/"([^"]+)":/g, '<span style="color:var(--info)">"$1"</span>:')
-    .replace(/"([^"]+)"/g, '<span style="color:var(--accent-text)">"$1"</span>')
+  return esc(json)
+    .replace(/"([^"]+)":/g, '<span style="color:var(--info)">"$1"</span>:')
+    .replace(/: "([^"]*)"/g, ': <span style="color:var(--accent-text)">"$1"</span>')
     .replace(/\b(true|false)\b/g, '<span style="color:var(--purple)">$1</span>')
     .replace(/\b(null)\b/g, '<span style="color:var(--text-muted)">$1</span>')
-    .replace(/\b(\d+\.?\d*)\b/g, '<span style="color:var(--warning)">$1</span>');
+    .replace(/(?<!["\w])-?\b(\d+\.?\d*)\b/g, '<span style="color:var(--warning)">$1</span>');
 }
 
-// Close modal on overlay click or Escape
-document.getElementById('confirmModal').addEventListener('click', function(e) {
-  if (e.target === this) closeConfirmModal();
-});
-document.addEventListener('keydown', function(e) {
-  if (e.key === 'Escape') closeConfirmModal();
-});
+// ── Close modal on backdrop / Escape ──────────────────────────────────
+document.getElementById('confirmModal').addEventListener('click', e => { if (e.target.id === 'confirmModal') closeModal(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 
-// ── Init ───────────────────────────────────────────────────────────
+// ── Init ───────────────────────────────────────────────────────────────
 checkStatus();
 initAuth();
 loadSkills();
