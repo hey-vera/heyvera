@@ -87,13 +87,18 @@
     .pg-hero p{color:var(--text-tertiary);font-size:14px;max-width:520px;margin:0 auto}
 
     /* ── MODE BAR ────────────────────────────────────────────────────── */
-    .mode-bar{display:flex;align-items:center;justify-content:center;gap:16px;padding:20px 0 8px;flex-wrap:wrap}
-    .mode-toggle{display:flex;background:var(--bg-surface);border:1px solid var(--border-default);border-radius:9999px;overflow:hidden}
-    .mode-toggle button{font-family:var(--font-sans);font-size:13px;font-weight:600;padding:8px 22px;border:none;cursor:pointer;transition:all .2s;background:transparent;color:var(--text-muted);display:flex;align-items:center;gap:6px}
+    .mode-bar{text-align:center;padding:20px 0 8px}
+    .mode-bar-row{display:flex;align-items:center;justify-content:center;gap:16px}
+    .mode-toggle{display:inline-flex;background:var(--bg-surface);border:1px solid var(--border-default);border-radius:9999px;overflow:hidden}
+    .mode-toggle button{font-family:var(--font-sans);font-size:13px;font-weight:600;padding:8px 22px;border:none;cursor:pointer;transition:all .2s;background:transparent;color:var(--text-muted);display:flex;align-items:center;gap:6px;min-width:110px;justify-content:center}
     .mode-toggle button.active-sandbox{background:var(--accent-dim);color:var(--accent)}
     .mode-toggle button.active-live{background:var(--danger-dim);color:var(--danger)}
     .mode-label{font-size:12px;font-weight:500;color:var(--text-muted)}
-    .live-warning{background:var(--danger-dim);border:1px solid rgba(239,68,68,.2);border-radius:var(--radius-md);padding:10px 16px;margin-top:10px;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--danger);font-weight:500;max-width:600px;margin-left:auto;margin-right:auto}
+    .mode-bar-sub{margin-top:10px;display:flex;align-items:center;justify-content:center;gap:12px;min-height:38px;flex-wrap:wrap}
+    .live-warning{background:var(--danger-dim);border:1px solid rgba(239,68,68,.2);border-radius:var(--radius-md);padding:8px 14px;display:inline-flex;align-items:center;gap:8px;font-size:12px;color:var(--danger);font-weight:500}
+    .mode-key-badge{display:inline-flex;align-items:center;gap:6px;font-family:var(--font-mono);font-size:11px;padding:6px 12px;border-radius:9999px;border:1px solid var(--border-default);background:var(--bg-surface)}
+    .mode-key-badge.sandbox{color:var(--accent);border-color:rgba(16,185,129,.2)}
+    .mode-key-badge.live{color:var(--danger);border-color:rgba(239,68,68,.2)}
 
     /* ── SECTION TABS ────────────────────────────────────────────────── */
     .pg-tabs{display:flex;gap:0;border-bottom:1px solid var(--border-default);margin-bottom:28px}
@@ -300,14 +305,15 @@
     <p>Try any skill for free, test every endpoint live, and copy working code — all from your browser.</p>
   </div>
   <div class="mode-bar">
-    <div class="mode-toggle">
-      <button id="modeSandbox" class="active-sandbox" onclick="setMode('sandbox')"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>Sandbox</button>
-      <button id="modeLive" onclick="setMode('live')"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>Live</button>
+    <div class="mode-bar-row">
+      <div class="mode-toggle">
+        <button id="modeSandbox" class="active-sandbox" onclick="setMode('sandbox')"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>Sandbox</button>
+        <button id="modeLive" onclick="setMode('live')"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>Live</button>
+      </div>
+      <span class="mode-label" id="modeLabel">Free preview — no sign-in needed</span>
     </div>
-    <span class="mode-label" id="modeLabel">Free preview — no sign-in needed</span>
-    <div class="live-warning" id="liveWarning" style="display:none">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-      Live mode — API calls deduct real credits from your account
+    <div class="mode-bar-sub" id="modeBarSub">
+      <span class="mode-key-badge sandbox" id="modeKeyBadge"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>cn-sandbox-demo-xxxx</span>
     </div>
   </div>
 
@@ -408,7 +414,7 @@ function applyInlineKey(){
   if(!v){toast('Enter your API key','error');return}
   apiKey=v;localStorage.setItem('claw_api_key',v);
   document.querySelector('.inline-key')?.remove();
-  initAuth().then(()=>{if(apiKey){toast('Connected! Live mode ready.','success');if(selectedSkill)renderSkillDetail(selectedSkill)}else toast('Invalid API key','error')});
+  initAuth().then(()=>{if(apiKey){toast('Connected! Live mode ready.','success');updateModeKeyBadge();if(selectedSkill)renderSkillDetail(selectedSkill)}else toast('Invalid API key','error')});
 }
 
 // ── Status ───────────────────────────────────────────────────────────
@@ -421,8 +427,22 @@ function setMode(m){
   document.getElementById('modeLive').className=m==='live'?'active-live':'';
   document.getElementById('modeLabel').textContent=m==='sandbox'?'Free preview — no sign-in needed':'Live mode — real API calls, real credits';
   document.getElementById('modeLabel').style.color=m==='live'?'var(--danger)':'';
-  document.getElementById('liveWarning').style.display=m==='live'?'flex':'none';
+  updateModeKeyBadge();
   if(selectedSkill)renderSkillDetail(selectedSkill);
+}
+function updateModeKeyBadge(){
+  const sub=document.getElementById('modeBarSub');
+  if(currentMode==='sandbox'){
+    sub.innerHTML='<span class="mode-key-badge sandbox"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>cn-sandbox-demo-xxxx</span>';
+  }else{
+    let keyDisplay='No API key connected';
+    let cls='live';
+    if(apiKey){
+      const masked=apiKey.length>11?apiKey.slice(0,7)+'\u2022'.repeat(8)+apiKey.slice(-4):apiKey.slice(0,4)+'\u2022\u2022\u2022\u2022';
+      keyDisplay=masked;
+    }
+    sub.innerHTML=`<span class="live-warning"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>Credits will be deducted from your account</span><span class="mode-key-badge ${cls}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>${esc(keyDisplay)}</span>`;
+  }
 }
 
 // ── Section tabs ─────────────────────────────────────────────────────
