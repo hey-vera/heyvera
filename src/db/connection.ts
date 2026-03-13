@@ -305,6 +305,8 @@ const MIGRATIONS: { version: number; sql: string }[] = [
       SELECT RAISE(ABORT, 'transfer amount must be positive');
     END
   ` },
+  // v57: increase subscription allotment from 40k → 50k credits/month
+  { version: 57, sql: `UPDATE subscriptions SET credits_per_month = 50000 WHERE credits_per_month = 40000` },
   { version: 47, sql: `
     CREATE TABLE IF NOT EXISTS agent_contexts (
       id TEXT PRIMARY KEY,
@@ -443,7 +445,7 @@ export function initDb(): void {
       api_key TEXT NOT NULL,
       email TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'active',
-      credits_per_month INTEGER NOT NULL DEFAULT 40000,
+      credits_per_month INTEGER NOT NULL DEFAULT 50000,
       current_period_end TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
