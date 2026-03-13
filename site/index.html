@@ -791,7 +791,7 @@
   <span style="color:var(--accent)">"creditsUsed"</span>: <span style="color:var(--info)">8</span>
 }</div><div class="hero-example" id="heroEx3"><span style="color:var(--text-muted)">$</span> curl /v1/skills/sp500-daily/query
 
-<span style="color:var(--text-muted)">// 0.3s &middot; 1 credit &middot; cached</span>
+<span style="color:var(--text-muted)">// 0.3s &middot; 0.1 cr &middot; cached</span>
 {
   <span style="color:var(--accent)">"data"</span>: { <span style="color:var(--accent)">"close"</span>: <span style="color:var(--info)">5234.18</span>, <span style="color:var(--accent)">"change"</span>: <span style="color:var(--info)">+0.8%</span> },
   <span style="color:var(--accent)">"cached"</span>: <span style="color:var(--info)">true</span>,
@@ -826,7 +826,7 @@
         <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Auto-discovered every 4h</div>
       </div>
       <div style="background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);padding:20px;text-align:center">
-        <div style="font-family:var(--font-mono);font-size:32px;font-weight:700;color:var(--text-primary)">97%</div>
+        <div style="font-family:var(--font-mono);font-size:32px;font-weight:700;color:var(--text-primary)">85%</div>
         <div style="font-size:13px;color:var(--text-secondary);margin-top:4px">Creator Revenue Share</div>
         <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Publish skills, earn per call</div>
       </div>
@@ -963,7 +963,7 @@
       <div class="feature-card">
         <div class="feature-icon" style="color:var(--purple)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></div>
         <h3 class="heading-md" style="margin:12px 0 6px">Skill Marketplace</h3>
-        <p class="body">Access community-built skills across types &mdash; <span style="color:var(--danger);font-weight:600">Data</span>, <span style="color:var(--purple);font-weight:600">Prompt</span>, and <span style="color:var(--info);font-weight:600">API Proxy</span>. List your own and earn <strong style="color:var(--accent)">97%</strong> of every credit spent by any agent that uses it.</p>
+        <p class="body">Access community-built skills across types &mdash; <span style="color:var(--danger);font-weight:600">Data</span>, <span style="color:var(--purple);font-weight:600">Prompt</span>, and <span style="color:var(--info);font-weight:600">API Proxy</span>. List your own and earn <strong style="color:var(--accent)">85%</strong> of every credit spent by any agent that uses it.</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon" style="color:var(--accent)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
@@ -1510,7 +1510,7 @@ data = res.json()`,
     },
     {
       label: 'Data Skill Query',
-      method: 'GET', path: '/v1/skills/sp500-daily/query', stats: '0.3s \u00b7 1 credit \u00b7 cached',
+      method: 'GET', path: '/v1/skills/sp500-daily/query', stats: '0.3s \u00b7 0.1 cr \u00b7 cached',
       curl: `curl https://api.claw-net.org/v1/skills/sp500-daily/query \\
   -H "X-API-Key: YOUR_KEY"`,
       js: `const res = await fetch('https://api.claw-net.org/v1/skills/sp500-daily/query', {
@@ -1627,8 +1627,8 @@ skills = res.json()`,
   resetApiDemoTimer();
 
   // ── USDC Modal ────────────────────────────────────────────────
-  const USDC_TIERS = { 20: 23000, 50: 59000, 100: 123000, 500: 660000, 1000: 1430000 };
-  const CARD_TIERS = { 5: 5000, 20: 21000, 50: 54000, 100: 112000, 500: 600000, 1000: 1300000 };
+  const USDC_TIERS = { 20: 23500, 50: 64200, 100: 133750, 500: 802500, 1000: 2140000 };
+  const CARD_TIERS = { 5: 5000, 20: 22000, 50: 60000, 100: 125000, 500: 750000, 1000: 2000000 };
   const CARD_RATE = 1000;
   const USDC_RATE = 1125;
 

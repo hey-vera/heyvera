@@ -287,13 +287,13 @@
     <div class="docs-section" id="welcome">
       <h1 class="docs-section-title">Welcome to ClawNet</h1>
       <p class="docs-section-desc">ClawNet is an API platform for AI agents. Ask a question in plain English, and ClawNet picks the best data sources, fetches everything in parallel, and returns a single structured answer — billed in credits.</p>
-      <p class="docs-section-desc">You can also browse the <a href="/marketplace.html" style="color:var(--accent)">Skill Marketplace</a> to find community-built tools, or create your own and earn 97% of every credit spent on them.</p>
+      <p class="docs-section-desc">You can also browse the <a href="/marketplace.html" style="color:var(--accent)">Skill Marketplace</a> to find community-built tools, or create your own and earn 85% of every credit spent on them.</p>
 
       <div class="intro-grid">
         <div class="intro-card"><div class="intro-card-title">Base URL</div><div class="intro-card-desc"><code>https://api.claw-net.org</code></div></div>
         <div class="intro-card"><div class="intro-card-title">Auth Header</div><div class="intro-card-desc"><code>X-API-Key: your_key</code></div></div>
         <div class="intro-card"><div class="intro-card-title">Format</div><div class="intro-card-desc">JSON in, JSON out. UTF-8 everywhere.</div></div>
-        <div class="intro-card"><div class="intro-card-title">Credits</div><div class="intro-card-desc">Buy via Stripe or Solana USDC. Cached queries cost just 1 credit.</div></div>
+        <div class="intro-card"><div class="intro-card-title">Credits</div><div class="intro-card-desc">Buy via Stripe or Solana USDC. Cached queries cost just 0.1 credits.</div></div>
       </div>
     </div>
 
@@ -369,12 +369,12 @@
         <div class="concept-card">
           <div class="concept-icon">&#x1F3EA;</div>
           <div class="concept-title">Marketplace</div>
-          <div class="concept-desc">The skill marketplace is where creators list their skills and buyers discover them. Creators earn <strong style="color:var(--accent)">97%</strong> of every purchase. 3% goes to the platform. Star, rate, and review to help others find quality skills.</div>
+          <div class="concept-desc">The skill marketplace is where creators list their skills and buyers discover them. Creators earn <strong style="color:var(--accent)">85%</strong> of every purchase. 15% goes to the platform. Star, rate, and review to help others find quality skills.</div>
         </div>
         <div class="concept-card">
           <div class="concept-icon">&#x1F4BE;</div>
           <div class="concept-title">Smart Caching</div>
-          <div class="concept-desc">The first call to any data source fetches live data and caches it in Redis. Every call after that returns the cached version for just 1 credit until the cache expires. You always get told whether you hit cache or live.</div>
+          <div class="concept-desc">The first call to any data source fetches live data and caches it in Redis. Every call after that returns the cached version for just 0.1 credits until the cache expires. You always get told whether you hit cache or live.</div>
         </div>
         <div class="concept-card">
           <div class="concept-icon">&#x1F4B0;</div>
@@ -648,7 +648,7 @@ es.addEventListener('done', (e) => {
         </div>
         <div class="concept-card" style="border-color:rgba(239,68,68,0.25)">
           <div class="concept-title" style="color:#ef4444">Data Skills</div>
-          <div class="concept-desc">Structured data with smart caching. You point to a data source URL, set how often it updates (realtime to static), and ClawNet caches it. First call = live fetch at full price. Every call after = cached data for just 1 credit. The creator earns the same either way.</div>
+          <div class="concept-desc">Structured data with smart caching. You point to a data source URL, set how often it updates (realtime to static), and ClawNet caches it. First call = live fetch at full price. Every call after = cached data for just 0.1 credits. The creator earns the same either way.</div>
         </div>
       </div>
     </div>
@@ -683,7 +683,7 @@ es.addEventListener('done', (e) => {
     <!-- DATA SKILLS -->
     <div class="docs-section" id="skills-data">
       <h2 class="docs-section-title">Data Skills</h2>
-      <p class="docs-section-desc">Data skills use a different endpoint because they return structured JSON data (not LLM-generated text). They also have smart caching — the first call fetches live data, and subsequent calls return the cached version for just 1 credit.</p>
+      <p class="docs-section-desc">Data skills use a different endpoint because they return structured JSON data (not LLM-generated text). They also have smart caching — the first call fetches live data, and subsequent calls return the cached version for just 0.1 credits.</p>
 
       <div class="endpoint">
         <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/skills/:id/query</code></div>
@@ -712,7 +712,7 @@ es.addEventListener('done', (e) => {
     <!-- CREATING SKILLS -->
     <div class="docs-section" id="skills-create">
       <h2 class="docs-section-title">Creating Skills</h2>
-      <p class="docs-section-desc">Anyone with an API key can create a skill and sell it on the marketplace. You set the price, and you earn 97% of every purchase.</p>
+      <p class="docs-section-desc">Anyone with an API key can create a skill and sell it on the marketplace. You set the price, and you earn 85% of every purchase.</p>
 
       <div class="endpoint">
         <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/skills</code></div>
@@ -847,7 +847,7 @@ es.addEventListener('done', (e) => {
 
       <div class="endpoint">
         <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/marketplace/skills/:id/purchase</code></div>
-        <p class="endpoint-desc">Buy and execute a skill in one call. Credits are deducted atomically — 97% goes to the creator, 3% to the platform. You get back the skill's result immediately.</p>
+        <p class="endpoint-desc">Buy and execute a skill in one call. Credits are deducted atomically — 85% goes to the creator, 15% to the platform. You get back the skill's result immediately.</p>
         <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
         <div class="alert alert-info">You can't buy your own skills (self-purchase is blocked).</div>
         <h4>Body</h4>
@@ -879,7 +879,7 @@ es.addEventListener('done', (e) => {
     <!-- CREATOR -->
     <div class="docs-section" id="mkt-creator">
       <h2 class="docs-section-title">Creator Earnings</h2>
-      <p class="docs-section-desc">If you've published skills, you earn 97% of every purchase. Track your earnings and request USDC payouts.</p>
+      <p class="docs-section-desc">If you've published skills, you earn 85% of every purchase. Track your earnings and request USDC payouts.</p>
 
       <div class="endpoint">
         <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/marketplace/creator/stats</code></div>
