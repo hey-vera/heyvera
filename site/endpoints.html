@@ -645,21 +645,25 @@ function render() {
 
   grid.innerHTML = list.map(ep => renderCard(ep)).join('');
 
-  grid.querySelectorAll('.ep-card').forEach(card => {
-    card.addEventListener('click', e => {
-      if (e.target.closest('.copy-btn')) return;
-      const id = card.dataset.id;
-      const wasOpen = card.classList.contains('expanded');
-      grid.querySelectorAll('.ep-card').forEach(c => c.classList.remove('expanded'));
-      if (!wasOpen) card.classList.add('expanded');
-      expandedId = wasOpen ? null : id;
-    });
-  });
-
   if (expandedId) {
     const c = grid.querySelector(`[data-id="${CSS.escape(expandedId)}"]`);
     if (c) c.classList.add('expanded');
   }
+}
+
+// One-time event delegation on the grid — survives innerHTML replacements
+function initGrid() {
+  const grid = document.getElementById('endpointGrid');
+  grid.addEventListener('click', e => {
+    if (e.target.closest('.copy-btn')) return;
+    const card = e.target.closest('.ep-card');
+    if (!card) return;
+    const id = card.dataset.id;
+    const wasOpen = card.classList.contains('expanded');
+    grid.querySelectorAll('.ep-card.expanded').forEach(c => c.classList.remove('expanded'));
+    if (!wasOpen) { card.classList.add('expanded'); expandedId = id; }
+    else { expandedId = null; }
+  });
 }
 
 function renderCard(ep) {
@@ -776,6 +780,7 @@ document.getElementById('searchInput').addEventListener('input', function() {
 });
 
 // ── INIT ─────────────────────────────────────────────────────────────────────
+initGrid();
 loadEndpoints();
 setInterval(() => loadEndpoints(false), 30000);
 </script>
