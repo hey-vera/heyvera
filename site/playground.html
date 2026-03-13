@@ -236,6 +236,50 @@
     .price-stat-box .psb-mode.sandbox{background:var(--accent-dim);color:var(--accent)}
     .price-stat-box .psb-mode.live{background:var(--danger-dim);color:var(--danger)}
 
+    /* ── SIMULATION FLOW ──────────────────────────────────────────────── */
+    .sim-flow{margin-bottom:16px}
+    .sim-block{background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);overflow:hidden;transition:border-color .3s}
+    .sim-block.sim-active{border-color:var(--accent)}
+    .sim-block-head{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-bottom:1px solid var(--border-subtle);flex-wrap:wrap;gap:8px}
+    .sim-block-head h4{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin:0;display:flex;align-items:center;gap:8px}
+    .sim-block-head h4 .sim-step{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;font-size:10px;font-weight:800;line-height:1}
+    .sim-step-1{background:var(--info-dim);color:var(--info)}
+    .sim-step-2{background:var(--accent-dim);color:var(--accent)}
+    .sim-step-3{background:var(--warning-dim);color:var(--warning)}
+    .sim-block-body{padding:16px;position:relative}
+    .sim-block-body pre{font-family:var(--font-mono);font-size:12px;line-height:1.7;white-space:pre-wrap;word-break:break-word;color:var(--text-secondary)}
+    .sim-connector{display:flex;align-items:center;justify-content:center;padding:6px 0;position:relative}
+    .sim-connector::before{content:'';position:absolute;left:50%;top:0;bottom:0;width:1px;background:var(--border-default)}
+    .sim-connector-label{position:relative;z-index:1;font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--text-muted);background:var(--bg-primary);padding:2px 12px;border:1px solid var(--border-default);border-radius:9999px;display:flex;align-items:center;gap:4px}
+    .sim-connector-label svg{opacity:.6}
+
+    /* Simulation — code block */
+    .sim-code .sim-block-head h4{color:var(--info)}
+    .sim-code .sim-block-body{background:var(--bg-primary);max-height:220px;overflow:auto}
+
+    /* Simulation — response block */
+    .sim-response .sim-block-head h4{color:var(--accent)}
+    .sim-response .sim-block-body{max-height:360px;overflow:auto}
+
+    /* Simulation — cost receipt */
+    .sim-cost .sim-block-head h4{color:var(--warning)}
+    .sim-receipt{display:flex;align-items:center;gap:20px;flex-wrap:wrap}
+    .sim-receipt-item{display:flex;flex-direction:column;gap:2px}
+    .sim-receipt-label{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted)}
+    .sim-receipt-val{font-family:var(--font-mono);font-size:16px;font-weight:700}
+    .sim-receipt-val.cr{color:var(--warning)}
+    .sim-receipt-val.usd{color:var(--text-tertiary);font-size:14px}
+    .sim-receipt-val.mode{font-size:12px;font-weight:600;padding:4px 12px;border-radius:9999px}
+    .sim-receipt-val.mode.sandbox{background:var(--accent-dim);color:var(--accent)}
+    .sim-receipt-val.mode.live{background:var(--danger-dim);color:var(--danger)}
+    .sim-receipt-divider{width:1px;height:28px;background:var(--border-default)}
+    .sim-receipt-detail{margin-left:auto;font-size:11px;color:var(--text-muted);text-align:right;line-height:1.6}
+
+    /* Simulation — empty state */
+    .sim-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px;text-align:center;color:var(--text-muted);min-height:120px}
+    .sim-empty .sim-arrow{font-size:24px;margin-bottom:8px;opacity:.3}
+    .sim-empty p{font-size:12px}
+
     /* Inline API key */
     .inline-key{background:var(--warning-dim);border:1px solid rgba(245,158,11,.2);border-radius:var(--radius-md);padding:14px;margin-bottom:16px}
     .inline-key p{font-size:12px;color:var(--warning);margin-bottom:8px;font-weight:500}
@@ -561,17 +605,33 @@ function renderSkillDetail(s){
   const modeTag=currentMode==='live'?'<span class="psb-mode live">Live — credits charged</span>':'<span class="psb-mode sandbox">Sandbox — free</span>';
   h+=`<div class="price-stat-box"><div><div class="psb-label">Cost per call</div><div class="psb-credits">${s.creditCost} credits</div></div><div class="psb-divider"></div><div><div class="psb-label">USD equivalent</div><div class="psb-usd">${creditsToUsd(s.creditCost)}</div></div><div class="psb-divider"></div><div>${modeTag}</div></div>`;
 
-  // Result
-  h+=`<div class="result-panel"><div class="result-header"><h4>Result</h4><div class="result-meta" id="resultMeta"></div></div>
-    <div class="result-tabs" id="resultTabs" style="display:none"><button class="active" onclick="switchResultTab('formatted',this)">Formatted</button><button onclick="switchResultTab('raw',this)">Raw JSON</button></div>
-    <div class="result-body" id="resultBody"><div class="result-empty"><div style="font-size:32px;margin-bottom:12px;opacity:.4">&#8593;</div><p>Click a scenario above to see results instantly</p></div></div></div>`;
+  // ── Unified Simulation Flow: Code → Response → Cost ──
+  h+=`<div class="sim-flow" id="simFlow">`;
 
-  // Integration code
-  h+=`<div class="integrate"><div class="integrate-head"><h4>Integrate in 4 lines <span class="ig-badge">Copy &amp; Ship</span></h4><div class="lang-tabs"><button class="${activeLang==='javascript'?'active':''}" onclick="switchLang('javascript',this)">JavaScript</button><button class="${activeLang==='python'?'active':''}" onclick="switchLang('python',this)">Python</button><button class="${activeLang==='curl'?'active':''}" onclick="switchLang('curl',this)">cURL</button></div></div>
-    <div class="integrate-body"><button class="copy-btn" onclick="copyIntegration()">Copy</button><pre id="integratePre">${esc(buildCodeSnippet(s,activeLang))}</pre></div></div>`;
+  // Block 1: YOUR CODE
+  h+=`<div class="sim-block sim-code"><div class="sim-block-head"><h4><span class="sim-step sim-step-1">1</span> Your Code</h4><div class="lang-tabs"><button class="${activeLang==='javascript'?'active':''}" onclick="switchLang('javascript',this)">JavaScript</button><button class="${activeLang==='python'?'active':''}" onclick="switchLang('python',this)">Python</button><button class="${activeLang==='curl'?'active':''}" onclick="switchLang('curl',this)">cURL</button></div></div>
+    <div class="sim-block-body"><button class="copy-btn" onclick="copyIntegration()">Copy</button><pre id="integratePre">${esc(buildCodeSnippet(s,activeLang))}</pre></div></div>`;
 
-  // Cost calculator
-  h+=`<div class="cost-calc"><h4>Cost Calculator</h4>
+  // Connector 1→2
+  h+=`<div class="sim-connector"><span class="sim-connector-label"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>executes</span></div>`;
+
+  // Block 2: API RESPONSE
+  h+=`<div class="sim-block sim-response" id="simResponseBlock"><div class="sim-block-head"><h4><span class="sim-step sim-step-2">2</span> API Response</h4><div id="simResponseMeta" style="display:flex;gap:8px;align-items:center;font-size:11px;color:var(--text-muted)"></div></div>
+    <div id="simResponseTabs" style="display:none"><div class="result-tabs"><button class="active" onclick="switchResultTab('formatted',this)">Formatted</button><button onclick="switchResultTab('raw',this)">Raw JSON</button></div></div>
+    <div class="sim-block-body" id="simResponseBody"><div class="sim-empty"><div class="sim-arrow">&#8593;</div><p>Click a scenario or hit Run to simulate a response</p></div></div></div>`;
+
+  // Connector 2→3
+  h+=`<div class="sim-connector"><span class="sim-connector-label"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>billed</span></div>`;
+
+  // Block 3: COST RECEIPT
+  const modeReceipt=currentMode==='live'?'<span class="sim-receipt-val mode live">Live</span>':'<span class="sim-receipt-val mode sandbox">Sandbox</span>';
+  h+=`<div class="sim-block sim-cost" id="simCostBlock"><div class="sim-block-head"><h4><span class="sim-step sim-step-3">3</span> Cost Receipt</h4></div>
+    <div class="sim-block-body" id="simCostBody"><div class="sim-receipt"><div class="sim-receipt-item"><span class="sim-receipt-label">Credits</span><span class="sim-receipt-val cr" id="simCostCredits">${currentMode==='sandbox'?'0':s.creditCost}</span></div><div class="sim-receipt-divider"></div><div class="sim-receipt-item"><span class="sim-receipt-label">USD</span><span class="sim-receipt-val usd" id="simCostUsd">${currentMode==='sandbox'?'$0.00':creditsToUsd(s.creditCost)}</span></div><div class="sim-receipt-divider"></div><div class="sim-receipt-item"><span class="sim-receipt-label">Mode</span>${modeReceipt}</div><div class="sim-receipt-detail" id="simCostDetail">Waiting for execution...</div></div></div></div>`;
+
+  h+=`</div>`; // close sim-flow
+
+  // Volume calculator (separate from per-call simulation)
+  h+=`<div class="cost-calc"><h4>Volume Calculator</h4>
     <div class="cost-calc-row"><span style="font-size:12px;color:var(--text-tertiary)">Calls per day</span><input type="range" min="1" max="10000" value="100" oninput="updateCostCalc(this.value,${s.creditCost})"><span class="cost-calc-num" id="ccNum">100</span></div>
     <div class="cost-calc-results"><div class="ccr"><div class="ccr-val" id="ccDaily">$0.20</div><div class="ccr-label">per day</div></div><div class="ccr"><div class="ccr-val" id="ccMonthly">$6.00</div><div class="ccr-label">per month</div></div><div class="ccr"><div class="ccr-val" id="ccCredits">${(100*s.creditCost).toLocaleString()}</div><div class="ccr-label">credits/day</div></div>${userCredits!=null?`<div class="ccr"><div class="ccr-val" id="ccRunway">${Math.floor(userCredits/s.creditCost).toLocaleString()}</div><div class="ccr-label">calls remaining</div></div>`:''}</div></div>`;
 
@@ -715,23 +775,51 @@ function runSandbox(){
   if(!selectedSkill)return;
   const idx=window._activeScenarioIdx??0;
   const sc=window._scenarios?.[idx];
-  const body=document.getElementById('resultBody');
   // Gather params from advanced fields
   const params={};
   if(sc&&sc.params)Object.assign(params,sc.params);
   const vars=getSkillVars(selectedSkill);
   for(const v of vars){const el=document.getElementById('param-'+v.name);if(el&&el.value.trim())params[v.name]=el.value.trim()}
-  // Loading animation
+
+  // Update code block to reflect current params
+  const codeSnippet=buildCodeSnippet(selectedSkill,activeLang,params);
+  const codePre=document.getElementById('integratePre');
+  if(codePre)codePre.textContent=codeSnippet;
+
+  // Highlight code block first, then response
+  document.querySelectorAll('.sim-block').forEach(b=>b.classList.remove('sim-active'));
+  document.querySelector('.sim-code')?.classList.add('sim-active');
+  setTimeout(()=>{
+    document.querySelector('.sim-code')?.classList.remove('sim-active');
+    document.querySelector('.sim-response')?.classList.add('sim-active');
+  },300);
+
+  // Loading state in response block
   const elapsed=R.i(120,380);
-  document.getElementById('resultMeta').innerHTML='<span class="tag tag-sample">Sandbox</span><span>Running...</span>';
-  document.getElementById('resultTabs').style.display='flex';
-  body.innerHTML='<div style="text-align:center;padding:40px"><div class="spinner" style="border-color:var(--accent-dim);border-top-color:var(--accent);width:24px;height:24px;margin:0 auto 12px"></div><p style="font-size:12px;color:var(--text-muted)">Simulating API response...</p></div>';
+  const meta=document.getElementById('simResponseMeta');
+  const body=document.getElementById('simResponseBody');
+  const tabs=document.getElementById('simResponseTabs');
+  if(meta)meta.innerHTML='<span class="tag tag-sample">Sandbox</span><span>Running...</span>';
+  if(tabs)tabs.style.display='block';
+  if(body)body.innerHTML='<div style="text-align:center;padding:32px"><div class="spinner" style="border-color:var(--accent-dim);border-top-color:var(--accent);width:24px;height:24px;margin:0 auto 12px"></div><p style="font-size:12px;color:var(--text-muted)">Simulating API response...</p></div>';
+
+  // Cost receipt — pending
+  updateCostReceipt({credits:0,usd:'$0.00',mode:'sandbox',detail:'Executing...'});
+
   setTimeout(()=>{
     const mock=generateMock(selectedSkill,params);
     const json=JSON.stringify(mock,null,2);
-    document.getElementById('resultMeta').innerHTML=`<span class="tag tag-sample">Sandbox</span><span>${elapsed}ms</span><span style="color:var(--accent)">Free — 0 credits</span>`;
+    if(meta)meta.innerHTML=`<span class="tag tag-sample">Sandbox</span><span>${elapsed}ms</span><span style="color:var(--accent)">Free — 0 credits</span>`;
     lastResponse={type:'sample',json,skill:selectedSkill};
     renderResult('formatted');
+
+    // Finalize cost receipt
+    updateCostReceipt({credits:0,usd:'$0.00',mode:'sandbox',detail:`Simulated in ${elapsed}ms · No credits charged`});
+    // Highlight cost block briefly
+    document.querySelectorAll('.sim-block').forEach(b=>b.classList.remove('sim-active'));
+    document.querySelector('.sim-cost')?.classList.add('sim-active');
+    setTimeout(()=>document.querySelector('.sim-cost')?.classList.remove('sim-active'),1500);
+
     trackUse('skill:'+selectedSkill.id,'sandbox');renderSkillList();
   },500+Math.random()*300);
 }
@@ -747,40 +835,91 @@ function confirmRunLive(){
 function closeModal(){document.getElementById('confirmModal').classList.remove('show')}
 async function runLiveConfirmed(){
   closeModal();if(!selectedSkill||!apiKey)return;const s=selectedSkill;
-  document.getElementById('resultMeta').innerHTML='<span class="tag tag-live">Live</span><span style="color:var(--danger)">Executing — credits will be charged...</span>';
-  document.getElementById('resultTabs').style.display='flex';
+
+  // Highlight response block
+  document.querySelectorAll('.sim-block').forEach(b=>b.classList.remove('sim-active'));
+  document.querySelector('.sim-response')?.classList.add('sim-active');
+
+  const meta=document.getElementById('simResponseMeta');
+  const body=document.getElementById('simResponseBody');
+  const tabs=document.getElementById('simResponseTabs');
+  if(meta)meta.innerHTML='<span class="tag tag-live">Live</span><span style="color:var(--danger)">Executing — credits will be charged...</span>';
+  if(tabs)tabs.style.display='block';
+  updateCostReceipt({credits:'...',usd:'...',mode:'live',detail:'Waiting for response...'});
+
   try{
-    let url,method='POST',body;const headers={'X-API-Key':apiKey,'Content-Type':'application/json'};
+    let url,method='POST',reqBody;const headers={'X-API-Key':apiKey,'Content-Type':'application/json'};
     if(s.skillType==='data'){
       const pe=document.getElementById('param-params');let qs='';
       if(pe&&pe.value.trim()){qs='?'+pe.value.trim().split('\n').map(l=>l.trim()).filter(Boolean).map(l=>{const[k,...v]=l.split('=');return encodeURIComponent(k.trim())+'='+encodeURIComponent(v.join('=').trim())}).join('&')}
-      url=`${API}/v1/skills/${encodeURIComponent(s.id)}/query${qs}`;method='GET';body=undefined;
+      url=`${API}/v1/skills/${encodeURIComponent(s.id)}/query${qs}`;method='GET';reqBody=undefined;
     }else{
       url=`${API}/v1/skills/${encodeURIComponent(s.id)}/invoke`;const variables={};const schema=s.inputSchema;
       if(schema&&schema.properties){for(const k of Object.keys(schema.properties)){const el=document.getElementById('param-'+k);if(el&&el.value.trim())variables[k]=el.value.trim()}}
       else{const el=document.getElementById('param-query');if(el&&el.value.trim())variables.query=el.value.trim()}
-      body=JSON.stringify({variables});
+      reqBody=JSON.stringify({variables});
     }
-    const start=performance.now();const r=await fetch(url,{method,headers,body});const elapsed=Math.round(performance.now()-start);const data=await r.json();
-    if(!r.ok){document.getElementById('resultMeta').innerHTML=`<span class="tag tag-err">Error ${r.status}</span><span>${elapsed}ms</span>`;lastResponse={type:'error',json:JSON.stringify(data,null,2),skill:s};toast(`Error: ${data.error||'Failed'}`,'error')}
-    else{const cr=data.creditsCost||data.creditsCharged||s.creditCost;document.getElementById('resultMeta').innerHTML=`<span class="tag tag-live">Live</span><span>${elapsed}ms</span><span style="color:var(--danger);font-weight:600">${cr} cr charged</span>`;lastResponse={type:'live',json:JSON.stringify(data,null,2),skill:s};toast(`Success — ${cr} credits charged`);initAuth();trackUse('skill:'+s.id,'live');renderSkillList()}
+    const start=performance.now();const r=await fetch(url,{method,headers,body:reqBody});const elapsed=Math.round(performance.now()-start);const data=await r.json();
+    if(!r.ok){
+      if(meta)meta.innerHTML=`<span class="tag tag-err">Error ${r.status}</span><span>${elapsed}ms</span>`;
+      lastResponse={type:'error',json:JSON.stringify(data,null,2),skill:s};
+      updateCostReceipt({credits:0,usd:'$0.00',mode:'live',detail:`Error ${r.status} — no credits charged`});
+      toast(`Error: ${data.error||'Failed'}`,'error');
+    }else{
+      const cr=data.creditsCost||data.creditsCharged||s.creditCost;
+      if(meta)meta.innerHTML=`<span class="tag tag-live">Live</span><span>${elapsed}ms</span><span style="color:var(--danger);font-weight:600">${cr} cr charged</span>`;
+      lastResponse={type:'live',json:JSON.stringify(data,null,2),skill:s};
+      updateCostReceipt({credits:cr,usd:creditsToUsd(cr),mode:'live',detail:`Completed in ${elapsed}ms · ${cr} credits deducted`});
+      toast(`Success — ${cr} credits charged`);initAuth();trackUse('skill:'+s.id,'live');renderSkillList();
+    }
     renderResult(activeResultTab);
-  }catch(e){document.getElementById('resultBody').innerHTML=`<pre style="color:var(--danger)">${esc(e.message)}</pre>`}
+    // Highlight cost block
+    document.querySelectorAll('.sim-block').forEach(b=>b.classList.remove('sim-active'));
+    document.querySelector('.sim-cost')?.classList.add('sim-active');
+    setTimeout(()=>document.querySelector('.sim-cost')?.classList.remove('sim-active'),2000);
+  }catch(e){if(body)body.innerHTML=`<pre style="color:var(--danger)">${esc(e.message)}</pre>`}
 }
 
 // ── Render result ────────────────────────────────────────────────────
-function switchResultTab(tab,btn){activeResultTab=tab;document.querySelectorAll('#resultTabs button').forEach(b=>b.classList.remove('active'));btn.classList.add('active');renderResult(tab)}
-function renderResult(tab){if(!lastResponse)return;const body=document.getElementById('resultBody');body.innerHTML=tab==='formatted'?`<button class="copy-btn" onclick="copyResult()">Copy</button><pre>${syntaxHighlight(lastResponse.json)}</pre>`:`<button class="copy-btn" onclick="copyResult()">Copy</button><pre>${esc(lastResponse.json)}</pre>`}
-function copyResult(){const p=document.querySelector('#resultBody pre');if(p)navigator.clipboard.writeText(p.textContent).then(()=>toast('Copied'))}
+function switchResultTab(tab,btn){activeResultTab=tab;document.querySelectorAll('.sim-response .result-tabs button').forEach(b=>b.classList.remove('active'));btn.classList.add('active');renderResult(tab)}
+function renderResult(tab){if(!lastResponse)return;const body=document.getElementById('simResponseBody');if(!body)return;body.innerHTML=tab==='formatted'?`<button class="copy-btn" onclick="copyResult()">Copy</button><pre>${syntaxHighlight(lastResponse.json)}</pre>`:`<button class="copy-btn" onclick="copyResult()">Copy</button><pre>${esc(lastResponse.json)}</pre>`}
+function copyResult(){const p=document.querySelector('#simResponseBody pre');if(p)navigator.clipboard.writeText(p.textContent).then(()=>toast('Copied'))}
+function updateCostReceipt(o){
+  const cr=document.getElementById('simCostCredits'),usd=document.getElementById('simCostUsd'),detail=document.getElementById('simCostDetail');
+  if(cr)cr.textContent=o.credits;if(usd)usd.textContent=o.usd;if(detail)detail.textContent=o.detail;
+}
 
 // ── Integration code ─────────────────────────────────────────────────
-function switchLang(lang,btn){activeLang=lang;document.querySelectorAll('.lang-tabs button').forEach(b=>b.classList.remove('active'));btn.classList.add('active');if(selectedSkill)document.getElementById('integratePre').textContent=buildCodeSnippet(selectedSkill,lang)}
+function switchLang(lang,btn){
+  activeLang=lang;document.querySelectorAll('.lang-tabs button').forEach(b=>b.classList.remove('active'));btn.classList.add('active');
+  if(selectedSkill){const params=gatherCurrentParams();document.getElementById('integratePre').textContent=buildCodeSnippet(selectedSkill,lang,params)}
+}
+function gatherCurrentParams(){
+  if(!selectedSkill)return{};const params={};const vars=getSkillVars(selectedSkill);
+  for(const v of vars){const el=document.getElementById('param-'+v.name);if(el&&el.value.trim())params[v.name]=el.value.trim()}
+  return params;
+}
 function copyIntegration(){const p=document.getElementById('integratePre');if(p)navigator.clipboard.writeText(p.textContent).then(()=>toast('Code copied'))}
-function buildCodeSnippet(s,lang){
+function buildCodeSnippet(s,lang,params){
   const isData=s.skillType==='data';const url=`${API}/v1/skills/${s.id}/${isData?'query':'invoke'}`;
-  if(lang==='curl')return isData?`curl "${url}" \\\n  -H "X-API-Key: YOUR_KEY"`:`curl -X POST "${url}" \\\n  -H "X-API-Key: YOUR_KEY" \\\n  -H "Content-Type: application/json" \\\n  -d '{"variables":{"query":"your prompt"}}'`;
-  if(lang==='python')return isData?`import requests\n\nres = requests.get("${url}",\n  headers={"X-API-Key": YOUR_KEY})\ndata = res.json()\nprint(data)`:`import requests\n\nres = requests.post("${url}",\n  headers={"X-API-Key": YOUR_KEY},\n  json={"variables":{"query":"your prompt"}})\ndata = res.json()\nprint(data)`;
-  return isData?`const res = await fetch("${url}", {\n  headers: { "X-API-Key": YOUR_KEY }\n});\nconst data = await res.json();`:`const res = await fetch("${url}", {\n  method: "POST",\n  headers: {\n    "X-API-Key": YOUR_KEY,\n    "Content-Type": "application/json"\n  },\n  body: JSON.stringify({\n    variables: { query: "your prompt" }\n  })\n});\nconst data = await res.json();`;
+  // Build dynamic query/body from params
+  let queryVal='your prompt';
+  if(params){
+    const pv=params.query||params.token||params.symbol||params.text||params.address||'';
+    if(pv)queryVal=pv;
+  }
+  let qsStr='';
+  if(isData&&params){
+    const ps=params.params;
+    if(ps){qsStr='?'+ps.split('\n').map(l=>l.trim()).filter(Boolean).join('&')}
+    else if(params.token)qsStr='?token='+encodeURIComponent(params.token);
+    else if(params.symbol)qsStr='?symbol='+encodeURIComponent(params.symbol);
+  }
+  const fullUrl=url+qsStr;
+  const bodyJson=isData?'':JSON.stringify({variables:{query:queryVal}},null,2);
+  if(lang==='curl')return isData?`curl "${fullUrl}" \\\n  -H "X-API-Key: YOUR_KEY"`:`curl -X POST "${url}" \\\n  -H "X-API-Key: YOUR_KEY" \\\n  -H "Content-Type: application/json" \\\n  -d '${bodyJson}'`;
+  if(lang==='python')return isData?`import requests\n\nres = requests.get("${fullUrl}",\n  headers={"X-API-Key": "YOUR_KEY"})\ndata = res.json()\nprint(data)`:`import requests\n\nres = requests.post("${url}",\n  headers={"X-API-Key": "YOUR_KEY"},\n  json=${bodyJson.replace(/"/g,'"')})\ndata = res.json()\nprint(data)`;
+  return isData?`const res = await fetch("${fullUrl}", {\n  headers: { "X-API-Key": "YOUR_KEY" }\n});\nconst data = await res.json();`:`const res = await fetch("${url}", {\n  method: "POST",\n  headers: {\n    "X-API-Key": "YOUR_KEY",\n    "Content-Type": "application/json"\n  },\n  body: JSON.stringify(${bodyJson})\n});\nconst data = await res.json();`;
 }
 
 // ── Cost calculator ──────────────────────────────────────────────────
