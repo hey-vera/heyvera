@@ -687,18 +687,104 @@ function getSkillVars(s){
   return vars;
 }
 
-// ── Scenarios ─────────────────────────────────────────────────────────
-const SC={
-  token:[{v:'ETH',n:'Ethereum',i:'💎',d:'Live ETH price, volume, market cap'},{v:'BTC',n:'Bitcoin',i:'₿',d:'Live BTC price and 24h stats'},{v:'SOL',n:'Solana',i:'☀️',d:'Live SOL price and chain data'},{v:'DOGE',n:'Dogecoin',i:'🐕',d:'Live DOGE price and sentiment'}],
-  symbol:[{v:'ETH',n:'Ethereum',i:'💎',d:'ETH market data'},{v:'BTC',n:'Bitcoin',i:'₿',d:'BTC market data'},{v:'SOL',n:'Solana',i:'☀️',d:'SOL market data'}],
-  query:[{v:'What are the top DeFi protocols by TVL?',n:'DeFi Overview',i:'📊',d:'Market analysis'},{v:'Summarize ETH staking rewards data',n:'ETH Staking',i:'🔒',d:'Yield analysis'},{v:'Current sentiment around BTC ETF news',n:'BTC Sentiment',i:'📰',d:'News sentiment'},{v:'Compare Arbitrum vs Optimism for devs',n:'L2 Comparison',i:'⚡',d:'Technical comparison'}],
-  text:[{v:'ClawNet launched a data skills marketplace for AI agents.',n:'Bullish News',i:'📈',d:'Positive market signal'},{v:'SEC files enforcement action against exchange.',n:'Bearish News',i:'📉',d:'Regulatory risk'},{v:'ETH L2 transactions surpass mainnet by 15x.',n:'Tech Update',i:'🔧',d:'Infrastructure growth'}],
-  address:[{v:'0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045',n:'Vitalik.eth',i:'👤',d:'Ethereum co-founder wallet'},{v:'0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D',n:'Uniswap Router',i:'🦄',d:'Uniswap V2 contract'}],
+// ── Scenarios (curated per skill, fallback by param type) ────────────
+const SKILL_SCENARIOS={
+  // ── Data skills ──
+  'price-oracle-data':[
+    {name:'Solana',desc:'SOL price, volume, market cap',icon:'☀️',params:{token:'So11111111111111111111111111111111111111112'}},
+    {name:'Bonk',desc:'BONK meme coin price data',icon:'🐕',params:{token:'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263'}},
+    {name:'Jupiter',desc:'JUP aggregator token',icon:'🪐',params:{token:'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN'}},
+    {name:'Raydium',desc:'RAY DEX token',icon:'💜',params:{token:'4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R'}},
+  ],
+  'trending-tokens-data':[
+    {name:'By Volume',desc:'Top tokens by 24h trading volume',icon:'📊',params:{sortBy:'volume',limit:'10'}},
+    {name:'New Tokens',desc:'Recently listed tokens',icon:'🆕',params:{sortBy:'new',limit:'10'}},
+    {name:'Social Buzz',desc:'Tokens trending on social media',icon:'🔥',params:{sortBy:'social',limit:'10'}},
+    {name:'Top 50',desc:'Extended list of trending tokens',icon:'📋',params:{sortBy:'volume',limit:'50'}},
+  ],
+  'whale-tracker-data':[
+    {name:'SOL Whales',desc:'Top SOL holders and net flow',icon:'☀️',params:{token:'So11111111111111111111111111111111111111112'}},
+    {name:'BONK Whales',desc:'Large BONK holders',icon:'🐕',params:{token:'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263'}},
+    {name:'JUP Whales',desc:'Jupiter token holder concentration',icon:'🪐',params:{token:'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN'}},
+    {name:'WIF Whales',desc:'dogwifhat whale movements',icon:'🎩',params:{token:'EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm'}},
+  ],
+  'defi-yield-data':[
+    {name:'All Yields',desc:'Every DeFi opportunity, no filter',icon:'💰',params:{riskLevel:'all'}},
+    {name:'Safe Yields',desc:'Low-risk staking and vaults only',icon:'🛡️',params:{riskLevel:'low'}},
+    {name:'High APY',desc:'Opportunities above 15% APY',icon:'🔥',params:{riskLevel:'all',minApy:'15'}},
+    {name:'Medium Risk',desc:'Balanced risk/reward LPs',icon:'⚖️',params:{riskLevel:'medium'}},
+  ],
+  'token-analysis-data':[
+    {name:'Solana',desc:'SOL full metrics + risk score',icon:'☀️',params:{token:'So11111111111111111111111111111111111111112'}},
+    {name:'Bonk',desc:'BONK risk analysis and holders',icon:'🐕',params:{token:'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263'}},
+    {name:'Jupiter',desc:'JUP comprehensive token metrics',icon:'🪐',params:{token:'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN'}},
+    {name:'Raydium',desc:'RAY token health and supply',icon:'💜',params:{token:'4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R'}},
+  ],
+  'wallet-profiler-data':[
+    {name:'Toly',desc:'Solana co-founder wallet',icon:'👤',params:{wallet:'toly9ci98XuMKzCSBK3t96SApELpGmpa1s2euVhDajR'}},
+    {name:'Bonk DAO',desc:'BONK community treasury',icon:'🏛️',params:{wallet:'DBR2ZUvjZTcQpf2H2t9VoKsgNK2sc1nZa2Cz9pJcdDWh'}},
+    {name:'Raydium',desc:'Raydium authority wallet',icon:'💜',params:{wallet:'5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1'}},
+    {name:'Custom',desc:'Paste any Solana address above',icon:'📋',params:{wallet:''}},
+  ],
+  'token-launch-data':[
+    {name:'All Launches',desc:'Every upcoming and recent launch',icon:'🚀',params:{launchType:'all'}},
+    {name:'Fair Launches',desc:'Community-driven fair launches only',icon:'⚖️',params:{launchType:'fair-launch'}},
+    {name:'Presales',desc:'Active and upcoming presales',icon:'🎟️',params:{launchType:'presale'}},
+    {name:'IDOs',desc:'Initial DEX offerings',icon:'🏦',params:{launchType:'ido'}},
+  ],
+  // ── Prompt skills ──
+  'token-analysis':[
+    {name:'ETH Analysis',desc:'Full Ethereum market analysis',icon:'💎',params:{token:'ETH'}},
+    {name:'SOL Analysis',desc:'Solana ecosystem deep dive',icon:'☀️',params:{token:'SOL'}},
+    {name:'BTC Analysis',desc:'Bitcoin price and macro outlook',icon:'₿',params:{token:'BTC'}},
+    {name:'BONK Analysis',desc:'Meme coin risk assessment',icon:'🐕',params:{token:'BONK'}},
+  ],
+  'social-sentiment':[
+    {name:'ETH Sentiment',desc:'Ethereum community sentiment',icon:'💎',params:{query:'Ethereum sentiment'}},
+    {name:'BTC ETF News',desc:'Bitcoin ETF market impact',icon:'📰',params:{query:'BTC ETF latest news sentiment'}},
+    {name:'SOL Ecosystem',desc:'Solana ecosystem mood',icon:'☀️',params:{query:'Solana ecosystem sentiment'}},
+    {name:'Meme Coins',desc:'Meme coin social buzz',icon:'🔥',params:{query:'meme coin trending sentiment'}},
+  ],
+  'portfolio-optimizer':[
+    {name:'Conservative',desc:'Low-risk portfolio allocation',icon:'🛡️',params:{query:'Build a conservative Solana DeFi portfolio under $5000'}},
+    {name:'Growth',desc:'High-growth token mix',icon:'📈',params:{query:'Optimize a growth portfolio with SOL, JUP, and BONK'}},
+    {name:'Yield Focus',desc:'Maximize staking/LP yields',icon:'💰',params:{query:'Best yield farming strategy for $10000 on Solana'}},
+    {name:'Degen',desc:'High-risk meme coin strategy',icon:'🎰',params:{query:'Degen meme coin portfolio strategy for $1000'}},
+  ],
+  'whale-tracker':[
+    {name:'SOL Whales',desc:'Large SOL holder activity',icon:'☀️',params:{token:'SOL'}},
+    {name:'ETH Whales',desc:'Ethereum whale movements',icon:'💎',params:{token:'ETH'}},
+    {name:'BTC Whales',desc:'Bitcoin whale accumulation',icon:'₿',params:{token:'BTC'}},
+    {name:'BONK Whales',desc:'Meme coin whale tracking',icon:'🐕',params:{token:'BONK'}},
+  ],
+  'wallet-profiler':[
+    {name:'Toly',desc:'Solana co-founder wallet analysis',icon:'👤',params:{query:'Analyze wallet toly9ci98XuMKzCSBK3t96SApELpGmpa1s2euVhDajR'}},
+    {name:'Top Trader',desc:'Analyze a known profitable wallet',icon:'💰',params:{query:'Profile wallet DBR2ZUvjZTcQpf2H2t9VoKsgNK2sc1nZa2Cz9pJcdDWh'}},
+    {name:'NFT Collector',desc:'Wallet with heavy NFT holdings',icon:'🖼️',params:{query:'Analyze NFT holdings of 5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1'}},
+  ],
+  'nft-collection-intel':[
+    {name:'Mad Lads',desc:'Mad Lads collection analysis',icon:'😎',params:{query:'Analyze Mad Lads NFT collection'}},
+    {name:'Tensorians',desc:'Tensorians floor and volume',icon:'🧊',params:{query:'Tensorians NFT collection metrics'}},
+    {name:'SMB Gen2',desc:'Solana Monkey Business stats',icon:'🐒',params:{query:'SMB Gen2 NFT collection analysis'}},
+  ],
+};
+// Fallback scenarios by parameter type (for third-party skills)
+const SC_FALLBACK={
+  token:[{v:'SOL',n:'Solana',i:'☀️',d:'Query with SOL token'},{v:'ETH',n:'Ethereum',i:'💎',d:'Query with ETH token'},{v:'BTC',n:'Bitcoin',i:'₿',d:'Query with BTC token'}],
+  symbol:[{v:'SOL',n:'Solana',i:'☀️',d:'Query with SOL'},{v:'ETH',n:'Ethereum',i:'💎',d:'Query with ETH'},{v:'BTC',n:'Bitcoin',i:'₿',d:'Query with BTC'}],
+  query:[{v:'What are the top DeFi protocols by TVL?',n:'DeFi Overview',i:'📊',d:'Market analysis'},{v:'Summarize ETH staking rewards data',n:'ETH Staking',i:'🔒',d:'Yield analysis'},{v:'Current sentiment around BTC ETF news',n:'BTC Sentiment',i:'📰',d:'News sentiment'}],
+  text:[{v:'ClawNet launched a data skills marketplace for AI agents.',n:'Bullish News',i:'📈',d:'Positive market signal'},{v:'SEC files enforcement action against exchange.',n:'Bearish News',i:'📉',d:'Regulatory risk'}],
+  wallet:[{v:'toly9ci98XuMKzCSBK3t96SApELpGmpa1s2euVhDajR',n:'Toly',i:'👤',d:'Solana co-founder'},{v:'DBR2ZUvjZTcQpf2H2t9VoKsgNK2sc1nZa2Cz9pJcdDWh',n:'Bonk DAO',i:'🏛️',d:'Community treasury'}],
+  address:[{v:'0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045',n:'Vitalik.eth',i:'👤',d:'Ethereum co-founder wallet'}],
 };
 function buildScenarios(s){
+  // 1. Check for curated skill-specific scenarios
+  const curated=SKILL_SCENARIOS[s.id];
+  if(curated)return curated;
+  // 2. Fallback: match by parameter name
   const vars=getSkillVars(s);
-  for(const v of vars){const sc=SC[v.name.toLowerCase()];if(sc)return sc.map(x=>({name:x.n,desc:x.d,icon:x.i,params:{[v.name]:x.v}}))}
-  if(s.skillType==='data')return[{name:'Top by Volume',desc:'limit=10, sortBy=volume',icon:'📊',params:{params:'limit=10\nsortBy=volume'}},{name:'Top by Price',desc:'limit=5, sortBy=price',icon:'💰',params:{params:'limit=5\nsortBy=price'}},{name:'Max Results',desc:'limit=50',icon:'📋',params:{params:'limit=50'}}];
+  for(const v of vars){const sc=SC_FALLBACK[v.name.toLowerCase()];if(sc)return sc.map(x=>({name:x.n,desc:x.d,icon:x.i,params:{[v.name]:x.v}}))}
+  // 3. Generic fallbacks
   if(s.skillType==='prompt_template')return[{name:'Quick Analysis',desc:'Market overview',icon:'📊',params:{query:'Give me a quick overview of current crypto market trends'}},{name:'Deep Dive',desc:'Detailed analysis',icon:'🔍',params:{query:'Do a deep analysis of Ethereum staking economics and risks'}},{name:'Comparison',desc:'Head-to-head',icon:'⚖️',params:{query:'Compare Solana and Ethereum for building a DEX'}}];
   return[{name:'Default Run',desc:'Run with default parameters',icon:'▶️',params:{}}];
 }
@@ -724,21 +810,38 @@ const R={
   ts:()=>new Date(Date.now()-R.i(0,3600000)).toISOString(),
 };
 const TOKEN_DATA={
-  ETH:{name:'Ethereum',price:[2200,4200],mcap:[260e9,500e9],vol:[8e9,25e9],holders:[800000,1200000],conc:[9,16]},
-  BTC:{name:'Bitcoin',price:[58000,105000],mcap:[1.1e12,2.1e12],vol:[15e9,60e9],holders:[400000,900000],conc:[5,12]},
-  SOL:{name:'Solana',price:[80,250],mcap:[35e9,110e9],vol:[800e6,4e9],holders:[900000,2000000],conc:[14,22]},
-  DOGE:{name:'Dogecoin',price:[0.06,0.45],mcap:[8e9,60e9],vol:[400e6,4e9],holders:[3000000,6000000],conc:[25,40]},
-  BONK:{name:'Bonk',price:[0.000008,0.00005],mcap:[400e6,3e9],vol:[50e6,500e6],holders:[500000,1500000],conc:[20,35]},
-  WIF:{name:'dogwifhat',price:[0.3,4.5],mcap:[300e6,4.5e9],vol:[30e6,800e6],holders:[200000,600000],conc:[18,30]},
+  ETH:{name:'Ethereum',sym:'ETH',price:[2200,4200],mcap:[260e9,500e9],vol:[8e9,25e9],holders:[800000,1200000],conc:[9,16]},
+  BTC:{name:'Bitcoin',sym:'BTC',price:[58000,105000],mcap:[1.1e12,2.1e12],vol:[15e9,60e9],holders:[400000,900000],conc:[5,12]},
+  SOL:{name:'Solana',sym:'SOL',price:[80,250],mcap:[35e9,110e9],vol:[800e6,4e9],holders:[900000,2000000],conc:[14,22]},
+  DOGE:{name:'Dogecoin',sym:'DOGE',price:[0.06,0.45],mcap:[8e9,60e9],vol:[400e6,4e9],holders:[3000000,6000000],conc:[25,40]},
+  BONK:{name:'Bonk',sym:'BONK',price:[0.000008,0.00005],mcap:[400e6,3e9],vol:[50e6,500e6],holders:[500000,1500000],conc:[20,35]},
+  WIF:{name:'dogwifhat',sym:'WIF',price:[0.3,4.5],mcap:[300e6,4.5e9],vol:[30e6,800e6],holders:[200000,600000],conc:[18,30]},
+  JUP:{name:'Jupiter',sym:'JUP',price:[0.4,2.5],mcap:[500e6,3.5e9],vol:[40e6,300e6],holders:[150000,500000],conc:[15,28]},
+  RAY:{name:'Raydium',sym:'RAY',price:[1,8],mcap:[200e6,2e9],vol:[20e6,200e6],holders:[80000,300000],conc:[20,35]},
+};
+// Resolve mint addresses to known token data
+const MINT_MAP={
+  'So11111111111111111111111111111111111111112':'SOL',
+  'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263':'BONK',
+  'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN':'JUP',
+  '4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R':'RAY',
+  'EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm':'WIF',
 };
 function getTokenInfo(params){
-  const sym=(params?.token||params?.symbol||'SOL').toUpperCase();
-  return TOKEN_DATA[sym]||TOKEN_DATA.SOL;
+  const raw=(params?.token||params?.symbol||'SOL').trim();
+  // Try direct symbol lookup first
+  const upper=raw.toUpperCase();
+  if(TOKEN_DATA[upper])return TOKEN_DATA[upper];
+  // Try mint address resolution
+  const resolved=MINT_MAP[raw];
+  if(resolved&&TOKEN_DATA[resolved])return TOKEN_DATA[resolved];
+  // Fallback
+  return TOKEN_DATA.SOL;
 }
 function generateMock(skill,params){
   const id=skill.id||'',name=skill.name||'';
-  const sym=(params?.token||params?.symbol||'SOL').toUpperCase();
   const td=getTokenInfo(params);
+  const sym=td.sym||'SOL';
   // ── Price Oracle ──
   if(id.includes('price-oracle')||name.includes('Price Oracle')){
     const p=R.f(td.price[0],td.price[1]);
