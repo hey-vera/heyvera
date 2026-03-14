@@ -74,13 +74,18 @@ const CONFIG = {
 interface SearchTopic {
   id: string;
   query: string;
+  // Tweet text must contain at least 2 of these words to be considered relevant.
+  // This catches Google returning pages that don't actually match the topic.
+  textMustMatch: string[];
   replies: string[];
 }
 
 const SEARCH_TOPICS: SearchTopic[] = [
   {
     id: 'openclaw',
-    query: 'OpenClaw',
+    query: 'OpenClaw agent',
+    // Relevance: tweet text must contain at least one of these words
+    textMustMatch: ['openclaw', 'open claw'],
     replies: [
       `We've been pairing OpenClaw with an economics layer — once agents do real transactions you need spend controls and delivery receipts. Been a great combo.{{url}}\nYou running yours for data tasks or automation?`,
       `OpenClaw + proper guardrails is the stack I keep coming back to. Budget controls once agents start spending is the missing piece most people hit.{{url}}\nWhat are you building with it?`,
@@ -88,7 +93,8 @@ const SEARCH_TOPICS: SearchTopic[] = [
   },
   {
     id: 'budget',
-    query: '"my AI agent" spent OR "agent spending" too much OR "AI agent" "runaway cost"',
+    query: '"AI agent" budget spending cost',
+    textMustMatch: ['agent', 'spend', 'cost', 'budget', 'bill', 'expensive'],
     replies: [
       `This is exactly why I gave up on letting agents spend freely. Hard spending caps + auto-cutoffs changed everything — no more 3am "what did it just buy" panic.{{url}}\nWhat's the worst surprise bill you've dealt with?`,
       `Been there. Delegated keys with daily caps solved it — agent gets its own wallet, hard ceiling, done. No more manual babysitting.{{url}}\nAre you running yours on-chain or off?`,
@@ -97,7 +103,8 @@ const SEARCH_TOPICS: SearchTopic[] = [
   },
   {
     id: 'trust',
-    query: '"agent to agent" trust OR "agents transact" OR "agent trust" verify',
+    query: '"AI agent" trust verification commerce',
+    textMustMatch: ['agent', 'trust', 'verif', 'transact', 'proof'],
     replies: [
       `This is the biggest blocker nobody talks about enough. Verified delivery receipts + third-party validators — agents prove they did the work before payment releases.{{url}}\nWhat's your biggest trust headache right now?`,
       `Trust is the unsexy problem that blocks everything else. Without proof of delivery, agent commerce is just hope-based trading. Cryptographic receipts solved it for us.{{url}}\nAre you seeing this in production or still experimenting?`,
@@ -106,7 +113,8 @@ const SEARCH_TOPICS: SearchTopic[] = [
   },
   {
     id: 'economy',
-    query: '"agent economy" OR "agent-to-agent" payments OR "agents paying agents"',
+    query: '"agent economy" OR "agent commerce" OR "agent-to-agent" payment',
+    textMustMatch: ['agent', 'econom', 'commerce', 'payment', 'transact', 'marketplace'],
     replies: [
       `This is going to be massive. The missing piece isn't more agents — it's the economic infrastructure for them to transact safely. Escrow, SLAs, receipts.{{url}}\nYou building on the buyer or seller side?`,
       `Agent commerce is at the "email in 1995" stage imo. The protocols for safe autonomous spending barely exist yet.{{url}}\nWhat's your take on agent-to-agent payments?`,
@@ -114,16 +122,9 @@ const SEARCH_TOPICS: SearchTopic[] = [
     ],
   },
   {
-    id: 'costcontrol',
-    query: '"AI agent" "cost control" OR "agent budget" limit OR "spending cap" agent',
-    replies: [
-      `Per-agent hourly caps + auto-throttle before hitting provider limits saved us from so many 429 cascades. Boring but critical.{{url}}\nHow many APIs are your agents calling?`,
-      `Delegated keys with spending ceilings per agent is what made it manageable for us. Each agent gets its own wallet with hard limits.{{url}}\nWhat's your cost control setup look like?`,
-    ],
-  },
-  {
     id: 'marketplace',
-    query: '"agent marketplace" OR "skill marketplace" AI OR "agents can buy" skills',
+    query: '"agent marketplace" OR "skill marketplace" OR "AI marketplace"',
+    textMustMatch: ['marketplace', 'skill', 'catalog', 'listing'],
     replies: [
       `The marketplace model only works once you solve trust — agents need to verify what they're buying actually works before paying. Output contracts + success metrics are key.{{url}}\nWhat kind of skills are you listing?`,
       `The hard part isn't listing skills — it's making agents confident enough to buy autonomously. Success rates, SLAs, verified outputs.{{url}}\nAre your agents buying automatically or human-approved?`,
@@ -131,18 +132,29 @@ const SEARCH_TOPICS: SearchTopic[] = [
   },
   {
     id: 'agentinfra',
-    query: '"building" "agent infrastructure" OR "agent infra" missing OR "agent stack" needs',
+    query: '"agent infrastructure" OR "agent stack" building',
+    textMustMatch: ['agent', 'infra', 'stack', 'building', 'framework'],
     replies: [
       `The infra gap is real — everyone's building agents but nobody's building the rails for them to safely spend, verify, and transact.{{url}}\nWhat layer are you focused on?`,
       `We hit the same wall. Agents are easy, the hard part is everything around them — billing, trust, failover, output validation.{{url}}\nWhat's the biggest infra gap you're seeing?`,
     ],
   },
   {
-    id: 'agentfail',
-    query: '"AI agent" failed OR broke OR "agent crashed" OR "agent went rogue"',
+    id: 'autonomous',
+    query: '"autonomous agent" production OR reliability OR guardrails',
+    textMustMatch: ['autonomous', 'agent', 'production', 'reliable', 'guardrail', 'deploy'],
     replies: [
-      `Agent failures in production are terrifying. Auto-failover to backup providers + health-check pings every 15min is what finally made ours stable.{{url}}\nWhat caused the failure?`,
-      `Been there. The fix for us was SLA contracts with penalty credits — provider guarantees uptime or the agent automatically gets compensated and switches.{{url}}\nHow are you handling recovery?`,
+      `The dream of fully autonomous agents only works if they can self-heal — auto-swap degraded providers, enforce their own budgets, verify their own outputs.{{url}}\nHow autonomous are your agents right now?`,
+      `We went from "agent needs human approval for everything" to "agent manages its own contracts and fails over automatically." Night and day difference in uptime.{{url}}\nWhat's the scariest thing you've let an agent do unsupervised?`,
+    ],
+  },
+  {
+    id: 'agentapi',
+    query: '"AI agent" API rate limit OR cost OR billing',
+    textMustMatch: ['agent', 'api', 'rate', 'cost', 'billing', 'limit'],
+    replies: [
+      `Per-agent hourly caps + auto-throttle before hitting provider limits saved us from so many 429 cascades. Boring but critical.{{url}}\nHow many APIs are your agents calling?`,
+      `Delegated keys with spending ceilings per agent is what made it manageable for us. Each agent gets its own wallet with hard limits.{{url}}\nWhat's your cost control setup look like?`,
     ],
   },
 ];
@@ -437,6 +449,17 @@ function isTweetEligible(tweet: Tweet, state: BotState): { eligible: boolean; re
   // Already replied
   if (state.repliedTweetIds.includes(tweet.id)) {
     return { eligible: false, reason: 'already replied' };
+  }
+
+  // Relevance check — does the tweet TEXT actually match the topic?
+  // Google often returns pages where keywords appear in sidebars, not the tweet itself.
+  const topic = SEARCH_TOPICS.find(t => t.id === tweet.topicId);
+  if (topic) {
+    const lower = tweet.text.toLowerCase();
+    const hits = topic.textMustMatch.filter(w => lower.includes(w)).length;
+    if (hits < 2) {
+      return { eligible: false, reason: `off-topic (${hits}/${topic.textMustMatch.length} keywords)` };
+    }
   }
 
   // Engagement filter
