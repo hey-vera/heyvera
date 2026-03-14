@@ -376,12 +376,72 @@ async function retweetTweet(tweetId: string): Promise<boolean> {
   return res.ok;
 }
 
+// ─── LLM Helper ─────────────────────────────────────────────────────────────
+
+async function askLLM(prompt: string, maxCredits = 3): Promise<string | null> {
+  if (!CONFIG.clawnetApiKey) return null;
+  try {
+    const res = await fetch(`${CONFIG.clawnetApiUrl}/v1/orchestrate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': CONFIG.clawnetApiKey,
+      },
+      body: JSON.stringify({
+        query: prompt,
+        pricing: { maxCredits, strategy: 'cheapest' },
+      }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) return null;
+    const data = await res.json() as { answer?: string };
+    return data.answer ?? null;
+  } catch {
+    return null;
+  }
+}
+
+let llmAvailable: boolean | null = null; // Cached after first check
+
+async function isLLMAvailable(): Promise<boolean> {
+  if (llmAvailable !== null) return llmAvailable;
+  const result = await askLLM('Reply with exactly: OK', 1);
+  llmAvailable = result !== null;
+  console.log(`LLM mode: ${llmAvailable ? 'SMART (ClawNet online)' : 'TEMPLATE (ClawNet offline)'}`);
+  return llmAvailable;
+}
+
+// ─── LLM Relevance Check ────────────────────────────────────────────────────
+
+async function checkRelevanceLLM(tweet: Tweet): Promise<{ relevant: boolean; reason: string }> {
+  const answer = await askLLM(
+    `You are a social media analyst. Evaluate this tweet for reply-worthiness.
+
+Tweet: "${tweet.text.slice(0, 400)}"
+
+Answer these questions:
+1. Is this a PERSON sharing an opinion, asking a question, or discussing a problem? (not a company/brand promoting their product)
+2. Is the topic related to: AI agents, autonomous software, agent infrastructure, agent spending/billing, agent trust, or agent-to-agent commerce?
+3. Would a reply from a developer who builds agent infrastructure feel natural and welcome here? (not awkward or off-topic)
+
+If ALL THREE are YES, reply with exactly: RELEVANT
+If ANY is NO, reply with exactly: SKIP: [one-line reason]
+
+Reply with ONLY "RELEVANT" or "SKIP: reason", nothing else.`,
+    2,
+  );
+
+  if (!answer) return { relevant: true, reason: 'llm-unavailable' }; // Fail open if LLM is down
+  const trimmed = answer.trim();
+  if (trimmed.toUpperCase().startsWith('RELEVANT')) return { relevant: true, reason: 'llm-approved' };
+  return { relevant: false, reason: trimmed.replace(/^SKIP:\s*/i, '') };
+}
+
 // ─── Reply Generation ────────────────────────────────────────────────────────
 
 function getTopicReply(topicId: string): string {
   const topic = SEARCH_TOPICS.find(t => t.id === topicId);
   if (!topic) {
-    // Should never happen, but fallback gracefully
     const fallbacks = [
       `This is the kind of problem that only shows up once you try to run agents in production. The gap between demo and reliable is massive.\nWhat stack are you using?`,
       `The trust + economics layer for agents is where all the hard problems live. Feels like early internet infrastructure.\nWhat's your biggest blocker right now?`,
@@ -389,27 +449,16 @@ function getTopicReply(topicId: string): string {
     ];
     return fallbacks[Math.floor(Math.random() * fallbacks.length)];
   }
-
   const template = topic.replies[Math.floor(Math.random() * topic.replies.length)];
-  // Include URL ~40% of the time to avoid looking spammy
   return template.replace('{{url}}', Math.random() < 0.4 ? ' claw-net.org' : '');
 }
 
-async function generateSmartReply(tweet: Tweet): Promise<string> {
-  // Try LLM-powered reply first via ClawNet orchestration
-  if (CONFIG.clawnetApiKey) {
-    try {
-      const topic = SEARCH_TOPICS.find(t => t.id === tweet.topicId);
-      const topicHint = topic ? ` The conversation is about: ${topic.id}` : '';
+async function generateSmartReply(tweet: Tweet): Promise<string | null> {
+  const topic = SEARCH_TOPICS.find(t => t.id === tweet.topicId);
+  const topicHint = topic ? ` The conversation is about: ${topic.id}` : '';
 
-      const res = await fetch(`${CONFIG.clawnetApiUrl}/v1/orchestrate`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': CONFIG.clawnetApiKey,
-        },
-        body: JSON.stringify({
-          query: `You are Coral, a developer who builds with AI agent infrastructure. You're genuinely passionate about agent economics and trust layers.${topicHint}
+  const answer = await askLLM(
+    `You are Coral, a developer who builds with AI agent infrastructure. You're genuinely passionate about agent economics and trust layers.${topicHint}
 
 Someone tweeted: "${tweet.text.slice(0, 300)}"
 
@@ -419,40 +468,36 @@ Write a casual, authentic reply (max 250 chars) that:
 3. Optionally mention "claw-net.org" or "Clawnet" ONLY if it fits naturally (skip it ~60% of the time)
 4. End with a short question to keep the conversation going
 5. Sound like a real person on Twitter, not a brand account — use lowercase, contractions, no buzzwords
+6. Do NOT reply if the tweet is promoting a specific product or company — return "SKIP" instead
 
 NEVER start with "Great point", "This!", "So true", "Totally agree", "Love this". Be specific to what they said.
 
-Reply ONLY with the tweet text, nothing else.`,
-          pricing: { maxCredits: 5, strategy: 'cheapest' },
-        }),
-        signal: AbortSignal.timeout(15_000),
-      });
+Reply ONLY with the tweet text, or "SKIP" if you shouldn't reply. Nothing else.`,
+    5,
+  );
 
-      if (res.ok) {
-        const data = await res.json() as { answer?: string };
-        if (data.answer && data.answer.length > 20 && data.answer.length <= 280) {
-          return data.answer;
-        }
-      }
-    } catch {
-      // Fall through to template
-    }
+  if (answer && answer.trim().toUpperCase() !== 'SKIP' && answer.length > 20 && answer.length <= 280) {
+    return answer.trim();
   }
 
-  // Fallback: topic-based template reply
-  return getTopicReply(tweet.topicId);
+  // LLM said SKIP or unavailable — fall back to template only if LLM is offline
+  if (!await isLLMAvailable()) {
+    return getTopicReply(tweet.topicId);
+  }
+
+  // LLM is online but said SKIP — respect that
+  return null;
 }
 
 // ─── Tweet Filtering ─────────────────────────────────────────────────────────
 
+// Fast pre-filter: cheap checks that don't need LLM (deduplication, length, age)
 function isTweetEligible(tweet: Tweet, state: BotState): { eligible: boolean; reason?: string } {
-  // Already replied
   if (state.repliedTweetIds.includes(tweet.id)) {
     return { eligible: false, reason: 'already replied' };
   }
 
   // Relevance check — does the tweet TEXT actually match the topic?
-  // Google often returns pages where keywords appear in sidebars, not the tweet itself.
   const topic = SEARCH_TOPICS.find(t => t.id === tweet.topicId);
   if (topic) {
     const lower = tweet.text.toLowerCase();
@@ -462,101 +507,25 @@ function isTweetEligible(tweet: Tweet, state: BotState): { eligible: boolean; re
     }
   }
 
-  // Engagement filter
   const likes = tweet.public_metrics?.like_count ?? 0;
   if (likes < CONFIG.minTweetLikes) {
     return { eligible: false, reason: `too few likes (${likes})` };
   }
 
-  // Don't pile on
   const replies = tweet.public_metrics?.reply_count ?? 0;
   if (replies > CONFIG.maxTweetReplies) {
     return { eligible: false, reason: `too many replies (${replies})` };
   }
 
-  // Age check
   const tweetAge = Date.now() - new Date(tweet.created_at).getTime();
-  if (tweetAge < CONFIG.minTweetAgeMinutes * 60_000) {
-    return { eligible: false, reason: 'too new' };
-  }
-  if (tweetAge > CONFIG.maxTweetAgeHours * 3600_000) {
-    return { eligible: false, reason: 'too old' };
-  }
+  if (tweetAge < CONFIG.minTweetAgeMinutes * 60_000) return { eligible: false, reason: 'too new' };
+  if (tweetAge > CONFIG.maxTweetAgeHours * 3600_000) return { eligible: false, reason: 'too old' };
 
-  // Skip very short tweets
-  if (tweet.text.length < 30) {
-    return { eligible: false, reason: 'too short' };
-  }
+  if (tweet.text.length < 30) return { eligible: false, reason: 'too short' };
 
-  // Skip tweets that mention us (no need to pitch)
   const lower = tweet.text.toLowerCase();
   if (lower.includes('clawnet') || lower.includes('claw-net')) {
-    return { eligible: false, reason: 'already mentions clawnet' };
-  }
-
-  // Skip competitor / other project mentions — replying looks desperate
-  const competitors = [
-    'maiat', 'fetch.ai', 'autonolas', 'olas', 'singularitynet', 'ocean protocol',
-    'nevermined', 'morpheus', 'virtuals protocol', 'eliza framework', 'ai16z',
-    'phala network', 'ritual', 'bittensor', 'nous research', 'heurist',
-    '0g_labs', '0g labs', 'pump.fun', 'abstract agent', 'ai assembly',
-    'minimax', 'langchain', 'crewai', 'autogen', 'superagent',
-    'messari', 'delphi digital', 'a16z', 'coinbase', 'binance',
-  ];
-  // Also catch known founder/project Twitter handles
-  const competitorHandles = [
-    '@hwchase17', '@langaborov', '@yaborov', '@0aborov',
-    '@0g_labs', '@daytonaio', '@messaborov', '@messari',
-  ];
-  if (competitors.some(c => lower.includes(c)) || competitorHandles.some(h => lower.includes(h))) {
-    return { eligible: false, reason: 'competitor mention' };
-  }
-
-  // Skip promotional tweets — someone advertising their own product/guide/tool.
-  // We only want to reply to people DISCUSSING problems, not selling solutions.
-  const promoSignals = [
-    'just launched', 'announcing', 'we just shipped', 'introducing our',
-    'check out our', 'try our', 'just dropped', 'now live', 'is live',
-    'sign up', 'join our', 'join the', 'get started', 'free trial',
-    'verified skills', 'installable', 'one command', 'in under',
-    'get access', 'early access', 'waitlist', 'beta access',
-    'we built', 'we\'re building', 'our platform', 'our tool',
-    'this one is different', 'most guides', 'the guide',
-    'at messari', 'at coinbase', // Company perspective tweets
-  ];
-  if (promoSignals.some(s => lower.includes(s))) {
-    return { eligible: false, reason: 'promo/self-promotion' };
-  }
-
-  // Skip non-discussion content: video timestamps, conference recaps, threads, listicles
-  const nonDiscussion = [
-    '00:00', '01:', '02:', '03:', '04:', '05:', // Video timestamps
-    'thread 🧵', '🧵', '1/', '1)', // Thread starters (company content)
-    'conference', 'keynote', 'fireside', 'panel',
-    'recap:', 'summary:', 'tldr:', 'tl;dr',
-  ];
-  if (nonDiscussion.some(s => lower.includes(s))) {
-    return { eligible: false, reason: 'non-discussion content' };
-  }
-
-  // Skip tweets that read like product descriptions (3rd person, feature-listing tone)
-  const featureListSignals = ['features:', 'includes:', 'supports:', 'powered by', 'built on', 'built with'];
-  const has3rdPerson = /\b(the platform|the protocol|the tool|the framework|the stack)\b/i.test(tweet.text);
-  if (featureListSignals.some(s => lower.includes(s)) || has3rdPerson) {
-    return { eligible: false, reason: 'product description' };
-  }
-
-  // Skip off-topic — tweets about L1 blockchains, token launches, training data, etc.
-  // These often match our queries but aren't about agent infrastructure/commerce
-  const offTopic = [
-    'token launch', 'token sale', 'presale', 'airdrop', 'staking reward',
-    'training data', 'fine-tuning', 'fine tuning', 'model training',
-    'erc-', 'eip-', 'solidity', 'smart contract audit',
-    'hedera', 'cardano', 'polkadot', 'cosmos', 'avalanche',
-    'nft', 'mint', 'whitelist', 'tokenomics',
-  ];
-  if (offTopic.some(t => lower.includes(t))) {
-    return { eligible: false, reason: 'off-topic' };
+    return { eligible: false, reason: 'already mentions us' };
   }
 
   return { eligible: true };
@@ -645,30 +614,46 @@ async function run(): Promise<void> {
     return;
   }
 
+  // Check if LLM is available for smart filtering
+  const smart = await isLLMAvailable();
+
   // Sort by engagement, then pick max 1 per topic to diversify replies
   candidates.sort((a, b) => (b.public_metrics?.like_count ?? 0) - (a.public_metrics?.like_count ?? 0));
-  const toReply: Tweet[] = [];
-  const usedTopics = new Set<string>();
-  for (const tweet of candidates) {
-    if (toReply.length >= maxThisRun) break;
-    if (usedTopics.has(tweet.topicId)) continue; // Max 1 per topic per run
-    toReply.push(tweet);
-    usedTopics.add(tweet.topicId);
-  }
 
   let repliedCount = 0;
+  const usedTopics = new Set<string>();
 
-  for (const tweet of toReply) {
+  for (const tweet of candidates) {
+    if (repliedCount >= maxThisRun) break;
+    if (usedTopics.has(tweet.topicId)) continue; // Max 1 per topic per run
+
     const likes = tweet.public_metrics?.like_count ?? 0;
-    console.log(`\n─── Replying to tweet [${tweet.topicId}] (${likes} likes) ───`);
+    console.log(`\n─── Evaluating tweet [${tweet.topicId}] (${likes} likes) ───`);
     console.log(`Original: "${tweet.text.slice(0, 200)}${tweet.text.length > 200 ? '...' : ''}"`);
 
-    // Generate reply — topic is already locked in from search
+    // LLM relevance gate — skip tweets that aren't genuine discussions
+    if (smart) {
+      const { relevant, reason } = await checkRelevanceLLM(tweet);
+      if (!relevant) {
+        console.log(`  LLM SKIP: ${reason}`);
+        continue;
+      }
+      console.log('  LLM: relevant ✓');
+    }
+
+    // Generate reply — LLM if available, template fallback if not
     const reply = await generateSmartReply(tweet);
+    if (!reply) {
+      console.log('  LLM declined to reply — skipping');
+      continue;
+    }
     console.log(`Reply: "${reply}"`);
+
+    usedTopics.add(tweet.topicId);
 
     if (dryRun) {
       console.log('[DRY RUN — not posting]');
+      repliedCount++;
       continue;
     }
 
