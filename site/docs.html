@@ -278,6 +278,16 @@
       <a class="sidebar-link" href="#governance">Governance</a>
       <a class="sidebar-link" href="#context">Agent Context</a>
       <a class="sidebar-link" href="#mesh">P2P Mesh</a>
+
+      <div class="sidebar-heading">Trust &amp; Safety</div>
+      <a class="sidebar-link" href="#composites">Composite Skills</a>
+      <a class="sidebar-link" href="#dynamic-pricing">Dynamic Pricing</a>
+      <a class="sidebar-link" href="#sla">SLA Contracts</a>
+      <a class="sidebar-link" href="#output-contracts">Output Contracts</a>
+      <a class="sidebar-link" href="#validators">Validators</a>
+      <a class="sidebar-link" href="#webhooks">Event Webhooks</a>
+      <a class="sidebar-link" href="#sessions">Persistent Sessions</a>
+      <a class="sidebar-link" href="#budgets">Budget Accounts</a>
     </div>
   </aside>
 
@@ -294,7 +304,7 @@
         <div class="intro-card"><div class="intro-card-title">Base URL</div><div class="intro-card-desc"><code>https://api.claw-net.org</code></div></div>
         <div class="intro-card"><div class="intro-card-title">Auth Header</div><div class="intro-card-desc"><code>X-API-Key: your_key</code></div></div>
         <div class="intro-card"><div class="intro-card-title">Format</div><div class="intro-card-desc">JSON in, JSON out. UTF-8 everywhere.</div></div>
-        <div class="intro-card"><div class="intro-card-title">Credits</div><div class="intro-card-desc">Buy via Stripe or Solana USDC. Cached queries cost just 0.1 credits.</div></div>
+        <div class="intro-card"><div class="intro-card-title">Credits</div><div class="intro-card-desc">Buy via Stripe or Solana USDC. Cached queries cost 10% of live price (min 0.1 credits).</div></div>
       </div>
     </div>
 
@@ -355,12 +365,12 @@
         <div class="concept-card">
           <div class="concept-icon">&#x26A1;</div>
           <div class="concept-title">Credits</div>
-          <div class="concept-desc">Credits are the currency of ClawNet. Every API call costs credits. Buy them with Stripe or USDC. Cached responses cost just <strong style="color:var(--accent)">1 credit</strong> — a 90% discount vs. live price. Check your balance anytime with <code>GET /v1/auth/me</code>.</div>
+          <div class="concept-desc">Credits are the currency of ClawNet. Every API call costs credits. Buy them with Stripe or USDC. Cached responses cost just <strong style="color:var(--accent)">10% of the live price</strong> (min 0.1 credits). Check your balance anytime with <code>GET /v1/auth/me</code>.</div>
         </div>
         <div class="concept-card">
           <div class="concept-icon">&#x1F9E0;</div>
           <div class="concept-title">Orchestration</div>
-          <div class="concept-desc">Ask a question in plain English. The orchestrator parses your intent, picks the best API endpoints (from 158+ sources), fetches data in parallel, and returns one structured answer. No need to know which API to use — ClawNet handles it.</div>
+          <div class="concept-desc">Ask a question in plain English. The orchestrator parses your intent, picks the best API endpoints (from 340+ sources), fetches data in parallel, and returns one structured answer. No need to know which API to use — ClawNet handles it.</div>
         </div>
         <div class="concept-card">
           <div class="concept-icon">&#x1F527;</div>
@@ -375,7 +385,7 @@
         <div class="concept-card">
           <div class="concept-icon">&#x1F4BE;</div>
           <div class="concept-title">Smart Caching</div>
-          <div class="concept-desc">The first call to any data source fetches live data and caches it in Redis. Every call after that returns the cached version for just 0.1 credits until the cache expires. You always get told whether you hit cache or live.</div>
+          <div class="concept-desc">The first call to any data source fetches live data and caches it in Redis. Every call after that returns the cached version at 10% of the live cost (min 0.1 credits) until the cache expires. You always get told whether you hit cache or live.</div>
         </div>
         <div class="concept-card">
           <div class="concept-icon">&#x1F4B0;</div>
@@ -1072,7 +1082,7 @@ es.addEventListener('done', (e) => {
       <h2 class="docs-section-title">Endpoint Registry</h2>
       <div class="use-case">
         <div class="use-case-label">When to use this</div>
-        <div class="use-case-text">You want to see all 158+ external API endpoints that the orchestrator can use — with their categories, providers, latency, and cost per call.</div>
+        <div class="use-case-text">You want to see all 340+ external API endpoints that the orchestrator can use — with their categories, providers, latency, and cost per call.</div>
       </div>
       <div class="endpoint">
         <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/registry</code></div>
@@ -1332,6 +1342,336 @@ es.addEventListener('done', (e) => {
   "nodeId": "12D3KooW...",
   "listening": ["/ip4/0.0.0.0/tcp/4001"],
   "peers": [{"id": "12D3KooW...", "multiaddr": "/ip4/...", "last_seen": "2026-03-10T..."}]
+}</code></pre></div>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════ TRUST & SAFETY ═══════════════════════════════════════════════ -->
+
+    <!-- COMPOSITES -->
+    <div class="docs-section" id="composites">
+      <h2 class="docs-section-title">Composite Skills</h2>
+      <p class="docs-section-desc">Chain multiple skills into higher-order workflows. Composites call sub-skills in sequence or parallel with output piping between steps. Limits: max 5 dependencies, max depth 3 (composites-of-composites), max 10 leaf invocations per execution.</p>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/skills</code></div>
+        <p class="endpoint-desc">Create a composite skill by setting <code>skillType: "composite"</code> and providing a <code>dependencies</code> array that defines the execution graph.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+        <h4>Dependencies Example</h4>
+        <div class="code-block"><pre><code>[
+  {
+    "skillId": "token-price",
+    "paramMapping": { "token": "{{token}}" },
+    "outputKey": "price"
+  },
+  {
+    "skillId": "sentiment",
+    "paramMapping": { "query": "{{token}}" },
+    "outputKey": "sentiment"
+  }
+]</code></pre></div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/skills/:id/invoke</code></div>
+        <p class="endpoint-desc">Invoke a composite skill. Each sub-skill runs in dependency order. Returns per-step results and a full cost breakdown.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+        <div class="code-block"><pre><code>{
+  "results": {
+    "price": { "usd": 67452.10, "change24h": 2.3 },
+    "sentiment": { "score": 0.82, "label": "bullish" }
+  },
+  "costBreakdown": [
+    { "skillId": "token-price", "credits": 1.5 },
+    { "skillId": "sentiment", "credits": 2.0 }
+  ],
+  "totalCredits": 3.5
+}</code></pre></div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/economy/estimate/:skillId</code></div>
+        <p class="endpoint-desc">Pre-calculate the total credit cost of a composite skill before invoking it.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/economy/dependency-graph</code></div>
+        <p class="endpoint-desc">Visualize the composite skill's dependency DAG — shows execution order, depth, and leaf count.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+      </div>
+    </div>
+
+    <!-- DYNAMIC PRICING -->
+    <div class="docs-section" id="dynamic-pricing">
+      <h2 class="docs-section-title">Dynamic Pricing</h2>
+      <p class="docs-section-desc">Skill creators can configure surge, volume, and off-peak pricing. Prices adjust automatically based on demand — no manual intervention required.</p>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/skills</code></div>
+        <p class="endpoint-desc">Set dynamic pricing via the <code>pricingConfig</code> object when creating or updating a skill.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+        <h4>Pricing Config</h4>
+        <div class="code-block"><pre><code>{
+  "pricingConfig": {
+    "surge": {
+      "enabled": true,
+      "threshold": 100,
+      "multiplier": 2.5,
+      "maxMultiplier": 5.0
+    },
+    "volume": {
+      "enabled": true,
+      "tiers": [
+        { "minCalls": 100, "discountPct": 10 },
+        { "minCalls": 500, "discountPct": 25 },
+        { "minCalls": 1000, "discountPct": 50 }
+      ]
+    },
+    "offPeak": {
+      "enabled": true,
+      "utcHours": [2, 3, 4, 5, 6],
+      "discountPct": 20
+    }
+  }
+}</code></pre></div>
+        <p class="endpoint-desc"><strong>Surge:</strong> Multiplier up to 5x when demand exceeds threshold calls per hour. <strong>Volume:</strong> Monthly call tiers with up to 50% discount. <strong>Off-peak:</strong> UTC hour windows with reduced pricing.</p>
+      </div>
+    </div>
+
+    <!-- SLA -->
+    <div class="docs-section" id="sla">
+      <h2 class="docs-section-title">SLA Contracts</h2>
+      <p class="docs-section-desc">Skills can guarantee uptime, latency, and success rate. Violations are detected every 15 minutes by the health cron and trigger penalty credits to affected consumers.</p>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/skills</code></div>
+        <p class="endpoint-desc">Attach an SLA contract when creating a skill via the <code>sla</code> object.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+        <h4>SLA Object</h4>
+        <div class="code-block"><pre><code>{
+  "sla": {
+    "guaranteed_uptime": 99,
+    "max_latency_ms": 5000,
+    "min_success_rate": 95,
+    "penalty_pct": 10
+  }
+}</code></pre></div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/economy/sla-violations/:skillId</code></div>
+        <p class="endpoint-desc">Query SLA violation history for a specific skill — includes timestamps, violation type, and penalty credits issued.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/economy/penalty/:skillId</code></div>
+        <p class="endpoint-desc">Check the current penalty tier for a skill. Tiers escalate: <code>CLEAN</code> &rarr; <code>WARNING</code> &rarr; <code>REDUCED_VISIBILITY</code> &rarr; <code>DELISTED</code>.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+      </div>
+    </div>
+
+    <!-- OUTPUT CONTRACTS -->
+    <div class="docs-section" id="output-contracts">
+      <h2 class="docs-section-title">Output Contracts</h2>
+      <p class="docs-section-desc">Define a JSON Schema that skill outputs must conform to. Agents can validate trust before paying — every invocation response includes whether the output matched the contract.</p>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/skills</code></div>
+        <p class="endpoint-desc">Set an output contract when creating a skill via the <code>outputContract</code> field. Uses standard JSON Schema.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+        <h4>Output Contract Example</h4>
+        <div class="code-block"><pre><code>{
+  "outputContract": {
+    "type": "object",
+    "required": ["price", "symbol"],
+    "properties": {
+      "price": { "type": "number" },
+      "symbol": { "type": "string" }
+    }
+  }
+}</code></pre></div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/skills/:id/invoke</code></div>
+        <p class="endpoint-desc">When invoking a skill with an output contract, the response includes <code>outputContractValid: true/false</code> so agents can verify conformance. Provider info shows <code>hasOutputContract: true</code> in skill listings.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+        <div class="code-block"><pre><code>{
+  "result": { "price": 67452.10, "symbol": "BTC" },
+  "outputContractValid": true,
+  "credits": 1.5
+}</code></pre></div>
+      </div>
+    </div>
+
+    <!-- VALIDATORS -->
+    <div class="docs-section" id="validators">
+      <h2 class="docs-section-title">Validators</h2>
+      <p class="docs-section-desc">Third-party verification of transaction results. Validators are promoted by admin and earn 0.5 credits per useful verification.</p>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/validators/verify</code></div>
+        <p class="endpoint-desc">Submit a verdict on a transaction. Requires <code>is_validator</code> status (granted by admin).</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code> (validator)</div>
+        <h4>Body</h4>
+        <div class="code-block"><pre><code>{
+  "transactionId": "txn_abc123",
+  "verdict": "VALID",
+  "notes": "Output matches expected schema and values are within range"
+}</code></pre></div>
+        <p class="endpoint-desc">Verdict must be one of: <code>VALID</code>, <code>INVALID</code>, or <code>INCONCLUSIVE</code>.</p>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/validators/history</code></div>
+        <p class="endpoint-desc">Your own validation stats — total verdicts, accuracy, and credits earned.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code> (validator)</div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/validators/leaderboard</code></div>
+        <p class="endpoint-desc">Top validators ranked by accuracy and volume.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/validators/transaction/:txId</code></div>
+        <p class="endpoint-desc">All verdicts submitted for a specific transaction.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/validators/skill/:skillId</code></div>
+        <p class="endpoint-desc">Aggregate validation counts for a skill — total verified, valid, invalid, and inconclusive.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+      </div>
+    </div>
+
+    <!-- WEBHOOKS -->
+    <div class="docs-section" id="webhooks">
+      <h2 class="docs-section-title">Event Webhooks</h2>
+      <p class="docs-section-desc">Get real-time notifications when events happen: SLA violations, budget depletion, credit transfers, skill invocations, and more. All webhooks include <code>X-ClawNet-Signature</code> and <code>X-ClawNet-Timestamp</code> headers for HMAC verification.</p>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/economy/webhooks</code></div>
+        <p class="endpoint-desc">Register a webhook endpoint to receive event notifications.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+        <h4>Body</h4>
+        <div class="code-block"><pre><code>{
+  "url": "https://your-app.com/webhooks/clawnet",
+  "events": [
+    "SLA_VIOLATED",
+    "CREDIT_LOW",
+    "BUDGET_DEPLETED",
+    "SKILL_INVOKED",
+    "PAYOUT_SENT",
+    "TRANSFER_RECEIVED"
+  ]
+}</code></pre></div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/economy/webhooks</code></div>
+        <p class="endpoint-desc">List all your registered webhooks with their subscribed events.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge delete">DELETE</span><code class="endpoint-path">/v1/economy/webhooks/:id</code></div>
+        <p class="endpoint-desc">Remove a webhook registration.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge put">PUT</span><code class="endpoint-path">/v1/economy/webhook-secret</code></div>
+        <p class="endpoint-desc">Set an HMAC signing secret for webhook payload verification. Once set, all webhook deliveries include a signature header you can validate server-side.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+      </div>
+    </div>
+
+    <!-- SESSIONS -->
+    <div class="docs-section" id="sessions">
+      <h2 class="docs-section-title">Persistent Sessions</h2>
+      <p class="docs-section-desc">Agents can maintain state across API calls and scheduled skill runs. Each session stores up to 50KB of key-value state. Max 10 sessions per API key. Sessions can be attached to scheduled skills via <code>sessionId</code> — state is auto-injected as variables.</p>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/economy/sessions</code></div>
+        <p class="endpoint-desc">Create a new session with an optional name.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+        <h4>Body</h4>
+        <div class="code-block"><pre><code>{ "name": "my-agent" }</code></pre></div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/economy/sessions</code></div>
+        <p class="endpoint-desc">List all your sessions with names, creation dates, and state sizes.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/economy/sessions/:id</code></div>
+        <p class="endpoint-desc">Get a specific session including its full key-value state.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge patch">PATCH</span><code class="endpoint-path">/v1/economy/sessions/:id</code></div>
+        <p class="endpoint-desc">Update session state. Merges provided keys with existing state.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+        <h4>Body</h4>
+        <div class="code-block"><pre><code>{
+  "state": {
+    "lastToken": "SOL",
+    "portfolio": [
+      { "symbol": "BTC", "amount": 0.5 },
+      { "symbol": "ETH", "amount": 10 }
+    ]
+  }
+}</code></pre></div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge delete">DELETE</span><code class="endpoint-path">/v1/economy/sessions/:id</code></div>
+        <p class="endpoint-desc">Delete a session and all its stored state.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+      </div>
+    </div>
+
+    <!-- BUDGETS -->
+    <div class="docs-section" id="budgets">
+      <h2 class="docs-section-title">Budget Accounts</h2>
+      <p class="docs-section-desc">Create spend-limited child keys for agent delegation. Set daily, weekly, and total spend caps with optional auto-topup. When a budget is depleted, the agent receives a 402 response and a <code>BUDGET_DEPLETED</code> webhook fires.</p>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/economy/keys/budget-account</code></div>
+        <p class="endpoint-desc">Create a budget-limited child key. Credits are drawn from the parent key's balance.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+        <h4>Body</h4>
+        <div class="code-block"><pre><code>{
+  "spendLimit": 1000,
+  "dailyLimit": 100,
+  "weeklyLimit": 500,
+  "autoTopup": false,
+  "permissions": ["skills:invoke", "orchestrate"]
+}</code></pre></div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/economy/keys/budget-account/:childKey</code></div>
+        <p class="endpoint-desc">Check budget account status — remaining balance, credits used, and configured limits.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+        <div class="code-block"><pre><code>{
+  "childKey": "cn_bud_••••••ab",
+  "spendLimit": 1000,
+  "dailyLimit": 100,
+  "weeklyLimit": 500,
+  "used": 342,
+  "remaining": 658,
+  "usedToday": 42,
+  "usedThisWeek": 210,
+  "autoTopup": false
 }</code></pre></div>
       </div>
     </div>

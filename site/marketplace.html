@@ -153,6 +153,10 @@
     .skill-type-badge.data { color: #ef4444; background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.25); }
     .skill-type-badge.api_proxy { color: #3b82f6; background: rgba(59,130,246,0.12); border: 1px solid rgba(59,130,246,0.25); }
     .skill-type-badge.prompt { color: #8b5cf6; background: rgba(139,92,246,0.12); border: 1px solid rgba(139,92,246,0.25); }
+    .card-info-badge { font-size: 10px; font-weight: 500; padding: 1px 6px; border-radius: 3px; white-space: nowrap; }
+    .card-info-badge.dynamic { color: #f59e0b; background: rgba(245,158,11,0.10); border: 1px solid rgba(245,158,11,0.20); }
+    .card-info-badge.verified { color: #10b981; background: rgba(16,185,129,0.10); border: 1px solid rgba(16,185,129,0.20); }
+    .card-info-badge.sla { color: #6366f1; background: rgba(99,102,241,0.10); border: 1px solid rgba(99,102,241,0.20); }
     .type-pill { display:flex; align-items:center; gap:6px; padding:8px 14px; border:1px solid var(--border-default); border-radius:var(--radius-md); cursor:pointer; font-size:12px; color:var(--text-secondary); transition:all 0.15s; background:var(--bg-surface); }
     .type-pill:hover { border-color:var(--border-strong); }
     .type-pill.active { border-color:var(--accent); background:var(--accent-subtle); color:var(--text-primary); }
@@ -416,7 +420,7 @@
       <div class="mkt-hero-stats">
         <div class="hstat"><div class="hstat-val g" id="stat-total">&mdash;</div><div class="hstat-lbl">Skills</div></div>
         <div class="hstat"><div class="hstat-val g">85%</div><div class="hstat-lbl">To Creator</div></div>
-        <div class="hstat"><div class="hstat-val p">3%</div><div class="hstat-lbl">Platform</div></div>
+        <div class="hstat"><div class="hstat-val p">15%</div><div class="hstat-lbl">Platform</div></div>
       </div>
     </div>
 
@@ -620,7 +624,7 @@
           <div class="info-card">
             <div class="info-title">Creator Economics</div>
             <div class="info-row"><span class="l">Your cut</span><span class="v">85%</span></div>
-            <div class="info-row"><span class="l">Platform fee</span><span class="v n">3%</span></div>
+            <div class="info-row"><span class="l">Platform fee</span><span class="v n">15%</span></div>
             <div class="info-row"><span class="l">Payment</span><span class="v n">Instant</span></div>
             <div class="info-row"><span class="l">Min price</span><span class="v n">0 credits</span></div>
             <div id="earnings-preview" style="display:none;margin-top:8px;padding-top:8px;border-top:1px solid var(--border-subtle)">
@@ -1095,9 +1099,12 @@ function renderCard(s) {
     : skillType === 'api_proxy' ? '<span class="skill-type-badge api_proxy">API PROXY</span>'
     : '<span class="skill-type-badge prompt">PROMPT</span>';
   const license = s.license || 'MIT';
+  const dynBadge = s.hasDynamicPricing ? '<span class="card-info-badge dynamic">Dynamic Pricing</span>' : '';
+  const verBadge = s.validatorCount > 0 ? `<span class="card-info-badge verified">\u2713 ${s.validatorCount} Verified</span>` : s.securityStatus === 'VERIFIED' ? '<span class="card-info-badge verified">\u2713 Verified</span>' : '';
+  const slaBadge = s.maxLatencyMs || s.uptimeGuarantee ? `<span class="card-info-badge sla">SLA${s.uptimeGuarantee ? ' '+s.uptimeGuarantee+'%' : ''}${s.maxLatencyMs ? ' \u2264'+s.maxLatencyMs+'ms' : ''}</span>` : '';
   return `<div class="skill-card${off?' official':''}">
     ${off ? '<span class="card-badge">Official</span>' : ''}
-    <div class="card-cat">${typeBadge}</div>
+    <div class="card-cat">${typeBadge}${dynBadge}${verBadge}${slaBadge}</div>
     <div class="card-head">
       <div>
         <div class="card-name" onclick="nav('skill/'+encodeURIComponent('${esc(s.id)}'))">${esc(displayName)}</div>
@@ -1168,6 +1175,9 @@ async function loadSkillDetail(id) {
             <span>${esc(s.license||'MIT')}</span>
             ${s.publishedAt ? `<span>${new Date(s.publishedAt).toLocaleDateString()}</span>` : ''}
             ${s.updateFrequency ? `<span style="color:var(--info)">↻ ${esc(s.updateFrequency)}</span>` : ''}
+            ${s.hasDynamicPricing ? '<span class="card-info-badge dynamic">Dynamic Pricing</span>' : ''}
+            ${s.validatorCount > 0 ? `<span class="card-info-badge verified">\u2713 ${s.validatorCount} Validated</span>` : ''}
+            ${s.maxLatencyMs || s.uptimeGuarantee ? `<span class="card-info-badge sla">SLA${s.uptimeGuarantee ? ' '+s.uptimeGuarantee+'%' : ''}${s.maxLatencyMs ? ' \u2264'+s.maxLatencyMs+'ms' : ''}</span>` : ''}
           </div>
         </div>
         <div class="detail-actions">
@@ -1184,6 +1194,9 @@ async function loadSkillDetail(id) {
         <div class="meta-card"><div class="meta-label">Views</div><div class="meta-val">${fmt(s.views||0)}</div></div>
         <div class="meta-card"><div class="meta-label">License</div><div class="meta-val">${esc(s.license||'MIT')}</div></div>
         <div class="meta-card"><div class="meta-label">Security</div><div class="meta-val"><span class="sec ${secCls}" style="font-size:11px">${secTxt}</span></div></div>
+        ${s.validatorCount > 0 ? `<div class="meta-card"><div class="meta-label">Validators</div><div class="meta-val" style="color:var(--success)">\u2713 ${s.validatorCount}</div></div>` : ''}
+        ${s.maxLatencyMs ? `<div class="meta-card"><div class="meta-label">Max Latency</div><div class="meta-val">\u2264${s.maxLatencyMs}ms</div></div>` : ''}
+        ${s.uptimeGuarantee ? `<div class="meta-card"><div class="meta-label">Uptime SLA</div><div class="meta-val">${s.uptimeGuarantee}%</div></div>` : ''}
       </div>
 
       ${tags ? `<div class="card-tags" style="margin-bottom:20px">${tags}</div>` : ''}
@@ -1209,10 +1222,10 @@ async function loadSkillDetail(id) {
           <div class="cost-table">
             <div class="cost-row"><span style="color:var(--text-secondary)">You pay per call</span><span style="color:var(--accent);font-weight:600">${s.creditCost} credits (${creditsToUsd(s.creditCost)})</span></div>
             <div class="cost-row"><span style="color:var(--text-secondary)">Creator receives (85%)</span><span>${s.sellerReceives} credits</span></div>
-            <div class="cost-row"><span style="color:var(--text-secondary)">Platform fee (3%)</span><span>${s.feeCredits} credits</span></div>
-            ${s.skillType === 'data' ? '<div class="cost-row" style="border-top:1px solid var(--border-subtle);padding-top:8px;margin-top:4px"><span style="color:var(--accent)">Cached response price</span><span style="color:var(--accent);font-weight:600">0.1 credits ($0.0001)</span></div>' : ''}
+            <div class="cost-row"><span style="color:var(--text-secondary)">Platform fee (15%)</span><span>${s.feeCredits} credits</span></div>
+            ${s.skillType === 'data' ? `<div class="cost-row" style="border-top:1px solid var(--border-subtle);padding-top:8px;margin-top:4px"><span style="color:var(--accent)">Cached response price</span><span style="color:var(--accent);font-weight:600">${Math.max(0.1, +(s.creditCost * 0.1).toFixed(2))} credits (10% of live, min 0.1)</span></div>` : ''}
           </div>
-          <p style="font-size:12px;color:var(--text-muted);margin-top:8px">1 credit = $0.001. Credits are deducted from your balance instantly on each call.${s.skillType === 'data' ? ' Data skills cache results — repeat calls cost just 0.1 credits until the cache expires.' : ''}</p>
+          <p style="font-size:12px;color:var(--text-muted);margin-top:8px">1 credit = $0.001. Credits are deducted from your balance instantly on each call.${s.skillType === 'data' ? ' Data skills cache results — repeat calls cost 10% of the live price (min 0.1 credits) until the cache expires.' : ''}</p>
         </div>
       </div>
 
@@ -1846,7 +1859,7 @@ function updateValidation() {
   const ep = document.getElementById('earnings-preview');
   if (ep && price > 0) {
     ep.style.display = 'block';
-    const fee = Math.floor(price * 0.03);
+    const fee = Math.floor(price * 0.15);
     document.getElementById('ep-earn').textContent = (price - fee) + ' credits';
     document.getElementById('ep-fee').textContent = fee + ' credits';
   } else if (ep) {

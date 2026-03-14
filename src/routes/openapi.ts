@@ -774,6 +774,137 @@ openapiRouter.get('/openapi.json', (c) => {
           responses: { '200': { description: 'Connected peers and node info' } },
         },
       },
+      // ── Validators ──────────────────────────────────────────────
+      '/v1/validators/verify': {
+        post: {
+          summary: 'Submit a validation verdict',
+          description: 'Validators verify transaction results. Earns 0.5 credits per useful verification. Requires validator-promoted API key.',
+          operationId: 'submitValidation',
+          tags: ['Validators'],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    transactionId: { type: 'string' },
+                    verdict: { type: 'string', enum: ['VALID', 'INVALID', 'INCONCLUSIVE'] },
+                    notes: { type: 'string', maxLength: 500 },
+                  },
+                  required: ['transactionId', 'verdict'],
+                },
+              },
+            },
+          },
+          responses: {
+            '201': { description: 'Validation recorded with reward credits' },
+            '400': { description: 'Validation failed', content: errContent },
+            '401': err401,
+          },
+        },
+      },
+      '/v1/validators/transaction/{txId}': {
+        get: {
+          summary: 'Get validations for a transaction',
+          operationId: 'getTransactionValidations',
+          tags: ['Validators'],
+          parameters: [{ name: 'txId', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: { '200': { description: 'Validation list for the transaction' } },
+        },
+      },
+      '/v1/validators/skill/{skillId}': {
+        get: {
+          summary: 'Get validation stats for a skill',
+          operationId: 'getSkillValidations',
+          tags: ['Validators'],
+          parameters: [{ name: 'skillId', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: { '200': { description: 'Aggregated validation stats for the skill' } },
+        },
+      },
+      '/v1/validators/history': {
+        get: {
+          summary: 'Get own validator stats',
+          description: 'Returns validation history and stats for the current API key.',
+          operationId: 'getValidatorStats',
+          tags: ['Validators'],
+          responses: { '200': { description: 'Validator stats and history' }, '401': err401 },
+        },
+      },
+      '/v1/validators/leaderboard': {
+        get: {
+          summary: 'Get validator leaderboard',
+          operationId: 'getValidatorLeaderboard',
+          tags: ['Validators'],
+          parameters: [{ name: 'limit', in: 'query', schema: { type: 'integer', default: 20, maximum: 50 } }],
+          responses: { '200': { description: 'Top validators ranked by verification count' } },
+        },
+      },
+      // ── Sessions ──────────────────────────────────────────────────
+      '/v1/economy/sessions': {
+        post: {
+          summary: 'Create an agent session',
+          description: 'Creates a persistent session to store state across requests. Env keys cannot create sessions.',
+          operationId: 'createSession',
+          tags: ['Economy'],
+          requestBody: { content: { 'application/json': { schema: { type: 'object', properties: { name: { type: 'string', maxLength: 100 } } } } } },
+          responses: { '201': { description: 'Session created' }, '403': { description: 'Forbidden for env keys', content: errContent } },
+        },
+        get: {
+          summary: 'List agent sessions',
+          operationId: 'listSessions',
+          tags: ['Economy'],
+          responses: { '200': { description: 'Session list with count' } },
+        },
+      },
+      '/v1/economy/sessions/{id}': {
+        get: {
+          summary: 'Get session details',
+          operationId: 'getSession',
+          tags: ['Economy'],
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: { '200': { description: 'Session details' }, '404': { description: 'Session not found', content: errContent } },
+        },
+        patch: {
+          summary: 'Update session state',
+          description: 'Merges the provided state object into the existing session state.',
+          operationId: 'updateSessionState',
+          tags: ['Economy'],
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', properties: { state: { type: 'object', additionalProperties: true } }, required: ['state'] } } } },
+          responses: { '200': { description: 'Updated state' }, '404': { description: 'Session not found', content: errContent } },
+        },
+        delete: {
+          summary: 'Delete a session',
+          operationId: 'deleteSession',
+          tags: ['Economy'],
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: { '200': { description: 'Session deleted' }, '404': { description: 'Session not found', content: errContent } },
+        },
+      },
+      // ── Admin ─────────────────────────────────────────────────────
+      '/v1/admin/validators/promote': {
+        post: {
+          summary: 'Promote an API key to validator',
+          description: 'Admin-only. Grants validator privileges to the specified API key.',
+          operationId: 'promoteValidator',
+          tags: ['Admin'],
+          security: [{ ApiKeyAuth: [] }],
+          requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', properties: { key: { type: 'string' } }, required: ['key'] } } } },
+          responses: { '200': { description: 'Key promoted to validator' }, '404': { description: 'API key not found', content: errContent }, '409': { description: 'Already a validator', content: errContent } },
+        },
+      },
+      '/v1/admin/validators/demote': {
+        delete: {
+          summary: 'Demote a validator',
+          description: 'Admin-only. Revokes validator privileges from the specified API key.',
+          operationId: 'demoteValidator',
+          tags: ['Admin'],
+          security: [{ ApiKeyAuth: [] }],
+          requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', properties: { key: { type: 'string' } }, required: ['key'] } } } },
+          responses: { '200': { description: 'Validator demoted' }, '404': { description: 'Validator not found', content: errContent } },
+        },
+      },
       // ── System ──────────────────────────────────────────────────────
       '/health': {
         get: {
@@ -827,6 +958,9 @@ openapiRouter.get('/openapi.json', (c) => {
       { name: 'LLM Proxy', description: 'OpenAI-compatible gateway to 23 models with credit billing' },
       { name: 'x402', description: 'Pay-per-call skill invocation via USDC micropayments on Base' },
       { name: 'Agent Context', description: 'Persistent per-agent data cache to avoid redundant API calls' },
+      { name: 'Validators', description: 'Platform-native result verification and validator rewards' },
+      { name: 'Economy', description: 'Agent sessions, transfers, delegation, and reputation' },
+      { name: 'Admin', description: 'Admin-only operations (validator promotion, system management)' },
       { name: 'Mesh', description: 'P2P mesh network peer discovery' },
       { name: 'System', description: 'Health, stats, and documentation' },
     ],
