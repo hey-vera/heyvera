@@ -476,6 +476,8 @@ STRUCTURE: [react to THEIR specific point] + [one concrete thing you built or le
 
 CRITICAL: Your reply MUST match the topic of their tweet. If they talk about context, reply about context. If about trust, reply about trust. Do NOT pivot to a different subject.
 
+IMPORTANT: The examples below show the STYLE and STRUCTURE to follow — do NOT copy them. Write something original that responds to the specific words and ideas in THIS tweet.
+
 GOOD EXAMPLES (each matches its tweet's topic):
 - tweet about trust: "the no-credit-score problem between agents is real. we hash every transaction into a receipt chain so agents build reputation from verified history. how are you thinking about first-interaction trust?"
 - tweet about context: "context reconstruction is the hidden hard problem. we cache the full intent graph so agents can resume mid-task without losing state. are you storing context per-session or per-agent?"
