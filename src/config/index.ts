@@ -70,7 +70,8 @@ const envSchema = z.object({
   // Treasury auto-sweep — sends accumulated 3% fees to owner's Solana wallet
   TREASURY_SWEEP_WALLET: z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/, 'Invalid Solana address').optional(),
   TREASURY_SWEEP_MIN: z.coerce.number().int().min(100).default(10000), // minimum credits to trigger sweep (10000 = $10 at $0.001/cr)
-  HOT_WALLET_LOW_BALANCE_USDC: z.coerce.number().default(50), // Telegram alert when hot wallet drops below this
+  HOT_WALLET_LOW_BALANCE_USDC: z.coerce.number().default(50), // Email alert when hot wallet drops below this
+  HOT_WALLET_LOW_SOL: z.coerce.number().default(0.1),         // Email alert when SOL (gas) drops below this
 
   // Pricing engine — previously raw parseInt, now Zod-validated with bounds
   COST_MARKUP_FACTOR: z.coerce.number().int().min(500).max(10000).default(1500), // 1000=break-even, 1500=33-50% margin

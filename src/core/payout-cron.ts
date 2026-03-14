@@ -1,5 +1,5 @@
 /**
- * Automated Solana USDC Payout Cron (Option A)
+ * Automated Solana USDC Payout Cron
  *
  * Runs every 4 hours. Picks up all PENDING payout_requests and sends USDC
  * from the platform's hot wallet (PLATFORM_PAYOUT_PRIVATE_KEY) to each
@@ -9,15 +9,16 @@
  * - Minimum payout: 1 USDC (requests below this stay PENDING until they accumulate)
  * - On success: status → PAID, tx_hash recorded
  * - On failure: status → REJECTED, notes recorded (admin can re-queue manually)
- * - Sends Telegram alert after each run with a summary
+ * - Sends admin email alert after each run with a summary
+ * - Checks wallet balances (USDC + SOL gas) and alerts if low
  *
  * To enable: set PLATFORM_PAYOUT_PRIVATE_KEY in env (bs58 Solana private key).
  */
 
 import cron from 'node-cron';
 import { getAllPendingPayouts, markPayoutPaid, updatePayoutStatus, getTreasuryBalance, deductTreasuryForSweep, recordTransaction, getAllAutoPayoutConfigs, getCreatorEarnedBalance, createPayoutRequest, logAudit } from '../db/index';
-import { sendSolanaUsdc, getHotWalletUsdcBalance } from '../utils/solana-payout';
-import { sendTelegramAlert } from '../integrations/telegram';
+import { sendSolanaUsdc, getHotWalletUsdcBalance, getPayoutWalletSolBalance, getOperationsWalletSolBalance } from '../utils/solana-payout';
+import { sendAdminAlert } from '../utils/email';
 import { logger } from '../utils/logger';
 import { maskApiKey } from '../utils/mask';
 import { env } from '../config/index';
@@ -64,6 +65,20 @@ async function sweepTreasury(): Promise<{ swept: boolean; credits?: number; usdc
     });
 
     logger.info({ txHash, credits: balance, amountUsdc, wallet: env.TREASURY_SWEEP_WALLET }, 'Treasury sweep: USDC sent');
+
+    // Email admin about treasury sweep
+    sendAdminAlert({
+      subject: `Treasury sweep: $${amountUsdc.toFixed(4)} USDC sent`,
+      body: [
+        'Treasury auto-sweep completed',
+        '',
+        `Credits swept : ${balance.toLocaleString()}`,
+        `USDC sent     : $${amountUsdc.toFixed(4)}`,
+        `To wallet     : ${env.TREASURY_SWEEP_WALLET}`,
+        `Transaction   : ${txHash}`,
+      ].join('\n'),
+    }).catch(() => {});
+
     return { swept: true, credits: balance, usdc: amountUsdc, txHash };
   } catch (err) {
     // Re-credit treasury on send failure so credits aren't lost
@@ -71,28 +86,64 @@ async function sweepTreasury(): Promise<{ swept: boolean; credits?: number; usdc
     topUpCredits('clawhub-treasury', balance);
     const errMsg = err instanceof Error ? err.message : String(err);
     logger.error({ err, balance, amountUsdc }, 'Treasury sweep: send failed — credits re-credited');
+
+    sendAdminAlert({
+      subject: 'FAILED: Treasury sweep',
+      body: [
+        'Treasury sweep FAILED — credits have been re-credited',
+        '',
+        `Credits      : ${balance.toLocaleString()}`,
+        `USDC amount  : $${amountUsdc.toFixed(4)}`,
+        `Error        : ${errMsg}`,
+      ].join('\n'),
+    }).catch(() => {});
+
     return { swept: false, credits: balance, error: errMsg };
   }
 }
 
 /**
- * Check hot wallet USDC balance and alert if below threshold.
+ * Check wallet balances (USDC + SOL gas) and return alerts for any that are low.
  */
-async function checkHotWalletBalance(): Promise<string | null> {
-  if (!env.PLATFORM_PAYOUT_PRIVATE_KEY) return null;
+async function checkWalletBalances(): Promise<string[]> {
+  const warnings: string[] = [];
 
-  try {
-    const balance = await getHotWalletUsdcBalance();
-    if (balance < env.HOT_WALLET_LOW_BALANCE_USDC) {
-      const msg = `⚠️ Hot wallet low: $${balance.toFixed(2)} USDC (threshold: $${env.HOT_WALLET_LOW_BALANCE_USDC}).\nTop up the PLATFORM_PAYOUT_PRIVATE_KEY wallet to continue automated payouts.`;
-      logger.warn({ balance, threshold: env.HOT_WALLET_LOW_BALANCE_USDC }, 'Hot wallet balance low');
-      return msg;
+  // ─── Payout wallet USDC ────────────────────────────────────────────────
+  if (env.PLATFORM_PAYOUT_PRIVATE_KEY) {
+    try {
+      const usdcBalance = await getHotWalletUsdcBalance();
+      if (usdcBalance < env.HOT_WALLET_LOW_BALANCE_USDC) {
+        warnings.push(`PAYOUT wallet USDC low: $${usdcBalance.toFixed(2)} (threshold: $${env.HOT_WALLET_LOW_BALANCE_USDC})`);
+        logger.warn({ usdcBalance, threshold: env.HOT_WALLET_LOW_BALANCE_USDC }, 'Payout wallet USDC low');
+      }
+    } catch (err) {
+      logger.error({ err }, 'Failed to check payout wallet USDC balance');
     }
-    logger.debug({ balance }, 'Hot wallet balance OK');
-  } catch (err) {
-    logger.error({ err }, 'Failed to check hot wallet balance');
+
+    // ─── Payout wallet SOL (gas) ───────────────────────────────────────────
+    try {
+      const solBalance = await getPayoutWalletSolBalance();
+      if (solBalance < env.HOT_WALLET_LOW_SOL) {
+        warnings.push(`PAYOUT wallet SOL low: ${solBalance.toFixed(4)} SOL (threshold: ${env.HOT_WALLET_LOW_SOL} SOL) — cannot pay transaction fees`);
+        logger.warn({ solBalance, threshold: env.HOT_WALLET_LOW_SOL }, 'Payout wallet SOL (gas) low');
+      }
+    } catch (err) {
+      logger.error({ err }, 'Failed to check payout wallet SOL balance');
+    }
   }
-  return null;
+
+  // ─── Operations wallet SOL (gas) ─────────────────────────────────────────
+  try {
+    const opsSol = await getOperationsWalletSolBalance();
+    if (opsSol !== null && opsSol < env.HOT_WALLET_LOW_SOL) {
+      warnings.push(`OPERATIONS wallet SOL low: ${opsSol.toFixed(4)} SOL (threshold: ${env.HOT_WALLET_LOW_SOL} SOL) — x402 calls may fail`);
+      logger.warn({ opsSol, threshold: env.HOT_WALLET_LOW_SOL }, 'Operations wallet SOL (gas) low');
+    }
+  } catch (err) {
+    logger.error({ err }, 'Failed to check operations wallet SOL balance');
+  }
+
+  return warnings;
 }
 
 async function runPayoutCron(): Promise<void> {
@@ -121,11 +172,41 @@ async function runPayoutCron(): Promise<void> {
       paid++;
       totalUsdc += amountUsdc;
       logger.info({ id: req.id, txHash, amountUsdc, wallet: req.usdc_wallet }, 'Payout sent');
+
+      // Email admin for each successful payout
+      sendAdminAlert({
+        subject: `Payout sent: $${amountUsdc.toFixed(4)} USDC to creator`,
+        body: [
+          'Creator payout completed',
+          '',
+          `Payout ID   : ${req.id}`,
+          `Credits     : ${req.amount_credits.toLocaleString()}`,
+          `USDC sent   : $${amountUsdc.toFixed(4)}`,
+          `To wallet   : ${req.usdc_wallet}`,
+          `Transaction : ${txHash}`,
+        ].join('\n'),
+      }).catch(() => {});
     } catch (err) {
       const notes = err instanceof Error ? err.message : String(err);
       updatePayoutStatus(req.id, 'REJECTED', notes);
       failed++;
       logger.error({ id: req.id, err }, 'Payout failed');
+
+      // Email admin for failed payouts
+      sendAdminAlert({
+        subject: `FAILED payout: $${amountUsdc.toFixed(4)} USDC to ${req.usdc_wallet.slice(0, 8)}...`,
+        body: [
+          'Creator payout FAILED — status set to REJECTED',
+          '',
+          `Payout ID   : ${req.id}`,
+          `Credits     : ${req.amount_credits.toLocaleString()}`,
+          `USDC amount : $${amountUsdc.toFixed(4)}`,
+          `To wallet   : ${req.usdc_wallet}`,
+          `Error       : ${notes}`,
+          '',
+          'Action: Review in admin panel. Re-queue manually if needed.',
+        ].join('\n'),
+      }).catch(() => {});
     }
   }
 
@@ -156,20 +237,22 @@ async function runPayoutCron(): Promise<void> {
   // ─── 2. Treasury auto-sweep ───────────────────────────────────────────────
   const sweep = await sweepTreasury();
 
-  // ─── 3. Hot wallet balance check ──────────────────────────────────────────
-  const walletWarning = await checkHotWalletBalance();
+  // ─── 3. Wallet balance checks (USDC + SOL gas) ────────────────────────────
+  const walletWarnings = await checkWalletBalances();
 
-  // ─── 4. Telegram summary ──────────────────────────────────────────────────
+  // ─── 4. Summary email ─────────────────────────────────────────────────────
   const lines: string[] = [];
+  const hasActivity = pending.length > 0 || sweep.swept || autoTriggered > 0;
 
-  if (pending.length > 0 || sweep.swept || autoTriggered > 0) {
-    lines.push('💰 Payout cron complete');
+  if (hasActivity) {
+    lines.push('Payout cron completed');
+    lines.push('');
     if (autoTriggered > 0) {
       lines.push(`Auto-payouts triggered: ${autoTriggered}`);
     }
     if (pending.length > 0) {
       lines.push(`Creators — Paid: ${paid} | Failed: ${failed} | Skipped (< $${MIN_PAYOUT_USDC}): ${skipped}`);
-      lines.push(`Total sent to creators: $${totalUsdc.toFixed(4)} USDC`);
+      lines.push(`Total USDC sent to creators: $${totalUsdc.toFixed(4)}`);
     }
     if (sweep.swept) {
       lines.push(`Treasury sweep: ${sweep.credits} credits → $${sweep.usdc!.toFixed(4)} USDC (tx: ${sweep.txHash!.slice(0, 12)}...)`);
@@ -178,12 +261,32 @@ async function runPayoutCron(): Promise<void> {
     }
   }
 
-  if (walletWarning) lines.push('', walletWarning);
+  if (walletWarnings.length > 0) {
+    if (lines.length > 0) lines.push('');
+    lines.push('WALLET BALANCE ALERTS:');
+    lines.push(...walletWarnings);
 
-  logger.info({ paid, failed, skipped, totalUsdc, autoTriggered, sweep: sweep.swept ? sweep.usdc : null }, 'Payout cron complete');
+    // Send separate urgent email for wallet warnings
+    sendAdminAlert({
+      subject: `Wallet balance alert — ${walletWarnings.length} warning(s)`,
+      body: [
+        'One or more platform wallets are below threshold:',
+        '',
+        ...walletWarnings,
+        '',
+        'Action: Top up the affected wallet(s) to prevent failed transactions.',
+      ].join('\n'),
+    }).catch(() => {});
+  }
 
-  if (lines.length > 0) {
-    await sendTelegramAlert(lines.join('\n')).catch(() => undefined);
+  logger.info({ paid, failed, skipped, totalUsdc, autoTriggered, sweep: sweep.swept ? sweep.usdc : null, walletWarnings: walletWarnings.length }, 'Payout cron complete');
+
+  // Send summary email only if there was activity
+  if (hasActivity && lines.length > 0) {
+    sendAdminAlert({
+      subject: `Payout summary — ${paid} paid, $${totalUsdc.toFixed(2)} USDC sent`,
+      body: lines.join('\n'),
+    }).catch(() => {});
   }
 }
 

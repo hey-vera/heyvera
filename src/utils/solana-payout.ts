@@ -11,6 +11,7 @@
 import {
   Connection,
   Keypair,
+  LAMPORTS_PER_SOL,
   PublicKey,
   sendAndConfirmTransaction,
   Transaction,
@@ -100,5 +101,39 @@ export async function getHotWalletUsdcBalance(): Promise<number> {
   } catch {
     // ATA doesn't exist yet — balance is 0
     return 0;
+  }
+}
+
+/**
+ * Check the SOL balance of any Solana wallet.
+ * SOL is needed for transaction fees (gas). Returns balance in SOL.
+ */
+export async function getWalletSolBalance(publicKey: PublicKey): Promise<number> {
+  const connection = getConnection();
+  const lamports = await connection.getBalance(publicKey);
+  return lamports / LAMPORTS_PER_SOL;
+}
+
+/**
+ * Check SOL balance of the payout hot wallet.
+ */
+export async function getPayoutWalletSolBalance(): Promise<number> {
+  const payer = getPlatformKeypair();
+  return getWalletSolBalance(payer.publicKey);
+}
+
+/**
+ * Check SOL balance of the operations wallet (SOLANA_PRIVATE_KEY).
+ * Returns null if SOLANA_PRIVATE_KEY is not configured.
+ */
+export async function getOperationsWalletSolBalance(): Promise<number | null> {
+  const raw = env.SOLANA_PRIVATE_KEY;
+  if (!raw) return null;
+  try {
+    const decoded = bs58.decode(raw);
+    const keypair = Keypair.fromSecretKey(decoded);
+    return getWalletSolBalance(keypair.publicKey);
+  } catch {
+    return null;
   }
 }
