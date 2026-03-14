@@ -8,7 +8,7 @@
  * add real value in the first 1-2 lines, then casually mention ClawNet.
  * Max 5-8 replies per day. Always like/repost their tweet first.
  *
- * Cost: $0/month — uses X Free tier (posting) + twit.sh (search, no key needed)
+ * Cost: $0/month — uses X Free tier (posting) + Serper.dev (2,500 free searches)
  * No paid X API plan required.
  *
  * Requirements:
@@ -92,30 +92,67 @@ const SEARCH_QUERIES = [
 
 // ─── Reply Templates ─────────────────────────────────────────────────────────
 
+// Each context has multiple template variants to prevent repetition.
+// {{feature}} = feature name, {{desc}} = description, {{url}} = claw-net.org (included ~40% of time)
 const REPLY_CONTEXTS = [
   {
     match: ['runaway', 'cost', 'spending', 'budget', 'bill', 'expensive'],
-    template: `Exactly — the second an agent gets any spending power it usually goes off the rails. {{feature}} so performance is enforceable. Agents can finally fetch data or trade autonomously without you waking up to a surprise bill. Worth checking if you're building spending agents: claw-net.org\nWhat's the scariest runaway cost you've seen so far?`,
+    templates: [
+      `This is exactly why I gave up on letting agents spend freely. Hard spending caps + auto-cutoffs changed everything — agents can do real work without the 3am "what did it just buy" panic.{{url}}\nWhat's the worst surprise bill you've dealt with?`,
+      `Been there. The trick that worked for us was delegated keys with daily caps — agent gets its own wallet, hard ceiling, done. No more manual babysitting.{{url}}\nAre you running yours on-chain or off?`,
+      `Yeah the "hope it doesn't overspend" approach doesn't scale at all. We moved to contract-enforced budgets and haven't looked back — agents literally can't exceed their allocation.{{url}}\nCurious what your budget looks like per agent run?`,
+    ],
   },
   {
     match: ['openclaw', 'open claw'],
-    template: `Love seeing OpenClaw agents out in the wild! The missing piece once they start doing real work is proper economics + guardrails. Clawnet adds {{feature}} so they can operate 24/7 without babysitting. We've been stacking the two and it's smooth.\nYou running yours for data tasks or something else?`,
+    templates: [
+      `We've been pairing OpenClaw with an economics layer for exactly this — once agents start doing real transactions you need spend controls and delivery receipts. Been a great combo.{{url}}\nYou running yours for data tasks or automation?`,
+      `OpenClaw + proper guardrails is the stack I keep coming back to. The agents work great but you absolutely need budget controls once they start spending.{{url}}\nWhat are you building with it?`,
+    ],
   },
   {
     match: ['trust', 'governance', 'verify', 'verification'],
-    template: `100% — hope-based trading is the biggest blocker. Clawnet {{version}} just shipped the primitives everyone's been asking for: {{feature}}. Turns agents into actual trustworthy economic participants.\nWhat's your biggest trust headache right now?`,
+    templates: [
+      `This is the biggest blocker nobody talks about enough. We've been working with verified delivery receipts + third-party validators — agents have to prove they did the work before payment releases.{{url}}\nWhat's your biggest trust headache right now?`,
+      `Honestly trust is the unsexy problem that blocks everything else. Without proof of delivery, agent commerce is just hope-based trading. Cryptographic receipts solved it for us.{{url}}\nAre you seeing this in production or still experimenting?`,
+      `100%. The moment two agents need to transact you realize there's no trust layer. We added validator roles — independent third parties verify results before funds move. Game changer.{{url}}\nWhat does your verification flow look like today?`,
+    ],
   },
   {
     match: ['data fetch', 'scraping', 'scrape', 'browser agent', 'web agent'],
-    template: `Data-fetching agents are super powerful but terrifying without guardrails. One thing that changed everything for us is giving them strict spend keys + validated output contracts so you know exactly what they pulled before anything triggers. Clawnet makes this dead simple and pairs great with OpenClaw stacks.\nWhat kind of data are your agents pulling most often?`,
+    templates: [
+      `Data-fetching agents are incredibly powerful but terrifying without output validation. We started requiring JSON Schema contracts on every data pull — agent proves it returned what was promised before billing.{{url}}\nWhat kind of data are your agents pulling?`,
+      `The key thing we learned with data agents: validate the output BEFORE payment. Schema contracts + spend limits made it production-safe. No more "agent returned garbage and charged us for it."{{url}}\nHow are you handling data quality right now?`,
+    ],
   },
   {
     match: ['commerce', 'economy', 'marketplace', 'payments', 'machine economy'],
-    template: `Spot on. Sovereign AI commerce only works when agents can prove delivery and stay within budget. Clawnet's {{version}} update gives exactly that — {{feature}}. We're seeing real agent-to-agent trades now instead of just demos.\nYou building more on the buyer or seller side?`,
+    templates: [
+      `This is going to be massive. The missing piece isn't more agents — it's the economic infrastructure for them to actually transact safely. Escrow, SLAs, receipts. We're seeing real agent-to-agent trades now.{{url}}\nYou building more on the buyer or seller side?`,
+      `Agent commerce is at the "email in 1995" stage imo. The protocols for safe autonomous spending barely exist yet. That's what we've been heads-down building.{{url}}\nWhat's your take on agent-to-agent payments?`,
+      `The skills marketplace model is what finally made this click for us — agents publish capabilities with prices, other agents comparison-shop and buy. Real commerce, not demos.{{url}}\nWhat vertical are you focused on?`,
+    ],
   },
   {
     match: ['reliability', 'reliable', 'production', 'uptime', 'monitoring'],
-    template: `Reliability layer is everything once agents touch real data or money. Clawnet's {{feature}} let you validate exactly what the agent fetched/processed and get pinged instantly if anything goes wrong. Been a lifesaver for heavy automation.\nWhat reliability tool are you using right now?`,
+    templates: [
+      `Reliability is everything once agents touch real money. We use health-check pings every 15min + auto-failover to backup providers. Agent keeps working even when an upstream API dies.{{url}}\nWhat's your monitoring setup look like?`,
+      `The pattern that worked for us: SLA contracts with penalty credits. Provider guarantees latency/uptime or the agent automatically gets compensated. Self-healing infrastructure basically.{{url}}\nWhat uptime are you targeting?`,
+    ],
+  },
+  {
+    match: ['autonomous', 'self-healing', 'auto', 'automate', 'automation'],
+    templates: [
+      `The dream of fully autonomous agents only works if they can self-heal — auto-swap degraded providers, enforce their own budgets, verify their own outputs. We've been building exactly that.{{url}}\nHow autonomous are your agents right now?`,
+      `We went from "agent needs human approval for everything" to "agent manages its own provider contracts and fails over automatically." Night and day difference in uptime.{{url}}\nWhat's the scariest thing you've let an agent do unsupervised?`,
+    ],
+  },
+  {
+    match: ['api', 'endpoint', 'rate limit', 'rate-limit'],
+    templates: [
+      `Rate limits + cost control are the boring-but-critical layer. We enforce per-agent hourly caps and auto-throttle before hitting provider limits. Saved us from so many 429 cascades.{{url}}\nHow many APIs are your agents calling?`,
+      `Managing API costs across agents at scale is a nightmare without proper tooling. Delegated keys with spending ceilings per agent made it manageable for us.{{url}}\nWhat's your biggest API pain point?`,
+    ],
   },
 ];
 
@@ -345,16 +382,21 @@ function matchReplyTemplate(tweetText: string): string {
 
   for (const ctx of REPLY_CONTEXTS) {
     if (ctx.match.some(keyword => lower.includes(keyword))) {
-      const feature = pickFeature();
-      return ctx.template
-        .replace('{{feature}}', `${feature.name} (${feature.desc})`)
-        .replace('{{version}}', feature.version);
+      // Pick random variant from this context's templates
+      const template = ctx.templates[Math.floor(Math.random() * ctx.templates.length)];
+      // Include URL ~40% of the time to avoid looking spammy
+      return template.replace('{{url}}', Math.random() < 0.4 ? ' claw-net.org' : '');
     }
   }
 
-  // Generic fallback
-  const feature = pickFeature();
-  return `The biggest unlock I've seen lately is moving from 'hope the agent works' to contract-enforced autonomy. Clawnet v67 adds ${feature.name} — ${feature.desc}. Makes production agents actually reliable. claw-net.org\nWhat do you think is still the missing piece?`;
+  // Generic fallbacks — varied enough to not look botty
+  const fallbacks = [
+    `This is the kind of problem that only shows up once you try to run agents in production. The gap between demo and reliable is massive.\nWhat stack are you using?`,
+    `Been thinking about this a lot. The trust + economics layer for agents is where all the hard problems live. Feels like early internet infrastructure.\nWhat's your biggest blocker right now?`,
+    `We ran into the same thing. The answer for us was treating agent autonomy like a permissions system — explicit capabilities, hard limits, verified outputs.\nCurious how you're approaching it?`,
+    `This resonates. The "let the agent figure it out" approach works great in demos and terribly in production. Guardrails aren't optional at scale.\nWhat does your production setup look like?`,
+  ];
+  return fallbacks[Math.floor(Math.random() * fallbacks.length)];
 }
 
 async function generateSmartReply(tweetText: string): Promise<string> {
@@ -368,14 +410,16 @@ async function generateSmartReply(tweetText: string): Promise<string> {
           'x-api-key': CONFIG.clawnetApiKey,
         },
         body: JSON.stringify({
-          query: `You are a helpful community member in the AI agent space. Someone tweeted: "${tweetText.slice(0, 300)}"
+          query: `You are Coral, a developer who builds with AI agent infrastructure. You're genuinely passionate about agent economics and trust layers. Someone tweeted: "${tweetText.slice(0, 300)}"
 
-Write a short, genuine reply (max 260 chars) that:
-1. Agrees with or validates their point in the first sentence
-2. Casually mentions one specific Clawnet feature that solves their pain point (pick from: Budget Accounts, SLA Contracts, Output Contracts, Dynamic Pricing, Composite Skills, Validators, Persistent Agent Sessions, Autonomous Hiring/Firing)
-3. Ends with an engaging question
-4. Does NOT start with "Great point" or "Totally agree" — be more natural
-5. Include "claw-net.org" naturally (only in ~50% of replies)
+Write a casual, authentic reply (max 250 chars) that:
+1. Responds naturally to their specific point — show you actually read it
+2. Share a real insight or experience (not generic agreement)
+3. Optionally mention "claw-net.org" or "Clawnet" ONLY if it fits naturally (skip it ~60% of the time)
+4. End with a short question to keep the conversation going
+5. Sound like a real person on Twitter, not a brand account — use lowercase, contractions, no buzzwords
+
+NEVER start with "Great point", "This!", "So true", "Totally agree", "Love this". Be specific to what they said.
 
 Reply ONLY with the tweet text, nothing else.`,
           pricing: { maxCredits: 5, strategy: 'cheapest' },
