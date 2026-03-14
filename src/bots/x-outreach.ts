@@ -9,13 +9,13 @@
  * Max 5-8 replies per day. Always like/repost their tweet first.
  *
  * Cost: $0/month — uses X Free tier (posting) + Serper.dev (2,500 free searches)
- * No paid X API plan required.
+ *   + Groq free tier (Llama 3.3 70B for tweet classification/reply generation)
+ * No paid API plans required.
  *
  * Requirements:
  *   - X API v2 Free tier ($0) — env vars: X_API_KEY, X_API_SECRET,
  *     X_ACCESS_TOKEN, X_ACCESS_TOKEN_SECRET
- *   - ClawNet API key — env var: CLAWNET_API_KEY (for LLM reply generation)
- *   - Optional: CLAWNET_API_URL (default: http://localhost:3402)
+ *   - Groq API key (free) — env var: GROQ_API_KEY (sign up at console.groq.com)
  *
  * Usage:
  *   npx tsx src/bots/x-outreach.ts              # Run once (find + reply)
@@ -47,9 +47,9 @@ const CONFIG = {
   // Sign up at serper.dev
   serperApiKey: process.env.SERPER_API_KEY ?? '',
 
-  // ClawNet
-  clawnetApiKey: process.env.CLAWNET_API_KEY ?? '',
-  clawnetApiUrl: process.env.CLAWNET_API_URL ?? 'http://localhost:3402',
+  // Groq (free tier — Llama 3.3 70B for tweet classification/reply generation)
+  // Sign up at console.groq.com — no credit card needed
+  groqApiKey: process.env.GROQ_API_KEY ?? '',
 
   // Limits
   maxRepliesPerDay: 8,
@@ -378,21 +378,23 @@ async function retweetTweet(tweetId: string): Promise<boolean> {
 
 // ─── LLM Helper ─────────────────────────────────────────────────────────────
 
-async function askLLM(prompt: string, maxCredits = 3): Promise<string | null> {
-  if (!CONFIG.clawnetApiKey) {
-    console.log('  [LLM] No CLAWNET_API_KEY set');
+async function askLLM(prompt: string): Promise<string | null> {
+  if (!CONFIG.groqApiKey) {
+    console.log('  [LLM] No GROQ_API_KEY set');
     return null;
   }
   try {
-    const res = await fetch(`${CONFIG.clawnetApiUrl}/v1/orchestrate`, {
+    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': CONFIG.clawnetApiKey,
+        'Authorization': `Bearer ${CONFIG.groqApiKey}`,
       },
       body: JSON.stringify({
-        query: prompt,
-        pricing: { maxCredits, strategy: 'cheapest' },
+        model: 'llama-3.3-70b-versatile',
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 300,
+        temperature: 0.7,
       }),
       signal: AbortSignal.timeout(15_000),
     });
@@ -401,8 +403,8 @@ async function askLLM(prompt: string, maxCredits = 3): Promise<string | null> {
       console.log(`  [LLM] HTTP ${res.status}: ${body.slice(0, 200)}`);
       return null;
     }
-    const data = await res.json() as { answer?: string };
-    return data.answer ?? null;
+    const data = await res.json() as { choices?: { message?: { content?: string } }[] };
+    return data.choices?.[0]?.message?.content ?? null;
   } catch (err) {
     console.log(`  [LLM] Error: ${err instanceof Error ? err.message : String(err)}`);
     return null;
@@ -413,9 +415,9 @@ let llmAvailable: boolean | null = null; // Cached after first check
 
 async function isLLMAvailable(): Promise<boolean> {
   if (llmAvailable !== null) return llmAvailable;
-  const result = await askLLM('Reply with exactly: OK', 10);
+  const result = await askLLM('Reply with exactly: OK');
   llmAvailable = result !== null;
-  console.log(`LLM mode: ${llmAvailable ? 'SMART (ClawNet online)' : 'TEMPLATE (ClawNet offline)'}`);
+  console.log(`LLM mode: ${llmAvailable ? 'SMART (Groq online)' : 'TEMPLATE (Groq offline)'}`);
   return llmAvailable;
 }
 
@@ -436,7 +438,6 @@ If ALL THREE are YES, reply with exactly: RELEVANT
 If ANY is NO, reply with exactly: SKIP: [one-line reason]
 
 Reply with ONLY "RELEVANT" or "SKIP: reason", nothing else.`,
-    10,
   );
 
   if (!answer) return { relevant: false, reason: 'llm-call-failed' }; // Skip if LLM call fails
@@ -481,7 +482,6 @@ Write a casual, authentic reply (max 250 chars) that:
 NEVER start with "Great point", "This!", "So true", "Totally agree", "Love this". Be specific to what they said.
 
 Reply ONLY with the tweet text, or "SKIP" if you shouldn't reply. Nothing else.`,
-    100,
   );
 
   if (answer && answer.trim().toUpperCase() !== 'SKIP' && answer.length > 20 && answer.length <= 280) {
