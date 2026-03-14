@@ -27,7 +27,7 @@
  *   When a third-party skill triggers x402 API calls, the platform pays those
  *   upstream costs. The surcharge passes that cost through to the caller at the
  *   buy rate (1:1 cost recovery). Creator revenue is unaffected — surcharge is
- *   separate from the 97/3 split.
+ *   separate from the 85/15 split.
  *
  * Legacy fallback: creditsForApiCost() still available for backward compat.
  */

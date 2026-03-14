@@ -43,7 +43,7 @@ export interface Skill {
   execution_plan_json: string | null;
   /** Skill class: standard (default), recursive (self-refining), self_checking (output validation) */
   skill_class: 'standard' | 'recursive' | 'self_checking';
-  /** EVM wallet address on Base — if set, 97% of x402 revenue is auto-split here */
+  /** EVM wallet address on Base — if set, 85% of x402 revenue is auto-split here */
   creator_evm_wallet: string | null;
   /** Canonical example response — shown on skill cards so agents know exactly what they'll receive */
   sample_output_json: string | null;

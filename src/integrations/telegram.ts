@@ -285,7 +285,7 @@ function buildAbout(): string {
     `• ${endpointCount} live data endpoints\n` +
     `• ${skillCount} published skills in the marketplace\n` +
     `• Credits-based pricing (no subscription required)\n` +
-    `• 97% revenue share for skill creators\n\n` +
+    `• 85% revenue share for skill creators\n\n` +
     `<b>Get started:</b>\n` +
     `• API + docs: <a href="https://claw-net.org">claw-net.org</a>\n` +
     `• Skill marketplace: <a href="https://claw-net.org/marketplace.html">claw-net.org/marketplace.html</a>\n\n` +

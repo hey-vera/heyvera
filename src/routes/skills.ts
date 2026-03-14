@@ -522,7 +522,7 @@ skillsRouter.get('/:id/query', checkApiKey, async (c) => {
     // Cache result with TTL appropriate to data freshness
     await cacheSet(cacheKey, data, ttl);
 
-    // Billing + 97/3 revenue share (same as invoke)
+    // Billing + 85/15 revenue share (same as invoke)
     if (!keyInfo.isEnvKey) {
       const revenueSharePct = skill.revenue_share_pct;
       const shouldPayAuthor = skill.author_key !== keyInfo.key && revenueSharePct > 0;
