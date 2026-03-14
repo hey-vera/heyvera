@@ -1,7 +1,7 @@
 import { nanoid } from 'nanoid';
 import { logger } from '../utils/logger';
 import { sendAdminAlert } from '../utils/email';
-import { getDb, logAudit } from './connection';
+import { getDb, logAudit, safeJsonParse } from './connection';
 import { round6 } from '../core/credits';
 import type { Skill } from './skills';
 
@@ -191,7 +191,7 @@ export function marketplaceRefund(params: {
     // Done outside the transaction so the async email doesn't block or roll back the DB work.
     const metadata = refundTxId ? (db.prepare('SELECT metadata_json FROM transactions WHERE id = ?').get(refundTxId) as { metadata_json: string } | undefined) : null;
     if (metadata) {
-      const meta = JSON.parse(metadata.metadata_json) as { sellerDeficit?: number; treasuryDeficit?: number };
+      const meta = safeJsonParse<{ sellerDeficit?: number; treasuryDeficit?: number }>(metadata.metadata_json, {});
       if ((meta.sellerDeficit ?? 0) > 0 || (meta.treasuryDeficit ?? 0) > 0) {
         sendAdminAlert({
           subject: `Refund deficit — skill ${params.skillId}`,

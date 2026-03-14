@@ -1,6 +1,6 @@
 import { createMiddleware } from 'hono/factory';
 import crypto from 'crypto';
-import { getApiKey, getDelegationInfo } from '../db/index';
+import { getApiKey, getDelegationInfo, safeJsonParse } from '../db/index';
 import { env } from '../config/index';
 import { logger } from '../utils/logger';
 import { maskApiKey } from '../utils/mask';
@@ -79,7 +79,7 @@ export const checkApiKey = createMiddleware(async (c, next) => {
     if (!parentRecord) {
       return c.json({ error: 'Parent key inactive', code: 'PARENT_KEY_INACTIVE' }, 401);
     }
-    const perms: string[] = JSON.parse(delegation.permissions_json);
+    const perms: string[] = safeJsonParse<string[]>(delegation.permissions_json, []);
     c.set('apiKeyInfo', {
       key: delegation.parent_key,
       email: parentRecord.email,
