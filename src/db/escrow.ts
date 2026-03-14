@@ -1,5 +1,6 @@
 import { logger } from '../utils/logger';
 import { getDb } from './connection';
+import { round6 } from '../core/credits';
 
 // ─── Escrow ───────────────────────────────────────────────────────────────────
 
@@ -135,15 +136,17 @@ export function refundEscrow(escrowId: string): { ok: boolean; error?: string } 
 /** Admin resolve: split credits between hirer and worker. */
 export function resolveEscrow(escrowId: string, workerPct: number): { ok: boolean; error?: string } {
   const db = getDb();
-  const pct = Math.max(0, Math.min(100, Math.floor(workerPct)));
+  const pct = Math.max(0, Math.min(100, workerPct));
   try {
     db.transaction(() => {
       const escrow = db.prepare('SELECT * FROM escrows WHERE id = ?').get(escrowId) as Escrow | undefined;
       if (!escrow) throw new Error('Escrow not found');
       if (!canTransition(escrow.state, 'RESOLVED')) throw new Error(`Cannot resolve from state ${escrow.state}`);
 
-      const workerShare = Math.floor(escrow.amount_credits * pct / 100);
-      const hirerShare = escrow.amount_credits - workerShare;
+      const workerShare = round6(escrow.amount_credits * pct / 100);
+      const hirerShare = round6(escrow.amount_credits - workerShare);
+      // Any sub-credit remainder goes to treasury to ensure total disbursed === amount_credits
+      const remainder = round6(escrow.amount_credits - workerShare - hirerShare);
       if (workerShare > 0) {
         const r = db.prepare(`UPDATE api_keys SET credits = credits + ? WHERE clerk_user_id = ? AND active = 1`)
           .run(workerShare, escrow.worker_id);
@@ -153,6 +156,10 @@ export function resolveEscrow(escrowId: string, workerPct: number): { ok: boolea
         const r = db.prepare(`UPDATE api_keys SET credits = credits + ? WHERE clerk_user_id = ? AND active = 1`)
           .run(hirerShare, escrow.hirer_id);
         if (r.changes === 0) throw new Error('Hirer has no active API key');
+      }
+      if (remainder > 0) {
+        db.prepare(`UPDATE api_keys SET credits = credits + ? WHERE key = 'clawhub-treasury' AND active = 1`)
+          .run(remainder);
       }
       db.prepare(`UPDATE escrows SET state = 'RESOLVED', completed_at = datetime('now') WHERE id = ?`).run(escrowId);
     })();

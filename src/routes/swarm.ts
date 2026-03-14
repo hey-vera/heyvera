@@ -51,11 +51,8 @@ swarmRouter.post('/task', checkApiKey, async (c) => {
         hint: `Lower maxBudget to ${Math.max(0, keyInfo.credits - SWARM_BASE_FEE)} or top up at claw-net.org`,
       }, 402);
     }
-    const deducted = deductCredit(keyInfo.key, SWARM_BASE_FEE);
-    if (!deducted) {
-      return c.json({ error: 'Credit deduction failed', code: 'INSUFFICIENT_CREDITS' }, 402);
-    }
-    trackDelegatedSpend(keyInfo, SWARM_BASE_FEE);
+    // Fee deducted inside runSwarm after decomposition succeeds — not here.
+    // This prevents the base fee being charged if the swarm record itself fails to create.
   }
 
   const swarmId = createSwarmTask(keyInfo.key, body.task);
@@ -135,7 +132,17 @@ export async function runSwarm(swarmId: string, agentKey: string, body: SwarmPar
     return true;
   });
 
-  // Budget tracking — base fee already deducted; remaining budget for sub-tasks
+  // Deduct base fee now that decomposition succeeded and work is confirmed to start.
+  // Deducting here (not at request time) ensures no fee is charged if swarm creation fails.
+  if (!isEnvKey) {
+    const deducted = deductCredit(agentKey, SWARM_BASE_FEE);
+    if (!deducted) {
+      updateSwarmTask(swarmId, { status: 'FAILED', error: 'Insufficient credits for base fee' });
+      return;
+    }
+  }
+
+  // Budget tracking — base fee now deducted; remaining budget for sub-tasks
   const maxBudget = body.maxBudget ?? 200;
 
   // Pre-allocate budget per subtask to avoid race conditions in parallel execution.
