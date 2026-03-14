@@ -131,9 +131,10 @@ dashboardRouter.post('/billing-portal', requireClerkAuth, async (c) => {
 
   const stripe = new Stripe(stripeSecretKey);
 
-  // Search Stripe for the customer by email
+  // Search Stripe for the customer by email (escape quotes to prevent search syntax injection)
+  const safeEmail = clerkEmail.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
   const customers = await stripe.customers.search({
-    query: `email:"${clerkEmail}"`,
+    query: `email:"${safeEmail}"`,
     limit: 1,
   }).catch(() => null);
 

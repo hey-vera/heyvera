@@ -39,6 +39,29 @@ function normalizeForScan(text: string): string {
     .replace(/[\u200B-\u200D\uFEFF]/g, '')
     // Normalize fullwidth ASCII (U+FF01–U+FF5E → U+0021–U+007E)
     .replace(/[\uFF01-\uFF5E]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0))
+    // Decode URL-encoded characters (%69gnore → ignore)
+    .replace(/%([0-9A-Fa-f]{2})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+    // Decode HTML numeric entities (&#105;gnore → ignore, &#x69;gnore → ignore)
+    .replace(/&#x([0-9A-Fa-f]{1,4});/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+    .replace(/&#(\d{1,5});/g, (_, dec) => String.fromCharCode(parseInt(dec, 10)))
+    // Decode common HTML named entities used in bypass attempts
+    .replace(/&lt;/gi, '<').replace(/&gt;/gi, '>').replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"').replace(/&#39;/g, "'")
+    // Normalize Cyrillic/Greek homoglyphs to Latin equivalents
+    .replace(/[\u0430]/g, 'a')  // Cyrillic а → a
+    .replace(/[\u0435]/g, 'e')  // Cyrillic е → e
+    .replace(/[\u043E]/g, 'o')  // Cyrillic о → o
+    .replace(/[\u0440]/g, 'p')  // Cyrillic р → p
+    .replace(/[\u0441]/g, 'c')  // Cyrillic с → c
+    .replace(/[\u0443]/g, 'y')  // Cyrillic у → y (visual match)
+    .replace(/[\u0445]/g, 'x')  // Cyrillic х → x
+    .replace(/[\u0456]/g, 'i')  // Cyrillic і → i
+    .replace(/[\u0458]/g, 'j')  // Cyrillic ј → j
+    .replace(/[\u0455]/g, 's')  // Cyrillic ѕ → s
+    .replace(/[\u04BB]/g, 'h')  // Cyrillic һ → h
+    .replace(/[\u0501]/g, 'd')  // Cyrillic ԁ → d
+    .replace(/[\u051B]/g, 'q')  // Cyrillic ԛ → q
+    .replace(/[\u051D]/g, 'w')  // Cyrillic ԝ → w
     // Collapse whitespace
     .replace(/\s+/g, ' ');
 }

@@ -19,7 +19,9 @@ export async function sendApiKeyEmail(params: {
     return;
   }
 
-  const masked = maskApiKey(apiKey);
+  const masked = escapeHtml(maskApiKey(apiKey));
+  const safeCredits = escapeHtml(credits.toLocaleString());
+  const safeAmountPaid = escapeHtml(String(amountPaid));
   const dashboardUrl = 'https://claw-net.org/dashboard.html';
 
   const html = `
@@ -46,7 +48,7 @@ export async function sendApiKeyEmail(params: {
   <div class="container">
     <div class="logo">&#x1F9AE; ClawNet</div>
     <h1>Your API key is ready.</h1>
-    <p class="sub">Thanks for your $${amountPaid} purchase. ${credits.toLocaleString()} credits are loaded and your key is active immediately.</p>
+    <p class="sub">Thanks for your $${safeAmountPaid} purchase. ${safeCredits} credits are loaded and your key is active immediately.</p>
 
     <div class="key-box">
       <div class="key-label">Your API Key (partially visible)</div>
@@ -59,11 +61,11 @@ export async function sendApiKeyEmail(params: {
     <table style="width:100%;border-collapse:collapse;border:1px solid #1e1e1e;margin:24px 0">
       <tr>
         <td style="padding:16px;border-right:1px solid #1e1e1e;text-align:center">
-          <span style="color:#00ff88;font-size:22px;font-weight:bold;display:block">${credits.toLocaleString()}</span>
+          <span style="color:#00ff88;font-size:22px;font-weight:bold;display:block">${safeCredits}</span>
           <span style="color:#555;font-size:10px;text-transform:uppercase;letter-spacing:1px">Credits Loaded</span>
         </td>
         <td style="padding:16px;border-right:1px solid #1e1e1e;text-align:center">
-          <span style="color:#00ff88;font-size:22px;font-weight:bold;display:block">$${amountPaid}</span>
+          <span style="color:#00ff88;font-size:22px;font-weight:bold;display:block">$${safeAmountPaid}</span>
           <span style="color:#555;font-size:10px;text-transform:uppercase;letter-spacing:1px">Amount Paid</span>
         </td>
         <td style="padding:16px;text-align:center">
@@ -123,7 +125,8 @@ export async function sendLowBalanceEmail(params: {
 
   if (!resendKey) return;
 
-  const maskedKey = maskApiKey(apiKey);
+  const maskedKey = escapeHtml(maskApiKey(apiKey));
+  const safeCredits = escapeHtml(credits.toLocaleString());
   const topUpUrl = 'https://claw-net.org/#pricing';
 
   const html = `
@@ -151,7 +154,7 @@ export async function sendLowBalanceEmail(params: {
     <h1>Your credits are running low.</h1>
     <p>Key <code>${maskedKey}</code> has fewer than 500 credits remaining.</p>
     <div class="balance">
-      <span class="balance-num">${credits.toLocaleString()}</span>
+      <span class="balance-num">${safeCredits}</span>
       <span class="balance-label">Credits Remaining</span>
     </div>
     <p>Top up now to keep your agents running without interruption.</p>
