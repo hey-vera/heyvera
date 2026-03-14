@@ -22,9 +22,7 @@ const envSchema = z.object({
   CACHE_TTL_SECONDS: z.coerce.number().default(300),
   CACHE_MAX_MEMORY_ITEMS: z.coerce.number().default(10000),
 
-  MARKUP_PERCENT: z.coerce.number().default(15),
   CREDITS_PER_USD: z.coerce.number().int().min(100).max(100000).default(1000),
-  TREASURY_WALLET: z.string().optional(),
 
   API_KEYS: z.string().optional(),
   ADMIN_API_KEY: z.string().min(16, 'ADMIN_API_KEY must be at least 16 characters').optional(),
