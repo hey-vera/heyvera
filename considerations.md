@@ -1,6 +1,7 @@
 # ClawNet — Future Considerations
 
 > Ideas evaluated but deferred. Not on the roadmap — revisit when there's user demand or market shift.
+> Last updated: 2026-03-14.
 
 ---
 
@@ -262,3 +263,51 @@
 - `sample_output_json` already serves as an informal contract per skill.
 
 **Revisit when:** 50+ third-party data skills exist and inconsistent output formats become a developer pain point.
+
+---
+
+## Agent Economy v2 — Deferred Items (2026-03-14)
+
+> From the ChatGPT agentic economy analysis. These are real needs for a mature agent economy but depend on ecosystem maturity (agent wallets, protocol standards, adoption volume).
+
+### Negotiation Primitives
+- Quote request/accept/reject flows, deadline negotiation, fixed vs dynamic pricing, priority fees
+- **Why wait:** No agents are negotiating yet. Fixed pricing works until volume justifies complexity.
+- **Revisit when:** 100+ active agent buyers/week and creators request dynamic pricing.
+
+### Validator / Referee Roles
+- Neutral third-party result verification, schema validation of outputs, benchmark-based quality checks
+- **Why wait:** Requires a trust ecosystem with multiple validators. Platform-native validation sufficient early on.
+- **Revisit when:** Composite skill chains make dispute resolution ambiguous.
+
+### Capability Taxonomy / Canonical Task Ontology
+- Standardized task classes (summarize, classify, rank, monitor, extract, verify, enrich, trade, route, notify)
+- **Why wait:** Organic taxonomy emerges from actual skill creation patterns. Premature standardization constrains innovation.
+- **Revisit when:** 100+ skills exist and inconsistent categorization hurts discovery.
+
+### Portable Agent Identity & Reputation
+- Cross-platform identity mapping, exportable reputation scores, federated trust protocols
+- **Why wait:** No interop standards exist. Platform-local identity (Clerk + API keys) is sufficient.
+- **Revisit when:** Multiple agent platforms exist and cross-platform trust becomes competitive advantage.
+
+### Legal / Compliance Framing
+- Policy controls for autonomous purchasing, accounting export, spend approval tiers, tax classification
+- **Why wait:** Enterprise feature. Build when first enterprise customer asks.
+- **Revisit when:** Enterprise onboarding requests or regulatory pressure.
+
+### Advanced Abuse Prevention (Post-Subcontracting)
+- Wash-volume detection, reputation farming detection, synthetic demand rings, self-dealing detection
+- **Why wait:** Current atomic model doesn't need these. Build alongside subcontracting monitoring.
+- **Revisit when:** Subcontracting is live and transaction volume justifies abuse analytics.
+
+### Full Auction/Market Mechanics
+- Dynamic pricing based on demand, bidding for priority execution, supply/demand signaling
+- **Why wait:** Requires significant volume to justify. Fixed pricing works for early market.
+- **Revisit when:** 1000+ daily skill invocations and price sensitivity emerges.
+
+### Marketing Bot (ClawNet X Agent)
+- Cron-based bot dogfooding ClawNet API, posts 2-3x/day with live skill data
+- Footer: "Live data via claw-net.org API", each post = product demo
+- Cost: ~$5-15/month (API) + $100/month (X API Basic tier)
+- **Why wait:** Not blocked, separate scope. Can build anytime as a standalone script.
+- **Revisit when:** Ready to invest $100/month in X API access for marketing.

@@ -22,6 +22,9 @@ export interface Transaction {
   fee_credits: number;
   metadata_json: string | null;
   created_at: string;
+  // v64: cryptographic receipts
+  request_hash: string | null;
+  result_hash: string | null;
 }
 
 export function recordTransaction(params: {
@@ -32,14 +35,17 @@ export function recordTransaction(params: {
   skillId?: string;
   feeCredits?: number;
   metadata?: Record<string, unknown>;
+  requestHash?: string;
+  resultHash?: string;
 }): string {
   const id = nanoid(16);
   getDb()
-    .prepare(`INSERT INTO transactions (id, from_agent, to_agent, amount_credits, type, skill_id, fee_credits, metadata_json)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+    .prepare(`INSERT INTO transactions (id, from_agent, to_agent, amount_credits, type, skill_id, fee_credits, metadata_json, request_hash, result_hash)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
     .run(id, params.fromAgent ?? null, params.toAgent ?? null,
       params.amountCredits, params.type, params.skillId ?? null,
-      params.feeCredits ?? 0, params.metadata ? JSON.stringify(params.metadata) : null);
+      params.feeCredits ?? 0, params.metadata ? JSON.stringify(params.metadata) : null,
+      params.requestHash ?? null, params.resultHash ?? null);
   return id;
 }
 
@@ -228,7 +234,7 @@ export function getMarketplaceSkills(params: {
   tags?: string;
   search?: string;
   category?: string;
-  type?: 'prompt_template' | 'api_proxy' | 'data';
+  type?: 'prompt_template' | 'api_proxy' | 'data' | 'composite';
 }): { skills: (Skill & { stake_total: number })[]; total: number } {
   const offset = (params.page - 1) * params.limit;
   const orderMap = {

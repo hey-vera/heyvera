@@ -45,7 +45,7 @@ const ListQuery = z.object({
   tags:     z.string().optional(),
   search:   z.string().optional(),
   category: z.string().optional(),
-  type:     z.enum(['prompt_template', 'api_proxy', 'data']).optional(),
+  type:     z.enum(['prompt_template', 'api_proxy', 'data', 'composite']).optional(),
 });
 
 marketplaceRouter.get('/skills', (c) => {
@@ -83,6 +83,12 @@ marketplaceRouter.get('/skills', (c) => {
       publishedAt: s.published_at,
       invokeUrl: s.skill_type === 'data' ? `GET /v1/skills/${s.id}/query` : `POST /v1/skills/${s.id}/invoke`,
       ...(s.skill_type === 'data' && { updateFrequency: s.update_frequency }),
+      // Trust signals (denormalized for fast agent decision-making)
+      avgRating: s.avg_rating ?? 0,
+      ratingCount: s.rating_count ?? 0,
+      successRate: s.success_rate ?? 0,
+      avgLatencyMs: s.avg_latency_ms ?? 0,
+      verified: s.security_status === 'VERIFIED',
     })),
     platformFeePct: PLATFORM_FEE_PCT,
   });
@@ -138,6 +144,12 @@ marketplaceRouter.get('/skills/:id', async (c) => {
     totalCost: skill.credit_cost,
     feeCredits: calcFee(skill.credit_cost, skill.author_key),
     sellerReceives: skill.credit_cost - calcFee(skill.credit_cost, skill.author_key),
+    // Trust signals
+    avgRating: skill.avg_rating ?? 0,
+    ratingCount: skill.rating_count ?? 0,
+    successRate: skill.success_rate ?? 0,
+    avgLatencyMs: skill.avg_latency_ms ?? 0,
+    verified: skill.security_status === 'VERIFIED',
   });
 });
 
@@ -679,6 +691,86 @@ marketplaceRouter.patch('/admin/feature/:id', async (c) => {
   logger.info({ skillId: id, featured }, 'Skill featured status updated');
 
   return c.json({ ok: true, skillId: id, featured });
+});
+
+// ─── POST /v1/marketplace/compare — agent-native skill comparison ─────────────
+// No auth required — agents can compare skills before committing credits.
+
+const CompareBody = z.object({
+  query: z.string().min(2).max(200),
+  maxResults: z.number().int().min(1).max(20).default(5),
+  filters: z.object({
+    minSuccessRate: z.number().min(0).max(100).optional(),
+    verifiedOnly: z.boolean().optional(),
+    maxCredits: z.number().min(0).optional(),
+    type: z.enum(['prompt_template', 'api_proxy', 'data', 'composite']).optional(),
+  }).optional().default({}),
+});
+
+marketplaceRouter.post('/compare', async (c) => {
+  let body: z.infer<typeof CompareBody>;
+  try {
+    const raw = await c.req.json();
+    body = CompareBody.parse(raw);
+  } catch {
+    return c.json({ error: 'Invalid body. Required: { query, maxResults?, filters? }', code: 'INVALID_BODY' }, 400);
+  }
+
+  const { skills } = getMarketplaceSkills({
+    page: 1, limit: Math.min(body.maxResults * 3, 60), // fetch extra for filtering
+    sort: 'popular', search: body.query,
+    type: body.filters.type as 'prompt_template' | 'api_proxy' | 'data' | undefined,
+  });
+
+  // Apply trust-based filters
+  let filtered = skills.filter(s => {
+    if (body.filters.minSuccessRate && (s.success_rate ?? 0) < body.filters.minSuccessRate) return false;
+    if (body.filters.verifiedOnly && s.security_status !== 'VERIFIED') return false;
+    if (body.filters.maxCredits && s.credit_cost > body.filters.maxCredits) return false;
+    return true;
+  });
+
+  // Composite score: 40% success rate + 30% rating + 20% usage + 10% verified
+  const maxUses = Math.max(1, ...filtered.map(s => s.uses));
+  const scored = filtered.map(s => {
+    const successNorm = (s.success_rate ?? 0) / 100;
+    const ratingNorm = (s.avg_rating ?? 0) / 5;
+    const usageNorm = s.uses / maxUses;
+    const verifiedBonus = s.security_status === 'VERIFIED' ? 1 : 0;
+    const compositeScore = Math.round((successNorm * 0.4 + ratingNorm * 0.3 + usageNorm * 0.2 + verifiedBonus * 0.1) * 100) / 100;
+    return { skill: s, compositeScore };
+  });
+
+  scored.sort((a, b) => b.compositeScore - a.compositeScore);
+  const top = scored.slice(0, body.maxResults);
+
+  const alternatives = top.map(({ skill: s, compositeScore }) => ({
+    id: s.id,
+    name: s.name,
+    displayName: s.display_name ?? s.name,
+    description: s.description,
+    creditCost: s.credit_cost,
+    skillType: s.skill_type ?? 'prompt_template',
+    verified: s.security_status === 'VERIFIED',
+    avgRating: s.avg_rating ?? 0,
+    ratingCount: s.rating_count ?? 0,
+    successRate: s.success_rate ?? 0,
+    avgLatencyMs: s.avg_latency_ms ?? 0,
+    uses: s.uses,
+    compositeScore,
+    invokeUrl: s.skill_type === 'data' ? `GET /v1/skills/${s.id}/query` : `POST /v1/skills/${s.id}/invoke`,
+  }));
+
+  return c.json({
+    query: body.query,
+    total: alternatives.length,
+    alternatives,
+    ...(alternatives.length > 0 && {
+      bestValue: alternatives[0].id,
+      fastest: alternatives.reduce((a, b) => ((a.avgLatencyMs || Infinity) < (b.avgLatencyMs || Infinity) ? a : b)).id,
+      cheapest: alternatives.reduce((a, b) => (a.creditCost < b.creditCost ? a : b)).id,
+    }),
+  });
 });
 
 // ─── GET /v1/marketplace/search — semantic skill search ───────────────────────

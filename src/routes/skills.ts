@@ -23,6 +23,8 @@ import { executePlan } from '../core/executor';
 import { formatResponse } from '../core/formatter';
 import { buildIntentFromPlan } from '../core/skill-executor';
 import { creditsForExecution, x402SurchargeCredits, round6, cacheCreditCost } from '../core/credits';
+import { computeRequestHash, computeResultHash } from '../utils/receipt-hash';
+import { executeCompositeSkill } from '../core/composite-executor';
 import { findEndpoint } from '../config/api-registry';
 import { logUsage } from '../utils/usage';
 import { cacheGet, cacheSet, cacheIncr } from '../cache/index';
@@ -83,7 +85,7 @@ const CreateSkillSchema = z.object({
   inputSchema: z.record(z.unknown()).optional(),
   outputSchema: z.record(z.unknown()).optional(),
   tags: z.array(z.string().max(32)).max(10).optional(),
-  skillType: z.enum(['prompt_template', 'api_proxy', 'data']).default('prompt_template'),
+  skillType: z.enum(['prompt_template', 'api_proxy', 'data', 'composite']).default('prompt_template'),
   proxyUrl: z.string().url().optional(),
   proxyMethod: z.enum(['GET', 'POST', 'PUT', 'PATCH']).default('POST'),
   executionPlanJson: z.string().max(10000).optional(), // third-party deterministic execution plan
@@ -100,6 +102,13 @@ const CreateSkillSchema = z.object({
   pairedSkillId: z.string().max(50).optional(),
   /** Max invocations per hour (rate limit). Null = unlimited. */
   maxCallsPerHour: z.number().int().min(1).max(100000).optional(),
+  // ── Composite skill fields ──────────────────────────────────────────────────
+  /** Dependencies for composite skills — array of { skillId, paramMapping, outputKey }. Max 5. */
+  dependencies: z.array(z.object({
+    skillId: z.string(),
+    paramMapping: z.record(z.string()),
+    outputKey: z.string(),
+  })).max(5).optional(),
 });
 
 // Extract {{variable}} placeholders from a template
@@ -163,6 +172,11 @@ skillsRouter.post('/', checkApiKey, async (c) => {
     return c.json({ error: 'prompt_template skills require a promptTemplate of at least 10 characters', code: 'MISSING_PROMPT' }, 400);
   }
 
+  // Composite skills must have dependencies
+  if (data.skillType === 'composite' && (!data.dependencies || data.dependencies.length === 0)) {
+    return c.json({ error: 'Composite skills require at least 1 dependency', code: 'MISSING_DEPENDENCIES' }, 400);
+  }
+
   // Validate pairedSkillId — must exist and belong to the same author
   if (data.pairedSkillId) {
     const paired = getSkill(data.pairedSkillId);
@@ -194,6 +208,7 @@ skillsRouter.post('/', checkApiKey, async (c) => {
     sampleOutputJson: data.sampleOutput ? JSON.stringify(data.sampleOutput) : undefined,
     updateFrequency: data.updateFrequency,
     pairedSkillId: data.pairedSkillId,
+    dependenciesJson: data.dependencies ? JSON.stringify(data.dependencies) : undefined,
   });
 
   // Set per-skill rate limit if specified
@@ -536,10 +551,13 @@ skillsRouter.get('/:id/query', checkApiKey, async (c) => {
           if (authorShare > 0) {
             topUpCredits(skill.author_key, authorShare);
             if (feeCredits > 0) topUpCredits('clawhub-treasury', feeCredits);
+            const timestamp = new Date().toISOString();
             recordTransaction({
               fromAgent: keyInfo.key, toAgent: skill.author_key,
               amountCredits: creditCost, type: 'SKILL_SALE',
               skillId: id, feeCredits,
+              requestHash: computeRequestHash({ skillId: id, variables: params, timestamp }),
+              resultHash: computeResultHash({ data, costCredits: creditCost }),
             });
           }
         }
@@ -568,6 +586,12 @@ skillsRouter.get('/:id/query', checkApiKey, async (c) => {
         updateFrequency: skill.update_frequency ?? 'static',
         ttlSeconds: ttl,
         sourceLatencyMs: Date.now() - start,
+      },
+      provider: {
+        verified: skill.security_status === 'VERIFIED',
+        successRate: skill.success_rate ?? 0,
+        avgRating: skill.avg_rating ?? 0,
+        reputationScore: getReputationScore(skill.author_key),
       },
     });
 
@@ -773,6 +797,39 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
     return c.json({ requestId, error: 'This skill has been flagged for review', code: 'SKILL_FLAGGED' }, 403);
   }
 
+  // ── Composite skill execution ──────────────────────────────────────────────
+  if (baseSkill.skill_type === 'composite') {
+    let rawBody: unknown;
+    try { rawBody = await c.req.json(); } catch { rawBody = {}; }
+    const InvokeBody = z.object({ variables: z.record(z.string().max(500)).optional() });
+    const bodyParsed = InvokeBody.safeParse(rawBody);
+    if (!bodyParsed.success) return c.json({ requestId, error: 'Invalid variables' }, 400);
+    const variables = bodyParsed.data.variables ?? {};
+
+    const result = await executeCompositeSkill(baseSkill, variables, {
+      callerKey: keyInfo.key,
+      callerKeyInfo: keyInfo,
+      parentRequestId: requestId,
+    });
+
+    const reputationScore = getReputationScore(baseSkill.author_key);
+    return c.json({
+      requestId,
+      ok: result.ok,
+      results: result.results,
+      costBreakdown: result.costBreakdown,
+      totalCreditsCharged: result.totalCreditsCharged,
+      durationMs: result.durationMs,
+      ...(result.error && { error: result.error }),
+      provider: {
+        verified: baseSkill.security_status === 'VERIFIED',
+        successRate: baseSkill.success_rate ?? 0,
+        avgRating: baseSkill.avg_rating ?? 0,
+        reputationScore,
+      },
+    }, result.ok ? 200 : 500);
+  }
+
   // Per-skill rate limit (creator-configurable)
   const invokeSkillRow = baseSkill as typeof baseSkill & { max_calls_per_hour?: number | null };
   if (invokeSkillRow.max_calls_per_hour) {
@@ -896,10 +953,13 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
               if (feeCredits > 0) {
                 topUpCredits('clawhub-treasury', feeCredits);
               }
+              const timestamp = new Date().toISOString();
               recordTransaction({
                 fromAgent: keyInfo.key, toAgent: skill.author_key,
                 amountCredits: creditsToDeduct, type: 'SKILL_SALE',
                 skillId: activeSkillId, feeCredits,
+                requestHash: computeRequestHash({ skillId: activeSkillId, variables, timestamp }),
+                resultHash: computeResultHash({ data: proxyData, costCredits: creditsToDeduct }),
               });
             }
           }
@@ -915,8 +975,10 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
       recordSkillMetric({ skillId: activeSkillId, version: (skill as typeof skill & { version?: string }).version ?? '1.0.0',
         latencyMs: Date.now() - start, success: true, costCredits: creditsToDeduct });
 
+      const reputationScore = getReputationScore(skill.author_key);
       return c.json({ requestId, status: proxyRes.status, data: proxyData,
-        skill: { id: skill.id, name: skill.name }, creditsUsed: creditsToDeduct });
+        skill: { id: skill.id, name: skill.name }, creditsUsed: creditsToDeduct,
+        provider: { verified: skill.security_status === 'VERIFIED', successRate: skill.success_rate ?? 0, avgRating: skill.avg_rating ?? 0, reputationScore } });
     } catch (err) {
       logger.error({ requestId, skillId: id, err }, 'API proxy skill failed');
       return c.json({ requestId, error: 'Proxy request failed', details: env.NODE_ENV === 'production' ? undefined : String(err) }, 502);
@@ -1025,6 +1087,7 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
           if (authorShare > 0) {
             topUpCredits(skill.author_key, authorShare);
             if (feeCredits > 0) topUpCredits('clawhub-treasury', feeCredits);
+            const timestamp = new Date().toISOString();
             recordTransaction({
               fromAgent: keyInfo.key,
               toAgent: skill.author_key,
@@ -1032,6 +1095,8 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
               type: 'SKILL_SALE',
               skillId: activeSkillId,
               feeCredits,
+              requestHash: computeRequestHash({ skillId: activeSkillId, variables, timestamp }),
+              resultHash: computeResultHash({ answer: formatted.answer, costCredits: creditsToDeduct }),
               ...(surcharge > 0 && { metadata: { x402Surcharge: surcharge } }),
             });
           }
@@ -1112,6 +1177,12 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
         llmProvider: env.LLM_PROVIDER,
         simulationMode: isSimulationMode,
         ...(skill.skill_class !== 'standard' && { skillClass: skill.skill_class }),
+      },
+      provider: {
+        verified: skill.security_status === 'VERIFIED',
+        successRate: skill.success_rate ?? 0,
+        avgRating: skill.avg_rating ?? 0,
+        reputationScore: getReputationScore(skill.author_key),
       },
     };
 

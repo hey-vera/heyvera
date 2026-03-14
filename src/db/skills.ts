@@ -36,7 +36,7 @@ export interface Skill {
   display_name: string | null;
   changelog: string | null;
   category: string;
-  skill_type: 'prompt_template' | 'api_proxy' | 'data';
+  skill_type: 'prompt_template' | 'api_proxy' | 'data' | 'composite';
   proxy_url: string | null;
   proxy_method: string;
   /** JSON-serialised SkillExecutionPlan — if present, bypasses LLM intent parsing */
@@ -57,6 +57,13 @@ export interface Skill {
   health_status: string;
   health_checked_at: string | null;
   health_fail_count: number;
+  // v64: trust signal denormalization
+  avg_rating: number;
+  rating_count: number;
+  success_rate: number;
+  avg_latency_ms: number;
+  /** JSON array of dependency definitions for composite skills */
+  dependencies_json: string | null;
 }
 
 export function createSkill(params: {
@@ -70,7 +77,7 @@ export function createSkill(params: {
   displayName?: string;
   changelog?: string;
   category?: string;
-  skillType?: 'prompt_template' | 'api_proxy' | 'data';
+  skillType?: 'prompt_template' | 'api_proxy' | 'data' | 'composite';
   proxyUrl?: string;
   proxyMethod?: string;
   executionPlanJson?: string;
@@ -79,10 +86,16 @@ export function createSkill(params: {
   sampleOutputJson?: string;
   updateFrequency?: string;
   pairedSkillId?: string;
+  dependenciesJson?: string;
 }): void {
+  // Validate composite skill dependencies
+  if (params.skillType === 'composite' && params.dependenciesJson) {
+    validateCompositeDependencies(params.id, params.dependenciesJson);
+  }
+
   getDb()
-    .prepare(`INSERT INTO skills (id, name, description, prompt_template, author_key, public, credit_cost, display_name, changelog, category, skill_type, proxy_url, proxy_method, execution_plan_json, skill_class, creator_evm_wallet, sample_output_json, update_frequency, paired_skill_id)
-              VALUES (@id, @name, @description, @promptTemplate, @authorKey, @public, @creditCost, @displayName, @changelog, @category, @skillType, @proxyUrl, @proxyMethod, @executionPlanJson, @skillClass, @creatorEvmWallet, @sampleOutputJson, @updateFrequency, @pairedSkillId)`)
+    .prepare(`INSERT INTO skills (id, name, description, prompt_template, author_key, public, credit_cost, display_name, changelog, category, skill_type, proxy_url, proxy_method, execution_plan_json, skill_class, creator_evm_wallet, sample_output_json, update_frequency, paired_skill_id, dependencies_json)
+              VALUES (@id, @name, @description, @promptTemplate, @authorKey, @public, @creditCost, @displayName, @changelog, @category, @skillType, @proxyUrl, @proxyMethod, @executionPlanJson, @skillClass, @creatorEvmWallet, @sampleOutputJson, @updateFrequency, @pairedSkillId, @dependenciesJson)`)
     .run({
       ...params,
       public: params.public ? 1 : 0,
@@ -98,6 +111,7 @@ export function createSkill(params: {
       sampleOutputJson: params.sampleOutputJson ?? null,
       updateFrequency: params.updateFrequency ?? 'static',
       pairedSkillId: params.pairedSkillId ?? null,
+      dependenciesJson: params.dependenciesJson ?? null,
     });
 }
 
@@ -257,8 +271,28 @@ export function recordSkillMetric(params: {
       .prepare(`INSERT INTO skill_metrics (id, skill_id, version, latency_ms, success, cost_credits)
                 VALUES (?, ?, ?, ?, ?, ?)`)
       .run(nanoid(12), params.skillId, params.version, params.latencyMs, params.success ? 1 : 0, params.costCredits);
+    updateSkillTrustSignals(params.skillId);
   } catch (err) {
     logger.error({ err }, 'Failed to record skill metric');
+  }
+}
+
+/**
+ * Refresh denormalized trust signal columns on a skill.
+ * Called after recordSkillMetric() and rateSkill() to keep listing data fresh.
+ */
+export function updateSkillTrustSignals(skillId: string): void {
+  try {
+    getDb().prepare(`
+      UPDATE skills SET
+        avg_rating = COALESCE((SELECT ROUND(AVG(rating),1) FROM skill_ratings WHERE skill_id = ?), 0),
+        rating_count = COALESCE((SELECT COUNT(*) FROM skill_ratings WHERE skill_id = ?), 0),
+        success_rate = COALESCE((SELECT ROUND(AVG(success)*100,1) FROM skill_metrics WHERE skill_id = ?), 0),
+        avg_latency_ms = COALESCE((SELECT ROUND(AVG(latency_ms),0) FROM skill_metrics WHERE skill_id = ?), 0)
+      WHERE id = ?
+    `).run(skillId, skillId, skillId, skillId, skillId);
+  } catch (err) {
+    logger.error({ err, skillId }, 'Failed to update trust signals');
   }
 }
 
@@ -528,6 +562,7 @@ export function rateSkill(params: {
     db.prepare(`INSERT OR REPLACE INTO skill_ratings (id, skill_id, buyer_key, rating, comment)
                 VALUES (?, ?, ?, ?, ?)`)
       .run(nanoid(12), params.skillId, params.buyerKey, params.rating, params.comment ?? null);
+    updateSkillTrustSignals(params.skillId);
     return { ok: true };
   } catch (err) {
     return { ok: false, error: (err as Error).message };
@@ -695,4 +730,63 @@ export function getSkillCostAnalytics(skillId: string): SkillCostAnalytics {
       : 0,
     costTrend: trend,
   };
+}
+
+// ─── Composite Skill Validation ──────────────────────────────────────────────
+
+export interface SkillDependency {
+  skillId: string;
+  paramMapping: Record<string, string>;
+  outputKey: string;
+}
+
+/**
+ * Validate composite skill dependencies at creation time:
+ * - Max 5 dependencies
+ * - No self-reference
+ * - Each dependency must be a public, active, non-composite skill
+ */
+function validateCompositeDependencies(compositeId: string, dependenciesJson: string): void {
+  let deps: SkillDependency[];
+  try {
+    deps = JSON.parse(dependenciesJson);
+  } catch {
+    throw new Error('dependencies_json must be a valid JSON array');
+  }
+  if (!Array.isArray(deps)) throw new Error('dependencies_json must be an array');
+  if (deps.length === 0) throw new Error('Composite skills must have at least 1 dependency');
+  if (deps.length > 5) throw new Error('Maximum 5 dependencies per composite skill');
+
+  const db = getDb();
+  const seen = new Set<string>();
+
+  for (const dep of deps) {
+    if (!dep.skillId || typeof dep.skillId !== 'string') throw new Error('Each dependency must have a skillId');
+    if (!dep.outputKey || typeof dep.outputKey !== 'string') throw new Error('Each dependency must have an outputKey');
+    if (dep.skillId === compositeId) throw new Error('Composite skill cannot depend on itself');
+    if (seen.has(dep.skillId)) throw new Error(`Duplicate dependency: ${dep.skillId}`);
+    seen.add(dep.skillId);
+
+    const target = db.prepare('SELECT skill_type, public, active FROM skills WHERE id = ?').get(dep.skillId) as
+      { skill_type: string; public: number; active: number } | undefined;
+    if (!target) throw new Error(`Dependency skill not found: ${dep.skillId}`);
+    if (!target.active) throw new Error(`Dependency skill is inactive: ${dep.skillId}`);
+    if (!target.public) throw new Error(`Dependency skill must be public: ${dep.skillId}`);
+    if (target.skill_type === 'composite') throw new Error(`Cannot depend on composite skill: ${dep.skillId} (max depth 1)`);
+  }
+}
+
+/** Calculate total credit cost of a composite skill's dependencies. */
+export function getCompositeTotalCost(dependenciesJson: string): number {
+  let deps: SkillDependency[];
+  try { deps = JSON.parse(dependenciesJson); } catch { return 0; }
+  if (!Array.isArray(deps)) return 0;
+
+  const db = getDb();
+  let total = 0;
+  for (const dep of deps) {
+    const row = db.prepare('SELECT credit_cost FROM skills WHERE id = ? AND active = 1').get(dep.skillId) as { credit_cost: number } | undefined;
+    total += row?.credit_cost ?? 0;
+  }
+  return total;
 }

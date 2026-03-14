@@ -312,6 +312,46 @@ economyRouter.delete('/webhook-secret', (c) => {
   return c.json({ ok: true });
 });
 
+// ─── Cryptographic Receipt Lookup ───────────────────────────────────────────
+
+economyRouter.get('/receipts/:id', (c) => {
+  const keyInfo = c.get('apiKeyInfo');
+  const txId = c.req.param('id');
+
+  const tx = getDb().prepare(
+    'SELECT * FROM transactions WHERE id = ?'
+  ).get(txId) as {
+    id: string; from_agent: string | null; to_agent: string | null;
+    amount_credits: number; type: string; skill_id: string | null;
+    fee_credits: number; metadata_json: string | null; created_at: string;
+    request_hash: string | null; result_hash: string | null;
+  } | undefined;
+
+  if (!tx) return c.json({ error: 'Transaction not found', code: 'NOT_FOUND' }, 404);
+
+  // Only sender or receiver can view the receipt
+  if (tx.from_agent !== keyInfo.key && tx.to_agent !== keyInfo.key) {
+    return c.json({ error: 'Not authorized to view this receipt', code: 'FORBIDDEN' }, 403);
+  }
+
+  return c.json({
+    id: tx.id,
+    type: tx.type,
+    skillId: tx.skill_id,
+    amountCredits: tx.amount_credits,
+    feeCredits: tx.fee_credits,
+    direction: tx.from_agent === keyInfo.key ? 'OUT' : 'IN',
+    counterparty: (() => {
+      const k = tx.from_agent === keyInfo.key ? tx.to_agent : tx.from_agent;
+      return k ? maskApiKey(k) : null;
+    })(),
+    requestHash: tx.request_hash,
+    resultHash: tx.result_hash,
+    createdAt: tx.created_at,
+    verifiable: !!(tx.request_hash && tx.result_hash),
+  });
+});
+
 function reputationResponse(c: any, agentKey: string) {
   const score = getReputationScore(agentKey);
   const events = getReputationEvents(agentKey, 20);

@@ -362,6 +362,19 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 62, sql: `ALTER TABLE api_keys ADD COLUMN webhook_secret TEXT` },
   // v63: revenue split 97/3 → 85/15 — 15% platform fee is competitive (industry norm 20-30%)
   { version: 63, sql: `UPDATE skills SET revenue_share_pct = 0.85 WHERE revenue_share_pct = 0.97` },
+  // v64: Agent Economy — trust signal denormalization, cryptographic receipts, composite skill dependencies
+  { version: 64, sql: `
+    ALTER TABLE skills ADD COLUMN avg_rating REAL NOT NULL DEFAULT 0;
+    ALTER TABLE skills ADD COLUMN rating_count INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE skills ADD COLUMN success_rate REAL NOT NULL DEFAULT 0;
+    ALTER TABLE skills ADD COLUMN avg_latency_ms REAL NOT NULL DEFAULT 0;
+    ALTER TABLE skills ADD COLUMN dependencies_json TEXT;
+    ALTER TABLE transactions ADD COLUMN request_hash TEXT;
+    ALTER TABLE transactions ADD COLUMN result_hash TEXT;
+    UPDATE skills SET avg_rating = COALESCE((SELECT ROUND(AVG(rating),1) FROM skill_ratings WHERE skill_id = skills.id), 0),
+      rating_count = COALESCE((SELECT COUNT(*) FROM skill_ratings WHERE skill_id = skills.id), 0);
+    UPDATE skills SET success_rate = COALESCE((SELECT ROUND(AVG(success)*100,1) FROM skill_metrics WHERE skill_id = skills.id), 0),
+      avg_latency_ms = COALESCE((SELECT ROUND(AVG(latency_ms),0) FROM skill_metrics WHERE skill_id = skills.id), 0)` },
 ];
 
 function runMigrations(): void {
