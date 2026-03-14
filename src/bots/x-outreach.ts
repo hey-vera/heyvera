@@ -83,7 +83,7 @@ const SEARCH_QUERIES = [
   'OpenClaw',
   '"AI agent" (budget OR spending OR "runaway costs" OR "spend on my behalf")',
   '"autonomous agent" (trust OR contract OR commerce OR SLA)',
-  '"data fetch" OR "browser agent" OR "web agent" OR "scrape agent"',
+  '"data agent" OR "scraping agent" OR "agent fetch data"',
   '"agent economy" OR "agent commerce" OR "agent payments"',
   '"trust layer" agent OR "agent governance"',
   '"agent" "rate limit" OR "cost control" OR "spending limit"',
@@ -119,7 +119,7 @@ const REPLY_CONTEXTS = [
     ],
   },
   {
-    match: ['data fetch', 'scraping', 'scrape', 'browser agent', 'web agent'],
+    match: ['data fetch', 'scraping agent', 'scrape data', 'web scraping'],
     templates: [
       `Data-fetching agents are incredibly powerful but terrifying without output validation. We started requiring JSON Schema contracts on every data pull — agent proves it returned what was promised before billing.{{url}}\nWhat kind of data are your agents pulling?`,
       `The key thing we learned with data agents: validate the output BEFORE payment. Schema contracts + spend limits made it production-safe. No more "agent returned garbage and charged us for it."{{url}}\nHow are you handling data quality right now?`,
@@ -141,14 +141,14 @@ const REPLY_CONTEXTS = [
     ],
   },
   {
-    match: ['autonomous', 'self-healing', 'auto', 'automate', 'automation'],
+    match: ['autonomous agent', 'self-healing', 'agent autonomy', 'fully autonomous'],
     templates: [
       `The dream of fully autonomous agents only works if they can self-heal — auto-swap degraded providers, enforce their own budgets, verify their own outputs. We've been building exactly that.{{url}}\nHow autonomous are your agents right now?`,
       `We went from "agent needs human approval for everything" to "agent manages its own provider contracts and fails over automatically." Night and day difference in uptime.{{url}}\nWhat's the scariest thing you've let an agent do unsupervised?`,
     ],
   },
   {
-    match: ['api', 'endpoint', 'rate limit', 'rate-limit'],
+    match: ['rate limit', 'rate-limit', 'api cost', 'api spending'],
     templates: [
       `Rate limits + cost control are the boring-but-critical layer. We enforce per-agent hourly caps and auto-throttle before hitting provider limits. Saved us from so many 429 cascades.{{url}}\nHow many APIs are your agents calling?`,
       `Managing API costs across agents at scale is a nightmare without proper tooling. Delegated keys with spending ceilings per agent made it manageable for us.{{url}}\nWhat's your biggest API pain point?`,
@@ -380,13 +380,27 @@ function pickFeature(): { name: string; desc: string; version: string } {
 function matchReplyTemplate(tweetText: string): string {
   const lower = tweetText.toLowerCase();
 
+  // Score each context by how many keywords match — pick best fit, not first match
+  let bestCtx: (typeof REPLY_CONTEXTS)[number] | null = null;
+  let bestScore = 0;
+
   for (const ctx of REPLY_CONTEXTS) {
-    if (ctx.match.some(keyword => lower.includes(keyword))) {
-      // Pick random variant from this context's templates
-      const template = ctx.templates[Math.floor(Math.random() * ctx.templates.length)];
-      // Include URL ~40% of the time to avoid looking spammy
-      return template.replace('{{url}}', Math.random() < 0.4 ? ' claw-net.org' : '');
+    const hits = ctx.match.filter(keyword => lower.includes(keyword)).length;
+    if (hits > bestScore) {
+      bestScore = hits;
+      bestCtx = ctx;
     }
+  }
+
+  // Must match at least 1 keyword, and the tweet must feel like a discussion
+  // (not a bug report, product demo, or tutorial)
+  const discussionSignals = ['agent', 'ai', 'trust', 'economy', 'commerce', 'autonomous', 'spend', 'cost', 'budget', 'data', 'marketplace'];
+  const isDiscussion = discussionSignals.some(s => lower.includes(s));
+
+  if (bestCtx && bestScore >= 1 && isDiscussion) {
+    const template = bestCtx.templates[Math.floor(Math.random() * bestCtx.templates.length)];
+    // Include URL ~40% of the time to avoid looking spammy
+    return template.replace('{{url}}', Math.random() < 0.4 ? ' claw-net.org' : '');
   }
 
   // Generic fallbacks — varied enough to not look botty
@@ -476,10 +490,26 @@ function isTweetEligible(tweet: Tweet, state: BotState): { eligible: boolean; re
     return { eligible: false, reason: 'too short' };
   }
 
-  // Skip tweets that mention competitors by name (don't be tacky)
+  // Skip tweets that mention us (no need to pitch)
   const lower = tweet.text.toLowerCase();
   if (lower.includes('clawnet') || lower.includes('claw-net')) {
     return { eligible: false, reason: 'already mentions clawnet' };
+  }
+
+  // Skip competitor product announcements — replying looks desperate
+  const competitors = [
+    'maiat', 'fetch.ai', 'autonolas', 'olas', 'singularitynet', 'ocean protocol',
+    'nevermined', 'morpheus', 'virtuals protocol', 'eliza framework', 'ai16z',
+    'phala network', 'ritual', 'bittensor', 'nous research',
+  ];
+  if (competitors.some(c => lower.includes(c))) {
+    return { eligible: false, reason: 'competitor mention' };
+  }
+
+  // Skip product launch / announcement tweets (they're promoting, not discussing)
+  const promoSignals = ['just launched', 'announcing', 'we just shipped', 'introducing our', 'check out our', 'try our'];
+  if (promoSignals.some(s => lower.includes(s))) {
+    return { eligible: false, reason: 'product announcement' };
   }
 
   return { eligible: true };
