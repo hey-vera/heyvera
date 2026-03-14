@@ -56,7 +56,7 @@ const CONFIG = {
   maxRepliesPerRun: 3,
   minTweetLikes: 3,          // Only reply to tweets with some engagement
   maxTweetReplies: 100,       // Don't pile onto already-crowded threads
-  minTweetAgeMinutes: 5,      // Avoid replying to just-posted tweets
+  minTweetAgeMinutes: 0,      // Serper results already aged — no min needed
   maxTweetAgeHours: 24,       // Don't necro old threads
 
   // State file — tracks replied tweets, daily counts
