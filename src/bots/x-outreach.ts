@@ -413,7 +413,7 @@ let llmAvailable: boolean | null = null; // Cached after first check
 
 async function isLLMAvailable(): Promise<boolean> {
   if (llmAvailable !== null) return llmAvailable;
-  const result = await askLLM('Reply with exactly: OK', 1);
+  const result = await askLLM('Reply with exactly: OK', 10);
   llmAvailable = result !== null;
   console.log(`LLM mode: ${llmAvailable ? 'SMART (ClawNet online)' : 'TEMPLATE (ClawNet offline)'}`);
   return llmAvailable;
@@ -436,10 +436,10 @@ If ALL THREE are YES, reply with exactly: RELEVANT
 If ANY is NO, reply with exactly: SKIP: [one-line reason]
 
 Reply with ONLY "RELEVANT" or "SKIP: reason", nothing else.`,
-    2,
+    10,
   );
 
-  if (!answer) return { relevant: true, reason: 'llm-unavailable' }; // Fail open if LLM is down
+  if (!answer) return { relevant: false, reason: 'llm-call-failed' }; // Skip if LLM call fails
   const trimmed = answer.trim();
   if (trimmed.toUpperCase().startsWith('RELEVANT')) return { relevant: true, reason: 'llm-approved' };
   return { relevant: false, reason: trimmed.replace(/^SKIP:\s*/i, '') };
@@ -481,7 +481,7 @@ Write a casual, authentic reply (max 250 chars) that:
 NEVER start with "Great point", "This!", "So true", "Totally agree", "Love this". Be specific to what they said.
 
 Reply ONLY with the tweet text, or "SKIP" if you shouldn't reply. Nothing else.`,
-    5,
+    100,
   );
 
   if (answer && answer.trim().toUpperCase() !== 'SKIP' && answer.length > 20 && answer.length <= 280) {
