@@ -248,7 +248,7 @@ marketplaceRouter.post('/skills/:id/purchase', checkApiKey, async (c) => {
     data: { txId: purchase.txId, amount: skill.credit_cost, fee: purchase.feeCredits, sellerReceives: purchase.sellerCredits },
   });
 
-  logger.info({ requestId, skillId: id, buyer: keyInfo.key.slice(0, 8), txId: purchase.txId }, 'Marketplace purchase + execute');
+  logger.info({ requestId, skillId: id, buyer: maskApiKey(keyInfo.key), txId: purchase.txId }, 'Marketplace purchase + execute');
 
   // Execute the skill inline — no second credit charge.
   // Render the prompt template with provided variables.
@@ -512,7 +512,7 @@ marketplaceRouter.post('/creator/withdraw', checkApiKey, async (c) => {
     data: { amountCredits: body.amountCredits, usdcWallet: maskApiKey(body.usdcWallet) },
   });
 
-  logger.info({ id: result.id, key: keyInfo.key.slice(0, 8), credits: body.amountCredits }, 'Payout requested');
+  logger.info({ id: result.id, key: maskApiKey(keyInfo.key), credits: body.amountCredits }, 'Payout requested');
 
   return c.json({
     ok: true,

@@ -3,6 +3,7 @@ import { logger } from '../utils/logger';
 import { sendAdminAlert } from '../utils/email';
 import { getDb, logAudit, safeJsonParse } from './connection';
 import { round6 } from '../core/credits';
+import { maskApiKey } from '../utils/mask';
 import type { Skill } from './skills';
 
 function escapeLike(value: string): string {
@@ -160,7 +161,7 @@ export function marketplaceRefund(params: {
       const actualSellerDebit = Math.min(params.sellerCredits, sellerBal?.credits ?? 0);
       const sellerDeficit = params.sellerCredits - actualSellerDebit;
       if (sellerDeficit > 0) {
-        logger.warn({ sellerKey: params.sellerKey.slice(0, 8), requested: params.sellerCredits, actual: actualSellerDebit, deficit: sellerDeficit },
+        logger.warn({ sellerKey: maskApiKey(params.sellerKey), requested: params.sellerCredits, actual: actualSellerDebit, deficit: sellerDeficit },
           'marketplaceRefund: seller balance insufficient — partial debit, deficit recorded in tx metadata');
       }
       db.prepare(`UPDATE api_keys SET credits = MAX(0, credits - ?) WHERE key = ? AND active = 1`)
@@ -199,8 +200,8 @@ export function marketplaceRefund(params: {
             'Marketplace refund completed with credit deficit:',
             '',
             `Skill: ${params.skillId}`,
-            `Buyer: ${params.buyerKey.slice(0, 8)}...`,
-            `Seller: ${params.sellerKey.slice(0, 8)}...`,
+            `Buyer: ${maskApiKey(params.buyerKey)}`,
+            `Seller: ${maskApiKey(params.sellerKey)}`,
             `Seller deficit: ${meta.sellerDeficit ?? 0} credits`,
             `Treasury deficit: ${meta.treasuryDeficit ?? 0} credits`,
             `Refund TX: ${refundTxId}`,
@@ -213,7 +214,7 @@ export function marketplaceRefund(params: {
 
     return { ok: true, refundTxId };
   } catch (err) {
-    logger.error({ err, buyerKey: params.buyerKey.slice(0, 8), skillId: params.skillId }, 'marketplaceRefund: transaction failed — manual intervention may be required');
+    logger.error({ err, buyerKey: maskApiKey(params.buyerKey), skillId: params.skillId }, 'marketplaceRefund: transaction failed — manual intervention may be required');
     return { ok: false, error: (err as Error).message };
   }
 }

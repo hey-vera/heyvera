@@ -179,7 +179,7 @@ dashboardRouter.post('/claim-session', requireClerkAuth, async (c) => {
   linkKeyToClerkUser(row.key, clerkUserId);
 
   const balance = getApiKeyBalance(row.key);
-  logger.info({ clerkUserId, key: row.key.slice(0, 8) + '...' }, 'Key claimed via session ID');
+  logger.info({ clerkUserId, key: maskApiKey(row.key) }, 'Key claimed via session ID');
 
   // Never return the full API key via session claim — use reveal-key endpoint instead
   return c.json({

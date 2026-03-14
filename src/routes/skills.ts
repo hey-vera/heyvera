@@ -4,6 +4,7 @@ import { nanoid } from 'nanoid';
 import { trackDelegatedSpend } from '../utils/billing';
 import crypto from 'crypto';
 import { renderTemplate } from '../utils/template';
+import { maskApiKey } from '../utils/mask';
 import { checkApiKey } from '../middleware/auth';
 import {
   createSkill, getSkill, listPublicSkills, countPublicSkills, getSkillsByAuthor,
@@ -236,7 +237,7 @@ skillsRouter.post('/', checkApiKey, async (c) => {
     embedSkillInBackground(id, data.name, data.description, data.tags ?? []);
   }
 
-  logger.info({ id, name: data.name, author: keyInfo.key.slice(0, 8) }, 'Skill created');
+  logger.info({ id, name: data.name, author: maskApiKey(keyInfo.key) }, 'Skill created');
 
   return c.json({
     id,
@@ -614,7 +615,7 @@ skillsRouter.patch('/:id/visibility', checkApiKey, async (c) => {
     if (skill) embedSkillInBackground(id, skill.name, skill.description, []);
   }
 
-  logger.info({ id, public: body.public, author: keyInfo.key.slice(0, 8) }, 'Skill visibility updated');
+  logger.info({ id, public: body.public, author: maskApiKey(keyInfo.key) }, 'Skill visibility updated');
   return c.json({ ok: true, public: body.public });
 });
 
@@ -627,7 +628,7 @@ skillsRouter.delete('/:id', checkApiKey, (c) => {
   const deleted = deleteSkill(id, keyInfo.key);
   if (!deleted) return c.json({ error: 'Skill not found or not yours' }, 404);
 
-  logger.info({ id, author: keyInfo.key.slice(0, 8) }, 'Skill deleted');
+  logger.info({ id, author: maskApiKey(keyInfo.key) }, 'Skill deleted');
   return c.json({ ok: true });
 });
 
@@ -715,7 +716,7 @@ skillsRouter.post('/:id/fork', checkApiKey, async (c) => {
   writeAuditLog({ entityType: 'skill', entityId: forkId, action: 'FORKED', actorId: keyInfo.key,
     data: { originalId: id, newVersion, fromVersion: original.version } });
 
-  logger.info({ forkId, originalId: id, version: newVersion, author: keyInfo.key.slice(0, 8) }, 'Skill forked');
+  logger.info({ forkId, originalId: id, version: newVersion, author: maskApiKey(keyInfo.key) }, 'Skill forked');
   return c.json({ id: forkId, version: newVersion, forkedFrom: id, abEnabled: original.author_key === keyInfo.key }, 201);
 });
 
@@ -1071,7 +1072,7 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
         skillId: activeSkillId,
         eventType: 'SKILL_INVOKED',
         scoreDelta: 0.1,
-        data: { invokerKey: keyInfo.key.slice(0, 8), creditsCharged: creditsToDeduct },
+        data: { invokerKey: maskApiKey(keyInfo.key), creditsCharged: creditsToDeduct },
       });
     }
 
@@ -1199,7 +1200,7 @@ skillsRouter.post('/verification/apply', checkApiKey, (c) => {
     action: 'VERIFIED', actorId: keyInfo.key,
     data: { skillsVerified: verified, metrics: eligibility.metrics },
   });
-  logger.info({ authorKey: keyInfo.key.slice(0, 8), skillsVerified: verified }, 'Publisher verified');
+  logger.info({ authorKey: maskApiKey(keyInfo.key), skillsVerified: verified }, 'Publisher verified');
 
   return c.json({
     ok: true,

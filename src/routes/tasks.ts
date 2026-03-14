@@ -20,6 +20,7 @@ import { creditsForExecution, x402SurchargeCredits, round6 } from '../core/credi
 import { findEndpoint } from '../config/api-registry';
 import { scanProxyResponse } from '../core/skill-scanner';
 import { logger } from '../utils/logger';
+import { maskApiKey } from '../utils/mask';
 import { cacheGet, cacheSet } from '../cache/index';
 
 export const tasksRouter = new Hono();
@@ -278,7 +279,7 @@ tasksRouter.post('/', checkApiKey, async (c) => {
 
     if (skill.author_key && skill.author_key !== keyInfo.key) {
       recordReputation({ agentId: skill.author_key, skillId, eventType: 'SKILL_INVOKED',
-        scoreDelta: 0.1, data: { invokerKey: keyInfo.key.slice(0, 8), creditsCharged: creditsToDeduct } });
+        scoreDelta: 0.1, data: { invokerKey: maskApiKey(keyInfo.key), creditsCharged: creditsToDeduct } });
     }
 
     const durationMs = Date.now() - start;

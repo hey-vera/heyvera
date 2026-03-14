@@ -1,5 +1,6 @@
 import { getDb } from '../db/index';
 import { logger } from '../utils/logger';
+import { maskApiKey } from '../utils/mask';
 
 let timer: ReturnType<typeof setInterval> | null = null;
 let _running = false;
@@ -36,7 +37,7 @@ function runUnlockCheck(): void {
           .run(stake.amount_credits, stake.agent_key);
         if (restored.changes === 0) {
           // Key missing — preserve the stake row so an admin can recover the credits manually
-          logger.error({ stakeId: stake.id, agentKey: stake.agent_key.slice(0, 8), amount: stake.amount_credits },
+          logger.error({ stakeId: stake.id, agentKey: maskApiKey(stake.agent_key), amount: stake.amount_credits },
             'CRITICAL: stake expired but API key not found — credits not restored, stake preserved for manual recovery');
           continue;
         }

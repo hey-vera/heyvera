@@ -178,7 +178,7 @@ apiRouter.post('/orchestrate', async (c) => {
       const dailyKey = `daily_spend:${keyInfo.key}:${today}`;
       const dailySpent = (await cacheGet<number>(dailyKey)) ?? 0;
       if (env.DAILY_SPEND_CAP > 0 && dailySpent + creditsToDeduct > env.DAILY_SPEND_CAP) {
-        logger.warn({ requestId, key: keyInfo.key.slice(0, 10), dailySpent, creditsToDeduct, cap: env.DAILY_SPEND_CAP }, 'Daily spend cap exceeded');
+        logger.warn({ requestId, key: maskApiKey(keyInfo.key), dailySpent, creditsToDeduct, cap: env.DAILY_SPEND_CAP }, 'Daily spend cap exceeded');
         return c.json({
           requestId,
           error: 'Daily spend cap reached. Try again tomorrow or contact support to raise your limit.',
@@ -211,13 +211,13 @@ apiRouter.post('/orchestrate', async (c) => {
 
       // Anomaly detection: fire admin alert the first time a key crosses the threshold today
       if (newDailySpent >= env.ANOMALY_THRESHOLD && dailySpent < env.ANOMALY_THRESHOLD) {
-        logger.warn({ key: keyInfo.key.slice(0, 10), email: keyInfo.email, newDailySpent }, 'Anomaly: daily spend threshold crossed');
+        logger.warn({ key: maskApiKey(keyInfo.key), email: keyInfo.email, newDailySpent }, 'Anomaly: daily spend threshold crossed');
         sendAdminAlert({
-          subject: `Anomaly — key ${keyInfo.key.slice(0, 10)}... hit ${newDailySpent.toLocaleString()} credits today`,
+          subject: `Anomaly — key ${maskApiKey(keyInfo.key)} hit ${newDailySpent.toLocaleString()} credits today`,
           body: [
             `API key anomaly detected`,
             ``,
-            `Key    : ${keyInfo.key.slice(0, 10)}...`,
+            `Key    : ${maskApiKey(keyInfo.key)}`,
             `Email  : ${keyInfo.email}`,
             `Today  : ${today}`,
             `Spent  : ${newDailySpent.toLocaleString()} credits`,

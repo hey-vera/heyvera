@@ -19,6 +19,7 @@ import { getAllPendingPayouts, markPayoutPaid, updatePayoutStatus, getTreasuryBa
 import { sendSolanaUsdc, getHotWalletUsdcBalance } from '../utils/solana-payout';
 import { sendTelegramAlert } from '../integrations/telegram';
 import { logger } from '../utils/logger';
+import { maskApiKey } from '../utils/mask';
 import { env } from '../config/index';
 
 const PAYOUT_INTERVAL = '0 */4 * * *'; // every 4 hours
@@ -144,7 +145,7 @@ async function runPayoutCron(): Promise<void> {
           autoTriggered++;
           logAudit({ entityType: 'payout', entityId: result.id!, action: 'AUTO_PAYOUT_TRIGGERED', actorId: 'system',
             data: { threshold: config.threshold_credits, amount: earned } });
-          logger.info({ agentKey: config.agent_key.slice(0, 8), earned, threshold: config.threshold_credits }, 'Auto-payout triggered');
+          logger.info({ agentKey: maskApiKey(config.agent_key), earned, threshold: config.threshold_credits }, 'Auto-payout triggered');
         }
       }
     }

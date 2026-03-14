@@ -10,6 +10,7 @@ import {
   createProposal, getProposals, getProposal, castVote, getProposalCount, getVoterWeight, getProposalVotes,
 } from '../db/index';
 import { logger } from '../utils/logger';
+import { maskApiKey } from '../utils/mask';
 
 export const governanceRouter = new Hono();
 
@@ -36,7 +37,7 @@ governanceRouter.get('/proposals/:id', (c) => {
   return c.json({
     ...proposal,
     votes: votes.map(v => ({
-      voter: v.voter_key.slice(0, 8) + '...',
+      voter: maskApiKey(v.voter_key),
       direction: v.direction,
       weight: v.weight,
       createdAt: v.created_at,
@@ -73,7 +74,7 @@ governanceRouter.post('/propose', checkApiKey, async (c) => {
     closeDays: body.closeDays,
   });
 
-  logger.info({ id, proposer: keyInfo.key.slice(0, 8), title: body.title }, 'Governance proposal created');
+  logger.info({ id, proposer: maskApiKey(keyInfo.key), title: body.title }, 'Governance proposal created');
 
   return c.json({
     ok: true,
@@ -110,7 +111,7 @@ governanceRouter.post('/proposals/:id/vote', checkApiKey, async (c) => {
 
   if (!result.ok) return c.json({ error: result.error, code: 'VOTE_FAILED' }, 400);
 
-  logger.info({ proposalId: id, voter: keyInfo.key.slice(0, 8), direction: body.direction, weight }, 'Vote cast');
+  logger.info({ proposalId: id, voter: maskApiKey(keyInfo.key), direction: body.direction, weight }, 'Vote cast');
 
   return c.json({
     ok: true,

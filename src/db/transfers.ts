@@ -3,6 +3,7 @@ import { nanoid } from 'nanoid';
 import { logger } from '../utils/logger';
 import { getDb, logAudit } from './connection';
 import { round6 } from '../core/credits';
+import { maskApiKey } from '../utils/mask';
 
 // ─── Credit Transfers (Agent-to-Agent) ───────────────────────────────────────
 
@@ -96,7 +97,7 @@ export function transferCredits(params: {
     })();
 
     logAudit({ entityType: 'transfer', entityId: transferId, action: 'CREDIT_TRANSFER', actorId: fromKey,
-      data: { toKey: toKey.slice(0, 8) + '...', amount, fee } });
+      data: { toKey: maskApiKey(toKey), amount, fee } });
 
     return { ok: true, transferId, fee, newBalance };
   } catch (err) {

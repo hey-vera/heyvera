@@ -19,6 +19,7 @@ import crypto from 'crypto';
 import { renderTemplate } from '../utils/template';
 import { checkApiKey } from '../middleware/auth';
 import { trackDelegatedSpend } from '../utils/billing';
+import { maskApiKey } from '../utils/mask';
 import {
   getSkillWithAb, getSkill, listPublicSkills, countPublicSkills,
   incrementSkillUses, deductCredit, topUpCredits, getDb,
@@ -326,7 +327,7 @@ openclawRouter.post('/invoke', checkApiKey, async (c) => {
         recordReputation({
           agentId: skill.author_key, skillId,
           eventType: 'SKILL_INVOKED', scoreDelta: 0.1,
-          data: { via: 'openclaw', invokerKey: keyInfo.key.slice(0, 8), creditsCharged: creditsUsed },
+          data: { via: 'openclaw', invokerKey: maskApiKey(keyInfo.key), creditsCharged: creditsUsed },
         });
       }
 
@@ -552,7 +553,7 @@ openclawRouter.get('/status', checkApiKey, async (c) => {
   const reputation = getReputationScore(keyInfo.key);
 
   return c.json({
-    agentKey: keyInfo.key.slice(0, 6) + '...' + keyInfo.key.slice(-4),
+    agentKey: maskApiKey(keyInfo.key),
     credits: {
       balance: keyInfo.credits,
       used: keyInfo.creditsUsed ?? 0,

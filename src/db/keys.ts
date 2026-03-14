@@ -146,6 +146,10 @@ export function regenerateApiKey(
     db.prepare(`UPDATE payout_requests SET agent_key = ? WHERE agent_key = ? AND status IN ('PENDING','PROCESSING')`)
       .run(newKey, row.key);
 
+    // Cascade-deactivate any delegated sub-keys of the old key
+    db.prepare('UPDATE api_keys SET active = 0 WHERE key IN (SELECT child_key FROM delegated_keys WHERE parent_key = ?)').run(row.key);
+    db.prepare('UPDATE delegated_keys SET active = 0 WHERE parent_key = ?').run(row.key);
+
     // Deactivate old key
     db.prepare('UPDATE api_keys SET active = 0 WHERE key = ?').run(row.key);
 
