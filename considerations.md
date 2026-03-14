@@ -266,6 +266,139 @@
 
 ---
 
+## Agent Economy Progress — Roadmap to 100%
+
+> Current overall: **~78%** of a production-grade autonomous agent economy.
+> Last assessed: 2026-03-14.
+
+### 1. Payments & Billing — 95%
+
+| Done | Item |
+|------|------|
+| ✅ | Decimal credit system (round6, min 0.001) |
+| ✅ | Volume-tier Stripe pricing (6 tiers, +7% USDC bonus) |
+| ✅ | USDC on-chain payments (Solana SPL) |
+| ✅ | x402 pay-per-call (Base/EVM, facilitator fallback) |
+| ✅ | Delegated sub-keys with spend limits |
+| ✅ | Budget accounts (daily/weekly limits, auto-topup flag) |
+| ✅ | Credit gifting / transfers between keys |
+| ✅ | Treasury auto-sweep cron (every 4h) |
+| ✅ | Creator payouts (85/15 split, USDC) |
+| ✅ | Stripe idempotency + Solana TX dedup |
+| ✅ | Hot wallet low-balance Telegram alerts |
+
+**To reach 100%:**
+- [ ] **Multi-currency quotes** — show skill costs in USDC/SOL/fiat equivalents alongside credits
+- [ ] **Subscription / prepaid bundles** — agents pre-purchase call blocks at discount (reduces per-call overhead)
+- [ ] **Auto-topup execution** — budget accounts have the flag but no Stripe/USDC auto-charge trigger yet (currently manual)
+- [ ] **Invoice / receipt PDF export** — machine-readable spending summaries for enterprise accounting
+
+### 2. Marketplace & Discovery — 90%
+
+| Done | Item |
+|------|------|
+| ✅ | Skill CRUD with 4 types (api_proxy, prompt_template, data, composite) |
+| ✅ | Endpoint auto-discovery (clawapis.com, 183 endpoints, 4h poll) |
+| ✅ | Discovery Trinity (semantic + p2p + onchain weights) |
+| ✅ | Staking with sqrt diminishing returns (50% cap) |
+| ✅ | Tag filtering, similar skills, search |
+| ✅ | Compare/quote endpoint (POST /v1/marketplace/compare) |
+| ✅ | MCP + OpenAPI manifests per skill |
+| ✅ | Batch-query (up to 10 parallel data skills) |
+| ✅ | Trust signals in listings (avgRating, successRate, verified, SLA) |
+
+**To reach 100%:**
+- [ ] **Capability taxonomy** — standardized task classes (summarize, classify, rank, extract, etc.) for structured discovery
+- [ ] **Recommendation engine** — "agents who used X also used Y" collaborative filtering
+- [ ] **Publish @clawnet/mcp to npm** — package is built but unpublished; enables native MCP client integration
+- [ ] **On-chain skill registry** — Solana program for trustless cross-platform discovery (needs deployed program)
+- [ ] **Data marketplace output schema standard** — formal field-name/type conventions across data skills
+
+### 3. Trust & Verification — 85%
+
+| Done | Item |
+|------|------|
+| ✅ | Star ratings with optional review text |
+| ✅ | Reputation scores (per-author, composite metric) |
+| ✅ | Skill verification pipeline (UNVERIFIED → VERIFIED / FLAGGED) |
+| ✅ | Security audit status tracking |
+| ✅ | Denormalized trust signals (avg_rating, success_rate, avg_latency) |
+| ✅ | Cryptographic receipts (request_hash + result_hash on transactions) |
+| ✅ | SLA contracts (uptime, latency, success rate guarantees) |
+| ✅ | Output contracts (JSON Schema validation on data skills) |
+| ✅ | Webhook notifications on SLA/output violations |
+
+**To reach 100%:**
+- [ ] **Validator / referee roles** — neutral third-party result verification beyond platform-native checks
+- [ ] **Receipt chain verification endpoint** — public endpoint to verify receipt hash integrity without auth
+- [ ] **Portable reputation export** — exportable trust scores for cross-platform identity (needs interop standards)
+- [ ] **Automated security scanning** — static analysis on api_proxy URLs and prompt_template content at creation time
+- [ ] **Trust decay** — ratings/reputation should age; a 4.8★ from 6 months ago with no recent activity ≠ current quality
+
+### 4. Autonomous Operations — 65%
+
+| Done | Item |
+|------|------|
+| ✅ | Composite skills (declared dependencies, sequential execution) |
+| ✅ | Swarm multi-agent decomposition (LLM-planned) |
+| ✅ | Circuit breaker on executor (per-endpoint failure tracking) |
+| ✅ | Skill health monitoring cron (15m, auto-DEGRADED) |
+| ✅ | Budget accounts with daily/weekly spending limits |
+| ✅ | Event webhooks (7 event types, HMAC-signed, auto-disable) |
+| ✅ | Dependency graph visualization endpoint |
+
+**To reach 100%:**
+- [ ] **Autonomous hiring/firing** — agents auto-select skills based on SLA compliance, auto-replace degraded providers
+- [ ] **Persistent long-running agents** — maintain state across sessions, monitor conditions over days/weeks (needs WebSocket/multi-node)
+- [ ] **Conditional branching in composites** — if/else logic within composite skill chains (currently sequential only)
+- [ ] **Dynamic pricing / demand-based adjustment** — price signals based on load, priority fees for urgent execution
+- [ ] **Agent-initiated transfers** — agents autonomously pay other agents without human approval (needs guardrails)
+- [ ] **Retry/fallback policies on composites** — if sub-skill fails, try alternative skill with same capability
+- [ ] **Scheduled skill execution** — "run this composite every hour" without external cron
+
+### 5. Composability — 70%
+
+| Done | Item |
+|------|------|
+| ✅ | Composite skill type with dependency declarations |
+| ✅ | Max 5 deps, flat-only (no composite-of-composite) |
+| ✅ | Per-hop billing with 85/15 split per sub-skill |
+| ✅ | Parameter mapping ({{variable}} interpolation) |
+| ✅ | Anti-loop protections (no self-ref, no nested composites) |
+| ✅ | Dependency graph endpoint |
+
+**To reach 100%:**
+- [ ] **Output piping** — pass output of step N as input to step N+1 (currently each step gets original variables only)
+- [ ] **Parallel execution in composites** — declare independent steps that can run concurrently (currently all sequential)
+- [ ] **Conditional steps** — skip step if condition met (e.g., only run sentiment if price change > 5%)
+- [ ] **Composite-of-composite** — allow depth > 1 with budget caps and cycle detection (currently flat-only)
+- [ ] **Dynamic dependency resolution** — at runtime, select best available skill for a capability slot
+- [ ] **Composite cost estimation** — pre-calculate total cost before execution (sum of dependency costs + assembly fee)
+- [ ] **Composite caching** — cache entire composite result, not just individual sub-skill results
+
+### 6. Governance & Disputes — 45%
+
+| Done | Item |
+|------|------|
+| ✅ | Governance proposals (create, vote, close) |
+| ✅ | Escrow system (7-state machine: CREATED→FUNDED→WIP→COMPLETED/REFUNDED/DISPUTED→RESOLVED) |
+| ✅ | Skill reporting system (free-text reasons) |
+| ✅ | SLA violation recording with penalty credits |
+| ✅ | Admin manual review pipeline |
+
+**To reach 100%:**
+- [ ] **Quorum requirements** — minimum voter participation for proposals to be valid (needs 500+ users)
+- [ ] **Proposal bonds** — lock credits when creating proposals to prevent spam (release on close)
+- [ ] **Structured report categories** — enum categories (security, spam, copyright, quality) instead of free-text
+- [ ] **Appeal process** — structured workflow for contesting SLA violations, flags, and disputes
+- [ ] **Automated governance execution** — proposals auto-execute when quorum met (currently advisory-only)
+- [ ] **Dispute mediation protocol** — multi-step review with evidence submission for escrow disputes
+- [ ] **Community moderation** — trusted users can review flagged skills (reduce admin bottleneck)
+- [ ] **Refund arbitration** — automated refund decisions based on SLA data and output contract violations
+- [ ] **Penalty escalation** — repeated SLA violations trigger increasing penalties (warning → reduced visibility → delist)
+
+---
+
 ## Agent Economy v2 — Deferred Items (2026-03-14)
 
 > From the ChatGPT agentic economy analysis. These are real needs for a mature agent economy but depend on ecosystem maturity (agent wallets, protocol standards, adoption volume).
