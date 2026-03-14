@@ -1586,7 +1586,7 @@ SIGTERM or SIGINT received (Docker stop, Ctrl+C, deploy)
 │  ├─ stopEndpointHealthCron()
 │  ├─ stopEndpointDiscoveryCron()
 │  ├─ stopMeshNode() — libp2p graceful disconnect
-│  └─ stopTelegram()
+│  └─ (email alerts — no teardown needed)
 │
 ├─ Phase 4: Close data stores (25-30s)
 │  ├─ closeRedis() — graceful QUIT command
@@ -1706,8 +1706,8 @@ Platform margin per credit:
 x402 surcharge (third-party prompt_template skills):
 ├─ Caller pays: skill.credit_cost + round6(apiCostUsd × CREDITS_PER_USD)
 ├─ Creator gets: 85% of skill.credit_cost (unchanged)
-├─ Treasury gets: 15% fee + surcharge (surcharge → treasury → auto-sweep → operations wallet)
-├─ Surcharge covers: real USDC spent by operations wallet on x402 API calls
+├─ Treasury gets: 15% fee + surcharge (surcharge covers real USDC spent by hot wallet)
+├─ Surcharge covers: real USDC spent by hot wallet on x402 API calls
 ├─ Applies to: third-party prompt_template skills only
 └─ Does NOT apply to: official skills, api_proxy, data skills, cache hits
 
@@ -1725,31 +1725,23 @@ Decimal credits (v3):
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                        3-WALLET ARCHITECTURE                                │
+│                        2-WALLET ARCHITECTURE                                │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
 │  RECEIVING WALLET (H6xbRy...)                                              │
 │  ├─ Purpose: Collects USDC from credit purchases                           │
 │  ├─ Env: SOLANA_RECEIVING_WALLET (public address only, no key in .env)     │
 │  ├─ IN:  Users send USDC to buy credits (solana.ts verify route)           │
-│  ├─ OUT: Manual sweep to Operations + Payout wallets                       │
+│  ├─ OUT: Manual sweep to Hot Wallet when needed                            │
 │  └─ Risk: LOW — no private key on server                                   │
 │                                                                             │
-│  OPERATIONS WALLET (AqYkp3...)                                             │
-│  ├─ Purpose: Pays x402 API providers + receives treasury fee sweeps        │
+│  HOT WALLET (AqYkp3...)                                                    │
+│  ├─ Purpose: Pays x402 API providers + sends USDC to creators              │
 │  ├─ Env: SOLANA_PRIVATE_KEY (bs58 private key)                             │
-│  │       TREASURY_SWEEP_WALLET (same public address)                       │
-│  ├─ IN:  Treasury auto-sweep (every 4h, 15% fees + x402 surcharges)        │
-│  │       Manual top-up from Receiving wallet                               │
-│  ├─ OUT: Pays ClawAPIs/x402 providers for API calls                       │
-│  └─ Risk: MEDIUM — private key in .env, but only working capital at risk   │
-│                                                                             │
-│  PAYOUT WALLET (dedicated, separate)                                       │
-│  ├─ Purpose: Sends USDC to skill creators                                  │
-│  ├─ Env: PLATFORM_PAYOUT_PRIVATE_KEY (bs58 private key)                   │
-│  ├─ IN:  Manual top-up from Receiving wallet                               │
-│  ├─ OUT: Creator payouts (every 4h cron, rate: $0.00075/credit)           │
-│  └─ Risk: MEDIUM — limited float, isolated from main funds                 │
+│  │       PLATFORM_PAYOUT_PRIVATE_KEY (same key — both point here)          │
+│  ├─ IN:  Manual top-up from Receiving wallet / bank                        │
+│  ├─ OUT: x402 API calls + creator payouts (every 4h cron)                  │
+│  └─ Risk: MEDIUM — private key in .env, keep limited float                 │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 
@@ -1770,9 +1762,9 @@ User sends $20 USDC to buy credits
 │  ├─ Treasury gets: 3 credits (surcharge)              → topUpCredits(treasury)
 │  └─ Total treasury: 4.5 credits per call
 │
-├─ Meanwhile, Operations wallet paid $0.003 to x402 provider
-│  └─ Treasury has 4.5 credits → sweep converts at $0.00075/cr = $0.003375
-│     └─ Net cost to platform: $0.003 - $0.003375 = -$0.000375 (surplus to platform)
+├─ Meanwhile, Hot wallet paid $0.003 to x402 provider
+│  └─ Treasury has 4.5 credits (pure profit in 2-wallet setup — no sweep needed)
+│     └─ Net cost to platform: $0.003 API cost, offset by 4.5cr × $0.001 = $0.0045 in user payments
 │
 ├─ User invokes orchestration query (3 API steps, total cost = 5.4 credits)
 │  ├─ stepCredits = 5.4 credits (creditsForExecution)
@@ -1781,33 +1773,33 @@ User sends $20 USDC to buy credits
 │  ├─ Nobody gets paid — credits burned (reduces platform obligation)
 │  └─ Platform profit = 7.4 credits × $0.001 = $0.0074 in reduced liability
 │
-├─ Treasury auto-sweep (every 4h, payout-cron.ts)
-│  ├─ Check clawhub-treasury balance (15% fees + surcharges accumulated)
-│  ├─ If balance >= TREASURY_SWEEP_MIN (default 10,000 credits)
-│  ├─ Convert: credits × PAYOUT_USDC_PER_CREDIT = USDC amount
-│  ├─ deductTreasuryForSweep(balance)
-│  ├─ sendSolanaUsdc(TREASURY_SWEEP_WALLET, amountUsdc)
-│  └─ USDC arrives in Operations wallet → refills x402 calling funds
+├─ Treasury credits (every 4h, payout-cron.ts)
+│  ├─ clawhub-treasury accumulates 15% fees + x402 surcharges
+│  ├─ With 2-wallet setup: these are pure DB profit (no sweep needed)
+│  ├─ Optional: if TREASURY_SWEEP_WALLET is set, auto-sweep converts
+│  │   credits to USDC and sends to that wallet
+│  └─ Admin dashboard shows treasury balance via /v1/admin/reconcile
 │
 ├─ Creator requests payout
 │  ├─ Creator has 8.5 credits earned → POST /v1/marketplace/payout-request
 │  ├─ Credits deducted from creator's balance
 │  ├─ Payout cron picks up PENDING request
 │  ├─ Convert: 8.5 × $0.00075 = $0.006375 USDC
-│  ├─ sendSolanaUsdc(creatorWallet, $0.006375) from PAYOUT wallet
+│  ├─ sendSolanaUsdc(creatorWallet, $0.006375) from HOT wallet
 │  └─ Creator receives USDC
 │
 └─ Hot wallet balance check (every 4h)
-   ├─ getHotWalletUsdcBalance() checks PAYOUT wallet
-   ├─ If below HOT_WALLET_LOW_BALANCE_USDC ($50 default)
-   └─ Telegram alert: "Top up PLATFORM_PAYOUT_PRIVATE_KEY wallet"
+   ├─ getHotWalletUsdcBalance() checks HOT wallet USDC
+   ├─ getPayoutWalletSolBalance() checks HOT wallet SOL (gas)
+   ├─ If USDC below HOT_WALLET_LOW_BALANCE_USDC ($50 default) → email alert
+   └─ If SOL below HOT_WALLET_LOW_SOL (0.1 default) → email alert
 
 STRIPE FLOW:
 ├─ User pays $20 via Stripe checkout
 ├─ $20 → Stripe balance (your Stripe account)
 ├─ 20,000 credits minted to user's DB balance
 ├─ Stripe auto-payout → your bank account (Stripe settings)
-└─ Manual: bank → buy USDC → send to Receiving/Operations/Payout wallets
+└─ Manual: bank → buy USDC → send to Hot Wallet
 
 CREDIT ACCOUNTING INVARIANT:
 ├─ credits_minted = SUM(all topUpCredits from purchases)
@@ -1929,7 +1921,7 @@ REVENUE SPLIT (per skill invocation):
 ├─ 85% → creator (via round6, not Math.floor)
 ├─ 15% → clawhub-treasury
 ├─ x402 surcharge → treasury (1:1 cost recovery, separate from 85/15)
-└─ Treasury → auto-sweep every 4h → operations wallet (USDC)
+└─ Treasury credits = pure profit (optional sweep to USDC if TREASURY_SWEEP_WALLET set)
 
 PRICING OPTIMIZER STRATEGIES:
 ├─ cheapest:  swap to lowest-cost alternative in capability group
@@ -2748,18 +2740,20 @@ When creators build skills and sell them on your marketplace:
 
 **Anti-arbitrage:** Users buy credits at $0.001 each. Creators cash out at $0.00075 each. That 25% spread means nobody can buy credits and immediately withdraw for profit.
 
-### The 3-Wallet Architecture
+### The 2-Wallet Architecture
 
 ```
-Wallet 1: SOLANA_PRIVATE_KEY
-  └─ Pays x402 API providers (upstream data sources)
-  └─ Funded by: you (operational expense)
+Wallet 1: RECEIVING (H6xbRy...)
+  └─ Public address only — users send USDC here to buy credits
+  └─ No private key on server — lowest risk
+  └─ Manually sweep to Hot Wallet when needed
 
-Wallet 2: PLATFORM_PAYOUT_PRIVATE_KEY
-  └─ Pays creators their USDC earnings
-  └─ Funded by: you (keep 7-day float)
+Wallet 2: HOT WALLET (AqYkp3...)
+  └─ SOLANA_PRIVATE_KEY + PLATFORM_PAYOUT_PRIVATE_KEY (same key)
+  └─ Pays x402 API providers + sends USDC to creators
+  └─ Funded by: you (manual top-up from Receiving / bank)
 
-Wallet 3: EVM_PRIVATE_KEY
+Wallet 3 (EVM, separate chain): EVM_PRIVATE_KEY
   └─ x402 auto-split — sends 85% to creator's Base wallet
   └─ Funded by: incoming x402 payments (self-sustaining)
 ```
@@ -2817,4 +2811,4 @@ User buys 125,000 credits for $100 (Pro tier)
 
 ---
 
-*Generated from codebase analysis. Last updated: 2026-03-12. 62 DB migrations, decimal credits (v3), treasury auto-sweep, surcharge-to-treasury fix, 3-wallet architecture, endpoint auto-discovery (183 ClawAPIs endpoints), proportional cache pricing (10% of live, min 0.1cr), agent economy layer, future-proofing pass (skill health cron, per-skill rate limiting, MCP/OpenAPI manifests, tag filtering, similar skills, staking boost, webhook HMAC signing, credit gifting, batch-query, x402 verification & reputation, subscription lifecycle, refund flow, dashboard auth, creator dashboard, GDPR erasure, contact form, dev revenue flow).*
+*Generated from codebase analysis. Last updated: 2026-03-14. 63 DB migrations, decimal credits (v3), 2-wallet architecture (RECEIVING + HOT WALLET), email alerts (replaced Telegram), treasury auto-sweep (optional), surcharge-to-treasury fix, endpoint auto-discovery (183 ClawAPIs endpoints), proportional cache pricing (10% of live, min 0.1cr), agent economy layer, future-proofing pass (skill health cron, per-skill rate limiting, MCP/OpenAPI manifests, tag filtering, similar skills, staking boost, webhook HMAC signing, credit gifting, batch-query, x402 verification & reputation, subscription lifecycle, refund flow, dashboard auth, creator dashboard, GDPR erasure, contact form, dev revenue flow).*
