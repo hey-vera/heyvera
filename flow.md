@@ -3299,4 +3299,265 @@ TOKEN REVENUE FLOW (post-launch):
 
 ---
 
-*Generated from codebase analysis. Last updated: 2026-03-14. 66 DB migrations, decimal credits (v3), 3-wallet architecture (RECEIVING + OPERATIONS + PAYOUT), treasury auto-sweep, endpoint auto-discovery (183 ClawAPIs endpoints), proportional cache pricing (10% of live, min 0.1cr), agent economy layer (trust signals, cryptographic receipts, compare/quote, composite skills v2, SLA contracts, output contracts, budget accounts, event webhooks, trust decay, penalty escalation, scheduled execution, proposal bonds, structured reports, receipt verification), future-proofing pass (skill health cron, per-skill rate limiting, MCP/OpenAPI manifests, tag filtering, similar skills, staking boost, webhook HMAC signing, credit gifting, batch-query), public roadmap + $CLAWNET token launch tracker.*
+## 57. Dynamic Pricing
+
+Demand-based surge pricing, volume discounts, and off-peak discounts applied at billing time.
+
+```
+PRICING LAYERS:
+├─ Surge Pricing (demand-based)
+│  ├─ Tracks per-skill calls/hour in skill_demand table
+│  ├─ Creator configures thresholds in pricingConfig on skill creation
+│  ├─ Multiplier up to 5x when demand exceeds threshold
+│  ├─ Overrides off-peak discount (surge takes priority)
+│  └─ dynamicCreditCost() in src/core/credits.ts
+│
+├─ Volume Discounts (caller loyalty)
+│  ├─ Monthly call count tracked in caller_skill_usage table
+│  ├─ Tiered discount up to 50% off base price
+│  ├─ Resets monthly per caller-skill pair
+│  └─ Always stacks with other modifiers (additive)
+│
+└─ Off-Peak Discounts (time-based)
+   ├─ Creator defines UTC hour windows
+   ├─ Discount up to 50% during off-peak hours
+   └─ Disabled when surge is active (surge overrides)
+
+STACKING RULES:
+├─ Surge active?  → surge multiplier × base (no off-peak)
+├─ Off-peak only? → base × (1 - offPeakDiscount)
+├─ Volume always  → result × (1 - volumeDiscount)
+└─ Final = round6(stacked result)
+
+BILLING INTEGRATION:
+├─ applyDynamicPricing() called at 3 billing sites:
+│  ├─ api_proxy skill execution (skills.ts)
+│  ├─ prompt_template skill execution (skills.ts)
+│  └─ data query skill execution (skills.ts)
+├─ Creator configures via pricingConfig in POST /v1/skills
+└─ Pricing breakdown included in response costBreakdown
+```
+
+---
+
+## 58. Composite-of-Composite Nesting
+
+Composite skills can now contain other composite skills, up to depth 3.
+
+```
+DEPTH LIMITS:
+├─ Max nesting depth: 3
+├─ Max total leaf invocations across entire tree: 10
+├─ composite_depth column on skills table tracks static depth
+└─ Runtime depth counter as defense-in-depth (incremented per recursive call)
+
+CYCLE DETECTION:
+├─ hasCircularDependency() — BFS traversal at creation time
+├─ Builds full dependency graph before saving
+├─ Rejects skill creation if cycle detected
+└─ Returns error with cycle path for debugging
+
+EXECUTION FLOW:
+  POST /v1/skills/:id/invoke (composite)
+  └─ executeCompositeSkill(skill, vars, depth=0)
+     ├─ For each dependency:
+     │  ├─ If dep is atomic → execute normally
+     │  └─ If dep is composite → executeCompositeSkill(dep, mappedVars, depth+1)
+     │     └─ depth+1 > 3 → reject with COMPOSITE_DEPTH_EXCEEDED
+     ├─ Track total leaf invocations across tree
+     │  └─ leafCount > 10 → reject with COMPOSITE_LEAF_LIMIT
+     ├─ Output piping works across nesting levels
+     └─ Cost = sum of all leaf skill costs + assembly fees per composite level
+
+EXAMPLE (depth 2):
+  MarketAnalysis (composite, depth=2)
+  ├─ PriceBundle (composite, depth=1)
+  │  ├─ btc-price (atomic, leaf)
+  │  └─ eth-price (atomic, leaf)
+  ├─ SentimentBundle (composite, depth=1)
+  │  ├─ twitter-sentiment (atomic, leaf)
+  │  └─ news-sentiment (atomic, leaf)
+  └─ summarize-report (atomic, leaf)
+  Total leaves: 5 (within 10 limit)
+```
+
+---
+
+## 59. Autonomous Hiring & Firing
+
+Automatic replacement of degraded skills in composite pipelines, with revert on recovery.
+
+```
+TRIGGER: skill-health-cron.ts marks skill as DEGRADED (3 consecutive failures)
+
+AUTO-REPLACE FLOW:
+  Skill marked DEGRADED
+  └─ autoReplaceInComposites(degradedSkillId)
+     ├─ Find composites with auto_replace=1 that depend on this skill
+     ├─ findReplacementSkill(degradedSkill)
+     │  ├─ Match by tag + type (same category)
+     │  ├─ Filter to ACTIVE + healthy skills only
+     │  ├─ Prefer similar credit_cost (within 2x)
+     │  └─ Return best match or null (no replacement = no swap)
+     ├─ Swap dependency in composite_dependencies
+     ├─ Record swap in composite_swaps table
+     │  ├─ composite_id, original_skill_id, replacement_skill_id
+     │  ├─ swapped_at timestamp
+     │  └─ reverted_at (null until revert)
+     ├─ Fire webhook to composite owner (if configured)
+     │  └─ event: "skill.auto_replaced"
+     └─ Max 3 active swaps per composite (safety limit)
+
+AUTO-REVERT FLOW:
+  Skill recovers (health check passes)
+  └─ autoRevertInComposites(recoveredSkillId)
+     ├─ Find active swaps where original_skill_id = recovered
+     ├─ Restore original dependency
+     ├─ Set reverted_at on swap record
+     └─ Fire webhook: "skill.auto_reverted"
+
+OPT-IN:
+├─ auto_replace=1 on composite skill (default 0)
+├─ Creator explicitly enables per composite
+└─ Atomic skills are never auto-replaced (only composite deps)
+```
+
+---
+
+## 60. Quorum & Governance Execution
+
+Proposals auto-execute whitelisted actions when quorum is met and majority votes FOR.
+
+```
+PROPOSAL CREATION:
+├─ quorum_pct: 0-51% (percentage of active keys that must vote)
+├─ action_type: SKILL_DELIST | SKILL_VERIFY | PARAMETER_CHANGE
+├─ action_payload_json: action-specific parameters
+└─ Existing fields: title, description, bond, duration
+
+QUORUM CALCULATION:
+├─ getActiveKeyCount() — counts active non-treasury API keys
+├─ checkQuorum(proposalId)
+│  ├─ totalVoters = count of votes cast
+│  ├─ requiredVoters = ceil(activeKeyCount × quorum_pct / 100)
+│  └─ quorumMet = totalVoters >= requiredVoters
+└─ Quorum checked at proposal close time
+
+AUTO-EXECUTION ON CLOSE:
+  Proposal voting period ends
+  └─ closeProposal(proposalId)
+     ├─ Count FOR vs AGAINST votes
+     ├─ checkQuorum() — is threshold met?
+     ├─ If quorum met AND majority FOR:
+     │  └─ executeProposal(proposal)
+     │     ├─ SKILL_DELIST → deactivate skill (is_active=0)
+     │     ├─ SKILL_VERIFY → set verified=1 on skill
+     │     └─ PARAMETER_CHANGE → apply bounded update
+     │        ├─ fee: 1-50% (reject outside bounds)
+     │        ├─ orchestration fee: 0-100 credits
+     │        └─ Rejects unrecognized parameter names
+     ├─ If quorum NOT met → proposal fails (no execution)
+     └─ releaseBond() returns credits to proposer
+
+SAFETY:
+├─ Only whitelisted action_types accepted
+├─ PARAMETER_CHANGE values bounded (cannot set fee to 0% or 100%)
+├─ executeProposal() in src/routes/governance.ts
+└─ Audit log entry for every auto-execution
+```
+
+---
+
+## 61. Validator Roles
+
+Community validators submit verdicts on transactions for credit rewards.
+
+```
+ADMIN PROMOTION:
+├─ POST /v1/admin/validators/promote
+│  ├─ Sets is_validator=1 on api_keys row
+│  └─ Admin-only (existing admin guard)
+└─ Validators are regular users with extra permissions
+
+VALIDATION FLOW:
+  POST /v1/validators/verify
+  ├─ Body: { transactionId, verdict, notes? }
+  ├─ verdict: VALID | INVALID | INCONCLUSIVE
+  ├─ Guards:
+  │  ├─ Must be validator (is_validator=1)
+  │  ├─ Cannot validate own transactions (no self-validation)
+  │  ├─ Daily limit: 100 validations per validator
+  │  └─ Cannot validate same transaction twice
+  ├─ Stored in validations table (src/db/validations.ts)
+  └─ Reward: 0.5 credits per validation (topUpCredits)
+
+LEADERBOARD:
+├─ GET /v1/validators/leaderboard
+│  ├─ Ranked by total validations submitted
+│  ├─ Shows: validatorId, totalValidations, verdictBreakdown
+│  └─ Public endpoint (no auth required)
+└─ Per-skill aggregation:
+   └─ GET /v1/validators/skill/:skillId
+      ├─ Validations for transactions involving this skill
+      └─ Verdict distribution (VALID/INVALID/INCONCLUSIVE counts)
+
+DB SCHEMA:
+  validations table
+  ├─ id, transaction_id, validator_key_id
+  ├─ verdict (VALID/INVALID/INCONCLUSIVE)
+  ├─ notes (optional free text)
+  └─ created_at
+```
+
+---
+
+## 62. Persistent Agent Sessions
+
+Stateful agent sessions with configurable triggers for scheduled skill execution.
+
+```
+SESSION CRUD:
+├─ POST /v1/economy/sessions — create session
+│  ├─ name, initial state (JSON), ttl (optional)
+│  └─ Returns session ID
+├─ GET /v1/economy/sessions — list sessions for key
+├─ GET /v1/economy/sessions/:id — get session with state
+├─ PATCH /v1/economy/sessions/:id — update session state
+│  └─ Merges new state into existing (partial update)
+└─ DELETE /v1/economy/sessions/:id — destroy session
+
+LIMITS:
+├─ Max 10 sessions per API key
+├─ Max 50KB state per session
+└─ Sessions stored in agent_sessions table (src/db/sessions.ts)
+
+SCHEDULED SKILL INTEGRATION:
+├─ Scheduled skills now accept sessionId in configuration
+├─ Session state injected into skill variables
+│  ├─ Keys prefixed with session. namespace
+│  ├─ Example: session.lastPrice, session.portfolio
+│  └─ Merged with explicit variables (explicit wins on conflict)
+└─ Trigger types expanded:
+   ├─ cron — existing time-based triggers (unchanged)
+   ├─ context_change — fires when session state changes
+   │  ├─ triggerConfig.watchKeys: ["portfolio", "alerts"]
+   │  └─ Only fires if watched keys are modified
+   └─ threshold — fires when session value crosses boundary
+      ├─ triggerConfig.field: "session.balance"
+      ├─ triggerConfig.op: "lt" | "gt" | "eq"
+      ├─ triggerConfig.value: 100
+      └─ Evaluated on every session state update
+
+FLOW:
+  Agent creates session (initial state)
+  └─ Agent creates scheduled skill with sessionId
+     └─ Trigger fires (cron/context_change/threshold)
+        ├─ Load session state from DB
+        ├─ Inject as session.* variables
+        ├─ Execute skill with merged variables
+        └─ Optionally update session state with result
+```
+
+---
+
+*Generated from codebase analysis. Last updated: 2026-03-14. 66 DB migrations, decimal credits (v3), 3-wallet architecture (RECEIVING + OPERATIONS + PAYOUT), treasury auto-sweep, endpoint auto-discovery (183 ClawAPIs endpoints), proportional cache pricing (10% of live, min 0.1cr), agent economy layer (trust signals, cryptographic receipts, compare/quote, composite skills v2, SLA contracts, output contracts, budget accounts, event webhooks, trust decay, penalty escalation, scheduled execution, proposal bonds, structured reports, receipt verification), future-proofing pass (skill health cron, per-skill rate limiting, MCP/OpenAPI manifests, tag filtering, similar skills, staking boost, webhook HMAC signing, credit gifting, batch-query), public roadmap + $CLAWNET token launch tracker, dynamic pricing (surge/volume/off-peak), composite-of-composite nesting (depth 3), autonomous hiring/firing, quorum governance execution, validator roles, persistent agent sessions.*
