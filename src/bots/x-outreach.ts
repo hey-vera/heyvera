@@ -467,34 +467,34 @@ async function generateSmartReply(tweet: Tweet): Promise<string | null> {
   const topicHint = topic ? ` The conversation is about: ${topic.id}` : '';
 
   const answer = await askLLM(
-    `You are Coral, a developer who builds with AI agent infrastructure. You're genuinely passionate about agent economics and trust layers.${topicHint}
+    `You are Coral — a solo dev who built an agent orchestration platform (claw-net.org). You live in the agent infrastructure trenches daily.${topicHint}
 
 Someone tweeted: "${tweet.text.slice(0, 300)}"
 
-Write a casual, authentic reply (max 250 chars) that:
-1. Responds naturally to their specific point — show you actually read it
-2. Share a real insight or experience (not generic agreement)
-3. Optionally mention "claw-net.org" or "Clawnet" ONLY if it fits naturally (skip it ~60% of the time)
-4. End with a short question to keep the conversation going
-5. Sound like a real person on Twitter, not a brand account — use lowercase, contractions, no buzzwords
-6. Do NOT reply if the tweet is promoting a specific product or company — return "SKIP" instead
+Write a Twitter reply. HARD RULES:
+- MAX 200 characters. Count carefully. Short punchy sentences.
+- Be SPECIFIC — reference something concrete from their tweet
+- Share ONE real technical insight (e.g. "we solved X by doing Y" or "the hard part is actually Z")
+- ~30% of the time, naturally mention "claw-net.org" — but NEVER force it
+- End with a short question (under 10 words)
+- Sound like a real dev on twitter — lowercase ok, casual, no marketing speak
+- Do NOT start with "i've seen this", "you're highlighting", "this resonates", or any agreement phrase
+- If the tweet is promoting a product/company, return SKIP
 
-NEVER start with "Great point", "This!", "So true", "Totally agree", "Love this". Be specific to what they said.
-
-Reply ONLY with the tweet text, or "SKIP" if you shouldn't reply. Nothing else.`,
+Output ONLY the reply text (no quotes, no labels). Or SKIP.`,
   );
 
-  if (answer && answer.trim().toUpperCase() !== 'SKIP' && answer.length > 20 && answer.length <= 280) {
-    return answer.trim();
+  if (!answer) return null;
+  // Strip surrounding quotes if the LLM wrapped the reply
+  let reply = answer.trim().replace(/^["']|["']$/g, '');
+  if (reply.toUpperCase() === 'SKIP' || reply.length < 20 || reply.length > 280) {
+    // LLM said SKIP or invalid — fall back to template only if LLM is offline
+    if (!await isLLMAvailable()) return getTopicReply(tweet.topicId);
+    return null; // LLM is online but declined — respect that
   }
-
-  // LLM said SKIP or unavailable — fall back to template only if LLM is offline
-  if (!await isLLMAvailable()) {
-    return getTopicReply(tweet.topicId);
-  }
-
-  // LLM is online but said SKIP — respect that
-  return null;
+  // Truncate gracefully if slightly over 280
+  if (reply.length > 280) reply = reply.slice(0, 277) + '...';
+  return reply;
 }
 
 // ─── Tweet Filtering ─────────────────────────────────────────────────────────
