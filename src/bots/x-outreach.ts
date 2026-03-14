@@ -83,66 +83,66 @@ const SEARCH_TOPICS: SearchTopic[] = [
     query: 'OpenClaw',
     replies: [
       `We've been pairing OpenClaw with an economics layer — once agents do real transactions you need spend controls and delivery receipts. Been a great combo.{{url}}\nYou running yours for data tasks or automation?`,
-      `OpenClaw + proper guardrails is the stack I keep coming back to. The agents work great but you absolutely need budget controls once they start spending.{{url}}\nWhat are you building with it?`,
+      `OpenClaw + proper guardrails is the stack I keep coming back to. Budget controls once agents start spending is the missing piece most people hit.{{url}}\nWhat are you building with it?`,
     ],
   },
   {
     id: 'budget',
-    query: '"AI agent" (budget OR spending OR "runaway costs" OR "spend on my behalf")',
+    query: '"my AI agent" spent OR "agent spending" too much OR "AI agent" "runaway cost"',
     replies: [
       `This is exactly why I gave up on letting agents spend freely. Hard spending caps + auto-cutoffs changed everything — no more 3am "what did it just buy" panic.{{url}}\nWhat's the worst surprise bill you've dealt with?`,
-      `Been there. The trick that worked for us was delegated keys with daily caps — agent gets its own wallet, hard ceiling, done. No more manual babysitting.{{url}}\nAre you running yours on-chain or off?`,
-      `Yeah the "hope it doesn't overspend" approach doesn't scale. We moved to contract-enforced budgets — agents literally can't exceed their allocation.{{url}}\nCurious what your budget looks like per agent run?`,
+      `Been there. Delegated keys with daily caps solved it — agent gets its own wallet, hard ceiling, done. No more manual babysitting.{{url}}\nAre you running yours on-chain or off?`,
+      `The "hope it doesn't overspend" approach doesn't scale. Contract-enforced budgets — agents literally can't exceed their allocation — changed everything for us.{{url}}\nCurious what your budget looks like per agent run?`,
     ],
   },
   {
     id: 'trust',
-    query: '"autonomous agent" (trust OR contract OR commerce OR SLA)',
+    query: '"agent to agent" trust OR "agents transact" OR "agent trust" verify',
     replies: [
-      `This is the biggest blocker nobody talks about enough. We've been working with verified delivery receipts + third-party validators — agents prove they did the work before payment releases.{{url}}\nWhat's your biggest trust headache right now?`,
-      `Honestly trust is the unsexy problem that blocks everything else. Without proof of delivery, agent commerce is just hope-based trading. Cryptographic receipts solved it for us.{{url}}\nAre you seeing this in production or still experimenting?`,
-      `The moment two agents need to transact you realize there's no trust layer. We added validator roles — independent third parties verify results before funds move.{{url}}\nWhat does your verification flow look like today?`,
-    ],
-  },
-  {
-    id: 'data',
-    query: '"data agent" OR "scraping agent" OR "agent fetch data"',
-    replies: [
-      `Data-fetching agents are incredibly powerful but terrifying without output validation. We require JSON Schema contracts on every data pull — agent proves it returned what was promised before billing.{{url}}\nWhat kind of data are your agents pulling?`,
-      `The key thing we learned: validate the output BEFORE payment. Schema contracts + spend limits made it production-safe. No more "agent returned garbage and charged us for it."{{url}}\nHow are you handling data quality right now?`,
+      `This is the biggest blocker nobody talks about enough. Verified delivery receipts + third-party validators — agents prove they did the work before payment releases.{{url}}\nWhat's your biggest trust headache right now?`,
+      `Trust is the unsexy problem that blocks everything else. Without proof of delivery, agent commerce is just hope-based trading. Cryptographic receipts solved it for us.{{url}}\nAre you seeing this in production or still experimenting?`,
+      `The moment two agents need to transact you realize there's no trust infrastructure. Validator roles — independent third parties verify results before funds move — solved it for us.{{url}}\nWhat does your verification flow look like?`,
     ],
   },
   {
     id: 'economy',
-    query: '"agent economy" OR "agent commerce" OR "agent payments"',
+    query: '"agent economy" OR "agent-to-agent" payments OR "agents paying agents"',
     replies: [
-      `This is going to be massive. The missing piece isn't more agents — it's the economic infrastructure for them to transact safely. Escrow, SLAs, receipts.{{url}}\nYou building more on the buyer or seller side?`,
-      `Agent commerce is at the "email in 1995" stage imo. The protocols for safe autonomous spending barely exist yet. That's what we've been heads-down building.{{url}}\nWhat's your take on agent-to-agent payments?`,
-      `The skills marketplace model is what finally made this click — agents publish capabilities with prices, other agents comparison-shop and buy. Real commerce, not demos.{{url}}\nWhat vertical are you focused on?`,
+      `This is going to be massive. The missing piece isn't more agents — it's the economic infrastructure for them to transact safely. Escrow, SLAs, receipts.{{url}}\nYou building on the buyer or seller side?`,
+      `Agent commerce is at the "email in 1995" stage imo. The protocols for safe autonomous spending barely exist yet.{{url}}\nWhat's your take on agent-to-agent payments?`,
+      `The skills marketplace model is what made this click — agents publish capabilities with prices, other agents comparison-shop and buy. Real commerce, not demos.{{url}}\nWhat vertical are you focused on?`,
     ],
   },
   {
-    id: 'governance',
-    query: '"trust layer" agent OR "agent governance"',
+    id: 'costcontrol',
+    query: '"AI agent" "cost control" OR "agent budget" limit OR "spending cap" agent',
     replies: [
-      `Governance is where agent infra gets real — someone has to be able to delist a bad provider or enforce an SLA without a human in the loop every time.{{url}}\nHow are you handling governance right now?`,
-      `The gap between "agents can call APIs" and "agents can safely transact" is entirely governance. Verified outputs, penalty escrow, community delisting — all unsexy but load-bearing.{{url}}\nWhat's your governance model look like?`,
-    ],
-  },
-  {
-    id: 'ratelimit',
-    query: '"agent" "rate limit" OR "cost control" OR "spending limit"',
-    replies: [
-      `Rate limits + cost control are the boring-but-critical layer. We enforce per-agent hourly caps and auto-throttle before hitting provider limits. Saved us from so many 429 cascades.{{url}}\nHow many APIs are your agents calling?`,
-      `Managing API costs across agents at scale is a nightmare without proper tooling. Delegated keys with spending ceilings per agent made it manageable for us.{{url}}\nWhat's your biggest API pain point?`,
+      `Per-agent hourly caps + auto-throttle before hitting provider limits saved us from so many 429 cascades. Boring but critical.{{url}}\nHow many APIs are your agents calling?`,
+      `Delegated keys with spending ceilings per agent is what made it manageable for us. Each agent gets its own wallet with hard limits.{{url}}\nWhat's your cost control setup look like?`,
     ],
   },
   {
     id: 'marketplace',
-    query: '"AI agent" marketplace OR "skill marketplace"',
+    query: '"agent marketplace" OR "skill marketplace" AI OR "agents can buy" skills',
     replies: [
-      `The marketplace model only works once you solve trust — agents need to verify what they're buying actually works before paying. We added output contracts + success metrics for exactly this.{{url}}\nWhat kind of skills are you listing?`,
-      `Been building an agent marketplace too. The hard part isn't listing skills — it's making agents confident enough to buy autonomously. Success rates, SLAs, verified outputs.{{url}}\nAre your agents buying automatically or human-approved?`,
+      `The marketplace model only works once you solve trust — agents need to verify what they're buying actually works before paying. Output contracts + success metrics are key.{{url}}\nWhat kind of skills are you listing?`,
+      `The hard part isn't listing skills — it's making agents confident enough to buy autonomously. Success rates, SLAs, verified outputs.{{url}}\nAre your agents buying automatically or human-approved?`,
+    ],
+  },
+  {
+    id: 'agentinfra',
+    query: '"building" "agent infrastructure" OR "agent infra" missing OR "agent stack" needs',
+    replies: [
+      `The infra gap is real — everyone's building agents but nobody's building the rails for them to safely spend, verify, and transact.{{url}}\nWhat layer are you focused on?`,
+      `We hit the same wall. Agents are easy, the hard part is everything around them — billing, trust, failover, output validation.{{url}}\nWhat's the biggest infra gap you're seeing?`,
+    ],
+  },
+  {
+    id: 'agentfail',
+    query: '"AI agent" failed OR broke OR "agent crashed" OR "agent went rogue"',
+    replies: [
+      `Agent failures in production are terrifying. Auto-failover to backup providers + health-check pings every 15min is what finally made ours stable.{{url}}\nWhat caused the failure?`,
+      `Been there. The fix for us was SLA contracts with penalty credits — provider guarantees uptime or the agent automatically gets compensated and switches.{{url}}\nHow are you handling recovery?`,
     ],
   },
 ];
@@ -487,6 +487,19 @@ function isTweetEligible(tweet: Tweet, state: BotState): { eligible: boolean; re
     return { eligible: false, reason: 'product announcement' };
   }
 
+  // Skip off-topic — tweets about L1 blockchains, token launches, training data, etc.
+  // These often match our queries but aren't about agent infrastructure/commerce
+  const offTopic = [
+    'token launch', 'token sale', 'presale', 'airdrop', 'staking reward',
+    'training data', 'fine-tuning', 'fine tuning', 'model training',
+    'erc-', 'eip-', 'solidity', 'smart contract audit',
+    'hedera', 'cardano', 'polkadot', 'cosmos', 'avalanche',
+    'nft', 'mint', 'whitelist', 'tokenomics',
+  ];
+  if (offTopic.some(t => lower.includes(t))) {
+    return { eligible: false, reason: 'off-topic' };
+  }
+
   return { eligible: true };
 }
 
@@ -573,9 +586,16 @@ async function run(): Promise<void> {
     return;
   }
 
-  // Sort by engagement (likes) and pick top candidates
+  // Sort by engagement, then pick max 1 per topic to diversify replies
   candidates.sort((a, b) => (b.public_metrics?.like_count ?? 0) - (a.public_metrics?.like_count ?? 0));
-  const toReply = candidates.slice(0, maxThisRun);
+  const toReply: Tweet[] = [];
+  const usedTopics = new Set<string>();
+  for (const tweet of candidates) {
+    if (toReply.length >= maxThisRun) break;
+    if (usedTopics.has(tweet.topicId)) continue; // Max 1 per topic per run
+    toReply.push(tweet);
+    usedTopics.add(tweet.topicId);
+  }
 
   let repliedCount = 0;
 
