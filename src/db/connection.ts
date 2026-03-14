@@ -438,6 +438,67 @@ const MIGRATIONS: { version: number; sql: string }[] = [
     );
     CREATE INDEX IF NOT EXISTS idx_scheduled_skills_next ON scheduled_skills(next_run_at, active);
     CREATE INDEX IF NOT EXISTS idx_scheduled_skills_caller ON scheduled_skills(caller_key)` },
+  // v67: dynamic pricing, composite-of-composite, autonomous hiring/firing, quorum governance, validator roles, persistent agents
+  { version: 67, sql: `
+    ALTER TABLE skills ADD COLUMN pricing_config_json TEXT;
+    ALTER TABLE skills ADD COLUMN composite_depth INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE skills ADD COLUMN auto_replace INTEGER NOT NULL DEFAULT 0;
+    CREATE TABLE IF NOT EXISTS skill_demand (
+      skill_id TEXT NOT NULL,
+      hour_bucket TEXT NOT NULL,
+      call_count INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (skill_id, hour_bucket)
+    );
+    CREATE INDEX IF NOT EXISTS idx_skill_demand_hour ON skill_demand(hour_bucket);
+    CREATE TABLE IF NOT EXISTS caller_skill_usage (
+      caller_key TEXT NOT NULL,
+      skill_id TEXT NOT NULL,
+      period TEXT NOT NULL,
+      call_count INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (caller_key, skill_id, period)
+    );
+    CREATE TABLE IF NOT EXISTS composite_swaps (
+      id TEXT PRIMARY KEY,
+      composite_id TEXT NOT NULL,
+      original_skill_id TEXT NOT NULL,
+      replacement_skill_id TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      reverted INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_composite_swaps_composite ON composite_swaps(composite_id);
+    ALTER TABLE proposals ADD COLUMN quorum_pct REAL NOT NULL DEFAULT 0;
+    ALTER TABLE proposals ADD COLUMN action_type TEXT;
+    ALTER TABLE proposals ADD COLUMN action_payload_json TEXT;
+    ALTER TABLE proposals ADD COLUMN executed_at TEXT;
+    ALTER TABLE proposals ADD COLUMN execution_result_json TEXT;
+    ALTER TABLE api_keys ADD COLUMN is_validator INTEGER NOT NULL DEFAULT 0;
+    CREATE TABLE IF NOT EXISTS validations (
+      id TEXT PRIMARY KEY,
+      validator_key TEXT NOT NULL,
+      transaction_id TEXT NOT NULL,
+      skill_id TEXT,
+      verdict TEXT NOT NULL CHECK(verdict IN ('VALID', 'INVALID', 'INCONCLUSIVE')),
+      notes TEXT,
+      reward_credits REAL NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(validator_key, transaction_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_validations_tx ON validations(transaction_id);
+    CREATE INDEX IF NOT EXISTS idx_validations_skill ON validations(skill_id);
+    CREATE INDEX IF NOT EXISTS idx_validations_validator ON validations(validator_key);
+    ALTER TABLE scheduled_skills ADD COLUMN session_id TEXT;
+    ALTER TABLE scheduled_skills ADD COLUMN trigger_type TEXT NOT NULL DEFAULT 'cron';
+    ALTER TABLE scheduled_skills ADD COLUMN trigger_config_json TEXT;
+    CREATE TABLE IF NOT EXISTS agent_sessions (
+      id TEXT PRIMARY KEY,
+      api_key TEXT NOT NULL,
+      name TEXT,
+      state_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_sessions_key ON agent_sessions(api_key)` },
 ];
 
 function runMigrations(): void {

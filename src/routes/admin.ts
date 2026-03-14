@@ -236,6 +236,38 @@ adminRouter.post('/revoke-key', async (c) => {
   return c.json({ ok: true, revokedCount: revoked });
 });
 
+// ─── Validator Promotion ─────────────────────────────────────────────────────
+
+adminRouter.post('/validators/promote', async (c) => {
+  if (!requireAdmin(c)) return c.json({ error: 'Unauthorized' }, 401);
+  let body: { key?: string };
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON', code: 'INVALID_BODY' }, 400); }
+  if (!body.key || typeof body.key !== 'string') return c.json({ error: 'key is required', code: 'MISSING_KEY' }, 400);
+
+  const db = getDb();
+  const existing = db.prepare('SELECT key, is_validator FROM api_keys WHERE key = ? AND active = 1').get(body.key) as { key: string; is_validator: number } | undefined;
+  if (!existing) return c.json({ error: 'API key not found', code: 'NOT_FOUND' }, 404);
+  if (existing.is_validator) return c.json({ error: 'Key is already a validator', code: 'ALREADY_VALIDATOR' }, 409);
+
+  db.prepare('UPDATE api_keys SET is_validator = 1 WHERE key = ?').run(body.key);
+  logAudit({ entityType: 'validator', entityId: body.key, action: 'VALIDATOR_PROMOTED', actorId: 'admin' });
+  return c.json({ ok: true, key: body.key, isValidator: true });
+});
+
+adminRouter.delete('/validators/demote', async (c) => {
+  if (!requireAdmin(c)) return c.json({ error: 'Unauthorized' }, 401);
+  let body: { key?: string };
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON', code: 'INVALID_BODY' }, 400); }
+  if (!body.key || typeof body.key !== 'string') return c.json({ error: 'key is required', code: 'MISSING_KEY' }, 400);
+
+  const db = getDb();
+  const result = db.prepare('UPDATE api_keys SET is_validator = 0 WHERE key = ? AND active = 1 AND is_validator = 1').run(body.key);
+  if (result.changes === 0) return c.json({ error: 'Validator not found', code: 'NOT_FOUND' }, 404);
+
+  logAudit({ entityType: 'validator', entityId: body.key, action: 'VALIDATOR_DEMOTED', actorId: 'admin' });
+  return c.json({ ok: true, key: body.key, isValidator: false });
+});
+
 adminRouter.patch('/payouts/:id', async (c) => {
   if (!requireAdmin(c)) return c.json({ error: 'Unauthorized' }, 401);
   const { id } = c.req.param();

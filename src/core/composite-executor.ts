@@ -302,11 +302,21 @@ function compositesCacheKey(skillId: string, variables: Record<string, string>):
  * Execute a composite skill with full v2 features:
  * output piping, parallel groups, conditionals, retry/fallback, caching.
  */
+const MAX_COMPOSITE_DEPTH = 3;
+const MAX_TOTAL_INVOCATIONS = 10;
+
 export async function executeCompositeSkill(
   skill: Skill,
   variables: Record<string, string>,
   context: CompositeContext,
+  _depth = 0,
+  _invocationCounter?: { count: number },
 ): Promise<CompositeResult> {
+  // Defense-in-depth: runtime depth check
+  if (_depth > MAX_COMPOSITE_DEPTH) {
+    return { ok: false, results: {}, costBreakdown: [], totalCreditsCharged: 0, durationMs: 0, error: `Composite nesting too deep (max ${MAX_COMPOSITE_DEPTH})` };
+  }
+  const invocations = _invocationCounter ?? { count: 0 };
   const start = Date.now();
 
   if (!skill.dependencies_json) {
@@ -513,6 +523,28 @@ export async function executeCompositeSkill(
     const depCredits = Math.max(0.001, depSkillEntry.credit_cost);
 
     try {
+      // v67: Recursive composite-of-composite support
+      if (depSkillEntry.skill_type === 'composite') {
+        if (invocations.count >= MAX_TOTAL_INVOCATIONS) {
+          return { charged: 0, skipped: false, error: `Max total invocations (${MAX_TOTAL_INVOCATIONS}) exceeded` };
+        }
+        const nestedResult = await executeCompositeSkill(
+          depSkillEntry, resolvedParams as Record<string, string>, ctx, _depth + 1, invocations,
+        );
+        if (!nestedResult.ok) {
+          return { charged: 0, skipped: false, error: `Nested composite ${dep.skillId} failed: ${nestedResult.error}` };
+        }
+        stepResults[dep.outputKey] = nestedResult.results;
+        breakdown.push({ skillId: dep.skillId, creditsCharged: nestedResult.totalCreditsCharged });
+        return { charged: nestedResult.totalCreditsCharged, skipped: false };
+      }
+
+      // Track invocation count
+      invocations.count++;
+      if (invocations.count > MAX_TOTAL_INVOCATIONS) {
+        return { charged: 0, skipped: false, error: `Max total invocations (${MAX_TOTAL_INVOCATIONS}) exceeded` };
+      }
+
       const { result: depResult, fallbackUsed, skillUsed } = await executeStepWithRetry(
         depSkillEntry, dep, resolvedParams, vars, stepResults,
       );

@@ -10,6 +10,7 @@ import cron from 'node-cron';
 import { logger } from '../utils/logger';
 import {
   getDueScheduledSkills, updateScheduledSkillRun, getSkill, getApiKey,
+  getSessionState, updateSessionState,
 } from '../db/index';
 import { executeCompositeSkill } from './composite-executor';
 import type { ScheduledSkill } from '../db/skills';
@@ -85,6 +86,20 @@ async function executeScheduledSkill(scheduled: ScheduledSkill): Promise<void> {
   }
 
   const variables: Record<string, string> = scheduled.variables_json ? JSON.parse(scheduled.variables_json) : {};
+
+  // Inject session state into variables if a session is attached
+  const sessionId = (scheduled as unknown as Record<string, unknown>).session_id as string | null;
+  if (sessionId) {
+    const sessionState = getSessionState(sessionId, scheduled.caller_key);
+    if (sessionState) {
+      // Make session state available as {{session.key}} variables
+      for (const [k, v] of Object.entries(sessionState)) {
+        if (typeof v === 'string' || typeof v === 'number') {
+          variables[`session.${k}`] = String(v);
+        }
+      }
+    }
+  }
 
   try {
     if (skill.skill_type === 'composite') {

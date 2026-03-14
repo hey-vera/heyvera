@@ -130,6 +130,62 @@ export function cacheCreditCost(liveCreditCost: number): number {
   return round6(Math.max(CACHE_MIN_CREDITS, liveCreditCost * CACHE_DISCOUNT_PCT));
 }
 
+// ─── Dynamic Pricing ────────────────────────────────────────────────────────
+
+export interface DynamicPricingConfig {
+  surge?: { thresholdPerHour: number; multiplier: number; maxMultiplier?: number };
+  volumeDiscounts?: Array<{ minCalls: number; discountPct: number }>;
+  offPeak?: { utcHoursStart: number; utcHoursEnd: number; discountPct: number };
+}
+
+/**
+ * Apply dynamic pricing modifiers to a base credit cost.
+ * Surge and off-peak don't stack — surge takes priority.
+ * Volume discount always applies on top.
+ * Anti-abuse: surge capped at 5x, discounts capped at 50%.
+ */
+export function dynamicCreditCost(
+  baseCost: number,
+  config: DynamicPricingConfig | null | undefined,
+  currentDemand: number,
+  callerUsageCount: number,
+  currentHourUtc: number,
+): number {
+  if (!config) return baseCost;
+
+  let cost = baseCost;
+
+  // 1. Surge pricing (overrides off-peak)
+  if (config.surge && currentDemand >= config.surge.thresholdPerHour) {
+    const ratio = currentDemand / config.surge.thresholdPerHour;
+    const rawMultiplier = 1 + (config.surge.multiplier - 1) * Math.min(ratio, 3);
+    const maxMult = Math.min(config.surge.maxMultiplier ?? 5, 5);
+    cost = baseCost * Math.min(rawMultiplier, maxMult);
+  } else if (config.offPeak) {
+    // 2. Off-peak discount (only when no surge)
+    const { utcHoursStart, utcHoursEnd, discountPct } = config.offPeak;
+    const inWindow = utcHoursStart < utcHoursEnd
+      ? currentHourUtc >= utcHoursStart && currentHourUtc < utcHoursEnd
+      : currentHourUtc >= utcHoursStart || currentHourUtc < utcHoursEnd;
+    if (inWindow) {
+      const discount = Math.min(discountPct, 50) / 100;
+      cost = baseCost * (1 - discount);
+    }
+  }
+
+  // 3. Volume discount (always applies on top)
+  if (config.volumeDiscounts && config.volumeDiscounts.length > 0 && callerUsageCount > 0) {
+    const sorted = [...config.volumeDiscounts].sort((a, b) => b.minCalls - a.minCalls);
+    const tier = sorted.find(t => callerUsageCount >= t.minCalls);
+    if (tier) {
+      const discount = Math.min(tier.discountPct, 50) / 100;
+      cost = cost * (1 - discount);
+    }
+  }
+
+  return round6(Math.max(0.001, cost));
+}
+
 /** Expose for health/admin endpoints */
 export function getCreditsPerUsd(): number {
   return CREDITS_PER_USD;

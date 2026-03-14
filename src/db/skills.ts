@@ -77,6 +77,13 @@ export interface Skill {
   penalty_updated_at: string | null;
   /** Soft-delete active flag */
   active: number;
+  // v67: dynamic pricing, composite-of-composite, autonomous hiring/firing
+  /** JSON dynamic pricing config: { surge?, volumeDiscounts?, offPeak? } */
+  pricing_config_json: string | null;
+  /** Computed max composite depth (0 for non-composite, 1+ for nested composites) */
+  composite_depth: number;
+  /** Enable auto-replacement of degraded deps in composite skills */
+  auto_replace: number;
 }
 
 export function createSkill(params: {
@@ -103,6 +110,8 @@ export function createSkill(params: {
   slaJson?: string;
   outputContractJson?: string;
   compositeConfigJson?: string;
+  pricingConfigJson?: string;
+  autoReplace?: boolean;
 }): void {
   // Validate composite skill dependencies
   if (params.skillType === 'composite' && params.dependenciesJson) {
@@ -110,8 +119,8 @@ export function createSkill(params: {
   }
 
   getDb()
-    .prepare(`INSERT INTO skills (id, name, description, prompt_template, author_key, public, credit_cost, display_name, changelog, category, skill_type, proxy_url, proxy_method, execution_plan_json, skill_class, creator_evm_wallet, sample_output_json, update_frequency, paired_skill_id, dependencies_json, sla_json, output_contract_json, composite_config_json)
-              VALUES (@id, @name, @description, @promptTemplate, @authorKey, @public, @creditCost, @displayName, @changelog, @category, @skillType, @proxyUrl, @proxyMethod, @executionPlanJson, @skillClass, @creatorEvmWallet, @sampleOutputJson, @updateFrequency, @pairedSkillId, @dependenciesJson, @slaJson, @outputContractJson, @compositeConfigJson)`)
+    .prepare(`INSERT INTO skills (id, name, description, prompt_template, author_key, public, credit_cost, display_name, changelog, category, skill_type, proxy_url, proxy_method, execution_plan_json, skill_class, creator_evm_wallet, sample_output_json, update_frequency, paired_skill_id, dependencies_json, sla_json, output_contract_json, composite_config_json, pricing_config_json, auto_replace)
+              VALUES (@id, @name, @description, @promptTemplate, @authorKey, @public, @creditCost, @displayName, @changelog, @category, @skillType, @proxyUrl, @proxyMethod, @executionPlanJson, @skillClass, @creatorEvmWallet, @sampleOutputJson, @updateFrequency, @pairedSkillId, @dependenciesJson, @slaJson, @outputContractJson, @compositeConfigJson, @pricingConfigJson, @autoReplace)`)
     .run({
       ...params,
       public: params.public ? 1 : 0,
@@ -131,6 +140,8 @@ export function createSkill(params: {
       slaJson: params.slaJson ?? null,
       outputContractJson: params.outputContractJson ?? null,
       compositeConfigJson: params.compositeConfigJson ?? null,
+      pricingConfigJson: params.pricingConfigJson ?? null,
+      autoReplace: params.autoReplace ? 1 : 0,
     });
 }
 
@@ -792,6 +803,9 @@ function validateCompositeDependencies(compositeId: string, dependenciesJson: st
   const db = getDb();
   const seen = new Set<string>();
 
+  // Count total leaf (non-composite) invocations across the entire tree
+  let totalLeafCount = 0;
+
   for (const dep of deps) {
     if (!dep.skillId || typeof dep.skillId !== 'string') throw new Error('Each dependency must have a skillId');
     if (!dep.outputKey || typeof dep.outputKey !== 'string') throw new Error('Each dependency must have an outputKey');
@@ -799,13 +813,69 @@ function validateCompositeDependencies(compositeId: string, dependenciesJson: st
     if (seen.has(dep.skillId)) throw new Error(`Duplicate dependency: ${dep.skillId}`);
     seen.add(dep.skillId);
 
-    const target = db.prepare('SELECT skill_type, public, active FROM skills WHERE id = ?').get(dep.skillId) as
-      { skill_type: string; public: number; active: number } | undefined;
+    const target = db.prepare('SELECT skill_type, public, active, dependencies_json, composite_depth FROM skills WHERE id = ?').get(dep.skillId) as
+      { skill_type: string; public: number; active: number; dependencies_json: string | null; composite_depth: number } | undefined;
     if (!target) throw new Error(`Dependency skill not found: ${dep.skillId}`);
     if (!target.active) throw new Error(`Dependency skill is inactive: ${dep.skillId}`);
     if (!target.public) throw new Error(`Dependency skill must be public: ${dep.skillId}`);
-    if (target.skill_type === 'composite') throw new Error(`Cannot depend on composite skill: ${dep.skillId} (max depth 1)`);
+
+    if (target.skill_type === 'composite') {
+      // Allow composite-of-composite but enforce max depth 3
+      if ((target.composite_depth ?? 0) >= 2) throw new Error(`Composite nesting too deep: ${dep.skillId} (max depth 3)`);
+      // Cycle detection: check if target depends on compositeId (BFS)
+      if (hasCircularDependency(compositeId, dep.skillId, db)) {
+        throw new Error(`Circular dependency detected: ${dep.skillId} depends on this skill`);
+      }
+      // Count sub-leaves from nested composite
+      const subLeaves = countLeafDeps(dep.skillId, db);
+      totalLeafCount += subLeaves;
+    } else {
+      totalLeafCount++;
+    }
   }
+
+  if (totalLeafCount > 10) throw new Error(`Total leaf invocations across tree (${totalLeafCount}) exceeds max of 10`);
+
+  // Compute depth for this composite
+  const maxChildDepth = deps.reduce((max, dep) => {
+    const target = db.prepare('SELECT composite_depth FROM skills WHERE id = ?').get(dep.skillId) as { composite_depth: number } | undefined;
+    return Math.max(max, (target?.composite_depth ?? 0));
+  }, 0);
+  // Store computed depth after insert (called from createSkill)
+  // We'll update it after insertion
+}
+
+/** BFS cycle detection: does targetId eventually depend on compositeId? */
+function hasCircularDependency(compositeId: string, targetId: string, db: ReturnType<typeof getDb>): boolean {
+  const visited = new Set<string>();
+  const queue = [targetId];
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    if (visited.has(current)) continue;
+    visited.add(current);
+    const row = db.prepare('SELECT dependencies_json FROM skills WHERE id = ? AND skill_type = ?').get(current, 'composite') as
+      { dependencies_json: string | null } | undefined;
+    if (!row?.dependencies_json) continue;
+    try {
+      const deps = JSON.parse(row.dependencies_json) as SkillDependency[];
+      for (const d of deps) {
+        if (d.skillId === compositeId) return true;
+        queue.push(d.skillId);
+      }
+    } catch { /* ignore parse errors */ }
+  }
+  return false;
+}
+
+/** Count total leaf (non-composite) invocations in a composite tree */
+function countLeafDeps(skillId: string, db: ReturnType<typeof getDb>): number {
+  const row = db.prepare('SELECT dependencies_json, skill_type FROM skills WHERE id = ?').get(skillId) as
+    { dependencies_json: string | null; skill_type: string } | undefined;
+  if (!row?.dependencies_json || row.skill_type !== 'composite') return 1;
+  try {
+    const deps = JSON.parse(row.dependencies_json) as SkillDependency[];
+    return deps.reduce((sum, d) => sum + countLeafDeps(d.skillId, db), 0);
+  } catch { return 1; }
 }
 
 // ─── SLA Contracts ───────────────────────────────────────────────────────────
@@ -1169,4 +1239,185 @@ export function deleteScheduledSkill(callerKey: string, id: string): boolean {
     'UPDATE scheduled_skills SET active = 0 WHERE id = ? AND caller_key = ? AND active = 1'
   ).run(id, callerKey);
   return result.changes > 0;
+}
+
+// ─── Dynamic Pricing — Demand Tracking ────────────────────────────────────────
+
+/** Record a skill invocation for demand tracking. Called on every skill invoke. */
+export function recordSkillDemand(skillId: string): void {
+  const hourBucket = new Date().toISOString().slice(0, 13); // '2026-03-14T15'
+  getDb().prepare(
+    `INSERT INTO skill_demand (skill_id, hour_bucket, call_count) VALUES (?, ?, 1)
+     ON CONFLICT(skill_id, hour_bucket) DO UPDATE SET call_count = call_count + 1`
+  ).run(skillId, hourBucket);
+}
+
+/** Get current hour demand for a skill. */
+export function getSkillDemand(skillId: string): number {
+  const hourBucket = new Date().toISOString().slice(0, 13);
+  const row = getDb().prepare(
+    'SELECT call_count FROM skill_demand WHERE skill_id = ? AND hour_bucket = ?'
+  ).get(skillId, hourBucket) as { call_count: number } | undefined;
+  return row?.call_count ?? 0;
+}
+
+/** Record caller usage for volume discount tracking. */
+export function recordCallerUsage(callerKey: string, skillId: string): void {
+  const daily = `daily:${new Date().toISOString().slice(0, 10)}`;
+  const monthly = `monthly:${new Date().toISOString().slice(0, 7)}`;
+  const db = getDb();
+  db.prepare(
+    `INSERT INTO caller_skill_usage (caller_key, skill_id, period, call_count) VALUES (?, ?, ?, 1)
+     ON CONFLICT(caller_key, skill_id, period) DO UPDATE SET call_count = call_count + 1`
+  ).run(callerKey, skillId, daily);
+  db.prepare(
+    `INSERT INTO caller_skill_usage (caller_key, skill_id, period, call_count) VALUES (?, ?, ?, 1)
+     ON CONFLICT(caller_key, skill_id, period) DO UPDATE SET call_count = call_count + 1`
+  ).run(callerKey, skillId, monthly);
+}
+
+/** Get monthly caller usage for a skill (volume discount basis). */
+export function getCallerUsageCount(callerKey: string, skillId: string): number {
+  const monthly = `monthly:${new Date().toISOString().slice(0, 7)}`;
+  const row = getDb().prepare(
+    'SELECT call_count FROM caller_skill_usage WHERE caller_key = ? AND skill_id = ? AND period = ?'
+  ).get(callerKey, skillId, monthly) as { call_count: number } | undefined;
+  return row?.call_count ?? 0;
+}
+
+/** Cleanup old demand tracking data. Called from daily cleanup cron. */
+export function cleanupDemandData(): { demandRows: number; usageRows: number } {
+  const db = getDb();
+  const hourCutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString().slice(0, 13);
+  const demandRows = db.prepare('DELETE FROM skill_demand WHERE hour_bucket < ?').run(hourCutoff).changes;
+  const usageCutoff = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const usageRows = db.prepare("DELETE FROM caller_skill_usage WHERE period LIKE 'daily:%' AND period < ?").run(`daily:${usageCutoff}`).changes;
+  return { demandRows, usageRows };
+}
+
+// ─── Autonomous Hiring/Firing — Composite Auto-Replace ────────────────────────
+
+/**
+ * Find a replacement skill for a degraded one in a composite.
+ * Matches by skill_type + overlapping tags. Returns best healthy alternative or null.
+ */
+export function findReplacementSkill(degradedSkillId: string): { id: string; name: string; successRate: number } | null {
+  const db = getDb();
+  const original = db.prepare('SELECT skill_type, tags_json FROM skills WHERE id = ?').get(degradedSkillId) as
+    { skill_type: string; tags_json: string | null } | undefined;
+  if (!original) return null;
+
+  // Find healthy skills of same type
+  const candidates = db.prepare(`
+    SELECT id, name, success_rate, avg_rating, uses, tags_json
+    FROM skills WHERE skill_type = ? AND active = 1 AND public = 1
+      AND health_status = 'HEALTHY' AND penalty_tier < 2
+      AND id != ? AND success_rate >= 80
+    ORDER BY (success_rate * 0.4 + avg_rating * 20 * 0.3 + LEAST(uses, 1000) / 10 * 0.2) DESC
+    LIMIT 5
+  `).all(original.skill_type, degradedSkillId) as Array<{ id: string; name: string; success_rate: number; tags_json: string | null }>;
+
+  if (candidates.length === 0) return null;
+
+  // Prefer candidates with overlapping tags
+  if (original.tags_json) {
+    try {
+      const origTags = JSON.parse(original.tags_json) as string[];
+      const scored = candidates.map(c => {
+        let tagOverlap = 0;
+        try {
+          const cTags = JSON.parse(c.tags_json ?? '[]') as string[];
+          tagOverlap = origTags.filter(t => cTags.includes(t)).length;
+        } catch { /* ignore */ }
+        return { ...c, tagOverlap };
+      }).sort((a, b) => b.tagOverlap - a.tagOverlap);
+      return { id: scored[0].id, name: scored[0].name, successRate: scored[0].success_rate };
+    } catch { /* ignore tag parse errors */ }
+  }
+
+  return { id: candidates[0].id, name: candidates[0].name, successRate: candidates[0].success_rate };
+}
+
+/** Record a composite dependency swap. */
+export function swapCompositeDependency(compositeId: string, originalSkillId: string, replacementSkillId: string, reason: string): boolean {
+  const db = getDb();
+  return db.transaction(() => {
+    // Check max 3 active swaps per composite
+    const activeSwaps = (db.prepare(
+      'SELECT COUNT(*) as n FROM composite_swaps WHERE composite_id = ? AND reverted = 0'
+    ).get(compositeId) as { n: number }).n;
+    if (activeSwaps >= 3) return false;
+
+    // Record swap
+    db.prepare(
+      'INSERT INTO composite_swaps (id, composite_id, original_skill_id, replacement_skill_id, reason) VALUES (?, ?, ?, ?, ?)'
+    ).run(nanoid(16), compositeId, originalSkillId, replacementSkillId, reason);
+
+    // Update dependencies_json — swap skillId
+    const skill = db.prepare('SELECT dependencies_json FROM skills WHERE id = ?').get(compositeId) as { dependencies_json: string } | undefined;
+    if (!skill?.dependencies_json) return false;
+    const updated = skill.dependencies_json.replace(
+      new RegExp(`"skillId"\\s*:\\s*"${originalSkillId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"`, 'g'),
+      `"skillId":"${replacementSkillId}"`
+    );
+    db.prepare('UPDATE skills SET dependencies_json = ? WHERE id = ?').run(updated, compositeId);
+    return true;
+  })();
+}
+
+/** Revert a swap when the original skill recovers. */
+export function revertCompositeSwap(compositeId: string, originalSkillId: string): boolean {
+  const db = getDb();
+  return db.transaction(() => {
+    const swap = db.prepare(
+      'SELECT id, replacement_skill_id FROM composite_swaps WHERE composite_id = ? AND original_skill_id = ? AND reverted = 0 ORDER BY created_at DESC LIMIT 1'
+    ).get(compositeId, originalSkillId) as { id: string; replacement_skill_id: string } | undefined;
+    if (!swap) return false;
+
+    // Restore original in dependencies_json
+    const skill = db.prepare('SELECT dependencies_json FROM skills WHERE id = ?').get(compositeId) as { dependencies_json: string } | undefined;
+    if (!skill?.dependencies_json) return false;
+    const reverted = skill.dependencies_json.replace(
+      new RegExp(`"skillId"\\s*:\\s*"${swap.replacement_skill_id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"`, 'g'),
+      `"skillId":"${originalSkillId}"`
+    );
+    db.prepare('UPDATE skills SET dependencies_json = ? WHERE id = ?').run(reverted, compositeId);
+    db.prepare('UPDATE composite_swaps SET reverted = 1 WHERE id = ?').run(swap.id);
+    return true;
+  })();
+}
+
+/** Get composites that depend on a specific skill and have auto_replace enabled. */
+export function getAutoReplaceComposites(skillId: string): Array<{ id: string; author_key: string }> {
+  return getDb().prepare(`
+    SELECT id, author_key FROM skills
+    WHERE skill_type = 'composite' AND active = 1 AND auto_replace = 1
+      AND dependencies_json LIKE '%' || ? || '%'
+  `).all(skillId) as Array<{ id: string; author_key: string }>;
+}
+
+/** Update scheduled skill with session and trigger fields. */
+export function createScheduledSkillV2(params: {
+  skillId: string;
+  callerKey: string;
+  variables?: Record<string, string>;
+  cronExpression: string;
+  nextRunAt: string;
+  maxCreditsPerRun?: number;
+  sessionId?: string;
+  triggerType?: 'cron' | 'context_change' | 'threshold';
+  triggerConfig?: Record<string, unknown>;
+}): string {
+  const id = nanoid(12);
+  getDb().prepare(
+    `INSERT INTO scheduled_skills (id, skill_id, caller_key, variables_json, cron_expression, next_run_at, max_credits_per_run, session_id, trigger_type, trigger_config_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(id, params.skillId, params.callerKey,
+    params.variables ? JSON.stringify(params.variables) : null,
+    params.cronExpression, params.nextRunAt,
+    params.maxCreditsPerRun ?? null,
+    params.sessionId ?? null,
+    params.triggerType ?? 'cron',
+    params.triggerConfig ? JSON.stringify(params.triggerConfig) : null);
+  return id;
 }

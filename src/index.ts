@@ -43,6 +43,7 @@ import { tasksRouter } from './routes/tasks';
 import { authRouter } from './routes/auth-tokens';
 import { contextRouter } from './routes/context';
 import { economyRouter } from './routes/economy';
+import { validatorsRouter } from './routes/validators';
 // import { referralRouter } from './routes/referral'; // disabled — re-enable when referral program launches
 import { startEndpointHealthCron } from './core/endpoint-health-cron';
 import { startEndpointDiscoveryCron } from './core/endpoint-discovery';
@@ -194,6 +195,7 @@ app.route('/v1/tasks', tasksRouter);
 app.route('/v1/auth', authRouter);
 app.route('/v1/context', contextRouter);
 app.route('/v1/economy', economyRouter);
+app.route('/v1/validators', validatorsRouter);
 // app.route('/v1/referral', referralRouter); // disabled — re-enable when referral program launches
 
 app.notFound((c) => c.json({ error: 'Not found', code: 'NOT_FOUND' }, 404));

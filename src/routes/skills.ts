@@ -16,6 +16,7 @@ import {
   getSkillCostAnalytics, checkVerificationEligibility, autoVerifyPublisher, safeJsonParse,
   searchDiscovery,
   validateOutputContract,
+  recordSkillDemand, getSkillDemand, recordCallerUsage, getCallerUsageCount,
 } from '../db/index';
 import { embed, isEmbeddingModelReady } from '../core/embeddings';
 import { scanSkillTemplate, scanProxyResponse } from '../core/skill-scanner';
@@ -23,7 +24,7 @@ import { parseIntent } from '../core/intent-parser';
 import { executePlan } from '../core/executor';
 import { formatResponse } from '../core/formatter';
 import { buildIntentFromPlan } from '../core/skill-executor';
-import { creditsForExecution, x402SurchargeCredits, round6, cacheCreditCost } from '../core/credits';
+import { creditsForExecution, x402SurchargeCredits, round6, cacheCreditCost, dynamicCreditCost } from '../core/credits';
 import { computeRequestHash, computeResultHash } from '../utils/receipt-hash';
 import { fireWebhookEvent } from '../utils/webhooks';
 import { executeCompositeSkill } from '../core/composite-executor';
@@ -139,6 +140,26 @@ const CreateSkillSchema = z.object({
     required: z.array(z.string()).optional(),
     properties: z.record(z.object({ type: z.string().optional() })).optional(),
   }).optional(),
+  // ── Dynamic pricing ─────────────────────────────────────────────────────────
+  /** Configure surge pricing, volume discounts, and off-peak discounts. */
+  pricingConfig: z.object({
+    surge: z.object({
+      thresholdPerHour: z.number().int().min(1).max(100000),
+      multiplier: z.number().min(1).max(5),
+      maxMultiplier: z.number().min(1).max(5).optional(),
+    }).optional(),
+    volumeDiscounts: z.array(z.object({
+      minCalls: z.number().int().min(1),
+      discountPct: z.number().min(1).max(50),
+    })).max(5).optional(),
+    offPeak: z.object({
+      utcHoursStart: z.number().int().min(0).max(23),
+      utcHoursEnd: z.number().int().min(0).max(23),
+      discountPct: z.number().min(1).max(50),
+    }).optional(),
+  }).optional(),
+  /** Allow autonomous replacement in composites when this skill degrades. */
+  autoReplace: z.boolean().default(false),
 });
 
 /** Build provider trust object with optional SLA for responses. */
@@ -171,6 +192,25 @@ function skillCacheKey(skillId: string, variables: Record<string, string>): stri
 }
 
 // ─── Per-Skill Rate Limit ────────────────────────────────────────────────────
+
+/** Apply dynamic pricing to a skill's base credit cost. Tracks demand + caller usage. */
+async function applyDynamicPricing(skill: { id: string; credit_cost: number; pricing_config_json: string | null }, callerKey: string): Promise<number> {
+  const baseCost = Math.max(0.001, skill.credit_cost);
+  if (!skill.pricing_config_json) return baseCost;
+
+  let config: import('../core/credits').DynamicPricingConfig;
+  try { config = JSON.parse(skill.pricing_config_json); } catch { return baseCost; }
+
+  // Record demand for surge tracking
+  recordSkillDemand(skill.id);
+  recordCallerUsage(callerKey, skill.id);
+
+  const currentDemand = getSkillDemand(skill.id);
+  const callerUsage = getCallerUsageCount(callerKey, skill.id);
+  const currentHourUtc = new Date().getUTCHours();
+
+  return dynamicCreditCost(baseCost, config, currentDemand, callerUsage, currentHourUtc);
+}
 
 /** Check if a skill has a per-skill rate limit and enforce it via Redis INCR. */
 async function checkSkillRateLimit(skillId: string, maxCallsPerHour: number | null): Promise<{ allowed: boolean; remaining?: number }> {
@@ -259,6 +299,8 @@ skillsRouter.post('/', checkApiKey, async (c) => {
     slaJson: data.sla ? JSON.stringify(data.sla) : undefined,
     outputContractJson: data.outputContract ? JSON.stringify(data.outputContract) : undefined,
     compositeConfigJson: data.compositeConfig ? JSON.stringify(data.compositeConfig) : undefined,
+    pricingConfigJson: data.pricingConfig ? JSON.stringify(data.pricingConfig) : undefined,
+    autoReplace: data.autoReplace,
   });
 
   // Set per-skill rate limit if specified
@@ -522,7 +564,7 @@ skillsRouter.get('/:id/query', checkApiKey, async (c) => {
     }
   }
 
-  const creditCost = Math.max(0.001, skill.credit_cost);
+  const creditCost = await applyDynamicPricing(skill, keyInfo.key);
   if (!keyInfo.isEnvKey && keyInfo.credits < 1) {
     return c.json({ requestId, error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS', creditsRequired: 1 }, 402);
   }
@@ -984,7 +1026,7 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
         return c.json({ requestId, error: 'Response flagged for safety review', code: 'CONTENT_UNSAFE', flags: responseScan.flags }, 451);
       }
 
-      const creditsToDeduct = Math.max(0.001, skill.credit_cost);
+      const creditsToDeduct = await applyDynamicPricing(skill, keyInfo.key);
       if (!keyInfo.isEnvKey) {
         const revenueSharePct = skill.revenue_share_pct;
         const shouldPayAuthor = skill.author_key !== keyInfo.key && revenueSharePct > 0;
@@ -1110,7 +1152,9 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
 
     // Credit cost: max of skill's fixed price and actual execution cost across ALL passes
     const actualCost = creditsForExecution(allExecutionSteps, findEndpoint);
-    const skillCredits = Math.max(actualCost, skill.credit_cost);
+    const baseSkillCredits = Math.max(actualCost, skill.credit_cost);
+    // Apply dynamic pricing (surge/volume/off-peak) to skill credits
+    const skillCredits = await applyDynamicPricing({ ...skill, credit_cost: baseSkillCredits }, keyInfo.key);
 
     // x402 surcharge: pass upstream API cost through to caller for third-party skills.
     // Official skills bake x402 cost into their credit_cost — no surcharge needed.

@@ -30,6 +30,11 @@ import {
   createScheduledSkill,
   getScheduledSkills,
   deleteScheduledSkill,
+  createSession,
+  getSession,
+  updateSessionState,
+  listSessions,
+  deleteSession,
 } from '../db/index';
 import { estimateCompositeCost } from '../core/composite-executor';
 import {
@@ -617,7 +622,11 @@ economyRouter.post('/scheduled-skills', async (c) => {
   const keyInfo = c.get('apiKeyInfo');
   if (keyInfo.isEnvKey) return c.json({ error: 'Env keys cannot schedule skills', code: 'FORBIDDEN' }, 403);
 
-  let body: { skillId?: string; variables?: Record<string, string>; cronExpression?: string; maxCreditsPerRun?: number };
+  let body: {
+    skillId?: string; variables?: Record<string, string>; cronExpression?: string;
+    maxCreditsPerRun?: number; sessionId?: string;
+    triggerType?: 'cron' | 'context_change' | 'threshold'; triggerConfig?: Record<string, unknown>;
+  };
   try { body = await c.req.json(); } catch {
     return c.json({ error: 'Invalid JSON', code: 'INVALID_BODY' }, 400);
   }
@@ -628,6 +637,18 @@ economyRouter.post('/scheduled-skills', async (c) => {
 
   if (!body.cronExpression || typeof body.cronExpression !== 'string') {
     return c.json({ error: 'cronExpression required (e.g., "*/30 * * * *" for every 30 min)', code: 'VALIDATION_ERROR' }, 400);
+  }
+
+  // Validate trigger type
+  const validTriggers = ['cron', 'context_change', 'threshold'];
+  if (body.triggerType && !validTriggers.includes(body.triggerType)) {
+    return c.json({ error: `triggerType must be one of: ${validTriggers.join(', ')}`, code: 'VALIDATION_ERROR' }, 400);
+  }
+
+  // Validate session exists if provided
+  if (body.sessionId) {
+    const session = getSession(body.sessionId, keyInfo.key);
+    if (!session) return c.json({ error: 'Session not found', code: 'NOT_FOUND' }, 404);
   }
 
   // Validate skill exists
@@ -652,6 +673,13 @@ economyRouter.post('/scheduled-skills', async (c) => {
     maxCreditsPerRun: body.maxCreditsPerRun,
   });
 
+  // If v2 params are provided, update the record with session/trigger info
+  if (body.sessionId || body.triggerType || body.triggerConfig) {
+    const db = getDb();
+    db.prepare('UPDATE scheduled_skills SET session_id = ?, trigger_type = ?, trigger_config_json = ? WHERE id = ?')
+      .run(body.sessionId ?? null, body.triggerType ?? 'cron', body.triggerConfig ? JSON.stringify(body.triggerConfig) : null, id);
+  }
+
   return c.json({
     ok: true,
     scheduledId: id,
@@ -659,6 +687,8 @@ economyRouter.post('/scheduled-skills', async (c) => {
     cronExpression: body.cronExpression,
     nextRunAt,
     maxCreditsPerRun: body.maxCreditsPerRun ?? null,
+    sessionId: body.sessionId ?? null,
+    triggerType: body.triggerType ?? 'cron',
   }, 201);
 });
 
@@ -689,6 +719,62 @@ economyRouter.delete('/scheduled-skills/:id', (c) => {
   const deleted = deleteScheduledSkill(keyInfo.key, id);
   if (!deleted) return c.json({ error: 'Scheduled skill not found', code: 'NOT_FOUND' }, 404);
   return c.json({ ok: true, deleted: id });
+});
+
+// ─── Agent Sessions ──────────────────────────────────────────────────────────
+
+economyRouter.post('/sessions', async (c) => {
+  const keyInfo = c.get('apiKeyInfo');
+  if (keyInfo.isEnvKey) return c.json({ error: 'Env keys cannot create sessions', code: 'FORBIDDEN' }, 403);
+
+  let body: { name?: string };
+  try { body = await c.req.json(); } catch { body = {}; }
+
+  try {
+    const session = createSession(keyInfo.key, typeof body.name === 'string' ? body.name.slice(0, 100) : undefined);
+    return c.json({ ok: true, ...session }, 201);
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : 'Failed to create session', code: 'SESSION_ERROR' }, 400);
+  }
+});
+
+economyRouter.get('/sessions', (c) => {
+  const keyInfo = c.get('apiKeyInfo');
+  const sessions = listSessions(keyInfo.key);
+  return c.json({ sessions, count: sessions.length });
+});
+
+economyRouter.get('/sessions/:id', (c) => {
+  const keyInfo = c.get('apiKeyInfo');
+  const session = getSession(c.req.param('id'), keyInfo.key);
+  if (!session) return c.json({ error: 'Session not found', code: 'NOT_FOUND' }, 404);
+  return c.json(session);
+});
+
+economyRouter.patch('/sessions/:id', async (c) => {
+  const keyInfo = c.get('apiKeyInfo');
+  let body: { state?: Record<string, unknown> };
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON', code: 'INVALID_BODY' }, 400); }
+
+  if (!body.state || typeof body.state !== 'object') {
+    return c.json({ error: 'state object required', code: 'VALIDATION_ERROR' }, 400);
+  }
+
+  try {
+    const merged = updateSessionState(c.req.param('id'), keyInfo.key, body.state);
+    return c.json({ ok: true, state: merged });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Update failed';
+    const status = msg === 'Session not found' ? 404 : 400;
+    return c.json({ error: msg, code: status === 404 ? 'NOT_FOUND' : 'SESSION_ERROR' }, status);
+  }
+});
+
+economyRouter.delete('/sessions/:id', (c) => {
+  const keyInfo = c.get('apiKeyInfo');
+  const deleted = deleteSession(c.req.param('id'), keyInfo.key);
+  if (!deleted) return c.json({ error: 'Session not found', code: 'NOT_FOUND' }, 404);
+  return c.json({ ok: true, deleted: c.req.param('id') });
 });
 
 function reputationResponse(c: any, agentKey: string) {

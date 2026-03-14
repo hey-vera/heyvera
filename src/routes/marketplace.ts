@@ -91,6 +91,7 @@ marketplaceRouter.get('/skills', (c) => {
       verified: s.security_status === 'VERIFIED',
       ...(s.sla_json && { sla: safeJsonParse(s.sla_json, null) }),
       hasOutputContract: !!s.output_contract_json,
+      hasDynamicPricing: !!s.pricing_config_json,
     })),
     platformFeePct: PLATFORM_FEE_PCT,
   });
@@ -160,6 +161,8 @@ marketplaceRouter.get('/skills/:id', async (c) => {
       dependencies: safeJsonParse(skill.dependencies_json, []),
       compositeConfig: safeJsonParse(skill.composite_config_json ?? 'null', null),
     }),
+    hasDynamicPricing: !!skill.pricing_config_json,
+    ...(skill.pricing_config_json && { dynamicPricing: safeJsonParse(skill.pricing_config_json, null) }),
   });
 });
 

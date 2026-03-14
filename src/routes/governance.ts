@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { checkApiKey } from '../middleware/auth';
 import {
   createProposal, getProposals, getProposal, castVote, getProposalCount, getVoterWeight, getProposalVotes,
+  checkQuorum, executeProposal,
 } from '../db/index';
 import { logger } from '../utils/logger';
 import { maskApiKey } from '../utils/mask';
@@ -34,8 +35,22 @@ governanceRouter.get('/proposals/:id', (c) => {
 
   const votes = getProposalVotes(id);
 
+  const quorum = checkQuorum(id);
+
   return c.json({
     ...proposal,
+    quorum: {
+      required: proposal.quorum_pct > 0,
+      pct: proposal.quorum_pct,
+      met: quorum.met,
+      voterCount: quorum.voterCount,
+      requiredCount: quorum.requiredCount,
+      activeKeys: quorum.activeKeys,
+    },
+    execution: proposal.executed_at ? {
+      executedAt: proposal.executed_at,
+      result: proposal.execution_result_json ? JSON.parse(proposal.execution_result_json) : null,
+    } : null,
     votes: votes.map(v => ({
       voter: maskApiKey(v.voter_key),
       direction: v.direction,
@@ -53,7 +68,10 @@ const ProposeBody = z.object({
   title: z.string().min(5).max(120),
   description: z.string().min(20).max(2000),
   closeDays: z.number().int().min(1).max(30).default(7),
-  bond: z.boolean().default(true), // opt-out if false (backward compat)
+  bond: z.boolean().default(true),
+  quorumPct: z.number().min(0).max(51).default(0).optional(),
+  actionType: z.enum(['SKILL_DELIST', 'SKILL_VERIFY', 'PARAMETER_CHANGE']).optional(),
+  actionPayload: z.record(z.unknown()).optional(),
 });
 
 governanceRouter.post('/propose', checkApiKey, async (c) => {
@@ -80,6 +98,9 @@ governanceRouter.post('/propose', checkApiKey, async (c) => {
       proposedBy: keyInfo.key,
       closeDays: body.closeDays,
       bondCredits: bondAmount,
+      quorumPct: body.quorumPct,
+      actionType: body.actionType,
+      actionPayload: body.actionPayload,
     });
   } catch (err) {
     return c.json({ error: 'Failed to create proposal', code: 'PROPOSAL_FAILED' }, 500);

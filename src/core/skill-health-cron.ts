@@ -9,7 +9,7 @@
  */
 
 import cron from 'node-cron';
-import { getDb, checkSLACompliance, recordSLAViolation, escalatePenalty, runTrustDecay } from '../db/index';
+import { getDb, checkSLACompliance, recordSLAViolation, escalatePenalty, runTrustDecay, findReplacementSkill, swapCompositeDependency, revertCompositeSwap, getAutoReplaceComposites } from '../db/index';
 import { logger } from '../utils/logger';
 import { fireWebhookEvent } from '../utils/webhooks';
 import { round6 } from './credits';
@@ -64,7 +64,11 @@ async function runSkillHealthChecks(): Promise<void> {
         db.prepare(
           `UPDATE skills SET health_status = 'HEALTHY', health_fail_count = 0, health_checked_at = datetime('now') WHERE id = ?`
         ).run(skill.id);
-        if (skill.health_status === 'DEGRADED') recovered++;
+        if (skill.health_status === 'DEGRADED') {
+          recovered++;
+          // Autonomous firing revert: restore original deps in composites that swapped this skill out
+          autoRevertInComposites(skill.id, skill.name);
+        }
       } else {
         db.prepare(`UPDATE skills SET health_checked_at = datetime('now') WHERE id = ?`).run(skill.id);
       }
@@ -79,6 +83,8 @@ async function runSkillHealthChecks(): Promise<void> {
       if (newStatus === 'DEGRADED' && skill.health_status !== 'DEGRADED') {
         degraded++;
         logger.warn({ skillId: skill.id, name: skill.name, failCount: newCount }, 'Data skill marked DEGRADED');
+        // Autonomous hiring: auto-replace in composites that depend on this skill
+        autoReplaceInComposites(skill.id, skill.name);
       }
     }
   }
@@ -87,6 +93,59 @@ async function runSkillHealthChecks(): Promise<void> {
 
   // SLA compliance check for all skills with SLA contracts
   await checkSLAContracts();
+}
+
+function autoReplaceInComposites(degradedSkillId: string, degradedName: string): void {
+  const composites = getAutoReplaceComposites(degradedSkillId);
+  if (composites.length === 0) return;
+
+  const replacement = findReplacementSkill(degradedSkillId);
+  if (!replacement) {
+    logger.warn({ degradedSkillId, composites: composites.length }, 'No replacement found for degraded skill');
+    return;
+  }
+
+  let swapped = 0;
+  for (const composite of composites) {
+    if (swapCompositeDependency(composite.id, degradedSkillId, replacement.id, `Auto-replaced: ${degradedName} degraded`)) {
+      swapped++;
+      fireWebhookEvent(composite.author_key, 'SKILL_INVOKED', {
+        event: 'AUTO_REPLACE',
+        compositeId: composite.id,
+        degradedSkillId,
+        degradedName,
+        replacementId: replacement.id,
+        replacementName: replacement.name,
+        reason: 'Skill health degraded — auto-replaced with best alternative',
+      });
+    }
+  }
+  if (swapped > 0) logger.info({ degradedSkillId, replacementId: replacement.id, swapped }, 'Auto-replace: swapped degraded skill in composites');
+}
+
+function autoRevertInComposites(recoveredSkillId: string, recoveredName: string): void {
+  const db = getDb();
+  const swaps = db.prepare(
+    'SELECT DISTINCT composite_id FROM composite_swaps WHERE original_skill_id = ? AND reverted = 0'
+  ).all(recoveredSkillId) as { composite_id: string }[];
+
+  let reverted = 0;
+  for (const { composite_id } of swaps) {
+    if (revertCompositeSwap(composite_id, recoveredSkillId)) {
+      reverted++;
+      const composite = db.prepare('SELECT author_key FROM skills WHERE id = ?').get(composite_id) as { author_key: string } | undefined;
+      if (composite) {
+        fireWebhookEvent(composite.author_key, 'SKILL_INVOKED', {
+          event: 'AUTO_REVERT',
+          compositeId: composite_id,
+          restoredSkillId: recoveredSkillId,
+          restoredName: recoveredName,
+          reason: 'Original skill recovered — auto-reverted to preferred provider',
+        });
+      }
+    }
+  }
+  if (reverted > 0) logger.info({ recoveredSkillId, reverted }, 'Auto-replace: reverted to recovered original skill');
 }
 
 async function checkSLAContracts(): Promise<void> {
