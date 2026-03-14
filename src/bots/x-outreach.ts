@@ -43,9 +43,9 @@ const CONFIG = {
   accessToken: process.env.X_ACCESS_TOKEN ?? '',
   accessTokenSecret: process.env.X_ACCESS_TOKEN_SECRET ?? '',
 
-  // Brave Search API (free — 2,000 queries/month, no credit card)
-  // Sign up at api.search.brave.com
-  braveApiKey: process.env.BRAVE_API_KEY ?? '',
+  // Serper.dev (free — 2,500 searches, no credit card ever)
+  // Sign up at serper.dev
+  serperApiKey: process.env.SERPER_API_KEY ?? '',
 
   // ClawNet
   clawnetApiKey: process.env.CLAWNET_API_KEY ?? '',
@@ -208,51 +208,48 @@ interface Tweet {
 }
 
 async function searchTweets(query: string): Promise<Tweet[]> {
-  // Brave Search API — free (2,000 queries/month), no credit card needed
-  // Sign up at api.search.brave.com
-  if (!CONFIG.braveApiKey) {
-    console.warn('  Missing BRAVE_API_KEY — skipping search');
+  // Serper.dev — 2,500 free Google searches, no credit card ever
+  // Sign up at serper.dev
+  if (!CONFIG.serperApiKey) {
+    console.warn('  Missing SERPER_API_KEY — skipping search');
     return [];
   }
 
   const cleanQuery = query.replace(/-is:\w+/g, '').trim();
-  const params = new URLSearchParams({
-    q: `site:x.com ${cleanQuery}`,
-    count: '10',
-    freshness: 'pd', // Past day
-    result_filter: 'web',
-  });
 
-  const url = `https://api.search.brave.com/res/v1/web/search?${params}`;
-  const res = await fetch(url, {
+  const res = await fetch('https://google.serper.dev/search', {
+    method: 'POST',
     headers: {
-      'Accept': 'application/json',
-      'Accept-Encoding': 'gzip',
-      'X-Subscription-Token': CONFIG.braveApiKey,
+      'X-API-KEY': CONFIG.serperApiKey,
+      'Content-Type': 'application/json',
     },
+    body: JSON.stringify({
+      q: `site:x.com ${cleanQuery}`,
+      num: 10,
+      tbs: 'qdr:d', // Past 24 hours
+    }),
     signal: AbortSignal.timeout(10_000),
   });
 
   if (!res.ok) {
     const body = await res.text();
-    console.error(`Brave Search error ${res.status}: ${body.slice(0, 200)}`);
+    console.error(`Serper search error ${res.status}: ${body.slice(0, 200)}`);
     return [];
   }
 
   const data = await res.json() as {
-    web?: { results?: Array<{ url: string; title: string; description: string }> };
+    organic?: Array<{ link: string; title: string; snippet: string }>;
   };
 
   const tweets: Tweet[] = [];
-  for (const item of data.web?.results ?? []) {
-    // Only tweet URLs (not profile pages)
-    const idMatch = item.url.match(/\/status\/(\d+)/);
+  for (const item of data.organic ?? []) {
+    const idMatch = item.link.match(/\/status\/(\d+)/);
     if (!idMatch) continue;
 
     const id = idMatch[1];
-    // Title format: "Author on X: tweet text" — extract after colon
-    let text = item.description ?? '';
-    const titleMatch = item.title.match(/on X:\s*[""]?(.+?)[""]?\s*$/);
+    let text = item.snippet ?? '';
+    // Title: "Author on X: "tweet text"" — extract quoted part
+    const titleMatch = item.title.match(/on X:\s*[""](.+?)[""]/);
     if (titleMatch && titleMatch[1].length > text.length) text = titleMatch[1];
     if (text.length < 10) continue;
 
@@ -261,12 +258,7 @@ async function searchTweets(query: string): Promise<Tweet[]> {
       text,
       author_id: '',
       created_at: new Date().toISOString(),
-      public_metrics: {
-        like_count: 5,
-        retweet_count: 0,
-        reply_count: 0,
-        quote_count: 0,
-      },
+      public_metrics: { like_count: 5, retweet_count: 0, reply_count: 0, quote_count: 0 },
     });
   }
 
