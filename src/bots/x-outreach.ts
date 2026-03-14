@@ -82,23 +82,22 @@ interface SearchTopic {
 
 const SEARCH_TOPICS: SearchTopic[] = [
   {
-    id: 'openclaw',
-    query: 'OpenClaw agent',
-    // Relevance: tweet text must contain at least one of these words
-    textMustMatch: ['openclaw', 'open claw'],
-    replies: [
-      `We've been pairing OpenClaw with an economics layer — once agents do real transactions you need spend controls and delivery receipts. Been a great combo.{{url}}\nYou running yours for data tasks or automation?`,
-      `OpenClaw + proper guardrails is the stack I keep coming back to. Budget controls once agents start spending is the missing piece most people hit.{{url}}\nWhat are you building with it?`,
-    ],
-  },
-  {
-    id: 'budget',
-    query: '"AI agent" budget spending cost',
-    textMustMatch: ['agent', 'spend', 'cost', 'budget', 'bill', 'expensive'],
+    id: 'agentspend',
+    query: '"AI agent" spending money autonomously OR wallet OR budget',
+    textMustMatch: ['agent', 'spend', 'money', 'wallet', 'budget', 'pay', 'cost'],
     replies: [
       `This is exactly why I gave up on letting agents spend freely. Hard spending caps + auto-cutoffs changed everything — no more 3am "what did it just buy" panic.{{url}}\nWhat's the worst surprise bill you've dealt with?`,
       `Been there. Delegated keys with daily caps solved it — agent gets its own wallet, hard ceiling, done. No more manual babysitting.{{url}}\nAre you running yours on-chain or off?`,
       `The "hope it doesn't overspend" approach doesn't scale. Contract-enforced budgets — agents literally can't exceed their allocation — changed everything for us.{{url}}\nCurious what your budget looks like per agent run?`,
+    ],
+  },
+  {
+    id: 'agentfail',
+    query: '"AI agent" failed OR broke OR crashed OR production issue',
+    textMustMatch: ['agent', 'fail', 'broke', 'crash', 'bug', 'error', 'production', 'incident'],
+    replies: [
+      `production agent failures are a different beast. circuit breakers + automatic provider fallback saved us from so many 3am pages.{{url}}\nwhat's your recovery strategy look like?`,
+      `the gap between "agent works in demo" and "agent survives production" is enormous. health checks every 15min + auto-degradation flags are the boring stuff that matters.{{url}}\nwhat broke?`,
     ],
   },
   {
@@ -581,14 +580,10 @@ async function run(): Promise<void> {
   const maxThisRun = Math.min(CONFIG.maxRepliesPerRun, remainingToday);
   console.log(`Replies today: ${todayCount}/${CONFIG.maxRepliesPerDay}, max this run: ${maxThisRun}\n`);
 
-  // Collect candidate tweets — pick 2-3 random topics per run
+  // Collect candidate tweets — pick 4 random topics per run (shuffled)
   const candidates: Tweet[] = [];
-  const topicIndex = Math.floor(Math.random() * SEARCH_TOPICS.length);
-  const topicsToRun = [
-    SEARCH_TOPICS[topicIndex],
-    SEARCH_TOPICS[(topicIndex + 1) % SEARCH_TOPICS.length],
-    SEARCH_TOPICS[(topicIndex + 3) % SEARCH_TOPICS.length],
-  ];
+  const shuffled = [...SEARCH_TOPICS].sort(() => Math.random() - 0.5);
+  const topicsToRun = shuffled.slice(0, 4);
 
   for (const topic of topicsToRun) {
     console.log(`Searching [${topic.id}]: ${topic.query}`);
