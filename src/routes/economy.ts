@@ -22,7 +22,16 @@ import {
   getReputationEvents,
   logAudit,
   getDb,
+  createBudgetAccount,
+  getBudgetAccountStatus,
+  getSLAViolations,
 } from '../db/index';
+import {
+  createWebhook,
+  getWebhooks,
+  deleteWebhook,
+  type WebhookEventType,
+} from '../utils/webhooks';
 import crypto from 'crypto';
 
 const economyRouter = new Hono();
@@ -350,6 +359,177 @@ economyRouter.get('/receipts/:id', (c) => {
     createdAt: tx.created_at,
     verifiable: !!(tx.request_hash && tx.result_hash),
   });
+});
+
+// ─── Agent Budget Accounts ───────────────────────────────────────────────────
+
+economyRouter.post('/keys/budget-account', async (c) => {
+  const keyInfo = c.get('apiKeyInfo');
+  if (keyInfo.isEnvKey) return c.json({ error: 'Env keys cannot create budget accounts', code: 'FORBIDDEN' }, 403);
+
+  let body: { label?: string; spendLimit?: number; dailyLimit?: number; weeklyLimit?: number;
+    autoTopup?: boolean; autoTopupAmount?: number; expiresInHours?: number; permissions?: string[] };
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON body', code: 'INVALID_BODY' }, 400); }
+
+  if (!body.spendLimit || typeof body.spendLimit !== 'number' || body.spendLimit <= 0) {
+    return c.json({ error: 'spendLimit is required and must be positive', code: 'INVALID_SPEND_LIMIT' }, 400);
+  }
+
+  const validPerms = ['invoke', 'query', 'transfer'];
+  if (body.permissions) {
+    const invalid = (body.permissions as string[]).filter((p: string) => !validPerms.includes(p));
+    if (invalid.length > 0) {
+      return c.json({ error: `Invalid permissions: ${invalid.join(', ')}`, code: 'INVALID_PERMISSIONS' }, 400);
+    }
+  }
+
+  const result = createBudgetAccount({
+    parentKey: keyInfo.key,
+    label: body.label,
+    spendLimit: body.spendLimit,
+    dailyLimit: body.dailyLimit,
+    weeklyLimit: body.weeklyLimit,
+    autoTopup: body.autoTopup,
+    autoTopupAmount: body.autoTopupAmount,
+    expiresInHours: body.expiresInHours,
+    permissions: body.permissions,
+  });
+
+  if (!result.ok) return c.json({ error: result.error, code: 'BUDGET_ACCOUNT_FAILED' }, 400);
+
+  return c.json({
+    ok: true,
+    childKey: result.childKey,
+    accountType: 'budget',
+    spendLimit: body.spendLimit,
+    dailyLimit: body.dailyLimit ?? null,
+    weeklyLimit: body.weeklyLimit ?? null,
+    autoTopup: body.autoTopup ?? false,
+  }, 201);
+});
+
+economyRouter.get('/keys/budget-account/:childKey', (c) => {
+  const keyInfo = c.get('apiKeyInfo');
+  const childKey = c.req.param('childKey');
+
+  // Verify ownership
+  const delegation = getDb().prepare(
+    'SELECT parent_key FROM delegated_keys WHERE child_key = ? AND active = 1'
+  ).get(childKey) as { parent_key: string } | undefined;
+  if (!delegation || delegation.parent_key !== keyInfo.key) {
+    return c.json({ error: 'Budget account not found', code: 'NOT_FOUND' }, 404);
+  }
+
+  const status = getBudgetAccountStatus(childKey);
+  if (!status) return c.json({ error: 'Not a budget account', code: 'NOT_BUDGET_ACCOUNT' }, 400);
+
+  return c.json(status);
+});
+
+// ─── Event Webhooks ──────────────────────────────────────────────────────────
+
+economyRouter.post('/webhooks', async (c) => {
+  const keyInfo = c.get('apiKeyInfo');
+  if (keyInfo.isEnvKey) return c.json({ error: 'Env keys cannot register webhooks', code: 'FORBIDDEN' }, 403);
+
+  let body: { url?: string; events?: string[]; secret?: string };
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON body', code: 'INVALID_BODY' }, 400); }
+
+  if (!body.url || typeof body.url !== 'string') {
+    return c.json({ error: 'url is required', code: 'MISSING_URL' }, 400);
+  }
+  try { new URL(body.url); } catch { return c.json({ error: 'Invalid URL', code: 'INVALID_URL' }, 400); }
+
+  const validEvents = ['*', 'SKILL_INVOKED', 'CREDIT_LOW', 'BUDGET_DEPLETED', 'SLA_VIOLATED', 'PAYOUT_SENT', 'TRANSFER_RECEIVED', 'OUTPUT_CONTRACT_VIOLATION'];
+  if (body.events) {
+    const invalid = body.events.filter((e: string) => !validEvents.includes(e));
+    if (invalid.length > 0) {
+      return c.json({ error: `Invalid events: ${invalid.join(', ')}. Valid: ${validEvents.join(', ')}`, code: 'INVALID_EVENTS' }, 400);
+    }
+  }
+
+  const result = createWebhook({
+    agentKey: keyInfo.key,
+    url: body.url,
+    events: body.events as WebhookEventType[],
+    secret: body.secret,
+  });
+
+  if (!result.ok) return c.json({ error: result.error, code: 'WEBHOOK_FAILED' }, 400);
+
+  return c.json({ ok: true, webhookId: result.id, url: body.url, events: body.events ?? ['*'] }, 201);
+});
+
+economyRouter.get('/webhooks', (c) => {
+  const keyInfo = c.get('apiKeyInfo');
+  const hooks = getWebhooks(keyInfo.key);
+  return c.json({
+    webhooks: hooks.map(h => ({
+      id: h.id,
+      url: h.url,
+      events: JSON.parse(h.events_json),
+      active: h.active === 1,
+      failureCount: h.failure_count,
+      lastTriggeredAt: h.last_triggered_at,
+      createdAt: h.created_at,
+    })),
+  });
+});
+
+economyRouter.delete('/webhooks/:id', (c) => {
+  const keyInfo = c.get('apiKeyInfo');
+  const webhookId = c.req.param('id');
+  const deleted = deleteWebhook(keyInfo.key, webhookId);
+  if (!deleted) return c.json({ error: 'Webhook not found', code: 'NOT_FOUND' }, 404);
+  return c.json({ ok: true, deleted: webhookId });
+});
+
+// ─── SLA Violations ──────────────────────────────────────────────────────────
+
+economyRouter.get('/sla-violations/:skillId', (c) => {
+  const skillId = c.req.param('skillId');
+  const limit = Math.min(parseInt(c.req.query('limit') ?? '20', 10) || 20, 100);
+  const violations = getSLAViolations(skillId, limit);
+  return c.json({ skillId, violations, count: violations.length });
+});
+
+// ─── Skill Dependency Graph ──────────────────────────────────────────────────
+
+economyRouter.get('/dependency-graph', (c) => {
+  const db = getDb();
+  const composites = db.prepare(
+    `SELECT id, name, display_name, dependencies_json, credit_cost
+     FROM skills WHERE skill_type = 'composite' AND active = 1 AND public = 1`
+  ).all() as { id: string; name: string; display_name: string | null; dependencies_json: string | null; credit_cost: number }[];
+
+  const nodes: { id: string; name: string; type: 'composite' | 'dependency'; creditCost: number }[] = [];
+  const edges: { from: string; to: string; outputKey: string }[] = [];
+  const seenNodes = new Set<string>();
+
+  for (const comp of composites) {
+    if (!seenNodes.has(comp.id)) {
+      nodes.push({ id: comp.id, name: comp.display_name ?? comp.name, type: 'composite', creditCost: comp.credit_cost });
+      seenNodes.add(comp.id);
+    }
+    if (!comp.dependencies_json) continue;
+
+    let deps: { skillId: string; outputKey: string }[];
+    try { deps = JSON.parse(comp.dependencies_json); } catch { continue; }
+
+    for (const dep of deps) {
+      if (!seenNodes.has(dep.skillId)) {
+        const depSkill = db.prepare('SELECT name, display_name, credit_cost FROM skills WHERE id = ?')
+          .get(dep.skillId) as { name: string; display_name: string | null; credit_cost: number } | undefined;
+        if (depSkill) {
+          nodes.push({ id: dep.skillId, name: depSkill.display_name ?? depSkill.name, type: 'dependency', creditCost: depSkill.credit_cost });
+          seenNodes.add(dep.skillId);
+        }
+      }
+      edges.push({ from: comp.id, to: dep.skillId, outputKey: dep.outputKey });
+    }
+  }
+
+  return c.json({ nodes, edges, compositeCount: composites.length });
 });
 
 function reputationResponse(c: any, agentKey: string) {

@@ -64,6 +64,11 @@ export interface Skill {
   avg_latency_ms: number;
   /** JSON array of dependency definitions for composite skills */
   dependencies_json: string | null;
+  // v65: SLA contracts + output contracts
+  /** JSON SLA guarantees: { guaranteed_uptime, max_latency_ms, min_success_rate, penalty_pct } */
+  sla_json: string | null;
+  /** JSON Schema for output validation — agents can trust output shape */
+  output_contract_json: string | null;
 }
 
 export function createSkill(params: {
@@ -87,6 +92,8 @@ export function createSkill(params: {
   updateFrequency?: string;
   pairedSkillId?: string;
   dependenciesJson?: string;
+  slaJson?: string;
+  outputContractJson?: string;
 }): void {
   // Validate composite skill dependencies
   if (params.skillType === 'composite' && params.dependenciesJson) {
@@ -94,8 +101,8 @@ export function createSkill(params: {
   }
 
   getDb()
-    .prepare(`INSERT INTO skills (id, name, description, prompt_template, author_key, public, credit_cost, display_name, changelog, category, skill_type, proxy_url, proxy_method, execution_plan_json, skill_class, creator_evm_wallet, sample_output_json, update_frequency, paired_skill_id, dependencies_json)
-              VALUES (@id, @name, @description, @promptTemplate, @authorKey, @public, @creditCost, @displayName, @changelog, @category, @skillType, @proxyUrl, @proxyMethod, @executionPlanJson, @skillClass, @creatorEvmWallet, @sampleOutputJson, @updateFrequency, @pairedSkillId, @dependenciesJson)`)
+    .prepare(`INSERT INTO skills (id, name, description, prompt_template, author_key, public, credit_cost, display_name, changelog, category, skill_type, proxy_url, proxy_method, execution_plan_json, skill_class, creator_evm_wallet, sample_output_json, update_frequency, paired_skill_id, dependencies_json, sla_json, output_contract_json)
+              VALUES (@id, @name, @description, @promptTemplate, @authorKey, @public, @creditCost, @displayName, @changelog, @category, @skillType, @proxyUrl, @proxyMethod, @executionPlanJson, @skillClass, @creatorEvmWallet, @sampleOutputJson, @updateFrequency, @pairedSkillId, @dependenciesJson, @slaJson, @outputContractJson)`)
     .run({
       ...params,
       public: params.public ? 1 : 0,
@@ -112,6 +119,8 @@ export function createSkill(params: {
       updateFrequency: params.updateFrequency ?? 'static',
       pairedSkillId: params.pairedSkillId ?? null,
       dependenciesJson: params.dependenciesJson ?? null,
+      slaJson: params.slaJson ?? null,
+      outputContractJson: params.outputContractJson ?? null,
     });
 }
 
@@ -774,6 +783,145 @@ function validateCompositeDependencies(compositeId: string, dependenciesJson: st
     if (!target.public) throw new Error(`Dependency skill must be public: ${dep.skillId}`);
     if (target.skill_type === 'composite') throw new Error(`Cannot depend on composite skill: ${dep.skillId} (max depth 1)`);
   }
+}
+
+// ─── SLA Contracts ───────────────────────────────────────────────────────────
+
+export interface SkillSLA {
+  guaranteed_uptime: number;    // 0-100 percentage
+  max_latency_ms: number;       // maximum acceptable latency
+  min_success_rate: number;     // 0-100 percentage
+  penalty_pct: number;          // 0-100 — % of credit_cost refunded on violation
+}
+
+export interface SLAViolation {
+  id: string;
+  skill_id: string;
+  violation_type: 'LATENCY' | 'SUCCESS_RATE' | 'UPTIME';
+  measured_value: number;
+  sla_threshold: number;
+  penalty_credits: number;
+  resolved: number;
+  created_at: string;
+}
+
+/**
+ * Check a skill's current metrics against its SLA guarantees.
+ * Returns violations found (does not record them — caller decides).
+ */
+export function checkSLACompliance(skillId: string): {
+  compliant: boolean;
+  violations: { type: 'LATENCY' | 'SUCCESS_RATE' | 'UPTIME'; measured: number; threshold: number }[];
+} {
+  const skill = getSkill(skillId);
+  if (!skill?.sla_json) return { compliant: true, violations: [] };
+
+  let sla: SkillSLA;
+  try { sla = JSON.parse(skill.sla_json); } catch { return { compliant: true, violations: [] }; }
+
+  const violations: { type: 'LATENCY' | 'SUCCESS_RATE' | 'UPTIME'; measured: number; threshold: number }[] = [];
+
+  // Check latency (avg over last 100 invocations)
+  if (sla.max_latency_ms > 0) {
+    const row = getDb().prepare(
+      `SELECT ROUND(AVG(latency_ms), 0) as avg FROM (SELECT latency_ms FROM skill_metrics WHERE skill_id = ? ORDER BY timestamp DESC LIMIT 100)`
+    ).get(skillId) as { avg: number | null } | undefined;
+    if (row?.avg && row.avg > sla.max_latency_ms) {
+      violations.push({ type: 'LATENCY', measured: row.avg, threshold: sla.max_latency_ms });
+    }
+  }
+
+  // Check success rate (last 100 invocations)
+  if (sla.min_success_rate > 0) {
+    const row = getDb().prepare(
+      `SELECT ROUND(AVG(success) * 100, 1) as rate FROM (SELECT success FROM skill_metrics WHERE skill_id = ? ORDER BY timestamp DESC LIMIT 100)`
+    ).get(skillId) as { rate: number | null } | undefined;
+    if (row?.rate !== null && row?.rate !== undefined && row.rate < sla.min_success_rate) {
+      violations.push({ type: 'SUCCESS_RATE', measured: row.rate, threshold: sla.min_success_rate });
+    }
+  }
+
+  // Check uptime via health_status
+  if (sla.guaranteed_uptime > 0 && skill.health_status === 'DEGRADED') {
+    violations.push({ type: 'UPTIME', measured: 0, threshold: sla.guaranteed_uptime });
+  }
+
+  return { compliant: violations.length === 0, violations };
+}
+
+/** Record an SLA violation in the database. */
+export function recordSLAViolation(params: {
+  skillId: string;
+  violationType: 'LATENCY' | 'SUCCESS_RATE' | 'UPTIME';
+  measuredValue: number;
+  slaThreshold: number;
+  penaltyCredits: number;
+}): string {
+  const id = nanoid(12);
+  getDb().prepare(
+    `INSERT INTO sla_violations (id, skill_id, violation_type, measured_value, sla_threshold, penalty_credits)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  ).run(id, params.skillId, params.violationType, params.measuredValue, params.slaThreshold, params.penaltyCredits);
+  return id;
+}
+
+/** Get recent SLA violations for a skill. */
+export function getSLAViolations(skillId: string, limit = 20): SLAViolation[] {
+  return getDb()
+    .prepare('SELECT * FROM sla_violations WHERE skill_id = ? ORDER BY created_at DESC LIMIT ?')
+    .all(skillId, limit) as SLAViolation[];
+}
+
+// ─── Output Contract Validation ──────────────────────────────────────────────
+
+/**
+ * Validate skill output against its output_contract_json (JSON Schema-like).
+ * Returns { valid: true } or { valid: false, errors: [...] }.
+ * Supports type checking, required fields, and basic property validation.
+ */
+export function validateOutputContract(
+  output: unknown,
+  contractJson: string,
+): { valid: boolean; errors: string[] } {
+  let contract: { type?: string; required?: string[]; properties?: Record<string, { type?: string }> };
+  try { contract = JSON.parse(contractJson); } catch { return { valid: false, errors: ['Invalid contract JSON'] }; }
+
+  const errors: string[] = [];
+
+  // Type check
+  if (contract.type) {
+    const actualType = Array.isArray(output) ? 'array' : typeof output;
+    if (contract.type === 'object' && actualType !== 'object') {
+      errors.push(`Expected type "object", got "${actualType}"`);
+    } else if (contract.type === 'array' && actualType !== 'array') {
+      errors.push(`Expected type "array", got "${actualType}"`);
+    }
+  }
+
+  // Required fields (for object output)
+  if (contract.required && typeof output === 'object' && output !== null && !Array.isArray(output)) {
+    const obj = output as Record<string, unknown>;
+    for (const field of contract.required) {
+      if (!(field in obj)) {
+        errors.push(`Missing required field: "${field}"`);
+      }
+    }
+  }
+
+  // Property type checks
+  if (contract.properties && typeof output === 'object' && output !== null && !Array.isArray(output)) {
+    const obj = output as Record<string, unknown>;
+    for (const [key, spec] of Object.entries(contract.properties)) {
+      if (key in obj && spec.type) {
+        const valType = Array.isArray(obj[key]) ? 'array' : typeof obj[key];
+        if (valType !== spec.type && obj[key] !== null) {
+          errors.push(`Field "${key}": expected type "${spec.type}", got "${valType}"`);
+        }
+      }
+    }
+  }
+
+  return { valid: errors.length === 0, errors };
 }
 
 /** Calculate total credit cost of a composite skill's dependencies. */

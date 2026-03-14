@@ -48,6 +48,12 @@ Every flow in the system, from boot to shutdown. Tree diagrams show exact paths 
 40. [Credit Gifting](#40-credit-gifting)
 41. [x402 Verification & Reputation](#41-x402-verification--reputation)
 42. [Stripe Subscription Lifecycle](#42-stripe-subscription-lifecycle)
+43. [Trust Signals & Cryptographic Receipts](#43-trust-signals--cryptographic-receipts)
+44. [Composite Skills (Subcontracting)](#44-composite-skills-subcontracting)
+45. [SLA Contracts](#45-sla-contracts)
+46. [Skill Output Contracts](#46-skill-output-contracts)
+47. [Agent Budget Accounts](#47-agent-budget-accounts)
+48. [Event Webhooks](#48-event-webhooks)
 43. [Stripe Refund Flow](#43-stripe-refund-flow)
 44. [Dashboard Authentication & Claim](#44-dashboard-authentication--claim)
 45. [Creator Revenue Dashboard](#45-creator-revenue-dashboard)
@@ -2811,4 +2817,237 @@ User buys 125,000 credits for $100 (Pro tier)
 
 ---
 
-*Generated from codebase analysis. Last updated: 2026-03-14. 63 DB migrations, decimal credits (v3), 2-wallet architecture (RECEIVING + HOT WALLET), email alerts (replaced Telegram), treasury auto-sweep (optional), surcharge-to-treasury fix, endpoint auto-discovery (183 ClawAPIs endpoints), proportional cache pricing (10% of live, min 0.1cr), agent economy layer, future-proofing pass (skill health cron, per-skill rate limiting, MCP/OpenAPI manifests, tag filtering, similar skills, staking boost, webhook HMAC signing, credit gifting, batch-query, x402 verification & reputation, subscription lifecycle, refund flow, dashboard auth, creator dashboard, GDPR erasure, contact form, dev revenue flow).*
+## 43. Trust Signals & Cryptographic Receipts
+
+```
+PURPOSE:
+  Agents can evaluate skill quality BEFORE purchase and verify execution AFTER.
+  Trust data is denormalized onto skills table for zero-cost listing queries.
+
+TRUST SIGNAL DENORMALIZATION:
+├─ avg_rating REAL — average of skill_ratings, refreshed on every rateSkill()
+├─ rating_count INTEGER — total ratings
+├─ success_rate REAL — percentage (0-100) from skill_metrics
+├─ avg_latency_ms REAL — average from skill_metrics
+├─ updateSkillTrustSignals(skillId) — called after recordSkillMetric() and rateSkill()
+└─ Backfilled on migration v64 from existing metrics/ratings
+
+PROVIDER TRUST OBJECT (in every invoke/query response):
+├─ verified: boolean (security_status === 'VERIFIED')
+├─ successRate: number (denormalized)
+├─ avgRating: number (denormalized)
+├─ reputationScore: number (from reputation_events SUM)
+├─ sla: object | undefined (parsed sla_json)
+└─ hasOutputContract: boolean
+
+CRYPTOGRAPHIC RECEIPTS:
+├─ computeRequestHash({ skillId, variables, timestamp }) → sha256:hex
+├─ computeResultHash({ answer/data, costCredits }) → sha256:hex
+├─ Deterministic: sorted-key JSON canonicalization
+├─ Stored on transactions: request_hash, result_hash
+├─ GET /v1/economy/receipts/:id → returns hashes + verifiable boolean
+└─ Only sender/receiver can view receipt
+
+COMPARE/QUOTE FLOW (POST /v1/marketplace/compare):
+├─ Public endpoint, no auth required
+├─ Body: { query, maxResults (1-20), filters: { minSuccessRate?, verifiedOnly?, maxCredits?, type? } }
+├─ Composite scoring: 40% success rate + 30% rating + 20% usage + 10% verified
+├─ Returns: ranked alternatives + bestValue + fastest + cheapest
+└─ Agents use this to make procurement decisions
+```
+
+---
+
+## 44. Composite Skills (Subcontracting)
+
+```
+PURPOSE:
+  Skills can chain other skills, enabling emergent higher-order capabilities.
+  A "market analyst" composite can call price-tracker + sentiment-analyzer.
+
+DESIGN:
+├─ skill_type: 'composite' — declared dependencies, not runtime dynamic
+├─ dependencies_json: [{ skillId, paramMapping, outputKey }]
+├─ Max 5 dependencies per composite
+├─ Flat only: no composite-of-composite (prevents unbounded chains)
+├─ Sequential execution (budget tracking per step)
+└─ Pre-flight budget check: total cost = sum(dep costs) + assembly fee
+
+CREATION VALIDATION (validateCompositeDependencies):
+├─ Max 5 dependencies
+├─ No self-reference
+├─ No duplicate dependencies
+├─ Each dep must be public, active, non-composite
+└─ Error thrown at creation time, not runtime
+
+EXECUTION (executeCompositeSkill):
+├─ Pre-calculate total cost → reject if insufficient credits
+├─ For each dependency:
+│   ├─ Resolve param mapping: {{variable}} → caller inputs or previous outputs
+│   ├─ Data skills: GET proxy_url with params
+│   ├─ API proxy: POST/GET proxy_url with params
+│   ├─ Bill per hop: 85/15 split to dependency author
+│   ├─ Record transaction with receipt hashes + parentRequestId
+│   └─ Store result in results[outputKey]
+├─ Charge assembly fee: 85/15 split to composite author
+└─ Return: { results, costBreakdown, totalCreditsCharged }
+
+ANTI-LOOP PROTECTIONS:
+├─ Creation time: deps must be non-composite
+├─ No self-reference
+├─ Max depth 1
+└─ Pre-flight budget check prevents runaway spend
+
+DEPENDENCY GRAPH (GET /v1/economy/dependency-graph):
+├─ Returns all composite skills and their dependencies as nodes + edges
+├─ Node: { id, name, type: 'composite'|'dependency', creditCost }
+├─ Edge: { from, to, outputKey }
+└─ Useful for visualization and impact analysis
+```
+
+---
+
+## 45. SLA Contracts
+
+```
+PURPOSE:
+  The single feature that makes the economy trustworthy — creators commit to
+  performance guarantees, agents can trust these commitments when selecting skills.
+
+SLA SCHEMA (sla_json on skills):
+├─ guaranteed_uptime: 0-100 (percentage)
+├─ max_latency_ms: maximum acceptable latency
+├─ min_success_rate: 0-100 (percentage)
+└─ penalty_pct: 0-100 (% of credit_cost refunded on violation)
+
+ENFORCEMENT (skill-health-cron.ts, every 15 minutes):
+├─ checkSLACompliance(skillId) — checks metrics vs SLA thresholds
+│   ├─ LATENCY: avg of last 100 invocations vs max_latency_ms
+│   ├─ SUCCESS_RATE: avg of last 100 invocations vs min_success_rate
+│   └─ UPTIME: health_status === 'DEGRADED' → violation
+├─ recordSLAViolation() → sla_violations table
+├─ fireWebhookEvent(author_key, 'SLA_VIOLATED', ...) → notify author
+└─ Penalty credits calculated: credit_cost × penalty_pct/100
+
+SLA VIOLATIONS TABLE:
+├─ id, skill_id, violation_type, measured_value, sla_threshold
+├─ penalty_credits, resolved (boolean), created_at
+└─ GET /v1/economy/sla-violations/:skillId — query violations
+
+MARKETPLACE INTEGRATION:
+├─ Listings include sla object when present
+├─ Compare endpoint shows hasSLA boolean
+└─ Agents can filter/prefer skills with SLA guarantees
+```
+
+---
+
+## 46. Skill Output Contracts
+
+```
+PURPOSE:
+  Agents trust output shape — machine-verifiable guarantee that a skill returns
+  the promised data structure. Violations are detected and reported.
+
+OUTPUT CONTRACT (output_contract_json on skills):
+├─ JSON Schema-like: { type, required, properties: { field: { type } } }
+├─ Set at skill creation time via outputContract field
+└─ Shown in marketplace detail + compare results
+
+VALIDATION (validateOutputContract):
+├─ Type check: object/array/string/number
+├─ Required fields: checks presence in output object
+├─ Property types: validates field types match contract
+└─ Returns { valid, errors[] }
+
+ENFORCEMENT:
+├─ Data skill query responses: validated after fetch
+├─ _outputContract field added to response: { valid, errors }
+├─ On violation: fireWebhookEvent(author, 'OUTPUT_CONTRACT_VIOLATION', ...)
+└─ Future: auto-refund on repeated violations
+```
+
+---
+
+## 47. Agent Budget Accounts
+
+```
+PURPOSE:
+  Autonomous agents need spending controls beyond simple delegated keys.
+  Budget accounts add daily/weekly caps and auto-topup.
+
+BUDGET ACCOUNT (extends delegated_keys table):
+├─ account_type: 'budget' (vs 'delegated' for regular sub-keys)
+├─ daily_limit REAL — max credits/day (null = unlimited)
+├─ weekly_limit REAL — max credits/week (null = unlimited)
+├─ daily_spent / weekly_spent — current period counters
+├─ last_daily_reset / last_weekly_reset — date strings for reset logic
+├─ auto_topup BOOLEAN — if true, parent refills when depleted
+└─ auto_topup_amount REAL — credits to add per refill
+
+COUNTER RESETS:
+├─ resetBudgetCountersIfNeeded(childKey) — called in auth middleware
+├─ Daily: resets when last_daily_reset !== today's date
+└─ Weekly: resets when last_weekly_reset is > 7 days ago
+
+BUDGET CHECKS:
+├─ checkBudgetLimits(childKey, amount) → { allowed, reason }
+├─ Checks: overall spend limit, daily limit, weekly limit
+└─ incrementBudgetSpend() — tracks daily + weekly after deduction
+
+ENDPOINTS:
+├─ POST /v1/economy/keys/budget-account — create budget account
+├─ GET /v1/economy/keys/budget-account/:childKey — get status
+└─ DELETE /v1/economy/keys/delegated/:childKey — revoke (same as regular)
+
+BILLING INTEGRATION:
+├─ trackDelegatedSpend() now calls incrementBudgetSpend() alongside incrementDelegatedSpend()
+└─ All 13 billing sites automatically track budget spend (no changes needed)
+```
+
+---
+
+## 48. Event Webhooks
+
+```
+PURPOSE:
+  Agents register webhook URLs to receive real-time notifications about
+  economy events — enabling autonomous decision-making without polling.
+
+EVENT TYPES:
+├─ SKILL_INVOKED — skill was called (author notification)
+├─ CREDIT_LOW — balance approaching zero
+├─ BUDGET_DEPLETED — budget account daily/weekly limit reached
+├─ SLA_VIOLATED — SLA contract breached
+├─ PAYOUT_SENT — USDC payout completed
+├─ TRANSFER_RECEIVED — incoming credit transfer
+└─ OUTPUT_CONTRACT_VIOLATION — skill output didn't match contract
+
+WEBHOOK REGISTRATION (agent_webhooks table):
+├─ id, agent_key, url, events_json (["*"] = all), secret, active
+├─ failure_count — tracks consecutive failures
+├─ Max 10 webhooks per agent
+└─ Auto-disabled after 10 consecutive failures
+
+DELIVERY:
+├─ fireWebhookEvent(agentKey, eventType, payload) — non-blocking
+├─ HMAC signature: X-ClawNet-Signature header (t=timestamp,v1=hmac)
+├─ Max 3 retries with exponential backoff (1s, 2s, 4s)
+├─ 10s timeout per attempt
+└─ 4xx = don't retry (client error), 5xx = retry
+
+ENDPOINTS:
+├─ POST /v1/economy/webhooks — register webhook
+├─ GET /v1/economy/webhooks — list webhooks
+└─ DELETE /v1/economy/webhooks/:id — delete webhook
+
+SECURITY:
+├─ Secret-based HMAC (sha256) if secret provided
+├─ Timestamp in signature prevents replay attacks
+├─ Only fires for the webhook owner's events
+└─ URL validation on registration
+```
+
+---
+
+*Generated from codebase analysis. Last updated: 2026-03-14. 65 DB migrations, decimal credits (v3), 2-wallet architecture (RECEIVING + HOT WALLET), email alerts (replaced Telegram), treasury auto-sweep (optional), surcharge-to-treasury fix, endpoint auto-discovery (183 ClawAPIs endpoints), proportional cache pricing (10% of live, min 0.1cr), agent economy layer (trust signals, cryptographic receipts, compare/quote, composite skills, SLA contracts, output contracts, budget accounts, event webhooks), future-proofing pass (skill health cron, per-skill rate limiting, MCP/OpenAPI manifests, tag filtering, similar skills, staking boost, webhook HMAC signing, credit gifting, batch-query, x402 verification & reputation, subscription lifecycle, refund flow, dashboard auth, creator dashboard, GDPR erasure, contact form, dev revenue flow).*

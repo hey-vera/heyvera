@@ -15,6 +15,7 @@ import {
   writeAuditLog, upsertDiscovery, updateSkillSecurityStatus, setAbChallenger, recordTransaction,
   getSkillCostAnalytics, checkVerificationEligibility, autoVerifyPublisher, safeJsonParse,
   searchDiscovery,
+  validateOutputContract,
 } from '../db/index';
 import { embed, isEmbeddingModelReady } from '../core/embeddings';
 import { scanSkillTemplate, scanProxyResponse } from '../core/skill-scanner';
@@ -24,6 +25,7 @@ import { formatResponse } from '../core/formatter';
 import { buildIntentFromPlan } from '../core/skill-executor';
 import { creditsForExecution, x402SurchargeCredits, round6, cacheCreditCost } from '../core/credits';
 import { computeRequestHash, computeResultHash } from '../utils/receipt-hash';
+import { fireWebhookEvent } from '../utils/webhooks';
 import { executeCompositeSkill } from '../core/composite-executor';
 import { findEndpoint } from '../config/api-registry';
 import { logUsage } from '../utils/usage';
@@ -109,7 +111,38 @@ const CreateSkillSchema = z.object({
     paramMapping: z.record(z.string()),
     outputKey: z.string(),
   })).max(5).optional(),
+  // ── SLA & Output Contract fields ────────────────────────────────────────────
+  /** SLA guarantees — agents trust these commitments when selecting skills. */
+  sla: z.object({
+    guaranteed_uptime: z.number().min(0).max(100).default(99),
+    max_latency_ms: z.number().int().min(0).max(60000).default(5000),
+    min_success_rate: z.number().min(0).max(100).default(95),
+    penalty_pct: z.number().min(0).max(100).default(10),
+  }).optional(),
+  /** Output contract — JSON Schema that output must conform to. Agents can validate trust. */
+  outputContract: z.object({
+    type: z.enum(['object', 'array', 'string', 'number']).optional(),
+    required: z.array(z.string()).optional(),
+    properties: z.record(z.object({ type: z.string().optional() })).optional(),
+  }).optional(),
 });
+
+/** Build provider trust object with optional SLA for responses. */
+function buildProviderInfo(skill: { security_status: string; success_rate: number; avg_rating: number; author_key: string; sla_json: string | null; output_contract_json: string | null }) {
+  const info: Record<string, unknown> = {
+    verified: skill.security_status === 'VERIFIED',
+    successRate: skill.success_rate ?? 0,
+    avgRating: skill.avg_rating ?? 0,
+    reputationScore: getReputationScore(skill.author_key),
+  };
+  if (skill.sla_json) {
+    try { info.sla = JSON.parse(skill.sla_json); } catch { /* ignore */ }
+  }
+  if (skill.output_contract_json) {
+    info.hasOutputContract = true;
+  }
+  return info;
+}
 
 // Extract {{variable}} placeholders from a template
 function extractVariables(template: string): string[] {
@@ -209,6 +242,8 @@ skillsRouter.post('/', checkApiKey, async (c) => {
     updateFrequency: data.updateFrequency,
     pairedSkillId: data.pairedSkillId,
     dependenciesJson: data.dependencies ? JSON.stringify(data.dependencies) : undefined,
+    slaJson: data.sla ? JSON.stringify(data.sla) : undefined,
+    outputContractJson: data.outputContract ? JSON.stringify(data.outputContract) : undefined,
   });
 
   // Set per-skill rate limit if specified
@@ -587,12 +622,14 @@ skillsRouter.get('/:id/query', checkApiKey, async (c) => {
         ttlSeconds: ttl,
         sourceLatencyMs: Date.now() - start,
       },
-      provider: {
-        verified: skill.security_status === 'VERIFIED',
-        successRate: skill.success_rate ?? 0,
-        avgRating: skill.avg_rating ?? 0,
-        reputationScore: getReputationScore(skill.author_key),
-      },
+      provider: buildProviderInfo(skill),
+      ...(skill.output_contract_json && (() => {
+        const validation = validateOutputContract(data, skill.output_contract_json);
+        if (!validation.valid) {
+          fireWebhookEvent(skill.author_key, 'OUTPUT_CONTRACT_VIOLATION', { skillId: id, errors: validation.errors });
+        }
+        return { _outputContract: { valid: validation.valid, errors: validation.valid ? undefined : validation.errors } };
+      })()),
     });
 
   } catch (err) {
@@ -821,12 +858,7 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
       totalCreditsCharged: result.totalCreditsCharged,
       durationMs: result.durationMs,
       ...(result.error && { error: result.error }),
-      provider: {
-        verified: baseSkill.security_status === 'VERIFIED',
-        successRate: baseSkill.success_rate ?? 0,
-        avgRating: baseSkill.avg_rating ?? 0,
-        reputationScore,
-      },
+      provider: buildProviderInfo(baseSkill),
     }, result.ok ? 200 : 500);
   }
 
@@ -975,10 +1007,9 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
       recordSkillMetric({ skillId: activeSkillId, version: (skill as typeof skill & { version?: string }).version ?? '1.0.0',
         latencyMs: Date.now() - start, success: true, costCredits: creditsToDeduct });
 
-      const reputationScore = getReputationScore(skill.author_key);
       return c.json({ requestId, status: proxyRes.status, data: proxyData,
         skill: { id: skill.id, name: skill.name }, creditsUsed: creditsToDeduct,
-        provider: { verified: skill.security_status === 'VERIFIED', successRate: skill.success_rate ?? 0, avgRating: skill.avg_rating ?? 0, reputationScore } });
+        provider: buildProviderInfo(skill) });
     } catch (err) {
       logger.error({ requestId, skillId: id, err }, 'API proxy skill failed');
       return c.json({ requestId, error: 'Proxy request failed', details: env.NODE_ENV === 'production' ? undefined : String(err) }, 502);
@@ -1178,12 +1209,7 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
         simulationMode: isSimulationMode,
         ...(skill.skill_class !== 'standard' && { skillClass: skill.skill_class }),
       },
-      provider: {
-        verified: skill.security_status === 'VERIFIED',
-        successRate: skill.success_rate ?? 0,
-        avgRating: skill.avg_rating ?? 0,
-        reputationScore: getReputationScore(skill.author_key),
-      },
+      provider: buildProviderInfo(skill),
     };
 
     await cacheSet(qKey, responsePayload);

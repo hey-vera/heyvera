@@ -311,3 +311,84 @@
 - Cost: ~$5-15/month (API) + $100/month (X API Basic tier)
 - **Why wait:** Not blocked, separate scope. Can build anytime as a standalone script.
 - **Revisit when:** Ready to invest $100/month in X API access for marketing.
+
+---
+
+## Agent Economy v3 — Phase 3+ Deferred Items (2026-03-14)
+
+> Features that require significant ecosystem maturity, user volume, or architectural changes beyond single-VPS.
+
+### Dynamic Pricing / Auctions
+- Demand-based price adjustment, bidding for priority execution, supply/demand signaling
+- **Why wait:** No volume to justify. Fixed pricing works perfectly for early market.
+- **Revisit when:** 1000+ daily skill invocations and creators request dynamic pricing.
+
+### Lending / Credit Lines
+- Agents borrow credits against future earnings, credit scoring based on history
+- **Why wait:** No trust data to underwrite. Need 6+ months of transaction history to build credit models.
+- **Revisit when:** Reputation system has 500+ established agents with predictable earning patterns.
+
+### Cross-Platform Agent Identity
+- Portable identity across agent platforms, federated reputation, interop protocols
+- **Why wait:** No other platforms to interop with. Standards don't exist yet.
+- **Revisit when:** Multiple agent marketplaces exist and interop becomes competitive advantage.
+
+### Token Economics / Native Token
+- Utility token where each API call splits: 40% burn / 25% buyback / 20% treasury / 15% rewards
+- Self-propelling flywheel with deflationary pressure
+- **Why wait:** Premature without active users. Token requires SEC/legal review, liquidity planning, and community.
+- **Revisit when:** 10,000+ monthly active agents and revenue justifies tokenization.
+
+### Persistent Long-Running Agents (Extended)
+- Agents that maintain state across sessions, run background tasks, monitor conditions over days/weeks
+- **Why wait:** VPS architecture can't support thousands of persistent connections. Requires WebSocket/SSE infrastructure.
+- **Revisit when:** Migration to multi-node architecture or when agents explicitly need persistent monitoring.
+
+### Team Budget Pooling
+- Shared credit pools across multiple API keys with configurable spend allocation per member
+- Budget approval workflows, spending reports per team member
+- **Why wait:** No enterprise/team customers yet. Individual accounts sufficient for current scale.
+- **Revisit when:** First enterprise customer requests team billing, or 50+ keys under a single Clerk account.
+
+### Autonomous Hiring & Firing
+- Agents autonomously select other agents for tasks, fire underperformers, hire replacements
+- Market-driven agent selection with SLA-based automatic replacement
+- **Why wait:** Requires mature SLA contracts, output validation, and reputation data. Build foundations first.
+- **Revisit when:** SLA contracts and output validation are live and agents are making multi-step composite invocations regularly.
+
+### Profit Distribution
+- Automated profit splitting across agent teams or DAOs, dividend-like credit distributions
+- **Why wait:** No profit-generating agent teams exist. Need team budget pooling first.
+- **Revisit when:** Team budget pooling is live and teams request automated distribution.
+
+### Insurance / Derivatives
+- Skill execution insurance (guaranteed payout if SLA violated), derivatives on skill performance
+- **Why wait:** Requires deep trust data, actuarial modeling, and significant capital reserves.
+- **Revisit when:** 10,000+ monthly transactions and SLA violation data provides actuarial basis.
+
+### Multi-Node / Auto-Scaling / Geographic Redundancy
+- Horizontal scaling across VPS instances, auto-scaling based on load, multi-region deployment
+- **Why wait:** Single VPS handles current load. SQLite WAL doesn't support multi-writer.
+- **Revisit when:** Single VPS hits 80% CPU consistently, or latency from geographic distance becomes measurable.
+
+### Quorum / Automated Governance Execution
+- Governance proposals that auto-execute when quorum met (not just advisory)
+- Require minimum voter participation for validity
+- **Why wait:** User base too small for meaningful quorum. Governance is advisory-only by design.
+- **Revisit when:** 500+ active users and governance decisions carry real platform impact.
+
+### Appeal Process (SLA / Flagging / Disputes)
+- Structured appeal workflow for SLA violations, flagged skills, and transaction disputes
+- Multi-step review with evidence submission, mediation, and resolution
+- **Why wait:** Admin manual review is sufficient at current scale. Automation adds complexity for low volume.
+- **Revisit when:** Dispute volume exceeds 10/week and admin triage becomes bottleneck.
+
+### Published MCP Package
+- Publish `@clawnet/mcp` to npm for agent integration via Model Context Protocol
+- **Why wait:** Package built but untested in production. Need to validate with real MCP clients first.
+- **Revisit when:** MCP adoption grows and agents request native MCP integration. Package is ready to ship.
+
+### Multi-Currency Quotes
+- Quote skill costs in multiple currencies (USDC, SOL, ETH, fiat equivalents) alongside credits
+- **Why wait:** Single currency (credits + USDC) is sufficient. Multi-currency adds exchange rate complexity.
+- **Revisit when:** International users request fiat-equivalent pricing or new payment rails are added.

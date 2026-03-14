@@ -1,6 +1,6 @@
 import { createMiddleware } from 'hono/factory';
 import crypto from 'crypto';
-import { getApiKey, getDelegationInfo, safeJsonParse } from '../db/index';
+import { getApiKey, getDelegationInfo, resetBudgetCountersIfNeeded, safeJsonParse } from '../db/index';
 import { env } from '../config/index';
 import { logger } from '../utils/logger';
 import { maskApiKey } from '../utils/mask';
@@ -73,6 +73,10 @@ export const checkApiKey = createMiddleware(async (c, next) => {
     // Check spend limit
     if (delegation.spent >= delegation.spend_limit) {
       return c.json({ error: 'Delegated key spend limit reached', code: 'SPEND_LIMIT_REACHED' }, 402);
+    }
+    // Reset daily/weekly counters for budget accounts
+    if ((delegation as any).account_type === 'budget') {
+      resetBudgetCountersIfNeeded(key);
     }
     // Resolve parent key for billing
     const parentRecord = getApiKey(delegation.parent_key);

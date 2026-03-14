@@ -147,6 +147,16 @@ export interface DelegatedKey {
   permissions_json: string;
   active: number;
   created_at: string;
+  // v65: budget account extensions
+  daily_limit: number | null;
+  weekly_limit: number | null;
+  daily_spent: number;
+  weekly_spent: number;
+  last_daily_reset: string | null;
+  last_weekly_reset: string | null;
+  auto_topup: number;
+  auto_topup_amount: number | null;
+  account_type: 'delegated' | 'budget';
 }
 
 export function createDelegatedKey(params: {
@@ -339,6 +349,164 @@ export function getReceipts(
 }
 
 // ─── Reputation — use getReputationScore/getReputationEvents from skills.ts ──
+
+// ─── Agent Budget Accounts ───────────────────────────────────────────────────
+
+export function createBudgetAccount(params: {
+  parentKey: string;
+  label?: string;
+  spendLimit: number;
+  dailyLimit?: number;
+  weeklyLimit?: number;
+  autoTopup?: boolean;
+  autoTopupAmount?: number;
+  expiresInHours?: number;
+  permissions?: string[];
+}): { ok: boolean; childKey?: string; error?: string } {
+  const db = getDb();
+
+  if (params.spendLimit < 10) return { ok: false, error: 'Minimum spend limit is 10 credits' };
+  if (params.spendLimit > 1_000_000) return { ok: false, error: 'Maximum spend limit is 1,000,000 credits' };
+  if (params.dailyLimit !== undefined && params.dailyLimit < 1) return { ok: false, error: 'Daily limit must be at least 1 credit' };
+  if (params.weeklyLimit !== undefined && params.weeklyLimit < 1) return { ok: false, error: 'Weekly limit must be at least 1 credit' };
+  if (params.autoTopupAmount !== undefined && params.autoTopupAmount < 10) return { ok: false, error: 'Auto-topup amount must be at least 10 credits' };
+
+  // No sub-keys from sub-keys
+  const parentDelegation = db.prepare('SELECT 1 FROM delegated_keys WHERE child_key = ? AND active = 1').get(params.parentKey);
+  if (parentDelegation) return { ok: false, error: 'Cannot create budget accounts from a delegated key' };
+
+  const parentRow = db.prepare('SELECT email, active FROM api_keys WHERE key = ? AND active = 1').get(params.parentKey) as { email: string; active: number } | undefined;
+  if (!parentRow) return { ok: false, error: 'Parent key not found or inactive' };
+
+  const existing = (db.prepare('SELECT COUNT(*) as n FROM delegated_keys WHERE parent_key = ? AND active = 1').get(params.parentKey) as { n: number }).n;
+  if (existing >= 20) return { ok: false, error: 'Maximum 20 active delegated keys per parent' };
+
+  const childKey = 'cn-' + crypto.randomBytes(24).toString('hex');
+  const expiresAt = params.expiresInHours
+    ? new Date(Date.now() + params.expiresInHours * 3600_000).toISOString()
+    : null;
+  const permissions = params.permissions ?? ['invoke', 'query'];
+
+  try {
+    db.transaction(() => {
+      db.prepare(
+        `INSERT INTO api_keys (key, email, credits, credits_used, created_at, active)
+         VALUES (?, ?, 0, 0, datetime('now'), 1)`
+      ).run(childKey, parentRow.email);
+
+      db.prepare(
+        `INSERT INTO delegated_keys (child_key, parent_key, label, spend_limit, expires_at, permissions_json,
+         daily_limit, weekly_limit, auto_topup, auto_topup_amount, account_type)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'budget')`
+      ).run(
+        childKey, params.parentKey, params.label ?? null, params.spendLimit, expiresAt,
+        JSON.stringify(permissions), params.dailyLimit ?? null, params.weeklyLimit ?? null,
+        params.autoTopup ? 1 : 0, params.autoTopupAmount ?? null,
+      );
+    })();
+
+    logAudit({ entityType: 'budget_account', entityId: childKey, action: 'BUDGET_ACCOUNT_CREATE', actorId: params.parentKey,
+      data: { spendLimit: params.spendLimit, dailyLimit: params.dailyLimit, weeklyLimit: params.weeklyLimit, autoTopup: params.autoTopup } });
+
+    return { ok: true, childKey };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+}
+
+/**
+ * Check and reset daily/weekly spend counters if needed.
+ * Called from auth middleware for budget accounts.
+ */
+export function resetBudgetCountersIfNeeded(childKey: string): void {
+  const db = getDb();
+  const now = new Date();
+  const todayStr = now.toISOString().split('T')[0]; // YYYY-MM-DD
+
+  const row = db.prepare('SELECT last_daily_reset, last_weekly_reset FROM delegated_keys WHERE child_key = ? AND active = 1')
+    .get(childKey) as { last_daily_reset: string | null; last_weekly_reset: string | null } | undefined;
+  if (!row) return;
+
+  // Reset daily counter if last reset was a different day
+  if (!row.last_daily_reset || row.last_daily_reset !== todayStr) {
+    db.prepare('UPDATE delegated_keys SET daily_spent = 0, last_daily_reset = ? WHERE child_key = ?')
+      .run(todayStr, childKey);
+  }
+
+  // Reset weekly counter if last reset was > 7 days ago
+  const weekAgo = new Date(now.getTime() - 7 * 86400_000).toISOString().split('T')[0];
+  if (!row.last_weekly_reset || row.last_weekly_reset < weekAgo) {
+    db.prepare('UPDATE delegated_keys SET weekly_spent = 0, last_weekly_reset = ? WHERE child_key = ?')
+      .run(todayStr, childKey);
+  }
+}
+
+/**
+ * Check if a budget account can spend the given amount.
+ * Returns { allowed, reason } — call before deducting.
+ */
+export function checkBudgetLimits(childKey: string, amount: number): { allowed: boolean; reason?: string } {
+  const row = getDb().prepare(
+    `SELECT spend_limit, spent, daily_limit, weekly_limit, daily_spent, weekly_spent, account_type
+     FROM delegated_keys WHERE child_key = ? AND active = 1`
+  ).get(childKey) as {
+    spend_limit: number; spent: number; daily_limit: number | null; weekly_limit: number | null;
+    daily_spent: number; weekly_spent: number; account_type: string;
+  } | undefined;
+  if (!row) return { allowed: false, reason: 'Key not found' };
+
+  // Overall spend limit
+  if (row.spent + amount > row.spend_limit) {
+    return { allowed: false, reason: `Total spend limit reached (${row.spend_limit} credits)` };
+  }
+
+  // Budget account daily/weekly limits
+  if (row.account_type === 'budget') {
+    if (row.daily_limit !== null && row.daily_spent + amount > row.daily_limit) {
+      return { allowed: false, reason: `Daily budget limit reached (${row.daily_limit} credits/day)` };
+    }
+    if (row.weekly_limit !== null && row.weekly_spent + amount > row.weekly_limit) {
+      return { allowed: false, reason: `Weekly budget limit reached (${row.weekly_limit} credits/week)` };
+    }
+  }
+
+  return { allowed: true };
+}
+
+/** Increment daily and weekly spend counters for budget accounts. */
+export function incrementBudgetSpend(childKey: string, amount: number): void {
+  getDb().prepare(
+    `UPDATE delegated_keys SET daily_spent = daily_spent + ?, weekly_spent = weekly_spent + ?
+     WHERE child_key = ? AND active = 1 AND account_type = 'budget'`
+  ).run(amount, amount, childKey);
+}
+
+/** Get budget account summary (for dashboard/status endpoints). */
+export function getBudgetAccountStatus(childKey: string): {
+  spendLimit: number; totalSpent: number; dailyLimit: number | null; dailySpent: number;
+  weeklyLimit: number | null; weeklySpent: number; autoTopup: boolean; autoTopupAmount: number | null;
+} | null {
+  const row = getDb().prepare(
+    `SELECT spend_limit, spent, daily_limit, daily_spent, weekly_limit, weekly_spent,
+            auto_topup, auto_topup_amount
+     FROM delegated_keys WHERE child_key = ? AND active = 1 AND account_type = 'budget'`
+  ).get(childKey) as {
+    spend_limit: number; spent: number; daily_limit: number | null; daily_spent: number;
+    weekly_limit: number | null; weekly_spent: number; auto_topup: number; auto_topup_amount: number | null;
+  } | undefined;
+  if (!row) return null;
+
+  return {
+    spendLimit: row.spend_limit,
+    totalSpent: row.spent,
+    dailyLimit: row.daily_limit,
+    dailySpent: row.daily_spent,
+    weeklyLimit: row.weekly_limit,
+    weeklySpent: row.weekly_spent,
+    autoTopup: row.auto_topup === 1,
+    autoTopupAmount: row.auto_topup_amount,
+  };
+}
 
 /** Earned balance = total SKILL_SALE income minus already paid out minus pending payouts */
 export function getCreatorEarnedBalance(agentKey: string): number {

@@ -9,8 +9,10 @@
  */
 
 import cron from 'node-cron';
-import { getDb } from '../db/index';
+import { getDb, checkSLACompliance, recordSLAViolation } from '../db/index';
 import { logger } from '../utils/logger';
+import { fireWebhookEvent } from '../utils/webhooks';
+import { round6 } from './credits';
 
 interface DataSkillRow {
   id: string;
@@ -82,6 +84,57 @@ async function runSkillHealthChecks(): Promise<void> {
   }
 
   logger.info({ checked: dataSkills.length, degraded, recovered }, 'Skill health check complete');
+
+  // SLA compliance check for all skills with SLA contracts
+  await checkSLAContracts();
+}
+
+async function checkSLAContracts(): Promise<void> {
+  const db = getDb();
+  const skillsWithSLA = db.prepare(
+    `SELECT id, name, author_key, sla_json, credit_cost FROM skills
+     WHERE sla_json IS NOT NULL AND active = 1 AND public = 1 LIMIT 200`
+  ).all() as { id: string; name: string; author_key: string; sla_json: string; credit_cost: number }[];
+
+  if (skillsWithSLA.length === 0) return;
+
+  let violationCount = 0;
+
+  for (const skill of skillsWithSLA) {
+    const { compliant, violations } = checkSLACompliance(skill.id);
+    if (compliant) continue;
+
+    let sla: { penalty_pct?: number };
+    try { sla = JSON.parse(skill.sla_json); } catch { continue; }
+
+    for (const v of violations) {
+      const penaltyCredits = round6(skill.credit_cost * ((sla.penalty_pct ?? 10) / 100));
+
+      recordSLAViolation({
+        skillId: skill.id,
+        violationType: v.type,
+        measuredValue: v.measured,
+        slaThreshold: v.threshold,
+        penaltyCredits,
+      });
+
+      violationCount++;
+
+      // Notify skill author via webhook
+      fireWebhookEvent(skill.author_key, 'SLA_VIOLATED', {
+        skillId: skill.id,
+        skillName: skill.name,
+        violationType: v.type,
+        measured: v.measured,
+        threshold: v.threshold,
+        penaltyCredits,
+      });
+    }
+  }
+
+  if (violationCount > 0) {
+    logger.warn({ violations: violationCount, checked: skillsWithSLA.length }, 'SLA violations detected');
+  }
 }
 
 let task: ReturnType<typeof cron.schedule> | null = null;

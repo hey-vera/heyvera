@@ -375,6 +375,42 @@ const MIGRATIONS: { version: number; sql: string }[] = [
       rating_count = COALESCE((SELECT COUNT(*) FROM skill_ratings WHERE skill_id = skills.id), 0);
     UPDATE skills SET success_rate = COALESCE((SELECT ROUND(AVG(success)*100,1) FROM skill_metrics WHERE skill_id = skills.id), 0),
       avg_latency_ms = COALESCE((SELECT ROUND(AVG(latency_ms),0) FROM skill_metrics WHERE skill_id = skills.id), 0)` },
+  // v65: SLA contracts, output contracts, agent budget accounts, event webhooks
+  { version: 65, sql: `
+    ALTER TABLE skills ADD COLUMN sla_json TEXT;
+    ALTER TABLE skills ADD COLUMN output_contract_json TEXT;
+    ALTER TABLE delegated_keys ADD COLUMN daily_limit REAL;
+    ALTER TABLE delegated_keys ADD COLUMN weekly_limit REAL;
+    ALTER TABLE delegated_keys ADD COLUMN daily_spent REAL NOT NULL DEFAULT 0;
+    ALTER TABLE delegated_keys ADD COLUMN weekly_spent REAL NOT NULL DEFAULT 0;
+    ALTER TABLE delegated_keys ADD COLUMN last_daily_reset TEXT;
+    ALTER TABLE delegated_keys ADD COLUMN last_weekly_reset TEXT;
+    ALTER TABLE delegated_keys ADD COLUMN auto_topup INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE delegated_keys ADD COLUMN auto_topup_amount REAL;
+    ALTER TABLE delegated_keys ADD COLUMN account_type TEXT NOT NULL DEFAULT 'delegated';
+    CREATE TABLE IF NOT EXISTS agent_webhooks (
+      id TEXT PRIMARY KEY,
+      agent_key TEXT NOT NULL,
+      url TEXT NOT NULL,
+      events_json TEXT NOT NULL DEFAULT '["*"]',
+      secret TEXT,
+      active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      last_triggered_at TEXT,
+      failure_count INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_webhooks_key ON agent_webhooks(agent_key);
+    CREATE TABLE IF NOT EXISTS sla_violations (
+      id TEXT PRIMARY KEY,
+      skill_id TEXT NOT NULL,
+      violation_type TEXT NOT NULL,
+      measured_value REAL NOT NULL,
+      sla_threshold REAL NOT NULL,
+      penalty_credits REAL NOT NULL DEFAULT 0,
+      resolved INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_sla_violations_skill ON sla_violations(skill_id)` },
 ];
 
 function runMigrations(): void {

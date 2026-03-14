@@ -89,6 +89,8 @@ marketplaceRouter.get('/skills', (c) => {
       successRate: s.success_rate ?? 0,
       avgLatencyMs: s.avg_latency_ms ?? 0,
       verified: s.security_status === 'VERIFIED',
+      ...(s.sla_json && { sla: safeJsonParse(s.sla_json, null) }),
+      hasOutputContract: !!s.output_contract_json,
     })),
     platformFeePct: PLATFORM_FEE_PCT,
   });
@@ -150,6 +152,9 @@ marketplaceRouter.get('/skills/:id', async (c) => {
     successRate: skill.success_rate ?? 0,
     avgLatencyMs: skill.avg_latency_ms ?? 0,
     verified: skill.security_status === 'VERIFIED',
+    ...(skill.sla_json && { sla: safeJsonParse(skill.sla_json, null) }),
+    hasOutputContract: !!skill.output_contract_json,
+    ...(skill.output_contract_json && { outputContract: safeJsonParse(skill.output_contract_json, null) }),
   });
 });
 
@@ -759,6 +764,8 @@ marketplaceRouter.post('/compare', async (c) => {
     uses: s.uses,
     compositeScore,
     invokeUrl: s.skill_type === 'data' ? `GET /v1/skills/${s.id}/query` : `POST /v1/skills/${s.id}/invoke`,
+    hasSLA: !!s.sla_json,
+    hasOutputContract: !!s.output_contract_json,
   }));
 
   return c.json({
