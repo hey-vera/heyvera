@@ -62,96 +62,87 @@ const CONFIG = {
   // State file — tracks replied tweets, daily counts
   stateFile: path.join(process.cwd(), 'data', 'x-outreach-state.json'),
 
-  // Features to highlight (rotate through these)
-  features: [
-    { name: 'Budget Accounts', desc: 'hard daily/weekly caps + auto-topup rules', version: 'v65' },
-    { name: 'SLA Contracts', desc: 'enforceable uptime/latency guarantees with penalty credits', version: 'v65' },
-    { name: 'Output Contracts', desc: 'validate data before payment via JSON Schema', version: 'v65' },
-    { name: 'Event Webhooks', desc: 'instant notifications for SLA breaches, budget hits, transfers', version: 'v65' },
-    { name: 'Dynamic Pricing', desc: 'surge/volume/off-peak pricing that self-regulates', version: 'v67' },
-    { name: 'Composite Skills', desc: 'chain skills into self-assembling agent workflows', version: 'v67' },
-    { name: 'Autonomous Hiring/Firing', desc: 'self-healing infrastructure — auto-swaps degraded providers', version: 'v67' },
-    { name: 'Validator Roles', desc: 'third-party verification of transaction results', version: 'v67' },
-    { name: 'Persistent Agent Sessions', desc: 'agents remember context across scheduled runs', version: 'v67' },
-    { name: 'Governance Execution', desc: 'community votes that auto-execute — delist, verify, change params', version: 'v67' },
-  ],
 };
 
-// ─── Search Queries ──────────────────────────────────────────────────────────
+// ─── Search Topics ───────────────────────────────────────────────────────────
+//
+// Each topic bundles: search query + reply templates.
+// The query that FINDS the tweet determines which replies it can get.
+// No more ambiguous keyword matching — the context is locked in at search time.
+// {{url}} = " claw-net.org" inserted ~40% of the time
 
-const SEARCH_QUERIES = [
-  'OpenClaw',
-  '"AI agent" (budget OR spending OR "runaway costs" OR "spend on my behalf")',
-  '"autonomous agent" (trust OR contract OR commerce OR SLA)',
-  '"data agent" OR "scraping agent" OR "agent fetch data"',
-  '"agent economy" OR "agent commerce" OR "agent payments"',
-  '"trust layer" agent OR "agent governance"',
-  '"agent" "rate limit" OR "cost control" OR "spending limit"',
-  '"AI agent" marketplace OR "skill marketplace"',
-];
+interface SearchTopic {
+  id: string;
+  query: string;
+  replies: string[];
+}
 
-// ─── Reply Templates ─────────────────────────────────────────────────────────
-
-// Each context has multiple template variants to prevent repetition.
-// {{feature}} = feature name, {{desc}} = description, {{url}} = claw-net.org (included ~40% of time)
-const REPLY_CONTEXTS = [
+const SEARCH_TOPICS: SearchTopic[] = [
   {
-    match: ['runaway', 'cost', 'spending', 'budget', 'bill', 'expensive'],
-    templates: [
-      `This is exactly why I gave up on letting agents spend freely. Hard spending caps + auto-cutoffs changed everything — agents can do real work without the 3am "what did it just buy" panic.{{url}}\nWhat's the worst surprise bill you've dealt with?`,
-      `Been there. The trick that worked for us was delegated keys with daily caps — agent gets its own wallet, hard ceiling, done. No more manual babysitting.{{url}}\nAre you running yours on-chain or off?`,
-      `Yeah the "hope it doesn't overspend" approach doesn't scale at all. We moved to contract-enforced budgets and haven't looked back — agents literally can't exceed their allocation.{{url}}\nCurious what your budget looks like per agent run?`,
-    ],
-  },
-  {
-    match: ['openclaw', 'open claw'],
-    templates: [
-      `We've been pairing OpenClaw with an economics layer for exactly this — once agents start doing real transactions you need spend controls and delivery receipts. Been a great combo.{{url}}\nYou running yours for data tasks or automation?`,
+    id: 'openclaw',
+    query: 'OpenClaw',
+    replies: [
+      `We've been pairing OpenClaw with an economics layer — once agents do real transactions you need spend controls and delivery receipts. Been a great combo.{{url}}\nYou running yours for data tasks or automation?`,
       `OpenClaw + proper guardrails is the stack I keep coming back to. The agents work great but you absolutely need budget controls once they start spending.{{url}}\nWhat are you building with it?`,
     ],
   },
   {
-    match: ['trust', 'governance', 'verify', 'verification'],
-    templates: [
-      `This is the biggest blocker nobody talks about enough. We've been working with verified delivery receipts + third-party validators — agents have to prove they did the work before payment releases.{{url}}\nWhat's your biggest trust headache right now?`,
+    id: 'budget',
+    query: '"AI agent" (budget OR spending OR "runaway costs" OR "spend on my behalf")',
+    replies: [
+      `This is exactly why I gave up on letting agents spend freely. Hard spending caps + auto-cutoffs changed everything — no more 3am "what did it just buy" panic.{{url}}\nWhat's the worst surprise bill you've dealt with?`,
+      `Been there. The trick that worked for us was delegated keys with daily caps — agent gets its own wallet, hard ceiling, done. No more manual babysitting.{{url}}\nAre you running yours on-chain or off?`,
+      `Yeah the "hope it doesn't overspend" approach doesn't scale. We moved to contract-enforced budgets — agents literally can't exceed their allocation.{{url}}\nCurious what your budget looks like per agent run?`,
+    ],
+  },
+  {
+    id: 'trust',
+    query: '"autonomous agent" (trust OR contract OR commerce OR SLA)',
+    replies: [
+      `This is the biggest blocker nobody talks about enough. We've been working with verified delivery receipts + third-party validators — agents prove they did the work before payment releases.{{url}}\nWhat's your biggest trust headache right now?`,
       `Honestly trust is the unsexy problem that blocks everything else. Without proof of delivery, agent commerce is just hope-based trading. Cryptographic receipts solved it for us.{{url}}\nAre you seeing this in production or still experimenting?`,
-      `100%. The moment two agents need to transact you realize there's no trust layer. We added validator roles — independent third parties verify results before funds move. Game changer.{{url}}\nWhat does your verification flow look like today?`,
+      `The moment two agents need to transact you realize there's no trust layer. We added validator roles — independent third parties verify results before funds move.{{url}}\nWhat does your verification flow look like today?`,
     ],
   },
   {
-    match: ['data fetch', 'scraping agent', 'scrape data', 'web scraping'],
-    templates: [
-      `Data-fetching agents are incredibly powerful but terrifying without output validation. We started requiring JSON Schema contracts on every data pull — agent proves it returned what was promised before billing.{{url}}\nWhat kind of data are your agents pulling?`,
-      `The key thing we learned with data agents: validate the output BEFORE payment. Schema contracts + spend limits made it production-safe. No more "agent returned garbage and charged us for it."{{url}}\nHow are you handling data quality right now?`,
+    id: 'data',
+    query: '"data agent" OR "scraping agent" OR "agent fetch data"',
+    replies: [
+      `Data-fetching agents are incredibly powerful but terrifying without output validation. We require JSON Schema contracts on every data pull — agent proves it returned what was promised before billing.{{url}}\nWhat kind of data are your agents pulling?`,
+      `The key thing we learned: validate the output BEFORE payment. Schema contracts + spend limits made it production-safe. No more "agent returned garbage and charged us for it."{{url}}\nHow are you handling data quality right now?`,
     ],
   },
   {
-    match: ['commerce', 'economy', 'marketplace', 'payments', 'machine economy'],
-    templates: [
-      `This is going to be massive. The missing piece isn't more agents — it's the economic infrastructure for them to actually transact safely. Escrow, SLAs, receipts. We're seeing real agent-to-agent trades now.{{url}}\nYou building more on the buyer or seller side?`,
+    id: 'economy',
+    query: '"agent economy" OR "agent commerce" OR "agent payments"',
+    replies: [
+      `This is going to be massive. The missing piece isn't more agents — it's the economic infrastructure for them to transact safely. Escrow, SLAs, receipts.{{url}}\nYou building more on the buyer or seller side?`,
       `Agent commerce is at the "email in 1995" stage imo. The protocols for safe autonomous spending barely exist yet. That's what we've been heads-down building.{{url}}\nWhat's your take on agent-to-agent payments?`,
-      `The skills marketplace model is what finally made this click for us — agents publish capabilities with prices, other agents comparison-shop and buy. Real commerce, not demos.{{url}}\nWhat vertical are you focused on?`,
+      `The skills marketplace model is what finally made this click — agents publish capabilities with prices, other agents comparison-shop and buy. Real commerce, not demos.{{url}}\nWhat vertical are you focused on?`,
     ],
   },
   {
-    match: ['reliability', 'reliable', 'production', 'uptime', 'monitoring'],
-    templates: [
-      `Reliability is everything once agents touch real money. We use health-check pings every 15min + auto-failover to backup providers. Agent keeps working even when an upstream API dies.{{url}}\nWhat's your monitoring setup look like?`,
-      `The pattern that worked for us: SLA contracts with penalty credits. Provider guarantees latency/uptime or the agent automatically gets compensated. Self-healing infrastructure basically.{{url}}\nWhat uptime are you targeting?`,
+    id: 'governance',
+    query: '"trust layer" agent OR "agent governance"',
+    replies: [
+      `Governance is where agent infra gets real — someone has to be able to delist a bad provider or enforce an SLA without a human in the loop every time.{{url}}\nHow are you handling governance right now?`,
+      `The gap between "agents can call APIs" and "agents can safely transact" is entirely governance. Verified outputs, penalty escrow, community delisting — all unsexy but load-bearing.{{url}}\nWhat's your governance model look like?`,
     ],
   },
   {
-    match: ['autonomous agent', 'self-healing', 'agent autonomy', 'fully autonomous'],
-    templates: [
-      `The dream of fully autonomous agents only works if they can self-heal — auto-swap degraded providers, enforce their own budgets, verify their own outputs. We've been building exactly that.{{url}}\nHow autonomous are your agents right now?`,
-      `We went from "agent needs human approval for everything" to "agent manages its own provider contracts and fails over automatically." Night and day difference in uptime.{{url}}\nWhat's the scariest thing you've let an agent do unsupervised?`,
-    ],
-  },
-  {
-    match: ['rate limit', 'rate-limit', 'api cost', 'api spending'],
-    templates: [
+    id: 'ratelimit',
+    query: '"agent" "rate limit" OR "cost control" OR "spending limit"',
+    replies: [
       `Rate limits + cost control are the boring-but-critical layer. We enforce per-agent hourly caps and auto-throttle before hitting provider limits. Saved us from so many 429 cascades.{{url}}\nHow many APIs are your agents calling?`,
       `Managing API costs across agents at scale is a nightmare without proper tooling. Delegated keys with spending ceilings per agent made it manageable for us.{{url}}\nWhat's your biggest API pain point?`,
+    ],
+  },
+  {
+    id: 'marketplace',
+    query: '"AI agent" marketplace OR "skill marketplace"',
+    replies: [
+      `The marketplace model only works once you solve trust — agents need to verify what they're buying actually works before paying. We added output contracts + success metrics for exactly this.{{url}}\nWhat kind of skills are you listing?`,
+      `Been building an agent marketplace too. The hard part isn't listing skills — it's making agents confident enough to buy autonomously. Success rates, SLAs, verified outputs.{{url}}\nAre your agents buying automatically or human-approved?`,
     ],
   },
 ];
@@ -236,6 +227,7 @@ interface Tweet {
   text: string;
   author_id: string;
   created_at: string;
+  topicId: string; // Which search topic found this tweet — determines reply style
   public_metrics?: {
     retweet_count: number;
     reply_count: number;
@@ -244,7 +236,7 @@ interface Tweet {
   };
 }
 
-async function searchTweets(query: string): Promise<Tweet[]> {
+async function searchTweets(query: string, topicId: string): Promise<Tweet[]> {
   // Serper.dev — 2,500 free Google searches, no credit card ever
   // Sign up at serper.dev
   if (!CONFIG.serperApiKey) {
@@ -295,6 +287,7 @@ async function searchTweets(query: string): Promise<Tweet[]> {
       text,
       author_id: '',
       created_at: new Date().toISOString(),
+      topicId,
       public_metrics: { like_count: 5, retweet_count: 0, reply_count: 0, quote_count: 0 },
     });
   }
@@ -373,50 +366,30 @@ async function retweetTweet(tweetId: string): Promise<boolean> {
 
 // ─── Reply Generation ────────────────────────────────────────────────────────
 
-function pickFeature(): { name: string; desc: string; version: string } {
-  return CONFIG.features[Math.floor(Math.random() * CONFIG.features.length)];
-}
-
-function matchReplyTemplate(tweetText: string): string {
-  const lower = tweetText.toLowerCase();
-
-  // Score each context by how many keywords match — pick best fit, not first match
-  let bestCtx: (typeof REPLY_CONTEXTS)[number] | null = null;
-  let bestScore = 0;
-
-  for (const ctx of REPLY_CONTEXTS) {
-    const hits = ctx.match.filter(keyword => lower.includes(keyword)).length;
-    if (hits > bestScore) {
-      bestScore = hits;
-      bestCtx = ctx;
-    }
+function getTopicReply(topicId: string): string {
+  const topic = SEARCH_TOPICS.find(t => t.id === topicId);
+  if (!topic) {
+    // Should never happen, but fallback gracefully
+    const fallbacks = [
+      `This is the kind of problem that only shows up once you try to run agents in production. The gap between demo and reliable is massive.\nWhat stack are you using?`,
+      `The trust + economics layer for agents is where all the hard problems live. Feels like early internet infrastructure.\nWhat's your biggest blocker right now?`,
+      `We ran into the same thing. The answer was treating agent autonomy like a permissions system — explicit capabilities, hard limits, verified outputs.\nCurious how you're approaching it?`,
+    ];
+    return fallbacks[Math.floor(Math.random() * fallbacks.length)];
   }
 
-  // Must match at least 1 keyword, and the tweet must feel like a discussion
-  // (not a bug report, product demo, or tutorial)
-  const discussionSignals = ['agent', 'ai', 'trust', 'economy', 'commerce', 'autonomous', 'spend', 'cost', 'budget', 'data', 'marketplace'];
-  const isDiscussion = discussionSignals.some(s => lower.includes(s));
-
-  if (bestCtx && bestScore >= 1 && isDiscussion) {
-    const template = bestCtx.templates[Math.floor(Math.random() * bestCtx.templates.length)];
-    // Include URL ~40% of the time to avoid looking spammy
-    return template.replace('{{url}}', Math.random() < 0.4 ? ' claw-net.org' : '');
-  }
-
-  // Generic fallbacks — varied enough to not look botty
-  const fallbacks = [
-    `This is the kind of problem that only shows up once you try to run agents in production. The gap between demo and reliable is massive.\nWhat stack are you using?`,
-    `Been thinking about this a lot. The trust + economics layer for agents is where all the hard problems live. Feels like early internet infrastructure.\nWhat's your biggest blocker right now?`,
-    `We ran into the same thing. The answer for us was treating agent autonomy like a permissions system — explicit capabilities, hard limits, verified outputs.\nCurious how you're approaching it?`,
-    `This resonates. The "let the agent figure it out" approach works great in demos and terribly in production. Guardrails aren't optional at scale.\nWhat does your production setup look like?`,
-  ];
-  return fallbacks[Math.floor(Math.random() * fallbacks.length)];
+  const template = topic.replies[Math.floor(Math.random() * topic.replies.length)];
+  // Include URL ~40% of the time to avoid looking spammy
+  return template.replace('{{url}}', Math.random() < 0.4 ? ' claw-net.org' : '');
 }
 
-async function generateSmartReply(tweetText: string): Promise<string> {
+async function generateSmartReply(tweet: Tweet): Promise<string> {
   // Try LLM-powered reply first via ClawNet orchestration
   if (CONFIG.clawnetApiKey) {
     try {
+      const topic = SEARCH_TOPICS.find(t => t.id === tweet.topicId);
+      const topicHint = topic ? ` The conversation is about: ${topic.id}` : '';
+
       const res = await fetch(`${CONFIG.clawnetApiUrl}/v1/orchestrate`, {
         method: 'POST',
         headers: {
@@ -424,7 +397,9 @@ async function generateSmartReply(tweetText: string): Promise<string> {
           'x-api-key': CONFIG.clawnetApiKey,
         },
         body: JSON.stringify({
-          query: `You are Coral, a developer who builds with AI agent infrastructure. You're genuinely passionate about agent economics and trust layers. Someone tweeted: "${tweetText.slice(0, 300)}"
+          query: `You are Coral, a developer who builds with AI agent infrastructure. You're genuinely passionate about agent economics and trust layers.${topicHint}
+
+Someone tweeted: "${tweet.text.slice(0, 300)}"
 
 Write a casual, authentic reply (max 250 chars) that:
 1. Responds naturally to their specific point — show you actually read it
@@ -452,8 +427,8 @@ Reply ONLY with the tweet text, nothing else.`,
     }
   }
 
-  // Fallback: template-based reply
-  return matchReplyTemplate(tweetText);
+  // Fallback: topic-based template reply
+  return getTopicReply(tweet.topicId);
 }
 
 // ─── Tweet Filtering ─────────────────────────────────────────────────────────
@@ -546,19 +521,18 @@ async function run(): Promise<void> {
   const maxThisRun = Math.min(CONFIG.maxRepliesPerRun, remainingToday);
   console.log(`Replies today: ${todayCount}/${CONFIG.maxRepliesPerDay}, max this run: ${maxThisRun}\n`);
 
-  // Collect candidate tweets from all search queries
+  // Collect candidate tweets — pick 2-3 random topics per run
   const candidates: Tweet[] = [];
-  const queryIndex = Math.floor(Math.random() * SEARCH_QUERIES.length);
-  // Pick 2-3 random queries per run to stay under rate limits
-  const queriesToRun = [
-    SEARCH_QUERIES[queryIndex],
-    SEARCH_QUERIES[(queryIndex + 1) % SEARCH_QUERIES.length],
-    SEARCH_QUERIES[(queryIndex + 3) % SEARCH_QUERIES.length],
+  const topicIndex = Math.floor(Math.random() * SEARCH_TOPICS.length);
+  const topicsToRun = [
+    SEARCH_TOPICS[topicIndex],
+    SEARCH_TOPICS[(topicIndex + 1) % SEARCH_TOPICS.length],
+    SEARCH_TOPICS[(topicIndex + 3) % SEARCH_TOPICS.length],
   ];
 
-  for (const query of queriesToRun) {
-    console.log(`Searching: ${query}`);
-    const tweets = await searchTweets(query);
+  for (const topic of topicsToRun) {
+    console.log(`Searching [${topic.id}]: ${topic.query}`);
+    const tweets = await searchTweets(topic.query, topic.id);
     state.totalSearches++;
     console.log(`  Found ${tweets.length} tweets`);
 
@@ -607,11 +581,11 @@ async function run(): Promise<void> {
 
   for (const tweet of toReply) {
     const likes = tweet.public_metrics?.like_count ?? 0;
-    console.log(`\n─── Replying to tweet (${likes} likes) ───`);
+    console.log(`\n─── Replying to tweet [${tweet.topicId}] (${likes} likes) ───`);
     console.log(`Original: "${tweet.text.slice(0, 200)}${tweet.text.length > 200 ? '...' : ''}"`);
 
-    // Generate reply
-    const reply = await generateSmartReply(tweet.text);
+    // Generate reply — topic is already locked in from search
+    const reply = await generateSmartReply(tweet);
     console.log(`Reply: "${reply}"`);
 
     if (dryRun) {
