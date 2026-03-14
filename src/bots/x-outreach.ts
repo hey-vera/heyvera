@@ -43,9 +43,9 @@ const CONFIG = {
   accessToken: process.env.X_ACCESS_TOKEN ?? '',
   accessTokenSecret: process.env.X_ACCESS_TOKEN_SECRET ?? '',
 
-  // Google Custom Search (free — 100 queries/day)
-  googleApiKey: process.env.GOOGLE_API_KEY ?? '',
-  googleCxId: process.env.GOOGLE_CX_ID ?? '',
+  // Brave Search API (free — 2,000 queries/month, no credit card)
+  // Sign up at api.search.brave.com
+  braveApiKey: process.env.BRAVE_API_KEY ?? '',
 
   // ClawNet
   clawnetApiKey: process.env.CLAWNET_API_KEY ?? '',
@@ -208,47 +208,52 @@ interface Tweet {
 }
 
 async function searchTweets(query: string): Promise<Tweet[]> {
-  // Google Custom Search API — free (100 queries/day), searches twitter.com/x.com
-  // Setup: console.cloud.google.com → enable Custom Search API + programmablesearchengine.google.com
-  if (!CONFIG.googleApiKey || !CONFIG.googleCxId) {
-    console.warn('  Missing GOOGLE_API_KEY or GOOGLE_CX_ID — skipping search');
+  // Brave Search API — free (2,000 queries/month), no credit card needed
+  // Sign up at api.search.brave.com
+  if (!CONFIG.braveApiKey) {
+    console.warn('  Missing BRAVE_API_KEY — skipping search');
     return [];
   }
 
-  // Strip X-API-specific operators Google doesn't understand
   const cleanQuery = query.replace(/-is:\w+/g, '').trim();
   const params = new URLSearchParams({
-    key: CONFIG.googleApiKey,
-    cx: CONFIG.googleCxId,
     q: `site:x.com ${cleanQuery}`,
-    num: '10',
-    dateRestrict: 'd1', // Last 24 hours
+    count: '10',
+    freshness: 'pd', // Past day
+    result_filter: 'web',
   });
 
-  const url = `https://www.googleapis.com/customsearch/v1?${params}`;
-  const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+  const url = `https://api.search.brave.com/res/v1/web/search?${params}`;
+  const res = await fetch(url, {
+    headers: {
+      'Accept': 'application/json',
+      'Accept-Encoding': 'gzip',
+      'X-Subscription-Token': CONFIG.braveApiKey,
+    },
+    signal: AbortSignal.timeout(10_000),
+  });
 
   if (!res.ok) {
     const body = await res.text();
-    console.error(`Google Search error ${res.status}: ${body.slice(0, 200)}`);
+    console.error(`Brave Search error ${res.status}: ${body.slice(0, 200)}`);
     return [];
   }
 
   const data = await res.json() as {
-    items?: Array<{ link: string; title: string; snippet: string }>;
+    web?: { results?: Array<{ url: string; title: string; description: string }> };
   };
 
   const tweets: Tweet[] = [];
-  for (const item of data.items ?? []) {
+  for (const item of data.web?.results ?? []) {
     // Only tweet URLs (not profile pages)
-    const idMatch = item.link.match(/\/status\/(\d+)/);
+    const idMatch = item.url.match(/\/status\/(\d+)/);
     if (!idMatch) continue;
 
     const id = idMatch[1];
-    // Title format: "Author on X: "tweet text here..."" — extract tweet text
-    let text = item.snippet ?? '';
-    const titleTextMatch = item.title.match(/[""](.+?)[""]$/);
-    if (titleTextMatch) text = titleTextMatch[1];
+    // Title format: "Author on X: tweet text" — extract after colon
+    let text = item.description ?? '';
+    const titleMatch = item.title.match(/on X:\s*[""]?(.+?)[""]?\s*$/);
+    if (titleMatch && titleMatch[1].length > text.length) text = titleMatch[1];
     if (text.length < 10) continue;
 
     tweets.push({
@@ -257,7 +262,7 @@ async function searchTweets(query: string): Promise<Tweet[]> {
       author_id: '',
       created_at: new Date().toISOString(),
       public_metrics: {
-        like_count: 5,   // Google doesn't expose engagement — assume eligible
+        like_count: 5,
         retweet_count: 0,
         reply_count: 0,
         quote_count: 0,
