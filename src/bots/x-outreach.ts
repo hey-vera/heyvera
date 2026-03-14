@@ -501,8 +501,14 @@ function isTweetEligible(tweet: Tweet, state: BotState): { eligible: boolean; re
     'phala network', 'ritual', 'bittensor', 'nous research', 'heurist',
     '0g_labs', '0g labs', 'pump.fun', 'abstract agent', 'ai assembly',
     'minimax', 'langchain', 'crewai', 'autogen', 'superagent',
+    'messari', 'delphi digital', 'a16z', 'coinbase', 'binance',
   ];
-  if (competitors.some(c => lower.includes(c))) {
+  // Also catch known founder/project Twitter handles
+  const competitorHandles = [
+    '@hwchase17', '@langaborov', '@yaborov', '@0aborov',
+    '@0g_labs', '@daytonaio', '@messaborov', '@messari',
+  ];
+  if (competitors.some(c => lower.includes(c)) || competitorHandles.some(h => lower.includes(h))) {
     return { eligible: false, reason: 'competitor mention' };
   }
 
@@ -516,13 +522,24 @@ function isTweetEligible(tweet: Tweet, state: BotState): { eligible: boolean; re
     'get access', 'early access', 'waitlist', 'beta access',
     'we built', 'we\'re building', 'our platform', 'our tool',
     'this one is different', 'most guides', 'the guide',
+    'at messari', 'at coinbase', // Company perspective tweets
   ];
   if (promoSignals.some(s => lower.includes(s))) {
     return { eligible: false, reason: 'promo/self-promotion' };
   }
 
+  // Skip non-discussion content: video timestamps, conference recaps, threads, listicles
+  const nonDiscussion = [
+    '00:00', '01:', '02:', '03:', '04:', '05:', // Video timestamps
+    'thread 🧵', '🧵', '1/', '1)', // Thread starters (company content)
+    'conference', 'keynote', 'fireside', 'panel',
+    'recap:', 'summary:', 'tldr:', 'tl;dr',
+  ];
+  if (nonDiscussion.some(s => lower.includes(s))) {
+    return { eligible: false, reason: 'non-discussion content' };
+  }
+
   // Skip tweets that read like product descriptions (3rd person, feature-listing tone)
-  // These are companies/projects describing their own stuff, not individuals discussing
   const featureListSignals = ['features:', 'includes:', 'supports:', 'powered by', 'built on', 'built with'];
   const has3rdPerson = /\b(the platform|the protocol|the tool|the framework|the stack)\b/i.test(tweet.text);
   if (featureListSignals.some(s => lower.includes(s)) || has3rdPerson) {
