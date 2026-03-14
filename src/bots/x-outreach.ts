@@ -15,7 +15,7 @@
  *   - X API v2 Free tier ($0) — env vars: X_API_KEY, X_API_SECRET,
  *     X_ACCESS_TOKEN, X_ACCESS_TOKEN_SECRET
  *   - ClawNet API key — env var: CLAWNET_API_KEY (for LLM reply generation)
- *   - Optional: CLAWNET_API_URL (default: https://claw-net.org)
+ *   - Optional: CLAWNET_API_URL (default: http://localhost:3402)
  *
  * Usage:
  *   npx tsx src/bots/x-outreach.ts              # Run once (find + reply)
@@ -49,7 +49,7 @@ const CONFIG = {
 
   // ClawNet
   clawnetApiKey: process.env.CLAWNET_API_KEY ?? '',
-  clawnetApiUrl: process.env.CLAWNET_API_URL ?? 'https://claw-net.org',
+  clawnetApiUrl: process.env.CLAWNET_API_URL ?? 'http://localhost:3402',
 
   // Limits
   maxRepliesPerDay: 8,
@@ -379,7 +379,10 @@ async function retweetTweet(tweetId: string): Promise<boolean> {
 // ─── LLM Helper ─────────────────────────────────────────────────────────────
 
 async function askLLM(prompt: string, maxCredits = 3): Promise<string | null> {
-  if (!CONFIG.clawnetApiKey) return null;
+  if (!CONFIG.clawnetApiKey) {
+    console.log('  [LLM] No CLAWNET_API_KEY set');
+    return null;
+  }
   try {
     const res = await fetch(`${CONFIG.clawnetApiUrl}/v1/orchestrate`, {
       method: 'POST',
@@ -393,10 +396,15 @@ async function askLLM(prompt: string, maxCredits = 3): Promise<string | null> {
       }),
       signal: AbortSignal.timeout(15_000),
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      console.log(`  [LLM] HTTP ${res.status}: ${body.slice(0, 200)}`);
+      return null;
+    }
     const data = await res.json() as { answer?: string };
     return data.answer ?? null;
-  } catch {
+  } catch (err) {
+    console.log(`  [LLM] Error: ${err instanceof Error ? err.message : String(err)}`);
     return null;
   }
 }
