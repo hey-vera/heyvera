@@ -29,6 +29,10 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import { config } from 'dotenv';
+
+// Load .env from project root
+config({ path: path.join(process.cwd(), '.env') });
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
