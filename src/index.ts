@@ -213,10 +213,11 @@ async function start() {
   startHeartbeat();
 
   // Non-critical services: isolate failures so the HTTP server still starts
+  let meshActive = false;
   try { await initTelegram(); } catch (err) {
     logger.error({ err }, 'Telegram init failed — continuing without bot');
   }
-  try { await startMeshNode(); } catch (err) {
+  try { await startMeshNode(); meshActive = true; } catch (err) {
     logger.error({ err }, 'Mesh node init failed — continuing without P2P');
   }
 
@@ -227,6 +228,7 @@ async function start() {
   startStakeUnlockCron();
   startPayoutCron();
   startSkillHealthCron();
+  const cronsStarted = 7;
 
   // Load embedding model + seed in background — don't block server startup
   loadEmbeddingModel()
@@ -244,6 +246,8 @@ async function start() {
       x402: !!env.X402_RECIPIENT_ADDRESS,
       freeTrial: env.FREE_TRIAL_CREDITS,
       rateLimit: env.RATE_LIMIT_PER_MIN,
+      meshActive,
+      cronsStarted,
     }, 'ClawNet started');
   });
   setHttpServer(server);

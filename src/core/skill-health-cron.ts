@@ -84,12 +84,18 @@ async function runSkillHealthChecks(): Promise<void> {
   logger.info({ checked: dataSkills.length, degraded, recovered }, 'Skill health check complete');
 }
 
+let task: ReturnType<typeof cron.schedule> | null = null;
+
 export function startSkillHealthCron(): void {
   // Run every 15 minutes
-  cron.schedule('*/15 * * * *', () => {
+  task = cron.schedule('*/15 * * * *', () => {
     runSkillHealthChecks().catch(err =>
       logger.error({ err }, 'Skill health cron error')
     );
   });
   logger.info('Skill health monitor cron started (every 15m)');
+}
+
+export function stopSkillHealthCron(): void {
+  if (task) { task.stop(); task = null; }
 }
