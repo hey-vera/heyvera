@@ -494,20 +494,39 @@ function isTweetEligible(tweet: Tweet, state: BotState): { eligible: boolean; re
     return { eligible: false, reason: 'already mentions clawnet' };
   }
 
-  // Skip competitor product announcements — replying looks desperate
+  // Skip competitor / other project mentions — replying looks desperate
   const competitors = [
     'maiat', 'fetch.ai', 'autonolas', 'olas', 'singularitynet', 'ocean protocol',
     'nevermined', 'morpheus', 'virtuals protocol', 'eliza framework', 'ai16z',
-    'phala network', 'ritual', 'bittensor', 'nous research',
+    'phala network', 'ritual', 'bittensor', 'nous research', 'heurist',
+    '0g_labs', '0g labs', 'pump.fun', 'abstract agent', 'ai assembly',
+    'minimax', 'langchain', 'crewai', 'autogen', 'superagent',
   ];
   if (competitors.some(c => lower.includes(c))) {
     return { eligible: false, reason: 'competitor mention' };
   }
 
-  // Skip product launch / announcement tweets (they're promoting, not discussing)
-  const promoSignals = ['just launched', 'announcing', 'we just shipped', 'introducing our', 'check out our', 'try our'];
+  // Skip promotional tweets — someone advertising their own product/guide/tool.
+  // We only want to reply to people DISCUSSING problems, not selling solutions.
+  const promoSignals = [
+    'just launched', 'announcing', 'we just shipped', 'introducing our',
+    'check out our', 'try our', 'just dropped', 'now live', 'is live',
+    'sign up', 'join our', 'join the', 'get started', 'free trial',
+    'verified skills', 'installable', 'one command', 'in under',
+    'get access', 'early access', 'waitlist', 'beta access',
+    'we built', 'we\'re building', 'our platform', 'our tool',
+    'this one is different', 'most guides', 'the guide',
+  ];
   if (promoSignals.some(s => lower.includes(s))) {
-    return { eligible: false, reason: 'product announcement' };
+    return { eligible: false, reason: 'promo/self-promotion' };
+  }
+
+  // Skip tweets that read like product descriptions (3rd person, feature-listing tone)
+  // These are companies/projects describing their own stuff, not individuals discussing
+  const featureListSignals = ['features:', 'includes:', 'supports:', 'powered by', 'built on', 'built with'];
+  const has3rdPerson = /\b(the platform|the protocol|the tool|the framework|the stack)\b/i.test(tweet.text);
+  if (featureListSignals.some(s => lower.includes(s)) || has3rdPerson) {
+    return { eligible: false, reason: 'product description' };
   }
 
   // Skip off-topic — tweets about L1 blockchains, token launches, training data, etc.
