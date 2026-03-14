@@ -13,7 +13,7 @@ import {
   createPayoutRequest, getPayoutRequests,
   safeJsonParse, incrementSkillUses, recordSkillMetric, recordReputation,
   insertOrchestration, starSkill, unstarSkill, hasStarred, incrementSkillViews,
-  reportSkill, getSkillVersionHistory,
+  reportSkill, reportSkillWithCategory, getReportsByCategory, getSkillVersionHistory,
   rateSkill, getSkillRatings, getSkillRatingStats, getSkillMetricsSummary,
   setSkillFeatured, getFeaturedSkills, getPurchaseHistory,
 } from '../db/index';
@@ -155,6 +155,11 @@ marketplaceRouter.get('/skills/:id', async (c) => {
     ...(skill.sla_json && { sla: safeJsonParse(skill.sla_json, null) }),
     hasOutputContract: !!skill.output_contract_json,
     ...(skill.output_contract_json && { outputContract: safeJsonParse(skill.output_contract_json, null) }),
+    penaltyTier: skill.penalty_tier ?? 0,
+    ...(skill.skill_type === 'composite' && skill.dependencies_json && {
+      dependencies: safeJsonParse(skill.dependencies_json, []),
+      compositeConfig: safeJsonParse(skill.composite_config_json ?? 'null', null),
+    }),
   });
 });
 
@@ -565,6 +570,7 @@ marketplaceRouter.get('/creator/withdrawals', checkApiKey, (c) => {
 
 const ReportBody = z.object({
   reason: z.string().min(5).max(500).trim(),
+  category: z.enum(['security', 'spam', 'copyright', 'quality', 'misleading', 'other']).default('other'),
 });
 
 marketplaceRouter.post('/skills/:id/report', checkApiKey, async (c) => {
@@ -575,12 +581,20 @@ marketplaceRouter.post('/skills/:id/report', checkApiKey, async (c) => {
 
   let body: z.infer<typeof ReportBody>;
   try { body = ReportBody.parse(await c.req.json()); }
-  catch { return c.json({ error: 'reason is required (5-500 chars)' }, 400); }
+  catch { return c.json({ error: 'reason is required (5-500 chars), category is optional (security|spam|copyright|quality|misleading|other)' }, 400); }
 
-  const result = reportSkill(id, keyInfo.key, body.reason);
-  if (!result.ok) return c.json({ error: result.error ?? 'Report failed' }, 409);
+  // Use category-aware report if category provided, else fallback
+  if (body.category !== 'other') {
+    reportSkillWithCategory({ skillId: id, reporterKey: keyInfo.key, reason: body.reason, category: body.category });
+  } else {
+    const result = reportSkill(id, keyInfo.key, body.reason);
+    if (!result.ok) return c.json({ error: result.error ?? 'Report failed' }, 409);
+  }
 
-  return c.json({ ok: true, reportCount: result.reportCount, message: 'Thank you for your report. Our team will review it.' });
+  const categories = getReportsByCategory(id);
+  const totalReports = categories.reduce((sum, c) => sum + c.count, 0);
+
+  return c.json({ ok: true, reportCount: totalReports, categories, message: 'Thank you for your report. Our team will review it.' });
 });
 
 // ─── GET /v1/marketplace/skills/:id/versions — version history ────────────────
@@ -727,8 +741,9 @@ marketplaceRouter.post('/compare', async (c) => {
     type: body.filters.type as 'prompt_template' | 'api_proxy' | 'data' | undefined,
   });
 
-  // Apply trust-based filters
+  // Apply trust-based filters + exclude penalty tier 2+ (reduced visibility / delisted)
   let filtered = skills.filter(s => {
+    if ((s as any).penalty_tier >= 2) return false; // reduced visibility or delisted
     if (body.filters.minSuccessRate && (s.success_rate ?? 0) < body.filters.minSuccessRate) return false;
     if (body.filters.verifiedOnly && s.security_status !== 'VERIFIED') return false;
     if (body.filters.maxCredits && s.credit_cost > body.filters.maxCredits) return false;

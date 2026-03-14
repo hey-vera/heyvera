@@ -3050,4 +3050,211 @@ SECURITY:
 
 ---
 
-*Generated from codebase analysis. Last updated: 2026-03-14. 65 DB migrations, decimal credits (v3), 2-wallet architecture (RECEIVING + HOT WALLET), email alerts (replaced Telegram), treasury auto-sweep (optional), surcharge-to-treasury fix, endpoint auto-discovery (183 ClawAPIs endpoints), proportional cache pricing (10% of live, min 0.1cr), agent economy layer (trust signals, cryptographic receipts, compare/quote, composite skills, SLA contracts, output contracts, budget accounts, event webhooks), future-proofing pass (skill health cron, per-skill rate limiting, MCP/OpenAPI manifests, tag filtering, similar skills, staking boost, webhook HMAC signing, credit gifting, batch-query, x402 verification & reputation, subscription lifecycle, refund flow, dashboard auth, creator dashboard, GDPR erasure, contact form, dev revenue flow).*
+## 49. Composite Skill Pipelines (v2)
+
+Advanced composite execution engine with 6 capabilities beyond basic sequential chaining.
+
+```
+OUTPUT PIPING:
+├─ {{steps.outputKey.field}} in paramMapping
+├─ Step N output → Step N+1 input
+├─ Deep field access: {{steps.priceData.data.price}}
+└─ Backward compatible with {{variable}} syntax
+
+PARALLEL GROUPS:
+├─ group field on dependency steps (integer)
+├─ Same group number = run concurrently via Promise.allSettled
+├─ Groups execute in numeric order (0, 1, 2...)
+└─ Ungrouped steps run sequentially between groups
+
+CONDITIONAL STEPS:
+├─ condition: { field, op, value }
+├─ 9 operators: exists, not_exists, eq, neq, gt, lt, gte, lte, contains
+├─ field references: {{variable}} or {{steps.outputKey.field}}
+├─ Skipped steps recorded in costBreakdown with skipped: true
+└─ No billing for skipped steps
+
+RETRY + FALLBACK:
+├─ retries field (1-3, default 1)
+├─ Exponential backoff between retries (500ms, 1s, 2s)
+├─ fallbackSkillId — alternate skill if primary exhausts retries
+├─ Fallback billed at fallback skill's rate
+└─ costBreakdown shows fallbackUsed: true
+
+COMPOSITE CACHING:
+├─ compositeConfig.cacheTtl (seconds)
+├─ Cache key = sha256(skillId + sorted variables)
+├─ Stored in Redis via cacheSet/cacheGet
+├─ Cached responses marked cached: true
+└─ Saves all sub-skill invocation costs on cache hit
+
+COST ESTIMATION:
+├─ GET /v1/economy/estimate/:skillId
+├─ Returns: totalCredits, assemblyFee, dependencies[], maxCredits
+├─ Conditional deps flagged (may not execute)
+├─ compositeConfig.maxTotalCredits for budget cap
+└─ Pre-flight check before any billing
+```
+
+---
+
+## 50. Trust Decay
+
+Age-weighted rating system — older ratings contribute less to averages.
+
+```
+DECAY FORMULA:
+├─ weight = max(0.1, 1.0 - (days_since_rating / 30 * 0.1))
+├─ 30-day-old rating: weight 0.9
+├─ 180-day-old rating: weight 0.4
+├─ 300-day-old rating: weight 0.1 (floor)
+└─ Ratings never fully expire — just fade
+
+EXECUTION:
+├─ Runs every 15 minutes via skill-health-cron
+├─ UPDATE skill_ratings SET decay_weight = ...
+├─ Refreshes denormalized avg_rating on skills table
+├─ decay_weight column added in migration v66
+└─ getDecayAdjustedRating() for per-skill query
+
+IMPACT:
+├─ A skill with 4.8★ from 6 months ago and no recent reviews
+│  now shows lower effective rating than a 4.5★ with recent activity
+└─ Forces skill authors to maintain quality over time
+```
+
+---
+
+## 51. Penalty Escalation
+
+Automated 4-tier penalty system for repeated SLA violations.
+
+```
+TIERS:
+├─ Tier 0: CLEAN — no penalties (0-2 violations in 7 days)
+├─ Tier 1: WARNING — 3+ violations in 7 days (flagged, no action)
+├─ Tier 2: REDUCED_VISIBILITY — 6+ violations (excluded from featured/compare)
+└─ Tier 3: DELISTED — 10+ violations (auto-set public=0)
+
+ENFORCEMENT:
+├─ Checked after every SLA compliance cycle (every 15 minutes)
+├─ escalatePenalty(skillId) counts violations in last 7 days
+├─ Tier changes trigger webhook to skill author
+├─ Tier 3 auto-delists: UPDATE skills SET public = 0
+└─ Tiers can decrease when violations age out of 7-day window
+
+ENDPOINTS:
+├─ GET /v1/economy/penalty/:skillId — current tier + description
+├─ Marketplace detail includes penaltyTier field
+└─ Compare endpoint filters out tier 2+ skills
+
+RECOVERY:
+├─ Fix underlying SLA issues → violations stop
+├─ After 7 days with <3 violations → tier drops back to 0
+└─ Tier 3 requires manual re-listing (admin or author)
+```
+
+---
+
+## 52. Scheduled Skill Execution
+
+Cron-based scheduled execution of any skill type.
+
+```
+FLOW:
+├─ POST /v1/economy/scheduled-skills — create schedule
+│  ├─ skillId, cronExpression, variables, maxCreditsPerRun
+│  └─ Max 20 schedules per API key
+├─ Scheduler cron checks every 1 minute for due skills
+├─ Executes skill (data/api_proxy/composite)
+├─ Records: lastStatus, lastError, totalRuns, totalCreditsSpent
+├─ Calculates next_run_at from cron expression
+└─ Budget guard: skips if credits < maxCreditsPerRun
+
+ENDPOINTS:
+├─ POST /v1/economy/scheduled-skills — create
+├─ GET /v1/economy/scheduled-skills — list active
+└─ DELETE /v1/economy/scheduled-skills/:id — deactivate
+
+SKILL TYPES:
+├─ data: GET proxy_url with variables as query params
+├─ api_proxy: POST/GET proxy_url with variables as body/params
+├─ composite: full executeCompositeSkill() with billing
+└─ prompt_template: not supported (requires LLM pipeline)
+```
+
+---
+
+## 53. Proposal Bonds
+
+Anti-spam mechanism for governance proposals.
+
+```
+FLOW:
+├─ POST /v1/governance/propose with bond: true (default)
+├─ 100 credits locked from proposer's balance
+├─ Deducted atomically in createProposal() transaction
+├─ Bond amount stored on proposal row (bond_credits column)
+├─ When proposal closes (auto-close or manual):
+│  ├─ releaseBond() returns credits to proposer
+│  └─ bond_released flag prevents double-release
+└─ Opt-out: bond: false in request body (100 credit minimum still required)
+
+ANTI-SPAM EFFECT:
+├─ Creating 10 proposals = 1000 credits locked
+├─ Credits returned but unavailable during voting period
+└─ Economic cost to spam (opportunity cost of locked credits)
+```
+
+---
+
+## 54. Structured Report Categories
+
+Categorized skill reporting for faster admin triage.
+
+```
+CATEGORIES:
+├─ security — vulnerability, data leak, malicious behavior
+├─ spam — unsolicited, repetitive, low-quality
+├─ copyright — IP violation, unauthorized content use
+├─ quality — broken, unreliable, doesn't match description
+├─ misleading — deceptive pricing, false claims
+└─ other — default, free-text only
+
+FLOW:
+├─ POST /v1/marketplace/skills/:id/report
+│  ├─ reason: "..." (5-500 chars)
+│  └─ category: "security" (optional, default "other")
+├─ Stored in skill_reports table (category column, v66)
+├─ Response includes category breakdown
+├─ Auto-flag after 3 reports (any category mix)
+└─ Admin can filter/sort reports by category
+```
+
+---
+
+## 55. Receipt Verification
+
+Public endpoint for cryptographic transaction verification.
+
+```
+ENDPOINT: GET /v1/economy/receipts/verify/:transactionId
+(no auth required — public auditability)
+
+RESPONSE:
+├─ verified: boolean (both hashes present)
+├─ transaction: { id, type, credits, fee, skillId, from, to, timestamp }
+├─ requestHash: sha256 of { skillId, variables, timestamp }
+├─ resultHash: sha256 of { data, costCredits }
+└─ integrity: human-readable verification status
+
+USE CASES:
+├─ Agents verify they were billed correctly
+├─ Skill authors prove execution occurred
+├─ Dispute resolution — cryptographic proof of request/result
+└─ Third-party audit without API key access
+```
+
+---
+
+*Generated from codebase analysis. Last updated: 2026-03-14. 66 DB migrations, decimal credits (v3), 3-wallet architecture (RECEIVING + OPERATIONS + PAYOUT), treasury auto-sweep, endpoint auto-discovery (183 ClawAPIs endpoints), proportional cache pricing (10% of live, min 0.1cr), agent economy layer (trust signals, cryptographic receipts, compare/quote, composite skills v2, SLA contracts, output contracts, budget accounts, event webhooks, trust decay, penalty escalation, scheduled execution, proposal bonds, structured reports, receipt verification), future-proofing pass (skill health cron, per-skill rate limiting, MCP/OpenAPI manifests, tag filtering, similar skills, staking boost, webhook HMAC signing, credit gifting, batch-query).*

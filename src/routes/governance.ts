@@ -47,19 +47,17 @@ governanceRouter.get('/proposals/:id', (c) => {
 
 // ─── POST /v1/governance/propose ─────────────────────────────────────────────
 
+const BOND_CREDITS = 100; // locked on proposal, released on close
+
 const ProposeBody = z.object({
   title: z.string().min(5).max(120),
   description: z.string().min(20).max(2000),
   closeDays: z.number().int().min(1).max(30).default(7),
+  bond: z.boolean().default(true), // opt-out if false (backward compat)
 });
 
 governanceRouter.post('/propose', checkApiKey, async (c) => {
   const keyInfo = c.get('apiKeyInfo');
-
-  const MIN_BALANCE = 100;
-  if (keyInfo.credits < MIN_BALANCE) {
-    return c.json({ error: `Need at least ${MIN_BALANCE} credits to propose`, code: 'INSUFFICIENT_CREDITS' }, 403);
-  }
 
   const parsed = ProposeBody.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) {
@@ -67,21 +65,37 @@ governanceRouter.post('/propose', checkApiKey, async (c) => {
   }
   const body = parsed.data;
 
-  const id = createProposal({
-    title: body.title,
-    description: body.description,
-    proposedBy: keyInfo.key,
-    closeDays: body.closeDays,
-  });
+  const bondAmount = body.bond ? BOND_CREDITS : 0;
+  const minRequired = bondAmount > 0 ? bondAmount : 100;
 
-  logger.info({ id, proposer: maskApiKey(keyInfo.key), title: body.title }, 'Governance proposal created');
+  if (keyInfo.credits < minRequired) {
+    return c.json({ error: `Need at least ${minRequired} credits${bondAmount > 0 ? ' (bond will be locked and released when proposal closes)' : ''}`, code: 'INSUFFICIENT_CREDITS' }, 403);
+  }
+
+  let id: string;
+  try {
+    id = createProposal({
+      title: body.title,
+      description: body.description,
+      proposedBy: keyInfo.key,
+      closeDays: body.closeDays,
+      bondCredits: bondAmount,
+    });
+  } catch (err) {
+    return c.json({ error: 'Failed to create proposal', code: 'PROPOSAL_FAILED' }, 500);
+  }
+
+  logger.info({ id, proposer: maskApiKey(keyInfo.key), title: body.title, bond: bondAmount }, 'Governance proposal created');
 
   return c.json({
     ok: true,
     proposalId: id,
     title: body.title,
     closesIn: `${body.closeDays} days`,
-    message: 'Proposal created. Share the ID so others can vote.',
+    bondLocked: bondAmount,
+    message: bondAmount > 0
+      ? `Proposal created. ${bondAmount} credits locked as bond — returned when proposal closes.`
+      : 'Proposal created. Share the ID so others can vote.',
   }, 201);
 });
 

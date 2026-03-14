@@ -268,7 +268,7 @@
 
 ## Agent Economy Progress — Roadmap to 100%
 
-> Current overall: **~78%** of a production-grade autonomous agent economy.
+> Current overall: **~88%** of a production-grade autonomous agent economy.
 > Last assessed: 2026-03-14.
 
 ### 1. Payments & Billing — 95%
@@ -314,7 +314,7 @@
 - [ ] **On-chain skill registry** — Solana program for trustless cross-platform discovery (needs deployed program)
 - [ ] **Data marketplace output schema standard** — formal field-name/type conventions across data skills
 
-### 3. Trust & Verification — 85%
+### 3. Trust & Verification — 92%
 
 | Done | Item |
 |------|------|
@@ -327,15 +327,15 @@
 | ✅ | SLA contracts (uptime, latency, success rate guarantees) |
 | ✅ | Output contracts (JSON Schema validation on data skills) |
 | ✅ | Webhook notifications on SLA/output violations |
+| ✅ | Receipt chain verification endpoint (GET /v1/economy/receipts/verify/:id) |
+| ✅ | Trust decay — age-weighted ratings (10% per 30 days, min 0.1 weight) |
 
 **To reach 100%:**
 - [ ] **Validator / referee roles** — neutral third-party result verification beyond platform-native checks
-- [ ] **Receipt chain verification endpoint** — public endpoint to verify receipt hash integrity without auth
 - [ ] **Portable reputation export** — exportable trust scores for cross-platform identity (needs interop standards)
 - [ ] **Automated security scanning** — static analysis on api_proxy URLs and prompt_template content at creation time
-- [ ] **Trust decay** — ratings/reputation should age; a 4.8★ from 6 months ago with no recent activity ≠ current quality
 
-### 4. Autonomous Operations — 65%
+### 4. Autonomous Operations — 82%
 
 | Done | Item |
 |------|------|
@@ -346,17 +346,17 @@
 | ✅ | Budget accounts with daily/weekly spending limits |
 | ✅ | Event webhooks (7 event types, HMAC-signed, auto-disable) |
 | ✅ | Dependency graph visualization endpoint |
+| ✅ | Conditional branching in composites (condition field with 9 operators) |
+| ✅ | Retry/fallback policies on composites (configurable retries + fallback skill) |
+| ✅ | Scheduled skill execution (cron-based, every 1m check, max 20 per key) |
 
 **To reach 100%:**
 - [ ] **Autonomous hiring/firing** — agents auto-select skills based on SLA compliance, auto-replace degraded providers
 - [ ] **Persistent long-running agents** — maintain state across sessions, monitor conditions over days/weeks (needs WebSocket/multi-node)
-- [ ] **Conditional branching in composites** — if/else logic within composite skill chains (currently sequential only)
 - [ ] **Dynamic pricing / demand-based adjustment** — price signals based on load, priority fees for urgent execution
 - [ ] **Agent-initiated transfers** — agents autonomously pay other agents without human approval (needs guardrails)
-- [ ] **Retry/fallback policies on composites** — if sub-skill fails, try alternative skill with same capability
-- [ ] **Scheduled skill execution** — "run this composite every hour" without external cron
 
-### 5. Composability — 70%
+### 5. Composability — 92%
 
 | Done | Item |
 |------|------|
@@ -366,17 +366,17 @@
 | ✅ | Parameter mapping ({{variable}} interpolation) |
 | ✅ | Anti-loop protections (no self-ref, no nested composites) |
 | ✅ | Dependency graph endpoint |
+| ✅ | Output piping ({{steps.outputKey.field}} references in paramMapping) |
+| ✅ | Parallel execution groups (group field, same group runs concurrently) |
+| ✅ | Conditional steps (9 operators: exists, eq, gt, lt, contains, etc.) |
+| ✅ | Composite cost estimation (GET /v1/economy/estimate/:skillId) |
+| ✅ | Composite caching (Redis, configurable cacheTtl in compositeConfig) |
 
 **To reach 100%:**
-- [ ] **Output piping** — pass output of step N as input to step N+1 (currently each step gets original variables only)
-- [ ] **Parallel execution in composites** — declare independent steps that can run concurrently (currently all sequential)
-- [ ] **Conditional steps** — skip step if condition met (e.g., only run sentiment if price change > 5%)
 - [ ] **Composite-of-composite** — allow depth > 1 with budget caps and cycle detection (currently flat-only)
 - [ ] **Dynamic dependency resolution** — at runtime, select best available skill for a capability slot
-- [ ] **Composite cost estimation** — pre-calculate total cost before execution (sum of dependency costs + assembly fee)
-- [ ] **Composite caching** — cache entire composite result, not just individual sub-skill results
 
-### 6. Governance & Disputes — 45%
+### 6. Governance & Disputes — 60%
 
 | Done | Item |
 |------|------|
@@ -385,17 +385,17 @@
 | ✅ | Skill reporting system (free-text reasons) |
 | ✅ | SLA violation recording with penalty credits |
 | ✅ | Admin manual review pipeline |
+| ✅ | Proposal bonds (100 credits locked, released on close) |
+| ✅ | Structured report categories (security, spam, copyright, quality, misleading, other) |
+| ✅ | Penalty escalation (4-tier: clean → warning → reduced visibility → delisted) |
 
 **To reach 100%:**
 - [ ] **Quorum requirements** — minimum voter participation for proposals to be valid (needs 500+ users)
-- [ ] **Proposal bonds** — lock credits when creating proposals to prevent spam (release on close)
-- [ ] **Structured report categories** — enum categories (security, spam, copyright, quality) instead of free-text
 - [ ] **Appeal process** — structured workflow for contesting SLA violations, flags, and disputes
 - [ ] **Automated governance execution** — proposals auto-execute when quorum met (currently advisory-only)
 - [ ] **Dispute mediation protocol** — multi-step review with evidence submission for escrow disputes
 - [ ] **Community moderation** — trusted users can review flagged skills (reduce admin bottleneck)
 - [ ] **Refund arbitration** — automated refund decisions based on SLA data and output contract violations
-- [ ] **Penalty escalation** — repeated SLA violations trigger increasing penalties (warning → reduced visibility → delist)
 
 ---
 

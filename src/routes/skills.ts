@@ -105,12 +105,26 @@ const CreateSkillSchema = z.object({
   /** Max invocations per hour (rate limit). Null = unlimited. */
   maxCallsPerHour: z.number().int().min(1).max(100000).optional(),
   // ── Composite skill fields ──────────────────────────────────────────────────
-  /** Dependencies for composite skills — array of { skillId, paramMapping, outputKey }. Max 5. */
+  /** Dependencies for composite skills — supports output piping, parallel groups, conditionals, retry/fallback. Max 5. */
   dependencies: z.array(z.object({
     skillId: z.string(),
     paramMapping: z.record(z.string()),
     outputKey: z.string(),
+    group: z.number().int().min(0).max(10).optional(),
+    condition: z.object({
+      field: z.string(),
+      op: z.enum(['exists', 'not_exists', 'eq', 'neq', 'gt', 'lt', 'gte', 'lte', 'contains']),
+      value: z.union([z.string(), z.number()]).optional(),
+    }).optional(),
+    fallbackSkillId: z.string().optional(),
+    retries: z.number().int().min(1).max(3).optional(),
   })).max(5).optional(),
+  /** Composite config — caching, execution mode, budget cap. */
+  compositeConfig: z.object({
+    cacheTtl: z.number().int().min(0).max(86400).optional(),
+    executionMode: z.enum(['sequential', 'grouped']).optional(),
+    maxTotalCredits: z.number().min(0).optional(),
+  }).optional(),
   // ── SLA & Output Contract fields ────────────────────────────────────────────
   /** SLA guarantees — agents trust these commitments when selecting skills. */
   sla: z.object({
@@ -244,6 +258,7 @@ skillsRouter.post('/', checkApiKey, async (c) => {
     dependenciesJson: data.dependencies ? JSON.stringify(data.dependencies) : undefined,
     slaJson: data.sla ? JSON.stringify(data.sla) : undefined,
     outputContractJson: data.outputContract ? JSON.stringify(data.outputContract) : undefined,
+    compositeConfigJson: data.compositeConfig ? JSON.stringify(data.compositeConfig) : undefined,
   });
 
   // Set per-skill rate limit if specified

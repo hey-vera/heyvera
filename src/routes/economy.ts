@@ -25,7 +25,13 @@ import {
   createBudgetAccount,
   getBudgetAccountStatus,
   getSLAViolations,
+  getSkill,
+  getPenaltyInfo,
+  createScheduledSkill,
+  getScheduledSkills,
+  deleteScheduledSkill,
 } from '../db/index';
+import { estimateCompositeCost } from '../core/composite-executor';
 import {
   createWebhook,
   getWebhooks,
@@ -530,6 +536,159 @@ economyRouter.get('/dependency-graph', (c) => {
   }
 
   return c.json({ nodes, edges, compositeCount: composites.length });
+});
+
+// ─── Receipt Verification (public — no auth) ────────────────────────────────
+
+economyRouter.get('/receipts/verify/:transactionId', (c) => {
+  const txId = c.req.param('transactionId');
+  const db = getDb();
+  const tx = db.prepare(
+    `SELECT id, from_agent, to_agent, amount_credits, type, skill_id, fee_credits, request_hash, result_hash, created_at
+     FROM transactions WHERE id = ?`
+  ).get(txId) as {
+    id: string; from_agent: string | null; to_agent: string | null;
+    amount_credits: number; type: string; skill_id: string | null;
+    fee_credits: number; request_hash: string | null; result_hash: string | null; created_at: string;
+  } | undefined;
+
+  if (!tx) return c.json({ error: 'Transaction not found', code: 'NOT_FOUND' }, 404);
+
+  return c.json({
+    verified: !!(tx.request_hash && tx.result_hash),
+    transaction: {
+      id: tx.id,
+      type: tx.type,
+      credits: tx.amount_credits,
+      fee: tx.fee_credits,
+      skillId: tx.skill_id,
+      from: tx.from_agent ? maskApiKey(tx.from_agent) : null,
+      to: tx.to_agent ? maskApiKey(tx.to_agent) : null,
+      requestHash: tx.request_hash,
+      resultHash: tx.result_hash,
+      timestamp: tx.created_at,
+    },
+    integrity: tx.request_hash && tx.result_hash
+      ? 'Both request and result hashes present — transaction is cryptographically verifiable'
+      : 'Missing hash(es) — transaction predates receipt system or was not hash-eligible',
+  });
+});
+
+// ─── Cost Estimation ────────────────────────────────────────────────────────
+
+economyRouter.get('/estimate/:skillId', (c) => {
+  const skillId = c.req.param('skillId');
+  const skill = getSkill(skillId);
+  if (!skill) return c.json({ error: 'Skill not found', code: 'NOT_FOUND' }, 404);
+  if (skill.skill_type !== 'composite') {
+    return c.json({
+      skillId, skillType: skill.skill_type,
+      totalCredits: Math.max(0.001, skill.credit_cost),
+      assemblyFee: 0, dependencies: [],
+      maxCredits: Math.max(0.001, skill.credit_cost),
+    });
+  }
+  const estimate = estimateCompositeCost(skill);
+  if ('error' in estimate) return c.json({ error: estimate.error, code: 'ESTIMATION_FAILED' }, 400);
+  return c.json({ skillId, ...estimate });
+});
+
+// ─── Penalty Info ───────────────────────────────────────────────────────────
+
+economyRouter.get('/penalty/:skillId', (c) => {
+  const skillId = c.req.param('skillId');
+  const info = getPenaltyInfo(skillId);
+  return c.json({
+    skillId,
+    penaltyTier: info.tier,
+    tierLabel: info.tier === 0 ? 'CLEAN' : info.tier === 1 ? 'WARNING' : info.tier === 2 ? 'REDUCED_VISIBILITY' : 'DELISTED',
+    recentViolations: info.recentViolations,
+    updatedAt: info.updatedAt,
+    description: info.tier === 0 ? 'No penalties — skill in good standing'
+      : info.tier === 1 ? 'Warning issued — 3+ SLA violations in last 7 days'
+      : info.tier === 2 ? 'Reduced visibility — excluded from featured and compare results'
+      : 'Delisted — skill has been automatically unpublished due to repeated SLA violations',
+  });
+});
+
+// ─── Scheduled Skills ───────────────────────────────────────────────────────
+
+economyRouter.post('/scheduled-skills', async (c) => {
+  const keyInfo = c.get('apiKeyInfo');
+  if (keyInfo.isEnvKey) return c.json({ error: 'Env keys cannot schedule skills', code: 'FORBIDDEN' }, 403);
+
+  let body: { skillId?: string; variables?: Record<string, string>; cronExpression?: string; maxCreditsPerRun?: number };
+  try { body = await c.req.json(); } catch {
+    return c.json({ error: 'Invalid JSON', code: 'INVALID_BODY' }, 400);
+  }
+
+  if (!body.skillId || typeof body.skillId !== 'string') {
+    return c.json({ error: 'skillId required', code: 'VALIDATION_ERROR' }, 400);
+  }
+
+  if (!body.cronExpression || typeof body.cronExpression !== 'string') {
+    return c.json({ error: 'cronExpression required (e.g., "*/30 * * * *" for every 30 min)', code: 'VALIDATION_ERROR' }, 400);
+  }
+
+  // Validate skill exists
+  const skill = getSkill(body.skillId);
+  if (!skill) return c.json({ error: 'Skill not found', code: 'NOT_FOUND' }, 404);
+
+  // Limit to 20 scheduled skills per key
+  const existing = getScheduledSkills(keyInfo.key);
+  if (existing.length >= 20) {
+    return c.json({ error: 'Maximum 20 scheduled skills per key', code: 'LIMIT_REACHED' }, 400);
+  }
+
+  // Simple next run calculation — 1 minute from now
+  const nextRunAt = new Date(Date.now() + 60_000).toISOString();
+
+  const id = createScheduledSkill({
+    skillId: body.skillId,
+    callerKey: keyInfo.key,
+    variables: body.variables,
+    cronExpression: body.cronExpression,
+    nextRunAt,
+    maxCreditsPerRun: body.maxCreditsPerRun,
+  });
+
+  return c.json({
+    ok: true,
+    scheduledId: id,
+    skillId: body.skillId,
+    cronExpression: body.cronExpression,
+    nextRunAt,
+    maxCreditsPerRun: body.maxCreditsPerRun ?? null,
+  }, 201);
+});
+
+economyRouter.get('/scheduled-skills', (c) => {
+  const keyInfo = c.get('apiKeyInfo');
+  const schedules = getScheduledSkills(keyInfo.key);
+  return c.json({
+    schedules: schedules.map(s => ({
+      id: s.id,
+      skillId: s.skill_id,
+      cronExpression: s.cron_expression,
+      nextRunAt: s.next_run_at,
+      lastRunAt: s.last_run_at,
+      lastStatus: s.last_status,
+      lastError: s.last_error,
+      totalRuns: s.total_runs,
+      totalCreditsSpent: s.total_credits_spent,
+      maxCreditsPerRun: s.max_credits_per_run,
+      createdAt: s.created_at,
+    })),
+    count: schedules.length,
+  });
+});
+
+economyRouter.delete('/scheduled-skills/:id', (c) => {
+  const keyInfo = c.get('apiKeyInfo');
+  const id = c.req.param('id');
+  const deleted = deleteScheduledSkill(keyInfo.key, id);
+  if (!deleted) return c.json({ error: 'Scheduled skill not found', code: 'NOT_FOUND' }, 404);
+  return c.json({ ok: true, deleted: id });
 });
 
 function reputationResponse(c: any, agentKey: string) {

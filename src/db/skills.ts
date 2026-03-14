@@ -69,6 +69,14 @@ export interface Skill {
   sla_json: string | null;
   /** JSON Schema for output validation — agents can trust output shape */
   output_contract_json: string | null;
+  // v66: composability upgrades, penalty escalation
+  /** JSON config for composite execution: { cacheTtl?, executionMode?, maxTotalCredits? } */
+  composite_config_json: string | null;
+  /** Penalty tier for SLA violations: 0=clean, 1=warning, 2=reduced visibility, 3=delisted */
+  penalty_tier: number;
+  penalty_updated_at: string | null;
+  /** Soft-delete active flag */
+  active: number;
 }
 
 export function createSkill(params: {
@@ -94,6 +102,7 @@ export function createSkill(params: {
   dependenciesJson?: string;
   slaJson?: string;
   outputContractJson?: string;
+  compositeConfigJson?: string;
 }): void {
   // Validate composite skill dependencies
   if (params.skillType === 'composite' && params.dependenciesJson) {
@@ -101,8 +110,8 @@ export function createSkill(params: {
   }
 
   getDb()
-    .prepare(`INSERT INTO skills (id, name, description, prompt_template, author_key, public, credit_cost, display_name, changelog, category, skill_type, proxy_url, proxy_method, execution_plan_json, skill_class, creator_evm_wallet, sample_output_json, update_frequency, paired_skill_id, dependencies_json, sla_json, output_contract_json)
-              VALUES (@id, @name, @description, @promptTemplate, @authorKey, @public, @creditCost, @displayName, @changelog, @category, @skillType, @proxyUrl, @proxyMethod, @executionPlanJson, @skillClass, @creatorEvmWallet, @sampleOutputJson, @updateFrequency, @pairedSkillId, @dependenciesJson, @slaJson, @outputContractJson)`)
+    .prepare(`INSERT INTO skills (id, name, description, prompt_template, author_key, public, credit_cost, display_name, changelog, category, skill_type, proxy_url, proxy_method, execution_plan_json, skill_class, creator_evm_wallet, sample_output_json, update_frequency, paired_skill_id, dependencies_json, sla_json, output_contract_json, composite_config_json)
+              VALUES (@id, @name, @description, @promptTemplate, @authorKey, @public, @creditCost, @displayName, @changelog, @category, @skillType, @proxyUrl, @proxyMethod, @executionPlanJson, @skillClass, @creatorEvmWallet, @sampleOutputJson, @updateFrequency, @pairedSkillId, @dependenciesJson, @slaJson, @outputContractJson, @compositeConfigJson)`)
     .run({
       ...params,
       public: params.public ? 1 : 0,
@@ -121,6 +130,7 @@ export function createSkill(params: {
       dependenciesJson: params.dependenciesJson ?? null,
       slaJson: params.slaJson ?? null,
       outputContractJson: params.outputContractJson ?? null,
+      compositeConfigJson: params.compositeConfigJson ?? null,
     });
 }
 
@@ -747,6 +757,19 @@ export interface SkillDependency {
   skillId: string;
   paramMapping: Record<string, string>;
   outputKey: string;
+  // v66: composability upgrades
+  /** Parallel execution group — steps in same group run concurrently */
+  group?: number;
+  /** Condition — if not met, step is skipped */
+  condition?: {
+    field: string;   // {{variable}} or {{steps.outputKey.field}}
+    op: 'exists' | 'not_exists' | 'eq' | 'neq' | 'gt' | 'lt' | 'gte' | 'lte' | 'contains';
+    value?: string | number;
+  };
+  /** Fallback skill ID — used if primary fails after retries */
+  fallbackSkillId?: string;
+  /** Max retries before fallback (default 1, max 3) */
+  retries?: number;
 }
 
 /**
@@ -937,4 +960,213 @@ export function getCompositeTotalCost(dependenciesJson: string): number {
     total += row?.credit_cost ?? 0;
   }
   return total;
+}
+
+// ─── Trust Decay ──────────────────────────────────────────────────────────────
+
+/**
+ * Recalculate decay weights for all ratings of a skill.
+ * Ratings lose 10% of their weight per 30 days since creation.
+ * Minimum weight: 0.1 (ratings never fully expire, just fade).
+ */
+export function recalculateDecayWeights(skillId: string): void {
+  const db = getDb();
+  db.prepare(`
+    UPDATE skill_ratings SET decay_weight = MAX(0.1, 1.0 - (
+      (julianday('now') - julianday(created_at)) / 30.0 * 0.1
+    )) WHERE skill_id = ?
+  `).run(skillId);
+}
+
+/**
+ * Get decay-adjusted average rating for a skill.
+ * Returns weighted average where recent ratings count more.
+ */
+export function getDecayAdjustedRating(skillId: string): { avgRating: number; effectiveCount: number } {
+  const row = getDb().prepare(`
+    SELECT
+      ROUND(COALESCE(SUM(rating * decay_weight) / NULLIF(SUM(decay_weight), 0), 0), 1) as avg_rating,
+      ROUND(COALESCE(SUM(decay_weight), 0), 1) as effective_count
+    FROM skill_ratings WHERE skill_id = ?
+  `).get(skillId) as { avg_rating: number; effective_count: number };
+  return { avgRating: row.avg_rating, effectiveCount: row.effective_count };
+}
+
+/**
+ * Run trust decay across all skills — call from cron.
+ * Updates decay_weight on ratings, then refreshes denormalized avg_rating.
+ */
+export function runTrustDecay(): { updated: number } {
+  const db = getDb();
+  const result = db.prepare(`
+    UPDATE skill_ratings SET decay_weight = MAX(0.1, 1.0 - (
+      (julianday('now') - julianday(created_at)) / 30.0 * 0.1
+    )) WHERE decay_weight != MAX(0.1, 1.0 - (
+      (julianday('now') - julianday(created_at)) / 30.0 * 0.1
+    ))
+  `).run();
+
+  // Refresh denormalized avg_rating on skills with updated weights
+  db.prepare(`
+    UPDATE skills SET avg_rating = COALESCE((
+      SELECT ROUND(SUM(r.rating * r.decay_weight) / NULLIF(SUM(r.decay_weight), 0), 1)
+      FROM skill_ratings r WHERE r.skill_id = skills.id
+    ), 0) WHERE id IN (
+      SELECT DISTINCT skill_id FROM skill_ratings
+    )
+  `).run();
+
+  return { updated: result.changes };
+}
+
+// ─── Penalty Escalation ───────────────────────────────────────────────────────
+
+export type PenaltyTier = 0 | 1 | 2 | 3;
+
+/**
+ * Escalate penalty tier for a skill based on SLA violation count.
+ * Tier 0: clean (0 violations in 7 days)
+ * Tier 1: warning (3+ violations in 7 days) — no effect, just flagged
+ * Tier 2: reduced visibility (6+ violations in 7 days) — excluded from featured/compare
+ * Tier 3: delisted (10+ violations in 7 days) — set public=0
+ *
+ * Returns the new tier if changed, null if unchanged.
+ */
+export function escalatePenalty(skillId: string): { newTier: PenaltyTier; changed: boolean } {
+  const db = getDb();
+
+  // Count violations in last 7 days
+  const row = db.prepare(`
+    SELECT COUNT(*) as cnt FROM sla_violations
+    WHERE skill_id = ? AND created_at > datetime('now', '-7 days')
+  `).get(skillId) as { cnt: number };
+
+  const currentTier = (db.prepare('SELECT penalty_tier FROM skills WHERE id = ?').get(skillId) as { penalty_tier: number })?.penalty_tier ?? 0;
+  let newTier: PenaltyTier = 0;
+
+  if (row.cnt >= 10) newTier = 3;
+  else if (row.cnt >= 6) newTier = 2;
+  else if (row.cnt >= 3) newTier = 1;
+  else newTier = 0;
+
+  if (newTier !== currentTier) {
+    db.prepare(`UPDATE skills SET penalty_tier = ?, penalty_updated_at = datetime('now') WHERE id = ?`).run(newTier, skillId);
+
+    // Tier 3: auto-delist (set public = 0)
+    if (newTier === 3) {
+      db.prepare(`UPDATE skills SET public = 0 WHERE id = ?`).run(skillId);
+      logger.warn({ skillId, violations: row.cnt }, 'Skill auto-delisted due to penalty tier 3');
+    }
+
+    return { newTier, changed: true };
+  }
+
+  return { newTier, changed: false };
+}
+
+/**
+ * Get penalty info for a skill.
+ */
+export function getPenaltyInfo(skillId: string): { tier: PenaltyTier; updatedAt: string | null; recentViolations: number } {
+  const db = getDb();
+  const skill = db.prepare('SELECT penalty_tier, penalty_updated_at FROM skills WHERE id = ?').get(skillId) as { penalty_tier: number; penalty_updated_at: string | null } | undefined;
+  const violations = (db.prepare('SELECT COUNT(*) as cnt FROM sla_violations WHERE skill_id = ? AND created_at > datetime(\'now\', \'-7 days\')').get(skillId) as { cnt: number })?.cnt ?? 0;
+  return { tier: (skill?.penalty_tier ?? 0) as PenaltyTier, updatedAt: skill?.penalty_updated_at ?? null, recentViolations: violations };
+}
+
+// ─── Structured Report Categories ─────────────────────────────────────────────
+
+export type ReportCategory = 'security' | 'spam' | 'copyright' | 'quality' | 'misleading' | 'other';
+
+export function reportSkillWithCategory(params: {
+  skillId: string;
+  reporterKey: string;
+  reason: string;
+  category: ReportCategory;
+}): void {
+  getDb().prepare(
+    `INSERT OR REPLACE INTO skill_reports (skill_id, reporter_key, reason, category)
+     VALUES (?, ?, ?, ?)`
+  ).run(params.skillId, params.reporterKey, params.reason, params.category);
+
+  // Auto-flag after 3 reports (same as original reportSkill)
+  const count = (getDb().prepare('SELECT COUNT(*) as n FROM skill_reports WHERE skill_id = ?').get(params.skillId) as { n: number }).n;
+  if (count >= 3) {
+    getDb().prepare(`UPDATE skills SET security_status = 'FLAGGED' WHERE id = ? AND security_status != 'VERIFIED'`).run(params.skillId);
+  }
+}
+
+export function getReportsByCategory(skillId: string): { category: string; count: number }[] {
+  return getDb().prepare(
+    `SELECT category, COUNT(*) as count FROM skill_reports WHERE skill_id = ? GROUP BY category ORDER BY count DESC`
+  ).all(skillId) as { category: string; count: number }[];
+}
+
+// ─── Scheduled Skills ─────────────────────────────────────────────────────────
+
+export interface ScheduledSkill {
+  id: string;
+  skill_id: string;
+  caller_key: string;
+  variables_json: string | null;
+  cron_expression: string;
+  next_run_at: string;
+  last_run_at: string | null;
+  last_status: string | null;
+  last_error: string | null;
+  active: number;
+  max_credits_per_run: number | null;
+  total_runs: number;
+  total_credits_spent: number;
+  created_at: string;
+}
+
+export function createScheduledSkill(params: {
+  skillId: string;
+  callerKey: string;
+  variables?: Record<string, string>;
+  cronExpression: string;
+  nextRunAt: string;
+  maxCreditsPerRun?: number;
+}): string {
+  const id = nanoid(12);
+  getDb().prepare(
+    `INSERT INTO scheduled_skills (id, skill_id, caller_key, variables_json, cron_expression, next_run_at, max_credits_per_run)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(id, params.skillId, params.callerKey, params.variables ? JSON.stringify(params.variables) : null,
+    params.cronExpression, params.nextRunAt, params.maxCreditsPerRun ?? null);
+  return id;
+}
+
+export function getScheduledSkills(callerKey: string): ScheduledSkill[] {
+  return getDb().prepare(
+    'SELECT * FROM scheduled_skills WHERE caller_key = ? AND active = 1 ORDER BY created_at DESC'
+  ).all(callerKey) as ScheduledSkill[];
+}
+
+export function getDueScheduledSkills(): ScheduledSkill[] {
+  return getDb().prepare(
+    `SELECT * FROM scheduled_skills WHERE active = 1 AND next_run_at <= datetime('now') LIMIT 50`
+  ).all() as ScheduledSkill[];
+}
+
+export function updateScheduledSkillRun(id: string, params: {
+  nextRunAt: string;
+  lastStatus: string;
+  lastError?: string;
+  creditsSpent: number;
+}): void {
+  getDb().prepare(`
+    UPDATE scheduled_skills SET
+      next_run_at = ?, last_run_at = datetime('now'), last_status = ?, last_error = ?,
+      total_runs = total_runs + 1, total_credits_spent = total_credits_spent + ?
+    WHERE id = ?
+  `).run(params.nextRunAt, params.lastStatus, params.lastError ?? null, params.creditsSpent, id);
+}
+
+export function deleteScheduledSkill(callerKey: string, id: string): boolean {
+  const result = getDb().prepare(
+    'UPDATE scheduled_skills SET active = 0 WHERE id = ? AND caller_key = ? AND active = 1'
+  ).run(id, callerKey);
+  return result.changes > 0;
 }

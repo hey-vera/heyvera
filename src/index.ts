@@ -52,6 +52,7 @@ import { startSkillAbCron } from './core/skill-ab-cron';
 import { startStakeUnlockCron } from './core/stake-unlock-cron';
 import { startPayoutCron } from './core/payout-cron';
 import { startSkillHealthCron } from './core/skill-health-cron';
+import { startSkillSchedulerCron } from './core/skill-scheduler-cron';
 import { startMeshNode } from './mesh/node';
 import { loadEmbeddingModel } from './core/embeddings';
 import { seedEmbeddings } from './core/seed-embeddings';
@@ -228,7 +229,8 @@ async function start() {
   startStakeUnlockCron();
   startPayoutCron();
   startSkillHealthCron();
-  const cronsStarted = 7;
+  startSkillSchedulerCron();
+  const cronsStarted = 8;
 
   // Load embedding model + seed in background — don't block server startup
   loadEmbeddingModel()

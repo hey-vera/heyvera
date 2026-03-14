@@ -411,6 +411,33 @@ const MIGRATIONS: { version: number; sql: string }[] = [
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS idx_sla_violations_skill ON sla_violations(skill_id)` },
+  // v66: composability upgrades, scheduled execution, trust decay, penalty escalation, proposal bonds, report categories
+  { version: 66, sql: `
+    ALTER TABLE skills ADD COLUMN composite_config_json TEXT;
+    ALTER TABLE skills ADD COLUMN penalty_tier INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE skills ADD COLUMN penalty_updated_at TEXT;
+    ALTER TABLE skill_reports ADD COLUMN category TEXT NOT NULL DEFAULT 'other';
+    ALTER TABLE skill_ratings ADD COLUMN decay_weight REAL NOT NULL DEFAULT 1.0;
+    ALTER TABLE proposals ADD COLUMN bond_credits REAL NOT NULL DEFAULT 0;
+    ALTER TABLE proposals ADD COLUMN bond_released INTEGER NOT NULL DEFAULT 0;
+    CREATE TABLE IF NOT EXISTS scheduled_skills (
+      id TEXT PRIMARY KEY,
+      skill_id TEXT NOT NULL,
+      caller_key TEXT NOT NULL,
+      variables_json TEXT,
+      cron_expression TEXT NOT NULL,
+      next_run_at TEXT NOT NULL,
+      last_run_at TEXT,
+      last_status TEXT,
+      last_error TEXT,
+      active INTEGER NOT NULL DEFAULT 1,
+      max_credits_per_run REAL,
+      total_runs INTEGER NOT NULL DEFAULT 0,
+      total_credits_spent REAL NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_scheduled_skills_next ON scheduled_skills(next_run_at, active);
+    CREATE INDEX IF NOT EXISTS idx_scheduled_skills_caller ON scheduled_skills(caller_key)` },
 ];
 
 function runMigrations(): void {

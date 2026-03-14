@@ -1,5 +1,6 @@
 import { nanoid } from 'nanoid';
 import { getDb } from './connection';
+import { logger } from '../utils/logger';
 
 // ─── Governance ────────────────────────────────────────────────────────────────
 
@@ -13,6 +14,9 @@ export interface Proposal {
   votes_against: number;
   created_at: string;
   closes_at: string;
+  // v66: proposal bonds
+  bond_credits: number;
+  bond_released: number;
 }
 
 export function createProposal(params: {
@@ -20,20 +24,57 @@ export function createProposal(params: {
   description: string;
   proposedBy: string;
   closeDays?: number;
+  bondCredits?: number;
 }): string {
   const id = nanoid(16);
   const days = Math.max(1, Math.min(90, Math.floor(params.closeDays ?? 7)));
-  getDb().prepare(`
-    INSERT INTO proposals (id, title, description, proposed_by, closes_at)
-    VALUES (?, ?, ?, ?, datetime('now', '+' || ? || ' days'))
-  `).run(id, params.title, params.description, params.proposedBy, days);
+  const bond = params.bondCredits ?? 0;
+
+  if (bond > 0) {
+    // Lock bond credits — deduct from balance, record bond amount on proposal
+    const db = getDb();
+    db.transaction(() => {
+      const row = db.prepare('SELECT credits FROM api_keys WHERE key = ?').get(params.proposedBy) as { credits: number } | undefined;
+      if (!row || row.credits < bond) throw new Error('Insufficient credits for proposal bond');
+      db.prepare('UPDATE api_keys SET credits = credits - ? WHERE key = ?').run(bond, params.proposedBy);
+      db.prepare(`
+        INSERT INTO proposals (id, title, description, proposed_by, closes_at, bond_credits)
+        VALUES (?, ?, ?, ?, datetime('now', '+' || ? || ' days'), ?)
+      `).run(id, params.title, params.description, params.proposedBy, days, bond);
+    })();
+  } else {
+    getDb().prepare(`
+      INSERT INTO proposals (id, title, description, proposed_by, closes_at)
+      VALUES (?, ?, ?, ?, datetime('now', '+' || ? || ' days'))
+    `).run(id, params.title, params.description, params.proposedBy, days);
+  }
+
   return id;
+}
+
+/**
+ * Release bond credits back to the proposer when a proposal closes.
+ * Called during auto-close or manual close. Idempotent — won't double-release.
+ */
+export function releaseBond(proposalId: string): void {
+  const db = getDb();
+  db.transaction(() => {
+    const proposal = db.prepare('SELECT proposed_by, bond_credits, bond_released FROM proposals WHERE id = ?').get(proposalId) as Proposal | undefined;
+    if (!proposal || proposal.bond_credits <= 0 || proposal.bond_released) return;
+    db.prepare('UPDATE api_keys SET credits = credits + ? WHERE key = ?').run(proposal.bond_credits, proposal.proposed_by);
+    db.prepare('UPDATE proposals SET bond_released = 1 WHERE id = ?').run(proposalId);
+    logger.debug({ proposalId, credits: proposal.bond_credits }, 'Proposal bond released');
+  })();
 }
 
 export function getProposals(status?: string, limit = 50, offset = 0): Proposal[] {
   const db = getDb();
-  // Auto-close expired proposals
-  db.prepare(`UPDATE proposals SET status = 'CLOSED' WHERE status = 'OPEN' AND closes_at < datetime('now')`).run();
+  // Auto-close expired proposals + release bonds
+  const expired = db.prepare(`SELECT id FROM proposals WHERE status = 'OPEN' AND closes_at < datetime('now')`).all() as { id: string }[];
+  if (expired.length > 0) {
+    db.prepare(`UPDATE proposals SET status = 'CLOSED' WHERE status = 'OPEN' AND closes_at < datetime('now')`).run();
+    for (const p of expired) releaseBond(p.id);
+  }
   const where = status ? `WHERE status = ?` : ``;
   return db.prepare(`SELECT * FROM proposals ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`)
     .all(...(status ? [status] : []), limit, offset) as Proposal[];

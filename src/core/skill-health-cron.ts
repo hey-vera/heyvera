@@ -9,7 +9,7 @@
  */
 
 import cron from 'node-cron';
-import { getDb, checkSLACompliance, recordSLAViolation } from '../db/index';
+import { getDb, checkSLACompliance, recordSLAViolation, escalatePenalty, runTrustDecay } from '../db/index';
 import { logger } from '../utils/logger';
 import { fireWebhookEvent } from '../utils/webhooks';
 import { round6 } from './credits';
@@ -134,6 +134,32 @@ async function checkSLAContracts(): Promise<void> {
 
   if (violationCount > 0) {
     logger.warn({ violations: violationCount, checked: skillsWithSLA.length }, 'SLA violations detected');
+  }
+
+  // Penalty escalation — check all skills with SLA for tier changes
+  let escalations = 0;
+  for (const skill of skillsWithSLA) {
+    const { newTier, changed } = escalatePenalty(skill.id);
+    if (changed) {
+      escalations++;
+      fireWebhookEvent(skill.author_key, 'SLA_VIOLATED', {
+        skillId: skill.id,
+        skillName: skill.name,
+        penaltyTier: newTier,
+        penaltyAction: newTier === 1 ? 'WARNING' : newTier === 2 ? 'REDUCED_VISIBILITY' : newTier === 3 ? 'DELISTED' : 'CLEARED',
+      });
+    }
+  }
+  if (escalations > 0) {
+    logger.warn({ escalations }, 'Penalty tier changes applied');
+  }
+
+  // Trust decay — run once per cycle (every 15 minutes is fine, weights change slowly)
+  try {
+    const { updated } = runTrustDecay();
+    if (updated > 0) logger.debug({ updated }, 'Trust decay weights refreshed');
+  } catch (err) {
+    logger.error({ err }, 'Trust decay failed');
   }
 }
 
