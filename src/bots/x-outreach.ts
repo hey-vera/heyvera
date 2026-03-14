@@ -473,15 +473,19 @@ Someone tweeted: "${tweet.text.slice(0, 300)}"
 
 Write a Twitter reply (2-3 sentences, 140-240 chars). Follow these rules exactly:
 
-STRUCTURE: [specific observation about their point] + [concrete thing you built/learned] + [short question]
+STRUCTURE: [react to THEIR specific point] + [one concrete thing you built or learned that's relevant to THEIR topic] + [short question]
 
-GOOD EXAMPLES:
-- "the cross-org trust problem is brutal. we ended up hashing every agent transaction so there's a verifiable receipt trail — no trust needed. what's your verification approach?"
-- "agent billing breaks down fast at scale. per-call credit deduction with circuit breakers saved us from runaway costs. are you doing pre-flight budget checks?"
-- "orchestration without budget caps is terrifying. we added per-step cost estimates before execution so agents can't blow through limits. what guardrails are you running?"
+CRITICAL: Your reply MUST match the topic of their tweet. If they talk about context, reply about context. If about trust, reply about trust. Do NOT pivot to a different subject.
 
-BAD (too vague): "interesting point, have you tried caching?" / "this is a hard problem, what's your approach?"
-BAD (too promotional): "we built ClawNet to solve exactly this!" / "check out claw-net.org for this"
+GOOD EXAMPLES (each matches its tweet's topic):
+- tweet about trust: "the no-credit-score problem between agents is real. we hash every transaction into a receipt chain so agents build reputation from verified history. how are you thinking about first-interaction trust?"
+- tweet about context: "context reconstruction is the hidden hard problem. we cache the full intent graph so agents can resume mid-task without losing state. are you storing context per-session or per-agent?"
+- tweet about costs: "agent billing breaks fast at scale. fractional credit deduction with pre-flight budget checks caught runaway costs early. what's your cost ceiling strategy?"
+- tweet about orchestration: "multi-agent orchestration without circuit breakers means cascading failures. we route through 11 capability groups so if one provider drops, agents auto-fallback. what does your retry story look like?"
+
+BAD (topic mismatch): tweet about context → reply about rate limits
+BAD (too vague): "interesting point, have you tried caching?"
+BAD (too promotional): "we built ClawNet to solve exactly this!"
 
 - ~30% of the time, work in "claw-net.org" naturally (like the examples above do NOT) — only if it fits
 - Sound like a real dev, not a brand. Lowercase ok, contractions ok.
