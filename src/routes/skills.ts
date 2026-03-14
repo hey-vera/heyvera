@@ -1036,7 +1036,7 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
             });
           }
         }
-        // Credit x402 surcharge to treasury — covers real USDC spent by operations wallet
+        // Credit x402 surcharge to treasury — covers real USDC spent by hot wallet
         if (surcharge > 0) topUpCredits('clawhub-treasury', surcharge);
         return true;
       })();

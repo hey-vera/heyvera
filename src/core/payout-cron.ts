@@ -2,22 +2,26 @@
  * Automated Solana USDC Payout Cron
  *
  * Runs every 4 hours. Picks up all PENDING payout_requests and sends USDC
- * from the platform's hot wallet (PLATFORM_PAYOUT_PRIVATE_KEY) to each
- * creator's Solana address.
+ * from the platform's hot wallet to each creator's Solana address.
+ *
+ * 2-Wallet Architecture:
+ *   RECEIVING — public address only, users send USDC here to buy credits
+ *   HOT WALLET — single key for x402 API calls + creator payouts
+ *              (SOLANA_PRIVATE_KEY and PLATFORM_PAYOUT_PRIVATE_KEY = same key)
  *
  * - Payout rate: PAYOUT_USDC_PER_CREDIT (default $0.00075/credit — 25% below buy rate)
  * - Minimum payout: 1 USDC (requests below this stay PENDING until they accumulate)
  * - On success: status → PAID, tx_hash recorded
  * - On failure: status → REJECTED, notes recorded (admin can re-queue manually)
  * - Sends admin email alert after each run with a summary
- * - Checks wallet balances (USDC + SOL gas) and alerts if low
+ * - Checks hot wallet balances (USDC + SOL gas) and alerts if low
  *
  * To enable: set PLATFORM_PAYOUT_PRIVATE_KEY in env (bs58 Solana private key).
  */
 
 import cron from 'node-cron';
 import { getAllPendingPayouts, markPayoutPaid, updatePayoutStatus, getTreasuryBalance, deductTreasuryForSweep, recordTransaction, getAllAutoPayoutConfigs, getCreatorEarnedBalance, createPayoutRequest, logAudit } from '../db/index';
-import { sendSolanaUsdc, getHotWalletUsdcBalance, getPayoutWalletSolBalance, getOperationsWalletSolBalance } from '../utils/solana-payout';
+import { sendSolanaUsdc, getHotWalletUsdcBalance, getPayoutWalletSolBalance } from '../utils/solana-payout';
 import { sendAdminAlert } from '../utils/email';
 import { logger } from '../utils/logger';
 import { maskApiKey } from '../utils/mask';
@@ -103,44 +107,35 @@ async function sweepTreasury(): Promise<{ swept: boolean; credits?: number; usdc
 }
 
 /**
- * Check wallet balances (USDC + SOL gas) and return alerts for any that are low.
+ * Check hot wallet balances (USDC + SOL gas) and return alerts for any that are low.
+ * In the 2-wallet setup, SOLANA_PRIVATE_KEY and PLATFORM_PAYOUT_PRIVATE_KEY are the
+ * same key, so we only need to check one wallet.
  */
 async function checkWalletBalances(): Promise<string[]> {
   const warnings: string[] = [];
 
-  // ─── Payout wallet USDC ────────────────────────────────────────────────
-  if (env.PLATFORM_PAYOUT_PRIVATE_KEY) {
-    try {
-      const usdcBalance = await getHotWalletUsdcBalance();
-      if (usdcBalance < env.HOT_WALLET_LOW_BALANCE_USDC) {
-        warnings.push(`PAYOUT wallet USDC low: $${usdcBalance.toFixed(2)} (threshold: $${env.HOT_WALLET_LOW_BALANCE_USDC})`);
-        logger.warn({ usdcBalance, threshold: env.HOT_WALLET_LOW_BALANCE_USDC }, 'Payout wallet USDC low');
-      }
-    } catch (err) {
-      logger.error({ err }, 'Failed to check payout wallet USDC balance');
-    }
+  if (!env.PLATFORM_PAYOUT_PRIVATE_KEY) return warnings;
 
-    // ─── Payout wallet SOL (gas) ───────────────────────────────────────────
-    try {
-      const solBalance = await getPayoutWalletSolBalance();
-      if (solBalance < env.HOT_WALLET_LOW_SOL) {
-        warnings.push(`PAYOUT wallet SOL low: ${solBalance.toFixed(4)} SOL (threshold: ${env.HOT_WALLET_LOW_SOL} SOL) — cannot pay transaction fees`);
-        logger.warn({ solBalance, threshold: env.HOT_WALLET_LOW_SOL }, 'Payout wallet SOL (gas) low');
-      }
-    } catch (err) {
-      logger.error({ err }, 'Failed to check payout wallet SOL balance');
-    }
-  }
-
-  // ─── Operations wallet SOL (gas) ─────────────────────────────────────────
+  // ─── Hot wallet USDC ─────────────────────────────────────────────────────
   try {
-    const opsSol = await getOperationsWalletSolBalance();
-    if (opsSol !== null && opsSol < env.HOT_WALLET_LOW_SOL) {
-      warnings.push(`OPERATIONS wallet SOL low: ${opsSol.toFixed(4)} SOL (threshold: ${env.HOT_WALLET_LOW_SOL} SOL) — x402 calls may fail`);
-      logger.warn({ opsSol, threshold: env.HOT_WALLET_LOW_SOL }, 'Operations wallet SOL (gas) low');
+    const usdcBalance = await getHotWalletUsdcBalance();
+    if (usdcBalance < env.HOT_WALLET_LOW_BALANCE_USDC) {
+      warnings.push(`Hot wallet USDC low: $${usdcBalance.toFixed(2)} (threshold: $${env.HOT_WALLET_LOW_BALANCE_USDC})`);
+      logger.warn({ usdcBalance, threshold: env.HOT_WALLET_LOW_BALANCE_USDC }, 'Hot wallet USDC low');
     }
   } catch (err) {
-    logger.error({ err }, 'Failed to check operations wallet SOL balance');
+    logger.error({ err }, 'Failed to check hot wallet USDC balance');
+  }
+
+  // ─── Hot wallet SOL (gas) ────────────────────────────────────────────────
+  try {
+    const solBalance = await getPayoutWalletSolBalance();
+    if (solBalance < env.HOT_WALLET_LOW_SOL) {
+      warnings.push(`Hot wallet SOL low: ${solBalance.toFixed(4)} SOL (threshold: ${env.HOT_WALLET_LOW_SOL} SOL) — transactions will fail`);
+      logger.warn({ solBalance, threshold: env.HOT_WALLET_LOW_SOL }, 'Hot wallet SOL (gas) low');
+    }
+  } catch (err) {
+    logger.error({ err }, 'Failed to check hot wallet SOL balance');
   }
 
   return warnings;

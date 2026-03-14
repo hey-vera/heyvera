@@ -1,9 +1,13 @@
 /**
  * Solana USDC payout utility.
  *
- * Sends USDC from the platform's hot wallet (PLATFORM_PAYOUT_PRIVATE_KEY)
- * to a recipient's Solana address. Used by the payout cron to settle
- * creator earnings from the skill marketplace.
+ * 2-Wallet Architecture:
+ *   RECEIVING — public address only (SOLANA_RECEIVING_WALLET), users send USDC here
+ *   HOT WALLET — single key (PLATFORM_PAYOUT_PRIVATE_KEY = SOLANA_PRIVATE_KEY)
+ *               handles x402 API calls + creator payouts
+ *
+ * Sends USDC from the hot wallet to a recipient's Solana address.
+ * Used by the payout cron to settle creator earnings from the skill marketplace.
  *
  * USDC mint (mainnet): EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
  */
@@ -86,7 +90,7 @@ export async function sendSolanaUsdc(toWallet: string, amountUsdc: number): Prom
 }
 
 /**
- * Check the USDC balance of the platform's hot wallet.
+ * Check the USDC balance of the hot wallet (PLATFORM_PAYOUT_PRIVATE_KEY).
  * Used by the payout cron to alert when balance is low.
  * Returns balance in USDC (e.g. 42.50).
  */
@@ -115,7 +119,7 @@ export async function getWalletSolBalance(publicKey: PublicKey): Promise<number>
 }
 
 /**
- * Check SOL balance of the payout hot wallet.
+ * Check SOL balance of the hot wallet.
  */
 export async function getPayoutWalletSolBalance(): Promise<number> {
   const payer = getPlatformKeypair();
@@ -124,6 +128,7 @@ export async function getPayoutWalletSolBalance(): Promise<number> {
 
 /**
  * Check SOL balance of the operations wallet (SOLANA_PRIVATE_KEY).
+ * In the 2-wallet setup this is the same key as PLATFORM_PAYOUT_PRIVATE_KEY.
  * Returns null if SOLANA_PRIVATE_KEY is not configured.
  */
 export async function getOperationsWalletSolBalance(): Promise<number | null> {

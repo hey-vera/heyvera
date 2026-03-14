@@ -261,7 +261,7 @@ tasksRouter.post('/', checkApiKey, async (c) => {
             ...(surcharge > 0 && { metadata: { x402Surcharge: surcharge } }),
           });
         }
-        // Credit x402 surcharge to treasury — covers real USDC spent by operations wallet
+        // Credit x402 surcharge to treasury — covers real USDC spent by hot wallet
         if (surcharge > 0) topUpCredits('clawhub-treasury', surcharge);
         return true;
       })();

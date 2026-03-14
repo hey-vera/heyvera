@@ -304,7 +304,7 @@ openclawRouter.post('/invoke', checkApiKey, async (c) => {
             if (authorShare > 0) topUpCredits(skill.author_key, authorShare);
             if (feeCredits > 0) topUpCredits('clawhub-treasury', feeCredits);
           }
-          // Credit x402 surcharge to treasury — covers real USDC spent by operations wallet
+          // Credit x402 surcharge to treasury — covers real USDC spent by hot wallet
           if (surcharge > 0) topUpCredits('clawhub-treasury', surcharge);
           return true;
         })();
