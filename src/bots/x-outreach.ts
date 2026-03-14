@@ -39,6 +39,10 @@ const CONFIG = {
   accessToken: process.env.X_ACCESS_TOKEN ?? '',
   accessTokenSecret: process.env.X_ACCESS_TOKEN_SECRET ?? '',
 
+  // Google Custom Search (free — 100 queries/day)
+  googleApiKey: process.env.GOOGLE_API_KEY ?? '',
+  googleCxId: process.env.GOOGLE_CX_ID ?? '',
+
   // ClawNet
   clawnetApiKey: process.env.CLAWNET_API_KEY ?? '',
   clawnetApiUrl: process.env.CLAWNET_API_URL ?? 'https://claw-net.org',
@@ -199,56 +203,57 @@ interface Tweet {
   };
 }
 
-// Nitter instances to try in order — free, no API key needed
-const NITTER_INSTANCES = [
-  'https://nitter.poast.org',
-  'https://nitter.privacydev.net',
-  'https://nitter.cz',
-  'https://nitter.1d4.us',
-];
+async function searchTweets(query: string): Promise<Tweet[]> {
+  // Google Custom Search API — free (100 queries/day), searches twitter.com/x.com
+  // Setup: console.cloud.google.com → enable Custom Search API + programmablesearchengine.google.com
+  if (!CONFIG.googleApiKey || !CONFIG.googleCxId) {
+    console.warn('  Missing GOOGLE_API_KEY or GOOGLE_CX_ID — skipping search');
+    return [];
+  }
 
-function parseTweetsFromRss(xml: string, query: string): Tweet[] {
+  // Strip X-API-specific operators Google doesn't understand
+  const cleanQuery = query.replace(/-is:\w+/g, '').trim();
+  const params = new URLSearchParams({
+    key: CONFIG.googleApiKey,
+    cx: CONFIG.googleCxId,
+    q: `site:x.com ${cleanQuery}`,
+    num: '10',
+    dateRestrict: 'd1', // Last 24 hours
+  });
+
+  const url = `https://www.googleapis.com/customsearch/v1?${params}`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+
+  if (!res.ok) {
+    const body = await res.text();
+    console.error(`Google Search error ${res.status}: ${body.slice(0, 200)}`);
+    return [];
+  }
+
+  const data = await res.json() as {
+    items?: Array<{ link: string; title: string; snippet: string }>;
+  };
+
   const tweets: Tweet[] = [];
-  // Extract <item> blocks from RSS
-  const items = xml.match(/<item>([\s\S]*?)<\/item>/g) ?? [];
-
-  for (const item of items) {
-    // Extract tweet URL — contains the tweet ID
-    const linkMatch = item.match(/<link>(https?:\/\/[^<]+)<\/link>/);
-    const titleMatch = item.match(/<title>([\s\S]*?)<\/title>/);
-    const pubDateMatch = item.match(/<pubDate>([\s\S]*?)<\/pubDate>/);
-    const descMatch = item.match(/<description>([\s\S]*?)<\/description>/);
-
-    if (!linkMatch || !titleMatch) continue;
-
-    const link = linkMatch[1];
-    // Tweet ID is the last segment of the URL
-    const idMatch = link.match(/\/status\/(\d+)/);
+  for (const item of data.items ?? []) {
+    // Only tweet URLs (not profile pages)
+    const idMatch = item.link.match(/\/status\/(\d+)/);
     if (!idMatch) continue;
 
     const id = idMatch[1];
-
-    // Title is "AuthorName: tweet text" — strip author prefix
-    let text = titleMatch[1].replace(/^[^:]+:\s*/, '').trim();
-    // Decode HTML entities
-    text = text.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
-    // Also try description for full text
-    if (descMatch) {
-      const descText = descMatch[1].replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').trim();
-      if (descText.length > text.length) text = descText;
-    }
-
+    // Title format: "Author on X: "tweet text here..."" — extract tweet text
+    let text = item.snippet ?? '';
+    const titleTextMatch = item.title.match(/[""](.+?)[""]$/);
+    if (titleTextMatch) text = titleTextMatch[1];
     if (text.length < 10) continue;
-
-    const createdAt = pubDateMatch ? new Date(pubDateMatch[1]).toISOString() : new Date().toISOString();
 
     tweets.push({
       id,
       text,
       author_id: '',
-      created_at: createdAt,
+      created_at: new Date().toISOString(),
       public_metrics: {
-        like_count: 5,   // Nitter RSS doesn't expose metrics — assume eligible
+        like_count: 5,   // Google doesn't expose engagement — assume eligible
         retweet_count: 0,
         reply_count: 0,
         quote_count: 0,
@@ -257,41 +262,6 @@ function parseTweetsFromRss(xml: string, query: string): Tweet[] {
   }
 
   return tweets;
-}
-
-async function searchTweets(query: string): Promise<Tweet[]> {
-  // Use Nitter RSS — free, no API key, no $100/month X API plan
-  // Try multiple instances in case one is down
-  const q = encodeURIComponent(query.replace(/-is:retweet\s*-is:reply\s*/g, '').trim());
-
-  for (const instance of NITTER_INSTANCES) {
-    try {
-      const url = `${instance}/search/rss?q=${q}&f=tweets`;
-      const res = await fetch(url, {
-        headers: { Accept: 'application/rss+xml, text/xml, */*' },
-        signal: AbortSignal.timeout(8_000),
-      });
-
-      if (!res.ok) continue;
-
-      const contentType = res.headers.get('content-type') ?? '';
-      const body = await res.text();
-
-      // Must look like RSS/XML
-      if (!body.includes('<rss') && !body.includes('<feed') && !body.includes('<item>')) continue;
-
-      const tweets = parseTweetsFromRss(body, query);
-      if (tweets.length > 0) {
-        console.log(`  (via ${instance})`);
-        return tweets;
-      }
-    } catch {
-      // Try next instance
-    }
-  }
-
-  console.warn('  All Nitter instances failed or returned no results');
-  return [];
 }
 
 async function likeTweet(tweetId: string): Promise<boolean> {
