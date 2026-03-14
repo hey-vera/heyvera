@@ -1,5 +1,15 @@
 # ClawNet — Future Considerations
 
+
+Item	Why it's blocked
+Autonomous hiring/firing-	Needs real SLA data + active agents making choices
+Persistent agents-	Needs WebSocket/multi-node infra
+Dynamic pricing- Needs volume to justify
+Composite-of- composite	Could build, but risk vs reward is low with no composites in production
+Validator roles	Needs third-party participants
+Quorum/governance execution	Needs 500+ users
+
+
 > Ideas evaluated but deferred. Not on the roadmap — revisit when there's user demand or market shift.
 > Last updated: 2026-03-14.
 
@@ -466,11 +476,14 @@
 - **Why wait:** No other platforms to interop with. Standards don't exist yet.
 - **Revisit when:** Multiple agent marketplaces exist and interop becomes competitive advantage.
 
-### Token Economics / Native Token
-- Utility token where each API call splits: 40% burn / 25% buyback / 20% treasury / 15% rewards
-- Self-propelling flywheel with deflationary pressure
-- **Why wait:** Premature without active users. Token requires SEC/legal review, liquidity planning, and community.
-- **Revisit when:** 10,000+ monthly active agents and revenue justifies tokenization.
+### Token Economics / $CLAWNET Token
+- **Revenue split:** 25% of platform revenue feeds into token smart contract
+- **Token split:** 40% immediate burn + Orchestrator Badge NFT / 25% buyback + LP boost / 20% locked DAO treasury / 15% rewards pool (60% stakers, 40% contributors)
+- **Launch milestones:** $50K seed (minimum viable) → $75K launch ready → $100K cushion (full launch + marketing + exchange listings)
+- **Live tracking:** `GET /v1/stats/roadmap` endpoint + `site/roadmap.html` public progress page
+- **Status:** BUILDING — roadmap page live, revenue tracking active, token launch deferred until milestone hit
+- **Why wait:** Need real liquidity ($50-75K minimum) to set up LP properly. Token without liquidity = dead token.
+- **Revisit when:** Platform revenue hits $50K+ and legal/SEC review is complete.
 
 ### Persistent Long-Running Agents (Extended)
 - Agents that maintain state across sessions, run background tasks, monitor conditions over days/weeks

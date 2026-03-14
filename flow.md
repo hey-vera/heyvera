@@ -60,6 +60,7 @@ Every flow in the system, from boot to shutdown. Tree diagrams show exact paths 
 46. [Clerk Webhooks & GDPR Erasure](#46-clerk-webhooks--gdpr-erasure)
 47. [Contact Form](#47-contact-form)
 48. [Dev Revenue Flow — Where the Money Goes](#48-dev-revenue-flow--where-the-money-goes)
+56. [Public Roadmap & Token Launch Tracker](#56-public-roadmap--token-launch-tracker)
 
 ---
 
@@ -3257,4 +3258,45 @@ USE CASES:
 
 ---
 
-*Generated from codebase analysis. Last updated: 2026-03-14. 66 DB migrations, decimal credits (v3), 3-wallet architecture (RECEIVING + OPERATIONS + PAYOUT), treasury auto-sweep, endpoint auto-discovery (183 ClawAPIs endpoints), proportional cache pricing (10% of live, min 0.1cr), agent economy layer (trust signals, cryptographic receipts, compare/quote, composite skills v2, SLA contracts, output contracts, budget accounts, event webhooks, trust decay, penalty escalation, scheduled execution, proposal bonds, structured reports, receipt verification), future-proofing pass (skill health cron, per-skill rate limiting, MCP/OpenAPI manifests, tag filtering, similar skills, staking boost, webhook HMAC signing, credit gifting, batch-query).*
+## 56. Public Roadmap & Token Launch Tracker
+
+Live revenue tracking toward $CLAWNET token launch milestones.
+
+```
+PUBLIC API: GET /v1/stats/roadmap (no auth required)
+├─ Source: src/routes/stats.ts → getRevenueBreakdown() from src/db/admin.ts
+├─ Revenue: SUM(amount_paid) from api_keys = actual USD received
+├─ Platform fees: marketplace fee_credits + invoke fee_credits + swarm fees
+└─ Response:
+   ├─ revenue: { totalUsd, platformFeesCredits, platformFeesUsd, payingUsers }
+   ├─ milestones: [
+   │   { name: "Seed",         target: $50K,  description: "Minimum viable liquidity" }
+   │   { name: "Launch Ready", target: $75K,  description: "Confident launch" }
+   │   { name: "Cushion",      target: $100K, description: "Full launch + marketing" }
+   │ ]
+   ├─ current: { milestone, targetUsd, progressPct }
+   └─ tokenLaunch: {
+       status: BUILDING | VIABLE | READY,
+       split: { burn: 40%, buybackLp: 25%, treasury: 20%, rewards: 15% }
+     }
+
+FRONTEND: site/roadmap.html
+├─ Animated progress bar (0% → 100% of current milestone)
+├─ 3 milestone markers ($50K / $75K / $100K)
+├─ Tokenomics cards (burn, buyback, treasury, rewards)
+├─ 5 development phases with done/active/planned indicators
+├─ Auto-refreshes every 2 minutes from /v1/stats/roadmap
+└─ Matches site design system (Inter, --accent: #10b981, dark/light theme)
+
+TOKEN REVENUE FLOW (post-launch):
+  Platform Revenue (85/15 split on skills)
+  └─ 25% of payout revenue → Smart Contract
+     ├─ 40% → Burn $CLAWNET + mint Orchestrator Badge NFT
+     ├─ 25% → Buy $CLAWNET from market + add to LP with USDC
+     ├─ 20% → Lock in DAO treasury (governed by holders)
+     └─ 15% → Rewards pool (60% stakers / 40% contributors)
+```
+
+---
+
+*Generated from codebase analysis. Last updated: 2026-03-14. 66 DB migrations, decimal credits (v3), 3-wallet architecture (RECEIVING + OPERATIONS + PAYOUT), treasury auto-sweep, endpoint auto-discovery (183 ClawAPIs endpoints), proportional cache pricing (10% of live, min 0.1cr), agent economy layer (trust signals, cryptographic receipts, compare/quote, composite skills v2, SLA contracts, output contracts, budget accounts, event webhooks, trust decay, penalty escalation, scheduled execution, proposal bonds, structured reports, receipt verification), future-proofing pass (skill health cron, per-skill rate limiting, MCP/OpenAPI manifests, tag filtering, similar skills, staking boost, webhook HMAC signing, credit gifting, batch-query), public roadmap + $CLAWNET token launch tracker.*
