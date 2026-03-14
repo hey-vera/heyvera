@@ -8,9 +8,12 @@
  * add real value in the first 1-2 lines, then casually mention ClawNet.
  * Max 5-8 replies per day. Always like/repost their tweet first.
  *
+ * Cost: $0/month — uses X Free tier (posting) + twit.sh (search, no key needed)
+ * No paid X API plan required.
+ *
  * Requirements:
- *   - X API v2 Basic ($100/month) — env vars: X_BEARER_TOKEN, X_API_KEY,
- *     X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_TOKEN_SECRET
+ *   - X API v2 Free tier ($0) — env vars: X_API_KEY, X_API_SECRET,
+ *     X_ACCESS_TOKEN, X_ACCESS_TOKEN_SECRET
  *   - ClawNet API key — env var: CLAWNET_API_KEY (for LLM reply generation)
  *   - Optional: CLAWNET_API_URL (default: https://claw-net.org)
  *
@@ -30,8 +33,7 @@ import crypto from 'crypto';
 // ─── Config ──────────────────────────────────────────────────────────────────
 
 const CONFIG = {
-  // X API
-  bearerToken: process.env.X_BEARER_TOKEN ?? '',
+  // X API (Free tier — posting only, no Bearer token needed)
   apiKey: process.env.X_API_KEY ?? '',
   apiSecret: process.env.X_API_SECRET ?? '',
   accessToken: process.env.X_ACCESS_TOKEN ?? '',
@@ -197,32 +199,52 @@ interface Tweet {
   };
 }
 
-interface SearchResult {
-  data?: Tweet[];
-  meta?: { result_count: number; next_token?: string };
-}
-
 async function searchTweets(query: string): Promise<Tweet[]> {
+  // Use twit.sh — free, no API key required, no $100/month X API plan
   const params = new URLSearchParams({
-    query: `${query} -is:retweet -is:reply lang:en`,
-    max_results: '15',
-    'tweet.fields': 'created_at,public_metrics,author_id',
-    sort_order: 'relevancy',
+    query: `${query} -is:retweet -is:reply`,
+    limit: '20',
+    lang: 'en',
   });
 
-  const url = `https://api.twitter.com/2/tweets/search/recent?${params}`;
+  const url = `https://twit.sh/api/search?${params}`;
   const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${CONFIG.bearerToken}` },
+    headers: { Accept: 'application/json' },
+    signal: AbortSignal.timeout(10_000),
   });
 
   if (!res.ok) {
     const body = await res.text();
-    console.error(`X API search error ${res.status}: ${body}`);
+    console.error(`twit.sh search error ${res.status}: ${body}`);
     return [];
   }
 
-  const data = await res.json() as SearchResult;
-  return data.data ?? [];
+  const data = await res.json() as { tweets?: Array<{
+    id?: string;
+    text?: string;
+    author_id?: string;
+    created_at?: string;
+    likes?: number;
+    retweets?: number;
+    replies?: number;
+    quotes?: number;
+  }> };
+
+  // Normalize twit.sh response to our Tweet interface
+  return (data.tweets ?? [])
+    .filter(t => t.id && t.text)
+    .map(t => ({
+      id: t.id!,
+      text: t.text!,
+      author_id: t.author_id ?? '',
+      created_at: t.created_at ?? new Date().toISOString(),
+      public_metrics: {
+        like_count: t.likes ?? 0,
+        retweet_count: t.retweets ?? 0,
+        reply_count: t.replies ?? 0,
+        quote_count: t.quotes ?? 0,
+      },
+    }));
 }
 
 async function likeTweet(tweetId: string): Promise<boolean> {
@@ -413,13 +435,9 @@ async function run(): Promise<void> {
   console.log(`Mode: ${dryRun ? 'DRY RUN' : searchOnly ? 'SEARCH ONLY' : 'LIVE'}`);
   console.log(`${'='.repeat(60)}\n`);
 
-  // Validate config
-  if (!CONFIG.bearerToken) {
-    console.error('Missing X_BEARER_TOKEN — set environment variables');
-    process.exit(1);
-  }
+  // Validate config — only need X OAuth keys for posting (Free tier)
   if (!dryRun && !searchOnly && (!CONFIG.apiKey || !CONFIG.accessToken)) {
-    console.error('Missing X_API_KEY / X_ACCESS_TOKEN — needed for posting');
+    console.error('Missing X_API_KEY / X_ACCESS_TOKEN — needed for posting (Free tier)');
     process.exit(1);
   }
 
