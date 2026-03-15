@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { getDbStats, getAllPendingPayouts, updatePayoutStatus, getReconciliation, getRevenueBreakdown, getTreasuryStatus, revokeKeyByKey, revokeKeysByEmail, logAudit, getDb } from '../db/index';
 import { cacheStats } from '../cache/index';
+import { cacheAdminRouter } from './cache-admin';
 import { getUsageStats } from '../utils/usage';
 import { getCircuitStats } from '../core/circuit-breaker';
 import { requireAdmin } from '../middleware/admin-auth';
@@ -301,3 +302,6 @@ adminRouter.patch('/payouts/:id', async (c) => {
   logAudit({ entityType: 'payout', entityId: id, action: 'PAYOUT_STATUS', actorId: 'admin', data: { status: body.status, notes: body.notes } });
   return c.json({ ok: true, id, status: body.status });
 });
+
+// ─── Cache Admin Sub-Router ─────────────────────────────────────────────────
+adminRouter.route('/', cacheAdminRouter);

@@ -1,14 +1,11 @@
 import { Hono } from 'hono';
 import crypto from 'crypto';
 import { logger } from '../utils/logger';
-import { getApiKeyByClerkId, createFreeTrialKey, getDb, logAudit } from '../db/index';
-import { maskApiKey } from '../utils/mask';
-import { env } from '../config/index';
+import { getDb, logAudit } from '../db/index';
 
 export const clerkWebhookRouter = new Hono();
 
-// Free trial is DISABLED by default (0 = off). Set FREE_TRIAL_CREDITS=100 in .env to enable.
-// Uses Zod-validated env config — no raw process.env access.
+// Free trials are disabled. Users must purchase credits.
 
 /**
  * Verify Clerk webhook signature (svix-based HMAC-SHA256).
@@ -84,38 +81,13 @@ clerkWebhookRouter.post('/clerk', async (c) => {
 
   if (event.type === 'user.created') {
     const clerkUserId = event.data.id as string;
-    const emailAddresses = event.data.email_addresses as Array<{ email_address: string; verification?: { status: string } }> | undefined;
-    const primaryEmail = emailAddresses?.find((e) => e.verification?.status === 'verified')?.email_address ?? '';
-
     if (!clerkUserId) {
       logger.warn({ svixId }, 'Clerk user.created: missing user id');
       return c.json({ received: true });
     }
 
-    // Free trial is disabled — activate by setting FREE_TRIAL_CREDITS > 0 in .env
-    if (env.FREE_TRIAL_CREDITS <= 0) {
-      logger.info({ clerkUserId }, 'Clerk user.created: free trial disabled (env.FREE_TRIAL_CREDITS=0)');
-      return c.json({ received: true });
-    }
-
-    // Require verified email before granting free trial credits
-    if (!primaryEmail) {
-      logger.info({ clerkUserId }, 'Clerk user.created: no verified email — skipping free trial');
-      return c.json({ received: true });
-    }
-
-    // Idempotency: only grant once per Clerk user
-    if (getApiKeyByClerkId(clerkUserId)) {
-      logger.info({ clerkUserId }, 'Clerk user.created: API key already exists — skipping free trial grant');
-      return c.json({ received: true });
-    }
-
-    try {
-      const key = createFreeTrialKey(clerkUserId, primaryEmail.toLowerCase() || `clerk:${clerkUserId}`, env.FREE_TRIAL_CREDITS);
-      logger.info({ clerkUserId, email: primaryEmail, credits: env.FREE_TRIAL_CREDITS, key: maskApiKey(key) }, 'Free trial credits granted');
-    } catch (err) {
-      logger.error({ err, clerkUserId }, 'Failed to create free trial API key');
-    }
+    // Free trials are disabled. Users must purchase credits.
+    logger.info({ clerkUserId }, 'Clerk user.created: account linked (no free credits — purchase required)');
   }
 
   // GDPR right to erasure: deactivate API key and anonymize email when user deletes their Clerk account.

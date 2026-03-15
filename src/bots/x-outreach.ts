@@ -557,10 +557,24 @@ async function run(): Promise<void> {
   const args = process.argv.slice(2);
   const dryRun = args.includes('--dry-run');
   const searchOnly = args.includes('--search');
+  const autoPost = args.includes('--auto');
+
+  // Default: draft mode (find + generate, don't post)
+  // --auto: actually post replies (use with caution)
+  // --dry-run: preview without any actions
+  const mode = dryRun ? 'DRY RUN' : searchOnly ? 'SEARCH ONLY' : autoPost ? 'LIVE (AUTO-POST)' : 'DRAFT (review before posting)';
 
   console.log(`\n${'='.repeat(60)}`);
   console.log(`ClawNet X Outreach Bot — ${new Date().toISOString()}`);
-  console.log(`Mode: ${dryRun ? 'DRY RUN' : searchOnly ? 'SEARCH ONLY' : 'LIVE'}`);
+  console.log(`Mode: ${mode}`);
+  if (!autoPost && !dryRun && !searchOnly) {
+    console.log(`  Drafts saved to data/x-outreach-drafts.json`);
+    console.log(`  Re-run with --auto to auto-post (risk of X flagging)`);
+  }
+  if (autoPost) {
+    console.log(`  ⚠ AUTO-POST: X may flag unsolicited automated replies.`);
+    console.log(`  Consider draft mode (default) for safety.`);
+  }
   console.log(`${'='.repeat(60)}\n`);
 
   // Validate config — only need X OAuth keys for posting (Free tier)
@@ -673,6 +687,27 @@ async function run(): Promise<void> {
       continue;
     }
 
+    // Default: DRAFT MODE — save for manual review
+    if (!autoPost) {
+      const draftsPath = path.join(process.cwd(), 'data', 'x-outreach-drafts.json');
+      let drafts: Array<{ tweetId: string; tweetText: string; reply: string; url: string; topicId: string; createdAt: string }> = [];
+      try { drafts = JSON.parse(fs.readFileSync(draftsPath, 'utf-8')); } catch { /* fresh */ }
+      drafts.push({
+        tweetId: tweet.id,
+        tweetText: tweet.text.slice(0, 300),
+        reply,
+        url: `https://x.com/i/status/${tweet.id}`,
+        topicId: tweet.topicId,
+        createdAt: new Date().toISOString(),
+      });
+      fs.writeFileSync(draftsPath, JSON.stringify(drafts, null, 2));
+      console.log(`[DRAFT saved — review in data/x-outreach-drafts.json]`);
+      repliedCount++;
+      state.repliedTweetIds.push(tweet.id);
+      continue;
+    }
+
+    // AUTO MODE — actually post (opt-in with --auto flag)
     // Like first (be genuine)
     const liked = await likeTweet(tweet.id);
     console.log(`  Liked: ${liked ? 'yes' : 'failed'}`);

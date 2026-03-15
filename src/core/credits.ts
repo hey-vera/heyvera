@@ -130,6 +130,23 @@ export function cacheCreditCost(liveCreditCost: number): number {
   return round6(Math.max(CACHE_MIN_CREDITS, liveCreditCost * CACHE_DISCOUNT_PCT));
 }
 
+/**
+ * Smart cache pricing: data was fetched fresh but content didn't change.
+ * Charge cache rate (10%) since the caller got "new" confirmation that
+ * data is still the same — value is in the freshness guarantee, not new data.
+ */
+export function unchangedDataCreditCost(liveCreditCost: number): number {
+  return cacheCreditCost(liveCreditCost);
+}
+
+/**
+ * SWR stale-served pricing: data served from stale cache while background
+ * refresh runs. Same as cache rate — caller gets instant response.
+ */
+export function staleCreditCost(liveCreditCost: number): number {
+  return cacheCreditCost(liveCreditCost);
+}
+
 // ─── Dynamic Pricing ────────────────────────────────────────────────────────
 
 export interface DynamicPricingConfig {

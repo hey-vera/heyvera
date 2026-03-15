@@ -10,7 +10,7 @@ import { bodyLimit } from 'hono/body-limit';
 import { env, isSimulationMode } from './config/index';
 import { logger } from './utils/logger';
 import { apiRouter } from './routes/api';
-import { initRedis, cacheStats } from './cache/index';
+import { initRedis, cacheStats, preloadCache } from './cache/index';
 import { checkApiKey } from './middleware/auth';
 import { rateLimiter } from './middleware/rate-limit';
 import { startHeartbeat } from './core/heartbeat';
@@ -44,6 +44,11 @@ import { authRouter } from './routes/auth-tokens';
 import { contextRouter } from './routes/context';
 import { economyRouter } from './routes/economy';
 import { validatorsRouter } from './routes/validators';
+import { recommendationsRouter } from './routes/recommendations';
+import { creatorRouter } from './routes/creator';
+import { accountRouter } from './routes/account';
+import { costComparisonRouter } from './routes/cost-comparison';
+import { openclawCompatRouter } from './routes/openclaw-compat';
 // import { referralRouter } from './routes/referral'; // disabled — re-enable when referral program launches
 import { startEndpointHealthCron } from './core/endpoint-health-cron';
 import { startEndpointDiscoveryCron } from './core/endpoint-discovery';
@@ -54,6 +59,11 @@ import { startStakeUnlockCron } from './core/stake-unlock-cron';
 import { startPayoutCron } from './core/payout-cron';
 import { startSkillHealthCron } from './core/skill-health-cron';
 import { startSkillSchedulerCron } from './core/skill-scheduler-cron';
+import { startCacheWarmingCron } from './core/cache-warming-cron';
+import { startCreatorNotificationsCron } from './core/creator-notifications';
+import { cacheStatsRouter } from './routes/cache-stats';
+import { onboardRouter } from './routes/onboard';
+import { widgetsRouter } from './routes/widgets';
 import { startMeshNode } from './mesh/node';
 import { loadEmbeddingModel } from './core/embeddings';
 import { seedEmbeddings } from './core/seed-embeddings';
@@ -196,6 +206,14 @@ app.route('/v1/auth', authRouter);
 app.route('/v1/context', contextRouter);
 app.route('/v1/economy', economyRouter);
 app.route('/v1/validators', validatorsRouter);
+app.route('/v1/recommendations', recommendationsRouter);
+app.route('/v1/creator', creatorRouter);
+app.route('/v1/cache', cacheStatsRouter);
+app.route('/v1/onboard', onboardRouter);
+app.route('/v1/widgets', widgetsRouter);
+app.route('/v1/account', accountRouter);
+app.route('/v1/compare', costComparisonRouter);
+app.route('/v1/openclaw-compat', openclawCompatRouter);
 // app.route('/v1/referral', referralRouter); // disabled — re-enable when referral program launches
 
 app.notFound((c) => c.json({ error: 'Not found', code: 'NOT_FOUND' }, 404));
@@ -204,6 +222,7 @@ async function start() {
   initDb();
   seedOfficialSkills();
   await initRedis();
+  await preloadCache();
 
   const clawReady = await initClawApis();
   if (clawReady) {
@@ -232,7 +251,9 @@ async function start() {
   startPayoutCron();
   startSkillHealthCron();
   startSkillSchedulerCron();
-  const cronsStarted = 8;
+  startCacheWarmingCron();
+  startCreatorNotificationsCron();
+  const cronsStarted = 10;
 
   // Load embedding model + seed in background — don't block server startup
   loadEmbeddingModel()
@@ -248,7 +269,6 @@ async function start() {
       redis: !!env.REDIS_URL,
       signing: !!env.PLATFORM_SIGNING_SECRET,
       x402: !!env.X402_RECIPIENT_ADDRESS,
-      freeTrial: env.FREE_TRIAL_CREDITS,
       rateLimit: env.RATE_LIMIT_PER_MIN,
       meshActive,
       cronsStarted,

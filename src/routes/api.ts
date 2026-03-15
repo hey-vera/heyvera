@@ -3,7 +3,7 @@ import { insertOrchestration, getApiKeyBalance, getApiKeyByStripeSession, getApi
 import { trackDelegatedSpend } from '../utils/billing';
 import { Hono } from 'hono';
 import { maskApiKey } from '../utils/mask';
-import { creditsForExecution, creditsToUsd, cacheCreditCost } from '../core/credits';
+import { creditsForExecution, creditsToUsd, cacheCreditCost, creditCostForEndpoint, round6 } from '../core/credits';
 import { nanoid } from 'nanoid';
 import { parseIntent } from '../core/intent-parser';
 import { executePlan } from '../core/executor';
@@ -34,7 +34,7 @@ apiRouter.post('/orchestrate', async (c) => {
   const requestId = nanoid(12);
   const start = Date.now();
 
-  let body: { query?: string; pricing?: unknown };
+  let body: { query?: string; pricing?: unknown; cache?: string; diff?: boolean };
   try {
     body = await c.req.json();
   } catch {
@@ -49,6 +49,10 @@ apiRouter.post('/orchestrate', async (c) => {
   if (query.length > 2000) {
     return c.json({ requestId, error: 'Query too long (max 2000 chars)', code: 'QUERY_TOO_LONG' }, 400);
   }
+
+  // Parse optional cache freshness + diff preferences
+  const cacheFreshness = (body.cache && ['prefer', 'fresh', 'smart'].includes(body.cache) ? body.cache : 'smart') as import('../cache/index').CacheFreshness;
+  const wantDiff = body.diff === true;
 
   // Parse optional pricing preferences
   let pricing: PricingPreferences | undefined;
@@ -160,15 +164,38 @@ apiRouter.post('/orchestrate', async (c) => {
 
     // Execute with optional budget constraint for runtime step-skipping
     const budgetConstraint = pricing?.maxCredits ? { maxCredits: pricing.maxCredits } : undefined;
-    const execution = await executePlan(intent, budgetConstraint, keyInfo.key);
+    const execution = await executePlan(intent, budgetConstraint, keyInfo.key, cacheFreshness, wantDiff);
     const formatted = await formatResponse(query, intent, execution);
 
     const apiCosts = execution.totalCost;
     const cacheHits = execution.steps.filter((s) => s.cached).length;
+    const staleServed = execution.steps.filter((s) => s.staleServed).length;
+    const unchangedData = execution.steps.filter((s) => s.contentChanged === false && !s.cached).length;
     const totalDurationMs = Date.now() - start;
 
-    // Value-based pricing: sum per-endpoint credit tiers + orchestration fee
-    const stepCredits = creditsForExecution(execution.steps, findEndpoint);
+    // Smart billing: content-hash-aware pricing
+    // - Cache hits (fresh): cache rate (10%)
+    // - Stale served (SWR): cache rate (10%)
+    // - Fresh fetch, data unchanged: cache rate (10%) — same data = same savings
+    // - Fresh fetch, data changed: full rate
+    let stepCredits = 0;
+    for (const step of execution.steps) {
+      if (!step.success) continue;
+      const ep = findEndpoint(step.endpointId);
+      if (!ep) continue;
+      const liveCost = creditCostForEndpoint(ep);
+      if (step.cached || step.staleServed) {
+        // Cache or SWR hit — cache rate
+        stepCredits += cacheCreditCost(liveCost);
+      } else if (step.contentChanged === false) {
+        // Fresh fetch but data didn't change — charge cache rate (smart pricing)
+        stepCredits += cacheCreditCost(liveCost);
+      } else {
+        // Fresh fetch with new data — full rate
+        stepCredits += liveCost;
+      }
+    }
+    stepCredits = round6(stepCredits);
     const creditsToDeduct = stepCredits + ORCHESTRATION_FEE;
     if (!keyInfo.isEnvKey) {
       // Daily spend tracking — used for anomaly detection and optional hard cap.
@@ -270,6 +297,22 @@ apiRouter.post('/orchestrate', async (c) => {
         orchestrationFee: ORCHESTRATION_FEE,
         estimatedUsd: creditsToUsd(creditsToDeduct),
         cacheHitsSaved: cacheHits,
+        staleServed,
+        unchangedData,
+        // Show how much the smart cache saved vs full-price
+        fullPriceCredits: round6(execution.steps.filter(s => s.success).reduce((sum, s) => {
+          const ep = findEndpoint(s.endpointId);
+          return sum + (ep ? creditCostForEndpoint(ep) : 0);
+        }, 0) + ORCHESTRATION_FEE),
+        creditsSaved: round6(execution.steps.filter(s => s.success).reduce((sum, s) => {
+          const ep = findEndpoint(s.endpointId);
+          if (!ep) return sum;
+          const live = creditCostForEndpoint(ep);
+          if (s.cached || s.staleServed || s.contentChanged === false) {
+            return sum + (live - cacheCreditCost(live));
+          }
+          return sum;
+        }, 0)),
         ...(pricing && {
           strategy: pricing.strategy,
           maxCredits: pricing.maxCredits,

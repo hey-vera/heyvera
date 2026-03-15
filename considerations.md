@@ -409,6 +409,25 @@ Quorum/governance execution	Needs 500+ users
 
 ---
 
+## Smart Cache — Evaluated & Deferred
+
+### ETags / Conditional Requests
+- HTTP-style `If-Modified-Since` / `If-None-Match` headers to upstream APIs
+- **Why deferred:** Requires upstream API cooperation — most ClawNet upstream providers (ClawAPIs, CoinGecko, etc.) don't support ETags. Content-hash validation (implemented) achieves the same goal without upstream cooperation.
+- **Revisit when:** Major upstream providers add ETag support, or ClawNet hosts its own data endpoints.
+
+### Predictive Pre-Fetching
+- Anticipate what agents will need next (e.g., agent asks for SOL price → pre-fetch SOL holders, SOL risk, SOL metadata)
+- **Why deferred:** Too speculative — wrong predictions cost real upstream API spend with no revenue. Cache warming (popularity-based) is a safer version that only warms demonstrably popular queries.
+- **Revisit when:** Agent session data shows strong enough sequential patterns (>80% prediction accuracy) to justify speculative upstream costs.
+
+### Webhook-Based Cache Subscriptions
+- Agents register interest in cache keys via `POST /v1/cache/subscribe`, get notified when cached data changes
+- **Why deferred:** Overkill for current scale. Most agents aren't set up to receive webhooks. SWR + adaptive TTL serve the same purpose (fresh data without polling) with zero agent-side infrastructure.
+- **Revisit when:** Sophisticated agents request push-based data updates, or when 50+ agents are polling the same endpoints.
+
+---
+
 ## Agent Economy v2 — Deferred Items (2026-03-14)
 
 > From the ChatGPT agentic economy analysis. These are real needs for a mature agent economy but depend on ecosystem maturity (agent wallets, protocol standards, adoption volume).

@@ -40,6 +40,8 @@
     }
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: var(--bg-primary); color: var(--text-primary); font-family: var(--font-sans); overflow-x: hidden; min-height: 100vh; }
+    body::before { content: ''; position: fixed; inset: 0; background-image: linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px); background-size: 60px 60px; pointer-events: none; z-index: -1; }
+    [data-theme="light"] body::before { background-image: linear-gradient(rgba(0,0,0,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(0,0,0,0.04) 1px, transparent 1px); }
 
     /* NAV */
     nav { position: sticky; top: 0; z-index: 100; background: rgba(10,10,11,0.85); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border-subtle); padding: 0 24px; height: 56px; display: flex; align-items: center; justify-content: space-between; }
@@ -184,6 +186,7 @@
       <li><a href="/#pricing">Pricing</a></li>
       <li><a href="/docs.html">Docs</a></li>
       <li><a href="/marketplace.html">Marketplace</a></li>
+      <li><a href="/endpoints.html">Endpoints</a></li>
       <li><a href="/roadmap.html" class="active">Roadmap</a></li>
       <li><a href="/playground.html">Playground</a></li>
       <li><a href="https://x.com/i/communities/2031805527043576245" target="_blank" rel="noopener" title="Follow on X" style="padding:6px 8px;display:flex;align-items:center"><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.748l7.73-8.835L1.254 2.25H8.08l4.253 5.622 5.91-5.622zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg></a></li>
@@ -204,7 +207,7 @@
     <button class="nav-btn-ghost danger" id="nav-signout-btn" onclick="navSignOut()" style="cursor:pointer">Sign Out</button>
   </div>
 </nav>
-<div class="mobile-menu" id="mobileMenu"><a href="/">Home</a><a href="/docs.html">Docs</a><a href="/marketplace.html">Marketplace</a><a href="/roadmap.html">Roadmap</a><a href="/playground.html">Playground</a><a href="/dashboard.html">Dashboard</a></div>
+<div class="mobile-menu" id="mobileMenu"><a href="/">Home</a><a href="/docs.html">Docs</a><a href="/marketplace.html">Marketplace</a><a href="/endpoints.html">Endpoints</a><a href="/roadmap.html">Roadmap</a><a href="/playground.html">Playground</a><a href="/dashboard.html">Dashboard</a></div>
 
 <div class="page">
   <!-- HERO -->
@@ -220,7 +223,11 @@
     <div class="revenue-header">
       <div>
         <div class="revenue-amount"><span class="currency">$</span><span id="rev-amount">--</span></div>
-        <div class="revenue-target">of <span id="rev-target">$100,000</span> goal</div>
+        <div style="display:flex;align-items:baseline;gap:16px;margin-top:8px">
+          <div class="revenue-target">Revenue</div>
+          <div id="rev-pct" style="font-family:var(--font-mono);font-size:32px;font-weight:700;color:var(--accent)">0%</div>
+          <div class="revenue-target">of <span id="rev-target">$100,000</span> goal</div>
+        </div>
       </div>
       <span class="revenue-badge badge-building" id="rev-badge">Building</span>
     </div>
@@ -232,16 +239,16 @@
         <div class="marker" id="marker-0">
           <div class="marker-label">$0</div>
         </div>
+        <div class="marker" id="marker-25k">
+          <div class="marker-label">Checkpoint 1</div>
+          <div class="marker-value">$25K</div>
+        </div>
         <div class="marker" id="marker-50k">
-          <div class="marker-label">Seed</div>
+          <div class="marker-label">Checkpoint 2</div>
           <div class="marker-value">$50K</div>
         </div>
-        <div class="marker" id="marker-75k">
-          <div class="marker-label">Launch</div>
-          <div class="marker-value">$75K</div>
-        </div>
         <div class="marker" id="marker-100k">
-          <div class="marker-label">Cushion</div>
+          <div class="marker-label">Launch</div>
           <div class="marker-value">$100K</div>
         </div>
       </div>
@@ -256,11 +263,11 @@
     </div>
     <div class="stat-card">
       <div class="stat-value" id="stat-users">--</div>
-      <div class="stat-label">Paying Users</div>
+      <div class="stat-label">Users</div>
     </div>
     <div class="stat-card">
       <div class="stat-value" id="stat-progress">--%</div>
-      <div class="stat-label">To Next Milestone</div>
+      <div class="stat-label">Goal Progress</div>
     </div>
   </div>
 
@@ -340,7 +347,7 @@
           <li>SDK + MCP tool manifest for agent frameworks</li>
           <li>Developer partnerships + skill ecosystem growth</li>
           <li>Marketing + community building</li>
-          <li>$50K seed milestone (minimum viable token launch)</li>
+          <li>$100K launch milestone — token launch with real liquidity</li>
         </ul>
       </div>
     </div>
@@ -349,7 +356,7 @@
       <div class="phase-content">
         <div class="phase-label">Phase 4 — Planned</div>
         <div class="phase-title">$CLAWNET Token Launch</div>
-        <div class="phase-desc">When revenue hits $75K+ — launch with real liquidity and a proven revenue model.</div>
+        <div class="phase-desc">When revenue hits $100K+ — launch with real liquidity and a proven revenue model.</div>
         <ul class="phase-items">
           <li>Solana token deployment + liquidity pool</li>
           <li>Smart contract for autonomous revenue split</li>
@@ -446,18 +453,22 @@ async function loadRoadmap() {
     badge.textContent = data.tokenLaunch.status === 'READY' ? 'Launch Ready' : data.tokenLaunch.status === 'VIABLE' ? 'Viable' : 'Building';
     badge.className = 'revenue-badge ' + (data.tokenLaunch.status === 'READY' ? 'badge-ready' : data.tokenLaunch.status === 'VIABLE' ? 'badge-viable' : 'badge-building');
 
+    // Big percentage
+    const revPct = document.getElementById('rev-pct');
+    if (revPct) revPct.textContent = pct.toFixed(1) + '%';
+
     // Milestone markers
     for (const m of data.milestones) {
       if (m.reached) {
-        if (m.targetUsd === 50000) document.getElementById('marker-50k').classList.add('reached');
-        if (m.targetUsd === 75000) document.getElementById('marker-75k').classList.add('reached');
-        if (m.targetUsd === 100000) document.getElementById('marker-100k').classList.add('reached');
+        if (m.targetUsd === 25000) document.getElementById('marker-25k')?.classList.add('reached');
+        if (m.targetUsd === 50000) document.getElementById('marker-50k')?.classList.add('reached');
+        if (m.targetUsd === 100000) document.getElementById('marker-100k')?.classList.add('reached');
       }
     }
 
     // Stats
     document.getElementById('stat-fees').textContent = '$' + data.revenue.platformFeesUsd.toLocaleString('en-US', { minimumFractionDigits: 2 });
-    document.getElementById('stat-users').textContent = data.revenue.payingUsers.toLocaleString();
+    document.getElementById('stat-users').textContent = (data.revenue.users ?? 0).toLocaleString();
     document.getElementById('stat-progress').textContent = pct.toFixed(1) + '%';
   } catch (e) {
     console.warn('Roadmap data unavailable:', e);

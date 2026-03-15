@@ -61,6 +61,11 @@ Every flow in the system, from boot to shutdown. Tree diagrams show exact paths 
 47. [Contact Form](#47-contact-form)
 48. [Dev Revenue Flow — Where the Money Goes](#48-dev-revenue-flow--where-the-money-goes)
 56. [Public Roadmap & Token Launch Tracker](#56-public-roadmap--token-launch-tracker)
+57. [Agent Self-Onboarding](#57-agent-self-onboarding)
+58. [Flywheel — Recommendations & Discovery](#58-flywheel--recommendations--discovery)
+59. [Creator Tools & Quality Scoring](#59-creator-tools--quality-scoring)
+60. [Agent Referral System](#60-agent-referral-system)
+61. [Embeddable Widgets](#61-embeddable-widgets)
 
 ---
 
@@ -104,8 +109,11 @@ Agent/Dev wants to use ClawNet
 │  ├─ Daily spend cap checked (DAILY_SPEND_CAP env var)
 │  └─ Anomaly alert fires if single deduction > ANOMALY_THRESHOLD
 │
-├─ Step 5: Response returned
-│  ├─ Cached in Redis (L2) + Memory (L1) for future callers
+├─ Step 5: Response returned (smart cache v2)
+│  ├─ Smart cache: content-hash tracked, adaptive TTL applied, gzip compressed for Redis
+│  ├─ 4 billing scenarios: fresh hit (10%), SWR stale (10%), unchanged data (10%), changed data (100%)
+│  ├─ Response includes: creditsSaved, fullPriceCredits, staleServed, unchangedData
+│  ├─ Optional diff: { changed: { price: { from: 145, to: 146.8 } } } when diff:true
 │  ├─ Logged to orchestrations table (query, steps, cost, duration)
 │  └─ Agent context updated (3× TTL persistent cache per agent)
 │
@@ -126,7 +134,7 @@ npm run dev → tsx src/index.ts
 ├─ initDb()
 │  ├─ Opens SQLite file at DB_PATH
 │  ├─ Sets pragmas: WAL mode, foreign_keys, busy_timeout=5000
-│  ├─ Runs 52 migrations (v1 → v52) — each is idempotent
+│  ├─ Runs 68 migrations (v1 → v68) — each is idempotent
 │  │  ├─ v1-v10: Core tables (api_keys, skills, orchestrations, feedback)
 │  │  ├─ v11-v20: Marketplace (transactions, stakes, payout_requests)
 │  │  ├─ v21-v30: Escrow, governance, tasks, swarms
@@ -134,12 +142,20 @@ npm run dev → tsx src/index.ts
 │  │  ├─ v41-v44: Financial safety triggers + performance indexes
 │  │  ├─ v45-v48: Context layer, reputation, endpoint health, subscriptions
 │  │  ├─ v49-v51: Data skills (sample_output_json, update_frequency)
-│  │  └─ v52: paired_skill_id column
-│  └─ Logs: "Database initialized (52 migrations applied)"
+│  │  ├─ v52: paired_skill_id column
+│  │  ├─ v53-v64: Economy layer (trust signals, receipts, compare, composite)
+│  │  ├─ v65-v67: SLA contracts, composability v2, dynamic pricing, validators, sessions
+│  │  └─ v68: Smart cache (cache_volatility, cache_access_log tables)
+│  └─ Logs: "Database initialized (68 migrations applied)"
 │
 ├─ initRedis()
 │  ├─ If REDIS_URL set → connect to Redis (L2 cache)
 │  └─ If not set → memory-only cache (L1), no error
+│
+├─ preloadCache()
+│  ├─ Queries cache_access_log for top 50 hot keys (3+ accesses in 24h)
+│  ├─ Pre-loads from Redis into L1 memory
+│  └─ Eliminates cold-start penalty after deploy
 │
 ├─ seedOfficialSkills()
 │  ├─ Ensures clawhub-official key exists (platform author, 0% fee)
@@ -171,14 +187,21 @@ npm run dev → tsx src/index.ts
 │  ├─ /v1/referral → referral.ts
 │  ├─ /v1/discover → discover.ts
 │  ├─ /v1/stats   → stats.ts
+│  ├─ /v1/recommendations → recommendations.ts (co-usage, popular, trending)
+│  ├─ /v1/creator → creator.ts (templates, validation, revenue estimates)
+│  ├─ /v1/cache   → cache-stats.ts (per-agent stats, optimizer)
 │  └─ /webhook/*  → clerk-webhook.ts, stripe-webhook.ts
 │
-├─ Start background services
+├─ Start background services (9 crons)
 │  ├─ startPayoutCron() → every 4 hours, settles PENDING payouts via Solana USDC
 │  ├─ startEscrowCron() → checks expired escrows
 │  ├─ startSkillAbCron() → promotes A/B test winners
 │  ├─ startStakeUnlockCron() → unlocks matured stakes
 │  ├─ startEndpointHealthCron() → pings API providers
+│  ├─ startEndpointDiscoveryCron() → polls clawapis.com/api/pricing every 4h
+│  ├─ startSkillHealthCron() → pings skill proxy_urls every 15m
+│  ├─ startSkillSchedulerCron() → executes due scheduled skills every 1m
+│  ├─ startCacheWarmingCron() → pre-fetches hot keys every 5m + health alerting
 │  ├─ startHeartbeat() → logs uptime every 60s
 │  └─ startMeshNode() → libp2p P2P node on port 4001
 │
@@ -1145,22 +1168,25 @@ Agent calls GET /v1/discover?query=DeFi yield data for Solana
 
 ---
 
-## 19. Cache System
+## 19. Cache System (Smart Cache v2)
 
 ```
-Cache architecture (two layers + agent context):
+Smart cache architecture (28 features, 3 layers):
 
 Request arrives
 │
 ├─ Layer 1: Memory cache (L1)
 │  ├─ In-process JavaScript Map
-│  ├─ LRU eviction when at capacity
+│  ├─ Smart eviction: LFU weighted by accessCount × creditCost
+│  │  └─ Expensive, frequently-accessed entries survive over cheap, rare ones
 │  ├─ Fastest: ~0.01ms lookup
-│  └─ Lost on process restart
+│  ├─ Memory tracking: totalBytes + totalMB in stats
+│  └─ Lost on process restart (preloaded from Redis on boot)
 │
 ├─ Layer 2: Redis (L2, optional)
 │  ├─ Shared across restarts
 │  ├─ ~1-5ms lookup
+│  ├─ Gzip compression: values >1KB auto-compressed (60-80% Redis memory savings)
 │  ├─ Falls back to L1-only if REDIS_URL not set
 │  └─ TTL per key (auto-expiry)
 │
@@ -1171,40 +1197,121 @@ Request arrives
    ├─ Survives Redis flush + process restart
    └─ Checked in executor before Redis
 
-Lookup order:
+Lookup order (with client freshness control):
+├─ Client sends { cache: "prefer" | "fresh" | "smart" }
+│  ├─ "prefer": serve any cached data (cheapest)
+│  ├─ "fresh": skip cache, always fetch live (most expensive)
+│  └─ "smart" (default): serve fresh cache, or stale+SWR
+│
+├─ Check negative cache → recent failure? → return CACHED_FAILURE (skip broken endpoint)
 ├─ Check agent context (SQLite) → HIT? → return, 0 credits
-├─ Check L1 memory → HIT? → return
-├─ Check L2 Redis → HIT? → promote to L1, return
-└─ MISS → execute, store in all layers
+├─ Check L1 memory (smartCacheGet) →
+│  ├─ FRESH HIT → return, cache rate (10%)
+│  └─ STALE HIT (SWR) → return stale data immediately, enqueue background refresh
+│     └─ Background refresh: bounded queue (max 100, 5 concurrent), deduped by key
+├─ Check L2 Redis → HIT? → decompress if gzipped, promote to L1, return
+└─ MISS → coalesceRequest() → single upstream call shared across concurrent waiters
+   ├─ Content-hash comparison: if data unchanged from previous cache → charge cache rate
+   ├─ Delta/diff: if client sent diff:true → include { changed, added, removed } in response
+   ├─ Store in L1 + L2 + agent context
+   ├─ Record volatility check (for adaptive TTL learning)
+   └─ Record cache access (for analytics + warming)
 
-Cache key format: claw:SHA256(endpointId + JSON.stringify(params))[:16]
+Cache key format: claw:SHA256(endpointId + normalizedParams)[:16]
+├─ Semantic normalization: SOL/sol/Solana → same key
+├─ Symbol aliases: bitcoin→btc, ethereum→eth, solana→sol, etc.
+└─ All param values lowercased + trimmed before hashing
 
-Query-level cache (orchestration):
-├─ Key: claw:query:SHA256(query + strategy)[:16]
-├─ TTL: 30 minutes (default)
-├─ Cost: cacheCreditCost(originalLiveCost) — 10% of live, min 0.1cr
-└─ Stored after successful orchestration
+Smart billing (4 scenarios):
+├─ Fresh cache hit:      10% of live cost (cache rate)
+├─ SWR stale served:     10% of live cost (cache rate)
+├─ Fresh fetch, data UNCHANGED (content-hash match): 10% (smart pricing)
+├─ Fresh fetch, data CHANGED: 100% full rate
+└─ Response includes: creditsSaved, fullPriceCredits, staleServed, unchangedData
 
-Skill-level cache:
-├─ Key: claw:skill:{skillId}:SHA256(variables)[:16]
-├─ TTL: 300 seconds (5 min)
-└─ Cost: cacheCreditCost(skill.credit_cost) — 10% of live, min 0.1cr
+Adaptive TTL (auto-tuning):
+├─ Tracks change frequency per endpoint in cache_volatility table
+├─ volatilityRatio = change_count / check_count
+├─ TTL multiplier:
+│  ├─ ratio < 0.1 (rarely changes):  2.5× base TTL
+│  ├─ ratio < 0.3 (mostly stable):   1.5× base TTL
+│  ├─ ratio 0.3-0.7 (normal):        1.0× (no change)
+│  ├─ ratio > 0.7 (volatile):        0.5× base TTL
+│  └─ ratio > 0.9 (always changing): 0.25× base TTL
+├─ Clamped: min 30s, max 3× original
+└─ Needs ≥10 checks before adjusting (insufficient data → use base TTL)
 
-Data skill cache:
-├─ Key: claw:data:{skillId}:SHA256(params)[:16]
-├─ TTL: based on update_frequency
-│  ├─ realtime:  60s
-│  ├─ hourly:    3,600s
-│  ├─ daily:     86,400s
-│  ├─ weekly:    604,800s
-│  └─ static:    2,592,000s (30 days)
-└─ Cost: cacheCreditCost(skill.credit_cost) — 10% of live, min 0.1cr
+Request coalescing (single-flight):
+├─ If 10 agents request SOL price simultaneously with empty cache:
+│  ├─ WITHOUT coalescing: 10 upstream API calls (10× cost)
+│  └─ WITH coalescing: 1 upstream call, 9 agents wait for same result
+├─ Implemented via inFlightRequests Map, deduped by cache key
+└─ Promise shared across all concurrent callers for same key
 
-Endpoint step cache:
-├─ Key: claw:SHA256(endpointId + params)[:16]
-├─ TTL: per endpoint in API registry (300s-604800s)
-├─ Cost: 0 credits (transparent to caller)
-└─ Checked during executePlan() per-step
+Negative caching (failure protection):
+├─ When an endpoint fails (500, timeout, circuit open):
+│  ├─ Cache the failure for 30 seconds
+│  └─ Subsequent requests return CACHED_FAILURE immediately
+├─ Prevents thundering herd on broken endpoints
+└─ Auto-expires after 30s, retry allowed
+
+Startup preloading:
+├─ On server boot, after Redis connects:
+│  ├─ Query cache_access_log for top 50 hot keys (3+ accesses in 24h)
+│  ├─ Pre-load from Redis into L1 memory
+│  └─ Eliminates cold-start penalty after deploy
+└─ Logged: "Cache preloaded from Redis: loaded X/Y candidates"
+
+Cache warming cron (every 5 minutes):
+├─ Identifies hot keys about to expire (>80% through TTL)
+├─ Pre-fetches up to 10 endpoints per cycle
+├─ Platform absorbs upstream cost, earns cache-hit revenue from agents
+├─ Piggybacks health check: alerts admin if hit rate drops >20%
+└─ setInterval().unref() — doesn't prevent process exit
+
+Multi-layer invalidation:
+├─ invalidateKey(key): L1 memory + L2 Redis (key + meta + gz) + L3 agent context
+├─ invalidateByEndpoint(endpointId): all L1 entries tagged with that endpoint
+├─ Batch invalidation: DELETE /v1/admin/cache/keys (up to 100 keys)
+└─ Per-endpoint: DELETE /v1/admin/cache/endpoint/:endpointId
+
+Cache optimizer (beyond-100% feature):
+├─ GET /v1/cache/optimizer → TTL suggestions per endpoint
+│  ├─ "claw-token-price: increase TTL 60s→150s, save ~340 credits/day"
+│  ├─ "claw-token-metadata: already optimal (hitRate 98%)"
+│  └─ "claw-x-mentions: decrease TTL, data changes every fetch"
+├─ GET /v1/cache/my-stats → per-agent hit rate + personalized suggestions
+│  └─ "You use cache:'fresh' on 80% of requests → switch to 'smart' for ~$4/mo savings"
+└─ Based on real volatility data + agent usage patterns
+
+Cache analytics (DB tables):
+├─ cache_volatility: per-endpoint change tracking (check_count, change_count, last_hash)
+├─ cache_access_log: every access logged (hit, stale_served, content_changed, credits_saved)
+└─ Admin endpoints:
+   ├─ GET /v1/admin/cache/stats — memory/redis/compression stats
+   ├─ GET /v1/admin/cache/volatility — all endpoint volatility data
+   ├─ GET /v1/admin/cache/hot-keys — most popular cache keys
+   ├─ GET /v1/admin/cache/endpoint-analytics — per-endpoint hit rates (7 days)
+   └─ GET /v1/admin/cache/warming-candidates — keys queued for pre-fetch
+
+Key files:
+├─ src/cache/index.ts — core: 28 features (coalescing, SWR, compression, eviction, etc.)
+├─ src/cache/adaptive-ttl.ts — volatility tracking + TTL auto-tuning
+├─ src/cache/warming.ts — hot key detection + analytics + access logging
+├─ src/cache/health-alert.ts — admin alerts on hit rate drops
+├─ src/cache/optimizer.ts — TTL suggestions + budget advisor
+├─ src/core/cache-warming-cron.ts — periodic pre-fetch cron
+├─ src/core/executor.ts — consumer: coalescing, negative cache, smart billing
+├─ src/routes/cache-admin.ts — admin endpoints (stats, invalidation, analytics)
+└─ src/routes/cache-stats.ts — agent-facing stats (GET /v1/cache/my-stats + /optimizer)
+
+Data skill TTL tiers (unchanged):
+├─ realtime:  60s
+├─ hourly:    3,600s
+├─ daily:     86,400s
+├─ weekly:    604,800s
+├─ static:    2,592,000s (30 days)
+└─ Custom: "30s", "5m", "2h", "3d" (clamped 10s-30d)
 ```
 
 ---
@@ -3560,4 +3667,184 @@ FLOW:
 
 ---
 
-*Generated from codebase analysis. Last updated: 2026-03-14. 66 DB migrations, decimal credits (v3), 3-wallet architecture (RECEIVING + OPERATIONS + PAYOUT), treasury auto-sweep, endpoint auto-discovery (183 ClawAPIs endpoints), proportional cache pricing (10% of live, min 0.1cr), agent economy layer (trust signals, cryptographic receipts, compare/quote, composite skills v2, SLA contracts, output contracts, budget accounts, event webhooks, trust decay, penalty escalation, scheduled execution, proposal bonds, structured reports, receipt verification), future-proofing pass (skill health cron, per-skill rate limiting, MCP/OpenAPI manifests, tag filtering, similar skills, staking boost, webhook HMAC signing, credit gifting, batch-query), public roadmap + $CLAWNET token launch tracker, dynamic pricing (surge/volume/off-peak), composite-of-composite nesting (depth 3), autonomous hiring/firing, quorum governance execution, validator roles, persistent agent sessions.*
+## 57. Agent Self-Onboarding
+
+```
+AI agent wants to use ClawNet (no human signup needed)
+│
+├─ POST /v1/onboard (no auth required, 5/IP/hour rate limit)
+│  ├─ Body: { name?, email?, referredBy?: "cn-xxxx" }
+│  ├─ Creates API key: cn- + 48 hex chars (crypto.randomBytes)
+│  ├─ Awards 100 free trial credits
+│  ├─ If referredBy valid: +25 bonus credits to new agent, +50 to referrer
+│  └─ Returns:
+│     ├─ apiKey — ready to use immediately
+│     ├─ gettingStarted — endpoint guide (orchestrate, skills, discover, budget)
+│     ├─ topSkills — top 5 by rating/usage (name, id, creditCost, avgRating)
+│     └─ limits — rate limit tiers, credit info, topup instructions
+│
+├─ GET /v1/onboard/manifest (no auth, MCP-compatible)
+│  ├─ Returns tool manifest for MCP-compatible agent frameworks
+│  ├─ Includes: orchestrate tool + all public skills as individual tools
+│  ├─ Each tool has: name, description, inputSchema (JSON Schema)
+│  └─ Authentication + pricing metadata included
+│
+└─ SDK: @clawnet/sdk (src/sdk/client.ts)
+   ├─ ClawNet.onboard() — static, creates key programmatically
+   ├─ new ClawNet({ apiKey }) — wraps all REST endpoints
+   └─ Methods: orchestrate, invokeSkill, discover, getBalance, etc.
+
+Key files:
+├─ src/routes/onboard.ts — POST /v1/onboard + GET /v1/onboard/manifest
+└─ src/sdk/client.ts — @clawnet/sdk TypeScript client
+```
+
+---
+
+## 58. Flywheel — Recommendations & Discovery
+
+```
+Agent-native skill recommendations (collaborative filtering)
+│
+├─ GET /v1/recommendations/skills/:skillId
+│  ├─ "Agents who used X also used Y"
+│  ├─ Finds API keys that transacted for skillId
+│  ├─ Finds other skills those keys also used
+│  ├─ Ranked by co-usage frequency
+│  └─ Returns: { skillId, name, coUsageCount, coUsageRate, creditCost, avgRating }
+│
+├─ GET /v1/recommendations/agent
+│  ├─ Personalized for the calling agent's API key
+│  ├─ Finds keys with 3+ shared skills (similar usage pattern)
+│  ├─ Recommends skills those similar agents used that this agent hasn't
+│  └─ Filters out skills the agent already uses
+│
+├─ GET /v1/recommendations/popular?period=week
+│  ├─ Most-used skills by transaction count
+│  ├─ Trend detection: compare this period vs previous period (up/down/stable)
+│  └─ Returns: { skillId, name, usageCount, uniqueUsers, avgRating, trend }
+│
+└─ GET /v1/recommendations/trending
+   ├─ Highest growth rate (this week vs last week)
+   ├─ Min 5 uses filter (removes noise)
+   └─ Sorted by growth percentage
+
+Platform usage insights (admin):
+├─ getPlatformHealth() — active keys, transactions, cache hit rate, revenue
+├─ getEndpointUsageHeatmap() — hourly endpoint usage (feeds cache warming)
+└─ getSkillEcosystemStats() — skills by type, creators, revenue, top creator
+
+Key files:
+├─ src/core/recommendations.ts — collaborative filtering engine
+├─ src/core/usage-insights.ts — platform intelligence
+└─ src/routes/recommendations.ts — 4 public endpoints
+```
+
+---
+
+## 59. Creator Tools & Quality Scoring
+
+```
+Creator onboarding + skill quality automation
+│
+├─ LLM Skill Generator
+│  ├─ POST /v1/creator/template with { type, name, description }
+│  ├─ OR: generateSkillFromDescription("a tool that analyzes token risk")
+│  ├─ LLM auto-detects skill_type: URL mentioned → api_proxy, text → prompt_template, data → data
+│  ├─ Returns complete skill config: name, description, type, credit_cost, tags, template/proxy_url
+│  └─ Zero friction: describe in English → get publishable config
+│
+├─ Pre-Publish Validation
+│  ├─ POST /v1/creator/validate with skill config
+│  ├─ Checks: proxy_url reachable, prompt has {{vars}}, JSON valid, description length, tags exist
+│  └─ Returns: { approved, score, checks[], suggestions[] }
+│
+├─ Quality Scoring (0-100, cached 1 hour)
+│  ├─ Reliability (0-25): success_rate + SLA compliance
+│  ├─ Performance (0-25): avg_latency_ms buckets
+│  ├─ Trust (0-25): rating + verified + age
+│  ├─ Usage (0-25): invocation count + unique users + trending
+│  ├─ Grade: A(90+) B(75+) C(60+) D(40+) F(<40)
+│  └─ Flags: low_rating, slow_response, unverified, no_sla, low_usage, new_skill
+│
+├─ Creator Stats: GET /v1/creator/stats
+│  └─ skillCount, totalRevenue, totalInvocations, avgRating, topSkill, growth
+│
+├─ Revenue Estimator: GET /v1/creator/revenue-estimate?creditCost=2&dailyUses=50
+│  └─ dailyCredits, monthlyCredits, monthlyUsd, creatorShareUsd, breakEvenDays
+│
+└─ Creator Growth Notifications (every 30 minutes)
+   ├─ Milestone webhooks: 1, 10, 50, 100, 500, 1000 invocations
+   ├─ Rating milestones: first rating, first 5-star
+   ├─ Revenue milestones: 100, 1000, 10000 credits earned
+   └─ Fires SKILL_MILESTONE webhook event + logger
+
+Key files:
+├─ src/core/skill-generator.ts — LLM-powered skill creation
+├─ src/core/quality-scoring.ts — 0-100 score with 1h cache
+├─ src/core/creator-tools.ts — templates, validation, revenue, stats
+├─ src/core/creator-notifications.ts — milestone tracking + cron
+└─ src/routes/creator.ts — 4 creator endpoints
+```
+
+---
+
+## 60. Agent Referral System
+
+```
+Viral growth: agents that bring other agents earn credits
+│
+├─ How it works:
+│  ├─ Agent A has key cn-aaaa
+│  ├─ Agent A refers Agent B: POST /v1/onboard { referredBy: "cn-aaaa" }
+│  ├─ Agent B gets: 100 trial + 25 bonus = 125 credits
+│  ├─ Agent A gets: +50 credits (referral reward)
+│  └─ Both benefit — flywheel incentive
+│
+├─ Implementation (SQLite, atomic transactions):
+│  ├─ agent_referrals table: referrer_key, referred_key (UNIQUE), credits_awarded
+│  ├─ recordReferral() — transaction: INSERT referral + topUpCredits(referrer, 50) + topUpCredits(referred, 25)
+│  ├─ Dedup: UNIQUE constraint on referred_key prevents double-counting
+│  └─ Migration v69 creates table + index
+│
+├─ Stats:
+│  ├─ getReferralStats(apiKey) — total referred, credits earned, masked referred keys
+│  └─ getTopReferrers(limit) — leaderboard sorted by count
+│
+└─ Anti-abuse:
+   ├─ Onboard endpoint rate limited: 5/IP/hour
+   ├─ referred_key UNIQUE: can't refer same key twice
+   └─ Credits awarded via topUpCredits (audit logged)
+
+Key file: src/core/agent-referrals.ts
+```
+
+---
+
+## 61. Embeddable Widgets
+
+```
+Creators embed skill stats on their sites — drives traffic back to ClawNet
+│
+├─ GET /v1/widgets/badge/:skillId — SVG badge (no auth, CORS enabled)
+│  ├─ ┌──────────────────────────────────┐
+│  │  │  ClawNet │ token-analysis │ ★4.8 │
+│  │  └──────────────────────────────────┘
+│  ├─ Color: green (≥4.0), yellow (≥3.0), red (<3.0)
+│  └─ Content-Type: image/svg+xml
+│
+├─ GET /v1/widgets/card/:skillId — HTML card (embeddable iframe)
+│  ├─ Dark-themed card: name, description, rating, invocations, cost
+│  ├─ "Try it" button → POST /v1/skills/:id/invoke
+│  ├─ "Powered by ClawNet" footer
+│  └─ Supports ?format=js for script injection
+│
+└─ GET /v1/widgets/embed/:skillId — Copy-paste snippet
+   └─ Returns HTML with <script> tag for creators to paste on their site
+
+Key file: src/routes/widgets.ts
+```
+
+---
+
+*Generated from codebase analysis. Last updated: 2026-03-14. 69 DB migrations, decimal credits (v3), 2-wallet architecture, treasury auto-sweep, endpoint auto-discovery (183 ClawAPIs endpoints), smart cache v2 (28 features: content-hash validation, SWR, adaptive TTL, request coalescing, negative caching, gzip compression, LFU eviction, cache warming, cost optimizer, budget advisor), agent economy layer (trust signals, cryptographic receipts, compare/quote, composite skills v2, SLA contracts, output contracts, budget accounts, event webhooks, trust decay, penalty escalation, scheduled execution, proposal bonds, validator roles, persistent agent sessions), flywheel system (agent self-onboarding, MCP manifest, SDK scaffolding, recommendations engine, quality scoring, creator tools, LLM skill generator, growth notifications, referral system, embeddable widgets), dynamic pricing (surge/volume/off-peak), composite-of-composite nesting (depth 3), autonomous hiring/firing, quorum governance execution.*

@@ -1,6 +1,6 @@
 import { createMiddleware } from 'hono/factory';
 import crypto from 'crypto';
-import { getApiKey, getDelegationInfo, resetBudgetCountersIfNeeded, safeJsonParse } from '../db/index';
+import { getApiKey, getDelegationInfo, resetBudgetCountersIfNeeded, safeJsonParse, getHardBudgetLock, getMonthlySpend } from '../db/index';
 import { env } from '../config/index';
 import { logger } from '../utils/logger';
 import { maskApiKey } from '../utils/mask';
@@ -111,6 +111,25 @@ export const checkApiKey = createMiddleware(async (c, next) => {
     amountPaid: keyRecord.amount_paid ?? 0,
     isEnvKey: false,
   });
+
+  // Check hard budget lock — blocks all spending when monthly limit is reached
+  const lock = getHardBudgetLock(key);
+  if (lock && lock.enabled) {
+    const monthlySpent = getMonthlySpend(key);
+    if (monthlySpent >= lock.limitCredits) {
+      const nextMonth = new Date();
+      nextMonth.setUTCMonth(nextMonth.getUTCMonth() + 1, 1);
+      nextMonth.setUTCHours(0, 0, 0, 0);
+      return c.json({
+        error: 'Monthly budget lock reached. Spending is frozen until next month.',
+        code: 'BUDGET_LOCKED',
+        limit: lock.limitCredits,
+        spent: monthlySpent,
+        resetsAt: nextMonth.toISOString(),
+        hint: 'Increase your budget lock at POST /v1/account/budget/lock or remove it with DELETE /v1/account/budget/lock',
+      }, 402);
+    }
+  }
 
   return next();
 });

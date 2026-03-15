@@ -499,6 +499,48 @@ const MIGRATIONS: { version: number; sql: string }[] = [
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS idx_agent_sessions_key ON agent_sessions(api_key)` },
+  // v68: smart cache — adaptive TTL, cache warming, cache analytics
+  { version: 68, sql: `
+    CREATE TABLE IF NOT EXISTS cache_volatility (
+      cache_key_prefix TEXT PRIMARY KEY,
+      endpoint_id TEXT NOT NULL,
+      check_count INTEGER NOT NULL DEFAULT 0,
+      change_count INTEGER NOT NULL DEFAULT 0,
+      last_hash TEXT,
+      avg_ttl_seconds REAL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_cache_vol_endpoint ON cache_volatility(endpoint_id);
+    CREATE TABLE IF NOT EXISTS cache_access_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      cache_key TEXT NOT NULL,
+      endpoint_id TEXT NOT NULL,
+      hit INTEGER NOT NULL DEFAULT 0,
+      stale_served INTEGER NOT NULL DEFAULT 0,
+      content_changed INTEGER,
+      credits_saved REAL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_cache_access_created ON cache_access_log(created_at);
+    CREATE INDEX IF NOT EXISTS idx_cache_access_endpoint ON cache_access_log(endpoint_id)` },
+  // v69: agent referrals — move from JSON file to SQLite
+  { version: 69, sql: `
+    CREATE TABLE IF NOT EXISTS agent_referrals (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      referrer_key TEXT NOT NULL,
+      referred_key TEXT NOT NULL UNIQUE,
+      credits_awarded REAL NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_referrals_referrer ON agent_referrals(referrer_key)` },
+  // v70: hard budget locks — users set monthly spending caps, enforced in auth middleware
+  { version: 70, sql: `
+    CREATE TABLE IF NOT EXISTS budget_locks (
+      api_key TEXT PRIMARY KEY,
+      monthly_limit REAL NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )` },
 ];
 
 function runMigrations(): void {

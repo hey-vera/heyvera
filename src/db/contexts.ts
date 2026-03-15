@@ -179,6 +179,23 @@ export function clearAgentContext(apiKey: string, endpointId?: string): number {
 }
 
 /**
+ * Clear all agent context entries for a given endpoint across all agents.
+ * Used by cache invalidation (L3) to keep agent context consistent when
+ * upstream data is manually invalidated.
+ */
+export function clearAgentContextByEndpoint(endpointId: string): number {
+  try {
+    const result = getDb().prepare(
+      `DELETE FROM agent_contexts WHERE endpoint_id = ?`
+    ).run(endpointId);
+    return result.changes;
+  } catch (err) {
+    logger.debug({ err, endpointId }, 'clearAgentContextByEndpoint failed');
+    return 0;
+  }
+}
+
+/**
  * Purge all expired context entries across all agents.
  * Called by the daily cleanup cron.
  */

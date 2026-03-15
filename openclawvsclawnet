@@ -1,0 +1,144 @@
+# ClawNet vs OpenClaw — Strategic Positioning & Roadmap
+
+## What OpenClaw Is
+- Open-source AI agent framework (MIT license), 247K GitHub stars
+- Runs locally on user's machine — full system access
+- 2,857 community skills on ClawHub
+- Revenue model: NONE (free software, costs come from LLM APIs)
+- Users pay $5-600/month for LLM tokens + hosting
+- Security issues: CVE-2026-25253, ClawHavoc attack (341 malicious skills, 9,000 compromised)
+
+## What ClawNet Is
+- AI agent orchestration API with built-in economy
+- Cloud-hosted (single API call, no setup)
+- 350 data endpoints, 17 verified skills, 28-feature smart cache
+- Revenue model: per-query credits ($0.001/credit)
+- Users pay $1-30/month with hard budget controls
+
+---
+
+## Cost Comparison
+
+| Metric | OpenClaw | ClawNet |
+|--------|---------|---------|
+| Cost per simple query | ~$0.014 (136K token overhead) | ~$0.003 (2cr orch + endpoint) |
+| Cost with caching | Same — no cache | $0.0003 (90% savings) |
+| Monthly casual use | $5-30 | $1-5 |
+| Monthly heavy automation | $50-200+ | $10-30 |
+| Runaway protection | None | Budget locks + anomaly alerts |
+| Cost visibility | After the bill | In every response |
+| Worst case reported | $3,600/month | Hard-capped by user |
+
+## Security Comparison
+
+| Issue | OpenClaw | ClawNet |
+|-------|---------|---------|
+| Supply chain attacks | ClawHavoc: 341 malicious skills | Verified marketplace + quality scoring |
+| CVEs | CVE-2026-25253 | Centralized API, audited |
+| Credential storage | Plaintext by default | .env on VPS, never logged |
+| Skill vetting | Open upload, no review | Verification pipeline + penalty system |
+
+## What OpenClaw Has That We Don't
+- Local execution (runs on user's machine)
+- Browser automation (Playwright/Puppeteer)
+- Messaging UI (WhatsApp, Telegram, Discord, Slack as interface)
+- Desktop automation (keyboard/mouse control)
+- 2,857 community skills vs our 17
+- File system access
+- Smart home / IoT control
+
+## What ClawNet Has That OpenClaw Doesn't
+- Predictable per-credit pricing with budget locks
+- Smart cache (28 features, 90% savings)
+- 350 pre-integrated data endpoints
+- Agent economy (marketplace with 85/15 revenue split)
+- On-chain payments (USDC, x402)
+- Budget accounts with delegated keys
+- Quality scoring (0-100) on all skills
+- Cryptographic receipts for every transaction
+- Cost transparency in every API response
+- OpenClaw compatibility layer (install as ClawHub skill)
+
+---
+
+## Growth Roadmap
+
+### Phase 1: Data Layer — "Intel Inside" (NOW)
+**Strategy:** Be the intelligence API that AI agents call.
+```
+OpenClaw Agent → installs ClawNet skill → calls our API → pays credits
+```
+**Revenue:** Per-query credits from every OpenClaw user who installs our skill.
+**Already built:**
+- 350 endpoints across 15+ providers
+- Smart cache (content-hash, SWR, adaptive TTL, 28 features)
+- Agent onboarding (POST /v1/onboard)
+- OpenClaw compatibility layer (skill manifest + simplified query)
+- Budget locks, spending dashboard, cost comparison
+- Agent economy infrastructure (marketplace, escrow, trust, SLAs)
+
+### Phase 2: Agent Hosting — "Vercel for Agents" (3-6 months)
+**Strategy:** Users deploy agents ON ClawNet instead of self-hosting.
+```
+User → deploys agent to ClawNet → agent runs in our cloud
+No Docker, no VPS, no API key juggling
+```
+**Revenue:** Hosting fees + data credits.
+**Needs building:**
+- Multi-tenant agent runtime (sandboxed containers)
+- Agent deployment CLI (`clawnet deploy ./my-agent`)
+- Built-in messaging SDKs (WhatsApp Business, Telegram Bot, Discord)
+- Browser automation integration (headless Playwright)
+- Persistent agent state across sessions
+- Usage-based hosting pricing
+- Admin dashboard for deployed agents
+
+### Phase 3: Full Agent Platform — "The Agent Economy" (6-12 months)
+**Strategy:** The platform where agents discover, hire, and pay each other.
+```
+Agents onboard → discover skills → buy capabilities → earn revenue
+The platform IS the economy
+```
+**Revenue:** Everything — hosting + data + marketplace fees + payment processing.
+**Already built (90% of infrastructure):**
+- Agent self-onboarding
+- Skill discovery (Trinity search)
+- Marketplace with revenue sharing
+- Composite skills (agent subcontracting)
+- Escrow for contracted work
+- Delegated keys for sub-agents
+- Trust signals + reputation
+- Governance + voting
+- On-chain payments
+**Needs building:**
+- Agent runtime (the actual execution environment)
+- Multi-node scaling
+- Cross-platform agent identity
+- Agent-to-agent negotiation protocol
+
+---
+
+## Key Insight
+OpenClaw has 247K GitHub stars but $0 revenue. They're popular but not profitable.
+ClawNet has fewer users but an actual revenue model. We don't need to be bigger in users — we need to be bigger in REVENUE.
+
+The path: capture OpenClaw's users as CUSTOMERS (via compatibility layer), then offer them something better (hosted agents + economy). They come for cheaper data, they stay for the platform.
+
+---
+
+## Anti-OpenClaw Endpoints (Built)
+- GET /v1/account/spending — full spending dashboard (they can't do this)
+- POST /v1/account/budget/lock — hard monthly cap (they can't do this)
+- GET /v1/compare/costs — public cost comparison (marketing)
+- GET /v1/openclaw-compat/skill-manifest — ClawHub-installable skill
+- POST /v1/openclaw-compat/query — simplified API for OpenClaw agents
+- GET /v1/cache/my-stats — per-user cache performance + savings
+- GET /v1/cache/optimizer — TTL suggestions to save more money
+
+## Sources
+- OpenClaw Pricing: https://www.thecaio.ai/blog/openclaw-pricing-guide
+- Hidden Token Costs: https://darren-broemmer.medium.com
+- $400 Testing Review: https://ssntpl.com/i-spent-400-testing-openclaw-ai-an-honest-review/
+- Token Intensity: https://help.apiyi.com/en/openclaw-token-cost-optimization-guide-en.html
+- OpenClaw Wikipedia: https://en.wikipedia.org/wiki/OpenClaw
+- ClawHavoc Attack: https://www.cnbc.com/2026/02/02/openclaw-open-source-ai-agent-rise-controversy

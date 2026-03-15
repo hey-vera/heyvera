@@ -1,7 +1,7 @@
 import { isEndpointAvailable, recordSuccess, recordFailure } from './circuit-breaker';
 import { ParsedIntent } from './intent-parser';
 import { findEndpoint } from '../config/api-registry';
-import { cacheGet, cacheSet, cacheKey } from '../cache/index';
+import { cacheKey, smartCacheGet, smartCacheSet, enqueueRefresh, computeDiff, coalesceRequest, cacheNegative, getNegativeCache, type CacheFreshness, type DiffResult } from '../cache/index';
 import { logger } from '../utils/logger';
 import { isClawApisReady, clawApiCall } from '../providers/clawapis';
 import { getAgentContext, setAgentContext } from '../db/index';
@@ -11,9 +11,12 @@ export interface StepResult {
   endpointId: string;
   success: boolean;
   cached: boolean;
+  staleServed?: boolean;       // True if served from SWR stale cache
+  contentChanged?: boolean;    // True if fresh fetch returned different data than cache
   durationMs: number;
   cost: number;
   data?: unknown;
+  diff?: DiffResult | null;    // Delta between previous and current (opt-in)
   error?: string;
 }
 
@@ -44,6 +47,14 @@ function mockData(endpointId: string): unknown {
     // CoinGecko x402
     'coingecko-price':       { id: 'bitcoin', symbol: 'btc', name: 'Bitcoin', current_price: 65000, market_cap: 1280000000000, price_change_percentage_24h: 2.3 },
     'coingecko-coin-data':   { id: 'solana', symbol: 'sol', name: 'Solana', description: { en: 'Solana is a high-performance blockchain.' }, market_data: { current_price: { usd: 145 } } },
+    // DexScreener
+    'dexscreener-token':  { pairs: [{ pairAddress: 'abc123', baseToken: { symbol: 'SOL', name: 'Solana' }, quoteToken: { symbol: 'USDC' }, priceUsd: '145.20', volume: { h24: 42000000 }, liquidity: { usd: 8500000 }, priceChange: { h24: 3.1 }, txns: { h24: { buys: 12400, sells: 11800 } } }] },
+    'dexscreener-pair':   { pairAddress: 'abc123', baseToken: { symbol: 'SOL' }, quoteToken: { symbol: 'USDC' }, priceUsd: '145.20', volume: { h24: 42000000 }, liquidity: { usd: 8500000 }, fdv: 68000000000 },
+    'dexscreener-search': { pairs: [{ baseToken: { symbol: 'SOL', name: 'Solana', address: 'So11111111111111111111111111111111111111112' }, priceUsd: '145.20' }] },
+    // CoinGecko additional
+    'coingecko-history':  { prices: [[1710000000000, 145.2], [1710086400000, 146.8], [1710172800000, 143.5]], market_caps: [[1710000000000, 68000000000]], total_volumes: [[1710000000000, 4200000000]] },
+    'coingecko-trending': { coins: [{ item: { id: 'solana', name: 'Solana', symbol: 'SOL', market_cap_rank: 5, price_btc: 0.00223 } }] },
+    'coingecko-global':   { data: { total_market_cap: { usd: 2800000000000 }, total_volume: { usd: 120000000000 }, market_cap_percentage: { btc: 52.1, eth: 16.3 }, active_cryptocurrencies: 14200 } },
     // Rug Munch
     'rugmunch-risk':         { score: 82, verdict: 'safe', rugPullRisk: 'low', liquidityLocked: true, mintAuthority: false },
     'rugmunch-honeypot':     { isHoneypot: false, canSell: true, sellTax: 0, buyTax: 0 },
@@ -176,6 +187,8 @@ async function executeStep(
   stepIndex: number,
   intent: ParsedIntent,
   agentKey?: string,
+  freshness: CacheFreshness = 'smart',
+  wantDiff: boolean = false,
 ): Promise<StepResult> {
   const step = intent.steps[stepIndex];
   const endpoint = findEndpoint(step.endpointId);
@@ -186,7 +199,8 @@ async function executeStep(
   }
 
   // Agent Context Layer — check per-agent SQLite cache first (sub-1ms)
-  if (agentKey) {
+  // Skip if freshness === 'fresh' (client wants live data)
+  if (agentKey && freshness !== 'fresh') {
     const ctxData = getAgentContext(agentKey, step.endpointId, step.params);
     if (ctxData !== null) {
       logger.debug({ endpointId: step.endpointId }, 'Agent context hit');
@@ -194,11 +208,55 @@ async function executeStep(
     }
   }
 
+  // ── Smart Cache Lookup ──────────────────────────────────────────────────
   const key = cacheKey(step.endpointId, step.params);
-  const cached = await cacheGet<unknown>(key);
-  if (cached !== null) {
-    logger.debug({ endpointId: step.endpointId }, 'Cache hit');
-    return { endpointId: step.endpointId, success: true, cached: true, durationMs: Date.now() - start, cost: 0, data: cached };
+  const endpointCreditCost = creditCostForEndpoint(endpoint);
+  const cacheResult = await smartCacheGet<unknown>(key, freshness, step.endpointId, endpointCreditCost);
+
+  if (cacheResult) {
+    // Fresh cache hit — serve directly
+    if (cacheResult.fresh) {
+      logger.debug({ endpointId: step.endpointId }, 'Smart cache hit (fresh)');
+      return { endpointId: step.endpointId, success: true, cached: true, durationMs: Date.now() - start, cost: 0, data: cacheResult.value };
+    }
+
+    // Stale cache hit (SWR) — serve stale data immediately, refresh in background
+    if (cacheResult.stale && freshness !== 'fresh') {
+      logger.debug({ endpointId: step.endpointId }, 'SWR: serving stale, refreshing in background');
+
+      // Enqueue background refresh
+      enqueueRefresh(key, async () => {
+        if (!isClawApisReady()) return mockData(step.endpointId);
+        const apiPath = endpoint.path ?? '/solscan/token/meta';
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 15_000);
+        try {
+          const freshData = await clawApiCall(apiPath, normalizeParams(step.endpointId, step.params), endpoint.baseUrl, controller.signal);
+          recordSuccess(step.endpointId);
+          // Also update agent context
+          if (agentKey) {
+            setAgentContext(agentKey, step.endpointId, step.params, freshData, endpoint.category ?? null, endpoint.cacheTtl ?? 300);
+          }
+          return freshData;
+        } finally {
+          clearTimeout(timer);
+        }
+      }, endpoint.cacheTtl ?? 300);
+
+      return {
+        endpointId: step.endpointId, success: true, cached: true, staleServed: true,
+        durationMs: Date.now() - start, cost: 0, data: cacheResult.value,
+      };
+    }
+  }
+
+  // ── Cache Miss — Live Fetch ─────────────────────────────────────────────
+
+  // Check negative cache — don't retry recently-failed endpoints
+  const negError = getNegativeCache(key);
+  if (negError) {
+    logger.debug({ endpointId: step.endpointId }, 'Negative cache hit — skipping recently-failed endpoint');
+    return { endpointId: step.endpointId, success: false, cached: false, durationMs: Date.now() - start, cost: 0, error: `CACHED_FAILURE: ${negError}` };
   }
 
   if (!isEndpointAvailable(step.endpointId)) {
@@ -209,38 +267,55 @@ async function executeStep(
   try {
     const apiPath = endpoint.path ?? '/solscan/token/meta';
     let data: unknown;
-    if (isClawApisReady()) {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), STEP_TIMEOUT_MS);
-      try {
-        data = await clawApiCall(apiPath, normalizeParams(step.endpointId, step.params), endpoint.baseUrl, controller.signal);
-      } finally {
-        clearTimeout(timer);
+
+    // Request coalescing: if another request for the same key is in-flight,
+    // wait for it instead of making a duplicate upstream call
+    data = await coalesceRequest(key, async () => {
+      if (isClawApisReady()) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), STEP_TIMEOUT_MS);
+        try {
+          return await clawApiCall(apiPath, normalizeParams(step.endpointId, step.params), endpoint.baseUrl, controller.signal);
+        } finally {
+          clearTimeout(timer);
+        }
+      } else {
+        return mockData(step.endpointId);
       }
-    } else {
-      data = mockData(step.endpointId);
-    }
-    // YELLOW-8: Reject oversized responses before caching to prevent cache poisoning / memory DoS
-    const MAX_RESPONSE_BYTES = 1_000_000; // 1MB
+    });
+
+    // YELLOW-8: Reject oversized responses before caching
+    const MAX_RESPONSE_BYTES = 1_000_000;
     const serialized = JSON.stringify(data);
     const responseSize = serialized.length;
+
+    let contentChanged: boolean | undefined;
+    let diff: DiffResult | null | undefined;
+
     if (responseSize > MAX_RESPONSE_BYTES) {
       logger.warn({ endpointId: step.endpointId, responseSize }, 'API response exceeds max size — skipping cache');
     } else {
-      await cacheSet(key, data, endpoint.cacheTtl);
-      // Store in agent context for persistent per-agent cache (3x TTL)
+      // Smart cache set — tracks content hash + previous value for diff
+      const cacheInfo = await smartCacheSet(key, data, endpoint.cacheTtl, step.endpointId, endpoint.creditCost ?? endpoint.costPerCall);
+      contentChanged = cacheInfo.contentChanged;
+
+      // Compute diff if requested and data changed
+      if (wantDiff && cacheInfo.previousValue != null) {
+        diff = computeDiff(cacheInfo.previousValue, data);
+      }
+
+      // Store in agent context
       if (agentKey) {
         setAgentContext(agentKey, step.endpointId, step.params, data, endpoint.category ?? null, endpoint.cacheTtl ?? 300);
       }
     }
 
-    // Post-fetch validation: verify response contains expected output fields
+    // Post-fetch validation
     if (endpoint.outputFields && endpoint.outputFields.length > 0 && data && typeof data === 'object') {
       const dataKeys = new Set(Object.keys(data as Record<string, unknown>));
       const matchCount = endpoint.outputFields.filter(f => dataKeys.has(f)).length;
       const matchRatio = matchCount / endpoint.outputFields.length;
       if (matchRatio < 0.3 && endpoint.outputFields.length > 1) {
-        // Response doesn't match expected schema — likely wrong endpoint or stale data
         logger.warn({
           endpointId: step.endpointId,
           expected: endpoint.outputFields.slice(0, 5),
@@ -251,10 +326,16 @@ async function executeStep(
     }
 
     recordSuccess(step.endpointId);
-    return { endpointId: step.endpointId, success: true, cached: false, durationMs: Date.now() - start, cost: endpoint.costPerCall, data };
+    return {
+      endpointId: step.endpointId, success: true, cached: false,
+      contentChanged, diff,
+      durationMs: Date.now() - start, cost: endpoint.costPerCall, data,
+    };
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
     const isTimeout = err instanceof Error && err.name === 'AbortError';
+    // Cache the failure to prevent hammering this endpoint
+    cacheNegative(key, isTimeout ? 'TIMEOUT' : error.slice(0, 100));
     logger.error({ endpointId: step.endpointId, error, timeout: isTimeout }, 'Step execution failed');
     recordFailure(step.endpointId);
     return { endpointId: step.endpointId, success: false, cached: false, durationMs: Date.now() - start, cost: 0, error: isTimeout ? 'STEP_TIMEOUT' : error };
@@ -266,7 +347,13 @@ export interface BudgetConstraint {
   maxCredits: number;
 }
 
-export async function executePlan(intent: ParsedIntent, budget?: BudgetConstraint, agentKey?: string): Promise<ExecutionResult> {
+export async function executePlan(
+  intent: ParsedIntent,
+  budget?: BudgetConstraint,
+  agentKey?: string,
+  freshness: CacheFreshness = 'smart',
+  wantDiff: boolean = false,
+): Promise<ExecutionResult> {
   const start = Date.now();
   const allResults: StepResult[] = new Array(intent.steps.length);
   let runningCostUsd = 0;
@@ -295,7 +382,7 @@ export async function executePlan(intent: ParsedIntent, budget?: BudgetConstrain
       : group;
 
     const groupResults = await Promise.allSettled(
-      stepsToRun.map((indexStr) => executeStep(parseInt(indexStr), intent, agentKey))
+      stepsToRun.map((indexStr) => executeStep(parseInt(indexStr), intent, agentKey, freshness, wantDiff))
     );
     groupResults.forEach((result, i) => {
       const stepIndex = parseInt(stepsToRun[i]);

@@ -362,17 +362,6 @@ export function getDbStats(): {
   };
 }
 
-export function createFreeTrialKey(clerkUserId: string, email: string, credits: number): string {
-  const crypto = require('crypto') as typeof import('crypto');
-  const key = 'cn-' + crypto.randomBytes(24).toString('hex');
-  getDb()
-    .prepare(`INSERT INTO api_keys (key, email, credits, credits_used, created_at, clerk_user_id, amount_paid)
-              VALUES (?, ?, ?, 0, datetime('now'), ?, 0)`)
-    .run(key, email, credits, clerkUserId);
-  logAudit({ entityType: 'api_key', entityId: key, action: 'CREDIT_GRANT', actorId: 'system', data: { credits, via: 'free_trial', clerkUserId } });
-  return key;
-}
-
 // ─── Key / Clerk helpers ───────────────────────────────────────────────────────
 
 export function getClerkIdForKey(key: string): string | undefined {
