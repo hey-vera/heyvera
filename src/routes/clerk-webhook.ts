@@ -109,10 +109,22 @@ clerkWebhookRouter.post('/clerk', async (c) => {
         // Deactivate key and anonymize email — removes PII while preserving credit balance record
         db.prepare(`UPDATE api_keys SET active = 0, email = '[deleted]' WHERE clerk_user_id = ?`).run(clerkUserId);
         // Unpublish all skills by this user — they can no longer be discovered or purchased
+        const userSkills = db.prepare(`
+          SELECT id FROM skills
+          WHERE author_key IN (SELECT key FROM api_keys WHERE clerk_user_id = ?)
+        `).all(clerkUserId) as { id: string }[];
         db.prepare(`
           UPDATE skills SET public = 0, active = 0
           WHERE author_key IN (SELECT key FROM api_keys WHERE clerk_user_id = ?)
         `).run(clerkUserId);
+        // Clean discovery_cache + skill_embeddings for unpublished skills
+        for (const skill of userSkills) {
+          const cached = db.prepare('SELECT rowid_vec FROM discovery_cache WHERE id = ?').get(skill.id) as { rowid_vec: number } | undefined;
+          if (cached?.rowid_vec) {
+            try { db.prepare('DELETE FROM skill_embeddings WHERE rowid = ?').run(cached.rowid_vec); } catch { /* vec table may not exist */ }
+          }
+          db.prepare('DELETE FROM discovery_cache WHERE id = ?').run(skill.id);
+        }
       })();
       logAudit({ entityType: 'clerk_user', entityId: clerkUserId, action: 'USER_DELETED', actorId: 'clerk' });
       logger.info({ clerkUserId }, 'Clerk user.deleted: API key deactivated, email anonymized, skills unpublished');

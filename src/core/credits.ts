@@ -57,7 +57,7 @@ export function round6(n: number): number {
  * Minimum 0.001 credits per endpoint to prevent free-riding.
  */
 export function creditCostForEndpoint(endpoint: { creditCost?: number; costPerCall: number }): number {
-  if (endpoint.creditCost != null) return endpoint.creditCost;
+  if (endpoint.creditCost != null) return round6(Math.max(0.001, endpoint.creditCost));
   return round6(Math.max(0.001, endpoint.costPerCall * COST_MARKUP_FACTOR));
 }
 
@@ -166,6 +166,9 @@ export function dynamicCreditCost(
       cost = cost * (1 - discount);
     }
   }
+
+  // Cap total discount at 50% — cost can never drop below half of baseCost
+  cost = Math.max(baseCost * 0.5, cost);
 
   return round6(Math.max(0.001, cost));
 }

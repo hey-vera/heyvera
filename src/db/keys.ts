@@ -146,6 +146,11 @@ export function regenerateApiKey(
     db.prepare(`UPDATE payout_requests SET agent_key = ? WHERE agent_key = ? AND status IN ('PENDING','PROCESSING')`)
       .run(newKey, row.key);
 
+    // Transfer auto-payout config, agent sessions, and agent webhooks to new key
+    db.prepare('UPDATE auto_payout_config SET agent_key = ? WHERE agent_key = ?').run(newKey, row.key);
+    db.prepare('UPDATE agent_sessions SET api_key = ? WHERE api_key = ?').run(newKey, row.key);
+    db.prepare('UPDATE agent_webhooks SET agent_key = ? WHERE agent_key = ?').run(newKey, row.key);
+
     // Cascade-deactivate any delegated sub-keys of the old key
     db.prepare('UPDATE api_keys SET active = 0 WHERE key IN (SELECT child_key FROM delegated_keys WHERE parent_key = ?)').run(row.key);
     db.prepare('UPDATE delegated_keys SET active = 0 WHERE parent_key = ?').run(row.key);
@@ -192,12 +197,19 @@ export function applyReferralCode(
   ownerKey: string,
   bonusReceiver: number,
   bonusOwner: number,
-): 'ok' | 'already_used' | 'self_referral' {
+): 'ok' | 'already_used' | 'self_referral' | 'daily_cap' {
   if (referreeKey === ownerKey) return 'self_referral';
   const db = getDb();
   return db.transaction(() => {
     const already = db.prepare('SELECT 1 FROM referral_uses WHERE referree_key = ?').get(referreeKey);
     if (already) return 'already_used';
+
+    // Daily cap: max 50 uses per code per day to prevent abuse
+    const today = new Date().toISOString().split('T')[0];
+    const dailyUses = db.prepare(
+      `SELECT COUNT(*) as cnt FROM referral_uses WHERE code = ? AND applied_at >= ? AND applied_at < ?`
+    ).get(code, today + 'T00:00:00.000Z', today + 'T23:59:59.999Z') as { cnt: number };
+    if (dailyUses.cnt >= 50) return 'daily_cap';
 
     db.prepare('INSERT INTO referral_uses (referree_key, code) VALUES (?, ?)').run(referreeKey, code);
     db.prepare('UPDATE referral_codes SET uses = uses + 1 WHERE code = ?').run(code);

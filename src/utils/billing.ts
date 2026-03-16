@@ -1,4 +1,6 @@
 import { incrementDelegatedSpend, incrementBudgetSpend } from '../db/index';
+import { logger } from './logger';
+import { maskApiKey } from './mask';
 
 /**
  * After a successful deductCredit(), call this to track spending on delegated sub-keys.
@@ -14,7 +16,10 @@ export function trackDelegatedSpend(
   amount: number,
 ): void {
   if (keyInfo.delegatedFrom && amount > 0) {
-    incrementDelegatedSpend(keyInfo.delegatedFrom, amount);
+    const updated = incrementDelegatedSpend(keyInfo.delegatedFrom, amount);
+    if (!updated) {
+      logger.warn({ key: maskApiKey(keyInfo.delegatedFrom), amount }, 'incrementDelegatedSpend failed — spend limit may have been reached');
+    }
     incrementBudgetSpend(keyInfo.delegatedFrom, amount);
   }
 }

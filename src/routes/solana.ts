@@ -98,79 +98,94 @@ solanaRouter.post('/verify', async (c) => {
   let transferredUsd = 0;
 
   try {
-    let tx = null;
-    let activeConnection: Connection = new Connection(rpcUrls[0], 'confirmed');
-    let lastErr: unknown;
-    for (const rpcUrl of rpcUrls) {
-      try {
-        const conn = new Connection(rpcUrl, 'confirmed');
-        tx = await conn.getParsedTransaction(signature, {
-          maxSupportedTransactionVersion: 0,
-          commitment: 'confirmed',
-        });
-        if (tx !== null) {
-          activeConnection = conn; // reuse for account info lookups
-          break;
-        }
-      } catch (err) {
-        lastErr = err;
-        logger.warn({ rpcUrl, err }, 'Solana RPC failed, trying fallback');
-      }
-    }
-    if (tx === null && lastErr) throw lastErr;
-
-    const connection = activeConnection;
-
-    if (!tx) {
-      releaseClaimSolanaSignature(signature);
-      return c.json({ error: 'Transaction not found. It may still be confirming — wait a few seconds and try again.', code: 'TX_NOT_FOUND' }, 404);
-    }
-
-    if (tx.meta?.err) {
-      releaseClaimSolanaSignature(signature);
-      return c.json({ error: 'Transaction failed on-chain.', code: 'TX_FAILED' }, 400);
-    }
-
-    // Walk through token transfers to find USDC to our receiving wallet
-    const instructions = tx.transaction.message.instructions;
-    const innerInstructions = tx.meta?.innerInstructions ?? [];
-
-    const allInstructions = [
-      ...instructions,
-      ...innerInstructions.flatMap((ii) => ii.instructions),
-    ];
-
-    for (const ix of allInstructions) {
-      if (!('parsed' in ix)) continue;
-      const p = (ix as any).parsed;
-      if (
-        p?.type === 'transferChecked' &&
-        p?.info?.mint === USDC_MINT &&
-        p?.info?.destination &&
-        p?.info?.source &&
-        p?.info?.tokenAmount?.uiAmount
-      ) {
-        // Verify destination is owned by receiving wallet, source is NOT (prevent self-transfer double-counting)
-        try {
-          const destPubkey = new PublicKey(p.info.destination);
-          const destInfo = await connection.getParsedAccountInfo(destPubkey);
-          const destOwner = (destInfo.value?.data as any)?.parsed?.info?.owner;
-
-          const srcPubkey = new PublicKey(p.info.source);
-          const srcInfo = await connection.getParsedAccountInfo(srcPubkey);
-          const srcOwner = (srcInfo.value?.data as any)?.parsed?.info?.owner;
-
-          if (destOwner === RECEIVING_WALLET && srcOwner !== RECEIVING_WALLET) {
-            transferredUsd += p.info.tokenAmount.uiAmount;
+    const verificationResult = await Promise.race([
+      (async () => {
+        let tx = null;
+        let activeConnection: Connection = new Connection(rpcUrls[0], 'confirmed');
+        let lastErr: unknown;
+        for (const rpcUrl of rpcUrls) {
+          try {
+            const conn = new Connection(rpcUrl, 'confirmed');
+            tx = await conn.getParsedTransaction(signature, {
+              maxSupportedTransactionVersion: 0,
+              commitment: 'confirmed',
+            });
+            if (tx !== null) {
+              activeConnection = conn; // reuse for account info lookups
+              break;
+            }
+          } catch (err) {
+            lastErr = err;
+            logger.warn({ rpcUrl, err }, 'Solana RPC failed, trying fallback');
           }
-        } catch {
-          // skip unresolvable accounts
         }
-      }
+        if (tx === null && lastErr) throw lastErr;
+
+        const connection = activeConnection;
+
+        if (!tx) {
+          return { earlyReturn: c.json({ error: 'Transaction not found. It may still be confirming — wait a few seconds and try again.', code: 'TX_NOT_FOUND' }, 404) } as const;
+        }
+
+        if (tx.meta?.err) {
+          return { earlyReturn: c.json({ error: 'Transaction failed on-chain.', code: 'TX_FAILED' }, 400) } as const;
+        }
+
+        // Walk through token transfers to find USDC to our receiving wallet
+        const instructions = tx.transaction.message.instructions;
+        const innerInstructions = tx.meta?.innerInstructions ?? [];
+
+        const allInstructions = [
+          ...instructions,
+          ...innerInstructions.flatMap((ii) => ii.instructions),
+        ];
+
+        let usdFound = 0;
+        for (const ix of allInstructions) {
+          if (!('parsed' in ix)) continue;
+          const p = (ix as any).parsed;
+          if (
+            p?.type === 'transferChecked' &&
+            p?.info?.mint === USDC_MINT &&
+            p?.info?.destination &&
+            p?.info?.source &&
+            p?.info?.tokenAmount?.uiAmount
+          ) {
+            // Verify destination is owned by receiving wallet, source is NOT (prevent self-transfer double-counting)
+            try {
+              const destPubkey = new PublicKey(p.info.destination);
+              const destInfo = await connection.getParsedAccountInfo(destPubkey);
+              const destOwner = (destInfo.value?.data as any)?.parsed?.info?.owner;
+
+              const srcPubkey = new PublicKey(p.info.source);
+              const srcInfo = await connection.getParsedAccountInfo(srcPubkey);
+              const srcOwner = (srcInfo.value?.data as any)?.parsed?.info?.owner;
+
+              if (destOwner === RECEIVING_WALLET && srcOwner !== RECEIVING_WALLET) {
+                usdFound += p.info.tokenAmount.uiAmount;
+              }
+            } catch {
+              // skip unresolvable accounts
+            }
+          }
+        }
+        return { usdFound } as const;
+      })(),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('SOLANA_VERIFICATION_TIMEOUT')), 15_000)),
+    ]);
+
+    if ('earlyReturn' in verificationResult) {
+      releaseClaimSolanaSignature(signature);
+      return verificationResult.earlyReturn;
     }
+    transferredUsd = verificationResult.usdFound;
   } catch (err) {
-    logger.error({ err, signature }, 'Solana tx verification failed');
+    const isTimeout = err instanceof Error && err.message === 'SOLANA_VERIFICATION_TIMEOUT';
+    logger.error({ err, signature, timeout: isTimeout }, 'Solana tx verification failed');
     releaseClaimSolanaSignature(signature);
+    if (isTimeout) {
+      return c.json({ error: 'Transaction verification timed out. Please try again.', code: 'VERIFICATION_TIMEOUT' }, 504);
+    }
     return c.json({ error: 'Failed to verify transaction. Please try again.', code: 'VERIFICATION_FAILED' }, 500);
   }
 

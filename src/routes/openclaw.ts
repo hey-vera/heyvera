@@ -149,7 +149,13 @@ openclawRouter.post('/invoke', checkApiKey, async (c) => {
         if (keyInfo.credits < cacheCredits) {
           return c.json({ ok: false, requestId, error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS', creditsAvailable: keyInfo.credits }, 402);
         }
-        const cacheDeducted = deductCredit(keyInfo.key, cacheCredits);
+        let cacheDeducted = false;
+        try {
+          cacheDeducted = deductCredit(keyInfo.key, cacheCredits);
+        } catch (err) {
+          logger.error({ err, key: maskApiKey(keyInfo.key) }, 'Billing failed');
+          return c.json({ error: 'Billing temporarily unavailable', code: 'BILLING_ERROR' }, 503);
+        }
         if (!cacheDeducted) return c.json({ error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS' }, 402);
         trackDelegatedSpend(keyInfo, cacheCredits);
       }
@@ -173,7 +179,13 @@ openclawRouter.post('/invoke', checkApiKey, async (c) => {
       const totalDurationMs = Date.now() - start;
 
       if (!keyInfo.isEnvKey) {
-        const deducted = deductCredit(keyInfo.key, creditsUsed);
+        let deducted = false;
+        try {
+          deducted = deductCredit(keyInfo.key, creditsUsed);
+        } catch (err) {
+          logger.error({ err, key: maskApiKey(keyInfo.key) }, 'Billing failed');
+          return c.json({ error: 'Billing temporarily unavailable', code: 'BILLING_ERROR' }, 503);
+        }
         if (!deducted) {
           return c.json({ ok: false, requestId, error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS', creditsRequired: creditsUsed, creditsAvailable: keyInfo.credits }, 402);
         }
@@ -254,7 +266,13 @@ openclawRouter.post('/invoke', checkApiKey, async (c) => {
       const originalCredits = (cached.costBreakdown as Record<string, unknown> | undefined)?.creditsUsed as number ?? skill.credit_cost;
       const cacheCredits = cacheCreditCost(originalCredits);
       if (!keyInfo.isEnvKey && cacheCredits > 0) {
-        const deducted = deductCredit(keyInfo.key, cacheCredits);
+        let deducted = false;
+        try {
+          deducted = deductCredit(keyInfo.key, cacheCredits);
+        } catch (err) {
+          logger.error({ err, key: maskApiKey(keyInfo.key) }, 'Billing failed');
+          return c.json({ error: 'Billing temporarily unavailable', code: 'BILLING_ERROR' }, 503);
+        }
         if (!deducted) {
           return c.json({ ok: false, requestId, error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS',
             creditsRequired: cacheCredits, creditsAvailable: keyInfo.credits }, 402);
@@ -295,20 +313,26 @@ openclawRouter.post('/invoke', checkApiKey, async (c) => {
         const revenueSharePct = skill.revenue_share_pct;
         const shouldPayAuthor = skill.author_key !== keyInfo.key && revenueSharePct > 0;
 
-        const txOk = getDb().transaction(() => {
-          const deducted = deductCredit(keyInfo.key, creditsUsed);
-          if (!deducted) return false;
-          if (shouldPayAuthor) {
-            // Revenue split applies to skillCredits only — surcharge goes 100% to platform
-            const authorShare = round6(skillCredits * revenueSharePct);
-            const feeCredits = round6(skillCredits - authorShare);
-            if (authorShare > 0) topUpCredits(skill.author_key, authorShare);
-            if (feeCredits > 0) topUpCredits('clawhub-treasury', feeCredits);
-          }
-          // Credit x402 surcharge to treasury — covers real USDC spent by hot wallet
-          if (surcharge > 0) topUpCredits('clawhub-treasury', surcharge);
-          return true;
-        })();
+        let txOk = false;
+        try {
+          txOk = getDb().transaction(() => {
+            const deducted = deductCredit(keyInfo.key, creditsUsed);
+            if (!deducted) return false;
+            if (shouldPayAuthor) {
+              // Revenue split applies to skillCredits only — surcharge goes 100% to platform
+              const authorShare = round6(skillCredits * revenueSharePct);
+              const feeCredits = round6(skillCredits - authorShare);
+              if (authorShare > 0) topUpCredits(skill.author_key, authorShare);
+              if (feeCredits > 0) topUpCredits('clawhub-treasury', feeCredits);
+            }
+            // Credit x402 surcharge to treasury — covers real USDC spent by hot wallet
+            if (surcharge > 0) topUpCredits('clawhub-treasury', surcharge);
+            return true;
+          })();
+        } catch (err) {
+          logger.error({ err, key: maskApiKey(keyInfo.key) }, 'Billing failed');
+          return c.json({ error: 'Billing temporarily unavailable', code: 'BILLING_ERROR' }, 503);
+        }
 
         if (!txOk) {
           return c.json({ ok: false, requestId, error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS', creditsRequired: creditsUsed, creditsAvailable: keyInfo.credits }, 402);

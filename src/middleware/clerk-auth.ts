@@ -46,7 +46,10 @@ export const requireClerkAuth = createMiddleware(async (c, next) => {
 
   try {
     const clerk = getClerkClient(secretKey);
-    const payload = await verifyToken(token, { secretKey });
+    const payload = await verifyToken(token, {
+      secretKey,
+      authorizedParties: ['https://claw-net.org', 'https://www.claw-net.org', 'https://app.claw-net.org'],
+    });
 
     c.set('clerkUserId', payload.sub);
 

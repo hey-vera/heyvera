@@ -91,7 +91,7 @@ export const checkApiKey = createMiddleware(async (c, next) => {
     // Reset daily/weekly counters for budget accounts and enforce limits
     if (delegation.account_type === 'budget') {
       resetBudgetCountersIfNeeded(key);
-      const budgetCheck = checkBudgetLimits(key, 0);
+      const budgetCheck = checkBudgetLimits(key, 1);
       if (budgetCheck && !budgetCheck.allowed) {
         return c.json({ error: budgetCheck.reason, code: 'BUDGET_LIMIT_EXCEEDED' }, 429);
       }

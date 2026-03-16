@@ -1,5 +1,5 @@
 import { nanoid } from 'nanoid';
-import { getDb } from './connection';
+import { getDb, logAudit } from './connection';
 import { logger } from '../utils/logger';
 
 // ─── Governance ────────────────────────────────────────────────────────────────
@@ -62,6 +62,7 @@ export function createProposal(params: {
     `).run(id, params.title, params.description, params.proposedBy, days, quorumPct, actionType, actionPayload);
   }
 
+  logAudit({ entityType: 'proposal', entityId: id, action: 'PROPOSAL_CREATED', actorId: params.proposedBy, data: { bond: params.bondCredits } });
   return id;
 }
 
@@ -77,6 +78,7 @@ export function releaseBond(proposalId: string): void {
     db.prepare('UPDATE api_keys SET credits = credits + ? WHERE key = ?').run(proposal.bond_credits, proposal.proposed_by);
     db.prepare('UPDATE proposals SET bond_released = 1 WHERE id = ?').run(proposalId);
     logger.debug({ proposalId, credits: proposal.bond_credits }, 'Proposal bond released');
+    logAudit({ entityType: 'proposal', entityId: proposalId, action: 'BOND_RELEASED', data: { amount: proposal.bond_credits } });
   })();
 }
 
@@ -131,6 +133,7 @@ export function castVote(params: {
     } else {
       db.prepare(`UPDATE proposals SET votes_against = votes_against + ? WHERE id = ?`).run(weight, params.proposalId);
     }
+    logAudit({ entityType: 'proposal', entityId: params.proposalId, action: 'VOTE_CAST', actorId: params.voterKey, data: { direction: params.direction, weight } });
     return { ok: true };
   })();
 }
@@ -246,6 +249,7 @@ export function executeProposal(proposalId: string): { executed: boolean; result
     db.prepare(`UPDATE proposals SET status = 'EXECUTED', executed_at = datetime('now'), execution_result_json = ? WHERE id = ?`)
       .run(JSON.stringify({ success: true, message: resultMsg }), proposalId);
     logger.info({ proposalId, action: proposal.action_type, result: resultMsg }, 'Governance proposal executed');
+    logAudit({ entityType: 'proposal', entityId: proposalId, action: 'PROPOSAL_EXECUTED', data: { actionType: proposal.action_type, result: resultMsg } });
     return { executed: true, result: resultMsg };
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : 'Unknown error';

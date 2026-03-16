@@ -169,8 +169,36 @@ export function cleanupOldVotes(daysToKeep = 365): number {
 
 /** Q9: Clean deactivated API keys older than retention period.
  *  Only deletes keys with zero remaining balance (credits=0) so we don't lose
- *  financial records for keys that still hold credits (shouldn't happen but safety first). */
+ *  financial records for keys that still hold credits (shouldn't happen but safety first).
+ *  Cleans referencing tables first to avoid orphaned foreign references. */
 export function cleanupDeactivatedKeys(daysToKeep = 90): number {
+  const db = getDb();
+  // Find the keys that will be deleted so we can clean referencing tables first
+  const keysToDelete = db.prepare(`
+    SELECT key FROM api_keys
+    WHERE active = 0 AND credits = 0
+      AND created_at < datetime('now', '-' || ? || ' days')
+  `).all(daysToKeep) as { key: string }[];
+
+  if (keysToDelete.length === 0) return 0;
+
+  const keyList = keysToDelete.map(k => k.key);
+
+  // Clean referencing tables in batches per key
+  for (const key of keyList) {
+    try {
+      db.prepare('DELETE FROM stakes WHERE agent_key = ?').run(key);
+      db.prepare('DELETE FROM agent_sessions WHERE api_key = ?').run(key);
+      db.prepare('DELETE FROM scheduled_skills WHERE caller_key = ?').run(key);
+      db.prepare('DELETE FROM delegated_keys WHERE parent_key = ? OR child_key = ?').run(key, key);
+      db.prepare('DELETE FROM agent_webhooks WHERE agent_key = ?').run(key);
+      db.prepare('DELETE FROM auto_payout_config WHERE agent_key = ?').run(key);
+      db.prepare('DELETE FROM budget_locks WHERE api_key = ?').run(key);
+    } catch (err) {
+      logger.warn({ err, key }, 'cleanupDeactivatedKeys: failed to clean referencing tables for key');
+    }
+  }
+
   return batchedDelete(
     `DELETE FROM api_keys WHERE rowid IN (
        SELECT rowid FROM api_keys

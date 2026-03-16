@@ -129,6 +129,7 @@ stripeRouter.post('/stripe', async (c) => {
     })();
 
     logger.info({ email, chargeId: charge.id, newRefundedUsd, creditsDeducted: deducted }, 'Stripe refund: credits deducted');
+    markStripeEventProcessed(event.id);
     return c.json({ received: true });
   }
 

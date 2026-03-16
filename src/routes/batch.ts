@@ -20,6 +20,7 @@ import { cacheIncr } from '../cache/index';
 import { findEndpoint } from '../config/api-registry';
 import { rateTier, env, isSimulationMode, ORCHESTRATION_FEE } from '../config/index';
 import { logger } from '../utils/logger';
+import { maskApiKey } from '../utils/mask';
 import { nanoid } from 'nanoid';
 
 // Maximum total execution steps across all queries in a single batch request.
@@ -135,7 +136,13 @@ batchRouter.post('/', checkApiKey, async (c) => {
       return sum + stepCredits + ORCHESTRATION_FEE;
     }, 0);
 
-    const deducted = deductCredit(keyInfo.key, estimatedCredits);
+    let deducted = false;
+    try {
+      deducted = deductCredit(keyInfo.key, estimatedCredits);
+    } catch (err) {
+      logger.error({ err, key: maskApiKey(keyInfo.key), credits: estimatedCredits }, 'Batch billing failed (possible SQLITE_BUSY)');
+      return c.json({ error: 'Billing temporarily unavailable', code: 'BILLING_ERROR' }, 503);
+    }
     if (deducted) trackDelegatedSpend(keyInfo, estimatedCredits);
     if (!deducted) {
       return c.json({

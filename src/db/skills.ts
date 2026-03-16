@@ -190,24 +190,38 @@ export function incrementSkillUses(id: string): void {
 
 export function deleteSkill(id: string, authorKey: string): boolean {
   const db = getDb();
-  const result = db
-    .prepare('UPDATE skills SET active = 0 WHERE id = ? AND author_key = ? AND active = 1')
-    .run(id, authorKey);
-  if (result.changes > 0) {
-    db.prepare('DELETE FROM discovery_cache WHERE id = ?').run(id);
-  }
-  return result.changes > 0;
+  return db.transaction(() => {
+    const result = db
+      .prepare('UPDATE skills SET active = 0 WHERE id = ? AND author_key = ? AND active = 1')
+      .run(id, authorKey);
+    if (result.changes > 0) {
+      // Clean up discovery_cache and associated skill_embeddings atomically
+      const cached = db.prepare('SELECT rowid_vec FROM discovery_cache WHERE id = ?').get(id) as { rowid_vec: number } | undefined;
+      if (cached?.rowid_vec) {
+        try { db.prepare('DELETE FROM skill_embeddings WHERE rowid = ?').run(cached.rowid_vec); } catch { /* vec table may not exist */ }
+      }
+      db.prepare('DELETE FROM discovery_cache WHERE id = ?').run(id);
+    }
+    return result.changes > 0;
+  })();
 }
 
 export function updateSkillVisibility(id: string, authorKey: string, isPublic: boolean): boolean {
   const db = getDb();
-  const result = db
-    .prepare('UPDATE skills SET public = ? WHERE id = ? AND author_key = ? AND active = 1')
-    .run(isPublic ? 1 : 0, id, authorKey);
-  if (result.changes > 0 && !isPublic) {
-    db.prepare('DELETE FROM discovery_cache WHERE id = ?').run(id);
-  }
-  return result.changes > 0;
+  return db.transaction(() => {
+    const result = db
+      .prepare('UPDATE skills SET public = ? WHERE id = ? AND author_key = ? AND active = 1')
+      .run(isPublic ? 1 : 0, id, authorKey);
+    if (result.changes > 0 && !isPublic) {
+      // Clean up discovery_cache and associated skill_embeddings atomically
+      const cached = db.prepare('SELECT rowid_vec FROM discovery_cache WHERE id = ?').get(id) as { rowid_vec: number } | undefined;
+      if (cached?.rowid_vec) {
+        try { db.prepare('DELETE FROM skill_embeddings WHERE rowid = ?').run(cached.rowid_vec); } catch { /* vec table may not exist */ }
+      }
+      db.prepare('DELETE FROM discovery_cache WHERE id = ?').run(id);
+    }
+    return result.changes > 0;
+  })();
 }
 
 // ─── Discovery / Vector Search ────────────────────────────────────────────────

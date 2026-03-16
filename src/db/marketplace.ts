@@ -138,6 +138,7 @@ export function marketplacePurchase(params: {
         .run(txId, params.buyerKey, params.sellerKey, params.amountCredits,
           params.skillId, feeCredits, JSON.stringify({ feePct: params.feePct }));
     })();
+    logAudit({ entityType: 'skill', entityId: params.skillId, action: 'SKILL_PURCHASED', actorId: params.buyerKey, data: { amount: params.amountCredits, fee: feeCredits } });
     return { ok: true, txId, feeCredits, sellerCredits };
   } catch (err) {
     return { ok: false, error: (err instanceof Error ? err.message : String(err)) };
@@ -156,14 +157,13 @@ export function marketplaceRefund(params: {
 }): { ok: boolean; refundTxId?: string; error?: string } {
   const db = getDb();
   try {
-    // Guard against duplicate refunds for the same original transaction
-    const existingRefund = db.prepare(
-      `SELECT id FROM transactions WHERE type = 'SKILL_REFUND' AND metadata_json LIKE '%"originalTxId":"' || ? || '"%'`
-    ).get(params.originalTxId);
-    if (existingRefund) return { ok: false, error: 'Transaction already refunded' };
-
     let refundTxId = '';
     db.transaction(() => {
+      // Guard against duplicate refunds — inside transaction to prevent TOCTOU race
+      const existingRefund = db.prepare(
+        `SELECT id FROM transactions WHERE type = 'SKILL_REFUND' AND metadata_json LIKE '%"originalTxId":"' || ? || '"%'`
+      ).get(params.originalTxId);
+      if (existingRefund) throw new Error('Transaction already refunded');
       db.prepare(`UPDATE api_keys SET credits = credits + ?, credits_used = credits_used - ? WHERE key = ? AND active = 1`)
         .run(params.amountCredits, params.amountCredits, params.buyerKey);
 
@@ -224,6 +224,7 @@ export function marketplaceRefund(params: {
       }
     }
 
+    logAudit({ entityType: 'skill', entityId: params.skillId, action: 'SKILL_REFUNDED', actorId: params.buyerKey, data: { amount: params.amountCredits, originalTxId: params.originalTxId } });
     return { ok: true, refundTxId };
   } catch (err) {
     logger.error({ err, buyerKey: maskApiKey(params.buyerKey), skillId: params.skillId }, 'marketplaceRefund: transaction failed — manual intervention may be required');

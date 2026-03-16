@@ -23,7 +23,7 @@ const { HTTPFacilitatorClient } = require('@x402/core/server') as {
   HTTPFacilitatorClient: new (url: string) => unknown;
 };
 type HTTPRequestContext = { path: string; method: string; paymentHeader?: string };
-import { getDb, getSkill, listPublicSkills, incrementSkillUses, safeJsonParse, getReputationScore, getReputationEvents } from '../db/index';
+import { getDb, getSkill, listPublicSkills, incrementSkillUses, safeJsonParse, getReputationScore, getReputationEvents, recordSkillMetric } from '../db/index';
 import { maskApiKey } from '../utils/mask';
 import { renderTemplate } from '../utils/template';
 import { parseIntent } from '../core/intent-parser';
@@ -180,6 +180,15 @@ x402SkillsRouter.post('/skills/:id', async (c) => {
     const totalDurationMs = Date.now() - start;
 
     incrementSkillUses(id);
+
+    // Record metric for health monitoring and trust signals
+    recordSkillMetric({
+      skillId: id,
+      version: skill.version ?? '1.0.0',
+      latencyMs: totalDurationMs,
+      success: true,
+      costCredits: skill.credit_cost,
+    });
 
     const priceUsdc = (Math.max(skill.credit_cost, 1) * env.X402_USDC_PER_CREDIT).toFixed(6);
 

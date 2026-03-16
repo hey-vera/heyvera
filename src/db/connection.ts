@@ -712,7 +712,6 @@ export function initDb(): void {
     );
 
     CREATE INDEX IF NOT EXISTS idx_skills_author ON skills(author_key);
-    CREATE INDEX IF NOT EXISTS idx_skills_public ON skills(public);
 
     CREATE TABLE IF NOT EXISTS reputation_events (
       id TEXT PRIMARY KEY,
@@ -780,8 +779,6 @@ export function initDb(): void {
     CREATE INDEX IF NOT EXISTS idx_stakes_agent ON stakes(agent_key);
     CREATE INDEX IF NOT EXISTS idx_stakes_skill ON stakes(skill_id);
     CREATE INDEX IF NOT EXISTS idx_stakes_unlocks ON stakes(unlocks_at);
-    CREATE INDEX IF NOT EXISTS idx_transactions_created ON transactions(created_at DESC);
-
     CREATE TABLE IF NOT EXISTS escrows (
       id TEXT PRIMARY KEY,
       hirer_id TEXT NOT NULL,

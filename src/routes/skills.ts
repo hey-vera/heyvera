@@ -586,7 +586,13 @@ skillsRouter.get('/:id/query', checkApiKey, async (c) => {
     const liveCost = Math.max(0.001, skill.credit_cost);
     const cacheCredits = cacheCreditCost(liveCost);
     if (!keyInfo.isEnvKey) {
-      const ok = deductCredit(keyInfo.key, cacheCredits);
+      let ok = false;
+      try {
+        ok = deductCredit(keyInfo.key, cacheCredits);
+      } catch (err) {
+        logger.error({ err, key: maskApiKey(keyInfo.key) }, 'Billing failed');
+        return c.json({ error: 'Billing temporarily unavailable', code: 'BILLING_ERROR' }, 503);
+      }
       if (ok) trackDelegatedSpend(keyInfo, cacheCredits);
       if (!ok) return c.json({ requestId, error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS' }, 402);
     }
@@ -634,27 +640,33 @@ skillsRouter.get('/:id/query', checkApiKey, async (c) => {
     if (!keyInfo.isEnvKey) {
       const revenueSharePct = skill.revenue_share_pct;
       const shouldPayAuthor = skill.author_key !== keyInfo.key && revenueSharePct > 0;
-      const ok = getDb().transaction(() => {
-        const deducted = deductCredit(keyInfo.key, creditCost);
-        if (!deducted) return false;
-        if (shouldPayAuthor) {
-          const authorShare = round6(creditCost * revenueSharePct);
-          const feeCredits = round6(creditCost - authorShare);
-          if (authorShare > 0) {
-            topUpCredits(skill.author_key, authorShare);
-            if (feeCredits > 0) topUpCredits('clawhub-treasury', feeCredits);
-            const timestamp = new Date().toISOString();
-            recordTransaction({
-              fromAgent: keyInfo.key, toAgent: skill.author_key,
-              amountCredits: creditCost, type: 'SKILL_SALE',
-              skillId: id, feeCredits,
-              requestHash: computeRequestHash({ skillId: id, variables: params, timestamp }),
-              resultHash: computeResultHash({ data, costCredits: creditCost }),
-            });
+      let ok = false;
+      try {
+        ok = getDb().transaction(() => {
+          const deducted = deductCredit(keyInfo.key, creditCost);
+          if (!deducted) return false;
+          if (shouldPayAuthor) {
+            const authorShare = round6(creditCost * revenueSharePct);
+            const feeCredits = round6(creditCost - authorShare);
+            if (authorShare > 0) {
+              topUpCredits(skill.author_key, authorShare);
+              if (feeCredits > 0) topUpCredits('clawhub-treasury', feeCredits);
+              const timestamp = new Date().toISOString();
+              recordTransaction({
+                fromAgent: keyInfo.key, toAgent: skill.author_key,
+                amountCredits: creditCost, type: 'SKILL_SALE',
+                skillId: id, feeCredits,
+                requestHash: computeRequestHash({ skillId: id, variables: params, timestamp }),
+                resultHash: computeResultHash({ data, costCredits: creditCost }),
+              });
+            }
           }
-        }
-        return true;
-      })();
+          return true;
+        })();
+      } catch (err) {
+        logger.error({ err, key: maskApiKey(keyInfo.key) }, 'Billing failed');
+        return c.json({ error: 'Billing temporarily unavailable', code: 'BILLING_ERROR' }, 503);
+      }
       if (ok) trackDelegatedSpend(keyInfo, creditCost);
       if (!ok) {
         return c.json({ requestId, error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS', creditsRequired: creditCost }, 402);
@@ -982,7 +994,13 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
     const cacheCredits = cacheCreditCost(liveCost);
     logger.info({ requestId, skillId: id, creditsUsed: cacheCredits }, 'Skill cache hit');
     if (!keyInfo.isEnvKey) {
-      const ok = deductCredit(keyInfo.key, cacheCredits);
+      let ok = false;
+      try {
+        ok = deductCredit(keyInfo.key, cacheCredits);
+      } catch (err) {
+        logger.error({ err, key: maskApiKey(keyInfo.key) }, 'Billing failed');
+        return c.json({ error: 'Billing temporarily unavailable', code: 'BILLING_ERROR' }, 503);
+      }
       if (ok) trackDelegatedSpend(keyInfo, cacheCredits);
       if (!ok) {
         return c.json({ requestId, error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS' }, 402);
@@ -1030,30 +1048,36 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
       if (!keyInfo.isEnvKey) {
         const revenueSharePct = skill.revenue_share_pct;
         const shouldPayAuthor = skill.author_key !== keyInfo.key && revenueSharePct > 0;
-        const ok = getDb().transaction(() => {
-          const deducted = deductCredit(keyInfo.key, creditsToDeduct);
-          if (!deducted) return false;
-          if (shouldPayAuthor) {
-            const authorShare = round6(creditsToDeduct * revenueSharePct);
-            const feeCredits = round6(creditsToDeduct - authorShare);
-            if (authorShare > 0) {
-              topUpCredits(skill.author_key, authorShare);
-              // Credit platform fee to treasury (was missing — fees were being destroyed)
-              if (feeCredits > 0) {
-                topUpCredits('clawhub-treasury', feeCredits);
+        let ok = false;
+        try {
+          ok = getDb().transaction(() => {
+            const deducted = deductCredit(keyInfo.key, creditsToDeduct);
+            if (!deducted) return false;
+            if (shouldPayAuthor) {
+              const authorShare = round6(creditsToDeduct * revenueSharePct);
+              const feeCredits = round6(creditsToDeduct - authorShare);
+              if (authorShare > 0) {
+                topUpCredits(skill.author_key, authorShare);
+                // Credit platform fee to treasury (was missing — fees were being destroyed)
+                if (feeCredits > 0) {
+                  topUpCredits('clawhub-treasury', feeCredits);
+                }
+                const timestamp = new Date().toISOString();
+                recordTransaction({
+                  fromAgent: keyInfo.key, toAgent: skill.author_key,
+                  amountCredits: creditsToDeduct, type: 'SKILL_SALE',
+                  skillId: activeSkillId, feeCredits,
+                  requestHash: computeRequestHash({ skillId: activeSkillId, variables, timestamp }),
+                  resultHash: computeResultHash({ data: proxyData, costCredits: creditsToDeduct }),
+                });
               }
-              const timestamp = new Date().toISOString();
-              recordTransaction({
-                fromAgent: keyInfo.key, toAgent: skill.author_key,
-                amountCredits: creditsToDeduct, type: 'SKILL_SALE',
-                skillId: activeSkillId, feeCredits,
-                requestHash: computeRequestHash({ skillId: activeSkillId, variables, timestamp }),
-                resultHash: computeResultHash({ data: proxyData, costCredits: creditsToDeduct }),
-              });
             }
-          }
-          return true;
-        })();
+            return true;
+          })();
+        } catch (err) {
+          logger.error({ err, key: maskApiKey(keyInfo.key) }, 'Billing failed');
+          return c.json({ error: 'Billing temporarily unavailable', code: 'BILLING_ERROR' }, 503);
+        }
         if (ok) trackDelegatedSpend(keyInfo, creditsToDeduct);
         if (!ok) {
           return c.json({ requestId, error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS',
@@ -1167,34 +1191,40 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
       const revenueSharePct = skill.revenue_share_pct;
       const shouldPayAuthor = skill.author_key !== keyInfo.key && revenueSharePct > 0;
 
-      const txResult = getDb().transaction(() => {
-        const deducted = deductCredit(keyInfo.key, creditsToDeduct);
-        if (!deducted) return false;
-        if (shouldPayAuthor) {
-          // Revenue split applies to skillCredits only — surcharge goes 100% to platform
-          const authorShare = round6(skillCredits * revenueSharePct);
-          const feeCredits = round6(skillCredits - authorShare);
-          if (authorShare > 0) {
-            topUpCredits(skill.author_key, authorShare);
-            if (feeCredits > 0) topUpCredits('clawhub-treasury', feeCredits);
-            const timestamp = new Date().toISOString();
-            recordTransaction({
-              fromAgent: keyInfo.key,
-              toAgent: skill.author_key,
-              amountCredits: skillCredits,
-              type: 'SKILL_SALE',
-              skillId: activeSkillId,
-              feeCredits,
-              requestHash: computeRequestHash({ skillId: activeSkillId, variables, timestamp }),
-              resultHash: computeResultHash({ answer: formatted.answer, costCredits: creditsToDeduct }),
-              ...(surcharge > 0 && { metadata: { x402Surcharge: surcharge } }),
-            });
+      let txResult = false;
+      try {
+        txResult = getDb().transaction(() => {
+          const deducted = deductCredit(keyInfo.key, creditsToDeduct);
+          if (!deducted) return false;
+          if (shouldPayAuthor) {
+            // Revenue split applies to skillCredits only — surcharge goes 100% to platform
+            const authorShare = round6(skillCredits * revenueSharePct);
+            const feeCredits = round6(skillCredits - authorShare);
+            if (authorShare > 0) {
+              topUpCredits(skill.author_key, authorShare);
+              if (feeCredits > 0) topUpCredits('clawhub-treasury', feeCredits);
+              const timestamp = new Date().toISOString();
+              recordTransaction({
+                fromAgent: keyInfo.key,
+                toAgent: skill.author_key,
+                amountCredits: skillCredits,
+                type: 'SKILL_SALE',
+                skillId: activeSkillId,
+                feeCredits,
+                requestHash: computeRequestHash({ skillId: activeSkillId, variables, timestamp }),
+                resultHash: computeResultHash({ answer: formatted.answer, costCredits: creditsToDeduct }),
+                ...(surcharge > 0 && { metadata: { x402Surcharge: surcharge } }),
+              });
+            }
           }
-        }
-        // Credit x402 surcharge to treasury — covers real USDC spent by hot wallet
-        if (surcharge > 0) topUpCredits('clawhub-treasury', surcharge);
-        return true;
-      })();
+          // Credit x402 surcharge to treasury — covers real USDC spent by hot wallet
+          if (surcharge > 0) topUpCredits('clawhub-treasury', surcharge);
+          return true;
+        })();
+      } catch (err) {
+        logger.error({ err, key: maskApiKey(keyInfo.key) }, 'Billing failed');
+        return c.json({ error: 'Billing temporarily unavailable', code: 'BILLING_ERROR' }, 503);
+      }
       if (txResult) trackDelegatedSpend(keyInfo, creditsToDeduct);
 
       if (!txResult) {

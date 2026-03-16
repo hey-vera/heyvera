@@ -12,9 +12,10 @@
 
 import { z } from 'zod';
 import { findEndpoint, apiRegistry, dynamicAlternatives, type ApiEndpoint } from '../config/api-registry';
-import { creditCostForEndpoint } from './credits';
+import { creditCostForEndpoint, round6 } from './credits';
 import type { ParsedIntent } from './intent-parser';
 import { logger } from '../utils/logger';
+import { ORCHESTRATION_FEE } from '../config/index';
 
 // ─── Schema ──────────────────────────────────────────────────────────────────
 
@@ -174,7 +175,7 @@ export function estimatePlanCost(intent: ParsedIntent): PlanEstimate {
     const costUsd = ep?.costPerCall ?? 0.001;
     return { endpointId: step.endpointId, credits: ep ? creditCostForEndpoint(ep) : 1, costUsd };
   });
-  const totalCredits = perStep.reduce((sum, s) => sum + s.credits, 0);
+  const totalCredits = round6(perStep.reduce((sum, s) => sum + s.credits, 0) + ORCHESTRATION_FEE);
   return { totalCredits, perStep };
 }
 

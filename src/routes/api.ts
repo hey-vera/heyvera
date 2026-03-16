@@ -420,15 +420,7 @@ apiRouter.get('/health', (c) => {
   });
 });
 
-// GET /v1/registry
-apiRouter.get('/registry', (c) => {
-  const categories = apiRegistry.reduce((acc, ep) => {
-    if (!acc[ep.category]) acc[ep.category] = [];
-    acc[ep.category].push({ id: ep.id, name: ep.name, costPerCall: ep.costPerCall, description: ep.description });
-    return acc;
-  }, {} as Record<string, unknown[]>);
-  return c.json({ totalEndpoints: apiRegistry.length, categories });
-});
+// GET /v1/registry — handled by registryRouter (see routes/registry.ts)
 
 // GET /v1/usage — strip query field to avoid leaking user queries on public endpoint
 apiRouter.get('/usage', (c) => {
