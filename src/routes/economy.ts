@@ -6,6 +6,7 @@
  */
 
 import { Hono } from 'hono';
+import { env } from '../config/index';
 import { checkApiKey } from '../middleware/auth';
 import { maskApiKey } from '../utils/mask';
 import {

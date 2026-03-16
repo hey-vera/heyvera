@@ -74,7 +74,7 @@ swarmRouter.post('/task', checkApiKey, async (c) => {
 
   const swarmId = createSwarmTask(keyInfo.key, body.task);
 
-  runSwarm(swarmId, keyInfo.key, body, keyInfo.isEnvKey).catch(err => {
+  runSwarm(swarmId, keyInfo.key, body, keyInfo.isEnvKey, keyInfo).catch(err => {
     logger.error({ err, swarmId }, 'Swarm task failed');
     updateSwarmTask(swarmId, { status: 'FAILED', error: String(err) });
   });
@@ -116,7 +116,7 @@ export interface SwarmParams {
   maxBudget?: number;
 }
 
-export async function runSwarm(swarmId: string, agentKey: string, body: SwarmParams, isEnvKey = false): Promise<void> {
+export async function runSwarm(swarmId: string, agentKey: string, body: SwarmParams, isEnvKey = false, callerKeyInfo?: { delegatedFrom?: string; key: string }): Promise<void> {
   updateSwarmTask(swarmId, { status: 'RUNNING' });
 
   const skills = listPublicSkills().slice(0, 20);
@@ -164,7 +164,7 @@ export async function runSwarm(swarmId: string, agentKey: string, body: SwarmPar
       updateSwarmTask(swarmId, { status: 'FAILED', error: 'Insufficient credits for base fee' });
       return;
     }
-    trackDelegatedSpend(keyInfo, SWARM_BASE_FEE);
+    if (callerKeyInfo) trackDelegatedSpend(callerKeyInfo, SWARM_BASE_FEE);
   }
 
   // Budget tracking — base fee now deducted; remaining budget for sub-tasks
