@@ -34,8 +34,8 @@ npm run mcp          # Start MCP server
 src/
 ├── routes/       (39)  HTTP endpoints (Hono routers)
 ├── core/         (31)  Business logic, crons, execution engine
-├── db/           (17)  Domain DB files, barrel export at index.ts
-├── utils/        (11)  Billing, payouts, masking, shutdown, email
+├── db/           (17)  15 domain files re-exported via index.ts barrel
+├── utils/        (12)  Billing, payouts, masking, shutdown, email
 ├── cache/         (5)  Smart cache v2 (L1 memory + L2 Redis)
 ├── middleware/     (5)  Auth (API key, Clerk, admin), rate limit, signing
 ├── config/        (2)  Zod env validation, API registry (344 endpoints)
@@ -92,7 +92,7 @@ dynamicCreditCost(...)           // Surge (up to 5x) + volume discounts + off-pe
 - **Credit rate:** CREDITS_PER_USD=1000 → $0.001/credit, fractional supported (min 0.001)
 - **Revenue split:** 85% creator / 15% treasury (uses `round6()`, not `Math.floor()`)
 - **Deduction guard:** `WHERE credits >= amount` + DB trigger
-- **Delegated billing:** auth resolves child→parent, `deductCredit(parent)` then `trackDelegatedSpend(child)` at all 13 billing sites
+- **Delegated billing:** auth resolves child→parent, `deductCredit(parent)` then `trackDelegatedSpend(child)` at all 10 billing sites
 
 ## Auth (3 layers)
 
@@ -106,7 +106,7 @@ dynamicCreditCost(...)           // Surge (up to 5x) + volume discounts + off-pe
 
 - **`round6()`** — use on ALL credit math, never raw floating-point
 - **`maskApiKey()`** from `src/utils/mask.ts` — ALWAYS use, never `.slice()`
-- **`trackDelegatedSpend()`** — must be called after every `deductCredit()` (13 sites)
+- **`trackDelegatedSpend()`** — must be called after every `deductCredit()` (10 sites)
 - **x402 surcharge** — MUST credit `clawhub-treasury`, not burn
 - **DB imports** — always from `src/db/index.ts`, never domain files directly
 - **`clawhub-treasury` + `clawhub-official`** — auto-reactivated on startup
