@@ -156,7 +156,7 @@ async function executeScheduledSkill(scheduled: ScheduledSkill): Promise<void> {
     updateScheduledSkillRun(scheduled.id, {
       nextRunAt: getNextRunTime(scheduled.cron_expression),
       lastStatus: 'ERROR',
-      lastError: (err as Error).message,
+      lastError: (err instanceof Error ? err.message : String(err)),
       creditsSpent: 0,
     });
   }

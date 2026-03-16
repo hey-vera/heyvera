@@ -24,7 +24,7 @@ export const signResponse: MiddlewareHandler = async (c, next) => {
 
   try {
     const body = await c.res.clone().text();
-    const ts = Date.now().toString();
+    const ts = Math.floor(Date.now() / 1000).toString();
     const sig = createHmac('sha256', secret)
       .update(`${ts}.${body}`)
       .digest('hex');

@@ -950,7 +950,7 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
   try {
     query = renderTemplate(skill.prompt_template, variables);
   } catch (err) {
-    return c.json({ requestId, error: (err as Error).message, code: 'MISSING_VARIABLES' }, 400);
+    return c.json({ requestId, error: (err instanceof Error ? err.message : String(err)), code: 'MISSING_VARIABLES' }, 400);
   }
 
   // Per-key rate limit (same tiered system as orchestrate)
@@ -1401,7 +1401,7 @@ skillsRouter.post('/:id/test', checkApiKey, async (c) => {
   try {
     query = renderTemplate(skill.prompt_template, variables);
   } catch (err) {
-    return c.json({ requestId, error: (err as Error).message, code: 'MISSING_VARIABLES' }, 400);
+    return c.json({ requestId, error: (err instanceof Error ? err.message : String(err)), code: 'MISSING_VARIABLES' }, 400);
   }
 
   if (isSimulationMode) {
@@ -1441,7 +1441,7 @@ skillsRouter.post('/:id/test', checkApiKey, async (c) => {
     logger.error({ requestId, skillId: id, err }, 'Skill test run failed');
     return c.json({
       requestId, test: true,
-      error: env.NODE_ENV === 'production' ? 'Test run failed' : (err as Error).message,
+      error: env.NODE_ENV === 'production' ? 'Test run failed' : (err instanceof Error ? err.message : String(err)),
       code: 'EXECUTION_ERROR',
     }, 500);
   }
@@ -1663,7 +1663,7 @@ skillsRouter.post('/batch-query', checkApiKey, async (c) => {
         });
         return { skillId: skill.id, skillName: skill.name, status: res.status, data: await res.json() };
       } catch (err) {
-        return { skillId: skill.id, skillName: skill.name, status: 500, error: (err as Error).message };
+        return { skillId: skill.id, skillName: skill.name, status: 500, error: (err instanceof Error ? err.message : String(err)) };
       }
     })
   );

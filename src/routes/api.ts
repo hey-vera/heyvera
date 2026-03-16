@@ -441,9 +441,8 @@ apiRouter.get('/usage', (c) => {
 
 // GET /v1/balance
 apiRouter.get('/balance', (c) => {
-  const key = c.req.header('X-API-Key');
-  if (!key) return c.json({ error: 'Missing X-API-Key header', code: 'MISSING_API_KEY' }, 401);
-  const data = getApiKeyBalance(key);
+  const keyInfo = c.get('apiKeyInfo');
+  const data = getApiKeyBalance(keyInfo.key);
   if (!data) return c.json({ error: 'Invalid or inactive API key', code: 'INVALID_API_KEY' }, 401);
   return c.json({
     credits: data.credits,

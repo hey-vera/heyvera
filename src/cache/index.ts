@@ -313,7 +313,12 @@ const negativeCache = new Map<string, { error: string; expiresAt: number }>();
  * Record a failed endpoint call. Subsequent requests within NEGATIVE_CACHE_TTL
  * will get the cached error instead of hitting the upstream again.
  */
+const MAX_NEGATIVE_ENTRIES = 10000;
 export function cacheNegative(key: string, error: string): void {
+  if (negativeCache.size >= MAX_NEGATIVE_ENTRIES) {
+    const oldest = negativeCache.keys().next().value;
+    if (oldest) negativeCache.delete(oldest);
+  }
   negativeCache.set(key, {
     error,
     expiresAt: Date.now() + NEGATIVE_CACHE_TTL * 1000,
@@ -748,9 +753,14 @@ export async function cacheIncr(key: string, ttlSeconds: number): Promise<number
       logger.warn({ err }, 'Redis incr failed, falling back to memory');
     }
   }
+  const MAX_INCR_ENTRIES = 50000;
   const now = Date.now();
   const entry = incrStore.get(key);
   if (!entry || now > entry.resetAt) {
+    if (incrStore.size >= MAX_INCR_ENTRIES) {
+      const oldest = incrStore.keys().next().value;
+      if (oldest) incrStore.delete(oldest);
+    }
     incrStore.set(key, { count: 1, resetAt: now + ttlSeconds * 1000 });
     return 1;
   }

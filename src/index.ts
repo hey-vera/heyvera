@@ -199,6 +199,7 @@ app.route('/', contactRoute)
 
 app.use('/v1/orchestrate', checkApiKey);
 app.use('/v1/estimate', checkApiKey);
+app.use('/v1/balance', checkApiKey);
 app.use('/v1/orchestrate', signResponse);
 app.use('/v1/skills/*/invoke', signResponse);
 app.use('/v1/batch', signResponse);

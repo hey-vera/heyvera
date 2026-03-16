@@ -149,7 +149,8 @@ openclawRouter.post('/invoke', checkApiKey, async (c) => {
         if (keyInfo.credits < cacheCredits) {
           return c.json({ ok: false, requestId, error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS', creditsAvailable: keyInfo.credits }, 402);
         }
-        deductCredit(keyInfo.key, cacheCredits);
+        const cacheDeducted = deductCredit(keyInfo.key, cacheCredits);
+        if (!cacheDeducted) return c.json({ error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS' }, 402);
         trackDelegatedSpend(keyInfo, cacheCredits);
       }
       return c.json(envelope(requestId, 'query', cached, cacheCredits, keyInfo.credits - cacheCredits, {
@@ -270,7 +271,7 @@ openclawRouter.post('/invoke', checkApiKey, async (c) => {
     try {
       query = renderTemplate(skill.prompt_template, variables);
     } catch (err) {
-      return c.json({ ok: false, requestId, error: (err as Error).message, code: 'MISSING_VARIABLES' }, 400);
+      return c.json({ ok: false, requestId, error: (err instanceof Error ? err.message : String(err)), code: 'MISSING_VARIABLES' }, 400);
     }
 
     logger.info({ requestId, skillId, source: 'openclaw' }, 'OpenClaw skill invoke');

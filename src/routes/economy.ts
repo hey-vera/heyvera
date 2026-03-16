@@ -736,7 +736,7 @@ economyRouter.post('/sessions', async (c) => {
     const session = createSession(keyInfo.key, typeof body.name === 'string' ? body.name.slice(0, 100) : undefined);
     return c.json({ ok: true, ...session }, 201);
   } catch (err) {
-    return c.json({ error: err instanceof Error ? err.message : 'Failed to create session', code: 'SESSION_ERROR' }, 400);
+    return c.json({ error: env.NODE_ENV === 'production' ? 'Failed to create session' : (err instanceof Error ? err.message : String(err)), code: 'SESSION_ERROR' }, 400);
   }
 });
 
@@ -768,7 +768,8 @@ economyRouter.patch('/sessions/:id', async (c) => {
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Update failed';
     const status = msg === 'Session not found' ? 404 : 400;
-    return c.json({ error: msg, code: status === 404 ? 'NOT_FOUND' : 'SESSION_ERROR' }, status);
+    const safeMsg = env.NODE_ENV === 'production' ? (status === 404 ? 'Session not found' : 'Update failed') : msg;
+    return c.json({ error: safeMsg, code: status === 404 ? 'NOT_FOUND' : 'SESSION_ERROR' }, status);
   }
 });
 

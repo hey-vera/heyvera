@@ -164,6 +164,7 @@ export async function runSwarm(swarmId: string, agentKey: string, body: SwarmPar
       updateSwarmTask(swarmId, { status: 'FAILED', error: 'Insufficient credits for base fee' });
       return;
     }
+    trackDelegatedSpend(keyInfo, SWARM_BASE_FEE);
   }
 
   // Budget tracking — base fee now deducted; remaining budget for sub-tasks

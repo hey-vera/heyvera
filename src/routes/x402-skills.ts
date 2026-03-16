@@ -147,7 +147,7 @@ x402SkillsRouter.post('/skills/:id', async (c) => {
 
   const skill = getSkill(id);
   if (!skill || !skill.public) {
-    return c.json({ requestId, error: 'Skill not found or not public' }, 404);
+    return c.json({ requestId, error: 'Skill not found or not public', code: 'SKILL_NOT_FOUND' }, 404);
   }
 
   let rawBody: unknown;
@@ -156,7 +156,7 @@ x402SkillsRouter.post('/skills/:id', async (c) => {
   const InvokeBody = z.object({ variables: z.record(z.string().max(500)).optional() });
   const bodyParsed = InvokeBody.safeParse(rawBody);
   if (!bodyParsed.success) {
-    return c.json({ requestId, error: 'Invalid variables', details: bodyParsed.error.flatten().fieldErrors }, 400);
+    return c.json({ requestId, error: 'Invalid variables', code: 'INVALID_VARIABLES', details: bodyParsed.error.flatten().fieldErrors }, 400);
   }
   const variables = bodyParsed.data.variables ?? {};
 
@@ -165,7 +165,7 @@ x402SkillsRouter.post('/skills/:id', async (c) => {
   try {
     query = renderTemplate(skill.prompt_template, variables);
   } catch (err) {
-    return c.json({ requestId, error: (err as Error).message, code: 'MISSING_VARIABLES' }, 400);
+    return c.json({ requestId, error: (err instanceof Error ? err.message : String(err)), code: 'MISSING_VARIABLES' }, 400);
   }
 
   logger.info({ requestId, skillId: id, name: skill.name, via: 'x402' }, 'Skill invocation via x402');
@@ -247,7 +247,7 @@ x402SkillsRouter.post('/skills/:id', async (c) => {
 
 x402SkillsRouter.get('/skills', (c) => {
   if (!env.X402_RECIPIENT_ADDRESS) {
-    return c.json({ error: 'x402 provider mode not enabled', hint: 'Set X402_RECIPIENT_ADDRESS env var' }, 503);
+    return c.json({ error: 'x402 provider mode not enabled', code: 'X402_NOT_ENABLED', hint: 'Set X402_RECIPIENT_ADDRESS env var' }, 503);
   }
 
   const skills = listPublicSkills(0, 100);

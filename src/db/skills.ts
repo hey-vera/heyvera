@@ -606,7 +606,7 @@ export function rateSkill(params: {
     updateSkillTrustSignals(params.skillId);
     return { ok: true };
   } catch (err) {
-    return { ok: false, error: (err as Error).message };
+    return { ok: false, error: (err instanceof Error ? err.message : String(err)) };
   }
 }
 

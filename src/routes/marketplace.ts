@@ -292,7 +292,7 @@ marketplaceRouter.post('/skills/:id/purchase', checkApiKey, async (c) => {
     return c.json({
       requestId, ok: false,
       refunded: refund.ok, refundTxId: refund.refundTxId,
-      error: (err as Error).message, code: 'MISSING_VARIABLES',
+      error: (err instanceof Error ? err.message : String(err)), code: 'MISSING_VARIABLES',
       hint: 'Payment refunded. Call again with all required variables.',
     }, 400);
   }

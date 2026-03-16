@@ -31,9 +31,9 @@ const envSchema = z.object({
   FREE_TRIAL_CREDITS: z.coerce.number().int().min(0).max(10000).default(0),
   REFERRAL_BONUS_RECEIVER: z.coerce.number().int().min(0).max(10000).default(500), // credits granted to the user who applies a referral code
   REFERRAL_BONUS_OWNER: z.coerce.number().int().min(0).max(10000).default(250),    // credits granted to the referral code owner
-  DAILY_SPEND_CAP: z.coerce.number().int().min(0).default(0),          // 0 = disabled (agents should spend freely until credits run out)
-  ANOMALY_THRESHOLD: z.coerce.number().int().min(100).default(5000),  // alert admin when a key hits this in one day
-  LOW_BALANCE_THRESHOLD: z.coerce.number().min(1).default(10),               // credit balance below which low-balance alerts fire
+  DAILY_SPEND_CAP: z.coerce.number().int().min(0).max(10000000).default(0),          // 0 = disabled (agents should spend freely until credits run out)
+  ANOMALY_THRESHOLD: z.coerce.number().int().min(100).max(1000000).default(5000),  // alert admin when a key hits this in one day
+  LOW_BALANCE_THRESHOLD: z.coerce.number().min(1).max(100000).default(10),               // credit balance below which low-balance alerts fire
 
   TELEGRAM_BOT_TOKEN: z.string().optional(),
   TELEGRAM_CHANNEL_ID: z.string().optional(),
@@ -55,7 +55,7 @@ const envSchema = z.object({
   STRIPE_ANNUAL_PRICE_100: z.string().optional(),   // Stripe Price ID for $100/yr annual plan
   STRIPE_ANNUAL_PRICE_500: z.string().optional(),   // Stripe Price ID for $500/yr annual plan
   STRIPE_ANNUAL_PRICE_1000: z.string().optional(),  // Stripe Price ID for $1000/yr annual plan
-  SUBSCRIPTION_CREDITS_PER_MONTH: z.coerce.number().default(50000), // credits granted per subscription month
+  SUBSCRIPTION_CREDITS_PER_MONTH: z.coerce.number().int().min(1000).max(10000000).default(50000), // credits granted per subscription month
   RESEND_API_KEY: z.string().optional(),
   RESEND_FROM: z.string().optional(),
 
@@ -76,9 +76,9 @@ const envSchema = z.object({
 
   // Treasury auto-sweep (optional — with 2-wallet setup, treasury credits are pure profit)
   TREASURY_SWEEP_WALLET: z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/, 'Invalid Solana address').optional(),
-  TREASURY_SWEEP_MIN: z.coerce.number().int().min(100).default(10000), // minimum credits to trigger sweep (10000 = $10 at $0.001/cr)
-  HOT_WALLET_LOW_BALANCE_USDC: z.coerce.number().min(1).default(50), // Email alert when hot wallet drops below this
-  HOT_WALLET_LOW_SOL: z.coerce.number().min(0.01).default(0.1),         // Email alert when SOL (gas) drops below this
+  TREASURY_SWEEP_MIN: z.coerce.number().int().min(100).max(10000000).default(10000), // minimum credits to trigger sweep (10000 = $10 at $0.001/cr)
+  HOT_WALLET_LOW_BALANCE_USDC: z.coerce.number().min(1).max(100000).default(50), // Email alert when hot wallet drops below this
+  HOT_WALLET_LOW_SOL: z.coerce.number().min(0.01).max(1000).default(0.1),         // Email alert when SOL (gas) drops below this
 
   // MCP server
   CLAWNET_BASE_URL: z.string().default('https://api.claw-net.org'), // Base URL for MCP server self-reference

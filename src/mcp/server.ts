@@ -25,8 +25,9 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 
-const CLAWNET_BASE_URL = process.env.CLAWNET_BASE_URL ?? 'https://api.claw-net.org';
-const CLAWNET_API_KEY = process.env.CLAWNET_API_KEY ?? '';
+import { env } from '../config/index';
+const CLAWNET_BASE_URL = env.CLAWNET_BASE_URL;
+const CLAWNET_API_KEY = env.CLAWNET_API_KEY ?? '';
 
 type Skill = {
   id: string;

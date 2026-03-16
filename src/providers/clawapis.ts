@@ -1,6 +1,8 @@
 import { logger } from '../utils/logger';
 import { env } from '../config/index';
 
+const dynamicImport = new Function('specifier', 'return import(specifier)') as (s: string) => Promise<any>;
+
 let x402Client: { fetch: (input: string, init?: RequestInit) => Promise<Response> } | null = null;
 
 export async function initClawApis(): Promise<boolean> {
@@ -10,7 +12,7 @@ export async function initClawApis(): Promise<boolean> {
   try {
     const { createX402Client } = await import('x402-solana');
     const { Keypair, VersionedTransaction } = await import('@solana/web3.js');
-    const bs58 = await import('bs58');
+    const bs58 = await dynamicImport('bs58');
 
     const keypair = Keypair.fromSecretKey(bs58.default.decode(privateKey));
 

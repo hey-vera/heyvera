@@ -1,5 +1,7 @@
 import { logger } from '../utils/logger';
 
+const dynamicImport = new Function('specifier', 'return import(specifier)') as (s: string) => Promise<any>;
+
 type Pipeline = (text: string | string[], opts?: Record<string, unknown>) => Promise<{ data: Float32Array }[]>;
 
 let _pipeline: Pipeline | null = null;
@@ -24,7 +26,7 @@ export async function loadEmbeddingModel(): Promise<void> {
   _loadPromise = (async () => {
     try {
       // Dynamic import — ESM-only package, tsx handles interop
-      const { pipeline, env } = await import('@huggingface/transformers');
+      const { pipeline, env } = await dynamicImport('@huggingface/transformers');
       // Cache model locally in data/models to avoid re-downloading
       env.cacheDir = './data/models';
       _pipeline = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2') as unknown as Pipeline;

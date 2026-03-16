@@ -60,7 +60,7 @@ async function pingEndpoint(endpointId: string, url: string): Promise<{ status: 
     return { status: 'degraded', latencyMs, error: `HTTP ${res.status}` };
   } catch (err) {
     const latencyMs = Date.now() - start;
-    const msg = (err as Error).message ?? String(err);
+    const msg = (err instanceof Error ? err.message : String(err)) ?? String(err);
     if (msg.includes('abort') || msg.includes('timeout')) {
       return { status: 'down', latencyMs: 5000, error: 'Timeout after 5s' };
     }
