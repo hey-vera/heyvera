@@ -5,7 +5,7 @@
  * Agents use this to decide what to trust.
  */
 
-import { getDb } from '../db/connection';
+import { getDb } from '../db/index';
 import { logger } from '../utils/logger';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -220,7 +220,7 @@ export function computeQualityScore(skillId: string): QualityScore | null {
 export function getQualityScores(limit?: number): QualityScore[] {
   const db = getDb();
   const rows = db.prepare(
-    `SELECT id FROM skills WHERE is_public = 1 AND security_status != 'DELISTED'
+    `SELECT id FROM skills WHERE public = 1 AND security_status != 'DELISTED'
      ORDER BY avg_rating DESC
      LIMIT ?`
   ).all(limit ?? 1000) as Array<{ id: string }>;

@@ -4,7 +4,7 @@
  * Template generation, config validation, revenue estimation, and creator stats.
  */
 
-import { getDb } from '../db/connection';
+import { getDb } from '../db/index';
 import { logger } from '../utils/logger';
 
 // ─── Types ────────────────────────────────────────────────────────────────────

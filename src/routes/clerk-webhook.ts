@@ -53,28 +53,28 @@ clerkWebhookRouter.post('/clerk', async (c) => {
   const svixSignature = c.req.header('svix-signature') ?? '';
 
   if (!svixId || !svixTimestamp || !svixSignature) {
-    return c.json({ error: 'Missing svix headers' }, 400);
+    return c.json({ error: 'Missing svix headers', code: 'MISSING_HEADERS' }, 400);
   }
 
   // Replay attack guard: reject if timestamp is >5 minutes old
   const ts = parseInt(svixTimestamp, 10);
   if (Math.abs(Date.now() / 1000 - ts) > 300) {
     logger.warn({ svixId }, 'Clerk webhook: timestamp too old (possible replay attack)');
-    return c.json({ error: 'Timestamp too old' }, 400);
+    return c.json({ error: 'Timestamp too old', code: 'REPLAY_ATTACK' }, 400);
   }
 
   const rawBody = await c.req.text();
 
   if (!verifyClerkSignature(rawBody, { svixId, svixTimestamp, svixSignature }, secret)) {
     logger.warn({ svixId }, 'Clerk webhook: signature verification failed');
-    return c.json({ error: 'Invalid signature' }, 400);
+    return c.json({ error: 'Invalid signature', code: 'INVALID_SIGNATURE' }, 400);
   }
 
   let event: { type: string; data: Record<string, unknown> };
   try {
     event = JSON.parse(rawBody);
   } catch {
-    return c.json({ error: 'Invalid JSON' }, 400);
+    return c.json({ error: 'Invalid JSON', code: 'INVALID_JSON' }, 400);
   }
 
   logger.info({ type: event.type, svixId }, 'Clerk webhook received');

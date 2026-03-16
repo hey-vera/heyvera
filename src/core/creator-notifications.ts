@@ -7,7 +7,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import { getDb } from '../db/connection';
+import { getDb } from '../db/index';
 import { logger } from '../utils/logger';
 import { fireWebhookEvent, type WebhookEventType } from '../utils/webhooks';
 
@@ -89,7 +89,7 @@ export function checkMilestones(): void {
 
   // Get all skills with their author keys
   const skills = db.prepare(
-    `SELECT id, name, author_key FROM skills WHERE is_public = 1`
+    `SELECT id, name, author_key FROM skills WHERE public = 1`
   ).all() as SkillRow[];
 
   for (const skill of skills) {
@@ -238,13 +238,20 @@ export function getCreatorMilestones(apiKey: string): Milestone[] {
 
 // ─── Cron wrapper ────────────────────────────────────────────────────────────
 
+let _cronTimer: ReturnType<typeof setInterval> | null = null;
+
 export function startCreatorNotificationsCron(): void {
-  setInterval(() => {
+  _cronTimer = setInterval(() => {
     try {
       checkMilestones();
     } catch (err) {
       logger.warn({ err }, 'Creator milestone check failed');
     }
-  }, 30 * 60_000).unref();
+  }, 30 * 60_000);
+  _cronTimer.unref();
   logger.info('Creator notifications cron started (every 30m)');
+}
+
+export function stopCreatorNotificationsCron(): void {
+  if (_cronTimer) { clearInterval(_cronTimer); _cronTimer = null; }
 }

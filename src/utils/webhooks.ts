@@ -10,7 +10,7 @@
 
 import crypto from 'crypto';
 import { nanoid } from 'nanoid';
-import { getDb } from '../db/connection';
+import { getDb } from '../db/index';
 import { logger } from './logger';
 
 export type WebhookEventType =

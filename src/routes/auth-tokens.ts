@@ -25,12 +25,12 @@ authRouter.get('/me', checkApiKey, (c) => {
 authRouter.get('/estimate', checkApiKey, (c) => {
   const keyInfo = c.get('apiKeyInfo');
   const skillId = c.req.query('skillId');
-  if (!skillId) return c.json({ error: 'skillId query param required' }, 400);
+  if (!skillId) return c.json({ error: 'skillId query param required', code: 'MISSING_FIELD' }, 400);
 
   const skill = getSkill(skillId);
-  if (!skill) return c.json({ error: 'Skill not found' }, 404);
+  if (!skill) return c.json({ error: 'Skill not found', code: 'SKILL_NOT_FOUND' }, 404);
   if (!skill.public && skill.author_key !== keyInfo.key) {
-    return c.json({ error: 'Skill not found' }, 404);
+    return c.json({ error: 'Skill not found', code: 'SKILL_NOT_FOUND' }, 404);
   }
 
   const minCost = Math.max(0.001, skill.credit_cost);

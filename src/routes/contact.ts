@@ -57,13 +57,13 @@ setInterval(() => {
     if (fresh.length === 0) submissionLog.delete(key)
     else submissionLog.set(key, fresh)
   }
-}, 60 * 60 * 1000)
+}, 60 * 60 * 1000).unref()
 
 contact.post('/v1/contact', async (c) => {
   // 1. Require Clerk JWT
   const authHeader = c.req.header('Authorization')
   if (!authHeader?.startsWith('Bearer ')) {
-    return c.json({ error: 'Authentication required. Please sign in to contact support.' }, 401)
+    return c.json({ error: 'Authentication required. Please sign in to contact support.', code: 'UNAUTHORIZED' }, 401)
   }
 
   const token = authHeader.slice(7)
@@ -78,7 +78,7 @@ contact.post('/v1/contact', async (c) => {
     verifiedEmail = ((payload as { email?: string }).email ?? '').toLowerCase()
     // Wallet users have no email in JWT — allowed through, use form-supplied email
   } catch {
-    return c.json({ error: 'Invalid or expired session. Please sign in again.' }, 401)
+    return c.json({ error: 'Invalid or expired session. Please sign in again.', code: 'INVALID_SESSION' }, 401)
   }
 
   // 2. Parse + validate body
@@ -86,13 +86,13 @@ contact.post('/v1/contact', async (c) => {
   try {
     body = await c.req.json()
   } catch {
-    return c.json({ error: 'Invalid JSON body.' }, 400)
+    return c.json({ error: 'Invalid JSON body.', code: 'INVALID_JSON' }, 400)
   }
 
   const parsed = ContactSchema.safeParse(body)
   if (!parsed.success) {
     return c.json(
-      { error: 'Invalid submission', details: parsed.error.flatten().fieldErrors },
+      { error: 'Invalid submission', code: 'VALIDATION_ERROR', details: parsed.error.flatten().fieldErrors },
       400
     )
   }
@@ -108,7 +108,7 @@ contact.post('/v1/contact', async (c) => {
   // 4. Rate limit by verified user ID — not IP, not submitted email
   if (isRateLimited(verifiedUserId)) {
     return c.json(
-      { error: 'Too many submissions. Please wait 10 minutes and try again.' },
+      { error: 'Too many submissions. Please wait 10 minutes and try again.', code: 'RATE_LIMITED' },
       429
     )
   }
@@ -178,7 +178,7 @@ contact.post('/v1/contact', async (c) => {
     return c.json({ ok: true, message: "Message sent. We'll be in touch within 24–48 hours." })
   } catch (err) {
     logger.error({ msg: 'Contact form email failed', err })
-    return c.json({ error: 'Failed to send message. Please try again.' }, 500)
+    return c.json({ error: 'Failed to send message. Please try again.', code: 'INTERNAL_ERROR' }, 500)
   }
 })
 

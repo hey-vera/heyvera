@@ -1,9 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { checkApiKey } from '../middleware/auth';
-import { getDb } from '../db/connection';
-import { getHardBudgetLock, setHardBudgetLock, removeHardBudgetLock, getMonthlySpend } from '../db/budget';
-import { logAudit } from '../db/connection';
+import { getDb, logAudit, getHardBudgetLock, setHardBudgetLock, removeHardBudgetLock, getMonthlySpend } from '../db/index';
 
 const router = new Hono();
 

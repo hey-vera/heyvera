@@ -1,4 +1,4 @@
-import { getDb } from '../db/connection';
+import { getDb } from '../db/index';
 import { logger } from '../utils/logger';
 
 // ─── Types ──────────────────────────────────────────────────────────────────

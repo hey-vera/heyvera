@@ -52,7 +52,7 @@ validatorsRouter.post('/verify', async (c) => {
     }, 201);
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Validation failed';
-    return c.json({ error: msg, code: 'VALIDATION_FAILED' }, 400);
+    return c.json({ error: process.env.NODE_ENV === 'production' ? 'Validation failed' : msg, code: 'VALIDATION_FAILED' }, 400);
   }
 });
 

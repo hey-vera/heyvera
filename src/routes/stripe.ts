@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import Stripe from 'stripe';
 import crypto from 'crypto';
 import { logger } from '../utils/logger';
+import { env } from '../config/index';
 import { sendApiKeyEmail } from '../utils/email';
 import { createApiKey, getApiKeyByEmail, topUpCredits, getApiKeyBalance, upsertSubscription, claimStripeSession, isStripeSessionClaimed, isStripeEventProcessed, markStripeEventProcessed, getDb, getStripeChargeRefundedCents, upsertStripeChargeRefundedCents } from '../db/index';
 
@@ -36,8 +37,8 @@ function generateApiKey(): string {
 
 // POST /v1/webhooks/stripe
 stripeRouter.post('/stripe', async (c) => {
-  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
-  const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+  const webhookSecret = env.STRIPE_WEBHOOK_SECRET;
+  const stripeSecretKey = env.STRIPE_SECRET_KEY;
 
   if (!webhookSecret || !stripeSecretKey) {
     logger.error('Stripe webhook called but STRIPE_SECRET_KEY or STRIPE_WEBHOOK_SECRET not set');
@@ -228,8 +229,8 @@ stripeRouter.post('/stripe', async (c) => {
 const SUBSCRIPTION_CREDITS_PER_MONTH = parseInt(process.env.SUBSCRIPTION_CREDITS_PER_MONTH ?? '50000');
 
 stripeRouter.post('/stripe-subscriptions', async (c) => {
-  const webhookSecret = process.env.STRIPE_SUBSCRIPTION_WEBHOOK_SECRET;
-  const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+  const webhookSecret = env.STRIPE_SUBSCRIPTION_WEBHOOK_SECRET;
+  const stripeSecretKey = env.STRIPE_SECRET_KEY;
 
   if (!webhookSecret || !stripeSecretKey) {
     return c.json({ error: 'Stripe subscription webhooks not configured' }, 500);

@@ -33,9 +33,11 @@ const envSchema = z.object({
   REFERRAL_BONUS_OWNER: z.coerce.number().int().min(0).max(10000).default(250),    // credits granted to the referral code owner
   DAILY_SPEND_CAP: z.coerce.number().int().min(0).default(0),          // 0 = disabled (agents should spend freely until credits run out)
   ANOMALY_THRESHOLD: z.coerce.number().int().min(100).default(5000),  // alert admin when a key hits this in one day
+  LOW_BALANCE_THRESHOLD: z.coerce.number().default(10),               // credit balance below which low-balance alerts fire
 
   TELEGRAM_BOT_TOKEN: z.string().optional(),
   TELEGRAM_CHANNEL_ID: z.string().optional(),
+  TELEGRAM_ALLOWED_USER_IDS: z.string().optional(), // Comma-separated Telegram user IDs for bot access control
 
   SOLANA_PRIVATE_KEY: z.string().optional(),
   EVM_PRIVATE_KEY: z.string().optional(), // Base/EVM wallet private key for paying x402 APIs on Base chain
@@ -50,10 +52,15 @@ const envSchema = z.object({
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
   STRIPE_SUBSCRIPTION_WEBHOOK_SECRET: z.string().optional(),
+  STRIPE_ANNUAL_PRICE_100: z.string().optional(),   // Stripe Price ID for $100/yr annual plan
+  STRIPE_ANNUAL_PRICE_500: z.string().optional(),   // Stripe Price ID for $500/yr annual plan
+  STRIPE_ANNUAL_PRICE_1000: z.string().optional(),  // Stripe Price ID for $1000/yr annual plan
+  SUBSCRIPTION_CREDITS_PER_MONTH: z.coerce.number().default(50000), // credits granted per subscription month
   RESEND_API_KEY: z.string().optional(),
   RESEND_FROM: z.string().optional(),
 
   CLERK_SECRET_KEY: z.string().optional(),
+  CLERK_WEBHOOK_SECRET: z.string().optional(), // Clerk webhook verification secret
   ADMIN_CLERK_IDS: z.string().optional(), // Comma-separated Clerk user IDs allowed to resolve escrow disputes
   SOLANA_RECEIVING_WALLET: z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/, 'Invalid Solana address').optional(),
   SOLANA_RPC_URL: z.string().default('https://api.mainnet-beta.solana.com'),
@@ -72,6 +79,10 @@ const envSchema = z.object({
   TREASURY_SWEEP_MIN: z.coerce.number().int().min(100).default(10000), // minimum credits to trigger sweep (10000 = $10 at $0.001/cr)
   HOT_WALLET_LOW_BALANCE_USDC: z.coerce.number().default(50), // Email alert when hot wallet drops below this
   HOT_WALLET_LOW_SOL: z.coerce.number().default(0.1),         // Email alert when SOL (gas) drops below this
+
+  // MCP server
+  CLAWNET_BASE_URL: z.string().default('https://api.claw-net.org'), // Base URL for MCP server self-reference
+  CLAWNET_API_KEY: z.string().optional(), // API key for MCP server self-referencing calls
 
   // Pricing engine — previously raw parseInt, now Zod-validated with bounds
   COST_MARKUP_FACTOR: z.coerce.number().int().min(500).max(10000).default(1500), // 1000=break-even, 1500=33-50% margin

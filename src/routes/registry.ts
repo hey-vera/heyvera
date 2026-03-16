@@ -25,7 +25,7 @@ const ListQuery = z.object({
 
 registryRouter.get('/', (c) => {
   let q: z.infer<typeof ListQuery>;
-  try { q = ListQuery.parse(c.req.query()); } catch { return c.json({ error: 'Invalid query params' }, 400); }
+  try { q = ListQuery.parse(c.req.query()); } catch { return c.json({ error: 'Invalid query params', code: 'VALIDATION_ERROR' }, 400); }
 
   let endpoints = apiRegistry;
 
@@ -123,7 +123,7 @@ registryRouter.get('/health', (c) => {
 registryRouter.get('/:id', (c) => {
   const { id } = c.req.param();
   const ep = apiRegistry.find((e) => e.id === id);
-  if (!ep) return c.json({ error: 'Endpoint not found' }, 404);
+  if (!ep) return c.json({ error: 'Endpoint not found', code: 'NOT_FOUND' }, 404);
 
   const [health] = getEndpointHealth(id);
   return c.json({

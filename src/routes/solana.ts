@@ -227,8 +227,10 @@ solanaRouter.get('/packages', async (c) => {
   if (!authHeader?.startsWith('Bearer ')) {
     return c.json({ error: 'Authentication required.' }, 401);
   }
+  const clerkKey = env.CLERK_SECRET_KEY;
+  if (!clerkKey) return c.json({ error: 'Clerk not configured', code: 'CLERK_NOT_CONFIGURED' }, 500);
   try {
-    await verifyToken(authHeader.slice(7), { secretKey: process.env.CLERK_SECRET_KEY! });
+    await verifyToken(authHeader.slice(7), { secretKey: clerkKey });
   } catch {
     return c.json({ error: 'Invalid or expired session.' }, 401);
   }
@@ -254,8 +256,10 @@ solanaRouter.post('/build-tx', async (c) => {
   if (!authHeader?.startsWith('Bearer ')) {
     return c.json({ error: 'Authentication required.' }, 401);
   }
+  const clerkKey2 = env.CLERK_SECRET_KEY;
+  if (!clerkKey2) return c.json({ error: 'Clerk not configured', code: 'CLERK_NOT_CONFIGURED' }, 500);
   try {
-    await verifyToken(authHeader.slice(7), { secretKey: process.env.CLERK_SECRET_KEY! });
+    await verifyToken(authHeader.slice(7), { secretKey: clerkKey2 });
   } catch {
     return c.json({ error: 'Invalid or expired session.' }, 401);
   }

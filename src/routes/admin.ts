@@ -160,7 +160,7 @@ adminRouter.get('/dashboard', (c) => {
 // ─── GET /v1/admin/payouts — list pending creator withdrawal requests ──────────
 
 adminRouter.get('/payouts', (c) => {
-  if (!requireAdmin(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!requireAdmin(c)) return c.json({ error: 'Unauthorized', code: 'UNAUTHORIZED' }, 401);
   const payouts = getAllPendingPayouts();
   return c.json({
     total: payouts.length,
@@ -186,7 +186,7 @@ const UpdatePayoutBody = z.object({
 // ─── GET /v1/admin/reconcile — verify credit accounting invariants ────────────
 
 adminRouter.get('/reconcile', (c) => {
-  if (!requireAdmin(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!requireAdmin(c)) return c.json({ error: 'Unauthorized', code: 'UNAUTHORIZED' }, 401);
   return c.json({
     ...getReconciliation(),
     note: 'drift should be 0. Nonzero indicates accounting inconsistency.',
@@ -196,7 +196,7 @@ adminRouter.get('/reconcile', (c) => {
 // ─── GET /v1/admin/revenue — platform revenue breakdown ──────────────────────
 
 adminRouter.get('/revenue', (c) => {
-  if (!requireAdmin(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!requireAdmin(c)) return c.json({ error: 'Unauthorized', code: 'UNAUTHORIZED' }, 401);
   return c.json({
     ...getRevenueBreakdown(),
     note: 'Marketplace fees are credited to clawhub-treasury. Use GET /v1/admin/treasury for treasury balance.',
@@ -206,7 +206,7 @@ adminRouter.get('/revenue', (c) => {
 // ─── GET /v1/admin/treasury — platform treasury balance and transaction history ─
 
 adminRouter.get('/treasury', (c) => {
-  if (!requireAdmin(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!requireAdmin(c)) return c.json({ error: 'Unauthorized', code: 'UNAUTHORIZED' }, 401);
   return c.json(getTreasuryStatus());
 });
 
@@ -219,11 +219,11 @@ const RevokeKeyBody = z.object({
 }).refine((d) => d.key || d.email, { message: 'Either key or email is required' });
 
 adminRouter.post('/revoke-key', async (c) => {
-  if (!requireAdmin(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!requireAdmin(c)) return c.json({ error: 'Unauthorized', code: 'UNAUTHORIZED' }, 401);
   let body: z.infer<typeof RevokeKeyBody>;
   try { body = RevokeKeyBody.parse(await c.req.json()); } catch (err) {
     const details = err instanceof z.ZodError ? err.flatten().fieldErrors : undefined;
-    return c.json({ error: 'Invalid body', details }, 400);
+    return c.json({ error: 'Invalid body', code: 'VALIDATION_ERROR', details }, 400);
   }
 
   const revoked = body.key
@@ -231,7 +231,7 @@ adminRouter.post('/revoke-key', async (c) => {
     : revokeKeysByEmail(body.email!, body.reason);
 
   if (revoked === 0) {
-    return c.json({ ok: false, error: 'No active key found matching that identifier' }, 404);
+    return c.json({ ok: false, error: 'No active key found matching that identifier', code: 'NOT_FOUND' }, 404);
   }
 
   return c.json({ ok: true, revokedCount: revoked });
@@ -240,7 +240,7 @@ adminRouter.post('/revoke-key', async (c) => {
 // ─── Validator Promotion ─────────────────────────────────────────────────────
 
 adminRouter.post('/validators/promote', async (c) => {
-  if (!requireAdmin(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!requireAdmin(c)) return c.json({ error: 'Unauthorized', code: 'UNAUTHORIZED' }, 401);
   let body: { key?: string };
   try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON', code: 'INVALID_BODY' }, 400); }
   if (!body.key || typeof body.key !== 'string') return c.json({ error: 'key is required', code: 'MISSING_KEY' }, 400);
@@ -256,7 +256,7 @@ adminRouter.post('/validators/promote', async (c) => {
 });
 
 adminRouter.delete('/validators/demote', async (c) => {
-  if (!requireAdmin(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!requireAdmin(c)) return c.json({ error: 'Unauthorized', code: 'UNAUTHORIZED' }, 401);
   let body: { key?: string };
   try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON', code: 'INVALID_BODY' }, 400); }
   if (!body.key || typeof body.key !== 'string') return c.json({ error: 'key is required', code: 'MISSING_KEY' }, 400);
@@ -270,12 +270,12 @@ adminRouter.delete('/validators/demote', async (c) => {
 });
 
 adminRouter.patch('/payouts/:id', async (c) => {
-  if (!requireAdmin(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!requireAdmin(c)) return c.json({ error: 'Unauthorized', code: 'UNAUTHORIZED' }, 401);
   const { id } = c.req.param();
   let body: z.infer<typeof UpdatePayoutBody>;
   try { body = UpdatePayoutBody.parse(await c.req.json()); } catch (err) {
     const details = err instanceof z.ZodError ? err.flatten().fieldErrors : undefined;
-    return c.json({ error: 'Invalid body', details }, 400);
+    return c.json({ error: 'Invalid body', code: 'VALIDATION_ERROR', details }, 400);
   }
 
   // Q7: Restore credits on REJECTED — credits were deducted when the payout request was created.

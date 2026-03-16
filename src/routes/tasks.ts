@@ -21,7 +21,8 @@ import { findEndpoint } from '../config/api-registry';
 import { scanProxyResponse } from '../core/skill-scanner';
 import { logger } from '../utils/logger';
 import { maskApiKey } from '../utils/mask';
-import { cacheGet, cacheSet } from '../cache/index';
+import { rateTier } from '../config/index';
+import { cacheGet, cacheSet, cacheIncr } from '../cache/index';
 
 export const tasksRouter = new Hono();
 
@@ -106,12 +107,26 @@ const SubmitTaskSchema = z.object({
 tasksRouter.post('/', checkApiKey, async (c) => {
   const keyInfo = c.get('apiKeyInfo');
 
+  // Per-key tiered rate limit (same policy as /v1/orchestrate)
+  if (!keyInfo.isEnvKey) {
+    const tierLimit = rateTier(keyInfo.amountPaid).perMinute;
+    const rlCount = await cacheIncr(`rl:task:${keyInfo.key}`, 60);
+    if (rlCount > tierLimit) {
+      return c.json({
+        error: 'Task rate limit exceeded for your tier',
+        code: 'RATE_LIMITED',
+        limit: tierLimit,
+        hint: 'Top up to $20+ for higher limits',
+      }, 429);
+    }
+  }
+
   let body: unknown;
-  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON', code: 'INVALID_JSON' }, 400); }
 
   const parsed = SubmitTaskSchema.safeParse(body);
   if (!parsed.success) {
-    return c.json({ error: 'Validation failed', details: parsed.error.flatten().fieldErrors }, 400);
+    return c.json({ error: 'Validation failed', code: 'VALIDATION_ERROR', details: parsed.error.flatten().fieldErrors }, 400);
   }
 
   const { skillId, variables, idempotencyKey, webhookUrl } = parsed.data;
@@ -127,14 +142,14 @@ tasksRouter.post('/', checkApiKey, async (c) => {
 
   // Resolve skill (with A/B routing)
   const baseSkill = getSkillWithAb(skillId);
-  if (!baseSkill) return c.json({ error: 'Skill not found' }, 404);
+  if (!baseSkill) return c.json({ error: 'Skill not found', code: 'SKILL_NOT_FOUND' }, 404);
 
   const useChallenger = baseSkill.ab_challenger && Math.random() < 0.30;
   const skill = useChallenger ? (getSkill(baseSkill.ab_challenger!) ?? baseSkill) : baseSkill;
   const activeSkillId = useChallenger ? (baseSkill.ab_challenger ?? skillId) : skillId;
 
   if (!baseSkill.public && baseSkill.author_key !== keyInfo.key) {
-    return c.json({ error: 'Skill not found' }, 404);
+    return c.json({ error: 'Skill not found', code: 'SKILL_NOT_FOUND' }, 404);
   }
 
   const creditsNeeded = Math.max(0.001, skill.credit_cost);
@@ -180,7 +195,7 @@ tasksRouter.post('/', checkApiKey, async (c) => {
 
       if (!proxyRes.ok) {
         updateTaskFailed(taskId, `Proxy upstream error: HTTP ${proxyRes.status}`, Date.now() - start);
-        return c.json({ taskId, status: 'FAILED', error: 'Proxy upstream error', httpStatus: proxyRes.status }, 502);
+        return c.json({ taskId, status: 'FAILED', error: 'Proxy upstream error', code: 'PROXY_ERROR', httpStatus: proxyRes.status }, 502);
       }
 
       // Content safety scan — catches wallet drainers, phishing, social engineering
@@ -302,7 +317,7 @@ tasksRouter.post('/', checkApiKey, async (c) => {
     updateTaskFailed(taskId, errMsg, durationMs);
     logger.error({ taskId, skillId, err }, 'Task execution failed');
     if (webhookUrl) fireWebhook(webhookUrl, taskId, { taskId, status: 'FAILED', error: errMsg }, webhookSecret);
-    return c.json({ taskId, status: 'FAILED', error: 'Task execution failed', details: errMsg }, 500);
+    return c.json({ taskId, status: 'FAILED', error: 'Task execution failed', code: 'EXECUTION_ERROR', ...(process.env.NODE_ENV !== 'production' && { details: errMsg }) }, 500);
   }
 });
 
@@ -341,9 +356,9 @@ tasksRouter.get('/:id', checkApiKey, (c) => {
   const { id } = c.req.param();
 
   const task = getTask(id);
-  if (!task) return c.json({ error: 'Task not found' }, 404);
+  if (!task) return c.json({ error: 'Task not found', code: 'TASK_NOT_FOUND' }, 404);
   if (task.requester_key !== keyInfo.key && !keyInfo.isEnvKey) {
-    return c.json({ error: 'Task not found' }, 404);
+    return c.json({ error: 'Task not found', code: 'TASK_NOT_FOUND' }, 404);
   }
 
   const rating = getTaskRating(id);
@@ -378,12 +393,12 @@ tasksRouter.post('/:id/cancel', checkApiKey, (c) => {
   const { id } = c.req.param();
 
   const task = getTask(id);
-  if (!task) return c.json({ error: 'Task not found' }, 404);
-  if (task.requester_key !== keyInfo.key) return c.json({ error: 'Task not found' }, 404);
+  if (!task) return c.json({ error: 'Task not found', code: 'TASK_NOT_FOUND' }, 404);
+  if (task.requester_key !== keyInfo.key) return c.json({ error: 'Task not found', code: 'TASK_NOT_FOUND' }, 404);
 
   const cancelled = updateTaskCancelled(id);
   if (!cancelled) {
-    return c.json({ error: 'Task cannot be cancelled — only PENDING tasks can be cancelled' }, 409);
+    return c.json({ error: 'Task cannot be cancelled — only PENDING tasks can be cancelled', code: 'INVALID_STATE' }, 409);
   }
 
   return c.json({ ok: true, taskId: id, status: 'CANCELLED' });
@@ -401,18 +416,18 @@ tasksRouter.post('/:id/rate', checkApiKey, async (c) => {
   const { id } = c.req.param();
 
   const task = getTask(id);
-  if (!task) return c.json({ error: 'Task not found' }, 404);
-  if (task.requester_key !== keyInfo.key) return c.json({ error: 'Task not found' }, 404);
+  if (!task) return c.json({ error: 'Task not found', code: 'TASK_NOT_FOUND' }, 404);
+  if (task.requester_key !== keyInfo.key) return c.json({ error: 'Task not found', code: 'TASK_NOT_FOUND' }, 404);
   if (task.status !== 'COMPLETED') {
-    return c.json({ error: 'Only completed tasks can be rated' }, 409);
+    return c.json({ error: 'Only completed tasks can be rated', code: 'INVALID_STATE' }, 409);
   }
 
   let body: unknown;
-  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON', code: 'INVALID_JSON' }, 400); }
 
   const parsed = RateTaskSchema.safeParse(body);
   if (!parsed.success) {
-    return c.json({ error: 'Validation failed', details: parsed.error.flatten().fieldErrors }, 400);
+    return c.json({ error: 'Validation failed', code: 'VALIDATION_ERROR', details: parsed.error.flatten().fieldErrors }, 400);
   }
 
   const result = createTaskRating({
@@ -423,7 +438,7 @@ tasksRouter.post('/:id/rate', checkApiKey, async (c) => {
   });
 
   if (!result.ok) {
-    return c.json({ error: result.error ?? 'Already rated this task' }, 409);
+    return c.json({ error: result.error ?? 'Already rated this task', code: 'ALREADY_RATED' }, 409);
   }
 
   // Reputation bump for skill author based on rating

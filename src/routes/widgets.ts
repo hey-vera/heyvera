@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { getDb } from '../db/connection';
+import { getDb } from '../db/index';
 
 export const widgetsRouter = new Hono();
 

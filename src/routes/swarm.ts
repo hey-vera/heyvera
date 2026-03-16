@@ -9,8 +9,9 @@ import { checkApiKey } from '../middleware/auth';
 import { trackDelegatedSpend } from '../utils/billing';
 import { createSwarmTask, updateSwarmTask, getSwarmTask, listPublicSkills, deductCredit, safeJsonParse } from '../db/index';
 import { llmComplete } from '../providers/llm';
+import { cacheIncr } from '../cache/index';
 import { logger } from '../utils/logger';
-import { env, SWARM_BASE_FEE } from '../config/index';
+import { env, SWARM_BASE_FEE, rateTier } from '../config/index';
 
 export const swarmRouter = new Hono();
 
@@ -31,9 +32,24 @@ swarmRouter.post('/task', checkApiKey, async (c) => {
   }
 
   const keyInfo = c.get('apiKeyInfo');
+
+  // Per-key tiered rate limit (same policy as /v1/orchestrate)
+  if (!keyInfo.isEnvKey) {
+    const tierLimit = rateTier(keyInfo.amountPaid).perMinute;
+    const rlCount = await cacheIncr(`rl:swarm:${keyInfo.key}`, 60);
+    if (rlCount > tierLimit) {
+      return c.json({
+        error: 'Swarm rate limit exceeded for your tier',
+        code: 'RATE_LIMITED',
+        limit: tierLimit,
+        hint: 'Top up to $20+ for higher limits',
+      }, 429);
+    }
+  }
+
   const parsed = SwarmBody.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) {
-    return c.json({ error: 'Invalid body', details: parsed.error.flatten().fieldErrors }, 400);
+    return c.json({ error: 'Invalid body', code: 'VALIDATION_ERROR', details: parsed.error.flatten().fieldErrors }, 400);
   }
   const body = parsed.data;
 
@@ -75,8 +91,8 @@ swarmRouter.get('/:id', checkApiKey, (c) => {
   const { id } = c.req.param();
   const task = getSwarmTask(id);
 
-  if (!task) return c.json({ error: 'Swarm task not found' }, 404);
-  if (task.agent_key !== keyInfo.key) return c.json({ error: 'Not found' }, 404);
+  if (!task) return c.json({ error: 'Swarm task not found', code: 'SWARM_NOT_FOUND' }, 404);
+  if (task.agent_key !== keyInfo.key) return c.json({ error: 'Not found', code: 'SWARM_NOT_FOUND' }, 404);
 
   return c.json({
     id: task.id,

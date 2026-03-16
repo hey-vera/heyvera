@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { checkApiKey } from '../middleware/auth';
 import { runDiscovery } from '../core/discovery-engine';
 import { isEmbeddingModelReady } from '../core/embeddings';
+import { logger } from '../utils/logger';
 
 const discoverRouter = new Hono();
 discoverRouter.use('*', checkApiKey);
@@ -47,19 +48,24 @@ discoverRouter.post('/', async (c) => {
     body.weights = { semantic: s / sum, p2p: p / sum, onchain: o / sum };
   }
 
-  const { results, layerStats } = await runDiscovery({
-    query: body.query,
-    limit: body.limit,
-    filters: body.filters,
-    weights: body.weights,
-  });
+  try {
+    const { results, layerStats } = await runDiscovery({
+      query: body.query,
+      limit: body.limit,
+      filters: body.filters,
+      weights: body.weights,
+    });
 
-  return c.json({
-    query: body.query,
-    results,
-    total: results.length,
-    layers: layerStats,
-  });
+    return c.json({
+      query: body.query,
+      results,
+      total: results.length,
+      layers: layerStats,
+    });
+  } catch (err) {
+    logger.error({ err, query: body.query }, 'Discovery engine error');
+    return c.json({ error: 'Discovery failed', code: 'DISCOVERY_ERROR' }, 500);
+  }
 });
 
 export { discoverRouter };

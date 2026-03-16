@@ -10,11 +10,13 @@ import { checkCacheHealth } from '../cache/health-alert';
  * We can't re-fetch without the original request params (cache keys are hashed),
  * so instead we read from Redis (L2) which triggers automatic L1 promotion.
  */
+let _cronTimer: ReturnType<typeof setInterval> | null = null;
+
 export function startCacheWarmingCron(): void {
   const INTERVAL_MS = 5 * 60_000; // 5 minutes
   const MAX_WARMS_PER_CYCLE = 10;
 
-  setInterval(async () => {
+  _cronTimer = setInterval(async () => {
     try {
       const candidates = getWarmingCandidates();
       if (candidates.length === 0) return;
@@ -41,7 +43,12 @@ export function startCacheWarmingCron(): void {
     } catch (err) {
       logger.warn({ err }, 'Cache warming cron error');
     }
-  }, INTERVAL_MS).unref();
+  }, INTERVAL_MS);
+  _cronTimer.unref();
 
   logger.info('Cache warming cron started (every 5m)');
+}
+
+export function stopCacheWarmingCron(): void {
+  if (_cronTimer) { clearInterval(_cronTimer); _cronTimer = null; }
 }

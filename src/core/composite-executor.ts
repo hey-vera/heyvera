@@ -20,7 +20,7 @@ import {
 import { trackDelegatedSpend } from '../utils/billing';
 import { computeRequestHash, computeResultHash } from '../utils/receipt-hash';
 import { cacheGet, cacheSet } from '../cache/index';
-import type { Skill, SkillDependency } from '../db/skills';
+import type { Skill, SkillDependency } from '../db/index';
 import crypto from 'crypto';
 
 // ─── Types ──────────────────────────────────────────────────────────────────────

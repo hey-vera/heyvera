@@ -26,8 +26,9 @@ import { checkApiKey } from '../middleware/auth';
 import { trackDelegatedSpend } from '../utils/billing';
 import { deductCredit, getDb } from '../db/index';
 import { round6, cacheCreditCost } from '../core/credits';
-import { cacheGet, cacheSet } from '../cache/index';
+import { cacheGet, cacheSet, cacheIncr } from '../cache/index';
 import { clawApiCall } from '../providers/clawapis';
+import { env, rateTier } from '../config/index';
 import { logger } from '../utils/logger';
 
 export const llmRouter = new Hono();
@@ -121,12 +122,26 @@ llmRouter.get('/models', (c) => {
 llmRouter.post('/chat', checkApiKey, async (c) => {
   const keyInfo = c.get('apiKeyInfo');
 
+  // Per-key tiered rate limit (same policy as /v1/orchestrate)
+  if (!keyInfo.isEnvKey) {
+    const tierLimit = rateTier(keyInfo.amountPaid).perMinute;
+    const rlCount = await cacheIncr(`rl:llm:${keyInfo.key}`, 60);
+    if (rlCount > tierLimit) {
+      return c.json({
+        error: 'LLM rate limit exceeded for your tier',
+        code: 'RATE_LIMITED',
+        limit: tierLimit,
+        hint: 'Top up to $20+ for higher limits',
+      }, 429);
+    }
+  }
+
   let rawBody: unknown;
-  try { rawBody = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  try { rawBody = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON', code: 'INVALID_JSON' }, 400); }
 
   const parsed = ChatRequestSchema.safeParse(rawBody);
   if (!parsed.success) {
-    return c.json({ error: 'Invalid request', details: parsed.error.flatten().fieldErrors }, 400);
+    return c.json({ error: 'Invalid request', code: 'VALIDATION_ERROR', details: parsed.error.flatten().fieldErrors }, 400);
   }
   const { model, messages, max_tokens, temperature } = parsed.data;
 
@@ -134,6 +149,7 @@ llmRouter.post('/chat', checkApiKey, async (c) => {
   if (!modelMeta) {
     return c.json({
       error: 'Unknown model. See availableModels for valid options.',
+      code: 'UNKNOWN_MODEL',
       availableModels: Object.keys(LLM_MODELS),
     }, 400);
   }
@@ -229,7 +245,7 @@ llmRouter.post('/chat', checkApiKey, async (c) => {
     return c.json(response);
   } catch (err) {
     logger.error({ model, err }, 'LLM proxy error');
-    return c.json({ error: 'LLM request failed', details: String(err), model }, 500);
+    return c.json({ error: 'LLM request failed', code: 'LLM_REQUEST_FAILED', details: env.NODE_ENV === 'production' ? 'Internal error' : String(err), model }, 500);
   }
 });
 
@@ -243,17 +259,31 @@ const EmbeddingsSchema = z.object({
 llmRouter.post('/embeddings', checkApiKey, async (c) => {
   const keyInfo = c.get('apiKeyInfo');
 
+  // Per-key tiered rate limit (same policy as /v1/orchestrate)
+  if (!keyInfo.isEnvKey) {
+    const tierLimit = rateTier(keyInfo.amountPaid).perMinute;
+    const rlCount = await cacheIncr(`rl:llm:${keyInfo.key}`, 60);
+    if (rlCount > tierLimit) {
+      return c.json({
+        error: 'LLM rate limit exceeded for your tier',
+        code: 'RATE_LIMITED',
+        limit: tierLimit,
+        hint: 'Top up to $20+ for higher limits',
+      }, 429);
+    }
+  }
+
   let rawBody: unknown;
-  try { rawBody = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  try { rawBody = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON', code: 'INVALID_JSON' }, 400); }
 
   const parsed = EmbeddingsSchema.safeParse(rawBody);
-  if (!parsed.success) return c.json({ error: 'Invalid request', details: parsed.error.flatten().fieldErrors }, 400);
+  if (!parsed.success) return c.json({ error: 'Invalid request', code: 'VALIDATION_ERROR', details: parsed.error.flatten().fieldErrors }, 400);
 
   const { input, model } = parsed.data;
   const creditCost = 2; // 2 credits per embedding call (~$0.001)
 
   if (!keyInfo.isEnvKey && keyInfo.credits < creditCost) {
-    return c.json({ error: 'Insufficient credits', creditsRequired: creditCost, creditsAvailable: keyInfo.credits }, 402);
+    return c.json({ error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS', creditsRequired: creditCost, creditsAvailable: keyInfo.credits }, 402);
   }
 
   try {
@@ -270,7 +300,7 @@ llmRouter.post('/embeddings', checkApiKey, async (c) => {
     return c.json({ ...result, creditsCharged: creditCost, model });
   } catch (err) {
     logger.error({ err }, 'Embeddings proxy error');
-    return c.json({ error: 'Embeddings request failed', details: String(err) }, 500);
+    return c.json({ error: 'Embeddings request failed', code: 'EMBEDDINGS_REQUEST_FAILED', details: env.NODE_ENV === 'production' ? 'Internal error' : String(err) }, 500);
   }
 });
 
@@ -286,16 +316,30 @@ const CodeRunSchema = z.object({
 llmRouter.post('/code/run', checkApiKey, async (c) => {
   const keyInfo = c.get('apiKeyInfo');
 
+  // Per-key tiered rate limit (same policy as /v1/orchestrate)
+  if (!keyInfo.isEnvKey) {
+    const tierLimit = rateTier(keyInfo.amountPaid).perMinute;
+    const rlCount = await cacheIncr(`rl:llm:${keyInfo.key}`, 60);
+    if (rlCount > tierLimit) {
+      return c.json({
+        error: 'LLM rate limit exceeded for your tier',
+        code: 'RATE_LIMITED',
+        limit: tierLimit,
+        hint: 'Top up to $20+ for higher limits',
+      }, 429);
+    }
+  }
+
   let rawBody: unknown;
-  try { rawBody = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  try { rawBody = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON', code: 'INVALID_JSON' }, 400); }
 
   const parsed = CodeRunSchema.safeParse(rawBody);
-  if (!parsed.success) return c.json({ error: 'Invalid request', details: parsed.error.flatten().fieldErrors }, 400);
+  if (!parsed.success) return c.json({ error: 'Invalid request', code: 'VALIDATION_ERROR', details: parsed.error.flatten().fieldErrors }, 400);
 
   const creditCost = 10; // 10 credits per sandbox run
 
   if (!keyInfo.isEnvKey && keyInfo.credits < creditCost) {
-    return c.json({ error: 'Insufficient credits', creditsRequired: creditCost, creditsAvailable: keyInfo.credits }, 402);
+    return c.json({ error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS', creditsRequired: creditCost, creditsAvailable: keyInfo.credits }, 402);
   }
 
   try {
@@ -312,6 +356,6 @@ llmRouter.post('/code/run', checkApiKey, async (c) => {
     return c.json({ ...(result as object), creditsCharged: creditCost });
   } catch (err) {
     logger.error({ err }, 'Code run proxy error');
-    return c.json({ error: 'Code execution failed', details: String(err) }, 500);
+    return c.json({ error: 'Code execution failed', code: 'CODE_EXECUTION_FAILED', details: env.NODE_ENV === 'production' ? 'Internal error' : String(err) }, 500);
   }
 });

@@ -119,7 +119,7 @@ dashboardRouter.post('/regenerate-key', requireClerkAuth, async (c) => {
 // Returns a Stripe Customer Portal URL for subscription management.
 // The user is redirected back to the dashboard after managing their subscription.
 dashboardRouter.post('/billing-portal', requireClerkAuth, async (c) => {
-  const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+  const stripeSecretKey = env.STRIPE_SECRET_KEY;
   if (!stripeSecretKey) {
     return c.json({ error: 'Stripe not configured' }, 503);
   }
@@ -381,8 +381,8 @@ async function sendClaimEmail(params: {
   token: string;
   clerkUserId: string;
 }): Promise<void> {
-  const resendKey = process.env.RESEND_API_KEY;
-  const from = process.env.RESEND_FROM ?? 'noreply@claw-net.org';
+  const resendKey = env.RESEND_API_KEY;
+  const from = env.RESEND_FROM ?? 'noreply@claw-net.org';
 
   if (!resendKey) return;
 

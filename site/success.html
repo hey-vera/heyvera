@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Payment Successful — ClawNet</title>
-  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
   <style>
@@ -255,6 +255,8 @@ async function loadKey() {
   } catch(e) { showError(); }
 }
 
+function esc(s){return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+
 function showSuccess(data) {
   currentKey = data.apiKey || data.api_key || '';
   document.getElementById('loading').classList.add('hidden');
@@ -263,8 +265,8 @@ function showSuccess(data) {
   document.getElementById('credits-display').textContent = (data.credits || 0).toLocaleString();
   document.getElementById('email-display').textContent = data.email || '—';
   document.getElementById('curl-example').innerHTML =
-    `curl -X POST ${API_BASE}/v1/orchestrate \\\n` +
-    `  -H "<span class="hl">X-API-Key: ${currentKey}</span>" \\\n` +
+    `curl -X POST ${esc(API_BASE)}/v1/orchestrate \\\n` +
+    `  -H "<span class="hl">X-API-Key: ${esc(currentKey)}</span>" \\\n` +
     `  -H "Content-Type: application/json" \\\n` +
     `  -d '{"query":"Is BONK safe to buy right now?"}'`;
 }

@@ -23,6 +23,7 @@ import { formatResponse } from '../core/formatter';
 import { buildIntentFromPlan } from '../core/skill-executor';
 import { isSimulationMode } from '../config/index';
 import { cacheGet, cacheSet } from '../cache/index';
+import { getClientIp } from '../middleware/rate-limit';
 import { logger } from '../utils/logger';
 
 export const marketplaceRouter = new Hono();
@@ -50,7 +51,7 @@ const ListQuery = z.object({
 
 marketplaceRouter.get('/skills', (c) => {
   let q: z.infer<typeof ListQuery>;
-  try { q = ListQuery.parse(c.req.query()); } catch { return c.json({ error: 'Invalid query params' }, 400); }
+  try { q = ListQuery.parse(c.req.query()); } catch { return c.json({ error: 'Invalid query params', code: 'VALIDATION_ERROR' }, 400); }
 
   const { skills, total } = getMarketplaceSkills({
     page: q.page, limit: q.limit, sort: q.sort,
@@ -102,10 +103,10 @@ marketplaceRouter.get('/skills', (c) => {
 marketplaceRouter.get('/skills/:id', async (c) => {
   const { id } = c.req.param();
   const skill = getSkill(id);
-  if (!skill || !skill.public) return c.json({ error: 'Skill not found' }, 404);
+  if (!skill || !skill.public) return c.json({ error: 'Skill not found', code: 'SKILL_NOT_FOUND' }, 404);
 
   // Rate-limit view increments: 1 per IP per skill per 5 min to prevent inflation
-  const viewerIp = c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown';
+  const viewerIp = getClientIp(c);
   const viewKey = `view:${id}:${viewerIp}`;
   const alreadyViewed = await cacheGet(viewKey);
   if (!alreadyViewed) {
@@ -172,10 +173,10 @@ marketplaceRouter.post('/skills/:id/star', checkApiKey, (c) => {
   const keyInfo = c.get('apiKeyInfo');
   const { id } = c.req.param();
   const skill = getSkill(id);
-  if (!skill || !skill.public) return c.json({ error: 'Skill not found' }, 404);
+  if (!skill || !skill.public) return c.json({ error: 'Skill not found', code: 'SKILL_NOT_FOUND' }, 404);
 
   const result = starSkill(id, keyInfo.key);
-  if (!result.ok) return c.json({ error: 'Already starred' }, 409);
+  if (!result.ok) return c.json({ error: 'Already starred', code: 'ALREADY_STARRED' }, 409);
   return c.json({ ok: true, stars: (skill.stars ?? 0) + 1 });
 });
 
@@ -185,10 +186,10 @@ marketplaceRouter.delete('/skills/:id/star', checkApiKey, (c) => {
   const keyInfo = c.get('apiKeyInfo');
   const { id } = c.req.param();
   const skill = getSkill(id);
-  if (!skill || !skill.public) return c.json({ error: 'Skill not found' }, 404);
+  if (!skill || !skill.public) return c.json({ error: 'Skill not found', code: 'SKILL_NOT_FOUND' }, 404);
 
   const result = unstarSkill(id, keyInfo.key);
-  if (!result.ok) return c.json({ error: 'Not starred' }, 409);
+  if (!result.ok) return c.json({ error: 'Not starred', code: 'NOT_STARRED' }, 409);
   return c.json({ ok: true, stars: Math.max(0, (skill.stars ?? 0) - 1) });
 });
 
@@ -198,7 +199,7 @@ marketplaceRouter.get('/skills/:id/starred', checkApiKey, (c) => {
   const keyInfo = c.get('apiKeyInfo');
   const { id } = c.req.param();
   const skill = getSkill(id);
-  if (!skill || !skill.public) return c.json({ error: 'Skill not found' }, 404);
+  if (!skill || !skill.public) return c.json({ error: 'Skill not found', code: 'SKILL_NOT_FOUND' }, 404);
   return c.json({ starred: hasStarred(id, keyInfo.key), stars: skill.stars ?? 0 });
 });
 
@@ -217,14 +218,14 @@ marketplaceRouter.post('/skills/:id/purchase', checkApiKey, async (c) => {
   const { id } = c.req.param();
 
   const skill = getSkill(id);
-  if (!skill || !skill.public) return c.json({ requestId, error: 'Skill not found' }, 404);
-  if (skill.author_key === keyInfo.key) return c.json({ requestId, error: 'Cannot purchase your own skill' }, 400);
-  if (skill.credit_cost === 0) return c.json({ requestId, error: 'This skill is free — use POST /v1/skills/:id/invoke directly' }, 400);
+  if (!skill || !skill.public) return c.json({ requestId, error: 'Skill not found', code: 'SKILL_NOT_FOUND' }, 404);
+  if (skill.author_key === keyInfo.key) return c.json({ requestId, error: 'Cannot purchase your own skill', code: 'SELF_PURCHASE' }, 400);
+  if (skill.credit_cost === 0) return c.json({ requestId, error: 'This skill is free — use POST /v1/skills/:id/invoke directly', code: 'FREE_SKILL' }, 400);
   if (skill.security_status === 'FLAGGED') return c.json({ requestId, error: 'This skill has been flagged for review and cannot be purchased', code: 'SKILL_FLAGGED' }, 403);
 
   const parsedBody = PurchaseBody.safeParse(await c.req.json().catch(() => null));
   if (!parsedBody.success) {
-    return c.json({ requestId, error: 'Invalid body', details: parsedBody.error.flatten().fieldErrors }, 400);
+    return c.json({ requestId, error: 'Invalid body', code: 'VALIDATION_ERROR', details: parsedBody.error.flatten().fieldErrors }, 400);
   }
   const body = parsedBody.data;
 
@@ -415,14 +416,14 @@ marketplaceRouter.post('/stake', checkApiKey, async (c) => {
   const keyInfo = c.get('apiKeyInfo');
   const parsedStake = StakeBody.safeParse(await c.req.json().catch(() => null));
   if (!parsedStake.success) {
-    return c.json({ error: 'Invalid body', details: parsedStake.error.flatten().fieldErrors }, 400);
+    return c.json({ error: 'Invalid body', code: 'VALIDATION_ERROR', details: parsedStake.error.flatten().fieldErrors }, 400);
   }
   const body = parsedStake.data;
 
   // Validate skill exists if provided
   if (body.skillId) {
     const skill = getSkill(body.skillId);
-    if (!skill || !skill.public) return c.json({ error: 'Skill not found' }, 404);
+    if (!skill || !skill.public) return c.json({ error: 'Skill not found', code: 'SKILL_NOT_FOUND' }, 404);
   }
 
   const result = stakeCredits({
@@ -456,7 +457,7 @@ marketplaceRouter.post('/unstake/:stakeId', checkApiKey, (c) => {
   const { stakeId } = c.req.param();
 
   const result = unstakeCredits(stakeId, keyInfo.key);
-  if (!result.ok) return c.json({ error: result.error }, 400);
+  if (!result.ok) return c.json({ error: result.error, code: 'UNSTAKE_FAILED' }, 400);
 
   writeAuditLog({ entityType: 'stake', entityId: stakeId, action: 'UNSTAKED', actorId: keyInfo.key });
   return c.json({ ok: true, stakeId, message: 'Credits returned to your balance' });
@@ -519,7 +520,7 @@ marketplaceRouter.post('/creator/withdraw', checkApiKey, async (c) => {
   const keyInfo = c.get('apiKeyInfo');
   const parsedWithdraw = WithdrawBody.safeParse(await c.req.json().catch(() => null));
   if (!parsedWithdraw.success) {
-    return c.json({ error: 'Invalid body', details: parsedWithdraw.error.flatten().fieldErrors }, 400);
+    return c.json({ error: 'Invalid body', code: 'VALIDATION_ERROR', details: parsedWithdraw.error.flatten().fieldErrors }, 400);
   }
   const body = parsedWithdraw.data;
 
@@ -529,7 +530,7 @@ marketplaceRouter.post('/creator/withdraw', checkApiKey, async (c) => {
     usdcWallet: body.usdcWallet,
   });
 
-  if (!result.ok) return c.json({ error: result.error }, 400);
+  if (!result.ok) return c.json({ error: result.error, code: 'WITHDRAW_FAILED' }, 400);
 
   writeAuditLog({
     entityType: 'payout', entityId: result.id!,
@@ -580,18 +581,18 @@ marketplaceRouter.post('/skills/:id/report', checkApiKey, async (c) => {
   const keyInfo = c.get('apiKeyInfo');
   const { id } = c.req.param();
   const skill = getSkill(id);
-  if (!skill || !skill.public) return c.json({ error: 'Skill not found' }, 404);
+  if (!skill || !skill.public) return c.json({ error: 'Skill not found', code: 'SKILL_NOT_FOUND' }, 404);
 
   let body: z.infer<typeof ReportBody>;
   try { body = ReportBody.parse(await c.req.json()); }
-  catch { return c.json({ error: 'reason is required (5-500 chars), category is optional (security|spam|copyright|quality|misleading|other)' }, 400); }
+  catch { return c.json({ error: 'reason is required (5-500 chars), category is optional (security|spam|copyright|quality|misleading|other)', code: 'VALIDATION_ERROR' }, 400); }
 
   // Use category-aware report if category provided, else fallback
   if (body.category !== 'other') {
     reportSkillWithCategory({ skillId: id, reporterKey: keyInfo.key, reason: body.reason, category: body.category });
   } else {
     const result = reportSkill(id, keyInfo.key, body.reason);
-    if (!result.ok) return c.json({ error: result.error ?? 'Report failed' }, 409);
+    if (!result.ok) return c.json({ error: result.error ?? 'Report failed', code: 'REPORT_FAILED' }, 409);
   }
 
   const categories = getReportsByCategory(id);
@@ -605,7 +606,7 @@ marketplaceRouter.post('/skills/:id/report', checkApiKey, async (c) => {
 marketplaceRouter.get('/skills/:id/versions', (c) => {
   const { id } = c.req.param();
   const skill = getSkill(id);
-  if (!skill || !skill.public) return c.json({ error: 'Skill not found' }, 404);
+  if (!skill || !skill.public) return c.json({ error: 'Skill not found', code: 'SKILL_NOT_FOUND' }, 404);
 
   const versions = getSkillVersionHistory(id);
   return c.json({ skillId: id, versions });
@@ -618,20 +619,20 @@ marketplaceRouter.post('/skills/:id/rate', checkApiKey, async (c) => {
   const { id } = c.req.param();
 
   const skill = getSkill(id);
-  if (!skill || !skill.public) return c.json({ error: 'Skill not found' }, 404);
+  if (!skill || !skill.public) return c.json({ error: 'Skill not found', code: 'SKILL_NOT_FOUND' }, 404);
 
   let raw: unknown;
-  try { raw = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  try { raw = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON', code: 'INVALID_JSON' }, 400); }
 
   const RateSchema = z.object({
     rating: z.number().int().min(1).max(5),
     comment: z.string().max(500).trim().optional(),
   });
   const parsed = RateSchema.safeParse(raw);
-  if (!parsed.success) return c.json({ error: 'rating must be 1-5', details: parsed.error.flatten().fieldErrors }, 400);
+  if (!parsed.success) return c.json({ error: 'rating must be 1-5', code: 'VALIDATION_ERROR', details: parsed.error.flatten().fieldErrors }, 400);
 
   const result = rateSkill({ skillId: id, buyerKey: keyInfo.key, rating: parsed.data.rating, comment: parsed.data.comment });
-  if (!result.ok) return c.json({ error: result.error }, 400);
+  if (!result.ok) return c.json({ error: result.error, code: 'RATING_FAILED' }, 400);
 
   const stats = getSkillRatingStats(id);
   writeAuditLog({ entityType: 'skill', entityId: id, action: 'RATED', actorId: keyInfo.key,
@@ -645,7 +646,7 @@ marketplaceRouter.post('/skills/:id/rate', checkApiKey, async (c) => {
 marketplaceRouter.get('/skills/:id/ratings', (c) => {
   const { id } = c.req.param();
   const skill = getSkill(id);
-  if (!skill || !skill.public) return c.json({ error: 'Skill not found' }, 404);
+  if (!skill || !skill.public) return c.json({ error: 'Skill not found', code: 'SKILL_NOT_FOUND' }, 404);
 
   const stats = getSkillRatingStats(id);
   const reviews = getSkillRatings(id, 20);
@@ -666,7 +667,7 @@ marketplaceRouter.get('/skills/:id/ratings', (c) => {
 marketplaceRouter.get('/skills/:id/stats', (c) => {
   const { id } = c.req.param();
   const skill = getSkill(id);
-  if (!skill || !skill.public) return c.json({ error: 'Skill not found' }, 404);
+  if (!skill || !skill.public) return c.json({ error: 'Skill not found', code: 'SKILL_NOT_FOUND' }, 404);
 
   const metrics = getSkillMetricsSummary(id);
   const ratingStats = getSkillRatingStats(id);
@@ -697,12 +698,12 @@ marketplaceRouter.get('/featured', (c) => {
 
 marketplaceRouter.patch('/admin/feature/:id', async (c) => {
   if (!requireAdmin(c)) {
-    return c.json({ error: 'Unauthorized' }, 401);
+    return c.json({ error: 'Unauthorized', code: 'UNAUTHORIZED' }, 401);
   }
 
   const { id } = c.req.param();
   const skill = getSkill(id);
-  if (!skill) return c.json({ error: 'Skill not found' }, 404);
+  if (!skill) return c.json({ error: 'Skill not found', code: 'SKILL_NOT_FOUND' }, 404);
 
   let raw: unknown;
   try { raw = await c.req.json(); } catch { raw = {}; }
@@ -802,7 +803,7 @@ marketplaceRouter.post('/compare', async (c) => {
 
 marketplaceRouter.get('/search', async (c) => {
   const q = c.req.query('q')?.trim();
-  if (!q || q.length < 2) return c.json({ error: 'q is required (min 2 chars)' }, 400);
+  if (!q || q.length < 2) return c.json({ error: 'q is required (min 2 chars)', code: 'MISSING_FIELD' }, 400);
 
   // Fall back to text-based marketplace search
   const { skills } = getMarketplaceSkills({ page: 1, limit: 20, sort: 'popular', search: q });

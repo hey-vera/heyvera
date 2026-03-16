@@ -9,6 +9,7 @@ import { Hono } from 'hono';
 import crypto from 'crypto';
 import { getDb, logAudit } from '../db/index';
 import { cacheIncr } from '../cache/index';
+import { getClientIp } from '../middleware/rate-limit';
 import { logger } from '../utils/logger';
 
 export const onboardRouter = new Hono();
@@ -30,7 +31,7 @@ interface TopSkillRow {
 
 onboardRouter.post('/', async (c) => {
   // Rate limit: 5 per IP per hour
-  const ip = c.req.header('x-forwarded-for') ?? c.req.header('x-real-ip') ?? 'unknown';
+  const ip = getClientIp(c);
   const rateLimitKey = `onboard:ip:${ip}`;
   const count = await cacheIncr(rateLimitKey, 3600);
   if (count > 5) {
@@ -73,7 +74,7 @@ onboardRouter.post('/', async (c) => {
     const rows = getDb().prepare(
       `SELECT s.id, s.name, s.credit_cost, s.avg_rating
        FROM skills s
-       WHERE s.is_public = 1 AND s.security_status != 'DELISTED'
+       WHERE s.public = 1 AND s.security_status != 'DELISTED'
        ORDER BY s.avg_rating DESC,
          (SELECT COUNT(*) FROM transactions WHERE skill_id = s.id) DESC
        LIMIT 5`
@@ -143,7 +144,7 @@ onboardRouter.get('/manifest', (c) => {
     const rows = getDb().prepare(
       `SELECT id, name, description, input_schema, skill_type
        FROM skills
-       WHERE is_public = 1 AND security_status != 'DELISTED'
+       WHERE public = 1 AND security_status != 'DELISTED'
        ORDER BY avg_rating DESC
        LIMIT 200`
     ).all() as ManifestSkillRow[];

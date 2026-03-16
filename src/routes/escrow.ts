@@ -9,6 +9,7 @@ import {
   safeJsonParse,
   type EscrowState,
 } from '../db/index';
+import { env } from '../config/index';
 
 const escrowRouter = new Hono();
 
@@ -180,7 +181,7 @@ escrowRouter.post('/:id/resolve', requireClerkAuth, async (c) => {
   if (!parsed.success) return c.json({ error: 'outcome required: release_to_worker | refund_to_hirer | split:<pct>', code: 'VALIDATION_ERROR' }, 400);
 
   // Admin check: must have ADMIN_CLERK_IDS env var set
-  const adminIds = (process.env.ADMIN_CLERK_IDS ?? '').split(',').map(s => s.trim()).filter(Boolean);
+  const adminIds = (env.ADMIN_CLERK_IDS ?? '').split(',').map(s => s.trim()).filter(Boolean);
   if (adminIds.length === 0) return c.json({ error: 'Admin functionality not configured', code: 'NOT_CONFIGURED' }, 503);
   if (!adminIds.includes(actorId)) return c.json({ error: 'Admin only', code: 'FORBIDDEN' }, 403);
 
@@ -223,7 +224,7 @@ escrowRouter.get('/:id', requireClerkAuth, async (c) => {
   const escrow = getEscrow(id);
   if (!escrow) return c.json({ error: 'Escrow not found', code: 'NOT_FOUND' }, 404);
 
-  const adminIds = (process.env.ADMIN_CLERK_IDS ?? '').split(',').map(s => s.trim()).filter(Boolean);
+  const adminIds = (env.ADMIN_CLERK_IDS ?? '').split(',').map(s => s.trim()).filter(Boolean);
   const isParticipant = escrow.hirer_id === actorId || escrow.worker_id === actorId;
   const isAdmin = adminIds.includes(actorId);
   if (!isParticipant && !isAdmin) return c.json({ error: 'Not a participant', code: 'FORBIDDEN' }, 403);

@@ -231,15 +231,15 @@ skillsRouter.post('/', checkApiKey, async (c) => {
   // Cap at 20 skills per API key
   const count = countSkillsByAuthor(keyInfo.key);
   if (count >= 20) {
-    return c.json({ error: 'Maximum 20 skills per API key' }, 409);
+    return c.json({ error: 'Maximum 20 skills per API key', code: 'LIMIT_REACHED' }, 409);
   }
 
   let body: unknown;
-  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON', code: 'INVALID_JSON' }, 400); }
 
   const parsed = CreateSkillSchema.safeParse(body);
   if (!parsed.success) {
-    return c.json({ error: 'Validation failed', details: parsed.error.flatten().fieldErrors }, 400);
+    return c.json({ error: 'Validation failed', code: 'VALIDATION_ERROR', details: parsed.error.flatten().fieldErrors }, 400);
   }
 
   const data = parsed.data;
@@ -442,7 +442,7 @@ skillsRouter.get('/:id', (c) => {
   const { id } = c.req.param();
   const skill = getSkill(id);
 
-  if (!skill) return c.json({ error: 'Skill not found' }, 404);
+  if (!skill) return c.json({ error: 'Skill not found', code: 'SKILL_NOT_FOUND' }, 404);
 
   // Private skills only visible to author — SHA-256 normalization gives constant-time
   // comparison without leaking key length (same pattern as admin-auth.ts).
@@ -451,7 +451,7 @@ skillsRouter.get('/:id', (c) => {
     const keyHash = crypto.createHash('sha256').update(key).digest();
     const authorHash = crypto.createHash('sha256').update(skill.author_key).digest();
     if (!crypto.timingSafeEqual(keyHash, authorHash)) {
-      return c.json({ error: 'Skill not found' }, 404);
+      return c.json({ error: 'Skill not found', code: 'SKILL_NOT_FOUND' }, 404);
     }
   }
 
@@ -544,7 +544,7 @@ skillsRouter.get('/:id/query', checkApiKey, async (c) => {
   }
 
   if (!skill.public && skill.author_key !== keyInfo.key) {
-    return c.json({ requestId, error: 'Skill not found' }, 404);
+    return c.json({ requestId, error: 'Skill not found', code: 'SKILL_NOT_FOUND' }, 404);
   }
 
   if (skill.security_status === 'FLAGGED') {
@@ -705,7 +705,7 @@ skillsRouter.get('/:id/query', checkApiKey, async (c) => {
 skillsRouter.get('/:id/reputation', (c) => {
   const { id } = c.req.param();
   const skill = getSkill(id);
-  if (!skill || !skill.public) return c.json({ error: 'Skill not found' }, 404);
+  if (!skill || !skill.public) return c.json({ error: 'Skill not found', code: 'SKILL_NOT_FOUND' }, 404);
 
   const score = getReputationScore(skill.author_key);
   return c.json({ skillId: id, authorScore: score, skillUses: skill.uses });
@@ -719,13 +719,13 @@ skillsRouter.patch('/:id/visibility', checkApiKey, async (c) => {
 
   const VisibilityBody = z.object({ public: z.boolean() }).strict();
   const raw = await c.req.json().catch(() => null);
-  if (!raw) return c.json({ error: 'Invalid JSON' }, 400);
+  if (!raw) return c.json({ error: 'Invalid JSON', code: 'INVALID_JSON' }, 400);
   const parsed = VisibilityBody.safeParse(raw);
-  if (!parsed.success) return c.json({ error: 'Field "public" (boolean) required', details: parsed.error.flatten().fieldErrors }, 400);
+  if (!parsed.success) return c.json({ error: 'Field "public" (boolean) required', code: 'VALIDATION_ERROR', details: parsed.error.flatten().fieldErrors }, 400);
   const body = parsed.data;
 
   const updated = updateSkillVisibility(id, keyInfo.key, body.public);
-  if (!updated) return c.json({ error: 'Skill not found or not yours' }, 404);
+  if (!updated) return c.json({ error: 'Skill not found or not yours', code: 'SKILL_NOT_FOUND' }, 404);
 
   if (body.public) {
     updateSkillSchemas(id, { publishedAt: new Date().toISOString() });
@@ -744,7 +744,7 @@ skillsRouter.delete('/:id', checkApiKey, (c) => {
   const { id } = c.req.param();
 
   const deleted = deleteSkill(id, keyInfo.key);
-  if (!deleted) return c.json({ error: 'Skill not found or not yours' }, 404);
+  if (!deleted) return c.json({ error: 'Skill not found or not yours', code: 'SKILL_NOT_FOUND' }, 404);
 
   logger.info({ id, author: maskApiKey(keyInfo.key) }, 'Skill deleted');
   return c.json({ ok: true });
@@ -755,7 +755,7 @@ skillsRouter.delete('/:id', checkApiKey, (c) => {
 skillsRouter.get('/:id/metrics', (c) => {
   const { id } = c.req.param();
   const skill = getSkill(id);
-  if (!skill || !skill.public) return c.json({ error: 'Skill not found' }, 404);
+  if (!skill || !skill.public) return c.json({ error: 'Skill not found', code: 'SKILL_NOT_FOUND' }, 404);
 
   const summary = getSkillMetricsSummary(id);
   return c.json({ skillId: id, versions: summary });
@@ -768,11 +768,11 @@ skillsRouter.post('/:id/fork', checkApiKey, async (c) => {
   const { id } = c.req.param();
 
   const original = getSkillWithAb(id);
-  if (!original) return c.json({ error: 'Skill not found' }, 404);
+  if (!original) return c.json({ error: 'Skill not found', code: 'SKILL_NOT_FOUND' }, 404);
   if (!original.public && original.author_key !== keyInfo.key)
-    return c.json({ error: 'Skill not found' }, 404);
+    return c.json({ error: 'Skill not found', code: 'SKILL_NOT_FOUND' }, 404);
   if (original.ab_challenger)
-    return c.json({ error: 'Skill already has an active challenger — promote or discard it first' }, 409);
+    return c.json({ error: 'Skill already has an active challenger — promote or discard it first', code: 'CHALLENGER_EXISTS' }, 409);
 
   const ForkSchema = z.object({
     promptTemplate: z.string().min(10).max(5000),
@@ -781,7 +781,7 @@ skillsRouter.post('/:id/fork', checkApiKey, async (c) => {
   }).strict();
 
   let raw: unknown;
-  try { raw = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  try { raw = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON', code: 'INVALID_JSON' }, 400); }
   const parsed = ForkSchema.safeParse(raw);
   if (!parsed.success)
     return c.json({ error: 'Invalid fork data', code: 'VALIDATION_ERROR', details: parsed.error.flatten().fieldErrors }, 400);
@@ -845,11 +845,11 @@ skillsRouter.post('/:id/promote', checkApiKey, (c) => {
   const { id } = c.req.param();
 
   const skill = getSkill(id);
-  if (!skill) return c.json({ error: 'Skill not found' }, 404);
-  if (skill.author_key !== keyInfo.key) return c.json({ error: 'Not the author' }, 403);
+  if (!skill) return c.json({ error: 'Skill not found', code: 'SKILL_NOT_FOUND' }, 404);
+  if (skill.author_key !== keyInfo.key) return c.json({ error: 'Not the author', code: 'FORBIDDEN' }, 403);
 
   const promoted = promoteChallenger(id);
-  if (!promoted) return c.json({ error: 'No active challenger to promote' }, 400);
+  if (!promoted) return c.json({ error: 'No active challenger to promote', code: 'NO_CHALLENGER' }, 400);
 
   writeAuditLog({ entityType: 'skill', entityId: id, action: 'CHALLENGER_PROMOTED', actorId: keyInfo.key });
   return c.json({ ok: true, message: 'Challenger promoted to canonical version' });
@@ -865,7 +865,7 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
 
   // A/B routing: 30% of requests go to challenger if one is active
   const baseSkill = getSkillWithAb(id);
-  if (!baseSkill) return c.json({ requestId, error: 'Skill not found' }, 404);
+  if (!baseSkill) return c.json({ requestId, error: 'Skill not found', code: 'SKILL_NOT_FOUND' }, 404);
 
   const useChallenger = baseSkill.ab_challenger && Math.random() < 0.30;
   const skill = useChallenger ? (getSkill(baseSkill.ab_challenger!) ?? baseSkill) : baseSkill;
@@ -873,7 +873,7 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
 
   // Access check: public skills anyone can invoke, private only the author
   if (!baseSkill.public && baseSkill.author_key !== keyInfo.key) {
-    return c.json({ requestId, error: 'Skill not found' }, 404);
+    return c.json({ requestId, error: 'Skill not found', code: 'SKILL_NOT_FOUND' }, 404);
   }
 
   // Data skills are queried, not invoked — redirect callers to the right endpoint
@@ -897,7 +897,7 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
     try { rawBody = await c.req.json(); } catch { rawBody = {}; }
     const InvokeBody = z.object({ variables: z.record(z.string().max(500)).optional() });
     const bodyParsed = InvokeBody.safeParse(rawBody);
-    if (!bodyParsed.success) return c.json({ requestId, error: 'Invalid variables' }, 400);
+    if (!bodyParsed.success) return c.json({ requestId, error: 'Invalid variables', code: 'VALIDATION_ERROR' }, 400);
     const variables = bodyParsed.data.variables ?? {};
 
     const result = await executeCompositeSkill(baseSkill, variables, {
@@ -933,7 +933,7 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
 
   const InvokeBody = z.object({ variables: z.record(z.string().max(500)).optional() });
   const bodyParsed = InvokeBody.safeParse(rawBody);
-  if (!bodyParsed.success) return c.json({ requestId, error: 'Invalid variables', details: bodyParsed.error.flatten().fieldErrors }, 400);
+  if (!bodyParsed.success) return c.json({ requestId, error: 'Invalid variables', code: 'VALIDATION_ERROR', details: bodyParsed.error.flatten().fieldErrors }, 400);
   const variables = bodyParsed.data.variables ?? {};
 
   // Check variable values against injection patterns — prevent bypassing template-level scanning
@@ -1012,7 +1012,7 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
       if (!proxyRes.ok) {
         recordSkillMetric({ skillId: activeSkillId, version: (skill as typeof skill & { version?: string }).version ?? '1.0.0',
           latencyMs: Date.now() - start, success: false, costCredits: 0 });
-        return c.json({ requestId, error: 'Proxy upstream error', status: proxyRes.status, data: proxyData }, 502);
+        return c.json({ requestId, error: 'Proxy upstream error', code: 'PROXY_ERROR', status: proxyRes.status, data: proxyData }, 502);
       }
 
       // Content safety scan — catches wallet drainers, phishing, social engineering
@@ -1069,7 +1069,7 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
         provider: buildProviderInfo(skill) });
     } catch (err) {
       logger.error({ requestId, skillId: id, err }, 'API proxy skill failed');
-      return c.json({ requestId, error: 'Proxy request failed', details: env.NODE_ENV === 'production' ? undefined : String(err) }, 502);
+      return c.json({ requestId, error: 'Proxy request failed', code: 'PROXY_ERROR', details: env.NODE_ENV === 'production' ? undefined : String(err) }, 502);
     }
   }
 
@@ -1315,7 +1315,7 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
 skillsRouter.get('/:id/analytics', (c) => {
   const { id } = c.req.param();
   const skill = getSkill(id);
-  if (!skill || !skill.public) return c.json({ error: 'Skill not found' }, 404);
+  if (!skill || !skill.public) return c.json({ error: 'Skill not found', code: 'SKILL_NOT_FOUND' }, 404);
 
   const analytics = getSkillCostAnalytics(id);
   return c.json({
@@ -1374,11 +1374,11 @@ skillsRouter.post('/:id/test', checkApiKey, async (c) => {
   const { id } = c.req.param();
 
   const skill = getSkill(id);
-  if (!skill) return c.json({ requestId, error: 'Skill not found' }, 404);
+  if (!skill) return c.json({ requestId, error: 'Skill not found', code: 'SKILL_NOT_FOUND' }, 404);
 
   // Owner-only: only the author can dry-run their skill
   if (skill.author_key !== keyInfo.key) {
-    return c.json({ requestId, error: 'Only the skill author can run a test' }, 403);
+    return c.json({ requestId, error: 'Only the skill author can run a test', code: 'FORBIDDEN' }, 403);
   }
 
   // Rate limit test runs: 10/min per key (prevents free API resource abuse)
@@ -1394,7 +1394,7 @@ skillsRouter.post('/:id/test', checkApiKey, async (c) => {
 
   const TestBody = z.object({ variables: z.record(z.string().max(500)).optional() });
   const bodyParsed = TestBody.safeParse(rawBody);
-  if (!bodyParsed.success) return c.json({ requestId, error: 'Invalid variables' }, 400);
+  if (!bodyParsed.success) return c.json({ requestId, error: 'Invalid variables', code: 'VALIDATION_ERROR' }, 400);
   const variables = bodyParsed.data.variables ?? {};
 
   let query: string;
@@ -1452,7 +1452,7 @@ skillsRouter.post('/:id/test', checkApiKey, async (c) => {
 skillsRouter.get('/:id/similar', async (c) => {
   const { id } = c.req.param();
   const skill = getSkill(id);
-  if (!skill || !skill.public) return c.json({ error: 'Skill not found' }, 404);
+  if (!skill || !skill.public) return c.json({ error: 'Skill not found', code: 'SKILL_NOT_FOUND' }, 404);
 
   if (!isEmbeddingModelReady()) {
     return c.json({ error: 'Embedding model not loaded', code: 'MODEL_UNAVAILABLE' }, 503);
@@ -1490,7 +1490,7 @@ skillsRouter.get('/:id/similar', async (c) => {
 skillsRouter.get('/:id/mcp', (c) => {
   const { id } = c.req.param();
   const skill = getSkill(id);
-  if (!skill || !skill.public) return c.json({ error: 'Skill not found' }, 404);
+  if (!skill || !skill.public) return c.json({ error: 'Skill not found', code: 'SKILL_NOT_FOUND' }, 404);
 
   const inputSchema = safeJsonParse<Record<string, unknown> | null>(skill.input_schema_json, null);
   const outputSchema = safeJsonParse<Record<string, unknown> | null>(skill.output_schema_json, null);
@@ -1540,7 +1540,7 @@ skillsRouter.get('/:id/mcp', (c) => {
 skillsRouter.get('/:id/openapi', (c) => {
   const { id } = c.req.param();
   const skill = getSkill(id);
-  if (!skill || !skill.public) return c.json({ error: 'Skill not found' }, 404);
+  if (!skill || !skill.public) return c.json({ error: 'Skill not found', code: 'SKILL_NOT_FOUND' }, 404);
 
   const inputSchema = safeJsonParse<Record<string, unknown> | null>(skill.input_schema_json, null);
   const outputSchema = safeJsonParse<Record<string, unknown> | null>(skill.output_schema_json, null);

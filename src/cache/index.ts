@@ -1,4 +1,5 @@
 import { logger } from '../utils/logger';
+import { env } from '../config/index';
 import { setCircuitRedis } from '../core/circuit-breaker';
 import crypto from 'crypto';
 import zlib from 'zlib';
@@ -189,7 +190,7 @@ let memCache: MemoryCache | null = null;
 
 function getMemCache(): MemoryCache {
   if (!memCache) {
-    const maxItems = parseInt(process.env.CACHE_MAX_MEMORY_ITEMS ?? '10000');
+    const maxItems = env.CACHE_MAX_MEMORY_ITEMS;
     memCache = new MemoryCache(maxItems);
   }
   return memCache;
@@ -198,10 +199,24 @@ function getMemCache(): MemoryCache {
 let redisClient: import('ioredis').Redis | null = null;
 
 export async function initRedis(): Promise<void> {
-  if (!process.env.REDIS_URL) return;
+  if (!env.REDIS_URL) return;
   try {
     const { default: Redis } = await import('ioredis');
-    redisClient = new Redis(process.env.REDIS_URL, { lazyConnect: true, maxRetriesPerRequest: 3 });
+    redisClient = new Redis(env.REDIS_URL, { lazyConnect: true, maxRetriesPerRequest: 3, enableOfflineQueue: false });
+    if (redisClient) {
+      redisClient.on('error', (err) => {
+        logger.warn({ err: err.message }, 'Redis connection error');
+      });
+      redisClient.on('close', () => {
+        logger.warn('Redis connection closed');
+      });
+      redisClient.on('reconnecting', () => {
+        logger.info('Redis reconnecting...');
+      });
+      redisClient.on('ready', () => {
+        logger.info('Redis connection ready');
+      });
+    }
     await redisClient.connect();
     setCircuitRedis(redisClient);
     logger.info('Redis connected');
@@ -390,7 +405,7 @@ export async function smartCacheGet<T>(
       if (val) {
         const parsed = JSON.parse(val) as T;
         const metaParsed = meta ? JSON.parse(meta) as { contentHash: string; cachedAt: number; previousHash?: string } : null;
-        const ttl = parseInt(process.env.CACHE_TTL_SECONDS ?? '300');
+        const ttl = env.CACHE_TTL_SECONDS;
 
         getMemCache().set(key, parsed, ttl, { endpointId });
 
@@ -440,7 +455,7 @@ export async function cacheGet<T>(key: string): Promise<T | null> {
         val = await redisClient.get(key);
       }
       if (val) {
-        const ttl = parseInt(process.env.CACHE_TTL_SECONDS ?? '300');
+        const ttl = env.CACHE_TTL_SECONDS;
         const parsed = JSON.parse(val) as T;
         getMemCache().set(key, parsed, ttl);
         return parsed;
@@ -461,7 +476,7 @@ export async function smartCacheSet<T>(
   endpointId?: string,
   creditCost?: number,
 ): Promise<{ contentChanged: boolean; previousHash?: string; previousValue?: T }> {
-  const baseTtl = ttlSeconds ?? parseInt(process.env.CACHE_TTL_SECONDS ?? '300');
+  const baseTtl = ttlSeconds ?? env.CACHE_TTL_SECONDS;
   const ttl = endpointId ? getAdaptiveTtl(endpointId, baseTtl) : baseTtl;
   const newHash = contentHash(value);
 
@@ -670,7 +685,7 @@ export async function preloadCache(): Promise<number> {
       try {
         const val = await redisClient.get(hotKey.cacheKey);
         if (val) {
-          const ttl = parseInt(process.env.CACHE_TTL_SECONDS ?? '300');
+          const ttl = env.CACHE_TTL_SECONDS;
           const parsed = JSON.parse(val);
           getMemCache().set(hotKey.cacheKey, parsed, ttl, { endpointId: hotKey.endpointId });
           loaded++;

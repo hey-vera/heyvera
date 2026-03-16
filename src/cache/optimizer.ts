@@ -1,4 +1,5 @@
-import { getDb } from '../db/connection';
+import { getDb } from '../db/index';
+import { env } from '../config/index';
 import { logger } from '../utils/logger';
 import { getVolatilityStats } from './adaptive-ttl';
 import { getCacheAnalytics } from './warming';
@@ -30,7 +31,7 @@ export interface BudgetAdvice {
 export function getTTLSuggestions(): TTLSuggestion[] {
   try {
     const volatilityEntries = getVolatilityStats();
-    const baseTtl = parseInt(process.env.CACHE_TTL_SECONDS ?? '300');
+    const baseTtl = env.CACHE_TTL_SECONDS;
 
     // Get per-endpoint access counts + hit rates from the last week
     const accessRows = getDb().prepare(`

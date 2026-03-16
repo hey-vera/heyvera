@@ -34,7 +34,7 @@
 
 import { env } from '../config/index';
 
-const CREDITS_PER_USD = parseInt(process.env.CREDITS_PER_USD ?? '1000', 10);
+const CREDITS_PER_USD = env.CREDITS_PER_USD;
 
 /**
  * Cost-to-credit markup factor. At sale price $0.001/credit:

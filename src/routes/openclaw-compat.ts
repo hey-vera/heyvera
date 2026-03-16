@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
+import { env } from '../config/index';
 import { checkApiKey } from '../middleware/auth';
 
 const router = new Hono();
@@ -62,7 +63,7 @@ router.post('/query', checkApiKey, async (c) => {
   const apiKey = c.req.header('X-API-Key') ?? '';
 
   // Build internal orchestrate request
-  const orchestrateUrl = new URL('/v1/orchestrate', `http://127.0.0.1:${process.env.PORT ?? 3402}`);
+  const orchestrateUrl = new URL('/v1/orchestrate', `http://127.0.0.1:${env.PORT}`);
 
   try {
     const resp = await fetch(orchestrateUrl.toString(), {

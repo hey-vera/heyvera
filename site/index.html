@@ -9,12 +9,12 @@
   <meta property="og:description" content="One query. Any API. One intelligent answer. AI-native orchestration for Solana, DeFi, and beyond.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://claw-net.org">
-  <meta property="og:image" content="https://claw-net.org/favicon.png">
+  <meta property="og:image" content="https://claw-net.org/favicon.svg">
   <meta name="twitter:card" content="summary">
   <meta name="twitter:title" content="ClawNet — Universal API Orchestration">
   <meta name="twitter:description" content="One query. Any API. One intelligent answer.">
-  <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png">
-  <link rel="apple-touch-icon" href="/favicon.png">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="apple-touch-icon" href="/favicon.svg">
   <script>if(localStorage.getItem('clawnet_theme')==='light')document.documentElement.setAttribute('data-theme','light')</script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
@@ -1484,6 +1484,7 @@
     document.body.style.overflow = 'hidden';
     document.getElementById('suggestName').focus();
   }
+  function esc(s){return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
   function closeSuggestModal() {
     document.getElementById('suggestOverlay').classList.remove('open');
     document.body.style.overflow = '';
@@ -1506,7 +1507,7 @@
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, description: desc, useCase })
     }).catch(() => {});
-    statusEl.innerHTML = '<span style="color:var(--accent)">Thanks! Your suggestion for <strong>' + name + '</strong> has been recorded.</span>';
+    statusEl.innerHTML = '<span style="color:var(--accent)">Thanks! Your suggestion for <strong>' + esc(name) + '</strong> has been recorded.</span>';
     btn.textContent = 'Submitted!';
     setTimeout(() => { closeSuggestModal(); btn.disabled = false; btn.textContent = 'Submit Suggestion';
       document.getElementById('suggestName').value = ''; document.getElementById('suggestDesc').value = '';

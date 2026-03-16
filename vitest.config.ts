@@ -4,9 +4,9 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
-    // 'forks' pool required on Windows — vmThreads (default) fails to initialise
-    // pool workers in vitest 4.x on Windows due to worker_threads communication issues.
-    pool: 'forks',
+    // 'vmForks' pool required — 'forks' causes "failed to find the runner" on Node 24,
+    // and default vmThreads fails on Windows in vitest 4.x.
+    pool: 'vmForks',
     include: ['tests/unit/**/*.test.ts'],
     coverage: {
       provider: 'v8',

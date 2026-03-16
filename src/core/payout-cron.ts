@@ -31,6 +31,7 @@ const PAYOUT_INTERVAL = '0 */4 * * *'; // every 4 hours
 const MIN_PAYOUT_USDC = 1.0;           // hold requests below $1 until they accumulate
 
 let cronTask: ReturnType<typeof cron.schedule> | null = null;
+let _running = false;
 
 /**
  * Sweep accumulated treasury credits to the owner's Solana wallet.
@@ -292,7 +293,11 @@ export function startPayoutCron(): void {
   }
 
   cronTask = cron.schedule(PAYOUT_INTERVAL, () => {
-    runPayoutCron().catch((err) => logger.error({ err }, 'Payout cron unhandled error'));
+    if (_running) return;
+    _running = true;
+    runPayoutCron()
+      .catch((err) => logger.error({ err }, 'Payout cron unhandled error'))
+      .finally(() => { _running = false; });
   });
 
   logger.info({ interval: PAYOUT_INTERVAL, rate: env.PAYOUT_USDC_PER_CREDIT }, 'Payout cron started');

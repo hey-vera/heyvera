@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { getDb } from '../db/connection';
+import { getDb } from '../db/index';
 import { checkApiKey } from '../middleware/auth';
 import { getCacheAnalytics } from '../cache/warming';
 import { getTTLSuggestions, getBudgetAdvice } from '../cache/optimizer';

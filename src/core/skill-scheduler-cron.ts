@@ -176,13 +176,16 @@ async function runScheduledSkills(): Promise<void> {
 }
 
 let task: ReturnType<typeof cron.schedule> | null = null;
+let _running = false;
 
 export function startSkillSchedulerCron(): void {
   // Check every minute for due skills
   task = cron.schedule('* * * * *', () => {
-    runScheduledSkills().catch(err =>
-      logger.error({ err }, 'Skill scheduler cron error')
-    );
+    if (_running) return;
+    _running = true;
+    runScheduledSkills()
+      .catch(err => logger.error({ err }, 'Skill scheduler cron error'))
+      .finally(() => { _running = false; });
   });
   logger.info('Skill scheduler cron started (every 1m)');
 }

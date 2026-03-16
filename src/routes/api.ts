@@ -14,7 +14,7 @@ import {
   getAlternativesForEndpoint,
 } from '../core/pricing';
 import { logUsage, getRecentUsage, getUsageStats } from '../utils/usage';
-import { cacheStats, cacheGet, cacheSet, cacheIncr } from '../cache/index';
+import { cacheGet, cacheSet, cacheIncr } from '../cache/index';
 import { apiRegistry, findEndpoint } from '../config/api-registry';
 import { env, isSimulationMode, rateTier, ORCHESTRATION_FEE } from '../config/index';
 import { logger } from '../utils/logger';
@@ -77,7 +77,10 @@ apiRouter.post('/orchestrate', async (c) => {
       if (keyInfo.credits < cacheCredits) {
         return c.json({ requestId, error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS', creditsAvailable: keyInfo.credits, hint: 'Top up your credits at claw-net.org' }, 402);
       }
-      deductCredit(keyInfo.key, cacheCredits);
+      const cacheDeducted = deductCredit(keyInfo.key, cacheCredits);
+      if (!cacheDeducted) {
+        return c.json({ requestId, error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS', creditsRequired: cacheCredits, creditsAvailable: keyInfo.credits, hint: 'Top up your credits at claw-net.org' }, 402);
+      }
       trackDelegatedSpend(keyInfo, cacheCredits);
     }
     logger.info({ requestId, query: query.slice(0, 100), creditsUsed: cacheCredits }, 'Query cache hit');
@@ -159,6 +162,22 @@ apiRouter.post('/orchestrate', async (c) => {
           intent = optimized.intent;
           logger.info({ requestId, strategy: pricing.strategy, swaps: optimized.swaps.length, saved: optimized.originalCredits - optimized.optimizedCredits }, 'Plan optimized per pricing strategy');
         }
+      }
+    }
+
+    // Tighter pre-flight: now that we know the plan, check estimated cost against balance
+    if (!keyInfo.isEnvKey) {
+      const estimate = estimatePlanCost(intent);
+      const estimatedTotal = round6(estimate.totalCredits + ORCHESTRATION_FEE);
+      if (keyInfo.credits < estimatedTotal) {
+        return c.json({
+          requestId,
+          error: 'Insufficient credits for estimated plan cost',
+          code: 'INSUFFICIENT_CREDITS',
+          estimatedCredits: estimatedTotal,
+          creditsAvailable: keyInfo.credits,
+          hint: 'Top up your credits at claw-net.org',
+        }, 402);
       }
     }
 
@@ -379,17 +398,12 @@ apiRouter.post('/orchestrate', async (c) => {
   }
 });
 
-// GET /v1/health
+// GET /v1/health — public: only safe operational fields
 apiRouter.get('/health', (c) => {
-  const stats = getUsageStats();
-  const cache = cacheStats();
   return c.json({
     status: 'ok',
     version: '1.0.0',
     uptime: Math.floor(process.uptime()),
-    simulationMode: isSimulationMode,
-    cache,
-    usage: stats,
     endpoints: apiRegistry.length,
   });
 });
@@ -404,9 +418,13 @@ apiRouter.get('/registry', (c) => {
   return c.json({ totalEndpoints: apiRegistry.length, categories });
 });
 
-// GET /v1/usage
+// GET /v1/usage — strip query field to avoid leaking user queries on public endpoint
 apiRouter.get('/usage', (c) => {
-  return c.json({ stats: getUsageStats(), recent: getRecentUsage(20) });
+  const recent = getRecentUsage(20).map((entry) => {
+    const { query: _q, ...rest } = entry;
+    return rest;
+  });
+  return c.json({ stats: getUsageStats(), recent });
 });
 
 // GET /v1/balance

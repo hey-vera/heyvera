@@ -223,13 +223,16 @@ async function checkSLAContracts(): Promise<void> {
 }
 
 let task: ReturnType<typeof cron.schedule> | null = null;
+let _running = false;
 
 export function startSkillHealthCron(): void {
   // Run every 15 minutes
   task = cron.schedule('*/15 * * * *', () => {
-    runSkillHealthChecks().catch(err =>
-      logger.error({ err }, 'Skill health cron error')
-    );
+    if (_running) return;
+    _running = true;
+    runSkillHealthChecks()
+      .catch(err => logger.error({ err }, 'Skill health cron error'))
+      .finally(() => { _running = false; });
   });
   logger.info('Skill health monitor cron started (every 15m)');
 }

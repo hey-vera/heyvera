@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { cacheStats, smartCacheSet, invalidateByEndpoint, invalidateKey } from '../cache/index';
 import { getVolatilityStats, cleanupOldVolatility } from '../cache/adaptive-ttl';
 import { getHotKeys, getWarmingCandidates, getCacheAnalytics, cleanupAccessLog } from '../cache/warming';
-import { getDb } from '../db/connection';
+import { getDb } from '../db/index';
 
 export const cacheAdminRouter = new Hono();
 

@@ -139,6 +139,8 @@ app.use('*', (c, next) => {
   c.header('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'");
   c.header('Referrer-Policy', 'strict-origin-when-cross-origin');
   c.header('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  c.header('Cache-Control', 'no-store, no-cache, must-revalidate');
+  c.header('Pragma', 'no-cache');
   return next();
 });
 
@@ -153,6 +155,15 @@ app.use('*', bodyLimit({
   maxSize: 256 * 1024,
   onError: (c) => c.json({ error: 'Payload too large', code: 'PAYLOAD_TOO_LARGE' }, 413),
 }));
+
+app.onError((err, c) => {
+  const message = err instanceof Error ? err.message : String(err);
+  logger.error({ err: message, path: c.req.path, method: c.req.method }, 'Unhandled route error');
+  if (env.NODE_ENV === 'production') {
+    return c.json({ error: 'Internal server error', code: 'INTERNAL_ERROR' }, 500);
+  }
+  return c.json({ error: message, code: 'INTERNAL_ERROR' }, 500);
+});
 
 app.get('/', (c) => c.json({
   name: 'ClawNet Orchestrator',
@@ -220,7 +231,7 @@ app.notFound((c) => c.json({ error: 'Not found', code: 'NOT_FOUND' }, 404));
 
 async function start() {
   initDb();
-  seedOfficialSkills();
+  try { seedOfficialSkills(); } catch (e) { logger.warn({ err: e }, 'Failed to seed official skills — continuing'); }
   await initRedis();
   await preloadCache();
 

@@ -246,6 +246,24 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 46, sql: `ALTER TABLE tasks ADD COLUMN webhook_attempts INTEGER NOT NULL DEFAULT 0;
     ALTER TABLE tasks ADD COLUMN webhook_status TEXT` },
   // Agent Context Layer — per-agent persistent cache for sub-10ms lookups
+  { version: 47, sql: `
+    CREATE TABLE IF NOT EXISTS agent_contexts (
+      id TEXT PRIMARY KEY,
+      api_key TEXT NOT NULL,
+      endpoint_id TEXT NOT NULL,
+      params_hash TEXT NOT NULL,
+      category TEXT,
+      data_json TEXT NOT NULL,
+      size_bytes INTEGER NOT NULL DEFAULT 0,
+      hit_count INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      expires_at TEXT NOT NULL,
+      UNIQUE(api_key, endpoint_id, params_hash)
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_ctx_key ON agent_contexts(api_key);
+    CREATE INDEX IF NOT EXISTS idx_agent_ctx_expires ON agent_contexts(expires_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_ctx_lookup ON agent_contexts(api_key, endpoint_id, params_hash);
+  ` },
   // EVM wallet for x402 auto-split payouts (Option C lite)
   { version: 48, sql: `ALTER TABLE skills ADD COLUMN creator_evm_wallet TEXT` },
   // Payout tx hash — track on-chain tx after cron settlement
@@ -307,24 +325,6 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   ` },
   // v57: increase subscription allotment from 40k → 50k credits/month
   { version: 57, sql: `UPDATE subscriptions SET credits_per_month = 50000 WHERE credits_per_month = 40000` },
-  { version: 47, sql: `
-    CREATE TABLE IF NOT EXISTS agent_contexts (
-      id TEXT PRIMARY KEY,
-      api_key TEXT NOT NULL,
-      endpoint_id TEXT NOT NULL,
-      params_hash TEXT NOT NULL,
-      category TEXT,
-      data_json TEXT NOT NULL,
-      size_bytes INTEGER NOT NULL DEFAULT 0,
-      hit_count INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      expires_at TEXT NOT NULL,
-      UNIQUE(api_key, endpoint_id, params_hash)
-    );
-    CREATE INDEX IF NOT EXISTS idx_agent_ctx_key ON agent_contexts(api_key);
-    CREATE INDEX IF NOT EXISTS idx_agent_ctx_expires ON agent_contexts(expires_at);
-    CREATE INDEX IF NOT EXISTS idx_agent_ctx_lookup ON agent_contexts(api_key, endpoint_id, params_hash);
-  ` },
   // v58: x402 payment receipts — proof-of-payment for agent audit trails
   { version: 58, sql: `
     CREATE TABLE IF NOT EXISTS x402_receipts (
@@ -562,6 +562,10 @@ function runMigrations(): void {
 }
 
 export function initDb(): void {
+  if (db) {
+    logger.warn('initDb() called twice — ignoring');
+    return;
+  }
   db = new Database(DB_PATH);
   try {
     sqliteVec.load(db);
@@ -571,6 +575,7 @@ export function initDb(): void {
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   db.pragma('busy_timeout = 5000');
+  db.pragma('synchronous = NORMAL');
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS orchestrations (

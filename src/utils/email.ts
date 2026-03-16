@@ -1,4 +1,5 @@
 import { logger } from './logger';
+import { env } from '../config/index';
 import { escapeHtml } from './html';
 import { maskApiKey } from './mask';
 
@@ -11,8 +12,8 @@ export async function sendApiKeyEmail(params: {
   amountPaid: number;
 }): Promise<void> {
   const { to, apiKey, credits, amountPaid } = params;
-  const from = process.env.RESEND_FROM ?? 'noreply@claw-net.org';
-  const resendKey = process.env.RESEND_API_KEY;
+  const from = env.RESEND_FROM ?? 'noreply@claw-net.org';
+  const resendKey = env.RESEND_API_KEY;
 
   if (!resendKey) {
     logger.warn('RESEND_API_KEY not set — skipping email delivery');
@@ -120,8 +121,8 @@ export async function sendLowBalanceEmail(params: {
   apiKey: string;
 }): Promise<void> {
   const { to, credits, apiKey } = params;
-  const from = process.env.RESEND_FROM ?? 'noreply@claw-net.org';
-  const resendKey = process.env.RESEND_API_KEY;
+  const from = env.RESEND_FROM ?? 'noreply@claw-net.org';
+  const resendKey = env.RESEND_API_KEY;
 
   if (!resendKey) return;
 
@@ -193,9 +194,9 @@ export async function sendAdminAlert(params: {
   subject: string;
   body: string;
 }): Promise<void> {
-  const adminEmail = process.env.ADMIN_EMAIL;
-  const resendKey = process.env.RESEND_API_KEY;
-  const from = process.env.RESEND_FROM ?? 'noreply@claw-net.org';
+  const adminEmail = env.ADMIN_EMAIL;
+  const resendKey = env.RESEND_API_KEY;
+  const from = env.RESEND_FROM ?? 'noreply@claw-net.org';
 
   if (!adminEmail || !resendKey) return; // silently skip if not configured
 
