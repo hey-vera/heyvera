@@ -75,6 +75,7 @@ logAudit({ entityType, entityId, action, actorId?, data? });
 ```
 
 - **70 migrations** in `src/db/connection.ts`
+- **Adding a migration:** append `{ version: 71, sql: 'ALTER TABLE ...' }` to the `MIGRATIONS` array in `connection.ts`. Increment version. Runs automatically on next `initDb()`. No rollback support.
 - **Barrel export** at `src/db/index.ts` — import from here, never from domain files directly
 - Financial safety triggers on `credits`, `credit_cost`, `amount_credits` columns
 
@@ -98,7 +99,7 @@ dynamicCreditCost(...)           // Surge (up to 5x) + volume discounts + off-pe
 
 | Layer | Header | Usage |
 |-------|--------|-------|
-| API Key | `X-API-Key` (cn-...) | All /v1/* routes |
+| API Key | `X-API-Key` (cn-...) | Most /v1/* routes (not all — some are public) |
 | Clerk | `Authorization: Bearer` | Escrow, user endpoints |
 | Admin | `X-Admin-Key` | /v1/admin/* (timing-safe SHA-256) |
 
@@ -174,6 +175,19 @@ npm run typecheck           # tsc --noEmit (0 errors expected)
 ```
 
 Tests in `tests/unit/` — credit, escrow, governance, skills. Use `setupTestDb()` from `tests/unit/helpers/db.ts`.
+
+## Environment
+
+All env vars are Zod-validated in `src/config/index.ts`. See `.env.example` for the full list. Key vars:
+
+- `PORT=3402`, `NODE_ENV`, `LOG_LEVEL`
+- `ANTHROPIC_API_KEY`, `LLM_PROVIDER` (anthropic|openai|openclaw)
+- `REDIS_URL`, `CACHE_TTL_SECONDS=300`
+- `CLERK_SECRET_KEY`, `ADMIN_API_KEY` (required in prod, min 16 chars)
+- `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`
+- `SOLANA_RECEIVING_WALLET`, `SOLANA_PRIVATE_KEY`, `SOLANA_RPC_URL`
+- `CREDITS_PER_USD=1000`, `COST_MARKUP_FACTOR=1500`, `ORCHESTRATION_FEE=2`
+- `SENTRY_DSN` (optional), `RESEND_API_KEY` (optional)
 
 ## Workflow
 
