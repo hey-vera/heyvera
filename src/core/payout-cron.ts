@@ -20,7 +20,7 @@
  */
 
 import cron from 'node-cron';
-import { getAllPendingPayouts, markPayoutPaid, updatePayoutStatus, getTreasuryBalance, deductTreasuryForSweep, recordTransaction, getAllAutoPayoutConfigs, getCreatorEarnedBalance, createPayoutRequest, logAudit } from '../db/index';
+import { getAllPendingPayouts, markPayoutPaid, updatePayoutStatus, getTreasuryBalance, deductTreasuryForSweep, recordTransaction, getAllAutoPayoutConfigs, getCreatorEarnedBalance, createPayoutRequest, logAudit, topUpCredits } from '../db/index';
 import { sendSolanaUsdc, getHotWalletUsdcBalance, getPayoutWalletSolBalance } from '../utils/solana-payout';
 import { sendAdminAlert } from '../utils/email';
 import { logger } from '../utils/logger';
@@ -185,8 +185,10 @@ async function runPayoutCron(): Promise<void> {
     } catch (err) {
       const notes = err instanceof Error ? err.message : String(err);
       updatePayoutStatus(req.id, 'REJECTED', notes);
+      topUpCredits(req.agent_key, req.amount_credits);
+      logAudit({ entityType: 'payout', entityId: req.id, action: 'PAYOUT_CREDITS_RESTORED', data: { amount: req.amount_credits } });
       failed++;
-      logger.error({ id: req.id, err }, 'Payout failed');
+      logger.error({ id: req.id, err }, 'Payout failed — credits restored');
 
       // Email admin for failed payouts
       sendAdminAlert({

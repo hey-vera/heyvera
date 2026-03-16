@@ -47,6 +47,7 @@ const COST_MARKUP_FACTOR = env.COST_MARKUP_FACTOR;
  * All credit math should pass through this before DB writes.
  */
 export function round6(n: number): number {
+  if (!Number.isFinite(n)) return 0;
   return Math.round(n * 1_000_000) / 1_000_000;
 }
 

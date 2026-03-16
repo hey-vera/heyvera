@@ -234,8 +234,9 @@ function billForStep(
   const revenueSharePct = depSkill.revenue_share_pct;
   const shouldPayAuthor = depSkill.author_key !== context.callerKey && revenueSharePct > 0;
 
-  getDb().transaction(() => {
-    deductCredit(context.callerKey, depCredits);
+  const stepDeducted = getDb().transaction(() => {
+    const ok = deductCredit(context.callerKey, depCredits);
+    if (!ok) return false;
     if (shouldPayAuthor) {
       const authorShare = round6(depCredits * revenueSharePct);
       const feeCredits = round6(depCredits - authorShare);
@@ -253,7 +254,12 @@ function billForStep(
         });
       }
     }
+    return true;
   })();
+  if (!stepDeducted) {
+    logger.warn({ callerKey: maskApiKey(context.callerKey), depCredits, skillId: dep.skillId }, 'Composite step billing failed — insufficient credits');
+    throw new Error('Insufficient credits for composite step');
+  }
   trackDelegatedSpend(context.callerKeyInfo, depCredits);
 }
 
@@ -452,8 +458,9 @@ export async function executeCompositeSkill(
     const revenueSharePct = skill.revenue_share_pct;
     const shouldPayAuthor = skill.author_key !== context.callerKey && revenueSharePct > 0;
 
-    getDb().transaction(() => {
-      deductCredit(context.callerKey, assemblyFee);
+    const assemblyDeducted = getDb().transaction(() => {
+      const ok = deductCredit(context.callerKey, assemblyFee);
+      if (!ok) return false;
       if (shouldPayAuthor) {
         const authorShare = round6(assemblyFee * revenueSharePct);
         const feeCredits = round6(assemblyFee - authorShare);
@@ -471,7 +478,14 @@ export async function executeCompositeSkill(
           });
         }
       }
+      return true;
     })();
+    if (!assemblyDeducted) {
+      return {
+        ok: false, results, costBreakdown, totalCreditsCharged: totalCharged, durationMs: Date.now() - start,
+        error: 'Insufficient credits for assembly fee',
+      };
+    }
     trackDelegatedSpend(context.callerKeyInfo, assemblyFee);
   }
 

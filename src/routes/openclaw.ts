@@ -251,18 +251,18 @@ openclawRouter.post('/invoke', checkApiKey, async (c) => {
     const qKey = skillCacheKey(activeSkillId, variables);
     const cached = await cacheGet<Record<string, unknown>>(qKey);
     if (cached) {
-      const creditsUsed = (cached.costBreakdown as Record<string, unknown> | undefined)?.creditsUsed as number ?? 0;
-      // Deduct credits even on cache hit — real API calls were made when result was cached
-      if (!keyInfo.isEnvKey && creditsUsed > 0) {
-        const deducted = deductCredit(keyInfo.key, creditsUsed);
+      const originalCredits = (cached.costBreakdown as Record<string, unknown> | undefined)?.creditsUsed as number ?? skill.credit_cost;
+      const cacheCredits = cacheCreditCost(originalCredits);
+      if (!keyInfo.isEnvKey && cacheCredits > 0) {
+        const deducted = deductCredit(keyInfo.key, cacheCredits);
         if (!deducted) {
           return c.json({ ok: false, requestId, error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS',
-            creditsRequired: creditsUsed, creditsAvailable: keyInfo.credits }, 402);
+            creditsRequired: cacheCredits, creditsAvailable: keyInfo.credits }, 402);
         }
-        trackDelegatedSpend(keyInfo, creditsUsed);
+        trackDelegatedSpend(keyInfo, cacheCredits);
       }
-      const remaining = keyInfo.isEnvKey ? keyInfo.credits : keyInfo.credits - creditsUsed;
-      return c.json(envelope(requestId, 'skill', { ...cached, cacheHit: true }, creditsUsed, remaining, {
+      const remaining = keyInfo.isEnvKey ? keyInfo.credits : keyInfo.credits - cacheCredits;
+      return c.json(envelope(requestId, 'skill', { ...cached, cacheHit: true }, cacheCredits, remaining, {
         durationMs: Date.now() - start, cacheHit: true, route: `skill:${skillId}`,
       }));
     }
@@ -419,6 +419,7 @@ openclawRouter.post('/invoke', checkApiKey, async (c) => {
   // ── action: swarm ────────────────────────────────────────────────────────────
 
   if (body.action === 'swarm') {
+    // Pre-flight credit check only — do NOT deduct here, runSwarm() handles SWARM_BASE_FEE internally
     if (!keyInfo.isEnvKey) {
       if (keyInfo.credits < SWARM_BASE_FEE) {
         return c.json({
@@ -428,11 +429,6 @@ openclawRouter.post('/invoke', checkApiKey, async (c) => {
           creditsRequired: SWARM_BASE_FEE, creditsAvailable: keyInfo.credits,
         }, 402);
       }
-      const deducted = deductCredit(keyInfo.key, SWARM_BASE_FEE);
-      if (!deducted) {
-        return c.json({ ok: false, requestId, error: 'Credit deduction failed', code: 'INSUFFICIENT_CREDITS' }, 402);
-      }
-      trackDelegatedSpend(keyInfo, SWARM_BASE_FEE);
     }
 
     const swarmId = createSwarmTask(keyInfo.key, body.task);

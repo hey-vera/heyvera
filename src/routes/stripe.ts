@@ -111,7 +111,7 @@ stripeRouter.post('/stripe', async (c) => {
       if (bal.amount_paid > 0) {
         const totalGranted = bal.credits + bal.credits_used;
         const creditsPerDollar = totalGranted / bal.amount_paid;
-        creditsToDeduct = Math.round(newRefundedUsd * creditsPerDollar);
+        creditsToDeduct = round6(newRefundedUsd * creditsPerDollar);
       } else {
         creditsToDeduct = round6(newRefundedUsd * 1000); // fallback: base rate
       }
@@ -322,7 +322,11 @@ stripeRouter.post('/stripe-subscriptions', async (c) => {
   // Subscription cancelled — wrap in transaction to be idempotent on Stripe retries
   if (event.type === 'customer.subscription.deleted') {
     const sub = event.data.object as Stripe.Subscription;
-    const email = (sub as unknown as { customer_email?: string }).customer_email?.toLowerCase().trim();
+    // Stripe Subscriptions don't have customer_email — fetch from expanded customer object
+    const customer = typeof sub.customer === 'string'
+      ? await stripe.customers.retrieve(sub.customer)
+      : sub.customer;
+    const email = (customer as Stripe.Customer).email?.toLowerCase().trim();
     getDb().transaction(() => {
       const apiKey = email ? getApiKeyByEmail(email)?.key : undefined;
       if (!apiKey) {

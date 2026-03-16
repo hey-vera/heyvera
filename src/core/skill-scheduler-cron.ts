@@ -11,7 +11,7 @@ import { logger } from '../utils/logger';
 import {
   getDueScheduledSkills, updateScheduledSkillRun, getApiKey,
   getSessionState, updateSessionState, safeJsonParse,
-  getDb,
+  getDb, deductCredit,
 } from '../db/index';
 import { executeCompositeSkill } from './composite-executor';
 import type { ScheduledSkill, Skill } from '../db/index';
@@ -125,6 +125,20 @@ async function executeScheduledSkill(scheduled: ScheduledSkill): Promise<void> {
         creditsSpent: result.totalCreditsCharged,
       });
     } else if ((skill.skill_type === 'data' || skill.skill_type === 'api_proxy') && skill.proxy_url) {
+      // Bill before execution — prevent free skill runs
+      const cost = Math.max(0.001, skill.credit_cost);
+      const deducted = deductCredit(scheduled.caller_key, cost);
+      if (!deducted) {
+        logger.warn({ skillId: scheduled.skill_id, callerKey: scheduled.caller_key }, 'Scheduled skill skipped — insufficient credits');
+        updateScheduledSkillRun(scheduled.id, {
+          nextRunAt: getNextRunTime(scheduled.cron_expression),
+          lastStatus: 'SKIPPED',
+          lastError: 'Insufficient credits',
+          creditsSpent: 0,
+        });
+        return;
+      }
+
       // Direct execution for data/api_proxy skills
       const url = new URL(skill.proxy_url);
       if (skill.skill_type === 'data') {
@@ -142,7 +156,7 @@ async function executeScheduledSkill(scheduled: ScheduledSkill): Promise<void> {
         nextRunAt: getNextRunTime(scheduled.cron_expression),
         lastStatus: res.ok ? 'SUCCESS' : 'ERROR',
         lastError: res.ok ? undefined : `HTTP ${res.status}`,
-        creditsSpent: skill.credit_cost,
+        creditsSpent: cost,
       });
     } else {
       updateScheduledSkillRun(scheduled.id, {

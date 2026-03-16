@@ -17,7 +17,7 @@ import {
 import { parseIntent } from '../core/intent-parser';
 import { executePlan } from '../core/executor';
 import { formatResponse } from '../core/formatter';
-import { creditsForExecution, x402SurchargeCredits, round6 } from '../core/credits';
+import { creditsForExecution, x402SurchargeCredits, round6, cacheCreditCost } from '../core/credits';
 import { findEndpoint } from '../config/api-registry';
 import { scanProxyResponse } from '../core/skill-scanner';
 import { logger } from '../utils/logger';
@@ -210,7 +210,25 @@ tasksRouter.post('/', checkApiKey, async (c) => {
 
       const creditsToDeduct = Math.max(0.001, skill.credit_cost);
       if (!keyInfo.isEnvKey) {
-        const ok = getDb().transaction(() => deductCredit(keyInfo.key, creditsToDeduct))();
+        const revenueSharePct = skill.revenue_share_pct;
+        const shouldPayAuthor = skill.author_key !== keyInfo.key && revenueSharePct > 0;
+
+        const ok = getDb().transaction(() => {
+          const deducted = deductCredit(keyInfo.key, creditsToDeduct);
+          if (!deducted) return false;
+          if (shouldPayAuthor) {
+            const authorShare = round6(creditsToDeduct * revenueSharePct);
+            const feeCredits = round6(creditsToDeduct - authorShare);
+            if (authorShare > 0) topUpCredits(skill.author_key, authorShare);
+            if (feeCredits > 0) topUpCredits('clawhub-treasury', feeCredits);
+            recordTransaction({
+              fromAgent: keyInfo.key, toAgent: skill.author_key,
+              amountCredits: creditsToDeduct, type: 'SKILL_SALE',
+              skillId: activeSkillId, feeCredits,
+            });
+          }
+          return true;
+        })();
         if (!ok) {
           updateTaskFailed(taskId, 'Insufficient credits at deduction time', Date.now() - start);
           return c.json({ taskId, status: 'FAILED', error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS' }, 402);
@@ -242,8 +260,14 @@ tasksRouter.post('/', checkApiKey, async (c) => {
     const qKey = skillCacheKey(activeSkillId, variables as Record<string, string>);
     const cached = await cacheGet<Record<string, unknown>>(qKey);
     if (cached) {
-      const result = { ...cached, creditsUsed: 0, cacheHit: true };
-      updateTaskCompleted(taskId, JSON.stringify(result), 0, Date.now() - start);
+      const cacheCredits = cacheCreditCost(skill.credit_cost);
+      if (!keyInfo.isEnvKey) {
+        const deducted = deductCredit(keyInfo.key, cacheCredits);
+        if (!deducted) return c.json({ error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS' }, 402);
+        trackDelegatedSpend(keyInfo, cacheCredits);
+      }
+      const result = { ...cached, creditsUsed: cacheCredits, cacheHit: true };
+      updateTaskCompleted(taskId, JSON.stringify(result), cacheCredits, Date.now() - start);
       if (webhookUrl) fireWebhook(webhookUrl, taskId, { taskId, status: 'COMPLETED', result }, webhookSecret);
       return c.json({ taskId, status: 'COMPLETED', result });
     }
