@@ -14,7 +14,7 @@ import {
   getDb,
 } from '../db/index';
 import { executeCompositeSkill } from './composite-executor';
-import type { ScheduledSkill, Skill } from '../db/skills';
+import type { ScheduledSkill, Skill } from '../db/index';
 
 /**
  * Calculate next run time from a cron expression.

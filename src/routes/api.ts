@@ -289,7 +289,7 @@ apiRouter.post('/orchestrate', async (c) => {
 
       // Low-balance alert: fire-and-forget, throttled to once per 24h per key
       const remainingCredits = keyInfo.credits - creditsToDeduct;
-      const LOW_BALANCE_THRESHOLD = parseInt(process.env.LOW_BALANCE_THRESHOLD ?? '500');
+      const LOW_BALANCE_THRESHOLD = env.LOW_BALANCE_THRESHOLD;
       if (remainingCredits < LOW_BALANCE_THRESHOLD && keyInfo.email && keyInfo.email !== 'env-key') {
         if (!wasEmailSentRecently(keyInfo.email, 'low_balance', 24 * 60 * 60 * 1000)) {
           logEmailSend(keyInfo.email, 'low_balance');

@@ -5,6 +5,7 @@ import { logger } from '../utils/logger';
 import { env } from '../config/index';
 import { sendApiKeyEmail } from '../utils/email';
 import { createApiKey, getApiKeyByEmail, topUpCredits, getApiKeyBalance, upsertSubscription, claimStripeSession, isStripeSessionClaimed, isStripeEventProcessed, markStripeEventProcessed, getDb, getStripeChargeRefundedCents, upsertStripeChargeRefundedCents } from '../db/index';
+import { round6 } from '../core/credits';
 
 export const stripeRouter = new Hono();
 
@@ -17,9 +18,9 @@ export const stripeRouter = new Hono();
 //   STRIPE_ANNUAL_PRICE_500  → $6,000/yr → 10,350,000 credits (15% over 12×$500=9,000,000)
 //   STRIPE_ANNUAL_PRICE_1000 → $12,000/yr → 27,600,000 credits (15% over 12×$1000=24,000,000)
 const annualPrices: Record<string, { amount: number; credits: number }> = {};
-if (process.env.STRIPE_ANNUAL_PRICE_100)  annualPrices[process.env.STRIPE_ANNUAL_PRICE_100]  = { amount: 1200,  credits: 1_725_000 };
-if (process.env.STRIPE_ANNUAL_PRICE_500)  annualPrices[process.env.STRIPE_ANNUAL_PRICE_500]  = { amount: 6000,  credits: 10_350_000 };
-if (process.env.STRIPE_ANNUAL_PRICE_1000) annualPrices[process.env.STRIPE_ANNUAL_PRICE_1000] = { amount: 12000, credits: 27_600_000 };
+if (env.STRIPE_ANNUAL_PRICE_100)  annualPrices[env.STRIPE_ANNUAL_PRICE_100]  = { amount: 1200,  credits: 1_725_000 };
+if (env.STRIPE_ANNUAL_PRICE_500)  annualPrices[env.STRIPE_ANNUAL_PRICE_500]  = { amount: 6000,  credits: 10_350_000 };
+if (env.STRIPE_ANNUAL_PRICE_1000) annualPrices[env.STRIPE_ANNUAL_PRICE_1000] = { amount: 12000, credits: 27_600_000 };
 
 const PRICE_CREDITS: Record<string, { amount: number; credits: number }> = {
   'price_1T8CG1KQHzCcG1t83xGj2JRY': { amount: 5,    credits: 5_000 },      // base rate (1000/$)
@@ -112,7 +113,7 @@ stripeRouter.post('/stripe', async (c) => {
         const creditsPerDollar = totalGranted / bal.amount_paid;
         creditsToDeduct = Math.round(newRefundedUsd * creditsPerDollar);
       } else {
-        creditsToDeduct = Math.floor(newRefundedUsd * 1000); // fallback: base rate
+        creditsToDeduct = round6(newRefundedUsd * 1000); // fallback: base rate
       }
 
       const deductAmount = Math.min(creditsToDeduct, bal.credits);
@@ -226,7 +227,7 @@ stripeRouter.post('/stripe', async (c) => {
 // POST /v1/webhooks/stripe-subscriptions
 // Handles monthly subscription events. Set STRIPE_SUBSCRIPTION_PRICE_ID in .env
 // and create the product in Stripe Dashboard ($29/mo → 35,000 credits/mo).
-const SUBSCRIPTION_CREDITS_PER_MONTH = parseInt(process.env.SUBSCRIPTION_CREDITS_PER_MONTH ?? '50000');
+const SUBSCRIPTION_CREDITS_PER_MONTH = env.SUBSCRIPTION_CREDITS_PER_MONTH;
 
 stripeRouter.post('/stripe-subscriptions', async (c) => {
   const webhookSecret = env.STRIPE_SUBSCRIPTION_WEBHOOK_SECRET;

@@ -22,7 +22,7 @@ import { findEndpoint } from '../config/api-registry';
 import { scanProxyResponse } from '../core/skill-scanner';
 import { logger } from '../utils/logger';
 import { maskApiKey } from '../utils/mask';
-import { rateTier } from '../config/index';
+import { env, rateTier } from '../config/index';
 import { cacheGet, cacheSet, cacheIncr } from '../cache/index';
 
 export const tasksRouter = new Hono();
@@ -233,8 +233,9 @@ tasksRouter.post('/', checkApiKey, async (c) => {
     try {
       query = renderTemplate(skill.prompt_template, variables as Record<string, string>);
     } catch (err) {
-      updateTaskFailed(taskId, (err as Error).message, Date.now() - start);
-      return c.json({ taskId, status: 'FAILED', error: (err as Error).message, code: 'MISSING_VARIABLES' }, 400);
+      const errMsg = err instanceof Error ? err.message : String(err);
+      updateTaskFailed(taskId, errMsg, Date.now() - start);
+      return c.json({ taskId, status: 'FAILED', error: errMsg, code: 'MISSING_VARIABLES' }, 400);
     }
 
     // Skill-level cache
@@ -315,11 +316,11 @@ tasksRouter.post('/', checkApiKey, async (c) => {
     return c.json({ taskId, status: 'COMPLETED', result });
   } catch (err) {
     const durationMs = Date.now() - start;
-    const errMsg = (err as Error).message ?? String(err);
+    const errMsg = err instanceof Error ? err.message : String(err);
     updateTaskFailed(taskId, errMsg, durationMs);
     logger.error({ taskId, skillId, err }, 'Task execution failed');
     if (webhookUrl) fireWebhook(webhookUrl, taskId, { taskId, status: 'FAILED', error: errMsg }, webhookSecret);
-    return c.json({ taskId, status: 'FAILED', error: 'Task execution failed', code: 'EXECUTION_ERROR', ...(process.env.NODE_ENV !== 'production' && { details: errMsg }) }, 500);
+    return c.json({ taskId, status: 'FAILED', error: 'Task execution failed', code: 'EXECUTION_ERROR', ...(env.NODE_ENV !== 'production' && { details: errMsg }) }, 500);
   }
 });
 

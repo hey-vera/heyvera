@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import crypto from 'crypto';
 import { logger } from '../utils/logger';
 import { getDb, logAudit } from '../db/index';
+import { env } from '../config/index';
 
 export const clerkWebhookRouter = new Hono();
 
@@ -42,7 +43,7 @@ function verifyClerkSignature(
 
 // POST /v1/webhooks/clerk
 clerkWebhookRouter.post('/clerk', async (c) => {
-  const secret = process.env.CLERK_WEBHOOK_SECRET;
+  const secret = env.CLERK_WEBHOOK_SECRET;
   if (!secret) {
     logger.warn('CLERK_WEBHOOK_SECRET not set — Clerk webhooks disabled');
     return c.json({ received: true }); // Return 200 so Clerk doesn't retry

@@ -12,6 +12,7 @@ import {
 } from '../db/index';
 import { logger } from '../utils/logger';
 import { maskApiKey } from '../utils/mask';
+import { env } from '../config/index';
 
 export const validatorsRouter = new Hono();
 
@@ -52,7 +53,7 @@ validatorsRouter.post('/verify', async (c) => {
     }, 201);
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Validation failed';
-    return c.json({ error: process.env.NODE_ENV === 'production' ? 'Validation failed' : msg, code: 'VALIDATION_FAILED' }, 400);
+    return c.json({ error: env.NODE_ENV === 'production' ? 'Validation failed' : msg, code: 'VALIDATION_FAILED' }, 400);
   }
 });
 

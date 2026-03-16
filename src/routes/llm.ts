@@ -30,6 +30,7 @@ import { cacheGet, cacheSet, cacheIncr } from '../cache/index';
 import { clawApiCall } from '../providers/clawapis';
 import { env, rateTier } from '../config/index';
 import { logger } from '../utils/logger';
+import { maskApiKey } from '../utils/mask';
 
 export const llmRouter = new Hono();
 
@@ -178,7 +179,10 @@ llmRouter.post('/chat', checkApiKey, async (c) => {
       if (keyInfo.credits < cacheCredits) {
         return c.json({ error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS', creditsAvailable: keyInfo.credits }, 402);
       }
-      deductCredit(keyInfo.key, cacheCredits);
+      const deducted = deductCredit(keyInfo.key, cacheCredits);
+      if (!deducted) {
+        return c.json({ error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS' }, 402);
+      }
       trackDelegatedSpend(keyInfo, cacheCredits);
     }
     logger.info({ model, cached: true, creditsUsed: cacheCredits }, 'LLM cache hit');
@@ -213,7 +217,13 @@ llmRouter.post('/chat', checkApiKey, async (c) => {
 
     // Deduct credits atomically
     if (!keyInfo.isEnvKey) {
-      const ok = getDb().transaction(() => deductCredit(keyInfo.key, creditCost))();
+      let ok = false;
+      try {
+        ok = getDb().transaction(() => deductCredit(keyInfo.key, creditCost))();
+      } catch (err) {
+        logger.error({ err, key: maskApiKey(keyInfo.key) }, 'Credit deduction failed');
+        return c.json({ error: 'Billing temporarily unavailable', code: 'BILLING_ERROR' }, 503);
+      }
       if (!ok) {
         return c.json({ error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS' }, 402);
       }
@@ -290,7 +300,13 @@ llmRouter.post('/embeddings', checkApiKey, async (c) => {
     const result = await clawApiCall('/api/embeddings', { input, model }, X402ENGINE_BASE) as Record<string, unknown>;
 
     if (!keyInfo.isEnvKey) {
-      const ok = getDb().transaction(() => deductCredit(keyInfo.key, creditCost))();
+      let ok = false;
+      try {
+        ok = getDb().transaction(() => deductCredit(keyInfo.key, creditCost))();
+      } catch (err) {
+        logger.error({ err, key: maskApiKey(keyInfo.key) }, 'Credit deduction failed');
+        return c.json({ error: 'Billing temporarily unavailable', code: 'BILLING_ERROR' }, 503);
+      }
       if (!ok) {
         return c.json({ error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS', creditsRequired: creditCost }, 402);
       }
@@ -346,7 +362,13 @@ llmRouter.post('/code/run', checkApiKey, async (c) => {
     const result = await clawApiCall('/api/code/run', parsed.data, X402ENGINE_BASE);
 
     if (!keyInfo.isEnvKey) {
-      const ok = getDb().transaction(() => deductCredit(keyInfo.key, creditCost))();
+      let ok = false;
+      try {
+        ok = getDb().transaction(() => deductCredit(keyInfo.key, creditCost))();
+      } catch (err) {
+        logger.error({ err, key: maskApiKey(keyInfo.key) }, 'Credit deduction failed');
+        return c.json({ error: 'Billing temporarily unavailable', code: 'BILLING_ERROR' }, 503);
+      }
       if (!ok) {
         return c.json({ error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS', creditsRequired: creditCost }, 402);
       }

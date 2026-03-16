@@ -1,5 +1,4 @@
-import { getDb } from '../db/connection';
-import { batchedDelete } from '../db/audit';
+import { getDb, batchedDelete } from '../db/index';
 import { logger } from '../utils/logger';
 
 // ─── Types ──────────────────────────────────────────────────────────────────

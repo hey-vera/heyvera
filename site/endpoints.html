@@ -597,7 +597,7 @@ async function loadEndpoints(forceRefresh = false) {
   const provSelect = document.getElementById('providerFilter');
   const providers = [...new Set(allEndpoints.map(ep => ep.provider).filter(Boolean))].sort();
   const current = provSelect.value;
-  provSelect.innerHTML = '<option value="all">All Providers</option>' + providers.map(p => `<option value="${p}"${p===current?' selected':''}>${p}</option>`).join('');
+  provSelect.innerHTML = '<option value="all">All Providers</option>' + providers.map(p => `<option value="${esc(p)}"${p===current?' selected':''}>${esc(p)}</option>`).join('');
   render();
 }
 

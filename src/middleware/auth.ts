@@ -89,7 +89,7 @@ export const checkApiKey = createMiddleware(async (c, next) => {
       return c.json({ error: 'Delegated key spend limit reached', code: 'SPEND_LIMIT_REACHED' }, 402);
     }
     // Reset daily/weekly counters for budget accounts and enforce limits
-    if ((delegation as any).account_type === 'budget') {
+    if (delegation.account_type === 'budget') {
       resetBudgetCountersIfNeeded(key);
       const budgetCheck = checkBudgetLimits(key, 0);
       if (budgetCheck && !budgetCheck.allowed) {

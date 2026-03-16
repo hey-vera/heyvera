@@ -29,7 +29,6 @@
  *   buy rate (1:1 cost recovery). Creator revenue is unaffected — surcharge is
  *   separate from the 85/15 split.
  *
- * Legacy fallback: creditsForApiCost() still available for backward compat.
  */
 
 import { env } from '../config/index';
@@ -52,14 +51,6 @@ export function round6(n: number): number {
 }
 
 /**
- * Legacy formula: derive credits from raw API cost using CREDITS_PER_USD.
- * Now returns fractional credits (e.g. 0.1 credits for a $0.0001 call).
- */
-function creditsForApiCost(apiCostUsd: number): number {
-  return round6(Math.max(0.001, apiCostUsd * CREDITS_PER_USD));
-}
-
-/**
  * Value-based credit cost for a single endpoint invocation.
  * Uses explicit creditCost if set, otherwise auto-prices at COST_MARKUP_FACTOR × costPerCall.
  * Minimum 0.001 credits per endpoint to prevent free-riding.
@@ -67,14 +58,6 @@ function creditsForApiCost(apiCostUsd: number): number {
 export function creditCostForEndpoint(endpoint: { creditCost?: number; costPerCall: number }): number {
   if (endpoint.creditCost != null) return endpoint.creditCost;
   return round6(Math.max(0.001, endpoint.costPerCall * COST_MARKUP_FACTOR));
-}
-
-/**
- * Total credit cost for a planned execution (sum of step costs).
- * Does NOT include orchestration fee — caller adds that separately.
- */
-function creditsForPlan(steps: Array<{ creditCost?: number; costPerCall: number }>): number {
-  return round6(steps.reduce((sum, step) => sum + creditCostForEndpoint(step), 0));
 }
 
 /**
@@ -128,23 +111,6 @@ const CACHE_MIN_CREDITS = 0.1;
 
 export function cacheCreditCost(liveCreditCost: number): number {
   return round6(Math.max(CACHE_MIN_CREDITS, liveCreditCost * CACHE_DISCOUNT_PCT));
-}
-
-/**
- * Smart cache pricing: data was fetched fresh but content didn't change.
- * Charge cache rate (10%) since the caller got "new" confirmation that
- * data is still the same — value is in the freshness guarantee, not new data.
- */
-function unchangedDataCreditCost(liveCreditCost: number): number {
-  return cacheCreditCost(liveCreditCost);
-}
-
-/**
- * SWR stale-served pricing: data served from stale cache while background
- * refresh runs. Same as cache rate — caller gets instant response.
- */
-function staleCreditCost(liveCreditCost: number): number {
-  return cacheCreditCost(liveCreditCost);
 }
 
 // ─── Dynamic Pricing ────────────────────────────────────────────────────────
@@ -201,14 +167,4 @@ export function dynamicCreditCost(
   }
 
   return round6(Math.max(0.001, cost));
-}
-
-/** Expose for health/admin endpoints */
-function getCreditsPerUsd(): number {
-  return CREDITS_PER_USD;
-}
-
-/** Expose markup factor for admin/debug */
-function getCostMarkupFactor(): number {
-  return COST_MARKUP_FACTOR;
 }

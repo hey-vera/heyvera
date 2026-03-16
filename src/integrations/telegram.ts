@@ -296,7 +296,7 @@ function buildAbout(): string {
 // ─── Allowlist middleware ─────────────────────────────────────────────────────
 
 const ALLOWED_USER_IDS: Set<number> = (() => {
-  const raw = process.env.TELEGRAM_ALLOWED_USER_IDS ?? '';
+  const raw = env.TELEGRAM_ALLOWED_USER_IDS ?? '';
   if (!raw.trim()) return new Set<number>();
   return new Set(raw.split(',').map((s) => parseInt(s.trim(), 10)).filter((n) => !isNaN(n)));
 })();
@@ -308,8 +308,8 @@ function isAllowedUser(userId: number): boolean {
 // ─── Bot init ─────────────────────────────────────────────────────────────────
 
 export async function initTelegram(): Promise<void> {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  if (!token || process.env.NODE_ENV !== 'production') {
+  const token = env.TELEGRAM_BOT_TOKEN;
+  if (!token || env.NODE_ENV !== 'production') {
     logger.info('Telegram bot disabled (missing token or non-production env)');
     return;
   }

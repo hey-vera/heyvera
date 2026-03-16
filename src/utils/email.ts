@@ -202,6 +202,7 @@ export async function sendAdminAlert(params: {
 
   try {
     await fetch('https://api.resend.com/emails', {
+      signal: AbortSignal.timeout(10_000),
       method: 'POST',
       headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
