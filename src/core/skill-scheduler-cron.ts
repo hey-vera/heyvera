@@ -11,8 +11,8 @@ import { logger } from '../utils/logger';
 import {
   getDueScheduledSkills, updateScheduledSkillRun, getApiKey,
   getSessionState, updateSessionState, safeJsonParse,
+  getDb,
 } from '../db/index';
-import { getDb } from '../db/connection';
 import { executeCompositeSkill } from './composite-executor';
 import type { ScheduledSkill, Skill } from '../db/skills';
 
