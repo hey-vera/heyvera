@@ -35,6 +35,7 @@ import {
   updateSessionState,
   listSessions,
   deleteSession,
+  safeJsonParse,
 } from '../db/index';
 import { estimateCompositeCost } from '../core/composite-executor';
 import {
@@ -170,7 +171,7 @@ economyRouter.get('/keys/delegated', (c) => {
       spent: k.spent,
       remaining: Math.max(0, k.spend_limit - k.spent),
       expiresAt: k.expires_at,
-      permissions: JSON.parse(k.permissions_json),
+      permissions: safeJsonParse(k.permissions_json, []),
       createdAt: k.created_at,
     })),
   });
@@ -515,7 +516,7 @@ economyRouter.get('/webhooks', (c) => {
     webhooks: hooks.map(h => ({
       id: h.id,
       url: h.url,
-      events: JSON.parse(h.events_json),
+      events: safeJsonParse(h.events_json, ['*']),
       active: h.active === 1,
       failureCount: h.failure_count,
       lastTriggeredAt: h.last_triggered_at,

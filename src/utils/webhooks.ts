@@ -10,7 +10,7 @@
 
 import crypto from 'crypto';
 import { nanoid } from 'nanoid';
-import { getDb } from '../db/index';
+import { getDb, safeJsonParse } from '../db/index';
 import { logger } from './logger';
 
 export type WebhookEventType =
@@ -89,7 +89,7 @@ export function fireWebhookEvent(
   ).all(agentKey) as WebhookRegistration[];
 
   for (const hook of hooks) {
-    const events: string[] = JSON.parse(hook.events_json);
+    const events: string[] = safeJsonParse(hook.events_json, ['*']);
     if (!events.includes('*') && !events.includes(eventType)) continue;
 
     // Fire async — don't block the request

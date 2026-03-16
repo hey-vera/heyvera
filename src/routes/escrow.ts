@@ -56,6 +56,25 @@ escrowRouter.post('/:id/fund', requireClerkAuth, async (c) => {
   return c.json({ id, state: 'FUNDED' });
 });
 
+// ── Cancel (hirer cancels a FUNDED escrow) ────────────────────────────────────
+
+escrowRouter.post('/:id/cancel', requireClerkAuth, async (c) => {
+  const hirerId = c.get('clerkUserId');
+  const { id } = c.req.param();
+
+  const escrow = getEscrow(id);
+  if (!escrow) return c.json({ error: 'Escrow not found', code: 'NOT_FOUND' }, 404);
+  if (escrow.hirer_id !== hirerId) return c.json({ error: 'Not the hirer', code: 'FORBIDDEN' }, 403);
+  if (escrow.state !== 'FUNDED') return c.json({ error: `Cannot cancel from state ${escrow.state}`, code: 'INVALID_STATE' }, 400);
+
+  const result = refundEscrow(id);
+  if (!result.ok) return c.json({ error: result.error, code: 'CANCEL_FAILED' }, 400);
+
+  writeAuditLog({ entityType: 'escrow', entityId: id, action: 'CANCELLED', actorId: hirerId,
+    data: { creditsRefunded: escrow.amount_credits } });
+  return c.json({ id, state: 'REFUNDED' });
+});
+
 // ── Start (worker acknowledges) ───────────────────────────────────────────────
 
 escrowRouter.post('/:id/start', requireClerkAuth, async (c) => {

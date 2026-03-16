@@ -2,11 +2,12 @@ import { nanoid } from 'nanoid';
 import { getDb, logAudit } from './connection';
 import { maskApiKey } from '../utils/mask';
 import { logger } from '../utils/logger';
+import { round6 } from '../core/credits';
 
 // ─── Validator Roles — Validation Submissions ────────────────────────────────
 
 const DAILY_VALIDATION_LIMIT = 100;
-const VALIDATION_REWARD = 0.5;
+const VALIDATION_REWARD = round6(0.5);
 
 export function submitValidation(params: {
   validatorKey: string;
@@ -54,6 +55,9 @@ export function submitValidation(params: {
     ).run(id, validatorKey, transactionId, skillId ?? null, verdict, notes ?? null, VALIDATION_REWARD);
 
     db.prepare('UPDATE api_keys SET credits = credits + ? WHERE key = ?').run(VALIDATION_REWARD, validatorKey);
+
+    // Deduct reward from treasury so rewards aren't inflationary (minted from thin air)
+    db.prepare('UPDATE api_keys SET credits = credits - ? WHERE key = ?').run(VALIDATION_REWARD, 'clawhub-treasury');
   })();
 
   logAudit({

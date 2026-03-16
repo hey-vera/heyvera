@@ -12,6 +12,7 @@ import {
   updateTaskRunning, updateTaskCompleted, updateTaskFailed, updateTaskCancelled,
   createTaskRating, getTaskRating, updateWebhookStatus,
   type Task,
+  safeJsonParse,
 } from '../db/index';
 import { parseIntent } from '../core/intent-parser';
 import { executePlan } from '../core/executor';
@@ -137,7 +138,7 @@ tasksRouter.post('/', checkApiKey, async (c) => {
     const existing = getTaskByIdempotencyKey(idempotencyKey);
     if (existing) {
       return c.json({ taskId: existing.id, status: existing.status, idempotent: true,
-        result: existing.result_json ? JSON.parse(existing.result_json) : null });
+        result: safeJsonParse(existing.result_json, null) });
     }
   }
 
@@ -368,8 +369,8 @@ tasksRouter.get('/:id', checkApiKey, (c) => {
     id: task.id,
     skillId: task.skill_id,
     status: task.status,
-    input: JSON.parse(task.input_json),
-    result: task.result_json ? JSON.parse(task.result_json) : null,
+    input: safeJsonParse(task.input_json, {}),
+    result: safeJsonParse(task.result_json, null),
     error: task.error,
     costCredits: task.cost_credits,
     durationMs: task.duration_ms,

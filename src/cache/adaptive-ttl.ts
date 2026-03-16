@@ -1,4 +1,4 @@
-import { getDb } from '../db/index';
+import { getDb, batchedDelete } from '../db/index';
 import { logger } from '../utils/logger';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -152,12 +152,10 @@ export function getVolatilityStats(): VolatilityStats[] {
  */
 export function cleanupOldVolatility(daysOld: number = 30): number {
   try {
-    const result = getDb()
-      .prepare(
-        `DELETE FROM cache_volatility WHERE updated_at < datetime('now', '-' || ? || ' days')`,
-      )
-      .run(daysOld);
-    return result.changes;
+    return batchedDelete(
+      `DELETE FROM cache_volatility WHERE rowid IN (SELECT rowid FROM cache_volatility WHERE updated_at < datetime('now', '-' || ? || ' days'))`,
+      [daysOld]
+    );
   } catch (err) {
     logger.warn({ err }, 'Failed to cleanup old volatility data');
     return 0;

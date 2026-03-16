@@ -40,7 +40,7 @@ export function getAuditLog(entityType: string, entityId: string, limit = 200): 
  * At 100K+ rows, a single DELETE locks the database for the entire duration.
  * Batched deletes (5000 per iteration) keep each lock under ~50ms.
  */
-function batchedDelete(sql: string, params: unknown[], batchSize = 5000): number {
+export function batchedDelete(sql: string, params: unknown[], batchSize = 5000): number {
   const db = getDb();
   const stmt = db.prepare(sql + ` LIMIT ?`);
   let total = 0;

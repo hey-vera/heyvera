@@ -1,4 +1,5 @@
 import { getDb } from '../db/connection';
+import { batchedDelete } from '../db/audit';
 import { logger } from '../utils/logger';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -235,12 +236,10 @@ export function getCacheAnalytics(period: 'hour' | 'day' | 'week'): CacheAnalyti
  */
 export function cleanupAccessLog(daysOld: number = 7): number {
   try {
-    const result = getDb()
-      .prepare(
-        `DELETE FROM cache_access_log WHERE created_at < datetime('now', '-' || ? || ' days')`,
-      )
-      .run(daysOld);
-    return result.changes;
+    return batchedDelete(
+      `DELETE FROM cache_access_log WHERE rowid IN (SELECT rowid FROM cache_access_log WHERE created_at < datetime('now', '-' || ? || ' days'))`,
+      [daysOld]
+    );
   } catch (err) {
     logger.warn({ err }, 'Failed to cleanup access log');
     return 0;

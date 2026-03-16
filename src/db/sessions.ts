@@ -9,19 +9,22 @@ const MAX_SESSIONS_PER_KEY = 10;
 const MAX_STATE_SIZE = 50_000;
 
 export function createSession(apiKey: string, name?: string): { id: string; name: string | null; state: Record<string, unknown> } {
-  const count = getDb()
-    .prepare('SELECT COUNT(*) AS cnt FROM agent_sessions WHERE api_key = ?')
-    .get(apiKey) as { cnt: number };
-
-  if (count.cnt >= MAX_SESSIONS_PER_KEY) {
-    throw new Error('Maximum 10 sessions per key');
-  }
-
   const id = nanoid(16);
-  getDb().prepare(`
-    INSERT INTO agent_sessions (id, api_key, name, state_json)
-    VALUES (?, ?, ?, '{}')
-  `).run(id, apiKey, name ?? null);
+
+  getDb().transaction(() => {
+    const count = getDb()
+      .prepare('SELECT COUNT(*) AS cnt FROM agent_sessions WHERE api_key = ?')
+      .get(apiKey) as { cnt: number };
+
+    if (count.cnt >= MAX_SESSIONS_PER_KEY) {
+      throw new Error('Maximum 10 sessions per key');
+    }
+
+    getDb().prepare(`
+      INSERT INTO agent_sessions (id, api_key, name, state_json)
+      VALUES (?, ?, ?, '{}')
+    `).run(id, apiKey, name ?? null);
+  })();
 
   logger.info({ sessionId: id, apiKey: maskApiKey(apiKey) }, 'agent session created');
   return { id, name: name ?? null, state: {} };

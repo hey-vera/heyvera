@@ -234,6 +234,7 @@ export function executeProposal(proposalId: string): { executed: boolean; result
         // Bounded parameter changes
         if (param === 'PLATFORM_FEE_PCT' && (value < 1 || value > 50)) return { executed: false, error: 'Fee must be 1-50%' };
         if (param === 'ORCHESTRATION_FEE' && (value < 0 || value > 100)) return { executed: false, error: 'Orch fee must be 0-100' };
+        // TODO: Move platform_config table to migration system
         // Store in platform_config table (runtime only, not .env)
         db.exec(`CREATE TABLE IF NOT EXISTS platform_config (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT DEFAULT (datetime('now')))`);
         db.prepare('INSERT OR REPLACE INTO platform_config (key, value, updated_at) VALUES (?, ?, datetime(?))').run(param, String(value), 'now');

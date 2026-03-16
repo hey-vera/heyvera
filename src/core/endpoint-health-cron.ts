@@ -18,8 +18,11 @@ import {
   cleanupExpiredClaimTokens, cleanupOldTasks, cleanupOldSwarms,
   cleanupOldReputationEvents, cleanupOldTransactions, cleanupOldVotes,
   cleanupDeactivatedKeys, purgeExpiredContexts,
+  cleanupDemandData, batchedDelete,
   getDb,
 } from '../db/index';
+import { cleanupAccessLog } from '../cache/warming';
+import { cleanupOldVolatility } from '../cache/adaptive-ttl';
 import { logger } from '../utils/logger';
 
 // Track last cleanup date to run at most once per day
@@ -117,9 +120,16 @@ async function runHealthChecks(): Promise<void> {
     const votesDel        = cleanupOldVotes(365);
     const keysDel         = cleanupDeactivatedKeys(90);  // Q9: purge deactivated keys with zero balance
     const ctxDel          = purgeExpiredContexts();       // Agent context layer: expired entries
-    const total = auditDel + metricsDel + solDel + orchDel + feedDel + emailDel + peersDel + stripeSessDel + stripeEvtDel + claimDel + tasksDel + swarmsDel + repDel + txDel + votesDel + keysDel + ctxDel;
+    const accessLogDel    = cleanupAccessLog(7);          // Cache access log: 7 days
+    const volatilityDel   = cleanupOldVolatility(30);     // Cache volatility: 30 days
+    const demandDel       = cleanupDemandData();           // Demand tracking: 48h demand + 60d usage
+    const healthDel       = batchedDelete(                 // Endpoint health: 30 days
+      `DELETE FROM endpoint_health WHERE rowid IN (SELECT rowid FROM endpoint_health WHERE last_checked < datetime('now', '-30 days'))`,
+      []
+    );
+    const total = auditDel + metricsDel + solDel + orchDel + feedDel + emailDel + peersDel + stripeSessDel + stripeEvtDel + claimDel + tasksDel + swarmsDel + repDel + txDel + votesDel + keysDel + ctxDel + accessLogDel + volatilityDel + demandDel.demandRows + demandDel.usageRows + healthDel;
     if (total > 0) {
-      logger.info({ auditDel, metricsDel, solDel, orchDel, feedDel, emailDel, peersDel, stripeSessDel, stripeEvtDel, claimDel, tasksDel, swarmsDel, repDel, txDel, votesDel, keysDel, ctxDel }, 'Daily retention cleanup');
+      logger.info({ auditDel, metricsDel, solDel, orchDel, feedDel, emailDel, peersDel, stripeSessDel, stripeEvtDel, claimDel, tasksDel, swarmsDel, repDel, txDel, votesDel, keysDel, ctxDel, accessLogDel, volatilityDel, demandDel, healthDel }, 'Daily retention cleanup');
     }
     // WAL checkpoint after bulk deletes — prevents WAL bloat
     try { getDb().pragma('wal_checkpoint(PASSIVE)'); } catch { /* non-critical */ }

@@ -9,11 +9,12 @@
 import cron from 'node-cron';
 import { logger } from '../utils/logger';
 import {
-  getDueScheduledSkills, updateScheduledSkillRun, getSkill, getApiKey,
-  getSessionState, updateSessionState,
+  getDueScheduledSkills, updateScheduledSkillRun, getApiKey,
+  getSessionState, updateSessionState, safeJsonParse,
 } from '../db/index';
+import { getDb } from '../db/connection';
 import { executeCompositeSkill } from './composite-executor';
-import type { ScheduledSkill } from '../db/skills';
+import type { ScheduledSkill, Skill } from '../db/skills';
 
 /**
  * Calculate next run time from a cron expression.
@@ -52,14 +53,17 @@ function getNextRunTime(cronExpr: string): string {
 }
 
 async function executeScheduledSkill(scheduled: ScheduledSkill): Promise<void> {
-  const skill = getSkill(scheduled.skill_id);
+  // Query without active filter so we can distinguish "deleted" from "delisted"
+  const skill = getDb().prepare('SELECT * FROM skills WHERE id = ?').get(scheduled.skill_id) as Skill | undefined;
   if (!skill) {
-    updateScheduledSkillRun(scheduled.id, {
-      nextRunAt: getNextRunTime(scheduled.cron_expression),
-      lastStatus: 'ERROR',
-      lastError: 'Skill not found or inactive',
-      creditsSpent: 0,
-    });
+    logger.warn({ skillId: scheduled.skill_id, scheduleId: scheduled.id }, 'Scheduled skill not found — deactivating schedule');
+    getDb().prepare('UPDATE scheduled_skills SET active = 0 WHERE id = ?').run(scheduled.id);
+    return;
+  }
+
+  if (!skill.active || !skill.public) {
+    logger.warn({ skillId: scheduled.skill_id, scheduleId: scheduled.id }, 'Scheduled skill is no longer active/public — deactivating schedule');
+    getDb().prepare('UPDATE scheduled_skills SET active = 0 WHERE id = ?').run(scheduled.id);
     return;
   }
 
@@ -85,7 +89,7 @@ async function executeScheduledSkill(scheduled: ScheduledSkill): Promise<void> {
     return;
   }
 
-  const variables: Record<string, string> = scheduled.variables_json ? JSON.parse(scheduled.variables_json) : {};
+  const variables: Record<string, string> = safeJsonParse<Record<string, string>>(scheduled.variables_json, {});
 
   // Inject session state into variables if a session is attached
   const sessionId = (scheduled as unknown as Record<string, unknown>).session_id as string | null;

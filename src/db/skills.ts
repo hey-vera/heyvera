@@ -1,6 +1,7 @@
 import { nanoid } from 'nanoid';
 import { logger } from '../utils/logger';
 import { getDb } from './connection';
+import { batchedDelete } from './audit';
 
 // ─── Skills ───────────────────────────────────────────────────────────────────
 
@@ -188,16 +189,24 @@ export function incrementSkillUses(id: string): void {
 }
 
 export function deleteSkill(id: string, authorKey: string): boolean {
-  const result = getDb()
+  const db = getDb();
+  const result = db
     .prepare('UPDATE skills SET active = 0 WHERE id = ? AND author_key = ? AND active = 1')
     .run(id, authorKey);
+  if (result.changes > 0) {
+    db.prepare('DELETE FROM discovery_cache WHERE id = ?').run(id);
+  }
   return result.changes > 0;
 }
 
 export function updateSkillVisibility(id: string, authorKey: string, isPublic: boolean): boolean {
-  const result = getDb()
+  const db = getDb();
+  const result = db
     .prepare('UPDATE skills SET public = ? WHERE id = ? AND author_key = ? AND active = 1')
     .run(isPublic ? 1 : 0, id, authorKey);
+  if (result.changes > 0 && !isPublic) {
+    db.prepare('DELETE FROM discovery_cache WHERE id = ?').run(id);
+  }
   return result.changes > 0;
 }
 
@@ -530,19 +539,21 @@ export function updateSkillSecurityStatus(skillId: string, status: 'UNSCANNED' |
 
 export function reportSkill(skillId: string, reporterKey: string, reason: string): { ok: boolean; error?: string; reportCount?: number } {
   const db = getDb();
-  const info = db.prepare(
-    `INSERT OR IGNORE INTO skill_reports (skill_id, reporter_key, reason) VALUES (?, ?, ?)`
-  ).run(skillId, reporterKey, reason);
-  if (info.changes === 0) return { ok: false, error: 'Already reported' };
+  return db.transaction(() => {
+    const info = db.prepare(
+      `INSERT OR IGNORE INTO skill_reports (skill_id, reporter_key, reason) VALUES (?, ?, ?)`
+    ).run(skillId, reporterKey, reason);
+    if (info.changes === 0) return { ok: false, error: 'Already reported' };
 
-  const { count } = db.prepare(
-    `SELECT COUNT(*) as count FROM skill_reports WHERE skill_id = ?`
-  ).get(skillId) as { count: number };
+    const { count } = db.prepare(
+      `SELECT COUNT(*) as count FROM skill_reports WHERE skill_id = ?`
+    ).get(skillId) as { count: number };
 
-  if (count >= 3) {
-    db.prepare(`UPDATE skills SET security_status = 'FLAGGED' WHERE id = ? AND security_status NOT IN ('VERIFIED','FLAGGED')`).run(skillId);
-  }
-  return { ok: true, reportCount: count };
+    if (count >= 3) {
+      db.prepare(`UPDATE skills SET security_status = 'FLAGGED' WHERE id = ? AND security_status NOT IN ('VERIFIED','FLAGGED')`).run(skillId);
+    }
+    return { ok: true, reportCount: count };
+  })();
 }
 
 export function getSkillReportCount(skillId: string): number {
@@ -1154,16 +1165,19 @@ export function reportSkillWithCategory(params: {
   reason: string;
   category: ReportCategory;
 }): void {
-  getDb().prepare(
-    `INSERT OR REPLACE INTO skill_reports (skill_id, reporter_key, reason, category)
-     VALUES (?, ?, ?, ?)`
-  ).run(params.skillId, params.reporterKey, params.reason, params.category);
+  const db = getDb();
+  db.transaction(() => {
+    db.prepare(
+      `INSERT OR REPLACE INTO skill_reports (skill_id, reporter_key, reason, category)
+       VALUES (?, ?, ?, ?)`
+    ).run(params.skillId, params.reporterKey, params.reason, params.category);
 
-  // Auto-flag after 3 reports (same as original reportSkill)
-  const count = (getDb().prepare('SELECT COUNT(*) as n FROM skill_reports WHERE skill_id = ?').get(params.skillId) as { n: number }).n;
-  if (count >= 3) {
-    getDb().prepare(`UPDATE skills SET security_status = 'FLAGGED' WHERE id = ? AND security_status != 'VERIFIED'`).run(params.skillId);
-  }
+    // Auto-flag after 3 reports (same as original reportSkill)
+    const count = (db.prepare('SELECT COUNT(*) as n FROM skill_reports WHERE skill_id = ?').get(params.skillId) as { n: number }).n;
+    if (count >= 3) {
+      db.prepare(`UPDATE skills SET security_status = 'FLAGGED' WHERE id = ? AND security_status != 'VERIFIED'`).run(params.skillId);
+    }
+  })();
 }
 
 export function getReportsByCategory(skillId: string): { category: string; count: number }[] {
@@ -1287,11 +1301,16 @@ export function getCallerUsageCount(callerKey: string, skillId: string): number 
 
 /** Cleanup old demand tracking data. Called from daily cleanup cron. */
 export function cleanupDemandData(): { demandRows: number; usageRows: number } {
-  const db = getDb();
   const hourCutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString().slice(0, 13);
-  const demandRows = db.prepare('DELETE FROM skill_demand WHERE hour_bucket < ?').run(hourCutoff).changes;
+  const demandRows = batchedDelete(
+    'DELETE FROM skill_demand WHERE rowid IN (SELECT rowid FROM skill_demand WHERE hour_bucket < ?)',
+    [hourCutoff]
+  );
   const usageCutoff = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-  const usageRows = db.prepare("DELETE FROM caller_skill_usage WHERE period LIKE 'daily:%' AND period < ?").run(`daily:${usageCutoff}`).changes;
+  const usageRows = batchedDelete(
+    "DELETE FROM caller_skill_usage WHERE rowid IN (SELECT rowid FROM caller_skill_usage WHERE period LIKE 'daily:%' AND period < ?)",
+    [`daily:${usageCutoff}`]
+  );
   return { demandRows, usageRows };
 }
 

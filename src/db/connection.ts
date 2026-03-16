@@ -542,6 +542,18 @@ const MIGRATIONS: { version: number; sql: string }[] = [
       enabled INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )` },
+  { version: 71, sql: `
+    CREATE INDEX IF NOT EXISTS idx_orchestrations_apikey_ts ON orchestrations(api_key, timestamp);
+    ALTER TABLE orchestrations ADD COLUMN cache_strategy TEXT DEFAULT NULL;
+    ALTER TABLE orchestrations ADD COLUMN credits_used REAL DEFAULT 0;
+    DELETE FROM endpoint_health WHERE last_checked < datetime('now', '-30 days');
+    CREATE INDEX IF NOT EXISTS idx_transactions_from_type ON transactions(from_agent, type);
+    CREATE INDEX IF NOT EXISTS idx_payouts_agent_status ON payout_requests(agent_key, status);
+    CREATE INDEX IF NOT EXISTS idx_subscriptions_apikey ON subscriptions(api_key);
+    CREATE INDEX IF NOT EXISTS idx_escrows_deadline ON escrows(deadline);
+    DROP INDEX IF EXISTS idx_transactions_created;
+    DROP INDEX IF EXISTS idx_skills_public;
+    DROP INDEX IF EXISTS idx_agent_ctx_key` },
 ];
 
 function runMigrations(): void {

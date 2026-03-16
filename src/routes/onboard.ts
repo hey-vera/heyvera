@@ -7,6 +7,7 @@
 
 import { Hono } from 'hono';
 import crypto from 'crypto';
+import { nanoid } from 'nanoid';
 import { getDb, logAudit } from '../db/index';
 import { cacheIncr } from '../cache/index';
 import { getClientIp } from '../middleware/rate-limit';
@@ -53,7 +54,7 @@ onboardRouter.post('/', async (c) => {
     getDb().prepare(
       `INSERT INTO api_keys (key, email, credits, credits_used, created_at, stripe_session_id, amount_paid)
        VALUES (?, ?, 0, 0, datetime('now'), ?, 0)`
-    ).run(apiKey, email, `onboard:${name || 'agent'}`);
+    ).run(apiKey, email, `onboard:${nanoid(12)}`);
 
     logAudit({
       entityType: 'api_key',

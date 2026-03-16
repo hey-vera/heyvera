@@ -156,6 +156,12 @@ export function marketplaceRefund(params: {
 }): { ok: boolean; refundTxId?: string; error?: string } {
   const db = getDb();
   try {
+    // Guard against duplicate refunds for the same original transaction
+    const existingRefund = db.prepare(
+      `SELECT id FROM transactions WHERE type = 'SKILL_REFUND' AND metadata_json LIKE '%"originalTxId":"' || ? || '"%'`
+    ).get(params.originalTxId);
+    if (existingRefund) return { ok: false, error: 'Transaction already refunded' };
+
     let refundTxId = '';
     db.transaction(() => {
       db.prepare(`UPDATE api_keys SET credits = credits + ?, credits_used = credits_used - ? WHERE key = ? AND active = 1`)
@@ -408,7 +414,7 @@ export function createPayoutRequest(params: {
     const keyRow = db.prepare(`SELECT credits FROM api_keys WHERE key = ?`).get(params.agentKey) as { credits: number } | undefined;
     const liquidBalance = (keyRow?.credits ?? 0) - pendingTotal - staked;
 
-    const available = Math.min(earned - alreadyPaid - pendingTotal - staked, liquidBalance);
+    const available = round6(Math.min(round6(earned - alreadyPaid - pendingTotal - staked), liquidBalance));
     if (params.amountCredits > available) return { ok: false, error: `Only ${available} credits available for withdrawal (${staked} locked in stakes)` };
     if (params.amountCredits < MIN_CREDITS) return { ok: false, error: `Minimum withdrawal is ${MIN_CREDITS} credits` };
 

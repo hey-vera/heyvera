@@ -17,6 +17,7 @@ import {
 } from '../core/pricing';
 import { findEndpoint } from '../config/api-registry';
 import { logger } from '../utils/logger';
+import { maskApiKey } from '../utils/mask';
 import { nanoid } from 'nanoid';
 
 export const streamRouter = new Hono();
@@ -130,7 +131,14 @@ streamRouter.get('/orchestrate', checkApiKey, async (c) => {
           const stepCredits = creditsForExecution(execution.steps, findEndpoint);
           const creditsToDeduct = stepCredits + ORCHESTRATION_FEE;
           if (!keyInfo.isEnvKey) {
-            const deducted = deductCredit(keyInfo.key, creditsToDeduct);
+            let deducted = false;
+            try {
+              deducted = deductCredit(keyInfo.key, creditsToDeduct);
+            } catch (err) {
+              logger.error({ err, key: maskApiKey(keyInfo.key), credits: creditsToDeduct }, 'Credit deduction failed (possible SQLITE_BUSY)');
+              emit('error', { requestId, error: 'Billing temporarily unavailable, please retry', code: 'BILLING_ERROR' });
+              return;
+            }
             if (!deducted) {
               emit('error', { requestId, error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS' });
               return;

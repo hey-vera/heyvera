@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { nanoid } from 'nanoid';
 import { getDb, safeJsonParse } from './connection';
+import { batchedDelete } from './audit';
 import { logger } from '../utils/logger';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -200,8 +201,8 @@ export function clearAgentContextByEndpoint(endpointId: string): number {
  * Called by the daily cleanup cron.
  */
 export function purgeExpiredContexts(): number {
-  const result = getDb().prepare(
-    `DELETE FROM agent_contexts WHERE expires_at <= datetime('now')`
-  ).run();
-  return result.changes;
+  return batchedDelete(
+    `DELETE FROM agent_contexts WHERE rowid IN (SELECT rowid FROM agent_contexts WHERE expires_at <= datetime('now'))`,
+    []
+  );
 }

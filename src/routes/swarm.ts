@@ -11,6 +11,7 @@ import { createSwarmTask, updateSwarmTask, getSwarmTask, listPublicSkills, deduc
 import { llmComplete } from '../providers/llm';
 import { cacheIncr } from '../cache/index';
 import { logger } from '../utils/logger';
+import { maskApiKey } from '../utils/mask';
 import { env, SWARM_BASE_FEE, rateTier } from '../config/index';
 
 export const swarmRouter = new Hono();
@@ -151,7 +152,14 @@ export async function runSwarm(swarmId: string, agentKey: string, body: SwarmPar
   // Deduct base fee now that decomposition succeeded and work is confirmed to start.
   // Deducting here (not at request time) ensures no fee is charged if swarm creation fails.
   if (!isEnvKey) {
-    const deducted = deductCredit(agentKey, SWARM_BASE_FEE);
+    let deducted = false;
+    try {
+      deducted = deductCredit(agentKey, SWARM_BASE_FEE);
+    } catch (err) {
+      logger.error({ err, key: maskApiKey(agentKey), credits: SWARM_BASE_FEE }, 'Swarm base fee deduction failed (possible SQLITE_BUSY)');
+      updateSwarmTask(swarmId, { status: 'FAILED', error: 'Billing temporarily unavailable, please retry' });
+      return;
+    }
     if (!deducted) {
       updateSwarmTask(swarmId, { status: 'FAILED', error: 'Insufficient credits for base fee' });
       return;

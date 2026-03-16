@@ -77,7 +77,13 @@ apiRouter.post('/orchestrate', async (c) => {
       if (keyInfo.credits < cacheCredits) {
         return c.json({ requestId, error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS', creditsAvailable: keyInfo.credits, hint: 'Top up your credits at claw-net.org' }, 402);
       }
-      const cacheDeducted = deductCredit(keyInfo.key, cacheCredits);
+      let cacheDeducted = false;
+      try {
+        cacheDeducted = deductCredit(keyInfo.key, cacheCredits);
+      } catch (err) {
+        logger.error({ err, key: maskApiKey(keyInfo.key), credits: cacheCredits }, 'Cache credit deduction failed (possible SQLITE_BUSY)');
+        return c.json({ error: 'Billing temporarily unavailable, please retry', code: 'BILLING_ERROR' }, 503);
+      }
       if (!cacheDeducted) {
         return c.json({ requestId, error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS', creditsRequired: cacheCredits, creditsAvailable: keyInfo.credits, hint: 'Top up your credits at claw-net.org' }, 402);
       }
@@ -234,7 +240,13 @@ apiRouter.post('/orchestrate', async (c) => {
         }, 429);
       }
 
-      const deducted = deductCredit(keyInfo.key, creditsToDeduct);
+      let deducted = false;
+      try {
+        deducted = deductCredit(keyInfo.key, creditsToDeduct);
+      } catch (err) {
+        logger.error({ err, key: maskApiKey(keyInfo.key), credits: creditsToDeduct }, 'Credit deduction failed (possible SQLITE_BUSY)');
+        return c.json({ error: 'Billing temporarily unavailable, please retry', code: 'BILLING_ERROR' }, 503);
+      }
       if (deducted) trackDelegatedSpend(keyInfo, creditsToDeduct);
       if (!deducted) {
         logger.warn(

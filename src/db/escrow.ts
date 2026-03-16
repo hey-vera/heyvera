@@ -1,5 +1,5 @@
 import { logger } from '../utils/logger';
-import { getDb } from './connection';
+import { getDb, logAudit } from './connection';
 import { round6 } from '../core/credits';
 
 // ─── Escrow ───────────────────────────────────────────────────────────────────
@@ -89,6 +89,7 @@ export function fundEscrow(escrowId: string, hirerId: string): { ok: boolean; er
     if (result.changes === 0) return { ok: false, error: 'Insufficient credits' };
 
     db.prepare(`UPDATE escrows SET state = 'FUNDED' WHERE id = ?`).run(escrowId);
+    logAudit({ entityType: 'escrow', entityId: escrowId, action: 'ESCROW_FUNDED', actorId: hirerId, data: { amount: escrow.amount_credits } });
     return { ok: true };
   })();
 }
@@ -102,10 +103,11 @@ export function releaseEscrow(escrowId: string): { ok: boolean; error?: string }
       if (!escrow) throw new Error('Escrow not found');
       if (!canTransition(escrow.state, 'COMPLETED')) throw new Error(`Cannot release from state ${escrow.state}`);
 
-      const result = db.prepare(`UPDATE api_keys SET credits = credits + ? WHERE clerk_user_id = ? AND active = 1`)
+      const result = db.prepare(`UPDATE api_keys SET credits = credits + ? WHERE clerk_user_id = ?`)
         .run(escrow.amount_credits, escrow.worker_id);
-      if (result.changes === 0) throw new Error('Worker has no active API key — credits cannot be disbursed');
+      if (result.changes === 0) throw new Error('Worker has no API key — credits cannot be disbursed');
       db.prepare(`UPDATE escrows SET state = 'COMPLETED', completed_at = datetime('now') WHERE id = ?`).run(escrowId);
+      logAudit({ entityType: 'escrow', entityId: escrowId, action: 'ESCROW_RELEASED', data: { amount: escrow.amount_credits, workerId: escrow.worker_id } });
     })();
     return { ok: true };
   } catch (err) {
@@ -122,10 +124,11 @@ export function refundEscrow(escrowId: string): { ok: boolean; error?: string } 
       if (!escrow) throw new Error('Escrow not found');
       if (!canTransition(escrow.state, 'REFUNDED')) throw new Error(`Cannot refund from state ${escrow.state}`);
 
-      const result = db.prepare(`UPDATE api_keys SET credits = credits + ? WHERE clerk_user_id = ? AND active = 1`)
+      const result = db.prepare(`UPDATE api_keys SET credits = credits + ? WHERE clerk_user_id = ?`)
         .run(escrow.amount_credits, escrow.hirer_id);
-      if (result.changes === 0) throw new Error('Hirer has no active API key — credits cannot be refunded');
+      if (result.changes === 0) throw new Error('Hirer has no API key — credits cannot be refunded');
       db.prepare(`UPDATE escrows SET state = 'REFUNDED', completed_at = datetime('now') WHERE id = ?`).run(escrowId);
+      logAudit({ entityType: 'escrow', entityId: escrowId, action: 'ESCROW_REFUNDED', data: { amount: escrow.amount_credits, hirerId: escrow.hirer_id } });
     })();
     return { ok: true };
   } catch (err) {
@@ -148,20 +151,21 @@ export function resolveEscrow(escrowId: string, workerPct: number): { ok: boolea
       // Any sub-credit remainder goes to treasury to ensure total disbursed === amount_credits
       const remainder = round6(escrow.amount_credits - workerShare - hirerShare);
       if (workerShare > 0) {
-        const r = db.prepare(`UPDATE api_keys SET credits = credits + ? WHERE clerk_user_id = ? AND active = 1`)
+        const r = db.prepare(`UPDATE api_keys SET credits = credits + ? WHERE clerk_user_id = ?`)
           .run(workerShare, escrow.worker_id);
-        if (r.changes === 0) throw new Error('Worker has no active API key');
+        if (r.changes === 0) throw new Error('Worker has no API key');
       }
       if (hirerShare > 0) {
-        const r = db.prepare(`UPDATE api_keys SET credits = credits + ? WHERE clerk_user_id = ? AND active = 1`)
+        const r = db.prepare(`UPDATE api_keys SET credits = credits + ? WHERE clerk_user_id = ?`)
           .run(hirerShare, escrow.hirer_id);
-        if (r.changes === 0) throw new Error('Hirer has no active API key');
+        if (r.changes === 0) throw new Error('Hirer has no API key');
       }
       if (remainder > 0) {
-        db.prepare(`UPDATE api_keys SET credits = credits + ? WHERE key = 'clawhub-treasury' AND active = 1`)
+        db.prepare(`UPDATE api_keys SET credits = credits + ? WHERE key = 'clawhub-treasury'`)
           .run(remainder);
       }
       db.prepare(`UPDATE escrows SET state = 'RESOLVED', completed_at = datetime('now') WHERE id = ?`).run(escrowId);
+      logAudit({ entityType: 'escrow', entityId: escrowId, action: 'ESCROW_RESOLVED', data: { workerPct: pct, workerShare, hirerShare, remainder } });
     })();
     return { ok: true };
   } catch (err) {

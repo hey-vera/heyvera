@@ -8,7 +8,7 @@ import { z } from 'zod';
 import { checkApiKey } from '../middleware/auth';
 import {
   createProposal, getProposals, getProposal, castVote, getProposalCount, getVoterWeight, getProposalVotes,
-  checkQuorum, executeProposal,
+  checkQuorum, executeProposal, safeJsonParse,
 } from '../db/index';
 import { logger } from '../utils/logger';
 import { maskApiKey } from '../utils/mask';
@@ -49,7 +49,7 @@ governanceRouter.get('/proposals/:id', (c) => {
     },
     execution: proposal.executed_at ? {
       executedAt: proposal.executed_at,
-      result: proposal.execution_result_json ? JSON.parse(proposal.execution_result_json) : null,
+      result: safeJsonParse(proposal.execution_result_json, null),
     } : null,
     votes: votes.map(v => ({
       voter: maskApiKey(v.voter_key),

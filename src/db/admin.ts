@@ -172,6 +172,21 @@ export function revokeKeyByKey(key: string, reason?: string): number {
   const result = db.prepare('UPDATE api_keys SET active = 0 WHERE key = ? AND active = 1').run(key);
   if (result.changes > 0) {
     logAudit({ entityType: 'api_key', entityId: key, action: 'KEY_REVOKED', actorId: 'admin', data: { reason } });
+
+    // Cascade: deactivate delegated sub-keys
+    const delegatedResult = db.prepare('UPDATE delegated_keys SET active = 0 WHERE parent_key = ?').run(key);
+    db.prepare('UPDATE api_keys SET active = 0 WHERE key IN (SELECT child_key FROM delegated_keys WHERE parent_key = ?)').run(key);
+
+    // Cascade: deactivate scheduled skills
+    const scheduledResult = db.prepare('UPDATE scheduled_skills SET active = 0 WHERE caller_key = ?').run(key);
+
+    logAudit({
+      entityType: 'api_key',
+      entityId: key,
+      action: 'KEY_REVOKED_CASCADE',
+      actorId: 'admin',
+      data: { delegatedDeactivated: delegatedResult.changes, scheduledDeactivated: scheduledResult.changes },
+    });
   }
   return result.changes;
 }
@@ -182,8 +197,27 @@ export function revokeKeysByEmail(email: string, reason?: string): number {
     const keys = db.prepare('SELECT key FROM api_keys WHERE email = ? AND active = 1').all(email) as { key: string }[];
     if (keys.length === 0) return 0;
     db.prepare('UPDATE api_keys SET active = 0 WHERE email = ? AND active = 1').run(email);
+    let totalDelegated = 0;
+    let totalScheduled = 0;
     for (const row of keys) {
       logAudit({ entityType: 'api_key', entityId: row.key, action: 'KEY_REVOKED', actorId: 'admin', data: { email, reason } });
+
+      // Cascade: deactivate delegated sub-keys
+      const delegatedResult = db.prepare('UPDATE delegated_keys SET active = 0 WHERE parent_key = ?').run(row.key);
+      db.prepare('UPDATE api_keys SET active = 0 WHERE key IN (SELECT child_key FROM delegated_keys WHERE parent_key = ?)').run(row.key);
+      totalDelegated += delegatedResult.changes;
+
+      // Cascade: deactivate scheduled skills
+      const scheduledResult = db.prepare('UPDATE scheduled_skills SET active = 0 WHERE caller_key = ?').run(row.key);
+      totalScheduled += scheduledResult.changes;
+
+      logAudit({
+        entityType: 'api_key',
+        entityId: row.key,
+        action: 'KEY_REVOKED_CASCADE',
+        actorId: 'admin',
+        data: { delegatedDeactivated: delegatedResult.changes, scheduledDeactivated: scheduledResult.changes },
+      });
     }
     return keys.length;
   })();
