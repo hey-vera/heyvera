@@ -13,6 +13,7 @@ export const logger = pino({
       'STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET', 'STRIPE_SUBSCRIPTION_WEBHOOK_SECRET',
       'PLATFORM_SIGNING_SECRET', 'ADMIN_API_KEY', 'RESEND_API_KEY',
       '**.headers.authorization',
+      '**.email', '**.to', '**.clerkEmail', '**.senderEmail',
     ],
     censor: '[REDACTED]',
   },

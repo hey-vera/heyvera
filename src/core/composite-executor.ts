@@ -565,7 +565,7 @@ export async function executeCompositeSkill(
       logger.error({ err, skillId: dep.skillId, compositeId: compositeSkill.id, requestId: ctx.parentRequestId }, 'Composite dependency failed');
       recordSkillMetric({ skillId: dep.skillId, version: depSkillEntry.version ?? '1.0.0', latencyMs: Date.now() - depStart, success: false, costCredits: 0 });
 
-      return { charged: 0, skipped: false, error: `Dependency ${dep.skillId} failed: ${(err as Error).message}` };
+      return { charged: 0, skipped: false, error: `Dependency ${dep.skillId} failed: ${(err instanceof Error ? err.message : String(err))}` };
     }
   }
 }

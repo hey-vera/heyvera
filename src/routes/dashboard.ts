@@ -91,7 +91,7 @@ dashboardRouter.get('/me', requireClerkAuth, async (c) => {
 dashboardRouter.post('/reveal-key', requireClerkAuth, (c) => {
   const clerkUserId = c.get('clerkUserId');
   const keyRow = getApiKeyByClerkId(clerkUserId);
-  if (!keyRow) return c.json({ error: 'No API key found' }, 404);
+  if (!keyRow) return c.json({ error: 'No API key found', code: 'KEY_NOT_FOUND' }, 404);
   logger.info({ clerkUserId }, 'API key revealed');
   return c.json({ apiKey: keyRow.key });
 });
@@ -110,7 +110,7 @@ dashboardRouter.post('/regenerate-key', requireClerkAuth, async (c) => {
 
   const newKey = generateApiKey();
   const result = regenerateApiKey(clerkUserId, newKey);
-  if (!result) return c.json({ error: 'No active API key found' }, 404);
+  if (!result) return c.json({ error: 'No active API key found', code: 'KEY_NOT_FOUND' }, 404);
   logger.info({ clerkUserId }, 'API key regenerated');
   return c.json({ apiKey: newKey, credits: result.credits });
 });
@@ -121,12 +121,12 @@ dashboardRouter.post('/regenerate-key', requireClerkAuth, async (c) => {
 dashboardRouter.post('/billing-portal', requireClerkAuth, async (c) => {
   const stripeSecretKey = env.STRIPE_SECRET_KEY;
   if (!stripeSecretKey) {
-    return c.json({ error: 'Stripe not configured' }, 503);
+    return c.json({ error: 'Stripe not configured', code: 'STRIPE_NOT_CONFIGURED' }, 503);
   }
 
   const clerkEmail = c.get('clerkEmail');
   if (!clerkEmail) {
-    return c.json({ error: 'Could not determine account email' }, 400);
+    return c.json({ error: 'Could not determine account email', code: 'EMAIL_NOT_FOUND' }, 400);
   }
 
   const stripe = new Stripe(stripeSecretKey);
@@ -139,7 +139,7 @@ dashboardRouter.post('/billing-portal', requireClerkAuth, async (c) => {
   }).catch(() => null);
 
   if (!customers?.data.length) {
-    return c.json({ error: 'No Stripe customer found for this account. Make a purchase first to manage billing.' }, 404);
+    return c.json({ error: 'No Stripe customer found for this account. Make a purchase first to manage billing.', code: 'CUSTOMER_NOT_FOUND' }, 404);
   }
 
   const session = await stripe.billingPortal.sessions.create({
@@ -157,22 +157,22 @@ dashboardRouter.post('/claim-session', requireClerkAuth, async (c) => {
   const clerkUserId = c.get('clerkUserId');
 
   let body: { sessionId?: string };
-  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON', code: 'INVALID_JSON' }, 400); }
 
   const { sessionId } = body;
   if (!sessionId || !/^cs_(test_|live_)?[A-Za-z0-9]{20,}$/.test(sessionId)) {
-    return c.json({ error: 'Invalid session ID format' }, 400);
+    return c.json({ error: 'Invalid session ID format', code: 'INVALID_SESSION_FORMAT' }, 400);
   }
 
   const row = getApiKeyByStripeSession(sessionId);
   if (!row) {
-    return c.json({ error: 'Session not found or already claimed' }, 404);
+    return c.json({ error: 'Session not found or already claimed', code: 'SESSION_NOT_FOUND' }, 404);
   }
 
   // Check if already claimed by someone else
   const existingLink = getClerkIdForKey(row.key);
   if (existingLink && existingLink !== clerkUserId) {
-    return c.json({ error: 'This session has already been claimed' }, 409);
+    return c.json({ error: 'This session has already been claimed', code: 'SESSION_CLAIMED' }, 409);
   }
 
   // Link to this Clerk user
@@ -202,11 +202,11 @@ dashboardRouter.post('/send-claim-email', requireClerkAuth, async (c) => {
   }
 
   let body: { purchaseEmail?: string };
-  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON', code: 'INVALID_JSON' }, 400); }
 
   const purchaseEmail = (body.purchaseEmail ?? '').trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(purchaseEmail)) {
-    return c.json({ error: 'Valid email required' }, 400);
+    return c.json({ error: 'Valid email required', code: 'INVALID_EMAIL' }, 400);
   }
 
   // Rate limit: 1 claim email per address per 10 minutes — persisted to DB

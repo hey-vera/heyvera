@@ -1,5 +1,6 @@
 import { nanoid } from 'nanoid';
 import { logger } from '../utils/logger';
+import { maskApiKey } from '../utils/mask';
 import { getDb, safeJsonParse } from './connection';
 
 // ─── Agent Sessions ──────────────────────────────────────────────────────────
@@ -22,7 +23,7 @@ export function createSession(apiKey: string, name?: string): { id: string; name
     VALUES (?, ?, ?, '{}')
   `).run(id, apiKey, name ?? null);
 
-  logger.info({ sessionId: id, apiKey }, 'agent session created');
+  logger.info({ sessionId: id, apiKey: maskApiKey(apiKey) }, 'agent session created');
   return { id, name: name ?? null, state: {} };
 }
 

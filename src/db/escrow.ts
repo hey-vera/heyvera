@@ -109,7 +109,7 @@ export function releaseEscrow(escrowId: string): { ok: boolean; error?: string }
     })();
     return { ok: true };
   } catch (err) {
-    return { ok: false, error: (err as Error).message };
+    return { ok: false, error: (err instanceof Error ? err.message : String(err)) };
   }
 }
 
@@ -129,7 +129,7 @@ export function refundEscrow(escrowId: string): { ok: boolean; error?: string } 
     })();
     return { ok: true };
   } catch (err) {
-    return { ok: false, error: (err as Error).message };
+    return { ok: false, error: (err instanceof Error ? err.message : String(err)) };
   }
 }
 
@@ -165,7 +165,7 @@ export function resolveEscrow(escrowId: string, workerPct: number): { ok: boolea
     })();
     return { ok: true };
   } catch (err) {
-    return { ok: false, error: (err as Error).message };
+    return { ok: false, error: (err instanceof Error ? err.message : String(err)) };
   }
 }
 

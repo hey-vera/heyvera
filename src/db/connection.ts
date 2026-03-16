@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import { nanoid } from 'nanoid';
 import { logger } from '../utils/logger';
+import { maskApiKey } from '../utils/mask';
 import * as sqliteVec from 'sqlite-vec';
 
 export const DB_PATH = path.join(process.cwd(), 'data', 'orchestrator.db');
@@ -37,9 +38,9 @@ export function logAudit(params: {
       .run(
         nanoid(16),
         params.entityType,
-        params.entityId,
+        params.entityId?.startsWith('cn-') ? maskApiKey(params.entityId) : params.entityId,
         params.action,
-        params.actorId ?? null,
+        params.actorId?.startsWith('cn-') ? maskApiKey(params.actorId) : (params.actorId ?? null),
         params.data ? JSON.stringify(params.data) : null,
       );
   } catch {

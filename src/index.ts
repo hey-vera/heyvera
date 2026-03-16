@@ -5,7 +5,6 @@ import { dashboardRouter } from './routes/dashboard';
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import { logger as honoLogger } from 'hono/logger';
 import { bodyLimit } from 'hono/body-limit';
 import { env, isSimulationMode } from './config/index';
 import { logger } from './utils/logger';
@@ -129,7 +128,18 @@ app.use('*', cors({
   exposeHeaders: ['X-Request-ID', 'X-ClawNet-Signature', 'X-RateLimit-Limit', 'X-RateLimit-Remaining', 'Retry-After'],
   maxAge: 86400,
 }));
-app.use('*', honoLogger());
+app.use('*', async (c, next) => {
+  const start = Date.now();
+  await next();
+  const duration = Date.now() - start;
+  logger.info({
+    method: c.req.method,
+    path: c.req.path,
+    status: c.res.status,
+    duration,
+    requestId: c.res.headers.get('X-Request-ID'),
+  }, `${c.req.method} ${c.req.path}`);
+});
 app.use('*', rateLimiter);
 
 app.use('*', (c, next) => {
@@ -188,6 +198,12 @@ app.route('/v1/dashboard', dashboardRouter);
 app.route('/', contactRoute)
 
 app.use('/v1/orchestrate', checkApiKey);
+app.use('/v1/estimate', checkApiKey);
+app.use('/v1/orchestrate', signResponse);
+app.use('/v1/skills/*/invoke', signResponse);
+app.use('/v1/batch', signResponse);
+app.use('/v1/balance', signResponse);
+app.use('/v1/tasks', signResponse);
 app.route('/v1/feedback', feedbackRouter);
 app.route('/v1/admin', adminRouter);
 app.route('/v1/mesh', meshRouter);
@@ -203,11 +219,6 @@ app.route('/v1/batch', batchRouter);
 app.route('/v1/stream', streamRouter);
 app.route('/v1/openclaw', openclawRouter);
 app.route('/v1', openapiRouter);
-app.use('/v1/orchestrate', signResponse);
-app.use('/v1/skills/*/invoke', signResponse);
-app.use('/v1/batch', signResponse);
-app.use('/v1/balance', signResponse);
-app.use('/v1/tasks', signResponse);
 app.route('/v1', apiRouter);
 app.route('/x402', x402SkillsRouter);
 app.route('/v1/llm', llmRouter);
@@ -230,6 +241,8 @@ app.route('/v1/openclaw-compat', openclawCompatRouter);
 app.notFound((c) => c.json({ error: 'Not found', code: 'NOT_FOUND' }, 404));
 
 async function start() {
+  const startTime = Date.now();
+
   initDb();
   try { seedOfficialSkills(); } catch (e) { logger.warn({ err: e }, 'Failed to seed official skills — continuing'); }
   await initRedis();
@@ -254,17 +267,17 @@ async function start() {
     logger.error({ err }, 'Mesh node init failed — continuing without P2P');
   }
 
-  startEscrowCron();
-  startEndpointHealthCron();
-  startEndpointDiscoveryCron();
-  startSkillAbCron();
-  startStakeUnlockCron();
-  startPayoutCron();
-  startSkillHealthCron();
-  startSkillSchedulerCron();
-  startCacheWarmingCron();
-  startCreatorNotificationsCron();
-  const cronsStarted = 10;
+  let cronsStarted = 0;
+  startEscrowCron();              cronsStarted++;
+  startEndpointHealthCron();      cronsStarted++;
+  startEndpointDiscoveryCron();   cronsStarted++;
+  startSkillAbCron();             cronsStarted++;
+  startStakeUnlockCron();         cronsStarted++;
+  startPayoutCron();              cronsStarted++;
+  startSkillHealthCron();         cronsStarted++;
+  startSkillSchedulerCron();      cronsStarted++;
+  startCacheWarmingCron();        cronsStarted++;
+  startCreatorNotificationsCron(); cronsStarted++;
 
   // Load embedding model + seed in background — don't block server startup
   loadEmbeddingModel()
@@ -283,6 +296,7 @@ async function start() {
       rateLimit: env.RATE_LIMIT_PER_MIN,
       meshActive,
       cronsStarted,
+      startupMs: Date.now() - startTime,
     }, 'ClawNet started');
   });
   setHttpServer(server);

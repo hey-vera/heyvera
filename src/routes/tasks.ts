@@ -40,8 +40,8 @@ function skillCacheKey(skillId: string, variables: Record<string, string>): stri
 }
 
 /** Compute HMAC-SHA256 signature for outbound webhook payload verification. */
-function signWebhookPayload(body: string, secret: string): string {
-  return crypto.createHmac('sha256', secret).update(body).digest('hex');
+function signWebhookPayload(body: string, secret: string, timestamp: string): string {
+  return crypto.createHmac('sha256', secret).update(`${timestamp}.${body}`).digest('hex');
 }
 
 /** Webhook delivery with exponential backoff retry (3 attempts: 0s, 1s, 3s) */
@@ -58,9 +58,10 @@ function fireWebhook(webhookUrl: string, taskId: string, payload: unknown, webho
         'X-ClawNet-Attempt': String(n + 1),
         'X-ClawNet-Timestamp': String(Math.floor(Date.now() / 1000)),
       };
+      const timestamp = headers['X-ClawNet-Timestamp'];
       // HMAC signature if the requester has a webhook_secret configured
       if (webhookSecret) {
-        headers['X-ClawNet-Signature'] = signWebhookPayload(body, webhookSecret);
+        headers['X-ClawNet-Signature'] = signWebhookPayload(body, webhookSecret, timestamp);
       }
       const res = await fetch(webhookUrl, {
         method: 'POST',

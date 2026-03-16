@@ -89,8 +89,10 @@ function migrateFeedback(): number {
   return count;
 }
 
-// Run migration
-initDb();
-const usageCount = migrateUsage();
-const feedbackCount = migrateFeedback();
-logger.info({ usageCount, feedbackCount }, 'Migration complete');
+// Only run when executed directly, not when imported
+if (require.main === module) {
+  initDb();
+  const usageCount = migrateUsage();
+  const feedbackCount = migrateFeedback();
+  logger.info({ usageCount, feedbackCount }, 'Migration complete');
+}

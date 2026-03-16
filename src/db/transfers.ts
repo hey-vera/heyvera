@@ -101,7 +101,7 @@ export function transferCredits(params: {
 
     return { ok: true, transferId, fee, newBalance };
   } catch (err) {
-    return { ok: false, error: (err as Error).message };
+    return { ok: false, error: (err instanceof Error ? err.message : String(err)) };
   }
 }
 
@@ -209,7 +209,7 @@ export function createDelegatedKey(params: {
 
     return { ok: true, childKey };
   } catch (err) {
-    return { ok: false, error: (err as Error).message };
+    return { ok: false, error: (err instanceof Error ? err.message : String(err)) };
   }
 }
 
@@ -233,7 +233,7 @@ export function revokeDelegatedKey(parentKey: string, childKey: string): { ok: b
     logAudit({ entityType: 'delegated_key', entityId: childKey, action: 'DELEGATE_REVOKE', actorId: parentKey });
     return { ok: true };
   } catch (err) {
-    return { ok: false, error: (err as Error).message };
+    return { ok: false, error: (err instanceof Error ? err.message : String(err)) };
   }
 }
 
@@ -410,7 +410,7 @@ export function createBudgetAccount(params: {
 
     return { ok: true, childKey };
   } catch (err) {
-    return { ok: false, error: (err as Error).message };
+    return { ok: false, error: (err instanceof Error ? err.message : String(err)) };
   }
 }
 

@@ -1,9 +1,23 @@
 import { createMiddleware } from 'hono/factory';
+import type { Context } from 'hono';
 import crypto from 'crypto';
-import { getApiKey, getDelegationInfo, resetBudgetCountersIfNeeded, safeJsonParse, getHardBudgetLock, getMonthlySpend } from '../db/index';
+import { getApiKey, getDelegationInfo, resetBudgetCountersIfNeeded, checkBudgetLimits, safeJsonParse, getHardBudgetLock, getMonthlySpend } from '../db/index';
 import { env } from '../config/index';
 import { logger } from '../utils/logger';
 import { maskApiKey } from '../utils/mask';
+
+/**
+ * Check whether the current request has a specific permission.
+ * Non-delegated keys implicitly have all permissions (returns true).
+ * Delegated keys must have the permission listed in their permissions_json.
+ * Empty permissions array = unrestricted.
+ */
+export function checkPermission(c: Context, permission: string): boolean {
+  const keyInfo = c.get('apiKeyInfo');
+  if (!keyInfo?.delegation?.permissions) return true;
+  if (keyInfo.delegation.permissions.length === 0) return true;
+  return keyInfo.delegation.permissions.includes(permission);
+}
 
 // Attaches validated key info to context for use in route handlers
 declare module 'hono' {
@@ -74,9 +88,13 @@ export const checkApiKey = createMiddleware(async (c, next) => {
     if (delegation.spent >= delegation.spend_limit) {
       return c.json({ error: 'Delegated key spend limit reached', code: 'SPEND_LIMIT_REACHED' }, 402);
     }
-    // Reset daily/weekly counters for budget accounts
+    // Reset daily/weekly counters for budget accounts and enforce limits
     if ((delegation as any).account_type === 'budget') {
       resetBudgetCountersIfNeeded(key);
+      const budgetCheck = checkBudgetLimits(key, 0);
+      if (budgetCheck && !budgetCheck.allowed) {
+        return c.json({ error: budgetCheck.reason, code: 'BUDGET_LIMIT_EXCEEDED' }, 429);
+      }
     }
     // Resolve parent key for billing
     const parentRecord = getApiKey(delegation.parent_key);
@@ -99,23 +117,24 @@ export const checkApiKey = createMiddleware(async (c, next) => {
         permissions: perms,
       },
     });
-    return next();
+    // Fall through to shared hard budget lock check below
+  } else {
+    // Direct (non-delegated) key
+    c.set('apiKeyInfo', {
+      key,
+      email: keyRecord.email,
+      credits: keyRecord.credits,
+      creditsUsed: keyRecord.credits_used ?? 0,
+      amountPaid: keyRecord.amount_paid ?? 0,
+      isEnvKey: false,
+    });
   }
 
-  // Pass key info to route — credit checks happen per-endpoint before spending operations
-  c.set('apiKeyInfo', {
-    key,
-    email: keyRecord.email,
-    credits: keyRecord.credits,
-    creditsUsed: keyRecord.credits_used ?? 0,
-    amountPaid: keyRecord.amount_paid ?? 0,
-    isEnvKey: false,
-  });
-
-  // Check hard budget lock — blocks all spending when monthly limit is reached
-  const lock = getHardBudgetLock(key);
+  // Check hard budget lock for the BILLING key (parent for delegated, direct otherwise)
+  const billingKey = c.get('apiKeyInfo').key;
+  const lock = getHardBudgetLock(billingKey);
   if (lock && lock.enabled) {
-    const monthlySpent = getMonthlySpend(key);
+    const monthlySpent = getMonthlySpend(billingKey);
     if (monthlySpent >= lock.limitCredits) {
       const nextMonth = new Date();
       nextMonth.setUTCMonth(nextMonth.getUTCMonth() + 1, 1);

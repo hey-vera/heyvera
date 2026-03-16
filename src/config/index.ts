@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 const envSchema = z.object({
-  PORT: z.coerce.number().default(3402),
+  PORT: z.coerce.number().min(1).max(65535).default(3402),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
 
@@ -19,21 +19,21 @@ const envSchema = z.object({
 
   REDIS_URL: z.string().optional(),
   REDIS_PASSWORD: z.string().optional(),
-  CACHE_TTL_SECONDS: z.coerce.number().default(300),
-  CACHE_MAX_MEMORY_ITEMS: z.coerce.number().default(10000),
+  CACHE_TTL_SECONDS: z.coerce.number().min(1).max(86400).default(300),
+  CACHE_MAX_MEMORY_ITEMS: z.coerce.number().min(100).max(1000000).default(10000),
 
   CREDITS_PER_USD: z.coerce.number().int().min(100).max(100000).default(1000),
 
   API_KEYS: z.string().optional(),
   ADMIN_API_KEY: z.string().min(16, 'ADMIN_API_KEY must be at least 16 characters').optional(),
-  PLATFORM_SIGNING_SECRET: z.string().optional(),
+  PLATFORM_SIGNING_SECRET: z.string().min(32).optional(),
   RATE_LIMIT_PER_MIN: z.coerce.number().int().min(1).max(10000).default(60),
   FREE_TRIAL_CREDITS: z.coerce.number().int().min(0).max(10000).default(0),
   REFERRAL_BONUS_RECEIVER: z.coerce.number().int().min(0).max(10000).default(500), // credits granted to the user who applies a referral code
   REFERRAL_BONUS_OWNER: z.coerce.number().int().min(0).max(10000).default(250),    // credits granted to the referral code owner
   DAILY_SPEND_CAP: z.coerce.number().int().min(0).default(0),          // 0 = disabled (agents should spend freely until credits run out)
   ANOMALY_THRESHOLD: z.coerce.number().int().min(100).default(5000),  // alert admin when a key hits this in one day
-  LOW_BALANCE_THRESHOLD: z.coerce.number().default(10),               // credit balance below which low-balance alerts fire
+  LOW_BALANCE_THRESHOLD: z.coerce.number().min(1).default(10),               // credit balance below which low-balance alerts fire
 
   TELEGRAM_BOT_TOKEN: z.string().optional(),
   TELEGRAM_CHANNEL_ID: z.string().optional(),
@@ -47,7 +47,7 @@ const envSchema = z.object({
   X402_FACILITATOR_URL: z.string().default('https://x402.org/facilitator'),
   X402_NETWORK: z.enum(['base-mainnet', 'base-sepolia']).default('base-mainnet'),
   X402_RECIPIENT_ADDRESS: z.string().optional(), // EVM address to receive USDC on Base
-  X402_USDC_PER_CREDIT: z.coerce.number().default(0.001), // 1 credit = $0.001 USDC (matches Stripe base rate of 1000 credits/$1)
+  X402_USDC_PER_CREDIT: z.coerce.number().min(0.0001).max(1).default(0.001), // 1 credit = $0.001 USDC (matches Stripe base rate of 1000 credits/$1)
 
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
@@ -71,14 +71,14 @@ const envSchema = z.object({
 
   // Hot wallet (same key as SOLANA_PRIVATE_KEY in 2-wallet setup)
   PLATFORM_PAYOUT_PRIVATE_KEY: z.string().optional(), // bs58 Solana private key — used by payout cron to send USDC
-  PAYOUT_USDC_PER_CREDIT: z.coerce.number().default(0.00075), // 25% below buy rate ($0.001) — prevents arbitrage
+  PAYOUT_USDC_PER_CREDIT: z.coerce.number().min(0.0001).max(1).default(0.00075), // 25% below buy rate ($0.001) — prevents arbitrage
   BASE_RPC_URL: z.string().optional(), // Optional custom Base RPC (defaults to public mainnet.base.org)
 
   // Treasury auto-sweep (optional — with 2-wallet setup, treasury credits are pure profit)
   TREASURY_SWEEP_WALLET: z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/, 'Invalid Solana address').optional(),
   TREASURY_SWEEP_MIN: z.coerce.number().int().min(100).default(10000), // minimum credits to trigger sweep (10000 = $10 at $0.001/cr)
-  HOT_WALLET_LOW_BALANCE_USDC: z.coerce.number().default(50), // Email alert when hot wallet drops below this
-  HOT_WALLET_LOW_SOL: z.coerce.number().default(0.1),         // Email alert when SOL (gas) drops below this
+  HOT_WALLET_LOW_BALANCE_USDC: z.coerce.number().min(1).default(50), // Email alert when hot wallet drops below this
+  HOT_WALLET_LOW_SOL: z.coerce.number().min(0.01).default(0.1),         // Email alert when SOL (gas) drops below this
 
   // MCP server
   CLAWNET_BASE_URL: z.string().default('https://api.claw-net.org'), // Base URL for MCP server self-reference

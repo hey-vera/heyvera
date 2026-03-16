@@ -42,7 +42,7 @@ stripeRouter.post('/stripe', async (c) => {
 
   if (!webhookSecret || !stripeSecretKey) {
     logger.error('Stripe webhook called but STRIPE_SECRET_KEY or STRIPE_WEBHOOK_SECRET not set');
-    return c.json({ error: 'Stripe not configured' }, 500);
+    return c.json({ error: 'Stripe not configured', code: 'STRIPE_NOT_CONFIGURED' }, 500);
   }
 
   const rawBody = await c.req.text();
@@ -50,7 +50,7 @@ stripeRouter.post('/stripe', async (c) => {
 
   if (!signature) {
     logger.warn('Stripe webhook: missing signature header');
-    return c.json({ error: 'Missing signature' }, 400);
+    return c.json({ error: 'Missing signature', code: 'MISSING_SIGNATURE' }, 400);
   }
 
   const stripe = new Stripe(stripeSecretKey);
@@ -60,7 +60,7 @@ stripeRouter.post('/stripe', async (c) => {
     event = stripe.webhooks.constructEvent(rawBody, signature, webhookSecret);
   } catch (err) {
     logger.warn({ err }, 'Stripe webhook: signature verification failed');
-    return c.json({ error: 'Invalid signature' }, 400);
+    return c.json({ error: 'Invalid signature', code: 'INVALID_SIGNATURE' }, 400);
   }
 
   logger.info({ type: event.type, id: event.id }, 'Stripe webhook received');
@@ -148,7 +148,7 @@ stripeRouter.post('/stripe', async (c) => {
 
   if (!email) {
     logger.error({ sessionId: session.id }, 'Stripe webhook: no email found in session');
-    return c.json({ error: 'No email found' }, 400);
+    return c.json({ error: 'No email found', code: 'EMAIL_NOT_FOUND' }, 400);
   }
 
   // Determine credits from line items (async — must happen BEFORE the atomic claim+grant)
@@ -177,7 +177,7 @@ stripeRouter.post('/stripe', async (c) => {
 
   if (credits === 0) {
     logger.error({ sessionId: session.id }, 'Stripe webhook: could not determine credits');
-    return c.json({ error: 'Could not determine credits' }, 400);
+    return c.json({ error: 'Could not determine credits', code: 'CREDITS_NOT_DETERMINED' }, 400);
   }
 
   const normalizedEmail = email.toLowerCase().trim();
@@ -233,12 +233,12 @@ stripeRouter.post('/stripe-subscriptions', async (c) => {
   const stripeSecretKey = env.STRIPE_SECRET_KEY;
 
   if (!webhookSecret || !stripeSecretKey) {
-    return c.json({ error: 'Stripe subscription webhooks not configured' }, 500);
+    return c.json({ error: 'Stripe subscription webhooks not configured', code: 'SUBSCRIPTION_NOT_CONFIGURED' }, 500);
   }
 
   const rawBody = await c.req.text();
   const signature = c.req.header('stripe-signature');
-  if (!signature) return c.json({ error: 'Missing signature' }, 400);
+  if (!signature) return c.json({ error: 'Missing signature', code: 'MISSING_SIGNATURE' }, 400);
 
   const stripe = new Stripe(stripeSecretKey);
 
@@ -246,7 +246,7 @@ stripeRouter.post('/stripe-subscriptions', async (c) => {
   try {
     event = stripe.webhooks.constructEvent(rawBody, signature, webhookSecret);
   } catch {
-    return c.json({ error: 'Invalid signature' }, 400);
+    return c.json({ error: 'Invalid signature', code: 'INVALID_SIGNATURE' }, 400);
   }
 
   logger.info({ type: event.type, id: event.id }, 'Stripe subscription webhook received');

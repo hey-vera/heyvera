@@ -88,7 +88,7 @@ export async function sendApiKeyEmail(params: {
 `;
 
   try {
-    const res = await fetch(RESEND_API_URL, {
+    const res = await fetch(RESEND_API_URL, { signal: AbortSignal.timeout(10_000),
       method: 'POST',
       headers: {
         Authorization: `Bearer ${resendKey}`,
@@ -169,7 +169,7 @@ export async function sendLowBalanceEmail(params: {
 </html>`;
 
   try {
-    const res = await fetch(RESEND_API_URL, {
+    const res = await fetch(RESEND_API_URL, { signal: AbortSignal.timeout(10_000),
       method: 'POST',
       headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({

@@ -55,7 +55,7 @@ export function round6(n: number): number {
  * Legacy formula: derive credits from raw API cost using CREDITS_PER_USD.
  * Now returns fractional credits (e.g. 0.1 credits for a $0.0001 call).
  */
-export function creditsForApiCost(apiCostUsd: number): number {
+function creditsForApiCost(apiCostUsd: number): number {
   return round6(Math.max(0.001, apiCostUsd * CREDITS_PER_USD));
 }
 
@@ -73,7 +73,7 @@ export function creditCostForEndpoint(endpoint: { creditCost?: number; costPerCa
  * Total credit cost for a planned execution (sum of step costs).
  * Does NOT include orchestration fee — caller adds that separately.
  */
-export function creditsForPlan(steps: Array<{ creditCost?: number; costPerCall: number }>): number {
+function creditsForPlan(steps: Array<{ creditCost?: number; costPerCall: number }>): number {
   return round6(steps.reduce((sum, step) => sum + creditCostForEndpoint(step), 0));
 }
 
@@ -123,8 +123,8 @@ export function x402SurchargeCredits(apiCostUsd: number): number {
  * - Creator still earns full credit_cost on cache hits (unchanged).
  * - Minimum 0.1 credits ($0.0001) ensures even the cheapest endpoints generate revenue.
  */
-export const CACHE_DISCOUNT_PCT = 0.10;
-export const CACHE_MIN_CREDITS = 0.1;
+const CACHE_DISCOUNT_PCT = 0.10;
+const CACHE_MIN_CREDITS = 0.1;
 
 export function cacheCreditCost(liveCreditCost: number): number {
   return round6(Math.max(CACHE_MIN_CREDITS, liveCreditCost * CACHE_DISCOUNT_PCT));
@@ -135,7 +135,7 @@ export function cacheCreditCost(liveCreditCost: number): number {
  * Charge cache rate (10%) since the caller got "new" confirmation that
  * data is still the same — value is in the freshness guarantee, not new data.
  */
-export function unchangedDataCreditCost(liveCreditCost: number): number {
+function unchangedDataCreditCost(liveCreditCost: number): number {
   return cacheCreditCost(liveCreditCost);
 }
 
@@ -143,7 +143,7 @@ export function unchangedDataCreditCost(liveCreditCost: number): number {
  * SWR stale-served pricing: data served from stale cache while background
  * refresh runs. Same as cache rate — caller gets instant response.
  */
-export function staleCreditCost(liveCreditCost: number): number {
+function staleCreditCost(liveCreditCost: number): number {
   return cacheCreditCost(liveCreditCost);
 }
 
@@ -204,11 +204,11 @@ export function dynamicCreditCost(
 }
 
 /** Expose for health/admin endpoints */
-export function getCreditsPerUsd(): number {
+function getCreditsPerUsd(): number {
   return CREDITS_PER_USD;
 }
 
 /** Expose markup factor for admin/debug */
-export function getCostMarkupFactor(): number {
+function getCostMarkupFactor(): number {
   return COST_MARKUP_FACTOR;
 }

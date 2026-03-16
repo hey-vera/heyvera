@@ -1,6 +1,7 @@
 import { getDb } from '../db/index';
 import { env } from '../config/index';
 import { logger } from '../utils/logger';
+import { maskApiKey } from '../utils/mask';
 import { getVolatilityStats } from './adaptive-ttl';
 import { getCacheAnalytics } from './warming';
 
@@ -206,7 +207,7 @@ export function getBudgetAdvice(apiKey: string): BudgetAdvice[] {
 
     return advice;
   } catch (err) {
-    logger.warn({ err, apiKey }, 'Failed to generate budget advice');
+    logger.warn({ err, apiKey: maskApiKey(apiKey) }, 'Failed to generate budget advice');
     return [];
   }
 }

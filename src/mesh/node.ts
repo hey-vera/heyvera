@@ -1,8 +1,11 @@
 import { upsertPeer } from '../db/index'
 import { logger } from '../utils/logger'
 
-// libp2p is ESM-only. Dynamic import() uses the ESM resolver at runtime,
-// bypassing the CJS ERR_PACKAGE_PATH_NOT_EXPORTED error in Node 22 + tsx.
+// libp2p is ESM-only. new Function() prevents tsc from compiling import() to require()
+// which breaks ESM-only packages when module=CommonJS.
+// eslint-disable-next-line @typescript-eslint/no-implied-eval
+const dynamicImport = new Function('specifier', 'return import(specifier)') as (specifier: string) => Promise<any>;
+
 async function loadLibp2p() {
   const [
     { createLibp2p },
@@ -12,12 +15,12 @@ async function loadLibp2p() {
     { kadDHT },
     { ping },
   ] = await Promise.all([
-    import('libp2p'),
-    import('@libp2p/tcp'),
-    import('@chainsafe/libp2p-yamux'),
-    import('@libp2p/noise'),
-    import('@libp2p/kad-dht'),
-    import('@libp2p/ping'),
+    dynamicImport('libp2p'),
+    dynamicImport('@libp2p/tcp'),
+    dynamicImport('@chainsafe/libp2p-yamux'),
+    dynamicImport('@libp2p/noise'),
+    dynamicImport('@libp2p/kad-dht'),
+    dynamicImport('@libp2p/ping'),
   ])
   return { createLibp2p, tcp, yamux, noise, kadDHT, ping }
 }

@@ -81,9 +81,10 @@ export async function sendSolanaUsdc(toWallet: string, amountUsdc: number): Prom
     )
   );
 
-  const sig = await sendAndConfirmTransaction(connection, tx, [payer], {
-    commitment: 'confirmed',
-  });
+  const sig = await Promise.race([
+    sendAndConfirmTransaction(connection, tx, [payer], { commitment: 'confirmed' }),
+    new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Solana transaction timeout (30s)')), 30_000)),
+  ]);
 
   logger.info({ sig, toWallet, amountUsdc }, 'Solana USDC payout sent');
   return sig;

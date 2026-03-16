@@ -43,7 +43,7 @@ solanaRouter.post('/verify', async (c) => {
   // 1. Require Clerk JWT
   const authHeader = c.req.header('Authorization');
   if (!authHeader?.startsWith('Bearer ')) {
-    return c.json({ error: 'Authentication required. Please sign in.' }, 401);
+    return c.json({ error: 'Authentication required. Please sign in.', code: 'AUTH_REQUIRED' }, 401);
   }
 
   const token = authHeader.slice(7);
@@ -58,38 +58,38 @@ solanaRouter.post('/verify', async (c) => {
     // Clerk JWTs don't embed email by default — rely on replyEmail from the request body instead
     clerkEmail = ((payload as Record<string, unknown>).email_address as string ?? '').toLowerCase();
   } catch {
-    return c.json({ error: 'Invalid or expired session.' }, 401);
+    return c.json({ error: 'Invalid or expired session.', code: 'INVALID_SESSION' }, 401);
   }
 
   // 2. Parse body
   let body: unknown;
   try { body = await c.req.json(); } catch {
-    return c.json({ error: 'Invalid JSON body.' }, 400);
+    return c.json({ error: 'Invalid JSON body.', code: 'INVALID_JSON' }, 400);
   }
 
   const parsed = VerifySchema.safeParse(body);
   if (!parsed.success) {
-    return c.json({ error: 'Invalid request', details: parsed.error.flatten().fieldErrors }, 400);
+    return c.json({ error: 'Invalid request', code: 'INVALID_REQUEST', details: parsed.error.flatten().fieldErrors }, 400);
   }
 
   const { signature, expectedUsd, replyEmail } = parsed.data;
 
   // Require at least one email source so we can deliver the API key
   if (!clerkEmail && !replyEmail) {
-    return c.json({ error: 'Email required — provide replyEmail to receive your API key.' }, 400);
+    return c.json({ error: 'Email required — provide replyEmail to receive your API key.', code: 'EMAIL_REQUIRED' }, 400);
   }
 
   // 3. Check package is valid
   const credits = USDC_PACKAGES[expectedUsd];
   if (!credits) {
-    return c.json({ error: `Invalid package amount. Valid amounts: ${Object.keys(USDC_PACKAGES).join(', ')}` }, 400);
+    return c.json({ error: `Invalid package amount. Valid amounts: ${Object.keys(USDC_PACKAGES).join(', ')}`, code: 'INVALID_AMOUNT' }, 400);
   }
 
   // 4. Atomic idempotency — claim signature BEFORE async on-chain verification.
   // INSERT OR IGNORE + changes > 0 ensures only ONE concurrent request wins,
   // preventing TOCTOU double-credit if two requests arrive with the same signature.
   if (!tryClaimSolanaSignature(signature)) {
-    return c.json({ error: 'Transaction already processed.' }, 409);
+    return c.json({ error: 'Transaction already processed.', code: 'DUPLICATE_TRANSACTION' }, 409);
   }
 
   // 5. Verify transaction on-chain — try primary RPC, fall back to secondary on failure
@@ -123,12 +123,12 @@ solanaRouter.post('/verify', async (c) => {
 
     if (!tx) {
       releaseClaimSolanaSignature(signature);
-      return c.json({ error: 'Transaction not found. It may still be confirming — wait a few seconds and try again.' }, 404);
+      return c.json({ error: 'Transaction not found. It may still be confirming — wait a few seconds and try again.', code: 'TX_NOT_FOUND' }, 404);
     }
 
     if (tx.meta?.err) {
       releaseClaimSolanaSignature(signature);
-      return c.json({ error: 'Transaction failed on-chain.' }, 400);
+      return c.json({ error: 'Transaction failed on-chain.', code: 'TX_FAILED' }, 400);
     }
 
     // Walk through token transfers to find USDC to our receiving wallet
@@ -171,7 +171,7 @@ solanaRouter.post('/verify', async (c) => {
   } catch (err) {
     logger.error({ err, signature }, 'Solana tx verification failed');
     releaseClaimSolanaSignature(signature);
-    return c.json({ error: 'Failed to verify transaction. Please try again.' }, 500);
+    return c.json({ error: 'Failed to verify transaction. Please try again.', code: 'VERIFICATION_FAILED' }, 500);
   }
 
   // 6. Validate amount matches expected package (allow 0.1% tolerance for rounding)
@@ -180,6 +180,7 @@ solanaRouter.post('/verify', async (c) => {
     releaseClaimSolanaSignature(signature);
     return c.json({
       error: `Payment amount mismatch. Expected $${expectedUsd} USDC, found $${transferredUsd.toFixed(2)} USDC going to receiving wallet.`,
+      code: 'AMOUNT_MISMATCH',
     }, 400);
   }
 
@@ -225,14 +226,14 @@ solanaRouter.post('/verify', async (c) => {
 solanaRouter.get('/packages', async (c) => {
   const authHeader = c.req.header('Authorization');
   if (!authHeader?.startsWith('Bearer ')) {
-    return c.json({ error: 'Authentication required.' }, 401);
+    return c.json({ error: 'Authentication required.', code: 'AUTH_REQUIRED' }, 401);
   }
   const clerkKey = env.CLERK_SECRET_KEY;
   if (!clerkKey) return c.json({ error: 'Clerk not configured', code: 'CLERK_NOT_CONFIGURED' }, 500);
   try {
     await verifyToken(authHeader.slice(7), { secretKey: clerkKey });
   } catch {
-    return c.json({ error: 'Invalid or expired session.' }, 401);
+    return c.json({ error: 'Invalid or expired session.', code: 'INVALID_SESSION' }, 401);
   }
   return c.json({
     receivingWallet: RECEIVING_WALLET,
@@ -254,34 +255,34 @@ const BuildTxSchema = z.object({
 solanaRouter.post('/build-tx', async (c) => {
   const authHeader = c.req.header('Authorization');
   if (!authHeader?.startsWith('Bearer ')) {
-    return c.json({ error: 'Authentication required.' }, 401);
+    return c.json({ error: 'Authentication required.', code: 'AUTH_REQUIRED' }, 401);
   }
   const clerkKey2 = env.CLERK_SECRET_KEY;
   if (!clerkKey2) return c.json({ error: 'Clerk not configured', code: 'CLERK_NOT_CONFIGURED' }, 500);
   try {
     await verifyToken(authHeader.slice(7), { secretKey: clerkKey2 });
   } catch {
-    return c.json({ error: 'Invalid or expired session.' }, 401);
+    return c.json({ error: 'Invalid or expired session.', code: 'INVALID_SESSION' }, 401);
   }
 
   let body: unknown;
   try { body = await c.req.json(); } catch {
-    return c.json({ error: 'Invalid JSON body.' }, 400);
+    return c.json({ error: 'Invalid JSON body.', code: 'INVALID_JSON' }, 400);
   }
 
   const parsed = BuildTxSchema.safeParse(body);
   if (!parsed.success) {
-    return c.json({ error: 'Invalid request', details: parsed.error.flatten().fieldErrors }, 400);
+    return c.json({ error: 'Invalid request', code: 'INVALID_REQUEST', details: parsed.error.flatten().fieldErrors }, 400);
   }
 
   const { amountUsd, senderWallet } = parsed.data;
 
   if (!USDC_PACKAGES[amountUsd]) {
-    return c.json({ error: `Invalid amount. Valid amounts: ${Object.keys(USDC_PACKAGES).join(', ')} USD` }, 400);
+    return c.json({ error: `Invalid amount. Valid amounts: ${Object.keys(USDC_PACKAGES).join(', ')} USD`, code: 'INVALID_AMOUNT' }, 400);
   }
 
   if (!RECEIVING_WALLET) {
-    return c.json({ error: 'Solana payments not currently configured.' }, 503);
+    return c.json({ error: 'Solana payments not currently configured.', code: 'SOLANA_NOT_CONFIGURED' }, 503);
   }
 
   try {
@@ -323,6 +324,6 @@ solanaRouter.post('/build-tx', async (c) => {
     return c.json({ serializedTx });
   } catch (err) {
     logger.error({ err }, 'Failed to build USDC transaction');
-    return c.json({ error: 'Failed to build transaction. Please try again.' }, 500);
+    return c.json({ error: 'Failed to build transaction. Please try again.', code: 'BUILD_TX_FAILED' }, 500);
   }
 });

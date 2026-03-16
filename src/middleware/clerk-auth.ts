@@ -16,6 +16,13 @@ setInterval(() => {
   }
 }, 10 * 60 * 1000).unref();
 
+// Singleton Clerk client — created once at module level, not per-request
+let _clerkClient: ReturnType<typeof createClerkClient> | null = null;
+function getClerkClient(secretKey: string) {
+  if (!_clerkClient) _clerkClient = createClerkClient({ secretKey });
+  return _clerkClient;
+}
+
 declare module 'hono' {
   interface ContextVariableMap {
     clerkUserId: string;
@@ -38,7 +45,7 @@ export const requireClerkAuth = createMiddleware(async (c, next) => {
   }
 
   try {
-    const clerk = createClerkClient({ secretKey });
+    const clerk = getClerkClient(secretKey);
     const payload = await verifyToken(token, { secretKey });
 
     c.set('clerkUserId', payload.sub);

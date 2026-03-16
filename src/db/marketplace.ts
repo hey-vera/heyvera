@@ -140,7 +140,7 @@ export function marketplacePurchase(params: {
     })();
     return { ok: true, txId, feeCredits, sellerCredits };
   } catch (err) {
-    return { ok: false, error: (err as Error).message };
+    return { ok: false, error: (err instanceof Error ? err.message : String(err)) };
   }
 }
 
@@ -221,7 +221,7 @@ export function marketplaceRefund(params: {
     return { ok: true, refundTxId };
   } catch (err) {
     logger.error({ err, buyerKey: maskApiKey(params.buyerKey), skillId: params.skillId }, 'marketplaceRefund: transaction failed — manual intervention may be required');
-    return { ok: false, error: (err as Error).message };
+    return { ok: false, error: (err instanceof Error ? err.message : String(err)) };
   }
 }
 
@@ -322,7 +322,7 @@ export function stakeCredits(params: {
     logAudit({ entityType: 'stake', entityId: stakeId, action: 'STAKE_LOCK', actorId: params.agentKey, data: { amount: params.amountCredits, lockDays: days, skillId: params.skillId } });
     return { ok: true, stakeId };
   } catch (err) {
-    return { ok: false, error: (err as Error).message };
+    return { ok: false, error: (err instanceof Error ? err.message : String(err)) };
   }
 }
 
@@ -342,7 +342,7 @@ export function unstakeCredits(stakeId: string, agentKey: string): { ok: boolean
     logAudit({ entityType: 'stake', entityId: stakeId, action: 'STAKE_UNLOCK', actorId: agentKey });
     return { ok: true };
   } catch (err) {
-    return { ok: false, error: (err as Error).message };
+    return { ok: false, error: (err instanceof Error ? err.message : String(err)) };
   }
 }
 

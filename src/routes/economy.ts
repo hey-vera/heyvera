@@ -332,6 +332,43 @@ economyRouter.delete('/webhook-secret', (c) => {
   return c.json({ ok: true });
 });
 
+// ─── Receipt Verification (public intent — but router-level auth applies) ──
+// IMPORTANT: Must be defined BEFORE /receipts/:id to avoid route shadowing
+
+economyRouter.get('/receipts/verify/:transactionId', (c) => {
+  const txId = c.req.param('transactionId');
+  const db = getDb();
+  const tx = db.prepare(
+    `SELECT id, from_agent, to_agent, amount_credits, type, skill_id, fee_credits, request_hash, result_hash, created_at
+     FROM transactions WHERE id = ?`
+  ).get(txId) as {
+    id: string; from_agent: string | null; to_agent: string | null;
+    amount_credits: number; type: string; skill_id: string | null;
+    fee_credits: number; request_hash: string | null; result_hash: string | null; created_at: string;
+  } | undefined;
+
+  if (!tx) return c.json({ error: 'Transaction not found', code: 'NOT_FOUND' }, 404);
+
+  return c.json({
+    verified: !!(tx.request_hash && tx.result_hash),
+    transaction: {
+      id: tx.id,
+      type: tx.type,
+      credits: tx.amount_credits,
+      fee: tx.fee_credits,
+      skillId: tx.skill_id,
+      from: tx.from_agent ? maskApiKey(tx.from_agent) : null,
+      to: tx.to_agent ? maskApiKey(tx.to_agent) : null,
+      requestHash: tx.request_hash,
+      resultHash: tx.result_hash,
+      timestamp: tx.created_at,
+    },
+    integrity: tx.request_hash && tx.result_hash
+      ? 'Both request and result hashes present — transaction is cryptographically verifiable'
+      : 'Missing hash(es) — transaction predates receipt system or was not hash-eligible',
+  });
+});
+
 // ─── Cryptographic Receipt Lookup ───────────────────────────────────────────
 
 economyRouter.get('/receipts/:id', (c) => {
@@ -541,42 +578,6 @@ economyRouter.get('/dependency-graph', (c) => {
   }
 
   return c.json({ nodes, edges, compositeCount: composites.length });
-});
-
-// ─── Receipt Verification (public — no auth) ────────────────────────────────
-
-economyRouter.get('/receipts/verify/:transactionId', (c) => {
-  const txId = c.req.param('transactionId');
-  const db = getDb();
-  const tx = db.prepare(
-    `SELECT id, from_agent, to_agent, amount_credits, type, skill_id, fee_credits, request_hash, result_hash, created_at
-     FROM transactions WHERE id = ?`
-  ).get(txId) as {
-    id: string; from_agent: string | null; to_agent: string | null;
-    amount_credits: number; type: string; skill_id: string | null;
-    fee_credits: number; request_hash: string | null; result_hash: string | null; created_at: string;
-  } | undefined;
-
-  if (!tx) return c.json({ error: 'Transaction not found', code: 'NOT_FOUND' }, 404);
-
-  return c.json({
-    verified: !!(tx.request_hash && tx.result_hash),
-    transaction: {
-      id: tx.id,
-      type: tx.type,
-      credits: tx.amount_credits,
-      fee: tx.fee_credits,
-      skillId: tx.skill_id,
-      from: tx.from_agent ? maskApiKey(tx.from_agent) : null,
-      to: tx.to_agent ? maskApiKey(tx.to_agent) : null,
-      requestHash: tx.request_hash,
-      resultHash: tx.result_hash,
-      timestamp: tx.created_at,
-    },
-    integrity: tx.request_hash && tx.result_hash
-      ? 'Both request and result hashes present — transaction is cryptographically verifiable'
-      : 'Missing hash(es) — transaction predates receipt system or was not hash-eligible',
-  });
 });
 
 // ─── Cost Estimation ────────────────────────────────────────────────────────
