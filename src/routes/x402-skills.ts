@@ -83,7 +83,7 @@ function createFacilitator(): unknown {
   // We log which one we're using so operators know.
   const primary = FACILITATOR_FALLBACKS[0];
   logger.info({ facilitator: primary, fallbacks: FACILITATOR_FALLBACKS.length - 1 }, 'x402 facilitator configured');
-  return new HTTPFacilitatorClient(primary);
+  return new HTTPFacilitatorClient({ url: primary });
 }
 
 function buildX402Middleware() {
