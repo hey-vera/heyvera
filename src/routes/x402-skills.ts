@@ -15,12 +15,17 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { nanoid } from 'nanoid';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { paymentMiddlewareFromConfig } = require('@x402/hono') as {
-  paymentMiddlewareFromConfig: (...args: unknown[]) => import('hono').MiddlewareHandler;
+const { paymentMiddleware } = require('@x402/hono') as {
+  paymentMiddleware: (...args: unknown[]) => import('hono').MiddlewareHandler;
 };
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { HTTPFacilitatorClient } = require('@x402/core/server') as {
-  HTTPFacilitatorClient: new (url: string) => unknown;
+const { HTTPFacilitatorClient, x402ResourceServer } = require('@x402/core/server') as {
+  HTTPFacilitatorClient: new (config: { url: string }) => unknown;
+  x402ResourceServer: new (facilitator: unknown) => { register: (network: string, scheme: unknown) => unknown };
+};
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { ExactEvmScheme } = require('@x402/evm/exact/server') as {
+  ExactEvmScheme: new () => unknown;
 };
 type HTTPRequestContext = { path: string; method: string; paymentHeader?: string };
 import { getDb, getSkill, listPublicSkills, incrementSkillUses, safeJsonParse, getReputationScore, getReputationEvents, recordSkillMetric, recordReputation } from '../db/index';
@@ -91,88 +96,60 @@ function buildX402Middleware() {
 
   const facilitator = createFacilitator();
   const chainId = env.X402_NETWORK === 'base-mainnet' ? '8453' : '84532';
+  const network = `eip155:${chainId}` as `eip155:${string}`;
+
+  // Build resource server with ExactEvmScheme registered (required in v2.6.0)
+  const resourceServer = new x402ResourceServer(facilitator)
+    .register(network, new ExactEvmScheme());
 
   const dynamicSkillPrice = async (ctx: HTTPRequestContext) => {
-    // Extract skill ID from path: /x402/skills/:id or /x402/query/:id
     const parts = ctx.path.split('/');
     const skillId = parts[parts.length - 1] ?? '';
     const skill = getSkill(skillId);
     const credits = Math.max(skill?.credit_cost ?? 1, 1);
     const priceUsdc = credits * env.X402_USDC_PER_CREDIT;
-    // Return as string USDC amount (e.g. "0.001")
-    return priceUsdc.toFixed(6);
+    return `$${priceUsdc.toFixed(6)}`;
   };
 
-  const orchestratePrice = (env.ORCHESTRATION_FEE * env.X402_USDC_PER_CREDIT).toFixed(6);
+  const orchestratePrice = `$${(env.ORCHESTRATION_FEE * env.X402_USDC_PER_CREDIT).toFixed(6)}`;
 
-  const paymentConfig = {
-    accepts: {
-      scheme: 'exact' as const,
-      network: `eip155:${chainId}` as `eip155:${string}`,
-      payTo: env.X402_RECIPIENT_ADDRESS,
-      maxTimeoutSeconds: 60,
-    },
-  };
-
-  return paymentMiddlewareFromConfig(
+  return paymentMiddleware(
     {
-      'POST /skills/*': {
+      'POST /x402/skills/*': {
         accepts: {
-          ...paymentConfig.accepts,
+          scheme: 'exact' as const,
+          network,
+          payTo: env.X402_RECIPIENT_ADDRESS,
           price: dynamicSkillPrice,
+          maxTimeoutSeconds: 60,
         },
         description: 'ClawNet skill invocation — pay per call with USDC on Base',
         mimeType: 'application/json',
-        unpaidResponseBody: () => ({
-          contentType: 'application/json',
-          body: {
-            error: 'Payment required',
-            code: 'X402_PAYMENT_REQUIRED',
-            hint: 'Include X-PAYMENT header with USDC on Base, or use POST /v1/skills/:id/invoke with a ClawNet API key.',
-            docs: 'https://claw-net.org/docs/x402',
-          },
-        }),
       },
-      'POST /orchestrate': {
+      'POST /x402/orchestrate': {
         accepts: {
-          ...paymentConfig.accepts,
+          scheme: 'exact' as const,
+          network,
+          payTo: env.X402_RECIPIENT_ADDRESS,
           price: orchestratePrice,
+          maxTimeoutSeconds: 60,
         },
         description: 'ClawNet orchestration — pay per query with USDC on Base',
         mimeType: 'application/json',
-        unpaidResponseBody: () => ({
-          contentType: 'application/json',
-          body: {
-            error: 'Payment required',
-            code: 'X402_PAYMENT_REQUIRED',
-            hint: 'Include X-PAYMENT header with USDC on Base. Price: ' + orchestratePrice + ' USDC.',
-            docs: 'https://claw-net.org/docs/x402',
-          },
-        }),
       },
-      'POST /query/*': {
+      'POST /x402/query/*': {
         accepts: {
-          ...paymentConfig.accepts,
+          scheme: 'exact' as const,
+          network,
+          payTo: env.X402_RECIPIENT_ADDRESS,
           price: dynamicSkillPrice,
+          maxTimeoutSeconds: 60,
         },
         description: 'ClawNet data skill query — pay per call with USDC on Base',
         mimeType: 'application/json',
-        unpaidResponseBody: () => ({
-          contentType: 'application/json',
-          body: {
-            error: 'Payment required',
-            code: 'X402_PAYMENT_REQUIRED',
-            hint: 'Include X-PAYMENT header with USDC on Base, or use GET /v1/skills/:id/query with a ClawNet API key.',
-            docs: 'https://claw-net.org/docs/x402',
-          },
-        }),
       },
     },
-    facilitator,
-    undefined, // no scheme registrations needed (facilitator handles verification)
-    undefined, // no paywall UI needed
-    undefined, // no custom paywall
-    false,     // don't sync facilitator on start (lazy init)
+    resourceServer,
   );
 }
 
@@ -181,10 +158,9 @@ function buildX402Middleware() {
 const x402Middleware = buildX402Middleware();
 
 if (x402Middleware) {
-  // Only apply x402 payment middleware to POST routes — GET routes (catalog, verify, info) stay public
-  x402SkillsRouter.post('/skills/*', x402Middleware);
-  x402SkillsRouter.post('/orchestrate', x402Middleware);
-  x402SkillsRouter.post('/query/*', x402Middleware);
+  // paymentMiddleware does its own route matching via the route config keys (POST /x402/skills/* etc.)
+  // Use .use('*') so it sees all requests and matches internally — GET routes pass through unpaid
+  x402SkillsRouter.use('*', x402Middleware);
   logger.info({ recipientAddress: env.X402_RECIPIENT_ADDRESS, network: env.X402_NETWORK }, 'x402 provider mode active');
 } else {
   logger.info('x402 provider mode disabled — set X402_RECIPIENT_ADDRESS to enable');
