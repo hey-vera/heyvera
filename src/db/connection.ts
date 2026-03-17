@@ -554,6 +554,74 @@ const MIGRATIONS: { version: number; sql: string }[] = [
     DROP INDEX IF EXISTS idx_transactions_created;
     DROP INDEX IF EXISTS idx_skills_public;
     DROP INDEX IF EXISTS idx_agent_ctx_key` },
+  // v72: skill sponsorships — creators fund free-tier credits for their skills
+  { version: 72, sql: `
+    CREATE TABLE IF NOT EXISTS sponsorships (
+      id TEXT PRIMARY KEY,
+      sponsor_key TEXT NOT NULL,
+      skill_id TEXT NOT NULL,
+      total_credits REAL NOT NULL,
+      remaining_credits REAL NOT NULL,
+      daily_limit_per_user REAL NOT NULL DEFAULT 10,
+      max_uses_per_user INTEGER NOT NULL DEFAULT 100,
+      active INTEGER NOT NULL DEFAULT 1,
+      expires_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_sponsorships_skill ON sponsorships(skill_id, active);
+    CREATE INDEX IF NOT EXISTS idx_sponsorships_sponsor ON sponsorships(sponsor_key);
+    CREATE TABLE IF NOT EXISTS sponsorship_usage (
+      id TEXT PRIMARY KEY,
+      sponsorship_id TEXT NOT NULL,
+      user_key TEXT NOT NULL,
+      credits_used REAL NOT NULL,
+      used_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (sponsorship_id) REFERENCES sponsorships(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_sponsorship_usage_lookup ON sponsorship_usage(sponsorship_id, user_key)` },
+  // v73: bounty system — demand-side marketplace
+  { version: 73, sql: `
+    CREATE TABLE IF NOT EXISTS bounties (
+      id TEXT PRIMARY KEY,
+      creator_key TEXT NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL,
+      requirements_json TEXT,
+      reward_credits REAL NOT NULL,
+      deadline TEXT,
+      status TEXT NOT NULL DEFAULT 'open',
+      claimed_by TEXT,
+      claimed_at TEXT,
+      submission_url TEXT,
+      submitted_at TEXT,
+      completed_at TEXT,
+      tags_json TEXT,
+      category TEXT NOT NULL DEFAULT 'general',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_bounties_status ON bounties(status);
+    CREATE INDEX IF NOT EXISTS idx_bounties_creator ON bounties(creator_key);
+    CREATE INDEX IF NOT EXISTS idx_bounties_category ON bounties(category)` },
+  // v74: verification tiers, payment-proof reviews, composite metrics
+  { version: 74, sql: `
+    ALTER TABLE skills ADD COLUMN verification_tier INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE skill_ratings ADD COLUMN payment_proof_type TEXT DEFAULT 'none';
+    ALTER TABLE skill_ratings ADD COLUMN payment_proof_id TEXT;
+    ALTER TABLE skill_ratings ADD COLUMN payment_amount REAL DEFAULT 0;
+    ALTER TABLE skill_ratings ADD COLUMN verified_purchase INTEGER DEFAULT 0;
+    CREATE TABLE IF NOT EXISTS composite_metrics (
+      skill_id TEXT PRIMARY KEY,
+      tool_calls_compressed INTEGER NOT NULL DEFAULT 0,
+      estimated_token_savings INTEGER NOT NULL DEFAULT 0,
+      avg_execution_time_ms REAL NOT NULL DEFAULT 0,
+      total_executions INTEGER NOT NULL DEFAULT 0,
+      success_rate REAL NOT NULL DEFAULT 0,
+      last_execution_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_skill_ratings_verified ON skill_ratings(skill_id, verified_purchase);
+    CREATE INDEX IF NOT EXISTS idx_skills_verification_tier ON skills(verification_tier)` },
+  // v75: x402 test mode column
+  { version: 75, sql: `ALTER TABLE x402_receipts ADD COLUMN test INTEGER NOT NULL DEFAULT 0` },
 ];
 
 function runMigrations(): void {

@@ -15,3 +15,6 @@ export * from './transfers';
 export * from './sessions';
 export * from './validations';
 export * from './budget';
+export * from './sponsorship';
+export * from './bounties';
+export * from './skill-extensions';

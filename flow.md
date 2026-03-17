@@ -3847,4 +3847,455 @@ Key file: src/routes/widgets.ts
 
 ---
 
-*Generated from codebase analysis. Last updated: 2026-03-14. 69 DB migrations, decimal credits (v3), 2-wallet architecture, treasury auto-sweep, endpoint auto-discovery (183 ClawAPIs endpoints), smart cache v2 (28 features: content-hash validation, SWR, adaptive TTL, request coalescing, negative caching, gzip compression, LFU eviction, cache warming, cost optimizer, budget advisor), agent economy layer (trust signals, cryptographic receipts, compare/quote, composite skills v2, SLA contracts, output contracts, budget accounts, event webhooks, trust decay, penalty escalation, scheduled execution, proposal bonds, validator roles, persistent agent sessions), flywheel system (agent self-onboarding, MCP manifest, SDK scaffolding, recommendations engine, quality scoring, creator tools, LLM skill generator, growth notifications, referral system, embeddable widgets), dynamic pricing (surge/volume/off-peak), composite-of-composite nesting (depth 3), autonomous hiring/firing, quorum governance execution.*
+## 62. llms.txt — Machine-Readable Discovery
+
+```
+ClawNet publishes a machine-readable llms.txt file at /llms.txt so AI agents
+can discover all platform capabilities in a single fetch — a de facto standard
+adopted by AI-native platforms.
+│
+├─ GET /llms.txt — compact discovery document (text/plain)
+│  ├─ Core API endpoints (orchestrate, batch, stream, LLM, swarm)
+│  ├─ Skill marketplace endpoints (browse, invoke, query, MCP/OpenAPI manifests)
+│  ├─ x402 payment endpoints (discovery, skills list, invoke, receipts)
+│  ├─ Economy endpoints (budget accounts, gifting, webhooks, scheduled skills)
+│  ├─ Discovery endpoints (semantic search, recommendations, registry)
+│  ├─ Authentication methods (API key, x402, Clerk)
+│  ├─ MCP server connection details
+│  ├─ Pricing model and credit economics
+│  └─ .well-known discovery file locations
+│
+└─ GET /llms.txt/full — expanded version with live skill listings
+   ├─ Everything from compact version
+   └─ Dynamic content: fetches live public skills from DB
+      └─ Each skill listed with ID, description, credit cost, and tags
+         └─ Agents can discover and invoke skills without prior knowledge
+
+Key file: src/routes/llms.ts
+```
+
+---
+
+## 63. .well-known Discovery Files
+
+```
+Standard discovery documents for cross-platform interoperability
+│
+├─ GET /.well-known/agent-card.json — ClawNet identity card
+│  ├─ Primary discovery document — other platforms auto-discover capabilities
+│  ├─ Capabilities: orchestration, marketplace, x402 payments, MCP tools
+│  ├─ Auth methods: API key, x402, Clerk
+│  ├─ Endpoint map: base URLs for all service categories
+│  ├─ Pricing model: credits_per_usd, orchestration_fee, cache_discount
+│  └─ Trust features: signed responses, cryptographic receipts,
+│     SLA contracts, validator network
+│
+├─ GET /.well-known/agents.json — list of agent services
+│  ├─ orchestrator — natural language → API routing
+│  ├─ marketplace — skill discovery and invocation
+│  └─ x402_provider — USDC-on-Base payment gateway
+│
+├─ GET /.well-known/mcp.json — MCP server discovery
+│  ├─ stdio transport details
+│  ├─ HTTP transport details (POST /mcp)
+│  └─ Tool list: list-skills, get-skill, invoke-skill,
+│     search-registry, orchestrate, get-credits
+│
+└─ GET /.well-known/x402.json — x402 payment discovery
+   ├─ Network, chain, recipient, facilitator
+   ├─ Pricing: per-credit and per-orchestration USDC rates
+   └─ Returns { enabled: false } when X402_RECIPIENT_ADDRESS not configured
+
+Key file: src/routes/well-known.ts
+```
+
+---
+
+## 64. Bounty System — Demand-Side Marketplace
+
+```
+Users post problems and bounties for skill creators to fulfill,
+creating demand-side marketplace liquidity
+│
+├─ Lifecycle:
+│  POST /v1/bounties (create) → open → claimed → submitted → completed
+│                                    → expired (past deadline)
+│                                    → cancelled (by creator)
+│
+├─ GET /v1/bounties — list bounties (public, filterable by status/category/tag)
+├─ GET /v1/bounties/:id — bounty details
+│
+├─ POST /v1/bounties — create bounty
+│  ├─ Body: { title, description, rewardCredits, category, tags, deadline? }
+│  ├─ deductCredit(creator, rewardCredits) — escrows reward from creator
+│  └─ Status: open
+│
+├─ POST /v1/bounties/:id/claim — claim a bounty
+│  ├─ Locks bounty to claimer (only one claimer at a time)
+│  └─ Status: open → claimed
+│
+├─ POST /v1/bounties/:id/submit — submit work
+│  ├─ Body: { submissionUrl }
+│  └─ Status: claimed → submitted
+│
+├─ POST /v1/bounties/:id/complete — creator approves
+│  ├─ topUpCredits(claimer, rewardCredits) — transfers escrowed amount
+│  └─ Status: submitted → completed
+│
+├─ DELETE /v1/bounties/:id — cancel (only if status = open)
+│  ├─ topUpCredits(creator, rewardCredits) — returns escrowed credits
+│  └─ Status: open → cancelled
+│
+└─ Expiration:
+   └─ expireBounties() cron detects past-deadline bounties
+      └─ Returns credits to creator, status → expired
+
+Key files: src/routes/bounties.ts, src/db/bounties.ts
+```
+
+---
+
+## 65. Output Normalization — Structured Response Formatting
+
+```
+Raw API responses transformed into standardized formats for agent consumption
+│
+├─ Formats supported: JSON, CSV, Markdown table, plain text
+│
+├─ Pipeline: parse → filter fields → flatten → redact sensitive
+│            → truncate arrays → format
+│
+├─ Features:
+│  ├─ Field filtering — include/exclude specific fields from output
+│  ├─ Object flattening — nested objects → dot-notation keys
+│  ├─ Sensitive data redaction — auto-redacts keys matching:
+│  │   password, secret, token, private_key, api_key
+│  ├─ Array truncation — limit long arrays to N items
+│  ├─ Schema validation — lightweight JSON Schema validation
+│  │   (required fields + type checks)
+│  └─ CSV/Markdown export — array-of-objects → tabular format
+│     with proper escaping
+│
+└─ Usage:
+   ├─ Programmatic: normalizeOutput(data, options)
+   └─ At invocation: ?format=csv query parameter on skill invoke
+
+Key file: src/utils/output-normalizer.ts
+```
+
+---
+
+## 66. Sponsored Free-Tier — Creator-Funded Skill Access
+
+```
+Skill creators sponsor free credits for their skills to attract users
+│
+├─ Sponsorship model:
+│  ├─ Creator escrows credits from balance into sponsorship
+│  ├─ Users invoke sponsored skill for free (up to limits)
+│  ├─ Credits deducted from sponsorship pool, not user's balance
+│  └─ Sponsors can top-up, deactivate, or let sponsorships expire
+│
+├─ POST /v1/sponsorships — create sponsorship
+│  ├─ Body: { skillId, totalCredits, dailyLimitPerUser?, maxUsesPerUser?, expiresAt? }
+│  └─ deductCredit(creator, totalCredits) — escrows credits
+│
+├─ GET /v1/sponsorships — list my sponsorships
+├─ GET /v1/sponsorships/:id — sponsorship details
+│
+├─ POST /v1/sponsorships/:id/top-up — add more credits
+│  └─ deductCredit(creator, additionalCredits)
+│
+├─ DELETE /v1/sponsorships/:id — deactivate
+│  └─ Remaining credits returned to creator
+│
+└─ Limits:
+   ├─ dailyLimitPerUser — max credits per user per day (default: 10)
+   ├─ maxUsesPerUser — max total uses per user (default: 100)
+   ├─ expiresAt — optional expiration date
+   └─ Partial sponsorship: if remaining < needed, user pays difference
+
+Key files: src/routes/sponsorship.ts, src/db/sponsorship.ts
+```
+
+---
+
+## 67. Remote HTTP MCP Server — Zero-Install Agent Integration
+
+```
+ClawNet serves MCP tools over HTTP — agents connect remotely without
+installing anything
+│
+├─ Endpoint: POST /mcp (JSON-RPC over HTTP)
+│
+├─ Supported methods:
+│  ├─ initialize — returns server capabilities and tool list
+│  ├─ tools/list — enumerate available tools
+│  ├─ tools/call — execute a tool
+│  └─ ping — health check
+│
+├─ Session management:
+│  ├─ Server generates Mcp-Session-Id header on first request
+│  ├─ Sessions time out after 15 minutes of inactivity
+│  └─ Max 100 concurrent sessions
+│
+├─ Tools available (same as stdio server):
+│  ├─ list-skills — browse skill marketplace
+│  ├─ get-skill — skill details
+│  ├─ invoke-skill — execute a skill
+│  ├─ search-registry — search API endpoint registry
+│  ├─ orchestrate — natural language orchestration
+│  └─ get-credits — check credit balance
+│
+└─ Connection examples:
+   ├─ claude mcp add-json clawnet '{"type":"url","url":"https://api.claw-net.org/mcp"}'
+   └─ curl -X POST https://api.claw-net.org/mcp \
+        -H 'Content-Type: application/json' \
+        -d '{"jsonrpc":"2.0","method":"tools/list","id":1}'
+
+Key file: src/mcp/http-transport.ts
+```
+
+---
+
+## 68. Verification Tiers — Provider Trust Hierarchy
+
+```
+Skills assigned verification tiers that signal trust level to agents
+│
+├─ Tier 0: Unverified
+│  └─ Default for all new skills
+│
+├─ Tier 1: Basic (auto-verified)
+│  ├─ Requirements (all must be met):
+│  │  ├─ 100+ total uses
+│  │  ├─ 95%+ success rate
+│  │  ├─ 4.0+ average rating
+│  │  ├─ 5+ reviews
+│  │  ├─ Health status: healthy
+│  │  └─ Not flagged
+│  └─ autoVerifySkill() promotes when criteria met
+│     └─ Can be called from health cron
+│
+├─ Tier 2: Verified
+│  └─ Manual verification by admin
+│
+├─ Tier 3: Official
+│  └─ Admin-promoted (ClawNet official skills)
+│
+└─ Marketplace filtering:
+   └─ GET /v1/marketplace/skills?tier=2 — filter by minimum tier
+
+Key file: src/db/skill-extensions.ts
+```
+
+---
+
+## 69. Payment-Proof-Backed Reviews — Sybil-Resistant Ratings
+
+```
+Reviews include payment proof to verify reviewer actually paid for the skill
+│
+├─ Review types:
+│  ├─ Verified purchase — reviewer provides x402 receipt or transaction ID
+│  │  └─ Marked with verified_purchase = true
+│  └─ Unverified — standard review without payment proof
+│     └─ Still accepted but weighted lower
+│
+├─ Verification flow:
+│  1. Reviewer submits rating with optional paymentProofType + paymentProofId
+│  2. System looks up receipt/transaction in database
+│  3. If found and matches skill_id → review marked as verified purchase
+│  4. Payment amount recorded for economic weight
+│
+└─ Stats endpoint returns:
+   ├─ Total reviews vs verified reviews
+   ├─ Average rating (all) vs average verified rating
+   └─ Verified purchase rate (% of reviews with proof)
+
+Key file: src/db/skill-extensions.ts
+```
+
+---
+
+## 70. Composite Skill Metrics — Token Savings & Efficiency
+
+```
+Composite skills track efficiency metrics demonstrating value to agents
+│
+├─ Metrics tracked:
+│  ├─ tool_calls_compressed — individual tool calls the composite replaces
+│  ├─ estimated_token_savings — context tokens saved (~15k per compressed call)
+│  ├─ avg_execution_time_ms — running average execution time
+│  ├─ total_executions — total times composite has been run
+│  └─ success_rate — running success rate
+│
+├─ Token savings formula:
+│  └─ (toolCallCount - 1) × 15,000 tokens saved per execution
+│
+└─ Displayed on:
+   ├─ Marketplace skill cards for composite skills
+   └─ Skill detail pages
+
+Key file: src/db/skill-extensions.ts
+```
+
+---
+
+## 71. Extended x402 Payment Routes
+
+```
+Beyond skill invocation, x402 payments now cover orchestration and data queries
+│
+├─ POST /x402/orchestrate — natural language orchestration paid via USDC on Base
+│  ├─ Pricing: ORCHESTRATION_FEE × X402_USDC_PER_CREDIT USDC per query
+│  │   └─ Default: 2 × $0.001 = $0.002 per query
+│  ├─ Same parseIntent → optimizePlan → executePlan → formatResponse pipeline
+│  └─ x402 receipt tracked in x402_receipts table
+│
+├─ POST /x402/query/:id — data skill query paid via USDC on Base
+│  ├─ Pricing: skill.credit_cost × X402_USDC_PER_CREDIT USDC per query
+│  ├─ Executes data skill proxy call
+│  └─ x402 receipt tracked in x402_receipts table
+│
+└─ All x402 routes share:
+   ├─ Same facilitator (CDP with fallbacks)
+   ├─ Same receipt tracking (x402_receipts table)
+   ├─ Same 85/15 creator revenue split (if skill has creator_evm_wallet)
+   └─ Public receipt verification at GET /x402/verify/:requestId
+
+Key file: src/routes/x402-skills.ts
+```
+
+---
+
+## 72. x402 Test Mode — Echo Merchant
+
+```
+Development testing environment for x402 payments. Inspired by PayAI's Echo Merchant concept.
+│
+├─ Endpoints:
+│  ├─ GET /x402/test-config — test mode configuration and available endpoints
+│  ├─ POST /x402/test/skills/:id — invoke a skill without payment (rate-limited: 10/IP/hour)
+│  └─ POST /x402/test/orchestrate — orchestrate without payment (rate-limited: 5/IP/hour)
+│
+├─ Behavior:
+│  ├─ No x402 payment required (middleware bypassed)
+│  ├─ Skill executes normally (parseIntent → executePlan → formatResponse)
+│  ├─ Receipt recorded with test=1 flag (excluded from revenue calculations)
+│  ├─ Response includes metadata.testMode: true
+│  └─ Rate-limited per IP to prevent abuse
+│
+└─ Use case: Developers testing x402 client implementations can validate their
+   integration against real ClawNet infrastructure without spending USDC.
+
+Key file: src/routes/x402-skills.ts
+```
+
+---
+
+## 73. Stats Telemetry — Public Platform Metrics
+
+```
+Public endpoint providing aggregated platform statistics for dashboard display.
+│
+├─ Endpoint: GET /v1/stats/telemetry
+│
+├─ Returns:
+│  ├─ Total skills, endpoints, active API keys
+│  ├─ 30-day aggregates: orchestrations, credits transacted, x402 payments/revenue
+│  ├─ Cache hit rate, average latency
+│  ├─ Open bounties, active sponsorships
+│  └─ Daily breakdowns (30-day rolling): orchestrations, credits, skill invocations, x402 payments
+│
+├─ No auth required — public data for transparency
+└─ Rate-limited
+
+Key file: src/routes/stats-telemetry.ts
+```
+
+---
+
+## 74. Composite Revenue Splitting
+
+```
+When a composite skill executes multiple sub-skills, revenue is split
+proportionally among all sub-skill creators.
+│
+├─ Split formula:
+│  ├─ 15% → treasury (standard platform fee)
+│  ├─ 85% → creator pool, split proportionally by each sub-skill's credit_cost
+│  └─ Last recipient gets remainder to avoid rounding errors
+│
+├─ Recorded as: composite_split transaction type with note linking
+│  composite → sub-skill
+│
+└─ Fire-and-forget: Split execution never crashes the caller.
+   Errors logged but not propagated.
+
+Key file: src/utils/composite-split.ts
+```
+
+---
+
+## 75. Agent Self-Onboarding — Zero-Friction Registration
+
+```
+Agents can register and get an API key with a single POST request.
+No human signup, no email verification, no OAuth flow.
+│
+├─ Endpoints:
+│  ├─ POST /v1/self-onboard/register — instant registration, returns API key
+│  └─ GET /v1/self-onboard/quickstart — onboarding guide (no auth)
+│
+├─ Registration body:
+│  { name, description?, email?, agentType?, capabilities?, webhookUrl? }
+│
+├─ Returns:
+│  ├─ API key
+│  ├─ Free trial credits (if configured)
+│  └─ Quick-start examples for orchestrate/skills/x402/MCP
+│
+├─ Rate-limited: 5 registrations per IP per hour
+│
+└─ Alternative access (no registration needed):
+   ├─ x402: pay per call with USDC
+   ├─ MCP: connect for browsing (invoke requires key)
+   └─ Public endpoints: marketplace, endpoints, llms.txt
+
+Key file: src/routes/self-onboard.ts
+```
+
+---
+
+## 76. MCP Per-Tool Pricing
+
+```
+HTTP MCP server tools are categorized as free or paid:
+│
+├─ Free tools (no auth required):
+│  ├─ list-skills
+│  ├─ get-skill
+│  ├─ search-registry
+│  └─ get-credits
+│
+├─ Paid tools (require CLAWNET_API_KEY in MCP server environment):
+│  ├─ invoke-skill — skill's credit_cost
+│  └─ orchestrate — 2 credits
+│
+└─ Table:
+   | Tool            | Cost               |
+   |-----------------|---------------------|
+   | list-skills     | Free               |
+   | get-skill       | Free               |
+   | search-registry | Free               |
+   | get-credits     | Free               |
+   | invoke-skill    | Skill's credit_cost |
+   | orchestrate     | 2 credits          |
+
+Key file: src/mcp/http-transport.ts
+```
+
+---
+
+*Generated from codebase analysis. Last updated: 2026-03-16. 69 DB migrations, decimal credits (v3), 2-wallet architecture, treasury auto-sweep, endpoint auto-discovery (183 ClawAPIs endpoints), smart cache v2 (28 features: content-hash validation, SWR, adaptive TTL, request coalescing, negative caching, gzip compression, LFU eviction, cache warming, cost optimizer, budget advisor), agent economy layer (trust signals, cryptographic receipts, compare/quote, composite skills v2, SLA contracts, output contracts, budget accounts, event webhooks, trust decay, penalty escalation, scheduled execution, proposal bonds, validator roles, persistent agent sessions), flywheel system (agent self-onboarding, MCP manifest, SDK scaffolding, recommendations engine, quality scoring, creator tools, LLM skill generator, growth notifications, referral system, embeddable widgets), dynamic pricing (surge/volume/off-peak), composite-of-composite nesting (depth 3), autonomous hiring/firing, quorum governance execution, llms.txt machine-readable discovery, .well-known discovery files, bounty system, output normalization, sponsored free-tier, remote HTTP MCP server, verification tiers, payment-proof-backed reviews, composite skill metrics, extended x402 payment routes, x402 test mode, stats telemetry, composite revenue splitting, agent self-onboarding, MCP per-tool pricing.*
