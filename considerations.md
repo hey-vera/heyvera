@@ -391,7 +391,101 @@ Features researched but deferred from immediate implementation. Revisit as the p
 
 **Effort:** 3-5 days. Build 2 weeks before token launch, not months before.
 
+## 21. A2A (Agent-to-Agent) Protocol Support
+
+**What:** Add Google's A2A protocol (v0.3.0) alongside MCP. A2A standardizes agent-to-agent task delegation — agents discover each other via `/.well-known/agent-card.json` and delegate tasks via `message/send` (JSON-RPC). Makes every ClawNet skill discoverable by AWS Bedrock, Google ADK, Azure, LangChain, Salesforce, and 100+ other A2A adopters.
+
+**Why do it:**
+- 100-150+ organizations already support A2A (Google, AWS, Microsoft, Salesforce, SAP, LangChain, etc.)
+- Official `@a2a-js/sdk` has **native Hono support** (`A2AHonoApp`) — plug-and-play for ClawNet's stack
+- ClawNet's orchestration pipeline (`parseIntent -> optimizePlan -> executePlan`) maps 1:1 to A2A's task model
+- Competitors Questflow and Daydreams already support A2A
+- MCP handles tool access; A2A handles agent collaboration — complementary, not competing
+
+**Implementation plan:**
+1. `npm install @a2a-js/sdk` (1 new dependency)
+2. Reformat `/.well-known/agent-card.json` to A2A AgentCard spec (name, url, version, protocolVersions, capabilities, skills array with AgentSkill objects, authentication)
+3. Create `src/routes/a2a.ts` — JSON-RPC endpoint handling `message/send`, `message/stream`, `tasks/get`, `tasks/cancel`
+4. Map incoming A2A messages to ClawNet's `orchestrate` or `invoke-skill` based on target skill
+5. Return results as A2A `Task` objects with proper state transitions (submitted→working→completed/failed)
+6. Support streaming via SSE (`message/stream`) — ClawNet already has SSE infrastructure
+7. Map ClawNet skills to A2A skills in the agent card
+8. Auth bridging: declare API key auth in agent card's securitySchemes
+
+**When to do:** NOW — highest competitive impact per effort hour.
+
+**Effort:** 2-3 days.
+
+## 22. Zero-Auth Discovery Routes
+
+**What:** Open read-only discovery routes so agents can browse ClawNet's skill catalog and endpoint registry without an API key. Currently most `/v1/*` routes require `checkApiKey`. 402.bot, Agoragentic, and Blockrun all allow zero-friction discovery. This is the biggest onboarding friction for agent-to-agent adoption.
+
+**Routes to make public (no auth):**
+- `GET /v1/skills` — browse marketplace (already partially public for marketplace browsing)
+- `GET /v1/skills/:id` — skill details including pricing, trust signals, SLA
+- `GET /v1/registry` — full endpoint catalog (344+ endpoints) — ALREADY has no auth middleware
+- `GET /v1/registry/health` — endpoint status dashboard
+- `GET /v1/estimate` — cost estimation (dry-run, no credits consumed)
+- `GET /v1/skills/:id/mcp` — MCP tool manifest per skill
+- `GET /v1/skills/:id/openapi` — OpenAPI spec per skill
+
+**Keep auth on:** All execution routes (orchestrate, invoke, batch, stream, swarm), economy routes (transfer, keys, escrow), admin routes, creator routes.
+
+**When to do:** NOW — half day, removes the #1 friction point for agent discovery.
+
+**Effort:** Half day. Remove `checkApiKey` middleware from the listed GET routes.
+
+## 23. Token Savings Tracking in Responses
+
+**What:** Add a `tokensSaved` field to every orchestration and skill invocation response showing how many LLM tokens the cache/orchestration saved vs raw API calls. 402.bot tracks this aggressively (claims 58M cumulative tokens saved) and it's their best marketing metric.
+
+**Implementation:**
+1. In `executePlan()` (`src/core/executor.ts`), track per-step: estimated raw tokens (from endpoint metadata) vs actual tokens consumed
+2. Cache hits count full token savings (the entire step was free)
+3. Add to response: `{ tokensSaved: 148000, costWithoutClawNet: "$0.014", costWithClawNet: "$0.003" }`
+4. Accumulate in a platform-wide counter for the stats dashboard (`GET /v1/stats/telemetry`)
+5. Display in the `/v1/auth/usage` response for per-user tracking
+
+**Why:** Proves ClawNet's value in hard numbers. "ClawNet saved you 148K tokens and $0.011 on this query" is more compelling than "your query cost 3 credits."
+
+**When to do:** NOW — half day, powerful marketing metric.
+
+**Effort:** Half day.
+
+## 24. API Registry Expansion (22 → 50+ x402engine endpoints)
+
+**What:** x402engine now has 68 endpoints but ClawNet only registers 22 in `src/config/api-registry.ts`. Missing endpoints include:
+- **Crypto data:** price feed ($0.001), market data ($0.002), historical data ($0.003), trending ($0.001), coin search ($0.001), token metadata ($0.002), ENS resolve/reverse ($0.001) — all very cheap
+- **Newer LLMs:** GPT-5.3 Codex, GPT-5.4 Pro, Kimi K2.5, additional Llama/Qwen/Mistral variants
+- **Web content fetch** (up to 10 URLs for $0.005) — cheaper than Jina for bulk
+- **MegaETH support** — 10ms confirmation vs ~2s on Base, would reduce x402 payment latency dramatically
+
+Also consider registering Agoragentic as a **seller** on their marketplace (they offer 97/3 revenue split vs our 85/15 — we'd keep more selling through them as a distribution channel).
+
+**When to do:** Soon — half day, more endpoints = more value for orchestration.
+
+**Effort:** Half day (add endpoints to api-registry.ts, update endpoint-health-cron samples).
+
+## 25. Multi-Facilitator x402 Support
+
+**What:** Add PayAI and Dexter as fallback x402 facilitators alongside Coinbase's. Currently ClawNet uses a single facilitator chain (configured URL → x402.org → facilitator.x402.org → payai.network). Formalizing multi-facilitator support adds:
+- **Reliability:** If Coinbase's facilitator is down, automatically fail over to PayAI or Dexter
+- **Multi-chain:** PayAI covers 7 chains (Solana, Base, Polygon, Avalanche, Sei, IoTeX, SKALE). Dexter covers 6 chains + SKALE (zero-gas)
+- **Cost:** PayAI charges $0.001/tx (first 1K free). Dexter is free. Coinbase's pricing is opaque.
+- **Speed:** Dexter has overtaken Coinbase as #1 facilitator (50% market share, 25M+ settlements)
+
+**Implementation:**
+1. Update `src/routes/x402-skills.ts` facilitator chain to explicitly try multiple facilitators in priority order
+2. Add env vars: `X402_FACILITATOR_URLS` (comma-separated, replaces single URL)
+3. Health-check facilitators periodically and route to the fastest healthy one
+4. Add facilitator selection to `GET /v1/stats/telemetry` for monitoring
+5. Consider offering Solana-native x402 via Dexter (currently Base-only via Coinbase)
+
+**When to do:** When x402 volume grows beyond testing. Currently ~$28K daily volume across the entire protocol — not urgent.
+
+**Effort:** 1 day.
+
 ---
 
 *Last updated: 2026-03-16*
-*Based on competitive analysis of 402bot, PayAI Network, and the x402/ERC-8004/ERC-8183 ecosystem*
+*Based on Artemis Agentic Commerce Market Map analysis (173 companies) — competitive research against 402.bot, Questflow, OpenServ, Blockrun, Dexter, Daydreams, PayAI, Virtuals Protocol, Bittensor, x402engine, Agoragentic, ClawIndex, x402scan, Helixa, Cred Protocol.*
