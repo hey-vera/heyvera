@@ -48,6 +48,13 @@ import { creatorRouter } from './routes/creator';
 import { accountRouter } from './routes/account';
 import { costComparisonRouter } from './routes/cost-comparison';
 import { openclawCompatRouter } from './routes/openclaw-compat';
+import { sponsorshipRouter } from './routes/sponsorship';
+import { llmsTxtRouter } from './routes/llms';
+import { wellKnownRouter } from './routes/well-known';
+import { bountiesRouter } from './routes/bounties';
+import { mcpHttpRouter } from './mcp/http-transport';
+import { x402McpRouter } from './mcp/x402-mcp-transport';
+import { statsTelemetryRouter } from './routes/stats-telemetry';
 // import { referralRouter } from './routes/referral'; // disabled — re-enable when referral program launches
 import { startEndpointHealthCron } from './core/endpoint-health-cron';
 import { startEndpointDiscoveryCron } from './core/endpoint-discovery';
@@ -62,6 +69,7 @@ import { startCacheWarmingCron } from './core/cache-warming-cron';
 import { startCreatorNotificationsCron } from './core/creator-notifications';
 import { cacheStatsRouter } from './routes/cache-stats';
 import { onboardRouter } from './routes/onboard';
+import { selfOnboardRouter } from './routes/self-onboard';
 import { widgetsRouter } from './routes/widgets';
 import { startMeshNode } from './mesh/node';
 import { loadEmbeddingModel } from './core/embeddings';
@@ -124,8 +132,8 @@ app.use('*', cors({
     ? ['https://claw-net.org', 'https://www.claw-net.org', 'https://app.claw-net.org']
     : '*',
   allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization', 'X-API-Key'],
-  exposeHeaders: ['X-Request-ID', 'X-ClawNet-Signature', 'X-RateLimit-Limit', 'X-RateLimit-Remaining', 'Retry-After'],
+  allowHeaders: ['Content-Type', 'Authorization', 'X-API-Key', 'X-PAYMENT', 'PAYMENT-SIGNATURE'],
+  exposeHeaders: ['X-Request-ID', 'X-ClawNet-Signature', 'X-RateLimit-Limit', 'X-RateLimit-Remaining', 'Retry-After', 'PAYMENT-REQUIRED', 'PAYMENT-RESPONSE'],
   maxAge: 86400,
 }));
 app.use('*', async (c, next) => {
@@ -233,10 +241,18 @@ app.route('/v1/recommendations', recommendationsRouter);
 app.route('/v1/creator', creatorRouter);
 app.route('/v1/cache', cacheStatsRouter);
 app.route('/v1/onboard', onboardRouter);
+app.route('/v1/self-onboard', selfOnboardRouter);
 app.route('/v1/widgets', widgetsRouter);
 app.route('/v1/account', accountRouter);
 app.route('/v1/compare', costComparisonRouter);
 app.route('/v1/openclaw-compat', openclawCompatRouter);
+app.route('/v1/sponsorships', sponsorshipRouter);
+app.route('/v1/bounties', bountiesRouter);
+app.route('/llms.txt', llmsTxtRouter);
+app.route('/.well-known', wellKnownRouter);
+app.route('/mcp', mcpHttpRouter);
+app.route('/mcp/x402', x402McpRouter);
+app.route('/v1/stats/telemetry', statsTelemetryRouter);
 // app.route('/v1/referral', referralRouter); // disabled — re-enable when referral program launches
 
 app.notFound((c) => c.json({ error: 'Not found', code: 'NOT_FOUND' }, 404));
