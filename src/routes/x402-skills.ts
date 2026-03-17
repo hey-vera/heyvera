@@ -116,7 +116,7 @@ function buildX402Middleware() {
 
   return paymentMiddlewareFromConfig(
     {
-      'POST /x402/skills/*': {
+      'POST /skills/*': {
         accepts: {
           ...paymentConfig.accepts,
           price: dynamicSkillPrice,
@@ -133,7 +133,7 @@ function buildX402Middleware() {
           },
         }),
       },
-      'POST /x402/orchestrate': {
+      'POST /orchestrate': {
         accepts: {
           ...paymentConfig.accepts,
           price: orchestratePrice,
@@ -150,7 +150,7 @@ function buildX402Middleware() {
           },
         }),
       },
-      'POST /x402/query/*': {
+      'POST /query/*': {
         accepts: {
           ...paymentConfig.accepts,
           price: dynamicSkillPrice,
@@ -181,9 +181,10 @@ function buildX402Middleware() {
 const x402Middleware = buildX402Middleware();
 
 if (x402Middleware) {
-  x402SkillsRouter.use('/skills/*', x402Middleware);
-  x402SkillsRouter.use('/orchestrate', x402Middleware);
-  x402SkillsRouter.use('/query/*', x402Middleware);
+  // Only apply x402 payment middleware to POST routes — GET routes (catalog, verify, info) stay public
+  x402SkillsRouter.post('/skills/*', x402Middleware);
+  x402SkillsRouter.post('/orchestrate', x402Middleware);
+  x402SkillsRouter.post('/query/*', x402Middleware);
   logger.info({ recipientAddress: env.X402_RECIPIENT_ADDRESS, network: env.X402_NETWORK }, 'x402 provider mode active');
 } else {
   logger.info('x402 provider mode disabled — set X402_RECIPIENT_ADDRESS to enable');
