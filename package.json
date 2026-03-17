@@ -11,7 +11,8 @@
     "test:unit:watch": "vitest",
     "test:unit:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
-    "mcp": "tsx src/mcp/server.ts"
+    "mcp": "tsx src/mcp/server.ts",
+    "x-outreach": "tsx src/bots/x-outreach.ts"
   },
   "engines": {
     "node": ">=20.6.0"
