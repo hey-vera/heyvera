@@ -174,6 +174,7 @@
       <div class="dropdown-menu">
         <a href="https://pulse.claw-net.org">Pulse &mdash; AI Marketing</a>
         <a href="/roadmap.html">Radar &mdash; Trading (Coming Soon)</a>
+        <a href="/#pricing">Pricing</a>
       </div>
     </div>
     <div class="dropdown">
@@ -183,7 +184,6 @@
         <a href="/marketplace.html">Agent Services</a>
         <a href="/docs.html">Documentation</a>
         <a href="/playground.html">Playground</a>
-        <a href="/#pricing">Pricing</a>
       </div>
     </div>
     <a href="/roadmap.html">Roadmap</a>
@@ -214,12 +214,12 @@
   <div class="mobile-menu-group">Products</div>
   <a href="https://pulse.claw-net.org">Pulse &mdash; AI Marketing</a>
   <a href="/roadmap.html">Radar &mdash; Trading (Coming Soon)</a>
+  <a href="/#pricing">Pricing</a>
   <div class="mobile-menu-group">Developers</div>
   <a href="/endpoints.html">API Endpoints</a>
   <a href="/marketplace.html">Agent Services</a>
   <a href="/docs.html">Documentation</a>
   <a href="/playground.html">Playground</a>
-  <a href="/#pricing">Pricing</a>
   <div class="mobile-menu-group">More</div>
   <a href="/roadmap.html">Roadmap</a>
   <div class="mobile-menu-group" id="mobile-account-group" style="display:none">Account</div>
@@ -352,9 +352,9 @@ Content-Type: application/json
 
 <footer>
   <div class="footer-grid">
-    <div><h4>Product</h4><a href="https://pulse.claw-net.org">Pulse</a><a href="/roadmap.html">Roadmap</a><a href="/status.html">Status</a></div>
+    <div><h4>Product</h4><a href="https://pulse.claw-net.org">Pulse</a><a href="https://radar.claw-net.org">Radar</a><a href="/roadmap.html">Roadmap</a></div>
     <div><h4>Developers</h4><a href="/endpoints.html">API Endpoints</a><a href="/marketplace.html">Agent Services</a><a href="/docs.html">Documentation</a><a href="/playground.html">Playground</a></div>
-    <div><h4>Company</h4><a href="/contact-section.html">Contact</a><a href="/terms.html">Terms</a><a href="/privacy.html">Privacy</a></div>
+    <div><h4>Company</h4><a href="/contact-section.html">Contact</a><a href="/status.html">Status</a><a href="/terms.html">Terms</a><a href="/privacy.html">Privacy</a></div>
     <div><h4>Community</h4><a href="https://x.com/i/communities/2031805527043576245" target="_blank">X Community</a><a href="https://github.com/1xmint" target="_blank">GitHub</a><a href="https://t.me/claw_net" target="_blank">Telegram</a></div>
   </div>
   <div class="footer-bottom"><span>&copy; 2026 ClawNet. All rights reserved.</span></div>
@@ -382,31 +382,42 @@ async function checkStatus() {
   }
 }
 
-// Auth
-const apiKey = localStorage.getItem('claw_api_key') || '';
-async function initAuth() {
-  if (!apiKey) return;
+// Auth (Clerk)
+async function initNav() {
   try {
-    const r = await fetch(`${API}/v1/auth/me`, { headers: { 'X-API-Key': apiKey } });
-    if (!r.ok) return;
-    const d = await r.json();
-    document.getElementById('nav-credits-badge').classList.add('show');
-    document.getElementById('nav-credits-num').textContent = (d.credits ?? 0).toLocaleString();
+    await window.Clerk.load();
+    const user = window.Clerk.user;
+    if (!user) return;
     document.getElementById('nav-login-btn').style.display = 'none';
     document.getElementById('nav-getkey-btn').style.display = 'none';
     document.getElementById('account-dropdown').classList.add('show');
-    if (d.email) {
-      document.getElementById('account-email-display').textContent = d.email;
+    const email = user.primaryEmailAddress?.emailAddress ?? user.username ?? '';
+    if (email) {
+      document.getElementById('account-email-display').textContent = email;
       const me = document.getElementById('mobile-account-email');
-      if (me) { me.textContent = d.email; me.style.display = 'block'; }
+      if (me) { me.textContent = email; me.style.display = 'block'; }
     }
     const mag = document.getElementById('mobile-account-group');
     if (mag) mag.style.display = '';
     const mso = document.getElementById('mobile-sign-out');
     if (mso) mso.style.display = '';
-  } catch {}
+    const cachedCredits = localStorage.getItem('clawnet_credits');
+    document.getElementById('nav-credits-num').textContent = cachedCredits !== null ? parseInt(cachedCredits).toLocaleString() : '\u2014';
+    document.getElementById('nav-credits-badge').classList.add('show');
+    try {
+      const token = await window.Clerk.session.getToken();
+      const res = await fetch(API + '/v1/dashboard/me', { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.credits !== undefined) {
+          localStorage.setItem('clawnet_credits', data.credits);
+          document.getElementById('nav-credits-num').textContent = data.credits.toLocaleString();
+        }
+      }
+    } catch (e) {}
+  } catch (e) {}
 }
-function navSignOut() { localStorage.removeItem('claw_api_key'); location.reload(); }
+async function navSignOut() { await window.Clerk.signOut(); window.location.reload(); }
 
 // Live stats
 async function loadStats() {
@@ -422,8 +433,10 @@ async function loadStats() {
 }
 
 checkStatus();
-initAuth();
 loadStats();
 </script>
+<script data-clerk-publishable-key="pk_live_Y2xlcmsuY2xhdy1uZXQub3JnJA"
+  src="https://cdn.jsdelivr.net/npm/@clerk/clerk-js@5/dist/clerk.browser.js"
+  onload="initNav()"></script>
 </body>
 </html>
