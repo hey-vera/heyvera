@@ -95,11 +95,65 @@ oauthRouter.get('/authorize', requireClerkAuth, async (c) => {
 });
 
 // ─── POST /v1/oauth/authorize — Generate auth code and redirect ─────────────
+// Accepts both Clerk session cookie AND Bearer token (from oauth.html page)
 
-oauthRouter.post('/authorize', requireClerkAuth, async (c) => {
-  const body = await c.req.parseBody();
-  const app = String(body.app ?? '');
-  const redirect = String(body.redirect ?? '');
+oauthRouter.post('/authorize', async (c) => {
+  // Try JSON body first (from oauth.html fetch), then form body (from HTML form)
+  let app = '';
+  let redirect = '';
+  let clerkUserId = '';
+  let clerkEmail = '';
+
+  const contentType = c.req.header('Content-Type') || '';
+
+  if (contentType.includes('application/json')) {
+    // Called from oauth.html with Bearer token
+    const authHeader = c.req.header('Authorization') || '';
+    if (!authHeader.startsWith('Bearer ')) {
+      return c.json({ error: 'Missing Bearer token', code: 'UNAUTHORIZED' }, 401);
+    }
+    const token = authHeader.slice(7);
+
+    // Verify Clerk token
+    try {
+      const { verifyToken } = await import('@clerk/backend');
+      const payload = await verifyToken(token, {
+        secretKey: process.env.CLERK_SECRET_KEY!,
+      });
+      clerkUserId = payload.sub;
+      clerkEmail = (payload as any).email || '';
+    } catch {
+      // Fallback: decode JWT payload
+      try {
+        const parts = token.split('.');
+        const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString());
+        clerkUserId = payload.sub || '';
+        clerkEmail = payload.email || '';
+      } catch {
+        return c.json({ error: 'Invalid token', code: 'INVALID_TOKEN' }, 401);
+      }
+    }
+
+    if (!clerkUserId) {
+      return c.json({ error: 'Could not resolve user from token', code: 'INVALID_TOKEN' }, 401);
+    }
+
+    const jsonBody = await c.req.json();
+    app = String(jsonBody.app ?? '');
+    redirect = String(jsonBody.redirect ?? '');
+  } else {
+    // Called from HTML form with Clerk session cookie
+    try {
+      const next = await requireClerkAuth(c, async () => {});
+    } catch {
+      return c.json({ error: 'Not authenticated', code: 'UNAUTHORIZED' }, 401);
+    }
+    clerkUserId = c.get('clerkUserId');
+    clerkEmail = c.get('clerkEmail') ?? '';
+    const formBody = await c.req.parseBody();
+    app = String(formBody.app ?? '');
+    redirect = String(formBody.redirect ?? '');
+  }
 
   if (!app || !ALLOWED_APPS[app]) {
     return c.json({ error: 'Unknown or missing app parameter', code: 'INVALID_APP' }, 400);
@@ -147,7 +201,13 @@ oauthRouter.post('/authorize', requireClerkAuth, async (c) => {
 
   // Redirect back to the app with the auth code
   const separator = redirect.includes('?') ? '&' : '?';
-  return c.redirect(`${redirect}${separator}code=${code}`);
+  const redirectUrl = `${redirect}${separator}code=${code}`;
+
+  // If JSON request (from oauth.html), return JSON. Otherwise redirect.
+  if (contentType.includes('application/json')) {
+    return c.json({ code, redirect: redirectUrl });
+  }
+  return c.redirect(redirectUrl);
 });
 
 // ─── POST /v1/oauth/token — Exchange code for session info ──────────────────
