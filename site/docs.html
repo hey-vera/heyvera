@@ -107,7 +107,7 @@
     .sidebar-link:hover { color: var(--text-primary); background: var(--bg-surface-2); text-decoration: none; }
     .sidebar-link.active { color: var(--accent); border-right-color: var(--accent); background: var(--accent-subtle); }
 
-    .docs-content { margin-left: 260px; padding: 40px 56px 80px; max-width: 860px; width: 100%; }
+    .docs-content { padding: 40px 56px 80px; max-width: 860px; width: 100%; }
     .mobile-menu { display:none; position:fixed; top:56px; left:0; right:0; background:var(--bg-surface); border-bottom:1px solid var(--border-default); z-index:99; padding:12px 24px; max-height: calc(100vh - 56px); overflow-y: auto; }
     .mobile-menu.open { display:block; }
     .mobile-menu a { display:block; padding:10px 0; font-size:14px; color:var(--text-secondary); border-bottom:1px solid var(--border-subtle); text-decoration:none; }
@@ -148,7 +148,7 @@
     .method-badge.put { background: var(--purple-dim); color: var(--purple); }
 
     /* PARAMS TABLE */
-    .params-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 20px; }
+    .params-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 20px; display: block; overflow-x: auto; }
     .params-table th { font-size: 11px; font-weight: 500; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.04em; text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border-subtle); }
     .params-table td { padding: 10px 12px; border-bottom: 1px solid var(--border-subtle); color: var(--text-secondary); vertical-align: top; }
     .params-table tr:last-child td { border-bottom: none; }
@@ -374,7 +374,7 @@
         <div class="concept-card">
           <div class="concept-icon">&#x1F4B8;</div>
           <div class="concept-title">Earn 85% Revenue</div>
-          <div class="concept-desc">Register your API as a skill. You set the price. On every call, 85% goes to you, 15% to the platform. Payouts in USDC to your Solana wallet.</div>
+          <div class="concept-desc">Register your API as a skill. You set the price. On every call, 85% goes to you, 15% to the platform. Credit-based payouts in USDC to your Solana wallet; x402 splits go to your EVM wallet on Base.</div>
         </div>
         <div class="concept-card">
           <div class="concept-icon">&#x1F6E1;</div>
@@ -417,9 +417,9 @@
 
       <div class="code-tabs" id="quickstart-tabs">
         <div class="code-tab-bar">
-          <button class="code-tab-btn active" onclick="switchTab('quickstart-tabs', 'curl')">cURL</button>
-          <button class="code-tab-btn" onclick="switchTab('quickstart-tabs', 'js')">JavaScript</button>
-          <button class="code-tab-btn" onclick="switchTab('quickstart-tabs', 'python')">Python</button>
+          <button class="code-tab-btn active" onclick="switchTab(this, 'quickstart-tabs', 'curl')">cURL</button>
+          <button class="code-tab-btn" onclick="switchTab(this, 'quickstart-tabs', 'js')">JavaScript</button>
+          <button class="code-tab-btn" onclick="switchTab(this, 'quickstart-tabs', 'python')">Python</button>
         </div>
         <div class="code-tab-panel active" data-tab="curl">
           <div class="code-block">
@@ -522,8 +522,8 @@ print(res.json()['answer'])</code></pre>
 
       <div class="code-tabs" id="auth-tabs">
         <div class="code-tab-bar">
-          <button class="code-tab-btn active" onclick="switchTab('auth-tabs', 'apikey')">API Key</button>
-          <button class="code-tab-btn" onclick="switchTab('auth-tabs', 'clerk')">Clerk JWT</button>
+          <button class="code-tab-btn active" onclick="switchTab(this, 'auth-tabs', 'apikey')">API Key</button>
+          <button class="code-tab-btn" onclick="switchTab(this, 'auth-tabs', 'clerk')">Clerk JWT</button>
         </div>
         <div class="code-tab-panel active" data-tab="apikey">
           <div class="code-block">
@@ -629,7 +629,7 @@ console.log(res.data);</code></pre>
         </tbody>
       </table>
 
-      <div class="alert alert-info">x402 uses USDC on Base chain. Creator payouts happen instantly — 85% to the skill creator's EVM wallet.</div>
+      <div class="alert alert-info">x402 payments use USDC on Base chain. Standard creator payouts (from credit-based calls) go to your Solana wallet. x402 creator splits (85%) go directly to your EVM wallet on Base.</div>
     </div>
 
     <!-- ═══════════════════════════════════════════════ ERRORS ═══════════════════════════════════════════════ -->
@@ -703,8 +703,9 @@ console.log(res.data);</code></pre>
           <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
           <tbody>
             <tr><td><code>query</code></td><td><span class="param-type">string</span></td><td><span class="param-req">Yes</span></td><td>Your question in plain English (max 2000 chars)</td></tr>
-            <tr><td><code>context</code></td><td><span class="param-type">object</span></td><td><span class="param-opt">No</span></td><td>Extra context, e.g. <code>{"chain": "solana"}</code></td></tr>
             <tr><td><code>pricing</code></td><td><span class="param-type">object</span></td><td><span class="param-opt">No</span></td><td>Budget control (see strategies below)</td></tr>
+            <tr><td><code>cache</code></td><td><span class="param-type">boolean</span></td><td><span class="param-opt">No</span></td><td>Enable/disable cache for this query (default: true)</td></tr>
+            <tr><td><code>diff</code></td><td><span class="param-type">boolean</span></td><td><span class="param-opt">No</span></td><td>Return diff from previous cached result</td></tr>
           </tbody>
         </table>
 
@@ -891,7 +892,7 @@ es.addEventListener('done', (e) =&gt; {
         <div class="code-block">
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
           <pre><code>curl -X POST https://api.claw-net.org/v1/skills/token-sentiment/invoke \
-  -H "X-API-Key: cn_your_key_here" \
+  -H "X-API-Key: cn-your-key-here" \
   -H "Content-Type: application/json" \
   -d '{"variables": {"token": "SOL"}}'</code></pre>
         </div>
@@ -918,7 +919,7 @@ es.addEventListener('done', (e) =&gt; {
         <div class="code-block">
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
           <pre><code>curl "https://api.claw-net.org/v1/skills/price-oracle-data/query?token=SOL" \
-  -H "X-API-Key: cn_your_key_here"</code></pre>
+  -H "X-API-Key: cn-your-key-here"</code></pre>
         </div>
       </div>
 
@@ -989,7 +990,7 @@ es.addEventListener('done', (e) =&gt; {
         <div class="code-block">
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
           <pre><code>curl -X POST https://api.claw-net.org/v1/skills/batch-query \
-  -H "X-API-Key: cn_your_key_here" \
+  -H "X-API-Key: cn-your-key-here" \
   -H "Content-Type: application/json" \
   -d '{
     "queries": [
@@ -1068,7 +1069,7 @@ es.addEventListener('done', (e) =&gt; {
       <div class="code-block">
         <button class="copy-btn" onclick="copyCode(this)">Copy</button>
         <pre><code>curl -X POST https://api.claw-net.org/v1/skills \
-  -H "X-API-Key: cn_your_key_here" \
+  -H "X-API-Key: cn-your-key-here" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "my-weather-api",
@@ -1103,12 +1104,11 @@ es.addEventListener('done', (e) =&gt; {
 
       <div class="endpoint">
         <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/marketplace/compare</code></div>
-        <p class="endpoint-desc">Agent-native skill comparison. Returns ranked alternatives with composite scoring, so your agent can pick the best service for the job.</p>
-        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+        <p class="endpoint-desc">Agent-native skill comparison. Returns ranked alternatives with composite scoring, so your agent can pick the best service for the job. No auth required &mdash; agents can compare before committing credits.</p>
         <div class="code-block">
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
           <pre><code>curl -X POST https://api.claw-net.org/v1/marketplace/compare \
-  -H "X-API-Key: cn_your_key_here" \
+  -H "X-API-Key: cn-your-key-here" \
   -H "Content-Type: application/json" \
   -d '{"category": "defi", "query": "token price data"}'</code></pre>
         </div>
@@ -1146,7 +1146,7 @@ es.addEventListener('done', (e) =&gt; {
       <div class="code-block">
         <button class="copy-btn" onclick="copyCode(this)">Copy</button>
         <pre><code>curl -X POST https://api.claw-net.org/v1/skills \
-  -H "X-API-Key: cn_your_key_here" \
+  -H "X-API-Key: cn-your-key-here" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "token-sentiment",
@@ -1165,7 +1165,7 @@ es.addEventListener('done', (e) =&gt; {
       <div class="code-block">
         <button class="copy-btn" onclick="copyCode(this)">Copy</button>
         <pre><code>curl -X POST https://api.claw-net.org/v1/skills \
-  -H "X-API-Key: cn_your_key_here" \
+  -H "X-API-Key: cn-your-key-here" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "whale-tracker",
@@ -1185,7 +1185,7 @@ es.addEventListener('done', (e) =&gt; {
       <div class="code-block">
         <button class="copy-btn" onclick="copyCode(this)">Copy</button>
         <pre><code>curl -X POST https://api.claw-net.org/v1/skills \
-  -H "X-API-Key: cn_your_key_here" \
+  -H "X-API-Key: cn-your-key-here" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "sp500-daily",
@@ -1222,7 +1222,7 @@ es.addEventListener('done', (e) =&gt; {
       <div class="code-block">
         <button class="copy-btn" onclick="copyCode(this)">Copy</button>
         <pre><code>curl -X POST https://api.claw-net.org/v1/skills \
-  -H "X-API-Key: cn_your_key_here" \
+  -H "X-API-Key: cn-your-key-here" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "full-token-report",
@@ -1403,11 +1403,11 @@ es.addEventListener('done', (e) =&gt; {
         <div class="code-block">
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
           <pre><code>curl -X POST https://api.claw-net.org/v1/openclaw/invoke \
-  -H "X-API-Key: cn_your_key_here" \
+  -H "X-API-Key: cn-your-key-here" \
   -H "Content-Type: application/json" \
   -d '{
     "action": "query",
-    "payload": { "query": "What is SOL trading at?" }
+    "query": "What is SOL trading at?"
   }'</code></pre>
         </div>
       </div>
@@ -1437,7 +1437,7 @@ es.addEventListener('done', (e) =&gt; {
         <div class="code-block">
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
           <pre><code>curl -X PATCH https://api.claw-net.org/v1/economy/sessions/sess_abc123 \
-  -H "X-API-Key: cn_your_key_here" \
+  -H "X-API-Key: cn-your-key-here" \
   -H "Content-Type: application/json" \
   -d '{
     "state": {
@@ -1473,7 +1473,7 @@ es.addEventListener('done', (e) =&gt; {
         <div class="code-block">
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
           <pre><code>curl -X POST https://api.claw-net.org/v1/economy/keys/delegate \
-  -H "X-API-Key: cn_your_key_here" \
+  -H "X-API-Key: cn-your-key-here" \
   -H "Content-Type: application/json" \
   -d '{"spendLimit": 500, "label": "research-agent"}'</code></pre>
         </div>
@@ -1488,7 +1488,7 @@ es.addEventListener('done', (e) =&gt; {
         <div class="code-block">
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
           <pre><code>curl -X POST https://api.claw-net.org/v1/economy/keys/budget-account \
-  -H "X-API-Key: cn_your_key_here" \
+  -H "X-API-Key: cn-your-key-here" \
   -H "Content-Type: application/json" \
   -d '{
     "spendLimit": 1000,
@@ -1504,7 +1504,7 @@ es.addEventListener('done', (e) =&gt; {
         <p class="endpoint-desc">Check budget account status &mdash; remaining balance, credits used, configured limits.</p>
         <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
         <div class="code-block"><pre><code>{
-  "childKey": "cn_bud_••••••ab",
+  "childKey": "cn-bud-••••••ab",
   "spendLimit": 1000,
   "dailyLimit": 100,
   "weeklyLimit": 500,
@@ -1527,11 +1527,11 @@ es.addEventListener('done', (e) =&gt; {
         <div class="code-block">
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
           <pre><code>curl -X POST https://api.claw-net.org/v1/economy/scheduled-skills \
-  -H "X-API-Key: cn_your_key_here" \
+  -H "X-API-Key: cn-your-key-here" \
   -H "Content-Type: application/json" \
   -d '{
     "skillId": "token-sentiment",
-    "cron": "0 */6 * * *",
+    "cronExpression": "0 */6 * * *",
     "variables": {"token": "SOL"},
     "sessionId": "sess_abc123"
   }'</code></pre>
@@ -1561,9 +1561,9 @@ es.addEventListener('done', (e) =&gt; {
         <div class="code-block">
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
           <pre><code>curl -X POST https://api.claw-net.org/v1/economy/transfer \
-  -H "X-API-Key: cn_your_key_here" \
+  -H "X-API-Key: cn-your-key-here" \
   -H "Content-Type: application/json" \
-  -d '{"toKey": "cn_recipient_key", "amount": 100, "memo": "Payment for data analysis"}'</code></pre>
+  -d '{"toKey": "cn-recipient-key", "amount": 100, "memo": "Payment for data analysis"}'</code></pre>
         </div>
       </div>
 
@@ -1590,7 +1590,8 @@ es.addEventListener('done', (e) =&gt; {
 
       <div class="endpoint">
         <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/economy/receipts/verify/:txId</code></div>
-        <p class="endpoint-desc">Public receipt verification &mdash; no auth required. Anyone can verify that a transaction happened and the result hashes match.</p>
+        <p class="endpoint-desc">Verify that a transaction happened and the result hashes match.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
       </div>
 
       <div class="endpoint">
@@ -1614,7 +1615,7 @@ es.addEventListener('done', (e) =&gt; {
         </table>
         <div class="code-block"><pre><code>{
   "transfers": [
-    { "id": "txfr_abc", "from_key": "cn-ab••••cd", "to_key": "cn_your_key", "amount": 100, "memo": "Payment", "created_at": "..." }
+    { "id": "txfr_abc", "from_key": "cn-ab••••cd", "to_key": "cn-your-key", "amount": 100, "memo": "Payment", "created_at": "..." }
   ],
   "total": 42,
   "limit": 50,
@@ -1630,7 +1631,7 @@ es.addEventListener('done', (e) =&gt; {
         <div class="code-block"><pre><code>{
   "keys": [
     {
-      "childKey": "cn_del_abc123",
+      "childKey": "cn-del-abc123",
       "label": "research-agent",
       "spendLimit": 500,
       "spent": 142.5,
@@ -1647,7 +1648,7 @@ es.addEventListener('done', (e) =&gt; {
         <div class="endpoint-header"><span class="method-badge delete">DELETE</span><code class="endpoint-path">/v1/economy/keys/delegated/:childKey</code></div>
         <p class="endpoint-desc">Revoke a delegated key. The child key is immediately deactivated and can no longer spend credits.</p>
         <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
-        <div class="code-block"><pre><code>{ "ok": true, "revoked": "cn_del_abc123" }</code></pre></div>
+        <div class="code-block"><pre><code>{ "ok": true, "revoked": "cn-del-abc123" }</code></pre></div>
       </div>
 
       <h4 style="font-size:16px;font-weight:600;color:var(--text-primary);text-transform:none;letter-spacing:0;margin:36px 0 10px">Auto-Payout</h4>
@@ -1877,7 +1878,7 @@ es.addEventListener('done', (e) =&gt; {
         <div class="code-block">
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
           <pre><code>curl -X POST https://api.claw-net.org/v1/economy/webhooks \
-  -H "X-API-Key: cn_your_key_here" \
+  -H "X-API-Key: cn-your-key-here" \
   -H "Content-Type: application/json" \
   -d '{
     "url": "https://your-app.com/webhooks/clawnet",
@@ -1952,10 +1953,10 @@ app.post('/webhooks/clawnet', (req, res) => {
         <table class="params-table">
           <thead><tr><th>Name</th><th>Type</th><th>Description</th></tr></thead>
           <tbody>
-            <tr><td><code>counterpartyEmail</code></td><td><span class="param-type">string</span></td><td>Email of the worker</td></tr>
-            <tr><td><code>amount</code></td><td><span class="param-type">number</span></td><td>Credits to lock in escrow</td></tr>
-            <tr><td><code>description</code></td><td><span class="param-type">string</span></td><td>Description of expected work</td></tr>
-            <tr><td><code>timeoutHours</code></td><td><span class="param-type">number</span></td><td>Auto-expire (default: 72h)</td></tr>
+            <tr><td><code>workerId</code></td><td><span class="param-type">string</span></td><td>Worker's API key or user ID</td></tr>
+            <tr><td><code>amountCredits</code></td><td><span class="param-type">number</span></td><td>Credits to lock in escrow</td></tr>
+            <tr><td><code>deadline</code></td><td><span class="param-type">string</span></td><td>ISO datetime when escrow expires</td></tr>
+            <tr><td><code>metadata</code></td><td><span class="param-type">object</span></td><td>Optional metadata about the work</td></tr>
           </tbody>
         </table>
       </div>
@@ -2033,7 +2034,7 @@ app.post('/webhooks/clawnet', (req, res) => {
 
       <!-- Governance -->
       <h4 style="font-size:16px;font-weight:600;color:var(--text-primary);text-transform:none;letter-spacing:0;margin:36px 0 10px">Governance</h4>
-      <p class="endpoint-desc">Community governance for platform decisions. Any key holder can create proposals (100 credit bond). Proposals auto-close after 7 days. Votes are weighted by credit balance. Quorum-met proposals auto-execute for whitelisted actions.</p>
+      <p class="endpoint-desc">Community governance for platform decisions. Any key holder can create proposals (100 credit bond). Proposals auto-close after 7 days (configurable 1-30 days). Votes are weighted by total credits spent (quadratic-lite weighting). Quorum-met proposals auto-execute for whitelisted actions.</p>
       <div class="endpoint">
         <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/governance/propose</code></div>
         <p class="endpoint-desc">Create a proposal (100 credit bond, released on close).</p>
@@ -2045,7 +2046,7 @@ app.post('/webhooks/clawnet', (req, res) => {
       </div>
       <div class="endpoint">
         <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/governance/proposals/:id/vote</code></div>
-        <p class="endpoint-desc">Cast your vote. Body: <code style="font-family:var(--font-mono);color:var(--accent)">{"vote": "FOR"}</code></p>
+        <p class="endpoint-desc">Cast your vote. Body: <code style="font-family:var(--font-mono);color:var(--accent)">{"direction": "FOR"}</code></p>
         <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
       </div>
 
@@ -2098,10 +2099,10 @@ app.post('/webhooks/clawnet', (req, res) => {
         <div class="code-block">
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
           <pre><code>curl -X POST https://api.claw-net.org/v1/llm/chat \
-  -H "X-API-Key: cn_your_key_here" \
+  -H "X-API-Key: cn-your-key-here" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "claude-3-haiku-20240307",
+    "model": "claude-haiku-4-5",
     "messages": [{"role": "user", "content": "Explain DeFi in one sentence"}]
   }'</code></pre>
         </div>
@@ -2121,7 +2122,7 @@ app.post('/webhooks/clawnet', (req, res) => {
       <table class="params-table">
         <thead><tr><th>Error</th><th>Code</th><th>Fix</th></tr></thead>
         <tbody>
-          <tr><td><span class="param-type">401</span> &mdash; Invalid API key</td><td><code>UNAUTHORIZED</code></td><td>Check the <code>X-API-Key</code> header. Key must start with <code>cn_</code>.</td></tr>
+          <tr><td><span class="param-type">401</span> &mdash; Invalid API key</td><td><code>UNAUTHORIZED</code></td><td>Check the <code>X-API-Key</code> header. Key must start with <code>cn-</code>.</td></tr>
           <tr><td><span class="param-type">402</span> &mdash; Insufficient credits</td><td><code>INSUFFICIENT_CREDITS</code></td><td>Top up credits from the <a href="/dashboard.html" style="color:var(--accent)">dashboard</a>, or set a lower <code>maxCredits</code> budget.</td></tr>
           <tr><td><span class="param-type">402</span> &mdash; Budget exceeded</td><td><code>BUDGET_EXCEEDED</code></td><td>The plan costs more than your <code>maxCredits</code> cap. Increase it or use <code>strategy: "cheapest"</code>.</td></tr>
           <tr><td><span class="param-type">403</span> &mdash; Not your resource</td><td><code>FORBIDDEN</code></td><td>You're trying to edit/delete a skill or session you don't own. Check the API key.</td></tr>
@@ -2148,7 +2149,7 @@ app.post('/webhooks/clawnet', (req, res) => {
         <div class="detail-body">
           <div class="code-block">
             <button class="copy-btn" onclick="copyCode(this)">Copy</button>
-            <pre><code>const API_KEY = 'cn_your_key_here';
+            <pre><code>const API_KEY = 'cn-your-key-here';
 const BASE = 'https://api.claw-net.org';
 
 async function ask(query, options = {}) {
@@ -2182,7 +2183,7 @@ console.log(`Cost: ${result.creditsUsed} credits`);</code></pre>
             <button class="copy-btn" onclick="copyCode(this)">Copy</button>
             <pre><code>import requests
 
-API_KEY = "cn_your_key_here"
+API_KEY = "cn-your-key-here"
 BASE = "https://api.claw-net.org"
 
 def ask(query, strategy="balanced", max_credits=None):
@@ -2208,7 +2209,7 @@ print(f"Cost: {result['creditsUsed']} credits")</code></pre>
           <div class="code-block">
             <button class="copy-btn" onclick="copyCode(this)">Copy</button>
             <pre><code>curl -X POST https://api.claw-net.org/v1/orchestrate \
-  -H "X-API-Key: cn_your_key_here" \
+  -H "X-API-Key: cn-your-key-here" \
   -H "Content-Type: application/json" \
   -d '{"query": "What is SOL trading at?", "pricing": {"strategy": "balanced"}}'</code></pre>
           </div>
@@ -2284,7 +2285,7 @@ print(price["data"])</code></pre>
         <div class="detail-body">
           <div class="code-block">
             <button class="copy-btn" onclick="copyCode(this)">Copy</button>
-            <pre><code>const API_KEY = 'cn_your_key_here';
+            <pre><code>const API_KEY = 'cn-your-key-here';
 const BASE = 'https://api.claw-net.org';
 
 async function api(method, path, body) {
@@ -2336,7 +2337,7 @@ await agentTick();</code></pre>
             <pre><code>import requests
 from datetime import datetime
 
-API_KEY = "cn_your_key_here"
+API_KEY = "cn-your-key-here"
 BASE = "https://api.claw-net.org"
 HEADERS = {"X-API-Key": API_KEY, "Content-Type": "application/json"}
 
@@ -2373,7 +2374,7 @@ agent_tick()</code></pre>
             <button class="copy-btn" onclick="copyCode(this)">Copy</button>
             <pre><code># 1. Register your API as a ClawNet service
 curl -X POST https://api.claw-net.org/v1/skills \
-  -H "X-API-Key: cn_your_key_here" \
+  -H "X-API-Key: cn-your-key-here" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "nft-rarity-checker",
@@ -2390,11 +2391,11 @@ curl -X POST https://api.claw-net.org/v1/skills \
 
 # 2. Check your earnings
 curl https://api.claw-net.org/v1/marketplace/creator/stats \
-  -H "X-API-Key: cn_your_key_here"
+  -H "X-API-Key: cn-your-key-here"
 
 # 3. Request a USDC payout
 curl -X POST https://api.claw-net.org/v1/marketplace/creator/withdraw \
-  -H "X-API-Key: cn_your_key_here" \
+  -H "X-API-Key: cn-your-key-here" \
   -H "Content-Type: application/json" \
   -d '{"amountCredits": 5000, "usdcWallet": "YourSolanaWalletAddress..."}'</code></pre>
           </div>
@@ -2460,12 +2461,12 @@ function toggleTheme() {
 }
 
 // Copy code
-function switchTab(containerId, tabName) {
+function switchTab(el, containerId, tabName) {
   const container = document.getElementById(containerId);
   container.querySelectorAll('.code-tab-btn').forEach(b => b.classList.remove('active'));
   container.querySelectorAll('.code-tab-panel').forEach(p => p.classList.remove('active'));
   container.querySelector('.code-tab-panel[data-tab="' + tabName + '"]').classList.add('active');
-  event.target.classList.add('active');
+  el.classList.add('active');
 }
 
 function copyCode(btn) {
@@ -2494,7 +2495,7 @@ function filterSidebar(q) {
 }
 
 // Scroll spy
-const sections = document.querySelectorAll('[id]');
+const sections = document.querySelectorAll('.docs-section[id]');
 const links = document.querySelectorAll('.sidebar-link');
 const observer = new IntersectionObserver((entries) => {
   entries.forEach(entry => {
