@@ -340,6 +340,7 @@
       <div class="sidebar-heading">Reference</div>
       <a class="sidebar-link" href="#advanced">Advanced</a>
       <a class="sidebar-link" href="#registry">Endpoint Registry</a>
+      <a class="sidebar-link" href="#vie">Verified Intelligence</a>
       <a class="sidebar-link" href="#troubleshooting">Troubleshooting</a>
       <a class="sidebar-link" href="#examples">Code Examples</a>
     </div>
@@ -2702,6 +2703,99 @@ app.post('/webhooks/clawnet', express.raw({ type: 'application/json' }), (req, r
         <p class="endpoint-desc">Generate text embeddings. Same format as the OpenAI embeddings API.</p>
         <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
       </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════ VERIFIED INTELLIGENCE ENGINE ═══════════════════════════════════════════════ -->
+    <div class="docs-section" id="vie">
+      <h2 class="docs-section-title">Verified Intelligence Engine</h2>
+      <p class="docs-section-desc">ClawNet's first official data skill. Cross-references 5 independent sources, scores across 5 categories, and returns a trust verdict with confidence scoring and optional LLM-synthesized explanation.</p>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/vie/report</code></div>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+
+        <h4>Body Parameters</h4>
+        <table class="params-table">
+          <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>target</code></td><td><span class="param-type">string</span></td><td><span class="param-req">Yes</span></td><td>Token mint address, wallet address, or contract address</td></tr>
+            <tr><td><code>target_type</code></td><td><span class="param-type">string</span></td><td><span class="param-opt">No</span></td><td><code>token</code> (default), <code>wallet</code>, or <code>contract</code></td></tr>
+            <tr><td><code>chain</code></td><td><span class="param-type">string</span></td><td><span class="param-opt">No</span></td><td><code>solana</code> (default), <code>ethereum</code>, or <code>base</code></td></tr>
+            <tr><td><code>tier</code></td><td><span class="param-type">string</span></td><td><span class="param-opt">No</span></td><td><code>quick</code> (0.5cr), <code>standard</code> (1.5cr, default), or <code>deep</code> (3.0cr)</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h4>Tiers</h4>
+      <table class="params-table">
+        <thead><tr><th>Tier</th><th>Credits</th><th>What You Get</th><th>Latency</th></tr></thead>
+        <tbody>
+          <tr><td><code>quick</code></td><td>0.5</td><td>Cached trust score + risk level + recommendation</td><td>&lt;50ms</td></tr>
+          <tr><td><code>standard</code></td><td>1.5</td><td>Full 5-factor breakdown with signals, fresh data</td><td>&lt;3s</td></tr>
+          <tr><td><code>deep</code></td><td>3.0</td><td>Everything + LLM-synthesized explanation with evidence chain</td><td>&lt;5s</td></tr>
+        </tbody>
+      </table>
+
+      <h4>Scoring Categories</h4>
+      <div class="concept-grid">
+        <div class="concept-card">
+          <div class="concept-title">Contract Safety (25%)</div>
+          <div class="concept-desc">Verified source, proxy patterns, mint/freeze authority, age</div>
+        </div>
+        <div class="concept-card">
+          <div class="concept-title">Holder Distribution (20%)</div>
+          <div class="concept-desc">Top-10 concentration, LP lock, unique holders</div>
+        </div>
+        <div class="concept-card">
+          <div class="concept-title">Historical Pattern (25%)</div>
+          <div class="concept-desc">Deployer history, similar rug patterns, incident records</div>
+        </div>
+        <div class="concept-card">
+          <div class="concept-title">Social Signal (15%)</div>
+          <div class="concept-desc">Sentiment, bot %, organic growth, mention volume</div>
+        </div>
+        <div class="concept-card">
+          <div class="concept-title">On-Chain Activity (15%)</div>
+          <div class="concept-desc">Volume, liquidity depth, buy/sell ratio</div>
+        </div>
+      </div>
+
+      <h4>Example Request</h4>
+      <div class="code-block">
+        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+        <pre><code>curl -X POST https://api.claw-net.org/v1/vie/report \
+  -H "X-API-Key: cn-your-key-here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "target": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    "target_type": "token",
+    "chain": "solana",
+    "tier": "standard"
+  }'</code></pre>
+      </div>
+
+      <h4>Response (Standard Tier)</h4>
+      <div class="code-block">
+        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+        <pre><code>{
+  "trust_score": 87,
+  "risk_level": "LOW",
+  "recommendation": "PROCEED",
+  "confidence": 0.92,
+  "factors": {
+    "contract_safety": { "score": 91, "signals": { "verified_source": true, "mint_authority_revoked": true, "contract_age_days": 847 } },
+    "holder_distribution": { "score": 78, "signals": { "top10_concentration_pct": 34.2, "liquidity_locked": true, "unique_holders": 24891 } },
+    "historical_pattern": { "score": 89, "signals": { "deployer_past_rugs": 0, "successful_interactions": 14502 } },
+    "social_signal": { "score": 82, "signals": { "sentiment_score": 0.72, "bot_percentage": 12, "organic_growth": true } },
+    "onchain_activity": { "score": 88, "signals": { "volume_24h_usd": 1200000, "buy_sell_ratio": 1.05, "liquidity_depth_usd": 450000 } }
+  },
+  "overrides_applied": [],
+  "cached": false,
+  "tier": "standard"
+}</code></pre>
+      </div>
+
+      <div class="alert alert-info"><strong>Learning Engine:</strong> The VIE builds a historical pattern database from every query. Over time, this makes its scoring more accurate &mdash; tokens that scored X and then rugged teach the model to catch similar patterns.</div>
     </div>
 
     <!-- ═══════════════════════════════════════════════ TROUBLESHOOTING ═══════════════════════════════════════════════ -->

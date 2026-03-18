@@ -156,8 +156,32 @@
     .footer-bottom { padding-top: 24px; border-top: 1px solid var(--border-subtle); text-align: center; }
     .footer-bottom span { font-size: 12px; color: var(--text-muted); }
 
-    @media(max-width:900px) { .nav-links { display: none; } .mobile-menu-btn { display: block; } .nav-status { display: none; } .footer-grid { grid-template-columns: repeat(2, 1fr); } }
-    @media(max-width:640px) { main { padding: 64px 16px 60px; } .steps { grid-template-columns: 1fr; } .live-stats { grid-template-columns: 1fr; } .hero h1 { font-size: 24px; } }
+    /* Featured Skill */
+    .featured { background: var(--bg-surface); border: 1px solid var(--accent-dim); border-radius: var(--radius-xl); padding: 48px 40px; margin-bottom: 56px; position: relative; overflow: hidden; }
+    .featured::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, transparent, var(--accent), transparent); }
+    .featured-badge { display: inline-block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--accent); background: var(--accent-dim); padding: 4px 12px; border-radius: 99px; margin-bottom: 16px; }
+    .featured h2 { font-family: var(--font-display); font-size: 26px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.03em; margin-bottom: 6px; }
+    .featured h2 span { color: var(--accent); }
+    .featured-sub { font-size: 14px; color: var(--accent-text); font-weight: 500; margin-bottom: 16px; }
+    .featured-desc { font-size: 15px; color: var(--text-secondary); line-height: 1.7; max-width: 680px; margin-bottom: 32px; }
+    .featured-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 32px; }
+    .featured-card { background: var(--bg-surface-2); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 24px 20px; }
+    .featured-card h4 { font-size: 15px; font-weight: 600; color: var(--text-primary); margin-bottom: 8px; }
+    .featured-card p { font-size: 13px; color: var(--text-tertiary); line-height: 1.7; }
+    .featured-tiers { margin-top: 12px; }
+    .featured-tier { display: flex; align-items: baseline; gap: 8px; padding: 4px 0; font-size: 13px; }
+    .featured-tier strong { font-family: var(--font-mono); color: var(--accent-text); font-size: 12px; font-weight: 700; min-width: 72px; }
+    .featured-tier span { color: var(--text-tertiary); }
+    .featured-code { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 28px; }
+    .featured-cta { display: flex; gap: 12px; flex-wrap: wrap; }
+    .featured-cta a { display: inline-block; padding: 10px 24px; border-radius: var(--radius-lg); font-weight: 600; font-size: 14px; text-decoration: none; transition: all 0.15s; }
+    .featured-cta .cta-primary { background: var(--accent); color: #000; }
+    .featured-cta .cta-primary:hover { background: var(--accent-hover); }
+    .featured-cta .cta-secondary { border: 1px solid var(--border-default); color: var(--text-primary); }
+    .featured-cta .cta-secondary:hover { border-color: var(--border-strong); }
+
+    @media(max-width:900px) { .nav-links { display: none; } .mobile-menu-btn { display: block; } .nav-status { display: none; } .footer-grid { grid-template-columns: repeat(2, 1fr); } .featured-code { grid-template-columns: 1fr; } }
+    @media(max-width:640px) { main { padding: 64px 16px 60px; } .steps { grid-template-columns: 1fr; } .live-stats { grid-template-columns: 1fr; } .hero h1 { font-size: 24px; } .featured-cards { grid-template-columns: 1fr; } .featured { padding: 32px 20px; } }
   </style>
 <script>if(localStorage.getItem('clawnet_theme')==='light')document.documentElement.setAttribute('data-theme','light')</script>
 </head>
@@ -267,6 +291,71 @@
       <div class="step-num">3</div>
       <h3>You Earn Credits</h3>
       <p>Every call: you earn 85%, ClawNet earns 15%. Withdraw as USDC anytime.</p>
+    </div>
+  </div>
+
+  <!-- FEATURED SKILL -->
+  <div class="featured">
+    <span class="featured-badge">Featured Skill</span>
+    <h2>Verified Intelligence <span>Engine</span></h2>
+    <div class="featured-sub">ClawNet's first official data skill</div>
+    <p class="featured-desc">Cross-references 5 independent data sources in parallel, scores them across 5 categories, and returns a trust verdict with confidence scoring. The doctor's diagnosis &mdash; not just a blood test.</p>
+
+    <div class="featured-cards">
+      <div class="featured-card">
+        <h4>5 Sources, 1 Verdict</h4>
+        <p>Pulls from contract analysis, holder distribution, historical patterns, social signals, and on-chain activity &mdash; all in parallel, all cross-referenced.</p>
+      </div>
+      <div class="featured-card">
+        <h4>Confidence Scoring</h4>
+        <p>Every verdict includes a 0&ndash;100 trust score, risk level (VERIFIED / LOW / MEDIUM / HIGH / CRITICAL), and confidence rating based on data completeness and source agreement.</p>
+      </div>
+      <div class="featured-card">
+        <h4>3 Pricing Tiers</h4>
+        <div class="featured-tiers">
+          <div class="featured-tier"><strong>Quick 0.5cr</strong> <span>Cached score, &lt;50ms</span></div>
+          <div class="featured-tier"><strong>Standard 1.5cr</strong> <span>Full factor breakdown, fresh data</span></div>
+          <div class="featured-tier"><strong>Deep 3.0cr</strong> <span>LLM-synthesized explanation with evidence chain</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="featured-code">
+      <div class="code-example" style="margin-bottom:0">
+        <div class="code-label">Request</div>
+        <div class="code-block"><span class="kw">POST</span> /v1/vie/report
+<span class="cm">// Headers</span>
+X-API-Key: cn-your-key
+Content-Type: application/json
+
+{
+  <span class="str">"target"</span>: <span class="str">"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"</span>,
+  <span class="str">"target_type"</span>: <span class="str">"token"</span>,
+  <span class="str">"chain"</span>: <span class="str">"solana"</span>,
+  <span class="str">"tier"</span>: <span class="str">"standard"</span>
+}</div>
+      </div>
+      <div class="code-example" style="margin-bottom:0">
+        <div class="code-label">Response</div>
+        <div class="code-block">{
+  <span class="str">"trust_score"</span>: 82,
+  <span class="str">"risk_level"</span>: <span class="str">"LOW"</span>,
+  <span class="str">"recommendation"</span>: <span class="str">"PROCEED_WITH_CAUTION"</span>,
+  <span class="str">"confidence"</span>: 0.91,
+  <span class="str">"factors"</span>: {
+    <span class="str">"contract"</span>:  { <span class="str">"score"</span>: 88, <span class="str">"weight"</span>: 0.25 },
+    <span class="str">"holders"</span>:   { <span class="str">"score"</span>: 76, <span class="str">"weight"</span>: 0.20 },
+    <span class="str">"history"</span>:   { <span class="str">"score"</span>: 84, <span class="str">"weight"</span>: 0.20 },
+    <span class="str">"social"</span>:    { <span class="str">"score"</span>: 71, <span class="str">"weight"</span>: 0.15 },
+    <span class="str">"on_chain"</span>:  { <span class="str">"score"</span>: 90, <span class="str">"weight"</span>: 0.20 }
+  }
+}</div>
+      </div>
+    </div>
+
+    <div class="featured-cta">
+      <a href="/playground.html" class="cta-primary">Try it in Playground</a>
+      <a href="/docs.html#vie" class="cta-secondary">Read the Docs</a>
     </div>
   </div>
 
