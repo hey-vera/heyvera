@@ -102,14 +102,14 @@
     .status-dot.err { background: var(--danger); }
     .nav-credits { font-family: var(--font-mono); font-size: 12px; color: var(--accent); padding: 4px 10px; border: 1px solid var(--accent-dim); border-radius: var(--radius-md); display: none; align-items: center; gap: 4px; }
     .nav-credits.show { display: flex; }
-    .nav-email { font-size: 12px; color: var(--text-tertiary); display: none; }
-    .nav-email.show { display: block; }
-    .nav-btn-ghost { background: transparent; color: var(--text-secondary); border: 1px solid var(--border-default); display: none; text-decoration: none; padding: 6px 14px; font-size: 13px; border-radius: var(--radius-md); cursor: pointer; font-family: var(--font-sans); }
-    .nav-btn-ghost.show { display: inline-block; }
-    .nav-btn-ghost:hover { border-color: var(--border-strong); color: var(--text-primary); }
-    .nav-btn-ghost.danger:hover { border-color: var(--danger); color: var(--danger); }
-    .btn-contact { color: var(--text-secondary); border: 1px solid var(--border-default); background: transparent; text-decoration: none; padding: 6px 14px; font-size: 13px; border-radius: var(--radius-md); transition: all 0.15s; }
-    .btn-contact:hover { border-color: var(--accent); color: var(--accent); }
+    .account-dropdown { position: relative; display: none; }
+    .account-dropdown.show { display: block; }
+    .account-btn { background: #21262d; color: #e6edf3; border: 1px solid #30363d; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 500; font-family: var(--font-sans); }
+    .account-btn:hover { background: #30363d; }
+    .account-menu { display: none; position: absolute; right: 0; top: calc(100% + 6px); background: #161b22; border: 1px solid #30363d; border-radius: 8px; min-width: 220px; padding: 8px 0; z-index: 200; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+    .account-dropdown:hover .account-menu, .account-menu.show { display: block; }
+    .account-email { padding: 8px 16px; color: #8b949e; font-size: 0.78rem; border-bottom: 1px solid #21262d; margin-bottom: 4px; }
+    .dropdown-divider { height: 1px; background: #21262d; margin: 4px 0; }
     .nav-login { color: var(--text-secondary); border: 1px solid var(--border-default); background: transparent; text-decoration: none; padding: 6px 14px; font-size: 13px; border-radius: var(--radius-md); }
     .nav-login:hover { border-color: var(--border-strong); color: var(--text-primary); }
     .nav-cta { background: var(--accent); color: #000; font-weight: 600; text-decoration: none; padding: 6px 14px; font-size: 13px; border-radius: var(--radius-md); }
@@ -420,12 +420,18 @@
     </button>
     <div class="nav-status" id="navApiStatus"><span class="status-dot" id="statusDot"></span><span id="statusLabel">Checking...</span></div>
     <div class="nav-credits" id="nav-credits-badge"><svg width="14" height="14" viewBox="0 0 24 24" style="vertical-align:-2px;flex-shrink:0;margin-right:2px"><circle cx="12" cy="12" r="11" fill="#92400e"/><circle cx="12" cy="12" r="9.5" fill="#f59e0b"/><circle cx="12" cy="12" r="7.5" fill="#fbbf24"/><path d="M8.5 7.5 Q12 5.5 15.5 8" stroke="rgba(255,255,255,0.45)" stroke-width="1.5" fill="none" stroke-linecap="round"/><text x="12" y="16.5" text-anchor="middle" font-size="10" font-weight="800" fill="#78350f" font-family="Arial,sans-serif">C</text></svg> <span id="nav-credits-num">&mdash;</span> credits</div>
-    <span class="nav-email" id="nav-user-email"></span>
-    <a href="/dashboard.html" class="nav-btn-ghost" id="nav-dash-btn">Dashboard</a>
-    <a href="/contact-section.html" class="btn-contact">Contact</a>
     <a href="/login.html" class="nav-login" id="nav-login-btn">Sign In</a>
     <a href="/#pricing" class="nav-cta" id="nav-getkey-btn">Get API Key</a>
-    <button class="nav-btn-ghost danger" id="nav-signout-btn" onclick="navSignOut()" style="cursor:pointer">Sign Out</button>
+    <div class="dropdown account-dropdown" id="account-dropdown">
+      <button class="dropdown-toggle account-btn">My Account &#9662;</button>
+      <div class="dropdown-menu account-menu">
+        <div class="account-email" id="account-email-display"></div>
+        <a href="/dashboard.html" class="dropdown-item">Dashboard</a>
+        <a href="/contact-section.html" class="dropdown-item">Contact</a>
+        <div class="dropdown-divider"></div>
+        <a href="#" class="dropdown-item" id="sign-out-link" onclick="navSignOut();return false;" style="color:#f85149;">Log out</a>
+      </div>
+    </div>
     <button class="mobile-menu-btn" onclick="document.getElementById('mobileMenu').classList.toggle('open')" aria-label="Menu">&#9776;</button>
   </div>
 </nav>
@@ -441,8 +447,11 @@
   <a href="/#pricing">Pricing</a>
   <div class="mobile-menu-group">More</div>
   <a href="/roadmap.html">Roadmap</a>
+  <div class="mobile-menu-group" id="mobile-account-group" style="display:none">Account</div>
+  <span class="mobile-account-email" id="mobile-account-email" style="display:none;padding:6px 0;font-size:12px;color:var(--text-tertiary)"></span>
   <a href="/dashboard.html">Dashboard</a>
   <a href="/contact-section.html">Contact</a>
+  <a href="#" id="mobile-sign-out" onclick="navSignOut();return false;" style="display:none;color:#f85149;">Log out</a>
 </div>
 
 <main>
@@ -957,10 +966,17 @@ async function initNav() {
     if (!user) return;
     document.getElementById('nav-login-btn').style.display = 'none';
     document.getElementById('nav-getkey-btn').style.display = 'none';
+    document.getElementById('account-dropdown').classList.add('show');
     const email = user.primaryEmailAddress?.emailAddress ?? user.username ?? '';
-    if (email) { document.getElementById('nav-user-email').textContent = email; document.getElementById('nav-user-email').classList.add('show'); }
-    document.getElementById('nav-dash-btn').classList.add('show');
-    document.getElementById('nav-signout-btn').classList.add('show');
+    if (email) {
+      document.getElementById('account-email-display').textContent = email;
+      const mobileEmail = document.getElementById('mobile-account-email');
+      if (mobileEmail) { mobileEmail.textContent = email; mobileEmail.style.display = 'block'; }
+    }
+    const mobileAcctGroup = document.getElementById('mobile-account-group');
+    if (mobileAcctGroup) mobileAcctGroup.style.display = '';
+    const mobileSignOut = document.getElementById('mobile-sign-out');
+    if (mobileSignOut) mobileSignOut.style.display = '';
     const cached = localStorage.getItem('clawnet_credits');
     document.getElementById('nav-credits-num').textContent = cached !== null ? parseInt(cached).toLocaleString() : '—';
     document.getElementById('nav-credits-badge').classList.add('show');

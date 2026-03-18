@@ -55,11 +55,16 @@
     .dropdown-menu a { display: block; padding: 8px 16px; color: var(--text-secondary); text-decoration: none; font-size: 0.88rem; transition: background 0.15s, color 0.15s; }
     .dropdown-menu a:hover { background: var(--bg-surface-2); color: var(--text-primary); text-decoration: none; }
     .nav-right { display: flex; align-items: center; gap: 12px; }
-    .nav-btn-ghost { display: none; font-size: 13px; font-weight: 500; color: var(--text-tertiary); background: none; border: 1px solid var(--border-default); padding: 5px 14px; border-radius: var(--radius-md); cursor: pointer; transition: all 0.15s; text-decoration: none; }
-    .nav-btn-ghost:hover { color: var(--text-primary); border-color: var(--text-muted); text-decoration: none; }
-    .nav-btn-ghost.show { display: inline-block; }
-    .btn-contact { color: var(--text-secondary); border: 1px solid var(--border-default); background: transparent; text-decoration: none; padding: 6px 14px; font-size: 13px; border-radius: var(--radius-md); transition: all 0.15s; }
-    .btn-contact:hover { border-color: var(--accent); color: var(--accent); text-decoration: none; }
+    .account-dropdown { position: relative; display: none; }
+    .account-dropdown.show { display: block; }
+    .account-btn { background: #21262d; color: #e6edf3; border: 1px solid #30363d; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 500; font-family: var(--font-sans); }
+    .account-btn:hover { background: #30363d; }
+    .account-menu { display: none; position: absolute; right: 0; top: calc(100% + 6px); background: #161b22; border: 1px solid #30363d; border-radius: 8px; min-width: 220px; padding: 8px 0; z-index: 200; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+    .account-dropdown:hover .account-menu, .account-menu.show { display: block; }
+    .account-email { padding: 8px 16px; color: #8b949e; font-size: 0.78rem; border-bottom: 1px solid #21262d; margin-bottom: 4px; }
+    .dropdown-item { display: block; padding: 8px 16px; color: var(--text-secondary); text-decoration: none; font-size: 0.88rem; transition: background 0.15s, color 0.15s; }
+    .dropdown-item:hover { background: var(--bg-surface-2); color: var(--text-primary); }
+    .dropdown-divider { height: 1px; background: #21262d; margin: 4px 0; }
     .mobile-menu-btn { display: none; background: none; border: 1px solid var(--border-default); border-radius: 6px; padding: 6px 10px; cursor: pointer; color: var(--text-secondary); font-size: 18px; line-height: 1; }
     .mobile-menu-btn:hover { color: var(--text-primary); border-color: var(--border-strong); }
     .mobile-menu { display: none; position: fixed; top: 56px; left: 0; right: 0; background: var(--bg-surface); border-bottom: 1px solid var(--border-default); z-index: 99; padding: 12px 24px; max-height: calc(100vh - 56px); overflow-y: auto; }
@@ -114,15 +119,28 @@
       <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
       <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
     </button>
-    <a href="/dashboard.html" class="nav-btn-ghost" id="nav-dash-btn">Dashboard</a>
-    <a href="/contact-section.html" class="btn-contact">Contact</a>
+    <div class="dropdown account-dropdown" id="account-dropdown">
+      <button class="dropdown-toggle account-btn">My Account &#9662;</button>
+      <div class="dropdown-menu account-menu">
+        <div class="account-email" id="account-email-display"></div>
+        <a href="/dashboard.html" class="dropdown-item">Dashboard</a>
+        <a href="/contact-section.html" class="dropdown-item">Contact</a>
+        <div class="dropdown-divider"></div>
+        <a href="#" class="dropdown-item" id="sign-out-link" onclick="navSignOut();return false;" style="color:#f85149;">Log out</a>
+      </div>
+    </div>
     <button class="mobile-menu-btn" onclick="document.getElementById('mobileMenu').classList.toggle('open')" aria-label="Menu">&#9776;</button>
   </div>
 </nav>
 <div class="mobile-menu" id="mobileMenu">
   <div class="mobile-menu-group">Products</div><a href="https://pulse.claw-net.org">Pulse &mdash; AI Marketing</a><a href="/roadmap.html">Radar &mdash; Trading (Coming Soon)</a>
   <div class="mobile-menu-group">Developers</div><a href="/endpoints.html">API Endpoints</a><a href="/marketplace.html">Marketplace</a><a href="/docs.html">Documentation</a><a href="/playground.html">Playground</a><a href="/#pricing">Pricing</a>
-  <div class="mobile-menu-group">More</div><a href="/roadmap.html">Roadmap</a><a href="/dashboard.html">Dashboard</a><a href="/contact-section.html">Contact</a>
+  <div class="mobile-menu-group">More</div><a href="/roadmap.html">Roadmap</a>
+  <div class="mobile-menu-group" id="mobile-account-group" style="display:none">Account</div>
+  <span class="mobile-account-email" id="mobile-account-email" style="display:none;padding:6px 0;font-size:12px;color:var(--text-tertiary)"></span>
+  <a href="/dashboard.html">Dashboard</a>
+  <a href="/contact-section.html">Contact</a>
+  <a href="#" id="mobile-sign-out" onclick="navSignOut();return false;" style="display:none;color:#f85149;">Log out</a>
 </div>
 
 <main>
@@ -277,28 +295,18 @@ async function initNav() {
   try {
     await window.Clerk.load();
     const user = window.Clerk.user;
-    const loginBtn = document.getElementById('nav-login-btn');
-    const getkeyBtn = document.getElementById('nav-getkey-btn');
-    const dashBtn = document.getElementById('nav-dash-btn');
-    const signoutBtn = document.getElementById('nav-signout-btn');
-    const emailEl = document.getElementById('nav-user-email');
-    const creditsEl = document.getElementById('nav-credits-badge');
-    const creditsNum = document.getElementById('nav-credits-num');
     if (user) {
-      loginBtn.style.display = 'none';
-      getkeyBtn.style.display = 'none';
-      dashBtn.classList.add('show');
-      signoutBtn.classList.add('show');
+      document.getElementById('account-dropdown').classList.add('show');
       const email = user.primaryEmailAddress?.emailAddress;
-      if (email) { emailEl.textContent = email; emailEl.classList.add('show'); }
-      try {
-        const token = await window.Clerk.session.getToken();
-        const cachedCredits = localStorage.getItem('clawnet_credits');
-        creditsNum.textContent = cachedCredits !== null ? parseInt(cachedCredits).toLocaleString() : '\u2014';
-        creditsEl.classList.add('show');
-        const r = await fetch('https://api.claw-net.org/v1/dashboard/me', { headers: { Authorization: 'Bearer ' + token } });
-        if (r.ok) { const d = await r.json(); if (d.credits !== undefined) { localStorage.setItem('clawnet_credits', d.credits); creditsNum.textContent = d.credits.toLocaleString(); } }
-      } catch {}
+      if (email) {
+        document.getElementById('account-email-display').textContent = email;
+        const mobileEmail = document.getElementById('mobile-account-email');
+        if (mobileEmail) { mobileEmail.textContent = email; mobileEmail.style.display = 'block'; }
+      }
+      const mobileAcctGroup = document.getElementById('mobile-account-group');
+      if (mobileAcctGroup) mobileAcctGroup.style.display = '';
+      const mobileSignOut = document.getElementById('mobile-sign-out');
+      if (mobileSignOut) mobileSignOut.style.display = '';
     }
   } catch {}
 }

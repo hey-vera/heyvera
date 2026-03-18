@@ -59,10 +59,15 @@
     .dropdown-menu a { display:block; padding:8px 16px; color:var(--text-secondary); text-decoration:none; font-size:0.88rem; transition:background 0.15s, color 0.15s; }
     .dropdown-menu a:hover { background:var(--bg-surface-2); color:var(--text-primary); }
     .nav-right { display:flex; align-items:center; gap:12px; }
-    .btn-dashboard { color:var(--text-secondary); border:1px solid var(--border-default); background:transparent; text-decoration:none; padding:6px 14px; font-size:13px; border-radius:var(--radius-md); transition:all 0.15s; }
-    .btn-dashboard:hover { border-color:var(--border-strong); color:var(--text-primary); }
-    .btn-contact { color:var(--text-secondary); border:1px solid var(--border-default); background:transparent; text-decoration:none; padding:6px 14px; font-size:13px; border-radius:var(--radius-md); transition:all 0.15s; }
-    .btn-contact:hover { border-color:var(--accent); color:var(--accent); }
+    .account-dropdown { position:relative; }
+    .account-btn { background:#21262d; color:#e6edf3; border:1px solid #30363d; padding:6px 14px; border-radius:6px; cursor:pointer; font-size:0.85rem; font-weight:500; font-family:var(--font-sans); }
+    .account-btn:hover { background:#30363d; }
+    .account-menu { display:none; position:absolute; right:0; top:calc(100% + 6px); background:#161b22; border:1px solid #30363d; border-radius:8px; min-width:220px; padding:8px 0; z-index:200; box-shadow:0 8px 24px rgba(0,0,0,0.4); }
+    .account-dropdown:hover .account-menu, .account-menu.show { display:block; }
+    .account-email { padding:8px 16px; color:#8b949e; font-size:0.78rem; border-bottom:1px solid #21262d; margin-bottom:4px; }
+    .dropdown-item { display:block; padding:8px 16px; color:var(--text-secondary); text-decoration:none; font-size:0.88rem; transition:background 0.15s, color 0.15s; }
+    .dropdown-item:hover { background:var(--bg-surface-2); color:var(--text-primary); }
+    .dropdown-divider { height:1px; background:#21262d; margin:4px 0; }
     .mobile-menu-btn { display:none; background:none; border:1px solid var(--border-default); border-radius:6px; padding:6px 10px; cursor:pointer; color:var(--text-secondary); font-size:18px; line-height:1; }
     .mobile-menu-btn:hover { color:var(--text-primary); border-color:var(--border-strong); }
     .mobile-menu { display:none; position:fixed; top:56px; left:0; right:0; background:var(--bg-surface); border-bottom:1px solid var(--border-default); z-index:99; padding:12px 24px; max-height:calc(100vh - 56px); overflow-y:auto; }
@@ -179,15 +184,27 @@
     <a href="/roadmap.html">Roadmap</a>
   </div>
   <div class="nav-right">
-    <a href="/dashboard.html" class="btn-dashboard">Dashboard</a>
-    <a href="/contact-section.html" class="btn-contact">Contact</a>
+    <div class="dropdown account-dropdown">
+      <button class="dropdown-toggle account-btn">My Account &#9662;</button>
+      <div class="dropdown-menu account-menu">
+        <div class="account-email" id="account-email-display"></div>
+        <a href="/dashboard.html" class="dropdown-item">Dashboard</a>
+        <a href="/contact-section.html" class="dropdown-item">Contact</a>
+        <div class="dropdown-divider"></div>
+        <a href="/login.html" class="dropdown-item" style="color:#f85149;">Log out</a>
+      </div>
+    </div>
     <button class="mobile-menu-btn" onclick="document.getElementById('mobileMenu').classList.toggle('open')" aria-label="Menu">&#9776;</button>
   </div>
 </nav>
 <div class="mobile-menu" id="mobileMenu">
   <div class="mobile-menu-group">Products</div><a href="https://pulse.claw-net.org">Pulse &mdash; AI Marketing</a><a href="/roadmap.html">Radar &mdash; Trading (Coming Soon)</a>
   <div class="mobile-menu-group">Developers</div><a href="/endpoints.html">API Endpoints</a><a href="/marketplace.html">Marketplace</a><a href="/docs.html">Documentation</a><a href="/playground.html">Playground</a><a href="/#pricing">Pricing</a>
-  <div class="mobile-menu-group">More</div><a href="/roadmap.html">Roadmap</a><a href="/dashboard.html">Dashboard</a><a href="/contact-section.html">Contact</a>
+  <div class="mobile-menu-group">More</div><a href="/roadmap.html">Roadmap</a>
+  <div class="mobile-menu-group">Account</div>
+  <a href="/dashboard.html">Dashboard</a>
+  <a href="/contact-section.html">Contact</a>
+  <a href="/login.html" style="color:#f85149;">Log out</a>
 </div>
 
 <div class="main">
