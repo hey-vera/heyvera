@@ -77,7 +77,7 @@ statsRouter.get('/roadmap', (c) => {
     },
     tokenLaunch: {
       status: totalRevenueUsd >= 100_000 ? 'READY' : totalRevenueUsd >= 50_000 ? 'VIABLE' : 'BUILDING',
-      split: { burn: 40, buybackLp: 25, treasury: 20, rewards: 15 },
+      split: { burn: 50, buybackLp: 20, treasury: 15, rewards: 15 },
     },
     updatedAt: new Date().toISOString(),
   });

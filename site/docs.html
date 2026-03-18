@@ -309,9 +309,11 @@
     <div id="sidebar-content">
       <div class="sidebar-heading">Getting Started</div>
       <a class="sidebar-link" href="#welcome">What is ClawNet?</a>
+      <a class="sidebar-link" href="#why-clawnet">Why ClawNet?</a>
       <a class="sidebar-link" href="#quickstart">Quick Start</a>
       <a class="sidebar-link" href="#concepts">Core Concepts</a>
       <a class="sidebar-link" href="#auth">Authentication</a>
+      <a class="sidebar-link" href="#x402">x402 Keyless Access</a>
       <a class="sidebar-link" href="#errors">Errors &amp; Rate Limits</a>
 
       <div class="sidebar-heading">Orchestration</div>
@@ -325,6 +327,7 @@
       <a class="sidebar-link" href="#skills-use">Using Skills</a>
       <a class="sidebar-link" href="#agent-services">Agent Services</a>
       <a class="sidebar-link" href="#skills-create">Creating Skills</a>
+      <a class="sidebar-link" href="#creator-economics">Creator Economics</a>
 
       <div class="sidebar-heading">Agent Development</div>
       <a class="sidebar-link" href="#agent-dev">Developer Guide</a>
@@ -355,6 +358,34 @@
         <div class="intro-card"><div class="intro-card-title">Auth</div><div class="intro-card-desc"><code>X-API-Key: cn-xxx</code></div></div>
         <div class="intro-card"><div class="intro-card-title">Format</div><div class="intro-card-desc">JSON in, JSON out</div></div>
         <div class="intro-card"><div class="intro-card-title">Billing</div><div class="intro-card-desc">1 credit = $0.001. Pay with Stripe or USDC.</div></div>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════ WHY CLAWNET ═══════════════════════════════════════════════ -->
+    <div class="docs-section" id="why-clawnet">
+      <h2 class="docs-section-title">Why ClawNet?</h2>
+
+      <div class="concept-grid">
+        <div class="concept-card">
+          <div class="concept-icon">&#x1F511;</div>
+          <div class="concept-title">One Key, 344 Endpoints</div>
+          <div class="concept-desc">No API key juggling. One ClawNet key gives your agent access to every endpoint. Pay in credits, ClawNet handles routing, caching, and upstream auth.</div>
+        </div>
+        <div class="concept-card">
+          <div class="concept-icon">&#x1F4B8;</div>
+          <div class="concept-title">Earn 85% Revenue</div>
+          <div class="concept-desc">Register your API as a skill. You set the price. On every call, 85% goes to you, 15% to the platform. Payouts in USDC to your Solana wallet.</div>
+        </div>
+        <div class="concept-card">
+          <div class="concept-icon">&#x1F6E1;</div>
+          <div class="concept-title">Trust Built In</div>
+          <div class="concept-desc">SLA contracts, output schemas, cross-verification, 4-tier penalty escalation, and community validators. Bad actors get delisted automatically.</div>
+        </div>
+        <div class="concept-card">
+          <div class="concept-icon">&#x26A1;</div>
+          <div class="concept-title">Pay-Per-Call, No Commitment</div>
+          <div class="concept-desc">1 credit = $0.001. No subscriptions, no minimums. Cached queries cost 90% less. x402 keyless access available &mdash; pay with your wallet, no account needed.</div>
+        </div>
       </div>
     </div>
 
@@ -511,6 +542,94 @@ print(res.json()['answer'])</code></pre>
       </div>
 
       <div class="alert alert-info">Your API key starts with <code style="font-family:var(--font-mono);color:var(--info)">cn-</code>. Keep it secret. If compromised, regenerate it from the dashboard — your credits transfer to the new key automatically.</div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════ x402 ═══════════════════════════════════════════════ -->
+    <div class="docs-section" id="x402">
+      <h2 class="docs-section-title">x402 Keyless Access</h2>
+      <p class="docs-section-desc">Use ClawNet without an API key. Pay per call with USDC from your wallet — no account, no registration.</p>
+
+      <h4>How It Works</h4>
+      <div class="concept-grid" style="grid-template-columns:repeat(auto-fill,minmax(200px,1fr))">
+        <div class="concept-card">
+          <div class="concept-icon">&#x1F4E8;</div>
+          <div class="concept-title">1. Send Request</div>
+          <div class="concept-desc">Hit any <code>/x402/*</code> endpoint with a normal HTTP request. No API key needed.</div>
+        </div>
+        <div class="concept-card">
+          <div class="concept-icon">&#x1F4B3;</div>
+          <div class="concept-title">2. Get 402</div>
+          <div class="concept-desc">ClawNet returns HTTP <strong style="color:var(--warning)">402</strong> with payment details: amount, recipient address, and network.</div>
+        </div>
+        <div class="concept-card">
+          <div class="concept-icon">&#x1F58A;</div>
+          <div class="concept-title">3. Wallet Signs</div>
+          <div class="concept-desc">Your wallet signs the USDC transfer on <strong style="color:var(--info)">Base</strong>. The x402 client library handles this automatically.</div>
+        </div>
+        <div class="concept-card">
+          <div class="concept-icon">&#x2705;</div>
+          <div class="concept-title">4. Get Response</div>
+          <div class="concept-desc">Payment is verified by the facilitator. ClawNet executes the request and returns the response.</div>
+        </div>
+      </div>
+
+      <h4>Endpoints</h4>
+      <table class="params-table">
+        <thead><tr><th>Endpoint</th><th>Method</th><th>What</th><th>Price</th></tr></thead>
+        <tbody>
+          <tr><td><code>/x402/skills</code></td><td><span class="method-badge get">GET</span></td><td>Browse all public skills + x402 pricing</td><td>Free</td></tr>
+          <tr><td><code>/x402/skills/:id</code></td><td><span class="method-badge post">POST</span></td><td>Invoke a skill</td><td>Skill price in USDC</td></tr>
+          <tr><td><code>/x402/orchestrate</code></td><td><span class="method-badge post">POST</span></td><td>Natural language query</td><td>~$0.002</td></tr>
+          <tr><td><code>/x402/query/:id</code></td><td><span class="method-badge post">POST</span></td><td>Query data skills</td><td>Skill price in USDC</td></tr>
+          <tr><td><code>/x402/verify/:requestId</code></td><td><span class="method-badge get">GET</span></td><td>Verify payment receipt</td><td>Free</td></tr>
+          <tr><td><code>/x402/reputation/:agentKey</code></td><td><span class="method-badge get">GET</span></td><td>Check agent reputation</td><td>Free</td></tr>
+          <tr><td><code>/x402</code></td><td><span class="method-badge get">GET</span></td><td>Discovery &mdash; service info, all endpoints, payment config</td><td>Free</td></tr>
+          <tr><td><code>/x402/test-config</code></td><td><span class="method-badge get">GET</span></td><td>Test mode configuration and rate limits</td><td>Free</td></tr>
+        </tbody>
+      </table>
+
+      <h4>Example: cURL</h4>
+      <div class="code-block">
+        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+        <pre><code>curl -X POST https://api.claw-net.org/x402/orchestrate \
+  -H "Content-Type: application/json" \
+  -d '{"query": "What is SOL trading at?"}'
+# Returns 402 with payment details → wallet pays → response returned</code></pre>
+      </div>
+
+      <h4>Example: JavaScript with x402 Client</h4>
+      <div class="code-block">
+        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+        <pre><code>import { wrapAxios } from '@x402/axios';
+import axios from 'axios';
+
+const client = wrapAxios(axios, wallet); // wallet = your EVM signer
+const res = await client.post('https://api.claw-net.org/x402/orchestrate', {
+  query: 'What is SOL trading at?'
+});
+console.log(res.data);</code></pre>
+      </div>
+
+      <h4>Sandbox (Test Mode)</h4>
+      <p class="endpoint-desc">Test x402 without spending real USDC. No payment required — rate-limited per IP.</p>
+      <table class="params-table">
+        <thead><tr><th>Endpoint</th><th>Method</th><th>Rate Limit</th></tr></thead>
+        <tbody>
+          <tr><td><code>/x402/test/skills/:id</code></td><td><span class="method-badge post">POST</span></td><td>10 calls/hour/IP</td></tr>
+          <tr><td><code>/x402/test/orchestrate</code></td><td><span class="method-badge post">POST</span></td><td>5 calls/hour/IP</td></tr>
+        </tbody>
+      </table>
+
+      <h4>Discovery</h4>
+      <table class="params-table">
+        <thead><tr><th>Endpoint</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>GET /.well-known/x402.json</code></td><td>Full x402 provider metadata — network, recipient address, facilitator, pricing</td></tr>
+          <tr><td><code>GET /.well-known/agent-card.json</code></td><td>Agent discovery card — capabilities, auth methods, pricing model</td></tr>
+        </tbody>
+      </table>
+
+      <div class="alert alert-info">x402 uses USDC on Base chain. Creator payouts happen instantly — 85% to the skill creator's EVM wallet.</div>
     </div>
 
     <!-- ═══════════════════════════════════════════════ ERRORS ═══════════════════════════════════════════════ -->
@@ -802,6 +921,118 @@ es.addEventListener('done', (e) =&gt; {
   -H "X-API-Key: cn_your_key_here"</code></pre>
         </div>
       </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/skills/:id/metrics</code></div>
+        <p class="endpoint-desc">Performance metrics for a public skill &mdash; usage count, average latency, and success rate, broken down by version.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+        <div class="code-block"><pre><code>{
+  "skillId": "token-sentiment",
+  "versions": [
+    { "version": "1.0.0", "calls": 482, "avgLatencyMs": 1120, "successRate": 0.96 }
+  ]
+}</code></pre></div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/skills/:id/similar</code></div>
+        <p class="endpoint-desc">Find similar skills via semantic vector search. Returns up to 20 results ranked by cosine similarity score.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+        <h4>Query Parameters</h4>
+        <table class="params-table">
+          <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>limit</code></td><td><span class="param-type">number</span></td><td><span class="param-opt">No</span></td><td>Max results (1&ndash;20, default 5)</td></tr>
+          </tbody>
+        </table>
+        <div class="code-block"><pre><code>{
+  "skillId": "token-sentiment",
+  "similar": [
+    { "id": "market-mood", "name": "Market Mood", "description": "...", "similarity": 0.8712 }
+  ]
+}</code></pre></div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/skills/:id/mcp</code></div>
+        <p class="endpoint-desc">MCP (Model Context Protocol) tool manifest for a skill. Returns a <code>schema_version: 2024-11-05</code> compliant definition that any MCP-compatible LLM client can consume directly.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+        <div class="code-block"><pre><code>{
+  "schema_version": "2024-11-05",
+  "server_info": { "name": "clawnet", "version": "1.0.0" },
+  "tool": {
+    "name": "clawnet_token_sentiment",
+    "description": "Analyze sentiment for a token",
+    "inputSchema": { "type": "object", "properties": { "token": { "type": "string" } } }
+  },
+  "metadata": { "skillId": "token-sentiment", "creditCost": 3 }
+}</code></pre></div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/skills/:id/openapi</code></div>
+        <p class="endpoint-desc">OpenAPI 3.1 specification for a single skill. Includes input/output schemas, auth requirements, and the correct invoke or query endpoint path.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/skills/batch-query</code></div>
+        <p class="endpoint-desc">Execute up to 10 data skill queries in parallel. All skills must be public data-type skills. Results are returned in the same order as the input queries.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+        <h4>Body</h4>
+        <table class="params-table">
+          <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>queries</code></td><td><span class="param-type">array</span></td><td><span class="param-req">Yes</span></td><td>Array of <code>{ skillId, params? }</code> objects (max 10)</td></tr>
+          </tbody>
+        </table>
+        <div class="code-block">
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <pre><code>curl -X POST https://api.claw-net.org/v1/skills/batch-query \
+  -H "X-API-Key: cn_your_key_here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "queries": [
+      { "skillId": "price-oracle-data", "params": { "token": "SOL" } },
+      { "skillId": "price-oracle-data", "params": { "token": "ETH" } }
+    ]
+  }'</code></pre>
+        </div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/skills/:id/fork</code></div>
+        <p class="endpoint-desc">Fork a skill into a challenger variant for A/B testing. Provide a new prompt template; the fork gets a bumped minor version. Only one active challenger per skill.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+        <h4>Body</h4>
+        <table class="params-table">
+          <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>promptTemplate</code></td><td><span class="param-type">string</span></td><td><span class="param-req">Yes</span></td><td>New prompt template (10&ndash;5000 chars)</td></tr>
+            <tr><td><code>creditCost</code></td><td><span class="param-type">number</span></td><td><span class="param-opt">No</span></td><td>Override credit cost (0&ndash;10000)</td></tr>
+            <tr><td><code>description</code></td><td><span class="param-type">string</span></td><td><span class="param-opt">No</span></td><td>Updated description (max 500 chars)</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge delete">DELETE</span><code class="endpoint-path">/v1/skills/:id</code></div>
+        <p class="endpoint-desc">Delete a skill you own. The skill must belong to your API key.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge patch">PATCH</span><code class="endpoint-path">/v1/skills/:id/visibility</code></div>
+        <p class="endpoint-desc">Toggle a skill between public and private. Setting <code>public: true</code> publishes it to the marketplace; <code>public: false</code> hides it.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+        <h4>Body</h4>
+        <table class="params-table">
+          <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>public</code></td><td><span class="param-type">boolean</span></td><td><span class="param-req">Yes</span></td><td><code>true</code> to publish, <code>false</code> to unpublish</td></tr>
+          </tbody>
+        </table>
+      </div>
     </div>
 
     <!-- ═══════════════════════════════════════════════ AGENT SERVICES ═══════════════════════════════════════════════ -->
@@ -1061,6 +1292,93 @@ es.addEventListener('done', (e) =&gt; {
       </div>
     </div>
 
+    <!-- ═══════════════════════════════════════════════ CREATOR ECONOMICS ═══════════════════════════════════════════════ -->
+    <div class="docs-section" id="creator-economics">
+      <h2 class="docs-section-title">Creator Economics</h2>
+      <p class="docs-section-desc">How money flows when someone uses your skill.</p>
+
+      <h4>Revenue Split</h4>
+      <table class="params-table">
+        <thead><tr><th>What Happens</th><th>You (Creator)</th><th>Platform</th></tr></thead>
+        <tbody>
+          <tr><td>Skill invoked (live)</td><td>85% of credits</td><td>15% to treasury</td></tr>
+          <tr><td>Skill invoked (cached)</td><td>0%</td><td>100% (cache revenue)</td></tr>
+          <tr><td>x402 payment</td><td>85% USDC instant</td><td>15% USDC</td></tr>
+        </tbody>
+      </table>
+
+      <h4>Pricing You Control</h4>
+      <table class="params-table">
+        <thead><tr><th>Setting</th><th>Range</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>creditCost</code></td><td>0 &ndash; 10,000 credits</td><td>Base price per call. This is your minimum floor &mdash; actual cost is <code>max(apiCost, creditCost)</code>.</td></tr>
+          <tr><td><code>maxCallsPerHour</code></td><td>1 &ndash; unlimited</td><td>Rate limit your skill to control load on your backing API.</td></tr>
+          <tr><td><code>pricingConfig</code></td><td>optional</td><td>Dynamic pricing object with surge, volume discounts, and off-peak windows.</td></tr>
+        </tbody>
+      </table>
+
+      <details>
+        <summary>Dynamic pricing details</summary>
+        <div class="detail-body">
+          <table class="params-table">
+            <thead><tr><th>Feature</th><th>How It Works</th><th>Limits</th></tr></thead>
+            <tbody>
+              <tr><td><strong>Surge</strong></td><td>Multiplies price when demand exceeds your threshold per hour</td><td>Capped at 5x base cost</td></tr>
+              <tr><td><strong>Volume discounts</strong></td><td>Reduces price for callers who exceed monthly call thresholds</td><td>Max 50% discount</td></tr>
+              <tr><td><strong>Off-peak</strong></td><td>Reduced pricing during UTC hour windows you define</td><td>Max 50% discount, ignored during surge</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </details>
+
+      <h4>Payouts</h4>
+      <div class="concept-grid">
+        <div class="concept-card">
+          <div class="concept-icon">&#x1F4B0;</div>
+          <div class="concept-title">Accumulate</div>
+          <div class="concept-desc">Earnings accumulate as credits in your account. Track them at <code>GET /v1/marketplace/creator/stats</code>.</div>
+        </div>
+        <div class="concept-card">
+          <div class="concept-icon">&#x1F504;</div>
+          <div class="concept-title">Auto-Payout</div>
+          <div class="concept-desc">Set a threshold + Solana wallet. When earnings hit the threshold, USDC is sent automatically every 4 hours.</div>
+        </div>
+        <div class="concept-card">
+          <div class="concept-icon">&#x1F4E4;</div>
+          <div class="concept-title">Manual Withdrawal</div>
+          <div class="concept-desc"><code>POST /v1/marketplace/creator/withdraw</code> &mdash; minimum 1,000 credits. Processed in the next payout cycle.</div>
+        </div>
+        <div class="concept-card">
+          <div class="concept-icon">&#x1F4B5;</div>
+          <div class="concept-title">Payout Rate</div>
+          <div class="concept-desc">$0.00075 per credit (25% below the buy rate). This spread prevents arbitrage between buying and cashing out.</div>
+        </div>
+      </div>
+
+      <h4>Trust &amp; Reputation</h4>
+      <table class="params-table">
+        <thead><tr><th>Stage</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Unverified</strong></td><td>Skills start unverified. Earn reputation through successful calls, positive ratings, and SLA compliance.</td></tr>
+          <tr><td><strong>Trust Decay</strong></td><td>Ratings lose 10% weight every 30 days. Keeps scores fresh &mdash; you can't coast on old reviews.</td></tr>
+          <tr><td><strong>Penalty Tiers</strong></td><td><code>CLEAN</code> &rarr; <code>WARNING</code> &rarr; <code>REDUCED_VISIBILITY</code> &rarr; <code>DELISTED</code>. Auto-escalated by the health cron every 15 minutes based on SLA violations.</td></tr>
+        </tbody>
+      </table>
+
+      <h4>Validator Rewards</h4>
+      <div class="alert alert-info">Validators are community members promoted by admin who verify transaction results. This keeps the marketplace honest without centralized moderation.</div>
+      <table class="params-table">
+        <thead><tr><th>Detail</th><th>Value</th></tr></thead>
+        <tbody>
+          <tr><td>Reward per verification</td><td><strong>0.5 credits</strong></td></tr>
+          <tr><td>Daily limit</td><td>100 validations</td></tr>
+          <tr><td>Verdicts</td><td><code>VALID</code>, <code>INVALID</code>, <code>INCONCLUSIVE</code></td></tr>
+          <tr><td>Self-validation</td><td>Blocked &mdash; cannot validate your own transactions</td></tr>
+          <tr><td>Leaderboard</td><td><code>GET /v1/validators/leaderboard</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+
     <!-- ═══════════════════════════════════════════════ AGENT DEVELOPER GUIDE ═══════════════════════════════════════════════ -->
     <div class="docs-section" id="agent-dev">
       <h2 class="docs-section-title">Agent Developer Guide</h2>
@@ -1282,9 +1600,108 @@ es.addEventListener('done', (e) =&gt; {
       </div>
 
       <div class="endpoint">
-        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/economy/auto-payout/set</code></div>
-        <p class="endpoint-desc">Enable automatic USDC payouts when earnings reach a threshold.</p>
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/economy/transfers</code></div>
+        <p class="endpoint-desc">List your credit transfer history. Counterparty keys are masked for privacy.</p>
         <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+        <h4>Query Parameters</h4>
+        <table class="params-table">
+          <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>direction</code></td><td><span class="param-type">string</span></td><td><span class="param-opt">No</span></td><td><code>sent</code>, <code>received</code>, or <code>all</code> (default: all)</td></tr>
+            <tr><td><code>limit</code></td><td><span class="param-type">number</span></td><td><span class="param-opt">No</span></td><td>Results per page (1&ndash;200, default 50)</td></tr>
+            <tr><td><code>offset</code></td><td><span class="param-type">number</span></td><td><span class="param-opt">No</span></td><td>Pagination offset (default 0)</td></tr>
+          </tbody>
+        </table>
+        <div class="code-block"><pre><code>{
+  "transfers": [
+    { "id": "txfr_abc", "from_key": "cn-ab••••cd", "to_key": "cn_your_key", "amount": 100, "memo": "Payment", "created_at": "..." }
+  ],
+  "total": 42,
+  "limit": 50,
+  "offset": 0
+}</code></pre></div>
+      </div>
+
+      <h4 style="font-size:16px;font-weight:600;color:var(--text-primary);text-transform:none;letter-spacing:0;margin:36px 0 10px">Delegated Keys</h4>
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/economy/keys/delegated</code></div>
+        <p class="endpoint-desc">List all delegated keys you've created, with spend tracking. Shows each child key's spend limit, amount spent, remaining balance, expiry, and permissions.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+        <div class="code-block"><pre><code>{
+  "keys": [
+    {
+      "childKey": "cn_del_abc123",
+      "label": "research-agent",
+      "spendLimit": 500,
+      "spent": 142.5,
+      "remaining": 357.5,
+      "expiresAt": "2026-04-01T00:00:00Z",
+      "permissions": ["invoke", "query"],
+      "createdAt": "2026-03-15T10:00:00Z"
+    }
+  ]
+}</code></pre></div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge delete">DELETE</span><code class="endpoint-path">/v1/economy/keys/delegated/:childKey</code></div>
+        <p class="endpoint-desc">Revoke a delegated key. The child key is immediately deactivated and can no longer spend credits.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+        <div class="code-block"><pre><code>{ "ok": true, "revoked": "cn_del_abc123" }</code></pre></div>
+      </div>
+
+      <h4 style="font-size:16px;font-weight:600;color:var(--text-primary);text-transform:none;letter-spacing:0;margin:36px 0 10px">Auto-Payout</h4>
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/economy/auto-payout</code></div>
+        <p class="endpoint-desc">Read your current auto-payout configuration &mdash; threshold, wallet address, and enabled status.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+        <div class="code-block"><pre><code>{
+  "thresholdCredits": 5000,
+  "usdcWallet": "H6xbRy...",
+  "enabled": true,
+  "createdAt": "2026-03-15T10:00:00Z"
+}</code></pre></div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge put">PUT</span><code class="endpoint-path">/v1/economy/auto-payout</code></div>
+        <p class="endpoint-desc">Set or update auto-payout config. When your earnings reach the threshold, USDC is sent to your wallet automatically.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+        <h4>Body</h4>
+        <table class="params-table">
+          <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>thresholdCredits</code></td><td><span class="param-type">number</span></td><td><span class="param-req">Yes</span></td><td>Minimum credits before payout triggers (min 1000)</td></tr>
+            <tr><td><code>usdcWallet</code></td><td><span class="param-type">string</span></td><td><span class="param-req">Yes</span></td><td>Solana wallet address to receive USDC</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge delete">DELETE</span><code class="endpoint-path">/v1/economy/auto-payout</code></div>
+        <p class="endpoint-desc">Remove your auto-payout configuration. Payouts will no longer be sent automatically.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+      </div>
+
+      <h4 style="font-size:16px;font-weight:600;color:var(--text-primary);text-transform:none;letter-spacing:0;margin:36px 0 10px">Credit Deduction</h4>
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/auth/deduct</code></div>
+        <p class="endpoint-desc">Manually deduct credits from your key. Used by hosted services like Pulse and Radar that need programmatic billing.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+        <h4>Body</h4>
+        <table class="params-table">
+          <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>amount</code></td><td><span class="param-type">number</span></td><td><span class="param-req">Yes</span></td><td>Credits to deduct (0&ndash;1000)</td></tr>
+            <tr><td><code>reason</code></td><td><span class="param-type">string</span></td><td><span class="param-opt">No</span></td><td>Reason for deduction (default: <code>pulse</code>)</td></tr>
+          </tbody>
+        </table>
+        <div class="code-block"><pre><code>{
+  "ok": true,
+  "deducted": 5,
+  "reason": "radar-scan",
+  "remaining": 4995
+}</code></pre></div>
       </div>
 
       <h4>Account &amp; Usage</h4>
@@ -1370,6 +1787,31 @@ es.addEventListener('done', (e) =&gt; {
       <div class="endpoint">
         <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/validators/leaderboard</code></div>
         <p class="endpoint-desc">Top validators ranked by accuracy and volume.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+        <h4>Query Parameters</h4>
+        <table class="params-table">
+          <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>limit</code></td><td><span class="param-type">number</span></td><td><span class="param-opt">No</span></td><td>Number of validators to return (1&ndash;50, default 20)</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/validators/history</code></div>
+        <p class="endpoint-desc">Your personal validation stats &mdash; total verdicts submitted, accuracy rate, and credits earned from validations.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code> (validator)</div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/validators/transaction/:txId</code></div>
+        <p class="endpoint-desc">Retrieve all validator verdicts for a specific transaction. Shows each validator's verdict (VALID, INVALID, INCONCLUSIVE) and notes.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/validators/skill/:skillId</code></div>
+        <p class="endpoint-desc">Aggregated validation statistics for a skill &mdash; total validations, verdict breakdown, and overall confidence score.</p>
         <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
       </div>
 

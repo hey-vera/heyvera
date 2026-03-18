@@ -3384,7 +3384,7 @@ PUBLIC API: GET /v1/stats/roadmap (no auth required)
    ├─ current: { milestone, targetUsd, progressPct }
    └─ tokenLaunch: {
        status: BUILDING | VIABLE | READY,
-       split: { burn: 40%, buybackLp: 25%, treasury: 20%, rewards: 15% }
+       split: { burn: 50%, buybackLp: 20%, treasury: 15%, rewards: 15% }
      }
 
 FRONTEND: site/roadmap.html
