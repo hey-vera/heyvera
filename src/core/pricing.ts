@@ -32,6 +32,8 @@ export const PricingPreferencesSchema = z.object({
   minCredits: z.number().int().positive().max(1_000_000).optional(),
   /** Optimization strategy. Default: "balanced". */
   strategy: PricingStrategy.default('balanced'),
+  /** Strict mode — when true, return errors instead of LLM fallback when no endpoint/service exists. */
+  strict: z.boolean().optional(),
 }).refine(
   (data) => {
     if (data.maxCredits && data.minCredits && data.minCredits > data.maxCredits) return false;
@@ -293,32 +295,34 @@ export function optimizePlan(intent: ParsedIntent, pricing: PricingPreferences):
 
   const optimizedSteps = [...intent.steps];
 
-  // "reliable" strategy skips endpoint swaps but still fills capability gaps
+  // "reliable" strategy skips endpoint swaps but still fills capability gaps (unless strict)
   if (pricing.strategy === 'reliable') {
-    // Still run agent service fallback for missing endpoints
-    const agentServiceSwaps: OptimizationResult['swaps'] = [];
-    for (let i = 0; i < optimizedSteps.length; i++) {
-      const step = optimizedSteps[i];
-      if (step.endpointId.startsWith('skill:')) continue;
-      const ep = findEndpoint(step.endpointId);
-      if (ep) continue;
-      const capability = step.reason || step.endpointId;
-      const agentServices = findAgentServicesForCapability(capability);
-      if (agentServices.length > 0) {
-        const best = agentServices[0];
-        const oldId = step.endpointId;
-        optimizedSteps[i] = {
-          ...step,
-          endpointId: `skill:${best.id}`,
-          ...(({ creditCost: best.credit_cost, source: 'agent_service' }) as any),
-        };
-        agentServiceSwaps.push({ stepIndex: i, from: oldId, to: `skill:${best.id}`, savedCredits: 0 });
-        logger.info({ stepIndex: i, from: oldId, to: `skill:${best.id}`, skillName: best.name }, 'Agent service fallback (reliable): filled capability gap');
+    // In strict mode, skip agent service fallback — missing endpoints stay as errors
+    if (!pricing.strict) {
+      const agentServiceSwaps: OptimizationResult['swaps'] = [];
+      for (let i = 0; i < optimizedSteps.length; i++) {
+        const step = optimizedSteps[i];
+        if (step.endpointId.startsWith('skill:')) continue;
+        const ep = findEndpoint(step.endpointId);
+        if (ep) continue;
+        const capability = step.reason || step.endpointId;
+        const agentServices = findAgentServicesForCapability(capability);
+        if (agentServices.length > 0) {
+          const best = agentServices[0];
+          const oldId = step.endpointId;
+          optimizedSteps[i] = {
+            ...step,
+            endpointId: `skill:${best.id}`,
+            ...(({ creditCost: best.credit_cost, source: 'agent_service' }) as any),
+          };
+          agentServiceSwaps.push({ stepIndex: i, from: oldId, to: `skill:${best.id}`, savedCredits: 0 });
+          logger.info({ stepIndex: i, from: oldId, to: `skill:${best.id}`, skillName: best.name }, 'Agent service fallback (reliable): filled capability gap');
+        }
       }
-    }
-    if (agentServiceSwaps.length > 0) {
-      const filledIntent = { ...intent, steps: optimizedSteps };
-      return { intent: filledIntent, swaps: agentServiceSwaps, originalCredits: original.totalCredits, optimizedCredits: estimatePlanCost(filledIntent).totalCredits };
+      if (agentServiceSwaps.length > 0) {
+        const filledIntent = { ...intent, steps: optimizedSteps };
+        return { intent: filledIntent, swaps: agentServiceSwaps, originalCredits: original.totalCredits, optimizedCredits: estimatePlanCost(filledIntent).totalCredits };
+      }
     }
     return { intent, swaps, originalCredits: original.totalCredits, optimizedCredits: original.totalCredits };
   }
@@ -394,34 +398,37 @@ export function optimizePlan(intent: ParsedIntent, pricing: PricingPreferences):
   // For any step whose endpoint doesn't exist in the registry (ENDPOINT_NOT_FOUND
   // at execution time), try to find an agent service that can handle it.
   // This is the last resort — built-in endpoints are always preferred.
+  // In strict mode, skip fallback entirely — missing endpoints stay as errors.
   const agentServiceSwaps: OptimizationResult['swaps'] = [];
-  for (let i = 0; i < optimizedSteps.length; i++) {
-    const step = optimizedSteps[i];
-    // Skip steps that already resolved to an agent service
-    if (step.endpointId.startsWith('skill:')) continue;
+  if (!pricing.strict) {
+    for (let i = 0; i < optimizedSteps.length; i++) {
+      const step = optimizedSteps[i];
+      // Skip steps that already resolved to an agent service
+      if (step.endpointId.startsWith('skill:')) continue;
 
-    const ep = findEndpoint(step.endpointId);
-    if (ep) continue; // Built-in endpoint exists — no fallback needed
+      const ep = findEndpoint(step.endpointId);
+      if (ep) continue; // Built-in endpoint exists — no fallback needed
 
-    // No built-in endpoint found — search agent services
-    const capability = step.reason || step.endpointId;
-    const agentServices = findAgentServicesForCapability(capability);
-    if (agentServices.length > 0) {
-      const best = agentServices[0];
-      const oldId = step.endpointId;
-      optimizedSteps[i] = {
-        ...step,
-        endpointId: `skill:${best.id}`,
-        // Attach credit cost for billing downstream
-        ...(({ creditCost: best.credit_cost, source: 'agent_service' }) as any),
-      };
-      agentServiceSwaps.push({
-        stepIndex: i,
-        from: oldId,
-        to: `skill:${best.id}`,
-        savedCredits: 0, // Not a cost optimization — this is a capability gap fill
-      });
-      logger.info({ stepIndex: i, from: oldId, to: `skill:${best.id}`, skillName: best.name }, 'Agent service fallback: filled capability gap');
+      // No built-in endpoint found — search agent services
+      const capability = step.reason || step.endpointId;
+      const agentServices = findAgentServicesForCapability(capability);
+      if (agentServices.length > 0) {
+        const best = agentServices[0];
+        const oldId = step.endpointId;
+        optimizedSteps[i] = {
+          ...step,
+          endpointId: `skill:${best.id}`,
+          // Attach credit cost for billing downstream
+          ...(({ creditCost: best.credit_cost, source: 'agent_service' }) as any),
+        };
+        agentServiceSwaps.push({
+          stepIndex: i,
+          from: oldId,
+          to: `skill:${best.id}`,
+          savedCredits: 0, // Not a cost optimization — this is a capability gap fill
+        });
+        logger.info({ stepIndex: i, from: oldId, to: `skill:${best.id}`, skillName: best.name }, 'Agent service fallback: filled capability gap');
+      }
     }
   }
 

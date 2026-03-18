@@ -248,13 +248,27 @@ async function executeStep(
     try {
       const { data, costUsd } = await executeAgentService(skillId, step.params);
       logger.info({ endpointId: step.endpointId, skillId, durationMs: Date.now() - start }, 'Agent service step completed');
+
+      // Cross-verify agent service results against known-good sources (best-effort)
+      let verifiedData = data;
+      try {
+        const { crossVerify } = await import('./cross-verify.js');
+        const verification = await crossVerify(step.reason || '', data, step.params);
+        if (verification) {
+          (verifiedData as any).__verification = verification;
+          if (!verification.verified) {
+            logger.warn({ endpointId: step.endpointId, skillId, deviation: verification.deviation, warning: verification.warning }, 'Cross-verify: agent service flagged');
+          }
+        }
+      } catch { /* cross-verify is best-effort */ }
+
       return {
         endpointId: step.endpointId,
         success: true,
         cached: false,
         durationMs: Date.now() - start,
         cost: costUsd,
-        data,
+        data: verifiedData,
       };
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err);
@@ -424,6 +438,8 @@ async function executeStep(
 export interface BudgetConstraint {
   /** Maximum credits to spend. Steps that would exceed this are skipped. */
   maxCredits: number;
+  /** Strict mode — if true, return errors instead of falling back to LLM when no endpoint/service exists. */
+  strict?: boolean;
 }
 
 export async function executePlan(

@@ -188,7 +188,11 @@ apiRouter.post('/orchestrate', async (c) => {
     }
 
     // Execute with optional budget constraint for runtime step-skipping
-    const budgetConstraint = pricing?.maxCredits ? { maxCredits: pricing.maxCredits } : undefined;
+    const budgetConstraint = pricing?.maxCredits
+      ? { maxCredits: pricing.maxCredits, strict: pricing.strict }
+      : pricing?.strict
+        ? { maxCredits: Infinity, strict: true }
+        : undefined;
     const execution = await executePlan(intent, budgetConstraint, keyInfo.key, cacheFreshness, wantDiff);
     const formatted = await formatResponse(query, intent, execution);
 
