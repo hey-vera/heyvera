@@ -4,8 +4,8 @@ import { findEndpoint } from '../config/api-registry';
 import { cacheKey, smartCacheGet, smartCacheSet, enqueueRefresh, computeDiff, coalesceRequest, cacheNegative, getNegativeCache, type CacheFreshness, type DiffResult } from '../cache/index';
 import { logger } from '../utils/logger';
 import { isClawApisReady, clawApiCall } from '../providers/clawapis';
-import { getAgentContext, setAgentContext } from '../db/index';
-import { creditCostForEndpoint } from './credits';
+import { getAgentContext, setAgentContext, getSkill } from '../db/index';
+import { creditCostForEndpoint, round6 } from './credits';
 
 export interface StepResult {
   endpointId: string;
@@ -183,6 +183,53 @@ function normalizeParams(endpointId: string, params: Record<string, string>): Re
   return normalized;
 }
 
+// ─── Agent Service Execution ──────────────────────────────────────────────────
+// Executes a marketplace skill (api_proxy or data) as a step in the orchestration
+// pipeline. Used when optimizePlan() substitutes a missing built-in endpoint with
+// an agent service (endpointId = "skill:<id>").
+
+async function executeAgentService(
+  skillId: string,
+  params: Record<string, unknown>,
+): Promise<{ data: unknown; costUsd: number }> {
+  const skill = getSkill(skillId);
+  if (!skill) throw new Error(`Agent service not found: ${skillId}`);
+  if (skill.status === 'delisted') throw new Error(`Agent service delisted: ${skillId}`);
+
+  // api_proxy skills — direct HTTP call to the proxy URL
+  if ((skill.skill_type === 'api_proxy' || skill.skill_type === 'data') && skill.proxy_url) {
+    // SSRF guard — block private IPs / localhost
+    try {
+      const url = new URL(skill.proxy_url);
+      const host = url.hostname.toLowerCase();
+      if (host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '0.0.0.0') {
+        throw new Error('Agent service URL points to a blocked address');
+      }
+      if (/^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|169\.254\.)/.test(host)) {
+        throw new Error('Agent service URL points to a private network');
+      }
+    } catch (err) {
+      if (err instanceof Error && err.message.startsWith('Agent service')) throw err;
+      throw new Error(`Invalid agent service URL: ${skill.proxy_url}`);
+    }
+
+    const method = skill.proxy_method || 'POST';
+    const res = await fetch(skill.proxy_url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: method !== 'GET' ? JSON.stringify(params) : undefined,
+      signal: AbortSignal.timeout(15_000),
+    });
+
+    if (!res.ok) throw new Error(`Agent service returned ${res.status}`);
+    const data = await res.json().catch(async () => ({ raw: await res.text() }));
+    const costUsd = round6(skill.credit_cost / 1000); // credit_cost → USD
+    return { data, costUsd };
+  }
+
+  throw new Error(`Agent service ${skillId} has no proxy URL (type: ${skill.skill_type})`);
+}
+
 async function executeStep(
   stepIndex: number,
   intent: ParsedIntent,
@@ -191,8 +238,40 @@ async function executeStep(
   wantDiff: boolean = false,
 ): Promise<StepResult> {
   const step = intent.steps[stepIndex];
-  const endpoint = findEndpoint(step.endpointId);
   const start = Date.now();
+
+  // ── Agent Service Steps ─────────────────────────────────────────────────────
+  // Steps with endpointId = "skill:<id>" were substituted by optimizePlan() when
+  // no built-in endpoint could satisfy the capability. Execute via the skill proxy.
+  if (step.endpointId.startsWith('skill:')) {
+    const skillId = step.endpointId.slice(6); // strip "skill:" prefix
+    try {
+      const { data, costUsd } = await executeAgentService(skillId, step.params);
+      logger.info({ endpointId: step.endpointId, skillId, durationMs: Date.now() - start }, 'Agent service step completed');
+      return {
+        endpointId: step.endpointId,
+        success: true,
+        cached: false,
+        durationMs: Date.now() - start,
+        cost: costUsd,
+        data,
+      };
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      logger.error({ endpointId: step.endpointId, skillId, error }, 'Agent service step failed');
+      return {
+        endpointId: step.endpointId,
+        success: false,
+        cached: false,
+        durationMs: Date.now() - start,
+        cost: 0,
+        error,
+      };
+    }
+  }
+
+  // ── Built-in Endpoint Steps ─────────────────────────────────────────────────
+  const endpoint = findEndpoint(step.endpointId);
 
   if (!endpoint) {
     return { endpointId: step.endpointId, success: false, cached: false, durationMs: 0, cost: 0, error: 'ENDPOINT_NOT_FOUND' };
@@ -364,8 +443,12 @@ export async function executePlan(
     const stepsToRun = budget
       ? group.filter((indexStr) => {
           const step = intent.steps[parseInt(indexStr)];
-          const ep = step ? findEndpoint(step.endpointId) : null;
-          const stepCredits = ep ? creditCostForEndpoint(ep) : 1;
+          // Agent service steps carry credit cost directly
+          const isAgentService = step?.endpointId?.startsWith('skill:');
+          const ep = (!isAgentService && step) ? findEndpoint(step.endpointId) : null;
+          const stepCredits = isAgentService
+            ? ((step as any).creditCost ?? 1)
+            : (ep ? creditCostForEndpoint(ep) : 1);
           // Estimate whether adding this step would exceed the credit budget
           const projectedCredits = runningCredits + stepCredits;
           if (projectedCredits > budget.maxCredits) {
@@ -390,8 +473,14 @@ export async function executePlan(
         allResults[stepIndex] = result.value;
         runningCostUsd += result.value.cost;
         if (result.value.success && !result.value.cached) {
-          const ep = findEndpoint(result.value.endpointId);
-          runningCredits += ep ? creditCostForEndpoint(ep) : 1;
+          if (result.value.endpointId.startsWith('skill:')) {
+            // Agent service — credit cost was attached by optimizePlan
+            const stepObj = intent.steps.find(s => s.endpointId === result.value.endpointId);
+            runningCredits += (stepObj as any)?.creditCost ?? round6(result.value.cost * 1000);
+          } else {
+            const ep = findEndpoint(result.value.endpointId);
+            runningCredits += ep ? creditCostForEndpoint(ep) : 1;
+          }
         }
       } else {
         allResults[stepIndex] = {

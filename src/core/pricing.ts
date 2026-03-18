@@ -16,6 +16,7 @@ import { creditCostForEndpoint, round6 } from './credits';
 import type { ParsedIntent } from './intent-parser';
 import { logger } from '../utils/logger';
 import { ORCHESTRATION_FEE } from '../config/index';
+import { listPublicSkills, type Skill } from '../db/index';
 
 // ─── Schema ──────────────────────────────────────────────────────────────────
 
@@ -162,6 +163,70 @@ function getCapabilityForEndpoint(endpointId: string): string | undefined {
   return undefined;
 }
 
+// ─── Agent Service Discovery Fallback ────────────────────────────────────────
+// When no built-in endpoint exists for a capability, search the agent service
+// marketplace for skills that can fill the gap. Built-in endpoints are always
+// preferred (cheaper, faster, more trusted) — this is the fallback layer.
+
+export interface AgentServiceMatch {
+  id: string;
+  name: string;
+  credit_cost: number;
+  skill_type: string;
+  success_rate: number;
+  avg_rating: number;
+  proxy_url: string | null;
+}
+
+function findAgentServicesForCapability(capability: string): AgentServiceMatch[] {
+  try {
+    // Search public skills that could satisfy this capability
+    // Prefer api_proxy and data skills (real services, not prompt templates)
+    const skills = listPublicSkills(0, 20);
+
+    // Score each skill by keyword match against the capability string
+    const capWords = capability.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+    if (capWords.length === 0) return [];
+
+    const scored = skills
+      .filter(s =>
+        (s.skill_type === 'api_proxy' || s.skill_type === 'data') &&
+        s.status !== 'delisted' &&
+        s.health_status !== 'DOWN' &&
+        s.success_rate > 0.8 &&
+        s.avg_rating >= 3.5 &&
+        s.proxy_url // Must have an actual service URL
+      )
+      .map(s => {
+        const text = [s.name, s.description, s.category, s.tags_json ?? ''].join(' ').toLowerCase();
+        const matchCount = capWords.filter(w => text.includes(w)).length;
+        return { skill: s, relevance: matchCount / capWords.length };
+      })
+      .filter(s => s.relevance > 0.3) // At least 30% keyword overlap
+      .sort((a, b) => {
+        // Sort by relevance first, then by success_rate * avg_rating (trust score)
+        if (b.relevance !== a.relevance) return b.relevance - a.relevance;
+        const trustA = a.skill.success_rate * a.skill.avg_rating;
+        const trustB = b.skill.success_rate * b.skill.avg_rating;
+        return trustB - trustA;
+      })
+      .slice(0, 5);
+
+    return scored.map(s => ({
+      id: s.skill.id,
+      name: s.skill.name,
+      credit_cost: s.skill.credit_cost,
+      skill_type: s.skill.skill_type,
+      success_rate: s.skill.success_rate,
+      avg_rating: s.skill.avg_rating,
+      proxy_url: s.skill.proxy_url,
+    }));
+  } catch (err) {
+    logger.warn({ err, capability }, 'Agent service discovery fallback failed');
+    return [];
+  }
+}
+
 // ─── Plan Cost Estimation ────────────────────────────────────────────────────
 
 export interface PlanEstimate {
@@ -171,6 +236,11 @@ export interface PlanEstimate {
 
 export function estimatePlanCost(intent: ParsedIntent): PlanEstimate {
   const perStep = intent.steps.map((step) => {
+    // Agent service steps carry their own credit cost
+    if (step.endpointId.startsWith('skill:')) {
+      const creditCost = (step as any).creditCost ?? 1;
+      return { endpointId: step.endpointId, credits: creditCost, costUsd: round6(creditCost / 1000) };
+    }
     const ep = findEndpoint(step.endpointId);
     const costUsd = ep?.costPerCall ?? 0.001;
     return { endpointId: step.endpointId, credits: ep ? creditCostForEndpoint(ep) : 1, costUsd };
@@ -221,11 +291,37 @@ export function optimizePlan(intent: ParsedIntent, pricing: PricingPreferences):
   const original = estimatePlanCost(intent);
   const swaps: OptimizationResult['swaps'] = [];
 
+  const optimizedSteps = [...intent.steps];
+
+  // "reliable" strategy skips endpoint swaps but still fills capability gaps
   if (pricing.strategy === 'reliable') {
+    // Still run agent service fallback for missing endpoints
+    const agentServiceSwaps: OptimizationResult['swaps'] = [];
+    for (let i = 0; i < optimizedSteps.length; i++) {
+      const step = optimizedSteps[i];
+      if (step.endpointId.startsWith('skill:')) continue;
+      const ep = findEndpoint(step.endpointId);
+      if (ep) continue;
+      const capability = step.reason || step.endpointId;
+      const agentServices = findAgentServicesForCapability(capability);
+      if (agentServices.length > 0) {
+        const best = agentServices[0];
+        const oldId = step.endpointId;
+        optimizedSteps[i] = {
+          ...step,
+          endpointId: `skill:${best.id}`,
+          ...(({ creditCost: best.credit_cost, source: 'agent_service' }) as any),
+        };
+        agentServiceSwaps.push({ stepIndex: i, from: oldId, to: `skill:${best.id}`, savedCredits: 0 });
+        logger.info({ stepIndex: i, from: oldId, to: `skill:${best.id}`, skillName: best.name }, 'Agent service fallback (reliable): filled capability gap');
+      }
+    }
+    if (agentServiceSwaps.length > 0) {
+      const filledIntent = { ...intent, steps: optimizedSteps };
+      return { intent: filledIntent, swaps: agentServiceSwaps, originalCredits: original.totalCredits, optimizedCredits: estimatePlanCost(filledIntent).totalCredits };
+    }
     return { intent, swaps, originalCredits: original.totalCredits, optimizedCredits: original.totalCredits };
   }
-
-  const optimizedSteps = [...intent.steps];
   let currentCredits = original.totalCredits;
 
   for (let i = 0; i < optimizedSteps.length; i++) {
@@ -294,15 +390,56 @@ export function optimizePlan(intent: ParsedIntent, pricing: PricingPreferences):
     }
   }
 
-  const optimizedIntent = swaps.length > 0
+  // ── Agent Service Fallback ─────────────────────────────────────────────────
+  // For any step whose endpoint doesn't exist in the registry (ENDPOINT_NOT_FOUND
+  // at execution time), try to find an agent service that can handle it.
+  // This is the last resort — built-in endpoints are always preferred.
+  const agentServiceSwaps: OptimizationResult['swaps'] = [];
+  for (let i = 0; i < optimizedSteps.length; i++) {
+    const step = optimizedSteps[i];
+    // Skip steps that already resolved to an agent service
+    if (step.endpointId.startsWith('skill:')) continue;
+
+    const ep = findEndpoint(step.endpointId);
+    if (ep) continue; // Built-in endpoint exists — no fallback needed
+
+    // No built-in endpoint found — search agent services
+    const capability = step.reason || step.endpointId;
+    const agentServices = findAgentServicesForCapability(capability);
+    if (agentServices.length > 0) {
+      const best = agentServices[0];
+      const oldId = step.endpointId;
+      optimizedSteps[i] = {
+        ...step,
+        endpointId: `skill:${best.id}`,
+        // Attach credit cost for billing downstream
+        ...(({ creditCost: best.credit_cost, source: 'agent_service' }) as any),
+      };
+      agentServiceSwaps.push({
+        stepIndex: i,
+        from: oldId,
+        to: `skill:${best.id}`,
+        savedCredits: 0, // Not a cost optimization — this is a capability gap fill
+      });
+      logger.info({ stepIndex: i, from: oldId, to: `skill:${best.id}`, skillName: best.name }, 'Agent service fallback: filled capability gap');
+    }
+  }
+
+  const allSwaps = [...swaps, ...agentServiceSwaps];
+  const optimizedIntent = allSwaps.length > 0
     ? { ...intent, steps: optimizedSteps }
     : intent;
 
+  // Recalculate credits if agent services were added
+  const finalCredits = agentServiceSwaps.length > 0
+    ? estimatePlanCost(optimizedIntent).totalCredits
+    : currentCredits;
+
   return {
     intent: optimizedIntent,
-    swaps,
+    swaps: allSwaps,
     originalCredits: original.totalCredits,
-    optimizedCredits: currentCredits,
+    optimizedCredits: finalCredits,
   };
 }
 
