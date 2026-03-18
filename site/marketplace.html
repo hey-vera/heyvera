@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Skill Marketplace — ClawNet</title>
-  <meta name="description" content="Buy, sell, and publish AI skills on the ClawNet marketplace. Pay per use. Earn 85% as a creator.">
-  <meta property="og:title" content="Skill Marketplace — ClawNet">
-  <meta property="og:description" content="Buy, sell, and publish AI skills. Pay per use. Earn 85% as a creator.">
+  <title>Agent Services — ClawNet</title>
+  <meta name="description" content="Agents discover, consume, and pay for services autonomously on ClawNet. Register your API, set your price, earn 85% of every call.">
+  <meta property="og:title" content="Agent Services — ClawNet">
+  <meta property="og:description" content="Register your API. Set your price. Earn 85% of every call. Agent-native service commerce.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://claw-net.org/marketplace.html">
   <meta property="og:image" content="https://claw-net.org/favicon.svg">
@@ -59,29 +59,6 @@
     a { color: inherit; text-decoration: none; }
     ::selection { background: var(--accent-dim); }
 
-    .btn { font-family: var(--font-sans); font-size: 13px; font-weight: 500; padding: 8px 16px; border-radius: var(--radius-md); cursor: pointer; transition: all 0.15s; border: 1px solid transparent; display: inline-flex; align-items: center; gap: 6px; }
-    .btn-primary { background: var(--accent); color: #000; border-color: var(--accent); }
-    .btn-primary:hover { background: var(--accent-hover); }
-    .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
-    .btn-ghost { background: transparent; color: var(--text-secondary); border: 1px solid var(--border-default); }
-    .btn-ghost:hover { border-color: var(--border-strong); color: var(--text-primary); background: var(--bg-surface-2); }
-    .btn-ghost:disabled { opacity: 0.4; cursor: not-allowed; }
-    .card { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 24px; }
-    .card:hover { border-color: var(--border-default); }
-    .badge { font-family: var(--font-sans); font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 9999px; display: inline-flex; align-items: center; gap: 4px; }
-    .badge-success { background: var(--accent-dim); color: var(--accent); }
-    .badge-danger { background: var(--danger-dim); color: var(--danger); }
-    .badge-warning { background: var(--warning-dim); color: var(--warning); }
-    .badge-info { background: var(--info-dim); color: var(--info); }
-    .badge-neutral { background: rgba(113,113,122,0.15); color: var(--text-tertiary); }
-
-    #toast-container { position: fixed; bottom: 32px; right: 32px; z-index: 9999; display: flex; flex-direction: column; gap: 10px; }
-    .toast { font-family: var(--font-sans); font-size: 13px; padding: 12px 18px; border: 1px solid; border-radius: var(--radius-md); display: flex; align-items: center; gap: 10px; min-width: 240px; max-width: 400px; animation: toastIn 0.2s ease; box-shadow: 0 4px 12px rgba(0,0,0,0.4); }
-    .toast.success { background: var(--bg-surface-2); border-color: var(--accent-dim); color: var(--accent); }
-    .toast.error   { background: var(--bg-surface-2); border-color: var(--danger-dim); color: var(--danger); }
-    .toast.info    { background: var(--bg-surface-2); border-color: var(--border-default); color: var(--text-secondary); }
-    @keyframes toastIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-
     nav { position: fixed; top: 0; left: 0; right: 0; z-index: 100; height: 56px; padding: 0 24px; display: flex; align-items: center; justify-content: space-between; background: var(--nav-bg); border-bottom: 1px solid var(--border-subtle); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }
     .nav-brand { display: flex; align-items: center; }
     .nav-brand a { text-decoration: none; }
@@ -117,247 +94,60 @@
     .mobile-menu-btn { display: none; background: none; border: 1px solid var(--border-default); border-radius: 6px; padding: 6px 10px; cursor: pointer; color: var(--text-secondary); font-size: 18px; line-height: 1; }
     .mobile-menu-btn:hover { color: var(--text-primary); border-color: var(--border-strong); }
 
+    .mobile-menu { display: none; position: fixed; top: 56px; left: 0; right: 0; background: var(--bg-surface); border-bottom: 1px solid var(--border-default); z-index: 99; padding: 12px 24px; max-height: calc(100vh - 56px); overflow-y: auto; }
+    .mobile-menu.open { display: block; }
+    .mobile-menu a { display: block; padding: 10px 0; font-size: 14px; color: var(--text-secondary); border-bottom: 1px solid var(--border-subtle); text-decoration: none; }
+    .mobile-menu a:last-child { border-bottom: none; }
+    .mobile-menu a:hover { color: var(--accent); }
+    .mobile-menu-group { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; padding: 12px 0 4px; }
+    .mobile-menu-group:first-child { padding-top: 0; }
+
     main { max-width: 1240px; margin: 0 auto; padding: 72px 32px 80px; }
-    .view { display: none; }
-    .view.active { display: block; }
 
-    .mkt-hero { padding: 32px 0 24px; border-bottom: 1px solid var(--border-subtle); display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
-    .mkt-hero-title { font-family: var(--font-display); font-size: 28px; font-weight: 600; color: var(--text-primary); letter-spacing: -0.02em; margin-bottom: 6px; }
-    .mkt-hero-title span { color: var(--accent); }
-    .mkt-hero-sub { font-size: 14px; color: var(--text-tertiary); line-height: 1.6; max-width: 480px; }
-    .mkt-hero-stats { display: flex; gap: 28px; }
-    .hstat { text-align: right; }
-    .hstat-val { font-family: var(--font-mono); font-size: 22px; font-weight: 700; color: var(--text-primary); line-height: 1; }
-    .hstat-val.g { color: var(--accent); }
-    .hstat-val.p { color: var(--purple); }
-    .hstat-lbl { font-size: 11px; color: var(--text-tertiary); margin-top: 3px; }
+    /* Hero */
+    .hero { padding: 60px 0 48px; text-align: center; border-bottom: 1px solid var(--border-subtle); margin-bottom: 48px; }
+    .hero h1 { font-family: var(--font-display); font-size: 32px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.03em; margin-bottom: 16px; line-height: 1.2; }
+    .hero h1 em { font-style: normal; color: var(--accent); }
+    .hero p { font-size: 16px; color: var(--text-tertiary); line-height: 1.7; max-width: 560px; margin: 0 auto; }
 
-    .tabs { display: flex; border-bottom: 1px solid var(--border-subtle); margin-bottom: 28px; overflow-x: auto; scrollbar-width: none; -ms-overflow-style: none; }
-    .tabs::-webkit-scrollbar { display: none; }
-    .tab { font-size: 13px; font-weight: 500; padding: 12px 16px; color: var(--text-tertiary); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all 0.15s; background: none; border-top: none; border-left: none; border-right: none; white-space: nowrap; font-family: var(--font-sans); }
-    .tab:hover { color: var(--text-secondary); }
-    .tab.active { color: var(--text-primary); border-bottom-color: var(--accent); }
-    .tab-panel { display: none; }
-    .tab-panel.active { display: block; }
+    /* Steps */
+    .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-bottom: 56px; }
+    .step { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 28px 24px; transition: border-color 0.15s; }
+    .step:hover { border-color: var(--border-default); }
+    .step-num { font-family: var(--font-mono); font-size: 13px; font-weight: 700; color: var(--accent); background: var(--accent-dim); width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-bottom: 16px; }
+    .step h3 { font-size: 16px; font-weight: 600; color: var(--text-primary); margin-bottom: 8px; }
+    .step p { font-size: 13px; color: var(--text-tertiary); line-height: 1.7; }
+    .step code { font-family: var(--font-mono); font-size: 12px; color: var(--accent-text); background: var(--accent-dim); padding: 2px 6px; border-radius: var(--radius-sm); }
 
-    .controls { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
-    .search-wrap { flex: 1; min-width: 200px; position: relative; }
-    .search-wrap svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--text-muted); pointer-events: none; }
-    .search-input { width: 100%; font-family: var(--font-sans); font-size: 13px; background: var(--bg-primary); border: 1px solid var(--border-default); color: var(--text-primary); padding: 8px 12px 8px 34px; border-radius: var(--radius-md); outline: none; transition: border-color 0.15s; }
-    .search-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }
-    .search-input::placeholder { color: var(--text-muted); }
-    .sort-select { font-family: var(--font-sans); font-size: 13px; background: var(--bg-primary); border: 1px solid var(--border-default); color: var(--text-secondary); padding: 8px 12px; border-radius: var(--radius-md); outline: none; cursor: pointer; }
-    .sort-select:focus { border-color: var(--accent); }
-    .cat-pills { display: flex; gap: 6px; flex-wrap: wrap; }
-    .cat-pill { font-size: 12px; font-weight: 500; padding: 5px 12px; border: 1px solid var(--border-default); color: var(--text-secondary); background: transparent; cursor: pointer; border-radius: 9999px; transition: all 0.15s; font-family: var(--font-sans); }
-    .cat-pill:hover { border-color: var(--border-strong); color: var(--text-primary); }
-    .cat-pill.on { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+    /* Stats */
+    .live-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 56px; }
+    .stat-card { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 24px; text-align: center; }
+    .stat-val { font-family: var(--font-mono); font-size: 28px; font-weight: 700; color: var(--accent); line-height: 1; margin-bottom: 6px; letter-spacing: -0.02em; }
+    .stat-lbl { font-size: 12px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.04em; }
 
-    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 12px; }
-    .skill-card { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 20px; position: relative; transition: border-color 0.15s; }
-    .skill-card:hover { border-color: var(--border-default); }
-    .skill-card.official { border-color: var(--accent-dim); }
-    .card-badge { position: absolute; top: 12px; right: 12px; font-size: 11px; font-weight: 500; color: var(--accent); border: 1px solid var(--accent-dim); padding: 2px 8px; background: var(--accent-subtle); border-radius: 9999px; }
-    .card-cat { font-size: 11px; color: var(--text-tertiary); margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
-    .skill-type-badge { font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; padding: 2px 7px; border-radius: 3px; }
-    .skill-type-badge.data { color: #ef4444; background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.25); }
-    .skill-type-badge.api_proxy { color: #3b82f6; background: rgba(59,130,246,0.12); border: 1px solid rgba(59,130,246,0.25); }
-    .skill-type-badge.prompt { color: #8b5cf6; background: rgba(139,92,246,0.12); border: 1px solid rgba(139,92,246,0.25); }
-    .card-info-badge { font-size: 10px; font-weight: 500; padding: 1px 6px; border-radius: 3px; white-space: nowrap; }
-    .card-info-badge.dynamic { color: #f59e0b; background: rgba(245,158,11,0.10); border: 1px solid rgba(245,158,11,0.20); }
-    .card-info-badge.verified { color: #10b981; background: rgba(16,185,129,0.10); border: 1px solid rgba(16,185,129,0.20); }
-    .card-info-badge.sla { color: #6366f1; background: rgba(99,102,241,0.10); border: 1px solid rgba(99,102,241,0.20); }
-    .type-pill { display:flex; align-items:center; gap:6px; padding:8px 14px; border:1px solid var(--border-default); border-radius:var(--radius-md); cursor:pointer; font-size:12px; color:var(--text-secondary); transition:all 0.15s; background:var(--bg-surface); }
-    .type-pill:hover { border-color:var(--border-strong); }
-    .type-pill.active { border-color:var(--accent); background:var(--accent-subtle); color:var(--text-primary); }
-    .card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
-    .card-name { font-size: 14px; font-weight: 600; color: var(--text-primary); cursor: pointer; line-height: 1.3; }
-    .card-name:hover { color: var(--accent); }
-    .card-slug { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
-    .card-ver { font-size: 11px; color: var(--text-secondary); margin-top: 4px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-    .card-price { text-align: right; flex-shrink: 0; }
-    .card-price-n { font-family: var(--font-display); font-size: 26px; font-weight: 700; color: #f59e0b; line-height: 1; letter-spacing: -0.02em; text-shadow: 0 0 20px rgba(245,158,11,0.3); }
-    .card-price-n span { font-size: 11px; font-weight: 500; color: var(--text-tertiary); letter-spacing: 0; text-shadow: none; }
-    .card-price-l { font-size: 11px; font-weight: 600; color: #d97706; margin-top: 3px; }
-    .card-desc { font-size: 13px; color: var(--text-secondary); line-height: 1.6; margin-bottom: 10px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-    .card-tags { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 10px; }
-    .card-tag { font-size: 11px; font-weight: 500; padding: 2px 9px; border: 1px solid var(--border-default); color: var(--text-secondary); border-radius: var(--radius-sm); background: var(--bg-surface-2); }
-    .card-metrics { display: flex; gap: 14px; margin-bottom: 14px; font-size: 12px; color: var(--text-secondary); }
-    .card-metrics b { color: var(--text-primary); font-weight: 600; }
-    .card-actions { display: flex; gap: 6px; }
-    .btn-buy { flex: 1; font-family: var(--font-sans); font-size: 13px; font-weight: 500; padding: 8px 12px; background: var(--accent-dim); border: 1px solid var(--accent-dim); color: var(--accent); cursor: pointer; border-radius: var(--radius-md); transition: all 0.15s; }
-    .btn-buy:hover { background: rgba(16,185,129,0.2); border-color: var(--accent); }
-    .btn-buy:disabled { opacity: 0.4; cursor: not-allowed; }
-    .btn-star { font-family: var(--font-sans); font-size: 13px; padding: 8px 10px; background: transparent; border: 1px solid var(--border-default); color: var(--text-tertiary); cursor: pointer; border-radius: var(--radius-md); transition: all 0.15s; }
-    .btn-star:hover, .btn-star.on { border-color: var(--warning); color: var(--warning); background: var(--warning-dim); }
+    /* Sections */
+    .section { margin-bottom: 56px; }
+    .section h2 { font-family: var(--font-display); font-size: 22px; font-weight: 600; color: var(--text-primary); margin-bottom: 8px; letter-spacing: -0.02em; }
+    .section > p { font-size: 14px; color: var(--text-tertiary); margin-bottom: 20px; line-height: 1.6; }
 
-    .sec { font-size: 11px; padding: 1px 6px; border: 1px solid; border-radius: var(--radius-sm); display: inline-block; }
-    .sec.clean { border-color: var(--accent-dim); color: var(--accent); }
-    .sec.verified { border-color: rgba(16,185,129,0.4); color: var(--accent); background: var(--accent-subtle); }
-    .sec.flagged { border-color: var(--danger-dim); color: var(--danger); }
-    .sec.unscanned { border-color: var(--border-default); color: var(--text-muted); }
-    .sec.suspicious { border-color: var(--warning-dim); color: var(--warning); }
+    /* Code blocks */
+    .code-example { margin-bottom: 20px; }
+    .code-label { font-size: 12px; font-weight: 600; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 8px; }
+    .code-block { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 16px 20px; font-family: var(--font-mono); font-size: 13px; color: var(--text-secondary); line-height: 1.7; overflow-x: auto; white-space: pre; }
+    .code-block .kw { color: var(--purple); }
+    .code-block .str { color: var(--accent-text); }
+    .code-block .cm { color: var(--text-muted); }
+    .code-block .fn { color: var(--info); }
 
-    .pg { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 28px; }
-    .pg-btn { font-family: var(--font-sans); font-size: 13px; padding: 6px 12px; border: 1px solid var(--border-default); color: var(--text-tertiary); background: transparent; cursor: pointer; border-radius: var(--radius-md); transition: all 0.15s; }
-    .pg-btn:hover:not(:disabled) { border-color: var(--border-strong); color: var(--text-primary); }
-    .pg-btn.on { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
-    .pg-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+    /* Agent section */
+    .agent-endpoints { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+    .agent-ep { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 16px 20px; }
+    .agent-ep .method { font-family: var(--font-mono); font-size: 11px; font-weight: 700; letter-spacing: 0.04em; padding: 2px 6px; border-radius: 3px; margin-right: 8px; }
+    .agent-ep .method.get { color: var(--accent); background: var(--accent-dim); }
+    .agent-ep .method.post { color: var(--info); background: var(--info-dim); }
+    .agent-ep .path { font-family: var(--font-mono); font-size: 13px; color: var(--text-primary); }
+    .agent-ep .desc { font-size: 12px; color: var(--text-tertiary); margin-top: 6px; line-height: 1.5; }
 
-    .empty { text-align: center; padding: 60px 20px; }
-    .empty-icon { font-size: 28px; opacity: 0.3; margin-bottom: 12px; }
-    .empty-title { font-size: 14px; color: var(--text-secondary); font-weight: 500; margin-bottom: 4px; }
-    .empty-sub { font-size: 13px; color: var(--text-tertiary); }
-    .skel { animation: skel-pulse 1.4s ease-in-out infinite; }
-    @keyframes skel-pulse { 0%,100% { opacity: 0.35; } 50% { opacity: 0.6; } }
-    .skel-card { background: var(--bg-surface); border: 1px solid var(--border-subtle); padding: 20px; border-radius: var(--radius-lg); }
-    .skel-line { background: var(--border-default); border-radius: var(--radius-sm); margin-bottom: 8px; }
-
-    .detail-back { font-size: 13px; color: var(--text-tertiary); display: inline-flex; align-items: center; gap: 6px; margin: 20px 0 24px; cursor: pointer; transition: color 0.15s; background: none; border: none; font-family: var(--font-sans); }
-    .detail-back:hover { color: var(--text-primary); }
-    .detail-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; flex-wrap: wrap; margin-bottom: 20px; }
-    .detail-title { font-family: var(--font-display); font-size: 24px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px; letter-spacing: -0.02em; }
-    .detail-slug { font-size: 12px; color: var(--text-muted); margin-bottom: 6px; }
-    .detail-subtitle { font-size: 12px; color: var(--text-tertiary); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-    .detail-actions { display: flex; gap: 8px; flex-shrink: 0; }
-    .detail-meta { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; margin-bottom: 24px; }
-    .meta-card { background: var(--bg-surface); border: 1px solid var(--border-subtle); padding: 14px 16px; border-radius: var(--radius-md); }
-    .meta-label { font-size: 11px; font-weight: 500; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px; }
-    .meta-val { font-size: 14px; color: var(--text-secondary); font-weight: 600; font-family: var(--font-mono); }
-    .meta-val.g { color: var(--accent); }
-    .detail-tabs { display: flex; border-bottom: 1px solid var(--border-subtle); margin-bottom: 24px; }
-    .dtab { font-size: 13px; font-weight: 500; padding: 10px 16px; color: var(--text-tertiary); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all 0.15s; background: none; border-top: none; border-left: none; border-right: none; font-family: var(--font-sans); }
-    .dtab:hover { color: var(--text-secondary); }
-    .dtab.active { color: var(--text-primary); border-bottom-color: var(--accent); }
-    .dtab-panel { display: none; }
-    .dtab-panel.active { display: block; }
-    .detail-desc { font-size: 14px; color: var(--text-secondary); line-height: 1.7; margin-bottom: 20px; max-width: 720px; }
-    .detail-readme { background: var(--bg-primary); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 16px 20px; font-size: 13px; font-family: var(--font-mono); color: var(--text-secondary); line-height: 1.6; white-space: pre-wrap; max-height: 400px; overflow-y: auto; margin-bottom: 20px; }
-    .cost-table { background: var(--bg-primary); border: 1px solid var(--border-subtle); max-width: 360px; border-radius: var(--radius-md); overflow: hidden; }
-    .cost-row { display: flex; justify-content: space-between; font-size: 13px; padding: 10px 16px; border-bottom: 1px solid var(--border-subtle); color: var(--text-secondary); }
-    .cost-row:last-child { border-bottom: none; color: var(--accent); font-weight: 600; font-family: var(--font-mono); }
-    .schema-block { background: var(--bg-primary); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 16px; font-size: 12px; font-family: var(--font-mono); color: var(--text-secondary); line-height: 1.5; overflow-x: auto; white-space: pre-wrap; max-height: 360px; overflow-y: auto; }
-    .invoke-section { background: var(--bg-surface-2); border: 1px solid var(--border-default); border-radius: var(--radius-lg); padding: 24px; margin-top: 20px; }
-    .invoke-title { font-size: 12px; font-weight: 600; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 14px; }
-    .invoke-result { display: none; margin-top: 14px; }
-    .result-answer { background: var(--bg-primary); border: 1px solid var(--accent-dim); border-radius: var(--radius-md); padding: 16px; font-size: 13px; color: var(--accent-text); line-height: 1.7; white-space: pre-wrap; max-height: 320px; overflow-y: auto; margin-bottom: 12px; }
-    .result-scores { display: flex; gap: 12px; margin-bottom: 12px; }
-    .score-card { flex: 1; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 12px 14px; }
-    .score-label { font-size: 11px; font-weight: 600; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
-    .score-bar-wrap { background: var(--bg-primary); border-radius: 4px; height: 6px; overflow: hidden; margin-bottom: 4px; }
-    .score-bar { height: 100%; border-radius: 4px; transition: width 0.4s ease; }
-    .score-bar.opportunity { background: var(--accent); }
-    .score-bar.risk { background: var(--warning); }
-    .score-num { font-size: 13px; font-weight: 600; font-family: var(--font-mono); }
-    .score-num.opportunity { color: var(--accent); }
-    .score-num.risk { color: var(--warning); }
-    .result-actions { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 12px 14px; margin-bottom: 12px; }
-    .result-actions-title { font-size: 11px; font-weight: 600; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
-    .result-action-item { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; color: var(--text-secondary); padding: 4px 0; }
-    .result-action-item::before { content: '→'; color: var(--accent); font-weight: 700; flex-shrink: 0; margin-top: 1px; }
-    .result-meta { display: flex; flex-wrap: wrap; gap: 6px; }
-    .meta-chip { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 20px; padding: 3px 10px; font-size: 11px; color: var(--text-tertiary); font-family: var(--font-mono); }
-    .runtime-card { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 16px; margin-bottom: 16px; }
-    .runtime-row { display: flex; justify-content: space-between; font-size: 13px; padding: 6px 0; border-bottom: 1px solid var(--border-subtle); }
-    .runtime-row:last-child { border-bottom: none; }
-    .runtime-row .k { color: var(--text-tertiary); }
-    .runtime-row .v { color: var(--text-secondary); font-family: var(--font-mono); }
-    .changelog-entry { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 16px 20px; font-size: 13px; color: var(--text-secondary); line-height: 1.7; white-space: pre-wrap; }
-
-    .endpoint-picker { background: var(--bg-primary); border: 1px solid var(--border-default); border-radius: var(--radius-md); max-height: 220px; overflow-y: auto; margin-top: 6px; }
-    .endpoint-item { display: flex; align-items: center; justify-content: space-between; padding: 7px 12px; font-size: 12px; border-bottom: 1px solid var(--border-subtle); cursor: pointer; transition: background 0.1s; }
-    .endpoint-item:last-child { border-bottom: none; }
-    .endpoint-item:hover { background: var(--bg-surface-2); }
-    .endpoint-item .ep-id { font-family: var(--font-mono); color: var(--text-primary); }
-    .endpoint-item .ep-cat { color: var(--text-muted); font-size: 11px; }
-    .endpoint-item .ep-add { font-size: 11px; font-weight: 600; color: var(--accent); padding: 2px 8px; border: 1px solid var(--accent-dim); border-radius: var(--radius-sm); }
-    .plan-step-list { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
-    .plan-step { display: flex; align-items: center; gap: 8px; background: var(--bg-surface-2); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 5px 10px; font-size: 12px; font-family: var(--font-mono); color: var(--text-secondary); }
-    .plan-step-rm { margin-left: auto; cursor: pointer; color: var(--text-muted); font-size: 14px; line-height: 1; padding: 0 2px; }
-    .plan-step-rm:hover { color: var(--danger); }
-    .badge-featured { display: inline-flex; align-items: center; gap: 4px; background: linear-gradient(135deg,#f59e0b22,#f59e0b11); border: 1px solid #f59e0b55; color: #f59e0b; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 9999px; letter-spacing: 0.03em; }
-    .star-rating { display: flex; gap: 4px; margin-bottom: 12px; }
-    .star-btn { font-size: 24px; cursor: pointer; background: none; border: none; color: var(--border-strong); line-height: 1; padding: 2px; transition: color 0.1s, transform 0.1s; }
-    .star-btn:hover, .star-btn.on { color: #f59e0b; transform: scale(1.15); }
-    .review-item { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 12px 14px; margin-bottom: 8px; }
-    .review-stars { color: #f59e0b; font-size: 13px; margin-bottom: 4px; }
-    .review-comment { font-size: 13px; color: var(--text-secondary); line-height: 1.6; }
-    .review-date { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
-    .stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; margin-bottom: 20px; }
-    .stat-card { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 14px; text-align: center; }
-    .stat-val { font-size: 22px; font-weight: 700; font-family: var(--font-mono); color: var(--accent); line-height: 1; margin-bottom: 4px; }
-    .stat-lbl { font-size: 11px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.04em; }
-    .dist-row { display: flex; align-items: center; gap: 8px; font-size: 12px; margin-bottom: 4px; }
-    .dist-bar-wrap { flex: 1; background: var(--bg-primary); border-radius: 4px; height: 6px; overflow: hidden; }
-    .dist-bar { height: 100%; background: #f59e0b; border-radius: 4px; }
-    .featured-section { margin-bottom: 24px; }
-    .featured-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: #f59e0b; margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
-    .featured-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
-    .test-panel { background: var(--bg-surface-2); border: 1px solid var(--accent-dim); border-radius: var(--radius-lg); padding: 20px; margin-top: 14px; }
-    .test-panel-title { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--accent); margin-bottom: 12px; }
-    .test-var-inputs { display: grid; gap: 10px; margin-bottom: 12px; }
-    .pub-layout { display: grid; grid-template-columns: 1fr 300px; gap: 20px; align-items: start; }
-    @media(max-width:860px) { .pub-layout { grid-template-columns: 1fr; } }
-    .form-card { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 28px; }
-    .form-title { font-family: var(--font-display); font-size: 18px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px; }
-    .form-sub { font-size: 13px; color: var(--text-tertiary); margin-bottom: 24px; line-height: 1.6; }
-    .form-group { margin-bottom: 16px; }
-    .form-label { font-size: 12px; font-weight: 500; color: var(--text-tertiary); display: block; margin-bottom: 6px; }
-    .form-label .hint { font-size: 11px; color: var(--text-muted); font-weight: 400; margin-left: 4px; }
-    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-    .form-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
-    .form-check { display: flex; align-items: center; gap: 8px; cursor: pointer; }
-    .form-check input { accent-color: var(--accent); width: 14px; height: 14px; cursor: pointer; }
-    .form-check span { font-size: 13px; color: var(--text-secondary); }
-    .field { font-family: var(--font-sans); font-size: 13px; background: var(--bg-primary); border: 1px solid var(--border-default); color: var(--text-primary); padding: 8px 12px; border-radius: var(--radius-md); outline: none; transition: border-color 0.15s; }
-    .field:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }
-    .field::placeholder { color: var(--text-muted); }
-    textarea.field { width: 100%; resize: vertical; min-height: 80px; line-height: 1.5; }
-    input.field, select.field { width: 100%; }
-    .var-preview { background: var(--bg-surface-2); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 10px 14px; font-size: 12px; color: var(--text-secondary); line-height: 1.7; margin-top: 6px; }
-    .var-tag { display: inline-block; background: var(--accent-dim); border: 1px solid rgba(16,185,129,0.3); padding: 1px 6px; border-radius: var(--radius-sm); color: var(--accent); font-weight: 600; font-family: var(--font-mono); margin: 0 2px; }
-    .btn-submit { font-family: var(--font-sans); font-size: 13px; font-weight: 500; padding: 10px 20px; background: var(--accent); border: 1px solid var(--accent); color: #000; cursor: pointer; width: 100%; border-radius: var(--radius-md); transition: all 0.15s; margin-top: 6px; }
-    .btn-submit:hover { background: var(--accent-hover); }
-    .btn-submit:disabled { opacity: 0.4; cursor: not-allowed; }
-
-    .info-card { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 18px; }
-    .info-card + .info-card { margin-top: 12px; }
-    .info-title { font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.06em; }
-    .info-row { display: flex; justify-content: space-between; align-items: center; font-size: 13px; padding: 6px 0; border-bottom: 1px solid var(--border-subtle); }
-    .info-row:last-child { border-bottom: none; }
-    .info-row .l { color: var(--text-tertiary); }
-    .info-row .v { color: var(--accent); font-weight: 600; font-family: var(--font-mono); }
-    .info-row .v.n { color: var(--text-secondary); font-family: var(--font-sans); }
-    .val-item { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 5px 0; color: var(--text-tertiary); }
-    .val-item.pass { color: var(--accent); }
-    .val-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--border-default); flex-shrink: 0; }
-    .val-item.pass .val-dot { background: var(--accent); }
-
-    .cstat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 24px; }
-    .cstat { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 16px; }
-    .cstat-val { font-family: var(--font-mono); font-size: 24px; font-weight: 700; color: var(--accent); letter-spacing: -0.5px; margin-bottom: 4px; }
-    .cstat-lbl { font-size: 11px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.04em; }
-    .my-skill-row { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 14px 18px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 8px; }
-    .my-skill-name { font-size: 14px; font-weight: 600; color: var(--text-primary); flex: 1; min-width: 140px; cursor: pointer; }
-    .my-skill-name:hover { color: var(--accent); }
-    .my-skill-id { font-size: 11px; color: var(--text-muted); margin-top: 2px; font-family: var(--font-mono); }
-    .my-skill-stat { text-align: center; }
-    .my-skill-stat .v { font-family: var(--font-mono); font-size: 16px; font-weight: 700; color: var(--accent); line-height: 1; }
-    .my-skill-stat .l { font-size: 11px; color: var(--text-tertiary); margin-top: 2px; text-transform: uppercase; }
-    .status-badge { font-size: 11px; padding: 2px 8px; border: 1px solid; border-radius: 9999px; font-weight: 500; }
-    .status-badge.live { border-color: var(--accent-dim); color: var(--accent); background: var(--accent-subtle); }
-    .status-badge.draft { border-color: var(--border-default); color: var(--text-tertiary); }
-    .btn-sm { font-family: var(--font-sans); font-size: 12px; padding: 5px 10px; border: 1px solid var(--border-default); color: var(--text-tertiary); background: transparent; cursor: pointer; border-radius: var(--radius-sm); transition: all 0.15s; }
-    .btn-sm:hover { border-color: var(--border-strong); color: var(--text-primary); }
-    .btn-sm.danger:hover { border-color: var(--danger); color: var(--danger); }
-
-    .econ-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
-    .econ-card { background: var(--bg-surface-2); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 20px; }
-    .econ-icon { font-size: 20px; margin-bottom: 10px; }
-    .econ-title { font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 6px; }
-    .econ-desc { font-size: 13px; color: var(--text-tertiary); line-height: 1.6; }
-
-    footer { border-top: 1px solid var(--border-subtle); padding: 28px 24px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; }
     footer { border-top: 1px solid var(--border-subtle); padding: 48px 24px 32px; max-width: 1240px; margin: 0 auto; }
     .footer-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 32px; margin-bottom: 32px; }
     .footer-grid h4 { font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
@@ -366,23 +156,8 @@
     .footer-bottom { padding-top: 24px; border-top: 1px solid var(--border-subtle); text-align: center; }
     .footer-bottom span { font-size: 12px; color: var(--text-muted); }
 
-    .mobile-menu { display: none; position: fixed; top: 56px; left: 0; right: 0; background: var(--bg-surface); border-bottom: 1px solid var(--border-default); z-index: 99; padding: 12px 24px; max-height: calc(100vh - 56px); overflow-y: auto; }
-    .mobile-menu.open { display: block; }
-    .mobile-menu a { display: block; padding: 10px 0; font-size: 14px; color: var(--text-secondary); border-bottom: 1px solid var(--border-subtle); text-decoration: none; }
-    .mobile-menu a:last-child { border-bottom: none; }
-    .mobile-menu a:hover { color: var(--accent); }
-    .mobile-menu-group { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; padding: 12px 0 4px; }
-    .mobile-menu-group:first-child { padding-top: 0; }
-    @media(max-width:900px) { .nav-links { display: none; } .mobile-menu-btn { display: block; } .btn-contact { display: none; } .nav-status { display: none; } .footer-grid { grid-template-columns: repeat(2, 1fr); } }
-    @media(max-width:640px) {
-      main { padding: 64px 16px 60px; }
-      .mkt-hero { flex-direction: column; align-items: flex-start; }
-      .grid { grid-template-columns: 1fr; }
-      .cstat-grid { grid-template-columns: 1fr 1fr; }
-      .detail-meta { grid-template-columns: 1fr 1fr; }
-      .my-skill-row { flex-direction: column; align-items: flex-start; }
-      .form-row, .form-row-3 { grid-template-columns: 1fr; }
-    }
+    @media(max-width:900px) { .nav-links { display: none; } .mobile-menu-btn { display: block; } .nav-status { display: none; } .footer-grid { grid-template-columns: repeat(2, 1fr); } }
+    @media(max-width:640px) { main { padding: 64px 16px 60px; } .steps { grid-template-columns: 1fr; } .live-stats { grid-template-columns: 1fr; } .hero h1 { font-size: 24px; } }
   </style>
 <script>if(localStorage.getItem('clawnet_theme')==='light')document.documentElement.setAttribute('data-theme','light')</script>
 </head>
@@ -405,7 +180,7 @@
       <button class="dropdown-toggle">Developers &#9662;</button>
       <div class="dropdown-menu">
         <a href="/endpoints.html">API Endpoints</a>
-        <a href="/marketplace.html">Marketplace</a>
+        <a href="/marketplace.html">Agent Services</a>
         <a href="/docs.html">Documentation</a>
         <a href="/playground.html">Playground</a>
         <a href="/#pricing">Pricing</a>
@@ -441,7 +216,7 @@
   <a href="/roadmap.html">Radar &mdash; Trading (Coming Soon)</a>
   <div class="mobile-menu-group">Developers</div>
   <a href="/endpoints.html">API Endpoints</a>
-  <a href="/marketplace.html">Marketplace</a>
+  <a href="/marketplace.html">Agent Services</a>
   <a href="/docs.html">Documentation</a>
   <a href="/playground.html">Playground</a>
   <a href="/#pricing">Pricing</a>
@@ -455,365 +230,130 @@
 </div>
 
 <main>
-  <div class="view active" id="v-browse">
-    <div class="mkt-hero">
-      <div>
-        <h1 class="mkt-hero-title">The <span>AI Skill</span> Economy</h1>
-        <p class="mkt-hero-sub">Discover, purchase, and publish AI skills. Pay per use. Earn 85% as a creator. One API call to buy and execute.</p>
-      </div>
-      <div class="mkt-hero-stats">
-        <div class="hstat"><div class="hstat-val g" id="stat-total">&mdash;</div><div class="hstat-lbl">Skills</div></div>
-        <div class="hstat"><div class="hstat-val g">85%</div><div class="hstat-lbl">To Creator</div></div>
-        <div class="hstat"><div class="hstat-val p">15%</div><div class="hstat-lbl">Platform</div></div>
-      </div>
-    </div>
+  <!-- HERO -->
+  <div class="hero">
+    <h1>Agents discover, consume, and pay for services <em>autonomously.</em></h1>
+    <p>Register your API. Set your price. Earn 85% of every call.</p>
+  </div>
 
-    <div class="tabs" id="main-tabs">
-      <button class="tab active" data-tab="browse">Browse</button>
-      <button class="tab" data-tab="publish">Publish</button>
-      <button class="tab" data-tab="my-skills">My Skills</button>
-      <button class="tab" data-tab="purchases">Purchases</button>
-      <button class="tab" data-tab="starred">Starred</button>
-      <button class="tab" data-tab="tasks">Task History</button>
-      <button class="tab" data-tab="economy">How It Works</button>
+  <!-- HOW IT WORKS -->
+  <div class="section">
+    <h2>How It Works</h2>
+  </div>
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">1</div>
+      <h3>Register Your Service</h3>
+      <p><code>POST /v1/skills</code> with type <code>api_proxy</code> and your API URL. ClawNet wraps it with billing, discovery, trust signals, and SLA monitoring.</p>
     </div>
-
-    <!-- BROWSE -->
-    <div class="tab-panel active" id="tp-browse">
-      <div class="featured-section" id="featured-section" style="display:none">
-        <div class="featured-label">★ Featured Skills</div>
-        <div class="featured-grid" id="featured-grid"></div>
-      </div>
-      <div class="controls">
-        <div class="search-wrap">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-          <input type="text" class="search-input" id="search-input" placeholder="Search skills... (Ctrl+K)" oninput="debounceSearch()">
-        </div>
-        <div id="search-count" style="font-size:12px;color:var(--text-muted);white-space:nowrap"></div>
-        <select class="sort-select" id="sort-select" onchange="loadSkills()">
-          <option value="popular">Popular</option>
-          <option value="stars">Most Starred</option>
-          <option value="newest">Newest</option>
-          <option value="price_asc">Price: Low</option>
-          <option value="price_desc">Price: High</option>
-          <option value="reputation">Reputation</option>
-        </select>
-        <div class="cat-pills" id="type-pills" style="margin-bottom:4px">
-          <button class="cat-pill on" data-type="" onclick="setTypeFilter('',this)">All Types</button>
-          <button class="cat-pill" data-type="prompt_template" onclick="setTypeFilter('prompt_template',this)"><span class="skill-type-badge prompt" style="font-size:9px;padding:1px 5px">PROMPT</span></button>
-          <button class="cat-pill" data-type="api_proxy" onclick="setTypeFilter('api_proxy',this)"><span class="skill-type-badge api_proxy" style="font-size:9px;padding:1px 5px">API PROXY</span></button>
-          <button class="cat-pill" data-type="data" onclick="setTypeFilter('data',this)"><span class="skill-type-badge data" style="font-size:9px;padding:1px 5px">DATA SKILL</span></button>
-        </div>
-        <div class="cat-pills" id="cat-pills">
-          <button class="cat-pill on" data-cat="">All</button>
-          <button class="cat-pill" data-cat="defi">⬡ DeFi</button>
-          <button class="cat-pill" data-cat="security">🔒 Security</button>
-          <button class="cat-pill" data-cat="social">◎ Social</button>
-          <button class="cat-pill" data-cat="ai">✦ AI</button>
-          <button class="cat-pill" data-cat="search">⌕ Search</button>
-          <button class="cat-pill" data-cat="media">▶ Media</button>
-          <button class="cat-pill" data-cat="enrichment">⊕ Enrichment</button>
-          <button class="cat-pill" data-cat="analytics">∿ Analytics</button>
-          <button class="cat-pill" data-cat="infrastructure">⚙ Infra</button>
-          <button class="cat-pill" data-cat="utility">◇ Utility</button>
-          <button class="cat-pill" data-cat="weather">☁ Weather</button>
-        </div>
-      </div>
-      <div class="grid" id="skills-grid"></div>
-      <div class="pg" id="pagination"></div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <h3>Agents Discover It</h3>
+      <p>Other agents find your service via <code>POST /v1/discover</code>. Ranked by price, latency, success rate, and reputation.</p>
     </div>
-
-    <!-- PUBLISH -->
-    <div class="tab-panel" id="tp-publish">
-      <div class="pub-layout">
-        <div class="form-card">
-          <h2 class="form-title">Publish a Skill</h2>
-          <p class="form-sub">Create a prompt-powered AI skill, API proxy, or live data feed. Skills run on the ClawNet orchestration layer — no infra needed. You earn 85% of every purchase.</p>
-          <div class="form-group" style="margin-bottom:16px">
-            <label class="form-label">Skill Type</label>
-            <div style="display:flex;gap:8px">
-              <label class="type-pill active" id="tp-prompt_template" onclick="setSkillType('prompt_template')"><input type="radio" name="pub-type" value="prompt_template" checked style="display:none"><span class="skill-type-badge prompt">PROMPT</span> AI prompt template</label>
-              <label class="type-pill" id="tp-api_proxy" onclick="setSkillType('api_proxy')"><input type="radio" name="pub-type" value="api_proxy" style="display:none"><span class="skill-type-badge api_proxy">API PROXY</span> Forward to external API</label>
-              <label class="type-pill" id="tp-data" onclick="setSkillType('data')"><input type="radio" name="pub-type" value="data" style="display:none"><span class="skill-type-badge data">DATA SKILL</span> Live data feed</label>
-            </div>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label class="form-label">Slug <span class="hint">— unique identifier</span></label>
-              <input type="text" class="field" id="pub-slug" placeholder="my-skill-name" oninput="onSlugInput()">
-            </div>
-            <div class="form-group">
-              <label class="form-label">Display Name</label>
-              <input type="text" class="field" id="pub-display" placeholder="My Skill Name" oninput="updateValidation()">
-            </div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Description <span class="hint">— what does this skill do?</span></label>
-            <textarea class="field" id="pub-desc" rows="3" placeholder="Analyze NFT collection floor prices, volume trends, and whale activity on Solana." oninput="updateValidation()"></textarea>
-          </div>
-          <div class="form-group" id="fg-prompt">
-            <label class="form-label">Prompt Template <span class="hint">— use &#123;&#123;variable&#125;&#125; for inputs</span></label>
-            <textarea class="field" id="pub-prompt" rows="5" placeholder="Analyze the NFT collection {{collection}} on Solana. Include floor price, 24h volume, top holders." oninput="updateValidation()"></textarea>
-            <div class="var-preview" id="var-preview" style="display:none"></div>
-          </div>
-          <div class="form-group" id="fg-proxy" style="display:none">
-            <label class="form-label">Proxy URL <span class="hint">— external HTTPS endpoint to forward requests to</span></label>
-            <input type="url" class="field" id="pub-proxy-url" placeholder="https://api.example.com/v1/data" oninput="updateValidation()">
-          </div>
-          <div id="fg-data-fields" style="display:none">
-            <div class="form-row">
-              <div class="form-group">
-                <label class="form-label">Update Frequency</label>
-                <select class="field" id="pub-frequency">
-                  <option value="realtime">Realtime (60s cache)</option>
-                  <option value="hourly">Hourly</option>
-                  <option value="daily" selected>Daily</option>
-                  <option value="weekly">Weekly</option>
-                  <option value="static">Static (30d cache)</option>
-                </select>
-              </div>
-            </div>
-            <div class="form-group">
-              <label class="form-label">Sample Output JSON <span class="hint">— example response shown on marketplace card</span></label>
-              <textarea class="field" id="pub-sample-output" rows="4" placeholder='{ "date": "2026-03-12", "close": 5234.18, "volume": 1234567 }' oninput="updateValidation()"></textarea>
-            </div>
-          </div>
-          <div class="form-row-3">
-            <div class="form-group">
-              <label class="form-label">Price (credits)</label>
-              <input type="number" class="field" id="pub-price" min="0" max="10000" placeholder="5" oninput="updateValidation()">
-            </div>
-            <div class="form-group">
-              <label class="form-label">Version</label>
-              <input type="text" class="field" id="pub-version" value="1.0.0" placeholder="1.0.0">
-            </div>
-            <div class="form-group">
-              <label class="form-label">License</label>
-              <select class="field" id="pub-license">
-                <option value="MIT">MIT</option>
-                <option value="MIT-0">MIT-0</option>
-                <option value="Apache-2.0">Apache 2.0</option>
-                <option value="GPL-3.0">GPL 3.0</option>
-                <option value="Proprietary">Proprietary</option>
-              </select>
-            </div>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label class="form-label">Category</label>
-              <select class="field" id="pub-category">
-                <option value="general">General</option><option value="defi">DeFi</option>
-                <option value="security">Security</option><option value="social">Social</option>
-                <option value="ai">AI / ML</option><option value="search">Search</option>
-                <option value="media">Media</option><option value="enrichment">Lead Enrichment</option>
-                <option value="analytics">Analytics</option><option value="infrastructure">Infrastructure</option>
-                <option value="utility">Utility</option><option value="weather">Weather</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label class="form-label">Tags <span class="hint">— comma-separated, max 10</span></label>
-              <input type="text" class="field" id="pub-tags" placeholder="solana, nft, analysis" oninput="updateValidation()">
-            </div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Changelog <span class="hint">— what's in this version?</span></label>
-            <textarea class="field" id="pub-changelog" rows="2" placeholder="Initial release."></textarea>
-          </div>
-          <div class="form-group">
-            <label class="form-label">README <span class="hint">— optional</span></label>
-            <textarea class="field" id="pub-readme" rows="4" placeholder="# My Skill&#10;&#10;Detailed description, usage examples, caveats..."></textarea>
-          </div>
-          <div class="form-group" style="margin-top:20px;padding-top:20px;border-top:1px solid var(--border-subtle)">
-            <label class="form-label">Execution Plan <span class="hint">— optional: pick registry endpoints to bypass LLM intent parsing</span></label>
-            <input type="text" class="field" id="ep-search" placeholder="Search endpoints (e.g. price, wallet, sentiment)..." oninput="filterEndpoints()" onfocus="loadRegistryEndpoints()">
-            <div class="endpoint-picker" id="endpoint-picker" style="display:none"></div>
-            <div class="plan-step-list" id="plan-step-list"></div>
-          </div>
-          <div style="margin-top:20px;border:1px solid var(--border-subtle);background:var(--accent-subtle);padding:18px 20px;border-radius:var(--radius-md)">
-            <div style="font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:10px">License &amp; Terms</div>
-            <div style="font-size:13px;color:var(--text-tertiary);line-height:1.6;margin-bottom:12px">
-              <div style="display:grid;gap:4px">
-                <div><strong style="color:var(--text-secondary)">MIT</strong> — Freely use, modify, redistribute.</div>
-                <div><strong style="color:var(--text-secondary)">Apache 2.0</strong> — Like MIT with patent grant.</div>
-                <div><strong style="color:var(--text-secondary)">GPL 3.0</strong> — Outputs must remain open source.</div>
-                <div><strong style="color:var(--text-secondary)">Proprietary</strong> — Use as-is only.</div>
-              </div>
-              <p style="margin-top:8px;font-size:12px;color:var(--text-muted)">15% platform fee applies to all purchases. Earnings withdrawable as USDC.</p>
-            </div>
-            <label class="form-check"><input type="checkbox" id="pub-license-agree"><span>I have the rights to publish this skill and agree to the license terms</span></label>
-          </div>
-          <div style="margin-top:14px;margin-bottom:12px">
-            <label class="form-check"><input type="checkbox" id="pub-public" checked><span>List publicly in marketplace</span></label>
-          </div>
-          <button class="btn-submit" id="pub-btn" onclick="publishSkill()">Publish Skill &rarr;</button>
-          <div id="pub-result" style="margin-top:12px;font-size:13px;display:none;padding:10px 14px;border:1px solid var(--border-subtle);border-radius:var(--radius-md)"></div>
-          <div class="test-panel" id="test-panel" style="display:none">
-            <div class="test-panel-title">Test Run — no credits charged</div>
-            <div class="test-var-inputs" id="test-var-inputs"></div>
-            <button class="btn-submit" id="test-btn" onclick="doSkillTest()" style="background:transparent;border-color:var(--accent);color:var(--accent)">Run Test &rarr;</button>
-            <div id="test-result" class="invoke-result" style="margin-top:12px"></div>
-          </div>
-        </div>
-        <div>
-          <div class="info-card">
-            <div class="info-title">Validation</div>
-            <div id="validation-list">
-              <div class="val-item"><span class="val-dot"></span>Slug is required</div>
-              <div class="val-item"><span class="val-dot"></span>Display name is required</div>
-              <div class="val-item"><span class="val-dot"></span>Description (min 10 chars)</div>
-              <div class="val-item"><span class="val-dot"></span>Prompt template (min 10 chars)</div>
-              <div class="val-item"><span class="val-dot"></span>Accept license terms</div>
-            </div>
-          </div>
-          <div class="info-card">
-            <div class="info-title">Creator Economics</div>
-            <div class="info-row"><span class="l">Your cut</span><span class="v">85%</span></div>
-            <div class="info-row"><span class="l">Platform fee</span><span class="v n">15%</span></div>
-            <div class="info-row"><span class="l">Payment</span><span class="v n">Instant</span></div>
-            <div class="info-row"><span class="l">Min price</span><span class="v n">0 credits</span></div>
-            <div id="earnings-preview" style="display:none;margin-top:8px;padding-top:8px;border-top:1px solid var(--border-subtle)">
-              <div class="info-row"><span class="l">Per sale you earn</span><span class="v" id="ep-earn">0</span></div>
-              <div class="info-row"><span class="l">Platform takes</span><span class="v n" id="ep-fee">0</span></div>
-            </div>
-          </div>
-          <div class="info-card">
-            <div class="info-title">After Publishing</div>
-            <div style="font-size:13px;color:var(--text-tertiary);line-height:1.7">
-              <p>Your skill appears immediately. Credits can be:</p>
-              <ul style="margin:8px 0 0 16px;display:flex;flex-direction:column;gap:4px">
-                <li>Used to invoke other skills</li>
-                <li>Staked to boost visibility</li>
-                <li>Withdrawn as USDC</li>
-              </ul>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- MY SKILLS -->
-    <div class="tab-panel" id="tp-my-skills">
-      <div id="my-auth" style="display:none">
-        <div class="card" style="text-align:center;padding:40px">
-          <p style="color:var(--text-tertiary);margin-bottom:12px">Sign in to view your skills and earnings</p>
-          <a href="/dashboard.html" class="btn btn-primary">Go to Dashboard</a>
-        </div>
-      </div>
-      <div id="my-content" style="display:none">
-        <div class="cstat-grid">
-          <div class="cstat"><div class="cstat-val" id="cs-earned">&mdash;</div><div class="cstat-lbl">Credits Earned</div></div>
-          <div class="cstat"><div class="cstat-val" id="cs-sales">&mdash;</div><div class="cstat-lbl">Total Sales</div></div>
-          <div class="cstat"><div class="cstat-val" id="cs-skills">&mdash;</div><div class="cstat-lbl">Published</div></div>
-        </div>
-        <div id="my-skills-list"></div>
-        <div style="margin-top:28px;padding-top:20px;border-top:1px solid var(--border-subtle)">
-          <div style="font-size:14px;font-weight:600;color:var(--text-secondary);margin-bottom:4px">Withdraw Earnings</div>
-          <div style="font-size:13px;color:var(--text-tertiary);margin-bottom:14px">Convert credits to USDC. Min 1,000 credits ($0.75). Sent within 48h.</div>
-          <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:8px;max-width:600px;align-items:end">
-            <div><label class="form-label">Credits</label><input type="number" class="field" id="wd-amount" placeholder="1000" min="1000" style="width:100%"></div>
-            <div><label class="form-label">USDC wallet (Solana)</label><input type="text" class="field" id="wd-wallet" placeholder="Solana address" style="width:100%"></div>
-            <button class="btn btn-primary" onclick="requestWithdraw()">Withdraw</button>
-          </div>
-          <div id="wd-result" style="margin-top:10px;font-size:13px;display:none;padding:10px 14px;border:1px solid var(--border-subtle);border-radius:var(--radius-md)"></div>
-          <div id="wd-history" style="margin-top:14px"></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- PURCHASES -->
-    <div class="tab-panel" id="tp-purchases">
-      <div id="purch-auth" style="display:none">
-        <div class="card" style="text-align:center;padding:40px">
-          <p style="color:var(--text-tertiary);margin-bottom:12px">Sign in to view purchased skills</p>
-          <a href="/dashboard.html" class="btn btn-primary">Go to Dashboard</a>
-        </div>
-      </div>
-      <div id="purch-content" style="display:none">
-        <div class="cstat-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:20px">
-          <div class="cstat"><div class="cstat-val" id="pc-count">&mdash;</div><div class="cstat-lbl">Skills Purchased</div></div>
-          <div class="cstat"><div class="cstat-val" id="pc-spent">&mdash;</div><div class="cstat-lbl">Credits Spent</div></div>
-          <div class="cstat"><div class="cstat-val" id="pc-usd">&mdash;</div><div class="cstat-lbl">USD Equivalent</div></div>
-        </div>
-        <div id="purch-list"></div>
-      </div>
-    </div>
-
-    <!-- STARRED -->
-    <div class="tab-panel" id="tp-starred">
-      <div id="starred-list" style="display:flex;flex-direction:column;gap:10px"></div>
-    </div>
-
-    <!-- TASK HISTORY -->
-    <div class="tab-panel" id="tp-tasks">
-      <div id="tasks-auth" style="display:none">
-        <div class="card" style="text-align:center;padding:40px">
-          <p style="color:var(--text-tertiary);margin-bottom:12px">Sign in to view task history</p>
-          <a href="/dashboard.html" class="btn btn-primary">Go to Dashboard</a>
-        </div>
-      </div>
-      <div id="tasks-content" style="display:none">
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:24px">
-          <div class="card"><div style="font-family:var(--font-mono);font-size:28px;font-weight:700;color:var(--text-primary)" id="ts-total">—</div><div style="font-size:12px;color:var(--text-tertiary);margin-top:4px">Total Tasks</div></div>
-          <div class="card"><div style="font-family:var(--font-mono);font-size:28px;font-weight:700;color:var(--accent)" id="ts-completed">—</div><div style="font-size:12px;color:var(--text-tertiary);margin-top:4px">Completed</div></div>
-          <div class="card"><div style="font-family:var(--font-mono);font-size:28px;font-weight:700;color:var(--text-primary)" id="ts-credits">—</div><div style="font-size:12px;color:var(--text-tertiary);margin-top:4px">Credits Spent</div></div>
-        </div>
-        <div class="card" style="padding:0;overflow:hidden">
-          <table style="width:100%;border-collapse:collapse;font-size:13px">
-            <thead><tr style="border-bottom:1px solid var(--border-subtle)">
-              <th style="font-size:11px;font-weight:500;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em;text-align:left;padding:10px 16px">Task ID</th>
-              <th style="font-size:11px;font-weight:500;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em;text-align:left;padding:10px 16px">Skill</th>
-              <th style="font-size:11px;font-weight:500;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em;text-align:left;padding:10px 16px">Status</th>
-              <th style="font-size:11px;font-weight:500;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em;text-align:left;padding:10px 16px">Credits</th>
-              <th style="font-size:11px;font-weight:500;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em;text-align:left;padding:10px 16px">Duration</th>
-              <th style="font-size:11px;font-weight:500;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em;text-align:left;padding:10px 16px">Created</th>
-              <th style="font-size:11px;font-weight:500;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em;text-align:left;padding:10px 16px">Actions</th>
-            </tr></thead>
-            <tbody id="tasks-tbody"></tbody>
-          </table>
-        </div>
-        <div id="tasks-pagination" style="margin-top:16px"></div>
-      </div>
-    </div>
-
-    <!-- HOW IT WORKS -->
-    <div class="tab-panel" id="tp-economy">
-      <div style="max-width:720px">
-        <h2 style="font-family:var(--font-display);font-size:22px;font-weight:600;color:var(--text-primary);margin-bottom:8px;letter-spacing:-0.02em">How the Skill Economy Works</h2>
-        <p style="font-size:14px;color:var(--text-tertiary);margin-bottom:28px;line-height:1.8">A closed-loop credit economy. Credits flow in from real money (Stripe/USDC), circulate through the skill ecosystem, and accumulate as reputation.</p>
-        <div class="econ-grid" style="margin-bottom:32px">
-          <div class="econ-card"><div class="econ-icon">💳</div><div class="econ-title">Buy Credits</div><div class="econ-desc">Stripe or USDC on Solana. 1 credit = $0.001. No subscriptions.</div></div>
-          <div class="econ-card"><div class="econ-icon">🛒</div><div class="econ-title">Purchase &amp; Execute</div><div class="econ-desc">One API call: pay + run. Atomic settlement — no partial states.</div></div>
-          <div class="econ-card"><div class="econ-icon">⚡</div><div class="econ-title">Instant Results</div><div class="econ-desc">Variables fill the prompt template, orchestrator runs it, answer back.</div></div>
-          <div class="econ-card"><div class="econ-icon">💰</div><div class="econ-title">85% to Creator</div><div class="econ-desc">Every purchase instantly credits the author. 15% platform fee.</div></div>
-          <div class="econ-card"><div class="econ-icon">🔒</div><div class="econ-title">Staking</div><div class="econ-desc">Lock credits to boost discovery ranking. Returned after lock period.</div></div>
-          <div class="econ-card"><div class="econ-icon">📊</div><div class="econ-title">Reputation</div><div class="econ-desc">Success rate + staking = better ranking = more organic sales.</div></div>
-        </div>
-        <div class="card" style="padding:20px">
-          <div style="font-size:12px;font-weight:600;color:var(--text-primary);margin-bottom:12px;text-transform:uppercase;letter-spacing:0.06em">The Credit Loop</div>
-          <div style="display:flex;align-items:center;flex-wrap:wrap;font-size:13px;gap:0;row-gap:8px">
-            <div style="background:var(--bg-surface-2);border:1px solid var(--border-default);padding:8px 14px;color:var(--text-secondary);border-radius:var(--radius-md)">Buy credits<br><span style="color:var(--text-muted);font-size:11px">Stripe / USDC</span></div>
-            <div style="padding:0 10px;color:var(--accent)">&rarr;</div>
-            <div style="background:var(--bg-surface-2);border:1px solid var(--border-default);padding:8px 14px;color:var(--text-secondary);border-radius:var(--radius-md)">Purchase skill<br><span style="color:var(--text-muted);font-size:11px">&minus;credits from buyer</span></div>
-            <div style="padding:0 10px;color:var(--accent)">&rarr;</div>
-            <div style="background:var(--bg-surface-2);border:1px solid var(--border-default);padding:8px 14px;color:var(--text-secondary);border-radius:var(--radius-md)">Creator earns<br><span style="color:var(--text-muted);font-size:11px">+85% instant</span></div>
-            <div style="padding:0 10px;color:var(--accent)">&rarr;</div>
-            <div style="background:var(--accent-dim);border:1px solid var(--accent-dim);padding:8px 14px;color:var(--accent);border-radius:var(--radius-md)">Re-invest / withdraw<br><span style="color:var(--accent-text);font-size:11px">or stake for visibility</span></div>
-          </div>
-        </div>
-      </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <h3>You Earn Credits</h3>
+      <p>Every call: you earn 85%, ClawNet earns 15%. Withdraw as USDC anytime.</p>
     </div>
   </div>
 
-  <div class="view" id="v-detail">
-    <button class="detail-back" onclick="nav('')">&larr; Back to Marketplace</button>
-    <div id="detail-content"></div>
+  <!-- LIVE STATS -->
+  <div class="section">
+    <h2>Live Stats</h2>
+  </div>
+  <div class="live-stats">
+    <div class="stat-card">
+      <div class="stat-val" id="stat-services">&mdash;</div>
+      <div class="stat-lbl">Active Services</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-val" id="stat-transactions">&mdash;</div>
+      <div class="stat-lbl">Total Transactions</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-val" id="stat-credits">&mdash;</div>
+      <div class="stat-lbl">Credits Traded Today</div>
+    </div>
+  </div>
+
+  <!-- FOR DEVELOPERS -->
+  <div class="section">
+    <h2>For Developers</h2>
+    <p>Three API calls to go from zero to earning revenue.</p>
+
+    <div class="code-example">
+      <div class="code-label">Register a Service</div>
+      <div class="code-block"><span class="kw">POST</span> https://api.claw-net.org/v1/skills
+<span class="cm">// Headers</span>
+X-API-Key: cn-your-key
+Content-Type: application/json
+
+{
+  <span class="str">"name"</span>: <span class="str">"my-price-feed"</span>,
+  <span class="str">"displayName"</span>: <span class="str">"My Price Feed"</span>,
+  <span class="str">"description"</span>: <span class="str">"Real-time token prices from my aggregator"</span>,
+  <span class="str">"skillType"</span>: <span class="str">"api_proxy"</span>,
+  <span class="str">"proxyUrl"</span>: <span class="str">"https://my-api.com/prices"</span>,
+  <span class="str">"creditCost"</span>: 1.5,
+  <span class="str">"category"</span>: <span class="str">"defi"</span>
+}</div>
+    </div>
+
+    <div class="code-example">
+      <div class="code-label">Invoke a Service</div>
+      <div class="code-block"><span class="kw">POST</span> https://api.claw-net.org/v1/skills/:id/invoke
+<span class="cm">// Headers</span>
+X-API-Key: cn-your-key
+Content-Type: application/json
+
+{
+  <span class="str">"variables"</span>: {
+    <span class="str">"query"</span>: <span class="str">"What is the current price of SOL?"</span>
+  }
+}</div>
+    </div>
+
+    <div class="code-example">
+      <div class="code-label">Discover Services</div>
+      <div class="code-block"><span class="kw">POST</span> https://api.claw-net.org/v1/discover
+<span class="cm">// Headers</span>
+X-API-Key: cn-your-key
+Content-Type: application/json
+
+{
+  <span class="str">"query"</span>: <span class="str">"real-time token price data"</span>,
+  <span class="str">"limit"</span>: 5
+}</div>
+    </div>
+  </div>
+
+  <!-- FOR AGENTS -->
+  <div class="section">
+    <h2>For Agents</h2>
+    <p>Your agent can discover and consume services programmatically. No human in the loop.</p>
+
+    <div class="agent-endpoints">
+      <div class="agent-ep">
+        <div><span class="method get">GET</span><span class="path">/v1/endpoints</span></div>
+        <div class="desc">344 raw API endpoints. Browse the full registry of available capabilities.</div>
+      </div>
+      <div class="agent-ep">
+        <div><span class="method post">POST</span><span class="path">/v1/discover</span></div>
+        <div class="desc">Semantic + P2P service discovery. Find the best service for any task, ranked by price, latency, and trust.</div>
+      </div>
+      <div class="agent-ep">
+        <div><span class="method post">POST</span><span class="path">/v1/skills/:id/invoke</span></div>
+        <div class="desc">Call any service, pay per use. Credits deducted automatically. 85% goes to the service creator.</div>
+      </div>
+    </div>
   </div>
 </main>
 
 <footer>
   <div class="footer-grid">
     <div><h4>Product</h4><a href="https://pulse.claw-net.org">Pulse</a><a href="/roadmap.html">Roadmap</a><a href="/status.html">Status</a></div>
-    <div><h4>Developers</h4><a href="/endpoints.html">API Endpoints</a><a href="/marketplace.html">Marketplace</a><a href="/docs.html">Documentation</a><a href="/playground.html">Playground</a></div>
+    <div><h4>Developers</h4><a href="/endpoints.html">API Endpoints</a><a href="/marketplace.html">Agent Services</a><a href="/docs.html">Documentation</a><a href="/playground.html">Playground</a></div>
     <div><h4>Company</h4><a href="/contact-section.html">Contact</a><a href="/terms.html">Terms</a><a href="/privacy.html">Privacy</a></div>
     <div><h4>Community</h4><a href="https://x.com/i/communities/2031805527043576245" target="_blank">X Community</a><a href="https://github.com/1xmint" target="_blank">GitHub</a><a href="https://t.me/claw_net" target="_blank">Telegram</a></div>
   </div>
@@ -822,1463 +362,68 @@
 
 <script>
 const API = 'https://api.claw-net.org';
-const OFFICIAL = new Set(['token-analysis','social-sentiment','portfolio-optimizer','wallet-profiler','trending-tokens','whale-tracker','defi-yield-scanner','token-launch-radar','price-oracle','nft-collection-intel']);
-const CAT_ICONS = {defi:'⬡',security:'🔒',social:'◎',ai:'✦',search:'⌕',media:'▶',enrichment:'⊕',analytics:'∿',infrastructure:'⚙',utility:'◇',weather:'☁',general:'◆'};
 
-let currentSkillType = 'prompt_template';
-function setSkillType(type) {
-  currentSkillType = type;
-  document.querySelectorAll('.type-pill').forEach(p => p.classList.remove('active'));
-  document.getElementById('tp-' + type)?.classList.add('active');
-  const fgPrompt = document.getElementById('fg-prompt');
-  const fgProxy = document.getElementById('fg-proxy');
-  const fgData = document.getElementById('fg-data-fields');
-  if (type === 'prompt_template') {
-    fgPrompt.style.display = ''; fgProxy.style.display = 'none'; fgData.style.display = 'none';
-  } else if (type === 'api_proxy') {
-    fgPrompt.style.display = 'none'; fgProxy.style.display = ''; fgData.style.display = 'none';
-  } else if (type === 'data') {
-    fgPrompt.style.display = 'none'; fgProxy.style.display = ''; fgData.style.display = '';
+function toggleTheme() {
+  const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+  document.documentElement.setAttribute('data-theme', isLight ? '' : 'light');
+  localStorage.setItem('clawnet_theme', isLight ? 'dark' : 'light');
+}
+
+// Status check
+async function checkStatus() {
+  try {
+    const r = await fetch(`${API}/health`);
+    document.getElementById('statusDot').classList.toggle('ok', r.ok);
+    document.getElementById('statusDot').classList.toggle('err', !r.ok);
+    document.getElementById('statusLabel').textContent = r.ok ? 'Operational' : 'Degraded';
+  } catch {
+    document.getElementById('statusLabel').textContent = 'Offline';
+    document.getElementById('statusDot').classList.add('err');
   }
-  updateValidation();
 }
 
-// 1 credit = $0.001
-function creditsToUsd(n) {
-  const usd = n * 0.001;
-  if (usd < 0.01) return '$' + usd.toFixed(4).replace(/0+$/, '');
-  return '$' + usd.toFixed(usd >= 1 ? 2 : 3).replace(/\.?0+$/, '');
-}
-
-let apiKey = localStorage.getItem('claw_api_key') || '';
-
-// Auth helper — prefers API key (all marketplace endpoints use checkApiKey)
-// Clerk Bearer token is passed directly at call sites that need it (e.g. reveal-key)
-async function getAuthHeaders() {
-  if (apiKey) return { 'X-API-Key': apiKey };
-  // Fallback: try Clerk token in case API key hasn't loaded yet
+// Auth
+const apiKey = localStorage.getItem('claw_api_key') || '';
+async function initAuth() {
+  if (!apiKey) return;
   try {
-    const token = await window.Clerk?.session?.getToken();
-    if (token) return { Authorization: `Bearer ${token}` };
-  } catch {}
-  return null;
-}
-
-let currentPage = 1, currentCat = '', currentSort = 'popular', currentType = '';
-let searchTimer = null;
-let starredIds = new Set(JSON.parse(localStorage.getItem('claw_starred') || '[]'));
-let taskPage = 0;
-const TASK_LIMIT = 20;
-
-// ── Init ──────────────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', () => {
-  document.querySelectorAll('#main-tabs .tab').forEach(t => {
-    t.addEventListener('click', () => {
-      const tab = t.dataset.tab;
-      if (tab === 'browse') nav('');
-      else nav(tab);
-    });
-  });
-  document.querySelectorAll('.cat-pill').forEach(p => {
-    p.addEventListener('click', () => {
-      document.querySelectorAll('.cat-pill').forEach(x => x.classList.remove('on'));
-      p.classList.add('on');
-      currentCat = p.dataset.cat;
-      currentPage = 1;
-      loadSkills();
-    });
-  });
-  const lc = document.getElementById('pub-license-agree');
-  if (lc) lc.addEventListener('change', updateValidation);
-  document.addEventListener('keydown', e => {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
-      e.preventDefault();
-      const si = document.getElementById('search-input');
-      if (si) { nav(''); setTimeout(() => si.focus(), 50); }
-    }
-  });
-  handleRoute();
-  window.addEventListener('hashchange', handleRoute);
-  loadFeaturedSkills();
-});
-
-// ── Featured Skills ───────────────────────────────────────────────
-async function loadFeaturedSkills() {
-  try {
-    const r = await fetch(`${API}/v1/marketplace/featured`);
+    const r = await fetch(`${API}/v1/auth/me`, { headers: { 'X-API-Key': apiKey } });
     if (!r.ok) return;
     const d = await r.json();
-    if (!d.skills || d.skills.length === 0) return;
-    const section = document.getElementById('featured-section');
-    const grid = document.getElementById('featured-grid');
-    if (!section || !grid) return;
-    grid.innerHTML = d.skills.map(s => `
-      <div class="card" onclick="nav('skill/${esc(s.id)}')" style="cursor:pointer">
-        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:6px">
-          <div class="card-name">${esc(s.displayName || s.name)}</div>
-          <span class="badge-featured" style="flex-shrink:0">★ Featured</span>
-        </div>
-        <div class="card-desc">${esc(s.description)}</div>
-        <div class="card-footer">
-          <span class="card-price">${s.creditCost} credits</span>
-          <span style="font-size:11px;color:var(--text-muted)">★ ${s.stars} · ${s.uses} uses</span>
-        </div>
-      </div>`).join('');
-    section.style.display = 'block';
-  } catch { /* silent */ }
-}
-
-// ── Routing ───────────────────────────────────────────────────────
-function nav(hash) { window.location.hash = hash; }
-
-function handleRoute() {
-  const hash = (window.location.hash || '#').slice(1);
-  const detailView = document.getElementById('v-detail');
-  const browseView = document.getElementById('v-browse');
-
-  if (hash.startsWith('skill/')) {
-    browseView.classList.remove('active');
-    detailView.classList.add('active');
-    try { loadSkillDetail(decodeURIComponent(hash.slice(6))); } catch { loadSkillDetail(hash.slice(6)); }
-    return;
-  }
-
-  detailView.classList.remove('active');
-  browseView.classList.add('active');
-
-  const tabName = hash || 'browse';
-  document.querySelectorAll('#main-tabs .tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tabName));
-  document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === 'tp-' + tabName));
-
-  if (tabName === 'browse') { loadSkills(); loadHeroStats(); }
-  if (tabName === 'my-skills') loadMySkills();
-  if (tabName === 'purchases') loadPurchases();
-  if (tabName === 'starred') loadStarredView();
-  if (tabName === 'publish') updateValidation();
-  if (tabName === 'tasks') loadTaskHistory();
-}
-
-// ── Nav auth + credits ────────────────────────────────────────────
-async function initNav() {
-  try {
-    await window.Clerk.load();
-    const user = window.Clerk.user;
-    if (!user) return;
+    document.getElementById('nav-credits-badge').classList.add('show');
+    document.getElementById('nav-credits-num').textContent = (d.credits ?? 0).toLocaleString();
     document.getElementById('nav-login-btn').style.display = 'none';
     document.getElementById('nav-getkey-btn').style.display = 'none';
     document.getElementById('account-dropdown').classList.add('show');
-    const email = user.primaryEmailAddress?.emailAddress ?? user.username ?? '';
-    if (email) {
-      document.getElementById('account-email-display').textContent = email;
-      const mobileEmail = document.getElementById('mobile-account-email');
-      if (mobileEmail) { mobileEmail.textContent = email; mobileEmail.style.display = 'block'; }
+    if (d.email) {
+      document.getElementById('account-email-display').textContent = d.email;
+      const me = document.getElementById('mobile-account-email');
+      if (me) { me.textContent = d.email; me.style.display = 'block'; }
     }
-    const mobileAcctGroup = document.getElementById('mobile-account-group');
-    if (mobileAcctGroup) mobileAcctGroup.style.display = '';
-    const mobileSignOut = document.getElementById('mobile-sign-out');
-    if (mobileSignOut) mobileSignOut.style.display = '';
-    const cached = localStorage.getItem('clawnet_credits');
-    document.getElementById('nav-credits-num').textContent = cached !== null ? parseInt(cached).toLocaleString() : '—';
-    document.getElementById('nav-credits-badge').classList.add('show');
-    await refreshCredits();
-    // Auto-fetch and cache API key for Clerk users so marketplace actions work
-    if (!apiKey) {
-      try {
-        const token = await window.Clerk.session.getToken();
-        const kr = await fetch(`${API}/v1/dashboard/reveal-key`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
-        if (kr.ok) { const kd = await kr.json(); if (kd.apiKey) { apiKey = kd.apiKey; localStorage.setItem('claw_api_key', apiKey); } }
-      } catch {}
-    }
-  } catch (e) {}
+    const mag = document.getElementById('mobile-account-group');
+    if (mag) mag.style.display = '';
+    const mso = document.getElementById('mobile-sign-out');
+    if (mso) mso.style.display = '';
+  } catch {}
 }
+function navSignOut() { localStorage.removeItem('claw_api_key'); location.reload(); }
 
-function toggleTheme() {
-  const html = document.documentElement;
-  const next = html.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
-  if (next === 'dark') html.removeAttribute('data-theme');
-  else html.setAttribute('data-theme', 'light');
-  localStorage.setItem('clawnet_theme', next);
-}
-
-async function navSignOut() {
-  await window.Clerk.signOut();
-  window.location.reload();
-}
-
-async function refreshCredits() {
+// Live stats
+async function loadStats() {
   try {
-    const headers = await getAuthHeaders();
-    if (!headers) return;
-    const r = await fetch(`${API}/v1/dashboard/me`, { headers });
+    const r = await fetch(`${API}/v1/stats/public`);
     if (!r.ok) return;
     const d = await r.json();
-    if (d.credits !== undefined) {
-      localStorage.setItem('clawnet_credits', d.credits);
-      document.getElementById('nav-credits-num').textContent = d.credits.toLocaleString();
-      document.getElementById('nav-credits-badge').classList.add('show');
-    }
+    const el = id => document.getElementById(id);
+    if (d.activeSkills != null) el('stat-services').textContent = d.activeSkills.toLocaleString();
+    if (d.totalInvocations != null) el('stat-transactions').textContent = d.totalInvocations.toLocaleString();
+    if (d.creditsToday != null) el('stat-credits').textContent = d.creditsToday.toLocaleString();
   } catch {}
 }
 
-async function fetchApiStatus() {
-  const dot = document.getElementById('statusDot');
-  const label = document.getElementById('statusLabel');
-  try {
-    const r = await fetch(API + '/health', { signal: AbortSignal.timeout(5000) });
-    if (r.ok) {
-      if (dot) dot.className = 'status-dot ok';
-      if (label) { label.textContent = 'Live'; label.style.color = 'var(--accent)'; }
-    } else {
-      if (dot) dot.className = 'status-dot err';
-      if (label) { label.textContent = 'Degraded'; label.style.color = 'var(--danger)'; }
-    }
-  } catch(e) {
-    if (dot) dot.className = 'status-dot err';
-    if (label) { label.textContent = 'Offline'; label.style.color = 'var(--danger)'; }
-  }
-}
-fetchApiStatus();
-setInterval(fetchApiStatus, 60000);
-
-// ── Hero Stats ────────────────────────────────────────────────────
-async function loadHeroStats() {
-  try {
-    const r = await fetch(`${API}/v1/marketplace/skills?limit=1`);
-    if (!r.ok) return;
-    const d = await r.json();
-    document.getElementById('stat-total').textContent = d.total;
-  } catch {}
-}
-
-function setTypeFilter(type, el) {
-  currentType = type;
-  document.querySelectorAll('#type-pills .cat-pill').forEach(p => p.classList.remove('on'));
-  if (el) el.classList.add('on');
-  currentPage = 1;
-  loadSkills();
-}
-
-// ── Browse ────────────────────────────────────────────────────────
-function debounceSearch() {
-  clearTimeout(searchTimer);
-  searchTimer = setTimeout(() => { currentPage = 1; loadSkills(); }, 300);
-}
-
-async function loadSkills() {
-  const grid = document.getElementById('skills-grid');
-  const sort = document.getElementById('sort-select').value;
-  const search = document.getElementById('search-input').value.trim();
-  currentSort = sort;
-
-  grid.innerHTML = Array(6).fill(0).map(() =>
-    `<div class="skel-card skel"><div class="skel-line" style="width:55%;height:14px;margin-bottom:12px"></div><div class="skel-line" style="width:100%;height:10px"></div><div class="skel-line" style="width:75%;height:10px"></div><div class="skel-line" style="width:40%;height:24px;margin-top:12px"></div></div>`
-  ).join('');
-
-  const p = new URLSearchParams({ page: currentPage, limit: 12, sort });
-  if (search) p.set('search', search);
-  if (currentCat) p.set('category', currentCat);
-  if (currentType) p.set('type', currentType);
-
-  try {
-    const r = await fetch(`${API}/v1/marketplace/skills?${p}`);
-    if (!r.ok) throw new Error();
-    const d = await r.json();
-    document.getElementById('stat-total').textContent = d.total;
-    const countEl = document.getElementById('search-count');
-    if (countEl) countEl.textContent = search ? `${d.total} result${d.total !== 1 ? 's' : ''} for "${search}"` : '';
-    if (!d.skills.length) {
-      grid.innerHTML = `<div class="empty" style="grid-column:1/-1"><div class="empty-icon">◈</div><div class="empty-title">No skills found</div><div class="empty-sub">${search ? `No results for "${esc(search)}" — try a shorter keyword or browse by category` : 'Try a different filter'}</div></div>`;
-      document.getElementById('pagination').innerHTML = '';
-      return;
-    }
-    grid.innerHTML = d.skills.map(renderCard).join('');
-    renderPagination(d.page, d.pages);
-  } catch {
-    grid.innerHTML = `<div class="empty" style="grid-column:1/-1"><div class="empty-icon">⚠</div><div class="empty-title">Could not load skills</div><div class="empty-sub">Check your connection</div></div>`;
-  }
-}
-
-const TAG_COLORS = {
-  // Blockchain / chain
-  solana:    'color:#a78bfa;border-color:rgba(167,139,250,0.3);background:rgba(167,139,250,0.08)',
-  ethereum:  'color:#818cf8;border-color:rgba(129,140,248,0.3);background:rgba(129,140,248,0.08)',
-  base:      'color:#6366f1;border-color:rgba(99,102,241,0.3);background:rgba(99,102,241,0.08)',
-  bitcoin:   'color:#f59e0b;border-color:rgba(245,158,11,0.3);background:rgba(245,158,11,0.08)',
-  // Finance
-  defi:      'color:#06b6d4;border-color:rgba(6,182,212,0.3);background:rgba(6,182,212,0.08)',
-  token:     'color:#22d3ee;border-color:rgba(34,211,238,0.3);background:rgba(34,211,238,0.08)',
-  portfolio: 'color:#38bdf8;border-color:rgba(56,189,248,0.3);background:rgba(56,189,248,0.08)',
-  wallet:    'color:#34d399;border-color:rgba(52,211,153,0.3);background:rgba(52,211,153,0.08)',
-  trading:   'color:#10b981;border-color:rgba(16,185,129,0.3);background:rgba(16,185,129,0.08)',
-  nft:       'color:#c084fc;border-color:rgba(192,132,252,0.3);background:rgba(192,132,252,0.08)',
-  // Social
-  social:    'color:#60a5fa;border-color:rgba(96,165,250,0.3);background:rgba(96,165,250,0.08)',
-  twitter:   'color:#60a5fa;border-color:rgba(96,165,250,0.3);background:rgba(96,165,250,0.08)',
-  reddit:    'color:#f97316;border-color:rgba(249,115,22,0.3);background:rgba(249,115,22,0.08)',
-  sentiment: 'color:#93c5fd;border-color:rgba(147,197,253,0.3);background:rgba(147,197,253,0.08)',
-  discord:   'color:#818cf8;border-color:rgba(129,140,248,0.3);background:rgba(129,140,248,0.08)',
-  // Risk / security
-  risk:      'color:#f87171;border-color:rgba(248,113,113,0.3);background:rgba(248,113,113,0.08)',
-  security:  'color:#f87171;border-color:rgba(248,113,113,0.3);background:rgba(248,113,113,0.08)',
-  whale:     'color:#fb923c;border-color:rgba(251,146,60,0.3);background:rgba(251,146,60,0.08)',
-  // Analytics
-  analytics: 'color:#a3e635;border-color:rgba(163,230,53,0.3);background:rgba(163,230,53,0.08)',
-  trending:  'color:#facc15;border-color:rgba(250,204,21,0.3);background:rgba(250,204,21,0.08)',
-  'on-chain':'color:#fbbf24;border-color:rgba(251,191,36,0.3);background:rgba(251,191,36,0.08)',
-  ai:        'color:#e879f9;border-color:rgba(232,121,249,0.3);background:rgba(232,121,249,0.08)',
-};
-function tagHtml(t) {
-  const style = TAG_COLORS[t.toLowerCase()] || '';
-  return `<span class="card-tag"${style ? ` style="${style}"` : ''}>${esc(t)}</span>`;
-}
-
-function renderCard(s) {
-  const off = OFFICIAL.has(s.id);
-  const displayName = s.displayName || s.name;
-  const slug = s.name;
-  const tags = (s.tags||[]).slice(0,3).map(tagHtml).join('');
-  const starred = starredIds.has(s.id);
-  const skillType = s.skillType || 'prompt_template';
-  const typeBadge = skillType === 'data' ? '<span class="skill-type-badge data">DATA SKILL</span>'
-    : skillType === 'api_proxy' ? '<span class="skill-type-badge api_proxy">API PROXY</span>'
-    : '<span class="skill-type-badge prompt">PROMPT</span>';
-  const license = s.license || 'MIT';
-  const dynBadge = s.hasDynamicPricing ? '<span class="card-info-badge dynamic">Dynamic Pricing</span>' : '';
-  const verBadge = s.validatorCount > 0 ? `<span class="card-info-badge verified">\u2713 ${s.validatorCount} Verified</span>` : s.securityStatus === 'VERIFIED' ? '<span class="card-info-badge verified">\u2713 Verified</span>' : '';
-  const slaBadge = s.maxLatencyMs || s.uptimeGuarantee ? `<span class="card-info-badge sla">SLA${s.uptimeGuarantee ? ' '+s.uptimeGuarantee+'%' : ''}${s.maxLatencyMs ? ' \u2264'+s.maxLatencyMs+'ms' : ''}</span>` : '';
-  return `<div class="skill-card${off?' official':''}">
-    ${off ? '<span class="card-badge">Official</span>' : ''}
-    <div class="card-cat">${typeBadge}${dynBadge}${verBadge}${slaBadge}</div>
-    <div class="card-head">
-      <div>
-        <div class="card-name" onclick="nav('skill/'+encodeURIComponent('${esc(s.id)}'))">${esc(displayName)}</div>
-        ${displayName !== slug ? `<div class="card-slug">${esc(slug)}</div>` : ''}
-        <div class="card-ver">v${esc(s.version||'1.0.0')} <span class="sec clean">${esc(license)}</span></div>
-      </div>
-      <div class="card-price"><div class="card-price-n">${s.creditCost} <span style="font-size:12px;font-weight:500;color:var(--text-tertiary)">credits</span></div><div class="card-price-l" style="color:var(--accent)">${creditsToUsd(s.creditCost)}/call</div></div>
-    </div>
-    <p class="card-desc">${esc(s.description)}</p>
-    ${tags ? `<div class="card-tags">${tags}</div>` : ''}
-    <div class="card-metrics">
-      <span>⚡ <b>${fmt(s.uses||0)}</b> uses</span>
-      ${s.avgRating ? `<span style="color:#f59e0b">★ <b>${s.avgRating.toFixed(1)}</b> <span style="color:var(--text-muted)">(${s.ratingCount})</span></span>` : `<span>★ <b>${fmt(s.stars||0)}</b></span>`}
-      <span>👁 <b>${fmt(s.views||0)}</b></span>
-      ${s.featured ? '<span class="badge-featured">Featured</span>' : ''}
-    </div>
-    <div class="card-actions">
-      <button class="btn-buy" onclick="nav('skill/'+encodeURIComponent('${esc(s.id)}'))">View &amp; Buy</button>
-      <button class="btn-star${starred?' on':''}" id="star-${esc(s.id)}" onclick="toggleStar('${esc(s.id)}',this,event)">★</button>
-    </div>
-  </div>`;
-}
-
-function renderPagination(page, pages) {
-  const el = document.getElementById('pagination');
-  if (pages <= 1) { el.innerHTML = ''; return; }
-  const b = [];
-  b.push(`<button class="pg-btn" onclick="goPage(${page-1})" ${page<=1?'disabled':''}>&larr;</button>`);
-  for (let i = Math.max(1,page-2); i <= Math.min(pages,page+2); i++)
-    b.push(`<button class="pg-btn${i===page?' on':''}" onclick="goPage(${i})">${i}</button>`);
-  b.push(`<button class="pg-btn" onclick="goPage(${page+1})" ${page>=pages?'disabled':''}>&rarr;</button>`);
-  el.innerHTML = b.join('');
-}
-function goPage(p) { currentPage = p; loadSkills(); window.scrollTo({top:0,behavior:'smooth'}); }
-
-// ── Skill Detail ─────────────────────────────────────────────────
-async function loadSkillDetail(id) {
-  const container = document.getElementById('detail-content');
-  container.innerHTML = `<div style="padding:40px;text-align:center;color:var(--text-tertiary)">Loading skill...</div>`;
-  try {
-    const r = await fetch(`${API}/v1/marketplace/skills/${encodeURIComponent(id)}`);
-    if (!r.ok) { container.innerHTML = `<div class="empty"><div class="empty-icon">⚠</div><div class="empty-title">Skill not found</div></div>`; return; }
-    const s = await r.json();
-
-    const displayName = s.displayName || s.name;
-    const slug = s.name;
-    const starred = starredIds.has(s.id);
-    const secCls = ({VERIFIED:'verified',CLEAN:'clean',FLAGGED:'flagged',SUSPICIOUS:'suspicious'})[s.securityStatus] || 'unscanned';
-    const secTxt = ({VERIFIED:'✓ Verified',CLEAN:'✓ Clean',FLAGGED:'⚠ Flagged',SUSPICIOUS:'⚠ Suspicious'})[s.securityStatus] || 'Unscanned';
-    const tags = (s.tags||[]).map(tagHtml).join('');
-    const runtime = s.runtime || {};
-    const inputSchema = s.inputSchema;
-    const outputSchema = s.outputSchema;
-    const vars = inputSchema?.properties ? Object.entries(inputSchema.properties) : [];
-    const hasChangelog = s.changelog && s.changelog.trim();
-
-    container.innerHTML = `
-      <div class="detail-header">
-        <div>
-          <h1 class="detail-title">${esc(displayName)}</h1>
-          ${displayName !== slug ? `<div class="detail-slug">${esc(slug)}</div>` : ''}
-          <div class="detail-subtitle">
-            ${s.skillType === 'data' ? '<span class="skill-type-badge data">DATA SKILL</span>' : s.skillType === 'api_proxy' ? '<span class="skill-type-badge api_proxy">API PROXY</span>' : '<span class="skill-type-badge prompt">PROMPT</span>'}
-            <span>v${esc(s.version||'1.0.0')}</span>
-            ${OFFICIAL.has(s.id) ? '<span class="badge badge-success">Official</span>' : ''}
-            ${s.featured ? '<span class="badge-featured">★ Featured</span>' : ''}
-            <span class="sec ${secCls}">${secTxt}</span>
-            <span>${esc(s.license||'MIT')}</span>
-            ${s.publishedAt ? `<span>${new Date(s.publishedAt).toLocaleDateString()}</span>` : ''}
-            ${s.updateFrequency ? `<span style="color:var(--info)">↻ ${esc(s.updateFrequency)}</span>` : ''}
-            ${s.hasDynamicPricing ? '<span class="card-info-badge dynamic">Dynamic Pricing</span>' : ''}
-            ${s.validatorCount > 0 ? `<span class="card-info-badge verified">\u2713 ${s.validatorCount} Validated</span>` : ''}
-            ${s.maxLatencyMs || s.uptimeGuarantee ? `<span class="card-info-badge sla">SLA${s.uptimeGuarantee ? ' '+s.uptimeGuarantee+'%' : ''}${s.maxLatencyMs ? ' \u2264'+s.maxLatencyMs+'ms' : ''}</span>` : ''}
-          </div>
-        </div>
-        <div class="detail-actions">
-          <button class="btn btn-ghost" style="font-size:12px" onclick="doReport('${esc(s.id)}')" title="Report">⚑ Report</button>
-          <button class="btn-star${starred?' on':''}" id="d-star-btn" onclick="toggleStar('${esc(s.id)}',this,event)" style="padding:8px 14px">★ ${fmt(s.stars||0)}</button>
-          <button class="btn btn-primary" id="d-buy-btn" onclick="doBuy()">Run Skill — ${s.creditCost} cr</button>
-        </div>
-      </div>
-
-      <div class="detail-meta">
-        <div class="meta-card"><div class="meta-label">Price</div><div class="meta-val g">${s.creditCost} cr</div><div style="font-size:11px;color:var(--text-muted);margin-top:2px">${creditsToUsd(s.creditCost)}</div></div>
-        <div class="meta-card"><div class="meta-label">Uses</div><div class="meta-val">${fmt(s.uses||0)}</div></div>
-        <div class="meta-card"><div class="meta-label">Stars</div><div class="meta-val">★ ${fmt(s.stars||0)}</div></div>
-        <div class="meta-card"><div class="meta-label">Views</div><div class="meta-val">${fmt(s.views||0)}</div></div>
-        <div class="meta-card"><div class="meta-label">License</div><div class="meta-val">${esc(s.license||'MIT')}</div></div>
-        <div class="meta-card"><div class="meta-label">Security</div><div class="meta-val"><span class="sec ${secCls}" style="font-size:11px">${secTxt}</span></div></div>
-        ${s.validatorCount > 0 ? `<div class="meta-card"><div class="meta-label">Validators</div><div class="meta-val" style="color:var(--success)">\u2713 ${s.validatorCount}</div></div>` : ''}
-        ${s.maxLatencyMs ? `<div class="meta-card"><div class="meta-label">Max Latency</div><div class="meta-val">\u2264${s.maxLatencyMs}ms</div></div>` : ''}
-        ${s.uptimeGuarantee ? `<div class="meta-card"><div class="meta-label">Uptime SLA</div><div class="meta-val">${s.uptimeGuarantee}%</div></div>` : ''}
-      </div>
-
-      ${tags ? `<div class="card-tags" style="margin-bottom:20px">${tags}</div>` : ''}
-      <div id="cost-estimate" style="display:none;margin-bottom:16px"></div>
-
-      <div class="detail-tabs" id="d-tabs">
-        <button class="dtab active" data-dt="overview">Overview</button>
-        <button class="dtab" data-dt="schema">Input / Output</button>
-        <button class="dtab" data-dt="invoke">Integration</button>
-        <button class="dtab" data-dt="stats">Stats</button>
-        <button class="dtab" data-dt="reviews">Reviews</button>
-        ${hasChangelog ? '<button class="dtab" data-dt="changelog">Changelog</button>' : ''}
-        <button class="dtab" data-dt="history">History</button>
-        ${Object.keys(runtime).length ? '<button class="dtab" data-dt="runtime">Runtime</button>' : ''}
-      </div>
-
-      <div class="dtab-panel active" id="dtp-overview">
-        <div class="detail-desc">${esc(s.description)}</div>
-        ${s.sampleOutput ? `<div style="margin-bottom:16px"><div style="font-size:11px;font-weight:500;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:8px">Sample Output</div><pre class="schema-block">${esc(typeof s.sampleOutput === 'string' ? s.sampleOutput : JSON.stringify(s.sampleOutput, null, 2))}</pre></div>` : ''}
-        ${s.readme ? `<div style="margin-bottom:16px"><div style="font-size:11px;font-weight:500;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:8px">README</div><div class="detail-readme">${esc(s.readme)}</div></div>` : ''}
-        <div style="margin-bottom:16px">
-          <div style="font-size:11px;font-weight:500;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:8px">Cost Breakdown</div>
-          <div class="cost-table">
-            <div class="cost-row"><span style="color:var(--text-secondary)">You pay per call</span><span style="color:var(--accent);font-weight:600">${s.creditCost} credits (${creditsToUsd(s.creditCost)})</span></div>
-            <div class="cost-row"><span style="color:var(--text-secondary)">Creator receives (85%)</span><span>${s.sellerReceives} credits</span></div>
-            <div class="cost-row"><span style="color:var(--text-secondary)">Platform fee (15%)</span><span>${s.feeCredits} credits</span></div>
-            ${s.skillType === 'data' ? `<div class="cost-row" style="border-top:1px solid var(--border-subtle);padding-top:8px;margin-top:4px"><span style="color:var(--accent)">Cached response price</span><span style="color:var(--accent);font-weight:600">${Math.max(0.1, +(s.creditCost * 0.1).toFixed(2))} credits (10% of live, min 0.1)</span></div>` : ''}
-          </div>
-          <p style="font-size:12px;color:var(--text-muted);margin-top:8px">1 credit = $0.001. Credits are deducted from your balance instantly on each call.${s.skillType === 'data' ? ' Data skills cache results — repeat calls cost 10% of the live price (min 0.1 credits) until the cache expires.' : ''}</p>
-        </div>
-      </div>
-
-      <div class="dtab-panel" id="dtp-schema">
-        ${inputSchema ? `<div style="margin-bottom:16px"><div style="font-size:11px;font-weight:500;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:8px">Input Schema</div><pre class="schema-block">${esc(JSON.stringify(inputSchema, null, 2))}</pre></div>` : '<p style="color:var(--text-tertiary);font-size:13px">No input schema defined.</p>'}
-        ${outputSchema ? `<div><div style="font-size:11px;font-weight:500;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:8px">Output Schema</div><pre class="schema-block">${esc(JSON.stringify(outputSchema, null, 2))}</pre></div>` : ''}
-      </div>
-
-      <div class="dtab-panel" id="dtp-invoke">
-        ${buildInvokeTab(s, vars, inputSchema)}
-      </div>
-
-      ${hasChangelog ? `<div class="dtab-panel" id="dtp-changelog">
-        <div style="font-size:11px;font-weight:500;color:var(--accent);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:10px">Version ${esc(s.version||'1.0.0')} Changelog</div>
-        <div class="changelog-entry">${esc(s.changelog)}</div>
-      </div>` : ''}
-
-      <div class="dtab-panel" id="dtp-stats">
-        <div class="stats-grid" id="d-stats-grid"><div style="color:var(--text-tertiary);font-size:13px">Loading...</div></div>
-        <div id="d-stats-dist"></div>
-      </div>
-
-      <div class="dtab-panel" id="dtp-reviews">
-        <div id="d-reviews-header" style="margin-bottom:16px"></div>
-        <div id="d-reviews-rate" style="display:none;background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--radius-md);padding:16px;margin-bottom:16px">
-          <div style="font-size:12px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px">Rate this skill</div>
-          <div class="star-rating" id="d-star-rating">
-            ${[1,2,3,4,5].map(n => `<button class="star-btn" data-star="${n}" onclick="setRatingStar(${n})">★</button>`).join('')}
-          </div>
-          <textarea class="field" id="d-review-text" rows="2" placeholder="Optional review (max 500 chars)..." style="margin-bottom:10px;max-height:100px"></textarea>
-          <button class="btn btn-primary" style="font-size:13px;padding:7px 16px" onclick="submitRating()">Submit Rating</button>
-        </div>
-        <div id="d-reviews-list" style="color:var(--text-tertiary);font-size:13px">Loading reviews...</div>
-      </div>
-
-      <div class="dtab-panel" id="dtp-history">
-        <div style="font-size:11px;font-weight:500;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:10px">Version History</div>
-        <div id="d-history-list" style="color:var(--text-tertiary);font-size:13px">Loading...</div>
-      </div>
-
-      <div class="dtab-panel" id="dtp-runtime">
-        <div class="runtime-card">
-          <div style="font-size:11px;font-weight:500;color:var(--accent);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:10px">Runtime Requirements</div>
-          ${Object.entries(runtime).map(([k,v]) => `<div class="runtime-row"><span class="k">${esc(k)}</span><span class="v">${esc(String(v))}</span></div>`).join('') || '<div style="font-size:13px;color:var(--text-tertiary)">No runtime requirements specified.</div>'}
-        </div>
-      </div>
-    `;
-
-    window._detailSkill = s;
-    let historyLoaded = false;
-    let statsLoaded = false;
-    let reviewsLoaded = false;
-    document.querySelectorAll('#d-tabs .dtab').forEach(t => {
-      t.addEventListener('click', async () => {
-        document.querySelectorAll('#d-tabs .dtab').forEach(x => x.classList.toggle('active', x === t));
-        document.querySelectorAll('.dtab-panel').forEach(p => p.classList.toggle('active', p.id === 'dtp-' + t.dataset.dt));
-        if (t.dataset.dt === 'history' && !historyLoaded) {
-          historyLoaded = true;
-          const listEl = document.getElementById('d-history-list');
-          try {
-            const hr = await fetch(`${API}/v1/marketplace/skills/${encodeURIComponent(s.id)}/versions`);
-            const hd = await hr.json();
-            if (!hd.versions || hd.versions.length === 0) {
-              listEl.innerHTML = '<span style="color:var(--text-tertiary)">No version history recorded yet.</span>';
-            } else {
-              listEl.innerHTML = hd.versions.map(v => `
-                <div style="border-bottom:1px solid var(--border-subtle);padding:10px 0;display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
-                  <div>
-                    <span style="color:var(--text-primary);font-weight:600;font-family:var(--font-mono)">v${esc(v.version)}</span>
-                    ${v.changelog ? `<div style="font-size:13px;color:var(--text-secondary);margin-top:3px;white-space:pre-wrap">${esc(v.changelog)}</div>` : ''}
-                  </div>
-                  <span style="font-size:12px;color:var(--text-muted);flex-shrink:0">${new Date(v.published_at).toLocaleDateString()}</span>
-                </div>`).join('');
-            }
-          } catch {
-            if (listEl) listEl.innerHTML = '<span style="color:var(--danger)">Failed to load history.</span>';
-          }
-        }
-        if (t.dataset.dt === 'stats' && !statsLoaded) {
-          statsLoaded = true;
-          loadSkillStats(s.id);
-        }
-        if (t.dataset.dt === 'reviews' && !reviewsLoaded) {
-          reviewsLoaded = true;
-          loadSkillReviews(s.id);
-        }
-      });
-    });
-    loadCostEstimate(s.id);
-  } catch (err) {
-    container.innerHTML = `<div class="empty"><div class="empty-icon">⚠</div><div class="empty-title">Failed to load skill</div><div class="empty-sub">${esc(err.message)}</div></div>`;
-  }
-}
-
-// ── Skill Stats & Reviews ─────────────────────────────────────────
-async function loadSkillStats(skillId) {
-  const grid = document.getElementById('d-stats-grid');
-  const dist = document.getElementById('d-stats-dist');
-  try {
-    const r = await fetch(`${API}/v1/marketplace/skills/${encodeURIComponent(skillId)}/stats`);
-    const d = await r.json();
-    if (!r.ok) { if (grid) grid.innerHTML = '<span style="color:var(--danger)">Failed to load stats.</span>'; return; }
-
-    const metrics = d.metrics || [];
-    const combined = metrics.reduce((a, m) => ({
-      invocations: a.invocations + (m.invocations || 0),
-      successRate: a.invocations + m.invocations > 0
-        ? ((a.successRate * a.invocations + m.successRate * m.invocations) / (a.invocations + m.invocations))
-        : 0,
-      avgLatencyMs: a.invocations + m.invocations > 0
-        ? Math.round((a.avgLatencyMs * a.invocations + m.avgLatencyMs * m.invocations) / (a.invocations + m.invocations))
-        : 0,
-    }), { invocations: 0, successRate: 0, avgLatencyMs: 0 });
-
-    if (grid) grid.innerHTML = `
-      <div class="stat-card"><div class="stat-val">${d.ratingCount ? d.avgRating.toFixed(1) : '—'}</div><div class="stat-lbl">Avg Rating</div></div>
-      <div class="stat-card"><div class="stat-val">${d.ratingCount || 0}</div><div class="stat-lbl">Reviews</div></div>
-      <div class="stat-card"><div class="stat-val">${combined.invocations}</div><div class="stat-lbl">Invocations</div></div>
-      <div class="stat-card"><div class="stat-val">${combined.invocations ? combined.successRate.toFixed(1) + '%' : '—'}</div><div class="stat-lbl">Success Rate</div></div>
-      <div class="stat-card"><div class="stat-val">${combined.avgLatencyMs ? (combined.avgLatencyMs / 1000).toFixed(1) + 's' : '—'}</div><div class="stat-lbl">Avg Latency</div></div>
-    `;
-    if (dist && d.distribution && d.ratingCount > 0) {
-      const total = d.ratingCount;
-      dist.innerHTML = '<div style="font-size:12px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:8px">Rating Distribution</div>' +
-        [5,4,3,2,1].map(n => {
-          const cnt = d.distribution[n] || 0;
-          const pct = total > 0 ? Math.round(cnt / total * 100) : 0;
-          return `<div class="dist-row"><span style="color:#f59e0b;min-width:20px">${'★'.repeat(n)}</span><div class="dist-bar-wrap"><div class="dist-bar" style="width:${pct}%"></div></div><span style="color:var(--text-muted);min-width:28px;text-align:right">${cnt}</span></div>`;
-        }).join('');
-    }
-  } catch {
-    if (grid) grid.innerHTML = '<span style="color:var(--danger)">Failed to load stats.</span>';
-  }
-}
-
-async function loadSkillReviews(skillId) {
-  const listEl = document.getElementById('d-reviews-list');
-  const headerEl = document.getElementById('d-reviews-header');
-  const rateEl = document.getElementById('d-reviews-rate');
-  try {
-    const r = await fetch(`${API}/v1/marketplace/skills/${encodeURIComponent(skillId)}/ratings`);
-    const d = await r.json();
-    if (!r.ok) { if (listEl) listEl.textContent = 'Failed to load reviews.'; return; }
-
-    if (headerEl) {
-      headerEl.innerHTML = d.ratingCount
-        ? `<div style="display:flex;align-items:center;gap:12px"><span style="font-size:28px;font-weight:700;font-family:var(--font-mono);color:#f59e0b">${d.avgRating.toFixed(1)}</span><div><div style="color:#f59e0b;font-size:16px">${'★'.repeat(Math.round(d.avgRating))}${'☆'.repeat(5-Math.round(d.avgRating))}</div><div style="font-size:12px;color:var(--text-muted)">${d.ratingCount} review${d.ratingCount !== 1 ? 's' : ''}</div></div></div>`
-        : '<div style="color:var(--text-tertiary);font-size:13px">No reviews yet — be the first to rate!</div>';
-    }
-    if (rateEl) { getAuthHeaders().then(h => { if (h) rateEl.style.display = 'block'; }); }
-    if (listEl) {
-      listEl.innerHTML = d.reviews.length
-        ? d.reviews.map(rv => `<div class="review-item"><div class="review-stars">${'★'.repeat(rv.rating)}${'☆'.repeat(5-rv.rating)}</div>${rv.comment ? `<div class="review-comment">${escHtml(rv.comment)}</div>` : ''}<div class="review-date">${new Date(rv.createdAt).toLocaleDateString()}</div></div>`).join('')
-        : '<span style="color:var(--text-tertiary)">No reviews yet.</span>';
-    }
-  } catch {
-    if (listEl) listEl.textContent = 'Failed to load reviews.';
-  }
-}
-
-let _selectedRating = 0;
-function setRatingStar(n) {
-  _selectedRating = n;
-  document.querySelectorAll('#d-star-rating .star-btn').forEach(b => {
-    b.classList.toggle('on', parseInt(b.dataset.star) <= n);
-  });
-}
-
-async function submitRating() {
-  const s = window._detailSkill;
-  if (!s) return;
-  const auth = await getAuthHeaders();
-  if (!auth) { toast('Sign in to rate skills', 'error'); return; }
-  if (!_selectedRating) { toast('Select a star rating first', 'error'); return; }
-  const comment = document.getElementById('d-review-text')?.value.trim() || undefined;
-  try {
-    const r = await fetch(`${API}/v1/marketplace/skills/${encodeURIComponent(s.id)}/rate`, {
-      method: 'POST',
-      headers: { ...auth, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ rating: _selectedRating, comment }),
-    });
-    const d = await r.json();
-    if (!r.ok) { toast(d.error || 'Rating failed', 'error'); return; }
-    toast('Rating submitted — thank you!', 'success');
-    document.getElementById('d-reviews-rate').style.display = 'none';
-    // Refresh reviews list
-    const listEl = document.getElementById('d-reviews-list');
-    if (listEl) await loadSkillReviews(s.id);
-  } catch { toast('Network error', 'error'); }
-}
-
-// ── Result Renderer ───────────────────────────────────────────────
-function renderResult(d, el) {
-  if (d.error) {
-    el.innerHTML = `<div class="result-answer" style="border-color:var(--warning-dim);color:var(--warning)">${escHtml(d.error)}</div>`;
-    return;
-  }
-  let html = '';
-  if (d.answer) {
-    html += `<div class="result-answer">${escHtml(d.answer)}</div>`;
-  }
-  if (d.opportunityScore != null || d.riskScore != null) {
-    html += '<div class="result-scores">';
-    if (d.opportunityScore != null) {
-      const pct = Math.min(100, Math.max(0, d.opportunityScore));
-      html += `<div class="score-card"><div class="score-label">Opportunity</div><div class="score-bar-wrap"><div class="score-bar opportunity" style="width:${pct}%"></div></div><div class="score-num opportunity">${d.opportunityScore}/100</div></div>`;
-    }
-    if (d.riskScore != null) {
-      const pct = Math.min(100, Math.max(0, d.riskScore));
-      html += `<div class="score-card"><div class="score-label">Risk</div><div class="score-bar-wrap"><div class="score-bar risk" style="width:${pct}%"></div></div><div class="score-num risk">${d.riskScore}/100</div></div>`;
-    }
-    html += '</div>';
-  }
-  if (d.suggestedActions && d.suggestedActions.length) {
-    html += '<div class="result-actions"><div class="result-actions-title">Suggested Actions</div>';
-    d.suggestedActions.forEach(a => { html += `<div class="result-action-item">${escHtml(a)}</div>`; });
-    html += '</div>';
-  }
-  const chips = [];
-  if (d.durationMs != null) chips.push(`${d.durationMs}ms`);
-  if (d.steps != null) chips.push(`${d.steps} step${d.steps !== 1 ? 's' : ''}`);
-  if (d.cachedSteps) chips.push(`${d.cachedSteps} cached`);
-  if (d.dataSources && d.dataSources.length) chips.push(...d.dataSources.map(escHtml));
-  if (chips.length) {
-    html += '<div class="result-meta">' + chips.map(c => `<span class="meta-chip">${c}</span>`).join('') + '</div>';
-  }
-  el.innerHTML = html;
-}
-
-function escHtml(s) {
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-
-// ── Invoke Tab Builder ────────────────────────────────────────────
-function buildInvokeTab(s, vars, inputSchema) {
-  const isData = s.skillType === 'data';
-  const isProxy = s.skillType === 'api_proxy';
-
-  // Build endpoint URL
-  const endpoint = isData
-    ? `${API}/v1/skills/${esc(s.id)}/query`
-    : `${API}/v1/skills/${esc(s.id)}/invoke`;
-  const method = isData ? 'GET' : 'POST';
-
-  // Build example params
-  const exampleParams = {};
-  if (vars.length) vars.forEach(([k, v]) => { exampleParams[k] = v.description || k; });
-
-  // Query string for data skills
-  const qs = vars.length ? '?' + vars.map(([k, v]) => `${k}=${encodeURIComponent(v.description || 'value')}`).join('&') : '';
-
-  // cURL example
-  const curlExample = isData
-    ? `curl "${endpoint}${qs}" \\\n  -H "X-API-Key: YOUR_API_KEY"`
-    : `curl -X POST "${endpoint}" \\\n  -H "X-API-Key: YOUR_API_KEY" \\\n  -H "Content-Type: application/json"${vars.length ? ` \\\n  -d '${JSON.stringify({ variables: exampleParams })}'` : ''}`;
-
-  // JS example
-  const jsExample = isData
-    ? `const res = await fetch("${endpoint}${qs}", {
-  headers: { "X-API-Key": "YOUR_API_KEY" }
-});
-const data = await res.json();`
-    : `const res = await fetch("${endpoint}", {
-  method: "POST",
-  headers: {
-    "X-API-Key": "YOUR_API_KEY",
-    "Content-Type": "application/json"
-  },${vars.length ? `\n  body: JSON.stringify({ variables: ${JSON.stringify(exampleParams)} })` : ''}
-});
-const data = await res.json();`;
-
-  // Python example
-  const pyExample = isData
-    ? `import requests
-
-res = requests.get("${endpoint}${qs}",
-    headers={"X-API-Key": "YOUR_API_KEY"})
-data = res.json()`
-    : `import requests
-
-res = requests.post("${endpoint}",
-    headers={"X-API-Key": "YOUR_API_KEY"},${vars.length ? `\n    json={"variables": ${JSON.stringify(exampleParams)}}` : ''}
-)
-data = res.json()`;
-
-  // Cost per call text
-  const costText = isData
-    ? `<strong style="color:var(--accent)">${s.creditCost} credits</strong> per live call &middot; <strong style="color:var(--accent)">0.1 cr</strong> if cached`
-    : `<strong style="color:var(--accent)">${s.creditCost} credits</strong> per call`;
-
-  return `
-    <div style="display:flex;flex-direction:column;gap:24px">
-      <!-- Integration Steps -->
-      <div class="invoke-section" style="padding:28px">
-        <div class="invoke-title" style="font-size:14px;margin-bottom:20px">Integrate This Skill</div>
-        <div style="display:flex;flex-direction:column;gap:24px">
-
-          <div style="display:flex;align-items:flex-start;gap:16px">
-            <div style="width:36px;height:36px;border-radius:50%;background:var(--accent-dim);color:var(--accent);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;flex-shrink:0">A</div>
-            <div style="flex:1;padding-top:4px">
-              <div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Get your API key</div>
-              <div style="font-size:13px;color:var(--text-secondary);line-height:1.6">Go to your <a href="/dashboard.html" style="color:var(--accent);text-decoration:underline">Dashboard</a> and copy your API key. Add it to your app as an environment variable or config.</div>
-            </div>
-          </div>
-
-          <div style="display:flex;align-items:center;gap:16px;padding-left:18px">
-            <div style="width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-top:8px solid var(--accent);opacity:0.5"></div>
-          </div>
-
-          <div style="display:flex;align-items:flex-start;gap:16px">
-            <div style="width:36px;height:36px;border-radius:50%;background:var(--accent-dim);color:var(--accent);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;flex-shrink:0">B</div>
-            <div style="flex:1;padding-top:4px">
-              <div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Call the endpoint</div>
-              <div style="font-size:13px;color:var(--text-secondary);line-height:1.6">Send a <strong style="color:var(--text-primary)">${method}</strong> request to the endpoint below${isData ? ' with your query parameters' : vars.length ? ' with your variables as JSON' : ''}. See the code examples for copy-paste snippets.</div>
-            </div>
-          </div>
-
-          <div style="display:flex;align-items:center;gap:16px;padding-left:18px">
-            <div style="width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-top:8px solid var(--accent);opacity:0.5"></div>
-          </div>
-
-          <div style="display:flex;align-items:flex-start;gap:16px">
-            <div style="width:36px;height:36px;border-radius:50%;background:var(--accent-dim);color:var(--accent);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;flex-shrink:0">C</div>
-            <div style="flex:1;padding-top:4px">
-              <div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Get structured data back</div>
-              <div style="font-size:13px;color:var(--text-secondary);line-height:1.6">Credits are deducted automatically: ${costText}. You receive clean JSON — parse it and use it in your app, agent, or workflow.</div>
-            </div>
-          </div>
-
-        </div>
-      </div>
-
-      <!-- Endpoint -->
-      <div class="invoke-section">
-        <div class="invoke-title">Endpoint</div>
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
-          <span style="font-size:11px;font-weight:700;padding:3px 8px;border-radius:4px;background:${isData ? 'var(--accent-dim)' : 'var(--info-dim)'};color:${isData ? 'var(--accent)' : 'var(--info)'}">${method}</span>
-          <code style="font-family:var(--font-mono);font-size:13px;color:var(--text-primary);word-break:break-all">${endpoint}</code>
-          <button class="btn btn-ghost" style="font-size:11px;padding:4px 8px;flex-shrink:0" onclick="navigator.clipboard.writeText('${endpoint}');toast('Copied','success')">Copy</button>
-        </div>
-        <div style="font-size:12px;color:var(--text-muted)">
-          Auth header: <code style="font-family:var(--font-mono);color:var(--text-tertiary)">X-API-Key: YOUR_API_KEY</code>
-        </div>
-      </div>
-
-      <!-- Code Examples -->
-      <div class="invoke-section">
-        <div class="invoke-title">Code Examples</div>
-        <div style="display:flex;gap:4px;margin-bottom:12px">
-          <button class="cat-pill on" onclick="showCodeTab(this,'curl')" data-codetab="curl">cURL</button>
-          <button class="cat-pill" onclick="showCodeTab(this,'js')" data-codetab="js">JavaScript</button>
-          <button class="cat-pill" onclick="showCodeTab(this,'py')" data-codetab="py">Python</button>
-        </div>
-        <pre class="schema-block code-example" id="code-curl" style="display:block">${esc(curlExample)}</pre>
-        <pre class="schema-block code-example" id="code-js" style="display:none">${esc(jsExample)}</pre>
-        <pre class="schema-block code-example" id="code-py" style="display:none">${esc(pyExample)}</pre>
-        <button class="btn btn-ghost" style="font-size:11px;margin-top:8px" onclick="copyCodeExample()">Copy to Clipboard</button>
-      </div>
-    </div>`;
-}
-
-function showCodeTab(btn, lang) {
-  document.querySelectorAll('.code-example').forEach(el => el.style.display = 'none');
-  document.querySelectorAll('[data-codetab]').forEach(b => b.classList.remove('on'));
-  btn.classList.add('on');
-  const el = document.getElementById('code-' + lang);
-  if (el) el.style.display = 'block';
-}
-
-function copyCodeExample() {
-  const visible = document.querySelector('.code-example[style*="display: block"], .code-example[style*="display:block"]');
-  if (visible) { navigator.clipboard.writeText(visible.textContent); toast('Copied', 'success'); }
-}
-
-// ── Buy & Execute ─────────────────────────────────────────────────
-async function doBuy() {
-  const s = window._detailSkill;
-  if (!s) return;
-  const auth = await getAuthHeaders();
-  if (!auth) { toast('Sign in to purchase skills', 'error'); return; }
-
-  const buyBtn = document.getElementById('d-buy-btn');
-  if (buyBtn) { buyBtn.disabled = true; buyBtn.textContent = 'Running...'; }
-
-  try {
-    const r = await fetch(`${API}/v1/marketplace/skills/${s.id}/purchase`, {
-      method: 'POST',
-      headers: { ...auth, 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
-    });
-    const d = await r.json();
-    if (!r.ok) {
-      const extra = d.creditsRequired ? ` — need ${d.creditsRequired} credits` : '';
-      toast((d.error || 'Purchase failed') + extra, 'error');
-      if (buyBtn) { buyBtn.disabled = false; buyBtn.textContent = `Run Skill — ${s.creditCost} cr`; }
-      return;
-    }
-
-    toast(`Executed (${d.creditsCharged} credits)`, 'success');
-    refreshCredits();
-    setTimeout(() => {
-      const rateEl = document.getElementById('d-reviews-rate');
-      if (rateEl) rateEl.style.display = 'block';
-    }, 2000);
-    if (buyBtn) { buyBtn.disabled = false; buyBtn.textContent = 'Run Again'; }
-  } catch {
-    toast('Network error', 'error');
-    if (buyBtn) { buyBtn.disabled = false; buyBtn.textContent = `Run Skill — ${s.creditCost} cr`; }
-  }
-}
-
-// ── Stars ─────────────────────────────────────────────────────────
-async function toggleStar(id, btn, evt) {
-  if (evt) evt.stopPropagation();
-  const auth = await getAuthHeaders();
-  if (!auth) { toast('Sign in to star skills', 'error'); return; }
-  const already = starredIds.has(id);
-  try {
-    const r = await fetch(`${API}/v1/marketplace/skills/${id}/star`, {
-      method: already ? 'DELETE' : 'POST',
-      headers: auth,
-    });
-    if (r.status === 409 && !already) { starredIds.add(id); saveStarred(); return; }
-    if (!r.ok) { toast('Failed', 'error'); return; }
-    const d = await r.json();
-    if (already) starredIds.delete(id); else starredIds.add(id);
-    saveStarred();
-    document.querySelectorAll('.btn-star').forEach(b => {
-      if (b.id === `star-${id}` || b === btn || b.id === 'd-star-btn') {
-        b.classList.toggle('on', !already);
-        if (d.stars !== undefined) b.textContent = `★ ${fmt(d.stars)}`;
-      }
-    });
-  } catch { toast('Network error', 'error'); }
-}
-
-function saveStarred() { localStorage.setItem('claw_starred', JSON.stringify([...starredIds])); }
-
-// ── Report ────────────────────────────────────────────────────────
-async function doReport(skillId) {
-  const auth = await getAuthHeaders();
-  if (!auth) { toast('Sign in to report skills', 'error'); return; }
-  const reason = prompt('Reason for report (min 5 chars):\n\nExamples: "Contains prompt injection", "Spam/misleading description"');
-  if (!reason || reason.trim().length < 5) return;
-  try {
-    const r = await fetch(`${API}/v1/marketplace/skills/${encodeURIComponent(skillId)}/report`, {
-      method: 'POST',
-      headers: { ...auth, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ reason: reason.trim() }),
-    });
-    const d = await r.json();
-    if (!r.ok) { toast(d.error || 'Report failed', 'error'); return; }
-    toast(d.message || 'Skill reported', 'success');
-  } catch { toast('Network error', 'error'); }
-}
-
-async function loadStarredView() {
-  const el = document.getElementById('starred-list');
-  if (!starredIds.size) {
-    el.innerHTML = `<div class="empty"><div class="empty-icon">★</div><div class="empty-title">No starred skills</div><div class="empty-sub">Star skills to save them here</div></div>`;
-    return;
-  }
-  el.innerHTML = '<div style="color:var(--text-tertiary);font-size:13px">Loading starred skills...</div>';
-  const cards = [];
-  for (const id of starredIds) {
-    try {
-      const r = await fetch(`${API}/v1/marketplace/skills/${encodeURIComponent(id)}`);
-      if (!r.ok) continue;
-      const s = await r.json();
-      cards.push(renderCard(s));
-    } catch {}
-  }
-  el.innerHTML = cards.length ? `<div class="grid">${cards.join('')}</div>` : `<div class="empty"><div class="empty-icon">★</div><div class="empty-title">Could not load starred skills</div></div>`;
-}
-
-// ── Endpoint Picker ───────────────────────────────────────────────
-let _registryEndpoints = null;
-let _planSteps = []; // [{ endpointId, params }]
-
-async function loadRegistryEndpoints() {
-  if (_registryEndpoints) { showEndpointPicker(); return; }
-  try {
-    const r = await fetch(`${API}/v1/registry`);
-    if (!r.ok) return;
-    const d = await r.json();
-    _registryEndpoints = d.endpoints || [];
-    showEndpointPicker();
-  } catch { /* silent — endpoint picker is optional */ }
-}
-
-function filterEndpoints() {
-  showEndpointPicker();
-}
-
-function showEndpointPicker() {
-  const picker = document.getElementById('endpoint-picker');
-  if (!picker || !_registryEndpoints) return;
-  const q = (document.getElementById('ep-search')?.value || '').toLowerCase();
-  const filtered = _registryEndpoints.filter(e =>
-    !q || e.id?.toLowerCase().includes(q) || e.category?.toLowerCase().includes(q) || e.description?.toLowerCase().includes(q)
-  ).slice(0, 40);
-  picker.style.display = filtered.length ? 'block' : 'none';
-  picker.innerHTML = filtered.map(e =>
-    `<div class="endpoint-item" onclick="addEndpointToPlan(${JSON.stringify(e.id)})">
-      <span class="ep-id">${esc(e.id)}</span>
-      <span class="ep-cat">${esc(e.category || '')}</span>
-      <span class="ep-add">+ Add</span>
-    </div>`
-  ).join('');
-}
-
-function addEndpointToPlan(endpointId) {
-  if (_planSteps.find(s => s.endpointId === endpointId)) return; // no dupes
-  _planSteps.push({ endpointId, params: {} });
-  renderPlanSteps();
-  document.getElementById('endpoint-picker').style.display = 'none';
-  document.getElementById('ep-search').value = '';
-}
-
-function removePlanStep(endpointId) {
-  _planSteps = _planSteps.filter(s => s.endpointId !== endpointId);
-  renderPlanSteps();
-}
-
-function renderPlanSteps() {
-  const list = document.getElementById('plan-step-list');
-  if (!list) return;
-  if (!_planSteps.length) { list.innerHTML = ''; return; }
-  list.innerHTML = _planSteps.map((s, i) =>
-    `<div class="plan-step">
-      <span style="color:var(--text-muted);min-width:20px">${i + 1}.</span>
-      <span>${esc(s.endpointId)}</span>
-      <span class="plan-step-rm" onclick="removePlanStep(${JSON.stringify(s.endpointId)})" title="Remove">✕</span>
-    </div>`
-  ).join('');
-}
-
-function buildPlanJson() {
-  if (!_planSteps.length) return null;
-  return JSON.stringify(_planSteps.map(s => ({ endpointId: s.endpointId, params: {} })));
-}
-
-// ── Skill Test Run ────────────────────────────────────────────────
-async function doSkillTest() {
-  const skillId = window._testSkillId;
-  if (!skillId) { toast('No skill to test — publish first', 'error'); return; }
-  const auth = await getAuthHeaders();
-  if (!auth) { toast('Sign in first', 'error'); return; }
-
-  const btn = document.getElementById('test-btn');
-  if (btn) { btn.disabled = true; btn.textContent = 'Running...'; }
-
-  // Collect variable values from test panel inputs
-  const testVarInputs = document.getElementById('test-var-inputs');
-  const variables = {};
-  if (testVarInputs) {
-    testVarInputs.querySelectorAll('input[id^="tv-"]').forEach(el => {
-      const varName = el.id.slice(3);
-      variables[varName] = el.value.trim();
-    });
-  }
-
-  try {
-    const r = await fetch(`${API}/v1/skills/${skillId}/test`, {
-      method: 'POST',
-      headers: { ...auth, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ variables }),
-    });
-    const d = await r.json();
-    const resultEl = document.getElementById('test-result');
-    if (resultEl) {
-      resultEl.style.display = 'block';
-      renderResult(d, resultEl);
-    }
-    if (!r.ok) toast(d.error || 'Test failed', 'error');
-    else toast('Test complete', 'success');
-  } catch { toast('Network error', 'error'); }
-
-  if (btn) { btn.disabled = false; btn.textContent = 'Run Test →'; }
-}
-
-// ── Publish ───────────────────────────────────────────────────────
-function onSlugInput() {
-  const el = document.getElementById('pub-slug');
-  if (el) el.value = el.value.toLowerCase().replace(/[^a-z0-9-]/g, '');
-  updateValidation();
-}
-
-function updateValidation() {
-  const slug = (document.getElementById('pub-slug')?.value || '').trim();
-  const display = (document.getElementById('pub-display')?.value || '').trim();
-  const desc = (document.getElementById('pub-desc')?.value || '').trim();
-  const prompt = (document.getElementById('pub-prompt')?.value || '').trim();
-  const licenseOk = document.getElementById('pub-license-agree')?.checked;
-  const price = parseInt(document.getElementById('pub-price')?.value) || 0;
-
-  const checks = [
-    { pass: slug.length >= 2 && /^[a-z0-9-]+$/.test(slug), text: 'Slug is valid (2+ chars)' },
-    { pass: display.length >= 2, text: 'Display name is required' },
-    { pass: desc.length >= 10, text: 'Description (min 10 chars)' },
-    { pass: prompt.length >= 10, text: 'Prompt template (min 10 chars)' },
-    { pass: !!licenseOk, text: 'Accept license terms' },
-  ];
-
-  const vl = document.getElementById('validation-list');
-  if (vl) {
-    vl.innerHTML = checks.map(c =>
-      `<div class="val-item ${c.pass ? 'pass' : ''}"><span class="val-dot"></span>${esc(c.text)}</div>`
-    ).join('');
-  }
-
-  const varPreview = document.getElementById('var-preview');
-  if (varPreview) {
-    const vars = (prompt.match(/\{\{(\w+)\}\}/g) || []).map(m => m.slice(2, -2));
-    const unique = [...new Set(vars)];
-    if (unique.length) {
-      varPreview.style.display = 'block';
-      varPreview.innerHTML = 'Detected variables: ' + unique.map(v => `<span class="var-tag">{{${esc(v)}}}</span>`).join(' ');
-      // Keep test panel variable inputs in sync
-      const testVarInputs = document.getElementById('test-var-inputs');
-      if (testVarInputs) {
-        testVarInputs.innerHTML = unique.map(v =>
-          `<div><label class="form-label" style="margin-bottom:4px">${esc(v)}</label><input type="text" class="field" id="tv-${esc(v)}" placeholder="Test value for ${esc(v)}..."></div>`
-        ).join('');
-      }
-    } else {
-      varPreview.style.display = 'none';
-    }
-  }
-
-  const ep = document.getElementById('earnings-preview');
-  if (ep && price > 0) {
-    ep.style.display = 'block';
-    const fee = Math.floor(price * 0.15);
-    document.getElementById('ep-earn').textContent = (price - fee) + ' credits';
-    document.getElementById('ep-fee').textContent = fee + ' credits';
-  } else if (ep) {
-    ep.style.display = 'none';
-  }
-
-  const btn = document.getElementById('pub-btn');
-  if (btn) btn.disabled = !checks.every(c => c.pass);
-}
-
-async function publishSkill() {
-  const auth = await getAuthHeaders();
-  if (!auth) { toast('Sign in first', 'error'); return; }
-  const slug = document.getElementById('pub-slug').value.trim();
-  const displayName = document.getElementById('pub-display').value.trim();
-  const desc = document.getElementById('pub-desc').value.trim();
-  const prompt = document.getElementById('pub-prompt').value.trim();
-  const price = parseInt(document.getElementById('pub-price').value) || 0;
-  const version = document.getElementById('pub-version').value.trim() || '1.0.0';
-  const changelog = document.getElementById('pub-changelog').value.trim();
-  const tagsRaw = document.getElementById('pub-tags').value.trim();
-  const isPublic = document.getElementById('pub-public').checked;
-
-  const proxyUrl = document.getElementById('pub-proxy-url')?.value.trim() || '';
-  const frequency = document.getElementById('pub-frequency')?.value || 'daily';
-  const sampleRaw = document.getElementById('pub-sample-output')?.value.trim() || '';
-
-  if (!slug || slug.length < 2) { toast('Enter a valid slug', 'error'); return; }
-  if (!displayName) { toast('Enter a display name', 'error'); return; }
-  if (!desc || desc.length < 10) { toast('Description must be at least 10 chars', 'error'); return; }
-  if (currentSkillType === 'prompt_template' && (!prompt || prompt.length < 10)) { toast('Prompt template must be at least 10 chars', 'error'); return; }
-  if ((currentSkillType === 'api_proxy' || currentSkillType === 'data') && !proxyUrl) { toast('Proxy URL is required for this skill type', 'error'); return; }
-
-  const tags = tagsRaw ? tagsRaw.split(',').map(t => t.trim()).filter(Boolean).slice(0, 10) : [];
-  const category = document.getElementById('pub-category')?.value || 'general';
-  const btn = document.getElementById('pub-btn');
-  btn.disabled = true; btn.textContent = 'Publishing...';
-
-  try {
-    const planJson = buildPlanJson();
-    const body = { name: slug, displayName, description: desc, creditCost: price, public: isPublic, tags, version, category, skillType: currentSkillType };
-    if (currentSkillType === 'prompt_template') body.promptTemplate = prompt;
-    if (proxyUrl) body.proxyUrl = proxyUrl;
-    if (currentSkillType === 'data') {
-      body.updateFrequency = frequency;
-      body.promptTemplate = desc; // data skills need a non-empty prompt template for the DB
-      if (sampleRaw) { try { body.sampleOutput = JSON.parse(sampleRaw); } catch { body.sampleOutput = sampleRaw; } }
-    }
-    if (currentSkillType === 'api_proxy') body.promptTemplate = desc;
-    if (changelog) body.changelog = changelog;
-    if (planJson) body.executionPlanJson = planJson;
-
-    const r = await fetch(`${API}/v1/skills`, {
-      method: 'POST',
-      headers: { ...auth, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    const d = await r.json();
-    if (!r.ok) { toast(d.error || d.details?.name?.[0] || 'Publish failed', 'error'); }
-    else {
-      const res = document.getElementById('pub-result');
-      res.style.display = 'block'; res.style.color = 'var(--accent)'; res.style.borderColor = 'var(--accent-dim)';
-      res.innerHTML = `✓ Published! ID: <span style="color:var(--text-muted);font-family:var(--font-mono)">${esc(d.id)}</span> — <a href="#skill/${esc(d.id)}" style="color:var(--accent)">View skill</a>`;
-      toast('Skill published', 'success');
-      // Show test panel
-      window._testSkillId = d.id;
-      const testPanel = document.getElementById('test-panel');
-      if (testPanel) testPanel.style.display = 'block';
-      ['pub-slug','pub-display','pub-desc','pub-prompt','pub-price','pub-tags','pub-changelog','pub-readme'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
-      document.getElementById('pub-version').value = '1.0.0';
-      document.getElementById('pub-license-agree').checked = false;
-      updateValidation();
-    }
-  } catch { toast('Network error', 'error'); }
-  btn.disabled = false; btn.textContent = 'Publish Skill →';
-}
-
-// ── Purchases ─────────────────────────────────────────────────────
-async function loadPurchases() {
-  const authEl = document.getElementById('purch-auth');
-  const content = document.getElementById('purch-content');
-  const hdrs = await getAuthHeaders();
-  if (!hdrs) { authEl.style.display = 'block'; content.style.display = 'none'; return; }
-  authEl.style.display = 'none'; content.style.display = 'block';
-
-  try {
-    const r = await fetch(`${API}/v1/marketplace/purchases`, { headers: hdrs });
-    if (!r.ok) throw new Error();
-    const d = await r.json();
-
-    document.getElementById('pc-count').textContent = d.total;
-    const totalSpent = d.purchases.reduce((a, p) => a + p.totalSpent, 0);
-    document.getElementById('pc-spent').textContent = totalSpent.toLocaleString();
-    document.getElementById('pc-usd').textContent = creditsToUsd(totalSpent);
-
-    const list = document.getElementById('purch-list');
-    if (!d.purchases.length) {
-      list.innerHTML = `<div class="empty"><div class="empty-icon">◈</div><div class="empty-title">No purchases yet</div><div class="empty-sub">Browse skills and make your first purchase</div></div>`;
-      return;
-    }
-    list.innerHTML = d.purchases.map(p => `
-      <div class="my-skill-row" style="cursor:pointer" onclick="nav('skill/${esc(p.skillId)}')">
-        <div style="flex:1;min-width:140px">
-          <div class="my-skill-name">${esc(p.name)}</div>
-          <div class="my-skill-id">${esc(p.slug)} · ${esc(p.category)}</div>
-        </div>
-        <div class="my-skill-stat"><div class="v">${p.creditCost}</div><div class="l">cr/run</div></div>
-        <div class="my-skill-stat"><div class="v">${p.timesPurchased}</div><div class="l">Runs</div></div>
-        <div class="my-skill-stat"><div class="v" style="color:var(--warning)">${p.totalSpent}</div><div class="l">Spent</div></div>
-        <div style="font-size:11px;color:var(--text-muted)">Last: ${new Date(p.lastPurchased).toLocaleDateString()}</div>
-        <button class="btn-sm" onclick="event.stopPropagation();nav('skill/${esc(p.skillId)}')">Run Again</button>
-      </div>`).join('');
-  } catch { toast('Could not load purchases', 'error'); }
-}
-
-// ── My Skills ─────────────────────────────────────────────────────
-async function loadMySkills() {
-  const content = document.getElementById('my-content');
-  const authEl = document.getElementById('my-auth');
-  const hdrs = await getAuthHeaders();
-  if (!hdrs) { authEl.style.display = 'block'; content.style.display = 'none'; return; }
-  authEl.style.display = 'none'; content.style.display = 'block';
-
-  try {
-    const r = await fetch(`${API}/v1/marketplace/creator/stats`, { headers: hdrs });
-    if (!r.ok) throw new Error();
-    const d = await r.json();
-    document.getElementById('cs-earned').textContent = d.totalEarned.toLocaleString();
-    document.getElementById('cs-sales').textContent = d.totalSales.toLocaleString();
-    document.getElementById('cs-skills').textContent = d.publishedSkills;
-    loadWithdrawHistory();
-
-    const list = document.getElementById('my-skills-list');
-    if (!d.skills.length) {
-      list.innerHTML = `<div class="empty"><div class="empty-icon">◈</div><div class="empty-title">No skills published yet</div><div class="empty-sub">Go to the Publish tab to create your first skill</div></div>`;
-      return;
-    }
-    list.innerHTML = d.skills.map(s => `
-      <div class="my-skill-row">
-        <div style="flex:1;min-width:140px">
-          <div class="my-skill-name" onclick="nav('skill/${esc(s.id)}')">${esc(s.displayName||s.name)}</div>
-          <div class="my-skill-id">${esc(s.id)} · v${esc(s.version||'1.0.0')} · ${creditsToUsd(s.creditCost||0)}/run</div>
-        </div>
-        <span class="status-badge ${s.public?'live':'draft'}">${s.public?'Live':'Draft'}</span>
-        <div class="my-skill-stat"><div class="v">${fmt(s.uses||0)}</div><div class="l">Uses</div></div>
-        <div class="my-skill-stat"><div class="v">${fmt(s.sales||0)}</div><div class="l">Sales</div></div>
-        <div class="my-skill-stat"><div class="v" style="color:var(--accent)">${fmt(s.earned||0)}</div><div class="l">Earned</div></div>
-        <div style="display:flex;gap:6px">
-          <button class="btn-sm" onclick="nav('skill/${esc(s.id)}')" title="View in marketplace">View</button>
-          <button class="btn-sm" onclick="toggleVis('${esc(s.id)}',${s.public})">${s.public?'Unpublish':'Publish'}</button>
-          <button class="btn-sm danger" onclick="delSkill('${esc(s.id)}')">Delete</button>
-        </div>
-      </div>`).join('');
-  } catch { toast('Could not load skills', 'error'); }
-}
-
-async function toggleVis(id, pub) {
-  const hdrs = await getAuthHeaders();
-  if (!hdrs) return;
-  try {
-    const r = await fetch(`${API}/v1/skills/${id}/visibility`, { method: 'PATCH', headers: { ...hdrs, 'Content-Type': 'application/json' }, body: JSON.stringify({ public: !pub }) });
-    if (r.ok) { toast(pub ? 'Unpublished' : 'Published', 'success'); loadMySkills(); }
-    else { const d = await r.json(); toast(d.error || 'Failed', 'error'); }
-  } catch { toast('Network error', 'error'); }
-}
-
-async function delSkill(id) {
-  if (!confirm(`Delete skill "${id}"? Cannot be undone.`)) return;
-  try {
-    const hdrs = await getAuthHeaders();
-    const r = await fetch(`${API}/v1/skills/${id}`, { method: 'DELETE', headers: hdrs });
-    if (r.ok) { toast('Deleted', 'success'); loadMySkills(); }
-    else { const d = await r.json(); toast(d.error || 'Failed', 'error'); }
-  } catch { toast('Network error', 'error'); }
-}
-
-// ── Withdraw ──────────────────────────────────────────────────────
-async function requestWithdraw() {
-  const hdrs = await getAuthHeaders();
-  if (!hdrs) { toast('Sign in first', 'error'); return; }
-  const amount = parseInt(document.getElementById('wd-amount').value);
-  const wallet = document.getElementById('wd-wallet').value.trim();
-  if (!amount || amount < 1000) { toast('Min 1,000 credits', 'error'); return; }
-  if (!wallet || wallet.length < 32) { toast('Enter a valid Solana address', 'error'); return; }
-  try {
-    const r = await fetch(`${API}/v1/marketplace/creator/withdraw`, {
-      method: 'POST', headers: { ...hdrs, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ amountCredits: amount, usdcWallet: wallet }),
-    });
-    const d = await r.json();
-    const res = document.getElementById('wd-result');
-    res.style.display = 'block';
-    if (r.ok) {
-      res.style.borderColor = 'var(--accent-dim)'; res.style.color = 'var(--accent)';
-      res.textContent = `✓ Payout queued — ${d.amountCredits} credits ($${d.usdcEquivalent} USDC)`;
-      toast('Withdrawal requested', 'success'); loadWithdrawHistory();
-    } else {
-      res.style.borderColor = 'var(--danger-dim)'; res.style.color = 'var(--danger)';
-      res.textContent = d.error || 'Request failed';
-    }
-  } catch { toast('Network error', 'error'); }
-}
-
-async function loadWithdrawHistory() {
-  const hdrs = await getAuthHeaders();
-  if (!hdrs) return;
-  try {
-    const r = await fetch(`${API}/v1/marketplace/creator/withdrawals`, { headers: hdrs });
-    if (!r.ok) return;
-    const d = await r.json();
-    const el = document.getElementById('wd-history');
-    if (!d.withdrawals.length) { el.innerHTML = ''; return; }
-    const sc = { PENDING:'var(--warning)', PROCESSING:'var(--info)', PAID:'var(--accent)', REJECTED:'var(--danger)' };
-    el.innerHTML = `<div style="font-size:11px;font-weight:500;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:8px">Withdrawal History</div>` +
-      d.withdrawals.map(w => `<div style="font-size:13px;padding:8px 12px;border:1px solid var(--border-subtle);border-radius:var(--radius-md);margin-bottom:6px;display:flex;gap:12px;align-items:center">
-        <span style="color:${sc[w.status]||'var(--text-muted)'};font-size:11px;font-weight:500">${esc(w.status)}</span>
-        <span style="color:var(--text-secondary);font-family:var(--font-mono)">${w.amountCredits.toLocaleString()} cr</span>
-        <span style="color:var(--text-muted);font-family:var(--font-mono)">${esc(w.usdcWallet.slice(0,6))}...${esc(w.usdcWallet.slice(-4))}</span>
-        <span style="color:var(--text-muted);font-size:12px;margin-left:auto">${new Date(w.createdAt).toLocaleDateString()}</span>
-      </div>`).join('');
-  } catch {}
-}
-
-// ── Task History (NEW) ────────────────────────────────────────────
-async function loadTaskHistory() {
-  const authEl = document.getElementById('tasks-auth');
-  const content = document.getElementById('tasks-content');
-  const hdrs = await getAuthHeaders();
-  if (!hdrs) { authEl.style.display = 'block'; content.style.display = 'none'; return; }
-  authEl.style.display = 'none'; content.style.display = 'block';
-
-  const tbody = document.getElementById('tasks-tbody');
-  tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--text-tertiary)">Loading...</td></tr>';
-
-  try {
-    const ur = await fetch(`${API}/v1/auth/usage`, { headers: hdrs });
-    if (ur.ok) {
-      const ud = await ur.json();
-      document.getElementById('ts-total').textContent = (ud.tasks?.total ?? 0).toLocaleString();
-      document.getElementById('ts-completed').textContent = (ud.tasks?.completed ?? 0).toLocaleString();
-      document.getElementById('ts-credits').textContent = (ud.tasks?.creditsSpent ?? 0).toLocaleString();
-    }
-
-    const r = await fetch(`${API}/v1/tasks?limit=${TASK_LIMIT}&offset=${taskPage * TASK_LIMIT}`, {
-      headers: hdrs
-    });
-    if (!r.ok) throw new Error();
-    const d = await r.json();
-
-    if (!d.tasks.length) {
-      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--text-tertiary)">No tasks yet. Purchase and run a skill to see tasks here.</td></tr>';
-      return;
-    }
-
-    tbody.innerHTML = d.tasks.map(t => `
-      <tr style="border-bottom:1px solid var(--border-subtle)">
-        <td style="padding:12px 16px;font-family:var(--font-mono);font-size:12px;color:var(--text-secondary)">${esc(t.id.slice(0,10))}…</td>
-        <td style="padding:12px 16px;color:var(--text-secondary)">${esc(t.skillId)}</td>
-        <td style="padding:12px 16px"><span class="badge badge-${statusClass(t.status)}">${t.status}</span></td>
-        <td style="padding:12px 16px;font-family:var(--font-mono);color:var(--text-secondary)">${t.costCredits != null ? t.costCredits.toLocaleString() : '—'}</td>
-        <td style="padding:12px 16px;font-family:var(--font-mono);color:var(--text-tertiary)">${t.durationMs ? t.durationMs + 'ms' : '—'}</td>
-        <td style="padding:12px 16px;color:var(--text-tertiary)">${timeAgo(t.createdAt)}</td>
-        <td style="padding:12px 16px">${taskActions(t)}</td>
-      </tr>
-    `).join('');
-
-    renderTaskPagination(d.total);
-  } catch {
-    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--danger)">Failed to load tasks</td></tr>';
-  }
-}
-
-function statusClass(s) {
-  return { COMPLETED:'success', FAILED:'danger', RUNNING:'info', PENDING:'neutral', CANCELLED:'warning' }[s] || 'neutral';
-}
-
-function taskActions(t) {
-  let html = '';
-  if (t.status === 'COMPLETED') html += `<button class="btn btn-ghost" style="font-size:11px;padding:4px 8px" onclick="rateTask('${esc(t.id)}')">Rate</button>`;
-  if (t.status === 'PENDING') html += `<button class="btn btn-ghost" style="font-size:11px;padding:4px 8px;color:var(--danger);border-color:var(--danger-dim)" onclick="cancelTask('${esc(t.id)}')">Cancel</button>`;
-  return html || '<span style="color:var(--text-muted)">—</span>';
-}
-
-function renderTaskPagination(total) {
-  const el = document.getElementById('tasks-pagination');
-  const pages = Math.ceil(total / TASK_LIMIT);
-  if (pages <= 1) { el.innerHTML = ''; return; }
-  const btns = [];
-  btns.push(`<button class="btn btn-ghost" style="font-size:12px;padding:6px 10px" onclick="goTaskPage(${taskPage-1})" ${taskPage<=0?'disabled':''}>Prev</button>`);
-  btns.push(`<span style="font-size:12px;color:var(--text-tertiary);padding:0 8px">Page ${taskPage+1} of ${pages}</span>`);
-  btns.push(`<button class="btn btn-ghost" style="font-size:12px;padding:6px 10px" onclick="goTaskPage(${taskPage+1})" ${taskPage>=pages-1?'disabled':''}>Next</button>`);
-  el.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;gap:8px">${btns.join('')}</div>`;
-}
-
-function goTaskPage(p) { taskPage = p; loadTaskHistory(); }
-
-async function rateTask(taskId) {
-  const hdrs = await getAuthHeaders();
-  if (!hdrs) { toast('Sign in first', 'error'); return; }
-  const rating = prompt('Rate this task (1-5 stars):');
-  const n = parseInt(rating);
-  if (!n || n < 1 || n > 5) { if (rating !== null) toast('Enter a number 1-5', 'error'); return; }
-  const comment = prompt('Optional comment (or leave blank):') || undefined;
-  try {
-    const r = await fetch(`${API}/v1/tasks/${taskId}/rate`, {
-      method: 'POST',
-      headers: { ...hdrs, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ rating: n, comment }),
-    });
-    const d = await r.json();
-    if (!r.ok) { toast(d.error || 'Rating failed', 'error'); return; }
-    toast(`Rated ${n}/5`, 'success');
-    loadTaskHistory();
-  } catch { toast('Network error', 'error'); }
-}
-
-async function cancelTask(taskId) {
-  if (!confirm('Cancel this task?')) return;
-  try {
-    const hdrs = await getAuthHeaders();
-    const r = await fetch(`${API}/v1/tasks/${taskId}/cancel`, {
-      method: 'POST',
-      headers: hdrs,
-    });
-    const d = await r.json();
-    if (!r.ok) { toast(d.error || 'Cancel failed', 'error'); return; }
-    toast('Task cancelled', 'success');
-    loadTaskHistory();
-  } catch { toast('Network error', 'error'); }
-}
-
-async function loadCostEstimate(skillId) {
-  const hdrs = await getAuthHeaders();
-  if (!hdrs) return;
-  try {
-    const r = await fetch(`${API}/v1/auth/estimate?skillId=${encodeURIComponent(skillId)}`, {
-      headers: hdrs
-    });
-    if (!r.ok) return;
-    const d = await r.json();
-    const el = document.getElementById('cost-estimate');
-    if (!el) return;
-    el.style.display = 'block';
-    el.innerHTML = `<div class="card" style="display:flex;align-items:center;gap:12px;padding:14px 16px">
-      <span style="font-size:13px;color:var(--text-secondary)">Estimated cost:</span>
-      <strong style="font-family:var(--font-mono);color:var(--accent)">${d.estimatedCredits} credits</strong>
-      ${d.canAfford ? '<span class="badge badge-success">You can afford this</span>' : '<span class="badge badge-danger">Insufficient credits</span>'}
-      ${d.note ? `<span style="font-size:12px;color:var(--text-tertiary)">${esc(d.note)}</span>` : ''}
-    </div>`;
-  } catch {}
-}
-
-// ── Utils ─────────────────────────────────────────────────────────
-function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-function fmt(n) { return n >= 1e6 ? (n/1e6).toFixed(1)+'M' : n >= 1000 ? (n/1000).toFixed(1)+'k' : String(n); }
-function timeAgo(dateStr) {
-  const seconds = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
-  if (seconds < 60) return 'just now';
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return minutes + 'm ago';
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return hours + 'h ago';
-  const days = Math.floor(hours / 24);
-  if (days < 30) return days + 'd ago';
-  return new Date(dateStr).toLocaleDateString();
-}
-function toast(msg, type='info') {
-  const el = document.createElement('div'); el.className = `toast ${type}`;
-  el.innerHTML = `<span>${type==='success'?'✓':type==='error'?'✗':'ℹ'}</span><span>${esc(msg)}</span>`;
-  document.getElementById('toast-container').appendChild(el);
-  setTimeout(() => el.remove(), 4500);
-}
+checkStatus();
+initAuth();
+loadStats();
 </script>
-<script data-clerk-publishable-key="pk_live_Y2xlcmsuY2xhdy1uZXQub3JnJA"
-  src="https://cdn.jsdelivr.net/npm/@clerk/clerk-js@5/dist/clerk.browser.js"
-  onload="initNav()"></script>
 </body>
 </html>

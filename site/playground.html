@@ -4,9 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Playground — ClawNet</title>
-  <meta name="description" content="Test any ClawNet skill live in your browser. See real API responses, copy integration code, estimate costs — no sign-up needed.">
+  <meta name="description" content="Explore ClawNet API endpoints, view parameter documentation, and generate integration code for any endpoint.">
   <meta property="og:title" content="Playground — ClawNet">
-  <meta property="og:description" content="Interactive API playground. Test skills, explore endpoints, ship in minutes.">
+  <meta property="og:description" content="Explore 344 API endpoints. View docs, parameters, and copy integration code.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://claw-net.org/playground.html">
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
@@ -15,7 +15,6 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
   <style>
-    /* ── DESIGN TOKENS ─────────────────────────────────────────────── */
     :root {
       --bg-primary:#0a0a0b;--bg-surface:#111113;--bg-surface-2:#18181b;--bg-surface-3:#1f1f23;
       --border-subtle:#1e1e22;--border-default:#27272a;--border-strong:#3f3f46;
@@ -44,7 +43,7 @@
     body{font-family:var(--font-sans);background:var(--bg-primary);color:var(--text-secondary);font-size:14px;line-height:1.6;background-image:linear-gradient(var(--grid-color) 1px,transparent 1px),linear-gradient(90deg,var(--grid-color) 1px,transparent 1px);background-size:48px 48px}
     a{color:inherit;text-decoration:none} ::selection{background:var(--accent-dim)}
 
-    /* ── NAV ────────────────────────────────────────────────────────── */
+    /* NAV */
     nav{position:fixed;top:0;left:0;right:0;z-index:100;background:var(--nav-bg);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-bottom:1px solid var(--border-subtle);padding:0 24px;height:56px;display:flex;align-items:center;justify-content:space-between}
     .nav-brand{display:flex;align-items:center} .nav-brand a{text-decoration:none}
     .nav-right{display:flex;align-items:center;gap:12px}
@@ -78,286 +77,74 @@
     .mobile-menu{display:none;position:fixed;top:56px;left:0;right:0;background:var(--bg-surface);border-bottom:1px solid var(--border-default);z-index:99;padding:12px 24px;max-height:calc(100vh - 56px);overflow-y:auto}
     .mobile-menu.open{display:block} .mobile-menu a{display:block;padding:10px 0;font-size:14px;color:var(--text-secondary);border-bottom:1px solid var(--border-subtle);text-decoration:none} .mobile-menu a:last-child{border-bottom:none} .mobile-menu a:hover{color:var(--accent)}
     .mobile-menu-group{font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em;padding:12px 0 4px} .mobile-menu-group:first-child{padding-top:0}
-    @media(max-width:900px){.nav-links{display:none} .mobile-menu-btn{display:block} .btn-contact{display:none} .nav-status{display:none}}
+    @media(max-width:900px){.nav-links{display:none} .mobile-menu-btn{display:block} .nav-status{display:none}}
 
-    /* ── SHARED ──────────────────────────────────────────────────────── */
+    /* SHARED */
     .container{max-width:1240px;margin:0 auto;padding:0 24px}
     .badge{font-size:9px;font-weight:700;padding:2px 6px;border-radius:3px;text-transform:uppercase;letter-spacing:.04em;display:inline-flex;align-items:center;gap:3px}
-    .badge-data{background:var(--danger-dim);color:var(--danger)} .badge-prompt{background:var(--purple-dim);color:var(--purple)} .badge-proxy{background:var(--info-dim);color:var(--info)}
     .badge-get{background:var(--accent-dim);color:var(--accent)} .badge-post{background:var(--info-dim);color:var(--info)}
     .btn{font-family:var(--font-sans);font-size:13px;font-weight:600;padding:9px 18px;border-radius:var(--radius-md);cursor:pointer;transition:all .15s;border:1px solid transparent;display:inline-flex;align-items:center;gap:6px;line-height:1}
-    .btn-primary{background:var(--accent);color:#000;border-color:var(--accent)} .btn-primary:hover{background:var(--accent-hover)} .btn-primary:disabled{opacity:.4;cursor:not-allowed}
     .btn-ghost{background:transparent;color:var(--text-secondary);border-color:var(--border-default)} .btn-ghost:hover{border-color:var(--border-strong);color:var(--text-primary);background:var(--bg-surface-2)}
     .mono{font-family:var(--font-mono)}
-    .spinner{display:inline-block;width:14px;height:14px;border:2px solid rgba(0,0,0,.25);border-top-color:#000;border-radius:50%;animation:spin .6s linear infinite}
-    @keyframes spin{to{transform:rotate(360deg)}}
 
-    /* ── HERO ────────────────────────────────────────────────────────── */
+    /* HERO */
     .pg-hero{padding:40px 0 0;text-align:center}
     .pg-hero h1{font-size:28px;font-weight:700;color:var(--text-primary);margin-bottom:8px;letter-spacing:-.02em}
     .pg-hero h1 em{font-style:normal;color:var(--accent)}
     .pg-hero p{color:var(--text-tertiary);font-size:14px;max-width:520px;margin:0 auto}
 
-    /* ── MODE BAR ────────────────────────────────────────────────────── */
-    .mode-bar{text-align:center;padding:20px 0 8px}
-    .mode-bar-row{display:flex;align-items:center;justify-content:center;gap:16px}
-    .mode-toggle{display:inline-flex;background:var(--bg-surface);border:1px solid var(--border-default);border-radius:9999px;overflow:hidden}
-    .mode-toggle button{font-family:var(--font-sans);font-size:13px;font-weight:600;padding:8px 22px;border:none;cursor:pointer;transition:all .2s;background:transparent;color:var(--text-muted);display:flex;align-items:center;gap:6px;min-width:110px;justify-content:center}
-    .mode-toggle button.active-sandbox{background:var(--accent-dim);color:var(--accent)}
-    .mode-toggle button.active-live{background:var(--danger-dim);color:var(--danger)}
-    .mode-label{font-size:12px;font-weight:500;color:var(--text-muted)}
-    .mode-bar-sub{margin-top:10px;display:flex;align-items:center;justify-content:center;gap:12px;min-height:32px;flex-wrap:wrap}
-    .live-warning{background:var(--danger-dim);border:1px solid rgba(239,68,68,.2);border-radius:var(--radius-md);padding:8px 14px;display:inline-flex;align-items:center;gap:8px;font-size:12px;color:var(--danger);font-weight:500}
+    /* ENDPOINT EXPLORER */
+    .ep-section{padding:32px 0}
+    .ep-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px;margin-bottom:28px}
+    .ep-card{background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);padding:16px 20px;cursor:pointer;transition:border-color .15s}
+    .ep-card:hover{border-color:var(--border-default)}
+    .ep-card.sel{border-color:var(--accent);background:var(--accent-subtle)}
+    .ep-card-head{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+    .ep-card-name{font-size:14px;font-weight:600;color:var(--text-primary)}
+    .ep-card-desc{font-size:12px;color:var(--text-tertiary);line-height:1.5}
+    .ep-card-path{font-family:var(--font-mono);font-size:12px;color:var(--text-muted);margin-top:6px}
 
-    /* Key banner — between tabs and content */
-    .key-banner{display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:20px}
-    .key-banner-box{display:inline-flex;align-items:center;gap:10px;font-family:var(--font-mono);font-size:14px;font-weight:600;padding:10px 20px;border-radius:var(--radius-md);border:1px solid var(--border-default);background:var(--bg-surface);letter-spacing:.02em}
-    .key-banner-box svg{flex-shrink:0}
-    .key-banner-box.sandbox{color:var(--accent);border-color:rgba(16,185,129,.25);background:var(--accent-dim)}
-    .key-banner-box.live{color:var(--danger);border-color:rgba(239,68,68,.25);background:var(--danger-dim)}
-    .key-banner-label{font-family:var(--font-sans);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted)}
+    /* DETAIL PANEL */
+    .ep-detail{background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);padding:28px;margin-bottom:28px;display:none}
+    .ep-detail.show{display:block}
+    .ep-detail-head{display:flex;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap}
+    .ep-detail-name{font-size:18px;font-weight:700;color:var(--text-primary)}
+    .ep-detail-desc{font-size:13px;color:var(--text-tertiary);margin-bottom:16px;line-height:1.6}
+    .ep-detail-url{font-family:var(--font-mono);font-size:13px;color:var(--text-secondary);background:var(--bg-primary);border:1px solid var(--border-default);border-radius:var(--radius-md);padding:10px 14px;margin-bottom:20px;display:flex;align-items:center;gap:10px;overflow-x:auto}
+    .ep-detail-url .copy-btn{font-family:var(--font-sans);font-size:11px;font-weight:600;padding:4px 10px;border:1px solid var(--border-default);border-radius:var(--radius-sm);background:var(--bg-surface-2);color:var(--text-tertiary);cursor:pointer;white-space:nowrap;flex-shrink:0;transition:all .15s}
+    .ep-detail-url .copy-btn:hover{border-color:var(--accent);color:var(--accent)}
 
-    /* ── SECTION TABS ────────────────────────────────────────────────── */
-    .pg-tabs{display:flex;gap:0;border-bottom:1px solid var(--border-default);margin-bottom:28px}
-    .pg-tabs button{background:none;border:none;border-bottom:2px solid transparent;color:var(--text-muted);font-family:var(--font-sans);font-size:14px;font-weight:600;padding:12px 24px;cursor:pointer;transition:all .15s;margin-bottom:-1px}
-    .pg-tabs button:hover{color:var(--text-secondary)}
-    .pg-tabs button.active{color:var(--text-primary);border-bottom-color:var(--accent)}
-    .pg-tab-panel{display:none} .pg-tab-panel.active{display:block}
+    .ep-sub{font-size:12px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.04em;margin-bottom:10px;margin-top:20px}
+    .ep-body-block{background:var(--bg-primary);border:1px solid var(--border-subtle);border-radius:var(--radius-md);padding:14px 18px;font-family:var(--font-mono);font-size:12px;color:var(--text-secondary);line-height:1.7;overflow-x:auto;white-space:pre}
 
-    /* ── SKILL SANDBOX ────────────────────────────────────────────────── */
-    .sb-layout{display:grid;grid-template-columns:300px 1fr;gap:20px;align-items:start}
-    @media(max-width:900px){.sb-layout{grid-template-columns:1fr}}
-    .sb-browser{background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);overflow:hidden}
-    .sb-browser-head{padding:12px 14px;border-bottom:1px solid var(--border-subtle)}
-    .sb-browser-head h3{font-size:11px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.06em;margin:0}
-    .sb-search{width:calc(100% - 28px);background:var(--bg-primary);border:1px solid var(--border-default);color:var(--text-primary);font-family:var(--font-sans);font-size:13px;padding:8px 12px;border-radius:var(--radius-md);outline:none;margin:12px 14px 8px}
-    .sb-search:focus{border-color:var(--accent)}
-    .sb-filters{display:flex;gap:4px;padding:0 14px 10px;flex-wrap:wrap}
-    .sb-filters button{font-family:var(--font-sans);font-size:11px;font-weight:600;padding:3px 10px;border-radius:9999px;border:1px solid var(--border-default);background:transparent;color:var(--text-muted);cursor:pointer;transition:all .15s}
-    .sb-filters button:hover{border-color:var(--border-strong);color:var(--text-secondary)}
-    .sb-filters button.active{background:var(--bg-surface-3);border-color:var(--border-strong);color:var(--text-primary)}
-    .sb-filters button.active.f-data{background:var(--danger-dim);color:var(--danger);border-color:rgba(239,68,68,.35)}
-    .sb-filters button.active.f-prompt{background:var(--purple-dim);color:var(--purple);border-color:rgba(139,92,246,.35)}
-    .sb-filters button.active.f-proxy{background:var(--info-dim);color:var(--info);border-color:rgba(59,130,246,.35)}
-    .sb-list{max-height:420px;overflow-y:auto}
-    .sb-skill{padding:10px 14px;cursor:pointer;border-bottom:1px solid var(--border-subtle);transition:background .1s}
-    .sb-skill:last-child{border-bottom:none} .sb-skill:hover{background:var(--bg-surface-2)}
-    .sb-skill.sel{background:var(--accent-dim);border-left:3px solid var(--accent)}
-    .sb-skill-name{font-size:13px;font-weight:500;color:var(--text-primary);display:flex;align-items:center;gap:6px}
-    .sb-skill-meta{font-size:11px;color:var(--text-muted);margin-top:2px}
+    /* CODE GENERATION */
+    .code-tabs{display:flex;gap:0;margin-bottom:0;border-bottom:1px solid var(--border-default)}
+    .code-tabs button{background:none;border:none;border-bottom:2px solid transparent;color:var(--text-muted);font-family:var(--font-sans);font-size:12px;font-weight:600;padding:8px 16px;cursor:pointer;transition:all .15s;margin-bottom:-1px}
+    .code-tabs button:hover{color:var(--text-secondary)}
+    .code-tabs button.active{color:var(--text-primary);border-bottom-color:var(--accent)}
+    .code-gen{background:var(--bg-primary);border:1px solid var(--border-subtle);border-radius:0 0 var(--radius-md) var(--radius-md);padding:14px 18px;font-family:var(--font-mono);font-size:12px;color:var(--text-secondary);line-height:1.7;overflow-x:auto;white-space:pre;position:relative}
+    .code-gen .copy-btn{position:absolute;top:10px;right:10px;font-family:var(--font-sans);font-size:11px;font-weight:600;padding:4px 10px;border:1px solid var(--border-default);border-radius:var(--radius-sm);background:var(--bg-surface-2);color:var(--text-tertiary);cursor:pointer;transition:all .15s}
+    .code-gen .copy-btn:hover{border-color:var(--accent);color:var(--accent)}
 
-    /* Featured cards */
-    .sb-featured{text-align:center;padding:40px 0}
-    .sb-featured h3{font-size:16px;font-weight:700;color:var(--text-primary);margin-bottom:6px}
-    .sb-featured>p{font-size:13px;color:var(--text-muted);margin-bottom:28px}
-    .sb-featured-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;text-align:left}
-    .sb-fcard{background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);padding:16px;cursor:pointer;transition:all .2s}
-    .sb-fcard:hover{border-color:var(--accent);transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,.3)}
-    .sb-fcard h4{font-size:13px;font-weight:600;color:var(--text-primary);margin:8px 0 4px}
-    .sb-fcard p{font-size:11px;color:var(--text-muted);line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-    .sb-fcard .card-foot{font-size:11px;color:var(--text-muted);margin-top:10px;display:flex;align-items:center;gap:8px}
-    .sb-fcard .card-foot .cost{color:var(--warning);font-weight:600}
-
-    /* Skill header */
-    .sk-header{background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);padding:20px;margin-bottom:16px}
-    .sk-name{font-size:18px;font-weight:700;color:var(--text-primary);margin-bottom:4px}
-    .sk-desc{font-size:13px;color:var(--text-tertiary);line-height:1.5;margin-bottom:12px}
-    .sk-chips{display:flex;gap:8px;flex-wrap:wrap}
-    .sk-chip{font-size:11px;font-weight:500;padding:3px 10px;border-radius:9999px;border:1px solid var(--border-default);color:var(--text-muted);display:flex;align-items:center;gap:4px}
-    .sk-chip.cost{background:var(--warning-dim);border-color:rgba(245,158,11,.2);color:var(--warning)}
-    .sk-chip.freq{background:var(--info-dim);border-color:rgba(59,130,246,.2);color:var(--info)}
-    .sk-endpoint{margin-top:12px;padding:8px 12px;background:var(--bg-primary);border:1px solid var(--border-default);border-radius:var(--radius-md);font-family:var(--font-mono);font-size:12px;color:var(--text-muted);display:flex;align-items:center;gap:8px}
-    .sk-endpoint .ep-copy{margin-left:auto;background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:11px;font-family:var(--font-sans)} .sk-endpoint .ep-copy:hover{color:var(--text-primary)}
-
-    /* Scenario cards */
-    .scenarios{margin-bottom:16px}
-    .scenarios h4{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:10px}
-    .scenario-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px}
-    .scenario-card{background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);padding:14px;cursor:pointer;transition:all .2s}
-    .scenario-card:hover{border-color:var(--accent);transform:translateY(-1px);box-shadow:0 4px 16px rgba(16,185,129,.08)}
-    .scenario-card.active{border-color:var(--accent);background:var(--accent-dim)}
-    .scenario-card .sc-icon{font-size:20px;margin-bottom:8px}
-    .scenario-card .sc-name{font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:3px}
-    .scenario-card .sc-desc{font-size:11px;color:var(--text-muted);line-height:1.4}
-
-    /* Result panel */
-    .result-panel{background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);overflow:hidden;margin-bottom:16px}
-    .result-header{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-bottom:1px solid var(--border-subtle);flex-wrap:wrap;gap:8px}
-    .result-header h4{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-tertiary);margin:0}
-    .result-meta{display:flex;gap:8px;align-items:center;font-size:11px;color:var(--text-muted)}
-    .tag{padding:2px 9px;border-radius:9999px;font-weight:600;font-size:10px}
-    .tag-sample{background:var(--accent-dim);color:var(--accent)} .tag-live{background:var(--danger-dim);color:var(--danger)} .tag-err{background:var(--danger-dim);color:var(--danger)}
-    .result-tabs{display:flex;border-bottom:1px solid var(--border-subtle);padding:0 16px}
-    .result-tabs button{background:none;border:none;border-bottom:2px solid transparent;color:var(--text-muted);font-family:var(--font-sans);font-size:12px;font-weight:500;padding:8px 14px;cursor:pointer;transition:all .15s;margin-bottom:-1px}
-    .result-tabs button:hover{color:var(--text-secondary)} .result-tabs button.active{color:var(--accent);border-bottom-color:var(--accent)}
-    .result-body{padding:16px;position:relative;max-height:360px;overflow:auto}
-    .result-body pre{font-family:var(--font-mono);font-size:12px;line-height:1.6;white-space:pre-wrap;word-break:break-word;color:var(--text-secondary)}
-    .result-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px;text-align:center;color:var(--text-muted);min-height:200px}
-    .copy-btn{position:absolute;top:10px;right:12px;background:var(--bg-surface-2);border:1px solid var(--border-default);color:var(--text-muted);font-size:11px;padding:4px 10px;border-radius:var(--radius-sm);cursor:pointer;font-family:var(--font-sans);z-index:1} .copy-btn:hover{color:var(--text-primary);border-color:var(--border-strong)}
-
-    /* Integration code */
-    .integrate{background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);overflow:hidden;margin-bottom:16px}
-    .integrate-head{padding:12px 16px;border-bottom:1px solid var(--border-subtle);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}
-    .integrate-head h4{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-tertiary);margin:0;display:flex;align-items:center;gap:8px}
-    .integrate-head h4 .ig-badge{font-size:10px;font-weight:700;padding:2px 7px;background:var(--accent-dim);color:var(--accent);border-radius:9999px}
-    .lang-tabs{display:flex;gap:4px}
-    .lang-tabs button{font-family:var(--font-sans);font-size:11px;font-weight:500;padding:3px 10px;border-radius:var(--radius-sm);border:1px solid var(--border-default);background:transparent;color:var(--text-muted);cursor:pointer;transition:all .15s}
-    .lang-tabs button.active{background:var(--info-dim);color:var(--info);border-color:rgba(59,130,246,.3)}
-    .integrate-body{padding:16px;position:relative}
-    .integrate-body pre{font-family:var(--font-mono);font-size:12px;line-height:1.6;color:var(--text-secondary);white-space:pre-wrap;word-break:break-word}
-
-    /* Cost calculator */
-    .cost-calc{background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);padding:16px 20px;margin-bottom:16px}
-    .cost-calc h4{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-tertiary);margin-bottom:12px}
-    .cost-calc-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-    .cost-calc input[type=range]{flex:1;min-width:120px;accent-color:var(--accent)}
-    .cost-calc-num{font-family:var(--font-mono);font-size:13px;color:var(--text-primary);min-width:80px}
-    .cost-calc-results{display:flex;gap:20px;margin-top:12px;flex-wrap:wrap}
-    .ccr{text-align:center}
-    .ccr-val{font-family:var(--font-mono);font-size:16px;font-weight:700;color:var(--accent)}
-    .ccr-label{font-size:11px;color:var(--text-muted)}
-
-    /* Advanced params */
-    .advanced{border:1px solid var(--border-subtle);border-radius:var(--radius-lg);overflow:hidden;margin-bottom:16px}
-    .advanced-toggle{width:100%;display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:var(--bg-surface);border:none;cursor:pointer;color:var(--text-muted);font-family:var(--font-sans);font-size:12px;font-weight:600}
-    .advanced-toggle:hover{color:var(--text-secondary)} .advanced-toggle svg{transition:transform .2s} .advanced-toggle.open svg{transform:rotate(180deg)}
-    .advanced-body{display:none;padding:16px;background:var(--bg-surface)} .advanced-body.open{display:block}
-    .adv-field{background:var(--bg-surface-2);border:1px solid var(--border-subtle);border-radius:var(--radius-md);padding:12px 14px;margin-bottom:8px} .adv-field:last-child{margin-bottom:0}
-    .adv-field-head{display:flex;align-items:center;gap:8px;margin-bottom:6px}
-    .adv-field-name{font-size:13px;font-weight:600;color:var(--text-primary)}
-    .adv-badge{font-size:10px;font-weight:700;padding:1px 5px;border-radius:3px}
-    .adv-badge.req{color:var(--danger);background:var(--danger-dim)} .adv-badge.opt{color:var(--text-muted)} .adv-badge.type{font-family:var(--font-mono);background:var(--bg-surface);border:1px solid var(--border-default);color:var(--text-muted)}
-    .adv-field-desc{font-size:11px;color:var(--text-tertiary);margin-bottom:8px}
-    .adv-input{width:100%;background:var(--bg-primary);border:1px solid var(--border-default);color:var(--text-primary);font-family:var(--font-sans);font-size:13px;padding:8px 10px;border-radius:var(--radius-md);outline:none}
-    .adv-input:focus{border-color:var(--accent)} textarea.adv-input{resize:vertical;min-height:64px;font-family:var(--font-mono);font-size:12px}
-
-    /* Use badges */
-    .use-badges{display:inline-flex;gap:6px;font-size:10px;font-weight:600}
-    .use-badge{display:inline-flex;align-items:center;gap:3px;padding:1px 6px;border-radius:9999px}
-    .use-badge.sb{background:var(--accent-dim);color:var(--accent)}
-    .use-badge.lv{background:var(--danger-dim);color:var(--danger)}
-    .at-ep-card .use-badges{margin-top:6px}
-
-    /* Price stat box */
-    .price-stat-box{display:flex;align-items:center;gap:16px;background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);padding:14px 20px;margin-bottom:16px}
-    .price-stat-box .psb-label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted)}
-    .price-stat-box .psb-credits{font-family:var(--font-mono);font-size:24px;font-weight:700;color:var(--warning)}
-    .price-stat-box .psb-usd{font-family:var(--font-mono);font-size:16px;font-weight:600;color:var(--text-tertiary)}
-    .price-stat-box .psb-divider{width:1px;height:32px;background:var(--border-default)}
-    .price-stat-box .psb-mode{font-size:12px;font-weight:600;padding:4px 12px;border-radius:9999px}
-    .price-stat-box .psb-mode.sandbox{background:var(--accent-dim);color:var(--accent)}
-    .price-stat-box .psb-mode.live{background:var(--danger-dim);color:var(--danger)}
-
-    /* ── SIMULATION FLOW ──────────────────────────────────────────────── */
-    .sim-flow{margin-bottom:16px}
-    .sim-block{background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);overflow:hidden;transition:border-color .3s}
-    .sim-block.sim-active{border-color:var(--accent)}
-    .sim-block-head{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-bottom:1px solid var(--border-subtle);flex-wrap:wrap;gap:8px}
-    .sim-block-head h4{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin:0;display:flex;align-items:center;gap:8px}
-    .sim-block-head h4 .sim-step{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;font-size:10px;font-weight:800;line-height:1}
-    .sim-step-1{background:var(--info-dim);color:var(--info)}
-    .sim-step-2{background:var(--accent-dim);color:var(--accent)}
-    .sim-step-3{background:var(--warning-dim);color:var(--warning)}
-    .sim-block-body{padding:16px;position:relative}
-    .sim-block-body pre{font-family:var(--font-mono);font-size:12px;line-height:1.7;white-space:pre-wrap;word-break:break-word;color:var(--text-secondary)}
-    .sim-connector{display:flex;align-items:center;justify-content:center;padding:6px 0;position:relative}
-    .sim-connector::before{content:'';position:absolute;left:50%;top:0;bottom:0;width:1px;background:var(--border-default)}
-    .sim-connector-label{position:relative;z-index:1;font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--text-muted);background:var(--bg-primary);padding:2px 12px;border:1px solid var(--border-default);border-radius:9999px;display:flex;align-items:center;gap:4px}
-    .sim-connector-label svg{opacity:.6}
-
-    /* Simulation — code block */
-    .sim-code .sim-block-head h4{color:var(--info)}
-    .sim-code .sim-block-body{background:var(--bg-primary);max-height:220px;overflow:auto}
-
-    /* Simulation — response block */
-    .sim-response .sim-block-head h4{color:var(--accent)}
-    .sim-response .sim-block-body{max-height:360px;overflow:auto}
-
-    /* Simulation — cost receipt */
-    .sim-cost .sim-block-head h4{color:var(--warning)}
-    .sim-receipt{display:flex;align-items:center;gap:20px;flex-wrap:wrap}
-    .sim-receipt-item{display:flex;flex-direction:column;gap:2px}
-    .sim-receipt-label{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted)}
-    .sim-receipt-val{font-family:var(--font-mono);font-size:16px;font-weight:700}
-    .sim-receipt-val.cr{color:var(--warning)}
-    .sim-receipt-val.usd{color:var(--text-tertiary);font-size:14px}
-    .sim-receipt-val.mode{font-size:12px;font-weight:600;padding:4px 12px;border-radius:9999px}
-    .sim-receipt-val.mode.sandbox{background:var(--accent-dim);color:var(--accent)}
-    .sim-receipt-val.mode.live{background:var(--danger-dim);color:var(--danger)}
-    .sim-receipt-divider{width:1px;height:28px;background:var(--border-default)}
-    .sim-receipt-detail{margin-left:auto;font-size:11px;color:var(--text-muted);text-align:right;line-height:1.6}
-
-    /* Simulation — empty state */
-    .sim-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px;text-align:center;color:var(--text-muted);min-height:120px}
-    .sim-empty .sim-arrow{font-size:24px;margin-bottom:8px;opacity:.3}
-    .sim-empty p{font-size:12px}
-
-    /* Inline API key */
-    .inline-key{background:var(--warning-dim);border:1px solid rgba(245,158,11,.2);border-radius:var(--radius-md);padding:14px;margin-bottom:16px}
-    .inline-key p{font-size:12px;color:var(--warning);margin-bottom:8px;font-weight:500}
-    .inline-key-row{display:flex;gap:8px}
-    .inline-key input{flex:1;background:var(--bg-primary);border:1px solid var(--border-default);color:var(--text-primary);font-family:var(--font-mono);font-size:12px;padding:7px 10px;border-radius:var(--radius-md);outline:none} .inline-key input:focus{border-color:var(--warning)}
-    .inline-key button{font-family:var(--font-sans);font-size:12px;font-weight:600;padding:7px 14px;background:var(--warning);color:#000;border:none;border-radius:var(--radius-md);cursor:pointer;white-space:nowrap} .inline-key button:hover{opacity:.9}
-    .run-bar{width:100%;display:flex;align-items:center;justify-content:center;gap:10px;padding:14px 24px;font-family:var(--font-sans);font-size:15px;font-weight:700;letter-spacing:.01em;border:none;border-radius:var(--radius-lg);cursor:pointer;transition:all .15s;margin-bottom:16px}
-    .run-bar-sandbox{background:var(--accent);color:#000} .run-bar-sandbox:hover{background:var(--accent-hover);transform:translateY(-1px);box-shadow:0 4px 16px rgba(16,185,129,.25)}
-    .run-bar-live{background:var(--danger);color:#fff} .run-bar-live:hover{opacity:.9;transform:translateY(-1px);box-shadow:0 4px 16px rgba(239,68,68,.25)}
-    .actions-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
-
-    /* ── API TESTER ──────────────────────────────────────────────────── */
-    .at-head{margin-bottom:24px} .at-head h2{font-size:20px;font-weight:700;color:var(--text-primary);margin-bottom:4px} .at-head p{font-size:13px;color:var(--text-muted)}
-    .at-endpoints{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin-bottom:24px}
-    .at-ep-card{background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);padding:14px;cursor:pointer;transition:all .2s}
-    .at-ep-card:hover{border-color:var(--accent);transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.25)}
-    .at-ep-card.sel{border-color:var(--accent);background:var(--accent-dim)}
-    .at-ep-card .ep-method{font-size:10px;font-weight:700;margin-bottom:6px}
-    .at-ep-card .ep-name{font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:2px}
-    .at-ep-card .ep-desc{font-size:11px;color:var(--text-muted);line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-    .at-workspace{display:none;background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);overflow:hidden} .at-workspace.show{display:block}
-    .at-ws-head{padding:14px 16px;border-bottom:1px solid var(--border-subtle);display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-    .at-ws-url{flex:1;font-family:var(--font-mono);font-size:13px;color:var(--text-primary);background:var(--bg-primary);border:1px solid var(--border-default);border-radius:var(--radius-md);padding:8px 12px;outline:none;min-width:200px} .at-ws-url:focus{border-color:var(--accent)}
-    .at-ws-body{display:grid;grid-template-columns:1fr 1fr;min-height:300px}
-    @media(max-width:900px){.at-ws-body{grid-template-columns:1fr;grid-template-rows:1fr 1fr}}
-    .at-req{border-right:1px solid var(--border-subtle)} @media(max-width:900px){.at-req{border-right:none;border-bottom:1px solid var(--border-subtle)}}
-    .at-pane-head{padding:8px 14px;background:var(--bg-surface-2);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);border-bottom:1px solid var(--border-subtle);display:flex;align-items:center;justify-content:space-between}
-    .at-editor{flex:1;padding:14px;overflow:auto}
-    .at-editor textarea{width:100%;min-height:200px;background:var(--bg-primary);border:1px solid var(--border-default);color:var(--text-primary);font-family:var(--font-mono);font-size:12px;padding:12px;border-radius:var(--radius-md);outline:none;resize:vertical;line-height:1.6} .at-editor textarea:focus{border-color:var(--accent)}
-    .at-editor pre{font-family:var(--font-mono);font-size:12px;line-height:1.6;white-space:pre-wrap;word-break:break-word;color:var(--text-secondary);min-height:200px}
-    .at-res-status{display:flex;align-items:center;gap:8px}
-    .status-code{font-family:var(--font-mono);font-size:12px;font-weight:700}
-    .status-code.s2{color:var(--accent)} .status-code.s4{color:var(--warning)} .status-code.s5{color:var(--danger)}
-
-    /* ── FOOTER + TOAST + MODAL ──────────────────────────────────────── */
-    footer{border-top:1px solid var(--border-subtle);padding:32px 24px;display:flex;justify-content:space-between;align-items:center;max-width:1240px;margin:0 auto;flex-wrap:wrap;gap:16px}
-    footer{border-top:1px solid var(--border-subtle);padding:48px 24px 32px}
+    /* FOOTER */
+    footer{border-top:1px solid var(--border-subtle);padding:48px 24px 32px;max-width:1240px;margin:0 auto}
     .footer-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:32px;margin-bottom:32px}
     .footer-grid h4{font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:12px;text-transform:uppercase;letter-spacing:.04em}
-    .footer-grid a{display:block;font-size:13px;color:var(--text-tertiary);text-decoration:none;padding:4px 0;transition:color .15s} .footer-grid a:hover{color:var(--text-primary)}
-    .footer-bottom{padding-top:24px;border-top:1px solid var(--border-subtle);text-align:center} .footer-bottom span{font-size:12px;color:var(--text-muted)}
-    @media(max-width:600px){.footer-grid{grid-template-columns:repeat(2,1fr)}}
-    .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);backdrop-filter:blur(4px);z-index:1000;align-items:center;justify-content:center} .modal-overlay.show{display:flex}
-    .modal{background:var(--bg-surface);border:1px solid var(--border-default);border-radius:var(--radius-xl);padding:28px;max-width:400px;width:90%;box-shadow:0 24px 64px rgba(0,0,0,.6)}
-    .modal h3{font-size:16px;font-weight:700;color:var(--text-primary);margin-bottom:10px;display:flex;align-items:center;gap:8px}
-    .modal p{font-size:13px;color:var(--text-tertiary);margin-bottom:20px;line-height:1.5}
-    .modal-cost{background:var(--bg-surface-2);border:1px solid var(--border-subtle);border-radius:var(--radius-md);padding:14px 16px;margin-bottom:20px}
-    .modal-cost-row{display:flex;justify-content:space-between;align-items:center;padding:4px 0}
-    .modal-cost-row+.modal-cost-row{border-top:1px solid var(--border-subtle);margin-top:4px;padding-top:8px}
-    .modal-actions{display:flex;gap:8px;justify-content:flex-end}
-    #toast-container{position:fixed;bottom:32px;right:32px;z-index:9999;display:flex;flex-direction:column;gap:10px}
-    .toast{font-size:13px;padding:12px 18px;border:1px solid;border-radius:var(--radius-md);display:flex;align-items:center;gap:10px;min-width:240px;max-width:380px;animation:toastIn .2s ease;box-shadow:0 4px 16px rgba(0,0,0,.4)}
-    .toast.success{background:var(--bg-surface-2);border-color:rgba(16,185,129,.3);color:var(--accent)}
-    .toast.error{background:var(--bg-surface-2);border-color:rgba(239,68,68,.3);color:var(--danger)}
-    .toast.warning{background:var(--bg-surface-2);border-color:rgba(245,158,11,.3);color:var(--warning)}
-    @keyframes toastIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+    .footer-grid a{display:block;font-size:13px;color:var(--text-tertiary);text-decoration:none;padding:4px 0;transition:color .15s}
+    .footer-grid a:hover{color:var(--text-primary)}
+    .footer-bottom{padding-top:24px;border-top:1px solid var(--border-subtle);text-align:center}
+    .footer-bottom span{font-size:12px;color:var(--text-muted)}
+
+    @media(max-width:640px){.ep-grid{grid-template-columns:1fr} .footer-grid{grid-template-columns:repeat(2,1fr)}}
   </style>
 </head>
 <body>
 
-<!-- NAV -->
 <nav>
   <div class="nav-brand"><a href="/"><span class="nav-logo-text">&#x1F99E; Claw<span>Net</span></span></a></div>
   <div class="nav-links">
     <div class="dropdown"><button class="dropdown-toggle">Products &#9662;</button><div class="dropdown-menu"><a href="https://pulse.claw-net.org">Pulse &mdash; AI Marketing</a><a href="/roadmap.html">Radar &mdash; Trading (Coming Soon)</a></div></div>
-    <div class="dropdown"><button class="dropdown-toggle">Developers &#9662;</button><div class="dropdown-menu"><a href="/endpoints.html">API Endpoints</a><a href="/marketplace.html">Marketplace</a><a href="/docs.html">Documentation</a><a href="/playground.html">Playground</a><a href="/#pricing">Pricing</a></div></div>
+    <div class="dropdown"><button class="dropdown-toggle">Developers &#9662;</button><div class="dropdown-menu"><a href="/endpoints.html">API Endpoints</a><a href="/marketplace.html">Agent Services</a><a href="/docs.html">Documentation</a><a href="/playground.html">Playground</a><a href="/#pricing">Pricing</a></div></div>
     <a href="/roadmap.html">Roadmap</a>
   </div>
   <div class="nav-right">
@@ -384,7 +171,7 @@
 </nav>
 <div class="mobile-menu" id="mobileMenu">
   <div class="mobile-menu-group">Products</div><a href="https://pulse.claw-net.org">Pulse &mdash; AI Marketing</a><a href="/roadmap.html">Radar &mdash; Trading (Coming Soon)</a>
-  <div class="mobile-menu-group">Developers</div><a href="/endpoints.html">API Endpoints</a><a href="/marketplace.html">Marketplace</a><a href="/docs.html">Documentation</a><a href="/playground.html">Playground</a><a href="/#pricing">Pricing</a>
+  <div class="mobile-menu-group">Developers</div><a href="/endpoints.html">API Endpoints</a><a href="/marketplace.html">Agent Services</a><a href="/docs.html">Documentation</a><a href="/playground.html">Playground</a><a href="/#pricing">Pricing</a>
   <div class="mobile-menu-group">More</div><a href="/roadmap.html">Roadmap</a>
   <div class="mobile-menu-group" id="mobile-account-group" style="display:none">Account</div>
   <span class="mobile-account-email" id="mobile-account-email" style="display:none;padding:6px 0;font-size:12px;color:var(--text-tertiary)"></span>
@@ -396,101 +183,48 @@
 <!-- HERO -->
 <div class="container">
   <div class="pg-hero">
-    <h1>Test. Explore. <em>Integrate.</em></h1>
-    <p>Try any skill for free, test every endpoint live, and copy working code — all from your browser.</p>
+    <h1>Explore. Document. <em>Integrate.</em></h1>
+    <p>Browse every ClawNet endpoint, view parameter documentation, and generate integration code in your language.</p>
   </div>
-  <div class="mode-bar">
-    <div class="mode-bar-row">
-      <div class="mode-toggle">
-        <button id="modeSandbox" class="active-sandbox" onclick="setMode('sandbox')"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>Sandbox</button>
-        <button id="modeLive" onclick="setMode('live')"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>Live</button>
+
+  <!-- ENDPOINT EXPLORER -->
+  <div class="ep-section">
+    <div class="ep-detail" id="epDetail">
+      <div class="ep-detail-head">
+        <span class="badge" id="epMethod">GET</span>
+        <span class="ep-detail-name" id="epName"></span>
       </div>
-      <span class="mode-label" id="modeLabel">Free preview — no sign-in needed</span>
-    </div>
-    <div class="mode-bar-sub" id="modeBarSub"></div>
-  </div>
-
-  <!-- SECTION TABS -->
-  <div class="pg-tabs" id="pgTabs">
-    <button class="active" onclick="switchSection('sandbox',this)">Skill Tester</button>
-    <button onclick="switchSection('tester',this)">API Tester</button>
-  </div>
-
-  <!-- KEY BANNER -->
-  <div class="key-banner" id="keyBanner">
-    <span class="key-banner-label">API Key</span>
-    <span class="key-banner-box sandbox" id="keyBannerBox"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>cn-sandbox-demo-xxxx</span>
-  </div>
-
-  <!-- ═══ SKILL SANDBOX ═══ -->
-  <div class="pg-tab-panel active" id="panelSandbox">
-    <div class="sb-layout">
-      <div class="sb-browser">
-        <div class="sb-browser-head"><h3>Skills</h3></div>
-        <input type="text" class="sb-search" id="skillSearch" placeholder="Search skills..." oninput="filterSkills()">
-        <div class="sb-filters" id="typeFilter">
-          <button class="active" onclick="setTypeFilter('all',this)">All</button>
-          <button class="f-data" onclick="setTypeFilter('data',this)">Data</button>
-          <button class="f-prompt" onclick="setTypeFilter('prompt_template',this)">Prompt</button>
-          <button class="f-proxy" onclick="setTypeFilter('api_proxy',this)">Proxy</button>
-        </div>
-        <div class="sb-list" id="skillList"><div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12px">Loading skills...</div></div>
+      <div class="ep-detail-desc" id="epDesc"></div>
+      <div class="ep-detail-url">
+        <span id="epUrl"></span>
+        <button class="copy-btn" onclick="copyUrl()">Copy URL</button>
       </div>
-      <div id="sbDetail"></div>
-    </div>
-  </div>
 
-  <!-- ═══ API TESTER ═══ -->
-  <div class="pg-tab-panel" id="panelTester">
-    <div class="at-head"><h2>API Tester</h2><p>Select an endpoint, edit the request, and hit Send. Sandbox mode returns realistic mock data for free.</p></div>
-    <div class="at-endpoints" id="atEndpoints"></div>
-    <div class="at-workspace" id="atWorkspace">
-      <div class="at-ws-head">
-        <span class="badge" id="atMethod">GET</span>
-        <input type="text" class="at-ws-url" id="atUrl" readonly>
-        <button class="btn btn-primary" id="atSendBtn" onclick="atSend()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>Send</button>
+      <div id="epBodySection" style="display:none">
+        <div class="ep-sub">Request Body</div>
+        <div class="ep-body-block" id="epBody"></div>
       </div>
-      <div class="at-ws-body">
-        <div class="at-req"><div class="at-pane-head"><span>Request</span></div><div class="at-editor"><textarea id="atReqBody" spellcheck="false"></textarea></div></div>
-        <div class="at-res"><div class="at-pane-head"><span>Response</span><div class="at-res-status" id="atResStatus"></div></div><div class="at-editor"><pre id="atResBody" style="color:var(--text-muted)">Click "Send" to execute the request.</pre></div></div>
+
+      <div class="ep-sub" style="margin-top:24px">Integration Code</div>
+      <div class="code-tabs" id="codeTabs">
+        <button class="active" onclick="switchLang('javascript',this)">JavaScript</button>
+        <button onclick="switchLang('python',this)">Python</button>
+        <button onclick="switchLang('curl',this)">cURL</button>
+      </div>
+      <div class="code-gen" id="codeBlock">
+        <button class="copy-btn" onclick="copyCode()">Copy</button>
+        <span id="codeContent"></span>
       </div>
     </div>
-  </div>
-</div>
 
-<!-- CONFIRM MODAL -->
-<div class="modal-overlay" id="confirmModal">
-  <div class="modal">
-    <h3><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>Confirm Live Run</h3>
-    <p>This will make a <strong>real API call</strong> and deduct credits from your balance. This action is <strong>non-refundable</strong>.</p>
-    <div class="modal-cost">
-      <div class="modal-cost-row"><span style="font-size:12px;color:var(--text-tertiary)">Skill</span><span style="font-size:13px;font-weight:600;color:var(--text-primary)" id="cmSkill">—</span></div>
-      <div class="modal-cost-row"><span style="font-size:12px;color:var(--text-tertiary)">Cost</span><span class="mono" style="font-size:13px;font-weight:700;color:var(--danger)" id="cmCost">—</span></div>
-      <div class="modal-cost-row"><span style="font-size:12px;color:var(--text-tertiary)">Balance after</span><span class="mono" style="font-size:12px;color:var(--text-muted)" id="cmBalance">—</span></div>
-    </div>
-    <div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button><button class="btn" style="background:var(--danger);color:#fff;border-color:var(--danger)" onclick="runLiveConfirmed()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>Run &amp; Deduct Credits</button></div>
-  </div>
-</div>
-
-<!-- ERROR MODAL -->
-<div class="modal-overlay" id="errorModal">
-  <div class="modal">
-    <h3 style="gap:10px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9 12l2 2 4-4"/></svg><span style="color:var(--accent)">No Credits Charged</span></h3>
-    <p id="errModalDesc" style="line-height:1.6">—</p>
-    <div class="modal-cost" id="errModalDetails" style="border-left:3px solid var(--accent)">
-      <div class="modal-cost-row"><span style="font-size:12px;color:var(--text-tertiary)">Credits deducted</span><span class="mono" style="font-size:14px;font-weight:700;color:var(--accent)">0</span></div>
-      <div class="modal-cost-row"><span style="font-size:12px;color:var(--text-tertiary)">Error code</span><span class="mono" style="font-size:12px;color:var(--text-muted)" id="errModalCode">—</span></div>
-      <div class="modal-cost-row"><span style="font-size:12px;color:var(--text-tertiary)">Status</span><span class="mono" style="font-size:12px;color:var(--text-muted)" id="errModalStatus">—</span></div>
-    </div>
-    <div id="errModalHint" style="font-size:12px;color:var(--text-tertiary);line-height:1.6;padding:10px 12px;background:var(--bg-primary);border-radius:var(--radius-md);margin-bottom:16px;display:none"></div>
-    <div class="modal-actions"><button class="btn btn-ghost" onclick="closeErrorModal()">Got it</button></div>
+    <div class="ep-grid" id="epGrid"></div>
   </div>
 </div>
 
 <footer>
   <div class="footer-grid">
     <div><h4>Product</h4><a href="https://pulse.claw-net.org">Pulse</a><a href="/roadmap.html">Roadmap</a><a href="/status.html">Status</a></div>
-    <div><h4>Developers</h4><a href="/endpoints.html">API Endpoints</a><a href="/marketplace.html">Marketplace</a><a href="/docs.html">Documentation</a><a href="/playground.html">Playground</a></div>
+    <div><h4>Developers</h4><a href="/endpoints.html">API Endpoints</a><a href="/marketplace.html">Agent Services</a><a href="/docs.html">Documentation</a><a href="/playground.html">Playground</a></div>
     <div><h4>Company</h4><a href="/contact-section.html">Contact</a><a href="/terms.html">Terms</a><a href="/privacy.html">Privacy</a></div>
     <div><h4>Community</h4><a href="https://x.com/i/communities/2031805527043576245" target="_blank">X Community</a><a href="https://github.com/1xmint" target="_blank">GitHub</a><a href="https://t.me/claw_net" target="_blank">Telegram</a></div>
   </div>
@@ -500,777 +234,136 @@
 
 <script>
 const API='https://api.claw-net.org';
-let skills=[],selectedSkill=null,lastResponse=null;
-let apiKey=localStorage.getItem('claw_api_key')||'',userCredits=null;
-let currentMode='sandbox',activeTypeFilter='all',activeLang='javascript',activeResultTab='formatted';
+let apiKey=localStorage.getItem('claw_api_key')||'';
+let activeLang='javascript',selectedEp=null;
 
-// ── Helpers ──────────────────────────────────────────────────────────
 function esc(s){const d=document.createElement('div');d.textContent=String(s??'');return d.innerHTML}
-
-// ── Use tracking (sandbox vs live) ───────────────────────────────────
-function _loadUses(){try{return JSON.parse(localStorage.getItem('claw_play_uses')||'{}')}catch{return{}}}
-function _saveUses(u){localStorage.setItem('claw_play_uses',JSON.stringify(u))}
-function trackUse(id,mode){const u=_loadUses();if(!u[id])u[id]={sandbox:0,live:0};u[id][mode]=(u[id][mode]||0)+1;_saveUses(u);return u[id]}
-function getUses(id){const u=_loadUses();return u[id]||{sandbox:0,live:0}}
-
-const COIN_SVG='<svg width="12" height="12" viewBox="0 0 24 24" style="vertical-align:-1px"><circle cx="12" cy="12" r="11" fill="#92400e"/><circle cx="12" cy="12" r="9.5" fill="#f59e0b"/><circle cx="12" cy="12" r="7.5" fill="#fbbf24"/><text x="12" y="16.5" text-anchor="middle" font-size="10" font-weight="800" fill="#78350f" font-family="Arial,sans-serif">C</text></svg>';
-function creditBadge(n){return `<span style="font-weight:700;color:var(--warning)">${n} cr</span>`}
-function creditsToUsd(n){const u=n*.001;return u<.01?'$'+u.toFixed(4).replace(/\.?0+$/,''):'$'+u.toFixed(u>=1?2:3).replace(/\.?0+$/,'')}
 function toast(m,t='success'){const e=document.createElement('div');e.className='toast '+t;e.textContent=m;document.getElementById('toast-container').appendChild(e);setTimeout(()=>e.remove(),4000)}
 function toggleTheme(){const l=document.documentElement.getAttribute('data-theme')==='light';document.documentElement.setAttribute('data-theme',l?'':'light');localStorage.setItem('clawnet_theme',l?'dark':'light')}
-function toggleMobileMenu(){document.getElementById('mobileMenu').classList.toggle('open')}
 
-// ── Auth ─────────────────────────────────────────────────────────────
+// Auth
 async function initAuth(){
-  if(!apiKey){updateNavGuest();return}
+  if(!apiKey)return;
   try{const r=await fetch(`${API}/v1/auth/me`,{headers:{'X-API-Key':apiKey}});
-    if(!r.ok){apiKey='';localStorage.removeItem('claw_api_key');updateNavGuest();return}
-    const d=await r.json();userCredits=d.credits??0;
+    if(!r.ok){apiKey='';localStorage.removeItem('claw_api_key');return}
+    const d=await r.json();
     document.getElementById('nav-credits-badge').classList.add('show');
-    document.getElementById('nav-credits-num').textContent=userCredits.toLocaleString();
+    document.getElementById('nav-credits-num').textContent=(d.credits??0).toLocaleString();
     document.getElementById('nav-login-btn').style.display='none';document.getElementById('nav-getkey-btn').style.display='none';
     document.getElementById('account-dropdown').classList.add('show');
     if(d.email){document.getElementById('account-email-display').textContent=d.email;const me=document.getElementById('mobile-account-email');if(me){me.textContent=d.email;me.style.display='block'}}
     const mag=document.getElementById('mobile-account-group');if(mag)mag.style.display='';
     const mso=document.getElementById('mobile-sign-out');if(mso)mso.style.display='';
-  }catch{updateNavGuest()}
+  }catch{}
 }
-function updateNavGuest(){userCredits=null;document.getElementById('nav-credits-badge').classList.remove('show');document.getElementById('account-dropdown').classList.remove('show')}
 function navSignOut(){localStorage.removeItem('claw_api_key');location.reload()}
-function applyInlineKey(){
-  const v=document.getElementById('inlineKeyInput')?.value.trim();
-  if(!v){toast('Enter your API key','error');return}
-  apiKey=v;localStorage.setItem('claw_api_key',v);
-  document.querySelector('.inline-key')?.remove();
-  initAuth().then(()=>{if(apiKey){toast('Connected! Live mode ready.','success');updateModeKeyBadge();if(selectedSkill)renderSkillDetail(selectedSkill)}else toast('Invalid API key','error')});
-}
 
-// ── Status ───────────────────────────────────────────────────────────
+// Status
 async function checkStatus(){try{const r=await fetch(`${API}/health`);document.getElementById('statusDot').classList.toggle('ok',r.ok);document.getElementById('statusDot').classList.toggle('err',!r.ok);document.getElementById('statusLabel').textContent=r.ok?'Operational':'Degraded'}catch{document.getElementById('statusLabel').textContent='Offline';document.getElementById('statusDot').classList.add('err')}}
 
-// ── Mode ─────────────────────────────────────────────────────────────
-function setMode(m){
-  currentMode=m;
-  document.getElementById('modeSandbox').className=m==='sandbox'?'active-sandbox':'';
-  document.getElementById('modeLive').className=m==='live'?'active-live':'';
-  document.getElementById('modeLabel').textContent=m==='sandbox'?'Free preview — no sign-in needed':'Live mode — real API calls, real credits';
-  document.getElementById('modeLabel').style.color=m==='live'?'var(--danger)':'';
-  updateModeKeyBadge();
-  if(selectedSkill)renderSkillDetail(selectedSkill);
-}
-function updateModeKeyBadge(){
-  const sub=document.getElementById('modeBarSub');
-  const box=document.getElementById('keyBannerBox');
-  if(currentMode==='sandbox'){
-    sub.innerHTML='';
-    box.className='key-banner-box sandbox';
-    box.innerHTML='<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>cn-sandbox-demo-xxxx';
-  }else{
-    let keyDisplay='No API key connected';
-    if(apiKey){
-      const masked=apiKey.length>11?apiKey.slice(0,7)+'\u2022'.repeat(8)+apiKey.slice(-4):apiKey.slice(0,4)+'\u2022\u2022\u2022\u2022';
-      keyDisplay=masked;
-    }
-    sub.innerHTML='<span class="live-warning"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>Credits will be deducted from your account</span>';
-    box.className='key-banner-box live';
-    box.innerHTML=`<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>${esc(keyDisplay)}`;
-  }
-}
-
-// ── Section tabs ─────────────────────────────────────────────────────
-function switchSection(tab,btn){
-  document.querySelectorAll('#pgTabs button').forEach(b=>b.classList.remove('active'));btn.classList.add('active');
-  document.getElementById('panelSandbox').classList.toggle('active',tab==='sandbox');
-  document.getElementById('panelTester').classList.toggle('active',tab==='tester');
-}
-
-// ── Load Skills ──────────────────────────────────────────────────────
-async function loadSkills(){
-  try{const r=await fetch(`${API}/v1/skills?limit=100`);if(!r.ok)throw 0;const d=await r.json();skills=d.skills||[];renderSkillList();
-    const p=new URLSearchParams(location.search);const pre=p.get('skill')||p.get('id');
-    if(pre){const m=skills.find(s=>s.id===pre||s.name===pre);if(m)selectSkill(m);else showFeatured()}else showFeatured();
-  }catch{document.getElementById('skillList').innerHTML='<div style="padding:20px;text-align:center;color:var(--danger);font-size:12px">Failed to load skills</div>';showFeatured()}
-}
-function getFiltered(){const q=document.getElementById('skillSearch').value.toLowerCase().trim();return skills.filter(s=>{const mt=!q||(s.displayName||s.name).toLowerCase().includes(q)||(s.description||'').toLowerCase().includes(q);const mf=activeTypeFilter==='all'||s.skillType===activeTypeFilter;return mt&&mf})}
-function filterSkills(){renderSkillList()}
-function setTypeFilter(type,btn){activeTypeFilter=type;document.querySelectorAll('#typeFilter button').forEach(b=>b.classList.remove('active'));btn.classList.add('active');renderSkillList()}
-function renderSkillList(){
-  const list=getFiltered(),el=document.getElementById('skillList');
-  if(!list.length){el.innerHTML='<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12px">No skills found</div>';return}
-  el.innerHTML=list.map(s=>{
-    const tc=s.skillType==='data'?'data':s.skillType==='api_proxy'?'proxy':'prompt';
-    const tl=s.skillType==='data'?'DATA':s.skillType==='api_proxy'?'PROXY':'PROMPT';
-    const sel=selectedSkill&&selectedSkill.id===s.id?' sel':'';
-    const lu=getUses('skill:'+s.id);
-    return`<div class="sb-skill${sel}" onclick="selectSkillById('${esc(s.id)}')"><div class="sb-skill-name"><span class="badge badge-${tc}">${tl}</span>${esc(s.displayName||s.name)}</div><div class="sb-skill-meta">${creditBadge(s.creditCost)} &middot; <span class="use-badges"><span class="use-badge sb" title="Sandbox runs">${lu.sandbox} sandbox</span><span class="use-badge lv" title="Live runs">${lu.live} live</span></span></div></div>`;
-  }).join('');
-}
-
-// ── Featured skills (empty state) ────────────────────────────────────
-function showFeatured(){
-  const sorted=[...skills].sort((a,b)=>(b.uses||0)-(a.uses||0)).slice(0,6);
-  const detail=document.getElementById('sbDetail');
-  if(!sorted.length){detail.innerHTML='<div class="sb-featured"><h3>Skill Playground</h3><p>Skills appear here once loaded. Make sure the API is running.</p></div>';return}
-  detail.innerHTML=`<div class="sb-featured"><h3>Popular Skills</h3><p>Click any skill to see sample output instantly — no sign-in required.</p>
-    <div class="sb-featured-grid">${sorted.map(s=>{
-      const tc=s.skillType==='data'?'data':s.skillType==='api_proxy'?'proxy':'prompt';
-      const tl=s.skillType==='data'?'DATA':s.skillType==='api_proxy'?'PROXY':'PROMPT';
-      return`<div class="sb-fcard" onclick="selectSkillById('${esc(s.id)}')"><span class="badge badge-${tc}">${tl}</span><h4>${esc(s.displayName||s.name)}</h4><p>${esc(s.description||'')}</p><div class="card-foot"><span class="cost">${s.creditCost} cr</span><span>${(s.uses||0).toLocaleString()} uses</span></div></div>`}).join('')}
-    </div></div>`;
-}
-
-// ── Select Skill ─────────────────────────────────────────────────────
-function selectSkillById(id){const s=skills.find(sk=>sk.id===id);if(s)selectSkill(s)}
-async function selectSkill(skill){
-  selectedSkill=skill;renderSkillList();
-  let detail=skill;try{const r=await fetch(`${API}/v1/marketplace/skills/${encodeURIComponent(skill.id)}`);if(r.ok)detail=await r.json()}catch{}
-  selectedSkill={...skill,...detail};
-  history.replaceState(null,'',`?skill=${encodeURIComponent(skill.id)}`);
-  renderSkillDetail(selectedSkill);
-}
-
-// ── Render Skill Detail ──────────────────────────────────────────────
-function renderSkillDetail(s){
-  const panel=document.getElementById('sbDetail');
-  const isData=s.skillType==='data';
-  const tc=isData?'data':s.skillType==='api_proxy'?'proxy':'prompt';
-  const tl=isData?'DATA':s.skillType==='api_proxy'?'PROXY':'PROMPT';
-  const typeName=isData?'Data Skill':s.skillType==='api_proxy'?'API Proxy':'Prompt Template';
-  const epPath=isData?`/v1/skills/${s.id}/query`:`/v1/skills/${s.id}/invoke`;
-  const epMethod=isData?'GET':'POST';
-  const scenarios=buildScenarios(s);
-  const vars=getSkillVars(s);
-
-  let h='';
-  // Header
-  h+=`<div class="sk-header"><div class="sk-name">${esc(s.displayName||s.name)}</div><div class="sk-desc">${esc(s.description||'')}</div>
-    <div class="sk-chips"><span class="badge badge-${tc}">${tl}</span><span class="sk-chip cost">${s.creditCost} cr (${creditsToUsd(s.creditCost)})</span>${s.updateFrequency?`<span class="sk-chip freq">&#8635; ${esc(s.updateFrequency)}</span>`:''}<span class="sk-chip">${(s.uses||0).toLocaleString()} uses</span><span class="sk-chip">${esc(typeName)}</span></div>
-    <div class="sk-endpoint"><span class="badge badge-${isData?'get':'post'}">${epMethod}</span><code>${esc(API+epPath)}</code><button class="ep-copy" onclick="navigator.clipboard.writeText('${API}${epPath}');toast('Endpoint copied')">Copy URL</button></div></div>`;
-
-  // Scenarios
-  h+=`<div class="scenarios"><h4>Try it — click a scenario</h4><div class="scenario-grid">${scenarios.map((sc,i)=>`<div class="scenario-card" id="sc-${i}" onclick="runScenario(${i})"><div class="sc-icon">${sc.icon}</div><div class="sc-name">${esc(sc.name)}</div><div class="sc-desc">${esc(sc.desc)}</div></div>`).join('')}</div></div>`;
-
-  // Price stat box
-  const modeTag=currentMode==='live'?'<span class="psb-mode live">Live — credits charged</span>':'<span class="psb-mode sandbox">Sandbox — free</span>';
-  h+=`<div class="price-stat-box"><div><div class="psb-label">Cost per call</div><div class="psb-credits">${s.creditCost} credits</div></div><div class="psb-divider"></div><div><div class="psb-label">USD equivalent</div><div class="psb-usd">${creditsToUsd(s.creditCost)}</div></div><div class="psb-divider"></div><div>${modeTag}</div></div>`;
-
-  // Run bar — full-width, prominent
-  if(currentMode==='live'){
-    if(!apiKey) h+=`<div class="inline-key"><p>Enter your API key to run skills live</p><div class="inline-key-row"><input type="password" id="inlineKeyInput" placeholder="cn-••••••••" autocomplete="off"><button onclick="applyInlineKey()">Connect</button></div><p style="margin-top:6px;font-size:11px;color:var(--text-muted)">Don't have one? <a href="/#pricing" style="color:var(--warning)">Get an API key &rarr;</a></p></div>`;
-    else h+=`<button class="run-bar run-bar-live" onclick="confirmRunLive()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>Execute &mdash; ${s.creditCost} cr (${creditsToUsd(s.creditCost)})</button>`;
-  }else{
-    h+=`<button class="run-bar run-bar-sandbox" onclick="runSandbox()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>Execute</button>`;
-  }
-
-  // ── Unified Simulation Flow: Code → Response → Cost ──
-  h+=`<div class="sim-flow" id="simFlow">`;
-
-  // Block 1: YOUR CODE
-  h+=`<div class="sim-block sim-code"><div class="sim-block-head"><h4><span class="sim-step sim-step-1">1</span> Your Code</h4><div class="lang-tabs"><button class="${activeLang==='javascript'?'active':''}" onclick="switchLang('javascript',this)">JavaScript</button><button class="${activeLang==='python'?'active':''}" onclick="switchLang('python',this)">Python</button><button class="${activeLang==='curl'?'active':''}" onclick="switchLang('curl',this)">cURL</button></div></div>
-    <div class="sim-block-body"><button class="copy-btn" onclick="copyIntegration()">Copy</button><pre id="integratePre">${esc(buildCodeSnippet(s,activeLang))}</pre></div></div>`;
-
-  // Connector 1→2
-  h+=`<div class="sim-connector"><span class="sim-connector-label"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>executes</span></div>`;
-
-  // Block 2: API RESPONSE
-  h+=`<div class="sim-block sim-response" id="simResponseBlock"><div class="sim-block-head"><h4><span class="sim-step sim-step-2">2</span> API Response</h4><div id="simResponseMeta" style="display:flex;gap:8px;align-items:center;font-size:11px;color:var(--text-muted)"></div></div>
-    <div id="simResponseTabs" style="display:none"><div class="result-tabs"><button class="active" onclick="switchResultTab('formatted',this)">Formatted</button><button onclick="switchResultTab('raw',this)">Raw JSON</button></div></div>
-    <div class="sim-block-body" id="simResponseBody"><div class="sim-empty"><div class="sim-arrow">&#8593;</div><p>Click a scenario or hit Run to simulate a response</p></div></div></div>`;
-
-  // Connector 2→3
-  h+=`<div class="sim-connector"><span class="sim-connector-label"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>billed</span></div>`;
-
-  // Block 3: COST RECEIPT
-  const modeReceipt=currentMode==='live'?'<span class="sim-receipt-val mode live">Live</span>':'<span class="sim-receipt-val mode sandbox">Sandbox</span>';
-  h+=`<div class="sim-block sim-cost" id="simCostBlock"><div class="sim-block-head"><h4><span class="sim-step sim-step-3">3</span> Cost Receipt</h4></div>
-    <div class="sim-block-body" id="simCostBody"><div class="sim-receipt"><div class="sim-receipt-item"><span class="sim-receipt-label">Credits</span><span class="sim-receipt-val cr" id="simCostCredits">${currentMode==='sandbox'?'0':s.creditCost}</span></div><div class="sim-receipt-divider"></div><div class="sim-receipt-item"><span class="sim-receipt-label">USD</span><span class="sim-receipt-val usd" id="simCostUsd">${currentMode==='sandbox'?'$0.00':creditsToUsd(s.creditCost)}</span></div><div class="sim-receipt-divider"></div><div class="sim-receipt-item"><span class="sim-receipt-label">Mode</span>${modeReceipt}</div><div class="sim-receipt-detail" id="simCostDetail">Waiting for execution...</div></div></div></div>`;
-
-  h+=`</div>`; // close sim-flow
-
-  // Volume calculator (separate from per-call simulation)
-  h+=`<div class="cost-calc"><h4>Volume Calculator</h4>
-    <div class="cost-calc-row"><span style="font-size:12px;color:var(--text-tertiary)">Calls per day</span><input type="range" min="1" max="10000" value="100" oninput="updateCostCalc(this.value,${s.creditCost})"><span class="cost-calc-num" id="ccNum">100</span></div>
-    <div class="cost-calc-results"><div class="ccr"><div class="ccr-val" id="ccDaily">$0.20</div><div class="ccr-label">per day</div></div><div class="ccr"><div class="ccr-val" id="ccMonthly">$6.00</div><div class="ccr-label">per month</div></div><div class="ccr"><div class="ccr-val" id="ccCredits">${(100*s.creditCost).toLocaleString()}</div><div class="ccr-label">credits/day</div></div>${userCredits!=null?`<div class="ccr"><div class="ccr-val" id="ccRunway">${Math.floor(userCredits/s.creditCost).toLocaleString()}</div><div class="ccr-label">calls remaining</div></div>`:''}</div></div>`;
-
-  // Advanced params (collapsed)
-  if(vars.length){
-    h+=`<div class="advanced"><button class="advanced-toggle" onclick="this.classList.toggle('open');this.nextElementSibling.classList.toggle('open')"><span>Advanced Parameters</span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg></button><div class="advanced-body">`;
-    h+=`<div style="font-size:12px;color:var(--text-tertiary);line-height:1.5;margin-bottom:12px;padding:10px 12px;background:var(--bg-primary);border-radius:var(--radius-md);border-left:3px solid var(--accent)">These are the raw parameters sent to the API. Scenario cards above auto-fill them, or you can edit manually. Click <strong style="color:var(--text-secondary)">Run Skill</strong> after changing values to see updated results.</div>`;
-    h+=vars.map(v=>{
-      const defHint=v.default?` Default: <strong style="color:var(--text-secondary)">${esc(v.default)}</strong>`:'';
-      const exHint=v.example?` e.g. <span style="color:var(--text-secondary)">${esc(v.example)}</span>`:'';
-      return`<div class="adv-field"><div class="adv-field-head"><span class="adv-field-name">${esc(v.name)}</span><span class="adv-badge ${v.required?'req':'opt'}">${v.required?'Required':'Optional'}</span><span class="adv-badge type">${esc(v.type)}</span></div><div class="adv-field-desc">${esc(v.description||'No description')}${defHint}${exHint}</div><input type="text" class="adv-input" id="param-${esc(v.name)}" placeholder="${esc(v.example||v.default||v.name)}" value="${esc(v.default||'')}" oninput="liveUpdateCode()"></div>`;
-    }).join('');
-    h+=`</div></div>`;
-  }
-
-  panel.innerHTML=h;
-  updateCostCalc(100,s.creditCost);
-  window._scenarios=scenarios;
-}
-
-// ── Get skill variables ──────────────────────────────────────────────
-function getSkillVars(s){
-  const vars=[],schema=s.inputSchema;
-  if(schema&&schema.properties){for(const[k,p]of Object.entries(schema.properties))vars.push({name:k,type:p.type||'string',description:p.description||'',required:(schema.required||[]).includes(k),default:p.default??'',example:p.example})}
-  else if(s.skillType==='data')vars.push({name:'params',type:'text',description:'Query parameters (key=value per line)',required:false,default:''});
-  else if(s.skillType==='prompt_template')vars.push({name:'query',type:'string',description:'Your prompt or question',required:true,default:''});
-  return vars;
-}
-
-// ── Scenarios (curated per skill, fallback by param type) ────────────
-const SKILL_SCENARIOS={
-  // ── Data skills ──
-  'price-oracle-data':[
-    {name:'Solana',desc:'SOL price, volume, market cap',icon:'☀️',params:{token:'SOL'}},
-    {name:'Bonk',desc:'BONK meme coin price data',icon:'🐕',params:{token:'BONK'}},
-    {name:'Jupiter',desc:'JUP aggregator token',icon:'🪐',params:{token:'JUP'}},
-    {name:'Raydium',desc:'RAY DEX token',icon:'💜',params:{token:'RAY'}},
-  ],
-  'trending-tokens-data':[
-    {name:'By Volume',desc:'Top tokens by 24h trading volume',icon:'📊',params:{sortBy:'volume',limit:'10'}},
-    {name:'New Tokens',desc:'Recently listed tokens',icon:'🆕',params:{sortBy:'new',limit:'10'}},
-    {name:'Social Buzz',desc:'Tokens trending on social media',icon:'🔥',params:{sortBy:'social',limit:'10'}},
-    {name:'Top 50',desc:'Extended list of trending tokens',icon:'📋',params:{sortBy:'volume',limit:'50'}},
-  ],
-  'whale-tracker-data':[
-    {name:'SOL Whales',desc:'Top SOL holders and net flow',icon:'☀️',params:{token:'SOL'}},
-    {name:'BONK Whales',desc:'Large BONK holders',icon:'🐕',params:{token:'BONK'}},
-    {name:'JUP Whales',desc:'Jupiter token holder concentration',icon:'🪐',params:{token:'JUP'}},
-    {name:'WIF Whales',desc:'dogwifhat whale movements',icon:'🎩',params:{token:'WIF'}},
-  ],
-  'defi-yield-data':[
-    {name:'All Yields',desc:'Every DeFi opportunity, no filter',icon:'💰',params:{riskLevel:'all'}},
-    {name:'Safe Yields',desc:'Low-risk staking and vaults only',icon:'🛡️',params:{riskLevel:'low'}},
-    {name:'High APY',desc:'Opportunities above 15% APY',icon:'🔥',params:{riskLevel:'all',minApy:'15'}},
-    {name:'Medium Risk',desc:'Balanced risk/reward LPs',icon:'⚖️',params:{riskLevel:'medium'}},
-  ],
-  'token-analysis-data':[
-    {name:'Solana',desc:'SOL full metrics + risk score',icon:'☀️',params:{token:'SOL'}},
-    {name:'Bonk',desc:'BONK risk analysis and holders',icon:'🐕',params:{token:'BONK'}},
-    {name:'Jupiter',desc:'JUP comprehensive token metrics',icon:'🪐',params:{token:'JUP'}},
-    {name:'Raydium',desc:'RAY token health and supply',icon:'💜',params:{token:'RAY'}},
-  ],
-  'wallet-profiler-data':[
-    {name:'Toly',desc:'Solana co-founder wallet',icon:'👤',params:{wallet:'toly9ci98XuMKzCSBK3t96SApELpGmpa1s2euVhDajR'}},
-    {name:'Bonk DAO',desc:'BONK community treasury',icon:'🏛️',params:{wallet:'DBR2ZUvjZTcQpf2H2t9VoKsgNK2sc1nZa2Cz9pJcdDWh'}},
-    {name:'Raydium',desc:'Raydium authority wallet',icon:'💜',params:{wallet:'5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1'}},
-    {name:'Custom',desc:'Paste any Solana address above',icon:'📋',params:{wallet:''}},
-  ],
-  'token-launch-data':[
-    {name:'All Launches',desc:'Every upcoming and recent launch',icon:'🚀',params:{launchType:'all'}},
-    {name:'Fair Launches',desc:'Community-driven fair launches only',icon:'⚖️',params:{launchType:'fair-launch'}},
-    {name:'Presales',desc:'Active and upcoming presales',icon:'🎟️',params:{launchType:'presale'}},
-    {name:'IDOs',desc:'Initial DEX offerings',icon:'🏦',params:{launchType:'ido'}},
-  ],
-  // ── Prompt skills ──
-  'token-analysis':[
-    {name:'ETH Analysis',desc:'Full Ethereum market analysis',icon:'💎',params:{token:'ETH'}},
-    {name:'SOL Analysis',desc:'Solana ecosystem deep dive',icon:'☀️',params:{token:'SOL'}},
-    {name:'BTC Analysis',desc:'Bitcoin price and macro outlook',icon:'₿',params:{token:'BTC'}},
-    {name:'BONK Analysis',desc:'Meme coin risk assessment',icon:'🐕',params:{token:'BONK'}},
-  ],
-  'social-sentiment':[
-    {name:'ETH Sentiment',desc:'Ethereum community sentiment',icon:'💎',params:{query:'Ethereum sentiment'}},
-    {name:'BTC ETF News',desc:'Bitcoin ETF market impact',icon:'📰',params:{query:'BTC ETF latest news sentiment'}},
-    {name:'SOL Ecosystem',desc:'Solana ecosystem mood',icon:'☀️',params:{query:'Solana ecosystem sentiment'}},
-    {name:'Meme Coins',desc:'Meme coin social buzz',icon:'🔥',params:{query:'meme coin trending sentiment'}},
-  ],
-  'portfolio-optimizer':[
-    {name:'Conservative',desc:'Low-risk portfolio allocation',icon:'🛡️',params:{query:'Build a conservative Solana DeFi portfolio under $5000'}},
-    {name:'Growth',desc:'High-growth token mix',icon:'📈',params:{query:'Optimize a growth portfolio with SOL, JUP, and BONK'}},
-    {name:'Yield Focus',desc:'Maximize staking/LP yields',icon:'💰',params:{query:'Best yield farming strategy for $10000 on Solana'}},
-    {name:'Degen',desc:'High-risk meme coin strategy',icon:'🎰',params:{query:'Degen meme coin portfolio strategy for $1000'}},
-  ],
-  'whale-tracker':[
-    {name:'SOL Whales',desc:'Large SOL holder activity',icon:'☀️',params:{token:'SOL'}},
-    {name:'ETH Whales',desc:'Ethereum whale movements',icon:'💎',params:{token:'ETH'}},
-    {name:'BTC Whales',desc:'Bitcoin whale accumulation',icon:'₿',params:{token:'BTC'}},
-    {name:'BONK Whales',desc:'Meme coin whale tracking',icon:'🐕',params:{token:'BONK'}},
-  ],
-  'wallet-profiler':[
-    {name:'Toly',desc:'Solana co-founder wallet analysis',icon:'👤',params:{query:'Analyze wallet toly9ci98XuMKzCSBK3t96SApELpGmpa1s2euVhDajR'}},
-    {name:'Top Trader',desc:'Analyze a known profitable wallet',icon:'💰',params:{query:'Profile wallet DBR2ZUvjZTcQpf2H2t9VoKsgNK2sc1nZa2Cz9pJcdDWh'}},
-    {name:'NFT Collector',desc:'Wallet with heavy NFT holdings',icon:'🖼️',params:{query:'Analyze NFT holdings of 5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1'}},
-  ],
-  'nft-collection-intel':[
-    {name:'Mad Lads',desc:'Mad Lads collection analysis',icon:'😎',params:{query:'Analyze Mad Lads NFT collection'}},
-    {name:'Tensorians',desc:'Tensorians floor and volume',icon:'🧊',params:{query:'Tensorians NFT collection metrics'}},
-    {name:'SMB Gen2',desc:'Solana Monkey Business stats',icon:'🐒',params:{query:'SMB Gen2 NFT collection analysis'}},
-  ],
-};
-// Fallback scenarios by parameter type (for third-party skills)
-const SC_FALLBACK={
-  token:[{v:'SOL',n:'Solana',i:'☀️',d:'Query with SOL token'},{v:'ETH',n:'Ethereum',i:'💎',d:'Query with ETH token'},{v:'BTC',n:'Bitcoin',i:'₿',d:'Query with BTC token'}],
-  symbol:[{v:'SOL',n:'Solana',i:'☀️',d:'Query with SOL'},{v:'ETH',n:'Ethereum',i:'💎',d:'Query with ETH'},{v:'BTC',n:'Bitcoin',i:'₿',d:'Query with BTC'}],
-  query:[{v:'What are the top DeFi protocols by TVL?',n:'DeFi Overview',i:'📊',d:'Market analysis'},{v:'Summarize ETH staking rewards data',n:'ETH Staking',i:'🔒',d:'Yield analysis'},{v:'Current sentiment around BTC ETF news',n:'BTC Sentiment',i:'📰',d:'News sentiment'}],
-  text:[{v:'ClawNet launched a data skills marketplace for AI agents.',n:'Bullish News',i:'📈',d:'Positive market signal'},{v:'SEC files enforcement action against exchange.',n:'Bearish News',i:'📉',d:'Regulatory risk'}],
-  wallet:[{v:'toly9ci98XuMKzCSBK3t96SApELpGmpa1s2euVhDajR',n:'Toly',i:'👤',d:'Solana co-founder'},{v:'DBR2ZUvjZTcQpf2H2t9VoKsgNK2sc1nZa2Cz9pJcdDWh',n:'Bonk DAO',i:'🏛️',d:'Community treasury'}],
-  address:[{v:'0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045',n:'Vitalik.eth',i:'👤',d:'Ethereum co-founder wallet'}],
-};
-function buildScenarios(s){
-  // 1. Check for curated skill-specific scenarios
-  const curated=SKILL_SCENARIOS[s.id];
-  if(curated)return curated;
-  // 2. Fallback: match by parameter name
-  const vars=getSkillVars(s);
-  for(const v of vars){const sc=SC_FALLBACK[v.name.toLowerCase()];if(sc)return sc.map(x=>({name:x.n,desc:x.d,icon:x.i,params:{[v.name]:x.v}}))}
-  // 3. Generic fallbacks
-  if(s.skillType==='prompt_template')return[{name:'Quick Analysis',desc:'Market overview',icon:'📊',params:{query:'Give me a quick overview of current crypto market trends'}},{name:'Deep Dive',desc:'Detailed analysis',icon:'🔍',params:{query:'Do a deep analysis of Ethereum staking economics and risks'}},{name:'Comparison',desc:'Head-to-head',icon:'⚖️',params:{query:'Compare Solana and Ethereum for building a DEX'}}];
-  return[{name:'Default Run',desc:'Run with default parameters',icon:'▶️',params:{}}];
-}
-function runScenario(idx){
-  const sc=window._scenarios?.[idx];if(!sc)return;
-  document.querySelectorAll('.scenario-card').forEach(c=>c.classList.remove('active'));
-  document.getElementById('sc-'+idx)?.classList.add('active');
-  // Auto-fill advanced params only — user clicks Run to execute
-  for(const[k,v]of Object.entries(sc.params)){const el=document.getElementById('param-'+k);if(el)el.value=v}
-  window._activeScenarioIdx=idx;
-  // Update code block to reflect selected scenario
-  if(selectedSkill){const params={...sc.params};const codePre=document.getElementById('integratePre');if(codePre)codePre.textContent=buildCodeSnippet(selectedSkill,activeLang,params)}
-}
-
-// ── Mock Data Generator ─────────────────────────────────────────────
-// Generates realistic random responses so each sandbox run looks different
-const R={
-  f:(min,max,dec=2)=>+(min+(max-min)*Math.random()).toFixed(dec),
-  i:(min,max)=>Math.floor(min+(max-min)*Math.random()),
-  pick:(...a)=>a[Math.floor(Math.random()*a.length)],
-  addr:()=>{const c='123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';let s='';for(let i=0;i<44;i++)s+=c[Math.floor(Math.random()*c.length)];return s},
-  eaddr:()=>'0x'+Array.from({length:40},()=>'0123456789abcdef'[Math.floor(Math.random()*16)]).join(''),
-  ts:()=>new Date(Date.now()-R.i(0,3600000)).toISOString(),
-};
-const TOKEN_DATA={
-  ETH:{name:'Ethereum',sym:'ETH',price:[2200,4200],mcap:[260e9,500e9],vol:[8e9,25e9],holders:[800000,1200000],conc:[9,16]},
-  BTC:{name:'Bitcoin',sym:'BTC',price:[58000,105000],mcap:[1.1e12,2.1e12],vol:[15e9,60e9],holders:[400000,900000],conc:[5,12]},
-  SOL:{name:'Solana',sym:'SOL',price:[80,250],mcap:[35e9,110e9],vol:[800e6,4e9],holders:[900000,2000000],conc:[14,22]},
-  DOGE:{name:'Dogecoin',sym:'DOGE',price:[0.06,0.45],mcap:[8e9,60e9],vol:[400e6,4e9],holders:[3000000,6000000],conc:[25,40]},
-  BONK:{name:'Bonk',sym:'BONK',price:[0.000008,0.00005],mcap:[400e6,3e9],vol:[50e6,500e6],holders:[500000,1500000],conc:[20,35]},
-  WIF:{name:'dogwifhat',sym:'WIF',price:[0.3,4.5],mcap:[300e6,4.5e9],vol:[30e6,800e6],holders:[200000,600000],conc:[18,30]},
-  JUP:{name:'Jupiter',sym:'JUP',price:[0.4,2.5],mcap:[500e6,3.5e9],vol:[40e6,300e6],holders:[150000,500000],conc:[15,28]},
-  RAY:{name:'Raydium',sym:'RAY',price:[1,8],mcap:[200e6,2e9],vol:[20e6,200e6],holders:[80000,300000],conc:[20,35]},
-};
-// Resolve mint addresses to known token data
-const MINT_MAP={
-  'So11111111111111111111111111111111111111112':'SOL',
-  'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263':'BONK',
-  'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN':'JUP',
-  '4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R':'RAY',
-  'EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm':'WIF',
-};
-function getTokenInfo(params){
-  const raw=(params?.token||params?.symbol||'SOL').trim();
-  // Try direct symbol lookup first
-  const upper=raw.toUpperCase();
-  if(TOKEN_DATA[upper])return TOKEN_DATA[upper];
-  // Try mint address resolution
-  const resolved=MINT_MAP[raw];
-  if(resolved&&TOKEN_DATA[resolved])return TOKEN_DATA[resolved];
-  // Fallback
-  return TOKEN_DATA.SOL;
-}
-function generateMock(skill,params){
-  const id=skill.id||'',name=skill.name||'';
-  const td=getTokenInfo(params);
-  const sym=td.sym||'SOL';
-  // ── Price Oracle ──
-  if(id.includes('price-oracle')||name.includes('Price Oracle')){
-    const p=R.f(td.price[0],td.price[1]);
-    return{token:sym,priceUsd:p,change24h:R.f(-8,12),volume24h:R.i(td.vol[0],td.vol[1]),marketCap:R.i(td.mcap[0],td.mcap[1]),liquidity:R.i(td.vol[0]*0.4,td.vol[0]*1.2),updatedAt:R.ts()};
-  }
-  // ── Whale Tracker ──
-  if(id.includes('whale')||name.includes('Whale')){
-    const n=R.i(3,6);const holders=[];
-    for(let i=0;i<n;i++)holders.push({address:R.addr(),balanceUsd:R.i(2e6,120e6),changePct24h:R.f(-5,8)});
-    return{token:sym,topHolders:holders,totalHolders:R.i(td.holders[0],td.holders[1]),top10ConcentrationPct:R.f(td.conc[0],td.conc[1]),netFlowUsd24h:R.i(-5e6,15e6),updatedAt:R.ts()};
-  }
-  // ── Trending Tokens ──
-  if(id.includes('trending')||name.includes('Trending')){
-    const syms=['BONK','WIF','JTO','PYTH','JUP','RNDR','RAY','MNDE','ORCA','DRIFT'];
-    const tokens=syms.slice(0,R.i(5,10)).map((s,i)=>({symbol:s,priceUsd:R.f(0.001,8,4),volume24h:R.i(5e6,200e6),change24h:R.f(-10,35),rank:i+1}));
-    return{tokens,updatedAt:R.ts()};
-  }
-  // ── DeFi Yields ──
-  if(id.includes('defi-yield')||name.includes('DeFi Yield')){
-    const protos=[['Marinade','mSOL Staking','staking','low'],['Raydium','SOL-USDC','lp','medium'],['Orca','whirlpool SOL-USDT','lp','medium'],['Jito','jitoSOL','staking','low'],['Kamino','USDC Vault','vault','low'],['Drift','SOL-PERP LP','perp-lp','high']];
-    const ops=protos.slice(0,R.i(3,6)).map(p=>({protocol:p[0],pool:p[1],apy:R.f(3,45),tvlUsd:R.i(5e6,2e9),type:p[2],riskTier:p[3]}));
-    return{opportunities:ops,updatedAt:R.ts()};
-  }
-  // ── Token Metrics ──
-  if(id.includes('token-analysis')||name.includes('Token Metrics')){
-    const p=R.f(td.price[0],td.price[1]);
-    return{token:sym,priceUsd:p,change24h:R.f(-8,12),volume24h:R.i(td.vol[0],td.vol[1]),marketCap:R.i(td.mcap[0],td.mcap[1]),totalHolders:R.i(td.holders[0],td.holders[1]),top10ConcentrationPct:R.f(td.conc[0],td.conc[1]),riskScore:R.i(5,85),riskLevel:R.pick('low','medium','high'),mintAuthority:R.pick(true,false),freezeAuthority:false,updatedAt:R.ts()};
-  }
-  // ── Wallet Profiler ──
-  if(id.includes('wallet-profiler')||name.includes('Wallet')){
-    const addr=params?.wallet||R.addr();const sol=R.f(10,5000);
-    return{address:addr,totalValueUsd:R.f(1000,500000),solBalance:sol,tokens:[{symbol:'SOL',balance:sol,valueUsd:R.f(1000,400000)},{symbol:'BONK',balance:R.i(1e6,5e9),valueUsd:R.f(100,20000)},{symbol:R.pick('JUP','RAY','ORCA'),balance:R.f(10,50000),valueUsd:R.f(50,15000)}],nftCount:R.i(0,50),updatedAt:R.ts()};
-  }
-  // ── Token Launches ──
-  if(id.includes('launch')||name.includes('Launch')){
-    const launches=[{name:'NovaDEX',symbol:'NOVA',launchDate:'2026-03-'+R.i(14,28),type:R.pick('fair-launch','ido','presale'),communitySize:R.i(5000,120000),status:R.pick('upcoming','launched')},{name:'AstraProtocol',symbol:'ASTR',launchDate:'2026-03-'+R.i(14,28),type:R.pick('fair-launch','ido'),communitySize:R.i(2000,80000),status:R.pick('upcoming','launched')},{name:'PulseAI',symbol:'PULSE',launchDate:'2026-03-'+R.i(10,20),type:'presale',communitySize:R.i(10000,200000),status:'launched'}];
-    return{launches,updatedAt:R.ts()};
-  }
-  // ── Prompt / analysis skills ──
-  if(skill.skillType==='prompt_template'){
-    const query=params?.query||'market analysis';
-    return{success:true,result:{analysis:`Based on current on-chain data and market indicators, ${query.includes('ETH')||query.includes('Ethereum')?'Ethereum':'the asset'} shows ${R.pick('bullish momentum with','neutral positioning near','bearish pressure at')} key levels. Volume is ${R.pick('above','near','below')} the 30-day average. Key support at $${R.i(1000,3000).toLocaleString()}, resistance at $${R.i(3000,5000).toLocaleString()}. Social sentiment: ${R.pick('positive','mixed','cautious')} (${R.i(40,85)}% bullish). Recommendation: ${R.pick('accumulate on dips','hold current positions','reduce exposure and wait for confirmation')}.`,confidence:R.f(0.6,0.95),sources:R.i(3,12),processingMs:R.i(800,2400)},credits:{charged:skill.creditCost,cached:false},timestamp:R.ts()};
-  }
-  // ── Generic fallback ──
-  const sample=skill.sampleOutput;
-  if(sample){const d=typeof sample==='string'?JSON.parse(sample):JSON.parse(JSON.stringify(sample));return d}
-  return{success:true,data:{message:'Response generated successfully'},timestamp:R.ts()};
-}
-
-// ── Sandbox run ─────────────────────────────────────────────────────
-function runSandbox(){
-  if(!selectedSkill)return;
-  const idx=window._activeScenarioIdx??0;
-  const sc=window._scenarios?.[idx];
-  // Gather params from advanced fields
-  const params={};
-  if(sc&&sc.params)Object.assign(params,sc.params);
-  const vars=getSkillVars(selectedSkill);
-  for(const v of vars){const el=document.getElementById('param-'+v.name);if(el&&el.value.trim())params[v.name]=el.value.trim()}
-
-  // Update code block to reflect current params
-  const codeSnippet=buildCodeSnippet(selectedSkill,activeLang,params);
-  const codePre=document.getElementById('integratePre');
-  if(codePre)codePre.textContent=codeSnippet;
-
-  // Highlight code block first, then response
-  document.querySelectorAll('.sim-block').forEach(b=>b.classList.remove('sim-active'));
-  document.querySelector('.sim-code')?.classList.add('sim-active');
-  setTimeout(()=>{
-    document.querySelector('.sim-code')?.classList.remove('sim-active');
-    document.querySelector('.sim-response')?.classList.add('sim-active');
-  },300);
-
-  // Loading state in response block
-  const elapsed=R.i(120,380);
-  const meta=document.getElementById('simResponseMeta');
-  const body=document.getElementById('simResponseBody');
-  const tabs=document.getElementById('simResponseTabs');
-  if(meta)meta.innerHTML='<span class="tag tag-sample">Sandbox</span><span>Running...</span>';
-  if(tabs)tabs.style.display='block';
-  if(body)body.innerHTML='<div style="text-align:center;padding:32px"><div class="spinner" style="border-color:var(--accent-dim);border-top-color:var(--accent);width:24px;height:24px;margin:0 auto 12px"></div><p style="font-size:12px;color:var(--text-muted)">Simulating API response...</p></div>';
-
-  // Cost receipt — pending
-  updateCostReceipt({credits:0,usd:'$0.00',mode:'sandbox',detail:'Executing...'});
-
-  setTimeout(()=>{
-    const mock=generateMock(selectedSkill,params);
-    const json=JSON.stringify(mock,null,2);
-    if(meta)meta.innerHTML=`<span class="tag tag-sample">Sandbox</span><span>${elapsed}ms</span><span style="color:var(--accent)">Free — 0 credits</span>`;
-    lastResponse={type:'sample',json,skill:selectedSkill};
-    renderResult('formatted');
-
-    // Finalize cost receipt
-    updateCostReceipt({credits:0,usd:'$0.00',mode:'sandbox',detail:`Simulated in ${elapsed}ms · No credits charged`});
-    // Highlight cost block briefly
-    document.querySelectorAll('.sim-block').forEach(b=>b.classList.remove('sim-active'));
-    document.querySelector('.sim-cost')?.classList.add('sim-active');
-    setTimeout(()=>document.querySelector('.sim-cost')?.classList.remove('sim-active'),1500);
-
-    trackUse('skill:'+selectedSkill.id,'sandbox');renderSkillList();
-  },500+Math.random()*300);
-}
-
-// ── Live execution ───────────────────────────────────────────────────
-function confirmRunLive(){
-  if(!selectedSkill||!apiKey)return;const s=selectedSkill;
-  document.getElementById('cmSkill').textContent=s.displayName||s.name;
-  document.getElementById('cmCost').textContent=`${s.creditCost} cr (${creditsToUsd(s.creditCost)})`;
-  document.getElementById('cmBalance').textContent=userCredits!=null?`${Math.max(0,userCredits-s.creditCost).toLocaleString()} cr`:'—';
-  document.getElementById('confirmModal').classList.add('show');
-}
-function closeModal(){document.getElementById('confirmModal').classList.remove('show')}
-function closeErrorModal(){document.getElementById('errorModal').classList.remove('show')}
-function showErrorModal(data,httpStatus){
-  const code=data.code||'UNKNOWN';const status=data.status||httpStatus;
-  const msg=data.error||'The request failed';
-  // Build human-readable explanation
-  let desc='',hint='';
-  if(code==='SOURCE_ERROR'||code==='FETCH_ERROR'){
-    desc=`The upstream data source returned an error (HTTP ${status}). This usually means the data source doesn't support the token or parameters you provided. <strong>Your balance was not affected.</strong>`;
-    hint=data.hint||`<strong>Common fixes:</strong><ul style="margin:6px 0 0 16px"><li>Use the token's <strong>contract/mint address</strong> instead of its name (e.g. the Solana base58 address from pump.fun or Solscan)</li><li>Check that the token exists on the chain this skill queries</li><li>Try a different skill — some data sources only support major tokens</li></ul>`;
-  }else if(code==='INSUFFICIENT_CREDITS'){
-    desc=`You don't have enough credits for this call. <strong>No credits were deducted.</strong>`;
-    hint=`<a href="/#pricing" style="color:var(--warning);font-weight:600">Buy more credits &rarr;</a>`;
-  }else if(code==='RATE_LIMITED'){
-    desc=`This skill has a rate limit and you've exceeded it. <strong>No credits were deducted.</strong> Try again in a few minutes.`;
-  }else if(code==='SKILL_FLAGGED'){
-    desc=`This skill has been flagged by moderation and is temporarily unavailable. <strong>No credits were deducted.</strong>`;
-  }else{
-    desc=`${esc(msg)}. <strong>No credits were deducted for failed requests.</strong>`;
-  }
-  document.getElementById('errModalDesc').innerHTML=desc;
-  document.getElementById('errModalCode').textContent=code;
-  document.getElementById('errModalStatus').textContent='HTTP '+httpStatus;
-  const hintEl=document.getElementById('errModalHint');
-  if(hint){hintEl.innerHTML=hint;hintEl.style.display='block'}else{hintEl.style.display='none'}
-  document.getElementById('errorModal').classList.add('show');
-}
-async function runLiveConfirmed(){
-  closeModal();if(!selectedSkill||!apiKey)return;const s=selectedSkill;
-
-  // Highlight response block
-  document.querySelectorAll('.sim-block').forEach(b=>b.classList.remove('sim-active'));
-  document.querySelector('.sim-response')?.classList.add('sim-active');
-
-  const meta=document.getElementById('simResponseMeta');
-  const body=document.getElementById('simResponseBody');
-  const tabs=document.getElementById('simResponseTabs');
-  if(meta)meta.innerHTML='<span class="tag tag-live">Live</span><span style="color:var(--danger)">Executing — credits will be charged...</span>';
-  if(tabs)tabs.style.display='block';
-  updateCostReceipt({credits:'...',usd:'...',mode:'live',detail:'Waiting for response...'});
-
-  try{
-    let url,method='POST',reqBody;const headers={'X-API-Key':apiKey,'Content-Type':'application/json'};
-    if(s.skillType==='data'){
-      const pe=document.getElementById('param-params');let qs='';
-      if(pe&&pe.value.trim()){qs='?'+pe.value.trim().split('\n').map(l=>l.trim()).filter(Boolean).map(l=>{const[k,...v]=l.split('=');return encodeURIComponent(k.trim())+'='+encodeURIComponent(v.join('=').trim())}).join('&')}
-      url=`${API}/v1/skills/${encodeURIComponent(s.id)}/query${qs}`;method='GET';reqBody=undefined;
-    }else{
-      url=`${API}/v1/skills/${encodeURIComponent(s.id)}/invoke`;const variables={};const schema=s.inputSchema;
-      if(schema&&schema.properties){for(const k of Object.keys(schema.properties)){const el=document.getElementById('param-'+k);if(el&&el.value.trim())variables[k]=el.value.trim()}}
-      else{const el=document.getElementById('param-query');if(el&&el.value.trim())variables.query=el.value.trim()}
-      reqBody=JSON.stringify({variables});
-    }
-    const start=performance.now();const r=await fetch(url,{method,headers,body:reqBody});const elapsed=Math.round(performance.now()-start);const data=await r.json();
-    if(!r.ok){
-      if(meta)meta.innerHTML=`<span class="tag tag-err">Error ${r.status}</span><span>${elapsed}ms</span><span style="color:var(--accent);font-weight:600">0 credits charged</span>`;
-      lastResponse={type:'error',json:JSON.stringify(data,null,2),skill:s};
-      updateCostReceipt({credits:0,usd:'$0.00',mode:'live',detail:`Error ${r.status} — no credits charged`});
-      showErrorModal(data,r.status);
-    }else{
-      const cr=data.creditsCost||data.creditsCharged||s.creditCost;
-      if(meta)meta.innerHTML=`<span class="tag tag-live">Live</span><span>${elapsed}ms</span><span style="color:var(--danger);font-weight:600">${cr} cr charged</span>`;
-      lastResponse={type:'live',json:JSON.stringify(data,null,2),skill:s};
-      updateCostReceipt({credits:cr,usd:creditsToUsd(cr),mode:'live',detail:`Completed in ${elapsed}ms · ${cr} credits deducted`});
-      toast(`Success — ${cr} credits charged`);initAuth();trackUse('skill:'+s.id,'live');renderSkillList();
-    }
-    renderResult(activeResultTab);
-    // Highlight cost block
-    document.querySelectorAll('.sim-block').forEach(b=>b.classList.remove('sim-active'));
-    document.querySelector('.sim-cost')?.classList.add('sim-active');
-    setTimeout(()=>document.querySelector('.sim-cost')?.classList.remove('sim-active'),2000);
-  }catch(e){if(body)body.innerHTML=`<pre style="color:var(--danger)">${esc(e.message)}</pre>`}
-}
-
-// ── Render result ────────────────────────────────────────────────────
-function switchResultTab(tab,btn){activeResultTab=tab;document.querySelectorAll('.sim-response .result-tabs button').forEach(b=>b.classList.remove('active'));btn.classList.add('active');renderResult(tab)}
-function renderResult(tab){if(!lastResponse)return;const body=document.getElementById('simResponseBody');if(!body)return;body.innerHTML=tab==='formatted'?`<button class="copy-btn" onclick="copyResult()">Copy</button><pre>${syntaxHighlight(lastResponse.json)}</pre>`:`<button class="copy-btn" onclick="copyResult()">Copy</button><pre>${esc(lastResponse.json)}</pre>`}
-function copyResult(){const p=document.querySelector('#simResponseBody pre');if(p)navigator.clipboard.writeText(p.textContent).then(()=>toast('Copied'))}
-function updateCostReceipt(o){
-  const cr=document.getElementById('simCostCredits'),usd=document.getElementById('simCostUsd'),detail=document.getElementById('simCostDetail');
-  if(cr)cr.textContent=o.credits;if(usd)usd.textContent=o.usd;if(detail)detail.textContent=o.detail;
-}
-
-// ── Integration code ─────────────────────────────────────────────────
-function switchLang(lang,btn){
-  activeLang=lang;document.querySelectorAll('.lang-tabs button').forEach(b=>b.classList.remove('active'));btn.classList.add('active');
-  if(selectedSkill){const params=gatherCurrentParams();document.getElementById('integratePre').textContent=buildCodeSnippet(selectedSkill,lang,params)}
-}
-function gatherCurrentParams(){
-  if(!selectedSkill)return{};const params={};const vars=getSkillVars(selectedSkill);
-  for(const v of vars){const el=document.getElementById('param-'+v.name);if(el&&el.value.trim())params[v.name]=el.value.trim()}
-  return params;
-}
-function liveUpdateCode(){
-  if(!selectedSkill)return;
-  const params=gatherCurrentParams();
-  const pre=document.getElementById('integratePre');
-  if(pre)pre.textContent=buildCodeSnippet(selectedSkill,activeLang,params);
-}
-function copyIntegration(){const p=document.getElementById('integratePre');if(p)navigator.clipboard.writeText(p.textContent).then(()=>toast('Code copied'))}
-function buildCodeSnippet(s,lang,params){
-  const isData=s.skillType==='data';const url=`${API}/v1/skills/${s.id}/${isData?'query':'invoke'}`;
-  // Build dynamic query/body from params
-  let queryVal='your prompt';
-  if(params){
-    const pv=params.query||params.token||params.symbol||params.text||params.address||'';
-    if(pv)queryVal=pv;
-  }
-  let qsStr='';
-  if(isData&&params){
-    const ps=params.params;
-    if(ps){qsStr='?'+ps.split('\n').map(l=>l.trim()).filter(Boolean).join('&')}
-    else if(params.token)qsStr='?token='+encodeURIComponent(params.token);
-    else if(params.symbol)qsStr='?symbol='+encodeURIComponent(params.symbol);
-  }
-  const fullUrl=url+qsStr;
-  const bodyJson=isData?'':JSON.stringify({variables:{query:queryVal}},null,2);
-  if(lang==='curl')return isData?`curl "${fullUrl}" \\\n  -H "X-API-Key: YOUR_KEY"`:`curl -X POST "${url}" \\\n  -H "X-API-Key: YOUR_KEY" \\\n  -H "Content-Type: application/json" \\\n  -d '${bodyJson}'`;
-  if(lang==='python')return isData?`import requests\n\nres = requests.get("${fullUrl}",\n  headers={"X-API-Key": "YOUR_KEY"})\ndata = res.json()\nprint(data)`:`import requests\n\nres = requests.post("${url}",\n  headers={"X-API-Key": "YOUR_KEY"},\n  json=${bodyJson.replace(/"/g,'"')})\ndata = res.json()\nprint(data)`;
-  return isData?`const res = await fetch("${fullUrl}", {\n  headers: { "X-API-Key": "YOUR_KEY" }\n});\nconst data = await res.json();`:`const res = await fetch("${url}", {\n  method: "POST",\n  headers: {\n    "X-API-Key": "YOUR_KEY",\n    "Content-Type": "application/json"\n  },\n  body: JSON.stringify(${bodyJson})\n});\nconst data = await res.json();`;
-}
-
-// ── Cost calculator ──────────────────────────────────────────────────
-function updateCostCalc(n,cost){
-  n=parseInt(n);const d=n*cost*.001,m=d*30;
-  const el=k=>document.getElementById(k);
-  if(el('ccNum'))el('ccNum').textContent=n.toLocaleString();
-  if(el('ccDaily'))el('ccDaily').textContent='$'+d.toFixed(2);
-  if(el('ccMonthly'))el('ccMonthly').textContent='$'+m.toFixed(2);
-  if(el('ccCredits'))el('ccCredits').textContent=(n*cost).toLocaleString();
-  if(el('ccRunway')&&userCredits!=null)el('ccRunway').textContent=Math.floor(userCredits/(n*cost)||0).toLocaleString()+' days';
-}
-
-// ── Syntax highlight ─────────────────────────────────────────────────
-function syntaxHighlight(json){return esc(json).replace(/"([^"]+)":/g,'<span style="color:var(--info)">"$1"</span>:').replace(/: "([^"]*)"/g,': <span style="color:var(--accent-text)">"$1"</span>').replace(/\b(true|false)\b/g,'<span style="color:var(--purple)">$1</span>').replace(/\b(null)\b/g,'<span style="color:var(--text-muted)">$1</span>').replace(/(?<!["\w])-?\b(\d+\.?\d*)\b/g,'<span style="color:var(--warning)">$1</span>')}
-
-// ═════════════════ API TESTER ═════════════════
-
-// ── Mock responses for each API endpoint ──
-function generateEndpointMock(ep){
-  const path=ep.path;
-  const reqId='req_'+R.i(100000,999999);
-  const elapsed=R.i(80,420);
-
-  // POST /v1/orchestrate
-  if(path==='/v1/orchestrate'){
-    const p=R.f(2200,4200);
-    return{success:true,requestId:reqId,query:ep.body?.query||'What is the current price of Ethereum?',plan:{steps:[{endpoint:'price-oracle',type:'data',cached:R.pick(true,false)},{endpoint:'token-analysis',type:'data',cached:false}]},result:{token:'ETH',priceUsd:p,change24h:R.f(-6,10),volume24h:R.i(8e9,25e9),marketCap:R.i(260e9,500e9),analysis:`Ethereum is trading at $${p.toLocaleString()} with ${R.pick('bullish','neutral','bearish')} momentum. Volume is ${R.pick('above','near','below')} the 30-day average.`},credits:{charged:R.f(3,8,1),cached:R.i(0,2),orchestrationFee:2},elapsedMs:elapsed,timestamp:R.ts()};
-  }
-
-  // POST /v1/skills/:id/invoke
-  if(path.includes('/invoke')){
-    return{success:true,requestId:reqId,skillId:ep.pd||'your-skill-id',result:{analysis:`Based on current on-chain data, the market shows ${R.pick('bullish momentum','neutral consolidation','cautious positioning')}. Key support at $${R.i(2000,3000).toLocaleString()}, resistance at $${R.i(3500,4500).toLocaleString()}. Social sentiment: ${R.pick('positive','mixed','cautious')} (${R.i(40,80)}% bullish). Recommendation: ${R.pick('accumulate on dips','hold current positions','reduce exposure')}.`,confidence:R.f(0.65,0.95),sources:R.i(4,12),processingMs:R.i(600,2000)},credits:{charged:R.f(1,5,1),cached:false},timestamp:R.ts()};
-  }
-
-  // GET /v1/skills/:id/query
-  if(path.includes('/query')){
-    const sym=R.pick('SOL','ETH','BTC');const td=TOKEN_DATA[sym]||TOKEN_DATA.SOL;
-    return{success:true,requestId:reqId,skillId:'price-oracle',data:{token:sym,priceUsd:R.f(td.price[0],td.price[1]),change24h:R.f(-8,12),volume24h:R.i(td.vol[0],td.vol[1]),marketCap:R.i(td.mcap[0],td.mcap[1]),updatedAt:R.ts()},credits:{charged:R.f(0.5,3,2),cached:R.pick(true,false)},timestamp:R.ts()};
-  }
-
-  // POST /v1/batch
-  if(path==='/v1/batch'){
-    return{success:true,requestId:reqId,results:[
-      {query:'ETH price',success:true,data:{token:'ETH',priceUsd:R.f(2200,4200),change24h:R.f(-6,10)},credits:R.f(1,4,1)},
-      {query:'BTC market cap',success:true,data:{token:'BTC',priceUsd:R.f(58000,105000),marketCap:R.i(1.1e12,2.1e12)},credits:R.f(1,4,1)}
-    ],totalCredits:R.f(4,10,1),elapsedMs:elapsed,timestamp:R.ts()};
-  }
-
-  // GET /v1/stream/orchestrate
-  if(path.includes('/stream')){
-    return{note:'Streaming responses appear as SSE events. In sandbox mode, here is what the final aggregated response would look like:',success:true,requestId:reqId,query:'ETH price',result:{token:'ETH',priceUsd:R.f(2200,4200),change24h:R.f(-6,10),volume24h:R.i(8e9,25e9)},credits:{charged:R.f(3,7,1)},chunks:R.i(3,8),timestamp:R.ts()};
-  }
-
-  // POST /v1/discover
-  if(path==='/v1/discover'){
-    const skills=[
-      {id:'price-oracle',name:'Price Oracle',type:'data',creditCost:R.f(0.5,2,1),relevance:R.f(0.85,0.99),description:'Real-time token prices with volume and market cap'},
-      {id:'whale-tracker',name:'Whale Tracker',type:'data',creditCost:R.f(1,3,1),relevance:R.f(0.7,0.92),description:'Track large wallet movements and holder concentration'},
-      {id:'defi-yield-scanner',name:'DeFi Yield Scanner',type:'data',creditCost:R.f(1,2,1),relevance:R.f(0.6,0.85),description:'Compare yields across DeFi protocols'},
-      {id:'token-analysis',name:'Token Metrics',type:'data',creditCost:R.f(1,4,1),relevance:R.f(0.55,0.8),description:'Comprehensive token analysis with risk scoring'},
-      {id:'market-sentiment',name:'Market Sentiment',type:'prompt_template',creditCost:R.f(2,5,1),relevance:R.f(0.5,0.75),description:'AI-powered market sentiment analysis'}
-    ];
-    return{success:true,requestId:reqId,query:ep.body?.query||'real-time crypto price data',results:skills.slice(0,ep.body?.limit||5),total:R.i(12,30),timestamp:R.ts()};
-  }
-
-  // GET /v1/skills
-  if(path==='/v1/skills'&&!path.includes(':')){
-    const types=['data','data','data','prompt_template','data','prompt_template','data'];
-    const names=['Price Oracle','Whale Tracker','DeFi Yield Scanner','Market Sentiment','Trending Tokens','Portfolio Analyzer','Token Metrics'];
-    const list=names.map((n,i)=>({id:n.toLowerCase().replace(/ /g,'-'),name:n,type:types[i],creditCost:R.f(0.5,5,1),invocations:R.i(50,5000),rating:R.f(3.5,5,1),creator:R.pick('clawnet-official','defi-wizard','crypto-labs')}));
-    return{success:true,skills:list,total:R.i(14,30),page:1,limit:20,timestamp:R.ts()};
-  }
-
-  // GET /v1/estimate
-  if(path==='/v1/estimate'){
-    const steps=R.i(1,4);
-    return{success:true,requestId:reqId,query:'What is ETH price',estimatedCredits:R.f(2,8,1),breakdown:{orchestrationFee:2,steps:Array.from({length:steps},(_,i)=>({endpoint:R.pick('price-oracle','token-analysis','whale-tracker'),estimatedCost:R.f(0.5,3,1),cached:R.pick(true,false)}))},strategy:'balanced',timestamp:R.ts()};
-  }
-
-  // POST /v1/openclaw
-  if(path==='/v1/openclaw'){
-    return{success:true,requestId:reqId,query:ep.body?.query||'Tell me about top DeFi trends this week',response:`The DeFi landscape this week shows ${R.pick('strong growth','steady activity','mixed signals')}. Key trends:\n\n1. **Liquid staking** continues to dominate with ${R.f(15,35)}% TVL growth on ${R.pick('Lido','Jito','Marinade')}.\n2. **DEX volumes** ${R.pick('surged','held steady','dipped')} — ${R.pick('Raydium','Uniswap','Orca')} leading at $${R.i(200,800)}M daily.\n3. **Yield farming** APYs averaging ${R.f(5,25)}% on stablecoin pairs.\n4. **New launches**: ${R.i(3,12)} protocols deployed this week across ${R.pick('Solana','Base','Arbitrum')}.`,sources:R.i(5,15),credits:{charged:R.f(4,10,1)},timestamp:R.ts()};
-  }
-
-  // Fallback
-  return{success:true,requestId:reqId,data:{message:'Response generated successfully'},timestamp:R.ts()};
-}
-
+// Endpoints
 const ENDPOINTS=[
-  {method:'POST',path:'/v1/orchestrate',name:'Orchestrate',desc:'LLM-planned multi-step query — the core primitive',body:{query:'What is the current price of Ethereum?',pricing:{strategy:'balanced'}}},
-  {method:'POST',path:'/v1/skills/:id/invoke',name:'Invoke Skill',desc:'Run a prompt or proxy skill directly',body:{variables:{query:'Analyze ETH market sentiment'}},pp:'id',pd:'your-skill-id'},
-  {method:'GET',path:'/v1/skills/:id/query',name:'Query Data Skill',desc:'Fetch structured data from a data skill',pp:'id',pd:'price-oracle'},
-  {method:'POST',path:'/v1/batch',name:'Batch Query',desc:'Multiple queries in one request',body:{queries:[{query:'ETH price'},{query:'BTC market cap'}],pricing:{strategy:'cheapest'}}},
-  {method:'GET',path:'/v1/stream/orchestrate',name:'Stream',desc:'Streaming orchestration via SSE',qs:'query=ETH+price&strategy=balanced'},
-  {method:'POST',path:'/v1/discover',name:'Discover Skills',desc:'Semantic search over all public skills',body:{query:'real-time crypto price data',limit:5}},
-  {method:'GET',path:'/v1/skills',name:'List Skills',desc:'Browse and filter all public skills',qs:'limit=20&type=data'},
-  {method:'GET',path:'/v1/estimate',name:'Estimate Cost',desc:'Preview cost before execution — free',qs:'query=What+is+ETH+price'},
-  {method:'POST',path:'/v1/openclaw',name:'OpenClaw',desc:'Open-ended orchestration with any query',body:{query:'Tell me about top DeFi trends this week'}},
+  {method:'POST',path:'/v1/orchestrate',name:'Orchestrate',desc:'LLM-planned multi-step query. The core primitive for agent-driven workflows.',body:{query:'What is the current price of Ethereum?',pricing:{strategy:'balanced'}}},
+  {method:'POST',path:'/v1/skills/:id/invoke',name:'Invoke Skill',desc:'Run a prompt or proxy skill directly by ID. Variables are passed in the request body.',body:{variables:{query:'Analyze ETH market sentiment'}},pp:'id',pd:'your-skill-id'},
+  {method:'GET',path:'/v1/skills/:id/query',name:'Query Data Skill',desc:'Fetch structured data from a data skill. Parameters passed as query string.',pp:'id',pd:'price-oracle',qs:'token=SOL'},
+  {method:'POST',path:'/v1/batch',name:'Batch Query',desc:'Send multiple queries in one request. Each query is planned and executed independently.',body:{queries:[{query:'ETH price'},{query:'BTC market cap'}],pricing:{strategy:'cheapest'}}},
+  {method:'GET',path:'/v1/stream/orchestrate',name:'Stream',desc:'Streaming orchestration via Server-Sent Events. Same as orchestrate but results stream in real-time.',qs:'query=ETH+price&strategy=balanced'},
+  {method:'POST',path:'/v1/discover',name:'Discover Skills',desc:'Semantic search over all public skills. Returns ranked results by relevance, price, and trust.',body:{query:'real-time crypto price data',limit:5}},
+  {method:'GET',path:'/v1/skills',name:'List Skills',desc:'Browse and filter all public skills. Supports pagination, type filtering, and tag search.',qs:'limit=20&type=data'},
+  {method:'GET',path:'/v1/estimate',name:'Estimate Cost',desc:'Preview the credit cost of a query before execution. Always free.',qs:'query=What+is+ETH+price'},
+  {method:'GET',path:'/v1/endpoints',name:'List Endpoints',desc:'Browse all 344 raw API endpoints in the registry with pricing and category info.'},
+  {method:'POST',path:'/v1/openclaw',name:'OpenClaw',desc:'Open-ended orchestration. Send any natural language query and get a structured response.',body:{query:'Tell me about top DeFi trends this week'}},
 ];
-let selectedEp=null;
 
 function renderEndpoints(){
-  document.getElementById('atEndpoints').innerHTML=ENDPOINTS.map((ep,i)=>{
+  document.getElementById('epGrid').innerHTML=ENDPOINTS.map((ep,i)=>{
     const mc=ep.method==='GET'?'get':'post';
-    const eu=getUses('ep:'+ep.path);
-    return`<div class="at-ep-card" id="atep-${i}" onclick="selectEndpoint(${i})"><div class="ep-method"><span class="badge badge-${mc}">${ep.method}</span></div><div class="ep-name">${esc(ep.name)}</div><div class="ep-desc">${esc(ep.desc)}</div><div class="use-badges"><span class="use-badge sb">${eu.sandbox} sandbox</span><span class="use-badge lv">${eu.live} live</span></div></div>`;
+    let path=ep.path;if(ep.pp)path=path.replace(':'+ep.pp,ep.pd||':id');
+    return`<div class="ep-card" id="epc-${i}" onclick="selectEndpoint(${i})"><div class="ep-card-head"><span class="badge badge-${mc}">${ep.method}</span><span class="ep-card-name">${esc(ep.name)}</span></div><div class="ep-card-desc">${esc(ep.desc)}</div><div class="ep-card-path">${esc(path)}</div></div>`;
   }).join('');
 }
+
 function selectEndpoint(idx){
   const ep=ENDPOINTS[idx];selectedEp={...ep,idx};
-  document.querySelectorAll('.at-ep-card').forEach(c=>c.classList.remove('sel'));
-  document.getElementById('atep-'+idx)?.classList.add('sel');
-  document.getElementById('atWorkspace').classList.add('show');
-  const mb=document.getElementById('atMethod');mb.textContent=ep.method;mb.className='badge badge-'+(ep.method==='GET'?'get':'post');
-  let url=API+ep.path;if(ep.pp)url=url.replace(':'+ep.pp,ep.pd||'<id>');if(ep.qs)url+='?'+ep.qs;
-  document.getElementById('atUrl').value=url;
-  document.getElementById('atReqBody').value=ep.body?JSON.stringify(ep.body,null,2):'// No request body for GET endpoints';
-  document.getElementById('atResBody').textContent='Click "Send" to execute the request.';document.getElementById('atResBody').style.color='var(--text-muted)';
-  document.getElementById('atResStatus').innerHTML='';
-}
-async function atSend(){
-  if(!selectedEp){toast('Select an endpoint first','warning');return}
-  const ep=selectedEp;
-  const resBody=document.getElementById('atResBody'),resStatus=document.getElementById('atResStatus');
-  const btn=document.getElementById('atSendBtn');
+  document.querySelectorAll('.ep-card').forEach(c=>c.classList.remove('sel'));
+  document.getElementById('epc-'+idx)?.classList.add('sel');
 
-  // ── Sandbox mode — generate mock response ──
-  if(currentMode!=='live'){
-    resBody.textContent='Sending...';resBody.style.color='var(--text-muted)';resStatus.innerHTML='';
-    btn.disabled=true;btn.innerHTML='<span class="spinner"></span>Sending...';
-    setTimeout(()=>{
-      const mock=generateEndpointMock(ep);
-      const elapsed=R.i(80,420);
-      resStatus.innerHTML=`<span class="status-code s2">200</span><span style="font-size:11px;color:var(--text-muted)">${elapsed}ms</span><span style="font-size:11px;color:var(--accent);font-weight:500">Sandbox — 0 credits</span>`;
-      resBody.innerHTML=syntaxHighlight(JSON.stringify(mock,null,2));resBody.style.color='';
-      btn.disabled=false;btn.innerHTML='<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>Send';
-      trackUse('ep:'+ep.path,'sandbox');renderEndpoints();
-    },400+Math.random()*400);
-    return;
+  const panel=document.getElementById('epDetail');
+  panel.classList.add('show');
+
+  const mb=document.getElementById('epMethod');
+  mb.textContent=ep.method;mb.className='badge badge-'+(ep.method==='GET'?'get':'post');
+  document.getElementById('epName').textContent=ep.name;
+  document.getElementById('epDesc').textContent=ep.desc;
+
+  let url=API+ep.path;
+  if(ep.pp)url=url.replace(':'+ep.pp,ep.pd||'<id>');
+  if(ep.qs)url+='?'+ep.qs;
+  document.getElementById('epUrl').textContent=url;
+
+  const bodySection=document.getElementById('epBodySection');
+  if(ep.body){
+    bodySection.style.display='';
+    document.getElementById('epBody').textContent=JSON.stringify(ep.body,null,2);
+  }else{
+    bodySection.style.display='none';
   }
 
-  // ── Live mode — real API call ──
-  if(!apiKey){toast('Enter your API key to send live requests','warning');return}
-  const url=document.getElementById('atUrl').value;
-  resBody.textContent='Sending...';resBody.style.color='var(--text-muted)';resStatus.innerHTML='';
-  btn.disabled=true;btn.innerHTML='<span class="spinner"></span>Sending...';
-  try{
-    const opts={method:ep.method,headers:{'X-API-Key':apiKey}};
-    if(ep.method==='POST'){opts.headers['Content-Type']='application/json';const ta=document.getElementById('atReqBody');try{opts.body=JSON.stringify(JSON.parse(ta.value))}catch{opts.body=ta.value}}
-    const start=performance.now();const r=await fetch(url,opts);const elapsed=Math.round(performance.now()-start);
-    let data;try{data=await r.json()}catch{data={raw:await r.text()}}
-    const sc=r.status,scCls=sc<300?'s2':sc<500?'s4':'s5';
-    resStatus.innerHTML=`<span class="status-code ${scCls}">${sc}</span><span style="font-size:11px;color:var(--text-muted)">${elapsed}ms</span>`;
-    resBody.innerHTML=syntaxHighlight(JSON.stringify(data,null,2));resBody.style.color='';
-    trackUse('ep:'+ep.path,'live');renderEndpoints();
-  }catch(e){resBody.textContent='Network error: '+e.message;resBody.style.color='var(--danger)'}
-  finally{btn.disabled=false;btn.innerHTML='<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>Send'}
+  updateCode();
+  panel.scrollIntoView({behavior:'smooth',block:'start'});
 }
 
-// ── Modal close ──────────────────────────────────────────────────────
-document.getElementById('confirmModal').addEventListener('click',e=>{if(e.target.id==='confirmModal')closeModal()});
-document.getElementById('errorModal').addEventListener('click',e=>{if(e.target.id==='errorModal')closeErrorModal()});
-document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeModal();closeErrorModal()}});
+// Code generation
+function switchLang(lang,btn){
+  activeLang=lang;
+  document.querySelectorAll('#codeTabs button').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  updateCode();
+}
 
-// ── Init ─────────────────────────────────────────────────────────────
-checkStatus();initAuth();loadSkills();renderEndpoints();
+function updateCode(){
+  if(!selectedEp)return;
+  const ep=selectedEp;
+  let url=API+ep.path;
+  if(ep.pp)url=url.replace(':'+ep.pp,ep.pd||'<id>');
+  if(ep.qs)url+='?'+ep.qs;
+
+  const bodyJson=ep.body?JSON.stringify(ep.body,null,2):'';
+  let code='';
+
+  if(activeLang==='curl'){
+    if(ep.method==='GET'){
+      code=`curl "${url}" \\\n  -H "X-API-Key: YOUR_KEY"`;
+    }else{
+      code=`curl -X POST "${url}" \\\n  -H "X-API-Key: YOUR_KEY" \\\n  -H "Content-Type: application/json" \\\n  -d '${bodyJson}'`;
+    }
+  }else if(activeLang==='python'){
+    if(ep.method==='GET'){
+      code=`import requests\n\nres = requests.get("${url}",\n  headers={"X-API-Key": "YOUR_KEY"})\ndata = res.json()\nprint(data)`;
+    }else{
+      code=`import requests\n\nres = requests.post("${url}",\n  headers={"X-API-Key": "YOUR_KEY"},\n  json=${bodyJson})\ndata = res.json()\nprint(data)`;
+    }
+  }else{
+    if(ep.method==='GET'){
+      code=`const res = await fetch("${url}", {\n  headers: { "X-API-Key": "YOUR_KEY" }\n});\nconst data = await res.json();`;
+    }else{
+      code=`const res = await fetch("${url}", {\n  method: "POST",\n  headers: {\n    "X-API-Key": "YOUR_KEY",\n    "Content-Type": "application/json"\n  },\n  body: JSON.stringify(${bodyJson})\n});\nconst data = await res.json();`;
+    }
+  }
+  document.getElementById('codeContent').textContent=code;
+}
+
+function copyUrl(){
+  const t=document.getElementById('epUrl').textContent;
+  navigator.clipboard.writeText(t).then(()=>toast('URL copied'));
+}
+function copyCode(){
+  const t=document.getElementById('codeContent').textContent;
+  navigator.clipboard.writeText(t).then(()=>toast('Code copied'));
+}
+
+// Init
+checkStatus();initAuth();renderEndpoints();
 </script>
 </body>
 </html>
