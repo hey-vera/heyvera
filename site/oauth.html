@@ -87,7 +87,13 @@
         <button id="authorize-btn" class="btn btn-authorize">Authorize ${app.charAt(0).toUpperCase() + app.slice(1)}</button>
         <a href="${redirect.split('?')[0].replace('/auth/callback', '')}" class="btn btn-cancel">Cancel</a>
         <p style="color:#8b949e;font-size:0.75rem;margin-top:12px;">Signed in as ${clerk.user.primaryEmailAddress?.emailAddress || clerk.user.id}</p>
+        <button id="switch-btn" class="btn btn-cancel" style="margin-top:8px;font-size:0.78rem;padding:6px 16px;width:auto;">Switch Account</button>
       `;
+
+      document.getElementById('switch-btn').addEventListener('click', async function() {
+        await clerk.signOut();
+        window.location.reload();
+      });
 
       document.getElementById('authorize-btn').addEventListener('click', async function() {
         this.disabled = true;
