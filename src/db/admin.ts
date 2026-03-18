@@ -53,6 +53,7 @@ export function getRevenueBreakdown(): {
   totalPlatformCredits: number;
   totalPlatformUsdEquiv: number;
   breakdown: {
+    orchestrationRevenue: { credits: number; transactions: number };
     marketplaceFees: { credits: number; transactions: number };
     invokeFees: { credits: number; transactions: number };
     swarmFees: { credits: number; transactions: number };
@@ -60,6 +61,12 @@ export function getRevenueBreakdown(): {
   payments: { totalUsd: number; keyCount: number };
 } {
   const db = getDb();
+  // Orchestration revenue: credits consumed via direct /v1/orchestrate calls.
+  // These are 100% platform revenue (credits burned, not paid to creators).
+  const orchRevenue = db.prepare(`
+    SELECT COALESCE(SUM(COALESCE(total, 0)), 0) AS total, COUNT(*) AS txCount
+    FROM orchestrations WHERE success = 1
+  `).get() as { total: number; txCount: number };
   const mktFees = db.prepare(`
     SELECT COALESCE(SUM(fee_credits),0) AS total, COUNT(*) AS txCount
     FROM transactions WHERE type = 'SKILL_SALE'
@@ -77,11 +84,12 @@ export function getRevenueBreakdown(): {
     FROM api_keys WHERE active = 1 AND amount_paid > 0
   `).get() as { totalUsd: number; keyCount: number };
 
-  const totalPlatformCredits = (mktFees.total ?? 0) + (invokeRevenue.total ?? 0) + (swarmFees.total ?? 0);
+  const totalPlatformCredits = (orchRevenue.total ?? 0) + (mktFees.total ?? 0) + (invokeRevenue.total ?? 0) + (swarmFees.total ?? 0);
   return {
     totalPlatformCredits,
     totalPlatformUsdEquiv: Math.round(totalPlatformCredits / 10) / 100,
     breakdown: {
+      orchestrationRevenue: { credits: orchRevenue.total ?? 0, transactions: orchRevenue.txCount ?? 0 },
       marketplaceFees: { credits: mktFees.total ?? 0, transactions: mktFees.txCount ?? 0 },
       invokeFees: { credits: invokeRevenue.total ?? 0, transactions: invokeRevenue.txCount ?? 0 },
       swarmFees: { credits: swarmFees.total ?? 0, transactions: swarmFees.txCount ?? 0 },
