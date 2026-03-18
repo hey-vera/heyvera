@@ -162,10 +162,22 @@ oauthRouter.post('/authorize', async (c) => {
     return c.json({ error: 'Invalid or missing redirect URL', code: 'INVALID_REDIRECT' }, 400);
   }
 
-  // Find or create API key for this user
+  // Find API key — try by Clerk ID first, then by email (for keys created via Stripe/Solana)
   let keyRecord = getApiKeyByClerkId(clerkUserId);
+  if (!keyRecord && clerkEmail) {
+    // Look up by email — user may have a key from Stripe/Solana that isn't linked to Clerk yet
+    const byEmail = getDb().prepare(
+      'SELECT key, email, credits, amount_paid FROM api_keys WHERE email = ? AND active = 1 ORDER BY credits DESC LIMIT 1'
+    ).get(clerkEmail) as { key: string; email: string; credits: number; amount_paid: number } | undefined;
+    if (byEmail) {
+      // Link this key to the Clerk user for future lookups
+      getDb().prepare('UPDATE api_keys SET clerk_user_id = ? WHERE key = ?').run(clerkUserId, byEmail.key);
+      keyRecord = byEmail;
+      logger.info({ clerkUserId, email: clerkEmail, key: byEmail.key.slice(0, 8) }, 'OAuth: linked existing key to Clerk user');
+    }
+  }
   if (!keyRecord) {
-    // Auto-create an API key with 0 credits for new users
+    // No existing key found — auto-create with 0 credits
     const newKey = `cn-${crypto.randomBytes(24).toString('hex')}`;
     createApiKeyForClerk({
       key: newKey,
