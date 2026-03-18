@@ -16,11 +16,11 @@ const err401 = { description: 'Unauthorized', content: errContent };
 
 openapiRouter.get('/openapi.json', (c) => {
   const spec = {
-    openapi: '3.0.3',
+    openapi: '3.1.0',
     info: {
-      title: 'ClawNet Orchestrator API',
-      description: 'Universal AI agent orchestration layer for Solana/Web3 intelligence. Send natural-language queries, receive structured answers powered by 160+ specialized API endpoints.',
-      version: '2.0.0',
+      title: 'ClawNet API',
+      description: 'Sovereign AI agent orchestration layer. 344 endpoints, pay-per-use credits, agent-native primitives. One key, one query, done.',
+      version: '3.0.0',
       contact: {
         name: 'ClawNet',
         url: 'https://claw-net.org',
@@ -444,13 +444,12 @@ openapiRouter.get('/openapi.json', (c) => {
                 schema: {
                   type: 'object',
                   properties: {
-                    workerEmail: { type: 'string', format: 'email', description: 'Worker\'s ClawNet email' },
-                    amountCredits: { type: 'integer', minimum: 1, description: 'Credits to lock for the work' },
-                    description: { type: 'string', maxLength: 500 },
-                    deliverableDescription: { type: 'string', maxLength: 1000 },
-                    deadlineHours: { type: 'integer', minimum: 1, maximum: 8760 },
+                    workerId: { type: 'string', description: 'Worker\'s API key or user ID' },
+                    amountCredits: { type: 'number', minimum: 1, description: 'Credits to lock in escrow' },
+                    deadline: { type: 'string', format: 'date-time', description: 'ISO datetime when escrow expires' },
+                    metadata: { type: 'object', description: 'Optional metadata about the work' },
                   },
-                  required: ['workerEmail', 'amountCredits', 'description'],
+                  required: ['workerId', 'amountCredits', 'deadline'],
                 },
               },
             },
@@ -770,7 +769,6 @@ openapiRouter.get('/openapi.json', (c) => {
           summary: 'List mesh network peers',
           operationId: 'getMeshPeers',
           tags: ['Mesh'],
-          security: [],
           responses: { '200': { description: 'Connected peers and node info' } },
         },
       },

@@ -485,7 +485,34 @@ Also consider registering Agoragentic as a **seller** on their marketplace (they
 
 **Effort:** 1 day.
 
+## 26. Social Proof / Usage Stats in Docs
+
+**What:** Add real usage metrics to docs.html — active agents, API calls processed, skills registered, etc.
+
+**Why defer:**
+- Need real users first. Fake/inflated metrics destroy trust immediately.
+- The comparison table and technical depth serve as social proof until real adoption data exists.
+- Once 100+ active agents exist, add a live counter pulling from `/v1/stats/roadmap` or similar.
+
+**Trigger to revisit:** 100+ active API keys with >10 calls each.
+
+**Effort:** 2 hours (add a stats banner to docs pulling from the existing `/v1/stats/roadmap` endpoint).
+
+## 27. Rate Limits Per Tier in Docs
+
+**What:** Document differentiated rate limits per API key tier (free, starter, pro, enterprise).
+
+**Why defer:**
+- Currently one tier: 60 req/min per IP for all keys.
+- This is a product decision, not a docs task — need to define the tiers first.
+- Adding "coming soon" tiers to docs is worse than saying nothing.
+- When paid tiers are introduced, document them alongside the pricing page update.
+
+**Trigger to revisit:** When a second rate limit tier is implemented in `src/middleware/rate-limit.ts`.
+
+**Effort:** 1 hour (docs update only, after the product decision is made).
+
 ---
 
-*Last updated: 2026-03-16*
+*Last updated: 2026-03-18*
 *Based on Artemis Agentic Commerce Market Map analysis (173 companies) — competitive research against 402.bot, Questflow, OpenServ, Blockrun, Dexter, Daydreams, PayAI, Virtuals Protocol, Bittensor, x402engine, Agoragentic, ClawIndex, x402scan, Helixa, Cred Protocol.*

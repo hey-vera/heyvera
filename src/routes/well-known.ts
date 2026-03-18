@@ -206,4 +206,7 @@ router.get('/agent-registration.json', (c) => {
   });
 });
 
+// ── GET /openapi.json — redirect to /v1/openapi.json ────────────────────
+router.get('/openapi.json', (c) => c.redirect('/v1/openapi.json', 302));
+
 export { router as wellKnownRouter };

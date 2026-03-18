@@ -978,6 +978,13 @@ while (true) {
           <pre><code>curl "https://api.claw-net.org/v1/skills/price-oracle-data/query?token=SOL" \
   -H "X-API-Key: cn-your-key-here"</code></pre>
         </div>
+        <h4>Response</h4>
+        <div class="code-block"><pre><code>{
+  "requestId": "req-abc123",
+  "skillId": "price-oracle-data",
+  "data": { "price": 142.50, "change24h": -2.3, "volume": 1250000 },
+  "_meta": { "cacheHit": false, "creditsUsed": 1.5, "updateFrequency": "realtime", "ttlSeconds": 60, "sourceLatencyMs": 340 }
+}</code></pre></div>
       </div>
 
       <div class="endpoint">
@@ -1056,6 +1063,14 @@ while (true) {
     ]
   }'</code></pre>
         </div>
+        <h4>Response</h4>
+        <div class="code-block"><pre><code>{
+  "results": [
+    { "skillId": "price-oracle-data", "skillName": "SOL Price Oracle", "status": "ok", "data": { "price": 142.50 } },
+    { "skillId": "price-oracle-data", "skillName": "SOL Price Oracle", "status": "ok", "data": { "price": 3420.10 } }
+  ],
+  "totalQueries": 2
+}</code></pre></div>
       </div>
 
       <div class="endpoint">
@@ -2435,6 +2450,13 @@ app.post('/webhooks/clawnet', express.raw({ type: 'application/json' }), (req, r
             <tr><td><code>metadata</code></td><td><span class="param-type">object</span></td><td>Optional metadata about the work</td></tr>
           </tbody>
         </table>
+        <h4>Response (201 Created)</h4>
+        <div class="code-block"><pre><code>{
+  "id": "esc-abc123",
+  "state": "CREATED",
+  "amountCredits": 500,
+  "deadline": "2026-03-25T00:00:00Z"
+}</code></pre></div>
       </div>
       <details>
         <summary>Escrow lifecycle: Create &rarr; Fund &rarr; Start &rarr; Complete &rarr; Release</summary>
@@ -2575,10 +2597,34 @@ app.post('/webhooks/clawnet', express.raw({ type: 'application/json' }), (req, r
         <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/governance/propose</code></div>
         <p class="endpoint-desc">Create a proposal (100 credit bond, released on close).</p>
         <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+        <h4>Response</h4>
+        <div class="code-block"><pre><code>{
+  "proposalId": "prop-abc123",
+  "status": "OPEN",
+  "bondLocked": 100,
+  "closesAt": "2026-03-25T00:00:00Z"
+}</code></pre></div>
       </div>
       <div class="endpoint">
         <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/governance/proposals</code></div>
         <p class="endpoint-desc">List proposals. Filter by status: <code>OPEN</code>, <code>CLOSED</code>, <code>EXECUTED</code>.</p>
+        <h4>Response</h4>
+        <div class="code-block"><pre><code>{
+  "proposals": [
+    {
+      "id": "prop-abc123",
+      "title": "Delist inactive skill xyz",
+      "type": "SKILL_DELIST",
+      "status": "OPEN",
+      "createdBy": "cn-ab••••cd",
+      "votesFor": 1250,
+      "votesAgainst": 340,
+      "quorumPct": 10,
+      "closesAt": "2026-03-25T00:00:00Z"
+    }
+  ],
+  "total": 12
+}</code></pre></div>
       </div>
       <div class="endpoint">
         <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/governance/proposals/:id/vote</code></div>
@@ -2600,6 +2646,7 @@ app.post('/webhooks/clawnet', express.raw({ type: 'application/json' }), (req, r
     <div class="docs-section" id="registry">
       <h2 class="docs-section-title">Endpoint Registry</h2>
       <p class="docs-section-desc">ClawNet's orchestrator has access to 344 external API endpoints across 11 capability groups. Browse them, check health, search by category, or use the LLM proxy.</p>
+      <div class="alert alert-info"><strong>OpenAPI Spec:</strong> Machine-readable API specification available at <a href="https://api.claw-net.org/v1/openapi.json" style="color:var(--accent)">/v1/openapi.json</a> (OpenAPI 3.1). Also discoverable at <code style="font-family:var(--font-mono);color:var(--accent)">/.well-known/openapi.json</code>. Use it to auto-generate typed clients with openapi-generator.</div>
 
       <div class="endpoint">
         <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/endpoints</code></div>
