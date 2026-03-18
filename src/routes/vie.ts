@@ -30,8 +30,6 @@ export interface VieResult {
     onchain_activity: VieFactorScore | null;
   };
   overrides_applied: string[];
-  sources_used: string[];
-  sources_failed: string[];
 }
 
 // ─── Zod Validation ──────────────────────────────────────────────────────────
@@ -129,12 +127,13 @@ vieRouter.post('/report', checkApiKey, async (c) => {
     result = computeVieScore(rawData);
 
     // 6. Check if too many sources failed — refund credits
-    if (result.sources_failed.length >= 3) {
+    const nullFactors = Object.values(result.factors).filter(f => f === null).length;
+    if (nullFactors >= 3) {
       topUpCredits(billingKey, tierCost);
       return c.json({
         error: 'Insufficient data sources available to produce a reliable score',
         code: 'VIE_INSUFFICIENT_DATA',
-        sources_failed: result.sources_failed,
+        sources_available: 5 - nullFactors,
         credits_refunded: tierCost,
       }, 503);
     }
@@ -145,9 +144,11 @@ vieRouter.post('/report', checkApiKey, async (c) => {
     if (tier === 'deep') {
       try {
         const { synthesizeVerdict } = await import('../core/vie-synthesis');
-        const synthesis = await synthesizeVerdict(result, rawData, target);
-        explanation = synthesis.explanation;
-        evidence = synthesis.evidence;
+        const synthesis = await synthesizeVerdict(target, target_type, result, rawData);
+        if (synthesis) {
+          explanation = synthesis.explanation;
+          evidence = synthesis.evidence;
+        }
       } catch (err) {
         logger.warn({ err, target }, 'VIE LLM synthesis failed — returning standard response');
         explanation = null;
