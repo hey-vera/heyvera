@@ -632,6 +632,26 @@ const MIGRATIONS: { version: number; sql: string }[] = [
     expires_at TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   )` },
+  // v77: Verified Intelligence Engine (VIE) — historical pattern database
+  { version: 77, sql: `
+    CREATE TABLE IF NOT EXISTS vie_reports (
+      id TEXT PRIMARY KEY,
+      target TEXT NOT NULL,
+      target_type TEXT NOT NULL DEFAULT 'token',
+      chain TEXT NOT NULL DEFAULT 'solana',
+      trust_score INTEGER NOT NULL,
+      risk_level TEXT NOT NULL,
+      confidence REAL NOT NULL,
+      factors_json TEXT NOT NULL,
+      tier TEXT NOT NULL DEFAULT 'standard',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      outcome TEXT,
+      outcome_at TEXT,
+      outcome_notes TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_vie_target ON vie_reports(target, chain);
+    CREATE INDEX IF NOT EXISTS idx_vie_score ON vie_reports(trust_score);
+    CREATE INDEX IF NOT EXISTS idx_vie_outcome ON vie_reports(outcome) WHERE outcome IS NOT NULL` },
 ];
 
 function runMigrations(): void {
