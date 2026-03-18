@@ -387,6 +387,20 @@
           <div class="concept-desc">1 credit = $0.001. No subscriptions, no minimums. Cached queries cost 90% less. x402 keyless access available &mdash; pay with your wallet, no account needed.</div>
         </div>
       </div>
+
+      <h4>ClawNet vs. Building It Yourself</h4>
+      <table class="params-table">
+        <thead><tr><th>Dimension</th><th>DIY</th><th>ClawNet</th></tr></thead>
+        <tbody>
+          <tr><td>API Keys</td><td>Manage 20+ keys from different providers</td><td>One key (<code>cn-</code>), 344 endpoints</td></tr>
+          <tr><td>Caching</td><td>Build and maintain your own cache layer</td><td>3-layer smart cache, 90% cost savings automatic</td></tr>
+          <tr><td>Billing</td><td>Track usage per provider, reconcile monthly</td><td>Pay-per-call credits, real-time balance</td></tr>
+          <tr><td>Discovery</td><td>Manually find and evaluate new APIs</td><td>Auto-discovery across 344+ endpoints and marketplace</td></tr>
+          <tr><td>Trust</td><td>Build your own monitoring and verification</td><td>SLAs, output contracts, cross-verification, validators</td></tr>
+          <tr><td>Agent Billing</td><td>Build delegation, budgets, sub-agent auth</td><td>Delegated keys, budget accounts, webhooks built-in</td></tr>
+          <tr><td>Time to First Call</td><td>Days to weeks</td><td>5 minutes</td></tr>
+        </tbody>
+      </table>
     </div>
 
     <!-- ═══════════════════════════════════════════════ QUICK START ═══════════════════════════════════════════════ -->
@@ -474,6 +488,17 @@ print(res.json()['answer'])</code></pre>
   "durationMs": 1240
 }</code></pre>
       </div>
+
+      <div class="concept-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); margin-top: 24px;">
+        <a href="#orchestrate" class="concept-card" style="text-decoration:none;cursor:pointer;border-color:rgba(16,185,129,0.25)">
+          <div class="concept-title" style="color:var(--accent)">I want to use APIs</div>
+          <div class="concept-desc">Query data, invoke skills, build agents &rarr;</div>
+        </a>
+        <a href="#skills-create" class="concept-card" style="text-decoration:none;cursor:pointer;border-color:rgba(139,92,246,0.25)">
+          <div class="concept-title" style="color:#8b5cf6">I want to sell my API</div>
+          <div class="concept-desc">Register a service, set pricing, earn 85% &rarr;</div>
+        </a>
+      </div>
     </div>
 
     <!-- ═══════════════════════════════════════════════ CONCEPTS ═══════════════════════════════════════════════ -->
@@ -502,6 +527,24 @@ print(res.json()['answer'])</code></pre>
           <div class="concept-desc">Third-party tools auto-discovered when ClawNet doesn't have a built-in endpoint. Browse the <a href="/marketplace.html" style="color:var(--accent)">Marketplace</a> or create your own and earn 85% of every credit spent.</div>
         </div>
       </div>
+
+      <details>
+        <summary>Credit pricing tiers</summary>
+        <div class="detail-body">
+          <table class="params-table">
+            <thead><tr><th>Purchase</th><th>Credits</th><th>Bonus</th><th>Effective Rate</th></tr></thead>
+            <tbody>
+              <tr><td>$5</td><td>5,000</td><td>&mdash;</td><td>$0.001/credit</td></tr>
+              <tr><td>$20</td><td>22,000</td><td>+10%</td><td>$0.00091/credit</td></tr>
+              <tr><td>$50</td><td>60,000</td><td>+20%</td><td>$0.00083/credit</td></tr>
+              <tr><td>$100</td><td>125,000</td><td>+25%</td><td>$0.00080/credit</td></tr>
+              <tr><td>$500</td><td>750,000</td><td>+50%</td><td>$0.00067/credit</td></tr>
+              <tr><td>$1,000</td><td>2,000,000</td><td>+100%</td><td>$0.00050/credit</td></tr>
+            </tbody>
+          </table>
+          <p class="endpoint-desc">USDC payments get an additional +7% bonus at each tier. Buy credits on your <a href="/dashboard.html" style="color:var(--accent)">dashboard</a>.</p>
+        </div>
+      </details>
     </div>
 
     <!-- ═══════════════════════════════════════════════ AUTH ═══════════════════════════════════════════════ -->
@@ -762,6 +805,14 @@ console.log(res.data);</code></pre>
             <tr><td><code>pricing</code></td><td><span class="param-type">object</span></td><td><span class="param-opt">No</span></td><td>Same budget control as orchestrate, applied per query</td></tr>
           </tbody>
         </table>
+        <h4>Response</h4>
+        <div class="code-block"><pre><code>{
+  "results": [
+    { "query": "SOL price", "answer": "...", "creditsUsed": 1.5, "cached": false },
+    { "query": "ETH gas", "answer": "...", "creditsUsed": 0.15, "cached": true }
+  ],
+  "totalCredits": 1.65
+}</code></pre></div>
       </div>
     </div>
 
@@ -1179,6 +1230,9 @@ es.addEventListener('done', (e) =&gt; {
     "tags": ["whales", "solana", "tracking"]
   }'</code></pre>
       </div>
+      <div class="alert alert-warning">
+        <strong>Auth forwarding:</strong> When your <code style="font-family:var(--font-mono);color:var(--warning)">api_proxy</code> skill is invoked, ClawNet sends a POST request to your <code style="font-family:var(--font-mono);color:var(--warning)">proxyUrl</code> with the caller's variables as the JSON body. ClawNet does <strong>not</strong> forward the caller's API key or auth headers &mdash; your backing API must either be publicly accessible or use a pre-shared secret configured in your proxy URL (e.g., <code style="font-family:var(--font-mono);color:var(--warning)">https://api.yourservice.com/endpoint?key=YOUR_SECRET</code>). Only HTTPS URLs are allowed (SSRF protection). If your API returns a non-2xx status, ClawNet returns an error to the caller and your skill's <code style="font-family:var(--font-mono);color:var(--warning)">success_rate</code> drops.
+      </div>
 
       <h4>3. Data Skill</h4>
       <p class="endpoint-desc">Structured data with automatic caching. Set <code style="font-family:var(--font-mono);color:var(--accent)">updateFrequency</code> to control how often data refreshes. Cached calls cost 90% less.</p>
@@ -1307,6 +1361,8 @@ es.addEventListener('done', (e) =&gt; {
         </tbody>
       </table>
 
+      <div class="alert alert-info">Example: A skill priced at 3 credits, called 10,000 times/month. Live calls: 1,000 (you earn 85% = 2,550 credits = $1.91 USDC). Cached calls: 9,000 (platform keeps 100%). Your monthly payout: $1.91. To maximize earnings, set higher prices or create skills that produce unique results each call (reducing cache hits).</div>
+
       <h4>Pricing You Control</h4>
       <table class="params-table">
         <thead><tr><th>Setting</th><th>Range</th><th>Description</th></tr></thead>
@@ -1410,6 +1466,55 @@ es.addEventListener('done', (e) =&gt; {
     "query": "What is SOL trading at?"
   }'</code></pre>
         </div>
+        <h4>All Action Payloads</h4>
+        <details>
+          <summary>skill &mdash; invoke a specific skill by ID</summary>
+          <div class="detail-body">
+            <div class="code-block">
+              <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+              <pre><code>curl -X POST https://api.claw-net.org/v1/openclaw/invoke \
+  -H "X-API-Key: cn-your-key-here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "action": "skill",
+    "skillId": "token-sentiment",
+    "variables": {"token": "SOL"}
+  }'</code></pre>
+            </div>
+          </div>
+        </details>
+        <details>
+          <summary>discover &mdash; find the best skill for a task</summary>
+          <div class="detail-body">
+            <div class="code-block">
+              <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+              <pre><code>curl -X POST https://api.claw-net.org/v1/openclaw/invoke \
+  -H "X-API-Key: cn-your-key-here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "action": "discover",
+    "query": "best price oracle for SOL",
+    "category": "defi"
+  }'</code></pre>
+            </div>
+          </div>
+        </details>
+        <details>
+          <summary>swarm &mdash; decompose a complex task into parallel subtasks</summary>
+          <div class="detail-body">
+            <div class="code-block">
+              <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+              <pre><code>curl -X POST https://api.claw-net.org/v1/openclaw/invoke \
+  -H "X-API-Key: cn-your-key-here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "action": "swarm",
+    "task": "Compare SOL ecosystem metrics across 5 dimensions",
+    "maxSubTasks": 5
+  }'</code></pre>
+            </div>
+          </div>
+        </details>
       </div>
       <div class="endpoint">
         <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/openclaw/catalog</code></div>
@@ -1429,6 +1534,13 @@ es.addEventListener('done', (e) =&gt; {
         <p class="endpoint-desc">Create a new session.</p>
         <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
         <div class="code-block"><pre><code>{ "name": "portfolio-tracker" }</code></pre></div>
+        <h4>Response</h4>
+        <div class="code-block"><pre><code>{
+  "id": "sess_a1b2c3",
+  "name": "portfolio-tracker",
+  "state": {},
+  "createdAt": "2026-03-18T..."
+}</code></pre></div>
       </div>
       <div class="endpoint">
         <div class="endpoint-header"><span class="method-badge patch">PATCH</span><code class="endpoint-path">/v1/economy/sessions/:id</code></div>
@@ -1571,6 +1683,12 @@ es.addEventListener('done', (e) =&gt; {
         <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/economy/gift</code></div>
         <p class="endpoint-desc">Gift credits to another user (wraps <code>transferCredits()</code>, max 50,000 per transfer).</p>
         <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+        <h4>Body</h4>
+        <div class="code-block"><pre><code>{
+  "toKey": "cn-recipient-key",
+  "amount": 500,
+  "note": "Welcome bonus"
+}</code></pre></div>
       </div>
 
       <div class="endpoint">
@@ -1598,6 +1716,14 @@ es.addEventListener('done', (e) =&gt; {
         <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/economy/reputation</code></div>
         <p class="endpoint-desc">Your reputation score &mdash; built from skill ratings, successful escrows, and community activity.</p>
         <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+        <h4>Response</h4>
+        <div class="code-block"><pre><code>{
+  "reputationScore": 82,
+  "totalRatings": 47,
+  "avgRating": 4.3,
+  "successRate": 0.96,
+  "trustLevel": "established"
+}</code></pre></div>
       </div>
 
       <div class="endpoint">
@@ -1710,6 +1836,15 @@ es.addEventListener('done', (e) =&gt; {
         <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/auth/me</code></div>
         <p class="endpoint-desc">Your credit balance, masked key, email, and total spend.</p>
         <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+        <h4>Response</h4>
+        <div class="code-block"><pre><code>{
+  "key": "cn-a1b2••••c3d4",
+  "email": "dev@example.com",
+  "credits": 4250.5,
+  "totalSpent": 1750,
+  "tier": "growth",
+  "createdAt": "2026-01-15T..."
+}</code></pre></div>
       </div>
       <div class="endpoint">
         <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/auth/usage</code></div>
@@ -2002,6 +2137,39 @@ app.post('/webhooks/clawnet', (req, res) => {
     {"skillId": "risk-score", "paramMapping": {"price": "{{steps.price.usd}}"}, "outputKey": "risk"}
   ]
 }</code></pre></div>
+
+      <h4 style="font-size:14px;font-weight:600;color:var(--text-primary);text-transform:none;letter-spacing:0;margin:24px 0 10px">Conditional Operators</h4>
+      <p class="endpoint-desc">Each dependency step can include a <code style="font-family:var(--font-mono);color:var(--accent)">condition</code> object. If the condition evaluates to false, the step is skipped (0 credits charged). There are 9 supported operators:</p>
+      <table class="params-table">
+        <thead><tr><th>Operator</th><th>Example</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>exists</code></td><td><code style="color:var(--text-secondary)">{"field": "price", "op": "exists"}</code></td><td>Field is present (not null/undefined/empty)</td></tr>
+          <tr><td><code>not_exists</code></td><td><code style="color:var(--text-secondary)">{"field": "error", "op": "not_exists"}</code></td><td>Field is absent (null/undefined/empty)</td></tr>
+          <tr><td><code>eq</code></td><td><code style="color:var(--text-secondary)">{"field": "status", "op": "eq", "value": "active"}</code></td><td>Equal (string comparison)</td></tr>
+          <tr><td><code>neq</code></td><td><code style="color:var(--text-secondary)">{"field": "status", "op": "neq", "value": "paused"}</code></td><td>Not equal</td></tr>
+          <tr><td><code>gt</code></td><td><code style="color:var(--text-secondary)">{"field": "price", "op": "gt", "value": 100}</code></td><td>Greater than (numeric)</td></tr>
+          <tr><td><code>lt</code></td><td><code style="color:var(--text-secondary)">{"field": "risk", "op": "lt", "value": 0.5}</code></td><td>Less than (numeric)</td></tr>
+          <tr><td><code>gte</code></td><td><code style="color:var(--text-secondary)">{"field": "score", "op": "gte", "value": 80}</code></td><td>Greater than or equal</td></tr>
+          <tr><td><code>lte</code></td><td><code style="color:var(--text-secondary)">{"field": "latency", "op": "lte", "value": 2000}</code></td><td>Less than or equal</td></tr>
+          <tr><td><code>contains</code></td><td><code style="color:var(--text-secondary)">{"field": "tags", "op": "contains", "value": "defi"}</code></td><td>String/array contains value</td></tr>
+        </tbody>
+      </table>
+      <p class="endpoint-desc">The <code style="font-family:var(--font-mono);color:var(--accent)">field</code> can reference a caller variable (<code style="font-family:var(--font-mono);color:var(--accent)">price</code>), a previous step output (<code style="font-family:var(--font-mono);color:var(--accent)">{{steps.price.usd}}</code>), or a literal value.</p>
+
+      <h4 style="font-size:14px;font-weight:600;color:var(--text-primary);text-transform:none;letter-spacing:0;margin:24px 0 10px">Parallel Groups</h4>
+      <p class="endpoint-desc">Steps assigned to the same <code style="font-family:var(--font-mono);color:var(--accent)">group</code> number run in parallel. Steps with <code style="font-family:var(--font-mono);color:var(--accent)">dependsOn</code> wait for those output keys to resolve before executing. Groups execute in numeric order (group 0, then group 1, etc.).</p>
+      <div class="code-block">
+        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+        <pre><code>{
+  "dependencies": [
+    {"skillId": "price-oracle", "paramMapping": {"token": "{{token}}"}, "outputKey": "price", "group": 0},
+    {"skillId": "holder-stats", "paramMapping": {"token": "{{token}}"}, "outputKey": "holders", "group": 0},
+    {"skillId": "analyze-risk", "paramMapping": {"price": "{{steps.price.usd}}", "holders": "{{steps.holders.count}}"}, "outputKey": "risk", "dependsOn": ["price", "holders"]}
+  ]
+}</code></pre>
+      </div>
+      <p class="endpoint-desc">In this example, <code style="font-family:var(--font-mono);color:var(--accent)">price-oracle</code> and <code style="font-family:var(--font-mono);color:var(--accent)">holder-stats</code> both belong to group 0 and execute simultaneously. The <code style="font-family:var(--font-mono);color:var(--accent)">analyze-risk</code> step has no group and waits for both outputs before running.</p>
+
       <div class="endpoint">
         <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/economy/estimate/:skillId</code></div>
         <p class="endpoint-desc">Pre-calculate the total credit cost of a composite skill.</p>
@@ -2398,6 +2566,92 @@ curl -X POST https://api.claw-net.org/v1/marketplace/creator/withdraw \
   -H "X-API-Key: cn-your-key-here" \
   -H "Content-Type: application/json" \
   -d '{"amountCredits": 5000, "usdcWallet": "YourSolanaWalletAddress..."}'</code></pre>
+          </div>
+        </div>
+      </details>
+
+      <!-- Real-World Agent Services -->
+      <h4 style="font-size:16px;font-weight:600;color:var(--text-primary);text-transform:none;letter-spacing:0;margin:36px 0 10px">Real-World Agent Services</h4>
+
+      <details>
+        <summary>DeFi Price Oracle (Data Skill)</summary>
+        <div class="detail-body">
+          <div class="code-block">
+            <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+            <pre><code># Create a price oracle that updates every 60 seconds
+curl -X POST https://api.claw-net.org/v1/skills \
+  -H "X-API-Key: cn-your-key-here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "sol-price-oracle",
+    "displayName": "SOL Price Oracle",
+    "description": "Real-time SOL/USD price from 5 exchanges with volume-weighted average",
+    "skillType": "data",
+    "proxyUrl": "https://api.myoracle.io/price/SOL",
+    "updateFrequency": "realtime",
+    "creditCost": 1,
+    "public": true,
+    "category": "defi",
+    "tags": ["price", "solana", "oracle", "defi"],
+    "sampleOutput": {"price": 142.50, "volume24h": 2800000000, "sources": 5, "timestamp": "2026-03-18T12:00:00Z"},
+    "outputContract": {"type": "object", "required": ["price", "sources"], "properties": {"price": {"type": "number"}, "sources": {"type": "integer"}}},
+    "sla": {"guaranteed_uptime": 99, "max_latency_ms": 2000, "min_success_rate": 98, "penalty_pct": 5}
+  }'</code></pre>
+          </div>
+        </div>
+      </details>
+
+      <details>
+        <summary>Sentiment Analyzer (Prompt Template)</summary>
+        <div class="detail-body">
+          <div class="code-block">
+            <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+            <pre><code># Create a multi-platform sentiment scanner
+curl -X POST https://api.claw-net.org/v1/skills \
+  -H "X-API-Key: cn-your-key-here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "crypto-sentiment",
+    "displayName": "Crypto Sentiment Scanner",
+    "description": "Analyzes social sentiment for any token across Twitter, Reddit, and Telegram",
+    "promptTemplate": "Analyze the current social sentiment for {{token}} across major platforms. Consider the past {{timeframe}} of activity. Score from 0 (extreme fear) to 100 (extreme greed). Include: overall score, per-platform breakdown, key narratives driving sentiment, and notable influencer takes.",
+    "creditCost": 5,
+    "public": true,
+    "category": "social",
+    "tags": ["sentiment", "social", "twitter", "reddit"]
+  }'
+
+# Invoke it
+curl -X POST https://api.claw-net.org/v1/skills/crypto-sentiment/invoke \
+  -H "X-API-Key: cn-your-key-here" \
+  -H "Content-Type: application/json" \
+  -d '{"variables": {"token": "SOL", "timeframe": "24h"}}'</code></pre>
+          </div>
+        </div>
+      </details>
+
+      <details>
+        <summary>Portfolio Pipeline (Composite Skill)</summary>
+        <div class="detail-body">
+          <div class="code-block">
+            <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+            <pre><code># Create a composite that chains price + sentiment into a trading signal
+curl -X POST https://api.claw-net.org/v1/skills \
+  -H "X-API-Key: cn-your-key-here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "portfolio-signal",
+    "displayName": "Portfolio Trading Signal",
+    "description": "Combines price data and sentiment into a buy/hold/sell signal",
+    "skillType": "composite",
+    "creditCost": 8,
+    "public": true,
+    "dependencies": [
+      {"skillId": "sol-price-oracle", "outputKey": "price", "group": 0},
+      {"skillId": "crypto-sentiment", "paramMapping": {"token": "{{token}}", "timeframe": "24h"}, "outputKey": "sentiment", "group": 0},
+      {"skillId": "trade-analyzer", "paramMapping": {"price": "{{steps.price.price}}", "sentiment": "{{steps.sentiment.score}}"}, "outputKey": "signal", "dependsOn": ["price", "sentiment"]}
+    ]
+  }'</code></pre>
           </div>
         </div>
       </details>
