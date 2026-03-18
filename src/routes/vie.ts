@@ -8,29 +8,9 @@ import { trackDelegatedSpend } from '../utils/billing';
 import { cacheGet, cacheSet } from '../cache/index';
 import { logger } from '../utils/logger';
 
-// ─── Types ───────────────────────────────────────────────────────────────────
-
-export interface VieFactorScore {
-  score: number;       // 0-100 integer
-  weight: number;      // category weight (0.0-1.0)
-  signals: Record<string, unknown>;
-  overrides_applied: string[];
-}
-
-export interface VieResult {
-  trust_score: number;       // 0-100 integer
-  risk_level: 'VERIFIED' | 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
-  recommendation: 'PROCEED' | 'CAUTION' | 'AVOID' | 'BLOCK';
-  confidence: number;        // 0.0-1.0
-  factors: {
-    contract_safety: VieFactorScore | null;
-    holder_distribution: VieFactorScore | null;
-    historical_pattern: VieFactorScore | null;
-    social_signal: VieFactorScore | null;
-    onchain_activity: VieFactorScore | null;
-  };
-  overrides_applied: string[];
-}
+// Types imported from engine modules at runtime (dynamic imports below)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type VieResult = any;
 
 // ─── Zod Validation ──────────────────────────────────────────────────────────
 
@@ -209,8 +189,6 @@ vieRouter.post('/report', checkApiKey, async (c) => {
       confidence: result.confidence,
       factors: result.factors,
       overrides_applied: result.overrides_applied,
-      sources_used: result.sources_used,
-      sources_failed: result.sources_failed,
       cached: false,
       tier,
       credits_charged: tierCost,
