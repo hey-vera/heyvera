@@ -824,23 +824,28 @@ console.log(res.data);</code></pre>
 
       <div class="endpoint">
         <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/stream/orchestrate</code></div>
-        <div class="endpoint-auth">Requires: <code>X-API-Key</code> (header or <code>apiKey</code> query param)</div>
-
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code> (header)</div>
+        <p class="endpoint-desc">Note: <code>EventSource</code> cannot set custom headers. Use <code>fetch</code> with a <code>ReadableStream</code> instead:</p>
         <div class="code-block">
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
-          <pre><code>const es = new EventSource(
-  'https://api.claw-net.org/v1/stream/orchestrate?query=SOL+price&apiKey=cn-YOUR_KEY'
+          <pre><code>const res = await fetch(
+  'https://api.claw-net.org/v1/stream/orchestrate?query=SOL+price',
+  { headers: { 'X-API-Key': 'cn-YOUR_KEY' } }
 );
 
-es.addEventListener('step', (e) =&gt; {
-  console.log('Step:', JSON.parse(e.data));
-});
-
-es.addEventListener('done', (e) =&gt; {
-  const result = JSON.parse(e.data);
-  console.log('Answer:', result.answer);
-  es.close();
-});</code></pre>
+const reader = res.body.getReader();
+const decoder = new TextDecoder();
+while (true) {
+  const { done, value } = await reader.read();
+  if (done) break;
+  const lines = decoder.decode(value).split('\n');
+  for (const line of lines) {
+    if (line.startsWith('data: ')) {
+      const event = JSON.parse(line.slice(6));
+      console.log(event.type, event);
+    }
+  }
+}</code></pre>
         </div>
 
         <h4>Events</h4>
@@ -1328,7 +1333,7 @@ es.addEventListener('done', (e) =&gt; {
   }'</code></pre>
       </div>
       <div class="alert alert-warning">
-        <strong>Auth forwarding:</strong> When your <code style="font-family:var(--font-mono);color:var(--warning)">api_proxy</code> skill is invoked, ClawNet sends a POST request to your <code style="font-family:var(--font-mono);color:var(--warning)">proxyUrl</code> with the caller's variables as the JSON body. ClawNet does <strong>not</strong> forward the caller's API key or auth headers &mdash; your backing API must either be publicly accessible or use a pre-shared secret configured in your proxy URL (e.g., <code style="font-family:var(--font-mono);color:var(--warning)">https://api.yourservice.com/endpoint?key=YOUR_SECRET</code>). Only HTTPS URLs are allowed (SSRF protection). If your API returns a non-2xx status, ClawNet returns an error to the caller and your skill's <code style="font-family:var(--font-mono);color:var(--warning)">success_rate</code> drops.
+        <strong>Auth forwarding:</strong> When your <code style="font-family:var(--font-mono);color:var(--warning)">api_proxy</code> skill is invoked, ClawNet sends a POST request to your <code style="font-family:var(--font-mono);color:var(--warning)">proxyUrl</code> with the caller's variables as the JSON body. ClawNet does <strong>not</strong> forward the caller's API key or auth headers &mdash; your backing API must either be publicly accessible or use a pre-shared secret configured in your proxy URL (e.g., <code style="font-family:var(--font-mono);color:var(--warning)">https://api.yourservice.com/endpoint?key=YOUR_SECRET</code>). Only HTTPS URLs are allowed for security. If your API returns a non-2xx status, ClawNet returns an error to the caller and your skill's <code style="font-family:var(--font-mono);color:var(--warning)">success_rate</code> drops.
       </div>
 
       <h4>3. Data Skill</h4>
@@ -1707,11 +1712,12 @@ es.addEventListener('done', (e) =&gt; {
     "creditFormula": "value-based per-endpoint tiers + orchestration fee (2 credits)",
     "creditsPerDollar": 1000,
     "packages": [
-      { "usd": 20, "credits": 21000 },
-      { "usd": 50, "credits": 59000 },
-      { "usd": 100, "credits": 123000 },
-      { "usd": 500, "credits": 660000 },
-      { "usd": 1000, "credits": 1430000 }
+      { "usd": 5, "credits": 5000 },
+      { "usd": 20, "credits": 22000 },
+      { "usd": 50, "credits": 60000 },
+      { "usd": 100, "credits": 125000 },
+      { "usd": 500, "credits": 750000 },
+      { "usd": 1000, "credits": 2000000 }
     ]
   },
   "authentication": {
@@ -2365,36 +2371,43 @@ es.addEventListener('done', (e) =&gt; {
       </div>
 
       <h4>Verifying Webhook Signatures</h4>
-      <p class="endpoint-desc">Validate the HMAC-SHA256 signature on every delivery to ensure it came from ClawNet:</p>
+      <p class="endpoint-desc">ClawNet sends a single <code style="font-family:var(--font-mono);color:var(--accent)">X-ClawNet-Signature</code> header in the format <code style="font-family:var(--font-mono);color:var(--accent)">t={timestamp},v1={hmac}</code>. Validate it on every delivery:</p>
       <div class="code-block">
         <button class="copy-btn" onclick="copyCode(this)">Copy</button>
         <pre><code>import crypto from 'crypto';
 
-function verifyWebhook(body, signature, timestamp, secret) {
-  const payload = `${timestamp}.${JSON.stringify(body)}`;
-  const expected = crypto
-    .createHmac('sha256', secret)
-    .update(payload)
-    .digest('hex');
-  return crypto.timingSafeEqual(
-    Buffer.from(signature),
-    Buffer.from(expected)
+function verifyWebhook(rawBody, sigHeader, secret) {
+  // Parse the combined header: t=1234567890,v1=abcdef...
+  const parts = Object.fromEntries(
+    sigHeader.split(',').map(p => p.split('=').map((v, i) => i === 0 ? v : p.slice(p.indexOf('=') + 1)))
   );
+  const timestamp = parts.t;
+  const signature = parts.v1;
+  if (!timestamp || !signature) return false;
+
+  // Reject stale webhooks (replay protection)
+  const age = Math.floor(Date.now() / 1000) - parseInt(timestamp);
+  if (age > 300) return false; // older than 5 minutes
+
+  // Verify HMAC-SHA256
+  const expected = crypto.createHmac('sha256', secret)
+    .update(`${timestamp}.${rawBody}`)
+    .digest('hex');
+  if (signature.length !== expected.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
 }
 
-// In your webhook handler:
-app.post('/webhooks/clawnet', (req, res) => {
+// In your webhook handler (use raw body, not parsed JSON):
+app.post('/webhooks/clawnet', express.raw({ type: 'application/json' }), (req, res) => {
   const sig = req.headers['x-clawnet-signature'];
-  const ts = req.headers['x-clawnet-timestamp'];
-  if (!verifyWebhook(req.body, sig, ts, process.env.WEBHOOK_SECRET)) {
+  if (!sig || !verifyWebhook(req.body.toString(), sig, process.env.WEBHOOK_SECRET)) {
     return res.status(401).send('Invalid signature');
   }
-  // Process the event...
-  console.log('Event:', req.body.event, req.body.data);
+  const event = JSON.parse(req.body);
+  console.log('Event:', event.event, event.data);
   res.sendStatus(200);
 });</code></pre>
       </div>
-      <div class="alert alert-info">Tip: Reject webhooks with timestamps older than 5 minutes to prevent replay attacks.</div>
 
       <h4 style="font-size:16px;font-weight:600;color:var(--text-primary);text-transform:none;letter-spacing:0;margin:28px 0 10px">Delivery &amp; Retries</h4>
       <p class="endpoint-desc">Webhooks are delivered via HTTP POST with a 10-second timeout. Failed deliveries (5xx responses) are retried up to 3 times with exponential backoff (1s, 2s, 4s). A webhook is automatically disabled after 10 consecutive failures. Successful delivery resets the failure counter.</p>
@@ -2578,7 +2591,8 @@ app.post('/webhooks/clawnet', (req, res) => {
       <p class="endpoint-desc">ClawNet runs a peer-to-peer network for decentralized discovery and routing. Infrastructure-level &mdash; most users won't interact with this directly.</p>
       <div class="endpoint">
         <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/mesh/peers</code></div>
-        <p class="endpoint-desc">List connected mesh peers with peer IDs and multiaddrs.</p>
+        <p class="endpoint-desc">List connected mesh peers with peer IDs and network addresses.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
       </div>
     </div>
 
