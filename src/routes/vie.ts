@@ -24,7 +24,7 @@ const VieRequestSchema = z.object({
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const TIER_COSTS: Record<string, number> = {
-  quick: 0.5,
+  quick: 0.25,
   standard: 1.5,
   deep: 3.0,
 };
@@ -149,6 +149,19 @@ vieRouter.post('/report', checkApiKey, async (c) => {
       );
     } catch (err) {
       logger.warn({ err, reportId }, 'VIE report insert failed — non-blocking');
+    }
+
+    // Write to shared intelligence tables (non-blocking, never crashes caller)
+    try {
+      const { upsertIntelEntity, upsertIntelScore, appendIntelEvent } = await import('../db/intel');
+      const entityId = upsertIntelEntity(target, target_type, chain);
+      upsertIntelScore(entityId, target, chain, 'vie', result.trust_score, result.confidence, result.risk_level,
+        `Trust: ${result.trust_score}/100 (${result.risk_level})`, result.factors);
+      appendIntelEvent(entityId, target, chain, 'vie', 'SCORE_CHANGE',
+        result.trust_score < 30 ? 'warning' : 'info',
+        { trust_score: result.trust_score, risk_level: result.risk_level, confidence: result.confidence, tier });
+    } catch (err) {
+      logger.warn({ err }, 'Intel shared table write failed — non-blocking');
     }
 
     // 9. Cache the result

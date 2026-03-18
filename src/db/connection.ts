@@ -652,6 +652,78 @@ const MIGRATIONS: { version: number; sql: string }[] = [
     CREATE INDEX IF NOT EXISTS idx_vie_target ON vie_reports(target, chain);
     CREATE INDEX IF NOT EXISTS idx_vie_score ON vie_reports(trust_score);
     CREATE INDEX IF NOT EXISTS idx_vie_outcome ON vie_reports(outcome) WHERE outcome IS NOT NULL` },
+  // v78: Intelligence Suite shared tables — foundation for Context Engine, Agent Trust Score, Predictive Alerts
+  { version: 78, sql: `
+    CREATE TABLE IF NOT EXISTS intel_entities (
+      id TEXT PRIMARY KEY,
+      address TEXT NOT NULL,
+      entity_type TEXT NOT NULL DEFAULT 'token',
+      chain TEXT NOT NULL DEFAULT 'solana',
+      name TEXT,
+      metadata_json TEXT,
+      first_seen TEXT NOT NULL DEFAULT (datetime('now')),
+      last_scored TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(address, entity_type, chain)
+    );
+    CREATE INDEX IF NOT EXISTS idx_intel_entities_address ON intel_entities(address, chain);
+    CREATE INDEX IF NOT EXISTS idx_intel_entities_type ON intel_entities(entity_type);
+
+    CREATE TABLE IF NOT EXISTS intel_scores (
+      id TEXT PRIMARY KEY,
+      entity_id TEXT NOT NULL,
+      entity_address TEXT NOT NULL,
+      entity_chain TEXT NOT NULL DEFAULT 'solana',
+      skill_id TEXT NOT NULL,
+      score_value INTEGER NOT NULL,
+      score_confidence REAL NOT NULL,
+      score_level TEXT NOT NULL,
+      summary TEXT,
+      detail_json TEXT,
+      previous_score INTEGER,
+      score_delta INTEGER,
+      scored_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_intel_scores_entity_skill ON intel_scores(entity_address, entity_chain, skill_id);
+    CREATE INDEX IF NOT EXISTS idx_intel_scores_skill ON intel_scores(skill_id, scored_at);
+    CREATE INDEX IF NOT EXISTS idx_intel_scores_level ON intel_scores(score_level);
+
+    CREATE TABLE IF NOT EXISTS intel_events (
+      id TEXT PRIMARY KEY,
+      entity_id TEXT NOT NULL,
+      entity_address TEXT NOT NULL,
+      entity_chain TEXT NOT NULL DEFAULT 'solana',
+      skill_id TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      severity TEXT NOT NULL DEFAULT 'info',
+      payload_json TEXT NOT NULL,
+      api_key_hash TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_intel_events_entity ON intel_events(entity_address, entity_chain, created_at);
+    CREATE INDEX IF NOT EXISTS idx_intel_events_type ON intel_events(event_type, created_at);
+    CREATE INDEX IF NOT EXISTS idx_intel_events_skill ON intel_events(skill_id, created_at);
+
+    CREATE TABLE IF NOT EXISTS intel_subscriptions (
+      id TEXT PRIMARY KEY,
+      api_key TEXT NOT NULL,
+      entity_address TEXT NOT NULL,
+      entity_chain TEXT NOT NULL DEFAULT 'solana',
+      entity_type TEXT NOT NULL DEFAULT 'token',
+      alert_types TEXT NOT NULL DEFAULT '["SCORE_CHANGE","ANOMALY"]',
+      threshold_json TEXT,
+      webhook_url TEXT,
+      active INTEGER NOT NULL DEFAULT 1,
+      last_fired_at TEXT,
+      fire_count INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_intel_subs_key ON intel_subscriptions(api_key, active);
+    CREATE INDEX IF NOT EXISTS idx_intel_subs_entity ON intel_subscriptions(entity_address, entity_chain, active)` },
 ];
 
 function runMigrations(): void {
