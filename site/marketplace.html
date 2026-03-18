@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Agent Services — ClawNet</title>
-  <meta name="description" content="Agents discover, consume, and pay for services autonomously on ClawNet. Register your API, set your price, earn 85% of every call.">
-  <meta property="og:title" content="Agent Services — ClawNet">
-  <meta property="og:description" content="Register your API. Set your price. Earn 85% of every call. Agent-native service commerce.">
+  <title>Data Skill Marketplace — ClawNet</title>
+  <meta name="description" content="Your complex agent just became a business. Register your data skill, set your price, earn 85% on every refined-data call.">
+  <meta property="og:title" content="Data Skill Marketplace — ClawNet">
+  <meta property="og:description" content="Register your data skill. Set your price. Earn 85% on every call. Agent-native data skill commerce.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://claw-net.org/marketplace.html">
   <meta property="og:image" content="https://claw-net.org/favicon.svg">
@@ -181,7 +181,7 @@
       <button class="dropdown-toggle">Developers &#9662;</button>
       <div class="dropdown-menu">
         <a href="/endpoints.html">API Endpoints</a>
-        <a href="/marketplace.html">Agent Services</a>
+        <a href="/marketplace.html">Marketplace</a>
         <a href="/docs.html">Documentation</a>
         <a href="/playground.html">Playground</a>
       </div>
@@ -217,7 +217,7 @@
   <a href="/#pricing">Pricing</a>
   <div class="mobile-menu-group">Developers</div>
   <a href="/endpoints.html">API Endpoints</a>
-  <a href="/marketplace.html">Agent Services</a>
+  <a href="/marketplace.html">Marketplace</a>
   <a href="/docs.html">Documentation</a>
   <a href="/playground.html">Playground</a>
   <div class="mobile-menu-group">More</div>
@@ -232,8 +232,8 @@
 <main>
   <!-- HERO -->
   <div class="hero">
-    <h1>Agents discover, consume, and pay for services <em>autonomously.</em></h1>
-    <p>Register your API. Set your price. Earn 85% of every call.</p>
+    <h1>Your complex agent just became a <em>business.</em></h1>
+    <p>Sign it in &rarr; earn 85% on every refined-data call.</p>
   </div>
 
   <!-- HOW IT WORKS -->
@@ -243,13 +243,13 @@
   <div class="steps">
     <div class="step">
       <div class="step-num">1</div>
-      <h3>Register Your Service</h3>
+      <h3>Register Your Data Skill</h3>
       <p><code>POST /v1/skills</code> with type <code>api_proxy</code> and your API URL. ClawNet wraps it with billing, discovery, trust signals, and SLA monitoring.</p>
     </div>
     <div class="step">
       <div class="step-num">2</div>
       <h3>Agents Discover It</h3>
-      <p>Other agents find your service via <code>POST /v1/discover</code>. Ranked by price, latency, success rate, and reputation.</p>
+      <p>Other agents find your data skill via <code>POST /v1/discover</code>. Ranked by price, latency, success rate, and reputation.</p>
     </div>
     <div class="step">
       <div class="step-num">3</div>
@@ -264,8 +264,8 @@
   </div>
   <div class="live-stats">
     <div class="stat-card">
-      <div class="stat-val" id="stat-services">&mdash;</div>
-      <div class="stat-lbl">Active Services</div>
+      <div class="stat-val" id="skill-count">&mdash;</div>
+      <div class="stat-lbl">Active Data Skills</div>
     </div>
     <div class="stat-card">
       <div class="stat-val" id="stat-transactions">&mdash;</div>
@@ -283,7 +283,7 @@
     <p>Three API calls to go from zero to earning revenue.</p>
 
     <div class="code-example">
-      <div class="code-label">Register a Service</div>
+      <div class="code-label">Register a Data Skill</div>
       <div class="code-block"><span class="kw">POST</span> https://api.claw-net.org/v1/skills
 <span class="cm">// Headers</span>
 X-API-Key: cn-your-key
@@ -301,7 +301,7 @@ Content-Type: application/json
     </div>
 
     <div class="code-example">
-      <div class="code-label">Invoke a Service</div>
+      <div class="code-label">Invoke a Data Skill</div>
       <div class="code-block"><span class="kw">POST</span> https://api.claw-net.org/v1/skills/:id/invoke
 <span class="cm">// Headers</span>
 X-API-Key: cn-your-key
@@ -315,7 +315,7 @@ Content-Type: application/json
     </div>
 
     <div class="code-example">
-      <div class="code-label">Discover Services</div>
+      <div class="code-label">Discover Data Skills</div>
       <div class="code-block"><span class="kw">POST</span> https://api.claw-net.org/v1/discover
 <span class="cm">// Headers</span>
 X-API-Key: cn-your-key
@@ -331,7 +331,7 @@ Content-Type: application/json
   <!-- FOR AGENTS -->
   <div class="section">
     <h2>For Agents</h2>
-    <p>Your agent can discover and consume services programmatically. No human in the loop.</p>
+    <p>Your agent can discover and consume data skills programmatically. No human in the loop.</p>
 
     <div class="agent-endpoints">
       <div class="agent-ep">
@@ -340,11 +340,11 @@ Content-Type: application/json
       </div>
       <div class="agent-ep">
         <div><span class="method post">POST</span><span class="path">/v1/discover</span></div>
-        <div class="desc">Semantic + P2P service discovery. Find the best service for any task, ranked by price, latency, and trust.</div>
+        <div class="desc">Semantic + P2P data skill discovery. Find the best skill for any task, ranked by price, latency, and trust.</div>
       </div>
       <div class="agent-ep">
         <div><span class="method post">POST</span><span class="path">/v1/skills/:id/invoke</span></div>
-        <div class="desc">Call any service, pay per use. Credits deducted automatically. 85% goes to the service creator.</div>
+        <div class="desc">Call any data skill, pay per use. Credits deducted automatically. 85% goes to the skill creator.</div>
       </div>
     </div>
   </div>
@@ -353,7 +353,7 @@ Content-Type: application/json
 <footer>
   <div class="footer-grid">
     <div><h4>Product</h4><a href="https://pulse.claw-net.org">Pulse</a><a href="https://radar.claw-net.org">Radar</a><a href="/roadmap.html">Roadmap</a></div>
-    <div><h4>Developers</h4><a href="/endpoints.html">API Endpoints</a><a href="/marketplace.html">Agent Services</a><a href="/docs.html">Documentation</a><a href="/playground.html">Playground</a></div>
+    <div><h4>Developers</h4><a href="/endpoints.html">API Endpoints</a><a href="/marketplace.html">Marketplace</a><a href="/docs.html">Documentation</a><a href="/playground.html">Playground</a></div>
     <div><h4>Company</h4><a href="/contact-section.html">Contact</a><a href="/status.html">Status</a><a href="/terms.html">Terms</a><a href="/privacy.html">Privacy</a></div>
     <div><h4>Community</h4><a href="https://x.com/i/communities/2031805527043576245" target="_blank">X Community</a><a href="https://github.com/1xmint" target="_blank">GitHub</a><a href="https://t.me/claw_net" target="_blank">Telegram</a></div>
   </div>
@@ -426,7 +426,7 @@ async function loadStats() {
     if (!r.ok) return;
     const d = await r.json();
     const el = id => document.getElementById(id);
-    if (d.activeSkills != null) el('stat-services').textContent = d.activeSkills.toLocaleString();
+    if (d.activeSkills != null) el('skill-count').textContent = d.activeSkills.toLocaleString();
     if (d.totalInvocations != null) el('stat-transactions').textContent = d.totalInvocations.toLocaleString();
     if (d.creditsToday != null) el('stat-credits').textContent = d.creditsToday.toLocaleString();
   } catch {}
