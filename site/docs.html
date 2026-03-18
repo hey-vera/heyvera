@@ -357,7 +357,7 @@
         <div class="intro-card"><div class="intro-card-title">Base URL</div><div class="intro-card-desc"><code>https://api.claw-net.org</code></div></div>
         <div class="intro-card"><div class="intro-card-title">Auth</div><div class="intro-card-desc"><code>X-API-Key: cn-xxx</code></div></div>
         <div class="intro-card"><div class="intro-card-title">Format</div><div class="intro-card-desc">JSON in, JSON out</div></div>
-        <div class="intro-card"><div class="intro-card-title">Billing</div><div class="intro-card-desc">1 credit = $0.001. Pay with Stripe or USDC.</div></div>
+        <div class="intro-card"><div class="intro-card-title">Billing</div><div class="intro-card-desc">1 credit = $0.001. Pay with Stripe or USDC (a dollar-pegged stablecoin).</div></div>
       </div>
     </div>
 
@@ -374,12 +374,12 @@
         <div class="concept-card">
           <div class="concept-icon">&#x1F4B8;</div>
           <div class="concept-title">Earn 85% Revenue</div>
-          <div class="concept-desc">Register your API as a skill. You set the price. On every call, 85% goes to you, 15% to the platform. Credit-based payouts in USDC to your Solana wallet; x402 splits go to your EVM wallet on Base.</div>
+          <div class="concept-desc">Register your API as a skill. You set the price. On every call, 85% goes to you, 15% to the platform. Credit-based payouts in USDC to your Solana wallet; x402 splits go to your EVM (Ethereum Virtual Machine) wallet on Base (Coinbase's Ethereum L2 chain).</div>
         </div>
         <div class="concept-card">
           <div class="concept-icon">&#x1F6E1;</div>
           <div class="concept-title">Trust Built In</div>
-          <div class="concept-desc">SLA contracts, output schemas, cross-verification, 4-tier penalty escalation, and community validators. Bad actors get delisted automatically.</div>
+          <div class="concept-desc">SLA (Service Level Agreement) contracts, output schemas, cross-verification, 4-tier penalty escalation, and community validators. Bad actors get delisted automatically.</div>
         </div>
         <div class="concept-card">
           <div class="concept-icon">&#x26A1;</div>
@@ -423,8 +423,8 @@
         </div>
         <div class="step">
           <div class="step-content">
-            <div class="step-title">That's it</div>
-            <div class="step-desc">You just used AI orchestration. ClawNet picked the best endpoint, fetched the data, and returned a structured answer.</div>
+            <div class="step-title">Explore further</div>
+            <div class="step-desc">Check your balance with <code>GET /v1/auth/me</code>, or explore <a href="#skills-use" style="color:var(--accent)">Skills</a> to find pre-built tools.</div>
           </div>
         </div>
       </div>
@@ -590,7 +590,7 @@ print(res.json()['answer'])</code></pre>
     <!-- ═══════════════════════════════════════════════ x402 ═══════════════════════════════════════════════ -->
     <div class="docs-section" id="x402">
       <h2 class="docs-section-title">x402 Keyless Access</h2>
-      <p class="docs-section-desc">Use ClawNet without an API key. Pay per call with USDC from your wallet — no account, no registration.</p>
+      <p class="docs-section-desc">x402 is an open protocol for HTTP-native payments. Use ClawNet without an API key. Pay per call with USDC from your wallet — no account, no registration.</p>
 
       <h4>How It Works</h4>
       <div class="concept-grid" style="grid-template-columns:repeat(auto-fill,minmax(200px,1fr))">
@@ -747,7 +747,7 @@ console.log(res.data);</code></pre>
           <tbody>
             <tr><td><code>query</code></td><td><span class="param-type">string</span></td><td><span class="param-req">Yes</span></td><td>Your question in plain English (max 2000 chars)</td></tr>
             <tr><td><code>pricing</code></td><td><span class="param-type">object</span></td><td><span class="param-opt">No</span></td><td>Budget control (see strategies below)</td></tr>
-            <tr><td><code>cache</code></td><td><span class="param-type">boolean</span></td><td><span class="param-opt">No</span></td><td>Enable/disable cache for this query (default: true)</td></tr>
+            <tr><td><code>cache</code></td><td><span class="param-type">string</span></td><td><span class="param-opt">No</span></td><td>Cache strategy: <code>smart</code> (automatic, default), <code>prefer</code> (always use cache), <code>fresh</code> (skip cache)</td></tr>
             <tr><td><code>diff</code></td><td><span class="param-type">boolean</span></td><td><span class="param-opt">No</span></td><td>Return diff from previous cached result</td></tr>
           </tbody>
         </table>
@@ -809,9 +809,10 @@ console.log(res.data);</code></pre>
         <div class="code-block"><pre><code>{
   "results": [
     { "query": "SOL price", "answer": "...", "creditsUsed": 1.5, "cached": false },
-    { "query": "ETH gas", "answer": "...", "creditsUsed": 0.15, "cached": true }
+    { "query": "ETH gas", "answer": "...", "creditsUsed": 0.15, "cached": true },
+    { "query": "BTC dominance", "answer": "...", "creditsUsed": 1.2, "cached": false }
   ],
-  "totalCredits": 1.65
+  "totalCredits": 2.85
 }</code></pre></div>
       </div>
     </div>
@@ -919,7 +920,7 @@ es.addEventListener('done', (e) =&gt; {
         </div>
         <div class="concept-card" style="border-color:rgba(16,185,129,0.25)">
           <div class="concept-title" style="color:var(--accent)">Composite</div>
-          <div class="concept-desc">Chains multiple skills into a workflow. Output piping, parallel execution, conditionals, and retry/fallback. Max 5 dependencies, depth 3, 10 leaf invocations.</div>
+          <div class="concept-desc">Chains multiple skills into a workflow. Output piping, parallel execution, conditionals, and retry/fallback. Max 5 dependencies, depth 3, 10 total skill calls.</div>
         </div>
       </div>
     </div>
@@ -1145,10 +1146,10 @@ es.addEventListener('done', (e) =&gt; {
             <tr><td><code>search</code></td><td><span class="param-type">string</span></td><td>Full-text search (name, description, tags)</td></tr>
             <tr><td><code>category</code></td><td><span class="param-type">string</span></td><td>defi, social, security, ai, weather, etc.</td></tr>
             <tr><td><code>type</code></td><td><span class="param-type">string</span></td><td><code>prompt_template</code>, <code>api_proxy</code>, <code>data</code>, <code>composite</code></td></tr>
-            <tr><td><code>tag</code></td><td><span class="param-type">string</span></td><td>Filter by tag (e.g. <code>?tag=defi</code>)</td></tr>
+            <tr><td><code>tags</code></td><td><span class="param-type">string</span></td><td>Filter by tag (e.g. <code>?tags=defi</code>)</td></tr>
             <tr><td><code>sort</code></td><td><span class="param-type">string</span></td><td><code>popular</code>, <code>stars</code>, <code>newest</code>, <code>price_asc</code>, <code>price_desc</code>, <code>reputation</code></td></tr>
             <tr><td><code>page</code></td><td><span class="param-type">number</span></td><td>Page number (default: 1)</td></tr>
-            <tr><td><code>limit</code></td><td><span class="param-type">number</span></td><td>Results per page (default: 12, max: 50)</td></tr>
+            <tr><td><code>limit</code></td><td><span class="param-type">number</span></td><td>Results per page (default: 20, max: 100)</td></tr>
           </tbody>
         </table>
       </div>
@@ -1159,7 +1160,6 @@ es.addEventListener('done', (e) =&gt; {
         <div class="code-block">
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
           <pre><code>curl -X POST https://api.claw-net.org/v1/marketplace/compare \
-  -H "X-API-Key: cn-your-key-here" \
   -H "Content-Type: application/json" \
   -d '{"category": "defi", "query": "token price data"}'</code></pre>
         </div>
@@ -1361,7 +1361,7 @@ es.addEventListener('done', (e) =&gt; {
         </tbody>
       </table>
 
-      <div class="alert alert-info">Example: A skill priced at 3 credits, called 10,000 times/month. Live calls: 1,000 (you earn 85% = 2,550 credits = $1.91 USDC). Cached calls: 9,000 (platform keeps 100%). Your monthly payout: $1.91. To maximize earnings, set higher prices or create skills that produce unique results each call (reducing cache hits).</div>
+      <div class="alert alert-info">Example: A DeFi price oracle priced at 2 credits, called 50,000 times/month. With realtime data (low cache hits ~20%), you earn: 40,000 live calls &times; 2 credits &times; 85% = 68,000 credits = $51/month in USDC. Higher-priced skills with unique-per-call results earn significantly more. A 10-credit sentiment analyzer with 5,000 calls/month and 30% cache rate would earn $29.75/month.</div>
 
       <h4>Pricing You Control</h4>
       <table class="params-table">
@@ -1417,7 +1417,7 @@ es.addEventListener('done', (e) =&gt; {
         <tbody>
           <tr><td><strong>Unverified</strong></td><td>Skills start unverified. Earn reputation through successful calls, positive ratings, and SLA compliance.</td></tr>
           <tr><td><strong>Trust Decay</strong></td><td>Ratings lose 10% weight every 30 days. Keeps scores fresh &mdash; you can't coast on old reviews.</td></tr>
-          <tr><td><strong>Penalty Tiers</strong></td><td><code>CLEAN</code> &rarr; <code>WARNING</code> &rarr; <code>REDUCED_VISIBILITY</code> &rarr; <code>DELISTED</code>. Auto-escalated by the health cron every 15 minutes based on SLA violations.</td></tr>
+          <tr><td><strong>Penalty Tiers</strong></td><td><code>CLEAN</code> &rarr; <code>WARNING</code> &rarr; <code>REDUCED_VISIBILITY</code> &rarr; <code>DELISTED</code>. Escalated automatically based on SLA violations, checked every 15 minutes.</td></tr>
         </tbody>
       </table>
 
@@ -1519,6 +1519,7 @@ es.addEventListener('done', (e) =&gt; {
       <div class="endpoint">
         <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/openclaw/catalog</code></div>
         <p class="endpoint-desc">Full capability listing &mdash; every skill, endpoint, and pricing detail. Agents can call this to understand everything ClawNet can do.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
       </div>
       <div class="endpoint">
         <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/openclaw/status</code></div>
@@ -1687,7 +1688,7 @@ es.addEventListener('done', (e) =&gt; {
         <div class="code-block"><pre><code>{
   "toKey": "cn-recipient-key",
   "amount": 500,
-  "note": "Welcome bonus"
+  "message": "Welcome bonus"
 }</code></pre></div>
       </div>
 
@@ -2079,7 +2080,7 @@ app.post('/webhooks/clawnet', (req, res) => {
 
       <!-- Escrow -->
       <h4 style="font-size:16px;font-weight:600;color:var(--text-primary);text-transform:none;letter-spacing:0;margin:28px 0 10px">Escrow</h4>
-      <p class="endpoint-desc">Trustless credit escrow for contracted work between agents. Credits are locked until work is approved or disputed. 7-state machine: CREATED &rarr; FUNDED &rarr; WIP &rarr; COMPLETED / REFUNDED / DISPUTED &rarr; RESOLVED.</p>
+      <p class="endpoint-desc">Trustless credit escrow for contracted work between agents. Credits are locked until work is approved or disputed. 7-step workflow: CREATED &rarr; FUNDED &rarr; WIP &rarr; COMPLETED / REFUNDED / DISPUTED &rarr; RESOLVED.</p>
       <div class="endpoint">
         <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/escrow/create</code></div>
         <p class="endpoint-desc">Create an escrow contract.</p>
@@ -2129,7 +2130,7 @@ app.post('/webhooks/clawnet', (req, res) => {
 
       <!-- Composite Skills -->
       <h4 style="font-size:16px;font-weight:600;color:var(--text-primary);text-transform:none;letter-spacing:0;margin:36px 0 10px">Composite Skills</h4>
-      <p class="endpoint-desc">Chain multiple skills with output piping (<code style="font-family:var(--font-mono);color:var(--accent)">{{steps.outputKey.field}}</code>), parallel groups, conditionals (9 operators), and retry/fallback. Max depth 3 (composites-of-composites), max 10 leaf invocations.</p>
+      <p class="endpoint-desc">Chain multiple skills with output piping (<code style="font-family:var(--font-mono);color:var(--accent)">{{steps.outputKey.field}}</code>), parallel groups, conditionals (9 operators), and retry/fallback. Max depth 3 (composites-of-composites), max 10 total skill calls. Circular dependencies are automatically detected.</p>
       <div class="code-block"><pre><code>// Output piping: pass one skill's output to another
 {
   "dependencies": [
@@ -2202,7 +2203,7 @@ app.post('/webhooks/clawnet', (req, res) => {
 
       <!-- Governance -->
       <h4 style="font-size:16px;font-weight:600;color:var(--text-primary);text-transform:none;letter-spacing:0;margin:36px 0 10px">Governance</h4>
-      <p class="endpoint-desc">Community governance for platform decisions. Any key holder can create proposals (100 credit bond). Proposals auto-close after 7 days (configurable 1-30 days). Votes are weighted by total credits spent (quadratic-lite weighting). Quorum-met proposals auto-execute for whitelisted actions.</p>
+      <p class="endpoint-desc">Community governance for platform decisions. Any key holder can create proposals (100 credit bond). Proposals auto-close after 7 days (configurable 1-30 days). Votes are weighted by total credits spent (weighted by platform activity). Quorum-met proposals auto-execute for whitelisted actions.</p>
       <div class="endpoint">
         <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/governance/propose</code></div>
         <p class="endpoint-desc">Create a proposal (100 credit bond, released on close).</p>
@@ -2220,7 +2221,7 @@ app.post('/webhooks/clawnet', (req, res) => {
 
       <!-- P2P Mesh -->
       <h4 style="font-size:16px;font-weight:600;color:var(--text-primary);text-transform:none;letter-spacing:0;margin:36px 0 10px">P2P Mesh</h4>
-      <p class="endpoint-desc">ClawNet runs a libp2p mesh network for peer-to-peer discovery and DHT routing. Infrastructure-level &mdash; most users won't interact with this directly.</p>
+      <p class="endpoint-desc">ClawNet runs a peer-to-peer network for decentralized discovery and routing. Infrastructure-level &mdash; most users won't interact with this directly.</p>
       <div class="endpoint">
         <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/mesh/peers</code></div>
         <p class="endpoint-desc">List connected mesh peers with peer IDs and multiaddrs.</p>
@@ -2503,7 +2504,7 @@ await agentTick();</code></pre>
           <div class="code-block">
             <button class="copy-btn" onclick="copyCode(this)">Copy</button>
             <pre><code>import requests
-from datetime import datetime
+from datetime import datetime, timezone
 
 API_KEY = "cn-your-key-here"
 BASE = "https://api.claw-net.org"
@@ -2522,7 +2523,7 @@ def agent_tick():
 
     requests.patch(f"{BASE}/v1/economy/sessions/{session['id']}",
         headers=HEADERS,
-        json={"state": {"lastCheck": datetime.utcnow().isoformat(), "trending": result["answer"]}})
+        json={"state": {"lastCheck": datetime.now(timezone.utc).isoformat(), "trending": result["answer"]}})
 
     print(f"Answer: {result['answer']}")
     print(f"Credits: {result['creditsUsed']}")
