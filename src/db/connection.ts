@@ -622,6 +622,16 @@ const MIGRATIONS: { version: number; sql: string }[] = [
     CREATE INDEX IF NOT EXISTS idx_skills_verification_tier ON skills(verification_tier)` },
   // v75: x402 test mode column
   { version: 75, sql: `ALTER TABLE x402_receipts ADD COLUMN test INTEGER NOT NULL DEFAULT 0` },
+  // v76: OAuth authorization codes for "Sign in with ClawNet"
+  { version: 76, sql: `CREATE TABLE IF NOT EXISTS oauth_codes (
+    code TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    api_key TEXT NOT NULL,
+    app TEXT NOT NULL,
+    email TEXT DEFAULT '',
+    expires_at TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )` },
 ];
 
 function runMigrations(): void {
