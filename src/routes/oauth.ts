@@ -162,9 +162,6 @@ oauthRouter.post('/authorize', async (c) => {
     return c.json({ error: 'Invalid or missing redirect URL', code: 'INVALID_REDIRECT' }, 400);
   }
 
-  const clerkUserId = c.get('clerkUserId');
-  const clerkEmail = c.get('clerkEmail') ?? '';
-
   // Find or create API key for this user
   let keyRecord = getApiKeyByClerkId(clerkUserId);
   if (!keyRecord) {
