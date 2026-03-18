@@ -83,14 +83,18 @@
     @keyframes toastIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 
     nav { position: fixed; top: 0; left: 0; right: 0; z-index: 100; height: 56px; padding: 0 24px; display: flex; align-items: center; justify-content: space-between; background: var(--nav-bg); border-bottom: 1px solid var(--border-subtle); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }
-    .nav-left { display: flex; align-items: center; gap: 20px; }
-    .nav-logo img { height: 36px; width: auto; object-fit: contain; }
+    .nav-brand { display: flex; align-items: center; }
+    .nav-brand a { text-decoration: none; }
     .nav-links { display: flex; align-items: center; gap: 4px; list-style: none; }
-    .nav-links a { font-size: 13px; font-weight: 500; color: var(--text-tertiary); padding: 6px 12px; border-radius: var(--radius-md); transition: color 0.15s, background 0.15s; position: relative; }
-    .nav-links a:hover { color: var(--text-primary); background: var(--bg-surface-2); }
-    .nav-links a.active { color: var(--text-primary); }
-    .nav-links a.active::after { content: ''; position: absolute; bottom: -1px; left: 12px; right: 12px; height: 2px; background: var(--accent); border-radius: 1px; }
-    @media(max-width:900px) { .nav-links { display: none; } }
+    .nav-links > a { font-size: 13px; font-weight: 500; color: var(--text-tertiary); padding: 6px 12px; border-radius: var(--radius-md); transition: color 0.15s, background 0.15s; text-decoration: none; }
+    .nav-links > a:hover { color: var(--text-primary); background: var(--bg-surface-2); }
+    .dropdown { position: relative; display: inline-block; }
+    .dropdown-toggle { font-family: var(--font-sans); font-size: 13px; font-weight: 500; color: var(--text-tertiary); padding: 6px 12px; border-radius: var(--radius-md); transition: color 0.15s, background 0.15s; background: none; border: none; cursor: pointer; }
+    .dropdown-toggle:hover { color: var(--text-primary); background: var(--bg-surface-2); }
+    .dropdown-menu { display: none; position: absolute; top: 100%; left: 0; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: var(--radius-lg); min-width: 220px; padding: 8px 0; z-index: 200; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+    .dropdown:hover .dropdown-menu { display: block; }
+    .dropdown-menu a { display: block; padding: 8px 16px; color: var(--text-secondary); text-decoration: none; font-size: 0.88rem; transition: background 0.15s, color 0.15s; }
+    .dropdown-menu a:hover { background: var(--bg-surface-2); color: var(--text-primary); }
     .nav-right { display: flex; align-items: center; gap: 12px; }
     .nav-status { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-tertiary); padding: 4px 10px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); }
     .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); transition: background 0.3s; flex-shrink: 0; }
@@ -104,10 +108,14 @@
     .nav-btn-ghost.show { display: inline-block; }
     .nav-btn-ghost:hover { border-color: var(--border-strong); color: var(--text-primary); }
     .nav-btn-ghost.danger:hover { border-color: var(--danger); color: var(--danger); }
+    .btn-contact { color: var(--text-secondary); border: 1px solid var(--border-default); background: transparent; text-decoration: none; padding: 6px 14px; font-size: 13px; border-radius: var(--radius-md); transition: all 0.15s; }
+    .btn-contact:hover { border-color: var(--accent); color: var(--accent); }
     .nav-login { color: var(--text-secondary); border: 1px solid var(--border-default); background: transparent; text-decoration: none; padding: 6px 14px; font-size: 13px; border-radius: var(--radius-md); }
     .nav-login:hover { border-color: var(--border-strong); color: var(--text-primary); }
     .nav-cta { background: var(--accent); color: #000; font-weight: 600; text-decoration: none; padding: 6px 14px; font-size: 13px; border-radius: var(--radius-md); }
     .nav-cta:hover { background: var(--accent-hover); }
+    .mobile-menu-btn { display: none; background: none; border: 1px solid var(--border-default); border-radius: 6px; padding: 6px 10px; cursor: pointer; color: var(--text-secondary); font-size: 18px; line-height: 1; }
+    .mobile-menu-btn:hover { color: var(--text-primary); border-color: var(--border-strong); }
 
     main { max-width: 1240px; margin: 0 auto; padding: 72px 32px 80px; }
     .view { display: none; }
@@ -350,22 +358,22 @@
     .econ-desc { font-size: 13px; color: var(--text-tertiary); line-height: 1.6; }
 
     footer { border-top: 1px solid var(--border-subtle); padding: 28px 24px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; }
-    .footer-left { display: flex; align-items: center; gap: 24px; }
-    .footer-logo img { height: 28px; width: auto; object-fit: contain; opacity: 0.7; }
-    .footer-links { display: flex; align-items: center; gap: 16px; list-style: none; flex-wrap: wrap; }
-    .footer-links a { font-size: 12px; color: var(--text-muted); }
-    .footer-links a:hover { color: var(--text-tertiary); }
-    .footer-copy { font-size: 12px; color: var(--text-muted); }
+    footer { border-top: 1px solid var(--border-subtle); padding: 48px 24px 32px; max-width: 1240px; margin: 0 auto; }
+    .footer-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 32px; margin-bottom: 32px; }
+    .footer-grid h4 { font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+    .footer-grid a { display: block; font-size: 13px; color: var(--text-tertiary); text-decoration: none; padding: 4px 0; transition: color 0.15s; }
+    .footer-grid a:hover { color: var(--text-primary); }
+    .footer-bottom { padding-top: 24px; border-top: 1px solid var(--border-subtle); text-align: center; }
+    .footer-bottom span { font-size: 12px; color: var(--text-muted); }
 
-    .hamburger { display: none; background: none; border: 1px solid var(--border-default); border-radius: 6px; padding: 6px; cursor: pointer; color: var(--text-secondary); }
-    .hamburger:hover { color: var(--text-primary); border-color: var(--border-strong); }
-    .hamburger svg { width: 20px; height: 20px; display: block; }
-    .mobile-menu { display: none; position: fixed; top: 56px; left: 0; right: 0; background: var(--bg-surface); border-bottom: 1px solid var(--border-default); z-index: 99; padding: 12px 24px; }
+    .mobile-menu { display: none; position: fixed; top: 56px; left: 0; right: 0; background: var(--bg-surface); border-bottom: 1px solid var(--border-default); z-index: 99; padding: 12px 24px; max-height: calc(100vh - 56px); overflow-y: auto; }
     .mobile-menu.open { display: block; }
     .mobile-menu a { display: block; padding: 10px 0; font-size: 14px; color: var(--text-secondary); border-bottom: 1px solid var(--border-subtle); text-decoration: none; }
     .mobile-menu a:last-child { border-bottom: none; }
     .mobile-menu a:hover { color: var(--accent); }
-    @media(max-width:900px) { .nav-links { display: none; } .hamburger { display: block; } }
+    .mobile-menu-group { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; padding: 12px 0 4px; }
+    .mobile-menu-group:first-child { padding-top: 0; }
+    @media(max-width:900px) { .nav-links { display: none; } .mobile-menu-btn { display: block; } .btn-contact { display: none; } .nav-status { display: none; } .footer-grid { grid-template-columns: repeat(2, 1fr); } }
     @media(max-width:640px) {
       main { padding: 64px 16px 60px; }
       .mkt-hero { flex-direction: column; align-items: flex-start; }
@@ -382,19 +390,28 @@
 <div id="toast-container"></div>
 
 <nav>
-  <div class="nav-left">
-    <a href="/" class="nav-logo"><span class="nav-logo-text">Claw <span>Network</span></span></a>
-    <ul class="nav-links">
-      <li><a href="/">Home</a></li>
-      <li><a href="/#pricing">Pricing</a></li>
-      <li><a href="/docs.html">Docs</a></li>
-      <li><a href="/marketplace.html" class="active">Marketplace</a></li>
-      <li><a href="/roadmap.html">Roadmap</a></li>
-      <li><a href="/endpoints.html">Endpoints</a></li>
-      <li><a href="/playground.html">Playground</a></li>
-      <li><a href="https://x.com/i/communities/2031805527043576245" target="_blank" rel="noopener" title="Follow on X" style="padding:6px 8px;display:flex;align-items:center"><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.748l7.73-8.835L1.254 2.25H8.08l4.253 5.622 5.91-5.622zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg></a></li>
-    </ul>
-    <button class="hamburger" onclick="document.getElementById('mobileMenu').classList.toggle('open')" aria-label="Menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
+  <div class="nav-brand">
+    <a href="/"><span class="nav-logo-text">&#x1F99E; Claw<span>Net</span></span></a>
+  </div>
+  <div class="nav-links">
+    <div class="dropdown">
+      <button class="dropdown-toggle">Products &#9662;</button>
+      <div class="dropdown-menu">
+        <a href="https://pulse.claw-net.org">Pulse &mdash; AI Marketing</a>
+        <a href="/roadmap.html">Radar &mdash; Trading (Coming Soon)</a>
+      </div>
+    </div>
+    <div class="dropdown">
+      <button class="dropdown-toggle">Developers &#9662;</button>
+      <div class="dropdown-menu">
+        <a href="/endpoints.html">API Endpoints</a>
+        <a href="/marketplace.html">Marketplace</a>
+        <a href="/docs.html">Documentation</a>
+        <a href="/playground.html">Playground</a>
+        <a href="/#pricing">Pricing</a>
+      </div>
+    </div>
+    <a href="/roadmap.html">Roadmap</a>
   </div>
   <div class="nav-right">
     <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Toggle theme">
@@ -404,13 +421,29 @@
     <div class="nav-status" id="navApiStatus"><span class="status-dot" id="statusDot"></span><span id="statusLabel">Checking...</span></div>
     <div class="nav-credits" id="nav-credits-badge"><svg width="14" height="14" viewBox="0 0 24 24" style="vertical-align:-2px;flex-shrink:0;margin-right:2px"><circle cx="12" cy="12" r="11" fill="#92400e"/><circle cx="12" cy="12" r="9.5" fill="#f59e0b"/><circle cx="12" cy="12" r="7.5" fill="#fbbf24"/><path d="M8.5 7.5 Q12 5.5 15.5 8" stroke="rgba(255,255,255,0.45)" stroke-width="1.5" fill="none" stroke-linecap="round"/><text x="12" y="16.5" text-anchor="middle" font-size="10" font-weight="800" fill="#78350f" font-family="Arial,sans-serif">C</text></svg> <span id="nav-credits-num">&mdash;</span> credits</div>
     <span class="nav-email" id="nav-user-email"></span>
+    <a href="/dashboard.html" class="nav-btn-ghost" id="nav-dash-btn">Dashboard</a>
+    <a href="/contact-section.html" class="btn-contact">Contact</a>
     <a href="/login.html" class="nav-login" id="nav-login-btn">Sign In</a>
     <a href="/#pricing" class="nav-cta" id="nav-getkey-btn">Get API Key</a>
-    <a href="/dashboard.html" class="nav-btn-ghost" id="nav-dash-btn">Dashboard</a>
     <button class="nav-btn-ghost danger" id="nav-signout-btn" onclick="navSignOut()" style="cursor:pointer">Sign Out</button>
+    <button class="mobile-menu-btn" onclick="document.getElementById('mobileMenu').classList.toggle('open')" aria-label="Menu">&#9776;</button>
   </div>
 </nav>
-<div class="mobile-menu" id="mobileMenu"><a href="/">Home</a><a href="/#pricing">Pricing</a><a href="/docs.html">Docs</a><a href="/marketplace.html">Marketplace</a><a href="/roadmap.html">Roadmap</a><a href="/endpoints.html">Endpoints</a><a href="/playground.html">Playground</a><a href="/dashboard.html">Dashboard</a></div>
+<div class="mobile-menu" id="mobileMenu">
+  <div class="mobile-menu-group">Products</div>
+  <a href="https://pulse.claw-net.org">Pulse &mdash; AI Marketing</a>
+  <a href="/roadmap.html">Radar &mdash; Trading (Coming Soon)</a>
+  <div class="mobile-menu-group">Developers</div>
+  <a href="/endpoints.html">API Endpoints</a>
+  <a href="/marketplace.html">Marketplace</a>
+  <a href="/docs.html">Documentation</a>
+  <a href="/playground.html">Playground</a>
+  <a href="/#pricing">Pricing</a>
+  <div class="mobile-menu-group">More</div>
+  <a href="/roadmap.html">Roadmap</a>
+  <a href="/dashboard.html">Dashboard</a>
+  <a href="/contact-section.html">Contact</a>
+</div>
 
 <main>
   <div class="view active" id="v-browse">
@@ -769,20 +802,13 @@
 </main>
 
 <footer>
-  <div class="footer-left">
-    <a href="/" class="footer-logo"><span class="nav-logo-text">Claw <span>Network</span></span></a>
-    <ul class="footer-links">
-      <li><a href="/">Home</a></li>
-      <li><a href="/docs.html">Docs</a></li>
-      <li><a href="/#pricing">Pricing</a></li>
-      <li><a href="/marketplace.html">Marketplace</a></li>
-      <li><a href="/endpoints.html">Endpoints</a></li>
-      <li><a href="https://github.com/1xmint" target="_blank">GitHub</a></li>
-      <li><a href="https://t.me/claw_net" target="_blank">Telegram</a></li>
-      <li><a href="https://stats.uptimerobot.com/BtyHzXcO5p" target="_blank">Status</a></li>
-    </ul>
+  <div class="footer-grid">
+    <div><h4>Product</h4><a href="https://pulse.claw-net.org">Pulse</a><a href="/roadmap.html">Roadmap</a><a href="/status.html">Status</a></div>
+    <div><h4>Developers</h4><a href="/endpoints.html">API Endpoints</a><a href="/marketplace.html">Marketplace</a><a href="/docs.html">Documentation</a><a href="/playground.html">Playground</a></div>
+    <div><h4>Company</h4><a href="/contact-section.html">Contact</a><a href="/terms.html">Terms</a><a href="/privacy.html">Privacy</a></div>
+    <div><h4>Community</h4><a href="https://x.com/i/communities/2031805527043576245" target="_blank">X Community</a><a href="https://github.com/1xmint" target="_blank">GitHub</a><a href="https://t.me/claw_net" target="_blank">Telegram</a></div>
   </div>
-  <div class="footer-copy">&copy; 2026 ClawNet &middot; Powered by x402</div>
+  <div class="footer-bottom"><span>&copy; 2026 ClawNet. All rights reserved.</span></div>
 </footer>
 
 <script>

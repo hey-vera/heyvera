@@ -141,30 +141,29 @@
       background: var(--nav-bg); border-bottom: 1px solid var(--border-subtle);
       backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
     }
-    .nav-left { display: flex; align-items: center; gap: 20px; }
-    .nav-logo { display: flex; align-items: center; text-decoration: none; }
+    .nav-brand { display: flex; align-items: center; }
+    .nav-brand a { text-decoration: none; }
     .nav-logo-text { font-family: var(--font-display); font-size: 18px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.02em; white-space: nowrap; }
     .nav-logo-text span { color: var(--accent); }
     .nav-links { display: flex; align-items: center; gap: 4px; list-style: none; }
-    .hamburger { display: none; background: none; border: 1px solid var(--border-default); border-radius: 6px; padding: 6px; cursor: pointer; color: var(--text-secondary); }
-    .hamburger:hover { color: var(--text-primary); border-color: var(--border-strong); }
-    .hamburger svg { width: 20px; height: 20px; display: block; }
-    .mobile-menu { display: none; position: fixed; top: 56px; left: 0; right: 0; background: var(--bg-surface); border-bottom: 1px solid var(--border-default); z-index: 99; padding: 12px 24px; }
+    .nav-links > a { font-size: 13px; font-weight: 500; color: var(--text-tertiary); padding: 6px 12px; border-radius: var(--radius-md); transition: color 0.15s, background 0.15s; text-decoration: none; }
+    .nav-links > a:hover { color: var(--text-primary); background: var(--bg-surface-2); }
+    .dropdown { position: relative; display: inline-block; }
+    .dropdown-toggle { font-family: var(--font-sans); font-size: 13px; font-weight: 500; color: var(--text-tertiary); padding: 6px 12px; border-radius: var(--radius-md); transition: color 0.15s, background 0.15s; background: none; border: none; cursor: pointer; }
+    .dropdown-toggle:hover { color: var(--text-primary); background: var(--bg-surface-2); }
+    .dropdown-menu { display: none; position: absolute; top: 100%; left: 0; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: var(--radius-lg); min-width: 220px; padding: 8px 0; z-index: 200; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+    .dropdown:hover .dropdown-menu { display: block; }
+    .dropdown-menu a { display: block; padding: 8px 16px; color: var(--text-secondary); text-decoration: none; font-size: 0.88rem; transition: background 0.15s, color 0.15s; }
+    .dropdown-menu a:hover { background: var(--bg-surface-2); color: var(--text-primary); }
+    .mobile-menu { display: none; position: fixed; top: 56px; left: 0; right: 0; background: var(--bg-surface); border-bottom: 1px solid var(--border-default); z-index: 99; padding: 12px 24px; max-height: calc(100vh - 56px); overflow-y: auto; }
     .mobile-menu.open { display: block; }
     .mobile-menu a { display: block; padding: 10px 0; font-size: 14px; color: var(--text-secondary); border-bottom: 1px solid var(--border-subtle); text-decoration: none; }
     .mobile-menu a:last-child { border-bottom: none; }
     .mobile-menu a:hover { color: var(--accent); }
-    .nav-links a {
-      font-size: 13px; font-weight: 500; color: var(--text-tertiary);
-      padding: 6px 12px; border-radius: var(--radius-md);
-      transition: color 0.15s, background 0.15s; position: relative;
-    }
-    .nav-links a:hover { color: var(--text-primary); background: var(--bg-surface-2); }
-    .nav-links a.active { color: var(--text-primary); }
-    .nav-links a.active::after {
-      content: ''; position: absolute; bottom: -1px; left: 12px; right: 12px;
-      height: 2px; background: var(--accent); border-radius: 1px;
-    }
+    .mobile-menu-group { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; padding: 12px 0 4px; }
+    .mobile-menu-group:first-child { padding-top: 0; }
+    .mobile-menu-btn { display: none; background: none; border: 1px solid var(--border-default); border-radius: 6px; padding: 6px 10px; cursor: pointer; color: var(--text-secondary); font-size: 18px; line-height: 1; }
+    .mobile-menu-btn:hover { color: var(--text-primary); border-color: var(--border-strong); }
     .nav-right { display: flex; align-items: center; gap: 12px; }
     .nav-status {
       display: flex; align-items: center; gap: 6px;
@@ -182,10 +181,12 @@
     .nav-credits.show { display: flex; }
     .nav-email { font-size: 12px; color: var(--text-tertiary); display: none; }
     .nav-email.show { display: block; }
-    .nav-btn-ghost { background: transparent; color: var(--text-secondary); border: 1px solid var(--border-default); display: none; text-decoration: none; padding: 6px 14px; font-size: 13px; border-radius: var(--radius-md); }
+    .nav-btn-ghost { background: transparent; color: var(--text-secondary); border: 1px solid var(--border-default); display: none; text-decoration: none; padding: 6px 14px; font-size: 13px; border-radius: var(--radius-md); cursor: pointer; font-family: var(--font-sans); }
     .nav-btn-ghost.show { display: inline-block; }
     .nav-btn-ghost:hover { border-color: var(--border-strong); color: var(--text-primary); }
     .nav-btn-ghost.danger:hover { border-color: var(--danger); color: var(--danger); }
+    .btn-contact { color: var(--text-secondary); border: 1px solid var(--border-default); background: transparent; text-decoration: none; padding: 6px 14px; font-size: 13px; border-radius: var(--radius-md); transition: all 0.15s; }
+    .btn-contact:hover { border-color: var(--accent); color: var(--accent); }
     .nav-login { color: var(--text-secondary); border: 1px solid var(--border-default); background: transparent; text-decoration: none; padding: 6px 14px; font-size: 13px; border-radius: var(--radius-md); }
     .nav-login:hover { border-color: var(--border-strong); color: var(--text-primary); }
     .nav-cta { background: var(--accent); color: #000; font-weight: 600; text-decoration: none; padding: 6px 14px; font-size: 13px; border-radius: var(--radius-md); }
@@ -598,18 +599,13 @@
     .pricing-card.featured { overflow: visible; margin-top: 12px; }
 
     /* ── FOOTER ── */
-    footer {
-      border-top: 1px solid var(--border-subtle); padding: 32px 24px;
-      display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px;
-    }
-    .footer-left { display: flex; align-items: center; gap: 24px; }
-    .footer-logo { font-family: var(--font-display); font-size: 15px; font-weight: 700; color: var(--text-tertiary); transition: color 0.15s; letter-spacing: -0.02em; }
-    .footer-logo span { color: var(--accent); }
-    .footer-logo:hover { color: var(--text-primary); }
-    .footer-links { display: flex; gap: 20px; list-style: none; }
-    .footer-links a { font-size: 12px; color: var(--text-tertiary); transition: color 0.15s; }
-    .footer-links a:hover { color: var(--text-primary); }
-    .footer-copy { font-size: 12px; color: var(--text-muted); }
+    footer { border-top: 1px solid var(--border-subtle); padding: 48px 24px 32px; max-width: 1140px; margin: 0 auto; }
+    .footer-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 32px; margin-bottom: 32px; }
+    .footer-grid h4 { font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+    .footer-grid a { display: block; font-size: 13px; color: var(--text-tertiary); text-decoration: none; padding: 4px 0; transition: color 0.15s; }
+    .footer-grid a:hover { color: var(--text-primary); }
+    .footer-bottom { padding-top: 24px; border-top: 1px solid var(--border-subtle); text-align: center; }
+    .footer-bottom span { font-size: 12px; color: var(--text-muted); }
 
     /* ── RESPONSIVE ── */
     @media (max-width: 1024px) {
@@ -622,7 +618,9 @@
     @media (max-width: 768px) {
       nav { padding: 0 16px; }
       .nav-links { display: none; }
-      .hamburger { display: block; }
+      .mobile-menu-btn { display: block; }
+      .btn-contact { display: none; }
+      .nav-status { display: none; }
       .hero { padding: 100px 0 60px; }
       .section { padding: 64px 16px; }
       .section-sm { padding: 40px 16px; }
@@ -633,8 +631,7 @@
       .pricing-track .pricing-card { min-width: calc(100% - 0px); }
       .crypto-quick-row { grid-template-columns: repeat(2, 1fr); }
       .source-grid { grid-template-columns: 1fr; }
-      footer { padding: 24px 16px; flex-direction: column; text-align: center; }
-      .footer-left { flex-direction: column; }
+      .footer-grid { grid-template-columns: repeat(2, 1fr); }
       .nav-email { display: none !important; }
       .sub-hero { flex-direction: column; text-align: center; padding: 28px 20px; }
       .sub-hero-right { width: 100%; }
@@ -700,19 +697,28 @@
 
 <!-- NAV -->
 <nav>
-  <div class="nav-left">
-    <a href="/" class="nav-logo"><span class="nav-logo-text">Claw <span>Network</span></span></a>
-    <ul class="nav-links">
-      <li><a href="/" class="active">Home</a></li>
-      <li><a href="/#pricing">Pricing</a></li>
-      <li><a href="/docs.html">Docs</a></li>
-      <li><a href="/marketplace.html">Marketplace</a></li>
-      <li><a href="/roadmap.html">Roadmap</a></li>
-      <li><a href="/endpoints.html">Endpoints</a></li>
-      <li><a href="/playground.html">Playground</a></li>
-      <li><a href="https://x.com/i/communities/2031805527043576245" target="_blank" rel="noopener" title="Follow on X" style="padding:6px 8px;display:flex;align-items:center"><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.748l7.73-8.835L1.254 2.25H8.08l4.253 5.622 5.91-5.622zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg></a></li>
-    </ul>
-    <button class="hamburger" onclick="document.getElementById('mobileMenu').classList.toggle('open')" aria-label="Menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
+  <div class="nav-brand">
+    <a href="/"><span class="nav-logo-text">&#x1F99E; Claw<span>Net</span></span></a>
+  </div>
+  <div class="nav-links">
+    <div class="dropdown">
+      <button class="dropdown-toggle">Products &#9662;</button>
+      <div class="dropdown-menu">
+        <a href="https://pulse.claw-net.org">Pulse &mdash; AI Marketing</a>
+        <a href="/roadmap.html">Radar &mdash; Trading (Coming Soon)</a>
+      </div>
+    </div>
+    <div class="dropdown">
+      <button class="dropdown-toggle">Developers &#9662;</button>
+      <div class="dropdown-menu">
+        <a href="/endpoints.html">API Endpoints</a>
+        <a href="/marketplace.html">Marketplace</a>
+        <a href="/docs.html">Documentation</a>
+        <a href="/playground.html">Playground</a>
+        <a href="/#pricing">Pricing</a>
+      </div>
+    </div>
+    <a href="/roadmap.html">Roadmap</a>
   </div>
   <div class="nav-right">
     <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Toggle light/dark mode">
@@ -725,13 +731,29 @@
     </div>
     <div class="nav-credits" id="nav-credits-badge"><svg width="14" height="14" viewBox="0 0 24 24" style="vertical-align:-2px;flex-shrink:0;margin-right:2px"><circle cx="12" cy="12" r="11" fill="#92400e"/><circle cx="12" cy="12" r="9.5" fill="#f59e0b"/><circle cx="12" cy="12" r="7.5" fill="#fbbf24"/><path d="M8.5 7.5 Q12 5.5 15.5 8" stroke="rgba(255,255,255,0.45)" stroke-width="1.5" fill="none" stroke-linecap="round"/><text x="12" y="16.5" text-anchor="middle" font-size="10" font-weight="800" fill="#78350f" font-family="Arial,sans-serif">C</text></svg> <span id="nav-credits-num">&mdash;</span> credits</div>
     <span class="nav-email" id="nav-user-email"></span>
+    <a href="/dashboard.html" class="nav-btn-ghost" id="nav-dash-btn">Dashboard</a>
+    <a href="/contact-section.html" class="btn-contact">Contact</a>
     <a href="/login.html" class="nav-login" id="nav-login-btn">Sign In</a>
     <a href="#pricing" class="nav-cta" id="nav-getkey-btn">Get API Key</a>
-    <a href="/dashboard.html" class="nav-btn-ghost" id="nav-dash-btn">Dashboard</a>
     <button class="nav-btn-ghost danger" id="nav-signout-btn" onclick="navSignOut()" style="cursor:pointer">Sign Out</button>
+    <button class="mobile-menu-btn" onclick="document.getElementById('mobileMenu').classList.toggle('open')" aria-label="Menu">&#9776;</button>
   </div>
 </nav>
-<div class="mobile-menu" id="mobileMenu"><a href="/">Home</a><a href="/#pricing">Pricing</a><a href="/docs.html">Docs</a><a href="/marketplace.html">Marketplace</a><a href="/roadmap.html">Roadmap</a><a href="/endpoints.html">Endpoints</a><a href="/playground.html">Playground</a><a href="/dashboard.html">Dashboard</a></div>
+<div class="mobile-menu" id="mobileMenu">
+  <div class="mobile-menu-group">Products</div>
+  <a href="https://pulse.claw-net.org">Pulse &mdash; AI Marketing</a>
+  <a href="/roadmap.html">Radar &mdash; Trading (Coming Soon)</a>
+  <div class="mobile-menu-group">Developers</div>
+  <a href="/endpoints.html">API Endpoints</a>
+  <a href="/marketplace.html">Marketplace</a>
+  <a href="/docs.html">Documentation</a>
+  <a href="/playground.html">Playground</a>
+  <a href="/#pricing">Pricing</a>
+  <div class="mobile-menu-group">More</div>
+  <a href="/roadmap.html">Roadmap</a>
+  <a href="/dashboard.html">Dashboard</a>
+  <a href="/contact-section.html">Contact</a>
+</div>
 
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <!-- HERO                                                           -->
@@ -1269,27 +1291,36 @@
 
 <!-- FOOTER -->
 <footer>
-  <div class="footer-left">
-    <a href="/" class="footer-logo">Claw <span>Network</span></a>
-    <ul class="footer-links">
-      <li><a href="/">Home</a></li>
-      <li><a href="/docs.html">Docs</a></li>
-      <li><a href="/#pricing">Pricing</a></li>
-      <li><a href="/marketplace.html">Marketplace</a></li>
-      <li><a href="/endpoints.html">Endpoints</a></li>
-      <li><a href="/dashboard.html">Dashboard</a></li>
-      <li><a href="/contact-section.html">Contact</a></li>
-      <li><a href="/terms.html">Terms</a></li>
-      <li><a href="/privacy.html">Privacy</a></li>
-    </ul>
-    <div class="social-links">
-      <a href="https://github.com/1xmint" target="_blank" class="social-link" title="GitHub"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg></a>
-      <a href="https://t.me/claw_net" target="_blank" class="social-link" title="Telegram"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M11.944 0A12 12 0 000 12a12 12 0 0012 12 12 12 0 0012-12A12 12 0 0012 0h-.056zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 01.171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg></a>
-      <a href="https://x.com/i/communities/2031805527043576245" target="_blank" class="social-link" title="X Community"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg></a>
-      <a href="https://stats.uptimerobot.com/BtyHzXcO5p" target="_blank" class="social-link" title="Status Page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></a>
+  <div class="footer-grid">
+    <div>
+      <h4>Product</h4>
+      <a href="https://pulse.claw-net.org">Pulse</a>
+      <a href="/roadmap.html">Roadmap</a>
+      <a href="/status.html">Status</a>
+    </div>
+    <div>
+      <h4>Developers</h4>
+      <a href="/endpoints.html">API Endpoints</a>
+      <a href="/marketplace.html">Marketplace</a>
+      <a href="/docs.html">Documentation</a>
+      <a href="/playground.html">Playground</a>
+    </div>
+    <div>
+      <h4>Company</h4>
+      <a href="/contact-section.html">Contact</a>
+      <a href="/terms.html">Terms</a>
+      <a href="/privacy.html">Privacy</a>
+    </div>
+    <div>
+      <h4>Community</h4>
+      <a href="https://x.com/i/communities/2031805527043576245" target="_blank">X Community</a>
+      <a href="https://github.com/1xmint" target="_blank">GitHub</a>
+      <a href="https://t.me/claw_net" target="_blank">Telegram</a>
     </div>
   </div>
-  <div class="footer-copy">&copy; 2026 Claw Network &middot; Powered by x402</div>
+  <div class="footer-bottom">
+    <span>&copy; 2026 ClawNet. All rights reserved.</span>
+  </div>
 </footer>
 
 <!-- CLERK + APP LOGIC -->

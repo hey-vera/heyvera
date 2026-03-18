@@ -39,26 +39,39 @@
     ::selection { background: var(--accent-dim); }
 
     nav { position: sticky; top: 0; z-index: 100; background: var(--nav-bg); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border-subtle); padding: 0 24px; height: 56px; display: flex; align-items: center; justify-content: space-between; }
-    .nav-left, .nav-right { display: flex; align-items: center; gap: 12px; }
+    .nav-brand { display: flex; align-items: center; } .nav-brand a { text-decoration: none; }
+    .nav-right { display: flex; align-items: center; gap: 12px; }
     .nav-logo-text { font-size: 18px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.02em; }
     .nav-logo-text span { color: var(--accent); }
-    .nav-links { list-style: none; display: flex; align-items: center; gap: 2px; margin-left: 20px; }
-    .nav-links a { font-size: 13px; font-weight: 500; color: var(--text-tertiary); padding: 6px 12px; border-radius: var(--radius-md); transition: color 0.15s, background 0.15s; }
-    .nav-links a:hover { color: var(--text-primary); background: var(--bg-surface-2); }
-    .nav-links a.active { color: var(--text-primary); }
+    .nav-links { display: flex; align-items: center; gap: 4px; list-style: none; }
+    .nav-links > a { font-size: 13px; font-weight: 500; color: var(--text-tertiary); padding: 6px 12px; border-radius: var(--radius-md); transition: color 0.15s, background 0.15s; text-decoration: none; }
+    .nav-links > a:hover { color: var(--text-primary); background: var(--bg-surface-2); }
+    .dropdown { position: relative; display: inline-block; }
+    .dropdown-toggle { font-family: var(--font-sans); font-size: 13px; font-weight: 500; color: var(--text-tertiary); padding: 6px 12px; border-radius: var(--radius-md); background: none; border: none; cursor: pointer; transition: color 0.15s, background 0.15s; }
+    .dropdown-toggle:hover { color: var(--text-primary); background: var(--bg-surface-2); }
+    .dropdown-menu { display: none; position: absolute; top: 100%; left: 0; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: var(--radius-lg); min-width: 220px; padding: 8px 0; z-index: 200; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+    .dropdown:hover .dropdown-menu { display: block; }
+    .dropdown-menu a { display: block; padding: 8px 16px; color: var(--text-secondary); text-decoration: none; font-size: 0.88rem; transition: background 0.15s, color 0.15s; }
+    .dropdown-menu a:hover { background: var(--bg-surface-2); color: var(--text-primary); }
     .theme-toggle { background: var(--bg-surface-2); border: 1px solid var(--border-default); border-radius: 6px; width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--text-tertiary); padding: 0; flex-shrink: 0; }
     .theme-toggle:hover { color: var(--text-primary); }
     .theme-toggle .icon-sun { display: none; }
     [data-theme="light"] .theme-toggle .icon-sun { display: block; }
     [data-theme="light"] .theme-toggle .icon-moon { display: none; }
-    .hamburger { display: none; background: none; border: 1px solid var(--border-default); border-radius: var(--radius-md); padding: 6px; cursor: pointer; color: var(--text-secondary); }
-    .hamburger svg { width: 20px; height: 20px; display: block; }
-    .mobile-menu { display: none; position: fixed; top: 56px; left: 0; right: 0; background: var(--bg-surface); border-bottom: 1px solid var(--border-default); z-index: 99; padding: 12px 24px; }
+    .nav-btn-ghost { background: transparent; color: var(--text-secondary); border: 1px solid var(--border-default); display: none; text-decoration: none; padding: 6px 14px; font-size: 13px; border-radius: var(--radius-md); cursor: pointer; }
+    .nav-btn-ghost.show { display: inline-block; }
+    .btn-contact { color: var(--text-secondary); border: 1px solid var(--border-default); background: transparent; text-decoration: none; padding: 6px 14px; font-size: 13px; border-radius: var(--radius-md); transition: all 0.15s; }
+    .btn-contact:hover { border-color: var(--accent); color: var(--accent); }
+    .mobile-menu-btn { display: none; background: none; border: 1px solid var(--border-default); border-radius: 6px; padding: 6px 10px; cursor: pointer; color: var(--text-secondary); font-size: 18px; line-height: 1; }
+    .mobile-menu-btn:hover { color: var(--text-primary); border-color: var(--border-strong); }
+    .mobile-menu { display: none; position: fixed; top: 56px; left: 0; right: 0; background: var(--bg-surface); border-bottom: 1px solid var(--border-default); z-index: 99; padding: 12px 24px; max-height: calc(100vh - 56px); overflow-y: auto; }
     .mobile-menu.open { display: block; }
-    .mobile-menu a { display: block; padding: 10px 0; font-size: 14px; color: var(--text-secondary); border-bottom: 1px solid var(--border-subtle); }
+    .mobile-menu a { display: block; padding: 10px 0; font-size: 14px; color: var(--text-secondary); border-bottom: 1px solid var(--border-subtle); text-decoration: none; }
     .mobile-menu a:last-child { border-bottom: none; }
     .mobile-menu a:hover { color: var(--accent); }
-    @media (max-width: 900px) { .nav-links { display: none; } .hamburger { display: block; } }
+    .mobile-menu-group { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; padding: 12px 0 4px; }
+    .mobile-menu-group:first-child { padding-top: 0; }
+    @media (max-width: 900px) { .nav-links { display: none; } .mobile-menu-btn { display: block; } .btn-contact { display: none; } }
 
     .container { max-width: 800px; margin: 0 auto; padding: 0 24px; }
 
@@ -116,38 +129,38 @@
 
     .refresh-note { text-align: center; font-size: 12px; color: var(--text-muted); padding: 20px 0 40px; }
 
-    footer { border-top: 1px solid var(--border-subtle); padding: 32px 24px; display: flex; justify-content: space-between; align-items: center; max-width: 800px; margin: 0 auto; flex-wrap: wrap; gap: 16px; }
-    .footer-links { list-style: none; display: flex; gap: 16px; flex-wrap: wrap; }
-    .footer-links a { font-size: 12px; color: var(--text-muted); }
-    .footer-links a:hover { color: var(--text-secondary); }
-    .footer-copy { font-size: 12px; color: var(--text-muted); }
+    footer { border-top: 1px solid var(--border-subtle); padding: 48px 24px 32px; max-width: 800px; margin: 0 auto; }
+    .footer-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 32px; margin-bottom: 32px; }
+    .footer-grid h4 { font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+    .footer-grid a { display: block; font-size: 13px; color: var(--text-tertiary); text-decoration: none; padding: 4px 0; transition: color 0.15s; }
+    .footer-grid a:hover { color: var(--text-primary); }
+    .footer-bottom { padding-top: 24px; border-top: 1px solid var(--border-subtle); text-align: center; }
+    .footer-bottom span { font-size: 12px; color: var(--text-muted); }
+    @media (max-width: 600px) { .footer-grid { grid-template-columns: repeat(2, 1fr); } }
   </style>
 </head>
 <body>
 <nav>
-  <div class="nav-left">
-    <a href="/" class="nav-logo"><span class="nav-logo-text">Claw <span>Network</span></span></a>
-    <ul class="nav-links">
-      <li><a href="/">Home</a></li>
-      <li><a href="/docs.html">Docs</a></li>
-      <li><a href="/marketplace.html">Marketplace</a></li>
-      <li><a href="/roadmap.html">Roadmap</a></li>
-      <li><a href="/endpoints.html">Endpoints</a></li>
-      <li><a href="/playground.html">Playground</a></li>
-    </ul>
-    <button class="hamburger" onclick="document.getElementById('mobileMenu').classList.toggle('open')" aria-label="Menu">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
-    </button>
+  <div class="nav-brand"><a href="/"><span class="nav-logo-text">&#x1F99E; Claw<span>Net</span></span></a></div>
+  <div class="nav-links">
+    <div class="dropdown"><button class="dropdown-toggle">Products &#9662;</button><div class="dropdown-menu"><a href="https://pulse.claw-net.org">Pulse &mdash; AI Marketing</a><a href="/roadmap.html">Radar &mdash; Trading (Coming Soon)</a></div></div>
+    <div class="dropdown"><button class="dropdown-toggle">Developers &#9662;</button><div class="dropdown-menu"><a href="/endpoints.html">API Endpoints</a><a href="/marketplace.html">Marketplace</a><a href="/docs.html">Documentation</a><a href="/playground.html">Playground</a><a href="/#pricing">Pricing</a></div></div>
+    <a href="/roadmap.html">Roadmap</a>
   </div>
   <div class="nav-right">
     <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">
       <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
       <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
     </button>
+    <a href="/dashboard.html" class="nav-btn-ghost" id="nav-dash-btn">Dashboard</a>
+    <a href="/contact-section.html" class="btn-contact">Contact</a>
+    <button class="mobile-menu-btn" onclick="document.getElementById('mobileMenu').classList.toggle('open')" aria-label="Menu">&#9776;</button>
   </div>
 </nav>
 <div class="mobile-menu" id="mobileMenu">
-  <a href="/">Home</a><a href="/docs.html">Docs</a><a href="/marketplace.html">Marketplace</a><a href="/roadmap.html">Roadmap</a><a href="/endpoints.html">Endpoints</a><a href="/playground.html">Playground</a><a href="/dashboard.html">Dashboard</a>
+  <div class="mobile-menu-group">Products</div><a href="https://pulse.claw-net.org">Pulse &mdash; AI Marketing</a><a href="/roadmap.html">Radar &mdash; Trading (Coming Soon)</a>
+  <div class="mobile-menu-group">Developers</div><a href="/endpoints.html">API Endpoints</a><a href="/marketplace.html">Marketplace</a><a href="/docs.html">Documentation</a><a href="/playground.html">Playground</a><a href="/#pricing">Pricing</a>
+  <div class="mobile-menu-group">More</div><a href="/roadmap.html">Roadmap</a><a href="/dashboard.html">Dashboard</a><a href="/contact-section.html">Contact</a>
 </div>
 
 <div class="container">
@@ -185,14 +198,13 @@
 </div>
 
 <footer>
-  <div>
-    <a href="/"><span class="nav-logo-text">Claw <span>Network</span></span></a>
-    <ul class="footer-links">
-      <li><a href="/">Home</a></li><li><a href="/docs.html">Docs</a></li><li><a href="/marketplace.html">Marketplace</a></li>
-      <li><a href="https://github.com/1xmint" target="_blank">GitHub</a></li><li><a href="https://t.me/claw_net" target="_blank">Telegram</a></li>
-    </ul>
+  <div class="footer-grid">
+    <div><h4>Product</h4><a href="https://pulse.claw-net.org">Pulse</a><a href="/roadmap.html">Roadmap</a><a href="/status.html">Status</a></div>
+    <div><h4>Developers</h4><a href="/endpoints.html">API Endpoints</a><a href="/marketplace.html">Marketplace</a><a href="/docs.html">Documentation</a><a href="/playground.html">Playground</a></div>
+    <div><h4>Company</h4><a href="/contact-section.html">Contact</a><a href="/terms.html">Terms</a><a href="/privacy.html">Privacy</a></div>
+    <div><h4>Community</h4><a href="https://x.com/i/communities/2031805527043576245" target="_blank">X Community</a><a href="https://github.com/1xmint" target="_blank">GitHub</a><a href="https://t.me/claw_net" target="_blank">Telegram</a></div>
   </div>
-  <div class="footer-copy">&copy; 2026 ClawNet &middot; Powered by x402</div>
+  <div class="footer-bottom"><span>&copy; 2026 ClawNet. All rights reserved.</span></div>
 </footer>
 
 <script>
