@@ -66,6 +66,50 @@ export function isTelegramSubscriber(chatId: number): boolean {
   return !!row;
 }
 
+// ─── XMTP Subscribers ─────────────────────────────────────────────────────────
+
+export function addXmtpSubscriber(address: string): boolean {
+  const info = getDb()
+    .prepare(`INSERT OR IGNORE INTO xmtp_subscribers (address) VALUES (?)`)
+    .run(address.toLowerCase());
+  return info.changes > 0;
+}
+
+export function removeXmtpSubscriber(address: string): boolean {
+  const info = getDb()
+    .prepare(`DELETE FROM xmtp_subscribers WHERE address = ?`)
+    .run(address.toLowerCase());
+  return info.changes > 0;
+}
+
+export function getXmtpSubscribers(): string[] {
+  const rows = getDb()
+    .prepare(`SELECT address FROM xmtp_subscribers`)
+    .all() as { address: string }[];
+  return rows.map((r) => r.address);
+}
+
+export function isXmtpSubscriber(address: string): boolean {
+  const row = getDb()
+    .prepare(`SELECT 1 FROM xmtp_subscribers WHERE address = ?`)
+    .get(address.toLowerCase());
+  return !!row;
+}
+
+export function linkXmtpApiKey(address: string, apiKey: string): boolean {
+  const info = getDb()
+    .prepare(`UPDATE xmtp_subscribers SET api_key = ? WHERE address = ?`)
+    .run(apiKey, address.toLowerCase());
+  return info.changes > 0;
+}
+
+export function getXmtpApiKey(address: string): string | null {
+  const row = getDb()
+    .prepare(`SELECT api_key FROM xmtp_subscribers WHERE address = ?`)
+    .get(address.toLowerCase()) as { api_key: string | null } | undefined;
+  return row?.api_key ?? null;
+}
+
 // ─── Tasks ────────────────────────────────────────────────────────────────────
 
 export type TaskStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';

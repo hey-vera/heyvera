@@ -22,3 +22,4 @@ export * from './sponsorship';
 export * from './bounties';
 export * from './skill-extensions';
 export * from './reseller';
+export * from './identities';

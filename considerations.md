@@ -412,7 +412,7 @@ Features researched but deferred from immediate implementation. Revisit as the p
 7. Map ClawNet skills to A2A skills in the agent card
 8. Auth bridging: declare API key auth in agent card's securitySchemes
 
-**When to do:** NOW — highest competitive impact per effort hour.
+**Status:** IN PROGRESS — building now. Highest competitive impact per effort hour.
 
 **Effort:** 2-3 days.
 
@@ -526,6 +526,8 @@ Also consider registering Agoragentic as a **seller** on their marketplace (they
 - Anon (@AnonPlatform) — building org identity for agents, big announcement pending.
 - ERC-8004 — on-chain agent identity registry (EVM-native).
 - KYA standards — "Know Your Agent" becoming regulatory expectation per a16z/PYMNTS.
+- **Skyfire KYA** — Skyfire's "Know Your Agent" implementation is emerging as a de facto standard for agent identity verification. Combines wallet identity + usage history + org attestation. Worth tracking as the leading KYA implementation.
+- **ERC-8004 update** — ERC-8004 is gaining traction as the on-chain identity layer that KYA standards reference. If ERC-8004 + Skyfire KYA converge, that becomes the standard to implement.
 
 **When to build:**
 - When 2+ agent frameworks (LangChain, CrewAI, ElizaOS) ship org identity support by default.
@@ -606,7 +608,150 @@ Also consider registering Agoragentic as a **seller** on their marketplace (they
 
 **Effort:** 1 week per chain (new verifier implementing `KeylessPaymentVerifier` interface).
 
+## 33. Virtual Agent Cards (machines.cash, lobster.cash, Clawcard.sh)
+
+**What:** Virtual credit cards for agents to pay traditional SaaS/APIs that don't accept crypto.
+
+**Why defer:**
+- Niche use case. ClawNet's x402 + Stripe covers the primary payment rails.
+- Most agent-to-agent commerce is on-chain or API-based — very few target APIs only accept card payments.
+- machines.cash and lobster.cash are early-stage with limited adoption data.
+
+**When to revisit:**
+- If >20% of skill invocations fail because target APIs only accept card payments
+- If a significant number of user requests specifically mention card-only APIs
+
+**Implementation:** Add machines.cash or lobster.cash as a marketplace skill, not core infrastructure. This is a skill-level integration, not a platform change.
+
+**Effort:** 1-2 days to integrate as a skill (not core).
+
+## 34. ZK Privacy Payments (ClawPay / Railgun)
+
+**What:** Zero-knowledge privacy layer for agent transactions using Railgun ZK pool.
+
+**Why defer:**
+- Premature — most agents don't need payment privacy.
+- Regulatory risk — ZK payment privacy is under active regulatory scrutiny.
+- ClawPay is very early (meme-adjacent tokens, unclear technical maturity).
+- ClawNet's off-chain credit system already provides payment privacy by default (only ClawNet sees internal credit movements).
+
+**When to revisit:**
+- If enterprise customers request privacy-preserving payments
+- If Railgun/ZK tech matures significantly and regulatory clarity improves
+- If on-chain payment privacy becomes a competitive requirement
+
+**Effort:** 1 week (new payment verifier + ZK proof verification).
+
+## 35. No-Code Agent Builder (OpenServ pattern)
+
+**What:** Visual/no-code interface for creating and deploying agents.
+
+**Why defer:**
+- ClawNet's strength is developer-first API platform. No-code dilutes positioning and requires significant frontend investment.
+- OpenServ's token collapsed -90% suggesting the no-code agent market isn't mature.
+- Building a visual agent builder is an entirely different product surface — drag-and-drop UI, template library, preview/test, deployment pipeline.
+- Better to be the best API platform than a mediocre no-code platform.
+
+**When to revisit:**
+- If market consolidates and no-code becomes table stakes for agent platforms
+- If a partnership opportunity arises to embed ClawNet as the backend for an existing no-code builder
+
+**Effort:** 2-4 weeks (full builder UI).
+
+## 36. Decentralized Compute / Inference (Heurist pattern)
+
+**What:** Decentralized GPU marketplace for LLM inference.
+
+**Why defer:**
+- ClawNet routes to Anthropic/OpenAI — centralized providers are more reliable, faster, and have better quality.
+- Building a compute layer is a different business entirely (GPU procurement, scheduling, model hosting).
+- Decentralized inference quality hasn't caught up to centralized providers for production workloads.
+- Heurist and similar projects are interesting but serve a different market (cost-sensitive, censorship-resistant inference).
+
+**When to revisit:**
+- If centralized LLM providers become too expensive or restrictive
+- If decentralized inference quality catches up to centralized providers
+- If we need censorship-resistant inference for specific use cases
+
+**Implementation:** Would integrate as an LLM provider option in `src/providers/llm.ts`, not build compute infrastructure. Add Heurist/similar as a `LLM_PROVIDER` option.
+
+**Effort:** 1-2 days to add as LLM provider option (not building compute infra).
+
+## 37. Multi-Facilitator x402 with PayAI
+
+**What:** Support multiple x402 facilitators (PayAI, Coinbase, Dexter, others) for multi-chain x402 payments.
+
+**Why defer:**
+- ClawNet currently uses Coinbase x402 on Base/Solana. PayAI adds Polygon, Avalanche, Sei, IoTeX.
+- Not urgent until demand exists on those chains.
+- §25 already covers multi-facilitator support in detail — this entry focuses specifically on PayAI as a facilitator.
+- PayAI charges $0.001/tx (first 1K free) — competitive but not compelling enough to prioritize.
+
+**When to revisit:**
+- If users request x402 on Polygon/Avalanche/Sei
+- If PayAI becomes the dominant facilitator (currently Dexter leads at ~50% market share)
+- If Coinbase facilitator has reliability issues
+
+**Effort:** 1-2 days (add facilitator abstraction in `src/payments/`). See §25 for full implementation plan.
+
+## 38. Outcome-Based Pricing (Nevermined pattern)
+
+**What:** Charge only when agent delivers verified results, not per-call.
+
+**Why defer:**
+- Requires defining "success" per endpoint/skill — complex metering and validation.
+- ClawNet's per-call + cache pricing is simpler, predictable, and proven.
+- Outcome-based pricing creates disputes ("did it really succeed?") that need arbitration infrastructure.
+- Nevermined is pioneering this but hasn't proven market-wide adoption yet.
+
+**When to revisit:**
+- If competitors (Nevermined) gain significant market share with this model
+- If enterprise customers demand outcome-based pricing
+- If our output contract validation (`output_contract_json`) matures enough to reliably define "success"
+
+**Implementation sketch:** Add `billing_mode: 'per_call' | 'outcome'` to skills. Outcome mode: charge on invoke, auto-refund if output fails validation contract within 5 minutes. Uses existing escrow infrastructure for the hold-and-release pattern.
+
+**Effort:** 1-2 weeks (new billing mode, success criteria per skill, refund logic).
+
+## 39. Agent Self-Registration (ATXP pattern)
+
+**What:** Allow agents to autonomously create their own ClawNet accounts without human developer intervention.
+
+**Why defer:**
+- Security risk — sybil attacks, abuse without human accountability.
+- ATXP ($19.2M raised, Stripe-backed) is pioneering this but it's early and unproven at scale.
+- ClawNet's self-onboard flow already provides API keys programmatically via Clerk — the gap is removing the human identity requirement entirely.
+- Without KYA (Know Your Agent) standards matured, autonomous registration is a spam vector.
+
+**When to revisit:**
+- If ATXP's model proves secure at scale
+- If agent-to-agent commerce requires zero-human-touch onboarding
+- If KYA standards (see §28) provide sufficient identity guarantees for autonomous agents
+
+**Implementation:** Add autonomous registration endpoint with rate limiting + deposit requirement (e.g., 100 credits minimum to prevent sybil). Tie to wallet identity via SIWX (see §19).
+
+**Effort:** 1-2 days (add autonomous registration endpoint with rate limiting + deposit requirement).
+
+## 40. Nested Multi-Hop Payment Chains (ATXP pattern)
+
+**What:** Track payment chains across multiple agent hops (Human → Agent A → Agent B → Tool) with full cost attribution per hop.
+
+**Why defer:**
+- ClawNet's delegated billing + composite skills already handle 2-level nesting (parent → child via `trackDelegatedSpend()`).
+- Full multi-hop adds DAG tracking complexity without clear demand.
+- ATXP is building this for Stripe-connected agents but the use case (5+ hop chains) is rare in practice.
+- Our composite-of-composite support (max depth 3, max 10 leaf invocations) covers the realistic nesting scenarios.
+
+**When to revisit:**
+- If composite-of-composite skills (depth 3+) need per-hop cost attribution
+- If cross-platform agent chains become common (Agent on ClawNet → Agent on PayAI → Tool on x402engine)
+- If ATXP's multi-hop model becomes an interoperability standard
+
+**Implementation:** Payment DAG tracking table, cross-agent settlement reconciliation, per-hop cost breakdown in receipts.
+
+**Effort:** 1 week (payment DAG tracking, cross-agent settlement).
+
 ---
 
 *Last updated: 2026-03-19*
-*Based on Artemis Agentic Commerce Market Map analysis (173 companies) — competitive research against 402.bot, Questflow, OpenServ, Blockrun, Dexter, Daydreams, PayAI, Virtuals Protocol, Bittensor, x402engine, Agoragentic, ClawIndex, x402scan, Helixa, Cred Protocol.*
+*Based on Artemis Agentic Commerce Market Map analysis (173 companies) — competitive research against 402.bot, Questflow, OpenServ, Blockrun, Dexter, Daydreams, PayAI, Virtuals Protocol, Bittensor, x402engine, Agoragentic, ClawIndex, x402scan, Helixa, Cred Protocol, machines.cash, lobster.cash, ClawPay, Railgun, Heurist, Nevermined, ATXP, Skyfire.*

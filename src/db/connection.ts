@@ -831,6 +831,34 @@ const MIGRATIONS: { version: number; sql: string }[] = [
     CREATE UNIQUE INDEX IF NOT EXISTS idx_x402_receipts_payment_hash ON x402_receipts(payment_hash);
     CREATE INDEX IF NOT EXISTS idx_x402_receipts_attestation ON x402_receipts(attestation_id);
   ` },
+  { version: 87, sql: `
+    CREATE TABLE IF NOT EXISTS agent_identities (
+      id TEXT PRIMARY KEY,
+      api_key_hash TEXT NOT NULL,
+      display_name TEXT NOT NULL,
+      description TEXT,
+      agent_type TEXT NOT NULL DEFAULT 'autonomous',
+      capabilities_json TEXT,
+      owner_verified INTEGER NOT NULL DEFAULT 0,
+      verification_method TEXT,
+      identity_jwt TEXT,
+      jwt_issued_at TEXT,
+      jwt_expires_at TEXT,
+      public_profile INTEGER NOT NULL DEFAULT 1,
+      metadata_json TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_identity_key ON agent_identities(api_key_hash);
+    CREATE INDEX IF NOT EXISTS idx_agent_identity_type ON agent_identities(agent_type);
+  ` },
+  { version: 88, sql: `
+    CREATE TABLE IF NOT EXISTS xmtp_subscribers (
+      address TEXT PRIMARY KEY,
+      api_key TEXT,
+      subscribed_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  ` },
 ];
 
 function runMigrations(): void {

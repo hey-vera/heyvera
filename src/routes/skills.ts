@@ -1651,6 +1651,63 @@ skillsRouter.get('/:id/openapi', (c) => {
   return c.json(spec);
 });
 
+// ─── GET /v1/skills/:id/erc8004 — ERC-8004 registration for a single skill ──
+
+skillsRouter.get('/:id/erc8004', (c) => {
+  const { id } = c.req.param();
+  const skill = getSkill(id);
+  if (!skill || !skill.public) return c.json({ error: 'Skill not found', code: 'SKILL_NOT_FOUND' }, 404);
+
+  const inputSchema = safeJsonParse<Record<string, unknown> | null>(skill.input_schema_json, null);
+  const outputSchema = safeJsonParse<Record<string, unknown> | null>(skill.output_schema_json, null);
+  const tags = safeJsonParse<string[]>(skill.tags_json, []);
+  const reputation = getReputationScore(skill.author_key);
+
+  return c.json({
+    schemaVersion: '1.0.0',
+    agentId: `clawnet-${id}`,
+    name: `ClawNet: ${skill.display_name ?? skill.name}`,
+    description: skill.description,
+    url: env.CLAWNET_BASE_URL,
+    capabilities: {
+      streaming: false,
+      pushNotifications: false,
+      stateTransitionHistory: true,
+    },
+    authentication: {
+      schemes: [
+        { scheme: 'apiKey', header: 'X-API-Key', format: 'cn-*' },
+        { scheme: 'x402', network: env.X402_NETWORK },
+      ],
+    },
+    skills: [{
+      id,
+      name: skill.display_name ?? skill.name,
+      description: skill.description,
+      tags,
+      inputSchema: inputSchema ?? { type: 'object', properties: {} },
+      outputSchema: outputSchema ?? { type: 'object', properties: {} },
+      pricing: {
+        model: 'per_call',
+        creditCost: skill.credit_cost,
+        currency: 'USDC',
+        estimatedCostUsd: skill.credit_cost / env.CREDITS_PER_USD,
+      },
+    }],
+    reputation: {
+      totalInvocations: skill.uses,
+      avgRating: skill.avg_rating,
+      successRate: skill.success_rate,
+      verified: skill.security_status === 'VERIFIED',
+    },
+    provider: {
+      name: 'ClawNet',
+      url: 'https://claw-net.org',
+      contact: 'team@claw-net.org',
+    },
+  });
+});
+
 // ─── POST /v1/skills/batch-query — parallel multi-skill queries ─────────────
 
 skillsRouter.post('/batch-query', checkApiKey, async (c) => {

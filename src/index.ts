@@ -16,6 +16,7 @@ import { startHeartbeat } from './core/heartbeat';
 import { setupGracefulShutdown, setHttpServer } from './utils/shutdown';
 import { feedbackRouter } from './routes/feedback';
 import { initTelegram, stopTelegram } from './integrations/telegram';
+import { initXmtp, stopXmtp } from './integrations/xmtp';
 import { initDb, getDb } from './db/index';
 import { adminRouter } from './routes/admin';
 import { initClawApis } from './providers/clawapis';
@@ -52,9 +53,12 @@ import { openclawCompatRouter } from './routes/openclaw-compat';
 import { sponsorshipRouter } from './routes/sponsorship';
 import { llmsTxtRouter } from './routes/llms';
 import { wellKnownRouter } from './routes/well-known';
+import { a2aRouter } from './routes/a2a';
+import { erc8004Router } from './routes/erc8004';
 import { vieRouter } from './routes/vie';
 import { manifestRouter } from './routes/manifest';
 import { attestRouter } from './routes/attest';
+import { identityRouter } from './routes/identity';
 import { contextEngineRouter } from './routes/context-engine';
 import { agentTrustRouter } from './routes/agent-trust';
 import { predictiveAlertsRouter } from './routes/predictive-alerts';
@@ -249,6 +253,7 @@ app.route('/v1/validators', validatorsRouter);
 app.route('/v1/vie', vieRouter);
 app.route('/v1/manifest', manifestRouter);
 app.route('/v1/attest', attestRouter);
+app.route('/v1/identity', identityRouter);
 app.route('/v1/intel/context', contextEngineRouter);
 app.route('/v1/intel/trust', agentTrustRouter);
 app.route('/v1/intel/alerts', predictiveAlertsRouter);
@@ -265,6 +270,8 @@ app.route('/v1/sponsorships', sponsorshipRouter);
 app.route('/v1/bounties', bountiesRouter);
 app.route('/llms.txt', llmsTxtRouter);
 app.route('/.well-known', wellKnownRouter);
+app.route('/a2a', a2aRouter);
+app.route('/v1/erc8004', erc8004Router);
 app.route('/mcp', mcpHttpRouter);
 app.route('/mcp/x402', x402McpRouter);
 app.route('/v1/stats/telemetry', statsTelemetryRouter);
@@ -295,6 +302,9 @@ async function start() {
   let meshActive = false;
   try { await initTelegram(); } catch (err) {
     logger.error({ err }, 'Telegram init failed — continuing without bot');
+  }
+  try { await initXmtp(); } catch (err) {
+    logger.error({ err }, 'XMTP init failed — continuing without bot');
   }
   try { await startMeshNode(); meshActive = true; } catch (err) {
     logger.error({ err }, 'Mesh node init failed — continuing without P2P');
@@ -338,5 +348,6 @@ async function start() {
 start().catch(async (err) => {
   logger.error({ err }, 'Failed to start server');
   await stopTelegram();
+  await stopXmtp();
   process.exit(1);
 });

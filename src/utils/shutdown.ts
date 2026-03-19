@@ -73,6 +73,13 @@ export function setupGracefulShutdown() {
       logger.warn({ err }, 'Error stopping Telegram');
     }
 
+    try {
+      const { stopXmtp } = await import('../integrations/xmtp');
+      await stopXmtp();
+    } catch (err) {
+      logger.warn({ err }, 'Error stopping XMTP');
+    }
+
     // 5. Close DB and Redis last
     closeDb();
 

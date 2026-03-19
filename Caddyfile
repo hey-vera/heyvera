@@ -35,6 +35,9 @@ claw-net.org, www.claw-net.org {
 	handle /.well-known/* {
 		reverse_proxy localhost:3402
 	}
+	handle /a2a/* {
+		reverse_proxy localhost:3402
+	}
 	handle /llms.txt {
 		reverse_proxy localhost:3402
 	}

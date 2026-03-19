@@ -39,6 +39,9 @@ const envSchema = z.object({
   TELEGRAM_CHANNEL_ID: z.string().optional(),
   TELEGRAM_ALLOWED_USER_IDS: z.string().optional(), // Comma-separated Telegram user IDs for bot access control
 
+  XMTP_BOT_PRIVATE_KEY: z.string().optional(), // Hex-encoded private key for XMTP bot identity
+  XMTP_ALLOWED_ADDRESSES: z.string().optional(), // Comma-separated XMTP addresses for bot access control
+
   SOLANA_PRIVATE_KEY: z.string().optional(),
   EVM_PRIVATE_KEY: z.string().optional(), // Base/EVM wallet private key for paying x402 APIs on Base chain
   X402_X_API_URL: z.string().default('https://clawapis.com'),

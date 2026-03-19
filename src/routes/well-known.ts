@@ -233,6 +233,62 @@ router.get('/x402.json', (c) => {
   });
 });
 
+// ── GET /agent.json — A2A Agent Card (Google Agent-to-Agent protocol v0.3.0) ──
+router.get('/agent.json', (c) => {
+  return c.json({
+    name: 'ClawNet',
+    description: 'AI agent orchestration with 390+ live APIs, skill marketplace, and cryptographic receipts',
+    url: env.CLAWNET_BASE_URL,
+    version: '1.0.0',
+    protocolVersion: '0.3.0',
+    capabilities: {
+      streaming: false,
+      pushNotifications: false,
+      stateTransitionHistory: true,
+    },
+    skills: [
+      {
+        id: 'orchestrate',
+        name: 'AI Orchestration',
+        description: 'Query 390+ APIs via natural language with budget controls and strategy optimization',
+        tags: ['orchestration', 'api', 'ai', 'multi-provider'],
+        inputModes: ['application/json'],
+        outputModes: ['application/json'],
+      },
+      {
+        id: 'invoke-skill',
+        name: 'Skill Invocation',
+        description: 'Invoke marketplace skills by ID with template variables',
+        tags: ['skills', 'marketplace', 'data'],
+        inputModes: ['application/json'],
+        outputModes: ['application/json'],
+      },
+      {
+        id: 'verify',
+        name: 'Manifest Verification',
+        description: 'Verify data integrity and trust scoring before agent actions',
+        tags: ['verification', 'trust', 'manifest'],
+        inputModes: ['application/json'],
+        outputModes: ['application/json'],
+      },
+      {
+        id: 'attest',
+        name: 'Attestation',
+        description: 'Cryptographic proof of agent actions with HMAC-SHA256 signatures',
+        tags: ['attestation', 'proof', 'cryptographic'],
+        inputModes: ['application/json'],
+        outputModes: ['application/json'],
+      },
+    ],
+    authentication: {
+      schemes: ['apiKey'],
+      credentials: null,
+    },
+    defaultInputModes: ['application/json'],
+    defaultOutputModes: ['application/json'],
+  });
+});
+
 // ── GET /agent-registration.json — agent onboarding discovery ────────────
 router.get('/agent-registration.json', (c) => {
   return c.json({
@@ -256,6 +312,49 @@ router.get('/agent-registration.json', (c) => {
         description: 'Connect via MCP. No API key needed for browsing.',
         endpoint: '/mcp',
       },
+    },
+  });
+});
+
+// ── GET /erc8004.json — ERC-8004 platform-level agent card ──────────────
+router.get('/erc8004.json', (c) => {
+  return c.json({
+    schemaVersion: '1.0.0',
+    agentId: 'clawnet-platform',
+    name: 'ClawNet',
+    description: 'Universal AI agent orchestration layer — 390+ API endpoints, skill marketplace, x402 payments',
+    url: env.CLAWNET_BASE_URL,
+    capabilities: {
+      streaming: true,
+      pushNotifications: false,
+      stateTransitionHistory: true,
+    },
+    authentication: {
+      schemes: [
+        { scheme: 'apiKey', header: 'X-API-Key', format: 'cn-*' },
+        { scheme: 'x402', network: env.X402_NETWORK },
+        { scheme: 'bearer', header: 'Authorization', description: 'Clerk JWT' },
+      ],
+    },
+    skills: [],
+    skillCatalog: `${env.CLAWNET_BASE_URL}/v1/erc8004/catalog`,
+    endpoints: {
+      catalog: '/v1/erc8004/catalog',
+      skillCard: '/v1/skills/:id/erc8004',
+      orchestrate: '/v1/orchestrate',
+      invoke: '/v1/skills/:id/invoke',
+      marketplace: '/v1/marketplace/skills',
+    },
+    reputation: {
+      totalInvocations: null,
+      avgRating: null,
+      successRate: null,
+      verified: true,
+    },
+    provider: {
+      name: 'ClawNet',
+      url: 'https://claw-net.org',
+      contact: 'team@claw-net.org',
     },
   });
 });
