@@ -2709,6 +2709,36 @@ app.post('/webhooks/clawnet', express.raw({ type: 'application/json' }), (req, r
         <p class="endpoint-desc">Generate text embeddings. Same format as the OpenAI embeddings API.</p>
         <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
       </div>
+
+      <h4>LLM Reseller</h4>
+      <p class="endpoint-desc">Build your own LLM product on top of ClawNet. Set a custom markup, restrict models, and let your users call the API through delegated keys. Your users see the marked-up price. You keep the spread.</p>
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge put">PUT</span><code class="endpoint-path">/v1/llm/reseller</code></div>
+        <p class="endpoint-desc">Configure reseller settings &mdash; markup percentage (0&ndash;500%), allowed models, per-child rate limit, and custom billing label.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code> (parent key only)</div>
+        <div class="code-block">
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <pre><code>curl -X PUT https://api.claw-net.org/v1/llm/reseller \
+  -H "X-API-Key: cn-your-key-here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "markup_pct": 30,
+    "models_allowed": ["gpt-4o-mini", "claude-haiku-4-5", "deepseek-v3"],
+    "rate_limit_per_child": 60,
+    "billing_label": "MyCompany AI"
+  }'</code></pre>
+        </div>
+      </div>
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/llm/reseller</code></div>
+        <p class="endpoint-desc">View your current reseller configuration.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+      </div>
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge delete">DELETE</span><code class="endpoint-path">/v1/llm/reseller</code></div>
+        <p class="endpoint-desc">Remove reseller configuration. Child keys will revert to base pricing.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code> (parent key only)</div>
+      </div>
     </div>
 
     <!-- ═══════════════════════════════════════════════ VERIFIED INTELLIGENCE ENGINE ═══════════════════════════════════════════════ -->

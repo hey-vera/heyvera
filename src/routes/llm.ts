@@ -24,7 +24,7 @@ import { z } from 'zod';
 import crypto from 'crypto';
 import { checkApiKey } from '../middleware/auth';
 import { trackDelegatedSpend } from '../utils/billing';
-import { deductCredit, getDb } from '../db/index';
+import { deductCredit, getDb, getResellerConfig, upsertResellerConfig, deleteResellerConfig } from '../db/index';
 import { round6, cacheCreditCost } from '../core/credits';
 import { cacheGet, cacheSet, cacheIncr } from '../cache/index';
 import { clawApiCall } from '../providers/clawapis';
@@ -155,14 +155,50 @@ llmRouter.post('/chat', checkApiKey, async (c) => {
     }, 400);
   }
 
-  const creditCost = round6(modelMeta.creditCost * MARKUP);
+  const baseCreditCost = round6(modelMeta.creditCost * MARKUP);
 
-  // Pre-flight credit check
+  // Reseller markup — check if this is a delegated key with a reseller parent
+  let resellerMarkup = 0;
+  let resellerLabel: string | null = null;
+  let resellerConfig: ReturnType<typeof getResellerConfig> = null;
+
+  if (keyInfo.delegatedFrom && keyInfo.delegation?.parentKey) {
+    resellerConfig = getResellerConfig(keyInfo.delegation.parentKey);
+    if (resellerConfig && resellerConfig.active) {
+      // Check model allowed
+      if (resellerConfig.models_allowed) {
+        try {
+          const allowed = JSON.parse(resellerConfig.models_allowed) as string[];
+          if (!allowed.includes(model)) {
+            return c.json({ error: 'Model not available on this plan', code: 'MODEL_NOT_ALLOWED' }, 403);
+          }
+        } catch { /* malformed JSON = allow all */ }
+      }
+      // Check per-child rate limit (overrides tier limit)
+      if (resellerConfig.rate_limit_per_child) {
+        const childRlCount = await cacheIncr(`rl:llm:reseller:${keyInfo.delegatedFrom}`, 60);
+        if (childRlCount > resellerConfig.rate_limit_per_child) {
+          return c.json({
+            error: 'Rate limit exceeded',
+            code: 'RATE_LIMITED',
+            limit: resellerConfig.rate_limit_per_child,
+          }, 429);
+        }
+      }
+      resellerMarkup = round6(baseCreditCost * (resellerConfig.markup_pct / 100));
+      resellerLabel = resellerConfig.billing_label;
+    }
+  }
+
+  const creditCost = baseCreditCost;
+  const markedUpCost = round6(baseCreditCost + resellerMarkup);
+
+  // Pre-flight credit check (against base cost — parent pays base rate)
   if (!keyInfo.isEnvKey && keyInfo.credits < creditCost) {
     return c.json({
       error: 'Insufficient credits',
       code: 'INSUFFICIENT_CREDITS',
-      creditsRequired: creditCost,
+      creditsRequired: resellerMarkup > 0 ? markedUpCost : creditCost,
       creditsAvailable: keyInfo.credits,
       model,
       hint: 'Top up at claw-net.org',
@@ -175,6 +211,7 @@ llmRouter.post('/chat', checkApiKey, async (c) => {
   if (cached) {
     // Proportional cache pricing — 10% of live cost, min 0.1 credits
     const cacheCredits = cacheCreditCost(creditCost);
+    const cacheMarkup = resellerMarkup > 0 ? round6(cacheCreditCost(markedUpCost) - cacheCredits) : 0;
     if (!keyInfo.isEnvKey) {
       if (keyInfo.credits < cacheCredits) {
         return c.json({ error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS', creditsAvailable: keyInfo.credits }, 402);
@@ -183,10 +220,14 @@ llmRouter.post('/chat', checkApiKey, async (c) => {
       if (!deducted) {
         return c.json({ error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS' }, 402);
       }
-      trackDelegatedSpend(keyInfo, cacheCredits);
+      // Track marked-up cost on child so reseller can reconcile
+      trackDelegatedSpend(keyInfo, round6(cacheCredits + cacheMarkup));
     }
     logger.info({ model, cached: true, creditsUsed: cacheCredits }, 'LLM cache hit');
-    return c.json({ ...cached, cached: true, creditsCharged: cacheCredits });
+    const cachedChargedAmount = resellerMarkup > 0 ? round6(cacheCredits + cacheMarkup) : cacheCredits;
+    const cachedResponse: Record<string, unknown> = { ...cached, cached: true, creditsCharged: cachedChargedAmount };
+    if (resellerLabel) cachedResponse.billingLabel = resellerLabel;
+    return c.json(cachedResponse);
   }
 
   logger.info({ model, messages: messages.length, credits: creditCost }, 'LLM proxy request');
@@ -215,7 +256,7 @@ llmRouter.post('/chat', checkApiKey, async (c) => {
       X402ENGINE_BASE,
     ) as Record<string, unknown>;
 
-    // Deduct credits atomically
+    // Deduct BASE credits from the billing key (parent pays ClawNet the real cost)
     if (!keyInfo.isEnvKey) {
       let ok = false;
       try {
@@ -227,7 +268,8 @@ llmRouter.post('/chat', checkApiKey, async (c) => {
       if (!ok) {
         return c.json({ error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS' }, 402);
       }
-      trackDelegatedSpend(keyInfo, creditCost);
+      // Track marked-up cost on child so reseller can reconcile the spread
+      trackDelegatedSpend(keyInfo, resellerMarkup > 0 ? markedUpCost : creditCost);
     }
 
     // Normalize response to OpenAI format
@@ -235,7 +277,9 @@ llmRouter.post('/chat', checkApiKey, async (c) => {
     const content = result.content ?? result.text ?? choices?.[0]?.message?.content ?? JSON.stringify(result);
     const usage = result.usage ?? { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
 
-    const response = {
+    // Child sees the marked-up cost; direct callers see the base cost
+    const chargedAmount = resellerMarkup > 0 ? markedUpCost : creditCost;
+    const response: Record<string, unknown> = {
       id: `llm-${Date.now()}`,
       object: 'chat.completion',
       model,
@@ -245,9 +289,10 @@ llmRouter.post('/chat', checkApiKey, async (c) => {
         finish_reason: result.finishReason ?? result.finish_reason ?? 'stop',
       }],
       usage,
-      creditsCharged: creditCost,
+      creditsCharged: chargedAmount,
       poweredBy: 'x402engine via ClawNet',
     };
+    if (resellerLabel) response.billingLabel = resellerLabel;
 
     // Cache for 5 min (non-creative queries benefit from caching)
     await cacheSet(cacheKey, response, 300);
@@ -380,4 +425,103 @@ llmRouter.post('/code/run', checkApiKey, async (c) => {
     logger.error({ err }, 'Code run proxy error');
     return c.json({ error: 'Code execution failed', code: 'CODE_EXECUTION_FAILED', details: env.NODE_ENV === 'production' ? 'Internal error' : String(err) }, 500);
   }
+});
+
+// ─── Reseller Management ──────────────────────────────────────────────────────
+
+const ResellerConfigSchema = z.object({
+  markup_pct: z.number().min(0).max(500).optional(),
+  models_allowed: z.array(z.string()).nullable().optional(),
+  rate_limit_per_child: z.number().int().min(1).max(10000).nullable().optional(),
+  billing_label: z.string().max(100).nullable().optional(),
+});
+
+// PUT /v1/llm/reseller — Configure reseller settings
+llmRouter.put('/reseller', checkApiKey, async (c) => {
+  const keyInfo = c.get('apiKeyInfo');
+
+  // Delegated keys cannot configure reseller — only parent keys
+  if (keyInfo.delegatedFrom) {
+    return c.json({ error: 'Delegated keys cannot configure reseller settings', code: 'NOT_PARENT_KEY' }, 403);
+  }
+
+  let rawBody: unknown;
+  try { rawBody = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON', code: 'INVALID_JSON' }, 400); }
+
+  const parsed = ResellerConfigSchema.safeParse(rawBody);
+  if (!parsed.success) {
+    return c.json({ error: 'Invalid request', code: 'VALIDATION_ERROR', details: parsed.error.flatten().fieldErrors }, 400);
+  }
+
+  const { markup_pct, models_allowed, rate_limit_per_child, billing_label } = parsed.data;
+
+  // Validate model IDs if provided
+  if (models_allowed) {
+    const validModels = Object.keys(LLM_MODELS);
+    const invalid = models_allowed.filter((m) => !validModels.includes(m));
+    if (invalid.length > 0) {
+      return c.json({ error: 'Unknown models in models_allowed', code: 'UNKNOWN_MODEL', invalidModels: invalid, validModels }, 400);
+    }
+  }
+
+  upsertResellerConfig(keyInfo.key, {
+    markup_pct,
+    models_allowed: models_allowed !== undefined ? (models_allowed ? JSON.stringify(models_allowed) : null) : undefined,
+    rate_limit_per_child,
+    billing_label,
+    active: 1,
+  });
+
+  const config = getResellerConfig(keyInfo.key);
+  return c.json({
+    ok: true,
+    config: {
+      markup_pct: config!.markup_pct,
+      models_allowed: config!.models_allowed ? JSON.parse(config!.models_allowed) : null,
+      rate_limit_per_child: config!.rate_limit_per_child,
+      billing_label: config!.billing_label,
+      active: !!config!.active,
+      created_at: config!.created_at,
+      updated_at: config!.updated_at,
+    },
+  });
+});
+
+// GET /v1/llm/reseller — Get current reseller config
+llmRouter.get('/reseller', checkApiKey, async (c) => {
+  const keyInfo = c.get('apiKeyInfo');
+  const lookupKey = keyInfo.delegation?.parentKey ?? keyInfo.key;
+  const config = getResellerConfig(lookupKey);
+
+  if (!config) {
+    return c.json({ error: 'No reseller config found', code: 'NOT_FOUND' }, 404);
+  }
+
+  return c.json({
+    config: {
+      markup_pct: config.markup_pct,
+      models_allowed: config.models_allowed ? JSON.parse(config.models_allowed) : null,
+      rate_limit_per_child: config.rate_limit_per_child,
+      billing_label: config.billing_label,
+      active: !!config.active,
+      created_at: config.created_at,
+      updated_at: config.updated_at,
+    },
+  });
+});
+
+// DELETE /v1/llm/reseller — Remove reseller config
+llmRouter.delete('/reseller', checkApiKey, async (c) => {
+  const keyInfo = c.get('apiKeyInfo');
+
+  if (keyInfo.delegatedFrom) {
+    return c.json({ error: 'Delegated keys cannot modify reseller settings', code: 'NOT_PARENT_KEY' }, 403);
+  }
+
+  const deleted = deleteResellerConfig(keyInfo.key);
+  if (!deleted) {
+    return c.json({ error: 'No active reseller config found', code: 'NOT_FOUND' }, 404);
+  }
+
+  return c.json({ ok: true, message: 'Reseller config deactivated' });
 });

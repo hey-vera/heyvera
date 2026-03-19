@@ -801,6 +801,18 @@ const MIGRATIONS: { version: number; sql: string }[] = [
       last_attestation_at TEXT,
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )` },
+  // v81: LLM reseller — per-key markup, model restrictions, child rate limits
+  { version: 81, sql: `
+    CREATE TABLE IF NOT EXISTS reseller_configs (
+      api_key TEXT PRIMARY KEY,
+      markup_pct REAL NOT NULL DEFAULT 0,
+      models_allowed TEXT,
+      rate_limit_per_child INTEGER,
+      billing_label TEXT,
+      active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )` },
 ];
 
 function runMigrations(): void {
