@@ -2739,6 +2739,30 @@ app.post('/webhooks/clawnet', express.raw({ type: 'application/json' }), (req, r
         <p class="endpoint-desc">Remove reseller configuration. Child keys will revert to base pricing.</p>
         <div class="endpoint-auth">Requires: <code>X-API-Key</code> (parent key only)</div>
       </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/llm/reseller/provision</code></div>
+        <p class="endpoint-desc">Create a ready-to-use API key for one of your app's users. The key inherits your markup and model restrictions automatically. One call per user signup.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code> (parent key with active reseller config)</div>
+        <div class="code-block">
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <pre><code>curl -X POST https://api.claw-net.org/v1/llm/reseller/provision \
+  -H "X-API-Key: cn-your-key-here" \
+  -H "Content-Type: application/json" \
+  -d '{"label": "user-123", "spend_limit": 5000}'</code></pre>
+        </div>
+        <h4>Response</h4>
+        <div class="code-block"><pre><code>{
+  "ok": true,
+  "key": "cn-abc123...",
+  "label": "user-123",
+  "spend_limit": 5000,
+  "markup_pct": 20,
+  "models_allowed": "all",
+  "endpoint": "POST /v1/llm/chat",
+  "note": "Give this key to your user. They call /v1/llm/chat with it."
+}</code></pre></div>
+      </div>
     </div>
 
     <!-- ═══════════════════════════════════════════════ VERIFIED INTELLIGENCE ENGINE ═══════════════════════════════════════════════ -->

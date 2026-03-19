@@ -511,6 +511,48 @@ llmRouter.get('/reseller', checkApiKey, async (c) => {
 });
 
 // DELETE /v1/llm/reseller — Remove reseller config
+// POST /v1/llm/reseller/provision — Create a ready-to-use key for a reseller's customer
+llmRouter.post('/reseller/provision', checkApiKey, async (c) => {
+  const keyInfo = c.get('apiKeyInfo');
+
+  if (keyInfo.delegatedFrom) {
+    return c.json({ error: 'Delegated keys cannot provision sub-keys', code: 'NOT_PARENT_KEY' }, 403);
+  }
+
+  // Must have an active reseller config
+  const config = getResellerConfig(keyInfo.key);
+  if (!config || !config.active) {
+    return c.json({ error: 'No active reseller config. Set one first with PUT /v1/llm/reseller', code: 'NO_RESELLER_CONFIG' }, 400);
+  }
+
+  const body = await c.req.json().catch(() => ({}));
+  const label = typeof body.label === 'string' ? body.label.slice(0, 100) : undefined;
+  const spendLimit = typeof body.spend_limit === 'number' ? Math.min(Math.max(body.spend_limit, 10), 1_000_000) : 10000;
+
+  const { createDelegatedKey } = await import('../db/transfers');
+  const result = createDelegatedKey({
+    parentKey: keyInfo.key,
+    label: label || 'reseller-user',
+    spendLimit,
+    permissions: ['llm:chat'],
+  });
+
+  if (!result.ok) {
+    return c.json({ error: result.error || 'Failed to create key', code: 'PROVISION_FAILED' }, 400);
+  }
+
+  return c.json({
+    ok: true,
+    key: result.childKey,
+    label: label || 'reseller-user',
+    spend_limit: spendLimit,
+    markup_pct: config.markup_pct,
+    models_allowed: config.models_allowed ? JSON.parse(config.models_allowed) : 'all',
+    endpoint: 'POST /v1/llm/chat',
+    note: 'Give this key to your user. They call /v1/llm/chat with it. Credits are billed at your markup rate.',
+  });
+});
+
 llmRouter.delete('/reseller', checkApiKey, async (c) => {
   const keyInfo = c.get('apiKeyInfo');
 
