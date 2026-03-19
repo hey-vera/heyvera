@@ -1,0 +1,46 @@
+# ClawNet — Caddy reverse proxy config
+# Deploy to /etc/caddy/Caddyfile on guardian-vps
+#
+# Static site:  /var/www/claw-net/ (clean URLs, no .html extensions)
+# API:          localhost:3402 (Hono, Docker)
+
+claw-net.org, www.claw-net.org {
+	# Static site — clean URLs
+	root * /var/www/claw-net
+
+	# Clean URL rewrite: /endpoints → endpoints.html
+	# Order: exact path → path.html → path/index.html → 404
+	try_files {path} {path}.html {path}/index.html
+
+	file_server
+
+	# API reverse proxy — all /v1/*, /x402/*, /mcp/*, /health, etc.
+	handle /v1/* {
+		reverse_proxy localhost:3402
+	}
+	handle /x402/* {
+		reverse_proxy localhost:3402
+	}
+	handle /mcp/* {
+		reverse_proxy localhost:3402
+	}
+	handle /health {
+		reverse_proxy localhost:3402
+	}
+	handle /.well-known/* {
+		reverse_proxy localhost:3402
+	}
+	handle /llms.txt {
+		reverse_proxy localhost:3402
+	}
+	handle /llms.txt/* {
+		reverse_proxy localhost:3402
+	}
+
+	# Security headers
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+	}
+}

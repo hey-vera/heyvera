@@ -495,11 +495,11 @@
       <ul class="nav-links">
         <li><a href="/">Home</a></li>
         <li><a href="/#pricing">Pricing</a></li>
-        <li><a href="/docs.html">Docs</a></li>
-        <li><a href="/marketplace.html">Marketplace</a></li>
-        <li><a href="/roadmap.html">Roadmap</a></li>
-        <li><a href="/endpoints.html">Endpoints</a></li>
-        <li><a href="/playground.html">Playground</a></li>
+        <li><a href="/docs">Docs</a></li>
+        <li><a href="/marketplace">Marketplace</a></li>
+        <li><a href="/roadmap">Roadmap</a></li>
+        <li><a href="/endpoints">Endpoints</a></li>
+        <li><a href="/playground">Playground</a></li>
         <li><a href="https://x.com/i/communities/2031805527043576245" target="_blank" rel="noopener" title="Follow on X" style="padding:6px 8px;display:flex;align-items:center"><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.748l7.73-8.835L1.254 2.25H8.08l4.253 5.622 5.91-5.622zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg></a></li>
       </ul>
       <button class="hamburger" onclick="document.getElementById('mobileMenu').classList.toggle('open')" aria-label="Menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
@@ -512,12 +512,12 @@
       <div class="nav-status" id="navApiStatus"><span class="status-dot" id="statusDot"></span><span id="statusLabel">Checking...</span></div>
       <div class="nav-credits" id="nav-credits-badge"><svg width="14" height="14" viewBox="0 0 24 24" style="vertical-align:-2px;flex-shrink:0;margin-right:2px"><circle cx="12" cy="12" r="11" fill="#92400e"/><circle cx="12" cy="12" r="9.5" fill="#f59e0b"/><circle cx="12" cy="12" r="7.5" fill="#fbbf24"/><path d="M8.5 7.5 Q12 5.5 15.5 8" stroke="rgba(255,255,255,0.45)" stroke-width="1.5" fill="none" stroke-linecap="round"/><text x="12" y="16.5" text-anchor="middle" font-size="10" font-weight="800" fill="#78350f" font-family="Arial,sans-serif">C</text></svg> <span id="nav-credits-num">&mdash;</span> credits</div>
       <span class="nav-email" id="nav-user-email"></span>
-      <a href="/login.html" class="nav-btn-ghost" id="nav-login-btn">Sign In</a>
-      <a href="/dashboard.html" class="nav-btn-ghost" id="nav-dash-btn">Dashboard</a>
+      <a href="/login" class="nav-btn-ghost" id="nav-login-btn">Sign In</a>
+      <a href="/dashboard" class="nav-btn-ghost" id="nav-dash-btn">Dashboard</a>
       <button class="nav-btn-ghost danger" id="nav-signout-btn" onclick="navSignOut()" style="cursor:pointer">Sign Out</button>
     </div>
   </nav>
-  <div class="mobile-menu" id="mobileMenu"><a href="/">Home</a><a href="/docs.html">Docs</a><a href="/marketplace.html">Marketplace</a><a href="/roadmap.html">Roadmap</a><a href="/endpoints.html">Endpoints</a><a href="/playground.html">Playground</a><a href="/dashboard.html">Dashboard</a></div>
+  <div class="mobile-menu" id="mobileMenu"><a href="/">Home</a><a href="/docs">Docs</a><a href="/marketplace">Marketplace</a><a href="/roadmap">Roadmap</a><a href="/endpoints">Endpoints</a><a href="/playground">Playground</a><a href="/dashboard">Dashboard</a></div>
 
   <main>
     <div id="loading-state" class="loading-state">
@@ -674,7 +674,7 @@
           <thead><tr><th>Task ID</th><th>Skill</th><th>Status</th><th>Credits</th><th>Duration</th><th>Created</th></tr></thead>
           <tbody id="task-tbody"></tbody>
         </table>
-        <div class="table-empty hidden" id="task-empty">No tasks yet. Invoke a skill from the <a href="/marketplace.html" style="color:var(--accent)">Marketplace</a> to see your history here.</div>
+        <div class="table-empty hidden" id="task-empty">No tasks yet. Invoke a skill from the <a href="/marketplace" style="color:var(--accent)">Marketplace</a> to see your history here.</div>
       </div>
 
       <!-- Usage Breakdown (NEW) -->
@@ -798,8 +798,8 @@
     <div class="footer-left">
       <a href="/" class="footer-logo"><span class="nav-logo-text">Claw <span>Network</span></span></a>
       <ul class="footer-links">
-        <li><a href="/">Home</a></li><li><a href="/docs.html">Docs</a></li><li><a href="/#pricing">Pricing</a></li><li><a href="/marketplace.html">Marketplace</a></li>
-        <li><a href="/endpoints.html">Endpoints</a></li><li><a href="https://github.com/1xmint" target="_blank">GitHub</a></li>
+        <li><a href="/">Home</a></li><li><a href="/docs">Docs</a></li><li><a href="/#pricing">Pricing</a></li><li><a href="/marketplace">Marketplace</a></li>
+        <li><a href="/endpoints">Endpoints</a></li><li><a href="https://github.com/1xmint" target="_blank">GitHub</a></li>
         <li><a href="https://t.me/claw_net" target="_blank">Telegram</a></li><li><a href="#contact">Contact</a></li>
       </ul>
     </div>
@@ -960,7 +960,7 @@
         const token=await window.Clerk?.session?.getToken();
         const res=await fetch(`${API_BASE}/v1/dashboard/me`,{headers:{Authorization:`Bearer ${token}`}});
         let data; try{data=await res.json();}catch{throw new Error(`Server returned non-JSON (status ${res.status})`);}
-        if(res.status===401){window.location.href='/login.html';return;}
+        if(res.status===401){window.location.href='/login';return;}
         document.getElementById('loading-state').classList.add('hidden');
         if(!res.ok||!data.hasKey){document.getElementById('no-key-state').classList.remove('hidden');return;}
         document.getElementById('dashboard').classList.remove('hidden');
@@ -1147,7 +1147,7 @@
         </div>
         <div style="margin-bottom:16px">
           <div style="font-size:12px;font-weight:500;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:10px">Your Skills</div>
-          <div id="creator-skills-list">${data.skills.length === 0 ? '<div style="color:var(--text-muted);font-size:13px;padding:12px 0">No skills published yet. <a href="/docs.html#skills" style="color:var(--accent)">Create your first skill</a></div>' : ''}</div>
+          <div id="creator-skills-list">${data.skills.length === 0 ? '<div style="color:var(--text-muted);font-size:13px;padding:12px 0">No skills published yet. <a href="/docs#skills" style="color:var(--accent)">Create your first skill</a></div>' : ''}</div>
         </div>
         ${data.withdrawals.length > 0 ? `
         <div>
@@ -1464,7 +1464,7 @@
     }
 
     // ── INIT ──
-    async function init(){try{await window.Clerk.load();}catch(e){document.getElementById('loading-state').innerHTML='<p style="color:var(--danger);font-size:13px">Authentication unavailable. Please refresh.</p>';return;}if(!window.Clerk.user){const p=new URLSearchParams(window.location.search);const c=p.get('claim_session')??p.get('claim');window.location.href=c?`/login.html?claim=${c}`:'/login.html';return;}document.getElementById('nav-user-email').textContent=window.Clerk.user.primaryEmailAddress?.emailAddress??'';document.getElementById('nav-user-email').classList.add('show');document.getElementById('nav-dash-btn').classList.add('show');document.getElementById('nav-signout-btn').classList.add('show');document.getElementById('nav-login-btn').style.display='none';const cachedCr=localStorage.getItem('clawnet_credits');document.getElementById('nav-credits-num').textContent=cachedCr!==null?parseInt(cachedCr).toLocaleString():'\u2014';document.getElementById('nav-credits-badge').classList.add('show');const p=new URLSearchParams(window.location.search);const cs=p.get('claim_session'),cr=p.get('claim');if(cs)await autoClaimSession(cs);if(cr){showClaimNotice(cr);window.history.replaceState({},'','/dashboard.html');}await loadDashboard();checkCreator();checkAdmin();checkReseller();}
+    async function init(){try{await window.Clerk.load();}catch(e){document.getElementById('loading-state').innerHTML='<p style="color:var(--danger);font-size:13px">Authentication unavailable. Please refresh.</p>';return;}if(!window.Clerk.user){const p=new URLSearchParams(window.location.search);const c=p.get('claim_session')??p.get('claim');window.location.href=c?`/login?claim=${c}`:'/login';return;}document.getElementById('nav-user-email').textContent=window.Clerk.user.primaryEmailAddress?.emailAddress??'';document.getElementById('nav-user-email').classList.add('show');document.getElementById('nav-dash-btn').classList.add('show');document.getElementById('nav-signout-btn').classList.add('show');document.getElementById('nav-login-btn').style.display='none';const cachedCr=localStorage.getItem('clawnet_credits');document.getElementById('nav-credits-num').textContent=cachedCr!==null?parseInt(cachedCr).toLocaleString():'\u2014';document.getElementById('nav-credits-badge').classList.add('show');const p=new URLSearchParams(window.location.search);const cs=p.get('claim_session'),cr=p.get('claim');if(cs)await autoClaimSession(cs);if(cr){showClaimNotice(cr);window.history.replaceState({},'','/dashboard');}await loadDashboard();checkCreator();checkAdmin();checkReseller();}
     async function autoClaimSession(sessionId){try{const token=await window.Clerk?.session?.getToken();await fetch(`${API_BASE}/v1/dashboard/claim-session`,{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({sessionId})});}catch(err){console.error('Auto-claim failed:',err);}}
     init();
   </script>

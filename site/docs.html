@@ -7,7 +7,7 @@
   <meta name="description" content="ClawNet documentation. Quick start guide, core concepts, full API reference, and advanced features for AI agent orchestration.">
   <meta property="og:title" content="Documentation — ClawNet">
   <meta property="og:type" content="website">
-  <meta property="og:url" content="https://claw-net.org/docs.html">
+  <meta property="og:url" content="https://claw-net.org/docs">
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
@@ -248,22 +248,22 @@
       <button class="dropdown-toggle">Products &#9662;</button>
       <div class="dropdown-menu">
         <a href="https://pulse.claw-net.org">Pulse &mdash; AI Marketing</a>
-        <a href="/roadmap.html">Radar &mdash; Trading (Coming Soon)</a>
-        <a href="/manifest.html">Manifest &mdash; Verification</a>
-        <a href="/attestation.html">Attestation &mdash; Proof</a>
+        <a href="/roadmap">Radar &mdash; Trading (Coming Soon)</a>
+        <a href="/manifest">Manifest &mdash; Verification</a>
+        <a href="/attestation">Attestation &mdash; Proof</a>
         <a href="/#pricing">Pricing</a>
       </div>
     </div>
     <div class="dropdown">
       <button class="dropdown-toggle">Developers &#9662;</button>
       <div class="dropdown-menu">
-        <a href="/endpoints.html">API Endpoints</a>
-        <a href="/marketplace.html">Marketplace</a>
-        <a href="/docs.html">Documentation</a>
-        <a href="/playground.html">Playground</a>
+        <a href="/endpoints">API Endpoints</a>
+        <a href="/marketplace">Marketplace</a>
+        <a href="/docs">Documentation</a>
+        <a href="/playground">Playground</a>
       </div>
     </div>
-    <a href="/roadmap.html">Roadmap</a>
+    <a href="/roadmap">Roadmap</a>
   </div>
   <div class="nav-right">
     <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Toggle theme">
@@ -272,14 +272,14 @@
     </button>
     <div class="nav-status" id="navApiStatus"><span class="status-dot" id="statusDot"></span><span id="statusLabel">Checking...</span></div>
     <div class="nav-credits" id="nav-credits-badge"><svg width="14" height="14" viewBox="0 0 24 24" style="vertical-align:-2px;flex-shrink:0;margin-right:2px"><circle cx="12" cy="12" r="11" fill="#92400e"/><circle cx="12" cy="12" r="9.5" fill="#f59e0b"/><circle cx="12" cy="12" r="7.5" fill="#fbbf24"/><path d="M8.5 7.5 Q12 5.5 15.5 8" stroke="rgba(255,255,255,0.45)" stroke-width="1.5" fill="none" stroke-linecap="round"/><text x="12" y="16.5" text-anchor="middle" font-size="10" font-weight="800" fill="#78350f" font-family="Arial,sans-serif">C</text></svg> <span id="nav-credits-num">&mdash;</span> credits</div>
-    <a href="/login.html" class="nav-login" id="nav-login-btn">Sign In</a>
+    <a href="/login" class="nav-login" id="nav-login-btn">Sign In</a>
     <a href="/#pricing" class="nav-cta" id="nav-getkey-btn">Get API Key</a>
     <div class="dropdown account-dropdown" id="account-dropdown">
       <button class="dropdown-toggle account-btn">My Account &#9662;</button>
       <div class="dropdown-menu account-menu">
         <div class="account-email" id="account-email-display"></div>
-        <a href="/dashboard.html" class="dropdown-item">Dashboard</a>
-        <a href="/contact-section.html" class="dropdown-item">Contact</a>
+        <a href="/dashboard" class="dropdown-item">Dashboard</a>
+        <a href="/contact-section" class="dropdown-item">Contact</a>
         <div class="dropdown-divider"></div>
         <a href="#" class="dropdown-item" id="sign-out-link" onclick="navSignOut();return false;" style="color:#f85149;">Log out</a>
       </div>
@@ -290,21 +290,21 @@
 <div class="mobile-menu" id="mobileMenu">
   <div class="mobile-menu-group">Products</div>
   <a href="https://pulse.claw-net.org">Pulse &mdash; AI Marketing</a>
-  <a href="/roadmap.html">Radar &mdash; Trading (Coming Soon)</a>
-  <a href="/manifest.html">Manifest &mdash; Verification</a>
-  <a href="/attestation.html">Attestation &mdash; Proof</a>
+  <a href="/roadmap">Radar &mdash; Trading (Coming Soon)</a>
+  <a href="/manifest">Manifest &mdash; Verification</a>
+  <a href="/attestation">Attestation &mdash; Proof</a>
   <a href="/#pricing">Pricing</a>
   <div class="mobile-menu-group">Developers</div>
-  <a href="/endpoints.html">API Endpoints</a>
-  <a href="/marketplace.html">Marketplace</a>
-  <a href="/docs.html">Documentation</a>
-  <a href="/playground.html">Playground</a>
+  <a href="/endpoints">API Endpoints</a>
+  <a href="/marketplace">Marketplace</a>
+  <a href="/docs">Documentation</a>
+  <a href="/playground">Playground</a>
   <div class="mobile-menu-group">More</div>
-  <a href="/roadmap.html">Roadmap</a>
+  <a href="/roadmap">Roadmap</a>
   <div class="mobile-menu-group" id="mobile-account-group" style="display:none">Account</div>
   <span class="mobile-account-email" id="mobile-account-email" style="display:none;padding:6px 0;font-size:12px;color:var(--text-tertiary)"></span>
-  <a href="/dashboard.html">Dashboard</a>
-  <a href="/contact-section.html">Contact</a>
+  <a href="/dashboard">Dashboard</a>
+  <a href="/contact-section">Contact</a>
   <a href="#" id="mobile-sign-out" onclick="navSignOut();return false;" style="display:none;color:#f85149;">Log out</a>
 </div>
 
@@ -421,7 +421,7 @@
         <div class="step">
           <div class="step-content">
             <div class="step-title">Get your API key</div>
-            <div class="step-desc">Sign up at <a href="/dashboard.html" style="color:var(--accent)">claw-net.org/dashboard</a> and grab your key. It starts with <code style="font-family:var(--font-mono);color:var(--accent)">cn-</code>.</div>
+            <div class="step-desc">Sign up at <a href="/dashboard" style="color:var(--accent)">claw-net.org/dashboard</a> and grab your key. It starts with <code style="font-family:var(--font-mono);color:var(--accent)">cn-</code>.</div>
           </div>
         </div>
         <div class="step">
@@ -533,7 +533,7 @@ print(res.json()['answer'])</code></pre>
         <div class="concept-card">
           <div class="concept-icon">&#x1F527;</div>
           <div class="concept-title">Data Skills</div>
-          <div class="concept-desc">Curated, SLA-backed data endpoints on the <a href="/marketplace.html" style="color:var(--accent)">Marketplace</a>. Browse existing skills or register your own &mdash; earn 85% of every credit spent on your data.</div>
+          <div class="concept-desc">Curated, SLA-backed data endpoints on the <a href="/marketplace" style="color:var(--accent)">Marketplace</a>. Browse existing skills or register your own &mdash; earn 85% of every credit spent on your data.</div>
         </div>
       </div>
 
@@ -551,7 +551,7 @@ print(res.json()['answer'])</code></pre>
               <tr><td>$1,000</td><td>2,000,000</td><td>+100%</td><td>$0.00050/credit</td></tr>
             </tbody>
           </table>
-          <p class="endpoint-desc">USDC payments get an additional +7% bonus at each tier. Buy credits on your <a href="/dashboard.html" style="color:var(--accent)">dashboard</a>.</p>
+          <p class="endpoint-desc">USDC payments get an additional +7% bonus at each tier. Buy credits on your <a href="/dashboard" style="color:var(--accent)">dashboard</a>.</p>
         </div>
       </details>
     </div>
@@ -568,7 +568,7 @@ print(res.json()['answer'])</code></pre>
         </div>
         <div class="concept-card">
           <div class="concept-title" style="color:var(--purple)">Clerk JWT (browser only)</div>
-          <div class="concept-desc">Dashboard endpoints accept a Clerk session token via <code>Authorization: Bearer {token}</code>. Only for <a href="/dashboard.html" style="color:var(--accent)">dashboard.html</a> — you won't need this for API work.</div>
+          <div class="concept-desc">Dashboard endpoints accept a Clerk session token via <code>Authorization: Bearer {token}</code>. Only for <a href="/dashboard" style="color:var(--accent)">dashboard.html</a> — you won't need this for API work.</div>
         </div>
       </div>
 
@@ -727,9 +727,9 @@ const { payment, delivery } = await res.json();
         <tbody>
           <tr><td><span class="param-type">400</span></td><td>Bad request</td><td>Check your JSON body</td></tr>
           <tr><td><span class="param-type">401</span></td><td>Invalid API key</td><td>Check the <code>X-API-Key</code> header</td></tr>
-          <tr><td><span class="param-type">402</span></td><td>Insufficient credits</td><td>Top up at <a href="/dashboard.html" style="color:var(--accent)">claw-net.org</a></td></tr>
+          <tr><td><span class="param-type">402</span></td><td>Insufficient credits</td><td>Top up at <a href="/dashboard" style="color:var(--accent)">claw-net.org</a></td></tr>
           <tr><td><span class="param-type">429</span></td><td>Rate limited</td><td>Wait and retry (see <code>Retry-After</code> header)</td></tr>
-          <tr><td><span class="param-type">500</span></td><td>Server error</td><td>Retry once, then <a href="/contact-section.html" style="color:var(--accent)">contact support</a></td></tr>
+          <tr><td><span class="param-type">500</span></td><td>Server error</td><td>Retry once, then <a href="/contact-section" style="color:var(--accent)">contact support</a></td></tr>
         </tbody>
       </table>
 
@@ -3185,7 +3185,7 @@ app.post('/webhooks/clawnet', express.raw({ type: 'application/json' }), (req, r
         <thead><tr><th>Error</th><th>Code</th><th>Fix</th></tr></thead>
         <tbody>
           <tr><td><span class="param-type">401</span> &mdash; Invalid API key</td><td><code>UNAUTHORIZED</code></td><td>Check the <code>X-API-Key</code> header. Key must start with <code>cn-</code>.</td></tr>
-          <tr><td><span class="param-type">402</span> &mdash; Insufficient credits</td><td><code>INSUFFICIENT_CREDITS</code></td><td>Top up credits from the <a href="/dashboard.html" style="color:var(--accent)">dashboard</a>, or set a lower <code>maxCredits</code> budget.</td></tr>
+          <tr><td><span class="param-type">402</span> &mdash; Insufficient credits</td><td><code>INSUFFICIENT_CREDITS</code></td><td>Top up credits from the <a href="/dashboard" style="color:var(--accent)">dashboard</a>, or set a lower <code>maxCredits</code> budget.</td></tr>
           <tr><td><span class="param-type">402</span> &mdash; Budget exceeded</td><td><code>BUDGET_EXCEEDED</code></td><td>The plan costs more than your <code>maxCredits</code> cap. Increase it or use <code>strategy: "cheapest"</code>.</td></tr>
           <tr><td><span class="param-type">403</span> &mdash; Not your resource</td><td><code>FORBIDDEN</code></td><td>You're trying to edit/delete a skill or session you don't own. Check the API key.</td></tr>
           <tr><td><span class="param-type">404</span> &mdash; Skill not found</td><td><code>NOT_FOUND</code></td><td>Double-check the skill ID. It may have been deleted or is still a private draft.</td></tr>
@@ -3558,23 +3558,23 @@ curl -X POST https://api.claw-net.org/v1/skills \
       <h4>Product</h4>
       <a href="https://pulse.claw-net.org">Pulse</a>
       <a href="https://radar.claw-net.org">Radar</a>
-      <a href="/manifest.html">Manifest</a>
-      <a href="/attestation.html">Attestation</a>
-      <a href="/roadmap.html">Roadmap</a>
+      <a href="/manifest">Manifest</a>
+      <a href="/attestation">Attestation</a>
+      <a href="/roadmap">Roadmap</a>
     </div>
     <div>
       <h4>Developers</h4>
-      <a href="/endpoints.html">API Endpoints</a>
-      <a href="/marketplace.html">Marketplace</a>
-      <a href="/docs.html">Documentation</a>
-      <a href="/playground.html">Playground</a>
+      <a href="/endpoints">API Endpoints</a>
+      <a href="/marketplace">Marketplace</a>
+      <a href="/docs">Documentation</a>
+      <a href="/playground">Playground</a>
     </div>
     <div>
       <h4>Company</h4>
-      <a href="/contact-section.html">Contact</a>
-      <a href="/status.html">Status</a>
-      <a href="/terms.html">Terms</a>
-      <a href="/privacy.html">Privacy</a>
+      <a href="/contact-section">Contact</a>
+      <a href="/status">Status</a>
+      <a href="/terms">Terms</a>
+      <a href="/privacy">Privacy</a>
     </div>
     <div>
       <h4>Community</h4>

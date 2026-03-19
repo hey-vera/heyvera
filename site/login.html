@@ -101,9 +101,9 @@
 <footer>
   <ul class="footer-links">
     <li><a href="/">Home</a></li>
-    <li><a href="/docs.html">Docs</a></li>
-    <li><a href="/marketplace.html">Marketplace</a></li>
-    <li><a href="/dashboard.html">Dashboard</a></li>
+    <li><a href="/docs">Docs</a></li>
+    <li><a href="/marketplace">Marketplace</a></li>
+    <li><a href="/dashboard">Dashboard</a></li>
   </ul>
   <span>&copy; 2026 ClawNet &middot; Powered by x402</span>
 </footer>
@@ -113,7 +113,7 @@
 <script>
   const CLAIM_SESSION = new URLSearchParams(window.location.search).get('claim');
   const REDIRECT = CLAIM_SESSION
-    ? `/dashboard.html?claim_session=${CLAIM_SESSION}`
+    ? `/dashboard?claim_session=${CLAIM_SESSION}`
     : `/dashboard.html`;
 
   window.addEventListener('load', async () => {

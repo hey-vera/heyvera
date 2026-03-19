@@ -8,7 +8,7 @@
   <meta property="og:title" content="Playground — ClawNet">
   <meta property="og:description" content="Explore 390+ API endpoints. View docs, parameters, and copy integration code.">
   <meta property="og:type" content="website">
-  <meta property="og:url" content="https://claw-net.org/playground.html">
+  <meta property="og:url" content="https://claw-net.org/playground">
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="apple-touch-icon" href="/favicon.svg">
   <script>if(localStorage.getItem('clawnet_theme')==='light')document.documentElement.setAttribute('data-theme','light')</script>
@@ -143,9 +143,9 @@
 <nav>
   <div class="nav-brand"><a href="/"><span class="nav-logo-text">&#x1F99E; Claw<span>Net</span></span></a></div>
   <div class="nav-links">
-    <div class="dropdown"><button class="dropdown-toggle">Products &#9662;</button><div class="dropdown-menu"><a href="https://pulse.claw-net.org">Pulse &mdash; AI Marketing</a><a href="/roadmap.html">Radar &mdash; Trading (Coming Soon)</a><a href="/manifest.html">Manifest &mdash; Verification</a><a href="/attestation.html">Attestation &mdash; Proof</a><a href="/#pricing">Pricing</a></div></div>
-    <div class="dropdown"><button class="dropdown-toggle">Developers &#9662;</button><div class="dropdown-menu"><a href="/endpoints.html">API Endpoints</a><a href="/marketplace.html">Marketplace</a><a href="/docs.html">Documentation</a><a href="/playground.html">Playground</a></div></div>
-    <a href="/roadmap.html">Roadmap</a>
+    <div class="dropdown"><button class="dropdown-toggle">Products &#9662;</button><div class="dropdown-menu"><a href="https://pulse.claw-net.org">Pulse &mdash; AI Marketing</a><a href="/roadmap">Radar &mdash; Trading (Coming Soon)</a><a href="/manifest">Manifest &mdash; Verification</a><a href="/attestation">Attestation &mdash; Proof</a><a href="/#pricing">Pricing</a></div></div>
+    <div class="dropdown"><button class="dropdown-toggle">Developers &#9662;</button><div class="dropdown-menu"><a href="/endpoints">API Endpoints</a><a href="/marketplace">Marketplace</a><a href="/docs">Documentation</a><a href="/playground">Playground</a></div></div>
+    <a href="/roadmap">Roadmap</a>
   </div>
   <div class="nav-right">
     <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">
@@ -154,14 +154,14 @@
     </button>
     <div class="nav-status" id="navApiStatus"><span class="status-dot" id="statusDot"></span><span id="statusLabel">Checking...</span></div>
     <div class="nav-credits" id="nav-credits-badge"><svg width="14" height="14" viewBox="0 0 24 24" style="flex-shrink:0"><circle cx="12" cy="12" r="11" fill="#92400e"/><circle cx="12" cy="12" r="9.5" fill="#f59e0b"/><circle cx="12" cy="12" r="7.5" fill="#fbbf24"/><text x="12" y="16.5" text-anchor="middle" font-size="10" font-weight="800" fill="#78350f" font-family="Arial,sans-serif">C</text></svg><span id="nav-credits-num">&mdash;</span> credits</div>
-    <a href="/login.html" class="nav-login" id="nav-login-btn">Sign In</a>
+    <a href="/login" class="nav-login" id="nav-login-btn">Sign In</a>
     <a href="/#pricing" class="nav-cta" id="nav-getkey-btn">Get API Key</a>
     <div class="dropdown account-dropdown" id="account-dropdown">
       <button class="dropdown-toggle account-btn">My Account &#9662;</button>
       <div class="dropdown-menu account-menu">
         <div class="account-email" id="account-email-display"></div>
-        <a href="/dashboard.html" class="dropdown-item">Dashboard</a>
-        <a href="/contact-section.html" class="dropdown-item">Contact</a>
+        <a href="/dashboard" class="dropdown-item">Dashboard</a>
+        <a href="/contact-section" class="dropdown-item">Contact</a>
         <div class="dropdown-divider"></div>
         <a href="#" class="dropdown-item" id="sign-out-link" onclick="navSignOut();return false;" style="color:#f85149;">Log out</a>
       </div>
@@ -170,13 +170,13 @@
   </div>
 </nav>
 <div class="mobile-menu" id="mobileMenu">
-  <div class="mobile-menu-group">Products</div><a href="https://pulse.claw-net.org">Pulse &mdash; AI Marketing</a><a href="/roadmap.html">Radar &mdash; Trading (Coming Soon)</a><a href="/manifest.html">Manifest &mdash; Verification</a><a href="/attestation.html">Attestation &mdash; Proof</a><a href="/#pricing">Pricing</a>
-  <div class="mobile-menu-group">Developers</div><a href="/endpoints.html">API Endpoints</a><a href="/marketplace.html">Marketplace</a><a href="/docs.html">Documentation</a><a href="/playground.html">Playground</a>
-  <div class="mobile-menu-group">More</div><a href="/roadmap.html">Roadmap</a>
+  <div class="mobile-menu-group">Products</div><a href="https://pulse.claw-net.org">Pulse &mdash; AI Marketing</a><a href="/roadmap">Radar &mdash; Trading (Coming Soon)</a><a href="/manifest">Manifest &mdash; Verification</a><a href="/attestation">Attestation &mdash; Proof</a><a href="/#pricing">Pricing</a>
+  <div class="mobile-menu-group">Developers</div><a href="/endpoints">API Endpoints</a><a href="/marketplace">Marketplace</a><a href="/docs">Documentation</a><a href="/playground">Playground</a>
+  <div class="mobile-menu-group">More</div><a href="/roadmap">Roadmap</a>
   <div class="mobile-menu-group" id="mobile-account-group" style="display:none">Account</div>
   <span class="mobile-account-email" id="mobile-account-email" style="display:none;padding:6px 0;font-size:12px;color:var(--text-tertiary)"></span>
-  <a href="/dashboard.html">Dashboard</a>
-  <a href="/contact-section.html">Contact</a>
+  <a href="/dashboard">Dashboard</a>
+  <a href="/contact-section">Contact</a>
   <a href="#" id="mobile-sign-out" onclick="navSignOut();return false;" style="display:none;color:#f85149;">Log out</a>
 </div>
 
@@ -223,9 +223,9 @@
 
 <footer>
   <div class="footer-grid">
-    <div><h4>Product</h4><a href="https://pulse.claw-net.org">Pulse</a><a href="https://radar.claw-net.org">Radar</a><a href="/manifest.html">Manifest</a><a href="/attestation.html">Attestation</a><a href="/roadmap.html">Roadmap</a></div>
-    <div><h4>Developers</h4><a href="/endpoints.html">API Endpoints</a><a href="/marketplace.html">Marketplace</a><a href="/docs.html">Documentation</a><a href="/playground.html">Playground</a></div>
-    <div><h4>Company</h4><a href="/contact-section.html">Contact</a><a href="/status.html">Status</a><a href="/terms.html">Terms</a><a href="/privacy.html">Privacy</a></div>
+    <div><h4>Product</h4><a href="https://pulse.claw-net.org">Pulse</a><a href="https://radar.claw-net.org">Radar</a><a href="/manifest">Manifest</a><a href="/attestation">Attestation</a><a href="/roadmap">Roadmap</a></div>
+    <div><h4>Developers</h4><a href="/endpoints">API Endpoints</a><a href="/marketplace">Marketplace</a><a href="/docs">Documentation</a><a href="/playground">Playground</a></div>
+    <div><h4>Company</h4><a href="/contact-section">Contact</a><a href="/status">Status</a><a href="/terms">Terms</a><a href="/privacy">Privacy</a></div>
     <div><h4>Community</h4><a href="https://x.com/i/communities/2031805527043576245" target="_blank">X Community</a><a href="https://github.com/1xmint" target="_blank">GitHub</a><a href="https://t.me/claw_net" target="_blank">Telegram</a></div>
   </div>
   <div class="footer-bottom"><span>&copy; 2026 ClawNet. All rights reserved.</span></div>
