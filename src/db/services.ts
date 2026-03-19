@@ -510,3 +510,59 @@ export function markClaimTokenUsed(token: string): boolean {
     .run(token);
   return result.changes > 0;
 }
+
+// ─── Reputation Anchors ──────────────────────────────────────────────────────
+
+import crypto from 'crypto';
+
+export interface ReputationAnchor {
+  id: string;
+  skill_id: string;
+  anchor_hash: string;
+  data_snapshot: string;
+  anchor_type: string;
+  created_at: string;
+}
+
+/**
+ * Create a SHA-256 reputation anchor for a skill's current trust metrics.
+ * The hash is deterministic — anyone with the snapshot JSON can verify it.
+ */
+export function createReputationAnchor(skillId: string, snapshot: object): string {
+  const snapshotJson = JSON.stringify(snapshot);
+  const hash = 'sha256:' + crypto.createHash('sha256').update(snapshotJson).digest('hex');
+  const id = nanoid();
+  getDb()
+    .prepare('INSERT INTO reputation_anchors (id, skill_id, anchor_hash, data_snapshot) VALUES (?, ?, ?, ?)')
+    .run(id, skillId, hash, snapshotJson);
+  return hash;
+}
+
+/** Get recent reputation anchors for a skill. */
+export function getReputationAnchors(skillId: string, limit = 10): ReputationAnchor[] {
+  return getDb()
+    .prepare('SELECT * FROM reputation_anchors WHERE skill_id = ? ORDER BY created_at DESC LIMIT ?')
+    .all(skillId, Math.min(limit, 100)) as ReputationAnchor[];
+}
+
+/** Get a single reputation anchor by ID. */
+export function getReputationAnchor(anchorId: string): ReputationAnchor | undefined {
+  return getDb()
+    .prepare('SELECT * FROM reputation_anchors WHERE id = ?')
+    .get(anchorId) as ReputationAnchor | undefined;
+}
+
+/**
+ * Verify that a reputation anchor's hash matches its stored snapshot.
+ * Also accepts an external snapshot string to verify against the stored hash.
+ */
+export function verifyReputationAnchor(anchorId: string, externalSnapshot?: string): { valid: boolean; anchor?: ReputationAnchor } {
+  const anchor = getDb()
+    .prepare('SELECT * FROM reputation_anchors WHERE id = ?')
+    .get(anchorId) as ReputationAnchor | undefined;
+  if (!anchor) return { valid: false };
+
+  const dataToHash = externalSnapshot ?? anchor.data_snapshot;
+  const computedHash = 'sha256:' + crypto.createHash('sha256').update(dataToHash).digest('hex');
+  return { valid: computedHash === anchor.anchor_hash, anchor };
+}

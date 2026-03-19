@@ -85,6 +85,8 @@ export interface Skill {
   composite_depth: number;
   /** Enable auto-replacement of degraded deps in composite skills */
   auto_replace: number;
+  /** Enable direct x402 payout to creator's wallet (opt-in) */
+  direct_payout: number;
 }
 
 export function createSkill(params: {
@@ -113,6 +115,7 @@ export function createSkill(params: {
   compositeConfigJson?: string;
   pricingConfigJson?: string;
   autoReplace?: boolean;
+  directPayout?: boolean;
 }): void {
   // Validate composite skill dependencies
   if (params.skillType === 'composite' && params.dependenciesJson) {
@@ -120,8 +123,8 @@ export function createSkill(params: {
   }
 
   getDb()
-    .prepare(`INSERT INTO skills (id, name, description, prompt_template, author_key, public, credit_cost, display_name, changelog, category, skill_type, proxy_url, proxy_method, execution_plan_json, skill_class, creator_evm_wallet, sample_output_json, update_frequency, paired_skill_id, dependencies_json, sla_json, output_contract_json, composite_config_json, pricing_config_json, auto_replace)
-              VALUES (@id, @name, @description, @promptTemplate, @authorKey, @public, @creditCost, @displayName, @changelog, @category, @skillType, @proxyUrl, @proxyMethod, @executionPlanJson, @skillClass, @creatorEvmWallet, @sampleOutputJson, @updateFrequency, @pairedSkillId, @dependenciesJson, @slaJson, @outputContractJson, @compositeConfigJson, @pricingConfigJson, @autoReplace)`)
+    .prepare(`INSERT INTO skills (id, name, description, prompt_template, author_key, public, credit_cost, display_name, changelog, category, skill_type, proxy_url, proxy_method, execution_plan_json, skill_class, creator_evm_wallet, sample_output_json, update_frequency, paired_skill_id, dependencies_json, sla_json, output_contract_json, composite_config_json, pricing_config_json, auto_replace, direct_payout)
+              VALUES (@id, @name, @description, @promptTemplate, @authorKey, @public, @creditCost, @displayName, @changelog, @category, @skillType, @proxyUrl, @proxyMethod, @executionPlanJson, @skillClass, @creatorEvmWallet, @sampleOutputJson, @updateFrequency, @pairedSkillId, @dependenciesJson, @slaJson, @outputContractJson, @compositeConfigJson, @pricingConfigJson, @autoReplace, @directPayout)`)
     .run({
       ...params,
       public: params.public ? 1 : 0,
@@ -143,6 +146,7 @@ export function createSkill(params: {
       compositeConfigJson: params.compositeConfigJson ?? null,
       pricingConfigJson: params.pricingConfigJson ?? null,
       autoReplace: params.autoReplace ? 1 : 0,
+      directPayout: params.directPayout ? 1 : 0,
     });
 }
 

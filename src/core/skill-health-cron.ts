@@ -9,7 +9,7 @@
  */
 
 import cron from 'node-cron';
-import { getDb, checkSLACompliance, recordSLAViolation, escalatePenalty, runTrustDecay, findReplacementSkill, swapCompositeDependency, revertCompositeSwap, getAutoReplaceComposites } from '../db/index';
+import { getDb, checkSLACompliance, recordSLAViolation, escalatePenalty, runTrustDecay, findReplacementSkill, swapCompositeDependency, revertCompositeSwap, getAutoReplaceComposites, createReputationAnchor } from '../db/index';
 import { logger } from '../utils/logger';
 import { fireWebhookEvent } from '../utils/webhooks';
 import { round6 } from './credits';
@@ -93,6 +93,9 @@ async function runSkillHealthChecks(): Promise<void> {
 
   // SLA compliance check for all skills with SLA contracts
   await checkSLAContracts();
+
+  // Reputation hash anchoring — publish SHA-256 snapshots for external verification
+  anchorReputationHashes();
 }
 
 function autoReplaceInComposites(degradedSkillId: string, degradedName: string): void {
@@ -219,6 +222,85 @@ async function checkSLAContracts(): Promise<void> {
     if (updated > 0) logger.debug({ updated }, 'Trust decay weights refreshed');
   } catch (err) {
     logger.error({ err }, 'Trust decay failed');
+  }
+}
+
+// ─── Reputation Hash Anchoring ────────────────────────────────────────────────
+// Creates SHA-256 reputation anchors for skills with meaningful usage (>= 5 uses).
+// At most once per hour per skill — checked via last anchor timestamp.
+
+interface ReputationSkillRow {
+  id: string;
+  avg_rating: number;
+  rating_count: number;
+  success_rate: number;
+  uses: number;
+  health_status: string;
+  avg_latency_ms: number;
+}
+
+function anchorReputationHashes(): void {
+  try {
+    const db = getDb();
+
+    // Get all active public skills with >= 5 uses
+    const skills = db.prepare(
+      `SELECT id, avg_rating, rating_count, success_rate, uses, health_status, avg_latency_ms
+       FROM skills
+       WHERE active = 1 AND public = 1 AND uses >= 5
+       ORDER BY uses DESC
+       LIMIT 500`
+    ).all() as ReputationSkillRow[];
+
+    if (skills.length === 0) return;
+
+    let anchored = 0;
+
+    for (const skill of skills) {
+      // Check if we already anchored this skill in the last hour
+      const recent = db.prepare(
+        `SELECT 1 FROM reputation_anchors
+         WHERE skill_id = ? AND created_at > datetime('now', '-1 hour')
+         LIMIT 1`
+      ).get(skill.id);
+      if (recent) continue;
+
+      // Check if stats have changed since last anchor
+      const lastAnchor = db.prepare(
+        `SELECT data_snapshot FROM reputation_anchors
+         WHERE skill_id = ? ORDER BY created_at DESC LIMIT 1`
+      ).get(skill.id) as { data_snapshot: string } | undefined;
+
+      const snapshot = {
+        avgRating: round6(skill.avg_rating),
+        ratingCount: skill.rating_count,
+        successRate: round6(skill.success_rate / 100), // stored 0-100, anchor as 0-1
+        totalUses: skill.uses,
+        healthStatus: skill.health_status,
+        avgLatencyMs: Math.round(skill.avg_latency_ms),
+      };
+
+      // Skip if snapshot hasn't changed since last anchor
+      if (lastAnchor) {
+        const prevSnapshot = JSON.parse(lastAnchor.data_snapshot);
+        if (
+          prevSnapshot.avgRating === snapshot.avgRating &&
+          prevSnapshot.ratingCount === snapshot.ratingCount &&
+          prevSnapshot.successRate === snapshot.successRate &&
+          prevSnapshot.totalUses === snapshot.totalUses &&
+          prevSnapshot.healthStatus === snapshot.healthStatus
+        ) continue;
+      }
+
+      createReputationAnchor(skill.id, snapshot);
+      anchored++;
+    }
+
+    if (anchored > 0) {
+      logger.info({ anchored }, 'Reputation hashes anchored');
+    }
+  } catch (err) {
+    logger.error({ err }, 'Reputation anchoring failed');
   }
 }
 

@@ -17,6 +17,7 @@ import {
   searchDiscovery,
   validateOutputContract,
   recordSkillDemand, getSkillDemand, recordCallerUsage, getCallerUsageCount,
+  getApiKey,
 } from '../db/index';
 import { embed, isEmbeddingModelReady } from '../core/embeddings';
 import { scanSkillTemplate, scanProxyResponse } from '../core/skill-scanner';
@@ -160,6 +161,8 @@ const CreateSkillSchema = z.object({
   }).optional(),
   /** Allow autonomous replacement in composites when this skill degrades. */
   autoReplace: z.boolean().default(false),
+  /** Enable direct x402 payout to creator's wallet (requires wallet_address on API key). */
+  directPayout: z.boolean().default(false),
 });
 
 /** Build provider trust object with optional SLA for responses. */
@@ -264,6 +267,14 @@ skillsRouter.post('/', checkApiKey, async (c) => {
     return c.json({ error: 'Composite skills require at least 1 dependency', code: 'MISSING_DEPENDENCIES' }, 400);
   }
 
+  // directPayout requires the creator to have a wallet_address on their API key
+  if (data.directPayout) {
+    const creatorKey = getApiKey(keyInfo.key);
+    if (!creatorKey || !(creatorKey as typeof creatorKey & { wallet_address?: string }).wallet_address) {
+      return c.json({ error: 'directPayout requires a wallet_address linked to your API key. Link one via POST /v1/siwx/link first.', code: 'MISSING_WALLET' }, 400);
+    }
+  }
+
   // Validate pairedSkillId — must exist and belong to the same author
   if (data.pairedSkillId) {
     const paired = getSkill(data.pairedSkillId);
@@ -301,6 +312,7 @@ skillsRouter.post('/', checkApiKey, async (c) => {
     compositeConfigJson: data.compositeConfig ? JSON.stringify(data.compositeConfig) : undefined,
     pricingConfigJson: data.pricingConfig ? JSON.stringify(data.pricingConfig) : undefined,
     autoReplace: data.autoReplace,
+    directPayout: data.directPayout,
   });
 
   // Set per-skill rate limit if specified
@@ -747,6 +759,41 @@ skillsRouter.patch('/:id/visibility', checkApiKey, async (c) => {
 
   logger.info({ id, public: body.public, author: maskApiKey(keyInfo.key) }, 'Skill visibility updated');
   return c.json({ ok: true, public: body.public });
+});
+
+// ─── PATCH /v1/skills/:id/direct-payout — toggle direct x402 payout ──────────
+
+skillsRouter.patch('/:id/direct-payout', checkApiKey, async (c) => {
+  const keyInfo = c.get('apiKeyInfo');
+  const { id } = c.req.param();
+
+  const Body = z.object({ enabled: z.boolean() }).strict();
+  const raw = await c.req.json().catch(() => null);
+  if (!raw) return c.json({ error: 'Invalid JSON', code: 'INVALID_JSON' }, 400);
+  const parsed = Body.safeParse(raw);
+  if (!parsed.success) return c.json({ error: 'Field "enabled" (boolean) required', code: 'VALIDATION_ERROR' }, 400);
+
+  const skill = getSkill(id);
+  if (!skill || skill.author_key !== keyInfo.key) {
+    return c.json({ error: 'Skill not found or not yours', code: 'SKILL_NOT_FOUND' }, 404);
+  }
+
+  if (parsed.data.enabled) {
+    // Verify creator has a wallet_address linked
+    const creatorKey = getApiKey(keyInfo.key);
+    if (!creatorKey || !(creatorKey as typeof creatorKey & { wallet_address?: string }).wallet_address) {
+      return c.json({ error: 'directPayout requires a wallet_address linked to your API key. Link one via POST /v1/siwx/link first.', code: 'MISSING_WALLET' }, 400);
+    }
+  }
+
+  getDb().prepare('UPDATE skills SET direct_payout = ? WHERE id = ? AND author_key = ?')
+    .run(parsed.data.enabled ? 1 : 0, id, keyInfo.key);
+
+  writeAuditLog({ entityType: 'skill', entityId: id, action: 'DIRECT_PAYOUT_TOGGLED', actorId: keyInfo.key,
+    data: { enabled: parsed.data.enabled } });
+
+  logger.info({ id, directPayout: parsed.data.enabled, author: maskApiKey(keyInfo.key) }, 'Skill direct payout toggled');
+  return c.json({ ok: true, directPayout: parsed.data.enabled });
 });
 
 // ─── DELETE /v1/skills/:id — delete a skill ───────────────────────────────────

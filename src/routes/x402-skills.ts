@@ -28,7 +28,7 @@ const { ExactEvmScheme } = require('@x402/evm/exact/server') as {
   ExactEvmScheme: new () => unknown;
 };
 type HTTPRequestContext = { path: string; method: string; paymentHeader?: string };
-import { getDb, getSkill, listPublicSkills, incrementSkillUses, safeJsonParse, getReputationScore, getReputationEvents, recordSkillMetric, recordReputation, createAutoAttestation, hashPayload, getAttestationById } from '../db/index';
+import { getDb, getSkill, getApiKey, listPublicSkills, incrementSkillUses, safeJsonParse, getReputationScore, getReputationEvents, recordSkillMetric, recordReputation, createAutoAttestation, hashPayload, getAttestationById, logAudit } from '../db/index';
 import { maskApiKey } from '../utils/mask';
 import { renderTemplate } from '../utils/template';
 import { parseIntent } from '../core/intent-parser';
@@ -140,6 +140,25 @@ function extractPaymentContext(c: { req: { header: (name: string) => string | un
   return { paymentHash, paymentHeader, facilitatorReceipt, payerAddress };
 }
 
+// ─── Dynamic payTo routing ────────────────────────────────────────────────────
+
+/** Resolve the x402 payTo address for a skill. If the skill has direct_payout
+ *  enabled AND the creator has a wallet_address on their API key, route payment
+ *  directly to the creator's wallet. Otherwise, fall back to platform wallet. */
+function resolvePayTo(skill: { direct_payout: number; author_key: string }): {
+  payTo: string;
+  isDirectPayout: boolean;
+  creatorWallet: string | null;
+} {
+  if (skill.direct_payout === 1) {
+    const creatorKey = getApiKey(skill.author_key) as (ReturnType<typeof getApiKey> & { wallet_address?: string }) | undefined;
+    if (creatorKey?.wallet_address) {
+      return { payTo: creatorKey.wallet_address, isDirectPayout: true, creatorWallet: creatorKey.wallet_address };
+    }
+  }
+  return { payTo: env.X402_RECIPIENT_ADDRESS || '', isDirectPayout: false, creatorWallet: null };
+}
+
 // ─── x402 Offer Extension ─────────────────────────────────────────────────────
 
 const X402_OFFER_VERSION = 1;
@@ -179,6 +198,7 @@ function buildX402Offer(opts: {
   creditCost: number;
   resource: string;
   description?: string;
+  payTo?: string;
 }): X402Offer {
   const credits = Math.max(opts.creditCost, 1);
   const usdCost = round6(credits * env.X402_USDC_PER_CREDIT);
@@ -187,7 +207,7 @@ function buildX402Offer(opts: {
     scheme: 'exact',
     network: env.X402_NETWORK,
     asset: 'USDC',
-    payTo: env.X402_RECIPIENT_ADDRESS || '',
+    payTo: opts.payTo || env.X402_RECIPIENT_ADDRESS || '',
     maxAmountRequired: usdCost.toFixed(6),
     resource: opts.resource,
     description: opts.description ?? `Invoke ClawNet skill: ${opts.skillName}`,
@@ -253,6 +273,7 @@ function buildX402Middleware() {
   const resourceServer = new x402ResourceServer(facilitator)
     .register(network, new ExactEvmScheme());
 
+  /** Resolve price and payTo per-request for skill routes (supports direct payout). */
   const dynamicSkillPrice = async (ctx: HTTPRequestContext) => {
     const parts = ctx.path.split('/');
     const skillId = parts[parts.length - 1] ?? '';
@@ -260,6 +281,19 @@ function buildX402Middleware() {
     const credits = Math.max(skill?.credit_cost ?? 1, 1);
     const priceUsdc = credits * env.X402_USDC_PER_CREDIT;
     return `$${priceUsdc.toFixed(6)}`;
+  };
+
+  /** Resolve payTo address per-request — creator wallet for direct payout skills,
+   *  platform wallet otherwise. */
+  const dynamicSkillPayTo = async (ctx: HTTPRequestContext) => {
+    const parts = ctx.path.split('/');
+    const skillId = parts[parts.length - 1] ?? '';
+    const skill = getSkill(skillId);
+    if (skill) {
+      const { payTo } = resolvePayTo(skill);
+      return payTo;
+    }
+    return env.X402_RECIPIENT_ADDRESS || '';
   };
 
   const orchestratePrice = `$${(env.ORCHESTRATION_FEE * env.X402_USDC_PER_CREDIT).toFixed(6)}`;
@@ -270,7 +304,7 @@ function buildX402Middleware() {
         accepts: {
           scheme: 'exact' as const,
           network,
-          payTo: env.X402_RECIPIENT_ADDRESS,
+          payTo: dynamicSkillPayTo,
           price: dynamicSkillPrice,
           maxTimeoutSeconds: 60,
         },
@@ -292,7 +326,7 @@ function buildX402Middleware() {
         accepts: {
           scheme: 'exact' as const,
           network,
-          payTo: env.X402_RECIPIENT_ADDRESS,
+          payTo: dynamicSkillPayTo,
           price: dynamicSkillPrice,
           maxTimeoutSeconds: 60,
         },
@@ -336,12 +370,14 @@ x402SkillsRouter.use('*', async (c, next) => {
         const desc = path.includes('/query/')
           ? `Query ClawNet data skill: ${skill.name}`
           : `Invoke ClawNet skill: ${skill.name}`;
+        const { payTo } = resolvePayTo(skill);
         offers = [buildX402Offer({
           skillId,
           skillName: skill.name,
           creditCost: skill.credit_cost,
           resource,
           description: desc,
+          payTo,
         })];
       } else {
         offers = [buildX402Offer({
@@ -469,8 +505,16 @@ x402SkillsRouter.post('/skills/:id', async (c) => {
 
     const priceUsdc = (Math.max(skill.credit_cost, 1) * env.X402_USDC_PER_CREDIT).toFixed(6);
 
-    // Option C lite: auto-split 85% of x402 revenue to creator's Base wallet (fire-and-forget)
-    if (skill.creator_evm_wallet && env.EVM_PRIVATE_KEY) {
+    // ─── Direct payout vs platform split ─────────────────────────────────
+    const payToInfo = resolvePayTo(skill);
+    if (payToInfo.isDirectPayout) {
+      // Direct payout: x402 payment already went to creator's wallet on-chain.
+      // No credit split needed. Log the direct payout for audit trail.
+      logAudit({ entityType: 'skill', entityId: id, action: 'X402_DIRECT_PAYOUT',
+        data: { priceUsdc, creatorWallet: payToInfo.creatorWallet, network: env.X402_NETWORK } });
+      logger.info({ skillId: id, priceUsdc, creatorWallet: payToInfo.creatorWallet }, 'x402 direct payout — creator received payment on-chain');
+    } else if (skill.creator_evm_wallet && env.EVM_PRIVATE_KEY) {
+      // Legacy path: platform received payment, auto-split 85% to creator's Base wallet
       const creatorShare = parseFloat((parseFloat(priceUsdc) * 0.85).toFixed(6));
       if (creatorShare > 0) {
         sendBaseUsdc(skill.creator_evm_wallet, creatorShare).catch((err) =>
@@ -525,6 +569,7 @@ x402SkillsRouter.post('/skills/:id', async (c) => {
         network: env.X402_NETWORK,
         receiptId: requestId,
         ...(attestationId && { attestationId }),
+        ...(payToInfo.isDirectPayout && { directPayout: true, payTo: payToInfo.creatorWallet }),
       },
     });
   } catch (err) {
@@ -860,8 +905,13 @@ x402SkillsRouter.post('/query/:id', async (c) => {
       recordReputation({ agentId: skill.author_key, skillId: id, eventType: 'SKILL_INVOKED', scoreDelta: 0.1 });
     }
 
-    // Auto-split 85% of x402 revenue to creator's Base wallet (fire-and-forget)
-    if (skill.creator_evm_wallet && env.EVM_PRIVATE_KEY) {
+    // ─── Direct payout vs platform split ─────────────────────────────────
+    const dataPayToInfo = resolvePayTo(skill);
+    if (dataPayToInfo.isDirectPayout) {
+      logAudit({ entityType: 'skill', entityId: id, action: 'X402_DIRECT_PAYOUT',
+        data: { priceUsdc, creatorWallet: dataPayToInfo.creatorWallet, network: env.X402_NETWORK } });
+      logger.info({ skillId: id, priceUsdc, creatorWallet: dataPayToInfo.creatorWallet }, 'x402 data query direct payout — creator received payment on-chain');
+    } else if (skill.creator_evm_wallet && env.EVM_PRIVATE_KEY) {
       const creatorShare = parseFloat((parseFloat(priceUsdc) * 0.85).toFixed(6));
       if (creatorShare > 0) {
         sendBaseUsdc(skill.creator_evm_wallet, creatorShare).catch((err) =>
@@ -914,6 +964,7 @@ x402SkillsRouter.post('/query/:id', async (c) => {
         priceUsdc,
         receiptId: requestId,
         ...(attestationId && { attestationId }),
+        ...(dataPayToInfo.isDirectPayout && { directPayout: true, payTo: dataPayToInfo.creatorWallet }),
       },
     });
 
@@ -957,16 +1008,21 @@ x402SkillsRouter.get('/skills', (c) => {
     recipientAddress: env.X402_RECIPIENT_ADDRESS,
     facilitator: env.X402_FACILITATOR_URL,
     usdcPerCredit: env.X402_USDC_PER_CREDIT,
-    skills: skills.map((s) => ({
-      id: s.id,
-      name: s.name,
-      displayName: (s as typeof s & { display_name?: string }).display_name ?? s.name,
-      description: s.description,
-      creditCost: s.credit_cost,
-      priceUsdc: (Math.max(s.credit_cost, 1) * env.X402_USDC_PER_CREDIT).toFixed(6),
-      invokeEndpoint: `POST /x402/skills/${s.id}`,
-      tags: safeJsonParse<string[]>(s.tags_json, []),
-    })),
+    skills: skills.map((s) => {
+      const { payTo, isDirectPayout } = resolvePayTo(s);
+      return {
+        id: s.id,
+        name: s.name,
+        displayName: (s as typeof s & { display_name?: string }).display_name ?? s.name,
+        description: s.description,
+        creditCost: s.credit_cost,
+        priceUsdc: (Math.max(s.credit_cost, 1) * env.X402_USDC_PER_CREDIT).toFixed(6),
+        payTo,
+        ...(isDirectPayout && { directPayout: true }),
+        invokeEndpoint: `POST /x402/skills/${s.id}`,
+        tags: safeJsonParse<string[]>(s.tags_json, []),
+      };
+    }),
     totalSkills: skills.length,
   });
 });
@@ -1322,12 +1378,14 @@ x402SkillsRouter.get('/offer/:skillId', (c) => {
     ? `Query ClawNet data skill: ${skill.name}`
     : `Invoke ClawNet skill: ${skill.name}`;
 
+  const { payTo } = resolvePayTo(skill);
   const offer = buildX402Offer({
     skillId,
     skillName: skill.name,
     creditCost: skill.credit_cost,
     resource,
     description: desc,
+    payTo,
   });
 
   const offerResponse = buildX402OfferResponse([offer]);

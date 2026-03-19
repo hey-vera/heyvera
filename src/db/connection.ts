@@ -888,6 +888,20 @@ const MIGRATIONS: { version: number; sql: string }[] = [
     ALTER TABLE api_keys ADD COLUMN wallet_address TEXT;
     CREATE INDEX IF NOT EXISTS idx_api_keys_wallet ON api_keys(wallet_address);
   ` },
+  { version: 91, sql: `
+    CREATE TABLE IF NOT EXISTS reputation_anchors (
+      id TEXT PRIMARY KEY,
+      skill_id TEXT NOT NULL,
+      anchor_hash TEXT NOT NULL,
+      data_snapshot TEXT NOT NULL,
+      anchor_type TEXT NOT NULL DEFAULT 'periodic',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_rep_anchors_skill ON reputation_anchors(skill_id);
+    CREATE INDEX IF NOT EXISTS idx_rep_anchors_created ON reputation_anchors(created_at);
+  ` },
+  // v92: direct x402 payout — opt-in per skill, routes x402 payment to creator's wallet
+  { version: 92, sql: `ALTER TABLE skills ADD COLUMN direct_payout INTEGER NOT NULL DEFAULT 0` },
 ];
 
 function runMigrations(): void {
