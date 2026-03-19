@@ -145,6 +145,40 @@ router.get('/agents.json', (c) => {
   });
 });
 
+// ── Per-tool USDC pricing for MCP discovery ──────────────────────────────
+const mcpToolsWithPricing = [
+  {
+    name: 'list-skills',
+    description: 'Browse the ClawNet skill marketplace',
+    pricing: { model: 'per_call', creditCost: 0, estimatedUsdCost: 0, currency: 'USDC', note: 'Free — read-only' },
+  },
+  {
+    name: 'get-skill',
+    description: 'Get full details about a skill',
+    pricing: { model: 'per_call', creditCost: 0, estimatedUsdCost: 0, currency: 'USDC', note: 'Free — read-only' },
+  },
+  {
+    name: 'invoke-skill',
+    description: 'Execute a skill with provided variables',
+    pricing: { model: 'per_call', creditCost: null, estimatedUsdCost: null, currency: 'USDC', note: 'Varies by skill (0.1-50 credits, $0.0001-$0.05 USDC)' },
+  },
+  {
+    name: 'search-registry',
+    description: 'Search the API endpoint registry',
+    pricing: { model: 'per_call', creditCost: 0, estimatedUsdCost: 0, currency: 'USDC', note: 'Free — read-only' },
+  },
+  {
+    name: 'orchestrate',
+    description: 'AI orchestration — multi-step API workflows',
+    pricing: { model: 'per_call', creditCost: 2, estimatedUsdCost: 0.002, currency: 'USDC', note: 'Base fee + variable API costs' },
+  },
+  {
+    name: 'get-credits',
+    description: 'Check your credit balance',
+    pricing: { model: 'per_call', creditCost: 0, estimatedUsdCost: 0, currency: 'USDC', note: 'Free — read-only' },
+  },
+];
+
 // ── GET /mcp.json — MCP server discovery ─────────────────────────────────
 router.get('/mcp.json', (c) => {
   return c.json({
@@ -161,14 +195,14 @@ router.get('/mcp.json', (c) => {
           CLAWNET_BASE_URL: env.CLAWNET_BASE_URL,
           CLAWNET_API_KEY: 'YOUR_API_KEY',
         },
-        tools: ['list-skills', 'get-skill', 'invoke-skill', 'search-registry', 'orchestrate', 'get-credits'],
+        tools: mcpToolsWithPricing,
       },
       {
         name: 'clawnet-http',
         transport: 'streamable-http',
         url: `${env.CLAWNET_BASE_URL}/mcp`,
         description: 'Remote HTTP MCP server (streamable-http transport)',
-        tools: ['list-skills', 'get-skill', 'invoke-skill', 'search-registry', 'orchestrate', 'get-credits'],
+        tools: mcpToolsWithPricing,
       },
       {
         name: 'clawnet-x402',
@@ -176,7 +210,7 @@ router.get('/mcp.json', (c) => {
         url: `${env.CLAWNET_BASE_URL}/mcp/x402`,
         description: 'x402 payment-gated MCP server — pay per tool call with USDC on Base',
         auth: 'x402 (USDC on Base — no API key needed)',
-        tools: ['list-skills', 'get-skill', 'invoke-skill', 'search-registry', 'orchestrate', 'get-credits'],
+        tools: mcpToolsWithPricing,
       },
     ],
     resources: [],
@@ -184,23 +218,107 @@ router.get('/mcp.json', (c) => {
   });
 });
 
-// ── GET /x402.json — x402 payment discovery ──────────────────────────────
+// ── GET /x402.json — x402 v2 Discovery extension ─────────────────────────
 router.get('/x402.json', (c) => {
   if (!env.X402_RECIPIENT_ADDRESS) {
     return c.json({ enabled: false, hint: 'x402 provider mode not configured' });
   }
 
-  const chainId = env.X402_NETWORK === 'base-sepolia' ? '84532' : '8453';
+  const isTestnet = env.X402_NETWORK === 'base-sepolia';
+  const baseChainId = isTestnet ? 'eip155:84532' : 'eip155:8453';
+  const baseChainName = isTestnet ? 'Base Sepolia' : 'Base Mainnet';
 
   return c.json({
+    // ── v2 Discovery extension fields ──────────────────────────────────
+    x402Version: 2,
+    provider: {
+      name: 'ClawNet',
+      description: 'AI agent orchestration with 390+ live APIs, skill marketplace, and cryptographic receipts',
+      url: 'https://claw-net.org',
+      contact: 'team@claw-net.org',
+      logo: 'https://claw-net.org/assets/logo.png',
+    },
+    capabilities: [
+      'orchestration',
+      'skill-marketplace',
+      'attestation',
+      'manifest',
+      'mcp',
+      'a2a',
+    ],
+    networks: [
+      {
+        chainId: baseChainId,
+        name: baseChainName,
+        assets: ['USDC'],
+        facilitators: [
+          {
+            url: env.X402_FACILITATOR_URL,
+            name: 'Coinbase CDP',
+            primary: true,
+          },
+        ],
+      },
+      {
+        chainId: 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp',
+        name: 'Solana Mainnet',
+        assets: ['USDC'],
+        facilitators: [],
+      },
+    ],
+    endpoints: [
+      {
+        path: '/x402/skills/:skillId',
+        method: 'POST',
+        description: 'Invoke a marketplace skill via x402 payment',
+        pricing: { model: 'per_call', currency: 'USDC' },
+      },
+      {
+        path: '/x402/orchestrate',
+        method: 'POST',
+        description: 'AI orchestration across 390+ APIs',
+        pricing: { model: 'per_call', estimatedUsd: 0.002, currency: 'USDC' },
+      },
+      {
+        path: '/x402/offer/:skillId',
+        method: 'GET',
+        description: 'Pre-fetch x402 offer for a skill (no payment required)',
+      },
+      {
+        path: '/x402/query/:id',
+        method: 'POST',
+        description: 'Query a data skill via x402 payment',
+        pricing: { model: 'per_call', currency: 'USDC' },
+      },
+      {
+        path: '/x402/verify/:requestId',
+        method: 'GET',
+        description: 'Verify x402 payment and delivery receipts (no payment required)',
+      },
+    ],
+    discovery: {
+      agentCard: '/.well-known/agent.json',
+      mcp: '/.well-known/mcp.json',
+      openapi: '/v1/openapi.json',
+      a2a: '/.well-known/agent.json',
+      erc8004: '/v1/erc8004/catalog',
+      healthCheck: '/v1/stats/health/skills',
+      liveness: '/health/live',
+    },
+    authentication: [
+      { type: 'x402', description: 'Pay-per-call via x402 protocol' },
+      { type: 'api_key', header: 'X-API-Key', prefix: 'cn-' },
+      { type: 'bearer', description: 'Clerk JWT for dashboard endpoints' },
+    ],
+
+    // ── Legacy fields (preserved for backward compatibility) ───────────
     version: '2.0',
-    provider: 'ClawNet',
     network: env.X402_NETWORK,
-    chainId,
+    chainId: isTestnet ? '84532' : '8453',
     currency: 'USDC',
     recipientAddress: env.X402_RECIPIENT_ADDRESS,
     facilitator: env.X402_FACILITATOR_URL,
-    endpoints: {
+    legacyEndpoints: {
       discovery: 'GET /x402',
       listSkills: 'GET /x402/skills',
       invokeSkill: 'POST /x402/skills/:id',
@@ -212,7 +330,8 @@ router.get('/x402.json', (c) => {
       testOrchestrate: 'POST /x402/test/orchestrate',
     },
     features: {
-      idempotency: 'SHA-256 hash of X-PAYMENT header prevents double-execution on retries',
+      idempotency: 'SHA-256 hash of X-PAYMENT / PAYMENT-SIGNATURE header prevents double-execution on retries',
+      headerVersions: 'Accepts both x402 v1 (X-PAYMENT) and v2 (PAYMENT-SIGNATURE, PAYMENT-REQUIRED, PAYMENT-RESPONSE) headers',
       facilitatorReceipt: 'Coinbase facilitator-signed payment proof stored per transaction',
       attestationLink: 'Each x402 receipt links to a ClawNet attestation (delivery proof)',
       trustChain: 'GET /x402/verify/:requestId returns both payment proof and delivery proof',

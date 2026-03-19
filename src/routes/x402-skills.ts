@@ -88,7 +88,7 @@ function getX402Receipt(requestId: string): X402Receipt | undefined {
 
 // ─── Idempotency ──────────────────────────────────────────────────────────────
 
-/** SHA-256 hash of the X-PAYMENT header for idempotency deduplication */
+/** SHA-256 hash of the X-PAYMENT / PAYMENT-SIGNATURE header for idempotency deduplication */
 function hashPaymentHeader(paymentHeader: string): string {
   return crypto.createHash('sha256').update(paymentHeader).digest('hex');
 }
@@ -105,7 +105,8 @@ function extractPaymentContext(c: { req: { header: (name: string) => string | un
   facilitatorReceipt: string | null;
   payerAddress: string | null;
 } {
-  const paymentHeader = c.req.header('x-payment') ?? c.req.header('X-PAYMENT') ?? null;
+  // Accept both x402 v1 (X-PAYMENT) and v2 (PAYMENT-SIGNATURE) headers
+  const paymentHeader = c.req.header('x-payment') ?? c.req.header('X-PAYMENT') ?? c.req.header('PAYMENT-SIGNATURE') ?? c.req.header('payment-signature') ?? null;
   if (!paymentHeader) return { paymentHash: null, paymentHeader: null, facilitatorReceipt: null, payerAddress: null };
 
   const paymentHash = hashPaymentHeader(paymentHeader);
@@ -214,7 +215,7 @@ function buildX402OfferResponse(offers: X402Offer[]): X402OfferResponse {
   };
 }
 
-/** Encode an offer response as a base64 string for the X-PAYMENT-OFFER header. */
+/** Encode an offer response as a base64 string for the X-PAYMENT-OFFER / PAYMENT-REQUIRED headers. */
 function encodeOfferHeader(offerResponse: X402OfferResponse): string {
   return Buffer.from(JSON.stringify(offerResponse)).toString('base64');
 }
@@ -374,8 +375,11 @@ x402SkillsRouter.use('*', async (c, next) => {
 
     // Clone the response to add the header (Hono responses may be immutable)
     const newHeaders = new Headers(c.res.headers);
+    // v1 headers
     newHeaders.set('X-PAYMENT-OFFER', encoded);
     newHeaders.set('X-Payment-Protocol', 'x402');
+    // v2 headers
+    newHeaders.set('PAYMENT-REQUIRED', encoded);
 
     c.res = new Response(c.res.body, {
       status: c.res.status,
@@ -1301,6 +1305,7 @@ x402SkillsRouter.get('/offer/:skillId', (c) => {
     });
     const offerResponse = buildX402OfferResponse([offer]);
     c.header('X-PAYMENT-OFFER', encodeOfferHeader(offerResponse));
+    c.header('PAYMENT-REQUIRED', encodeOfferHeader(offerResponse));
     return c.json(offerResponse);
   }
 
@@ -1326,6 +1331,7 @@ x402SkillsRouter.get('/offer/:skillId', (c) => {
 
   const offerResponse = buildX402OfferResponse([offer]);
   c.header('X-PAYMENT-OFFER', encodeOfferHeader(offerResponse));
+  c.header('PAYMENT-REQUIRED', encodeOfferHeader(offerResponse));
   return c.json(offerResponse);
 });
 
@@ -1336,7 +1342,7 @@ x402SkillsRouter.get('/', (c) => {
     name: 'ClawNet x402 Provider',
     description: 'Pay-per-call access to ClawNet skills via x402 protocol (USDC on Base)',
     protocol: 'x402',
-    version: '2.1',
+    version: '2.2',
     network: env.X402_NETWORK,
     enabled: !!env.X402_RECIPIENT_ADDRESS,
     x402Version: X402_OFFER_VERSION,
@@ -1358,6 +1364,11 @@ x402SkillsRouter.get('/', (c) => {
       chain: env.X402_NETWORK,
       facilitator: env.X402_FACILITATOR_URL,
       priceRange: `${env.X402_USDC_PER_CREDIT.toFixed(6)} - ${(env.X402_USDC_PER_CREDIT * 10000).toFixed(4)} USDC per call`,
+    },
+    headers: {
+      v1: { payment: 'X-PAYMENT', offer: 'X-PAYMENT-OFFER' },
+      v2: { payment: 'PAYMENT-SIGNATURE', offer: 'PAYMENT-REQUIRED', response: 'PAYMENT-RESPONSE' },
+      note: 'Both v1 and v2 headers are accepted on requests and set on responses for backward compatibility.',
     },
     docs: 'https://claw-net.org/docs/x402',
   });

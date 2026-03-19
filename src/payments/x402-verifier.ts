@@ -14,8 +14,10 @@
  *   4. Server verifies proof via the CDP facilitator and serves the resource
  *
  * Headers used by x402:
- *   - X-PAYMENT: base64-encoded payment proof (set by x402 client SDK)
- *   - PAYMENT-SIGNATURE: signature over the payment proof
+ *   - X-PAYMENT: base64-encoded payment proof (v1 header, set by x402 client SDK)
+ *   - PAYMENT-SIGNATURE: base64-encoded payment proof (v2 header, same payload as X-PAYMENT)
+ *   - PAYMENT-REQUIRED: 402 response header with offer details (v2)
+ *   - PAYMENT-RESPONSE: success confirmation header (v2)
  */
 
 import type { KeylessPaymentVerifier, PaymentProof, PaymentChallenge } from './gateway.js';
@@ -49,11 +51,14 @@ export class X402Verifier implements KeylessPaymentVerifier {
    * Returns null if no x402 payment headers are present.
    */
   parseProof(headers: Record<string, string>): PaymentProof | null {
-    // x402 uses X-PAYMENT header (case-insensitive check)
+    // x402 v1 uses X-PAYMENT header, v2 uses PAYMENT-SIGNATURE (case-insensitive check)
     const paymentHeader =
       headers['x-payment'] ??
       headers['X-PAYMENT'] ??
-      headers['X-Payment'];
+      headers['X-Payment'] ??
+      headers['payment-signature'] ??
+      headers['PAYMENT-SIGNATURE'] ??
+      headers['Payment-Signature'];
 
     if (!paymentHeader) return null;
 
@@ -160,7 +165,7 @@ export class X402Verifier implements KeylessPaymentVerifier {
    * Clients receiving this challenge should:
    *   1. Send USDC to the recipient address on Base chain
    *   2. Obtain a payment proof from the x402 facilitator
-   *   3. Retry the request with X-PAYMENT header
+   *   3. Retry the request with X-PAYMENT (v1) or PAYMENT-SIGNATURE (v2) header
    */
   generateChallenge(amountUsd: number, metadata?: Record<string, unknown>): PaymentChallenge {
     const chainId = env.X402_NETWORK === 'base-mainnet' ? '8453' : '84532';
@@ -178,6 +183,7 @@ export class X402Verifier implements KeylessPaymentVerifier {
         facilitator: FACILITATOR_URLS[0],
         maxTimeoutSeconds: 60,
         header: 'X-PAYMENT',
+        headerV2: 'PAYMENT-SIGNATURE',
         ...metadata,
       },
     };

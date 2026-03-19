@@ -508,11 +508,13 @@ router.post('/', async (c) => {
       const totalPrice = paidCalls.reduce((sum, pc) => sum + parseFloat(pc.priceUsdc), 0);
       const totalPriceStr = totalPrice.toFixed(6);
 
-      const paymentHeader = c.req.header('x-payment');
+      // Accept both x402 v1 (X-PAYMENT) and v2 (PAYMENT-SIGNATURE) headers
+      const paymentHeader = c.req.header('x-payment') ?? c.req.header('PAYMENT-SIGNATURE');
       if (!paymentHeader) {
-        // Return 402 with payment requirements
+        // Return 402 with payment requirements (set both v1 and v2 headers)
         const paymentRequirements = buildPaymentRequirements(totalPriceStr);
         c.header('X-Payment-Requirements', JSON.stringify(paymentRequirements));
+        c.header('PAYMENT-REQUIRED', JSON.stringify(paymentRequirements));
         return c.json({
           jsonrpc: '2.0',
           id: null,
@@ -524,7 +526,7 @@ router.post('/', async (c) => {
               totalPriceUsdc: totalPriceStr,
               paidTools: paidCalls.map((pc) => ({ tool: pc.toolName, priceUsdc: pc.priceUsdc })),
               paymentRequirements,
-              hint: 'Include X-PAYMENT header with USDC payment on Base.',
+              hint: 'Include X-PAYMENT (v1) or PAYMENT-SIGNATURE (v2) header with USDC payment on Base.',
             },
           },
         }, 402);
@@ -588,10 +590,13 @@ router.post('/', async (c) => {
       const startTime = Date.now();
 
       // Check for payment header
-      const paymentHeader = c.req.header('x-payment');
+      // Accept both x402 v1 (X-PAYMENT) and v2 (PAYMENT-SIGNATURE) headers
+      const paymentHeader = c.req.header('x-payment') ?? c.req.header('PAYMENT-SIGNATURE');
       if (!paymentHeader) {
         const paymentRequirements = buildPaymentRequirements(priceUsdc);
+        // Set both v1 and v2 headers on 402 response
         c.header('X-Payment-Requirements', JSON.stringify(paymentRequirements));
+        c.header('PAYMENT-REQUIRED', JSON.stringify(paymentRequirements));
         return c.json({
           jsonrpc: '2.0',
           id: req.id,
@@ -603,7 +608,7 @@ router.post('/', async (c) => {
               tool: toolName,
               priceUsdc,
               paymentRequirements,
-              hint: 'Include X-PAYMENT header with USDC payment on Base to call this tool.',
+              hint: 'Include X-PAYMENT (v1) or PAYMENT-SIGNATURE (v2) header with USDC payment on Base to call this tool.',
               docs: 'https://claw-net.org/docs/x402',
             },
           },
@@ -761,7 +766,9 @@ router.get('/info', (c) => {
         'orchestrate': `${orchestratePrice} USDC`,
       },
       paymentHeader: 'X-PAYMENT',
+      paymentHeaderV2: 'PAYMENT-SIGNATURE',
       paymentCurrency: 'USDC on Base',
+      note: 'Both X-PAYMENT (v1) and PAYMENT-SIGNATURE (v2) headers are accepted.',
     },
     usage: {
       claude: `claude mcp add-json clawnet-x402 '{"type":"url","url":"${CLAWNET_BASE_URL}/mcp/x402"}'`,

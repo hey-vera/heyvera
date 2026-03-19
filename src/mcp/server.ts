@@ -107,7 +107,7 @@ async function main() {
   // @ts-expect-error TS2589: MCP SDK deep generic inference exceeds TS depth limit
   server.tool(
     'list-skills',
-    'Browse the ClawNet skill marketplace. Returns public skills with IDs, descriptions, and credit costs.',
+    'Browse the ClawNet skill marketplace. Returns public skills with IDs, descriptions, and credit costs. Pricing: Free (read-only, no credits charged).',
     {
       category: z.string().describe('Filter by category (optional): defi | security | social | ai | search | media | enrichment | utility').optional(),
       search: z.string().describe('Search query to filter skills by name or description (optional)').optional(),
@@ -141,7 +141,7 @@ async function main() {
   // ── Tool: get-skill ────────────────────────────────────────────────────────
   server.tool(
     'get-skill',
-    'Get full details about a ClawNet skill including input variables, pricing, and usage examples.',
+    'Get full details about a ClawNet skill including input variables, pricing, and usage examples. Pricing: Free (read-only, no credits charged).',
     {
       skillId: z.string().describe('The skill ID (from list-skills)'),
     },
@@ -178,7 +178,7 @@ async function main() {
   // @ts-expect-error TS2589: MCP SDK deep generic inference exceeds TS depth limit
   server.tool(
     'invoke-skill',
-    'Execute a ClawNet skill with the provided variables. Returns AI-generated analysis. Requires CLAWNET_API_KEY env var.',
+    'Execute a ClawNet skill with the provided variables. Returns AI-generated analysis. Requires CLAWNET_API_KEY env var. Pricing: Varies by skill (0.1-50 credits, $0.0001-$0.05 USDC per call).',
     {
       skillId: z.string().describe('The skill ID to invoke'),
       variables: z.record(z.string()).describe('Key-value pairs for the skill\'s template variables (e.g. {"token": "SOL", "depth": "standard"})').optional(),
@@ -212,7 +212,7 @@ async function main() {
   // ── Tool: search-registry ──────────────────────────────────────────────────
   server.tool(
     'search-registry',
-    'Search ClawNet\'s API endpoint registry (158+ endpoints across 60+ providers). Find the right API for any task.',
+    'Search ClawNet\'s API endpoint registry (158+ endpoints across 60+ providers). Find the right API for any task. Pricing: Free (read-only, no credits charged).',
     {
       query: z.string().describe('What capability you need (e.g. "web scraping", "crypto price", "email finder", "speech to text")'),
       category: z.string().describe('Filter by category: solana | social | defi | scraping | search | media | enrichment | security | ai-ml | infrastructure | weather | oracle | discovery').optional(),
@@ -245,7 +245,7 @@ async function main() {
   // ── Tool: orchestrate ──────────────────────────────────────────────────────
   server.tool(
     'orchestrate',
-    'Run a free-form query through ClawNet\'s AI orchestration engine. Automatically selects APIs, executes multi-step workflows, and returns formatted analysis. Requires CLAWNET_API_KEY.',
+    'Run a free-form query through ClawNet\'s AI orchestration engine. Automatically selects APIs, executes multi-step workflows, and returns formatted analysis. Requires CLAWNET_API_KEY. Pricing: Starting at 2 credits ($0.002 USDC) base fee + variable API costs.',
     {
       query: z.string().describe('Your question or task (e.g. "Analyze the risk of holding SOL", "Find me leads at fintech companies in NYC")'),
     },
@@ -283,7 +283,7 @@ async function main() {
   // ── Tool: get-credits ──────────────────────────────────────────────────────
   server.tool(
     'get-credits',
-    'Check your ClawNet credit balance. Requires CLAWNET_API_KEY.',
+    'Check your ClawNet credit balance. Requires CLAWNET_API_KEY. Pricing: Free (read-only, no credits charged).',
     {},
     async () => {
       if (!CLAWNET_API_KEY) {
