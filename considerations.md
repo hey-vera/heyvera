@@ -591,6 +591,21 @@ Also consider registering Agoragentic as a **seller** on their marketplace (they
 
 **Effort:** 2 hours (add `topUpCredits(key, 5)` after key creation in `src/db/keys.ts`).
 
+## 32. Multi-Chain USDC for x402 Keyless Access
+
+**What:** Accept x402 payments in USDC on Ethereum mainnet (and potentially Arbitrum, Polygon, Optimism) in addition to Base.
+
+**Why defer:**
+- Already support 2 chains: Solana USDC (credit top-ups) + Base USDC (x402 keyless).
+- Ethereum mainnet gas fees ($0.50-5) make micropayments irrational — agents already use Base for cheap txs.
+- Agents on Ethereum are migrating to L2s (Base, Arbitrum) organically.
+- Adding each chain = new `KeylessPaymentVerifier` implementation (~1 week each).
+- Payment gateway abstraction makes this trivial to add later.
+
+**When to build:** When a specific chain's agent ecosystem grows large enough that agents can't/won't bridge to Base. Arbitrum or Polygon are more likely candidates than Ethereum mainnet.
+
+**Effort:** 1 week per chain (new verifier implementing `KeylessPaymentVerifier` interface).
+
 ---
 
 *Last updated: 2026-03-19*
