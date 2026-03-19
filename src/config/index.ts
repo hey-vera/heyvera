@@ -91,6 +91,13 @@ const envSchema = z.object({
   // Pricing engine — previously raw parseInt, now Zod-validated with bounds
   COST_MARKUP_FACTOR: z.coerce.number().int().min(500).max(10000).default(1500), // 1000=break-even, 1500=33-50% margin
   ORCHESTRATION_FEE: z.coerce.number().int().min(0).max(100).default(2),         // flat credits per LLM-routed query
+
+  // ag0 decentralized agent registry (off by default)
+  AG0_DISCOVERY_ENABLED: z.preprocess(
+    (v) => v === 'true' || v === '1' || v === true,
+    z.boolean().default(false),
+  ),
+  AG0_SUBGRAPH_URL: z.string().url().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);

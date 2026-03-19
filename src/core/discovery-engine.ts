@@ -7,6 +7,7 @@ import { embed, isEmbeddingModelReady } from './embeddings';
 import { searchDiscovery, getPeers, getDb } from '../db/index';
 import { getMeshNode } from '../mesh/node';
 import { logger } from '../utils/logger';
+import { searchAg0Agents } from '../integrations/ag0';
 import discoveryConfig from '../config/discovery.json';
 
 export interface DiscoveryResult {
@@ -14,7 +15,7 @@ export interface DiscoveryResult {
   name: string;
   description: string;
   provider: string;
-  source: 'semantic' | 'p2p' | 'onchain';
+  source: 'semantic' | 'p2p' | 'onchain' | 'ag0';
   score: number;
 }
 
@@ -124,6 +125,25 @@ function onchainLayer(query: string, limit: number): DiscoveryResult[] {
   }
 }
 
+// ─── Layer: ag0 (decentralized agent registry — ERC-721 on The Graph) ────────
+
+async function ag0Layer(query: string, limit: number): Promise<DiscoveryResult[]> {
+  try {
+    const agents = await searchAg0Agents(query, limit);
+    return agents.map(a => ({
+      id: `ag0:${a.id}`,
+      name: a.name,
+      description: a.description,
+      provider: 'ag0',
+      source: 'ag0' as const,
+      score: +Math.min(a.reputationScore / 100, 1).toFixed(4), // normalize 0-100 → 0-1
+    }));
+  } catch (err) {
+    logger.warn({ err }, 'ag0 discovery layer failed');
+    return [];
+  }
+}
+
 // ─── Aggregation ──────────────────────────────────────────────────────────────
 
 export async function runDiscovery(opts: DiscoveryOptions): Promise<{
@@ -147,17 +167,27 @@ export async function runDiscovery(opts: DiscoveryOptions): Promise<{
     Promise.resolve(onchainLayer(opts.query, discoveryConfig.onchainLimit)),
   ]);
 
+  // ag0 fallback: when local discovery finds < 3 results, also query the
+  // decentralized agent registry. Runs after the main layers so it only
+  // fires when local results are sparse — keeps latency low in common case.
+  const localResultCount = semanticResults.length + p2pResults.length + onchainResults.length;
+  const ag0Results = localResultCount < 3
+    ? await ag0Layer(opts.query, 10)
+    : [];
+
   // Graceful degradation: re-weight active layers if some returned nothing
-  const activeWeights = { ...rawWeights };
+  const activeWeights = { ...rawWeights, ag0: 0.10 };
   if (semanticResults.length === 0) { activeWeights.semantic = 0; }
   if (p2pResults.length === 0)      { activeWeights.p2p = 0; }
   if (onchainResults.length === 0)  { activeWeights.onchain = 0; }
+  if (ag0Results.length === 0)      { activeWeights.ag0 = 0; }
 
-  const totalWeight = activeWeights.semantic + activeWeights.p2p + activeWeights.onchain;
+  const totalWeight = activeWeights.semantic + activeWeights.p2p + activeWeights.onchain + activeWeights.ag0;
   if (totalWeight > 0) {
     activeWeights.semantic /= totalWeight;
     activeWeights.p2p      /= totalWeight;
     activeWeights.onchain  /= totalWeight;
+    activeWeights.ag0      /= totalWeight;
   }
 
   // Merge, deduplicate by id, re-score by weighted layer scores
@@ -178,6 +208,7 @@ export async function runDiscovery(opts: DiscoveryOptions): Promise<{
   applyLayer(semanticResults, activeWeights.semantic);
   applyLayer(p2pResults,      activeWeights.p2p);
   applyLayer(onchainResults,  activeWeights.onchain);
+  applyLayer(ag0Results,      activeWeights.ag0);
 
   // Apply provider filter
   let merged = Array.from(scoreMap.values());
@@ -223,6 +254,7 @@ export async function runDiscovery(opts: DiscoveryOptions): Promise<{
     semantic: { count: semanticResults.length, weight: +activeWeights.semantic.toFixed(3), active: semanticResults.length > 0 },
     p2p:      { count: p2pResults.length,      weight: +activeWeights.p2p.toFixed(3),      active: p2pResults.length > 0 },
     onchain:  { count: onchainResults.length,  weight: +activeWeights.onchain.toFixed(3),  active: onchainResults.length > 0 },
+    ag0:      { count: ag0Results.length,       weight: +activeWeights.ag0.toFixed(3),       active: ag0Results.length > 0 },
   };
 
   logger.debug({ query: opts.query, layerStats, resultsReturned: results.length }, 'Discovery query completed');
