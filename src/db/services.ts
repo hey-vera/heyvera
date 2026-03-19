@@ -374,6 +374,97 @@ export function getAgentUsageStats(apiKey: string): {
   };
 }
 
+// ─── External Registrations ──────────────────────────────────────────────────
+
+export interface ExternalRegistration {
+  id: string;
+  url: string;
+  name: string;
+  description: string | null;
+  protocol: string;
+  http_method: string;
+  price_usd: number | null;
+  payment_asset: string | null;
+  payment_network: string | null;
+  category: string;
+  provider: string | null;
+  contact_email: string | null;
+  status: string;
+  health_status: string;
+  last_probed: string | null;
+  probe_result: string | null;
+  registered_at: string;
+  registered_ip: string | null;
+}
+
+export function registerExternalEndpoint(data: {
+  url: string;
+  name: string;
+  description?: string;
+  protocol?: string;
+  httpMethod?: string;
+  priceUsd?: number;
+  paymentAsset?: string;
+  paymentNetwork?: string;
+  category?: string;
+  provider?: string;
+  contactEmail?: string;
+  healthStatus?: string;
+  probeResult?: string;
+  registeredIp?: string;
+}): string {
+  const id = nanoid(16);
+  getDb()
+    .prepare(`INSERT INTO external_registrations
+      (id, url, name, description, protocol, http_method, price_usd, payment_asset, payment_network, category, provider, contact_email, health_status, last_probed, probe_result, registered_ip)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?)`)
+    .run(
+      id,
+      data.url,
+      data.name,
+      data.description ?? null,
+      data.protocol ?? 'x402',
+      data.httpMethod ?? 'POST',
+      data.priceUsd ?? null,
+      data.paymentAsset ?? 'USDC',
+      data.paymentNetwork ?? null,
+      data.category ?? 'uncategorized',
+      data.provider ?? null,
+      data.contactEmail ?? null,
+      data.healthStatus ?? 'unknown',
+      data.probeResult ?? null,
+      data.registeredIp ?? null,
+    );
+  return id;
+}
+
+export function getExternalRegistration(id: string): ExternalRegistration | undefined {
+  return getDb()
+    .prepare('SELECT * FROM external_registrations WHERE id = ?')
+    .get(id) as ExternalRegistration | undefined;
+}
+
+export function listExternalRegistrations(
+  status?: string,
+  protocol?: string,
+  limit = 50,
+  offset = 0,
+): ExternalRegistration[] {
+  let sql = 'SELECT * FROM external_registrations WHERE 1=1';
+  const params: unknown[] = [];
+  if (status) { sql += ' AND status = ?'; params.push(status); }
+  if (protocol) { sql += ' AND protocol = ?'; params.push(protocol); }
+  sql += ' ORDER BY registered_at DESC LIMIT ? OFFSET ?';
+  params.push(Math.min(limit, 200), offset);
+  return getDb().prepare(sql).all(...params) as ExternalRegistration[];
+}
+
+export function updateRegistrationProbe(id: string, healthStatus: string, probeResult: string): void {
+  getDb()
+    .prepare(`UPDATE external_registrations SET health_status = ?, probe_result = ?, last_probed = datetime('now') WHERE id = ?`)
+    .run(healthStatus, probeResult, id);
+}
+
 // ─── Claim Tokens ──────────────────────────────────────────────────────────────
 
 export function storeClaimToken(params: {

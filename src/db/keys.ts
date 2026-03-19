@@ -453,3 +453,32 @@ export function getUsageStats(key: string): {
     },
   };
 }
+
+// ─── Wallet-linked Keys (SIWX / CAIP-122) ──────────────────────────────────
+
+export function getApiKeyByWallet(address: string): {
+  key: string; email: string; credits: number; credits_used: number; amount_paid: number;
+} | undefined {
+  return getDb()
+    .prepare('SELECT key, email, credits, credits_used, amount_paid FROM api_keys WHERE wallet_address = ? AND active = 1 ORDER BY created_at DESC LIMIT 1')
+    .get(address.toLowerCase()) as ReturnType<typeof getApiKeyByWallet>;
+}
+
+export function linkWalletToApiKey(key: string, address: string): void {
+  getDb()
+    .prepare('UPDATE api_keys SET wallet_address = ? WHERE key = ? AND active = 1')
+    .run(address.toLowerCase(), key);
+  logAudit({ entityType: 'api_key', entityId: key, action: 'WALLET_LINKED', data: { wallet: address.toLowerCase() } });
+}
+
+export function createApiKeyForWallet(opts: {
+  key: string;
+  walletAddress: string;
+  credits: number;
+}): void {
+  getDb().prepare(`
+    INSERT INTO api_keys (key, email, credits, credits_used, created_at, wallet_address, amount_paid)
+    VALUES (?, ?, ?, 0, datetime('now'), ?, 0)
+  `).run(opts.key, `wallet:${opts.walletAddress.toLowerCase()}`, opts.credits, opts.walletAddress.toLowerCase());
+  logAudit({ entityType: 'api_key', entityId: opts.key, action: 'CREDIT_GRANT', data: { credits: opts.credits, via: 'siwx', wallet: opts.walletAddress.toLowerCase() } });
+}

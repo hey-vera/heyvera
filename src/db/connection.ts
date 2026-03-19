@@ -859,6 +859,35 @@ const MIGRATIONS: { version: number; sql: string }[] = [
       subscribed_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
   ` },
+  { version: 89, sql: `
+    CREATE TABLE IF NOT EXISTS external_registrations (
+      id TEXT PRIMARY KEY,
+      url TEXT NOT NULL,
+      name TEXT NOT NULL,
+      description TEXT,
+      protocol TEXT NOT NULL DEFAULT 'x402',
+      http_method TEXT NOT NULL DEFAULT 'POST',
+      price_usd REAL,
+      payment_asset TEXT DEFAULT 'USDC',
+      payment_network TEXT,
+      category TEXT DEFAULT 'uncategorized',
+      provider TEXT,
+      contact_email TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      health_status TEXT DEFAULT 'unknown',
+      last_probed TEXT,
+      probe_result TEXT,
+      registered_at TEXT NOT NULL DEFAULT (datetime('now')),
+      registered_ip TEXT,
+      UNIQUE(url, protocol)
+    );
+    CREATE INDEX IF NOT EXISTS idx_ext_reg_status ON external_registrations(status);
+    CREATE INDEX IF NOT EXISTS idx_ext_reg_protocol ON external_registrations(protocol);
+  ` },
+  { version: 90, sql: `
+    ALTER TABLE api_keys ADD COLUMN wallet_address TEXT;
+    CREATE INDEX IF NOT EXISTS idx_api_keys_wallet ON api_keys(wallet_address);
+  ` },
 ];
 
 function runMigrations(): void {

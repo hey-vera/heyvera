@@ -41,6 +41,7 @@ import { llmRouter } from './routes/llm';
 import { registryRouter } from './routes/registry';
 import { tasksRouter } from './routes/tasks';
 import { authRouter } from './routes/auth-tokens';
+import { siwxRouter } from './routes/siwx';
 import { oauthRouter } from './routes/oauth';
 import { contextRouter } from './routes/context';
 import { economyRouter } from './routes/economy';
@@ -65,6 +66,7 @@ import { predictiveAlertsRouter } from './routes/predictive-alerts';
 import { bountiesRouter } from './routes/bounties';
 import { mcpHttpRouter } from './mcp/http-transport';
 import { x402McpRouter } from './mcp/x402-mcp-transport';
+import { registerRouter } from './routes/register';
 import { statsTelemetryRouter } from './routes/stats-telemetry';
 // import { referralRouter } from './routes/referral'; // disabled — re-enable when referral program launches
 import { startEndpointHealthCron } from './core/endpoint-health-cron';
@@ -252,6 +254,7 @@ app.route('/v1/llm', llmRouter);
 app.route('/v1/registry', registryRouter);
 app.route('/v1/tasks', tasksRouter);
 app.route('/v1/auth', authRouter);
+app.route('/v1/auth/siwx', siwxRouter);
 app.route('/v1/oauth', oauthRouter);
 app.route('/v1/context', contextRouter);
 app.route('/v1/economy', economyRouter);
@@ -281,7 +284,82 @@ app.route('/v1/erc8004', erc8004Router);
 app.route('/mcp', mcpHttpRouter);
 app.route('/mcp/x402', x402McpRouter);
 app.route('/v1/stats/telemetry', statsTelemetryRouter);
+app.route('/v1/register', registerRouter);
 // app.route('/v1/referral', referralRouter); // disabled — re-enable when referral program launches
+
+// ─── RSS 2.0 Feed — public skill marketplace feed for aggregators ────────────
+app.get('/feed.xml', (c) => {
+  const typeFilter = c.req.query('type');
+  const tagFilter = c.req.query('tag');
+
+  const validTypes = ['data', 'api_proxy', 'prompt_template', 'composite'];
+  const conditions = [
+    'active = 1',
+    'public = 1',
+    "security_status != 'FLAGGED'",
+  ];
+  const params: string[] = [];
+
+  if (typeFilter && validTypes.includes(typeFilter)) {
+    conditions.push('skill_type = ?');
+    params.push(typeFilter);
+  }
+  if (tagFilter) {
+    conditions.push('tags_json LIKE ?');
+    params.push(`%"${tagFilter}"%`);
+  }
+
+  const sql = `SELECT id, name, description, skill_type, credit_cost, proxy_url, created_at, tags_json
+    FROM skills WHERE ${conditions.join(' AND ')}
+    ORDER BY created_at DESC LIMIT 50`;
+
+  interface FeedSkillRow {
+    id: string;
+    name: string;
+    description: string;
+    skill_type: string;
+    credit_cost: number;
+    proxy_url: string | null;
+    created_at: string;
+    tags_json: string | null;
+  }
+
+  const skills = getDb().prepare(sql).all(...params) as FeedSkillRow[];
+
+  const escXml = (s: string): string =>
+    s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+     .replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+
+  const items = skills.map((s) => {
+    const protocol = s.proxy_url ? 'x402' : 'credits';
+    const pubDate = new Date(s.created_at).toUTCString();
+    return `    <item>
+      <title>${escXml(s.name)}</title>
+      <link>https://claw-net.org/skill?id=${encodeURIComponent(s.id)}</link>
+      <description>${escXml(s.description)}</description>
+      <pubDate>${pubDate}</pubDate>
+      <guid isPermaLink="false">clawnet-skill-${escXml(s.id)}</guid>
+      <clawnet:creditCost>${s.credit_cost}</clawnet:creditCost>
+      <clawnet:skillType>${escXml(s.skill_type)}</clawnet:skillType>
+      <clawnet:protocol>${protocol}</clawnet:protocol>
+    </item>`;
+  }).join('\n');
+
+  const lastBuild = new Date().toUTCString();
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:clawnet="https://claw-net.org/rss">
+  <channel>
+    <title>ClawNet Skill Marketplace</title>
+    <link>https://claw-net.org/marketplace</link>
+    <description>AI agent skills — data, orchestration, and composites</description>
+    <lastBuildDate>${lastBuild}</lastBuildDate>
+${items}
+  </channel>
+</rss>`;
+
+  c.header('Content-Type', 'application/rss+xml');
+  return c.body(xml);
+});
 
 app.notFound((c) => c.json({ error: 'Not found', code: 'NOT_FOUND' }, 404));
 

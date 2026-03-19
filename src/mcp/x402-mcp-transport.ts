@@ -742,6 +742,7 @@ router.get('/info', (c) => {
     chainId: env.X402_NETWORK === 'base-mainnet' ? '8453' : '84532',
     recipientAddress: env.X402_RECIPIENT_ADDRESS ?? null,
     facilitator: env.X402_FACILITATOR_URL,
+    facilitatorFallback: env.X402_FACILITATOR_FALLBACK_URL ?? null,
     tools: toolDefinitions.map((t) => ({
       name: t.name,
       description: t.description,

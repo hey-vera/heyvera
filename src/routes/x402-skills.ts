@@ -228,6 +228,7 @@ export const x402SkillsRouter = new Hono();
 
 const FACILITATOR_FALLBACKS = [
   env.X402_FACILITATOR_URL,
+  ...(env.X402_FACILITATOR_FALLBACK_URL ? [env.X402_FACILITATOR_FALLBACK_URL] : []),
   'https://x402.org/facilitator',
   'https://facilitator.x402.org',
   'https://facilitator.payai.network',

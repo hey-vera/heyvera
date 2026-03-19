@@ -257,6 +257,13 @@ router.get('/x402.json', (c) => {
             name: 'Coinbase CDP',
             primary: true,
           },
+          ...(env.X402_FACILITATOR_FALLBACK_URL
+            ? [{
+                url: env.X402_FACILITATOR_FALLBACK_URL,
+                name: 'Fallback Facilitator',
+                primary: false,
+              }]
+            : []),
         ],
       },
       {

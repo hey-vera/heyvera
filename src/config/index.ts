@@ -48,6 +48,7 @@ const envSchema = z.object({
 
   // x402 provider mode (serve skills as x402 endpoints)
   X402_FACILITATOR_URL: z.string().default('https://x402.org/facilitator'),
+  X402_FACILITATOR_FALLBACK_URL: z.string().url().optional(),
   X402_NETWORK: z.enum(['base-mainnet', 'base-sepolia']).default('base-mainnet'),
   X402_RECIPIENT_ADDRESS: z.string().optional(), // EVM address to receive USDC on Base
   X402_USDC_PER_CREDIT: z.coerce.number().min(0.0001).max(1).default(0.001), // 1 credit = $0.001 USDC (matches Stripe base rate of 1000 credits/$1)
