@@ -247,6 +247,12 @@
     .badge-weather     { color:#38bdf8; border-color:rgba(56,189,248,0.3); background:rgba(56,189,248,0.1); }
     .badge-ai-ml       { color:var(--purple); border-color:rgba(139,92,246,0.3); background:var(--purple-dim); }
     .badge-infrastructure { color:var(--text-tertiary); border-color:var(--border-default); background:var(--bg-surface-2); }
+    .badge-protocol    { color:#f472b6; border-color:rgba(244,114,182,0.3); background:rgba(244,114,182,0.1); }
+    .badge-auth        { color:#facc15; border-color:rgba(250,204,21,0.3); background:rgba(250,204,21,0.1); }
+    .badge-identity    { color:#818cf8; border-color:rgba(129,140,248,0.3); background:rgba(129,140,248,0.1); }
+    .badge-registry    { color:#2dd4bf; border-color:rgba(45,212,191,0.3); background:rgba(45,212,191,0.1); }
+    .badge-payments    { color:#fb923c; border-color:rgba(251,146,60,0.3); background:rgba(251,146,60,0.1); }
+    .badge-health      { color:var(--accent); border-color:rgba(16,185,129,0.3); background:var(--accent-dim); }
     .badge-status-operational { color:var(--accent); border-color:rgba(16,185,129,0.25); background:transparent; }
     .badge-status-degraded    { color:var(--warning); border-color:rgba(245,158,11,0.25); background:transparent; }
     .badge-status-down        { color:var(--danger); border-color:rgba(239,68,68,0.25); background:transparent; }
@@ -324,6 +330,37 @@
     .empty-state-sub { font-size:13px; color:var(--text-muted); }
     .skeleton-card { background:var(--bg-surface); border:1px solid var(--border-subtle); border-radius:var(--radius-lg); padding:20px; height:180px; }
     .skel { background:var(--border-subtle); border-radius:var(--radius-sm); animation:shimmer 1.5s infinite; }
+
+    /* ── PLATFORM ENDPOINTS ── */
+    .platform-section { padding:40px 0 0; }
+    .platform-section-title { font-family:var(--font-display); font-size:22px; font-weight:600; color:var(--text-primary); letter-spacing:-0.01em; margin-bottom:6px; }
+    .platform-section-sub { font-size:14px; color:var(--text-secondary); margin-bottom:24px; line-height:1.6; }
+    .platform-group { margin-bottom:28px; }
+    .platform-group-title { font-size:13px; font-weight:600; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:12px; padding-bottom:8px; border-bottom:1px solid var(--border-subtle); }
+    .platform-ep {
+      display:flex; align-items:flex-start; gap:12px; padding:12px 16px;
+      background:var(--bg-surface); border:1px solid var(--border-subtle); border-radius:var(--radius-md);
+      margin-bottom:8px; transition:border-color 0.15s;
+    }
+    .platform-ep:hover { border-color:var(--border-strong); }
+    .platform-ep-method {
+      font-family:var(--font-mono); font-size:11px; font-weight:700; padding:3px 8px;
+      border-radius:var(--radius-sm); flex-shrink:0; min-width:54px; text-align:center;
+    }
+    .method-get    { color:#22d3ee; background:rgba(34,211,238,0.12); }
+    .method-post   { color:#a78bfa; background:rgba(167,139,250,0.12); }
+    .method-patch  { color:#fbbf24; background:rgba(251,191,36,0.12); }
+    .method-delete { color:#f87171; background:rgba(248,113,113,0.12); }
+    .method-put    { color:#fb923c; background:rgba(251,146,60,0.12); }
+    .platform-ep-info { flex:1; min-width:0; }
+    .platform-ep-path { font-family:var(--font-mono); font-size:13px; color:var(--text-primary); font-weight:500; margin-bottom:3px; }
+    .platform-ep-desc { font-size:13px; color:var(--text-secondary); line-height:1.5; }
+    .platform-ep-badges { display:flex; gap:5px; flex-shrink:0; align-items:center; }
+    .platform-ep-auth { font-size:10px; font-weight:500; padding:2px 8px; border-radius:var(--radius-sm); }
+    .auth-none   { color:var(--text-tertiary); border:1px solid var(--border-default); background:var(--bg-surface-2); }
+    .auth-apikey { color:var(--accent); border:1px solid rgba(16,185,129,0.3); background:var(--accent-dim); }
+    .auth-clerk  { color:var(--info); border:1px solid rgba(59,130,246,0.3); background:var(--info-dim); }
+    .platform-divider { border:none; border-top:1px solid var(--border-subtle); margin:40px 0 0; }
 
     /* ── FOOTER ── */
     footer { border-top:1px solid var(--border-subtle); padding:48px 24px 32px; }
@@ -512,6 +549,258 @@
       <div class="skeleton-card"><div class="skel" style="height:12px;width:60%;margin-bottom:10px"></div><div class="skel" style="height:10px;width:40%;margin-bottom:18px"></div><div class="skel" style="height:10px;width:90%;margin-bottom:6px"></div><div class="skel" style="height:10px;width:75%"></div></div>
       <div class="skeleton-card"><div class="skel" style="height:12px;width:55%;margin-bottom:10px"></div><div class="skel" style="height:10px;width:35%;margin-bottom:18px"></div><div class="skel" style="height:10px;width:85%;margin-bottom:6px"></div><div class="skel" style="height:10px;width:70%"></div></div>
       <div class="skeleton-card"><div class="skel" style="height:12px;width:65%;margin-bottom:10px"></div><div class="skel" style="height:10px;width:45%;margin-bottom:18px"></div><div class="skel" style="height:10px;width:80%;margin-bottom:6px"></div><div class="skel" style="height:10px;width:65%"></div></div>
+    </div>
+
+    <!-- PLATFORM ENDPOINTS -->
+    <hr class="platform-divider">
+    <div class="platform-section">
+      <div class="platform-section-title">Platform Endpoints</div>
+      <p class="platform-section-sub">Native ClawNet protocol endpoints for agent-to-agent communication, identity, authentication, registration, and discovery. These are not part of the orchestrated API registry above.</p>
+
+      <!-- Agent-to-Agent (A2A) -->
+      <div class="platform-group">
+        <div class="platform-group-title">Agent-to-Agent (A2A)</div>
+        <div class="platform-ep">
+          <span class="platform-ep-method method-post">POST</span>
+          <div class="platform-ep-info">
+            <div class="platform-ep-path">/a2a/tasks/send</div>
+            <div class="platform-ep-desc">Submit task to ClawNet via A2A protocol</div>
+          </div>
+          <div class="platform-ep-badges">
+            <span class="ep-badge badge-protocol">protocol</span>
+            <span class="platform-ep-auth auth-apikey">API Key</span>
+          </div>
+        </div>
+        <div class="platform-ep">
+          <span class="platform-ep-method method-get">GET</span>
+          <div class="platform-ep-info">
+            <div class="platform-ep-path">/a2a/tasks/:id</div>
+            <div class="platform-ep-desc">Get A2A task status and result</div>
+          </div>
+          <div class="platform-ep-badges">
+            <span class="ep-badge badge-protocol">protocol</span>
+            <span class="platform-ep-auth auth-apikey">API Key</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Agent Identity -->
+      <div class="platform-group">
+        <div class="platform-group-title">Agent Identity</div>
+        <div class="platform-ep">
+          <span class="platform-ep-method method-post">POST</span>
+          <div class="platform-ep-info">
+            <div class="platform-ep-path">/v1/identity</div>
+            <div class="platform-ep-desc">Register agent identity</div>
+          </div>
+          <div class="platform-ep-badges">
+            <span class="ep-badge badge-identity">identity</span>
+            <span class="platform-ep-auth auth-apikey">API Key</span>
+          </div>
+        </div>
+        <div class="platform-ep">
+          <span class="platform-ep-method method-get">GET</span>
+          <div class="platform-ep-info">
+            <div class="platform-ep-path">/v1/identity</div>
+            <div class="platform-ep-desc">Get own identity</div>
+          </div>
+          <div class="platform-ep-badges">
+            <span class="ep-badge badge-identity">identity</span>
+            <span class="platform-ep-auth auth-apikey">API Key</span>
+          </div>
+        </div>
+        <div class="platform-ep">
+          <span class="platform-ep-method method-patch">PATCH</span>
+          <div class="platform-ep-info">
+            <div class="platform-ep-path">/v1/identity</div>
+            <div class="platform-ep-desc">Update identity</div>
+          </div>
+          <div class="platform-ep-badges">
+            <span class="ep-badge badge-identity">identity</span>
+            <span class="platform-ep-auth auth-apikey">API Key</span>
+          </div>
+        </div>
+        <div class="platform-ep">
+          <span class="platform-ep-method method-post">POST</span>
+          <div class="platform-ep-info">
+            <div class="platform-ep-path">/v1/identity/jwt</div>
+            <div class="platform-ep-desc">Issue/refresh JWT</div>
+          </div>
+          <div class="platform-ep-badges">
+            <span class="ep-badge badge-identity">identity</span>
+            <span class="platform-ep-auth auth-apikey">API Key</span>
+          </div>
+        </div>
+        <div class="platform-ep">
+          <span class="platform-ep-method method-get">GET</span>
+          <div class="platform-ep-info">
+            <div class="platform-ep-path">/v1/identity/browse</div>
+            <div class="platform-ep-desc">Browse public identities</div>
+          </div>
+          <div class="platform-ep-badges">
+            <span class="ep-badge badge-identity">identity</span>
+            <span class="platform-ep-auth auth-none">No Auth</span>
+          </div>
+        </div>
+        <div class="platform-ep">
+          <span class="platform-ep-method method-get">GET</span>
+          <div class="platform-ep-info">
+            <div class="platform-ep-path">/v1/identity/:id</div>
+            <div class="platform-ep-desc">Public identity lookup</div>
+          </div>
+          <div class="platform-ep-badges">
+            <span class="ep-badge badge-identity">identity</span>
+            <span class="platform-ep-auth auth-none">No Auth</span>
+          </div>
+        </div>
+        <div class="platform-ep">
+          <span class="platform-ep-method method-get">GET</span>
+          <div class="platform-ep-info">
+            <div class="platform-ep-path">/v1/identity/:id/verify</div>
+            <div class="platform-ep-desc">Verify identity JWT</div>
+          </div>
+          <div class="platform-ep-badges">
+            <span class="ep-badge badge-identity">identity</span>
+            <span class="platform-ep-auth auth-none">No Auth</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Wallet Auth (SIWX) -->
+      <div class="platform-group">
+        <div class="platform-group-title">Wallet Auth (SIWX)</div>
+        <div class="platform-ep">
+          <span class="platform-ep-method method-get">GET</span>
+          <div class="platform-ep-info">
+            <div class="platform-ep-path">/v1/auth/siwx/nonce</div>
+            <div class="platform-ep-desc">Get CAIP-122 nonce</div>
+          </div>
+          <div class="platform-ep-badges">
+            <span class="ep-badge badge-auth">auth</span>
+            <span class="platform-ep-auth auth-none">No Auth</span>
+          </div>
+        </div>
+        <div class="platform-ep">
+          <span class="platform-ep-method method-post">POST</span>
+          <div class="platform-ep-info">
+            <div class="platform-ep-path">/v1/auth/siwx</div>
+            <div class="platform-ep-desc">Sign in with wallet</div>
+          </div>
+          <div class="platform-ep-badges">
+            <span class="ep-badge badge-auth">auth</span>
+            <span class="platform-ep-auth auth-none">No Auth</span>
+          </div>
+        </div>
+        <div class="platform-ep">
+          <span class="platform-ep-method method-get">GET</span>
+          <div class="platform-ep-info">
+            <div class="platform-ep-path">/v1/auth/siwx/chains</div>
+            <div class="platform-ep-desc">List supported chains</div>
+          </div>
+          <div class="platform-ep-badges">
+            <span class="ep-badge badge-auth">auth</span>
+            <span class="platform-ep-auth auth-none">No Auth</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Registration -->
+      <div class="platform-group">
+        <div class="platform-group-title">Registration</div>
+        <div class="platform-ep">
+          <span class="platform-ep-method method-post">POST</span>
+          <div class="platform-ep-info">
+            <div class="platform-ep-path">/v1/register</div>
+            <div class="platform-ep-desc">Register external x402/L402 endpoint</div>
+          </div>
+          <div class="platform-ep-badges">
+            <span class="ep-badge badge-registry">registry</span>
+            <span class="platform-ep-auth auth-none">No Auth</span>
+          </div>
+        </div>
+        <div class="platform-ep">
+          <span class="platform-ep-method method-get">GET</span>
+          <div class="platform-ep-info">
+            <div class="platform-ep-path">/v1/register/:id</div>
+            <div class="platform-ep-desc">Check registration status</div>
+          </div>
+          <div class="platform-ep-badges">
+            <span class="ep-badge badge-registry">registry</span>
+            <span class="platform-ep-auth auth-none">No Auth</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- x402 Enhancements -->
+      <div class="platform-group">
+        <div class="platform-group-title">x402 Enhancements</div>
+        <div class="platform-ep">
+          <span class="platform-ep-method method-get">GET</span>
+          <div class="platform-ep-info">
+            <div class="platform-ep-path">/x402/offer/:skillId</div>
+            <div class="platform-ep-desc">Pre-fetch x402 payment offer</div>
+          </div>
+          <div class="platform-ep-badges">
+            <span class="ep-badge badge-payments">payments</span>
+            <span class="platform-ep-auth auth-none">No Auth</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ERC-8004 -->
+      <div class="platform-group">
+        <div class="platform-group-title">ERC-8004</div>
+        <div class="platform-ep">
+          <span class="platform-ep-method method-get">GET</span>
+          <div class="platform-ep-info">
+            <div class="platform-ep-path">/v1/erc8004/catalog</div>
+            <div class="platform-ep-desc">Public ERC-8004 skill catalog</div>
+          </div>
+          <div class="platform-ep-badges">
+            <span class="ep-badge badge-protocol">protocol</span>
+            <span class="platform-ep-auth auth-none">No Auth</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Health & Discovery -->
+      <div class="platform-group">
+        <div class="platform-group-title">Health &amp; Discovery</div>
+        <div class="platform-ep">
+          <span class="platform-ep-method method-get">GET</span>
+          <div class="platform-ep-info">
+            <div class="platform-ep-path">/v1/stats/health/skills</div>
+            <div class="platform-ep-desc">Public skill health metrics</div>
+          </div>
+          <div class="platform-ep-badges">
+            <span class="ep-badge badge-health">health</span>
+            <span class="platform-ep-auth auth-none">No Auth</span>
+          </div>
+        </div>
+        <div class="platform-ep">
+          <span class="platform-ep-method method-get">GET</span>
+          <div class="platform-ep-info">
+            <div class="platform-ep-path">/health/live</div>
+            <div class="platform-ep-desc">Liveness probe</div>
+          </div>
+          <div class="platform-ep-badges">
+            <span class="ep-badge badge-health">health</span>
+            <span class="platform-ep-auth auth-none">No Auth</span>
+          </div>
+        </div>
+        <div class="platform-ep">
+          <span class="platform-ep-method method-get">GET</span>
+          <div class="platform-ep-info">
+            <div class="platform-ep-path">/feed.xml</div>
+            <div class="platform-ep-desc">RSS 2.0 skill feed</div>
+          </div>
+          <div class="platform-ep-badges">
+            <span class="ep-badge badge-discovery">discovery</span>
+            <span class="platform-ep-auth auth-none">No Auth</span>
+          </div>
+        </div>
+      </div>
+
     </div>
 
   </div><!-- /container -->
