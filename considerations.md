@@ -512,7 +512,86 @@ Also consider registering Agoragentic as a **seller** on their marketplace (they
 
 **Effort:** 1 hour (docs update only, after the product decision is made).
 
+## 28. Org-Level Identity for API Keys
+
+**What:** Add optional `org_id` field to API keys so multiple keys/agents can be grouped under one organization. Sellers on the marketplace see "Company X" instead of individual masked keys.
+
+**Why defer:**
+- Org identity standards for AI agents are still emerging (Anon, Billions/KYA, t54 all building competing approaches).
+- ClawNet's current key + delegated key + attestation stack already provides 80% of org accountability.
+- Building a proprietary org identity system risks being incompatible with whatever standard wins.
+- The right move is to be compatible when standards mature, not build ahead of them.
+
+**What to watch:**
+- Anon (@AnonPlatform) — building org identity for agents, big announcement pending.
+- ERC-8004 — on-chain agent identity registry (EVM-native).
+- KYA standards — "Know Your Agent" becoming regulatory expectation per a16z/PYMNTS.
+
+**When to build:**
+- When 2+ agent frameworks (LangChain, CrewAI, ElizaOS) ship org identity support by default.
+- Or when a paying customer specifically requests org grouping for their delegated keys.
+
+**Implementation sketch:**
+- Add `org_id TEXT` + `org_name TEXT` to `api_keys` table.
+- Group delegated keys under org in `GET /v1/economy/keys/delegated`.
+- Show org name (not just masked key) to marketplace sellers.
+- Accept external org identity tokens (Anon, KYA) as optional auth enrichment.
+
+**Effort:** 1-2 days for the DB + API changes. Integration with external identity providers depends on their SDK maturity.
+
+## 29. MPP (Machine Payments Protocol) Integration
+
+**What:** Add MPP as a second keyless payment protocol alongside x402. MPP adds session-based spending caps and fiat fallback via Stripe.
+
+**Why defer:**
+- MPP launched 2026-03-18 on Tempo L1 — day 1, unproven in production.
+- Tempo L1 is new and unclear how decentralized/permissionless it actually is.
+- MPP's "sessions" feature is already solved by ClawNet's credit system (buy once, spend unlimited, sub-ms settlement).
+- ClawNet's payment abstraction layer (`src/payments/`) already has an MPP stub ready to implement.
+
+**When to build:**
+- When agent frameworks ship MPP wallet support by default (LangChain, CrewAI, etc.).
+- Or when MPP daily transaction volume exceeds $100K (currently near zero).
+- Implementation is ~1 week thanks to the payment gateway abstraction.
+
+**Effort:** 1 week (implement `MppVerifier` in `src/payments/mpp-verifier.ts`).
+
+## 30. Lightning/LSAT Payment Support
+
+**What:** Add Lightning Network LSAT (Lightning Service Authentication Tokens) as a keyless payment option for Bitcoin-native agents.
+
+**Why defer:**
+- Lightning LSAT adoption among AI agents is extremely small.
+- BTC price volatility makes it unsuitable as a primary commerce rail for a platform pricing in USD-pegged credits.
+- The Bitcoin-maximalist agent builder audience exists but is not large enough to justify proactive investment.
+- Payment abstraction layer already has an LSAT stub (`src/payments/lsat-verifier.ts`).
+
+**When to build:**
+- Only if a significant customer or partnership specifically requires Lightning payments.
+- Or if Lightning LSAT transaction volume among AI agents reaches meaningful levels.
+- Implementation is ~1 week thanks to the payment gateway abstraction.
+
+**Effort:** 1 week (implement `LsatVerifier` in `src/payments/lsat-verifier.ts`).
+
+## 31. Free Trial Tier for Agent Onboarding
+
+**What:** Give new API keys 1-5 free credits on creation so agents can try ClawNet (especially Manifest) without buying credits first.
+
+**Why consider:**
+- The Anon article argues: "if the first thing an agent encounters is a payment wall, you've eliminated your own top of funnel."
+- x402 solves this for wallet-holding agents, but non-crypto agents (the majority) still need to buy credits before their first call.
+- A small free trial (5 credits = $0.005) removes the last friction point.
+
+**Why defer:**
+- Risk of abuse (bots creating keys for free credits).
+- Need rate limiting per IP/email on key creation first.
+- Current signup flow via Clerk + dashboard works for serious users.
+
+**When to build:** When user acquisition becomes the priority (post-launch, when the product is proven).
+
+**Effort:** 2 hours (add `topUpCredits(key, 5)` after key creation in `src/db/keys.ts`).
+
 ---
 
-*Last updated: 2026-03-18*
+*Last updated: 2026-03-19*
 *Based on Artemis Agentic Commerce Market Map analysis (173 companies) — competitive research against 402.bot, Questflow, OpenServ, Blockrun, Dexter, Daydreams, PayAI, Virtuals Protocol, Bittensor, x402engine, Agoragentic, ClawIndex, x402scan, Helixa, Cred Protocol.*
