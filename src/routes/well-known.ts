@@ -13,7 +13,7 @@ const router = new Hono();
 router.get('/agent-card.json', (c) => {
   return c.json({
     name: 'ClawNet',
-    description: 'Universal AI agent orchestration layer — 344+ API endpoints, skill marketplace, x402 payments',
+    description: 'Universal AI agent orchestration layer — 390+ API endpoints, skill marketplace, x402 payments',
     version: '1.0.0',
     url: env.CLAWNET_BASE_URL,
     capabilities: [
@@ -93,7 +93,7 @@ router.get('/agents.json', (c) => {
     agents: [
       {
         name: 'ClawNet Orchestrator',
-        description: 'Natural language → multi-step API orchestration with 344+ endpoints',
+        description: 'Natural language → multi-step API orchestration with 390+ endpoints',
         endpoint: '/v1/orchestrate',
         methods: ['POST'],
         auth: 'X-API-Key or x402',
@@ -181,7 +181,7 @@ router.get('/x402.json', (c) => {
     discoverable: true,
     bazaar: {
       registered: true,
-      description: 'ClawNet AI Orchestration — 344+ API endpoints, skill marketplace, composite skills',
+      description: 'ClawNet AI Orchestration — 390+ API endpoints, skill marketplace, composite skills',
       categories: ['orchestration', 'ai-ml', 'defi', 'social', 'search', 'security', 'infrastructure'],
       capabilities: ['skill-invocation', 'natural-language-orchestration', 'data-queries', 'composite-workflows'],
       pricing: {

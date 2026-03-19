@@ -19,7 +19,7 @@ openapiRouter.get('/openapi.json', (c) => {
     openapi: '3.1.0',
     info: {
       title: 'ClawNet API',
-      description: 'Sovereign AI agent orchestration layer. 344 endpoints, pay-per-use credits, agent-native primitives. One key, one query, done.',
+      description: 'Sovereign AI agent orchestration layer. 390 endpoints, pay-per-use credits, agent-native primitives. One key, one query, done.',
       version: '3.0.0',
       contact: {
         name: 'ClawNet',

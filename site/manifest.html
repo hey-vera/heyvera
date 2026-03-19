@@ -72,8 +72,9 @@
     .dropdown { position: relative; display: inline-block; }
     .dropdown-toggle { font-family: var(--font-sans); font-size: 13px; font-weight: 500; color: var(--text-tertiary); padding: 6px 12px; border-radius: var(--radius-md); transition: color 0.15s, background 0.15s; background: none; border: none; cursor: pointer; }
     .dropdown-toggle:hover { color: var(--text-primary); background: var(--bg-surface-2); }
-    .dropdown-menu { display: none; position: absolute; top: 100%; left: 0; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: var(--radius-lg); min-width: 220px; padding: 8px 0; z-index: 200; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+    .dropdown-menu { display: none; position: absolute; top: calc(100% + 4px); left: 0; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: var(--radius-lg); min-width: 220px; padding: 8px 0; z-index: 200; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
     .dropdown:hover .dropdown-menu { display: block; }
+    .dropdown-menu::before { content: ""; position: absolute; top: -12px; left: 0; right: 0; height: 12px; }
     .dropdown-menu a { display: block; padding: 8px 16px; color: var(--text-secondary); text-decoration: none; font-size: 0.88rem; transition: background 0.15s, color 0.15s; }
     .dropdown-menu a:hover { background: var(--bg-surface-2); color: var(--text-primary); }
     .nav-right { display: flex; align-items: center; gap: 12px; }
@@ -89,6 +90,7 @@
     .account-btn:hover { background: #30363d; }
     .account-menu { display: none; position: absolute; right: 0; top: calc(100% + 6px); background: #161b22; border: 1px solid #30363d; border-radius: 8px; min-width: 220px; padding: 8px 0; z-index: 200; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
     .account-dropdown:hover .account-menu, .account-menu.show { display: block; }
+    .account-menu::before { content: ""; position: absolute; top: -12px; left: 0; right: 0; height: 12px; }
     .account-email { padding: 8px 16px; color: #8b949e; font-size: 0.78rem; border-bottom: 1px solid #21262d; margin-bottom: 4px; }
     .dropdown-divider { height: 1px; background: #21262d; margin: 4px 0; }
     .nav-login { color: var(--text-secondary); border: 1px solid var(--border-default); background: transparent; text-decoration: none; padding: 6px 14px; font-size: 13px; border-radius: var(--radius-md); }
@@ -469,7 +471,7 @@ Content-Type: application/json
   <div class="flywheel-grid" style="margin-bottom:64px">
     <div class="flywheel-card">
       <div class="time">Month 1</div>
-      <p>Your data verified against ClawNet's 344 API endpoints. Instant cross-referencing from day one.</p>
+      <p>Your data verified against ClawNet's 390+ API endpoints. Instant cross-referencing from day one.</p>
       <span class="arrow">&rarr;</span>
     </div>
     <div class="flywheel-card">

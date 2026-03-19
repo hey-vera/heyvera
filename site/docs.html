@@ -66,8 +66,9 @@
     .dropdown { position: relative; display: inline-block; }
     .dropdown-toggle { font-family: var(--font-sans); font-size: 13px; font-weight: 500; color: var(--text-tertiary); padding: 6px 12px; border-radius: var(--radius-md); transition: color 0.15s, background 0.15s; background: none; border: none; cursor: pointer; }
     .dropdown-toggle:hover { color: var(--text-primary); background: var(--bg-surface-2); }
-    .dropdown-menu { display: none; position: absolute; top: 100%; left: 0; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: var(--radius-lg); min-width: 220px; padding: 8px 0; z-index: 200; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+    .dropdown-menu { display: none; position: absolute; top: calc(100% + 4px); left: 0; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: var(--radius-lg); min-width: 220px; padding: 8px 0; z-index: 200; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
     .dropdown:hover .dropdown-menu { display: block; }
+    .dropdown-menu::before { content: ""; position: absolute; top: -12px; left: 0; right: 0; height: 12px; }
     .dropdown-menu a { display: block; padding: 8px 16px; color: var(--text-secondary); text-decoration: none; font-size: 0.88rem; transition: background 0.15s, color 0.15s; }
     .dropdown-menu a:hover { background: var(--bg-surface-2); color: var(--text-primary); }
     .theme-toggle { background: var(--bg-surface-2); border: 1px solid var(--border-default); border-radius: var(--radius-md); width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--text-tertiary); transition: all 0.15s; padding: 0; flex-shrink: 0; }
@@ -88,6 +89,7 @@
     .account-btn:hover { background: #30363d; }
     .account-menu { display: none; position: absolute; right: 0; top: calc(100% + 6px); background: #161b22; border: 1px solid #30363d; border-radius: 8px; min-width: 220px; padding: 8px 0; z-index: 200; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
     .account-dropdown:hover .account-menu, .account-menu.show { display: block; }
+    .account-menu::before { content: ""; position: absolute; top: -12px; left: 0; right: 0; height: 12px; }
     .account-email { padding: 8px 16px; color: #8b949e; font-size: 0.78rem; border-bottom: 1px solid #21262d; margin-bottom: 4px; }
     .dropdown-divider { height: 1px; background: #21262d; margin: 4px 0; }
     .nav-login { color: var(--text-secondary); border: 1px solid var(--border-default); background: transparent; text-decoration: none; padding: 6px 14px; font-size: 13px; border-radius: var(--radius-md); }
@@ -358,7 +360,7 @@
     <!-- ═══════════════════════════════════════════════ WELCOME ═══════════════════════════════════════════════ -->
     <div class="docs-section" id="welcome">
       <h1 class="docs-section-title">ClawNet Documentation</h1>
-      <p class="docs-section-desc">ClawNet gives your AI agent 344 API endpoints, automatic routing, and pay-per-use billing. One key, one query, done.</p>
+      <p class="docs-section-desc">ClawNet gives your AI agent 390+ API endpoints, automatic routing, and pay-per-use billing. One key, one query, done.</p>
 
       <div class="intro-grid">
         <div class="intro-card"><div class="intro-card-title">Base URL</div><div class="intro-card-desc"><code>https://api.claw-net.org</code></div></div>
@@ -375,7 +377,7 @@
       <div class="concept-grid">
         <div class="concept-card">
           <div class="concept-icon">&#x1F511;</div>
-          <div class="concept-title">One Key, 344 Endpoints</div>
+          <div class="concept-title">One Key, 390+ Endpoints</div>
           <div class="concept-desc">No API key juggling. One ClawNet key gives your agent access to every endpoint. Pay in credits, ClawNet handles routing, caching, and upstream auth.</div>
         </div>
         <div class="concept-card">
@@ -399,10 +401,10 @@
       <table class="params-table">
         <thead><tr><th>Dimension</th><th>DIY</th><th>ClawNet</th></tr></thead>
         <tbody>
-          <tr><td>API Keys</td><td>Manage 20+ keys from different providers</td><td>One key (<code>cn-</code>), 344 endpoints</td></tr>
+          <tr><td>API Keys</td><td>Manage 20+ keys from different providers</td><td>One key (<code>cn-</code>), 390+ endpoints</td></tr>
           <tr><td>Caching</td><td>Build and maintain your own cache layer</td><td>3-layer smart cache, 90% cost savings automatic</td></tr>
           <tr><td>Billing</td><td>Track usage per provider, reconcile monthly</td><td>Pay-per-call credits, real-time balance</td></tr>
-          <tr><td>Discovery</td><td>Manually find and evaluate new APIs</td><td>Auto-discovery across 344+ endpoints and marketplace</td></tr>
+          <tr><td>Discovery</td><td>Manually find and evaluate new APIs</td><td>Auto-discovery across 390+ endpoints and marketplace</td></tr>
           <tr><td>Trust</td><td>Build your own monitoring and verification</td><td>SLAs, output contracts, cross-verification, validators</td></tr>
           <tr><td>Agent Billing</td><td>Build delegation, budgets, sub-agent auth</td><td>Delegated keys, budget accounts, webhooks built-in</td></tr>
           <tr><td>Time to First Call</td><td>Days to weeks</td><td>5 minutes</td></tr>
@@ -521,7 +523,7 @@ print(res.json()['answer'])</code></pre>
         <div class="concept-card">
           <div class="concept-icon">&#x1F9E0;</div>
           <div class="concept-title">Orchestration</div>
-          <div class="concept-desc">Natural language in, structured data out. ClawNet picks the best endpoint from 344 sources, fetches in parallel, returns one answer. You don't choose endpoints manually.</div>
+          <div class="concept-desc">Natural language in, structured data out. ClawNet picks the best endpoint from 390+ sources, fetches in parallel, returns one answer. You don't choose endpoints manually.</div>
         </div>
         <div class="concept-card">
           <div class="concept-icon">&#x1F4BE;</div>
@@ -1130,7 +1132,7 @@ while (true) {
         <div class="concept-card">
           <div class="concept-icon">&#x1F50D;</div>
           <div class="concept-title">Auto-Discovery</div>
-          <div class="concept-desc">Discovery is built into orchestration. When you ask a question, ClawNet searches its 344 endpoints <em>plus</em> the marketplace. If a marketplace data skill scores higher, it gets used automatically. No extra code needed.</div>
+          <div class="concept-desc">Discovery is built into orchestration. When you ask a question, ClawNet searches its 390+ endpoints <em>plus</em> the marketplace. If a marketplace data skill scores higher, it gets used automatically. No extra code needed.</div>
         </div>
         <div class="concept-card">
           <div class="concept-icon">&#x1F4B0;</div>
@@ -1726,7 +1728,7 @@ while (true) {
     ]
   },
   "endpoints": {
-    "total": 344,
+    "total": 395,
     "byCategory": {
       "blockchain": [
         { "id": "sol-balance", "name": "Solana Balance", "description": "Get SOL balance for a wallet", "costPerCall": 0.0001 }
@@ -2658,12 +2660,12 @@ app.post('/webhooks/clawnet', express.raw({ type: 'application/json' }), (req, r
     <!-- ═══════════════════════════════════════════════ ENDPOINT REGISTRY ═══════════════════════════════════════════════ -->
     <div class="docs-section" id="registry">
       <h2 class="docs-section-title">Endpoint Registry</h2>
-      <p class="docs-section-desc">ClawNet's orchestrator has access to 344 external API endpoints across 11 capability groups. Browse them, check health, search by category, or use the LLM proxy.</p>
+      <p class="docs-section-desc">ClawNet's orchestrator has access to 390+ external API endpoints across 11 capability groups. Browse them, check health, search by category, or use the LLM proxy.</p>
       <div class="alert alert-info"><strong>OpenAPI Spec:</strong> Machine-readable API specification available at <a href="https://api.claw-net.org/v1/openapi.json" style="color:var(--accent)">/v1/openapi.json</a> (OpenAPI 3.1). Also discoverable at <code style="font-family:var(--font-mono);color:var(--accent)">/.well-known/openapi.json</code>. Use it to auto-generate typed clients with openapi-generator.</div>
 
       <div class="endpoint">
         <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/endpoints</code></div>
-        <p class="endpoint-desc">List all 344 registered endpoints with provider, category, cost per call, and latency. No auth required.</p>
+        <p class="endpoint-desc">List all 390+ registered endpoints with provider, category, cost per call, and latency. No auth required.</p>
       </div>
 
       <div class="endpoint">
