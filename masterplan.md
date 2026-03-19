@@ -83,35 +83,23 @@
 
 ---
 
-## Next Up: x402 v2 + Distribution
+## Completed: x402 v2 + Distribution
 
-### P0: x402 v2 Compliance (high priority)
-
-| # | Item | Effort | Type | Details |
-|---|------|--------|------|---------|
-| 18 | **x402 v2 HTTP headers** | 2-3h | Code | Support new `PAYMENT-SIGNATURE`, `PAYMENT-REQUIRED`, `PAYMENT-RESPONSE` headers alongside v1 `X-PAYMENT` headers. Backward compatible — accept both. |
-| 19 | **MCP per-tool pricing** | 1-2h | Code | Add `x402_price_usdc` to each tool in MCP manifest. AWS pattern — agents discover pricing at tool-discovery time. Update `src/mcp/server.ts` and `/.well-known/mcp.json`. |
-| 20 | **x402 v2 Discovery extension** | 1-2h | Code | Align `/.well-known/x402.json` with formal v2 Discovery extension spec. CAIP-2 chain IDs, structured facilitator info. Gets ClawNet auto-indexed by facilitators. |
-| 21 | **Register on 402index.io** | 30min | Manual | Self-register ClawNet's x402 endpoints via `POST https://402index.io/api/v1/register`. Use playbook format. |
-| 22 | **Register on ag0.xyz** | 1-2h | Code+Manual | Mint ERC-721 identity on Base via `@ag0/sdk`. Point at MCP + A2A endpoints. Free discoverability across ag0 ecosystem. |
-
-### P1: Distribution + Discoverability
-
-| # | Item | Effort | Type | Details |
-|---|------|--------|------|---------|
-| 23 | **Fallback facilitator** | 1-2h | Code | Support backup x402 facilitator (x402.org public endpoint) alongside `X402_FACILITATOR_URL`. Auto-failover on primary down. |
-| 24 | **SIGN-IN-WITH-X (CAIP-122)** | 3-4h | Code | Wallet-based session auth — agent signs once, gets session, avoids per-call x402 payment friction for high-frequency agents. Maps to existing `/v1/economy/sessions`. |
-| 25 | **RSS feed of new skills** | 1h | Code | `GET /feed.xml` — RSS 2.0 feed of marketplace skills. 402index has this; good for automated discovery by aggregators. |
-| 26 | **Self-registration API** | 2-3h | Code | `POST /v1/register` — let external services register x402 endpoints on ClawNet's registry. Verification probe, pending review. Grows registry beyond 390. |
-
-### P2: Competitive Edge
-
-| # | Item | Effort | Type | Details |
-|---|------|--------|------|---------|
-| 27 | **Opportunities endpoint** | 2-3h | Code | `GET /v1/opportunities` — gap analysis showing underserved categories, missing protocols, single-provider deps. 402index has this; attracts developers to build on ClawNet. |
-| 28 | **Dynamic payTo routing** | 3-4h | Code | x402 v2 per-request payment routing to creator wallets on-chain. Trustless payouts without credit intermediary. |
-| 29 | **Portable reputation (ag0)** | 2-3h | Code | Write skill reputation hashes to Base via ag0 Reputation Registry. Trust data verifiable by anyone, not siloed to ClawNet's DB. |
-| 30 | **Consume ag0 agents** | 4-6h | Code | Extend executor.ts to discover and call ag0-registered external agents. ClawNet becomes first orchestrator bridging centralized APIs + decentralized agent network. |
+| # | Item | Status |
+|---|------|--------|
+| 18 | x402 v2 HTTP headers | DONE (PAYMENT-SIGNATURE + PAYMENT-REQUIRED alongside v1) |
+| 19 | MCP per-tool pricing | DONE (USDC pricing in server.ts + .well-known/mcp.json) |
+| 20 | x402 v2 Discovery extension | DONE (x402Version 2, CAIP-2 chain IDs, structured facilitators) |
+| 21 | Register on 402index.io | Manual — POST to their /api/v1/register |
+| 22 | Register on ag0.xyz | Manual — mint ERC-721 on Base |
+| 23 | Fallback facilitator | DONE (X402_FACILITATOR_FALLBACK_URL, auto-failover on 5xx) |
+| 24 | SIGN-IN-WITH-X (CAIP-122) | DONE (3 endpoints at /v1/auth/siwx/, viem signature verification) |
+| 25 | RSS feed | DONE (GET /feed.xml, RSS 2.0 with clawnet: namespace) |
+| 26 | Self-registration API | DONE (POST /v1/register, 402 probe, IP rate limiting) |
+| 27 | Opportunities endpoint | DONE (GET /v1/opportunities, 5-category gap analysis) |
+| 28 | Dynamic payTo routing | DONE (direct_payout flag, creator wallet routing, migration v92) |
+| 29 | Portable reputation | DONE (SHA-256 anchors, 15m cron, public verify endpoint) |
+| 30 | Consume ag0 agents | DONE (ag0 as 4th discovery layer, GraphQL subgraph, 5s timeout) |
 
 ---
 
