@@ -37,6 +37,7 @@ import { formatResponse } from '../core/formatter';
 import { sendBaseUsdc } from '../utils/evm-payout';
 import { logger } from '../utils/logger';
 import { env } from '../config/index';
+import { round6 } from '../core/credits';
 import { cacheGet, cacheSet } from '../cache/index';
 import crypto from 'crypto';
 
@@ -138,6 +139,86 @@ function extractPaymentContext(c: { req: { header: (name: string) => string | un
   return { paymentHash, paymentHeader, facilitatorReceipt, payerAddress };
 }
 
+// ─── x402 Offer Extension ─────────────────────────────────────────────────────
+
+const X402_OFFER_VERSION = 1;
+
+interface X402Offer {
+  scheme: string;
+  network: string;
+  asset: string;
+  payTo: string;
+  maxAmountRequired: string;
+  resource: string;
+  description: string;
+  mimeType: string;
+  paymentContext: {
+    skillId: string;
+    creditCost: number;
+    usdCost: string;
+  };
+  extra: {
+    name: string;
+    version: string;
+    facilitator: string;
+  };
+}
+
+interface X402OfferResponse {
+  error: string;
+  code: string;
+  offers: X402Offer[];
+  x402Version: number;
+}
+
+/** Build a standardized x402 offer for a skill or orchestration resource. */
+function buildX402Offer(opts: {
+  skillId: string;
+  skillName: string;
+  creditCost: number;
+  resource: string;
+  description?: string;
+}): X402Offer {
+  const credits = Math.max(opts.creditCost, 1);
+  const usdCost = round6(credits * env.X402_USDC_PER_CREDIT);
+
+  return {
+    scheme: 'exact',
+    network: env.X402_NETWORK,
+    asset: 'USDC',
+    payTo: env.X402_RECIPIENT_ADDRESS || '',
+    maxAmountRequired: usdCost.toFixed(6),
+    resource: opts.resource,
+    description: opts.description ?? `Invoke ClawNet skill: ${opts.skillName}`,
+    mimeType: 'application/json',
+    paymentContext: {
+      skillId: opts.skillId,
+      creditCost: round6(credits),
+      usdCost: usdCost.toFixed(6),
+    },
+    extra: {
+      name: 'ClawNet',
+      version: '1.0.0',
+      facilitator: env.X402_FACILITATOR_URL,
+    },
+  };
+}
+
+/** Build a full 402 offer response with offers array. */
+function buildX402OfferResponse(offers: X402Offer[]): X402OfferResponse {
+  return {
+    error: 'Payment Required',
+    code: 'PAYMENT_REQUIRED',
+    offers,
+    x402Version: X402_OFFER_VERSION,
+  };
+}
+
+/** Encode an offer response as a base64 string for the X-PAYMENT-OFFER header. */
+function encodeOfferHeader(offerResponse: X402OfferResponse): string {
+  return Buffer.from(JSON.stringify(offerResponse)).toString('base64');
+}
+
 export const x402SkillsRouter = new Hono();
 
 // ─── Build middleware (only when recipient address is configured) ──────────────
@@ -233,6 +314,76 @@ if (x402Middleware) {
 } else {
   logger.info('x402 provider mode disabled — set X402_RECIPIENT_ADDRESS to enable');
 }
+
+// ─── x402 Offer Extension — attach X-PAYMENT-OFFER header on 402 responses ───
+
+x402SkillsRouter.use('*', async (c, next) => {
+  await next();
+
+  if (c.res.status === 402 && env.X402_RECIPIENT_ADDRESS) {
+    // Extract skill ID from the URL path for a skill-specific offer
+    const path = c.req.path;
+    const skillMatch = path.match(/\/(?:skills|query)\/([^/]+)/);
+    let offers: X402Offer[];
+
+    if (skillMatch) {
+      const skillId = skillMatch[1];
+      const skill = getSkill(skillId);
+      if (skill) {
+        const resource = path.includes('/query/') ? `/x402/query/${skillId}` : `/x402/skills/${skillId}`;
+        const desc = path.includes('/query/')
+          ? `Query ClawNet data skill: ${skill.name}`
+          : `Invoke ClawNet skill: ${skill.name}`;
+        offers = [buildX402Offer({
+          skillId,
+          skillName: skill.name,
+          creditCost: skill.credit_cost,
+          resource,
+          description: desc,
+        })];
+      } else {
+        offers = [buildX402Offer({
+          skillId: 'orchestrate',
+          skillName: 'Orchestration',
+          creditCost: env.ORCHESTRATION_FEE,
+          resource: '/x402/orchestrate',
+          description: 'ClawNet AI orchestration query',
+        })];
+      }
+    } else if (path.includes('/orchestrate')) {
+      offers = [buildX402Offer({
+        skillId: 'orchestrate',
+        skillName: 'Orchestration',
+        creditCost: env.ORCHESTRATION_FEE,
+        resource: '/x402/orchestrate',
+        description: 'ClawNet AI orchestration query',
+      })];
+    } else {
+      // Generic offer for unknown routes
+      offers = [buildX402Offer({
+        skillId: 'unknown',
+        skillName: 'ClawNet',
+        creditCost: 1,
+        resource: path,
+        description: 'ClawNet x402 resource',
+      })];
+    }
+
+    const offerResponse = buildX402OfferResponse(offers);
+    const encoded = encodeOfferHeader(offerResponse);
+
+    // Clone the response to add the header (Hono responses may be immutable)
+    const newHeaders = new Headers(c.res.headers);
+    newHeaders.set('X-PAYMENT-OFFER', encoded);
+    newHeaders.set('X-Payment-Protocol', 'x402');
+
+    c.res = new Response(c.res.body, {
+      status: c.res.status,
+      statusText: c.res.statusText,
+      headers: newHeaders,
+    });
+  }
+});
 
 // ─── POST /x402/skills/:id — execute skill after x402 payment verified ────────
 
@@ -1131,6 +1282,53 @@ x402SkillsRouter.post('/test/orchestrate', async (c) => {
   }
 });
 
+// GET /x402/offer/:skillId — pre-fetch x402 pricing for a specific skill
+x402SkillsRouter.get('/offer/:skillId', (c) => {
+  if (!env.X402_RECIPIENT_ADDRESS) {
+    return c.json({ error: 'x402 provider mode not enabled', code: 'X402_NOT_ENABLED' }, 503);
+  }
+
+  const { skillId } = c.req.param();
+
+  // Special case: orchestration offer
+  if (skillId === 'orchestrate') {
+    const offer = buildX402Offer({
+      skillId: 'orchestrate',
+      skillName: 'Orchestration',
+      creditCost: env.ORCHESTRATION_FEE,
+      resource: '/x402/orchestrate',
+      description: 'ClawNet AI orchestration query',
+    });
+    const offerResponse = buildX402OfferResponse([offer]);
+    c.header('X-PAYMENT-OFFER', encodeOfferHeader(offerResponse));
+    return c.json(offerResponse);
+  }
+
+  const skill = getSkill(skillId);
+  if (!skill || !skill.public) {
+    return c.json({ error: 'Skill not found or not public', code: 'SKILL_NOT_FOUND' }, 404);
+  }
+
+  const resource = skill.skill_type === 'data'
+    ? `/x402/query/${skillId}`
+    : `/x402/skills/${skillId}`;
+  const desc = skill.skill_type === 'data'
+    ? `Query ClawNet data skill: ${skill.name}`
+    : `Invoke ClawNet skill: ${skill.name}`;
+
+  const offer = buildX402Offer({
+    skillId,
+    skillName: skill.name,
+    creditCost: skill.credit_cost,
+    resource,
+    description: desc,
+  });
+
+  const offerResponse = buildX402OfferResponse([offer]);
+  c.header('X-PAYMENT-OFFER', encodeOfferHeader(offerResponse));
+  return c.json(offerResponse);
+});
+
 // ─── GET /x402 — discovery endpoint ──────────────────────────────────────────
 
 x402SkillsRouter.get('/', (c) => {
@@ -1138,14 +1336,17 @@ x402SkillsRouter.get('/', (c) => {
     name: 'ClawNet x402 Provider',
     description: 'Pay-per-call access to ClawNet skills via x402 protocol (USDC on Base)',
     protocol: 'x402',
-    version: '2.0',
+    version: '2.1',
     network: env.X402_NETWORK,
     enabled: !!env.X402_RECIPIENT_ADDRESS,
+    x402Version: X402_OFFER_VERSION,
     endpoints: {
       listSkills: 'GET /x402/skills',
       invokeSkill: 'POST /x402/skills/:id',
       orchestrate: 'POST /x402/orchestrate',
       queryDataSkill: 'POST /x402/query/:id',
+      offerSkill: 'GET /x402/offer/:skillId',
+      offerOrchestrate: 'GET /x402/offer/orchestrate',
       verifyReceipt: 'GET /x402/verify/:requestId',
       reputation: 'GET /x402/reputation/:agentKey',
       testConfig: 'GET /x402/test-config',

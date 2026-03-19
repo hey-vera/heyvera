@@ -1,0 +1,742 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Protocol — The Trust Handshake — ClawNet</title>
+  <meta name="description" content="How agents discover, authenticate, pay, verify, and prove through ClawNet. The Trust Handshake: end-to-end verification for autonomous AI agents.">
+  <meta property="og:title" content="Protocol — The Trust Handshake — ClawNet">
+  <meta property="og:description" content="End-to-end verification flow for autonomous AI agents. Discover, pay, verify, attest.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://claw-net.org/protocol">
+  <meta property="og:image" content="https://claw-net.org/favicon.svg">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="Protocol — The Trust Handshake — ClawNet">
+  <meta name="twitter:description" content="End-to-end verification flow for autonomous AI agents. Discover, pay, verify, attest.">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="apple-touch-icon" href="/favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-primary: #0a0a0b; --bg-surface: #111113; --bg-surface-2: #18181b; --bg-surface-3: #1f1f23;
+      --border-subtle: #1e1e22; --border-default: #27272a; --border-strong: #3f3f46;
+      --text-primary: #fafafa; --text-secondary: #a1a1aa; --text-tertiary: #71717a; --text-muted: #52525b;
+      --accent: #10b981; --accent-dim: rgba(16,185,129,0.12); --accent-subtle: rgba(16,185,129,0.06);
+      --accent-hover: #34d399; --accent-text: #6ee7b7;
+      --danger: #ef4444; --danger-dim: rgba(239,68,68,0.12);
+      --warning: #f59e0b; --warning-dim: rgba(245,158,11,0.12);
+      --info: #3b82f6; --info-dim: rgba(59,130,246,0.12);
+      --purple: #8b5cf6; --purple-dim: rgba(139,92,246,0.12);
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', Consolas, monospace;
+      --font-display: 'Inter', -apple-system, system-ui, sans-serif;
+      --radius-sm: 4px; --radius-md: 6px; --radius-lg: 8px; --radius-xl: 12px;
+      --grid-color: rgba(255,255,255,0.03);
+      --nav-bg: rgba(10,10,11,0.8);
+    }
+    [data-theme="light"] {
+      --bg-primary: #f5f5f5; --bg-surface: #ffffff; --bg-surface-2: #f0f0f2; --bg-surface-3: #e8e8ec;
+      --bg-overlay: rgba(255,255,255,0.85); --border-subtle: #e4e4e7; --border-default: #d4d4d8; --border-strong: #a1a1aa;
+      --text-primary: #09090b; --text-secondary: #3f3f46; --text-tertiary: #71717a; --text-muted: #a1a1aa;
+      --accent-dim: rgba(16,185,129,0.10); --accent-subtle: rgba(16,185,129,0.05);
+      --danger-dim: rgba(239,68,68,0.10); --warning-dim: rgba(245,158,11,0.10);
+      --info-dim: rgba(59,130,246,0.10); --purple-dim: rgba(139,92,246,0.10);
+      --grid-color: rgba(0,0,0,0.04);
+      --nav-bg: rgba(245,245,245,0.85);
+    }
+    .nav-logo-text { font-family: var(--font-sans); font-size: 18px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.02em; white-space: nowrap; }
+    .nav-logo-text span { color: var(--accent); }
+    .theme-toggle {
+      background: var(--bg-surface-2); border: 1px solid var(--border-default); border-radius: 6px;
+      width: 34px; height: 34px; display: flex; align-items: center; justify-content: center;
+      cursor: pointer; color: var(--text-tertiary); transition: all 0.15s; padding: 0; flex-shrink: 0;
+    }
+    .theme-toggle:hover { color: var(--text-primary); border-color: var(--border-strong); }
+    .theme-toggle .icon-sun, .theme-toggle .icon-moon { width: 16px; height: 16px; }
+    .theme-toggle .icon-sun { display: none; }
+    [data-theme="light"] .theme-toggle .icon-sun { display: block; }
+    [data-theme="light"] .theme-toggle .icon-moon { display: none; }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body { font-family: var(--font-sans); background: var(--bg-primary); color: var(--text-secondary); font-size: 14px; line-height: 1.6; overflow-x: hidden; background-image: linear-gradient(var(--grid-color) 1px, transparent 1px), linear-gradient(90deg, var(--grid-color) 1px, transparent 1px); background-size: 48px 48px; }
+    a { color: inherit; text-decoration: none; }
+    ::selection { background: var(--accent-dim); }
+
+    nav { position: fixed; top: 0; left: 0; right: 0; z-index: 100; height: 56px; padding: 0 24px; display: flex; align-items: center; justify-content: space-between; background: var(--nav-bg); border-bottom: 1px solid var(--border-subtle); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }
+    .nav-brand { display: flex; align-items: center; }
+    .nav-brand a { text-decoration: none; }
+    .nav-links { display: flex; align-items: center; gap: 4px; list-style: none; }
+    .nav-links > a { font-size: 13px; font-weight: 500; color: var(--text-tertiary); padding: 6px 12px; border-radius: var(--radius-md); transition: color 0.15s, background 0.15s; text-decoration: none; }
+    .nav-links > a:hover { color: var(--text-primary); background: var(--bg-surface-2); }
+    .dropdown { position: relative; display: inline-block; }
+    .dropdown-toggle { font-family: var(--font-sans); font-size: 13px; font-weight: 500; color: var(--text-tertiary); padding: 6px 12px; border-radius: var(--radius-md); transition: color 0.15s, background 0.15s; background: none; border: none; cursor: pointer; }
+    .dropdown-toggle:hover { color: var(--text-primary); background: var(--bg-surface-2); }
+    .dropdown-menu { display: none; position: absolute; top: calc(100% + 4px); left: 0; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: var(--radius-lg); min-width: 220px; padding: 8px 0; z-index: 200; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+    .dropdown:hover .dropdown-menu { display: block; }
+    .dropdown-menu::before { content: ""; position: absolute; top: -12px; left: 0; right: 0; height: 12px; }
+    .dropdown-menu a { display: block; padding: 8px 16px; color: var(--text-secondary); text-decoration: none; font-size: 0.88rem; transition: background 0.15s, color 0.15s; }
+    .dropdown-menu a:hover { background: var(--bg-surface-2); color: var(--text-primary); }
+    .nav-right { display: flex; align-items: center; gap: 12px; }
+    .nav-status { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-tertiary); padding: 4px 10px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); }
+    .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); transition: background 0.3s; flex-shrink: 0; }
+    .status-dot.ok { background: var(--accent); }
+    .status-dot.err { background: var(--danger); }
+    .nav-credits { font-family: var(--font-mono); font-size: 12px; color: var(--accent); padding: 4px 10px; border: 1px solid var(--accent-dim); border-radius: var(--radius-md); display: none; align-items: center; gap: 4px; }
+    .nav-credits.show { display: flex; }
+    .account-dropdown { position: relative; display: none; }
+    .account-dropdown.show { display: block; }
+    .account-btn { background: #21262d; color: #e6edf3; border: 1px solid #30363d; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 500; font-family: var(--font-sans); }
+    .account-btn:hover { background: #30363d; }
+    .account-menu { display: none; position: absolute; right: 0; top: calc(100% + 6px); background: #161b22; border: 1px solid #30363d; border-radius: 8px; min-width: 220px; padding: 8px 0; z-index: 200; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+    .account-dropdown:hover .account-menu, .account-menu.show { display: block; }
+    .account-menu::before { content: ""; position: absolute; top: -12px; left: 0; right: 0; height: 12px; }
+    .account-email { padding: 8px 16px; color: #8b949e; font-size: 0.78rem; border-bottom: 1px solid #21262d; margin-bottom: 4px; }
+    .dropdown-divider { height: 1px; background: #21262d; margin: 4px 0; }
+    .nav-login { color: var(--text-secondary); border: 1px solid var(--border-default); background: transparent; text-decoration: none; padding: 6px 14px; font-size: 13px; border-radius: var(--radius-md); }
+    .nav-login:hover { border-color: var(--border-strong); color: var(--text-primary); }
+    .nav-cta { background: var(--accent); color: #000; font-weight: 600; text-decoration: none; padding: 6px 14px; font-size: 13px; border-radius: var(--radius-md); }
+    .nav-cta:hover { background: var(--accent-hover); }
+    .mobile-menu-btn { display: none; background: none; border: 1px solid var(--border-default); border-radius: 6px; padding: 6px 10px; cursor: pointer; color: var(--text-secondary); font-size: 18px; line-height: 1; }
+    .mobile-menu-btn:hover { color: var(--text-primary); border-color: var(--border-strong); }
+
+    .mobile-menu { display: none; position: fixed; top: 56px; left: 0; right: 0; background: var(--bg-surface); border-bottom: 1px solid var(--border-default); z-index: 99; padding: 12px 24px; max-height: calc(100vh - 56px); overflow-y: auto; }
+    .mobile-menu.open { display: block; }
+    .mobile-menu a { display: block; padding: 10px 0; font-size: 14px; color: var(--text-secondary); border-bottom: 1px solid var(--border-subtle); text-decoration: none; }
+    .mobile-menu a:last-child { border-bottom: none; }
+    .mobile-menu a:hover { color: var(--accent); }
+    .mobile-menu-group { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; padding: 12px 0 4px; }
+    .mobile-menu-group:first-child { padding-top: 0; }
+
+    main { max-width: 1240px; margin: 0 auto; padding: 72px 32px 80px; }
+
+    /* Hero */
+    .hero { padding: 80px 0 56px; text-align: center; border-bottom: 1px solid var(--border-subtle); margin-bottom: 64px; }
+    .hero-eyebrow { font-size: 12px; text-transform: uppercase; letter-spacing: 0.18em; color: var(--accent); margin-bottom: 20px; font-weight: 700; }
+    .hero h1 { font-family: var(--font-display); font-size: clamp(32px, 4.5vw, 48px); font-weight: 700; color: var(--text-primary); letter-spacing: -0.03em; margin-bottom: 20px; line-height: 1.15; }
+    .hero-sub { font-size: 18px; color: var(--text-secondary); line-height: 1.7; max-width: 620px; margin: 0 auto 32px; }
+    .hero-cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+    .hero-cta a { display: inline-block; padding: 12px 28px; border-radius: var(--radius-lg); font-weight: 600; font-size: 15px; text-decoration: none; transition: all 0.15s; }
+    .hero-cta .cta-primary { background: var(--accent); color: #000; }
+    .hero-cta .cta-primary:hover { background: var(--accent-hover); }
+    .hero-cta .cta-secondary { border: 1px solid var(--border-default); color: var(--text-primary); }
+    .hero-cta .cta-secondary:hover { border-color: var(--border-strong); }
+
+    /* Section headings */
+    .section { margin-bottom: 64px; }
+    .section h2 { font-family: var(--font-display); font-size: 26px; font-weight: 600; color: var(--text-primary); margin-bottom: 8px; letter-spacing: -0.02em; }
+    .section > p { font-size: 15px; color: var(--text-tertiary); margin-bottom: 24px; line-height: 1.6; }
+    .section-eyebrow { font-size: 11px; text-transform: uppercase; letter-spacing: 0.15em; color: var(--accent); font-weight: 700; margin-bottom: 12px; }
+
+    /* Handshake steps */
+    .handshake-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
+    .handshake-card { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 28px 24px; transition: border-color 0.15s; position: relative; }
+    .handshake-card:hover { border-color: var(--border-default); }
+    .handshake-num { font-family: var(--font-mono); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 12px; }
+    .handshake-num.s1 { color: var(--info); }
+    .handshake-num.s2 { color: var(--warning); }
+    .handshake-num.s3 { color: var(--purple); }
+    .handshake-num.s4 { color: var(--accent); }
+    .handshake-card h3 { font-size: 15px; font-weight: 600; color: var(--text-primary); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.04em; }
+    .handshake-card p { font-size: 13px; color: var(--text-tertiary); line-height: 1.7; }
+    .handshake-card code { font-family: var(--font-mono); font-size: 11.5px; color: var(--accent-text); background: var(--bg-surface-2); padding: 2px 6px; border-radius: 3px; }
+
+    /* Discovery table */
+    .discovery-table { width: 100%; border-collapse: collapse; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); overflow: hidden; }
+    .discovery-table th { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); padding: 12px 20px; text-align: left; background: var(--bg-surface-2); border-bottom: 1px solid var(--border-subtle); }
+    .discovery-table td { font-size: 13px; color: var(--text-secondary); padding: 12px 20px; border-bottom: 1px solid var(--border-subtle); vertical-align: top; }
+    .discovery-table tr:last-child td { border-bottom: none; }
+    .discovery-table td code { font-family: var(--font-mono); font-size: 12px; color: var(--accent-text); background: var(--bg-surface-2); padding: 2px 6px; border-radius: 3px; }
+
+    /* Auth cards */
+    .auth-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+    .auth-card { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 28px 24px; transition: border-color 0.15s; }
+    .auth-card:hover { border-color: var(--border-default); }
+    .auth-card .auth-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 10px; }
+    .auth-card .auth-label.key { color: var(--accent); }
+    .auth-card .auth-label.clerk { color: var(--info); }
+    .auth-card .auth-label.x402 { color: var(--warning); }
+    .auth-card h3 { font-size: 15px; font-weight: 600; color: var(--text-primary); margin-bottom: 8px; }
+    .auth-card p { font-size: 13px; color: var(--text-tertiary); line-height: 1.7; }
+    .auth-card code { font-family: var(--font-mono); font-size: 11.5px; color: var(--accent-text); background: var(--bg-surface-2); padding: 2px 6px; border-radius: 3px; }
+
+    /* Code blocks */
+    .demo-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .code-example { margin-bottom: 0; }
+    .code-label { font-size: 12px; font-weight: 600; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 8px; }
+    .code-block { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 20px 24px; font-family: var(--font-mono); font-size: 12.5px; color: var(--text-secondary); line-height: 1.7; overflow-x: auto; white-space: pre; }
+    .code-block .kw { color: var(--purple); }
+    .code-block .str { color: var(--accent-text); }
+    .code-block .cm { color: var(--text-muted); }
+    .code-block .num { color: var(--warning); }
+    .code-block .bool { color: var(--info); }
+    .code-full { margin-bottom: 20px; }
+    .code-full .code-block { width: 100%; }
+
+    /* Integration grid */
+    .int-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+    .int-card { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 20px; transition: border-color 0.15s; }
+    .int-card:hover { border-color: var(--border-default); }
+    .int-card .int-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; }
+    .int-card .int-label.sdk { color: var(--accent); }
+    .int-card .int-label.plugin { color: var(--info); }
+    .int-card .int-label.msg { color: var(--purple); }
+    .int-card h4 { font-size: 14px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px; }
+    .int-card p { font-size: 12.5px; color: var(--text-tertiary); line-height: 1.6; }
+    .int-card code { font-family: var(--font-mono); font-size: 11px; color: var(--accent-text); }
+
+    /* A2A lifecycle */
+    .lifecycle { display: flex; align-items: center; justify-content: center; gap: 0; flex-wrap: wrap; }
+    .lifecycle-step { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 24px 28px; text-align: center; flex: 1; min-width: 200px; max-width: 320px; transition: border-color 0.15s; }
+    .lifecycle-step:hover { border-color: var(--border-default); }
+    .lifecycle-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; margin-bottom: 8px; }
+    .lifecycle-label.submit { color: var(--info); }
+    .lifecycle-label.work { color: var(--warning); }
+    .lifecycle-label.done { color: var(--accent); }
+    .lifecycle-step p { font-size: 13px; color: var(--text-secondary); line-height: 1.6; }
+    .lifecycle-arrow { font-size: 20px; color: var(--text-muted); padding: 0 8px; flex-shrink: 0; }
+
+    footer { border-top: 1px solid var(--border-subtle); padding: 48px 24px 32px; max-width: 1240px; margin: 0 auto; }
+    .footer-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 32px; margin-bottom: 32px; }
+    .footer-grid h4 { font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+    .footer-grid a { display: block; font-size: 13px; color: var(--text-tertiary); text-decoration: none; padding: 4px 0; transition: color 0.15s; }
+    .footer-grid a:hover { color: var(--text-primary); }
+    .footer-bottom { padding-top: 24px; border-top: 1px solid var(--border-subtle); text-align: center; }
+    .footer-bottom span { font-size: 12px; color: var(--text-muted); }
+
+    @media(max-width:900px) { .nav-links { display: none; } .mobile-menu-btn { display: block; } .nav-status { display: none; } .handshake-grid { grid-template-columns: repeat(2, 1fr); } .auth-grid { grid-template-columns: 1fr; } .demo-grid { grid-template-columns: 1fr; } .int-grid { grid-template-columns: repeat(2, 1fr); } .lifecycle { flex-direction: column; } .lifecycle-arrow { transform: rotate(90deg); } .footer-grid { grid-template-columns: repeat(2, 1fr); } }
+    @media(max-width:640px) { main { padding: 64px 16px 60px; } .hero h1 { font-size: 28px; } .handshake-grid { grid-template-columns: 1fr; } .int-grid { grid-template-columns: 1fr; } }
+  </style>
+<script>if(localStorage.getItem('clawnet_theme')==='light')document.documentElement.setAttribute('data-theme','light')</script>
+</head>
+<body>
+<div id="toast-container"></div>
+
+<nav>
+  <div class="nav-brand">
+    <a href="/"><span class="nav-logo-text">&#x1F99E; Claw<span>Net</span></span></a>
+  </div>
+  <div class="nav-links">
+    <div class="dropdown">
+      <button class="dropdown-toggle">Products &#9662;</button>
+      <div class="dropdown-menu">
+        <a href="https://pulse.claw-net.org">Pulse &mdash; AI Marketing</a>
+        <a href="/roadmap">Radar &mdash; Trading (Coming Soon)</a>
+      </div>
+    </div>
+    <div class="dropdown">
+      <button class="dropdown-toggle">Services &#9662;</button>
+      <div class="dropdown-menu">
+        <a href="/manifest">Manifest &mdash; Verification</a>
+        <a href="/attestation">Attestation &mdash; Proof</a>
+      </div>
+    </div>
+    <div class="dropdown">
+      <button class="dropdown-toggle">Developers &#9662;</button>
+      <div class="dropdown-menu">
+        <a href="/endpoints">API Endpoints</a>
+        <a href="/marketplace">Marketplace</a>
+        <a href="/docs">Documentation</a>
+        <a href="/playground">Playground</a><a href="/protocol">Protocol</a>
+      </div>
+    </div>
+    <a href="/roadmap">Roadmap</a>
+  </div>
+  <div class="nav-right">
+    <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Toggle theme">
+      <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+    </button>
+    <div class="nav-status" id="navApiStatus"><span class="status-dot" id="statusDot"></span><span id="statusLabel">Checking...</span></div>
+    <div class="nav-credits" id="nav-credits-badge"><svg width="14" height="14" viewBox="0 0 24 24" style="vertical-align:-2px;flex-shrink:0;margin-right:2px"><circle cx="12" cy="12" r="11" fill="#92400e"/><circle cx="12" cy="12" r="9.5" fill="#f59e0b"/><circle cx="12" cy="12" r="7.5" fill="#fbbf24"/><path d="M8.5 7.5 Q12 5.5 15.5 8" stroke="rgba(255,255,255,0.45)" stroke-width="1.5" fill="none" stroke-linecap="round"/><text x="12" y="16.5" text-anchor="middle" font-size="10" font-weight="800" fill="#78350f" font-family="Arial,sans-serif">C</text></svg> <span id="nav-credits-num">&mdash;</span> credits</div>
+    <a href="/login" class="nav-login" id="nav-login-btn">Sign In</a>
+    <a href="/#pricing" class="nav-cta" id="nav-getkey-btn">Get API Key</a>
+    <div class="dropdown account-dropdown" id="account-dropdown">
+      <button class="dropdown-toggle account-btn" onclick="this.nextElementSibling.classList.toggle('show');event.stopPropagation()">My Account &#9662;</button>
+      <div class="dropdown-menu account-menu">
+        <div class="account-email" id="account-email-display"></div>
+        <a href="/dashboard" class="dropdown-item">Dashboard</a>
+        <a href="/contact-section" class="dropdown-item">Contact</a>
+        <div class="dropdown-divider"></div>
+        <a href="#" class="dropdown-item" id="sign-out-link" onclick="navSignOut();return false;" style="color:#f85149;">Log out</a>
+      </div>
+    </div>
+    <button class="mobile-menu-btn" onclick="document.getElementById('mobileMenu').classList.toggle('open')" aria-label="Menu">&#9776;</button>
+  </div>
+</nav>
+<script>document.addEventListener("click",function(){var m=document.querySelector(".account-menu");if(m)m.classList.remove("show")})</script>
+<div class="mobile-menu" id="mobileMenu">
+  <div class="mobile-menu-group">Products</div>
+  <a href="https://pulse.claw-net.org">Pulse &mdash; AI Marketing</a>
+  <a href="/roadmap">Radar &mdash; Trading (Coming Soon)</a>
+  <div class="mobile-menu-group">Services</div>
+  <a href="/manifest">Manifest &mdash; Verification</a>
+  <a href="/attestation">Attestation &mdash; Proof</a>
+  <div class="mobile-menu-group">Developers</div>
+  <a href="/endpoints">API Endpoints</a>
+  <a href="/marketplace">Marketplace</a>
+  <a href="/docs">Documentation</a>
+  <a href="/playground">Playground</a><a href="/protocol">Protocol</a>
+  <div class="mobile-menu-group">More</div>
+  <a href="/roadmap">Roadmap</a>
+  <div class="mobile-menu-group" id="mobile-account-group" style="display:none">Account</div>
+  <span class="mobile-account-email" id="mobile-account-email" style="display:none;padding:6px 0;font-size:12px;color:var(--text-tertiary)"></span>
+  <a href="/dashboard">Dashboard</a>
+  <a href="/contact-section">Contact</a>
+  <a href="#" id="mobile-sign-out" onclick="navSignOut();return false;" style="display:none;color:#f85149;">Log out</a>
+</div>
+
+<main>
+  <!-- HERO -->
+  <div class="hero">
+    <div class="hero-eyebrow">Protocol Reference</div>
+    <h1>The Trust Handshake</h1>
+    <p class="hero-sub">Four steps. End-to-end verification. Discover ClawNet, authenticate, verify your data, and get a signed proof of what happened.</p>
+    <div class="hero-cta">
+      <a href="#handshake" class="cta-primary">See the Flow</a>
+      <a href="#examples" class="cta-secondary">Code Examples</a>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- 1. DISCOVERY -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <div class="section" id="discovery">
+    <div class="section-eyebrow">Step 1 &mdash; Discovery</div>
+    <h2>How agents find ClawNet</h2>
+    <p>Standard <code style="font-family:var(--font-mono);font-size:13px;color:var(--accent-text);background:var(--bg-surface-2);padding:2px 6px;border-radius:3px">/.well-known/</code> endpoints and protocol-specific discovery. No crawling, no guessing.</p>
+  </div>
+  <div style="overflow-x:auto;margin-bottom:64px">
+    <table class="discovery-table">
+      <thead>
+        <tr>
+          <th>Endpoint</th>
+          <th>Protocol</th>
+          <th>What it returns</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>/.well-known/agent.json</code></td>
+          <td>A2A (Google)</td>
+          <td>Agent card &mdash; name, skills, capabilities, auth schemes. Protocol v0.3.0.</td>
+        </tr>
+        <tr>
+          <td><code>/.well-known/agents.json</code></td>
+          <td>General</td>
+          <td>Service listing &mdash; 5 agent services with endpoints and auth requirements.</td>
+        </tr>
+        <tr>
+          <td><code>/.well-known/mcp.json</code></td>
+          <td>MCP</td>
+          <td>MCP server config &mdash; stdio + HTTP transports, 6 tools, x402-gated variant.</td>
+        </tr>
+        <tr>
+          <td><code>/.well-known/x402.json</code></td>
+          <td>x402</td>
+          <td>Payment config &mdash; network, chain, USDC address, facilitator URL, all x402 endpoints.</td>
+        </tr>
+        <tr>
+          <td><code>/.well-known/agent-card.json</code></td>
+          <td>ClawNet</td>
+          <td>Full identity card &mdash; capabilities, pricing, trust config, integration packages.</td>
+        </tr>
+        <tr>
+          <td><code>/.well-known/erc8004.json</code></td>
+          <td>ERC-8004</td>
+          <td>On-chain agent card &mdash; schema v1.0.0, skill catalog link, reputation.</td>
+        </tr>
+        <tr>
+          <td><code>/v1/erc8004/catalog</code></td>
+          <td>ERC-8004</td>
+          <td>Paginated skill catalog in ERC-8004 format. Public, no auth.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- 2. AUTHENTICATION -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <div class="section" id="auth">
+    <div class="section-eyebrow">Step 2 &mdash; Authentication</div>
+    <h2>Three layers, pick what fits</h2>
+    <p>API key for agents, Clerk for humans, x402 for wallet-native agents that prefer payment-as-auth.</p>
+  </div>
+  <div class="auth-grid" style="margin-bottom:64px">
+    <div class="auth-card">
+      <div class="auth-label key">API Key</div>
+      <h3>Agent Auth</h3>
+      <p>Header: <code>X-API-Key: cn-...</code></p>
+      <p style="margin-top:8px">Required for most <code>/v1/*</code> routes. Keys are scoped, rate-limited, and support delegated billing (child keys bill parent).</p>
+    </div>
+    <div class="auth-card">
+      <div class="auth-label clerk">Clerk JWT</div>
+      <h3>Human Auth</h3>
+      <p>Header: <code>Authorization: Bearer &lt;jwt&gt;</code></p>
+      <p style="margin-top:8px">Used by the dashboard, escrow, and user-specific endpoints. Issued by Clerk. Auto-links to API key on first login.</p>
+    </div>
+    <div class="auth-card">
+      <div class="auth-label x402">x402 Payment</div>
+      <h3>Wallet Auth</h3>
+      <p>Header: <code>X-PAYMENT: &lt;receipt&gt;</code></p>
+      <p style="margin-top:8px">No account needed. Pay USDC on Base per call. Coinbase facilitator verifies payment. Idempotent via SHA-256 hash.</p>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- 3. THE TRUST HANDSHAKE -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <div class="section" id="handshake">
+    <div class="section-eyebrow">The Trust Handshake</div>
+    <h2>Four steps. Complete trust.</h2>
+    <p>Every interaction follows the same pattern: discover, pay, verify, attest. No shortcuts.</p>
+  </div>
+  <div class="handshake-grid" style="margin-bottom:64px">
+    <div class="handshake-card">
+      <div class="handshake-num s1">Step 1</div>
+      <h3>Discover</h3>
+      <p>Agent finds ClawNet via <code>/.well-known/agent.json</code> (A2A), <code>/.well-known/mcp.json</code> (MCP), or <code>/v1/erc8004/catalog</code> (ERC-8004). Gets capabilities, pricing, and auth requirements.</p>
+    </div>
+    <div class="handshake-card">
+      <div class="handshake-num s2">Step 2</div>
+      <h3>Pay</h3>
+      <p>Agent authenticates and pays. Either deduct credits via API key, or send USDC on Base via x402. Budget controls (<code>maxCredits</code>, <code>strategy</code>) apply pre-flight.</p>
+    </div>
+    <div class="handshake-card">
+      <div class="handshake-num s3">Step 3</div>
+      <h3>Verify</h3>
+      <p><a href="/manifest" style="color:var(--accent-text);text-decoration:underline">Manifest</a> verifies input data against independent sources, assesses reasoning, and pre-flights the action before execution.</p>
+    </div>
+    <div class="handshake-card">
+      <div class="handshake-num s4">Step 4</div>
+      <h3>Attest</h3>
+      <p><a href="/attestation" style="color:var(--accent-text);text-decoration:underline">Attestation</a> creates a signed receipt. SHA-256 hashes of input and output, HMAC signature, publicly verifiable at <code>/v1/attest/verify/:id</code>.</p>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- 4. A2A PROTOCOL -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <div class="section" id="a2a">
+    <div class="section-eyebrow">Agent-to-Agent (A2A)</div>
+    <h2>Google A2A protocol support</h2>
+    <p>Submit tasks using Google's standard. ClawNet maps A2A tasks to its orchestration pipeline internally.</p>
+  </div>
+  <div class="lifecycle" style="margin-bottom:32px">
+    <div class="lifecycle-step">
+      <div class="lifecycle-label submit">Submit</div>
+      <p><strong style="color:var(--text-primary)">POST /a2a/tasks/send</strong><br>Agent submits a task with a natural language message. Maps to orchestrate or skill invoke.</p>
+    </div>
+    <div class="lifecycle-arrow">&rarr;</div>
+    <div class="lifecycle-step">
+      <div class="lifecycle-label work">Working</div>
+      <p><strong style="color:var(--text-primary)">GET /a2a/tasks/:id</strong><br>Poll for status. States: submitted, working, completed, failed, canceled.</p>
+    </div>
+    <div class="lifecycle-arrow">&rarr;</div>
+    <div class="lifecycle-step">
+      <div class="lifecycle-label done">Complete</div>
+      <p><strong style="color:var(--text-primary)">Task result</strong><br>Response includes artifacts (data parts), credits used, and attestation ID.</p>
+    </div>
+  </div>
+  <div class="code-full" style="margin-bottom:64px">
+    <div class="code-label">A2A Task Submission</div>
+    <div class="code-block"><span class="kw">POST</span> /a2a/tasks/send
+X-API-Key: cn-your-key
+Content-Type: application/json
+
+{
+  <span class="str">"id"</span>: <span class="str">"task-001"</span>,
+  <span class="str">"message"</span>: {
+    <span class="str">"role"</span>: <span class="str">"user"</span>,
+    <span class="str">"parts"</span>: [{
+      <span class="str">"type"</span>: <span class="str">"text"</span>,
+      <span class="str">"text"</span>: <span class="str">"What is the current price of SOL?"</span>
+    }]
+  }
+}
+
+<span class="cm">// Response</span>
+{
+  <span class="str">"id"</span>: <span class="str">"task-001"</span>,
+  <span class="str">"status"</span>: { <span class="str">"state"</span>: <span class="str">"completed"</span> },
+  <span class="str">"artifacts"</span>: [{
+    <span class="str">"parts"</span>: [{ <span class="str">"type"</span>: <span class="str">"data"</span>, <span class="str">"data"</span>: { <span class="str">"price"</span>: <span class="num">142.48</span> } }]
+  }],
+  <span class="str">"metadata"</span>: { <span class="str">"creditsUsed"</span>: <span class="num">2.5</span>, <span class="str">"attestationId"</span>: <span class="str">"att-abc123"</span> }
+}</div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- 5. CODE EXAMPLES -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <div class="section" id="examples">
+    <div class="section-eyebrow">Code Examples</div>
+    <h2>The handshake in code</h2>
+    <p>Each step with curl and the SDK.</p>
+  </div>
+
+  <!-- Step 1: Discover -->
+  <div style="margin-bottom:32px">
+    <div class="code-label">Step 1 &mdash; Discover (curl)</div>
+    <div class="code-block"><span class="cm"># Fetch the A2A agent card</span>
+<span class="kw">curl</span> https://api.claw-net.org/.well-known/agent.json
+
+<span class="cm"># Fetch x402 payment config</span>
+<span class="kw">curl</span> https://api.claw-net.org/.well-known/x402.json
+
+<span class="cm"># Browse the ERC-8004 skill catalog</span>
+<span class="kw">curl</span> https://api.claw-net.org/v1/erc8004/catalog</div>
+  </div>
+
+  <!-- Step 2: Pay -->
+  <div class="demo-grid" style="margin-bottom:32px">
+    <div class="code-example">
+      <div class="code-label">Step 2a &mdash; Pay with API Key</div>
+      <div class="code-block"><span class="kw">curl</span> -X POST https://api.claw-net.org/v1/orchestrate \
+  -H <span class="str">"X-API-Key: cn-your-key"</span> \
+  -H <span class="str">"Content-Type: application/json"</span> \
+  -d '{
+    <span class="str">"query"</span>: <span class="str">"SOL price"</span>,
+    <span class="str">"pricing"</span>: {
+      <span class="str">"maxCredits"</span>: <span class="num">5</span>,
+      <span class="str">"strategy"</span>: <span class="str">"cheapest"</span>
+    }
+  }'</div>
+    </div>
+    <div class="code-example">
+      <div class="code-label">Step 2b &mdash; Pay with x402 (USDC)</div>
+      <div class="code-block"><span class="cm"># x402 wraps payment in the header.</span>
+<span class="cm"># No account needed.</span>
+
+<span class="kw">curl</span> -X POST https://api.claw-net.org/x402/skills/sol-price \
+  -H <span class="str">"X-PAYMENT: &lt;facilitator-receipt&gt;"</span> \
+  -H <span class="str">"Content-Type: application/json"</span> \
+  -d '{ <span class="str">"variables"</span>: {} }'
+
+<span class="cm"># Payment verified by Coinbase facilitator.</span>
+<span class="cm"># Idempotent — retries don't double-charge.</span></div>
+    </div>
+  </div>
+
+  <!-- Step 3: Verify -->
+  <div class="demo-grid" style="margin-bottom:32px">
+    <div class="code-example">
+      <div class="code-label">Step 3 &mdash; Verify with Manifest (curl)</div>
+      <div class="code-block"><span class="kw">curl</span> -X POST https://api.claw-net.org/v1/manifest \
+  -H <span class="str">"X-API-Key: cn-your-key"</span> \
+  -H <span class="str">"Content-Type: application/json"</span> \
+  -d '{
+    <span class="str">"check"</span>: <span class="str">"SOL is at $142, volume up 40%"</span>
+  }'</div>
+    </div>
+    <div class="code-example">
+      <div class="code-label">Step 3 &mdash; Verify with SDK</div>
+      <div class="code-block"><span class="kw">import</span> { ClawNet } <span class="kw">from</span> <span class="str">'@clawnet/sdk'</span>;
+
+<span class="kw">const</span> claw = <span class="kw">new</span> ClawNet(<span class="str">'cn-your-key'</span>);
+
+<span class="kw">const</span> result = <span class="kw">await</span> claw.manifest({
+  check: <span class="str">"SOL is at $142, volume up 40%"</span>
+});
+
+<span class="cm">// result.verdict → "CAUTION"</span>
+<span class="cm">// result.verify.overall → "partial"</span>
+<span class="cm">// result.assess.status → "FLAWED"</span></div>
+    </div>
+  </div>
+
+  <!-- Step 4: Attest -->
+  <div class="demo-grid" style="margin-bottom:64px">
+    <div class="code-example">
+      <div class="code-label">Step 4 &mdash; Verify Attestation (curl)</div>
+      <div class="code-block"><span class="cm"># Public endpoint — no auth needed</span>
+<span class="kw">curl</span> https://api.claw-net.org/v1/attest/verify/att-abc123
+
+<span class="cm"># x402 trust chain — payment + delivery proof</span>
+<span class="kw">curl</span> https://api.claw-net.org/x402/verify/req-xyz789</div>
+    </div>
+    <div class="code-example">
+      <div class="code-label">Step 4 &mdash; Verify Attestation (SDK)</div>
+      <div class="code-block"><span class="kw">const</span> proof = <span class="kw">await</span> claw.attestation.verify(
+  <span class="str">'att-abc123'</span>
+);
+
+<span class="cm">// proof.valid → true</span>
+<span class="cm">// proof.signature_valid → true</span>
+<span class="cm">// proof.chain_contiguous → true</span>
+<span class="cm">// proof.attestation.input_hash → "sha256:9f86d..."</span>
+<span class="cm">// proof.attestation.result_hash → "sha256:a3c2e..."</span></div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- 6. INTEGRATIONS -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <div class="section" id="integrations">
+    <div class="section-eyebrow">Integrations</div>
+    <h2>Works with your stack</h2>
+    <p>SDK, framework plugins, and messaging protocols. The Trust Handshake works the same way through all of them.</p>
+  </div>
+  <div class="int-grid" style="margin-bottom:64px">
+    <div class="int-card">
+      <div class="int-label sdk">SDK</div>
+      <h4>@clawnet/sdk</h4>
+      <p>TypeScript client. Orchestrate, invoke skills, verify attestations. <code>npm i @clawnet/sdk</code></p>
+    </div>
+    <div class="int-card">
+      <div class="int-label plugin">Plugin</div>
+      <h4>LangChain</h4>
+      <p>ClawNet as a LangChain tool. Drop into any chain or agent. <code>@clawnet/langchain</code></p>
+    </div>
+    <div class="int-card">
+      <div class="int-label plugin">Plugin</div>
+      <h4>AgentKit</h4>
+      <p>Coinbase AgentKit integration for wallet-native agents. <code>@clawnet/agentkit</code></p>
+    </div>
+    <div class="int-card">
+      <div class="int-label plugin">Plugin</div>
+      <h4>CrewAI</h4>
+      <p>ClawNet as a CrewAI tool for multi-agent workflows. <code>@clawnet/crewai</code></p>
+    </div>
+    <div class="int-card">
+      <div class="int-label plugin">Plugin</div>
+      <h4>ElizaOS</h4>
+      <p>Plugin for ElizaOS agent framework. <code>@clawnet/elizaos</code></p>
+    </div>
+    <div class="int-card">
+      <div class="int-label plugin">Plugin</div>
+      <h4>OpenAI Agents SDK</h4>
+      <p>ClawNet as an OpenAI Agents tool. <code>@clawnet/openai-agents</code></p>
+    </div>
+    <div class="int-card">
+      <div class="int-label plugin">Plugin</div>
+      <h4>Vercel AI SDK</h4>
+      <p>ClawNet as a Vercel AI SDK tool. <code>@clawnet/vercel-ai</code></p>
+    </div>
+    <div class="int-card">
+      <div class="int-label msg">Messaging</div>
+      <h4>MCP Server</h4>
+      <p>6 tools via stdio or HTTP transport. x402-gated variant available. <code>npx @clawnet/mcp</code></p>
+    </div>
+    <div class="int-card">
+      <div class="int-label msg">Messaging</div>
+      <h4>XMTP + Telegram</h4>
+      <p>Message-based agent interaction. Send queries via XMTP or Telegram bot.</p>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- FULL FLOW EXAMPLE -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <div class="section" id="full-flow">
+    <div class="section-eyebrow">End-to-End</div>
+    <h2>Complete Trust Handshake in one script</h2>
+    <p>Discovery through attestation in 20 lines.</p>
+  </div>
+  <div class="code-full" style="margin-bottom:64px">
+    <div class="code-block"><span class="kw">import</span> { ClawNet } <span class="kw">from</span> <span class="str">'@clawnet/sdk'</span>;
+
+<span class="kw">const</span> claw = <span class="kw">new</span> ClawNet(<span class="str">'cn-your-key'</span>);
+
+<span class="cm">// Step 1: Discover — SDK handles this automatically</span>
+<span class="cm">// Step 2: Pay — credits deducted per call</span>
+
+<span class="cm">// Step 3: Verify data before acting</span>
+<span class="kw">const</span> check = <span class="kw">await</span> claw.manifest({
+  check: <span class="str">"SOL is at $142 with volume up 40%, I want to buy 100 SOL"</span>
+});
+
+<span class="kw">if</span> (check.verdict === <span class="str">"SAFE"</span>) {
+  <span class="cm">// Execute the trade via orchestration</span>
+  <span class="kw">const</span> result = <span class="kw">await</span> claw.orchestrate({
+    query: <span class="str">"Buy 100 SOL"</span>,
+    pricing: { maxCredits: <span class="num">10</span>, strategy: <span class="str">"balanced"</span> }
+  });
+
+  <span class="cm">// Step 4: Attest — automatic, every response includes attestation</span>
+  <span class="kw">const</span> proof = <span class="kw">await</span> claw.attestation.verify(result.attestationId);
+  console.log(proof.valid, proof.signature_valid); <span class="cm">// true, true</span>
+} <span class="kw">else</span> {
+  console.log(<span class="str">"Manifest says:"</span>, check.summary);
+  <span class="cm">// "Volume data is stale. Recommend: WAIT."</span>
+}</div>
+  </div>
+</main>
+
+<footer>
+  <div class="footer-grid">
+    <div><h4>Product</h4><a href="https://pulse.claw-net.org">Pulse</a><a href="https://radar.claw-net.org">Radar</a><a href="/manifest">Manifest</a><a href="/attestation">Attestation</a><a href="/roadmap">Roadmap</a></div>
+    <div><h4>Developers</h4><a href="/endpoints">API Endpoints</a><a href="/marketplace">Marketplace</a><a href="/docs">Documentation</a><a href="/playground">Playground</a><a href="/protocol">Protocol</a></div>
+    <div><h4>Company</h4><a href="/contact-section">Contact</a><a href="/status">Status</a><a href="/terms">Terms</a><a href="/privacy">Privacy</a></div>
+    <div><h4>Community</h4><a href="https://x.com/i/communities/2031805527043576245" target="_blank">X Community</a><a href="https://github.com/1xmint" target="_blank">GitHub</a><a href="https://t.me/claw_net" target="_blank">Telegram</a></div>
+  </div>
+  <div class="footer-bottom"><span>&copy; 2026 ClawNet. All rights reserved.</span></div>
+</footer>
+
+<script>
+const API = 'https://api.claw-net.org';
+
+function toggleTheme() {
+  const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+  document.documentElement.setAttribute('data-theme', isLight ? '' : 'light');
+  localStorage.setItem('clawnet_theme', isLight ? 'dark' : 'light');
+}
+
+// Status check
+async function checkStatus() {
+  try {
+    const r = await fetch(`${API}/health`);
+    document.getElementById('statusDot').classList.toggle('ok', r.ok);
+    document.getElementById('statusDot').classList.toggle('err', !r.ok);
+    document.getElementById('statusLabel').textContent = r.ok ? 'Operational' : 'Degraded';
+  } catch {
+    document.getElementById('statusLabel').textContent = 'Offline';
+    document.getElementById('statusDot').classList.add('err');
+  }
+}
+
+// Auth (Clerk)
+async function initNav() {
+  try {
+    await window.Clerk.load();
+    const user = window.Clerk.user;
+    if (!user) return;
+    document.getElementById('nav-login-btn').style.display = 'none';
+    document.getElementById('nav-getkey-btn').style.display = 'none';
+    document.getElementById('account-dropdown').classList.add('show');
+    const email = user.primaryEmailAddress?.emailAddress ?? user.username ?? '';
+    if (email) {
+      document.getElementById('account-email-display').textContent = email;
+      const me = document.getElementById('mobile-account-email');
+      if (me) { me.textContent = email; me.style.display = 'block'; }
+    }
+    const mag = document.getElementById('mobile-account-group');
+    if (mag) mag.style.display = '';
+    const mso = document.getElementById('mobile-sign-out');
+    if (mso) mso.style.display = '';
+    const cachedCredits = localStorage.getItem('clawnet_credits');
+    document.getElementById('nav-credits-num').textContent = cachedCredits !== null ? parseInt(cachedCredits).toLocaleString() : '\u2014';
+    document.getElementById('nav-credits-badge').classList.add('show');
+    try {
+      const token = await window.Clerk.session.getToken();
+      const res = await fetch(API + '/v1/dashboard/me', { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.credits !== undefined) {
+          localStorage.setItem('clawnet_credits', data.credits);
+          document.getElementById('nav-credits-num').textContent = data.credits.toLocaleString();
+        }
+      }
+    } catch (e) {}
+  } catch (e) {}
+}
+async function navSignOut() { await window.Clerk.signOut(); window.location.reload(); }
+
+checkStatus();
+</script>
+<script data-clerk-publishable-key="pk_live_Y2xlcmsuY2xhdy1uZXQub3JnJA"
+  src="https://cdn.jsdelivr.net/npm/@clerk/clerk-js@5/dist/clerk.browser.js"
+  onload="initNav()"></script>
+</body>
+</html>
