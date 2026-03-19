@@ -355,6 +355,38 @@
     </div>
   </div>
 
+  <!-- TRUST CHAIN -->
+  <div class="section">
+    <div class="section-eyebrow">x402 Trust Chain</div>
+    <h2>Payment proof + delivery proof. One lookup.</h2>
+    <p>Every x402 payment is automatically linked to an attestation. <code>GET /x402/verify/:requestId</code> returns both halves of the trust chain in a single response &mdash; the Coinbase facilitator receipt (proof of payment) and the ClawNet attestation (proof of delivery). No competitor has both.</p>
+  </div>
+  <div class="demo-grid" style="margin-bottom:64px">
+    <div class="code-example">
+      <div class="code-label">Payment Proof (Coinbase)</div>
+      <div class="code-block">{
+  <span class="str">"payment"</span>: {
+    <span class="str">"facilitatorReceipt"</span>: { <span class="cm">/* Coinbase-signed */</span> },
+    <span class="str">"payerAddress"</span>: <span class="str">"0x1234...abcd"</span>,
+    <span class="str">"payerVerified"</span>: <span class="bool">true</span>,
+    <span class="str">"paymentHash"</span>: <span class="str">"sha256:..."</span>
+  }
+}</div>
+    </div>
+    <div class="code-example">
+      <div class="code-label">Delivery Proof (ClawNet)</div>
+      <div class="code-block">{
+  <span class="str">"delivery"</span>: {
+    <span class="str">"attestationId"</span>: <span class="str">"att-abc123..."</span>,
+    <span class="str">"verificationUrl"</span>: <span class="str">"/v1/attest/verify/att-abc123..."</span>,
+    <span class="str">"outcomeStatus"</span>: <span class="str">"success"</span>,
+    <span class="str">"signedAt"</span>: <span class="str">"2026-03-19T..."</span>,
+    <span class="str">"signaturePresent"</span>: <span class="bool">true</span>
+  }
+}</div>
+    </div>
+  </div>
+
   <!-- PRICING -->
   <div class="section">
     <div class="section-eyebrow">Pricing</div>

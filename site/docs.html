@@ -681,6 +681,39 @@ console.log(res.data);</code></pre>
         </tbody>
       </table>
 
+      <h4>Idempotency</h4>
+      <p class="endpoint-desc">All paid x402 endpoints are idempotent. If a network timeout causes a retry, the <code>X-PAYMENT</code> header is SHA-256 hashed and checked against previous receipts. Duplicate payments return the cached result with <code>"idempotent": true</code> &mdash; no double-execution, no double-charge.</p>
+
+      <h4>Trust Chain (Receipt Verification)</h4>
+      <p class="endpoint-desc"><code>GET /x402/verify/:requestId</code> returns a <strong>complete trust chain</strong> &mdash; both halves of every transaction:</p>
+      <table class="params-table">
+        <thead><tr><th>Proof</th><th>What It Proves</th><th>Who Signs</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Payment proof</strong></td><td>Client sent USDC to the recipient</td><td>Coinbase facilitator (EVM signature)</td></tr>
+          <tr><td><strong>Delivery proof</strong></td><td>ClawNet executed the request and returned a result</td><td>ClawNet platform (HMAC-SHA256)</td></tr>
+        </tbody>
+      </table>
+      <div class="code-block">
+        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+        <pre><code>// Verify a receipt — returns payment + delivery proof
+const res = await fetch('https://api.claw-net.org/x402/verify/abc123xyz');
+const { payment, delivery } = await res.json();
+// payment.facilitatorReceipt — Coinbase-signed proof
+// payment.payerAddress       — wallet that paid
+// delivery.attestationId     — links to /v1/attest/verify/:id
+// delivery.outcomeStatus     — success/failure/partial</code></pre>
+      </div>
+
+      <h4>Framework Integrations</h4>
+      <table class="params-table">
+        <thead><tr><th>Package</th><th>Framework</th><th>What It Does</th></tr></thead>
+        <tbody>
+          <tr><td><code>@clawnet/langchain</code></td><td>LangChain</td><td>3 StructuredTools: Orchestrate, InvokeSkill, Search. Drop into any LangChain agent.</td></tr>
+          <tr><td><code>@clawnet/agentkit</code></td><td>Coinbase AgentKit</td><td>3 actions: orchestrate, invoke_skill, pay_x402. Native x402 via AgentKit wallets.</td></tr>
+          <tr><td><code>@clawnet/mcp</code></td><td>MCP (Claude, Cursor)</td><td>6 MCP tools. <code>npx -y @clawnet/mcp</code> to start.</td></tr>
+        </tbody>
+      </table>
+
       <div class="alert alert-info">x402 payments use USDC on Base chain. Standard creator payouts (from credit-based calls) go to your Solana wallet. x402 creator splits (85%) go directly to your EVM wallet on Base.</div>
     </div>
 
