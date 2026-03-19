@@ -139,6 +139,12 @@ app.get('/health', (c) => {
   }, dbOk ? 200 : 503);
 });
 
+// Lightweight liveness probe — directories like 402index ping this.
+// No middleware, no auth, minimal overhead.
+app.get('/health/live', (c) => {
+  return c.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
 app.use('*', cors({
   origin: env.NODE_ENV === 'production'
     ? ['https://claw-net.org', 'https://www.claw-net.org', 'https://app.claw-net.org']

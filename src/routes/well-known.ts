@@ -217,7 +217,13 @@ router.get('/x402.json', (c) => {
       attestationLink: 'Each x402 receipt links to a ClawNet attestation (delivery proof)',
       trustChain: 'GET /x402/verify/:requestId returns both payment proof and delivery proof',
     },
+    healthCheck: {
+      url: `${env.CLAWNET_BASE_URL}/v1/stats/health/skills`,
+      liveness: `${env.CLAWNET_BASE_URL}/health/live`,
+      intervalMinutes: 15,
+    },
     pricePerCredit: env.X402_USDC_PER_CREDIT,
+    supportedNetworks: [env.X402_NETWORK],
     discoverable: true,
     bazaar: {
       registered: true,

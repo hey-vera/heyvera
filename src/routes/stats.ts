@@ -1,7 +1,8 @@
 import { Hono } from 'hono';
-import { getDbStats, getActiveUserCount, getRevenueBreakdown } from '../db/index';
+import { getDb, getDbStats, getActiveUserCount, getRevenueBreakdown } from '../db/index';
 import { apiRegistry, getRegistryStats } from '../config/api-registry';
 import { getLastDiscoveryResult } from '../core/endpoint-discovery';
+import { round6 } from '../core/credits';
 
 const statsRouter = new Hono();
 
@@ -80,6 +81,70 @@ statsRouter.get('/roadmap', (c) => {
       split: { burn: 50, buybackLp: 20, treasury: 15, rewards: 15 },
     },
     updatedAt: new Date().toISOString(),
+  });
+});
+
+// ─── Public Skill Health Metrics ─────────────────────────────────────────────
+// No auth — designed for 402index.io and similar directories to crawl.
+// Exposes health data already collected by skill-health-cron (every 15m).
+
+interface HealthSkillRow {
+  id: string;
+  name: string;
+  skill_type: string;
+  health_status: string;
+  health_checked_at: string | null;
+  avg_latency_ms: number;
+  success_rate: number;
+  avg_rating: number;
+  rating_count: number;
+  proxy_url: string | null;
+}
+
+statsRouter.get('/health/skills', (c) => {
+  const skills = getDb().prepare(
+    `SELECT id, name, skill_type, health_status, health_checked_at,
+            avg_latency_ms, success_rate, avg_rating, rating_count, proxy_url
+     FROM skills
+     WHERE active = 1 AND public = 1 AND security_status != 'FLAGGED'
+     ORDER BY health_status ASC, name ASC
+     LIMIT 500`
+  ).all() as HealthSkillRow[];
+
+  const total = skills.length;
+  const healthy = skills.filter(s => s.health_status === 'HEALTHY').length;
+  const degraded = skills.filter(s => s.health_status === 'DEGRADED').length;
+  const down = total - healthy - degraded;
+  const uptimePct = total > 0 ? round6((healthy / total) * 100) : 100;
+
+  const overallStatus = down > total * 0.5 ? 'major_outage'
+    : degraded + down > total * 0.25 ? 'partial_outage'
+    : degraded > 0 ? 'degraded'
+    : 'operational';
+
+  return c.json({
+    status: overallStatus,
+    timestamp: new Date().toISOString(),
+    checkIntervalMinutes: 15,
+    summary: {
+      total,
+      healthy,
+      degraded,
+      down,
+      uptimePct,
+    },
+    skills: skills.map(s => ({
+      id: s.id,
+      name: s.name,
+      status: s.health_status,
+      avgLatencyMs: Math.round(s.avg_latency_ms),
+      successRate: round6(s.success_rate / 100), // stored as 0-100, expose as 0-1
+      avgRating: round6(s.avg_rating),
+      ratingCount: s.rating_count,
+      lastChecked: s.health_checked_at ?? null,
+      protocol: s.proxy_url ? 'x402' : s.skill_type === 'prompt_template' ? 'credits' : 'credits',
+      skillType: s.skill_type,
+    })),
   });
 });
 
