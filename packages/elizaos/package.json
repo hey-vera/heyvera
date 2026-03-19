@@ -1,0 +1,34 @@
+{
+  "name": "@clawnet/elizaos",
+  "version": "1.0.0",
+  "description": "ClawNet plugin for ElizaOS — 390+ AI APIs, skill marketplace, cryptographic receipts",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "files": ["dist/", "README.md"],
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": ["clawnet", "elizaos", "eliza", "ai", "agent", "plugin", "x402", "crypto", "web3"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/clawnet/claw-net",
+    "directory": "packages/elizaos"
+  },
+  "homepage": "https://claw-net.org",
+  "peerDependencies": {
+    "@elizaos/core": ">=0.1.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.20.0"
+  }
+}

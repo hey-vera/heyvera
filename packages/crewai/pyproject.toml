@@ -1,0 +1,30 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "clawnet-crewai"
+version = "1.0.0"
+description = "ClawNet tools for CrewAI — 390+ AI APIs, skill marketplace, cryptographic receipts"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [{ name = "ClawNet", email = "team@claw-net.org" }]
+keywords = ["clawnet", "crewai", "ai", "agent", "orchestration", "x402"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Libraries",
+]
+dependencies = [
+    "crewai>=0.41.0",
+    "crewai-tools>=0.8.0",
+    "httpx>=0.25.0",
+]
+
+[project.urls]
+Homepage = "https://claw-net.org"
+Documentation = "https://claw-net.org/docs"
+Repository = "https://github.com/clawnet/claw-net"

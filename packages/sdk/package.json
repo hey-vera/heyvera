@@ -1,0 +1,31 @@
+{
+  "name": "@clawnet/sdk",
+  "version": "1.0.0",
+  "description": "TypeScript SDK for the ClawNet AI agent orchestration API",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "files": ["dist/", "README.md"],
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": ["clawnet", "ai", "agent", "orchestration", "sdk", "api", "x402", "crypto"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/clawnet/claw-net",
+    "directory": "packages/sdk"
+  },
+  "homepage": "https://claw-net.org",
+  "devDependencies": {
+    "esbuild": "^0.20.0"
+  }
+}
