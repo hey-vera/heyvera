@@ -28,7 +28,7 @@ const { ExactEvmScheme } = require('@x402/evm/exact/server') as {
   ExactEvmScheme: new () => unknown;
 };
 type HTTPRequestContext = { path: string; method: string; paymentHeader?: string };
-import { getDb, getSkill, listPublicSkills, incrementSkillUses, safeJsonParse, getReputationScore, getReputationEvents, recordSkillMetric, recordReputation } from '../db/index';
+import { getDb, getSkill, listPublicSkills, incrementSkillUses, safeJsonParse, getReputationScore, getReputationEvents, recordSkillMetric, recordReputation, createAutoAttestation, hashPayload, getAttestationById } from '../db/index';
 import { maskApiKey } from '../utils/mask';
 import { renderTemplate } from '../utils/template';
 import { parseIntent } from '../core/intent-parser';
@@ -54,20 +54,88 @@ interface X402Receipt {
   success: number;
   error: string | null;
   test?: number;
+  payment_hash?: string | null;
+  facilitator_receipt_json?: string | null;
+  payer_address_verified?: number;
+  attestation_id?: string | null;
 }
 
-// NOTE: Requires migration to add `test` column to x402_receipts table:
-//   ALTER TABLE x402_receipts ADD COLUMN test INTEGER NOT NULL DEFAULT 0
 function insertX402Receipt(receipt: Omit<X402Receipt, 'created_at'>): void {
   const testFlag = receipt.test ?? 0;
   getDb().prepare(`
-    INSERT INTO x402_receipts (request_id, skill_id, skill_name, price_usdc, network, payer_address, duration_ms, success, error, test)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(receipt.request_id, receipt.skill_id, receipt.skill_name, receipt.price_usdc, receipt.network, receipt.payer_address, receipt.duration_ms, receipt.success, receipt.error, testFlag);
+    INSERT INTO x402_receipts (request_id, skill_id, skill_name, price_usdc, network, payer_address, duration_ms, success, error, test, payment_hash, facilitator_receipt_json, payer_address_verified, attestation_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    receipt.request_id, receipt.skill_id, receipt.skill_name, receipt.price_usdc,
+    receipt.network, receipt.payer_address, receipt.duration_ms, receipt.success,
+    receipt.error, testFlag,
+    receipt.payment_hash ?? null,
+    receipt.facilitator_receipt_json ?? null,
+    receipt.payer_address_verified ?? 0,
+    receipt.attestation_id ?? null,
+  );
+}
+
+/** Update receipt with attestation_id after execution */
+function linkReceiptAttestation(requestId: string, attestationId: string): void {
+  getDb().prepare('UPDATE x402_receipts SET attestation_id = ? WHERE request_id = ?').run(attestationId, requestId);
 }
 
 function getX402Receipt(requestId: string): X402Receipt | undefined {
   return getDb().prepare('SELECT * FROM x402_receipts WHERE request_id = ?').get(requestId) as X402Receipt | undefined;
+}
+
+// ─── Idempotency ──────────────────────────────────────────────────────────────
+
+/** SHA-256 hash of the X-PAYMENT header for idempotency deduplication */
+function hashPaymentHeader(paymentHeader: string): string {
+  return crypto.createHash('sha256').update(paymentHeader).digest('hex');
+}
+
+/** Look up an existing receipt by payment_hash (idempotency check) */
+function getReceiptByPaymentHash(paymentHash: string): X402Receipt | undefined {
+  return getDb().prepare('SELECT * FROM x402_receipts WHERE payment_hash = ?').get(paymentHash) as X402Receipt | undefined;
+}
+
+/** Extract facilitator receipt + payer address from x402 payment context */
+function extractPaymentContext(c: { req: { header: (name: string) => string | undefined; raw: unknown } }): {
+  paymentHash: string | null;
+  paymentHeader: string | null;
+  facilitatorReceipt: string | null;
+  payerAddress: string | null;
+} {
+  const paymentHeader = c.req.header('x-payment') ?? c.req.header('X-PAYMENT') ?? null;
+  if (!paymentHeader) return { paymentHash: null, paymentHeader: null, facilitatorReceipt: null, payerAddress: null };
+
+  const paymentHash = hashPaymentHeader(paymentHeader);
+
+  // Try to extract payer address and facilitator receipt from the payment header
+  // x402 payment headers are base64-encoded JSON containing payment proof
+  let facilitatorReceipt: string | null = null;
+  let payerAddress: string | null = null;
+
+  try {
+    // The payment header may be JSON or base64-encoded JSON
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(paymentHeader);
+    } catch {
+      parsed = JSON.parse(Buffer.from(paymentHeader, 'base64').toString('utf-8'));
+    }
+
+    // Extract payer address from payment payload
+    if (typeof parsed.from === 'string') payerAddress = parsed.from;
+    else if (typeof parsed.payer === 'string') payerAddress = parsed.payer;
+    else if (typeof parsed.sender === 'string') payerAddress = parsed.sender;
+
+    // Store the full payment header as facilitator receipt proof
+    facilitatorReceipt = JSON.stringify(parsed);
+  } catch {
+    // If we can't parse the payment header, store it raw
+    facilitatorReceipt = paymentHeader;
+  }
+
+  return { paymentHash, paymentHeader, facilitatorReceipt, payerAddress };
 }
 
 export const x402SkillsRouter = new Hono();
@@ -173,6 +241,31 @@ x402SkillsRouter.post('/skills/:id', async (c) => {
   const start = Date.now();
   const { id } = c.req.param();
 
+  // ─── Idempotency: check if this exact payment was already processed ─────
+  const payCtx = extractPaymentContext(c);
+  if (payCtx.paymentHash) {
+    const existing = getReceiptByPaymentHash(payCtx.paymentHash);
+    if (existing) {
+      logger.info({ requestId, existingRequestId: existing.request_id, paymentHash: payCtx.paymentHash }, 'x402 idempotent replay — returning cached receipt');
+      return c.json({
+        requestId: existing.request_id,
+        idempotent: true,
+        skillId: existing.skill_id,
+        skillName: existing.skill_name,
+        success: existing.success === 1,
+        error: existing.error,
+        metadata: {
+          durationMs: existing.duration_ms,
+          paidVia: 'x402',
+          network: existing.network,
+          receiptId: existing.request_id,
+          originalTimestamp: existing.created_at,
+          note: 'This is a cached response from a previous identical payment. No double-execution occurred.',
+        },
+      });
+    }
+  }
+
   const skill = getSkill(id);
   if (!skill || !skill.public) {
     return c.json({ requestId, error: 'Skill not found or not public', code: 'SKILL_NOT_FOUND' }, 404);
@@ -230,12 +323,32 @@ x402SkillsRouter.post('/skills/:id', async (c) => {
       }
     }
 
-    // Record receipt for verification
+    // ─── Create attestation (delivery proof) ──────────────────────────────
+    let attestationId: string | null = null;
+    try {
+      attestationId = createAutoAttestation(
+        payCtx.payerAddress ?? `x402:${requestId}`,
+        'INVOKE_SKILL',
+        `POST /x402/skills/${id}`,
+        { skillId: id, variables },
+        { answer: formatted.answer },
+        skill.credit_cost,
+        totalDurationMs,
+      );
+    } catch (attErr) {
+      logger.warn({ requestId, err: attErr }, 'Failed to create x402 attestation');
+    }
+
+    // Record receipt with payment proof + attestation link
     try {
       insertX402Receipt({
         request_id: requestId, skill_id: id, skill_name: skill.name,
         price_usdc: priceUsdc, network: env.X402_NETWORK,
-        payer_address: null, duration_ms: totalDurationMs, success: 1, error: null,
+        payer_address: payCtx.payerAddress, duration_ms: totalDurationMs, success: 1, error: null,
+        payment_hash: payCtx.paymentHash,
+        facilitator_receipt_json: payCtx.facilitatorReceipt,
+        payer_address_verified: payCtx.payerAddress ? 1 : 0,
+        attestation_id: attestationId,
       });
     } catch (receiptErr) {
       logger.warn({ requestId, err: receiptErr }, 'Failed to insert x402 receipt');
@@ -255,20 +368,24 @@ x402SkillsRouter.post('/skills/:id', async (c) => {
         paidVia: 'x402',
         network: env.X402_NETWORK,
         receiptId: requestId,
+        ...(attestationId && { attestationId }),
       },
     });
   } catch (err) {
     const totalDurationMs = Date.now() - start;
     logger.error({ requestId, skillId: id, err }, 'x402 skill execution error');
 
-    // Record failed receipt
+    // Record failed receipt with payment context
     try {
       insertX402Receipt({
         request_id: requestId, skill_id: id, skill_name: skill?.name ?? id,
         price_usdc: (Math.max(skill?.credit_cost ?? 1, 1) * env.X402_USDC_PER_CREDIT).toFixed(6),
-        network: env.X402_NETWORK, payer_address: null,
+        network: env.X402_NETWORK, payer_address: payCtx.payerAddress,
         duration_ms: totalDurationMs, success: 0,
         error: env.NODE_ENV === 'production' ? 'Skill execution failed' : String(err),
+        payment_hash: payCtx.paymentHash,
+        facilitator_receipt_json: payCtx.facilitatorReceipt,
+        payer_address_verified: payCtx.payerAddress ? 1 : 0,
       });
     } catch { /* receipt insert failure is non-critical */ }
 
@@ -285,6 +402,29 @@ x402SkillsRouter.post('/skills/:id', async (c) => {
 x402SkillsRouter.post('/orchestrate', async (c) => {
   const requestId = nanoid(12);
   const start = Date.now();
+
+  // ─── Idempotency: check if this exact payment was already processed ─────
+  const payCtx = extractPaymentContext(c);
+  if (payCtx.paymentHash) {
+    const existing = getReceiptByPaymentHash(payCtx.paymentHash);
+    if (existing) {
+      logger.info({ requestId, existingRequestId: existing.request_id, paymentHash: payCtx.paymentHash }, 'x402 idempotent replay — returning cached receipt');
+      return c.json({
+        requestId: existing.request_id,
+        idempotent: true,
+        success: existing.success === 1,
+        error: existing.error,
+        metadata: {
+          durationMs: existing.duration_ms,
+          paidVia: 'x402',
+          network: existing.network,
+          receiptId: existing.request_id,
+          originalTimestamp: existing.created_at,
+          note: 'This is a cached response from a previous identical payment. No double-execution occurred.',
+        },
+      });
+    }
+  }
 
   let rawBody: unknown;
   try { rawBody = await c.req.json(); } catch { rawBody = {}; }
@@ -313,12 +453,32 @@ x402SkillsRouter.post('/orchestrate', async (c) => {
     const durationMs = Date.now() - start;
     const priceUsdc = (env.ORCHESTRATION_FEE * env.X402_USDC_PER_CREDIT).toFixed(6);
 
-    // Record x402 receipt
+    // ─── Create attestation (delivery proof) ──────────────────────────────
+    let attestationId: string | null = null;
+    try {
+      attestationId = createAutoAttestation(
+        payCtx.payerAddress ?? `x402:${requestId}`,
+        'ORCHESTRATE',
+        'POST /x402/orchestrate',
+        { query: body.data.query },
+        { answer: formatted.answer },
+        env.ORCHESTRATION_FEE,
+        durationMs,
+      );
+    } catch (attErr) {
+      logger.warn({ requestId, err: attErr }, 'Failed to create x402 orchestration attestation');
+    }
+
+    // Record x402 receipt with payment proof + attestation link
     try {
       insertX402Receipt({
         request_id: requestId, skill_id: 'orchestrate', skill_name: 'Orchestration',
-        price_usdc: priceUsdc, network: env.X402_NETWORK, payer_address: null,
+        price_usdc: priceUsdc, network: env.X402_NETWORK, payer_address: payCtx.payerAddress,
         duration_ms: durationMs, success: 1, error: null,
+        payment_hash: payCtx.paymentHash,
+        facilitator_receipt_json: payCtx.facilitatorReceipt,
+        payer_address_verified: payCtx.payerAddress ? 1 : 0,
+        attestation_id: attestationId,
       });
     } catch (receiptErr) {
       logger.warn({ requestId, err: receiptErr }, 'Failed to insert x402 orchestration receipt');
@@ -343,20 +503,24 @@ x402SkillsRouter.post('/orchestrate', async (c) => {
         network: env.X402_NETWORK,
         priceUsdc,
         receiptId: requestId,
+        ...(attestationId && { attestationId }),
       },
     });
   } catch (err) {
     const durationMs = Date.now() - start;
     logger.error({ requestId, err }, 'x402 orchestration failed');
 
-    // Record failed receipt
+    // Record failed receipt with payment context
     try {
       insertX402Receipt({
         request_id: requestId, skill_id: 'orchestrate', skill_name: 'Orchestration',
         price_usdc: (env.ORCHESTRATION_FEE * env.X402_USDC_PER_CREDIT).toFixed(6),
-        network: env.X402_NETWORK, payer_address: null,
+        network: env.X402_NETWORK, payer_address: payCtx.payerAddress,
         duration_ms: durationMs, success: 0,
         error: env.NODE_ENV === 'production' ? 'Orchestration failed' : String(err),
+        payment_hash: payCtx.paymentHash,
+        facilitator_receipt_json: payCtx.facilitatorReceipt,
+        payer_address_verified: payCtx.payerAddress ? 1 : 0,
       });
     } catch { /* receipt insert failure is non-critical */ }
 
@@ -411,6 +575,31 @@ x402SkillsRouter.post('/query/:id', async (c) => {
   const requestId = nanoid(12);
   const start = Date.now();
   const { id } = c.req.param();
+
+  // ─── Idempotency: check if this exact payment was already processed ─────
+  const payCtx = extractPaymentContext(c);
+  if (payCtx.paymentHash) {
+    const existing = getReceiptByPaymentHash(payCtx.paymentHash);
+    if (existing) {
+      logger.info({ requestId, existingRequestId: existing.request_id, paymentHash: payCtx.paymentHash }, 'x402 idempotent replay — returning cached receipt');
+      return c.json({
+        requestId: existing.request_id,
+        idempotent: true,
+        skillId: existing.skill_id,
+        skillName: existing.skill_name,
+        success: existing.success === 1,
+        error: existing.error,
+        metadata: {
+          durationMs: existing.duration_ms,
+          paidVia: 'x402',
+          network: existing.network,
+          receiptId: existing.request_id,
+          originalTimestamp: existing.created_at,
+          note: 'This is a cached response from a previous identical payment. No double-execution occurred.',
+        },
+      });
+    }
+  }
 
   const skill = getSkill(id);
   if (!skill || skill.skill_type !== 'data') {
@@ -487,8 +676,11 @@ x402SkillsRouter.post('/query/:id', async (c) => {
       try {
         insertX402Receipt({
           request_id: requestId, skill_id: id, skill_name: skill.name,
-          price_usdc: priceUsdc, network: env.X402_NETWORK, payer_address: null,
+          price_usdc: priceUsdc, network: env.X402_NETWORK, payer_address: payCtx.payerAddress,
           duration_ms: Date.now() - start, success: 0, error: `Source returned ${res.status}`,
+          payment_hash: payCtx.paymentHash,
+          facilitator_receipt_json: payCtx.facilitatorReceipt,
+          payer_address_verified: payCtx.payerAddress ? 1 : 0,
         });
       } catch { /* non-critical */ }
 
@@ -522,12 +714,32 @@ x402SkillsRouter.post('/query/:id', async (c) => {
       }
     }
 
-    // Record receipt
+    // ─── Create attestation (delivery proof) ──────────────────────────────
+    let attestationId: string | null = null;
+    try {
+      attestationId = createAutoAttestation(
+        payCtx.payerAddress ?? `x402:${requestId}`,
+        'QUERY_DATA_SKILL',
+        `POST /x402/query/${id}`,
+        { skillId: id, params: queryParams },
+        data,
+        skill.credit_cost,
+        totalDurationMs,
+      );
+    } catch (attErr) {
+      logger.warn({ requestId, err: attErr }, 'Failed to create x402 data query attestation');
+    }
+
+    // Record receipt with payment proof + attestation link
     try {
       insertX402Receipt({
         request_id: requestId, skill_id: id, skill_name: skill.name,
-        price_usdc: priceUsdc, network: env.X402_NETWORK, payer_address: null,
+        price_usdc: priceUsdc, network: env.X402_NETWORK, payer_address: payCtx.payerAddress,
         duration_ms: totalDurationMs, success: 1, error: null,
+        payment_hash: payCtx.paymentHash,
+        facilitator_receipt_json: payCtx.facilitatorReceipt,
+        payer_address_verified: payCtx.payerAddress ? 1 : 0,
+        attestation_id: attestationId,
       });
     } catch (receiptErr) {
       logger.warn({ requestId, err: receiptErr }, 'Failed to insert x402 data query receipt');
@@ -545,6 +757,7 @@ x402SkillsRouter.post('/query/:id', async (c) => {
         network: env.X402_NETWORK,
         priceUsdc,
         receiptId: requestId,
+        ...(attestationId && { attestationId }),
       },
     });
 
@@ -556,9 +769,12 @@ x402SkillsRouter.post('/query/:id', async (c) => {
     try {
       insertX402Receipt({
         request_id: requestId, skill_id: id, skill_name: skill?.name ?? id,
-        price_usdc: priceUsdc, network: env.X402_NETWORK, payer_address: null,
+        price_usdc: priceUsdc, network: env.X402_NETWORK, payer_address: payCtx.payerAddress,
         duration_ms: totalDurationMs, success: 0,
         error: env.NODE_ENV === 'production' ? 'Data fetch failed' : String(err),
+        payment_hash: payCtx.paymentHash,
+        facilitator_receipt_json: payCtx.facilitatorReceipt,
+        payer_address_verified: payCtx.payerAddress ? 1 : 0,
       });
     } catch { /* non-critical */ }
 
@@ -607,6 +823,43 @@ x402SkillsRouter.get('/verify/:requestId', (c) => {
   if (!receipt) {
     return c.json({ error: 'Receipt not found', code: 'RECEIPT_NOT_FOUND' }, 404);
   }
+
+  // Build payment proof section (facilitator receipt)
+  let facilitatorReceipt: Record<string, unknown> | null = null;
+  if (receipt.facilitator_receipt_json) {
+    try { facilitatorReceipt = JSON.parse(receipt.facilitator_receipt_json); } catch { /* raw string */ }
+  }
+
+  const payment = {
+    facilitatorReceipt,
+    payerAddress: receipt.payer_address,
+    payerVerified: (receipt.payer_address_verified ?? 0) === 1,
+    paymentHash: receipt.payment_hash ?? null,
+  };
+
+  // Build delivery proof section (attestation link)
+  let delivery: Record<string, unknown> | null = null;
+  if (receipt.attestation_id) {
+    try {
+      const att = getAttestationById(receipt.attestation_id);
+      if (att) {
+        delivery = {
+          attestationId: att.id,
+          verificationUrl: `/v1/attest/verify/${att.id}`,
+          outcomeStatus: att.outcome_status,
+          creditsCharged: att.credits_charged,
+          actionType: att.action_type,
+          actionEndpoint: att.action_endpoint,
+          manifestAligned: att.manifest_aligned === 1 ? true : att.manifest_aligned === 0 ? false : null,
+          signedAt: att.signed_at,
+          signaturePresent: !!att.signature,
+        };
+      }
+    } catch {
+      delivery = { attestationId: receipt.attestation_id, verificationUrl: `/v1/attest/verify/${receipt.attestation_id}` };
+    }
+  }
+
   return c.json({
     requestId: receipt.request_id,
     verified: true,
@@ -618,6 +871,9 @@ x402SkillsRouter.get('/verify/:requestId', (c) => {
     error: receipt.error,
     durationMs: receipt.duration_ms,
     timestamp: receipt.created_at,
+    // Complete trust chain: payment proof + delivery proof
+    payment,
+    ...(delivery && { delivery }),
   });
 });
 

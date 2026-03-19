@@ -813,6 +813,24 @@ const MIGRATIONS: { version: number; sql: string }[] = [
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )` },
+
+  // x402 idempotency + receipt extension (Coinbase receipt + attestation link)
+  { version: 82, sql: `
+    ALTER TABLE x402_receipts ADD COLUMN payment_hash TEXT;
+  ` },
+  { version: 83, sql: `
+    ALTER TABLE x402_receipts ADD COLUMN facilitator_receipt_json TEXT;
+  ` },
+  { version: 84, sql: `
+    ALTER TABLE x402_receipts ADD COLUMN payer_address_verified INTEGER NOT NULL DEFAULT 0;
+  ` },
+  { version: 85, sql: `
+    ALTER TABLE x402_receipts ADD COLUMN attestation_id TEXT;
+  ` },
+  { version: 86, sql: `
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_x402_receipts_payment_hash ON x402_receipts(payment_hash);
+    CREATE INDEX IF NOT EXISTS idx_x402_receipts_attestation ON x402_receipts(attestation_id);
+  ` },
 ];
 
 function runMigrations(): void {
