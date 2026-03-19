@@ -307,6 +307,29 @@
       .footer-left { flex-direction: column; }
     }
 
+    /* ── DASH TABS ── */
+    .dash-tabs { display: flex; gap: 4px; margin-bottom: 24px; border-bottom: 1px solid var(--border-subtle); padding-bottom: 0; }
+    .dash-tab { background: none; border: none; color: var(--text-tertiary); font-size: 14px; font-weight: 500; padding: 8px 16px; cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.15s; font-family: var(--font-sans); }
+    .dash-tab:hover { color: var(--text-primary); }
+    .dash-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+    /* ── RESELLER TAB ── */
+    .reseller-config-card { background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: var(--radius-lg); padding: 20px; margin-bottom: 24px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+    .config-row { display: flex; justify-content: space-between; align-items: center; }
+    .config-row span { color: var(--text-tertiary); font-size: 13px; }
+    .config-row strong { color: var(--text-primary); font-size: 14px; }
+    .reseller-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 32px; }
+    .reseller-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .reseller-table th { text-align: left; color: var(--text-tertiary); font-weight: 500; padding: 8px 12px; border-bottom: 1px solid var(--border-subtle); text-transform: uppercase; font-size: 11px; letter-spacing: 0.05em; }
+    .reseller-table td { padding: 10px 12px; border-bottom: 1px solid var(--border-subtle); color: var(--text-secondary); }
+    .reseller-table tr:hover { background: var(--bg-surface); }
+    @media (max-width: 768px) {
+      .dash-tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+      .reseller-config-card { grid-template-columns: 1fr; }
+      .reseller-stats { grid-template-columns: 1fr; }
+      .reseller-table { display: block; overflow-x: auto; }
+    }
+
     /* Helper for timeAgo */
     .text-mono { font-family: var(--font-mono); }
 
@@ -510,6 +533,16 @@
 
       <div id="notices"></div>
 
+      <!-- Tab Navigation -->
+      <div class="dash-tabs">
+        <button class="dash-tab active" onclick="switchDashTab('overview')">Overview</button>
+        <button class="dash-tab" onclick="switchDashTab('reseller')" id="reseller-tab" style="display:none">Reseller</button>
+        <button class="dash-tab" onclick="switchDashTab('keys')" id="keys-tab">Keys</button>
+      </div>
+
+      <!-- TAB: Overview -->
+      <div id="tab-overview">
+
       <!-- Stats -->
       <div class="stats-grid">
         <div class="stat-card" id="credits-card">
@@ -696,6 +729,48 @@
         <div class="claim-row"><input type="email" class="input" id="claim-email" placeholder="purchase@email.com" style="flex:1"><button class="btn btn-primary" onclick="sendClaimEmail()">Send Claim Link</button></div>
         <div class="claim-msg info" id="claim-msg"></div>
       </div>
+
+      </div><!-- /tab-overview -->
+
+      <!-- TAB: Reseller -->
+      <div id="tab-reseller" style="display:none">
+        <h2 style="font-size:20px;font-weight:600;color:var(--text-primary);margin-bottom:20px">Reseller Dashboard</h2>
+
+        <!-- Config summary card -->
+        <div class="reseller-config-card">
+          <div class="config-row"><span>Markup</span><strong id="rs-markup">&mdash;</strong></div>
+          <div class="config-row"><span>Models</span><strong id="rs-models">&mdash;</strong></div>
+          <div class="config-row"><span>Per-User Rate Limit</span><strong id="rs-ratelimit">&mdash;</strong></div>
+          <div class="config-row"><span>Billing Label</span><strong id="rs-label">&mdash;</strong></div>
+        </div>
+
+        <!-- Revenue summary -->
+        <div class="reseller-stats">
+          <div class="stat-card"><div class="stat-value" id="rs-total-users">&mdash;</div><div class="stat-label">Active Users</div></div>
+          <div class="stat-card"><div class="stat-value" id="rs-total-spent">&mdash;</div><div class="stat-label">Total User Spend</div></div>
+          <div class="stat-card"><div class="stat-value accent" id="rs-revenue">&mdash;</div><div class="stat-label">Your Revenue (markup)</div></div>
+        </div>
+
+        <!-- Per-child spend table -->
+        <h3 style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:12px">User Breakdown</h3>
+        <div style="overflow-x:auto">
+          <table class="reseller-table">
+            <thead><tr><th>User Label</th><th>Key</th><th>Spend</th><th>Limit</th><th>Status</th></tr></thead>
+            <tbody id="rs-users-body">
+              <tr><td colspan="5" style="text-align:center;color:var(--text-muted)">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- TAB: Keys -->
+      <div id="tab-keys" style="display:none">
+        <h2 style="font-size:20px;font-weight:600;color:var(--text-primary);margin-bottom:20px">API Keys</h2>
+        <div id="keys-list">
+          <p style="color:var(--text-muted)">Loading keys...</p>
+        </div>
+      </div>
+
     </div>
 
     <!-- NO KEY STATE -->
@@ -1295,8 +1370,101 @@
       </tr>`).join('');
     }
 
+    // ── TAB SWITCHING ──
+    function switchDashTab(tab) {
+      document.querySelectorAll('.dash-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('[id^="tab-"]').forEach(t => { if (t.id.startsWith('tab-')) t.style.display = 'none'; });
+      const tabBtn = document.querySelector(`.dash-tab[onclick="switchDashTab('${tab}')"]`);
+      if (tabBtn) tabBtn.classList.add('active');
+      const tabContent = document.getElementById(`tab-${tab}`);
+      if (tabContent) tabContent.style.display = 'block';
+      if (tab === 'reseller') loadResellerData();
+      if (tab === 'keys') loadKeysData();
+    }
+
+    // ── RESELLER DATA ──
+    async function loadResellerData() {
+      try {
+        const token = await window.Clerk?.session?.getToken();
+        const headers = { Authorization: `Bearer ${token}` };
+        // Load config
+        const configRes = await fetch(`${API_BASE}/v1/llm/reseller`, { headers });
+        if (!configRes.ok) return;
+        const config = await configRes.json();
+        document.getElementById('rs-markup').textContent = (config.markup_pct || 0) + '%';
+        document.getElementById('rs-models').textContent = config.models_allowed ? (function(){ try { return JSON.parse(config.models_allowed).join(', '); } catch { return config.models_allowed; } })() : 'All';
+        document.getElementById('rs-ratelimit').textContent = config.rate_limit_per_child ? config.rate_limit_per_child + '/min' : 'Default';
+        document.getElementById('rs-label').textContent = config.billing_label || '\u2014';
+        // Load delegated keys for user breakdown
+        const keysRes = await fetch(`${API_BASE}/v1/economy/keys/delegated`, { headers });
+        if (!keysRes.ok) return;
+        const keysData = await keysRes.json();
+        const keys = keysData.keys || keysData || [];
+        // Calculate totals
+        let totalSpent = 0;
+        const tbody = document.getElementById('rs-users-body');
+        tbody.innerHTML = '';
+        if (keys.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-muted)">No users provisioned yet. Use POST /v1/llm/reseller/provision to create keys.</td></tr>';
+        } else {
+          keys.forEach(k => {
+            const spent = k.spent || 0;
+            totalSpent += spent;
+            const pct = k.spendLimit ? Math.round((spent / k.spendLimit) * 100) : 0;
+            const status = pct > 90 ? '\u26a0\ufe0f Near limit' : pct > 50 ? '\ud83d\udfe1 Active' : '\ud83d\udfe2 OK';
+            const row = document.createElement('tr');
+            row.innerHTML = `<td>${esc(k.label || '\u2014')}</td><td style="font-family:var(--font-mono);font-size:12px">${k.childKey ? esc(k.childKey.slice(0,8)) + '\u2022\u2022\u2022\u2022' : '\u2014'}</td><td>${spent.toLocaleString()} cr</td><td>${(k.spendLimit || 0).toLocaleString()} cr</td><td>${status}</td>`;
+            tbody.appendChild(row);
+          });
+        }
+        // Update summary stats
+        document.getElementById('rs-total-users').textContent = keys.length.toString();
+        document.getElementById('rs-total-spent').textContent = totalSpent.toLocaleString() + ' cr';
+        // Revenue = total spent * (markup_pct / (100 + markup_pct))
+        const markupPct = config.markup_pct || 0;
+        const revenue = markupPct > 0 ? Math.round(totalSpent * (markupPct / (100 + markupPct))) : 0;
+        document.getElementById('rs-revenue').textContent = revenue.toLocaleString() + ' cr';
+      } catch (err) {
+        console.error('Failed to load reseller data:', err);
+      }
+    }
+
+    // ── KEYS DATA ──
+    async function loadKeysData() {
+      try {
+        const token = await window.Clerk?.session?.getToken();
+        const res = await fetch(`${API_BASE}/v1/economy/keys/delegated`, { headers: { Authorization: `Bearer ${token}` } });
+        if (!res.ok) { document.getElementById('keys-list').innerHTML = '<p style="color:var(--text-muted)">No delegated keys found.</p>'; return; }
+        const data = await res.json();
+        const keys = data.keys || data || [];
+        const container = document.getElementById('keys-list');
+        if (keys.length === 0) {
+          container.innerHTML = '<p style="color:var(--text-muted)">No delegated keys. Create one with POST /v1/economy/keys/delegate</p>';
+          return;
+        }
+        let html = '<div style="overflow-x:auto"><table class="reseller-table"><thead><tr><th>Label</th><th>Key</th><th>Spent</th><th>Limit</th><th>Created</th></tr></thead><tbody>';
+        keys.forEach(k => {
+          html += `<tr><td>${esc(k.label || '\u2014')}</td><td style="font-family:var(--font-mono);font-size:12px">${k.childKey ? esc(k.childKey.slice(0,8)) + '\u2022\u2022\u2022\u2022' : '\u2014'}</td><td>${(k.spent || 0).toLocaleString()} cr</td><td>${(k.spendLimit || 0).toLocaleString()} cr</td><td>${k.createdAt ? new Date(k.createdAt).toLocaleDateString() : '\u2014'}</td></tr>`;
+        });
+        html += '</tbody></table></div>';
+        container.innerHTML = html;
+      } catch (err) {
+        console.error('Failed to load keys:', err);
+        document.getElementById('keys-list').innerHTML = '<p style="color:var(--text-muted)">Failed to load keys.</p>';
+      }
+    }
+
+    // ── RESELLER TAB AUTO-DETECT ──
+    async function checkReseller() {
+      try {
+        const token = await window.Clerk?.session?.getToken();
+        const r = await fetch(`${API_BASE}/v1/llm/reseller`, { headers: { Authorization: `Bearer ${token}` } });
+        if (r.ok) { const tab = document.getElementById('reseller-tab'); if (tab) tab.style.display = 'block'; }
+      } catch {}
+    }
+
     // ── INIT ──
-    async function init(){try{await window.Clerk.load();}catch(e){document.getElementById('loading-state').innerHTML='<p style="color:var(--danger);font-size:13px">Authentication unavailable. Please refresh.</p>';return;}if(!window.Clerk.user){const p=new URLSearchParams(window.location.search);const c=p.get('claim_session')??p.get('claim');window.location.href=c?`/login.html?claim=${c}`:'/login.html';return;}document.getElementById('nav-user-email').textContent=window.Clerk.user.primaryEmailAddress?.emailAddress??'';document.getElementById('nav-user-email').classList.add('show');document.getElementById('nav-dash-btn').classList.add('show');document.getElementById('nav-signout-btn').classList.add('show');document.getElementById('nav-login-btn').style.display='none';const cachedCr=localStorage.getItem('clawnet_credits');document.getElementById('nav-credits-num').textContent=cachedCr!==null?parseInt(cachedCr).toLocaleString():'\u2014';document.getElementById('nav-credits-badge').classList.add('show');const p=new URLSearchParams(window.location.search);const cs=p.get('claim_session'),cr=p.get('claim');if(cs)await autoClaimSession(cs);if(cr){showClaimNotice(cr);window.history.replaceState({},'','/dashboard.html');}await loadDashboard();checkCreator();checkAdmin();}
+    async function init(){try{await window.Clerk.load();}catch(e){document.getElementById('loading-state').innerHTML='<p style="color:var(--danger);font-size:13px">Authentication unavailable. Please refresh.</p>';return;}if(!window.Clerk.user){const p=new URLSearchParams(window.location.search);const c=p.get('claim_session')??p.get('claim');window.location.href=c?`/login.html?claim=${c}`:'/login.html';return;}document.getElementById('nav-user-email').textContent=window.Clerk.user.primaryEmailAddress?.emailAddress??'';document.getElementById('nav-user-email').classList.add('show');document.getElementById('nav-dash-btn').classList.add('show');document.getElementById('nav-signout-btn').classList.add('show');document.getElementById('nav-login-btn').style.display='none';const cachedCr=localStorage.getItem('clawnet_credits');document.getElementById('nav-credits-num').textContent=cachedCr!==null?parseInt(cachedCr).toLocaleString():'\u2014';document.getElementById('nav-credits-badge').classList.add('show');const p=new URLSearchParams(window.location.search);const cs=p.get('claim_session'),cr=p.get('claim');if(cs)await autoClaimSession(cs);if(cr){showClaimNotice(cr);window.history.replaceState({},'','/dashboard.html');}await loadDashboard();checkCreator();checkAdmin();checkReseller();}
     async function autoClaimSession(sessionId){try{const token=await window.Clerk?.session?.getToken();await fetch(`${API_BASE}/v1/dashboard/claim-session`,{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({sessionId})});}catch(err){console.error('Auto-claim failed:',err);}}
     init();
   </script>
