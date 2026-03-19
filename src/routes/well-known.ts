@@ -25,6 +25,7 @@ router.get('/agent-card.json', (c) => {
       'streaming',
       'escrow',
       'governance',
+      'manifest',
     ],
     authentication: {
       apiKey: {
@@ -59,6 +60,12 @@ router.get('/agent-card.json', (c) => {
       rate: '1 credit = $0.001 USD',
       x402Rate: `${env.X402_USDC_PER_CREDIT} USDC per credit`,
       cacheDiscount: '90% (cache hits cost 10% of live)',
+    },
+    manifest: {
+      endpoint: '/v1/manifest',
+      description: 'Universal data verification, reasoning assessment, action pre-flight, and decision memory',
+      pricing: { quick: 0.5, standard: 2.0, deep: 5.0 },
+      currency: 'credits',
     },
     trust: {
       signedResponses: !!env.PLATFORM_SIGNING_SECRET,

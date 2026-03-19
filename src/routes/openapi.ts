@@ -880,6 +880,40 @@ openapiRouter.get('/openapi.json', (c) => {
           responses: { '200': { description: 'Session deleted' }, '404': { description: 'Session not found', content: errContent } },
         },
       },
+      // ── Manifest ──────────────────────────────────────────────────
+      '/v1/manifest': {
+        post: {
+          summary: 'Get a manifest — verify data, check reasoning, pre-flight actions',
+          description: 'Universal data verification and decision support. One call, four checks, one verdict.',
+          operationId: 'getManifest',
+          tags: ['Manifest'],
+          requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', properties: { check: { type: 'string', description: 'Natural language query' }, verify: { type: 'object' }, assess: { type: 'object' }, preflight: { type: 'object' }, tier: { type: 'string', enum: ['quick', 'standard', 'deep'], default: 'standard' } } } } } },
+          responses: { '200': { description: 'Manifest verdict with verification details' }, '402': err402 },
+        },
+      },
+      '/v1/manifest/memory': {
+        get: {
+          summary: 'Query past manifests',
+          operationId: 'queryManifestMemory',
+          tags: ['Manifest'],
+          parameters: [
+            { name: 'subject', in: 'query', schema: { type: 'string' } },
+            { name: 'verdict', in: 'query', schema: { type: 'string' } },
+            { name: 'limit', in: 'query', schema: { type: 'integer', default: 20 } },
+          ],
+          responses: { '200': { description: 'Past manifest history' } },
+        },
+      },
+      '/v1/manifest/outcome': {
+        post: {
+          summary: 'Report outcome of a manifest decision',
+          operationId: 'reportManifestOutcome',
+          tags: ['Manifest'],
+          security: [],
+          requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', properties: { manifest_id: { type: 'string' }, outcome: { type: 'string', enum: ['positive', 'negative', 'neutral'] }, data: { type: 'object' }, value: { type: 'number' } }, required: ['manifest_id', 'outcome'] } } } },
+          responses: { '200': { description: 'Outcome recorded' } },
+        },
+      },
       // ── Admin ─────────────────────────────────────────────────────
       '/v1/admin/validators/promote': {
         post: {
@@ -959,6 +993,7 @@ openapiRouter.get('/openapi.json', (c) => {
       { name: 'Validators', description: 'Platform-native result verification and validator rewards' },
       { name: 'Economy', description: 'Agent sessions, transfers, delegation, and reputation' },
       { name: 'Admin', description: 'Admin-only operations (validator promotion, system management)' },
+      { name: 'Manifest', description: 'Universal data verification, reasoning assessment, and decision memory' },
       { name: 'Mesh', description: 'P2P mesh network peer discovery' },
       { name: 'System', description: 'Health, stats, and documentation' },
     ],

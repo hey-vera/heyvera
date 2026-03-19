@@ -247,6 +247,7 @@
       <div class="dropdown-menu">
         <a href="https://pulse.claw-net.org">Pulse &mdash; AI Marketing</a>
         <a href="/roadmap.html">Radar &mdash; Trading (Coming Soon)</a>
+        <a href="/manifest.html">Manifest &mdash; Verification</a>
         <a href="/#pricing">Pricing</a>
       </div>
     </div>
@@ -287,6 +288,7 @@
   <div class="mobile-menu-group">Products</div>
   <a href="https://pulse.claw-net.org">Pulse &mdash; AI Marketing</a>
   <a href="/roadmap.html">Radar &mdash; Trading (Coming Soon)</a>
+  <a href="/manifest.html">Manifest &mdash; Verification</a>
   <a href="/#pricing">Pricing</a>
   <div class="mobile-menu-group">Developers</div>
   <a href="/endpoints.html">API Endpoints</a>
@@ -341,6 +343,7 @@
       <a class="sidebar-link" href="#advanced">Advanced</a>
       <a class="sidebar-link" href="#registry">Endpoint Registry</a>
       <a class="sidebar-link" href="#vie">Verified Intelligence</a>
+      <a class="sidebar-link" href="#manifest">Manifest</a>
       <a class="sidebar-link" href="#troubleshooting">Troubleshooting</a>
       <a class="sidebar-link" href="#examples">Code Examples</a>
     </div>
@@ -2798,6 +2801,114 @@ app.post('/webhooks/clawnet', express.raw({ type: 'application/json' }), (req, r
       <div class="alert alert-info"><strong>Learning Engine:</strong> The VIE builds a historical pattern database from every query. Over time, this makes its scoring more accurate &mdash; tokens that scored X and then rugged teach the model to catch similar patterns.</div>
     </div>
 
+    <!-- ═══════════════════════════════════════════════ MANIFEST ═══════════════════════════════════════════════ -->
+    <div class="docs-section" id="manifest">
+      <h2 class="docs-section-title">Manifest</h2>
+      <p class="docs-section-desc">Universal data verification for every agent. One call &mdash; your data verified, reasoning checked, action pre-flighted, history remembered.</p>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/manifest</code></div>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+
+        <h4>Body Parameters</h4>
+        <table class="params-table">
+          <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>check</code></td><td><span class="param-type">string</span></td><td><span class="param-opt">No</span></td><td>Natural language query &mdash; shorthand for all four checks at once</td></tr>
+            <tr><td><code>verify</code></td><td><span class="param-type">object</span></td><td><span class="param-opt">No</span></td><td>Structured data verification request</td></tr>
+            <tr><td><code>assess</code></td><td><span class="param-type">object</span></td><td><span class="param-opt">No</span></td><td>Reasoning assessment request</td></tr>
+            <tr><td><code>preflight</code></td><td><span class="param-type">object</span></td><td><span class="param-opt">No</span></td><td>Action pre-flight check request</td></tr>
+            <tr><td><code>tier</code></td><td><span class="param-type">string</span></td><td><span class="param-opt">No</span></td><td><code>quick</code> (0.5cr), <code>standard</code> (2.0cr, default), or <code>deep</code> (5.0cr)</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h4>Pricing Tiers</h4>
+      <table class="params-table">
+        <thead><tr><th>Tier</th><th>Credits</th><th>What You Get</th><th>Latency</th></tr></thead>
+        <tbody>
+          <tr><td><code>quick</code></td><td>0.5</td><td>Cached verdict + confidence score</td><td>&lt;50ms</td></tr>
+          <tr><td><code>standard</code></td><td>2.0</td><td>Full verification + reasoning + preflight + memory lookup</td><td>&lt;3s</td></tr>
+          <tr><td><code>deep</code></td><td>5.0</td><td>Everything + LLM-synthesized analysis with evidence chain</td><td>&lt;5s</td></tr>
+        </tbody>
+      </table>
+
+      <h4>Natural Language Example</h4>
+      <div class="code-block">
+        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+        <pre><code>curl -X POST https://api.claw-net.org/v1/manifest \
+  -H "X-API-Key: cn-your-key-here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "check": "Is SOL price above $150 right now?",
+    "tier": "standard"
+  }'</code></pre>
+      </div>
+
+      <h4>Structured Example</h4>
+      <div class="code-block">
+        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+        <pre><code>curl -X POST https://api.claw-net.org/v1/manifest \
+  -H "X-API-Key: cn-your-key-here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "verify": { "claim": "SOL price is $152", "source": "coingecko" },
+    "assess": { "reasoning": "SOL is bullish because volume is up 40%" },
+    "preflight": { "action": "swap", "params": { "from": "USDC", "to": "SOL", "amount": 500 } },
+    "tier": "deep"
+  }'</code></pre>
+      </div>
+
+      <h4>Response Example</h4>
+      <div class="code-block">
+        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+        <pre><code>{
+  "manifest_id": "mf_a1b2c3d4e5f6",
+  "verdict": "PROCEED_WITH_CAUTION",
+  "confidence": 0.78,
+  "verify": {
+    "claim": "SOL price is $152",
+    "verified": true,
+    "actual_value": 151.87,
+    "deviation_pct": 0.09,
+    "sources_checked": 3
+  },
+  "assess": {
+    "reasoning_score": 0.62,
+    "gaps": ["Volume spike may be wash trading", "No on-chain confirmation of organic demand"],
+    "suggestion": "Cross-reference DEX volume vs CEX volume before concluding bullish"
+  },
+  "preflight": {
+    "action": "swap",
+    "safe": true,
+    "warnings": ["Slippage estimate: 0.3%", "Gas: ~0.002 SOL"],
+    "estimated_outcome": { "receive": "3.29 SOL", "fees_usd": 0.45 }
+  },
+  "memory": {
+    "related_decisions": 2,
+    "last_verdict": "PROCEED",
+    "accuracy_trend": "improving"
+  },
+  "credits_used": 5.0,
+  "tier": "deep"
+}</code></pre>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/manifest/memory</code></div>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code></div>
+        <p>Query past manifests for the current agent. Filter by <code>subject</code>, <code>verdict</code>, and <code>limit</code> (default 20).</p>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/manifest/outcome</code></div>
+        <div class="endpoint-auth">Public (no auth required)</div>
+        <p>Report the real-world outcome of a manifest decision. Send <code>manifest_id</code>, <code>outcome</code> (<code>positive</code>, <code>negative</code>, or <code>neutral</code>), optional <code>data</code> object, and optional <code>value</code> number.</p>
+      </div>
+
+      <div class="alert alert-info"><strong>Self-improving:</strong> Manifest gets smarter over time. Every outcome report improves future verdicts for all agents.</div>
+    </div>
+
     <!-- ═══════════════════════════════════════════════ TROUBLESHOOTING ═══════════════════════════════════════════════ -->
     <div class="docs-section" id="troubleshooting">
       <h2 class="docs-section-title">Troubleshooting</h2>
@@ -3180,6 +3291,7 @@ curl -X POST https://api.claw-net.org/v1/skills \
       <h4>Product</h4>
       <a href="https://pulse.claw-net.org">Pulse</a>
       <a href="https://radar.claw-net.org">Radar</a>
+      <a href="/manifest.html">Manifest</a>
       <a href="/roadmap.html">Roadmap</a>
     </div>
     <div>

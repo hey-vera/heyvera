@@ -724,6 +724,40 @@ const MIGRATIONS: { version: number; sql: string }[] = [
     );
     CREATE INDEX IF NOT EXISTS idx_intel_subs_key ON intel_subscriptions(api_key, active);
     CREATE INDEX IF NOT EXISTS idx_intel_subs_entity ON intel_subscriptions(entity_address, entity_chain, active)` },
+  // v79: Manifest — universal data verification + decision memory
+  { version: 79, sql: `
+    CREATE TABLE IF NOT EXISTS manifest_memory (
+      id TEXT PRIMARY KEY,
+      api_key TEXT NOT NULL,
+      session_id TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      request_hash TEXT NOT NULL,
+      domain TEXT NOT NULL DEFAULT 'general',
+      subject TEXT,
+      action_type TEXT,
+      overall_verdict TEXT NOT NULL,
+      verify_overall TEXT,
+      verify_claims_checked INTEGER DEFAULT 0,
+      verify_claims_verified INTEGER DEFAULT 0,
+      verify_claims_disputed INTEGER DEFAULT 0,
+      assess_status TEXT,
+      assess_premises_valid INTEGER,
+      preflight_status TEXT,
+      preflight_risk_score INTEGER,
+      confidence REAL NOT NULL,
+      summary TEXT,
+      detail_json TEXT NOT NULL,
+      outcome TEXT,
+      outcome_data TEXT,
+      outcome_at TEXT,
+      outcome_value REAL
+    );
+    CREATE INDEX IF NOT EXISTS idx_manifest_key ON manifest_memory(api_key, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_manifest_subject ON manifest_memory(api_key, subject, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_manifest_hash ON manifest_memory(request_hash, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_manifest_verdict ON manifest_memory(overall_verdict, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_manifest_outcome ON manifest_memory(outcome) WHERE outcome IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_manifest_domain ON manifest_memory(domain, created_at DESC)` },
 ];
 
 function runMigrations(): void {

@@ -540,6 +540,12 @@ openclawRouter.get('/catalog', checkApiKey, (c) => {
         },
         creditEstimate: '20 credits base fee + per-skill charges',
       },
+      {
+        action: 'manifest',
+        description: 'Verify data accuracy, check reasoning, pre-flight actions, recall decision history',
+        params: { check: 'Natural language query (or use structured verify/assess/preflight fields)', tier: 'quick | standard | deep' },
+        creditEstimate: '0.5–5.0 credits',
+      },
     ],
     skills: { page, total: countPublicSkills(), data: skills },
     endpoints: { total: apiRegistry.length, byCategory: endpointsByCategory },
