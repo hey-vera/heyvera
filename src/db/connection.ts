@@ -758,6 +758,49 @@ const MIGRATIONS: { version: number; sql: string }[] = [
     CREATE INDEX IF NOT EXISTS idx_manifest_verdict ON manifest_memory(overall_verdict, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_manifest_outcome ON manifest_memory(outcome) WHERE outcome IS NOT NULL;
     CREATE INDEX IF NOT EXISTS idx_manifest_domain ON manifest_memory(domain, created_at DESC)` },
+  // v80: Attestation — signed, verifiable proof of agent actions
+  { version: 80, sql: `
+    CREATE TABLE IF NOT EXISTS attestations (
+      id TEXT PRIMARY KEY,
+      api_key_hash TEXT NOT NULL,
+      sequence_number INTEGER NOT NULL,
+      attestation_type TEXT NOT NULL DEFAULT 'automatic',
+      manifest_id TEXT,
+      manifest_verdict TEXT,
+      manifest_confidence REAL,
+      manifest_aligned INTEGER,
+      action_type TEXT NOT NULL,
+      action_endpoint TEXT,
+      action_description TEXT,
+      input_hash TEXT NOT NULL,
+      response_hash TEXT,
+      source_hashes_json TEXT,
+      credits_charged REAL DEFAULT 0,
+      duration_ms INTEGER,
+      outcome_status TEXT NOT NULL DEFAULT 'success',
+      outcome_data_json TEXT,
+      signature TEXT,
+      signed_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_attest_key ON attestations(api_key_hash, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_attest_key_seq ON attestations(api_key_hash, sequence_number DESC);
+    CREATE INDEX IF NOT EXISTS idx_attest_manifest ON attestations(manifest_id) WHERE manifest_id IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_attest_type ON attestations(attestation_type, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_attest_action ON attestations(action_type, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_attest_aligned ON attestations(manifest_aligned) WHERE manifest_aligned IS NOT NULL;
+
+    CREATE TABLE IF NOT EXISTS attestation_stats (
+      api_key_hash TEXT PRIMARY KEY,
+      total_attestations INTEGER NOT NULL DEFAULT 0,
+      manifest_aligned INTEGER NOT NULL DEFAULT 0,
+      manifest_unaligned INTEGER NOT NULL DEFAULT 0,
+      manifest_unchecked INTEGER NOT NULL DEFAULT 0,
+      success_count INTEGER NOT NULL DEFAULT 0,
+      failure_count INTEGER NOT NULL DEFAULT 0,
+      last_attestation_at TEXT,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )` },
 ];
 
 function runMigrations(): void {

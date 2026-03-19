@@ -16,6 +16,7 @@ export * from './sessions';
 export * from './validations';
 export * from './intel';
 export * from './manifest';
+export * from './attestations';
 export * from './budget';
 export * from './sponsorship';
 export * from './bounties';

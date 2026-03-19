@@ -914,6 +914,75 @@ openapiRouter.get('/openapi.json', (c) => {
           responses: { '200': { description: 'Outcome recorded' } },
         },
       },
+      // ── Attestation ──────────────────────────────────────────────
+      '/v1/attest': {
+        post: {
+          summary: 'Create an explicit attestation',
+          description: 'Creates a signed, tamper-proof attestation for a custom agent action. Automatic attestations are created for free on every orchestration and skill invocation.',
+          operationId: 'createAttestation',
+          tags: ['Attestation'],
+          requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', properties: { action: { type: 'string', description: 'Action being attested' }, input: { type: 'object', description: 'Input data to hash' }, result: { type: 'object', description: 'Result data to hash' }, metadata: { type: 'object', description: 'Optional metadata' } }, required: ['action'] } } } },
+          responses: { '200': { description: 'Attestation created with cryptographic hashes and signature' }, '402': err402 },
+        },
+      },
+      '/v1/attest/{id}': {
+        get: {
+          summary: 'Get an attestation by ID',
+          description: 'Retrieve a specific attestation record. Requires the API key that created it.',
+          operationId: 'getAttestation',
+          tags: ['Attestation'],
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: { '200': { description: 'Attestation details' }, '404': { description: 'Attestation not found', content: errContent } },
+        },
+      },
+      '/v1/attest/verify/{id}': {
+        get: {
+          summary: 'Verify an attestation (public)',
+          description: 'Publicly verify the cryptographic integrity of an attestation. No auth required.',
+          operationId: 'verifyAttestation',
+          tags: ['Attestation'],
+          security: [],
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: { '200': { description: 'Verification result with signature validity and chain contiguity' }, '404': { description: 'Attestation not found', content: errContent } },
+        },
+      },
+      '/v1/attest/history': {
+        get: {
+          summary: 'Get attestation history',
+          description: 'Query past attestations for the current API key. Filter by action type, date range, and pagination.',
+          operationId: 'getAttestationHistory',
+          tags: ['Attestation'],
+          parameters: [
+            { name: 'action', in: 'query', schema: { type: 'string' }, description: 'Filter by action type' },
+            { name: 'limit', in: 'query', schema: { type: 'integer', default: 50 } },
+            { name: 'offset', in: 'query', schema: { type: 'integer', default: 0 } },
+          ],
+          responses: { '200': { description: 'List of attestations' } },
+        },
+      },
+      '/v1/attest/stats': {
+        get: {
+          summary: 'Get attestation statistics',
+          description: 'Aggregated statistics for the current API key: total attestations, verification counts, integrity score.',
+          operationId: 'getAttestationStats',
+          tags: ['Attestation'],
+          responses: { '200': { description: 'Attestation statistics' } },
+        },
+      },
+      '/v1/attest/agent/{keyHash}': {
+        get: {
+          summary: 'Get attestations by agent key hash',
+          description: 'Query attestations for a specific agent by their public key hash. Useful for cross-agent trust verification.',
+          operationId: 'getAttestationsByAgent',
+          tags: ['Attestation'],
+          security: [],
+          parameters: [
+            { name: 'keyHash', in: 'path', required: true, schema: { type: 'string' } },
+            { name: 'limit', in: 'query', schema: { type: 'integer', default: 50 } },
+          ],
+          responses: { '200': { description: 'List of attestations for the agent' } },
+        },
+      },
       // ── Admin ─────────────────────────────────────────────────────
       '/v1/admin/validators/promote': {
         post: {
@@ -994,6 +1063,7 @@ openapiRouter.get('/openapi.json', (c) => {
       { name: 'Economy', description: 'Agent sessions, transfers, delegation, and reputation' },
       { name: 'Admin', description: 'Admin-only operations (validator promotion, system management)' },
       { name: 'Manifest', description: 'Universal data verification, reasoning assessment, and decision memory' },
+      { name: 'Attestation', description: 'Signed, tamper-proof proof of every agent action with public verification' },
       { name: 'Mesh', description: 'P2P mesh network peer discovery' },
       { name: 'System', description: 'Health, stats, and documentation' },
     ],

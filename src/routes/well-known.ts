@@ -26,6 +26,7 @@ router.get('/agent-card.json', (c) => {
       'escrow',
       'governance',
       'manifest',
+      'attestation',
     ],
     authentication: {
       apiKey: {
@@ -66,6 +67,12 @@ router.get('/agent-card.json', (c) => {
       description: 'Universal data verification, reasoning assessment, action pre-flight, and decision memory',
       pricing: { quick: 0.5, standard: 2.0, deep: 5.0 },
       currency: 'credits',
+    },
+    attestation: {
+      endpoint: '/v1/attest',
+      verify: '/v1/attest/verify/:id',
+      description: 'Signed, verifiable proof of every agent action',
+      pricing: { automatic: 'free', explicit: 0.25 },
     },
     trust: {
       signedResponses: !!env.PLATFORM_SIGNING_SECRET,

@@ -248,6 +248,7 @@
         <a href="https://pulse.claw-net.org">Pulse &mdash; AI Marketing</a>
         <a href="/roadmap.html">Radar &mdash; Trading (Coming Soon)</a>
         <a href="/manifest.html">Manifest &mdash; Verification</a>
+        <a href="/attestation.html">Attestation &mdash; Proof</a>
         <a href="/#pricing">Pricing</a>
       </div>
     </div>
@@ -289,6 +290,7 @@
   <a href="https://pulse.claw-net.org">Pulse &mdash; AI Marketing</a>
   <a href="/roadmap.html">Radar &mdash; Trading (Coming Soon)</a>
   <a href="/manifest.html">Manifest &mdash; Verification</a>
+  <a href="/attestation.html">Attestation &mdash; Proof</a>
   <a href="/#pricing">Pricing</a>
   <div class="mobile-menu-group">Developers</div>
   <a href="/endpoints.html">API Endpoints</a>
@@ -344,6 +346,7 @@
       <a class="sidebar-link" href="#registry">Endpoint Registry</a>
       <a class="sidebar-link" href="#vie">Verified Intelligence</a>
       <a class="sidebar-link" href="#manifest">Manifest</a>
+      <a class="sidebar-link" href="#attestation">Attestation</a>
       <a class="sidebar-link" href="#troubleshooting">Troubleshooting</a>
       <a class="sidebar-link" href="#examples">Code Examples</a>
     </div>
@@ -2909,6 +2912,181 @@ app.post('/webhooks/clawnet', express.raw({ type: 'application/json' }), (req, r
       <div class="alert alert-info"><strong>Self-improving:</strong> Manifest gets smarter over time. Every outcome report improves future verdicts for all agents.</div>
     </div>
 
+    <!-- ═══════════════════════════════════════════════ ATTESTATION ═══════════════════════════════════════════════ -->
+    <div class="docs-section" id="attestation">
+      <h2 class="docs-section-title">Attestation</h2>
+      <p class="docs-section-desc">Signed, tamper-proof proof of every agent action. Verify before you act (Manifest). Prove after you did (Attestation).</p>
+
+      <div class="alert alert-info"><strong>The Trust Lifecycle:</strong> <strong>BEFORE</strong> &mdash; Manifest verifies your data &rarr; <strong>DURING</strong> &mdash; ClawNet executes &rarr; <strong>AFTER</strong> &mdash; Attestation proves what happened. Together they form a closed trust loop.</div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/attest</code></div>
+        <p class="endpoint-desc">Create an explicit attestation for a custom agent action. Automatic attestations are created for free on every orchestration and skill invocation &mdash; this endpoint is for standalone attestations.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code> &mdash; costs <strong>0.25 credits</strong></div>
+
+        <h4>Body Parameters</h4>
+        <table class="params-table">
+          <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>action</code></td><td><span class="param-type">string</span></td><td><span class="param-req">Yes</span></td><td>The action being attested (e.g. <code>skill_invoke</code>, <code>trade_executed</code>, <code>data_fetched</code>)</td></tr>
+            <tr><td><code>input</code></td><td><span class="param-type">object</span></td><td><span class="param-opt">No</span></td><td>Input data &mdash; will be SHA-256 hashed</td></tr>
+            <tr><td><code>result</code></td><td><span class="param-type">object</span></td><td><span class="param-opt">No</span></td><td>Result data &mdash; will be SHA-256 hashed</td></tr>
+            <tr><td><code>metadata</code></td><td><span class="param-type">object</span></td><td><span class="param-opt">No</span></td><td>Optional metadata (tags, labels, context)</td></tr>
+          </tbody>
+        </table>
+
+        <h4>Example</h4>
+        <div class="code-block">
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <pre><code>curl -X POST https://api.claw-net.org/v1/attest \
+  -H "X-API-Key: cn-your-key-here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "action": "trade_executed",
+    "input": { "pair": "SOL/USDC", "side": "buy", "amount": 50 },
+    "result": { "filled": true, "price": 142.50, "slippage": 0.002 },
+    "metadata": { "strategy": "momentum", "session": "ses_abc123" }
+  }'</code></pre>
+        </div>
+
+        <h4>Response</h4>
+        <div class="code-block">
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <pre><code>{
+  "id": "att-f7e2a9b1c3d4",
+  "action": "trade_executed",
+  "input_hash": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+  "result_hash": "sha256:a3c2e8b4f5d6e7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2",
+  "signature": "hmac:b7e4f1a2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0",
+  "timestamp": "2026-03-18T14:32:00Z",
+  "key_hash": "sha256:abc123...",
+  "credits_used": 0.25
+}</code></pre>
+        </div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/attest/:id</code></div>
+        <p class="endpoint-desc">Retrieve a specific attestation by ID. Only the API key that created it can access it.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code> &mdash; <strong>free</strong></div>
+
+        <h4>Path Parameters</h4>
+        <table class="params-table">
+          <thead><tr><th>Name</th><th>Type</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>id</code></td><td><span class="param-type">string</span></td><td>Attestation ID (e.g. <code>att-f7e2a9b1c3d4</code>)</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/attest/verify/:id</code></div>
+        <p class="endpoint-desc">Publicly verify the cryptographic integrity of any attestation. No account or API key needed. Returns signature validity and chain contiguity.</p>
+        <div class="endpoint-auth">Public &mdash; <strong>no auth required, free</strong></div>
+
+        <h4>Path Parameters</h4>
+        <table class="params-table">
+          <thead><tr><th>Name</th><th>Type</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>id</code></td><td><span class="param-type">string</span></td><td>Attestation ID to verify</td></tr>
+          </tbody>
+        </table>
+
+        <h4>Response</h4>
+        <div class="code-block">
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <pre><code>{
+  "valid": true,
+  "signature_valid": true,
+  "chain_contiguous": true,
+  "attestation": {
+    "id": "att-f7e2a9b1c3d4",
+    "type": "explicit",
+    "action": "trade_executed",
+    "input_hash": "sha256:9f86d...",
+    "result_hash": "sha256:a3c2e...",
+    "signature": "hmac:b7e4f...",
+    "timestamp": "2026-03-18T14:32:00Z",
+    "success": true
+  }
+}</code></pre>
+        </div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/attest/history</code></div>
+        <p class="endpoint-desc">Query past attestations for your API key. Filter by action type with pagination.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code> &mdash; <strong>free</strong></div>
+
+        <h4>Query Parameters</h4>
+        <table class="params-table">
+          <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>action</code></td><td><span class="param-type">string</span></td><td><span class="param-opt">No</span></td><td>Filter by action type (e.g. <code>skill_invoke</code>, <code>orchestration</code>)</td></tr>
+            <tr><td><code>limit</code></td><td><span class="param-type">integer</span></td><td><span class="param-opt">No</span></td><td>Max results (default 50)</td></tr>
+            <tr><td><code>offset</code></td><td><span class="param-type">integer</span></td><td><span class="param-opt">No</span></td><td>Pagination offset (default 0)</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/attest/stats</code></div>
+        <p class="endpoint-desc">Aggregated attestation statistics for your API key: total attestations, verification counts, and integrity score.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code> &mdash; <strong>free</strong></div>
+
+        <h4>Response</h4>
+        <div class="code-block">
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <pre><code>{
+  "total_attestations": 1247,
+  "automatic": 1198,
+  "explicit": 49,
+  "verification_requests": 312,
+  "integrity_score": 1.0,
+  "chain_valid": true,
+  "oldest": "2026-01-15T08:00:00Z",
+  "newest": "2026-03-18T14:32:00Z"
+}</code></pre>
+        </div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/attest/agent/:keyHash</code></div>
+        <p class="endpoint-desc">Query attestations for any agent by their public key hash. Useful for cross-agent trust verification &mdash; check what another agent has done before trusting its output.</p>
+        <div class="endpoint-auth">Public &mdash; <strong>no auth required, free</strong></div>
+
+        <h4>Path Parameters</h4>
+        <table class="params-table">
+          <thead><tr><th>Name</th><th>Type</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>keyHash</code></td><td><span class="param-type">string</span></td><td>SHA-256 hash of the agent's API key</td></tr>
+          </tbody>
+        </table>
+
+        <h4>Query Parameters</h4>
+        <table class="params-table">
+          <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>limit</code></td><td><span class="param-type">integer</span></td><td><span class="param-opt">No</span></td><td>Max results (default 50)</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h4>Pricing</h4>
+      <table class="params-table">
+        <thead><tr><th>Action</th><th>Cost</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td>Automatic attestations</td><td><strong>FREE</strong></td><td>Included in every orchestration, skill invocation, and manifest check</td></tr>
+          <tr><td>Explicit attestations</td><td>0.25 credits</td><td>Via <code>POST /v1/attest</code></td></tr>
+          <tr><td>Verification</td><td><strong>FREE</strong></td><td>Public endpoint, no auth needed</td></tr>
+          <tr><td>History &amp; Stats</td><td><strong>FREE</strong></td><td>Query your own attestation data</td></tr>
+          <tr><td>Agent lookup</td><td><strong>FREE</strong></td><td>Public endpoint, no auth needed</td></tr>
+        </tbody>
+      </table>
+
+      <div class="alert alert-success"><strong>Trust without middlemen:</strong> Every attestation is cryptographically signed (HMAC-SHA256) and chained. Anyone can verify at <code>/v1/attest/verify/:id</code> without an account. The chain is contiguous &mdash; gaps are detected and flagged.</div>
+    </div>
+
     <!-- ═══════════════════════════════════════════════ TROUBLESHOOTING ═══════════════════════════════════════════════ -->
     <div class="docs-section" id="troubleshooting">
       <h2 class="docs-section-title">Troubleshooting</h2>
@@ -3292,6 +3470,7 @@ curl -X POST https://api.claw-net.org/v1/skills \
       <a href="https://pulse.claw-net.org">Pulse</a>
       <a href="https://radar.claw-net.org">Radar</a>
       <a href="/manifest.html">Manifest</a>
+      <a href="/attestation.html">Attestation</a>
       <a href="/roadmap.html">Roadmap</a>
     </div>
     <div>
