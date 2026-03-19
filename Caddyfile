@@ -4,6 +4,11 @@
 # Static site:  /var/www/claw-net/ (clean URLs, no .html extensions)
 # API:          localhost:3402 (Hono, Docker)
 
+# API subdomain — pure reverse proxy (frontend hits this for all API calls)
+api.claw-net.org {
+	reverse_proxy localhost:3402
+}
+
 claw-net.org, www.claw-net.org {
 	# Static site — clean URLs
 	root * /var/www/claw-net

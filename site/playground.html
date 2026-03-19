@@ -158,7 +158,7 @@
     <a href="/login" class="nav-login" id="nav-login-btn">Sign In</a>
     <a href="/#pricing" class="nav-cta" id="nav-getkey-btn">Get API Key</a>
     <div class="dropdown account-dropdown" id="account-dropdown">
-      <button class="dropdown-toggle account-btn">My Account &#9662;</button>
+      <button class="dropdown-toggle account-btn" onclick="this.nextElementSibling.classList.toggle('show');event.stopPropagation()">My Account &#9662;</button>
       <div class="dropdown-menu account-menu">
         <div class="account-email" id="account-email-display"></div>
         <a href="/dashboard" class="dropdown-item">Dashboard</a>
@@ -170,6 +170,7 @@
     <button class="mobile-menu-btn" onclick="document.getElementById('mobileMenu').classList.toggle('open')" aria-label="Menu">&#9776;</button>
   </div>
 </nav>
+<script>document.addEventListener("click",function(){var m=document.querySelector(".account-menu");if(m)m.classList.remove("show")})</script>
 <div class="mobile-menu" id="mobileMenu">
   <div class="mobile-menu-group">Products</div><a href="https://pulse.claw-net.org">Pulse &mdash; AI Marketing</a><a href="/roadmap">Radar &mdash; Trading (Coming Soon)</a>
   <div class="mobile-menu-group">Services</div><a href="/manifest">Manifest &mdash; Verification</a><a href="/attestation">Attestation &mdash; Proof</a>
