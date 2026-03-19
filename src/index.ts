@@ -82,6 +82,7 @@ import { startMeshNode } from './mesh/node';
 import { loadEmbeddingModel } from './core/embeddings';
 import { seedEmbeddings } from './core/seed-embeddings';
 import { seedOfficialSkills } from './core/seed-skills';
+import { initPaymentGateway } from './payments/index';
 
 if (process.env.SENTRY_DSN) {
   Sentry.init({ dsn: process.env.SENTRY_DSN, environment: process.env.NODE_ENV ?? 'development' });
@@ -276,6 +277,7 @@ async function start() {
 
   initDb();
   try { seedOfficialSkills(); } catch (e) { logger.warn({ err: e }, 'Failed to seed official skills — continuing'); }
+  initPaymentGateway();
   await initRedis();
   await preloadCache();
 
