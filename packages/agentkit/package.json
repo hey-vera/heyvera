@@ -1,0 +1,27 @@
+{
+  "name": "@clawnet/agentkit",
+  "version": "1.0.0",
+  "description": "Coinbase AgentKit actions for ClawNet — orchestrate APIs, invoke skills, and pay with x402 USDC",
+  "keywords": ["agentkit", "coinbase", "clawnet", "ai", "agents", "x402", "usdc", "base", "web3"],
+  "homepage": "https://claw-net.org",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/clawnet/clawnet.git"
+  },
+  "license": "MIT",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist/"
+  ],
+  "scripts": {
+    "build": "npx esbuild src/index.ts --bundle --platform=node --target=node18 --outfile=dist/index.js --external:zod",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "zod": "^3.23.8"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

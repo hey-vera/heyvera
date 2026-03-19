@@ -1,0 +1,30 @@
+{
+  "name": "@clawnet/langchain",
+  "version": "1.0.0",
+  "description": "LangChain tools for ClawNet — orchestrate 390+ APIs, invoke marketplace skills, and search the endpoint registry",
+  "keywords": ["langchain", "clawnet", "ai", "agents", "tools", "orchestration", "web3", "solana", "x402"],
+  "homepage": "https://claw-net.org",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/clawnet/clawnet.git"
+  },
+  "license": "MIT",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist/"
+  ],
+  "scripts": {
+    "build": "npx esbuild src/index.ts --bundle --platform=node --target=node18 --outfile=dist/index.js --external:@langchain/core --external:zod",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "zod": "^3.23.8"
+  },
+  "peerDependencies": {
+    "@langchain/core": ">=0.2.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
