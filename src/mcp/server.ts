@@ -212,7 +212,7 @@ async function main() {
   // ── Tool: search-registry ──────────────────────────────────────────────────
   server.tool(
     'search-registry',
-    'Search ClawNet\'s API endpoint registry (158+ endpoints across 60+ providers). Find the right API for any task. Pricing: Free (read-only, no credits charged).',
+    'Search ClawNet\'s API endpoint registry (12,000+ endpoints across 500+ providers). Find the right API for any task. Pricing: Free (read-only, no credits charged).',
     {
       query: z.string().describe('What capability you need (e.g. "web scraping", "crypto price", "email finder", "speech to text")'),
       category: z.string().describe('Filter by category: solana | social | defi | scraping | search | media | enrichment | security | ai-ml | infrastructure | weather | oracle | discovery').optional(),
@@ -302,6 +302,157 @@ async function main() {
         };
       } catch (err) {
         return { content: [{ type: 'text', text: `Error: ${String(err)}` }], isError: true };
+      }
+    },
+  );
+
+  // ── Tool: manifest ────────────────────────────────────────────────────────
+  // @ts-expect-error TS2589: MCP SDK deep generic inference exceeds TS depth limit
+  server.tool(
+    'manifest',
+    'Verify data before acting on it. Cross-references sources, checks reasoning, pre-flights actions. Pricing: 0.5-5 credits depending on tier.',
+    {
+      tier: z.enum(['quick', 'standard', 'deep']).default('standard').describe('Verification depth'),
+      verify: z.object({
+        raw: z.string().describe('Raw data or claim to verify').optional(),
+        claims: z.array(z.object({
+          type: z.string().describe('Claim type: price, market_cap, volume, holder_count, tvl, apy'),
+          subject: z.string().describe('What the claim is about (e.g. SOL, BTC)'),
+          value: z.unknown().describe('The claimed value'),
+        })).optional(),
+      }).optional(),
+      assess: z.object({
+        decision: z.string().describe('The decision being evaluated'),
+        reasoning: z.string().describe('The reasoning behind it'),
+        premises: z.array(z.string()).describe('Key assumptions'),
+      }).optional(),
+      check: z.object({
+        action: z.string().describe('Action type: swap, transfer, invoke_skill, api_call'),
+        params: z.record(z.unknown()).describe('Action parameters'),
+      }).optional(),
+    },
+    async ({ tier, verify, assess, check }) => {
+      if (!CLAWNET_API_KEY) {
+        return {
+          content: [{ type: 'text', text: 'ClawNet API key required. Set CLAWNET_API_KEY. Get one at https://claw-net.org' }],
+          isError: true,
+        };
+      }
+      try {
+        const result = await fetchApi('/v1/manifest', {
+          method: 'POST',
+          body: JSON.stringify({ tier, verify, assess, check }),
+        }) as Record<string, unknown>;
+
+        const text = result.summary ?? result.result ?? JSON.stringify(result, null, 2);
+        const cost = result.creditsCharged ? `\n\n---\nCost: ${result.creditsCharged} credits` : '';
+        return { content: [{ type: 'text', text: String(text) + cost }] };
+      } catch (err) {
+        return { content: [{ type: 'text', text: `Manifest verification failed: ${String(err)}` }], isError: true };
+      }
+    },
+  );
+
+  // ── Tool: attest ─────────────────────────────────────────────────────────
+  // @ts-expect-error TS2589: MCP SDK deep generic inference exceeds TS depth limit
+  server.tool(
+    'attest',
+    'Create a signed attestation proving an action happened, or verify an existing one. Pricing: 0.25 credits to create, free to verify.',
+    {
+      action: z.enum(['create', 'verify']).describe('Create a new attestation or verify existing'),
+      actionType: z.string().describe('What happened (e.g. orchestrate, skill_invoke, swap)').optional(),
+      inputData: z.string().describe('Input/query that was sent').optional(),
+      responseData: z.string().describe('Response that was received').optional(),
+      outcome: z.enum(['success', 'failure', 'partial']).default('success').optional(),
+      attestationId: z.string().describe('Attestation ID to verify').optional(),
+    },
+    async ({ action, actionType, inputData, responseData, outcome, attestationId }) => {
+      try {
+        if (action === 'verify') {
+          if (!attestationId) {
+            return { content: [{ type: 'text', text: 'attestationId is required for verify action.' }], isError: true };
+          }
+          const result = await fetchApi(`/v1/attest/verify/${encodeURIComponent(attestationId)}`) as Record<string, unknown>;
+          const text = result.valid !== undefined
+            ? `Attestation ${attestationId}: ${result.valid ? 'VALID' : 'INVALID'}\n\n${JSON.stringify(result, null, 2)}`
+            : JSON.stringify(result, null, 2);
+          return { content: [{ type: 'text', text }] };
+        }
+
+        // create
+        if (!CLAWNET_API_KEY) {
+          return {
+            content: [{ type: 'text', text: 'ClawNet API key required. Set CLAWNET_API_KEY. Get one at https://claw-net.org' }],
+            isError: true,
+          };
+        }
+        const result = await fetchApi('/v1/attest', {
+          method: 'POST',
+          body: JSON.stringify({ actionType, inputData, responseData, outcome }),
+        }) as Record<string, unknown>;
+
+        const id = result.attestationId ?? result.id ?? '';
+        const text = `Attestation created: ${id}\n\n${JSON.stringify(result, null, 2)}`;
+        const cost = result.creditsCharged ? `\n\n---\nCost: ${result.creditsCharged} credits` : '';
+        return { content: [{ type: 'text', text: text + cost }] };
+      } catch (err) {
+        return { content: [{ type: 'text', text: `Attestation failed: ${String(err)}` }], isError: true };
+      }
+    },
+  );
+
+  // ── Tool: discover ───────────────────────────────────────────────────────
+  server.tool(
+    'discover',
+    'Semantic search across 12,000+ API endpoints. Find the best data source for any need. Pricing: Free.',
+    {
+      query: z.string().describe('What you need (e.g. "real-time crypto prices", "social media sentiment", "weather data")'),
+    },
+    async ({ query }) => {
+      try {
+        const result = await fetchApi(`/v1/discover?q=${encodeURIComponent(query)}`) as Record<string, unknown>;
+        const endpoints = (result.endpoints ?? result.results ?? []) as Array<Record<string, unknown>>;
+
+        if (endpoints.length === 0) {
+          return { content: [{ type: 'text', text: `No endpoints found for "${query}". Try a broader search term.` }] };
+        }
+
+        const text = endpoints.slice(0, 20).map((e) =>
+          `• ${e.name ?? e.id} (${e.id})\n  Provider: ${e.provider ?? 'unknown'} | Cost: $${e.costPerCall ?? '?'}/call\n  ${e.description ?? ''}`
+        ).join('\n\n');
+
+        return {
+          content: [{ type: 'text', text: `Found ${endpoints.length} endpoints for "${query}":\n\n${text}` }],
+        };
+      } catch (err) {
+        return { content: [{ type: 'text', text: `Discovery failed: ${String(err)}` }], isError: true };
+      }
+    },
+  );
+
+  // ── Tool: estimate ───────────────────────────────────────────────────────
+  server.tool(
+    'estimate',
+    'Estimate the cost of a query before running it. Pricing: Free.',
+    {
+      query: z.string().describe('The query you want to estimate cost for'),
+    },
+    async ({ query }) => {
+      try {
+        const result = await fetchApi(`/v1/estimate?query=${encodeURIComponent(query)}`) as Record<string, unknown>;
+
+        const credits = result.estimatedCredits ?? result.credits ?? '?';
+        const steps = (result.steps as unknown[])?.length ?? result.stepCount ?? '?';
+        const text = [
+          `Estimated cost: ${credits} credits`,
+          `Steps: ${steps}`,
+          result.strategy ? `Strategy: ${result.strategy}` : null,
+          result.breakdown ? `\nBreakdown:\n${JSON.stringify(result.breakdown, null, 2)}` : null,
+        ].filter(Boolean).join('\n');
+
+        return { content: [{ type: 'text', text }] };
+      } catch (err) {
+        return { content: [{ type: 'text', text: `Estimation failed: ${String(err)}` }], isError: true };
       }
     },
   );

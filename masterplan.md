@@ -172,3 +172,19 @@
 - [ ] **Monitor Tempo (Stripe-backed)** — launched March 18, 2026. MPP protocol. Potential threat at payment layer. Consider adding MPP consumer support when their SDK stabilizes.
 - [ ] **Monitor Google AP2** — Agent Payments Protocol. Watch for SDK release. ClawNet should be early adopter.
 - [ ] **First 100 developers campaign** — the moat is usage. Consider dev grants, hackathon sponsorship, or free credit tiers for early builders.
+
+
+What's still needed for 10/10 (future)
+Ed25519 signed VCs (currently the VC has no cryptographic proof, just the envelope format — need @digitalbazaar/vc for real Data Integrity proofs)
+Signing key rotation with versioning
+Semantic reasoning assessment (replace keyword matching with proper LLM logic analysis)
+Risk-scaled preflight thresholds (account for position size)
+Cross-referencing verify + assess results (conditional verdict logic)
+EAS bridge for EVM ecosystem compatibility
+The trust layer went from "demo" to "production-credible for crypto-native users." Enterprise W3C signing is the next step when @digitalbazaar/vc is added.
+
+EAS bridge for Ethereum ecosystem compatibility
+ZK privacy proofs (verify without revealing query)
+Active validators — the system exists but needs real users
+Cross-referencing verify + assess results in Manifest (conditional verdict logic)
+Deploy and smoke test everything live
