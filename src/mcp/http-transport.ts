@@ -123,7 +123,7 @@ const toolDefinitions: ToolDefinition[] = [
   },
   {
     name: 'search-registry',
-    description: 'Search ClawNet\'s API endpoint registry (158+ endpoints across 60+ providers). Find the right API for any task.',
+    description: 'Search ClawNet\'s API endpoint registry (12,000+ endpoints across 500+ providers). Find the right API for any task.',
     inputSchema: {
       type: 'object',
       properties: {

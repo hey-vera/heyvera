@@ -231,7 +231,7 @@ async function main() {
   // ── Tool: search-registry ──────────────────────────────────────────────────
   server.tool(
     'search-registry',
-    'Search ClawNet\'s raw API endpoint registry (160+ endpoints across 60+ providers). Use this to discover what data is available before building a workflow.',
+    'Search ClawNet\'s raw API endpoint registry (12,000+ endpoints across 500+ providers). Use this to discover what data is available before building a workflow.',
     {
       query: z.string().describe('What capability you need (e.g. "crypto price", "email finder", "web scraping", "whale tracking")'),
       category: z.string().describe('Filter by category: solana | social | defi | scraping | search | media | enrichment | security | ai-ml | infrastructure | weather | oracle | discovery').optional(),

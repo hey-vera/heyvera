@@ -194,12 +194,27 @@ async function main() {
         };
       }
       try {
-        const result = await invokeSkill(skillId, variables ?? {}) as Record<string, unknown>;
-        const answer = result.answer ?? result.result ?? JSON.stringify(result, null, 2);
+        // Check if it's a data skill — data skills use /query, not /invoke
+        const detail = await getSkillDetail(skillId);
+        const isData = (detail as Record<string, unknown>).skill_type === 'data'
+          || (detail as Record<string, unknown>).queryUrl;
+
+        let result: Record<string, unknown>;
+        if (isData) {
+          // Data skills: GET /v1/skills/:id/query with variables as query params
+          const params = new URLSearchParams(variables ?? {}).toString();
+          const path = `/v1/skills/${skillId}/query${params ? '?' + params : ''}`;
+          result = await fetchApi(path) as Record<string, unknown>;
+        } else {
+          result = await invokeSkill(skillId, variables ?? {}) as Record<string, unknown>;
+        }
+
+        const answer = result.answer ?? result.data ?? result.result ?? JSON.stringify(result, null, 2);
         const meta = result.metadata as Record<string, unknown> | undefined;
+        const cost = result.creditsCharged ?? result.creditsCost ?? '?';
         const footer = meta
-          ? `\n\n---\nCost: ${result.creditsCharged ?? '?'} credits | Duration: ${meta.durationMs ?? '?'}ms`
-          : '';
+          ? `\n\n---\nCost: ${cost} credits | Duration: ${meta.durationMs ?? '?'}ms`
+          : (result.creditsCharged ? `\n\n---\nCost: ${cost} credits` : '');
         return {
           content: [{ type: 'text', text: String(answer) + footer }],
         };
