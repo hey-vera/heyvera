@@ -35,6 +35,8 @@ export interface AttestationRow {
   signature: string | null;
   signed_at: string | null;
   created_at: string;
+  anchor_id: string | null;
+  anchored_at: string | null;
 }
 
 export interface CreateAttestationParams {

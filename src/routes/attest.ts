@@ -16,6 +16,8 @@ import { getManifestById } from '../db/manifest';
 import { round6 } from '../core/credits';
 import { trackDelegatedSpend } from '../utils/billing';
 import { logger } from '../utils/logger';
+import { getDb } from '../db/connection';
+import { buildMerkleTree, getMerkleProof, verifyMerkleProof } from '../core/merkle-anchor';
 
 // ─── Zod Schemas ────────────────────────────────────────────────────────────
 
@@ -319,7 +321,133 @@ attestRouter.get('/agent/:keyHash', async (c) => {
   });
 });
 
+// ─── Merkle Anchor Endpoints ─────────────────────────────────────────────────
+// These MUST be registered before the /:id catch-all route below.
+
+interface AnchorRow {
+  id: string;
+  merkle_root: string;
+  attestation_count: number;
+  solana_tx_hash: string | null;
+  tree_json: string | null;
+  anchored_at: string;
+  status: string;
+}
+
+// GET /v1/attest/anchor/:anchorId — Anchor details + proof for any attestation in the anchor
+attestRouter.get('/anchor/:anchorId', async (c) => {
+  const anchorId = c.req.param('anchorId');
+  const attestationId = c.req.query('attestation_id');
+
+  const anchor = getDb().prepare(
+    'SELECT * FROM attestation_anchors WHERE id = ?'
+  ).get(anchorId) as AnchorRow | undefined;
+
+  if (!anchor) {
+    return c.json({ error: 'Anchor not found', code: 'ANCHOR_NOT_FOUND' }, 404);
+  }
+
+  const result: Record<string, unknown> = {
+    anchor_id: anchor.id,
+    merkle_root: anchor.merkle_root,
+    attestation_count: anchor.attestation_count,
+    solana_tx_hash: anchor.solana_tx_hash,
+    status: anchor.status,
+    anchored_at: anchor.anchored_at,
+    solana_explorer: anchor.solana_tx_hash
+      ? `https://solscan.io/tx/${anchor.solana_tx_hash}`
+      : null,
+  };
+
+  // If a specific attestation_id is requested, compute its Merkle proof
+  if (attestationId && anchor.tree_json) {
+    const att = getAttestationById(attestationId);
+    if (!att) {
+      return c.json({ error: 'Attestation not found', code: 'ATTESTATION_NOT_FOUND' }, 404);
+    }
+    if (att.anchor_id !== anchorId) {
+      return c.json({ error: 'Attestation is not part of this anchor', code: 'ATTESTATION_ANCHOR_MISMATCH' }, 400);
+    }
+
+    const tree = safeJsonParse(anchor.tree_json, null) as string[][] | null;
+    if (tree) {
+      const proof = getMerkleProof(att.input_hash, tree);
+      const verified = verifyMerkleProof(att.input_hash, proof, anchor.merkle_root);
+      result.proof = {
+        attestation_id: att.id,
+        input_hash: att.input_hash,
+        proof_path: proof,
+        verified,
+      };
+    }
+  }
+
+  return c.json(result);
+});
+
+// GET /v1/attest/verify-onchain/:attestationId — On-chain Merkle proof for independent verification
+attestRouter.get('/verify-onchain/:attestationId', async (c) => {
+  const attestationId = c.req.param('attestationId');
+
+  const att = getAttestationById(attestationId);
+  if (!att) {
+    return c.json({ error: 'Attestation not found', code: 'ATTESTATION_NOT_FOUND' }, 404);
+  }
+
+  if (!att.anchor_id || !att.anchored_at) {
+    return c.json({
+      attestation_id: att.id,
+      anchored: false,
+      message: 'This attestation has not been anchored on-chain yet. Anchoring occurs periodically.',
+    });
+  }
+
+  const anchor = getDb().prepare(
+    'SELECT * FROM attestation_anchors WHERE id = ?'
+  ).get(att.anchor_id) as AnchorRow | undefined;
+
+  if (!anchor) {
+    return c.json({ error: 'Anchor record missing', code: 'ANCHOR_NOT_FOUND' }, 500);
+  }
+
+  let proof: string[] = [];
+  let verified = false;
+
+  if (anchor.tree_json) {
+    const tree = safeJsonParse(anchor.tree_json, null) as string[][] | null;
+    if (tree) {
+      proof = getMerkleProof(att.input_hash, tree);
+      verified = verifyMerkleProof(att.input_hash, proof, anchor.merkle_root);
+    }
+  }
+
+  return c.json({
+    attestation_id: att.id,
+    anchored: true,
+    anchor_id: anchor.id,
+    merkle_root: anchor.merkle_root,
+    solana_tx_hash: anchor.solana_tx_hash,
+    solana_explorer: anchor.solana_tx_hash
+      ? `https://solscan.io/tx/${anchor.solana_tx_hash}`
+      : null,
+    anchored_at: att.anchored_at,
+    status: anchor.status,
+    proof: {
+      input_hash: att.input_hash,
+      proof_path: proof,
+      verified,
+    },
+    verification_instructions: {
+      step_1: 'Look up the Solana transaction and extract the memo field JSON',
+      step_2: 'Confirm the merkle_root in the memo matches the one returned here',
+      step_3: 'Use the proof_path to verify: hash the input_hash with each sibling in order (smaller first), the final result should equal the merkle_root',
+      step_4: 'If all steps pass, the attestation is cryptographically proven to have existed at anchor time',
+    },
+  });
+});
+
 // GET /v1/attest/:id — Get attestation details (free, requires auth, must own it)
+// MUST be last — catch-all param route
 attestRouter.get('/:id', checkApiKey, async (c) => {
   const id = c.req.param('id');
   const keyInfo = c.get('apiKeyInfo') as { key: string };

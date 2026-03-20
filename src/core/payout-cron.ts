@@ -21,7 +21,8 @@
 
 import cron from 'node-cron';
 import { getAllPendingPayouts, markPayoutPaid, updatePayoutStatus, getTreasuryBalance, deductTreasuryForSweep, recordTransaction, getAllAutoPayoutConfigs, getCreatorEarnedBalance, createPayoutRequest, logAudit, topUpCredits } from '../db/index';
-import { sendSolanaUsdc, getHotWalletUsdcBalance, getPayoutWalletSolBalance } from '../utils/solana-payout';
+import { sendSolanaUsdc, getHotWalletUsdcBalance, getPayoutWalletSolBalance, getAllWalletBalances } from '../utils/solana-payout';
+import { getPoolStatus } from '../utils/wallet-pool';
 import { sendAdminAlert } from '../utils/email';
 import { logger } from '../utils/logger';
 import { maskApiKey } from '../utils/mask';
@@ -108,35 +109,55 @@ async function sweepTreasury(): Promise<{ swept: boolean; credits?: number; usdc
 }
 
 /**
- * Check hot wallet balances (USDC + SOL gas) and return alerts for any that are low.
- * In the 2-wallet setup, SOLANA_PRIVATE_KEY and PLATFORM_PAYOUT_PRIVATE_KEY are the
- * same key, so we only need to check one wallet.
+ * Check hot wallet balances (USDC + SOL gas) for ALL wallets in the pool.
+ * Returns alerts for any wallet that is below threshold.
  */
 async function checkWalletBalances(): Promise<string[]> {
   const warnings: string[] = [];
 
   if (!env.PLATFORM_PAYOUT_PRIVATE_KEY) return warnings;
 
-  // ─── Hot wallet USDC ─────────────────────────────────────────────────────
+  // ─── Check all pool wallets ────────────────────────────────────────────
   try {
-    const usdcBalance = await getHotWalletUsdcBalance();
-    if (usdcBalance < env.HOT_WALLET_LOW_BALANCE_USDC) {
-      warnings.push(`Hot wallet USDC low: $${usdcBalance.toFixed(2)} (threshold: $${env.HOT_WALLET_LOW_BALANCE_USDC})`);
-      logger.warn({ usdcBalance, threshold: env.HOT_WALLET_LOW_BALANCE_USDC }, 'Hot wallet USDC low');
-    }
-  } catch (err) {
-    logger.error({ err }, 'Failed to check hot wallet USDC balance');
-  }
+    const balances = await getAllWalletBalances();
+    const poolStatus = getPoolStatus();
 
-  // ─── Hot wallet SOL (gas) ────────────────────────────────────────────────
-  try {
-    const solBalance = await getPayoutWalletSolBalance();
-    if (solBalance < env.HOT_WALLET_LOW_SOL) {
-      warnings.push(`Hot wallet SOL low: ${solBalance.toFixed(4)} SOL (threshold: ${env.HOT_WALLET_LOW_SOL} SOL) — transactions will fail`);
-      logger.warn({ solBalance, threshold: env.HOT_WALLET_LOW_SOL }, 'Hot wallet SOL (gas) low');
+    for (const wallet of balances) {
+      const shortKey = wallet.publicKey.slice(0, 8) + '...';
+
+      if (wallet.usdcBalance < env.HOT_WALLET_LOW_BALANCE_USDC) {
+        warnings.push(`Wallet ${shortKey} USDC low: $${wallet.usdcBalance.toFixed(2)} (threshold: $${env.HOT_WALLET_LOW_BALANCE_USDC})`);
+        logger.warn({ publicKey: wallet.publicKey, usdcBalance: wallet.usdcBalance, threshold: env.HOT_WALLET_LOW_BALANCE_USDC }, 'Pool wallet USDC low');
+      }
+
+      if (wallet.solBalance < env.HOT_WALLET_LOW_SOL) {
+        warnings.push(`Wallet ${shortKey} SOL low: ${wallet.solBalance.toFixed(4)} SOL (threshold: ${env.HOT_WALLET_LOW_SOL} SOL) — transactions will fail`);
+        logger.warn({ publicKey: wallet.publicKey, solBalance: wallet.solBalance, threshold: env.HOT_WALLET_LOW_SOL }, 'Pool wallet SOL (gas) low');
+      }
+    }
+
+    // Warn if unhealthy wallets exist in the pool
+    if (poolStatus.total > 1 && poolStatus.healthy < poolStatus.total) {
+      warnings.push(`Wallet pool: ${poolStatus.total - poolStatus.healthy}/${poolStatus.total} wallets unhealthy`);
+      logger.warn({ total: poolStatus.total, healthy: poolStatus.healthy }, 'Pool has unhealthy wallets');
     }
   } catch (err) {
-    logger.error({ err }, 'Failed to check hot wallet SOL balance');
+    logger.error({ err }, 'Failed to check wallet pool balances');
+
+    // Fall back to primary-only check
+    try {
+      const usdcBalance = await getHotWalletUsdcBalance();
+      if (usdcBalance < env.HOT_WALLET_LOW_BALANCE_USDC) {
+        warnings.push(`Hot wallet USDC low: $${usdcBalance.toFixed(2)} (threshold: $${env.HOT_WALLET_LOW_BALANCE_USDC})`);
+      }
+    } catch { /* already logged */ }
+
+    try {
+      const solBalance = await getPayoutWalletSolBalance();
+      if (solBalance < env.HOT_WALLET_LOW_SOL) {
+        warnings.push(`Hot wallet SOL low: ${solBalance.toFixed(4)} SOL (threshold: ${env.HOT_WALLET_LOW_SOL} SOL)`);
+      }
+    } catch { /* already logged */ }
   }
 
   return warnings;

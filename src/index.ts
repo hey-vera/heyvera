@@ -80,6 +80,7 @@ import { startSkillHealthCron } from './core/skill-health-cron';
 import { startSkillSchedulerCron } from './core/skill-scheduler-cron';
 import { startCacheWarmingCron } from './core/cache-warming-cron';
 import { startIndexSync } from './core/index-sync';
+import { startAnchorCron } from './core/anchor-cron';
 import { getIndexedEndpoints, countIndexedEndpoints, searchIndexedEndpoints, getIndexedEndpointsSyncInfo } from './db/index';
 import { startCreatorNotificationsCron } from './core/creator-notifications';
 import { cacheStatsRouter } from './routes/cache-stats';
@@ -443,6 +444,7 @@ async function start() {
   startCacheWarmingCron();        cronsStarted++;
   startCreatorNotificationsCron(); cronsStarted++;
   startIndexSync();                cronsStarted++;
+  startAnchorCron();               cronsStarted++;
 
   // Load embedding model + seed in background — don't block server startup
   loadEmbeddingModel()

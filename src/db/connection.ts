@@ -933,6 +933,23 @@ const MIGRATIONS: { version: number; sql: string }[] = [
     ALTER TABLE indexed_endpoints ADD COLUMN source TEXT NOT NULL DEFAULT '402index';
     CREATE INDEX IF NOT EXISTS idx_indexed_ep_source ON indexed_endpoints(source);
   ` },
+  // v95: Merkle root anchoring — on-chain attestation proofs
+  { version: 95, sql: `
+    CREATE TABLE IF NOT EXISTS attestation_anchors (
+      id TEXT PRIMARY KEY,
+      merkle_root TEXT NOT NULL,
+      attestation_count INTEGER NOT NULL,
+      solana_tx_hash TEXT,
+      tree_json TEXT,
+      anchored_at TEXT NOT NULL DEFAULT (datetime('now')),
+      status TEXT NOT NULL DEFAULT 'pending'
+    );
+    CREATE INDEX IF NOT EXISTS idx_attest_anchors_status ON attestation_anchors(status);
+    CREATE INDEX IF NOT EXISTS idx_attest_anchors_created ON attestation_anchors(anchored_at DESC);
+  ` },
+  { version: 96, sql: `ALTER TABLE attestations ADD COLUMN anchor_id TEXT` },
+  { version: 97, sql: `ALTER TABLE attestations ADD COLUMN anchored_at TEXT` },
+  { version: 98, sql: `CREATE INDEX IF NOT EXISTS idx_attest_anchor ON attestations(anchor_id) WHERE anchor_id IS NOT NULL` },
 ];
 
 function runMigrations(): void {

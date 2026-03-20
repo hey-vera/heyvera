@@ -39,6 +39,7 @@ import { logger } from '../utils/logger';
 import { env } from '../config/index';
 import { round6 } from '../core/credits';
 import { cacheGet, cacheSet } from '../cache/index';
+import { getFacilitatorPool } from '../providers/x402-facilitator';
 import crypto from 'crypto';
 
 // ─── x402 Receipt helpers ────────────────────────────────────────────────────
@@ -220,7 +221,7 @@ function buildX402Offer(opts: {
     extra: {
       name: 'ClawNet',
       version: '1.0.0',
-      facilitator: env.X402_FACILITATOR_URL,
+      facilitator: getFacilitatorPool().getPrimaryUrl(),
     },
   };
 }
@@ -244,22 +245,13 @@ export const x402SkillsRouter = new Hono();
 
 // ─── Build middleware (only when recipient address is configured) ──────────────
 
-// ─── Facilitator with fallback ───────────────────────────────────────────────
-
-const FACILITATOR_FALLBACKS = [
-  env.X402_FACILITATOR_URL,
-  ...(env.X402_FACILITATOR_FALLBACK_URL ? [env.X402_FACILITATOR_FALLBACK_URL] : []),
-  'https://x402.org/facilitator',
-  'https://facilitator.x402.org',
-  'https://facilitator.payai.network',
-].filter((url, i, arr) => arr.indexOf(url) === i); // deduplicate
+// ─── Facilitator with fallback (uses FacilitatorPool) ────────────────────────
 
 function createFacilitator(): unknown {
-  // Primary facilitator — if it fails at runtime, the x402 middleware handles the error.
-  // We log which one we're using so operators know.
-  const primary = FACILITATOR_FALLBACKS[0];
-  logger.info({ facilitator: primary, fallbacks: FACILITATOR_FALLBACKS.length - 1 }, 'x402 facilitator configured');
-  return new HTTPFacilitatorClient({ url: primary });
+  const pool = getFacilitatorPool();
+  const primaryUrl = pool.getPrimaryUrl();
+  logger.info({ facilitator: primaryUrl, pool: pool.getStatus() }, 'x402 facilitator configured via pool');
+  return new HTTPFacilitatorClient({ url: primaryUrl });
 }
 
 function buildX402Middleware() {
@@ -1421,7 +1413,7 @@ x402SkillsRouter.get('/', (c) => {
     paymentInfo: {
       currency: 'USDC',
       chain: env.X402_NETWORK,
-      facilitator: env.X402_FACILITATOR_URL,
+      facilitator: getFacilitatorPool().getPrimaryUrl(),
       priceRange: `${env.X402_USDC_PER_CREDIT.toFixed(6)} - ${(env.X402_USDC_PER_CREDIT * 10000).toFixed(4)} USDC per call`,
     },
     headers: {

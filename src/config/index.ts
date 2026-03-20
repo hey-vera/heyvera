@@ -43,12 +43,17 @@ const envSchema = z.object({
   XMTP_ALLOWED_ADDRESSES: z.string().optional(), // Comma-separated XMTP addresses for bot access control
 
   SOLANA_PRIVATE_KEY: z.string().optional(),
+  HOT_WALLET_POOL: z.string().optional(),   // comma-separated bs58 private keys for additional hot wallets
   EVM_PRIVATE_KEY: z.string().optional(), // Base/EVM wallet private key for paying x402 APIs on Base chain
   X402_X_API_URL: z.string().default('https://clawapis.com'),
 
   // x402 provider mode (serve skills as x402 endpoints)
   X402_FACILITATOR_URL: z.string().default('https://x402.org/facilitator'),
   X402_FACILITATOR_FALLBACK_URL: z.string().url().optional(),
+  X402_FACILITATOR_PRIMARY: z.enum(['coinbase', 'payai']).default('coinbase'), // Primary facilitator preference
+  X402_PAYAI_URL: z.string().optional(),            // PayAI facilitator endpoint
+  X402_PAYAI_API_KEY_ID: z.string().optional(),     // PayAI API key ID for authenticated requests
+  X402_PAYAI_API_KEY_SECRET: z.string().optional(), // PayAI API key secret (Ed25519 PKCS#8)
   X402_NETWORK: z.enum(['base-mainnet', 'base-sepolia']).default('base-mainnet'),
   X402_RECIPIENT_ADDRESS: z.string().optional(), // EVM address to receive USDC on Base
   X402_USDC_PER_CREDIT: z.coerce.number().min(0.0001).max(1).default(0.001), // 1 credit = $0.001 USDC (matches Stripe base rate of 1000 credits/$1)
@@ -104,6 +109,13 @@ const envSchema = z.object({
     (v) => v === 'true' || v === '1' || v === true,
     z.boolean().default(false),
   ),
+
+  // Merkle root anchoring — on-chain attestation proofs (opt-in, costs SOL per anchor)
+  MERKLE_ANCHOR_ENABLED: z.preprocess(
+    (v) => v === 'true' || v === '1' || v === true,
+    z.boolean().default(false),
+  ),
+  MERKLE_ANCHOR_INTERVAL_MS: z.coerce.number().int().min(60000).max(86400000).default(3600000), // 1 hour
 });
 
 const parsed = envSchema.safeParse(process.env);

@@ -24,15 +24,7 @@ import type { KeylessPaymentVerifier, PaymentProof, PaymentChallenge } from './g
 import { env } from '../config/index.js';
 import { round6 } from '../core/credits.js';
 import { logger } from '../utils/logger.js';
-
-// Facilitator URLs — primary + optional user-configured fallback + hardcoded fallbacks
-const FACILITATOR_URLS = [
-  env.X402_FACILITATOR_URL,
-  ...(env.X402_FACILITATOR_FALLBACK_URL ? [env.X402_FACILITATOR_FALLBACK_URL] : []),
-  'https://x402.org/facilitator',
-  'https://facilitator.x402.org',
-  'https://facilitator.payai.network',
-].filter((url, i, arr) => arr.indexOf(url) === i);
+import { getFacilitatorPool } from '../providers/x402-facilitator.js';
 
 export class X402Verifier implements KeylessPaymentVerifier {
   readonly protocol = 'x402';
@@ -128,57 +120,24 @@ export class X402Verifier implements KeylessPaymentVerifier {
       };
     }
 
-    // Verify via facilitator REST API — try each facilitator URL until one succeeds
-    const verifyPayload = JSON.stringify({
+    // Verify via facilitator pool — handles primary/fallback with health tracking
+    const verifyPayload = {
       payment: proof.proof,
       recipient: env.X402_RECIPIENT_ADDRESS,
       network: `eip155:${env.X402_NETWORK === 'base-mainnet' ? '8453' : '84532'}`,
-    });
+    };
 
-    let lastError: string = 'No facilitators available';
-    for (let i = 0; i < FACILITATOR_URLS.length; i++) {
-      const facilitatorUrl = FACILITATOR_URLS[i];
-      try {
-        const response = await fetch(`${facilitatorUrl}/verify`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: verifyPayload,
-          signal: AbortSignal.timeout(10_000),
-        });
+    const pool = getFacilitatorPool();
+    const result = await pool.verify(verifyPayload);
 
-        if (!response.ok) {
-          const body = await response.text().catch(() => 'unknown error');
-          // 4xx = payment actually rejected, don't retry with fallback
-          if (response.status >= 400 && response.status < 500) {
-            logger.warn({ status: response.status, body: body.slice(0, 200), facilitator: facilitatorUrl }, 'x402 facilitator rejected payment');
-            return { valid: false, error: `Facilitator rejected payment: ${response.status}` };
-          }
-          // 5xx = facilitator error, try fallback
-          lastError = `Facilitator ${facilitatorUrl} returned ${response.status}`;
-          if (i < FACILITATOR_URLS.length - 1) {
-            logger.warn({ status: response.status, facilitator: facilitatorUrl }, '[x402] Primary facilitator failed, trying fallback');
-          }
-          continue;
-        }
-
-        const result = await response.json() as { valid?: boolean; verified?: boolean; error?: string };
-        if (result.valid || result.verified) {
-          if (i > 0) logger.info({ facilitator: facilitatorUrl }, '[x402] Verification succeeded via fallback facilitator');
-          return { valid: true };
-        }
-
-        return { valid: false, error: result.error ?? 'Facilitator could not verify payment' };
-      } catch (err) {
-        lastError = `Failed to contact ${facilitatorUrl}: ${String(err)}`;
-        if (i < FACILITATOR_URLS.length - 1) {
-          logger.warn({ err, facilitator: facilitatorUrl }, '[x402] Facilitator unreachable, trying fallback');
-        } else {
-          logger.error({ err, facilitator: facilitatorUrl }, 'x402 facilitator verification error (all facilitators exhausted)');
-        }
+    if (result.valid) {
+      if (result.facilitator) {
+        logger.debug({ facilitator: result.facilitator }, '[x402] Payment verified via facilitator pool');
       }
+      return { valid: true };
     }
 
-    return { valid: false, error: lastError };
+    return { valid: false, error: result.error ?? 'Facilitator could not verify payment' };
   }
 
   /**
@@ -202,7 +161,7 @@ export class X402Verifier implements KeylessPaymentVerifier {
         scheme: 'exact',
         chainId,
         chainName: env.X402_NETWORK,
-        facilitator: FACILITATOR_URLS[0],
+        facilitator: getFacilitatorPool().getPrimaryUrl(),
         maxTimeoutSeconds: 60,
         header: 'X-PAYMENT',
         headerV2: 'PAYMENT-SIGNATURE',

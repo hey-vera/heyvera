@@ -148,19 +148,27 @@
 - [ ] **Register on 402index.io** — POST to `https://402index.io/api/v1/register` with ClawNet's x402 endpoints
 - [ ] **Submit MCP server** — follow `docs/mcp-submissions.md` playbook (~30 min)
 
-### Medium Priority
-- [ ] **DM @henloitsjoyce** — market map listing, category "Agent Infrastructure"
+### Medium Priority — Outreach
+- [ ] **DM @henloitsjoyce** — market map listing, category "Agent Infrastructure". One-liner + logo + URL.
 - [ ] **DM Lincoln Murr (@xlincolnx)** — AgentKit integration, show packages/agentkit/
 - [ ] **Outreach to Coinbase AgentKit team** — show x402 integration + AgentKit plugin
 - [ ] **Outreach to XMTP team** — show XMTP bot integration
 - [ ] **Outreach to Crossmint** — wallet integration opportunity
 - [ ] **Outreach to LangChain maintainers** — submit PR for community integration
+- [ ] **Outreach to PayAI team** — propose mutual facilitator integration. ClawNet uses PayAI as backup x402 facilitator, PayAI lists ClawNet as an orchestration partner. Win-win.
+- [ ] **Outreach to OpenClaw / TrustedClaw** — they're building trust signals in x402 ecosystem. ClawNet's attestation layer is complementary.
+- [ ] **Outreach to Questflow** — they list many x402 agents on 402index. Partnership potential for cross-listing.
 
-### Lower Priority
+### Medium Priority — Publishing
 - [ ] **Publish @clawnet/sdk to npm** — `cd packages/sdk && npm publish`
 - [ ] **Publish @clawnet/langchain to npm** — `cd packages/langchain && npm publish`
 - [ ] **Publish @clawnet/mcp to npm** — needed for MCP directory submissions
 - [ ] **Publish clawnet-crewai to PyPI** — `cd packages/crewai && pip install build && python -m build && twine upload dist/*`
+
+### Lower Priority
 - [ ] **Register on ag0.xyz** — mint ERC-721 on Base, point at MCP + A2A endpoints
 - [ ] **AWS Marketplace listing** — SaaS listing for enterprise customers
 - [ ] **Submit to x402 Foundation provider registry** — when registry launches
+- [ ] **Monitor Tempo (Stripe-backed)** — launched March 18, 2026. MPP protocol. Potential threat at payment layer. Consider adding MPP consumer support when their SDK stabilizes.
+- [ ] **Monitor Google AP2** — Agent Payments Protocol. Watch for SDK release. ClawNet should be early adopter.
+- [ ] **First 100 developers campaign** — the moat is usage. Consider dev grants, hackathon sponsorship, or free credit tiers for early builders.
