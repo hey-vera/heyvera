@@ -172,7 +172,7 @@ router.post('/tasks/send', checkApiKey, signResponse, async (c) => {
       timestamp: new Date().toISOString(),
     };
     storeTask(task);
-    return c.json({ id: taskId, ...task }, 400);
+    return c.json({ ...task }, 400);
   }
 
   // Transition to working
@@ -195,7 +195,7 @@ router.post('/tasks/send', checkApiKey, signResponse, async (c) => {
       timestamp: new Date().toISOString(),
     };
     storeTask(task);
-    return c.json({ id: taskId, ...task }, 400);
+    return c.json({ ...task }, 400);
   }
 
   // Pre-check credits
@@ -209,7 +209,7 @@ router.post('/tasks/send', checkApiKey, signResponse, async (c) => {
       timestamp: new Date().toISOString(),
     };
     storeTask(task);
-    return c.json({ id: taskId, ...task }, 402);
+    return c.json({ ...task }, 402);
   }
 
   try {
@@ -239,7 +239,7 @@ router.post('/tasks/send', checkApiKey, signResponse, async (c) => {
               timestamp: new Date().toISOString(),
             };
             storeTask(task);
-            return c.json({ id: taskId, ...task }, 402);
+            return c.json({ ...task }, 402);
           }
           intent = optimized.intent;
         } else {
@@ -263,7 +263,7 @@ router.post('/tasks/send', checkApiKey, signResponse, async (c) => {
           timestamp: new Date().toISOString(),
         };
         storeTask(task);
-        return c.json({ id: taskId, ...task }, 402);
+        return c.json({ ...task }, 402);
       }
     }
 
@@ -306,7 +306,7 @@ router.post('/tasks/send', checkApiKey, signResponse, async (c) => {
           timestamp: new Date().toISOString(),
         };
         storeTask(task);
-        return c.json({ id: taskId, ...task }, 503);
+        return c.json({ ...task }, 503);
       }
       if (!deducted) {
         task.status = {
@@ -318,7 +318,7 @@ router.post('/tasks/send', checkApiKey, signResponse, async (c) => {
           timestamp: new Date().toISOString(),
         };
         storeTask(task);
-        return c.json({ id: taskId, ...task }, 402);
+        return c.json({ ...task }, 402);
       }
       trackDelegatedSpend(keyInfo, creditsToDeduct);
     }

@@ -102,8 +102,8 @@ export async function searchAg0Agents(query: string, limit = 5): Promise<Ag0Agen
       return [];
     }
 
-    const data = await res.json();
-    return (data?.data?.agents || []).map(parseAg0Agent);
+    const data = await res.json() as { data?: { agents?: unknown[] } };
+    return (data?.data?.agents || []).map((a: any) => parseAg0Agent(a));
   } catch (err) {
     logger.warn({ err }, '[ag0] Discovery query failed');
     return []; // Never block orchestration on ag0 failures

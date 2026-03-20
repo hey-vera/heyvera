@@ -165,7 +165,7 @@ manifestRouter.post('/', checkApiKey, async (c) => {
   let engineResult: any;
   try {
     const { runManifest } = await import('../core/manifest-engine');
-    engineResult = await runManifest(req, apiKey, tier);
+    engineResult = await runManifest(req as Parameters<typeof runManifest>[0], apiKey, tier);
   } catch (err) {
     logger.error({ err, tier }, 'Manifest engine failed');
     topUpCredits(billingKey, tierCost);

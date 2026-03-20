@@ -132,7 +132,7 @@ export function createAttestation(params: CreateAttestationParams): string {
   })();
 
   // Update stats (upsert)
-  updateAttestationStats(params.apiKeyHash, params.manifestAligned, params.outcomeStatus || 'success');
+  updateAttestationStats(params.apiKeyHash, params.manifestAligned ?? null, params.outcomeStatus || 'success');
 
   return id;
 }

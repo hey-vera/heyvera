@@ -431,9 +431,9 @@ export async function runManifest(
       id: cached.id,
       verdict: cached.overall_verdict as ManifestResponse['verdict'],
       confidence: cached.confidence,
-      verify: detail?.verify,
-      assess: detail?.assess,
-      preflight: detail?.preflight,
+      verify: detail?.verify as VerifyResult | undefined,
+      assess: detail?.assess as AssessResult | undefined,
+      preflight: detail?.preflight as PreflightResult | undefined,
       memory: { ...memCtx, from_memory: true },
       summary: cached.summary || 'Cached result from recent identical request.',
       tier,
@@ -441,7 +441,7 @@ export async function runManifest(
       credits_charged: 0,
       cached: true,
       processing_time_ms: Date.now() - start,
-      steps_run: detail?.steps_run || [],
+      steps_run: (detail?.steps_run || []) as string[],
     };
   }
 
@@ -452,9 +452,9 @@ export async function runManifest(
   }
 
   // Run steps
-  let verifyResult: VerifyResult | null = null;
-  let assessResult: AssessResult | null = null;
-  let preflightResult: PreflightResult | null = null;
+  let verifyResult: VerifyResult | null = null as VerifyResult | null;
+  let assessResult: AssessResult | null = null as AssessResult | null;
+  let preflightResult: PreflightResult | null = null as PreflightResult | null;
 
   // Collect all claims for verify
   const allClaims: VerifyClaim[] = [];

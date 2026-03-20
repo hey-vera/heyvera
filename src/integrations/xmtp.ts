@@ -489,6 +489,7 @@ export async function initXmtp(): Promise<void> {
 
   try {
     // Dynamic import to avoid requiring the package when not configured
+    // @ts-ignore — @xmtp/node-sdk is an optional runtime dependency
     const xmtpSdk = await import('@xmtp/node-sdk');
     const { Client } = xmtpSdk;
 

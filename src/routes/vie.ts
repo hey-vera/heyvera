@@ -124,7 +124,7 @@ vieRouter.post('/report', checkApiKey, async (c) => {
     if (tier === 'deep') {
       try {
         const { synthesizeVerdict } = await import('../core/vie-synthesis');
-        const synthesis = await synthesizeVerdict(target, target_type, result, rawData);
+        const synthesis = await synthesizeVerdict(target, target_type, result, rawData as any);
         if (synthesis) {
           explanation = synthesis.explanation;
           evidence = synthesis.evidence;
