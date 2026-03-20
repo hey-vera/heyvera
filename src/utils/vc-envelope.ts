@@ -8,6 +8,7 @@
  */
 
 import type { AttestationRow } from '../db/attestations';
+import { signVC } from './ed25519-signer';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -30,8 +31,16 @@ const ISSUER_DID = 'did:web:api.claw-net.org';
 
 /**
  * Convert a ClawNet AttestationRow into a W3C Verifiable Credential v2.0
- * envelope.  The credential is unsigned (no `proof` block) — a full
- * Data Integrity proof can be added later when Ed25519 signing is wired in.
+ * envelope with a real Ed25519 Data Integrity proof (eddsa-jcs-2022).
+ *
+ * The proof is computed by:
+ *   1. Building the VC without the proof field
+ *   2. JCS-canonicalizing it (RFC 8785)
+ *   3. SHA-256 hashing the canonical form
+ *   4. Ed25519-signing the hash with the platform keypair
+ *
+ * The signing key is deterministically derived from PLATFORM_SIGNING_SECRET,
+ * so the public key in did.json always matches.
  */
 export function attestationToVC(
   att: AttestationRow,
@@ -76,6 +85,19 @@ export function attestationToVC(
       anchoredAt: att.anchored_at ?? undefined,
     }];
   }
+
+  // ── Ed25519 Data Integrity Proof (eddsa-jcs-2022) ───────────────────────
+  // Sign the VC *without* the proof field, then attach the proof.
+  // The proofValue is Ed25519(SHA-256(JCS(vc_without_proof))), base64url-encoded.
+  const proofValue = signVC(vc as unknown as Record<string, unknown>);
+  vc.proof = {
+    type: 'DataIntegrityProof',
+    cryptosuite: 'eddsa-jcs-2022',
+    created: att.created_at,
+    verificationMethod: `${ISSUER_DID}#key-1`,
+    proofPurpose: 'assertionMethod',
+    proofValue,
+  };
 
   return vc;
 }

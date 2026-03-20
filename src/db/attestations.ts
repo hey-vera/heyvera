@@ -34,6 +34,7 @@ export interface AttestationRow {
   outcome_data_json: string | null;
   signature: string | null;
   signed_at: string | null;
+  signing_key_id: string | null;
   created_at: string;
   anchor_id: string | null;
   anchored_at: string | null;
@@ -82,14 +83,63 @@ export function hashPayload(payload: unknown): string {
   return crypto.createHash('sha256').update(JSON.stringify(payload)).digest('hex');
 }
 
-function signAttestation(attestationId: string, inputHash: string, responseHash: string | null, apiKeyHash: string, timestamp: string): string | null {
-  const secret = env.PLATFORM_SIGNING_SECRET;
+// ─── Signing key management ──────────────────────────────────────────────
+
+/**
+ * Parse signing secrets from env. Supports:
+ * - PLATFORM_SIGNING_SECRETS="key-1:secret1,key-2:secret2" (multi-key)
+ * - PLATFORM_SIGNING_SECRET="single_secret" (legacy, treated as key-1)
+ */
+function getSigningKeyMap(): Map<string, string> {
+  const map = new Map<string, string>();
+
+  // Multi-key format takes precedence
+  if (env.PLATFORM_SIGNING_SECRETS) {
+    for (const entry of env.PLATFORM_SIGNING_SECRETS.split(',')) {
+      const colonIdx = entry.indexOf(':');
+      if (colonIdx > 0) {
+        const keyId = entry.slice(0, colonIdx).trim();
+        const secret = entry.slice(colonIdx + 1).trim();
+        if (keyId && secret) map.set(keyId, secret);
+      }
+    }
+  }
+
+  // Fallback: single secret treated as key-1
+  if (map.size === 0 && env.PLATFORM_SIGNING_SECRET) {
+    map.set('key-1', env.PLATFORM_SIGNING_SECRET);
+  }
+
+  return map;
+}
+
+function getCurrentSigningKeyId(): string {
+  return env.PLATFORM_SIGNING_KEY_ID || 'key-1';
+}
+
+function getSecretForKeyId(keyId: string): string | null {
+  const map = getSigningKeyMap();
+  return map.get(keyId) ?? null;
+}
+
+function signAttestation(attestationId: string, inputHash: string, responseHash: string | null, apiKeyHash: string, timestamp: string, keyId?: string): { signature: string; keyId: string } | null {
+  const activeKeyId = keyId || getCurrentSigningKeyId();
+  const secret = getSecretForKeyId(activeKeyId);
   if (!secret) return null;
-  // Use 'null' as a deterministic placeholder when responseHash is absent.
-  // This prevents post-signing modification of the response_hash field:
-  // a null response_hash signs differently than any real hash value.
-  // NOTE: Previously used 'none' — any attestations signed before this change
-  // will fail verification. This is acceptable as it forces re-attestation.
+
+  const responseHashComponent = responseHash === null ? 'null' : responseHash;
+  const data = `${activeKeyId}.${attestationId}.${apiKeyHash}.${inputHash}.${responseHashComponent}.${timestamp}`;
+  const signature = crypto.createHmac('sha256', secret).update(data).digest('hex');
+  return { signature, keyId: activeKeyId };
+}
+
+/**
+ * Legacy signing format (pre-key-rotation) for verifying old attestations
+ * that don't have a signing_key_id stored.
+ */
+function signAttestationLegacy(attestationId: string, inputHash: string, responseHash: string | null, apiKeyHash: string, timestamp: string): string | null {
+  const secret = getSecretForKeyId('key-1') || env.PLATFORM_SIGNING_SECRET;
+  if (!secret) return null;
   const responseHashComponent = responseHash === null ? 'null' : responseHash;
   const data = `${attestationId}.${apiKeyHash}.${inputHash}.${responseHashComponent}.${timestamp}`;
   return crypto.createHmac('sha256', secret).update(data).digest('hex');
@@ -110,7 +160,7 @@ export function createAttestation(params: CreateAttestationParams): string {
   const id = `att-${nanoid(16)}`;
   const now = new Date().toISOString();
 
-  const signature = signAttestation(id, params.inputHash, params.responseHash || null, params.apiKeyHash, now);
+  const signResult = signAttestation(id, params.inputHash, params.responseHash || null, params.apiKeyHash, now);
 
   // Replay protection: reject duplicate input_hash + api_key_hash within 60 seconds
   const recent = getDb().prepare(
@@ -122,9 +172,12 @@ export function createAttestation(params: CreateAttestationParams): string {
 
   // CRITICAL: Never silently create unsigned attestations in production.
   // An unsigned attestation has no cryptographic integrity and could be tampered with.
-  if (signature === null && env.NODE_ENV === 'production') {
+  if (signResult === null && env.NODE_ENV === 'production') {
     throw new Error('Cannot create attestation: PLATFORM_SIGNING_SECRET is not configured. Unsigned attestations are not allowed in production.');
   }
+
+  const signature = signResult?.signature ?? null;
+  const signingKeyId = signResult?.keyId ?? null;
 
   // Wrap sequence number read + insert in a transaction to prevent race conditions
   getDb().transaction(() => {
@@ -137,8 +190,8 @@ export function createAttestation(params: CreateAttestationParams): string {
         action_type, action_endpoint, action_description,
         input_hash, response_hash, source_hashes_json,
         credits_charged, duration_ms, outcome_status, outcome_data_json,
-        signature, signed_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        signature, signed_at, signing_key_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id, params.apiKeyHash, seqNum, params.attestationType,
       params.manifestId || null, params.manifestVerdict || null,
@@ -150,7 +203,7 @@ export function createAttestation(params: CreateAttestationParams): string {
       params.creditsCharged || 0, params.durationMs || null,
       params.outcomeStatus || 'success',
       params.outcomeData ? JSON.stringify(params.outcomeData) : null,
-      signature, signature ? now : null
+      signature, signature ? now : null, signingKeyId
     );
   })();
 
@@ -250,15 +303,28 @@ export function verifyAttestation(id: string): {
   attestation: AttestationRow | null;
   signature_valid: boolean | null;
   chain_contiguous: boolean;
+  signing_key_id?: string | null;
   reason?: string;
 } {
   const att = getAttestationById(id);
   if (!att) return { valid: false, attestation: null, signature_valid: null, chain_contiguous: false, reason: 'Attestation not found' };
 
-  // Verify signature
+  // Verify signature — use stored signing_key_id to select the correct key
   let signatureValid: boolean | null = null;
+  const storedKeyId = att.signing_key_id;
+
   if (att.signature && att.signed_at) {
-    const expected = signAttestation(att.id, att.input_hash, att.response_hash, att.api_key_hash, att.signed_at);
+    let expected: string | null = null;
+
+    if (storedKeyId) {
+      // New format: key ID included in signature data
+      const result = signAttestation(att.id, att.input_hash, att.response_hash, att.api_key_hash, att.signed_at, storedKeyId);
+      expected = result?.signature ?? null;
+    } else {
+      // Legacy format: no key ID in signature data, use key-1
+      expected = signAttestationLegacy(att.id, att.input_hash, att.response_hash, att.api_key_hash, att.signed_at);
+    }
+
     signatureValid = expected !== null && att.signature !== null &&
       att.signature.length === expected.length &&
       crypto.timingSafeEqual(Buffer.from(att.signature), Buffer.from(expected));
@@ -279,6 +345,7 @@ export function verifyAttestation(id: string): {
     attestation: att,
     signature_valid: signatureValid,
     chain_contiguous: chainContiguous,
+    signing_key_id: storedKeyId,
   };
 }
 

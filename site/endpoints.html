@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>API Endpoints — ClawNet</title>
-  <meta name="description" content="Browse all ClawNet API endpoints with live status, latency, and credit costs. Search and filter 390+ endpoints across Solana, DeFi, social, and market intelligence providers.">
+  <meta name="description" content="Browse all ClawNet API endpoints with live status, latency, and credit costs. Search and filter 12,000+ endpoints across Solana, DeFi, social, and market intelligence providers.">
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="apple-touch-icon" href="/favicon.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -253,6 +253,7 @@
     .badge-registry    { color:#2dd4bf; border-color:rgba(45,212,191,0.3); background:rgba(45,212,191,0.1); }
     .badge-payments    { color:#fb923c; border-color:rgba(251,146,60,0.3); background:rgba(251,146,60,0.1); }
     .badge-health      { color:var(--accent); border-color:rgba(16,185,129,0.3); background:var(--accent-dim); }
+    .badge-trust       { color:#f472b6; border-color:rgba(244,114,182,0.3); background:rgba(244,114,182,0.1); }
     .badge-status-operational { color:var(--accent); border-color:rgba(16,185,129,0.25); background:transparent; }
     .badge-status-degraded    { color:var(--warning); border-color:rgba(245,158,11,0.25); background:transparent; }
     .badge-status-down        { color:var(--danger); border-color:rgba(239,68,68,0.25); background:transparent; }
@@ -664,6 +665,28 @@
             <span class="platform-ep-auth auth-none">No Auth</span>
           </div>
         </div>
+        <div class="platform-ep">
+          <span class="platform-ep-method method-post">POST</span>
+          <div class="platform-ep-info">
+            <div class="platform-ep-path">/v1/identity/register</div>
+            <div class="platform-ep-desc">Register agent identity (KYA)</div>
+          </div>
+          <div class="platform-ep-badges">
+            <span class="ep-badge badge-identity">identity</span>
+            <span class="platform-ep-auth auth-apikey">API Key</span>
+          </div>
+        </div>
+        <div class="platform-ep">
+          <span class="platform-ep-method method-get">GET</span>
+          <div class="platform-ep-info">
+            <div class="platform-ep-path">/v1/identity/verify/:keyHash</div>
+            <div class="platform-ep-desc">Verify agent identity by key hash</div>
+          </div>
+          <div class="platform-ep-badges">
+            <span class="ep-badge badge-identity">identity</span>
+            <span class="platform-ep-auth auth-none">No Auth</span>
+          </div>
+        </div>
       </div>
 
       <!-- Wallet Auth (SIWX) -->
@@ -696,6 +719,28 @@
           <div class="platform-ep-info">
             <div class="platform-ep-path">/v1/auth/siwx/chains</div>
             <div class="platform-ep-desc">List supported chains</div>
+          </div>
+          <div class="platform-ep-badges">
+            <span class="ep-badge badge-auth">auth</span>
+            <span class="platform-ep-auth auth-none">No Auth</span>
+          </div>
+        </div>
+        <div class="platform-ep">
+          <span class="platform-ep-method method-post">POST</span>
+          <div class="platform-ep-info">
+            <div class="platform-ep-path">/v1/auth/siwx/nonce</div>
+            <div class="platform-ep-desc">Get SIWX nonce (agent-friendly POST)</div>
+          </div>
+          <div class="platform-ep-badges">
+            <span class="ep-badge badge-auth">auth</span>
+            <span class="platform-ep-auth auth-none">No Auth</span>
+          </div>
+        </div>
+        <div class="platform-ep">
+          <span class="platform-ep-method method-post">POST</span>
+          <div class="platform-ep-info">
+            <div class="platform-ep-path">/v1/auth/siwx/verify</div>
+            <div class="platform-ep-desc">Verify wallet signature &amp; create session</div>
           </div>
           <div class="platform-ep-badges">
             <span class="ep-badge badge-auth">auth</span>
@@ -763,6 +808,66 @@
         </div>
       </div>
 
+      <!-- Trust & Verification -->
+      <div class="platform-group">
+        <div class="platform-group-title">Trust &amp; Verification</div>
+        <div class="platform-ep">
+          <span class="platform-ep-method method-get">GET</span>
+          <div class="platform-ep-info">
+            <div class="platform-ep-path">/v1/attest/verify/:id?format=vc</div>
+            <div class="platform-ep-desc">Attestation as W3C Verifiable Credential</div>
+          </div>
+          <div class="platform-ep-badges">
+            <span class="ep-badge badge-trust">trust</span>
+            <span class="platform-ep-auth auth-none">No Auth</span>
+          </div>
+        </div>
+        <div class="platform-ep">
+          <span class="platform-ep-method method-get">GET</span>
+          <div class="platform-ep-info">
+            <div class="platform-ep-path">/v1/attest/anchor/:anchorId</div>
+            <div class="platform-ep-desc">Merkle anchor details + Solana tx hash</div>
+          </div>
+          <div class="platform-ep-badges">
+            <span class="ep-badge badge-trust">trust</span>
+            <span class="platform-ep-auth auth-none">No Auth</span>
+          </div>
+        </div>
+        <div class="platform-ep">
+          <span class="platform-ep-method method-get">GET</span>
+          <div class="platform-ep-info">
+            <div class="platform-ep-path">/v1/attest/verify-onchain/:attestationId</div>
+            <div class="platform-ep-desc">On-chain Merkle proof verification</div>
+          </div>
+          <div class="platform-ep-badges">
+            <span class="ep-badge badge-trust">trust</span>
+            <span class="platform-ep-auth auth-none">No Auth</span>
+          </div>
+        </div>
+        <div class="platform-ep">
+          <span class="platform-ep-method method-get">GET</span>
+          <div class="platform-ep-info">
+            <div class="platform-ep-path">/.well-known/did.json</div>
+            <div class="platform-ep-desc">W3C DID document (did:web)</div>
+          </div>
+          <div class="platform-ep-badges">
+            <span class="ep-badge badge-trust">trust</span>
+            <span class="platform-ep-auth auth-none">No Auth</span>
+          </div>
+        </div>
+        <div class="platform-ep">
+          <span class="platform-ep-method method-get">GET</span>
+          <div class="platform-ep-info">
+            <div class="platform-ep-path">/contexts/attestation/v1</div>
+            <div class="platform-ep-desc">JSON-LD context for attestation vocabulary</div>
+          </div>
+          <div class="platform-ep-badges">
+            <span class="ep-badge badge-trust">trust</span>
+            <span class="platform-ep-auth auth-none">No Auth</span>
+          </div>
+        </div>
+      </div>
+
       <!-- Health & Discovery -->
       <div class="platform-group">
         <div class="platform-group-title">Health &amp; Discovery</div>
@@ -804,6 +909,17 @@
           <div class="platform-ep-info">
             <div class="platform-ep-path">/v1/stats/reputation/verify/:anchorId</div>
             <div class="platform-ep-desc">Verify a reputation anchor hash</div>
+          </div>
+          <div class="platform-ep-badges">
+            <span class="ep-badge badge-health">health</span>
+            <span class="platform-ep-auth auth-none">No Auth</span>
+          </div>
+        </div>
+        <div class="platform-ep">
+          <span class="platform-ep-method method-get">GET</span>
+          <div class="platform-ep-info">
+            <div class="platform-ep-path">/v1/stats/health/live</div>
+            <div class="platform-ep-desc">Live health for directory crawlers &mdash; uptime, counts, status</div>
           </div>
           <div class="platform-ep-badges">
             <span class="ep-badge badge-health">health</span>

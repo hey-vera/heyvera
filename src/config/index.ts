@@ -27,6 +27,8 @@ const envSchema = z.object({
   API_KEYS: z.string().optional(),
   ADMIN_API_KEY: z.string().min(16, 'ADMIN_API_KEY must be at least 16 characters').optional(),
   PLATFORM_SIGNING_SECRET: z.string().min(32).optional(),
+  PLATFORM_SIGNING_KEY_ID: z.string().default('key-1'),
+  PLATFORM_SIGNING_SECRETS: z.string().optional(), // Format: key-1:secret1,key-2:secret2
   RATE_LIMIT_PER_MIN: z.coerce.number().int().min(1).max(10000).default(60),
   FREE_TRIAL_CREDITS: z.coerce.number().int().min(0).max(10000).default(0),
   REFERRAL_BONUS_RECEIVER: z.coerce.number().int().min(0).max(10000).default(500), // credits granted to the user who applies a referral code

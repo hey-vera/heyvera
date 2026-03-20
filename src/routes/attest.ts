@@ -20,6 +20,7 @@ import { logger } from '../utils/logger';
 import { getDb } from '../db/connection';
 import { buildMerkleTree, getMerkleProof, verifyMerkleProof, validateTreeStructure } from '../core/merkle-anchor';
 import { attestationToVC, getAttestationContext } from '../utils/vc-envelope';
+import { verifyVCSignature, getEd25519PublicKeyMultibase } from '../utils/ed25519-signer';
 
 // ─── Zod Schemas ────────────────────────────────────────────────────────────
 
@@ -350,6 +351,52 @@ attestRouter.get('/agent/:keyHash', async (c) => {
     success_rate: profile.success_rate,
     first_attestation: profile.first_attestation,
     last_attestation: profile.last_attestation,
+  });
+});
+
+// ─── VC Signature Verification ───────────────────────────────────────────────
+
+// GET /v1/attest/verify-vc/:id — Verify Ed25519 signature on a VC (NO auth, FREE)
+attestRouter.get('/verify-vc/:id', async (c) => {
+  const id = c.req.param('id');
+  const att = getAttestationById(id);
+
+  if (!att) {
+    return c.json({ error: 'Attestation not found', code: 'ATTESTATION_NOT_FOUND' }, 404);
+  }
+
+  // Rebuild the VC with proof
+  const vc = attestationToVC(att, BASE_URL);
+
+  if (!vc.proof || !vc.proof.proofValue) {
+    return c.json({
+      verified: false,
+      reason: 'VC has no proof field',
+      attestation_id: id,
+    });
+  }
+
+  // Extract the proof, then rebuild VC without proof for verification
+  const proof = vc.proof;
+  const proofValue = proof.proofValue as string;
+
+  // Build VC without proof (same as what was signed)
+  const vcWithoutProof: Record<string, unknown> = { ...vc };
+  delete vcWithoutProof.proof;
+
+  const verified = verifyVCSignature(vcWithoutProof, proofValue);
+
+  return c.json({
+    verified,
+    attestation_id: id,
+    issuer: vc.issuer,
+    cryptosuite: proof.cryptosuite,
+    verificationMethod: proof.verificationMethod,
+    proofPurpose: proof.proofPurpose,
+    created: proof.created,
+    publicKeyMultibase: getEd25519PublicKeyMultibase(),
+    did: 'did:web:api.claw-net.org',
+    didDocument: `${BASE_URL}/.well-known/did.json`,
   });
 });
 

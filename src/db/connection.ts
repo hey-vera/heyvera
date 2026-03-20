@@ -953,6 +953,8 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   // v99: Index for replay protection — fast duplicate check on (api_key_hash, input_hash, created_at).
   // Also supports the longer 32-char api_key_hash (was 16-char). Old 16-char hashes are grandfathered.
   { version: 99, sql: `CREATE INDEX IF NOT EXISTS idx_attest_replay ON attestations(api_key_hash, input_hash, created_at)` },
+  // v100: Signing key rotation — store which key signed each attestation
+  { version: 100, sql: `ALTER TABLE attestations ADD COLUMN signing_key_id TEXT` },
 ];
 
 function runMigrations(): void {
