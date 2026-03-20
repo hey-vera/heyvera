@@ -255,7 +255,12 @@ function createFacilitator(): unknown {
   // Use CDP authenticated facilitator for mainnet (requires CDP_API_KEY_ID + CDP_API_KEY_SECRET)
   if (env.CDP_API_KEY_ID && env.CDP_API_KEY_SECRET) {
     // Docker/dotenv may store \n as literal \\n or \n — handle both
-    const secret = env.CDP_API_KEY_SECRET.replace(/\\\\n/g, '\n').replace(/\\n/g, '\n');
+    let secret = env.CDP_API_KEY_SECRET.replace(/\\\\n/g, '\n').replace(/\\n/g, '\n');
+    // CDP SDK (jose) requires PKCS8 format (BEGIN PRIVATE KEY), not SEC1 (BEGIN EC PRIVATE KEY)
+    if (secret.includes('BEGIN EC PRIVATE KEY')) {
+      const { createPrivateKey } = require('crypto') as typeof import('crypto');
+      secret = createPrivateKey({ key: secret, format: 'pem' }).export({ type: 'pkcs8', format: 'pem' }) as string;
+    }
     const config = createCdpFacilitatorConfig(env.CDP_API_KEY_ID, secret);
     logger.info({ facilitator: config.url, authenticated: true }, 'x402 CDP facilitator configured (mainnet)');
     return new HTTPFacilitatorClient(config);
