@@ -55,7 +55,12 @@ export interface UpdateIdentityParams {
 const JWT_LIFETIME_SECONDS = 86400 * 90; // 90 days
 const BASE_URL = 'https://api.claw-net.org';
 
-export function issueIdentityJwt(identity: AgentIdentity): string {
+export function issueIdentityJwt(identity: AgentIdentity): string | null {
+  const secret = env.PLATFORM_SIGNING_SECRET;
+  if (!secret) {
+    logger.warn('[identity] PLATFORM_SIGNING_SECRET not set, cannot sign JWT');
+    return null;
+  }
   const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
   const now = Math.floor(Date.now() / 1000);
   const payload = Buffer.from(JSON.stringify({
@@ -69,7 +74,6 @@ export function issueIdentityJwt(identity: AgentIdentity): string {
     owner_verified: identity.owner_verified === 1,
     profile_url: `${BASE_URL}/v1/identity/${identity.id}`,
   })).toString('base64url');
-  const secret = env.PLATFORM_SIGNING_SECRET || 'clawnet-default';
   const sig = crypto.createHmac('sha256', secret).update(`${header}.${payload}`).digest('base64url');
   return `${header}.${payload}.${sig}`;
 }
@@ -83,10 +87,17 @@ export function verifyIdentityJwt(jwt: string): {
   if (parts.length !== 3) return { valid: false, payload: null, reason: 'Malformed JWT' };
 
   const [header, payload, signature] = parts;
-  const secret = env.PLATFORM_SIGNING_SECRET || 'clawnet-default';
+  const secret = env.PLATFORM_SIGNING_SECRET;
+  if (!secret) {
+    logger.warn('[identity] PLATFORM_SIGNING_SECRET not set, cannot verify JWT');
+    return { valid: false, payload: null, reason: 'Signing secret not configured' };
+  }
   const expected = crypto.createHmac('sha256', secret).update(`${header}.${payload}`).digest('base64url');
 
-  if (signature !== expected) return { valid: false, payload: null, reason: 'Invalid signature' };
+  if (!signature || !expected || signature.length !== expected.length ||
+      !crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
+    return { valid: false, payload: null, reason: 'Invalid signature' };
+  }
 
   try {
     const decoded = JSON.parse(Buffer.from(payload, 'base64url').toString());
@@ -122,16 +133,17 @@ export function createAgentIdentity(params: CreateIdentityParams): AgentIdentity
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `).run(id, apiKeyHash, params.displayName, params.description || null, agentType, capabilitiesJson, publicProfile, metadataJson);
 
-  // Issue JWT immediately
+  // Issue JWT immediately (if signing secret is configured)
   const identity = getDb().prepare('SELECT * FROM agent_identities WHERE id = ?').get(id) as AgentIdentity;
   const jwt = issueIdentityJwt(identity);
-  const now = new Date().toISOString();
-  const expiresAt = new Date(Date.now() + JWT_LIFETIME_SECONDS * 1000).toISOString();
-
-  getDb().prepare(`
-    UPDATE agent_identities SET identity_jwt = ?, jwt_issued_at = ?, jwt_expires_at = ?, updated_at = datetime('now')
-    WHERE id = ?
-  `).run(jwt, now, expiresAt, id);
+  if (jwt) {
+    const now = new Date().toISOString();
+    const expiresAt = new Date(Date.now() + JWT_LIFETIME_SECONDS * 1000).toISOString();
+    getDb().prepare(`
+      UPDATE agent_identities SET identity_jwt = ?, jwt_issued_at = ?, jwt_expires_at = ?, updated_at = datetime('now')
+      WHERE id = ?
+    `).run(jwt, now, expiresAt, id);
+  }
 
   logAudit({ entityType: 'agent_identity', entityId: id, action: 'CREATE', actorId: params.apiKey, data: { agent_type: agentType, display_name: params.displayName } });
 
@@ -175,6 +187,10 @@ export function refreshIdentityJwt(id: string, actorKey?: string): AgentIdentity
   if (!identity) return undefined;
 
   const jwt = issueIdentityJwt(identity);
+  if (!jwt) {
+    logger.warn('[identity] Cannot refresh JWT — PLATFORM_SIGNING_SECRET not set');
+    return undefined;
+  }
   const now = new Date().toISOString();
   const expiresAt = new Date(Date.now() + JWT_LIFETIME_SECONDS * 1000).toISOString();
 

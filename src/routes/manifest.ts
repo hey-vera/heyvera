@@ -299,8 +299,8 @@ manifestRouter.post('/', checkApiKey, async (c) => {
 
 // GET /v1/manifest/memory — Query past manifests
 manifestRouter.get('/memory', checkApiKey, async (c) => {
-  const keyInfo = c.get('apiKeyInfo') as { key: string };
-  const apiKey = keyInfo.key;
+  const keyInfo = c.get('apiKeyInfo') as Record<string, unknown>;
+  const apiKey = resolveBillingKey(keyInfo);
 
   const subject = c.req.query('subject');
   const actionType = c.req.query('action_type');
@@ -319,9 +319,31 @@ manifestRouter.get('/memory', checkApiKey, async (c) => {
     since: since || undefined,
   });
 
+  const mapped = memories.map((m) => ({
+    id: m.id,
+    session_id: m.session_id,
+    created_at: m.created_at,
+    domain: m.domain,
+    subject: m.subject,
+    action_type: m.action_type,
+    overall_verdict: m.overall_verdict,
+    confidence: m.confidence,
+    summary: m.summary,
+    verify_overall: m.verify_overall,
+    verify_claims_checked: m.verify_claims_checked,
+    verify_claims_verified: m.verify_claims_verified,
+    verify_claims_disputed: m.verify_claims_disputed,
+    assess_status: m.assess_status,
+    preflight_status: m.preflight_status,
+    preflight_risk_score: m.preflight_risk_score,
+    outcome: m.outcome,
+    outcome_value: m.outcome_value,
+    outcome_at: m.outcome_at,
+  }));
+
   return c.json({
-    memories,
-    count: memories.length,
+    memories: mapped,
+    count: mapped.length,
     limit,
   });
 });

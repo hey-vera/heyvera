@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { checkApiKey } from '../middleware/auth';
-import { deductCredit, logAudit } from '../db/index';
+import { deductCredit, logAudit, safeJsonParse } from '../db/index';
 import {
   createAttestation,
   getAttestationById,
@@ -24,15 +24,24 @@ const ExplicitAttestSchema = z.object({
   action_endpoint: z.string().max(500).optional(),
   description: z.string().max(2000).optional(),
   manifest_id: z.string().max(100).optional(),
-  input_data: z.unknown().optional(),
-  response_data: z.unknown().optional(),
+  input_data: z.any().optional().refine(
+    (v) => !v || JSON.stringify(v).length <= 100_000,
+    'input_data exceeds 100KB limit'
+  ),
+  response_data: z.any().optional().refine(
+    (v) => !v || JSON.stringify(v).length <= 100_000,
+    'response_data exceeds 100KB limit'
+  ),
   source_hashes: z.array(z.object({
     source: z.string(),
     hash: z.string(),
     fetched_at: z.string(),
   })).optional(),
   outcome: z.enum(['success', 'failure', 'partial', 'unknown']).default('success'),
-  outcome_data: z.record(z.unknown()).optional(),
+  outcome_data: z.record(z.unknown()).optional().refine(
+    (v) => !v || JSON.stringify(v).length <= 50_000,
+    'outcome_data exceeds 50KB limit'
+  ),
 });
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -69,12 +78,12 @@ function formatAttestationResponse(att: ReturnType<typeof getAttestationById>) {
     },
     input_hash: att.input_hash,
     response_hash: att.response_hash,
-    source_hashes: att.source_hashes_json ? JSON.parse(att.source_hashes_json) : null,
+    source_hashes: safeJsonParse(att.source_hashes_json, null),
     credits_charged: att.credits_charged,
     duration_ms: att.duration_ms,
     outcome: {
       status: att.outcome_status,
-      data: att.outcome_data_json ? JSON.parse(att.outcome_data_json) : null,
+      data: safeJsonParse(att.outcome_data_json, null),
     },
     signature: att.signature,
     signed: !!att.signature,
@@ -125,8 +134,8 @@ attestRouter.post('/', checkApiKey, async (c) => {
     }
     manifestVerdict = manifest.overall_verdict;
     manifestConfidence = manifest.confidence;
-    // If manifest said PROCEED or CAUTION, agent is aligned; HOLD/BLOCK = not aligned
-    manifestAligned = manifestVerdict === 'PROCEED' || manifestVerdict === 'CAUTION';
+    // Only PROCEED counts as aligned; CAUTION/HOLD/BLOCK = not aligned
+    manifestAligned = manifestVerdict === 'PROCEED';
   }
 
   // 3. Deduct credits

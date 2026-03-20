@@ -3581,10 +3581,15 @@ app.post('/webhooks/clawnet', express.raw({ type: 'application/json' }), (req, r
         <table class="params-table">
           <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
           <tbody>
-            <tr><td><code>action</code></td><td><span class="param-type">string</span></td><td><span class="param-req">Yes</span></td><td>The action being attested (e.g. <code>skill_invoke</code>, <code>trade_executed</code>, <code>data_fetched</code>)</td></tr>
-            <tr><td><code>input</code></td><td><span class="param-type">object</span></td><td><span class="param-opt">No</span></td><td>Input data &mdash; will be SHA-256 hashed</td></tr>
-            <tr><td><code>result</code></td><td><span class="param-type">object</span></td><td><span class="param-opt">No</span></td><td>Result data &mdash; will be SHA-256 hashed</td></tr>
-            <tr><td><code>metadata</code></td><td><span class="param-type">object</span></td><td><span class="param-opt">No</span></td><td>Optional metadata (tags, labels, context)</td></tr>
+            <tr><td><code>action_type</code></td><td><span class="param-type">string</span></td><td><span class="param-req">Yes</span></td><td>The action being attested (e.g. <code>skill_invoke</code>, <code>trade_executed</code>, <code>data_fetched</code>)</td></tr>
+            <tr><td><code>input_data</code></td><td><span class="param-type">object</span></td><td><span class="param-opt">No</span></td><td>Input data &mdash; will be SHA-256 hashed (max 100KB)</td></tr>
+            <tr><td><code>response_data</code></td><td><span class="param-type">object</span></td><td><span class="param-opt">No</span></td><td>Result data &mdash; will be SHA-256 hashed (max 100KB)</td></tr>
+            <tr><td><code>outcome_data</code></td><td><span class="param-type">object</span></td><td><span class="param-opt">No</span></td><td>Outcome metadata (tags, labels, context) &mdash; max 50KB</td></tr>
+            <tr><td><code>action_endpoint</code></td><td><span class="param-type">string</span></td><td><span class="param-opt">No</span></td><td>The API endpoint being attested</td></tr>
+            <tr><td><code>description</code></td><td><span class="param-type">string</span></td><td><span class="param-opt">No</span></td><td>Human-readable description (max 2000 chars)</td></tr>
+            <tr><td><code>manifest_id</code></td><td><span class="param-type">string</span></td><td><span class="param-opt">No</span></td><td>Linked manifest ID &mdash; auto-populates verdict/confidence</td></tr>
+            <tr><td><code>source_hashes</code></td><td><span class="param-type">array</span></td><td><span class="param-opt">No</span></td><td>Array of <code>{source, hash, fetched_at}</code> for data provenance</td></tr>
+            <tr><td><code>outcome</code></td><td><span class="param-type">string</span></td><td><span class="param-opt">No</span></td><td><code>success</code> | <code>failure</code> | <code>partial</code> | <code>unknown</code> (default: <code>success</code>)</td></tr>
           </tbody>
         </table>
 
@@ -3595,10 +3600,11 @@ app.post('/webhooks/clawnet', express.raw({ type: 'application/json' }), (req, r
   -H "X-API-Key: cn-your-key-here" \
   -H "Content-Type: application/json" \
   -d '{
-    "action": "trade_executed",
-    "input": { "pair": "SOL/USDC", "side": "buy", "amount": 50 },
-    "result": { "filled": true, "price": 142.50, "slippage": 0.002 },
-    "metadata": { "strategy": "momentum", "session": "ses_abc123" }
+    "action_type": "trade_executed",
+    "input_data": { "pair": "SOL/USDC", "side": "buy", "amount": 50 },
+    "response_data": { "filled": true, "price": 142.50, "slippage": 0.002 },
+    "outcome_data": { "strategy": "momentum", "session": "ses_abc123" },
+    "outcome": "success"
   }'</code></pre>
         </div>
 
@@ -3606,14 +3612,12 @@ app.post('/webhooks/clawnet', express.raw({ type: 'application/json' }), (req, r
         <div class="code-block">
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
           <pre><code>{
-  "id": "att-f7e2a9b1c3d4",
-  "action": "trade_executed",
-  "input_hash": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
-  "result_hash": "sha256:a3c2e8b4f5d6e7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2",
-  "signature": "hmac:b7e4f1a2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0",
-  "timestamp": "2026-03-18T14:32:00Z",
-  "key_hash": "sha256:abc123...",
-  "credits_used": 0.25
+  "attestation_id": "att-f7e2a9b1c3d4",
+  "source": "agent",
+  "signed": true,
+  "sequence_number": 42,
+  "verification_url": "https://api.claw-net.org/v1/attest/verify/att-f7e2a9b1c3d4",
+  "credits_charged": 0.25
 }</code></pre>
         </div>
       </div>
@@ -3649,19 +3653,26 @@ app.post('/webhooks/clawnet', express.raw({ type: 'application/json' }), (req, r
         <div class="code-block">
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
           <pre><code>{
+  "attestation_id": "att-f7e2a9b1c3d4",
   "valid": true,
-  "signature_valid": true,
-  "chain_contiguous": true,
-  "attestation": {
-    "id": "att-f7e2a9b1c3d4",
-    "type": "explicit",
-    "action": "trade_executed",
-    "input_hash": "sha256:9f86d...",
-    "result_hash": "sha256:a3c2e...",
-    "signature": "hmac:b7e4f...",
-    "timestamp": "2026-03-18T14:32:00Z",
-    "success": true
-  }
+  "source": "agent",
+  "created_at": "2026-03-18T14:32:00Z",
+  "verification": {
+    "signature_verified": true,
+    "chain_intact": true,
+    "manifest_linked": true,
+    "manifest_verdict": "PROCEED",
+    "manifest_confidence": 0.92
+  },
+  "summary": {
+    "action_type": "trade_executed",
+    "endpoint": "/v1/orchestrate",
+    "outcome_status": "success",
+    "credits_charged": 0.25,
+    "duration_ms": 142,
+    "manifest_aligned": true
+  },
+  "verified_at": "2026-03-19T10:15:00Z"
 }</code></pre>
         </div>
       </div>
@@ -3675,7 +3686,7 @@ app.post('/webhooks/clawnet', express.raw({ type: 'application/json' }), (req, r
         <table class="params-table">
           <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
           <tbody>
-            <tr><td><code>action</code></td><td><span class="param-type">string</span></td><td><span class="param-opt">No</span></td><td>Filter by action type (e.g. <code>skill_invoke</code>, <code>orchestration</code>)</td></tr>
+            <tr><td><code>action_type</code></td><td><span class="param-type">string</span></td><td><span class="param-opt">No</span></td><td>Filter by action type (e.g. <code>skill_invoke</code>, <code>orchestration</code>)</td></tr>
             <tr><td><code>limit</code></td><td><span class="param-type">integer</span></td><td><span class="param-opt">No</span></td><td>Max results (default 50)</td></tr>
             <tr><td><code>offset</code></td><td><span class="param-type">integer</span></td><td><span class="param-opt">No</span></td><td>Pagination offset (default 0)</td></tr>
           </tbody>

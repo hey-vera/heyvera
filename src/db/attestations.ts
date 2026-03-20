@@ -97,33 +97,37 @@ function getNextSequenceNumber(apiKeyHash: string): number {
 
 export function createAttestation(params: CreateAttestationParams): string {
   const id = `att-${nanoid(16)}`;
-  const seqNum = getNextSequenceNumber(params.apiKeyHash);
   const now = new Date().toISOString();
 
   const signature = signAttestation(id, params.inputHash, params.responseHash || null, params.apiKeyHash, now);
 
-  getDb().prepare(`
-    INSERT INTO attestations (
-      id, api_key_hash, sequence_number, attestation_type,
-      manifest_id, manifest_verdict, manifest_confidence, manifest_aligned,
-      action_type, action_endpoint, action_description,
-      input_hash, response_hash, source_hashes_json,
-      credits_charged, duration_ms, outcome_status, outcome_data_json,
-      signature, signed_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    id, params.apiKeyHash, seqNum, params.attestationType,
-    params.manifestId || null, params.manifestVerdict || null,
-    params.manifestConfidence ?? null,
-    params.manifestAligned === true ? 1 : params.manifestAligned === false ? 0 : null,
-    params.actionType, params.actionEndpoint || null, params.actionDescription || null,
-    params.inputHash, params.responseHash || null,
-    params.sourceHashes ? JSON.stringify(params.sourceHashes) : null,
-    params.creditsCharged || 0, params.durationMs || null,
-    params.outcomeStatus || 'success',
-    params.outcomeData ? JSON.stringify(params.outcomeData) : null,
-    signature, signature ? now : null
-  );
+  // Wrap sequence number read + insert in a transaction to prevent race conditions
+  getDb().transaction(() => {
+    const seqNum = getNextSequenceNumber(params.apiKeyHash);
+
+    getDb().prepare(`
+      INSERT INTO attestations (
+        id, api_key_hash, sequence_number, attestation_type,
+        manifest_id, manifest_verdict, manifest_confidence, manifest_aligned,
+        action_type, action_endpoint, action_description,
+        input_hash, response_hash, source_hashes_json,
+        credits_charged, duration_ms, outcome_status, outcome_data_json,
+        signature, signed_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id, params.apiKeyHash, seqNum, params.attestationType,
+      params.manifestId || null, params.manifestVerdict || null,
+      params.manifestConfidence ?? null,
+      params.manifestAligned === true ? 1 : params.manifestAligned === false ? 0 : null,
+      params.actionType, params.actionEndpoint || null, params.actionDescription || null,
+      params.inputHash, params.responseHash || null,
+      params.sourceHashes ? JSON.stringify(params.sourceHashes) : null,
+      params.creditsCharged || 0, params.durationMs || null,
+      params.outcomeStatus || 'success',
+      params.outcomeData ? JSON.stringify(params.outcomeData) : null,
+      signature, signature ? now : null
+    );
+  })();
 
   // Update stats (upsert)
   updateAttestationStats(params.apiKeyHash, params.manifestAligned, params.outcomeStatus || 'success');
@@ -161,7 +165,7 @@ export function createAutoAttestation(
       if (manifest) {
         manifestVerdict = manifest.overall_verdict;
         manifestConfidence = manifest.confidence;
-        manifestAligned = true; // agent checked manifest AND acted
+        manifestAligned = manifestVerdict === 'PROCEED';
       }
     }
 
@@ -230,7 +234,9 @@ export function verifyAttestation(id: string): {
   let signatureValid: boolean | null = null;
   if (att.signature && att.signed_at) {
     const expected = signAttestation(att.id, att.input_hash, att.response_hash, att.api_key_hash, att.signed_at);
-    signatureValid = expected !== null && att.signature === expected;
+    signatureValid = expected !== null && att.signature !== null &&
+      att.signature.length === expected.length &&
+      crypto.timingSafeEqual(Buffer.from(att.signature), Buffer.from(expected));
   }
 
   // Check chain contiguity (no gaps in sequence)
@@ -306,11 +312,15 @@ export function getPublicAgentProfile(apiKeyHash: string): {
   const alignable = stats.manifest_aligned + stats.manifest_unaligned;
   const total = stats.success_count + stats.failure_count;
 
+  const firstRow = getDb().prepare(
+    'SELECT created_at FROM attestations WHERE api_key_hash = ? ORDER BY created_at ASC LIMIT 1'
+  ).get(apiKeyHash) as { created_at: string } | undefined;
+
   return {
     total_attestations: stats.total_attestations,
     alignment_rate: alignable > 0 ? Math.round((stats.manifest_aligned / alignable) * 100) : 0,
     success_rate: total > 0 ? Math.round((stats.success_count / total) * 100) : 0,
-    first_attestation: null, // would need a query, not critical for v1
+    first_attestation: firstRow?.created_at || null,
     last_attestation: stats.last_attestation_at,
   };
 }

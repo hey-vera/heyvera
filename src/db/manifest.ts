@@ -88,6 +88,9 @@ export function writeManifestMemory(params: ManifestWriteParams): string {
 
 // ─── Query ──────────────────────────────────────────────────────────────────
 
+const VALID_VERDICTS = ['PROCEED', 'CAUTION', 'HOLD', 'BLOCK'];
+const SAFE_STRING_RE = /^[\w.-]{1,50}$/;
+
 export function queryManifestMemory(apiKey: string, options?: {
   subject?: string;
   actionType?: string;
@@ -100,9 +103,15 @@ export function queryManifestMemory(apiKey: string, options?: {
   const params: unknown[] = [apiKey];
 
   if (options?.subject) { sql += ' AND subject = ?'; params.push(options.subject); }
-  if (options?.actionType) { sql += ' AND action_type = ?'; params.push(options.actionType); }
-  if (options?.verdict) { sql += ' AND overall_verdict = ?'; params.push(options.verdict); }
-  if (options?.domain) { sql += ' AND domain = ?'; params.push(options.domain); }
+  if (options?.actionType && SAFE_STRING_RE.test(options.actionType)) {
+    sql += ' AND action_type = ?'; params.push(options.actionType);
+  }
+  if (options?.verdict && VALID_VERDICTS.includes(options.verdict)) {
+    sql += ' AND overall_verdict = ?'; params.push(options.verdict);
+  }
+  if (options?.domain && SAFE_STRING_RE.test(options.domain)) {
+    sql += ' AND domain = ?'; params.push(options.domain);
+  }
   if (options?.since) { sql += ' AND created_at > ?'; params.push(options.since); }
 
   sql += ' ORDER BY created_at DESC LIMIT ?';
