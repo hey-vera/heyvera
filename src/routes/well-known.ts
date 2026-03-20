@@ -14,7 +14,7 @@ const router = new Hono();
 router.get('/agent-card.json', (c) => {
   return c.json({
     name: 'ClawNet',
-    description: 'Universal AI agent orchestration layer — 390+ API endpoints, skill marketplace, x402 payments',
+    description: 'Universal AI agent orchestration layer — 12,000+ API endpoints, skill marketplace, x402 payments',
     version: '1.0.0',
     url: env.CLAWNET_BASE_URL,
     capabilities: [
@@ -243,7 +243,7 @@ router.get('/x402.json', (c) => {
     x402Version: 2,
     provider: {
       name: 'ClawNet',
-      description: 'AI agent orchestration with 390+ live APIs, skill marketplace, and cryptographic receipts',
+      description: 'AI agent orchestration with 12,000+ live APIs, skill marketplace, and cryptographic receipts',
       url: 'https://claw-net.org',
       contact: 'team@claw-net.org',
       logo: 'https://claw-net.org/assets/logo.png',
@@ -364,7 +364,7 @@ router.get('/x402.json', (c) => {
     discoverable: true,
     bazaar: {
       registered: true,
-      description: 'ClawNet AI Orchestration — 390+ API endpoints, skill marketplace, composite skills',
+      description: 'ClawNet AI Orchestration — 12,000+ API endpoints, skill marketplace, composite skills',
       categories: ['orchestration', 'ai-ml', 'defi', 'social', 'search', 'security', 'infrastructure'],
       capabilities: ['skill-invocation', 'natural-language-orchestration', 'data-queries', 'composite-workflows'],
       pricing: {
@@ -376,11 +376,35 @@ router.get('/x402.json', (c) => {
   });
 });
 
+// ── GET /x402 — x402scan-compatible discovery (no .json extension) ──────────
+// x402scan expects: GET /.well-known/x402 → { version: 1, resources: [...] }
+// See: https://github.com/Merit-Systems/x402scan/blob/main/docs/DISCOVERY.md
+router.get('/x402', (c) => {
+  const base = env.CLAWNET_BASE_URL || 'https://api.claw-net.org';
+  return c.json({
+    version: 1,
+    resources: [
+      `${base}/x402/orchestrate`,
+      `${base}/x402/skills/price-oracle-data`,
+      `${base}/x402/skills/trending-tokens-data`,
+      `${base}/x402/skills/whale-tracker-data`,
+      `${base}/x402/skills/defi-yield-data`,
+      `${base}/x402/query/price-oracle-data`,
+      `${base}/x402/query/trending-tokens-data`,
+      `${base}/x402/query/whale-tracker-data`,
+      `${base}/x402/query/defi-yield-data`,
+      `${base}/mcp/x402`,
+    ],
+    ownershipProofs: [],
+    instructions: `ClawNet AI agent orchestration. 12,000+ API endpoints, 4 data skills, Manifest verification, Attestation proofs. Pay per call with USDC via x402. Full docs: ${base}/.well-known/x402.json`,
+  });
+});
+
 // ── GET /agent.json — A2A Agent Card (Google Agent-to-Agent protocol v0.3.0) ──
 router.get('/agent.json', (c) => {
   return c.json({
     name: 'ClawNet',
-    description: 'AI agent orchestration with 390+ live APIs, skill marketplace, and cryptographic receipts',
+    description: 'AI agent orchestration with 12,000+ live APIs, skill marketplace, and cryptographic receipts',
     url: env.CLAWNET_BASE_URL,
     version: '1.0.0',
     protocolVersion: '0.3.0',
@@ -465,7 +489,7 @@ router.get('/erc8004.json', (c) => {
     schemaVersion: '1.0.0',
     agentId: 'clawnet-platform',
     name: 'ClawNet',
-    description: 'Universal AI agent orchestration layer — 390+ API endpoints, skill marketplace, x402 payments',
+    description: 'Universal AI agent orchestration layer — 12,000+ API endpoints, skill marketplace, x402 payments',
     url: env.CLAWNET_BASE_URL,
     capabilities: {
       streaming: true,
