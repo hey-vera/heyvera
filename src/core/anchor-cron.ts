@@ -44,13 +44,17 @@ interface UnanchoredRow {
   input_hash: string;
 }
 
+/** Maximum attestations per anchor cycle to prevent unbounded tree sizes. */
+const MAX_ATTESTATIONS_PER_ANCHOR = 10_000;
+
 /**
- * Get all attestations that haven't been anchored yet.
+ * Get attestations that haven't been anchored yet (capped at MAX_ATTESTATIONS_PER_ANCHOR).
+ * If more exist, they'll be anchored in subsequent cycles.
  */
 function getUnanchoredAttestations(): UnanchoredRow[] {
   return getDb().prepare(
-    'SELECT id, input_hash FROM attestations WHERE anchor_id IS NULL ORDER BY created_at ASC'
-  ).all() as UnanchoredRow[];
+    'SELECT id, input_hash FROM attestations WHERE anchor_id IS NULL ORDER BY created_at ASC LIMIT ?'
+  ).all(MAX_ATTESTATIONS_PER_ANCHOR) as UnanchoredRow[];
 }
 
 /**
@@ -101,25 +105,49 @@ export async function runAnchorCycle(): Promise<{
   solanaHash?: string;
   error?: string;
 }> {
-  const unanchored = getUnanchoredAttestations();
+  // Wrap query + anchor creation + attestation marking in a transaction to prevent
+  // race conditions where new attestations arrive between query and marking.
+  // The Solana memo send happens outside the transaction (async I/O).
+
+  const anchorId = `anc-${nanoid(16)}`;
+  const now = new Date().toISOString();
+
+  // Phase 1: Atomically snapshot unanchored attestations, build tree, create anchor record,
+  // and mark all included attestations — all in one DB transaction.
+  const { unanchored, root, tree } = getDb().transaction(() => {
+    const rows = getUnanchoredAttestations();
+
+    if (rows.length === 0) return { unanchored: rows, root: '', tree: [] as string[][] };
+
+    const hashes = rows.map((r) => r.input_hash);
+    const built = buildMerkleTree(hashes);
+
+    // Store anchor record as pending
+    getDb().prepare(`
+      INSERT INTO attestation_anchors (id, merkle_root, attestation_count, anchored_at, status, tree_json)
+      VALUES (?, ?, ?, ?, 'pending', ?)
+    `).run(anchorId, built.root, rows.length, now, JSON.stringify(built.tree));
+
+    // Mark all included attestations as anchored (batched for performance)
+    const ids = rows.map((r) => r.id);
+    const BATCH_SIZE = 500;
+    for (let i = 0; i < ids.length; i += BATCH_SIZE) {
+      const batch = ids.slice(i, i + BATCH_SIZE);
+      const placeholders = batch.map(() => '?').join(',');
+      getDb().prepare(
+        `UPDATE attestations SET anchor_id = ?, anchored_at = ? WHERE id IN (${placeholders})`
+      ).run(anchorId, now, ...batch);
+    }
+
+    return { unanchored: rows, root: built.root, tree: built.tree };
+  })();
 
   if (unanchored.length === 0) {
     logger.debug('Merkle anchor: no un-anchored attestations — skipping');
     return { anchored: false };
   }
 
-  const hashes = unanchored.map((r) => r.input_hash);
-  const { root, tree } = buildMerkleTree(hashes);
-  const anchorId = `anc-${nanoid(16)}`;
-  const now = new Date().toISOString();
-
-  // Store anchor record as pending first
-  getDb().prepare(`
-    INSERT INTO attestation_anchors (id, merkle_root, attestation_count, anchored_at, status, tree_json)
-    VALUES (?, ?, ?, ?, 'pending', ?)
-  `).run(anchorId, root, unanchored.length, now, JSON.stringify(tree));
-
-  // Send the Solana memo transaction
+  // Phase 2: Send the Solana memo transaction (async, outside DB transaction)
   let solanaHash: string;
   try {
     solanaHash = await sendMemoTransaction(root, unanchored.length);
@@ -127,7 +155,8 @@ export async function runAnchorCycle(): Promise<{
     const errMsg = err instanceof Error ? err.message : String(err);
     logger.error({ err, anchorId, attestationCount: unanchored.length }, 'Merkle anchor: Solana memo failed');
 
-    // Mark anchor as failed
+    // Mark anchor as failed (attestations stay marked with this anchor_id so they
+    // won't be re-picked, but the anchor status indicates failure)
     getDb().prepare(
       "UPDATE attestation_anchors SET status = 'failed' WHERE id = ?"
     ).run(anchorId);
@@ -135,21 +164,10 @@ export async function runAnchorCycle(): Promise<{
     return { anchored: false, anchorId, attestationCount: unanchored.length, merkleRoot: root, error: errMsg };
   }
 
-  // Update anchor with tx hash + mark confirmed
+  // Phase 3: Update anchor with tx hash + mark confirmed
   getDb().prepare(
     "UPDATE attestation_anchors SET solana_tx_hash = ?, status = 'confirmed' WHERE id = ?"
   ).run(solanaHash, anchorId);
-
-  // Mark all included attestations as anchored (batched for performance)
-  const ids = unanchored.map((r) => r.id);
-  const BATCH_SIZE = 500;
-  for (let i = 0; i < ids.length; i += BATCH_SIZE) {
-    const batch = ids.slice(i, i + BATCH_SIZE);
-    const placeholders = batch.map(() => '?').join(',');
-    getDb().prepare(
-      `UPDATE attestations SET anchor_id = ?, anchored_at = ? WHERE id IN (${placeholders})`
-    ).run(anchorId, now, ...batch);
-  }
 
   logAudit({
     entityType: 'attestation_anchor',

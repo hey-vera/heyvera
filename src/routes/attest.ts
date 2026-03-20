@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { checkApiKey } from '../middleware/auth';
 import { deductCredit, logAudit, safeJsonParse } from '../db/index';
+import { cacheIncr } from '../cache/index';
 import {
   createAttestation,
   getAttestationById,
@@ -17,7 +18,8 @@ import { round6 } from '../core/credits';
 import { trackDelegatedSpend } from '../utils/billing';
 import { logger } from '../utils/logger';
 import { getDb } from '../db/connection';
-import { buildMerkleTree, getMerkleProof, verifyMerkleProof } from '../core/merkle-anchor';
+import { buildMerkleTree, getMerkleProof, verifyMerkleProof, validateTreeStructure } from '../core/merkle-anchor';
+import { attestationToVC, getAttestationContext } from '../utils/vc-envelope';
 
 // ─── Zod Schemas ────────────────────────────────────────────────────────────
 
@@ -121,6 +123,16 @@ attestRouter.post('/', checkApiKey, async (c) => {
   const billingKey = resolveBillingKey(keyInfo);
   const apiKeyHash = hashApiKey(apiKey);
 
+  // 1b. Rate limit: max 100 explicit attestations per key per hour
+  const rlCount = await cacheIncr(`rl:attest:${apiKey}`, 3600);
+  if (rlCount > 100) {
+    return c.json({
+      error: 'Attestation rate limit exceeded (max 100/hour)',
+      code: 'RATE_LIMITED',
+      limit: 100,
+    }, 429);
+  }
+
   // 2. If manifest_id provided, look it up and verify ownership
   let manifestVerdict: string | undefined;
   let manifestConfidence: number | undefined;
@@ -211,7 +223,10 @@ attestRouter.get('/verify/:id', async (c) => {
   }
 
   const att = result.attestation;
-  return c.json({
+  const wantsVC = c.req.query('format') === 'vc' ||
+    (c.req.header('accept') || '').includes('application/vc+ld+json');
+
+  const attestationResponse = {
     attestation_id: att.id,
     valid: result.valid,
     source: att.attestation_type === 'automatic' ? 'platform' : 'agent',
@@ -232,7 +247,24 @@ attestRouter.get('/verify/:id', async (c) => {
       manifest_aligned: att.manifest_aligned === 1 ? true : att.manifest_aligned === 0 ? false : null,
     },
     verified_at: new Date().toISOString(),
-  });
+  };
+
+  // Accept: application/vc+ld+json → return only the VC with proper content type
+  if ((c.req.header('accept') || '').includes('application/vc+ld+json') && !c.req.query('format')) {
+    const vc = attestationToVC(att, BASE_URL);
+    return c.json(vc, 200, { 'Content-Type': 'application/vc+ld+json' });
+  }
+
+  // ?format=vc → return both the attestation and VC envelope
+  if (wantsVC) {
+    const vc = attestationToVC(att, BASE_URL);
+    return c.json({
+      attestation: attestationResponse,
+      verifiableCredential: vc,
+    });
+  }
+
+  return c.json(attestationResponse);
 });
 
 // GET /v1/attest/history — Query attestation history (free, auth required)
@@ -371,7 +403,14 @@ attestRouter.get('/anchor/:anchorId', async (c) => {
 
     const tree = safeJsonParse(anchor.tree_json, null) as string[][] | null;
     if (tree) {
+      const treeCheck = validateTreeStructure(tree);
+      if (!treeCheck.valid) {
+        return c.json({ error: 'Stored Merkle tree is malformed', code: 'INVALID_TREE_STRUCTURE' }, 500);
+      }
       const proof = getMerkleProof(att.input_hash, tree);
+      if (proof === null) {
+        return c.json({ error: 'Attestation hash not found in Merkle tree', code: 'HASH_NOT_IN_TREE' }, 404);
+      }
       const verified = verifyMerkleProof(att.input_hash, proof, anchor.merkle_root);
       result.proof = {
         attestation_id: att.id,
@@ -410,14 +449,21 @@ attestRouter.get('/verify-onchain/:attestationId', async (c) => {
     return c.json({ error: 'Anchor record missing', code: 'ANCHOR_NOT_FOUND' }, 500);
   }
 
-  let proof: string[] = [];
+  let proof: { sibling: string; promoted: boolean }[] = [];
   let verified = false;
 
   if (anchor.tree_json) {
     const tree = safeJsonParse(anchor.tree_json, null) as string[][] | null;
     if (tree) {
-      proof = getMerkleProof(att.input_hash, tree);
-      verified = verifyMerkleProof(att.input_hash, proof, anchor.merkle_root);
+      const treeCheck = validateTreeStructure(tree);
+      if (!treeCheck.valid) {
+        return c.json({ error: 'Stored Merkle tree is malformed', code: 'INVALID_TREE_STRUCTURE' }, 500);
+      }
+      const result = getMerkleProof(att.input_hash, tree);
+      if (result !== null) {
+        proof = result;
+        verified = verifyMerkleProof(att.input_hash, proof, anchor.merkle_root);
+      }
     }
   }
 
@@ -440,7 +486,7 @@ attestRouter.get('/verify-onchain/:attestationId', async (c) => {
     verification_instructions: {
       step_1: 'Look up the Solana transaction and extract the memo field JSON',
       step_2: 'Confirm the merkle_root in the memo matches the one returned here',
-      step_3: 'Use the proof_path to verify: hash the input_hash with each sibling in order (smaller first), the final result should equal the merkle_root',
+      step_3: 'Use the proof_path to verify: hash the input_hash with each sibling in order. For each step, if promoted=false hash with the sibling (smaller value first); if promoted=true skip hashing. The final result should equal the merkle_root',
       step_4: 'If all steps pass, the attestation is cryptographically proven to have existed at anchor time',
     },
   });

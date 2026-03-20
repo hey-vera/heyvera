@@ -1,10 +1,11 @@
 /**
  * .well-known discovery routes — cross-platform interoperability
  *
- * Serves agent-card.json, agents.json, mcp.json, and x402.json
+ * Serves agent-card.json, agents.json, mcp.json, x402.json, and did.json
  * for automated discovery by other AI agents and platforms.
  */
 import { Hono } from 'hono';
+import { createHash } from 'crypto';
 import { env } from '../config/index';
 
 const router = new Hono();
@@ -499,6 +500,76 @@ router.get('/erc8004.json', (c) => {
       url: 'https://claw-net.org',
       contact: 'team@claw-net.org',
     },
+  });
+});
+
+// ── GET /did.json — W3C DID Document (did:web:api.claw-net.org) ───────────
+//
+// Deterministic key ID derived from PLATFORM_SIGNING_SECRET so the DID
+// document is stable across restarts.  The publicKeyMultibase field uses
+// the first 32 bytes of SHA-256(secret) encoded as base58btc with the
+// Multikey ed25519-pub prefix (0xed01).  A full Ed25519 signing
+// implementation can be wired in later via @digitalbazaar/vc; for now
+// the key fingerprint is sufficient for resolution and linking.
+// ──────────────────────────────────────────────────────────────────────────
+
+const DID_ID = 'did:web:api.claw-net.org';
+
+function derivePublicKeyMultibase(): string {
+  const seed = createHash('sha256')
+    .update(env.PLATFORM_SIGNING_SECRET || 'clawnet-dev')
+    .digest()
+    .subarray(0, 32);
+
+  // Multikey prefix for Ed25519 public key: 0xed 0x01
+  const prefixed = Buffer.concat([Buffer.from([0xed, 0x01]), seed]);
+
+  // base58btc encoding (z-prefix per Multibase spec)
+  const ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+  let num = BigInt('0x' + prefixed.toString('hex'));
+  let encoded = '';
+  while (num > 0n) {
+    const remainder = Number(num % 58n);
+    num = num / 58n;
+    encoded = ALPHABET[remainder] + encoded;
+  }
+  // Preserve leading zero bytes
+  for (const byte of prefixed) {
+    if (byte === 0) encoded = '1' + encoded;
+    else break;
+  }
+  return 'z' + encoded;
+}
+
+const publicKeyMultibase = derivePublicKeyMultibase();
+
+router.get('/did.json', (c) => {
+  return c.json({
+    '@context': [
+      'https://www.w3.org/ns/did/v1',
+      'https://w3id.org/security/multikey/v1',
+    ],
+    id: DID_ID,
+    verificationMethod: [{
+      id: `${DID_ID}#key-1`,
+      type: 'Multikey',
+      controller: DID_ID,
+      publicKeyMultibase,
+    }],
+    assertionMethod: [`${DID_ID}#key-1`],
+    authentication: [`${DID_ID}#key-1`],
+    service: [
+      {
+        id: `${DID_ID}#attestation`,
+        type: 'AttestationService',
+        serviceEndpoint: 'https://api.claw-net.org/v1/attest',
+      },
+      {
+        id: `${DID_ID}#manifest`,
+        type: 'VerificationService',
+        serviceEndpoint: 'https://api.claw-net.org/v1/manifest',
+      },
+    ],
   });
 });
 

@@ -950,6 +950,9 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 96, sql: `ALTER TABLE attestations ADD COLUMN anchor_id TEXT` },
   { version: 97, sql: `ALTER TABLE attestations ADD COLUMN anchored_at TEXT` },
   { version: 98, sql: `CREATE INDEX IF NOT EXISTS idx_attest_anchor ON attestations(anchor_id) WHERE anchor_id IS NOT NULL` },
+  // v99: Index for replay protection — fast duplicate check on (api_key_hash, input_hash, created_at).
+  // Also supports the longer 32-char api_key_hash (was 16-char). Old 16-char hashes are grandfathered.
+  { version: 99, sql: `CREATE INDEX IF NOT EXISTS idx_attest_replay ON attestations(api_key_hash, input_hash, created_at)` },
 ];
 
 function runMigrations(): void {

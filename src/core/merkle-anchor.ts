@@ -6,10 +6,14 @@
  * verifiable on-chain even if the SQLite DB is lost.
  *
  * Tree layout: tree[0] = leaves, tree[1] = first pair hashes, ... tree[n] = [root].
- * Odd-length levels duplicate the last element before hashing.
+ * Odd-length levels promote the last element to the next level without hashing
+ * (prevents second-preimage attacks from naive leaf duplication).
  */
 
 import { createHash } from 'crypto';
+
+/** Expected length of a SHA-256 hex string. */
+const SHA256_HEX_LENGTH = 64;
 
 /**
  * SHA-256 hash two hex strings together (sorted order for determinism).
@@ -24,6 +28,12 @@ function hashPair(a: string, b: string): string {
  * Build a Merkle tree from an array of hex hash strings.
  * Returns { root, tree } where tree[0] = leaves, tree[last] = [root].
  * If input is empty, root is the hash of an empty string.
+ *
+ * Input hashes are deduplicated before building to prevent hash collision
+ * issues in proof generation (indexOf would match the wrong leaf).
+ *
+ * Odd-length levels: the last element is promoted to the next level without
+ * hashing, preventing second-preimage attacks from naive leaf duplication.
  */
 export function buildMerkleTree(hashes: string[]): { root: string; tree: string[][] } {
   if (hashes.length === 0) {
@@ -31,12 +41,15 @@ export function buildMerkleTree(hashes: string[]): { root: string; tree: string[
     return { root: emptyRoot, tree: [[emptyRoot]] };
   }
 
-  if (hashes.length === 1) {
-    return { root: hashes[0], tree: [hashes] };
+  // Deduplicate input hashes to ensure indexOf uniqueness in proof generation
+  const unique = [...new Set(hashes)];
+
+  if (unique.length === 1) {
+    return { root: unique[0], tree: [unique] };
   }
 
   // Sort leaves for deterministic ordering
-  const leaves = [...hashes].sort();
+  const leaves = unique.sort();
   const tree: string[][] = [leaves];
 
   let currentLevel = leaves;
@@ -48,8 +61,9 @@ export function buildMerkleTree(hashes: string[]): { root: string; tree: string[
       if (i + 1 < currentLevel.length) {
         nextLevel.push(hashPair(currentLevel[i], currentLevel[i + 1]));
       } else {
-        // Odd element: duplicate it
-        nextLevel.push(hashPair(currentLevel[i], currentLevel[i]));
+        // Odd element: promote without hashing to prevent second-preimage attacks.
+        // The element is carried to the next level as-is.
+        nextLevel.push(currentLevel[i]);
       }
     }
 
@@ -62,18 +76,25 @@ export function buildMerkleTree(hashes: string[]): { root: string; tree: string[
 
 /**
  * Get the Merkle proof (sibling path) for a given hash within the tree.
- * Returns an array of sibling hashes from leaf to root.
- * Returns empty array if the hash is not found in the tree leaves.
+ * Returns an array of { sibling, promoted } entries from leaf to root.
+ * `promoted` is true when the node had no real sibling (odd level) and was
+ * carried up without hashing — the verifier must skip hashing for that step.
+ *
+ * Hashes in the tree are expected to be unique (buildMerkleTree deduplicates).
+ * Returns null if the hash is not found in the tree leaves.
  */
-export function getMerkleProof(hash: string, tree: string[][]): string[] {
-  if (tree.length === 0) return [];
+export function getMerkleProof(
+  hash: string,
+  tree: string[][],
+): { sibling: string; promoted: boolean }[] | null {
+  if (tree.length === 0) return null;
 
   const leaves = tree[0];
   let index = leaves.indexOf(hash);
 
-  if (index === -1) return [];
+  if (index === -1) return null;
 
-  const proof: string[] = [];
+  const proof: { sibling: string; promoted: boolean }[] = [];
 
   for (let level = 0; level < tree.length - 1; level++) {
     const currentLevel = tree[level];
@@ -81,10 +102,10 @@ export function getMerkleProof(hash: string, tree: string[][]): string[] {
     const siblingIndex = isRight ? index - 1 : index + 1;
 
     if (siblingIndex < currentLevel.length) {
-      proof.push(currentLevel[siblingIndex]);
+      proof.push({ sibling: currentLevel[siblingIndex], promoted: false });
     } else {
-      // Odd level: sibling is a duplicate of self
-      proof.push(currentLevel[index]);
+      // Odd level: this node was promoted without hashing — no real sibling
+      proof.push({ sibling: currentLevel[index], promoted: true });
     }
 
     // Move to parent index
@@ -96,8 +117,13 @@ export function getMerkleProof(hash: string, tree: string[][]): string[] {
 
 /**
  * Verify that a hash belongs to a Merkle tree with the given root, using the proof path.
+ * Proof entries marked `promoted: true` are skipped (node was carried up without hashing).
  */
-export function verifyMerkleProof(hash: string, proof: string[], root: string): boolean {
+export function verifyMerkleProof(
+  hash: string,
+  proof: { sibling: string; promoted: boolean }[],
+  root: string,
+): boolean {
   if (proof.length === 0) {
     // Single-element tree or direct match
     return hash === root;
@@ -105,9 +131,61 @@ export function verifyMerkleProof(hash: string, proof: string[], root: string): 
 
   let current = hash;
 
-  for (const sibling of proof) {
-    current = hashPair(current, sibling);
+  for (const step of proof) {
+    if (step.promoted) {
+      // Node was promoted without hashing — current stays the same
+      continue;
+    }
+    current = hashPair(current, step.sibling);
   }
 
   return current === root;
+}
+
+/**
+ * Validate that a parsed tree_json has a valid Merkle tree structure.
+ * Checks:
+ *  - Each level is approximately ceil(previous / 2) in length
+ *  - Root (last level) has exactly 1 element
+ *  - All elements are hex strings of the expected SHA-256 length (64 chars)
+ */
+export function validateTreeStructure(tree: string[][]): { valid: boolean; error?: string } {
+  if (!Array.isArray(tree) || tree.length === 0) {
+    return { valid: false, error: 'Tree must be a non-empty array of levels' };
+  }
+
+  for (let level = 0; level < tree.length; level++) {
+    const levelArr = tree[level];
+    if (!Array.isArray(levelArr) || levelArr.length === 0) {
+      return { valid: false, error: `Level ${level} must be a non-empty array` };
+    }
+
+    // Validate all elements are hex strings of expected length
+    for (let i = 0; i < levelArr.length; i++) {
+      const elem = levelArr[i];
+      if (typeof elem !== 'string' || elem.length !== SHA256_HEX_LENGTH || !/^[0-9a-f]+$/.test(elem)) {
+        return { valid: false, error: `Level ${level}[${i}] is not a valid ${SHA256_HEX_LENGTH}-char hex string` };
+      }
+    }
+
+    // Check level size relationship (skip for the first level — leaves)
+    if (level > 0) {
+      const prevLength = tree[level - 1].length;
+      const expectedLength = Math.ceil(prevLength / 2);
+      if (levelArr.length !== expectedLength) {
+        return {
+          valid: false,
+          error: `Level ${level} has ${levelArr.length} elements, expected ${expectedLength} (ceil(${prevLength}/2))`,
+        };
+      }
+    }
+  }
+
+  // Root must be a single element
+  const rootLevel = tree[tree.length - 1];
+  if (rootLevel.length !== 1) {
+    return { valid: false, error: `Root level has ${rootLevel.length} elements, expected 1` };
+  }
+
+  return { valid: true };
 }

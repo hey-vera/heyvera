@@ -4,7 +4,7 @@ import { checkApiKey } from '../middleware/auth';
 import { deductCredit, topUpCredits, logAudit } from '../db/index';
 import { round6 } from '../core/credits';
 import { trackDelegatedSpend } from '../utils/billing';
-import { cacheGet, cacheSet } from '../cache/index';
+import { cacheGet, cacheSet, cacheIncr } from '../cache/index';
 import { logger } from '../utils/logger';
 import {
   writeManifestMemory,
@@ -117,6 +117,15 @@ manifestRouter.post('/', checkApiKey, async (c) => {
   const keyInfo = c.get('apiKeyInfo') as Record<string, unknown>;
   const apiKey = (keyInfo as { key: string }).key;
   const billingKey = resolveBillingKey(keyInfo);
+
+  // 1b. Rate limit — max 30 requests per key per minute
+  const rlCount = await cacheIncr(`rl:manifest:${apiKey}`, 60);
+  if (rlCount > 30) {
+    return c.json({
+      error: 'Rate limit exceeded — max 30 manifest requests per minute',
+      code: 'RATE_LIMITED',
+    }, 429);
+  }
 
   // 2. Compute request hash — check for dedup (5 min window)
   const requestHash = computeRequestHash(apiKey, body);

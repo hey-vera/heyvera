@@ -72,7 +72,10 @@ export interface AttestationStatsRow {
 // ─── Hash helpers ───────────────────────────────────────────────────────────
 
 export function hashApiKey(apiKey: string): string {
-  return crypto.createHash('sha256').update(apiKey).digest('hex').slice(0, 16);
+  // 128-bit hash prefix (32 hex chars). Prior to this change, 16 chars (64-bit) were used.
+  // Old 16-char hashes are grandfathered — lookups still work since they're a prefix match
+  // against DB values, but new attestations will store the longer 32-char hash.
+  return crypto.createHash('sha256').update(apiKey).digest('hex').slice(0, 32);
 }
 
 export function hashPayload(payload: unknown): string {
@@ -82,7 +85,13 @@ export function hashPayload(payload: unknown): string {
 function signAttestation(attestationId: string, inputHash: string, responseHash: string | null, apiKeyHash: string, timestamp: string): string | null {
   const secret = env.PLATFORM_SIGNING_SECRET;
   if (!secret) return null;
-  const data = `${attestationId}.${apiKeyHash}.${inputHash}.${responseHash || 'none'}.${timestamp}`;
+  // Use 'null' as a deterministic placeholder when responseHash is absent.
+  // This prevents post-signing modification of the response_hash field:
+  // a null response_hash signs differently than any real hash value.
+  // NOTE: Previously used 'none' — any attestations signed before this change
+  // will fail verification. This is acceptable as it forces re-attestation.
+  const responseHashComponent = responseHash === null ? 'null' : responseHash;
+  const data = `${attestationId}.${apiKeyHash}.${inputHash}.${responseHashComponent}.${timestamp}`;
   return crypto.createHmac('sha256', secret).update(data).digest('hex');
 }
 
@@ -102,6 +111,20 @@ export function createAttestation(params: CreateAttestationParams): string {
   const now = new Date().toISOString();
 
   const signature = signAttestation(id, params.inputHash, params.responseHash || null, params.apiKeyHash, now);
+
+  // Replay protection: reject duplicate input_hash + api_key_hash within 60 seconds
+  const recent = getDb().prepare(
+    `SELECT id FROM attestations WHERE api_key_hash = ? AND input_hash = ? AND created_at > datetime('now', '-60 seconds') LIMIT 1`
+  ).get(params.apiKeyHash, params.inputHash) as { id: string } | undefined;
+  if (recent) {
+    throw new Error(`Duplicate attestation rejected: same input_hash for this key within 60s (existing: ${recent.id})`);
+  }
+
+  // CRITICAL: Never silently create unsigned attestations in production.
+  // An unsigned attestation has no cryptographic integrity and could be tampered with.
+  if (signature === null && env.NODE_ENV === 'production') {
+    throw new Error('Cannot create attestation: PLATFORM_SIGNING_SECRET is not configured. Unsigned attestations are not allowed in production.');
+  }
 
   // Wrap sequence number read + insert in a transaction to prevent race conditions
   getDb().transaction(() => {

@@ -290,6 +290,12 @@ app.route('/v1/stats/telemetry', statsTelemetryRouter);
 app.route('/v1/register', registerRouter);
 // app.route('/v1/referral', referralRouter); // disabled — re-enable when referral program launches
 
+// ─── JSON-LD Context — W3C VC attestation vocabulary ────────────────────────
+import { getAttestationContext } from './utils/vc-envelope';
+app.get('/contexts/attestation/v1', (c) => {
+  return c.json(getAttestationContext(), 200, { 'Content-Type': 'application/ld+json' });
+});
+
 // ─── RSS 2.0 Feed — public skill marketplace feed for aggregators ────────────
 app.get('/feed.xml', (c) => {
   const typeFilter = c.req.query('type');
