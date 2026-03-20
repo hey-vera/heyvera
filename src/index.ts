@@ -363,9 +363,10 @@ ${items}
   return c.body(xml);
 });
 
-// ─── Public indexed endpoints catalog (402index.io sync) ────────────────────
+// ─── Public indexed endpoints catalog (multi-source sync) ───────────────────
 app.get('/v1/indexed', (c) => {
   const category = c.req.query('category') || undefined;
+  const source = c.req.query('source') || undefined; // Filter by source: 402index, bazaar, satring
   const q = c.req.query('q') || undefined;
   const limit = Math.min(Math.max(1, parseInt(c.req.query('limit') || '50', 10) || 50), 200);
   const offset = Math.max(0, parseInt(c.req.query('offset') || '0', 10) || 0);
@@ -375,10 +376,14 @@ app.get('/v1/indexed', (c) => {
 
   if (q) {
     endpoints = searchIndexedEndpoints(q, limit);
+    // Apply source filter to search results if specified
+    if (source) {
+      endpoints = endpoints.filter((ep: { source?: string }) => ep.source === source);
+    }
     total = endpoints.length;
   } else {
-    endpoints = getIndexedEndpoints(category, limit, offset);
-    total = countIndexedEndpoints(category);
+    endpoints = getIndexedEndpoints(category, limit, offset, source);
+    total = countIndexedEndpoints(category, source);
   }
 
   const syncInfo = getIndexedEndpointsSyncInfo();
@@ -388,6 +393,7 @@ app.get('/v1/indexed', (c) => {
     total,
     limit,
     offset,
+    sources: ['402index', 'bazaar', 'satring'],
     lastSynced: syncInfo.lastSynced,
   });
 });

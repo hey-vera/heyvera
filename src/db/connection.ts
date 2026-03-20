@@ -928,6 +928,11 @@ const MIGRATIONS: { version: number; sql: string }[] = [
     CREATE INDEX IF NOT EXISTS idx_indexed_ep_protocol ON indexed_endpoints(protocol);
     CREATE INDEX IF NOT EXISTS idx_indexed_ep_health ON indexed_endpoints(health_status);
   ` },
+  // v94: multi-source index sync — track which registry each endpoint came from
+  { version: 94, sql: `
+    ALTER TABLE indexed_endpoints ADD COLUMN source TEXT NOT NULL DEFAULT '402index';
+    CREATE INDEX IF NOT EXISTS idx_indexed_ep_source ON indexed_endpoints(source);
+  ` },
 ];
 
 function runMigrations(): void {

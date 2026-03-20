@@ -586,22 +586,25 @@ export interface IndexedEndpoint {
   latency_p50_ms: number | null;
   reliability_score: number | null;
   http_method: string;
+  source: string;
   last_synced: string;
 }
 
-export function getIndexedEndpoints(category?: string, limit = 50, offset = 0): IndexedEndpoint[] {
+export function getIndexedEndpoints(category?: string, limit = 50, offset = 0, source?: string): IndexedEndpoint[] {
   let sql = 'SELECT * FROM indexed_endpoints WHERE 1=1';
   const params: unknown[] = [];
   if (category) { sql += ' AND category = ?'; params.push(category); }
+  if (source) { sql += ' AND source = ?'; params.push(source); }
   sql += ' ORDER BY reliability_score DESC NULLS LAST, last_synced DESC LIMIT ? OFFSET ?';
   params.push(Math.min(limit, 200), offset);
   return getDb().prepare(sql).all(...params) as IndexedEndpoint[];
 }
 
-export function countIndexedEndpoints(category?: string): number {
+export function countIndexedEndpoints(category?: string, source?: string): number {
   let sql = 'SELECT COUNT(*) as n FROM indexed_endpoints WHERE 1=1';
   const params: unknown[] = [];
   if (category) { sql += ' AND category = ?'; params.push(category); }
+  if (source) { sql += ' AND source = ?'; params.push(source); }
   const row = getDb().prepare(sql).get(...params) as { n: number };
   return row.n;
 }
