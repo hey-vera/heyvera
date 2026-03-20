@@ -16,6 +16,15 @@ echo "[site] Syncing site/ → $WWW_DIR"
 mkdir -p "$WWW_DIR"
 cp -r site/. "$WWW_DIR/"
 
+echo "[caddy] Updating Caddyfile..."
+if [ -f "$REPO_DIR/Caddyfile" ]; then
+  sudo cp "$REPO_DIR/Caddyfile" /etc/caddy/Caddyfile
+  sudo systemctl reload caddy
+  echo "[caddy] Reloaded"
+else
+  echo "[caddy] No Caddyfile found — skipping"
+fi
+
 echo "[docker] Building and restarting containers..."
 docker compose up --build -d --remove-orphans
 
