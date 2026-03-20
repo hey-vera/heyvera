@@ -25,7 +25,7 @@ const { HTTPFacilitatorClient, x402ResourceServer } = require('@x402/core/server
 };
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { createFacilitatorConfig: createCdpFacilitatorConfig } = require('@coinbase/x402') as {
-  createFacilitatorConfig: (opts: { apiKeyId: string; apiKeySecret: string }) => { url: string; createAuthHeaders: unknown };
+  createFacilitatorConfig: (apiKeyId: string, apiKeySecret: string) => { url: string; createAuthHeaders: unknown };
 };
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { ExactEvmScheme } = require('@x402/evm/exact/server') as {
@@ -256,10 +256,7 @@ function createFacilitator(): unknown {
   if (env.CDP_API_KEY_ID && env.CDP_API_KEY_SECRET) {
     // dotenv stores literal \n — convert to real newlines for PEM parsing
     const secret = env.CDP_API_KEY_SECRET.replace(/\\n/g, '\n');
-    const config = createCdpFacilitatorConfig({
-      apiKeyId: env.CDP_API_KEY_ID,
-      apiKeySecret: secret,
-    });
+    const config = createCdpFacilitatorConfig(env.CDP_API_KEY_ID, secret);
     logger.info({ facilitator: config.url, authenticated: true }, 'x402 CDP facilitator configured (mainnet)');
     return new HTTPFacilitatorClient(config);
   }
