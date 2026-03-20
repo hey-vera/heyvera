@@ -35,6 +35,15 @@ router.get('/agent-card.json', (c) => {
         required: false,
         description: 'Required for paid operations. Not needed for x402 or public browsing.',
       },
+      siwx: {
+        type: 'wallet-signature',
+        description: 'Zero-key onboarding — sign a challenge with any supported wallet to get a session and API key. Supports Solana (Phantom) and EVM chains.',
+        endpoint: '/v1/auth/siwx',
+        nonceEndpoint: '/v1/auth/siwx/nonce',
+        chainsEndpoint: '/v1/auth/siwx/chains',
+        supportedChains: ['solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp', 'eip155:8453', 'eip155:1', 'eip155:10', 'eip155:42161'],
+        standard: 'CAIP-122',
+      },
       x402: {
         description: 'Pay-per-call with USDC on Base via x402 protocol. No account needed.',
         network: env.X402_NETWORK,
@@ -315,6 +324,7 @@ router.get('/x402.json', (c) => {
     authentication: [
       { type: 'x402', description: 'Pay-per-call via x402 protocol' },
       { type: 'api_key', header: 'X-API-Key', prefix: 'cn-' },
+      { type: 'siwx', description: 'Wallet signature auth — sign a challenge, get a session. Supports Solana + EVM.', endpoint: '/v1/auth/siwx', standard: 'CAIP-122' },
       { type: 'bearer', description: 'Clerk JWT for dashboard endpoints' },
     ],
 
@@ -413,7 +423,7 @@ router.get('/agent.json', (c) => {
       },
     ],
     authentication: {
-      schemes: ['apiKey'],
+      schemes: ['apiKey', 'siwx', 'bearer'],
       credentials: null,
     },
     defaultInputModes: ['application/json'],
@@ -464,6 +474,7 @@ router.get('/erc8004.json', (c) => {
     authentication: {
       schemes: [
         { scheme: 'apiKey', header: 'X-API-Key', format: 'cn-*' },
+        { scheme: 'siwx', endpoint: '/v1/auth/siwx', standard: 'CAIP-122', description: 'Wallet signature auth — Solana + EVM' },
         { scheme: 'x402', network: env.X402_NETWORK },
         { scheme: 'bearer', header: 'Authorization', description: 'Clerk JWT' },
       ],

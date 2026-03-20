@@ -375,7 +375,7 @@
 
       <div class="intro-grid">
         <div class="intro-card"><div class="intro-card-title">Base URL</div><div class="intro-card-desc"><code>https://api.claw-net.org</code></div></div>
-        <div class="intro-card"><div class="intro-card-title">Auth</div><div class="intro-card-desc"><code>X-API-Key: cn-xxx</code></div></div>
+        <div class="intro-card"><div class="intro-card-title">Auth</div><div class="intro-card-desc"><code>X-API-Key</code>, Wallet (SIWX), or Clerk</div></div>
         <div class="intro-card"><div class="intro-card-title">Format</div><div class="intro-card-desc">JSON in, JSON out</div></div>
         <div class="intro-card"><div class="intro-card-title">Billing</div><div class="intro-card-desc">1 credit = $0.001. Pay with Stripe or USDC (a dollar-pegged stablecoin).</div></div>
       </div>
@@ -570,15 +570,19 @@ print(res.json()['answer'])</code></pre>
     <!-- ═══════════════════════════════════════════════ AUTH ═══════════════════════════════════════════════ -->
     <div class="docs-section" id="auth">
       <h2 class="docs-section-title">Authentication</h2>
-      <p class="docs-section-desc">Two methods. Most integrations only need the first one.</p>
+      <p class="docs-section-desc">Three methods. Pick the one that fits your stack.</p>
 
-      <div class="concept-grid" style="grid-template-columns:repeat(auto-fill,minmax(300px,1fr))">
+      <div class="concept-grid" style="grid-template-columns:repeat(auto-fill,minmax(280px,1fr))">
         <div class="concept-card">
-          <div class="concept-title" style="color:var(--accent)">API Key (most common)</div>
-          <div class="concept-desc">Pass your key in the <code>X-API-Key</code> header. Use this for all server-to-server calls, scripts, bots, and agent integrations.</div>
+          <div class="concept-title" style="color:var(--accent)">API Key</div>
+          <div class="concept-desc">Pass your key in the <code>X-API-Key</code> header. Use this for server-to-server calls, scripts, bots, and agent integrations.</div>
+        </div>
+        <div class="concept-card" style="border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)">
+          <div class="concept-title" style="color:var(--accent)">Wallet Signature (SIWX)</div>
+          <div class="concept-desc"><strong>Zero-key onboarding</strong> — connect with just a wallet. Sign a challenge message, get a session and API key automatically. Supports Solana (Phantom) and all EVM chains (Base, Ethereum, Optimism, Arbitrum). No email, no password, no registration form.</div>
         </div>
         <div class="concept-card">
-          <div class="concept-title" style="color:var(--purple)">Clerk JWT (browser only)</div>
+          <div class="concept-title" style="color:var(--purple)">Clerk Session</div>
           <div class="concept-desc">Dashboard endpoints accept a Clerk session token via <code>Authorization: Bearer {token}</code>. Only for <a href="/dashboard" style="color:var(--accent)">dashboard.html</a> — you won't need this for API work.</div>
         </div>
       </div>
@@ -586,6 +590,7 @@ print(res.json()['answer'])</code></pre>
       <div class="code-tabs" id="auth-tabs">
         <div class="code-tab-bar">
           <button class="code-tab-btn active" onclick="switchTab(this, 'auth-tabs', 'apikey')">API Key</button>
+          <button class="code-tab-btn" onclick="switchTab(this, 'auth-tabs', 'wallet')">Wallet (SIWX)</button>
           <button class="code-tab-btn" onclick="switchTab(this, 'auth-tabs', 'clerk')">Clerk JWT</button>
         </div>
         <div class="code-tab-panel active" data-tab="apikey">
@@ -593,6 +598,24 @@ print(res.json()['answer'])</code></pre>
             <button class="copy-btn" onclick="copyCode(this)">Copy</button>
             <pre><code>curl https://api.claw-net.org/v1/auth/me \
   -H "X-API-Key: cn-YOUR_KEY"</code></pre>
+          </div>
+        </div>
+        <div class="code-tab-panel" data-tab="wallet">
+          <div class="code-block">
+            <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+            <pre><code># 1. Get a nonce
+curl https://api.claw-net.org/v1/auth/siwx/nonce
+
+# 2. Sign the challenge with your wallet, then submit
+curl -X POST https://api.claw-net.org/v1/auth/siwx \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "claw-net.org wants you to sign in with your Ethereum account:\n0xYourWallet...\n\nSign in to ClawNet\n\nURI: https://api.claw-net.org\nVersion: 1\nChain ID: 8453\nNonce: abc123xyz789",
+    "signature": "0xabcdef..."
+  }'
+
+# Response includes your API key + session:
+# { "ok": true, "apiKey": "cn-a1b2****c3d4", "session": { ... } }</code></pre>
           </div>
         </div>
         <div class="code-tab-panel" data-tab="clerk">
@@ -607,8 +630,8 @@ print(res.json()['answer'])</code></pre>
       <div class="alert alert-info">Your API key starts with <code style="font-family:var(--font-mono);color:var(--info)">cn-</code>. Keep it secret. If compromised, regenerate it from the dashboard — your credits transfer to the new key automatically.</div>
 
       <!-- SIGN-IN-WITH-X (Wallet Auth) -->
-      <h4 style="font-size:16px;font-weight:600;color:var(--text-primary);text-transform:none;letter-spacing:0;margin:28px 0 10px">Sign-In-With-X (Wallet Auth)</h4>
-      <p class="endpoint-desc">Authenticate with your crypto wallet using <a href="https://chainagnostic.org/CAIPs/caip-122" target="_blank" style="color:var(--accent)">CAIP-122</a>. No email or password needed. Your wallet address is linked to a ClawNet API key and session automatically. Supports all EVM chains (Base, Ethereum, Optimism, Arbitrum).</p>
+      <h4 style="font-size:16px;font-weight:600;color:var(--text-primary);text-transform:none;letter-spacing:0;margin:28px 0 10px">Sign-In-With-X (SIWX) — Wallet Authentication</h4>
+      <p class="endpoint-desc">Authenticate with your crypto wallet using <a href="https://chainagnostic.org/CAIPs/caip-122" target="_blank" style="color:var(--accent)">CAIP-122</a>. No email or password needed. Your wallet address is linked to a ClawNet API key and session automatically. Supports Solana (Phantom) and all EVM chains (Base, Ethereum, Optimism, Arbitrum).</p>
 
       <div class="endpoint">
         <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/auth/siwx/nonce</code></div>
@@ -655,6 +678,7 @@ print(res.json()['answer'])</code></pre>
         <p class="endpoint-desc">List supported chains for wallet-based authentication.</p>
         <div class="code-block"><pre><code>{
   "chains": [
+    { "caip2": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp", "name": "Solana", "status": "supported" },
     { "caip2": "eip155:8453", "name": "Base", "status": "supported" },
     { "caip2": "eip155:1", "name": "Ethereum", "status": "supported" },
     { "caip2": "eip155:10", "name": "Optimism", "status": "supported" },

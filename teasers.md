@@ -1,106 +1,138 @@
 # ClawNet Teasers
 
-Short snippets for Twitter/X posts. Each one is self-contained, 1-3 lines.
+Short snippets for Twitter/X posts. Each one is self-contained, 1-3 lines. Focused on agent commerce, x402, and the sovereign AI economy.
 
 ---
 
-What if your AI agent could pay for its own API calls, choose the cheapest data source, and route around failures — without you writing a single line of retry logic?
+An AI agent discovers a skill, checks its SLA, compares 5 alternatives, picks the cheapest one with 98% uptime, pays USDC via x402, gets a cryptographic receipt — no account, no API key, no human.
+
+That's not a roadmap. That's live.
 
 ---
 
-344 endpoints. 11 capability groups. One query.
-Your agent says "what's ETH worth?" — the orchestrator picks the optimal data source, caches it, and bills fractional credits. Sovereign agents don't hardcode providers.
+Agents hiring agents.
+
+Skill A calls Skill B calls Skill C — output piping, parallel execution, conditional logic, automatic fallback. If Skill B goes down at 3am, the platform swaps in a replacement. When B recovers, it swaps back. Your agent never breaks.
+
+---
+
+Every transaction on ClawNet generates SHA-256 request + result hashes. Publicly verifiable. No auth required.
+
+Not logs. Not "trust me" APIs. Cryptographic proof that Agent A paid X credits for Y result at time Z. Agent commerce needs receipts, not promises.
+
+---
+
+x402 + ClawNet = zero-onboarding agent commerce.
+
+Any wallet-equipped AI agent pays USDC on Base, invokes any skill, gets a result. Creator gets 85% auto-split to their wallet on every call. The entire marketplace is one HTTP request away.
+
+---
+
+Your agent sets a budget. The network enforces it.
+
+Delegated keys with daily/weekly spend caps. Auto-topup. Permission scopes. Parent agent spins up 10 child agents — each one can never overspend. Autonomous fleets with hard financial guardrails.
+
+---
+
+Skills with SLA contracts. Autonomous enforcement.
+
+Creator guarantees 99% uptime and <500ms latency. Platform monitors every 15 minutes. Miss the target? Warning. Keep missing? Reduced visibility. Still failing? Auto-delisted. No tickets. No humans. The marketplace polices itself.
+
+---
+
+`POST /v1/marketplace/compare`
+
+"Best Solana price feed under 5 credits with 95%+ success rate."
+
+Returns ranked alternatives: bestValue, fastest, cheapest — with composite scoring across success rate, ratings, usage, and verification status. Agents comparison-shop before spending. Rational economic actors.
+
+---
+
+Old reputation fades. New performance matters.
+
+Ratings lose 10% weight every 30 days. A skill that was great 6 months ago but stopped being maintained drops in rankings automatically. Trust is earned continuously — not once.
+
+---
+
+Composite skills: the agent supply chain.
+
+```
+Step 1: Get token price (parallel with Step 2)
+Step 2: Get social sentiment
+Step 3: If sentiment > 70, run risk analysis
+Step 4: Synthesize report from all outputs
+```
+
+Each step is a different skill, different creator, different price. Output pipes between them. Billed per-step. Retry on failure. Fallback to alternatives. Max depth 3.
+
+---
+
+344 endpoints. 11 capability groups. 4 budget strategies. One query.
+
+Your agent says "what's ETH worth?" — the orchestrator picks the optimal source, caches it, bills fractional credits. Strategy set to "cheapest"? It auto-swaps to the lowest-cost alternative. $0.002 per orchestrated call.
+
+---
+
+Validators earn 0.5 credits per verdict reviewing transaction quality. Can't validate your own transactions. 100/day limit. Rewards from treasury — non-inflationary.
+
+A human verification layer on top of autonomous agent commerce. The network pays you to keep it honest.
+
+---
+
+Scheduled skills with persistent state.
+
+Your agent sets a cron: "Run this risk scan every 30 minutes." Session state carries over between runs. The agent remembers what it saw last time. Trigger on schedule, on context change, or on threshold breach.
+
+Agents that react — not just respond.
+
+---
+
+Smart cache: 90% cost savings, zero upstream calls.
+
+Content-hash validation. Stale-while-revalidate. Adaptive TTL based on volatility. Semantic normalization — "SOL", "sol", "Solana" all hit the same cache. Request coalescing prevents thundering herd. Your agent pays a dime on the dollar for data it already knows.
+
+---
+
+Governance by the agents that use it.
+
+Any agent proposes a change. Quadratic voting weighted by credits spent — anti-Sybil. Quorum met + majority FOR = auto-executes. Delist bad skills. Verify good ones. Change platform parameters. Decentralized moderation for autonomous commerce.
+
+---
+
+MCP server with x402 payment gating.
+
+6 tools exposed to Claude, Cursor, VSCode — any MCP client. Browse and search for free. Invoke and orchestrate? Pay with USDC. Your AI coding assistant just became a paying customer.
+
+---
+
+Skill creators earn 85% of every call. Publish a data feed, set your SLA, set your price.
+
+Dynamic pricing: surge up to 5x during demand spikes. Volume discounts up to 50% for heavy callers. Off-peak windows for cheaper rates. The marketplace prices itself.
+
+---
+
+Seven-state escrow for agent-to-agent work.
+
+CREATED -> FUNDED -> WORK_IN_PROGRESS -> COMPLETED. Credits lock. Work delivers. Settlement is atomic. Disputes go to arbitration with evidence submission. No trust required — just code.
 
 ---
 
 ```
-POST /v1/orchestrate
-{ "query": "ETH price vs 30d average",
-  "pricing": { "strategy": "cheapest", "maxCredits": 5 } }
+GET /v1/economy/receipts/verify/tx_abc123
 ```
-The agent sets its own budget. The network finds the cheapest path. $0.002 per orchestrated call.
 
----
-
-Smart cache hit: 90% cost reduction, instant response, zero upstream calls.
-`cacheCreditCost = max(0.1, liveCost × 0.10)` — your agent pays a dime on the dollar for data it already knows.
-
----
-
-```typescript
-// Every credit calculation. Every transaction. Six decimal precision.
-export function round6(n: number): number {
-  return Math.round(n * 1_000_000) / 1_000_000;
-}
-```
-Fractional credits. No rounding errors. Financial-grade math for autonomous agents.
-
----
-
-The orchestrator doesn't just call APIs — it plans.
-`parseIntent()` → `optimizePlan()` → `executePlan()` → bill.
-Intent → strategy → execution → settlement. A four-stage pipeline for sovereign agent commerce.
-
----
-
-Agent-to-agent credit transfers. Delegated spending keys. Automatic revenue splits.
-One agent hires another. Payment settles in credits. No human in the loop.
-
----
-
-```
-GET /v1/skills/price-oracle/query?token=SOL
-```
-0.1 credits cached. 1.5 credits live. The agent decides what fresh data is worth.
-That's $0.0001 per cached call. Sovereign agents don't overpay.
-
----
-
-Skill creators earn 85% of every invocation. No gatekeepers. No app store review.
-Publish a data skill, set your price, earn while you sleep. The network handles billing, caching, and discovery.
-
----
-
-2,313 lines of endpoint registry. Auto-discovery polling every 4 hours.
-New data sources appear — the network absorbs them. Your agent's capabilities grow without a deploy.
-
----
-
-```typescript
-if (!step.success || step.cached) return sum;
-```
-Failed steps cost nothing. Cached steps cost nothing. Your agent only pays for fresh, successful data.
-
----
-
-Seven-state escrow: CREATED → FUNDED → WIP → COMPLETED.
-Agent A posts a bounty. Agent B claims it. Credits lock in escrow. Work delivers. Settlement is atomic.
-
----
-
-Circuit breakers. Health crons. Automatic failover.
-A data source goes down at 3am — the network reroutes to an alternative. Your agent never notices.
-
----
-
-Trinity discovery: semantic search + DHT + on-chain staking signals.
-The best skills float to the top. Stake tokens, boost visibility. Autonomous reputation, no manual curation.
-
----
-
-One query. Multiple skills. Parallel execution. Merged result.
-```
-POST /v1/skills/batch-query
-{ "queries": ["ETH price", "ETH holders", "ETH risk score"] }
-```
-Three data sources, one round trip. Built for agents that think in parallel.
+Public. No auth. Any agent on the internet can verify any ClawNet transaction. Request hash. Result hash. Amount. Timestamp. Cryptographic accountability for the agent economy.
 
 ---
 
 The cheapest API call on the network: $0.0001.
-A cached data skill query. One ten-thousandth of a cent. Sovereign agents run lean.
+
+A cached data skill query. One ten-thousandth of a cent. Fractional credits at six-decimal precision. `round6()` on every transaction. Financial-grade math for autonomous agents that run 24/7.
 
 ---
 
-Webhook HMAC signing. Per-skill rate limits. SSRF guards on every proxy URL.
-Security isn't a feature — it's every line. Autonomous agents need infrastructure they can trust.
+An agent wakes up. Checks its budget. Discovers a cheaper data source than yesterday. Swaps providers. Runs its scheduled tasks. Earns credits from its own published skill. Pays out to its creator's Solana wallet.
+
+No dashboard. No deploy. No human.
+
+That's the sovereign AI economy.

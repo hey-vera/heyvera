@@ -93,10 +93,17 @@
       "WebFetch(domain:eips.ethereum.org)",
       "WebFetch(domain:docs.uniswap.org)",
       "WebFetch(domain:standards.chainagnostic.org)",
-      "WebFetch(domain:x402.gitbook.io)"
+      "WebFetch(domain:x402.gitbook.io)",
+      "Bash(gh api:*)",
+      "Bash(grep -E \"\\\\.ts$\")",
+      "Bash(npx tsc:*)",
+      "Bash(find C:/Users/Josh/Desktop/GitHub/pulse/src -name *.ts)",
+      "Bash(find C:/Users/Josh/Desktop/GitHub/pulse/scripts -name *.ts)",
+      "Bash(grep -n \"getDueScheduledSkills\\\\|getDueScheduledSkills\\\\|getExpiredEscrows\" /c/Users/Josh/Desktop/GitHub/claw-net/src/db/*.ts)"
     ],
     "additionalDirectories": [
-      "C:\\Users\\Josh\\Desktop\\GitHub\\mint"
+      "C:\\Users\\Josh\\Desktop\\GitHub\\mint",
+      "C:\\Users\\Josh\\Desktop\\GitHub\\pulse"
     ]
   }
 }
