@@ -251,6 +251,7 @@ app.route('/v1/batch', batchRouter);
 app.route('/v1/stream', streamRouter);
 app.route('/v1/openclaw', openclawRouter);
 app.route('/v1', openapiRouter);
+app.route('', openapiRouter); // Also serve OpenAPI at /openapi.json (x402scan discovery)
 app.route('/v1', apiRouter);
 app.route('/x402', x402SkillsRouter);
 app.route('/v1/llm', llmRouter);

@@ -689,15 +689,47 @@ openapiRouter.get('/openapi.json', (c) => {
       '/x402/skills/{id}': {
         post: {
           summary: 'Invoke a skill via x402 micropayment',
-          description: 'Invoke a skill by paying with USDC on Base. Requires a valid x402 payment header. Compatible with x402-js and any x402-compliant agent.',
+          description: 'Invoke a skill by paying with USDC on Base. Requires a valid x402 payment header.',
           operationId: 'invokeX402Skill',
           tags: ['x402'],
           security: [],
+          'x-payment-info': { protocols: 'x402', pricingMode: 'fixed', price: '0.002', currency: 'USDC', network: 'eip155:8453' },
           parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
-          requestBody: { content: { 'application/json': { schema: { type: 'object', properties: { variables: { type: 'object', additionalProperties: { type: 'string' } } } } } } },
+          requestBody: { content: { 'application/json': { schema: { type: 'object', properties: { variables: { type: 'object', description: 'Key-value pairs for skill template variables', additionalProperties: { type: 'string' } } } } } } },
           responses: {
-            '200': { description: 'Skill result' },
-            '402': { description: 'Payment required — response includes x402 payment details' },
+            '200': { description: 'Skill result', content: { 'application/json': { schema: { type: 'object', properties: { answer: { type: 'string' }, creditsCharged: { type: 'number' }, metadata: { type: 'object' } } } } } },
+            '402': { description: 'Payment required — response includes x402 payment details in PAYMENT-REQUIRED header' },
+          },
+        },
+      },
+      '/x402/orchestrate': {
+        post: {
+          summary: 'AI orchestration via x402 micropayment',
+          description: 'Send a natural language query. ClawNet routes to optimal APIs and returns a synthesized answer. Pay with USDC on Base.',
+          operationId: 'x402Orchestrate',
+          tags: ['x402'],
+          security: [],
+          'x-payment-info': { protocols: 'x402', pricingMode: 'fixed', price: '0.002', currency: 'USDC', network: 'eip155:8453' },
+          requestBody: { content: { 'application/json': { schema: { type: 'object', required: ['query'], properties: { query: { type: 'string', description: 'Natural language question or task' } } } } } },
+          responses: {
+            '200': { description: 'Orchestration result', content: { 'application/json': { schema: { type: 'object', properties: { answer: { type: 'string' }, creditsCharged: { type: 'number' }, steps: { type: 'array', items: { type: 'object' } } } } } } },
+            '402': { description: 'Payment required' },
+          },
+        },
+      },
+      '/x402/query/{id}': {
+        post: {
+          summary: 'Query a data skill via x402 micropayment',
+          description: 'Get structured data from a ClawNet data skill. Returns raw JSON, no LLM synthesis. Pay with USDC on Base.',
+          operationId: 'x402QueryDataSkill',
+          tags: ['x402'],
+          security: [],
+          'x-payment-info': { protocols: 'x402', pricingMode: 'fixed', price: '0.001', currency: 'USDC', network: 'eip155:8453' },
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          requestBody: { content: { 'application/json': { schema: { type: 'object', properties: { token: { type: 'string', description: 'Token symbol or mint address' } } } } } },
+          responses: {
+            '200': { description: 'Data skill result', content: { 'application/json': { schema: { type: 'object', properties: { data: { type: 'object' }, creditsCharged: { type: 'number' } } } } } },
+            '402': { description: 'Payment required' },
           },
         },
       },
