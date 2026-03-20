@@ -38,6 +38,12 @@ claw-net.org, www.claw-net.org {
 	handle /a2a/* {
 		reverse_proxy localhost:3402
 	}
+	handle /feed.xml {
+		reverse_proxy localhost:3402
+	}
+	handle /health/* {
+		reverse_proxy localhost:3402
+	}
 	handle /llms.txt {
 		reverse_proxy localhost:3402
 	}
