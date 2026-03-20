@@ -98,6 +98,12 @@ const envSchema = z.object({
     z.boolean().default(false),
   ),
   AG0_SUBGRAPH_URL: z.string().url().optional(),
+
+  // 402index.io catalog sync (off by default)
+  INDEX_SYNC_ENABLED: z.preprocess(
+    (v) => v === 'true' || v === '1' || v === true,
+    z.boolean().default(false),
+  ),
 });
 
 const parsed = envSchema.safeParse(process.env);

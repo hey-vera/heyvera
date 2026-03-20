@@ -902,6 +902,32 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   ` },
   // v92: direct x402 payout — opt-in per skill, routes x402 payment to creator's wallet
   { version: 92, sql: `ALTER TABLE skills ADD COLUMN direct_payout INTEGER NOT NULL DEFAULT 0` },
+  // v93: 402index.io catalog sync — stores external x402 endpoints for orchestration
+  { version: 93, sql: `
+    CREATE TABLE IF NOT EXISTS indexed_endpoints (
+      id TEXT PRIMARY KEY,
+      source_id TEXT,
+      name TEXT NOT NULL,
+      description TEXT,
+      url TEXT NOT NULL,
+      protocol TEXT NOT NULL DEFAULT 'x402',
+      price_usd REAL,
+      payment_asset TEXT DEFAULT 'USDC',
+      payment_network TEXT,
+      category TEXT DEFAULT 'uncategorized',
+      provider TEXT,
+      health_status TEXT DEFAULT 'unknown',
+      uptime_30d REAL,
+      latency_p50_ms INTEGER,
+      reliability_score REAL,
+      http_method TEXT DEFAULT 'GET',
+      last_synced TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(url, protocol)
+    );
+    CREATE INDEX IF NOT EXISTS idx_indexed_ep_category ON indexed_endpoints(category);
+    CREATE INDEX IF NOT EXISTS idx_indexed_ep_protocol ON indexed_endpoints(protocol);
+    CREATE INDEX IF NOT EXISTS idx_indexed_ep_health ON indexed_endpoints(health_status);
+  ` },
 ];
 
 function runMigrations(): void {

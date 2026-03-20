@@ -79,6 +79,8 @@ import { startPayoutCron } from './core/payout-cron';
 import { startSkillHealthCron } from './core/skill-health-cron';
 import { startSkillSchedulerCron } from './core/skill-scheduler-cron';
 import { startCacheWarmingCron } from './core/cache-warming-cron';
+import { startIndexSync } from './core/index-sync';
+import { getIndexedEndpoints, countIndexedEndpoints, searchIndexedEndpoints, getIndexedEndpointsSyncInfo } from './db/index';
 import { startCreatorNotificationsCron } from './core/creator-notifications';
 import { cacheStatsRouter } from './routes/cache-stats';
 import { onboardRouter } from './routes/onboard';
@@ -361,6 +363,35 @@ ${items}
   return c.body(xml);
 });
 
+// ─── Public indexed endpoints catalog (402index.io sync) ────────────────────
+app.get('/v1/indexed', (c) => {
+  const category = c.req.query('category') || undefined;
+  const q = c.req.query('q') || undefined;
+  const limit = Math.min(Math.max(1, parseInt(c.req.query('limit') || '50', 10) || 50), 200);
+  const offset = Math.max(0, parseInt(c.req.query('offset') || '0', 10) || 0);
+
+  let endpoints;
+  let total: number;
+
+  if (q) {
+    endpoints = searchIndexedEndpoints(q, limit);
+    total = endpoints.length;
+  } else {
+    endpoints = getIndexedEndpoints(category, limit, offset);
+    total = countIndexedEndpoints(category);
+  }
+
+  const syncInfo = getIndexedEndpointsSyncInfo();
+
+  return c.json({
+    endpoints,
+    total,
+    limit,
+    offset,
+    lastSynced: syncInfo.lastSynced,
+  });
+});
+
 app.notFound((c) => c.json({ error: 'Not found', code: 'NOT_FOUND' }, 404));
 
 async function start() {
@@ -405,6 +436,7 @@ async function start() {
   startSkillSchedulerCron();      cronsStarted++;
   startCacheWarmingCron();        cronsStarted++;
   startCreatorNotificationsCron(); cronsStarted++;
+  startIndexSync();                cronsStarted++;
 
   // Load embedding model + seed in background — don't block server startup
   loadEmbeddingModel()

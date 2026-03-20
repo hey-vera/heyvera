@@ -13,6 +13,7 @@ import { stopSkillHealthCron } from '../core/skill-health-cron';
 import { stopSkillSchedulerCron } from '../core/skill-scheduler-cron';
 import { stopCacheWarmingCron } from '../core/cache-warming-cron';
 import { stopCreatorNotificationsCron } from '../core/creator-notifications';
+import { stopIndexSync } from '../core/index-sync';
 let isShuttingDown = false;
 let httpServer: { close: () => void } | null = null;
 
@@ -58,6 +59,7 @@ export function setupGracefulShutdown() {
     stopSkillSchedulerCron();
     stopCacheWarmingCron();
     stopCreatorNotificationsCron();
+    stopIndexSync();
 
     // 4. Stop external services (after drain — they may still use DB)
     try {

@@ -566,3 +566,64 @@ export function verifyReputationAnchor(anchorId: string, externalSnapshot?: stri
   const computedHash = 'sha256:' + crypto.createHash('sha256').update(dataToHash).digest('hex');
   return { valid: computedHash === anchor.anchor_hash, anchor };
 }
+
+// ─── Indexed Endpoints (402index.io sync) ────────────────────────────────────
+
+export interface IndexedEndpoint {
+  id: string;
+  source_id: string;
+  name: string;
+  description: string | null;
+  url: string;
+  protocol: string;
+  price_usd: number | null;
+  payment_asset: string;
+  payment_network: string | null;
+  category: string;
+  provider: string | null;
+  health_status: string;
+  uptime_30d: number | null;
+  latency_p50_ms: number | null;
+  reliability_score: number | null;
+  http_method: string;
+  last_synced: string;
+}
+
+export function getIndexedEndpoints(category?: string, limit = 50, offset = 0): IndexedEndpoint[] {
+  let sql = 'SELECT * FROM indexed_endpoints WHERE 1=1';
+  const params: unknown[] = [];
+  if (category) { sql += ' AND category = ?'; params.push(category); }
+  sql += ' ORDER BY reliability_score DESC NULLS LAST, last_synced DESC LIMIT ? OFFSET ?';
+  params.push(Math.min(limit, 200), offset);
+  return getDb().prepare(sql).all(...params) as IndexedEndpoint[];
+}
+
+export function countIndexedEndpoints(category?: string): number {
+  let sql = 'SELECT COUNT(*) as n FROM indexed_endpoints WHERE 1=1';
+  const params: unknown[] = [];
+  if (category) { sql += ' AND category = ?'; params.push(category); }
+  const row = getDb().prepare(sql).get(...params) as { n: number };
+  return row.n;
+}
+
+export function searchIndexedEndpoints(query: string, limit = 20): IndexedEndpoint[] {
+  const like = `%${query}%`;
+  return getDb()
+    .prepare(`SELECT * FROM indexed_endpoints
+              WHERE name LIKE ? OR description LIKE ? OR category LIKE ? OR provider LIKE ?
+              ORDER BY reliability_score DESC NULLS LAST LIMIT ?`)
+    .all(like, like, like, like, Math.min(limit, 100)) as IndexedEndpoint[];
+}
+
+export function getIndexedEndpointByUrl(url: string): IndexedEndpoint | undefined {
+  return getDb()
+    .prepare('SELECT * FROM indexed_endpoints WHERE url = ?')
+    .get(url) as IndexedEndpoint | undefined;
+}
+
+export function getIndexedEndpointsSyncInfo(): { total: number; lastSynced: string | null } {
+  const row = getDb()
+    .prepare('SELECT COUNT(*) as total, MAX(last_synced) as lastSynced FROM indexed_endpoints')
+    .get() as { total: number; lastSynced: string | null };
+  return { total: row.total, lastSynced: row.lastSynced };
+}
