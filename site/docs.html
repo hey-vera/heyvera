@@ -338,6 +338,7 @@
       <a class="sidebar-link" href="#skills-use">Using Skills</a>
       <a class="sidebar-link" href="#agent-services">Marketplace</a>
       <a class="sidebar-link" href="#skills-create">Creating Skills</a>
+      <a class="sidebar-link" href="#direct-payout">Direct Payout</a>
       <a class="sidebar-link" href="#creator-economics">Creator Economics</a>
 
       <div class="sidebar-heading">Agent Development</div>
@@ -353,6 +354,8 @@
       <div class="sidebar-heading">Reference</div>
       <a class="sidebar-link" href="#advanced">Advanced</a>
       <a class="sidebar-link" href="#interop">Interoperability</a>
+      <a class="sidebar-link" href="#opportunities">Opportunities</a>
+      <a class="sidebar-link" href="#reputation-anchors">Reputation Anchors</a>
       <a class="sidebar-link" href="#registry">Endpoint Registry</a>
       <a class="sidebar-link" href="#vie">Verified Intelligence</a>
       <a class="sidebar-link" href="#manifest">Manifest</a>
@@ -1626,6 +1629,35 @@ while (true) {
         <div class="endpoint-header"><span class="method-badge delete">DELETE</span><code class="endpoint-path">/v1/skills/:id</code></div>
         <p class="endpoint-desc">Permanently delete a skill you own.</p>
         <div class="endpoint-auth">Requires: <code>X-API-Key</code> (must own skill)</div>
+      </div>
+
+      <h4 id="direct-payout">Direct x402 Payout</h4>
+      <p class="endpoint-desc">When enabled, x402 payments for your skill route directly to your wallet on-chain instead of accumulating as platform credits. Requires a wallet address linked to your API key via <a href="#auth" style="color:var(--accent)">SIWX wallet auth</a>.</p>
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge patch">PATCH</span><code class="endpoint-path">/v1/skills/:id/direct-payout</code></div>
+        <p class="endpoint-desc">Toggle direct x402 payout for a skill you own. When enabled, x402 USDC payments are sent directly to your linked wallet address on-chain.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code> (must own skill + have SIWX wallet linked)</div>
+        <h4>Body</h4>
+        <table class="params-table">
+          <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>enabled</code></td><td><span class="param-type">boolean</span></td><td><span class="param-req">Yes</span></td><td>Set <code>true</code> to enable direct on-chain payout, <code>false</code> to revert to credit accumulation</td></tr>
+          </tbody>
+        </table>
+        <div class="code-block">
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <pre><code>curl -X PATCH https://api.claw-net.org/v1/skills/aB3kx9Lm2nPq/direct-payout \
+  -H "X-API-Key: cn-your-key-here" \
+  -H "Content-Type: application/json" \
+  -d '{"enabled": true}'</code></pre>
+        </div>
+        <h4>Response</h4>
+        <div class="code-block"><pre><code>{
+  "skillId": "aB3kx9Lm2nPq",
+  "directPayout": true,
+  "walletAddress": "H6xbRy..."
+}</code></pre></div>
+        <div class="alert alert-warning"><strong>Requirement:</strong> You must have a wallet address linked to your API key via SIWX (Sign In With X) before enabling direct payout. Call <code style="font-family:var(--font-mono);color:var(--warning)">POST /v1/auth/siwx</code> first to link your Solana wallet.</div>
       </div>
 
       <h4>Creator Earnings</h4>
@@ -3118,6 +3150,92 @@ app.post('/webhooks/clawnet', express.raw({ type: 'application/json' }), (req, r
       <div class="endpoint">
         <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/feed.xml</code></div>
         <p class="endpoint-desc">RSS feed of recently published skills. Subscribe in any RSS reader to get notified when new skills appear on the marketplace.</p>
+      </div>
+
+      <!-- Opportunities -->
+      <h4 style="font-size:16px;font-weight:600;color:var(--text-primary);text-transform:none;letter-spacing:0;margin:36px 0 10px" id="opportunities">Opportunities</h4>
+      <p class="endpoint-desc">Gap analysis for developers &mdash; find underserved categories, single-provider risks, degraded skills, and pricing gaps on the marketplace.</p>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/opportunities</code></div>
+        <p class="endpoint-desc">Returns a structured breakdown of marketplace gaps. No auth required. Use this to discover where new skills are most needed.</p>
+        <div class="code-block">
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <pre><code>curl https://api.claw-net.org/v1/opportunities</code></pre>
+        </div>
+        <h4>Response</h4>
+        <div class="code-block"><pre><code>{
+  "opportunities": {
+    "underservedCategories": [
+      { "tag": "defi", "skillCount": 1, "reason": "Only 1 skill covers this high-demand category" }
+    ],
+    "singleProviderRisks": [
+      { "tag": "weather", "provider": "weather-api", "reason": "Single provider &mdash; no redundancy" }
+    ],
+    "degradedSkills": [
+      { "id": "abc123", "name": "broken-oracle", "healthStatus": "DEGRADED", "successRate": 0.65 }
+    ],
+    "missingCapabilities": [
+      { "capability": "streaming", "reason": "No skills support streaming output" }
+    ],
+    "pricingGaps": [
+      { "tag": "ai-inference", "avgCreditCost": 15.5, "reason": "Average cost is 5x the platform median" }
+    ]
+  },
+  "summary": {
+    "totalSkills": 17,
+    "totalTags": 12,
+    "healthyPct": 88.2,
+    "avgCreditCost": 2.3
+  }
+}</code></pre></div>
+      </div>
+
+      <!-- Reputation Anchors -->
+      <h4 style="font-size:16px;font-weight:600;color:var(--text-primary);text-transform:none;letter-spacing:0;margin:36px 0 10px" id="reputation-anchors">Reputation Anchors</h4>
+      <p class="endpoint-desc">Portable, cryptographically verifiable reputation snapshots. Each anchor contains a SHA-256 hash of the skill's trust metrics at a point in time, allowing third parties to independently verify reputation claims.</p>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/stats/reputation/:skillId</code></div>
+        <p class="endpoint-desc">Retrieve all reputation anchors for a skill. Each anchor includes a SHA-256 hash of the snapshot data for tamper-proof verification. No auth required.</p>
+        <div class="code-block">
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <pre><code>curl https://api.claw-net.org/v1/stats/reputation/vie-crypto-trust</code></pre>
+        </div>
+        <h4>Response</h4>
+        <div class="code-block"><pre><code>{
+  "skillId": "vie-crypto-trust",
+  "anchors": [
+    {
+      "id": "abc123",
+      "hash": "sha256:abcdef1234567890...",
+      "snapshot": {
+        "avgRating": 4.2,
+        "successRate": 0.97,
+        "totalUses": 342,
+        "healthStatus": "HEALTHY"
+      },
+      "createdAt": "2026-03-19T22:00:00Z"
+    }
+  ],
+  "verifyUrl": "/v1/stats/reputation/verify/:anchorId"
+}</code></pre></div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/stats/reputation/verify/:anchorId</code></div>
+        <p class="endpoint-desc">Verify a specific reputation anchor hash. Returns whether the hash is valid and matches the stored snapshot. No auth required &mdash; anyone can verify.</p>
+        <div class="code-block">
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <pre><code>curl https://api.claw-net.org/v1/stats/reputation/verify/abc123</code></pre>
+        </div>
+        <h4>Response</h4>
+        <div class="code-block"><pre><code>{
+  "valid": true,
+  "anchorId": "abc123",
+  "hash": "sha256:abcdef1234567890...",
+  "skillId": "vie-crypto-trust"
+}</code></pre></div>
       </div>
 
       <h4>Well-Known Discovery Endpoints</h4>

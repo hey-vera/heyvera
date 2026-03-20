@@ -780,6 +780,39 @@
         <div class="platform-ep">
           <span class="platform-ep-method method-get">GET</span>
           <div class="platform-ep-info">
+            <div class="platform-ep-path">/v1/opportunities</div>
+            <div class="platform-ep-desc">Gap analysis for developers &mdash; underserved categories, single-provider risks, degraded skills, missing capabilities</div>
+          </div>
+          <div class="platform-ep-badges">
+            <span class="ep-badge badge-discovery">discovery</span>
+            <span class="platform-ep-auth auth-none">No Auth</span>
+          </div>
+        </div>
+        <div class="platform-ep">
+          <span class="platform-ep-method method-get">GET</span>
+          <div class="platform-ep-info">
+            <div class="platform-ep-path">/v1/stats/reputation/:skillId</div>
+            <div class="platform-ep-desc">Portable reputation anchors &mdash; SHA-256 hashed snapshots of skill trust metrics</div>
+          </div>
+          <div class="platform-ep-badges">
+            <span class="ep-badge badge-health">health</span>
+            <span class="platform-ep-auth auth-none">No Auth</span>
+          </div>
+        </div>
+        <div class="platform-ep">
+          <span class="platform-ep-method method-get">GET</span>
+          <div class="platform-ep-info">
+            <div class="platform-ep-path">/v1/stats/reputation/verify/:anchorId</div>
+            <div class="platform-ep-desc">Verify a reputation anchor hash</div>
+          </div>
+          <div class="platform-ep-badges">
+            <span class="ep-badge badge-health">health</span>
+            <span class="platform-ep-auth auth-none">No Auth</span>
+          </div>
+        </div>
+        <div class="platform-ep">
+          <span class="platform-ep-method method-get">GET</span>
+          <div class="platform-ep-info">
             <div class="platform-ep-path">/health/live</div>
             <div class="platform-ep-desc">Liveness probe</div>
           </div>
@@ -797,6 +830,22 @@
           <div class="platform-ep-badges">
             <span class="ep-badge badge-discovery">discovery</span>
             <span class="platform-ep-auth auth-none">No Auth</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Skills Management -->
+      <div class="platform-group">
+        <div class="platform-group-title">Skills Management</div>
+        <div class="platform-ep">
+          <span class="platform-ep-method method-patch">PATCH</span>
+          <div class="platform-ep-info">
+            <div class="platform-ep-path">/v1/skills/:id/direct-payout</div>
+            <div class="platform-ep-desc">Toggle direct x402 payout to creator wallet on-chain</div>
+          </div>
+          <div class="platform-ep-badges">
+            <span class="ep-badge badge-payments">payments</span>
+            <span class="platform-ep-auth auth-apikey">API Key</span>
           </div>
         </div>
       </div>
