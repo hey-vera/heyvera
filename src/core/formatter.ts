@@ -168,10 +168,23 @@ export async function formatResponse(
   intent: ParsedIntent,
   execution: ExecutionResult,
 ): Promise<FormattedResponse> {
-  // Skip synthesis entirely if no steps succeeded
+  // No steps succeeded — fall back to direct LLM answer instead of empty response
   if (execution.steps.filter((s) => s.success).length === 0) {
-    logger.warn('Synthesis: all steps failed, returning fallback response');
-    return { ...buildFallbackResponse(query, execution), synthesisCached: false };
+    logger.info('Synthesis: no API steps succeeded, falling back to direct LLM answer');
+    try {
+      const directAnswer = await llmComplete([
+        { role: 'system', content: 'You are ClawNet, an AI agent orchestration platform. Answer the user\'s question directly and helpfully. Be concise.' },
+        { role: 'user', content: query },
+      ], 'synthesis');
+      return {
+        answer: directAnswer.content,
+        suggestedActions: [],
+        synthesisCached: false,
+      };
+    } catch (err) {
+      logger.warn({ err }, 'Synthesis: direct LLM fallback failed');
+      return { ...buildFallbackResponse(query, execution), synthesisCached: false };
+    }
   }
 
   // ── Synthesis cache check ──────────────────────────────────────────────────
