@@ -254,9 +254,11 @@ export const x402SkillsRouter = new Hono();
 function createFacilitator(): unknown {
   // Use CDP authenticated facilitator for mainnet (requires CDP_API_KEY_ID + CDP_API_KEY_SECRET)
   if (env.CDP_API_KEY_ID && env.CDP_API_KEY_SECRET) {
+    // dotenv stores literal \n — convert to real newlines for PEM parsing
+    const secret = env.CDP_API_KEY_SECRET.replace(/\\n/g, '\n');
     const config = createCdpFacilitatorConfig({
       apiKeyId: env.CDP_API_KEY_ID,
-      apiKeySecret: env.CDP_API_KEY_SECRET,
+      apiKeySecret: secret,
     });
     logger.info({ facilitator: config.url, authenticated: true }, 'x402 CDP facilitator configured (mainnet)');
     return new HTTPFacilitatorClient(config);
