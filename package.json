@@ -21,6 +21,7 @@
     "@anthropic-ai/sdk": "^0.39.0",
     "@chainsafe/libp2p-yamux": "^8.0.1",
     "@clerk/backend": "^3.0.1",
+    "@coinbase/x402": "^2.1.0",
     "@hono/node-server": "^1.13.7",
     "@huggingface/transformers": "^3.8.1",
     "@libp2p/kad-dht": "^16.1.5",

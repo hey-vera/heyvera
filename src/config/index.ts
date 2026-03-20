@@ -57,6 +57,8 @@ const envSchema = z.object({
   X402_PAYAI_API_KEY_ID: z.string().optional(),     // PayAI API key ID for authenticated requests
   X402_PAYAI_API_KEY_SECRET: z.string().optional(), // PayAI API key secret (Ed25519 PKCS#8)
   X402_NETWORK: z.enum(['base-mainnet', 'base-sepolia']).default('base-mainnet'),
+  CDP_API_KEY_ID: z.string().optional(),         // Coinbase Developer Platform API key ID (for mainnet facilitator)
+  CDP_API_KEY_SECRET: z.string().optional(),     // Coinbase Developer Platform API key secret
   X402_RECIPIENT_ADDRESS: z.string().optional(), // EVM address to receive USDC on Base
   X402_USDC_PER_CREDIT: z.coerce.number().min(0.0001).max(1).default(0.001), // 1 credit = $0.001 USDC (matches Stripe base rate of 1000 credits/$1)
 

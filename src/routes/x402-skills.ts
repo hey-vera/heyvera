@@ -20,8 +20,12 @@ const { paymentMiddleware } = require('@x402/hono') as {
 };
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { HTTPFacilitatorClient, x402ResourceServer } = require('@x402/core/server') as {
-  HTTPFacilitatorClient: new (config: { url: string }) => unknown;
+  HTTPFacilitatorClient: new (config: { url: string; createAuthHeaders?: unknown }) => unknown;
   x402ResourceServer: new (facilitator: unknown) => { register: (network: string, scheme: unknown) => unknown };
+};
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { createFacilitatorConfig: createCdpFacilitatorConfig } = require('@coinbase/x402') as {
+  createFacilitatorConfig: (opts: { apiKeyId: string; apiKeySecret: string }) => { url: string; createAuthHeaders: unknown };
 };
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { ExactEvmScheme } = require('@x402/evm/exact/server') as {
@@ -248,9 +252,20 @@ export const x402SkillsRouter = new Hono();
 // ─── Facilitator with fallback (uses FacilitatorPool) ────────────────────────
 
 function createFacilitator(): unknown {
+  // Use CDP authenticated facilitator for mainnet (requires CDP_API_KEY_ID + CDP_API_KEY_SECRET)
+  if (env.CDP_API_KEY_ID && env.CDP_API_KEY_SECRET) {
+    const config = createCdpFacilitatorConfig({
+      apiKeyId: env.CDP_API_KEY_ID,
+      apiKeySecret: env.CDP_API_KEY_SECRET,
+    });
+    logger.info({ facilitator: config.url, authenticated: true }, 'x402 CDP facilitator configured (mainnet)');
+    return new HTTPFacilitatorClient(config);
+  }
+
+  // Fallback: unauthenticated facilitator (testnet only — x402.org/facilitator)
   const pool = getFacilitatorPool();
   const primaryUrl = pool.getPrimaryUrl();
-  logger.info({ facilitator: primaryUrl, pool: pool.getStatus() }, 'x402 facilitator configured via pool');
+  logger.info({ facilitator: primaryUrl, authenticated: false, pool: pool.getStatus() }, 'x402 facilitator configured (unauthenticated — testnet only)');
   return new HTTPFacilitatorClient({ url: primaryUrl });
 }
 
