@@ -139,6 +139,21 @@ export function computeRequestHash(apiKey: string, body: unknown): string {
     .slice(0, 16);
 }
 
+/**
+ * Cross-agent manifest sharing — if ANY agent recently verified the same subject
+ * with a PROCEED verdict, reuse the verification (within TTL window).
+ * This means Agent B benefits from Agent A's verification without paying again.
+ */
+export function getCrossAgentVerification(subject: string, withinMinutes: number = 5): ManifestMemoryRow | undefined {
+  if (!subject) return undefined;
+  return getDb().prepare(
+    `SELECT * FROM manifest_memory
+     WHERE subject = ? AND overall_verdict = 'PROCEED' AND confidence >= 0.7
+     AND created_at > datetime('now', ?)
+     ORDER BY confidence DESC, created_at DESC LIMIT 1`
+  ).get(subject, `-${withinMinutes} minutes`) as ManifestMemoryRow | undefined;
+}
+
 // ─── Outcome Tracking ──────────────────────────────────────────────────────
 
 export function recordManifestOutcome(

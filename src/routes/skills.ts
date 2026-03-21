@@ -695,6 +695,17 @@ skillsRouter.get('/:id/query', checkApiKey, async (c) => {
 
     logger.info({ requestId, skillId: id, durationMs: Date.now() - start }, 'Data skill query complete');
 
+    // ─── Auto-Manifest (inline trust verdict) ────────────────────────
+    let trustVerdict: { verdict: string; confidence: number; sources: number; attestationId?: string } | null = null;
+    try {
+      const { computeVerdict, crossReferenceExternalTrust } = await import('../core/manifest-engine');
+      const externalTrust = await crossReferenceExternalTrust(
+        { preflight: { action: 'query_data_skill', params: { skill_id: id } } }, [],
+      );
+      const result = computeVerdict({ overall: 'verified', claims: [], verified_count: 1, disputed_count: 0, unverifiable_count: 0 }, null, null, externalTrust);
+      trustVerdict = { verdict: result.verdict, confidence: result.confidence, sources: (externalTrust?.sources?.length || 0) + 1 };
+    } catch {}
+
     // ─── Attestation (delivery proof) ──────────────────────────────────
     let attestationId: string | null = null;
     const manifestId = c.req.header('X-Manifest-Id') || undefined;
@@ -704,11 +715,13 @@ skillsRouter.get('/:id/query', checkApiKey, async (c) => {
         { skillId: id, variables: params }, { data },
         creditCost, Date.now() - start, manifestId,
       );
+      if (trustVerdict) trustVerdict.attestationId = attestationId || undefined;
     } catch {}
 
     return c.json({
       requestId, skillId: id,
       data,
+      ...(trustVerdict && { trust: trustVerdict }),
       ...(attestationId && { attestation: { id: attestationId, verifyUrl: `https://api.claw-net.org/v1/attest/verify/${attestationId}` } }),
       _meta: {
         cacheHit: false, creditsUsed: creditCost,
@@ -1339,6 +1352,23 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
     logUsage(usageEntry);
     insertOrchestration({ id: requestId, ...usageEntry, apiKey: keyInfo.key, skillId: skill.id });
 
+    // ─── Auto-Manifest (inline trust verdict) ────────────────────────
+    let trustVerdict: { verdict: string; confidence: number; sources: number; attestationId?: string } | null = null;
+    try {
+      const { computeVerdict, crossReferenceExternalTrust } = await import('../core/manifest-engine');
+      const successfulSteps = execution.steps.filter(s => s.success).length;
+      const totalSteps = execution.steps.length || 1;
+      const stepVerify = {
+        overall: (successfulSteps / totalSteps >= 0.8 ? 'verified' : successfulSteps / totalSteps >= 0.5 ? 'partial' : 'disputed') as 'verified' | 'partial' | 'disputed',
+        claims: [], verified_count: successfulSteps, disputed_count: totalSteps - successfulSteps, unverifiable_count: 0,
+      };
+      const externalTrust = await crossReferenceExternalTrust(
+        { preflight: { action: 'invoke_skill', params: { skill_id: id } } }, [],
+      );
+      const result = computeVerdict(stepVerify, null, null, externalTrust);
+      trustVerdict = { verdict: result.verdict, confidence: result.confidence, sources: (externalTrust?.sources?.length || 0) + 1 };
+    } catch {}
+
     // ─── Attestation (delivery proof) ──────────────────────────────────
     let attestationId: string | null = null;
     const manifestId = c.req.header('X-Manifest-Id') || undefined;
@@ -1348,6 +1378,7 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
         { skillId: id, variables }, { answer: formatted.answer },
         creditsToDeduct, totalDurationMs, manifestId,
       );
+      if (trustVerdict) trustVerdict.attestationId = attestationId || undefined;
     } catch {}
 
     const responsePayload = {
@@ -1375,6 +1406,7 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
     await cacheSet(qKey, responsePayload);
     return c.json({
       requestId, ...responsePayload,
+      ...(trustVerdict && { trust: trustVerdict }),
       ...(attestationId && { attestation: { id: attestationId, verifyUrl: `https://api.claw-net.org/v1/attest/verify/${attestationId}` } }),
     });
 

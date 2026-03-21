@@ -10,6 +10,7 @@ import crypto from 'crypto';
 import { getDb } from './connection';
 import { logger } from '../utils/logger';
 import { env } from '../config/index';
+import { fireWebhookEvent } from '../utils/webhooks';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -220,6 +221,26 @@ export function createAttestation(params: CreateAttestationParams): string {
 
   // Update stats (upsert)
   updateAttestationStats(params.apiKeyHash, params.manifestAligned ?? null, params.outcomeStatus || 'success');
+
+  // Fire attestation webhook events
+  try {
+    fireWebhookEvent(params.apiKeyHash, 'ATTESTATION_CREATED', {
+      attestationId: id, actionType: params.actionType,
+      outcomeStatus: params.outcomeStatus || 'success',
+      creditsCharged: params.creditsCharged || 0,
+    });
+
+    // Check for chain breaks (prev_attestation_hash mismatch would have thrown, so if we're here, chain is intact)
+    // Fire TRUST_SCORE_CHANGED on milestone attestation counts
+    const count = getDb().prepare(
+      'SELECT COUNT(*) as c FROM attestations WHERE api_key_hash = ?'
+    ).get(params.apiKeyHash) as { c: number };
+    if (count.c === 10 || count.c === 50 || count.c === 100 || count.c === 500 || count.c === 1000) {
+      fireWebhookEvent(params.apiKeyHash, 'TRUST_SCORE_CHANGED', {
+        totalAttestations: count.c, milestone: true,
+      });
+    }
+  } catch {}
 
   return id;
 }

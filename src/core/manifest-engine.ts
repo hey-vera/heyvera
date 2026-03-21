@@ -22,6 +22,7 @@ import {
   getRecentDuplicate,
   computeRequestHash,
   writeManifestMemory,
+  getCrossAgentVerification,
   type ManifestMemoryRow,
 } from '../db/manifest';
 import { getDb } from '../db/connection';
@@ -445,6 +446,32 @@ export async function runManifest(
       processing_time_ms: Date.now() - start,
       steps_run: (detail?.steps_run || []) as string[],
     };
+  }
+
+  // Cross-agent manifest sharing — check if another agent recently verified the same subject
+  const subject = request.verify?.claims?.[0]?.subject || request.preflight?.params?.skill_id as string || undefined;
+  if (subject && tier === 'quick') {
+    const crossAgent = getCrossAgentVerification(subject, 5);
+    if (crossAgent) {
+      const memCtx = buildMemoryContext(manifestId, apiKey, request, true);
+      const detail = safeParse(crossAgent.detail_json);
+      return {
+        id: crossAgent.id,
+        verdict: crossAgent.overall_verdict as ManifestResponse['verdict'],
+        confidence: crossAgent.confidence,
+        verify: detail?.verify as VerifyResult | undefined,
+        assess: detail?.assess as AssessResult | undefined,
+        preflight: detail?.preflight as PreflightResult | undefined,
+        memory: { ...memCtx, from_memory: true, cross_agent: true },
+        summary: `Cross-agent verified: ${crossAgent.summary || 'Recently verified by another agent.'}`,
+        tier,
+        domain,
+        credits_charged: 0,
+        cached: true,
+        processing_time_ms: Date.now() - start,
+        steps_run: ['cross_agent_cache'],
+      };
+    }
   }
 
   // Parse minimal `check` string into structured request via LLM

@@ -819,3 +819,119 @@ attestRouter.post('/external', checkApiKey, async (c) => {
     return c.json({ error: 'Attestation creation failed', code: 'ATTESTATION_ERROR' }, 500);
   }
 });
+
+// ─── GET /v1/attest/compare — comparative trust (multi-agent) ────────────────
+// Agents can compare trust profiles before choosing who to transact with.
+
+attestRouter.get('/compare', (c) => {
+  const agentsParam = c.req.query('agents');
+  if (!agentsParam) {
+    return c.json({ error: 'agents query param required (comma-separated apiKeyHashes)', code: 'INVALID_INPUT' }, 400);
+  }
+
+  const agents = agentsParam.split(',').map(a => a.trim()).filter(Boolean).slice(0, 10);
+  if (agents.length < 2) {
+    return c.json({ error: 'At least 2 agent hashes required for comparison', code: 'INVALID_INPUT' }, 400);
+  }
+
+  const profiles: Array<Record<string, unknown>> = [];
+  for (const hash of agents) {
+    const stats = getDb().prepare(`
+      SELECT
+        COUNT(*) as total,
+        SUM(CASE WHEN outcome_status = 'success' THEN 1 ELSE 0 END) as successes,
+        SUM(CASE WHEN prev_attestation_hash IS NOT NULL THEN 1 ELSE 0 END) as chained,
+        SUM(CASE WHEN manifest_aligned = 1 THEN 1 ELSE 0 END) as manifest_aligned,
+        MIN(created_at) as first_attestation,
+        MAX(created_at) as last_attestation,
+        SUM(credits_charged) as total_credits
+      FROM attestations WHERE api_key_hash = ?
+    `).get(hash) as { total: number; successes: number; chained: number; manifest_aligned: number; first_attestation: string | null; last_attestation: string | null; total_credits: number } | undefined;
+
+    const total = stats?.total || 0;
+    const successRate = total > 0 ? round6((stats?.successes || 0) / total) : 0;
+    const chainCoverage = total > 0 ? round6((stats?.chained || 0) / total) : 0;
+    const volumeScore = Math.min(1, total / 1000);
+    const trustScore = round6((successRate * 0.5) + (chainCoverage * 0.3) + (volumeScore * 0.2));
+
+    profiles.push({
+      apiKeyHash: hash,
+      trustScore,
+      trustGrade: trustScore >= 0.9 ? 'A' : trustScore >= 0.75 ? 'B' : trustScore >= 0.6 ? 'C' : trustScore >= 0.4 ? 'D' : 'F',
+      totalAttestations: total,
+      successRate,
+      chainCoverage,
+      manifestAligned: stats?.manifest_aligned || 0,
+      totalCreditsSpent: round6(stats?.total_credits || 0),
+      ageDays: stats?.first_attestation ? Math.floor((Date.now() - new Date(stats.first_attestation).getTime()) / 86400000) : 0,
+    });
+  }
+
+  // Sort by trust score descending
+  profiles.sort((a, b) => (b.trustScore as number) - (a.trustScore as number));
+
+  return c.json({
+    comparison: profiles,
+    bestAgent: profiles[0]?.apiKeyHash,
+    worstAgent: profiles[profiles.length - 1]?.apiKeyHash,
+    spreadPct: profiles.length >= 2
+      ? round6(((profiles[0].trustScore as number) - (profiles[profiles.length - 1].trustScore as number)) * 100)
+      : 0,
+  });
+});
+
+// ─── GET /v1/attest/badges/:skillId — trust badges for marketplace ──────────
+// Returns trust badge data for a skill based on its attestation history.
+// Marketplace can display these as visual trust indicators.
+
+attestRouter.get('/badges/:skillId', (c) => {
+  const { skillId } = c.req.param();
+
+  const stats = getDb().prepare(`
+    SELECT
+      COUNT(*) as total_invocations,
+      SUM(CASE WHEN outcome_status = 'success' THEN 1 ELSE 0 END) as successes,
+      SUM(CASE WHEN prev_attestation_hash IS NOT NULL THEN 1 ELSE 0 END) as chained,
+      AVG(duration_ms) as avg_duration,
+      SUM(credits_charged) as total_credits
+    FROM attestations
+    WHERE action_endpoint LIKE ? AND created_at > datetime('now', '-90 days')
+  `).get(`%${skillId}%`) as { total_invocations: number; successes: number; chained: number; avg_duration: number | null; total_credits: number } | undefined;
+
+  const total = stats?.total_invocations || 0;
+  const successRate = total > 0 ? round6((stats?.successes || 0) / total) : 0;
+
+  // Determine badges
+  const badges: Array<{ badge: string; label: string; color: string }> = [];
+
+  if (total >= 100 && successRate >= 0.99) {
+    badges.push({ badge: 'verified_reliable', label: 'Verified Reliable', color: '#10b981' });
+  } else if (total >= 50 && successRate >= 0.95) {
+    badges.push({ badge: 'trusted', label: 'Trusted', color: '#3b82f6' });
+  } else if (total >= 10 && successRate >= 0.9) {
+    badges.push({ badge: 'established', label: 'Established', color: '#8b5cf6' });
+  }
+
+  if ((stats?.chained || 0) >= 50) {
+    badges.push({ badge: 'chain_verified', label: 'Chain Verified', color: '#f59e0b' });
+  }
+
+  if (total >= 500) {
+    badges.push({ badge: 'high_volume', label: 'High Volume', color: '#06b6d4' });
+  }
+
+  if ((stats?.avg_duration || 0) < 500 && total >= 20) {
+    badges.push({ badge: 'fast_responder', label: 'Fast Responder', color: '#ec4899' });
+  }
+
+  return c.json({
+    skillId,
+    badges,
+    stats: {
+      totalInvocations: total,
+      successRate,
+      chainedAttestations: stats?.chained || 0,
+      avgDurationMs: Math.round(stats?.avg_duration || 0),
+    },
+  });
+});
