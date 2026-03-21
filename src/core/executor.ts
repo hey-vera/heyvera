@@ -163,6 +163,22 @@ function mockData(endpointId: string): unknown {
     'x402list-search':       { providers: [{ name: 'claw402.ai', reliability: 0.99, avgPrice: 0.001, endpointCount: 260 }], endpoints: [], totalResults: 1, averagePrice: 0.001 },
     'x402scan-tx':           { transactions: [], totalVolume: 12400, activeProviders: 13, topEndpoints: ['/api/v1/coinank/kline/lists'] },
     'x402station-monitor':   { services: [{ name: 'claw402.ai', status: 'up', uptimePct: 99.8, avgLatency: 210 }], uptimePct: 99.8, avgLatency: 210, incidentCount: 0, healthScore: 98 },
+    // EthSkills
+    'ethskills-audit':       { content: '# Smart Contract Audit Checklist\n\n## 1. Access Control\n- Check for unprotected functions...', format: 'markdown' },
+    'ethskills-security':    { content: '# Ethereum Security\n\n## Common Vulnerabilities\n- Reentrancy...', format: 'markdown' },
+    'ethskills-defi':        { content: '# DeFi Protocols\n\n## AMM Patterns\n- Constant product...', format: 'markdown' },
+    'ethskills-testing':     { content: '# Testing Patterns\n\n## Unit Testing\n- Use Foundry forge test...', format: 'markdown' },
+    'ethskills-l2':          { content: '# Layer 2s\n\n## Rollup Types\n- Optimistic: fraud proofs...', format: 'markdown' },
+    'ethskills-ship':        { content: '# Shipping Guide\n\n## Deployment Checklist\n- Verify contracts on Etherscan...', format: 'markdown' },
+    // Browser Use
+    'browseruse-navigate':   { result: 'Page loaded successfully', steps: 3, screenshots: ['screenshot1.png'], cost: 0.018 },
+    // Xona
+    'xona-image-gen':        { imageUrl: 'https://xona-agent.com/generated/abc123.png', model: 'xona-v2', cost: 0.01 },
+    // zauth
+    'zauth-endpoint-verify': { trustScore: 92, healthStatus: 'healthy', successRate: 0.98, lastChecked: new Date().toISOString() },
+    'zauth-pentest':         { vulnerabilities: [], riskScore: 15, recommendations: ['Enable HSTS header'] },
+    // QuickNode
+    'quicknode-streams':     { events: [{ type: 'Transfer', blockNumber: 19500000, chain: 'ethereum' }] },
   };
   return mocks[endpointId] ?? { result: 'mock data', endpointId };
 }
