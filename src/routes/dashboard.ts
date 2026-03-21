@@ -13,6 +13,7 @@ import {
   regenerateApiKey,
   getClerkIdForKey,
   linkKeyToClerkUser,
+  createApiKeyForClerk,
   getKeyStats,
   storeClaimToken,
   getClaimToken,
@@ -57,6 +58,25 @@ dashboardRouter.get('/me', requireClerkAuth, async (c) => {
       // Auto-link this key to their Clerk account
       linkKeyToClerkUser(emailRow.key, clerkUserId);
       keyRow = emailRow;
+    }
+  }
+
+  // Auto-provision API key for new Clerk users (0 credits, free to start)
+  if (!keyRow && clerkEmail) {
+    const newKey = 'cn-' + crypto.randomBytes(24).toString('hex');
+    const email = clerkEmail.toLowerCase().trim();
+    try {
+      createApiKeyForClerk({
+        key: newKey,
+        clerkUserId,
+        email,
+        credits: 0,
+        solanaSignature: 'auto-provision',
+        amountPaid: 0,
+      });
+      keyRow = getApiKeyByClerkId(clerkUserId);
+    } catch (e) {
+      // Key creation failed (e.g. duplicate email) — fall through to hasKey: false
     }
   }
 
