@@ -1,12 +1,12 @@
 {
-  "name": "@clawnet/mcp",
+  "name": "@1xmint/clawnet-mcp",
   "version": "1.0.0",
-  "description": "ClawNet MCP server — expose 160+ AI skills to Claude Code, Cursor, Windsurf, and any MCP-compatible host",
+  "description": "ClawNet MCP server — expose 12,000+ API endpoints and AI skills to Claude Code, Cursor, Windsurf, and any MCP-compatible host",
   "keywords": ["mcp", "clawnet", "ai", "agents", "solana", "web3", "skills", "orchestration", "claude"],
   "homepage": "https://claw-net.org",
   "repository": {
     "type": "git",
-    "url": "https://github.com/clawnet/clawnet.git"
+    "url": "https://github.com/1xmint/claw-net.git"
   },
   "license": "MIT",
   "bin": {

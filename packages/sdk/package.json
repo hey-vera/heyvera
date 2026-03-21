@@ -1,5 +1,5 @@
 {
-  "name": "@clawnet/sdk",
+  "name": "@1xmint/clawnet-sdk",
   "version": "1.0.0",
   "description": "TypeScript SDK for the ClawNet AI agent orchestration API",
   "main": "dist/index.js",
@@ -21,7 +21,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/clawnet/claw-net",
+    "url": "https://github.com/1xmint/claw-net",
     "directory": "packages/sdk"
   },
   "homepage": "https://claw-net.org",
