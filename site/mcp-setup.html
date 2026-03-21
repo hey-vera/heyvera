@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MCP Setup — ClawNet</title>
+  <meta name="description" content="Connect ClawNet to Claude Desktop, Claude Code, Cursor, Codex, or any MCP-compatible AI assistant in one paste.">
+  <meta property="og:title" content="MCP Setup — ClawNet">
+  <meta property="og:description" content="One paste to connect ClawNet's skill marketplace to your AI assistant.">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="apple-touch-icon" href="/favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-primary: #0a0a0b; --bg-surface: #111113; --bg-surface-2: #18181b; --bg-surface-3: #1f1f23;
+      --border-subtle: #1e1e22; --border-default: #27272a; --border-strong: #3f3f46;
+      --text-primary: #fafafa; --text-secondary: #a1a1aa; --text-tertiary: #71717a; --text-muted: #52525b;
+      --accent: #10b981; --accent-dim: rgba(16,185,129,0.12); --accent-subtle: rgba(16,185,129,0.06);
+      --accent-hover: #34d399; --accent-text: #6ee7b7;
+      --danger: #ef4444; --danger-dim: rgba(239,68,68,0.12);
+      --warning: #f59e0b; --warning-dim: rgba(245,158,11,0.12);
+      --info: #3b82f6; --info-dim: rgba(59,130,246,0.12);
+      --purple: #8b5cf6; --purple-dim: rgba(139,92,246,0.12);
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', Consolas, monospace;
+      --font-display: 'Inter', -apple-system, system-ui, sans-serif;
+      --radius-sm: 4px; --radius-md: 6px; --radius-lg: 8px; --radius-xl: 12px;
+      --grid-color: rgba(255,255,255,0.03);
+      --nav-bg: rgba(10,10,11,0.8);
+    }
+    [data-theme="light"] {
+      --bg-primary: #f5f5f5; --bg-surface: #ffffff; --bg-surface-2: #f0f0f2; --bg-surface-3: #e8e8ec;
+      --border-subtle: #e4e4e7; --border-default: #d4d4d8; --border-strong: #a1a1aa;
+      --text-primary: #09090b; --text-secondary: #3f3f46; --text-tertiary: #71717a; --text-muted: #a1a1aa;
+      --accent-dim: rgba(16,185,129,0.10); --accent-subtle: rgba(16,185,129,0.05);
+      --danger-dim: rgba(239,68,68,0.10); --warning-dim: rgba(245,158,11,0.10);
+      --info-dim: rgba(59,130,246,0.10); --purple-dim: rgba(139,92,246,0.10);
+      --grid-color: rgba(0,0,0,0.04); --nav-bg: rgba(245,245,245,0.85);
+    }
+    .nav-logo-text { font-family: var(--font-sans); font-size: 18px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.02em; white-space: nowrap; }
+    .nav-logo-text span { color: var(--accent); }
+    .theme-toggle { background: var(--bg-surface-2); border: 1px solid var(--border-default); border-radius: 6px; width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--text-tertiary); transition: all 0.15s; padding: 0; flex-shrink: 0; }
+    .theme-toggle:hover { color: var(--text-primary); border-color: var(--border-strong); }
+    .theme-toggle .icon-sun, .theme-toggle .icon-moon { width: 16px; height: 16px; }
+    .theme-toggle .icon-sun { display: none; }
+    [data-theme="light"] .theme-toggle .icon-sun { display: block; }
+    [data-theme="light"] .theme-toggle .icon-moon { display: none; }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body { font-family: var(--font-sans); background: var(--bg-primary); color: var(--text-secondary); font-size: 14px; line-height: 1.6; overflow-x: hidden; background-image: linear-gradient(var(--grid-color) 1px, transparent 1px), linear-gradient(90deg, var(--grid-color) 1px, transparent 1px); background-size: 48px 48px; }
+    a { color: inherit; text-decoration: none; }
+    ::selection { background: var(--accent-dim); }
+
+    nav { position: fixed; top: 0; left: 0; right: 0; z-index: 100; height: 56px; padding: 0 24px; display: flex; align-items: center; justify-content: space-between; background: var(--nav-bg); border-bottom: 1px solid var(--border-subtle); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }
+    .nav-brand { display: flex; align-items: center; }
+    .nav-brand a { text-decoration: none; }
+    .nav-links { display: flex; align-items: center; gap: 4px; list-style: none; }
+    .nav-links > a { font-size: 13px; font-weight: 500; color: var(--text-tertiary); padding: 6px 12px; border-radius: var(--radius-md); transition: color 0.15s, background 0.15s; text-decoration: none; }
+    .nav-links > a:hover { color: var(--text-primary); background: var(--bg-surface-2); }
+    .dropdown { position: relative; display: inline-block; }
+    .dropdown-toggle { font-family: var(--font-sans); font-size: 13px; font-weight: 500; color: var(--text-tertiary); padding: 6px 12px; border-radius: var(--radius-md); transition: color 0.15s, background 0.15s; background: none; border: none; cursor: pointer; }
+    .dropdown-toggle:hover { color: var(--text-primary); background: var(--bg-surface-2); }
+    .dropdown-menu { display: none; position: absolute; top: calc(100% + 4px); left: 0; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: var(--radius-lg); min-width: 220px; padding: 8px 0; z-index: 200; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+    .dropdown:hover .dropdown-menu { display: block; }
+    .dropdown-menu::before { content: ""; position: absolute; top: -12px; left: 0; right: 0; height: 12px; }
+    .dropdown-menu a { display: block; padding: 8px 16px; color: var(--text-secondary); text-decoration: none; font-size: 0.88rem; transition: background 0.15s, color 0.15s; }
+    .dropdown-menu a:hover { background: var(--bg-surface-2); color: var(--text-primary); }
+    .nav-right { display: flex; align-items: center; gap: 12px; }
+    .nav-status { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-tertiary); padding: 4px 10px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); }
+    .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); transition: background 0.3s; flex-shrink: 0; }
+    .status-dot.ok { background: var(--accent); } .status-dot.err { background: var(--danger); }
+    .nav-credits { font-family: var(--font-mono); font-size: 12px; color: var(--accent); padding: 4px 10px; border: 1px solid var(--accent-dim); border-radius: var(--radius-md); display: none; align-items: center; gap: 4px; }
+    .nav-credits.show { display: flex; }
+    .account-dropdown { position: relative; display: none; }
+    .account-dropdown.show { display: block; }
+    .account-btn { background: #21262d; color: #e6edf3; border: 1px solid #30363d; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 500; font-family: var(--font-sans); }
+    .account-btn:hover { background: #30363d; }
+    .account-menu { display: none; position: absolute; right: 0; top: calc(100% + 6px); background: #161b22; border: 1px solid #30363d; border-radius: 8px; min-width: 220px; padding: 8px 0; z-index: 200; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+    .account-dropdown:hover .account-menu, .account-menu.show { display: block; }
+    .account-menu::before { content: ""; position: absolute; top: -12px; left: 0; right: 0; height: 12px; }
+    .account-email { padding: 8px 16px; color: #8b949e; font-size: 0.78rem; border-bottom: 1px solid #21262d; margin-bottom: 4px; }
+    .dropdown-item { display: block; padding: 8px 16px; color: var(--text-secondary); text-decoration: none; font-size: 0.88rem; transition: background 0.15s, color 0.15s; }
+    .dropdown-item:hover { background: var(--bg-surface-2); color: var(--text-primary); }
+    .dropdown-divider { height: 1px; background: #21262d; margin: 4px 0; }
+    .nav-login { color: var(--text-secondary); border: 1px solid var(--border-default); background: transparent; text-decoration: none; padding: 6px 14px; font-size: 13px; border-radius: var(--radius-md); }
+    .nav-login:hover { border-color: var(--border-strong); color: var(--text-primary); }
+    .nav-cta { background: var(--accent); color: #000; font-weight: 600; text-decoration: none; padding: 6px 14px; font-size: 13px; border-radius: var(--radius-md); }
+    .nav-cta:hover { background: var(--accent-hover); }
+    .mobile-menu-btn { display: none; background: none; border: 1px solid var(--border-default); border-radius: 6px; padding: 6px 10px; cursor: pointer; color: var(--text-secondary); font-size: 18px; line-height: 1; }
+    .mobile-menu-btn:hover { color: var(--text-primary); border-color: var(--border-strong); }
+    .mobile-menu { display: none; position: fixed; top: 56px; left: 0; right: 0; background: var(--bg-surface); border-bottom: 1px solid var(--border-default); z-index: 99; padding: 12px 24px; max-height: calc(100vh - 56px); overflow-y: auto; }
+    .mobile-menu.open { display: block; }
+    .mobile-menu a { display: block; padding: 10px 0; font-size: 14px; color: var(--text-secondary); border-bottom: 1px solid var(--border-subtle); text-decoration: none; }
+    .mobile-menu a:last-child { border-bottom: none; }
+    .mobile-menu a:hover { color: var(--accent); }
+    .mobile-menu-group { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; padding: 12px 0 4px; }
+    .mobile-menu-group:first-child { padding-top: 0; }
+
+    main { max-width: 860px; margin: 0 auto; padding: 72px 24px 80px; }
+
+    /* Hero */
+    .hero { padding: 80px 0 48px; text-align: center; border-bottom: 1px solid var(--border-subtle); margin-bottom: 48px; }
+    .hero-eyebrow { font-size: 12px; text-transform: uppercase; letter-spacing: 0.18em; color: var(--accent); margin-bottom: 20px; font-weight: 700; }
+    .hero h1 { font-family: var(--font-display); font-size: clamp(28px, 4vw, 42px); font-weight: 700; color: var(--text-primary); letter-spacing: -0.03em; margin-bottom: 16px; line-height: 1.15; }
+    .hero-sub { font-size: 16px; color: var(--text-secondary); line-height: 1.7; max-width: 560px; margin: 0 auto 28px; }
+
+    /* Info bar */
+    .info-bar { display: flex; gap: 24px; justify-content: center; flex-wrap: wrap; margin-bottom: 48px; }
+    .info-item { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+    .info-label { color: var(--text-muted); font-weight: 500; }
+    .info-value { color: var(--text-primary); font-family: var(--font-mono); font-size: 12px; background: var(--bg-surface-2); padding: 2px 8px; border-radius: var(--radius-sm); border: 1px solid var(--border-subtle); }
+
+    /* Tabs */
+    .tab-bar { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 0; border-bottom: 1px solid var(--border-subtle); padding-bottom: 0; }
+    .tab { font-family: var(--font-sans); font-size: 13px; font-weight: 500; color: var(--text-tertiary); background: none; border: none; padding: 10px 16px; cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.15s; margin-bottom: -1px; }
+    .tab:hover { color: var(--text-primary); }
+    .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .tab-panel { display: none; padding: 24px 0; }
+    .tab-panel.active { display: block; }
+
+    /* Code blocks */
+    .code-wrapper { position: relative; margin-bottom: 20px; }
+    .code-block { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 20px 24px; font-family: var(--font-mono); font-size: 13px; color: var(--text-secondary); line-height: 1.7; overflow-x: auto; white-space: pre; }
+    .code-block .str { color: var(--accent-text); }
+    .code-block .key { color: var(--info); }
+    .code-block .cm { color: var(--text-muted); }
+    .copy-btn { position: absolute; top: 12px; right: 12px; background: var(--bg-surface-2); border: 1px solid var(--border-default); color: var(--text-tertiary); font-family: var(--font-mono); font-size: 11px; font-weight: 600; padding: 4px 12px; border-radius: var(--radius-sm); cursor: pointer; transition: all 0.15s; text-transform: uppercase; letter-spacing: 0.05em; }
+    .copy-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .copy-btn.copied { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+    .tab-hint { font-size: 13px; color: var(--text-tertiary); line-height: 1.6; margin-bottom: 16px; }
+    .tab-hint code { font-family: var(--font-mono); font-size: 12px; color: var(--accent-text); background: var(--bg-surface-2); padding: 2px 6px; border-radius: 3px; }
+
+    /* Tools grid */
+    .section-title { font-size: 18px; font-weight: 600; color: var(--text-primary); margin-bottom: 16px; letter-spacing: -0.01em; }
+    .tools-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; margin-bottom: 48px; }
+    .tool-card { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 16px 20px; transition: border-color 0.15s; }
+    .tool-card:hover { border-color: var(--border-default); }
+    .tool-name { font-family: var(--font-mono); font-size: 13px; font-weight: 600; color: var(--accent); margin-bottom: 4px; }
+    .tool-desc { font-size: 12.5px; color: var(--text-tertiary); line-height: 1.5; }
+    .tool-badge { display: inline-block; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; padding: 1px 6px; border-radius: 3px; margin-left: 6px; }
+    .tool-badge.free { background: var(--accent-dim); color: var(--accent); }
+    .tool-badge.paid { background: var(--warning-dim); color: var(--warning); }
+
+    /* First prompt */
+    .prompt-box { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 20px 24px; margin-bottom: 48px; }
+    .prompt-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--accent); margin-bottom: 10px; }
+    .prompt-text { font-size: 14px; color: var(--text-primary); font-style: italic; line-height: 1.6; }
+
+    /* Quick links */
+    .links-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin-bottom: 48px; }
+    .quick-link { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-secondary); padding: 10px 14px; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); transition: all 0.15s; text-decoration: none; }
+    .quick-link:hover { border-color: var(--accent); color: var(--accent); }
+    .quick-link code { font-family: var(--font-mono); font-size: 11px; color: var(--accent-text); }
+
+    footer { border-top: 1px solid var(--border-subtle); padding: 32px 24px; max-width: 860px; margin: 0 auto; text-align: center; }
+    footer span { font-size: 12px; color: var(--text-muted); }
+
+    @media(max-width:900px) { .nav-links { display: none; } .mobile-menu-btn { display: block; } .nav-status { display: none; } }
+    @media(max-width:640px) { main { padding: 64px 16px 60px; } .hero h1 { font-size: 26px; } .info-bar { flex-direction: column; align-items: center; gap: 12px; } .tools-grid { grid-template-columns: 1fr; } .links-grid { grid-template-columns: 1fr; } }
+  </style>
+<script>if(localStorage.getItem('clawnet_theme')==='light')document.documentElement.setAttribute('data-theme','light')</script>
+</head>
+<body>
+
+<nav>
+  <div class="nav-brand">
+    <a href="/"><span class="nav-logo-text">&#x1F99E; Claw<span>Net</span></span></a>
+  </div>
+  <div class="nav-links">
+    <div class="dropdown">
+      <button class="dropdown-toggle">Products &#9662;</button>
+      <div class="dropdown-menu">
+        <a href="https://pulse.claw-net.org">Pulse &mdash; AI Marketing</a>
+        <a href="/roadmap">Radar &mdash; Trading (Coming Soon)</a>
+      </div>
+    </div>
+    <div class="dropdown">
+      <button class="dropdown-toggle">Services &#9662;</button>
+      <div class="dropdown-menu">
+        <a href="/manifest">Manifest &mdash; Verification</a>
+        <a href="/attestation">Attestation &mdash; Proof</a>
+      </div>
+    </div>
+    <div class="dropdown">
+      <button class="dropdown-toggle">Developers &#9662;</button>
+      <div class="dropdown-menu">
+        <a href="/endpoints">API Endpoints</a>
+        <a href="/marketplace">Marketplace</a>
+        <a href="/docs">Documentation</a>
+        <a href="/playground">Playground</a><a href="/protocol">Protocol</a>
+      </div>
+    </div>
+    <a href="/roadmap">Roadmap</a>
+  </div>
+  <div class="nav-right">
+    <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Toggle theme">
+      <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+    </button>
+    <div class="nav-status" id="navApiStatus"><span class="status-dot" id="statusDot"></span><span id="statusLabel">Checking...</span></div>
+    <div class="nav-credits" id="nav-credits-badge"><svg width="14" height="14" viewBox="0 0 24 24" style="vertical-align:-2px;flex-shrink:0;margin-right:2px"><circle cx="12" cy="12" r="11" fill="#92400e"/><circle cx="12" cy="12" r="9.5" fill="#f59e0b"/><circle cx="12" cy="12" r="7.5" fill="#fbbf24"/><path d="M8.5 7.5 Q12 5.5 15.5 8" stroke="rgba(255,255,255,0.45)" stroke-width="1.5" fill="none" stroke-linecap="round"/><text x="12" y="16.5" text-anchor="middle" font-size="10" font-weight="800" fill="#78350f" font-family="Arial,sans-serif">C</text></svg> <span id="nav-credits-num">&mdash;</span> credits</div>
+    <a href="/login" class="nav-login" id="nav-login-btn">Sign In</a>
+    <a href="/#pricing" class="nav-cta" id="nav-getkey-btn">Get API Key</a>
+    <div class="dropdown account-dropdown" id="account-dropdown">
+      <button class="dropdown-toggle account-btn" onclick="this.nextElementSibling.classList.toggle('show');event.stopPropagation()">My Account &#9662;</button>
+      <div class="dropdown-menu account-menu">
+        <div class="account-email" id="account-email-display"></div>
+        <a href="/dashboard" class="dropdown-item">Dashboard</a>
+        <a href="/contact-section" class="dropdown-item">Contact</a>
+        <div class="dropdown-divider"></div>
+        <a href="#" class="dropdown-item" onclick="navSignOut();return false;" style="color:#f85149;">Log out</a>
+      </div>
+    </div>
+    <button class="mobile-menu-btn" onclick="document.getElementById('mobileMenu').classList.toggle('open')" aria-label="Menu">&#9776;</button>
+  </div>
+</nav>
+<script>document.addEventListener("click",function(){var m=document.querySelector(".account-menu");if(m)m.classList.remove("show")})</script>
+<div class="mobile-menu" id="mobileMenu">
+  <div class="mobile-menu-group">Products</div>
+  <a href="https://pulse.claw-net.org">Pulse &mdash; AI Marketing</a>
+  <a href="/roadmap">Radar &mdash; Trading (Coming Soon)</a>
+  <div class="mobile-menu-group">Services</div>
+  <a href="/manifest">Manifest &mdash; Verification</a>
+  <a href="/attestation">Attestation &mdash; Proof</a>
+  <div class="mobile-menu-group">Developers</div>
+  <a href="/endpoints">API Endpoints</a>
+  <a href="/marketplace">Marketplace</a>
+  <a href="/docs">Documentation</a>
+  <a href="/playground">Playground</a><a href="/protocol">Protocol</a>
+  <div class="mobile-menu-group">More</div>
+  <a href="/roadmap">Roadmap</a>
+  <div class="mobile-menu-group" id="mobile-account-group" style="display:none">Account</div>
+  <span class="mobile-account-email" id="mobile-account-email" style="display:none;padding:6px 0;font-size:12px;color:var(--text-tertiary)"></span>
+  <a href="/dashboard">Dashboard</a>
+  <a href="#" id="mobile-sign-out" onclick="navSignOut();return false;" style="display:none;color:#f85149;">Log out</a>
+</div>
+
+<main>
+  <div class="hero">
+    <div class="hero-eyebrow">Model Context Protocol</div>
+    <h1>Connect to ClawNet in One Paste</h1>
+    <p class="hero-sub">Add ClawNet's skill marketplace, 344+ API endpoints, and cryptographic attestations to your favorite AI assistant.</p>
+  </div>
+
+  <div class="info-bar">
+    <div class="info-item">
+      <span class="info-label">Server</span>
+      <span class="info-value">clawnet/orchestrator</span>
+    </div>
+    <div class="info-item">
+      <span class="info-label">Transport</span>
+      <span class="info-value">streamable-http</span>
+    </div>
+    <div class="info-item">
+      <span class="info-label">Auth</span>
+      <span class="info-value">optional (API key for paid ops)</span>
+    </div>
+  </div>
+
+  <!-- Tab bar -->
+  <div class="tab-bar">
+    <button class="tab active" onclick="switchTab('claude-desktop')">Claude Desktop</button>
+    <button class="tab" onclick="switchTab('claude-code')">Claude Code</button>
+    <button class="tab" onclick="switchTab('cursor')">Cursor</button>
+    <button class="tab" onclick="switchTab('codex')">Codex CLI</button>
+    <button class="tab" onclick="switchTab('local')">Local (stdio)</button>
+    <button class="tab" onclick="switchTab('generic')">Generic JSON</button>
+  </div>
+
+  <!-- Claude Desktop -->
+  <div class="tab-panel active" id="claude-desktop">
+    <p class="tab-hint">Add to your <code>claude_desktop_config.json</code> file:</p>
+    <div class="code-wrapper">
+      <pre class="code-block">{
+  <span class="key">"mcpServers"</span>: {
+    <span class="key">"clawnet"</span>: {
+      <span class="key">"type"</span>: <span class="str">"http"</span>,
+      <span class="key">"url"</span>: <span class="str">"https://api.claw-net.org/mcp"</span>
+    }
+  }
+}</pre>
+      <button class="copy-btn" onclick="copyCode(this)">COPY</button>
+    </div>
+  </div>
+
+  <!-- Claude Code -->
+  <div class="tab-panel" id="claude-code">
+    <p class="tab-hint">Run this command in your terminal:</p>
+    <div class="code-wrapper">
+      <pre class="code-block">claude mcp add-json clawnet '<span class="str">{"type":"url","url":"https://api.claw-net.org/mcp"}</span>'</pre>
+      <button class="copy-btn" onclick="copyCode(this)">COPY</button>
+    </div>
+  </div>
+
+  <!-- Cursor -->
+  <div class="tab-panel" id="cursor">
+    <p class="tab-hint">Add to your <code>.cursor/mcp.json</code> file:</p>
+    <div class="code-wrapper">
+      <pre class="code-block">{
+  <span class="key">"mcpServers"</span>: {
+    <span class="key">"clawnet"</span>: {
+      <span class="key">"url"</span>: <span class="str">"https://api.claw-net.org/mcp"</span>
+    }
+  }
+}</pre>
+      <button class="copy-btn" onclick="copyCode(this)">COPY</button>
+    </div>
+  </div>
+
+  <!-- Codex CLI -->
+  <div class="tab-panel" id="codex">
+    <p class="tab-hint">Add to your Codex configuration:</p>
+    <div class="code-wrapper">
+      <pre class="code-block"><span class="cm">[mcp_servers.clawnet]</span>
+<span class="key">type</span> = <span class="str">"url"</span>
+<span class="key">url</span> = <span class="str">"https://api.claw-net.org/mcp"</span></pre>
+      <button class="copy-btn" onclick="copyCode(this)">COPY</button>
+    </div>
+  </div>
+
+  <!-- Local (stdio) -->
+  <div class="tab-panel" id="local">
+    <p class="tab-hint">For local development with stdio transport. Requires Node.js installed:</p>
+    <div class="code-wrapper">
+      <pre class="code-block">{
+  <span class="key">"mcpServers"</span>: {
+    <span class="key">"clawnet"</span>: {
+      <span class="key">"command"</span>: <span class="str">"npx"</span>,
+      <span class="key">"args"</span>: [<span class="str">"tsx"</span>, <span class="str">"src/mcp/server.ts"</span>],
+      <span class="key">"env"</span>: {
+        <span class="key">"CLAWNET_BASE_URL"</span>: <span class="str">"https://api.claw-net.org"</span>,
+        <span class="key">"CLAWNET_API_KEY"</span>: <span class="str">"your_api_key_here"</span>
+      }
+    }
+  }
+}</pre>
+      <button class="copy-btn" onclick="copyCode(this)">COPY</button>
+    </div>
+  </div>
+
+  <!-- Generic JSON -->
+  <div class="tab-panel" id="generic">
+    <p class="tab-hint">Raw MCP server configuration for any compatible host:</p>
+    <div class="code-wrapper">
+      <pre class="code-block">{
+  <span class="key">"type"</span>: <span class="str">"url"</span>,
+  <span class="key">"url"</span>: <span class="str">"https://api.claw-net.org/mcp"</span>
+}</pre>
+      <button class="copy-btn" onclick="copyCode(this)">COPY</button>
+    </div>
+  </div>
+
+  <!-- First prompt -->
+  <div class="prompt-box">
+    <div class="prompt-label">Try this first</div>
+    <p class="prompt-text">"List all available ClawNet skills and show me the top 5 most popular ones with their credit costs."</p>
+  </div>
+
+  <!-- Available tools -->
+  <h2 class="section-title">Available Tools</h2>
+  <div class="tools-grid">
+    <div class="tool-card">
+      <div class="tool-name">list-skills <span class="tool-badge free">free</span></div>
+      <div class="tool-desc">Browse the skill marketplace. Filter by category, search by name.</div>
+    </div>
+    <div class="tool-card">
+      <div class="tool-name">get-skill <span class="tool-badge free">free</span></div>
+      <div class="tool-desc">Get skill details, input variables, pricing, and trust signals.</div>
+    </div>
+    <div class="tool-card">
+      <div class="tool-name">invoke-skill <span class="tool-badge paid">api key</span></div>
+      <div class="tool-desc">Execute a skill with variables. Returns attested results.</div>
+    </div>
+    <div class="tool-card">
+      <div class="tool-name">search-registry <span class="tool-badge free">free</span></div>
+      <div class="tool-desc">Search 344+ API endpoints across all providers.</div>
+    </div>
+    <div class="tool-card">
+      <div class="tool-name">orchestrate <span class="tool-badge paid">api key</span></div>
+      <div class="tool-desc">Natural language query across 12,000+ data sources.</div>
+    </div>
+    <div class="tool-card">
+      <div class="tool-name">get-credits <span class="tool-badge free">free</span></div>
+      <div class="tool-desc">Check your credit balance and usage stats.</div>
+    </div>
+  </div>
+
+  <!-- Quick links -->
+  <h2 class="section-title">Quick Links</h2>
+  <div class="links-grid">
+    <a href="/dashboard" class="quick-link">Get an API key</a>
+    <a href="/marketplace" class="quick-link">Skill Marketplace</a>
+    <a href="https://api.claw-net.org/llms.txt" class="quick-link"><code>/llms.txt</code></a>
+    <a href="https://api.claw-net.org/v1/openapi.json" class="quick-link"><code>/v1/openapi.json</code></a>
+    <a href="https://api.claw-net.org/.well-known/mcp.json" class="quick-link"><code>/.well-known/mcp.json</code></a>
+    <a href="https://api.claw-net.org/x402/skills" class="quick-link">x402 Skills (no key)</a>
+  </div>
+</main>
+
+<footer>
+  <span>&copy; 2026 ClawNet. All rights reserved.</span>
+</footer>
+
+<script>
+const API_BASE = 'https://api.claw-net.org';
+
+function toggleTheme() {
+  const html = document.documentElement;
+  const next = html.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+  if (next === 'dark') html.removeAttribute('data-theme');
+  else html.setAttribute('data-theme', 'light');
+  localStorage.setItem('clawnet_theme', next);
+}
+
+function switchTab(id) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  // Find the tab button that matches
+  document.querySelectorAll('.tab').forEach(t => {
+    if (t.textContent.toLowerCase().replace(/[^a-z]/g, '').includes(id.replace(/-/g, ''))) t.classList.add('active');
+  });
+  // Fallback: match by onclick
+  document.querySelectorAll('.tab').forEach(t => {
+    const onclick = t.getAttribute('onclick') || '';
+    if (onclick.includes("'" + id + "'")) t.classList.add('active');
+  });
+}
+
+function copyCode(btn) {
+  const pre = btn.previousElementSibling;
+  const text = pre.textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    btn.textContent = 'COPIED';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = 'COPY'; btn.classList.remove('copied'); }, 2000);
+  });
+}
+
+async function fetchApiStatus() {
+  const dot = document.getElementById('statusDot');
+  const label = document.getElementById('statusLabel');
+  try {
+    const r = await fetch(API_BASE + '/health', { signal: AbortSignal.timeout(5000) });
+    if (r.ok) { dot.className = 'status-dot ok'; label.textContent = 'Live'; label.style.color = 'var(--accent)'; }
+    else { dot.className = 'status-dot err'; label.textContent = 'Degraded'; label.style.color = 'var(--danger)'; }
+  } catch { dot.className = 'status-dot err'; label.textContent = 'Offline'; label.style.color = 'var(--danger)'; }
+}
+
+async function initNav() {
+  try {
+    if (!await loadClerkSafe()) return;
+    const user = window.Clerk.user;
+    if (!user) return;
+    document.getElementById('nav-login-btn').style.display = 'none';
+    document.getElementById('nav-getkey-btn').style.display = 'none';
+    document.getElementById('account-dropdown').classList.add('show');
+    const email = user.primaryEmailAddress?.emailAddress ?? user.username ?? '';
+    if (email) {
+      document.getElementById('account-email-display').textContent = email;
+      const me = document.getElementById('mobile-account-email');
+      if (me) { me.textContent = email; me.style.display = 'block'; }
+    }
+    const mag = document.getElementById('mobile-account-group');
+    if (mag) mag.style.display = '';
+    const mso = document.getElementById('mobile-sign-out');
+    if (mso) mso.style.display = '';
+    const cachedCredits = localStorage.getItem('clawnet_credits');
+    document.getElementById('nav-credits-num').textContent = cachedCredits !== null ? parseInt(cachedCredits).toLocaleString() : '\u2014';
+    document.getElementById('nav-credits-badge').classList.add('show');
+    try {
+      const token = await window.Clerk.session.getToken();
+      const res = await fetch(API_BASE + '/v1/dashboard/me', { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.credits !== undefined) {
+          localStorage.setItem('clawnet_credits', data.credits);
+          document.getElementById('nav-credits-num').textContent = data.credits.toLocaleString();
+        }
+      }
+    } catch (e) {}
+  } catch (e) {}
+}
+
+async function navSignOut() { await window.Clerk.signOut(); window.location.reload(); }
+
+fetchApiStatus();
+setInterval(fetchApiStatus, 60000);
+</script>
+<script src="/clerk-recovery.js"></script>
+<script data-clerk-publishable-key="pk_live_Y2xlcmsuY2xhdy1uZXQub3JnJA"
+  src="https://cdn.jsdelivr.net/npm/@clerk/clerk-js@5/dist/clerk.browser.js"
+  onload="initNav()"></script>
+</body>
+</html>
