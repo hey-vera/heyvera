@@ -8,13 +8,12 @@
 
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { nanoid } from 'nanoid';
 import { checkApiKey } from '../middleware/auth';
 import { deductCredit, logAudit } from '../db/index';
 import { cacheIncr } from '../cache/index';
-import { round6 } from '../core/credits';
 import { trackDelegatedSpend } from '../utils/billing';
 import { logger } from '../utils/logger';
+import { validateMultibaseEd25519 } from '../utils/jcs';
 
 // ─── Lazy imports (files created by other agents concurrently) ───────────────
 
@@ -28,6 +27,10 @@ async function getAidBuilder() {
 
 async function getAidVerifier() {
   return await import('../utils/aid-verifier');
+}
+
+async function getEd25519Signer() {
+  return await import('../utils/ed25519-signer');
 }
 
 // ─── Zod Schemas ─────────────────────────────────────────────────────────────
@@ -56,6 +59,7 @@ const VerifySchema = z.object({
     (v) => JSON.stringify(v).length <= 200_000,
     'aidDocument exceeds 200KB limit'
   ),
+  platformPublicKey: z.string().max(200).optional(),
 });
 
 const RotateKeySchema = z.object({
@@ -69,6 +73,7 @@ const ATTEST_COST = 0.1;
 const EXPORT_COST = 0.5;
 const ROTATE_KEY_COST = 0.5;
 const ATTEST_RATE_LIMIT = 50; // per hour
+const PUBLIC_RATE_LIMIT = 300; // per hour per IP for public endpoints
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -79,9 +84,17 @@ function resolveBillingKey(keyInfo: Record<string, unknown>): string {
     : info.key;
 }
 
-function isOwner(keyInfo: Record<string, unknown>, ownerKey: string): boolean {
-  const billingKey = resolveBillingKey(keyInfo);
-  return billingKey === ownerKey;
+/**
+ * Lightweight rate limit for public (unauthenticated) endpoints.
+ * Uses IP address as the key. Returns true if rate limit exceeded.
+ */
+async function checkPublicRateLimit(c: any): Promise<boolean> {
+  const ip = c.req.header('x-forwarded-for')?.split(',')[0]?.trim()
+    || c.req.header('x-real-ip')
+    || 'unknown';
+  const key = `aid:public:${ip}`;
+  const count = await cacheIncr(key, 3600);
+  return count > PUBLIC_RATE_LIMIT;
 }
 
 // ─── Router ──────────────────────────────────────────────────────────────────
@@ -105,66 +118,72 @@ router.post('/register', checkApiKey, async (c) => {
   const aidBuilder = await getAidBuilder();
 
   // Check if agent already has an AID
-  const existing = aidDb.getAidKeysByIdentity(billingKey);
+  const existing = aidDb.getAidKeysByOwnerKey(billingKey);
   if (existing && existing.length > 0) {
     return c.json({ error: 'Agent already has an AID registered', code: 'AID_ALREADY_EXISTS' }, 409);
   }
 
+  // BYOK validation — if user provides their own key, validate it
+  if (body.publicKey) {
+    const validation = validateMultibaseEd25519(body.publicKey);
+    if (!validation.valid) {
+      return c.json({ error: `Invalid public key: ${validation.error}`, code: 'INVALID_PUBLIC_KEY' }, 400);
+    }
+  }
+
   // Deduct credits
-  const deducted = deductCredit(billingKey, REGISTER_COST, 'aid_register');
+  const deducted = deductCredit(billingKey, REGISTER_COST);
   if (!deducted) {
     return c.json({ error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS' }, 402);
   }
-  if (keyInfo.delegatedFrom) {
-    trackDelegatedSpend(keyInfo.delegatedFrom, REGISTER_COST);
-  }
+  trackDelegatedSpend(keyInfo, REGISTER_COST);
 
   // Generate or accept keypair
   let publicKeyMultibase: string;
   let privateKeySeed: string | undefined;
+  let did: string;
 
   if (body.publicKey) {
     // BYOK — agent provides their own public key
     publicKeyMultibase = body.publicKey;
+    // Self-certifying DID: public key IS the identifier
+    did = `did:clawnet:${publicKeyMultibase}`;
   } else {
-    // Generate Ed25519 keypair
-    const keypair = await aidBuilder.generateAgentKeypair();
+    // Generate Ed25519 keypair — DID derived from public key
+    const keypair = aidBuilder.generateAgentKeypair();
     publicKeyMultibase = keypair.publicKeyMultibase;
     privateKeySeed = keypair.privateKeySeed;
+    did = keypair.did;
   }
 
-  // Create DID
-  const did = `did:clawnet:${nanoid(24)}`;
-
   // Store AID key
-  aidDb.createAidKey({
-    did,
+  const { id: aidKeyId } = aidDb.createAidKey({
     ownerKey: billingKey,
     publicKeyMultibase,
-    displayName: body.displayName,
-    serviceEndpoints: body.serviceEndpoints,
-  });
-
-  // Link to agent_identities
-  aidDb.setIdentityAid(billingKey, did);
-
-  // Build AID document
-  const aidDocument = aidBuilder.buildAIDDocument({
     did,
-    publicKeyMultibase,
     displayName: body.displayName,
     serviceEndpoints: body.serviceEndpoints,
   });
+
+  // Try to link to agent_identities (best-effort — may not exist for all agents)
+  try {
+    aidDb.setIdentityAid(billingKey, did, publicKeyMultibase, aidKeyId);
+  } catch {
+    // agent_identities record may not exist — that's OK, AID works without it
+  }
 
   logAudit({ entityType: 'aid', entityId: did, action: 'register', actorId: billingKey });
-
   logger.info({ did, ownerKey: billingKey, byok: !!body.publicKey }, 'AID registered');
+
+  // Build AID document from stored data
+  const aidDocument = aidBuilder.buildAIDDocument(did);
 
   return c.json({
     did,
     publicKeyMultibase,
     ...(privateKeySeed ? { privateKeySeed } : {}),
     aidDocument,
+    warning: privateKeySeed ? 'Save your privateKeySeed now — it is returned ONCE and never stored.' : undefined,
   }, 201);
 });
 
@@ -175,6 +194,10 @@ router.get('/:did', async (c) => {
   // Skip route if it matches a known sub-path to avoid conflicts
   if (['register', 'verify'].includes(did)) return c.notFound();
 
+  if (await checkPublicRateLimit(c)) {
+    return c.json({ error: 'Rate limit exceeded', code: 'RATE_LIMIT_EXCEEDED' }, 429);
+  }
+
   const aidDb = await getAidDb();
   const aidBuilder = await getAidBuilder();
 
@@ -183,14 +206,10 @@ router.get('/:did', async (c) => {
     return c.json({ error: 'AID not found', code: 'AID_NOT_FOUND' }, 404);
   }
 
-  const aidDocument = aidBuilder.buildAIDDocument({
-    did: aidKey.did,
-    publicKeyMultibase: aidKey.public_key_multibase,
-    displayName: aidKey.display_name,
-    serviceEndpoints: aidKey.service_endpoints ? JSON.parse(aidKey.service_endpoints) : undefined,
-    created: aidKey.created_at,
-    updated: aidKey.updated_at,
-  });
+  const aidDocument = aidBuilder.buildAIDDocument(did);
+  if (!aidDocument) {
+    return c.json({ error: 'Failed to build AID document', code: 'AID_BUILD_FAILED' }, 500);
+  }
 
   return c.json(aidDocument);
 });
@@ -200,6 +219,10 @@ router.get('/:did/trust-chain', async (c) => {
   const did = c.req.param('did');
   const limit = Math.min(Math.max(1, parseInt(c.req.query('limit') || '50', 10) || 50), 200);
 
+  if (await checkPublicRateLimit(c)) {
+    return c.json({ error: 'Rate limit exceeded', code: 'RATE_LIMIT_EXCEEDED' }, 429);
+  }
+
   const aidDb = await getAidDb();
   const aidBuilder = await getAidBuilder();
 
@@ -208,15 +231,10 @@ router.get('/:did/trust-chain', async (c) => {
     return c.json({ error: 'AID not found', code: 'AID_NOT_FOUND' }, 404);
   }
 
-  const attestations = aidDb.getCrossPlatformAttestations(did, limit);
-  const latestSnapshot = aidDb.getLatestSnapshot(did);
-
-  const trustChain = aidBuilder.buildPortableTrustChain({
-    did,
-    attestations,
-    latestSnapshot,
-    limit,
-  });
+  const trustChain = aidBuilder.buildPortableTrustChain(did, limit);
+  if (!trustChain) {
+    return c.json({ error: 'No trust chain available (no snapshots yet)', code: 'NO_TRUST_CHAIN' }, 404);
+  }
 
   return c.json(trustChain);
 });
@@ -249,18 +267,21 @@ router.post('/:did/attest', checkApiKey, async (c) => {
     return c.json({ error: 'AID not found', code: 'AID_NOT_FOUND' }, 404);
   }
 
+  // Ownership check: only the AID owner can add attestations to their identity
+  if (billingKey !== aidKey.owner_key) {
+    return c.json({ error: 'Only the AID owner can add attestations', code: 'AID_NOT_OWNED' }, 403);
+  }
+
   // Deduct credits
-  const deducted = deductCredit(billingKey, ATTEST_COST, 'aid_attest');
+  const deducted = deductCredit(billingKey, ATTEST_COST);
   if (!deducted) {
     return c.json({ error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS' }, 402);
   }
-  if (keyInfo.delegatedFrom) {
-    trackDelegatedSpend(keyInfo.delegatedFrom, ATTEST_COST);
-  }
+  trackDelegatedSpend(keyInfo, ATTEST_COST);
 
   const attestation = aidDb.addCrossPlatformAttestation({
+    ownerKey: billingKey,
     did,
-    attestorKey: billingKey,
     platform: body.platform,
     attestationType: body.attestationType,
     attestationData: body.attestationData,
@@ -282,6 +303,10 @@ router.post('/:did/attest', checkApiKey, async (c) => {
 router.get('/:did/capabilities', async (c) => {
   const did = c.req.param('did');
 
+  if (await checkPublicRateLimit(c)) {
+    return c.json({ error: 'Rate limit exceeded', code: 'RATE_LIMIT_EXCEEDED' }, 429);
+  }
+
   const aidDb = await getAidDb();
 
   const aidKey = aidDb.getAidKey(did);
@@ -289,7 +314,7 @@ router.get('/:did/capabilities', async (c) => {
     return c.json({ error: 'AID not found', code: 'AID_NOT_FOUND' }, 404);
   }
 
-  const capabilities = aidDb.getCapabilities(did);
+  const capabilities = aidDb.getCapabilities(aidKey.owner_key);
   return c.json({ did, capabilities });
 });
 
@@ -305,7 +330,15 @@ router.post('/verify', async (c) => {
 
   const aidVerifier = await getAidVerifier();
 
-  const result = aidVerifier.verifyAIDDocument(body.aidDocument);
+  // Auto-resolve platform public key for ClawNet-issued AIDs
+  let platformPublicKey = body.platformPublicKey;
+  const doc = body.aidDocument as Record<string, any>;
+  if (!platformPublicKey && doc?.issuance?.issuer === 'did:web:api.claw-net.org') {
+    const ed25519 = await getEd25519Signer();
+    platformPublicKey = ed25519.getEd25519PublicKeyMultibase();
+  }
+
+  const result = aidVerifier.verifyAIDDocument(body.aidDocument, platformPublicKey);
 
   return c.json(result);
 });
@@ -325,47 +358,34 @@ router.get('/:did/export', checkApiKey, async (c) => {
   }
 
   // Must own the AID
-  if (!isOwner(keyInfo as unknown as Record<string, unknown>, aidKey.owner_key)) {
+  if (billingKey !== aidKey.owner_key) {
     return c.json({ error: 'You do not own this AID', code: 'AID_NOT_OWNED' }, 403);
   }
 
   // Deduct credits
-  const deducted = deductCredit(billingKey, EXPORT_COST, 'aid_export');
+  const deducted = deductCredit(billingKey, EXPORT_COST);
   if (!deducted) {
     return c.json({ error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS' }, 402);
   }
-  if (keyInfo.delegatedFrom) {
-    trackDelegatedSpend(keyInfo.delegatedFrom, EXPORT_COST);
-  }
+  trackDelegatedSpend(keyInfo, EXPORT_COST);
 
   // Build fresh snapshot
-  const attestations = aidDb.getCrossPlatformAttestations(did, 200);
-  const snapshot = aidBuilder.buildTrustSnapshot(did, attestations);
-  aidDb.createTrustSnapshot(did, snapshot);
+  aidBuilder.buildTrustSnapshot(did, aidKey.owner_key);
 
   // Build full AID document
-  const aidDocument = aidBuilder.buildAIDDocument({
-    did: aidKey.did,
-    publicKeyMultibase: aidKey.public_key_multibase,
-    displayName: aidKey.display_name,
-    serviceEndpoints: aidKey.service_endpoints ? JSON.parse(aidKey.service_endpoints) : undefined,
-    created: aidKey.created_at,
-    updated: aidKey.updated_at,
-  });
+  const aidDocument = aidBuilder.buildAIDDocument(did);
 
   // Capabilities
-  const capabilities = aidDb.getCapabilities(did);
+  const capabilities = aidDb.getCapabilities(aidKey.owner_key);
 
-  // Trust chain
-  const trustChain = aidBuilder.buildPortableTrustChain({
-    did,
-    attestations,
-    latestSnapshot: snapshot,
-    limit: 200,
-  });
+  // Trust chain with full attestation set
+  const trustChain = aidBuilder.buildPortableTrustChain(did, 200);
 
   // Snapshot history
   const snapshotHistory = aidDb.getSnapshotHistory(did, 10);
+
+  // Prune old snapshots (keep last 50 per DID)
+  aidDb.pruneSnapshots(did, 50);
 
   logAudit({ entityType: 'aid', entityId: did, action: 'export', actorId: billingKey });
 
@@ -392,6 +412,14 @@ router.post('/:did/rotate-key', checkApiKey, async (c) => {
     return c.json({ error: message, code: 'INVALID_BODY' }, 400);
   }
 
+  // BYOK validation for rotation
+  if (body.newPublicKey) {
+    const validation = validateMultibaseEd25519(body.newPublicKey);
+    if (!validation.valid) {
+      return c.json({ error: `Invalid public key: ${validation.error}`, code: 'INVALID_PUBLIC_KEY' }, 400);
+    }
+  }
+
   const aidDb = await getAidDb();
   const aidBuilder = await getAidBuilder();
 
@@ -401,18 +429,16 @@ router.post('/:did/rotate-key', checkApiKey, async (c) => {
   }
 
   // Must own the AID
-  if (!isOwner(keyInfo as unknown as Record<string, unknown>, aidKey.owner_key)) {
+  if (billingKey !== aidKey.owner_key) {
     return c.json({ error: 'You do not own this AID', code: 'AID_NOT_OWNED' }, 403);
   }
 
   // Deduct credits
-  const deducted = deductCredit(billingKey, ROTATE_KEY_COST, 'aid_rotate_key');
+  const deducted = deductCredit(billingKey, ROTATE_KEY_COST);
   if (!deducted) {
     return c.json({ error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS' }, 402);
   }
-  if (keyInfo.delegatedFrom) {
-    trackDelegatedSpend(keyInfo.delegatedFrom, ROTATE_KEY_COST);
-  }
+  trackDelegatedSpend(keyInfo, ROTATE_KEY_COST);
 
   let newPublicKeyMultibase: string;
   let privateKeySeed: string | undefined;
@@ -420,23 +446,32 @@ router.post('/:did/rotate-key', checkApiKey, async (c) => {
   if (body.newPublicKey) {
     newPublicKeyMultibase = body.newPublicKey;
   } else {
-    const keypair = await aidBuilder.generateAgentKeypair();
+    const keypair = aidBuilder.generateAgentKeypair();
     newPublicKeyMultibase = keypair.publicKeyMultibase;
     privateKeySeed = keypair.privateKeySeed;
   }
 
-  // Store previous key for audit trail
   const previousKey = aidKey.public_key_multibase;
+  const oldKeyId = aidKey.id;
 
-  // Update the key
-  aidDb.createAidKey({
-    did,
+  // Create new key record
+  const { id: newKeyId } = aidDb.createAidKey({
     ownerKey: billingKey,
     publicKeyMultibase: newPublicKeyMultibase,
-    displayName: aidKey.display_name,
+    did,
+    displayName: aidKey.display_name || undefined,
     serviceEndpoints: aidKey.service_endpoints ? JSON.parse(aidKey.service_endpoints) : undefined,
-    rotatedFrom: previousKey,
   });
+
+  // Mark old key as rotated
+  aidDb.rotateAidKey(oldKeyId, newKeyId);
+
+  // Update agent_identities if linked
+  try {
+    aidDb.setIdentityAid(billingKey, did, newPublicKeyMultibase, newKeyId);
+  } catch {
+    // best-effort
+  }
 
   logAudit({
     entityType: 'aid',
@@ -454,12 +489,17 @@ router.post('/:did/rotate-key', checkApiKey, async (c) => {
     ...(privateKeySeed ? { privateKeySeed } : {}),
     previousKey,
     rotatedAt: new Date().toISOString(),
+    warning: privateKeySeed ? 'Save your privateKeySeed now — it is returned ONCE and never stored.' : undefined,
   });
 });
 
 // ─── GET /:did/did.json — W3C DID Document (public) ─────────────────────────
 router.get('/:did/did.json', async (c) => {
   const did = c.req.param('did');
+
+  if (await checkPublicRateLimit(c)) {
+    return c.json({ error: 'Rate limit exceeded', code: 'RATE_LIMIT_EXCEEDED' }, 429);
+  }
 
   const aidDb = await getAidDb();
 

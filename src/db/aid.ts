@@ -2,8 +2,9 @@
  * AID (Agent Identity Document) — DB helpers for aid_keys, aid_trust_snapshots,
  * aid_cross_platform_attestations, aid_capabilities, and agent_identities AID extensions.
  *
- * Migrations: v102–v106 in connection.ts
+ * Migrations: v102–v107 in connection.ts
  */
+import crypto from 'crypto';
 import { nanoid } from 'nanoid';
 import { getDb, logAudit, safeJsonParse } from './connection';
 
@@ -12,10 +13,14 @@ import { getDb, logAudit, safeJsonParse } from './connection';
 export interface AidKey {
   id: string;
   identity_id: string;
+  owner_key: string;
   public_key_multibase: string;
   did: string;
   key_status: string;
+  display_name: string | null;
+  service_endpoints: string | null;
   created_at: string;
+  updated_at: string | null;
   rotated_at: string | null;
   rotated_to: string | null;
   revocation_reason: string | null;
@@ -61,34 +66,50 @@ export interface AidCapability {
 
 // ─── AID Keys ───────────────────────────────────────────────────────────────
 
-export function createAidKey(
-  identityId: string,
-  publicKeyMultibase: string,
-  did: string,
-): { id: string } {
+export function createAidKey(data: {
+  ownerKey: string;
+  publicKeyMultibase: string;
+  did: string;
+  displayName?: string;
+  serviceEndpoints?: Array<{ type: string; url: string }>;
+}): { id: string } {
   const id = `aidkey-${nanoid(16)}`;
   getDb().prepare(`
-    INSERT INTO aid_keys (id, identity_id, public_key_multibase, did)
-    VALUES (?, ?, ?, ?)
-  `).run(id, identityId, publicKeyMultibase, did);
+    INSERT INTO aid_keys (id, identity_id, owner_key, public_key_multibase, did, display_name, service_endpoints)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    id, data.ownerKey, data.ownerKey, data.publicKeyMultibase, data.did,
+    data.displayName ?? null,
+    data.serviceEndpoints ? JSON.stringify(data.serviceEndpoints) : null,
+  );
 
-  logAudit({ entityType: 'aid_key', entityId: id, action: 'CREATE', data: { identity_id: identityId, did } });
+  logAudit({ entityType: 'aid_key', entityId: id, action: 'CREATE', data: { owner_key: data.ownerKey, did: data.did } });
   return { id };
 }
 
 export function getAidKey(did: string): AidKey | null {
-  return (getDb().prepare('SELECT * FROM aid_keys WHERE did = ?').get(did) as AidKey | undefined) ?? null;
+  return (getDb().prepare(
+    'SELECT * FROM aid_keys WHERE did = ? AND key_status = ? ORDER BY created_at DESC LIMIT 1'
+  ).get(did, 'active') as AidKey | undefined) ?? null;
+}
+
+export function getAidKeysByOwnerKey(ownerKey: string): AidKey[] {
+  return getDb().prepare(
+    'SELECT * FROM aid_keys WHERE owner_key = ? AND key_status = ? ORDER BY created_at DESC'
+  ).all(ownerKey, 'active') as AidKey[];
 }
 
 export function getAidKeysByIdentity(identityId: string): AidKey[] {
-  return getDb().prepare('SELECT * FROM aid_keys WHERE identity_id = ? ORDER BY created_at DESC').all(identityId) as AidKey[];
+  return getDb().prepare(
+    'SELECT * FROM aid_keys WHERE identity_id = ? ORDER BY created_at DESC'
+  ).all(identityId) as AidKey[];
 }
 
 export function rotateAidKey(oldKeyId: string, newKeyId: string): void {
   const now = new Date().toISOString();
   getDb().transaction(() => {
     getDb().prepare(`
-      UPDATE aid_keys SET key_status = 'rotated', rotated_at = ?, rotated_to = ? WHERE id = ?
+      UPDATE aid_keys SET key_status = 'rotated', rotated_at = ?, rotated_to = ?, updated_at = datetime('now') WHERE id = ?
     `).run(now, newKeyId, oldKeyId);
   })();
 
@@ -97,7 +118,7 @@ export function rotateAidKey(oldKeyId: string, newKeyId: string): void {
 
 export function revokeAidKey(keyId: string, reason: string): void {
   getDb().prepare(`
-    UPDATE aid_keys SET key_status = 'revoked', revocation_reason = ? WHERE id = ?
+    UPDATE aid_keys SET key_status = 'revoked', revocation_reason = ?, updated_at = datetime('now') WHERE id = ?
   `).run(reason, keyId);
 
   logAudit({ entityType: 'aid_key', entityId: keyId, action: 'REVOKE', data: { reason } });
@@ -145,37 +166,59 @@ export function getSnapshotHistory(did: string, limit: number = 20): AidTrustSna
   ).all(did, safeLimit) as AidTrustSnapshot[];
 }
 
+/**
+ * Delete old snapshots, keeping only the most recent `keep` per DID.
+ * Returns number of rows deleted.
+ */
+export function pruneSnapshots(did: string, keep: number = 50): number {
+  const result = getDb().prepare(`
+    DELETE FROM aid_trust_snapshots
+    WHERE did = ? AND id NOT IN (
+      SELECT id FROM aid_trust_snapshots WHERE did = ? ORDER BY created_at DESC LIMIT ?
+    )
+  `).run(did, did, keep);
+  return result.changes;
+}
+
 // ─── Cross-Platform Attestations ────────────────────────────────────────────
 
 export function addCrossPlatformAttestation(data: {
-  identityId: string;
+  ownerKey: string;
   did: string;
   platform: string;
   attestationType: string;
-  attestationDataJson: string;
-  attestationHash: string;
+  attestationData: Record<string, unknown>;
   platformSignature?: string;
-}): { id: string } {
+}): { id: string; attestationHash: string } {
   const id = `xplat-${nanoid(16)}`;
+  const attestationDataJson = JSON.stringify(data.attestationData);
+  const attestationHash = crypto.createHash('sha256').update(attestationDataJson).digest('hex');
+
   getDb().prepare(`
     INSERT INTO aid_cross_platform_attestations (
       id, identity_id, did, platform, attestation_type,
       attestation_data_json, attestation_hash, platform_signature
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
-    id, data.identityId, data.did, data.platform, data.attestationType,
-    data.attestationDataJson, data.attestationHash, data.platformSignature ?? null,
+    id, data.ownerKey, data.did, data.platform, data.attestationType,
+    attestationDataJson, attestationHash, data.platformSignature ?? null,
   );
 
   logAudit({ entityType: 'aid_cross_platform_attestation', entityId: id, action: 'CREATE', data: { did: data.did, platform: data.platform } });
-  return { id };
+  return { id, attestationHash };
 }
 
-export function getCrossPlatformAttestations(did: string, limit: number = 20): AidCrossPlatformAttestation[] {
-  const safeLimit = Math.min(Math.max(1, limit), 100);
+export function getCrossPlatformAttestations(did: string, limit: number = 50): AidCrossPlatformAttestation[] {
+  const safeLimit = Math.min(Math.max(1, limit), 500);
   return getDb().prepare(
     'SELECT * FROM aid_cross_platform_attestations WHERE did = ? ORDER BY created_at DESC LIMIT ?',
   ).all(did, safeLimit) as AidCrossPlatformAttestation[];
+}
+
+export function countNewAttestationsSince(did: string, since: string): number {
+  return (getDb().prepare(
+    'SELECT COUNT(*) as cnt FROM aid_cross_platform_attestations WHERE did = ? AND created_at > ?'
+  ).get(did, since) as any)?.cnt ?? 0;
 }
 
 // ─── Capabilities ───────────────────────────────────────────────────────────
@@ -203,6 +246,26 @@ export function upsertCapability(identityId: string, category: string, action: s
       VALUES (?, ?, ?, ?, 1, datetime('now'))
     `).run(id, identityId, category, JSON.stringify([action]));
   }
+}
+
+/**
+ * Replace all capabilities for an identity. Used by the cron to refresh
+ * derived capabilities from attestation history without double-counting.
+ */
+export function replaceCapabilities(
+  identityId: string,
+  capabilities: Array<{ category: string; actions: string[]; invokeCount: number }>,
+): void {
+  getDb().transaction(() => {
+    getDb().prepare('DELETE FROM aid_capabilities WHERE identity_id = ?').run(identityId);
+    for (const cap of capabilities) {
+      const id = `aidcap-${nanoid(16)}`;
+      getDb().prepare(`
+        INSERT INTO aid_capabilities (id, identity_id, category, actions_json, invoke_count)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(id, identityId, cap.category, JSON.stringify(cap.actions), cap.invokeCount);
+    }
+  })();
 }
 
 export function getCapabilities(identityId: string): AidCapability[] {

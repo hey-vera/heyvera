@@ -5,14 +5,15 @@
  * builds portable trust chains with Merkle proofs, and computes
  * cryptographically verifiable trust scores.
  *
- * Uses existing Ed25519 signing infrastructure from ed25519-signer.ts
- * and Merkle tree utilities from merkle-anchor.ts.
+ * Uses shared JCS/base58btc from utils/jcs.ts, Ed25519 signing from
+ * ed25519-signer.ts, and Merkle tree utilities from merkle-anchor.ts.
  */
 
 import crypto from 'crypto';
 import { getDb } from '../db/connection';
 import { signVC, getEd25519PublicKeyMultibase } from '../utils/ed25519-signer';
 import { buildMerkleTree, getMerkleProof } from './merkle-anchor';
+import { jcsSerialize, base58btcEncode } from '../utils/jcs';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -70,50 +71,7 @@ export interface PortableTrustChain {
   exportedAt: string;
 }
 
-// ─── Base58btc encoding ─────────────────────────────────────────────────────
-
-const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
-
-function base58btcEncode(buf: Buffer): string {
-  let num = BigInt('0x' + buf.toString('hex'));
-  let encoded = '';
-  while (num > 0n) {
-    const remainder = Number(num % 58n);
-    num = num / 58n;
-    encoded = BASE58_ALPHABET[remainder] + encoded;
-  }
-  for (const byte of buf) {
-    if (byte === 0) encoded = '1' + encoded;
-    else break;
-  }
-  return encoded;
-}
-
-// ─── JCS canonicalization (minimal, for proof hashing) ──────────────────────
-
-function jcsSerialize(value: unknown): string {
-  if (value === null) return 'null';
-  if (typeof value === 'boolean') return value ? 'true' : 'false';
-  if (typeof value === 'number') {
-    if (!isFinite(value)) throw new Error('JCS: non-finite numbers not supported');
-    return Object.is(value, -0) ? '0' : String(value);
-  }
-  if (typeof value === 'string') return JSON.stringify(value);
-  if (Array.isArray(value)) {
-    return '[' + value.map(jcsSerialize).join(',') + ']';
-  }
-  if (typeof value === 'object') {
-    const obj = value as Record<string, unknown>;
-    const keys = Object.keys(obj)
-      .filter(k => obj[k] !== undefined)
-      .sort();
-    const entries = keys.map(k => JSON.stringify(k) + ':' + jcsSerialize(obj[k]));
-    return '{' + entries.join(',') + '}';
-  }
-  return '';
-}
-
-// ─── Action type → category mapping ────────────────────────────────────────
+// ─── Action type -> category mapping ────────────────────────────────────────
 
 const ACTION_CATEGORY_MAP: Record<string, string> = {
   orchestrate: 'data',
@@ -153,6 +111,7 @@ export function generateAgentKeypair(): { publicKeyMultibase: string; privateKey
   const seed = Buffer.from(pkcs8.subarray(16, 48));
   const privateKeySeed = seed.toString('hex');
 
+  // Self-certifying DID: public key IS the identifier
   const did = `did:clawnet:${publicKeyMultibase}`;
 
   return { publicKeyMultibase, privateKeySeed, did };
@@ -160,40 +119,43 @@ export function generateAgentKeypair(): { publicKeyMultibase: string; privateKey
 
 /**
  * Build a full AID document for an agent.
+ * Queries aid_keys by DID, then pulls attestation/trust data via owner_key.
  */
 export function buildAIDDocument(did: string): AIDDocument | null {
-  const identity = getDb().prepare(
-    'SELECT * FROM agent_identities WHERE did = ?'
-  ).get(did) as any;
-  if (!identity) return null;
+  // Primary lookup via aid_keys
+  const aidKey = getDb().prepare(
+    'SELECT * FROM aid_keys WHERE did = ? AND key_status = ?'
+  ).get(did, 'active') as any;
+  if (!aidKey) return null;
+
+  const ownerKey = aidKey.owner_key;
 
   // Get latest trust snapshot
   const snapshot = getDb().prepare(
     'SELECT * FROM aid_trust_snapshots WHERE did = ? ORDER BY created_at DESC LIMIT 1'
   ).get(did) as any;
 
-  // Get capabilities
-  const capabilities = deriveCapabilities(identity.id);
+  // Derive capabilities from attestation history
+  const capabilities = deriveCapabilities(ownerKey);
 
-  // Get cross-platform attestations
+  // Get cross-platform attestations grouped by platform
   const xplatRows = getDb().prepare(
-    'SELECT platform, COUNT(*) as cnt, created_at FROM aid_cross_platform_attestations WHERE did = ? GROUP BY platform ORDER BY created_at ASC'
+    'SELECT platform, COUNT(*) as cnt, MIN(created_at) as first_created FROM aid_cross_platform_attestations WHERE did = ? GROUP BY platform ORDER BY first_created ASC'
   ).all(did) as any[];
 
-  // Build attestation stats from attestation_stats table
+  // Build attestation stats
   const stats = getDb().prepare(
     'SELECT * FROM attestation_stats WHERE api_key_hash = ?'
-  ).get(identity.api_key_hash) as any;
+  ).get(ownerKey) as any;
 
   const totalAttestations = stats?.total_attestations ?? 0;
   const successCount = stats?.success_count ?? 0;
-  const failureCount = stats?.failure_count ?? 0;
   const successRate = totalAttestations > 0 ? successCount / totalAttestations : 0;
 
-  // Chain coverage: fraction of attestations that have prev_attestation_hash (hash-chained)
+  // Chain coverage: fraction of attestations that have prev_attestation_hash
   const chainedCount = (getDb().prepare(
     'SELECT COUNT(*) as cnt FROM attestations WHERE api_key_hash = ? AND prev_attestation_hash IS NOT NULL'
-  ).get(identity.api_key_hash) as any)?.cnt ?? 0;
+  ).get(ownerKey) as any)?.cnt ?? 0;
   const chainCoverage = totalAttestations > 0 ? chainedCount / totalAttestations : 0;
 
   const trustStats: TrustStats = { successRate, chainCoverage, attestationCount: totalAttestations };
@@ -203,7 +165,6 @@ export function buildAIDDocument(did: string): AIDDocument | null {
   const chainLength = snapshot?.chain_length ?? 0;
 
   const platformAttestations = (xplatRows || []).map((r: any) => {
-    // Per-platform success rate from cross-platform attestations
     const platformStats = getDb().prepare(
       `SELECT COUNT(*) as total, SUM(CASE WHEN verified = 1 THEN 1 ELSE 0 END) as verified_cnt,
        MIN(created_at) as first_seen
@@ -213,7 +174,7 @@ export function buildAIDDocument(did: string): AIDDocument | null {
       platform: r.platform,
       attestationCount: platformStats?.total ?? 0,
       successRate: platformStats?.total > 0 ? (platformStats?.verified_cnt ?? 0) / platformStats.total : 0,
-      firstSeen: platformStats?.first_seen ?? r.created_at,
+      firstSeen: platformStats?.first_seen ?? r.first_created,
     };
   });
 
@@ -229,13 +190,13 @@ export function buildAIDDocument(did: string): AIDDocument | null {
     type: 'AgentIdentityDocument',
     version: '1.0.0',
     agent: {
-      displayName: identity.display_name || undefined,
-      agentType: identity.agent_type,
-      createdAt: identity.created_at,
+      displayName: aidKey.display_name || undefined,
+      agentType: 'autonomous',
+      createdAt: aidKey.created_at,
     },
     publicKey: {
       type: 'Ed25519VerificationKey2020',
-      publicKeyMultibase: identity.public_key_multibase || '',
+      publicKeyMultibase: aidKey.public_key_multibase,
     },
     did,
     trustChain: {
@@ -279,10 +240,12 @@ export function buildAIDDocument(did: string): AIDDocument | null {
  * trust score proof, and signatures.
  */
 export function buildPortableTrustChain(did: string, maxAttestations: number = 50): PortableTrustChain | null {
-  const identity = getDb().prepare(
-    'SELECT * FROM agent_identities WHERE did = ?'
-  ).get(did) as any;
-  if (!identity) return null;
+  const aidKey = getDb().prepare(
+    'SELECT * FROM aid_keys WHERE did = ? AND key_status = ?'
+  ).get(did, 'active') as any;
+  if (!aidKey) return null;
+
+  const ownerKey = aidKey.owner_key;
 
   // Get latest trust snapshot
   const snapshot = getDb().prepare(
@@ -295,28 +258,28 @@ export function buildPortableTrustChain(did: string, maxAttestations: number = 5
     `SELECT id, action_type, outcome_status, created_at, signature, prev_attestation_hash
      FROM attestations WHERE api_key_hash = ?
      ORDER BY created_at DESC LIMIT ?`
-  ).all(identity.api_key_hash, maxAttestations) as any[];
+  ).all(ownerKey, maxAttestations) as any[];
 
   // Build Merkle tree from all attestation hashes to generate proofs
   const allAttestationHashes = getDb().prepare(
     'SELECT id FROM attestations WHERE api_key_hash = ? ORDER BY created_at ASC'
-  ).all(identity.api_key_hash) as any[];
+  ).all(ownerKey) as any[];
 
   const hashes = allAttestationHashes.map((a: any) =>
     crypto.createHash('sha256').update(a.id).digest('hex')
   );
-  const { root, tree } = buildMerkleTree(hashes);
+  const { tree } = buildMerkleTree(hashes);
 
   // Build trust stats
   const stats = getDb().prepare(
     'SELECT * FROM attestation_stats WHERE api_key_hash = ?'
-  ).get(identity.api_key_hash) as any;
+  ).get(ownerKey) as any;
 
   const totalAttestations = stats?.total_attestations ?? 0;
   const successRate = totalAttestations > 0 ? (stats?.success_count ?? 0) / totalAttestations : 0;
   const chainedCount = (getDb().prepare(
     'SELECT COUNT(*) as cnt FROM attestations WHERE api_key_hash = ? AND prev_attestation_hash IS NOT NULL'
-  ).get(identity.api_key_hash) as any)?.cnt ?? 0;
+  ).get(ownerKey) as any)?.cnt ?? 0;
   const chainCoverage = totalAttestations > 0 ? chainedCount / totalAttestations : 0;
 
   const trustScore = computeTrustScoreWithProof({
@@ -354,16 +317,11 @@ export function buildPortableTrustChain(did: string, maxAttestations: number = 5
  * Build and store a trust chain snapshot (called by cron).
  * Computes Merkle root over all attestations, signs it, stores in aid_trust_snapshots.
  */
-export function buildTrustSnapshot(identityId: string, did: string): string | null {
-  const identity = getDb().prepare(
-    'SELECT * FROM agent_identities WHERE id = ?'
-  ).get(identityId) as any;
-  if (!identity) return null;
-
+export function buildTrustSnapshot(did: string, ownerKey: string): string | null {
   // Get all attestation IDs for this agent
   const attestations = getDb().prepare(
     'SELECT id, prev_attestation_hash FROM attestations WHERE api_key_hash = ? ORDER BY created_at ASC'
-  ).all(identity.api_key_hash) as any[];
+  ).all(ownerKey) as any[];
 
   // Build Merkle tree from attestation ID hashes
   const hashes = attestations.map((a: any) =>
@@ -384,13 +342,13 @@ export function buildTrustSnapshot(identityId: string, did: string): string | nu
   // Compute trust stats
   const stats = getDb().prepare(
     'SELECT * FROM attestation_stats WHERE api_key_hash = ?'
-  ).get(identity.api_key_hash) as any;
+  ).get(ownerKey) as any;
 
   const totalAttestations = stats?.total_attestations ?? 0;
   const successRate = totalAttestations > 0 ? (stats?.success_count ?? 0) / totalAttestations : 0;
   const chainedCount = (getDb().prepare(
     'SELECT COUNT(*) as cnt FROM attestations WHERE api_key_hash = ? AND prev_attestation_hash IS NOT NULL'
-  ).get(identity.api_key_hash) as any)?.cnt ?? 0;
+  ).get(ownerKey) as any)?.cnt ?? 0;
   const chainCoverage = totalAttestations > 0 ? chainedCount / totalAttestations : 0;
 
   const trustStats: TrustStats = { successRate, chainCoverage, attestationCount: totalAttestations };
@@ -416,7 +374,7 @@ export function buildTrustSnapshot(identityId: string, did: string): string | nu
     INSERT INTO aid_trust_snapshots (id, identity_id, did, merkle_root, attestation_count, chain_length, stats_json, agent_signature, platform_signature)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
-    snapshotId, identityId, did, root, attestations.length,
+    snapshotId, ownerKey, did, root, attestations.length,
     chainLength, JSON.stringify(trustStats), agentSignature, platformSignature,
   );
 
@@ -452,18 +410,15 @@ export function computeTrustScoreWithProof(stats: TrustStats): TrustScoreProof {
 /**
  * Derive capabilities from attestation history.
  * Maps action_types to categories and counts.
+ * Takes ownerKey (api_key_hash) to look up attestations.
  */
-export function deriveCapabilities(identityId: string): Array<{ category: string; actions: string[]; invokeCount: number }> {
-  // Look up api_key_hash from identity
-  const identity = getDb().prepare(
-    'SELECT api_key_hash FROM agent_identities WHERE id = ?'
-  ).get(identityId) as any;
-  if (!identity) return [];
+export function deriveCapabilities(ownerKey: string): Array<{ category: string; actions: string[]; invokeCount: number }> {
+  if (!ownerKey) return [];
 
   // Group attestations by action_type
   const rows = getDb().prepare(
     'SELECT action_type, COUNT(*) as cnt FROM attestations WHERE api_key_hash = ? GROUP BY action_type'
-  ).all(identity.api_key_hash) as any[];
+  ).all(ownerKey) as any[];
 
   // Aggregate by category
   const categoryMap = new Map<string, { actions: Set<string>; invokeCount: number }>();

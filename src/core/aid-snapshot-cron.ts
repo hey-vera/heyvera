@@ -10,20 +10,6 @@ import cron from 'node-cron';
 import { getDb } from '../db/connection';
 import { logger } from '../utils/logger';
 
-interface AidIdentityRow {
-  did: string;
-  owner_key: string;
-}
-
-interface AttestationRow {
-  id: string;
-  did: string;
-  platform: string;
-  attestation_type: string;
-  attestation_data: string;
-  created_at: string;
-}
-
 let _running = false;
 let task: ReturnType<typeof cron.schedule> | null = null;
 
@@ -34,14 +20,14 @@ async function runAidSnapshots(): Promise<void> {
   try {
     const db = getDb();
 
-    // Find all agents with a non-null DID
+    // Find all agents with a non-null DID (via aid_keys, which has owner_key)
     const agents = db.prepare(
-      `SELECT ak.did, ak.owner_key
-       FROM aid_keys ak
-       WHERE ak.did IS NOT NULL
-       ORDER BY ak.updated_at DESC
+      `SELECT did, owner_key
+       FROM aid_keys
+       WHERE did IS NOT NULL AND key_status = 'active'
+       ORDER BY created_at DESC
        LIMIT 500`
-    ).all() as AidIdentityRow[];
+    ).all() as { did: string; owner_key: string }[];
 
     if (agents.length === 0) {
       logger.debug('AID snapshot cron: no agents with DIDs found');
@@ -51,7 +37,7 @@ async function runAidSnapshots(): Promise<void> {
     let snapshotted = 0;
     let capabilitiesRefreshed = 0;
 
-    // Lazy import — db/aid.ts and core/aid-builder.ts are created by other agents
+    // Lazy import
     const aidDb = await import('../db/aid');
     const aidBuilder = await import('../core/aid-builder');
 
@@ -62,35 +48,27 @@ async function runAidSnapshots(): Promise<void> {
         const lastSnapshotAt = latestSnapshot?.created_at || '1970-01-01T00:00:00Z';
 
         // Check for new attestations since last snapshot
-        const newAttestations = db.prepare(
-          `SELECT id, did, platform, attestation_type, attestation_data, created_at
-           FROM aid_cross_platform_attestations
-           WHERE did = ? AND created_at > ?
-           ORDER BY created_at ASC
-           LIMIT 500`
-        ).all(agent.did, lastSnapshotAt) as AttestationRow[];
+        const newCount = aidDb.countNewAttestationsSince(agent.did, lastSnapshotAt);
+        if (newCount === 0) continue;
 
-        if (newAttestations.length === 0) continue;
+        // Build trust snapshot (queries attestations internally)
+        const snapshotId = aidBuilder.buildTrustSnapshot(agent.did, agent.owner_key);
+        if (snapshotId) {
+          snapshotted++;
 
-        // Get ALL attestations for full Merkle tree
-        const allAttestations = aidDb.getCrossPlatformAttestations(agent.did, 1000);
-
-        // Build trust snapshot (Merkle tree of all attestations)
-        const snapshot = aidBuilder.buildTrustSnapshot(agent.did, allAttestations);
-
-        // Store the snapshot
-        aidDb.createTrustSnapshot(agent.did, snapshot);
-        snapshotted++;
+          // Prune old snapshots (keep last 50 per DID)
+          aidDb.pruneSnapshots(agent.did, 50);
+        }
 
         // Refresh capabilities from attestation history
-        const capabilities = aidBuilder.deriveCapabilities(allAttestations);
-        for (const cap of capabilities) {
-          aidDb.upsertCapability(agent.did, cap);
+        const capabilities = aidBuilder.deriveCapabilities(agent.owner_key);
+        if (capabilities.length > 0) {
+          aidDb.replaceCapabilities(agent.owner_key, capabilities);
+          capabilitiesRefreshed++;
         }
-        if (capabilities.length > 0) capabilitiesRefreshed++;
 
         logger.debug(
-          { did: agent.did, attestations: newAttestations.length, capabilities: capabilities.length },
+          { did: agent.did, newAttestations: newCount, capabilities: capabilities.length },
           'AID snapshot created'
         );
       } catch (err) {

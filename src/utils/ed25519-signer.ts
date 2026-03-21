@@ -14,6 +14,7 @@
  */
 
 import { createHash, createPrivateKey, createPublicKey, sign, verify, KeyObject } from 'crypto';
+import { jcsCanonicalizeToBytes, base58btcEncode } from './jcs';
 
 // ─── Ed25519 PKCS#8 DER header (RFC 8410) ─────────────────────────────────
 // 30 2e 02 01 00 30 05 06 03 2b 65 70 04 22 04 20 + 32-byte seed
@@ -27,7 +28,7 @@ let _publicKeyRaw: Buffer | null = null;
 
 /**
  * Derive a deterministic Ed25519 keypair from the platform signing secret.
- * SHA-256(secret) → 32-byte seed → Ed25519 private key via PKCS#8 DER import.
+ * SHA-256(secret) -> 32-byte seed -> Ed25519 private key via PKCS#8 DER import.
  */
 function ensureKeyPair(): void {
   if (_privateKey) return;
@@ -104,60 +105,4 @@ export function resetKeyPair(): void {
   _privateKey = null;
   _publicKey = null;
   _publicKeyRaw = null;
-}
-
-// ─── JCS (RFC 8785) ───────────────────────────────────────────────────────
-//
-// JSON Canonicalization Scheme: deterministic JSON serialization.
-// - Object keys sorted lexicographically (Unicode code point order)
-// - No whitespace
-// - Numbers serialized per ES2015 Number.toString()
-// - Recursive for nested objects/arrays
-// - null, boolean, string serialized normally
-
-function jcsSerialize(value: unknown): string {
-  if (value === null) return 'null';
-  if (typeof value === 'boolean') return value ? 'true' : 'false';
-  if (typeof value === 'number') {
-    if (!isFinite(value)) throw new Error('JCS: non-finite numbers not supported');
-    return Object.is(value, -0) ? '0' : String(value);
-  }
-  if (typeof value === 'string') return JSON.stringify(value);
-  if (Array.isArray(value)) {
-    return '[' + value.map(jcsSerialize).join(',') + ']';
-  }
-  if (typeof value === 'object') {
-    const obj = value as Record<string, unknown>;
-    const keys = Object.keys(obj)
-      .filter(k => obj[k] !== undefined) // skip undefined (per JSON.stringify)
-      .sort(); // lexicographic (Unicode code point order)
-    const entries = keys.map(k => JSON.stringify(k) + ':' + jcsSerialize(obj[k]));
-    return '{' + entries.join(',') + '}';
-  }
-  // undefined at top level → empty string (shouldn't happen in practice)
-  return '';
-}
-
-function jcsCanonicalizeToBytes(obj: Record<string, unknown>): Buffer {
-  return Buffer.from(jcsSerialize(obj), 'utf8');
-}
-
-// ─── Base58btc encoding ──────────────────────────────────────────────────
-
-const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
-
-function base58btcEncode(buf: Buffer): string {
-  let num = BigInt('0x' + buf.toString('hex'));
-  let encoded = '';
-  while (num > 0n) {
-    const remainder = Number(num % 58n);
-    num = num / 58n;
-    encoded = BASE58_ALPHABET[remainder] + encoded;
-  }
-  // Preserve leading zero bytes
-  for (const byte of buf) {
-    if (byte === 0) encoded = '1' + encoded;
-    else break;
-  }
-  return encoded;
 }

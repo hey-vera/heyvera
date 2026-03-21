@@ -2,10 +2,11 @@
  * aid-verifier.ts — Offline verification of AID documents and portable trust chains
  *
  * Pure cryptographic verification with ZERO database calls and no network I/O.
- * Only depends on Node.js crypto module.
+ * Only depends on Node.js crypto module + shared JCS/base58btc utilities.
  */
 
 import crypto from 'crypto';
+import { jcsSerialize, base58btcDecode } from './jcs';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -37,30 +38,6 @@ export interface TrustScoreVerifyResult {
   claimedScore: number;
 }
 
-// ─── JCS canonicalization (must match aid-builder.ts / ed25519-signer.ts) ──
-
-function jcsSerialize(value: unknown): string {
-  if (value === null) return 'null';
-  if (typeof value === 'boolean') return value ? 'true' : 'false';
-  if (typeof value === 'number') {
-    if (!isFinite(value)) throw new Error('JCS: non-finite numbers not supported');
-    return Object.is(value, -0) ? '0' : String(value);
-  }
-  if (typeof value === 'string') return JSON.stringify(value);
-  if (Array.isArray(value)) {
-    return '[' + value.map(jcsSerialize).join(',') + ']';
-  }
-  if (typeof value === 'object') {
-    const obj = value as Record<string, unknown>;
-    const keys = Object.keys(obj)
-      .filter(k => obj[k] !== undefined)
-      .sort();
-    const entries = keys.map(k => JSON.stringify(k) + ':' + jcsSerialize(obj[k]));
-    return '{' + entries.join(',') + '}';
-  }
-  return '';
-}
-
 // ─── Merkle proof verification (standalone, matches merkle-anchor.ts) ──────
 
 function hashPair(a: string, b: string): string {
@@ -83,28 +60,6 @@ function verifyMerkleProof(
   return current === root;
 }
 
-// ─── Base58btc decoding (for Ed25519 public key extraction) ─────────────────
-
-const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
-
-function base58btcDecode(str: string): Buffer {
-  let num = 0n;
-  for (const char of str) {
-    const idx = BASE58_ALPHABET.indexOf(char);
-    if (idx === -1) throw new Error(`Invalid base58 character: ${char}`);
-    num = num * 58n + BigInt(idx);
-  }
-  const hex = num.toString(16).padStart(2, '0');
-  const bytes = Buffer.from(hex.length % 2 ? '0' + hex : hex, 'hex');
-  // Count leading '1's → leading zero bytes
-  let leadingZeros = 0;
-  for (const char of str) {
-    if (char === '1') leadingZeros++;
-    else break;
-  }
-  return Buffer.concat([Buffer.alloc(leadingZeros), bytes]);
-}
-
 /**
  * Attempt to verify an Ed25519 signature on JCS-canonicalized data.
  * Returns true if verified, false if verification fails or key is invalid.
@@ -123,14 +78,12 @@ function verifyEd25519Signature(
     if (decoded.length < 34 || decoded[0] !== 0xed || decoded[1] !== 0x01) return false;
     const rawPub = decoded.subarray(2);
 
-    // Build SPKI DER: 30 2a 30 05 06 03 2b 65 70 03 21 00 + 32-byte key
-    const spkiPrefix = Buffer.from('302a300506032b657003210', 'hex');
-    // Actually the correct SPKI header is 12 bytes
+    // Build SPKI DER: 12-byte header + 32-byte key
     const spkiHeader = Buffer.from('302a300506032b6570032100', 'hex');
     const spki = Buffer.concat([spkiHeader, rawPub]);
     const pubKey = crypto.createPublicKey({ key: spki, format: 'der', type: 'spki' });
 
-    // JCS canonicalize → SHA-256 → verify Ed25519
+    // JCS canonicalize -> SHA-256 -> verify Ed25519
     const canonical = Buffer.from(jcsSerialize(data), 'utf8');
     const hash = crypto.createHash('sha256').update(canonical).digest();
     return crypto.verify(null, hash, pubKey, Buffer.from(proofValue, 'base64url'));
@@ -144,6 +97,9 @@ function verifyEd25519Signature(
 /**
  * Verify an AID document offline. Pure cryptographic verification.
  * Checks: platform signature, Merkle root format, trust score computation, expiry.
+ *
+ * If platformPublicKey is provided, the platform countersignature is verified
+ * cryptographically. Without it, signature verification is skipped with a warning.
  */
 export function verifyAIDDocument(aidDoc: any, platformPublicKey?: string): VerifyResult {
   const warnings: string[] = [];
@@ -183,19 +139,16 @@ export function verifyAIDDocument(aidDoc: any, platformPublicKey?: string): Veri
     const docWithoutProof = { ...aidDoc };
     delete docWithoutProof.proof;
 
-    const pubKey = platformPublicKey || proof.verificationMethod;
     if (platformPublicKey) {
-      // Try Ed25519 verification with provided public key
       details.platformSignature = verifyEd25519Signature(
         docWithoutProof, proof.proofValue, platformPublicKey,
       );
-    }
-
-    if (!details.platformSignature && !platformPublicKey) {
-      // Cannot verify without the platform public key — note as warning
+      if (!details.platformSignature) {
+        warnings.push('Platform signature verification failed');
+      }
+    } else {
+      // Cannot verify without the platform public key
       warnings.push('Platform public key not provided; signature not verified');
-    } else if (!details.platformSignature) {
-      warnings.push('Platform signature verification failed');
     }
   } else {
     warnings.push('No platform countersignature found');
@@ -237,6 +190,8 @@ export function verifyAIDDocument(aidDoc: any, platformPublicKey?: string): Veri
     details.chainIntegrity = true; // No attestations is valid for new agents
   }
 
+  // Valid requires: not expired, valid Merkle root, matching trust score, chain integrity
+  // Platform signature is checked but NOT required for validity (supports offline/cross-platform)
   const valid = !details.expired && details.merkleRoot && details.trustScoreMatch && details.chainIntegrity;
 
   return {
@@ -296,22 +251,10 @@ export function verifyPortableTrustChain(chain: any): TrustChainVerifyResult {
     const current = ordered[i];
     const previous = ordered[i - 1];
     if (current.prevAttestationHash) {
-      // The prevAttestationHash should be a hash of the previous attestation's ID
       const expectedHash = crypto.createHash('sha256').update(previous.id).digest('hex');
       if (current.prevAttestationHash !== expectedHash && current.prevAttestationHash !== previous.id) {
         chainContiguous = false;
         warnings.push(`Chain break at attestation ${current.id}: prevAttestationHash does not match previous`);
-      }
-    }
-    // No prevAttestationHash on first attestation is expected
-  }
-
-  // Verify attestation signatures if present and platform public key is available
-  if (chain.platformPublicKey) {
-    for (const att of attestations) {
-      if (att.signature) {
-        // Signature verification is best-effort — attestations may be signed differently
-        // We note it but don't fail on it since the signing format may vary
       }
     }
   }

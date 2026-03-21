@@ -1039,6 +1039,16 @@ const MIGRATIONS: { version: number; sql: string }[] = [
     ALTER TABLE agent_identities ADD COLUMN aid_version TEXT DEFAULT '1.0.0';
     ALTER TABLE agent_identities ADD COLUMN aid_exported_at TEXT;
   ` },
+
+  // v107: Add missing columns to aid_keys (owner, display, service endpoints, updated_at)
+  { version: 107, sql: `
+    ALTER TABLE aid_keys ADD COLUMN owner_key TEXT;
+    ALTER TABLE aid_keys ADD COLUMN display_name TEXT;
+    ALTER TABLE aid_keys ADD COLUMN service_endpoints TEXT;
+    ALTER TABLE aid_keys ADD COLUMN updated_at TEXT DEFAULT (datetime('now'));
+    CREATE INDEX IF NOT EXISTS idx_aid_keys_owner ON aid_keys(owner_key);
+    CREATE INDEX IF NOT EXISTS idx_aid_xplat_did ON aid_cross_platform_attestations(did, created_at DESC);
+  ` },
 ];
 
 function runMigrations(): void {
