@@ -353,6 +353,76 @@ function buildX402Middleware() {
 
 const x402Middleware = buildX402Middleware();
 
+// Pre-middleware: if no payment header on a paid route, return our own 402 with full body
+// This runs BEFORE the x402 SDK middleware, so we control the response entirely
+x402SkillsRouter.use('*', async (c, next) => {
+  const method = c.req.method;
+  const path = c.req.path;
+  const isPaidRoute = method === 'POST' && (
+    path.match(/\/skills\/[^/]+$/) ||
+    path.match(/\/query\/[^/]+$/) ||
+    path.endsWith('/orchestrate')
+  );
+
+  if (!isPaidRoute || !env.X402_RECIPIENT_ADDRESS) return next();
+
+  // Check for payment headers (v1 + v2)
+  const hasPayment = c.req.header('X-PAYMENT') || c.req.header('PAYMENT-SIGNATURE') || c.req.header('payment-signature');
+  if (hasPayment) return next(); // Has payment — let SDK verify it
+
+  // No payment — return 402 with full body (bypasses SDK which returns empty {})
+  const skillMatch = path.match(/\/(?:skills|query)\/([^/]+)/);
+  const isOrchestrate = path.includes('/orchestrate');
+
+  let skillId = 'orchestrate';
+  let creditCost = env.ORCHESTRATION_FEE;
+  let description = 'ClawNet AI orchestration query';
+  let resource = '/x402/orchestrate';
+  let inputSchema: Record<string, unknown> = {
+    type: 'object', required: ['query'],
+    properties: { query: { type: 'string', description: 'Natural language question or task' } },
+  };
+
+  if (skillMatch) {
+    skillId = skillMatch[1];
+    const sk = getSkill(skillId);
+    if (sk) {
+      creditCost = sk.credit_cost;
+      description = path.includes('/query/') ? `Query data skill: ${sk.name}` : `Invoke skill: ${sk.name}`;
+      resource = path.includes('/query/') ? `/x402/query/${skillId}` : `/x402/skills/${skillId}`;
+      if (sk.input_schema_json) {
+        try { inputSchema = JSON.parse(sk.input_schema_json); } catch {}
+      }
+    }
+  }
+
+  const priceUsdc = round6(creditCost * env.X402_USDC_PER_CREDIT);
+  const chainId = env.X402_NETWORK === 'base-mainnet' ? '8453' : '84532';
+
+  const paymentRequired = {
+    x402Version: 2,
+    error: 'Payment required',
+    resource: { url: `${env.CLAWNET_BASE_URL || 'https://api.claw-net.org'}${resource}`, description, mimeType: 'application/json' },
+    accepts: [{
+      scheme: 'exact',
+      network: `eip155:${chainId}`,
+      amount: String(Math.round(priceUsdc * 1_000_000)),
+      asset: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+      payTo: env.X402_RECIPIENT_ADDRESS,
+      maxTimeoutSeconds: 60,
+    }],
+    inputSchema,
+  };
+
+  const encoded = Buffer.from(JSON.stringify(paymentRequired)).toString('base64');
+
+  return c.json(paymentRequired, 402, {
+    'PAYMENT-REQUIRED': encoded,
+    'X-PAYMENT-OFFER': encoded,
+    'X-Payment-Protocol': 'x402',
+  });
+});
+
 if (x402Middleware) {
   x402SkillsRouter.use('*', x402Middleware);
   logger.info({ recipientAddress: env.X402_RECIPIENT_ADDRESS, network: env.X402_NETWORK }, 'x402 provider mode active');
