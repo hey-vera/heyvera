@@ -79,9 +79,9 @@ const OFFICIAL_DATA_SKILLS: OfficialDataSkill[] = [
     },
     inputSchema: {
       type: 'object',
-      required: [],
+      required: ['sortBy'],
       properties: {
-        sortBy: { type: 'string', enum: ['volume', 'social', 'new'], default: 'volume', description: 'Sort criteria' },
+        sortBy: { type: 'string', enum: ['volume', 'social', 'new'], default: 'volume', description: 'Sort criteria (default: volume)' },
         limit: { type: 'number', default: 10, description: 'Number of results (max 50)' },
       },
     },
@@ -149,9 +149,9 @@ const OFFICIAL_DATA_SKILLS: OfficialDataSkill[] = [
     },
     inputSchema: {
       type: 'object',
-      required: [],
+      required: ['riskLevel'],
       properties: {
-        riskLevel: { type: 'string', enum: ['low', 'medium', 'high', 'all'], default: 'all', description: 'Risk filter' },
+        riskLevel: { type: 'string', enum: ['low', 'medium', 'high', 'all'], default: 'all', description: 'Risk filter (default: all)' },
         minApy: { type: 'number', default: 0, description: 'Minimum APY filter' },
       },
     },
