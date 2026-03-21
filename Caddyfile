@@ -14,10 +14,10 @@ pulse.claw-net.org {
 	reverse_proxy localhost:3457
 }
 
-# Radar — trading panel (coming soon)
-# radar.claw-net.org {
-# 	reverse_proxy localhost:3458
-# }
+# Radar — trading dashboard (port 3459)
+radar.claw-net.org {
+	reverse_proxy localhost:3459
+}
 
 claw-net.org, www.claw-net.org {
 	# Static site — clean URLs
