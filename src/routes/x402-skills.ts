@@ -1154,7 +1154,7 @@ x402SkillsRouter.get('/skills', (c) => {
 
 // ─── GET /x402/verify/:requestId — receipt verification ─────────────────────
 
-x402SkillsRouter.get('/verify/:requestId', (c) => {
+x402SkillsRouter.get('/verify/:requestId', async (c) => {
   const { requestId } = c.req.param();
   const receipt = getX402Receipt(requestId);
   if (!receipt) {
