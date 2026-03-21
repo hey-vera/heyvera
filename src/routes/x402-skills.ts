@@ -445,20 +445,20 @@ x402SkillsRouter.use('*', async (c, next) => {
     // Decode payment-required header to include in body (x402scan needs body, not just headers)
     let paymentBody: Record<string, unknown> = {};
     try {
-      const payReqHeader = newHeaders.get('PAYMENT-REQUIRED');
+      const payReqHeader = newHeaders.get('PAYMENT-REQUIRED') || newHeaders.get('payment-required');
       if (payReqHeader) paymentBody = JSON.parse(Buffer.from(payReqHeader, 'base64').toString());
     } catch {}
 
-    const body = JSON.stringify({
+    const bodyObj = {
       ...paymentBody,
       inputSchema,
-    });
+    };
+    const bodyStr = JSON.stringify(bodyObj);
+    newHeaders.set('Content-Length', String(Buffer.byteLength(bodyStr)));
 
-    c.res = new Response(body, {
-      status: c.res.status,
-      statusText: c.res.statusText,
-      headers: newHeaders,
-    });
+    // Must create new Response with body as string — can't modify existing response body
+    c.res = undefined as unknown as Response;
+    return c.body(bodyStr, 402, Object.fromEntries(newHeaders.entries()));
   }
 });
 
