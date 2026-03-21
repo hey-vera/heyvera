@@ -354,48 +354,7 @@ function buildX402Middleware() {
 const x402Middleware = buildX402Middleware();
 
 if (x402Middleware) {
-  // Wrap x402 middleware to intercept 402 responses and inject body with inputSchema
-  // The SDK returns empty {} body — x402scan needs payment info + inputSchema in body
-  x402SkillsRouter.use('*', async (c, next) => {
-    await x402Middleware(c, next);
-
-    if (c.res && c.res.status === 402) {
-      const path = c.req.path;
-      const headers = new Headers(c.res.headers);
-
-      // Decode payment-required from header
-      let paymentBody: Record<string, unknown> = {};
-      try {
-        const pr = headers.get('payment-required') || headers.get('PAYMENT-REQUIRED');
-        if (pr) paymentBody = JSON.parse(Buffer.from(pr, 'base64').toString());
-      } catch {}
-
-      // Build input schema from skill DB
-      const skillMatch = path.match(/\/(?:skills|query)\/([^/]+)/);
-      let inputSchema: Record<string, unknown> = {
-        type: 'object',
-        required: ['query'],
-        properties: { query: { type: 'string', description: 'Natural language question or task' } },
-      };
-      if (skillMatch) {
-        const sk = getSkill(skillMatch[1]);
-        if (sk?.input_schema_json) {
-          try { inputSchema = JSON.parse(sk.input_schema_json); } catch {}
-        } else {
-          inputSchema = {
-            type: 'object',
-            properties: { variables: { type: 'object', additionalProperties: { type: 'string' } } },
-          };
-        }
-      }
-
-      const bodyStr = JSON.stringify({ ...paymentBody, inputSchema });
-      headers.set('Content-Type', 'application/json');
-      headers.set('Content-Length', String(Buffer.byteLength(bodyStr)));
-
-      c.res = new Response(bodyStr, { status: 402, headers });
-    }
-  });
+  x402SkillsRouter.use('*', x402Middleware);
   logger.info({ recipientAddress: env.X402_RECIPIENT_ADDRESS, network: env.X402_NETWORK }, 'x402 provider mode active');
 } else {
   logger.info('x402 provider mode disabled — set X402_RECIPIENT_ADDRESS to enable');
@@ -493,11 +452,13 @@ x402SkillsRouter.use('*', async (c, next) => {
       inputSchema,
     };
     const bodyStr = JSON.stringify(bodyObj);
-    newHeaders.set('Content-Length', String(Buffer.byteLength(bodyStr)));
+    newHeaders.delete('content-length');
 
-    // Must create new Response with body as string — can't modify existing response body
-    c.res = undefined as unknown as Response;
-    return c.body(bodyStr, 402, Object.fromEntries(newHeaders.entries()));
+    c.res = new Response(bodyStr, {
+      status: 402,
+      statusText: 'Payment Required',
+      headers: newHeaders,
+    });
   }
 });
 
