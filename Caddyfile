@@ -9,6 +9,16 @@ api.claw-net.org {
 	reverse_proxy localhost:3402
 }
 
+# Pulse — AI marketing platform (port 3457)
+pulse.claw-net.org {
+	reverse_proxy localhost:3457
+}
+
+# Radar — trading panel (coming soon)
+# radar.claw-net.org {
+# 	reverse_proxy localhost:3458
+# }
+
 claw-net.org, www.claw-net.org {
 	# Static site — clean URLs
 	root * /var/www/claw-net
