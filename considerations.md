@@ -799,22 +799,44 @@ Ship features, get users. Language doesn't matter until you have scaling problem
 
 **Effort:** 1-2 days.
 
-## 43. SKALE Zero-Gas x402 Support
+## 43. SKALE-on-Base as Settlement Chain + BITE Confidential x402
 
-**What:** SKALE Network offers zero gas fees + BITE encryption for private agentic commerce. They hosted a $50K hackathon with Google and Coinbase. Adding SKALE as a third chain would eliminate gas costs for x402 transactions.
+**What:** SKALE on Base is a Layer 3 (Chain ID: `1187947933`) providing zero-gas EVM execution on top of Base. Uses sFUEL (worthless gas token) with rate limiting instead of economic gas costs. Chain operator pays monthly in SKL tokens. 800 TPS per chain, instant finality.
 
-**Why defer:**
-- ClawNet currently operates on Base (x402) and Solana (USDC). Adding a third chain increases complexity.
-- SKALE x402 ecosystem is still small.
-- Base gas is already < $0.001/tx — marginal benefit.
-- BITE privacy is interesting but not a current pain point.
+**BITE Protocol (Blockchain Integrated Threshold Encryption):**
+- Phase 1 (LIVE): Transaction-level threshold encryption. Encrypted in mempool, 16 validators use BLS key shares to decrypt after block finality. Block explorers can't see payment details.
+- Phase 2 (IN DEV): Smart contract decryption via precompiled `Decryptor` contract. Enables **MachinePay Confidential x402** — agents pay for API calls and competitors can't see amount, recipient, or balance.
+- Phase 3 (PLANNED): Threshold re-encryption for selective disclosure / access control.
+- Phase 4 (PLANNED): Threshold FHE — compute on encrypted data (confidential balances, encrypted AMMs).
 
-**When to revisit:**
-- When SKALE x402 volume exceeds Base
-- When agents request privacy-preserving x402 payments
-- When multi-chain x402 support becomes trivial (CAIP standard)
+**MachinePay Confidential x402 — Why it matters:**
+- `EncryptedToken_x402` contract with dual encryption (threshold key + user key)
+- Transfer spans 2 blocks (encrypt → validate → re-encrypt)
+- Standard ERC20 Transfer events suppressed (no amount leaks)
+- ERC-3009 supported for signature-based agent payments
+- Agents' strategies, spending patterns, and vendor relationships stay private
 
-**Effort:** 2-3 days.
+**x402 Bazaar:** SKALE's marketplace — 100+ API services, 69 native wrappers, 170+ on-chain payments (very early). 95/5 revenue split. SDK: `@x402/extensions @x402/fetch @x402/evm @x402/core`. Supports MCP (Claude/Cursor), ChatGPT GPTs, LangChain, Auto-GPT.
+
+**Integration requirements:**
+- Bridge USDC from Base → SKALE chain (IMA bridge, 16 validator BLS threshold)
+- RPC: `https://1187947933.rpc.thirdweb.com`
+- sFUEL distribution to agent wallets (new operational concern)
+- Unclear if Coinbase CDP facilitator supports SKALE chain settlement yet
+- ClawNet credit system, billing math, auth layers — no changes needed
+
+**Phase 1 — NOW (zero risk):**
+- List ClawNet endpoints on x402 Bazaar for discovery only (settlement stays on Base)
+- Free distribution to Claude/Cursor/LangChain agents
+
+**Phase 2 — WHEN BITE Phase 2 ships:**
+- Add SKALE-on-Base as optional settlement chain
+- Integrate MachinePay for confidential x402 payments
+- Market as "private agent commerce" — unique differentiator
+
+**Contact:** Sawyer (@TheGreatAxios), VP DevSuccess at SKALE. Offered direct guidance on integration + BITE Protocol. Reached via x402 Coinbase dev talk (March 2026).
+
+**Effort:** Bazaar listing: 1 day. Full SKALE settlement: 3-5 days. BITE Phase 2 integration: 1 week (when available).
 
 ## 44. APINow Tokenized API Discovery
 

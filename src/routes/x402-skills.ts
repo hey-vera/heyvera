@@ -31,6 +31,11 @@ const { createFacilitatorConfig: createCdpFacilitatorConfig } = require('@coinba
 const { ExactEvmScheme } = require('@x402/evm/exact/server') as {
   ExactEvmScheme: new () => unknown;
 };
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { bazaarResourceServerExtension, declareDiscoveryExtension } = require('@x402/extensions/bazaar') as {
+  bazaarResourceServerExtension: unknown;
+  declareDiscoveryExtension: (config: { input?: unknown; inputSchema?: unknown; bodyType?: string; output?: unknown }) => Record<string, unknown>;
+};
 type HTTPRequestContext = { path: string; method: string; paymentHeader?: string };
 import { getDb, getSkill, getApiKey, listPublicSkills, incrementSkillUses, safeJsonParse, getReputationScore, getReputationEvents, recordSkillMetric, recordReputation, createAutoAttestation, hashPayload, getAttestationById, logAudit } from '../db/index';
 import { maskApiKey } from '../utils/mask';
@@ -280,9 +285,10 @@ function buildX402Middleware() {
   const chainId = env.X402_NETWORK === 'base-mainnet' ? '8453' : '84532';
   const network = `eip155:${chainId}` as `eip155:${string}`;
 
-  // Build resource server with ExactEvmScheme registered (required in v2.6.0)
-  const resourceServer = new x402ResourceServer(facilitator)
-    .register(network, new ExactEvmScheme());
+  // Build resource server with ExactEvmScheme + Bazaar discovery registered
+  const resourceServer = new x402ResourceServer(facilitator);
+  try { (resourceServer as unknown as { registerExtension: (ext: unknown) => void }).registerExtension(bazaarResourceServerExtension); } catch { /* extension optional */ }
+  (resourceServer as unknown as { register: (n: string, s: unknown) => unknown }).register(network, new ExactEvmScheme());
 
   /** Resolve price and payTo per-request for skill routes (supports direct payout). */
   const dynamicSkillPrice = async (ctx: HTTPRequestContext) => {
@@ -319,8 +325,25 @@ function buildX402Middleware() {
           price: dynamicSkillPrice,
           maxTimeoutSeconds: 60,
         },
-        description: 'ClawNet skill invocation — pay per call with USDC on Base',
+        description: 'ClawNet skill invocation — pay per call with USDC on Base. 370+ API endpoints, marketplace skills, trust attestations.',
         mimeType: 'application/json',
+        extensions: {
+          ...declareDiscoveryExtension({
+            input: { skillId: 'sol-price-data', variables: { token: 'SOL' } },
+            inputSchema: {
+              properties: {
+                skillId: { type: 'string', description: 'Skill ID from the ClawNet marketplace' },
+                variables: { type: 'object', description: 'Input variables for the skill' },
+              },
+              required: ['skillId'],
+            },
+            bodyType: 'json',
+            output: {
+              example: { result: { price: 145.20, change24h: 3.1 }, attestation: { id: 'att-abc123', verifyUrl: 'https://api.claw-net.org/v1/attest/verify/att-abc123' } },
+              schema: { properties: { result: { type: 'object' }, attestation: { type: 'object' } } },
+            },
+          }),
+        },
       },
       'POST /x402/orchestrate': {
         accepts: {
@@ -330,8 +353,31 @@ function buildX402Middleware() {
           price: orchestratePrice,
           maxTimeoutSeconds: 60,
         },
-        description: 'ClawNet orchestration — pay per query with USDC on Base',
+        description: 'ClawNet AI orchestration — natural language queries across 12,000+ data sources. Every response includes cryptographic attestation and trust verdict.',
         mimeType: 'application/json',
+        extensions: {
+          ...declareDiscoveryExtension({
+            input: { query: 'What is the price of SOL?', pricing: { strategy: 'balanced' } },
+            inputSchema: {
+              properties: {
+                query: { type: 'string', description: 'Natural language question' },
+                pricing: {
+                  type: 'object',
+                  properties: {
+                    maxCredits: { type: 'number', description: 'Maximum credits to spend' },
+                    strategy: { type: 'string', enum: ['cheapest', 'balanced', 'fastest', 'reliable'] },
+                  },
+                },
+              },
+              required: ['query'],
+            },
+            bodyType: 'json',
+            output: {
+              example: { result: 'SOL is $145.20, up 3.1% in 24h', sources: ['coingecko', 'birdeye'], trust: { verdict: 'PROCEED', confidence: 0.92 } },
+              schema: { properties: { result: { type: 'string' }, sources: { type: 'array' }, trust: { type: 'object' } } },
+            },
+          }),
+        },
       },
       'POST /x402/query/*': {
         accepts: {
@@ -341,8 +387,23 @@ function buildX402Middleware() {
           price: dynamicSkillPrice,
           maxTimeoutSeconds: 60,
         },
-        description: 'ClawNet data skill query — pay per call with USDC on Base',
+        description: 'ClawNet data skill query — structured JSON data from 370+ endpoints. No LLM, fast, cheap.',
         mimeType: 'application/json',
+        extensions: {
+          ...declareDiscoveryExtension({
+            input: { token: 'SOL' },
+            inputSchema: {
+              properties: {
+                token: { type: 'string', description: 'Token symbol or query parameter' },
+              },
+            },
+            bodyType: 'json',
+            output: {
+              example: { data: { price: 145.20, volume24h: 4200000000 }, cached: false },
+              schema: { properties: { data: { type: 'object' }, cached: { type: 'boolean' } } },
+            },
+          }),
+        },
       },
     },
     resourceServer,
