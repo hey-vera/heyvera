@@ -410,8 +410,12 @@ x402SkillsRouter.use('*', async (c, next) => {
       asset: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
       payTo: env.X402_RECIPIENT_ADDRESS,
       maxTimeoutSeconds: 60,
+      // x402scan (@agentcash/discovery) looks for outputSchema.input inside accepts[0]
+      outputSchema: {
+        input: inputSchema,
+        output: { type: 'object', properties: { answer: { type: 'string' }, data: { type: 'object' } } },
+      },
     }],
-    inputSchema,
   };
 
   const encoded = Buffer.from(JSON.stringify(paymentRequired)).toString('base64');
