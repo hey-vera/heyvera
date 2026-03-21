@@ -1398,6 +1398,7 @@
 </footer>
 
 <!-- CLERK + APP LOGIC -->
+<script src="/clerk-recovery.js"></script>
 <script data-clerk-publishable-key="pk_live_Y2xlcmsuY2xhdy1uZXQub3JnJA"
   src="https://cdn.jsdelivr.net/npm/@clerk/clerk-js@5/dist/clerk.browser.js"></script>
 <script>
@@ -1406,7 +1407,7 @@
   // ── Auth-aware nav ────────────────────────────────────────────
   async function initNav() {
     try {
-      await window.Clerk.load();
+      if (!await loadClerkSafe()) return;
       const user = window.Clerk.user;
       if (!user) return;
       document.getElementById('nav-login-btn').style.display = 'none';
@@ -1834,8 +1835,7 @@ skills = res.json()`,
   }
   async function initiateUSDCPayment() {
     const btn = document.getElementById('usdcPayBtn');
-    try { await window.Clerk.load(); } catch(e) {}
-    if (!window.Clerk?.user) { setUSDCStatus('Please sign in first \u2014 credits need to be linked to your account.', 'error'); return; }
+    if (!await loadClerkSafe() || !window.Clerk?.user) { setUSDCStatus('Please sign in first \u2014 credits need to be linked to your account.', 'error'); return; }
     const phantom = window.phantom?.solana ?? window.solana;
     if (!phantom?.isPhantom) { setUSDCStatus('Phantom wallet not found. Install Phantom from phantom.app, then reload this page.', 'error'); return; }
     btn.disabled = true; btn.textContent = 'Connecting wallet\u2026';

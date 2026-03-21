@@ -235,7 +235,7 @@ function copyText(text) { navigator.clipboard.writeText(text); }
 
 async function initNav() {
   try {
-    await window.Clerk.load();
+    if (!await loadClerkSafe()) return;
     const user = window.Clerk.user;
     if (!user) return;
     document.getElementById('nav-login-btn').style.display = 'none';
@@ -398,6 +398,7 @@ async function loadSimilar(id) {
 checkStatus();
 loadSkill();
 </script>
+<script src="/clerk-recovery.js"></script>
 <script data-clerk-publishable-key="pk_live_Y2xlcmsuY2xhdy1uZXQub3JnJA"
   src="https://cdn.jsdelivr.net/npm/@clerk/clerk-js@5/dist/clerk.browser.js"
   onload="initNav()"></script>

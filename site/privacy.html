@@ -328,7 +328,7 @@ setInterval(fetchApiStatus, 60000);
 async function initNav() {
   if (!window.Clerk) return;
   try {
-    await window.Clerk.load();
+    if (!await loadClerkSafe()) return;
     const user = window.Clerk.user;
     if (user) {
       document.getElementById('account-dropdown').classList.add('show');
@@ -352,6 +352,7 @@ function navSignOut() {
 
 window.addEventListener('load', initNav);
 </script>
+<script src="/clerk-recovery.js"></script>
 <script data-clerk-publishable-key="pk_live_Y2xlcmsuY2xhdy1uZXQub3JnJA" src="https://cdn.jsdelivr.net/npm/@clerk/clerk-js@5/dist/clerk.browser.js"></script>
 </body>
 </html>

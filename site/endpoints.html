@@ -999,7 +999,7 @@ let expandedId = null;
 // ── NAV ─────────────────────────────────────────────────────────────────────
 async function initNav() {
   try {
-    await Clerk.load();
+    if (!await loadClerkSafe()) return;
     const user = Clerk.user;
     if (!user) return;
     document.getElementById('nav-login-btn').style.display = 'none';
@@ -1311,6 +1311,7 @@ loadEndpoints();
 setInterval(() => loadEndpoints(false), 30000);
 </script>
 
+<script src="/clerk-recovery.js"></script>
 <script data-clerk-publishable-key="pk_live_Y2xlcmsuY2xhdy1uZXQub3JnJA"
   src="https://cdn.jsdelivr.net/npm/@clerk/clerk-js@5/dist/clerk.browser.js"
   onload="initNav()"></script>

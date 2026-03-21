@@ -577,7 +577,7 @@ setInterval(loadRoadmap, 120000); // Refresh every 2 minutes
 // Nav auth
 async function initNav() {
   try {
-    await window.Clerk.load();
+    if (!await loadClerkSafe()) return;
     const user = window.Clerk.user;
     if (!user) return;
     document.getElementById('nav-login-btn').style.display = 'none';
@@ -611,6 +611,7 @@ async function initNav() {
 }
 function navSignOut() { window.Clerk?.signOut?.().then(() => location.reload()); }
 </script>
+<script src="/clerk-recovery.js"></script>
 <script async crossorigin="anonymous" data-clerk-publishable-key="pk_live_Y2xlcmsuY2xhdy1uZXQub3JnJA" src="https://cdn.jsdelivr.net/npm/@clerk/clerk-js@5/dist/clerk.browser.js" onload="initNav()"></script>
 </body>
 </html>

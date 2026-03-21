@@ -32,12 +32,16 @@
     </div>
   </div>
 
+  <script src="/clerk-recovery.js"></script>
   <script data-clerk-publishable-key="pk_live_Y2xlcmsuY2xhdy1uZXQub3JnJA"
     src="https://cdn.jsdelivr.net/npm/@clerk/clerk-js@5/dist/clerk.browser.js"></script>
   <script>
     window.addEventListener('load', async function() {
       const clerk = window.Clerk;
-      await clerk.load();
+      if (!await loadClerkSafe()) {
+        document.getElementById('content').innerHTML = '<div class="error">Authentication error. <a href="/oauth' + location.search + '">Try again</a></div>';
+        return;
+      }
 
       const params = new URLSearchParams(window.location.search);
       const app = params.get('app');
