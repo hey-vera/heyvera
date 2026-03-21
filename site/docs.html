@@ -360,6 +360,7 @@
       <a class="sidebar-link" href="#vie">Verified Intelligence</a>
       <a class="sidebar-link" href="#manifest">Manifest</a>
       <a class="sidebar-link" href="#attestation">Attestation</a>
+      <a class="sidebar-link" href="#agent-identity">Agent Identity</a>
       <a class="sidebar-link" href="#troubleshooting">Troubleshooting</a>
       <a class="sidebar-link" href="#examples">Code Examples</a>
     </div>
@@ -4058,6 +4059,198 @@ app.post('/webhooks/clawnet', express.raw({ type: 'application/json' }), (req, r
       <p class="endpoint-desc">If Agent A verifies a subject with a PROCEED verdict, Agent B gets the same result for free within 5 minutes (quick tier). This creates a <strong>shared trust layer</strong> where the entire ecosystem benefits from each verification. Responses include <code>"cross_agent": true</code> when using shared results.</p>
 
       <div class="alert alert-info"><strong>Attestation Webhooks:</strong> Subscribe to <code>ATTESTATION_CREATED</code> and <code>TRUST_SCORE_CHANGED</code> events via the <a href="#webhooks" style="color:var(--accent)">webhooks system</a>. React to trust changes in real-time.</div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════ AGENT IDENTITY (AID) ═══════════════════════════════════════════════ -->
+    <div class="docs-section" id="agent-identity">
+      <h2 class="docs-section-title">Agent Identity (AID)</h2>
+      <p class="docs-section-desc">Self-sovereign agent identity with portable, cryptographically verifiable trust chains. Your agent carries its identity everywhere &mdash; any platform can verify it offline, without calling ClawNet.</p>
+
+      <div class="alert alert-info"><strong>The Trust Stack:</strong> Manifest verifies BEFORE &rarr; Attestation proves AFTER &rarr; AID carries trust EVERYWHERE. Together they form the only complete trust infrastructure for AI agents.</div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/aid/register</code></div>
+        <p class="endpoint-desc">Create a self-sovereign Agent Identity Document. Generates an Ed25519 keypair &mdash; the private key is returned ONCE and never stored by ClawNet. Optionally bring your own public key.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code> &mdash; costs <strong>1 credit</strong></div>
+
+        <h4>Body Parameters</h4>
+        <table class="params-table">
+          <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>displayName</code></td><td><span class="param-type">string</span></td><td><span class="param-opt">No</span></td><td>Human-readable name for the agent</td></tr>
+            <tr><td><code>publicKey</code></td><td><span class="param-type">string</span></td><td><span class="param-opt">No</span></td><td>Bring your own Ed25519 public key (multibase). If omitted, ClawNet generates a keypair.</td></tr>
+          </tbody>
+        </table>
+
+        <h4>Example</h4>
+        <div class="code-block">
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <pre><code>curl -X POST https://api.claw-net.org/v1/aid/register \
+  -H "X-API-Key: cn-your-key-here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "displayName": "my-trading-agent"
+  }'</code></pre>
+        </div>
+
+        <h4>Response</h4>
+        <div class="code-block">
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <pre><code>{
+  "did": "did:clawnet:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK",
+  "publicKeyMultibase": "z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK",
+  "privateKeySeed": "a1b2c3...hex (SAVE THIS — shown once, never stored)",
+  "aidDocument": { "..." }
+}</code></pre>
+        </div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/aid/:did</code></div>
+        <p class="endpoint-desc">Resolve any agent's identity document by DID. Returns trust score, capabilities, attestation stats, and verification proofs.</p>
+        <div class="endpoint-auth">Public &mdash; <strong>no auth required, free</strong></div>
+
+        <h4>Path Parameters</h4>
+        <table class="params-table">
+          <thead><tr><th>Name</th><th>Type</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>did</code></td><td><span class="param-type">string</span></td><td>Agent DID (e.g. <code>did:clawnet:z6Mkh...</code>)</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/aid/:did/trust-chain</code></div>
+        <p class="endpoint-desc">Export the agent's portable trust chain. Self-contained &mdash; includes recent attestations with Merkle proofs, the platform's public key, and trust score computation proof. Any service can verify this OFFLINE without calling ClawNet.</p>
+        <div class="endpoint-auth">Public &mdash; <strong>no auth required, free</strong></div>
+
+        <h4>Path Parameters</h4>
+        <table class="params-table">
+          <thead><tr><th>Name</th><th>Type</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>did</code></td><td><span class="param-type">string</span></td><td>Agent DID</td></tr>
+          </tbody>
+        </table>
+
+        <h4>Query Parameters</h4>
+        <table class="params-table">
+          <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>limit</code></td><td><span class="param-type">integer</span></td><td><span class="param-opt">No</span></td><td>Number of recent attestations to include (default 50, max 200)</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/aid/:did/attest</code></div>
+        <p class="endpoint-desc">Add a cross-platform attestation to an agent's trust chain. External platforms (Dexter, PayAI, zauth) can submit attestations that become part of the agent's portable identity.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code> &mdash; costs <strong>0.1 credits</strong></div>
+
+        <h4>Path Parameters</h4>
+        <table class="params-table">
+          <thead><tr><th>Name</th><th>Type</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>did</code></td><td><span class="param-type">string</span></td><td>Agent DID to attest</td></tr>
+          </tbody>
+        </table>
+
+        <h4>Body Parameters</h4>
+        <table class="params-table">
+          <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>platform</code></td><td><span class="param-type">string</span></td><td><span class="param-req">Yes</span></td><td>Platform name</td></tr>
+            <tr><td><code>attestationType</code></td><td><span class="param-type">string</span></td><td><span class="param-req">Yes</span></td><td>Type of attestation</td></tr>
+            <tr><td><code>attestationData</code></td><td><span class="param-type">object</span></td><td><span class="param-req">Yes</span></td><td>Attestation payload</td></tr>
+            <tr><td><code>platformSignature</code></td><td><span class="param-type">string</span></td><td><span class="param-opt">No</span></td><td>Platform's signature over the data</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/aid/:did/capabilities</code></div>
+        <p class="endpoint-desc">What this agent has successfully done, derived from attestation history. Categories include defi, trading, data, skills, verification.</p>
+        <div class="endpoint-auth">Public &mdash; <strong>no auth required, free</strong></div>
+
+        <h4>Path Parameters</h4>
+        <table class="params-table">
+          <thead><tr><th>Name</th><th>Type</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>did</code></td><td><span class="param-type">string</span></td><td>Agent DID</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/aid/verify</code></div>
+        <p class="endpoint-desc">Verify an AID document offline. Send the full document &mdash; ClawNet checks signatures, Merkle roots, trust score computation, and expiry. Zero database calls &mdash; pure cryptographic math. This same logic is available as an npm package (<code>@clawnet/verify</code>).</p>
+        <div class="endpoint-auth">Public &mdash; <strong>no auth required, free, STATELESS</strong></div>
+
+        <h4>Body</h4>
+        <p class="endpoint-desc">Full AID document (as returned by <code>/v1/aid/:did/trust-chain</code> or <code>/v1/aid/:did/export</code>).</p>
+
+        <h4>Response</h4>
+        <div class="code-block">
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <pre><code>{
+  "valid": true,
+  "trustScore": 82,
+  "warnings": [],
+  "details": {
+    "platformSignature": true,
+    "merkleRoot": true,
+    "trustScoreMatch": true,
+    "chainIntegrity": true,
+    "expired": false,
+    "attestationsVerified": 47
+  }
+}</code></pre>
+        </div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/aid/:did/export</code></div>
+        <p class="endpoint-desc">Full AID export with a fresh trust snapshot. The exported document is self-contained and can be shared with any platform for offline verification.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code> (must own) &mdash; costs <strong>0.5 credits</strong></div>
+
+        <h4>Path Parameters</h4>
+        <table class="params-table">
+          <thead><tr><th>Name</th><th>Type</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>did</code></td><td><span class="param-type">string</span></td><td>Agent DID (must be owned by the requesting API key)</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/aid/:did/rotate-key</code></div>
+        <p class="endpoint-desc">Rotate the agent's Ed25519 key. Old DID chains forward to the new one. Provide a new public key or let ClawNet generate one.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code> (must own) &mdash; costs <strong>0.5 credits</strong></div>
+
+        <h4>Path Parameters</h4>
+        <table class="params-table">
+          <thead><tr><th>Name</th><th>Type</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>did</code></td><td><span class="param-type">string</span></td><td>Agent DID (must be owned by the requesting API key)</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h4>Pricing</h4>
+      <table class="params-table">
+        <thead><tr><th>Action</th><th>Cost</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td>Register AID</td><td><strong>1 credit</strong></td><td>One-time, generates keypair</td></tr>
+          <tr><td>Resolve AID</td><td><strong>FREE</strong></td><td>Public, no auth</td></tr>
+          <tr><td>Trust chain export</td><td><strong>FREE</strong></td><td>Public, includes Merkle proofs</td></tr>
+          <tr><td>Cross-platform attestation</td><td><strong>0.1 credits</strong></td><td>Rate limited 50/hr</td></tr>
+          <tr><td>Capabilities</td><td><strong>FREE</strong></td><td>Public</td></tr>
+          <tr><td>Verify (offline)</td><td><strong>FREE</strong></td><td>Stateless, pure math</td></tr>
+          <tr><td>Full export</td><td><strong>0.5 credits</strong></td><td>Fresh snapshot + countersignature</td></tr>
+          <tr><td>Key rotation</td><td><strong>0.5 credits</strong></td><td>Old DID chains forward</td></tr>
+        </tbody>
+      </table>
+
+      <div class="alert alert-success"><strong>The DID method <code>did:clawnet:</code> is self-certifying</strong> &mdash; the public key IS the identifier. No registry lookup needed. Any platform can resolve and verify an agent's identity using only the DID and the portable trust chain document. ClawNet is the issuer, but verification is decentralized.</div>
     </div>
 
     <!-- ═══════════════════════════════════════════════ TROUBLESHOOTING ═══════════════════════════════════════════════ -->
