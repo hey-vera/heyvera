@@ -24,7 +24,7 @@ import { z } from 'zod';
 import crypto from 'crypto';
 import { checkApiKey } from '../middleware/auth';
 import { trackDelegatedSpend } from '../utils/billing';
-import { deductCredit, getDb, getResellerConfig, upsertResellerConfig, deleteResellerConfig } from '../db/index';
+import { deductCredit, getDb, getResellerConfig, upsertResellerConfig, deleteResellerConfig, createAutoAttestation } from '../db/index';
 import { round6, cacheCreditCost } from '../core/credits';
 import { cacheGet, cacheSet, cacheIncr } from '../cache/index';
 import { clawApiCall } from '../providers/clawapis';
@@ -293,6 +293,17 @@ llmRouter.post('/chat', checkApiKey, async (c) => {
       poweredBy: 'x402engine via ClawNet',
     };
     if (resellerLabel) response.billingLabel = resellerLabel;
+
+    // ─── Attestation (delivery proof) ──────────────────────────────────
+    let attestationId: string | null = null;
+    try {
+      attestationId = createAutoAttestation(
+        keyInfo.key, 'LLM_PROMPT', `POST /v1/llm/chat/completions`,
+        { model, messageCount: (body.messages ?? []).length }, { content: String(content).slice(0, 200) },
+        chargedAmount, Date.now() - (response as Record<string, number>).id,
+      );
+    } catch {}
+    if (attestationId) response.attestation = { id: attestationId, verifyUrl: `https://api.claw-net.org/v1/attest/verify/${attestationId}` };
 
     // Cache for 5 min (non-creative queries benefit from caching)
     await cacheSet(cacheKey, response, 300);

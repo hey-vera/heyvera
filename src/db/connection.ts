@@ -955,6 +955,8 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 99, sql: `CREATE INDEX IF NOT EXISTS idx_attest_replay ON attestations(api_key_hash, input_hash, created_at)` },
   // v100: Signing key rotation — store which key signed each attestation
   { version: 100, sql: `ALTER TABLE attestations ADD COLUMN signing_key_id TEXT` },
+  // v101: Attestation hash-chaining — each attestation references predecessor for tamper detection
+  { version: 101, sql: `ALTER TABLE attestations ADD COLUMN prev_attestation_hash TEXT` },
 ];
 
 function runMigrations(): void {

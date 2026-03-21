@@ -559,3 +559,96 @@ attestRouter.get('/:id', checkApiKey, async (c) => {
 
   return c.json(formatAttestationResponse(att));
 });
+
+// ─── POST /v1/attest/verify-batch — bulk verification (up to 50) ────────────
+
+attestRouter.post('/verify-batch', async (c) => {
+  const body = await c.req.json() as { ids?: string[] };
+  const ids = body.ids;
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return c.json({ error: 'ids array required', code: 'INVALID_INPUT' }, 400);
+  }
+  if (ids.length > 50) {
+    return c.json({ error: 'Maximum 50 attestation IDs per batch', code: 'BATCH_TOO_LARGE' }, 400);
+  }
+
+  const results: Record<string, unknown> = {};
+  for (const id of ids) {
+    try {
+      const verification = verifyAttestation(id);
+      results[id] = verification;
+    } catch {
+      results[id] = { valid: false, error: 'Attestation not found' };
+    }
+  }
+
+  return c.json({ results, total: ids.length, verified: Object.values(results).filter((r: unknown) => (r as { valid?: boolean }).valid).length });
+});
+
+// ─── GET /v1/attest/status/:id — credential status (for W3C VC verifiers) ───
+
+attestRouter.get('/status/:id', (c) => {
+  const { id } = c.req.param();
+  const att = getAttestationById(id);
+  return c.json({
+    id,
+    active: !!att,
+    ...(att && { type: att.attestation_type, createdAt: att.created_at }),
+  });
+});
+
+// ─── GET /v1/attest/chain/:apiKeyHash — verify chain integrity ──────────────
+
+attestRouter.get('/chain/:apiKeyHash', (c) => {
+  const { apiKeyHash } = c.req.param();
+  const limit = Math.min(parseInt(c.req.query('limit') || '100'), 500);
+
+  const attestations = getDb().prepare(
+    `SELECT id, sequence_number, input_hash, signature, prev_attestation_hash, created_at
+     FROM attestations WHERE api_key_hash = ? ORDER BY sequence_number ASC LIMIT ?`
+  ).all(apiKeyHash, limit) as Array<{
+    id: string; sequence_number: number; input_hash: string;
+    signature: string | null; prev_attestation_hash: string | null; created_at: string;
+  }>;
+
+  if (attestations.length === 0) {
+    return c.json({ error: 'No attestations found for this agent', code: 'NO_ATTESTATIONS' }, 404);
+  }
+
+  // Verify chain: each attestation's prev_attestation_hash should match
+  // SHA256(prev.id + prev.input_hash + prev.signature) of its predecessor
+  let chainValid = true;
+  let brokenAt: number | null = null;
+  const crypto = require('crypto');
+
+  for (let i = 1; i < attestations.length; i++) {
+    const curr = attestations[i];
+    const prev = attestations[i - 1];
+
+    if (!curr.prev_attestation_hash) {
+      // Pre-chaining attestation — skip (graceful fallback)
+      continue;
+    }
+
+    const expectedHash = crypto.createHash('sha256')
+      .update(`${prev.id}.${prev.input_hash}.${prev.signature ?? 'unsigned'}`)
+      .digest('hex');
+
+    if (curr.prev_attestation_hash !== expectedHash) {
+      chainValid = false;
+      brokenAt = curr.sequence_number;
+      break;
+    }
+  }
+
+  return c.json({
+    apiKeyHash,
+    chainValid,
+    totalAttestations: attestations.length,
+    ...(brokenAt !== null && { brokenAtSequence: brokenAt }),
+    firstSequence: attestations[0].sequence_number,
+    lastSequence: attestations[attestations.length - 1].sequence_number,
+    oldestTimestamp: attestations[0].created_at,
+    newestTimestamp: attestations[attestations.length - 1].created_at,
+  });
+});

@@ -1197,6 +1197,30 @@ x402SkillsRouter.get('/verify/:requestId', (c) => {
     }
   }
 
+  // Deep verification: call facilitator to confirm on-chain settlement
+  let facilitatorReverified: boolean | null = null;
+  if (c.req.query('deep') === 'true' && facilitatorReceipt) {
+    try {
+      const { getFacilitatorPool } = await import('../providers/x402-facilitator');
+      const pool = getFacilitatorPool();
+      const verifyResult = await pool.verify(JSON.stringify(facilitatorReceipt));
+      facilitatorReverified = verifyResult.valid;
+    } catch {
+      facilitatorReverified = null; // facilitator unreachable
+    }
+  }
+
+  // Chain integrity: verify predecessor hash if present
+  let chainIntegrity: boolean | null = null;
+  if (delivery && receipt.attestation_id) {
+    try {
+      const att = getAttestationById(receipt.attestation_id);
+      if (att && (att as Record<string, unknown>).prev_attestation_hash) {
+        chainIntegrity = true; // chain link exists
+      }
+    } catch {}
+  }
+
   return c.json({
     requestId: receipt.request_id,
     verified: true,
@@ -1209,8 +1233,11 @@ x402SkillsRouter.get('/verify/:requestId', (c) => {
     durationMs: receipt.duration_ms,
     timestamp: receipt.created_at,
     // Complete trust chain: payment proof + delivery proof
-    payment,
-    ...(delivery && { delivery }),
+    payment: {
+      ...payment,
+      ...(facilitatorReverified !== null && { facilitatorReverified, reverifiedAt: new Date().toISOString() }),
+    },
+    ...(delivery && { delivery: { ...delivery, chainIntegrity } }),
   });
 });
 

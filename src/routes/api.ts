@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { insertOrchestration, getApiKeyBalance, getApiKeyByStripeSession, getApiKeyByEmail, deductCredit } from '../db/index';
+import { insertOrchestration, getApiKeyBalance, getApiKeyByStripeSession, getApiKeyByEmail, deductCredit, createAutoAttestation } from '../db/index';
 import { trackDelegatedSpend } from '../utils/billing';
 import { Hono } from 'hono';
 import { maskApiKey } from '../utils/mask';
@@ -321,6 +321,22 @@ apiRouter.post('/orchestrate', async (c) => {
     logUsage(usageEntry);
     insertOrchestration({ id: requestId, ...usageEntry, apiKey: keyInfo?.key });
 
+    // ─── Attestation (delivery proof) ──────────────────────────────────
+    let attestationId: string | null = null;
+    const manifestId = c.req.header('X-Manifest-Id') || undefined;
+    try {
+      attestationId = createAutoAttestation(
+        keyInfo.key,
+        'ORCHESTRATE',
+        'POST /v1/orchestrate',
+        { query, pricing },
+        { answer: formatted.answer },
+        creditsToDeduct,
+        totalDurationMs,
+        manifestId,
+      );
+    } catch {}
+
     const responsePayload = {
       answer: formatted.answer,
       ...(formatted.opportunityScore !== undefined && { opportunityScore: formatted.opportunityScore }),
@@ -381,7 +397,12 @@ apiRouter.post('/orchestrate', async (c) => {
     // Store in query cache
     await cacheSet(qKey, responsePayload);
 
-    return c.json({ requestId, ...responsePayload });
+    return c.json({
+      requestId, ...responsePayload,
+      ...(attestationId && {
+        attestation: { id: attestationId, verifyUrl: `${env.CLAWNET_BASE_URL}/v1/attest/verify/${attestationId}` },
+      }),
+    });
 
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));

@@ -18,6 +18,7 @@ import {
   validateOutputContract,
   recordSkillDemand, getSkillDemand, recordCallerUsage, getCallerUsageCount,
   getApiKey,
+  createAutoAttestation,
 } from '../db/index';
 import { embed, isEmbeddingModelReady } from '../core/embeddings';
 import { scanSkillTemplate, scanProxyResponse } from '../core/skill-scanner';
@@ -694,9 +695,21 @@ skillsRouter.get('/:id/query', checkApiKey, async (c) => {
 
     logger.info({ requestId, skillId: id, durationMs: Date.now() - start }, 'Data skill query complete');
 
+    // ─── Attestation (delivery proof) ──────────────────────────────────
+    let attestationId: string | null = null;
+    const manifestId = c.req.header('X-Manifest-Id') || undefined;
+    try {
+      attestationId = createAutoAttestation(
+        keyInfo.key, 'QUERY_DATA_SKILL', `GET /v1/skills/${id}/query`,
+        { skillId: id, variables: params }, { data },
+        creditCost, Date.now() - start, manifestId,
+      );
+    } catch {}
+
     return c.json({
       requestId, skillId: id,
       data,
+      ...(attestationId && { attestation: { id: attestationId, verifyUrl: `https://api.claw-net.org/v1/attest/verify/${attestationId}` } }),
       _meta: {
         cacheHit: false, creditsUsed: creditCost,
         updateFrequency: skill.update_frequency ?? 'static',
@@ -1326,6 +1339,17 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
     logUsage(usageEntry);
     insertOrchestration({ id: requestId, ...usageEntry, apiKey: keyInfo.key, skillId: skill.id });
 
+    // ─── Attestation (delivery proof) ──────────────────────────────────
+    let attestationId: string | null = null;
+    const manifestId = c.req.header('X-Manifest-Id') || undefined;
+    try {
+      attestationId = createAutoAttestation(
+        keyInfo.key, 'INVOKE_SKILL', `POST /v1/skills/${id}/invoke`,
+        { skillId: id, variables }, { answer: formatted.answer },
+        creditsToDeduct, totalDurationMs, manifestId,
+      );
+    } catch {}
+
     const responsePayload = {
       answer: formatted.answer,
       ...(formatted.opportunityScore !== undefined && { opportunityScore: formatted.opportunityScore }),
@@ -1349,7 +1373,10 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
     };
 
     await cacheSet(qKey, responsePayload);
-    return c.json({ requestId, ...responsePayload });
+    return c.json({
+      requestId, ...responsePayload,
+      ...(attestationId && { attestation: { id: attestationId, verifyUrl: `https://api.claw-net.org/v1/attest/verify/${attestationId}` } }),
+    });
 
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));

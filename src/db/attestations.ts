@@ -183,6 +183,17 @@ export function createAttestation(params: CreateAttestationParams): string {
   getDb().transaction(() => {
     const seqNum = getNextSequenceNumber(params.apiKeyHash);
 
+    // Hash-chaining: link to predecessor attestation for tamper detection
+    let prevAttestationHash: string | null = null;
+    const prev = getDb().prepare(
+      `SELECT id, input_hash, signature FROM attestations WHERE api_key_hash = ? ORDER BY sequence_number DESC LIMIT 1`
+    ).get(params.apiKeyHash) as { id: string; input_hash: string; signature: string | null } | undefined;
+    if (prev) {
+      prevAttestationHash = crypto.createHash('sha256')
+        .update(`${prev.id}.${prev.input_hash}.${prev.signature ?? 'unsigned'}`)
+        .digest('hex');
+    }
+
     getDb().prepare(`
       INSERT INTO attestations (
         id, api_key_hash, sequence_number, attestation_type,
@@ -190,8 +201,8 @@ export function createAttestation(params: CreateAttestationParams): string {
         action_type, action_endpoint, action_description,
         input_hash, response_hash, source_hashes_json,
         credits_charged, duration_ms, outcome_status, outcome_data_json,
-        signature, signed_at, signing_key_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        signature, signed_at, signing_key_id, prev_attestation_hash
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id, params.apiKeyHash, seqNum, params.attestationType,
       params.manifestId || null, params.manifestVerdict || null,
@@ -203,7 +214,7 @@ export function createAttestation(params: CreateAttestationParams): string {
       params.creditsCharged || 0, params.durationMs || null,
       params.outcomeStatus || 'success',
       params.outcomeData ? JSON.stringify(params.outcomeData) : null,
-      signature, signature ? now : null, signingKeyId
+      signature, signature ? now : null, signingKeyId, prevAttestationHash,
     );
   })();
 
