@@ -1,0 +1,783 @@
+# x204 — The Trust Protocol for Agentic Commerce
+
+**HTTP-native, identity-authenticated, facilitator-free micropayments for autonomous agents.**
+
+x204 unifies what every other protocol handles separately: identity, trust, payment, and reputation
+become a single atomic operation. No facilitator. No signup. No middleman. One HTTP call.
+
+The name: HTTP 204 = "No Content" → no middleman, no centralized authority, no unnecessary overhead.
+
+---
+
+## 1. WHY x204 EXISTS
+
+### What x402 Got Right
+- HTTP-native payment headers (PAYMENT-REQUIRED, PAYMENT-SIGNATURE)
+- EIP-3009 / Permit2 signed authorizations (cryptographic, on-chain)
+- Open source (Apache 2.0) — anyone can implement
+- Proven on Base L2 with USDC micropayments
+
+### What x402 Gets Wrong
+
+| Gap                      | Impact                                                        |
+|--------------------------|---------------------------------------------------------------|
+| No identity              | Server doesn't know WHO is paying — just that someone paid    |
+| No trust/reputation      | A scam agent and a reliable agent pay the same price          |
+| No mutual authentication | Client can't cryptographically verify the SERVER              |
+| No quality guarantees    | You pay, you get *something*, no proof of quality             |
+| No portable receipts     | Receipts are siloed to each platform                          |
+| Facilitator dependency   | Can't settle without a centralized intermediary               |
+| No feedback loop         | Zero mechanism for quality reporting to improve the system    |
+| No onboarding flow       | Requires wallet + USDC + facilitator before first query       |
+
+### The x204 Thesis
+
+> Trust replaces infrastructure. If both parties have cryptographically verifiable identities
+> with portable trust histories, you don't need escrow, you don't need facilitators, you don't
+> even need immediate payment. Trust becomes the settlement layer — just like credit scores
+> enable deferred payment in the real economy, but for AI agents with cryptographic proofs.
+
+---
+
+## 2. PROTOCOL SPECIFICATION
+
+### 2.1 Protocol Flow (vs x402)
+
+```
+x402 — 6 parties (client, server, wallet, facilitator, blockchain, RPC):
+  Client → Server → 402 → Client signs → Facilitator verifies
+  → Facilitator settles on-chain → Server delivers
+
+x204 — 3 parties (client, server, blockchain):
+  Client → Server (request + AID DID + signed payment authorization)
+  Server verifies AID offline (Ed25519, Merkle proof — ZERO network calls)
+  Server verifies payment signature (ecrecover — pure math)
+  Server submits EIP-3009 directly (or trust-defers settlement)
+  Server → Client (resource + counter-signed receipt + attestation)
+```
+
+### 2.2 HTTP Headers
+
+**Request Headers (Client → Server):**
+```
+X-AID-DID:            did:clawnet:zABC...            # Self-certifying identity
+X-AID-PROOF:          <Ed25519 sig over request body> # Proves DID ownership
+X-AID-TRUST-SCORE:    87                              # Claimed score (verifiable)
+PAYMENT-SIGNATURE:    <EIP-3009 signed authorization> # Direct settlement (x402-compatible)
+```
+
+**Response Headers (Server → Client):**
+```
+X-AID-PROVIDER-DID:   did:clawnet:zXYZ...            # Mutual authentication
+X-AID-PROVIDER-PROOF: <Ed25519 countersignature>      # Server proves identity
+X-AID-RECEIPT:        <base64 atomic receipt>          # Portable, Merkle-anchored
+X-AID-FEEDBACK-URL:   /x204/feedback/{receiptId}      # Outcome reporting endpoint
+```
+
+**402 Response Headers (Payment Required):**
+```
+PAYMENT-REQUIRED:     <base64 requirements>            # x402-compatible format
+X-AID-TRUST-GATE:     min_score=50,tier=standard       # Trust-gated access
+X-AID-PRICING-TIERS:  [{"min":0,"price":"0.003"},      # Trust → price mapping
+                        {"min":50,"price":"0.002"},
+                        {"min":80,"price":"0.001"}]
+```
+
+**Zero-Auth Onboarding Header:**
+```
+X-AID-NEW:            "my-trading-bot"                 # Auto-provisions identity
+```
+
+### 2.3 Settlement Methods
+
+x204 supports three settlement modes, selected by the server based on client trust score:
+
+| Trust Score | Settlement Mode        | Description                                      |
+|-------------|------------------------|--------------------------------------------------|
+| 0-20        | `immediate`            | Full prepayment via EIP-3009 (x402-compatible)   |
+| 21-50       | `standard`             | 10% discount, standard EIP-3009 settlement       |
+| 51-80       | `batched`              | 25% discount, hourly batch settlement on-chain   |
+| 81-100      | `deferred`             | 50% discount, daily settlement, net-30 disputes  |
+
+**Direct settlement (no facilitator):**
+- EIP-3009 `transferWithAuthorization()` can be submitted by ANYONE
+- Server calls the USDC contract directly with the signed auth
+- Nonce tracking is on-chain (replay protection built into EIP-3009)
+- Gas cost ~$0.001 on Base L2 (negligible for micropayments)
+
+### 2.4 Mutual Authentication
+
+Both parties prove identity in every transaction:
+
+```
+Client proves:  "I am did:clawnet:zABC... with trust score 87,
+                 1,247 successful transactions, Merkle-anchored"
+
+Server proves:  "I am did:clawnet:zXYZ... with 99.8% uptime SLA,
+                 verified by 340 validators, 12,847 invocations"
+```
+
+x402 only authenticates payment. x204 authenticates EVERYTHING.
+
+---
+
+## 3. THE TRUST STACK (5 Layers)
+
+No existing protocol has all 5. x402 has Layer 1. Maiat has Layers 3-4.
+ClawStars has Layer 5. AID has Layers 2-3. x204 is the first to unify them.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  LAYER 5: MARKET SIGNAL                                         │
+│  Bonding curve pricing — market prices reputation directly      │
+│  Inspired by: ClawStars quadratic bonding curve                 │
+│  If an agent is good, people stake on it, price goes up.        │
+│  Bad agents get dumped. The market IS the reputation system.    │
+│  Self-correcting, ungameable (costs real money to manipulate).  │
+├─────────────────────────────────────────────────────────────────┤
+│  LAYER 4: COMMUNITY SIGNAL                                      │
+│  Weighted reviews + validator verdicts (anti-Sybil)             │
+│  Inspired by: Maiat weighted reviewer reputation                │
+│  Reviews from high-spend wallets = 3x weight.                   │
+│  Reviews from wallets with attestation history = 5x weight.     │
+│  Random new wallets = 1x. Kills Sybil attacks on ratings.       │
+├─────────────────────────────────────────────────────────────────┤
+│  LAYER 3: BEHAVIORAL SIGNAL                                     │
+│  Attestation history + outcome reporting feedback loop          │
+│  Inspired by: Maiat outcome flywheel + AID attestations         │
+│  Every query generates a receiptId. Report success/failure.     │
+│  Reports feed the trust model. More usage = better accuracy.    │
+├─────────────────────────────────────────────────────────────────┤
+│  LAYER 2: CRYPTOGRAPHIC IDENTITY                                 │
+│  Self-certifying DIDs, Ed25519 keypairs, Merkle proofs          │
+│  Built on: ClawNet AID (Agent Identity Document)                │
+│  DID = did:clawnet:{publicKeyMultibase} — public key IS the ID. │
+│  Offline-verifiable. No registry lookup needed. Portable.       │
+├─────────────────────────────────────────────────────────────────┤
+│  LAYER 1: PAYMENT                                                │
+│  Direct EIP-3009 settlement on Base L2 (no facilitator)         │
+│  Extends: x402 payment headers (backwards-compatible)           │
+│  Server submits signed authorization directly to USDC contract. │
+│  Trust-gated pricing: higher trust = lower price + deferred pay.│
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 4. TRUST SCORE v2
+
+### 4.1 Current State (AID v1 — Too Simple)
+```
+score = round(successRate * 50 + chainCoverage * 30 + volume * 20)
+```
+Three dimensions, integer-only, no decay, no anti-gaming. This is a v0.1 trust score.
+
+### 4.2 Target State (x204 Trust Score)
+
+**Three signal categories, weighted:**
+
+```
+BEHAVIORAL (50%)                    ← from attestation history
+  successRate        (0-1)          # weighted by recency (10%/30d decay)
+  latencyConsistency (0-1)          # low variance = high score
+  chainCoverage      (0-1)          # hash-chain integrity percentage
+  uptimeScore        (0-1)          # from health cron data
+  outcomeReports     (0-1)          # positive outcome ratio from feedback
+
+MARKET (30%)                        ← from staking/usage data
+  stakingDemand      (0-1)          # bonding curve price as trust proxy
+  consumerDiversity  (0-1)          # unique consumers (not just volume)
+  crossConsumption   (0-1)          # does this agent USE other agents?
+  volumeGrowth       (0-1)          # trending up vs flat vs declining
+
+COMMUNITY (20%)                     ← from weighted reviews
+  validatorVerdicts  (0-1)          # weighted by validator spend + accuracy
+  reportPenalty      (0-1)          # inverse — more reports = lower score
+  verificationTier   (0-1)          # Twitter/GitHub/domain verification level
+```
+
+**Scoring formula:**
+```
+rawScore = (behavioralAvg * 50) + (marketAvg * 30) + (communityAvg * 20)
+verificationMultiplier = 1.0 | 1.1 | 1.2  (none | partial | full verification)
+finalScore = min(100, round(rawScore * verificationMultiplier))
+```
+
+**Anti-gaming mechanisms:**
+- Trust decay: scores lose 10% weight per 30 days of inactivity (from Maiat)
+- Multi-dimensional: 11 sub-scores prevent gaming any single metric (from ClawStars)
+- Weighted reviews: reviewer's own history determines review weight (from Maiat)
+- Verification multiplier: 1.2x for verified agents (from ClawStars)
+- Cross-consumption: agents must USE the ecosystem, not just sell into it (from ClawStars)
+
+### 4.3 Trust Verdicts (Maiat-compatible)
+
+| Score | Verdict    | Settlement Mode | Pricing Tier |
+|-------|------------|-----------------|--------------|
+| 80+   | `proceed`  | Deferred        | 50% discount |
+| 60-79 | `standard` | Batched         | 25% discount |
+| 40-59 | `caution`  | Standard        | 10% discount |
+| 20-39 | `new`      | Immediate       | Base price   |
+| 0-19  | `avoid`    | Prepay only     | 2x premium   |
+
+### 4.4 Trust Score as On-Chain Primitive
+
+Inspired by Maiat's MaiatOracle contract:
+- Trust scores synced to Base smart contract every 6 hours
+- On-chain `TrustGate` modifier: skills can set `min_trust_score` requirements
+- Smart contracts can query trust scores directly (no API call needed)
+- EAS attestations created for significant trust score changes
+
+---
+
+## 5. PORTABLE ATOMIC RECEIPTS
+
+Every x204 transaction produces a receipt that is verifiable by ANY third party offline.
+The receipt travels with the agent forever. x402 receipts die with the platform.
+
+### 5.1 Receipt Format
+
+```json
+{
+  "protocol": "x204",
+  "version": "1.0.0",
+  "receiptId": "rcpt-a1b2c3d4",
+  "timestamp": "2026-03-21T14:30:00Z",
+
+  "payer": {
+    "did": "did:clawnet:zABC...",
+    "trustScore": 87,
+    "signature": "ed25519:..."
+  },
+  "provider": {
+    "did": "did:clawnet:zXYZ...",
+    "trustScore": 94,
+    "signature": "ed25519:..."
+  },
+
+  "service": {
+    "id": "sol-price-data",
+    "type": "data_query",
+    "inputHash": "sha256:1f2e...",
+    "resultHash": "sha256:af3b..."
+  },
+
+  "payment": {
+    "amount": "0.001500",
+    "currency": "USDC",
+    "chain": "base",
+    "settlementMode": "batched",
+    "txHash": "0x7f2a...",
+    "trustDiscount": 0.25
+  },
+
+  "trust": {
+    "merkleRoot": "sha256:9c4d...",
+    "merkleProof": [...],
+    "snapshotId": "snap-xyz",
+    "feedbackUrl": "/x204/feedback/rcpt-a1b2c3d4"
+  },
+
+  "proof": {
+    "payerSignature": "ed25519:...",
+    "providerSignature": "ed25519:...",
+    "platformCountersignature": "ed25519:..."
+  }
+}
+```
+
+### 5.2 Receipt Properties
+- **Dual-signed:** Both payer and provider sign — mutual commitment
+- **Merkle-anchored:** Receipt hash included in periodic Merkle snapshots
+- **Content-addressed:** `resultHash` proves what was delivered without revealing it
+- **Offline-verifiable:** Ed25519 signatures + Merkle proofs = pure math, no API calls
+- **Portable:** Agent carries receipts to any platform as proof of track record
+
+### 5.3 Composite Receipts
+
+When an agent calls multiple skills from multiple providers in one operation:
+
+```
+Agent pays Provider A (2 skills): 0.003 USDC
+Agent pays Provider B (2 skills): 0.002 USDC
+Agent pays Provider C (1 skill):  0.001 USDC
+→ 3 on-chain txs, but 1 atomic receipt set with shared Merkle root
+→ If any skill fails, partial refund via signed dispute receipt
+→ Composite receipt references all sub-receipts by hash
+```
+
+---
+
+## 6. ZERO-FRICTION ONBOARDING
+
+### 6.1 First Contact Provisioning (Inspired by Maiat)
+
+Maiat's killer UX: `X-Maiat-Client: my-agent-name` auto-creates a wallet + 10 Scarab on first call.
+x204 adopts this — one HTTP call creates identity + grants trial credits + executes the request:
+
+```
+# First ever request — no account, no key, no DID:
+POST /x204/skills/sol-price
+Headers: X-AID-NEW: "my-trading-bot"
+Body: { "token": "SOL" }
+
+# Server auto-provisions:
+# 1. Generates Ed25519 keypair → self-certifying DID
+# 2. Creates AID record with trust score 0
+# 3. Grants 5 trial credits (expire in 24h)
+# 4. Executes the request using trial credits
+# 5. Returns everything in one response:
+
+HTTP 201 Created
+{
+  "aid": {
+    "did": "did:clawnet:zABC...",
+    "publicKeyMultibase": "zABC...",
+    "privateKeySeed": "a1b2c3...",
+    "trustScore": 0,
+    "tier": "new"
+  },
+  "trial": {
+    "credits": 4,
+    "expiresIn": "24h"
+  },
+  "result": {
+    "price": 145.20,
+    "change24h": 3.1
+  },
+  "receipt": { ... },
+  "warning": "Save your privateKeySeed — shown once, never stored."
+}
+```
+
+**One HTTP call:** identity created + trial credits + request fulfilled + receipt generated.
+
+Compare: x402 requires a wallet, USDC, a facilitator account, and multiple round-trips.
+
+### 6.2 Progressive Identity Tiers
+
+| Tier       | How to reach                          | Trust Multiplier | Capabilities                     |
+|------------|---------------------------------------|------------------|----------------------------------|
+| `anonymous`| X-AID-NEW header                      | 1.0x             | 5 trial credits, 24h expiry      |
+| `basic`    | Fund wallet with USDC                 | 1.0x             | Full access, immediate settlement|
+| `verified` | Verify Twitter OR GitHub              | 1.1x             | 10% pricing discount             |
+| `proven`   | 100+ successful transactions          | 1.15x            | Batched settlement available      |
+| `trusted`  | Trust score 80+ AND verified          | 1.2x             | Deferred settlement, credit terms|
+
+---
+
+## 7. OUTCOME FEEDBACK LOOP
+
+### 7.1 The Flywheel (Inspired by Maiat)
+
+Maiat's core insight: every trust query feeds the ML model. More queries → better predictions →
+more trustworthy scores → more queries. x204 adopts this with the feedback endpoint:
+
+```
+POST /x204/feedback
+{
+  "receiptId": "rcpt-a1b2c3d4",
+  "outcome": "success",         // success | partial | failure
+  "qualityScore": 9,            // 1-10
+  "latencyAcceptable": true,
+  "notes": "Fast, accurate data"
+}
+
+Response:
+{
+  "credited": 0.1,              // Reporter earns credits
+  "providerTrustDelta": +0.02,  // Provider's score updated
+  "totalFeedbacks": 1248,       // System-wide feedback count
+  "feedbackWeight": 3.0         // Your feedback weight (based on YOUR trust)
+}
+```
+
+### 7.2 Feedback Weighting (Anti-Sybil, from Maiat)
+
+Not all feedback is equal. Weight depends on the reporter's own history:
+
+| Reporter Profile                           | Weight |
+|--------------------------------------------|--------|
+| New agent (< 10 transactions)              | 0.5x   |
+| Active agent (10-100 transactions)         | 1.0x   |
+| High-volume agent (100+ transactions)      | 2.0x   |
+| Agent with spend history > $10             | 3.0x   |
+| Agent with attestation history (EAS/AID)   | 5.0x   |
+
+This kills Sybil attacks: creating 100 fake agents to boost a provider's score costs real money
+because low-trust agents' feedback barely counts.
+
+### 7.3 Real-Time Trust Alerts (Inspired by Maiat Sentinel)
+
+When a provider's trust score drops significantly, all active consumers are notified:
+
+```
+GET /x204/alerts?did=did:clawnet:zXYZ...
+SSE stream:
+
+event: trust_degradation
+data: {
+  "provider": "did:clawnet:zXYZ...",
+  "previousScore": 87,
+  "currentScore": 62,
+  "trigger": "3 consecutive failures reported",
+  "severity": "warning",
+  "recommendation": "Consider alternative providers"
+}
+```
+
+Agents polling the heartbeat endpoint also receive trust alerts inline.
+
+---
+
+## 8. HEARTBEAT PROTOCOL (MANDATORY)
+
+### 8.1 Why It's Mandatory
+
+ClawStars' heartbeat consolidates 6 API calls into 1 — designed for agents polling in a loop.
+x204 makes this a protocol requirement: every x204 server MUST expose `/x204/heartbeat`.
+
+### 8.2 Heartbeat Specification
+
+```
+GET /x204/heartbeat
+
+Response:
+{
+  "provider": {
+    "did": "did:clawnet:zXYZ...",
+    "trustScore": 94,
+    "uptime": 0.998,
+    "avgLatencyMs": 45,
+    "verified": true,
+    "verificationTier": "proven"
+  },
+
+  "services": [
+    {
+      "id": "sol-price",
+      "type": "data_query",
+      "price": "0.001",
+      "trustGate": 0,
+      "status": "healthy",
+      "avgLatencyMs": 32
+    },
+    {
+      "id": "swap-executor",
+      "type": "defi_action",
+      "price": "0.05",
+      "trustGate": 50,
+      "status": "healthy",
+      "avgLatencyMs": 1200
+    }
+  ],
+
+  "pricing": {
+    "currency": "USDC",
+    "chain": "base",
+    "tiers": [
+      { "minTrust": 0,  "multiplier": 1.0, "settlement": "immediate" },
+      { "minTrust": 40, "multiplier": 0.9, "settlement": "standard" },
+      { "minTrust": 60, "multiplier": 0.75, "settlement": "batched" },
+      { "minTrust": 80, "multiplier": 0.5, "settlement": "deferred" }
+    ],
+    "recipient": "0xRecipientAddress..."
+  },
+
+  "stats": {
+    "totalInvocations": 12847,
+    "successRate": 0.997,
+    "activeConsumers": 340,
+    "last24hVolume": "4.230"
+  },
+
+  "alerts": [],
+
+  "timestamp": "2026-03-21T14:30:00Z"
+}
+```
+
+### 8.3 Consumer Heartbeat (Authenticated)
+
+For agents with an AID, an authenticated heartbeat returns personalized data:
+
+```
+GET /x204/heartbeat
+Headers: X-AID-DID: did:clawnet:zABC..., X-AID-PROOF: <sig>
+
+Additional fields in response:
+{
+  "consumer": {
+    "trustScore": 87,
+    "pricingTier": { "multiplier": 0.5, "settlement": "deferred" },
+    "balance": "12.450",
+    "recentReceipts": 47,
+    "feedbackPending": 3,
+    "alerts": [
+      { "type": "trust_degradation", "provider": "did:clawnet:zDEF...", "delta": -12 }
+    ]
+  }
+}
+```
+
+---
+
+## 9. MARKET-AS-REPUTATION (FUTURE — LAYER 5)
+
+### 9.1 Bonding Curve for Agent Trust (Inspired by ClawStars)
+
+ClawStars' core insight: instead of computing reputation algorithmically, let the market price it.
+Ticket price = reputation. Self-correcting, ungameable (costs real money to manipulate).
+
+**x204 adoption — Agent Trust Stakes:**
+- Any agent can stake USDC on another agent's trust
+- Price follows a quadratic bonding curve: `price = supply^2 / divisor`
+- Staking increases the agent's MARKET trust signal (Layer 5)
+- Stakers earn a share of the staked agent's transaction fees (5% of revenue)
+- If the agent's behavioral trust drops, stakers can exit (price drops = market correction)
+
+**Fee structure (from ClawStars):**
+- 10% total fee on stake/unstake
+- 5% to the staked agent (creator revenue)
+- 5% to the protocol (treasury)
+
+**Safety mechanisms (from ClawStars):**
+- Minimum supply of 1 (can't fully exit)
+- 24h cooldown on withdrawals
+- 48h timelock on fee changes
+- 30-day inactive → abandoned fee reclaim
+
+### 9.2 Cross-Consumption Incentives (from ClawStars)
+
+Agents earn trust boost for USING other agents' services:
+
+| Behavior                                    | Trust Boost          |
+|---------------------------------------------|----------------------|
+| Uses 3+ different providers in 30 days      | +5% diversity bonus  |
+| Composite skill uses other marketplace skills| +10% discovery boost |
+| Provides feedback on consumed services      | +2% per feedback     |
+
+This creates network effects: agents have skin-in-the-game relationships.
+
+### 9.3 Seasonal Competitions (from ClawStars)
+
+Time-bounded competitions where agents compete on multi-dimensional metrics:
+
+**12 scoring dimensions:**
+1. `successRate` — execution reliability
+2. `consumerCount` — unique consumers
+3. `volumeScore` — total transaction value
+4. `stakingScore` — bonding curve demand
+5. `crossConsumption` — uses other agents' services
+6. `diversityScore` — varied consumer base
+7. `uptimeScore` — availability consistency
+8. `latencyScore` — response time performance
+9. `ageScore` — longevity on platform
+10. `feedbackScore` — positive outcome reports received
+11. `verifiedBonus` — verification tier multiplier
+12. `referralScore` — new agents onboarded
+
+**Season rewards:**
+- Top 10: Featured placement in discovery + badge
+- Top 50: Credit bonuses
+- All participants: Seasonal trust snapshot (portable proof of ranking)
+
+---
+
+## 10. COMPETITIVE LANDSCAPE
+
+### 10.1 Protocol Comparison
+
+|                        | x402       | Maiat        | ClawStars    | **x204**              |
+|------------------------|------------|--------------|--------------|------------------------|
+| Identity               | None       | Wallet addr  | Wallet+agentId| **Self-certifying DID**|
+| Trust scoring          | None       | ML oracle    | Market-priced| **Behavioral+Market+Community** |
+| Payment                | Facilitator| ACP micropay | Bonding curve| **Direct EIP-3009**    |
+| Receipts               | Siloed     | Centralized  | On-chain tx  | **Portable Merkle**    |
+| Onboarding             | Wallet+USDC| Zero-auth    | On-chain reg | **One HTTP call**      |
+| Feedback               | None       | POST /outcome| Season points| **Unified flywheel**   |
+| Discovery              | None       | Agent list   | Heartbeat    | **Heartbeat (mandatory)** |
+| Offline verification   | No         | No           | No           | **Yes (Ed25519+Merkle)** |
+| Mutual authentication  | No         | No           | No           | **Yes (both parties)**  |
+| Trust-gated pricing    | No         | Verdicts only| No           | **Yes (4 tiers)**      |
+| Anti-Sybil             | No         | Weighted     | Market cost  | **Weighted + market**  |
+
+### 10.2 What Each Protocol Contributed to x204
+
+```
+FROM x402:       HTTP payment headers, EIP-3009 settlement, open standard model
+FROM MAIAT:      ML trust scoring, zero-auth reads, outcome flywheel, Sentinel alerts,
+                 weighted reviewer reputation, trust verdicts, ACP micropayment pricing
+FROM CLAWSTARS:  Bonding curves, heartbeat protocol, 12-dimension scoring, hybrid auth,
+                 seasons, cross-consumption incentives, verification multipliers,
+                 FIFO cost basis tracking, abandoned reclaim, two-step trading
+FROM AID:        Self-certifying DIDs, Ed25519 keypairs, Merkle proofs, offline
+                 verification, portable trust chains, capability derivation
+NEW IN x204:     All four unified into one atomic protocol with zero-friction onboarding
+```
+
+---
+
+## 11. BUILD PLAN
+
+### Phase 1: AID on x402 (Foundation)
+**Goal:** Differentiate ClawNet's existing x402 immediately.
+
+| Task | Description | Effort |
+|------|-------------|--------|
+| AID headers on x402 | Add `X-AID-DID`, `X-AID-PROOF`, `X-AID-TRUST-SCORE` to x402 requests | S |
+| Provider DID in x402 responses | Return `X-AID-PROVIDER-DID` + `X-AID-PROVIDER-PROOF` | S |
+| Trust-gated pricing | Check caller's AID trust score → apply pricing tier discount | M |
+| Receipt enhancement | Include AID DIDs + dual signatures in x402 receipts | M |
+| Feedback endpoint | `POST /x204/feedback` — report outcome, earn credits | M |
+| Feedback weighting | Weight feedback by reporter's spend history + trust score | S |
+
+**Deliverable:** x402 with identity + trust-gated pricing + feedback loop.
+Every x402 call now carries identity and produces better receipts.
+
+### Phase 2: Core x204 Protocol (Differentiation)
+**Goal:** x204 as a standalone protocol path alongside x402.
+
+| Task | Description | Effort |
+|------|-------------|--------|
+| x204 route handler | `/x204/*` endpoints with full protocol flow | L |
+| Zero-auth onboarding | `X-AID-NEW` header → auto-provision AID + trial credits | M |
+| Direct EIP-3009 settlement | Server submits payment authorization directly (no facilitator) | L |
+| Mutual authentication | Both client and server sign every transaction | M |
+| Portable atomic receipts | Full receipt format with dual signatures + Merkle anchoring | M |
+| Heartbeat endpoint | `GET /x204/heartbeat` — mandatory protocol endpoint | M |
+| Consumer heartbeat | Authenticated heartbeat with personalized pricing + alerts | S |
+| Composite receipts | Multi-provider receipt sets with shared Merkle root | M |
+| x204 spec document | Publishable protocol specification for community review | L |
+
+**Deliverable:** x204 running alongside x402. Agents choose their protocol.
+x204 for sovereign agents, x402 for casual users.
+
+### Phase 3: Trust Score v2 (Intelligence)
+**Goal:** Replace simple 3-dimension trust with 11-dimension scoring.
+
+| Task | Description | Effort |
+|------|-------------|--------|
+| Behavioral signals | successRate, latencyConsistency, chainCoverage, uptimeScore, outcomeReports | M |
+| Market signals | stakingDemand, consumerDiversity, crossConsumption, volumeGrowth | M |
+| Community signals | validatorVerdicts (weighted), reportPenalty, verificationTier | M |
+| Trust decay | 10% weight loss per 30 days of inactivity | S |
+| Verification multipliers | Twitter/GitHub/domain verification → 1.1x/1.15x/1.2x | M |
+| Trust verdicts | proceed/standard/caution/new/avoid classifications | S |
+| On-chain trust oracle | Sync trust scores to Base smart contract every 6h | L |
+| TrustGate hook | Smart contract modifier: reject callers below min_trust_score | L |
+| Sentinel alerts | Real-time SSE stream for trust degradation events | M |
+| Trust decay cron | Automated score decay for inactive agents | S |
+
+**Deliverable:** Production-grade trust scoring that's anti-gameable, multi-dimensional,
+and available both off-chain (API) and on-chain (smart contract).
+
+### Phase 4: Market Layer (Network Effects)
+**Goal:** Bonding curve staking + seasons + cross-consumption incentives.
+
+| Task | Description | Effort |
+|------|-------------|--------|
+| Agent trust stakes | Bonding curve contract for staking on agents (quadratic pricing) | XL |
+| Staking rewards | 5% of staked agent's revenue → distributed to stakers | L |
+| Stake-as-trust | Bonding curve price feeds into MARKET trust signal | M |
+| Cross-consumption tracking | Track agents using other agents' services | M |
+| Cross-consumption boost | Trust bonus for diverse service consumption | S |
+| Season framework | Time-bounded competitions with 12 scoring dimensions | L |
+| Season leaderboard | Public leaderboard + historical season results | M |
+| Season rewards | Featured placement, credit bonuses, badges | M |
+| Abandoned reclaim | 30-day inactive → reclaim staked fees (safety mechanism) | S |
+| FIFO cost basis | Track staking PnL per agent (realized + unrealized) | M |
+
+**Deliverable:** Full market layer where reputation has a price,
+agents have skin in the game, and network effects drive growth.
+
+### Phase 5: Ecosystem (Adoption)
+**Goal:** Make x204 the standard for agentic commerce.
+
+| Task | Description | Effort |
+|------|-------------|--------|
+| x204 SDK (TypeScript) | `@clawnet/x204` — client library for agents | L |
+| x204 SDK (Python) | For Python-based agent frameworks | L |
+| MCP integration | x204-native MCP tools (like Maiat's MCP server) | M |
+| ElizaOS plugin | x204 plugin for ElizaOS agent framework | M |
+| AgentKit integration | x204 for Coinbase AgentKit agents | M |
+| x204 spec publication | Submit to relevant standards bodies / open spec | L |
+| Reference facilitator | Open-source facilitator for platforms that want one | M |
+| Documentation site | Protocol docs, quickstart, API reference | L |
+| Testnet mode | Base Sepolia support with test USDC | M |
+| Third-party onboarding | Help 3-5 platforms implement x204 provider mode | XL |
+
+**Deliverable:** x204 as an open protocol with multi-language SDKs,
+framework integrations, and third-party adoption.
+
+---
+
+## 12. ARCHITECTURE OVERVIEW
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                        x204 Protocol Layer                          │
+│                                                                     │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────────────┐   │
+│  │   AID    │  │  Trust   │  │ Payment  │  │    Receipts      │   │
+│  │ Identity │  │  Engine  │  │ Handler  │  │ (Merkle-anchored)│   │
+│  │          │  │          │  │          │  │                  │   │
+│  │ Ed25519  │  │ 11-dim   │  │ EIP-3009 │  │ Dual-signed     │   │
+│  │ DID:claw │  │ scoring  │  │ Direct   │  │ Portable        │   │
+│  │ Merkle   │  │ Weighted │  │ Batched  │  │ Offline-verify  │   │
+│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └───────┬──────────┘   │
+│       │              │              │                │              │
+│  ┌────┴──────────────┴──────────────┴────────────────┴──────────┐  │
+│  │                    x204 Middleware (Hono)                      │  │
+│  │  Header parsing → AID verify → Trust gate → Price tier →      │  │
+│  │  Payment verify → Execute → Receipt → Feedback URL            │  │
+│  └───────────────────────────────────────────────────────────────┘  │
+│                                                                     │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────────────┐   │
+│  │Heartbeat │  │ Feedback │  │ Sentinel │  │   Market Layer   │   │
+│  │ Protocol │  │  Loop    │  │  Alerts  │  │  (Bonding Curve) │   │
+│  └──────────┘  └──────────┘  └──────────┘  └──────────────────┘   │
+└─────────────────────────────────────────────────────────────────────┘
+                              │
+              ┌───────────────┼───────────────┐
+              ▼               ▼               ▼
+        ┌──────────┐   ┌──────────┐   ┌──────────────┐
+        │  SQLite  │   │  Redis   │   │  Base L2     │
+        │  (WAL)   │   │  (Cache) │   │  (Settlement)│
+        │          │   │          │   │              │
+        │ AID keys │   │ Trust    │   │ USDC EIP3009│
+        │ Receipts │   │ cache    │   │ Trust Oracle │
+        │ Trust    │   │ Rate lim │   │ Bonding Curve│
+        │ Feedback │   │ Sessions │   │ TrustGate   │
+        └──────────┘   └──────────┘   └──────────────┘
+```
+
+---
+
+## 13. SUCCESS METRICS
+
+| Metric | Phase 1 Target | Phase 3 Target | Phase 5 Target |
+|--------|---------------|---------------|---------------|
+| AIDs registered | 100 | 5,000 | 100,000 |
+| x204 transactions/day | 500 | 10,000 | 1,000,000 |
+| Feedback reports/day | 50 | 2,000 | 100,000 |
+| Avg trust score accuracy | n/a | 80% | 95% |
+| Third-party x204 servers | 0 | 3 | 50 |
+| Protocol revenue/month | $500 | $25,000 | $500,000 |
+| Unique agents/month | 50 | 2,000 | 50,000 |
+
+---
+
+## 14. THE BOTTOM LINE
+
+x204 is the first protocol where identity, trust, payment, and reputation are a single
+atomic operation with zero-friction onboarding and a self-improving feedback loop.
+
+Every other system handles these as separate concerns with separate infrastructure:
+- x402 = payment only (no identity, no trust, no receipts)
+- Maiat = trust only (no payment, no portable identity, centralized)
+- ClawStars = social trading only (no services, no portable trust, on-chain only)
+
+x204 merges them all. One HTTP call. One protocol. One receipt.
+
+The agent economy needs this. Build it.
