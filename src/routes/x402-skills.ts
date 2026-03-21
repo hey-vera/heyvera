@@ -428,8 +428,33 @@ x402SkillsRouter.use('*', async (c, next) => {
     newHeaders.set('X-Payment-Protocol', 'x402');
     // v2 headers
     newHeaders.set('PAYMENT-REQUIRED', encoded);
+    newHeaders.set('Content-Type', 'application/json');
 
-    c.res = new Response(c.res.body, {
+    // Build input schema for x402scan registration
+    const skillMatch2 = path.match(/\/(?:skills|query)\/([^/]+)/);
+    let inputSchema: Record<string, unknown> = { type: 'object', properties: { query: { type: 'string', description: 'Natural language question' } } };
+    if (skillMatch2) {
+      const sk = getSkill(skillMatch2[1]);
+      if (sk?.input_schema_json) {
+        try { inputSchema = JSON.parse(sk.input_schema_json); } catch {}
+      } else {
+        inputSchema = { type: 'object', properties: { variables: { type: 'object', additionalProperties: { type: 'string' } } } };
+      }
+    }
+
+    // Decode payment-required header to include in body (x402scan needs body, not just headers)
+    let paymentBody: Record<string, unknown> = {};
+    try {
+      const payReqHeader = newHeaders.get('PAYMENT-REQUIRED');
+      if (payReqHeader) paymentBody = JSON.parse(Buffer.from(payReqHeader, 'base64').toString());
+    } catch {}
+
+    const body = JSON.stringify({
+      ...paymentBody,
+      inputSchema,
+    });
+
+    c.res = new Response(body, {
       status: c.res.status,
       statusText: c.res.statusText,
       headers: newHeaders,
