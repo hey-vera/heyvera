@@ -173,18 +173,54 @@
 - [ ] **Monitor Google AP2** — Agent Payments Protocol. Watch for SDK release. ClawNet should be early adopter.
 - [ ] **First 100 developers campaign** — the moat is usage. Consider dev grants, hackathon sponsorship, or free credit tiers for early builders.
 
+---
 
-What's still needed for 10/10 (future)
-Ed25519 signed VCs (currently the VC has no cryptographic proof, just the envelope format — need @digitalbazaar/vc for real Data Integrity proofs)
-Signing key rotation with versioning
-Semantic reasoning assessment (replace keyword matching with proper LLM logic analysis)
-Risk-scaled preflight thresholds (account for position size)
-Cross-referencing verify + assess results (conditional verdict logic)
-EAS bridge for EVM ecosystem compatibility
-The trust layer went from "demo" to "production-credible for crypto-native users." Enterprise W3C signing is the next step when @digitalbazaar/vc is added.
+## Manual Action Items — x402 Developer Event (March 2026)
 
-EAS bridge for Ethereum ecosystem compatibility
-ZK privacy proofs (verify without revealing query)
-Active validators — the system exists but needs real users
-Cross-referencing verify + assess results in Manifest (conditional verdict logic)
-Deploy and smoke test everything live
+### Outreach — Invite to Marketplace
+These contacts expressed interest or have skills that would be valuable on the ClawNet marketplace:
+
+| Contact | Handle | Action | Notes |
+|---------|--------|--------|-------|
+| **Messari (Diran Li)** | @diran_li | Invite to publish premium data skills | CEO of Messari. High-value for Radar trading product. Prev: Palantir, Microsoft |
+| **Elsa AI** | (find handle) | Invite to publish AI skills | Contact from event — interested in marketplace |
+| **Dexter AI** | @dexteraisol, dev: @BranchM | Integration partner for Pulse/Radar | Largest x402 facilitator. Already in our registry. Explore deeper integration |
+| **QuickNode (Sahil Sen)** | @sensahil | Invite to publish blockchain data skills | DevRel at QuickNode. 50+ chain support |
+| **WURK** | @WURKDOTFUN | Deepen integration (already 3 endpoints) | Microjobs for humans+agents. Could add more task types |
+| **APINow (Chris Dolinski)** | @1dolinski, @apinowfun | Monitor / competitive intel | Tokenized APIs. Study their semantic discovery |
+| **Austin Griffith** | @austingriffith | ethskills.com already added to registry | EF developer. 24 skill modules, open source |
+
+### Outreach — Strategic Partnerships
+| Contact | Handle | Action | Notes |
+|---------|--------|--------|-------|
+| **Sponge (YC W26)** | @sponge_wallet | Register as Gateway provider | Agent wallet distribution channel |
+| **zauth** | @zauthx402 | Explore trust data integration | Independent endpoint verification |
+| **x402r** | @x402rorg | Explore refund protocol integration | Refundable x402 payments |
+| **Xona Agent** | @xona_agent | Add creative AI endpoints | Image/video generation via x402 |
+| **Daydreams** | @daydreamsagents | Monitor for integration | x402 + ERC-8004 agent framework |
+
+### Outreach — Ecosystem Contacts (Follow/Engage)
+| Contact | Handle | Role |
+|---------|--------|------|
+| **Rish** | @_rishinsharma | AI at Solana / CoinFund |
+| **Eric Brown** | @0xEricBrown | DevRel lead at Base |
+| **Zach Prater** | @ZacPrater | Virtual Events at Base |
+| **Sawyer (SKALE)** | @TheGreatAxios | VP DevSuccess at SKALE. Private agentic commerce |
+| **bc1beat** | @bc1beat | BlockRunAI/ClawRouter creator. Circle hackathon winner |
+| **kehaya** | @afkehaya | Open source Solana tools. Contributor at ABK Labs |
+
+### Skill Ideas from Event
+Skills to build or commission for the marketplace:
+
+1. **Crypto Tax PnL Skill** — Agent that calculates profit/loss across on-chain transactions. Hire/pay agent to process all transactions. Needs fast on-chain reads (MCP server or local nodes).
+2. **Smart Contract Audit Skill** — Wraps ethskills.com audit checklist (500+ items) + LLM analysis. Already partially covered by ethskills endpoints in registry.
+3. **Browser Automation Skill** — Wraps Browser Use API for web tasks agents can't do via REST APIs.
+4. **Agent Tax/Accounting Skill** — Tracks agent spending across x402 payments, credit purchases, skill invocations for financial reporting.
+
+### Positioning Notes from Event
+- "ClawAPIs is like OpenRouter for paid APIs" — validate this analogy
+- "ClawRouter = OpenRouter but stablecoin version" — study their 15-dimension routing for optimizePlan() improvements
+- "How to establish trust from unknown actors and scale it to every person/machine" — this is EXACTLY what manifest + attestation solves. Use this framing in marketing.
+- "Anything behind an API key, add it to registry so agents can call it. Take in API that costs money, put in x402 and upcharge" — this IS our business model. Validate externally.
+- "We let your agent work on path of least resistance" — good tagline alternative
+- "The frontier: agentic commerce, x402, MPP, stablecoins, semantic discovery, 8004, micropayments, agent discovery, ACP, context engineering, UCP" — ClawNet covers 7 of these 11 already.

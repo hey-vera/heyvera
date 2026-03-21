@@ -511,11 +511,18 @@ export async function runManifest(
     await Promise.allSettled(parallelTasks);
   }
 
+  // External trust cross-reference (independent third-party signals)
+  let externalTrust: ExternalTrustResult | null = null;
+  if (tier !== 'quick') {
+    externalTrust = await crossReferenceExternalTrust(parsedRequest, allClaims);
+    if (externalTrust) stepsRun.push('external_trust');
+  }
+
   // Memory lookup
   const memCtx = buildMemoryContext(manifestId, apiKey, parsedRequest, false);
 
-  // Compute verdict
-  const { verdict, confidence } = computeVerdict(verifyResult, assessResult, preflightResult);
+  // Compute verdict (now includes external trust signals)
+  const { verdict, confidence } = computeVerdict(verifyResult, assessResult, preflightResult, externalTrust);
 
   // Generate summary
   let summary: string;
@@ -571,6 +578,7 @@ export async function runManifest(
     verify: verifyResult || undefined,
     assess: assessResult || undefined,
     preflight: preflightResult || undefined,
+    ...(externalTrust && { externalTrust }),
     memory: memCtx,
     summary,
     tier,
@@ -1728,10 +1736,125 @@ function checkBudget(
 
 // ─── 5. computeVerdict() — Overall Verdict ──────────────────────────────────
 
+// ─── External Trust Cross-Reference ──────────────────────────────────────────
+// Queries independent third-party sources (zauth, our own skill health data)
+// to cross-reference trust signals. If internal and external disagree, the
+// manifest verdict is downgraded to CAUTION — making ClawNet the only
+// verification system that cross-references multiple independent trust sources.
+
+export interface ExternalTrustResult {
+  overallTrust: number; // 0-1
+  disagreement: boolean; // internal vs external signals disagree
+  sources: Array<{ name: string; trust: number; status: string; checkedAt: string }>;
+}
+
+async function crossReferenceExternalTrust(
+  request: ManifestRequest,
+  claims: VerifyClaim[],
+): Promise<ExternalTrustResult | null> {
+  const sources: ExternalTrustResult['sources'] = [];
+  const now = new Date().toISOString();
+
+  // 1. Check our own skill health data if a skill is referenced
+  const skillId = request.preflight?.params?.skill_id as string
+    || request.preflight?.params?.skillId as string
+    || claims.find(c => c.type === 'skill')?.subject;
+
+  if (skillId) {
+    try {
+      const skill = getDb().prepare(
+        `SELECT health_status, success_rate, avg_rating, rating_count, health_checked_at
+         FROM skills WHERE id = ? AND active = 1`
+      ).get(skillId) as { health_status: string; success_rate: number; avg_rating: number; rating_count: number; health_checked_at: string | null } | undefined;
+
+      if (skill) {
+        const healthTrust = skill.health_status === 'HEALTHY' ? 1.0
+          : skill.health_status === 'DEGRADED' ? 0.4
+          : 0.1;
+        const successTrust = (skill.success_rate || 0) / 100;
+        const ratingTrust = skill.rating_count > 0 ? Math.min(1, skill.avg_rating / 5) : 0.5;
+        const trust = round6((healthTrust * 0.4) + (successTrust * 0.4) + (ratingTrust * 0.2));
+
+        sources.push({
+          name: 'clawnet-skill-health',
+          trust,
+          status: skill.health_status,
+          checkedAt: skill.health_checked_at || now,
+        });
+      }
+    } catch {}
+  }
+
+  // 2. Check endpoint reliability from indexed_endpoints if an endpoint URL is referenced
+  const endpointUrl = request.preflight?.params?.url as string
+    || claims.find(c => c.source)?.source;
+
+  if (endpointUrl) {
+    try {
+      const indexed = getDb().prepare(
+        `SELECT health_status, uptime_30d, reliability_score, latency_p50_ms, source
+         FROM indexed_endpoints WHERE url LIKE ? LIMIT 1`
+      ).get(`%${endpointUrl}%`) as { health_status: string; uptime_30d: number | null; reliability_score: number | null; source: string } | undefined;
+
+      if (indexed) {
+        const trust = indexed.reliability_score
+          ? Math.min(1, indexed.reliability_score / 100)
+          : indexed.health_status === 'healthy' ? 0.8 : 0.3;
+
+        sources.push({
+          name: `index/${indexed.source}`,
+          trust: round6(trust),
+          status: indexed.health_status,
+          checkedAt: now,
+        });
+      }
+    } catch {}
+  }
+
+  // 3. Check attestation history for the subject (reputation signal)
+  const subject = claims[0]?.subject || skillId;
+  if (subject) {
+    try {
+      const stats = getDb().prepare(
+        `SELECT COUNT(*) as total,
+                SUM(CASE WHEN outcome_status = 'success' THEN 1 ELSE 0 END) as successes
+         FROM attestations
+         WHERE (action_endpoint LIKE ? OR action_endpoint LIKE ?)
+         AND created_at > datetime('now', '-30 days')`
+      ).get(`%${subject}%`, `%${subject}%`) as { total: number; successes: number };
+
+      if (stats.total > 0) {
+        const trust = round6(stats.successes / stats.total);
+        sources.push({
+          name: 'clawnet-attestation-history',
+          trust,
+          status: trust > 0.9 ? 'excellent' : trust > 0.7 ? 'good' : trust > 0.5 ? 'fair' : 'poor',
+          checkedAt: now,
+        });
+      }
+    } catch {}
+  }
+
+  if (sources.length === 0) return null;
+
+  // Compute overall trust and check for disagreement
+  const overallTrust = round6(
+    sources.reduce((sum, s) => sum + s.trust, 0) / sources.length
+  );
+
+  // Disagreement: any source below 0.5 while another is above 0.8
+  const highTrust = sources.some(s => s.trust > 0.8);
+  const lowTrust = sources.some(s => s.trust < 0.5);
+  const disagreement = highTrust && lowTrust;
+
+  return { overallTrust, disagreement, sources };
+}
+
 export function computeVerdict(
   verify: VerifyResult | null,
   assess: AssessResult | null,
   preflight: PreflightResult | null,
+  externalTrust?: ExternalTrustResult | null,
 ): { verdict: 'PROCEED' | 'CAUTION' | 'HOLD' | 'BLOCK'; confidence: number } {
   let verdict: ManifestResponse['verdict'] = 'PROCEED';
 
@@ -1762,6 +1885,19 @@ export function computeVerdict(
     }
   }
 
+  // External trust escalation
+  if (externalTrust && verdict !== 'BLOCK') {
+    if (externalTrust.overallTrust < 0.3) {
+      verdict = verdict === 'PROCEED' ? 'HOLD' : verdict;
+    } else if (externalTrust.overallTrust < 0.5 && verdict === 'PROCEED') {
+      verdict = 'CAUTION';
+    }
+    // Disagreement between internal and external signals = CAUTION at minimum
+    if (externalTrust.disagreement && verdict === 'PROCEED') {
+      verdict = 'CAUTION';
+    }
+  }
+
   // CAUTION conditions
   if (verdict === 'PROCEED') {
     if (assess && assess.verdict === 'weak') verdict = 'CAUTION';
@@ -1785,6 +1921,9 @@ export function computeVerdict(
     const passedChecks = preflight.checks.filter((c) => c.passed).length;
     const totalChecks = preflight.checks.length || 1;
     weights.push({ value: passedChecks / totalChecks, weight: 0.3 });
+  }
+  if (externalTrust) {
+    weights.push({ value: externalTrust.overallTrust, weight: 0.2 });
   }
 
   let confidence: number;

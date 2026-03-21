@@ -753,5 +753,143 @@ Also consider registering Agoragentic as a **seller** on their marketplace (they
 
 ---
 
-*Last updated: 2026-03-19*
+*Last updated: 2026-03-20*
 *Based on Artemis Agentic Commerce Market Map analysis (173 companies) — competitive research against 402.bot, Questflow, OpenServ, Blockrun, Dexter, Daydreams, PayAI, Virtuals Protocol, Bittensor, x402engine, Agoragentic, ClawIndex, x402scan, Helixa, Cred Protocol, machines.cash, lobster.cash, ClawPay, Railgun, Heurist, Nevermined, ATXP, Skyfire.*
+
+
+When to consider Rust
+If ClawNet hits 10K+ concurrent requests and Node becomes the bottleneck (you're nowhere near this)
+For specific hot paths only (e.g., a Merkle tree computation service as a sidecar)
+If you build an on-chain program (Solana programs are written in Rust)
+What that dev is probably thinking
+"Rust/Zig = fast = better." That's true for Cloudflare Workers, game engines, and databases. It's not true for an API that spends 99% of its time waiting on network calls.
+
+Ship features, get users. Language doesn't matter until you have scaling problems — and you don't.
+
+## 41. x402r Refund & Arbitration Protocol
+
+**What:** x402r.org adds refund/escrow to x402 payments via smart contracts. Routes payments through escrow with configurable refund windows and dispute resolution. TypeScript SDK available. Deployed on 11+ networks including Base.
+
+**Why defer:**
+- ClawNet already has off-chain escrow (7-state machine in src/db/escrow.ts) for credit-based payments.
+- x402r is focused on on-chain escrow — adds gas costs and latency.
+- Our x402 payment volume is still low — refund demand is minimal.
+- Would need to modify x402-skills.ts to route through x402r contracts instead of direct facilitator settlement.
+
+**When to revisit:**
+- When x402 payment volume exceeds 100/day
+- When agents request refundable x402 payments
+- When x402r SDK matures and gas costs on Base drop further
+
+**Effort:** 2-3 days for basic integration, 1 week for full refund lifecycle.
+
+## 42. Sponge Gateway Registration (YC W26)
+
+**What:** Register ClawNet as a Sponge Gateway provider so agents with Sponge wallets auto-discover ClawNet's 344+ endpoints. Sponge (paysponge.com) is backed by YC W26, built by ex-Stripe tech leads.
+
+**Why defer:**
+- Sponge is still early (launched Q1 2026).
+- Our existing discovery (.well-known, llms.txt, OpenAPI, Bazaar) already covers agent discovery.
+- Would need to implement Sponge's provider registration API.
+
+**When to revisit:**
+- When Sponge reaches 1000+ active agent wallets
+- When agents specifically request Sponge wallet support
+- When Sponge Gateway has a self-service registration portal
+
+**Effort:** 1-2 days.
+
+## 43. SKALE Zero-Gas x402 Support
+
+**What:** SKALE Network offers zero gas fees + BITE encryption for private agentic commerce. They hosted a $50K hackathon with Google and Coinbase. Adding SKALE as a third chain would eliminate gas costs for x402 transactions.
+
+**Why defer:**
+- ClawNet currently operates on Base (x402) and Solana (USDC). Adding a third chain increases complexity.
+- SKALE x402 ecosystem is still small.
+- Base gas is already < $0.001/tx — marginal benefit.
+- BITE privacy is interesting but not a current pain point.
+
+**When to revisit:**
+- When SKALE x402 volume exceeds Base
+- When agents request privacy-preserving x402 payments
+- When multi-chain x402 support becomes trivial (CAIP standard)
+
+**Effort:** 2-3 days.
+
+## 44. APINow Tokenized API Discovery
+
+**What:** APINow (apinow.fun) tokenizes API endpoints — usage drives token value. Has npm SDK, AI-powered semantic search for endpoint discovery, and a Dune dashboard tracking on-chain API transaction flows.
+
+**Why defer:**
+- Tokenized APIs introduce price speculation into API costs — ClawNet uses stable credit pricing by design.
+- APINow is a competitor to ClawNet's x402 skills system.
+- Their semantic discovery approach is worth studying but our Trinity engine (semantic + p2p + onchain) is already more comprehensive.
+
+**When to revisit:**
+- When APINow's endpoint catalog has unique data sources not in our registry
+- When tokenized API pricing model proves more effective than stable credits
+- Competitive intelligence: monitor their Dune dashboard
+
+**Effort:** 1 day to add as discovery source to index-sync.ts.
+
+## 45. MPP (Machine Payments Protocol) — Stripe/Tempo
+
+**What:** Open standard by Stripe and Tempo. Defines price announcement, payment authorization, and settlement confirmation. Session-based spending caps with fiat fallback. 100+ services at launch (Alchemy, Dune, etc.).
+
+**Why defer:**
+- Day-1 on Tempo L1 — unproven infrastructure.
+- MPP sessions are already solved by ClawNet's credit + delegated key system.
+- Payment abstraction layer has an MPP stub ready.
+
+**When to revisit:**
+- When agent frameworks ship MPP wallet support by default
+- When MPP daily volume exceeds $100K
+- When major API providers require MPP (not just accept it)
+
+**Effort:** ~1 week.
+
+## 46. kojimem.dev — Ephemeral Memory-as-a-Service
+
+**What:** x402-native memory service for AI agents using ERC-7710 delegation. Agents store findings, delegate access, and destroy memory. Sub-cent USDC costs ($0.015 total for a full session). Two agents can share memory backpacks.
+
+**Why defer:**
+- Site appears pre-launch or very early stage.
+- ClawNet already has Agent Context Layer (SQLite sessions, 50KB state, max 10/key).
+- ERC-7710 delegation maps to our delegated key system conceptually.
+
+**When to revisit:**
+- When kojimem launches publicly with stable API
+- When agents need larger shared memory beyond our 50KB session limit
+- When ERC-7710 delegation becomes standard for agent identity
+
+**Effort:** 1 day to add as endpoint once API is stable.
+
+## 47. EIP-3009 Token Support
+
+**What:** EIP-3009 (Transfer With Authorization) enables gasless, authorized token transfers — the standard USDC uses for x402 compatibility. "Add 3009 support" means implementing `transferWithAuthorization()` so a token works with x402 facilitators.
+
+**Why defer:**
+- Only relevant if launching $CLAWNET token.
+- USDC already has EIP-3009 — our current x402 flow works.
+- Token launch is deferred until revenue milestones are hit.
+
+**When to revisit:**
+- When $CLAWNET token development begins
+- Critical: must implement EIP-3009 for the token to be x402-compatible
+
+**Effort:** Built into token contract (1-2 days as part of token development).
+
+## 48. lobster.cash / Virtual Agent Cards
+
+**What:** Virtual Visa/Mastercard credit cards for AI agents. Agents get their own cards in fiat dollars to pay for cloud compute, API access, and hire other agents. Human-set limits.
+
+**Why defer:**
+- ClawNet's credit system + x402 + Stripe already covers primary payment rails.
+- Virtual cards add regulatory complexity (KYC/AML for card issuance).
+- Only relevant for APIs that exclusively accept card payments.
+
+**When to revisit:**
+- When ClawNet needs to integrate APIs that only accept traditional card payments
+- When virtual agent cards become standard (lobster.cash, AgentCard.sh)
+
+**Effort:** 1 day for basic integration.
