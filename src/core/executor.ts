@@ -110,6 +110,25 @@ function mockData(endpointId: string): unknown {
     'x402-route':            { recommended: 'clawapis.com', reason: 'lowest cost for Solana data', alternatives: [] },
     // PayAI
     'payai-discovery':       { agents: [{ id: 'claw-net', capabilities: ['solana', 'social', 'defi'], pricePerCall: 0.001 }] },
+    // Cascade Surf
+    'cascade-twitter-search':    { tweets: [{ id: '1234', text: 'SOL breaking out 🚀', user: '@trader1', likes: 420, retweets: 89 }], totalCount: 1 },
+    'cascade-twitter-user':      { user: 'ClawNet', followers: 2500, following: 180, verified: false, bio: 'AI agent orchestration layer' },
+    'cascade-twitter-followers': { followers: [{ username: 'user1', followers: 500 }], totalCount: 2500 },
+    'cascade-twitter-timeline':  { tweets: [{ id: '5678', text: 'Just launched x402 support!', likes: 120, retweets: 30 }], totalCount: 50 },
+    'cascade-twitter-trending':  { trends: [{ name: '#Solana', tweetVolume: 48000 }, { name: '$SOL', tweetVolume: 12000 }], asOf: new Date().toISOString() },
+    'cascade-reddit-search':     { posts: [{ title: 'Solana ecosystem update', subreddit: 'solana', score: 420, comments: 89 }], totalCount: 1 },
+    'cascade-reddit-subreddit':  { posts: [{ title: 'Daily discussion', score: 120, comments: 340 }], subredditInfo: { name: 'solana', subscribers: 280000 } },
+    'cascade-web-search':        { results: [{ title: 'Solana Documentation', url: 'https://solana.com/docs', snippet: 'Build on Solana...' }], totalEstimate: 1200000 },
+    'cascade-web-crawl':         { content: 'Page content here...', title: 'Example Page', meta: { description: 'An example page' }, links: ['https://example.com/page2'] },
+    'cascade-llm-inference':     { choices: [{ message: { role: 'assistant', content: 'Hello! How can I help?' } }], usage: { prompt_tokens: 10, completion_tokens: 20 }, model: 'claude-sonnet' },
+    // Dexter
+    'dexter-supported':          { networks: ['solana', 'base', 'polygon', 'arbitrum', 'optimism', 'avalanche'], tokens: ['USDC', 'USDT', 'DAI'], capabilities: ['verify', 'settle'] },
+    // RelAI
+    'relai-marketplace':         { apis: [{ name: 'Token Analytics', provider: 'DataFi', price: 0.002, chain: 'base' }], totalCount: 850, categories: ['defi', 'social', 'ai'], chains: ['base', 'solana', 'polygon'] },
+    // AnySpend
+    'anyspend-facilitator':      { supported: true, networks: ['ethereum', 'base', 'polygon', 'arbitrum', 'optimism', 'bnb', 'avalanche', 'solana'], tokens: ['USDC', 'USDT', 'DAI', 'ETH', 'SOL'] },
+    // Meridian
+    'meridian-payment':          { supported: true, capabilities: ['route', 'settle', 'identity'] },
     // nofxos — AI-coin rankings
     'nofxos-ai500':          { coins: [{ rank: 1, symbol: 'TAO', name: 'Bittensor', compositeScore: 94.2, change24h: 3.1 }], totalCount: 500, lastUpdated: new Date().toISOString() },
     'nofxos-ai300':          { coins: [{ rank: 1, symbol: 'TAO', name: 'Bittensor', compositeScore: 94.2 }], totalCount: 300, lastUpdated: new Date().toISOString() },

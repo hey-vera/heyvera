@@ -1,10 +1,13 @@
 /**
  * Multi-Source Index Sync
  *
- * Periodically fetches x402/L402 endpoints from three registries:
- *   1. 402index.io — community x402 directory
+ * Periodically fetches x402/L402 endpoints from six registries:
+ *   1. 402index.io — community x402 directory (15k+ endpoints)
  *   2. Coinbase Bazaar — official x402 facilitator discovery
  *   3. Satring — curated L402 + x402 directory
+ *   4. Cascade Surf — pay-per-call APIs (Twitter, Reddit, Web, LLM)
+ *   5. Dexter — largest x402 facilitator marketplace
+ *   6. x402list.fun — 17k+ services directory
  *
  * Endpoints are stored in the indexed_endpoints table with a `source`
  * tag and become available to the orchestration engine via
@@ -26,6 +29,17 @@ const SATRING_URLS = [
   'https://satring.com/api/services',
   'https://satring.com/api/v1/services',
   'https://api.satring.com/services',
+];
+const CASCADE_OPENAPI_URLS = [
+  'https://twitter.surf.cascade.fyi/openapi.json',
+  'https://reddit.surf.cascade.fyi/openapi.json',
+  'https://web.surf.cascade.fyi/openapi.json',
+];
+const DEXTER_API = 'https://x402.dexter.cash';
+const X402LIST_URLS = [
+  'https://x402list.fun/api/services',
+  'https://x402list.fun/api/v1/services',
+  'https://api.x402list.fun/services',
 ];
 
 const SYNC_INTERVAL = 4 * 60 * 60 * 1000; // 4 hours
@@ -161,9 +175,12 @@ async function syncCatalog(): Promise<void> {
     syncFrom402Index(),
     syncFromBazaar(),
     syncFromSatring(),
+    syncFromCascade(),
+    syncFromDexter(),
+    syncFromX402List(),
   ]);
 
-  const sourceNames = ['402index', 'bazaar', 'satring'];
+  const sourceNames = ['402index', 'bazaar', 'satring', 'cascade', 'dexter', 'x402list'];
   let totalSynced = 0;
 
   for (const [i, result] of results.entries()) {
@@ -491,6 +508,236 @@ async function syncFromSatring(): Promise<number> {
   return 0;
 }
 
+// ─── Source 4: Cascade Surf (OpenAPI discovery) ─────────────────────────────
+
+interface CascadeOpenAPIPath {
+  summary?: string;
+  description?: string;
+  operationId?: string;
+}
+
+async function syncFromCascade(): Promise<number> {
+  const allEndpoints: NormalizedEndpoint[] = [];
+
+  for (const openapiUrl of CASCADE_OPENAPI_URLS) {
+    try {
+      const res = await fetch(openapiUrl, {
+        signal: AbortSignal.timeout(FETCH_TIMEOUT),
+        headers: { 'User-Agent': USER_AGENT },
+      });
+
+      if (!res.ok) continue;
+
+      let spec: { paths?: Record<string, Record<string, CascadeOpenAPIPath>>; servers?: Array<{ url: string }> };
+      try {
+        spec = await res.json() as typeof spec;
+      } catch { continue; }
+
+      if (!spec.paths) continue;
+
+      const baseUrl = spec.servers?.[0]?.url || openapiUrl.replace('/openapi.json', '');
+      // Derive service type from URL (twitter, reddit, web)
+      const serviceType = openapiUrl.includes('twitter') ? 'twitter'
+        : openapiUrl.includes('reddit') ? 'reddit'
+        : 'web';
+
+      for (const [path, methods] of Object.entries(spec.paths)) {
+        for (const [method, details] of Object.entries(methods)) {
+          if (['get', 'post', 'put', 'delete', 'patch'].indexOf(method.toLowerCase()) === -1) continue;
+          const fullUrl = `${baseUrl}${path}`;
+          const name = details.summary || details.operationId || `${serviceType}: ${path}`;
+
+          allEndpoints.push({
+            source_id: `cascade-${serviceType}-${path.replace(/\//g, '-')}`,
+            name: cleanName(name, fullUrl, 'Cascade'),
+            description: (details.description || name).slice(0, 500),
+            url: fullUrl,
+            protocol: 'x402',
+            price_usd: serviceType === 'web' ? 0.005 : 0.001,
+            payment_asset: 'USDC',
+            payment_network: 'base',
+            category: serviceType === 'web' ? 'search' : 'social',
+            provider: 'Cascade',
+            health_status: 'healthy',
+            uptime_30d: null,
+            latency_p50_ms: serviceType === 'web' ? 1200 : 800,
+            reliability_score: null,
+            http_method: method.toUpperCase(),
+            source: 'cascade',
+          });
+        }
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return upsertEndpoints(allEndpoints);
+}
+
+// ─── Source 5: Dexter Marketplace ────────────────────────────────────────────
+
+interface DexterResource {
+  url?: string;
+  endpoint?: string;
+  name?: string;
+  title?: string;
+  description?: string;
+  price?: number | string;
+  network?: string;
+  category?: string;
+  provider?: string;
+  method?: string;
+}
+
+async function syncFromDexter(): Promise<number> {
+  // Try marketplace/discovery endpoints
+  const discoveryUrls = [
+    `${DEXTER_API}/resources`,
+    `${DEXTER_API}/marketplace`,
+    `${DEXTER_API}/api/resources`,
+    `${DEXTER_API}/api/v1/resources`,
+  ];
+
+  for (const url of discoveryUrls) {
+    try {
+      const res = await fetch(url, {
+        signal: AbortSignal.timeout(FETCH_TIMEOUT),
+        headers: { 'User-Agent': USER_AGENT },
+      });
+
+      if (!res.ok) continue;
+
+      let data: unknown;
+      try { data = await res.json(); } catch { continue; }
+
+      const resources = extractArray(data, ['resources', 'data', 'items', 'results', 'services']);
+      if (resources.length === 0) continue;
+
+      const endpoints: NormalizedEndpoint[] = [];
+      for (const raw of resources) {
+        const r = raw as DexterResource;
+        const epUrl = r.url || r.endpoint;
+        if (!epUrl || typeof epUrl !== 'string') continue;
+
+        let priceUsd: number | null = null;
+        if (typeof r.price === 'number') priceUsd = r.price;
+        else if (typeof r.price === 'string') priceUsd = parseFloat(r.price) || null;
+
+        endpoints.push({
+          source_id: `dexter-${nanoid(8)}`,
+          name: cleanName(r.name || r.title || epUrl, epUrl, r.provider || 'dexter'),
+          description: (r.description || '').slice(0, 500),
+          url: epUrl,
+          protocol: 'x402',
+          price_usd: priceUsd,
+          payment_asset: 'USDC',
+          payment_network: r.network || 'base',
+          category: (r.category || 'uncategorized').slice(0, 100),
+          provider: (r.provider || 'dexter').slice(0, 100),
+          health_status: 'healthy',
+          uptime_30d: null,
+          latency_p50_ms: null,
+          reliability_score: null,
+          http_method: r.method || 'GET',
+          source: 'dexter',
+        });
+      }
+
+      const count = upsertEndpoints(endpoints);
+      if (count > 0) {
+        logger.info(`[index-sync] Dexter: found API at ${url}`);
+        return count;
+      }
+    } catch { continue; }
+  }
+
+  logger.info('[index-sync] Dexter: no working discovery API found — skipping');
+  return 0;
+}
+
+// ─── Source 6: x402list.fun ─────────────────────────────────────────────────
+
+interface X402ListService {
+  url?: string;
+  endpoint?: string;
+  api_url?: string;
+  name?: string;
+  title?: string;
+  description?: string;
+  price?: number | string;
+  price_usd?: number | string;
+  protocol?: string;
+  network?: string;
+  chain?: string;
+  asset?: string;
+  category?: string;
+  provider?: string;
+  method?: string;
+  http_method?: string;
+  status?: string;
+  health?: string;
+}
+
+async function syncFromX402List(): Promise<number> {
+  for (const url of X402LIST_URLS) {
+    try {
+      const res = await fetch(url, {
+        signal: AbortSignal.timeout(FETCH_TIMEOUT),
+        headers: { 'User-Agent': USER_AGENT },
+      });
+
+      if (!res.ok) continue;
+
+      let data: unknown;
+      try { data = await res.json(); } catch { continue; }
+
+      const services = extractArray(data, ['services', 'data', 'items', 'results', 'endpoints']);
+      if (services.length === 0) continue;
+
+      const endpoints: NormalizedEndpoint[] = [];
+      for (const raw of services) {
+        const s = raw as X402ListService;
+        const epUrl = s.url || s.endpoint || s.api_url;
+        if (!epUrl || typeof epUrl !== 'string') continue;
+
+        let priceUsd: number | null = null;
+        const rawPrice = s.price_usd ?? s.price;
+        if (typeof rawPrice === 'number') priceUsd = rawPrice;
+        else if (typeof rawPrice === 'string') priceUsd = parseFloat(rawPrice) || null;
+
+        endpoints.push({
+          source_id: `x402list-${nanoid(8)}`,
+          name: cleanName(s.name || s.title || epUrl, epUrl, s.provider || 'x402list'),
+          description: (s.description || '').slice(0, 500),
+          url: epUrl,
+          protocol: s.protocol || 'x402',
+          price_usd: priceUsd,
+          payment_asset: s.asset || 'USDC',
+          payment_network: s.network || s.chain || null,
+          category: (s.category || 'uncategorized').slice(0, 100),
+          provider: (s.provider || 'x402list').slice(0, 100),
+          health_status: s.status || s.health || 'unknown',
+          uptime_30d: null,
+          latency_p50_ms: null,
+          reliability_score: null,
+          http_method: s.method || s.http_method || 'GET',
+          source: 'x402list',
+        });
+      }
+
+      const count = upsertEndpoints(endpoints);
+      if (count > 0) {
+        logger.info(`[index-sync] x402list: found API at ${url}`);
+        return count;
+      }
+    } catch { continue; }
+  }
+
+  logger.info('[index-sync] x402list: no working API found — skipping');
+  return 0;
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 /** Extract an array from a response that may be an array directly or an object with a known key */
@@ -572,6 +819,13 @@ function mapCategory(cat: string): ApiEndpoint['category'] {
     payments: 'utility',
     data: 'enrichment',
     compute: 'infrastructure',
+    twitter: 'social',
+    reddit: 'social',
+    web: 'search',
+    llm: 'ai-ml',
+    inference: 'ai-ml',
+    discovery: 'discovery',
+    marketplace: 'discovery',
   };
   return mapping[lower] ?? 'utility';
 }
