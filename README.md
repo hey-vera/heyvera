@@ -1,6 +1,8 @@
 # ClawNet
 
-**Sovereign AI Agent Orchestration — powered by x402 & ClawAPIs**
+[![smithery badge](https://smithery.ai/badge/xmint/claw-net)](https://smithery.ai/servers/xmint/claw-net) [![npm](https://img.shields.io/npm/v/@1xmint/clawnet-sdk)](https://www.npmjs.com/package/@1xmint/clawnet-sdk)
+
+**AI Agent Orchestration — 12,000+ endpoints, verified answers, x402 native**
 
 ClawNet is an intelligent API orchestration layer that turns natural language queries into multi-step agent workflows. Ask it anything about Solana tokens, wallets, sentiment, or on-chain data — it plans, executes, and synthesizes an answer using real-time API calls.
 
