@@ -1,0 +1,71 @@
+# ClawNet
+
+> Universal AI agent orchestration layer — 344+ API endpoints, skill marketplace, x402 micropayments. Ask anything in natural language, get verified answers from 12,000+ data sources.
+
+## Quick Start
+
+- Base URL: https://api.claw-net.org
+- Docs: https://claw-net.org/docs
+- Dashboard: https://claw-net.org/dashboard
+- Marketplace: https://claw-net.org/marketplace
+
+## API Reference
+
+- [Full llms.txt](https://api.claw-net.org/llms.txt): Complete endpoint reference with auth, pricing, skills
+- [llms.txt with skills](https://api.claw-net.org/llms.txt/full): Includes all public skill listings
+- [OpenAPI 3.1 Spec](https://api.claw-net.org/v1/openapi.json): SDK-ready specification
+- [Endpoint Catalog](https://api.claw-net.org/v1/endpoints): Live 344+ endpoint listing with health status
+
+## Agent Discovery
+
+- [Agent Card](https://api.claw-net.org/.well-known/agent-card.json): Identity, capabilities, trust signals
+- [A2A Agent Card](https://api.claw-net.org/.well-known/agent.json): Google Agent-to-Agent protocol (v0.3.0)
+- [Agents Directory](https://api.claw-net.org/.well-known/agents.json): Service listing
+- [MCP Server](https://api.claw-net.org/.well-known/mcp.json): Model Context Protocol tools
+- [x402 Discovery](https://api.claw-net.org/.well-known/x402.json): x402 payment capabilities
+- [DID Document](https://api.claw-net.org/.well-known/did.json): W3C DID (did:web:api.claw-net.org)
+- [ERC-8004 Card](https://api.claw-net.org/.well-known/erc8004.json): Platform agent card
+
+## Core Endpoints
+
+- POST https://api.claw-net.org/v1/orchestrate — natural language query -> multi-step execution
+- GET https://api.claw-net.org/v1/estimate — pre-flight cost estimate (no auth)
+- POST https://api.claw-net.org/v1/batch — parallel multi-query (up to 10)
+- GET https://api.claw-net.org/v1/stream/orchestrate — streaming via SSE
+- POST https://api.claw-net.org/v1/llm/prompt — direct LLM prompting
+
+## Skill Marketplace
+
+- GET https://api.claw-net.org/v1/marketplace/skills — browse skills
+- POST https://api.claw-net.org/v1/skills/:id/invoke — invoke a skill
+- POST https://api.claw-net.org/v1/skills/:id/query — query data skills
+- GET https://api.claw-net.org/v1/skills/:id/mcp — MCP tool manifest per skill
+- GET https://api.claw-net.org/v1/skills/:id/openapi — OpenAPI spec per skill
+
+## x402 Payment (no API key needed)
+
+Pay-per-call via USDC micropayments. Wallet is the only credential.
+
+- GET https://api.claw-net.org/x402 — discovery
+- GET https://api.claw-net.org/x402/skills — browse skills with USDC pricing
+- POST https://api.claw-net.org/x402/skills/:id — invoke via x402
+- GET https://api.claw-net.org/x402/verify/:requestId — receipt verification
+
+## Authentication
+
+Three methods:
+- API Key: `X-API-Key: cn-...` — most /v1/* routes
+- x402: wallet-based, no key needed — /x402/* routes
+- Clerk JWT: `Authorization: Bearer <token>` — user endpoints
+
+## Pricing
+
+- 1 credit = $0.001 (1000 credits per $1)
+- Volume discounts: $5->5K, $20->22K, $50->60K, $100->125K, $500->750K, $1000->2M
+- USDC: +7% bonus over card at each tier
+- Cache hits: 10% of live cost (min 0.1 credits)
+- Orchestration fee: 2 credits per LLM-routed query
+
+## SKILL.md
+
+For structured agent onboarding: https://api.claw-net.org/v1/skill.md

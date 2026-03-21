@@ -1,0 +1,10 @@
+User-agent: *
+Allow: /
+
+# AI Agent Discovery
+# llms.txt: https://claw-net.org/llms.txt
+# Full API reference: https://api.claw-net.org/llms.txt
+# OpenAPI spec: https://api.claw-net.org/v1/openapi.json
+# Agent card: https://api.claw-net.org/.well-known/agent-card.json
+
+Sitemap: https://claw-net.org/sitemap.xml

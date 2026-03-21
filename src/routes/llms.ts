@@ -119,4 +119,102 @@ router.get('/full', (c) => {
   return c.text(buildLlmsTxtFull(baseUrl));
 });
 
-export { router as llmsTxtRouter };
+// ─── SKILL.md (agent-readable onboarding manifest) ──────────────────────────
+
+const skillMdRouter = new Hono();
+
+skillMdRouter.get('/', (c) => {
+  const baseUrl = env.CLAWNET_BASE_URL;
+
+  let skillsSection = '';
+  try {
+    const skills = listPublicSkills(0, 50);
+    if (skills.length > 0) {
+      skillsSection = '\n## Available Skills\n\n| Skill | Type | Cost | Description |\n|---|---|---|---|\n';
+      for (const s of skills) {
+        const displayName = s.display_name || s.name;
+        skillsSection += `| \`${s.name}\` | ${s.skill_type} | ${s.credit_cost} credits | ${displayName} — ${(s.description || '').slice(0, 80)} |\n`;
+      }
+    }
+  } catch {}
+
+  const md = `---
+name: claw-net
+description: AI agent orchestration with 344+ API endpoints, skill marketplace, x402 micropayments. Ask anything — get verified answers from 12,000+ data sources.
+metadata:
+  homepage: https://claw-net.org
+  api: ${baseUrl}
+  openclaw:
+    requires:
+      env:
+        - CLAWNET_API_KEY
+    primaryEnv: CLAWNET_API_KEY
+---
+
+# ClawNet
+
+Ask anything. Get verified answers from 12,000+ data sources. Crypto, social, market intelligence — one query, one answer.
+
+## Setup
+
+1. Get an API key at https://claw-net.org/dashboard (or use x402 — no key needed)
+2. Set \`CLAWNET_API_KEY\` in your environment
+3. Base URL: \`${baseUrl}\`
+
+## Quick Start
+
+\`\`\`bash
+curl -X POST ${baseUrl}/v1/orchestrate \\
+  -H "X-API-Key: $CLAWNET_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"query": "What is the price of SOL?"}'
+\`\`\`
+
+## Core Endpoints
+
+| Endpoint | Auth | Cost | Description |
+|---|---|---|---|
+| \`POST /v1/orchestrate\` | Key | 2cr+ | Natural language query across 12K+ sources |
+| \`GET /v1/estimate?query=...\` | None | Free | Pre-flight cost estimate |
+| \`POST /v1/batch\` | Key | varies | Parallel multi-query (up to 10) |
+| \`GET /v1/stream/orchestrate\` | Key | 2cr+ | Streaming via SSE |
+| \`POST /v1/skills/:id/invoke\` | Key | varies | Invoke a skill |
+| \`POST /v1/skills/:id/query\` | Key | 1-2cr | Query data skills |
+| \`POST /v1/manifest\` | Key | 0.5-5cr | Verify data before acting |
+| \`POST /v1/attest\` | Key | 0.25cr | Create signed attestation |
+| \`GET /v1/attest/verify/:id\` | None | Free | Verify attestation (public) |
+| \`GET /v1/marketplace/skills\` | None | Free | Browse skill catalog |
+| \`GET /v1/endpoints\` | None | Free | Browse 344+ endpoints |
+
+## x402 (no API key needed)
+
+Pay-per-call via USDC micropayments. Wallet is the only credential.
+
+- \`GET ${baseUrl}/x402\` — discovery
+- \`POST ${baseUrl}/x402/skills/:id\` — invoke via x402
+- \`GET ${baseUrl}/x402/verify/:requestId\` — receipt verification
+
+## Authentication
+
+- API Key: header \`X-API-Key: cn-...\`
+- x402: wallet-based payment, no key
+- Clerk JWT: \`Authorization: Bearer <token>\`
+
+## Pricing
+
+1 credit = $0.001. Volume discounts from $20+. Cache hits = 10% of live cost.
+
+## Discovery
+
+- \`${baseUrl}/llms.txt\` — LLM-readable reference
+- \`${baseUrl}/.well-known/agent-card.json\` — agent identity
+- \`${baseUrl}/.well-known/agents.json\` — service listing
+- \`${baseUrl}/.well-known/mcp.json\` — MCP tools
+- \`${baseUrl}/.well-known/x402.json\` — x402 capabilities
+- \`${baseUrl}/v1/openapi.json\` — OpenAPI 3.1 spec
+${skillsSection}`;
+
+  return c.text(md);
+});
+
+export { router as llmsTxtRouter, skillMdRouter };
