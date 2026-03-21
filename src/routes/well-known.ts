@@ -393,7 +393,6 @@ router.get('/x402', (c) => {
       `${base}/x402/query/trending-tokens-data`,
       `${base}/x402/query/whale-tracker-data`,
       `${base}/x402/query/defi-yield-data`,
-      `${base}/mcp/x402`,
     ],
     ownershipProofs: [],
     instructions: `ClawNet AI agent orchestration. 12,000+ API endpoints, 4 data skills, Manifest verification, Attestation proofs. Pay per call with USDC via x402. Full docs: ${base}/.well-known/x402.json`,
