@@ -399,7 +399,7 @@
         <div class="concept-card">
           <div class="concept-icon">&#x1F6E1;</div>
           <div class="concept-title">Trust Built In</div>
-          <div class="concept-desc">SLA (Service Level Agreement) contracts, output schemas, cross-verification, 4-tier penalty escalation, and community validators. Bad actors get delisted automatically.</div>
+          <div class="concept-desc">Every response includes a trust verdict and cryptographic attestation. Hash-chained, Merkle-anchored, multi-source verified. SLA contracts, trust badges, and public agent reputation scores. The only platform where every action is provable.</div>
         </div>
         <div class="concept-card">
           <div class="concept-icon">&#x26A1;</div>
@@ -416,7 +416,7 @@
           <tr><td>Caching</td><td>Build and maintain your own cache layer</td><td>3-layer smart cache, 90% cost savings automatic</td></tr>
           <tr><td>Billing</td><td>Track usage per provider, reconcile monthly</td><td>Pay-per-call credits, real-time balance</td></tr>
           <tr><td>Discovery</td><td>Manually find and evaluate new APIs</td><td>Auto-discovery across 12,000+ endpoints and marketplace</td></tr>
-          <tr><td>Trust</td><td>Build your own monitoring and verification</td><td>SLAs, output contracts, cross-verification, validators</td></tr>
+          <tr><td>Trust</td><td>Build your own monitoring and verification</td><td>Auto-trust verdicts, hash-chained attestations, multi-source verification, public trust profiles, cross-agent sharing</td></tr>
           <tr><td>Agent Billing</td><td>Build delegation, budgets, sub-agent auth</td><td>Delegated keys, budget accounts, webhooks built-in</td></tr>
           <tr><td>Time to First Call</td><td>Days to weeks</td><td>5 minutes</td></tr>
         </tbody>
@@ -3955,7 +3955,109 @@ app.post('/webhooks/clawnet', express.raw({ type: 'application/json' }), (req, r
         </tbody>
       </table>
 
-      <div class="alert alert-success"><strong>Trust without middlemen:</strong> Every attestation is cryptographically signed (HMAC-SHA256) and chained. Anyone can verify at <code>/v1/attest/verify/:id</code> without an account. The chain is contiguous &mdash; gaps are detected and flagged.</div>
+      <div class="alert alert-success"><strong>Trust without middlemen:</strong> Every attestation is cryptographically signed (HMAC-SHA256) and hash-chained. Anyone can verify at <code>/v1/attest/verify/:id</code> without an account. The chain is contiguous &mdash; gaps are detected and flagged.</div>
+
+      <!-- New Trust Features (March 2026) -->
+      <h4 style="font-size:16px;font-weight:600;color:var(--text-primary);text-transform:none;letter-spacing:0;margin:36px 0 10px">Auto-Trust Verdicts</h4>
+      <p class="endpoint-desc">Every orchestration and skill response automatically includes a <code>trust</code> object with a verdict, confidence score, and source count. No extra call, no extra cost. ClawNet is the only platform where <strong>every response tells you if it's trustworthy</strong>.</p>
+      <div class="code-block">
+        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+        <pre><code>// Every response includes this automatically:
+{
+  "answer": "SOL is $145.20, up 3.1% in 24h...",
+  "trust": {
+    "verdict": "PROCEED",
+    "confidence": 0.92,
+    "sources": 3,
+    "attestationId": "att-abc123def456"
+  },
+  "attestation": {
+    "id": "att-abc123def456",
+    "verifyUrl": "https://api.claw-net.org/v1/attest/verify/att-abc123def456"
+  }
+}</code></pre>
+      </div>
+      <p class="endpoint-desc">To link a manifest check to an action, pass the <code>X-Manifest-Id</code> header with any execution request:</p>
+      <div class="code-block">
+        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+        <pre><code>curl -X POST https://api.claw-net.org/v1/orchestrate \
+  -H "X-API-Key: cn-your-key" \
+  -H "X-Manifest-Id: mfst_abc123" \
+  -d '{"query": "Price of SOL"}'</code></pre>
+      </div>
+
+      <h4 style="font-size:16px;font-weight:600;color:var(--text-primary);text-transform:none;letter-spacing:0;margin:36px 0 10px">Public Trust Profiles</h4>
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/attest/trust/:apiKeyHash</code></div>
+        <p class="endpoint-desc">Look up any agent's trust profile. Returns trust score (0-1), grade (A-F), success rate, chain coverage, attestation history, and activity breakdown. No auth required.</p>
+        <div class="endpoint-auth">Public &mdash; <strong>no auth required, free</strong></div>
+        <div class="code-block">
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <pre><code>{
+  "trustScore": 0.87,
+  "trustGrade": "B",
+  "stats": {
+    "total": 342,
+    "successRate": 0.96,
+    "chainCoverage": 0.82,
+    "manifestAligned": 180
+  },
+  "history": {
+    "firstAttestation": "2026-01-15T08:00:00Z",
+    "ageDays": 65
+  }
+}</code></pre>
+        </div>
+      </div>
+
+      <h4 style="font-size:16px;font-weight:600;color:var(--text-primary);text-transform:none;letter-spacing:0;margin:36px 0 10px">Comparative Trust</h4>
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/attest/compare?agents=hash1,hash2,hash3</code></div>
+        <p class="endpoint-desc">Compare up to 10 agents' trust profiles side by side. Returns sorted profiles with trust scores and the spread between best and worst. Use this to evaluate counterparties before transacting.</p>
+        <div class="endpoint-auth">Public &mdash; <strong>no auth required, free</strong></div>
+      </div>
+
+      <h4 style="font-size:16px;font-weight:600;color:var(--text-primary);text-transform:none;letter-spacing:0;margin:36px 0 10px">Trust Badges</h4>
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/attest/badges/:skillId</code></div>
+        <p class="endpoint-desc">Get trust badges for a skill based on its attestation history. Badges include: <code>verified_reliable</code>, <code>trusted</code>, <code>established</code>, <code>chain_verified</code>, <code>high_volume</code>, and <code>fast_responder</code>.</p>
+        <div class="endpoint-auth">Public &mdash; <strong>no auth required, free</strong></div>
+      </div>
+
+      <h4 style="font-size:16px;font-weight:600;color:var(--text-primary);text-transform:none;letter-spacing:0;margin:36px 0 10px">Attestation-as-a-Service</h4>
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/attest/external</code></div>
+        <p class="endpoint-desc">External platforms (Dexter, PayAI, Cascade, etc.) can create signed, hash-chained attestations through ClawNet. This makes ClawNet the trust layer for the entire x402 ecosystem. 0.1 credits per attestation, rate limited 100/hr.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code> &mdash; <strong>0.1 credits</strong></div>
+        <h4>Body Parameters</h4>
+        <table class="params-table">
+          <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>platform</code></td><td><span class="param-type">string</span></td><td><span class="param-req">Yes</span></td><td>Platform name (e.g. <code>dexter</code>, <code>payai</code>)</td></tr>
+            <tr><td><code>actionType</code></td><td><span class="param-type">string</span></td><td><span class="param-req">Yes</span></td><td>Action being attested</td></tr>
+            <tr><td><code>inputHash</code></td><td><span class="param-type">string</span></td><td><span class="param-req">Yes</span></td><td>SHA-256 hash of the input data</td></tr>
+            <tr><td><code>responseHash</code></td><td><span class="param-type">string</span></td><td><span class="param-opt">No</span></td><td>SHA-256 hash of the response data</td></tr>
+            <tr><td><code>outcomeStatus</code></td><td><span class="param-type">string</span></td><td><span class="param-opt">No</span></td><td><code>success</code> | <code>failure</code> | <code>partial</code> | <code>unknown</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h4 style="font-size:16px;font-weight:600;color:var(--text-primary);text-transform:none;letter-spacing:0;margin:36px 0 10px">Batch Verification &amp; Chain Integrity</h4>
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/attest/verify-batch</code></div>
+        <p class="endpoint-desc">Verify up to 50 attestations in a single call. Send <code>{"ids": ["att-...", "att-..."]}</code>.</p>
+        <div class="endpoint-auth">Public &mdash; <strong>no auth required, free</strong></div>
+      </div>
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/attest/chain/:apiKeyHash</code></div>
+        <p class="endpoint-desc">Verify the full hash-chain integrity for an agent. Each attestation stores SHA-256(prev.id + prev.input_hash + prev.signature). Any modification breaks the chain.</p>
+        <div class="endpoint-auth">Public &mdash; <strong>no auth required, free</strong></div>
+      </div>
+
+      <h4 style="font-size:16px;font-weight:600;color:var(--text-primary);text-transform:none;letter-spacing:0;margin:36px 0 10px">Cross-Agent Manifest Sharing</h4>
+      <p class="endpoint-desc">If Agent A verifies a subject with a PROCEED verdict, Agent B gets the same result for free within 5 minutes (quick tier). This creates a <strong>shared trust layer</strong> where the entire ecosystem benefits from each verification. Responses include <code>"cross_agent": true</code> when using shared results.</p>
+
+      <div class="alert alert-info"><strong>Attestation Webhooks:</strong> Subscribe to <code>ATTESTATION_CREATED</code> and <code>TRUST_SCORE_CHANGED</code> events via the <a href="#webhooks" style="color:var(--accent)">webhooks system</a>. React to trust changes in real-time.</div>
     </div>
 
     <!-- ═══════════════════════════════════════════════ TROUBLESHOOTING ═══════════════════════════════════════════════ -->
