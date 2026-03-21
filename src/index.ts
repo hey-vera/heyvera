@@ -68,6 +68,7 @@ import { mcpHttpRouter } from './mcp/http-transport';
 import { x402McpRouter } from './mcp/x402-mcp-transport';
 import { registerRouter } from './routes/register';
 import { statsTelemetryRouter } from './routes/stats-telemetry';
+import { aidRouter } from './routes/aid';
 // import { referralRouter } from './routes/referral'; // disabled — re-enable when referral program launches
 import { startEndpointHealthCron } from './core/endpoint-health-cron';
 import { startEndpointDiscoveryCron } from './core/endpoint-discovery';
@@ -81,6 +82,7 @@ import { startSkillSchedulerCron } from './core/skill-scheduler-cron';
 import { startCacheWarmingCron } from './core/cache-warming-cron';
 import { startIndexSync } from './core/index-sync';
 import { startAnchorCron } from './core/anchor-cron';
+import { startAidSnapshotCron } from './core/aid-snapshot-cron';
 import { getIndexedEndpoints, countIndexedEndpoints, searchIndexedEndpoints, getIndexedEndpointsSyncInfo } from './db/index';
 import { startCreatorNotificationsCron } from './core/creator-notifications';
 import { cacheStatsRouter } from './routes/cache-stats';
@@ -290,6 +292,7 @@ app.route('/mcp', mcpHttpRouter);
 app.route('/mcp/x402', x402McpRouter);
 app.route('/v1/stats/telemetry', statsTelemetryRouter);
 app.route('/v1/register', registerRouter);
+app.route('/v1/aid', aidRouter);
 // app.route('/v1/referral', referralRouter); // disabled — re-enable when referral program launches
 
 // ─── JSON-LD Context — W3C VC attestation vocabulary ────────────────────────
@@ -453,6 +456,7 @@ async function start() {
   startCreatorNotificationsCron(); cronsStarted++;
   startIndexSync();                cronsStarted++;
   startAnchorCron();               cronsStarted++;
+  startAidSnapshotCron();          cronsStarted++;
 
   // Load embedding model + seed in background — don't block server startup
   loadEmbeddingModel()

@@ -957,6 +957,88 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 100, sql: `ALTER TABLE attestations ADD COLUMN signing_key_id TEXT` },
   // v101: Attestation hash-chaining — each attestation references predecessor for tamper detection
   { version: 101, sql: `ALTER TABLE attestations ADD COLUMN prev_attestation_hash TEXT` },
+
+  // ─── AID (Agent Identity Document) tables ────────────────────────────────
+
+  // v102: AID key management — DID-linked cryptographic keys with rotation/revocation
+  { version: 102, sql: `
+    CREATE TABLE IF NOT EXISTS aid_keys (
+      id TEXT PRIMARY KEY,
+      identity_id TEXT NOT NULL,
+      public_key_multibase TEXT NOT NULL,
+      did TEXT NOT NULL,
+      key_status TEXT NOT NULL DEFAULT 'active',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      rotated_at TEXT,
+      rotated_to TEXT,
+      revocation_reason TEXT
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_aid_keys_did ON aid_keys(did);
+    CREATE INDEX IF NOT EXISTS idx_aid_keys_identity ON aid_keys(identity_id);
+    CREATE INDEX IF NOT EXISTS idx_aid_keys_pubkey ON aid_keys(public_key_multibase);
+  ` },
+
+  // v103: AID trust snapshots — Merkle-anchored trust state with dual signatures
+  { version: 103, sql: `
+    CREATE TABLE IF NOT EXISTS aid_trust_snapshots (
+      id TEXT PRIMARY KEY,
+      identity_id TEXT NOT NULL,
+      did TEXT NOT NULL,
+      merkle_root TEXT NOT NULL,
+      attestation_count INTEGER NOT NULL,
+      chain_length INTEGER NOT NULL,
+      stats_json TEXT NOT NULL,
+      anchor_tx_hash TEXT,
+      agent_signature TEXT NOT NULL,
+      platform_signature TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_aid_snap_identity ON aid_trust_snapshots(identity_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_aid_snap_did ON aid_trust_snapshots(did, created_at DESC);
+  ` },
+
+  // v104: AID cross-platform attestations — external platform verification records
+  { version: 104, sql: `
+    CREATE TABLE IF NOT EXISTS aid_cross_platform_attestations (
+      id TEXT PRIMARY KEY,
+      identity_id TEXT NOT NULL,
+      did TEXT NOT NULL,
+      platform TEXT NOT NULL,
+      attestation_type TEXT NOT NULL,
+      attestation_data_json TEXT NOT NULL,
+      attestation_hash TEXT NOT NULL,
+      platform_signature TEXT,
+      verified INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_aid_xplat_identity ON aid_cross_platform_attestations(identity_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_aid_xplat_platform ON aid_cross_platform_attestations(platform);
+  ` },
+
+  // v105: AID capabilities — tracked agent capabilities with invocation counts
+  { version: 105, sql: `
+    CREATE TABLE IF NOT EXISTS aid_capabilities (
+      id TEXT PRIMARY KEY,
+      identity_id TEXT NOT NULL,
+      category TEXT NOT NULL,
+      actions_json TEXT NOT NULL DEFAULT '[]',
+      invoke_count INTEGER NOT NULL DEFAULT 0,
+      last_invoked_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(identity_id, category)
+    );
+    CREATE INDEX IF NOT EXISTS idx_aid_cap_identity ON aid_capabilities(identity_id);
+  ` },
+
+  // v106: Extend agent_identities with AID fields (DID, public key, active key, version)
+  { version: 106, sql: `
+    ALTER TABLE agent_identities ADD COLUMN did TEXT;
+    ALTER TABLE agent_identities ADD COLUMN public_key_multibase TEXT;
+    ALTER TABLE agent_identities ADD COLUMN active_key_id TEXT;
+    ALTER TABLE agent_identities ADD COLUMN aid_version TEXT DEFAULT '1.0.0';
+    ALTER TABLE agent_identities ADD COLUMN aid_exported_at TEXT;
+  ` },
 ];
 
 function runMigrations(): void {
