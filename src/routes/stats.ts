@@ -302,6 +302,113 @@ statsRouter.get('/opportunities', (c) => {
   });
 });
 
+// ─── Public Telemetry (powers /stats page) ──────────────────────────────────
+// Rate-limited, no auth. Returns aggregate daily stats for charts.
+
+statsRouter.get('/telemetry', (c) => {
+  const db = getDb();
+
+  // Aggregate counts
+  const skillCount = (db.prepare('SELECT COUNT(*) as c FROM skills WHERE active = 1 AND public = 1').get() as { c: number }).c;
+  const endpointCount = apiRegistry.length;
+  const activeKeys = (db.prepare("SELECT COUNT(*) as c FROM api_keys WHERE active = 1").get() as { c: number }).c;
+  const attestationCount = (db.prepare('SELECT COUNT(*) as c FROM attestations').get() as { c: number }).c;
+
+  // 30d aggregates
+  const orch30 = db.prepare(
+    "SELECT COUNT(*) as c FROM orchestrations WHERE timestamp > datetime('now', '-30 days')"
+  ).get() as { c: number };
+  const credits30 = db.prepare(
+    "SELECT COALESCE(SUM(amount_credits), 0) as s FROM transactions WHERE created_at > datetime('now', '-30 days')"
+  ).get() as { s: number };
+  const x402_30 = db.prepare(
+    "SELECT COUNT(*) as c, COALESCE(SUM(CAST(price_usdc AS REAL)), 0) as rev FROM x402_receipts WHERE created_at > datetime('now', '-30 days') AND test = 0"
+  ).get() as { c: number; rev: number };
+
+  // Daily orchestrations (30 days)
+  const dailyOrchestrations = db.prepare(
+    `SELECT DATE(timestamp) as date, COUNT(*) as count
+     FROM orchestrations
+     WHERE timestamp > datetime('now', '-30 days')
+     GROUP BY DATE(timestamp)
+     ORDER BY date ASC`
+  ).all() as Array<{ date: string; count: number }>;
+
+  // Daily credits transacted (30 days)
+  const dailyCredits = db.prepare(
+    `SELECT DATE(created_at) as date, COALESCE(SUM(amount_credits), 0) as amount
+     FROM transactions
+     WHERE created_at > datetime('now', '-30 days')
+     GROUP BY DATE(created_at)
+     ORDER BY date ASC`
+  ).all() as Array<{ date: string; amount: number }>;
+
+  // Daily skill invocations (30 days)
+  const dailySkillInvocations = db.prepare(
+    `SELECT DATE(recorded_at) as date, COUNT(*) as count
+     FROM skill_metrics
+     WHERE recorded_at > datetime('now', '-30 days')
+     GROUP BY DATE(recorded_at)
+     ORDER BY date ASC`
+  ).all() as Array<{ date: string; count: number }>;
+
+  // Daily x402 payments (30 days)
+  const dailyX402 = db.prepare(
+    `SELECT DATE(created_at) as date, COUNT(*) as count, COALESCE(SUM(CAST(price_usdc AS REAL)), 0) as revenue
+     FROM x402_receipts
+     WHERE created_at > datetime('now', '-30 days') AND test = 0
+     GROUP BY DATE(created_at)
+     ORDER BY date ASC`
+  ).all() as Array<{ date: string; count: number; revenue: number }>;
+
+  // Daily attestations (30 days)
+  const dailyAttestations = db.prepare(
+    `SELECT DATE(created_at) as date, COUNT(*) as count
+     FROM attestations
+     WHERE created_at > datetime('now', '-30 days')
+     GROUP BY DATE(created_at)
+     ORDER BY date ASC`
+  ).all() as Array<{ date: string; count: number }>;
+
+  // Cache hit rate estimate from recent orchestrations
+  let cacheHitRate = 0;
+  try {
+    const cacheStats = db.prepare(
+      `SELECT COALESCE(AVG(CAST(cache_hits AS REAL) / NULLIF(executed_steps, 0)), 0) as rate
+       FROM orchestrations WHERE timestamp > datetime('now', '-7 days') AND executed_steps > 0`
+    ).get() as { rate: number };
+    cacheHitRate = round6(cacheStats.rate);
+  } catch {}
+
+  // Average latency from recent skill metrics
+  let avgLatencyMs = 0;
+  try {
+    const latency = db.prepare(
+      "SELECT COALESCE(AVG(latency_ms), 0) as avg FROM skill_metrics WHERE recorded_at > datetime('now', '-7 days')"
+    ).get() as { avg: number };
+    avgLatencyMs = Math.round(latency.avg);
+  } catch {}
+
+  return c.json({
+    totalSkills: skillCount,
+    totalEndpoints: endpointCount,
+    activeKeys,
+    totalAttestations: attestationCount,
+    orchestrations30d: orch30.c,
+    creditsTransacted30d: round6(credits30.s),
+    cacheHitRate,
+    avgLatencyMs,
+    x402Payments: x402_30.c,
+    x402Revenue: round6(x402_30.rev).toFixed(2),
+    dailyOrchestrations,
+    dailyCredits: dailyCredits.map(d => ({ date: d.date, amount: round6(d.amount) })),
+    dailySkillInvocations,
+    dailyX402: dailyX402.map(d => ({ date: d.date, count: d.count, revenue: round6(d.revenue).toFixed(2) })),
+    dailyAttestations,
+    updatedAt: new Date().toISOString(),
+  });
+});
+
 // ─── Reputation Hash Anchors ─────────────────────────────────────────────────
 // Public — no auth required. External systems can verify ClawNet trust data
 // without trusting our API by checking SHA-256 hashes of reputation snapshots.
