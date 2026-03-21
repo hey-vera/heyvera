@@ -189,6 +189,12 @@ These contacts expressed interest or have skills that would be valuable on the C
 | **WURK** | @WURKDOTFUN | Deepen integration (already 3 endpoints) | Microjobs for humans+agents. Could add more task types |
 | **APINow (Chris Dolinski)** | @1dolinski, @apinowfun | Monitor / competitive intel | Tokenized APIs. Study their semantic discovery |
 | **Austin Griffith** | @austingriffith | ethskills.com already added to registry | EF developer. 24 skill modules, open source |
+| **Cred Protocol** | @credprotocol | Invite to publish credit scoring skills | On-chain credit scores for 300M+ EVM addresses. Free sandbox API. High value for DeFi agents |
+| **SQD (Subsquid)** | @subsaboratory | Invite to publish data indexing skills | Multi-chain data indexing across 200+ networks. TypeScript SDK. Premium data source |
+| **Birdeye** | @biraboratory | Invite to publish Solana data skills | Top Solana DeFi data provider. Prices, wallets, smart money. Core for Solana agents |
+| **Dune** | @duneanalytics | Invite to publish analytics skills | SQL-based on-chain analytics. Community queries. High flexibility for agents |
+| **Nansen** | @naboratory | Invite to publish smart money skills | Labeled wallet data, institutional flows. Already has MCP support |
+| **growthepie** | @growthepie_eth | Invite to publish L2 analytics skills | Free, open Ethereum/L2 analytics. Zero cost integration |
 
 ### Outreach — Strategic Partnerships
 | Contact | Handle | Action | Notes |
@@ -198,6 +204,9 @@ These contacts expressed interest or have skills that would be valuable on the C
 | **x402r** | @x402rorg | Explore refund protocol integration | Refundable x402 payments |
 | **Xona Agent** | @xona_agent | Add creative AI endpoints | Image/video generation via x402 |
 | **Daydreams** | @daydreamsagents | Monitor for integration | x402 + ERC-8004 agent framework |
+| **t54.ai** | @t54_ai | Partnership — trust signal integration | Agent trust layer + x402-Secure + "Claw Credit". Complementary: their payment-layer trust feeds into our manifest engine. NOT a competitor — they do identity/risk, we do orchestration/attestation |
+| **HTTPayer** | (find handle) | Evaluate as 4th x402 facilitator | HTTP 402-native payments with multi-chain USDC. /relay and /proxy modes. Could expand ClawNet beyond Solana/Base |
+| **Proofivy** | (find handle) | Monitor for x402 content endpoints | IP protection + x402 content monetization. CryptoSlate uses it. Add endpoints when API is public |
 
 ### Outreach — Ecosystem Contacts (Follow/Engage)
 | Contact | Handle | Role |

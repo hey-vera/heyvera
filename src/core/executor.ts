@@ -193,6 +193,22 @@ function mockData(endpointId: string): unknown {
     'nevermined-search':     { assets: [{ name: 'DeFi TVL Dataset', type: 'dataset', price: 0.1 }], totalCount: 1 },
     // Semantic Layer
     'semantic-layer-query':  { result: [{ protocol: 'Aave', tvl: 12500000000 }], sql: 'SELECT protocol, tvl FROM defi_protocols ORDER BY tvl DESC LIMIT 5', chain: 'ethereum', confidence: 0.92 },
+    // Cred Protocol
+    'cred-credit-score':     { creditScore: 720, defaultProbability: 0.03, debtToCollateral: 0.45, protocols: ['Aave', 'Compound'] },
+    'cred-credit-report':    { creditReport: { score: 720, grade: 'A' }, positions: [{ protocol: 'Aave', debt: 5000, collateral: 12000 }], liquidations: 0, protocols: 3, chains: ['ethereum', 'polygon'] },
+    // SQD
+    'sqd-query':             { data: [{ from: '0x123...', to: '0x456...', value: '1.5', token: 'USDC' }], chain: 'ethereum', blockRange: [19000000, 19500000], validated: true },
+    // Birdeye
+    'birdeye-token-price':   { price: 145.20, priceChange24h: 3.1, volume24h: 4200000000, liquidity: 890000000 },
+    'birdeye-wallet-pnl':    { totalPnl: 12500, tokens: [{ symbol: 'SOL', pnl: 8000, trades: 15 }], winRate: 0.73, totalTrades: 42 },
+    'birdeye-smart-money':   { trending: [{ symbol: 'SOL', netBuy: 2500000 }], topBuyers: ['whale1'], topSellers: [], netFlow: 5000000 },
+    // Dune
+    'dune-query':            { result: { rows: [{ total_volume: 42000000 }] }, rows: 1, metadata: { query_id: 12345 }, executionId: 'exec_abc' },
+    // Nansen
+    'nansen-smart-money':    { signals: [{ type: 'accumulation', token: 'ETH', amount: 5000 }], wallets: 42, labels: ['VC', 'whale'], totalFlow: 25000000 },
+    'nansen-token-screener': { tokens: [{ symbol: 'ETH', smartMoneyScore: 92, holderComposition: { smart: 0.35, retail: 0.65 } }], smartMoneyScore: 92, holderComposition: {}, institutionalInterest: 'high' },
+    // growthepie
+    'growthepie-l2-metrics': { metrics: [{ l2: 'Arbitrum', activeAddresses: 450000, tvl: 8500000000 }], l2s: ['Arbitrum', 'Optimism', 'Base', 'zkSync'], timeRange: '30d' },
   };
   return mocks[endpointId] ?? { result: 'mock data', endpointId };
 }

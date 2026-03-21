@@ -652,3 +652,170 @@ attestRouter.get('/chain/:apiKeyHash', (c) => {
     newestTimestamp: attestations[attestations.length - 1].created_at,
   });
 });
+
+// ─── GET /v1/attest/trust/:apiKeyHash — public agent trust profile ──────────
+// Anyone can look up an agent's attestation track record. Creates network
+// effects — the more agents use attestation, the more valuable trust data becomes.
+
+attestRouter.get('/trust/:apiKeyHash', (c) => {
+  const { apiKeyHash } = c.req.param();
+
+  // Aggregate attestation stats
+  const stats = getDb().prepare(`
+    SELECT
+      COUNT(*) as total,
+      SUM(CASE WHEN outcome_status = 'success' THEN 1 ELSE 0 END) as successes,
+      SUM(CASE WHEN outcome_status = 'failure' THEN 1 ELSE 0 END) as failures,
+      SUM(CASE WHEN manifest_aligned = 1 THEN 1 ELSE 0 END) as manifest_aligned,
+      SUM(CASE WHEN manifest_aligned = 0 THEN 1 ELSE 0 END) as manifest_unaligned,
+      SUM(CASE WHEN prev_attestation_hash IS NOT NULL THEN 1 ELSE 0 END) as chained,
+      MIN(created_at) as first_attestation,
+      MAX(created_at) as last_attestation,
+      AVG(duration_ms) as avg_duration_ms,
+      SUM(credits_charged) as total_credits_spent
+    FROM attestations WHERE api_key_hash = ?
+  `).get(apiKeyHash) as {
+    total: number; successes: number; failures: number;
+    manifest_aligned: number; manifest_unaligned: number; chained: number;
+    first_attestation: string | null; last_attestation: string | null;
+    avg_duration_ms: number | null; total_credits_spent: number;
+  } | undefined;
+
+  if (!stats || stats.total === 0) {
+    return c.json({ error: 'No attestations found for this agent', code: 'NO_ATTESTATIONS' }, 404);
+  }
+
+  // Verdict distribution (last 30 days)
+  const verdicts = getDb().prepare(`
+    SELECT action_type, COUNT(*) as count
+    FROM attestations
+    WHERE api_key_hash = ? AND created_at > datetime('now', '-30 days')
+    GROUP BY action_type ORDER BY count DESC LIMIT 10
+  `).all(apiKeyHash) as Array<{ action_type: string; count: number }>;
+
+  // Chain integrity check
+  const chainCheck = getDb().prepare(`
+    SELECT COUNT(*) as broken FROM attestations
+    WHERE api_key_hash = ? AND prev_attestation_hash IS NOT NULL
+    AND prev_attestation_hash != (
+      SELECT CASE WHEN LAG(id) OVER (ORDER BY sequence_number) IS NOT NULL
+        THEN 'valid' ELSE 'genesis' END
+    )
+  `).get(apiKeyHash) as { broken: number } | undefined;
+
+  const successRate = stats.total > 0 ? round6(stats.successes / stats.total) : 0;
+  const chainCoverage = stats.total > 0 ? round6(stats.chained / stats.total) : 0;
+
+  // Trust score: weighted combination of success rate + chain coverage + volume
+  const volumeScore = Math.min(1, stats.total / 1000); // max out at 1000 attestations
+  const trustScore = round6(
+    (successRate * 0.5) + (chainCoverage * 0.3) + (volumeScore * 0.2)
+  );
+
+  return c.json({
+    apiKeyHash,
+    trustScore,
+    trustGrade: trustScore >= 0.9 ? 'A' : trustScore >= 0.75 ? 'B' : trustScore >= 0.6 ? 'C' : trustScore >= 0.4 ? 'D' : 'F',
+    stats: {
+      total: stats.total,
+      successes: stats.successes,
+      failures: stats.failures,
+      successRate,
+      manifestAligned: stats.manifest_aligned,
+      manifestUnaligned: stats.manifest_unaligned,
+      chainedAttestations: stats.chained,
+      chainCoverage,
+      totalCreditsSpent: round6(stats.total_credits_spent),
+      avgDurationMs: Math.round(stats.avg_duration_ms || 0),
+    },
+    history: {
+      firstAttestation: stats.first_attestation,
+      lastAttestation: stats.last_attestation,
+      ageDays: stats.first_attestation
+        ? Math.floor((Date.now() - new Date(stats.first_attestation).getTime()) / 86400000)
+        : 0,
+    },
+    activity: verdicts,
+  });
+});
+
+// ─── POST /v1/attest/external — Attestation-as-a-Service ────────────────────
+// Let external platforms (Dexter, PayAI, Cascade) use ClawNet's attestation
+// system. Any x402-compatible platform can create signed, hash-chained
+// attestations through ClawNet — making us the trust layer for the ecosystem.
+
+attestRouter.post('/external', checkApiKey, async (c) => {
+  const keyInfo = c.get('apiKeyInfo') as { key: string; isEnvKey?: boolean };
+  const body = await c.req.json().catch(() => ({}));
+
+  const schema = z.object({
+    platform: z.string().min(1).max(100),
+    actionType: z.string().min(1).max(100),
+    actionEndpoint: z.string().max(500).optional(),
+    inputHash: z.string().min(1).max(128),
+    responseHash: z.string().max(128).optional(),
+    outcomeStatus: z.enum(['success', 'failure', 'partial', 'unknown']).default('success'),
+    creditsCharged: z.number().min(0).default(0),
+    durationMs: z.number().min(0).optional(),
+    metadata: z.record(z.unknown()).optional(),
+  });
+
+  const parsed = schema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: parsed.error.errors[0]?.message, code: 'INVALID_INPUT' }, 400);
+  }
+
+  const { platform, actionType, actionEndpoint, inputHash, responseHash, outcomeStatus, creditsCharged, durationMs } = parsed.data;
+
+  // Rate limit: 100 external attestations per key per hour
+  const rlKey = `rl:attest-ext:${keyInfo.key}`;
+  const rlCount = await cacheIncr(rlKey, 3600);
+  if (rlCount > 100) {
+    return c.json({ error: 'Rate limit exceeded — max 100 external attestations per hour', code: 'RATE_LIMITED' }, 429);
+  }
+
+  // Deduct 0.1 credits per external attestation
+  const cost = 0.1;
+  if (!keyInfo.isEnvKey) {
+    const deducted = deductCredit(keyInfo.key, cost);
+    if (!deducted) {
+      return c.json({ error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS', creditsRequired: cost }, 402);
+    }
+    trackDelegatedSpend({ key: keyInfo.key } as Record<string, unknown>, cost);
+  }
+
+  try {
+    const { createAttestation, hashApiKey } = await import('../db/attestations');
+    const id = createAttestation({
+      apiKeyHash: hashApiKey(keyInfo.key),
+      attestationType: 'external',
+      actionType: `${platform}/${actionType}`,
+      actionEndpoint: actionEndpoint || `external/${platform}`,
+      inputHash,
+      responseHash: responseHash || undefined,
+      outcomeStatus,
+      creditsCharged,
+      durationMs,
+      actionDescription: `External attestation from ${platform}`,
+    });
+
+    logAudit({
+      entityType: 'attestation', entityId: id,
+      action: 'EXTERNAL_ATTEST', actorId: keyInfo.key,
+      data: { platform, actionType },
+    });
+
+    return c.json({
+      id,
+      platform,
+      verifyUrl: `/v1/attest/verify/${id}`,
+      creditsCharged: cost,
+    }, 201);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Unknown error';
+    if (msg.includes('Duplicate')) {
+      return c.json({ error: 'Duplicate attestation — same input within 60s', code: 'DUPLICATE_ATTESTATION' }, 409);
+    }
+    return c.json({ error: 'Attestation creation failed', code: 'ATTESTATION_ERROR' }, 500);
+  }
+});

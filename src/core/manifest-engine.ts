@@ -1748,7 +1748,7 @@ export interface ExternalTrustResult {
   sources: Array<{ name: string; trust: number; status: string; checkedAt: string }>;
 }
 
-async function crossReferenceExternalTrust(
+export async function crossReferenceExternalTrust(
   request: ManifestRequest,
   claims: VerifyClaim[],
 ): Promise<ExternalTrustResult | null> {

@@ -321,6 +321,37 @@ apiRouter.post('/orchestrate', async (c) => {
     logUsage(usageEntry);
     insertOrchestration({ id: requestId, ...usageEntry, apiKey: keyInfo?.key });
 
+    // ─── Auto-Manifest (inline trust verdict — free, no extra cost) ────
+    let trustVerdict: { verdict: string; confidence: number; sources: number; attestationId?: string } | null = null;
+    try {
+      const { computeVerdict } = await import('../core/manifest-engine');
+      const { crossReferenceExternalTrust } = await import('../core/manifest-engine');
+
+      // Build a lightweight verify result from execution step success rates
+      const successfulSteps = execution.steps.filter(s => s.success).length;
+      const totalSteps = execution.steps.length || 1;
+      const stepVerifyResult = {
+        overall: (successfulSteps / totalSteps >= 0.8 ? 'verified' : successfulSteps / totalSteps >= 0.5 ? 'partial' : 'disputed') as 'verified' | 'partial' | 'disputed',
+        claims: [],
+        verified_count: successfulSteps,
+        disputed_count: totalSteps - successfulSteps,
+        unverifiable_count: 0,
+      };
+
+      // Cross-reference external trust signals
+      const externalTrust = await crossReferenceExternalTrust(
+        { preflight: { action: 'orchestrate', params: { query } } },
+        [],
+      );
+
+      const result = computeVerdict(stepVerifyResult, null, null, externalTrust);
+      trustVerdict = {
+        verdict: result.verdict,
+        confidence: result.confidence,
+        sources: (externalTrust?.sources?.length || 0) + 1,
+      };
+    } catch {}
+
     // ─── Attestation (delivery proof) ──────────────────────────────────
     let attestationId: string | null = null;
     const manifestId = c.req.header('X-Manifest-Id') || undefined;
@@ -335,6 +366,7 @@ apiRouter.post('/orchestrate', async (c) => {
         totalDurationMs,
         manifestId,
       );
+      if (trustVerdict) trustVerdict.attestationId = attestationId || undefined;
     } catch {}
 
     const responsePayload = {
@@ -399,6 +431,7 @@ apiRouter.post('/orchestrate', async (c) => {
 
     return c.json({
       requestId, ...responsePayload,
+      ...(trustVerdict && { trust: trustVerdict }),
       ...(attestationId && {
         attestation: { id: attestationId, verifyUrl: `${env.CLAWNET_BASE_URL}/v1/attest/verify/${attestationId}` },
       }),
