@@ -189,6 +189,82 @@ class PayAIFacilitator implements X402Facilitator {
   }
 }
 
+// ─── Skyfire Facilitator ─────────────────────────────────────────────────────
+
+class SkyfireFacilitator implements X402Facilitator {
+  readonly name = 'skyfire';
+  readonly url: string;
+  private readonly apiKey?: string;
+
+  constructor(url?: string, apiKey?: string) {
+    this.url = url ?? env.X402_SKYFIRE_URL ?? 'https://api.skyfire.xyz/v1/x402';
+    this.apiKey = apiKey ?? env.X402_SKYFIRE_API_KEY;
+  }
+
+  private getHeaders(): Record<string, string> {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (this.apiKey) {
+      headers['Authorization'] = `Bearer ${this.apiKey}`;
+    }
+    return headers;
+  }
+
+  async verify(paymentPayload: unknown): Promise<{ valid: boolean; txHash?: string; error?: string }> {
+    const res = await fetch(`${this.url}/verify`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify(paymentPayload),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => 'unknown');
+      return { valid: false, error: `Skyfire facilitator returned ${res.status}: ${body.slice(0, 200)}` };
+    }
+
+    const result = await res.json() as Record<string, unknown>;
+    const valid = !!(result.valid || result.verified);
+    return {
+      valid,
+      txHash: (result.txHash ?? result.transactionHash) as string | undefined,
+      error: valid ? undefined : (result.error as string | undefined) ?? 'Verification failed',
+    };
+  }
+
+  async settle(paymentPayload: unknown): Promise<{ settled: boolean; txHash: string; error?: string }> {
+    const res = await fetch(`${this.url}/settle`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify(paymentPayload),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => 'unknown');
+      return { settled: false, txHash: '', error: `Skyfire settle returned ${res.status}: ${body.slice(0, 200)}` };
+    }
+
+    const result = await res.json() as Record<string, unknown>;
+    return {
+      settled: !!(result.settled || result.success),
+      txHash: (result.txHash ?? result.transactionHash ?? '') as string,
+      error: result.error as string | undefined,
+    };
+  }
+
+  async isHealthy(): Promise<boolean> {
+    try {
+      const res = await fetch(this.url, {
+        method: 'GET',
+        signal: AbortSignal.timeout(5_000),
+      });
+      return res.ok || res.status === 404;
+    } catch {
+      return false;
+    }
+  }
+}
+
 // ─── Facilitator Pool ────────────────────────────────────────────────────────
 
 export class FacilitatorPool {
@@ -373,8 +449,8 @@ let poolInstance: FacilitatorPool | null = null;
 /**
  * Get the global FacilitatorPool singleton.
  * Builds the pool on first call based on env vars:
- *   - X402_FACILITATOR_PRIMARY controls ordering ('coinbase' or 'payai')
- *   - Both facilitators are always registered; primary just goes first
+ *   - X402_FACILITATOR_PRIMARY controls ordering ('coinbase', 'payai', or 'skyfire')
+ *   - All three facilitators are always registered; primary just goes first
  */
 export function getFacilitatorPool(): FacilitatorPool {
   if (poolInstance) return poolInstance;
@@ -385,20 +461,26 @@ export function getFacilitatorPool(): FacilitatorPool {
     env.X402_PAYAI_API_KEY_ID,
     env.X402_PAYAI_API_KEY_SECRET,
   );
+  const skyfire = new SkyfireFacilitator(
+    env.X402_SKYFIRE_URL,
+    env.X402_SKYFIRE_API_KEY,
+  );
 
+  const primary = env.X402_FACILITATOR_PRIMARY;
   const facilitators: X402Facilitator[] =
-    env.X402_FACILITATOR_PRIMARY === 'payai'
-      ? [payai, coinbase]
-      : [coinbase, payai];
+    primary === 'skyfire'
+      ? [skyfire, coinbase, payai]
+      : primary === 'payai'
+        ? [payai, coinbase, skyfire]
+        : [coinbase, payai, skyfire];
 
   poolInstance = new FacilitatorPool(facilitators);
 
   logger.info(
     {
       primary: facilitators[0].name,
-      fallback: facilitators[1].name,
+      fallbacks: facilitators.slice(1).map(f => f.name),
       primaryUrl: facilitators[0].url,
-      fallbackUrl: facilitators[1].url,
     },
     'x402 facilitator pool initialized',
   );
@@ -412,4 +494,4 @@ export function _resetFacilitatorPool(): void {
 }
 
 // Re-export classes for direct construction in tests
-export { CoinbaseFacilitator, PayAIFacilitator };
+export { CoinbaseFacilitator, PayAIFacilitator, SkyfireFacilitator };

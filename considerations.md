@@ -893,3 +893,82 @@ Ship features, get users. Language doesn't matter until you have scaling problem
 - When virtual agent cards become standard (lobster.cash, AgentCard.sh)
 
 **Effort:** 1 day for basic integration.
+## 49. XMTP Agent Messaging Integration
+
+**What:** XMTP is the messaging protocol for AI agents. Adding XMTP support would let agents discover and interact with ClawNet via messages, not just HTTP. Agents could send a message to ClawNet's XMTP address and get orchestration results back.
+
+**Why defer:**
+- XMTP SDK adds a dependency and requires running a persistent listener.
+- Our existing discovery surfaces (HTTP API, MCP, .well-known, llms.txt) cover the primary use cases.
+- XMTP agent adoption is still early — most agents use HTTP.
+
+**When to revisit:**
+- When XMTP agent-to-agent traffic exceeds HTTP discovery
+- When major frameworks (AgentKit, ElizaOS) ship XMTP as default transport
+- When agents need real-time push notifications from ClawNet
+
+**Effort:** 2-3 days for basic listener + response handler.
+
+## 50. Crossmint Agent Wallet + NFT Attestation Anchoring
+
+**What:** Crossmint appears in 3 categories on the market map (payments, cards, wallets). They offer agent wallets, NFT minting, and payment infrastructure. ClawNet could use Crossmint to mint attestation anchors as NFTs — making attestations permanently verifiable on-chain without running our own smart contracts.
+
+**Why defer:**
+- Our Merkle anchoring system already posts roots to Solana via SPL Memo.
+- NFT minting adds gas costs per attestation (vs batched Merkle roots).
+- Crossmint integration requires API key and account setup.
+
+**When to revisit:**
+- When agents need individually tradeable/transferable attestation proofs
+- When Crossmint offers x402-native minting (pay per mint)
+- When attestation volume justifies per-attestation NFTs
+
+**Effort:** 1-2 days.
+
+## 51. VeryAI as Manifest Trust Source
+
+**What:** VeryAI provides independent AI output verification — checks for hallucinations, factual accuracy, and source attribution. Could be added as a 4th external trust source in manifest's `crossReferenceExternalTrust()`.
+
+**Why defer:**
+- VeryAI API documentation is limited — unclear pricing and availability.
+- We already cross-reference 3 internal trust sources (skill health, indexed endpoints, attestation history).
+- Adding external API calls to manifest increases latency.
+
+**When to revisit:**
+- When VeryAI has public, documented REST API with clear pricing
+- When manifest users request external verification signals
+- Implementation: literally one `sources.push()` call in `crossReferenceExternalTrust()`
+
+**Effort:** 2-4 hours once API is documented.
+
+## 52. Coinbase AgentKit Native Plugin
+
+**What:** Register ClawNet as an official AgentKit plugin so every Coinbase AgentKit agent auto-discovers ClawNet's tools. We already have AgentKit-compatible tool definitions in `src/integrations/agentkit.ts` — the next step is publishing as an npm package.
+
+**Why defer:**
+- AgentKit plugin registry may require Coinbase approval.
+- Our tool definitions are ready but need testing against real AgentKit agents.
+- MCP integration already covers Claude/Cursor/Codex agents.
+
+**When to revisit:**
+- When AgentKit usage exceeds MCP connections
+- When Coinbase opens plugin marketplace for third-party tools
+- When we have confirmed AgentKit agent users
+
+**Effort:** 1 day to publish npm package + test.
+
+## 53. Allium Deep Data Integration
+
+**What:** Allium provides structured blockchain data across 60+ chains via SQL-like queries. Currently added as basic registry endpoints. A deeper integration would pipe Allium data directly into the orchestration engine as a first-class data source (like ClawAPIs).
+
+**Why defer:**
+- Basic endpoints already in registry — agents can query via orchestration.
+- Deep integration requires Allium API key and contract.
+- ClawAPIs already covers our primary blockchain data needs.
+
+**When to revisit:**
+- When agents need cross-chain data beyond Solana/Base
+- When Allium offers x402-native access
+- When we need SQL-level query flexibility for data skills
+
+**Effort:** 1-2 days for deep integration.

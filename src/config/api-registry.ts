@@ -3598,6 +3598,122 @@ export const apiRegistry: ApiEndpoint[] = [
     inputSchema: { chain: 'Blockchain (ethereum | solana | base | polygon | etc)', filter: 'Event filter criteria' },
     outputFields: ['events', 'blockNumber', 'chain'],
   },
+
+  // ─── Allium ──────────────────────────────────────────────────────────────────
+  {
+    id: 'allium-transactions',
+    provider: 'Allium',
+    baseUrl: 'https://api.allium.so',
+    path: '/v1/explorer/transactions',
+    name: 'On-Chain Transaction Explorer',
+    description: 'Query structured blockchain transaction data across 60+ chains with SQL-like filtering.',
+    category: 'enrichment',
+    costPerCall: 0.005,
+    latencyMs: 1000,
+    inputSchema: { chain: 'Blockchain (ethereum | solana | base | etc)', address: 'Wallet address or contract', limit: 'Results limit' },
+    outputFields: ['transactions', 'totalCount', 'chain'],
+  },
+  {
+    id: 'allium-balances',
+    provider: 'Allium',
+    baseUrl: 'https://api.allium.so',
+    path: '/v1/explorer/balances',
+    name: 'Token Balance Explorer',
+    description: 'Get token balances for any wallet across 60+ chains. Includes USD value, token metadata.',
+    category: 'enrichment',
+    costPerCall: 0.003,
+    latencyMs: 800,
+    inputSchema: { address: 'Wallet address', chain: 'Blockchain' },
+    outputFields: ['balances', 'totalValueUsd', 'chain'],
+  },
+
+  // ─── Heurist ─────────────────────────────────────────────────────────────────
+  {
+    id: 'heurist-inference',
+    provider: 'Heurist',
+    baseUrl: 'https://llm-gateway.heurist.xyz',
+    path: '/v1/chat/completions',
+    name: 'Decentralized LLM Inference',
+    description: 'Decentralized AI inference across multiple models. Pay-per-use, no rate limits, censorship-resistant.',
+    category: 'ai-ml',
+    costPerCall: 0.005,
+    latencyMs: 3000,
+    inputSchema: { model: 'Model ID', messages: 'Chat messages array' },
+    outputFields: ['choices', 'usage', 'model'],
+  },
+  {
+    id: 'heurist-image',
+    provider: 'Heurist',
+    baseUrl: 'https://llm-gateway.heurist.xyz',
+    path: '/v1/images/generations',
+    name: 'Decentralized Image Generation',
+    description: 'Generate images from text via decentralized GPU network. Multiple models available.',
+    category: 'media',
+    costPerCall: 0.02,
+    latencyMs: 10000,
+    inputSchema: { prompt: 'Image description', model: 'Model ID (optional)', size: 'Image size' },
+    outputFields: ['images', 'model'],
+  },
+
+  // ─── Skyfire ─────────────────────────────────────────────────────────────────
+  {
+    id: 'skyfire-pay',
+    provider: 'Skyfire',
+    baseUrl: 'https://api.skyfire.xyz',
+    path: '/v1/payments',
+    name: 'Skyfire Agent Payments',
+    description: 'Universal payment infrastructure for AI agents. Pay for any API, service, or resource.',
+    category: 'infrastructure',
+    costPerCall: 0,
+    latencyMs: 500,
+    inputSchema: { amount: 'Payment amount in USD', recipient: 'Recipient address or identifier' },
+    outputFields: ['transactionId', 'status', 'amount'],
+  },
+
+  // ─── VeryAI ──────────────────────────────────────────────────────────────────
+  {
+    id: 'veryai-verify',
+    provider: 'VeryAI',
+    baseUrl: 'https://api.veryai.co',
+    path: '/v1/verify',
+    name: 'AI Output Verification',
+    description: 'Independent verification of AI-generated content. Checks for hallucinations, factual accuracy, and source attribution.',
+    category: 'security',
+    costPerCall: 0.01,
+    latencyMs: 2000,
+    inputSchema: { content: 'Content to verify', sources: 'Expected sources (optional)' },
+    outputFields: ['verified', 'confidence', 'issues', 'sources'],
+  },
+
+  // ─── Nevermined ──────────────────────────────────────────────────────────────
+  {
+    id: 'nevermined-search',
+    provider: 'Nevermined',
+    baseUrl: 'https://marketplace-api.nevermined.io',
+    path: '/api/v1/metadata/assets',
+    name: 'Data Asset Marketplace',
+    description: 'Search and discover premium data assets for AI agents. NFT-gated access to datasets, APIs, and models.',
+    category: 'discovery',
+    costPerCall: 0,
+    latencyMs: 800,
+    inputSchema: { query: 'Search query', category: 'Asset category (optional)' },
+    outputFields: ['assets', 'totalCount'],
+  },
+
+  // ─── Semantic Layer ──────────────────────────────────────────────────────────
+  {
+    id: 'semantic-layer-query',
+    provider: 'Semantic Layer',
+    baseUrl: 'https://api.semanticlayer.dev',
+    path: '/v1/query',
+    name: 'Semantic Data Query',
+    description: 'Natural language queries against structured blockchain data. Translates questions to SQL across indexed chains.',
+    category: 'enrichment',
+    costPerCall: 0.005,
+    latencyMs: 1500,
+    inputSchema: { query: 'Natural language question about blockchain data', chain: 'Target blockchain (optional)' },
+    outputFields: ['result', 'sql', 'chain', 'confidence'],
+  },
 ];
 
 // ─── Registry Index (O(1) lookups) ──────────────────────────────────────────

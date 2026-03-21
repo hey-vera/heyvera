@@ -179,6 +179,20 @@ function mockData(endpointId: string): unknown {
     'zauth-pentest':         { vulnerabilities: [], riskScore: 15, recommendations: ['Enable HSTS header'] },
     // QuickNode
     'quicknode-streams':     { events: [{ type: 'Transfer', blockNumber: 19500000, chain: 'ethereum' }] },
+    // Allium
+    'allium-transactions':   { transactions: [{ hash: '0xabc...', from: '0x123...', to: '0x456...', value: '1.5', chain: 'ethereum' }], totalCount: 1, chain: 'ethereum' },
+    'allium-balances':       { balances: [{ token: 'USDC', amount: '1500.00', valueUsd: 1500 }], totalValueUsd: 1500, chain: 'base' },
+    // Heurist
+    'heurist-inference':     { choices: [{ message: { role: 'assistant', content: 'Decentralized inference response' } }], usage: { total_tokens: 50 }, model: 'mistral-7b' },
+    'heurist-image':         { images: [{ url: 'https://heurist.xyz/generated/img123.png' }], model: 'sdxl' },
+    // Skyfire
+    'skyfire-pay':           { transactionId: 'sf_tx_123', status: 'completed', amount: 0.01 },
+    // VeryAI
+    'veryai-verify':         { verified: true, confidence: 0.94, issues: [], sources: ['coingecko', 'defillama'] },
+    // Nevermined
+    'nevermined-search':     { assets: [{ name: 'DeFi TVL Dataset', type: 'dataset', price: 0.1 }], totalCount: 1 },
+    // Semantic Layer
+    'semantic-layer-query':  { result: [{ protocol: 'Aave', tvl: 12500000000 }], sql: 'SELECT protocol, tvl FROM defi_protocols ORDER BY tvl DESC LIMIT 5', chain: 'ethereum', confidence: 0.92 },
   };
   return mocks[endpointId] ?? { result: 'mock data', endpointId };
 }

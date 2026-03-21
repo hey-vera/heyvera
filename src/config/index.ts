@@ -52,10 +52,12 @@ const envSchema = z.object({
   // x402 provider mode (serve skills as x402 endpoints)
   X402_FACILITATOR_URL: z.string().default('https://x402.org/facilitator'),
   X402_FACILITATOR_FALLBACK_URL: z.string().url().optional(),
-  X402_FACILITATOR_PRIMARY: z.enum(['coinbase', 'payai']).default('coinbase'), // Primary facilitator preference
+  X402_FACILITATOR_PRIMARY: z.enum(['coinbase', 'payai', 'skyfire']).default('coinbase'), // Primary facilitator preference
   X402_PAYAI_URL: z.string().optional(),            // PayAI facilitator endpoint
   X402_PAYAI_API_KEY_ID: z.string().optional(),     // PayAI API key ID for authenticated requests
   X402_PAYAI_API_KEY_SECRET: z.string().optional(), // PayAI API key secret (Ed25519 PKCS#8)
+  X402_SKYFIRE_URL: z.string().optional(),            // Skyfire x402 facilitator endpoint
+  X402_SKYFIRE_API_KEY: z.string().optional(),        // Skyfire API key for authenticated requests
   X402_NETWORK: z.enum(['base-mainnet', 'base-sepolia']).default('base-mainnet'),
   CDP_API_KEY_ID: z.string().optional(),         // Coinbase Developer Platform API key ID (for mainnet facilitator)
   CDP_API_KEY_SECRET: z.string().optional(),     // Coinbase Developer Platform API key secret
