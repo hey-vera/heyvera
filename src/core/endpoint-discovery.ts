@@ -240,7 +240,7 @@ function parseApiEndpoints(
       id,
       provider: 'ClawAPIs',
       path,
-      name: `ClawAPIs ${api.toUpperCase()}: ${entry.description.slice(0, 60)}`,
+      name: `ClawAPIs ${api.toUpperCase()}: ${entry.description.split('.')[0].slice(0, 60)}`,
       description: `[${method}] ${entry.description}`,
       category: classifyCategory(api, key, entry.description),
       costPerCall,

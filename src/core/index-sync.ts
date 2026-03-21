@@ -29,6 +29,37 @@ const SATRING_URLS = [
 ];
 
 const SYNC_INTERVAL = 4 * 60 * 60 * 1000; // 4 hours
+
+/** Clean up endpoint names — many sources put descriptions in the name field */
+function cleanName(rawName: string, url: string, provider: string): string {
+  let name = rawName.trim();
+  // If name is too long (>80 chars), it's probably a description
+  if (name.length > 80) {
+    // Try to extract a meaningful short name
+    // Pattern: "ServiceName: long description..." → "ServiceName"
+    const colonIdx = name.indexOf(':');
+    if (colonIdx > 3 && colonIdx < 60) {
+      name = name.slice(0, colonIdx).trim();
+    } else {
+      // Truncate at first sentence boundary
+      const dotIdx = name.indexOf('.');
+      if (dotIdx > 5 && dotIdx < 80) {
+        name = name.slice(0, dotIdx).trim();
+      } else {
+        name = name.slice(0, 60).trim() + '...';
+      }
+    }
+  }
+  // If name is empty or just a URL, derive from provider + URL path
+  if (!name || name.startsWith('http')) {
+    try {
+      const u = new URL(url);
+      const pathPart = u.pathname.split('/').filter(Boolean).slice(-2).join('/');
+      name = provider ? `${provider}: ${pathPart}` : pathPart || url;
+    } catch { name = provider || url; }
+  }
+  return name.slice(0, 100);
+}
 const PAGE_LIMIT = 200;
 const FETCH_TIMEOUT = 15_000; // 15s
 const BAZAAR_TIMEOUT = 30_000; // 30s — larger dataset
@@ -252,7 +283,7 @@ async function syncFrom402Index(): Promise<number> {
       if (!svc.url || svc.latency_p50_ms > MAX_LATENCY_MS) continue;
       allEndpoints.push({
         source_id: String(svc.id),
-        name: svc.name || '',
+        name: cleanName(svc.name || '', svc.url, svc.provider || ''),
         description: svc.description || '',
         url: svc.url,
         protocol: svc.protocol || 'x402',
@@ -351,7 +382,7 @@ async function syncFromBazaar(): Promise<number> {
 
     endpoints.push({
       source_id: `bazaar-${nanoid(8)}`,
-      name: (r.name || r.title || url).slice(0, 200),
+      name: cleanName(r.name || r.title || url, url, r.provider || 'coinbase-bazaar'),
       description: (r.description || '').slice(0, 500),
       url,
       protocol: 'x402',
@@ -428,7 +459,7 @@ async function syncFromSatring(): Promise<number> {
 
         endpoints.push({
           source_id: `satring-${nanoid(8)}`,
-          name: (s.name || s.title || epUrl).slice(0, 200),
+          name: cleanName(s.name || s.title || epUrl, epUrl, s.provider || 'satring'),
           description: (s.description || '').slice(0, 500),
           url: epUrl,
           protocol: s.protocol || 'x402',
