@@ -2734,6 +2734,253 @@ Defense:
 **14 attack vectors, all mitigated.** The highest-risk vectors (permit phishing, Sybil, bust-out)
 have multi-layered defenses. No single mitigation is relied upon alone.
 
+---
+
+## 33. REGULATORY AND LEGAL CONSIDERATIONS
+
+### 33.1 Money Transmitter Risk (Creator Payouts)
+
+**STATUS: HIGH RISK — exists TODAY, independent of x204.**
+
+When ClawNet collects USDC from an agent, keeps 15%, and pays 85% to a skill creator,
+the payout leg is money transmission under FinCEN guidance (FIN-2019-G001).
+
+This is NOT new with x204 — ClawNet's existing payout-cron.ts already does this.
+x204 doesn't change the risk; it just increases volume.
+
+**Options (discuss with legal counsel):**
+```
+A. Register as MSB (Money Services Business) with FinCEN + state MTLs
+   → Expensive ($50K-200K+ for 49 state licenses), but what Stripe/PayPal did
+
+B. Use a licensed payment partner (Stripe Connect, Bridge, etc.)
+   → ClawNet acts as marketplace, partner handles money movement
+
+C. Pull-based creator withdrawals (recommended — lowest friction)
+   → ClawNet credits creator accounts internally
+   → Creators WITHDRAW to their own wallets on-demand
+   → ClawNet never "pushes" USDC to creators
+   → Similar to how PayAI uses smart contract escrow
+   → This may avoid MSB classification (creator initiates the transfer)
+
+D. Smart contract escrow
+   → Revenue splits handled by an on-chain contract, not ClawNet's server
+   → ClawNet never has custody of creator funds
+   → Most crypto-native solution but requires contract development
+```
+
+### 33.2 Securities Law — Bonding Curve Trust Stakes (CRITICAL)
+
+**Phase 4's trust stakes with 5% revenue share WILL be classified as securities.**
+
+All four Howey test prongs are met:
+1. Investment of money (staking USDC) ✓
+2. Common enterprise (pooled bonding curve) ✓
+3. Expectation of profits (5% revenue share) ✓
+4. From efforts of others (agent's performance) ✓
+
+**FIX (before building Phase 4):**
+```
+REMOVE the 5% revenue share from trust stakes.
+
+Trust stakes = reputation signal ONLY:
+  - Staking increases the agent's MARKET trust signal
+  - Unstaking decreases it
+  - NO financial return to stakers
+  - Stakers benefit from: discovery boost (staked agents rank higher),
+    priority access (staked agents' services are faster/cheaper)
+
+This removes the "expectation of profits" prong.
+The bonding curve still functions as market-priced reputation,
+just without revenue distribution to stakers.
+```
+
+### 33.3 GDPR Right to Erasure (Solvable)
+
+Current x204 design (SQLite + Merkle anchoring) IS GDPR-compatible using the
+French CNIL approach: delete off-chain data, on-chain Merkle root becomes an
+orphaned hash that cannot be de-referenced back to a person.
+
+**Required implementation:**
+```
+DELETE /v1/aid/:did — full identity erasure:
+  1. Delete from aid_keys WHERE did = ?
+  2. Delete from aid_trust_snapshots WHERE did = ?
+  3. Delete from aid_cross_platform_attestations WHERE did = ?
+  4. Delete from aid_capabilities WHERE identity_id = ?
+  5. Insert into aid_tombstones (did, erased_at) — prevents re-creation
+  6. On-chain Merkle roots remain but are unresolvable (orphaned hashes)
+  7. Return 204 No Content (fitting for x204)
+
+Do NOT store unencrypted receipts on IPFS — content-addressed data cannot
+be reliably deleted from the IPFS network.
+```
+
+### 33.4 EU AI Act Compliance (Separate from x204)
+
+x204's AID is machine-to-machine identity. The EU AI Act (Art. 50) requires
+agent-to-HUMAN disclosure ("you are interacting with an AI"). These are
+separate concerns — AID does not satisfy the EU AI Act's human-facing
+transparency requirements. ClawNet agents interacting with humans (e.g.,
+Telegram bot) need a separate disclosure layer regardless of AID.
+
+---
+
+## 34. CHERRY ON TOP: FEATURES NOBODY ELSE HAS
+
+### 34.1 OpenAPI Auto-Import (Zero-Effort Onboarding)
+
+**The killer adoption feature.** Speakeasy does this for SDKs. Nobody does it for
+agent identity + trust. x204 should:
+
+```
+POST /v1/skills/import-openapi
+Body: { "specUrl": "https://api.example.com/openapi.json" }
+
+Server:
+  1. Fetches and validates OpenAPI 3.0/3.1 spec
+  2. Auto-generates skill definitions from each operation
+  3. Estimates pricing based on complexity (simple GET = 1cr, complex POST = 5cr)
+  4. Creates AID for the API provider (if not exists)
+  5. Registers skills in marketplace with auto-generated manifest
+  6. Returns: AID DID + skill IDs + x204 heartbeat URL
+
+Result: An existing API becomes a discoverable, trust-scored, payable
+x204 skill in ONE HTTP call. No code changes to the original API.
+```
+
+This is the "Stripe moment" for agent commerce:
+- Stripe: "Accept payments in 7 lines of code"
+- x204: "Make your API agent-ready in one curl command"
+
+### 34.2 Agent-to-Agent Referral Commissions (Nobody Has This)
+
+**Genuine gap in the market.** No protocol incentivizes agents to recruit other agents.
+
+```
+How it works:
+  1. Agent A has referral code (auto-generated from DID)
+  2. Agent A shares referral link to Agent B
+  3. Agent B registers with X-AID-NEW + referral code
+  4. For 90 days, Agent A earns 5% of Agent B's platform fees
+     (from ClawNet's 15% treasury cut — creators are NOT affected)
+  5. Cap: max 100 credits/month per referral, max 20 active referrals
+
+Why this drives adoption:
+  - Agents with large networks (composites using many sub-agents) naturally
+    recruit their dependencies to ClawNet
+  - Creator agents refer consumer agents (and vice versa)
+  - The referral commission is paid from PLATFORM revenue, not creator revenue
+
+Anti-abuse:
+  - Self-referral blocked (same owner_key check)
+  - Referral must generate real revenue (not just registration)
+  - 90-day window prevents permanent rent-seeking
+```
+
+### 34.3 Embeddable Trust Badge (One Line, Viral Spread)
+
+```html
+<!-- One line to embed -->
+<img src="https://api.claw-net.org/badge/did:clawnet:zABC..."
+     alt="x204 Trust Score: 94" />
+
+<!-- Or as a link with hover card -->
+<a href="https://claw-net.org/agent/did:clawnet:zABC...">
+  <img src="https://api.claw-net.org/badge/did:clawnet:zABC..." />
+</a>
+```
+
+Badge shows: trust verdict (proceed/standard/caution), verification tier icon,
+last updated timestamp. Clicking through shows full trust profile.
+
+Phala has a TEE-only version for ERC-8004. x204's would be universal.
+Every agent displaying this badge is free advertising for the protocol.
+
+### 34.4 Trust-Change Webhooks (Nobody Pushes These)
+
+```
+New webhook event types (add to existing webhook infrastructure):
+
+TRUST_SCORE_CHANGED    — fires when score crosses a tier boundary
+TRUST_TIER_CHANGED     — fires when verdict changes (e.g., caution → standard)
+VALIDATION_RECEIVED    — fires when a validator submits a verdict
+BADGE_EARNED           — fires when verification tier increases
+PROVIDER_TRUST_DROP    — fires when a consumed provider's score drops >10 points
+
+Agents subscribe via existing POST /v1/economy/webhooks endpoint.
+No new infrastructure needed — extends the existing webhook system.
+```
+
+### 34.5 linked_identities in AID (Cross-Protocol Interop)
+
+```json
+// In AID document:
+{
+  "linkedIdentities": {
+    "erc8004": { "chainId": 8453, "agentId": 12345, "registry": "0x8004A169..." },
+    "ens": "myagent.eth",
+    "did:pkh": "did:pkh:eip155:8453:0x742...",
+    "github": "myagent-bot",
+    "twitter": "@myagent"
+  }
+}
+```
+
+When other platforms see an x204 AID, they can cross-reference the ERC-8004 registry,
+resolve the ENS name, or verify the GitHub identity. This is what the DIF
+Trusted AI Agents Working Group is pushing toward — x204 ships it first.
+
+### 34.6 Public Agent Explorer Page
+
+```
+GET /v1/explore — public, no auth, rate-limited
+
+Returns:
+  - Top skills by trust score (proceed tier)
+  - Trending skills (7-day volume growth)
+  - Recently registered agents
+  - Category browsing (data, defi, trading, skills, verification)
+  - Search by name, DID, capability
+
+Also: site/explore.html — static page with interactive search
+Similar to 8004scan.io but for x204/ClawNet ecosystem
+```
+
+---
+
+## 35. FINAL SHIP READINESS
+
+The plan has been through 8 rounds of checks with 18+ research agents.
+
+**What it covers (2,858+ lines, 35 sections):**
+- Complete protocol specification with headers, receipts, signing, settlement
+- 5-layer trust stack with 11-dimension scoring formula
+- 5-phase build plan with day-level estimates
+- 14 attack vectors with multi-layered defenses
+- Economic model with verified gas costs and revenue projections
+- Scaling architecture benchmarked to 1M agents
+- Regulatory analysis with actionable recommendations
+- 6 adoption accelerator features that no competitor has
+- Full competitive analysis against 14 protocols
+- Migration path with zero breaking changes
+- Every ClawNet component verified against actual source code
+
+**What to do BEFORE building:**
+1. Get legal counsel on money transmitter status (existing issue, not x204-specific)
+2. Remove 5% revenue share from Phase 4 trust stakes (securities risk)
+3. Implement DELETE /v1/aid endpoint (GDPR)
+
+**What to build FIRST (Phase 1, 6-8 days, $0 cost):**
+1. Register ClawNet on ERC-8004 (Base, ~$1)
+2. X-AID-DID + X-AID-PROOF headers on existing x402 routes
+3. Trust-gated pricing
+4. Feedback endpoint
+5. Heartbeat endpoint
+6. Publish x204 spec document
+
+**Stop planning. Start building.**
+
 
 Financial consideration/extra info:
 The Money Question — Complete Cost Breakdown
