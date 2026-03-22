@@ -10,6 +10,14 @@
 
 ---
 
+## Conformance
+
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119).
+
+An implementation is conformant if it satisfies all MUST and REQUIRED level requirements.
+
+---
+
 ## Abstract
 
 AID (Agent Identity Document) is an open protocol that adds scored, verifiable, portable trust to any agent communication layer. It is designed as a complementary layer — not a replacement — for existing protocols like MCP, A2A, x402, ACP, and UCP.
@@ -23,9 +31,9 @@ The protocol provides:
 - **Offline verification** — pure cryptography, zero network calls
 - **Crypto-agile architecture** — designed for NIST post-quantum migration (ML-DSA, FIPS 204)
 
-**Reference implementation:** ClawNet (claw-net.org) — production agent orchestration platform with 344 API endpoints, Ed25519 AID system, Merkle-anchored trust snapshots, and 46 documented attack mitigations (Sections 20, 26, 32, 39, 41.4, 43.3, 44.2, 45.2 of the engineering document).
+**Reference implementation:** [ClawNet](https://claw-net.org) — production agent orchestration platform with Ed25519 AID system, Merkle-anchored trust snapshots, and 46 documented attack mitigations.
 
-**Open-source scoring library:** `@aidprotocol/trust-compute` (npm, MIT license) — deterministic computation anyone can run independently.
+**Open-source scoring library:** [`@aidprotocol/trust-compute`](https://www.npmjs.com/package/@aidprotocol/trust-compute) (npm, MIT license) — deterministic computation anyone can run independently.
 
 ---
 
@@ -39,32 +47,47 @@ The protocol provides:
 4. **Algorithm-agile.** Every document includes `signatureAlgorithm`, `algorithmVersion`, `hashAlgorithm`. Never hardcode Ed25519 or SHA-384.
 5. **Complementary, not competitive.** AID plugs into existing protocols — it does not replace them.
 6. **Transparent.** The scoring formula is published, open-source, and independently verifiable.
+7. **Progressive decentralization.** The reference implementation is centralized, but the architecture is designed so that any component can be independently verified, challenged, or replaced.
 
 ### 1.2 Protocol Flow
 
 ```
 Client                                    Server
-  │                                         │
-  │─── Request + X-AID-DID + X-AID-PROOF ──►│
-  │    + X-AID-TIMESTAMP + X-AID-NONCE      │
-  │                                         │
-  │    Server verifies Ed25519 signature    │
-  │    (offline — pure math, no API call)   │
-  │                                         │
-  │    Server resolves trust score          │
-  │    (local DB or cached API lookup)      │
-  │                                         │
-  │    Server applies trust-gated pricing   │
-  │                                         │
-  │◄── Response + X-AID-PROVIDER-DID ───────│
-  │    + X-AID-PROVIDER-PROOF               │
-  │    + X-AID-RECEIPT                      │
-  │                                         │
-  │    Both parties now have:               │
-  │    - Mutual authentication              │
-  │    - Dual-signed receipt                │
-  │    - Attestation for trust scoring      │
+  |                                         |
+  |--- Request + X-AID-DID + X-AID-PROOF -->|
+  |    + X-AID-TIMESTAMP + X-AID-NONCE      |
+  |                                         |
+  |    Server verifies Ed25519 signature    |
+  |    (offline -- pure math, no API call)  |
+  |                                         |
+  |    Server resolves trust score          |
+  |    (local DB or cached API lookup)      |
+  |                                         |
+  |    Server applies trust-gated pricing   |
+  |                                         |
+  |<-- Response + X-AID-PROVIDER-DID -------|
+  |    + X-AID-PROVIDER-PROOF               |
+  |    + X-AID-RECEIPT                      |
+  |                                         |
+  |    Both parties now have:               |
+  |    - Mutual authentication              |
+  |    - Dual-signed receipt                |
+  |    - Attestation for trust scoring      |
 ```
+
+### 1.3 Relationship to Other Protocols
+
+AID occupies the trust/reputation layer in the emerging agentic commerce stack:
+
+| Layer | Protocol(s) | AID's Role |
+|-------|------------|------------|
+| Communication | MCP, A2A | AID-MCP Profile, AID-A2A Profile (Section 8) |
+| Identity | ERC-8004, MCP-I | AID provides scored reputation on top of raw identity |
+| Authorization | Verifiable Intent, OAuth | AID trust scores as signal in authorization decisions |
+| Payment | x402, ACP | AID-x402 Profile adds trust-gated pricing (Section 8) |
+| **Trust/Reputation** | **AID** | **Canonical, verifiable, portable trust scoring** |
+
+AID is designed to complement these protocols, not compete with them. Identity tells you WHO. Authorization tells you WHAT they're allowed to do. AID tells you WHETHER they're worth doing business with.
 
 ---
 
@@ -80,6 +103,12 @@ did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK
 
 The public key is encoded directly in the DID using multibase base58btc with the Ed25519 multikey prefix (`0xed 0x01`). Identity is self-certifying: the DID encodes the public key, so verification requires no registry lookup.
 
+**DID resolution:** To extract the public key from a `did:key`:
+1. Strip the `did:key:` prefix.
+2. Decode the remaining base58btc string (multibase prefix `z`).
+3. Strip the 2-byte multicodec prefix (`0xed 0x01`).
+4. The remaining 32 bytes are the raw Ed25519 public key.
+
 ### 2.2 Agent Identity Document
 
 Every agent has an AID document containing:
@@ -88,7 +117,7 @@ Every agent has an AID document containing:
 {
   "@context": [
     "https://www.w3.org/ns/credentials/v2",
-    "https://api.claw-net.org/contexts/aid/v1"
+    "https://aid.claw-net.org/contexts/v1"
   ],
   "id": "did:key:z6Mk...",
   "type": "AgentIdentityDocument",
@@ -107,8 +136,18 @@ Every agent has an AID document containing:
   },
   "trustScore": {
     "score": 87,
-    "inputs": { "successRate": 0.95, "chainCoverage": 0.88, "attestationCount": 247, "manifestAdherence": 0.92 },
-    "weights": { "successRate": 40, "chainCoverage": 25, "volume": 20, "manifestAdherence": 15 },
+    "inputs": {
+      "successRate": 0.95,
+      "chainCoverage": 0.88,
+      "attestationCount": 247,
+      "manifestAdherence": 0.92
+    },
+    "weights": {
+      "successRate": 40,
+      "chainCoverage": 25,
+      "volume": 20,
+      "manifestAdherence": 15
+    },
     "proofHash": "<sha384 hex>",
     "formulaVersion": "1.0.0",
     "hashAlgorithm": "sha384"
@@ -138,6 +177,23 @@ Every agent has an AID document containing:
 }
 ```
 
+**Field requirements:**
+
+| Field | Required | Notes |
+|-------|----------|-------|
+| `id` | MUST | `did:key` of the agent |
+| `version` | MUST | Spec version (`1.0.0`) |
+| `signatureAlgorithm` | MUST | Algorithm for identity signatures |
+| `algorithmVersion` | MUST | Algorithm version for migration tracking |
+| `hashAlgorithm` | MUST | Hash algorithm for trust-layer hashing |
+| `agent` | MUST | Agent metadata |
+| `publicKey` | MUST | Verification key material |
+| `trustScore` | MUST | Current trust score with proof |
+| `trustChain` | MUST | Merkle-anchored attestation chain summary |
+| `capabilities` | SHOULD | Derived from attestation history, not self-declared |
+| `issuance` | MUST | Issuer, timestamp, expiry |
+| `proof` | MUST | Platform countersignature |
+
 **Note on DID methods:** Agent identifiers use `did:key` (self-certifying, offline-verifiable). Platform issuers use `did:web` (resolvable, DNS-bound). Offline verification of agent identity requires only the `did:key` and the `proof.platformCountersignature`; the `did:web` issuer is used for trust chain bootstrapping when online.
 
 ### 2.3 Crypto-Agility
@@ -151,10 +207,58 @@ The protocol supports algorithm migration via versioned key types, enabling tran
 - Verifiers MUST read these fields and dispatch to the correct verification algorithm.
 - Implementations MUST NOT hardcode `Ed25519` or `sha384` — always read from the document.
 
-**Migration timeline (NIST IR 8547):**
+**Migration timeline (per NIST IR 8547):**
 - **Now:** Ed25519 + SHA-384
 - **2027+:** Hybrid Ed25519 + ML-DSA (dual signatures, backwards compatible)
 - **2030:** ML-DSA primary (Ed25519 deprecated by NIST)
+
+### 2.4 Key Rotation
+
+Agent keys can be rotated without changing the agent's DID or losing trust history.
+
+**Rotation flow:**
+1. Agent (or guardian) sends rotation request with a signature from the current active key.
+2. Server generates a new Ed25519 keypair.
+3. The old key is marked `rotated` with a `rotated_at` timestamp. It is NOT deleted.
+4. The new key becomes the active key for all future signatures.
+5. The agent's DID does NOT change — the DID is permanent, keys are mutable.
+
+**Verifying old receipts after rotation:**
+- Old receipts reference the DID, not the key directly.
+- Verifiers look up which key was active at the receipt's `timestamp`.
+- The key history (`created_at`, `rotated_at`) enables time-windowed verification.
+- Key rotation MUST NOT invalidate existing receipts.
+
+**Guardian key (OPTIONAL):**
+- At registration, an agent MAY specify a `guardianAddress` — an external key authorized to freeze the AID and initiate key rotation.
+- This protects autonomous agents whose key is compromised (the agent itself cannot rotate because the attacker has the same key).
+
+### 2.5 Zero-Friction Onboarding (X-AID-NEW)
+
+Agents can provision identity in a single HTTP call using the `X-AID-NEW` header:
+
+```
+POST /aid/skills/sol-price
+X-AID-NEW: my-trading-bot
+PAYMENT-SIGNATURE: <EIP-3009 signed authorization>
+Content-Type: application/json
+
+{"token": "SOL"}
+```
+
+**Behavior:**
+1. Server verifies payment FIRST (`PAYMENT-SIGNATURE`).
+2. If payment succeeds, server generates Ed25519 keypair and creates AID.
+3. Server returns: result + receipt + AID document + `privateKeySeed` (returned ONCE, never stored server-side).
+4. If payment fails, NO AID is created (prevents orphan identities).
+5. Future requests use `X-AID-DID` + `X-AID-PROOF` with the provisioned key.
+
+**Rate limits:**
+- 3 AIDs per IP per 24 hours.
+- 1 AID per unique agent name per 24 hours.
+- AIDs that never transact are pruned after 30 days.
+
+**Security:** New AIDs start at trust score 0. They cannot submit feedback (weight = 0) and receive no trust-gated discounts. `X-AID-NEW` provisions an IDENTITY, not free execution — the agent must pay for every call.
 
 ---
 
@@ -165,24 +269,32 @@ The protocol supports algorithm migration via versioned key types, enabling tran
 The canonical trust scoring formula uses 4 behavioral dimensions:
 
 ```
-rawScore = successRate × 40 + chainCoverage × 25 + volume × 20 + manifestAdherence × 15
-finalScore = min(100, round(rawScore × verificationMultiplier))
+rawScore = successRate * 40 + chainCoverage * 25 + volume * 20 + manifestAdherence * 15
+finalScore = min(100, round(rawScore * verificationMultiplier))
 ```
 
 | Dimension | Weight | Range | Source |
 |-----------|--------|-------|--------|
-| `successRate` | 40% | 0–1 | `success_count / total_attestations` |
-| `chainCoverage` | 25% | 0–1 | Fraction of attestations with valid hash-chain links |
-| `volume` | 20% | 0–1 | `min(attestationCount / 1000, 1)` |
-| `manifestAdherence` | 15% | 0–1 | `manifest_aligned / (aligned + unaligned)`, defaults to 0.5 if no manifests |
+| `successRate` | 40% | 0-1 | `success_count / total_attestations` |
+| `chainCoverage` | 25% | 0-1 | Fraction of attestations with valid hash-chain links |
+| `volume` | 20% | 0-1 | `min(attestationCount / 1000, 1)` |
+| `manifestAdherence` | 15% | 0-1 | `manifest_aligned / (aligned + unaligned)`, defaults to 0.5 if no manifests |
 
-**Verification multiplier:** 1.0 (none) | 1.1 (partial) | 1.2 (full verification)
+**Verification multiplier:**
 
-**Future extensions (Phase 3):** 7 additional dimensions across MARKET and COMMUNITY signal categories. These are not part of v1.0.
+| Level | Multiplier | Criteria |
+|-------|------------|----------|
+| None | 1.0 | No external verification |
+| Partial | 1.1 | One verified linked identity (e.g., GitHub, domain via `.well-known`) |
+| Full | 1.2 | Two or more verified linked identities, or on-chain domain verification |
+
+**Dimension defaults:** If a dimension has no data (e.g., no manifests submitted), it defaults to 0.5 (neutral) rather than 0. This avoids penalizing agents on dimensions that haven't been measured.
+
+**Future extensions (planned, not part of v1.0):** 7 additional dimensions across MARKET (staking demand, consumer diversity, cross-consumption, volume growth) and COMMUNITY (validator verdicts, report penalty, verification tier) signal categories. Weight rebalancing for future dimensions is a MAJOR version change (Section 9.1).
 
 ### 3.2 Proof Hash
 
-Every trust score includes a cryptographic proof hash:
+Every trust score MUST include a cryptographic proof hash:
 
 ```
 proofHash = SHA-384(JCS({inputs, weights, score}))
@@ -194,66 +306,130 @@ Where JCS is JSON Canonicalization Scheme (RFC 8785). Given identical inputs, ev
 
 | Score Range | Verdict | Settlement Mode | Pricing |
 |-------------|---------|-----------------|---------|
-| 0–19 | `new` | `immediate` | Base price |
-| 20–39 | `building` | `immediate` | Base price |
-| 40–59 | `caution` | `standard` | 10% discount |
-| 60–79 | `standard` | `batched` | 20% discount |
-| 80–89 | `trusted` | `batched` | 25% discount |
+| 0-19 | `new` | `immediate` | Base price |
+| 20-39 | `building` | `immediate` | Base price |
+| 40-59 | `caution` | `standard` | 10% discount |
+| 60-79 | `standard` | `batched` | 20% discount |
+| 80-89 | `trusted` | `batched` | 25% discount |
 | 90+ AND verified AND 6mo AND $50 rev | `proceed` | `deferred` | 30% discount |
 
-**`avoid` flag:** A separate manual flag applied by validators or triggered by structured reports. Not score-based — an agent can be score 70 and flagged `avoid`. Overrides all tiers to prepay-only.
+**`proceed` tier requirements:**
+- Trust score 90 or above.
+- Verification multiplier at "Partial" (1.1) or higher (Section 3.1).
+- Agent has been active for at least 6 months (measured from first attestation).
+- Agent has generated at least $50 cumulative platform revenue.
+- All four conditions MUST be met simultaneously.
+
+**`avoid` flag:** A separate manual flag applied by validators or triggered by structured reports (spam, fraud, copyright, quality). Not score-based — an agent can be score 70 and flagged `avoid`. Overrides all tiers: settlement reverts to prepay-only, no discounts, feedback weight set to 0. Removal requires admin review or validator consensus (3 validators agree to lift).
 
 ### 3.4 Three-Layer Trust Lifecycle
 
 ```
-MANIFEST (intent)  →  EXECUTION PROOF (evidence)  →  ATTESTATION (outcome)
-     │                        │                            │
-     │  "I will check         │  "I called CoinGecko ✓    │  "success, 3/3"
-     │   3 sources"           │   Birdeye ✓ Jupiter ✓     │
-     │                        │   230ms total"             │
-     │  optional              │  automatic                 │  automatic
-     │  (+15% trust bonus)    │  (step-level hashes)       │  (hash-chained, signed)
-     └────────────────────────┴────────────────────────────┘
+MANIFEST (intent)  -->  EXECUTION PROOF (evidence)  -->  ATTESTATION (outcome)
+     |                        |                            |
+     |  "I will check         |  "I called CoinGecko +    |  "success, 3/3"
+     |   3 sources"           |   Birdeye + Jupiter,      |
+     |                        |   230ms total"             |
+     |  optional              |  automatic                 |  automatic
+     |  (+15% trust bonus)    |  (step-level hashes)       |  (hash-chained, signed)
+     +------------------------+----------------------------+
                     ALL feed into trust score
 ```
 
-- **Manifest:** Optional pre-execution intent declaration. Agents with high manifest adherence earn the 15% `manifestAdherence` trust bonus.
-- **Execution proof:** Automatic step-level evidence captured during execution. Each step is individually hashed (SHA-384) into `source_hashes_json`.
-- **Attestation:** Automatic post-execution outcome record. HMAC-SHA384 signed, hash-chained to predecessor attestation, sequence-numbered for replay protection.
+- **Manifest:** OPTIONAL pre-execution intent declaration. Agents with high manifest adherence earn the 15% `manifestAdherence` trust bonus. Manifests declare expected capabilities, inputs, outputs, and SLA guarantees.
+- **Execution proof:** AUTOMATIC step-level evidence captured during execution. Each step is individually hashed (SHA-384) and stored. Includes: endpoint called, success/failure, duration, cost, cached status.
+- **Attestation:** AUTOMATIC post-execution outcome record. Signed, hash-chained to predecessor, sequence-numbered. See Section 3.5 for format.
+
+### 3.5 Attestation Record Format
+
+Every transaction produces a signed attestation:
+
+```json
+{
+  "attestationId": "att-a1b2c3d4",
+  "sequenceNumber": 248,
+  "agentDid": "did:key:zABC...",
+  "actionType": "skill_invoke",
+  "outcomeStatus": "success",
+  "inputHash": "<sha384 hex of request>",
+  "responseHash": "<sha384 hex of response>",
+  "sourceHashes": [
+    { "source": "coingecko-price", "hash": "<sha384>", "fetchedAt": "2026-03-21T14:30:00Z" },
+    { "source": "birdeye-price", "hash": "<sha384>", "fetchedAt": "2026-03-21T14:30:01Z" }
+  ],
+  "executionProof": {
+    "totalSteps": 3,
+    "successfulSteps": 3,
+    "cachedSteps": 1,
+    "totalLatencyMs": 230,
+    "stepEndpoints": ["coingecko-price", "birdeye-price", "jupiter-price"],
+    "proofHash": "<sha384 hex>"
+  },
+  "manifestAdherence": {
+    "aligned": true,
+    "confidence": 0.95
+  },
+  "prevAttestationHash": "<sha384 hex of previous attestation>",
+  "creditsCharged": 1.5,
+  "durationMs": 230,
+  "signature": "<HMAC-SHA384 with platform signing key>",
+  "hashAlgorithm": "sha384",
+  "createdAt": "2026-03-21T14:30:02Z"
+}
+```
+
+**Properties:**
+- **Hash-chained:** `prevAttestationHash` links each attestation to its predecessor, creating a tamper-evident chain. Any modification to a historical attestation invalidates all subsequent hashes.
+- **Sequence-numbered:** `sequenceNumber` provides replay protection and gap detection.
+- **Content-addressed:** `inputHash` and `responseHash` prove what was processed without revealing the data.
+- **Execution proof embedded:** Step-level evidence is recorded automatically by the middleware (Section 3.4).
+
+### 3.6 Trust Decay
+
+Trust scores lose weight over time for inactive agents:
+
+- **Rate:** 10% weight loss per 30 days of inactivity (no new attestations).
+- **Floor:** Minimum decay factor of 0.1 (scores never fully zero from decay alone).
+- **Resumption:** Decay halts immediately when a new attestation is recorded.
+
+Implementers MAY use adaptive decay rates per category (e.g., faster decay for high-frequency categories like DeFi trading).
 
 ---
 
 ## 4. HTTP Headers
 
-### 4.1 Request Headers (Client → Server)
+### 4.1 Request Headers (Client -> Server)
 
 | Header | Required | Description |
 |--------|----------|-------------|
-| `X-AID-DID` | Yes | Agent's DID (`did:key:z6Mk...`) |
-| `X-AID-PROOF` | Yes | Ed25519 signature over canonical signing input (base64url) |
-| `X-AID-TIMESTAMP` | Yes | ISO 8601 UTC timestamp (`2026-03-21T14:30:00Z`) |
-| `X-AID-NONCE` | Yes | 16 random bytes, hex-encoded (anti-replay) |
-| `X-AID-TRUST-SCORE` | No | Claimed score (hint only — server NEVER trusts this) |
-| `X-AID-VERSION` | No | Protocol version (default: `1.0`) |
+| `X-AID-DID` | REQUIRED | Agent's DID (`did:key:z6Mk...`) |
+| `X-AID-PROOF` | REQUIRED | Ed25519 signature over canonical signing input (Section 4.4) |
+| `X-AID-TIMESTAMP` | REQUIRED | ISO 8601 UTC timestamp with Z suffix (e.g., `2026-03-21T14:30:00Z`) |
+| `X-AID-NONCE` | REQUIRED | 16 random bytes, hex-encoded (32 chars) for anti-replay |
+| `X-AID-TRUST-SCORE` | OPTIONAL | Claimed score (hint only — server MUST NOT use for authorization) |
+| `X-AID-VERSION` | OPTIONAL | Protocol version (default: `1.0`). If unsupported, server returns 406. |
 
-### 4.2 Response Headers (Server → Client)
+### 4.2 Response Headers (Server -> Client)
 
 | Header | Required | Description |
 |--------|----------|-------------|
-| `X-AID-PROVIDER-DID` | Yes | Server's DID for mutual authentication |
-| `X-AID-PROVIDER-PROOF` | Yes | Server's Ed25519 countersignature |
-| `X-AID-RECEIPT` | Yes | Base64-encoded portable atomic receipt |
-| `X-AID-FEEDBACK-URL` | No | Outcome reporting endpoint for this receipt |
+| `X-AID-PROVIDER-DID` | REQUIRED | Server's DID for mutual authentication |
+| `X-AID-PROVIDER-PROOF` | REQUIRED | Server's Ed25519 countersignature (Section 4.5) |
+| `X-AID-RECEIPT` | REQUIRED | Base64-encoded portable atomic receipt (Section 5) |
+| `X-AID-TRUST-VERIFIED` | RECOMMENDED | Server's independently verified trust score for the caller |
+| `X-AID-FEEDBACK-URL` | OPTIONAL | Outcome reporting endpoint for this receipt (Section 6) |
 
 ### 4.3 402 Response Headers
 
-| Header | Description |
-|--------|-------------|
-| `PAYMENT-REQUIRED` | x402-compatible payment requirements |
-| `X-AID-TRUST-GATE` | Minimum trust score and tier for this endpoint |
-| `X-AID-PRICING-TIERS` | JSON array of trust → price mappings |
+| Header | Required | Description |
+|--------|----------|-------------|
+| `PAYMENT-REQUIRED` | REQUIRED | x402-compatible payment requirements (base64) |
+| `X-AID-TRUST-GATE` | RECOMMENDED | Minimum trust score and tier (e.g., `min_score=50,tier=standard`) |
+| `X-AID-PRICING-TIERS` | RECOMMENDED | JSON array of trust-to-price mappings |
 
-### 4.4 Canonical Signing Input
+### 4.4 Client Signing (X-AID-PROOF)
+
+The canonical signing input binds the signature to the DID, timestamp, nonce, HTTP method, path, and request body:
 
 ```
 signatureInput = SHA-384(
@@ -268,17 +444,37 @@ X-AID-PROOF = base64url(Ed25519Sign(privateKey, signatureInput))
 ```
 
 **Encoding requirements:**
-- Timestamps MUST be UTC with Z suffix. Timezone offsets MUST be rejected.
-- Inner `SHA-384(requestBody)` is lowercase hex (96 chars) in the signing string.
-- Nonce is 16 random bytes, hex-encoded (32 chars).
-- Server rejects proofs with `|now - timestamp| > 300` seconds.
-- Server tracks seen nonces for 5-minute window. Duplicate nonce → 409 Conflict.
+- Timestamps MUST be UTC with Z suffix (e.g., `2026-03-21T14:30:00Z`). Timezone offsets (e.g., `+05:30`) MUST be rejected.
+- The inner `SHA-384(requestBody)` is encoded as lowercase hex (96 chars) in the signing string, NOT raw bytes.
+- Nonce MUST be 16 cryptographically random bytes, hex-encoded (32 chars).
+- Server MUST reject proofs where `|now - timestamp| > 300` seconds (5-minute window).
+- Server MUST track seen nonces for 5-minute window. Duplicate nonce returns 409 Conflict.
+- Server clock SHOULD be NTP-synchronized.
+
+### 4.5 Server Signing (X-AID-PROVIDER-PROOF)
+
+The server countersigns every response to enable mutual authentication:
+
+```
+providerSignatureInput = SHA-384(
+  providerDid + "\n" +
+  receiptId + "\n" +
+  timestamp + "\n" +
+  SHA-384(responseBody)
+)
+
+X-AID-PROVIDER-PROOF = base64url(Ed25519Sign(serverPrivateKey, providerSignatureInput))
+```
+
+This proves: the server with DID `providerDid` generated the response containing `receiptId` at `timestamp`. The client can verify this offline using the server's public key (from heartbeat or prior interaction).
 
 ---
 
 ## 5. Portable Atomic Receipts
 
-Every AID transaction produces a dual-signed, Merkle-anchored receipt:
+Every AID transaction produces a dual-signed, Merkle-anchored receipt.
+
+### 5.1 Receipt Format
 
 ```json
 {
@@ -289,13 +485,11 @@ Every AID transaction produces a dual-signed, Merkle-anchored receipt:
   "hashAlgorithm": "sha384",
   "payer": {
     "did": "did:key:zABC...",
-    "trustScore": 87,
-    "signature": "ed25519:..."
+    "trustScore": 87
   },
   "provider": {
     "did": "did:key:zXYZ...",
-    "trustScore": 94,
-    "signature": "ed25519:..."
+    "trustScore": 94
   },
   "service": {
     "id": "sol-price-data",
@@ -305,34 +499,141 @@ Every AID transaction produces a dual-signed, Merkle-anchored receipt:
   },
   "trust": {
     "merkleRoot": "sha384:9c4d...",
-    "merkleProof": ["..."],
-    "snapshotId": "snap-xyz"
+    "merkleProof": [
+      { "position": "left", "hash": "sha384:aabb..." },
+      { "position": "right", "hash": "sha384:ccdd..." },
+      { "position": "left", "hash": "sha384:eeff..." }
+    ],
+    "snapshotId": "snap-xyz",
+    "snapshotTimestamp": "2026-03-21T12:00:00Z"
   },
   "proof": {
-    "payerSignature": "ed25519:...",
-    "providerSignature": "ed25519:...",
-    "platformCountersignature": "ed25519:..."
+    "payerSignature": "ed25519:<base64url>",
+    "providerSignature": "ed25519:<base64url>",
+    "platformCountersignature": "ed25519:<base64url>"
   }
 }
 ```
 
-**Note:** Payment details (amount, currency, settlementMode, txHash) are protocol-specific and defined in the corresponding profile (e.g., AID-x402 Profile, Section 8.3). The receipt format above shows the trust-layer fields common to all profiles.
+**Signature prefixes:** Receipt signatures use the `ed25519:` prefix followed by base64url-encoded signature bytes. This distinguishes them from raw header signatures (which use base64url without a prefix).
 
-**Properties:**
+**Receipt ID format:** `rcpt-{nanoid(16)}` (e.g., `rcpt-a1b2c3d4e5f6g7h8`).
+
+### 5.2 Merkle Proof Format
+
+The `trust.merkleProof` field is an ordered array of sibling hashes from leaf to root:
+
+```json
+[
+  { "position": "left",  "hash": "sha384:aabb..." },
+  { "position": "right", "hash": "sha384:ccdd..." },
+  { "position": "left",  "hash": "sha384:eeff..." }
+]
+```
+
+**Verification algorithm:**
+1. Start with `currentHash = SHA-384(receiptId + timestamp + payerDid + providerDid)`.
+2. For each proof element:
+   - If `position` is `"left"`: `currentHash = SHA-384(element.hash + currentHash)`
+   - If `position` is `"right"`: `currentHash = SHA-384(currentHash + element.hash)`
+3. The final `currentHash` MUST equal `trust.merkleRoot`.
+
+Proof size is O(log n) — 20 hashes for 1M agents (640 bytes).
+
+### 5.3 Payer Signature Input
+
+```
+payerSignatureInput = SHA-384(
+  payerDid + "\n" +
+  receiptId + "\n" +
+  timestamp + "\n" +
+  inputHash
+)
+```
+
+### 5.4 Receipt Properties
+
 - **Dual-signed:** Both payer and provider sign — mutual commitment.
+- **Platform-countersigned:** The platform signs the full receipt hash, creating a third-party attestation.
 - **Merkle-anchored:** Receipt hash included in periodic Merkle snapshots (rebuilt every 4 hours).
 - **Content-addressed:** `inputHash` and `resultHash` prove what was requested/delivered without revealing the data.
-- **Offline-verifiable:** Ed25519 signatures + Merkle proofs = pure math.
+- **Offline-verifiable:** Ed25519 signatures + Merkle proofs = pure math. Note: offline verification is strongest for IDENTITY (DID ownership). Trust scores verified offline may be up to 4 hours stale (snapshot interval). For high-stakes decisions, live trust lookup is RECOMMENDED.
 - **Portable:** Agent carries receipts to any platform as proof of track record.
 
 ---
 
-## 6. Heartbeat Protocol
+## 6. Feedback Protocol
+
+### 6.1 Feedback Endpoint
+
+Every AID server SHOULD expose a feedback endpoint for outcome reporting:
+
+```
+POST /aid/feedback
+Content-Type: application/json
+X-AID-DID: did:key:zABC...
+X-AID-PROOF: <signature>
+X-AID-TIMESTAMP: 2026-03-21T15:00:00Z
+X-AID-NONCE: <hex>
+
+{
+  "receiptId": "rcpt-a1b2c3d4e5f6g7h8",
+  "outcome": "success",
+  "qualityScore": 9,
+  "latencyAcceptable": true,
+  "notes": "Fast, accurate data"
+}
+```
+
+**Fields:**
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `receiptId` | REQUIRED | Receipt ID from the original transaction |
+| `outcome` | REQUIRED | `success`, `partial`, or `failure` |
+| `qualityScore` | OPTIONAL | 1-10 quality rating |
+| `latencyAcceptable` | OPTIONAL | Whether latency met expectations |
+| `notes` | OPTIONAL | Free-text feedback (max 500 chars) |
+
+**Response:**
+
+```json
+{
+  "credited": 0.1,
+  "providerTrustDelta": 0.02,
+  "feedbackWeight": 3.0
+}
+```
+
+### 6.2 Feedback Weighting (Anti-Sybil)
+
+Not all feedback carries equal weight. Weight depends on the reporter's history:
+
+| Reporter Profile | Weight |
+|-----------------|--------|
+| New agent (< 10 transactions) | 0.5x |
+| Active agent (10-100 transactions) | 1.0x |
+| High-volume agent (100+ transactions) | 2.0x |
+| Agent with spend history > $10 | 3.0x |
+| Agent with attestation history | 5.0x |
+
+**Anti-gaming rules:**
+- New AIDs (trust score 0) have feedback weight 0 — prevents Sybil review farming.
+- Mutual feedback decay: if Agent A and Agent B both give each other positive feedback within 30 days, BOTH feedbacks are weighted at 0.1x.
+- Feedback velocity cap: max 3 feedbacks per reporter per provider per 30 days.
+- Self-feedback detection: feedback from agents sharing the same owner key is rejected.
+
+---
+
+## 7. Heartbeat Protocol
+
+### 7.1 Specification
 
 Every AID-compatible server MUST expose `GET /aid/heartbeat`:
 
 ```json
 {
+  "protocolVersion": "1.0.0",
   "provider": {
     "did": "did:key:zXYZ...",
     "trustScore": 94,
@@ -352,11 +653,11 @@ Every AID-compatible server MUST expose `GET /aid/heartbeat`:
     "currency": "USDC",
     "chain": "base",
     "tiers": [
-      { "minTrust": 0, "multiplier": 1.0, "settlement": "immediate" },
-      { "minTrust": 40, "multiplier": 0.9, "settlement": "standard" },
-      { "minTrust": 60, "multiplier": 0.8, "settlement": "batched" },
-      { "minTrust": 80, "multiplier": 0.75, "settlement": "batched" },
-      { "minTrust": 90, "multiplier": 0.7, "settlement": "deferred" }
+      { "minTrust": 0, "multiplier": 1.0, "settlement": "immediate", "verdict": "new" },
+      { "minTrust": 40, "multiplier": 0.9, "settlement": "standard", "verdict": "caution" },
+      { "minTrust": 60, "multiplier": 0.8, "settlement": "batched", "verdict": "standard" },
+      { "minTrust": 80, "multiplier": 0.75, "settlement": "batched", "verdict": "trusted" },
+      { "minTrust": 90, "multiplier": 0.7, "settlement": "deferred", "verdict": "proceed" }
     ]
   },
   "cryptoAgility": {
@@ -368,45 +669,42 @@ Every AID-compatible server MUST expose `GET /aid/heartbeat`:
     "migrationTarget": "ML-DSA-44",
     "migrationDate": null
   },
+  "platformKey": "<base64url Ed25519 public key>",
   "timestamp": "2026-03-21T14:30:00Z"
 }
 ```
 
-**Authenticated heartbeat:** If the client includes `X-AID-DID` + `X-AID-PROOF`, the response additionally includes the consumer's trust score, pricing tier, and personalized alerts.
+**Required fields:**
 
----
+| Field | Required | Description |
+|-------|----------|-------------|
+| `protocolVersion` | MUST | AID protocol version |
+| `provider.did` | MUST | Server's DID |
+| `provider.trustScore` | MUST | Server's own trust score |
+| `services` | MUST | Available services with pricing |
+| `pricing` | MUST | Trust-gated pricing tiers |
+| `cryptoAgility` | MUST | Supported signature algorithms |
+| `platformKey` | MUST | Platform's Ed25519 public key for verifying trustProof signatures |
+| `timestamp` | MUST | Server's current time (for clock skew detection) |
 
-## 7. Security Properties
+**Also available at:** `/.well-known/aid-platform-key` — the platform's public key in JWK format, for A2A trust verification and heartbeat response validation.
 
-1. **HTTPS REQUIRED** — all AID endpoints MUST be served over TLS.
-2. **TIMESTAMP VALIDATION** — signatures include current timestamp (±5 min window).
-3. **BODY BINDING** — Ed25519 signature covers SHA-384 of request body.
-4. **NONCE TRACKING** — 16-byte random nonces tracked for 5-min window. Duplicates rejected.
-5. **KEY ROTATION** — compromised keys can be rotated without losing identity (DID is permanent).
-6. **RATE LIMITING** — public endpoints rate-limited by IP.
-7. **AUDIT TRAIL** — all AID operations produce signed attestations.
-8. **FAIL-CLOSED** — middleware defaults to rejecting requests when trust cannot be verified.
+### 7.2 Authenticated Heartbeat
 
-### 7.1 Error Responses
+If the client includes `X-AID-DID` + `X-AID-PROOF`, the response additionally includes personalized data:
 
-Servers MUST return the following HTTP status codes for AID-specific failures:
-
-| Status | Code | Condition |
-|--------|------|-----------|
-| 401 Unauthorized | `AID_SIGNATURE_INVALID` | `X-AID-PROOF` signature verification failed |
-| 403 Forbidden | `AID_TRUST_GATE_BLOCKED` | Trust score below `X-AID-TRUST-GATE` minimum |
-| 409 Conflict | `AID_NONCE_REPLAY` | `X-AID-NONCE` already seen within 5-minute window |
-| 406 Not Acceptable | `AID_VERSION_UNSUPPORTED` | `X-AID-VERSION` not supported by server |
-| 428 Precondition Required | `AID_PROOF_MISSING` | `X-AID-DID` present but `X-AID-PROOF` missing |
-
-Error response body:
 ```json
 {
-  "error": "Trust score too low",
-  "code": "AID_TRUST_GATE_BLOCKED",
-  "callerScore": 35,
-  "requiredScore": 40,
-  "verdict": "building"
+  "consumer": {
+    "trustScore": 87,
+    "verified": true,
+    "pricingTier": { "verdict": "proceed", "multiplier": 0.7, "settlement": "deferred" },
+    "recentReceipts": 47,
+    "feedbackPending": 3,
+    "alerts": [
+      { "type": "trust_degradation", "provider": "did:key:zDEF...", "delta": -12 }
+    ]
+  }
 }
 ```
 
@@ -428,6 +726,8 @@ const server = new McpServer({ name: 'my-api' });
 const aid = withAidTrust(server, {
   providerDid: 'did:key:zMyDid...',
   minTrustScore: 40,
+  formulaVersion: '1.0.0',
+  failMode: 'closed'
 });
 
 server.tool('get-data', { query: z.string() }, async (params, extra) => {
@@ -438,12 +738,22 @@ server.tool('get-data', { query: z.string() }, async (params, extra) => {
 ```
 
 **How it works:**
-- Caller trust is resolved via `X-AID-DID` in MCP metadata or via ClawNet's trust API.
+- Caller trust is resolved via `X-AID-DID` in MCP metadata or via the platform's trust API.
 - Trust data is cached (default: 5 minutes) and available in every tool handler.
 - Callers below `minTrustScore` are rejected with `AID_TRUST_GATE_BLOCKED`.
 - Fail mode: `closed` (default) rejects on API failure; `open` allows with score 0.
 
-**npm package:** `@aidprotocol/mcp-trust` (MIT license, published)
+**Configuration:**
+
+| Option | Required | Default | Description |
+|--------|----------|---------|-------------|
+| `providerDid` | MUST | — | Server's DID |
+| `minTrustScore` | SHOULD | 0 | Minimum trust score (hardcoded floor: 0) |
+| `formulaVersion` | MUST | — | Trust formula version to pin |
+| `failMode` | SHOULD | `closed` | Behavior on trust API failure |
+| `fallbackTtl` | OPTIONAL | 300 | Seconds to cache last-known trust on API failure |
+
+**npm package:** `@aidprotocol/mcp-trust` (MIT license)
 
 ### 8.2 AID-A2A Profile
 
@@ -463,16 +773,17 @@ server.tool('get-data', { query: z.string() }, async (params, extra) => {
       "merkleRoot": "sha384:9c4d...",
       "heartbeatUrl": "https://api.example.com/aid/heartbeat",
       "trustTimestamp": "2026-03-21T14:00:00Z",
-      "trustProof": "<Ed25519 signature from platform key>"
+      "trustProof": "<Ed25519 signature>"
     }
   }
 }
 ```
 
 **Requirements:**
-- `trustProof` MUST be an Ed25519 signature from the platform key over `SHA-384(did + trustScore + trustVerdict + trustTimestamp)`.
+- `trustProof` MUST be an Ed25519 signature from the platform key over `SHA-384(did + "\n" + trustScore + "\n" + trustVerdict + "\n" + trustTimestamp)`.
 - Consumers MUST verify `trustProof` against the platform's public key (published at `/.well-known/aid-platform-key`).
 - Trust data older than 24 hours SHOULD be re-fetched from the `heartbeatUrl`.
+- Heartbeat responses MUST be signed with `X-AID-PROVIDER-PROOF`. Consumers MUST verify the signature before using any heartbeat data.
 
 ### 8.3 AID-x402 Profile
 
@@ -494,9 +805,35 @@ X-AID-NONCE: a1b2c3d4e5f6a7b8
 **Behavior:**
 - **Without AID headers:** Standard x402 flow (facilitator-based, base price).
 - **With AID headers:** Server verifies identity, applies trust-gated pricing, returns enhanced receipt with dual signatures.
-- **x402-compatible:** `PAYMENT-REQUIRED` and `PAYMENT-SIGNATURE` headers follow x402 spec exactly. AID headers are additive.
+- **x402-compatible:** `PAYMENT-REQUIRED` and `PAYMENT-SIGNATURE` headers follow x402 spec exactly. AID headers are additive, never modify x402 semantics.
 
-**Trust-gated pricing:** Agents with higher trust scores pay less for the same service. Pricing tiers are advertised in the heartbeat response and `X-AID-PRICING-TIERS` header.
+**Receipt payment extension (x402 profile only):**
+
+When using the AID-x402 profile, receipts include an additional `payment` field:
+
+```json
+{
+  "payment": {
+    "amount": "0.001500",
+    "currency": "USDC",
+    "chain": "base",
+    "settlementMode": "batched",
+    "settled": false,
+    "txHash": null,
+    "batchId": "batch-2026-03-21-14",
+    "settlementDue": "2026-03-21T15:00:00Z",
+    "settledAt": null,
+    "trustDiscount": 0.25
+  }
+}
+```
+
+**Settlement modes:**
+- `immediate`: EIP-3009 `receiveWithAuthorization` submitted per-transaction. `txHash` populated immediately.
+- `batched`: EIP-2612 `permit` grants spending allowance. Server calls `transferFrom` hourly. `txHash` populated after batch settlement.
+- `deferred`: EIP-2612 `permit` with higher allowance. Settlement daily or weekly. Agent has 24h dispute window before settlement.
+
+**Note:** `receiveWithAuthorization` MUST be used (not `transferWithAuthorization`) for immediate settlement. `receiveWithAuthorization` requires `msg.sender == to`, eliminating front-running risk.
 
 ---
 
@@ -507,7 +844,6 @@ X-AID-NONCE: a1b2c3d4e5f6a7b8
 The trust scoring formula is versioned. All middleware MUST pin to a specific formula version:
 
 ```typescript
-// Middleware pins to formula version
 server.use(aidTrust({
   formulaVersion: '1.0.0'  // MANDATORY
 }));
@@ -515,30 +851,293 @@ server.use(aidTrust({
 
 Formula changes follow semantic versioning:
 - **Patch (1.0.x):** Bug fixes, no output changes for valid inputs.
-- **Minor (1.x.0):** New optional dimensions, existing scores unchanged.
+- **Minor (1.x.0):** New optional dimensions added, existing scores unchanged.
 - **Major (x.0.0):** Weight changes, dimension removal, score output changes.
+
+Major version changes MUST be announced 30 days before activation. Middleware instances MUST NOT silently adopt new major versions — operators must explicitly update the `formulaVersion` pin.
 
 ### 9.2 Governance Model
 
-- **Phase 1–2 (current):** Benevolent maintainer + advisory board. Formula changes published 30 days before activation.
+- **Phase 1-2 (current):** Benevolent maintainer + advisory board. Formula changes published 30 days before activation. The maintainer commits to transparency: all scoring data is published, all changes are documented.
 - **Phase 3+:** Community governance. Formula proposals require public comment period + majority advisory vote.
 
 The scoring algorithm is published as `@aidprotocol/trust-compute` (MIT license). Anyone can fork, audit, or run independently.
 
+### 9.3 Protocol Versioning
+
+Protocol version is advertised in heartbeat responses (`protocolVersion`) and can be negotiated via `X-AID-VERSION` request header.
+
+- **Minor versions (1.0 -> 1.1):** Additive only, no breaking changes. New optional headers can be added.
+- **Major versions (1.x -> 2.x):** Breaking changes. Old endpoints MUST be maintained for 6 months.
+- If `X-AID-VERSION` specifies an unsupported version, server returns 406 Not Acceptable with supported versions list.
+
 ---
 
-## 10. References
+## 10. Privacy Model
+
+### 10.1 Public Data (No Authentication Required)
+
+The following information is available to any party without authentication:
+
+| Data | Access |
+|------|--------|
+| DID exists (yes/no) | Public |
+| Trust verdict (`proceed`, `standard`, `caution`, `building`, `new`) | Public |
+| Verification tier (none, partial, full) | Public |
+| Capability categories (list, no counts) | Public |
+| Active since (date) | Public |
+
+**Rationale:** Verdicts (5 levels) provide enough signal for routing decisions without leaking the precise score. Capability categories without invoke counts prevent competitive intelligence extraction.
+
+### 10.2 Owner-Only Data (Requires X-AID-PROOF from DID Owner)
+
+| Data | Access |
+|------|--------|
+| Exact trust score (0-100) | Owner only |
+| Full capability breakdown with invoke counts | Owner only |
+| Complete attestation history | Owner only |
+| Revenue breakdown | Owner only |
+| Detailed feedback received | Owner only |
+| Settlement history | Owner only |
+
+### 10.3 Provider View (During Authenticated Transaction)
+
+During a transaction, the server sees:
+- Exact trust score (needed for pricing tier calculation).
+- Relevant capabilities (for the requested service).
+- Recent feedback summary (last 30 days).
+
+Servers MUST NOT store or redistribute the exact trust score beyond what is needed for the transaction. Servers MAY cache the trust verdict and pricing tier.
+
+### 10.4 Right to Erasure (GDPR)
+
+AID implementations MUST support identity erasure:
+
+```
+DELETE /v1/aid/:did
+```
+
+**Erasure process:**
+1. Delete all off-chain data associated with the DID (keys, trust snapshots, attestations, capabilities, cross-platform attestations).
+2. Insert a tombstone record (DID + erasure timestamp) to prevent re-creation.
+3. On-chain Merkle roots remain but become unresolvable (orphaned hashes — CNIL-compatible approach).
+4. Return 204 No Content.
+
+**Constraint:** Do NOT store unencrypted receipts on content-addressed networks (IPFS, Arweave) — content-addressed data cannot be reliably deleted.
+
+---
+
+## 11. Progressive Decentralization
+
+### 11.1 Current State (Transparent Centralization)
+
+The reference implementation (ClawNet) computes trust scores centrally. Two transparency commitments ensure verifiability:
+
+1. **Open-source formula.** The scoring algorithm is published as `@aidprotocol/trust-compute` (MIT). Given a set of attestations, anyone can run the exact same computation and verify results independently.
+
+2. **Published inputs.** Every 4 hours, the attestation dataset summary and Merkle root are published. The Merkle root is anchored on-chain (Base L2, ~$0.001/tx).
+
+Anyone can: download data, run the formula, compare results to published scores. Discrepancies are cryptographically provable.
+
+### 11.2 Planned Decentralization Roadmap
+
+| Phase | Timeline | Mechanism |
+|-------|----------|-----------|
+| Transparent centralization | Now | Open-source formula + published data + on-chain Merkle root |
+| Optimistic trust | Month 6-12 | On-chain challenge window (24h) with fraud proofs. Bond: $10 USDC. |
+| Federated oracles | Month 12-18 | Multiple independent operators compute scores. Middleware configured for N-of-M quorum. |
+| Trustless verification | Month 18+ | ZK circuit (Noir) for self-verifying trust proofs. No oracle needed. |
+
+Each phase is designed to make the centralized operator progressively replaceable. The architecture is permissionless from day one — the centralized operator is a convenience, not a requirement.
+
+### 11.3 Accountability
+
+The heartbeat response includes a `decentralizationPhase` field (OPTIONAL) indicating the current phase and next milestone:
+
+```json
+{
+  "decentralization": {
+    "currentPhase": 1,
+    "description": "Transparent centralization",
+    "nextMilestone": "Optimistic trust oracle on Base",
+    "targetDate": "2026-09-01"
+  }
+}
+```
+
+---
+
+## 12. Security Properties
+
+1. **HTTPS REQUIRED** — all AID endpoints MUST be served over TLS.
+2. **TIMESTAMP VALIDATION** — signatures include current timestamp. Server rejects `|now - timestamp| > 300s`.
+3. **BODY BINDING** — Ed25519 signature covers SHA-384 of request body.
+4. **NONCE TRACKING** — 16-byte random nonces tracked for 5-minute window. Duplicates rejected (409).
+5. **KEY ROTATION** — compromised keys can be rotated without losing identity (Section 2.4).
+6. **RATE LIMITING** — public endpoints SHOULD be rate-limited by IP.
+7. **AUDIT TRAIL** — all AID operations produce signed attestations.
+8. **FAIL-CLOSED** — middleware MUST default to rejecting requests when trust cannot be verified.
+9. **MUTUAL AUTHENTICATION** — both client and server prove identity via Ed25519 signatures.
+
+### 12.1 Error Responses
+
+Servers MUST return the following HTTP status codes for AID-specific failures:
+
+| Status | Code | Condition |
+|--------|------|-----------|
+| 401 Unauthorized | `AID_SIGNATURE_INVALID` | `X-AID-PROOF` signature verification failed |
+| 402 Payment Required | `AID_PAYMENT_REQUIRED` | Payment needed; `X-AID-PRICING-TIERS` advertised |
+| 403 Forbidden | `AID_TRUST_GATE_BLOCKED` | Trust score below minimum for this endpoint |
+| 406 Not Acceptable | `AID_VERSION_UNSUPPORTED` | `X-AID-VERSION` not supported by server |
+| 409 Conflict | `AID_NONCE_REPLAY` | `X-AID-NONCE` already seen within 5-minute window |
+| 428 Precondition Required | `AID_PROOF_MISSING` | `X-AID-DID` present but `X-AID-PROOF` missing |
+
+Error response body:
+```json
+{
+  "error": "Trust score too low",
+  "code": "AID_TRUST_GATE_BLOCKED",
+  "callerScore": 35,
+  "requiredScore": 40,
+  "verdict": "building"
+}
+```
+
+Error responses SHOULD include enough context for the caller to understand and resolve the issue. For `AID_TRUST_GATE_BLOCKED`, the response SHOULD include the caller's current verdict and the required minimum.
+
+---
+
+## 13. Interoperability
+
+### 13.1 ERC-8004 Compatibility
+
+AID agents MAY optionally register on ERC-8004's Identity Registry (on-chain ERC-721). The AID document supports linked identities:
+
+```json
+{
+  "linkedIdentities": {
+    "erc8004": { "chainId": 8453, "agentId": 12345, "registry": "0x8004A169..." }
+  }
+}
+```
+
+AID trust scores can be published as ERC-8004 Reputation Registry entries. AID attestations can be submitted as ERC-8004 Validation entries when the Validation Registry is deployed.
+
+### 13.2 Agent Action Receipts (AAR) Compatibility
+
+AID receipts are a superset of the AAR (BotIndex) receipt format. AID adds trust scoring, Merkle anchoring, and feedback loops on top of the base receipt structure.
+
+Implementations SHOULD support bidirectional conversion:
+- **AID -> AAR:** Strip trust-specific fields, preserve action data. Lossless for action metadata.
+- **AAR -> AID:** Add trust fields (null if unknown). Enables trust enrichment of existing AAR receipts.
+
+AID receipts include `"protocol": "AID"` to distinguish from AAR receipts (`"protocol": "AAR"`).
+
+### 13.3 Verifiable Intent (Mastercard) Complementarity
+
+AID and Verifiable Intent (VI) serve different functions:
+- **VI:** Proves a human authorized the agent to act (consumer-to-agent authorization).
+- **AID:** Proves the agent is trustworthy based on verifiable history (agent-to-agent trust).
+
+AID trust scores SHOULD be expressible as VI signals. Implementations MAY include `viCompatible: true` in receipts to indicate VI-compatible formatting.
+
+### 13.4 NIST Compatibility
+
+AID's Ed25519 identity is designed to complement — not replace — OAuth 2.0 / OpenID Connect identity as referenced in NIST SP 800-63-4 and the NIST NCCoE AI Agent Standards Initiative. In deployments requiring NIST compliance, AID trust MAY run alongside OAuth/OIDC identity in a hybrid mode where OAuth handles authentication and AID provides reputation scoring.
+
+AID's crypto-agility (Section 2.3) aligns with NIST IR 8547 post-quantum migration guidelines.
+
+---
+
+## Appendix A: Test Vectors
+
+### A.1 DID Resolution
+
+**Input:** `did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK`
+
+**Steps:**
+1. Strip prefix: `z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK`
+2. Decode base58btc (multibase `z` prefix) to 34 raw bytes.
+3. Verify first 2 bytes are the Ed25519 multicodec prefix (`0xed 0x01`).
+4. The remaining 32 bytes are the raw Ed25519 public key.
+
+**Note:** Complete test vectors with full expected byte outputs are published in the `@aidprotocol/trust-compute` package test suite (`test/did-resolution.test.ts`). Implementers SHOULD run these tests to verify their DID resolution produces correct key material.
+
+### A.2 Signing Input Construction
+
+**Given:**
+- DID: `did:key:z6MkTest1234`
+- Timestamp: `2026-03-21T14:30:00Z`
+- Nonce: `a1b2c3d4e5f6a7b8a1b2c3d4e5f6a7b8`
+- Method: `POST`
+- Path: `/aid/skills/sol-price`
+- Body: `{"token":"SOL"}`
+
+**Step 1:** Compute `SHA-384(body)`:
+```
+SHA-384('{"token":"SOL"}') = <96-char lowercase hex string>
+```
+
+**Step 2:** Construct signing string (fields joined by `\n`):
+```
+did:key:z6MkTest1234
+2026-03-21T14:30:00Z
+a1b2c3d4e5f6a7b8a1b2c3d4e5f6a7b8
+POST /aid/skills/sol-price
+<96-char SHA-384 hex of body>
+```
+
+**Step 3:** `signatureInput = SHA-384(signingString)`
+
+**Step 4:** `proof = base64url(Ed25519Sign(privateKey, signatureInput))`
+
+### A.3 Trust Score Proof Hash
+
+**Given:**
+```json
+{
+  "inputs": { "successRate": 0.95, "chainCoverage": 0.88, "attestationCount": 247, "manifestAdherence": 0.92 },
+  "weights": { "successRate": 40, "chainCoverage": 25, "volume": 20, "manifestAdherence": 15 },
+  "score": 87
+}
+```
+
+**Step 1:** Apply JCS (RFC 8785) canonicalization — sort keys alphabetically at each level, serialize to minimal JSON (no whitespace).
+
+**Step 2:** `proofHash = SHA-384(canonicalized_json)` → 96-char lowercase hex string.
+
+**Verification:** Any implementation running `@aidprotocol/trust-compute` with the same inputs MUST produce the same `proofHash`.
+
+### A.4 Merkle Proof Verification
+
+**Given:**
+- Leaf: `SHA-384("rcpt-abc123" + "2026-03-21T14:30:00Z" + "did:key:zA" + "did:key:zB")`
+- Proof: `[{"position":"left","hash":"sha384:aa..."},{"position":"right","hash":"sha384:bb..."}]`
+- Expected root: `sha384:cc...`
+
+**Step 1:** `h = leaf_hash`
+**Step 2:** `h = SHA-384(proof[0].hash + h)` (position is "left", so sibling goes first)
+**Step 3:** `h = SHA-384(h + proof[1].hash)` (position is "right", so sibling goes second)
+**Step 4:** Assert `h == expected_root`
+
+---
+
+## Appendix B: References
 
 - W3C DID Core v1.1: https://www.w3.org/TR/did-core/
 - W3C `did:key` Method: https://w3c-ccg.github.io/did-method-key/
 - JSON Canonicalization Scheme (RFC 8785): https://www.rfc-editor.org/rfc/rfc8785
+- RFC 2119 (Key Words): https://www.rfc-editor.org/rfc/rfc2119
 - DIF Trusted AI Agents Working Group: https://identity.foundation/working-groups/trusted-agents.html
 - NIST FIPS 204 (ML-DSA): https://csrc.nist.gov/pubs/fips/204/final
 - NIST IR 8547 (PQC Migration): https://csrc.nist.gov/pubs/ir/8547/final
 - NIST SP 800-63-4: Digital Identity Guidelines
 - NIST SP 800-207: Zero Trust Architecture
+- NIST NCCoE AI Agent Standards Initiative: https://www.nccoe.nist.gov/projects/software-and-ai-agent-identity-and-authorization
 - SPIFFE Specification: https://spiffe.io/docs/latest/spiffe-about/overview/
-- AID Trust Scoring Library: https://www.npmjs.com/package/@aidprotocol/trust-compute
-- AID MCP Trust Middleware: https://www.npmjs.com/package/@aidprotocol/mcp-trust
 - ERC-8004 (Agent Identity): https://eips.ethereum.org/EIPS/eip-8004
 - x402 Protocol: https://github.com/coinbase/x402
+- Agent Action Receipts (AAR): https://github.com/botindex/aar
+- Mastercard Verifiable Intent: https://verifiableintent.dev
+- AID Trust Scoring Library: https://www.npmjs.com/package/@aidprotocol/trust-compute
+- AID MCP Trust Middleware: https://www.npmjs.com/package/@aidprotocol/mcp-trust
