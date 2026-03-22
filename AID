@@ -465,8 +465,8 @@ The receipt travels with the agent forever. x402 receipts die with the platform.
   "service": {
     "id": "sol-price-data",
     "type": "data_query",
-    "inputHash": "sha256:1f2e...",
-    "resultHash": "sha256:af3b..."
+    "inputHash": "sha384:1f2e...",
+    "resultHash": "sha384:af3b..."
   },
 
   "payment": {
@@ -483,14 +483,14 @@ The receipt travels with the agent forever. x402 receipts die with the platform.
   },
 
   "trust": {
-    "merkleRoot": "sha256:9c4d...",
+    "merkleRoot": "sha384:9c4d...",
     "merkleProof": [...],
     "snapshotId": "snap-xyz",
     "feedbackUrl": "/aid/feedback/rcpt-a1b2c3d4"
   },
 
   "proof": {
-    "payerSignature": "ed25519:...",      // Consumer agent signs: SHA-256(did+receiptId+timestamp+inputHash)
+    "payerSignature": "ed25519:...",      // Consumer agent signs: SHA-384(did+receiptId+timestamp+inputHash)
     "providerSignature": "ed25519:...",   // Skill creator signs (if third-party) or server signs
     "platformCountersignature": "ed25519:..."  // ClawNet platform signs full receipt hash (eddsa-jcs-2022)
     // When provider == platform (ClawNet skills): providerSignature = platformCountersignature
@@ -1323,7 +1323,7 @@ struct X204Receipt {
     bytes32 payerDid;
     bytes32 providerDid;
     uint256 amount;
-    bytes32 resultHash;         // SHA-256 of service result
+    bytes32 resultHash;         // SHA-384 of service result (truncated to bytes32 for EVM)
     bytes32 merkleRoot;         // trust chain snapshot
     uint256 timestamp;
 }
@@ -1343,7 +1343,7 @@ The article says it plainly:
 1. **Identity:** AID — self-certifying Ed25519 DIDs with Merkle-anchored trust chains
 2. **Reputation tied to payments:** Every credit deduction creates an attestation.
    Every attestation feeds into trust scoring. Revenue split is proportional to reputation.
-3. **Validated execution:** Attestation system records inputs, outputs, SHA-256 hashes.
+3. **Validated execution:** Attestation system records inputs, outputs, SHA-384 hashes.
    Validators verify execution. Receipts are cryptographically signed.
 
 The question isn't whether to adopt ERC-8004. It's whether to:
@@ -1775,9 +1775,9 @@ executionSteps: [
 
 // Stored as:
 source_hashes_json: [
-  { source: 'coingecko-price', hash: 'sha256:a1b2...', fetched_at: '...' },
-  { source: 'birdeye-price',   hash: 'sha256:c3d4...', fetched_at: '...' },
-  { source: 'jupiter-price',   hash: 'sha256:e5f6...', fetched_at: '...' }
+  { source: 'coingecko-price', hash: 'sha384:a1b2...', fetched_at: '...' },
+  { source: 'birdeye-price',   hash: 'sha384:c3d4...', fetched_at: '...' },
+  { source: 'jupiter-price',   hash: 'sha384:e5f6...', fetched_at: '...' }
 ]
 outcome_data_json: {
   executionProof: {
@@ -1786,7 +1786,7 @@ outcome_data_json: {
     cachedSteps: 1,
     totalLatencyMs: 230,
     stepEndpoints: ['coingecko-price', 'birdeye-price', 'jupiter-price'],
-    proofHash: 'sha256:...'
+    proofHash: 'sha384:...'
   }
 }
 ```
@@ -1805,12 +1805,12 @@ Every AID transaction automatically creates a signed, hash-chained attestation:
 AID transaction completes → attestation auto-created:
   action_type: "skill_invoke"
   outcome_status: "success"
-  input_hash: SHA-256 of request
-  response_hash: SHA-256 of response
+  input_hash: SHA-384 of request
+  response_hash: SHA-384 of response
   source_hashes_json: execution proof hashes (Layer 2 data)
   outcome_data_json: execution proof summary
   prev_attestation_hash: hash-chain link (tamper-evident)
-  signature: HMAC-SHA256 with platform signing key
+  signature: HMAC-SHA384 with platform signing key
   credits_charged: actual cost
   duration_ms: execution time
 ```
@@ -1999,11 +1999,11 @@ Rule: Delegated keys inherit the PARENT's trust tier for pricing,
 
 **Resolution — Canonical Signing Input:**
 ```
-signatureInput = SHA-256(
+signatureInput = SHA-384(
   did + "\n" +
   timestamp + "\n" +        // ISO 8601, e.g. "2026-03-21T14:30:00Z"
   method + " " + path + "\n" +  // e.g. "POST /aid/skills/sol-price"
-  SHA-256(requestBody)       // hash of the raw body bytes
+  SHA-384(requestBody)       // hash of the raw body bytes
 )
 
 X-AID-PROOF = base64url(Ed25519Sign(privateKey, signatureInput))
@@ -2024,7 +2024,7 @@ Including timestamp prevents replay outside the 5-minute window.
 **Encoding requirements (for interoperability):**
 - All timestamps MUST be UTC with Z suffix (e.g., `2026-03-21T14:30:00Z`).
   Timezone offsets (e.g., `+05:30`) MUST be rejected.
-- The inner `SHA-256(requestBody)` is encoded as lowercase hex (64 chars)
+- The inner `SHA-384(requestBody)` is encoded as lowercase hex (96 chars)
   in the signatureInput string, NOT raw bytes.
 - Headers use raw base64url encoding (no prefix).
 - Receipt JSON signatures use `ed25519:` prefix (e.g., `"ed25519:abc123..."`).
@@ -2039,11 +2039,11 @@ Including timestamp prevents replay outside the 5-minute window.
 
 **Resolution:** The server signs the receipt:
 ```
-providerSignatureInput = SHA-256(
+providerSignatureInput = SHA-384(
   providerDid + "\n" +
   receiptId + "\n" +
   timestamp + "\n" +
-  SHA-256(responseBody)
+  SHA-384(responseBody)
 )
 
 X-AID-PROVIDER-PROOF = base64url(Ed25519Sign(serverPrivateKey, providerSignatureInput))
@@ -2246,7 +2246,7 @@ MONTH 7+ (Phase 4-5):
 ```
 1. HTTPS REQUIRED — all AID endpoints MUST be served over TLS
 2. TIMESTAMP VALIDATION — X-AID-PROOF must include current timestamp (±5 min)
-3. BODY BINDING — Ed25519 signature covers SHA-256 of request body
+3. BODY BINDING — Ed25519 signature covers SHA-384 of request body
 4. NONCE TRACKING — Receipt IDs are unique; duplicate submissions rejected
 5. KEY ROTATION — compromised keys can be rotated without losing identity
 6. CREDIT LIMITS — deferred settlement capped by trust score
@@ -2820,7 +2820,7 @@ Cold (90d-2yr):    S3-compatible storage, gzip compressed (5-10x)
 Frozen (2yr+):     S3 Glacier — $2/month per year of data
 
 Permanent index table in main SQLite:
-  receipt_id, agent_did, created_at, sha256_hash, storage_tier
+  receipt_id, agent_did, created_at, sha384_hash, storage_tier
   ~100 bytes/row = 36.5GB/year for 1M receipts/day
   This index enables O(1) lookup of any receipt regardless of tier.
 
@@ -3698,7 +3698,7 @@ with signed metadata. AID trust becomes a standard metadata field:
       "trustVerdict": "proceed",
       "verified": true,
       "attestationCount": 1247,
-      "merkleRoot": "sha256:9c4d...",
+      "merkleRoot": "sha384:9c4d...",
       "heartbeatUrl": "https://api.claw-net.org/aid/heartbeat"
     }
   }
@@ -3946,7 +3946,7 @@ On startup:
   "trustVerdict": "proceed",
   "trustTimestamp": "2026-03-21T14:00:00Z",
   "trustProof": "<Ed25519 signature from ClawNet platform key over
-                  SHA-256(did + trustScore + trustVerdict + trustTimestamp)>"
+                  SHA-384(did + trustScore + trustVerdict + trustTimestamp)>"
 }
 ```
 A2A consumers MUST verify `trustProof` against ClawNet's platform public key
@@ -4038,8 +4038,8 @@ Request Headers (updated):
   X-AID-NONCE: <16 random bytes, hex-encoded>
 
 Updated signatureInput:
-  SHA-256(did + "\n" + timestamp + "\n" + nonce + "\n" +
-          method + " " + path + "\n" + SHA-256(requestBody))
+  SHA-384(did + "\n" + timestamp + "\n" + nonce + "\n" +
+          method + " " + path + "\n" + SHA-384(requestBody))
 
 Server tracks seen nonces for 5-minute window (Redis SET with TTL).
 Duplicate nonce → 409 Conflict.
