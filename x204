@@ -564,17 +564,18 @@ Additional fields in response:
 ClawStars' core insight: instead of computing reputation algorithmically, let the market price it.
 Ticket price = reputation. Self-correcting, ungameable (costs real money to manipulate).
 
-**x204 adoption — Agent Trust Stakes:**
+**x204 adoption — Agent Trust Stakes (reputation-only, NO revenue share):**
 - Any agent can stake USDC on another agent's trust
 - Price follows a quadratic bonding curve: `price = supply^2 / divisor`
 - Staking increases the agent's MARKET trust signal (Layer 5)
-- Stakers earn a share of the staked agent's transaction fees (5% of revenue)
+- Stakers benefit from: discovery boost (staked agents rank higher in search),
+  priority queuing (staked agents' services respond faster under load)
+- NO financial return to stakers — avoids securities classification (see Section 33.2)
 - If the agent's behavioral trust drops, stakers can exit (price drops = market correction)
 
-**Fee structure (from ClawStars):**
-- 10% total fee on stake/unstake
-- 5% to the staked agent (creator revenue)
-- 5% to the protocol (treasury)
+**Fee structure:**
+- 5% total fee on stake/unstake (to protocol treasury only)
+- No creator fee on staking — creators earn from skill usage, not staking
 
 **Safety mechanisms (from ClawStars):**
 - Minimum supply of 1 (can't fully exit)
@@ -713,7 +714,7 @@ and available both off-chain (API) and on-chain (smart contract).
 | Task | Description | Effort |
 |------|-------------|--------|
 | Agent trust stakes | Bonding curve contract for staking on agents (quadratic pricing) | XL |
-| Staking rewards | 5% of staked agent's revenue → distributed to stakers | L |
+| Staking benefits | Discovery boost + priority queuing for staked agents (NO revenue share) | M |
 | Stake-as-trust | Bonding curve price feeds into MARKET trust signal | M |
 | Cross-consumption tracking | Track agents using other agents' services | M |
 | Cross-consumption boost | Trust bonus for diverse service consumption | S |
