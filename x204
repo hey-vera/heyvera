@@ -4412,11 +4412,12 @@ If ClawNet goes down, every MCP server using @x204/mcp-trust loses trust verific
 with fail-closed, all requests are rejected). The "universal trust layer" narrative (Section 38) is
 undermined by centralized trust computation.
 
-**Fix (Phase 3):** Federated trust computation model. Multiple authorized trust oracles (run by
-different entities) independently compute scores from the same public attestation data. A
-median-of-oracles approach (similar to Chainlink's oracle network) eliminates SPOF.
-**Short-term fix:** Publish the trust computation algorithm as open-source so anyone can
-verify scores independently, even if ClawNet is the canonical source.
+**Fix:** Progressive decentralization — full architecture in **Section 42**. Short version:
+Phase 1 (now): open-source formula + publish attestation data to IPFS/Arweave (Etherscan model).
+Phase 2: optimistic fraud proofs with on-chain challenge window ($10 bond, 24h).
+Phase 3: federated trust oracles (median-of-oracles, Chainlink pattern).
+Phase 4+: ZK trust proofs — self-verifying, no oracle needed, pure math.
+Total cost for Phase 1-2: under $100. See Section 42 for the complete roadmap.
 
 **Flaw 2: Trust Score Formula Is Gameable Despite Anti-Gaming Claims**
 
@@ -4491,20 +4492,15 @@ which also handles payments and dispute resolution. No separation of concerns. A
 entire economic life — identity, trust, payment, dispute resolution — runs through one entity.
 This contradicts the "no middleman" thesis.
 
-**Fix:** Acknowledge this honestly in the spec. In Phase 1-3, ClawNet IS the centralized trust
-infrastructure (like early Stripe was centralized payments). In Phase 4+, progressively decentralize:
-- Federated trust oracles (multiple independent score computators)
-- Third-party attestation verifiers (anyone can run verification)
-- Community-elected dispute arbitrators
-- Open-source trust computation algorithm
+**Fix:** Acknowledge this honestly in the spec AND build the architecture to make ClawNet
+replaceable from day one. The full progressive decentralization roadmap is in **Section 42**.
 
-**Roadmap the decentralization explicitly with milestones:**
-```
-Phase 1-2: ClawNet = canonical trust oracle (honest centralization)
-Phase 3:   Open-source trust algorithm, federated verification
-Phase 4:   Third-party trust oracles, community dispute arbitration
-Phase 5:   Fully decentralized — ClawNet is one node among many
-```
+The narrative shift: "We compute trust scores, but we publish the data and the formula so
+anyone can verify we're honest — and if we ever lie, there's a cryptographic fraud proof that
+overrides us. Over time, we're building ourselves out of the critical path entirely."
+
+This is the same posture that made Ethereum credible: Vitalik ran the first nodes alone,
+but the design was permissionless from the start. See Section 42 for the 4-phase architecture.
 
 ---
 
@@ -4719,3 +4715,264 @@ protocol. Claim the narrative, ship the middleware, let adoption prove the spec.
 
 **The 40-section plan is the engineering bible. The DIF submission is the missionary tract.
 Ship the tract first.**
+
+---
+
+## 42. PROGRESSIVE DECENTRALIZATION (The Bitcoin Question, Solved)
+
+### 42.1 Why x204's Problem Is Easier Than Bitcoin's
+
+Bitcoin had to solve: "How do we agree on which transactions happened in what order,
+when anyone can lie, in real time?"
+
+x204 has to solve: "How do we agree on an agent's trust score, when the entity computing
+it could lie or go offline?"
+
+x204's version has three properties that make it fundamentally simpler:
+
+| Property | Bitcoin | x204 Trust |
+|----------|---------|------------|
+| Consensus speed | Seconds (double-spend is instant) | Hours (4h snapshots are fine) |
+| Adversary model | Anyone can lie at any time | Lies are provable within 24h |
+| Data privacy | Transactions need privacy | Attestations can be fully public |
+| Computation | Simple (check sigs, sum values) | Moderate (11-dimension weighted formula) |
+| Solution | Proof-of-work (expensive) | Deterministic computation + fraud proofs (cheap) |
+
+**Three key properties of trust computation:**
+1. **Deterministic** — given identical input data and the same formula, every computer
+   produces the same output. No subjectivity.
+2. **Staleness-tolerant** — a 4-hour-old trust score is fine for 99% of decisions. No need
+   for sub-second consensus.
+3. **Public inputs** — attestation data can be made public without harming anyone (unlike
+   financial transactions which need privacy).
+
+These mean x204 doesn't need proof-of-work, doesn't need a blockchain, and doesn't need
+miners. It needs something much simpler.
+
+---
+
+### 42.2 Phase 1: Transparent Centralization (Now — Month 6)
+
+**"ClawNet computes, but anyone can verify."**
+
+ClawNet remains the sole trust oracle but makes two commitments:
+
+**Commitment 1: Open-source the formula.**
+The 11-dimension trust scoring algorithm is published as a standalone library:
+`@x204/trust-compute` (npm + pip). Given a set of attestations, anyone can run the exact
+same computation ClawNet runs internally (`computeTrustScoreWithProof()` in
+`src/core/aid-builder.ts`).
+
+**Commitment 2: Publish the inputs.**
+Every 4 hours (the existing snapshot cron in `src/core/aid-snapshot-cron.ts`), ClawNet
+publishes the complete attestation dataset to IPFS/Arweave. The Merkle root of this
+dataset is already anchored on-chain (Section 28.3).
+
+**The key property:** Anyone can download the attestation data + run the open-source
+formula + compare their result to ClawNet's published scores. If there's a discrepancy,
+it's cryptographically provable.
+
+**This is the Etherscan model.** Etherscan is centralized, but anyone can run their own
+node and verify everything Etherscan shows. ClawNet is x204's Etherscan.
+
+```
+Snapshot Cron (every 4h):
+  1. Rebuild Merkle tree from attestations (existing)
+  2. Compute trust scores for all active agents (existing)
+  3. NEW: Serialize attestation dataset → IPFS pin + Arweave upload
+  4. NEW: Publish {merkleRoot, ipfsHash, arweaveId, scoreCount} on-chain
+  5. Anyone can: download data → run @x204/trust-compute → verify scores
+```
+
+**Cost:** ~$1/month on Arweave for permanent storage of 4h snapshots. IPFS pinning via
+Pinata/web3.storage free tier. The data is already being computed — this just publishes it.
+
+**Build plan addition:**
+- Week 1: Publish `@x204/trust-compute` to npm (extract scoring logic from aid-builder.ts)
+- Phase 1 Month 1: Add IPFS/Arweave publication to snapshot cron
+- Phase 1 Month 1: Add on-chain Merkle root commitment (Base, ~$0.001/tx)
+
+---
+
+### 42.3 Phase 2: Optimistic Trust (Month 6-12)
+
+**"Scores are correct unless someone proves otherwise."**
+
+Borrow the optimistic rollup pattern (Optimism/Arbitrum):
+
+```
+ClawNet publishes: "Agent X has trust score 87"
+                    + Merkle root of attestation data
+                    + IPFS hash of full dataset
+
+Challenge window: 24 hours
+
+Anyone can:
+  1. Download attestation data from IPFS
+  2. Run @x204/trust-compute locally
+  3. If their result ≠ 87, submit a fraud proof on-chain
+
+Fraud proof = (attestation data subset
+               + computation trace
+               + expected result ≠ published result)
+
+Smart contract verifies the fraud proof on-chain.
+  If valid:   ClawNet's score is overridden, ClawNet loses bond ($10)
+  If invalid: Challenger loses their bond ($10)
+```
+
+**Why this works:** You don't need to decentralize the computation — you just need to
+make fraud **provable**. The mere existence of the challenge mechanism keeps ClawNet
+honest, the same way security cameras prevent theft even when nobody's watching.
+
+Bond amounts are small ($10 USDC) because the computation is deterministic. If ClawNet
+lies, ANYONE can prove it with math.
+
+**Contract:** `OptimisticTrustOracle.sol` on Base
+- `publishScores(merkleRoot, ipfsHash, scores[])` — ClawNet submits batch
+- `challengeScore(did, expectedScore, proof)` — anyone challenges
+- `resolveChallenge(challengeId)` — auto-resolves after verification
+- Bond: 10 USDC per challenge (both sides)
+- Challenge window: 24 hours
+- Resolution: on-chain deterministic verification
+
+**Cost:** Contract deployment ~$5. Per-challenge gas ~$0.003. Bond is returned to winner.
+
+---
+
+### 42.4 Phase 3: Federated Trust Oracles (Month 12-18)
+
+**"Multiple independent entities compute scores. Consumers pick who to trust."**
+
+The Chainlink model applied to trust scoring:
+
+```
+Trust Oracle Network:
+  ClawNet Oracle       → computes score from its attestation data
+  Independent Oracle A → computes score from public attestation data
+  Independent Oracle B → computes score from public attestation data
+  Independent Oracle C → computes score from public attestation data
+
+Consumer sees:
+  ClawNet says: 87
+  Oracle A says: 87
+  Oracle B says: 86 (minor rounding diff)
+  Oracle C says: 87
+
+  Median: 87 ✓
+
+If ClawNet says 95 but everyone else says 62:
+  → ClawNet is lying or has corrupt data
+  → Median (62) is used
+  → ClawNet's oracle reputation drops
+```
+
+**Who runs independent oracles?** Anyone who wants to. The attestation data is public
+(Phase 1 commitment). The formula is open-source (Phase 1 commitment). Running an
+oracle is: download data → run formula → publish results. A Raspberry Pi could do it.
+
+**Oracle operator incentive:** The @x204/mcp-trust middleware can be configured to require
+N-of-M oracle agreement before trusting a score. Oracle operators earn a small fee per
+verification request. At scale, this becomes a self-sustaining market. Alternative incentive
+models: reputation/governance weight, bundled with $CLAWNET token economics.
+
+**@x204/mcp-trust middleware update:**
+```typescript
+// Single oracle (Phase 1-2):
+const trust = await x204.verify(did); // calls ClawNet API
+
+// Federated oracles (Phase 3):
+const trust = await x204.verify(did, {
+  oracles: ['clawnet', 'oracle-a', 'oracle-b'],
+  quorum: 2,           // 2-of-3 agreement required
+  strategy: 'median'   // median score used
+});
+```
+
+---
+
+### 42.5 Phase 4: Trustless Verification via ZK Proofs (Month 18+)
+
+**"Math proves the score is correct. No trust in anyone needed."**
+
+The endgame. Using a ZK circuit (Noir, SP1, or Risc0):
+
+```
+ZK Proof says:
+  "Given attestation data with Merkle root 0x9c4d...,
+   and the canonical trust formula v2.0,
+   Agent X's trust score IS 87.
+   I computed this correctly.
+   Verify this proof — it takes 10ms and no trust in anyone."
+
+On-chain verifier contract confirms the proof.
+Anyone can generate the proof. Nobody needs to trust the generator.
+```
+
+**Properties:**
+- Proof size: ~200 bytes
+- Verification: ~200K gas on Base (~$0.003)
+- Generation: seconds on modern hardware
+- Trust required: zero — pure math
+
+An agent carries its own ZK trust proof — it's self-verifying. No oracle needed. No API
+call needed. This is what Section 36.1 (zero-knowledge trust proofs) really means, but
+instead of just proving "score > 80" (privacy-preserving range proof), you prove
+"score == 87 AND it was correctly computed from the canonical data."
+
+**Implementation path:** Use Noir (Aztec's ZK language) — it compiles to Solidity verifiers
+natively. The trust score circuit encodes the 11-dimension formula. Tooling maturity on
+Base is still early (as of March 2026), so this remains aspirational with clear milestones.
+
+---
+
+### 42.6 The Narrative Shift
+
+**Before:** "Trust us to compute trust scores correctly."
+
+**After:** "We compute trust scores, but we publish the data and the formula so anyone can
+verify we're honest — and if we ever lie, there's a cryptographic fraud proof that overrides
+us. Over time, we're building ourselves out of the critical path entirely."
+
+This is the same narrative that made Ethereum credible. Satoshi ran the first Bitcoin node
+alone for months. Vitalik ran the first Ethereum nodes. But the design was permissionless
+from the start. ClawNet adopts the same posture: centralized operations today, provably
+decentralizable architecture from day one.
+
+---
+
+### 42.7 Concrete Build Plan Additions
+
+| When | What | Cost | Effort |
+|------|------|------|--------|
+| Week 1 (Phase 1) | Publish `@x204/trust-compute` to npm — extract scoring logic from `aid-builder.ts` as standalone package | $0 | 1 day |
+| Month 1 (Phase 1) | Add IPFS/Arweave publication to snapshot cron (`aid-snapshot-cron.ts`) | ~$1/mo Arweave | 1 day |
+| Month 1 (Phase 1) | Add on-chain Merkle root commitment (Base transaction per snapshot) | ~$0.001/tx | 0.5 day |
+| Month 6 (Phase 2) | Deploy `OptimisticTrustOracle.sol` on Base with 24h challenge window | ~$5 deploy | 3 days |
+| Month 12 (Phase 3) | Ship oracle operator docs + federated middleware config | $0 | 2 days |
+| Month 12 (Phase 3) | Target 3-5 independent oracle operators | $0 | Outreach |
+| Month 18+ (Phase 4) | Noir ZK circuit for trust score verification | ~$0.003/proof | Research |
+
+**Total additional cost for Phase 1-2: under $100.** This is the cheapest decentralization
+roadmap in crypto because the problem is simpler than most people think.
+
+---
+
+### 42.8 What This Resolves
+
+This architecture directly addresses:
+- **Flaw 1 (Section 41.3):** Single point of failure — ClawNet becomes verifiable in Phase 1,
+  challengeable in Phase 2, replaceable in Phase 3, unnecessary in Phase 4.
+- **Flaw 7 (Section 41.3):** Circular trust dependency — separation of concerns achieved
+  progressively. Trust computation becomes independent of trust operations.
+- **Audit scorecard (Section 41.1):** Decentralization score improves from 5/10 to 8/10
+  with this roadmap committed.
+
+The three things already in the plan that make this possible:
+1. Public attestation data (Merkle-anchored snapshots — already planned)
+2. Open-source trust formula (documented in Section 4.2 — already exists)
+3. On-chain root commitment (planned in Section 28.3)
+
+The gap was treating these as transparency features rather than as the **foundation for
+progressive decentralization**. They're not nice-to-haves — they're the scaffolding that
+makes ClawNet replaceable. And that's exactly what makes ClawNet trustworthy.
