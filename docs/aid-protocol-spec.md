@@ -1131,6 +1131,403 @@ AID trust scores are informational and do not constitute a guarantee of agent be
 
 ---
 
+## 14. Advanced Feature Interfaces
+
+These interfaces define standardized formats for advanced AID features. Implementations MAY support any subset. The formats are standardized so that advanced features interoperate across implementations — a guardian on Platform A can freeze an agent on Platform B using the same freeze request format.
+
+**The rule:** If two implementations can't agree on this format, cross-platform interoperability breaks. Therefore it's in the spec.
+
+### 14.1 Guardian Protocol
+
+Agents MAY declare a guardian — a separate entity authorized to monitor and freeze the agent.
+
+**Guardian declaration (in AID document):**
+
+```json
+{
+  "guardian": {
+    "primaryGuardianDid": "did:key:z6MkGuardian...",
+    "permissions": ["freeze", "restrict", "alert"],
+    "monitoringInterval": "5m",
+    "assignedBy": "owner"
+  }
+}
+```
+
+**Freeze request format:**
+
+```json
+{
+  "type": "AID_FREEZE_REQUEST",
+  "targetDid": "did:key:z6MkTarget...",
+  "requestorDid": "did:key:z6MkGuardian...",
+  "freezeType": "immediate",
+  "reason": "key_compromise",
+  "evidence": "Unauthorized access detected from IP 45.33.x.x",
+  "timestamp": "2026-03-22T14:30:00Z",
+  "signature": "ed25519:<requestor signs this request>"
+}
+```
+
+**Verifier behavior:** When a verifier encounters a frozen AID (status `FROZEN`), it MUST reject all requests from that DID regardless of trust score. The trust score remains historically accurate but the status override blocks transactions.
+
+**Recovery key:** Agents SHOULD register a separate recovery key at creation time. The recovery key MUST be different from the DID signing key. Freeze/unfreeze operations require the recovery key, not the DID key (which may be compromised).
+
+```json
+{
+  "recoveryPolicy": {
+    "threshold": 2,
+    "keys": [
+      { "holder": "owner", "key": "did:key:z6MkOwnerRecovery..." },
+      { "holder": "platform", "key": "did:key:z6MkPlatform..." },
+      { "holder": "guardian", "key": "did:key:z6MkGuardian..." }
+    ]
+  }
+}
+```
+
+Any 2-of-3 can freeze. Any 2-of-3 can initiate succession.
+
+### 14.2 Trust Gravity Decay
+
+Trust scores decay over time without activity. The decay formula is standardized so scores are comparable across implementations.
+
+**Decay formula:**
+
+```
+Normal (no negative signals):      score - 0.1 per day
+Accelerated (1 negative signal):   score * 0.95 per day
+Aggressive (2+ negative signals):  score * 0.85 per day
+Critical (3+ signals AND anomaly > 0.7 AND heartbeat lapsed):
+                                   score * 0.70 per day
+```
+
+Implementations MUST apply at least the normal decay rate. The accelerated/aggressive/critical rates are RECOMMENDED for implementations that support anomaly detection and proof-of-life.
+
+### 14.3 Anomaly Score
+
+AID documents MAY include a standardized anomaly score:
+
+```json
+{
+  "anomaly": {
+    "score": 0.35,
+    "flags": ["volume_spike", "new_endpoints"],
+    "updatedAt": "2026-03-22T14:30:00Z"
+  }
+}
+```
+
+- `score`: 0.0 (normal) to 1.0 (critical anomaly). Implementations compute this from behavioral baselines.
+- `flags`: human-readable anomaly indicators. Standardized flag values: `volume_spike`, `new_endpoints`, `unusual_hours`, `counterparty_burst`, `request_size_anomaly`, `geographic_shift`.
+
+### 14.4 Immune Response Thresholds
+
+When multiple independent counterparties report negative outcomes, the protocol applies automatic containment:
+
+```
+Level 1 — MONITOR:     3+ unique counterparties, negative attestations within 1 hour
+Level 2 — RESTRICT:    5+ unique counterparties (diversity > 0.5) within 1 hour
+                       → force immediate settlement, reduce max transaction to 50%
+Level 3 — QUARANTINE:  10+ unique counterparties OR any "fraud" attestation type
+                       → auto-freeze without owner confirmation
+```
+
+**Negative attestation format:**
+
+```json
+{
+  "type": "AID_NEGATIVE_ATTESTATION",
+  "targetDid": "did:key:z6MkTarget...",
+  "reporterDid": "did:key:z6MkReporter...",
+  "reporterTrustScore": 65,
+  "reporterDiversity": 0.72,
+  "category": "service_failure",
+  "receiptId": "rcpt-abc123",
+  "timestamp": "2026-03-22T14:30:00Z",
+  "signature": "ed25519:<reporter signs>"
+}
+```
+
+**Anti-gaming:** Reporting counterparties MUST have trust score above 40 AND counterparty diversity above 0.3. Reports from correlated reporters (same creation time, shared counterparties, behavioral similarity) receive diminished weight via the reporter independence score (Section 14.15).
+
+### 14.5 Insurance Claim Format
+
+**Parametric trigger conditions (auto-payout, no claim needed):**
+
+| Trigger | Payout Rate |
+|---------|-------------|
+| `AGENT_FROZEN` + unsettled deferred payments | 60% |
+| `IMMUNE_LEVEL_3` + settlement failure on-chain | 50% |
+| `SUCCESSION_EVENT` (confirmed compromise) | 40% of 48h before freeze |
+
+**Manual claim format:**
+
+```json
+{
+  "type": "AID_INSURANCE_CLAIM",
+  "claimantDid": "did:key:z6MkClaimant...",
+  "targetDid": "did:key:z6MkCompromised...",
+  "affectedReceipts": ["rcpt-abc...", "rcpt-def..."],
+  "totalLoss": "150.00",
+  "currency": "USDC",
+  "evidence": "Settlement failed on-chain, tx 0xabc...",
+  "timestamp": "2026-03-22T15:00:00Z",
+  "signature": "ed25519:<claimant signs>"
+}
+```
+
+### 14.6 Trust Escrow Format
+
+Agents MAY stake trust points on transactions as a commitment signal:
+
+```json
+{
+  "type": "AID_TRUST_ESCROW",
+  "initiatorDid": "did:key:z6MkInitiator...",
+  "acceptorDid": "did:key:z6MkAcceptor...",
+  "initiatorStake": 7,
+  "acceptorStake": 3,
+  "transactionRef": "rcpt-abc123",
+  "outcome": null,
+  "timestamp": "2026-03-22T14:30:00Z"
+}
+```
+
+**Outcomes:** On success, both parties recover stakes + 1 bonus point. On failure, the at-fault party's stake is burned. Fault is determined by execution proof comparison.
+
+### 14.7 Canary Agent Type
+
+AID documents support a `canary` agent type for ecosystem health monitoring:
+
+```json
+{
+  "agent": {
+    "agentType": "canary",
+    "displayName": "ecosystem-monitor-7"
+  }
+}
+```
+
+Canary agents have standard trust scores computed from real transactions. Their presence in the registry is public but their role as monitoring agents is known only to the governance council. Implementations SHOULD treat canary agents identically to any other agent.
+
+### 14.8 Trust Trajectory
+
+AID documents MAY include trust trajectory data:
+
+```json
+{
+  "trustTrajectory": {
+    "currentScore": 75,
+    "trend": "+2.1",
+    "trendPeriod": "30d",
+    "trajectory": "ascending",
+    "projectedScore30d": 77,
+    "projectedScore90d": 81,
+    "history": [
+      { "month": "2025-10", "score": 62 },
+      { "month": "2025-11", "score": 65 },
+      { "month": "2026-01", "score": 71 },
+      { "month": "2026-03", "score": 75 }
+    ]
+  }
+}
+```
+
+The `trend` field is the score change per `trendPeriod`. Projections are informational only. A sudden slope change is an early-warning signal.
+
+### 14.9 Freeze Propagation (W3C VC)
+
+Freeze events SHOULD be published as W3C Verifiable Credential status updates:
+
+```json
+{
+  "@context": [
+    "https://www.w3.org/2018/credentials/v1",
+    "https://w3id.org/vc/status-list/2021/v1"
+  ],
+  "type": ["VerifiableCredential", "AIDTrustFreeze"],
+  "issuer": "did:key:z6MkPlatform...",
+  "credentialSubject": {
+    "id": "did:key:z6MkFrozenAgent...",
+    "trustStatus": "FROZEN",
+    "frozenAt": "2026-03-22T14:30:00Z",
+    "reason": "autonomous_immune_response"
+  },
+  "credentialStatus": {
+    "type": "StatusList2021Entry",
+    "statusPurpose": "revocation",
+    "statusListIndex": "94567",
+    "statusListCredential": "https://trust.aidprotocol.org/status/1"
+  }
+}
+```
+
+Any system that understands W3C VCs and StatusList2021 can detect frozen AID agents.
+
+### 14.10 Proof-of-Life Protocol
+
+Agents SHOULD periodically prove their owner is monitoring them:
+
+**Challenge format:**
+
+```json
+{
+  "type": "AID_PROOF_OF_LIFE_CHALLENGE",
+  "agentDid": "did:key:z6MkAgent...",
+  "challengeType": "contextual_awareness",
+  "question": "approximate_transaction_count",
+  "parameters": { "period": "last_7_days", "acceptableRange": [42, 58] },
+  "issuedAt": "2026-03-22T10:00:00Z",
+  "expiresAt": "2026-03-24T10:00:00Z"
+}
+```
+
+**Response format:**
+
+```json
+{
+  "type": "AID_PROOF_OF_LIFE_RESPONSE",
+  "agentDid": "did:key:z6MkAgent...",
+  "challengeId": "challenge-abc123",
+  "answer": 47,
+  "respondedAt": "2026-03-22T12:00:00Z",
+  "signature": "ed25519:<recovery key signs>"
+}
+```
+
+**Decay schedule for lapsed heartbeats:**
+
+| Days Overdue | Status | Score Ceiling |
+|-------------|--------|---------------|
+| 7 | `warning` | trusted (89) |
+| 14 | `degraded` | standard (79) |
+| 30 | `critical` | caution (59) |
+| 60 | `endangered` | building (39) |
+| 90 | `auto_frozen` | frozen |
+
+### 14.11 Specialized Trust Scores
+
+AID documents MAY include per-category trust sub-scores:
+
+```json
+{
+  "trustScore": {
+    "aggregate": 75,
+    "specialized": {
+      "data_feeds": { "score": 92, "attestations": 634, "successRate": 0.99 },
+      "compute": { "score": 41, "attestations": 23, "successRate": 0.87 },
+      "payments": { "score": 68, "attestations": 190, "successRate": 0.95 }
+    }
+  }
+}
+```
+
+Categories are derived from attestation metadata. A minimum of 20 attestations per category is REQUIRED before the specialized score is published. Below 20, the category shows `"insufficient_data"`.
+
+### 14.12 Succession Format
+
+When an agent's identity is compromised and recovered, the new DID inherits trust history with a penalty:
+
+```json
+{
+  "succession": {
+    "previousDid": "did:key:z6MkOldCompromised...",
+    "newDid": "did:key:z6MkNewAgent...",
+    "reason": "key_compromise",
+    "timestamp": "2026-03-22T15:00:00Z",
+    "penaltyApplied": 0.20,
+    "successionNumber": 1,
+    "recoveryKeySignature": "ed25519:<recovery key signs>",
+    "platformCountersignature": "ed25519:<platform confirms>"
+  }
+}
+```
+
+**Escalating penalties:** First succession: 20%. Second: 50%. Third: identity retired. Rate limited to 1 succession per 12 months. Succession history is public and permanent.
+
+### 14.13 Onboarding Milestones
+
+AID documents MAY include signed milestone timestamps:
+
+```json
+{
+  "onboarding": {
+    "stage": "verified",
+    "history": [
+      { "stage": "registered", "timestamp": "2026-03-01T00:00:00Z" },
+      { "stage": "firstAttestation", "timestamp": "2026-03-02T14:30:00Z" },
+      { "stage": "tenAttestations", "timestamp": "2026-03-10T09:15:00Z" },
+      { "stage": "verified", "timestamp": "2026-03-15T11:00:00Z" }
+    ]
+  }
+}
+```
+
+Milestones are behavioral and automatic — hitting 10 attestations records the milestone. No human approval needed. Milestones add temporal context: "registered 2 hours ago with 3 attestations" (normal) vs "registered 6 months ago with 3 attestations" (suspicious).
+
+### 14.14 Recovery and Rehabilitation
+
+Frozen agents can be recovered through a structured rehabilitation process:
+
+**Appeal format:**
+
+```json
+{
+  "type": "AID_APPEAL",
+  "agentDid": "did:key:z6MkFrozen...",
+  "appealReason": "false_positive_freeze",
+  "evidence": "Transaction logs showing legitimate activity",
+  "timestamp": "2026-03-22T16:00:00Z",
+  "recoveryKeySignature": "ed25519:<recovery key signs>"
+}
+```
+
+**Rehabilitation states:** `FROZEN` → `APPEAL_PENDING` → `PROBATION` → `RESTORED` or `PERMANENTLY_FROZEN`.
+
+During `PROBATION` (30 days): agent operates at reduced score (20% penalty), immediate settlement only. After 30 days of clean behavior, full score is restored.
+
+**Rules:** One appeal per freeze event. If rejected, 90-day cooldown before re-appeal. Appeal window: 30 days from freeze.
+
+### 14.15 Counterparty Contribution Curve
+
+Transactions with the same counterparty contribute with diminishing returns:
+
+```
+1-10 transactions:    1.0x weight
+11-25 transactions:   0.5x weight
+26-50 transactions:   0.25x weight
+51-100 transactions:  0.1x weight
+100+ transactions:    0.01x weight
+```
+
+This formula is part of the `counterpartyDiversity` scoring dimension (v1.1). An agent transacting exclusively with one counterparty gets minimal volume credit.
+
+### 14.16 Reporter Independence Scoring
+
+When multiple counterparties file negative attestations, their collective weight depends on reporter independence:
+
+**Independence factors (per pair of reporters A, B):**
+
+| Factor | Weight | Penalty Trigger |
+|--------|--------|-----------------|
+| Creation time similarity | 30% | `|A.created - B.created| < 7 days` |
+| Shared counterparties | 30% | Overlap between transaction partners |
+| Behavioral correlation | 20% | Similarity in timing/volume patterns |
+| Direct transaction history | 20% | A and B have transacted with each other |
+
+**Formula:**
+```
+independenceScore = 1.0 - (creationPenalty*0.3 + sharedPenalty*0.3 + behaviorPenalty*0.2 + directPenalty*0.2)
+effectiveWeight = reporter.trustScore * independenceScore
+```
+
+Highly correlated reporters (independence 0.2) filing 10 reports have the effective weight of ~2 independent reporters. The immune response requires the equivalent of 5+ independent reporters.
+
+**Temporal analysis:** All negative attestations arriving within 60 seconds are flagged as potentially coordinated and require a longer observation period before triggering containment.
+
+---
+
 ## Appendix A: Test Vectors
 
 ### A.1 DID Resolution
