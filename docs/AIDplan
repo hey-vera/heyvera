@@ -98,6 +98,10 @@ transaction makes it smarter.
 - [ ] Ship @aidprotocol/middleware for Express/Fastify (broaden reach)
 - [ ] Publish /.well-known/aid-platform-key (A2A trust verification)
 - [ ] BIP-39 single-seed key derivation (Flaw 3, elevated to Phase 1)
+- [ ] Build @aidprotocol/gateway — commerce middleware wrapping x402/MPP calls (from Mnemom, Section 15.7)
+- [ ] Public trust leaderboard at trust.aidprotocol.org (from 402audit, Section 15.7)
+- [ ] @aidprotocol/trust-gate GitHub Action — CI/CD trust gating (from Mnemom, Section 15.7)
+- [ ] Auto-dispute flag on manifest violation in AID receipts (from PayCrow, Section 15.7)
 
 ### PHASE 2: ECOSYSTEM REACH (Months 2-3)
 - [ ] Ship aid-trust Python package (CrewAI/LangGraph plugins)
@@ -121,6 +125,9 @@ transaction makes it smarter.
 - [ ] AID-MPP Profile — trust headers alongside Stripe MPP session authorization (Section 15.5)
 - [ ] AID-AgentKit bridge — optional World ID linking for maximum trust signal (Section 45.5)
 - [ ] AID-TAP reference — spec-only interop note for Visa Trusted Agent Protocol (no code)
+- [ ] AIDEscrow.sol reference contract on Base — trust-gated escrow timelocks (from PayCrow, Section 15.7)
+- [ ] ZK proof of scoring function via RISC Zero — <$0.01/proof (accelerated from Phase 4, from Mnemom)
+- [ ] Sybil risk as supplementary signal in AID documents — consume Cred/external data (Section 15.7)
 - [ ] Gas price circuit breaker for batch settlement (Vector 43)
 - [ ] Verification receipt in middleware — caller-verifiable ClawNet-signed token (Flaw 18)
 - [ ] ARA compatibility evaluation (Flaw 16)
@@ -168,7 +175,7 @@ transaction makes it smarter.
 
 ---
 
-**Progress: 24/117 items complete (21%). NEXT: Submit NIST comment → AID-MPP Profile → playground.**
+**Progress: 24/124 items complete (19%). NEXT: Submit NIST comment → @aidprotocol/gateway → public leaderboard → DIF presentation.**
 
 ---
 
@@ -1431,6 +1438,105 @@ Mnemom = DigiCert (great product, niche)
 PayCrow = Comodo (specific use case)
 AID    = HTTPS (the standard they all eventually implement)
 ```
+
+### Competitive Steal Playbook — Absorb Best Ideas Into the Standard
+
+**From Mnemom — steal 3 things:**
+
+1. **Gateway pattern** — `@aidprotocol/gateway` middleware that wraps outbound x402/MPP calls.
+   Agent installs it, sets one env var (DID private key), every payment automatically gets
+   AID trust headers + attestations + receipts. Zero code changes. Mnemom does this for LLM
+   calls; AID does it for commerce calls. Commerce surface > LLM surface.
+
+2. **ZK proof economics** — Don't prove the full attestation history. Prove that
+   `computeTrustScoreWithProof()` ran correctly on declared inputs. 4 inputs, 4 weights,
+   one formula = ~500 RISC-V cycles. Use RISC Zero (same as Mnemom). Cost: <$0.01/proof.
+   **Accelerate from Phase 4 (month 18+) to Phase 2 (month 3-4).**
+
+3. **CI/CD integration** — `@aidprotocol/trust-gate` GitHub Action. Before agent deploys,
+   check AID trust score. If score dropped below threshold → block deploy. 20 lines of code.
+   Mnemom gates on internal metrics (drift, coherence). AID gates on external commerce
+   reputation (success rate, attestation history).
+
+**From PayCrow — steal 2 things:**
+
+4. **Auto-dispute on manifest violation** — Add `disputeEligible` flag to AID receipts.
+   When execution proof shows 5xx, timeout, or data not matching manifest output schema →
+   auto-flag. PayCrow only checks HTTP status codes. AID checks against the MANIFEST
+   (what the service promised). A 200 OK with garbage data that violates the manifest
+   gets flagged. PayCrow misses this.
+
+5. **AIDEscrow.sol reference contract** — 50 lines of Solidity on Base. Trust score ≥80 →
+   direct transfer (no escrow). Score 40-79 → 15-min timelock. Score <40 → 24h timelock.
+   PayCrow's escrow uses proprietary scoring. AID's uses portable, DIF-recognized scores
+   that ANY escrow contract on ANY chain can consume.
+
+**From 402audit — steal 1 thing:**
+
+6. **Public leaderboard** — `trust.aidprotocol.org` showing all agents with trust scores,
+   attestation counts, verdicts, Merkle verification status. Searchable, filterable, public.
+   AID's version of the Ethereum block explorer, but for trust. Every competitor has one.
+
+**From KAMIYO — steal 1 concept (Phase 3 design):**
+
+7. **Reputation-backed credit lines** — natural evolution of trust-gated pricing:
+   ```
+   Score 0-39:   Prepay only (immediate settlement)
+   Score 40-79:  Pay on delivery (batched settlement)
+   Score 80-89:  Net-30 credit (trust-backed deferred)
+   Score 90+:    Revolving credit line (reputation-collateralized)
+   ```
+   KAMIYO's credit is Solana-only with SOL collateral. AID's is cross-chain, backed by
+   behavioral reputation. Design now, build Phase 3.
+
+**From Cred Protocol — steal 1 signal:**
+
+8. **Sybil risk as supplementary signal** — Don't build a Sybil detector. Consume Cred's
+   Sybil risk score as supplementary data in AID documents. Add `signals.sybilRisk` field.
+   AID scores behavior. Cred scores wallets. Together = behavioral trust + Sybil resistance.
+
+**Priority order:**
+
+| # | From | What | Effort | Phase |
+|---|------|------|--------|-------|
+| 1 | Mnemom | `@aidprotocol/gateway` middleware | 2-3 days | Phase 1 |
+| 2 | 402audit | Public leaderboard (trust.aidprotocol.org) | 2-3 days | Phase 1 |
+| 3 | Mnemom | GitHub Action trust gate | 1 day | Phase 1 |
+| 4 | PayCrow | Auto-dispute flag on manifest violation | 1 day | Phase 1 |
+| 5 | PayCrow | AIDEscrow.sol reference contract | 2 days | Phase 2 |
+| 6 | Mnemom | ZK proof of scoring function (RISC Zero) | 1-2 weeks | Phase 2 |
+| 7 | Cred | Sybil risk as supplementary signal | 1 day | Phase 2 |
+| 8 | KAMIYO | Reputation-backed credit lines | Design now | Phase 3 |
+
+Items 1-4 ship in under 2 weeks. Give AID feature parity with every competitor
+on distribution while maintaining the standards advantage none of them have.
+
+### DIF Newsletter #59 Intel (March 19, 2026 — 3 Days Ago)
+
+**The institutional landscape is perfectly aligned for AID.**
+
+Three critical findings from the newsletter:
+
+1. **DIF's new Executive Director (Grace Rachmany) explicitly made AI agent identity
+   the organization's primary direction for 2026.** Three working groups (TAAWG, H&T,
+   CAWG) are all working on AI agent aspects. Not just one group — institutional priority.
+
+2. **DIF's "historical weakness" is bringing specs to production.** Direct quote from the
+   newsletter. AID brings BOTH — a spec AND production code. Use this in the opening:
+   > "I read Newsletter #59. Grace said DIF's historical weakness is bringing specs
+   > to production. I brought both — a spec AND production code running on it today."
+
+3. **The Executive Director publicly argued AGAINST centralized agent identity:**
+   > "Agentic AI has an even stronger use case for decentralized AI than human
+   > identification. Agents can be spun up and spun down rapidly. From that perspective,
+   > it's easy to see how centralized databases identifying agents make no sense at all."
+   This is DIF's ED publicly arguing that Microsoft Entra Agent ID and Visa TAP won't
+   work for agents. AID's `did:key` + portable trust scores = exactly what DIF wants.
+
+4. **Cross-working-group demand for trust scoring:**
+   - H&T (Hospitality & Travel) → travel agents need trust scoring
+   - CAWG (Creator Assertions) → content agents need trust scoring
+   - Both groups are looking at TAAWG for answers. AID applies to both.
 
 ---
 
