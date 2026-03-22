@@ -1096,6 +1096,118 @@ const MIGRATIONS: { version: number; sql: string }[] = [
     ALTER TABLE aid_keys ADD COLUMN heartbeat_decay_applied REAL NOT NULL DEFAULT 0;
     ALTER TABLE aid_keys ADD COLUMN proof_of_life_status TEXT NOT NULL DEFAULT 'active';
   ` },
+  { version: 112, sql: `
+    CREATE TABLE IF NOT EXISTS aid_guardians (
+      id TEXT PRIMARY KEY,
+      guardian_did TEXT NOT NULL,
+      guardian_owner_key TEXT NOT NULL,
+      guardian_type TEXT NOT NULL DEFAULT 'primary',
+      status TEXT NOT NULL DEFAULT 'active',
+      agents_guarded INTEGER NOT NULL DEFAULT 0,
+      successful_freezes INTEGER NOT NULL DEFAULT 0,
+      false_positives INTEGER NOT NULL DEFAULT 0,
+      trust_score REAL NOT NULL DEFAULT 0,
+      max_agents INTEGER NOT NULL DEFAULT 50,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_aid_guardians_did ON aid_guardians(guardian_did);
+    CREATE INDEX IF NOT EXISTS idx_aid_guardians_status ON aid_guardians(status);
+
+    CREATE TABLE IF NOT EXISTS aid_guardian_assignments (
+      id TEXT PRIMARY KEY,
+      agent_did TEXT NOT NULL,
+      guardian_did TEXT NOT NULL,
+      assignment_type TEXT NOT NULL DEFAULT 'primary',
+      assigned_at TEXT NOT NULL DEFAULT (datetime('now')),
+      expires_at TEXT,
+      status TEXT NOT NULL DEFAULT 'active'
+    );
+    CREATE INDEX IF NOT EXISTS idx_aid_assignments_agent ON aid_guardian_assignments(agent_did, status);
+    CREATE INDEX IF NOT EXISTS idx_aid_assignments_guardian ON aid_guardian_assignments(guardian_did, status);
+
+    CREATE TABLE IF NOT EXISTS aid_trust_trajectory (
+      id TEXT PRIMARY KEY,
+      did TEXT NOT NULL,
+      score INTEGER NOT NULL,
+      month TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_aid_trajectory_did ON aid_trust_trajectory(did, month DESC);
+
+    CREATE TABLE IF NOT EXISTS aid_onboarding_milestones (
+      id TEXT PRIMARY KEY,
+      did TEXT NOT NULL,
+      stage TEXT NOT NULL,
+      timestamp TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_aid_milestones_did ON aid_onboarding_milestones(did);
+
+    CREATE TABLE IF NOT EXISTS aid_succession (
+      id TEXT PRIMARY KEY,
+      previous_did TEXT NOT NULL,
+      new_did TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      penalty_applied REAL NOT NULL DEFAULT 0.20,
+      succession_number INTEGER NOT NULL DEFAULT 1,
+      recovery_key_signature TEXT,
+      platform_signature TEXT,
+      status TEXT NOT NULL DEFAULT 'active',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_aid_succession_prev ON aid_succession(previous_did);
+    CREATE INDEX IF NOT EXISTS idx_aid_succession_new ON aid_succession(new_did);
+
+    CREATE TABLE IF NOT EXISTS aid_appeals (
+      id TEXT PRIMARY KEY,
+      agent_did TEXT NOT NULL,
+      appeal_reason TEXT NOT NULL,
+      evidence TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      recovery_key_signature TEXT,
+      reviewed_at TEXT,
+      reviewed_by TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_aid_appeals_did ON aid_appeals(agent_did, status);
+
+    CREATE TABLE IF NOT EXISTS aid_trust_escrow (
+      id TEXT PRIMARY KEY,
+      initiator_did TEXT NOT NULL,
+      acceptor_did TEXT NOT NULL,
+      initiator_stake REAL NOT NULL DEFAULT 7,
+      acceptor_stake REAL NOT NULL DEFAULT 3,
+      transaction_ref TEXT,
+      outcome TEXT,
+      fault_party TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      resolved_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_aid_escrow_initiator ON aid_trust_escrow(initiator_did);
+
+    CREATE TABLE IF NOT EXISTS aid_insurance_fund (
+      id TEXT PRIMARY KEY,
+      balance REAL NOT NULL DEFAULT 0,
+      total_premiums_collected REAL NOT NULL DEFAULT 0,
+      total_claims_paid REAL NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS aid_insurance_claims (
+      id TEXT PRIMARY KEY,
+      claimant_did TEXT NOT NULL,
+      target_did TEXT NOT NULL,
+      trigger_type TEXT NOT NULL,
+      affected_receipts TEXT,
+      total_loss REAL NOT NULL DEFAULT 0,
+      payout_amount REAL,
+      payout_rate REAL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      resolved_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_aid_claims_target ON aid_insurance_claims(target_did);
+  ` },
 ];
 
 function runMigrations(): void {

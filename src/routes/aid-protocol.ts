@@ -299,4 +299,296 @@ router.get('/leaderboard', (c) => {
   }
 });
 
+// ─── GET /trajectory/:did — Trust trajectory (score history + projections) ────
+
+router.get('/trajectory/:did', (c) => {
+  const did = c.req.param('did');
+  const history = getDb().prepare(
+    'SELECT month, score FROM aid_trust_trajectory WHERE did = ? ORDER BY month DESC LIMIT 12'
+  ).all(did) as { month: string; score: number }[];
+
+  if (history.length === 0) {
+    return c.json({ did, trajectory: 'insufficient_data', history: [] });
+  }
+
+  const current = history[0]?.score || 0;
+  const oldest = history[history.length - 1]?.score || current;
+  const months = history.length;
+  const trend = months > 1 ? Number(((current - oldest) / months).toFixed(1)) : 0;
+  const trajectory = trend > 0.5 ? 'ascending' : trend < -0.5 ? 'descending' : 'stable';
+
+  return c.json({
+    did,
+    currentScore: current,
+    trend: `${trend > 0 ? '+' : ''}${trend}`,
+    trendPeriod: `${months}mo`,
+    trajectory,
+    projectedScore30d: Math.min(100, Math.max(0, Math.round(current + trend))),
+    projectedScore90d: Math.min(100, Math.max(0, Math.round(current + trend * 3))),
+    history: history.reverse(),
+  });
+});
+
+// ─── GET /milestones/:did — Onboarding milestones ────────────────────────────
+
+router.get('/milestones/:did', (c) => {
+  const did = c.req.param('did');
+  const milestones = getDb().prepare(
+    'SELECT stage, timestamp FROM aid_onboarding_milestones WHERE did = ? ORDER BY timestamp ASC'
+  ).all(did) as { stage: string; timestamp: string }[];
+
+  const currentStage = milestones.length > 0 ? milestones[milestones.length - 1].stage : 'registered';
+
+  return c.json({ did, stage: currentStage, history: milestones });
+});
+
+// ─── GET /guardians — List approved guardians ────────────────────────────────
+
+router.get('/guardians', (c) => {
+  const guardians = getDb().prepare(`
+    SELECT guardian_did, guardian_type, agents_guarded, successful_freezes,
+           false_positives, trust_score, status, created_at
+    FROM aid_guardians WHERE status = 'active'
+    ORDER BY trust_score DESC LIMIT 50
+  `).all() as any[];
+
+  return c.json({ guardians, total: guardians.length });
+});
+
+// ─── POST /guardians/register — Register as a guardian ───────────────────────
+
+router.post('/guardians/register', checkAidProof, async (c) => {
+  const aidInfo = c.get('aidInfo') as AidInfo | undefined;
+  if (!aidInfo) return c.json({ error: 'AID authentication required', code: 'AID_PROOF_MISSING' }, 428);
+
+  // Guardian must have trust score >= 70
+  if (aidInfo.trustScore < 70) {
+    return c.json({ error: 'Trust score must be 70+ to become a guardian', code: 'AID_TRUST_GATE_BLOCKED' }, 403);
+  }
+
+  // Check if already registered
+  const existing = getDb().prepare(
+    'SELECT id FROM aid_guardians WHERE guardian_did = ? AND status = ?'
+  ).get(aidInfo.did, 'active');
+  if (existing) return c.json({ error: 'Already registered as guardian', code: 'GUARDIAN_EXISTS' }, 409);
+
+  const id = `guard-${nanoid(16)}`;
+  getDb().prepare(`
+    INSERT INTO aid_guardians (id, guardian_did, guardian_owner_key, trust_score)
+    VALUES (?, ?, ?, ?)
+  `).run(id, aidInfo.did, aidInfo.ownerKey, aidInfo.trustScore);
+
+  return c.json({ guardianId: id, did: aidInfo.did, status: 'active' }, 201);
+});
+
+// ─── POST /guardians/assign — Assign a guardian to an agent ──────────────────
+
+router.post('/guardians/assign', checkAidProof, async (c) => {
+  const aidInfo = c.get('aidInfo') as AidInfo | undefined;
+  if (!aidInfo) return c.json({ error: 'AID authentication required', code: 'AID_PROOF_MISSING' }, 428);
+
+  let body: any;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON', code: 'INVALID_BODY' }, 400); }
+
+  const guardianDid = body?.guardianDid;
+  if (!guardianDid) return c.json({ error: 'guardianDid required', code: 'MISSING_FIELD' }, 400);
+
+  // Verify guardian exists and is active
+  const guardian = getDb().prepare(
+    'SELECT id, agents_guarded, max_agents FROM aid_guardians WHERE guardian_did = ? AND status = ?'
+  ).get(guardianDid, 'active') as any;
+  if (!guardian) return c.json({ error: 'Guardian not found or inactive', code: 'GUARDIAN_NOT_FOUND' }, 404);
+
+  // Check concentration limit (10% max)
+  const totalAgents = getDb().prepare('SELECT COUNT(*) as n FROM aid_keys WHERE key_status = ?').get('active') as { n: number };
+  const maxAllowed = Math.max(5, Math.floor(totalAgents.n * 0.10));
+  if (guardian.agents_guarded >= maxAllowed) {
+    return c.json({ error: 'Guardian at capacity (10% concentration limit)', code: 'GUARDIAN_FULL' }, 429);
+  }
+
+  const id = `assign-${nanoid(16)}`;
+  getDb().transaction(() => {
+    getDb().prepare(`
+      INSERT INTO aid_guardian_assignments (id, agent_did, guardian_did, assignment_type)
+      VALUES (?, ?, ?, 'primary')
+    `).run(id, aidInfo.did, guardianDid);
+
+    getDb().prepare(
+      'UPDATE aid_guardians SET agents_guarded = agents_guarded + 1, updated_at = datetime(\'now\') WHERE guardian_did = ?'
+    ).run(guardianDid);
+
+    getDb().prepare(
+      'UPDATE aid_keys SET guardian_address = ?, updated_at = datetime(\'now\') WHERE did = ? AND key_status = ?'
+    ).run(guardianDid, aidInfo.did, 'active');
+  })();
+
+  return c.json({ assignmentId: id, agentDid: aidInfo.did, guardianDid, type: 'primary' }, 201);
+});
+
+// ─── POST /succession — DID migration with penalty (14.12) ───────────────────
+
+router.post('/succession', checkAidProof, async (c) => {
+  const aidInfo = c.get('aidInfo') as AidInfo | undefined;
+  if (!aidInfo) return c.json({ error: 'AID authentication required', code: 'AID_PROOF_MISSING' }, 428);
+
+  let body: any;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON', code: 'INVALID_BODY' }, 400); }
+
+  const previousDid = body?.previousDid;
+  const reason = body?.reason || 'key_compromise';
+  if (!previousDid) return c.json({ error: 'previousDid required', code: 'MISSING_FIELD' }, 400);
+
+  // Check succession rate limit (1 per 12 months)
+  const recentSuccession = getDb().prepare(
+    'SELECT id FROM aid_succession WHERE new_did = ? AND created_at > datetime(\'now\', \'-12 months\')'
+  ).get(aidInfo.did);
+  if (recentSuccession) {
+    return c.json({ error: 'Succession rate limited to 1 per 12 months', code: 'RATE_LIMITED' }, 429);
+  }
+
+  // Count previous successions for escalating penalty
+  const priorCount = getDb().prepare(
+    'SELECT COUNT(*) as n FROM aid_succession WHERE new_did = ? OR previous_did = ?'
+  ).get(aidInfo.did, aidInfo.did) as { n: number };
+
+  const successionNumber = priorCount.n + 1;
+  if (successionNumber > 3) {
+    return c.json({ error: 'Identity retired after 3 successions', code: 'IDENTITY_RETIRED' }, 403);
+  }
+
+  const penalty = successionNumber === 1 ? 0.20 : successionNumber === 2 ? 0.50 : 1.0;
+
+  const id = `succ-${nanoid(16)}`;
+  getDb().prepare(`
+    INSERT INTO aid_succession (id, previous_did, new_did, reason, penalty_applied, succession_number)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(id, previousDid, aidInfo.did, reason, penalty, successionNumber);
+
+  logAudit({
+    entityType: 'aid', entityId: aidInfo.did, action: 'succession',
+    data: { previousDid, reason, penalty, successionNumber },
+  });
+
+  return c.json({
+    successionId: id, previousDid, newDid: aidInfo.did,
+    reason, penaltyApplied: penalty, successionNumber,
+    note: penalty >= 1.0 ? 'Identity retired' : `${penalty * 100}% score penalty applied`,
+  }, 201);
+});
+
+// ─── POST /appeals — File an appeal against a freeze (14.14) ─────────────────
+
+router.post('/appeals', checkAidProof, async (c) => {
+  const aidInfo = c.get('aidInfo') as AidInfo | undefined;
+  if (!aidInfo) return c.json({ error: 'AID authentication required', code: 'AID_PROOF_MISSING' }, 428);
+
+  let body: any;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON', code: 'INVALID_BODY' }, 400); }
+
+  const appealReason = body?.reason;
+  const evidence = body?.evidence;
+  if (!appealReason) return c.json({ error: 'reason required', code: 'MISSING_FIELD' }, 400);
+
+  // Check for existing pending appeal
+  const pendingAppeal = getDb().prepare(
+    'SELECT id FROM aid_appeals WHERE agent_did = ? AND status = ?'
+  ).get(aidInfo.did, 'pending');
+  if (pendingAppeal) {
+    return c.json({ error: 'Appeal already pending', code: 'APPEAL_EXISTS' }, 409);
+  }
+
+  // Check cooldown (90 days after rejection)
+  const recentRejection = getDb().prepare(
+    'SELECT id FROM aid_appeals WHERE agent_did = ? AND status = ? AND reviewed_at > datetime(\'now\', \'-90 days\')'
+  ).get(aidInfo.did, 'rejected');
+  if (recentRejection) {
+    return c.json({ error: '90-day cooldown after rejected appeal', code: 'APPEAL_COOLDOWN' }, 429);
+  }
+
+  const id = `appeal-${nanoid(16)}`;
+  getDb().prepare(`
+    INSERT INTO aid_appeals (id, agent_did, appeal_reason, evidence)
+    VALUES (?, ?, ?, ?)
+  `).run(id, aidInfo.did, appealReason, evidence || null);
+
+  return c.json({ appealId: id, agentDid: aidInfo.did, status: 'pending' }, 201);
+});
+
+// ─── POST /escrow — Create trust point escrow (14.6) ─────────────────────────
+
+router.post('/escrow', checkAidProof, async (c) => {
+  const aidInfo = c.get('aidInfo') as AidInfo | undefined;
+  if (!aidInfo) return c.json({ error: 'AID authentication required', code: 'AID_PROOF_MISSING' }, 428);
+
+  if (aidInfo.trustScore < 40) {
+    return c.json({ error: 'Trust score must be 40+ to initiate escrow', code: 'AID_TRUST_GATE_BLOCKED' }, 403);
+  }
+
+  let body: any;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON', code: 'INVALID_BODY' }, 400); }
+
+  const acceptorDid = body?.acceptorDid;
+  const transactionRef = body?.transactionRef;
+  if (!acceptorDid) return c.json({ error: 'acceptorDid required', code: 'MISSING_FIELD' }, 400);
+
+  const id = `escrow-${nanoid(16)}`;
+  getDb().prepare(`
+    INSERT INTO aid_trust_escrow (id, initiator_did, acceptor_did, initiator_stake, acceptor_stake, transaction_ref)
+    VALUES (?, ?, ?, 7, 3, ?)
+  `).run(id, aidInfo.did, acceptorDid, transactionRef || null);
+
+  return c.json({
+    escrowId: id, initiatorDid: aidInfo.did, acceptorDid,
+    initiatorStake: 7, acceptorStake: 3,
+    note: 'Asymmetric escrow: initiator risks 7 points, acceptor risks 3. Both earn +1 on success.',
+  }, 201);
+});
+
+// ─── POST /escrow/:id/resolve — Resolve trust escrow ─────────────────────────
+
+router.post('/escrow/:id/resolve', checkAidProof, async (c) => {
+  const aidInfo = c.get('aidInfo') as AidInfo | undefined;
+  if (!aidInfo) return c.json({ error: 'AID authentication required', code: 'AID_PROOF_MISSING' }, 428);
+
+  const escrowId = c.req.param('id');
+  const escrow = getDb().prepare('SELECT * FROM aid_trust_escrow WHERE id = ? AND outcome IS NULL').get(escrowId) as any;
+  if (!escrow) return c.json({ error: 'Escrow not found or already resolved', code: 'ESCROW_NOT_FOUND' }, 404);
+
+  let body: any;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON', code: 'INVALID_BODY' }, 400); }
+
+  const outcome = body?.outcome; // 'success' | 'initiator_fault' | 'acceptor_fault'
+  if (!['success', 'initiator_fault', 'acceptor_fault'].includes(outcome)) {
+    return c.json({ error: 'outcome must be success, initiator_fault, or acceptor_fault', code: 'INVALID_OUTCOME' }, 400);
+  }
+
+  getDb().prepare(`
+    UPDATE aid_trust_escrow SET outcome = ?, fault_party = ?, resolved_at = datetime('now')
+    WHERE id = ?
+  `).run(outcome, outcome === 'success' ? null : outcome.replace('_fault', ''), escrowId);
+
+  return c.json({
+    escrowId, outcome,
+    initiatorResult: outcome === 'success' ? '+1' : outcome === 'initiator_fault' ? '-7' : '+7 returned',
+    acceptorResult: outcome === 'success' ? '+1' : outcome === 'acceptor_fault' ? '-3' : '+3 returned + 2 compensation',
+  });
+});
+
+// ─── GET /insurance/balance — Insurance fund status ──────────────────────────
+
+router.get('/insurance/balance', (c) => {
+  let fund = getDb().prepare('SELECT * FROM aid_insurance_fund LIMIT 1').get() as any;
+  if (!fund) {
+    getDb().prepare('INSERT INTO aid_insurance_fund (id, balance) VALUES (?, ?)').run('fund-main', 0);
+    fund = { balance: 0, total_premiums_collected: 0, total_claims_paid: 0 };
+  }
+
+  return c.json({
+    balance: fund.balance,
+    totalPremiumsCollected: fund.total_premiums_collected,
+    totalClaimsPaid: fund.total_claims_paid,
+    solvencyStatus: fund.balance > 1000 ? 'healthy' : fund.balance > 100 ? 'adequate' : 'low',
+  });
+});
+
 export { router as aidProtocolRouter };
