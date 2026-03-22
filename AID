@@ -25,12 +25,12 @@ transaction makes it smarter.
 - [ ] ~~Submit lightning talk to MCP Dev Summit~~ — SKIPPED (travel cost, sponsorship-gated)
 - [x] Switch DID method from `did:clawnet` to `did:key` in published spec (done — 34 refs updated)
 - [x] Draft 2-page NIST NCCoE comment on agent identity concept paper (Flaw 19 — due April 2, draft at `docs/nist-nccoe-comment.md`)
-- [x] Publish `@aidprotocol/trust-compute@1.0.1` to npm (standalone scoring lib, live)
+- [x] Publish `@aidprotocol/trust-compute@2.0.0` to npm (standalone scoring lib, SHA-384, live)
 
 ### THIS WEEK (Days 2-5)
 - [ ] Submit NIST NCCoE comment (AI-Identity@nist.gov, deadline April 2)
-- [ ] Ship @aidprotocol/mcp-trust alpha to npm (~200 lines)
-- [ ] Publish AID spec as Protocol + Profiles (MCP, A2A, x402) — not monolith (Optimization 22)
+- [x] Ship @aidprotocol/mcp-trust@1.1.0 alpha to npm (trust verification middleware, live)
+- [x] Publish AID spec as Protocol + Profiles (MCP, A2A, x402) — not monolith (Optimization 22, at `docs/aid-protocol-spec.md`)
 - [ ] Define governance model for trust formula versioning (Flaw 9)
 - [ ] Build interactive playground / trust.claw-net.org PWA
 
