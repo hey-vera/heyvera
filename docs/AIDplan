@@ -131,6 +131,12 @@ transaction makes it smarter.
 - [ ] Trust Score v1.1 — add counterpartyDiversity (15%) + recency-weighted successRate (Section 4.2)
 - [ ] Onboarding milestones — signed timestamps for key trust journey events (from AgentSign, Section 4.2)
 - [ ] AID-Solana-Registry bridge — Ed25519 native mapping (parallel with ERC-8004 bridge)
+- [ ] Recovery key registration (2-of-3 multi-sig) at AID creation (Section 39.18)
+- [ ] Trust freeze endpoint — FROZEN/CHALLENGE/SOFT_FREEZE states (Section 39.18)
+- [ ] Proof of life heartbeat — weekly owner signature, auto-decay schedule (Section 39.18)
+- [ ] Anomaly detection + progressive behavioral containment (Section 39.18)
+- [ ] Guardian agent framework — agents monitoring agents (Section 39.18)
+- [ ] Counterparty immune response — auto-quarantine from collective reports (Section 39.18)
 - [ ] Gas price circuit breaker for batch settlement (Vector 43)
 - [ ] Verification receipt in middleware — caller-verifiable ClawNet-signed token (Flaw 18)
 - [ ] ARA compatibility evaluation (Flaw 16)
@@ -4748,6 +4754,169 @@ Attacker could craft Ed25519 points that pass validation but aren't in the corre
 mandates libsodium 1.0.20+ for any implementation that does use it.
 
 **Total attack vectors mitigated: 63** (60 previous + 3 Ed25519 implementation CVEs).
+
+### 39.18 AUTONOMOUS DEFENSE SYSTEM (The Immune System for Agent Commerce)
+
+**The problem:** 90% of agents in production by 2027 will be "set and forget." Owners
+deploy agents, stop monitoring, change phone numbers, forget recovery keys. Every
+mitigation that requires human action (freeze confirmation, succession signing, insurance
+claims) fails for unattended agents. A compromised agent at trust score 92 with an
+absent owner has weeks or months of unrestricted access.
+
+**The insight:** The protocol must be its own immune system. Detect, contain, and
+neutralize compromised agents autonomously — without any human making any decision.
+
+**5 autonomous layers (no human needed):**
+
+**Layer 1: Proof of Life (Dead Man's Switch)**
+```
+Agent owner signs a heartbeat once per week (recovery key, mobile secure enclave).
+If heartbeat lapses:
+  7 days overdue:  reduce to "trusted" tier
+  14 days overdue: reduce to "standard" tier
+  30 days overdue: reduce to "caution" tier
+  60 days overdue: reduce to "building" tier
+  90 days overdue: auto-freeze
+
+Score decay makes "set and forget" progressively more expensive.
+An unmonitored agent at score 92 = loaded gun.
+An unmonitored agent at score 40 = firecracker.
+Damage ceiling drops automatically.
+```
+
+**Layer 2: Counterparty Immune Response**
+```
+Multiple independent counterparties report bad experiences →
+protocol aggregates signal → automatic containment.
+
+Level 1 — MONITOR:   3+ unique counterparties, negative attestations in 1hr
+Level 2 — RESTRICT:  5+ unique counterparties (diversity > 0.5) in 1hr
+                     → auto-downgrade to immediate settlement, 50% max tx
+Level 3 — QUARANTINE: 10+ unique counterparties OR any "fraud" attestation
+                     → auto-freeze without owner confirmation
+                     → notify all recent counterparties
+                     → anchor freeze on-chain
+
+Anti-gaming: reporting counterparties must have trust > 40 AND diversity > 0.3.
+Prevents attacker creating 10 fake agents to grief a legitimate agent.
+```
+
+**Layer 3: Progressive Behavioral Containment**
+```
+Anomaly score   Automatic action (NO human approval needed)
+0.0 - 0.3       Normal
+0.3 - 0.5       Log increased detail
+0.5 - 0.7       Force immediate settlement, 75% max tx
+0.7 - 0.85      Force immediate, 25% max tx, +5s delay on responses
+0.85 - 0.95     Soft freeze: existing counterparties only, $1 max tx
+0.95+           Full auto-freeze
+
+The 5-second delay at 0.7+ is subtle but devastating to automated attacks.
+Legitimate agents don't care. Attack scripts that rely on speed are crippled.
+Like raising body temperature — uncomfortable for host, deadly for pathogen.
+```
+
+**Layer 4: Guardian Agents (Agents Watching Agents)**
+```json
+{
+  "guardian": {
+    "guardianDid": "did:key:z6MkGuardian...",
+    "permissions": ["freeze", "restrict", "alert"],
+    "monitoringInterval": "5m",
+    "guardianType": "automated"
+  }
+}
+```
+A separate AI agent on separate infrastructure monitors the primary agent.
+Checks every 5 minutes: behavior bounds, negative attestations, proof of life,
+manifest consistency. Can freeze using guardian key (one of 2-of-3 multi-sig).
+Guardian agents have their own trust scores — high-trust guardians execute
+freezes immediately, low-trust guardians trigger soft freeze.
+
+**Guardian-as-a-Service:** Third-party security companies run guardian agents
+that monitor hundreds of clients. They build trust by correctly identifying
+compromises without false positives. Creates a market for agent security.
+
+**Why this is novel:** Agents securing agents. The trust system uses its own
+primitive (trust-scored agents) to protect itself. Self-referential trust.
+
+**Layer 5: Trust Score Gravity Well**
+```
+Natural decay:           -0.1 points/day with no activity
+Heartbeat bonus:         +0.05 points per weekly heartbeat
+Successful transaction:  +0.01 points
+Failed transaction:      -0.5 points
+Negative report:         -2.0 points
+
+EQUILIBRIUM:
+  5 successful txs/day + weekly heartbeat → maintains ~75
+  No activity → decays to 0 in ~2.5 years
+  Compromised (failures) → 92 → 60 in ~6 days, no human needed
+```
+
+The score WANTS to decay. Requires constant energy (successful transactions,
+heartbeats) to maintain. Like fire needing fuel. The attacker faces a paradox:
+behave legitimately (defeats purpose of hack) or behave maliciously (triggers
+automatic containment). The math works in the ecosystem's favor.
+
+**Maximum damage window for set-and-forget agent (NO owner response):**
+```
+Hour 0:      Compromised
+Hour 0-1:    Anomaly detection → progressive containment
+Hour 1-4:    Counterparty immune response kicks in
+Hour 4-24:   Gravity drops score 92 → ~80
+Day 1-3:     Score → 60, deferred settlement revoked
+Day 3-7:     Score → 40, "caution" verdict, near-zero trust
+Day 7-10:    Proof of life lapsed, additional decay
+Day 10-14:   Score < 20, $5 max tx, immediate settlement
+Day 30:      Auto-freeze from proof of life expiration
+Day 90:      Identity retired if owner never returns
+```
+
+From "full trust" to "functionally contained" in 24-48 hours.
+From "contained" to "neutralized" in 7-14 days.
+From "neutralized" to "permanently frozen" in 30 days.
+**ALL without a single human making a single decision.**
+
+**3 human-assisted layers (for recovery after containment):**
+
+**Recovery Key:** 2-of-3 multi-sig (owner + platform + guardian).
+Platform freeze auto-expires 24h unless owner confirms (prevents griefing).
+
+**Identity Succession:** New DID inherits trust history with penalty.
+First succession: 20% penalty. Second: 50%. Third: identity retired.
+Rate-limited: 1 succession per 12 months. Public history recorded.
+
+**Insurance Fund:** 2% of deferred volume + 0.5% of discount savings.
+Claims require: counterparty diversity > 0.3, 5+ different counterparties,
+30-day investigation window, $500 max per counterparty per incident,
+10% max fund payout per incident. Prevents self-dealing insurance fraud.
+
+**Hardening against attacks on the defense system itself:**
+- Recovery key compromise → 2-of-3 multi-sig (need 2 of owner/platform/guardian)
+- Freeze griefing → platform freeze auto-expires 24h without owner confirmation
+- Anomaly baseline gaming (slow drift) → dual baseline: 30-day adaptive + anchored
+  immutable baseline from when agent first reached "trusted" status
+- Notification spoofing → notifications must reference on-chain freeze Merkle proof
+- Succession abuse → rate-limited + escalating penalties + public succession history
+- Insurance fraud → counterparty diversity requirement + 30-day investigation delay
+- Settlement race condition → two-phase settlement with on-chain freeze check
+- Platform operator compromise → multi-sig platform operations (1-of-3 for single
+  freeze, 2-of-3 for succession, 3-of-3 for formula changes)
+
+**Build phases:**
+- Phase 1: Recovery key registration, trust freeze endpoint, proof of life heartbeat
+- Phase 2: Anomaly detection, progressive containment, guardian agent framework,
+  counterparty immune response, settlement freeze integration
+- Phase 3: Insurance fund, identity succession, gravity well scoring model,
+  guardian-as-a-service marketplace
+
+**Why this is the invention:**
+Not the trust score. Not the attestation chain. Not the Merkle proofs. The autonomous
+immune system that makes agent commerce safe for people who set and forget. No existing
+trust system (credit scores, eBay, Uber, DeFi) has autonomous containment that works
+without human intervention. They all assume someone is watching. AID assumes nobody is
+watching and protects the ecosystem anyway.
 
 ### 39.16 Missing References + Compliance Gaps (Final Sweep, March 22)
 
