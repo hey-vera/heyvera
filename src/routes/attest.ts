@@ -619,7 +619,7 @@ attestRouter.get('/chain/:apiKeyHash', (c) => {
   // SHA256(prev.id + prev.input_hash + prev.signature) of its predecessor
   let chainValid = true;
   let brokenAt: number | null = null;
-  const crypto = require('crypto');
+  const { aidHash } = require('../utils/crypto-agility');
 
   for (let i = 1; i < attestations.length; i++) {
     const curr = attestations[i];
@@ -630,9 +630,7 @@ attestRouter.get('/chain/:apiKeyHash', (c) => {
       continue;
     }
 
-    const expectedHash = crypto.createHash('sha256')
-      .update(`${prev.id}.${prev.input_hash}.${prev.signature ?? 'unsigned'}`)
-      .digest('hex');
+    const expectedHash = aidHash(`${prev.id}.${prev.input_hash}.${prev.signature ?? 'unsigned'}`);
 
     if (curr.prev_attestation_hash !== expectedHash) {
       chainValid = false;

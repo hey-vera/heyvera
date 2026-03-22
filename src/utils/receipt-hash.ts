@@ -1,16 +1,17 @@
 /**
- * Cryptographic receipt hashes — deterministic SHA-256 hashes for request/result verification.
+ * Cryptographic receipt hashes — deterministic hashes for request/result verification.
  * Agents can verify that a transaction receipt matches the actual request/response data.
+ * Uses SHA-384 via crypto-agility module for quantum resistance on trust primitives.
  */
 
-import crypto from 'crypto';
+import { aidHashPrefixed } from './crypto-agility';
 
 /** Deterministic JSON serialization — sorted keys for consistent hashing. */
 function canonicalize(obj: Record<string, unknown>): string {
   return JSON.stringify(obj, Object.keys(obj).sort());
 }
 
-/** SHA-256 hash of skill invocation request parameters. */
+/** SHA-384 hash of skill invocation request parameters. */
 export function computeRequestHash(params: {
   skillId: string;
   variables: Record<string, string>;
@@ -21,10 +22,10 @@ export function computeRequestHash(params: {
     variables: params.variables,
     timestamp: params.timestamp,
   });
-  return 'sha256:' + crypto.createHash('sha256').update(payload).digest('hex');
+  return aidHashPrefixed(payload);
 }
 
-/** SHA-256 hash of skill invocation result data. */
+/** SHA-384 hash of skill invocation result data. */
 export function computeResultHash(params: {
   answer?: string;
   data?: unknown;
@@ -35,5 +36,5 @@ export function computeResultHash(params: {
     data: params.data ?? null,
     costCredits: params.costCredits,
   });
-  return 'sha256:' + crypto.createHash('sha256').update(payload).digest('hex');
+  return aidHashPrefixed(payload);
 }

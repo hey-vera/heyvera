@@ -7,6 +7,7 @@
 
 import crypto from 'crypto';
 import { jcsSerialize, base58btcDecode } from './jcs';
+import { aidHash, AID_HASH_ALGORITHM, verifySignature as aidVerifySignature } from './crypto-agility';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -42,7 +43,7 @@ export interface TrustScoreVerifyResult {
 
 function hashPair(a: string, b: string): string {
   const [left, right] = a < b ? [a, b] : [b, a];
-  return crypto.createHash('sha256').update(left + right).digest('hex');
+  return aidHash(left + right);
 }
 
 function verifyMerkleProof(
@@ -83,10 +84,11 @@ function verifyEd25519Signature(
     const spki = Buffer.concat([spkiHeader, rawPub]);
     const pubKey = crypto.createPublicKey({ key: spki, format: 'der', type: 'spki' });
 
-    // JCS canonicalize -> SHA-256 -> verify Ed25519
+    // JCS canonicalize -> SHA-384 -> verify Ed25519 (algorithm-agile)
     const canonical = Buffer.from(jcsSerialize(data), 'utf8');
-    const hash = crypto.createHash('sha256').update(canonical).digest();
-    return crypto.verify(null, hash, pubKey, Buffer.from(proofValue, 'base64url'));
+    const hash = crypto.createHash(AID_HASH_ALGORITHM).update(canonical).digest();
+    const algorithm = (data as any).signatureAlgorithm || 'EdDSA';
+    return aidVerifySignature(algorithm, Buffer.from(proofValue, 'base64url'), hash, pubKey);
   } catch {
     return false;
   }
@@ -154,9 +156,9 @@ export function verifyAIDDocument(aidDoc: any, platformPublicKey?: string): Veri
     warnings.push('No platform countersignature found');
   }
 
-  // Verify Merkle root format (64 hex chars = SHA-256)
+  // Verify Merkle root format (64 hex = SHA-256 legacy, 96 hex = SHA-384 current)
   const merkleRoot = aidDoc.trustChain?.merkleRoot;
-  if (typeof merkleRoot === 'string' && /^[0-9a-f]{64}$/.test(merkleRoot)) {
+  if (typeof merkleRoot === 'string' && /^[0-9a-f]+$/.test(merkleRoot) && (merkleRoot.length === 64 || merkleRoot.length === 96)) {
     details.merkleRoot = true;
   } else {
     warnings.push('Invalid or missing Merkle root');
@@ -230,7 +232,7 @@ export function verifyPortableTrustChain(chain: any): TrustChainVerifyResult {
   // Verify Merkle proofs for each attestation
   for (const att of attestations) {
     if (att.merkleProof && merkleRoot) {
-      const hash = crypto.createHash('sha256').update(att.id).digest('hex');
+      const hash = aidHash(att.id);
       const proofValid = verifyMerkleProof(hash, att.merkleProof, merkleRoot);
       if (proofValid) {
         attestationsVerified++;
@@ -251,7 +253,7 @@ export function verifyPortableTrustChain(chain: any): TrustChainVerifyResult {
     const current = ordered[i];
     const previous = ordered[i - 1];
     if (current.prevAttestationHash) {
-      const expectedHash = crypto.createHash('sha256').update(previous.id).digest('hex');
+      const expectedHash = aidHash(previous.id);
       if (current.prevAttestationHash !== expectedHash && current.prevAttestationHash !== previous.id) {
         chainContiguous = false;
         warnings.push(`Chain break at attestation ${current.id}: prevAttestationHash does not match previous`);
@@ -303,7 +305,7 @@ export function verifyTrustScore(trustScore: any): TrustScoreVerifyResult {
       score: computedScore,
     };
     const canonical = jcsSerialize(proofData);
-    const expectedHash = crypto.createHash('sha256').update(canonical).digest('hex');
+    const expectedHash = aidHash(canonical);
     if (expectedHash !== trustScore.proofHash) {
       proofHashValid = false;
     }

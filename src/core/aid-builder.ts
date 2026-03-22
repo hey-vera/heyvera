@@ -14,6 +14,7 @@ import { getDb } from '../db/connection';
 import { signVC, getEd25519PublicKeyMultibase } from '../utils/ed25519-signer';
 import { buildMerkleTree, getMerkleProof } from './merkle-anchor';
 import { jcsSerialize, base58btcEncode } from '../utils/jcs';
+import { aidHash, getCryptoAgilityMetadata } from '../utils/crypto-agility';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -168,7 +169,7 @@ export function buildAIDDocument(did: string): AIDDocument | null {
   const trustStats: TrustStats = { successRate, chainCoverage, attestationCount: totalAttestations, manifestAdherence };
   const trustScore = computeTrustScoreWithProof(trustStats);
 
-  const merkleRoot = snapshot?.merkle_root || crypto.createHash('sha256').update('').digest('hex');
+  const merkleRoot = snapshot?.merkle_root || aidHash('');
   const chainLength = snapshot?.chain_length ?? 0;
 
   const platformAttestations = (xplatRows || []).map((r: any) => {
@@ -205,6 +206,7 @@ export function buildAIDDocument(did: string): AIDDocument | null {
       type: 'Ed25519VerificationKey2020',
       publicKeyMultibase: aidKey.public_key_multibase,
     },
+    ...getCryptoAgilityMetadata(),
     did,
     trustChain: {
       merkleRoot,
@@ -273,7 +275,7 @@ export function buildPortableTrustChain(did: string, maxAttestations: number = 5
   ).all(ownerKey) as any[];
 
   const hashes = allAttestationHashes.map((a: any) =>
-    crypto.createHash('sha256').update(a.id).digest('hex')
+    aidHash(a.id)
   );
   const { tree } = buildMerkleTree(hashes);
 
@@ -299,7 +301,7 @@ export function buildPortableTrustChain(did: string, maxAttestations: number = 5
 
   // Generate Merkle proofs for the exported attestations
   const exportedAttestations = attestations.map((a: any) => {
-    const hash = crypto.createHash('sha256').update(a.id).digest('hex');
+    const hash = aidHash(a.id);
     const merkleProof = getMerkleProof(hash, tree);
     return {
       id: a.id,
@@ -334,9 +336,9 @@ export function buildTrustSnapshot(did: string, ownerKey: string): string | null
     'SELECT id, prev_attestation_hash FROM attestations WHERE api_key_hash = ? ORDER BY created_at ASC'
   ).all(ownerKey) as any[];
 
-  // Build Merkle tree from attestation ID hashes
+  // Build Merkle tree from attestation ID hashes (SHA-384)
   const hashes = attestations.map((a: any) =>
-    crypto.createHash('sha256').update(a.id).digest('hex')
+    aidHash(a.id)
   );
   const { root } = buildMerkleTree(hashes);
 
@@ -413,14 +415,14 @@ export function computeTrustScoreWithProof(stats: TrustStats): TrustScoreProof {
     manifestScore * weights.manifestAdherence
   );
 
-  // Proof hash = SHA-256 of canonical JSON of inputs + weights + score
+  // Proof hash = SHA-384 of canonical JSON of inputs + weights + score
   const proofData = {
     inputs: stats,
     weights,
     score,
   };
   const canonical = jcsSerialize(proofData);
-  const proofHash = crypto.createHash('sha256').update(canonical).digest('hex');
+  const proofHash = aidHash(canonical);
 
   return { score, inputs: stats, weights, proofHash };
 }

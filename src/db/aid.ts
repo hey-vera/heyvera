@@ -7,6 +7,7 @@
 import crypto from 'crypto';
 import { nanoid } from 'nanoid';
 import { getDb, logAudit, safeJsonParse } from './connection';
+import { aidHash } from '../utils/crypto-agility';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -192,7 +193,7 @@ export function addCrossPlatformAttestation(data: {
 }): { id: string; attestationHash: string } {
   const id = `xplat-${nanoid(16)}`;
   const attestationDataJson = JSON.stringify(data.attestationData);
-  const attestationHash = crypto.createHash('sha256').update(attestationDataJson).digest('hex');
+  const attestationHash = aidHash(attestationDataJson);
 
   getDb().prepare(`
     INSERT INTO aid_cross_platform_attestations (

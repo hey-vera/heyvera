@@ -530,7 +530,8 @@ export interface ReputationAnchor {
  */
 export function createReputationAnchor(skillId: string, snapshot: object): string {
   const snapshotJson = JSON.stringify(snapshot);
-  const hash = 'sha256:' + crypto.createHash('sha256').update(snapshotJson).digest('hex');
+  const { aidHashPrefixed } = require('../utils/crypto-agility');
+  const hash = aidHashPrefixed(snapshotJson);
   const id = nanoid();
   getDb()
     .prepare('INSERT INTO reputation_anchors (id, skill_id, anchor_hash, data_snapshot) VALUES (?, ?, ?, ?)')
@@ -563,7 +564,8 @@ export function verifyReputationAnchor(anchorId: string, externalSnapshot?: stri
   if (!anchor) return { valid: false };
 
   const dataToHash = externalSnapshot ?? anchor.data_snapshot;
-  const computedHash = 'sha256:' + crypto.createHash('sha256').update(dataToHash).digest('hex');
+  const { aidHashPrefixed } = require('../utils/crypto-agility');
+  const computedHash = aidHashPrefixed(dataToHash);
   return { valid: computedHash === anchor.anchor_hash, anchor };
 }
 

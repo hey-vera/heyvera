@@ -223,6 +223,15 @@ used throughout this engineering document. Both resolve to the same agent via th
 material. Migration: `did:key:zABC...` → `did:key:zABC...` (same multibase public key).
 See Section 43.2 Flaw 11 for rationale.
 
+**Crypto-Agility:** AID identity is algorithm-agile by design. The current reference
+implementation uses Ed25519 (`did:key` with multicodec `0xed`) and SHA-384 for trust-layer
+hashing. The protocol supports algorithm migration via versioned key types, enabling
+transition to NIST post-quantum signatures (ML-DSA, FIPS 204) without protocol-level
+changes. Hybrid Ed25519 + ML-DSA signatures are supported during the migration period.
+All AID documents include `signatureAlgorithm`, `algorithmVersion`, and `hashAlgorithm`
+fields. Verifiers MUST read these fields and dispatch accordingly — never hardcode Ed25519.
+See `src/utils/crypto-agility.ts` for the implementation.
+
 **Request Headers (Client → Server):**
 ```
 X-AID-DID:            did:key:zABC...                # Self-certifying identity (W3C did:key method)

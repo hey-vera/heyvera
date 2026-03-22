@@ -8,6 +8,7 @@
  * - validateTreeStructure: structural validation of serialized trees
  */
 import { createHash } from 'crypto';
+import { aidHash, AID_HASH_HEX_LENGTH } from '../../src/utils/crypto-agility';
 import { describe, expect, it } from 'vitest';
 import {
   buildMerkleTree,
@@ -16,9 +17,9 @@ import {
   validateTreeStructure,
 } from '../../src/core/merkle-anchor';
 
-/** Helper: produce a SHA-256 hex string from arbitrary input */
+/** Helper: produce an AID-compatible hash (SHA-384) from arbitrary input */
 function sha256(input: string): string {
-  return createHash('sha256').update(input).digest('hex');
+  return aidHash(input);
 }
 
 /** Generate N unique hashes for testing */
@@ -31,7 +32,7 @@ function makeHashes(n: number): string[] {
 describe('buildMerkleTree', () => {
   it('handles empty array — root is hash of empty string', () => {
     const { root, tree } = buildMerkleTree([]);
-    const expected = createHash('sha256').update('').digest('hex');
+    const expected = aidHash('');
     expect(root).toBe(expected);
     expect(tree).toHaveLength(1);
     expect(tree[0]).toEqual([expected]);
@@ -87,7 +88,7 @@ describe('buildMerkleTree', () => {
   it('100 hashes — produces valid multi-level tree', () => {
     const hashes = makeHashes(100);
     const { root, tree } = buildMerkleTree(hashes);
-    expect(root).toHaveLength(64); // SHA-256 hex
+    expect(root).toHaveLength(AID_HASH_HEX_LENGTH); // SHA-384 hex
     // Last level must be the root (single element)
     expect(tree[tree.length - 1]).toHaveLength(1);
     expect(tree[tree.length - 1][0]).toBe(root);
@@ -279,20 +280,20 @@ describe('validateTreeStructure', () => {
   it('rejects tree with non-hex strings', () => {
     const result = validateTreeStructure([['not-a-valid-hex']]);
     expect(result.valid).toBe(false);
-    expect(result.error).toContain('hex string');
+    expect(result.error).toContain('hex hash string');
   });
 
   it('rejects tree with wrong-length hex strings', () => {
     const result = validateTreeStructure([['abcdef0123456789']]);
     expect(result.valid).toBe(false);
-    expect(result.error).toContain('64-char hex');
+    expect(result.error).toContain('hex hash string');
   });
 
   it('rejects tree with uppercase hex', () => {
     const upper = sha256('test').toUpperCase();
     const result = validateTreeStructure([[upper]]);
     expect(result.valid).toBe(false);
-    expect(result.error).toContain('hex string');
+    expect(result.error).toContain('hex hash string');
   });
 
   it('rejects tree with incorrect level sizes', () => {

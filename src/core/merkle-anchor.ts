@@ -10,18 +10,16 @@
  * (prevents second-preimage attacks from naive leaf duplication).
  */
 
-import { createHash } from 'crypto';
-
-/** Expected length of a SHA-256 hex string. */
-const SHA256_HEX_LENGTH = 64;
+import { aidHash, AID_HASH_HEX_LENGTH } from '../utils/crypto-agility';
 
 /**
- * SHA-256 hash two hex strings together (sorted order for determinism).
+ * Hash two hex strings together (sorted order for determinism).
+ * Uses SHA-384 via crypto-agility module for quantum resistance.
  */
 function hashPair(a: string, b: string): string {
   // Consistent ordering: always hash the smaller value first
   const [left, right] = a < b ? [a, b] : [b, a];
-  return createHash('sha256').update(left + right).digest('hex');
+  return aidHash(left + right);
 }
 
 /**
@@ -37,7 +35,7 @@ function hashPair(a: string, b: string): string {
  */
 export function buildMerkleTree(hashes: string[]): { root: string; tree: string[][] } {
   if (hashes.length === 0) {
-    const emptyRoot = createHash('sha256').update('').digest('hex');
+    const emptyRoot = aidHash('');
     return { root: emptyRoot, tree: [[emptyRoot]] };
   }
 
@@ -163,8 +161,9 @@ export function validateTreeStructure(tree: string[][]): { valid: boolean; error
     // Validate all elements are hex strings of expected length
     for (let i = 0; i < levelArr.length; i++) {
       const elem = levelArr[i];
-      if (typeof elem !== 'string' || elem.length !== SHA256_HEX_LENGTH || !/^[0-9a-f]+$/.test(elem)) {
-        return { valid: false, error: `Level ${level}[${i}] is not a valid ${SHA256_HEX_LENGTH}-char hex string` };
+      // Accept both SHA-256 (64 hex) and SHA-384 (96 hex) for backwards compatibility
+      if (typeof elem !== 'string' || !/^[0-9a-f]+$/.test(elem) || (elem.length !== 64 && elem.length !== AID_HASH_HEX_LENGTH)) {
+        return { valid: false, error: `Level ${level}[${i}] is not a valid hex hash string` };
       }
     }
 

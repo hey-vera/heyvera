@@ -11,6 +11,7 @@ import { getDb } from './connection';
 import { logger } from '../utils/logger';
 import { env } from '../config/index';
 import { fireWebhookEvent } from '../utils/webhooks';
+import { aidHash, aidHmac, aidHashPrefixed } from '../utils/crypto-agility';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -81,7 +82,7 @@ export function hashApiKey(apiKey: string): string {
 }
 
 export function hashPayload(payload: unknown): string {
-  return crypto.createHash('sha256').update(JSON.stringify(payload)).digest('hex');
+  return aidHash(JSON.stringify(payload));
 }
 
 // ─── Signing key management ──────────────────────────────────────────────
@@ -130,7 +131,7 @@ function signAttestation(attestationId: string, inputHash: string, responseHash:
 
   const responseHashComponent = responseHash === null ? 'null' : responseHash;
   const data = `${activeKeyId}.${attestationId}.${apiKeyHash}.${inputHash}.${responseHashComponent}.${timestamp}`;
-  const signature = crypto.createHmac('sha256', secret).update(data).digest('hex');
+  const signature = aidHmac(secret, data);
   return { signature, keyId: activeKeyId };
 }
 
@@ -143,7 +144,7 @@ function signAttestationLegacy(attestationId: string, inputHash: string, respons
   if (!secret) return null;
   const responseHashComponent = responseHash === null ? 'null' : responseHash;
   const data = `${attestationId}.${apiKeyHash}.${inputHash}.${responseHashComponent}.${timestamp}`;
-  return crypto.createHmac('sha256', secret).update(data).digest('hex');
+  return aidHmac(secret, data);
 }
 
 // ─── Sequence number ────────────────────────────────────────────────────────
@@ -190,9 +191,7 @@ export function createAttestation(params: CreateAttestationParams): string {
       `SELECT id, input_hash, signature FROM attestations WHERE api_key_hash = ? ORDER BY sequence_number DESC LIMIT 1`
     ).get(params.apiKeyHash) as { id: string; input_hash: string; signature: string | null } | undefined;
     if (prev) {
-      prevAttestationHash = crypto.createHash('sha256')
-        .update(`${prev.id}.${prev.input_hash}.${prev.signature ?? 'unsigned'}`)
-        .digest('hex');
+      prevAttestationHash = aidHash(`${prev.id}.${prev.input_hash}.${prev.signature ?? 'unsigned'}`);
     }
 
     getDb().prepare(`
@@ -292,7 +291,7 @@ export function createAutoAttestation(
     // Build source hashes from execution steps (execution proof layer)
     const sourceHashes = executionSteps?.map(step => ({
       source: step.endpointId,
-      hash: crypto.createHash('sha256').update(JSON.stringify(step)).digest('hex'),
+      hash: aidHash(JSON.stringify(step)),
       fetched_at: new Date().toISOString(),
     }));
 
@@ -303,9 +302,7 @@ export function createAutoAttestation(
       cachedSteps: executionSteps.filter(s => s.cached).length,
       totalLatencyMs: executionSteps.reduce((sum, s) => sum + s.durationMs, 0),
       stepEndpoints: executionSteps.map(s => s.endpointId),
-      proofHash: crypto.createHash('sha256')
-        .update(JSON.stringify(executionSteps.map(s => ({ id: s.endpointId, ok: s.success, ms: s.durationMs }))))
-        .digest('hex'),
+      proofHash: aidHash(JSON.stringify(executionSteps.map(s => ({ id: s.endpointId, ok: s.success, ms: s.durationMs })))),
     } : undefined;
 
     const attestationId = createAttestation({

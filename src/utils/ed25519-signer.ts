@@ -15,6 +15,7 @@
 
 import { createHash, createPrivateKey, createPublicKey, sign, verify, KeyObject } from 'crypto';
 import { jcsCanonicalizeToBytes, base58btcEncode } from './jcs';
+import { AID_HASH_ALGORITHM, signWithAlgorithm, AID_SIGNATURE_ALGORITHM } from './crypto-agility';
 
 // ─── Ed25519 PKCS#8 DER header (RFC 8410) ─────────────────────────────────
 // 30 2e 02 01 00 30 05 06 03 2b 65 70 04 22 04 20 + 32-byte seed
@@ -71,27 +72,27 @@ export function getEd25519PublicKeyMultibase(): string {
 /**
  * Sign a VC (without proof) using Ed25519. Returns the signature as base64url.
  *
- * Process (eddsa-jcs-2022 pattern):
+ * Process (eddsa-jcs-2022 pattern, upgraded to SHA-384):
  *   1. JCS-canonicalize the VC object (RFC 8785 — deterministic JSON)
- *   2. SHA-256 hash the canonical bytes
- *   3. Ed25519-sign the hash
+ *   2. SHA-384 hash the canonical bytes (quantum-resistant)
+ *   3. Ed25519-sign the hash (algorithm-agile via crypto-agility module)
  */
 export function signVC(vcWithoutProof: Record<string, unknown>): string {
   ensureKeyPair();
   const canonical = jcsCanonicalizeToBytes(vcWithoutProof);
-  const hash = createHash('sha256').update(canonical).digest();
-  const signature = sign(null, hash, _privateKey!);
-  return Buffer.from(signature).toString('base64url');
+  const hash = createHash(AID_HASH_ALGORITHM).update(canonical).digest();
+  const signature = signWithAlgorithm(AID_SIGNATURE_ALGORITHM, hash, _privateKey!);
+  return signature.toString('base64url');
 }
 
 /**
- * Verify an Ed25519 signature on a VC.
+ * Verify an Ed25519 signature on a VC. Algorithm-agile — reads algorithm from doc.
  */
 export function verifyVCSignature(vcWithoutProof: Record<string, unknown>, proofValue: string): boolean {
   ensureKeyPair();
   try {
     const canonical = jcsCanonicalizeToBytes(vcWithoutProof);
-    const hash = createHash('sha256').update(canonical).digest();
+    const hash = createHash(AID_HASH_ALGORITHM).update(canonical).digest();
     return verify(null, hash, _publicKey!, Buffer.from(proofValue, 'base64url'));
   } catch {
     return false;
