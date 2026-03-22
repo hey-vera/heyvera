@@ -4010,6 +4010,94 @@ Converting USDC→credits at the entry point takes 1 day and reuses everything.
 
 ---
 
+---
+
+## 40. COMPETITIVE FUTURE-PROOFING (Adopted From Industry Research)
+
+### 40.1 Features IMPLEMENTED (This Session)
+
+| Feature | Source | What Was Built | File |
+|---------|--------|---------------|------|
+| Public trust API | Credit bureau pattern | `GET /v1/aid/:did/trust` — free, no auth, rate-limited. Returns verdict (not exact score), attestation count, capabilities. Other platforms query this. | `src/routes/aid.ts` |
+| Granular policy engine | bankrbot/Privy | `checkPolicy()` middleware + v108 migration. Per-tx caps, skill whitelists, provider whitelists, active hours. | `src/middleware/auth.ts` |
+| Execution proof layer | Three-layer lifecycle | `createAutoAttestation()` accepts `executionSteps[]`. Step-level hashes in `source_hashes_json`. | `src/db/attestations.ts` |
+| manifestAdherence in trust score | Trust lifecycle | 15% weight in trust formula. `manifest_aligned / (aligned + unaligned)`. | `src/core/aid-builder.ts` |
+
+### 40.2 Phase 2-3 Roadmap (From Competitor Research)
+
+| Feature | Inspired By | What To Build | Phase |
+|---------|-------------|---------------|-------|
+| Structured agent memory | RecallNet + Fabric | Upgrade sessions from 50KB JSON blobs to structured, searchable docs with semantic indexing and contradiction resolution | 3 |
+| Agent social graph | ClawstrAI/Moltbook | Lightweight follow/endorse between agents. Social signals feed COMMUNITY trust dimension. Agent-to-agent vouch chains | 3 |
+| No-code skill builder | Spectral Labs | Natural language → skill definition. "Describe what you want" → auto-generated prompt template + manifest + pricing | 4 |
+| Multi-chain settlement | AWE Network | Add Solana SPL USDC settlement alongside Base EIP-3009. Ed25519 = single key on Solana (no dual-key needed) | 2 |
+| zkTLS execution proofs | Freysa | Agents prove API results are genuine without exposing raw data. Cryptographic upgrade to Layer 2 execution proofs | 4 |
+
+### 40.3 Strategic Positioning (From Competitive Landscape)
+
+**Competitive threat matrix (ranked by urgency):**
+
+| Competitor | Threat | Defense | Urgency |
+|------------|--------|---------|---------|
+| AWE Network | Shipping ERC-8004+x402 unified stack NOW | Bridge to ERC-8004 + differentiate with three-layer trust lifecycle | CRITICAL |
+| Wach_AI | Direct trust scoring competitor on Base | x204 is more comprehensive (3-layer, 33 mitigations, universal middleware) | HIGH |
+| RecallNet | Better agent memory than ClawNet sessions | Phase 3: upgrade session storage | MEDIUM |
+| Freysa | TEE sovereignty + zkTLS oracles | Complementary, not competitive. Watch zkTLS for Phase 4 | LOW |
+| All agent builders (Virtuals, Spectral, a0xbo) | Building agents, not trust infra | x204 is the layer they all need — partnership targets | LOW |
+
+**The positioning that wins:**
+```
+Agent builders (Virtuals, Spectral, a0xbo) → BUILD agents
+Infrastructure (AWE, Bitte, Fabric)       → RUN agents
+ClawNet + x204                             → TRUST agents
+
+Every agent needs trust. x204 is the trust layer.
+```
+
+### 40.4 Ecosystem Integration Map
+
+```
+DIRECT INTEGRATION (npm install / partnership):
+  @x204/mcp-trust   → BitteProtocol MCP servers, any MCP server
+  A2A extension      → AWE Network agent cards, any A2A agent
+  ElizaOS plugin     → ClawstrAI social agents, any ElizaOS agent
+  CrewAI plugin      → Spectral agent crews, any multi-agent system
+  AgentKit bridge    → bankrbot wallets, Coinbase AgentKit wallets
+
+DATA CONSUMPTION (platforms query x204 trust):
+  GET /v1/aid/:did/trust  → Moltbook scores agents by x204 trust
+                          → Wach_AI cross-references x204 data
+                          → AWE Network imports x204 trust signals
+                          → Any platform verifies agent trustworthiness
+
+IDENTITY BRIDGE (x204 ↔ on-chain):
+  ERC-8004 Identity Registry  → x204 AID registers on-chain
+  ERC-8004 Reputation         → x204 trust scores published
+  ERC-8004 Validation         → x204 fills the unshipped gap
+```
+
+### 40.5 The Full ClawNet Moat After x204
+
+| Capability | Status | Competitors |
+|------------|--------|-------------|
+| 344+ live API endpoints | Production | AWE: growing, BitteProtocol: multichain |
+| AID with Ed25519 DIDs | Production | ERC-8004: ERC-721 (EVM-only), ClawstrAI: Nostr |
+| Three-layer trust lifecycle | **Production** | Nobody has this |
+| Execution proofs (Layer 2) | **Production** | Nobody has this |
+| manifestAdherence in scoring | **Production** | Nobody has this |
+| Public trust API (credit bureau) | **Production** | Wach_AI: similar, earlier-stage |
+| Granular policy engine | **Production** | bankrbot/Privy: similar, wallet-only |
+| Offline trust verification | Production | Nobody has this |
+| Merkle-anchored attestations | Production | RecallNet: on-chain, different approach |
+| 33 mitigated attack vectors | Documented | Nobody has this depth |
+| @x204/mcp-trust middleware | Phase 1 | Nobody targeting 20K MCP servers with trust |
+| Multi-chain (Base + Solana) | Phase 2 | AWE: multichain, ERC-8004: EVM-only |
+| Agent social graph | Phase 3 | ClawstrAI: Nostr-based, Moltbook: acquired by Meta |
+| No-code skill builder | Phase 4 | Spectral: Solidity-focused, a0xbo: token-focused |
+| zkTLS execution proofs | Phase 4 | Freysa: TEE-based |
+
+---
+
 Financial appendix — see Section 21 for verified economic model:
   - Section 21.1: Revenue streams per phase
   - Section 21.2: Trust-gated discount sustainability (with all 5 tiers)
