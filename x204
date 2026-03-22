@@ -100,7 +100,7 @@ x204 supports three settlement modes, selected by the server based on client tru
 | 20-39       | `building` | `immediate`     | Base price       |
 | 40-59       | `caution`  | `standard`      | 10% discount     |
 | 60-79       | `standard` | `batched`       | 25% discount     |
-| 80-100      | `proceed`  | `deferred`      | 50% discount     |
+| 80+ AND verified | `proceed` | `deferred` | 50% discount     |
 
 **No 2x penalty for new agents.** The old "avoid" tier at 2x premium created a cold-start
 problem: new agents paid double, deterring them from building trust. Instead:
@@ -235,11 +235,11 @@ finalScore = min(100, round(rawScore * verificationMultiplier))
 
 | Score | Verdict    | Settlement Mode | Pricing Tier |
 |-------|------------|-----------------|--------------|
-| 80+   | `proceed`  | `deferred`      | 50% discount |
-| 60-79 | `standard` | `batched`       | 25% discount |
-| 40-59 | `caution`  | `standard`      | 10% discount |
-| 20-39 | `building` | `immediate`     | Base price   |
-| 0-19  | `new`      | `immediate`     | Base price   |
+| 80+ AND verified | `proceed` | `deferred` | 50% discount |
+| 60-79  | `standard` | `batched`       | 25% discount |
+| 40-59  | `caution`  | `standard`      | 10% discount |
+| 20-39  | `building` | `immediate`     | Base price   |
+| 0-19   | `new`      | `immediate`     | Base price   |
 
 Note: `avoid` is NOT a score-based tier. It is a manual flag applied by validators
 or triggered by structured reports (spam, fraud, copyright). An agent can have trust
@@ -1172,7 +1172,7 @@ x204 = 1 protocol that ships what they PROMISED but haven't DELIVERED:
 
 ### 17.3 Compatibility Layer (Don't Fight ERC-8004 — Absorb It)
 
-Rather than competing with ERC-8004's adoption (24K agents, Google/Coinbase backing),
+Rather than competing with ERC-8004's adoption (~130K agents, Google/Coinbase backing),
 x204 should be COMPATIBLE with ERC-8004 while being MORE CAPABLE:
 
 **Phase 1: Bridge**
@@ -1246,7 +1246,7 @@ Don't underestimate what's already built. ClawNet has:
 | Capability | Status | Competitors |
 |------------|--------|-------------|
 | 344 live API endpoints | Production | Agent0: reference impl only |
-| 175 passing tests | Production | ERC-8004: spec + contracts |
+| 175+ passing tests | Production | ERC-8004: spec + contracts |
 | AID with Ed25519 DIDs | Production | ERC-8004: ERC-721 (EVM-only) |
 | Attestation system | Production | ERC-8004 Validation: NOT SHIPPED |
 | Validator roles | Production | ERC-8004: "design space" |
@@ -1396,10 +1396,10 @@ The `X-AID-TRUST-SCORE` header exists for two reasons:
 4. End of day: server sends settlement summary to agent
 5. Agent has 24h to dispute any receipt
 6. After 24h: server calls transferFrom() for undisputed amount
-6. Disputes: both parties' signed receipts are evidence
+7. Disputes: both parties' signed receipts are evidence
    → If agent's receipt hashes match server's → server wins
    → If mismatch detected → flag for manual review, freeze trust score
-7. Net-30: for enterprise/high-trust agents, settlement can be monthly
+8. Net-30: for enterprise/high-trust agents, settlement can be monthly
    with invoicing via the receipt ledger
 ```
 
@@ -1651,6 +1651,79 @@ Any platform can implement CORE quickly and add extensions incrementally.
 
 ---
 
+### 19.16 Race Conditions and Edge Cases (From Adversarial Audit)
+
+**Concurrent Merkle tree build + new attestations:**
+```
+Rule: Snapshot cron captures a cutoff timestamp BEFORE starting tree computation.
+  cutoff = datetime('now')
+  SELECT * FROM attestations WHERE created_at <= cutoff
+  → Build tree from this frozen set
+  → Any attestations arriving AFTER cutoff go into the NEXT snapshot (4h later)
+  → Receipt Merkle proofs reference the snapshot they were included in (snapshotId)
+```
+
+**Permit revocation race (between allowance check and transferFrom):**
+```
+Rule: If transferFrom() reverts on-chain:
+  1. Mark all unsettled receipts in this batch as settlement_status = 'FAILED'
+  2. Drop agent's trust score by 10 points (immediate)
+  3. Revert agent to immediate-only settlement
+  4. Log failed settlement in x204_settlements table with error
+  5. Agent must re-establish trust (50+ new successful immediate-settlement txs)
+     before batched settlement is re-enabled
+  6. Outstanding unsettled amount becomes a debt — agent cannot transact
+     until debt is cleared via immediate payment
+```
+
+**`avoid` flagged agent pricing:**
+```
+Rule: `avoid` flag OVERRIDES all trust tiers:
+  - Settlement: prepay only (agent pays upfront, no deferred/batched)
+  - Pricing: base price (no discount, no penalty — just base)
+  - Additional: agent cannot submit feedback (weight = 0)
+  - The flag does NOT change the trust score — it adds a separate gate
+  - Removal: only via admin review or validator consensus (3 validators agree)
+```
+
+**X-AID-NEW + PAYMENT-SIGNATURE ordering:**
+```
+Rule: Verify payment FIRST, create AID SECOND:
+  1. Parse PAYMENT-SIGNATURE header
+  2. Verify receiveWithAuthorization signature (ecrecover)
+  3. Submit on-chain settlement (receive USDC)
+  4. IF settlement succeeds → create AID, link payment wallet to AID
+  5. IF settlement fails → return 402, do NOT create AID (no orphan identities)
+  6. Return: AID document + privateKeySeed + result + receipt
+```
+
+**Concurrent deferred requests (credit limit race):**
+```
+Rule: Use SQLite transaction with exclusive lock for deferred balance checks:
+  BEGIN EXCLUSIVE;
+  SELECT accumulated_unsettled FROM x204_agent_credit WHERE did = ?;
+  IF accumulated + requestCost > creditLimit → ROLLBACK, return 402;
+  UPDATE x204_agent_credit SET accumulated_unsettled = accumulated + requestCost;
+  COMMIT;
+  → SQLite's single-writer guarantees no concurrent modifications
+  → This is already how deductCredit() works (WHERE credits >= amount)
+```
+
+**Trust laundering (high-trust agent proxying for untrusted agents):**
+```
+Rule: Delegated keys inherit the PARENT's trust tier for pricing,
+  but trackDelegatedSpend() records all spending on the child key.
+  Anti-laundering:
+  1. If a parent key has >10 active delegated keys, the parent's
+     trust-gated discount is capped at 25% (not 50%)
+  2. If >50% of a parent's transaction volume comes from delegated keys
+     (not direct usage), flag for review — likely a proxy service
+  3. Per-delegated-key spending tracked separately — high-volume
+     delegated keys trigger automated trust review of the parent
+  This makes large-scale trust laundering unprofitable (discount capped)
+  while allowing legitimate delegation (small teams, agent fleets).
+```
+
 ### 19.8 X-AID-PROOF Signature Format (Precise Definition)
 
 **Problem:** "Ed25519 sig over request body" is vague. What exactly gets signed?
@@ -1678,6 +1751,18 @@ X-AID-TIMESTAMP = "2026-03-21T14:30:00Z"
 
 Including method + path prevents signature reuse across different endpoints.
 Including timestamp prevents replay outside the 5-minute window.
+
+**Encoding requirements (for interoperability):**
+- All timestamps MUST be UTC with Z suffix (e.g., `2026-03-21T14:30:00Z`).
+  Timezone offsets (e.g., `+05:30`) MUST be rejected.
+- The inner `SHA-256(requestBody)` is encoded as lowercase hex (64 chars)
+  in the signatureInput string, NOT raw bytes.
+- Headers use raw base64url encoding (no prefix).
+- Receipt JSON signatures use `ed25519:` prefix (e.g., `"ed25519:abc123..."`).
+- Receipt IDs use format `rcpt-{nanoid(16)}` (e.g., `rcpt-a1b2c3d4e5f6g7h8`).
+- Server clock SHOULD be NTP-synchronized. Server is authoritative for timestamp
+  validation — if the server's clock drifts, it rejects legitimate requests.
+  Operators should monitor NTP sync status.
 
 ### 19.9 X-AID-PROVIDER-PROOF (Server Countersignature)
 
@@ -1797,7 +1882,7 @@ Header: X-AID-VERSION: 1.0
 **Agent name uniqueness after AID pruning:**
 - AIDs that never transact are pruned after 30 days (including the name)
 - Names from pruned AIDs become available for re-registration
-- Trial AIDs that DO transact are promoted to `basic` tier — name is permanently reserved
+- AIDs that transact are promoted to `building` tier (trust score 20+) — name is permanently reserved
 - Name uniqueness enforced at the DB level via UNIQUE constraint on `aid_keys.display_name`
 
 **Verifying old receipts after DID key rotation:**
@@ -1949,7 +2034,7 @@ Direct EIP-3009 settlement requires the server to pay gas.
 
 ```
 Base L2 gas costs (March 2026, verified against BaseScan):
-  EIP-3009 transferWithAuthorization: ~65,000 gas
+  EIP-3009 receiveWithAuthorization: ~65,000 gas
   Base L2 minimum gas price: 0.005 gwei (Jovian upgrade floor, not 0.001)
   L2 execution per tx: 65,000 × 0.005 gwei ≈ 0.000000325 ETH
   L1 data fee (security): typically equals or exceeds L2 execution
@@ -2988,7 +3073,7 @@ Similar to 8004scan.io but for x204/ClawNet ecosystem
 
 ## 35. FINAL SHIP READINESS
 
-The plan has been through 9 rounds of checks with 20+ research agents.
+The plan has been through 13 rounds of checks with 25+ research agents.
 
 **What it covers (35 sections):**
 - Complete protocol specification with headers, receipts, signing, settlement
