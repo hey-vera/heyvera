@@ -1269,21 +1269,9 @@ ERC-8004 is three registries. ClawNet is a running economy.
 
 ### 17.7 Updated Build Plan Priority
 
-Given the competitive landscape, Phase 1 priority shifts:
-
-**Immediate (Week 1-2):**
-1. Register ClawNet's platform AID on ERC-8004 Identity Registry (be visible in 8004scan.io)
-2. Add ERC-8004 agent ID as optional field in AID documents
-3. Publish x204 spec document (claim the narrative before someone else does)
-
-**Short-term (Month 1):**
-4. AID headers on existing x402 routes (Phase 1 from build plan)
-5. Feedback endpoint with weighted reputation
-6. Heartbeat protocol implementation
-
-**Medium-term (Month 2-3):**
-7. ERC-8004 reputation bridge (publish x204 trust scores to ERC-8004 Reputation Registry)
-8. Direct EIP-3009 settlement (facilitator-free)
+Given the competitive landscape AND the "universal trust layer" reframing (Section 38),
+Phase 1 priority shifts to middleware-first. **See Section 38.9 for the final canonical
+build sequence.**
 9. Trust Score v2 (11 dimensions)
 
 **The race:** ERC-8004's Validation Registry is not shipped. If ClawNet's x204 ships
@@ -1918,8 +1906,10 @@ Header: X-AID-VERSION: 1.0
 
 ### 19.15 Build Plan Reconciliation (Sections 11 vs 17.7)
 
-Section 17.7 updated priorities based on competitive intelligence. Here is the
-CANONICAL build sequence (supersedes Section 11 where conflicts exist):
+Section 17.7 updated priorities based on competitive intelligence.
+**NOTE: Section 38.9 further updates this sequence with the "trust layer" reframing.
+See Section 38.9 for the FINAL canonical build sequence.**
+Original sequence (for reference):
 
 ```
 WEEK 1-2:
@@ -3095,13 +3085,13 @@ The plan has been through 13 rounds of checks with 25+ research agents.
 2. ~~Remove 5% revenue share from Phase 4 trust stakes~~ DONE (Section 9.1 — reputation-only)
 3. Implement DELETE /v1/aid endpoint (GDPR — add to Phase 1 build)
 
-**What to build FIRST (Phase 1, 8-13 days, $0 cost):**
-1. Register ClawNet on ERC-8004 (Base, ~$1)
-2. X-AID-DID + X-AID-PROOF headers on existing x402 routes
-3. Trust-gated pricing
-4. Feedback endpoint
-5. Heartbeat endpoint
-6. Publish x204 spec document
+**What to build FIRST (see Section 38.9 for final sequence):**
+1. Build @x204/mcp-trust npm package (THE PRODUCT — reaches 20,000 MCP servers)
+2. Register ClawNet on ERC-8004 (Base, ~$1)
+3. Publish x204 spec as A2A trust extension
+4. Ship @x204/middleware for Express/Hono/Fastify
+5. AID headers on ClawNet's own x402 routes
+6. Submit trust extension to MCP-I/DIF working group
 
 **Stop planning. Start building.**
 
