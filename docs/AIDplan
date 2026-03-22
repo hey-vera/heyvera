@@ -4536,6 +4536,122 @@ gas price spike during batch settlement.
 See Section 45.2 for vectors 44-46: NIST compliance gap, MCP Dev Summit social engineering,
 VI+AAR dependency risk.
 
+### 39.14 MCP ECOSYSTEM SECURITY GAPS (March 2026 — 8 New Vectors)
+
+**Context:** 30 CVEs in 60 days. 437,000 compromised downloads. 1,184 malicious ClawHub
+skills (1 in 5 packages). 8,000+ MCP servers exposed publicly, 492 with zero auth.
+82% of MCP implementations vulnerable to path traversal. AID middleware enters this
+environment as infrastructure in the request path of every transaction.
+
+**Attack Vector 47: AID Middleware as Attack Surface**
+@aidprotocol/mcp-trust sits in the HTTP request path. A compromised middleware (via npm
+supply chain) sees every request body, response body, payment signature, and DID.
+**Mitigation:**
+- Middleware MUST NEVER handle or require private keys. Signing in separate process.
+  Middleware verifies with public keys only. Compromised middleware = read access, not signing.
+- Reproducible builds with npm `--provenance` flag (Sigstore signature proving GitHub
+  Actions built it, not a compromised laptop).
+- Pin all dependencies with exact versions + integrity hashes. No `^` or `~` ranges.
+- SECURITY.md with vulnerability disclosure process BEFORE first npm publish.
+
+**Attack Vector 48: Trust Score Poisoning via Compromised MCP Server**
+A compromised MCP server returns valid-looking responses (2xx, valid JSON) with poisoned
+data. Agent's trust score stays high because attestations show "success" — but outputs
+are garbage that cause downstream harm.
+**Mitigation:** Add optional `outputVerification` field to manifests:
+```json
+{ "outputVerification": { "type": "cross-source-consensus", "minSources": 2, "maxDeviation": 0.05 } }
+```
+If 2/3 sources agree within 5% but one deviates wildly → negative attestation for the
+deviating source. Already partially in multi-source orchestrator logic — formalize it.
+
+**Attack Vector 49: DID Key Compromise + Trust Score Theft**
+Ed25519 private key leaks (env var exposure, logs, CI/CD). Attacker inherits the trust
+score — high score means LOWER scrutiny, making the theft more dangerous.
+**Mitigation:**
+- Support hardware-backed keys (KMS/HSM) for production. Env var keys = dev only.
+- Optional `allowedOrigins` field in AID document (bind DID to IP range/domain).
+- Anomaly detection: sudden IP change + volume spike + unusual hours → flag DID.
+- `trustAlert` response header when behavioral anomaly detected.
+
+**Attack Vector 50: Tool Poisoning Through AID Metadata (MPMA)**
+Attacker manipulates how trust scores are displayed/transmitted to redirect traffic
+to malicious services (MCP Preference Manipulation Attack).
+**Mitigation:** Trust scores MUST ALWAYS be verified against Merkle proof, never
+trusted from transport layer. Middleware default: `proofRequired: true`. Unproven
+scores treated as score 0, verdict "new". Log warning if `proofRequired: false`.
+
+**Attack Vector 51: Attestation Forgery via Platform Key Compromise**
+If platform HMAC-SHA384 signing key leaks, attacker can forge valid-looking attestations
+with correct HMACs, fabricating transaction history.
+**Mitigation:** Merkle root anchoring to Base chain creates a second verification layer.
+Any forged attestation won't be in the anchored Merkle tree. Move anchor frequency
+from 4 hours to 1 hour to reduce the forgery window. Verifiers check: does this
+attestation hash appear in the on-chain Merkle root at the claimed block number?
+
+**Attack Vector 52: Middleware Fail-Open Under Pressure**
+Developers set `failOpen: true` to avoid blocking revenue during infrastructure issues.
+Creates permanent trust verification bypass during transient failures.
+**Mitigation:** Replace binary `failOpen`/`failClosed` with degraded verification modes:
+```
+FULL:     Merkle proof + trust score + nonce validation
+DEGRADED: Signature verified + cached trust score (≤1hr old) + nonce
+MINIMAL:  Signature verified only (pure math, no network calls)
+BLOCKED:  All requests rejected (crypto library broken)
+```
+Add `X-AID-VERIFICATION-MODE: degraded` response header so counterparty knows the
+verification level and can decide whether to proceed or wait.
+
+**Attack Vector 53: Privacy Leak Through Trust Score Correlation**
+Trust score 87 with 1,247 attestations = unique fingerprint. Anyone seeing the exact
+score in `X-AID-TRUST-SCORE` can correlate to the public leaderboard and deanonymize.
+**Mitigation:** Add `privacyMode` to AID document:
+- `open`: full score visible (default for public agents)
+- `shielded`: only verdict tier transmitted (e.g., "trusted" = score 80-89),
+  providing a 10-point anonymity set
+- Phase 3: ZK range proofs ("score > 60" without revealing exact value)
+
+**Attack Vector 54: Batched Settlement Permit Replay**
+EIP-2612 permits in the settlement queue can be replayed if the settlement service
+is compromised. Attacker submits collected permits multiple times.
+**Mitigation:** Use EIP-3009 `receiveWithAuthorization` for ALL settlement (not
+EIP-2612 permits). EIP-3009 has per-authorization unique nonces — each payment is
+atomically unique. A replayed authorization fails because its nonce is consumed.
+Settlement service runs with isolated hardware-backed key. Queue encrypted at rest.
+
+### 39.15 Pre-Build Security Checklist
+
+```
+CRITICAL (block building until fixed):
+  [x] Middleware never touches private keys — verified in aid-verify.ts
+  [ ] Merkle proof verification mandatory by default (proofRequired: true)
+  [ ] EIP-3009 for all settlement (not EIP-2612)
+  [ ] SECURITY.md with disclosure process before first npm publish
+  [ ] Reproducible builds with npm provenance attestation
+
+HIGH (fix in Phase 1):
+  [ ] Degraded verification modes (full/degraded/minimal/blocked)
+  [ ] X-AID-VERIFICATION-MODE response header
+  [ ] Hourly Merkle anchoring (reduce from 4-hour)
+  [ ] outputVerification field in manifest schema
+  [ ] counterpartyDiversity in scoring formula (v1.1)
+  [ ] Recency weighting on successRate (v1.1)
+
+MEDIUM (fix in Phase 2):
+  [ ] Hardware key support documentation (KMS/HSM)
+  [ ] allowedOrigins field for DID IP binding
+  [ ] Privacy mode (open / shielded / zk)
+  [ ] Anomaly detection on DID usage patterns
+  [ ] Settlement service isolation architecture
+
+PHASE 3:
+  [ ] ZK range proofs for private trust score disclosure
+  [ ] ZK proof of scoring function (RISC Zero)
+  [ ] Full key rotation automation with HSM
+```
+
+**Total attack vectors mitigated: 54** (46 previous + 8 MCP ecosystem gaps).
+
 ---
 
 ## 37. CREDITS AS INTERNAL LEDGER (AID + Existing System Coexistence)
