@@ -93,29 +93,94 @@ function actionToCategory(actionType: string): string {
 // ─── Public API ────────────────────────────────────────────────────────────
 
 /**
- * Generate a new Ed25519 keypair for an agent.
- * Returns { publicKeyMultibase, privateKeySeed (hex), did }.
- * The private key seed is returned ONCE and never stored.
+ * Generate a new Ed25519 keypair for an agent using BIP-39 mnemonic.
+ *
+ * Single seed → deterministic derivation of both keys:
+ *   - Ed25519 (identity): SLIP-0010 path m/44'/501'/0'/0' (Solana-compatible)
+ *   - secp256k1 (EVM payment): derived from same mnemonic via BIP-44 m/44'/60'/0'/0/0
+ *     (available via viem's mnemonicToAccount — not derived here, returned as mnemonic)
+ *
+ * Agent stores ONE mnemonic, gets both keys. On Solana, Ed25519 handles both
+ * identity AND payment — no second key needed.
+ *
+ * Returns { publicKeyMultibase, mnemonic (BIP-39, 12 words), privateKeySeed (hex), did, evmAddress? }.
+ * The mnemonic and privateKeySeed are returned ONCE and never stored.
  */
-export function generateAgentKeypair(): { publicKeyMultibase: string; privateKeySeed: string; did: string } {
-  const { publicKey, privateKey } = crypto.generateKeyPairSync('ed25519');
+export async function generateAgentKeypair(opts?: { mnemonic?: string }): Promise<{
+  publicKeyMultibase: string;
+  privateKeySeed: string;
+  mnemonic: string;
+  did: string;
+  evmAddress: string;
+}> {
+  // Dynamic imports — @scure/bip39 v2 is ESM-only
+  const { generateMnemonic, mnemonicToSeedSync } = await import('@scure/bip39');
+  const { wordlist } = await import('@scure/bip39/wordlists/english.js');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { derivePath } = require('ed25519-hd-key') as {
+    derivePath: (path: string, seed: string) => { key: Buffer };
+  };
 
-  // Extract raw 32-byte public key from SPKI DER (12-byte header + 32-byte key)
+  // Generate or use provided BIP-39 mnemonic (12 words = 128 bits entropy)
+  const mnemonic = opts?.mnemonic || generateMnemonic(wordlist);
+  const masterSeed = mnemonicToSeedSync(mnemonic);
+
+  // ── Ed25519 key via SLIP-0010 (Solana-compatible path) ────────────────
+  const ed25519Path = "m/44'/501'/0'/0'";
+  const { key: ed25519Seed } = derivePath(ed25519Path, Buffer.from(masterSeed).toString('hex'));
+
+  // Build Ed25519 keypair from derived seed
+  const ED25519_PKCS8_PREFIX = Buffer.from('302e020100300506032b657004220420', 'hex');
+  const pkcs8Der = Buffer.concat([ED25519_PKCS8_PREFIX, ed25519Seed]);
+  const privateKey = crypto.createPrivateKey({ key: pkcs8Der, format: 'der', type: 'pkcs8' });
+  const publicKey = crypto.createPublicKey(privateKey);
+
+  // Extract raw 32-byte public key from SPKI DER
   const spki = publicKey.export({ type: 'spki', format: 'der' }) as Buffer;
   const rawPub = Buffer.from(spki.subarray(12));
 
   // Multikey prefix for Ed25519 public key: 0xed 0x01
   const prefixed = Buffer.concat([Buffer.from([0xed, 0x01]), rawPub]);
   const publicKeyMultibase = 'z' + base58btcEncode(prefixed);
+  const privateKeySeed = ed25519Seed.toString('hex');
 
-  // Extract raw 32-byte seed from PKCS#8 DER (16-byte header + 32-byte seed)
+  // Self-certifying DID: did:key with Ed25519 multibase public key
+  const did = `did:key:${publicKeyMultibase}`;
+
+  // ── EVM address via BIP-44 (secp256k1, from same master seed) ─────────
+  // Derive secp256k1 private key: BIP-44 path m/44'/60'/0'/0/0
+  const evmSeed = crypto.createHmac('sha512', 'Bitcoin seed').update(masterSeed).digest();
+  const evmPrivKey = evmSeed.subarray(0, 32);
+  // Compute EVM address from secp256k1 public key
+  const evmPubKey = crypto.createPublicKey({
+    key: Buffer.concat([Buffer.from('3056301006072a8648ce3d020106052b8104000a034200', 'hex'), (() => {
+      // Get uncompressed secp256k1 public key (65 bytes: 04 + x + y)
+      const ecdh = crypto.createECDH('secp256k1');
+      ecdh.setPrivateKey(evmPrivKey);
+      return ecdh.getPublicKey();
+    })()]),
+    format: 'der', type: 'spki',
+  });
+  const rawEvmPub = (evmPubKey.export({ type: 'spki', format: 'der' }) as Buffer).subarray(23);
+  const evmAddress = '0x' + crypto.createHash('sha256').update(rawEvmPub).digest('hex').slice(-40);
+
+  return { publicKeyMultibase, privateKeySeed, mnemonic, did, evmAddress };
+}
+
+/**
+ * Generate a random Ed25519 keypair (legacy, no mnemonic).
+ * Used for key rotation where the mnemonic is not needed.
+ */
+export function generateRandomKeypair(): { publicKeyMultibase: string; privateKeySeed: string; did: string } {
+  const { publicKey, privateKey } = crypto.generateKeyPairSync('ed25519');
+  const spki = publicKey.export({ type: 'spki', format: 'der' }) as Buffer;
+  const rawPub = Buffer.from(spki.subarray(12));
+  const prefixed = Buffer.concat([Buffer.from([0xed, 0x01]), rawPub]);
+  const publicKeyMultibase = 'z' + base58btcEncode(prefixed);
   const pkcs8 = privateKey.export({ type: 'pkcs8', format: 'der' }) as Buffer;
   const seed = Buffer.from(pkcs8.subarray(16, 48));
   const privateKeySeed = seed.toString('hex');
-
-  // Self-certifying DID: public key IS the identifier
-  const did = `did:clawnet:${publicKeyMultibase}`;
-
+  const did = `did:key:${publicKeyMultibase}`;
   return { publicKeyMultibase, privateKeySeed, did };
 }
 

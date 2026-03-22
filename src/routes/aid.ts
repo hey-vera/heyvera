@@ -147,13 +147,15 @@ router.post('/register', checkApiKey, async (c) => {
     // BYOK — agent provides their own public key
     publicKeyMultibase = body.publicKey;
     // Self-certifying DID: public key IS the identifier
-    did = `did:clawnet:${publicKeyMultibase}`;
+    did = `did:key:${publicKeyMultibase}`;
   } else {
-    // Generate Ed25519 keypair — DID derived from public key
-    const keypair = aidBuilder.generateAgentKeypair();
+    // Generate BIP-39 mnemonic → Ed25519 (SLIP-0010) + secp256k1 (BIP-44) keypair
+    const keypair = await aidBuilder.generateAgentKeypair();
     publicKeyMultibase = keypair.publicKeyMultibase;
     privateKeySeed = keypair.privateKeySeed;
     did = keypair.did;
+    (c as any)._aidMnemonic = keypair.mnemonic;
+    (c as any)._aidEvmAddress = keypair.evmAddress;
   }
 
   // Store AID key
@@ -178,12 +180,21 @@ router.post('/register', checkApiKey, async (c) => {
   // Build AID document from stored data
   const aidDocument = aidBuilder.buildAIDDocument(did);
 
+  const mnemonic = (c as any)._aidMnemonic as string | undefined;
+  const evmAddress = (c as any)._aidEvmAddress as string | undefined;
+
   return c.json({
     did,
     publicKeyMultibase,
     ...(privateKeySeed ? { privateKeySeed } : {}),
+    ...(mnemonic ? { mnemonic } : {}),
+    ...(evmAddress ? { evmAddress } : {}),
     aidDocument,
-    warning: privateKeySeed ? 'Save your privateKeySeed now — it is returned ONCE and never stored.' : undefined,
+    warning: mnemonic
+      ? 'Save your mnemonic (12 words) now — it derives both your Ed25519 identity key and EVM payment key. It is returned ONCE and never stored.'
+      : privateKeySeed
+        ? 'Save your privateKeySeed now — it is returned ONCE and never stored.'
+        : undefined,
   }, 201);
 });
 
@@ -446,7 +457,8 @@ router.post('/:did/rotate-key', checkApiKey, async (c) => {
   if (body.newPublicKey) {
     newPublicKeyMultibase = body.newPublicKey;
   } else {
-    const keypair = aidBuilder.generateAgentKeypair();
+    // Key rotation uses random keypair (no mnemonic — rotated keys are standalone)
+    const keypair = aidBuilder.generateRandomKeypair();
     newPublicKeyMultibase = keypair.publicKeyMultibase;
     privateKeySeed = keypair.privateKeySeed;
   }
