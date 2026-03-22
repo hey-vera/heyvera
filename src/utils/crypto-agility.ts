@@ -126,6 +126,7 @@ export function getCryptoAgilityHeartbeat() {
   return {
     current: 'Ed25519',
     supported: ['Ed25519'],
+    planned: ['ML-DSA-44'],
     hashAlgorithm: AID_HASH_ALGORITHM,
     pqcReady: false,
     migrationTarget: 'ML-DSA-44',

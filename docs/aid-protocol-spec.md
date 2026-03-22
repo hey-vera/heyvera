@@ -23,7 +23,7 @@ The protocol provides:
 - **Offline verification** — pure cryptography, zero network calls
 - **Crypto-agile architecture** — designed for NIST post-quantum migration (ML-DSA, FIPS 204)
 
-**Reference implementation:** ClawNet (claw-net.org) — production agent orchestration platform with 344 API endpoints, Ed25519 AID system, Merkle-anchored trust snapshots, and 46 documented attack mitigations.
+**Reference implementation:** ClawNet (claw-net.org) — production agent orchestration platform with 344 API endpoints, Ed25519 AID system, Merkle-anchored trust snapshots, and 46 documented attack mitigations (Sections 20, 26, 32, 39, 41.4, 43.3, 44.2, 45.2 of the engineering document).
 
 **Open-source scoring library:** `@aidprotocol/trust-compute` (npm, MIT license) — deterministic computation anyone can run independently.
 
@@ -137,6 +137,8 @@ Every agent has an AID document containing:
   }
 }
 ```
+
+**Note on DID methods:** Agent identifiers use `did:key` (self-certifying, offline-verifiable). Platform issuers use `did:web` (resolvable, DNS-bound). Offline verification of agent identity requires only the `did:key` and the `proof.platformCountersignature`; the `did:web` issuer is used for trust chain bootstrapping when online.
 
 ### 2.3 Crypto-Agility
 
@@ -314,6 +316,8 @@ Every AID transaction produces a dual-signed, Merkle-anchored receipt:
 }
 ```
 
+**Note:** Payment details (amount, currency, settlementMode, txHash) are protocol-specific and defined in the corresponding profile (e.g., AID-x402 Profile, Section 8.3). The receipt format above shows the trust-layer fields common to all profiles.
+
 **Properties:**
 - **Dual-signed:** Both payer and provider sign — mutual commitment.
 - **Merkle-anchored:** Receipt hash included in periodic Merkle snapshots (rebuilt every 4 hours).
@@ -358,6 +362,7 @@ Every AID-compatible server MUST expose `GET /aid/heartbeat`:
   "cryptoAgility": {
     "current": "Ed25519",
     "supported": ["Ed25519"],
+    "planned": ["ML-DSA-44"],
     "hashAlgorithm": "sha384",
     "pqcReady": false,
     "migrationTarget": "ML-DSA-44",
@@ -381,6 +386,29 @@ Every AID-compatible server MUST expose `GET /aid/heartbeat`:
 6. **RATE LIMITING** — public endpoints rate-limited by IP.
 7. **AUDIT TRAIL** — all AID operations produce signed attestations.
 8. **FAIL-CLOSED** — middleware defaults to rejecting requests when trust cannot be verified.
+
+### 7.1 Error Responses
+
+Servers MUST return the following HTTP status codes for AID-specific failures:
+
+| Status | Code | Condition |
+|--------|------|-----------|
+| 401 Unauthorized | `AID_SIGNATURE_INVALID` | `X-AID-PROOF` signature verification failed |
+| 403 Forbidden | `AID_TRUST_GATE_BLOCKED` | Trust score below `X-AID-TRUST-GATE` minimum |
+| 409 Conflict | `AID_NONCE_REPLAY` | `X-AID-NONCE` already seen within 5-minute window |
+| 406 Not Acceptable | `AID_VERSION_UNSUPPORTED` | `X-AID-VERSION` not supported by server |
+| 428 Precondition Required | `AID_PROOF_MISSING` | `X-AID-DID` present but `X-AID-PROOF` missing |
+
+Error response body:
+```json
+{
+  "error": "Trust score too low",
+  "code": "AID_TRUST_GATE_BLOCKED",
+  "callerScore": 35,
+  "requiredScore": 40,
+  "verdict": "building"
+}
+```
 
 ---
 
