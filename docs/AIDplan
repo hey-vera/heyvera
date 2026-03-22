@@ -5035,6 +5035,106 @@ trust system (credit scores, eBay, Uber, DeFi) has autonomous containment that w
 without human intervention. They all assume someone is watching. AID assumes nobody is
 watching and protects the ecosystem anyway.
 
+### 39.20 FINAL REFINEMENTS (Post-10/10 Hardening)
+
+**Guardian Anti-Concentration Rules:**
+```
+Single guardian:   max 10% of active agents
+Related guardians: max 15% combined (shared ownership/infra)
+Top 3 guardians:   max 30% combined
+
+Selective freeze defense: if Guardian G freezes Agent A, and A is a direct
+competitor to any agent in G's portfolio (overlapping counterparties + service
+categories), freeze requires independent confirmation from protocol-assigned
+secondary guardian. Prevents weaponized freezing.
+```
+
+**Counterparty Contribution Curve (fixed 0.0x cliff):**
+```
+1-10 txs: 1.0x  | 11-25: 0.5x  | 26-50: 0.25x  | 51-100: 0.1x  | 100+: 0.01x
+Floor of 0.01x (not 0.0x) — long-term relationships contribute minimally but never zero.
+```
+
+**Trust Trajectory (Cherry — score derivative + projection):**
+```json
+{ "trustTrajectory": { "currentScore": 75, "trend": "+2.1/month", "trajectory": "ascending",
+  "projectedScore30d": 77, "projectedScore90d": 81, "history": [...] } }
+```
+Sudden slope change (from +2/month to -1/month) is early warning before absolute score drops.
+
+**Transaction-Type Trust Specialization (Cherry — per-category sub-scores):**
+```json
+{ "specialized": { "data_feeds": { "score": 92, "attestations": 634 },
+  "compute": { "score": 41, "attestations": 23 },
+  "payments": { "score": 68, "attestations": 190 } } }
+```
+Min 20 attestations per category before publishing. Prevents aggregate gaming
+(cheap data queries hiding failed compute). Aggregate remains primary metric.
+
+**Parametric Insurance Triggers (auto-payout, no claims process):**
+```
+AGENT_FROZEN + DEFERRED_UNSETTLED      → auto-reimburse 60%, no claim needed
+IMMUNE_LEVEL_3 + SETTLEMENT_FAILURE    → auto-reimburse 50%
+SUCCESSION_EVENT                       → auto-reimburse 40% (48h before freeze)
+Edge cases not covered by triggers     → manual claims, 30-day investigation
+```
+Handles ~80% of cases automatically in minutes. Fund pays less per claim (60% vs 80%)
+but pays instantly. Counterparties prefer fast partial over slow full.
+
+**Governance Sybil Resistance (one operator, one vote):**
+```
+weight = sqrt(bestAgentScore × monthsActive × log2(counterpartyCount))
+Only the operator's SINGLE BEST agent counts. 50 agents = 1 vote.
+Phase 2: World ID integration (1 verified human = 1 operator)
+Delegation capped at 5% of total voting power per operator.
+Proposal submission: stake 10 trust points for 30 days.
+Voting: stake 2 trust points for 7 days.
+Spam proposals flagged by 3+ council members = staked points burned.
+```
+
+**KERI Migration Path (Phase 3 — design now, implement later):**
+AID's canonical ID system is forward-compatible with KERI (Key Event Receipt
+Infrastructure). Canonical ID maps to KERI's Autonomic Identifier. Key rotation
+maps to Key Event Log. Phase 3 evaluates full KERI migration. Non-breaking because
+trust scoring operates above the identity layer — consumes persistent identifier +
+current public key regardless of how the mapping is maintained.
+
+**Intent Attestation Format (tightened manifests):**
+```json
+{ "intentAttestation": { "type": "signed_intent", "action": "fetch_price_data",
+  "sources": ["coingecko", "birdeye", "jupiter"], "budget": { "max": 0.005 },
+  "duration": { "max": 30, "unit": "seconds" }, "signature": "ed25519:<...>" } }
+```
+Signed BEFORE execution. Compared against execution proof AFTER completion.
+Compatible with Mastercard Verifiable Intent and IADIZ framework.
+
+**RFC 9421 HTTP Message Signatures Alignment:**
+Current custom signing format → align with IETF RFC 9421 envelope so existing HTTP
+signature verification libraries can validate AID headers without custom code.
+Same Ed25519 signature, same security properties, standard transport packaging.
+
+**CSA Agentic Trust Framework Mapping:**
+```
+CSA ATF:    AID Equivalent:
+Intern      new (0-19)
+Junior      building (20-39)
+Senior      standard/trusted (40-89)
+Principal   proceed (90+)
+```
+One table in spec interoperability section. Enterprise credibility (CSA adopted by
+Microsoft, AWS, Google Cloud) for zero implementation cost.
+
+**TEE Alternatives (multi-vendor attestation):**
+```
+Option A: TEE (SGX/Nitro/TrustZone)     → 1.3x multiplier
+Option B: MPC Key Custody (3+ nodes)     → 1.25x
+Option C: Threshold Signatures (2-of-3)  → 1.2x
+Option D: HSM (FIPS 140-3)              → 1.25x
+Combination: TEE + HSM or TEE + MPC     → 1.35x
+Any three options                        → 1.4x (maximum)
+```
+No single-vendor dependency. Offline agents use threshold sigs for 1.2x bonus.
+
 ### 39.16 Missing References + Compliance Gaps (Final Sweep, March 22)
 
 **Standards references to add to spec:**
