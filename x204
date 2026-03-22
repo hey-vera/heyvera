@@ -403,18 +403,20 @@ x204 is a PARALLEL path that doesn't require credits at all.
 
 ### 6.3 Progressive Identity Tiers (All Optional)
 
-| Tier       | How to reach                          | Trust Multiplier | Settlement               |
-|------------|---------------------------------------|------------------|--------------------------|
-| `none`     | No AID (pure x402 pay-per-use)        | 1.0x             | Immediate only           |
-| `new`      | X-AID-NEW (auto-provision)            | 1.0x             | Immediate only           |
-| `building` | 20+ successful transactions           | 1.0x             | Immediate only           |
-| `caution`  | Trust score 40+                       | 1.1x (10% off)   | Standard settlement      |
-| `standard` | Trust score 60+                       | 1.25x (25% off)  | Batched (EIP-2612 permit)|
-| `proceed`  | Trust score 80+ AND verified          | 1.5x (50% off)   | Deferred settlement      |
+| Tier       | Trust Score | Price Discount | Settlement               |
+|------------|-------------|----------------|--------------------------|
+| `none`     | No AID      | Base price     | Immediate only           |
+| `new`      | 0-19        | Base price     | Immediate only           |
+| `building` | 20-39       | Base price     | Immediate only           |
+| `caution`  | 40-59       | 10% off        | Standard settlement      |
+| `standard` | 60-79       | 25% off        | Batched (EIP-2612 permit)|
+| `proceed`  | 80+ AND verified | 50% off   | Deferred settlement      |
 
-An agent with NO AID pays x402-compatible base price for every call.
-An agent WITH AID and high trust score pays up to 50% less.
-AID is the INCENTIVE, not a requirement.
+Tiers are determined SOLELY by trust score (computed from the 11-dimension formula).
+Transaction count feeds INTO the trust score (via behavioral signals) but is not
+a direct threshold. An agent with NO AID pays x402-compatible base price.
+An agent WITH AID pays based on their computed trust score.
+AID is the INCENTIVE (discounts), not a requirement.
 
 ---
 
@@ -562,7 +564,8 @@ Additional fields in response:
   "consumer": {
     "trustScore": 87,
     "pricingTier": { "multiplier": 0.5, "settlement": "deferred" },
-    "balance": "12.450",
+    "creditBalance": "12.450",       // only for credit-based agents (PATH A)
+    "usdcAllowance": "50.000000",    // only for USDC agents (PATH B, from EIP-2612 permit)
     "recentReceipts": 47,
     "feedbackPending": 3,
     "alerts": [
@@ -715,7 +718,7 @@ x204 for sovereign agents, x402 for casual users.
 | Market signals | stakingDemand, consumerDiversity, crossConsumption, volumeGrowth | M |
 | Community signals | validatorVerdicts (weighted), reportPenalty, verificationTier | M |
 | Trust decay | 10% weight loss per 30 days of inactivity | S |
-| Verification multipliers | Twitter/GitHub/domain verification → 1.1x/1.15x/1.2x | M |
+| Verification multipliers | Twitter/GitHub/domain verification → 1.1x/1.2x (partial/full) | M |
 | Trust verdicts | proceed/standard/caution/new/avoid classifications | S |
 | On-chain trust oracle | Sync trust scores to Base smart contract every 6h | L |
 | TrustGate hook | Smart contract modifier: reject callers below min_trust_score | L |
@@ -1648,8 +1651,6 @@ Any platform can implement CORE quickly and add extensions incrementally.
 
 ---
 
-## OPEN QUESTIONS RESOLVED
-
 ### 19.8 X-AID-PROOF Signature Format (Precise Definition)
 
 **Problem:** "Ed25519 sig over request body" is vague. What exactly gets signed?
@@ -1904,13 +1905,18 @@ MONTH 7+ (Phase 4-5):
 
 | Revenue Source | Fee | Phase |
 |----------------|-----|-------|
-| AID registration | 1 credit ($0.001) | 1 |
+| AID registration (via /v1/aid/register with API key) | 1 credit ($0.001) | Existing |
+| AID provisioning (via X-AID-NEW on x204 path) | FREE ($0) | 1 |
 | x204 transaction fee | 2 credits per orchestrated query | 1 |
-| Cross-platform attestation | 0.1 credits | 1 |
+| Cross-platform attestation | 0.1 credits (or USDC equivalent) | 1 |
 | AID export | 0.5 credits (or USDC equivalent) | 1 |
 | Key rotation | 0.5 credits (or USDC equivalent) | 1 |
 | Skill marketplace split | 15% of skill revenue | Existing |
 | Bonding curve fees | 5% of stake/unstake volume | 4 |
+
+Note: Two AID registration paths. Existing credit-based path (POST /v1/aid/register)
+charges 1 credit. x204 path (X-AID-NEW header) is free — the agent pays per execution
+instead. Both create the same AID record.
 
 ### 21.2 Trust-Gated Discount Sustainability
 
@@ -2073,7 +2079,7 @@ No breaking changes. No forced migration. Progressive enhancement.
 | TrustOracle | Base mainnet | On-chain trust score queries | 3 |
 | TrustGate | Base mainnet | Minimum trust score enforcement | 3 |
 | BondingCurve | Base mainnet | Agent trust stakes | 4 |
-| ERC-8004 registration tx | Ethereum mainnet | Register ClawNet on ERC-8004 | 1 (Week 1) |
+| ERC-8004 registration tx | Base mainnet | Register ClawNet on ERC-8004 (~$1) | 1 (Week 1) |
 
 ### 23.5 Infrastructure Changes
 
@@ -2133,7 +2139,7 @@ This plan is ready to build. Every section has been:
   Base USDC EIP-3009 support confirmed. EAS attestation costs confirmed.
 - **Secured:** Threat model with 10 attack vectors and mitigations
 - **Costed:** Economic model with verified gas costs, facilitator fee comparison, monthly projections
-- **Scoped:** Phase 1 is 6-8 days with zero infrastructure changes
+- **Scoped:** Phase 1 is 8-13 days with zero infrastructure changes
 - **Tested:** All core crypto primitives already have working code in production (20/20 verified)
 
 **What to build first (this week):**
@@ -2188,7 +2194,7 @@ private key is compromised, the attacker can sign permits draining the wallet.
 **Real scale:** LayerZero flagged 803K sybil addresses (13% of eligible).
 In some airdrops, sybils captured 50% of distributed tokens.
 
-**x204 exposure:** A skill creator creates 50 wallets, registers 50 trial AIDs,
+**x204 exposure:** A skill creator creates 50 wallets, registers 50 AIDs,
 and leaves positive feedback on their own skill to inflate trust score.
 
 **Mitigations (layered defense):**
@@ -2250,7 +2256,7 @@ exposed to suspected synthetic identities (TransUnion H1 2025).
    deferred settlements until existing ones clear.
 ```
 
-### 26.4 Trial Credit Farming
+### 26.4 Sybil Identity Farming
 
 **Real scale:** 37% of all internet traffic is malicious bots (2024).
 One AI SaaS saw 3,500+ malicious registrations in two weeks.
@@ -2362,18 +2368,16 @@ immediately, not just the ecosystem.
 Railway gave unlimited free tier → got destroyed by crypto miners and torrent bots.
 Now: $5 one-time trial credit, 30-day expiry, requires GitHub or credit card.
 
-**x204 model (simpler — pure pay-per-use, no trial credits):**
+**x204 model (pure pay-per-use, like x402):**
 ```
 No AID:          Pay via x402 headers at base price (zero signup)
 X-AID-NEW:       Free identity provisioning (pay per use for execution)
 Trust score 40+: 10% discount unlocked
 Trust score 80+: 50% discount unlocked
 ```
-No free credits to manage, no expiry cron, no abuse prevention for credit farming.
 The "free" thing is identity (costs you $0). The paid thing is execution (agent pays).
-
-The jump from 50 free credits to 5,000 for $5 feels trivial.
-3-5% of free users convert. At 10K free users → 300-500 paying customers.
+No free credits to manage, no expiry cron, no conversion funnel.
+Conversion happens naturally: agents who find value pay for more. No free tier needed.
 
 ### 27.5 SDK Auto-Discovery via MCP + A2A
 
@@ -2470,7 +2474,7 @@ RIGHT: Compute Merkle tree of all scores off-chain, write single root
 | Settlement mechanics verified | Yes | receiveWithAuthorization for immediate, EIP-2612 permit for batched |
 | Cold start problem solved | Yes | New agents pay base price (no 2x penalty), avoid is manual flag only |
 | Anti-exploit hardened | Yes | 5 attack vectors with layered mitigations (Sybil, bust-out, permit, trial, wash) |
-| Adoption accelerators defined | Yes | Playground, 3-line SDK, selfish-first, free credits model |
+| Adoption accelerators defined | Yes | Playground, 3-line SDK, selfish-first, pure pay-per-use |
 | Scaling architecture verified | Yes | Benchmarked to 1M agents, tiered storage, incremental trust updates |
 | Economic model verified | Yes | Gas costs, facilitator comparison, revenue projections |
 | ERC-8004 bridge feasible | Yes | Registration permissionless, feedbackAuth constraint noted |
@@ -2709,7 +2713,7 @@ Defense:
   2. Proof-of-work puzzle (Section 26.4) makes each request cost ~100ms CPU
   3. Per-DID rate limits (not just per-IP) — once AID is created, rate limits
      follow the DID regardless of IP changes
-  4. Trial credits are non-transferable — can't aggregate across fake AIDs
+  4. No free credits exist — fake AIDs have nothing to aggregate
   5. Anomaly detection: if 1000 new AIDs are created in 1 hour from different IPs
      but similar fingerprints → flag and throttle
 ```
@@ -2797,29 +2801,20 @@ D. Smart contract escrow
 
 ### 33.2 Securities Law — Bonding Curve Trust Stakes (CRITICAL)
 
-**Phase 4's trust stakes with 5% revenue share WILL be classified as securities.**
+**Trust stakes MUST NOT include revenue sharing (securities risk).**
 
-All four Howey test prongs are met:
-1. Investment of money (staking USDC) ✓
-2. Common enterprise (pooled bonding curve) ✓
-3. Expectation of profits (5% revenue share) ✓
-4. From efforts of others (agent's performance) ✓
+The original design included a 5% revenue share to stakers, which would have met
+all four Howey test prongs (investment + common enterprise + profit expectation +
+efforts of others = security). **This was removed in Section 9.1.**
 
-**FIX (before building Phase 4):**
-```
-REMOVE the 5% revenue share from trust stakes.
+Current design (Section 9.1) is reputation-only:
+- Staking increases MARKET trust signal (discovery boost, priority queuing)
+- NO financial return to stakers
+- 5% fee on stake/unstake goes to protocol treasury only
+- This removes the "expectation of profits" prong, avoiding securities classification
 
-Trust stakes = reputation signal ONLY:
-  - Staking increases the agent's MARKET trust signal
-  - Unstaking decreases it
-  - NO financial return to stakers
-  - Stakers benefit from: discovery boost (staked agents rank higher),
-    priority access (staked agents' services are faster/cheaper)
-
-This removes the "expectation of profits" prong.
-The bonding curve still functions as market-priced reputation,
-just without revenue distribution to stakers.
-```
+**If revenue sharing is ever reintroduced, it WILL be classified as a security.**
+Do not add financial returns to stakers without SEC registration or legal counsel.
 
 ### 33.3 GDPR Right to Erasure (Solvable)
 
@@ -3208,6 +3203,141 @@ Sections 36.1-36.6 are what becomes possible once the foundation is built.
 
 Build the foundation first. The endgame follows.
 
+
+---
+
+## 37. CREDITS AS INTERNAL LEDGER (x204 + Existing System Coexistence)
+
+### 37.1 The Architecture: Credits Are the Accounting Unit
+
+x204 agents pay USDC. ClawNet internally tracks everything in credits.
+The agent never sees credits. The billing code never changes.
+
+```
+WHAT THE AGENT SEES:              WHAT CLAWNET DOES INTERNALLY:
+────────────────────              ──────────────────────────────
+Agent pays 0.005 USDC on Base →   receiveWithAuthorization() collects USDC
+                              →   Converts: 0.005 × CREDITS_PER_USD(1000) = 5 credits
+                              →   deductCredit(billingKey, 5)  ← existing function
+                              →   Revenue split: 4.25cr creator + 0.75cr treasury
+                              →   Returns result + receipt
+                              →   Creator withdraws credits as USDC via payout-cron
+```
+
+### 37.2 Three On-Ramps, One Ledger
+
+```
+STRIPE (PATH A — existing, unchanged):
+  $5 Stripe checkout → 5,000 credits → spend credits
+  No code changes. Works today.
+
+x402 (existing, unchanged):
+  Facilitator verifies USDC payment → internal credit allocation → spend credits
+  No code changes. Works today.
+
+x204 (PATH B — new):
+  Agent signs receiveWithAuthorization → server collects USDC on Base
+  → auto-convert to credits (CREDITS_PER_USD=1000)
+  → spend credits via existing deductCredit()
+  ONE new step: USDC→credit conversion. Everything else is existing code.
+```
+
+### 37.3 What Stays Exactly the Same
+
+| Component | Changes for x204? |
+|-----------|-------------------|
+| `deductCredit(key, amount)` | None |
+| `round6()` on all billing | None |
+| 85/15 revenue split | None |
+| `creditCostForEndpoint()` | None |
+| `dynamicCreditCost()` | None |
+| `trackDelegatedSpend()` | None |
+| Budget accounts + limits | None |
+| `WHERE credits >= amount` guard | None |
+| Orchestration fee (2cr) | None |
+| Marketplace purchase flow | None |
+| Creator payout cron | None |
+
+### 37.4 What's New (Minimal)
+
+**One new table:**
+```sql
+CREATE TABLE x204_settlements (
+  id TEXT PRIMARY KEY,
+  did TEXT NOT NULL,                    -- agent's AID DID
+  usdc_amount TEXT NOT NULL,            -- USDC paid (6 decimals)
+  credits_allocated REAL NOT NULL,      -- credits created from USDC
+  tx_hash TEXT,                         -- Base L2 transaction hash
+  settlement_mode TEXT NOT NULL,        -- immediate | batched | deferred
+  batch_id TEXT,                        -- for batched settlements
+  settled INTEGER NOT NULL DEFAULT 1,   -- 0 = pending (deferred), 1 = settled
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_x204_settlements_did ON x204_settlements(did, created_at DESC);
+```
+
+**One new middleware function:**
+```typescript
+// x204 payment middleware — converts USDC to credits before existing billing
+async function x204PaymentMiddleware(c, next) {
+  const paymentSig = c.req.header('PAYMENT-SIGNATURE');
+  if (!paymentSig) {
+    // No payment → return 402 with pricing (same as x402)
+    return c.json({ error: 'Payment required', pricing: heartbeatPricing }, 402);
+  }
+
+  // Verify and settle USDC payment
+  const { amount, txHash } = await settlePayment(paymentSig); // receiveWithAuthorization
+  const credits = round6(amount * CREDITS_PER_USD);
+
+  // Create ephemeral credit allocation for this request
+  allocateCredits(billingKey, credits); // INSERT or UPDATE api_keys credits
+
+  // Record settlement
+  insertX204Settlement({ did, usdcAmount: amount, creditsAllocated: credits, txHash });
+
+  // Continue to existing route handler — deductCredit() works as normal
+  await next();
+}
+```
+
+**That's it.** One table + one middleware function bridges x204 USDC payments into
+the existing credit system. All downstream billing code runs unchanged.
+
+### 37.5 At Mass Scale
+
+```
+Phase 1:  100% of revenue from credits (Stripe + USDC deposits)
+          x204 adds AID headers but billing is still credit-based
+
+Phase 2:  x204 USDC payments → auto-convert to credits
+          Two on-ramps (Stripe + x204), one ledger (credits)
+          Agents see USDC prices, ClawNet tracks credits internally
+
+Phase 3:  If 90%+ volume is x204 USDC, the user-facing "credit" concept fades
+          API responses show prices in USDC, not credits
+          But internally: credits remain the accounting unit for splits/fees/limits
+          Credit rate (CREDITS_PER_USD=1000) becomes a hidden internal constant
+
+LONG TERM: Credits are like cents — the customer sees dollars (USDC),
+           the ledger tracks cents (credits). Never needs replacing.
+```
+
+### 37.6 Why This Works
+
+The credit system already handles:
+- Fractional amounts (decimal credits, round6)
+- Revenue splits (85/15 with round6, not Math.floor)
+- Deduction guards (WHERE credits >= amount + DB trigger)
+- Delegated spending (parent→child key billing)
+- Budget limits (daily/weekly/monthly caps)
+- Dynamic pricing (surge, volume discounts, off-peak)
+- Audit trail (logAudit on every deduction)
+
+Rewriting ANY of this for USDC-native billing would be months of work.
+Converting USDC→credits at the entry point takes 1 day and reuses everything.
+
+---
 
 Financial appendix — see Section 21 for verified economic model:
   - Section 21.1: Revenue streams per phase
