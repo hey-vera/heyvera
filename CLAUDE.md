@@ -100,6 +100,7 @@ dynamicCreditCost(...)           // Surge (up to 5x) + volume discounts + off-pe
 | Layer | Header | Usage |
 |-------|--------|-------|
 | API Key | `X-API-Key` (cn-...) | Most /v1/* routes (not all — some are public) |
+| AID | `X-AID-DID` + `X-AID-PROOF` | x204 identity (optional, trust-gated pricing) |
 | Clerk | `Authorization: Bearer` | Escrow, user endpoints |
 | Admin | `X-Admin-Key` | /v1/admin/* (timing-safe SHA-256) |
 
@@ -114,6 +115,44 @@ dynamicCreditCost(...)           // Surge (up to 5x) + volume discounts + off-pe
 - **Composite skills** — max depth 3, max 10 leaf invocations, BFS cycle detection
 - **Per-skill rate limit** — `checkSkillRateLimit()` uses `cacheIncr(key, 3600)`
 - **Webhook HMAC** — `X-ClawNet-Signature` + `X-ClawNet-Timestamp` headers
+
+## AID — Agent Identity Document (src/routes/aid.ts, src/core/aid-builder.ts)
+
+Self-sovereign agent identity with Ed25519 DIDs, Merkle-anchored trust chains, and offline verification. Full plan in `x204` file (4,161 lines, 40 sections).
+
+**Key files:**
+| File | What |
+|------|------|
+| `src/core/aid-builder.ts` | `generateAgentKeypair()`, `buildAIDDocument()`, `computeTrustScoreWithProof()`, `deriveCapabilities()` |
+| `src/utils/aid-verifier.ts` | `verifyAIDDocument()` — offline verification, pure crypto |
+| `src/utils/ed25519-signer.ts` | `signVC()`, `verifyVCSignature()` — platform Ed25519 signing |
+| `src/utils/jcs.ts` | `jcsSerialize()`, `base58btcEncode/Decode()`, `validateMultibaseEd25519()` — shared crypto |
+| `src/core/merkle-anchor.ts` | `buildMerkleTree()`, `getMerkleProof()`, `verifyMerkleProof()` |
+| `src/db/aid.ts` | AID key CRUD, trust snapshots, cross-platform attestations, capabilities |
+| `src/routes/aid.ts` | 9 endpoints: register, resolve, trust-chain, attest, capabilities, verify, export, rotate-key, did.json, trust |
+| `src/core/aid-snapshot-cron.ts` | 4h cron: Merkle tree rebuild, capability refresh |
+| `src/db/attestations.ts` | `createAutoAttestation()` with `executionSteps[]` — three-layer trust lifecycle |
+
+**Trust score formula (LIVE):**
+```
+score = successRate×40 + chainCoverage×25 + volume×20 + manifestAdherence×15
+```
+
+**Three-layer trust lifecycle:**
+```
+MANIFEST (intent, optional) → EXECUTION PROOF (evidence, auto) → ATTESTATION (outcome, auto)
+All feed into trust score via attestation_stats table.
+```
+
+**AID routes:** Mounted at `/v1/aid` in `src/index.ts`.
+
+**DB migrations:** v102–v108 in `src/db/connection.ts` (aid_keys, trust_snapshots, cross_platform_attestations, capabilities, agent_identities extensions, granular policies).
+
+**Auth:** `checkPolicy()` in `src/middleware/auth.ts` — per-tx caps, skill whitelists, provider whitelists, active hours for delegated keys.
+
+**Public trust API:** `GET /v1/aid/:did/trust` — free, no auth, rate-limited. Returns verdict (not exact score), attestation count, capabilities. The "credit bureau" endpoint.
+
+**x204 protocol plan:** Full specification in the `x204` file at project root. Section 38.9 has the MASTER BUILD SEQUENCE.
 
 ## Smart Cache v2 (src/cache/)
 
@@ -152,7 +191,7 @@ Treasury sweep optional — with 2-wallet setup, treasury credits are pure profi
 | File | What |
 |------|------|
 | `src/index.ts` | Server entry, middleware stack, cron startup |
-| `src/db/connection.ts` | initDb(), getDb(), 70 migrations, logAudit() |
+| `src/db/connection.ts` | initDb(), getDb(), 108 migrations, logAudit() |
 | `src/db/index.ts` | Barrel export of 17 domain DB files |
 | `src/core/credits.ts` | round6(), all billing math |
 | `src/core/executor.ts` | executePlan(), circuit breaker, cache |
@@ -164,12 +203,17 @@ Treasury sweep optional — with 2-wallet setup, treasury credits are pure profi
 | `src/utils/solana-payout.ts` | sendSolanaUsdc(), balance checks |
 | `src/utils/shutdown.ts` | SIGTERM/SIGINT, 15s drain |
 | `src/routes/api.ts` | POST /v1/orchestrate, GET /v1/estimate |
+| `src/routes/aid.ts` | AID: register, resolve, trust, verify, export, rotate-key |
+| `src/core/aid-builder.ts` | AID document builder, trust score, capabilities |
+| `src/utils/jcs.ts` | Shared JCS + base58btc + Ed25519 validation |
+| `src/middleware/auth.ts` | checkApiKey, checkPermission, checkPolicy |
+| `x204` | x204 protocol plan (4,161 lines, 40 sections, master build sequence) |
 | `flow.md` | 33-section system flow document |
 
 ## Testing
 
 ```bash
-npm run test:unit           # 66 tests via Vitest
+npm run test:unit           # 175 tests via Vitest
 npm run test:unit:coverage  # With coverage
 npm run typecheck           # tsc --noEmit (0 errors expected)
 ```
