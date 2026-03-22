@@ -343,61 +343,78 @@ Agent pays Provider C (1 skill):  0.001 USDC
 
 ---
 
-## 6. ZERO-FRICTION ONBOARDING
+## 6. ZERO-FRICTION ONBOARDING (Pure Pay-Per-Use)
 
-### 6.1 First Contact Provisioning (Inspired by Maiat)
+### 6.1 Payment Model: x402-Compatible, No Accounts
 
-Maiat's killer UX: `X-Maiat-Client: my-agent-name` auto-creates a wallet + 10 Scarab on first call.
-x204 adopts this — one HTTP call creates identity + grants trial credits + executes the request:
+x204 is **pure pay-per-use** — like x402, but with identity + trust layered on top.
+No accounts, no credits, no trials, no subscriptions.
 
 ```
-# First ever request — no account, no key, no DID:
-POST /x204/skills/sol-price
-Headers: X-AID-NEW: "my-trading-bot"
-Body: { "token": "SOL" }
+READS = FREE (always, no payment needed):
+  GET  /x204/heartbeat           — discover services + pricing
+  GET  /v1/aid/:did              — resolve an agent's identity
+  GET  /v1/aid/:did/trust-chain  — verify trust offline
+  POST /v1/aid/verify            — verify an AID document
+  GET  /v1/skills                — browse marketplace
 
-# Server auto-provisions:
-# 1. Generates Ed25519 keypair → self-certifying DID
-# 2. Creates AID record with trust score 0
-# 3. Grants 5 trial credits (expire in 24h)
-# 4. Executes the request using trial credits
-# 5. Returns everything in one response:
+EXECUTION = PAY PER CALL (USDC on Base):
+  POST /x204/skills/:id          — pay via PAYMENT-SIGNATURE header
+  POST /x204/orchestrate         — pay via PAYMENT-SIGNATURE header
+  POST /x204/query/:id           — pay via PAYMENT-SIGNATURE header
 
-HTTP 201 Created
-{
-  "aid": {
-    "did": "did:clawnet:zABC...",
-    "publicKeyMultibase": "zABC...",
-    "privateKeySeed": "a1b2c3...",
-    "trustScore": 0,
-    "tier": "new"
-  },
-  "trial": {
-    "credits": 4,
-    "expiresIn": "24h"
-  },
-  "result": {
-    "price": 145.20,
-    "change24h": 3.1
-  },
-  "receipt": { ... },
-  "warning": "Save your privateKeySeed — shown once, never stored."
-}
+AID = OPTIONAL (enhances pricing, not required to transact):
+  Without AID: pay base price via x402 headers (backwards-compatible)
+  With AID:    pay trust-gated price via x204 headers (discounts for trusted agents)
 ```
 
-**One HTTP call:** identity created + trial credits + request fulfilled + receipt generated.
+### 6.2 First Contact Flow (No Account Required)
 
-Compare: x402 requires a wallet, USDC, a facilitator account, and multiple round-trips.
+```
+# STEP 1: Discover what's available (FREE)
+curl https://api.claw-net.org/x204/heartbeat
+→ Services, prices, trust tiers — no auth needed
 
-### 6.2 Progressive Identity Tiers
+# STEP 2: Pay and execute (one call, USDC)
+curl -X POST https://api.claw-net.org/x204/skills/sol-price \
+  -H "PAYMENT-SIGNATURE: <EIP-3009 signed auth>" \
+  -d '{"token":"SOL"}'
+→ Result + receipt. No account. No signup. Pure x402-style pay-per-use.
 
-| Tier       | How to reach                          | Trust Multiplier | Capabilities                     |
-|------------|---------------------------------------|------------------|----------------------------------|
-| `anonymous`| X-AID-NEW header                      | 1.0x             | 5 trial credits, 24h expiry      |
-| `basic`    | Fund wallet with USDC                 | 1.0x             | Full access, immediate settlement|
-| `verified` | Verify Twitter OR GitHub              | 1.1x             | 10% pricing discount             |
-| `proven`   | 100+ successful transactions          | 1.15x            | Batched settlement available      |
-| `trusted`  | Trust score 80+ AND verified          | 1.2x             | Deferred settlement, credit terms|
+# STEP 3 (OPTIONAL): Register AID for trust-gated discounts
+curl -X POST https://api.claw-net.org/x204/skills/sol-price \
+  -H "X-AID-NEW: my-trading-bot" \
+  -H "PAYMENT-SIGNATURE: <EIP-3009 signed auth>" \
+  -d '{"token":"SOL"}'
+→ AID auto-provisioned + result + receipt.
+  Agent now has identity. Future calls with X-AID-DID get trust-gated pricing.
+  privateKeySeed returned ONCE — save it.
+```
+
+**Key difference from x402:** x402 requires a facilitator to verify and settle.
+x204 settles directly via receiveWithAuthorization (server IS the recipient).
+Both are pure pay-per-use. x204 just removes the middleman.
+
+**Key difference from the old x204 plan:** No trial credits. No accounts.
+No credit system required for x204 path. Agent has USDC → agent pays → done.
+
+**ClawNet's existing credit system still works** for PATH A users (API key + Stripe).
+x204 is a PARALLEL path that doesn't require credits at all.
+
+### 6.3 Progressive Identity Tiers (All Optional)
+
+| Tier       | How to reach                          | Trust Multiplier | Settlement               |
+|------------|---------------------------------------|------------------|--------------------------|
+| `none`     | No AID (pure x402 pay-per-use)        | 1.0x             | Immediate only           |
+| `new`      | X-AID-NEW (auto-provision)            | 1.0x             | Immediate only           |
+| `building` | 20+ successful transactions           | 1.0x             | Immediate only           |
+| `caution`  | Trust score 40+                       | 1.1x (10% off)   | Standard settlement      |
+| `standard` | Trust score 60+                       | 1.25x (25% off)  | Batched (EIP-2612 permit)|
+| `proceed`  | Trust score 80+ AND verified          | 1.5x (50% off)   | Deferred settlement      |
+
+An agent with NO AID pays x402-compatible base price for every call.
+An agent WITH AID and high trust score pays up to 50% less.
+AID is the INCENTIVE, not a requirement.
 
 ---
 
@@ -677,7 +694,7 @@ Every x402 call now carries identity and produces better receipts.
 | Task | Description | Effort |
 |------|-------------|--------|
 | x204 route handler | `/x204/*` endpoints with full protocol flow | L |
-| Zero-auth onboarding | `X-AID-NEW` header → auto-provision AID + trial credits | M |
+| Zero-auth onboarding | `X-AID-NEW` header → auto-provision AID (pay-per-use, no trial credits) | M |
 | Direct EIP-3009 settlement | Server submits payment authorization directly (no facilitator) | L |
 | Mutual authentication | Both client and server sign every transaction | M |
 | Portable atomic receipts | Full receipt format with dual signatures + Merkle anchoring | M |
@@ -1682,22 +1699,22 @@ The client can verify this offline using the server's public key (from heartbeat
 
 ### 19.10 X-AID-NEW Rate Limiting
 
-**Problem:** Zero-friction onboarding is an abuse vector. Unlimited trial AIDs = free credit farming.
+**Problem:** X-AID-NEW auto-provisions identity. Could be abused to create mass Sybil AIDs
+for feedback farming (even though no free credits are granted).
 
 **Resolution:**
 ```
 Rate limits for X-AID-NEW:
-  - 3 trial AIDs per IP per 24 hours
-  - 1 trial AID per unique agent name per 24 hours
-  - Trial credits expire in 24h (non-transferable)
-  - Trial AIDs that don't transact after 24h are auto-deleted
-  - Graduated: first AID = 5 credits, second = 3, third = 1
+  - 3 AIDs per IP per 24 hours
+  - 1 AID per unique agent name per 24 hours
+  - AIDs that never transact are pruned after 30 days
 
 Anti-abuse:
-  - IP reputation tracking (repeated abuse → IP ban)
-  - Trial AIDs cannot invoke paid endpoints (only free/trial-eligible)
-  - Trial AIDs cannot submit feedback (prevents Sybil via feedback farming)
-  - Promotion to `basic` tier requires funding wallet (links real value to identity)
+  - No free credits → no "credit farming" vector (pure pay-per-use)
+  - New AIDs (trust score 0) cannot submit feedback (prevents Sybil review farming)
+  - New AIDs have no trust-gated discounts (pay base price like x402)
+  - The only thing X-AID-NEW gives for free is an IDENTITY — not execution
+  - To actually USE a service, agent must pay via PAYMENT-SIGNATURE
 ```
 
 ### 19.11 Privacy Model (Hybrid Public/Private)
@@ -1776,9 +1793,9 @@ Header: X-AID-VERSION: 1.0
 
 ### 19.14 Edge Cases Resolved
 
-**Agent name uniqueness after trial expiry:**
-- Trial AIDs that don't transact within 24h are auto-deleted (including the name)
-- Names from deleted trial AIDs become available for re-registration
+**Agent name uniqueness after AID pruning:**
+- AIDs that never transact are pruned after 30 days (including the name)
+- Names from pruned AIDs become available for re-registration
 - Trial AIDs that DO transact are promoted to `basic` tier — name is permanently reserved
 - Name uniqueness enforced at the DB level via UNIQUE constraint on `aid_keys.display_name`
 
@@ -1828,7 +1845,7 @@ MONTH 1 (Phase 1 — AID on x402):
   7. Feedback endpoint (POST /x204/feedback)
   8. Feedback weighting by reporter history
   9. Heartbeat endpoint (GET /x204/heartbeat)
-  10. Quick-start endpoint (POST /v1/aid/quick-start — AID + trial credits + query in one call)
+  10. Quick-start endpoint (POST /v1/aid/quick-start — AID provision + paid query in one call)
   11. DELETE /v1/aid/:did endpoint (GDPR right to erasure)
 
 MONTH 2-3 (Phase 2 — Core x204):
@@ -1890,9 +1907,8 @@ MONTH 7+ (Phase 4-5):
 | AID registration | 1 credit ($0.001) | 1 |
 | x204 transaction fee | 2 credits per orchestrated query | 1 |
 | Cross-platform attestation | 0.1 credits | 1 |
-| AID export | 0.5 credits | 1 |
-| Key rotation | 0.5 credits | 1 |
-| Feedback reward (outflow) | -0.1 credits per report | 1 |
+| AID export | 0.5 credits (or USDC equivalent) | 1 |
+| Key rotation | 0.5 credits (or USDC equivalent) | 1 |
 | Skill marketplace split | 15% of skill revenue | Existing |
 | Bonding curve fees | 5% of stake/unstake volume | 4 |
 
@@ -2239,28 +2255,26 @@ exposed to suspected synthetic identities (TransUnion H1 2025).
 **Real scale:** 37% of all internet traffic is malicious bots (2024).
 One AI SaaS saw 3,500+ malicious registrations in two weeks.
 
-**The attack on x204:** Bot farm rotates IPs, creates thousands of trial AIDs
-via X-AID-NEW, farms 5 free credits each.
+**The attack on x204:** Bot farm creates thousands of AIDs via X-AID-NEW for
+Sybil feedback farming or identity squatting.
 
-**Mitigations (beyond Section 19.10's basic rate limits):**
+**Mitigations:**
 ```
-1. DEVICE FINGERPRINTING — hash of User-Agent + Accept-Language + TLS fingerprint.
-   Same fingerprint across different IPs = same bot. 3 trials per fingerprint per 30 days.
+1. NO FREE EXECUTION — X-AID-NEW only creates an IDENTITY, not free credits.
+   To actually execute anything, agent must pay via PAYMENT-SIGNATURE.
+   No credits to farm. Bot farms get thousands of empty identities = worthless.
 
-2. PROOF OF WORK — trial AID registration requires solving a lightweight
-   computational puzzle (e.g., find nonce where SHA-256(nonce + timestamp) starts
-   with "0000"). Takes ~100ms for legitimate clients, makes bot farms 100x slower.
+2. NEW AIDs CANNOT SUBMIT FEEDBACK — trust score 0 agents have feedback
+   weight 0. Even if a bot creates 1000 AIDs, their reviews count for nothing.
 
-3. GITHUB OAUTH OPTION — agents authenticating via GitHub (account age >30 days,
-   >1 repo) get 50 trial credits instead of 5. Incentivizes real developers.
-   GitHub accounts are expensive to fake at scale ($5-15 each on black market).
+3. PROGRESSIVE THROTTLE — first AID per IP: instant. Second: 1 hour wait.
+   Third: 24 hour wait. Fourth+: blocked.
 
-4. PROGRESSIVE THROTTLE — first trial AID per IP: instant. Second: 1 hour wait.
-   Third: 24 hour wait. Fourth+: blocked until previous trial transacts or expires.
+4. PRUNING — AIDs that never transact are auto-pruned after 30 days.
+   No permanent storage cost from bot-created identities.
 
-5. TRIAL CREDIT NON-TRANSFERABILITY — trial credits cannot be used for
-   feedback submission, skill creation, or any action that builds trust.
-   They can ONLY be used to consume services. This prevents sybil trust farming.
+5. PROOF OF WORK (optional) — if abuse is detected, enable computational
+   puzzle for AID registration (~100ms per registration, makes bot farms slow).
 ```
 
 ### 26.5 Wash Trading on Bonding Curves (Phase 4)
@@ -2348,12 +2362,15 @@ immediately, not just the ecosystem.
 Railway gave unlimited free tier → got destroyed by crypto miners and torrent bots.
 Now: $5 one-time trial credit, 30-day expiry, requires GitHub or credit card.
 
-**x204 model:**
+**x204 model (simpler — pure pay-per-use, no trial credits):**
 ```
-Anonymous (X-AID-NEW):     5 credits, 24h expiry, no feedback/trust-building
-GitHub-verified:           50 credits, 30-day expiry, can build trust
-First $5 purchase:         5,000 credits, full access
+No AID:          Pay via x402 headers at base price (zero signup)
+X-AID-NEW:       Free identity provisioning (pay per use for execution)
+Trust score 40+: 10% discount unlocked
+Trust score 80+: 50% discount unlocked
 ```
+No free credits to manage, no expiry cron, no abuse prevention for credit farming.
+The "free" thing is identity (costs you $0). The paid thing is execution (agent pays).
 
 The jump from 50 free credits to 5,000 for $5 feels trivial.
 3-5% of free users convert. At 10K free users → 300-500 paying customers.
@@ -2583,26 +2600,26 @@ PATH A: CREDITS (low friction, no blockchain needed)
   Friction: Stripe checkout (credit card entry) — 1 friction point
   Who uses this: Developers, human-managed agents, testing
 
-PATH B: USDC (sovereign, on-chain, no account needed)
-  Step 1: POST /x204/skills/sol-price with X-AID-NEW → AID + trial credits
-  Step 2: Fund EVM wallet with USDC on Base
-  Step 3: Sign EIP-2612 permit or EIP-3009 receiveWithAuthorization
-  Step 4: Use services with X-AID-DID + PAYMENT-SIGNATURE headers
-  Friction: Getting USDC on Base — 1 friction point (but agents already have wallets)
+PATH B: USDC PAY-PER-USE (sovereign, no account needed — like x402 but better)
+  Step 1: GET /x204/heartbeat → discover services + pricing (FREE)
+  Step 2: POST /x204/skills/sol-price with PAYMENT-SIGNATURE → pay + execute
+  Optional: Add X-AID-NEW to auto-provision identity for trust-gated pricing
+  Friction: Need USDC on Base — same as x402 (agents already have wallets)
   Who uses this: Autonomous agents, crypto-native developers, x402 users
 
-PATH C: ZERO-FRICTION TRIAL (no payment at all)
-  Step 1: POST /x204/skills/sol-price with X-AID-NEW → AID + 5 credits + result
-  Done. Identity created, service consumed, receipt generated.
-  Friction: ZERO — one HTTP call
-  Who uses this: First-time exploration, agent discovery
+PATH C: FREE DISCOVERY (no payment, no identity)
+  Step 1: GET /x204/heartbeat → see all services, prices, trust scores (FREE)
+  Step 2: GET /v1/skills → browse marketplace (FREE)
+  Step 3: POST /v1/aid/verify → verify any AID document (FREE)
+  Done. Developer evaluates the ecosystem without spending anything.
+  Friction: ZERO for discovery. Pay only when ready to execute.
+  Who uses this: First-time exploration, evaluation
 ```
 
-**Phase 1 uses PATH A** (credits + AID headers). No new payment infrastructure.
-**Phase 1 also adds PATH C** via `POST /v1/aid/quick-start` — simplified zero-friction
-endpoint that registers AID + grants 5 trial credits + executes one query in a single call.
-Does NOT require the full `/x204/*` route handler (that's Phase 2).
-**Phase 2 adds PATH B** (direct USDC) + full `/x204/*` routes.
+**Phase 1 uses PATH A** (credits + AID headers on existing x402 routes).
+**Phase 1 also adds PATH C** (free reads: heartbeat, discover, verify).
+**Phase 2 adds PATH B** (direct USDC pay-per-use via `/x204/*` routes).
+All paths: pure pay-per-use for execution. No trial credits. No free tier.
 
 ### 31.2 Remaining Friction Points (and fixes)
 
@@ -2623,9 +2640,13 @@ CURRENT CLAWNET:
   Onboard → Stripe → Get key → Read docs → First API call
   Time to value: ~15 minutes
 
-x204 PATH C (zero-friction):
-  curl -H "X-AID-NEW: my-bot" -d '{"token":"SOL"}' https://api.claw-net.org/x204/skills/sol-price
-  Time to value: ~3 seconds
+x204 PATH C (free discovery):
+  curl https://api.claw-net.org/x204/heartbeat
+  Time to value: ~1 second (see all services + prices, free)
+
+x204 PATH B (first paid call):
+  curl -H "PAYMENT-SIGNATURE: <sig>" -d '{"token":"SOL"}' https://api.claw-net.org/x204/skills/sol-price
+  Time to value: ~3 seconds (same as x402, but no facilitator needed)
 
 x204 SDK:
   npm install @clawnet/sdk && node -e "
