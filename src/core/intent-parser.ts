@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import crypto from 'crypto';
 import { llmComplete } from '../providers/llm';
-import { registryToPromptContext, findEndpoint } from '../config/api-registry';
+import { registryToPromptContext, registryToPromptContextFiltered, findEndpoint } from '../config/api-registry';
 import { cacheGet, cacheSet } from '../cache/index';
 import { logger } from '../utils/logger';
 import { matchTemplate } from './plan-templates';
@@ -27,9 +27,9 @@ const ParsedIntentSchema = z.object({
 
 export type ParsedIntent = z.infer<typeof ParsedIntentSchema>;
 
-const SYSTEM_PROMPT = `You are an API orchestration planner. Given a user query, select the best API endpoints to answer it.
+const SYSTEM_PROMPT_TEMPLATE = `You are an API orchestration planner. Given a user query, select the best API endpoints to answer it.
 
-${registryToPromptContext()}
+{{REGISTRY_CONTEXT}}
 
 Respond ONLY with a valid JSON object — no markdown, no explanation, just JSON.
 
@@ -55,6 +55,15 @@ Rules:
 - Max 10 steps total
 - If a step depends on output from a previous step, put it in a later group`;
 
+/**
+ * Build the system prompt with pre-filtered registry context.
+ * Reduces LLM input from ~34,000 tokens to ~500-1,500 tokens (70x cheaper).
+ */
+function buildSystemPrompt(query: string): string {
+  const filteredContext = registryToPromptContextFiltered(query, 15);
+  return SYSTEM_PROMPT_TEMPLATE.replace('{{REGISTRY_CONTEXT}}', filteredContext);
+}
+
 export async function parseIntent(query: string, pricingHint?: string): Promise<ParsedIntent> {
   // Check intent cache first — 30-min TTL (plan is stable, data freshness handled by executor cache)
   // When pricing hint is present, include it in the cache key so different budgets get different plans
@@ -74,7 +83,8 @@ export async function parseIntent(query: string, pricingHint?: string): Promise<
     return templateMatch.intent;
   }
 
-  const systemContent = pricingHint ? SYSTEM_PROMPT + '\n\n' + pricingHint : SYSTEM_PROMPT;
+  const systemPrompt = buildSystemPrompt(query);
+  const systemContent = pricingHint ? systemPrompt + '\n\n' + pricingHint : systemPrompt;
   const messages = [
     { role: 'system' as const, content: systemContent },
     { role: 'user' as const, content: JSON.stringify({ query: query.slice(0, 2000) }) },

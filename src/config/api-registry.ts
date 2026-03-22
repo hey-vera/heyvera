@@ -3735,6 +3735,84 @@ export function registryToPromptContext(): string {
   return lines.join('\n');
 }
 
+/**
+ * Pre-filter registry to only relevant endpoints for a given query.
+ * Reduces LLM input from ~34,000 tokens (full registry) to ~500-1,500 tokens.
+ * Uses keyword matching on endpoint id, name, description, category, and output fields.
+ * Returns formatted prompt context for only the matched endpoints.
+ */
+export function registryToPromptContextFiltered(query: string, maxEndpoints: number = 15): string {
+  const queryLower = query.toLowerCase();
+  const queryWords = queryLower.split(/\s+/).filter(w => w.length > 2);
+
+  // Score each endpoint by relevance to the query
+  const scored = apiRegistry.map(ep => {
+    let score = 0;
+    const searchable = `${ep.id} ${ep.name} ${ep.description} ${ep.category} ${ep.outputFields.join(' ')}`.toLowerCase();
+
+    for (const word of queryWords) {
+      if (searchable.includes(word)) score += 1;
+      // Boost exact ID or category match
+      if (ep.id.toLowerCase().includes(word)) score += 3;
+      if (ep.category.toLowerCase() === word) score += 2;
+      if (ep.name.toLowerCase().includes(word)) score += 2;
+    }
+
+    // Common token/crypto aliases
+    const aliases: Record<string, string[]> = {
+      sol: ['solana', 'sol', 'raydium', 'jupiter', 'phantom'],
+      eth: ['ethereum', 'eth', 'uniswap', 'aave', 'lido'],
+      btc: ['bitcoin', 'btc'],
+      price: ['price', 'token', 'market', 'quote', 'ticker'],
+      swap: ['swap', 'dex', 'trade', 'exchange', 'route'],
+      nft: ['nft', 'collection', 'mint', 'metadata'],
+      defi: ['defi', 'yield', 'tvl', 'lending', 'protocol', 'liquidity'],
+      wallet: ['wallet', 'balance', 'holdings', 'portfolio', 'address'],
+      holder: ['holder', 'whale', 'distribution', 'concentration'],
+    };
+
+    for (const [key, related] of Object.entries(aliases)) {
+      if (queryLower.includes(key)) {
+        for (const term of related) {
+          if (searchable.includes(term)) score += 1;
+        }
+      }
+    }
+
+    return { ep, score };
+  });
+
+  // Sort by score descending, take top N
+  const relevant = scored
+    .filter(s => s.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, maxEndpoints);
+
+  // If no matches, fall back to top endpoints by category diversity
+  if (relevant.length === 0) {
+    const categories = new Set<string>();
+    const fallback: typeof scored = [];
+    for (const s of scored) {
+      if (!categories.has(s.ep.category) && fallback.length < maxEndpoints) {
+        categories.add(s.ep.category);
+        fallback.push({ ...s, score: 0 });
+      }
+    }
+    relevant.push(...fallback);
+  }
+
+  const lines: string[] = [`Available API endpoints (${relevant.length} most relevant):\n`];
+  for (const { ep } of relevant) {
+    lines.push(`[${ep.id}] ${ep.name} (${ep.category}) — Provider: ${ep.provider}`);
+    lines.push(`  Description: ${ep.description}`);
+    lines.push(`  Cost: $${ep.costPerCall} | Latency: ~${ep.latencyMs}ms`);
+    lines.push(`  Inputs: ${JSON.stringify(ep.inputSchema)}`);
+    lines.push(`  Outputs: ${ep.outputFields.join(', ')}`);
+    lines.push('');
+  }
+  return lines.join('\n');
+}
+
 export function findEndpoint(id: string): ApiEndpoint | undefined {
   return _registryMap.get(id);
 }
