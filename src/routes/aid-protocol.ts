@@ -591,4 +591,213 @@ router.get('/insurance/balance', (c) => {
   });
 });
 
+// ─── GET /trust/:did — Full trust profile with v1.1 scoring + specializations ─
+
+import { computeTrustScoreV11, computeSpecializedScores } from '../core/trust-scoring-v11';
+
+router.get('/trust/:did', (c) => {
+  const did = c.req.param('did');
+  const privacyMode = c.req.query('privacy') || 'full'; // full | shielded | verdict-only
+
+  const aidKey = getDb().prepare(
+    'SELECT owner_key, proof_of_life_status, frozen, created_at FROM aid_keys WHERE did = ? AND key_status = ?'
+  ).get(did, 'active') as any;
+
+  if (!aidKey) return c.json({ error: 'DID not found', code: 'AID_NOT_FOUND' }, 404);
+
+  if (aidKey.frozen) {
+    return c.json({ did, status: 'FROZEN', verdict: 'frozen' });
+  }
+
+  const scoreV11 = computeTrustScoreV11(aidKey.owner_key);
+  const score = scoreV11?.score || 0;
+  const verdict = score >= 90 ? 'proceed' : score >= 80 ? 'trusted' : score >= 60 ? 'standard' : score >= 40 ? 'caution' : score >= 20 ? 'building' : 'new';
+
+  // Privacy modes (Section 10)
+  if (privacyMode === 'verdict-only') {
+    return c.json({ did, verdict, status: aidKey.proof_of_life_status });
+  }
+
+  if (privacyMode === 'shielded') {
+    return c.json({
+      did, verdict, status: aidKey.proof_of_life_status,
+      scoreTier: `${Math.floor(score / 10) * 10}-${Math.floor(score / 10) * 10 + 9}`,
+    });
+  }
+
+  // Full mode
+  const specialized = computeSpecializedScores(aidKey.owner_key);
+
+  // Get trajectory
+  const trajectory = getDb().prepare(
+    'SELECT month, score FROM aid_trust_trajectory WHERE did = ? ORDER BY month DESC LIMIT 6'
+  ).all(did) as { month: string; score: number }[];
+
+  // Get milestones
+  const milestones = getDb().prepare(
+    'SELECT stage, timestamp FROM aid_onboarding_milestones WHERE did = ? ORDER BY timestamp ASC'
+  ).all(did) as { stage: string; timestamp: string }[];
+
+  // Get guardian info
+  const guardian = getDb().prepare(
+    'SELECT guardian_did, assignment_type FROM aid_guardian_assignments WHERE agent_did = ? AND status = ?'
+  ).get(did, 'active') as any;
+
+  return c.json({
+    did,
+    trustScore: scoreV11,
+    verdict,
+    status: aidKey.proof_of_life_status,
+    specialized: specialized.length > 0 ? specialized : undefined,
+    trajectory: trajectory.length > 0 ? trajectory.reverse() : undefined,
+    milestones: milestones.length > 0 ? milestones : undefined,
+    guardian: guardian ? { did: guardian.guardian_did, type: guardian.assignment_type } : undefined,
+    activeSince: aidKey.created_at,
+  });
+});
+
+// ─── GET /receipt/:id — Retrieve a portable receipt ──────────────────────────
+
+import { buildReceipt, verifyReceipt } from '../core/receipt-builder';
+
+router.get('/receipt/:id', (c) => {
+  const receiptId = c.req.param('id');
+
+  // Look up from attestations (receipts stored there)
+  const att = getDb().prepare(
+    'SELECT * FROM attestations WHERE id = ? AND attestation_type = ?'
+  ).get(receiptId, 'receipt') as any;
+
+  if (!att) return c.json({ error: 'Receipt not found', code: 'RECEIPT_NOT_FOUND' }, 404);
+
+  return c.json({
+    protocol: 'AID',
+    version: '1.0.0',
+    receiptId: att.id,
+    timestamp: att.created_at,
+    service: { id: att.action_endpoint, type: att.action_type, inputHash: att.input_hash, resultHash: att.response_hash },
+  });
+});
+
+// ─── GET /certificate/:did — W3C VC trust certificate (13.6) ────────────────
+
+router.get('/certificate/:did', (c) => {
+  const did = c.req.param('did');
+
+  const aidKey = getDb().prepare(
+    'SELECT owner_key, created_at FROM aid_keys WHERE did = ? AND key_status = ?'
+  ).get(did, 'active') as any;
+  if (!aidKey) return c.json({ error: 'DID not found', code: 'AID_NOT_FOUND' }, 404);
+
+  const scoreV11 = computeTrustScoreV11(aidKey.owner_key);
+  if (!scoreV11) return c.json({ error: 'Insufficient attestation data', code: 'NO_DATA' }, 404);
+
+  const verdict = scoreV11.score >= 90 ? 'proceed' : scoreV11.score >= 80 ? 'trusted' :
+    scoreV11.score >= 60 ? 'standard' : scoreV11.score >= 40 ? 'caution' :
+    scoreV11.score >= 20 ? 'building' : 'new';
+
+  const guardian = getDb().prepare(
+    'SELECT guardian_did FROM aid_guardian_assignments WHERE agent_did = ? AND status = ?'
+  ).get(did, 'active') as any;
+
+  const now = new Date();
+  const expires = new Date(now.getTime() + 30 * 86400000); // 30-day expiry
+
+  const vc = {
+    '@context': [
+      'https://www.w3.org/2018/credentials/v1',
+      'https://trust.aidprotocol.org/v1',
+    ],
+    type: ['VerifiableCredential', 'AIDTrustCertificate'],
+    issuer: 'did:web:api.claw-net.org',
+    issuanceDate: now.toISOString(),
+    expirationDate: expires.toISOString(),
+    credentialSubject: {
+      id: did,
+      trustSnapshot: {
+        score: scoreV11.score,
+        verdict,
+        attestationCount: scoreV11.inputs.attestationCount,
+        counterpartyDiversity: scoreV11.inputs.counterpartyDiversity,
+        successRate: scoreV11.inputs.successRate,
+        guardianStatus: guardian ? 'guarded' : 'unguarded',
+        formulaVersion: scoreV11.formulaVersion,
+        proofHash: scoreV11.proofHash,
+      },
+    },
+  };
+
+  // Sign the VC
+  const { signVC: signCert } = require('../utils/ed25519-signer');
+  const proof = signCert(vc);
+
+  return c.json({
+    ...vc,
+    proof: {
+      type: 'Ed25519Signature2020',
+      cryptosuite: 'eddsa-jcs-2022',
+      verificationMethod: 'did:web:api.claw-net.org#key-1',
+      proofValue: proof,
+    },
+  });
+});
+
+// ─── POST /challenges — Contextual proof-of-life challenge (14.10) ───────────
+
+router.post('/challenges/:did', checkAidProof, async (c) => {
+  const aidInfo = c.get('aidInfo') as AidInfo | undefined;
+  if (!aidInfo) return c.json({ error: 'AID authentication required', code: 'AID_PROOF_MISSING' }, 428);
+
+  const targetDid = c.req.param('did');
+
+  // Only the owner can receive challenges
+  const aidKey = getDb().prepare(
+    'SELECT owner_key FROM aid_keys WHERE did = ? AND key_status = ?'
+  ).get(targetDid, 'active') as any;
+  if (!aidKey || aidKey.owner_key !== aidInfo.ownerKey) {
+    return c.json({ error: 'Only the owner can respond to challenges', code: 'AID_NOT_AUTHORIZED' }, 403);
+  }
+
+  // Generate contextual challenge
+  const challengeTypes = ['transaction_count', 'largest_transaction', 'unique_counterparties', 'most_frequent_endpoint'];
+  const challengeType = challengeTypes[Math.floor(Math.random() * challengeTypes.length)];
+
+  let question: string;
+  let acceptableRange: [number, number];
+
+  if (challengeType === 'transaction_count') {
+    const row = getDb().prepare(
+      'SELECT COUNT(*) as n FROM attestations WHERE owner_key = ? AND created_at > datetime(\'now\', \'-7 days\')'
+    ).get(aidInfo.ownerKey) as { n: number };
+    const actual = row.n;
+    acceptableRange = [Math.floor(actual * 0.85), Math.ceil(actual * 1.15)];
+    question = 'Approximately how many transactions did your agent process in the last 7 days?';
+  } else if (challengeType === 'unique_counterparties') {
+    const row = getDb().prepare(
+      'SELECT COUNT(DISTINCT action_endpoint) as n FROM attestations WHERE owner_key = ? AND created_at > datetime(\'now\', \'-30 days\')'
+    ).get(aidInfo.ownerKey) as { n: number };
+    const actual = row.n;
+    acceptableRange = [Math.floor(actual * 0.85), Math.ceil(actual * 1.15)];
+    question = 'Approximately how many unique endpoints did your agent call this month?';
+  } else {
+    const row = getDb().prepare(
+      'SELECT COUNT(*) as n FROM attestations WHERE owner_key = ? AND created_at > datetime(\'now\', \'-7 days\')'
+    ).get(aidInfo.ownerKey) as { n: number };
+    const actual = row.n;
+    acceptableRange = [Math.floor(actual * 0.85), Math.ceil(actual * 1.15)];
+    question = 'Approximately how many transactions did your agent process in the last 7 days?';
+  }
+
+  const challengeId = `chal-${nanoid(16)}`;
+
+  return c.json({
+    challengeId,
+    type: 'contextual_awareness',
+    question,
+    challengeType,
+    acceptableRange,
+    expiresAt: new Date(Date.now() + 48 * 3600000).toISOString(),
+  });
+});
+
 export { router as aidProtocolRouter };
