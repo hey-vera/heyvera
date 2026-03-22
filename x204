@@ -719,7 +719,7 @@ x204 for sovereign agents, x402 for casual users.
 | Community signals | validatorVerdicts (weighted), reportPenalty, verificationTier | M |
 | Trust decay | 10% weight loss per 30 days of inactivity | S |
 | Verification multipliers | Twitter/GitHub/domain verification → 1.1x/1.2x (partial/full) | M |
-| Trust verdicts | proceed/standard/caution/new/avoid classifications | S |
+| Trust verdicts | proceed/standard/caution/building/new + avoid flag | S |
 | On-chain trust oracle | Sync trust scores to Base smart contract every 6h | L |
 | TrustGate hook | Smart contract modifier: reject callers below min_trust_score | L |
 | Sentinel alerts | Real-time SSE stream for trust degradation events | M |
@@ -1727,7 +1727,7 @@ This leaks competitive intelligence. Agents may not want rivals to see their tru
 
 **Public (no auth needed):**
 - DID exists: yes/no
-- Trust verdict: proceed/standard/caution/new/avoid (5 levels, no exact score)
+- Trust verdict: proceed/standard/caution/building/new (5 levels, no exact score)
 - Verification tier: anonymous/basic/verified/proven/trusted
 - Capabilities: category list (not counts)
 - Active since: date
@@ -1822,8 +1822,9 @@ Header: X-AID-VERSION: 1.0
 - These are TWO SEPARATE systems serving different purposes:
   - **Identity tiers** (anonymous/basic/verified/proven/trusted) = WHAT the agent has done
     to prove who they are. Determines verification multiplier (1.0x-1.2x).
-  - **Trust verdicts** (avoid/new/caution/standard/proceed) = HOW well the agent performs.
+  - **Trust verdicts** (new/building/caution/standard/proceed) = HOW well the agent performs.
     Determined by the 11-dimension trust score formula.
+    `avoid` is separate — a manual flag from validators, not score-based.
 - An agent can be `verified` (identity tier) but `caution` (trust verdict) — they proved
   their Twitter but have a mediocre track record. The verification multiplier boosts
   the raw trust score, but a low raw score with 1.1x multiplier is still low.
@@ -2104,6 +2105,21 @@ Phase 4: Bonding curve contract
   - Frontend for staking UI (optional — agents can stake via API)
 ```
 
+### 23.6 Implementation Details Resolved During Phase 1 Build
+
+These are intentionally deferred to implementation time, not plan-level gaps:
+
+| Detail | Decision Point | Notes |
+|--------|---------------|-------|
+| Base USDC contract address | Phase 2 config | `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913` (verified) |
+| DID → billingKey mapping | Phase 1 middleware | Use `owner_key` from `aid_keys` table (already = api_key_hash) |
+| Batch settlement cron | Phase 2 | Add to existing `payout-cron.ts` pattern (runs every 1h for batched, daily for deferred) |
+| x204 error codes | Phase 1 | `X204_PAYMENT_REQUIRED`, `X204_AID_INVALID`, `X204_TRUST_GATE_BLOCKED`, `X204_SETTLEMENT_FAILED` |
+| `avoid` flag operations | Phase 1 | Extend existing `DELISTED` security_status pattern on skills to agents |
+| Permit revocation monitoring | Phase 2 | Check allowance via `eth_call` before each batch settlement (free RPC call) |
+| Heartbeat `building` tier | Phase 1 | Combined with `new` in heartbeat tiers (identical pricing, add comment) |
+| Section 19A duplicate | Cosmetic | 19A fits between 19 and 20 — renumber to 19B+ if needed |
+
 ---
 
 ## 24. EFFORT DEFINITIONS
@@ -2132,7 +2148,7 @@ This plan is ready to build. Every section has been:
   Build plan reconciled (Section 19.15 is the canonical sequence).
 - **Questioned:** 17 open questions identified and resolved (dual-key, score verification,
   deferred mechanics, bootstrapping, averaging, ERC-8004 correction, receipts without txHash,
-  signature format, server countersig, trial abuse, privacy, mid-batch changes, versioning,
+  signature format, server countersig, identity abuse, privacy, mid-batch changes, versioning,
   name uniqueness, DID rotation + old receipts, composite failure, identity vs trust tiers)
 - **Verified:** Gas costs validated against BaseScan (0.005 gwei floor, ~$0.001/tx including L1).
   All 20 ClawNet components verified as existing production code. Revenue math verified.
@@ -2473,7 +2489,7 @@ RIGHT: Compute Merkle tree of all scores off-chain, write single root
 | Trust tiers consistent | Yes | 5 verdicts, same boundaries in all 6+ sections |
 | Settlement mechanics verified | Yes | receiveWithAuthorization for immediate, EIP-2612 permit for batched |
 | Cold start problem solved | Yes | New agents pay base price (no 2x penalty), avoid is manual flag only |
-| Anti-exploit hardened | Yes | 5 attack vectors with layered mitigations (Sybil, bust-out, permit, trial, wash) |
+| Anti-exploit hardened | Yes | 5 attack vectors with layered mitigations (Sybil, bust-out, permit, identity farming, wash) |
 | Adoption accelerators defined | Yes | Playground, 3-line SDK, selfish-first, pure pay-per-use |
 | Scaling architecture verified | Yes | Benchmarked to 1M agents, tiered storage, incremental trust updates |
 | Economic model verified | Yes | Gas costs, facilitator comparison, revenue projections |
@@ -2481,7 +2497,7 @@ RIGHT: Compute Merkle tree of all scores off-chain, write single root
 | Security model complete | Yes | 10 threats + 5 exploit patterns with real-world evidence |
 | Migration path clear | Yes | Zero breaking changes, progressive enhancement |
 | All 20 ClawNet components verified | Yes | Code exists and works |
-| Phase 1 scoped | Yes | 6-8 days, $0 new costs |
+| Phase 1 scoped | Yes | 8-13 days, $0 new costs |
 | Competitive claims verified | Yes | All checked against March 2026 online sources |
 
 **The plan is ready for real-world usage at millions of users.**
@@ -2992,7 +3008,7 @@ The plan has been through 9 rounds of checks with 20+ research agents.
 2. Remove 5% revenue share from Phase 4 trust stakes (securities risk)
 3. Implement DELETE /v1/aid endpoint (GDPR)
 
-**What to build FIRST (Phase 1, 6-8 days, $0 cost):**
+**What to build FIRST (Phase 1, 8-13 days, $0 cost):**
 1. Register ClawNet on ERC-8004 (Base, ~$1)
 2. X-AID-DID + X-AID-PROOF headers on existing x402 routes
 3. Trust-gated pricing
