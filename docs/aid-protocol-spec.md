@@ -1005,6 +1005,26 @@ Error response body:
 
 Error responses SHOULD include enough context for the caller to understand and resolve the issue. For `AID_TRUST_GATE_BLOCKED`, the response SHOULD include the caller's current verdict and the required minimum.
 
+### 12.2 Ed25519 Implementation Requirements
+
+Ed25519 is the cryptographic foundation of AID identity. Implementation vulnerabilities in Ed25519 libraries are actively being discovered (4+ CVEs in Q1 2026). The following requirements ensure AID implementations start secure by default.
+
+**12.2.1** Implementations MUST use Ed25519 libraries that store the keypair as a single value and derive the public key internally from the private key. Libraries that accept a separate public key parameter for signing are vulnerable to the Double Public Key Oracle Attack and MUST NOT be used. See [MystenLabs/ed25519-unsafe-libs](https://github.com/MystenLabs/ed25519-unsafe-libs) for a list of affected libraries.
+
+**12.2.2** Implementations MUST NOT use command-line tools (e.g., `openssl dgst`) for Ed25519 signing or verification. CVE-2025-15469 demonstrated silent truncation at 16MB for one-shot signing algorithms including Ed25519. All Ed25519 operations MUST use library-level APIs that process the full message.
+
+**12.2.3** Implementations using libsodium MUST use version 1.0.20-stable (January 2026) or later, which addresses CVE-2025-69277 (incomplete Ed25519 subgroup point validation).
+
+**12.2.4** Implementations MUST maintain an `allowedAlgorithms` whitelist. If a document's `signatureAlgorithm` field claims an algorithm not in the whitelist, the verifier MUST reject the document without attempting verification. Default whitelist: `["EdDSA"]`. This prevents algorithm confusion/downgrade attacks.
+
+**12.2.5** Recommended libraries:
+- **JavaScript/TypeScript:** Node.js built-in `crypto` module (wraps BoringSSL, derives public key internally), or `@noble/ed25519`
+- **Rust:** `ring` or `ed25519-dalek`
+- **C:** libsodium 1.0.20+
+- Custom Ed25519 implementations MUST undergo independent security audit before production use.
+
+**Reference implementation note:** ClawNet's AID implementation uses Node.js built-in `crypto.sign(null, data, privateKey)` and `crypto.verify(null, data, publicKey, signature)`. The private key is stored as a PKCS#8 KeyObject — the public key is derived internally, never accepted as a separate signing parameter. No libsodium dependency. No CLI tool usage.
+
 ---
 
 ## 13. Interoperability

@@ -4715,7 +4715,28 @@ attacker (compromised bot appears trustworthy).
   breaker acts in seconds.
 - Platform-level DID for platform identity only, not individual user actions.
 
-**Total attack vectors mitigated: 60** (54 previous + 6 architectural gaps).
+**Attack Vector 61: Ed25519 Double Public Key Oracle Attack**
+If a signing function accepts a separate public key parameter (not derived internally from
+the private key), an attacker with signing function access can recover the private key from
+just two signatures with different public keys. 40+ libraries affected (MystenLabs list).
+**Mitigation:** AID's implementation uses Node.js `crypto.sign(null, data, privateKey)` —
+public key derived internally, never accepted as separate parameter. SAFE. Spec Section
+12.2.1 mandates this for all implementations. Banned library list referenced.
+
+**Attack Vector 62: OpenSSL Ed25519 Truncation (CVE-2025-15469)**
+OpenSSL CLI `dgst` command silently truncates Ed25519 input at 16MB, reports success.
+Large attestation archives/Merkle dumps could have trailing data forged without breaking
+the signature if verified via CLI tools.
+**Mitigation:** AID uses library-level APIs exclusively (Node.js `crypto` module), not CLI
+tools. Spec Section 12.2.2 bans CLI-based Ed25519 operations for all implementations.
+
+**Attack Vector 63: Libsodium Ed25519 Subgroup Bug (CVE-2025-69277)**
+Libsodium < 1.0.20 had incomplete subgroup check in `crypto_core_ed25519_is_valid_point`.
+Attacker could craft Ed25519 points that pass validation but aren't in the correct subgroup.
+**Mitigation:** AID doesn't use libsodium (pure Node.js crypto). Spec Section 12.2.3
+mandates libsodium 1.0.20+ for any implementation that does use it.
+
+**Total attack vectors mitigated: 63** (60 previous + 3 Ed25519 implementation CVEs).
 
 ### 39.16 Missing References + Compliance Gaps (Final Sweep, March 22)
 
