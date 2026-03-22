@@ -35,12 +35,12 @@ transaction makes it smarter.
 - [ ] Build interactive playground / trust.claw-net.org PWA
 
 ### PRE-BUILD (Audit Corrections — Do Before Phase 1 Code)
-- [ ] Draft spec with 4 LIVE dimensions, mark 7 as Phase 3 extensions (Flaw 10)
+- [x] Draft spec with 4 LIVE dimensions, mark 7 as Phase 3 extensions (Flaw 10) — done in spec v1.0
 - [ ] Reframe marketing: "only protocol that converts evidence into portable trust score" (Flaw 17)
-- [ ] Reframe ERC-8004 narrative: "no canonical scoring" not "unshipped" (Flaw 23)
-- [ ] Move Verifiable Intent compatibility to Phase 1 (Flaw 22)
+- [x] Reframe ERC-8004 narrative: "no canonical scoring" not "unshipped" (Flaw 23) — done in Section 15.4
+- [x] Move Verifiable Intent compatibility to Phase 1 (Flaw 22) — done in spec Section 13.3
 - [ ] Publish decentralization accountability document with public dates (Flaw 24)
-- [ ] Add Stripe ACP + Google UCP to compatibility matrix (Flaw 25)
+- [x] Add Stripe ACP + Google UCP to compatibility matrix (Flaw 25) — done in Section 15.4 + spec Section 13
 
 ### ALREADY COMPLETE (Production in ClawNet)
 - [x] AID system — registration, key rotation, offline verification (`src/routes/aid.ts`)
@@ -67,41 +67,41 @@ transaction makes it smarter.
 - [ ] Publish `@aidprotocol/trust-compute` to npm (standalone scoring library, Section 42.2)
 
 **Week 1 — Days 1-3:**
-- [ ] Ship @aidprotocol/mcp-trust alpha to npm (~200 lines, sig verify only)
+- [x] Ship @aidprotocol/mcp-trust alpha to npm (~200 lines, sig verify only) — shipped v1.1.0
 - [ ] Include Pedersen commitment privacy option (Cherry 13, ~200 lines)
 - [ ] Build interactive playground (show, don't tell)
 
 **Week 1 — Days 3-5:**
-- [ ] Publish AID protocol spec as standalone 10-page document
+- [x] Publish AID protocol spec as standalone 10-page document — at docs/aid-protocol-spec.md + aidprotocol/aid-spec repo
 - [ ] Register ClawNet on ERC-8004 Identity Registry (Base, ~$1)
 - [ ] Add protocol-level canary — on-chain liveness proof (Cherry 15)
 - [ ] Ship trust.claw-net.org PWA (trust lookup + "Try it" demo, Optimization 16)
 - [ ] Research Wyoming DAO LLC sandbox (Flaw 12)
 
 **Week 2:**
-- [ ] Ship @aidprotocol/middleware for Hono (ClawNet uses Hono)
-- [ ] AID headers on ClawNet's x402 routes (X-AID-DID, X-AID-PROOF, X-AID-NONCE)
-- [ ] Provider DID in x402 responses (X-AID-PROVIDER-DID, X-AID-PROVIDER-PROOF)
+- [x] Ship @aidprotocol/middleware for Hono (ClawNet uses Hono) — src/middleware/aid-verify.ts + aid-provider-proof.ts
+- [x] AID headers on ClawNet's x402 routes (X-AID-DID, X-AID-PROOF, X-AID-NONCE) — wired in x402-skills.ts
+- [x] Provider DID in x402 responses (X-AID-PROVIDER-DID, X-AID-PROVIDER-PROOF) — aid-provider-proof.ts middleware
 - [ ] Fork x402 facilitator → host fee-free at facilitator.claw-net.org
 - [ ] Submit PR to x402 repo adding optional X-AID headers (Trojan horse, Section 43.1b)
 
 **Week 3:**
-- [ ] Trust-gated pricing logic (6 tiers, checkPolicy integration)
-- [ ] Feedback endpoint (POST /aid/feedback) with weighted reputation
-- [ ] Heartbeat endpoint (GET /aid/heartbeat) with provider signature
+- [x] Trust-gated pricing logic (6 tiers, checkPolicy integration) — trustGatedCreditCost() in credits.ts
+- [x] Feedback endpoint (POST /aid/feedback) with weighted reputation — in aid-protocol.ts
+- [x] Heartbeat endpoint (GET /aid/heartbeat) with provider signature — in aid-protocol.ts
 - [ ] "Try it" button on skill pages — one-click execution
-- [ ] X-AID-TRUST-VERIFIED response header (Optimization 10)
+- [x] X-AID-TRUST-VERIFIED response header (Optimization 10) — in aid-provider-proof.ts
 
 **Week 4:**
-- [ ] DELETE /v1/aid/:did endpoint (GDPR)
+- [x] DELETE /v1/aid/:did endpoint (GDPR) — already existed in aid.ts
 - [ ] Submit trust extension to MCP-I/DIF working group
 - [ ] Ship @aidprotocol/middleware for Express/Fastify (broaden reach)
-- [ ] Publish /.well-known/aid-platform-key (A2A trust verification)
-- [ ] BIP-39 single-seed key derivation (Flaw 3, elevated to Phase 1)
-- [ ] Build @aidprotocol/gateway — commerce middleware wrapping x402/MPP calls (from Mnemom, Section 15.7)
-- [ ] Public trust leaderboard at trust.aidprotocol.org (from 402audit, Section 15.7)
+- [x] Publish /.well-known/aid-platform-key (A2A trust verification) — in well-known.ts
+- [x] BIP-39 single-seed key derivation (Flaw 3, elevated to Phase 1) — in aid-builder.ts
+- [x] Build @aidprotocol/gateway — commerce middleware wrapping x402/MPP calls (from Mnemom, Section 15.7) — aid-gateway.ts
+- [x] Public trust leaderboard at trust.aidprotocol.org (from 402audit, Section 15.7) — site/trust.html + /aid/leaderboard
 - [ ] @aidprotocol/trust-gate GitHub Action — CI/CD trust gating (from Mnemom, Section 15.7)
-- [ ] Auto-dispute flag on manifest violation in AID receipts (from PayCrow, Section 15.7)
+- [x] Auto-dispute flag on manifest violation in AID receipts (from PayCrow, Section 15.7) — in attestations.ts
 
 ### PHASE 2: ECOSYSTEM REACH (Months 2-3)
 - [ ] Ship aid-trust Python package (CrewAI/LangGraph plugins)
@@ -184,7 +184,7 @@ transaction makes it smarter.
 
 ---
 
-**Progress: 24/124 items complete (19%). NEXT: Submit NIST comment → @aidprotocol/gateway → public leaderboard → DIF presentation.**
+**Progress: 43/133 items complete (32%). NEXT: Submit NIST comment → Express/Fastify middleware → GitHub Action → guardian system.**
 
 ---
 
