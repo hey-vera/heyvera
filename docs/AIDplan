@@ -7095,3 +7095,77 @@ None of these overlap. All compose. AID is the missing piece in every stack.
 > institutional players fill the gap themselves.
 
 **Build readiness: 95%. The remaining 5% is three emails and one npm publish.**
+
+---
+
+## 46. DIF STRATEGY + REPO SEPARATION (March 22, 2026)
+
+### 46.1 Two-Track Development Model
+
+```
+TRACK 1 — AID PROTOCOL (DIF spec, slow, consensus-driven):
+  Core trust scoring formula, AID document format, HTTP headers,
+  attestation format, receipt format, verification protocol,
+  trust verdicts, key rotation, W3C VC certificates, privacy modes
+  → This is the INTEROPERABLE LAYER anyone can implement
+  → Submitted to DIF TAAWG as work item
+  → 6-18 months to ratification
+
+TRACK 2 — CLAWNET PRODUCT (fast, 100% our control):
+  Guardian system + marketplace, autonomous immune response,
+  trust gravity well + proof of life, parametric insurance fund,
+  trust escrow, canary agents, anomaly detection, leaderboard,
+  social bot, x402 trust-gated pricing, settlement batching
+  → This is the PRODUCT LAYER where revenue comes from
+  → Built ahead of spec, battle-tested, then proposed to DIF with data
+```
+
+**Analogy:** AID = SMTP (open standard). ClawNet = Gmail (dominant product on the standard).
+
+### 46.2 Repo Separation Plan
+
+```
+github.com/aidprotocol/aid-spec       — the standard (Apache 2.0)
+  /spec/aid-protocol-v1.md
+  /spec/profiles/ (MCP, A2A, x402, MPP)
+  /test-vectors/
+  /reference/ (minimal reference implementation)
+
+github.com/aidprotocol/trust-compute   — scoring library (MIT, already published)
+github.com/aidprotocol/mcp-trust       — MCP middleware (MIT, already published)
+
+github.com/clawnetwork/claw-net        — ClawNet product (proprietary)
+  All advanced features (guardians, immune system, insurance, etc.)
+  Production infrastructure, APIs, revenue
+```
+
+### 46.3 Revenue Model (Post-Standard)
+
+```
+1. Trust Score API:     $0.001/query × platforms consuming scores
+2. Marketplace margin:  15% on skill transactions (existing)
+3. Guardian marketplace: 10% of guardian operator revenue
+4. Insurance fund yield: 4% APY on fund balance
+5. Premium features:    analytics $49/mo, priority guardian $29/mo,
+                        custom anomaly rules $99/mo, white-label $499/mo
+```
+
+### 46.4 DIF Meeting Strategy
+
+- Be the most prepared person in every meeting (production code > slide decks)
+- Protect the opinionated core (scoring formula MUST be standardized, not "pluggable")
+- Accept small changes gracefully, save capital for architectural decisions
+- Write the test vectors (defines what "correct" means)
+- Don't accept scope creep (AID = trust scoring, NOT discovery/identity/payment)
+- Build allies: 3-5 aligned members BEFORE contentious votes
+- The first draft anchors everything — our spec IS that draft
+
+### 46.5 What Makes ClawNet the Dominant Implementation
+
+1. **First-mover data** — months of real attestation data compounds
+2. **Guardian marketplace** — ecosystem hard to replicate
+3. **Insurance fund** — concrete loss protection, ClawNet-exclusive
+4. **Autonomous immune system** — competitors have no containment
+5. **Developer experience** — 3 lines of code, best docs, best errors
+6. **Public leaderboard** — default lookup tool (like VirusTotal for agents)
+7. **Network effects** — more agents → better guardians → more insurance → safer
