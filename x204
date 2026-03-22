@@ -1,11 +1,13 @@
-# x204 — The Trust Protocol for Agentic Commerce
+# AID — The Trust Layer for Agentic Commerce
 
-**HTTP-native, identity-authenticated, facilitator-free micropayments for autonomous agents.**
+**Agent Identity + Trust — scored, verifiable, portable.**
 
-x204 unifies what every other protocol handles separately: identity, trust, payment, and reputation
+AID unifies what every other protocol handles separately: identity, trust, payment, and reputation
 become a single atomic operation. No facilitator. No signup. No middleman. One HTTP call.
 
-The name: HTTP 204 = "No Content" → no middleman, no centralized authority, no unnecessary overhead.
+AID = **A**gent **I**dentity **D**ocument — the self-certifying, Ed25519-signed identity that carries
+trust scores, attestation history, and Merkle-anchored proofs. Every agent gets one. Every
+transaction makes it smarter.
 
 ---
 
@@ -38,23 +40,23 @@ The name: HTTP 204 = "No Content" → no middleman, no centralized authority, no
 ### PHASE 1: SHIP THE TRUST LAYER (Weeks 1-4, $0 infra cost)
 
 **Week 1 — DAY 1 (URGENT — DIF window closing):**
-- [ ] Submit x204 trust scoring extension to DIF TAAWG
-- [ ] Register @x204 npm org + x204-trust PyPI + typosquats
-- [ ] Publish `@x204/trust-compute` to npm (standalone scoring library, Section 42.2)
+- [ ] Submit AID trust scoring extension to DIF TAAWG
+- [ ] Register @AID npm org + aid-trust PyPI + typosquats
+- [ ] Publish `@aidprotocol/trust-compute` to npm (standalone scoring library, Section 42.2)
 
 **Week 1 — Days 1-3:**
-- [ ] Ship @x204/mcp-trust alpha to npm (~200 lines, sig verify only)
+- [ ] Ship @aidprotocol/mcp-trust alpha to npm (~200 lines, sig verify only)
 - [ ] Include Pedersen commitment privacy option (Cherry 13, ~200 lines)
 - [ ] Build interactive playground (show, don't tell)
 
 **Week 1 — Days 3-5:**
-- [ ] Publish x204 protocol spec as standalone 10-page document
+- [ ] Publish AID protocol spec as standalone 10-page document
 - [ ] Register ClawNet on ERC-8004 Identity Registry (Base, ~$1)
 - [ ] Add protocol-level canary — on-chain liveness proof (Cherry 15)
 - [ ] Research Wyoming DAO LLC sandbox (Flaw 12)
 
 **Week 2:**
-- [ ] Ship @x204/middleware for Hono (ClawNet uses Hono)
+- [ ] Ship @aidprotocol/middleware for Hono (ClawNet uses Hono)
 - [ ] AID headers on ClawNet's x402 routes (X-AID-DID, X-AID-PROOF, X-AID-NONCE)
 - [ ] Provider DID in x402 responses (X-AID-PROVIDER-DID, X-AID-PROVIDER-PROOF)
 - [ ] Fork x402 facilitator → host fee-free at facilitator.claw-net.org
@@ -62,22 +64,22 @@ The name: HTTP 204 = "No Content" → no middleman, no centralized authority, no
 
 **Week 3:**
 - [ ] Trust-gated pricing logic (6 tiers, checkPolicy integration)
-- [ ] Feedback endpoint (POST /x204/feedback) with weighted reputation
-- [ ] Heartbeat endpoint (GET /x204/heartbeat) with provider signature
+- [ ] Feedback endpoint (POST /aid/feedback) with weighted reputation
+- [ ] Heartbeat endpoint (GET /aid/heartbeat) with provider signature
 - [ ] "Try it" button on skill pages — one-click execution
 - [ ] X-AID-TRUST-VERIFIED response header (Optimization 10)
 
 **Week 4:**
 - [ ] DELETE /v1/aid/:did endpoint (GDPR)
 - [ ] Submit trust extension to MCP-I/DIF working group
-- [ ] Ship @x204/middleware for Express/Fastify (broaden reach)
-- [ ] Publish /.well-known/x204-platform-key (A2A trust verification)
+- [ ] Ship @aidprotocol/middleware for Express/Fastify (broaden reach)
+- [ ] Publish /.well-known/aid-platform-key (A2A trust verification)
 - [ ] BIP-39 single-seed key derivation (Flaw 3, elevated to Phase 1)
 
 ### PHASE 2: ECOSYSTEM REACH (Months 2-3)
-- [ ] Ship x204-trust Python package (CrewAI/LangGraph plugins)
-- [ ] /x204/* route handler with full protocol flow
-- [ ] X-AID-NEW zero-auth onboarding on /x204/* routes
+- [ ] Ship aid-trust Python package (CrewAI/LangGraph plugins)
+- [ ] /aid/* route handler with full protocol flow
+- [ ] X-AID-NEW zero-auth onboarding on /aid/* routes
 - [ ] Direct receiveWithAuthorization settlement (no facilitator)
 - [ ] Mutual authentication (server signs responses)
 - [ ] Portable atomic receipts with dual signatures + Merkle anchoring
@@ -85,10 +87,10 @@ The name: HTTP 204 = "No Content" → no middleman, no centralized authority, no
 - [ ] ERC-8004 reputation bridge (publish trust scores on-chain)
 - [ ] A2A agent card extension (trust scores in discovery)
 - [ ] Solana SPL USDC settlement option (Ed25519 single-key)
-- [ ] ElizaOS plugin for x204 trust
-- [ ] @x204/x402-enhanced middleware (add trust to any x402 server, Section 43.1b)
-- [ ] @x204/solana-trust (score engine for Solana Agent Registry, Section 43.1b)
-- [ ] Formal dispute resolution (POST /x204/disputes — Flaw 6, elevated from "future vision")
+- [ ] ElizaOS plugin for AID trust
+- [ ] @aidprotocol/x402-enhanced middleware (add trust to any x402 server, Section 43.1b)
+- [ ] @aidprotocol/solana-trust (score engine for Solana Agent Registry, Section 43.1b)
+- [ ] Formal dispute resolution (POST /aid/disputes — Flaw 6, elevated from "future vision")
 - [ ] Bad debt reserve — 0.1% surcharge on deferred settlements (Flaw 4)
 - [ ] WebSocket/SSE streaming for trust updates (Flaw 5 / Optimization 8)
 
@@ -102,8 +104,8 @@ The name: HTTP 204 = "No Content" → no middleman, no centralized authority, no
 - [ ] Agent social graph (follow/endorse, feeds COMMUNITY trust)
 - [ ] Public agent explorer page (site/explore.html)
 - [ ] ERC-8004 Validation Registry bridge (ship before their team)
-- [ ] Trust Score Explanation API — GET /x204/trust/{did}/explain (Cherry 1)
-- [ ] Trust Score Prediction API — GET /x204/trust/{did}/predict (Cherry 8)
+- [ ] Trust Score Explanation API — GET /aid/trust/{did}/explain (Cherry 1)
+- [ ] Trust Score Prediction API — GET /aid/trust/{did}/predict (Cherry 8)
 - [ ] ZK trust proofs via Noir — accelerated from Phase 4 (Cherry A)
 
 ### PHASE 4: MARKET LAYER (Months 7-9)
@@ -115,9 +117,9 @@ The name: HTTP 204 = "No Content" → no middleman, no centralized authority, no
 - [ ] AgentKit wallet integration (Coinbase AgentKit)
 
 ### PHASE 5: SOVEREIGNTY (Months 10+)
-- [ ] x204 SDK (TypeScript) — @clawnet/x204
-- [ ] x204 SDK (Python)
-- [ ] x204 spec publication to standards bodies
+- [ ] AID SDK (TypeScript) — @clawnet/AID
+- [ ] AID SDK (Python)
+- [ ] AID spec publication to standards bodies
 - [ ] Reference facilitator (open-source)
 - [ ] Documentation site
 - [ ] Testnet mode (Base Sepolia)
@@ -127,7 +129,7 @@ The name: HTTP 204 = "No Content" → no middleman, no centralized authority, no
 - [ ] Cross-protocol trust import (ERC-8004, Maiat, x402 history)
 
 ### DECENTRALIZATION ROADMAP (Section 42 — Parallel Track)
-- [ ] Phase 1 (Month 1): Open-source `@x204/trust-compute` + IPFS/Arweave publication
+- [ ] Phase 1 (Month 1): Open-source `@aidprotocol/trust-compute` + IPFS/Arweave publication
 - [ ] Phase 1 (Month 1): On-chain Merkle root commitment (Base, ~$0.001/tx)
 - [ ] Phase 2 (Month 6): Deploy OptimisticTrustOracle.sol (24h challenge, $10 bond)
 - [ ] Phase 3 (Month 12): Federated trust oracles (3-5 independent operators)
@@ -139,7 +141,7 @@ The name: HTTP 204 = "No Content" → no middleman, no centralized authority, no
 
 ---
 
-## 1. WHY x204 EXISTS
+## 1. WHY AID EXISTS
 
 ### What x402 Got Right
 - HTTP-native payment headers (PAYMENT-REQUIRED, PAYMENT-SIGNATURE)
@@ -160,7 +162,7 @@ The name: HTTP 204 = "No Content" → no middleman, no centralized authority, no
 | No feedback loop         | Zero mechanism for quality reporting to improve the system    |
 | No onboarding flow       | Requires wallet + USDC + facilitator before first query       |
 
-### The x204 Thesis
+### The AID Thesis
 
 > Trust replaces infrastructure. If both parties have cryptographically verifiable identities
 > with portable trust histories, you don't need escrow, you don't need facilitators, you don't
@@ -178,7 +180,7 @@ x402 — 6 parties (client, server, wallet, facilitator, blockchain, RPC):
   Client → Server → 402 → Client signs → Facilitator verifies
   → Facilitator settles on-chain → Server delivers
 
-x204 — 3 parties (client, server, blockchain):
+AID — 3 parties (client, server, blockchain):
   Client → Server (request + AID DID + signed payment authorization)
   Server verifies AID offline (Ed25519, Merkle proof — ZERO network calls)
   Server verifies payment signature (ecrecover — pure math)
@@ -210,7 +212,7 @@ PAYMENT-SIGNATURE:    <EIP-3009 signed authorization> # Direct settlement (x402-
 X-AID-PROVIDER-DID:   did:clawnet:zXYZ...            # Mutual authentication
 X-AID-PROVIDER-PROOF: <Ed25519 countersignature>      # Server proves identity
 X-AID-RECEIPT:        <base64 atomic receipt>          # Portable, Merkle-anchored
-X-AID-FEEDBACK-URL:   /x204/feedback/{receiptId}      # Outcome reporting endpoint
+X-AID-FEEDBACK-URL:   /aid/feedback/{receiptId}      # Outcome reporting endpoint
 ```
 
 **402 Response Headers (Payment Required):**
@@ -229,7 +231,7 @@ X-AID-NEW:            "my-trading-bot"                 # Auto-provisions identit
 
 ### 2.3 Settlement Methods
 
-x204 supports three settlement modes, selected by the server based on client trust score:
+AID supports three settlement modes, selected by the server based on client trust score:
 
 | Trust Score | Verdict    | Settlement Mode | Pricing          |
 |-------------|------------|-----------------|------------------|
@@ -276,14 +278,14 @@ Server proves:  "I am did:clawnet:zXYZ... with 99.8% uptime SLA,
                  verified by 340 validators, 12,847 invocations"
 ```
 
-x402 only authenticates payment. x204 authenticates EVERYTHING.
+x402 only authenticates payment. AID authenticates EVERYTHING.
 
 ---
 
 ## 3. THE TRUST STACK (5 Layers)
 
 No existing protocol has all 5. x402 has Layer 1. Maiat has Layers 3-4.
-ClawStars has Layer 5. AID has Layers 2-3. x204 is the first to unify them.
+ClawStars has Layer 5. AID has Layers 2-3. AID is the first to unify them.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -331,7 +333,7 @@ score = round(successRate * 50 + chainCoverage * 30 + volume * 20)
 ```
 Three dimensions, integer-only, no decay, no anti-gaming. This is a v0.1 trust score.
 
-### 4.2 Target State (x204 Trust Score)
+### 4.2 Target State (AID Trust Score)
 
 **Three signal categories, weighted (IMPLEMENTED — see `computeTrustScoreWithProof()`):**
 
@@ -400,14 +402,14 @@ Inspired by Maiat's MaiatOracle contract:
 
 ## 5. PORTABLE ATOMIC RECEIPTS
 
-Every x204 transaction produces a receipt that is verifiable by ANY third party offline.
+Every AID transaction produces a receipt that is verifiable by ANY third party offline.
 The receipt travels with the agent forever. x402 receipts die with the platform.
 
 ### 5.1 Receipt Format
 
 ```json
 {
-  "protocol": "x204",
+  "protocol": "AID",
   "version": "1.0.0",
   "receiptId": "rcpt-a1b2c3d4",
   "timestamp": "2026-03-21T14:30:00Z",
@@ -447,7 +449,7 @@ The receipt travels with the agent forever. x402 receipts die with the platform.
     "merkleRoot": "sha256:9c4d...",
     "merkleProof": [...],
     "snapshotId": "snap-xyz",
-    "feedbackUrl": "/x204/feedback/rcpt-a1b2c3d4"
+    "feedbackUrl": "/aid/feedback/rcpt-a1b2c3d4"
   },
 
   "proof": {
@@ -489,42 +491,42 @@ Agent pays Provider C (1 skill):  0.001 USDC
 
 ### 6.1 Payment Model: x402-Compatible, No Accounts
 
-x204 is **pure pay-per-use** — like x402, but with identity + trust layered on top.
+AID is **pure pay-per-use** — like x402, but with identity + trust layered on top.
 No accounts, no credits, no trials, no subscriptions.
 
 ```
 READS = FREE (always, no payment needed):
-  GET  /x204/heartbeat           — discover services + pricing
+  GET  /aid/heartbeat           — discover services + pricing
   GET  /v1/aid/:did              — resolve an agent's identity
   GET  /v1/aid/:did/trust-chain  — verify trust offline
   POST /v1/aid/verify            — verify an AID document
   GET  /v1/skills                — browse marketplace
 
 EXECUTION = PAY PER CALL (USDC on Base):
-  POST /x204/skills/:id          — pay via PAYMENT-SIGNATURE header
-  POST /x204/orchestrate         — pay via PAYMENT-SIGNATURE header
-  POST /x204/query/:id           — pay via PAYMENT-SIGNATURE header
+  POST /aid/skills/:id          — pay via PAYMENT-SIGNATURE header
+  POST /aid/orchestrate         — pay via PAYMENT-SIGNATURE header
+  POST /aid/query/:id           — pay via PAYMENT-SIGNATURE header
 
 AID = OPTIONAL (enhances pricing, not required to transact):
   Without AID: pay base price via x402 headers (backwards-compatible)
-  With AID:    pay trust-gated price via x204 headers (discounts for trusted agents)
+  With AID:    pay trust-gated price via AID headers (discounts for trusted agents)
 ```
 
 ### 6.2 First Contact Flow (No Account Required)
 
 ```
 # STEP 1: Discover what's available (FREE)
-curl https://api.claw-net.org/x204/heartbeat
+curl https://api.claw-net.org/aid/heartbeat
 → Services, prices, trust tiers — no auth needed
 
 # STEP 2: Pay and execute (one call, USDC)
-curl -X POST https://api.claw-net.org/x204/skills/sol-price \
+curl -X POST https://api.claw-net.org/aid/skills/sol-price \
   -H "PAYMENT-SIGNATURE: <EIP-3009 signed auth>" \
   -d '{"token":"SOL"}'
 → Result + receipt. No account. No signup. Pure x402-style pay-per-use.
 
 # STEP 3 (OPTIONAL): Register AID for trust-gated discounts
-curl -X POST https://api.claw-net.org/x204/skills/sol-price \
+curl -X POST https://api.claw-net.org/aid/skills/sol-price \
   -H "X-AID-NEW: my-trading-bot" \
   -H "PAYMENT-SIGNATURE: <EIP-3009 signed auth>" \
   -d '{"token":"SOL"}'
@@ -534,14 +536,14 @@ curl -X POST https://api.claw-net.org/x204/skills/sol-price \
 ```
 
 **Key difference from x402:** x402 requires a facilitator to verify and settle.
-x204 settles directly via receiveWithAuthorization (server IS the recipient).
-Both are pure pay-per-use. x204 just removes the middleman.
+AID settles directly via receiveWithAuthorization (server IS the recipient).
+Both are pure pay-per-use. AID just removes the middleman.
 
-**Key difference from the old x204 plan:** No trial credits. No accounts.
-No credit system required for x204 path. Agent has USDC → agent pays → done.
+**Key difference from the old AID plan:** No trial credits. No accounts.
+No credit system required for AID path. Agent has USDC → agent pays → done.
 
 **ClawNet's existing credit system still works** for PATH A users (API key + Stripe).
-x204 is a PARALLEL path that doesn't require credits at all.
+AID is a PARALLEL path that doesn't require credits at all.
 
 ### 6.3 Progressive Identity Tiers (All Optional)
 
@@ -568,10 +570,10 @@ AID is the INCENTIVE (discounts), not a requirement.
 ### 7.1 The Flywheel (Inspired by Maiat)
 
 Maiat's core insight: every trust query feeds the ML model. More queries → better predictions →
-more trustworthy scores → more queries. x204 adopts this with the feedback endpoint:
+more trustworthy scores → more queries. AID adopts this with the feedback endpoint:
 
 ```
-POST /x204/feedback
+POST /aid/feedback
 {
   "receiptId": "rcpt-a1b2c3d4",
   "outcome": "success",         // success | partial | failure
@@ -609,7 +611,7 @@ because low-trust agents' feedback barely counts.
 When a provider's trust score drops significantly, all active consumers are notified:
 
 ```
-GET /x204/alerts?did=did:clawnet:zXYZ...
+GET /aid/alerts?did=did:clawnet:zXYZ...
 SSE stream:
 
 event: trust_degradation
@@ -632,12 +634,12 @@ Agents polling the heartbeat endpoint also receive trust alerts inline.
 ### 8.1 Why It's Mandatory
 
 ClawStars' heartbeat consolidates 6 API calls into 1 — designed for agents polling in a loop.
-x204 makes this a protocol requirement: every x204 server MUST expose `/x204/heartbeat`.
+AID makes this a protocol requirement: every AID server MUST expose `/aid/heartbeat`.
 
 ### 8.2 Heartbeat Specification
 
 ```
-GET /x204/heartbeat
+GET /aid/heartbeat
 
 Response:
 {
@@ -701,7 +703,7 @@ Response:
 For agents with an AID, an authenticated heartbeat returns personalized data:
 
 ```
-GET /x204/heartbeat
+GET /aid/heartbeat
 Headers: X-AID-DID: did:clawnet:zABC..., X-AID-PROOF: <sig>
 
 Additional fields in response:
@@ -730,7 +732,7 @@ Additional fields in response:
 ClawStars' core insight: instead of computing reputation algorithmically, let the market price it.
 Ticket price = reputation. Self-correcting, ungameable (costs real money to manipulate).
 
-**x204 adoption — Agent Trust Stakes (reputation-only, NO revenue share):**
+**AID adoption — Agent Trust Stakes (reputation-only, NO revenue share):**
 - Any agent can stake USDC on another agent's trust
 - Price follows a quadratic bonding curve: `price = supply^2 / divisor`
 - Staking increases the agent's MARKET trust signal (Layer 5)
@@ -790,7 +792,7 @@ Time-bounded competitions where agents compete on multi-dimensional metrics:
 
 ### 10.1 Protocol Comparison
 
-|                        | x402       | Maiat        | ClawStars    | **x204**              |
+|                        | x402       | Maiat        | ClawStars    | **AID**              |
 |------------------------|------------|--------------|--------------|------------------------|
 | Identity               | None       | Wallet addr  | Wallet+agentId| **Self-certifying DID**|
 | Trust scoring          | None       | ML oracle    | Market-priced| **Behavioral+Market+Community** |
@@ -804,7 +806,7 @@ Time-bounded competitions where agents compete on multi-dimensional metrics:
 | Trust-gated pricing    | No         | Verdicts only| No           | **Yes (5 tiers)**      |
 | Anti-Sybil             | No         | Weighted     | Market cost  | **Weighted + market**  |
 
-### 10.2 What Each Protocol Contributed to x204
+### 10.2 What Each Protocol Contributed to AID
 
 ```
 FROM x402:       HTTP payment headers, EIP-3009 settlement, open standard model
@@ -815,7 +817,7 @@ FROM CLAWSTARS:  Bonding curves, heartbeat protocol, 12-dimension scoring, hybri
                  FIFO cost basis tracking, abandoned reclaim, two-step trading
 FROM AID:        Self-certifying DIDs, Ed25519 keypairs, Merkle proofs, offline
                  verification, portable trust chains, capability derivation
-NEW IN x204:     All four unified into one atomic protocol with zero-friction onboarding
+NEW IN AID:     All four unified into one atomic protocol with zero-friction onboarding
 ```
 
 ---
@@ -831,29 +833,29 @@ NEW IN x204:     All four unified into one atomic protocol with zero-friction on
 | Provider DID in x402 responses | Return `X-AID-PROVIDER-DID` + `X-AID-PROVIDER-PROOF` | S |
 | Trust-gated pricing | Check caller's AID trust score → apply pricing tier discount | M |
 | Receipt enhancement | Include AID DIDs + dual signatures in x402 receipts | M |
-| Feedback endpoint | `POST /x204/feedback` — report outcome, earn credits | M |
+| Feedback endpoint | `POST /aid/feedback` — report outcome, earn credits | M |
 | Feedback weighting | Weight feedback by reporter's spend history + trust score | S |
 
 **Deliverable:** x402 with identity + trust-gated pricing + feedback loop.
 Every x402 call now carries identity and produces better receipts.
 
-### Phase 2: Core x204 Protocol (Differentiation)
-**Goal:** x204 as a standalone protocol path alongside x402.
+### Phase 2: Core AID Protocol (Differentiation)
+**Goal:** AID as a standalone protocol path alongside x402.
 
 | Task | Description | Effort |
 |------|-------------|--------|
-| x204 route handler | `/x204/*` endpoints with full protocol flow | L |
+| AID route handler | `/aid/*` endpoints with full protocol flow | L |
 | Zero-auth onboarding | `X-AID-NEW` header → auto-provision AID (pay-per-use, no trial credits) | M |
 | Direct EIP-3009 settlement | Server submits payment authorization directly (no facilitator) | L |
 | Mutual authentication | Both client and server sign every transaction | M |
 | Portable atomic receipts | Full receipt format with dual signatures + Merkle anchoring | M |
-| Heartbeat endpoint | `GET /x204/heartbeat` — mandatory protocol endpoint | M |
+| Heartbeat endpoint | `GET /aid/heartbeat` — mandatory protocol endpoint | M |
 | Consumer heartbeat | Authenticated heartbeat with personalized pricing + alerts | S |
 | Composite receipts | Multi-provider receipt sets with shared Merkle root | M |
-| x204 spec document | Publishable protocol specification for community review | L |
+| AID spec document | Publishable protocol specification for community review | L |
 
-**Deliverable:** x204 running alongside x402. Agents choose their protocol.
-x204 for sovereign agents, x402 for casual users.
+**Deliverable:** AID running alongside x402. Agents choose their protocol.
+AID for sovereign agents, x402 for casual users.
 
 ### Phase 3: Trust Score v2 (Intelligence)
 **Goal:** Replace simple 3-dimension trust with 11-dimension scoring.
@@ -894,22 +896,22 @@ and available both off-chain (API) and on-chain (smart contract).
 agents have skin in the game, and network effects drive growth.
 
 ### Phase 5: Ecosystem (Adoption)
-**Goal:** Make x204 the standard for agentic commerce.
+**Goal:** Make AID the standard for agentic commerce.
 
 | Task | Description | Effort |
 |------|-------------|--------|
-| x204 SDK (TypeScript) | `@clawnet/x204` — client library for agents | L |
-| x204 SDK (Python) | For Python-based agent frameworks | L |
-| MCP integration | x204-native MCP tools (like Maiat's MCP server) | M |
-| ElizaOS plugin | x204 plugin for ElizaOS agent framework | M |
-| AgentKit integration | x204 for Coinbase AgentKit agents | M |
-| x204 spec publication | Submit to relevant standards bodies / open spec | L |
+| AID SDK (TypeScript) | `@clawnet/AID` — client library for agents | L |
+| AID SDK (Python) | For Python-based agent frameworks | L |
+| MCP integration | AID-native MCP tools (like Maiat's MCP server) | M |
+| ElizaOS plugin | AID plugin for ElizaOS agent framework | M |
+| AgentKit integration | AID for Coinbase AgentKit agents | M |
+| AID spec publication | Submit to relevant standards bodies / open spec | L |
 | Reference facilitator | Open-source facilitator for platforms that want one | M |
 | Documentation site | Protocol docs, quickstart, API reference | L |
 | Testnet mode | Base Sepolia support with test USDC | M |
-| Third-party onboarding | Help 3-5 platforms implement x204 provider mode | XL |
+| Third-party onboarding | Help 3-5 platforms implement AID provider mode | XL |
 
-**Deliverable:** x204 as an open protocol with multi-language SDKs,
+**Deliverable:** AID as an open protocol with multi-language SDKs,
 framework integrations, and third-party adoption.
 
 ---
@@ -918,7 +920,7 @@ framework integrations, and third-party adoption.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                        x204 Protocol Layer                          │
+│                        AID Protocol Layer                          │
 │                                                                     │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────────────┐   │
 │  │   AID    │  │  Trust   │  │ Payment  │  │    Receipts      │   │
@@ -930,7 +932,7 @@ framework integrations, and third-party adoption.
 │  └────┬─────┘  └────┬─────┘  └────┬─────┘  └───────┬──────────┘   │
 │       │              │              │                │              │
 │  ┌────┴──────────────┴──────────────┴────────────────┴──────────┐  │
-│  │                    x204 Middleware (Hono)                      │  │
+│  │                    AID Middleware (Hono)                      │  │
 │  │  Header parsing → AID verify → Trust gate → Price tier →      │  │
 │  │  Payment verify → Execute → Receipt → Feedback URL            │  │
 │  └───────────────────────────────────────────────────────────────┘  │
@@ -961,10 +963,10 @@ framework integrations, and third-party adoption.
 | Metric | Phase 1 Target | Phase 3 Target | Phase 5 Target |
 |--------|---------------|---------------|---------------|
 | AIDs registered | 100 | 5,000 | 100,000 |
-| x204 transactions/day | 500 | 10,000 | 1,000,000 |
+| AID transactions/day | 500 | 10,000 | 1,000,000 |
 | Feedback reports/day | 50 | 2,000 | 100,000 |
 | Avg trust score accuracy | n/a | 80% | 95% |
-| Third-party x204 servers | 0 | 3 | 50 |
+| Third-party AID servers | 0 | 3 | 50 |
 | Protocol revenue/month | $500 | $25,000 | $500,000 |
 | Unique agents/month | 50 | 2,000 | 50,000 |
 
@@ -972,7 +974,7 @@ framework integrations, and third-party adoption.
 
 ## 14. THE BOTTOM LINE
 
-x204 is the first protocol where identity, trust, payment, and reputation are a single
+AID is the first protocol where identity, trust, payment, and reputation are a single
 atomic operation with zero-friction onboarding and a self-improving feedback loop.
 
 Every other system handles these as separate concerns with separate infrastructure:
@@ -980,7 +982,7 @@ Every other system handles these as separate concerns with separate infrastructu
 - Maiat = trust only (no payment, no portable identity, centralized)
 - ClawStars = social trading only (no services, no portable trust, on-chain only)
 
-x204 merges them all. One HTTP call. One protocol. One receipt.
+AID merges them all. One HTTP call. One protocol. One receipt.
 
 The agent economy needs this. Build it.
 
@@ -990,7 +992,7 @@ The agent economy needs this. Build it.
 
 The emerging "full stack" for agent markets is not one protocol — it's three protocols
 from three teams converging into an interconnected standard. Understanding each one
-and where they fall short is critical for x204 positioning.
+and where they fall short is critical for AID positioning.
 
 ### 15.1 ERC-8004: Trustless Agents (The Identity/Trust Layer)
 
@@ -1029,7 +1031,7 @@ BNB Chain has overtaken Ethereum as the largest ERC-8004 network.
    - Response: 0-100 score per validation
    - Under active revision with TEE community — will be expanded later
    - KEY GAP: it's a plugin INTERFACE, not a trust SCORE. Every consumer
-     must build their own scoring logic. x204 ships an opinionated,
+     must build their own scoring logic. AID ships an opinionated,
      production-grade trust engine that makes those hooks useful.
 ```
 
@@ -1044,9 +1046,9 @@ discovers agents by skills, handles x402 payments. Python + TypeScript. MIT-lice
 - Payment-agnostic — works with any payment protocol
 - ".well-known" domain verification pattern
 
-**What ERC-8004 gets wrong (x204's opportunity):**
+**What ERC-8004 gets wrong (AID's opportunity):**
 
-| ERC-8004 Weakness | Impact | x204 Advantage |
+| ERC-8004 Weakness | Impact | AID Advantage |
 |--------------------|--------|----------------|
 | Validation Registry not shipped | The most critical trust primitive doesn't exist | ClawNet already has validators, attestations, Merkle proofs — WORKING |
 | Sybil-vulnerable reputation | Spec explicitly acknowledges this; no mitigation built in | Weighted reviewer reputation (Maiat-style), staking-based anti-Sybil |
@@ -1056,7 +1058,7 @@ discovers agents by skills, handles x402 payments. Python + TypeScript. MIT-lice
 | Gas costs for feedback | High-frequency agent interactions are expensive | Off-chain attestations with periodic Merkle anchoring |
 | Cannot verify claimed capabilities | Agent can claim any skills in its card | Capability derivation from actual attestation history |
 | No zero-friction onboarding | Must mint NFT on-chain before anything works | X-AID-NEW header → identity in one HTTP call |
-| No payment integration | Requires x402 as separate layer | Payment is built into x204 protocol (atomic) |
+| No payment integration | Requires x402 as separate layer | Payment is built into AID protocol (atomic) |
 | No escrow/conditional settlement | Requires ERC-8183 as separate layer | Receipts + trust-gated settlement modes built in |
 
 ### 15.2 ERC-8183: Agent Commerce Primitive (The Escrow Layer)
@@ -1079,13 +1081,13 @@ privacy-preserving execution, staking-based guarantees. Hooks attach to job tran
 - Dispute resolution primitive
 - Structured job lifecycle
 
-**What ERC-8183 gets wrong (x204's opportunity):**
+**What ERC-8183 gets wrong (AID's opportunity):**
 
-| ERC-8183 Weakness | x204 Advantage |
+| ERC-8183 Weakness | AID Advantage |
 |--------------------|----------------|
 | Everything on-chain (gas costs per job) | Off-chain execution, on-chain anchoring only when needed |
-| Requires separate identity layer | Identity is built into x204 |
-| No self-improving trust loop | Every x204 receipt feeds back into trust scoring |
+| Requires separate identity layer | Identity is built into AID |
+| No self-improving trust loop | Every AID receipt feeds back into trust scoring |
 | Hook complexity | Trust-gated settlement modes are simpler than hook programming |
 | Evaluator centralization risk | Merkle-anchored receipts are self-verifying |
 
@@ -1109,7 +1111,7 @@ composing into a full market stack. Open, neutral, credibly decentralized.
    ERC-8004 enables discovery of x402-compatible agents (via `x402Support` in agent cards),
    but identity, payment, and trust are still THREE SEPARATE LOOKUPS.
    Every agent builder must wire all three together manually.
-   x204 ships as ONE protocol with all three concerns unified in a single atomic operation.
+   AID ships as ONE protocol with all three concerns unified in a single atomic operation.
 
 2. **The Validation Registry doesn't exist.**
    The most critical piece of ERC-8004 — provable work — is unshipped.
@@ -1118,20 +1120,20 @@ composing into a full market stack. Open, neutral, credibly decentralized.
 3. **No canonical trust score.**
    ERC-8004 stores raw reputation signals but doesn't aggregate them.
    Every consumer builds their own scoring. This fragments the ecosystem.
-   x204 defines a transparent, verifiable, 11-dimension trust score.
+   AID defines a transparent, verifiable, 11-dimension trust score.
 
 4. **On-chain gas costs kill micropayments.**
    If every feedback signal costs gas, agents won't report outcomes for $0.001 transactions.
-   x204 keeps feedback off-chain with periodic Merkle anchoring (like Maiat).
+   AID keeps feedback off-chain with periodic Merkle anchoring (like Maiat).
 
 5. **No zero-friction path.**
    ERC-8004 requires minting an NFT. ERC-8183 requires deploying escrow.
    x402 requires USDC + facilitator. Three onboarding friction points.
-   x204: one HTTP header, one call, done.
+   AID: one HTTP header, one call, done.
 
 ### 15.4 The Full Competitive Landscape
 
-| Protocol/Standard | What It Does | Backing | Status | x204 Edge |
+| Protocol/Standard | What It Does | Backing | Status | AID Edge |
 |--------------------|-------------|---------|--------|-----------|
 | ERC-8004 | Agent identity + reputation | Google, Coinbase, MetaMask, EF | Live, ~24K–86K agents | Offline verify, canonical trust score, zero-friction |
 | x402 | HTTP-native payments | Coinbase, AWS, Cloudflare, Stripe | Live — $28K/day Base + 35M+ txs Solana + AWS Bedrock integration (March 20) | No facilitator needed, identity built in, trust-gated pricing |
@@ -1141,12 +1143,12 @@ composing into a full market stack. Open, neutral, credibly decentralized.
 | Maiat | Trust oracle | Independent | Live | No payment, no portable identity |
 | ClawStars | SocialFi agent trading | Independent | Live | No services, no trust portability |
 | World AgentKit | Human-backed agent ID | Coinbase + World | Beta (March 17) | Orb-dependent, no reputation layer |
-| Mastercard Verifiable Intent | Consumer-to-agent authorization | Mastercard, Google, IBM, Fiserv, Adyen, Worldpay | Live (open-sourced March 5) | Complementary — VI = "who authorized this," x204 = "is this agent trustworthy." x204 is agent-to-agent trust; VI is consumer-to-agent authorization. Target as Phase 2 compatibility layer. |
+| Mastercard Verifiable Intent | Consumer-to-agent authorization | Mastercard, Google, IBM, Fiserv, Adyen, Worldpay | Live (open-sourced March 5) | Complementary — VI = "who authorized this," AID = "is this agent trustworthy." AID is agent-to-agent trust; VI is consumer-to-agent authorization. Target as Phase 2 compatibility layer. |
 | Virtuals Protocol | Tokenized AI agents | VIRTUAL token | Live, $500M+ mcap | Identity = speculation, not utility |
 | Visa TAP | Enterprise agent auth | Visa + Akamai | Live (GitHub ref impl) | Enterprise-only, centralized |
 | Gen Agent Trust Hub | Agent trust verification + skills marketplace | Gen (Norton/Avast, NASDAQ: GEN) | Live (Feb 4, 2026) | 500M user brand but consumer-focused, not agent-to-agent. No portable trust, no crypto settlement. |
-| Trusta.AI AgentGo | MCP middleware for on-chain identity + reputation | Trusta.AI | Open-sourced | Simpler model — x204 has 11-dimension scoring, 3-layer lifecycle, 36 attack mitigations |
-| Solana Agent Registry | ERC-8004 implementation on Solana | Quantu AI | Live (March 3, 2026) | x204 bridges Solana + EVM registries with cross-chain trust. Single Ed25519 key on Solana. |
+| Trusta.AI AgentGo | MCP middleware for on-chain identity + reputation | Trusta.AI | Open-sourced | Simpler model — AID has 11-dimension scoring, 3-layer lifecycle, 36 attack mitigations |
+| Solana Agent Registry | ERC-8004 implementation on Solana | Quantu AI | Live (March 3, 2026) | AID bridges Solana + EVM registries with cross-chain trust. Single Ed25519 key on Solana. |
 | Skyfire KYA | Know Your Agent | Skyfire/Trulioo | Live | JWTs, no on-chain, no portability |
 | W3C DIDs | Decentralized identifiers | W3C | v1.1 draft | No reputation, no payment, slow standards |
 | EAS | Generic attestations | Open source | Live | No agent tooling, no discovery |
@@ -1154,7 +1156,7 @@ composing into a full market stack. Open, neutral, credibly decentralized.
 
 ---
 
-## 16. HOW x204 IMPROVES UPON EIP-4361 AND EIP-712
+## 16. HOW AID IMPROVES UPON EIP-4361 AND EIP-712
 
 ### 16.1 EIP-4361: Sign-In with Ethereum (SIWE) — and Why It Fails for Agents
 
@@ -1175,10 +1177,10 @@ Issued At: 2026-03-21T14:30:00Z
 
 **Why SIWE breaks for AI agents:**
 
-| SIWE Limitation | Impact on Agents | x204 Solution |
+| SIWE Limitation | Impact on Agents | AID Solution |
 |-----------------|------------------|---------------|
 | Human-in-the-loop | Agent has no "user" to approve signing | Agent holds Ed25519 key, signs autonomously |
-| Session-oriented | "I am this address" — no scoping | x204 encodes: identity + budget + capabilities + expiry |
+| Session-oriented | "I am this address" — no scoping | AID encodes: identity + budget + capabilities + expiry |
 | No delegation model | Can't say "Agent X acts for Principal Y with budget Z" | AID DID hierarchy with trust chain inheritance |
 | No agent-to-agent trust | Client-to-server only | Mutual authentication — both parties prove identity |
 | No revocation | Once key is given, agent signs forever | Key rotation via `POST /:did/rotate-key`, audit trail |
@@ -1187,20 +1189,20 @@ Issued At: 2026-03-21T14:30:00Z
 | No reputation | Proves identity only, not trustworthiness | Trust score travels with every request |
 | Text-based format | "wants you to sign in" — wasteful for machines | Binary/JSON headers optimized for agent-to-agent |
 
-**x204's identity model vs SIWE:**
+**AID's identity model vs SIWE:**
 ```
 SIWE:  "I am address 0xABC on chain 8453" (session, no context)
 
-x204:  "I am did:clawnet:zABC with trust score 87,
+AID:  "I am did:clawnet:zABC with trust score 87,
         1,247 successful transactions, Merkle-anchored,
         authorized for data_query and skill_invoke,
         budget 50 USDC, expires 2026-03-22T14:30:00Z,
         delegated from did:clawnet:zPRINCIPAL"
 ```
 
-SIWE proves you ARE someone. x204 proves you are someone WORTH TRUSTING.
+SIWE proves you ARE someone. AID proves you are someone WORTH TRUSTING.
 
-### 16.2 EIP-712: Typed Structured Data — and How x204 Extends It
+### 16.2 EIP-712: Typed Structured Data — and How AID Extends It
 
 **What EIP-712 does:** Deterministic hashing and signing of structured data.
 ```
@@ -1212,7 +1214,7 @@ The facilitator verifies the signature and submits the on-chain transfer.
 
 **EIP-712's limitations for agent commerce:**
 
-| EIP-712 Limitation | Impact | x204 Extension |
+| EIP-712 Limitation | Impact | AID Extension |
 |--------------------|--------|----------------|
 | No identity semantics | "This key signed this" — not WHO signed it | AID DID embedded in every signed message |
 | Single-signer model | No native dual-signing | Payer + provider both sign every receipt |
@@ -1222,7 +1224,7 @@ The facilitator verifies the signature and submits the on-chain transfer.
 | EVM-only | Ethereum signing standard | Ed25519 (works everywhere: EVM, Solana, off-chain) |
 | Human-display oriented | Wallet shows data for human review | Machine-optimized JSON headers |
 
-**x204's signing model — EIP-712 + Ed25519 dual layer:**
+**AID's signing model — EIP-712 + Ed25519 dual layer:**
 
 ```
 Layer 1: EIP-712 (Payment)
@@ -1239,16 +1241,16 @@ Layer 2: Ed25519 (Identity + Trust)
   → Verifiable offline — no RPC needed
   → Works across chains (not bound to EVM)
 
-Combined in x204:
+Combined in AID:
   PAYMENT-SIGNATURE: <EIP-712/EIP-3009 signed auth>     ← EVM payment
   X-AID-PROOF:       <Ed25519 sig over request body>      ← Universal identity
 ```
 
-This dual-layer approach means x204 is BACKWARDS-COMPATIBLE with x402 (the PAYMENT-SIGNATURE
+This dual-layer approach means AID is BACKWARDS-COMPATIBLE with x402 (the PAYMENT-SIGNATURE
 header works with any x402 facilitator) while ADDING identity, trust, and offline verification
 through the Ed25519 layer.
 
-**New EIP-712 type definitions for x204 (future — on-chain composability):**
+**New EIP-712 type definitions for AID (future — on-chain composability):**
 
 ```solidity
 // Agent Identity struct for on-chain verification
@@ -1313,7 +1315,7 @@ The question isn't whether to adopt ERC-8004. It's whether to:
 ```
 ERC-8004 + x402 + ERC-8183 = 3 protocols, 3 teams, manual integration, incomplete
 
-x204 = 1 protocol that ships what they PROMISED but haven't DELIVERED:
+AID = 1 protocol that ships what they PROMISED but haven't DELIVERED:
   ✓ Working validation layer (ERC-8004's is unshipped)
   ✓ Canonical trust score (ERC-8004 defers this)
   ✓ Anti-Sybil reputation (ERC-8004 acknowledges the vulnerability)
@@ -1327,32 +1329,32 @@ x204 = 1 protocol that ships what they PROMISED but haven't DELIVERED:
 ### 17.3 Compatibility Layer (Don't Fight ERC-8004 — Absorb It)
 
 Rather than competing with ERC-8004's adoption (~24K–86K agents, Google/Coinbase backing),
-x204 should be COMPATIBLE with ERC-8004 while being MORE CAPABLE:
+AID should be COMPATIBLE with ERC-8004 while being MORE CAPABLE:
 
 **Phase 1: Bridge**
-- Every x204 AID can optionally register on ERC-8004's Identity Registry
+- Every AID AID can optionally register on ERC-8004's Identity Registry
 - ClawNet signs feedbackAuth for its consumers, enabling them to leave
   ERC-8004 reputation feedback about ClawNet skills on-chain
   (Note: ERC-8004 requires feedbackAuth — ClawNet cannot unilaterally
   write trust scores about other agents without their signed consent)
-- x204 receipts can be submitted as ERC-8004 Validation entries
+- AID receipts can be submitted as ERC-8004 Validation entries
   (when ValidationRegistry is deployed — NOT live yet, opportunity to ship first)
 - AID documents include ERC-8004 agent ID as an optional field
 
 **Phase 2: Extend**
-- x204 heartbeat endpoint advertises ERC-8004 agent ID alongside DID
-- x204 trust score includes ERC-8004 reputation signals as one input dimension
-- x204 agents can discover ERC-8004-registered agents via The Graph
-- x204 receipts are anchored both as Merkle proofs AND ERC-8004 validation entries
+- AID heartbeat endpoint advertises ERC-8004 agent ID alongside DID
+- AID trust score includes ERC-8004 reputation signals as one input dimension
+- AID agents can discover ERC-8004-registered agents via The Graph
+- AID receipts are anchored both as Merkle proofs AND ERC-8004 validation entries
 
 **Phase 3: Superset**
-- x204 becomes the "execution layer" that ERC-8004 points to
-- Agent0 SDK agents can interact with x204 servers seamlessly
-- x204 provides what ERC-8004 can't: offline verification, canonical scoring, zero-friction
-- The agent card's `services` array includes x204 endpoints naturally
+- AID becomes the "execution layer" that ERC-8004 points to
+- Agent0 SDK agents can interact with AID servers seamlessly
+- AID provides what ERC-8004 can't: offline verification, canonical scoring, zero-friction
+- The agent card's `services` array includes AID endpoints naturally
 
-This means: an agent registered on ERC-8004 can ALSO have an x204 AID.
-The two identities reinforce each other. x204 doesn't replace ERC-8004 —
+This means: an agent registered on ERC-8004 can ALSO have an AID AID.
+The two identities reinforce each other. AID doesn't replace ERC-8004 —
 it makes ERC-8004 more useful by filling the gaps.
 
 ### 17.4 Exploiting the Gaps No One Else Fills
@@ -1360,11 +1362,11 @@ it makes ERC-8004 more useful by filling the gaps.
 | Gap in the Market | Who Should Fill It | Why ClawNet Wins |
 |--------------------|-------------------|-----------------|
 | Validation Registry (unshipped) | ERC-8004 team (someday) | ClawNet has working validators + attestations + Merkle proofs TODAY |
-| Canonical trust score | No one (by design) | x204 defines transparent 11-dimension scoring |
+| Canonical trust score | No one (by design) | AID defines transparent 11-dimension scoring |
 | Offline verification | No one | Ed25519 + Merkle proofs = pure math, zero API calls |
 | Zero-friction onboarding | No one (all require wallet + gas) | X-AID-NEW → identity in one HTTP call |
-| MCP/A2A + Trust bridge | AAIF has interop, no trust | x204 connects to AAIF standards with trust layer |
-| Feedback → Trust loop | Maiat (centralized) | x204 decentralized feedback with weighted reputation |
+| MCP/A2A + Trust bridge | AAIF has interop, no trust | AID connects to AAIF standards with trust layer |
+| Feedback → Trust loop | Maiat (centralized) | AID decentralized feedback with weighted reputation |
 | Anti-Sybil reputation | No one (ERC-8004 acknowledges gap) | Weighted reviewers + staking + cross-consumption |
 | Chain-agnostic identity | No one (all are EVM-only) | Ed25519 works on EVM, Solana, off-chain |
 | Conditional settlement without gas | ERC-8183 (on-chain, expensive) | Trust-gated settlement modes (off-chain) |
@@ -1382,10 +1384,10 @@ Payments           = x402 (micropayments, no identity)
 Settlement         = ERC-8183 (escrow, new/early)
 ```
 
-x204's pitch:
+AID's pitch:
 > **One protocol. All three primitives. Zero friction.**
 >
-> x204 doesn't ask you to wire three protocols together.
+> AID doesn't ask you to wire three protocols together.
 > It doesn't require you to mint an NFT, deploy escrow, or find a facilitator.
 >
 > One HTTP header. One call. Identity created, trust verified, payment settled,
@@ -1426,7 +1428,7 @@ Phase 1 priority shifts to middleware-first. **See Section 38.9 for the final ca
 build sequence.**
 9. Trust Score v2 (11 dimensions)
 
-**The race:** ERC-8004's Validation Registry is not shipped. If ClawNet's x204 ships
+**The race:** ERC-8004's Validation Registry is not shipped. If ClawNet's AID ships
 a WORKING validation/attestation layer that bridges to ERC-8004 BEFORE their team
 ships theirs, ClawNet becomes the de facto validation infrastructure for the ecosystem.
 
@@ -1437,7 +1439,7 @@ ships theirs, ClawNet becomes the de facto validation infrastructure for the eco
 The agent economy is converging on three primitives: discovery, trust, and settlement.
 The current answer is three separate protocols from three teams (ERC-8004 + x402 + ERC-8183).
 
-x204 is the answer that ships all three as one protocol, fills the gaps no one else has
+AID is the answer that ships all three as one protocol, fills the gaps no one else has
 filled (offline verification, canonical trust scoring, zero-friction onboarding, anti-Sybil),
 and is COMPATIBLE with the emerging standards rather than competing against them.
 
@@ -1451,7 +1453,7 @@ that every standard points to.
 
 ```
 ERC-8004 says: "agents need identity, reputation, and validation"
-x204 says:     "here's all three, working, in one HTTP call, with payments included"
+AID says:     "here's all three, working, in one HTTP call, with payments included"
 ```
 
 Build it. Ship it. Claim the narrative.
@@ -1467,7 +1469,7 @@ Issues found during final audit — every one addressed.
 **Problem:** AID uses Ed25519 (for identity), but EIP-3009 requires secp256k1 (for EVM payment).
 An agent needs TWO key pairs. This isn't obvious and wasn't documented.
 
-**Resolution:** Every x204 agent has two keys:
+**Resolution:** Every AID agent has two keys:
 ```
 Ed25519 key pair    → Identity (DID, signing requests, Merkle proofs)
 secp256k1 key pair  → Payment (EIP-3009, EVM transactions)
@@ -1627,17 +1629,17 @@ ERC-8004 IS aware of x402 at the discovery level.
 
 **Corrected framing:** ERC-8004 enables DISCOVERY of x402-compatible agents.
 But it does not INTEGRATE payment into the identity/reputation flow.
-x204's advantage is not that it "knows about" payment — it's that payment,
+AID's advantage is not that it "knows about" payment — it's that payment,
 identity, and trust are a SINGLE ATOMIC OPERATION, not three separate lookups.
 
 ---
 
-## 19A. MANIFEST + ATTESTATION = x204's TRUST LIFECYCLE
+## 19A. MANIFEST + ATTESTATION = AID's TRUST LIFECYCLE
 
-### 19A.1 Why Manifest/Attestation Are Part of x204 (Not Separate)
+### 19A.1 Why Manifest/Attestation Are Part of AID (Not Separate)
 
 ClawNet already has manifest (pre-execution) and attestation (post-execution) as separate
-features. x204 formally includes them — with a NEW middle layer (execution proof)
+features. AID formally includes them — with a NEW middle layer (execution proof)
 that makes the trust lifecycle cryptographically verifiable end-to-end.
 
 **THIS IS NOW IMPLEMENTED IN CLAWNET'S BACKEND (not just planned).**
@@ -1674,10 +1676,10 @@ BEFORE              DURING                  AFTER               FOREVER
 - `manifestAdherence` = `manifest_aligned / (manifest_aligned + manifest_unaligned)`
   from `attestation_stats` table (data already existed, now used in scoring)
 
-**This is what NO competitor has.** x204 is the ONLY protocol with all 4 stages,
+**This is what NO competitor has.** AID is the ONLY protocol with all 4 stages,
 and the middle layer (execution proof) is ALREADY RUNNING in production code.
 
-### 19A.2 Manifest in x204 (Layer 1: Intent Declaration)
+### 19A.2 Manifest in AID (Layer 1: Intent Declaration)
 
 Manifests are OPTIONAL but incentivized — agents with high manifest adherence
 get a 15% trust score bonus (the `manifestAdherence` behavioral signal).
@@ -1698,12 +1700,12 @@ get a 15% trust score bonus (the `manifestAdherence` behavioral signal).
 }
 ```
 
-**How manifest feeds x204:**
+**How manifest feeds AID:**
 - Consumers compare manifest claims vs attestation history
 - `manifest_adherence` = successful attestations matching claims / total invocations
 - Feeds into `successRate` behavioral signal — agents who deliver what they promise get trust boost
 
-### 19A.3 Execution Proof in x204 (Layer 2: Evidence — IMPLEMENTED)
+### 19A.3 Execution Proof in AID (Layer 2: Evidence — IMPLEMENTED)
 
 **The missing middle layer that no competitor has.** Between "I will do X" (manifest)
 and "X succeeded" (attestation), the execution proof records HOW it was done.
@@ -1753,11 +1755,11 @@ outcome_data_json: {
 - If agent promised 3 but only checked 1: manifestAdherence = 0.33 → trust drops
 - Each step hash is individually verifiable — can't fake the evidence
 
-### 19A.4 Attestation in x204 (Layer 3: Outcome — IMPLEMENTED)
+### 19A.4 Attestation in AID (Layer 3: Outcome — IMPLEMENTED)
 
-Every x204 transaction automatically creates a signed, hash-chained attestation:
+Every AID transaction automatically creates a signed, hash-chained attestation:
 ```
-x204 transaction completes → attestation auto-created:
+AID transaction completes → attestation auto-created:
   action_type: "skill_invoke"
   outcome_status: "success"
   input_hash: SHA-256 of request
@@ -1783,78 +1785,78 @@ x204 transaction completes → attestation auto-created:
 - Receipt = dual-signed portable proof (travels with the agent)
 - Both reference the same tx, different purposes
 
-### 19A.5 Where x204 Fits in the 7-Layer Agent Commerce Stack
+### 19A.5 Where AID Fits in the 7-Layer Agent Commerce Stack
 
 The emerging industry framework (Visa, Google, Stripe, Coinbase, et al.):
 
 ```
 LAYER 0: CREDENTIALING — "who issued this agent?"
   Industry: World AgentKit (Orb), ERC-8004 (ERC-721), EU KYA
-  x204:    AID (Ed25519 DID, self-certifying, offline-verifiable)
+  AID:    AID (Ed25519 DID, self-certifying, offline-verifiable)
   ClawNet: AID system (PRODUCTION) ✓
 
 LAYER 1: DISCOVERY — "find services in machine-readable form"
   Industry: Google UCP, Stripe ACP browsing, Microsoft Catalog Agent
-  x204:    Heartbeat protocol + Manifest declarations
+  AID:    Heartbeat protocol + Manifest declarations
   ClawNet: Skill marketplace + API registry (PRODUCTION) ✓
 
 LAYER 2: AUTHORIZATION — "proof the human delegated this purchase"
   Industry: Google AP2 (VCs + ECDSA), PayPal AP2, MultiversX
-  x204:    X-AID-PROOF (signed request) + delegated keys with budget caps
+  AID:    X-AID-PROOF (signed request) + delegated keys with budget caps
   ClawNet: Delegated billing (PRODUCTION) ✓
 
 LAYER 3: IDENTITY — "merchant verifies agent is legitimate"
   Industry: Visa TAP (HTTP headers), Mastercard Agent Pay
-  x204:    X-AID-DID + X-AID-TRUST-SCORE + mutual auth
+  AID:    X-AID-DID + X-AID-TRUST-SCORE + mutual auth
   ClawNet: AID verification (PRODUCTION) ✓
 
 LAYER 4: CHECKOUT — "scoped payment credential delivered"
   Industry: Stripe SPTs, Alchemy AgentCard, Lobster.cash, Crossmint
-  x204:    PAYMENT-SIGNATURE (EIP-3009) + trust-gated pricing (5 tiers)
+  AID:    PAYMENT-SIGNATURE (EIP-3009) + trust-gated pricing (5 tiers)
   ClawNet: x402 provider mode (PRODUCTION) ✓
 
 LAYER 5: SETTLEMENT — "money moves"
   Industry: x402/MPP (USDC), Stripe card rail
-  x204:    Direct EIP-3009 (no facilitator) + batched/deferred for trusted agents
+  AID:    Direct EIP-3009 (no facilitator) + batched/deferred for trusted agents
   ClawNet: x402 (PRODUCTION) + direct settlement (Phase 2)
 
 LAYER 6: POLICY & GOVERNANCE — "spend limits, audit trail"
   Industry: Payman AI (SOC 2), Lobster.cash
-  x204:    Trust-gated credit limits + portable receipts + manifest→attestation lifecycle
+  AID:    Trust-gated credit limits + portable receipts + manifest→attestation lifecycle
   ClawNet: Budget locks, attestations, audit trail (PRODUCTION) ✓
 
 LAYER 6.5: CROSS-AGENT SETTLEMENT — "agents paying agents"
   Industry: ERC-8183 jobs (BNBAgent SDK), ERC-8004 escrow (proposed)
-  x204:    Composite receipts + trust-gated deferred settlement (no escrow needed)
+  AID:    Composite receipts + trust-gated deferred settlement (no escrow needed)
   ClawNet: Composite skills + delegated billing (PRODUCTION) ✓
 
 LAYER 7: BILLING & METERING — "usage-based pricing for tools/APIs"
   Industry: (No dominant standard)
-  x204:    Credit system (decimal, per-call) + dynamic pricing + feedback→pricing loop
+  AID:    Credit system (decimal, per-call) + dynamic pricing + feedback→pricing loop
   ClawNet: Credits + orchestration fee + dynamic pricing (PRODUCTION) ✓
 ```
 
-**x204 touches ALL 8 layers.** No other single protocol does this.
+**AID touches ALL 8 layers.** No other single protocol does this.
 x402 = Layers 4-5. ERC-8004 = Layers 0, 3. ERC-8183 = Layer 6.5.
 Visa TAP = Layer 3. Google AP2 = Layer 2. Stripe ACP = Layers 1, 4.
 
 ### 19A.6 Modular Protocol Extensions
 
-x204 is modular. The three-layer trust lifecycle is built into ClawNet but
+AID is modular. The three-layer trust lifecycle is built into ClawNet but
 third-party implementations can adopt incrementally:
 
 ```
-x204 CORE (required — ~6 days to implement):
+AID CORE (required — ~6 days to implement):
   AID identity (X-AID-DID, X-AID-PROOF, X-AID-TIMESTAMP, X-AID-NONCE)
   Payment (PAYMENT-SIGNATURE)
   Receipt (X-AID-RECEIPT)
-  Heartbeat (GET /x204/heartbeat)
+  Heartbeat (GET /aid/heartbeat)
 
-x204 TRUST EXTENSION (recommended — ~3 more days):
+AID TRUST EXTENSION (recommended — ~3 more days):
   Attestation: AUTOMATIC — middleware creates on every transaction
   Execution Proof: AUTOMATIC — middleware captures step-level evidence
   Manifest: OPTIONAL — publish in heartbeat, get 15% trust score bonus
-  Feedback endpoint (POST /x204/feedback)
+  Feedback endpoint (POST /aid/feedback)
   Trust-gated pricing
 
   Status in ClawNet: ALL IMPLEMENTED ✓
@@ -1862,7 +1864,7 @@ x204 TRUST EXTENSION (recommended — ~3 more days):
     - manifestAdherence in trust score formula (aid-builder.ts)
     - Execution proof in source_hashes_json + outcome_data_json
 
-x204 MARKET EXTENSION (optional, Phase 4+):
+AID MARKET EXTENSION (optional, Phase 4+):
   Bonding curve staking (reputation-only, no revenue share)
   Seasonal competitions
   Cross-consumption incentives
@@ -1893,7 +1895,7 @@ Rule: If transferFrom() reverts on-chain:
   1. Mark all unsettled receipts in this batch as settlement_status = 'FAILED'
   2. Drop agent's trust score by 10 points (immediate)
   3. Revert agent to immediate-only settlement
-  4. Log failed settlement in x204_settlements table with error
+  4. Log failed settlement in aid_settlements table with error
   5. Agent must re-establish trust (50+ new successful immediate-settlement txs)
      before batched settlement is re-enabled
   6. Outstanding unsettled amount becomes a debt — agent cannot transact
@@ -1925,9 +1927,9 @@ Rule: Verify payment FIRST, create AID SECOND:
 ```
 Rule: Use SQLite transaction with exclusive lock for deferred balance checks:
   BEGIN EXCLUSIVE;
-  SELECT accumulated_unsettled FROM x204_agent_credit WHERE did = ?;
+  SELECT accumulated_unsettled FROM aid_agent_credit WHERE did = ?;
   IF accumulated + requestCost > creditLimit → ROLLBACK, return 402;
-  UPDATE x204_agent_credit SET accumulated_unsettled = accumulated + requestCost;
+  UPDATE aid_agent_credit SET accumulated_unsettled = accumulated + requestCost;
   COMMIT;
   → SQLite's single-writer guarantees no concurrent modifications
   → This is already how deductCredit() works (WHERE credits >= amount)
@@ -1957,7 +1959,7 @@ Rule: Delegated keys inherit the PARENT's trust tier for pricing,
 signatureInput = SHA-256(
   did + "\n" +
   timestamp + "\n" +        // ISO 8601, e.g. "2026-03-21T14:30:00Z"
-  method + " " + path + "\n" +  // e.g. "POST /x204/skills/sol-price"
+  method + " " + path + "\n" +  // e.g. "POST /aid/skills/sol-price"
   SHA-256(requestBody)       // hash of the raw body bytes
 )
 
@@ -2080,7 +2082,7 @@ Worst case: 1 hour of batched pricing at the old rate before downgrade kicks in.
 
 ### 19.13 Protocol Versioning
 
-**Problem:** How to handle breaking changes in x204?
+**Problem:** How to handle breaking changes in AID?
 
 **Resolution:**
 ```
@@ -2149,21 +2151,21 @@ Original sequence (for reference):
 WEEK 1-2:
   1. Register ClawNet on ERC-8004 Identity Registry (Base, ~$1)
   2. Add ERC-8004 agent ID as optional field in AID documents
-  3. Publish x204 spec document publicly
+  3. Publish AID spec document publicly
 
 MONTH 1 (Phase 1 — AID on x402):
   4. AID headers on existing x402 routes (X-AID-DID, X-AID-PROOF, X-AID-TIMESTAMP)
   5. Provider DID in x402 responses (X-AID-PROVIDER-DID, X-AID-PROVIDER-PROOF)
   6. Trust-gated pricing logic
-  7. Feedback endpoint (POST /x204/feedback)
+  7. Feedback endpoint (POST /aid/feedback)
   8. Feedback weighting by reporter history
-  9. Heartbeat endpoint (GET /x204/heartbeat)
+  9. Heartbeat endpoint (GET /aid/heartbeat)
   10. Quick-start endpoint (POST /v1/aid/quick-start — AID provision + paid query in one call)
   11. DELETE /v1/aid/:did endpoint (GDPR right to erasure)
 
-MONTH 2-3 (Phase 2 — Core x204):
-  12. /x204/* route handler with full protocol flow
-  13. X-AID-NEW zero-auth onboarding on /x204/* routes
+MONTH 2-3 (Phase 2 — Core AID):
+  12. /aid/* route handler with full protocol flow
+  13. X-AID-NEW zero-auth onboarding on /aid/* routes
   14. Direct receiveWithAuthorization settlement (no facilitator)
   15. Mutual authentication (server signs responses)
   16. Portable atomic receipts with dual signatures
@@ -2194,12 +2196,12 @@ MONTH 7+ (Phase 4-5):
 | Private key exposure | privateKeySeed returned in HTTP response | HTTPS required. Seed shown once, never stored server-side. Response includes explicit warning. Client must persist the seed. |
 | Stale trust data | Cross-platform verification uses outdated score | AID documents have `issuance.expiresAt` (90 days). Verifiers check expiry. Trust snapshots are timestamped. |
 | Gas griefing | Attacker triggers many deferred settlements | Per-agent batch limits. Minimum settlement amount (0.01 USDC). Server batches settlements, not one tx per receipt. |
-| Evaluator collusion (ERC-8183 equivalent) | In x204, the "evaluator" is the receipt system | Receipts are dual-signed (payer + provider). Either party can dispute. Merkle anchoring makes tampering detectable. |
+| Evaluator collusion (ERC-8183 equivalent) | In AID, the "evaluator" is the receipt system | Receipts are dual-signed (payer + provider). Either party can dispute. Merkle anchoring makes tampering detectable. |
 
 ### 20.2 Required Security Properties
 
 ```
-1. HTTPS REQUIRED — all x204 endpoints MUST be served over TLS
+1. HTTPS REQUIRED — all AID endpoints MUST be served over TLS
 2. TIMESTAMP VALIDATION — X-AID-PROOF must include current timestamp (±5 min)
 3. BODY BINDING — Ed25519 signature covers SHA-256 of request body
 4. NONCE TRACKING — Receipt IDs are unique; duplicate submissions rejected
@@ -2218,8 +2220,8 @@ MONTH 7+ (Phase 4-5):
 | Revenue Source | Fee | Phase |
 |----------------|-----|-------|
 | AID registration (via /v1/aid/register with API key) | 1 credit ($0.001) | Existing |
-| AID provisioning (via X-AID-NEW on x204 path) | FREE ($0) | 1 |
-| x204 transaction fee | 2 credits per orchestrated query | 1 |
+| AID provisioning (via X-AID-NEW on AID path) | FREE ($0) | 1 |
+| AID transaction fee | 2 credits per orchestrated query | 1 |
 | Cross-platform attestation | 0.1 credits (or USDC equivalent) | 1 |
 | AID export | 0.5 credits (or USDC equivalent) | 1 |
 | Key rotation | 0.5 credits (or USDC equivalent) | 1 |
@@ -2227,7 +2229,7 @@ MONTH 7+ (Phase 4-5):
 | Bonding curve fees | 5% of stake/unstake volume | 4 |
 
 Note: Two AID registration paths. Existing credit-based path (POST /v1/aid/register)
-charges 1 credit. x204 path (X-AID-NEW header) is free — the agent pays per execution
+charges 1 credit. AID path (X-AID-NEW header) is free — the agent pays per execution
 instead. Both create the same AID record.
 
 ### 21.2 Trust-Gated Discount Sustainability
@@ -2279,14 +2281,14 @@ Base L2 gas costs (March 2026, verified against BaseScan):
 
 Gas costs are low but not negligible at scale. Batched settlement is 40x cheaper per tx.
 
-**x204 vs x402 facilitator cost comparison (verified — Coinbase charges $0.001/tx
+**AID vs x402 facilitator cost comparison (verified — Coinbase charges $0.001/tx
 since January 2026, after 1,000 free tx/month):**
 ```
-At 10K tx/month:  x402 = $9/mo (1K free + 9K × $0.001)  |  x204 batched = $7/mo
-At 50K tx/month:  x402 = $49/mo                          |  x204 batched = $36/mo
-At 100K tx/month: x402 = $99/mo                          |  x204 batched = $72/mo
+At 10K tx/month:  x402 = $9/mo (1K free + 9K × $0.001)  |  AID batched = $7/mo
+At 50K tx/month:  x402 = $49/mo                          |  AID batched = $36/mo
+At 100K tx/month: x402 = $99/mo                          |  AID batched = $72/mo
 ```
-x204 is cheaper at every volume level when batched settlement is used.
+AID is cheaper at every volume level when batched settlement is used.
 
 ---
 
@@ -2301,8 +2303,8 @@ AID is an OPTIONAL enhancement. Migration is progressive:
 Existing flow (no change):
   X-API-Key: cn-xxxxx → checkApiKey middleware → route handler
 
-x204 flow (new, parallel):
-  X-AID-DID + X-AID-PROOF → x204 middleware → same route handler
+AID flow (new, parallel):
+  X-AID-DID + X-AID-PROOF → AID middleware → same route handler
 
 Hybrid flow (bridge):
   X-API-Key: cn-xxxxx + X-AID-DID → both verified, AID enriches the request
@@ -2315,7 +2317,7 @@ Hybrid flow (bridge):
    (links AID to their existing api_key_hash)
 2. Their attestation history feeds into AID trust score immediately
 3. Their existing credits, skills, and marketplace data are unchanged
-4. x204 routes accept both API keys and AID DIDs
+4. AID routes accept both API keys and AID DIDs
 ```
 
 ### 22.3 Existing x402 Routes Gain AID
@@ -2325,7 +2327,7 @@ Phase 1: Add optional X-AID-* headers to existing x402 routes
   - If present: verify AID, apply trust-gated pricing, enhanced receipts
   - If absent: existing x402 flow unchanged (facilitator-based)
 
-Phase 2: New /x204/* routes with full protocol
+Phase 2: New /aid/* routes with full protocol
   - Run alongside existing /x402/* routes
   - Same skills, same data, different payment/identity flow
 ```
@@ -2365,7 +2367,7 @@ No breaking changes. No forced migration. Progressive enhancement.
 
 | Component | Dependencies | Effort |
 |-----------|-------------|--------|
-| x204 middleware (Hono) | `aid-verifier.ts`, `checkApiKey` | 2-3 days |
+| AID middleware (Hono) | `aid-verifier.ts`, `checkApiKey` | 2-3 days |
 | Trust-gated pricing logic | `computeTrustScoreWithProof()` | 1-2 days |
 | Feedback endpoint + DB table | `src/db/connection.ts` (new migration) | 2-3 days |
 | Feedback weighting logic | Attestation stats queries | 1-2 days |
@@ -2425,7 +2427,7 @@ These are intentionally deferred to implementation time, not plan-level gaps:
 | Base USDC contract address | Phase 2 config | `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913` (verified) |
 | DID → billingKey mapping | Phase 1 middleware | Use `owner_key` from `aid_keys` table (already = api_key_hash) |
 | Batch settlement cron | Phase 2 | Add to existing `payout-cron.ts` pattern (runs every 1h for batched, daily for deferred) |
-| x204 error codes | Phase 1 | `X204_PAYMENT_REQUIRED`, `X204_AID_INVALID`, `X204_TRUST_GATE_BLOCKED`, `X204_SETTLEMENT_FAILED` |
+| AID error codes | Phase 1 | `AID_PAYMENT_REQUIRED`, `AID_AID_INVALID`, `AID_TRUST_GATE_BLOCKED`, `AID_SETTLEMENT_FAILED` |
 | `avoid` flag operations | Phase 1 | Extend existing `DELISTED` security_status pattern on skills to agents |
 | Permit revocation monitoring | Phase 2 | Check allowance via `eth_call` before each batch settlement (free RPC call) |
 | Heartbeat `building` tier | Phase 1 | Combined with `new` in heartbeat tiers (identical pricing, add comment) |
@@ -2474,10 +2476,10 @@ This plan is ready to build. Every section has been:
 - **Tested:** All core crypto primitives already have working code in production (20/20 verified)
 
 **What to build first (this week — updated post-audit):**
-1. Submit x204 trust scoring as MCP-I/DIF TAAWG extension (30-day window closing)
-2. Register @x204 npm org + x204-trust PyPI + typosquats (Day 1)
-3. Ship @x204/mcp-trust alpha to npm (200 lines, sig verify only, Days 1-3)
-4. Publish x204 protocol spec as standalone 10-page document (Days 3-5)
+1. Submit AID trust scoring as MCP-I/DIF TAAWG extension (30-day window closing)
+2. Register @AID npm org + aid-trust PyPI + typosquats (Day 1)
+3. Ship @aidprotocol/mcp-trust alpha to npm (200 lines, sig verify only, Days 1-3)
+4. Publish AID protocol spec as standalone 10-page document (Days 3-5)
 5. Register ClawNet on ERC-8004 Identity Registry (Day 5, ~$1)
 6. Build interactive playground (show, don't tell — the sales pitch for DIF)
 
@@ -2501,10 +2503,10 @@ Every attack below is documented from real incidents, not theoretical.
 off-chain signatures. The signature is invisible on-chain. Attacker calls `permit()` then
 `transferFrom()` and sweeps the entire approved balance.
 
-**x204 exposure:** Batched/deferred settlement uses EIP-2612 permits. If an agent's
+**AID exposure:** Batched/deferred settlement uses EIP-2612 permits. If an agent's
 private key is compromised, the attacker can sign permits draining the wallet.
 
-**Mitigations built into x204:**
+**Mitigations built into AID:**
 ```
 1. MINIMUM NECESSARY ALLOWANCE — never request unlimited permits.
    Batched: daily cap = min(trustScore * 0.5, 50) USDC
@@ -2529,7 +2531,7 @@ private key is compromised, the attacker can sign permits draining the wallet.
 **Real scale:** LayerZero flagged 803K sybil addresses (13% of eligible).
 In some airdrops, sybils captured 50% of distributed tokens.
 
-**x204 exposure:** A skill creator creates 50 wallets, registers 50 AIDs,
+**AID exposure:** A skill creator creates 50 wallets, registers 50 AIDs,
 and leaves positive feedback on their own skill to inflate trust score.
 
 **Mitigations (layered defense):**
@@ -2557,7 +2559,7 @@ and leaves positive feedback on their own skill to inflate trust score.
 **Real scale:** Bust-out fraud increased 26% over 24 months. $3.3B in credit
 exposed to suspected synthetic identities (TransUnion H1 2025).
 
-**The attack pattern on x204:**
+**The attack pattern on AID:**
 1. Register AID, start with base price (no penalty — fixed in cold start update)
 2. Make 100 small legitimate transactions ($0.001 each = $0.10 total)
 3. Build trust score to 80+ → unlock deferred settlement with $40 credit
@@ -2596,7 +2598,7 @@ exposed to suspected synthetic identities (TransUnion H1 2025).
 **Real scale:** 37% of all internet traffic is malicious bots (2024).
 One AI SaaS saw 3,500+ malicious registrations in two weeks.
 
-**The attack on x204:** Bot farm creates thousands of AIDs via X-AID-NEW for
+**The attack on AID:** Bot farm creates thousands of AIDs via X-AID-NEW for
 Sybil feedback farming or identity squatting.
 
 **Mitigations:**
@@ -2623,7 +2625,7 @@ Sybil feedback farming or identity squatting.
 **Real scale:** $2.57B in suspected wash trading across Ethereum, BNB, Base (2024).
 One operator generated $142M in wash volume in a single month.
 
-**The attack on x204:** When bonding curve staking launches, an attacker buys and sells
+**The attack on AID:** When bonding curve staking launches, an attacker buys and sells
 their own agent's trust stakes to inflate the MARKET trust signal.
 
 **Mitigations (for Phase 4 implementation):**
@@ -2660,16 +2662,16 @@ https://claw-net.org/playground
 - Click "Run" → see real response in <2 seconds
 - After 3 free queries: "Want more? One click to get your AID."
 
-This is the x204 equivalent of Stripe's "7 lines of code."
+This is the AID equivalent of Stripe's "7 lines of code."
 The developer feels value BEFORE any commitment.
 ```
 
 ### 27.2 The "3 Lines of Code" Moment
 
 ```typescript
-import { x204 } from '@clawnet/sdk';
+import { AID } from '@clawnet/sdk';
 
-const agent = await x204.connect(); // auto-provisions AID if new
+const agent = await AID.connect(); // auto-provisions AID if new
 const data = await agent.query('sol-price', { token: 'SOL' });
 console.log(data.price); // 145.20
 ```
@@ -2679,7 +2681,7 @@ No wallet setup, no key management, no facilitator.
 
 **For agents that already have a wallet:**
 ```typescript
-const agent = await x204.connect({ wallet: myEvmWallet });
+const agent = await AID.connect({ wallet: myEvmWallet });
 const data = await agent.query('sol-price', { token: 'SOL' });
 // Paid via receiveWithAuthorization, trust score applied automatically
 ```
@@ -2689,8 +2691,8 @@ const data = await agent.query('sol-price', { token: 'SOL' });
 MCP grew from 100K to 8M downloads because each builder had a SELFISH reason
 to adopt: one MCP server = instant distribution across Claude, ChatGPT, Cursor.
 
-**x204's equivalent:** Every skill published on ClawNet is AUTOMATICALLY:
-- Discoverable via x204 heartbeat (all agents see it)
+**AID's equivalent:** Every skill published on ClawNet is AUTOMATICALLY:
+- Discoverable via AID heartbeat (all agents see it)
 - Listed in ERC-8004 registry (if opted in)
 - Available via MCP (existing MCP server)
 - Queryable via A2A protocol
@@ -2703,7 +2705,7 @@ immediately, not just the ecosystem.
 Railway gave unlimited free tier → got destroyed by crypto miners and torrent bots.
 Now: $5 one-time trial credit, 30-day expiry, requires GitHub or credit card.
 
-**x204 model (pure pay-per-use, like x402):**
+**AID model (pure pay-per-use, like x402):**
 ```
 No AID:          Pay via x402 headers at base price (zero signup)
 X-AID-NEW:       Free identity provisioning (pay per use for execution)
@@ -2717,7 +2719,7 @@ Conversion happens naturally: agents who find value pay for more. No free tier n
 ### 27.5 SDK Auto-Discovery via MCP + A2A
 
 When an agent uses ClawNet's MCP server or A2A endpoint, it automatically discovers:
-- Available skills with x204 pricing tiers
+- Available skills with AID pricing tiers
 - Its own trust score and current pricing tier
 - Feedback pending from previous transactions
 - Provider trust scores for services it's considering
@@ -2823,14 +2825,14 @@ RIGHT: Compute Merkle tree of all scores off-chain, write single root
 
 ---
 
-## 30. MANIFEST → ATTESTATION → x204 DATA FLOW (Verified Against Code)
+## 30. MANIFEST → ATTESTATION → AID DATA FLOW (Verified Against Code)
 
-### 30.1 Does Changing Manifest/Attestation Automatically Flow to x204?
+### 30.1 Does Changing Manifest/Attestation Automatically Flow to AID?
 
 **YES — fully automatic with the three-layer model.** Here's the implemented data flow:
 
 ```
-MANIFEST             EXECUTION PROOF          ATTESTATION              AID / x204
+MANIFEST             EXECUTION PROOF          ATTESTATION              AID / AID
 (pre-execution)      (during execution)       (post-execution)         (trust layer)
      │                     │                       │                        │
      │  manifest_memory    │  executionSteps[]     │                        │
@@ -2852,14 +2854,14 @@ MANIFEST             EXECUTION PROOF          ATTESTATION              AID / x20
      │                           │         │  deriveCapabilities │
      │                           │         │  maps action_type ─►│ Capabilities
      │                           │                              │
-     │                           │                              │ x204 Headers:
+     │                           │                              │ AID Headers:
      │                           │                              │ X-AID-TRUST-SCORE
      │                           │                              │ X-AID-RECEIPT
 ```
 
 ### 30.2 What Flows AUTOMATICALLY
 
-| If you change... | Effect on x204 | Automatic? |
+| If you change... | Effect on AID | Automatic? |
 |-----------------|----------------|------------|
 | Add new attestation fields | No effect — aid-builder queries aggregates (stats table) | Yes ✓ |
 | Change attestation success/failure logic | `attestation_stats.success_count` updates → trust score changes | Yes ✓ |
@@ -2921,7 +2923,7 @@ The execution proof (Layer 2) provides the evidence that links manifest to outco
 
 ## 31. FRICTION AUDIT: THE COMPLETE USER JOURNEY
 
-### 31.1 Two Paths to x204 (Credit vs USDC)
+### 31.1 Two Paths to AID (Credit vs USDC)
 
 The plan describes both credit-based and USDC-based payment but doesn't clearly
 state which is the PRIMARY path. Clarification:
@@ -2936,14 +2938,14 @@ PATH A: CREDITS (low friction, no blockchain needed)
   Who uses this: Developers, human-managed agents, testing
 
 PATH B: USDC PAY-PER-USE (sovereign, no account needed — like x402 but better)
-  Step 1: GET /x204/heartbeat → discover services + pricing (FREE)
-  Step 2: POST /x204/skills/sol-price with PAYMENT-SIGNATURE → pay + execute
+  Step 1: GET /aid/heartbeat → discover services + pricing (FREE)
+  Step 2: POST /aid/skills/sol-price with PAYMENT-SIGNATURE → pay + execute
   Optional: Add X-AID-NEW to auto-provision identity for trust-gated pricing
   Friction: Need USDC on Base — same as x402 (agents already have wallets)
   Who uses this: Autonomous agents, crypto-native developers, x402 users
 
 PATH C: FREE DISCOVERY (no payment, no identity)
-  Step 1: GET /x204/heartbeat → see all services, prices, trust scores (FREE)
+  Step 1: GET /aid/heartbeat → see all services, prices, trust scores (FREE)
   Step 2: GET /v1/skills → browse marketplace (FREE)
   Step 3: POST /v1/aid/verify → verify any AID document (FREE)
   Done. Developer evaluates the ecosystem without spending anything.
@@ -2953,7 +2955,7 @@ PATH C: FREE DISCOVERY (no payment, no identity)
 
 **Phase 1 uses PATH A** (credits + AID headers on existing x402 routes).
 **Phase 1 also adds PATH C** (free reads: heartbeat, discover, verify).
-**Phase 2 adds PATH B** (direct USDC pay-per-use via `/x204/*` routes).
+**Phase 2 adds PATH B** (direct USDC pay-per-use via `/aid/*` routes).
 All paths: pure pay-per-use for execution. No trial credits. No free tier.
 
 ### 31.2 Remaining Friction Points (and fixes)
@@ -2964,7 +2966,7 @@ All paths: pure pay-per-use for execution. No trial credits. No free tier.
 | Buy credits | Stripe checkout (credit card form) | Already exists, no change needed | Existing |
 | Get USDC on Base | Must buy on exchange + bridge | Add fiat on-ramp link in docs (MoonPay, Coinbase) | 2 |
 | Sign EIP-2612 permit | Agent must understand EIP-2612 | SDK handles this: `agent.authorize(dailyLimit)` | 2 |
-| Manage two keys | Ed25519 + secp256k1 | SDK generates and stores both: `x204.connect()` | 2 |
+| Manage two keys | Ed25519 + secp256k1 | SDK generates and stores both: `AID.connect()` | 2 |
 | Understand trust tiers | New concept | Heartbeat shows your tier + pricing automatically | 1 |
 | Submit feedback | Extra step after transaction | Auto-prompt in SDK: `agent.feedback(receiptId, 'success')` | 1 |
 
@@ -2975,23 +2977,23 @@ CURRENT CLAWNET:
   Onboard → Stripe → Get key → Read docs → First API call
   Time to value: ~15 minutes
 
-x204 PATH C (free discovery):
-  curl https://api.claw-net.org/x204/heartbeat
+AID PATH C (free discovery):
+  curl https://api.claw-net.org/aid/heartbeat
   Time to value: ~1 second (see all services + prices, free)
 
-x204 PATH B (first paid call):
-  curl -H "PAYMENT-SIGNATURE: <sig>" -d '{"token":"SOL"}' https://api.claw-net.org/x204/skills/sol-price
+AID PATH B (first paid call):
+  curl -H "PAYMENT-SIGNATURE: <sig>" -d '{"token":"SOL"}' https://api.claw-net.org/aid/skills/sol-price
   Time to value: ~3 seconds (same as x402, but no facilitator needed)
 
-x204 SDK:
+AID SDK:
   npm install @clawnet/sdk && node -e "
-    const { x204 } = require('@clawnet/sdk');
-    x204.connect().then(a => a.query('sol-price', {token:'SOL'}).then(console.log));
+    const { AID } = require('@clawnet/sdk');
+    AID.connect().then(a => a.query('sol-price', {token:'SOL'}).then(console.log));
   "
   Time to value: ~30 seconds (including npm install)
 
 BENCHMARK: Stripe's "7 lines of code" = ~2 minutes to first payment.
-x204's "1 curl command" = ~3 seconds to first result.
+AID's "1 curl command" = ~3 seconds to first result.
 ```
 
 ---
@@ -3002,7 +3004,7 @@ x204's "1 curl command" = ~3 seconds to first result.
 
 **Receipt Forgery:**
 ```
-Attack: Attacker crafts a fake x204 receipt claiming high trust score / many transactions
+Attack: Attacker crafts a fake AID receipt claiming high trust score / many transactions
         to present to a third-party platform as proof of track record.
 
 Defense: Receipts include platformCountersignature (Ed25519 from ClawNet's platform key).
@@ -3101,13 +3103,13 @@ have multi-layered defenses. No single mitigation is relied upon alone.
 
 ### 33.1 Money Transmitter Risk (Creator Payouts)
 
-**STATUS: HIGH RISK — exists TODAY, independent of x204.**
+**STATUS: HIGH RISK — exists TODAY, independent of AID.**
 
 When ClawNet collects USDC from an agent, keeps 15%, and pays 85% to a skill creator,
 the payout leg is money transmission under FinCEN guidance (FIN-2019-G001).
 
-This is NOT new with x204 — ClawNet's existing payout-cron.ts already does this.
-x204 doesn't change the risk; it just increases volume.
+This is NOT new with AID — ClawNet's existing payout-cron.ts already does this.
+AID doesn't change the risk; it just increases volume.
 
 **Options (discuss with legal counsel):**
 ```
@@ -3149,7 +3151,7 @@ Do not add financial returns to stakers without SEC registration or legal counse
 
 ### 33.3 GDPR Right to Erasure (Solvable)
 
-Current x204 design (SQLite + Merkle anchoring) IS GDPR-compatible using the
+Current AID design (SQLite + Merkle anchoring) IS GDPR-compatible using the
 French CNIL approach: delete off-chain data, on-chain Merkle root becomes an
 orphaned hash that cannot be de-referenced back to a person.
 
@@ -3162,15 +3164,15 @@ DELETE /v1/aid/:did — full identity erasure:
   4. Delete from aid_capabilities WHERE identity_id = ?
   5. Insert into aid_tombstones (did, erased_at) — prevents re-creation
   6. On-chain Merkle roots remain but are unresolvable (orphaned hashes)
-  7. Return 204 No Content (fitting for x204)
+  7. Return 204 No Content (fitting for AID)
 
 Do NOT store unencrypted receipts on IPFS — content-addressed data cannot
 be reliably deleted from the IPFS network.
 ```
 
-### 33.4 EU AI Act Compliance (Separate from x204)
+### 33.4 EU AI Act Compliance (Separate from AID)
 
-x204's AID is machine-to-machine identity. The EU AI Act (Art. 50) requires
+AID's AID is machine-to-machine identity. The EU AI Act (Art. 50) requires
 agent-to-HUMAN disclosure ("you are interacting with an AI"). These are
 separate concerns — AID does not satisfy the EU AI Act's human-facing
 transparency requirements. ClawNet agents interacting with humans (e.g.,
@@ -3183,7 +3185,7 @@ Telegram bot) need a separate disclosure layer regardless of AID.
 ### 34.1 OpenAPI Auto-Import (Zero-Effort Onboarding)
 
 **The killer adoption feature.** Speakeasy does this for SDKs. Nobody does it for
-agent identity + trust. x204 should:
+agent identity + trust. AID should:
 
 ```
 POST /v1/skills/import-openapi
@@ -3195,15 +3197,15 @@ Server:
   3. Estimates pricing based on complexity (simple GET = 1cr, complex POST = 5cr)
   4. Creates AID for the API provider (if not exists)
   5. Registers skills in marketplace with auto-generated manifest
-  6. Returns: AID DID + skill IDs + x204 heartbeat URL
+  6. Returns: AID DID + skill IDs + AID heartbeat URL
 
 Result: An existing API becomes a discoverable, trust-scored, payable
-x204 skill in ONE HTTP call. No code changes to the original API.
+AID skill in ONE HTTP call. No code changes to the original API.
 ```
 
 This is the "Stripe moment" for agent commerce:
 - Stripe: "Accept payments in 7 lines of code"
-- x204: "Make your API agent-ready in one curl command"
+- AID: "Make your API agent-ready in one curl command"
 
 ### 34.2 Agent-to-Agent Referral Commissions (Nobody Has This)
 
@@ -3235,7 +3237,7 @@ Anti-abuse:
 ```html
 <!-- One line to embed -->
 <img src="https://api.claw-net.org/badge/did:clawnet:zABC..."
-     alt="x204 Trust Score: 94" />
+     alt="AID Trust Score: 94" />
 
 <!-- Or as a link with hover card -->
 <a href="https://claw-net.org/agent/did:clawnet:zABC...">
@@ -3246,7 +3248,7 @@ Anti-abuse:
 Badge shows: trust verdict (proceed/standard/caution), verification tier icon,
 last updated timestamp. Clicking through shows full trust profile.
 
-Phala has a TEE-only version for ERC-8004. x204's would be universal.
+Phala has a TEE-only version for ERC-8004. AID's would be universal.
 Every agent displaying this badge is free advertising for the protocol.
 
 ### 34.4 Trust-Change Webhooks (Nobody Pushes These)
@@ -3279,9 +3281,9 @@ No new infrastructure needed — extends the existing webhook system.
 }
 ```
 
-When other platforms see an x204 AID, they can cross-reference the ERC-8004 registry,
+When other platforms see an AID AID, they can cross-reference the ERC-8004 registry,
 resolve the ENS name, or verify the GitHub identity. This is what the DIF
-Trusted AI Agents Working Group is pushing toward — x204 ships it first.
+Trusted AI Agents Working Group is pushing toward — AID ships it first.
 
 ### 34.6 Public Agent Explorer Page
 
@@ -3296,7 +3298,7 @@ Returns:
   - Search by name, DID, capability
 
 Also: site/explore.html — static page with interactive search
-Similar to 8004scan.io but for x204/ClawNet ecosystem
+Similar to 8004scan.io but for AID/ClawNet ecosystem
 ```
 
 ---
@@ -3319,15 +3321,15 @@ The plan has been through 13 rounds of checks with 25+ research agents.
 - Every ClawNet component verified against actual source code
 
 **What to do BEFORE building:**
-1. Get legal counsel on money transmitter status (existing issue, not x204-specific)
+1. Get legal counsel on money transmitter status (existing issue, not AID-specific)
 2. ~~Remove 5% revenue share from Phase 4 trust stakes~~ DONE (Section 9.1 — reputation-only)
 3. Implement DELETE /v1/aid endpoint (GDPR — add to Phase 1 build)
 
 **What to build FIRST (see Section 38.9 for final sequence):**
-1. Build @x204/mcp-trust npm package (THE PRODUCT — reaches 20,000 MCP servers)
+1. Build @aidprotocol/mcp-trust npm package (THE PRODUCT — reaches 20,000 MCP servers)
 2. Register ClawNet on ERC-8004 (Base, ~$1)
-3. Publish x204 spec as A2A trust extension
-4. Ship @x204/middleware for Express/Hono/Fastify
+3. Publish AID spec as A2A trust extension
+4. Ship @aidprotocol/middleware for Express/Hono/Fastify
 5. AID headers on ClawNet's own x402 routes
 6. Submit trust extension to MCP-I/DIF working group
 
@@ -3335,13 +3337,13 @@ The plan has been through 13 rounds of checks with 25+ research agents.
 
 ---
 
-## 36. THE VISION: WHAT COMES AFTER x204
+## 36. THE VISION: WHAT COMES AFTER AID
 
 Bitcoin's insight: you don't need a bank to transfer value. Math replaces the trusted third party.
 
-x204's insight so far: you don't need a facilitator to settle payments. Trust replaces escrow.
+AID's insight so far: you don't need a facilitator to settle payments. Trust replaces escrow.
 
-But we can go further. Here's what becomes possible once x204 has real adoption.
+But we can go further. Here's what becomes possible once AID has real adoption.
 
 ### 36.1 Zero-Knowledge Trust Proofs
 
@@ -3406,7 +3408,7 @@ Why this matters:
   - Eliminates the USDC-on-Base requirement entirely
   - Agents can transact with ZERO on-chain footprint
   - Settlement happens in batches (daily/weekly) reducing gas to near-zero
-  - Trust literally becomes money — the highest form of the x204 thesis
+  - Trust literally becomes money — the highest form of the AID thesis
 
 The economic model:
   - IOUs circulate between agents during the day (zero gas, instant)
@@ -3416,7 +3418,7 @@ The economic model:
 ```
 
 This is the "Bitcoin moment" for agent commerce. Bitcoin proved you don't need
-banks for value transfer. x204 IOUs would prove you don't need stablecoins
+banks for value transfer. AID IOUs would prove you don't need stablecoins
 for agent-to-agent commerce — trust IS the settlement layer.
 
 **Critical constraint:** IOUs only work above trust score 80+ (proceed tier).
@@ -3431,7 +3433,7 @@ consumers to the most similar provider with comparable trust scores.
 ```
 Today:    Agent A calls Provider X → Provider X is down → Agent A fails
 Tomorrow: Agent A calls Provider X → Provider X is down →
-          x204 heartbeat detects downtime →
+          AID heartbeat detects downtime →
           Trust network finds Provider Y (same category, similar trust score,
           compatible manifest) →
           Agent A is auto-rerouted to Provider Y →
@@ -3442,16 +3444,16 @@ How it works:
   - Manifests already declare capabilities
   - Trust scores already rank alternatives
   - ClawNet's composite-executor already has auto-replace (autoReplace flag)
-  - x204 just formalizes this into a protocol-level feature:
+  - AID just formalizes this into a protocol-level feature:
     X-AID-FALLBACK: did:clawnet:zALT... (server suggests fallback in heartbeat)
 ```
 
 ClawNet already has the building blocks (skill-health-cron, composite auto-replace).
-x204 makes it a PROTOCOL feature that works across platforms — not just within ClawNet.
+AID makes it a PROTOCOL feature that works across platforms — not just within ClawNet.
 
 ### 36.5 Cross-Protocol Trust Import (Instant Trust Bootstrap)
 
-**The idea:** An agent with strong trust on another platform can import it to x204
+**The idea:** An agent with strong trust on another platform can import it to AID
 instantly instead of starting from zero.
 
 ```
@@ -3461,7 +3463,7 @@ Tomorrow: Agent presents:
           2. Maiat trust score (API-queryable)
           3. x402 payment history (receipts with facilitator signatures)
 
-          x204 trust import engine:
+          AID trust import engine:
             - Verifies ERC-8004 reputation via The Graph subgraph
             - Queries Maiat API for trust score
             - Validates x402 receipts against facilitator public keys
@@ -3471,7 +3473,7 @@ Tomorrow: Agent presents:
 
 Why this matters:
   - Eliminates cold start for agents with cross-platform track records
-  - Makes x204 the DESTINATION protocol (import your trust, get better pricing)
+  - Makes AID the DESTINATION protocol (import your trust, get better pricing)
   - Creates a trust interoperability standard that benefits everyone
   - Agents are no longer locked to one platform — trust is truly portable
 ```
@@ -3503,7 +3505,7 @@ Why this matters:
   - Creates a self-governing economic system
 ```
 
-### 36.7 The x204 Endgame: Agents as Sovereign Economic Actors
+### 36.7 The AID Endgame: Agents as Sovereign Economic Actors
 
 ```
 Phase 1:   Agents have IDENTITY (AID) → "I know who you are"
@@ -3527,7 +3529,7 @@ ENDGAME:   Agents have SOVEREIGNTY
 ```
 
 Bitcoin removed the bank from money.
-x204 removes the platform from commerce.
+AID removes the platform from commerce.
 
 That's the endgame. Phases 1-5 are the practical path to get there.
 Sections 36.1-36.6 are what becomes possible once the foundation is built.
@@ -3536,11 +3538,11 @@ Build the foundation first. The endgame follows.
 
 ---
 
-## 38. THE BIG CHERRY: x204 AS THE UNIVERSAL TRUST LAYER
+## 38. THE BIG CHERRY: AID AS THE UNIVERSAL TRUST LAYER
 
 ### 38.1 The Paradigm Shift
 
-The original x204 positioning was: "one protocol to replace x402 + ERC-8004 + ERC-8183."
+The original AID positioning was: "one protocol to replace x402 + ERC-8004 + ERC-8183."
 
 **That positioning is wrong.** The market has moved past 3 protocols — it's now 8:
 
@@ -3561,25 +3563,25 @@ MCP won because it was ONE thing (tool access) that worked everywhere.
 A2A won because it was ONE thing (communication) that composed with MCP.
 Stripe won because it was ONE thing (payments) that worked everywhere.
 
-**x204 wins by being ONE thing: TRUST — that plugs into every protocol.**
+**AID wins by being ONE thing: TRUST — that plugs into every protocol.**
 
 ### 38.2 The Reframing
 
 ```
 OLD POSITIONING (monolith — won't get mass adoption):
-  "Use x204 instead of x402 + ERC-8004 + ERC-8183"
+  "Use AID instead of x402 + ERC-8004 + ERC-8183"
 
 NEW POSITIONING (layer — plugs into everything):
-  "Add x204 trust to ANY protocol stack"
+  "Add AID trust to ANY protocol stack"
 
-  MCP server       → npm install @x204/mcp-trust     → caller trust verification
-  A2A agent card   → x204 trust score in metadata     → trust-based routing
+  MCP server       → npm install @aidprotocol/mcp-trust     → caller trust verification
+  A2A agent card   → AID trust score in metadata     → trust-based routing
   ACP checkout     → trust-gated pricing               → better agents pay less
-  x402 payment     → x204 identity headers             → know who's paying
+  x402 payment     → AID identity headers             → know who's paying
   UCP merchant     → trust badges                      → verified agent access
-  ERC-8004         → x204 fills Validation Registry    → canonical scoring
-  AgentKit wallet  → x204 AID linked to wallet         → portable reputation
-  CrewAI/LangGraph → pip install x204-trust            → trust-scored agent hiring
+  ERC-8004         → AID fills Validation Registry    → canonical scoring
+  AgentKit wallet  → AID AID linked to wallet         → portable reputation
+  CrewAI/LangGraph → pip install aid-trust            → trust-scored agent hiring
 ```
 
 ### 38.3 The MCP Opportunity (20,000 Servers, Zero Trust)
@@ -3587,26 +3589,26 @@ NEW POSITIONING (layer — plugs into everything):
 MCP has 12,000-20,000 live servers with ZERO trust layer. MCP-I adds identity
 and delegation but NOT reputation. This is the single biggest opportunity.
 
-**@x204/mcp-trust — one-line trust integration for any MCP server:**
+**@aidprotocol/mcp-trust — one-line trust integration for any MCP server:**
 
 ```typescript
-// npm install @x204/mcp-trust
+// npm install @aidprotocol/mcp-trust
 
 import { McpServer } from '@modelcontextprotocol/sdk/server';
-import { x204Trust } from '@x204/mcp-trust';
+import { aidTrust } from '@aidprotocol/mcp-trust';
 
 const server = new McpServer({ name: 'my-data-api' });
 
 // One line. Your MCP server now has trust.
-server.use(x204Trust({
+server.use(aidTrust({
   providerDid: 'did:clawnet:zXYZ...',
   minTrustScore: 40
 }));
 
 // Caller's trust score is available in every tool handler:
 server.tool('get-data', async (params, context) => {
-  console.log(context.x204.callerTrust); // 87
-  console.log(context.x204.callerDid);   // did:clawnet:zABC...
+  console.log(context.AID.callerTrust); // 87
+  console.log(context.AID.callerDid);   // did:clawnet:zABC...
   // ... serve data
 });
 ```
@@ -3615,7 +3617,7 @@ server.tool('get-data', async (params, context) => {
 ```json
 {
   "tools": ["get-data", "search", "analyze"],
-  "x204": {
+  "AID": {
     "providerDid": "did:clawnet:zXYZ...",
     "providerTrust": 94,
     "trustGate": 40,
@@ -3630,13 +3632,13 @@ server.tool('get-data', async (params, context) => {
 
 **Why this is the "Stripe moment":**
 - Stripe won by being the easiest payment integration, not a payment protocol
-- x204 wins by being the easiest trust integration, not a trust protocol
-- 20,000 MCP servers with zero trust → `npm install @x204/mcp-trust` → done
+- AID wins by being the easiest trust integration, not a trust protocol
+- 20,000 MCP servers with zero trust → `npm install @aidprotocol/mcp-trust` → done
 
 ### 38.4 The A2A Agent Card Extension
 
 A2A v1.0 (just shipped, Linux Foundation/AAIF) supports extensible agent cards
-with signed metadata. x204 trust becomes a standard metadata field:
+with signed metadata. AID trust becomes a standard metadata field:
 
 ```json
 {
@@ -3645,14 +3647,14 @@ with signed metadata. x204 trust becomes a standard metadata field:
   "skills": [{ "name": "get-price", "inputModes": ["application/json"] }],
   "securitySchemes": { "apiKey": { "type": "apiKey" } },
   "extensions": {
-    "x204Trust": {
+    "aidTrust": {
       "did": "did:clawnet:zABC...",
       "trustScore": 87,
       "trustVerdict": "proceed",
       "verified": true,
       "attestationCount": 1247,
       "merkleRoot": "sha256:9c4d...",
-      "heartbeatUrl": "https://api.claw-net.org/x204/heartbeat"
+      "heartbeatUrl": "https://api.claw-net.org/aid/heartbeat"
     }
   }
 }
@@ -3660,7 +3662,7 @@ with signed metadata. x204 trust becomes a standard metadata field:
 
 When A2A agents discover providers, they see trust scores inline.
 When they route tasks, they pick the most trusted provider.
-x204 becomes the trust signal for A2A routing decisions.
+AID becomes the trust signal for A2A routing decisions.
 
 ### 38.5 Decouple Trust From Payment Rail
 
@@ -3668,11 +3670,11 @@ x204 becomes the trust signal for A2A routing decisions.
 modes (immediate/batched/deferred). But trust should work with ANY payment:
 
 ```
-Agent paying via Stripe ACP    → has x204 trust score → gets trust-gated pricing
-Agent paying via x402 USDC     → has x204 trust score → gets trust-gated pricing
-Agent paying via Google Pay    → has x204 trust score → gets trust-gated pricing
-Agent paying via ClawNet credits → has x204 trust score → gets trust-gated pricing
-Agent on a free MCP server     → has x204 trust score → gets priority access
+Agent paying via Stripe ACP    → has AID trust score → gets trust-gated pricing
+Agent paying via x402 USDC     → has AID trust score → gets trust-gated pricing
+Agent paying via Google Pay    → has AID trust score → gets trust-gated pricing
+Agent paying via ClawNet credits → has AID trust score → gets trust-gated pricing
+Agent on a free MCP server     → has AID trust score → gets priority access
 
 The trust is about the AGENT, not the payment rail.
 ```
@@ -3686,18 +3688,18 @@ only applies when paying in USDC (where the server handles settlement timing).
 
 Agent frameworks have millions of downloads and zero trust plugins:
 
-| Framework | Downloads | Trust Plugin | x204 Opportunity |
+| Framework | Downloads | Trust Plugin | AID Opportunity |
 |-----------|----------|-------------|-----------------|
-| CrewAI | 1.8M monthly | None | `pip install x204-trust` → trust-scored agent hiring |
-| LangGraph | 80K+ stars | None | `@x204/langgraph` → trust gates on tool calls |
-| ElizaOS | 15K stars | None | x204 plugin → trust for Web3 agents |
-| AutoGen | Major | None | `x204-autogen` → trust in multi-agent orchestration |
+| CrewAI | 1.8M monthly | None | `pip install aid-trust` → trust-scored agent hiring |
+| LangGraph | 80K+ stars | None | `@aidprotocol/langgraph` → trust gates on tool calls |
+| ElizaOS | 15K stars | None | AID plugin → trust for Web3 agents |
+| AutoGen | Major | None | `aid-autogen` → trust in multi-agent orchestration |
 | Coinbase AgentKit | Growing | Has wallet, no trust | Link AID to AgentKit wallet |
 
 ```python
 # CrewAI example — trust-scored agent hiring
 from crewai import Agent, Crew
-from x204_trust import TrustFilter
+from aid_trust import TrustFilter
 
 # Only hire agents with trust score 60+ for research tasks
 researcher = Agent(
@@ -3709,7 +3711,7 @@ researcher = Agent(
 
 ### 38.7 Solana Settlement (Phase 2 Addition)
 
-x204's Ed25519 identity is already chain-agnostic. Add Solana as a settlement option:
+AID's Ed25519 identity is already chain-agnostic. Add Solana as a settlement option:
 
 ```
 BASE (existing):    receiveWithAuthorization (EIP-3009, USDC on Base)
@@ -3719,25 +3721,25 @@ SOLANA (Phase 2):   SPL USDC transfer (Solana Agent Kit compatible)
 ```
 
 On Solana, the Ed25519 AID key can ALSO be the payment key — no dual-key requirement.
-This makes x204 the only protocol with single-key identity + payment on Solana.
+This makes AID the only protocol with single-key identity + payment on Solana.
 
 ### 38.8 Submit to MCP-I / DIF Working Group
 
 MCP-I (at DIF's Trusted AI Agents Working Group) handles identity and delegation
-for MCP. It does NOT handle reputation or trust scoring. x204 is the missing piece.
+for MCP. It does NOT handle reputation or trust scoring. AID is the missing piece.
 
 ```
 MCP-I covers:  "This agent is authorized by this human with these permissions"
-x204 adds:     "This agent has trust score 87 based on 1,247 verified transactions"
+AID adds:     "This agent has trust score 87 based on 1,247 verified transactions"
 
 Together:      "This agent is authorized AND trustworthy"
 ```
 
-Submitting x204's trust scoring as an MCP-I extension would:
-- Put x204 into the official MCP/AAIF ecosystem
+Submitting AID's trust scoring as an MCP-I extension would:
+- Put AID into the official MCP/AAIF ecosystem
 - Give it legitimacy alongside Anthropic, OpenAI, Google, Block
 - Make trust scoring a standard part of MCP identity
-- Get x204 into the DIF spec alongside W3C DIDs and VCs
+- Get AID into the DIF spec alongside W3C DIDs and VCs
 
 ### 38.9 MASTER BUILD SEQUENCE (Final Canonical — All Adoptions Consolidated)
 
@@ -3749,34 +3751,34 @@ RecallNet (40.2), Freysa (40.2), ClawstrAI (40.2), competitive urgency (40.3).
 ━━━ PHASE 1: SHIP THE TRUST LAYER (Weeks 1-4, $0 infra cost) ━━━
 
 WEEK 1:
-  □ Build @x204/mcp-trust npm package                    ← THE PRODUCT
+  □ Build @aidprotocol/mcp-trust npm package                    ← THE PRODUCT
   □ Register ClawNet on ERC-8004 Identity Registry (Base, ~$1)
-  □ Publish x204 spec document as A2A trust extension
-  □ Register @x204 npm org + x204-trust PyPI (reserve names + typosquats)
+  □ Publish AID spec document as A2A trust extension
+  □ Register @AID npm org + aid-trust PyPI (reserve names + typosquats)
 
 WEEK 2:
-  □ Ship @x204/middleware for Hono (ClawNet uses Hono)
+  □ Ship @aidprotocol/middleware for Hono (ClawNet uses Hono)
   □ AID headers on ClawNet's x402 routes (X-AID-DID, X-AID-PROOF, X-AID-NONCE)
   □ Provider DID in x402 responses (X-AID-PROVIDER-DID, X-AID-PROVIDER-PROOF)
   □ Fork x402 facilitator → host fee-free at facilitator.claw-net.org (from AWE)
 
 WEEK 3:
   □ Trust-gated pricing logic (6 tiers, checkPolicy integration)
-  □ Feedback endpoint (POST /x204/feedback) with weighted reputation
-  □ Heartbeat endpoint (GET /x204/heartbeat)
+  □ Feedback endpoint (POST /aid/feedback) with weighted reputation
+  □ Heartbeat endpoint (GET /aid/heartbeat)
   □ "Try it" button on skill pages — one-click execution (from AWE)
 
 WEEK 4:
   □ DELETE /v1/aid/:did endpoint (GDPR)
   □ Submit trust extension to MCP-I/DIF working group
-  □ Ship @x204/middleware for Express/Fastify (broaden reach)
-  □ Publish /.well-known/x204-platform-key (for A2A trust verification)
+  □ Ship @aidprotocol/middleware for Express/Fastify (broaden reach)
+  □ Publish /.well-known/aid-platform-key (for A2A trust verification)
 
 ━━━ PHASE 2: ECOSYSTEM REACH (Months 2-3) ━━━
 
-  □ Ship x204-trust Python package (CrewAI/LangGraph plugins)
-  □ /x204/* route handler with full protocol flow
-  □ X-AID-NEW zero-auth onboarding on /x204/* routes
+  □ Ship aid-trust Python package (CrewAI/LangGraph plugins)
+  □ /aid/* route handler with full protocol flow
+  □ X-AID-NEW zero-auth onboarding on /aid/* routes
   □ Direct receiveWithAuthorization settlement (no facilitator)
   □ Mutual authentication (server signs responses)
   □ Portable atomic receipts with dual signatures + Merkle anchoring
@@ -3784,7 +3786,7 @@ WEEK 4:
   □ ERC-8004 reputation bridge (publish trust scores on-chain)
   □ A2A agent card extension (trust scores in discovery)
   □ Solana SPL USDC settlement option (Ed25519 single-key)
-  □ ElizaOS plugin for x204 trust
+  □ ElizaOS plugin for AID trust
 
 ━━━ PHASE 3: INTELLIGENCE (Months 4-6) ━━━
 
@@ -3809,9 +3811,9 @@ WEEK 4:
 
 ━━━ PHASE 5: SOVEREIGNTY (Months 10+) ━━━
 
-  □ x204 SDK (TypeScript) — @clawnet/x204
-  □ x204 SDK (Python)
-  □ x204 spec publication to standards bodies
+  □ AID SDK (TypeScript) — @clawnet/AID
+  □ AID SDK (Python)
+  □ AID spec publication to standards bodies
   □ Reference facilitator (open-source)
   □ Documentation site
   □ Testnet mode (Base Sepolia)
@@ -3835,28 +3837,28 @@ WEEK 4:
 
 ```
 Before this insight:
-  x204 = a protocol spec for ClawNet
+  AID = a protocol spec for ClawNet
   Adoption path: convince agents to use ClawNet instead of other platforms
   Ceiling: however many agents ClawNet attracts
 
 After this insight:
-  x204 = the trust layer for the entire agent economy
+  AID = the trust layer for the entire agent economy
   Adoption path: npm install / pip install into existing infrastructure
   Ceiling: every MCP server, every A2A agent, every agent framework
 
-  MCP has 20,000 servers → x204 trust on all of them
-  A2A is backed by Google/AAIF → x204 trust in every agent card
-  CrewAI has 1.8M downloads/month → x204 trust in every crew
-  ERC-8004 has 130K agents → x204 fills the validation gap
+  MCP has 20,000 servers → AID trust on all of them
+  A2A is backed by Google/AAIF → AID trust in every agent card
+  CrewAI has 1.8M downloads/month → AID trust in every crew
+  ERC-8004 has 130K agents → AID fills the validation gap
 
   ClawNet is the REFERENCE IMPLEMENTATION.
-  x204 is the STANDARD.
+  AID is the STANDARD.
 ```
 
 MCP started as Anthropic's internal tool and became the industry standard
-because anyone could implement it. x204 should follow the same path:
+because anyone could implement it. AID should follow the same path:
 start as ClawNet's trust layer, become the industry standard because
-anyone can add `@x204/mcp-trust` to their server.
+anyone can add `@aidprotocol/mcp-trust` to their server.
 
 **That is the cherry. Not a feature — a positioning shift.**
 **Not "use our protocol" — "add trust to yours."**
@@ -3870,15 +3872,15 @@ not covered by Sections 20, 26, or 32. These were found by adversarial security 
 
 ### 39.1 Middleware Must Default Fail-CLOSED
 
-**Attack:** DoS ClawNet's trust API → all third-party MCP servers using @x204/mcp-trust
+**Attack:** DoS ClawNet's trust API → all third-party MCP servers using @aidprotocol/mcp-trust
 fail open → entire ecosystem serves requests without trust verification.
 
 **Rule:**
 ```
-@x204/mcp-trust configuration:
+@aidprotocol/mcp-trust configuration:
   failMode: 'closed'  // DEFAULT — reject requests if trust cannot be verified
   fallbackTtl: 300    // Cache last-known trust for 5 min if API is unreachable
-  healthEndpoint: '/.x204/health'  // Exposes middleware status
+  healthEndpoint: '/.AID/health'  // Exposes middleware status
 
 On startup:
   1. Verify providerDid resolves against ClawNet API (one-time)
@@ -3891,9 +3893,9 @@ On startup:
 
 **Attack:** Agent publishes fake trust score in A2A card JSON ($0 to execute).
 
-**Rule:** The x204Trust extension in A2A agent cards MUST include a `trustProof`:
+**Rule:** The aidTrust extension in A2A agent cards MUST include a `trustProof`:
 ```json
-"x204Trust": {
+"aidTrust": {
   "did": "did:clawnet:zABC...",
   "trustScore": 87,
   "trustVerdict": "proceed",
@@ -3903,7 +3905,7 @@ On startup:
 }
 ```
 A2A consumers MUST verify `trustProof` against ClawNet's platform public key
-(published at `/.well-known/x204-platform-key`). Without valid proof → treat
+(published at `/.well-known/aid-platform-key`). Without valid proof → treat
 as unverified. Trust data older than 24h → stale, re-fetch from heartbeat URL.
 
 ### 39.3 Avoid-Flag Broadcast (Negative Cache Push)
@@ -3917,7 +3919,7 @@ When an agent is flagged `avoid`:
   1. Immediate: ClawNet broadcasts invalidation via WebSocket to all
      registered middleware instances
   2. Middleware instances maintain a WebSocket connection to
-     wss://api.claw-net.org/x204/invalidations
+     wss://api.claw-net.org/aid/invalidations
   3. On receiving invalidation: purge cached trust for that DID immediately
   4. Separate fast-path: avoid flags propagate within 30 seconds, not 4 hours
   5. If WebSocket is disconnected: middleware falls back to API check on every request
@@ -3926,7 +3928,7 @@ When an agent is flagged `avoid`:
 
 ### 39.4 Cross-Protocol Import Caps (Tightened)
 
-**Attack:** Farm fake ERC-8004 reputation for $5, import to x204, get 25% discount.
+**Attack:** Farm fake ERC-8004 reputation for $5, import to AID, get 25% discount.
 
 **Rule:**
 ```
@@ -3935,9 +3937,9 @@ NEW: Imported trust capped at 39 (building tier, base price, NO discount)
 
 Imported trust only proves: "this agent exists on other platforms"
 It does NOT grant discounts or deferred settlement.
-Discounts require LOCAL transaction history on x204.
+Discounts require LOCAL transaction history on AID.
 
-Additional: imported trust requires minimum 20 local x204 transactions
+Additional: imported trust requires minimum 20 local AID transactions
 before it adds to the trust score at all.
 ```
 
@@ -4040,9 +4042,9 @@ TEMPORAL CLUSTERING: If N agents all give the same provider positive
 
 **Rule (implement BEFORE publishing any packages):**
 ```
-1. Register @x204 npm org + x204-trust PyPI package NOW (reserve names)
-2. Register typosquat variants: @x204/mcp_trust, x204-mcp-trust,
-   @x204/mcptrust — publish placeholder READMEs pointing to real package
+1. Register @AID npm org + aid-trust PyPI package NOW (reserve names)
+2. Register typosquat variants: @aidprotocol/mcp_trust, aid-mcp-trust,
+   @aidprotocol/mcptrust — publish placeholder READMEs pointing to real package
 3. Enable 2FA (TOTP) on all npm/PyPI maintainer accounts
 4. Use npm provenance (SLSA Level 3) for published packages
 5. Pin all dependencies (exact versions, no ranges)
@@ -4094,11 +4096,11 @@ batched timing attack, cross-platform trust arbitrage.
 
 ---
 
-## 37. CREDITS AS INTERNAL LEDGER (x204 + Existing System Coexistence)
+## 37. CREDITS AS INTERNAL LEDGER (AID + Existing System Coexistence)
 
 ### 37.1 The Architecture: Credits Are the Accounting Unit
 
-x204 agents pay USDC. ClawNet internally tracks everything in credits.
+AID agents pay USDC. ClawNet internally tracks everything in credits.
 The agent never sees credits. The billing code never changes.
 
 ```
@@ -4123,7 +4125,7 @@ x402 (existing, unchanged):
   Facilitator verifies USDC payment → internal credit allocation → spend credits
   No code changes. Works today.
 
-x204 (PATH B — new):
+AID (PATH B — new):
   Agent signs receiveWithAuthorization → server collects USDC on Base
   → auto-convert to credits (CREDITS_PER_USD=1000)
   → spend credits via existing deductCredit()
@@ -4132,7 +4134,7 @@ x204 (PATH B — new):
 
 ### 37.3 What Stays Exactly the Same
 
-| Component | Changes for x204? |
+| Component | Changes for AID? |
 |-----------|-------------------|
 | `deductCredit(key, amount)` | None |
 | `round6()` on all billing | None |
@@ -4150,7 +4152,7 @@ x204 (PATH B — new):
 
 **One new table:**
 ```sql
-CREATE TABLE x204_settlements (
+CREATE TABLE aid_settlements (
   id TEXT PRIMARY KEY,
   did TEXT NOT NULL,                    -- agent's AID DID
   usdc_amount TEXT NOT NULL,            -- USDC paid (6 decimals)
@@ -4161,13 +4163,13 @@ CREATE TABLE x204_settlements (
   settled INTEGER NOT NULL DEFAULT 1,   -- 0 = pending (deferred), 1 = settled
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
-CREATE INDEX idx_x204_settlements_did ON x204_settlements(did, created_at DESC);
+CREATE INDEX idx_aid_settlements_did ON aid_settlements(did, created_at DESC);
 ```
 
 **One new middleware function:**
 ```typescript
-// x204 payment middleware — converts USDC to credits before existing billing
-async function x204PaymentMiddleware(c, next) {
+// AID payment middleware — converts USDC to credits before existing billing
+async function aidPaymentMiddleware(c, next) {
   const paymentSig = c.req.header('PAYMENT-SIGNATURE');
   if (!paymentSig) {
     // No payment → return 402 with pricing (same as x402)
@@ -4189,20 +4191,20 @@ async function x204PaymentMiddleware(c, next) {
 }
 ```
 
-**That's it.** One table + one middleware function bridges x204 USDC payments into
+**That's it.** One table + one middleware function bridges AID USDC payments into
 the existing credit system. All downstream billing code runs unchanged.
 
 ### 37.5 At Mass Scale
 
 ```
 Phase 1:  100% of revenue from credits (Stripe + USDC deposits)
-          x204 adds AID headers but billing is still credit-based
+          AID adds AID headers but billing is still credit-based
 
-Phase 2:  x204 USDC payments → auto-convert to credits
-          Two on-ramps (Stripe + x204), one ledger (credits)
+Phase 2:  AID USDC payments → auto-convert to credits
+          Two on-ramps (Stripe + AID), one ledger (credits)
           Agents see USDC prices, ClawNet tracks credits internally
 
-Phase 3:  If 90%+ volume is x204 USDC, the user-facing "credit" concept fades
+Phase 3:  If 90%+ volume is AID USDC, the user-facing "credit" concept fades
           API responses show prices in USDC, not credits
           But internally: credits remain the accounting unit for splits/fees/limits
           Credit rate (CREDITS_PER_USD=1000) becomes a hidden internal constant
@@ -4256,48 +4258,48 @@ Converting USDC→credits at the entry point takes 1 day and reuses everything.
 
 | Competitor | Threat | Defense | Urgency |
 |------------|--------|---------|---------|
-| Mastercard Verifiable Intent | Open-sourced March 5 — Google/IBM/Fiserv/Adyen/Worldpay backing. Currently consumer-to-agent auth but spec mentions "machine-to-machine commerce" as future scope. If they add agent reputation, directly competes with x204. | Ship @x204/mcp-trust BEFORE VI expands scope. Position x204 trust scores as INPUT to VI authorization decisions. Contribute to VI spec. Make x204 complementary, not competitive. | CRITICAL |
+| Mastercard Verifiable Intent | Open-sourced March 5 — Google/IBM/Fiserv/Adyen/Worldpay backing. Currently consumer-to-agent auth but spec mentions "machine-to-machine commerce" as future scope. If they add agent reputation, directly competes with AID. | Ship @aidprotocol/mcp-trust BEFORE VI expands scope. Position AID trust scores as INPUT to VI authorization decisions. Contribute to VI spec. Make AID complementary, not competitive. | CRITICAL |
 | AWE Network | Shipping ERC-8004+x402 unified stack NOW | Bridge to ERC-8004 + differentiate with three-layer trust lifecycle | CRITICAL |
-| Wach_AI | Direct trust scoring competitor on Base | x204 is more comprehensive (3-layer, 33 mitigations, universal middleware) | HIGH |
+| Wach_AI | Direct trust scoring competitor on Base | AID is more comprehensive (3-layer, 33 mitigations, universal middleware) | HIGH |
 | RecallNet | Better agent memory than ClawNet sessions | Phase 3: upgrade session storage | MEDIUM |
 | Freysa | TEE sovereignty + zkTLS oracles | Complementary, not competitive. Watch zkTLS for Phase 4 | LOW |
 | Gen Agent Trust Hub | "Trust layer for autonomous AI" — 500M user brand (Norton/Avast) | Consumer trust brand, not agent-to-agent. No crypto, no portable trust. Different market. | HIGH |
-| Trusta.AI AgentGo | MCP trust middleware — directly contests @x204/mcp-trust first-mover | Differentiate on depth: 11-dimension scoring, 3-layer lifecycle, 36 attack mitigations vs simpler model | HIGH |
-| Solana Agent Registry | Native ERC-8004 on Solana — weakens "single-key on Solana" pitch | Pivot to "cross-chain trust bridge" — x204 bridges Solana registry + EVM registries | MEDIUM |
-| All agent builders (Virtuals, Spectral, a0xbo) | Building agents, not trust infra | x204 is the layer they all need — partnership targets | LOW |
+| Trusta.AI AgentGo | MCP trust middleware — directly contests @aidprotocol/mcp-trust first-mover | Differentiate on depth: 11-dimension scoring, 3-layer lifecycle, 36 attack mitigations vs simpler model | HIGH |
+| Solana Agent Registry | Native ERC-8004 on Solana — weakens "single-key on Solana" pitch | Pivot to "cross-chain trust bridge" — AID bridges Solana registry + EVM registries | MEDIUM |
+| All agent builders (Virtuals, Spectral, a0xbo) | Building agents, not trust infra | AID is the layer they all need — partnership targets | LOW |
 
 **The positioning that wins:**
 ```
 Agent builders (Virtuals, Spectral, a0xbo) → BUILD agents
 Infrastructure (AWE, Bitte, Fabric)       → RUN agents
-ClawNet + x204                             → TRUST agents
+ClawNet + AID                             → TRUST agents
 
-Every agent needs trust. x204 is the trust layer.
+Every agent needs trust. AID is the trust layer.
 ```
 
 ### 40.4 Ecosystem Integration Map
 
 ```
 DIRECT INTEGRATION (npm install / partnership):
-  @x204/mcp-trust   → BitteProtocol MCP servers, any MCP server
+  @aidprotocol/mcp-trust   → BitteProtocol MCP servers, any MCP server
   A2A extension      → AWE Network agent cards, any A2A agent
   ElizaOS plugin     → ClawstrAI social agents, any ElizaOS agent
   CrewAI plugin      → Spectral agent crews, any multi-agent system
   AgentKit bridge    → bankrbot wallets, Coinbase AgentKit wallets
 
-DATA CONSUMPTION (platforms query x204 trust):
-  GET /v1/aid/:did/trust  → Moltbook scores agents by x204 trust
-                          → Wach_AI cross-references x204 data
-                          → AWE Network imports x204 trust signals
+DATA CONSUMPTION (platforms query AID trust):
+  GET /v1/aid/:did/trust  → Moltbook scores agents by AID trust
+                          → Wach_AI cross-references AID data
+                          → AWE Network imports AID trust signals
                           → Any platform verifies agent trustworthiness
 
-IDENTITY BRIDGE (x204 ↔ on-chain):
-  ERC-8004 Identity Registry  → x204 AID registers on-chain
-  ERC-8004 Reputation         → x204 trust scores published
-  ERC-8004 Validation         → x204 fills the unshipped gap
+IDENTITY BRIDGE (AID ↔ on-chain):
+  ERC-8004 Identity Registry  → AID AID registers on-chain
+  ERC-8004 Reputation         → AID trust scores published
+  ERC-8004 Validation         → AID fills the unshipped gap
 ```
 
-### 40.5 The Full ClawNet Moat After x204
+### 40.5 The Full ClawNet Moat After AID
 
 | Capability | Status | Competitors |
 |------------|--------|-------------|
@@ -4311,7 +4313,7 @@ IDENTITY BRIDGE (x204 ↔ on-chain):
 | Offline trust verification | Production | Nobody has this |
 | Merkle-anchored attestations | Production | RecallNet: on-chain, different approach |
 | 33 mitigated attack vectors | Documented | Nobody has this depth |
-| @x204/mcp-trust middleware | Phase 1 | Nobody targeting 20K MCP servers with trust |
+| @aidprotocol/mcp-trust middleware | Phase 1 | Nobody targeting 20K MCP servers with trust |
 | Multi-chain (Base + Solana) | Phase 2 | AWE: multichain, ERC-8004: EVM-only |
 | Agent social graph | Phase 3 | ClawstrAI: Nostr-based, Moltbook: acquired by Meta |
 | No-code skill builder | Phase 4 | Spectral: Solidity-focused, a0xbo: token-focused |
@@ -4322,7 +4324,7 @@ IDENTITY BRIDGE (x204 ↔ on-chain):
 ### 40.6 AWE Network Deep Analysis (Closest Competitor)
 
 AWE is an autonomous worlds simulator (1000+ agents in persistent environments).
-ClawNet + x204 is trust infrastructure. They build different things that need each other.
+ClawNet + AID is trust infrastructure. They build different things that need each other.
 
 **AWE's architecture (from their docs):**
 ```
@@ -4365,14 +4367,14 @@ Their agents interact inside worlds but have no portable proof of trustworthines
 ```
 AWE builds worlds where 1000 agents interact
 → Those agents need TRUST to transact safely
-→ @x204/mcp-trust middleware on AWE's AWESOME platform
-→ Every AWE agent gets an x204 trust score
-→ AWE worlds use x204 for trust-gated pricing between agents
+→ @aidprotocol/mcp-trust middleware on AWE's AWESOME platform
+→ Every AWE agent gets an AID trust score
+→ AWE worlds use AID for trust-gated pricing between agents
 → ClawNet becomes the trust backbone of autonomous worlds
 ```
 
-AWE's AWESOME MCP platform is the perfect distribution channel for @x204/mcp-trust.
-One integration = x204 trust on every AWE agent. This is the Section 38 strategy
+AWE's AWESOME MCP platform is the perfect distribution channel for @aidprotocol/mcp-trust.
+One integration = AID trust on every AWE agent. This is the Section 38 strategy
 ("add trust to yours, not use our protocol") applied to the biggest competitor.
 
 ---
@@ -4384,7 +4386,7 @@ One integration = x204 trust on every AWE agent. This is the Section 38 strategy
 **1. DIF TAAWG Submission Is URGENT (30-Day Window)**
 MCP-I was donated to DIF's Trusted AI Agents Working Group on March 6, 2026.
 The task force is forming NOW with a tiered adoption model (Level 1: OIDC/JWT,
-Level 2: DIDs/VCs, Level 3: enterprise lifecycle). If x204 doesn't submit as a
+Level 2: DIDs/VCs, Level 3: enterprise lifecycle). If AID doesn't submit as a
 reputation extension within 30 days, someone else will fill that gap.
 **This is the single highest-urgency item — moved to Week 1, Day 1.**
 
@@ -4395,14 +4397,14 @@ cryptographic proof of consumer authorization for AI agent transactions using Se
 Disclosure, built on FIDO Alliance/EMVCo/IETF/W3C standards, protocol-agnostic
 (designed to work alongside ACP, UCP, and AP2).
 **Why this matters:** VI addresses "who authorized this" for consumer-to-agent transactions.
-x204 addresses "is this agent trustworthy" for agent-to-agent transactions. These are
+AID addresses "is this agent trustworthy" for agent-to-agent transactions. These are
 COMPLEMENTARY — but the spec explicitly mentions "machine-to-machine commerce" as
 future scope. If Mastercard extends VI to include agent reputation, it directly competes
-with x204 backed by the biggest names in fintech.
+with AID backed by the biggest names in fintech.
 **Defense strategy:**
-1. Ship @x204/mcp-trust BEFORE VI expands scope — first-mover in MCP trust creates switching costs
-2. Contribute to the VI spec — add x204 trust scores as a data source for VI authorization decisions
-3. Make x204 an INPUT to Verifiable Intent, not a competitor
+1. Ship @aidprotocol/mcp-trust BEFORE VI expands scope — first-mover in MCP trust creates switching costs
+2. Contribute to the VI spec — add AID trust scores as a data source for VI authorization decisions
+3. Make AID an INPUT to Verifiable Intent, not a competitor
 4. Add VI compatibility as a Phase 2 target
 **The layered ecosystem positioning:**
 ```
@@ -4410,7 +4412,7 @@ Layer 1 — Communication: MCP + A2A (solved)
 Layer 2 — Identity: ERC-8004 + MCP-I (emerging)
 Layer 3 — Authorization: Verifiable Intent + AP2 (just launched)
 Layer 4 — Payment: x402 + ACP (live)
-Layer 5 — Trust/Reputation: NOBODY. This is x204's lane.
+Layer 5 — Trust/Reputation: NOBODY. This is AID's lane.
 ```
 **The narrative: "Identity tells you WHO. Authorization tells you WHAT they're allowed
 to do. Trust tells you WHETHER they're worth doing business with."**
@@ -4418,26 +4420,26 @@ to do. Trust tells you WHETHER they're worth doing business with."**
 **3. World AgentKit Is the Primary Identity Competitor**
 World (Sam Altman) launched AgentKit March 17, integrating World ID + x402.
 17.9M verified humans. If 1% become agent principals = 179K identities.
-**x204's counter-narrative: "World proves WHO authorized it. x204 proves WHETHER
+**AID's counter-narrative: "World proves WHO authorized it. AID proves WHETHER
 it's any good." Both are needed. Complementary, not competitive.**
 
 **4. x402 Foundation + Cloudflare Deferred Payments**
 Cloudflare announced the x402 Foundation (Dec 2025) and is proposing deferred
-payment schemes for x402. This overlaps with x204's batched/deferred settlement.
-**x204's differentiator: TRUST-GATED deferred (x204 decides WHO gets deferred
+payment schemes for x402. This overlaps with AID's batched/deferred settlement.
+**AID's differentiator: TRUST-GATED deferred (AID decides WHO gets deferred
 based on trust score). x402's proposed deferred has no identity or trust.**
 
 **5. ERC-8183 Is More Mature Than We Described**
 Formally proposed Feb 25, 2026. World Chain adopted. ERC-2771 meta-tx support.
 x402 compatibility built in. Hook system supports reputation gating + bidding.
-**x204's positioning: be the trust signal that ERC-8183 evaluators consume.
-The evaluator role in ERC-8183 can be an x204 TrustGate contract.**
+**AID's positioning: be the trust signal that ERC-8183 evaluators consume.
+The evaluator role in ERC-8183 can be an AID TrustGate contract.**
 
 **6. x402 Volume Is Larger Than Initially Reported**
 Per CoinDesk (March 11), x402 on Base processes ~$28K/day. BUT Solana x402 reports
 35M+ transactions and $10M+ volume. AWS published x402 integration with Bedrock
 AgentCore on March 20. x402 has institutional momentum (AWS + Cloudflare + Stripe +
-Coinbase). **The window is narrower than described. x204 must differentiate on TRUST
+Coinbase). **The window is narrower than described. AID must differentiate on TRUST
 (which x402 lacks), not on payment mechanics (which x402 dominates).**
 
 **7. Single-Seed Key Derivation (Security Fix — ELEVATED TO PHASE 1)**
@@ -4458,15 +4460,15 @@ multisig for smart contract wallets.**
 
 **10. Document Splitting Recommendation (URGENT — Week 1)**
 The 40-section plan should become 4 documents:
-  - x204 Protocol Specification (publishable, ~10 pages, goes to DIF)
-  - x204 Strategic Analysis (internal competitive intelligence)
-  - x204 Build Plan (engineering roadmap)
-  - x204 Security Model (security audit)
+  - AID Protocol Specification (publishable, ~10 pages, goes to DIF)
+  - AID Strategic Analysis (internal competitive intelligence)
+  - AID Build Plan (engineering roadmap)
+  - AID Security Model (security audit)
 The spec is what gets submitted to DIF. The others are internal.
 
 **11. Trust-as-a-Service API**
 Instead of just middleware, build a hosted trust verification endpoint:
-`POST trust.x204.org/verify` → returns trust score + Merkle proof + verdict.
+`POST trust.AID.org/verify` → returns trust score + Merkle proof + verdict.
 This becomes the API that ERC-8183 evaluators call, A2A routing engines
 query, and MCP-I servers verify against. Stripe won by running the
 infrastructure, not just publishing a spec.
@@ -4483,7 +4485,7 @@ Use trust scores for rate limiting, not just pricing:
 Attackers start at 10 req/min and can't scale without building genuine trust.
 
 **14. Real-Time Trust Streaming for Orchestrators**
-SSE endpoint: `GET /x204/trust/stream?dids=...`
+SSE endpoint: `GET /aid/trust/stream?dids=...`
 Continuously updates trust scores for all agents in a multi-agent crew.
 Orchestrators make real-time routing decisions as trust changes mid-task.
 
@@ -4500,10 +4502,10 @@ The independent audit changes Week 1 priority order:
 
 ```
 WEEK 1 (URGENT — 30-day DIF window):
-  □ DAY 1: Submit x204 trust scoring as MCP-I/DIF TAAWG extension
-  □ DAY 1: Register @x204 npm org + x204-trust PyPI + typosquats
-  □ DAY 1-3: Ship @x204/mcp-trust alpha to npm (200 lines, sig verify only)
-  □ DAY 3-5: Publish x204 protocol spec as standalone 10-page document
+  □ DAY 1: Submit AID trust scoring as MCP-I/DIF TAAWG extension
+  □ DAY 1: Register @AID npm org + aid-trust PyPI + typosquats
+  □ DAY 1-3: Ship @aidprotocol/mcp-trust alpha to npm (200 lines, sig verify only)
+  □ DAY 3-5: Publish AID protocol spec as standalone 10-page document
   □ DAY 5: Register ClawNet on ERC-8004 (Base, ~$1)
 ```
 
@@ -4516,7 +4518,7 @@ ERC-8004 registration (which can wait a few days).
 Financial appendix — see Section 21 for verified economic model:
   - Section 21.1: Revenue streams per phase
   - Section 21.2: Trust-gated discount sustainability (with all 5 tiers)
-  - Section 21.3: Gas costs (verified: 0.005 gwei, ~$0.001/tx, x204 vs x402 comparison)
+  - Section 21.3: Gas costs (verified: 0.005 gwei, ~$0.001/tx, AID vs x402 comparison)
 
 ---
 
@@ -4543,7 +4545,7 @@ plans in the agent commerce space."
 
 ### 41.2 Top 5 Actions Before Building
 
-1. Address Mastercard Verifiable Intent — position x204 as complementary (DONE — see 40.7 item 2)
+1. Address Mastercard Verifiable Intent — position AID as complementary (DONE — see 40.7 item 2)
 2. Split the 40-section document into 4 focused documents: spec, strategy, build plan, security (Week 1)
 3. Make BIP-39 single-seed derivation a Phase 1 requirement, not Phase 2 suggestion (DONE — see 40.7 item 7)
 4. Add formal dispute resolution to Phase 2 scope, not "future vision" (see Flaw 6 below)
@@ -4555,8 +4557,8 @@ plans in the agent commerce space."
 
 **Flaw 1: Single Point of Failure — ClawNet as Trust Oracle**
 
-The entire x204 trust system depends on ClawNet's server computing and signing trust scores.
-If ClawNet goes down, every MCP server using @x204/mcp-trust loses trust verification (even
+The entire AID trust system depends on ClawNet's server computing and signing trust scores.
+If ClawNet goes down, every MCP server using @aidprotocol/mcp-trust loses trust verification (even
 with fail-closed, all requests are rejected). The "universal trust layer" narrative (Section 38) is
 undermined by centralized trust computation.
 
@@ -4570,7 +4572,7 @@ Total cost for Phase 1-2: under $100. See Section 42 for the complete roadmap.
 **Flaw 2: Trust Score Formula Is Gameable Despite Anti-Gaming Claims**
 
 The trust formula allocates 40% to successRate and 25% to chainCoverage. Both are self-reported
-by the platform running the agent. An agent running its own x204-compatible server could report
+by the platform running the agent. An agent running its own AID-compatible server could report
 100% success rate and perfect chain coverage for minimal-cost self-transactions. The weighted
 feedback system (Section 7.2) helps but only applies to feedback, not core behavioral signals.
 
@@ -4602,11 +4604,11 @@ only covers USDC pause events, not credit defaults.
 protocol-level insurance fund. Funded by a 0.1% surcharge on deferred transactions. This fund
 covers defaults. Report the fund balance publicly (transparency builds trust in the trust system).
 Implementation: new `deferred_insurance_fund` column in treasury, 0.1% auto-deduction on
-all deferred settlements, public endpoint `GET /x204/insurance-fund/balance`.
+all deferred settlements, public endpoint `GET /aid/insurance-fund/balance`.
 
 **Flaw 5: Heartbeat Polling Is Architecturally Outdated**
 
-Requiring agents to poll GET /x204/heartbeat for trust updates, pricing changes, and alerts is a
+Requiring agents to poll GET /aid/heartbeat for trust updates, pricing changes, and alerts is a
 2015 pattern. At 50,000 agents polling every 30 seconds = 100K requests/minute to the heartbeat
 endpoint alone. WebSocket is mentioned only for avoid-flag broadcast (Section 39.3) but not for
 the core heartbeat.
@@ -4614,10 +4616,10 @@ the core heartbeat.
 **Fix:** Make WebSocket/SSE the primary channel for real-time updates. Heartbeat remains as the
 discovery endpoint (initial connection + fallback), but active agents should subscribe to a streaming
 endpoint. This reduces server load by 95%+ and enables real-time trust score updates, pricing
-changes, and alerts without polling. Implementation: `GET /x204/stream` SSE endpoint, replaces
+changes, and alerts without polling. Implementation: `GET /aid/stream` SSE endpoint, replaces
 polling for connected agents. Heartbeat becomes fallback-only.
 
-**Flaw 6: No Formal Dispute Resolution for x204 Path**
+**Flaw 6: No Formal Dispute Resolution for AID Path**
 
 Section 19.3 mentions "both parties' signed receipts are evidence" and "flag for manual review"
 but there's no structured dispute resolution process. Section 36.6 is filed under "future vision."
@@ -4629,7 +4631,7 @@ For a protocol handling real money, this is a critical gap.
 3. ClawNet adjudicates based on cryptographic evidence
 4. Automated resolution for clear cases (hash mismatch = automatic refund)
 5. Human escalation only for ambiguous cases
-Implementation: `POST /x204/disputes`, `GET /x204/disputes/:id`, dispute state machine
+Implementation: `POST /aid/disputes`, `GET /aid/disputes/:id`, dispute state machine
 (FILED → RESPONDED → ADJUDICATED → RESOLVED/ESCALATED). Table stakes for
 any payment protocol.
 
@@ -4658,7 +4660,7 @@ These supplement the 33 attack vectors already documented in Sections 20 and 32.
 
 **Attack Vector 34: MCP Server Supply Chain Compromise**
 
-The @x204/mcp-trust middleware runs inside third-party MCP servers. A compromised MCP server
+The @aidprotocol/mcp-trust middleware runs inside third-party MCP servers. A compromised MCP server
 could intercept Ed25519 private keys from requests, forge trust verifications locally, or serve fake
 trust data to callers. Section 39.1 addresses fail-closed for API outages but not malicious operators.
 
@@ -4719,7 +4721,7 @@ with batched settlement, this becomes a bottleneck well before 100K.
 
 **Recommendation:** Move to Postgres with row-level locking in Phase 2 (when direct settlement
 ships). SQLite is fine for Phase 1 (credit-based, existing system). The migration is clean — the
-SQL is already standard. Note: this applies to x204 direct settlement only. ClawNet's existing
+SQL is already standard. Note: this applies to AID direct settlement only. ClawNet's existing
 credit-based system on SQLite WAL is fine for current scale.
 
 **Technical Optimization 2: Trust Score Caching Architecture**
@@ -4770,7 +4772,7 @@ peg restores. One free RPC call per conversion.
 
 ### 41.7 GROUNDBREAKING FEATURES (Cherry on Top — 12 Proposals)
 
-Beyond the plan's existing features, these additions would make x204 category-defining.
+Beyond the plan's existing features, these additions would make AID category-defining.
 
 **Already in Plan (Validate & Prioritize):**
 
@@ -4796,7 +4798,7 @@ No trust system offers this. When an agent receives a trust score, it should be 
 which of the 11 dimensions are strong/weak, what specific actions would improve the score, and
 how the score compares to the cohort average. Think credit score explanation letters, but for agents.
 This dramatically accelerates trust-building because agents can optimize behavior.
-`GET /x204/trust/{did}/explain → { dimensions: [...], recommendations: [...], cohortPercentile: 72 }`
+`GET /aid/trust/{did}/explain → { dimensions: [...], recommendations: [...], cohortPercentile: 72 }`
 
 **Cherry 2: Composable Trust Policies (Smart Trust Gates)**
 The current trust gate is simple: min_trust_score threshold. Real providers need composable
@@ -4819,13 +4821,13 @@ a trust-aware search engine for agent services.
 **Cherry 5: Cross-Protocol Trust Attestation Standard**
 Define a standard JSON-LD schema for trust attestations that can be consumed by ERC-8004's
 Reputation Registry, Verifiable Intent's authorization layer, and MCP-I's credential system.
-Publish as an open spec. If x204's trust attestation format becomes the standard that other
-protocols consume, x204 wins regardless of which protocol is most popular.
+Publish as an open spec. If AID's trust attestation format becomes the standard that other
+protocols consume, AID wins regardless of which protocol is most popular.
 
 **Cherry 6: Agent Trust Audit Log (SOC 2 Ready)**
 Enterprise adoption requires audit trails. Export a complete trust history for any agent in a
 structured format suitable for compliance review. Include: every trust score change with reasons,
-every attestation, every feedback received, every settlement with hashes. Makes x204 agents
+every attestation, every feedback received, every settlement with hashes. Makes AID agents
 auditable by enterprise procurement teams — a requirement no competitor addresses.
 
 **Cherry 7: Adaptive Trust Decay**
@@ -4838,7 +4840,7 @@ Decay rate is set per-category, published in the heartbeat.
 Using existing attestation data, predict what an agent's trust score will be in 7/30/90 days
 if current behavior continues. "If I maintain my current success rate, I'll reach 'trusted' tier
 in 45 days." No competitor offers forward-looking trust intelligence.
-`GET /x204/trust/{did}/predict → { current: 67, predicted: { 7d: 69, 30d: 74, 90d: 82 } }`
+`GET /aid/trust/{did}/predict → { current: 67, predicted: { 7d: 69, 30d: 74, 90d: 82 } }`
 
 **Cherry 9: Real-Time Trust Streaming for Multi-Agent Orchestrators (Expanded)**
 Expand on item 14 above: an SSE endpoint where orchestrators (CrewAI, LangGraph, AutoGen)
@@ -4849,16 +4851,16 @@ the orchestrator can reroute in real-time. Killer feature for enterprise multi-a
 
 ### 41.8 The Bottom Line (From Independent Audit)
 
-x204 has identified the right gap ("every protocol layer is missing trust"), proposed the right
+AID has identified the right gap ("every protocol layer is missing trust"), proposed the right
 solution (universal trust middleware), and has genuine technical innovation (offline verification,
 execution proofs, 3-layer trust lifecycle). The plan's biggest risk is not technical — it's **timing**.
 
 Mastercard/Google just shipped Verifiable Intent. MCP-I just moved to DIF. ERC-8004 has 24K+
-agents. The window for x204 to establish itself as the canonical trust layer is measured in
+agents. The window for AID to establish itself as the canonical trust layer is measured in
 **weeks, not months**.
 
 The plan says "stop planning, start building." That is exactly right. But build the
-**DIF submission + @x204/mcp-trust middleware + interactive playground** first — not the full
+**DIF submission + @aidprotocol/mcp-trust middleware + interactive playground** first — not the full
 protocol. Claim the narrative, ship the middleware, let adoption prove the spec.
 
 **The 40-section plan is the engineering bible. The DIF submission is the missionary tract.
@@ -4868,17 +4870,17 @@ Ship the tract first.**
 
 ## 42. PROGRESSIVE DECENTRALIZATION (The Bitcoin Question, Solved)
 
-### 42.1 Why x204's Problem Is Easier Than Bitcoin's
+### 42.1 Why AID's Problem Is Easier Than Bitcoin's
 
 Bitcoin had to solve: "How do we agree on which transactions happened in what order,
 when anyone can lie, in real time?"
 
-x204 has to solve: "How do we agree on an agent's trust score, when the entity computing
+AID has to solve: "How do we agree on an agent's trust score, when the entity computing
 it could lie or go offline?"
 
-x204's version has three properties that make it fundamentally simpler:
+AID's version has three properties that make it fundamentally simpler:
 
-| Property | Bitcoin | x204 Trust |
+| Property | Bitcoin | AID Trust |
 |----------|---------|------------|
 | Consensus speed | Seconds (double-spend is instant) | Hours (4h snapshots are fine) |
 | Adversary model | Anyone can lie at any time | Lies are provable within 24h |
@@ -4894,7 +4896,7 @@ x204's version has three properties that make it fundamentally simpler:
 3. **Public inputs** — attestation data can be made public without harming anyone (unlike
    financial transactions which need privacy).
 
-These mean x204 doesn't need proof-of-work, doesn't need a blockchain, and doesn't need
+These mean AID doesn't need proof-of-work, doesn't need a blockchain, and doesn't need
 miners. It needs something much simpler.
 
 ---
@@ -4907,7 +4909,7 @@ ClawNet remains the sole trust oracle but makes two commitments:
 
 **Commitment 1: Open-source the formula.**
 The 11-dimension trust scoring algorithm is published as a standalone library:
-`@x204/trust-compute` (npm + pip). Given a set of attestations, anyone can run the exact
+`@aidprotocol/trust-compute` (npm + pip). Given a set of attestations, anyone can run the exact
 same computation ClawNet runs internally (`computeTrustScoreWithProof()` in
 `src/core/aid-builder.ts`).
 
@@ -4921,7 +4923,7 @@ formula + compare their result to ClawNet's published scores. If there's a discr
 it's cryptographically provable.
 
 **This is the Etherscan model.** Etherscan is centralized, but anyone can run their own
-node and verify everything Etherscan shows. ClawNet is x204's Etherscan.
+node and verify everything Etherscan shows. ClawNet is AID's Etherscan.
 
 ```
 Snapshot Cron (every 4h):
@@ -4929,14 +4931,14 @@ Snapshot Cron (every 4h):
   2. Compute trust scores for all active agents (existing)
   3. NEW: Serialize attestation dataset → IPFS pin + Arweave upload
   4. NEW: Publish {merkleRoot, ipfsHash, arweaveId, scoreCount} on-chain
-  5. Anyone can: download data → run @x204/trust-compute → verify scores
+  5. Anyone can: download data → run @aidprotocol/trust-compute → verify scores
 ```
 
 **Cost:** ~$1/month on Arweave for permanent storage of 4h snapshots. IPFS pinning via
 Pinata/web3.storage free tier. The data is already being computed — this just publishes it.
 
 **Build plan addition:**
-- Week 1: Publish `@x204/trust-compute` to npm (extract scoring logic from aid-builder.ts)
+- Week 1: Publish `@aidprotocol/trust-compute` to npm (extract scoring logic from aid-builder.ts)
 - Phase 1 Month 1: Add IPFS/Arweave publication to snapshot cron
 - Phase 1 Month 1: Add on-chain Merkle root commitment (Base, ~$0.001/tx)
 
@@ -4957,7 +4959,7 @@ Challenge window: 24 hours
 
 Anyone can:
   1. Download attestation data from IPFS
-  2. Run @x204/trust-compute locally
+  2. Run @aidprotocol/trust-compute locally
   3. If their result ≠ 87, submit a fraud proof on-chain
 
 Fraud proof = (attestation data subset
@@ -5019,18 +5021,18 @@ If ClawNet says 95 but everyone else says 62:
 (Phase 1 commitment). The formula is open-source (Phase 1 commitment). Running an
 oracle is: download data → run formula → publish results. A Raspberry Pi could do it.
 
-**Oracle operator incentive:** The @x204/mcp-trust middleware can be configured to require
+**Oracle operator incentive:** The @aidprotocol/mcp-trust middleware can be configured to require
 N-of-M oracle agreement before trusting a score. Oracle operators earn a small fee per
 verification request. At scale, this becomes a self-sustaining market. Alternative incentive
 models: reputation/governance weight, bundled with $CLAWNET token economics.
 
-**@x204/mcp-trust middleware update:**
+**@aidprotocol/mcp-trust middleware update:**
 ```typescript
 // Single oracle (Phase 1-2):
-const trust = await x204.verify(did); // calls ClawNet API
+const trust = await AID.verify(did); // calls ClawNet API
 
 // Federated oracles (Phase 3):
-const trust = await x204.verify(did, {
+const trust = await AID.verify(did, {
   oracles: ['clawnet', 'oracle-a', 'oracle-b'],
   quorum: 2,           // 2-of-3 agreement required
   strategy: 'median'   // median score used
@@ -5093,7 +5095,7 @@ decentralizable architecture from day one.
 
 | When | What | Cost | Effort |
 |------|------|------|--------|
-| Week 1 (Phase 1) | Publish `@x204/trust-compute` to npm — extract scoring logic from `aid-builder.ts` as standalone package | $0 | 1 day |
+| Week 1 (Phase 1) | Publish `@aidprotocol/trust-compute` to npm — extract scoring logic from `aid-builder.ts` as standalone package | $0 | 1 day |
 | Month 1 (Phase 1) | Add IPFS/Arweave publication to snapshot cron (`aid-snapshot-cron.ts`) | ~$1/mo Arweave | 1 day |
 | Month 1 (Phase 1) | Add on-chain Merkle root commitment (Base transaction per snapshot) | ~$0.001/tx | 0.5 day |
 | Month 6 (Phase 2) | Deploy `OptimisticTrustOracle.sol` on Base with 24h challenge window | ~$5 deploy | 3 days |
@@ -5141,10 +5143,10 @@ faster than accounted for.
 
 **1. Solana Agent Registry (Launched March 3, 2026) — NOT IN PLAN**
 Quantu AI launched an ERC-8004 implementation natively on Solana. Integrates identity,
-reputation, and verification into the Solana network. Weakens x204's "single-key on Solana"
+reputation, and verification into the Solana network. Weakens AID's "single-key on Solana"
 pitch — Solana agents now have a native identity system.
 
-**Action:** x204's Solana value proposition shifts from "identity on Solana" to "cross-chain
+**Action:** AID's Solana value proposition shifts from "identity on Solana" to "cross-chain
 trust that bridges Solana's registry with EVM registries." Updated in competitive table.
 
 **2. x402 Solana Volume — SIGNIFICANTLY UNDERCOUNTED**
@@ -5153,28 +5155,28 @@ The plan cited "$28K/day, mostly testing" (CoinDesk, Base-only data). Solana x40
 on March 20 (yesterday). The x402 ecosystem has institutional momentum (AWS + Cloudflare +
 Stripe + Coinbase) that a one-person protocol cannot match through spec quality alone.
 
-**Action:** x204 must differentiate on TRUST (which x402 entirely lacks), not payment mechanics.
+**Action:** AID must differentiate on TRUST (which x402 entirely lacks), not payment mechanics.
 The "market hasn't been won" narrative needs qualification. Updated in 40.7 item 6.
 
 **3. Gen Agent Trust Hub (Launched Feb 4, 2026) — NOT IN PLAN**
 Gen (Norton/Avast parent, NASDAQ: GEN, 500M+ users) launched a trust verification platform
 for AI agents. Includes AI Skills Scanner and curated Skills Marketplace. They explicitly
-position as "the trust layer for the autonomous AI era" — nearly identical language to x204.
+position as "the trust layer for the autonomous AI era" — nearly identical language to AID.
 
 **Action:** Gen is consumer-focused (Norton brand), not agent-to-agent. Different market
-segment. But their brand recognition dwarfs ClawNet. x204's differentiator: crypto-native,
+segment. But their brand recognition dwarfs ClawNet. AID's differentiator: crypto-native,
 portable, offline-verifiable, open protocol. Gen is a walled garden.
 
 **4. Trusta.AI AgentGo MCP Middleware — NOT IN PLAN**
 Open-sourced MCP middleware enabling AI agents to request on-chain identity attestations and
-real-time reputation scores. Directly competes with @x204/mcp-trust — the Phase 1 priority.
+real-time reputation scores. Directly competes with @aidprotocol/mcp-trust — the Phase 1 priority.
 
 **Action:** "First MCP trust middleware" positioning is contested. Differentiate on depth:
 11-dimension scoring, 3-layer trust lifecycle, 36 attack mitigations, offline verification.
-Trusta has simpler on-chain lookups. x204 has a full trust engine.
+Trusta has simpler on-chain lookups. AID has a full trust engine.
 
 **5. AWS x402 Integration (Published March 20, 2026 — Yesterday)**
-AWS Bedrock AgentCore now supports x402 natively. Enterprise credibility gap widens. x204
+AWS Bedrock AgentCore now supports x402 natively. Enterprise credibility gap widens. AID
 needs the DIF submission even more urgently — institutional backing is the differentiator.
 
 **6. DIF TAAWG Moving Faster Than Expected**
@@ -5186,40 +5188,40 @@ The "30-day window" may be **2 weeks**. DIF submission must be Day 1, not Week 1
 ### 43.1b STRATEGIC REFRAME: Competitors Are Distribution Channels
 
 **Core insight:** These 5 competitors aren't threats — they're distribution channels. Each
-solves one piece of the puzzle and is missing what x204 uniquely provides.
+solves one piece of the puzzle and is missing what AID uniquely provides.
 
 **1. Solana Agent Registry → Become their scoring engine.**
 They have raw reputation data but no canonical trust score (by design — ERC-8004
-deliberately leaves scoring to external services). x204 IS that service.
-Build `@x204/solana-trust`, read their registry, compute scores, publish back.
+deliberately leaves scoring to external services). AID IS that service.
+Build `@aidprotocol/solana-trust`, read their registry, compute scores, publish back.
 Solana has ~77% of x402 volume — being Solana's trust oracle means being the
 majority oracle.
 
 **2. Gen Agent Trust Hub → Different layer, don't fight.**
-Gen answers "is this code safe?" (pre-deployment security scanning). x204 answers
+Gen answers "is this code safe?" (pre-deployment security scanning). AID answers
 "is this agent worth paying?" (runtime reputation). Add Gen's scan results as an
-input to x204 manifests. Let their 500M-user brand educate the market about agent
+input to AID manifests. Let their 500M-user brand educate the market about agent
 trust, then capture the users who need the next level.
 
 **3. Trusta AgentGo → Only direct competitor. Outship them.**
-Ship @x204/mcp-trust to npm this week. Differentiate on: offline verification (they
+Ship @aidprotocol/mcp-trust to npm this week. Differentiate on: offline verification (they
 can't do this), execution proofs (they don't have this), no token dependency (cleaner
-story for enterprises). Then absorb their SIGMA scores as one input into x204's
+story for enterprises). Then absorb their SIGMA scores as one input into AID's
 multi-dimensional formula.
 
 **4. AWS x402 → Enhance, don't replace.**
-Build `@x204/x402-enhanced` — a drop-in middleware upgrade that adds identity +
+Build `@aidprotocol/x402-enhanced` — a drop-in middleware upgrade that adds identity +
 trust to any x402 server. Submit a PR to the x402 GitHub repo adding optional
-X-AID headers. If accepted, x204 identity literally becomes part of x402.
+X-AID headers. If accepted, AID identity literally becomes part of x402.
 This is the ultimate Trojan horse strategy.
 
 **5. x402 on Solana (35M txs) → Cross-chain trust bridge.**
-35M transactions of reputation trapped on one chain. x204 makes it portable — an
+35M transactions of reputation trapped on one chain. AID makes it portable — an
 agent trusted on Solana is instantly trusted on Base. No one else can do this because
 no one else has chain-agnostic identity + offline verification.
 
 **The one-sentence positioning:**
-> "x204 doesn't replace your payment rail, your identity registry, or your security
+> "AID doesn't replace your payment rail, your identity registry, or your security
 > scanner. It makes all of them smarter by adding scored, verifiable, portable trust."
 
 ---
@@ -5240,9 +5242,9 @@ publish only the Merkle root + score summary (not full attestation dump) — thi
 
 **Flaw 9: No Protocol Governance Model**
 
-The plan describes x204 as an "open protocol" but provides zero governance structure. Who
+The plan describes AID as an "open protocol" but provides zero governance structure. Who
 approves changes to the trust scoring formula? Who decides weight rebalancing (Section 19.5)?
-If the formula changes, every @x204/mcp-trust middleware instance computes different scores
+If the formula changes, every @aidprotocol/mcp-trust middleware instance computes different scores
 for the same agent. This is the "oracle problem" but for trust, not price.
 
 **Fix:** Define governance before publishing the spec:
@@ -5252,7 +5254,7 @@ for the same agent. This is the "oracle problem" but for trust, not price.
   in middleware. Trust computation version is part of every score output.
 ```typescript
 // Middleware pins to a specific formula version:
-server.use(x204Trust({
+server.use(aidTrust({
   providerDid: 'did:key:zXYZ...',
   formulaVersion: '1.0.0'  // MANDATORY — prevents silent formula drift
 }));
@@ -5273,10 +5275,10 @@ aspirational 11-dimension system that exists only on paper.
 
 The plan uses `did:clawnet:{publicKeyMultibase}` — a custom DID method. MCP-I uses W3C
 DIDs with established methods (did:key, did:web, did:pkh). The DIF TAAWG will not adopt a
-proprietary DID method. x204's identity layer is immediately disqualified from standardization.
+proprietary DID method. AID's identity layer is immediately disqualified from standardization.
 
 **Fix:** Use `did:key` (which supports Ed25519 natively) as the primary DID method. Map to
-ClawNet's internal system via a resolver. This makes x204 instantly compatible with MCP-I,
+ClawNet's internal system via a resolver. This makes AID instantly compatible with MCP-I,
 DIF, and the W3C DID ecosystem. `did:clawnet:` can exist as an internal alias but MUST NOT
 be the primary identifier in the published spec.
 
@@ -5292,7 +5294,7 @@ exemptions specifically for novel payment protocols. UK FCA sandbox has accepted
 payment protocols.
 
 **Fix:** Evaluate Wyoming DAO LLC + money transmitter sandbox exemption. This could legally
-shelter x204's deferred settlement during bootstrapping at near-zero cost. Add to Section 33
+shelter AID's deferred settlement during bootstrapping at near-zero cost. Add to Section 33
 as an actionable option alongside the existing 4 options.
 
 ---
@@ -5301,18 +5303,18 @@ as an actionable option alongside the existing 4 options.
 
 **Attack Vector 37: MCP-I Credential Confusion Attack**
 
-When x204 trust data is embedded in MCP-I Verifiable Credentials (Section 40.7 item 12),
-an attacker presents a valid MCP-I identity VC alongside a forged x204 trust VC. If the
-verifier checks MCP-I identity but not x204 trust provenance separately, the forged trust
+When AID trust data is embedded in MCP-I Verifiable Credentials (Section 40.7 item 12),
+an attacker presents a valid MCP-I identity VC alongside a forged AID trust VC. If the
+verifier checks MCP-I identity but not AID trust provenance separately, the forged trust
 score is accepted because the identity layer is valid.
 
-**Mitigation:** x204 trust VCs MUST include a `proof` field with ClawNet's platform signature
+**Mitigation:** AID trust VCs MUST include a `proof` field with ClawNet's platform signature
 AND a reference to the on-chain Merkle root. Verifiers MUST check BOTH the VC signature
 AND the Merkle inclusion proof. Document as mandatory verification step in SDK, not optional.
 
 **Attack Vector 38: Heartbeat Response Poisoning via DNS Hijack**
 
-The mandatory heartbeat (`GET /x204/heartbeat`) returns trust scores, pricing, and metadata.
+The mandatory heartbeat (`GET /aid/heartbeat`) returns trust scores, pricing, and metadata.
 DNS hijack → poisoned heartbeat that inflates own trust, deflates competitors, redirects payments.
 
 **Mitigation:** Heartbeat responses MUST include X-AID-PROVIDER-PROOF (already spec'd for
@@ -5332,8 +5334,8 @@ window. Only low-value microtransactions use the locked-window optimization.
 
 **Attack Vector 40: Cross-Platform Trust Arbitrage**
 
-Agent exports high trust passport, presents it to a platform implementing x204 trust
-verification but NOT x204 settlement protections (credit limits, burst detection). Agent
+Agent exports high trust passport, presents it to a platform implementing AID trust
+verification but NOT AID settlement protections (credit limits, burst detection). Agent
 exploits trust discount without accountability.
 
 **Mitigation:** Trust passports MUST include settlement constraints alongside the score.
@@ -5349,7 +5351,7 @@ assertion without accountability.
 
 EAS is live on Base with 1M+ attestations. Using EAS from Day 1 would: (a) make attestations
 interoperable with the broader Ethereum ecosystem, (b) eliminate custom Merkle anchoring
-code, (c) give x204 attestations immediate credibility with ERC-8004 validators.
+code, (c) give AID attestations immediate credibility with ERC-8004 validators.
 Trade-off: EAS has gas costs (~$0.001/attestation on Base). Batch into periodic EAS
 submissions (same as current snapshot cron, but using a standard).
 
@@ -5357,7 +5359,7 @@ submissions (same as current snapshot cron, but using a standard).
 
 Section 41.3 Flaw 5 identifies polling as outdated. Go further: make WebSocket/SSE the
 PRIMARY trust communication channel from Phase 1, not Phase 3.
-`wss://api.claw-net.org/x204/trust/stream` — subscribe to trust changes for specific DIDs.
+`wss://api.claw-net.org/aid/trust/stream` — subscribe to trust changes for specific DIDs.
 Heartbeat becomes discovery-only. Trust changes push in <1 second. 95% load reduction.
 
 **Optimization 9: ERC-4337 Account Abstraction (Eliminates Dual-Key Entirely)**
@@ -5373,9 +5375,9 @@ Add a response header containing the server's independently verified trust score
 caller. Bidirectional trust signal — caller sees how the server scored them. Enables trust
 debugging and transparency without a separate API call.
 
-**Optimization 11: Base Paymaster (Gasless x204 Transactions)**
+**Optimization 11: Base Paymaster (Gasless AID Transactions)**
 
-Base supports ERC-4337 paymasters natively. A ClawNet paymaster sponsors gas for x204
+Base supports ERC-4337 paymasters natively. A ClawNet paymaster sponsors gas for AID
 transactions, making the protocol truly gasless for agents. Paymaster recovers costs from
 USDC payment (already covered in economic model). Eliminates "agent needs ETH on Base
 for gas" friction entirely.
@@ -5386,12 +5388,12 @@ for gas" friction entirely.
 
 **Cherry 10: Adversarial Trust Testing (Red Team as a Service)**
 Automated endpoint where agents stress-test their own trust resilience:
-`POST /x204/trust/adversarial-test` → tests Sybil, bust-out, cartel, stale replay scenarios.
+`POST /aid/trust/adversarial-test` → tests Sybil, bust-out, cartel, stale replay scenarios.
 Returns vulnerabilities + recommendations + resilience score. Security-through-transparency.
 No other protocol offers this. Agents WANT to be tested — passing boosts their narrative.
 
 **Cherry 11: Trust-Gated Content Delivery (CDN Edge Integration)**
-x204 trust verification at Cloudflare Workers / Vercel Edge. High-trust agents get edge-cached
+AID trust verification at Cloudflare Workers / Vercel Edge. High-trust agents get edge-cached
 responses (faster + cheaper). Low-trust agents go to origin (rate-limited). Trust becomes a
 performance optimization, not just a pricing mechanism. "Build trust, get faster responses."
 
@@ -5408,17 +5410,17 @@ learning exact value. 100x simpler than full ZK circuit, ~200 lines of TypeScrip
 Phase 1 as a privacy option. Differentiator over every competitor.
 
 **Cherry 14: Agent Capability Marketplace (Proven Capability Discovery)**
-Semantic capability index: `GET /x204/capabilities?query=solana+price+data&minTrust=60`
+Semantic capability index: `GET /aid/capabilities?query=solana+price+data&minTrust=60`
 Returns providers with `provenCapability: true` — derived from attestation history, not
 self-declared. An agent with 1,000 successful SOL price attestations is objectively more
 trustworthy than one with 0. Capability-level trust — no other protocol offers this.
 
 **Cherry 15: Protocol-Level Canary (Dead Man's Switch)**
 If ClawNet goes offline, how does the ecosystem know? Signed "proof of liveness" published
-to Base chain every 6 hours. @x204/mcp-trust checks canary:
+to Base chain every 6 hours. @aidprotocol/mcp-trust checks canary:
 - Canary >12h stale → degraded mode (cached trust, no new deferred settlements)
 - Canary >48h stale → auto-fallback to ERC-8004 reputation data
-Turns the SPOF critique into a feature: "x204 is the only protocol that detects and gracefully
+Turns the SPOF critique into a feature: "AID is the only protocol that detects and gracefully
 handles its own outage."
 
 ---
@@ -5448,13 +5450,13 @@ handles its own outage."
 ```
 DAY 1 (URGENT — DIF window may be 2 weeks, not 30 days):
   □ Switch DID method from did:clawnet to did:key (30 min — same key material)
-  □ Submit x204 trust scoring extension to DIF TAAWG
-  □ Register @x204 npm org + x204-trust PyPI + typosquats
+  □ Submit AID trust scoring extension to DIF TAAWG
+  □ Register @AID npm org + aid-trust PyPI + typosquats
   □ Draft 10-page protocol spec (4 LIVE dimensions, not 11 aspirational)
   □ Define governance model for trust formula versioning
 
 DAY 2-3:
-  □ Ship @x204/mcp-trust alpha to npm (200 lines)
+  □ Ship @aidprotocol/mcp-trust alpha to npm (200 lines)
   □ Include Pedersen commitment privacy option (Cherry 13, ~200 lines)
   □ Build interactive playground (the DIF sales pitch)
   □ Add protocol-level canary (Cherry 15, simple on-chain tx)
@@ -5462,7 +5464,7 @@ DAY 2-3:
 DAY 4-5:
   □ Register ClawNet on ERC-8004 (Base, ~$1)
   □ Add X-AID-TRUST-VERIFIED response header (Opt 10)
-  □ Publish x204 spec document publicly
+  □ Publish AID spec document publicly
   □ Research Wyoming DAO LLC sandbox (Flaw 12)
 ```
 
@@ -5478,7 +5480,7 @@ DAY 4-5:
 
 ### 43.8 The Verdict (Second Audit)
 
-The x204 plan is the most comprehensive agent commerce protocol design in the space. The
+The AID plan is the most comprehensive agent commerce protocol design in the space. The
 Section 38 reframing ("universal trust layer") and Section 42 decentralization roadmap are
 strategically brilliant. The three-layer trust lifecycle is a genuine innovation.
 
