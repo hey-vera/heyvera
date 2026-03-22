@@ -118,6 +118,7 @@ transaction makes it smarter.
 - [ ] WebSocket/SSE streaming for trust updates (Flaw 5 / Optimization 8)
 - [ ] @aidprotocol/aar-bridge — bidirectional AAR receipt conversion (Optimization 12)
 - [ ] Verifiable Intent integration — map AID trust as VI signal (Optimization 13)
+- [ ] AID-MPP Profile — trust headers alongside Stripe MPP session authorization (Section 15.5)
 - [ ] Gas price circuit breaker for batch settlement (Vector 43)
 - [ ] Verification receipt in middleware — caller-verifiable ClawNet-signed token (Flaw 18)
 - [ ] ARA compatibility evaluation (Flaw 16)
@@ -165,7 +166,7 @@ transaction makes it smarter.
 
 ---
 
-**Progress: 24/112 items complete (21%). NEXT: Submit NIST comment → build playground → start Phase 1 code.**
+**Progress: 24/115 items complete (21%). NEXT: Submit NIST comment → AID-MPP Profile → playground.**
 
 ---
 
@@ -1197,6 +1198,73 @@ composing into a full market stack. Open, neutral, credibly decentralized.
 | NIST NCCoE CAISI | AI Agent Standards Initiative — agent identity/authorization guidelines | NIST | Concept paper Feb 17, comments due April 2 | CRITICAL — submit comment positioning Ed25519 DIDs as complement to OAuth/OIDC. Enterprise compliance follows NIST. |
 | Stripe ACP | Agentic Commerce Protocol — "Instant Checkout" for AI agents | Stripe + OpenAI | Live since Sept 2025 | ACP has no trust scoring. AID trust scores as signal in Stripe's agent verification. Phase 2: @aidprotocol/acp-trust |
 | Google UCP | Universal Commerce Protocol — product discovery for agents | Google + Shopify + 20 partners | Live since Jan 11, 2026 | UCP has no trust layer. AID trust data in UCP merchant discovery metadata. Phase 2: @aidprotocol/ucp-trust |
+| Stripe MPP | Machine Payments Protocol — session-based streaming micropayments for agents | Stripe + Tempo + Paradigm, partners: Anthropic, Visa, Mastercard, OpenAI, Shopify, Standard Chartered | Launched March 18, 2026 with Tempo mainnet | MPP is backwards-compatible with x402. Session-based (authorize spending limit upfront, stream against it). No trust scoring. AID-MPP Profile = Phase 2. AID trust headers work identically alongside MPP sessions. |
+| Valeo/Stratum | x402 clearing/netting layer — batches 10K txs → 50 via multilateral netting | Valeo ($VALEO token) | Live, micro-cap | Ed25519-signed receipts (validates AID's architecture). Don't integrate — micro-cap, unproven. Watch for receipt format convergence. Phase 3 evaluation. |
+| Arc (Circle) | USDC-native L1 blockchain — sub-second finality, 50K+ TPS, EVM compatible | Circle. Testnet: BlackRock, Visa, HSBC, Coinbase, AWS, Anthropic, OpenAI | Testnet, mainnet expected 2026 | Payment rail, no trust. AID is chain-agnostic — did:key works on Arc. Phase 3+: AID-Arc Profile when mainnet has agent traffic. |
+| Tempo (Stripe) | Payments-first L1 blockchain — MPP native chain | Stripe + Paradigm | Mainnet March 18, 2026 | Payment rail, no trust. AID trust headers compose with Tempo/MPP settlement. Phase 2-3 integration via AID-MPP Profile. |
+| Plasma (Tether) | USDT-native L1 — zero-fee transfers, instant finality, XPL staking token | Tether/Bitfinex | Mainnet live, $1B in stablecoins within 30 minutes of pre-launch | Payment rail, no trust. Targets emerging markets. AID's chain-agnostic identity works on Plasma. Watch only — different stablecoin (USDT vs USDC). |
+| Codex | Ethereum L2 (Optimism stack) — B2B enterprise settlement with built-in KYC/AML | Backed by Circle + Coinbase | Live, native USDC | Enterprise settlement rail, no trust scoring. Complementary — AID trust scores as input to Codex KYC decisions. |
+| 1Money | No-token L1 — 250K TPS, mandatory KYC/AML, fees paid in stablecoin being transferred | Brian Shroder (ex-Binance US CEO) | Early | Most radical: no token, no smart contracts, no governance. Payment rail only. AID provides the reputation layer their regulated institutions need. |
+
+---
+
+## 15.5 THE STABLECOIN CHAIN WAR (March 2026 — New Development)
+
+**Added:** March 22, 2026. Updated competitive landscape after Stripe MPP launch.
+
+Six+ purpose-built stablecoin blockchains launched or announced in 2026, all competing
+to replace SWIFT/Visa rails. None of them are trust layers. All of them need one.
+
+```
+STABLECOIN CHAINS (Layer 1 — how money moves):
+  Arc (Circle)      — USDC-native, EVM compatible, institutional
+  Tempo (Stripe)    — MPP-native, fiat+crypto hybrid, enterprise
+  Plasma (Tether)   — USDT-native, zero-fee, emerging markets
+  Codex (Circle+CB) — L2, B2B settlement, built-in KYC
+  1Money            — no-token, mandatory KYC, pure payment rail
+  Converge (Ethena) — DeFi↔TradFi bridge, USDe synthetic
+
+PAYMENT PROTOCOLS (Layer 4 — how agents pay):
+  x402 (Coinbase)   — per-request crypto payments, open
+  MPP (Stripe)      — session-based streaming, fiat+crypto, IETF spec
+  ACP (Stripe)      — consumer checkout for agents
+  AP2 (Google)      — agent-to-agent purchase
+
+PAYMENT INFRASTRUCTURE (optimization):
+  Stratum (Valeo)   — netting/clearing for x402 (batch 10K → 50 txs)
+  Facilitators      — verify and submit x402 payments on-chain
+
+TRUST (Layer 5 — who should you pay):
+  AID (ClawNet)     — scored, verifiable, portable trust ← NOBODY ELSE
+```
+
+**Why this validates AID:**
+Every new payment rail is a new integration point that needs trust.
+None of them build trust. All of them need it. The more chains launch,
+the MORE valuable a chain-agnostic trust layer becomes.
+
+**AID's chain-agnostic design handles this by default:**
+- `did:key` identity works on any chain (Ed25519, not chain-specific)
+- Trust scores are computed from off-chain attestations, not chain data
+- Merkle roots can anchor on whichever chain makes sense
+- Protocol profiles (spec Section 8) extend naturally: AID-Arc, AID-MPP, AID-Tempo
+
+**What to build (and when):**
+- TODAY: Base settlement via x402 (working)
+- Phase 2: AID-MPP Profile (MPP launched March 18 with massive backing)
+- Phase 2: Solana SPL USDC (Ed25519 single-key, already planned)
+- Phase 3+: Arc/Tempo/Plasma profiles (when mainnets have real agent traffic)
+- DON'T: Integrate Valeo/Stratum — micro-cap, watch only
+
+**Key insight from MPP launch:**
+MPP's session model (authorize spending limit upfront, stream micropayments) maps
+directly to AID's batched settlement (EIP-2612 permit, hourly settlement). MPP is
+the enterprise version of what AID already does. AID-MPP Profile = AID trust headers
+alongside MPP session authorization. Trust-gated session limits: higher trust = higher
+spending cap. Same trust scoring, different payment rail.
+
+**Stripe now supports BOTH x402 AND MPP.** The payment war is becoming interoperability,
+not winner-take-all. This is perfect for AID — one trust layer that works across all rails.
 
 ---
 
@@ -5966,7 +6034,7 @@ LAYER 0 — COMMUNICATION:    MCP + A2A + AGENTS.md (SOLVED — AAIF governs)
 LAYER 1 — DISCOVERY:        UCP (Google/Shopify) + ERC-8004 + Heartbeat (LIVE)
 LAYER 2 — IDENTITY:         ERC-8004 + MCP-I/DIF + World AgentKit + NIST (FRAGMENTED)
 LAYER 3 — AUTHORIZATION:    Verifiable Intent (Mastercard/Google) + AP2 + OAuth (LIVE)
-LAYER 4 — PAYMENT:          x402 (Coinbase/AWS) + ACP (Stripe/OpenAI) + UCP (LIVE)
+LAYER 4 — PAYMENT:          x402 (Coinbase/AWS) + MPP (Stripe/Tempo) + ACP (Stripe/OpenAI) + UCP (LIVE)
 LAYER 5 — TRUST/REPUTATION: *** NOBODY *** ← AID's lane
 LAYER 6 — SETTLEMENT:       ERC-8183 + x402 direct + Stripe rails (EARLY)
 LAYER 7 — GOVERNANCE:       AAIF (MCP) + DIF TAAWG (identity) + NIST (compliance)

@@ -1041,7 +1041,23 @@ AID and Verifiable Intent (VI) serve different functions:
 
 AID trust scores SHOULD be expressible as VI signals. Implementations MAY include `viCompatible: true` in receipts to indicate VI-compatible formatting.
 
-### 13.4 NIST Compatibility
+### 13.4 Stripe MPP (Machine Payments Protocol)
+
+MPP (launched March 18, 2026) provides session-based streaming micropayments for agents. MPP is backwards-compatible with x402 — MPP clients can consume existing x402 services without modification.
+
+AID trust headers compose naturally with MPP sessions:
+- **Without AID:** Standard MPP session with spending limit.
+- **With AID:** Trust-gated session limits. Higher trust = higher spending cap. Trust scores embedded in MPP charge intents.
+
+An `AID-MPP Profile` is planned for a future version of this specification. The profile will define how AID trust headers map to MPP session authorization, following the same pattern as the AID-x402 Profile (Section 8.3).
+
+### 13.5 Stablecoin Chain Agnosticism
+
+AID is chain-agnostic by design. The `did:key` identity is not bound to any specific blockchain. Trust scores are computed from off-chain attestations, not chain-specific data. Merkle roots can be anchored on whichever chain is appropriate.
+
+AID works with any settlement chain — Base, Solana, Arc (Circle), Tempo (Stripe), Plasma (Tether), Codex, or future chains. Only the settlement layer changes; trust scoring, attestations, Merkle proofs, and receipts are identical across all chains.
+
+### 13.6 NIST Compatibility
 
 AID's Ed25519 identity is designed to complement — not replace — OAuth 2.0 / OpenID Connect identity as referenced in NIST SP 800-63-4 and the NIST NCCoE AI Agent Standards Initiative. In deployments requiring NIST compliance, AID trust MAY run alongside OAuth/OIDC identity in a hybrid mode where OAuth handles authentication and AID provides reputation scoring.
 
