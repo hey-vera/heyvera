@@ -18,7 +18,9 @@ transaction makes it smarter.
 > Updated: March 21, 2026. **DIF window is DAYS, not weeks.**
 
 ### TODAY (March 22 — Cannot Wait)
-- [ ] Submit 4-page trust scoring extension to DIF TAAWG (email, not polished spec)
+- [x] Join DIF as Contributor member (submitted)
+- [x] Submit trust scoring extension email to DIF TAAWG (sent to community@identity.foundation)
+- [ ] LinkedIn message to Andor Kesselman (TAAWG chair)
 - [ ] Register @aidprotocol npm org + aid-trust PyPI + typosquats
 - [ ] Submit lightning talk proposal to AAIF MCP Dev Summit (NYC, April 2-3)
 - [ ] Switch DID method from `did:clawnet` to `did:key` in published spec (30 min)
@@ -54,7 +56,7 @@ transaction makes it smarter.
 - [x] Trust scoring formula — 4 dimensions live (`computeTrustScoreWithProof()`)
 - [x] x402 provider mode (`src/routes/x402-skills.ts`)
 - [x] Attestation system + validator roles (`src/db/attestations.ts`, `src/routes/validators.ts`)
-- [x] 40 attack vectors documented with mitigations (Sections 20, 26, 32, 39, 41.4, 43.3)
+- [x] 46 attack vectors documented with mitigations (Sections 20, 26, 32, 39, 41.4, 43.3, 44.2, 45.2)
 
 ### PHASE 1: SHIP THE TRUST LAYER (Weeks 1-4, $0 infra cost)
 
@@ -162,7 +164,7 @@ transaction makes it smarter.
 
 ---
 
-**Progress: 14/110 items complete (13%). NEXT: DIF + NIST + npm registration TODAY.**
+**Progress: 16/112 items complete (14%). NEXT: LinkedIn to Andor → npm registration → NIST draft.**
 
 ---
 
