@@ -165,7 +165,7 @@ transaction makes it smarter.
 
 ---
 
-**Progress: 20/112 items complete (18%). NEXT: Publish mcp-trust to npm → NIST draft → build playground.**
+**Progress: 24/112 items complete (21%). NEXT: Submit NIST comment → build playground → start Phase 1 code.**
 
 ---
 
@@ -221,8 +221,9 @@ AID — 3 parties (client, server, blockchain):
 **DID Method Note:** The published spec and DIF submission MUST use `did:key` (W3C standard,
 supports Ed25519 natively) as the primary DID method. `did:clawnet:` is the internal alias
 used throughout this engineering document. Both resolve to the same agent via the same key
-material. Migration: `did:key:zABC...` → `did:key:zABC...` (same multibase public key).
-See Section 43.2 Flaw 11 for rationale.
+material. The migration from `did:clawnet:` to `did:key:` is complete — 34 references
+updated (see BUILD PROGRESS CHECKLIST). Both resolve to the same agent via the same
+Ed25519 key material. See Section 43.2 Flaw 11 for rationale.
 
 **Crypto-Agility:** AID identity is algorithm-agile by design. The current reference
 implementation uses Ed25519 (`did:key` with multicodec `0xed`) and SHA-384 for trust-layer
@@ -964,7 +965,7 @@ framework integrations, and third-party adoption.
 │  │ Identity │  │  Engine  │  │ Handler  │  │ (Merkle-anchored)│   │
 │  │          │  │          │  │          │  │                  │   │
 │  │ Ed25519  │  │ 11-dim   │  │ EIP-3009 │  │ Dual-signed     │   │
-│  │ DID:claw │  │ scoring  │  │ Direct   │  │ Portable        │   │
+│  │ DID:key  │  │ scoring  │  │ Direct   │  │ Portable        │   │
 │  │ Merkle   │  │ Weighted │  │ Batched  │  │ Offline-verify  │   │
 │  └────┬─────┘  └────┬─────┘  └────┬─────┘  └───────┬──────────┘   │
 │       │              │              │                │              │
@@ -2289,8 +2290,10 @@ Example: Agent calls a 10-credit skill (using canonical 5-tier boundaries)
 new    (0-19,  base price):  Agent pays 10cr   → 8.5cr creator, 1.5cr protocol
 building(20-39, base price): Agent pays 10cr   → 8.5cr creator, 1.5cr protocol
 caution(40-59, 10% off):     Agent pays 9cr    → 7.65cr creator, 1.35cr protocol
-standard(60-79, 25% off):    Agent pays 7.5cr  → 6.375cr creator, 1.125cr protocol
-proceed(80+,   50% off):     Agent pays 5cr    → 4.25cr creator, 0.75cr protocol
+standard(60-79, 20% off):    Agent pays 8cr    → 6.8cr creator, 1.2cr protocol
+trusted(80-89, 25% off):     Agent pays 7.5cr  → 6.375cr creator, 1.125cr protocol
+proceed(90+ AND verified AND 6mo AND $50 rev, 30% off):
+                              Agent pays 7cr    → 5.95cr creator, 1.05cr protocol
 
 Protocol always earns: orchestration fee (2cr) + 15% of skill cost
 High-trust agents pay less BUT transact MORE (volume compensates margin)
