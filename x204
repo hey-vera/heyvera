@@ -23,7 +23,7 @@ transaction makes it smarter.
 - [x] LinkedIn message to Andor Kesselman (TAAWG chair, sent)
 - [x] Register @aidprotocol npm org + publish placeholder packages (mcp-trust, trust-compute, aar-bridge)
 - [ ] ~~Submit lightning talk to MCP Dev Summit~~ — SKIPPED (travel cost, sponsorship-gated)
-- [ ] Switch DID method from `did:clawnet` to `did:key` in published spec (30 min)
+- [x] Switch DID method from `did:clawnet` to `did:key` in published spec (done — 34 refs updated)
 - [ ] Draft 2-page NIST NCCoE comment on agent identity concept paper (Flaw 19 — due April 2)
 - [x] Publish `@aidprotocol/trust-compute@1.0.1` to npm (standalone scoring lib, live)
 
@@ -164,7 +164,7 @@ transaction makes it smarter.
 
 ---
 
-**Progress: 18/112 items complete (16%). NEXT: NIST draft → did:key switch → @aidprotocol/mcp-trust.**
+**Progress: 20/112 items complete (18%). NEXT: Publish mcp-trust to npm → NIST draft → build playground.**
 
 ---
 
@@ -220,7 +220,7 @@ AID — 3 parties (client, server, blockchain):
 **DID Method Note:** The published spec and DIF submission MUST use `did:key` (W3C standard,
 supports Ed25519 natively) as the primary DID method. `did:clawnet:` is the internal alias
 used throughout this engineering document. Both resolve to the same agent via the same key
-material. Migration: `did:clawnet:zABC...` → `did:key:zABC...` (same multibase public key).
+material. Migration: `did:key:zABC...` → `did:key:zABC...` (same multibase public key).
 See Section 43.2 Flaw 11 for rationale.
 
 **Request Headers (Client → Server):**
@@ -236,7 +236,7 @@ PAYMENT-SIGNATURE:    <EIP-3009 signed authorization> # Direct settlement (x402-
 
 **Response Headers (Server → Client):**
 ```
-X-AID-PROVIDER-DID:   did:clawnet:zXYZ...            # Mutual authentication
+X-AID-PROVIDER-DID:   did:key:zXYZ...            # Mutual authentication
 X-AID-PROVIDER-PROOF: <Ed25519 countersignature>      # Server proves identity
 X-AID-RECEIPT:        <base64 atomic receipt>          # Portable, Merkle-anchored
 X-AID-FEEDBACK-URL:   /aid/feedback/{receiptId}      # Outcome reporting endpoint
@@ -298,10 +298,10 @@ problem: new agents paid double, deterring them from building trust. Instead:
 Both parties prove identity in every transaction:
 
 ```
-Client proves:  "I am did:clawnet:zABC... with trust score 87,
+Client proves:  "I am did:key:zABC... with trust score 87,
                  1,247 successful transactions, Merkle-anchored"
 
-Server proves:  "I am did:clawnet:zXYZ... with 99.8% uptime SLA,
+Server proves:  "I am did:key:zXYZ... with 99.8% uptime SLA,
                  verified by 340 validators, 12,847 invocations"
 ```
 
@@ -339,7 +339,7 @@ ClawStars has Layer 5. AID has Layers 2-3. AID is the first to unify them.
 │  LAYER 2: CRYPTOGRAPHIC IDENTITY                                 │
 │  Self-certifying DIDs, Ed25519 keypairs, Merkle proofs          │
 │  Built on: ClawNet AID (Agent Identity Document)                │
-│  DID = did:clawnet:{publicKeyMultibase} — public key IS the ID. │
+│  DID = did:key:{publicKeyMultibase} — public key IS the ID. │
 │  Offline-verifiable. No registry lookup needed. Portable.       │
 ├─────────────────────────────────────────────────────────────────┤
 │  LAYER 1: PAYMENT                                                │
@@ -442,12 +442,12 @@ The receipt travels with the agent forever. x402 receipts die with the platform.
   "timestamp": "2026-03-21T14:30:00Z",
 
   "payer": {
-    "did": "did:clawnet:zABC...",
+    "did": "did:key:zABC...",
     "trustScore": 87,
     "signature": "ed25519:..."
   },
   "provider": {
-    "did": "did:clawnet:zXYZ...",
+    "did": "did:key:zXYZ...",
     "trustScore": 94,
     "signature": "ed25519:..."
   },
@@ -638,12 +638,12 @@ because low-trust agents' feedback barely counts.
 When a provider's trust score drops significantly, all active consumers are notified:
 
 ```
-GET /aid/alerts?did=did:clawnet:zXYZ...
+GET /aid/alerts?did=did:key:zXYZ...
 SSE stream:
 
 event: trust_degradation
 data: {
-  "provider": "did:clawnet:zXYZ...",
+  "provider": "did:key:zXYZ...",
   "previousScore": 87,
   "currentScore": 62,
   "trigger": "3 consecutive failures reported",
@@ -671,7 +671,7 @@ GET /aid/heartbeat
 Response:
 {
   "provider": {
-    "did": "did:clawnet:zXYZ...",
+    "did": "did:key:zXYZ...",
     "trustScore": 94,
     "uptime": 0.998,
     "avgLatencyMs": 45,
@@ -731,7 +731,7 @@ For agents with an AID, an authenticated heartbeat returns personalized data:
 
 ```
 GET /aid/heartbeat
-Headers: X-AID-DID: did:clawnet:zABC..., X-AID-PROOF: <sig>
+Headers: X-AID-DID: did:key:zABC..., X-AID-PROOF: <sig>
 
 Additional fields in response:
 {
@@ -744,7 +744,7 @@ Additional fields in response:
     "recentReceipts": 47,
     "feedbackPending": 3,
     "alerts": [
-      { "type": "trust_degradation", "provider": "did:clawnet:zDEF...", "delta": -12 }
+      { "type": "trust_degradation", "provider": "did:key:zDEF...", "delta": -12 }
     ]
   }
 }
@@ -1226,11 +1226,11 @@ Issued At: 2026-03-21T14:30:00Z
 ```
 SIWE:  "I am address 0xABC on chain 8453" (session, no context)
 
-AID:  "I am did:clawnet:zABC with trust score 87,
+AID:  "I am did:key:zABC with trust score 87,
         1,247 successful transactions, Merkle-anchored,
         authorized for data_query and skill_invoke,
         budget 50 USDC, expires 2026-03-22T14:30:00Z,
-        delegated from did:clawnet:zPRINCIPAL"
+        delegated from did:key:zPRINCIPAL"
 ```
 
 SIWE proves you ARE someone. AID proves you are someone WORTH TRUSTING.
@@ -2004,7 +2004,7 @@ X-AID-TIMESTAMP = "2026-03-21T14:30:00Z"
 1. Parse `X-AID-DID`, `X-AID-PROOF`, `X-AID-TIMESTAMP` from request headers
 2. Reject if `|now - timestamp| > 300` seconds (5-minute window)
 3. Reconstruct `signatureInput` from DID + timestamp + method + path + body hash
-4. Extract public key from DID (self-certifying: `did:clawnet:{publicKeyMultibase}`)
+4. Extract public key from DID (self-certifying: `did:key:{publicKeyMultibase}`)
 5. Verify Ed25519 signature against reconstructed input
 6. If valid → proceed. If invalid → 401 Unauthorized.
 
@@ -3271,12 +3271,12 @@ Anti-abuse:
 
 ```html
 <!-- One line to embed -->
-<img src="https://api.claw-net.org/badge/did:clawnet:zABC..."
+<img src="https://api.claw-net.org/badge/did:key:zABC..."
      alt="AID Trust Score: 94" />
 
 <!-- Or as a link with hover card -->
-<a href="https://claw-net.org/agent/did:clawnet:zABC...">
-  <img src="https://api.claw-net.org/badge/did:clawnet:zABC..." />
+<a href="https://claw-net.org/agent/did:key:zABC...">
+  <img src="https://api.claw-net.org/badge/did:key:zABC..." />
 </a>
 ```
 
@@ -3431,7 +3431,7 @@ backed by their verifiable trust history instead of USDC collateral.
 ```
 Today:    Agent A needs USDC to pay Agent B for a service
 Tomorrow: Agent A (trust 95, 50K successful transactions) issues:
-          "IOU: 0.005 USDC, payable within 24h, backed by did:clawnet:zAAA"
+          "IOU: 0.005 USDC, payable within 24h, backed by did:key:zAAA"
           Agent B accepts because:
             1. Agent A's trust score is cryptographically verified
             2. Agent A's payment history shows 100% settlement rate
@@ -3480,7 +3480,7 @@ How it works:
   - Trust scores already rank alternatives
   - ClawNet's composite-executor already has auto-replace (autoReplace flag)
   - AID just formalizes this into a protocol-level feature:
-    X-AID-FALLBACK: did:clawnet:zALT... (server suggests fallback in heartbeat)
+    X-AID-FALLBACK: did:key:zALT... (server suggests fallback in heartbeat)
 ```
 
 ClawNet already has the building blocks (skill-health-cron, composite auto-replace).
@@ -3636,14 +3636,14 @@ const server = new McpServer({ name: 'my-data-api' });
 
 // One line. Your MCP server now has trust.
 server.use(aidTrust({
-  providerDid: 'did:clawnet:zXYZ...',
+  providerDid: 'did:key:zXYZ...',
   minTrustScore: 40
 }));
 
 // Caller's trust score is available in every tool handler:
 server.tool('get-data', async (params, context) => {
   console.log(context.AID.callerTrust); // 87
-  console.log(context.AID.callerDid);   // did:clawnet:zABC...
+  console.log(context.AID.callerDid);   // did:key:zABC...
   // ... serve data
 });
 ```
@@ -3653,7 +3653,7 @@ server.tool('get-data', async (params, context) => {
 {
   "tools": ["get-data", "search", "analyze"],
   "AID": {
-    "providerDid": "did:clawnet:zXYZ...",
+    "providerDid": "did:key:zXYZ...",
     "providerTrust": 94,
     "trustGate": 40,
     "pricingTiers": [
@@ -3683,7 +3683,7 @@ with signed metadata. AID trust becomes a standard metadata field:
   "securitySchemes": { "apiKey": { "type": "apiKey" } },
   "extensions": {
     "aidTrust": {
-      "did": "did:clawnet:zABC...",
+      "did": "did:key:zABC...",
       "trustScore": 87,
       "trustVerdict": "proceed",
       "verified": true,
@@ -3931,7 +3931,7 @@ On startup:
 **Rule:** The aidTrust extension in A2A agent cards MUST include a `trustProof`:
 ```json
 "aidTrust": {
-  "did": "did:clawnet:zABC...",
+  "did": "did:key:zABC...",
   "trustScore": 87,
   "trustVerdict": "proceed",
   "trustTimestamp": "2026-03-21T14:00:00Z",
@@ -5312,7 +5312,7 @@ aspirational 11-dimension system that exists only on paper.
 
 **Flaw 11: did:clawnet DID Format Is Non-Standard**
 
-The plan uses `did:clawnet:{publicKeyMultibase}` — a custom DID method. MCP-I uses W3C
+The plan uses `did:key:{publicKeyMultibase}` — a custom DID method. MCP-I uses W3C
 DIDs with established methods (did:key, did:web, did:pkh). The DIF TAAWG will not adopt a
 proprietary DID method. AID's identity layer is immediately disqualified from standardization.
 
@@ -5321,7 +5321,7 @@ ClawNet's internal system via a resolver. This makes AID instantly compatible wi
 DIF, and the W3C DID ecosystem. `did:clawnet:` can exist as an internal alias but MUST NOT
 be the primary identifier in the published spec.
 
-**Migration path:** `did:clawnet:zABC...` → `did:key:zABC...` (same key material, different
+**Migration path:** `did:key:zABC...` → `did:key:zABC...` (same key material, different
 method prefix). Existing AID documents get a `did:key` alias. Both resolve to the same agent.
 The DIF spec uses `did:key` exclusively. Internal ClawNet code can use either.
 
