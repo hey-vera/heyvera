@@ -172,3 +172,50 @@ export function dynamicCreditCost(
 
   return round6(Math.max(0.001, cost));
 }
+
+// ─── AID Trust-Gated Pricing ────────────────────────────────────────────────
+
+/**
+ * Trust tier definition per AID Protocol Specification Section 3.3.
+ */
+export interface TrustTier {
+  minTrust: number;
+  verdict: string;
+  discount: number;       // 0.0–0.30 (0% to 30%)
+  settlement: string;
+}
+
+/** Canonical trust pricing tiers (spec Section 3.3, hardened in Section 39.6). */
+export const AID_TRUST_TIERS: TrustTier[] = [
+  { minTrust: 90, verdict: 'proceed',  discount: 0.30, settlement: 'deferred' },
+  { minTrust: 80, verdict: 'trusted',  discount: 0.25, settlement: 'batched' },
+  { minTrust: 60, verdict: 'standard', discount: 0.20, settlement: 'batched' },
+  { minTrust: 40, verdict: 'caution',  discount: 0.10, settlement: 'standard' },
+  { minTrust: 20, verdict: 'building', discount: 0.00, settlement: 'immediate' },
+  { minTrust: 0,  verdict: 'new',      discount: 0.00, settlement: 'immediate' },
+];
+
+/**
+ * Resolve the trust tier for a given trust score.
+ * Returns the highest tier the agent qualifies for.
+ */
+export function resolveTrustTier(trustScore: number): TrustTier {
+  for (const tier of AID_TRUST_TIERS) {
+    if (trustScore >= tier.minTrust) return tier;
+  }
+  return AID_TRUST_TIERS[AID_TRUST_TIERS.length - 1];
+}
+
+/**
+ * Apply trust-gated pricing discount to a credit cost.
+ * Returns the discounted cost (never below 0.001 credits).
+ *
+ * Note: "proceed" tier (30% discount) requires additional checks beyond
+ * trust score alone (verified, 6mo activity, $50 revenue). Callers should
+ * verify those conditions separately before allowing the proceed discount.
+ */
+export function trustGatedCreditCost(baseCost: number, trustScore: number): number {
+  const tier = resolveTrustTier(trustScore);
+  const discounted = baseCost * (1 - tier.discount);
+  return round6(Math.max(0.001, discounted));
+}

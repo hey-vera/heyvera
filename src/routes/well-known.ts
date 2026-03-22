@@ -6,7 +6,7 @@
  */
 import { Hono } from 'hono';
 import { env } from '../config/index';
-import { getEd25519PublicKeyMultibase } from '../utils/ed25519-signer';
+import { getEd25519PublicKeyMultibase, getEd25519PublicKeyRaw } from '../utils/ed25519-signer';
 
 const router = new Hono();
 
@@ -567,6 +567,25 @@ router.get('/did.json', (c) => {
         serviceEndpoint: 'https://api.claw-net.org/v1/manifest',
       },
     ],
+  });
+});
+
+// ── GET /aid-platform-key — Platform Ed25519 public key in JWK format ───
+//
+// Used by A2A consumers and @aidprotocol/mcp-trust middleware to verify
+// trustProof signatures in agent cards and heartbeat responses.
+// Same key material as /did.json verificationMethod, different format.
+// ──────────────────────────────────────────────────────────────────────────
+
+router.get('/aid-platform-key', (c) => {
+  const raw = getEd25519PublicKeyRaw();
+  return c.json({
+    kty: 'OKP',
+    crv: 'Ed25519',
+    x: raw.toString('base64url'),
+    kid: `${DID_ID}#key-1`,
+    use: 'sig',
+    alg: 'EdDSA',
   });
 });
 

@@ -252,6 +252,14 @@ function encodeOfferHeader(offerResponse: X402OfferResponse): string {
 
 export const x402SkillsRouter = new Hono();
 
+// ─── AID Protocol: optional identity + trust verification on x402 routes ──────
+// When X-AID-DID is present, verify Ed25519 proof and resolve trust score.
+// When absent, x402 flow proceeds unchanged (backwards compatible).
+import { checkAidProof } from '../middleware/aid-verify';
+import { aidProviderProof } from '../middleware/aid-provider-proof';
+x402SkillsRouter.use('*', checkAidProof);
+x402SkillsRouter.use('*', aidProviderProof);
+
 // ─── Build middleware (only when recipient address is configured) ──────────────
 
 // ─── Facilitator with fallback (uses FacilitatorPool) ────────────────────────

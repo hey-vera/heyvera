@@ -1070,6 +1070,25 @@ const MIGRATIONS: { version: number; sql: string }[] = [
       erased_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
   ` },
+  { version: 110, sql: `
+    CREATE TABLE IF NOT EXISTS aid_feedback (
+      id TEXT PRIMARY KEY,
+      receipt_id TEXT NOT NULL,
+      reporter_did TEXT NOT NULL,
+      reporter_owner_key TEXT NOT NULL,
+      provider_did TEXT,
+      skill_id TEXT,
+      outcome TEXT NOT NULL CHECK (outcome IN ('success', 'partial', 'failure')),
+      quality_score INTEGER CHECK (quality_score BETWEEN 1 AND 10),
+      latency_acceptable INTEGER,
+      notes TEXT,
+      weight REAL NOT NULL DEFAULT 1.0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_aid_feedback_receipt ON aid_feedback(receipt_id);
+    CREATE INDEX IF NOT EXISTS idx_aid_feedback_reporter ON aid_feedback(reporter_did, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_aid_feedback_provider ON aid_feedback(provider_did, created_at DESC);
+  ` },
 ];
 
 function runMigrations(): void {
