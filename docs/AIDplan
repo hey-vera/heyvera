@@ -128,6 +128,7 @@ transaction makes it smarter.
 - [ ] AIDEscrow.sol reference contract on Base — trust-gated escrow timelocks (from PayCrow, Section 15.7)
 - [ ] ZK proof of scoring function via RISC Zero — <$0.01/proof (accelerated from Phase 4, from Mnemom)
 - [ ] Sybil risk as supplementary signal in AID documents — consume Cred/external data (Section 15.7)
+- [ ] Trust Score v1.1 — add counterpartyDiversity (15%) + recency-weighted successRate (Section 4.2)
 - [ ] Gas price circuit breaker for batch settlement (Vector 43)
 - [ ] Verification receipt in middleware — caller-verifiable ClawNet-signed token (Flaw 18)
 - [ ] ARA compatibility evaluation (Flaw 16)
@@ -415,9 +416,58 @@ verificationMultiplier = 1.0 | 1.1 | 1.2  (none | partial | full verification)
 finalScore = min(100, round(rawScore * verificationMultiplier))
 ```
 
+**v1.1 formula target (MAJOR version — 30-day announcement before activation):**
+
+Informed by competitive analysis of Cred Protocol, PayCrow, Mnemom, KAMIYO.
+Ship v1.0 first (get DIF traction), evolve to v1.1 with these improvements:
+
+```
+PROPOSED v1.1 (5 behavioral dimensions):
+  successRate           (0-1) × 35  (was 40, recency-weighted)
+  chainCoverage         (0-1) × 20  (was 25)
+  volume                (0-1) × 15  (was 20)
+  manifestAdherence     (0-1) × 15  (unchanged)
+  counterpartyDiversity (0-1) × 15  (NEW — unique counterparty DIDs / total txs)
+
+WHERE successRate uses recency weighting:
+  recentSuccess    = success rate over last 30 days (weight: 0.6)
+  historicalSuccess = success rate over full history (weight: 0.4)
+  successRate      = (recentSuccess × 0.6) + (historicalSuccess × 0.4)
+
+proofHash includes new inputs:
+  SHA-384(JCS({
+    inputs: { successRate, chainCoverage, volume, manifestAdherence, counterpartyDiversity },
+    weights: [35, 20, 15, 15, 15],
+    recencyWeights: { recent: 0.6, historical: 0.4, windowDays: 30 },
+    score: finalScore
+  }))
+```
+
+**Why each change:**
+- `counterpartyDiversity` closes the Sybil gaming gap at formula level (two agents
+  transacting 5,000 times with each other score 90+ under v1.0 but ~40 under v1.1
+  because diversity ≈ 0). Data already exists in attestation records.
+- `recency weighting` closes the bust-out window from weeks to days (a sudden
+  performance drop tanks the score immediately instead of being averaged out by
+  months of good history).
+- Age/maturity is NOT added as a dimension because the `proceed` verdict already
+  requires 6mo + $50 revenue. Handled at access control, not scoring.
+
+**What NOT to add (from competitor analysis):**
+- Social graph signals (PayCrow's Moltbook 15%) — gameable, subjective, platform-locked
+- Financial identity (Cred's gas patterns, funding sources) — DeFi-relevant, not commerce-relevant
+- LLM reasoning quality (Mnemom's integrity/drift) — AID scores outcomes, not process
+- Chain activity (PayCrow's 20%) — financial behavior ≠ service quality
+
+**The thesis:** AID scores the thing that matters in commerce — did this agent do the
+job it said it would do, for many different customers, consistently over recent time,
+and can you verify all of it?
+
 **Anti-gaming mechanisms:**
 - Trust decay: scores lose 10% weight per 30 days of inactivity (from Maiat)
-- Multi-dimensional: 11 sub-scores prevent gaming any single metric (from ClawStars)
+- Counterparty diversity: Sybil self-dealing scores near zero (from Cred insight)
+- Recency weighting: bust-out window reduced from weeks to days (from Mnemom insight)
+- Multi-dimensional: 5 behavioral sub-scores prevent gaming any single metric
 - Weighted reviews: reviewer's own history determines review weight (from Maiat)
 - Verification multiplier: 1.2x for verified agents (from ClawStars)
 - Cross-consumption: agents must USE the ecosystem, not just sell into it (from ClawStars)
