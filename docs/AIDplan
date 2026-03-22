@@ -7100,25 +7100,87 @@ None of these overlap. All compose. AID is the missing piece in every stack.
 
 ## 46. DIF STRATEGY + REPO SEPARATION (March 22, 2026)
 
-### 46.1 Two-Track Development Model
+### 46.1 Two-Track Development Model + Corrected Split
+
+**The rule:** "If two different AID implementations can't agree on this, does
+interoperability break?" If YES → spec. If NO → ClawNet.
 
 ```
 TRACK 1 — AID PROTOCOL (DIF spec, slow, consensus-driven):
-  Core trust scoring formula, AID document format, HTTP headers,
-  attestation format, receipt format, verification protocol,
-  trust verdicts, key rotation, W3C VC certificates, privacy modes
-  → This is the INTEROPERABLE LAYER anyone can implement
+
+  CORE (interoperable layer — anyone can implement):
+    Trust scoring formula (5 dimensions, weights, proof hash)
+    AID document format (JSON schema)
+    HTTP headers (request, response, 402)
+    Signing protocol (RFC 9421 aligned)
+    Receipt format (dual-signed, Merkle-proved)
+    Verification protocol (offline, Merkle proof)
+    Trust verdicts (new → proceed mapping)
+    Key rotation protocol (canonical ID system)
+    Attestation format (hash-chained, SHA-384)
+    Connectivity profiles (always-on, intermittent, offline)
+    Privacy modes (full, shielded, verdict-only)
+    KERI migration compatibility note
+    CSA ATF maturity level mapping
+    W3C VC trust certificate format
+
+  INTERFACES FOR ADVANCED FEATURES (standardized formats):
+    Guardian protocol — declaration format, freeze request format, verifier behavior
+    Trust gravity decay formula — the math (not proof-of-life challenge implementation)
+    Anomaly score field — standardized 0-1 score in AID document
+    Immune response thresholds — counterparty attestation format + trigger levels
+    Insurance claim format — parametric trigger conditions + claim data structure
+    Trust escrow format — escrow request, outcome recording, point lock/burn/return
+    Canary agent type — agentType: "canary" in AID document schema
+    Trust trajectory fields — score history array, trend, projection
+    Freeze propagation format — W3C VC status + freeze event structure
+    Proof-of-life protocol — challenge-response format, decay schedule
+    Specialized trust scores — per-category sub-scores in AID document
+    Succession format — DID migration with signed continuity
+    Onboarding milestones — stage definitions + recording format
+    Recovery/rehabilitation — appeal format, probation status, restoration schedule
+    Counterparty contribution curve — diminishing returns formula
+    Reporter independence scoring — formula for weighting collective signals
+
   → Submitted to DIF TAAWG as work item
   → 6-18 months to ratification
 
 TRACK 2 — CLAWNET PRODUCT (fast, 100% our control):
-  Guardian system + marketplace, autonomous immune response,
-  trust gravity well + proof of life, parametric insurance fund,
-  trust escrow, canary agents, anomaly detection, leaderboard,
-  social bot, x402 trust-gated pricing, settlement batching
-  → This is the PRODUCT LAYER where revenue comes from
-  → Built ahead of spec, battle-tested, then proposed to DIF with data
+
+  INFRASTRUCTURE (business logic + operations):
+    Guardian marketplace — registry, staking, economics, assignment, anti-cartel,
+                           secondary guardian rotation
+    Insurance fund management — custody, premium collection, yield, payouts,
+                                actuarial modeling, solvency rules
+    Anomaly detection engine — ML models, behavioral baselines, adaptive + anchored
+    Trust computation API — the actual service computing and serving scores at scale
+    Merkle anchoring infrastructure — cron jobs, chain submission, multi-chain
+    Freeze propagation infrastructure — WebSocket server, webhook delivery, pipeline
+    Canary agent operations — deployment, behavioral profiles, sensor network
+
+  PRODUCTS (revenue-generating):
+    Public leaderboard (trust.aidprotocol.org)
+    Social marketing bot
+    x402 trust-gated pricing engine
+    Settlement batching and optimization
+    OpenClaw integration
+    Advanced analytics dashboard
+    White-label trust scoring for platforms
+    Mobile proof-of-life app
+    Guardian reliability dashboard
+    Developer documentation site (docs.aidprotocol.org)
+
+  TOKEN ECONOMICS (Phase 6):
+    $CLAWNET token contract
+    Guardian staking mechanics
+    Trust computation burn mechanism
+    Governance voting infrastructure
 ```
+
+**The pattern:** interfaces go in the spec (freeze request FORMAT), business logic
+stays in ClawNet (guardian MARKETPLACE). A guardian on Platform A needs to freeze an
+agent on Platform B — if the format isn't standardized, cross-platform guardians don't work.
+But who gets approved and how much they stake is each platform's business decision.
 
 **Analogy:** AID = SMTP (open standard). ClawNet = Gmail (dominant product on the standard).
 
