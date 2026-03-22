@@ -247,6 +247,15 @@ export function createAttestation(params: CreateAttestationParams): string {
 
 // ─── Auto-attestation (fire-and-forget for billing sites) ───────────────────
 
+/** Execution step evidence for the execution proof layer */
+export interface ExecutionStep {
+  endpointId: string;
+  success: boolean;
+  cached: boolean;
+  durationMs: number;
+  cost: number;
+}
+
 export function createAutoAttestation(
   apiKey: string,
   actionType: string,
@@ -256,6 +265,7 @@ export function createAutoAttestation(
   creditsCharged: number,
   durationMs?: number,
   manifestId?: string,
+  executionSteps?: ExecutionStep[],
 ): string | null {
   try {
     const apiKeyHash = hashApiKey(apiKey);
@@ -279,7 +289,26 @@ export function createAutoAttestation(
       }
     }
 
-    return createAttestation({
+    // Build source hashes from execution steps (execution proof layer)
+    const sourceHashes = executionSteps?.map(step => ({
+      source: step.endpointId,
+      hash: crypto.createHash('sha256').update(JSON.stringify(step)).digest('hex'),
+      fetched_at: new Date().toISOString(),
+    }));
+
+    // Compute execution proof summary
+    const executionProof = executionSteps ? {
+      totalSteps: executionSteps.length,
+      successfulSteps: executionSteps.filter(s => s.success).length,
+      cachedSteps: executionSteps.filter(s => s.cached).length,
+      totalLatencyMs: executionSteps.reduce((sum, s) => sum + s.durationMs, 0),
+      stepEndpoints: executionSteps.map(s => s.endpointId),
+      proofHash: crypto.createHash('sha256')
+        .update(JSON.stringify(executionSteps.map(s => ({ id: s.endpointId, ok: s.success, ms: s.durationMs }))))
+        .digest('hex'),
+    } : undefined;
+
+    const attestationId = createAttestation({
       apiKeyHash,
       attestationType: 'automatic',
       manifestId,
@@ -290,10 +319,14 @@ export function createAutoAttestation(
       actionEndpoint,
       inputHash,
       responseHash: responseHash || undefined,
+      sourceHashes,
       creditsCharged,
       durationMs,
       outcomeStatus: 'success',
+      outcomeData: executionProof ? { executionProof } : undefined,
     });
+
+    return attestationId;
   } catch (err) {
     logger.warn({ err, actionType }, 'Auto-attestation failed — non-blocking');
     return null;

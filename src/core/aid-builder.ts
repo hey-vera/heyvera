@@ -21,12 +21,13 @@ export interface TrustStats {
   successRate: number;
   chainCoverage: number;
   attestationCount: number;
+  manifestAdherence: number;
 }
 
 export interface TrustScoreProof {
   score: number;
   inputs: TrustStats;
-  weights: { successRate: number; chainCoverage: number; volume: number };
+  weights: { successRate: number; chainCoverage: number; volume: number; manifestAdherence: number };
   proofHash: string;
 }
 
@@ -158,7 +159,13 @@ export function buildAIDDocument(did: string): AIDDocument | null {
   ).get(ownerKey) as any)?.cnt ?? 0;
   const chainCoverage = totalAttestations > 0 ? chainedCount / totalAttestations : 0;
 
-  const trustStats: TrustStats = { successRate, chainCoverage, attestationCount: totalAttestations };
+  // Manifest adherence: fraction of manifest-checked attestations that aligned
+  const manifestAligned = stats?.manifest_aligned ?? 0;
+  const manifestUnaligned = stats?.manifest_unaligned ?? 0;
+  const manifestTotal = manifestAligned + manifestUnaligned;
+  const manifestAdherence = manifestTotal > 0 ? manifestAligned / manifestTotal : 0;
+
+  const trustStats: TrustStats = { successRate, chainCoverage, attestationCount: totalAttestations, manifestAdherence };
   const trustScore = computeTrustScoreWithProof(trustStats);
 
   const merkleRoot = snapshot?.merkle_root || crypto.createHash('sha256').update('').digest('hex');
@@ -281,9 +288,13 @@ export function buildPortableTrustChain(did: string, maxAttestations: number = 5
     'SELECT COUNT(*) as cnt FROM attestations WHERE api_key_hash = ? AND prev_attestation_hash IS NOT NULL'
   ).get(ownerKey) as any)?.cnt ?? 0;
   const chainCoverage = totalAttestations > 0 ? chainedCount / totalAttestations : 0;
+  const mAligned = stats?.manifest_aligned ?? 0;
+  const mUnaligned = stats?.manifest_unaligned ?? 0;
+  const mTotal = mAligned + mUnaligned;
+  const manifestAdherence = mTotal > 0 ? mAligned / mTotal : 0;
 
   const trustScore = computeTrustScoreWithProof({
-    successRate, chainCoverage, attestationCount: totalAttestations,
+    successRate, chainCoverage, attestationCount: totalAttestations, manifestAdherence,
   });
 
   // Generate Merkle proofs for the exported attestations
@@ -350,8 +361,12 @@ export function buildTrustSnapshot(did: string, ownerKey: string): string | null
     'SELECT COUNT(*) as cnt FROM attestations WHERE api_key_hash = ? AND prev_attestation_hash IS NOT NULL'
   ).get(ownerKey) as any)?.cnt ?? 0;
   const chainCoverage = totalAttestations > 0 ? chainedCount / totalAttestations : 0;
+  const sAligned = stats?.manifest_aligned ?? 0;
+  const sUnaligned = stats?.manifest_unaligned ?? 0;
+  const sManifestTotal = sAligned + sUnaligned;
+  const manifestAdherence = sManifestTotal > 0 ? sAligned / sManifestTotal : 0;
 
-  const trustStats: TrustStats = { successRate, chainCoverage, attestationCount: totalAttestations };
+  const trustStats: TrustStats = { successRate, chainCoverage, attestationCount: totalAttestations, manifestAdherence };
 
   // Sign the snapshot with platform Ed25519 key
   const snapshotData = {
@@ -386,13 +401,16 @@ export function buildTrustSnapshot(did: string, ownerKey: string): string | null
  * Returns the score, inputs, weights, and a proof hash.
  */
 export function computeTrustScoreWithProof(stats: TrustStats): TrustScoreProof {
-  const weights = { successRate: 50, chainCoverage: 30, volume: 20 };
+  const weights = { successRate: 40, chainCoverage: 25, volume: 20, manifestAdherence: 15 };
   const volumeScore = Math.min(stats.attestationCount / 1000, 1);
+  // manifestAdherence defaults to 0.5 (neutral) if no manifests have been checked
+  const manifestScore = (stats.manifestAdherence > 0 || stats.attestationCount > 0) ? stats.manifestAdherence : 0.5;
 
   const score = Math.round(
     stats.successRate * weights.successRate +
     stats.chainCoverage * weights.chainCoverage +
-    Math.min(volumeScore, 1) * weights.volume
+    Math.min(volumeScore, 1) * weights.volume +
+    manifestScore * weights.manifestAdherence
   );
 
   // Proof hash = SHA-256 of canonical JSON of inputs + weights + score

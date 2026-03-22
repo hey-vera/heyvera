@@ -365,6 +365,13 @@ apiRouter.post('/orchestrate', async (c) => {
         creditsToDeduct,
         totalDurationMs,
         manifestId,
+        execution.steps.map(s => ({
+          endpointId: s.endpointId,
+          success: s.success,
+          cached: s.cached,
+          durationMs: s.durationMs,
+          cost: s.cost,
+        })),
       );
       if (trustVerdict) trustVerdict.attestationId = attestationId || undefined;
     } catch {}

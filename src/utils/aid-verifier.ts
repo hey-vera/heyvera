@@ -276,25 +276,30 @@ export function verifyTrustScore(trustScore: any): TrustScoreVerifyResult {
   const successRate = inputs.successRate ?? 0;
   const chainCoverage = inputs.chainCoverage ?? 0;
   const attestationCount = inputs.attestationCount ?? 0;
+  const manifestAdherence = inputs.manifestAdherence ?? 0;
 
-  const wSuccessRate = weights?.successRate ?? 50;
-  const wChainCoverage = weights?.chainCoverage ?? 30;
+  const wSuccessRate = weights?.successRate ?? 40;
+  const wChainCoverage = weights?.chainCoverage ?? 25;
   const wVolume = weights?.volume ?? 20;
+  const wManifestAdherence = weights?.manifestAdherence ?? 15;
 
   const volumeScore = Math.min(attestationCount / 1000, 1);
+  // manifestAdherence defaults to 0.5 (neutral) if no manifests checked
+  const manifestScore = (manifestAdherence > 0 || attestationCount > 0) ? manifestAdherence : 0.5;
 
   const computedScore = Math.round(
     successRate * wSuccessRate +
     chainCoverage * wChainCoverage +
-    Math.min(volumeScore, 1) * wVolume
+    Math.min(volumeScore, 1) * wVolume +
+    manifestScore * wManifestAdherence
   );
 
   // Also verify proofHash if present
   let proofHashValid = true;
   if (trustScore.proofHash) {
     const proofData = {
-      inputs: { successRate, chainCoverage, attestationCount },
-      weights: { successRate: wSuccessRate, chainCoverage: wChainCoverage, volume: wVolume },
+      inputs: { successRate, chainCoverage, attestationCount, manifestAdherence },
+      weights: { successRate: wSuccessRate, chainCoverage: wChainCoverage, volume: wVolume, manifestAdherence: wManifestAdherence },
       score: computedScore,
     };
     const canonical = jcsSerialize(proofData);
