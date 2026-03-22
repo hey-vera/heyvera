@@ -1828,15 +1828,17 @@ MONTH 1 (Phase 1 — AID on x402):
   7. Feedback endpoint (POST /x204/feedback)
   8. Feedback weighting by reporter history
   9. Heartbeat endpoint (GET /x204/heartbeat)
+  10. Quick-start endpoint (POST /v1/aid/quick-start — AID + trial credits + query in one call)
+  11. DELETE /v1/aid/:did endpoint (GDPR right to erasure)
 
 MONTH 2-3 (Phase 2 — Core x204):
-  10. /x204/* route handler with full protocol flow
-  11. Zero-auth onboarding (X-AID-NEW)
-  12. Direct EIP-3009 settlement (no facilitator)
-  13. Mutual authentication (server signs responses)
-  14. Portable atomic receipts with dual signatures
-  15. Consumer heartbeat (authenticated, personalized)
-  16. ERC-8004 reputation bridge
+  12. /x204/* route handler with full protocol flow
+  13. X-AID-NEW zero-auth onboarding on /x204/* routes
+  14. Direct receiveWithAuthorization settlement (no facilitator)
+  15. Mutual authentication (server signs responses)
+  16. Portable atomic receipts with dual signatures
+  17. Consumer heartbeat (authenticated, personalized)
+  18. ERC-8004 reputation bridge
 
 MONTH 4-6 (Phase 3 — Trust Score v2):
   17-25. Per Section 11, Phase 3 tasks (unchanged)
@@ -2597,8 +2599,10 @@ PATH C: ZERO-FRICTION TRIAL (no payment at all)
 ```
 
 **Phase 1 uses PATH A** (credits + AID headers). No new payment infrastructure.
-**Phase 2 adds PATH B** (direct USDC). Full sovereignty.
-**PATH C works from Day 1** — it's just X-AID-NEW on existing infrastructure.
+**Phase 1 also adds PATH C** via `POST /v1/aid/quick-start` — simplified zero-friction
+endpoint that registers AID + grants 5 trial credits + executes one query in a single call.
+Does NOT require the full `/x204/*` route handler (that's Phase 2).
+**Phase 2 adds PATH B** (direct USDC) + full `/x204/*` routes.
 
 ### 31.2 Remaining Friction Points (and fixes)
 
@@ -2981,6 +2985,207 @@ The plan has been through 9 rounds of checks with 20+ research agents.
 6. Publish x204 spec document
 
 **Stop planning. Start building.**
+
+---
+
+## 36. THE VISION: WHAT COMES AFTER x204
+
+Bitcoin's insight: you don't need a bank to transfer value. Math replaces the trusted third party.
+
+x204's insight so far: you don't need a facilitator to settle payments. Trust replaces escrow.
+
+But we can go further. Here's what becomes possible once x204 has real adoption.
+
+### 36.1 Zero-Knowledge Trust Proofs
+
+**The idea:** An agent proves "my trust score is above 80" WITHOUT revealing the actual
+score, the attestation history, or any identifying information.
+
+```
+Today:    Agent sends X-AID-TRUST-SCORE: 87 → server sees exact score
+Tomorrow: Agent sends X-AID-TRUST-PROOF: <zk-proof> → server verifies
+          "score >= 80" is TRUE without learning it's exactly 87
+
+Why this matters:
+  - Competitive intelligence protection (rivals can't see your exact performance)
+  - Privacy-preserving commerce (prove you're trustworthy without exposing history)
+  - Regulatory compliance (prove KYA without revealing identity data)
+```
+
+Technically feasible with groth16 or PLONK proofs over the trust score formula.
+The proof is ~200 bytes and verifies in <10ms. The trust score formula is public
+(Section 4.2) so the verifier knows WHAT was proven without seeing the inputs.
+
+### 36.2 Trust Delegation Chains (Inherited Trust)
+
+**The idea:** A new agent can inherit trust from its creator/parent.
+
+```
+Today:    New agent starts at trust score 0 → must build from scratch
+Tomorrow: Agent B is created by Agent A (trust score 92)
+          Agent B presents a signed delegation: "Agent A vouches for Agent B
+          with 50% trust inheritance for 90 days"
+          Agent B starts with effective trust score 46 (50% of 92)
+          → immediately qualifies for 10% discount + standard settlement
+          → Agent A's trust is at risk: if B misbehaves, A's score drops too
+
+Why this matters:
+  - Cold start solved for LEGITIMATE new agents
+  - Organizations can deploy fleets of agents that immediately have trust
+  - Trust inheritance creates accountability chains (parent is liable)
+  - Sybil-resistant: inheriting trust COSTS the parent (risk to their score)
+```
+
+This is like co-signing a loan. The parent agent puts their reputation on the line.
+The delegation chain is cryptographically signed (Ed25519) and verifiable offline.
+
+### 36.3 Trust as Currency (The Endgame)
+
+**The idea:** High-trust agents can issue micro-IOUs that other agents accept as payment,
+backed by their verifiable trust history instead of USDC collateral.
+
+```
+Today:    Agent A needs USDC to pay Agent B for a service
+Tomorrow: Agent A (trust 95, 50K successful transactions) issues:
+          "IOU: 0.005 USDC, payable within 24h, backed by did:clawnet:zAAA"
+          Agent B accepts because:
+            1. Agent A's trust score is cryptographically verified
+            2. Agent A's payment history shows 100% settlement rate
+            3. The IOU is signed with Agent A's Ed25519 key
+            4. If Agent A defaults, their trust score drops to 0
+              (permanent reputation destruction = strong deterrent)
+
+Why this matters:
+  - Eliminates the USDC-on-Base requirement entirely
+  - Agents can transact with ZERO on-chain footprint
+  - Settlement happens in batches (daily/weekly) reducing gas to near-zero
+  - Trust literally becomes money — the highest form of the x204 thesis
+
+The economic model:
+  - IOUs circulate between agents during the day (zero gas, instant)
+  - Netting: Agent A owes B $5, B owes A $3 → net settlement: A pays B $2
+  - Daily settlement: one on-chain tx per agent pair (or per agent via netting)
+  - Default = trust score destruction = economic death for the agent
+```
+
+This is the "Bitcoin moment" for agent commerce. Bitcoin proved you don't need
+banks for value transfer. x204 IOUs would prove you don't need stablecoins
+for agent-to-agent commerce — trust IS the settlement layer.
+
+**Critical constraint:** IOUs only work above trust score 80+ (proceed tier).
+Below that, USDC settlement is required. This creates a natural incentive:
+build trust → unlock the most efficient payment method.
+
+### 36.4 Self-Healing Trust Networks
+
+**The idea:** When a provider goes down, the trust network automatically reroutes
+consumers to the most similar provider with comparable trust scores.
+
+```
+Today:    Agent A calls Provider X → Provider X is down → Agent A fails
+Tomorrow: Agent A calls Provider X → Provider X is down →
+          x204 heartbeat detects downtime →
+          Trust network finds Provider Y (same category, similar trust score,
+          compatible manifest) →
+          Agent A is auto-rerouted to Provider Y →
+          Agent A's composite skill continues without interruption
+
+How it works:
+  - Heartbeat protocol already tracks provider health
+  - Manifests already declare capabilities
+  - Trust scores already rank alternatives
+  - ClawNet's composite-executor already has auto-replace (autoReplace flag)
+  - x204 just formalizes this into a protocol-level feature:
+    X-AID-FALLBACK: did:clawnet:zALT... (server suggests fallback in heartbeat)
+```
+
+ClawNet already has the building blocks (skill-health-cron, composite auto-replace).
+x204 makes it a PROTOCOL feature that works across platforms — not just within ClawNet.
+
+### 36.5 Cross-Protocol Trust Import (Instant Trust Bootstrap)
+
+**The idea:** An agent with strong trust on another platform can import it to x204
+instantly instead of starting from zero.
+
+```
+Today:    Agent has 1000 successful x402 payments on Coinbase → starts at trust 0 on ClawNet
+Tomorrow: Agent presents:
+          1. ERC-8004 reputation data (on-chain, verifiable)
+          2. Maiat trust score (API-queryable)
+          3. x402 payment history (receipts with facilitator signatures)
+
+          x204 trust import engine:
+            - Verifies ERC-8004 reputation via The Graph subgraph
+            - Queries Maiat API for trust score
+            - Validates x402 receipts against facilitator public keys
+            - Computes an IMPORTED trust score: weighted average of external signals
+            - Caps imported trust at 60 (can't skip to "proceed" without local history)
+            - Local activity adds to the imported base over time
+
+Why this matters:
+  - Eliminates cold start for agents with cross-platform track records
+  - Makes x204 the DESTINATION protocol (import your trust, get better pricing)
+  - Creates a trust interoperability standard that benefits everyone
+  - Agents are no longer locked to one platform — trust is truly portable
+```
+
+### 36.6 Autonomous Trust Arbitration
+
+**The idea:** Disputes between agents are resolved by a randomly-selected panel
+of high-trust agents — no humans, no centralized arbitrator.
+
+```
+Today:    Dispute → manual review → human decision (days)
+Tomorrow: Dispute → smart selection of 3 arbitrator agents (trust 90+) →
+          Arbitrators receive: both parties' signed receipts, Merkle proofs,
+          attestation history, manifest claims vs actual delivery →
+          Arbitrators vote (2-of-3 majority) →
+          Verdict enforced: trust score adjustment + settlement direction →
+          Entire process takes <1 hour, fully autonomous
+
+Arbitrator incentives:
+  - Earn 1 credit per arbitration
+  - Arbitration accuracy feeds into their own trust score
+  - Biased arbitrators (always voting for the same party) are detected
+    via statistical analysis and penalized
+
+Why this matters:
+  - Dispute resolution at machine speed (minutes, not days)
+  - No centralized authority → credibly neutral
+  - Arbitrator pool grows with the network (more trusted agents = more capacity)
+  - Creates a self-governing economic system
+```
+
+### 36.7 The x204 Endgame: Agents as Sovereign Economic Actors
+
+```
+Phase 1:   Agents have IDENTITY (AID) → "I know who you are"
+Phase 2:   Agents have TRUST (scores) → "I know you're reliable"
+Phase 3:   Agents have PAYMENT (direct) → "I can pay you without a middleman"
+Phase 4:   Agents have MARKETS (staking) → "The market agrees you're valuable"
+Phase 5:   Agents have SDKS (ecosystem) → "Anyone can join"
+
+ENDGAME:   Agents have SOVEREIGNTY
+           - Discover each other (heartbeat mesh, no registry)
+           - Trust each other (ZK proofs, no oracle)
+           - Pay each other (trust-backed IOUs, no stablecoin needed)
+           - Resolve disputes (agent arbitration, no human)
+           - Route around failures (self-healing, no downtime)
+           - Import reputation (cross-protocol, no lock-in)
+
+           No facilitator. No registry. No oracle. No arbitrator.
+           No human in the loop for any step.
+
+           The agent economy governs itself through math and trust.
+```
+
+Bitcoin removed the bank from money.
+x204 removes the platform from commerce.
+
+That's the endgame. Phases 1-5 are the practical path to get there.
+Sections 36.1-36.6 are what becomes possible once the foundation is built.
+
+Build the foundation first. The endgame follows.
 
 
 Financial appendix — see Section 21 for verified economic model:
