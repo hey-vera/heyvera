@@ -5548,6 +5548,9 @@ This is AID's portable atomic receipt system, shipped before AID, with VI compat
 **Fix:** AID receipts are SUPERSET of AAR (AAR has no trust scoring, no Merkle anchoring, no
 feedback loop, no multi-dimensional trust). Ship `@aidprotocol/aar-bridge` for bidirectional
 conversion. Absorb rather than compete. The scoring is the moat, not the receipt format.
+**Bonus:** BotIndex already mapped AAR → Verifiable Intent (`aarToVerifiableIntent()`).
+By absorbing AAR, AID gets Mastercard VI compatibility as a freebie without doing that
+integration work directly. AAR becomes the transport format, AID becomes the intelligence layer.
 
 **Flaw 14: x402 Volume Data Undermines "Market Not Won" Narrative**
 
