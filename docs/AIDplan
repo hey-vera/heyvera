@@ -4652,6 +4652,71 @@ PHASE 3:
 
 **Total attack vectors mitigated: 54** (46 previous + 8 MCP ecosystem gaps).
 
+### 39.17 Architectural Security Gaps (Vectors 55-60)
+
+**Attack Vector 55: TOCTOU on Trust Scores**
+Middleware checks trust score at request time. Batched settlement happens up to 1 hour later.
+Between check and settlement, score could drop (flagged, key compromised, failures).
+But batched payment still executes because the permit was signed when score was high.
+**Mitigation:** Settlement service MUST re-verify trust score at settlement time. If score
+dropped below tier threshold since request time → downgrade settlement (batched → immediate)
+or hold for manual review. Add `scoreAtRequest` and `scoreAtSettlement` fields to receipt
+so discrepancies are visible and auditable.
+
+**Attack Vector 56: Heartbeat Information Disclosure**
+`GET /aid/heartbeat` returns platform operational data (uptime, version, agent count,
+decentralization phase). Free reconnaissance for attackers — they know exactly what
+version you run, how many agents exist, what infrastructure state you're in.
+**Mitigation:** Split heartbeat into two tiers:
+- **Public heartbeat:** protocol version + status flag (healthy/degraded) + services + pricing
+- **Authenticated heartbeat:** full operational data (agent counts, attestation totals, etc.)
+  only for verified parties (requires `X-AID-DID` + `X-AID-PROOF`)
+The current implementation already has authenticated heartbeat (Section 7.2 of spec) but the
+public heartbeat exposes too much. Move `stats` to authenticated-only.
+
+**Attack Vector 57: Trust Score Enumeration**
+Public leaderboard exposes every DID + exact trust score → attacker enumerates registry,
+identifies high-value targets (score 90+ = large transactions), tracks declining agents
+(bust-out targets), spots fast-rising agents (groomed Sybil accounts).
+**Mitigation:**
+- Leaderboard shows aggregated stats (agents per tier, category averages) NOT individual
+  DID-level bulk enumeration
+- Individual DID lookups rate-limited (100/hour per IP)
+- Privacy mode (verdict-only) is DEFAULT for new agents — agents opt IN to public score
+- Detailed trust profiles require authentication or explicit agent consent
+
+**Attack Vector 58: Base Chain Downtime**
+All Merkle anchoring goes to Base. If Base sequencer has an outage (Coinbase-operated SPOF),
+Merkle roots can't be anchored. Attestations accumulate without on-chain proof. Verification
+degrades to "trust the platform."
+**Mitigation:** Add secondary anchor chain. Anchor to BOTH Base AND Ethereum mainnet
+(most censorship-resistant — anchor less frequently due to cost, e.g., daily vs hourly).
+Receipt format supports `merkleAnchors` (plural) so a snapshot references roots on
+multiple chains. If Base is down, Ethereum anchor still holds.
+
+**Attack Vector 59: Algorithm Confusion / Downgrade Attack**
+Spec requires verifiers to read `signatureAlgorithm` from the document (crypto-agility).
+Attacker crafts a document claiming a weaker algorithm the verifier supports → exploits
+weaknesses in that algorithm.
+**Mitigation:** Middleware MUST maintain an `allowedAlgorithms` whitelist. Only algorithms
+the operator explicitly approves are accepted. If document claims an algorithm not in the
+list → reject (don't attempt verification with unfamiliar algorithm).
+Default: `["Ed25519"]`. Operators explicitly add `"ML-DSA-44"` when ready.
+
+**Attack Vector 60: Social Bot DID Compromise (ClawNet-specific)**
+The X outreach bot uses a single platform DID for all user OAuth actions. If compromised,
+attacker can post to every connected user's X account. High trust score protects the
+attacker (compromised bot appears trustworthy).
+**Mitigation:**
+- Use per-user DIDs, not a single platform DID. Each user's bot instance gets its own
+  AID identity. Compromise of one instance affects only one user.
+- Circuit breaker: if error rate spikes >10% within any 5-minute window → auto-pause
+  all posting + alert affected users. Don't wait for trust decay (hours) — circuit
+  breaker acts in seconds.
+- Platform-level DID for platform identity only, not individual user actions.
+
+**Total attack vectors mitigated: 60** (54 previous + 6 architectural gaps).
+
 ### 39.16 Missing References + Compliance Gaps (Final Sweep, March 22)
 
 **Standards references to add to spec:**
