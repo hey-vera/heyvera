@@ -21,7 +21,7 @@ transaction makes it smarter.
 - [x] Join DIF as Contributor member (submitted)
 - [x] Submit trust scoring extension email to DIF TAAWG (sent to community@identity.foundation)
 - [ ] LinkedIn message to Andor Kesselman (TAAWG chair)
-- [ ] Register @aidprotocol npm org + aid-trust PyPI + typosquats
+- [x] Register @aidprotocol npm org + publish placeholder packages (mcp-trust, trust-compute, aar-bridge)
 - [ ] Submit lightning talk proposal to AAIF MCP Dev Summit (NYC, April 2-3)
 - [ ] Switch DID method from `did:clawnet` to `did:key` in published spec (30 min)
 - [ ] Draft 2-page NIST NCCoE comment on agent identity concept paper (Flaw 19 — due April 2)
@@ -164,7 +164,7 @@ transaction makes it smarter.
 
 ---
 
-**Progress: 16/112 items complete (14%). NEXT: LinkedIn to Andor → npm registration → NIST draft.**
+**Progress: 17/112 items complete (15%). NEXT: LinkedIn to Andor → MCP Dev Summit → NIST draft.**
 
 ---
 
