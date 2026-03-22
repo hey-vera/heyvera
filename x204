@@ -2952,9 +2952,9 @@ Similar to 8004scan.io but for x204/ClawNet ecosystem
 
 ## 35. FINAL SHIP READINESS
 
-The plan has been through 8 rounds of checks with 18+ research agents.
+The plan has been through 9 rounds of checks with 20+ research agents.
 
-**What it covers (2,858+ lines, 35 sections):**
+**What it covers (35 sections):**
 - Complete protocol specification with headers, receipts, signing, settlement
 - 5-layer trust stack with 11-dimension scoring formula
 - 5-phase build plan with day-level estimates
@@ -2983,125 +2983,7 @@ The plan has been through 8 rounds of checks with 18+ research agents.
 **Stop planning. Start building.**
 
 
-Financial consideration/extra info:
-The Money Question — Complete Cost Breakdown
-What x402 Costs You TODAY
-
-SERVER COSTS (ClawNet as x402 PROVIDER — agents pay you):
-  Gas:           $0/tx (facilitator pays gas)
-  Facilitator:   $0 (Coinbase facilitator is free — for now)
-  Infrastructure: $0 (existing VPS)
-  TOTAL:         $0 per transaction ← this is the baseline
-
-SERVER COSTS (ClawNet as x402 CONSUMER — you call external APIs):
-  USDC spent:    Varies per API call
-  Recovery:      x402SurchargeCredits() charges user 1:1
-  Net cost:      $0 (fully recovered from user credits)
-What x204 Would Cost You
-
-PHASE 1 — AID on x402 (NO new costs):
-  How it works:  Existing x402 facilitator still handles payment
-                 AID headers just add identity + trust-gated pricing
-  Gas:           $0 (facilitator still pays)
-  New infra:     $0 (runs on existing VPS)
-  Revenue change: Trust discounts reduce per-tx revenue by 10-50%
-                  BUT only for agents with high trust scores
-                  New agents (most) pay base/premium price
-  TOTAL NEW COST: $0/month
-  REVENUE IMPACT: -5 to -15% per-tx (offset by higher volume)
-
-PHASE 2 — Direct EIP-3009 (small new cost):
-  How it works:  Server submits EIP-3009 to Base USDC contract directly
-                 No facilitator needed
-  Gas per tx:    ~$0.0001 on Base L2 (65K gas × 0.001 gwei)
-  
-  At 1,000 tx/day:   $0.10/day  = $3/month
-  At 10,000 tx/day:  $1.00/day  = $30/month
-  At 100,000 tx/day: $10.00/day = $300/month
-  
-  With batched settlement (most agents):
-  At 10,000 tx/day:  ~240 batch txs = $0.024/day = $0.72/month
-  
-  Base RPC:      Free tier (Alchemy/QuickNode gives 300M compute units/month)
-  ETH for gas:   Keep ~0.01 ETH on Base (~$25, lasts months)
-  TOTAL NEW COST: $1-30/month depending on volume
-
-PHASE 3 — Trust Oracle on-chain:
-  Contract deploy: ~$10 one-time (Base mainnet)
-  Score sync:      Every 6h, batch update for active agents
-                   At 1,000 agents: ~$0.10/sync = $0.40/day = $12/month
-                   At 10,000 agents: batch in chunks, ~$1/sync = $4/day = $120/month
-  EAS attestations: ~$0.001/attestation on Base
-  TOTAL NEW COST: $12-120/month depending on agent count
-
-PHASE 4 — Bonding curve contract:
-  Contract deploy: ~$50 one-time
-  Ongoing:         $0 (users pay gas for their own stake/unstake txs)
-  TOTAL NEW COST: $50 one-time
-Revenue Comparison: x402 vs x204
-
-SCENARIO: 10,000 skill invocations/day, average 5 credits per skill
-
-x402 ONLY (current):
-  Revenue per tx:    5cr × $0.001 = $0.005
-  Daily revenue:     10,000 × $0.005 = $50/day
-  Monthly:           $1,500/month
-  Server gas costs:  $0
-  Net monthly:       $1,500
-
-x204 PHASE 1 (AID on x402, trust-gated pricing):
-  Trust distribution (estimated):
-    60% new agents (score 0-39):    6,000 tx × $0.005 = $30.00 (base price)
-    25% caution (score 40-59):      2,500 tx × $0.0045 = $11.25 (10% off)
-    10% standard (score 60-79):     1,000 tx × $0.00375 = $3.75 (25% off)
-    5% proceed (score 80+):         500 tx × $0.0025 = $1.25 (50% off)
-  Daily revenue:     $46.25/day
-  Monthly:           $1,387/month
-  Server gas costs:  $0 (still using x402 facilitator)
-  Net monthly:       $1,387
-  
-  DELTA: -$113/month (-7.5%)
-  
-  BUT: trust incentives drive volume growth
-  If volume grows 15% due to trust incentives:
-    11,500 tx/day with same trust distribution = $1,595/month
-    NET POSITIVE: +$95/month
-
-x204 PHASE 2 (direct settlement, no facilitator):
-  Same pricing as Phase 1: $46.25/day
-  Monthly:           $1,387/month
-  Server gas costs:  $0.72/month (batched settlement)
-  Net monthly:       $1,386
-  
-  DELTA vs x402: -$114/month
-  DELTA vs Phase 1: negligible (gas is tiny)
-  
-  UPSIDE: No facilitator dependency.
-  If Coinbase starts charging facilitator fees (likely at scale):
-    x402 with 1% fee: -$15/month
-    x402 with 5% fee: -$75/month
-    x204: still $0 facilitator cost
-The Real Financial Takeaway
-
-COSTS YOU SHOULD BUDGET:
-
-Phase 1: $0/month new costs
-  (trust discounts reduce revenue ~7.5%, offset by volume growth)
-
-Phase 2: $1-30/month gas + $25 one-time ETH deposit
-  (eliminates facilitator dependency — insurance against future fees)
-
-Phase 3: $12-120/month for on-chain trust oracle
-  (only needed when you have 1K+ agents using trust-gated pricing)
-
-Phase 4: $50 one-time contract deployment
-  (bonding curve — only when network effects justify it)
-
-FIRST-YEAR TOTAL: ~$500-2,000 in new operational costs
-  vs. potential revenue uplift of 15-30% from volume growth
-
-WHAT SAVES YOU MONEY LONG-TERM:
-  - No facilitator fees (x402 facilitators will charge eventually)
-  - Lower support costs (self-service identity, no key management tickets)
-  - Credit risk management (trust scores prevent bad debt)
-  - Batched settlement (fewer gas txs than immediate)
+Financial appendix — see Section 21 for verified economic model:
+  - Section 21.1: Revenue streams per phase
+  - Section 21.2: Trust-gated discount sustainability (with all 5 tiers)
+  - Section 21.3: Gas costs (verified: 0.005 gwei, ~$0.001/tx, x204 vs x402 comparison)
