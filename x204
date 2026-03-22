@@ -58,9 +58,15 @@ x204 — 3 parties (client, server, blockchain):
 
 ### 2.2 HTTP Headers
 
+**DID Method Note:** The published spec and DIF submission MUST use `did:key` (W3C standard,
+supports Ed25519 natively) as the primary DID method. `did:clawnet:` is the internal alias
+used throughout this engineering document. Both resolve to the same agent via the same key
+material. Migration: `did:clawnet:zABC...` → `did:key:zABC...` (same multibase public key).
+See Section 43.2 Flaw 11 for rationale.
+
 **Request Headers (Client → Server):**
 ```
-X-AID-DID:            did:clawnet:zABC...            # Self-certifying identity
+X-AID-DID:            did:key:zABC...                # Self-certifying identity (W3C did:key method)
 X-AID-PROOF:          <Ed25519 sig over request body> # Proves DID ownership (see 19.8)
 X-AID-TIMESTAMP:      2026-03-21T14:30:00Z           # Signature timestamp (±5 min)
 X-AID-NONCE:          a1b2c3d4e5f6a7b8               # 16 random bytes hex (anti-replay, see 39.7)
@@ -998,7 +1004,7 @@ composing into a full market stack. Open, neutral, credibly decentralized.
 | Protocol/Standard | What It Does | Backing | Status | x204 Edge |
 |--------------------|-------------|---------|--------|-----------|
 | ERC-8004 | Agent identity + reputation | Google, Coinbase, MetaMask, EF | Live, ~24K–86K agents | Offline verify, canonical trust score, zero-friction |
-| x402 | HTTP-native payments | Coinbase | Live, growing | No facilitator needed, identity built in |
+| x402 | HTTP-native payments | Coinbase, AWS, Cloudflare, Stripe | Live — $28K/day Base + 35M+ txs Solana + AWS Bedrock integration (March 20) | No facilitator needed, identity built in, trust-gated pricing |
 | ERC-8183 | Programmable escrow | Virtuals, EF dAI | Draft, BNBAgent SDK live | Trust-gated settlement without on-chain escrow |
 | Agent0 SDK | ERC-8004 reference impl | Same as ERC-8004 | Beta | ClawNet is production with 344 endpoints |
 | The Graph | ERC-8004 indexing | Edge & Node | Live | Not a competitor — potential integration |
@@ -1007,7 +1013,10 @@ composing into a full market stack. Open, neutral, credibly decentralized.
 | World AgentKit | Human-backed agent ID | Coinbase + World | Beta (March 17) | Orb-dependent, no reputation layer |
 | Mastercard Verifiable Intent | Consumer-to-agent authorization | Mastercard, Google, IBM, Fiserv, Adyen, Worldpay | Live (open-sourced March 5) | Complementary — VI = "who authorized this," x204 = "is this agent trustworthy." x204 is agent-to-agent trust; VI is consumer-to-agent authorization. Target as Phase 2 compatibility layer. |
 | Virtuals Protocol | Tokenized AI agents | VIRTUAL token | Live, $500M+ mcap | Identity = speculation, not utility |
-| Visa TAP | Enterprise agent auth | Visa + Akamai | Announced | Enterprise-only, centralized |
+| Visa TAP | Enterprise agent auth | Visa + Akamai | Live (GitHub ref impl) | Enterprise-only, centralized |
+| Gen Agent Trust Hub | Agent trust verification + skills marketplace | Gen (Norton/Avast, NASDAQ: GEN) | Live (Feb 4, 2026) | 500M user brand but consumer-focused, not agent-to-agent. No portable trust, no crypto settlement. |
+| Trusta.AI AgentGo | MCP middleware for on-chain identity + reputation | Trusta.AI | Open-sourced | Simpler model — x204 has 11-dimension scoring, 3-layer lifecycle, 36 attack mitigations |
+| Solana Agent Registry | ERC-8004 implementation on Solana | Quantu AI | Live (March 3, 2026) | x204 bridges Solana + EVM registries with cross-chain trust. Single Ed25519 key on Solana. |
 | Skyfire KYA | Know Your Agent | Skyfire/Trulioo | Live | JWTs, no on-chain, no portability |
 | W3C DIDs | Decentralized identifiers | W3C | v1.1 draft | No reputation, no payment, slow standards |
 | EAS | Generic attestations | Open source | Live | No agent tooling, no discovery |
@@ -2325,10 +2334,11 @@ This plan is ready to build. Every section has been:
 - **Verified:** Gas costs validated against BaseScan (0.005 gwei floor, ~$0.001/tx including L1).
   All 20 ClawNet components verified as existing production code. Revenue math verified.
   Base USDC EIP-3009 support confirmed. EAS attestation costs confirmed.
-- **Audited:** Independent quality check scored 8/10 overall (Section 41). 7 critical flaws
-  identified with fixes, 3 new security threats mitigated (36 total), 6 optimizations adopted,
-  12 cherry-on-top features catalogued. Mastercard Verifiable Intent competitive gap closed.
-- **Secured:** Threat model with 36 attack vectors and mitigations (expanded from 33 post-audit)
+- **Audited twice:** First audit scored 8/10 (Section 41): 7 flaws, 3 security gaps, 6 optimizations,
+  12 cherry features. Second audit scored 7.5/10 (Section 43): 5 missed competitors added,
+  5 new flaws (governance, DID format, overengineering), 4 new attack vectors, 5 optimizations,
+  6 cherry features. DID method switched to did:key for DIF compatibility.
+- **Secured:** Threat model with 40 attack vectors and mitigations (14 + 6 + 13 + 3 + 4)
 - **Costed:** Economic model with verified gas costs, facilitator fee comparison, monthly projections
 - **Scoped:** Phase 1 is 8-13 days with zero infrastructure changes
 - **Tested:** All core crypto primitives already have working code in production (20/20 verified)
@@ -3946,9 +3956,11 @@ fixed time window has no guaranteed effect.
 | 39.11 | Trust oscillation farming | Medium | $0 | ✓ 3-window trailing average |
 | 39.12 | Merkle proof grinding | Low | $0 | ✓ ±15 min random jitter |
 
-**Total attack vectors mitigated: 36** (14 original + 6 race conditions + 13 new + 3 from independent audit).
-See Section 41.4 for attack vectors 34-36: MCP supply chain compromise, temporal trust attacks,
-and multi-party collusion rings.
+**Total attack vectors mitigated: 40** (14 original + 6 race conditions + 13 new + 3 from first
+audit + 4 from second audit).
+See Section 41.4 for vectors 34-36: MCP supply chain, temporal trust, collusion rings.
+See Section 43.3 for vectors 37-40: MCP-I credential confusion, heartbeat DNS hijack,
+batched timing attack, cross-platform trust arbitrage.
 
 ---
 
@@ -4119,6 +4131,9 @@ Converting USDC→credits at the entry point takes 1 day and reuses everything.
 | Wach_AI | Direct trust scoring competitor on Base | x204 is more comprehensive (3-layer, 33 mitigations, universal middleware) | HIGH |
 | RecallNet | Better agent memory than ClawNet sessions | Phase 3: upgrade session storage | MEDIUM |
 | Freysa | TEE sovereignty + zkTLS oracles | Complementary, not competitive. Watch zkTLS for Phase 4 | LOW |
+| Gen Agent Trust Hub | "Trust layer for autonomous AI" — 500M user brand (Norton/Avast) | Consumer trust brand, not agent-to-agent. No crypto, no portable trust. Different market. | HIGH |
+| Trusta.AI AgentGo | MCP trust middleware — directly contests @x204/mcp-trust first-mover | Differentiate on depth: 11-dimension scoring, 3-layer lifecycle, 36 attack mitigations vs simpler model | HIGH |
+| Solana Agent Registry | Native ERC-8004 on Solana — weakens "single-key on Solana" pitch | Pivot to "cross-chain trust bridge" — x204 bridges Solana registry + EVM registries | MEDIUM |
 | All agent builders (Virtuals, Spectral, a0xbo) | Building agents, not trust infra | x204 is the layer they all need — partnership targets | LOW |
 
 **The positioning that wins:**
@@ -4288,9 +4303,12 @@ x402 compatibility built in. Hook system supports reputation gating + bidding.
 **x204's positioning: be the trust signal that ERC-8183 evaluators consume.
 The evaluator role in ERC-8183 can be an x204 TrustGate contract.**
 
-**6. x402 Daily Volume Is Only ~$28K**
-Per CoinDesk (March 11), x402 processes ~$28K/day, mostly testing.
-**This is GOOD NEWS — the market hasn't been won. x204 is early, not late.**
+**6. x402 Volume Is Larger Than Initially Reported**
+Per CoinDesk (March 11), x402 on Base processes ~$28K/day. BUT Solana x402 reports
+35M+ transactions and $10M+ volume. AWS published x402 integration with Bedrock
+AgentCore on March 20. x402 has institutional momentum (AWS + Cloudflare + Stripe +
+Coinbase). **The window is narrower than described. x204 must differentiate on TRUST
+(which x402 lacks), not on payment mechanics (which x402 dominates).**
 
 **7. Single-Seed Key Derivation (Security Fix — ELEVATED TO PHASE 1)**
 The dual-key UX problem (Ed25519 + secp256k1) is worse than described.
@@ -4976,3 +4994,341 @@ The three things already in the plan that make this possible:
 The gap was treating these as transparency features rather than as the **foundation for
 progressive decentralization**. They're not nice-to-haves — they're the scaffolding that
 makes ClawNet replaceable. And that's exactly what makes ClawNet trustworthy.
+
+---
+
+## 43. SECOND INDEPENDENT QUALITY AUDIT (March 21, 2026)
+
+**Source:** Second adversarial audit by Claude Opus 4.6 with extended thinking + live web
+verification. Overall score: **7.5/10** — down from the first audit's 8/10.
+
+The downgrade reflects 5 missed competitors, x402 Solana volume undercount, non-standard
+DID method blocking DIF adoption, and no protocol governance model. The core thesis remains
+correct — every agent protocol layer is missing trust — but the competitive landscape is moving
+faster than accounted for.
+
+### 43.1 COMPETITIVE INTELLIGENCE GAPS (5 Missed Competitors)
+
+**1. Solana Agent Registry (Launched March 3, 2026) — NOT IN PLAN**
+Quantu AI launched an ERC-8004 implementation natively on Solana. Integrates identity,
+reputation, and verification into the Solana network. Weakens x204's "single-key on Solana"
+pitch — Solana agents now have a native identity system.
+
+**Action:** x204's Solana value proposition shifts from "identity on Solana" to "cross-chain
+trust that bridges Solana's registry with EVM registries." Updated in competitive table.
+
+**2. x402 Solana Volume — SIGNIFICANTLY UNDERCOUNTED**
+The plan cited "$28K/day, mostly testing" (CoinDesk, Base-only data). Solana x402 reports
+35M+ transactions and $10M+ volume. AWS published x402 integration with Bedrock AgentCore
+on March 20 (yesterday). The x402 ecosystem has institutional momentum (AWS + Cloudflare +
+Stripe + Coinbase) that a one-person protocol cannot match through spec quality alone.
+
+**Action:** x204 must differentiate on TRUST (which x402 entirely lacks), not payment mechanics.
+The "market hasn't been won" narrative needs qualification. Updated in 40.7 item 6.
+
+**3. Gen Agent Trust Hub (Launched Feb 4, 2026) — NOT IN PLAN**
+Gen (Norton/Avast parent, NASDAQ: GEN, 500M+ users) launched a trust verification platform
+for AI agents. Includes AI Skills Scanner and curated Skills Marketplace. They explicitly
+position as "the trust layer for the autonomous AI era" — nearly identical language to x204.
+
+**Action:** Gen is consumer-focused (Norton brand), not agent-to-agent. Different market
+segment. But their brand recognition dwarfs ClawNet. x204's differentiator: crypto-native,
+portable, offline-verifiable, open protocol. Gen is a walled garden.
+
+**4. Trusta.AI AgentGo MCP Middleware — NOT IN PLAN**
+Open-sourced MCP middleware enabling AI agents to request on-chain identity attestations and
+real-time reputation scores. Directly competes with @x204/mcp-trust — the Phase 1 priority.
+
+**Action:** "First MCP trust middleware" positioning is contested. Differentiate on depth:
+11-dimension scoring, 3-layer trust lifecycle, 36 attack mitigations, offline verification.
+Trusta has simpler on-chain lookups. x204 has a full trust engine.
+
+**5. AWS x402 Integration (Published March 20, 2026 — Yesterday)**
+AWS Bedrock AgentCore now supports x402 natively. Enterprise credibility gap widens. x204
+needs the DIF submission even more urgently — institutional backing is the differentiator.
+
+**6. DIF TAAWG Moving Faster Than Expected**
+DIF Newsletter #59 (March 18) confirms startups actively forming coalition around MCP-I.
+The "30-day window" may be **2 weeks**. DIF submission must be Day 1, not Week 1.
+
+---
+
+### 43.2 ADDITIONAL CRITICAL FLAWS (5 New — Flaws 8-12)
+
+**Flaw 8: Arweave Cost Estimates Are Unrealistic**
+
+Section 42.2 claims "$1/month" for attestation data on Arweave. At 10K agents × 1K
+attestations each = 10M records per snapshot. Even compressed, this is gigabytes per day
+at $10-50/GB permanent storage — orders of magnitude more than claimed.
+
+**Fix:** Use Ceramic Network / ComposeDB for verifiable, decentralized attestation storage
+instead of raw IPFS/Arweave dumps. Queryable data with cryptographic proofs without the
+full dataset dump. Cost: ~$0 (Ceramic is permissionless). Alternatively, use EAS (Ethereum
+Attestation Service) which is already in the dependency list but underutilized. For Phase 1,
+publish only the Merkle root + score summary (not full attestation dump) — this IS ~$1/month.
+
+**Flaw 9: No Protocol Governance Model**
+
+The plan describes x204 as an "open protocol" but provides zero governance structure. Who
+approves changes to the trust scoring formula? Who decides weight rebalancing (Section 19.5)?
+If the formula changes, every @x204/mcp-trust middleware instance computes different scores
+for the same agent. This is the "oracle problem" but for trust, not price.
+
+**Fix:** Define governance before publishing the spec:
+- Phase 1-2: Benevolent dictator + advisory board (realistic)
+- Phase 3+: Community governance with formula versioning
+- The spec MUST include a "formula versioning" section that mandates version pinning
+  in middleware. Trust computation version is part of every score output.
+```typescript
+// Middleware pins to a specific formula version:
+server.use(x204Trust({
+  providerDid: 'did:key:zXYZ...',
+  formulaVersion: '1.0.0'  // MANDATORY — prevents silent formula drift
+}));
+```
+
+**Flaw 10: 11-Dimension Trust Score Is Overengineered for Phase 1**
+
+Only 4 dimensions are implemented (Section 4.2) but the entire system is designed around 11.
+This creates phantom complexity — the spec describes features that don't exist yet, confusing
+implementers. MCP-I succeeded by starting minimal (3 levels). ERC-8004 succeeded by being
+"three lightweight registries."
+
+**Fix:** Publish the DIF spec with 4 dimensions (what's live today). Mark the remaining 7 as
+"Phase 3 extensions." Ship a working 4-dimension system that solves real problems, not an
+aspirational 11-dimension system that exists only on paper.
+
+**Flaw 11: did:clawnet DID Format Is Non-Standard**
+
+The plan uses `did:clawnet:{publicKeyMultibase}` — a custom DID method. MCP-I uses W3C
+DIDs with established methods (did:key, did:web, did:pkh). The DIF TAAWG will not adopt a
+proprietary DID method. x204's identity layer is immediately disqualified from standardization.
+
+**Fix:** Use `did:key` (which supports Ed25519 natively) as the primary DID method. Map to
+ClawNet's internal system via a resolver. This makes x204 instantly compatible with MCP-I,
+DIF, and the W3C DID ecosystem. `did:clawnet:` can exist as an internal alias but MUST NOT
+be the primary identifier in the published spec.
+
+**Migration path:** `did:clawnet:zABC...` → `did:key:zABC...` (same key material, different
+method prefix). Existing AID documents get a `did:key` alias. Both resolve to the same agent.
+The DIF spec uses `did:key` exclusively. Internal ClawNet code can use either.
+
+**Flaw 12: No Consideration of Regulatory Sandbox Programs**
+
+The regulatory section (33) identifies MSB risk and securities law but doesn't mention
+regulatory sandbox programs. Wyoming, Arizona, and EU jurisdictions offer fintech sandbox
+exemptions specifically for novel payment protocols. UK FCA sandbox has accepted crypto
+payment protocols.
+
+**Fix:** Evaluate Wyoming DAO LLC + money transmitter sandbox exemption. This could legally
+shelter x204's deferred settlement during bootstrapping at near-zero cost. Add to Section 33
+as an actionable option alongside the existing 4 options.
+
+---
+
+### 43.3 ADDITIONAL SECURITY GAPS (4 New — Vectors 37-40)
+
+**Attack Vector 37: MCP-I Credential Confusion Attack**
+
+When x204 trust data is embedded in MCP-I Verifiable Credentials (Section 40.7 item 12),
+an attacker presents a valid MCP-I identity VC alongside a forged x204 trust VC. If the
+verifier checks MCP-I identity but not x204 trust provenance separately, the forged trust
+score is accepted because the identity layer is valid.
+
+**Mitigation:** x204 trust VCs MUST include a `proof` field with ClawNet's platform signature
+AND a reference to the on-chain Merkle root. Verifiers MUST check BOTH the VC signature
+AND the Merkle inclusion proof. Document as mandatory verification step in SDK, not optional.
+
+**Attack Vector 38: Heartbeat Response Poisoning via DNS Hijack**
+
+The mandatory heartbeat (`GET /x204/heartbeat`) returns trust scores, pricing, and metadata.
+DNS hijack → poisoned heartbeat that inflates own trust, deflates competitors, redirects payments.
+
+**Mitigation:** Heartbeat responses MUST include X-AID-PROVIDER-PROOF (already spec'd for
+transaction responses). Add mandate: "Consuming agents MUST verify the heartbeat signature
+against the provider's known DID before using any data from the response." Currently only
+transaction responses require signature verification — extend to heartbeat.
+
+**Attack Vector 39: Trust Score Timing Attack on Batched Settlement**
+
+Section 19.12 locks trust tiers at batch window start. Attacker times legitimate transactions
+after window start (high score locked in), then executes exploitative transactions knowing
+score won't be re-evaluated until next window.
+
+**Mitigation:** Implement continuous scoring for high-value transactions. Transactions above
+a configurable threshold (e.g., $5) trigger real-time trust re-evaluation regardless of batch
+window. Only low-value microtransactions use the locked-window optimization.
+
+**Attack Vector 40: Cross-Platform Trust Arbitrage**
+
+Agent exports high trust passport, presents it to a platform implementing x204 trust
+verification but NOT x204 settlement protections (credit limits, burst detection). Agent
+exploits trust discount without accountability.
+
+**Mitigation:** Trust passports MUST include settlement constraints alongside the score.
+A passport says "score 87, batched settlement, $30 credit limit" — foreign platforms get
+enough information to enforce their own limits. Without constraints, it's an "I'm trustworthy"
+assertion without accountability.
+
+---
+
+### 43.4 ADDITIONAL OPTIMIZATIONS (5 New — Optimizations 7-11)
+
+**Optimization 7: Use EAS Directly Instead of Custom Attestation System**
+
+EAS is live on Base with 1M+ attestations. Using EAS from Day 1 would: (a) make attestations
+interoperable with the broader Ethereum ecosystem, (b) eliminate custom Merkle anchoring
+code, (c) give x204 attestations immediate credibility with ERC-8004 validators.
+Trade-off: EAS has gas costs (~$0.001/attestation on Base). Batch into periodic EAS
+submissions (same as current snapshot cron, but using a standard).
+
+**Optimization 8: WebSocket-First Architecture from Phase 1**
+
+Section 41.3 Flaw 5 identifies polling as outdated. Go further: make WebSocket/SSE the
+PRIMARY trust communication channel from Phase 1, not Phase 3.
+`wss://api.claw-net.org/x204/trust/stream` — subscribe to trust changes for specific DIDs.
+Heartbeat becomes discovery-only. Trust changes push in <1 second. 95% load reduction.
+
+**Optimization 9: ERC-4337 Account Abstraction (Eliminates Dual-Key Entirely)**
+
+The dual-key architecture is a UX burden. ERC-4337 on Base would allow a smart contract
+wallet that accepts Ed25519 signatures for BOTH identity AND payment. A UserOperation
+signed with Ed25519 → verified by custom signature validator → executes USDC transfer.
+One key, one signature, both identity and payment. No BIP-39 workaround needed.
+
+**Optimization 10: X-AID-TRUST-VERIFIED Response Header**
+
+Add a response header containing the server's independently verified trust score for the
+caller. Bidirectional trust signal — caller sees how the server scored them. Enables trust
+debugging and transparency without a separate API call.
+
+**Optimization 11: Base Paymaster (Gasless x204 Transactions)**
+
+Base supports ERC-4337 paymasters natively. A ClawNet paymaster sponsors gas for x204
+transactions, making the protocol truly gasless for agents. Paymaster recovers costs from
+USDC payment (already covered in economic model). Eliminates "agent needs ETH on Base
+for gas" friction entirely.
+
+---
+
+### 43.5 ADDITIONAL CHERRY-ON-TOP FEATURES (6 New — Cherries 10-15)
+
+**Cherry 10: Adversarial Trust Testing (Red Team as a Service)**
+Automated endpoint where agents stress-test their own trust resilience:
+`POST /x204/trust/adversarial-test` → tests Sybil, bust-out, cartel, stale replay scenarios.
+Returns vulnerabilities + recommendations + resilience score. Security-through-transparency.
+No other protocol offers this. Agents WANT to be tested — passing boosts their narrative.
+
+**Cherry 11: Trust-Gated Content Delivery (CDN Edge Integration)**
+x204 trust verification at Cloudflare Workers / Vercel Edge. High-trust agents get edge-cached
+responses (faster + cheaper). Low-trust agents go to origin (rate-limited). Trust becomes a
+performance optimization, not just a pricing mechanism. "Build trust, get faster responses."
+
+**Cherry 12: Multi-Oracle Trust Consensus (Phase 2 Accelerator)**
+Don't wait until Phase 3 (Month 12) for federated oracles. Ship a "trust attestation marketplace"
+in Phase 2: ClawNet trust engine + ERC-8004 reputation data + on-chain tx history + pluggable
+third-party attestation providers. Middleware computes weighted median. Multi-source from
+Phase 2, eliminates "single oracle" criticism before it becomes entrenched.
+
+**Cherry 13: Privacy-Preserving Trust Ranges (ZK-Lite — Pedersen Commitments)**
+Full ZK proofs are Phase 4+. Lightweight alternative available NOW: Pedersen commitments.
+Heartbeat returns a commitment, middleware verifies "score is in range [60, 80]" without
+learning exact value. 100x simpler than full ZK circuit, ~200 lines of TypeScript. Ship in
+Phase 1 as a privacy option. Differentiator over every competitor.
+
+**Cherry 14: Agent Capability Marketplace (Proven Capability Discovery)**
+Semantic capability index: `GET /x204/capabilities?query=solana+price+data&minTrust=60`
+Returns providers with `provenCapability: true` — derived from attestation history, not
+self-declared. An agent with 1,000 successful SOL price attestations is objectively more
+trustworthy than one with 0. Capability-level trust — no other protocol offers this.
+
+**Cherry 15: Protocol-Level Canary (Dead Man's Switch)**
+If ClawNet goes offline, how does the ecosystem know? Signed "proof of liveness" published
+to Base chain every 6 hours. @x204/mcp-trust checks canary:
+- Canary >12h stale → degraded mode (cached trust, no new deferred settlements)
+- Canary >48h stale → auto-fallback to ERC-8004 reputation data
+Turns the SPOF critique into a feature: "x204 is the only protocol that detects and gracefully
+handles its own outage."
+
+---
+
+### 43.6 Updated Completeness Scorecard (Second Audit)
+
+| Dimension | Coverage | Grade | Notes |
+|-----------|----------|-------|-------|
+| Protocol specification | Headers, receipts, signing, settlement | A | Thorough, internally consistent |
+| Trust scoring formula | 11 dimensions defined, 4 implemented | B+ | Overspecified for current state — ship 4, extend later |
+| Settlement mechanics | 3 modes with edge cases | A | Excellent deferred settlement detail |
+| Security model | 36 → 40 attack vectors | A | 4 new vectors identified and mitigated |
+| Economic model | Gas costs, revenue, sustainability | B+ | x402 Solana volume was undercounted |
+| Competitive analysis | 14 → 19 protocols analyzed | B | Was C+ — now updated with 5 missed competitors |
+| Build plan | 5 phases with day-level estimates | B+ | Phase 1 realistic, later phases vague |
+| Regulatory | MSB, securities, GDPR | B | Was B- — sandbox programs identified |
+| Adoption strategy | MCP middleware-first | A | Brilliant positioning |
+| Decentralization roadmap | 4-phase progressive | B | Cost estimates need correction (Flaw 8) |
+| DID standards compliance | did:clawnet (custom) | D → B | Must switch to did:key for DIF (Flaw 11) |
+| Protocol governance | Not addressed | F → C | Governance model defined (Flaw 9), needs implementation |
+| Real-time capabilities | Polling → WebSocket | C → B | WebSocket-first recommended (Opt 8) |
+
+---
+
+### 43.7 REVISED Week 1 Priority (Post-Second Audit)
+
+```
+DAY 1 (URGENT — DIF window may be 2 weeks, not 30 days):
+  □ Switch DID method from did:clawnet to did:key (30 min — same key material)
+  □ Submit x204 trust scoring extension to DIF TAAWG
+  □ Register @x204 npm org + x204-trust PyPI + typosquats
+  □ Draft 10-page protocol spec (4 LIVE dimensions, not 11 aspirational)
+  □ Define governance model for trust formula versioning
+
+DAY 2-3:
+  □ Ship @x204/mcp-trust alpha to npm (200 lines)
+  □ Include Pedersen commitment privacy option (Cherry 13, ~200 lines)
+  □ Build interactive playground (the DIF sales pitch)
+  □ Add protocol-level canary (Cherry 15, simple on-chain tx)
+
+DAY 4-5:
+  □ Register ClawNet on ERC-8004 (Base, ~$1)
+  □ Add X-AID-TRUST-VERIFIED response header (Opt 10)
+  □ Publish x204 spec document publicly
+  □ Research Wyoming DAO LLC sandbox (Flaw 12)
+```
+
+**Changes from previous Week 1:**
+1. DID method switch is now Day 1 (blocks DIF acceptance)
+2. Spec reduced to 4 dimensions (ship what's real, not aspirational)
+3. Governance model added Day 1 (required for open protocol credibility)
+4. Pedersen commitments added Day 2-3 (lightweight differentiator)
+5. Protocol canary added Day 2-3 (turns SPOF critique into feature)
+6. DIF timeline compressed — may be 2 weeks, not 30 days
+
+---
+
+### 43.8 The Verdict (Second Audit)
+
+The x204 plan is the most comprehensive agent commerce protocol design in the space. The
+Section 38 reframing ("universal trust layer") and Section 42 decentralization roadmap are
+strategically brilliant. The three-layer trust lifecycle is a genuine innovation.
+
+**What threatens failure:**
+- The competitive landscape is moving faster than accounted for (5 missed competitors)
+- AWS + Cloudflare + Stripe + Coinbase behind x402 creates institutional momentum
+- Gen (500M users) is using "trust layer" language with massive brand recognition
+- Trusta.AI already shipped MCP trust middleware — first-mover is contested
+- The custom `did:clawnet` method blocks DIF standardization
+- No governance model for an "open standard" is a credibility gap
+- 11 dimensions when 4 are live signals aspiration over execution
+
+**What makes this succeed despite all that:**
+- The MCP middleware-first strategy is the right distribution model
+- 3-layer trust lifecycle (manifest → execution proof → attestation) is a genuine innovation
+- Offline verification via Ed25519 + Merkle proofs is a real differentiator
+- The progressive decentralization roadmap (Section 42) is credible and cheap
+- The credit ledger architecture (Section 37) is elegant engineering
+- 40 mitigated attack vectors is industry-leading security depth
+
+**The race is measured in days, not weeks.** The DIF TAAWG newsletter published 3 days
+ago confirms active coalition-forming. AWS published x402 support yesterday.
+
+**Ship the corrected spec. Claim the DIF slot. Let execution prove the thesis.**
