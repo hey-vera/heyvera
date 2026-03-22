@@ -3005,8 +3005,8 @@ The plan has been through 9 rounds of checks with 20+ research agents.
 
 **What to do BEFORE building:**
 1. Get legal counsel on money transmitter status (existing issue, not x204-specific)
-2. Remove 5% revenue share from Phase 4 trust stakes (securities risk)
-3. Implement DELETE /v1/aid endpoint (GDPR)
+2. ~~Remove 5% revenue share from Phase 4 trust stakes~~ DONE (Section 9.1 — reputation-only)
+3. Implement DELETE /v1/aid endpoint (GDPR — add to Phase 1 build)
 
 **What to build FIRST (Phase 1, 8-13 days, $0 cost):**
 1. Register ClawNet on ERC-8004 (Base, ~$1)
