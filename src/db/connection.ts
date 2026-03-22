@@ -1049,6 +1049,15 @@ const MIGRATIONS: { version: number; sql: string }[] = [
     CREATE INDEX IF NOT EXISTS idx_aid_keys_owner ON aid_keys(owner_key);
     CREATE INDEX IF NOT EXISTS idx_aid_xplat_did ON aid_cross_platform_attestations(did, created_at DESC);
   ` },
+
+  // v108: Granular policy engine for delegated keys (x204 trust delegation)
+  { version: 108, sql: `
+    ALTER TABLE delegated_keys ADD COLUMN policy_json TEXT DEFAULT '{}';
+    ALTER TABLE delegated_keys ADD COLUMN max_per_transaction REAL;
+    ALTER TABLE delegated_keys ADD COLUMN allowed_skills_json TEXT;
+    ALTER TABLE delegated_keys ADD COLUMN allowed_providers_json TEXT;
+    ALTER TABLE delegated_keys ADD COLUMN active_hours_json TEXT;
+  ` },
 ];
 
 function runMigrations(): void {

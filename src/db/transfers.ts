@@ -157,6 +157,12 @@ export interface DelegatedKey {
   auto_topup: number;
   auto_topup_amount: number | null;
   account_type: 'delegated' | 'budget';
+  // v108: granular policy engine (x204 trust delegation)
+  policy_json: string | null;
+  max_per_transaction: number | null;
+  allowed_skills_json: string | null;
+  allowed_providers_json: string | null;
+  active_hours_json: string | null;
 }
 
 export function createDelegatedKey(params: {

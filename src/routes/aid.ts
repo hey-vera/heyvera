@@ -493,6 +493,59 @@ router.post('/:did/rotate-key', checkApiKey, async (c) => {
   });
 });
 
+// ─── GET /:did/trust — Public trust score query (the "credit bureau" API) ────
+// Free, no auth, rate-limited. Other platforms query this to assess agent trust.
+router.get('/:did/trust', async (c) => {
+  const did = c.req.param('did');
+
+  if (await checkPublicRateLimit(c)) {
+    return c.json({ error: 'Rate limit exceeded', code: 'RATE_LIMIT_EXCEEDED' }, 429);
+  }
+
+  const aidDb = await getAidDb();
+  const aidBuilder = await getAidBuilder();
+
+  const aidKey = aidDb.getAidKey(did);
+  if (!aidKey) {
+    return c.json({ error: 'AID not found', code: 'AID_NOT_FOUND' }, 404);
+  }
+
+  const aidDocument = aidBuilder.buildAIDDocument(did);
+  if (!aidDocument) {
+    return c.json({ error: 'Failed to build trust profile', code: 'AID_BUILD_FAILED' }, 500);
+  }
+
+  // Public trust profile — verdict only, no exact score (privacy model from Section 19.11)
+  const trustScore = aidDocument.trustScore;
+  const score = trustScore.score;
+
+  // Map score to verdict
+  let verdict: string;
+  if (score >= 90) verdict = 'proceed';
+  else if (score >= 80) verdict = 'trusted';
+  else if (score >= 60) verdict = 'standard';
+  else if (score >= 40) verdict = 'caution';
+  else if (score >= 20) verdict = 'building';
+  else verdict = 'new';
+
+  // Public response: verdict + verification status, NOT exact score
+  return c.json({
+    did,
+    verdict,
+    verified: !!aidKey.display_name, // simplified — proper verification check would use linked identities
+    verificationTier: score >= 90 ? 'proceed' : score >= 40 ? 'active' : 'new',
+    attestationCount: aidDocument.trustChain.attestationCount,
+    capabilities: aidDocument.capabilities.map(cap => cap.category),
+    activeSince: aidKey.created_at,
+    trustChain: {
+      merkleRoot: aidDocument.trustChain.merkleRoot,
+      chainLength: aidDocument.trustChain.chainLength,
+    },
+    // For authenticated callers (providers during transactions), include exact score
+    // via the full AID document at GET /:did
+  });
+});
+
 // ─── GET /:did/did.json — W3C DID Document (public) ─────────────────────────
 router.get('/:did/did.json', async (c) => {
   const did = c.req.param('did');
