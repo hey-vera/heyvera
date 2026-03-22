@@ -129,6 +129,8 @@ transaction makes it smarter.
 - [ ] ZK proof of scoring function via RISC Zero — <$0.01/proof (accelerated from Phase 4, from Mnemom)
 - [ ] Sybil risk as supplementary signal in AID documents — consume Cred/external data (Section 15.7)
 - [ ] Trust Score v1.1 — add counterpartyDiversity (15%) + recency-weighted successRate (Section 4.2)
+- [ ] Onboarding milestones — signed timestamps for key trust journey events (from AgentSign, Section 4.2)
+- [ ] AID-Solana-Registry bridge — Ed25519 native mapping (parallel with ERC-8004 bridge)
 - [ ] Gas price circuit breaker for batch settlement (Vector 43)
 - [ ] Verification receipt in middleware — caller-verifiable ClawNet-signed token (Flaw 18)
 - [ ] ARA compatibility evaluation (Flaw 16)
@@ -471,6 +473,11 @@ and can you verify all of it?
 - Weighted reviews: reviewer's own history determines review weight (from Maiat)
 - Verification multiplier: 1.2x for verified agents (from ClawStars)
 - Cross-consumption: agents must USE the ecosystem, not just sell into it (from ClawStars)
+- Onboarding milestones: signed timestamps for key events (first attestation, 10th attestation,
+  first cross-counterparty tx, identity verification, 6-month anniversary). From AgentSign's
+  pipeline model but behavioral/automatic instead of centralized approval gates. Adds temporal
+  context: "registered 2h ago with 3 attestations" (normal) vs "registered 6mo ago with 3
+  attestations" (suspicious). Stored as optional `onboarding.history` array in AID document.
 
 ### 4.3 Trust Verdicts (Maiat-compatible)
 
@@ -1244,13 +1251,17 @@ composing into a full market stack. Open, neutral, credibly decentralized.
 | Mastercard Verifiable Intent | Consumer-to-agent authorization | Mastercard, Google, IBM, Fiserv, Adyen, Worldpay | Live (open-sourced March 5) | Complementary — VI = "who authorized this," AID = "is this agent trustworthy." AID is agent-to-agent trust; VI is consumer-to-agent authorization. Target as Phase 2 compatibility layer. |
 | Virtuals Protocol | Tokenized AI agents | VIRTUAL token | Live, $500M+ mcap | Identity = speculation, not utility |
 | Visa TAP | Trusted Agent Protocol — cryptographic proof agent is Visa-approved, open framework for merchant verification | Visa + 10 partners | Live (Oct 2025, GitHub ref impl) | Centralized (Visa onboards/approves agents). AID is permissionless. Complementary: TAP = "Visa vouches for this agent," AID = "this agent has trust score 87 from 1,247 transactions." Reference in spec, don't build integration. |
-| Microsoft Entra Agent ID + Agent 365 | Enterprise agent identity (Active Directory for agents) + control plane for agent governance | Microsoft | Agent 365 GA May 1, 2026. Announced RSAC March 20. | Enterprise-focused (Fortune 500 IT). AID is open/permissionless (open agent economy). Different markets. Validates "agent identity" as a product category. Watch only. |
+| Microsoft Entra Agent ID + Agent 365 | Enterprise agent identity (AD for agents) + control plane. **Scale: tens of millions of agents registered in 2 months. 500K agents within Microsoft alone, 65K responses/day. $15/user/month, GA May 1.** | Microsoft | Agent 365 GA May 1, 2026. Announced RSAC March 20. | Enterprise-focused (Fortune 500 IT). AID is open/permissionless (open agent economy). Different markets but shows enterprise scale dwarfs open/crypto agent economy. Watch only. |
 | IETF ANS | Agent Name Service — DNS for agents, PKI-based discovery | IETF draft, GoDaddy PoC | Draft expired, discussed at IETF 124 dispatch | Future discovery bridge — AID trust scores discoverable via ANS resolution. Reference in spec, don't build yet. |
 | NVIDIA OpenShell / NemoClaw | Sandboxed agent runtime with policy-based security guardrails | NVIDIA | Open-sourced March 18, 2026 (GTC) | If agents run in OpenShell, AID attestations from within sandbox = tamper-proof execution proofs. Phase 3+ integration opportunity. |
 | NVIDIA Retail Blueprint | Dual-protocol (ACP + UCP) reference implementation for retail agentic commerce | NVIDIA | Open-sourced March 18, 2026 (GTC) | Zero trust/reputation layer. @aidprotocol/mcp-trust as middleware for their MCP server. Future partnership opportunity. |
 | Gen Agent Trust Hub | Agent trust verification + skills marketplace | Gen (Norton/Avast, NASDAQ: GEN) | Live (Feb 4, 2026) | 500M user brand but consumer-focused, not agent-to-agent. No portable trust, no crypto settlement. |
 | Trusta.AI AgentGo | MCP middleware for on-chain identity + reputation | Trusta.AI | Open-sourced | Simpler model — AID has 11-dimension scoring, 3-layer lifecycle, 36 attack mitigations |
-| Solana Agent Registry | ERC-8004 implementation on Solana | Quantu AI | Live (March 3, 2026) | AID bridges Solana + EVM registries with cross-chain trust. Single Ed25519 key on Solana. |
+| Solana Agent Registry | ERC-8004 on Solana — native identity + reputation + verification registry per agent. Ed25519 native. | Quantu AI | Live (March 3, 2026) | AID's Ed25519 maps directly to Solana's native key type — no bridge needed. Build AID-Solana-Registry bridge in parallel with AID-ERC-8004 bridge (Phase 2). Architecturally simpler than EVM bridge. |
+| AgentSign | MIT-licensed trust infrastructure — staged pipeline (INTAKE→ACTIVE), agent passports (offline), execution chains (DAG), MCP trust layer. UK patent filed (GB2604808.2, March 2026). | Independent | Live, zero deps | Offline passports = same concept as AID Merkle-proof verification. Pipeline model is enterprise-focused. Patent covers their specific 5-subsystem combination, not general agent trust. Not a threat to AID's standard positioning. Steal: onboarding milestones (Section 4.2). |
+| ANP (Agent Network Protocol) | Three-layer discovery protocol — decentralized identity + secure E2E messaging + capability registry. Cross-network agent discovery. | OneReach + community | Emerging | Different from A2A (ANP = cross-network discovery, A2A = direct task collab). ANP discovery layer could carry AID trust scores as metadata. Future integration point. |
+| Catena Labs | Agent-native banking — $18M from a16z. First VC-backed company building bank accounts for agents. | a16z backed | Early | If agents have bank accounts, they need credit scores. AID IS the credit score. Partnership target for Phase 3 credit line feature. |
+| Trulioo / Sumsub | Enterprise KYA (Know Your Agent) compliance platforms — extending identity verification to AI agents | Enterprise | Live | Enterprise identity/compliance, not trust scoring. Validate the KYA framing. Complementary. |
 | Skyfire KYA | Know Your Agent | Skyfire/Trulioo | Live | JWTs, no on-chain, no portability |
 | W3C DIDs | Decentralized identifiers | W3C | v1.1 draft | No reputation, no payment, slow standards |
 | EAS | Generic attestations | Open source | Live | No agent tooling, no discovery |
