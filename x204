@@ -197,31 +197,34 @@ Three dimensions, integer-only, no decay, no anti-gaming. This is a v0.1 trust s
 
 ### 4.2 Target State (x204 Trust Score)
 
-**Three signal categories, weighted:**
+**Three signal categories, weighted (IMPLEMENTED — see `computeTrustScoreWithProof()`):**
 
+**Currently live in ClawNet backend (4 core signals):**
 ```
-BEHAVIORAL (50%)                    ← from attestation history
-  successRate        (0-1)          # weighted by recency (10%/30d decay)
-  latencyConsistency (0-1)          # low variance = high score
-  chainCoverage      (0-1)          # hash-chain integrity percentage
-  uptimeScore        (0-1)          # from health cron data
-  outcomeReports     (0-1)          # positive outcome ratio from feedback
-
-MARKET (30%)                        ← from staking/usage data
-  stakingDemand      (0-1)          # bonding curve price as trust proxy
-  consumerDiversity  (0-1)          # unique consumers (not just volume)
-  crossConsumption   (0-1)          # does this agent USE other agents?
-  volumeGrowth       (0-1)          # trending up vs flat vs declining
-
-COMMUNITY (20%)                     ← from weighted reviews
-  validatorVerdicts  (0-1)          # weighted by validator spend + accuracy
-  reportPenalty      (0-1)          # inverse — more reports = lower score
-  verificationTier   (0-1)          # Twitter/GitHub/domain verification level
+BEHAVIORAL CORE (implemented in aid-builder.ts):
+  successRate        (0-1) × 40     # from attestation_stats.success_count
+  chainCoverage      (0-1) × 25     # hash-chain integrity percentage
+  volume             (0-1) × 20     # min(attestationCount/1000, 1)
+  manifestAdherence  (0-1) × 15     # manifest_aligned / (aligned + unaligned)
+                                    # defaults to 0.5 if no manifests checked
 ```
 
-**Scoring formula:**
+**Phase 3 expansion (adds market + community signals):**
 ```
-rawScore = (behavioralAvg * 50) + (marketAvg * 30) + (communityAvg * 20)
+BEHAVIORAL (50%):
+  successRate, latencyConsistency, chainCoverage, uptimeScore,
+  outcomeReports, manifestAdherence
+
+MARKET (30%):
+  stakingDemand, consumerDiversity, crossConsumption, volumeGrowth
+
+COMMUNITY (20%):
+  validatorVerdicts, reportPenalty, verificationTier
+```
+
+**Current scoring formula (LIVE):**
+```
+rawScore = successRate×40 + chainCoverage×25 + volume×20 + manifestAdherence×15
 verificationMultiplier = 1.0 | 1.1 | 1.2  (none | partial | full verification)
 finalScore = min(100, round(rawScore * verificationMultiplier))
 ```
@@ -1490,31 +1493,50 @@ identity, and trust are a SINGLE ATOMIC OPERATION, not three separate lookups.
 ### 19A.1 Why Manifest/Attestation Are Part of x204 (Not Separate)
 
 ClawNet already has manifest (pre-execution) and attestation (post-execution) as separate
-features. x204 formally includes them as OPTIONAL protocol extensions because they complete
-the trust lifecycle that no competitor covers:
+features. x204 formally includes them — with a NEW middle layer (execution proof)
+that makes the trust lifecycle cryptographically verifiable end-to-end.
+
+**THIS IS NOW IMPLEMENTED IN CLAWNET'S BACKEND (not just planned).**
 
 ```
-BEFORE            DURING                AFTER               FOREVER
-┌──────────┐     ┌───────────────┐     ┌──────────────┐    ┌──────────┐
-│ MANIFEST │  →  │ x204          │  →  │ ATTESTATION  │ →  │ RECEIPT  │
-│          │     │ TRANSACTION   │     │              │    │          │
-│ What I   │     │ Identity +    │     │ What actually│    │ Portable │
-│ will do  │     │ Payment +     │     │ happened     │    │ proof    │
-│ (declare │     │ Trust gate +  │     │ (recorded,   │    │ (offline │
-│ capabili │     │ Execution     │     │ hash-chained)│    │  verify) │
-│ ties)    │     │               │     │              │    │          │
-└──────────┘     └───────────────┘     └──────────────┘    └──────────┘
-      │                 │                     │                  │
-      └─────────────────┴─────────────────────┴──────────────────┘
-                     FEEDS INTO TRUST SCORE
-               (behavioral signal, Layer 3)
+BEFORE              DURING                  AFTER               FOREVER
+┌──────────┐       ┌─────────────────┐     ┌──────────────┐    ┌──────────┐
+│ MANIFEST │   →   │ EXECUTION PROOF │  →  │ ATTESTATION  │ →  │ RECEIPT  │
+│          │       │                 │     │              │    │          │
+│ Intent   │       │ Evidence        │     │ Outcome      │    │ Portable │
+│ "I will  │       │ "I called these │     │ "It worked"  │    │ proof    │
+│  check 3 │       │  endpoints:     │     │ success/fail │    │ (offline │
+│  sources"│       │  CoinGecko ✓    │     │ hash-chained │    │  verify) │
+│          │       │  Birdeye ✓      │     │ signed       │    │          │
+│ Optional │       │  Jupiter ✓      │     │              │    │          │
+│ (+trust  │       │  230ms total"   │     │              │    │          │
+│  bonus)  │       │                 │     │              │    │          │
+│          │       │ AUTOMATIC       │     │ AUTOMATIC    │    │          │
+└──────────┘       └─────────────────┘     └──────────────┘    └──────────┘
+      │                    │                      │                  │
+      └────────────────────┴──────────────────────┴──────────────────┘
+                        ALL feed into TRUST SCORE
+             manifestAdherence (15%) + successRate (40%) +
+             chainCoverage (25%) + volume (20%)
 ```
 
-**This is what NO competitor has.** x204 is the ONLY protocol with all 4 stages.
+**What's implemented in ClawNet right now:**
+- `createAutoAttestation()` accepts `executionSteps[]` parameter
+- Each step hashed individually into `source_hashes_json` (verifiable)
+- Execution proof summary in `outcome_data_json`: totalSteps, successfulSteps,
+  cachedSteps, totalLatencyMs, stepEndpoints, proofHash
+- `POST /v1/orchestrate` passes execution.steps automatically
+- Trust score formula: `successRate×40 + chainCoverage×25 + volume×20 + manifestAdherence×15`
+- `manifestAdherence` = `manifest_aligned / (manifest_aligned + manifest_unaligned)`
+  from `attestation_stats` table (data already existed, now used in scoring)
 
-### 19A.2 Manifest in x204 (Pre-Execution Declaration)
+**This is what NO competitor has.** x204 is the ONLY protocol with all 4 stages,
+and the middle layer (execution proof) is ALREADY RUNNING in production code.
 
-Manifests are OPTIONAL but encouraged. Published in the heartbeat endpoint:
+### 19A.2 Manifest in x204 (Layer 1: Intent Declaration)
+
+Manifests are OPTIONAL but incentivized — agents with high manifest adherence
+get a 15% trust score bonus (the `manifestAdherence` behavioral signal).
 
 ```json
 {
@@ -1537,25 +1559,78 @@ Manifests are OPTIONAL but encouraged. Published in the heartbeat endpoint:
 - `manifest_adherence` = successful attestations matching claims / total invocations
 - Feeds into `successRate` behavioral signal — agents who deliver what they promise get trust boost
 
-### 19A.3 Attestation in x204 (Post-Execution Proof)
+### 19A.3 Execution Proof in x204 (Layer 2: Evidence — IMPLEMENTED)
 
-Every x204 transaction automatically creates an attestation:
+**The missing middle layer that no competitor has.** Between "I will do X" (manifest)
+and "X succeeded" (attestation), the execution proof records HOW it was done.
+
+```
+Without execution proof:
+  Manifest: "I'll check 3 sources" → Attestation: "success"
+  (Agent could have checked 1 source and lied)
+
+With execution proof:
+  Manifest: "I'll check 3 sources" → Execution proof: "checked CoinGecko (85ms),
+  Birdeye (120ms), Jupiter (25ms, cached)" → Attestation: "success, 3/3 sources"
+  (Verifiable — each step is individually hashed)
+```
+
+**Already implemented in `createAutoAttestation()` (src/db/attestations.ts):**
+```typescript
+// Execution steps passed automatically from executor:
+executionSteps: [
+  { endpointId: 'coingecko-price', success: true, cached: false, durationMs: 85, cost: 0.15 },
+  { endpointId: 'birdeye-price',   success: true, cached: false, durationMs: 120, cost: 0.15 },
+  { endpointId: 'jupiter-price',   success: true, cached: true,  durationMs: 25, cost: 0 }
+]
+
+// Stored as:
+source_hashes_json: [
+  { source: 'coingecko-price', hash: 'sha256:a1b2...', fetched_at: '...' },
+  { source: 'birdeye-price',   hash: 'sha256:c3d4...', fetched_at: '...' },
+  { source: 'jupiter-price',   hash: 'sha256:e5f6...', fetched_at: '...' }
+]
+outcome_data_json: {
+  executionProof: {
+    totalSteps: 3,
+    successfulSteps: 3,
+    cachedSteps: 1,
+    totalLatencyMs: 230,
+    stepEndpoints: ['coingecko-price', 'birdeye-price', 'jupiter-price'],
+    proofHash: 'sha256:...'
+  }
+}
+```
+
+**Why this matters for trust:**
+- Manifest says "I'll check 3 sources" → execution proof shows 3 sources checked
+- `manifestAdherence` = checked sources / promised sources = 1.0 (100%)
+- This feeds the 15% manifestAdherence weight in the trust score formula
+- If agent promised 3 but only checked 1: manifestAdherence = 0.33 → trust drops
+- Each step hash is individually verifiable — can't fake the evidence
+
+### 19A.4 Attestation in x204 (Layer 3: Outcome — IMPLEMENTED)
+
+Every x204 transaction automatically creates a signed, hash-chained attestation:
 ```
 x204 transaction completes → attestation auto-created:
   action_type: "skill_invoke"
   outcome_status: "success"
   input_hash: SHA-256 of request
-  output_hash: SHA-256 of response
+  response_hash: SHA-256 of response
+  source_hashes_json: execution proof hashes (Layer 2 data)
+  outcome_data_json: execution proof summary
   prev_attestation_hash: hash-chain link (tamper-evident)
-  cost: credits charged
-  latency_ms: execution time
+  signature: HMAC-SHA256 with platform signing key
+  credits_charged: actual cost
+  duration_ms: execution time
 ```
 
 **Attestation → Trust Score flow:**
 1. Attestation recorded (auto, every transaction)
-2. Success/failure → `successRate` signal
-3. Hash-chain coverage → `chainCoverage` signal
-4. Latency → `latencyConsistency` signal
+2. Success/failure → `successRate` signal (40% weight)
+3. Hash-chain coverage → `chainCoverage` signal (25% weight)
+4. Manifest alignment checked → `manifestAdherence` signal (15% weight)
 5. Every 4h: snapshot cron rebuilds Merkle tree
 6. Snapshot → portable trust chain → verifiable anywhere
 
@@ -1564,7 +1639,7 @@ x204 transaction completes → attestation auto-created:
 - Receipt = dual-signed portable proof (travels with the agent)
 - Both reference the same tx, different purposes
 
-### 19A.4 Where x204 Fits in the 7-Layer Agent Commerce Stack
+### 19A.5 Where x204 Fits in the 7-Layer Agent Commerce Stack
 
 The emerging industry framework (Visa, Google, Stripe, Coinbase, et al.):
 
@@ -1619,30 +1694,40 @@ LAYER 7: BILLING & METERING — "usage-based pricing for tools/APIs"
 x402 = Layers 4-5. ERC-8004 = Layers 0, 3. ERC-8183 = Layer 6.5.
 Visa TAP = Layer 3. Google AP2 = Layer 2. Stripe ACP = Layers 1, 4.
 
-### 19A.5 Modular Protocol Extensions
+### 19A.6 Modular Protocol Extensions
 
-To keep x204 lightweight, manifest and attestation are optional:
+x204 is modular. The three-layer trust lifecycle is built into ClawNet but
+third-party implementations can adopt incrementally:
 
 ```
 x204 CORE (required — ~6 days to implement):
-  AID identity (X-AID-DID, X-AID-PROOF, X-AID-TIMESTAMP)
+  AID identity (X-AID-DID, X-AID-PROOF, X-AID-TIMESTAMP, X-AID-NONCE)
   Payment (PAYMENT-SIGNATURE)
   Receipt (X-AID-RECEIPT)
   Heartbeat (GET /x204/heartbeat)
 
-x204 TRUST EXTENSION (optional, recommended — ~3 more days):
-  Manifest in heartbeat service declarations
-  Auto-attestation on transaction completion
+x204 TRUST EXTENSION (recommended — ~3 more days):
+  Attestation: AUTOMATIC — middleware creates on every transaction
+  Execution Proof: AUTOMATIC — middleware captures step-level evidence
+  Manifest: OPTIONAL — publish in heartbeat, get 15% trust score bonus
   Feedback endpoint (POST /x204/feedback)
   Trust-gated pricing
 
+  Status in ClawNet: ALL IMPLEMENTED ✓
+    - createAutoAttestation() with executionSteps[] (attestations.ts)
+    - manifestAdherence in trust score formula (aid-builder.ts)
+    - Execution proof in source_hashes_json + outcome_data_json
+
 x204 MARKET EXTENSION (optional, Phase 4+):
-  Bonding curve staking
+  Bonding curve staking (reputation-only, no revenue share)
   Seasonal competitions
   Cross-consumption incentives
 ```
 
-Any platform can implement CORE quickly and add extensions incrementally.
+Key design decision: attestation and execution proof are AUTOMATIC (the middleware
+handles them — the provider doesn't write any code). Manifest is OPTIONAL but
+incentivized (15% trust bonus). This means the trust lifecycle works even if
+a provider does nothing beyond installing the middleware.
 
 ---
 
@@ -2590,23 +2675,23 @@ RIGHT: Compute Merkle tree of all scores off-chain, write single root
 
 ### 30.1 Does Changing Manifest/Attestation Automatically Flow to x204?
 
-**MOSTLY YES — with one manual coupling point.** Here's the verified data flow:
+**YES — fully automatic with the three-layer model.** Here's the implemented data flow:
 
 ```
-MANIFEST                    ATTESTATION                    AID / x204
-(pre-execution)             (post-execution)               (trust layer)
-     │                           │                              │
-     │  createAutoAttestation()  │                              │
-     │  passes manifestId ──────►│                              │
-     │                           │                              │
-     │  manifest_memory table    │  attestation_stats table     │
-     │  stores verdict ─────────►│  auto-increments:            │
-     │                           │    manifest_aligned           │
-     │                           │    manifest_unaligned         │
-     │                           │    success_count              │
-     │                           │    total_attestations          │
-     │                           │         │                     │
-     │                           │         │  aid-builder.ts     │
+MANIFEST             EXECUTION PROOF          ATTESTATION              AID / x204
+(pre-execution)      (during execution)       (post-execution)         (trust layer)
+     │                     │                       │                        │
+     │  manifest_memory    │  executionSteps[]     │                        │
+     │  stores verdict ───►│  passed to ──────────►│  createAutoAttestation()│
+     │                     │  attestation          │                        │
+     │                     │                       │  attestation_stats      │
+     │                     │  source_hashes_json   │  auto-increments:       │
+     │                     │  (step-level hashes)  │    manifest_aligned     │
+     │                     │                       │    success_count        │
+     │                     │  outcome_data_json    │    total_attestations   │
+     │                     │  (execution proof     │         │               │
+     │                     │   summary + proofHash)│         │               │
+     │                     │                       │         │  aid-builder  │
      │                           │         │  queries stats ────►│ Trust Score
      │                           │         │                     │ (successRate,
      │                           │         │  aid-snapshot-cron  │  chainCoverage)
@@ -2668,21 +2753,17 @@ New action types can be added via admin API without code changes.
 Currently, `manifestAligned` and `manifestConfidence` are stored in attestations
 but NOT used in the trust score computation. This is a missed opportunity.
 
-**Recommended addition to Trust Score v2 (behavioral signals):**
+**IMPLEMENTED in `computeTrustScoreWithProof()` (aid-builder.ts):**
 ```
-BEHAVIORAL (50%):
-  successRate         (0-1)  # existing
-  latencyConsistency  (0-1)  # existing
-  chainCoverage       (0-1)  # existing
-  uptimeScore         (0-1)  # existing
-  outcomeReports      (0-1)  # existing
-  manifestAdherence   (0-1)  # NEW — manifest_aligned / total_with_manifest
+Current live formula:
+  successRate        × 40  # from attestation_stats.success_count
+  chainCoverage      × 25  # hash-chain integrity percentage
+  volume             × 20  # min(attestationCount / 1000, 1)
+  manifestAdherence  × 15  # manifest_aligned / (aligned + unaligned)
 ```
 
-This makes manifest alignment a TRUST SIGNAL — agents who declare what they'll do
-AND actually do it get higher trust scores. The data already flows through
-`attestation_stats.manifest_aligned` / `manifest_unaligned` — just needs to be
-included in the score computation.
+Agents who declare intent via manifests AND fulfill it get a 15% trust boost.
+The execution proof (Layer 2) provides the evidence that links manifest to outcome.
 
 ---
 
