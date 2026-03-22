@@ -13,13 +13,20 @@ transaction makes it smarter.
 
 ## BUILD PROGRESS CHECKLIST
 
-> Master tracker for all phases. Mark ✅ as items complete. See Section 38.9 for details,
-> Section 43.7 for audit-revised Day 1 priorities. Updated: March 21, 2026.
+> Master tracker for all phases. Mark items as complete when done.
+> See Section 38.9 for build details, Section 44.7 for urgency context.
+> Updated: March 21, 2026. **DIF window is DAYS, not weeks.**
 
-### PRE-BUILD (Audit Corrections — Do Before Anything Else)
+### TODAY (March 21 — Cannot Wait)
+- [ ] Submit 4-page trust scoring extension to DIF TAAWG (email, not polished spec)
+- [ ] Register @aidprotocol npm org + aid-trust PyPI + typosquats
+- [ ] Submit lightning talk proposal to AAIF MCP Dev Summit (NYC, April 2-3)
 - [ ] Switch DID method from `did:clawnet` to `did:key` in published spec (30 min)
+
+### PRE-BUILD (Audit Corrections — Do Before Phase 1 Code)
 - [ ] Define governance model for trust formula versioning (Flaw 9)
 - [ ] Draft spec with 4 LIVE dimensions, mark 7 as Phase 3 extensions (Flaw 10)
+- [ ] Reframe marketing: "only protocol that converts evidence into portable trust score" (Flaw 17)
 
 ### ALREADY COMPLETE (Production in ClawNet)
 - [x] AID system — registration, key rotation, offline verification (`src/routes/aid.ts`)
@@ -53,6 +60,7 @@ transaction makes it smarter.
 - [ ] Publish AID protocol spec as standalone 10-page document
 - [ ] Register ClawNet on ERC-8004 Identity Registry (Base, ~$1)
 - [ ] Add protocol-level canary — on-chain liveness proof (Cherry 15)
+- [ ] Ship trust.claw-net.org PWA (trust lookup + "Try it" demo, Optimization 16)
 - [ ] Research Wyoming DAO LLC sandbox (Flaw 12)
 
 **Week 2:**
@@ -93,6 +101,11 @@ transaction makes it smarter.
 - [ ] Formal dispute resolution (POST /aid/disputes — Flaw 6, elevated from "future vision")
 - [ ] Bad debt reserve — 0.1% surcharge on deferred settlements (Flaw 4)
 - [ ] WebSocket/SSE streaming for trust updates (Flaw 5 / Optimization 8)
+- [ ] @aidprotocol/aar-bridge — bidirectional AAR receipt conversion (Optimization 12)
+- [ ] Verifiable Intent integration — map AID trust as VI signal (Optimization 13)
+- [ ] Gas price circuit breaker for batch settlement (Vector 43)
+- [ ] Verification receipt in middleware — caller-verifiable ClawNet-signed token (Flaw 18)
+- [ ] ARA compatibility evaluation (Flaw 16)
 
 ### PHASE 3: INTELLIGENCE (Months 4-6)
 - [ ] Trust Score v2 (expand to 11 dimensions, 3 categories)
@@ -137,7 +150,7 @@ transaction makes it smarter.
 
 ---
 
-**Progress: 14/84 items complete (17%). Next action: PRE-BUILD corrections → Day 1 DIF submission.**
+**Progress: 14/98 items complete (14%). NEXT ACTION: Submit DIF TAAWG extension TODAY.**
 
 ---
 
@@ -1152,7 +1165,10 @@ composing into a full market stack. Open, neutral, credibly decentralized.
 | Skyfire KYA | Know Your Agent | Skyfire/Trulioo | Live | JWTs, no on-chain, no portability |
 | W3C DIDs | Decentralized identifiers | W3C | v1.1 draft | No reputation, no payment, slow standards |
 | EAS | Generic attestations | Open source | Live | No agent tooling, no discovery |
-| AAIF (MCP/A2A) | Agent interoperability | Anthropic, OpenAI, Google + 146 orgs | Standards body, identity work underway | Ship identity NOW while AAIF deliberates |
+| AAIF (MCP/A2A) | Agent interoperability governance | Anthropic, OpenAI, Google, AWS, Microsoft + 146 orgs | Linux Foundation entity, MCP Dev Summit April 2-3 | Submit through DIF TAAWG (collaborates with AAIF). Present at MCP Dev Summit. |
+| BotIndex AAR | Agent Action Receipts — Ed25519-signed receipt spec + npm middleware | BotIndex | Shipped, MIT-licensed | AID receipts are SUPERSET (trust scoring, Merkle anchoring, feedback loop). Ship @aidprotocol/aar-bridge. |
+| AWS ARA | AI Registry for Agents — open spec for agent artifact packaging/discovery | AWS | Published Feb 25, 2026 | Complementary — AID agent metadata expressible as ARA artifact. Phase 2 integration. |
+| Bright Security | MCP AppSec Framework — security testing for MCP server attack surfaces | Bright Security | Published March 19, 2026 | Complementary — use findings to harden @aidprotocol/mcp-trust. |
 
 ---
 
@@ -2466,11 +2482,12 @@ This plan is ready to build. Every section has been:
 - **Verified:** Gas costs validated against BaseScan (0.005 gwei floor, ~$0.001/tx including L1).
   All 20 ClawNet components verified as existing production code. Revenue math verified.
   Base USDC EIP-3009 support confirmed. EAS attestation costs confirmed.
-- **Audited twice:** First audit scored 8/10 (Section 41): 7 flaws, 3 security gaps, 6 optimizations,
-  12 cherry features. Second audit scored 7.5/10 (Section 43): 5 missed competitors added,
-  5 new flaws (governance, DID format, overengineering), 4 new attack vectors, 5 optimizations,
-  6 cherry features. DID method switched to did:key for DIF compatibility.
-- **Secured:** Threat model with 40 attack vectors and mitigations (14 + 6 + 13 + 3 + 4)
+- **Audited three times:** First audit 8/10 (Section 41), second 7.5/10 (Section 43), third 7/10
+  (Section 44). 18 total flaws identified with fixes, 43 attack vectors mitigated, 23 competitors
+  analyzed, 21 cherry features catalogued. Key finding: AAR (BotIndex) shipped overlapping
+  receipt spec — AID positioned as trust-enriched superset. DIF window is DAYS not weeks.
+  Protocol renamed from x204 to AID. DID method switched to did:key.
+- **Secured:** Threat model with 43 attack vectors and mitigations (14 + 6 + 13 + 3 + 4 + 3)
 - **Costed:** Economic model with verified gas costs, facilitator fee comparison, monthly projections
 - **Scoped:** Phase 1 is 8-13 days with zero infrastructure changes
 - **Tested:** All core crypto primitives already have working code in production (20/20 verified)
@@ -4088,11 +4105,13 @@ fixed time window has no guaranteed effect.
 | 39.11 | Trust oscillation farming | Medium | $0 | ✓ 3-window trailing average |
 | 39.12 | Merkle proof grinding | Low | $0 | ✓ ±15 min random jitter |
 
-**Total attack vectors mitigated: 40** (14 original + 6 race conditions + 13 new + 3 from first
-audit + 4 from second audit).
+**Total attack vectors mitigated: 43** (14 original + 6 race conditions + 13 new + 3 from first
+audit + 4 from second audit + 3 from third audit).
 See Section 41.4 for vectors 34-36: MCP supply chain, temporal trust, collusion rings.
 See Section 43.3 for vectors 37-40: MCP-I credential confusion, heartbeat DNS hijack,
 batched timing attack, cross-platform trust arbitrage.
+See Section 44.2 for vectors 41-43: AAR receipt confusion, DIF credential poisoning,
+gas price spike during batch settlement.
 
 ---
 
@@ -5505,3 +5524,225 @@ strategically brilliant. The three-layer trust lifecycle is a genuine innovation
 ago confirms active coalition-forming. AWS published x402 support yesterday.
 
 **Ship the corrected spec. Claim the DIF slot. Let execution prove the thesis.**
+
+---
+
+## 44. THIRD INDEPENDENT QUALITY AUDIT (March 21, 2026)
+
+**Source:** Third adversarial audit by Claude Opus 4.6 with live web verification.
+Overall score: **7/10** — down from 7.5/10. Downgrade reflects: AAR (BotIndex) shipped
+overlapping receipt spec, x402 volume data is more nuanced than acknowledged, DIF window
+is closing faster than any prior section accounted for.
+
+### 44.1 CRITICAL FLAWS (6 New — Flaws 13-18)
+
+**Flaw 13: Agent Action Receipts (AAR) Is A Direct Competitor**
+
+BotIndex shipped "Agent Action Receipts" (AAR) — MIT-licensed, open-source spec with npm
+middleware (`botindex-aar`). Ed25519-signed receipts for every agent action with input/output
+hashes, transport-agnostic delivery, Express middleware, ZK proof compatibility (Aztec L2),
+and explicit Mastercard Verifiable Intent mapping (`aarToVerifiableIntent()`).
+
+This is AID's portable atomic receipt system, shipped before AID, with VI compatibility built in.
+
+**Fix:** AID receipts are SUPERSET of AAR (AAR has no trust scoring, no Merkle anchoring, no
+feedback loop, no multi-dimensional trust). Ship `@aidprotocol/aar-bridge` for bidirectional
+conversion. Absorb rather than compete. The scoring is the moat, not the receipt format.
+
+**Flaw 14: x402 Volume Data Undermines "Market Not Won" Narrative**
+
+Fresh data: 75M+ settled transactions across Base and Solana. BUT ~50% of Base volume is
+wash trading per Artemis analysis (CoinDesk, March 11). AWS Bedrock AgentCore integrated
+x402 on March 20. Ecosystem valuation ~$7B (inflated by LINK inclusion).
+
+The real picture: x402 is simultaneously far more adopted than AID acknowledges (75M+ txs,
+AWS integration) AND far more experimental than the hype suggests (half is artificial).
+
+**Fix:** Position AID as "the trust layer that makes x402's 75M transactions meaningful —
+because right now half of them are wash trades that a trust system would filter out." This
+narrative is stronger than "the market hasn't been won."
+
+**Flaw 15: DIF TAAWG Timeline Is Days, Not Weeks**
+
+DIF Newsletter #59 (March 18) confirms: MCP-I Task Force forming, coalition of startups
+actively prototyping, CAWG already integrating with TAAWG on trust registries, working group
+defining "an opinionated, interoperable stack." The reputation/trust scoring layer is the
+obvious next extension and multiple startups are already at the table.
+
+**Fix:** DIF submission must be TODAY. Not Day 1 of Week 1. Today. 4-page spec covering:
+(1) trust score schema as W3C VC, (2) did:key identity with Ed25519, (3) Merkle-anchored
+verification, (4) feedback loop. Polish later. Ship now.
+
+**Flaw 16: No Consideration of AI Registry for Agents (ARA)**
+
+AWS published ARA on February 25 — open spec for standardizing how AI agent artifacts
+(configs, MCP servers, prompts) are packaged and discovered. Intersects with AID's
+heartbeat/discovery layer.
+
+**Fix:** Evaluate ARA compatibility. If AID agent metadata can be expressed as ARA artifact,
+AID agents become discoverable through AWS infrastructure automatically. Phase 2 target.
+
+**Flaw 17: Three-Layer Trust Lifecycle Isn't As Unique As Claimed**
+
+AAR captures action type, target, method, status, input/output hashes, cost. Mastercard VI
+captures identity → intent → action → outcome. Structurally similar to manifest → execution
+proof → attestation. The GENUINE differentiator is: AID feeds execution proofs into a SCORING
+SYSTEM that produces a PORTABLE TRUST NUMBER.
+
+**Fix:** Reframe marketing. Stop saying "3-layer lifecycle nobody has." Start saying "the only
+protocol that converts execution evidence into a canonical, verifiable, portable trust score."
+That IS unique and defensible.
+
+**Flaw 18: MCP Security — "Legitimate Operator Gone Rogue" Unaddressed**
+
+Bright Security analysis (March 19) details MCP server attack surfaces. If a malicious MCP
+server operator installs @aidprotocol/mcp-trust, they can: return fake "verified" status,
+harvest caller DIDs for competitive intelligence, build a trust cache then go rogue.
+
+**Fix:** The middleware MUST include a "verification receipt" — a signed token from ClawNet's
+API that the CALLER can independently verify, not just the middleware operator. Callers
+should verify the ClawNet-signed token themselves. Add as mandatory architecture requirement.
+
+---
+
+### 44.2 SECURITY GAPS (3 New — Vectors 41-43)
+
+**Attack Vector 41: AAR-AID Receipt Confusion**
+
+Both AID receipts and AAR receipts circulate in the ecosystem. Consumer presenting AAR
+receipt to a platform expecting AID receipts (or vice versa) receives incorrect trust attribution.
+
+**Mitigation:** Clear `protocol` field in receipt headers (`aid` vs `aar` vs `vi`). Publish
+canonical receipt-type detection algorithm. Add `aar_compatible: true/false` flag to AID
+receipts indicating whether they can be downcast to AAR format without data loss.
+
+**Attack Vector 42: DIF Credential Poisoning via TAAWG**
+
+If AID submits trust scores as W3C VCs and another party submits a competing trust VC schema,
+an agent presents BOTH credentials to a verifier — one from AID (trust 87) and one from a
+competitor (trust 95). Without canonical precedence rules, verifiers are confused.
+
+**Mitigation:** AID trust VCs must include `trustSystemId` and `trustSystemVersion` fields.
+Verifiers configured to accept specific trust systems, not generic claims. Publish a "trust
+system registry" on-chain (simple mapping: system ID → verification endpoint).
+
+**Attack Vector 43: Gas Price Spike During Batch Settlement**
+
+Base L2 gas prices normally ~0.005 gwei but spikes to 50+ gwei during congestion. Batch
+settlement of 1,000 txs at 50 gwei = ~$3.25 instead of $0.001 — 3,250x increase.
+
+**Mitigation:** Gas price circuit breaker: if gas exceeds 10x the 7-day average, pause batch
+settlement, extend window, alert operators. Resume when gas normalizes. Standard DeFi
+practice but not in the plan.
+
+---
+
+### 44.3 ADDITIONAL COMPETITORS (4 New — Total Now 23)
+
+| Competitor | What | Status | Threat | AID Edge |
+|------------|------|--------|--------|----------|
+| BotIndex AAR | Ed25519-signed receipt spec + npm middleware + VI bridge | Shipped, MIT | HIGH | AID = trust-enriched superset. Ship @aidprotocol/aar-bridge |
+| AWS ARA | Open spec for AI agent artifact packaging/discovery | Published Feb 25 | MEDIUM | Complementary — express AID metadata as ARA artifacts |
+| Bright Security | MCP AppSec framework for MCP server attack surfaces | Published March 19 | LOW | Use findings to harden @aidprotocol/mcp-trust |
+| AAIF Governance | Linux Foundation entity governing MCP standards | Formed Dec 2025 | HIGH (standardization) | Submit through DIF TAAWG, present at MCP Dev Summit |
+
+---
+
+### 44.4 ADDITIONAL OPTIMIZATIONS (5 New — Optimizations 12-16)
+
+**Optimization 12: Ship AAR Compatibility Layer**
+`@aidprotocol/aar-bridge` — bidirectional conversion between receipt formats. AID → AAR
+strips trust fields, preserves action data. AAR → AID adds trust fields (null if unknown).
+Positions AID as the "trust-enriched superset" of AAR.
+
+**Optimization 13: Verifiable Intent Integration (Phase 2)**
+Map AID trust scores as a VI "trust signal" (spec is extensible). Include VI compatibility
+in AID receipts. Position: "VI proves the human authorized it. AID proves the agent is
+worth trusting."
+
+**Optimization 14: x402 Wash Trading as Marketing**
+Artemis confirms ~50% of x402 Base volume is artificial. Build a public dashboard showing
+x402 transactions with trust-score annotations. Wash trades score near zero — vivid proof
+that trust matters. "Trust scoring would have caught $14K/day of fake volume on day one."
+
+**Optimization 15: AAIF MCP Dev Summit (April 2-3, NYC)**
+12 days away. Submit lightning talk proposal TODAY. The audience is every MCP server
+operator who needs trust. Single best venue to present @aidprotocol/mcp-trust.
+
+**Optimization 16: Progressive Web App Trust Dashboard**
+Ship PWA at trust.claw-net.org: paste a DID → see trust profile, real-time score changes
+via SSE, "Try it" skill execution. More shareable than curl commands, works on mobile.
+Interactive demo for DIF and MCP Dev Summit presentations.
+
+---
+
+### 44.5 ADDITIONAL CHERRY-ON-TOP FEATURES (6 New — Cherries 16-21)
+
+**Cherry 16: Trust Score Diff API**
+Compare two agents side-by-side: `GET /aid/trust/diff?a=did:key:zA&b=did:key:zB`
+Returns per-dimension comparison + recommendation. Orchestrators use for routing decisions.
+
+**Cherry 17: Trust-Weighted Load Balancing (L7 Proxy)**
+Cloudflare Worker / Envoy filter routing traffic by AID trust scores. High-trust agents get
+priority routing; low-trust get rate-limited at the edge. Trust becomes infrastructure.
+
+**Cherry 18: Retroactive Trust Import from x402 Facilitator Logs**
+x402 facilitators log every transaction with wallet addresses. Agent registers AID, links
+wallet → AID retroactively imports x402 payment history as behavioral signals. 75M+ existing
+x402 transactions become AID trust data. Turns x402's install base into AID's trust bootstrap.
+
+**Cherry 19: Trust Score NFT (Soulbound, ERC-5192)**
+Non-transferable NFT on Base with current trust score, updated monthly. Other contracts check
+`balanceOf()` + `tokenURI()` to gate access. On-chain composability without TrustOracle —
+simpler, cheaper, immediately useful.
+
+**Cherry 20: "Trust Canary" Public Feed**
+Public RSS/Atom feed of trust score changes (anonymized DIDs, score deltas, verdicts).
+Security researchers and journalists monitor the feed. Transparency builds credibility and
+catches manipulation through crowdsourced monitoring.
+
+**Cherry 21: Multi-Agent Trust Graphs (Crew-Level Trust)**
+`GET /aid/trust/crew` with agent list → composite crew trust score, weakest link identification,
+replacement recommendation, crew-level discount. No protocol offers crew-level trust.
+Killer for enterprise multi-agent deployments (CrewAI, LangGraph, AutoGen).
+
+---
+
+### 44.6 Updated Scorecard (Third Audit)
+
+| Dimension | Score | Trend | Notes |
+|-----------|-------|-------|-------|
+| Protocol specification | A | — | Thorough, internally consistent |
+| Trust scoring formula | B+ | — | 4 live, 7 aspirational — ship what's live |
+| Settlement mechanics | A | — | Excellent detail |
+| Security model | A- | up | 43 vectors. Gas circuit breaker needed. |
+| Economic model | B | down | x402 volume changes cost comparison narrative |
+| Competitive analysis | B- | down | Was B. 4 more competitors missed |
+| Build plan | B+ | — | Phase 1 realistic, DIF timeline CRITICAL |
+| Adoption strategy | A- | down | Was A. AAR challenges "first receipt middleware" |
+| Receipt interoperability | D | NEW | AAR and VI compatibility not addressed |
+| MCP security model | C+ | NEW | Operator-gone-rogue unaddressed |
+| **Overall** | **7/10** | down | Window closing. Ship today. |
+
+---
+
+### 44.7 The Race (Updated)
+
+| Who | What They Shipped | When | AID's Window |
+|-----|-------------------|------|-------------|
+| DIF TAAWG | MCP-I Task Force forming | March 6-18 | **CLOSING** |
+| BotIndex | AAR receipt spec + npm | ~March 2026 | Absorb immediately |
+| Mastercard | Verifiable Intent | March 5 | Bridge in Phase 2 |
+| AWS | ARA agent registry | February 25 | Evaluate for Phase 2 |
+| AWS | x402 Bedrock integration | March 20 | Differentiate on trust |
+| AAIF | MCP Dev Summit NYC | April 2-3 | Submit talk TODAY |
+
+**Ship the DIF submission today. Ship the middleware this week. Present at MCP Dev Summit
+in 12 days. Everything else can wait.**
+
+### 44.8 The One-Sentence Assessment
+
+> AID has identified the right gap, designed the right architecture, and built the right
+> production code — but the window to claim the standardization narrative is measured in
+> **days, not weeks**, and 4 competitors shipped overlapping pieces while this plan was
+> being written.
