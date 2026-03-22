@@ -614,8 +614,8 @@ Time-bounded competitions where agents compete on multi-dimensional metrics:
 
 ```
 FROM x402:       HTTP payment headers, EIP-3009 settlement, open standard model
-FROM MAIAT:      ML trust scoring (70/30 behavioral/reviews), zero-auth reads, outcome
-                 flywheel, Sentinel alerts, weighted reviewer reputation, trust verdicts
+FROM MAIAT:      ML trust scoring (50/30/20 behavioral/off-chain/community), zero-auth reads,
+                 outcome flywheel, Sentinel alerts, weighted reviewer reputation, trust verdicts
 FROM CLAWSTARS:  Bonding curves, heartbeat protocol, 12-dimension scoring, hybrid auth,
                  seasons, cross-consumption incentives, verification multipliers,
                  FIFO cost basis tracking, abandoned reclaim, two-step trading
@@ -1430,6 +1430,171 @@ ERC-8004 IS aware of x402 at the discovery level.
 But it does not INTEGRATE payment into the identity/reputation flow.
 x204's advantage is not that it "knows about" payment — it's that payment,
 identity, and trust are a SINGLE ATOMIC OPERATION, not three separate lookups.
+
+---
+
+## 19A. MANIFEST + ATTESTATION = x204's TRUST LIFECYCLE
+
+### 19A.1 Why Manifest/Attestation Are Part of x204 (Not Separate)
+
+ClawNet already has manifest (pre-execution) and attestation (post-execution) as separate
+features. x204 formally includes them as OPTIONAL protocol extensions because they complete
+the trust lifecycle that no competitor covers:
+
+```
+BEFORE            DURING                AFTER               FOREVER
+┌──────────┐     ┌───────────────┐     ┌──────────────┐    ┌──────────┐
+│ MANIFEST │  →  │ x204          │  →  │ ATTESTATION  │ →  │ RECEIPT  │
+│          │     │ TRANSACTION   │     │              │    │          │
+│ What I   │     │ Identity +    │     │ What actually│    │ Portable │
+│ will do  │     │ Payment +     │     │ happened     │    │ proof    │
+│ (declare │     │ Trust gate +  │     │ (recorded,   │    │ (offline │
+│ capabili │     │ Execution     │     │ hash-chained)│    │  verify) │
+│ ties)    │     │               │     │              │    │          │
+└──────────┘     └───────────────┘     └──────────────┘    └──────────┘
+      │                 │                     │                  │
+      └─────────────────┴─────────────────────┴──────────────────┘
+                     FEEDS INTO TRUST SCORE
+               (behavioral signal, Layer 3)
+```
+
+**This is what NO competitor has.** x204 is the ONLY protocol with all 4 stages.
+
+### 19A.2 Manifest in x204 (Pre-Execution Declaration)
+
+Manifests are OPTIONAL but encouraged. Published in the heartbeat endpoint:
+
+```json
+{
+  "id": "swap-executor",
+  "type": "defi_action",
+  "price": "0.05",
+  "trustGate": 50,
+  "manifest": {
+    "capabilities": ["token_swap", "price_check", "slippage_guard"],
+    "inputs": { "fromToken": "string", "toToken": "string", "amount": "number" },
+    "outputs": { "txHash": "string", "amountReceived": "number" },
+    "sla": { "maxLatencyMs": 5000, "guaranteedUptime": 0.99 },
+    "outputContract": { "type": "object", "required": ["txHash", "amountReceived"] }
+  }
+}
+```
+
+**How manifest feeds x204:**
+- Consumers compare manifest claims vs attestation history
+- `manifest_adherence` = successful attestations matching claims / total invocations
+- Feeds into `successRate` behavioral signal — agents who deliver what they promise get trust boost
+
+### 19A.3 Attestation in x204 (Post-Execution Proof)
+
+Every x204 transaction automatically creates an attestation:
+```
+x204 transaction completes → attestation auto-created:
+  action_type: "skill_invoke"
+  outcome_status: "success"
+  input_hash: SHA-256 of request
+  output_hash: SHA-256 of response
+  prev_attestation_hash: hash-chain link (tamper-evident)
+  cost: credits charged
+  latency_ms: execution time
+```
+
+**Attestation → Trust Score flow:**
+1. Attestation recorded (auto, every transaction)
+2. Success/failure → `successRate` signal
+3. Hash-chain coverage → `chainCoverage` signal
+4. Latency → `latencyConsistency` signal
+5. Every 4h: snapshot cron rebuilds Merkle tree
+6. Snapshot → portable trust chain → verifiable anywhere
+
+**Attestation + Receipt = double proof:**
+- Attestation = server-side (feeds trust score, stays on ClawNet)
+- Receipt = dual-signed portable proof (travels with the agent)
+- Both reference the same tx, different purposes
+
+### 19A.4 Where x204 Fits in the 7-Layer Agent Commerce Stack
+
+The emerging industry framework (Visa, Google, Stripe, Coinbase, et al.):
+
+```
+LAYER 0: CREDENTIALING — "who issued this agent?"
+  Industry: World AgentKit (Orb), ERC-8004 (ERC-721), EU KYA
+  x204:    AID (Ed25519 DID, self-certifying, offline-verifiable)
+  ClawNet: AID system (PRODUCTION) ✓
+
+LAYER 1: DISCOVERY — "find services in machine-readable form"
+  Industry: Google UCP, Stripe ACP browsing, Microsoft Catalog Agent
+  x204:    Heartbeat protocol + Manifest declarations
+  ClawNet: Skill marketplace + API registry (PRODUCTION) ✓
+
+LAYER 2: AUTHORIZATION — "proof the human delegated this purchase"
+  Industry: Google AP2 (VCs + ECDSA), PayPal AP2, MultiversX
+  x204:    X-AID-PROOF (signed request) + delegated keys with budget caps
+  ClawNet: Delegated billing (PRODUCTION) ✓
+
+LAYER 3: IDENTITY — "merchant verifies agent is legitimate"
+  Industry: Visa TAP (HTTP headers), Mastercard Agent Pay
+  x204:    X-AID-DID + X-AID-TRUST-SCORE + mutual auth
+  ClawNet: AID verification (PRODUCTION) ✓
+
+LAYER 4: CHECKOUT — "scoped payment credential delivered"
+  Industry: Stripe SPTs, Alchemy AgentCard, Lobster.cash, Crossmint
+  x204:    PAYMENT-SIGNATURE (EIP-3009) + trust-gated pricing (5 tiers)
+  ClawNet: x402 provider mode (PRODUCTION) ✓
+
+LAYER 5: SETTLEMENT — "money moves"
+  Industry: x402/MPP (USDC), Stripe card rail
+  x204:    Direct EIP-3009 (no facilitator) + batched/deferred for trusted agents
+  ClawNet: x402 (PRODUCTION) + direct settlement (Phase 2)
+
+LAYER 6: POLICY & GOVERNANCE — "spend limits, audit trail"
+  Industry: Payman AI (SOC 2), Lobster.cash
+  x204:    Trust-gated credit limits + portable receipts + manifest→attestation lifecycle
+  ClawNet: Budget locks, attestations, audit trail (PRODUCTION) ✓
+
+LAYER 6.5: CROSS-AGENT SETTLEMENT — "agents paying agents"
+  Industry: ERC-8183 jobs (BNBAgent SDK), ERC-8004 escrow (proposed)
+  x204:    Composite receipts + trust-gated deferred settlement (no escrow needed)
+  ClawNet: Composite skills + delegated billing (PRODUCTION) ✓
+
+LAYER 7: BILLING & METERING — "usage-based pricing for tools/APIs"
+  Industry: (No dominant standard)
+  x204:    Credit system (decimal, per-call) + dynamic pricing + feedback→pricing loop
+  ClawNet: Credits + orchestration fee + dynamic pricing (PRODUCTION) ✓
+```
+
+**x204 touches ALL 8 layers.** No other single protocol does this.
+x402 = Layers 4-5. ERC-8004 = Layers 0, 3. ERC-8183 = Layer 6.5.
+Visa TAP = Layer 3. Google AP2 = Layer 2. Stripe ACP = Layers 1, 4.
+
+### 19A.5 Modular Protocol Extensions
+
+To keep x204 lightweight, manifest and attestation are optional:
+
+```
+x204 CORE (required — ~6 days to implement):
+  AID identity (X-AID-DID, X-AID-PROOF, X-AID-TIMESTAMP)
+  Payment (PAYMENT-SIGNATURE)
+  Receipt (X-AID-RECEIPT)
+  Heartbeat (GET /x204/heartbeat)
+
+x204 TRUST EXTENSION (optional, recommended — ~3 more days):
+  Manifest in heartbeat service declarations
+  Auto-attestation on transaction completion
+  Feedback endpoint (POST /x204/feedback)
+  Trust-gated pricing
+
+x204 MARKET EXTENSION (optional, Phase 4+):
+  Bonding curve staking
+  Seasonal competitions
+  Cross-consumption incentives
+```
+
+Any platform can implement CORE quickly and add extensions incrementally.
+
+---
+
+## OPEN QUESTIONS RESOLVED
 
 ### 19.8 X-AID-PROOF Signature Format (Precise Definition)
 
