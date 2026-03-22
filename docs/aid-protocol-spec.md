@@ -1089,6 +1089,26 @@ AID's Ed25519 identity is designed to complement — not replace — OAuth 2.0 /
 
 AID's crypto-agility (Section 2.3) aligns with NIST IR 8547 post-quantum migration guidelines.
 
+### 13.11 AAIF Ecosystem (AGENTS.md, goose)
+
+AID is designed to integrate with the AAIF ecosystem:
+- **AGENTS.md** — AAIF's universal standard for AI agent project guidance. Complementary to AID manifests (AGENTS.md governs codebase behavior, AID manifests govern commerce intent).
+- **goose** (Block/Square) — AAIF's open-source agent framework. AID trust scoring applies to goose agents through the AID-MCP Profile.
+
+### 13.12 EU AI Act Alignment
+
+AID's attestation chain provides an accountability trail architecturally aligned with EU AI Act requirements for auditability and transparency (Art. 50, penalties up to EUR 35M). Every agent action is recorded, hash-chained, and Merkle-anchored — creating a verifiable audit log. AID does not claim full EU AI Act compliance (legal review required), but the protocol's design supports the accountability infrastructure the regulation demands.
+
+### 13.13 Security Standards Alignment
+
+AID's security model (Section 12) addresses threats documented in:
+- **CoSAI (Coalition for Secure AI)** — 2026 Guide to Securing MCP (12 threat categories, ~40 threats). CoSAI members include Anthropic, Google, Microsoft, NVIDIA, and OpenAI.
+- **OWASP** — Multi-Agentic System Threat Modelling Guide (GenAI Security Project).
+
+### 13.14 Disclaimer
+
+AID trust scores are informational and do not constitute a guarantee of agent behavior or service quality. Trust scores are computed from historical attestation data and may not predict future performance. Users of AID trust data assume all risk associated with transacting based on trust scores.
+
 ---
 
 ## Appendix A: Test Vectors
@@ -1183,3 +1203,9 @@ POST /aid/skills/sol-price
 - Mastercard Verifiable Intent: https://verifiableintent.dev
 - AID Trust Scoring Library: https://www.npmjs.com/package/@aidprotocol/trust-compute
 - AID MCP Trust Middleware: https://www.npmjs.com/package/@aidprotocol/mcp-trust
+- CoSAI Guide to Securing MCP: https://cosai.oasis-open.org/
+- OWASP Multi-Agentic System Threat Modelling: https://genai.owasp.org/
+- AGENTS.md Specification: https://github.com/anthropics/agents-md
+- EU AI Act: https://eur-lex.europa.eu/eli/reg/2024/1689
+- World AgentKit: https://world.org/agentkit
+- AAIF (Linux Foundation): https://agentic-ai.org

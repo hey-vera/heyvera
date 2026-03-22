@@ -1270,7 +1270,7 @@ composing into a full market stack. Open, neutral, credibly decentralized.
 | 1Money | No-token L1 — 250K TPS, mandatory KYC/AML, fees paid in stablecoin being transferred | Brian Shroder (ex-Binance US CEO) | Early | Most radical: no token, no smart contracts, no governance. Payment rail only. AID provides the reputation layer their regulated institutions need. |
 | ZeroBiometrics ZeroSentinel | Cryptographically binds humans to AI agents with scoped permissions, revocable keys, PKI certificates | ZeroBiometrics | Launched March 18, 2026 | Enterprise-focused (EU AI Act, NIST AI RMF). Authorization + accountability, NOT reputation. Complementary: ZeroSentinel = "agent acts within authorized scope." AID = "agent performs well within that scope." |
 | authID Mandate | Biometric identity + governance framework for agentic AI in financial crime | authID + Section2 | Partnership announced 2026 | Niche (financial threat intelligence). Signals enterprise demand for agent accountability. Monitor only. |
-| OpenClaw/ClawHub | Largest AI agent platform (250K+ GitHub stars) + skill marketplace | Community | Live (attacked March 2026) | ClawHub had 340+ malicious skills (ClawHavoc), RCE (CVE-2026-25253), ClawJacked hijacking, npm RATs, $CLAWD rug-pull ($16M). EVERY attack exploits absence of behavioral trust scoring. AID's #1 case study. |
+| OpenClaw/ClawHub | Largest AI agent platform (250K+ GitHub stars) + skill marketplace | Community | Live (attacked March 2026) | ClawHub had 1,184 malicious skills (ClawHavoc), RCE (CVE-2026-25253), ClawJacked hijacking, npm RATs, $CLAWD rug-pull ($16M). EVERY attack exploits absence of behavioral trust scoring. AID's #1 case study. |
 | WEF KYA Framework | "Know Your Agent" — policy framework for agent identity + accountability | World Economic Forum | Published Jan 2026 | "We need a new framework: Know Your Agent (KYA), working alongside KYC." Validates AID's entire thesis. Use KYA language in NIST comment and DIF presentation. |
 
 | Mnemom | Agent trust ratings — AAA-CCC bond-style scoring, 5 weighted signals (integrity, compliance, drift, trace completeness, fleet coherence). Ed25519 + hash chains + Merkle + SP1 ZK proofs. Team scoring. CI/CD gating. OpenClaw integration. | Founded by game industry vet (Relic, Xbox LIVE, Zynga) | Live — npm @mnemom/gateway, pip install mnemom | **MOST SERIOUS COMPETITOR.** Nearly identical crypto stack to AID. Already has ZK proofs ($0.005/proof via RISC Zero). Has OpenClaw integration. BUT: no payment integration, no standards engagement (DIF/NIST), no protocol profiles, not positioning as a standard. AID's moat: standard > product. |
@@ -1351,7 +1351,7 @@ campaigns in Q1 2026. Every single one exploited the absence of behavioral trust
 
 | Attack | What Happened | How AID Would Have Prevented It |
 |--------|--------------|-------------------------------|
-| ClawHavoc | 340+ malicious skills uploaded to ClawHub marketplace with wallet stealers + reverse shells | Malicious skills = trust score 0 (no attestation history). Legitimate skills with track records = high scores. Filter by trust → avoid all 340. |
+| ClawHavoc | 1,184 malicious skills uploaded to ClawHub marketplace with wallet stealers + reverse shells | Malicious skills = trust score 0 (no attestation history). Legitimate skills with track records = high scores. Filter by trust → avoid all 1,184. |
 | CVE-2026-25253 | One-click RCE via WebSocket | AID attestation on tool execution would have recorded the anomalous behavior → immediate trust score drop → auto-flagged |
 | ClawJacked | Malicious websites hijacking local OpenClaw instances silently | AID mutual authentication: hijacked instance can't produce valid X-AID-PROVIDER-PROOF → client detects impersonation |
 | GitHub phishing | Fake $5K CLAW token giveaways targeting OpenClaw devs → wallet draining | Phishing agents = trust score 0, no attestation history, no verified identity. AID trust gate blocks them. |
@@ -1359,7 +1359,7 @@ campaigns in Q1 2026. Every single one exploited the absence of behavioral trust
 | $CLAWD rug-pull | Fake token hit $16M market cap then collapsed | AID trust scoring on token-associated agents → score 0, no verified track record → flagged |
 
 **The narrative:**
-> "340 malicious OpenClaw skills got through to ClawHub. Trust scoring would have flagged
+> "1,184 malicious OpenClaw skills got through to ClawHub. Trust scoring would have flagged
 > every one. Here's how: every skill on ClawHub would carry an AID trust score derived from
 > verifiable execution history. A new skill with zero transactions = trust score 0. A skill
 > with 1,000 successful attestations, hash-chained and Merkle-anchored = trust score 80+.
@@ -1473,7 +1473,7 @@ This only works if AID actually BECOMES the standard. Which means:
 
 - **Ship the DIF presentation** — this is the MOAT. Get AID recognized as standard.
 - **Ship the NIST comment** — government reference point for agent trust.
-- **Ship the OpenClaw case study** — 340 malicious skills, perfect narrative.
+- **Ship the OpenClaw case study** — 1,184 malicious skills, perfect narrative.
 - **Build the public leaderboard** — every competitor has one. Easy win.
 - **Ensure @aidprotocol/mcp-trust is visible** — developers searching "agent trust" need
   to find AID before they find Mnemom or PayCrow.
@@ -4651,6 +4651,55 @@ PHASE 3:
 ```
 
 **Total attack vectors mitigated: 54** (46 previous + 8 MCP ecosystem gaps).
+
+### 39.16 Missing References + Compliance Gaps (Final Sweep, March 22)
+
+**Standards references to add to spec:**
+- **CoSAI MCP Security White Paper** — Coalition for Secure AI (Anthropic, Google,
+  Microsoft, NVIDIA, OpenAI). Documents 12 core threat categories, ~40 distinct threats.
+  Cross-reference against AID's 54 vectors for credibility in NIST/DIF submissions.
+- **OWASP Agentic Top 10** — Multi-agentic system threat modelling guide. Gold standard
+  for enterprise security teams. Reference in spec security section.
+- **AGENTS.md** — AAIF's third founding project (alongside MCP + goose). Universal
+  standard for AI agent project guidance. Reference in spec governance section. Shows
+  AAIF ecosystem knowledge at DIF/MCP Dev Summit.
+- **goose** — Block's (Jack Dorsey) open-source agent framework, AAIF founding project.
+  AID trust scoring for goose agents = another AAIF integration point.
+
+**EU AI Act compliance note:**
+AID attestation chains ARE an accountability trail — every action recorded, hash-chained,
+Merkle-anchored. Architecturally aligned with EU AI Act requirements for auditability
+and accountability (penalties up to €35M). Add compliance section to spec noting this
+alignment. Don't claim full compliance without legal review.
+
+**Legal — liability disclaimer:**
+Add to spec and all API responses: "AID trust scores are informational and do not
+constitute a guarantee of agent behavior. Users assume all risk." Talk to a lawyer
+before public launch.
+
+**NIST CAISI RFI — deadline March 9 (MISSED):**
+The RFI deadline already passed. The NCCoE comment (April 2) is still open — don't
+miss that one. Two NIST windows existed; one is gone.
+
+**x402 volume discrepancy:**
+PayCrow claims $600M in agent-to-agent payments. AIDplan says $1.6M/30d after wash
+trade filtering. Either x402 volume exploded or PayCrow is inflating numbers.
+Verify current volume before using any numbers in presentations.
+
+**Documentation site:**
+Need docs.aidprotocol.org with quickstart, API reference, integration examples.
+Every competitor (Mnemom, PayCrow) has docs. Phase 1 deliverable.
+
+**Testing strategy for @aidprotocol/gateway:**
+- Integration tests against mock x402 server
+- Trust score computation tests matching spec test vectors
+- Merkle proof generation/verification tests
+- Ed25519 signature roundtrip tests
+- Nonce replay rejection tests
+- Degraded mode failover tests
+
+**DIF membership:** Follow up with community@identity.foundation if not confirmed.
+Can't present at TAAWG until membership clears.
 
 ---
 
