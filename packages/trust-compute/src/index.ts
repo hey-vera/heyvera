@@ -7,11 +7,17 @@
  * Given attestation stats, produces a trust score + cryptographic proof hash.
  * Anyone can run this to independently verify scores published by any AID oracle.
  *
+ * Uses SHA-384 for proof hashes (quantum-resistant, NIST PQC migration ready).
+ * Algorithm-agile: hashAlgorithm field in output enables future migration.
+ *
  * @license MIT
  * @see https://claw-net.org
  */
 
 import { createHash } from 'crypto';
+
+/** Hash algorithm used for proof hashes. SHA-384 for quantum resistance. */
+export const HASH_ALGORITHM = 'sha384';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -40,10 +46,12 @@ export interface TrustScoreProof {
   inputs: TrustStats;
   /** The weights applied to each dimension. */
   weights: TrustWeights;
-  /** SHA-256 hash of JCS-canonicalized {inputs, weights, score}. */
+  /** SHA-384 hash of JCS-canonicalized {inputs, weights, score}. */
   proofHash: string;
   /** Formula version identifier. */
   formulaVersion: string;
+  /** Hash algorithm used for proof hash (for algorithm agility). */
+  hashAlgorithm: string;
 }
 
 export type TrustVerdict = 'new' | 'building' | 'caution' | 'standard' | 'trusted' | 'proceed';
@@ -109,7 +117,7 @@ export function jcsSerialize(value: unknown): string {
  *
  * @param stats - Attestation statistics (successRate, chainCoverage, attestationCount, manifestAdherence)
  * @param weights - Optional custom weights (defaults to DEFAULT_WEIGHTS)
- * @returns Trust score (0-100), inputs, weights, and SHA-256 proof hash
+ * @returns Trust score (0-100), inputs, weights, and SHA-384 proof hash
  */
 export function computeTrustScore(
   stats: TrustStats,
@@ -135,10 +143,10 @@ export function computeTrustScore(
   // Clamp to 0-100
   const clampedScore = Math.max(0, Math.min(100, score));
 
-  // Proof hash = SHA-256 of JCS-canonicalized {inputs, weights, score}
+  // Proof hash = SHA-384 of JCS-canonicalized {inputs, weights, score}
   const proofData = { inputs: stats, weights, score: clampedScore };
   const canonical = jcsSerialize(proofData);
-  const proofHash = createHash('sha256').update(canonical).digest('hex');
+  const proofHash = createHash(HASH_ALGORITHM).update(canonical).digest('hex');
 
   return {
     score: clampedScore,
@@ -146,6 +154,7 @@ export function computeTrustScore(
     weights,
     proofHash,
     formulaVersion: FORMULA_VERSION,
+    hashAlgorithm: HASH_ALGORITHM,
   };
 }
 

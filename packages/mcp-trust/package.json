@@ -30,7 +30,7 @@
   },
   "homepage": "https://claw-net.org",
   "dependencies": {
-    "@aidprotocol/trust-compute": "^1.0.1"
+    "@aidprotocol/trust-compute": "^2.0.0"
   },
   "devDependencies": {
     "esbuild": "^0.20.0"
