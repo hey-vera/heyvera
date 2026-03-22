@@ -1216,6 +1216,13 @@ composing into a full market stack. Open, neutral, credibly decentralized.
 | OpenClaw/ClawHub | Largest AI agent platform (250K+ GitHub stars) + skill marketplace | Community | Live (attacked March 2026) | ClawHub had 340+ malicious skills (ClawHavoc), RCE (CVE-2026-25253), ClawJacked hijacking, npm RATs, $CLAWD rug-pull ($16M). EVERY attack exploits absence of behavioral trust scoring. AID's #1 case study. |
 | WEF KYA Framework | "Know Your Agent" — policy framework for agent identity + accountability | World Economic Forum | Published Jan 2026 | "We need a new framework: Know Your Agent (KYA), working alongside KYC." Validates AID's entire thesis. Use KYA language in NIST comment and DIF presentation. |
 
+| Mnemom | Agent trust ratings — AAA-CCC bond-style scoring, 5 weighted signals (integrity, compliance, drift, trace completeness, fleet coherence). Ed25519 + hash chains + Merkle + SP1 ZK proofs. Team scoring. CI/CD gating. OpenClaw integration. | Founded by game industry vet (Relic, Xbox LIVE, Zynga) | Live — npm @mnemom/gateway, pip install mnemom | **MOST SERIOUS COMPETITOR.** Nearly identical crypto stack to AID. Already has ZK proofs ($0.005/proof via RISC Zero). Has OpenClaw integration. BUT: no payment integration, no standards engagement (DIF/NIST), no protocol profiles, not positioning as a standard. AID's moat: standard > product. |
+| PayCrow | x402 escrow + trust scoring — locks funds in smart contract, releases on 2xx + JSON schema verification. Trust formula: PayCrow Rep (40%) + ERC-8004 (25%) + Moltbook Social (15%) + Base Activity (20%). | Independent | Live on x402, MCP server tool | **DIRECT x402 COMPETITOR.** Already live with trust-gated escrow. But: only checks HTTP status codes (not output quality), x402-only (not protocol-agnostic), no standards engagement, scores are platform-locked (not portable). AID's edge: execution proofs, manifest adherence, Merkle-anchored portability, protocol profiles. |
+| 402audit | x402 endpoint quality verification — detects API proxies/resellers, scores endpoint reliability, public leaderboard | Independent | Live, MCP server | Narrower product — endpoint verifier, not trust protocol. AID could consume 402audit data as input signal. Solves real problem (fake/proxy APIs in x402). |
+| KAMIYO | Escrow + oracle-based quality scoring on Solana — PDA identities, SOL collateral, ZK oracle voting, sliding refund by quality score. Agent credit system (Kizuna) — agents borrow against reputation. | Independent | Live on Solana + Base | More sophisticated credit model than AID (agents borrow against reputation vs trust-gated pricing). But: Solana-only, no standards engagement, no protocol-agnostic profiles. |
+| Cred Protocol | On-chain wallet reputation — 350K+ credit score requests, 200M+ wallets analyzed across EVM chains. Sybil detection, risk-based pricing. | Cred Protocol | Live on SKALE (deployed March 3, 2026) | Different dimension — scores WALLETS (financial behavior), not AGENTS (service delivery quality). An agent could have perfect Cred score but deliver garbage results. Complementary, not competitive. Don't adopt. |
+| Phronesis Labs | On-chain reputation + skill verification + trust graphs for agents | Hackathon project (OpenWork Clawathon 2026) | Hackathon stage | Early signal — trust scoring is becoming a hackathon category. Watch only. |
+
 ---
 
 ## 15.5 THE STABLECOIN CHAIN WAR (March 2026 — New Development)
@@ -1316,6 +1323,114 @@ campaigns in Q1 2026. Every single one exploited the absence of behavioral trust
 
 Use KYA language in all standards submissions. It's the vocabulary policymakers
 are already adopting. AID = the technical implementation of KYA.
+
+---
+
+## 15.7 LAYER 5 IS NO LONGER EMPTY — STRATEGIC RESPONSE (March 22, 2026)
+
+**Added:** March 22, 2026. Layer 5 (Trust/Reputation) now has 4+ early entrants.
+AID is no longer alone — but it IS the only one positioning as a STANDARD, not a product.
+
+### Direct Competitors in Layer 5
+
+```
+DIRECT COMPETITORS (trust scoring for agent commerce):
+  Mnemom          — MOST SERIOUS. Nearly identical crypto stack (Ed25519, hash chains,
+                    Merkle, ZK proofs). Has npm/pip packages, OpenClaw integration,
+                    team scoring, CI/CD gating. Ahead on product. Behind on standards.
+  PayCrow         — LIVE on x402, escrow + trust scoring, MCP tool. Simpler model
+                    (HTTP status codes, no execution proofs). x402-only.
+  KAMIYO          — Escrow + oracle-based quality scoring on Solana. Agent credit system
+                    (borrow against reputation). Solana+Base only.
+  Cred Protocol   — Wallet reputation (DeFi), not agent behavior. Different dimension.
+  402audit        — x402 endpoint quality verification. Narrow, not a trust protocol.
+  Trusta.AI       — AgentGo MCP middleware. Simpler model.
+  Phronesis Labs  — Hackathon stage. Trust graphs for agents.
+
+ON-CHAIN FEEDBACK LOOP (different approach, same layer):
+  ERC-8004 + 8183 — 20K+ agents. Job outcomes → reputation. Getting closer.
+```
+
+### The Uncomfortable Truth
+
+Mnemom is ahead on product. Their crypto stack is nearly identical to AID's (Ed25519,
+hash chains, Merkle trees), they already have ZK proofs running ($0.005/proof via RISC
+Zero), they have npm and pip packages, OpenClaw integration, and the founder has serious
+industry credibility. PayCrow is live on x402 with trust-gated escrow.
+
+### Why AID Still Wins: Standard > Product
+
+**Every competitor is a product. AID is positioning as a standard.**
+
+Products compete with products. Standards absorb products.
+
+```
+HTTPS is a standard. DigiCert, Let's Encrypt, Comodo are products.
+  The standard won. Products compete WITHIN the standard.
+
+AID should be the HTTPS of agent trust.
+  Mnemom, PayCrow, KAMIYO should eventually implement AID trust scores
+  alongside their own metrics — because AID is the portable, interoperable,
+  DIF-recognized format that travels across protocols.
+```
+
+This only works if AID actually BECOMES the standard. Which means:
+
+1. **Get DIF recognition** — AID as a TAAWG work item. Once it's a DIF standard,
+   every competitor becomes a potential implementer.
+2. **Get NIST reference** — government recognition makes AID the reference point
+   for "agent trust" in regulatory conversations.
+3. **Ship developer content NOW** — OpenClaw case study, x402 wash trade data.
+   Show the problem is real and AID has the spec-level solution.
+
+### What AID Has That No Competitor Has
+
+| Capability | AID | Mnemom | PayCrow | KAMIYO | Cred |
+|------------|-----|--------|---------|--------|------|
+| DIF/NIST standards engagement | YES | No | No | No | No |
+| Protocol-agnostic profiles (MCP, A2A, x402, MPP) | YES | No | x402 only | Solana only | No |
+| Trust-gated pricing (6 tiers) | YES | No | Partial | Partial | No |
+| Manifest → execution proof → attestation lifecycle | YES | No | No | No | No |
+| Merkle-anchored portable trust | YES | Yes | No | No | No |
+| Payment integration (x402, MPP, credits) | YES | No | x402 escrow | Solana escrow | No |
+| WEF KYA framing | YES | No | No | No | No |
+| Chain-agnostic identity (did:key) | YES | Yes | Base only | Solana+Base | EVM only |
+| ZK proofs | Phase 3 | YES ($0.005) | No | Yes | No |
+| OpenClaw integration | No | YES | No | No | No |
+| Team scoring | No | YES | No | No | No |
+| CI/CD gating | No | YES | No | No | No |
+| Smart contract escrow | No | No | YES | YES | No |
+
+### What NOT to Do
+
+- **Don't adopt Cred into AID** — they score wallets (financial behavior), not agents
+  (service delivery quality). Different dimensions of trust.
+- **Don't adopt any competitor's tech** — AID's moat is being the standard, not the
+  best product. Adopting someone else's tech makes AID a product competing with products.
+- **Don't build escrow** — PayCrow and KAMIYO own that niche. AID provides the trust
+  score that escrow products consume.
+- **Don't build real-time LLM interception** — Mnemom owns that. AID scores outcomes
+  and history. They score reasoning process. Complementary.
+
+### What TO Do
+
+- **Ship the DIF presentation** — this is the MOAT. Get AID recognized as standard.
+- **Ship the NIST comment** — government reference point for agent trust.
+- **Ship the OpenClaw case study** — 340 malicious skills, perfect narrative.
+- **Build the public leaderboard** — every competitor has one. Easy win.
+- **Ensure @aidprotocol/mcp-trust is visible** — developers searching "agent trust" need
+  to find AID before they find Mnemom or PayCrow.
+
+### The Race Reframed
+
+The race isn't to ship the best product. The race is to ship the standard
+that all products adopt. Products capture niches. Standards capture markets.
+
+```
+Mnemom = DigiCert (great product, niche)
+PayCrow = Comodo (specific use case)
+AID    = HTTPS (the standard they all eventually implement)
+```
 
 ---
 
@@ -6112,10 +6227,13 @@ LAYER 4 — PAYMENT:
   ACP (OpenAI/Stripe)               — conversational checkout
   AP2 (Google)                      — A2A payment integration
 
-LAYER 5 — TRUST/REPUTATION:
-  ████████████████████████████████████████
-  █  AID (ClawNet) — STILL THE ONLY ONE  █
-  ████████████████████████████████████████
+LAYER 5 — TRUST/REPUTATION (no longer empty — early + fragmented):
+  AID (ClawNet)        — STANDARD: protocol-agnostic, DIF/NIST engaged, portable
+  Mnemom               — PRODUCT: Ed25519+ZK, team scoring, CI/CD gating
+  PayCrow              — PRODUCT: x402 escrow + trust scoring, MCP tool
+  KAMIYO               — PRODUCT: Solana escrow + oracle quality scoring
+  Cred Protocol        — PRODUCT: wallet reputation (DeFi, not agent behavior)
+  ← AID's moat: only one positioning as STANDARD, not product →
 
 LAYER 6 — SETTLEMENT:
   Arc (Circle, testnet)             — USDC-native chain
@@ -6132,9 +6250,11 @@ LAYER 7 — GOVERNANCE:
   IETF dispatch                     — ANS / agent discovery
 ```
 
-**Layer 5 is still empty except for AID.** That hasn't changed despite the biggest
-week in agentic commerce history. Every new protocol that shipped makes Layer 5
-MORE important, not less.
+**Layer 5 is no longer empty — but it's early and fragmented.** 4+ small products
+are building trust scoring (Mnemom, PayCrow, KAMIYO, Cred). None are positioning
+as a standard. AID is the only one with DIF/NIST engagement, protocol-agnostic
+profiles, and portable Merkle-anchored trust. The race is: become the standard
+before products fragment the space. See Section 15.7 for full analysis.
 
 **The composability thesis:**
 ```
