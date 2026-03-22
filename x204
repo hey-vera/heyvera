@@ -5053,6 +5053,47 @@ The "30-day window" may be **2 weeks**. DIF submission must be Day 1, not Week 1
 
 ---
 
+### 43.1b STRATEGIC REFRAME: Competitors Are Distribution Channels
+
+**Core insight:** These 5 competitors aren't threats — they're distribution channels. Each
+solves one piece of the puzzle and is missing what x204 uniquely provides.
+
+**1. Solana Agent Registry → Become their scoring engine.**
+They have raw reputation data but no canonical trust score (by design — ERC-8004
+deliberately leaves scoring to external services). x204 IS that service.
+Build `@x204/solana-trust`, read their registry, compute scores, publish back.
+Solana has ~77% of x402 volume — being Solana's trust oracle means being the
+majority oracle.
+
+**2. Gen Agent Trust Hub → Different layer, don't fight.**
+Gen answers "is this code safe?" (pre-deployment security scanning). x204 answers
+"is this agent worth paying?" (runtime reputation). Add Gen's scan results as an
+input to x204 manifests. Let their 500M-user brand educate the market about agent
+trust, then capture the users who need the next level.
+
+**3. Trusta AgentGo → Only direct competitor. Outship them.**
+Ship @x204/mcp-trust to npm this week. Differentiate on: offline verification (they
+can't do this), execution proofs (they don't have this), no token dependency (cleaner
+story for enterprises). Then absorb their SIGMA scores as one input into x204's
+multi-dimensional formula.
+
+**4. AWS x402 → Enhance, don't replace.**
+Build `@x204/x402-enhanced` — a drop-in middleware upgrade that adds identity +
+trust to any x402 server. Submit a PR to the x402 GitHub repo adding optional
+X-AID headers. If accepted, x204 identity literally becomes part of x402.
+This is the ultimate Trojan horse strategy.
+
+**5. x402 on Solana (35M txs) → Cross-chain trust bridge.**
+35M transactions of reputation trapped on one chain. x204 makes it portable — an
+agent trusted on Solana is instantly trusted on Base. No one else can do this because
+no one else has chain-agnostic identity + offline verification.
+
+**The one-sentence positioning:**
+> "x204 doesn't replace your payment rail, your identity registry, or your security
+> scanner. It makes all of them smarter by adding scored, verifiable, portable trust."
+
+---
+
 ### 43.2 ADDITIONAL CRITICAL FLAWS (5 New — Flaws 8-12)
 
 **Flaw 8: Arweave Cost Estimates Are Unrealistic**
