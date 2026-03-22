@@ -3587,36 +3587,97 @@ Submitting x204's trust scoring as an MCP-I extension would:
 - Make trust scoring a standard part of MCP identity
 - Get x204 into the DIF spec alongside W3C DIDs and VCs
 
-### 38.9 Updated Phase 1 Priority (The New First Move)
+### 38.9 MASTER BUILD SEQUENCE (Final Canonical — All Adoptions Consolidated)
+
+This is the ONE sequence. All other Phase references point here.
+Includes adoptions from: AWE (40.6), bankrbot (40.1), Spectral (40.2),
+RecallNet (40.2), Freysa (40.2), ClawstrAI (40.2), competitive urgency (40.3).
 
 ```
-OLD Phase 1 first move:
-  Register on ERC-8004 + AID headers on x402 routes
-  (ClawNet-centric, reaches existing ClawNet users only)
+━━━ PHASE 1: SHIP THE TRUST LAYER (Weeks 1-4, $0 infra cost) ━━━
 
-NEW Phase 1 first move:
-  Ship @x204/mcp-trust middleware package
-  (reaches 20,000 MCP servers and every agent framework)
+WEEK 1:
+  □ Build @x204/mcp-trust npm package                    ← THE PRODUCT
+  □ Register ClawNet on ERC-8004 Identity Registry (Base, ~$1)
+  □ Publish x204 spec document as A2A trust extension
+  □ Register @x204 npm org + x204-trust PyPI (reserve names + typosquats)
 
-WEEK 1-2:
-  1. Build @x204/mcp-trust (npm package) ← THE PRODUCT
-  2. Register on ERC-8004 (Base, ~$1)
-  3. Publish x204 spec as A2A extension
+WEEK 2:
+  □ Ship @x204/middleware for Hono (ClawNet uses Hono)
+  □ AID headers on ClawNet's x402 routes (X-AID-DID, X-AID-PROOF, X-AID-NONCE)
+  □ Provider DID in x402 responses (X-AID-PROVIDER-DID, X-AID-PROVIDER-PROOF)
+  □ Fork x402 facilitator → host fee-free at facilitator.claw-net.org (from AWE)
 
-MONTH 1:
-  4. Ship @x204/middleware for Express/Hono/Fastify
-  5. Ship x204-trust Python package (CrewAI/LangGraph)
-  6. AID headers on ClawNet's own x402 routes
-  7. Submit trust extension to MCP-I/DIF working group
+WEEK 3:
+  □ Trust-gated pricing logic (6 tiers, checkPolicy integration)
+  □ Feedback endpoint (POST /x204/feedback) with weighted reputation
+  □ Heartbeat endpoint (GET /x204/heartbeat)
+  □ "Try it" button on skill pages — one-click execution (from AWE)
 
-MONTH 2-3:
-  8. Heartbeat, feedback, trust-gated pricing on ClawNet
-  9. A2A agent card extension
-  10. Solana settlement option
+WEEK 4:
+  □ DELETE /v1/aid/:did endpoint (GDPR)
+  □ Submit trust extension to MCP-I/DIF working group
+  □ Ship @x204/middleware for Express/Fastify (broaden reach)
+  □ Publish /.well-known/x204-platform-key (for A2A trust verification)
+
+━━━ PHASE 2: ECOSYSTEM REACH (Months 2-3) ━━━
+
+  □ Ship x204-trust Python package (CrewAI/LangGraph plugins)
+  □ /x204/* route handler with full protocol flow
+  □ X-AID-NEW zero-auth onboarding on /x204/* routes
+  □ Direct receiveWithAuthorization settlement (no facilitator)
+  □ Mutual authentication (server signs responses)
+  □ Portable atomic receipts with dual signatures + Merkle anchoring
+  □ Consumer heartbeat (authenticated, personalized)
+  □ ERC-8004 reputation bridge (publish trust scores on-chain)
+  □ A2A agent card extension (trust scores in discovery)
+  □ Solana SPL USDC settlement option (Ed25519 single-key)
+  □ ElizaOS plugin for x204 trust
+
+━━━ PHASE 3: INTELLIGENCE (Months 4-6) ━━━
+
+  □ Trust Score v2 (11 dimensions, 3 categories: behavioral/market/community)
+  □ On-chain TrustOracle contract (Base, Merkle root anchoring)
+  □ TrustGate hook (smart contract min_trust_score enforcement)
+  □ Sentinel alerts (SSE stream for trust degradation events)
+  □ Trust decay cron (10%/30d weight loss for inactive agents)
+  □ Structured agent memory (upgrade from 50KB JSON → searchable docs) (from RecallNet)
+  □ Agent social graph (follow/endorse, feeds COMMUNITY trust) (from ClawstrAI)
+  □ Public agent explorer page (site/explore.html) (from 8004scan)
+  □ ERC-8004 Validation Registry bridge (ship before their team)
+
+━━━ PHASE 4: MARKET LAYER (Months 7-9) ━━━
+
+  □ Bonding curve contract (reputation-only, no revenue share)
+  □ Cross-consumption tracking + trust boost
+  □ Season framework (12 scoring dimensions)
+  □ No-code skill builder (natural language → skill definition) (from Spectral)
+  □ Visual MCP workflow builder (from AWE's AWESOME pattern)
+  □ AgentKit wallet integration (Coinbase AgentKit)
+
+━━━ PHASE 5: SOVEREIGNTY (Months 10+) ━━━
+
+  □ x204 SDK (TypeScript) — @clawnet/x204
+  □ x204 SDK (Python)
+  □ x204 spec publication to standards bodies
+  □ Reference facilitator (open-source)
+  □ Documentation site
+  □ Testnet mode (Base Sepolia)
+  □ Third-party onboarding (3-5 platforms)
+  □ zkTLS execution proofs (from Freysa pattern)
+  □ Trust delegation chains (inherited trust)
+  □ Cross-protocol trust import (ERC-8004, Maiat, x402 history)
 ```
 
-The shift: build the MIDDLEWARE first, then add it to ClawNet.
-ClawNet becomes the first (and best) x204 implementation, not the only one.
+**ALREADY DONE (implemented this session):**
+  ✅ Three-layer trust lifecycle (manifest → execution proof → attestation)
+  ✅ manifestAdherence in trust score (15% weight)
+  ✅ Execution proof capture in createAutoAttestation()
+  ✅ Public trust API (GET /v1/aid/:did/trust — credit bureau)
+  ✅ Granular policy engine (checkPolicy, v108 migration)
+  ✅ AID system (registration, key rotation, offline verification)
+  ✅ Merkle-anchored trust snapshots (4h cron)
+  ✅ 33 mitigated attack vectors documented
 
 ### 38.10 Why This Is the Cherry
 
