@@ -92,12 +92,13 @@ X-AID-NEW:            "my-trading-bot"                 # Auto-provisions identit
 
 x204 supports three settlement modes, selected by the server based on client trust score:
 
-| Trust Score | Settlement Mode        | Description                                      |
-|-------------|------------------------|--------------------------------------------------|
-| 0-20        | `immediate`            | Full prepayment via EIP-3009 (x402-compatible)   |
-| 21-50       | `standard`             | 10% discount, standard EIP-3009 settlement       |
-| 51-80       | `batched`              | 25% discount, hourly batch settlement on-chain   |
-| 81-100      | `deferred`             | 50% discount, daily settlement, net-30 disputes  |
+| Trust Score | Verdict    | Settlement Mode | Pricing          |
+|-------------|------------|-----------------|------------------|
+| 0-19        | `avoid`    | Prepay only     | 2x premium       |
+| 20-39       | `new`      | `immediate`     | Base price       |
+| 40-59       | `caution`  | `standard`      | 10% discount     |
+| 60-79       | `standard` | `batched`       | 25% discount     |
+| 80-100      | `proceed`  | `deferred`      | 50% discount     |
 
 **Direct settlement (no facilitator):**
 - EIP-3009 `transferWithAuthorization()` can be submitted by ANYONE
@@ -214,10 +215,10 @@ finalScore = min(100, round(rawScore * verificationMultiplier))
 
 | Score | Verdict    | Settlement Mode | Pricing Tier |
 |-------|------------|-----------------|--------------|
-| 80+   | `proceed`  | Deferred        | 50% discount |
-| 60-79 | `standard` | Batched         | 25% discount |
-| 40-59 | `caution`  | Standard        | 10% discount |
-| 20-39 | `new`      | Immediate       | Base price   |
+| 80+   | `proceed`  | `deferred`      | 50% discount |
+| 60-79 | `standard` | `batched`       | 25% discount |
+| 40-59 | `caution`  | `standard`      | 10% discount |
+| 20-39 | `new`      | `immediate`     | Base price   |
 | 0-19  | `avoid`    | Prepay only     | 2x premium   |
 
 ### 4.4 Trust Score as On-Chain Primitive
@@ -476,10 +477,11 @@ Response:
     "currency": "USDC",
     "chain": "base",
     "tiers": [
-      { "minTrust": 0,  "multiplier": 1.0, "settlement": "immediate" },
-      { "minTrust": 40, "multiplier": 0.9, "settlement": "standard" },
-      { "minTrust": 60, "multiplier": 0.75, "settlement": "batched" },
-      { "minTrust": 80, "multiplier": 0.5, "settlement": "deferred" }
+      { "minTrust": 0,  "multiplier": 2.0, "settlement": "prepay",    "verdict": "avoid" },
+      { "minTrust": 20, "multiplier": 1.0, "settlement": "immediate", "verdict": "new" },
+      { "minTrust": 40, "multiplier": 0.9, "settlement": "standard",  "verdict": "caution" },
+      { "minTrust": 60, "multiplier": 0.75, "settlement": "batched",  "verdict": "standard" },
+      { "minTrust": 80, "multiplier": 0.5, "settlement": "deferred",  "verdict": "proceed" }
     ],
     "recipient": "0xRecipientAddress..."
   },
@@ -898,9 +900,10 @@ composing into a full market stack. Open, neutral, credibly decentralized.
 **Why this is fragile:**
 
 1. **Three protocols from three teams = integration friction.**
-   ERC-8004 doesn't know about x402. x402 doesn't know about ERC-8183.
+   ERC-8004 enables discovery of x402-compatible agents (via `x402Support` in agent cards),
+   but identity, payment, and trust are still THREE SEPARATE LOOKUPS.
    Every agent builder must wire all three together manually.
-   x204 ships as ONE protocol with all three concerns unified.
+   x204 ships as ONE protocol with all three concerns unified in a single atomic operation.
 
 2. **The Validation Registry doesn't exist.**
    The most critical piece of ERC-8004 — provable work — is unshipped.
@@ -1420,6 +1423,147 @@ But it does not INTEGRATE payment into the identity/reputation flow.
 x204's advantage is not that it "knows about" payment — it's that payment,
 identity, and trust are a SINGLE ATOMIC OPERATION, not three separate lookups.
 
+### 19.8 X-AID-PROOF Signature Format (Precise Definition)
+
+**Problem:** "Ed25519 sig over request body" is vague. What exactly gets signed?
+
+**Resolution — Canonical Signing Input:**
+```
+signatureInput = SHA-256(
+  did + "\n" +
+  timestamp + "\n" +        // ISO 8601, e.g. "2026-03-21T14:30:00Z"
+  method + " " + path + "\n" +  // e.g. "POST /x204/skills/sol-price"
+  SHA-256(requestBody)       // hash of the raw body bytes
+)
+
+X-AID-PROOF = base64url(Ed25519Sign(privateKey, signatureInput))
+X-AID-TIMESTAMP = "2026-03-21T14:30:00Z"
+```
+
+**Server verification:**
+1. Parse `X-AID-DID`, `X-AID-PROOF`, `X-AID-TIMESTAMP` from request headers
+2. Reject if `|now - timestamp| > 300` seconds (5-minute window)
+3. Reconstruct `signatureInput` from DID + timestamp + method + path + body hash
+4. Extract public key from DID (self-certifying: `did:clawnet:{publicKeyMultibase}`)
+5. Verify Ed25519 signature against reconstructed input
+6. If valid → proceed. If invalid → 401 Unauthorized.
+
+Including method + path prevents signature reuse across different endpoints.
+Including timestamp prevents replay outside the 5-minute window.
+
+### 19.9 X-AID-PROVIDER-PROOF (Server Countersignature)
+
+**Problem:** What does the server sign in its response?
+
+**Resolution:** The server signs the receipt:
+```
+providerSignatureInput = SHA-256(
+  providerDid + "\n" +
+  receiptId + "\n" +
+  timestamp + "\n" +
+  SHA-256(responseBody)
+)
+
+X-AID-PROVIDER-PROOF = base64url(Ed25519Sign(serverPrivateKey, providerSignatureInput))
+```
+
+This proves: the server with this DID generated this response at this time.
+The client can verify this offline using the server's public key (from heartbeat or prior interaction).
+
+### 19.10 X-AID-NEW Rate Limiting
+
+**Problem:** Zero-friction onboarding is an abuse vector. Unlimited trial AIDs = free credit farming.
+
+**Resolution:**
+```
+Rate limits for X-AID-NEW:
+  - 3 trial AIDs per IP per 24 hours
+  - 1 trial AID per unique agent name per 24 hours
+  - Trial credits expire in 24h (non-transferable)
+  - Trial AIDs that don't transact after 24h are auto-deleted
+  - Graduated: first AID = 5 credits, second = 3, third = 1
+
+Anti-abuse:
+  - IP reputation tracking (repeated abuse → IP ban)
+  - Trial AIDs cannot invoke paid endpoints (only free/trial-eligible)
+  - Trial AIDs cannot submit feedback (prevents Sybil via feedback farming)
+  - Promotion to `basic` tier requires funding wallet (links real value to identity)
+```
+
+### 19.11 Privacy Model (Hybrid Public/Private)
+
+**Problem:** AID trust scores, capabilities, and transaction history are public.
+This leaks competitive intelligence. Agents may not want rivals to see their trust profile.
+
+**Resolution — Inspired by ClawStars' hybrid auth:**
+
+**Public (no auth needed):**
+- DID exists: yes/no
+- Trust verdict: proceed/standard/caution/new/avoid (5 levels, no exact score)
+- Verification tier: anonymous/basic/verified/proven/trusted
+- Capabilities: category list (not counts)
+- Active since: date
+
+**Owner-only (requires X-AID-PROOF):**
+- Exact trust score (0-100)
+- Full capability breakdown with invoke counts
+- Complete attestation history
+- Revenue breakdown
+- Feedback received (detailed)
+- Settlement history
+
+**Provider view (during transaction):**
+- Exact trust score (needed for pricing tier calculation)
+- Relevant capabilities (for the requested service)
+- Recent feedback summary (last 30 days)
+
+This means: a competitor querying your public AID sees "proceed, verified, active since Jan 2026"
+but NOT "trust score 94, 12,847 invocations, $4,230 volume." The exact score is only
+shared during authenticated transactions where it's needed for pricing.
+
+### 19.12 Trust Score Change Mid-Batch
+
+**Problem:** Agent starts at score 70 (batched settlement), gets negative feedback dropping
+to 55 mid-batch. What happens to in-flight batched receipts?
+
+**Resolution:**
+```
+Rule: Trust tier is LOCKED at the start of each batch window.
+  - Hourly batch windows for `batched` mode
+  - Score checked at window start → tier locked for that window
+  - Negative feedback during the window is recorded but doesn't change the tier mid-window
+  - At the next window start, score is re-evaluated
+  - If score dropped below tier threshold → downgrade to appropriate tier
+  - Existing unsettled receipts from the current window settle at the LOCKED tier
+  - New requests in the next window use the UPDATED tier
+
+This prevents mid-transaction pricing instability.
+Worst case: 1 hour of batched pricing at the old rate before downgrade kicks in.
+```
+
+### 19.13 Protocol Versioning
+
+**Problem:** How to handle breaking changes in x204?
+
+**Resolution:**
+```
+Versioning strategy:
+  - Protocol version in heartbeat response: "protocolVersion": "1.0.0"
+  - Receipt format version: "version": "1.0.0"
+  - AID document version: "aid_version": "1.0.0" (already in DB)
+
+Backwards compatibility:
+  - Minor versions (1.0.x → 1.1.x): additive only, no breaking changes
+  - New optional headers can be added without bumping major version
+  - Major versions (1.x → 2.x): breaking changes, old endpoints kept for 6 months
+  - Version negotiation via heartbeat: server advertises supported versions,
+    client sends preferred version in X-AID-VERSION header (defaults to latest)
+
+Header: X-AID-VERSION: 1.0
+  - If omitted, server uses latest
+  - If unsupported, server returns 406 Not Acceptable with supported versions list
+```
+
 ---
 
 ## 20. SECURITY MODEL
@@ -1659,9 +1803,12 @@ Phase 4: Bonding curve contract
 This plan is ready to build. Every section has been:
 
 - **Researched:** Competitive analysis covers 14 protocols with technical depth
-- **Specified:** Protocol headers, receipt format, trust scoring formula, settlement modes
-- **Questioned:** 7 open questions identified and resolved (dual-key, score verification,
-  deferred mechanics, bootstrapping, averaging, ERC-8004 correction, receipts without txHash)
+- **Specified:** Protocol headers, receipt format, trust scoring formula, settlement modes,
+  signature formats (19.8-19.9), privacy model (19.11), versioning (19.13)
+- **Consistent:** Trust tiers aligned across all sections (5 verdicts, same boundaries everywhere)
+- **Questioned:** 13 open questions identified and resolved (dual-key, score verification,
+  deferred mechanics, bootstrapping, averaging, ERC-8004 correction, receipts without txHash,
+  signature format, server countersig, trial abuse, privacy, mid-batch changes, versioning)
 - **Secured:** Threat model with 10 attack vectors and mitigations
 - **Costed:** Economic model with revenue streams, discount sustainability, gas budget
 - **Scoped:** Phase 1 is 8-13 days with zero infrastructure changes
