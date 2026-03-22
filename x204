@@ -63,6 +63,7 @@ x204 — 3 parties (client, server, blockchain):
 X-AID-DID:            did:clawnet:zABC...            # Self-certifying identity
 X-AID-PROOF:          <Ed25519 sig over request body> # Proves DID ownership (see 19.8)
 X-AID-TIMESTAMP:      2026-03-21T14:30:00Z           # Signature timestamp (±5 min)
+X-AID-NONCE:          a1b2c3d4e5f6a7b8               # 16 random bytes hex (anti-replay, see 39.7)
 X-AID-TRUST-SCORE:    87                              # Claimed score (hint only, see 19.2)
 X-AID-VERSION:        1.0                             # Protocol version (optional, see 19.13)
 PAYMENT-SIGNATURE:    <EIP-3009 signed authorization> # Direct settlement (x402-compatible)
@@ -99,8 +100,9 @@ x204 supports three settlement modes, selected by the server based on client tru
 | 0-19        | `new`      | `immediate`     | Base price       |
 | 20-39       | `building` | `immediate`     | Base price       |
 | 40-59       | `caution`  | `standard`      | 10% discount     |
-| 60-79       | `standard` | `batched`       | 25% discount     |
-| 80+ AND verified | `proceed` | `deferred` | 50% discount     |
+| 60-79       | `standard` | `batched`       | 20% discount     |
+| 80-89       | `trusted`  | `batched`       | 25% discount     |
+| 90+ AND verified AND 6mo AND $50 rev | `proceed` | `deferred` | 30% discount |
 
 **No 2x penalty for new agents.** The old "avoid" tier at 2x premium created a cold-start
 problem: new agents paid double, deterring them from building trust. Instead:
@@ -235,8 +237,9 @@ finalScore = min(100, round(rawScore * verificationMultiplier))
 
 | Score | Verdict    | Settlement Mode | Pricing Tier |
 |-------|------------|-----------------|--------------|
-| 80+ AND verified | `proceed` | `deferred` | 50% discount |
-| 60-79  | `standard` | `batched`       | 25% discount |
+| 90+ AND verified AND 6mo AND $50 rev | `proceed` | `deferred` | 30% discount |
+| 80-89  | `trusted`  | `batched`       | 25% discount |
+| 60-79  | `standard` | `batched`       | 20% discount |
 | 40-59  | `caution`  | `standard`      | 10% discount |
 | 20-39  | `building` | `immediate`     | Base price   |
 | 0-19   | `new`      | `immediate`     | Base price   |
@@ -409,8 +412,9 @@ x204 is a PARALLEL path that doesn't require credits at all.
 | `new`      | 0-19        | Base price     | Immediate only           |
 | `building` | 20-39       | Base price     | Immediate only           |
 | `caution`  | 40-59       | 10% off        | Standard settlement      |
-| `standard` | 60-79       | 25% off        | Batched (EIP-2612 permit)|
-| `proceed`  | 80+ AND verified | 50% off   | Deferred settlement      |
+| `standard` | 60-79       | 20% off        | Batched (EIP-2612 permit)|
+| `trusted`  | 80-89       | 25% off        | Batched (EIP-2612 permit)|
+| `proceed`  | 90+ AND verified AND 6mo AND $50 rev | 30% off | Deferred settlement |
 
 Tiers are determined SOLELY by trust score (computed from the 11-dimension formula).
 Transaction count feeds INTO the trust score (via behavioral signals) but is not
@@ -530,11 +534,12 @@ Response:
     "currency": "USDC",
     "chain": "base",
     "tiers": [
-      { "minTrust": 0,  "multiplier": 1.0, "settlement": "immediate", "verdict": "new" },
-      { "minTrust": 40, "multiplier": 0.9, "settlement": "standard",  "verdict": "caution" },
-      { "minTrust": 60, "multiplier": 0.75, "settlement": "batched",  "verdict": "standard" },
-      { "minTrust": 80, "multiplier": 0.5, "settlement": "deferred",  "verdict": "proceed",
-        "requiresVerification": true }
+      { "minTrust": 0,  "multiplier": 1.0,  "settlement": "immediate", "verdict": "new" },
+      { "minTrust": 40, "multiplier": 0.9,  "settlement": "standard",  "verdict": "caution" },
+      { "minTrust": 60, "multiplier": 0.8,  "settlement": "batched",   "verdict": "standard" },
+      { "minTrust": 80, "multiplier": 0.75, "settlement": "batched",   "verdict": "trusted" },
+      { "minTrust": 90, "multiplier": 0.7,  "settlement": "deferred",  "verdict": "proceed",
+        "requiresVerification": true, "requiresMinAge": "6mo", "requiresMinRevenue": 50 }
     ],
     "recipient": "0xRecipientAddress..."
   },
@@ -3561,6 +3566,233 @@ anyone can add `@x204/mcp-trust` to their server.
 
 **That is the cherry. Not a feature — a positioning shift.**
 **Not "use our protocol" — "add trust to yours."**
+
+---
+
+## 39. SECURITY HARDENING FOR UNIVERSAL TRUST LAYER (Final Audit)
+
+The Section 38 reframing (middleware for any MCP/A2A server) creates NEW attack surfaces
+not covered by Sections 20, 26, or 32. These were found by adversarial security audit.
+
+### 39.1 Middleware Must Default Fail-CLOSED
+
+**Attack:** DoS ClawNet's trust API → all third-party MCP servers using @x204/mcp-trust
+fail open → entire ecosystem serves requests without trust verification.
+
+**Rule:**
+```
+@x204/mcp-trust configuration:
+  failMode: 'closed'  // DEFAULT — reject requests if trust cannot be verified
+  fallbackTtl: 300    // Cache last-known trust for 5 min if API is unreachable
+  healthEndpoint: '/.x204/health'  // Exposes middleware status
+
+On startup:
+  1. Verify providerDid resolves against ClawNet API (one-time)
+  2. Verify providerDid private key matches (sign+verify test)
+  3. If either fails → REFUSE TO START with clear error log
+  4. Validate minTrustScore >= 20 (hardcoded floor, prevent disable via env)
+```
+
+### 39.2 A2A Agent Card Trust MUST Be Platform-Signed
+
+**Attack:** Agent publishes fake trust score in A2A card JSON ($0 to execute).
+
+**Rule:** The x204Trust extension in A2A agent cards MUST include a `trustProof`:
+```json
+"x204Trust": {
+  "did": "did:clawnet:zABC...",
+  "trustScore": 87,
+  "trustVerdict": "proceed",
+  "trustTimestamp": "2026-03-21T14:00:00Z",
+  "trustProof": "<Ed25519 signature from ClawNet platform key over
+                  SHA-256(did + trustScore + trustVerdict + trustTimestamp)>"
+}
+```
+A2A consumers MUST verify `trustProof` against ClawNet's platform public key
+(published at `/.well-known/x204-platform-key`). Without valid proof → treat
+as unverified. Trust data older than 24h → stale, re-fetch from heartbeat URL.
+
+### 39.3 Avoid-Flag Broadcast (Negative Cache Push)
+
+**Attack:** Flagged agent uses stale trust snapshot for up to 4 hours across all
+third-party MCP servers before the next Merkle rebuild.
+
+**Rule:**
+```
+When an agent is flagged `avoid`:
+  1. Immediate: ClawNet broadcasts invalidation via WebSocket to all
+     registered middleware instances
+  2. Middleware instances maintain a WebSocket connection to
+     wss://api.claw-net.org/x204/invalidations
+  3. On receiving invalidation: purge cached trust for that DID immediately
+  4. Separate fast-path: avoid flags propagate within 30 seconds, not 4 hours
+  5. If WebSocket is disconnected: middleware falls back to API check on every request
+     (fail-closed on invalidation channel failure)
+```
+
+### 39.4 Cross-Protocol Import Caps (Tightened)
+
+**Attack:** Farm fake ERC-8004 reputation for $5, import to x204, get 25% discount.
+
+**Rule:**
+```
+OLD: Imported trust capped at 60 (standard tier, 25% discount)
+NEW: Imported trust capped at 39 (building tier, base price, NO discount)
+
+Imported trust only proves: "this agent exists on other platforms"
+It does NOT grant discounts or deferred settlement.
+Discounts require LOCAL transaction history on x204.
+
+Additional: imported trust requires minimum 20 local x204 transactions
+before it adds to the trust score at all.
+```
+
+### 39.5 Delegation Limits (Hardened)
+
+**Attack:** Parent (score 92) creates 100 children, each inheriting score 46.
+
+**Rule:**
+```
+Maximum trust delegation children: 5 per parent
+Each active delegation REDUCES parent's score by 5 points
+  (parent with 5 delegations: effective score = base - 25)
+Child misbehavior penalty to parent: max(5, child_penalty * 0.5)
+Delegation depth: 1 ONLY (no grandchild delegation)
+Delegation expires: 90 days max, non-renewable without re-verification
+```
+
+### 39.6 Trust Gaming ROI Fix
+
+**Attack:** Gaming trust 0→80 costs $1-50, saves $100/month (2-100x ROI).
+
+**Rule:**
+```
+OLD: proceed tier = 80+ AND verified, 50% discount
+NEW: proceed tier = 90+ AND verified AND 6+ months activity
+                    AND $50+ cumulative platform revenue, 30% discount
+
+Reduced discount: 30% (was 50%) — makes gaming less profitable
+Higher bar: 90+ score (was 80+) — harder to reach
+Time gate: 6 months minimum (can't rush)
+Revenue gate: $50+ cumulative spend (real economic commitment)
+```
+
+Update tier table:
+```
+| 0-19        | new      | immediate  | Base price       |
+| 20-39       | building | immediate  | Base price       |
+| 40-59       | caution  | standard   | 10% discount     |
+| 60-79       | standard | batched    | 20% discount     |
+| 80-89       | trusted  | batched    | 25% discount     |
+| 90+ AND verified AND 6mo AND $50 rev | proceed | deferred | 30% discount |
+```
+
+### 39.7 Request Nonce (Anti Proxy-Log Replay)
+
+**Attack:** CDN/proxy logs contain X-AID-PROOF signatures, replayable within 5 min.
+
+**Rule:** Add `X-AID-NONCE` to the protocol headers and signing input:
+```
+Request Headers (updated):
+  X-AID-NONCE: <16 random bytes, hex-encoded>
+
+Updated signatureInput:
+  SHA-256(did + "\n" + timestamp + "\n" + nonce + "\n" +
+          method + " " + path + "\n" + SHA-256(requestBody))
+
+Server tracks seen nonces for 5-minute window (Redis SET with TTL).
+Duplicate nonce → 409 Conflict.
+
+Guidance for operators: strip X-AID-PROOF and X-AID-NONCE from
+upstream proxy/CDN logs. Provide nginx config example in SDK docs.
+```
+
+### 39.8 USDC Pause Detector
+
+**Attack:** Circle pauses USDC globally. Batched/deferred settlements can't execute.
+
+**Rule:**
+```
+Before accepting any batched/deferred request:
+  1. Call USDC.paused() via eth_call (free, no gas)
+  2. If paused → reject deferred/batched, revert ALL agents to immediate-only
+  3. If already-accumulated batch exists during pause:
+     → Freeze batch, extend settlement deadline by pause duration
+     → When USDC unpauses: request fresh permit signatures
+     → If permits expired during pause: agent must re-sign
+  4. Settlement insurance: reserve 5% of settled USDC into loss buffer
+```
+
+### 39.9 Feedback Cartel Defense
+
+**Attack:** 10 agents systematically upvote each other (ROI: 12.5x/month).
+
+**Rule:**
+```
+MUTUAL FEEDBACK DECAY: If Agent A AND Agent B both give each other positive
+  feedback within 30 days, BOTH feedbacks are weighted at 0.1x (not their
+  normal weight). Reciprocal praise is suspicious.
+
+FEEDBACK DIVERSITY: An agent's outcomeReports score weights feedback by
+  how many OTHER providers the reporter also uses. If 90%+ of a reporter's
+  positive feedback goes to one provider, that feedback is weighted 0.2x.
+
+TEMPORAL CLUSTERING: If N agents all give the same provider positive
+  feedback within 24 hours, and those N agents have also given each other
+  positive feedback, flag the cluster for automated review.
+```
+
+### 39.10 Supply Chain Security
+
+**Rule (implement BEFORE publishing any packages):**
+```
+1. Register @x204 npm org + x204-trust PyPI package NOW (reserve names)
+2. Register typosquat variants: @x204/mcp_trust, x204-mcp-trust,
+   @x204/mcptrust — publish placeholder READMEs pointing to real package
+3. Enable 2FA (TOTP) on all npm/PyPI maintainer accounts
+4. Use npm provenance (SLSA Level 3) for published packages
+5. Pin all dependencies (exact versions, no ranges)
+6. Publish SBOM with each release
+7. Use GitHub Actions OIDC for PyPI Trusted Publishers
+8. Set up security policy + responsible disclosure contact
+```
+
+### 39.11 Trust Oscillation Defense
+
+**Attack:** Agent alternates good/bad behavior, locks in high tier every other window.
+
+**Rule:** Tier assignment uses trailing 3-window average, not point-in-time snapshot.
+If score crossed a tier boundary downward in ANY of the last 3 windows → assign
+the LOWER tier. Takes 3 consecutive good windows to recover.
+
+### 39.12 Merkle Snapshot Timing Randomization
+
+**Attack:** Time positive attestations just before known snapshot cutoff.
+
+**Rule:** Snapshot runs every 4 hours with ±15 minute random jitter.
+Cutoff time is not predictable. Attestation clustering just before any
+fixed time window has no guaranteed effect.
+
+### 39.13 Consolidated Attack Surface (Updated)
+
+| # | Attack | Severity | Cost | Mitigated |
+|---|--------|----------|------|-----------|
+| Previous 14 vectors (Sections 20, 26, 32) | Various | $0-$494M | All ✓ |
+| Previous 6 race conditions (Section 19.16) | Various | $0 | All ✓ |
+| 39.1 | Middleware fail-open DoS cascade | Critical | $50-500 | ✓ Fail-closed default |
+| 39.2 | A2A trust score lying | Critical | $0 | ✓ Platform-signed trustProof |
+| 39.3 | Stale avoid-flag across ecosystem | High | $0 | ✓ WebSocket invalidation broadcast |
+| 39.4 | Cross-protocol import gaming | High | $5 | ✓ Cap at 39, require 20 local txs |
+| 39.5 | Delegation fan-out Sybil | High | $100-500 | ✓ Max 5 children, score penalty |
+| 39.6 | Trust gaming ROI too favorable | High | $1-50 | ✓ 30% max discount, 90+ AND 6mo AND $50 rev |
+| 39.7 | Proxy log header replay | Medium | $0 | ✓ X-AID-NONCE in signing input |
+| 39.8 | USDC pause during settlement | Critical | $0 | ✓ Pause detector, insurance buffer |
+| 39.9 | Feedback cartel | High | $10-100 | ✓ Mutual decay, diversity weighting |
+| 39.10 | npm/pip supply chain | Critical | $0-1K | ✓ Register now, 2FA, provenance |
+| 39.11 | Trust oscillation farming | Medium | $0 | ✓ 3-window trailing average |
+| 39.12 | Merkle proof grinding | Low | $0 | ✓ ±15 min random jitter |
+
+**Total attack vectors mitigated: 33** (14 original + 6 race conditions + 13 new).
 
 ---
 
