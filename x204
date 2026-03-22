@@ -4098,6 +4098,64 @@ IDENTITY BRIDGE (x204 ↔ on-chain):
 
 ---
 
+### 40.6 AWE Network Deep Analysis (Closest Competitor)
+
+AWE is an autonomous worlds simulator (1000+ agents in persistent environments).
+ClawNet + x204 is trust infrastructure. They build different things that need each other.
+
+**AWE's architecture (from their docs):**
+```
+World Orchestration Module    → manages persistent world state
+Agent Orchestration Module    → lifecycle management for agents
+Event Orchestration Module    → triggers and event routing
+Multi-Agent Simulation Module → parallel execution, GPU-optimized
+Onchain Asset Module          → wallets, smart contracts, blockchain
+Proof of Autonomy Module      → decentralized storage, integrity validation
+```
+
+**AWE has zero trust layer. Zero attestations. Zero receipts. Zero security hardening.**
+Their agents interact inside worlds but have no portable proof of trustworthiness.
+
+**What to adopt from AWE:**
+
+1. **Fee-free x402 facilitator** — AWE runs one at `facilitator.world.fun` (Base, zero fees).
+   ClawNet should run its own facilitator for Phase 1 (before direct settlement in Phase 2).
+   This means ClawNet agents don't pay Coinbase's $0.001/tx fee during the transition.
+   Implementation: fork x402-express facilitator, host on ClawNet's VPS. ~2 days work.
+
+2. **One-click agent execution** — AWE's marketplace: click "Run Agent" → executes instantly.
+   ClawNet's skill marketplace requires API calls with headers.
+   Add: `site/explore.html` with "Try it" button per skill → calls skill with test params.
+   Dramatically lowers the barrier for evaluation. ~1 day work.
+
+3. **MCP agent marketplace pattern** — AWE's AWESOME lets users compose MCPs into agents,
+   save as reusable templates, and share publicly. ClawNet's composite skills are similar
+   but require JSON skill definitions. A visual workflow builder that outputs composite
+   skill definitions would match this. Phase 4 feature.
+
+**What NOT to adopt (different product category):**
+- World simulation engine: ClawNet is trust infra, not a world simulator
+- $AWE token governance: premature — ship product, then token
+- GPU-optimized parallel execution: ClawNet is single-process Node.js on VPS
+- ERC-6551 token-bound accounts: AID's Ed25519 DIDs are simpler + chain-agnostic
+- World.fun launcher: ClawNet doesn't create "worlds" — it secures transactions
+
+**The partnership play:**
+```
+AWE builds worlds where 1000 agents interact
+→ Those agents need TRUST to transact safely
+→ @x204/mcp-trust middleware on AWE's AWESOME platform
+→ Every AWE agent gets an x204 trust score
+→ AWE worlds use x204 for trust-gated pricing between agents
+→ ClawNet becomes the trust backbone of autonomous worlds
+```
+
+AWE's AWESOME MCP platform is the perfect distribution channel for @x204/mcp-trust.
+One integration = x204 trust on every AWE agent. This is the Section 38 strategy
+("add trust to yours, not use our protocol") applied to the biggest competitor.
+
+---
+
 Financial appendix — see Section 21 for verified economic model:
   - Section 21.1: Revenue streams per phase
   - Section 21.2: Trust-gated discount sustainability (with all 5 tiers)
