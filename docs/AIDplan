@@ -119,6 +119,8 @@ transaction makes it smarter.
 - [ ] @aidprotocol/aar-bridge — bidirectional AAR receipt conversion (Optimization 12)
 - [ ] Verifiable Intent integration — map AID trust as VI signal (Optimization 13)
 - [ ] AID-MPP Profile — trust headers alongside Stripe MPP session authorization (Section 15.5)
+- [ ] AID-AgentKit bridge — optional World ID linking for maximum trust signal (Section 45.5)
+- [ ] AID-TAP reference — spec-only interop note for Visa Trusted Agent Protocol (no code)
 - [ ] Gas price circuit breaker for batch settlement (Vector 43)
 - [ ] Verification receipt in middleware — caller-verifiable ClawNet-signed token (Flaw 18)
 - [ ] ARA compatibility evaluation (Flaw 16)
@@ -166,7 +168,7 @@ transaction makes it smarter.
 
 ---
 
-**Progress: 24/115 items complete (21%). NEXT: Submit NIST comment → AID-MPP Profile → playground.**
+**Progress: 24/117 items complete (21%). NEXT: Submit NIST comment → AID-MPP Profile → playground.**
 
 ---
 
@@ -1181,10 +1183,14 @@ composing into a full market stack. Open, neutral, credibly decentralized.
 | The Graph | ERC-8004 indexing | Edge & Node | Live | Not a competitor — potential integration |
 | Maiat | Trust oracle | Independent | Live | No payment, no portable identity |
 | ClawStars | SocialFi agent trading | Independent | Live | No services, no trust portability |
-| World AgentKit | Human-backed agent ID | Coinbase + World | Beta (March 17) | Orb-dependent, no reputation layer |
+| World AgentKit | Proof of unique human behind agent — ZK proofs via World ID (18M verified users) + x402 integration | Coinbase + World | Launched March 17, 2026 | Complementary — AgentKit = "is there a real human?" AID = "is this agent reliable?" Combined = maximum trust signal. Phase 2: AID-AgentKit bridge (optional World ID linking). |
 | Mastercard Verifiable Intent | Consumer-to-agent authorization | Mastercard, Google, IBM, Fiserv, Adyen, Worldpay | Live (open-sourced March 5) | Complementary — VI = "who authorized this," AID = "is this agent trustworthy." AID is agent-to-agent trust; VI is consumer-to-agent authorization. Target as Phase 2 compatibility layer. |
 | Virtuals Protocol | Tokenized AI agents | VIRTUAL token | Live, $500M+ mcap | Identity = speculation, not utility |
-| Visa TAP | Enterprise agent auth | Visa + Akamai | Live (GitHub ref impl) | Enterprise-only, centralized |
+| Visa TAP | Trusted Agent Protocol — cryptographic proof agent is Visa-approved, open framework for merchant verification | Visa + 10 partners | Live (Oct 2025, GitHub ref impl) | Centralized (Visa onboards/approves agents). AID is permissionless. Complementary: TAP = "Visa vouches for this agent," AID = "this agent has trust score 87 from 1,247 transactions." Reference in spec, don't build integration. |
+| Microsoft Entra Agent ID + Agent 365 | Enterprise agent identity (Active Directory for agents) + control plane for agent governance | Microsoft | Agent 365 GA May 1, 2026. Announced RSAC March 20. | Enterprise-focused (Fortune 500 IT). AID is open/permissionless (open agent economy). Different markets. Validates "agent identity" as a product category. Watch only. |
+| IETF ANS | Agent Name Service — DNS for agents, PKI-based discovery | IETF draft, GoDaddy PoC | Draft expired, discussed at IETF 124 dispatch | Future discovery bridge — AID trust scores discoverable via ANS resolution. Reference in spec, don't build yet. |
+| NVIDIA OpenShell / NemoClaw | Sandboxed agent runtime with policy-based security guardrails | NVIDIA | Open-sourced March 18, 2026 (GTC) | If agents run in OpenShell, AID attestations from within sandbox = tamper-proof execution proofs. Phase 3+ integration opportunity. |
+| NVIDIA Retail Blueprint | Dual-protocol (ACP + UCP) reference implementation for retail agentic commerce | NVIDIA | Open-sourced March 18, 2026 (GTC) | Zero trust/reputation layer. @aidprotocol/mcp-trust as middleware for their MCP server. Future partnership opportunity. |
 | Gen Agent Trust Hub | Agent trust verification + skills marketplace | Gen (Norton/Avast, NASDAQ: GEN) | Live (Feb 4, 2026) | 500M user brand but consumer-focused, not agent-to-agent. No portable trust, no crypto settlement. |
 | Trusta.AI AgentGo | MCP middleware for on-chain identity + reputation | Trusta.AI | Open-sourced | Simpler model — AID has 11-dimension scoring, 3-layer lifecycle, 36 attack mitigations |
 | Solana Agent Registry | ERC-8004 implementation on Solana | Quantu AI | Live (March 3, 2026) | AID bridges Solana + EVM registries with cross-chain trust. Single Ed25519 key on Solana. |
@@ -6029,18 +6035,70 @@ the spec itself. Documentation is machine-readable AND queryable. Ship alongside
 
 ### 45.5 The Agentic Commerce Stack (March 22, 2026)
 
+**Updated after the biggest week in agentic commerce history (March 17-22, 2026):**
+World AgentKit (March 17), Stripe MPP + Tempo mainnet (March 18), NVIDIA GTC
+blueprints (March 18), Microsoft Agent 365 + Entra Agent ID (RSAC, March 20).
+
 ```
-LAYER 0 — COMMUNICATION:    MCP + A2A + AGENTS.md (SOLVED — AAIF governs)
-LAYER 1 — DISCOVERY:        UCP (Google/Shopify) + ERC-8004 + Heartbeat (LIVE)
-LAYER 2 — IDENTITY:         ERC-8004 + MCP-I/DIF + World AgentKit + NIST (FRAGMENTED)
-LAYER 3 — AUTHORIZATION:    Verifiable Intent (Mastercard/Google) + AP2 + OAuth (LIVE)
-LAYER 4 — PAYMENT:          x402 (Coinbase/AWS) + MPP (Stripe/Tempo) + ACP (Stripe/OpenAI) + UCP (LIVE)
-LAYER 5 — TRUST/REPUTATION: *** NOBODY *** ← AID's lane
-LAYER 6 — SETTLEMENT:       ERC-8183 + x402 direct + Stripe rails (EARLY)
-LAYER 7 — GOVERNANCE:       AAIF (MCP) + DIF TAAWG (identity) + NIST (compliance)
+LAYER 0 — COMMUNICATION:
+  MCP (Anthropic → AAIF)           — tool access
+  A2A (Google → AAIF)              — agent-to-agent messaging
+
+LAYER 1 — DISCOVERY:
+  UCP (Google/Shopify)              — universal commerce discovery
+  ANS (IETF draft, GoDaddy PoC)    — DNS for agents (early)
+  ERC-8004                          — on-chain agent registry
+
+LAYER 2 — IDENTITY:
+  MCP-I (Vouched → DIF TAAWG)      — agent identity via DIDs/VCs
+  World AgentKit (March 17)         — proof of unique human (ZK + World ID)
+  Visa TAP (Oct 2025)               — Visa-approved agent signatures
+  Microsoft Entra Agent ID (Mar 20) — enterprise agent identity
+  NIST NCCoE concept paper          — standards guidance (comments due April 2)
+
+LAYER 3 — AUTHORIZATION:
+  Verifiable Intent (Mastercard)    — human authorization proofs
+  Google AP2                        — payment authorization
+  OpenShell (NVIDIA, March 18)      — policy-enforced execution
+
+LAYER 4 — PAYMENT:
+  x402 (Coinbase/Cloudflare)        — per-request crypto payments
+  MPP (Stripe/Tempo, March 18)      — session-based streaming payments
+  ACP (OpenAI/Stripe)               — conversational checkout
+  AP2 (Google)                      — A2A payment integration
+
+LAYER 5 — TRUST/REPUTATION:
+  ████████████████████████████████████████
+  █  AID (ClawNet) — STILL THE ONLY ONE  █
+  ████████████████████████████████████████
+
+LAYER 6 — SETTLEMENT:
+  Arc (Circle, testnet)             — USDC-native chain
+  Tempo (Stripe, March 18)          — MPP-native chain
+  Plasma (Tether, live)             — USDT-native chain
+  Base (Coinbase)                   — current x402 primary
+  Stratum (Valeo)                   — clearing/netting for x402
+  ERC-8183                          — on-chain escrow (early)
+
+LAYER 7 — GOVERNANCE:
+  AAIF (Linux Foundation)           — MCP + A2A governance
+  DIF TAAWG                         — agent identity standards
+  NIST CAISI                        — AI agent standards initiative
+  IETF dispatch                     — ANS / agent discovery
 ```
 
-**AID fills Layer 5 — the only empty layer in the stack.**
+**Layer 5 is still empty except for AID.** That hasn't changed despite the biggest
+week in agentic commerce history. Every new protocol that shipped makes Layer 5
+MORE important, not less.
+
+**The composability thesis:**
+```
+World AgentKit  → "is there a real human behind this agent?"  (identity)
+Visa TAP        → "is this agent Visa-approved?"              (authorization)
+AID             → "is this agent RELIABLE based on evidence?"  (reputation)
+x402 / MPP      → "here's the payment"                        (settlement)
+```
+None of these overlap. All compose. AID is the missing piece in every stack.
 
 ---
 

@@ -1057,7 +1057,33 @@ AID is chain-agnostic by design. The `did:key` identity is not bound to any spec
 
 AID works with any settlement chain — Base, Solana, Arc (Circle), Tempo (Stripe), Plasma (Tether), Codex, or future chains. Only the settlement layer changes; trust scoring, attestations, Merkle proofs, and receipts are identical across all chains.
 
-### 13.6 NIST Compatibility
+### 13.6 World AgentKit Complementarity
+
+World AgentKit (launched March 17, 2026) provides proof of unique human behind an agent using zero-knowledge proofs from World ID. AgentKit answers "is there a real human behind this agent?" AID answers "is this agent reliable based on behavioral evidence?" These are different questions that compose:
+
+```
+World AgentKit  -> proof of unique human    (identity layer)
+AID             -> behavioral trust score   (reputation layer)
+x402 / MPP      -> payment execution        (payment layer)
+```
+
+Agents with both an AID trust score AND a World ID proof represent the maximum trust signal. Implementations MAY accept `X-WORLD-PROOF` alongside `X-AID-DID` + `X-AID-PROOF` for combined identity + reputation verification.
+
+### 13.7 Visa Trusted Agent Protocol (TAP)
+
+Visa TAP provides cryptographic proof that an agent is Visa-approved. TAP is centralized (agents must be onboarded by Visa). AID is permissionless (any agent builds trust through behavior). These are complementary: TAP says "Visa vouches for this agent," AID says "this agent has trust score 87 based on verified transactions."
+
+An agent MAY carry both a Visa TAP signature and an AID trust score. AID does not depend on or require TAP.
+
+### 13.8 IETF Agent Name Service (ANS)
+
+The IETF ANS draft proposes DNS-based discovery for agents using PKI certificates. When ANS matures, AID trust scores SHOULD be discoverable through ANS resolution — an agent lookup returns both endpoint information and AID trust data.
+
+### 13.9 Microsoft Entra Agent ID
+
+Microsoft Entra Agent ID (announced March 20, 2026) treats agents as first-class identities in enterprise environments. Entra is enterprise-focused (Active Directory for agents). AID is open/permissionless. In hybrid deployments, AID trust MAY complement Entra identity — Entra handles enterprise SSO/governance, AID provides cross-platform behavioral reputation.
+
+### 13.10 NIST Compatibility
 
 AID's Ed25519 identity is designed to complement — not replace — OAuth 2.0 / OpenID Connect identity as referenced in NIST SP 800-63-4 and the NIST NCCoE AI Agent Standards Initiative. In deployments requiring NIST compliance, AID trust MAY run alongside OAuth/OIDC identity in a hybrid mode where OAuth handles authentication and AID provides reputation scoring.
 
