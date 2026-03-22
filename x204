@@ -96,17 +96,35 @@ x204 supports three settlement modes, selected by the server based on client tru
 
 | Trust Score | Verdict    | Settlement Mode | Pricing          |
 |-------------|------------|-----------------|------------------|
-| 0-19        | `avoid`    | Prepay only     | 2x premium       |
-| 20-39       | `new`      | `immediate`     | Base price       |
+| 0-19        | `new`      | `immediate`     | Base price       |
+| 20-39       | `building` | `immediate`     | Base price       |
 | 40-59       | `caution`  | `standard`      | 10% discount     |
 | 60-79       | `standard` | `batched`       | 25% discount     |
 | 80-100      | `proceed`  | `deferred`      | 50% discount     |
 
-**Direct settlement (no facilitator):**
-- EIP-3009 `transferWithAuthorization()` can be submitted by ANYONE
-- Server calls the USDC contract directly with the signed auth
-- Nonce tracking is on-chain (replay protection built into EIP-3009)
-- Gas cost ~$0.001 on Base L2 (negligible for micropayments)
+**No 2x penalty for new agents.** The old "avoid" tier at 2x premium created a cold-start
+problem: new agents paid double, deterring them from building trust. Instead:
+- Score 0-39: base price (no penalty, no discount) — encourages onboarding
+- `avoid` is reserved for agents ACTIVELY flagged by validators/reports (separate from score)
+- An agent can be trust score 50 but `avoid` if flagged — manual override, not score-based
+
+**Direct settlement (no facilitator) — two mechanisms:**
+
+**Immediate settlement (EIP-3009 `receiveWithAuthorization`):**
+- Client signs EIP-712 authorization: (from, to, value, validAfter, validBefore, nonce)
+- Server calls `receiveWithAuthorization()` on USDC contract directly
+- MUST use `receiveWithAuthorization` NOT `transferWithAuthorization`:
+  `receiveWithAuthorization` requires msg.sender == to (only ClawNet can submit),
+  eliminating front-running risk from mempool watchers
+- Nonces are random bytes32 (client generates, no coordination needed)
+- Gas cost ~$0.001 on Base L2
+
+**Batched/deferred settlement (EIP-2612 permit + transferFrom):**
+- EIP-3009 CANNOT batch — each signature locks a specific value
+- Instead: client signs EIP-2612 `permit` granting ClawNet a daily spending allowance
+- Server calls `transferFrom()` for batch totals within the permitted allowance
+- Client can revoke permit by setting allowance to 0 (server monitors for this)
+- Permit expires after `deadline` — client must renew for continued deferred settlement
 
 ### 2.4 Mutual Authentication
 
@@ -220,8 +238,13 @@ finalScore = min(100, round(rawScore * verificationMultiplier))
 | 80+   | `proceed`  | `deferred`      | 50% discount |
 | 60-79 | `standard` | `batched`       | 25% discount |
 | 40-59 | `caution`  | `standard`      | 10% discount |
-| 20-39 | `new`      | `immediate`     | Base price   |
-| 0-19  | `avoid`    | Prepay only     | 2x premium   |
+| 20-39 | `building` | `immediate`     | Base price   |
+| 0-19  | `new`      | `immediate`     | Base price   |
+
+Note: `avoid` is NOT a score-based tier. It is a manual flag applied by validators
+or triggered by structured reports (spam, fraud, copyright). An agent can have trust
+score 70 and still be flagged `avoid` if validators identify malicious behavior.
+Flagged agents are excluded from trust-gated pricing and revert to prepay-only.
 
 ### 4.4 Trust Score as On-Chain Primitive
 
@@ -286,9 +309,11 @@ The receipt travels with the agent forever. x402 receipts die with the platform.
   },
 
   "proof": {
-    "payerSignature": "ed25519:...",      // Agent signs: SHA-256(did+receiptId+timestamp+inputHash)
-    "providerSignature": "ed25519:...",   // Server signs: SHA-256(did+receiptId+timestamp+resultHash)
-    "platformCountersignature": "ed25519:..."  // Platform signs full receipt hash (eddsa-jcs-2022)
+    "payerSignature": "ed25519:...",      // Consumer agent signs: SHA-256(did+receiptId+timestamp+inputHash)
+    "providerSignature": "ed25519:...",   // Skill creator signs (if third-party) or server signs
+    "platformCountersignature": "ed25519:..."  // ClawNet platform signs full receipt hash (eddsa-jcs-2022)
+    // When provider == platform (ClawNet skills): providerSignature = platformCountersignature
+    // When provider != platform (marketplace skills): two distinct signatures from two entities
   }
 }
 ```
@@ -297,7 +322,10 @@ The receipt travels with the agent forever. x402 receipts die with the platform.
 - **Dual-signed:** Both payer and provider sign — mutual commitment
 - **Merkle-anchored:** Receipt hash included in periodic Merkle snapshots
 - **Content-addressed:** `resultHash` proves what was delivered without revealing it
-- **Offline-verifiable:** Ed25519 signatures + Merkle proofs = pure math, no API calls
+- **Offline-verifiable:** Ed25519 signatures + Merkle proofs = pure math, no API calls.
+  Note: offline verification is strongest for IDENTITY (DID ownership).
+  Trust scores verified offline may be up to 4h stale (snapshot interval).
+  For high-stakes decisions, live trust lookup is recommended.
 - **Portable:** Agent carries receipts to any platform as proof of track record
 
 ### 5.3 Composite Receipts
@@ -483,8 +511,7 @@ Response:
     "currency": "USDC",
     "chain": "base",
     "tiers": [
-      { "minTrust": 0,  "multiplier": 2.0, "settlement": "prepay",    "verdict": "avoid" },
-      { "minTrust": 20, "multiplier": 1.0, "settlement": "immediate", "verdict": "new" },
+      { "minTrust": 0,  "multiplier": 1.0, "settlement": "immediate", "verdict": "new" },
       { "minTrust": 40, "multiplier": 0.9, "settlement": "standard",  "verdict": "caution" },
       { "minTrust": 60, "multiplier": 0.75, "settlement": "batched",  "verdict": "standard" },
       { "minTrust": 80, "multiplier": 0.5, "settlement": "deferred",  "verdict": "proceed" }
@@ -1024,9 +1051,11 @@ The facilitator verifies the signature and submits the on-chain transfer.
 
 ```
 Layer 1: EIP-712 (Payment)
-  Agent signs EIP-3009 transferWithAuthorization via ECDSA (secp256k1)
-  → Handles USDC settlement on Base L2
-  → x402-compatible — any x402 server can verify the payment
+  Immediate: Agent signs EIP-3009 receiveWithAuthorization via ECDSA (secp256k1)
+    → Server calls receiveWithAuthorization (requires msg.sender == to, no front-running)
+  Batched/Deferred: Agent signs EIP-2612 permit (daily/weekly spending allowance)
+    → Server calls transferFrom for batch totals within allowance
+  Both methods handle USDC settlement on Base L2, x402-compatible
 
 Layer 2: Ed25519 (Identity + Trust)
   Agent signs request body with Ed25519 private key
@@ -1127,8 +1156,12 @@ x204 should be COMPATIBLE with ERC-8004 while being MORE CAPABLE:
 
 **Phase 1: Bridge**
 - Every x204 AID can optionally register on ERC-8004's Identity Registry
-- x204 trust scores can be published to ERC-8004's Reputation Registry
+- ClawNet signs feedbackAuth for its consumers, enabling them to leave
+  ERC-8004 reputation feedback about ClawNet skills on-chain
+  (Note: ERC-8004 requires feedbackAuth — ClawNet cannot unilaterally
+  write trust scores about other agents without their signed consent)
 - x204 receipts can be submitted as ERC-8004 Validation entries
+  (when ValidationRegistry is deployed — NOT live yet, opportunity to ship first)
 - AID documents include ERC-8004 agent ID as an optional field
 
 **Phase 2: Extend**
@@ -1323,22 +1356,25 @@ The `X-AID-TRUST-SCORE` header exists for two reasons:
 
 **Batched (trust score 60-79 / `standard` verdict):**
 ```
-1. Agent makes requests throughout the hour
-2. Each request creates an off-chain receipt (dual-signed, Merkle-anchored)
-3. At the end of each hour, server aggregates all receipts for this agent
-4. Server submits ONE EIP-3009 transferWithAuthorization for the total
-5. If the agent signed a blanket authorization (EIP-2612 permit with daily cap),
-   server can settle without per-transaction signatures
-6. If settlement fails → agent's trust score drops, reverts to immediate mode
+1. Agent signs EIP-2612 permit granting ClawNet a daily spending allowance
+   (e.g., permit(ClawNet, 50 USDC, deadline=tomorrow))
+2. Agent makes requests throughout the hour
+3. Each request creates an off-chain receipt (dual-signed, Merkle-anchored)
+4. At the end of each hour, server calls transferFrom() for the batch total
+   (within the permitted allowance — no per-tx signature needed)
+5. If transferFrom fails (insufficient balance/allowance) → trust score drops,
+   reverts to immediate mode
+6. Server monitors for permit revocation (allowance set to 0)
 ```
 
 **Deferred (trust score 80+ / `proceed` verdict):**
 ```
-1. Agent makes requests throughout the day
-2. Receipts accumulate (signed, auditable)
-3. End of day: server sends settlement summary to agent
-4. Agent has 24h to dispute any receipt
-5. After 24h: server submits EIP-3009 for undisputed amount
+1. Agent signs EIP-2612 permit with higher allowance (e.g., 200 USDC, weekly)
+2. Agent makes requests throughout the day
+3. Receipts accumulate (signed, auditable)
+4. End of day: server sends settlement summary to agent
+5. Agent has 24h to dispute any receipt
+6. After 24h: server calls transferFrom() for undisputed amount
 6. Disputes: both parties' signed receipts are evidence
    → If agent's receipt hashes match server's → server wins
    → If mismatch detected → flag for manual review, freeze trust score
@@ -1868,8 +1904,8 @@ Discounts apply to skill invocation costs (which go to skill creators, not proto
 ```
 Example: Agent calls a 10-credit skill (using canonical 5-tier boundaries)
 
-avoid  (0-19,  2x premium): Agent pays 20cr   → 17cr creator, 3cr protocol
-new    (20-39, base price):  Agent pays 10cr   → 8.5cr creator, 1.5cr protocol
+new    (0-19,  base price):  Agent pays 10cr   → 8.5cr creator, 1.5cr protocol
+building(20-39, base price): Agent pays 10cr   → 8.5cr creator, 1.5cr protocol
 caution(40-59, 10% off):     Agent pays 9cr    → 7.65cr creator, 1.35cr protocol
 standard(60-79, 25% off):    Agent pays 7.5cr  → 6.375cr creator, 1.125cr protocol
 proceed(80+,   50% off):     Agent pays 5cr    → 4.25cr creator, 0.75cr protocol
