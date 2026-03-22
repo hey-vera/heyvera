@@ -533,7 +533,8 @@ Response:
       { "minTrust": 0,  "multiplier": 1.0, "settlement": "immediate", "verdict": "new" },
       { "minTrust": 40, "multiplier": 0.9, "settlement": "standard",  "verdict": "caution" },
       { "minTrust": 60, "multiplier": 0.75, "settlement": "batched",  "verdict": "standard" },
-      { "minTrust": 80, "multiplier": 0.5, "settlement": "deferred",  "verdict": "proceed" }
+      { "minTrust": 80, "multiplier": 0.5, "settlement": "deferred",  "verdict": "proceed",
+        "requiresVerification": true }
     ],
     "recipient": "0xRecipientAddress..."
   },
@@ -563,7 +564,8 @@ Additional fields in response:
 {
   "consumer": {
     "trustScore": 87,
-    "pricingTier": { "multiplier": 0.5, "settlement": "deferred" },
+    "verified": true,
+    "pricingTier": { "verdict": "proceed", "multiplier": 0.5, "settlement": "deferred" },
     "creditBalance": "12.450",       // only for credit-based agents (PATH A)
     "usdcAllowance": "50.000000",    // only for USDC agents (PATH B, from EIP-2612 permit)
     "recentReceipts": 47,
