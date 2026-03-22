@@ -57,6 +57,7 @@ transaction makes it smarter.
 - [x] x402 provider mode (`src/routes/x402-skills.ts`)
 - [x] Attestation system + validator roles (`src/db/attestations.ts`, `src/routes/validators.ts`)
 - [x] 46 attack vectors documented with mitigations (Sections 20, 26, 32, 39, 41.4, 43.3, 44.2, 45.2)
+- [x] Crypto-agility — SHA-384 trust-layer hashing, algorithm-versioned signatures, PQC migration path (`src/utils/crypto-agility.ts`)
 
 ### PHASE 1: SHIP THE TRUST LAYER (Weeks 1-4, $0 infra cost)
 
