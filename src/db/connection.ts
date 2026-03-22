@@ -1089,6 +1089,13 @@ const MIGRATIONS: { version: number; sql: string }[] = [
     CREATE INDEX IF NOT EXISTS idx_aid_feedback_reporter ON aid_feedback(reporter_did, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_aid_feedback_provider ON aid_feedback(provider_did, created_at DESC);
   ` },
+  { version: 111, sql: `
+    ALTER TABLE aid_keys ADD COLUMN last_heartbeat TEXT;
+    ALTER TABLE aid_keys ADD COLUMN heartbeat_interval_days INTEGER NOT NULL DEFAULT 7;
+    ALTER TABLE aid_keys ADD COLUMN heartbeat_grace_days INTEGER NOT NULL DEFAULT 3;
+    ALTER TABLE aid_keys ADD COLUMN heartbeat_decay_applied REAL NOT NULL DEFAULT 0;
+    ALTER TABLE aid_keys ADD COLUMN proof_of_life_status TEXT NOT NULL DEFAULT 'active';
+  ` },
 ];
 
 function runMigrations(): void {

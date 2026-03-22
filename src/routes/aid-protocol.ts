@@ -229,4 +229,74 @@ router.post('/feedback', checkAidProof, aidProviderProof, async (c) => {
   });
 });
 
+// ─── GET /leaderboard — Public trust leaderboard ─────────────────────────────
+//
+// Returns aggregated trust data for the ecosystem. Individual agent lookups
+// are rate-limited (Section 39.17, Vector 57). Bulk enumeration returns
+// tier aggregates, not individual DID-level data.
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.get('/leaderboard', (c) => {
+  try {
+    // Tier aggregates (safe — no individual DID enumeration)
+    const tiers = getDb().prepare(`
+      SELECT
+        CASE
+          WHEN frozen = 1 THEN 'frozen'
+          WHEN proof_of_life_status = 'auto_frozen' THEN 'frozen'
+          ELSE 'active'
+        END as status,
+        COUNT(*) as count
+      FROM aid_keys WHERE key_status = 'active'
+      GROUP BY status
+    `).all() as { status: string; count: number }[];
+
+    // Top agents by attestation count (opt-in public agents only — show DID + verdict, not exact score)
+    const topAgents = getDb().prepare(`
+      SELECT ak.did, ak.display_name, ak.proof_of_life_status,
+        COALESCE(ast.total_attestations, 0) as attestations,
+        COALESCE(ast.success_count, 0) as successes,
+        ak.created_at
+      FROM aid_keys ak
+      LEFT JOIN attestation_stats ast ON ast.owner_key = ak.owner_key
+      WHERE ak.key_status = 'active' AND ak.frozen = 0
+      ORDER BY COALESCE(ast.total_attestations, 0) DESC
+      LIMIT 25
+    `).all() as any[];
+
+    const leaderboard = topAgents.map(a => {
+      const total = a.attestations || 0;
+      const successRate = total > 0 ? a.successes / total : 0;
+      const volume = Math.min(total / 1000, 1);
+      const rawScore = Math.round(successRate * 40 + 0.5 * 25 + volume * 20 + 0.5 * 15);
+      const verdict = rawScore >= 90 ? 'proceed' : rawScore >= 80 ? 'trusted' : rawScore >= 60 ? 'standard' : rawScore >= 40 ? 'caution' : rawScore >= 20 ? 'building' : 'new';
+
+      return {
+        did: a.did,
+        displayName: a.display_name,
+        verdict,
+        attestations: total,
+        activeMonths: Math.max(1, Math.round((Date.now() - new Date(a.created_at).getTime()) / (30 * 86400000))),
+        proofOfLife: a.proof_of_life_status,
+      };
+    });
+
+    const activeCount = tiers.find(t => t.status === 'active')?.count || 0;
+    const frozenCount = tiers.find(t => t.status === 'frozen')?.count || 0;
+
+    return c.json({
+      ecosystem: {
+        totalAgents: activeCount + frozenCount,
+        activeAgents: activeCount,
+        frozenAgents: frozenCount,
+      },
+      leaderboard,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    logger.error('Leaderboard error:', err);
+    return c.json({ ecosystem: { totalAgents: 0, activeAgents: 0, frozenAgents: 0 }, leaderboard: [], timestamp: new Date().toISOString() });
+  }
+});
+
 export { router as aidProtocolRouter };

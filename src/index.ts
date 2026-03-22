@@ -84,6 +84,7 @@ import { startCacheWarmingCron } from './core/cache-warming-cron';
 import { startIndexSync } from './core/index-sync';
 import { startAnchorCron } from './core/anchor-cron';
 import { startAidSnapshotCron } from './core/aid-snapshot-cron';
+import { startProofOfLifeCron } from './core/proof-of-life-cron';
 import { getIndexedEndpoints, countIndexedEndpoints, searchIndexedEndpoints, getIndexedEndpointsSyncInfo } from './db/index';
 import { startCreatorNotificationsCron } from './core/creator-notifications';
 import { cacheStatsRouter } from './routes/cache-stats';
@@ -459,6 +460,7 @@ async function start() {
   startIndexSync();                cronsStarted++;
   startAnchorCron();               cronsStarted++;
   startAidSnapshotCron();          cronsStarted++;
+  startProofOfLifeCron();          cronsStarted++;
 
   // Load embedding model + seed in background — don't block server startup
   loadEmbeddingModel()

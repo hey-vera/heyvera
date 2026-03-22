@@ -305,6 +305,26 @@ export function createAutoAttestation(
       proofHash: aidHash(JSON.stringify(executionSteps.map(s => ({ id: s.endpointId, ok: s.success, ms: s.durationMs })))),
     } : undefined;
 
+    // ── Auto-dispute detection (Section 39.20 — from PayCrow) ──────────────
+    // If execution steps show failures that violate the manifest, flag as dispute-eligible.
+    // A 200 OK with data that doesn't match the manifest is flagged. PayCrow only checks
+    // HTTP status codes — AID checks against the manifest (what the service promised).
+    let disputeEligible = false;
+    let disputeReason: string | undefined;
+
+    if (executionSteps && executionProof) {
+      const failedSteps = executionSteps.filter(s => !s.success);
+      if (failedSteps.length > 0) {
+        disputeEligible = true;
+        disputeReason = `${failedSteps.length}/${executionSteps.length} steps failed: ${failedSteps.map(s => s.endpointId).join(', ')}`;
+      }
+      // If manifest exists and execution didn't align
+      if (manifestId && manifestAligned === false) {
+        disputeEligible = true;
+        disputeReason = (disputeReason ? disputeReason + '; ' : '') + 'manifest_violation: execution did not match declared intent';
+      }
+    }
+
     const attestationId = createAttestation({
       apiKeyHash,
       attestationType: 'automatic',
@@ -319,8 +339,11 @@ export function createAutoAttestation(
       sourceHashes,
       creditsCharged,
       durationMs,
-      outcomeStatus: 'success',
-      outcomeData: executionProof ? { executionProof } : undefined,
+      outcomeStatus: (executionSteps?.some(s => !s.success)) ? 'partial' : 'success',
+      outcomeData: executionProof ? {
+        executionProof,
+        ...(disputeEligible ? { disputeEligible, disputeReason } : {}),
+      } : undefined,
     });
 
     return attestationId;

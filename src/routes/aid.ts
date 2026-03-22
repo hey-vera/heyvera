@@ -641,6 +641,64 @@ router.post('/:did/freeze', checkApiKey, async (c) => {
   return c.json({ did, frozen: true, frozenAt: new Date().toISOString(), frozenBy: billingKey });
 });
 
+// ─── POST /:did/heartbeat — Proof of Life (Autonomous Defense System) ─────────
+//
+// Owner periodically proves they are monitoring their agent by signing a heartbeat.
+// Lapsed heartbeats trigger automatic trust decay per Section 39.18.
+//
+// Heartbeat schedule: once per heartbeat_interval_days (default 7).
+// Grace period: heartbeat_grace_days (default 3) before decay starts.
+// Decay schedule:
+//   7 days overdue:  reduce to "trusted" ceiling
+//   14 days overdue: reduce to "standard" ceiling
+//   30 days overdue: reduce to "caution" ceiling
+//   60 days overdue: reduce to "building" ceiling
+//   90 days overdue: auto-freeze
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.post('/:did/heartbeat', checkApiKey, async (c) => {
+  const did = c.req.param('did');
+  const keyInfo = c.get('apiKeyInfo');
+  const billingKey = resolveBillingKey(keyInfo as unknown as Record<string, unknown>);
+
+  const aidDb = await getAidDb();
+  const aidKey = aidDb.getAidKey(did);
+  if (!aidKey) {
+    return c.json({ error: 'AID not found', code: 'AID_NOT_FOUND' }, 404);
+  }
+
+  // Must be the owner (or guardian)
+  const isGuardian = (aidKey as any).guardian_address && billingKey === (aidKey as any).guardian_address;
+  const isOwner = billingKey === aidKey.owner_key;
+  if (!isOwner && !isGuardian) {
+    return c.json({ error: 'Only the AID owner or guardian can submit heartbeats', code: 'AID_NOT_AUTHORIZED' }, 403);
+  }
+
+  const { getDb: getDatabase } = await import('../db/connection');
+  const now = new Date().toISOString();
+
+  // Record heartbeat + reset decay
+  getDatabase().prepare(`
+    UPDATE aid_keys
+    SET last_heartbeat = ?, heartbeat_decay_applied = 0, proof_of_life_status = 'active', updated_at = ?
+    WHERE did = ? AND key_status = 'active'
+  `).run(now, now, did);
+
+  logAudit({ entityType: 'aid', entityId: did, action: 'heartbeat', actorId: billingKey });
+
+  const intervalDays = (aidKey as any).heartbeat_interval_days || 7;
+  const nextDue = new Date(Date.now() + intervalDays * 86400000).toISOString();
+
+  return c.json({
+    did,
+    heartbeatRecorded: now,
+    nextDue,
+    intervalDays,
+    proofOfLifeStatus: 'active',
+    decayApplied: 0,
+  });
+});
+
 // ─── DELETE /:did — GDPR right to erasure ────────────────────────────────────
 router.delete('/:did', checkApiKey, async (c) => {
   const did = c.req.param('did');
