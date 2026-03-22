@@ -1,0 +1,35 @@
+{
+  "name": "@aidprotocol/trust-compute",
+  "version": "1.0.1",
+  "description": "Deterministic trust scoring for AI agents — the canonical AID trust computation library",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "files": ["dist/", "README.md"],
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "aid", "trust", "agent", "identity", "reputation", "scoring",
+    "mcp", "a2a", "verifiable", "ed25519", "merkle", "attestation",
+    "agentic-commerce", "did"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/1xmint/claw-net",
+    "directory": "packages/trust-compute"
+  },
+  "homepage": "https://claw-net.org",
+  "devDependencies": {
+    "esbuild": "^0.20.0"
+  }
+}
