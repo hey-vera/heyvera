@@ -1183,7 +1183,7 @@ composing into a full market stack. Open, neutral, credibly decentralized.
 | The Graph | ERC-8004 indexing | Edge & Node | Live | Not a competitor — potential integration |
 | Maiat | Trust oracle | Independent | Live | No payment, no portable identity |
 | ClawStars | SocialFi agent trading | Independent | Live | No services, no trust portability |
-| World AgentKit | Proof of unique human behind agent — ZK proofs via World ID (18M verified users) + x402 integration | Coinbase + World | Launched March 17, 2026 | Complementary — AgentKit = "is there a real human?" AID = "is this agent reliable?" Combined = maximum trust signal. Phase 2: AID-AgentKit bridge (optional World ID linking). |
+| World AgentKit | Proof of unique human behind agent — ZK proofs via World ID (18M verified users) + x402 integration. AgentBook: on-chain registry mapping agents to verified humans. | Coinbase + World | Launched March 17, 2026 | Complementary — AgentKit = "is there a real human?" AID = "is this agent reliable?" Combined = maximum trust signal. AID trust scores queryable via AgentBook. Phase 2: AID-AgentKit bridge (World ID linking + AgentBook integration). |
 | Mastercard Verifiable Intent | Consumer-to-agent authorization | Mastercard, Google, IBM, Fiserv, Adyen, Worldpay | Live (open-sourced March 5) | Complementary — VI = "who authorized this," AID = "is this agent trustworthy." AID is agent-to-agent trust; VI is consumer-to-agent authorization. Target as Phase 2 compatibility layer. |
 | Virtuals Protocol | Tokenized AI agents | VIRTUAL token | Live, $500M+ mcap | Identity = speculation, not utility |
 | Visa TAP | Trusted Agent Protocol — cryptographic proof agent is Visa-approved, open framework for merchant verification | Visa + 10 partners | Live (Oct 2025, GitHub ref impl) | Centralized (Visa onboards/approves agents). AID is permissionless. Complementary: TAP = "Visa vouches for this agent," AID = "this agent has trust score 87 from 1,247 transactions." Reference in spec, don't build integration. |
@@ -1202,15 +1202,19 @@ composing into a full market stack. Open, neutral, credibly decentralized.
 | AWS ARA | AI Registry for Agents — open spec for agent artifact packaging/discovery | AWS | Published Feb 25, 2026 | Complementary — AID agent metadata expressible as ARA artifact. Phase 2 integration. |
 | Bright Security | MCP AppSec Framework — security testing for MCP server attack surfaces | Bright Security | Published March 19, 2026 | Complementary — use findings to harden @aidprotocol/mcp-trust. |
 | NIST NCCoE CAISI | AI Agent Standards Initiative — agent identity/authorization guidelines | NIST | Concept paper Feb 17, comments due April 2 | CRITICAL — submit comment positioning Ed25519 DIDs as complement to OAuth/OIDC. Enterprise compliance follows NIST. |
-| Stripe ACP | Agentic Commerce Protocol — "Instant Checkout" for AI agents | Stripe + OpenAI | Live since Sept 2025 | ACP has no trust scoring. AID trust scores as signal in Stripe's agent verification. Phase 2: @aidprotocol/acp-trust |
-| Google UCP | Universal Commerce Protocol — product discovery for agents | Google + Shopify + 20 partners | Live since Jan 11, 2026 | UCP has no trust layer. AID trust data in UCP merchant discovery metadata. Phase 2: @aidprotocol/ucp-trust |
-| Stripe MPP | Machine Payments Protocol — session-based streaming micropayments for agents | Stripe + Tempo + Paradigm, partners: Anthropic, Visa, Mastercard, OpenAI, Shopify, Standard Chartered | Launched March 18, 2026 with Tempo mainnet | MPP is backwards-compatible with x402. Session-based (authorize spending limit upfront, stream against it). No trust scoring. AID-MPP Profile = Phase 2. AID trust headers work identically alongside MPP sessions. |
+| Stripe ACP | Agentic Commerce Protocol — versioned spec (2026-01-30), checkout + capability negotiation + payment handlers + extensions. Has `/.well-known/acp` manifest. | Stripe + OpenAI (reference implementations from both) | Live, v2026-01-30 | AID trust data injectable via ACP manifest. Merchant checks agent AID score before processing checkout. Phase 2: AID-ACP Profile + @aidprotocol/acp-trust |
+| Google UCP | Universal Commerce Protocol — product discovery for agents | Google + Shopify + 20 partners (Adyen, Amex, Best Buy, Flipkart, Macy's, Mastercard, Stripe, Target, The Home Depot, Visa, Walmart, Zalando) | Live since Jan 11, 2026 | UCP has no trust layer. NVIDIA Retail Blueprint supports BOTH ACP+UCP simultaneously — dual-protocol world is real. AID must work across both. Phase 2: @aidprotocol/ucp-trust |
+| Stripe MPP | Machine Payments Protocol — session-based streaming micropayments for agents. Visa TAP now integrated (card-based MPP spec + SDK). IETF spec draft. | Stripe + Tempo + Paradigm, partners: Anthropic, Visa, Mastercard, OpenAI, Shopify, Standard Chartered | Launched March 18, 2026 with Tempo mainnet | MPP is backwards-compatible with x402. Visa TAP→MPP→Tempo = converging stack. Session-based (authorize spending limit, stream against it). No trust scoring. AID-MPP Profile = Phase 2. Trust-gated session limits: higher trust = higher spending cap. |
 | Valeo/Stratum | x402 clearing/netting layer — batches 10K txs → 50 via multilateral netting | Valeo ($VALEO token) | Live, micro-cap | Ed25519-signed receipts (validates AID's architecture). Don't integrate — micro-cap, unproven. Watch for receipt format convergence. Phase 3 evaluation. |
 | Arc (Circle) | USDC-native L1 blockchain — sub-second finality, 50K+ TPS, EVM compatible | Circle. Testnet: BlackRock, Visa, HSBC, Coinbase, AWS, Anthropic, OpenAI | Testnet, mainnet expected 2026 | Payment rail, no trust. AID is chain-agnostic — did:key works on Arc. Phase 3+: AID-Arc Profile when mainnet has agent traffic. |
 | Tempo (Stripe) | Payments-first L1 blockchain — MPP native chain | Stripe + Paradigm | Mainnet March 18, 2026 | Payment rail, no trust. AID trust headers compose with Tempo/MPP settlement. Phase 2-3 integration via AID-MPP Profile. |
 | Plasma (Tether) | USDT-native L1 — zero-fee transfers, instant finality, XPL staking token | Tether/Bitfinex | Mainnet live, $1B in stablecoins within 30 minutes of pre-launch | Payment rail, no trust. Targets emerging markets. AID's chain-agnostic identity works on Plasma. Watch only — different stablecoin (USDT vs USDC). |
 | Codex | Ethereum L2 (Optimism stack) — B2B enterprise settlement with built-in KYC/AML | Backed by Circle + Coinbase | Live, native USDC | Enterprise settlement rail, no trust scoring. Complementary — AID trust scores as input to Codex KYC decisions. |
 | 1Money | No-token L1 — 250K TPS, mandatory KYC/AML, fees paid in stablecoin being transferred | Brian Shroder (ex-Binance US CEO) | Early | Most radical: no token, no smart contracts, no governance. Payment rail only. AID provides the reputation layer their regulated institutions need. |
+| ZeroBiometrics ZeroSentinel | Cryptographically binds humans to AI agents with scoped permissions, revocable keys, PKI certificates | ZeroBiometrics | Launched March 18, 2026 | Enterprise-focused (EU AI Act, NIST AI RMF). Authorization + accountability, NOT reputation. Complementary: ZeroSentinel = "agent acts within authorized scope." AID = "agent performs well within that scope." |
+| authID Mandate | Biometric identity + governance framework for agentic AI in financial crime | authID + Section2 | Partnership announced 2026 | Niche (financial threat intelligence). Signals enterprise demand for agent accountability. Monitor only. |
+| OpenClaw/ClawHub | Largest AI agent platform (250K+ GitHub stars) + skill marketplace | Community | Live (attacked March 2026) | ClawHub had 340+ malicious skills (ClawHavoc), RCE (CVE-2026-25253), ClawJacked hijacking, npm RATs, $CLAWD rug-pull ($16M). EVERY attack exploits absence of behavioral trust scoring. AID's #1 case study. |
+| WEF KYA Framework | "Know Your Agent" — policy framework for agent identity + accountability | World Economic Forum | Published Jan 2026 | "We need a new framework: Know Your Agent (KYA), working alongside KYC." Validates AID's entire thesis. Use KYA language in NIST comment and DIF presentation. |
 
 ---
 
@@ -1271,6 +1275,47 @@ spending cap. Same trust scoring, different payment rail.
 
 **Stripe now supports BOTH x402 AND MPP.** The payment war is becoming interoperability,
 not winner-take-all. This is perfect for AID — one trust layer that works across all rails.
+
+---
+
+## 15.6 OPENCLAW ATTACKS — THE CASE STUDY FOR AID (March 2026)
+
+**Added:** March 22, 2026. OpenClaw supply chain attacks as AID's #1 real-world case study.
+
+OpenClaw (250K+ GitHub stars, largest AI agent platform) suffered 6 separate attack
+campaigns in Q1 2026. Every single one exploited the absence of behavioral trust scoring:
+
+| Attack | What Happened | How AID Would Have Prevented It |
+|--------|--------------|-------------------------------|
+| ClawHavoc | 340+ malicious skills uploaded to ClawHub marketplace with wallet stealers + reverse shells | Malicious skills = trust score 0 (no attestation history). Legitimate skills with track records = high scores. Filter by trust → avoid all 340. |
+| CVE-2026-25253 | One-click RCE via WebSocket | AID attestation on tool execution would have recorded the anomalous behavior → immediate trust score drop → auto-flagged |
+| ClawJacked | Malicious websites hijacking local OpenClaw instances silently | AID mutual authentication: hijacked instance can't produce valid X-AID-PROVIDER-PROOF → client detects impersonation |
+| GitHub phishing | Fake $5K CLAW token giveaways targeting OpenClaw devs → wallet draining | Phishing agents = trust score 0, no attestation history, no verified identity. AID trust gate blocks them. |
+| Fake npm RATs | Malicious npm packages mimicking OpenClaw packages | AID supply chain defense (Section 39.10): registered namespaces, typosquat prevention, 2FA, provenance |
+| $CLAWD rug-pull | Fake token hit $16M market cap then collapsed | AID trust scoring on token-associated agents → score 0, no verified track record → flagged |
+
+**The narrative:**
+> "340 malicious OpenClaw skills got through to ClawHub. Trust scoring would have flagged
+> every one. Here's how: every skill on ClawHub would carry an AID trust score derived from
+> verifiable execution history. A new skill with zero transactions = trust score 0. A skill
+> with 1,000 successful attestations, hash-chained and Merkle-anchored = trust score 80+.
+> Developers filter by trust. Problem solved."
+
+**Use this in:**
+- DIF TAAWG presentation (opening case study — this week, high-profile)
+- NIST NCCoE comment (real-world evidence for agent trust requirements)
+- Blog post / Twitter thread (marketing)
+- @aidprotocol/mcp-trust README (why trust scoring matters)
+
+**WEF "Know Your Agent" framing (January 2026):**
+> "We need a new framework: Know Your Agent (KYA), working alongside traditional
+> Know Your Customer (KYC) requirements." — World Economic Forum
+>
+> "The next decade will belong to the companies that solve identity provenance
+> and agent accountability." — WEF
+
+Use KYA language in all standards submissions. It's the vocabulary policymakers
+are already adopting. AID = the technical implementation of KYA.
 
 ---
 
