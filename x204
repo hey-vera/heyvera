@@ -861,8 +861,8 @@ and where they fall short is critical for x204 positioning.
 **Authors:** Marco De Rossi (MetaMask/Consensys), Davide Crapis (Ethereum Foundation),
 Jordan Ellis (Google), Erik Reppel (Coinbase).
 
-**Status:** Live on Ethereum mainnet since January 29, 2026. ~130,000 agents registered
-across all chains as of March 2026 (BNB Chain: 34K, Base: 16K, Ethereum: 14K).
+**Status:** Live on Ethereum mainnet since January 29, 2026. ~85,788 agents registered
+across 18+ EVM chains as of March 2026 (source: Dwellir analysis).
 Deployed on 20+ EVM chains at deterministic addresses via CREATE2.
 The Graph maintains subgraphs indexing all registries across 8 chains.
 BNB Chain has overtaken Ethereum as the largest ERC-8004 network.
@@ -886,11 +886,14 @@ BNB Chain has overtaken Ethereum as the largest ERC-8004 network.
    - No fixed scoring formula — aggregation left to consumers
    - getSummary() returns count + raw sum, not a normalized score
 
-3. VALIDATION REGISTRY (Specified but NOT shipped)
-   - Generic hooks for third-party verification
+3. VALIDATION REGISTRY (Spec published, Phala implementing, no canonical scoring)
+   - Generic hooks for third-party verification (validationRequest, validationResponse)
    - Supports: re-execution, zkML proofs, TEE attestations
    - Response: 0-100 score per validation
-   - THIS IS THE MOST IMPORTANT REGISTRY AND IT DOESN'T EXIST YET
+   - Under active revision with TEE community — will be expanded later
+   - KEY GAP: it's a plugin INTERFACE, not a trust SCORE. Every consumer
+     must build their own scoring logic. x204 ships an opinionated,
+     production-grade trust engine that makes those hooks useful.
 ```
 
 **Agent0:** The SDK built by the same team. Registers agents, publishes MCP/A2A endpoints,
@@ -993,7 +996,7 @@ composing into a full market stack. Open, neutral, credibly decentralized.
 
 | Protocol/Standard | What It Does | Backing | Status | x204 Edge |
 |--------------------|-------------|---------|--------|-----------|
-| ERC-8004 | Agent identity + reputation | Google, Coinbase, MetaMask, EF | Live, ~130K agents | Offline verify, canonical trust score, zero-friction |
+| ERC-8004 | Agent identity + reputation | Google, Coinbase, MetaMask, EF | Live, ~86K agents | Offline verify, canonical trust score, zero-friction |
 | x402 | HTTP-native payments | Coinbase | Live, growing | No facilitator needed, identity built in |
 | ERC-8183 | Programmable escrow | Virtuals, EF dAI | Draft, BNBAgent SDK live | Trust-gated settlement without on-chain escrow |
 | Agent0 SDK | ERC-8004 reference impl | Same as ERC-8004 | Beta | ClawNet is production with 344 endpoints |
@@ -1182,7 +1185,7 @@ x204 = 1 protocol that ships what they PROMISED but haven't DELIVERED:
 
 ### 17.3 Compatibility Layer (Don't Fight ERC-8004 — Absorb It)
 
-Rather than competing with ERC-8004's adoption (~130K agents, Google/Coinbase backing),
+Rather than competing with ERC-8004's adoption (~86K agents, Google/Coinbase backing),
 x204 should be COMPATIBLE with ERC-8004 while being MORE CAPABLE:
 
 **Phase 1: Bridge**
@@ -2305,7 +2308,7 @@ These are intentionally deferred to implementation time, not plan-level gaps:
 This plan is ready to build. Every section has been:
 
 - **Researched:** Competitive analysis covers 14 protocols with technical depth.
-  All claims verified against online sources (March 2026). ERC-8004 at ~130K agents,
+  All claims verified against online sources (March 2026). ERC-8004 at ~86K agents,
   Coinbase facilitator charging $0.001/tx, ERC-8183 has BNBAgent SDK live.
 - **Specified:** Protocol headers (7 request + 4 response), receipt format (with deferred fields),
   trust scoring formula (11 dimensions, 5 verdicts), settlement modes (5 tiers),
@@ -4214,6 +4217,112 @@ AWE builds worlds where 1000 agents interact
 AWE's AWESOME MCP platform is the perfect distribution channel for @x204/mcp-trust.
 One integration = x204 trust on every AWE agent. This is the Section 38 strategy
 ("add trust to yours, not use our protocol") applied to the biggest competitor.
+
+---
+
+### 40.7 Critical Updates (From Independent Audit, March 21 2026)
+
+**These findings are from an independent adversarial review with extended analysis.**
+
+**1. DIF TAAWG Submission Is URGENT (30-Day Window)**
+MCP-I was donated to DIF's Trusted AI Agents Working Group on March 6, 2026.
+The task force is forming NOW with a tiered adoption model (Level 1: OIDC/JWT,
+Level 2: DIDs/VCs, Level 3: enterprise lifecycle). If x204 doesn't submit as a
+reputation extension within 30 days, someone else will fill that gap.
+**This is the single highest-urgency item — moved to Week 1, Day 1.**
+
+**2. World AgentKit Is the Primary Identity Competitor**
+World (Sam Altman) launched AgentKit March 17, integrating World ID + x402.
+17.9M verified humans. If 1% become agent principals = 179K identities.
+**x204's counter-narrative: "World proves WHO authorized it. x204 proves WHETHER
+it's any good." Both are needed. Complementary, not competitive.**
+
+**3. x402 Foundation + Cloudflare Deferred Payments**
+Cloudflare announced the x402 Foundation (Dec 2025) and is proposing deferred
+payment schemes for x402. This overlaps with x204's batched/deferred settlement.
+**x204's differentiator: TRUST-GATED deferred (x204 decides WHO gets deferred
+based on trust score). x402's proposed deferred has no identity or trust.**
+
+**4. ERC-8183 Is More Mature Than We Described**
+Formally proposed Feb 25, 2026. World Chain adopted. ERC-2771 meta-tx support.
+x402 compatibility built in. Hook system supports reputation gating + bidding.
+**x204's positioning: be the trust signal that ERC-8183 evaluators consume.
+The evaluator role in ERC-8183 can be an x204 TrustGate contract.**
+
+**5. x402 Daily Volume Is Only ~$28K**
+Per CoinDesk (March 11), x402 processes ~$28K/day, mostly testing.
+**This is GOOD NEWS — the market hasn't been won. x204 is early, not late.**
+
+**6. Single-Seed Key Derivation (Security Fix)**
+The dual-key UX problem (Ed25519 + secp256k1) is worse than described.
+**Fix: implement BIP-39 single-seed derivation. One mnemonic → derive both
+Ed25519 (SLIP-0010) and secp256k1 (BIP-44) deterministically. Agent stores
+one seed, gets both keys. How Solana Agent Kit handles multi-chain keys.**
+
+**7. Tighten Timestamp Window for Payments**
+±5 min is too wide for micropayment replay. **Fix: ±60 seconds for
+immediate-settlement requests. Keep ±5 min only for free endpoints.**
+
+**8. Guardian Key for Autonomous Agents**
+If an agent's key is compromised, who rotates it? The agent itself can't
+(attacker has the same key). **Fix: optional guardian address at AID
+registration. Guardian can freeze AID + initiate key rotation. Like Safe
+multisig for smart contract wallets.**
+
+**9. Document Splitting Recommendation**
+The 40-section plan should become 4 documents:
+  - x204 Protocol Specification (publishable, ~10 pages, goes to DIF)
+  - x204 Strategic Analysis (internal competitive intelligence)
+  - x204 Build Plan (engineering roadmap)
+  - x204 Security Model (security audit)
+The spec is what gets submitted to DIF. The others are internal.
+
+**10. Trust-as-a-Service API**
+Instead of just middleware, build a hosted trust verification endpoint:
+`POST trust.x204.org/verify` → returns trust score + Merkle proof + verdict.
+This becomes the API that ERC-8183 evaluators call, A2A routing engines
+query, and MCP-I servers verify against. Stripe won by running the
+infrastructure, not just publishing a spec.
+
+**11. Trust Passport as W3C Verifiable Credential**
+The portable AID document should be formatted as a W3C VC for maximum
+interoperability with MCP-I/DIF ecosystem. Includes trust summary,
+capabilities, cross-platform attestations, Merkle proof, dual signatures.
+
+**12. Trust-Gated Rate Limiting (DDoS Defense)**
+Use trust scores for rate limiting, not just pricing:
+  new (0-19): 10 req/min | building: 30 | caution: 100
+  standard: 500 | trusted: 2000 | proceed: 10000
+Attackers start at 10 req/min and can't scale without building genuine trust.
+
+**13. Real-Time Trust Streaming for Orchestrators**
+SSE endpoint: `GET /x204/trust/stream?dids=...`
+Continuously updates trust scores for all agents in a multi-agent crew.
+Orchestrators make real-time routing decisions as trust changes mid-task.
+
+**14. Capability Proofs (Beyond Trust Scores)**
+Trust says "reliable." Capability proofs say "can actually do what it claims."
+Cryptographic evidence of N successful tasks of type X with M success rate.
+Derived from attestation history — data already exists.
+
+---
+
+### 40.8 Updated Master Build Sequence (Post-Audit)
+
+The independent audit changes Week 1 priority order:
+
+```
+WEEK 1 (URGENT — 30-day DIF window):
+  □ DAY 1: Submit x204 trust scoring as MCP-I/DIF TAAWG extension
+  □ DAY 1: Register @x204 npm org + x204-trust PyPI + typosquats
+  □ DAY 1-3: Ship @x204/mcp-trust alpha to npm (200 lines, sig verify only)
+  □ DAY 3-5: Publish x204 protocol spec as standalone 10-page document
+  □ DAY 5: Register ClawNet on ERC-8004 (Base, ~$1)
+```
+
+All other tasks remain as Section 38.9. This reorders Week 1 to prioritize
+the DIF submission (closing window) and npm namespace reservation over
+ERC-8004 registration (which can wait a few days).
 
 ---
 

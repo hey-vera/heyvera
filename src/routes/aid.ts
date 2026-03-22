@@ -599,4 +599,67 @@ router.get('/:did/did.json', async (c) => {
   return c.json(didDocument);
 });
 
+// ─── POST /:did/freeze — Guardian freezes an AID (key compromise recovery) ──
+router.post('/:did/freeze', checkApiKey, async (c) => {
+  const did = c.req.param('did');
+  const keyInfo = c.get('apiKeyInfo');
+  const billingKey = resolveBillingKey(keyInfo as unknown as Record<string, unknown>);
+
+  const aidDb = await getAidDb();
+  const aidKey = aidDb.getAidKey(did);
+  if (!aidKey) {
+    return c.json({ error: 'AID not found', code: 'AID_NOT_FOUND' }, 404);
+  }
+
+  // Must be the guardian OR the owner
+  const isGuardian = (aidKey as any).guardian_address && billingKey === (aidKey as any).guardian_address;
+  const isOwner = billingKey === aidKey.owner_key;
+  if (!isGuardian && !isOwner) {
+    return c.json({ error: 'Only the AID owner or guardian can freeze', code: 'AID_NOT_AUTHORIZED' }, 403);
+  }
+
+  const { getDb } = await import('../db/connection');
+  getDb().prepare(`
+    UPDATE aid_keys SET frozen = 1, frozen_at = datetime('now'), frozen_by = ?, updated_at = datetime('now')
+    WHERE did = ? AND key_status = 'active'
+  `).run(billingKey, did);
+
+  logAudit({ entityType: 'aid', entityId: did, action: 'freeze', actorId: billingKey });
+
+  return c.json({ did, frozen: true, frozenAt: new Date().toISOString(), frozenBy: billingKey });
+});
+
+// ─── DELETE /:did — GDPR right to erasure ────────────────────────────────────
+router.delete('/:did', checkApiKey, async (c) => {
+  const did = c.req.param('did');
+  const keyInfo = c.get('apiKeyInfo');
+  const billingKey = resolveBillingKey(keyInfo as unknown as Record<string, unknown>);
+
+  const aidDb = await getAidDb();
+  const aidKey = aidDb.getAidKey(did);
+  if (!aidKey) {
+    return c.json({ error: 'AID not found', code: 'AID_NOT_FOUND' }, 404);
+  }
+
+  if (billingKey !== aidKey.owner_key) {
+    return c.json({ error: 'Only the AID owner can delete', code: 'AID_NOT_OWNED' }, 403);
+  }
+
+  const { getDb } = await import('../db/connection');
+  getDb().transaction(() => {
+    getDb().prepare('DELETE FROM aid_keys WHERE did = ?').run(did);
+    getDb().prepare('DELETE FROM aid_trust_snapshots WHERE did = ?').run(did);
+    getDb().prepare('DELETE FROM aid_cross_platform_attestations WHERE did = ?').run(did);
+    getDb().prepare('DELETE FROM aid_capabilities WHERE identity_id = ?').run(aidKey.owner_key);
+    // Tombstone prevents re-creation
+    getDb().prepare(`
+      INSERT OR IGNORE INTO aid_tombstones (did, erased_at) VALUES (?, datetime('now'))
+    `).run(did);
+  })();
+
+  logAudit({ entityType: 'aid', entityId: did, action: 'gdpr_erase', actorId: billingKey });
+
+  return c.body(null, 204); // HTTP 204 No Content — fitting for x204
+});
+
 export { router as aidRouter };

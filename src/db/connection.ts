@@ -1058,6 +1058,18 @@ const MIGRATIONS: { version: number; sql: string }[] = [
     ALTER TABLE delegated_keys ADD COLUMN allowed_providers_json TEXT;
     ALTER TABLE delegated_keys ADD COLUMN active_hours_json TEXT;
   ` },
+
+  // v109: Guardian key for autonomous agent recovery + AID freeze + GDPR tombstones
+  { version: 109, sql: `
+    ALTER TABLE aid_keys ADD COLUMN guardian_address TEXT;
+    ALTER TABLE aid_keys ADD COLUMN frozen INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE aid_keys ADD COLUMN frozen_at TEXT;
+    ALTER TABLE aid_keys ADD COLUMN frozen_by TEXT;
+    CREATE TABLE IF NOT EXISTS aid_tombstones (
+      did TEXT PRIMARY KEY,
+      erased_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  ` },
 ];
 
 function runMigrations(): void {
