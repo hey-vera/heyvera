@@ -781,3 +781,470 @@ Every other system handles these as separate concerns with separate infrastructu
 x204 merges them all. One HTTP call. One protocol. One receipt.
 
 The agent economy needs this. Build it.
+
+---
+
+## 15. THE REAL COMPETITION: ERC-8004 + x402 + ERC-8183
+
+The emerging "full stack" for agent markets is not one protocol — it's three protocols
+from three teams converging into an interconnected standard. Understanding each one
+and where they fall short is critical for x204 positioning.
+
+### 15.1 ERC-8004: Trustless Agents (The Identity/Trust Layer)
+
+**Authors:** Marco De Rossi (MetaMask/Consensys), Davide Crapis (Ethereum Foundation),
+Jordan Ellis (Google), Erik Reppel (Coinbase).
+
+**Status:** Live on Ethereum mainnet since January 29, 2026. 24,000+ agents registered
+in first 2 weeks. Deployed on 20+ EVM chains at deterministic addresses via CREATE2.
+The Graph maintains subgraphs indexing all registries across 8 chains.
+
+**Three Registries:**
+
+```
+1. IDENTITY REGISTRY (Live — 0x8004A169...)
+   - ERC-721 NFT per agent (transferable, browsable)
+   - Token URI → off-chain "Agent Card" JSON
+   - Agent Card contains: name, description, services (A2A, MCP, web), x402 support
+   - Metadata key-value store (arbitrary bytes)
+   - Wallet binding via EIP-712 signature authorization
+   - Domain verification via .well-known/agent-registration.json
+
+2. REPUTATION REGISTRY (Live — 0x8004BAa1...)
+   - On-chain feedback: int128 value + configurable decimals + tags
+   - Pre-authorized: server agent must sign (EIP-191 or ERC-1271) before feedback
+   - Tag-based filtering (e.g., "uptime", "successRate", "latency")
+   - Agents can respond to feedback (append response URI + hash)
+   - No fixed scoring formula — aggregation left to consumers
+   - getSummary() returns count + raw sum, not a normalized score
+
+3. VALIDATION REGISTRY (Specified but NOT shipped)
+   - Generic hooks for third-party verification
+   - Supports: re-execution, zkML proofs, TEE attestations
+   - Response: 0-100 score per validation
+   - THIS IS THE MOST IMPORTANT REGISTRY AND IT DOESN'T EXIST YET
+```
+
+**Agent0:** The SDK built by the same team. Registers agents, publishes MCP/A2A endpoints,
+discovers agents by skills, handles x402 payments. Python + TypeScript. MIT-licensed.
+
+**What ERC-8004 gets right:**
+- Minimal, composable design — three registries, nothing more
+- Institutional backing (Google, Coinbase, MetaMask, EF)
+- Multi-chain deployment with deterministic addresses
+- The Graph provides fast indexing layer
+- Payment-agnostic — works with any payment protocol
+- ".well-known" domain verification pattern
+
+**What ERC-8004 gets wrong (x204's opportunity):**
+
+| ERC-8004 Weakness | Impact | x204 Advantage |
+|--------------------|--------|----------------|
+| Validation Registry not shipped | The most critical trust primitive doesn't exist | ClawNet already has validators, attestations, Merkle proofs — WORKING |
+| Sybil-vulnerable reputation | Spec explicitly acknowledges this; no mitigation built in | Weighted reviewer reputation (Maiat-style), staking-based anti-Sybil |
+| No fixed scoring formula | Every consumer must build their own trust logic | Canonical 11-dimension trust score with transparent weights |
+| No offline verification | Everything requires RPC access to Ethereum | Ed25519 + Merkle proofs = pure math, zero network calls |
+| EVM-only | Agents on Solana cannot natively participate | AID DIDs are chain-agnostic (Ed25519, not ECDSA) |
+| Gas costs for feedback | High-frequency agent interactions are expensive | Off-chain attestations with periodic Merkle anchoring |
+| Cannot verify claimed capabilities | Agent can claim any skills in its card | Capability derivation from actual attestation history |
+| No zero-friction onboarding | Must mint NFT on-chain before anything works | X-AID-NEW header → identity in one HTTP call |
+| No payment integration | Requires x402 as separate layer | Payment is built into x204 protocol (atomic) |
+| No escrow/conditional settlement | Requires ERC-8183 as separate layer | Receipts + trust-gated settlement modes built in |
+
+### 15.2 ERC-8183: Agent Commerce Primitive (The Escrow Layer)
+
+**Authors:** Virtuals Protocol + Ethereum Foundation dAI team.
+
+**What it does:** Programmable escrow for agent-to-agent commerce. Three parties:
+- **Client** — agent requesting work
+- **Provider** — agent delivering service
+- **Evaluator** — address that verifies work meets terms
+
+**Job lifecycle:** Open → Funded → Submitted → Terminal (Completed/Rejected/Expired)
+
+**Hook system:** Modular extensions for bidding, reputation checks, capital management,
+privacy-preserving execution, staking-based guarantees. Hooks attach to job transitions.
+
+**What ERC-8183 adds that ERC-8004 + x402 miss:**
+- Conditional settlement (pay only if work meets criteria)
+- Evaluator role (third-party verification)
+- Dispute resolution primitive
+- Structured job lifecycle
+
+**What ERC-8183 gets wrong (x204's opportunity):**
+
+| ERC-8183 Weakness | x204 Advantage |
+|--------------------|----------------|
+| Everything on-chain (gas costs per job) | Off-chain execution, on-chain anchoring only when needed |
+| Requires separate identity layer | Identity is built into x204 |
+| No self-improving trust loop | Every x204 receipt feeds back into trust scoring |
+| Hook complexity | Trust-gated settlement modes are simpler than hook programming |
+| Evaluator centralization risk | Merkle-anchored receipts are self-verifying |
+
+### 15.3 The "Full Stack" Narrative (and Why It's Fragile)
+
+The emerging consensus (from the article) is:
+```
+ERC-8004 → Discovery, Identity, Reputation
+x402     → Programmatic Micropayments
+ERC-8183 → Conditional Settlement, Escrow
+```
+
+The self-reinforcing loop: Discovery → Commerce → Reputation → Better Discovery.
+
+**Why this is compelling:** Three lightweight standards, each solving one problem,
+composing into a full market stack. Open, neutral, credibly decentralized.
+
+**Why this is fragile:**
+
+1. **Three protocols from three teams = integration friction.**
+   ERC-8004 doesn't know about x402. x402 doesn't know about ERC-8183.
+   Every agent builder must wire all three together manually.
+   x204 ships as ONE protocol with all three concerns unified.
+
+2. **The Validation Registry doesn't exist.**
+   The most critical piece of ERC-8004 — provable work — is unshipped.
+   ClawNet has WORKING attestations, validators, Merkle proofs, and receipts TODAY.
+
+3. **No canonical trust score.**
+   ERC-8004 stores raw reputation signals but doesn't aggregate them.
+   Every consumer builds their own scoring. This fragments the ecosystem.
+   x204 defines a transparent, verifiable, 11-dimension trust score.
+
+4. **On-chain gas costs kill micropayments.**
+   If every feedback signal costs gas, agents won't report outcomes for $0.001 transactions.
+   x204 keeps feedback off-chain with periodic Merkle anchoring (like Maiat).
+
+5. **No zero-friction path.**
+   ERC-8004 requires minting an NFT. ERC-8183 requires deploying escrow.
+   x402 requires USDC + facilitator. Three onboarding friction points.
+   x204: one HTTP header, one call, done.
+
+### 15.4 The Full Competitive Landscape
+
+| Protocol/Standard | What It Does | Backing | Status | x204 Edge |
+|--------------------|-------------|---------|--------|-----------|
+| ERC-8004 | Agent identity + reputation | Google, Coinbase, MetaMask, EF | Live, 24K agents | Offline verify, canonical trust score, zero-friction |
+| x402 | HTTP-native payments | Coinbase | Live, growing | No facilitator needed, identity built in |
+| ERC-8183 | Programmable escrow | Virtuals, EF dAI | New, early | Trust-gated settlement without on-chain escrow |
+| Agent0 SDK | ERC-8004 reference impl | Same as ERC-8004 | Beta | ClawNet is production with 344 endpoints |
+| The Graph | ERC-8004 indexing | Edge & Node | Live | Not a competitor — potential integration |
+| Maiat | Trust oracle | Independent | Live | No payment, no portable identity |
+| ClawStars | SocialFi agent trading | Independent | Live | No services, no trust portability |
+| World AgentKit | Human-backed agent ID | Coinbase + World | Beta (4 days old) | Orb-dependent, no reputation layer |
+| Virtuals Protocol | Tokenized AI agents | VIRTUAL token | Live, $500M+ mcap | Identity = speculation, not utility |
+| Visa TAP | Enterprise agent auth | Visa + Akamai | Announced | Enterprise-only, centralized |
+| Skyfire KYA | Know Your Agent | Skyfire/Trulioo | Live | JWTs, no on-chain, no portability |
+| W3C DIDs | Decentralized identifiers | W3C | v1.1 draft | No reputation, no payment, slow standards |
+| EAS | Generic attestations | Open source | Live | No agent tooling, no discovery |
+| AAIF (MCP/A2A) | Agent interoperability | Anthropic, OpenAI, Google | Standards body | No identity or trust — x204 fills the gap |
+
+---
+
+## 16. HOW x204 IMPROVES UPON EIP-4361 AND EIP-712
+
+### 16.1 EIP-4361: Sign-In with Ethereum (SIWE) — and Why It Fails for Agents
+
+**What SIWE does:** Human-readable message signing for dApp authentication.
+
+```
+clawnet.org wants you to sign in with your Ethereum account:
+0xABC...
+Sign in to ClawNet marketplace
+URI: https://clawnet.org
+Version: 1
+Chain ID: 8453
+Nonce: abc123
+Issued At: 2026-03-21T14:30:00Z
+```
+
+**SIWE's fundamental assumption:** A human is present to review and approve the message.
+
+**Why SIWE breaks for AI agents:**
+
+| SIWE Limitation | Impact on Agents | x204 Solution |
+|-----------------|------------------|---------------|
+| Human-in-the-loop | Agent has no "user" to approve signing | Agent holds Ed25519 key, signs autonomously |
+| Session-oriented | "I am this address" — no scoping | x204 encodes: identity + budget + capabilities + expiry |
+| No delegation model | Can't say "Agent X acts for Principal Y with budget Z" | AID DID hierarchy with trust chain inheritance |
+| No agent-to-agent trust | Client-to-server only | Mutual authentication — both parties prove identity |
+| No revocation | Once key is given, agent signs forever | Key rotation via `POST /:did/rotate-key`, audit trail |
+| Single-chain binding | Each message bound to one chain ID | AID DIDs are chain-agnostic (Ed25519, not ECDSA) |
+| No credential portability | Session on Service A means nothing to Service B | Portable AID documents verifiable anywhere offline |
+| No reputation | Proves identity only, not trustworthiness | Trust score travels with every request |
+| Text-based format | "wants you to sign in" — wasteful for machines | Binary/JSON headers optimized for agent-to-agent |
+
+**x204's identity model vs SIWE:**
+```
+SIWE:  "I am address 0xABC on chain 8453" (session, no context)
+
+x204:  "I am did:clawnet:zABC with trust score 87,
+        1,247 successful transactions, Merkle-anchored,
+        authorized for data_query and skill_invoke,
+        budget 50 USDC, expires 2026-03-22T14:30:00Z,
+        delegated from did:clawnet:zPRINCIPAL"
+```
+
+SIWE proves you ARE someone. x204 proves you are someone WORTH TRUSTING.
+
+### 16.2 EIP-712: Typed Structured Data — and How x204 Extends It
+
+**What EIP-712 does:** Deterministic hashing and signing of structured data.
+```
+sign(keccak256("\x19\x01" || domainSeparator || hashStruct(message)))
+```
+
+**How x402 uses EIP-712:** Signs EIP-3009 transfer authorizations (from, to, value, nonce).
+The facilitator verifies the signature and submits the on-chain transfer.
+
+**EIP-712's limitations for agent commerce:**
+
+| EIP-712 Limitation | Impact | x204 Extension |
+|--------------------|--------|----------------|
+| No identity semantics | "This key signed this" — not WHO signed it | AID DID embedded in every signed message |
+| Single-signer model | No native dual-signing | Payer + provider both sign every receipt |
+| No negotiation semantics | Can encode results, not the negotiation | Trust-gated pricing tiers replace negotiation |
+| No replay protection built-in | Apps must build their own nonces | Receipt IDs + Merkle anchoring = inherent replay protection |
+| No conditional execution | All-or-nothing signatures | Trust-gated settlement: immediate/batched/deferred |
+| EVM-only | Ethereum signing standard | Ed25519 (works everywhere: EVM, Solana, off-chain) |
+| Human-display oriented | Wallet shows data for human review | Machine-optimized JSON headers |
+
+**x204's signing model — EIP-712 + Ed25519 dual layer:**
+
+```
+Layer 1: EIP-712 (Payment)
+  Agent signs EIP-3009 transferWithAuthorization via ECDSA (secp256k1)
+  → Handles USDC settlement on Base L2
+  → x402-compatible — any x402 server can verify the payment
+
+Layer 2: Ed25519 (Identity + Trust)
+  Agent signs request body with Ed25519 private key
+  → Proves DID ownership (self-certifying)
+  → Carries trust score, capabilities, Merkle proof
+  → Verifiable offline — no RPC needed
+  → Works across chains (not bound to EVM)
+
+Combined in x204:
+  PAYMENT-SIGNATURE: <EIP-712/EIP-3009 signed auth>     ← EVM payment
+  X-AID-PROOF:       <Ed25519 sig over request body>      ← Universal identity
+```
+
+This dual-layer approach means x204 is BACKWARDS-COMPATIBLE with x402 (the PAYMENT-SIGNATURE
+header works with any x402 facilitator) while ADDING identity, trust, and offline verification
+through the Ed25519 layer.
+
+**New EIP-712 type definitions for x204 (future — on-chain composability):**
+
+```solidity
+// Agent Identity struct for on-chain verification
+struct AgentIdentity {
+    bytes32 agentDid;           // keccak256 of DID string
+    address principalAddress;   // human owner
+    uint256 delegatedBudget;    // spending cap in USDC (6 decimals)
+    bytes32 capabilityHash;     // hash of authorized action scopes
+    uint256 expiresAt;          // unix timestamp
+    bytes32 trustSnapshotHash;  // hash of latest trust snapshot
+}
+
+// Dual-signed service agreement
+struct ServiceAgreement {
+    bytes32 buyerDid;
+    bytes32 sellerDid;
+    bytes32 serviceHash;        // hash of service description
+    uint256 price;              // USDC amount (6 decimals)
+    uint256 maxLatencyMs;       // SLA constraint
+    uint8   minTrustScore;      // minimum trust score required
+    uint256 validUntil;
+}
+
+// Receipt for on-chain anchoring
+struct X204Receipt {
+    bytes32 receiptId;
+    bytes32 payerDid;
+    bytes32 providerDid;
+    uint256 amount;
+    bytes32 resultHash;         // SHA-256 of service result
+    bytes32 merkleRoot;         // trust chain snapshot
+    uint256 timestamp;
+}
+```
+
+---
+
+## 17. STRATEGIC POSITIONING: HOW CLAWNET WINS
+
+### 17.1 The Core Insight
+
+The article says it plainly:
+> "If your system doesn't enforce identity, doesn't tie reputation to real payments,
+> doesn't validate execution — you are not building on ERC-8004, you are just simulating it."
+
+**ClawNet already does all three:**
+1. **Identity:** AID — self-certifying Ed25519 DIDs with Merkle-anchored trust chains
+2. **Reputation tied to payments:** Every credit deduction creates an attestation.
+   Every attestation feeds into trust scoring. Revenue split is proportional to reputation.
+3. **Validated execution:** Attestation system records inputs, outputs, SHA-256 hashes.
+   Validators verify execution. Receipts are cryptographically signed.
+
+The question isn't whether to adopt ERC-8004. It's whether to:
+- (A) Register on ERC-8004 and add what's missing
+- (B) Compete directly with a rival standard
+- (C) Build a superset that makes ERC-8004 a subset
+
+**Answer: C — Leapfrog.**
+
+### 17.2 The Leapfrog Strategy
+
+```
+ERC-8004 + x402 + ERC-8183 = 3 protocols, 3 teams, manual integration, incomplete
+
+x204 = 1 protocol that ships what they PROMISED but haven't DELIVERED:
+  ✓ Working validation layer (ERC-8004's is unshipped)
+  ✓ Canonical trust score (ERC-8004 defers this)
+  ✓ Anti-Sybil reputation (ERC-8004 acknowledges the vulnerability)
+  ✓ Offline verification (no one else has this)
+  ✓ Zero-friction onboarding (ERC-8004 requires NFT minting)
+  ✓ Integrated payment (not a separate protocol)
+  ✓ Conditional settlement (without ERC-8183's on-chain gas costs)
+  ✓ Chain-agnostic identity (Ed25519, not EVM-only)
+```
+
+### 17.3 Compatibility Layer (Don't Fight ERC-8004 — Absorb It)
+
+Rather than competing with ERC-8004's adoption (24K agents, Google/Coinbase backing),
+x204 should be COMPATIBLE with ERC-8004 while being MORE CAPABLE:
+
+**Phase 1: Bridge**
+- Every x204 AID can optionally register on ERC-8004's Identity Registry
+- x204 trust scores can be published to ERC-8004's Reputation Registry
+- x204 receipts can be submitted as ERC-8004 Validation entries
+- AID documents include ERC-8004 agent ID as an optional field
+
+**Phase 2: Extend**
+- x204 heartbeat endpoint advertises ERC-8004 agent ID alongside DID
+- x204 trust score includes ERC-8004 reputation signals as one input dimension
+- x204 agents can discover ERC-8004-registered agents via The Graph
+- x204 receipts are anchored both as Merkle proofs AND ERC-8004 validation entries
+
+**Phase 3: Superset**
+- x204 becomes the "execution layer" that ERC-8004 points to
+- Agent0 SDK agents can interact with x204 servers seamlessly
+- x204 provides what ERC-8004 can't: offline verification, canonical scoring, zero-friction
+- The agent card's `services` array includes x204 endpoints naturally
+
+This means: an agent registered on ERC-8004 can ALSO have an x204 AID.
+The two identities reinforce each other. x204 doesn't replace ERC-8004 —
+it makes ERC-8004 more useful by filling the gaps.
+
+### 17.4 Exploiting the Gaps No One Else Fills
+
+| Gap in the Market | Who Should Fill It | Why ClawNet Wins |
+|--------------------|-------------------|-----------------|
+| Validation Registry (unshipped) | ERC-8004 team (someday) | ClawNet has working validators + attestations + Merkle proofs TODAY |
+| Canonical trust score | No one (by design) | x204 defines transparent 11-dimension scoring |
+| Offline verification | No one | Ed25519 + Merkle proofs = pure math, zero API calls |
+| Zero-friction onboarding | No one (all require wallet + gas) | X-AID-NEW → identity in one HTTP call |
+| MCP/A2A + Trust bridge | AAIF has interop, no trust | x204 connects to AAIF standards with trust layer |
+| Feedback → Trust loop | Maiat (centralized) | x204 decentralized feedback with weighted reputation |
+| Anti-Sybil reputation | No one (ERC-8004 acknowledges gap) | Weighted reviewers + staking + cross-consumption |
+| Chain-agnostic identity | No one (all are EVM-only) | Ed25519 works on EVM, Solana, off-chain |
+| Conditional settlement without gas | ERC-8183 (on-chain, expensive) | Trust-gated settlement modes (off-chain) |
+
+### 17.5 The Narrative
+
+The agent economy article identifies the three primitives:
+> "Discovery of services, verification of trust, and settlement of payments
+> with enforceable outcomes."
+
+The current stack requires three separate protocols:
+```
+Discovery + Trust  = ERC-8004 (identity + reputation, no validation yet)
+Payments           = x402 (micropayments, no identity)
+Settlement         = ERC-8183 (escrow, new/early)
+```
+
+x204's pitch:
+> **One protocol. All three primitives. Zero friction.**
+>
+> x204 doesn't ask you to wire three protocols together.
+> It doesn't require you to mint an NFT, deploy escrow, or find a facilitator.
+>
+> One HTTP header. One call. Identity created, trust verified, payment settled,
+> receipt generated, feedback loop started.
+>
+> And every receipt makes the next transaction smarter.
+
+### 17.6 What ClawNet Already Has (Competitive Moat)
+
+Don't underestimate what's already built. ClawNet has:
+
+| Capability | Status | Competitors |
+|------------|--------|-------------|
+| 344 live API endpoints | Production | Agent0: reference impl only |
+| 175 passing tests | Production | ERC-8004: spec + contracts |
+| AID with Ed25519 DIDs | Production | ERC-8004: ERC-721 (EVM-only) |
+| Attestation system | Production | ERC-8004 Validation: NOT SHIPPED |
+| Validator roles | Production | ERC-8004: "design space" |
+| Merkle-anchored trust | Production | No competitor has this |
+| Offline verification | Production | No competitor has this |
+| Smart cache (L1+L2) | Production | Agent0: none |
+| Composite skills | Production | ERC-8183: basic job lifecycle |
+| Skill marketplace (85/15) | Production | Virtuals: tokenized (speculative) |
+| Delegated billing | Production | No competitor |
+| x402 provider mode | Production | x402: consumer only for most |
+| MCP server (6 tools) | Production | Maiat: 5 MCP tools |
+| Trust decay + penalties | Production | ERC-8004: no scoring |
+| SLA contracts | Production | ERC-8183: basic evaluator |
+| Credit system (decimal) | Production | No competitor |
+
+The moat isn't any single feature. It's the INTEGRATED SYSTEM.
+ERC-8004 is three registries. ClawNet is a running economy.
+
+### 17.7 Updated Build Plan Priority
+
+Given the competitive landscape, Phase 1 priority shifts:
+
+**Immediate (Week 1-2):**
+1. Register ClawNet's platform AID on ERC-8004 Identity Registry (be visible in 8004scan.io)
+2. Add ERC-8004 agent ID as optional field in AID documents
+3. Publish x204 spec document (claim the narrative before someone else does)
+
+**Short-term (Month 1):**
+4. AID headers on existing x402 routes (Phase 1 from build plan)
+5. Feedback endpoint with weighted reputation
+6. Heartbeat protocol implementation
+
+**Medium-term (Month 2-3):**
+7. ERC-8004 reputation bridge (publish x204 trust scores to ERC-8004 Reputation Registry)
+8. Direct EIP-3009 settlement (facilitator-free)
+9. Trust Score v2 (11 dimensions)
+
+**The race:** ERC-8004's Validation Registry is not shipped. If ClawNet's x204 ships
+a WORKING validation/attestation layer that bridges to ERC-8004 BEFORE their team
+ships theirs, ClawNet becomes the de facto validation infrastructure for the ecosystem.
+
+---
+
+## 18. THE UPDATED BOTTOM LINE
+
+The agent economy is converging on three primitives: discovery, trust, and settlement.
+The current answer is three separate protocols from three teams (ERC-8004 + x402 + ERC-8183).
+
+x204 is the answer that ships all three as one protocol, fills the gaps no one else has
+filled (offline verification, canonical trust scoring, zero-friction onboarding, anti-Sybil),
+and is COMPATIBLE with the emerging standards rather than competing against them.
+
+The strategy is not to fight ERC-8004. It's to be the execution layer that makes
+ERC-8004 actually useful — shipping the validation registry they promised but haven't
+delivered, providing the trust score they deliberately left undefined, and connecting
+it all to real payments without requiring a separate protocol.
+
+ClawNet doesn't need to be the standard. It needs to be the IMPLEMENTATION
+that every standard points to.
+
+```
+ERC-8004 says: "agents need identity, reputation, and validation"
+x204 says:     "here's all three, working, in one HTTP call, with payments included"
+```
+
+Build it. Ship it. Claim the narrative.
