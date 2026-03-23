@@ -1304,6 +1304,41 @@ const MIGRATIONS: { version: number; sql: string }[] = [
     ALTER TABLE attestation_stats ADD COLUMN last_decay_at TEXT;
     ALTER TABLE attestation_stats ADD COLUMN decay_factor REAL DEFAULT 1.0;
   ` },
+
+  // v118: Structured agent memory (from RecallNet) + social graph (from ClawstrAI)
+  { version: 118, sql: `
+    CREATE TABLE IF NOT EXISTS agent_memories (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      owner_key TEXT NOT NULL,
+      memory_type TEXT NOT NULL DEFAULT 'context',
+      content TEXT NOT NULL,
+      metadata_json TEXT DEFAULT '{}',
+      tags_json TEXT DEFAULT '[]',
+      content_hash TEXT NOT NULL,
+      importance REAL NOT NULL DEFAULT 0.5,
+      access_count INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      expires_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_mem_owner ON agent_memories(owner_key, session_id);
+    CREATE INDEX IF NOT EXISTS idx_agent_mem_type ON agent_memories(memory_type, importance DESC);
+    CREATE INDEX IF NOT EXISTS idx_agent_mem_expires ON agent_memories(expires_at);
+
+    CREATE TABLE IF NOT EXISTS aid_social_graph (
+      id TEXT PRIMARY KEY,
+      from_did TEXT NOT NULL,
+      to_did TEXT NOT NULL,
+      relation_type TEXT NOT NULL,
+      weight REAL NOT NULL DEFAULT 1.0,
+      note TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_social_unique ON aid_social_graph(from_did, to_did, relation_type);
+    CREATE INDEX IF NOT EXISTS idx_social_to ON aid_social_graph(to_did, relation_type);
+    CREATE INDEX IF NOT EXISTS idx_social_from ON aid_social_graph(from_did, relation_type);
+  ` },
 ];
 
 function runMigrations(): void {

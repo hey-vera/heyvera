@@ -24,3 +24,5 @@ export * from './skill-extensions';
 export * from './reseller';
 export * from './identities';
 export * from './aid';
+export * from './agent-memory';
+export * from './social-graph';

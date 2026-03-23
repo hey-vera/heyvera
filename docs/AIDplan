@@ -105,7 +105,7 @@ transaction makes it smarter.
 
 ### PHASE 2: ECOSYSTEM REACH (Months 2-3)
 - [ ] Ship aid-trust Python package (CrewAI/LangGraph plugins)
-- [ ] /aid/* route handler with full protocol flow
+- [x] /aid/* route handler with full protocol flow — aid-protocol.ts + aid-disputes.ts + aid-stream.ts + aid-a2a.ts + aid-freeze.ts + aid-explain.ts
 - [x] X-AID-NEW zero-auth onboarding on /aid/* routes — POST /aid/provision with rate limiting (3/IP/24h)
 - [ ] Direct receiveWithAuthorization settlement (no facilitator)
 - [x] Mutual authentication (server signs responses) — aid-provider-proof.ts (X-AID-PROVIDER-DID + X-AID-PROVIDER-PROOF) + A2A signed trustProof
@@ -137,7 +137,7 @@ transaction makes it smarter.
 - [x] Anomaly detection + progressive behavioral containment (Section 39.18) — in proof-of-life-cron.ts (convergence decay + anomaly scoring)
 - [x] Guardian agent framework — agents monitoring agents (Section 39.18) — v112 tables + /aid/guardians/* endpoints (already built)
 - [x] Counterparty immune response — auto-quarantine from collective reports (Section 39.18) — in proof-of-life-cron.ts checkImmuneResponse()
-- [ ] Gas price circuit breaker for batch settlement (Vector 43)
+- [x] Gas price circuit breaker for batch settlement (Vector 43) — src/utils/gas-circuit-breaker.ts (3-state: closed/open/half_open)
 - [x] Verification receipt in middleware — caller-verifiable ClawNet-signed token (Flaw 18) — src/middleware/aid-verification-receipt.ts (JWT-like Ed25519 receipt)
 - [ ] ARA compatibility evaluation (Flaw 16)
 
@@ -147,8 +147,8 @@ transaction makes it smarter.
 - [ ] TrustGate hook (smart contract min_trust_score enforcement)
 - [x] Sentinel alerts (SSE stream for trust degradation events) — already in aid-stream.ts (trust_degraded events)
 - [x] Trust decay cron (10%/30d weight loss, adaptive per-category — Cherry 7) — src/core/trust-decay-cron.ts (24h cron, 4 category rates)
-- [ ] Structured agent memory (upgrade from 50KB JSON → searchable docs)
-- [ ] Agent social graph (follow/endorse, feeds COMMUNITY trust)
+- [x] Structured agent memory (upgrade from 50KB JSON → searchable docs) — src/db/agent-memory.ts (typed docs, tags, importance, search, TTL)
+- [x] Agent social graph (follow/endorse, feeds COMMUNITY trust) — src/db/social-graph.ts (follow/endorse/block, mutual decay, cross-consumption)
 - [x] Public agent explorer page (site/explore.html) — GET /aid/explore (API) + site/aid-playground.html (UI)
 - [ ] ERC-8004 Validation Registry bridge (ship before their team)
 - [x] Trust Score Explanation API — GET /aid/trust/{did}/explain (Cherry 1) — src/routes/aid-explain.ts
@@ -157,7 +157,7 @@ transaction makes it smarter.
 
 ### PHASE 4: MARKET LAYER (Months 7-9)
 - [ ] Bonding curve contract (reputation-only, no revenue share)
-- [ ] Cross-consumption tracking + trust boost
+- [x] Cross-consumption tracking + trust boost — getCrossConsumptionStats() in social-graph.ts
 - [ ] Season framework (12 scoring dimensions)
 - [ ] No-code skill builder (natural language → skill definition)
 - [ ] Visual MCP workflow builder
@@ -184,7 +184,7 @@ transaction makes it smarter.
 
 ---
 
-**Progress: 76/133 items complete (57%). NEXT: Submit NIST comment → ERC-8004 registration → governance model → structured memory → social graph.**
+**Progress: 81/133 items complete (61%). NEXT: Submit NIST comment → ERC-8004 registration → governance model → Solana trust → ElizaOS plugin.**
 
 ---
 
