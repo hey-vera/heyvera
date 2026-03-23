@@ -800,4 +800,73 @@ router.post('/challenges/:did', checkAidProof, async (c) => {
   });
 });
 
+// ─── GET /frozen — List all currently frozen DIDs (cross-protocol, 14.9) ──────
+
+router.get('/frozen', (c) => {
+  const frozenDids = getDb().prepare(`
+    SELECT did, frozen_at, frozen_by, proof_of_life_status
+    FROM aid_keys WHERE frozen = 1 AND key_status = 'active'
+    ORDER BY frozen_at DESC LIMIT 100
+  `).all() as { did: string; frozen_at: string; frozen_by: string; proof_of_life_status: string }[];
+
+  return c.json({
+    frozenAgents: frozenDids.map(f => ({
+      did: f.did,
+      frozenAt: f.frozen_at,
+      frozenBy: f.frozen_by,
+      status: f.proof_of_life_status,
+    })),
+    total: frozenDids.length,
+    format: 'AID freeze list — consumable by any AID implementation',
+    vcStatusList: 'https://trust.aidprotocol.org/status/1',
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// ─── GET /frozen/:did — W3C VC freeze status for a specific DID (14.9) ───────
+
+router.get('/frozen/:did', (c) => {
+  const did = c.req.param('did');
+
+  const aidKey = getDb().prepare(
+    'SELECT frozen, frozen_at, frozen_by, proof_of_life_status FROM aid_keys WHERE did = ? AND key_status = ?'
+  ).get(did, 'active') as any;
+
+  if (!aidKey) return c.json({ error: 'DID not found', code: 'AID_NOT_FOUND' }, 404);
+
+  if (!aidKey.frozen) {
+    return c.json({ did, frozen: false, status: 'active' });
+  }
+
+  // Return as W3C VC format (Section 14.9)
+  const { signVC: signFreeze } = require('../utils/ed25519-signer');
+  const freezeVC = {
+    '@context': [
+      'https://www.w3.org/2018/credentials/v1',
+      'https://w3id.org/vc/status-list/2021/v1',
+    ],
+    type: ['VerifiableCredential', 'AIDTrustFreeze'],
+    issuer: 'did:web:api.claw-net.org',
+    credentialSubject: {
+      id: did,
+      trustStatus: 'FROZEN',
+      frozenAt: aidKey.frozen_at,
+      reason: aidKey.proof_of_life_status === 'quarantined' ? 'autonomous_immune_response' :
+        aidKey.proof_of_life_status === 'auto_frozen' ? 'proof_of_life_lapsed' : 'manual_freeze',
+    },
+  };
+
+  const proof = signFreeze(freezeVC);
+
+  return c.json({
+    ...freezeVC,
+    proof: {
+      type: 'Ed25519Signature2020',
+      cryptosuite: 'eddsa-jcs-2022',
+      verificationMethod: 'did:web:api.claw-net.org#key-1',
+      proofValue: proof,
+    },
+  });
+});
+
 export { router as aidProtocolRouter };

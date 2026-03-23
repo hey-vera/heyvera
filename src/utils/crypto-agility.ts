@@ -125,11 +125,71 @@ export function getCryptoAgilityMetadata() {
 export function getCryptoAgilityHeartbeat() {
   return {
     current: 'Ed25519',
-    supported: ['Ed25519'],
+    supported: ALLOWED_ALGORITHMS,
     planned: ['ML-DSA-44'],
     hashAlgorithm: AID_HASH_ALGORITHM,
     pqcReady: false,
     migrationTarget: 'ML-DSA-44',
     migrationDate: null,
+  };
+}
+
+// ─── Algorithm whitelist (Spec Section 12.2.4) ──────────────────────────────
+
+/**
+ * Allowed signature algorithms for AID verification.
+ * Prevents algorithm confusion/downgrade attacks (Vector 59).
+ * Default: ["EdDSA"]. Operators explicitly add "ML-DSA-44" when ready.
+ */
+export const ALLOWED_ALGORITHMS: readonly string[] = ['EdDSA', 'Ed25519'];
+
+/**
+ * Check if an algorithm is in the allowed whitelist.
+ * Returns false for unknown algorithms — verifiers MUST reject documents
+ * claiming unsupported algorithms rather than attempting verification.
+ */
+export function isAlgorithmAllowed(algorithm: string): boolean {
+  return ALLOWED_ALGORITHMS.includes(algorithm);
+}
+
+/**
+ * Negotiate the best mutually-supported algorithm between two parties.
+ * Returns the strongest algorithm both support, or null if no overlap.
+ *
+ * Algorithm strength order (strongest first):
+ *   ML-DSA-44 > Ed25519+ML-DSA (hybrid) > EdDSA/Ed25519
+ */
+export function negotiateAlgorithm(
+  localSupported: readonly string[],
+  remoteSupported: readonly string[],
+): string | null {
+  const PREFERENCE_ORDER = ['ML-DSA-44', 'Ed25519+ML-DSA', 'EdDSA', 'Ed25519'];
+
+  for (const algo of PREFERENCE_ORDER) {
+    if (localSupported.includes(algo) && remoteSupported.includes(algo)) {
+      return algo;
+    }
+  }
+  return null;
+}
+
+/**
+ * PQC migration status per NIST IR 8547 timeline.
+ * Phase 1 (now): Ed25519 only
+ * Phase 2 (2027-28): dual-signing Ed25519 + ML-DSA
+ * Phase 3 (2029+): ML-DSA required for score 80+
+ * Phase 4 (2030+): Ed25519 deprecated
+ */
+export function getPQCMigrationStatus(): {
+  currentPhase: number;
+  description: string;
+  eddsaStatus: string;
+  mldsaStatus: string;
+} {
+  return {
+    currentPhase: 1,
+    description: 'Ed25519 only — ML-DSA planned',
+    eddsaStatus: 'active',
+    mldsaStatus: 'planned',
   };
 }
