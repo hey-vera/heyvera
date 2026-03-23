@@ -149,10 +149,10 @@ transaction makes it smarter.
 - [x] Trust decay cron (10%/30d weight loss, adaptive per-category — Cherry 7) — src/core/trust-decay-cron.ts (24h cron, 4 category rates)
 - [ ] Structured agent memory (upgrade from 50KB JSON → searchable docs)
 - [ ] Agent social graph (follow/endorse, feeds COMMUNITY trust)
-- [ ] Public agent explorer page (site/explore.html)
+- [x] Public agent explorer page (site/explore.html) — GET /aid/explore (API) + site/aid-playground.html (UI)
 - [ ] ERC-8004 Validation Registry bridge (ship before their team)
-- [ ] Trust Score Explanation API — GET /aid/trust/{did}/explain (Cherry 1)
-- [ ] Trust Score Prediction API — GET /aid/trust/{did}/predict (Cherry 8)
+- [x] Trust Score Explanation API — GET /aid/trust/{did}/explain (Cherry 1) — src/routes/aid-explain.ts
+- [x] Trust Score Prediction API — GET /aid/trust/{did}/predict (Cherry 8) — src/routes/aid-explain.ts
 - [ ] ZK trust proofs via Noir — accelerated from Phase 4 (Cherry A)
 
 ### PHASE 4: MARKET LAYER (Months 7-9)
@@ -184,7 +184,7 @@ transaction makes it smarter.
 
 ---
 
-**Progress: 73/133 items complete (55%). NEXT: Submit NIST comment → ERC-8004 registration → governance model → aid-trust Python → ElizaOS plugin.**
+**Progress: 76/133 items complete (57%). NEXT: Submit NIST comment → ERC-8004 registration → governance model → structured memory → social graph.**
 
 ---
 

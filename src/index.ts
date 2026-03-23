@@ -75,6 +75,7 @@ import { aidDisputesRouter } from './routes/aid-disputes';
 import { aidStreamRouter } from './routes/aid-stream';
 import { aidA2aRouter } from './routes/aid-a2a';
 import { aidFreezeRouter } from './routes/aid-freeze';
+import { aidExplainRouter } from './routes/aid-explain';
 import { startTrustDecayCron } from './core/trust-decay-cron';
 // import { referralRouter } from './routes/referral'; // disabled — re-enable when referral program launches
 import { startEndpointHealthCron } from './core/endpoint-health-cron';
@@ -308,6 +309,7 @@ app.route('/aid', aidDisputesRouter);
 app.route('/aid', aidStreamRouter);
 app.route('/aid', aidA2aRouter);
 app.route('/aid', aidFreezeRouter);
+app.route('/aid', aidExplainRouter);
 // app.route('/v1/referral', referralRouter); // disabled — re-enable when referral program launches
 
 // ─── JSON-LD Context — W3C VC attestation vocabulary ────────────────────────
