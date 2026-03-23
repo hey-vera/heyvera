@@ -1224,6 +1224,32 @@ const MIGRATIONS: { version: number; sql: string }[] = [
     );
     CREATE INDEX IF NOT EXISTS idx_aid_canary_ts ON aid_canary(timestamp DESC);
   ` },
+
+  // v114: Formal dispute resolution (Flaw 6)
+  { version: 114, sql: `
+    CREATE TABLE IF NOT EXISTS aid_disputes (
+      id TEXT PRIMARY KEY,
+      receipt_id TEXT NOT NULL,
+      claimant_did TEXT NOT NULL,
+      claimant_key TEXT NOT NULL,
+      respondent_did TEXT,
+      reason TEXT NOT NULL,
+      evidence_hash TEXT,
+      status TEXT NOT NULL DEFAULT 'filed',
+      outcome TEXT,
+      response_text TEXT,
+      response_evidence_hash TEXT,
+      resolution_text TEXT,
+      credits_refunded REAL,
+      auto_resolved INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      responded_at TEXT,
+      resolved_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_aid_disputes_receipt ON aid_disputes(receipt_id);
+    CREATE INDEX IF NOT EXISTS idx_aid_disputes_claimant ON aid_disputes(claimant_did);
+    CREATE INDEX IF NOT EXISTS idx_aid_disputes_status ON aid_disputes(status);
+  ` },
 ];
 
 function runMigrations(): void {

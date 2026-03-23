@@ -117,9 +117,9 @@ transaction makes it smarter.
 - [ ] ElizaOS plugin for AID trust
 - [ ] @aidprotocol/x402-enhanced middleware (add trust to any x402 server, Section 43.1b)
 - [ ] @aidprotocol/solana-trust (score engine for Solana Agent Registry, Section 43.1b)
-- [ ] Formal dispute resolution (POST /aid/disputes — Flaw 6, elevated from "future vision")
+- [x] Formal dispute resolution (POST /aid/disputes — Flaw 6, elevated from "future vision") — src/routes/aid-disputes.ts + v114 migration
 - [ ] Bad debt reserve — 0.1% surcharge on deferred settlements (Flaw 4)
-- [ ] WebSocket/SSE streaming for trust updates (Flaw 5 / Optimization 8)
+- [x] WebSocket/SSE streaming for trust updates (Flaw 5 / Optimization 8) — src/routes/aid-stream.ts (GET /aid/stream SSE + event bus)
 - [ ] @aidprotocol/aar-bridge — bidirectional AAR receipt conversion (Optimization 12)
 - [ ] Verifiable Intent integration — map AID trust as VI signal (Optimization 13)
 - [ ] AID-MPP Profile — trust headers alongside Stripe MPP session authorization (Section 15.5)
@@ -184,7 +184,7 @@ transaction makes it smarter.
 
 ---
 
-**Progress: 51/133 items complete (38%). NEXT: Submit NIST comment → ERC-8004 registration → governance model → x402 headers PR.**
+**Progress: 53/133 items complete (40%). NEXT: Submit NIST comment → ERC-8004 registration → governance model → AAR bridge → bad debt reserve.**
 
 ---
 
