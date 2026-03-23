@@ -106,7 +106,7 @@ transaction makes it smarter.
 ### PHASE 2: ECOSYSTEM REACH (Months 2-3)
 - [ ] Ship aid-trust Python package (CrewAI/LangGraph plugins)
 - [ ] /aid/* route handler with full protocol flow
-- [ ] X-AID-NEW zero-auth onboarding on /aid/* routes
+- [x] X-AID-NEW zero-auth onboarding on /aid/* routes — POST /aid/provision with rate limiting (3/IP/24h)
 - [ ] Direct receiveWithAuthorization settlement (no facilitator)
 - [ ] Mutual authentication (server signs responses)
 - [ ] Portable atomic receipts with dual signatures + Merkle anchoring
@@ -120,7 +120,7 @@ transaction makes it smarter.
 - [x] Formal dispute resolution (POST /aid/disputes — Flaw 6, elevated from "future vision") — src/routes/aid-disputes.ts + v114 migration
 - [ ] Bad debt reserve — 0.1% surcharge on deferred settlements (Flaw 4)
 - [x] WebSocket/SSE streaming for trust updates (Flaw 5 / Optimization 8) — src/routes/aid-stream.ts (GET /aid/stream SSE + event bus)
-- [ ] @aidprotocol/aar-bridge — bidirectional AAR receipt conversion (Optimization 12)
+- [x] @aidprotocol/aar-bridge — bidirectional AAR receipt conversion (Optimization 12) — src/utils/aar-bridge.ts
 - [ ] Verifiable Intent integration — map AID trust as VI signal (Optimization 13)
 - [ ] AID-MPP Profile — trust headers alongside Stripe MPP session authorization (Section 15.5)
 - [ ] AID-AgentKit bridge — optional World ID linking for maximum trust signal (Section 45.5)
@@ -184,7 +184,7 @@ transaction makes it smarter.
 
 ---
 
-**Progress: 53/133 items complete (40%). NEXT: Submit NIST comment → ERC-8004 registration → governance model → AAR bridge → bad debt reserve.**
+**Progress: 55/133 items complete (41%). NEXT: Submit NIST comment → ERC-8004 registration → governance model → bad debt reserve → aid-trust Python pkg.**
 
 ---
 

@@ -18,6 +18,7 @@ import { AID_HASH_ALGORITHM } from '../utils/crypto-agility';
 import { listPublicSkills, countPublicSkills } from '../db/skills';
 import { getDb } from '../db/connection';
 import { logger } from '../utils/logger';
+import { cacheGet, cacheSet, cacheIncr } from '../cache/index';
 
 const router = new Hono();
 
@@ -993,6 +994,95 @@ router.get('/trust/:did/commitment', async (c) => {
   } catch (err: any) {
     logger.error({ err }, 'Pedersen commitment generation failed');
     return c.json({ error: 'Commitment generation failed', code: 'AID_INTERNAL_ERROR' }, 500);
+  }
+});
+
+// ─── POST /provision — X-AID-NEW zero-auth onboarding (Phase 2) ─────────────
+//
+// Auto-provisions an AID identity in one HTTP call. No API key, no signup.
+// Per AID spec Section 6.2: X-AID-NEW header → auto-provision identity.
+//
+// Rate limits: 3 per IP per 24h, 1 per unique name per 24h.
+// New AIDs start at trust score 0 (no free credits, no discounts).
+// AIDs that never transact are pruned after 30 days.
+
+router.post('/provision', async (c) => {
+  const displayName = c.req.header('X-AID-NEW') || '';
+  const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+  const name = (body.name as string) || displayName || '';
+
+  if (!name || name.length < 2 || name.length > 64) {
+    return c.json({
+      error: 'Provide a display name via X-AID-NEW header or body.name (2-64 chars)',
+      code: 'AID_INVALID_NAME',
+    }, 400);
+  }
+
+  // ── Rate limiting: 3 per IP per 24h ──────────────────────────────────────
+  const ip = c.req.header('x-forwarded-for')?.split(',')[0]?.trim() || c.req.header('x-real-ip') || 'unknown';
+  const ipKey = `aid:new:ip:${ip}`;
+  const ipCount = await cacheIncr(ipKey, 86400);
+  if (ipCount > 3) {
+    return c.json({ error: 'Rate limit: max 3 AID registrations per IP per 24 hours', code: 'RATE_LIMITED' }, 429);
+  }
+
+  // ── Rate limiting: 1 per unique name per 24h ──────────────────────────────
+  const nameKey = `aid:new:name:${name.toLowerCase()}`;
+  const nameExists = await cacheGet(nameKey);
+  if (nameExists) {
+    return c.json({ error: 'This name was recently registered. Try a different name or wait 24 hours.', code: 'AID_NAME_TAKEN' }, 409);
+  }
+
+  // ── Check name uniqueness in DB ───────────────────────────────────────────
+  const existingName = getDb().prepare(
+    `SELECT did FROM aid_keys WHERE display_name = ? AND key_status = 'active' LIMIT 1`
+  ).get(name) as { did: string } | undefined;
+
+  if (existingName) {
+    return c.json({ error: 'Display name already taken', code: 'AID_NAME_TAKEN', existingDid: existingName.did }, 409);
+  }
+
+  // ── Generate keypair ──────────────────────────────────────────────────────
+  try {
+    const { generateAgentKeypair } = await import('../core/aid-builder');
+    const { createAidKey } = await import('../db/aid');
+
+    const keypair = await generateAgentKeypair();
+
+    // Use a hash of the public key as the "owner_key" for keyless agents
+    const { aidHash } = await import('../utils/crypto-agility');
+    const ownerKey = `aid:${aidHash(keypair.did).slice(0, 32)}`;
+
+    // Register in DB
+    createAidKey({
+      ownerKey,
+      publicKeyMultibase: keypair.publicKeyMultibase,
+      did: keypair.did,
+      displayName: name,
+    });
+
+    // Mark name as recently used
+    await cacheSet(nameKey, '1', 86400);
+
+    logger.info({ did: keypair.did, name }, 'AID provisioned via X-AID-NEW');
+
+    return c.json({
+      did: keypair.did,
+      displayName: name,
+      publicKeyMultibase: keypair.publicKeyMultibase,
+      // These secrets are returned ONCE — agent must store them
+      privateKeySeed: keypair.privateKeySeed,
+      mnemonic: keypair.mnemonic,
+      evmAddress: keypair.evmAddress,
+      trustScore: 0,
+      verdict: 'new',
+      warning: 'Store your privateKeySeed and mnemonic securely. They are returned ONCE and cannot be recovered.',
+      protocol: 'AID',
+      version: PROTOCOL_VERSION,
+    }, 201);
+  } catch (err: any) {
+    logger.error({ err }, 'AID provisioning failed');
+    return c.json({ error: 'Failed to provision AID', code: 'AID_INTERNAL_ERROR' }, 500);
   }
 });
 
