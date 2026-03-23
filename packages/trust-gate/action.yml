@@ -1,0 +1,38 @@
+name: 'AID Trust Gate'
+description: 'Check an agent AID trust score before deploying. Block deploys if trust drops below threshold.'
+author: 'AID Protocol'
+
+branding:
+  icon: 'shield'
+  color: 'green'
+
+inputs:
+  did:
+    description: 'Agent DID to check (did:key:z...)'
+    required: true
+  min-score:
+    description: 'Minimum trust score required (0-100)'
+    required: false
+    default: '40'
+  api-url:
+    description: 'AID trust API URL'
+    required: false
+    default: 'https://api.claw-net.org'
+  fail-on-error:
+    description: 'Fail the step if trust API is unreachable (default: true)'
+    required: false
+    default: 'true'
+
+outputs:
+  score:
+    description: 'Current trust score (0-100)'
+  verdict:
+    description: 'Trust verdict (new, building, caution, standard, trusted, proceed)'
+  passed:
+    description: 'Whether the trust gate passed (true/false)'
+  attestation-count:
+    description: 'Number of attestations on record'
+
+runs:
+  using: 'node20'
+  main: 'dist/index.js'

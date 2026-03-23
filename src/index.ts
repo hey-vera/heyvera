@@ -70,6 +70,7 @@ import { registerRouter } from './routes/register';
 import { statsTelemetryRouter } from './routes/stats-telemetry';
 import { aidRouter } from './routes/aid';
 import { aidProtocolRouter } from './routes/aid-protocol';
+import { x402FacilitatorRouter } from './routes/x402-facilitator';
 // import { referralRouter } from './routes/referral'; // disabled — re-enable when referral program launches
 import { startEndpointHealthCron } from './core/endpoint-health-cron';
 import { startEndpointDiscoveryCron } from './core/endpoint-discovery';
@@ -296,6 +297,7 @@ app.route('/v1/stats/telemetry', statsTelemetryRouter);
 app.route('/v1/register', registerRouter);
 app.route('/v1/aid', aidRouter);
 app.route('/aid', aidProtocolRouter);
+app.route('/x402/facilitator', x402FacilitatorRouter);
 // app.route('/v1/referral', referralRouter); // disabled — re-enable when referral program launches
 
 // ─── JSON-LD Context — W3C VC attestation vocabulary ────────────────────────

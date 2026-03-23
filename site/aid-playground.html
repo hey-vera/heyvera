@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AID Protocol Playground</title>
+  <meta name="description" content="Look up any agent's trust score, verify AID documents, and try skills — no signup required.">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <style>
+    :root { --bg: #0a0a0f; --card: #12121a; --card-2: #18182a; --border: #1e1e2e; --text: #e0e0e0; --muted: #888; --green: #4ade80; --yellow: #facc15; --red: #f87171; --blue: #60a5fa; --purple: #a78bfa; --cyan: #22d3ee; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+    .container { max-width: 800px; margin: 0 auto; padding: 2rem 1rem; }
+    h1 { font-size: 1.75rem; margin-bottom: 0.25rem; }
+    .subtitle { color: var(--muted); margin-bottom: 2rem; font-size: 0.9rem; }
+    .subtitle a { color: var(--blue); text-decoration: none; }
+
+    /* Tabs */
+    .tabs { display: flex; gap: 0; margin-bottom: 2rem; border-bottom: 1px solid var(--border); }
+    .tab { padding: 0.75rem 1.5rem; cursor: pointer; color: var(--muted); font-size: 0.9rem; border-bottom: 2px solid transparent; transition: all 0.2s; }
+    .tab:hover { color: var(--text); }
+    .tab.active { color: var(--cyan); border-bottom-color: var(--cyan); }
+    .panel { display: none; }
+    .panel.active { display: block; }
+
+    /* Cards */
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1.5rem; margin-bottom: 1rem; }
+    .card h2 { font-size: 1.1rem; margin-bottom: 1rem; }
+
+    /* Input group */
+    .input-group { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+    .input-group input { flex: 1; background: var(--card-2); border: 1px solid var(--border); border-radius: 6px; padding: 0.75rem 1rem; color: var(--text); font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.85rem; outline: none; }
+    .input-group input:focus { border-color: var(--cyan); }
+    .input-group input::placeholder { color: #555; }
+    button { background: var(--cyan); color: #000; border: none; border-radius: 6px; padding: 0.75rem 1.25rem; font-weight: 600; cursor: pointer; font-size: 0.85rem; white-space: nowrap; }
+    button:hover { opacity: 0.9; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    button.secondary { background: var(--card-2); color: var(--text); border: 1px solid var(--border); }
+
+    /* Trust result */
+    .trust-result { display: none; }
+    .trust-result.visible { display: block; }
+    .score-display { text-align: center; padding: 1.5rem; }
+    .score-value { font-size: 4rem; font-weight: 800; }
+    .score-verdict { font-size: 1.2rem; margin-top: 0.25rem; }
+    .trust-details { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-top: 1rem; }
+    .detail { background: var(--card-2); border-radius: 6px; padding: 0.75rem; }
+    .detail-label { color: var(--muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
+    .detail-value { font-size: 0.95rem; margin-top: 0.25rem; }
+
+    /* Verdict colors */
+    .v-proceed { color: var(--green); }
+    .v-trusted { color: var(--blue); }
+    .v-standard { color: var(--yellow); }
+    .v-caution { color: #fb923c; }
+    .v-building { color: #f87171; }
+    .v-new { color: var(--muted); }
+
+    /* Heartbeat */
+    .heartbeat-result { display: none; }
+    .heartbeat-result.visible { display: block; }
+    pre { background: var(--card-2); border: 1px solid var(--border); border-radius: 6px; padding: 1rem; overflow-x: auto; font-size: 0.8rem; font-family: 'SF Mono', 'Fira Code', monospace; line-height: 1.5; max-height: 400px; overflow-y: auto; }
+
+    /* Skills */
+    .skill-list { display: grid; gap: 0.75rem; }
+    .skill-card { background: var(--card-2); border: 1px solid var(--border); border-radius: 6px; padding: 1rem; display: flex; justify-content: space-between; align-items: center; }
+    .skill-name { font-weight: 600; }
+    .skill-meta { color: var(--muted); font-size: 0.8rem; margin-top: 0.25rem; }
+    .skill-price { color: var(--cyan); font-weight: 600; }
+
+    /* Code snippet */
+    .code-snippet { margin-top: 1rem; }
+    .code-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
+    .code-header span { color: var(--muted); font-size: 0.8rem; }
+    .copy-btn { background: var(--card-2); color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 0.25rem 0.5rem; font-size: 0.75rem; cursor: pointer; }
+    .copy-btn:hover { color: var(--text); }
+
+    /* Install section */
+    .install { background: linear-gradient(135deg, #0d1117 0%, #161b22 100%); border: 1px solid var(--border); border-radius: 8px; padding: 1.5rem; margin-top: 2rem; }
+    .install h3 { font-size: 1rem; margin-bottom: 1rem; color: var(--cyan); }
+    .install-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    .install-item code { background: var(--card-2); padding: 0.5rem 0.75rem; border-radius: 4px; display: block; font-size: 0.8rem; margin-top: 0.5rem; }
+    .install-label { color: var(--muted); font-size: 0.8rem; }
+
+    .footer { text-align: center; margin-top: 2rem; color: var(--muted); font-size: 0.8rem; }
+    .footer a { color: var(--blue); text-decoration: none; }
+    .error { color: var(--red); font-size: 0.85rem; margin-top: 0.5rem; }
+
+    @media (max-width: 640px) {
+      .trust-details, .install-grid { grid-template-columns: 1fr; }
+      .tabs { overflow-x: auto; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>AID Protocol Playground</h1>
+    <p class="subtitle">Look up trust scores, verify agents, and explore the protocol. No signup required. <a href="/trust.html">Leaderboard</a></p>
+
+    <div class="tabs">
+      <div class="tab active" data-tab="lookup">Trust Lookup</div>
+      <div class="tab" data-tab="heartbeat">Heartbeat</div>
+      <div class="tab" data-tab="skills">Try Skills</div>
+      <div class="tab" data-tab="integrate">Integrate</div>
+    </div>
+
+    <!-- Trust Lookup -->
+    <div class="panel active" id="panel-lookup">
+      <div class="card">
+        <h2>Look Up an Agent's Trust Score</h2>
+        <p style="color:var(--muted);font-size:0.85rem;margin-bottom:1rem;">Enter any DID to check their trust score, verdict, attestation count, and capabilities. Free, no auth required.</p>
+        <div class="input-group">
+          <input type="text" id="didInput" placeholder="did:key:z6Mk..." spellcheck="false">
+          <button onclick="lookupTrust()" id="lookupBtn">Look Up</button>
+        </div>
+        <div id="lookupError" class="error"></div>
+      </div>
+
+      <div class="trust-result" id="trustResult">
+        <div class="card">
+          <div class="score-display">
+            <div class="score-value" id="scoreValue">—</div>
+            <div class="score-verdict" id="scoreVerdict">—</div>
+          </div>
+          <div class="trust-details">
+            <div class="detail">
+              <div class="detail-label">DID</div>
+              <div class="detail-value" id="detailDid" style="font-family:monospace;font-size:0.75rem;word-break:break-all;"></div>
+            </div>
+            <div class="detail">
+              <div class="detail-label">Attestations</div>
+              <div class="detail-value" id="detailAttestations">—</div>
+            </div>
+            <div class="detail">
+              <div class="detail-label">Discount</div>
+              <div class="detail-value" id="detailDiscount">—</div>
+            </div>
+            <div class="detail">
+              <div class="detail-label">Settlement</div>
+              <div class="detail-value" id="detailSettlement">—</div>
+            </div>
+            <div class="detail">
+              <div class="detail-label">Capabilities</div>
+              <div class="detail-value" id="detailCapabilities">—</div>
+            </div>
+            <div class="detail">
+              <div class="detail-label">Verified</div>
+              <div class="detail-value" id="detailVerified">—</div>
+            </div>
+          </div>
+        </div>
+        <div class="code-snippet">
+          <div class="code-header"><span>cURL</span><button class="copy-btn" onclick="copyCode('curlLookup')">Copy</button></div>
+          <pre id="curlLookup"></pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- Heartbeat -->
+    <div class="panel" id="panel-heartbeat">
+      <div class="card">
+        <h2>Platform Heartbeat</h2>
+        <p style="color:var(--muted);font-size:0.85rem;margin-bottom:1rem;">Discover all available services, pricing tiers, and platform status. This is the AID Protocol's mandatory discovery endpoint.</p>
+        <button onclick="fetchHeartbeat()" id="heartbeatBtn">Fetch Heartbeat</button>
+      </div>
+      <div class="heartbeat-result" id="heartbeatResult">
+        <div class="code-snippet">
+          <div class="code-header"><span>GET /aid/heartbeat</span><button class="copy-btn" onclick="copyCode('heartbeatPre')">Copy</button></div>
+          <pre id="heartbeatPre"></pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- Try Skills -->
+    <div class="panel" id="panel-skills">
+      <div class="card">
+        <h2>Try a Skill</h2>
+        <p style="color:var(--muted);font-size:0.85rem;margin-bottom:1rem;">Browse available skills and see what they return. Requires an API key for execution.</p>
+        <button onclick="loadSkills()" id="skillsBtn">Load Skills</button>
+      </div>
+      <div id="skillsList" class="skill-list" style="margin-top:1rem;"></div>
+      <div id="skillResult" style="margin-top:1rem;display:none;">
+        <div class="code-snippet">
+          <div class="code-header"><span>Response</span></div>
+          <pre id="skillResultPre"></pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- Integrate -->
+    <div class="panel" id="panel-integrate">
+      <div class="card">
+        <h2>Add AID Trust to Your Project</h2>
+        <p style="color:var(--muted);font-size:0.85rem;margin-bottom:1rem;">One package, any framework. Verify caller trust in your HTTP server or MCP tools.</p>
+      </div>
+
+      <div class="install">
+        <h3>Install</h3>
+        <div class="install-grid">
+          <div class="install-item">
+            <div class="install-label">MCP Server</div>
+            <code>npm i @aidprotocol/mcp-trust</code>
+          </div>
+          <div class="install-item">
+            <div class="install-label">Express / Fastify</div>
+            <code>npm i @aidprotocol/middleware</code>
+          </div>
+          <div class="install-item">
+            <div class="install-label">Trust Scoring (standalone)</div>
+            <code>npm i @aidprotocol/trust-compute</code>
+          </div>
+          <div class="install-item">
+            <div class="install-label">CI/CD Trust Gate</div>
+            <code>uses: aidprotocol/trust-gate@v1</code>
+          </div>
+        </div>
+      </div>
+
+      <div class="code-snippet" style="margin-top:1.5rem;">
+        <div class="code-header"><span>Express — 3 lines</span><button class="copy-btn" onclick="copyCode('expressExample')">Copy</button></div>
+        <pre id="expressExample">import express from 'express';
+import { aidTrust } from '@aidprotocol/middleware/express';
+
+const app = express();
+app.use(express.json());
+app.use(aidTrust({ minTrustScore: 40 }));
+
+app.get('/data', (req, res) => {
+  console.log(req.aidInfo?.trustScore); // 87
+  res.json({ ok: true });
+});</pre>
+      </div>
+
+      <div class="code-snippet" style="margin-top:1rem;">
+        <div class="code-header"><span>MCP Server — 1 line</span><button class="copy-btn" onclick="copyCode('mcpExample')">Copy</button></div>
+        <pre id="mcpExample">import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { withAidTrust } from '@aidprotocol/mcp-trust';
+
+const server = new McpServer({ name: 'my-api' });
+const aid = withAidTrust(server, { providerDid: 'did:key:z...', minTrustScore: 40 });
+
+server.tool('get-data', { query: z.string() }, async (params, extra) => {
+  const trust = aid.getCallerTrust(extra);
+  console.log(trust?.score); // 87
+  return { content: [{ type: 'text', text: 'result' }] };
+});</pre>
+      </div>
+
+      <div class="code-snippet" style="margin-top:1rem;">
+        <div class="code-header"><span>GitHub Action — Trust Gate</span><button class="copy-btn" onclick="copyCode('ghaExample')">Copy</button></div>
+        <pre id="ghaExample">- name: Check agent trust
+  uses: aidprotocol/trust-gate@v1
+  with:
+    did: ${{ secrets.AGENT_DID }}
+    min-score: '60'
+
+- name: Deploy (only if trusted)
+  if: steps.trust.outputs.passed == 'true'
+  run: npm run deploy</pre>
+      </div>
+    </div>
+
+    <div class="footer">
+      <p><a href="https://github.com/aidprotocol/aid-spec">AID Protocol Spec</a> | <a href="https://www.npmjs.com/org/aidprotocol">npm packages</a> | <a href="/trust.html">Leaderboard</a> | <a href="/.well-known/aid-platform-key">Platform Key</a></p>
+    </div>
+  </div>
+
+  <script>
+    const API = window.location.origin;
+
+    // ─── Tabs ───
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
+      });
+    });
+
+    // ─── Trust Lookup ───
+    async function lookupTrust() {
+      const did = document.getElementById('didInput').value.trim();
+      const errEl = document.getElementById('lookupError');
+      const resultEl = document.getElementById('trustResult');
+      errEl.textContent = '';
+      resultEl.classList.remove('visible');
+
+      if (!did || !did.startsWith('did:')) {
+        errEl.textContent = 'Enter a valid DID (e.g., did:key:z6Mk...)';
+        return;
+      }
+
+      document.getElementById('lookupBtn').disabled = true;
+      try {
+        const res = await fetch(`${API}/v1/aid/${encodeURIComponent(did)}/trust`);
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          errEl.textContent = data.error || `API returned ${res.status}`;
+          return;
+        }
+        const data = await res.json();
+        const score = data.trustScore ?? data.score ?? 0;
+        const verdict = data.verdict ?? 'new';
+        const discounts = { proceed: '30%', trusted: '25%', standard: '20%', caution: '10%', building: '0%', new: '0%' };
+        const settlements = { proceed: 'deferred', trusted: 'batched', standard: 'batched', caution: 'standard', building: 'immediate', new: 'immediate' };
+
+        document.getElementById('scoreValue').textContent = score;
+        document.getElementById('scoreValue').className = 'score-value v-' + verdict;
+        document.getElementById('scoreVerdict').textContent = verdict.toUpperCase();
+        document.getElementById('scoreVerdict').className = 'score-verdict v-' + verdict;
+        document.getElementById('detailDid').textContent = did;
+        document.getElementById('detailAttestations').textContent = (data.attestationCount ?? 0).toLocaleString();
+        document.getElementById('detailDiscount').textContent = discounts[verdict] || '0%';
+        document.getElementById('detailSettlement').textContent = settlements[verdict] || 'immediate';
+        document.getElementById('detailCapabilities').textContent = (data.capabilities || []).join(', ') || 'none';
+        document.getElementById('detailVerified').textContent = data.verified ? 'Yes' : 'No';
+
+        document.getElementById('curlLookup').textContent = `curl ${API}/v1/aid/${encodeURIComponent(did)}/trust`;
+        resultEl.classList.add('visible');
+      } catch (err) {
+        errEl.textContent = 'Failed to reach trust API: ' + err.message;
+      } finally {
+        document.getElementById('lookupBtn').disabled = false;
+      }
+    }
+
+    document.getElementById('didInput').addEventListener('keydown', e => { if (e.key === 'Enter') lookupTrust(); });
+
+    // ─── Heartbeat ───
+    async function fetchHeartbeat() {
+      document.getElementById('heartbeatBtn').disabled = true;
+      try {
+        const res = await fetch(`${API}/aid/heartbeat`);
+        const data = await res.json();
+        document.getElementById('heartbeatPre').textContent = JSON.stringify(data, null, 2);
+        document.getElementById('heartbeatResult').classList.add('visible');
+      } catch (err) {
+        document.getElementById('heartbeatPre').textContent = 'Error: ' + err.message;
+        document.getElementById('heartbeatResult').classList.add('visible');
+      } finally {
+        document.getElementById('heartbeatBtn').disabled = false;
+      }
+    }
+
+    // ─── Skills ───
+    async function loadSkills() {
+      document.getElementById('skillsBtn').disabled = true;
+      try {
+        const res = await fetch(`${API}/v1/skills?limit=10`);
+        const data = await res.json();
+        const skills = data.skills || [];
+        const list = document.getElementById('skillsList');
+        if (!skills.length) {
+          list.innerHTML = '<div style="color:var(--muted);padding:1rem;">No skills available</div>';
+          return;
+        }
+        list.innerHTML = skills.map(s => `
+          <div class="skill-card">
+            <div>
+              <div class="skill-name">${s.name || s.id}</div>
+              <div class="skill-meta">${s.skill_type || 'skill'} | ${s.invocation_count || 0} invocations</div>
+            </div>
+            <div class="skill-price">${s.credit_cost || '?'} cr</div>
+          </div>
+        `).join('');
+      } catch (err) {
+        document.getElementById('skillsList').innerHTML = '<div class="error">Failed to load skills: ' + err.message + '</div>';
+      } finally {
+        document.getElementById('skillsBtn').disabled = false;
+      }
+    }
+
+    // ─── Copy ───
+    function copyCode(id) {
+      const text = document.getElementById(id).textContent;
+      navigator.clipboard.writeText(text).then(() => {
+        const btn = event.target;
+        btn.textContent = 'Copied!';
+        setTimeout(() => btn.textContent = 'Copy', 1500);
+      });
+    }
+  </script>
+</body>
+</html>

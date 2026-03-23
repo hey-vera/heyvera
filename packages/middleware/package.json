@@ -1,0 +1,51 @@
+{
+  "name": "@aidprotocol/middleware",
+  "version": "1.0.0",
+  "description": "AID trust verification middleware for Express, Fastify, and any Node.js HTTP server",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "files": ["dist/", "README.md"],
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./express": {
+      "import": "./dist/express.mjs",
+      "require": "./dist/express.js",
+      "types": "./dist/express.d.ts"
+    },
+    "./fastify": {
+      "import": "./dist/fastify.mjs",
+      "require": "./dist/fastify.js",
+      "types": "./dist/fastify.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "aid", "trust", "agent", "identity", "reputation", "middleware",
+    "express", "fastify", "ed25519", "did", "agentic-commerce",
+    "verification", "mcp", "a2a", "x402"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aidprotocol/aid-spec",
+    "directory": "packages/middleware"
+  },
+  "homepage": "https://aidprotocol.org",
+  "dependencies": {
+    "@aidprotocol/trust-compute": "^2.0.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.20.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
