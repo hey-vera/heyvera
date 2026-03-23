@@ -582,7 +582,7 @@ router.get('/aid-registration.json', (c) => {
     ],
     supportedTrust: ['reputation', 'validation'],
     packages: {
-      'trust-compute': { npm: '@aidprotocol/trust-compute', version: '2.1.0', license: 'MIT' },
+      'trust-compute': { npm: '@aidprotocol/trust-compute', version: '2.0.0', license: 'MIT' },
       'mcp-trust': { npm: '@aidprotocol/mcp-trust', version: '1.1.0', license: 'MIT' },
       'sdk': { npm: '@aidprotocol/sdk', version: '1.0.0', license: 'Apache-2.0' },
       'middleware': { npm: '@aidprotocol/middleware', version: '1.0.0', license: 'Apache-2.0' },

@@ -62,12 +62,12 @@ This proposal aligns with the [x402 roadmap's request](https://github.com/coinba
 
 ## Production Evidence
 
-This has been running in production on [ClawNet](https://claw-net.org) (344 API endpoints, skill marketplace, x402 payments) since March 2026:
+Running in production on [ClawNet](https://claw-net.org) (344 API endpoints, skill marketplace, x402 payments):
 
 - Trust-gated pricing: 6 tiers based on trust score (0-15% discount)
-- Mutual authentication on every x402 response
+- Mutual authentication on x402 responses
 - Nonce replay protection with 5-minute window
-- Published packages: `@aidprotocol/trust-compute` (MIT), `@aidprotocol/x402-enhanced` (Apache 2.0)
+- Published package: [`@aidprotocol/trust-compute`](https://www.npmjs.com/package/@aidprotocol/trust-compute) v2.0.0 (MIT, standalone, zero ClawNet dependencies)
 - On-chain identity: ERC-8004 Agent ID 36118 (Base)
 
 ## Next Steps

@@ -12,7 +12,7 @@ They operate at different layers and complement each other:
 |-------|----------|-----|
 | **Identity** | On-chain ERC-721 NFT (agentId) | Off-chain DID (`did:key`, Ed25519) |
 | **Discovery** | Agent cards with service endpoints | Trust endpoint (`/v1/aid/:did/trust`) |
-| **Reputation** | Feedback ratings (accuracy, timeliness, reliability) | Weighted behavioral trust score (0-100, 11 dimensions) |
+| **Reputation** | Feedback ratings (accuracy, timeliness, reliability) | Weighted behavioral trust score (0-100, 4 dimensions: successRate, chainCoverage, volume, manifestAdherence) |
 | **Validation** | TEE attestation (planned) | Manifest-attestation divergence detection |
 | **Chain** | EVM-native (Base, Ethereum) | Transport-agnostic (works on any chain or no chain) |
 
@@ -65,7 +65,7 @@ Any ERC-8004 consumer can discover the agent's AID trust endpoint from the agent
 
 ### 2. AID Document → ERC-8004 Link
 
-An AID document references its ERC-8004 on-chain identity:
+An AID document MAY reference its ERC-8004 on-chain identity via an optional `linkedIdentities` extension field (proposed addition to the AID manifest schema):
 
 ```json
 {
@@ -79,6 +79,8 @@ An AID document references its ERC-8004 on-chain identity:
   }
 }
 ```
+
+> Note: `linkedIdentities` is a proposed extension, not yet in the core AID spec.
 
 ### 3. ERC-8004 Reputation ← AID Trust Scores
 
@@ -135,7 +137,7 @@ ERC-8004's Reputation Registry provides basic feedback aggregation. AID adds:
 
 | Capability | ERC-8004 Reputation | AID Trust Scoring |
 |------------|--------------------|--------------------|
-| Feedback collection | Structured ratings (accuracy, timeliness, reliability) | Weighted multi-dimensional (11 categories, 3 tiers) |
+| Feedback collection | Structured ratings (accuracy, timeliness, reliability) | Weighted multi-dimensional (4 dimensions: success rate 40%, chain coverage 25%, volume 20%, manifest adherence 15%) |
 | Score computation | Off-chain indexer aggregation | Deterministic algorithm (independently verifiable) |
 | Temporal weighting | None | Exponential decay (recent behavior weighted more) |
 | Collusion detection | None | Clique detection, burst detection, reciprocity analysis |

@@ -62,7 +62,8 @@ The server advertises trust requirements in the 402 response:
           "supportedMethods": { "type": "array", "items": { "type": "string" } },
           "signatureAlgorithm": { "type": "string" }
         },
-        "required": ["providerDid", "supportedMethods", "signatureAlgorithm"]
+        "required": ["providerDid", "supportedMethods", "signatureAlgorithm"],
+        "description": "pricingTiers is OPTIONAL and informational — servers MAY use trust scores for internal pricing decisions without advertising tiers"
       }
     }
   }
@@ -91,7 +92,7 @@ The client includes its identity proof alongside the payment:
 The client signs a canonical message using its DID's private key:
 
 ```
-SHA-384(did + "\n" + timestamp + "\n" + nonce + "\n" + method + " " + path)
+SHA-256(did + "\n" + timestamp + "\n" + nonce + "\n" + method + " " + path)
 ```
 
 The server verifies the signature against the DID's public key (extractable from `did:key`).
@@ -166,8 +167,8 @@ This enables cross-referencing between on-chain identity (ERC-8004) and transpor
 
 ## Reference Implementation
 
-- **Middleware:** `@aidprotocol/x402-enhanced` (npm) — wraps any x402 server with trust verification
-- **Scoring library:** `@aidprotocol/trust-compute` v2.1.0 (npm, MIT license) — deterministic trust scoring
+- **Scoring library:** [`@aidprotocol/trust-compute`](https://www.npmjs.com/package/@aidprotocol/trust-compute) v2.0.0 (npm, MIT license) — deterministic trust scoring, standalone, zero platform dependencies
+- **MCP middleware:** [`@aidprotocol/mcp-trust`](https://www.npmjs.com/package/@aidprotocol/mcp-trust) v1.1.0 (npm, MIT license) — trust verification for MCP servers
 - **Production deployment:** ClawNet (claw-net.org) — 344 API endpoints with trust-gated pricing
 
 ## Authors
