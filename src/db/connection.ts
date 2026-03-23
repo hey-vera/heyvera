@@ -1404,6 +1404,18 @@ const MIGRATIONS: { version: number; sql: string }[] = [
     );
     CREATE INDEX IF NOT EXISTS idx_trust_imports_did ON aid_trust_imports(did, active);
   ` },
+
+  // v121: AgentKit bridge
+  { version: 121, sql: `
+    CREATE TABLE IF NOT EXISTS aid_agentkit_links (
+      did TEXT PRIMARY KEY,
+      agentkit_wallet TEXT NOT NULL,
+      world_id_hash TEXT,
+      world_id_verified INTEGER NOT NULL DEFAULT 0,
+      trust_multiplier REAL NOT NULL DEFAULT 1.0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  ` },
 ];
 
 function runMigrations(): void {

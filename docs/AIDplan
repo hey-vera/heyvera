@@ -123,8 +123,8 @@ transaction makes it smarter.
 - [x] @aidprotocol/aar-bridge — bidirectional AAR receipt conversion (Optimization 12) — src/utils/aar-bridge.ts
 - [x] Verifiable Intent integration — map AID trust as VI signal (Optimization 13) — src/utils/verifiable-intent.ts (W3C VC trust credentials + VI signal)
 - [x] AID-MPP Profile — trust headers alongside Stripe MPP session authorization (Section 15.5) — src/utils/mpp-profile.ts
-- [ ] AID-AgentKit bridge — optional World ID linking for maximum trust signal (Section 45.5)
-- [ ] AID-TAP reference — spec-only interop note for Visa Trusted Agent Protocol (no code)
+- [x] AID-AgentKit bridge — optional World ID linking for maximum trust signal (Section 45.5) — src/utils/agentkit-bridge.ts + v121
+- [x] AID-TAP reference — spec-only interop note for Visa Trusted Agent Protocol (no code) — docs/aid-tap-reference.md
 - [ ] AIDEscrow.sol reference contract on Base — trust-gated escrow timelocks (from PayCrow, Section 15.7)
 - [ ] ZK proof of scoring function via RISC Zero — <$0.01/proof (accelerated from Phase 4, from Mnemom)
 - [x] Sybil risk as supplementary signal in AID documents — consume Cred/external data (Section 15.7) — src/utils/sybil-signal.ts
@@ -139,7 +139,7 @@ transaction makes it smarter.
 - [x] Counterparty immune response — auto-quarantine from collective reports (Section 39.18) — in proof-of-life-cron.ts checkImmuneResponse()
 - [x] Gas price circuit breaker for batch settlement (Vector 43) — src/utils/gas-circuit-breaker.ts (3-state: closed/open/half_open)
 - [x] Verification receipt in middleware — caller-verifiable ClawNet-signed token (Flaw 18) — src/middleware/aid-verification-receipt.ts (JWT-like Ed25519 receipt)
-- [ ] ARA compatibility evaluation (Flaw 16)
+- [x] ARA compatibility evaluation (Flaw 16) — docs/ara-compatibility.md
 
 ### PHASE 3: INTELLIGENCE (Months 4-6)
 - [x] Trust Score v2 (expand to 11 dimensions, 3 categories) — src/core/trust-scoring-v2.ts
@@ -159,7 +159,7 @@ transaction makes it smarter.
 - [ ] Bonding curve contract (reputation-only, no revenue share)
 - [x] Cross-consumption tracking + trust boost — getCrossConsumptionStats() in social-graph.ts
 - [x] Season framework (12 scoring dimensions) — src/core/seasons.ts + v119 migration
-- [ ] No-code skill builder (natural language → skill definition)
+- [x] No-code skill builder (natural language → skill definition) — src/routes/skill-builder.ts (POST /v1/skills/build)
 - [ ] Visual MCP workflow builder
 - [ ] AgentKit wallet integration (Coinbase AgentKit)
 
@@ -184,7 +184,7 @@ transaction makes it smarter.
 
 ---
 
-**Progress: 95/133 items complete (71%). NEXT: Submit NIST comment → ERC-8004 registration → AID SDK Python → on-chain contracts → reference facilitator.**
+**Progress: 99/133 items complete (74%). NEXT: Submit NIST comment → ERC-8004 registration → npm publish → on-chain contracts → Python SDK.**
 
 ---
 
