@@ -114,9 +114,9 @@ transaction makes it smarter.
 - [ ] ERC-8004 reputation bridge (publish trust scores on-chain)
 - [x] A2A agent card extension (trust scores in discovery) — src/routes/aid-a2a.ts (GET /aid/a2a/card/:did + /discover)
 - [ ] Solana SPL USDC settlement option (Ed25519 single-key)
-- [ ] ElizaOS plugin for AID trust
+- [x] ElizaOS plugin for AID trust — AID_CHECK_TRUST action added to packages/elizaos/
 - [x] @aidprotocol/x402-enhanced middleware (add trust to any x402 server, Section 43.1b) — packages/x402-enhanced/
-- [ ] @aidprotocol/solana-trust (score engine for Solana Agent Registry, Section 43.1b)
+- [x] @aidprotocol/solana-trust (score engine for Solana Agent Registry, Section 43.1b) — packages/solana-trust/
 - [x] Formal dispute resolution (POST /aid/disputes — Flaw 6, elevated from "future vision") — src/routes/aid-disputes.ts + v114 migration
 - [x] Bad debt reserve — 0.1% surcharge on deferred settlements (Flaw 4) — src/utils/bad-debt-reserve.ts + v115 migration
 - [x] WebSocket/SSE streaming for trust updates (Flaw 5 / Optimization 8) — src/routes/aid-stream.ts (GET /aid/stream SSE + event bus)
@@ -184,7 +184,7 @@ transaction makes it smarter.
 
 ---
 
-**Progress: 81/133 items complete (61%). NEXT: Submit NIST comment → ERC-8004 registration → governance model → Solana trust → ElizaOS plugin.**
+**Progress: 83/133 items complete (62%). NEXT: Submit NIST comment → ERC-8004 registration → governance model → Sybil signal → season framework.**
 
 ---
 

@@ -297,16 +297,82 @@ const searchAction: ElizaAction = {
   },
 };
 
+// ─── Action 4: AID_CHECK_TRUST — AID trust score lookup ──────────────────────
+
+const checkTrustAction: ElizaAction = {
+  name: 'AID_CHECK_TRUST',
+
+  description:
+    'Check the AID trust score of any agent by DID. Returns trust score (0-100), ' +
+    'verdict (new/building/caution/standard/trusted/proceed), attestation count, ' +
+    'and whether the agent is safe to transact with.',
+
+  similes: ['CHECK_AGENT_TRUST', 'VERIFY_AGENT', 'TRUST_SCORE', 'IS_AGENT_SAFE'],
+
+  examples: [
+    [
+      { user: '{{user1}}', content: { text: 'Check the trust score for did:key:z6Mk...' } },
+      { user: '{{agent}}', content: { text: 'Looking up the AID trust score for that agent...' } },
+    ],
+    [
+      { user: '{{user1}}', content: { text: 'Is this agent trustworthy? did:key:z6MkpTH...' } },
+      { user: '{{agent}}', content: { text: 'Let me verify their AID trust profile.' } },
+    ],
+  ],
+
+  async validate(): Promise<boolean> { return true; }, // no API key needed for trust lookups
+
+  async handler(_runtime, message, _state, _options, callback): Promise<void> {
+    try {
+      const text: string = message.content?.text ?? message.content ?? '';
+      const didMatch = text.match(/did:key:z[A-Za-z0-9]+/);
+      if (!didMatch) {
+        callback({ text: 'Please provide a DID to check. Example: "check trust for did:key:z6Mk..."' });
+        return;
+      }
+
+      const did = didMatch[0];
+      const res = await fetch(`${BASE_URL}/v1/aid/${encodeURIComponent(did)}/trust`, {
+        headers: { 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(5000),
+      });
+
+      if (!res.ok) {
+        callback({ text: `Agent not found or trust lookup failed (${res.status}).` });
+        return;
+      }
+
+      const data = await res.json() as any;
+      const score = data.trustScore ?? data.score ?? 0;
+      const verdict = data.verdict ?? 'new';
+      const attestations = data.attestationCount ?? 0;
+
+      const safe = score >= 40;
+      const emoji = safe ? '✅' : score >= 20 ? '⚠️' : '🚫';
+
+      callback({
+        text: `${emoji} **AID Trust Report**\n` +
+          `DID: \`${did.slice(0, 20)}...${did.slice(-8)}\`\n` +
+          `Score: **${score}/100** (${verdict})\n` +
+          `Attestations: ${attestations}\n` +
+          `${safe ? 'Safe to transact.' : 'Low trust — exercise caution.'}`,
+      });
+    } catch (err: any) {
+      callback({ text: `Trust lookup failed: ${err.message}` });
+    }
+  },
+};
+
 // ─── Plugin export ─────────────────────────────────────────────────────────
 
 export const clawnetPlugin: ElizaPlugin = {
   name: 'clawnet',
   description:
-    'ClawNet AI agent orchestration — 390+ APIs, skill marketplace, cryptographic receipts',
-  actions: [orchestrateAction, invokeSkillAction, searchAction],
+    'ClawNet AI agent orchestration — 390+ APIs, skill marketplace, AID trust scoring',
+  actions: [orchestrateAction, invokeSkillAction, searchAction, checkTrustAction],
 };
 
 export default clawnetPlugin;
 
 // Named exports for individual actions
-export { orchestrateAction, invokeSkillAction, searchAction };
+export { orchestrateAction, invokeSkillAction, searchAction, checkTrustAction };

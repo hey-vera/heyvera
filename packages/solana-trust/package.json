@@ -1,0 +1,37 @@
+{
+  "name": "@aidprotocol/solana-trust",
+  "version": "1.0.0",
+  "description": "AID trust scoring engine for Solana Agent Registry — Ed25519 native mapping",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "files": ["dist/", "README.md"],
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "solana", "trust", "aid", "agent", "identity", "ed25519",
+    "reputation", "agent-registry", "scoring"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aidprotocol/aid-spec",
+    "directory": "packages/solana-trust"
+  },
+  "homepage": "https://aidprotocol.org",
+  "dependencies": {
+    "@aidprotocol/trust-compute": "^2.0.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.20.0"
+  }
+}
