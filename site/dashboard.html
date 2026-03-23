@@ -802,6 +802,53 @@
         <div class="claim-msg info" id="claim-msg"></div>
       </div>
 
+      <!-- Security / 2FA -->
+      <div class="card">
+        <div class="card-label">Security</div>
+        <div id="security-loading" style="font-size:13px;color:var(--text-tertiary);padding:8px 0;">Checking 2FA status...</div>
+        <div id="security-content" style="display:none;">
+          <!-- 2FA disabled state -->
+          <div id="2fa-disabled">
+            <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+              <div style="width:40px;height:40px;background:var(--bg-surface-2);border:1px solid var(--border-subtle);border-radius:var(--radius-md);display:flex;align-items:center;justify-content:center;font-size:18px;">&#128274;</div>
+              <div>
+                <div style="font-size:14px;font-weight:600;color:var(--text-primary);">Two-Factor Authentication</div>
+                <div style="font-size:12px;color:var(--text-tertiary);">Not enabled</div>
+              </div>
+            </div>
+            <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px;">Add an extra layer of security. When enabled, you'll need a code from your authenticator app (Google Authenticator, Authy, 1Password) every time you sign in. This protects Pulse, Radar, and your dashboard.</p>
+            <button class="btn btn-primary" onclick="setup2FA()">Enable 2FA</button>
+          </div>
+          <!-- 2FA setup flow -->
+          <div id="2fa-setup" style="display:none;">
+            <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px;">Scan this QR code with your authenticator app, then enter the 6-digit code below.</p>
+            <div id="2fa-qr" style="text-align:center;margin-bottom:16px;"></div>
+            <div id="2fa-secret-display" style="text-align:center;margin-bottom:16px;">
+              <span style="font-size:11px;color:var(--text-tertiary);">Can't scan? Enter this key manually:</span>
+              <code id="2fa-secret-code" style="display:block;font-family:var(--font-mono);font-size:14px;color:var(--accent);margin-top:4px;letter-spacing:0.1em;word-break:break-all;"></code>
+            </div>
+            <div class="claim-row" style="max-width:300px;margin:0 auto;">
+              <input type="text" class="input" id="2fa-verify-code" placeholder="000000" maxlength="6" inputmode="numeric" pattern="[0-9]{6}" style="text-align:center;font-size:18px;letter-spacing:0.2em;"
+                onkeydown="if(event.key==='Enter')verify2FA()">
+              <button class="btn btn-primary" onclick="verify2FA()">Verify</button>
+            </div>
+            <div id="2fa-setup-msg" style="font-size:12px;text-align:center;margin-top:8px;min-height:16px;"></div>
+          </div>
+          <!-- 2FA enabled state -->
+          <div id="2fa-enabled" style="display:none;">
+            <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+              <div style="width:40px;height:40px;background:var(--accent-dim);border:1px solid rgba(16,185,129,0.25);border-radius:var(--radius-md);display:flex;align-items:center;justify-content:center;font-size:18px;">&#9989;</div>
+              <div>
+                <div style="font-size:14px;font-weight:600;color:var(--text-primary);">Two-Factor Authentication</div>
+                <div style="font-size:12px;color:var(--accent);">Enabled</div>
+              </div>
+            </div>
+            <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px;">Your account is protected with TOTP. You'll be prompted for a code on every sign-in across all ClawNet products.</p>
+            <button class="btn btn-danger" onclick="disable2FA()">Disable 2FA</button>
+          </div>
+        </div>
+      </div>
+
       </div><!-- /tab-overview -->
 
       <!-- TAB: Reseller -->
@@ -1121,6 +1168,90 @@
         }
       } catch {}
     }
+
+    // ── 2FA / TOTP ──
+    let _totpResource = null;
+
+    async function check2FAStatus() {
+      try {
+        const user = window.Clerk?.user;
+        if (!user) return;
+        document.getElementById('security-loading').style.display = 'none';
+        document.getElementById('security-content').style.display = '';
+        const hasTOTP = user.twoFactorEnabled || (user.totpEnabled ?? false);
+        document.getElementById('2fa-disabled').style.display = hasTOTP ? 'none' : '';
+        document.getElementById('2fa-enabled').style.display = hasTOTP ? '' : 'none';
+        document.getElementById('2fa-setup').style.display = 'none';
+      } catch {}
+    }
+
+    async function setup2FA() {
+      try {
+        const user = window.Clerk?.user;
+        if (!user) return;
+        const totp = await user.createTOTP();
+        _totpResource = totp;
+        document.getElementById('2fa-disabled').style.display = 'none';
+        document.getElementById('2fa-setup').style.display = '';
+        // Show QR code
+        const qrEl = document.getElementById('2fa-qr');
+        if (totp.uri) {
+          // Generate QR using a simple inline approach
+          qrEl.innerHTML = '<img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=' + encodeURIComponent(totp.uri) + '" alt="QR Code" style="border-radius:8px;border:1px solid var(--border-default);" width="200" height="200">';
+        }
+        // Show secret for manual entry
+        if (totp.secret) {
+          document.getElementById('2fa-secret-code').textContent = totp.secret;
+        }
+      } catch (err) {
+        showToast('Failed to start 2FA setup: ' + (err.message || err), 'error');
+      }
+    }
+
+    async function verify2FA() {
+      const code = document.getElementById('2fa-verify-code').value.trim();
+      const msgEl = document.getElementById('2fa-setup-msg');
+      if (!/^\d{6}$/.test(code)) {
+        msgEl.textContent = 'Enter a 6-digit code.';
+        msgEl.style.color = 'var(--danger)';
+        return;
+      }
+      try {
+        msgEl.textContent = 'Verifying...';
+        msgEl.style.color = 'var(--text-tertiary)';
+        const user = window.Clerk?.user;
+        if (!user) return;
+        await user.verifyTOTP({ code });
+        msgEl.textContent = '';
+        document.getElementById('2fa-setup').style.display = 'none';
+        document.getElementById('2fa-enabled').style.display = '';
+        showToast('2FA enabled! Your account is now protected.', 'success');
+      } catch (err) {
+        msgEl.textContent = err.errors?.[0]?.message || 'Invalid code. Try again.';
+        msgEl.style.color = 'var(--danger)';
+      }
+    }
+
+    async function disable2FA() {
+      if (typeof pulseConfirm === 'function') {
+        const ok = await pulseConfirm('Disable 2FA', 'This removes authenticator protection from your account. Are you sure?');
+        if (!ok) return;
+      } else if (!confirm('Disable 2FA?')) return;
+      try {
+        const user = window.Clerk?.user;
+        if (!user) return;
+        await user.disableTOTP();
+        document.getElementById('2fa-enabled').style.display = 'none';
+        document.getElementById('2fa-disabled').style.display = '';
+        showToast('2FA disabled.', 'info');
+      } catch (err) {
+        showToast('Failed to disable 2FA: ' + (err.message || err), 'error');
+      }
+    }
+
+    // Check 2FA on load
+    if (window.Clerk?.user) check2FAStatus();
+    else document.addEventListener('clerk:loaded', check2FAStatus);
 
     // ── FLEXIBLE TOP UP ──
     // Tiered bonus rates (mirrors server-side creditsForDollars)
@@ -1674,7 +1805,7 @@
     }
 
     // ── INIT ──
-    async function init(){if(!await loadClerkSafe()){document.getElementById('loading-state').innerHTML='<p style="color:var(--danger);font-size:13px">Authentication unavailable. <a href="/login" style="color:var(--accent)">Sign in again</a></p>';return;}if(!window.Clerk.user){const p=new URLSearchParams(window.location.search);const c=p.get('claim_session')??p.get('claim');window.location.href=c?`/login?claim=${c}`:'/login';return;}const email=window.Clerk.user.primaryEmailAddress?.emailAddress??window.Clerk.user.username??'';document.getElementById('account-email-display').textContent=email;document.getElementById('account-dropdown').classList.add('show');const mobileEmail=document.getElementById('mobile-account-email');if(mobileEmail){mobileEmail.textContent=email;mobileEmail.style.display='block';}const mag=document.getElementById('mobile-account-group');if(mag)mag.style.display='';const mso=document.getElementById('mobile-sign-out');if(mso)mso.style.display='';const cachedCr=localStorage.getItem('clawnet_credits');document.getElementById('nav-credits-num').textContent=cachedCr!==null?parseInt(cachedCr).toLocaleString():'\u2014';document.getElementById('nav-credits-badge').classList.add('show');const p=new URLSearchParams(window.location.search);const cs=p.get('claim_session'),cr=p.get('claim');if(cs)await autoClaimSession(cs);if(cr){showClaimNotice(cr);window.history.replaceState({},'','/dashboard');}await loadDashboard();checkCreator();checkAdmin();checkReseller();}
+    async function init(){if(!await loadClerkSafe()){document.getElementById('loading-state').innerHTML='<p style="color:var(--danger);font-size:13px">Authentication unavailable. <a href="/login" style="color:var(--accent)">Sign in again</a></p>';return;}if(!window.Clerk.user){const p=new URLSearchParams(window.location.search);const c=p.get('claim_session')??p.get('claim');window.location.href=c?`/login?claim=${c}`:'/login';return;}const email=window.Clerk.user.primaryEmailAddress?.emailAddress??window.Clerk.user.username??'';document.getElementById('account-email-display').textContent=email;document.getElementById('account-dropdown').classList.add('show');const mobileEmail=document.getElementById('mobile-account-email');if(mobileEmail){mobileEmail.textContent=email;mobileEmail.style.display='block';}const mag=document.getElementById('mobile-account-group');if(mag)mag.style.display='';const mso=document.getElementById('mobile-sign-out');if(mso)mso.style.display='';const cachedCr=localStorage.getItem('clawnet_credits');document.getElementById('nav-credits-num').textContent=cachedCr!==null?parseInt(cachedCr).toLocaleString():'\u2014';document.getElementById('nav-credits-badge').classList.add('show');const p=new URLSearchParams(window.location.search);const cs=p.get('claim_session'),cr=p.get('claim');if(cs)await autoClaimSession(cs);if(cr){showClaimNotice(cr);window.history.replaceState({},'','/dashboard');}await loadDashboard();check2FAStatus();checkCreator();checkAdmin();checkReseller();}
     async function autoClaimSession(sessionId){try{const token=await window.Clerk?.session?.getToken();await fetch(`${API_BASE}/v1/dashboard/claim-session`,{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({sessionId})});}catch(err){console.error('Auto-claim failed:',err);}}
     init();
   </script>
