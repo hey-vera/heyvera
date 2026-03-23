@@ -209,7 +209,7 @@ apiRouter.post('/orchestrate', async (c) => {
       }
 
       // Build discovery response with endpoints, pricing, and alternatives
-      const endpoints = intent.steps.map((step, i) => {
+      const endpoints = intent.steps.map((step) => {
         const ep = findEndpoint(step.endpointId);
         const creditCost = ep ? creditCostForEndpoint(ep) : 0.001;
         const alternatives = getAlternativesForEndpoint(step.endpointId)
