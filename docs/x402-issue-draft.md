@@ -36,11 +36,29 @@ Trust scores are 0-100 integers computed from behavioral signals (success rate, 
 
 ## Prior Art / Related
 
-- #1024 — `reputation` extension (ERC-8004 based, on-chain)
+**x402 repo:**
+- #1024 — `reputation` extension (ERC-8004 based, on-chain proof-of-service)
 - #931 — ERC-8004 reputation support discussion
-- #1707 — `sworn-trust` extension
+- #1707 — `sworn-trust` extension (trust-gated pricing)
 - #1277 — Identity & Reputation Layer proposal
 - #1375 — Cold-start trust mitigation patterns
+
+**Ecosystem projects doing identity + trust:**
+- **DJD AgentScore** — 0-100 trust score from x402 settlement history (5 dimensions). Simple aggregation, no divergence detection or anti-collusion.
+- **MoltGuard** — 0-100 scoring, Sybil detection via funding cluster analysis, Ed25519 VCs, ERC-8004 integrated. Closest to this proposal but product-specific, not a protocol spec.
+- **Cascade/SATI** — Trust infrastructure on Solana (identity + reputation + validation). Chain-specific, no transport-layer standard.
+- **ACK (Agent Commerce Kit)** — W3C DIDs/VCs for agent identity with x402. DID-based like this proposal but no behavioral trust scoring.
+- **ScoutScore** — Service health monitoring (uptime, response fidelity). Overlaps with reliability signals but not a trust protocol.
+
+**What `agent-trust` adds beyond these:**
+- Manifest-attestation divergence detection (does the agent do what it claims?)
+- Anti-collusion framework (clique detection, burst detection, reciprocity analysis)
+- Deterministic scoring algorithm (any party can independently verify)
+- Crypto-agility (Ed25519 → ML-DSA post-quantum migration without protocol change)
+- Formal spec with standards-body engagement (DIF TAAWG, NIST NCCoE)
+- Mutual authentication (both client and server prove identity)
+
+This proposal aligns with the [x402 roadmap's request](https://github.com/coinbase/x402) for "Identity Solution Proposals (guides/PRs using existing identity providers)."
 
 ## Production Evidence
 
