@@ -74,4 +74,4 @@ Running in production on [ClawNet](https://claw-net.org) (344 API endpoints, ski
 
 If there's interest, I'll submit a spec PR at `specs/extensions/agent-trust.md` following the extension pattern, then a TypeScript implementation.
 
-Full spec draft: [x402-agent-trust-extension.md](https://github.com/1xmint/claw-net/blob/main/docs/x402-agent-trust-extension.md)
+Full spec draft: [aid-x402-trust-extension.md](https://github.com/aidprotocol/aid-spec/blob/main/spec/profiles/aid-x402-trust-extension.md)
