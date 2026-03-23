@@ -565,7 +565,7 @@ router.get('/aid-registration.json', (c) => {
     type: 'https://eips.ethereum.org/EIPS/eip-8004#registration-v1',
     name: 'AID Protocol',
     description: 'Agent Identity Document — the trust layer for agentic commerce. Scored, verifiable, portable trust for any agent communication layer. Transport-agnostic. Crypto-agile. Open source (Apache 2.0).',
-    image: 'https://claw-net.org/favicon.svg',
+    image: 'https://claw-net.org/aid-logo.png',
     services: [
       { name: 'web', endpoint: 'https://claw-net.org/protocol' },
       { name: 'npm', endpoint: 'https://www.npmjs.com/org/aidprotocol' },
