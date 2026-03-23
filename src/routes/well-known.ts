@@ -558,6 +558,48 @@ router.get('/erc8004-registration.json', (c) => {
   });
 });
 
+// ── GET /aid-registration.json — ERC-8004 v1 Registration for AID Protocol ──
+// Separate from ClawNet — AID is the open protocol, ClawNet is an implementation.
+router.get('/aid-registration.json', (c) => {
+  return c.json({
+    type: 'https://eips.ethereum.org/EIPS/eip-8004#registration-v1',
+    name: 'AID Protocol',
+    description: 'Agent Identity Document — the trust layer for agentic commerce. Scored, verifiable, portable trust for any agent communication layer. Transport-agnostic. Crypto-agile. Open source (Apache 2.0).',
+    image: 'https://claw-net.org/favicon.svg',
+    services: [
+      { name: 'web', endpoint: 'https://claw-net.org/protocol' },
+      { name: 'npm', endpoint: 'https://www.npmjs.com/org/aidprotocol' },
+      { name: 'spec', endpoint: 'https://claw-net.org/docs/aid-protocol-spec.md' },
+    ],
+    x402Support: false,
+    active: true,
+    registrations: [
+      {
+        agentRegistry: 'eip155:8453:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432',
+      },
+    ],
+    supportedTrust: ['reputation', 'validation'],
+    packages: {
+      'trust-compute': { npm: '@aidprotocol/trust-compute', version: '2.1.0', license: 'MIT' },
+      'mcp-trust': { npm: '@aidprotocol/mcp-trust', version: '1.1.0', license: 'MIT' },
+      'sdk': { npm: '@aidprotocol/sdk', version: '1.0.0', license: 'Apache-2.0' },
+      'middleware': { npm: '@aidprotocol/middleware', version: '1.0.0', license: 'Apache-2.0' },
+    },
+    standards: {
+      w3c: ['did:key', 'VC 2.0', 'Bitstring Status List'],
+      ietf: ['RFC 9421 (HTTP Signatures)', 'RFC 8785 (JCS)'],
+      nist: ['NCCoE comment submitted (AI Agent Standards Initiative)'],
+      dif: ['TAAWG membership pending'],
+    },
+    referenceImplementation: {
+      name: 'ClawNet',
+      url: 'https://claw-net.org',
+      endpoints: 344,
+      trustEndpoint: 'https://api.claw-net.org/v1/aid/:did/trust',
+    },
+  });
+});
+
 // ── GET /did.json — W3C DID Document (did:web:api.claw-net.org) ───────────
 //
 // Deterministic Ed25519 keypair derived from PLATFORM_SIGNING_SECRET.
