@@ -297,10 +297,12 @@ llmRouter.post('/chat', checkApiKey, async (c) => {
     // ─── Attestation (delivery proof) ──────────────────────────────────
     let attestationId: string | null = null;
     try {
+      const llmDurationMs = Date.now() - (response as Record<string, number>).id;
       attestationId = createAutoAttestation(
         keyInfo.key, 'LLM_PROMPT', `POST /v1/llm/chat/completions`,
         { model, messageCount: (body.messages ?? []).length }, { content: String(content).slice(0, 200) },
-        chargedAmount, Date.now() - (response as Record<string, number>).id,
+        chargedAmount, llmDurationMs, undefined,
+        [{ endpointId: `llm:${model}`, success: true, cached: false, durationMs: llmDurationMs, cost: chargedAmount }],
       );
     } catch {}
     if (attestationId) response.attestation = { id: attestationId, verifyUrl: `https://api.claw-net.org/v1/attest/verify/${attestationId}` };

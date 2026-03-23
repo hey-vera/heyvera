@@ -728,6 +728,14 @@ x402SkillsRouter.post('/skills/:id', async (c) => {
         { answer: formatted.answer },
         skill.credit_cost,
         totalDurationMs,
+        undefined,
+        execution.steps.map(s => ({
+          endpointId: s.endpointId,
+          success: s.success,
+          cached: s.cached,
+          durationMs: s.durationMs,
+          cost: s.cost,
+        })),
       );
     } catch (attErr) {
       logger.warn({ requestId, err: attErr }, 'Failed to create x402 attestation');
@@ -859,6 +867,14 @@ x402SkillsRouter.post('/orchestrate', async (c) => {
         { answer: formatted.answer },
         env.ORCHESTRATION_FEE,
         durationMs,
+        undefined,
+        execution.steps.map(s => ({
+          endpointId: s.endpointId,
+          success: s.success,
+          cached: s.cached,
+          durationMs: s.durationMs,
+          cost: s.cost,
+        })),
       );
     } catch (attErr) {
       logger.warn({ requestId, err: attErr }, 'Failed to create x402 orchestration attestation');
@@ -1125,6 +1141,8 @@ x402SkillsRouter.post('/query/:id', async (c) => {
         data,
         skill.credit_cost,
         totalDurationMs,
+        undefined,
+        [{ endpointId: skill.proxy_url || id, success: true, cached: false, durationMs: totalDurationMs, cost: skill.credit_cost }],
       );
     } catch (attErr) {
       logger.warn({ requestId, err: attErr }, 'Failed to create x402 data query attestation');

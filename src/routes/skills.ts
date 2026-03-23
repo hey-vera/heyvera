@@ -714,6 +714,7 @@ skillsRouter.get('/:id/query', checkApiKey, async (c) => {
         keyInfo.key, 'QUERY_DATA_SKILL', `GET /v1/skills/${id}/query`,
         { skillId: id, variables: params }, { data },
         creditCost, Date.now() - start, manifestId,
+        [{ endpointId: skill.proxy_url || id, success: true, cached: false, durationMs: Date.now() - start, cost: creditCost }],
       );
       if (trustVerdict) trustVerdict.attestationId = attestationId || undefined;
     } catch {}
@@ -1377,6 +1378,13 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
         keyInfo.key, 'INVOKE_SKILL', `POST /v1/skills/${id}/invoke`,
         { skillId: id, variables }, { answer: formatted.answer },
         creditsToDeduct, totalDurationMs, manifestId,
+        execution.steps.map(s => ({
+          endpointId: s.endpointId,
+          success: s.success,
+          cached: s.cached,
+          durationMs: s.durationMs,
+          cost: s.cost,
+        })),
       );
       if (trustVerdict) trustVerdict.attestationId = attestationId || undefined;
     } catch {}
