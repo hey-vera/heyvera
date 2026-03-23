@@ -108,11 +108,11 @@ transaction makes it smarter.
 - [ ] /aid/* route handler with full protocol flow
 - [x] X-AID-NEW zero-auth onboarding on /aid/* routes — POST /aid/provision with rate limiting (3/IP/24h)
 - [ ] Direct receiveWithAuthorization settlement (no facilitator)
-- [ ] Mutual authentication (server signs responses)
-- [ ] Portable atomic receipts with dual signatures + Merkle anchoring
+- [x] Mutual authentication (server signs responses) — aid-provider-proof.ts (X-AID-PROVIDER-DID + X-AID-PROVIDER-PROOF) + A2A signed trustProof
+- [x] Portable atomic receipts with dual signatures + Merkle anchoring — src/core/receipt-builder.ts (already built)
 - [ ] Consumer heartbeat (authenticated, personalized)
 - [ ] ERC-8004 reputation bridge (publish trust scores on-chain)
-- [ ] A2A agent card extension (trust scores in discovery)
+- [x] A2A agent card extension (trust scores in discovery) — src/routes/aid-a2a.ts (GET /aid/a2a/card/:did + /discover)
 - [ ] Solana SPL USDC settlement option (Ed25519 single-key)
 - [ ] ElizaOS plugin for AID trust
 - [ ] @aidprotocol/x402-enhanced middleware (add trust to any x402 server, Section 43.1b)
@@ -184,7 +184,7 @@ transaction makes it smarter.
 
 ---
 
-**Progress: 55/133 items complete (41%). NEXT: Submit NIST comment → ERC-8004 registration → governance model → bad debt reserve → aid-trust Python pkg.**
+**Progress: 58/133 items complete (44%). NEXT: Submit NIST comment → ERC-8004 registration → governance model → consumer heartbeat → bad debt reserve.**
 
 ---
 
