@@ -547,6 +547,7 @@ router.get('/erc8004-registration.json', (c) => {
     active: true,
     registrations: [
       {
+        agentId: 36119,
         agentRegistry: 'eip155:8453:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432',
       },
     ],
@@ -575,6 +576,7 @@ router.get('/aid-registration.json', (c) => {
     active: true,
     registrations: [
       {
+        agentId: 36118,
         agentRegistry: 'eip155:8453:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432',
       },
     ],
