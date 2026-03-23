@@ -1,6 +1,6 @@
 {
   "name": "@aidprotocol/trust-compute",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Deterministic trust scoring for AI agents — the canonical AID trust computation library",
   "main": "dist/index.js",
   "module": "dist/index.mjs",

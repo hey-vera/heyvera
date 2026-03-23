@@ -62,6 +62,190 @@ export interface TrustVerdictResult {
   settlementMode: 'immediate' | 'standard' | 'batched' | 'deferred';
 }
 
+// ─── Signing Interface ──────────────────────────────────────────────────────
+
+/** Supported signing algorithms. Ed25519 is the default. ML-DSA for PQC migration. */
+export type SigningAlgorithm = 'Ed25519' | 'ML-DSA-65' | 'SLH-DSA';
+
+/** Supported hash algorithms. SHA-384 is the default. */
+export type HashAlgorithm = 'sha384' | 'sha256' | 'sha3-256';
+
+/**
+ * Abstract signing interface for AID protocol operations.
+ *
+ * All AID signing (attestations, manifests, receipts, revocations) goes
+ * through this interface. The private key MUST NOT be exposed to the caller.
+ *
+ * Implementations:
+ * - TestSigner: in-memory keys for unit tests (ships with trust-compute)
+ * - @aidprotocol/signer-ows: Open Wallet Standard adapter (recommended for production)
+ * - Custom: HSM, KMS, TEE, or any other key management
+ */
+export interface AidSigner {
+  /** The agent's DID (derived from public key) */
+  readonly did: string;
+
+  /** Which signing algorithm this signer uses */
+  readonly algorithm: SigningAlgorithm;
+
+  /** Which hash algorithm this signer uses */
+  readonly hashAlgorithm: HashAlgorithm;
+
+  /**
+   * Sign canonical bytes. The private key MUST NOT be exposed
+   * to the caller. Returns base64url-encoded signature.
+   */
+  sign(canonicalBytes: Uint8Array): Promise<string>;
+
+  /**
+   * Verify a signature against canonical bytes and a public key.
+   * Stateless — uses public key only, no private key access needed.
+   */
+  verify(
+    canonicalBytes: Uint8Array,
+    signature: string,
+    publicKeyMultibase: string,
+  ): Promise<boolean>;
+
+  /** Get the public key in multibase format for DID resolution. */
+  getPublicKeyMultibase(): string;
+}
+
+// ─── Test Signer ────────────────────────────────────────────────────────────
+
+/**
+ * In-memory Ed25519 signer for testing. Keys are held in plain memory.
+ * DO NOT use in production — no key protection.
+ *
+ * @example
+ * ```typescript
+ * const signer = TestSigner.generate();
+ * const sig = await signer.sign(new TextEncoder().encode('hello'));
+ * const valid = await signer.verify(
+ *   new TextEncoder().encode('hello'),
+ *   sig,
+ *   signer.getPublicKeyMultibase()
+ * );
+ * ```
+ */
+export class TestSigner implements AidSigner {
+  readonly did: string;
+  readonly algorithm: SigningAlgorithm = 'Ed25519';
+  readonly hashAlgorithm: HashAlgorithm = 'sha384';
+  private readonly privateKey: ReturnType<typeof import('crypto').createPrivateKey>;
+  private readonly publicKeyRaw: Buffer;
+
+  private constructor(
+    privateKey: ReturnType<typeof import('crypto').createPrivateKey>,
+    publicKeyRaw: Buffer,
+  ) {
+    this.privateKey = privateKey;
+    this.publicKeyRaw = publicKeyRaw;
+    // did:key with Ed25519 multicodec prefix (0xed01)
+    const multicodec = Buffer.concat([Buffer.from([0xed, 0x01]), publicKeyRaw]);
+    this.did = 'did:key:z' + base58btcEncode(multicodec);
+  }
+
+  /** Generate a new random Ed25519 keypair for testing. */
+  static generate(): TestSigner {
+    const { generateKeyPairSync, createPrivateKey } = require('crypto') as typeof import('crypto');
+    const keypair = generateKeyPairSync('ed25519');
+    const privateKey = keypair.privateKey;
+    // Extract raw 32-byte public key from DER
+    const spki = keypair.publicKey.export({ type: 'spki', format: 'der' }) as Buffer;
+    const publicKeyRaw = spki.subarray(spki.length - 32);
+    return new TestSigner(privateKey, publicKeyRaw);
+  }
+
+  /** Create from an existing seed (deterministic for test reproducibility). */
+  static fromSeed(seed: Buffer): TestSigner {
+    const { createPrivateKey, createPublicKey } = require('crypto') as typeof import('crypto');
+    // Ed25519 PKCS8 DER prefix for a 32-byte seed
+    const pkcs8Prefix = Buffer.from([
+      0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06,
+      0x03, 0x2b, 0x65, 0x70, 0x04, 0x22, 0x04, 0x20,
+    ]);
+    const der = Buffer.concat([pkcs8Prefix, seed.subarray(0, 32)]);
+    const privateKey = createPrivateKey({ key: der, format: 'der', type: 'pkcs8' });
+    const publicKey = createPublicKey(privateKey);
+    const spki = publicKey.export({ type: 'spki', format: 'der' }) as Buffer;
+    const publicKeyRaw = spki.subarray(spki.length - 32);
+    return new TestSigner(privateKey, publicKeyRaw);
+  }
+
+  async sign(canonicalBytes: Uint8Array): Promise<string> {
+    const { sign } = require('crypto') as typeof import('crypto');
+    const sig = sign(null, Buffer.from(canonicalBytes), this.privateKey);
+    return base64urlEncode(sig);
+  }
+
+  async verify(
+    canonicalBytes: Uint8Array,
+    signature: string,
+    publicKeyMultibase: string,
+  ): Promise<boolean> {
+    const { verify, createPublicKey } = require('crypto') as typeof import('crypto');
+    const decoded = base58btcDecode(publicKeyMultibase.slice(1)); // remove 'z' prefix
+    const rawKey = decoded.subarray(2); // remove multicodec prefix (0xed01)
+    // Build SPKI DER for Ed25519
+    const spkiPrefix = Buffer.from([
+      0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65,
+      0x70, 0x03, 0x21, 0x00,
+    ]);
+    const spki = Buffer.concat([spkiPrefix, rawKey]);
+    const pubkey = createPublicKey({ key: spki, format: 'der', type: 'spki' });
+    return verify(null, Buffer.from(canonicalBytes), pubkey, base64urlDecode(signature));
+  }
+
+  getPublicKeyMultibase(): string {
+    const multicodec = Buffer.concat([Buffer.from([0xed, 0x01]), this.publicKeyRaw]);
+    return 'z' + base58btcEncode(multicodec);
+  }
+}
+
+// ─── Encoding Utilities ─────────────────────────────────────────────────────
+
+const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+
+function base58btcEncode(data: Buffer): string {
+  let num = BigInt('0x' + data.toString('hex'));
+  let result = '';
+  while (num > 0n) {
+    const mod = Number(num % 58n);
+    result = BASE58_ALPHABET[mod] + result;
+    num = num / 58n;
+  }
+  for (let i = 0; i < data.length && data[i] === 0; i++) {
+    result = '1' + result;
+  }
+  return result || '1';
+}
+
+function base58btcDecode(str: string): Buffer {
+  let num = 0n;
+  for (const char of str) {
+    const idx = BASE58_ALPHABET.indexOf(char);
+    if (idx === -1) throw new Error(`Invalid base58 character: ${char}`);
+    num = num * 58n + BigInt(idx);
+  }
+  const hex = num.toString(16).padStart(2, '0');
+  const bytes = Buffer.from(hex.length % 2 ? '0' + hex : hex, 'hex');
+  let leadingZeros = 0;
+  for (const char of str) {
+    if (char !== '1') break;
+    leadingZeros++;
+  }
+  return Buffer.concat([Buffer.alloc(leadingZeros), bytes]);
+}
+
+function base64urlEncode(data: Buffer): string {
+  return data.toString('base64url');
+}
+
+function base64urlDecode(str: string): Buffer {
+  return Buffer.from(str, 'base64url');
+}
+
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 /** Current formula version. Middleware MUST pin to this. */

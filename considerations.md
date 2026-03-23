@@ -994,3 +994,78 @@ Ship features, get users. Language doesn't matter until you have scaling problem
 - When we need SQL-level query flexibility for data skills
 
 **Effort:** 1-2 days for deep integration.
+
+
+Potential Bottleneck	At 1M calls/day	Status
+SQLite single-writer	Fine for reads, slow at 100M+ rows	Plan addresses at 50K agents (Section 28.2)
+Redis memory	500MB for 1M trust scores	Fine (25GB+ available)
+Ed25519 verification	1,200/s needed vs 5K-15K/s capacity	4-12x headroom
+LLM cost (post pre-filter)	$1/day at 1M calls (if 1% are orchestrated)	Sustainable
+Gas (direct settlement)	$7-100/month batched	Sustainable
+VPS CPU (single-process Node)	May need a second VPS at 500K+ concurrent	Monitor first
+
+---
+
+## 54. Open Wallet Standard (OWS) Signer Adapter
+
+**Added:** 2026-03-23. **Revisit:** 2-4 weeks after OWS launch (mid-April 2026).
+
+MoonPay launched OWS (openwallet.sh) on March 23, 2026 as an open-source standard for agent key management. Contributors include PayPal, Solana Foundation, Ethereum Foundation, Circle, Ripple, OKX. MIT-licensed, available on npm (`@open-wallet-standard/core`) and PyPI.
+
+**What it provides:**
+- Key storage with AES-256-GCM encryption at rest
+- Keys decrypted only during signing, held in protected memory, wiped immediately after
+- Single seed derives accounts across 8 chain families (EVM, Solana, Bitcoin, Cosmos, etc.)
+- Unified signing interface using CAIP-2 chain identifiers
+- Pre-signing policy engine (rules that gate what gets signed)
+- Private key never touches the agent process or LLM context
+
+**Why we're deferring (not skipping):**
+OWS launched TODAY. The npm package is hours old. The API will change. We defined the `AidSigner` interface in `@aidprotocol/trust-compute` (v2.1.0) so that OWS can be plugged in later without protocol changes. The interface is implementation-agnostic — OWS, HSM, KMS, or raw keys all work.
+
+**What was built (March 23):**
+- `AidSigner` interface in `@aidprotocol/trust-compute` — abstract signing contract
+- `TestSigner` class — in-memory Ed25519 signer for unit tests, ships with trust-compute
+- `SigningAlgorithm` and `HashAlgorithm` types exported for use across packages
+
+**What to build when OWS stabilizes:**
+- `@aidprotocol/signer-ows` package — OWS adapter implementing `AidSigner`
+- AID-specific pre-signing policies: no self-attestation, signing rate limits, counterparty trust gates
+- `keyManagement` field in manifest declarations (standard, version, keyProtection, policyEngine)
+- Refactor all ClawNet signing operations to accept `AidSigner` parameter instead of raw keys
+
+**Ed25519 alignment:** AID uses `did:key` with Ed25519 (multicodec `0xed`). OWS supports Solana (Ed25519 native). An agent's AID signing key and Solana wallet key are the same key type. OWS manages that key securely.
+
+**Effort:** 2-3 days for the adapter + policies once OWS API stabilizes.
+
+## 55. Trust Score Cost Attribution UX
+
+**Added:** 2026-03-23. **Revisit:** When $CLAWNET token launches.
+
+When an agent pays for a trust computation, the response should break down what that cost paid for — which analyses ran, what each found, how long each step took. Transparency makes pricing defensible and helps agents optimize.
+
+**Why we're deferring:**
+1. $CLAWNET token doesn't exist yet (deferred until $50K-$100K revenue milestones)
+2. Some referenced features (divergence engine DIV-001–DIV-009, collusion detection strategies, reporter credibility views) may not be fully implemented yet
+3. DIF doesn't care about monetization UX — this is a product feature, not a protocol feature
+
+**Proposed breakdown (9 steps, weights sum to 1.0):**
+
+| Step | Weight | Description |
+|------|--------|-------------|
+| `attestation_fetch` | 10% | Fetch and filter attestation history |
+| `revocation_check` | 5% | Check revocation registry |
+| `collusion_detection` | 20% | Anti-collusion graph analysis |
+| `independence_scoring` | 10% | Issuer independence scores |
+| `reporter_credibility` | 5% | Reporter credibility multipliers |
+| `score_computation` | 15% | Weighted category scores with decay |
+| `diversity_cap` | 5% | Diversity requirements + clamping |
+| `divergence_analysis` | 25% | Manifest-attestation divergence engine |
+| `manifest_bonus` | 5% | Manifest disclosure bonus |
+
+**Key constraints:**
+- Does NOT change the scoring formula — instrumentation wraps the pure function at the API layer
+- Does NOT enable partial computation — full pipeline always runs (prevents gaming)
+- The `computation` field is OPTIONAL in ScoreResult — only added by the API wrapper, not the library
+
+**Effort:** 2-3 days once the token launch is underway and all referenced features are confirmed live.
