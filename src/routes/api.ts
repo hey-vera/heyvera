@@ -34,7 +34,7 @@ apiRouter.post('/orchestrate', async (c) => {
   const requestId = nanoid(12);
   const start = Date.now();
 
-  let body: { query?: string; pricing?: unknown; cache?: string; diff?: boolean };
+  let body: { query?: string; pricing?: unknown; cache?: string; diff?: boolean; mode?: string };
   try {
     body = await c.req.json();
   } catch {
@@ -172,9 +172,9 @@ apiRouter.post('/orchestrate', async (c) => {
     }
 
     // Tighter pre-flight: now that we know the plan, check estimated cost against balance
+    const planEstimate = estimatePlanCost(intent);
     if (!keyInfo.isEnvKey) {
-      const estimate = estimatePlanCost(intent);
-      const estimatedTotal = round6(estimate.totalCredits + ORCHESTRATION_FEE);
+      const estimatedTotal = round6(planEstimate.totalCredits + ORCHESTRATION_FEE);
       if (keyInfo.credits < estimatedTotal) {
         return c.json({
           requestId,
@@ -185,6 +185,83 @@ apiRouter.post('/orchestrate', async (c) => {
           hint: 'Top up your credits at claw-net.org',
         }, 402);
       }
+    }
+
+    // ─── Discovery Mode ─────────────────────────────────────────────────
+    // Returns the plan (endpoints, pricing, alternatives) without executing.
+    // Agent caches the endpoints and calls them directly via x402.
+    // Re-discovers when TTL expires to pick up cheaper/faster alternatives.
+    // Cost: 0.5 credits (LLM intent parsing only, no API execution).
+    const DISCOVERY_FEE = 0.5;
+    if (body.mode === 'discover') {
+      if (!keyInfo.isEnvKey) {
+        let discoveryDeducted = false;
+        try {
+          discoveryDeducted = deductCredit(keyInfo.key, DISCOVERY_FEE);
+        } catch (err) {
+          logger.error({ err, key: maskApiKey(keyInfo.key) }, 'Discovery credit deduction failed');
+          return c.json({ error: 'Billing temporarily unavailable, please retry', code: 'BILLING_ERROR' }, 503);
+        }
+        if (!discoveryDeducted) {
+          return c.json({ requestId, error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS', creditsRequired: DISCOVERY_FEE, creditsAvailable: keyInfo.credits }, 402);
+        }
+        trackDelegatedSpend(keyInfo, DISCOVERY_FEE);
+      }
+
+      // Build discovery response with endpoints, pricing, and alternatives
+      const endpoints = intent.steps.map((step, i) => {
+        const ep = findEndpoint(step.endpointId);
+        const creditCost = ep ? creditCostForEndpoint(ep) : 0.001;
+        const alternatives = getAlternativesForEndpoint(step.endpointId)
+          .slice(0, 5)
+          .map(alt => {
+            const altEp = findEndpoint(alt.id);
+            return {
+              endpointId: alt.id,
+              creditCost: altEp ? creditCostForEndpoint(altEp) : 0.001,
+              latencyMs: alt.latencyMs,
+            };
+          });
+        return {
+          endpointId: step.endpointId,
+          invokeUrl: step.endpointId.startsWith('skill:')
+            ? `/v1/skills/${step.endpointId.replace('skill:', '')}/invoke`
+            : null, // built-in endpoints are called via orchestration, not directly
+          method: 'POST',
+          params: step.params,
+          reason: step.reason,
+          creditCost,
+          estimatedUsd: creditsToUsd(creditCost),
+          alternatives,
+        };
+      });
+
+      // TTL heuristic: volatile categories get shorter TTLs
+      const volatileKeywords = ['price', 'trade', 'swap', 'balance', 'rate', 'market', 'gas'];
+      const isVolatile = volatileKeywords.some(kw =>
+        query.toLowerCase().includes(kw) ||
+        intent.steps.some(s => s.endpointId.toLowerCase().includes(kw))
+      );
+      const ttlSeconds = isVolatile ? 21600 : 86400; // 6h for volatile, 24h for stable
+
+      logger.info({ requestId, query: query.slice(0, 100), endpoints: endpoints.length, ttl: ttlSeconds }, 'Discovery mode response');
+
+      return c.json({
+        requestId,
+        mode: 'discover',
+        summary: intent.summary,
+        reasoning: intent.reasoning,
+        endpoints,
+        totalEstimatedCredits: round6(planEstimate.totalCredits),
+        totalEstimatedUsd: creditsToUsd(planEstimate.totalCredits),
+        ttl: ttlSeconds,
+        rediscoverAt: new Date(Date.now() + ttlSeconds * 1000).toISOString(),
+        costBreakdown: {
+          discoveryFee: DISCOVERY_FEE,
+          estimatedExecutionCredits: round6(planEstimate.totalCredits),
+          hint: 'Call endpoints directly. Re-discover when TTL expires to find cheaper alternatives.',
+        },
+      });
     }
 
     // Execute with optional budget constraint for runtime step-skipping
