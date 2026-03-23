@@ -110,7 +110,7 @@ transaction makes it smarter.
 - [ ] Direct receiveWithAuthorization settlement (no facilitator)
 - [x] Mutual authentication (server signs responses) — aid-provider-proof.ts (X-AID-PROVIDER-DID + X-AID-PROVIDER-PROOF) + A2A signed trustProof
 - [x] Portable atomic receipts with dual signatures + Merkle anchoring — src/core/receipt-builder.ts (already built)
-- [ ] Consumer heartbeat (authenticated, personalized)
+- [x] Consumer heartbeat (authenticated, personalized) — GET /aid/heartbeat/consumer with credit balance, pending feedback, disputes, alerts
 - [ ] ERC-8004 reputation bridge (publish trust scores on-chain)
 - [x] A2A agent card extension (trust scores in discovery) — src/routes/aid-a2a.ts (GET /aid/a2a/card/:did + /discover)
 - [ ] Solana SPL USDC settlement option (Ed25519 single-key)
@@ -118,10 +118,10 @@ transaction makes it smarter.
 - [ ] @aidprotocol/x402-enhanced middleware (add trust to any x402 server, Section 43.1b)
 - [ ] @aidprotocol/solana-trust (score engine for Solana Agent Registry, Section 43.1b)
 - [x] Formal dispute resolution (POST /aid/disputes — Flaw 6, elevated from "future vision") — src/routes/aid-disputes.ts + v114 migration
-- [ ] Bad debt reserve — 0.1% surcharge on deferred settlements (Flaw 4)
+- [x] Bad debt reserve — 0.1% surcharge on deferred settlements (Flaw 4) — src/utils/bad-debt-reserve.ts + v115 migration
 - [x] WebSocket/SSE streaming for trust updates (Flaw 5 / Optimization 8) — src/routes/aid-stream.ts (GET /aid/stream SSE + event bus)
 - [x] @aidprotocol/aar-bridge — bidirectional AAR receipt conversion (Optimization 12) — src/utils/aar-bridge.ts
-- [ ] Verifiable Intent integration — map AID trust as VI signal (Optimization 13)
+- [x] Verifiable Intent integration — map AID trust as VI signal (Optimization 13) — src/utils/verifiable-intent.ts (W3C VC trust credentials + VI signal)
 - [ ] AID-MPP Profile — trust headers alongside Stripe MPP session authorization (Section 15.5)
 - [ ] AID-AgentKit bridge — optional World ID linking for maximum trust signal (Section 45.5)
 - [ ] AID-TAP reference — spec-only interop note for Visa Trusted Agent Protocol (no code)
@@ -184,7 +184,7 @@ transaction makes it smarter.
 
 ---
 
-**Progress: 58/133 items complete (44%). NEXT: Submit NIST comment → ERC-8004 registration → governance model → consumer heartbeat → bad debt reserve.**
+**Progress: 61/133 items complete (46%). NEXT: Submit NIST comment → ERC-8004 registration → governance model → x402-enhanced middleware → MPP profile.**
 
 ---
 

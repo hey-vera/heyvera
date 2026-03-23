@@ -13,12 +13,16 @@
  */
 
 import { Hono } from 'hono';
+import { z } from 'zod';
+import { nanoid } from 'nanoid';
 import { getEd25519PublicKeyMultibase, getEd25519PublicKeyRaw } from '../utils/ed25519-signer';
 import { AID_HASH_ALGORITHM } from '../utils/crypto-agility';
 import { listPublicSkills, countPublicSkills } from '../db/skills';
 import { getDb } from '../db/connection';
 import { logger } from '../utils/logger';
 import { cacheGet, cacheSet, cacheIncr } from '../cache/index';
+import { checkAidProof, type AidInfo } from '../middleware/aid-verify';
+import { aidProviderProof } from '../middleware/aid-provider-proof';
 
 const router = new Hono();
 
@@ -135,6 +139,98 @@ router.get('/heartbeat', (c) => {
   }
 });
 
+// ─── GET /heartbeat (authenticated) — Consumer heartbeat with personalized data ─
+
+router.get('/heartbeat/consumer', checkAidProof, async (c) => {
+  const aidInfo = (c as any).get?.('aidInfo') as AidInfo | undefined;
+
+  if (!aidInfo) {
+    return c.json({ error: 'AID authentication required for consumer heartbeat', code: 'AID_PROOF_MISSING' }, 428);
+  }
+
+  try {
+    // Get agent's credit balance (if credit-based)
+    let creditBalance = 0;
+    try {
+      const creditRow = getDb().prepare(
+        `SELECT credits FROM api_keys WHERE api_key_hash = ? LIMIT 1`
+      ).get(aidInfo.ownerKey) as { credits: number } | undefined;
+      creditBalance = creditRow?.credits ?? 0;
+    } catch { /* non-critical */ }
+
+    // Get recent receipts count
+    const recentReceipts = getDb().prepare(`
+      SELECT COUNT(*) as n FROM attestations
+      WHERE owner_key = ? AND created_at > datetime('now', '-7 days')
+    `).get(aidInfo.ownerKey) as { n: number } | undefined;
+
+    // Get pending feedback count
+    const pendingFeedback = getDb().prepare(`
+      SELECT COUNT(*) as n FROM attestations a
+      WHERE a.owner_key = ? AND a.created_at > datetime('now', '-7 days')
+      AND NOT EXISTS (SELECT 1 FROM aid_feedback f WHERE f.receipt_id = a.tx_id)
+    `).get(aidInfo.ownerKey) as { n: number } | undefined;
+
+    // Get active disputes
+    const activeDisputes = getDb().prepare(`
+      SELECT COUNT(*) as n FROM aid_disputes
+      WHERE claimant_key = ? AND status NOT IN ('resolved', 'expired')
+    `).get(aidInfo.ownerKey) as { n: number } | undefined;
+
+    // Trust tier pricing
+    const verdictMap: Record<string, { multiplier: number; settlement: string }> = {
+      proceed: { multiplier: 0.7, settlement: 'deferred' },
+      trusted: { multiplier: 0.75, settlement: 'batched' },
+      standard: { multiplier: 0.8, settlement: 'batched' },
+      caution: { multiplier: 0.9, settlement: 'standard' },
+      building: { multiplier: 1.0, settlement: 'immediate' },
+      new: { multiplier: 1.0, settlement: 'immediate' },
+    };
+    const tier = verdictMap[aidInfo.verdict] || verdictMap.new;
+
+    // Get trust alerts (providers whose score dropped)
+    let alerts: Array<{ type: string; provider: string; delta: number }> = [];
+    try {
+      const degradedProviders = getDb().prepare(`
+        SELECT DISTINCT provider_did, old_score, new_score
+        FROM aid_trust_events
+        WHERE consumer_did = ? AND event_type = 'trust_degraded'
+        AND created_at > datetime('now', '-24 hours')
+        LIMIT 5
+      `).all(aidInfo.did) as any[];
+      alerts = degradedProviders.map(p => ({
+        type: 'trust_degradation',
+        provider: p.provider_did,
+        delta: p.new_score - p.old_score,
+      }));
+    } catch { /* table may not exist yet */ }
+
+    return c.json({
+      consumer: {
+        did: aidInfo.did,
+        trustScore: aidInfo.trustScore,
+        verdict: aidInfo.verdict,
+        verified: aidInfo.verified,
+        pricingTier: {
+          verdict: aidInfo.verdict,
+          multiplier: tier.multiplier,
+          settlement: tier.settlement,
+          discount: `${Math.round((1 - tier.multiplier) * 100)}%`,
+        },
+        creditBalance: Number(creditBalance.toFixed(6)),
+        recentReceipts: recentReceipts?.n ?? 0,
+        feedbackPending: pendingFeedback?.n ?? 0,
+        activeDisputes: activeDisputes?.n ?? 0,
+        alerts,
+      },
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err: any) {
+    logger.error({ err }, 'Consumer heartbeat error');
+    return c.json({ error: 'Consumer heartbeat failed', code: 'AID_INTERNAL_ERROR' }, 500);
+  }
+});
+
 // ─── POST /feedback — AID Protocol outcome reporting ─────────────────────────
 //
 // Agents report transaction outcomes to feed the trust flywheel (spec Section 6).
@@ -142,10 +238,7 @@ router.get('/heartbeat', (c) => {
 // Feedback weight depends on reporter's transaction history (anti-Sybil).
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { z } from 'zod';
-import { nanoid } from 'nanoid';
-import { checkAidProof, type AidInfo } from '../middleware/aid-verify';
-import { aidProviderProof } from '../middleware/aid-provider-proof';
+
 
 const FeedbackSchema = z.object({
   receiptId: z.string().min(1).max(100),

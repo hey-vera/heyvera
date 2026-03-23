@@ -1250,6 +1250,31 @@ const MIGRATIONS: { version: number; sql: string }[] = [
     CREATE INDEX IF NOT EXISTS idx_aid_disputes_claimant ON aid_disputes(claimant_did);
     CREATE INDEX IF NOT EXISTS idx_aid_disputes_status ON aid_disputes(status);
   ` },
+
+  // v115: Bad debt insurance fund (Flaw 4) + trust events for consumer alerts
+  { version: 115, sql: `
+    CREATE TABLE IF NOT EXISTS aid_insurance_fund (
+      id TEXT PRIMARY KEY DEFAULT 'primary',
+      balance REAL NOT NULL DEFAULT 0,
+      total_collected REAL NOT NULL DEFAULT 0,
+      total_paid REAL NOT NULL DEFAULT 0,
+      last_collection_at TEXT,
+      last_payout_at TEXT
+    );
+    INSERT OR IGNORE INTO aid_insurance_fund (id) VALUES ('primary');
+
+    CREATE TABLE IF NOT EXISTS aid_trust_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      event_type TEXT NOT NULL,
+      consumer_did TEXT,
+      provider_did TEXT,
+      old_score INTEGER,
+      new_score INTEGER,
+      data_json TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_aid_trust_events_consumer ON aid_trust_events(consumer_did, created_at DESC);
+  ` },
 ];
 
 function runMigrations(): void {
