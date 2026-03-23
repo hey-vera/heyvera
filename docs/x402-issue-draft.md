@@ -91,15 +91,15 @@ Client                                Server
 
 This proposal aligns with the [x402 roadmap's request](https://github.com/coinbase/x402) for "Identity Solution Proposals (guides/PRs using existing identity providers)."
 
-## Production Evidence
+## Implementation Status
 
-Running in production on [ClawNet](https://claw-net.org) (344 API endpoints, skill marketplace, x402 payments):
+Reference implementation deployed on [ClawNet](https://claw-net.org) (344 API endpoints, skill marketplace, x402 payments):
 
-- Trust-gated pricing: 6 tiers based on trust score (0-15% discount)
-- Mutual authentication on x402 responses
-- Nonce replay protection with 5-minute window
-- Published package: [`@aidprotocol/trust-compute`](https://www.npmjs.com/package/@aidprotocol/trust-compute) v2.0.0 (MIT, standalone, zero ClawNet dependencies)
-- On-chain identity: ERC-8004 Agent ID 36118 (Base)
+- AID verification middleware ([`checkAidProof`](https://github.com/aidprotocol/aid-spec)) — Ed25519 signature verification, nonce replay protection, timestamp validation
+- Trust-gated pricing function (`trustGatedCreditCost`) — 6 tiers based on trust score
+- Mutual authentication — server signs responses with provider DID
+- Published scoring library: [`@aidprotocol/trust-compute`](https://www.npmjs.com/package/@aidprotocol/trust-compute) v2.0.0 (MIT, standalone, zero platform dependencies)
+- On-chain identity: ERC-8004 Agent ID 36118 on Base
 
 ## Next Steps
 
