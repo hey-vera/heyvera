@@ -1,0 +1,32 @@
+{
+  "name": "@aidprotocol/facilitator",
+  "version": "1.0.0",
+  "description": "Open-source x402 facilitator with AID trust — fee-free alternative to centralized facilitators",
+  "main": "dist/index.js",
+  "bin": {
+    "aid-facilitator": "dist/index.js"
+  },
+  "files": ["dist/", "README.md"],
+  "scripts": {
+    "build": "node build.mjs",
+    "start": "node dist/index.js",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "x402", "facilitator", "aid", "trust", "payment", "micropayment",
+    "usdc", "base", "open-source"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aidprotocol/aid-spec",
+    "directory": "packages/facilitator"
+  },
+  "homepage": "https://aidprotocol.org",
+  "dependencies": {
+    "@aidprotocol/trust-compute": "^2.0.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.20.0"
+  }
+}

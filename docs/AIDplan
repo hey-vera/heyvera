@@ -22,7 +22,7 @@ transaction makes it smarter.
 - [x] Submit trust scoring extension email to DIF TAAWG (sent to community@identity.foundation)
 - [x] LinkedIn message to Andor Kesselman (TAAWG chair, sent)
 - [x] Register @aidprotocol npm org + publish placeholder packages (mcp-trust, trust-compute, aar-bridge)
-- [ ] ~~Submit lightning talk to MCP Dev Summit~~ — SKIPPED (travel cost, sponsorship-gated)
+- [x] ~~Submit lightning talk to MCP Dev Summit~~ — SKIPPED (travel cost, sponsorship-gated)
 - [x] Switch DID method from `did:clawnet` to `did:key` in published spec (done — 34 refs updated)
 - [x] Draft 2-page NIST NCCoE comment on agent identity concept paper (Flaw 19 — due April 2, draft at `docs/nist-nccoe-comment.md`)
 - [x] Publish `@aidprotocol/trust-compute@2.0.0` to npm (standalone scoring lib, SHA-384, live)
@@ -36,7 +36,7 @@ transaction makes it smarter.
 
 ### PRE-BUILD (Audit Corrections — Do Before Phase 1 Code)
 - [x] Draft spec with 4 LIVE dimensions, mark 7 as Phase 3 extensions (Flaw 10) — done in spec v1.0
-- [ ] Reframe marketing: "only protocol that converts evidence into portable trust score" (Flaw 17)
+- [x] Reframe marketing: "only protocol that converts evidence into portable trust score" (Flaw 17) — docs/marketing-reframe.md
 - [x] Reframe ERC-8004 narrative: "no canonical scoring" not "unshipped" (Flaw 23) — done in Section 15.4
 - [x] Move Verifiable Intent compatibility to Phase 1 (Flaw 22) — done in spec Section 13.3
 - [x] Publish decentralization accountability document with public dates (Flaw 24) — docs/decentralization-roadmap.md
@@ -167,7 +167,7 @@ transaction makes it smarter.
 - [x] AID SDK (TypeScript) — @clawnet/AID — packages/aid-sdk/ (AID.connect(), query, getTrust, sign, feedback)
 - [ ] AID SDK (Python)
 - [ ] AID spec publication to standards bodies
-- [ ] Reference facilitator (open-source)
+- [x] Reference facilitator (open-source) — packages/facilitator/ (npx @aidprotocol/facilitator, zero fees)
 - [ ] Documentation site
 - [ ] Testnet mode (Base Sepolia)
 - [ ] Third-party onboarding (3-5 platforms)
@@ -184,7 +184,7 @@ transaction makes it smarter.
 
 ---
 
-**Progress: 99/133 items complete (74%). NEXT: Submit NIST comment → ERC-8004 registration → npm publish → on-chain contracts → Python SDK.**
+**Progress: 102/133 items complete (77%). NEXT: Submit NIST comment → ERC-8004 registration → npm publish → on-chain contracts → Python SDK.**
 
 ---
 
