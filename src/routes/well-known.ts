@@ -526,6 +526,38 @@ router.get('/erc8004.json', (c) => {
   });
 });
 
+// ── GET /erc8004-registration.json — ERC-8004 v1 Registration File ──────────
+// This is the agentURI file that the on-chain IdentityRegistry points to.
+// Format: https://eips.ethereum.org/EIPS/eip-8004#registration-v1
+router.get('/erc8004-registration.json', (c) => {
+  return c.json({
+    type: 'https://eips.ethereum.org/EIPS/eip-8004#registration-v1',
+    name: 'ClawNet',
+    description: 'The trust and commerce layer for AI agents. Skill marketplace, 344 API endpoints, cryptographic attestations, x402 micropayments. AID trust protocol reference implementation.',
+    image: 'https://claw-net.org/favicon.svg',
+    services: [
+      { name: 'web', endpoint: 'https://claw-net.org/' },
+      { name: 'api', endpoint: 'https://api.claw-net.org/' },
+      { name: 'MCP', endpoint: 'https://api.claw-net.org/v1/mcp', version: '2025-06-18' },
+      { name: 'A2A', endpoint: 'https://api.claw-net.org/.well-known/agent-card.json', version: '0.3.0' },
+      { name: 'x402', endpoint: 'https://api.claw-net.org/v1/skills', version: '0.1.0' },
+      { name: 'AID', endpoint: 'https://api.claw-net.org/v1/aid', version: '1.0.0' },
+    ],
+    x402Support: true,
+    active: true,
+    registrations: [
+      {
+        agentRegistry: 'eip155:8453:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432',
+      },
+    ],
+    supportedTrust: ['reputation', 'validation'],
+    protocols: {
+      aid: { version: '1.0.0', spec: 'https://claw-net.org/docs/aid-protocol-spec.md', trustEndpoint: '/v1/aid/:did/trust' },
+      x402: { supported: true, network: 'base', facilitator: 'https://facilitator.claw-net.org' },
+    },
+  });
+});
+
 // ── GET /did.json — W3C DID Document (did:web:api.claw-net.org) ───────────
 //
 // Deterministic Ed25519 keypair derived from PLATFORM_SIGNING_SECRET.
