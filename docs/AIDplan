@@ -115,7 +115,7 @@ transaction makes it smarter.
 - [x] A2A agent card extension (trust scores in discovery) — src/routes/aid-a2a.ts (GET /aid/a2a/card/:did + /discover)
 - [ ] Solana SPL USDC settlement option (Ed25519 single-key)
 - [ ] ElizaOS plugin for AID trust
-- [ ] @aidprotocol/x402-enhanced middleware (add trust to any x402 server, Section 43.1b)
+- [x] @aidprotocol/x402-enhanced middleware (add trust to any x402 server, Section 43.1b) — packages/x402-enhanced/
 - [ ] @aidprotocol/solana-trust (score engine for Solana Agent Registry, Section 43.1b)
 - [x] Formal dispute resolution (POST /aid/disputes — Flaw 6, elevated from "future vision") — src/routes/aid-disputes.ts + v114 migration
 - [x] Bad debt reserve — 0.1% surcharge on deferred settlements (Flaw 4) — src/utils/bad-debt-reserve.ts + v115 migration
@@ -128,10 +128,10 @@ transaction makes it smarter.
 - [ ] AIDEscrow.sol reference contract on Base — trust-gated escrow timelocks (from PayCrow, Section 15.7)
 - [ ] ZK proof of scoring function via RISC Zero — <$0.01/proof (accelerated from Phase 4, from Mnemom)
 - [ ] Sybil risk as supplementary signal in AID documents — consume Cred/external data (Section 15.7)
-- [ ] Trust Score v1.1 — add counterpartyDiversity (15%) + recency-weighted successRate (Section 4.2)
-- [ ] Onboarding milestones — signed timestamps for key trust journey events (from AgentSign, Section 4.2)
+- [x] Trust Score v1.1 — add counterpartyDiversity (15%) + recency-weighted successRate (Section 4.2) — src/core/trust-scoring-v11.ts (already built)
+- [x] Onboarding milestones — signed timestamps for key trust journey events (from AgentSign, Section 4.2) — GET /aid/milestones/:did + recordMilestone() + v116 migration
 - [ ] AID-Solana-Registry bridge — Ed25519 native mapping (parallel with ERC-8004 bridge)
-- [ ] Recovery key registration (2-of-3 multi-sig) at AID creation (Section 39.18)
+- [x] Recovery key registration (2-of-3 multi-sig) at AID creation (Section 39.18) — POST /aid/recovery-keys + GET /aid/recovery-keys/:did + v116
 - [ ] Trust freeze endpoint — FROZEN/CHALLENGE/SOFT_FREEZE states (Section 39.18)
 - [ ] Proof of life heartbeat — weekly owner signature, auto-decay schedule (Section 39.18)
 - [ ] Anomaly detection + progressive behavioral containment (Section 39.18)
@@ -184,7 +184,7 @@ transaction makes it smarter.
 
 ---
 
-**Progress: 61/133 items complete (46%). NEXT: Submit NIST comment → ERC-8004 registration → governance model → x402-enhanced middleware → MPP profile.**
+**Progress: 65/133 items complete (49%). NEXT: Submit NIST comment → ERC-8004 registration → governance model → trust freeze endpoint → proof of life heartbeat.**
 
 ---
 

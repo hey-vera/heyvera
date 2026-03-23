@@ -1275,6 +1275,29 @@ const MIGRATIONS: { version: number; sql: string }[] = [
     );
     CREATE INDEX IF NOT EXISTS idx_aid_trust_events_consumer ON aid_trust_events(consumer_did, created_at DESC);
   ` },
+
+  // v116: Onboarding milestones (from AgentSign, Section 4.2) + recovery keys (Section 39.18)
+  { version: 116, sql: `
+    CREATE TABLE IF NOT EXISTS aid_milestones (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      did TEXT NOT NULL,
+      milestone_type TEXT NOT NULL,
+      milestone_data TEXT,
+      signature TEXT NOT NULL,
+      achieved_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_aid_milestones_did ON aid_milestones(did, milestone_type);
+
+    CREATE TABLE IF NOT EXISTS aid_recovery_keys (
+      id TEXT PRIMARY KEY,
+      did TEXT NOT NULL,
+      recovery_key_hash TEXT NOT NULL,
+      key_index INTEGER NOT NULL DEFAULT 1,
+      status TEXT NOT NULL DEFAULT 'active',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_aid_recovery_did_idx ON aid_recovery_keys(did, key_index);
+  ` },
 ];
 
 function runMigrations(): void {

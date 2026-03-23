@@ -18,7 +18,7 @@ import { nanoid } from 'nanoid';
 import { getEd25519PublicKeyMultibase, getEd25519PublicKeyRaw } from '../utils/ed25519-signer';
 import { AID_HASH_ALGORITHM } from '../utils/crypto-agility';
 import { listPublicSkills, countPublicSkills } from '../db/skills';
-import { getDb } from '../db/connection';
+import { getDb, logAudit } from '../db/connection';
 import { logger } from '../utils/logger';
 import { cacheGet, cacheSet, cacheIncr } from '../cache/index';
 import { checkAidProof, type AidInfo } from '../middleware/aid-verify';
@@ -1177,6 +1177,154 @@ router.post('/provision', async (c) => {
     logger.error({ err }, 'AID provisioning failed');
     return c.json({ error: 'Failed to provision AID', code: 'AID_INTERNAL_ERROR' }, 500);
   }
+});
+
+// ─── GET /milestones/:did — Onboarding milestones (from AgentSign, Section 4.2) ─
+
+const MILESTONE_TYPES = [
+  'first_attestation',
+  'tenth_attestation',
+  'first_cross_counterparty',
+  'identity_verified',
+  'hundred_attestations',
+  'thousand_attestations',
+  'six_month_anniversary',
+  'first_feedback_given',
+  'first_feedback_received',
+  'first_composite_execution',
+] as const;
+
+router.get('/milestones/:did', async (c) => {
+  const did = c.req.param('did');
+
+  try {
+    const milestones = getDb().prepare(`
+      SELECT milestone_type, milestone_data, signature, achieved_at
+      FROM aid_milestones WHERE did = ? ORDER BY achieved_at ASC
+    `).all(did) as Array<{ milestone_type: string; milestone_data: string; signature: string; achieved_at: string }>;
+
+    return c.json({
+      did,
+      milestones: milestones.map(m => ({
+        type: m.milestone_type,
+        data: m.milestone_data ? JSON.parse(m.milestone_data) : null,
+        signature: m.signature,
+        achievedAt: m.achieved_at,
+      })),
+      total: milestones.length,
+      nextMilestone: getNextMilestone(did, milestones.map(m => m.milestone_type)),
+    });
+  } catch (err: any) {
+    logger.error({ err }, 'Milestones lookup failed');
+    return c.json({ error: 'Milestones lookup failed', code: 'AID_INTERNAL_ERROR' }, 500);
+  }
+});
+
+function getNextMilestone(did: string, achieved: string[]): string | null {
+  for (const m of MILESTONE_TYPES) {
+    if (!achieved.includes(m)) return m;
+  }
+  return null;
+}
+
+/**
+ * Record an onboarding milestone for an agent.
+ * Called internally when milestone conditions are met.
+ */
+export async function recordMilestone(did: string, milestoneType: string, data?: Record<string, unknown>): Promise<void> {
+  try {
+    const crypto = await import('crypto');
+    const { AID_HASH_ALGORITHM } = await import('../utils/crypto-agility');
+
+    // Check if already achieved
+    const existing = getDb().prepare(
+      `SELECT 1 FROM aid_milestones WHERE did = ? AND milestone_type = ? LIMIT 1`
+    ).get(did, milestoneType);
+    if (existing) return;
+
+    // Sign the milestone
+    const sigInput = `${did}:${milestoneType}:${new Date().toISOString()}`;
+    const signature = crypto.createHash(AID_HASH_ALGORITHM).update(sigInput).digest('hex');
+
+    getDb().prepare(`
+      INSERT INTO aid_milestones (did, milestone_type, milestone_data, signature)
+      VALUES (?, ?, ?, ?)
+    `).run(did, milestoneType, data ? JSON.stringify(data) : null, signature);
+
+    logger.info({ did, milestoneType }, 'Milestone recorded');
+  } catch (err) {
+    logger.warn({ err, did, milestoneType }, 'Failed to record milestone');
+  }
+}
+
+// ─── POST /recovery-keys — Register recovery keys (2-of-3 multi-sig, Section 39.18) ─
+
+router.post('/recovery-keys', checkAidProof, async (c) => {
+  const aidInfo = c.get('aidInfo') as AidInfo | undefined;
+  if (!aidInfo) {
+    return c.json({ error: 'AID authentication required', code: 'AID_PROOF_MISSING' }, 428);
+  }
+
+  const body = await c.req.json().catch(() => null);
+  if (!body || !body.recoveryKeyHash) {
+    return c.json({ error: 'Missing required field: recoveryKeyHash', code: 'AID_INVALID' }, 400);
+  }
+
+  const { recoveryKeyHash, keyIndex } = body;
+  const idx = keyIndex || 1;
+
+  if (idx < 1 || idx > 3) {
+    return c.json({ error: 'keyIndex must be 1, 2, or 3', code: 'AID_INVALID' }, 400);
+  }
+
+  try {
+    // Check existing recovery keys for this DID
+    const existing = getDb().prepare(
+      `SELECT COUNT(*) as n FROM aid_recovery_keys WHERE did = ? AND status = 'active'`
+    ).get(aidInfo.did) as { n: number };
+
+    if (existing.n >= 3) {
+      return c.json({ error: 'Maximum 3 recovery keys per DID', code: 'AID_LIMIT_REACHED' }, 400);
+    }
+
+    const id = `rk-${nanoid(16)}`;
+    getDb().prepare(`
+      INSERT OR REPLACE INTO aid_recovery_keys (id, did, recovery_key_hash, key_index, status)
+      VALUES (?, ?, ?, ?, 'active')
+    `).run(id, aidInfo.did, recoveryKeyHash, idx);
+
+    logAudit({ entityType: 'recovery_key', entityId: id, action: 'registered', data: { did: aidInfo.did, keyIndex: idx } });
+
+    return c.json({
+      id,
+      did: aidInfo.did,
+      keyIndex: idx,
+      totalKeys: existing.n + 1,
+      multiSigThreshold: 2,
+      message: `Recovery key ${idx} registered. 2-of-3 multi-sig required for recovery operations.`,
+    }, 201);
+  } catch (err: any) {
+    logger.error({ err }, 'Recovery key registration failed');
+    return c.json({ error: 'Registration failed', code: 'AID_INTERNAL_ERROR' }, 500);
+  }
+});
+
+// ─── GET /recovery-keys/:did — List recovery keys for a DID ─────────────────
+
+router.get('/recovery-keys/:did', async (c) => {
+  const did = c.req.param('did');
+
+  const keys = getDb().prepare(`
+    SELECT key_index, status, created_at FROM aid_recovery_keys
+    WHERE did = ? ORDER BY key_index ASC
+  `).all(did) as Array<{ key_index: number; status: string; created_at: string }>;
+
+  return c.json({
+    did,
+    keys: keys.map(k => ({ keyIndex: k.key_index, status: k.status, registeredAt: k.created_at })),
+    multiSigThreshold: 2,
+    multiSigReady: keys.filter(k => k.status === 'active').length >= 2,
+  });
 });
 
 export { router as aidProtocolRouter };

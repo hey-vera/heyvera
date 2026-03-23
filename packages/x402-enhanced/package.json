@@ -1,0 +1,37 @@
+{
+  "name": "@aidprotocol/x402-enhanced",
+  "version": "1.0.0",
+  "description": "Add AID trust scoring to any x402 server — trust-gated pricing for x402 payments",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "files": ["dist/", "README.md"],
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "x402", "trust", "aid", "agent", "identity", "middleware",
+    "payment", "micropayment", "ed25519", "did", "pricing"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aidprotocol/aid-spec",
+    "directory": "packages/x402-enhanced"
+  },
+  "homepage": "https://aidprotocol.org",
+  "dependencies": {
+    "@aidprotocol/trust-compute": "^2.0.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.20.0"
+  }
+}
