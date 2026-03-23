@@ -1,15 +1,28 @@
 import { Hono } from 'hono';
 import { checkApiKey } from '../middleware/auth';
-import { getSkill, getUsageStats, deductCredit } from '../db/index';
+import { getSkill, getUsageStats, deductCredit, getClerkIdForKey } from '../db/index';
 import { maskApiKey } from '../utils/mask';
 import { logAudit } from '../db/connection';
+import { env } from '../config/index';
 
 export const authRouter = new Hono();
 
 // ─── GET /v1/auth/me — current key info ───────────────────────────────────────
 
-authRouter.get('/me', checkApiKey, (c) => {
+authRouter.get('/me', checkApiKey, async (c) => {
   const keyInfo = c.get('apiKeyInfo');
+
+  // Check if user has TOTP/MFA enabled via Clerk
+  let totpEnabled = false;
+  try {
+    const clerkId = getClerkIdForKey(keyInfo.key);
+    if (clerkId && env.CLERK_SECRET_KEY) {
+      const { createClerkClient } = await import('@clerk/backend');
+      const clerk = createClerkClient({ secretKey: env.CLERK_SECRET_KEY });
+      const user = await clerk.users.getUser(clerkId);
+      totpEnabled = user.totpEnabled ?? false;
+    }
+  } catch {}
 
   return c.json({
     key: maskApiKey(keyInfo.key),
@@ -18,6 +31,7 @@ authRouter.get('/me', checkApiKey, (c) => {
     creditsUsed: keyInfo.creditsUsed,
     amountPaid: keyInfo.amountPaid,
     isEnvKey: keyInfo.isEnvKey,
+    totpEnabled,
   });
 });
 
