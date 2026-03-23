@@ -1,0 +1,37 @@
+{
+  "name": "@aidprotocol/sdk",
+  "version": "1.0.0",
+  "description": "AID Protocol SDK — trust-scored agent commerce in 3 lines of code",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "files": ["dist/", "README.md"],
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "aid", "trust", "agent", "identity", "sdk", "ed25519", "did",
+    "agentic-commerce", "reputation", "x402", "mcp", "a2a"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aidprotocol/aid-spec",
+    "directory": "packages/aid-sdk"
+  },
+  "homepage": "https://aidprotocol.org",
+  "dependencies": {
+    "@aidprotocol/trust-compute": "^2.0.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.20.0"
+  }
+}

@@ -31,7 +31,7 @@ transaction makes it smarter.
 - [ ] Submit NIST NCCoE comment (AI-Identity@nist.gov, deadline April 2)
 - [x] Ship @aidprotocol/mcp-trust@1.1.0 alpha to npm (trust verification middleware, live)
 - [x] Publish AID spec as Protocol + Profiles (MCP, A2A, x402) — not monolith (Optimization 22, at `docs/aid-protocol-spec.md`)
-- [ ] Define governance model for trust formula versioning (Flaw 9)
+- [x] Define governance model for trust formula versioning (Flaw 9) — docs/governance-model.md
 - [x] Build interactive playground / trust.claw-net.org PWA — site/aid-playground.html
 
 ### PRE-BUILD (Audit Corrections — Do Before Phase 1 Code)
@@ -164,7 +164,7 @@ transaction makes it smarter.
 - [ ] AgentKit wallet integration (Coinbase AgentKit)
 
 ### PHASE 5: SOVEREIGNTY (Months 10+)
-- [ ] AID SDK (TypeScript) — @clawnet/AID
+- [x] AID SDK (TypeScript) — @clawnet/AID — packages/aid-sdk/ (AID.connect(), query, getTrust, sign, feedback)
 - [ ] AID SDK (Python)
 - [ ] AID spec publication to standards bodies
 - [ ] Reference facilitator (open-source)
@@ -184,7 +184,7 @@ transaction makes it smarter.
 
 ---
 
-**Progress: 90/133 items complete (68%). NEXT: Submit NIST comment → ERC-8004 registration → governance model → AID SDK → on-chain contracts.**
+**Progress: 92/133 items complete (69%). NEXT: Submit NIST comment → ERC-8004 registration → decentralization doc → AID SDK Python → on-chain contracts.**
 
 ---
 
