@@ -41,7 +41,11 @@ The server advertises trust requirements in the 402 response:
           { "minScore": 0, "discount": 0 }
         ],
         "supportedMethods": ["did:key"],
-        "signatureAlgorithm": "Ed25519"
+        "signatureAlgorithm": "Ed25519",
+        "newAgentPolicy": {
+          "maxCalls": 5,
+          "maxValuePerCall": "0.01"
+        }
       },
       "schema": {
         "type": "object",
@@ -49,6 +53,14 @@ The server advertises trust requirements in the 402 response:
           "providerDid": { "type": "string" },
           "minTrustScore": { "type": "number", "minimum": 0, "maximum": 100 },
           "trustEndpoint": { "type": "string", "format": "uri" },
+          "newAgentPolicy": {
+            "type": "object",
+            "description": "OPTIONAL. Server policy for cold-start agents with no trust history. Allows low-value first interactions without requiring a minimum trust score.",
+            "properties": {
+              "maxCalls": { "type": "integer", "description": "Max requests before trust score is required" },
+              "maxValuePerCall": { "type": "string", "description": "Max USD value per call during trial period" }
+            }
+          },
           "pricingTiers": {
             "type": "array",
             "items": {
@@ -129,7 +141,7 @@ Trust scores MAY be resolved via the `trustEndpoint` advertised in `PaymentRequi
 
 ## Security Considerations
 
-1. **Replay protection:** The `nonce` MUST be unique per request. Servers MUST reject duplicate nonces within a configurable window (recommended: 5 minutes).
+1. **Replay protection:** The `nonce` MUST be unique per request, scoped per-provider (each server maintains its own nonce set). Servers MUST reject duplicate nonces within a configurable time window (recommended: 5 minutes). A global nonce registry is not required — per-provider scoping is sufficient and practical at scale.
 
 2. **Timestamp validation:** The `timestamp` MUST be within ±5 minutes of the server's clock. Servers SHOULD reject stale timestamps.
 
