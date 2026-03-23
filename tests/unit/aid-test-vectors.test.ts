@@ -117,6 +117,61 @@ describe('AID Trust Score (test-vectors/trust-score.json)', () => {
   });
 });
 
+// ─── Cross-Implementation Proof Hash (pinned — Python + TS must match) ──────
+
+describe('AID Cross-Implementation Proof Hash', () => {
+  it('produces pinned proof hash for reference test vector', () => {
+    // This test vector is used to validate that EVERY AID implementation
+    // (TypeScript, Python, Go, Rust, etc.) produces identical output.
+    // If this test fails, the implementation diverged from the spec.
+
+    const stats = {
+      successRate: 0.95,
+      chainCoverage: 0.8,
+      attestationCount: 500,
+      manifestAdherence: 0.9,
+    };
+    const weights = { successRate: 40, chainCoverage: 25, volume: 20, manifestAdherence: 15 };
+
+    // Compute score
+    const volume = Math.min(stats.attestationCount / 1000, 1); // 0.5
+    const score = Math.min(100, Math.round(
+      stats.successRate * 40 + stats.chainCoverage * 25 + volume * 20 + stats.manifestAdherence * 15
+    )); // 82
+
+    expect(score).toBe(82);
+
+    // Build proof data and JCS canonicalize
+    const proofData = { inputs: stats, weights, score };
+    const canonical = jcsSerialize(proofData);
+
+    // Pinned canonical form — every implementation must produce this exact string
+    const expectedCanonical = '{"inputs":{"attestationCount":500,"chainCoverage":0.8,"manifestAdherence":0.9,"successRate":0.95},"score":82,"weights":{"chainCoverage":25,"manifestAdherence":15,"successRate":40,"volume":20}}';
+    expect(canonical).toBe(expectedCanonical);
+
+    // Pinned proof hash — every implementation must produce this exact hash
+    const proofHash = crypto.createHash('sha384').update(canonical).digest('hex');
+    const expectedHash = 'becd619fd5ffb9d7b8efb89145fb0ea676926fb435873d68955ccc96b5bdadfe2c08f13741100a819463f68599f2a33b';
+    expect(proofHash).toBe(expectedHash);
+  });
+
+  it('produces pinned proof hash via computeTrustScore (trust-compute package)', () => {
+    // Verify the packaged function matches the manual computation
+    const { computeTrustScore: compute } = require('../../packages/trust-compute/dist/index.js');
+    const result = compute({
+      successRate: 0.95,
+      chainCoverage: 0.8,
+      attestationCount: 500,
+      manifestAdherence: 0.9,
+    });
+
+    expect(result.score).toBe(82);
+    expect(result.proofHash).toBe('becd619fd5ffb9d7b8efb89145fb0ea676926fb435873d68955ccc96b5bdadfe2c08f13741100a819463f68599f2a33b');
+    expect(result.formulaVersion).toBe('1.0.0');
+    expect(result.hashAlgorithm).toBe('sha384');
+  });
+});
+
 // ─── Merkle Proof Test Vector ───────────────────────────────────────────────
 
 describe('AID Merkle Proof (test-vectors/merkle-proof.json)', () => {
