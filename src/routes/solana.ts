@@ -18,11 +18,10 @@ const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 // Receiving wallet — sourced from validated env config
 const RECEIVING_WALLET = env.SOLANA_RECEIVING_WALLET ?? '';
 
-// Credit amounts — +7% over equivalent Stripe package (USDC saves ~3% processing fee;
-// bonus capped at fee savings to protect margin).
-// Stripe: $20→22K, $50→60K, $100→125K, $500→750K, $1000→2M
-// USDC:   $20→23.5K, $50→64.2K, $100→133.75K, $500→802.5K, $1000→2.14M (+7%)
-const USDC_PACKAGES: Record<number, number> = {
+import { creditsForDollarsUsdc } from './billing';
+
+// Legacy fixed USDC packages (kept for backwards compat — old clients may still send these)
+const USDC_PACKAGES_LEGACY: Record<number, number> = {
   20:   23_500,
   50:   64_200,
   100:  133_750,
@@ -32,7 +31,7 @@ const USDC_PACKAGES: Record<number, number> = {
 
 const VerifySchema = z.object({
   signature: z.string().min(80).max(120).regex(/^[1-9A-HJ-NP-Za-km-z]+$/, 'Invalid base58 signature'),
-  expectedUsd: z.number().int().positive(),
+  expectedUsd: z.number().int().min(5).max(10000),
   replyEmail: z.string().email().optional(),
 });
 
@@ -79,11 +78,8 @@ solanaRouter.post('/verify', async (c) => {
     return c.json({ error: 'Email required — provide replyEmail to receive your API key.', code: 'EMAIL_REQUIRED' }, 400);
   }
 
-  // 3. Check package is valid
-  const credits = USDC_PACKAGES[expectedUsd];
-  if (!credits) {
-    return c.json({ error: `Invalid package amount. Valid amounts: ${Object.keys(USDC_PACKAGES).join(', ')}`, code: 'INVALID_AMOUNT' }, 400);
-  }
+  // 3. Calculate credits — use legacy package if exact match, otherwise flexible rate
+  const credits = USDC_PACKAGES_LEGACY[expectedUsd] ?? creditsForDollarsUsdc(expectedUsd);
 
   // 4. Atomic idempotency — claim signature BEFORE async on-chain verification.
   // INSERT OR IGNORE + changes > 0 ensures only ONE concurrent request wins,

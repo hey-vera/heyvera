@@ -148,32 +148,35 @@
     .danger-zone-title { font-size: 13px; font-weight: 600; color: var(--danger); margin-bottom: 2px; }
     .danger-zone-sub { font-size: 12px; color: var(--text-tertiary); }
 
-    /* ── TOPUP ── */
-    .topup-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px; }
-    .topup-btn { background: var(--bg-surface-2); border: 1px solid var(--border-subtle); color: var(--text-primary); font-family: var(--font-sans); font-size: 13px; padding: 16px; cursor: pointer; transition: all 0.15s; text-align: left; border-radius: var(--radius-md); position: relative; }
-    .topup-btn:hover { border-color: var(--accent); background: var(--accent-dim); }
-    .topup-btn.featured { border-color: rgba(16,185,129,0.3); }
-    .topup-badge { position: absolute; top: 8px; right: 8px; font-size: 10px; background: var(--accent-dim); color: var(--accent); padding: 2px 6px; border-radius: 9999px; font-weight: 600; }
-    .topup-amount { font-family: var(--font-mono); font-size: 18px; font-weight: 700; color: var(--accent); display: block; margin-bottom: 2px; }
-    .topup-credits { font-size: 13px; color: var(--text-primary); display: block; margin-bottom: 2px; }
-    .topup-est { display: none; }
-    .topup-bonus { font-size: 12px; font-weight: 700; color: var(--warning); display: block; margin-top: 5px; letter-spacing: 0.01em; }
-    .topup-bonus-amt { font-size: 11px; color: var(--warning); opacity: 0.75; font-weight: 500; }
-
-    /* ── CRYPTO ── */
-    .crypto-cta { background: var(--bg-surface); border: 1px solid rgba(139,92,246,0.25); border-radius: var(--radius-lg); padding: 20px; display: flex; align-items: center; justify-content: space-between; gap: 16px; cursor: pointer; transition: all 0.15s; }
-    .crypto-cta:hover { border-color: var(--purple); background: var(--purple-dim); }
-    .crypto-cta-title { font-size: 15px; font-weight: 600; color: var(--text-primary); display: flex; align-items: center; gap: 8px; }
-    .crypto-cta-badge { font-size: 10px; font-weight: 600; background: var(--purple); color: #fff; padding: 2px 8px; border-radius: 9999px; }
-    .crypto-cta-sub { font-size: 12px; color: var(--text-tertiary); margin-top: 2px; }
-    .crypto-cta-arrow { font-size: 13px; font-weight: 600; color: var(--purple); white-space: nowrap; }
-
-    /* ── SUBSCRIPTION ── */
-    .sub-bar { border: 1px solid var(--warning-dim); border-radius: var(--radius-lg); padding: 16px 20px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
-    .sub-price { font-family: var(--font-mono); font-size: 20px; font-weight: 700; color: var(--warning); }
-    .sub-desc { font-size: 12px; color: var(--text-secondary); }
-    .sub-btn { font-size: 13px; font-weight: 500; padding: 8px 16px; border-radius: var(--radius-md); cursor: pointer; border: 1px solid rgba(245,158,11,0.4); background: transparent; color: var(--warning); transition: all 0.15s; }
-    .sub-btn:hover { background: var(--warning-dim); }
+    /* ── TOPUP — FLEXIBLE ── */
+    .topup-flex { display: flex; flex-direction: column; gap: 16px; }
+    .topup-input-row { display: flex; align-items: center; border: 2px solid var(--border-default); border-radius: var(--radius-lg); overflow: hidden; background: var(--bg-primary); transition: border-color 0.15s; }
+    .topup-input-row:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }
+    .topup-input-sym { font-family: var(--font-mono); font-size: 24px; font-weight: 700; color: var(--text-primary); padding: 16px 16px 16px 20px; }
+    .topup-input { flex: 1; background: transparent; border: none; outline: none; font-family: var(--font-mono); font-size: 32px; font-weight: 700; color: var(--text-primary); padding: 12px 0; -moz-appearance: textfield; min-width: 0; }
+    .topup-input::-webkit-outer-spin-button, .topup-input::-webkit-inner-spin-button { -webkit-appearance: none; }
+    .topup-input::placeholder { color: var(--text-muted); font-weight: 400; }
+    .topup-result { background: var(--bg-surface-2); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 16px 20px; }
+    .topup-result-row { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; }
+    .topup-result-label { font-size: 13px; color: var(--text-tertiary); }
+    .topup-result-val { font-family: var(--font-mono); font-size: 14px; font-weight: 600; }
+    .topup-result-val.green { color: var(--accent); }
+    .topup-result-val.purple { color: var(--purple); }
+    .topup-result-divider { border: none; border-top: 1px solid var(--border-subtle); margin: 6px 0; }
+    .topup-bonus-hint { font-size: 11px; color: var(--warning); margin-top: 4px; }
+    .topup-method-tabs { display: flex; gap: 0; border: 1px solid var(--border-default); border-radius: var(--radius-md); overflow: hidden; }
+    .topup-method-tab { flex: 1; padding: 10px 16px; font-size: 13px; font-weight: 500; text-align: center; cursor: pointer; border: none; background: var(--bg-surface-2); color: var(--text-tertiary); transition: all 0.15s; font-family: var(--font-sans); }
+    .topup-method-tab:not(:last-child) { border-right: 1px solid var(--border-default); }
+    .topup-method-tab.active { background: var(--accent-dim); color: var(--accent); font-weight: 600; }
+    .topup-method-tab.active.usdc { background: var(--purple-dim); color: var(--purple); }
+    .topup-method-tab:hover:not(.active) { background: var(--bg-surface-3); color: var(--text-secondary); }
+    .topup-pay-btn { display: block; width: 100%; font-size: 14px; font-weight: 600; padding: 14px; cursor: pointer; border: none; border-radius: var(--radius-md); transition: all 0.15s; font-family: var(--font-sans); }
+    .topup-pay-btn.card { background: var(--accent); color: #000; }
+    .topup-pay-btn.card:hover { background: var(--accent-hover); }
+    .topup-pay-btn.usdc { background: var(--purple); color: #fff; }
+    .topup-pay-btn.usdc:hover { background: #7c3aed; }
+    .topup-pay-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .topup-range { font-size: 11px; color: var(--text-muted); text-align: center; }
 
     /* ── TASK HISTORY TABLE ── */
     .table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -312,7 +315,8 @@
       nav { padding: 0 16px; } .nav-links { display: none; } .mobile-menu-btn { display: block; } .nav-status { display: none; }
       main { padding: 24px 16px; }
       .stats-grid { grid-template-columns: 1fr 1fr; }
-      .topup-grid { grid-template-columns: repeat(2, 1fr); }
+      .topup-method-tabs { flex-direction: column; }
+      .topup-method-tab:not(:last-child) { border-right: none; border-bottom: 1px solid var(--border-default); }
       .usage-grid { grid-template-columns: 1fr; }
       .key-body { flex-wrap: wrap; }
       .regen-modal-actions { flex-direction: column; }
@@ -689,33 +693,49 @@
         </div>
       </div>
 
-      <!-- Top Up -->
+      <!-- Top Up — Flexible Amount -->
       <div class="card">
-        <div class="card-label">Top Up Credits</div>
-        <div class="topup-grid">
-          <button class="topup-btn" onclick="topUp('https://buy.stripe.com/fZufZigsDgva6HZ5Vk08g00')"><span class="topup-amount">$5</span><span class="topup-credits">5,000 credits</span></button>
-          <button class="topup-btn" onclick="topUp('https://buy.stripe.com/aFa9AUekv0wcearerQ08g01')"><span class="topup-amount">$20</span><span class="topup-credits">22,000 credits</span><span class="topup-bonus">+10% bonus credits</span></button>
-          <button class="topup-btn featured" onclick="topUp('https://buy.stripe.com/5kQ5kE7W792I9UbabA08g02')"><div class="topup-badge">Popular</div><span class="topup-amount">$50</span><span class="topup-credits">60,000 credits</span><span class="topup-bonus">+20% bonus credits</span></button>
-          <button class="topup-btn" onclick="topUp('https://buy.stripe.com/9B6aEY6S3en27M35Vk08g03')"><span class="topup-amount">$100</span><span class="topup-credits">125,000 credits</span><span class="topup-bonus">+25% bonus credits</span></button>
-          <button class="topup-btn" onclick="topUp('https://buy.stripe.com/28EeVeekv0wcaYf1F408g04')"><span class="topup-amount">$500</span><span class="topup-credits">750,000 credits</span><span class="topup-bonus">+50% bonus credits</span></button>
-          <button class="topup-btn" onclick="topUp('https://buy.stripe.com/6oUdRab8j1Ag3vNerQ08g05')"><span class="topup-amount">$1,000</span><span class="topup-credits">2,000,000 credits</span><span class="topup-bonus">+100% bonus credits</span></button>
-        </div>
-        <div class="sub-bar">
+        <div class="card-label">Add Credits</div>
+        <div class="topup-flex">
           <div>
-            <div style="font-size:11px;color:var(--warning);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:4px">Pro &middot; Monthly</div>
-            <div class="sub-price">$29<span style="font-size:13px;color:var(--text-tertiary);font-weight:400">/mo</span></div>
-            <div class="sub-desc">50,000 credits / month &middot; cancel anytime</div>
+            <div class="topup-input-row">
+              <span class="topup-input-sym">$</span>
+              <input type="number" class="topup-input" id="topup-amount" min="5" max="10000" step="1" value="50" placeholder="50" oninput="recalcTopup()" onchange="recalcTopup()">
+            </div>
+            <div class="topup-range">$5 &ndash; $10,000 &middot; Credits never expire</div>
           </div>
-          <button class="sub-btn" onclick="topUp('https://buy.stripe.com/eVqbJ24JV7YE4zR6Zo08g06')">Subscribe</button>
+
+          <div class="topup-result" id="topup-result">
+            <div class="topup-result-row">
+              <span class="topup-result-label">Credits (card)</span>
+              <span class="topup-result-val green" id="topup-card-credits">60,000</span>
+            </div>
+            <div class="topup-result-row">
+              <span class="topup-result-label">Credits (USDC)</span>
+              <span class="topup-result-val purple" id="topup-usdc-credits">64,200</span>
+            </div>
+            <div class="topup-result-divider"></div>
+            <div class="topup-result-row">
+              <span class="topup-result-label">Rate</span>
+              <span class="topup-result-val" id="topup-rate" style="color:var(--text-secondary)">1,200 cr/$</span>
+            </div>
+            <div class="topup-result-row">
+              <span class="topup-result-label">Bonus tier</span>
+              <span class="topup-result-val" id="topup-bonus" style="color:var(--warning)">+20%</span>
+            </div>
+            <div class="topup-bonus-hint" id="topup-next-tier">At $100+ you get +25% bonus</div>
+          </div>
+
+          <div class="topup-method-tabs">
+            <button class="topup-method-tab active" id="tab-card" onclick="setPayMethod('card')">Pay with Card</button>
+            <button class="topup-method-tab" id="tab-usdc" onclick="setPayMethod('usdc')">Pay with USDC <span style="font-size:10px;opacity:0.7">+7%</span></button>
+          </div>
+
+          <button class="topup-pay-btn card" id="topup-pay-btn" onclick="executeTopup()">
+            Add 60,000 credits &mdash; $50
+          </button>
+          <div id="topup-status" style="font-size:13px;min-height:18px;text-align:center"></div>
         </div>
-        <div style="display:flex;align-items:center;gap:16px;margin:16px 0 12px"><div style="flex:1;height:1px;background:var(--border-subtle)"></div><span style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em">or pay with crypto</span><div style="flex:1;height:1px;background:var(--border-subtle)"></div></div>
-        <button class="crypto-cta" onclick="openUSDCModal()">
-          <div>
-            <div class="crypto-cta-title">Pay with USDC <span class="crypto-cta-badge">+7% Free</span></div>
-            <div class="crypto-cta-sub">Phantom wallet &middot; Solana mainnet &middot; instant on-chain</div>
-          </div>
-          <div class="crypto-cta-arrow">Open Phantom &rarr;</div>
-        </button>
       </div>
 
       <!-- Task History (NEW) -->
@@ -1102,8 +1122,132 @@
       } catch {}
     }
 
-    // ── TOP UP ──
-    function topUp(url) { const userId=window.Clerk.user?.id??''; window.open(`${url}?client_reference_id=${userId}`,'_blank'); }
+    // ── FLEXIBLE TOP UP ──
+    // Tiered bonus rates (mirrors server-side creditsForDollars)
+    const TOPUP_TIERS = [
+      { min: 1000, rate: 2000 },
+      { min: 500,  rate: 1500 },
+      { min: 100,  rate: 1250 },
+      { min: 50,   rate: 1200 },
+      { min: 20,   rate: 1100 },
+      { min: 5,    rate: 1000 },
+    ];
+    const USDC_BONUS_MULT = 1.07;
+    let payMethod = 'card';
+
+    function creditsForDollarsClient(dollars) {
+      for (const tier of TOPUP_TIERS) {
+        if (dollars >= tier.min) return Math.round(dollars * tier.rate);
+      }
+      return Math.round(dollars * 1000);
+    }
+
+    function recalcTopup() {
+      const raw = document.getElementById('topup-amount').value;
+      const amount = Math.max(0, parseInt(raw) || 0);
+      const cardCr = creditsForDollarsClient(amount);
+      const usdcCr = Math.round(cardCr * USDC_BONUS_MULT);
+      const activeCr = payMethod === 'usdc' ? usdcCr : cardCr;
+
+      document.getElementById('topup-card-credits').textContent = cardCr.toLocaleString();
+      document.getElementById('topup-usdc-credits').textContent = usdcCr.toLocaleString();
+      document.getElementById('topup-rate').textContent = amount > 0 ? Math.round(cardCr / amount).toLocaleString() + ' cr/$' : '\u2014';
+
+      // Bonus tier
+      let bonusPct = 0;
+      let nextTierAt = null;
+      let nextTierBonus = null;
+      for (let i = 0; i < TOPUP_TIERS.length; i++) {
+        if (amount >= TOPUP_TIERS[i].min) {
+          bonusPct = Math.round((TOPUP_TIERS[i].rate / 1000 - 1) * 100);
+          if (i > 0) {
+            nextTierAt = TOPUP_TIERS[i - 1].min;
+            nextTierBonus = '+' + Math.round((TOPUP_TIERS[i - 1].rate / 1000 - 1) * 100) + '%';
+          }
+          break;
+        }
+      }
+
+      const bonusEl = document.getElementById('topup-bonus');
+      bonusEl.textContent = bonusPct > 0 ? '+' + bonusPct + '%' : 'Base rate';
+      bonusEl.style.color = bonusPct > 0 ? 'var(--warning)' : 'var(--text-muted)';
+
+      const hintEl = document.getElementById('topup-next-tier');
+      if (nextTierAt && amount < nextTierAt) {
+        hintEl.textContent = 'At $' + nextTierAt + '+ you get ' + nextTierBonus + ' bonus';
+        hintEl.style.display = '';
+      } else if (!nextTierAt && bonusPct > 0) {
+        hintEl.textContent = 'Maximum bonus tier';
+        hintEl.style.display = '';
+      } else {
+        hintEl.style.display = 'none';
+      }
+
+      // Update pay button
+      const btn = document.getElementById('topup-pay-btn');
+      if (amount >= 5 && amount <= 10000) {
+        btn.disabled = false;
+        btn.textContent = 'Add ' + activeCr.toLocaleString() + ' credits \u2014 $' + amount;
+      } else {
+        btn.disabled = true;
+        btn.textContent = amount < 5 ? 'Minimum $5' : 'Maximum $10,000';
+      }
+      updatePayBtnStyle();
+    }
+
+    function setPayMethod(method) {
+      payMethod = method;
+      document.getElementById('tab-card').className = 'topup-method-tab' + (method === 'card' ? ' active' : '');
+      document.getElementById('tab-usdc').className = 'topup-method-tab' + (method === 'usdc' ? ' active usdc' : '');
+      updatePayBtnStyle();
+      recalcTopup();
+    }
+
+    function updatePayBtnStyle() {
+      const btn = document.getElementById('topup-pay-btn');
+      btn.className = 'topup-pay-btn ' + payMethod;
+    }
+
+    async function executeTopup() {
+      const amount = parseInt(document.getElementById('topup-amount').value) || 0;
+      if (amount < 5 || amount > 10000) return;
+
+      const btn = document.getElementById('topup-pay-btn');
+      const statusEl = document.getElementById('topup-status');
+      btn.disabled = true;
+
+      if (payMethod === 'card') {
+        // Stripe Checkout Session flow
+        btn.textContent = 'Creating checkout\u2026';
+        statusEl.innerHTML = '';
+        try {
+          const token = await window.Clerk?.session?.getToken();
+          if (!token) { statusEl.innerHTML = '<span style="color:var(--danger)">Please sign in first.</span>'; btn.disabled = false; recalcTopup(); return; }
+          const res = await fetch(API_BASE + '/v1/billing/checkout', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+            body: JSON.stringify({ amount })
+          });
+          const data = await res.json();
+          if (!res.ok) { statusEl.innerHTML = '<span style="color:var(--danger)">' + esc(data.error || 'Failed') + '</span>'; btn.disabled = false; recalcTopup(); return; }
+          window.location.href = data.url;
+        } catch (err) {
+          statusEl.innerHTML = '<span style="color:var(--danger)">Network error. Try again.</span>';
+          btn.disabled = false;
+          recalcTopup();
+        }
+      } else {
+        // USDC/Phantom flow — reuse existing openUSDCModal with dynamic amount
+        btn.disabled = false;
+        recalcTopup();
+        if (typeof openUSDCModal === 'function') {
+          openUSDCModal(amount);
+        }
+      }
+    }
+
+    // Init topup calculation
+    recalcTopup();
 
     // ── CLAIM ──
     // ── REFERRAL ──
@@ -1163,8 +1307,21 @@
     async function navSignOut(){await window.Clerk.signOut();window.location.reload();}
 
     // ── USDC MODAL ──
-    const USDC_RATE=1100,CARD_RATE=1000;
-    function recalcUSDC(val){const a=Math.max(0,parseFloat(val)||0),cr=Math.round(a*USDC_RATE),cc=Math.round(a*CARD_RATE),b=cr-cc;const f=n=>n>=1e6?(n/1e6).toFixed(2).replace(/\.?0+$/,'')+'M':n.toLocaleString();const i=s=>document.getElementById(s);if(i('usdcDealCredits'))i('usdcDealCredits').textContent=f(cr)+' credits';if(i('usdcDealCard'))i('usdcDealCard').textContent=f(cc)+' credits';if(i('usdcDealBonus'))i('usdcDealBonus').textContent='+'+f(b)+' credits free';if(i('usdcDealRate'))i('usdcDealRate').textContent=USDC_RATE.toLocaleString()+' cr / USDC';if(i('usdcPayBtnAmt'))i('usdcPayBtnAmt').textContent=(a>0?a:'\u2014')+' USDC';window._usdcAmount=a;window._usdcCredits=cr;}
+    function recalcUSDC(val){
+      const a=Math.max(0,parseFloat(val)||0);
+      const cc=creditsForDollarsClient(a); // card credits (tiered)
+      const cr=Math.round(cc*USDC_BONUS_MULT); // USDC = card + 7%
+      const b=cr-cc;
+      const rate=a>0?Math.round(cr/a):0;
+      const f=n=>n>=1e6?(n/1e6).toFixed(2).replace(/\.?0+$/,'')+'M':n.toLocaleString();
+      const i=s=>document.getElementById(s);
+      if(i('usdcDealCredits'))i('usdcDealCredits').textContent=f(cr)+' credits';
+      if(i('usdcDealCard'))i('usdcDealCard').textContent=f(cc)+' credits';
+      if(i('usdcDealBonus'))i('usdcDealBonus').textContent='+'+f(b)+' credits free';
+      if(i('usdcDealRate'))i('usdcDealRate').textContent=(rate>0?rate.toLocaleString():'\u2014')+' cr / USDC';
+      if(i('usdcPayBtnAmt'))i('usdcPayBtnAmt').textContent=(a>0?a:'\u2014')+' USDC';
+      window._usdcAmount=a;window._usdcCredits=cr;
+    }
     function openUSDCModal(amount){const d=(amount&&amount>=1)?amount:20;const inp=document.getElementById('usdcCustomAmount');if(inp)inp.value=d;recalcUSDC(d);const s=document.getElementById('usdcStatus');if(s){s.className='usdc-status';s.textContent='';}const btn=document.getElementById('usdcPayBtn');if(btn){btn.disabled=false;btn.innerHTML='Connect Phantom &amp; Pay <span id="usdcPayBtnAmt">'+d+' USDC</span>';}document.getElementById('usdcOverlay').classList.add('open');document.body.style.overflow='hidden';}
     function closeUSDCModal(e){if(e&&e.target!==document.getElementById('usdcOverlay'))return;document.getElementById('usdcOverlay').classList.remove('open');document.body.style.overflow='';}
     function setUSDCStatus(msg,type){const el=document.getElementById('usdcStatus');el.className='usdc-status show '+type;el.textContent=msg;}

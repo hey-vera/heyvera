@@ -6,6 +6,7 @@ import { env } from '../config/index';
 import { sendApiKeyEmail } from '../utils/email';
 import { createApiKey, getApiKeyByEmail, topUpCredits, getApiKeyBalance, upsertSubscription, claimStripeSession, isStripeSessionClaimed, isStripeEventProcessed, markStripeEventProcessed, getDb, getStripeChargeRefundedCents, upsertStripeChargeRefundedCents } from '../db/index';
 import { round6 } from '../core/credits';
+import { creditsForDollars } from './billing';
 
 export const stripeRouter = new Hono();
 
@@ -153,28 +154,48 @@ stripeRouter.post('/stripe', async (c) => {
     return c.json({ error: 'No email found', code: 'EMAIL_NOT_FOUND' }, 400);
   }
 
-  // Determine credits from line items (async — must happen BEFORE the atomic claim+grant)
+  // Determine credits from line items or metadata (flexible checkout).
+  // Priority: 1) metadata.credits (from /v1/billing/checkout), 2) PRICE_CREDITS map (legacy links), 3) amount-based calculation
   let credits = 0;
   let amountPaid = 0;
 
-  try {
-    const lineItems = await stripe.checkout.sessions.listLineItems(session.id, { limit: 5 });
-    for (const item of lineItems.data) {
-      const priceId = item.price?.id;
-      if (priceId && PRICE_CREDITS[priceId]) {
-        const qty = item.quantity ?? 1;
-        if (qty < 1 || qty > 100) {
-          logger.error({ sessionId: session.id, qty }, 'Stripe webhook: quantity out of bounds');
-          continue;
+  // Check for flexible checkout metadata first
+  const metaCredits = parseInt(session.metadata?.credits ?? '', 10);
+  const metaSource = session.metadata?.source;
+
+  if (metaSource === 'flexible_checkout' && metaCredits > 0) {
+    // Flexible checkout — credits pre-computed by /v1/billing/checkout
+    credits = metaCredits;
+    amountPaid = Math.round((session.amount_total ?? 0) / 100);
+    logger.info({ sessionId: session.id, credits, amountPaid, source: 'flexible_checkout' }, 'Stripe webhook: flexible checkout session');
+  } else {
+    // Legacy fixed payment links — determine from price IDs
+    try {
+      const lineItems = await stripe.checkout.sessions.listLineItems(session.id, { limit: 5 });
+      for (const item of lineItems.data) {
+        const priceId = item.price?.id;
+        if (priceId && PRICE_CREDITS[priceId]) {
+          const qty = item.quantity ?? 1;
+          if (qty < 1 || qty > 100) {
+            logger.error({ sessionId: session.id, qty }, 'Stripe webhook: quantity out of bounds');
+            continue;
+          }
+          credits += PRICE_CREDITS[priceId].credits * qty;
+          amountPaid += PRICE_CREDITS[priceId].amount * qty;
         }
-        credits += PRICE_CREDITS[priceId].credits * qty;
-        amountPaid += PRICE_CREDITS[priceId].amount * qty;
+      }
+    } catch (err) {
+      logger.warn({ err }, 'Stripe webhook: could not fetch line items');
+    }
+
+    // Fallback: compute from amount_total using tiered rates
+    if (credits === 0) {
+      amountPaid = Math.round((session.amount_total ?? 0) / 100);
+      if (amountPaid > 0) {
+        credits = creditsForDollars(amountPaid);
+        logger.info({ sessionId: session.id, amountPaid, credits }, 'Stripe webhook: computed credits from amount_total');
       }
     }
-  } catch (err) {
-    logger.warn({ err }, 'Stripe webhook: could not fetch line items, using session amount');
-    amountPaid = Math.round((session.amount_total ?? 0) / 100);
-    credits = amountPaid * 1000; // fallback: 1000 credits per dollar
   }
 
   if (credits === 0) {

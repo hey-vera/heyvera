@@ -23,6 +23,7 @@ import { initClawApis } from './providers/clawapis';
 import { stripeRouter } from './routes/stripe';
 import { clerkWebhookRouter } from './routes/clerk-webhook';
 import { solanaRouter } from './routes/solana';
+import { billingRouter } from './routes/billing';
 import { meshRouter } from './routes/mesh';
 import { skillsRouter } from './routes/skills';
 import { endpointsRouter } from './routes/endpoints';
@@ -238,6 +239,7 @@ app.use('/v1/webhooks/*', bodyLimit({
 app.route('/v1/webhooks', stripeRouter);
 app.route('/v1/webhooks', clerkWebhookRouter);
 app.route('/v1/solana', solanaRouter);
+app.route('/v1/billing', billingRouter);
 app.route('/v1/dashboard', dashboardRouter);
 app.route('/', contactRoute)
 
