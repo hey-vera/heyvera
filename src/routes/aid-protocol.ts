@@ -869,4 +869,131 @@ router.get('/frozen/:did', (c) => {
   });
 });
 
+// ─── GET /canary — Protocol liveness proof (Cherry 15) ──────────────────────
+
+router.get('/canary', async (c) => {
+  try {
+    const { getCanaryStatus } = await import('../core/canary');
+    const { status, canary, ageMs, nextExpectedMs } = getCanaryStatus();
+
+    if (!canary) {
+      return c.json({
+        status: 'dead',
+        message: 'No canary has been published yet',
+        protocol: 'AID',
+        version: PROTOCOL_VERSION,
+      });
+    }
+
+    return c.json({
+      status,
+      canary: {
+        sequence: canary.sequence,
+        timestamp: canary.timestamp,
+        hash: canary.hash,
+        previousHash: canary.previousHash,
+        signature: canary.signature,
+        signerDid: canary.signerDid,
+        merkleRoot: canary.merkleRoot,
+        txHash: canary.txHash,
+        stats: canary.stats,
+      },
+      age: {
+        ms: ageMs,
+        human: ageMs < 3600000
+          ? `${Math.floor(ageMs / 60000)}m`
+          : `${Math.floor(ageMs / 3600000)}h ${Math.floor((ageMs % 3600000) / 60000)}m`,
+      },
+      nextExpectedMs,
+      thresholds: {
+        degradedAfterMs: 12 * 3600000,
+        staleAfterMs: 48 * 3600000,
+      },
+      protocol: 'AID',
+      version: PROTOCOL_VERSION,
+    });
+  } catch (err: any) {
+    logger.error({ err }, 'Canary status check failed');
+    return c.json({ status: 'error', error: err.message }, 500);
+  }
+});
+
+// ─── GET /trust/:did/commitment — Pedersen commitment trust proof (Cherry 13) ─
+
+router.get('/trust/:did/commitment', async (c) => {
+  const did = c.req.param('did');
+  const minScore = parseInt(c.req.query('min') || '0', 10);
+
+  if (!did.startsWith('did:')) {
+    return c.json({ error: 'Invalid DID format', code: 'AID_INVALID_DID' }, 400);
+  }
+
+  try {
+    // Get actual trust score
+    const { computeTrustScoreWithProof } = await import('../core/aid-builder');
+    const aidKey = getDb().prepare(
+      `SELECT owner_key FROM aid_keys WHERE did = ? AND key_status = 'active' LIMIT 1`
+    ).get(did) as { owner_key: string } | undefined;
+
+    if (!aidKey) {
+      return c.json({ error: 'Unknown DID', code: 'AID_DID_NOT_FOUND' }, 404);
+    }
+
+    const trustResult = computeTrustScoreWithProof(aidKey.owner_key);
+    const score = trustResult.score;
+
+    // Create Pedersen commitment + range proof
+    const { createCommitment, createMinScoreProof, createTierProof, TRUST_TIER_RANGES } = await import('../utils/pedersen');
+
+    const { commitment, blinding } = createCommitment(score);
+
+    // Determine which proof to generate
+    let proof;
+    if (minScore > 0) {
+      // Prove score >= minScore (for trust gates)
+      if (score < minScore) {
+        return c.json({
+          error: 'Trust score below requested minimum',
+          code: 'AID_TRUST_GATE_BLOCKED',
+          commitment: commitment,
+          proofAvailable: false,
+        }, 403);
+      }
+      proof = createMinScoreProof(score, blinding, minScore, did);
+    } else {
+      // Prove membership in the verdict tier
+      const verdict = trustResult.verdict || 'new';
+      const tierRange = TRUST_TIER_RANGES[verdict];
+      if (tierRange && score >= tierRange[0] && score <= tierRange[1]) {
+        proof = createTierProof(score, blinding, verdict, did);
+      } else {
+        // Fallback: prove score in [0, 100]
+        proof = createMinScoreProof(score, blinding, 0, did);
+      }
+    }
+
+    return c.json({
+      did,
+      commitment: proof.commitment,
+      rangeProof: {
+        rangeMin: proof.rangeMin,
+        rangeMax: proof.rangeMax,
+        proof: proof.proof,
+        version: proof.version,
+        timestamp: proof.timestamp,
+      },
+      // The blinding factor is returned to the agent so they can
+      // prove the commitment to third parties without revealing score
+      blinding,
+      verdict: trustResult.verdict,
+      // Note: exact score is NOT included — that's the point
+      protocol: 'AID',
+      privacyMode: 'committed',
+    });
+  } catch (err: any) {
+    logger.error({ err }, 'Pedersen commitment generation failed');
+    return c.json({ error: 'Commitment generation failed', code: 'AID_INTERNAL_ERROR' }, 500);
+  }
+});
+
 export { router as aidProtocolRouter };

@@ -68,13 +68,13 @@ transaction makes it smarter.
 
 **Week 1 — Days 1-3:**
 - [x] Ship @aidprotocol/mcp-trust alpha to npm (~200 lines, sig verify only) — shipped v1.1.0
-- [ ] Include Pedersen commitment privacy option (Cherry 13, ~200 lines)
+- [x] Include Pedersen commitment privacy option (Cherry 13, ~200 lines) — src/utils/pedersen.ts + GET /aid/trust/:did/commitment
 - [x] Build interactive playground (show, don't tell) — site/aid-playground.html
 
 **Week 1 — Days 3-5:**
 - [x] Publish AID protocol spec as standalone 10-page document — at docs/aid-protocol-spec.md + aidprotocol/aid-spec repo
 - [ ] Register ClawNet on ERC-8004 Identity Registry (Base, ~$1)
-- [ ] Add protocol-level canary — on-chain liveness proof (Cherry 15)
+- [x] Add protocol-level canary — on-chain liveness proof (Cherry 15) — src/core/canary.ts + GET /aid/canary + 6h cron + v113 migration
 - [x] Ship trust.claw-net.org PWA (trust lookup + "Try it" demo, Optimization 16) — site/aid-playground.html
 - [ ] Research Wyoming DAO LLC sandbox (Flaw 12)
 
@@ -184,7 +184,7 @@ transaction makes it smarter.
 
 ---
 
-**Progress: 49/133 items complete (37%). NEXT: Submit NIST comment → Pedersen commitment → ERC-8004 registration → x402 headers PR.**
+**Progress: 51/133 items complete (38%). NEXT: Submit NIST comment → ERC-8004 registration → governance model → x402 headers PR.**
 
 ---
 

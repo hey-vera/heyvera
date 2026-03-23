@@ -1208,6 +1208,22 @@ const MIGRATIONS: { version: number; sql: string }[] = [
     );
     CREATE INDEX IF NOT EXISTS idx_aid_claims_target ON aid_insurance_claims(target_did);
   ` },
+
+  // v113: Protocol canary (Cherry 15) — liveness proof hash chain
+  { version: 113, sql: `
+    CREATE TABLE IF NOT EXISTS aid_canary (
+      sequence INTEGER PRIMARY KEY,
+      timestamp TEXT NOT NULL,
+      previous_hash TEXT NOT NULL,
+      hash TEXT NOT NULL,
+      signature TEXT NOT NULL,
+      signer_did TEXT NOT NULL,
+      stats_json TEXT NOT NULL DEFAULT '{}',
+      merkle_root TEXT,
+      tx_hash TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_aid_canary_ts ON aid_canary(timestamp DESC);
+  ` },
 ];
 
 function runMigrations(): void {
