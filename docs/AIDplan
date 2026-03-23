@@ -122,15 +122,15 @@ transaction makes it smarter.
 - [x] WebSocket/SSE streaming for trust updates (Flaw 5 / Optimization 8) — src/routes/aid-stream.ts (GET /aid/stream SSE + event bus)
 - [x] @aidprotocol/aar-bridge — bidirectional AAR receipt conversion (Optimization 12) — src/utils/aar-bridge.ts
 - [x] Verifiable Intent integration — map AID trust as VI signal (Optimization 13) — src/utils/verifiable-intent.ts (W3C VC trust credentials + VI signal)
-- [ ] AID-MPP Profile — trust headers alongside Stripe MPP session authorization (Section 15.5)
+- [x] AID-MPP Profile — trust headers alongside Stripe MPP session authorization (Section 15.5) — src/utils/mpp-profile.ts
 - [ ] AID-AgentKit bridge — optional World ID linking for maximum trust signal (Section 45.5)
 - [ ] AID-TAP reference — spec-only interop note for Visa Trusted Agent Protocol (no code)
 - [ ] AIDEscrow.sol reference contract on Base — trust-gated escrow timelocks (from PayCrow, Section 15.7)
 - [ ] ZK proof of scoring function via RISC Zero — <$0.01/proof (accelerated from Phase 4, from Mnemom)
-- [ ] Sybil risk as supplementary signal in AID documents — consume Cred/external data (Section 15.7)
+- [x] Sybil risk as supplementary signal in AID documents — consume Cred/external data (Section 15.7) — src/utils/sybil-signal.ts
 - [x] Trust Score v1.1 — add counterpartyDiversity (15%) + recency-weighted successRate (Section 4.2) — src/core/trust-scoring-v11.ts (already built)
 - [x] Onboarding milestones — signed timestamps for key trust journey events (from AgentSign, Section 4.2) — GET /aid/milestones/:did + recordMilestone() + v116 migration
-- [ ] AID-Solana-Registry bridge — Ed25519 native mapping (parallel with ERC-8004 bridge)
+- [x] AID-Solana-Registry bridge — Ed25519 native mapping (parallel with ERC-8004 bridge) — solanaPubkeyToDid() in packages/solana-trust/
 - [x] Recovery key registration (2-of-3 multi-sig) at AID creation (Section 39.18) — POST /aid/recovery-keys + GET /aid/recovery-keys/:did + v116
 - [x] Trust freeze endpoint — FROZEN/CHALLENGE/SOFT_FREEZE states (Section 39.18) — src/routes/aid-freeze.ts (freeze/unfreeze/status/challenge)
 - [x] Proof of life heartbeat — weekly owner signature, auto-decay schedule (Section 39.18) — src/core/proof-of-life-cron.ts (already built)
@@ -158,7 +158,7 @@ transaction makes it smarter.
 ### PHASE 4: MARKET LAYER (Months 7-9)
 - [ ] Bonding curve contract (reputation-only, no revenue share)
 - [x] Cross-consumption tracking + trust boost — getCrossConsumptionStats() in social-graph.ts
-- [ ] Season framework (12 scoring dimensions)
+- [x] Season framework (12 scoring dimensions) — src/core/seasons.ts + v119 migration
 - [ ] No-code skill builder (natural language → skill definition)
 - [ ] Visual MCP workflow builder
 - [ ] AgentKit wallet integration (Coinbase AgentKit)
@@ -184,7 +184,7 @@ transaction makes it smarter.
 
 ---
 
-**Progress: 83/133 items complete (62%). NEXT: Submit NIST comment → ERC-8004 registration → governance model → Sybil signal → season framework.**
+**Progress: 87/133 items complete (65%). NEXT: Submit NIST comment → ERC-8004 registration → governance model → Trust Score v2 → AID SDK.**
 
 ---
 

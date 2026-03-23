@@ -1339,6 +1339,38 @@ const MIGRATIONS: { version: number; sql: string }[] = [
     CREATE INDEX IF NOT EXISTS idx_social_to ON aid_social_graph(to_did, relation_type);
     CREATE INDEX IF NOT EXISTS idx_social_from ON aid_social_graph(from_did, relation_type);
   ` },
+
+  // v119: Season framework (Phase 4) + AID receipts table
+  { version: 119, sql: `
+    CREATE TABLE IF NOT EXISTS aid_seasons (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      start_date TEXT NOT NULL,
+      end_date TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'upcoming',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS aid_season_entries (
+      season_id TEXT NOT NULL,
+      did TEXT NOT NULL,
+      dimensions_json TEXT DEFAULT '{}',
+      total_score REAL NOT NULL DEFAULT 0,
+      rank INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (season_id, did)
+    );
+    CREATE INDEX IF NOT EXISTS idx_season_entries_rank ON aid_season_entries(season_id, rank);
+
+    CREATE TABLE IF NOT EXISTS aid_receipts (
+      id TEXT PRIMARY KEY,
+      payer_did TEXT NOT NULL,
+      provider_did TEXT,
+      amount_credits REAL,
+      status TEXT NOT NULL DEFAULT 'completed',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_aid_receipts_payer ON aid_receipts(payer_did);
+  ` },
 ];
 
 function runMigrations(): void {
