@@ -14,6 +14,9 @@
  * Run: npx tsx scripts/register-erc8004.ts
  */
 
+import { config } from 'dotenv';
+config();
+
 import { createWalletClient, createPublicClient, http, parseAbi } from 'viem';
 import { base } from 'viem/chains';
 import { privateKeyToAccount } from 'viem/accounts';
