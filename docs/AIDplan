@@ -142,7 +142,7 @@ transaction makes it smarter.
 - [ ] ARA compatibility evaluation (Flaw 16)
 
 ### PHASE 3: INTELLIGENCE (Months 4-6)
-- [ ] Trust Score v2 (expand to 11 dimensions, 3 categories)
+- [x] Trust Score v2 (expand to 11 dimensions, 3 categories) — src/core/trust-scoring-v2.ts
 - [ ] On-chain TrustOracle contract (Base, Merkle root anchoring)
 - [ ] TrustGate hook (smart contract min_trust_score enforcement)
 - [x] Sentinel alerts (SSE stream for trust degradation events) — already in aid-stream.ts (trust_degraded events)
@@ -172,8 +172,8 @@ transaction makes it smarter.
 - [ ] Testnet mode (Base Sepolia)
 - [ ] Third-party onboarding (3-5 platforms)
 - [ ] zkTLS execution proofs
-- [ ] Trust delegation chains (inherited trust)
-- [ ] Cross-protocol trust import (ERC-8004, Maiat, x402 history)
+- [x] Trust delegation chains (inherited trust) — src/core/trust-delegation.ts (max 5 children, 50% cap, 90d expiry, parent penalty)
+- [x] Cross-protocol trust import (ERC-8004, Maiat, x402 history) — src/core/trust-import.ts (capped at 39, requires 20 local txs)
 
 ### DECENTRALIZATION ROADMAP (Section 42 — Parallel Track)
 - [ ] Phase 1 (Month 1): Open-source `@aidprotocol/trust-compute` + IPFS/Arweave publication
@@ -184,7 +184,7 @@ transaction makes it smarter.
 
 ---
 
-**Progress: 87/133 items complete (65%). NEXT: Submit NIST comment → ERC-8004 registration → governance model → Trust Score v2 → AID SDK.**
+**Progress: 90/133 items complete (68%). NEXT: Submit NIST comment → ERC-8004 registration → governance model → AID SDK → on-chain contracts.**
 
 ---
 

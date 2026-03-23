@@ -1371,6 +1371,39 @@ const MIGRATIONS: { version: number; sql: string }[] = [
     );
     CREATE INDEX IF NOT EXISTS idx_aid_receipts_payer ON aid_receipts(payer_did);
   ` },
+
+  // v120: Trust delegation + cross-protocol import
+  { version: 120, sql: `
+    CREATE TABLE IF NOT EXISTS aid_delegations (
+      id TEXT PRIMARY KEY,
+      parent_did TEXT NOT NULL,
+      child_did TEXT NOT NULL,
+      inheritance_pct REAL NOT NULL,
+      effective_score REAL NOT NULL,
+      expires_at TEXT NOT NULL,
+      signature TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_deleg_parent ON aid_delegations(parent_did, status);
+    CREATE INDEX IF NOT EXISTS idx_deleg_child ON aid_delegations(child_did, status);
+
+    CREATE TABLE IF NOT EXISTS aid_trust_imports (
+      id TEXT PRIMARY KEY,
+      did TEXT NOT NULL,
+      source TEXT NOT NULL,
+      source_identifier TEXT NOT NULL,
+      imported_score REAL NOT NULL,
+      capped_score REAL NOT NULL,
+      verified INTEGER NOT NULL DEFAULT 0,
+      verification_hash TEXT NOT NULL,
+      local_tx_required INTEGER NOT NULL DEFAULT 20,
+      local_tx_completed INTEGER NOT NULL DEFAULT 0,
+      active INTEGER NOT NULL DEFAULT 1,
+      imported_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_trust_imports_did ON aid_trust_imports(did, active);
+  ` },
 ];
 
 function runMigrations(): void {
