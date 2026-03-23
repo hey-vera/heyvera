@@ -104,7 +104,7 @@ transaction makes it smarter.
 - [x] Auto-dispute flag on manifest violation in AID receipts (from PayCrow, Section 15.7) — in attestations.ts
 
 ### PHASE 2: ECOSYSTEM REACH (Months 2-3)
-- [ ] Ship aid-trust Python package (CrewAI/LangGraph plugins)
+- [x] Ship aid-trust Python package (CrewAI/LangGraph plugins) — packages/aid-python/ (pip install aid-trust)
 - [x] /aid/* route handler with full protocol flow — aid-protocol.ts + aid-disputes.ts + aid-stream.ts + aid-a2a.ts + aid-freeze.ts + aid-explain.ts
 - [x] X-AID-NEW zero-auth onboarding on /aid/* routes — POST /aid/provision with rate limiting (3/IP/24h)
 - [ ] Direct receiveWithAuthorization settlement (no facilitator)
@@ -165,7 +165,7 @@ transaction makes it smarter.
 
 ### PHASE 5: SOVEREIGNTY (Months 10+)
 - [x] AID SDK (TypeScript) — @clawnet/AID — packages/aid-sdk/ (AID.connect(), query, getTrust, sign, feedback)
-- [ ] AID SDK (Python)
+- [x] AID SDK (Python) — packages/aid-python/ (same package as aid-trust)
 - [ ] AID spec publication to standards bodies
 - [x] Reference facilitator (open-source) — packages/facilitator/ (npx @aidprotocol/facilitator, zero fees)
 - [ ] Documentation site
@@ -184,7 +184,7 @@ transaction makes it smarter.
 
 ---
 
-**Progress: 102/133 items complete (77%). NEXT: Submit NIST comment → ERC-8004 registration → npm publish → on-chain contracts → Python SDK.**
+**Progress: 104/133 items complete (78%). NEXT: Submit NIST comment → ERC-8004 registration → npm publish → on-chain contracts.**
 
 ---
 
