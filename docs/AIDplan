@@ -132,21 +132,21 @@ transaction makes it smarter.
 - [x] Onboarding milestones — signed timestamps for key trust journey events (from AgentSign, Section 4.2) — GET /aid/milestones/:did + recordMilestone() + v116 migration
 - [ ] AID-Solana-Registry bridge — Ed25519 native mapping (parallel with ERC-8004 bridge)
 - [x] Recovery key registration (2-of-3 multi-sig) at AID creation (Section 39.18) — POST /aid/recovery-keys + GET /aid/recovery-keys/:did + v116
-- [ ] Trust freeze endpoint — FROZEN/CHALLENGE/SOFT_FREEZE states (Section 39.18)
-- [ ] Proof of life heartbeat — weekly owner signature, auto-decay schedule (Section 39.18)
-- [ ] Anomaly detection + progressive behavioral containment (Section 39.18)
-- [ ] Guardian agent framework — agents monitoring agents (Section 39.18)
-- [ ] Counterparty immune response — auto-quarantine from collective reports (Section 39.18)
+- [x] Trust freeze endpoint — FROZEN/CHALLENGE/SOFT_FREEZE states (Section 39.18) — src/routes/aid-freeze.ts (freeze/unfreeze/status/challenge)
+- [x] Proof of life heartbeat — weekly owner signature, auto-decay schedule (Section 39.18) — src/core/proof-of-life-cron.ts (already built)
+- [x] Anomaly detection + progressive behavioral containment (Section 39.18) — in proof-of-life-cron.ts (convergence decay + anomaly scoring)
+- [x] Guardian agent framework — agents monitoring agents (Section 39.18) — v112 tables + /aid/guardians/* endpoints (already built)
+- [x] Counterparty immune response — auto-quarantine from collective reports (Section 39.18) — in proof-of-life-cron.ts checkImmuneResponse()
 - [ ] Gas price circuit breaker for batch settlement (Vector 43)
-- [ ] Verification receipt in middleware — caller-verifiable ClawNet-signed token (Flaw 18)
+- [x] Verification receipt in middleware — caller-verifiable ClawNet-signed token (Flaw 18) — src/middleware/aid-verification-receipt.ts (JWT-like Ed25519 receipt)
 - [ ] ARA compatibility evaluation (Flaw 16)
 
 ### PHASE 3: INTELLIGENCE (Months 4-6)
 - [ ] Trust Score v2 (expand to 11 dimensions, 3 categories)
 - [ ] On-chain TrustOracle contract (Base, Merkle root anchoring)
 - [ ] TrustGate hook (smart contract min_trust_score enforcement)
-- [ ] Sentinel alerts (SSE stream for trust degradation events)
-- [ ] Trust decay cron (10%/30d weight loss, adaptive per-category — Cherry 7)
+- [x] Sentinel alerts (SSE stream for trust degradation events) — already in aid-stream.ts (trust_degraded events)
+- [x] Trust decay cron (10%/30d weight loss, adaptive per-category — Cherry 7) — src/core/trust-decay-cron.ts (24h cron, 4 category rates)
 - [ ] Structured agent memory (upgrade from 50KB JSON → searchable docs)
 - [ ] Agent social graph (follow/endorse, feeds COMMUNITY trust)
 - [ ] Public agent explorer page (site/explore.html)
@@ -184,7 +184,7 @@ transaction makes it smarter.
 
 ---
 
-**Progress: 65/133 items complete (49%). NEXT: Submit NIST comment → ERC-8004 registration → governance model → trust freeze endpoint → proof of life heartbeat.**
+**Progress: 73/133 items complete (55%). NEXT: Submit NIST comment → ERC-8004 registration → governance model → aid-trust Python → ElizaOS plugin.**
 
 ---
 

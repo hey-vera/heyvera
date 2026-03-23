@@ -74,6 +74,8 @@ import { x402FacilitatorRouter } from './routes/x402-facilitator';
 import { aidDisputesRouter } from './routes/aid-disputes';
 import { aidStreamRouter } from './routes/aid-stream';
 import { aidA2aRouter } from './routes/aid-a2a';
+import { aidFreezeRouter } from './routes/aid-freeze';
+import { startTrustDecayCron } from './core/trust-decay-cron';
 // import { referralRouter } from './routes/referral'; // disabled — re-enable when referral program launches
 import { startEndpointHealthCron } from './core/endpoint-health-cron';
 import { startEndpointDiscoveryCron } from './core/endpoint-discovery';
@@ -305,6 +307,7 @@ app.route('/x402/facilitator', x402FacilitatorRouter);
 app.route('/aid', aidDisputesRouter);
 app.route('/aid', aidStreamRouter);
 app.route('/aid', aidA2aRouter);
+app.route('/aid', aidFreezeRouter);
 // app.route('/v1/referral', referralRouter); // disabled — re-enable when referral program launches
 
 // ─── JSON-LD Context — W3C VC attestation vocabulary ────────────────────────
@@ -471,6 +474,7 @@ async function start() {
   startAidSnapshotCron();          cronsStarted++;
   startProofOfLifeCron();          cronsStarted++;
   startCanaryCron();               cronsStarted++;
+  startTrustDecayCron();           cronsStarted++;
 
   // Load embedding model + seed in background — don't block server startup
   loadEmbeddingModel()

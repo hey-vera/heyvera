@@ -1298,6 +1298,12 @@ const MIGRATIONS: { version: number; sql: string }[] = [
     );
     CREATE UNIQUE INDEX IF NOT EXISTS idx_aid_recovery_did_idx ON aid_recovery_keys(did, key_index);
   ` },
+
+  // v117: Trust decay columns on attestation_stats
+  { version: 117, sql: `
+    ALTER TABLE attestation_stats ADD COLUMN last_decay_at TEXT;
+    ALTER TABLE attestation_stats ADD COLUMN decay_factor REAL DEFAULT 1.0;
+  ` },
 ];
 
 function runMigrations(): void {
