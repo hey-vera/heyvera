@@ -18,171 +18,171 @@ transaction makes it smarter.
 > Updated: March 21, 2026. **DIF window is DAYS, not weeks.**
 
 ### TODAY (March 22 — Cannot Wait)
-- [x] Join DIF as Contributor member (submitted)
-- [x] Submit trust scoring extension email to DIF TAAWG (sent to community@identity.foundation)
-- [x] LinkedIn message to Andor Kesselman (TAAWG chair, sent)
-- [x] Register @aidprotocol npm org + publish placeholder packages (mcp-trust, trust-compute, aar-bridge)
-- [x] ~~Submit lightning talk to MCP Dev Summit~~ — SKIPPED (travel cost, sponsorship-gated)
-- [x] Switch DID method from `did:clawnet` to `did:key` in published spec (done — 34 refs updated)
-- [x] Draft 2-page NIST NCCoE comment on agent identity concept paper (Flaw 19 — due April 2, draft at `docs/nist-nccoe-comment.md`)
-- [x] Publish `@aidprotocol/trust-compute@2.0.0` to npm (standalone scoring lib, SHA-384, live)
+- ✅ Join DIF as Contributor member (submitted)
+- ✅ Submit trust scoring extension email to DIF TAAWG (sent to community@identity.foundation)
+- ✅ LinkedIn message to Andor Kesselman (TAAWG chair, sent)
+- ✅ Register @aidprotocol npm org + publish placeholder packages (mcp-trust, trust-compute, aar-bridge)
+- ✅ ~~Submit lightning talk to MCP Dev Summit~~ — SKIPPED (travel cost, sponsorship-gated)
+- ✅ Switch DID method from `did:clawnet` to `did:key` in published spec (done — 34 refs updated)
+- ✅ Draft 2-page NIST NCCoE comment on agent identity concept paper (Flaw 19 — due April 2, draft at `docs/nist-nccoe-comment.md`)
+- ✅ Publish `@aidprotocol/trust-compute@2.0.0` to npm (standalone scoring lib, SHA-384, live)
 
 ### THIS WEEK (Days 2-5)
-- [ ] Submit NIST NCCoE comment (AI-Identity@nist.gov, deadline April 2)
-- [x] Ship @aidprotocol/mcp-trust@1.1.0 alpha to npm (trust verification middleware, live)
-- [x] Publish AID spec as Protocol + Profiles (MCP, A2A, x402) — not monolith (Optimization 22, at `docs/aid-protocol-spec.md`)
-- [x] Define governance model for trust formula versioning (Flaw 9) — docs/governance-model.md
-- [x] Build interactive playground / trust.claw-net.org PWA — site/aid-playground.html
+- ⬜ Submit NIST NCCoE comment (AI-Identity@nist.gov, deadline April 2)
+- ✅ Ship @aidprotocol/mcp-trust@1.1.0 alpha to npm (trust verification middleware, live)
+- ✅ Publish AID spec as Protocol + Profiles (MCP, A2A, x402) — not monolith (Optimization 22, at `docs/aid-protocol-spec.md`)
+- ✅ Define governance model for trust formula versioning (Flaw 9) — docs/governance-model.md
+- ✅ Build interactive playground / trust.claw-net.org PWA — site/aid-playground.html
 
 ### PRE-BUILD (Audit Corrections — Do Before Phase 1 Code)
-- [x] Draft spec with 4 LIVE dimensions, mark 7 as Phase 3 extensions (Flaw 10) — done in spec v1.0
-- [x] Reframe marketing: "only protocol that converts evidence into portable trust score" (Flaw 17) — docs/marketing-reframe.md
-- [x] Reframe ERC-8004 narrative: "no canonical scoring" not "unshipped" (Flaw 23) — done in Section 15.4
-- [x] Move Verifiable Intent compatibility to Phase 1 (Flaw 22) — done in spec Section 13.3
-- [x] Publish decentralization accountability document with public dates (Flaw 24) — docs/decentralization-roadmap.md
-- [x] Add Stripe ACP + Google UCP to compatibility matrix (Flaw 25) — done in Section 15.4 + spec Section 13
+- ✅ Draft spec with 4 LIVE dimensions, mark 7 as Phase 3 extensions (Flaw 10) — done in spec v1.0
+- ✅ Reframe marketing: "only protocol that converts evidence into portable trust score" (Flaw 17) — docs/marketing-reframe.md
+- ✅ Reframe ERC-8004 narrative: "no canonical scoring" not "unshipped" (Flaw 23) — done in Section 15.4
+- ✅ Move Verifiable Intent compatibility to Phase 1 (Flaw 22) — done in spec Section 13.3
+- ✅ Publish decentralization accountability document with public dates (Flaw 24) — docs/decentralization-roadmap.md
+- ✅ Add Stripe ACP + Google UCP to compatibility matrix (Flaw 25) — done in Section 15.4 + spec Section 13
 
 ### ALREADY COMPLETE (Production in ClawNet)
-- [x] AID system — registration, key rotation, offline verification (`src/routes/aid.ts`)
-- [x] Ed25519 signing + JCS + base58btc (`src/utils/ed25519-signer.ts`, `src/utils/jcs.ts`)
-- [x] Merkle tree + proof generation/verification (`src/core/merkle-anchor.ts`)
-- [x] Offline AID verification (`src/utils/aid-verifier.ts`)
-- [x] Three-layer trust lifecycle — manifest → execution proof → attestation
-- [x] manifestAdherence in trust score (15% weight, `src/core/aid-builder.ts`)
-- [x] Execution proof capture in `createAutoAttestation()` (`src/db/attestations.ts`)
-- [x] Public trust API — `GET /v1/aid/:did/trust` (credit bureau endpoint)
-- [x] Granular policy engine — `checkPolicy()` + v108 migration (`src/middleware/auth.ts`)
-- [x] Merkle-anchored trust snapshots — 4h cron (`src/core/aid-snapshot-cron.ts`)
-- [x] Trust scoring formula — 4 dimensions live (`computeTrustScoreWithProof()`)
-- [x] x402 provider mode (`src/routes/x402-skills.ts`)
-- [x] Attestation system + validator roles (`src/db/attestations.ts`, `src/routes/validators.ts`)
-- [x] 46 attack vectors documented with mitigations (Sections 20, 26, 32, 39, 41.4, 43.3, 44.2, 45.2)
-- [x] Crypto-agility — SHA-384 trust-layer hashing, algorithm-versioned signatures, PQC migration path (`src/utils/crypto-agility.ts`)
-- [x] AidSigner interface + TestSigner in `@aidprotocol/trust-compute@2.1.0` — abstract signing contract (Ed25519/ML-DSA/SLH-DSA), in-memory test signer, base58btc/base64url utils. OWS adapter deferred to mid-April.
-- [x] Attestation + Manifest profiles in aid-spec — modular spec architecture (data profiles separate from transport profiles)
+- ✅ AID system — registration, key rotation, offline verification (`src/routes/aid.ts`)
+- ✅ Ed25519 signing + JCS + base58btc (`src/utils/ed25519-signer.ts`, `src/utils/jcs.ts`)
+- ✅ Merkle tree + proof generation/verification (`src/core/merkle-anchor.ts`)
+- ✅ Offline AID verification (`src/utils/aid-verifier.ts`)
+- ✅ Three-layer trust lifecycle — manifest → execution proof → attestation
+- ✅ manifestAdherence in trust score (15% weight, `src/core/aid-builder.ts`)
+- ✅ Execution proof capture in `createAutoAttestation()` (`src/db/attestations.ts`)
+- ✅ Public trust API — `GET /v1/aid/:did/trust` (credit bureau endpoint)
+- ✅ Granular policy engine — `checkPolicy()` + v108 migration (`src/middleware/auth.ts`)
+- ✅ Merkle-anchored trust snapshots — 4h cron (`src/core/aid-snapshot-cron.ts`)
+- ✅ Trust scoring formula — 4 dimensions live (`computeTrustScoreWithProof()`)
+- ✅ x402 provider mode (`src/routes/x402-skills.ts`)
+- ✅ Attestation system + validator roles (`src/db/attestations.ts`, `src/routes/validators.ts`)
+- ✅ 46 attack vectors documented with mitigations (Sections 20, 26, 32, 39, 41.4, 43.3, 44.2, 45.2)
+- ✅ Crypto-agility — SHA-384 trust-layer hashing, algorithm-versioned signatures, PQC migration path (`src/utils/crypto-agility.ts`)
+- ✅ AidSigner interface + TestSigner in `@aidprotocol/trust-compute@2.1.0` — abstract signing contract (Ed25519/ML-DSA/SLH-DSA), in-memory test signer, base58btc/base64url utils. OWS adapter deferred to mid-April.
+- ✅ Attestation + Manifest profiles in aid-spec — modular spec architecture (data profiles separate from transport profiles)
 
 ### PHASE 1: SHIP THE TRUST LAYER (Weeks 1-4, $0 infra cost)
 
 **Week 1 — DAY 1 (URGENT — DIF window closing):**
-- [ ] Submit AID trust scoring extension to DIF TAAWG
-- [ ] Register @AID npm org + aid-trust PyPI + typosquats
-- [x] Publish `@aidprotocol/trust-compute` to npm (standalone scoring library, Section 42.2) — v2.1.0 (AidSigner + TestSigner)
+- ⬜ Submit AID trust scoring extension to DIF TAAWG
+- ⬜ Register @AID npm org + aid-trust PyPI + typosquats
+- ✅ Publish `@aidprotocol/trust-compute` to npm (standalone scoring library, Section 42.2) — v2.1.0 (AidSigner + TestSigner)
 
 **Week 1 — Days 1-3:**
-- [x] Ship @aidprotocol/mcp-trust alpha to npm (~200 lines, sig verify only) — shipped v1.1.0
-- [x] Include Pedersen commitment privacy option (Cherry 13, ~200 lines) — src/utils/pedersen.ts + GET /aid/trust/:did/commitment
-- [x] Build interactive playground (show, don't tell) — site/aid-playground.html
+- ✅ Ship @aidprotocol/mcp-trust alpha to npm (~200 lines, sig verify only) — shipped v1.1.0
+- ✅ Include Pedersen commitment privacy option (Cherry 13, ~200 lines) — src/utils/pedersen.ts + GET /aid/trust/:did/commitment
+- ✅ Build interactive playground (show, don't tell) — site/aid-playground.html
 
 **Week 1 — Days 3-5:**
-- [x] Publish AID protocol spec as standalone 10-page document — at docs/aid-protocol-spec.md + aidprotocol/aid-spec repo
-- [ ] Register ClawNet on ERC-8004 Identity Registry (Base, ~$1)
-- [x] Add protocol-level canary — on-chain liveness proof (Cherry 15) — src/core/canary.ts + GET /aid/canary + 6h cron + v113 migration
-- [x] Ship trust.claw-net.org PWA (trust lookup + "Try it" demo, Optimization 16) — site/aid-playground.html
-- [ ] Research Wyoming DAO LLC sandbox (Flaw 12)
+- ✅ Publish AID protocol spec as standalone 10-page document — at docs/aid-protocol-spec.md + aidprotocol/aid-spec repo
+- ⬜ Register ClawNet on ERC-8004 Identity Registry (Base, ~$1)
+- ✅ Add protocol-level canary — on-chain liveness proof (Cherry 15) — src/core/canary.ts + GET /aid/canary + 6h cron + v113 migration
+- ✅ Ship trust.claw-net.org PWA (trust lookup + "Try it" demo, Optimization 16) — site/aid-playground.html
+- ⬜ Research Wyoming DAO LLC sandbox (Flaw 12)
 
 **Week 2:**
-- [x] Ship @aidprotocol/middleware for Hono (ClawNet uses Hono) — src/middleware/aid-verify.ts + aid-provider-proof.ts
-- [x] AID headers on ClawNet's x402 routes (X-AID-DID, X-AID-PROOF, X-AID-NONCE) — wired in x402-skills.ts
-- [x] Provider DID in x402 responses (X-AID-PROVIDER-DID, X-AID-PROVIDER-PROOF) — aid-provider-proof.ts middleware
-- [x] Fork x402 facilitator → host fee-free at facilitator.claw-net.org — src/routes/x402-facilitator.ts, mounted at /x402/facilitator/*
-- [ ] Submit PR to x402 repo adding optional X-AID headers (Trojan horse, Section 43.1b)
+- ✅ Ship @aidprotocol/middleware for Hono (ClawNet uses Hono) — src/middleware/aid-verify.ts + aid-provider-proof.ts
+- ✅ AID headers on ClawNet's x402 routes (X-AID-DID, X-AID-PROOF, X-AID-NONCE) — wired in x402-skills.ts
+- ✅ Provider DID in x402 responses (X-AID-PROVIDER-DID, X-AID-PROVIDER-PROOF) — aid-provider-proof.ts middleware
+- ✅ Fork x402 facilitator → host fee-free at facilitator.claw-net.org — src/routes/x402-facilitator.ts, mounted at /x402/facilitator/*
+- ⬜ Submit PR to x402 repo adding optional X-AID headers (Trojan horse, Section 43.1b)
 
 **Week 3:**
-- [x] Trust-gated pricing logic (6 tiers, checkPolicy integration) — trustGatedCreditCost() in credits.ts
-- [x] Feedback endpoint (POST /aid/feedback) with weighted reputation — in aid-protocol.ts
-- [x] Heartbeat endpoint (GET /aid/heartbeat) with provider signature — in aid-protocol.ts
-- [x] "Try it" button on skill pages — one-click execution — site/aid-playground.html (trust lookup + heartbeat + skills + integration guide)
-- [x] X-AID-TRUST-VERIFIED response header (Optimization 10) — in aid-provider-proof.ts
+- ✅ Trust-gated pricing logic (6 tiers, checkPolicy integration) — trustGatedCreditCost() in credits.ts
+- ✅ Feedback endpoint (POST /aid/feedback) with weighted reputation — in aid-protocol.ts
+- ✅ Heartbeat endpoint (GET /aid/heartbeat) with provider signature — in aid-protocol.ts
+- ✅ "Try it" button on skill pages — one-click execution — site/aid-playground.html (trust lookup + heartbeat + skills + integration guide)
+- ✅ X-AID-TRUST-VERIFIED response header (Optimization 10) — in aid-provider-proof.ts
 
 **Week 4:**
-- [x] DELETE /v1/aid/:did endpoint (GDPR) — already existed in aid.ts
-- [ ] Submit trust extension to MCP-I/DIF working group
-- [x] Ship @aidprotocol/middleware for Express/Fastify (broaden reach) — packages/middleware/ (core + express + fastify adapters)
-- [x] Publish /.well-known/aid-platform-key (A2A trust verification) — in well-known.ts
-- [x] BIP-39 single-seed key derivation (Flaw 3, elevated to Phase 1) — in aid-builder.ts
-- [x] Build @aidprotocol/gateway — commerce middleware wrapping x402/MPP calls (from Mnemom, Section 15.7) — aid-gateway.ts
-- [x] Public trust leaderboard at trust.aidprotocol.org (from 402audit, Section 15.7) — site/trust.html + /aid/leaderboard
-- [x] @aidprotocol/trust-gate GitHub Action — CI/CD trust gating (from Mnemom, Section 15.7) — packages/trust-gate/ (action.yml + bundled JS)
-- [x] Auto-dispute flag on manifest violation in AID receipts (from PayCrow, Section 15.7) — in attestations.ts
+- ✅ DELETE /v1/aid/:did endpoint (GDPR) — already existed in aid.ts
+- ⬜ Submit trust extension to MCP-I/DIF working group
+- ✅ Ship @aidprotocol/middleware for Express/Fastify (broaden reach) — packages/middleware/ (core + express + fastify adapters)
+- ✅ Publish /.well-known/aid-platform-key (A2A trust verification) — in well-known.ts
+- ✅ BIP-39 single-seed key derivation (Flaw 3, elevated to Phase 1) — in aid-builder.ts
+- ✅ Build @aidprotocol/gateway — commerce middleware wrapping x402/MPP calls (from Mnemom, Section 15.7) — aid-gateway.ts
+- ✅ Public trust leaderboard at trust.aidprotocol.org (from 402audit, Section 15.7) — site/trust.html + /aid/leaderboard
+- ✅ @aidprotocol/trust-gate GitHub Action — CI/CD trust gating (from Mnemom, Section 15.7) — packages/trust-gate/ (action.yml + bundled JS)
+- ✅ Auto-dispute flag on manifest violation in AID receipts (from PayCrow, Section 15.7) — in attestations.ts
 
 ### PHASE 2: ECOSYSTEM REACH (Months 2-3)
-- [x] Ship aid-trust Python package (CrewAI/LangGraph plugins) — packages/aid-python/ (pip install aid-trust)
-- [x] /aid/* route handler with full protocol flow — aid-protocol.ts + aid-disputes.ts + aid-stream.ts + aid-a2a.ts + aid-freeze.ts + aid-explain.ts
-- [x] X-AID-NEW zero-auth onboarding on /aid/* routes — POST /aid/provision with rate limiting (3/IP/24h)
-- [ ] Direct receiveWithAuthorization settlement (no facilitator)
-- [x] Mutual authentication (server signs responses) — aid-provider-proof.ts (X-AID-PROVIDER-DID + X-AID-PROVIDER-PROOF) + A2A signed trustProof
-- [x] Portable atomic receipts with dual signatures + Merkle anchoring — src/core/receipt-builder.ts (already built)
-- [x] Consumer heartbeat (authenticated, personalized) — GET /aid/heartbeat/consumer with credit balance, pending feedback, disputes, alerts
-- [ ] ERC-8004 reputation bridge (publish trust scores on-chain)
-- [x] A2A agent card extension (trust scores in discovery) — src/routes/aid-a2a.ts (GET /aid/a2a/card/:did + /discover)
-- [ ] Solana SPL USDC settlement option (Ed25519 single-key)
-- [x] ElizaOS plugin for AID trust — AID_CHECK_TRUST action added to packages/elizaos/
-- [x] @aidprotocol/x402-enhanced middleware (add trust to any x402 server, Section 43.1b) — packages/x402-enhanced/
-- [x] @aidprotocol/solana-trust (score engine for Solana Agent Registry, Section 43.1b) — packages/solana-trust/
-- [x] Formal dispute resolution (POST /aid/disputes — Flaw 6, elevated from "future vision") — src/routes/aid-disputes.ts + v114 migration
-- [x] Bad debt reserve — 0.1% surcharge on deferred settlements (Flaw 4) — src/utils/bad-debt-reserve.ts + v115 migration
-- [x] WebSocket/SSE streaming for trust updates (Flaw 5 / Optimization 8) — src/routes/aid-stream.ts (GET /aid/stream SSE + event bus)
-- [x] @aidprotocol/aar-bridge — bidirectional AAR receipt conversion (Optimization 12) — src/utils/aar-bridge.ts
-- [x] Verifiable Intent integration — map AID trust as VI signal (Optimization 13) — src/utils/verifiable-intent.ts (W3C VC trust credentials + VI signal)
-- [x] AID-MPP Profile — trust headers alongside Stripe MPP session authorization (Section 15.5) — src/utils/mpp-profile.ts
-- [x] AID-AgentKit bridge — optional World ID linking for maximum trust signal (Section 45.5) — src/utils/agentkit-bridge.ts + v121
-- [x] AID-TAP reference — spec-only interop note for Visa Trusted Agent Protocol (no code) — docs/aid-tap-reference.md
-- [ ] AIDEscrow.sol reference contract on Base — trust-gated escrow timelocks (from PayCrow, Section 15.7)
-- [ ] ZK proof of scoring function via RISC Zero — <$0.01/proof (accelerated from Phase 4, from Mnemom)
-- [x] Sybil risk as supplementary signal in AID documents — consume Cred/external data (Section 15.7) — src/utils/sybil-signal.ts
-- [x] Trust Score v1.1 — add counterpartyDiversity (15%) + recency-weighted successRate (Section 4.2) — src/core/trust-scoring-v11.ts (already built)
-- [x] Onboarding milestones — signed timestamps for key trust journey events (from AgentSign, Section 4.2) — GET /aid/milestones/:did + recordMilestone() + v116 migration
-- [x] AID-Solana-Registry bridge — Ed25519 native mapping (parallel with ERC-8004 bridge) — solanaPubkeyToDid() in packages/solana-trust/
-- [x] Recovery key registration (2-of-3 multi-sig) at AID creation (Section 39.18) — POST /aid/recovery-keys + GET /aid/recovery-keys/:did + v116
-- [x] Trust freeze endpoint — FROZEN/CHALLENGE/SOFT_FREEZE states (Section 39.18) — src/routes/aid-freeze.ts (freeze/unfreeze/status/challenge)
-- [x] Proof of life heartbeat — weekly owner signature, auto-decay schedule (Section 39.18) — src/core/proof-of-life-cron.ts (already built)
-- [x] Anomaly detection + progressive behavioral containment (Section 39.18) — in proof-of-life-cron.ts (convergence decay + anomaly scoring)
-- [x] Guardian agent framework — agents monitoring agents (Section 39.18) — v112 tables + /aid/guardians/* endpoints (already built)
-- [x] Counterparty immune response — auto-quarantine from collective reports (Section 39.18) — in proof-of-life-cron.ts checkImmuneResponse()
-- [x] Gas price circuit breaker for batch settlement (Vector 43) — src/utils/gas-circuit-breaker.ts (3-state: closed/open/half_open)
-- [x] Verification receipt in middleware — caller-verifiable ClawNet-signed token (Flaw 18) — src/middleware/aid-verification-receipt.ts (JWT-like Ed25519 receipt)
-- [x] ARA compatibility evaluation (Flaw 16) — docs/ara-compatibility.md
+- ✅ Ship aid-trust Python package (CrewAI/LangGraph plugins) — packages/aid-python/ (pip install aid-trust)
+- ✅ /aid/* route handler with full protocol flow — aid-protocol.ts + aid-disputes.ts + aid-stream.ts + aid-a2a.ts + aid-freeze.ts + aid-explain.ts
+- ✅ X-AID-NEW zero-auth onboarding on /aid/* routes — POST /aid/provision with rate limiting (3/IP/24h)
+- ⬜ Direct receiveWithAuthorization settlement (no facilitator)
+- ✅ Mutual authentication (server signs responses) — aid-provider-proof.ts (X-AID-PROVIDER-DID + X-AID-PROVIDER-PROOF) + A2A signed trustProof
+- ✅ Portable atomic receipts with dual signatures + Merkle anchoring — src/core/receipt-builder.ts (already built)
+- ✅ Consumer heartbeat (authenticated, personalized) — GET /aid/heartbeat/consumer with credit balance, pending feedback, disputes, alerts
+- ⬜ ERC-8004 reputation bridge (publish trust scores on-chain)
+- ✅ A2A agent card extension (trust scores in discovery) — src/routes/aid-a2a.ts (GET /aid/a2a/card/:did + /discover)
+- ⬜ Solana SPL USDC settlement option (Ed25519 single-key)
+- ✅ ElizaOS plugin for AID trust — AID_CHECK_TRUST action added to packages/elizaos/
+- ✅ @aidprotocol/x402-enhanced middleware (add trust to any x402 server, Section 43.1b) — packages/x402-enhanced/
+- ✅ @aidprotocol/solana-trust (score engine for Solana Agent Registry, Section 43.1b) — packages/solana-trust/
+- ✅ Formal dispute resolution (POST /aid/disputes — Flaw 6, elevated from "future vision") — src/routes/aid-disputes.ts + v114 migration
+- ✅ Bad debt reserve — 0.1% surcharge on deferred settlements (Flaw 4) — src/utils/bad-debt-reserve.ts + v115 migration
+- ✅ WebSocket/SSE streaming for trust updates (Flaw 5 / Optimization 8) — src/routes/aid-stream.ts (GET /aid/stream SSE + event bus)
+- ✅ @aidprotocol/aar-bridge — bidirectional AAR receipt conversion (Optimization 12) — src/utils/aar-bridge.ts
+- ✅ Verifiable Intent integration — map AID trust as VI signal (Optimization 13) — src/utils/verifiable-intent.ts (W3C VC trust credentials + VI signal)
+- ✅ AID-MPP Profile — trust headers alongside Stripe MPP session authorization (Section 15.5) — src/utils/mpp-profile.ts
+- ✅ AID-AgentKit bridge — optional World ID linking for maximum trust signal (Section 45.5) — src/utils/agentkit-bridge.ts + v121
+- ✅ AID-TAP reference — spec-only interop note for Visa Trusted Agent Protocol (no code) — docs/aid-tap-reference.md
+- ⬜ AIDEscrow.sol reference contract on Base — trust-gated escrow timelocks (from PayCrow, Section 15.7)
+- ⬜ ZK proof of scoring function via RISC Zero — <$0.01/proof (accelerated from Phase 4, from Mnemom)
+- ✅ Sybil risk as supplementary signal in AID documents — consume Cred/external data (Section 15.7) — src/utils/sybil-signal.ts
+- ✅ Trust Score v1.1 — add counterpartyDiversity (15%) + recency-weighted successRate (Section 4.2) — src/core/trust-scoring-v11.ts (already built)
+- ✅ Onboarding milestones — signed timestamps for key trust journey events (from AgentSign, Section 4.2) — GET /aid/milestones/:did + recordMilestone() + v116 migration
+- ✅ AID-Solana-Registry bridge — Ed25519 native mapping (parallel with ERC-8004 bridge) — solanaPubkeyToDid() in packages/solana-trust/
+- ✅ Recovery key registration (2-of-3 multi-sig) at AID creation (Section 39.18) — POST /aid/recovery-keys + GET /aid/recovery-keys/:did + v116
+- ✅ Trust freeze endpoint — FROZEN/CHALLENGE/SOFT_FREEZE states (Section 39.18) — src/routes/aid-freeze.ts (freeze/unfreeze/status/challenge)
+- ✅ Proof of life heartbeat — weekly owner signature, auto-decay schedule (Section 39.18) — src/core/proof-of-life-cron.ts (already built)
+- ✅ Anomaly detection + progressive behavioral containment (Section 39.18) — in proof-of-life-cron.ts (convergence decay + anomaly scoring)
+- ✅ Guardian agent framework — agents monitoring agents (Section 39.18) — v112 tables + /aid/guardians/* endpoints (already built)
+- ✅ Counterparty immune response — auto-quarantine from collective reports (Section 39.18) — in proof-of-life-cron.ts checkImmuneResponse()
+- ✅ Gas price circuit breaker for batch settlement (Vector 43) — src/utils/gas-circuit-breaker.ts (3-state: closed/open/half_open)
+- ✅ Verification receipt in middleware — caller-verifiable ClawNet-signed token (Flaw 18) — src/middleware/aid-verification-receipt.ts (JWT-like Ed25519 receipt)
+- ✅ ARA compatibility evaluation (Flaw 16) — docs/ara-compatibility.md
 
 ### PHASE 3: INTELLIGENCE (Months 4-6)
-- [x] Trust Score v2 (expand to 11 dimensions, 3 categories) — src/core/trust-scoring-v2.ts
-- [ ] On-chain TrustOracle contract (Base, Merkle root anchoring)
-- [ ] TrustGate hook (smart contract min_trust_score enforcement)
-- [x] Sentinel alerts (SSE stream for trust degradation events) — already in aid-stream.ts (trust_degraded events)
-- [x] Trust decay cron (10%/30d weight loss, adaptive per-category — Cherry 7) — src/core/trust-decay-cron.ts (24h cron, 4 category rates)
-- [x] Structured agent memory (upgrade from 50KB JSON → searchable docs) — src/db/agent-memory.ts (typed docs, tags, importance, search, TTL)
-- [x] Agent social graph (follow/endorse, feeds COMMUNITY trust) — src/db/social-graph.ts (follow/endorse/block, mutual decay, cross-consumption)
-- [x] Public agent explorer page (site/explore.html) — GET /aid/explore (API) + site/aid-playground.html (UI)
-- [ ] ERC-8004 Validation Registry bridge (ship before their team)
-- [x] Trust Score Explanation API — GET /aid/trust/{did}/explain (Cherry 1) — src/routes/aid-explain.ts
-- [x] Trust Score Prediction API — GET /aid/trust/{did}/predict (Cherry 8) — src/routes/aid-explain.ts
-- [ ] ZK trust proofs via Noir — accelerated from Phase 4 (Cherry A)
+- ✅ Trust Score v2 (expand to 11 dimensions, 3 categories) — src/core/trust-scoring-v2.ts
+- ⬜ On-chain TrustOracle contract (Base, Merkle root anchoring)
+- ⬜ TrustGate hook (smart contract min_trust_score enforcement)
+- ✅ Sentinel alerts (SSE stream for trust degradation events) — already in aid-stream.ts (trust_degraded events)
+- ✅ Trust decay cron (10%/30d weight loss, adaptive per-category — Cherry 7) — src/core/trust-decay-cron.ts (24h cron, 4 category rates)
+- ✅ Structured agent memory (upgrade from 50KB JSON → searchable docs) — src/db/agent-memory.ts (typed docs, tags, importance, search, TTL)
+- ✅ Agent social graph (follow/endorse, feeds COMMUNITY trust) — src/db/social-graph.ts (follow/endorse/block, mutual decay, cross-consumption)
+- ✅ Public agent explorer page (site/explore.html) — GET /aid/explore (API) + site/aid-playground.html (UI)
+- ⬜ ERC-8004 Validation Registry bridge (ship before their team)
+- ✅ Trust Score Explanation API — GET /aid/trust/{did}/explain (Cherry 1) — src/routes/aid-explain.ts
+- ✅ Trust Score Prediction API — GET /aid/trust/{did}/predict (Cherry 8) — src/routes/aid-explain.ts
+- ⬜ ZK trust proofs via Noir — accelerated from Phase 4 (Cherry A)
 
 ### PHASE 4: MARKET LAYER (Months 7-9)
-- [ ] Bonding curve contract (reputation-only, no revenue share)
-- [x] Cross-consumption tracking + trust boost — getCrossConsumptionStats() in social-graph.ts
-- [x] Season framework (12 scoring dimensions) — src/core/seasons.ts + v119 migration
-- [x] No-code skill builder (natural language → skill definition) — src/routes/skill-builder.ts (POST /v1/skills/build)
-- [ ] Visual MCP workflow builder
-- [ ] AgentKit wallet integration (Coinbase AgentKit)
+- ⬜ Bonding curve contract (reputation-only, no revenue share)
+- ✅ Cross-consumption tracking + trust boost — getCrossConsumptionStats() in social-graph.ts
+- ✅ Season framework (12 scoring dimensions) — src/core/seasons.ts + v119 migration
+- ✅ No-code skill builder (natural language → skill definition) — src/routes/skill-builder.ts (POST /v1/skills/build)
+- ⬜ Visual MCP workflow builder
+- ⬜ AgentKit wallet integration (Coinbase AgentKit)
 
 ### PHASE 5: SOVEREIGNTY (Months 10+)
-- [x] AID SDK (TypeScript) — @clawnet/AID — packages/aid-sdk/ (AID.connect(), query, getTrust, sign, feedback)
-- [x] AID SDK (Python) — packages/aid-python/ (same package as aid-trust)
-- [ ] AID spec publication to standards bodies
-- [x] Reference facilitator (open-source) — packages/facilitator/ (npx @aidprotocol/facilitator, zero fees)
-- [ ] Documentation site
-- [ ] Testnet mode (Base Sepolia)
-- [ ] Third-party onboarding (3-5 platforms)
-- [ ] zkTLS execution proofs
-- [x] Trust delegation chains (inherited trust) — src/core/trust-delegation.ts (max 5 children, 50% cap, 90d expiry, parent penalty)
-- [x] Cross-protocol trust import (ERC-8004, Maiat, x402 history) — src/core/trust-import.ts (capped at 39, requires 20 local txs)
+- ✅ AID SDK (TypeScript) — @clawnet/AID — packages/aid-sdk/ (AID.connect(), query, getTrust, sign, feedback)
+- ✅ AID SDK (Python) — packages/aid-python/ (same package as aid-trust)
+- ⬜ AID spec publication to standards bodies
+- ✅ Reference facilitator (open-source) — packages/facilitator/ (npx @aidprotocol/facilitator, zero fees)
+- ⬜ Documentation site
+- ⬜ Testnet mode (Base Sepolia)
+- ⬜ Third-party onboarding (3-5 platforms)
+- ⬜ zkTLS execution proofs
+- ✅ Trust delegation chains (inherited trust) — src/core/trust-delegation.ts (max 5 children, 50% cap, 90d expiry, parent penalty)
+- ✅ Cross-protocol trust import (ERC-8004, Maiat, x402 history) — src/core/trust-import.ts (capped at 39, requires 20 local txs)
 
 ### DECENTRALIZATION ROADMAP (Section 42 — Parallel Track)
-- [x] Phase 1 (Month 1): Open-source `@aidprotocol/trust-compute` + IPFS/Arweave publication — published v2.0.0 MIT
-- [ ] Phase 1 (Month 1): On-chain Merkle root commitment (Base, ~$0.001/tx)
-- [ ] Phase 2 (Month 6): Deploy OptimisticTrustOracle.sol (24h challenge, $10 bond)
-- [ ] Phase 3 (Month 12): Federated trust oracles (3-5 independent operators)
-- [ ] Phase 4 (Month 18+): Noir ZK circuit for trustless verification
+- ✅ Phase 1 (Month 1): Open-source `@aidprotocol/trust-compute` + IPFS/Arweave publication — published v2.0.0 MIT
+- ⬜ Phase 1 (Month 1): On-chain Merkle root commitment (Base, ~$0.001/tx)
+- ⬜ Phase 2 (Month 6): Deploy OptimisticTrustOracle.sol (24h challenge, $10 bond)
+- ⬜ Phase 3 (Month 12): Federated trust oracles (3-5 independent operators)
+- ⬜ Phase 4 (Month 18+): Noir ZK circuit for trustless verification
 
 ---
 
