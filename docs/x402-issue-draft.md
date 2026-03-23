@@ -27,6 +27,37 @@ A new `agent-trust` extension that adds optional DID-based identity proofs and t
 
 Trust scores are 0-100 integers computed from behavioral signals (success rate, latency, uptime), attestation signals (counterparty feedback), and manifest adherence. The scoring algorithm is deterministic — any party can independently verify.
 
+## Flow
+
+```
+Client                                Server
+  │                                     │
+  │──── GET /resource ────────────────→ │
+  │                                     │
+  │←── 402 PaymentRequired ──────────── │
+  │    extensions.agent-trust:          │
+  │      providerDid: did:key:z6Mk...  │
+  │      minTrustScore: 50             │
+  │      signatureAlgorithm: Ed25519   │
+  │                                     │
+  │──── Payment + identity proof ────→  │
+  │    extensions.agent-trust:          │
+  │      did: did:key:z6Mk...          │
+  │      proof: Ed25519(canonical_msg) │
+  │      timestamp + nonce             │
+  │                                     │
+  │    Server verifies:                │
+  │    1. Signature valid?             │
+  │    2. Nonce unique? (replay)       │
+  │    3. Trust score ≥ minimum?       │
+  │                                     │
+  │←── 200 + mutual auth ────────────  │
+  │    extensions.agent-trust:          │
+  │      providerProof: Ed25519(...)   │
+  │      trustScore: 82                │
+  │      receiptId: uuid               │
+```
+
 ## Key Design Decisions
 
 - **DID-based, not wallet-based** — decouples identity from payment mechanism. A `did:key` is transport-agnostic (works on EVM, Solana, or no chain at all).
