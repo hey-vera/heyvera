@@ -169,7 +169,7 @@ This enables cross-referencing between on-chain identity (ERC-8004) and transpor
 
 - **Scoring library:** [`@aidprotocol/trust-compute`](https://www.npmjs.com/package/@aidprotocol/trust-compute) v2.0.0 (npm, MIT license) — deterministic trust scoring, standalone, zero platform dependencies
 - **MCP middleware:** [`@aidprotocol/mcp-trust`](https://www.npmjs.com/package/@aidprotocol/mcp-trust) v1.1.0 (npm, MIT license) — trust verification for MCP servers
-- **Production deployment:** ClawNet (claw-net.org) — 344 API endpoints with trust-gated pricing
+- **Production deployment:** ClawNet (claw-net.org) — 12,000+ API endpoints with trust-gated pricing
 
 ## Authors
 

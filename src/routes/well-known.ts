@@ -533,7 +533,7 @@ router.get('/erc8004-registration.json', (c) => {
   return c.json({
     type: 'https://eips.ethereum.org/EIPS/eip-8004#registration-v1',
     name: 'ClawNet',
-    description: 'The trust and commerce layer for AI agents. Skill marketplace, 344 API endpoints, cryptographic attestations, x402 micropayments. AID trust protocol reference implementation.',
+    description: 'The trust and commerce layer for AI agents. Skill marketplace, 12,000+ API endpoints, cryptographic attestations, x402 micropayments. AID trust protocol reference implementation.',
     image: 'https://claw-net.org/favicon.svg',
     services: [
       { name: 'web', endpoint: 'https://claw-net.org/' },
@@ -596,7 +596,7 @@ router.get('/aid-registration.json', (c) => {
     referenceImplementation: {
       name: 'ClawNet',
       url: 'https://claw-net.org',
-      endpoints: 344,
+      endpoints: 12000,
       trustEndpoint: 'https://api.claw-net.org/v1/aid/:did/trust',
     },
   });

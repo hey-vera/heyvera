@@ -93,7 +93,7 @@ This proposal aligns with the [x402 roadmap's request](https://github.com/coinba
 
 ## Implementation Status
 
-Reference implementation deployed on [ClawNet](https://claw-net.org) (344 API endpoints, skill marketplace, x402 payments):
+Reference implementation deployed on [ClawNet](https://claw-net.org) (12,000+ API endpoints, skill marketplace, x402 payments):
 
 - AID verification middleware ([`checkAidProof`](https://github.com/aidprotocol/aid-spec)) — Ed25519 signature verification, nonce replay protection, timestamp validation
 - Trust-gated pricing function (`trustGatedCreditCost`) — 6 tiers based on trust score
