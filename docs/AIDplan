@@ -199,7 +199,40 @@ transaction makes it smarter.
 - ✅ newAgentPolicy removed — Sybil attack vector (advertising cold-start budgets)
 - ✅ AID logo — custom logo for ERC-8004 NFT registration (site/aid-logo.png)
 
-**Progress: 115/133 items complete (86%). NEXT: /aid site page → DIF TAAWG → on-chain TrustOracle → 10/10 plan (DSIR, EigenTrust, trust vectors).**
+**Progress: 115/133 items complete (86%). NEXT: 10/10 plan (DSIR, EigenTrust, trust vectors) → DIF TAAWG meeting → on-chain TrustOracle.**
+
+### COMPLETED 2026-03-23 (session 2 — Opus review response)
+- ✅ Signing input hardened — providerDid binding prevents relay attacks (Section 19.8 + 39.7)
+- ✅ Receipt completeness gap fixed — dual-party commitment logs with cross-reference (10/10 Day 1)
+- ✅ EigenTrust convergence hardened — smooth transition function + fallback to direct scoring (10/10 Day 3)
+- ✅ Exponential decay replaces hard 30-day recency window — no exploitable boundary (Section 4.2 v1.1)
+- ✅ Negative test vectors added to all 5 days of 10/10 plan (30+ negative vectors total)
+- ✅ Section 47: Game-Theoretic Analysis — cost-to-manipulate per dimension, Nash equilibrium, parameter justification
+- ✅ Section 48: ABNF/CDDL Formal Definitions — machine-parseable headers + data structures for DIF
+- ✅ Section 49: Future Cryptographic Primitives — Verkle trees, FROST threshold sigs, DAG receipt chains, PQC entropy
+- ✅ Section 50: DIF Meeting Preparation — external implementation commitment strategy, updated slides, tactical guidance
+- ✅ Dispute rate exponent justified (quadratic: 5% disputes → 90% integrity, 25% → 56%, 50% → 25%)
+- ✅ Exponential decay half-life justified (30 days default, category-tunable in Phase 3)
+
+### COMPLETED 2026-03-23 (session 3 — Opus review round 2)
+- ✅ Game theory formalized — strategy space, payoff functions, detection probabilities, dominant strategy proof (Section 47.6)
+- ✅ Commitment log liveness solved — 24h grace period + escalation model (0h=unconfirmed, 24h=late 0.9x, 72h=omitted 0.5x)
+- ✅ Regulatory risk on trust scores — EU AI Act (Annex III 5b), FCRA, legal disclaimer template (Section 33.5)
+- ✅ CDDL compositeScore fixed — uint → float16 .le 100.0 with banker's rounding note
+- ✅ EigenTrust seed circularity fixed — removed counterpartyDiversity from seed, use receipt_count + account_age only
+- ✅ Error semantics added — 10 error codes with HTTP status mapping + CDDL AidErrorResponse body (Section 48.6)
+- ✅ Commitment log anchor chain specified — MUST anchor to same chain as trust Merkle root (Section 10/10 Day 1)
+- ✅ RFC 9421 HTTP Message Signatures alignment elevated to Phase 1 (Section 48.8)
+- ✅ Conformance levels added — Level 1 (Core), Level 2 (Trust), Level 3 (Full) with test suites (Section 48.7)
+
+### COMPLETED 2026-03-23 (session 4 — Protocol/Product separation)
+- ✅ Protocol/Product boundary defined — AID protocol endpoints vs ClawNet product endpoints (Section 50.0)
+- ✅ AID protocol auth middleware spec — Ed25519-only, no API keys, no credits (aid-protocol-auth.ts)
+- ✅ Public read endpoints defined — /trust, /receipts, /scoring-params, /.well-known/aid.json (no auth)
+- ✅ AID-authenticated endpoints defined — /feedback, /heartbeat/consumer (X-AID-DID + X-AID-PROOF)
+- ✅ AID payment endpoints defined — /aid/skills/:id, /aid/orchestrate (PAYMENT-SIGNATURE, pure USDC)
+- ✅ Route mounting architecture — /aid/* = pure protocol, /v1/* = credit auth (unchanged)
+- ✅ Security harness re-run guidance — test against /aid/* not /v1/*, X4-001/X4-004 resolution path
 
 ### 10/10 PLAN — CORE SCORING EVOLUTION (Replaces attestation-primary with receipt-primary)
 
@@ -211,8 +244,61 @@ transaction makes it smarter.
 - ⬜ Define DualSignedInteractionReceipt interface (both parties sign, both classify outcome)
 - ⬜ Add OutcomeClassification enum (success, partial, failure, timeout, disputed)
 - ⬜ Receipt generation in x402 middleware (after payment + response, both sign)
+- ⬜ Dual-party receipt commitment logs (CRITICAL — fixes completeness gap, see below)
 - ⬜ Receipt commitment log (per-agent append-only hash list, batch Merkle anchor to Solana/Base)
 - ⬜ 5 DSIR test vectors (both agree, both disagree, with/without payment evidence)
+- ⬜ 10 negative test vectors (malformed DSIR, expired timestamp, invalid sig, missing fields,
+  duplicate receiptId, outcome mismatch without dispute flag, future timestamp, empty body hash,
+  self-referencing receipt, score outside [0,100] bounds)
+
+**Dual-Party Commitment Logs (Completeness Guarantee):**
+Merkle roots prove what's IN the tree, NOT what's MISSING. A malicious server could
+selectively omit negative receipts from its commitment log, inflating trust scores.
+Fix: BOTH parties independently commit receipt hashes to their own append-only logs.
+
+```
+After each DSIR is created:
+  1. Consumer agent appends SHA-256(receiptId + outcome) to its local commitment log
+  2. Provider appends SHA-256(receiptId + outcome) to its commitment log
+  3. Both logs are Merkle-anchored independently (batch, every 4h)
+
+During trust computation:
+  4. Cross-reference consumer logs vs provider logs for the same DID pair
+  5. If consumer has receipt R that provider's log omits → FLAG: selective omission
+  6. If provider has receipt R that consumer's log omits → FLAG: receipt injection
+  7. Flagged agents get integrity_score *= 0.5 per omission (compounding)
+  8. Agents with >3 omissions in 30 days → automatic "avoid" flag
+
+Verification endpoint:
+  GET /v1/aid/:did/commitment-log — returns agent's commitment log Merkle root + proof
+  Third parties cross-reference logs from both counterparties to verify completeness
+```
+
+This gives AID a genuine **verifiable computation property**: the server can prove
+what scores it computed (Merkle root), and BOTH counterparties can independently
+prove what interactions occurred (dual logs). Selective omission is detectable
+because the other party's log contains the missing receipt.
+
+**Liveness Grace Period (solves the downtime vs malice ambiguity):**
+A missing log entry could mean "malicious omission" OR "server crashed." Punishing
+both equally destroys legitimate agents with temporary downtime.
+
+```
+ESCALATION MODEL:
+  0-24h after receipt:   Entry marked "unconfirmed" — no penalty
+                         (grace period for server recovery, network issues)
+  24h-72h:              Entry marked "late" — integrity_score *= 0.9 per late entry
+                         (mild penalty, incentivizes timely log submission)
+  >72h:                 Entry marked "omitted" — integrity_score *= 0.5 per omission
+                         (full penalty, no legitimate reason for 3-day silence)
+  >3 omissions in 30d:  Automatic "avoid" flag (deliberate pattern)
+
+ANCHOR CHAIN: Commitment log Merkle roots MUST anchor to the SAME chain as the
+trust score Merkle root (Base L2, by default). If consumer and provider anchor to
+different chains, cross-referencing requires reading both — unacceptable complexity.
+Canonical resolution: all commitment logs anchor to the chain specified in the
+platform's /.well-known/aid.json under "anchorChain" field.
+```
 
 **Day 2: Receipt-Primary Scoring**
 - ⬜ computeTrustScore() accepts DSIRs as primary input
@@ -220,12 +306,61 @@ transaction makes it smarter.
 - ⬜ Dispute rate as superlinear integrity signal: integrity_score *= (1 - dispute_rate) ^ 2
 - ⬜ Backwards compatible (attestations still work, DSIRs dominate when available)
 - ⬜ Scoring integration test vectors updated with DSIR inputs
+- ⬜ Negative test vectors: dispute_rate > 1.0 (reject), negative DSIR weight (reject), mixed DSIR+attestation
+  with conflicting outcomes, agent with 100% self-declared inputs (score capped at 10), empty input set
+  (return score 0 not error), integrity overflow at dispute_rate=1.0 (should be exactly 0)
 
 **Day 3: EigenTrust on Interaction Graph**
 - ⬜ EigenTrust iteration (nodes=DIDs, edges=DSIRs, converge until delta < 1e-6 or 50 iterations)
-- ⬜ Bootstrap transition: <500 nodes = guardian seeds, ≥500 = algorithmic (top-20 by receipt_count × diversity)
+- ⬜ Smooth bootstrap transition (NOT hard cutoff — see convergence hardening below)
 - ⬜ Replace issuerTrustScore/100 with eigentrust_weight
-- ⬜ Test vectors: sybil cluster → near-zero, honest subgraph retained, seed transition at threshold
+- ⬜ Convergence monitoring endpoint: GET /v1/aid/eigentrust/status
+- ⬜ Test vectors: sybil cluster → near-zero, honest subgraph retained, smooth transition across thresholds
+- ⬜ Negative test vectors: disconnected graph components, single-node graph, all-negative-feedback graph,
+  adversarial star topology (one hub, 100 spokes), oscillating scores across iterations
+
+**EigenTrust Convergence Hardening:**
+The original hard cutoff (<500 = guardian seeds, ≥500 = algorithmic) creates a dangerous
+discontinuity — all agents' scores shift simultaneously at the 500-node threshold.
+
+```
+SMOOTH TRANSITION FUNCTION (replaces hard cutoff):
+  guardian_weight = max(0, 1 - active_nodes / 1000)
+
+  At 100 nodes:  guardian_weight = 0.9  (90% guardian seeds, 10% algorithmic)
+  At 500 nodes:  guardian_weight = 0.5  (50/50 blend)
+  At 800 nodes:  guardian_weight = 0.2  (mostly algorithmic)
+  At 1000 nodes: guardian_weight = 0.0  (fully algorithmic)
+
+  pre_trust_vector[i] = guardian_weight * guardian_seed[i] +
+                         (1 - guardian_weight) * algorithmic_seed[i]
+
+  WHERE algorithmic_seed = top-20 by receipt_count, tiebreaker: account_age_days
+  NOTE: seed selection MUST NOT use counterpartyDiversity or any graph-derived
+  metric — diversity is computed BY EigenTrust, feeding it into the seed creates
+  circularity. receipt_count is a simple count, not a graph metric.
+  normalized to sum to 1.0
+
+CONVERGENCE FALLBACK:
+  If EigenTrust does NOT converge in 50 iterations (delta > 1e-6):
+    1. Log warning with iteration count + final delta + graph stats
+    2. Fall back to direct scoring (v1.0 formula: successRate×40 + chain×25 + vol×20 + manifest×15)
+    3. Set flag in ScoreResult: { computationMethod: "direct_fallback", eigentrust_converged: false }
+    4. Retry EigenTrust at next snapshot (4h later) — transient graph changes may resolve
+
+CONVERGENCE MONITORING:
+  GET /v1/aid/eigentrust/status returns:
+    { nodes, edges, iterations_to_converge, final_delta, guardian_weight,
+      spectral_gap_estimate, computation_method, last_computed }
+
+  Publish convergence stats in heartbeat (authenticated section).
+  If spectral gap is too small (< 0.01), warn that graph may be unstable.
+```
+
+**Why smooth transition matters for DIF:** A hard cutoff is a game-theoretic vulnerability —
+an attacker controlling nodes 498-502 can trigger repeated score discontinuities for
+the entire network by adding/removing agents around the threshold. The smooth function
+eliminates this attack surface entirely.
 
 **Day 4: Trust Vector + Verification APIs**
 - ⬜ ScoreResult returns trustVector (5 dimensions) + compositeScore + disputeRate + eigenvectorWeight + computationVersion
@@ -233,12 +368,20 @@ transaction makes it smarter.
 - ⬜ GET /v1/aid/:did/trust — trust vector + composite score + metadata
 - ⬜ GET /v1/aid/scoring-params — public scoring config (versioned)
 - ⬜ End-to-end verification test: pull receipts → run locally → compare to server → match exactly
+- ⬜ Negative test vectors: non-existent DID (404 not 500), revoked DID (tombstoned), malformed DID string,
+  trust vector with NaN dimension (reject), commitment log proof with wrong Merkle path (reject),
+  scoring-params version mismatch (406), receipts endpoint with >10K results (pagination required)
 
 **Day 5: Reputational Staking + Temporal + Security Docs**
 - ⬜ Reputational staking: endorsed agent flagged → endorser's integrity hit, synthetic negative, cascades through EigenTrust
 - ⬜ Superlinear temporal weight: log2(1 + account_age_days / 30)
 - ⬜ Second-order independence: overlap between issuer's issuers and subject's issuers → multiplier
 - ⬜ Security docs: verifiable computation property, intuitive security argument (conjectured, not proven), known limitations (honest), "trust-minimized, not trustless"
+- ⬜ Game-theoretic cost-to-manipulate analysis (see Section 47)
+- ⬜ Negative test vectors: endorser of flagged agent with score 0 (should still take integrity hit),
+  account_age = 0 days (temporal weight = 0, not negative), account_age = 100 years (capped),
+  circular endorsement chain A→B→C→A (no infinite cascade), second-order independence = 1.0
+  (complete overlap, multiplier near zero)
 
 **Spec-only (design now, implement later):**
 - ⬜ Chain trust composition — open problem for DIF (proposed: min_link × (avg_link/100)^(chain_length-1))
@@ -248,16 +391,18 @@ transaction makes it smarter.
 - ⬜ Formal security bound (conjectured, formalization in progress)
 - ⬜ DSIR as W3C-level primitive
 
-**DIF Presentation Slides:**
+**DIF Presentation Slides (see Section 50.2 for expanded version):**
 1. "Show me the receipts" — DSIRs vs attestations
-2. Verifiable computation — commitment log ensures completeness
-3. EigenTrust — sybil suppression via linear algebra
-4. Security argument — genuine interactions OR suppressed clusters, no third option
-5. Trust composition — open problem for the working group
-6. Security harness — 17/20 passed, risk score 20 (LOW)
-7. LIVE DEMO — verify scores yourself, right now
-8. Standards alignment — DIF, NIST, ERC-8004 (36118/36119), x402 extension
-9. Open problems — chain composition, formal bound, seed calibration
+2. Verifiable computation — dual-party commitment logs (completeness guarantee)
+3. EigenTrust — sybil suppression via linear algebra (smooth bootstrap, convergence fallback)
+4. Game-theoretic security — cost-to-manipulate analysis, Nash equilibrium (Section 47)
+5. Exponential decay — no exploitable window boundaries
+6. Trust composition — open problem for the working group
+7. Security harness — 66 attack vectors mitigated, risk score 20 (LOW)
+8. LIVE DEMO — verify scores yourself, right now
+9. Standards alignment — DIF, NIST, ERC-8004 (36118/36119), x402 extension
+10. Formal definitions — ABNF headers + CDDL data structures (Section 48)
+11. Open problems — chain composition, formal bound, seed calibration
 
 **What NOT to do:**
 - Don't claim "trustless like Bitcoin" — say "trust-minimized with verifiable computation"
@@ -540,16 +685,34 @@ PROPOSED v1.1 (5 behavioral dimensions):
   manifestAdherence     (0-1) × 15  (unchanged)
   counterpartyDiversity (0-1) × 15  (NEW — unique counterparty DIDs / total txs)
 
-WHERE successRate uses recency weighting:
-  recentSuccess    = success rate over last 30 days (weight: 0.6)
-  historicalSuccess = success rate over full history (weight: 0.4)
-  successRate      = (recentSuccess × 0.6) + (historicalSuccess × 0.4)
+WHERE successRate uses EXPONENTIAL DECAY (not hard 30-day window):
+  For each attestation i with age_days:
+    weight_i = e^(-λ × age_days)    WHERE λ = ln(2) / 30 ≈ 0.0231 (half-life = 30 days)
+  successRate = Σ(success_i × weight_i) / Σ(weight_i)
+
+  This means:
+    Today's attestation:    weight = 1.0
+    15-day-old attestation: weight = 0.5  (half-weight)
+    30-day-old attestation: weight = 0.25
+    60-day-old attestation: weight = 0.0625
+    90-day-old attestation: weight = 0.016 (nearly zero but never exactly zero)
+
+  WHY exponential decay instead of hard window:
+    Hard 30-day window creates an exploitable boundary — an attacker performs well
+    for 31 days, attacks on day 32, and by day 63 the attack has aged out entirely.
+    Exponential decay has NO boundary to exploit — recent events always dominate
+    smoothly, and bad behavior never fully disappears from the record.
+
+  λ is tunable per category (Phase 3):
+    High-frequency (DeFi trading):  λ = ln(2)/7   (7-day half-life, fast decay)
+    Standard (data queries):        λ = ln(2)/30  (30-day half-life, default)
+    Low-frequency (annual reports): λ = ln(2)/90  (90-day half-life, slow decay)
 
 proofHash includes new inputs:
   SHA-256(JCS({
     inputs: { successRate, chainCoverage, volume, manifestAdherence, counterpartyDiversity },
     weights: [35, 20, 15, 15, 15],
-    recencyWeights: { recent: 0.6, historical: 0.4, windowDays: 30 },
+    decayParams: { lambda: 0.0231, halfLifeDays: 30, model: "exponential" },
     score: finalScore
   }))
 ```
@@ -2512,7 +2675,9 @@ Rule: Delegated keys inherit the PARENT's trust tier for pricing,
 ```
 signatureInput = SHA-256(
   did + "\n" +
-  timestamp + "\n" +        // ISO 8601, e.g. "2026-03-21T14:30:00Z"
+  providerDid + "\n" +      // target server's DID (from heartbeat or prior interaction)
+  timestamp + "\n" +         // ISO 8601, e.g. "2026-03-21T14:30:00Z"
+  nonce + "\n" +             // X-AID-NONCE value (16 random bytes, hex)
   method + " " + path + "\n" +  // e.g. "POST /aid/skills/sol-price"
   SHA-256(requestBody)       // hash of the raw body bytes
 )
@@ -2522,15 +2687,18 @@ X-AID-TIMESTAMP = "2026-03-21T14:30:00Z"
 ```
 
 **Server verification:**
-1. Parse `X-AID-DID`, `X-AID-PROOF`, `X-AID-TIMESTAMP` from request headers
+1. Parse `X-AID-DID`, `X-AID-PROOF`, `X-AID-TIMESTAMP`, `X-AID-NONCE` from request headers
 2. Reject if `|now - timestamp| > 300` seconds (5-minute window)
-3. Reconstruct `signatureInput` from DID + timestamp + method + path + body hash
+3. Reconstruct `signatureInput` from DID + **providerDid** + timestamp + nonce + method + path + body hash
 4. Extract public key from DID (self-certifying: `did:key:{publicKeyMultibase}`)
 5. Verify Ed25519 signature against reconstructed input
 6. If valid → proceed. If invalid → 401 Unauthorized.
 
 Including method + path prevents signature reuse across different endpoints.
 Including timestamp prevents replay outside the 5-minute window.
+Including **providerDid** prevents relay attacks — a proof captured by a proxy cannot be
+forwarded to a different server because the target DID is baked into the signature.
+Including **nonce** prevents replay even within the 5-minute window.
 
 **Encoding requirements (for interoperability):**
 - All timestamps MUST be UTC with Z suffix (e.g., `2026-03-21T14:30:00Z`).
@@ -3736,6 +3904,61 @@ separate concerns — AID does not satisfy the EU AI Act's human-facing
 transparency requirements. ClawNet agents interacting with humans (e.g.,
 Telegram bot) need a separate disclosure layer regardless of AID.
 
+### 33.5 Regulatory Risk on Trust Scores as a Product (CRITICAL)
+
+**The trust score itself may be a regulated artifact in multiple jurisdictions.**
+
+**EU AI Act (Art. 6, Annex III):**
+If AID trust scores determine access to services or pricing tiers, they may qualify
+as "high-risk AI systems" under the EU AI Act — specifically Annex III Category 5(b):
+"AI systems intended to be used to evaluate the creditworthiness of natural persons."
+While AID scores agents (not humans), the scores affect pricing for services consumed
+by humans through their agents. If regulators interpret this broadly:
+- Conformity assessment requirements
+- Documentation and transparency obligations
+- Human oversight provisions
+- Right to explanation for affected parties
+
+**US Fair Credit Reporting Act (FCRA):**
+The AIDplan explicitly calls the trust API a "credit bureau endpoint" (Section 40.1).
+If trust scores function like credit scores (used by third parties to deny service
+or set pricing), FCRA may apply. FCRA requires:
+- Adverse action notices when a score causes denial of service
+- Dispute rights for scored entities
+- Accuracy obligations for the scoring entity
+- Limits on who can access scores and for what purpose
+
+**Mitigation (add to spec and all API responses):**
+
+```
+LEGAL DISCLAIMER (required in spec Section 1 + API /aid/heartbeat + SDK README):
+  "AID trust scores are informational signals reflecting historical transaction
+  outcomes. They are NOT credit scores, creditworthiness assessments, or
+  guarantees of future agent behavior. AID does not make credit decisions.
+
+  If trust scores are used by third parties to deny service, set pricing, or
+  make access decisions, those third parties are responsible for compliance
+  with applicable regulations including but not limited to: EU AI Act (Reg.
+  2024/1689), US Fair Credit Reporting Act (15 USC §1681 et seq.), and
+  applicable state/national consumer protection laws.
+
+  Implementers MUST conduct their own legal analysis for their jurisdiction
+  and use case. The AID protocol specification does not constitute legal advice."
+
+TECHNICAL MITIGATIONS:
+  1. GET /v1/aid/:did/trust/explain already exists (Cherry 1) — provides
+     per-dimension breakdown satisfying transparency requirements
+  2. POST /aid/disputes already exists (Phase 2) — provides dispute mechanism
+  3. Trust scores are computed from verifiable receipts — accuracy is auditable
+  4. Public scoring formula (@aidprotocol/trust-compute) — no black box
+  5. Add "score explanation" to every trust query response by default (not opt-in)
+```
+
+**For DIF:** Standards bodies care deeply about regulatory alignment. Including this
+section signals maturity. Omitting it signals naivety. Reference EU AI Act and FCRA
+in the spec's "Regulatory Considerations" section even if the conclusion is "likely
+not applicable" — showing you've considered it is what matters.
+
 ---
 
 ## 34. CHERRY ON TOP: FEATURES NOBODY ELSE HAS
@@ -4550,9 +4773,13 @@ Update tier table:
 Request Headers (updated):
   X-AID-NONCE: <16 random bytes, hex-encoded>
 
-Updated signatureInput:
-  SHA-256(did + "\n" + timestamp + "\n" + nonce + "\n" +
+Updated signatureInput (see Section 19.8 for canonical definition):
+  SHA-256(did + "\n" + providerDid + "\n" + timestamp + "\n" + nonce + "\n" +
           method + " " + path + "\n" + SHA-256(requestBody))
+
+Including providerDid prevents relay attacks — a proof captured by a proxy/CDN
+cannot be forwarded to a different server because the target DID is baked into
+the signature. This closes the proxy-log replay vector completely.
 
 Server tracks seen nonces for 5-minute window (Redis SET with TTL).
 Duplicate nonce → 409 Conflict.
@@ -7208,6 +7435,12 @@ None of these overlap. All compose. AID is the missing piece in every stack.
 **The rule:** "If two different AID implementations can't agree on this, does
 interoperability break?" If YES → spec. If NO → ClawNet.
 
+**Runtime boundary (see Section 50.0 for endpoint-level detail):**
+AID protocol endpoints (`/aid/*`, `/v1/aid/*` reads, `/.well-known/aid.json`) use
+Ed25519 auth only — no API keys, no credits. ClawNet product endpoints (`/v1/*`)
+use credit auth — unchanged. A DIF reviewer curling any AID endpoint MUST see pure
+protocol responses, not ClawNet business logic.
+
 ```
 TRACK 1 — AID PROTOCOL (DIF spec, slow, consensus-driven):
 
@@ -7333,4 +7566,1092 @@ github.com/clawnetwork/claw-net        — ClawNet product (proprietary)
 4. **Autonomous immune system** — competitors have no containment
 5. **Developer experience** — 3 lines of code, best docs, best errors
 6. **Public leaderboard** — default lookup tool (like VirusTotal for agents)
+7. **Network effects** — more agents → better guardians → more insurance → safer
+
+---
+
+## 47. GAME-THEORETIC ANALYSIS (DIF Appendix — Cost-to-Manipulate)
+
+### 47.1 Why This Section Exists
+
+DIF reviewers will ask: "What stops a rational adversary from gaming your scoring formula?"
+Intuitive arguments ("Sybil self-dealing scores near zero") are not sufficient. This section
+provides back-of-envelope cost-to-manipulate estimates for each dimension at each trust tier,
+and justifies the specific parameter choices in the formula.
+
+### 47.2 Threat Model
+
+**Adversary:** Rational agent with budget B, wants to reach trust tier T in minimum time/cost.
+**Goal:** Compute the optimal attack strategy against the 5-dimension v1.1 formula.
+**Constraint:** Adversary can create Sybil agents, generate fake transactions, and submit
+self-feedback, but MUST pay real transaction costs and cannot forge Ed25519 signatures.
+
+### 47.3 Per-Dimension Cost-to-Manipulate
+
+```
+DIMENSION 1: successRate (weight: 35%)
+  Target: 0.95 (needed for score 80+)
+  Attack: Self-transact with Sybil agents, report all successes
+  Cost:   Each transaction costs minimum 0.001 USDC (endpoint floor)
+          Need ~200 transactions for volume signal → $0.20
+  Defense: counterpartyDiversity (Dimension 5) tanks to near-zero
+           because all counterparties are the same Sybil cluster.
+           Net effect: high successRate × near-zero diversity = LOW composite score
+  Effective cost to game WITH diversity defense: create 20+ funded Sybil wallets
+           × 10+ txs each = 200+ txs × $0.001 + 20 wallet funding costs (~$1 each)
+           = $20.20 minimum just for the Sybil infrastructure
+
+DIMENSION 2: chainCoverage (weight: 20%)
+  Target: 0.90 (hash-chain integrity)
+  Attack: Cannot be faked — chain coverage measures the integrity of the agent's
+          OWN attestation hash chain. Missing links = lower coverage.
+          An attacker who selectively omits negative attestations breaks the chain.
+  Cost:   $0 to maintain (just don't tamper with your chain)
+          BUT: dual-party commitment logs (Section 10/10 Day 1) mean selective
+          omission is detectable. Cost to maintain high coverage WHILE omitting
+          negative receipts = impossible (counterparty's log reveals the gap).
+  Effective cost to game: INFINITE (unforgeable with dual-log system)
+
+DIMENSION 3: volume (weight: 15%)
+  Target: min(attestationCount/1000, 1.0) → need 1000 attestations for max score
+  Attack: Self-transact 1000 times
+  Cost:   1000 × $0.001 = $1.00 (trivially cheap)
+  Defense: volume alone only contributes 15% to the score.
+           Without diversity (Dimension 5), 1000 self-transactions score:
+           volume=1.0 × 15 + successRate=1.0 × 35 + chain=1.0 × 20 +
+           manifest=0.5 × 15 + diversity≈0.05 × 15 = 15 + 35 + 20 + 7.5 + 0.75 = 78.25
+           BEFORE verification multiplier. Just barely "standard" tier, NOT "proceed".
+  Effective cost: $1 gets you to ~78 (standard), NOT 90+ (proceed)
+
+DIMENSION 4: manifestAdherence (weight: 15%)
+  Target: 0.90+
+  Attack: Declare minimal manifests, always satisfy them trivially
+  Cost:   $0 (just declare what you know you'll do)
+  Defense: This dimension rewards honesty, not gaming. An agent that declares
+           and fulfills manifests IS behaving well — even if gaming other dimensions.
+           Trivial manifests produce low manifest BONUS (tiered: basic=5%, transparent=10%,
+           full=15%). To get the full 15%, must declare operator identity + protocol
+           constraints — information that increases accountability.
+  Effective cost to game: LOW but self-limiting (trivial manifests = low bonus)
+
+DIMENSION 5: counterpartyDiversity (weight: 15%)
+  Target: unique_counterparty_DIDs / total_transactions → needs many UNIQUE counterparties
+  Attack: Create Sybil counterparties
+  Cost:   Each Sybil needs: funded wallet (~$1 USDC minimum) + X-AID-NEW registration (free)
+          + actual transactions (≥$0.001 each)
+          For diversity score 0.5: need ≥50 unique counterparties for 100 transactions
+          Cost: 50 wallets × $1 funding = $50 + 100 txs × $0.001 = $50.10
+          For diversity score 0.8: need ≥80 unique counterparties for 100 transactions
+          Cost: 80 wallets × $1 = $80 + 100 txs × $0.001 = $80.10
+  Defense: Graph analysis (Section 26.2) detects clusters funded from same source.
+           Mutual feedback decay (Section 39.9) reduces Sybil feedback weight.
+           Reporter independence scoring detects correlated reporters.
+  Effective cost: $50-80+ per attack attempt, detectable via graph analysis
+```
+
+### 47.4 Composite Attack Cost by Target Tier
+
+```
+TARGET: score 40 (caution tier, 10% discount)
+  Min cost: ~$5 (50 self-transactions with 5 funded Sybils)
+  Time:     ~1 week of activity
+  Savings:  10% on future transactions
+  Break-even: $50 in discounted transactions to recoup $5 investment
+  ROI:      Marginal — barely worth gaming vs legitimate use
+
+TARGET: score 60 (standard tier, 20% discount)
+  Min cost: ~$25 (200 transactions, 15+ Sybil counterparties)
+  Time:     ~2-3 weeks
+  Defense:  Graph analysis flags Sybil cluster before score 60
+  Savings:  20% on future transactions
+  Break-even: $125 in discounted transactions
+  ROI:      Negative after graph detection + trust penalty
+
+TARGET: score 80 (trusted tier, 25% discount)
+  Min cost: ~$80+ (500+ transactions, 30+ funded Sybils)
+  Time:     ~2 months (exponential decay requires sustained activity)
+  Defense:  Sybil cluster detected within 2-4 weeks. Trust penalty applied.
+            Dual-log cross-reference catches selective receipt omission.
+  Savings:  25% on future transactions
+  Break-even: $320+ in discounted transactions (post-penalty: never)
+  ROI:      NEGATIVE — detection happens before break-even
+
+TARGET: score 90+ (proceed tier, 30% discount)
+  Min cost: ~$200+ (1000+ transactions, 50+ funded Sybils, 6 months)
+  TIME GATE: 6 months minimum activity + $50 cumulative revenue
+  Defense:  Every defense layer engaged. Graph analysis, mutual decay,
+            reporter independence, burst detection, dual-log verification.
+  Probability of reaching 90 undetected: <1%
+  ROI:      IMPOSSIBLE — time gate alone makes gaming uneconomical
+```
+
+### 47.5 Parameter Justification
+
+**Why dispute_rate exponent = 2 (superlinear)?**
+```
+Linear penalty (exponent 1):
+  dispute_rate 0.1 → integrity *= 0.9  (10% reduction)
+  dispute_rate 0.2 → integrity *= 0.8  (20% reduction)
+  An agent with 20% disputes keeps 80% of integrity score — too lenient.
+
+Quadratic penalty (exponent 2):
+  dispute_rate 0.1 → integrity *= 0.81 (19% reduction)
+  dispute_rate 0.2 → integrity *= 0.64 (36% reduction)
+  dispute_rate 0.3 → integrity *= 0.49 (51% reduction)
+  An agent with 20% disputes keeps only 64% — significant penalty.
+
+Cubic penalty (exponent 3):
+  dispute_rate 0.1 → integrity *= 0.729 (27% reduction)
+  dispute_rate 0.2 → integrity *= 0.512 (49% reduction)
+  Too aggressive — a 10% dispute rate (normal in commerce) halves the score.
+
+Exponent 2 is chosen because:
+  - 5% disputes (normal friction) → 90% integrity (acceptable)
+  - 15% disputes (problematic) → 72% integrity (significant impact)
+  - 25% disputes (bad actor) → 56% integrity (near-disqualifying)
+  - 50% disputes (clearly malicious) → 25% integrity (effectively dead)
+
+The quadratic maps to real-world commerce expectations: some disputes are normal,
+but the penalty should accelerate sharply as dispute rates climb.
+```
+
+**Why exponential decay half-life = 30 days?**
+```
+7-day half-life:  Too aggressive — legitimate maintenance downtime tanks scores
+14-day half-life: Reasonable for high-frequency DeFi but punishes normal APIs
+30-day half-life: Balances recency with stability for general commerce
+90-day half-life: Too slow — a bust-out attack takes weeks to impact the score
+
+30 days is chosen as the DEFAULT because:
+  - Matches typical billing/reporting cycles
+  - One bad day at 30-day half-life: contributes 1/30th of recent weight
+  - One bad WEEK: contributes ~7/30th → noticeable but not catastrophic
+  - Category-specific tuning (Phase 3) refines this for edge cases
+```
+
+**Why counterpartyDiversity weight = 15%?**
+```
+At 0%:   No Sybil defense at formula level — all defense is heuristic
+At 10%:  Two Sybils transacting 5000 times still score ~83 (too high)
+At 15%:  Two Sybils transacting 5000 times score ~75 (standard, not trusted)
+At 20%:  Legitimate agents with few clients are penalized (niche services)
+At 25%:  Agents serving 3 enterprise clients can't reach "trusted" tier
+
+15% balances Sybil defense with niche-service fairness. An agent serving 5
+genuine enterprise clients with high volume scores diversity ~0.4 → contributes
+6/100 → still reachable via other dimensions. But a Sybil pair scores diversity
+~0.05 → contributes 0.75/100 → devastating.
+```
+
+### 47.6 Formal Game Definition + Nash Equilibrium Analysis
+
+**Game definition (repeated game with imperfect monitoring):**
+
+```
+FORMAL GAME STRUCTURE:
+
+  Players:     N agents, each choosing a strategy per round
+  Rounds:      Infinite horizon, discount factor δ = 0.99 (long-lived agents)
+  Action space per round:
+    HONEST     — deliver genuine service, submit truthful receipts
+    SYBIL      — create fake counterparties, generate self-transactions
+    BUST_OUT   — build trust honestly, then defect maximally in one round
+
+  Information:
+    Private:   own strategy, own cost structure
+    Public:    trust scores (computed from observable receipts + commitment logs)
+    Imperfect: detection probability p(strategy, tier) per round
+
+  Payoff function per round for agent i:
+    π_i(HONEST)   = revenue(score_i) × discount_tier(score_i) - cost_service
+    π_i(SYBIL)    = revenue(score_i) × discount_tier(score_i) - cost_sybil
+                    - p_detect × penalty(score_i)
+    π_i(BUST_OUT) = stolen_value(credit_limit_i) - cost_buildup
+                    - p_detect × penalty_permanent
+
+  WHERE:
+    revenue(s)       = base_revenue × (1 + 0.003 × s)    ; higher trust → more clients
+    discount_tier(s) = { 0 if s<40, 0.10 if 40≤s<60, 0.20 if 60≤s<80,
+                         0.25 if 80≤s<90, 0.30 if s≥90 }
+    cost_sybil       = $50-200 per round (wallet funding + tx costs)
+    p_detect(SYBIL)  = 0.15 per round (graph analysis, mutual decay, burst detection)
+                       → cumulative over 6 rounds: 1-(1-0.15)^6 = 0.62
+    p_detect(BUST)   = 0.95 (immediate detection on defection)
+    penalty(s)       = score reset to 0 + "avoid" flag + lost future revenue
+    penalty_permanent = identity retirement + debt + ecosystem exclusion
+    stolen_value     = min(score × 0.5, 50) USDC (credit limit formula)
+    cost_buildup     = 6+ months of honest service delivery
+```
+
+**Nash equilibrium: HONEST is the dominant strategy.**
+
+```
+PROOF BY PAYOFF COMPARISON (per-round expected value at score 80):
+
+  E[π(HONEST)]  = revenue(80) × 0.25 - cost_service
+                 ≈ $2.40/round - $0.50 = $1.90/round (perpetual)
+
+  E[π(SYBIL)]   = revenue(80) × 0.25 - $100/round - 0.15 × penalty(80)
+                 ≈ $2.40 - $100 - 0.15 × $1,140 = $2.40 - $100 - $171 = -$268.60/round
+                 WHERE penalty(80) = NPV of lost future honest revenue
+                 = $1.90/round × (1/1-δ) ≈ $1.90 × 600 ≈ $1,140
+
+  E[π(BUST_OUT)] = $40 one-time - $1,140 perpetual loss - 6mo opportunity cost
+                 = $40 - $1,140 - ($1.90 × 180 days) = $40 - $1,140 - $342 = -$1,442
+
+  DOMINANT STRATEGY: HONEST ($1.90/round perpetual) dominates
+    SYBIL (-$268.60/round) and BUST_OUT (-$1,442 total).
+
+  The equilibrium holds as long as:
+    1. Detection probability p > cost_sybil / penalty  (≈ $100/$1,140 = 0.088)
+       Our p = 0.15 per round → condition satisfied ✓
+    2. Discount factor δ > stolen_value / (penalty + stolen_value)
+       (≈ $40/$1,180 = 0.034) → δ = 0.99 >> 0.034 → condition satisfied ✓
+    3. Agents are long-lived (δ close to 1) — one-shot agents have no trust to lose
+       Mitigation: new agents start at base price with no deferred settlement
+```
+
+**For DIF:** This is an intuitive security argument, not a formal cryptographic proof.
+The equilibrium depends on detection probability estimates (0.15/round for Sybil, 0.95
+for bust-out) which are empirically motivated. We welcome DIF input on tighter bounds.
+
+### 47.7 Known Limitations (Honest)
+
+```
+1. The cost estimates assume current ClawNet pricing ($0.001/tx floor).
+   If another platform offers cheaper transactions, gaming costs decrease.
+   Mitigation: counterpartyDiversity requires UNIQUE DIDs, not just txs.
+
+2. A well-funded adversary ($10K+) could potentially maintain a Sybil cluster
+   large enough to evade graph analysis for months. This is a tail risk.
+   Mitigation: EigenTrust (Day 3) suppresses Sybil clusters via spectral analysis.
+
+3. The formal security bound is CONJECTURED, not proven. We believe the system
+   has the property that an adversary must either generate genuine positive
+   interactions OR have their Sybil cluster suppressed, with no third option.
+   Formalization is an open problem we're bringing to DIF.
+
+4. The exponent choices (dispute^2, log2 temporal) are empirically motivated,
+   not derived from first principles. We welcome DIF input on formal derivation.
+```
+
+**References:** Mechanism design (Myerson 1981), EigenTrust (Kamvar et al. 2003),
+Sybil defense in P2P (Douceur 2002), superlinear penalties in reputation systems
+(Resnick et al. 2000).
+
+---
+
+## 48. FORMAL PROTOCOL DEFINITIONS (ABNF/CDDL)
+
+### 48.1 Why Formal Definitions Matter for DIF
+
+DIF working groups expect machine-parseable protocol definitions, not prose.
+ABNF (RFC 5234) defines HTTP header syntax. CDDL (RFC 8610) defines data structures.
+These separate "protocol spec" from "blog post" and enable automated conformance testing.
+
+### 48.2 HTTP Header Definitions (ABNF)
+
+```abnf
+; AID Request Headers (RFC 5234 ABNF)
+
+X-AID-DID           = "X-AID-DID" ":" SP did-key
+X-AID-PROOF         = "X-AID-PROOF" ":" SP base64url
+X-AID-TIMESTAMP     = "X-AID-TIMESTAMP" ":" SP iso8601-utc
+X-AID-NONCE         = "X-AID-NONCE" ":" SP 32HEXDIG
+X-AID-TRUST-SCORE   = "X-AID-TRUST-SCORE" ":" SP 1*3DIGIT
+X-AID-VERSION       = "X-AID-VERSION" ":" SP version-string
+X-AID-NEW           = "X-AID-NEW" ":" SP 1*64agent-char
+
+; AID Response Headers
+X-AID-PROVIDER-DID   = "X-AID-PROVIDER-DID" ":" SP did-key
+X-AID-PROVIDER-PROOF = "X-AID-PROVIDER-PROOF" ":" SP base64url
+X-AID-RECEIPT        = "X-AID-RECEIPT" ":" SP base64url
+X-AID-FEEDBACK-URL   = "X-AID-FEEDBACK-URL" ":" SP relative-uri
+X-AID-TRUST-VERIFIED = "X-AID-TRUST-VERIFIED" ":" SP 1*3DIGIT
+
+; 402 Response Headers
+X-AID-TRUST-GATE     = "X-AID-TRUST-GATE" ":" SP trust-gate-params
+X-AID-PRICING-TIERS  = "X-AID-PRICING-TIERS" ":" SP pricing-json
+
+; Primitives
+did-key          = "did:key:" multibase-ed25519
+multibase-ed25519 = "z" 1*48base58btc-char
+base58btc-char   = DIGIT / %x41-48 / %x4A-4E / %x50-5A  ; 1-9, A-H, J-N, P-Z
+                 / %x61-6B / %x6D-7A                      ; a-k, m-z (no 0, O, I, l)
+base64url        = 1*base64url-char
+base64url-char   = ALPHA / DIGIT / "-" / "_"
+iso8601-utc      = 4DIGIT "-" 2DIGIT "-" 2DIGIT "T"
+                   2DIGIT ":" 2DIGIT ":" 2DIGIT "Z"
+version-string   = 1*DIGIT "." 1*DIGIT
+agent-char       = ALPHA / DIGIT / "-" / "_"
+trust-gate-params = "min_score=" 1*3DIGIT "," "tier=" token
+pricing-json     = %x5B *OCTET %x5D  ; JSON array (validated at application layer)
+relative-uri     = "/" *( pchar / "/" / "?" )
+pchar            = unreserved / pct-encoded / sub-delims / ":" / "@"
+unreserved       = ALPHA / DIGIT / "-" / "." / "_" / "~"
+pct-encoded      = "%" HEXDIG HEXDIG
+sub-delims       = "!" / "$" / "&" / "'" / "(" / ")" / "*" / "+" / "," / ";" / "="
+token            = 1*tchar
+tchar            = "!" / "#" / "$" / "%" / "&" / "'" / "*" / "+" / "-" / "." /
+                   "^" / "_" / "`" / "|" / "~" / DIGIT / ALPHA
+```
+
+### 48.3 Data Structure Definitions (CDDL)
+
+```cddl
+; AID Trust Score Result (RFC 8610 CDDL)
+
+ScoreResult = {
+  did:                 did-key-string,
+  compositeScore:      float16 .le 100.0,  ; NOT uint — formula produces decimals (e.g., 78.25)
+                                           ; use banker's rounding to 2 decimal places for display
+                                           ; tier boundaries use floor: 78.25 → tier "standard" (60-79)
+  trustVerdict:        verdict,
+  trustVector:         TrustVector,
+  disputeRate:         float16 .le 1.0,
+  eigenvectorWeight:   ? float16,
+  computationVersion:  version-string,
+  computationMethod:   computation-method,
+  proofHash:           sha256-hex,
+  timestamp:           tdate,
+  ? merkleRoot:        sha256-hex,
+  ? snapshotId:        text,
+}
+
+TrustVector = {
+  successRate:           float16 .le 1.0,
+  chainCoverage:         float16 .le 1.0,
+  volume:                float16 .le 1.0,
+  manifestAdherence:     float16 .le 1.0,
+  ? counterpartyDiversity: float16 .le 1.0,   ; v1.1+
+}
+
+verdict = "new" / "building" / "caution" / "standard" / "trusted" / "proceed"
+computation-method = "eigentrust" / "direct" / "direct_fallback"
+
+; Dual-Signed Interaction Receipt (DSIR)
+
+DualSignedInteractionReceipt = {
+  protocol:            "AID",
+  version:             version-string,
+  receiptId:           receipt-id,
+  timestamp:           tdate,
+  payer:               PartyInfo,
+  provider:            PartyInfo,
+  service:             ServiceInfo,
+  ? payment:           PaymentInfo,
+  trust:               TrustInfo,
+  outcome:             OutcomeInfo,
+  proof:               ProofInfo,
+}
+
+PartyInfo = {
+  did:                 did-key-string,
+  trustScore:          uint .le 100,
+  signature:           ed25519-signature,
+  outcomeClassification: outcome-classification,
+}
+
+ServiceInfo = {
+  id:                  text,
+  type:                text,
+  inputHash:           sha256-hex,
+  resultHash:          sha256-hex,
+}
+
+PaymentInfo = {
+  amount:              text,         ; decimal string, 6 places
+  currency:            "USDC",
+  chain:               "base" / "solana" / "ethereum",
+  settlementMode:      settlement-mode,
+  settled:             bool,
+  ? txHash:            text,
+  ? batchId:           text,
+  ? settlementDue:     tdate,
+  ? settledAt:         tdate,
+  ? trustDiscount:     float16 .le 1.0,
+}
+
+TrustInfo = {
+  merkleRoot:          sha256-hex,
+  merkleProof:         [* sha256-hex],
+  snapshotId:          text,
+  feedbackUrl:         text,
+  ? commitmentLogRoot: sha256-hex,   ; dual-party commitment log
+}
+
+OutcomeInfo = {
+  payerClassification:    outcome-classification,
+  providerClassification: outcome-classification,
+  agreed:                 bool,       ; true if both parties match
+}
+
+ProofInfo = {
+  payerSignature:             ed25519-signature,
+  providerSignature:          ed25519-signature,
+  ? platformCountersignature: ed25519-signature,
+}
+
+; Heartbeat Response
+
+HeartbeatResponse = {
+  provider:            ProviderInfo,
+  services:            [* ServiceListing],
+  pricing:             PricingInfo,
+  stats:               StatsInfo,
+  alerts:              [* Alert],
+  timestamp:           tdate,
+  protocolVersion:     version-string,
+  ? aidTrust:          AidTrustExtension,
+}
+
+ProviderInfo = {
+  did:                 did-key-string,
+  trustScore:          uint .le 100,
+  uptime:              float16 .le 1.0,
+  avgLatencyMs:        uint,
+  verified:            bool,
+  verificationTier:    verification-tier,
+}
+
+ServiceListing = {
+  id:                  text,
+  type:                text,
+  price:               text,
+  trustGate:           uint .le 100,
+  status:              "healthy" / "degraded" / "offline",
+  avgLatencyMs:        uint,
+}
+
+PricingInfo = {
+  currency:            "USDC",
+  chain:               "base" / "solana",
+  tiers:               [* PricingTier],
+  recipient:           text,
+}
+
+PricingTier = {
+  minTrust:            uint .le 100,
+  multiplier:          float16,
+  settlement:          settlement-mode,
+  verdict:             verdict,
+  ? requiresVerification: bool,
+  ? requiresMinAge:    text,
+  ? requiresMinRevenue: uint,
+}
+
+; Shared types
+outcome-classification = "success" / "partial" / "failure" / "timeout" / "disputed"
+settlement-mode        = "immediate" / "standard" / "batched" / "deferred"
+verification-tier      = "anonymous" / "basic" / "verified" / "proven" / "trusted"
+did-key-string         = text .regexp "did:key:z[1-9A-HJ-NP-Za-km-z]{44,48}"
+sha256-hex             = text .regexp "[0-9a-f]{64}"
+ed25519-signature      = text .regexp "ed25519:[A-Za-z0-9_-]+"
+receipt-id             = text .regexp "rcpt-[A-Za-z0-9_-]{16}"
+version-string         = text .regexp "[0-9]+\\.[0-9]+(\\.[0-9]+)?"
+```
+
+### 48.4 Signing Input Definition (Canonical)
+
+```cddl
+; Canonical signing input (Section 19.8)
+; Implementations MUST construct this byte string identically
+
+SigningInput = text .cat (
+  did "\n"
+  providerDid "\n"
+  timestamp "\n"
+  nonce "\n"
+  method SP path "\n"
+  bodyHash
+)
+
+; WHERE:
+;   did         = caller's did:key string
+;   providerDid = target server's did:key string
+;   timestamp   = ISO 8601 UTC with Z suffix
+;   nonce       = 32 hex characters (16 random bytes)
+;   method      = HTTP method (GET/POST/PUT/DELETE/PATCH)
+;   path        = request path including query string
+;   bodyHash    = lowercase hex SHA-256 of raw request body bytes
+;                 (64 hex characters for SHA-256)
+
+; The signature is:
+;   X-AID-PROOF = base64url(Ed25519Sign(privateKey, SHA-256(SigningInput)))
+```
+
+### 48.5 Test Vector Format
+
+```cddl
+; Test vector files use this structure for automated conformance testing
+
+TestVectorFile = {
+  name:          text,
+  version:       version-string,
+  description:   text,
+  vectors:       [+ TestVector],
+}
+
+TestVector = {
+  id:            text,
+  description:   text,
+  type:          "positive" / "negative",      ; positive = must pass, negative = must reject
+  input:         any,
+  expectedOutput: any,
+  ? expectedError: text,                        ; for negative vectors: expected error code
+}
+```
+
+### 48.6 Error Semantics (HTTP Status Codes + Error Body)
+
+**Two implementations returning different status codes for the same error condition
+breaks interoperability.** Error semantics are as important as success semantics.
+
+```
+AID ERROR CODE              HTTP STATUS   WHEN
+────────────────────────    ───────────   ─────────────────────────────────────
+AID_PAYMENT_REQUIRED        402           No PAYMENT-SIGNATURE header, or
+                                          insufficient funds for trust tier
+AID_SIGNATURE_INVALID       401           X-AID-PROOF verification failed
+AID_TIMESTAMP_EXPIRED       401           |now - timestamp| > allowed window
+AID_DID_NOT_FOUND           404           DID not in registry (or tombstoned)
+AID_TRUST_GATE_BLOCKED      403           Trust score below service minimum
+AID_NONCE_REUSED            409           Nonce already seen in window
+AID_VERSION_UNSUPPORTED     406           X-AID-VERSION not supported
+AID_SETTLEMENT_FAILED       502           On-chain settlement reverted
+AID_PROVIDER_UNAVAILABLE    503           Provider DID's service is offline
+AID_RATE_LIMITED             429           Too many requests for trust tier
+```
+
+```cddl
+; Error Response Body (CDDL)
+
+AidErrorResponse = {
+  error:    text,                       ; human-readable message
+  code:     aid-error-code,             ; machine-readable code
+  ? details: text,                      ; additional context
+  ? retryAfter: uint,                   ; seconds until retry (for 429)
+  ? supportedVersions: [+ version-string],  ; for 406 responses
+  ? trustGate: TrustGateInfo,           ; for 403 responses
+}
+
+TrustGateInfo = {
+  required:   uint,                     ; minimum trust score for this service
+  current:    float16,                  ; caller's current trust score
+  verdict:    verdict,                  ; caller's current verdict
+  upgradeUrl: ? text,                   ; URL with guidance on improving score
+}
+
+aid-error-code = "AID_PAYMENT_REQUIRED"
+               / "AID_SIGNATURE_INVALID"
+               / "AID_TIMESTAMP_EXPIRED"
+               / "AID_DID_NOT_FOUND"
+               / "AID_TRUST_GATE_BLOCKED"
+               / "AID_NONCE_REUSED"
+               / "AID_VERSION_UNSUPPORTED"
+               / "AID_SETTLEMENT_FAILED"
+               / "AID_PROVIDER_UNAVAILABLE"
+               / "AID_RATE_LIMITED"
+```
+
+**Example error responses:**
+
+```json
+// 403 — Trust gate blocked
+{
+  "error": "Trust score below minimum for this service",
+  "code": "AID_TRUST_GATE_BLOCKED",
+  "trustGate": {
+    "required": 60,
+    "current": 42.5,
+    "verdict": "caution",
+    "upgradeUrl": "/aid/trust/explain"
+  }
+}
+
+// 409 — Nonce reused (replay attempt)
+{
+  "error": "Nonce already used within window",
+  "code": "AID_NONCE_REUSED"
+}
+
+// 401 — Expired timestamp
+{
+  "error": "Proof timestamp outside acceptable window",
+  "code": "AID_TIMESTAMP_EXPIRED",
+  "details": "Timestamp 2026-03-21T14:25:00Z is 312 seconds old (max: 300)"
+}
+```
+
+### 48.7 Conformance Levels
+
+**DIF specs include conformance levels so lightweight implementations can coexist
+with full implementations under the same standard.**
+
+```
+LEVEL 1 — AID CORE CONFORMANT:
+  MUST implement:
+    - Identity headers (X-AID-DID, X-AID-PROOF, X-AID-TIMESTAMP, X-AID-NONCE)
+    - Signature verification (Section 19.8 canonical signing input)
+    - Receipt format (DSIR structure, dual signatures)
+    - Heartbeat endpoint (GET /aid/heartbeat)
+    - Error semantics (Section 48.6)
+  CAN verify trust but does NOT compute it.
+  Example: @aidprotocol/mcp-trust middleware (verifies caller identity + trust,
+           delegates scoring to a trust oracle)
+
+LEVEL 2 — AID TRUST CONFORMANT:
+  MUST implement Level 1, PLUS:
+    - Trust scoring using canonical formula (v1.0: 4 dimensions, or v1.1: 5 dimensions)
+    - Trust verdicts (new → proceed mapping)
+    - Commitment log (append-only, Merkle-anchored)
+    - Feedback endpoint (POST /aid/feedback)
+    - Trust-gated pricing tiers
+  CAN serve as a trust oracle for Level 1 implementations.
+  Example: independent trust oracle operator
+
+LEVEL 3 — AID FULL CONFORMANT:
+  MUST implement Level 2, PLUS:
+    - Settlement modes (immediate, batched, deferred)
+    - Dual-party commitment logs with cross-reference
+    - DSIR generation (both-party signing)
+    - Provider countersignature (X-AID-PROVIDER-PROOF)
+    - Mutual authentication
+    - Key rotation protocol
+    - GDPR erasure endpoint (DELETE /v1/aid/:did)
+  Example: ClawNet (full platform implementation)
+```
+
+**Conformance testing:** Each level has a corresponding test vector suite.
+Level 1 tests: signature verify, header parse, heartbeat schema, error codes.
+Level 2 tests: scoring formula determinism, verdict mapping, commitment log structure.
+Level 3 tests: full receipt lifecycle, settlement mode transitions, key rotation.
+
+### 48.8 RFC 9421 HTTP Message Signatures Alignment (Phase 1)
+
+**DIF members will ask "why not RFC 9421?" The answer should be "we align with it."**
+
+RFC 9421 (HTTP Message Signatures) is the IETF standard for signing HTTP messages.
+AID's custom signing format (Section 19.8) is cryptographically equivalent but uses
+non-standard headers (X-AID-PROOF instead of Signature/Signature-Input).
+
+**Migration path (Phase 1, not future):**
+```
+CURRENT (custom headers):
+  X-AID-PROOF: <base64url Ed25519 signature>
+  X-AID-TIMESTAMP: 2026-03-21T14:30:00Z
+  X-AID-NONCE: a1b2c3d4e5f6a7b8
+
+RFC 9421 ALIGNED:
+  Signature-Input: aid=("@method" "@path" "x-aid-did" "x-aid-nonce"
+                        "content-digest");created=1711029000;keyid="did:key:zABC..."
+                        ;alg="ed25519";nonce="a1b2c3d4e5f6a7b8"
+  Signature: aid=:base64-encoded-ed25519-signature:
+  Content-Digest: sha-256=:base64-encoded-hash:
+  X-AID-DID: did:key:zABC...
+  X-AID-NONCE: a1b2c3d4e5f6a7b8
+
+BENEFITS:
+  - Standard Signature-Input/Signature headers parseable by any RFC 9421 library
+  - Content-Digest replaces custom body hashing
+  - keyid="did:key:..." links signature to DID identity
+  - alg="ed25519" is explicit (no algorithm confusion)
+  - created= replaces X-AID-TIMESTAMP
+  - Existing HTTP signature verification libraries work out of the box
+```
+
+**Implementation:** The Ed25519 signature and security properties are IDENTICAL.
+Only the header format changes. @aidprotocol/mcp-trust and @aidprotocol/middleware
+should accept BOTH formats during transition (custom headers for backwards compat,
+RFC 9421 as the canonical format going forward).
+
+**For DIF:** "We align with RFC 9421" is a single sentence that prevents a 30-minute
+debate about why we invented our own signing format. Standards bodies strongly prefer
+building on existing standards over novel formats.
+
+---
+
+## 49. FUTURE CRYPTOGRAPHIC PRIMITIVES (Build-Ready Research)
+
+### 49.1 Verkle Trees (Replace Merkle Trees — Phase 3+)
+
+Ethereum is migrating from Merkle-Patricia tries to Verkle trees (polynomial
+commitment-based). AID should plan the same migration.
+
+**Why Verkle > Merkle for AID:**
+```
+MERKLE (current):
+  Proof size: O(log n) — 20 hashes (640 bytes) at 1M agents
+  Update cost: O(log n) — must recompute entire path on each new attestation
+  At 1B attestations: ~30 hashes (960 bytes) per proof
+
+VERKLE (future):
+  Proof size: O(1) — ~150 bytes regardless of tree size
+  Update cost: O(1) — only the affected leaf and commitment change
+  At 1B attestations: still ~150 bytes per proof
+```
+
+**Implementation path:**
+- Phase 1-2: Merkle trees (proven, well-understood, tooling available)
+- Phase 3: Evaluate Verkle library maturity (ipa-multipoint, banderwagon curves)
+- Phase 3+: If libraries are production-ready, migrate attestation tree to Verkle
+- Backwards compatible: receipt format supports `proofType: "merkle" | "verkle"`
+
+**Tiered tree structure (independent of Verkle migration):**
+```
+Agent-level tree (small, frequent updates):
+  Leaves: agent DID → latest trust score + score hash
+  Updated: every 4h snapshot
+  Proof: "this agent exists with this score" — most verifiers only need this
+
+Attestation-level tree (large, batch updates):
+  Leaves: individual attestation hashes
+  Updated: every 4h snapshot
+  Proof: "this specific attestation is in the canonical record" — forensic use only
+
+Two trees reduce proof size for 99% of use cases (agent-level only)
+while preserving full attestation auditability when needed.
+```
+
+### 49.2 FROST (Flexible Round-Optimized Schnorr Threshold Signatures)
+
+FROST provides threshold Schnorr signatures that produce standard Ed25519 signatures —
+verifiers can't distinguish a threshold signature from a regular one.
+
+**Application: Guardian Multi-Sig**
+```
+Current design: 2-of-3 multi-sig (owner + platform + guardian)
+  Problem: Freeze actions reveal that an agent is under guardian control
+           (multi-sig format is visibly different from single-sig)
+
+FROST design: 2-of-3 threshold signature → standard Ed25519 output
+  Property: Freeze actions are indistinguishable from owner actions on the wire
+  Privacy: Nobody outside the signing group knows a freeze was a multi-party decision
+
+Implementation:
+  - ZCash Foundation has production Rust implementation (frost-ed25519)
+  - TypeScript bindings exist (frost-ts, experimental)
+  - Key generation: distributed key generation (DKG) among 3 parties
+  - Signing: any 2 of 3 produce a valid Ed25519 signature
+  - Verification: standard Ed25519 verify — no special verifier needed
+```
+
+**Design consideration:** There's a case for freeze actions being TRANSPARENTLY
+distinguishable from owner actions (accountability). Evaluate both options:
+- **FROST (opaque):** Privacy-preserving, no external signal that agent is under control
+- **Multi-sig (transparent):** Accountability, ecosystem knows agent is being monitored
+
+Decision deferred to guardian protocol implementation. Spec supports both.
+
+### 49.3 DAG-Based Receipt Chains (Replace Linear Hash Chains)
+
+Current receipt chains are linear — each attestation links to the previous one.
+This creates a serialization bottleneck for concurrent transactions.
+
+**DAG structure:**
+```
+LINEAR (current):
+  A₁ → A₂ → A₃ → A₄ → A₅
+  Problem: concurrent transactions A₃ and A₄ must be ordered
+  Problem: any gap breaks the chain (chainCoverage drops)
+
+DAG (proposed):
+  A₁ ←─┬── A₃ ←── A₅
+       │
+  A₂ ←─┴── A₄
+  Each attestation references 1-N previous attestations (tips of the DAG)
+  Concurrent transactions don't need ordering
+  The Merkle root of the DAG is computable at snapshot time
+```
+
+**Implementation for DSIR design:**
+```typescript
+interface DualSignedInteractionReceipt {
+  // ... existing fields ...
+  parentReceipts: string[];  // 1-N receipt IDs this receipt builds on
+                              // Linear chain: always exactly 1 parent
+                              // DAG: 1-N parents (tips of the agent's receipt DAG)
+}
+```
+
+**Convergence:** The DAG doesn't need to converge to a single canonical order in real-time.
+At Merkle snapshot time (every 4h), the DAG is topologically sorted and the Merkle root
+is computed over the sorted set. This gives a canonical history without requiring real-time
+ordering of concurrent events.
+
+**Migration path:**
+- Phase 1-2: Linear chains (simple, proven, sufficient for current scale)
+- 10/10 plan: DSIR design uses `parentReceipts: string[]` (DAG-ready)
+- Phase 3+: Enable multi-parent references when concurrent transactions are common
+- Backwards compatible: linear chain is a DAG with max 1 parent
+
+### 49.4 BIP-39 Entropy Budget for PQC Readiness
+
+**Current state:** SLIP-0010 uses HMAC-SHA512 to derive Ed25519 keys but discards the
+right 256 bits (only uses left 256 bits as the private scalar). This is cryptographically
+secure for Ed25519 but means the derivation starts from 256 bits of effective entropy.
+
+**PQC concern:** ML-DSA (FIPS 204) may require 384-bit seeds for security level 3.
+SLIP-0010's 256-bit output would be insufficient.
+
+**Mitigation:**
+```
+Phase 1 (now):   SLIP-0010 for Ed25519 derivation (256-bit, secure)
+Phase 2 (PQC):   Offer alternative derivation path using full 512-bit HMAC-SHA512 output
+                  Left 256 bits → Ed25519 key (backwards compatible)
+                  Full 512 bits → ML-DSA seed (PQC ready)
+                  Both derived from same BIP-39 mnemonic
+
+Document in spec:
+  "The current derivation uses 256 bits of entropy (SLIP-0010 Ed25519).
+   For post-quantum readiness, implementations SHOULD preserve the full
+   512-bit HMAC-SHA512 output for future ML-DSA key derivation.
+   See Section 39.19 Gap 6 for the PQC migration timeline."
+```
+
+### 49.5 Side-Channel Considerations
+
+**Context:** If AID offers Trust-as-a-Service on shared infrastructure, timing
+side-channels could leak information about other agents' scores.
+
+**Current risk:** LOW — ClawNet runs on a dedicated VPS, not multi-tenant cloud.
+
+**Future mitigation (when scaling to shared infrastructure):**
+```
+Option A: Constant-time response padding
+  All trust queries return in a fixed time window (e.g., 50ms).
+  If computation finishes in 12ms, pad with 38ms sleep.
+  Trade-off: increases average latency for simple queries.
+
+Option B: Response bucketing
+  Pre-compute trust scores at snapshot time (already done).
+  Trust queries are pure cache lookups (constant time by nature).
+  Only the snapshot cron does variable-time computation (isolated process).
+
+Option C (recommended): Cache-first architecture
+  Redis cache holds pre-computed scores (already implemented).
+  99.9% of trust queries hit cache (O(1), constant time).
+  Cache misses trigger async recomputation (not in request path).
+  Side-channel exposure: effectively zero for cached queries.
+```
+
+**Spec note:** "Implementations offering multi-tenant trust computation SHOULD
+ensure that query response times do not vary based on the queried agent's
+attestation count or graph complexity. Cache-first architectures satisfy this
+property by default."
+
+---
+
+## 50. DIF MEETING PREPARATION (Tactical)
+
+### 50.0 Protocol/Product Boundary (CRITICAL — Clean Separation for DIF)
+
+**The problem:** AID protocol endpoints are running behind ClawNet's credit auth middleware.
+When a harness hits `/v1/orchestrate`, it gets `X-API-Key` authentication and credit-based
+billing instead of AID's `did:key` + Ed25519 proof authentication. AID's protocol routes
+are wearing ClawNet's clothes. DIF reviewers testing AID endpoints will see ClawNet's
+business logic leaking through. This kills standardization credibility.
+
+**The rule:** If a DIF reviewer would test it, it's an AID endpoint and it MUST be pure
+protocol. If a paying customer uses it, it's a ClawNet endpoint and it can use credits.
+
+**AID PROTOCOL ENDPOINTS (pure protocol — no API keys, no credits, no ClawNet business logic):**
+
+```
+PUBLIC READ (no auth required, free, rate-limited by IP):
+  GET  /v1/aid/:did               — resolve agent identity
+  GET  /v1/aid/:did/trust         — trust vector + composite score + verdict
+  GET  /v1/aid/:did/trust-chain   — Merkle proof chain for offline verification
+  GET  /v1/aid/:did/receipts      — DSIRs + Merkle proofs + commitment log
+  GET  /v1/aid/scoring-params     — public scoring config (versioned formula)
+  GET  /v1/aid/eigentrust/status  — convergence monitoring
+  GET  /.well-known/aid.json      — protocol discovery endpoint
+  GET  /aid/heartbeat             — service discovery + pricing tiers
+
+PUBLIC WRITE (no auth required, free, rate-limited):
+  POST /v1/aid/verify             — verify a trust score against Merkle proof
+  POST /aid/provision             — X-AID-NEW zero-auth onboarding (3/IP/24h)
+
+AID-AUTHENTICATED (X-AID-DID + X-AID-PROOF + X-AID-NONCE — Ed25519, no API key):
+  POST /aid/feedback              — outcome reporting (weighted by reporter trust)
+  GET  /aid/heartbeat/consumer    — personalized pricing + alerts
+  GET  /v1/aid/:did/commitment-log — commitment log Merkle root + proof
+
+AID-AUTHENTICATED + PAYMENT (X-AID-* headers + PAYMENT-SIGNATURE — pure x402/USDC):
+  POST /aid/skills/:id            — skill execution via USDC payment
+  POST /aid/orchestrate           — orchestration via USDC payment
+  POST /aid/query/:id             — data query via USDC payment
+```
+
+**These endpoints have their own auth middleware:**
+- Accepts `X-AID-DID` + `X-AID-PROOF` + `X-AID-NONCE` headers
+- Verifies Ed25519 signature per Section 19.8 (canonical signing input with providerDid)
+- NEVER touches `checkApiKey()`, `deductCredit()`, or any credit system function
+- Payment via `PAYMENT-SIGNATURE` header (x402-compatible EIP-3009) when applicable
+- Returns standard AID error codes (Section 48.6): `AID_SIGNATURE_INVALID`,
+  `AID_TRUST_GATE_BLOCKED`, etc.
+
+**CLAWNET PRODUCT ENDPOINTS (credit auth — the business, unchanged):**
+
+```
+API-KEY AUTHENTICATED (X-API-Key: cn-... — existing ClawNet middleware):
+  POST /v1/orchestrate            — orchestration via credits
+  POST /v1/skills/:id/invoke      — skill execution via credits
+  GET  /v1/skills                 — marketplace browsing
+  POST /v1/economy/*              — economy features (transfers, webhooks, etc.)
+  POST /v1/batch                  — batch queries via credits
+  GET  /v1/stream/orchestrate     — streaming via credits
+  All existing /v1/* routes       — unchanged
+```
+
+**The boundary:**
+```
+                AID PROTOCOL LAYER                    CLAWNET PRODUCT LAYER
+                (DIF standard)                        (business monetization)
+                ──────────────                        ─────────────────────
+Auth:           X-AID-DID + X-AID-PROOF               X-API-Key: cn-...
+Payment:        PAYMENT-SIGNATURE (USDC)               Credit deduction
+Middleware:     aidVerify() — Ed25519 only              checkApiKey() — API key
+Error codes:    AID_* (Section 48.6)                    SNAKE_CASE_CODE
+Billing:        Direct USDC or free (reads)             deductCredit()
+Who tests it:   DIF reviewers                           Paying customers
+```
+
+**Implementation (src/middleware/aid-protocol-auth.ts):**
+
+This is a NEW middleware, separate from `checkApiKey`. It:
+1. Extracts `X-AID-DID`, `X-AID-PROOF`, `X-AID-TIMESTAMP`, `X-AID-NONCE` from headers
+2. Verifies Ed25519 signature against canonical signing input (Section 19.8)
+3. Checks nonce uniqueness (Redis, 5-min TTL)
+4. Sets `c.set('aidIdentity', { did, trustScore, verified })` on the Hono context
+5. Does NOT call `checkApiKey()`, `deductCredit()`, or any credit function
+6. For payment endpoints: verifies `PAYMENT-SIGNATURE` via `receiveWithAuthorization`
+
+**Route mounting:**
+```typescript
+// AID protocol routes — pure protocol, no credits
+const aidProtocol = new Hono();
+aidProtocol.use('*', aidProtocolAuth);  // Ed25519 auth only
+app.route('/aid', aidProtocol);
+
+// ClawNet product routes — credit auth, unchanged
+const v1 = new Hono();
+v1.use('*', checkApiKey);  // API key + credit system
+app.route('/v1', v1);
+
+// Public AID reads — no auth at all (rate-limited)
+app.get('/v1/aid/:did/trust', rateLimitPublic, aidTrustHandler);
+app.get('/v1/aid/:did/receipts', rateLimitPublic, aidReceiptsHandler);
+app.get('/v1/aid/scoring-params', rateLimitPublic, aidScoringParamsHandler);
+app.get('/.well-known/aid.json', wellKnownAidHandler);
+```
+
+**Security harness re-run:** The x402 security harness MUST be re-run against the
+`/aid/*` protocol endpoints specifically, not the `/v1/*` product endpoints.
+Tests X4-001 (payment headers) and X4-004 (identity) should now pass because the
+AID endpoints speak native x402-compatible payment headers + did:key identity.
+Tests that don't apply to read-only trust verification endpoints should be marked
+N/A with justification.
+
+**Why this matters for DIF:** When we present AID as a standard, reviewers will
+`curl` the endpoints. If they see `{"error":"API key required","code":"MISSING_API_KEY"}`
+instead of `{"error":"Ed25519 signature required","code":"AID_SIGNATURE_INVALID"}`,
+AID looks like a product feature, not a protocol. The separation makes it a protocol.
+
+### 50.1 External Implementation Commitment Strategy
+
+**The bootstrap paradox (from Opus review):** If ClawNet is the only implementation
+when presenting to DIF, it looks like "one company proposing its own protocol." Every
+successful standard was a de facto standard before it was de jure.
+
+**Strategy: Secure at least ONE external commitment before the DIF meeting.**
+
+```
+TARGET 1 (highest probability): Small MCP server operator
+  Who: Any of the 20,000+ MCP server operators
+  Ask: "Install @aidprotocol/mcp-trust, run it for 2 weeks, give us a testimonial"
+  Value: One external operator = multi-stakeholder credibility
+  Outreach: GitHub issues on popular MCP servers, npm package README,
+            direct messages to MCP server authors who've expressed security concerns
+
+TARGET 2 (medium probability): x402 community member
+  Who: x402 GitHub contributors, PayCrow team (already engaged with x402 trust)
+  Ask: "Test AID trust headers alongside your x402 implementation"
+  Value: x402 community endorsement strengthens the "enhancement, not replacement" narrative
+
+TARGET 3 (stretch): DIF TAAWG member
+  Who: Vouched (MCP-I authors), another TAAWG contributor
+  Ask: "Review the spec before the meeting, provide feedback"
+  Value: Internal champion who already understands the proposal
+
+DELIVERABLE FOR DIF: "AID trust scoring is implemented in production at ClawNet
+(344 endpoints, 175 tests), published as open-source middleware (@aidprotocol/mcp-trust,
+@aidprotocol/trust-compute), and in evaluation by [external operator name]."
+```
+
+**Timeline:** Start outreach IMMEDIATELY. 1-2 weeks is enough for an MCP server
+operator to install a middleware package and run basic tests.
+
+### 50.2 Updated DIF Presentation Slides
+
+```
+SLIDE 1: "Show me the receipts" — DSIRs vs attestations
+  The problem: attestations are one-sided. DSIRs are bilateral.
+  Visual: side-by-side receipt comparison
+
+SLIDE 2: Verifiable computation — dual-party commitment logs
+  UPDATED: Not just "Merkle root proves completeness" — now dual-party logs
+  where BOTH counterparties independently commit, and selective omission is
+  cryptographically detectable. Addresses the completeness gap honestly.
+
+SLIDE 3: EigenTrust — sybil suppression via linear algebra
+  NEW: Smooth bootstrap transition function (no hard cutoff)
+  NEW: Convergence fallback with direct scoring
+  Visual: graph of sybil cluster scores converging to near-zero
+
+SLIDE 4: Game-theoretic security argument (Section 47)
+  NEW: Cost-to-manipulate table by tier
+  NEW: Nash equilibrium analysis — honest behavior is the rational strategy
+  NEW: Explicit parameter justification (why exponent 2, why 30-day half-life)
+  Honest: "conjectured, not formally proven — open problem for the group"
+
+SLIDE 5: Exponential decay — no exploitable window boundaries
+  NEW: Replaces hard 30-day recency window
+  Visual: decay curves at different half-lives
+  Why: hard windows create predictable attack/recovery cycles
+
+SLIDE 6: Trust composition — open problem for the working group
+  Proposed: min_link × (avg_link/100)^(chain_length-1)
+  Honest: "we don't have the answer, we want the group's input"
+
+SLIDE 7: Security harness — 17/20 passed, risk score 20 (LOW)
+  66 attack vectors mitigated (up from 17/20)
+  Dual-party commitment logs (completeness guarantee)
+
+SLIDE 8: LIVE DEMO — verify scores yourself, right now
+  trust.claw-net.org PWA + @aidprotocol/trust-compute npm package
+  "Download our data, run our formula, verify our scores match"
+
+SLIDE 9: Standards alignment — DIF, NIST, ERC-8004 (36118/36119), x402
+  NIST NCCoE comment submitted (April 2 deadline)
+  ABNF/CDDL formal definitions (Section 48)
+  Protocol + Profiles architecture (not monolith)
+
+SLIDE 10: Open problems — chain composition, formal bound, seed calibration
+  "Here's what we need the community's help with"
+  This invites collaboration instead of scrutiny
+
+SLIDE 11 (NEW): Formal definitions — ABNF headers + CDDL data structures
+  Show: this is a real protocol spec, not a blog post
+  Machine-parseable, automated conformance testing ready
+```
+
+### 50.3 What NOT to Present
+
+- Don't present the 50-section internal document — use the 10-page spec
+- Don't present financial projections or revenue model — DIF cares about standards, not business
+- Don't claim "trustless" — say "trust-minimized with verifiable computation"
+- Don't criticize ERC-8004 — say "we fill the validation gap they intentionally left open"
+- Don't present the autonomous defense system — too complex for a first meeting, save for later
+- Don't present $CLAWNET token — securities implications, irrelevant to standards work
 7. **Network effects** — more agents → better guardians → more insurance → safer

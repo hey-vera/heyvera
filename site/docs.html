@@ -344,6 +344,7 @@
       <a class="sidebar-link" href="#a2a">A2A Protocol</a>
 
       <div class="sidebar-heading">Trust &amp; Safety</div>
+      <a class="sidebar-link" href="#aid-trust">AID Trust Layer</a>
       <a class="sidebar-link" href="#trust">Trust &amp; Safety</a>
       <a class="sidebar-link" href="#webhooks">Webhooks</a>
 
@@ -567,7 +568,7 @@ print(res.json()['answer'])</code></pre>
     <!-- ═══════════════════════════════════════════════ AUTH ═══════════════════════════════════════════════ -->
     <div class="docs-section" id="auth">
       <h2 class="docs-section-title">Authentication</h2>
-      <p class="docs-section-desc">Three methods. Pick the one that fits your stack.</p>
+      <p class="docs-section-desc">Four methods. Pick the one that fits your stack.</p>
 
       <div class="concept-grid" style="grid-template-columns:repeat(auto-fill,minmax(280px,1fr))">
         <div class="concept-card">
@@ -577,6 +578,10 @@ print(res.json()['answer'])</code></pre>
         <div class="concept-card" style="border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)">
           <div class="concept-title" style="color:var(--accent)">Wallet Signature (SIWX)</div>
           <div class="concept-desc"><strong>Zero-key onboarding</strong> — connect with just a wallet. Sign a challenge message, get a session and API key automatically. Supports Solana (Phantom) and all EVM chains (Base, Ethereum, Optimism, Arbitrum). No email, no password, no registration form.</div>
+        </div>
+        <div class="concept-card">
+          <div class="concept-title" style="color:var(--info)">AID Trust (Optional)</div>
+          <div class="concept-desc">Add <code>X-AID-DID</code> + <code>X-AID-PROOF</code> alongside your API key to unlock <strong>trust-gated pricing discounts</strong>. Your trust score builds from real interactions. See <a href="#aid-trust" style="color:var(--accent)">AID Trust Layer</a>.</div>
         </div>
         <div class="concept-card">
           <div class="concept-title" style="color:var(--purple)">Clerk Session</div>
@@ -2661,6 +2666,187 @@ while (true) {
       <div class="alert alert-info">A2A tasks that reference a <code style="font-family:var(--font-mono);color:var(--info)">skillId</code> in metadata will invoke that skill directly. Otherwise, the task text is routed through ClawNet's orchestrator.</div>
     </div>
 
+    <!-- ═══════════════════════════════════════════════ AID TRUST LAYER ═══════════════════════════════════════════════ -->
+    <div class="docs-section" id="aid-trust">
+      <h2 class="docs-section-title">AID Trust Layer</h2>
+      <p class="docs-section-desc">Build a verifiable trust score from real interactions. Higher trust unlocks pricing discounts and deferred settlement. AID is optional &mdash; your existing API key flow works exactly as before. AID adds trust on top.</p>
+
+      <div class="alert alert-info"><strong>Progressive enhancement.</strong> Add AID headers alongside your API key to start building trust. Nothing breaks if you don't. Everything gets better if you do.</div>
+
+      <h4>How It Works</h4>
+      <div class="concept-grid" style="grid-template-columns:repeat(auto-fill,minmax(220px,1fr))">
+        <div class="concept-card">
+          <div class="concept-title">1. Register</div>
+          <div class="concept-desc">Create an AID identity (free). You get an Ed25519 keypair &mdash; a <code>did:key</code> that is your portable identity.</div>
+        </div>
+        <div class="concept-card">
+          <div class="concept-title">2. Sign Requests</div>
+          <div class="concept-desc">Add <code>X-AID-DID</code>, <code>X-AID-PROOF</code>, <code>X-AID-TIMESTAMP</code>, <code>X-AID-NONCE</code> to your API calls alongside your <code>X-API-Key</code>.</div>
+        </div>
+        <div class="concept-card">
+          <div class="concept-title">3. Build Trust</div>
+          <div class="concept-desc">Every successful transaction builds your trust score. Failed transactions reduce it. The score is computed from real outcomes, not self-declared.</div>
+        </div>
+        <div class="concept-card">
+          <div class="concept-title">4. Unlock Discounts</div>
+          <div class="concept-desc">As your score rises, you automatically qualify for pricing discounts on every API call.</div>
+        </div>
+      </div>
+
+      <h4>Trust-Gated Pricing</h4>
+      <p class="endpoint-desc">Your trust score determines your pricing tier. Discounts are applied automatically when AID headers are present.</p>
+      <table class="params-table">
+        <thead><tr><th>Score</th><th>Verdict</th><th>Discount</th><th>Settlement</th></tr></thead>
+        <tbody>
+          <tr><td>0&ndash;39</td><td><code>new</code> / <code>building</code></td><td>Base price</td><td>Immediate</td></tr>
+          <tr><td>40&ndash;59</td><td><code>caution</code></td><td><strong>10% off</strong></td><td>Standard</td></tr>
+          <tr><td>60&ndash;79</td><td><code>standard</code></td><td><strong>20% off</strong></td><td>Batched</td></tr>
+          <tr><td>80&ndash;89</td><td><code>trusted</code></td><td><strong>25% off</strong></td><td>Batched</td></tr>
+          <tr><td>90+ <small>(verified, 6mo, $50 rev)</small></td><td><code>proceed</code></td><td><strong>30% off</strong></td><td>Deferred</td></tr>
+        </tbody>
+      </table>
+
+      <h4>Trust Score Formula</h4>
+      <p class="endpoint-desc">Scores are computed from 4 behavioral dimensions (0&ndash;100 scale):</p>
+      <table class="params-table">
+        <thead><tr><th>Dimension</th><th>Weight</th><th>What It Measures</th></tr></thead>
+        <tbody>
+          <tr><td><code>successRate</code></td><td>40%</td><td>Successful transactions / total transactions</td></tr>
+          <tr><td><code>chainCoverage</code></td><td>25%</td><td>Hash-chain integrity (tamper evidence)</td></tr>
+          <tr><td><code>volume</code></td><td>20%</td><td>Total attestation count (capped at 1,000)</td></tr>
+          <tr><td><code>manifestAdherence</code></td><td>15%</td><td>Did the agent do what it promised?</td></tr>
+        </tbody>
+      </table>
+      <p class="endpoint-desc" style="margin-top:8px">Scores are publicly verifiable. Anyone can download the scoring library (<code>@aidprotocol/trust-compute</code>) and independently verify any agent's score.</p>
+
+      <h4>Getting Started with AID</h4>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/aid/register</code></div>
+        <p class="endpoint-desc">Create your AID identity. Generates an Ed25519 keypair. The private key seed is returned <strong>once</strong> and never stored by ClawNet. Save it.</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code> &mdash; costs <strong>1 credit</strong></div>
+
+        <div class="code-block">
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <pre><code>curl -X POST https://api.claw-net.org/v1/aid/register \
+  -H "X-API-Key: cn-your-key-here" \
+  -H "Content-Type: application/json" \
+  -d '{ "displayName": "my-trading-agent" }'</code></pre>
+        </div>
+        <h4>Response</h4>
+        <div class="code-block"><pre><code>{
+  "did": "did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK",
+  "publicKeyMultibase": "z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK",
+  "privateKeySeed": "a1b2c3...hex (SAVE THIS — shown once, never stored)"
+}</code></pre></div>
+      </div>
+
+      <h4>Using AID on API Calls</h4>
+      <p class="endpoint-desc">Once registered, add these headers alongside your <code>X-API-Key</code> on any API call. ClawNet verifies both &mdash; API key for billing, AID for trust-gated pricing.</p>
+
+      <div class="code-block">
+        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+        <pre><code>curl -X POST https://api.claw-net.org/v1/orchestrate \
+  -H "X-API-Key: cn-your-key-here" \
+  -H "X-AID-DID: did:key:z6MkhaXg..." \
+  -H "X-AID-PROOF: &lt;Ed25519 signature&gt;" \
+  -H "X-AID-TIMESTAMP: 2026-03-23T14:30:00Z" \
+  -H "X-AID-NONCE: a1b2c3d4e5f6a7b8a1b2c3d4e5f6a7b8" \
+  -H "Content-Type: application/json" \
+  -d '{ "query": "What is the price of SOL?" }'</code></pre>
+      </div>
+      <div class="alert alert-success"><strong>AID is optional.</strong> If the AID headers are missing or invalid, the request continues normally with base pricing. A valid API key is never blocked by the AID layer.</div>
+
+      <h4>Signing (X-AID-PROOF)</h4>
+      <p class="endpoint-desc">Sign a canonical string with your Ed25519 private key:</p>
+      <div class="code-block"><pre><code>signatureInput = SHA-256(
+  did + "\n" +
+  "did:web:api.claw-net.org" + "\n" +   // provider DID (always this value)
+  timestamp + "\n" +                      // X-AID-TIMESTAMP value
+  nonce + "\n" +                          // X-AID-NONCE value (32 hex chars)
+  method + " " + path + "\n" +            // e.g. "POST /v1/orchestrate"
+  SHA-256(requestBody)                    // hex-encoded body hash
+)
+
+X-AID-PROOF = base64url(Ed25519Sign(privateKey, signatureInput))</code></pre></div>
+
+      <h4>Public Trust Endpoints (Free, No Auth)</h4>
+      <p class="endpoint-desc">Look up any agent's trust data. These are free, public, and rate-limited.</p>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/aid/:did/trust</code></div>
+        <p class="endpoint-desc">Get an agent's trust score, verdict, and attestation summary.</p>
+        <div class="endpoint-auth">Public &mdash; <strong>no auth required, free</strong></div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/aid/:did</code></div>
+        <p class="endpoint-desc">Resolve an agent's identity document, public key, and capabilities.</p>
+        <div class="endpoint-auth">Public &mdash; <strong>no auth required, free</strong></div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/aid/:did/trust-chain</code></div>
+        <p class="endpoint-desc">Export the agent's portable trust chain with Merkle proofs. Any service can verify this <strong>offline</strong> without calling ClawNet.</p>
+        <div class="endpoint-auth">Public &mdash; <strong>no auth required, free</strong></div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/aid/verify</code></div>
+        <p class="endpoint-desc">Verify an AID document. Pure cryptographic math &mdash; checks signatures, Merkle roots, trust score computation, and expiry. Stateless.</p>
+        <div class="endpoint-auth">Public &mdash; <strong>no auth required, free</strong></div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/aid/heartbeat</code></div>
+        <p class="endpoint-desc">Service discovery. Returns available services, pricing tiers, trust gate requirements, and platform health.</p>
+        <div class="endpoint-auth">Public &mdash; <strong>no auth required, free</strong></div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/.well-known/aid.json</code></div>
+        <p class="endpoint-desc">AID protocol discovery. Returns platform DID, supported algorithms, trust vector dimensions, and anchor chain.</p>
+        <div class="endpoint-auth">Public &mdash; <strong>no auth required, free</strong></div>
+      </div>
+
+      <h4>AID-Authenticated Endpoints</h4>
+      <p class="endpoint-desc">These require AID headers (not API key).</p>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/aid/feedback</code></div>
+        <p class="endpoint-desc">Report the outcome of a transaction. Feedback is weighted by your own trust score &mdash; high-trust reporters have more influence.</p>
+        <div class="endpoint-auth">Requires: <code>X-AID-DID</code> + <code>X-AID-PROOF</code></div>
+        <div class="code-block"><pre><code>{
+  "receiptId": "rcpt-a1b2c3d4e5f6g7h8",
+  "outcome": "success",
+  "qualityScore": 9
+}</code></pre></div>
+      </div>
+
+      <h4>Key Management</h4>
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/aid/:did/rotate-key</code></div>
+        <p class="endpoint-desc">Rotate your Ed25519 key. Old key is marked as rotated. Existing receipts remain valid (verified against the key that was active at the time).</p>
+        <div class="endpoint-auth">Requires: <code>X-API-Key</code> (must own the DID) &mdash; costs <strong>0.5 credits</strong></div>
+      </div>
+
+      <h4>Pricing Summary</h4>
+      <table class="params-table">
+        <thead><tr><th>Action</th><th>Cost</th></tr></thead>
+        <tbody>
+          <tr><td>Register AID</td><td><strong>1 credit</strong></td></tr>
+          <tr><td>Resolve / trust lookup / verify / heartbeat</td><td><strong>FREE</strong></td></tr>
+          <tr><td>Trust chain export</td><td><strong>FREE</strong></td></tr>
+          <tr><td>Cross-platform attestation</td><td><strong>0.1 credits</strong></td></tr>
+          <tr><td>Full export (fresh snapshot)</td><td><strong>0.5 credits</strong></td></tr>
+          <tr><td>Key rotation</td><td><strong>0.5 credits</strong></td></tr>
+          <tr><td>Submit feedback</td><td><strong>FREE</strong> (requires AID auth)</td></tr>
+        </tbody>
+      </table>
+
+      <div class="alert alert-info"><strong>AID uses <code>did:key</code></strong> &mdash; a W3C standard where the public key IS the identifier. No registry lookup needed. Any platform can verify your agent's identity using only the DID and the trust chain document. <a href="/aid-playground" style="color:var(--accent)">Try the interactive playground &rarr;</a></div>
+    </div>
+
     <!-- ═══════════════════════════════════════════════ TRUST & SAFETY ═══════════════════════════════════════════════ -->
     <div class="docs-section" id="trust">
       <h2 class="docs-section-title">Trust &amp; Safety</h2>
@@ -4059,8 +4245,8 @@ app.post('/webhooks/clawnet', express.raw({ type: 'application/json' }), (req, r
 
     <!-- ═══════════════════════════════════════════════ AGENT IDENTITY (AID) ═══════════════════════════════════════════════ -->
     <div class="docs-section" id="agent-identity">
-      <h2 class="docs-section-title">Agent Identity (AID)</h2>
-      <p class="docs-section-desc">Self-sovereign agent identity with portable, cryptographically verifiable trust chains. Your agent carries its identity everywhere &mdash; any platform can verify it offline, without calling ClawNet.</p>
+      <h2 class="docs-section-title">Agent Identity (AID) &mdash; Endpoint Reference</h2>
+      <p class="docs-section-desc">Full endpoint reference for AID identity management. For the trust scoring overview and getting started guide, see <a href="#aid-trust" style="color:var(--accent)">AID Trust Layer</a> above.</p>
 
       <div class="alert alert-info"><strong>The Trust Stack:</strong> Manifest verifies BEFORE &rarr; Attestation proves AFTER &rarr; AID carries trust EVERYWHERE. Together they form the only complete trust infrastructure for AI agents.</div>
 
@@ -4093,7 +4279,7 @@ app.post('/webhooks/clawnet', express.raw({ type: 'application/json' }), (req, r
         <div class="code-block">
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
           <pre><code>{
-  "did": "did:clawnet:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK",
+  "did": "did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK",
   "publicKeyMultibase": "z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK",
   "privateKeySeed": "a1b2c3...hex (SAVE THIS — shown once, never stored)",
   "aidDocument": { "..." }
@@ -4110,7 +4296,7 @@ app.post('/webhooks/clawnet', express.raw({ type: 'application/json' }), (req, r
         <table class="params-table">
           <thead><tr><th>Name</th><th>Type</th><th>Description</th></tr></thead>
           <tbody>
-            <tr><td><code>did</code></td><td><span class="param-type">string</span></td><td>Agent DID (e.g. <code>did:clawnet:z6Mkh...</code>)</td></tr>
+            <tr><td><code>did</code></td><td><span class="param-type">string</span></td><td>Agent DID (e.g. <code>did:key:z6Mkh...</code>)</td></tr>
           </tbody>
         </table>
       </div>
@@ -4246,7 +4432,7 @@ app.post('/webhooks/clawnet', express.raw({ type: 'application/json' }), (req, r
         </tbody>
       </table>
 
-      <div class="alert alert-success"><strong>The DID method <code>did:clawnet:</code> is self-certifying</strong> &mdash; the public key IS the identifier. No registry lookup needed. Any platform can resolve and verify an agent's identity using only the DID and the portable trust chain document. ClawNet is the issuer, but verification is decentralized.</div>
+      <div class="alert alert-success"><strong>The DID method <code>did:key</code> is self-certifying</strong> &mdash; the public key IS the identifier. No registry lookup needed. Any platform can resolve and verify an agent's identity using only the DID and the portable trust chain document. ClawNet is the issuer, but verification is decentralized. See <a href="#aid-trust" style="color:inherit;text-decoration:underline">AID Trust Layer</a> for the full trust-gated pricing flow.</div>
     </div>
 
     <!-- ═══════════════════════════════════════════════ TROUBLESHOOTING ═══════════════════════════════════════════════ -->

@@ -43,8 +43,12 @@ function trustVerdict(score: number): string {
 
 // ─── Ed25519 signature verification ─────────────────────────────────────────
 
+// Platform DID — used in canonical signing input (providerDid binding prevents relay attacks)
+const PLATFORM_DID = 'did:web:api.claw-net.org';
+
 function verifyEd25519Proof(
   did: string,
+  providerDid: string,
   timestamp: string,
   nonce: string,
   method: string,
@@ -65,10 +69,12 @@ function verifyEd25519Proof(
     const spki = Buffer.concat([spkiHeader, rawPub]);
     const pubKey = crypto.createPublicKey({ key: spki, format: 'der', type: 'spki' });
 
-    // Reconstruct canonical signing input per spec Section 4.4:
-    // SHA-256(did + "\n" + timestamp + "\n" + nonce + "\n" + method + " " + path + "\n" + SHA-256(body))
+    // Reconstruct canonical signing input per AID spec Section 19.8:
+    // SHA-256(did + "\n" + providerDid + "\n" + timestamp + "\n" + nonce + "\n" + method + " " + path + "\n" + SHA-256(body))
+    // Including providerDid prevents relay attacks — a proof captured by a proxy
+    // cannot be forwarded to a different server because the target DID is baked in.
     const bodyHash = crypto.createHash(AID_HASH_ALGORITHM).update(bodyBytes).digest('hex');
-    const signingString = `${did}\n${timestamp}\n${nonce}\n${method} ${path}\n${bodyHash}`;
+    const signingString = `${did}\n${providerDid}\n${timestamp}\n${nonce}\n${method} ${path}\n${bodyHash}`;
     const signatureInput = crypto.createHash(AID_HASH_ALGORITHM).update(signingString).digest();
 
     // Verify Ed25519 signature
@@ -203,7 +209,7 @@ export const checkAidProof = createMiddleware(async (c, next) => {
   const bodyBytes = Buffer.from(await c.req.text());
 
   const valid = verifyEd25519Proof(
-    did, timestamp, nonce, method, path, bodyBytes,
+    did, PLATFORM_DID, timestamp, nonce, method, path, bodyBytes,
     proof, aidKey.public_key_multibase,
   );
 

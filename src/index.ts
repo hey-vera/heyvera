@@ -83,6 +83,7 @@ import { startTrustDecayCron } from './core/trust-decay-cron';
 import { startEndpointHealthCron } from './core/endpoint-health-cron';
 import { startEndpointDiscoveryCron } from './core/endpoint-discovery';
 import { signResponse } from './middleware/sign-response';
+import { aidEnrich } from './middleware/aid-enrich';
 import { startEscrowCron } from './core/escrow-cron';
 import { startSkillAbCron } from './core/skill-ab-cron';
 import { startStakeUnlockCron } from './core/stake-unlock-cron';
@@ -246,6 +247,10 @@ app.route('/', contactRoute)
 app.use('/v1/orchestrate', checkApiKey);
 app.use('/v1/estimate', checkApiKey);
 app.use('/v1/balance', checkApiKey);
+// AID trust enrichment — optional, fail-through. If caller sends X-AID-DID alongside
+// their API key, resolve trust score for trust-gated pricing. Never blocks requests.
+app.use('/v1/orchestrate', aidEnrich);
+app.use('/v1/estimate', aidEnrich);
 app.use('/v1/orchestrate', signResponse);
 app.use('/v1/skills/*/invoke', signResponse);
 app.use('/v1/batch', signResponse);
