@@ -1,6 +1,9 @@
 /**
  * ClawAPIs Auto-Discovery — polls clawapis.com/api/pricing and merges
- * all discovered endpoints into the live registry.
+ * ALL discovered endpoints into the live registry.
+ *
+ * Dynamically discovers every provider in the response — no hardcoded
+ * provider list. When ClawAPIs adds new providers, they appear automatically.
  *
  * Runs on startup (30s delay) and every 4 hours. New endpoints are
  * auto-registered with computed credit costs. Existing endpoints get
@@ -23,52 +26,68 @@ interface ClawApisPricingEntry {
   description: string;
 }
 
-interface ClawApisPricingResponse {
-  totalEndpoints?: number;
-  x?: Record<string, ClawApisPricingEntry>;
-  helius?: Record<string, ClawApisPricingEntry>;
-  solscan?: Record<string, ClawApisPricingEntry>;
-  [key: string]: unknown;
-}
+/** Response is a flat object: each key is a provider name, value is its endpoints.
+ *  Special keys (totalEndpoints, meta, etc.) are skipped during iteration. */
+type ClawApisPricingResponse = Record<string, unknown>;
+
+// Keys in the response that are metadata, not provider endpoint maps
+const METADATA_KEYS = new Set(['totalEndpoints', 'total', 'meta', 'version', 'updatedAt', 'timestamp']);
 
 // ─── Category Classification ────────────────────────────────────────────────
 
-/** Map discovered endpoints to ClawNet categories based on keyword analysis */
+/** Known provider → category overrides. Unknown providers use keyword analysis. */
+const PROVIDER_CATEGORY_HINTS: Record<string, ApiEndpoint['category']> = {
+  helius: 'solana',
+  solscan: 'solana',
+  jupiter: 'defi',
+  raydium: 'defi',
+  orca: 'defi',
+  marinade: 'defi',
+  dexscreener: 'defi',
+  birdeye: 'defi',
+  coingecko: 'enrichment',
+  coinmarketcap: 'enrichment',
+  messari: 'enrichment',
+  x: 'social',
+  twitter: 'social',
+  reddit: 'social',
+  farcaster: 'social',
+  neynar: 'social',
+  alchemy: 'infrastructure',
+  quicknode: 'infrastructure',
+  infura: 'infrastructure',
+};
+
+/** Map discovered endpoints to ClawNet categories based on provider hints + keyword analysis */
 function classifyCategory(
-  api: 'x' | 'helius' | 'solscan',
+  api: string,
   key: string,
   description: string,
 ): ApiEndpoint['category'] {
+  // Check provider-level hint first
+  const hint = PROVIDER_CATEGORY_HINTS[api.toLowerCase()];
   const desc = description.toLowerCase();
   const k = key.toLowerCase();
 
-  if (api === 'helius') {
-    if (desc.includes('token') || desc.includes('asset') || desc.includes('nft')) return 'solana';
-    if (desc.includes('transaction') || desc.includes('block')) return 'solana';
-    return 'infrastructure';
-  }
-
-  if (api === 'solscan') {
-    if (desc.includes('token') || desc.includes('nft')) return 'solana';
-    if (desc.includes('market') || desc.includes('defi')) return 'defi';
-    return 'solana';
-  }
-
-  // X/Twitter
-  if (desc.includes('dm') || desc.includes('direct message')) return 'social';
-  if (desc.includes('tweet') || desc.includes('post') || desc.includes('search')) return 'social';
-  if (desc.includes('follow') || desc.includes('like') || desc.includes('retweet')) return 'social';
-  if (desc.includes('trend')) return 'intelligence';
-  if (desc.includes('compliance') || desc.includes('usage')) return 'utility';
+  // Keyword-based overrides (more specific than provider-level)
+  if (desc.includes('token') && (desc.includes('price') || desc.includes('market'))) return 'enrichment';
+  if (desc.includes('swap') || desc.includes('liquidity') || desc.includes('yield') || desc.includes('defi')) return 'defi';
+  if (desc.includes('nft')) return 'solana';
+  if (desc.includes('tweet') || desc.includes('post') || desc.includes('social') || desc.includes('follow')) return 'social';
+  if (desc.includes('sentiment') || desc.includes('trend') || desc.includes('analysis')) return 'intelligence';
+  if (desc.includes('dm') || desc.includes('direct message') || desc.includes('email') || desc.includes('notify')) return 'social';
+  if (desc.includes('wallet') || desc.includes('balance') || desc.includes('account')) return 'solana';
+  if (desc.includes('transaction') || desc.includes('block') || desc.includes('signature')) return 'solana';
+  if (desc.includes('search') || desc.includes('scrape') || desc.includes('crawl')) return 'utility';
+  if (desc.includes('image') || desc.includes('generate') || desc.includes('ai')) return 'ai-ml';
   if (k.includes('stream')) return 'social';
-  return 'social';
+
+  // Fall back to provider hint, then 'utility'
+  return hint ?? 'utility';
 }
 
 /** Generate a stable endpoint ID from the API + key */
 function makeEndpointId(api: string, key: string): string {
-  // "GET /x/2/tweets/*" → "clawapis-x-tweets"
-  // "getBalance" → "clawapis-helius-getbalance"
-  // "GET /solscan/account/tokens" → "clawapis-solscan-account-tokens"
   const cleaned = key
     .replace(/^(GET|POST|PUT|DELETE|PATCH)\s+/i, '')
     .replace(/^\//, '')
@@ -79,24 +98,23 @@ function makeEndpointId(api: string, key: string): string {
     .replace(/-$/g, '')
     .toLowerCase();
 
-  return `clawapis-${api}-${cleaned}`;
+  return `clawapis-${api.toLowerCase()}-${cleaned}`;
 }
 
 /** Extract the API path from the pricing key */
 function extractPath(api: string, key: string): string {
-  if (api === 'helius') {
-    // Helius uses JSON-RPC method names — route via base helius path
-    return '/helius/';
+  // If it looks like a JSON-RPC method name (no spaces, no slashes), route via base path
+  if (!key.includes('/') && !key.includes(' ')) {
+    return `/${api.toLowerCase()}/`;
   }
-  // "GET /x/2/tweets/*" → "/x/2/tweets/"
-  // "GET /solscan/account/tokens" → "/solscan/account/tokens"
   const match = key.match(/^(?:GET|POST|PUT|DELETE|PATCH)\s+(\/\S+)/i);
-  return match ? match[1].replace(/\*/g, '') : `/${api}/`;
+  return match ? match[1].replace(/\*/g, '') : `/${api.toLowerCase()}/`;
 }
 
-/** Extract HTTP method from key, default POST for helius */
+/** Extract HTTP method from key, default GET */
 function extractMethod(api: string, key: string): string {
-  if (api === 'helius') return 'POST'; // JSON-RPC
+  // JSON-RPC style keys (no spaces) → POST
+  if (!key.includes(' ') && !key.includes('/')) return 'POST';
   const match = key.match(/^(GET|POST|PUT|DELETE|PATCH)\s/i);
   return match ? match[1].toUpperCase() : 'GET';
 }
@@ -107,97 +125,77 @@ function parsePrice(priceStr: string): number {
   return isNaN(num) ? 0.01 : num;
 }
 
-/** Estimate latency based on API type and endpoint complexity */
-function estimateLatency(api: string, costPerCall: number): number {
-  if (api === 'helius' && costPerCall <= 0.001) return 200;  // standard RPC
-  if (api === 'helius') return 500;  // DAS/enhanced
-  if (api === 'solscan') return 300;
-  if (costPerCall >= 1) return 2000;  // bulk endpoints
+/** Estimate latency based on cost and description keywords */
+function estimateLatency(api: string, costPerCall: number, description: string): number {
+  const desc = description.toLowerCase();
+  // Fast lookups
+  if (desc.includes('rpc') || desc.includes('balance') || desc.includes('getblock')) return 200;
+  if (costPerCall <= 0.001) return 300;
+  // Medium
+  if (desc.includes('search') || desc.includes('list') || desc.includes('query')) return 800;
+  if (costPerCall <= 0.01) return 500;
+  // Heavier ops
+  if (desc.includes('bulk') || desc.includes('batch') || desc.includes('analysis')) return 2000;
+  if (costPerCall >= 1) return 2000;
   if (costPerCall >= 0.10) return 1000;
-  return 500;  // X API standard
+  return 500;
 }
 
-/** Generate appropriate output fields based on description */
-function inferOutputFields(api: string, description: string): string[] {
+/** Generate appropriate output fields based on description keywords */
+function inferOutputFields(_api: string, description: string): string[] {
   const desc = description.toLowerCase();
-  if (api === 'helius') {
-    if (desc.includes('balance')) return ['balance', 'lamports'];
-    if (desc.includes('asset')) return ['id', 'content', 'authorities', 'compression'];
-    if (desc.includes('transaction')) return ['signature', 'slot', 'blockTime', 'meta'];
-    return ['result'];
-  }
-  if (api === 'solscan') {
-    if (desc.includes('token')) return ['address', 'symbol', 'name', 'price', 'volume'];
-    if (desc.includes('account')) return ['address', 'balance', 'tokens'];
-    return ['data'];
-  }
-  // X/Twitter
-  if (desc.includes('tweet')) return ['id', 'text', 'author_id', 'created_at', 'public_metrics'];
-  if (desc.includes('user')) return ['id', 'name', 'username', 'public_metrics'];
-  if (desc.includes('dm')) return ['id', 'text', 'sender_id', 'created_at'];
+  if (desc.includes('balance')) return ['balance', 'amount'];
+  if (desc.includes('token') && desc.includes('price')) return ['price', 'symbol', 'volume', 'change'];
+  if (desc.includes('transaction')) return ['signature', 'slot', 'blockTime', 'meta'];
+  if (desc.includes('asset') || desc.includes('nft')) return ['id', 'content', 'authorities'];
+  if (desc.includes('tweet') || desc.includes('post')) return ['id', 'text', 'author_id', 'created_at'];
+  if (desc.includes('user') || desc.includes('profile')) return ['id', 'name', 'username'];
+  if (desc.includes('swap') || desc.includes('quote')) return ['inAmount', 'outAmount', 'route', 'priceImpact'];
+  if (desc.includes('holder')) return ['address', 'amount', 'percentage'];
+  if (desc.includes('search')) return ['results', 'total'];
   return ['data'];
 }
 
-/** Generate input schema based on API type and path */
-function inferInputSchema(api: string, key: string, description: string): Record<string, string> {
+/** Generate input schema based on description keywords */
+function inferInputSchema(_api: string, key: string, description: string): Record<string, string> {
   const desc = description.toLowerCase();
 
-  if (api === 'helius') {
-    const method = key; // helius keys are just method names
-    if (method.includes('Asset')) return { id: 'Asset ID or mint address' };
-    if (method.includes('Balance') || method.includes('Account')) return { address: 'Solana wallet address' };
-    if (method.includes('Transaction') || method.includes('Signature')) return { signature: 'Transaction signature' };
-    return { params: 'JSON-RPC params array' };
-  }
+  if (desc.includes('search') || desc.includes('query')) return { query: 'Search query string' };
+  if (desc.includes('balance') || desc.includes('account') || desc.includes('wallet')) return { address: 'Wallet or account address' };
+  if (desc.includes('token') && (desc.includes('price') || desc.includes('info'))) return { address: 'Token mint/contract address' };
+  if (desc.includes('transaction') || desc.includes('signature')) return { signature: 'Transaction signature/hash' };
+  if (desc.includes('asset') || desc.includes('nft')) return { id: 'Asset ID or mint address' };
+  if (desc.includes('tweet') || desc.includes('post')) return { id: 'Tweet/post ID' };
+  if (desc.includes('user') || desc.includes('profile')) return { id: 'User ID or username' };
+  if (desc.includes('swap') || desc.includes('quote')) return { inputMint: 'Input token address', outputMint: 'Output token address', amount: 'Amount in smallest unit' };
+  if (desc.includes('holder')) return { address: 'Token mint address' };
 
-  if (api === 'solscan') {
-    if (desc.includes('token')) return { address: 'Token mint address' };
-    if (desc.includes('account')) return { address: 'Account address' };
-    if (desc.includes('transaction')) return { signature: 'Transaction signature' };
-    return { address: 'Address or identifier' };
-  }
-
-  // X/Twitter — extract from path patterns
-  if (desc.includes('tweet') && desc.includes('search')) return { query: 'Search query string', max_results: 'Max results (10-100)' };
-  if (desc.includes('tweet')) return { id: 'Tweet ID' };
-  if (desc.includes('user')) return { id: 'User ID or username' };
-  if (desc.includes('dm')) return { participant_id: 'DM participant user ID' };
-  if (desc.includes('follow') || desc.includes('like') || desc.includes('retweet')) return { target_id: 'Target user/tweet ID' };
-  return { id: 'Resource identifier' };
+  // Fall back: if key looks like a path with an ID param, use 'id'
+  if (key.includes(':') || key.includes('{')) return { id: 'Resource identifier' };
+  return { params: 'Request parameters' };
 }
 
 // ─── Capability Group Classification ────────────────────────────────────────
 
 /** Map discovered endpoints into capability groups for the pricing optimizer */
-function inferCapabilityGroup(api: string, key: string, description: string): string | null {
+function inferCapabilityGroup(_api: string, key: string, description: string): string | null {
   const desc = description.toLowerCase();
   const k = key.toLowerCase();
 
-  // Helius
-  if (api === 'helius') {
-    if (k.includes('getbalance') || k.includes('getaccount')) return 'wallet-portfolio';
-    if (k.includes('gettransaction') || k.includes('getsignature')) return null; // unique capability
-    if (k.includes('getasset')) return null; // unique DAS capability
-    return null;
-  }
-
-  // SolScan
-  if (api === 'solscan') {
-    if (desc.includes('token') && desc.includes('meta')) return 'token-price';
-    if (desc.includes('holder')) return 'holder-analysis';
-    return null;
-  }
-
-  // X/Twitter — mostly unique, some overlap with existing social endpoints
-  if (desc.includes('tweet') && desc.includes('search')) return 'social-sentiment';
-  if (desc.includes('trend')) return 'social-sentiment';
+  if (desc.includes('balance') || desc.includes('portfolio') || k.includes('getbalance') || k.includes('getaccount')) return 'wallet-portfolio';
+  if (desc.includes('token') && (desc.includes('price') || desc.includes('market'))) return 'token-price';
+  if (desc.includes('holder') || desc.includes('distribution')) return 'holder-analysis';
+  if (desc.includes('sentiment') || desc.includes('trend') || (desc.includes('tweet') && desc.includes('search'))) return 'social-sentiment';
+  if (desc.includes('swap') || desc.includes('quote') || desc.includes('route')) return 'dex-swap';
+  if (desc.includes('nft') && (desc.includes('list') || desc.includes('collection'))) return 'nft-data';
+  if (desc.includes('risk') || desc.includes('audit') || desc.includes('score')) return 'risk-analysis';
   return null;
 }
 
 // ─── Discovery Engine ───────────────────────────────────────────────────────
 
 let _running = false;
-let _lastDiscovery: { timestamp: string; added: number; updated: number; total: number } | null = null;
+let _lastDiscovery: { timestamp: string; added: number; updated: number; total: number; providers: string[] } | null = null;
 
 export function getLastDiscoveryResult() { return _lastDiscovery; }
 
@@ -223,14 +221,26 @@ async function fetchClawApisPricing(): Promise<ClawApisPricingResponse | null> {
   }
 }
 
+/** Check if a value looks like an endpoint map: { "key": { price: "...", description: "..." } } */
+function isEndpointMap(value: unknown): value is Record<string, ClawApisPricingEntry> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const entries = Object.values(value);
+  if (entries.length === 0) return false;
+  // Check first entry has price + description
+  const first = entries[0];
+  return first != null && typeof first === 'object' && 'price' in first && 'description' in first;
+}
+
 function parseApiEndpoints(
-  api: 'x' | 'helius' | 'solscan',
+  api: string,
   entries: Record<string, ClawApisPricingEntry>,
 ): { endpoints: ApiEndpoint[]; capabilities: Map<string, string[]> } {
   const endpoints: ApiEndpoint[] = [];
   const capabilities = new Map<string, string[]>();
 
   for (const [key, entry] of Object.entries(entries)) {
+    if (!entry || typeof entry !== 'object' || !entry.price || !entry.description) continue;
+
     const id = makeEndpointId(api, key);
     const costPerCall = parsePrice(entry.price);
     const method = extractMethod(api, key);
@@ -244,10 +254,10 @@ function parseApiEndpoints(
       description: `[${method}] ${entry.description}`,
       category: classifyCategory(api, key, entry.description),
       costPerCall,
-      latencyMs: estimateLatency(api, costPerCall),
+      latencyMs: estimateLatency(api, costPerCall, entry.description),
       inputSchema: inferInputSchema(api, key, entry.description),
       outputFields: inferOutputFields(api, entry.description),
-      cacheTtl: api === 'helius' && costPerCall <= 0.001 ? 30 : 300,
+      cacheTtl: costPerCall <= 0.001 ? 30 : 300,
     };
 
     endpoints.push(endpoint);
@@ -277,19 +287,23 @@ export async function runEndpointDiscovery(): Promise<void> {
 
     const allEndpoints: ApiEndpoint[] = [];
     const allCapabilities = new Map<string, string[]>();
+    const discoveredProviders: string[] = [];
 
-    for (const api of ['x', 'helius', 'solscan'] as const) {
-      const entries = pricing[api];
-      if (!entries || typeof entries !== 'object') continue;
+    // Iterate over ALL keys in the response — discover any provider dynamically
+    for (const [apiKey, value] of Object.entries(pricing)) {
+      if (METADATA_KEYS.has(apiKey)) continue;
+      if (!isEndpointMap(value)) continue;
 
-      const { endpoints, capabilities } = parseApiEndpoints(api, entries as Record<string, ClawApisPricingEntry>);
+      discoveredProviders.push(apiKey);
+
+      const { endpoints, capabilities } = parseApiEndpoints(apiKey, value);
       allEndpoints.push(...endpoints);
 
-      for (const [group, ids] of capabilities) {
+      Array.from(capabilities.entries()).forEach(([group, ids]) => {
         const existing = allCapabilities.get(group) ?? [];
         existing.push(...ids);
         allCapabilities.set(group, existing);
-      }
+      });
     }
 
     if (allEndpoints.length === 0) {
@@ -305,10 +319,13 @@ export async function runEndpointDiscovery(): Promise<void> {
       added,
       updated,
       total: stats.total,
+      providers: discoveredProviders,
     };
 
     logger.info({
-      discovered: allEndpoints.length,
+      discoveredProviders,
+      providerCount: discoveredProviders.length,
+      endpointsDiscovered: allEndpoints.length,
       added,
       updated,
       totalRegistry: stats.total,

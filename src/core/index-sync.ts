@@ -772,21 +772,24 @@ export function mergeIndexedIntoRegistry(): { added: number; updated: number } {
 
   if (rows.length === 0) return { added: 0, updated: 0 };
 
-  const endpoints: ApiEndpoint[] = rows
-    .filter(r => r.price_usd != null && r.price_usd > 0)
-    .map(r => ({
+  // Include all healthy endpoints — use a sensible default cost for those without pricing
+  const DEFAULT_COST_USD = 0.001;
+  const endpoints: ApiEndpoint[] = rows.map(r => {
+    const costUsd = (r.price_usd != null && r.price_usd > 0) ? r.price_usd : DEFAULT_COST_USD;
+    return {
       id: `${r.source}-${r.source_id}`,
       provider: r.provider ? `${r.source}/${r.provider}` : r.source,
       baseUrl: r.url,
       name: r.name,
       description: r.description || r.name,
       category: mapCategory(r.category),
-      costPerCall: r.price_usd!,
+      costPerCall: costUsd,
       latencyMs: r.latency_p50_ms ?? 1000,
       inputSchema: {},
       outputFields: [],
-      creditCost: round6(Math.max(0.001, r.price_usd! * 1500)),
-    }));
+      creditCost: round6(Math.max(0.001, costUsd * 1500)),
+    };
+  });
 
   const result = mergeDiscoveredEndpoints(endpoints);
   if (result.added > 0 || result.updated > 0) {
