@@ -137,9 +137,11 @@
 <nav>
   <div class="nav-brand"><a href="/"><span class="nav-logo-text">&#x1F99E; Claw<span>Net</span></span></a></div>
   <div class="nav-links">
+    <a href="/docs">Docs</a>
+    <a href="/marketplace">Marketplace</a>
+    <div class="dropdown"><button class="dropdown-toggle">Developers &#9662;</button><div class="dropdown-menu"><a href="/endpoints">API Endpoints</a><a href="/playground">Playground</a><a href="/protocol">Protocol</a></div></div>
+    <div class="dropdown"><button class="dropdown-toggle">Trust &#9662;</button><div class="dropdown-menu"><a href="/aid" style="color:var(--accent)">AID Protocol &mdash; Trust Layer</a><a href="/aid-docs">AID Documentation</a><a href="/aid-playground">AID Playground</a><a href="/manifest">Manifest &mdash; Verification</a><a href="/attestation">Attestation &mdash; Proof</a></div></div>
     <div class="dropdown"><button class="dropdown-toggle">Products &#9662;</button><div class="dropdown-menu"><a href="https://pulse.claw-net.org">Pulse &mdash; AI Marketing</a></div></div>
-    <div class="dropdown"><button class="dropdown-toggle">Services &#9662;</button><div class="dropdown-menu"><a href="/manifest">Manifest &mdash; Verification</a><a href="/attestation">Attestation &mdash; Proof</a></div></div>
-    <div class="dropdown"><button class="dropdown-toggle">Developers &#9662;</button><div class="dropdown-menu"><a href="/endpoints">API Endpoints</a><a href="/marketplace">Marketplace</a><a href="/docs">Documentation</a><a href="/playground">Playground</a><a href="/protocol">Protocol</a></div></div>
   </div>
   <div class="nav-right">
     <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Toggle theme"><svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg><svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg></button>
@@ -161,12 +163,21 @@
 </nav>
 <script>document.addEventListener("click",function(){var m=document.querySelector(".account-menu");if(m)m.classList.remove("show")})</script>
 <div class="mobile-menu" id="mobileMenu">
+  <div class="mobile-menu-group">Navigate</div>
+  <a href="/docs">Documentation</a>
+  <a href="/marketplace">Marketplace</a>
+  <div class="mobile-menu-group">Developers</div>
+  <a href="/endpoints">API Endpoints</a>
+  <a href="/playground">Playground</a>
+  <a href="/protocol">Protocol</a>
+  <div class="mobile-menu-group">Trust</div>
+  <a href="/aid" style="color:var(--accent)">AID Protocol</a>
+  <a href="/aid-docs">AID Documentation</a>
+  <a href="/aid-playground">AID Playground</a>
+  <a href="/manifest">Manifest</a>
+  <a href="/attestation">Attestation</a>
   <div class="mobile-menu-group">Products</div>
   <a href="https://pulse.claw-net.org">Pulse &mdash; AI Marketing</a>
-  <div class="mobile-menu-group">Developers</div>
-  <a href="/endpoints">API Endpoints</a><a href="/marketplace">Marketplace</a><a href="/docs">Documentation</a><a href="/playground">Playground</a>
-  <div class="mobile-menu-group">More</div>
-  <a href="/dashboard">Dashboard</a>
   <div class="mobile-menu-group" id="mobile-account-group" style="display:none">Account</div>
   <span class="mobile-account-email" id="mobile-account-email" style="display:none;padding:6px 0;font-size:12px;color:var(--text-tertiary)"></span>
   <a href="#" id="mobile-sign-out" onclick="navSignOut();return false;" style="display:none;color:#f85149;">Log out</a>
