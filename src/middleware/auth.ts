@@ -107,7 +107,7 @@ export const checkApiKey = createMiddleware(async (c, next) => {
 
   if (!key) {
     return c.json(
-      { error: 'Missing X-API-Key header', code: 'INVALID_API_KEY', hint: 'Add X-API-Key header to your request' },
+      { error: 'Authentication required', code: 'AUTH_REQUIRED' },
       401
     );
   }
@@ -126,7 +126,7 @@ export const checkApiKey = createMiddleware(async (c, next) => {
   // Reject malformed keys before hitting the DB (cn- prefix + 48 hex chars)
   if (!/^cn-[a-f0-9]{48}$/.test(key)) {
     return c.json(
-      { error: 'Invalid or inactive API key', code: 'INVALID_API_KEY', hint: 'Purchase a key at claw-net.org' },
+      { error: 'Invalid credentials', code: 'AUTH_INVALID' },
       401
     );
   }
@@ -137,7 +137,7 @@ export const checkApiKey = createMiddleware(async (c, next) => {
   if (!keyRecord) {
     logger.warn({ key: maskApiKey(key) }, 'Invalid API key attempt');
     return c.json(
-      { error: 'Invalid or inactive API key', code: 'INVALID_API_KEY', hint: 'Purchase a key at claw-net.org' },
+      { error: 'Invalid credentials', code: 'AUTH_INVALID' },
       401
     );
   }
