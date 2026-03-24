@@ -3,16 +3,16 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ClawNet — The trust and commerce layer for AI agents</title>
-  <meta name="description" content="The trust and commerce layer for AI agents. Discover skills, orchestrate data, earn 85% as a creator. Cryptographic proof on every response.">
-  <meta property="og:title" content="ClawNet — The trust and commerce layer for AI agents">
-  <meta property="og:description" content="Discover skills. Orchestrate data. Prove every action. Two-sided marketplace for AI agent commerce.">
+  <title>ClawNet — Trust infrastructure for AI agents</title>
+  <meta name="description" content="AI agents are becoming economic actors. They need trust infrastructure. ClawNet is an open platform where agents verify identity, prove execution quality, and build reputation.">
+  <meta property="og:title" content="ClawNet — Trust infrastructure for AI agents">
+  <meta property="og:description" content="Identity, proof, and reputation as infrastructure. An open platform where agents verify identity, prove execution, and build portable reputation.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://claw-net.org">
   <meta property="og:image" content="https://claw-net.org/favicon.svg">
   <meta name="twitter:card" content="summary">
-  <meta name="twitter:title" content="ClawNet — The trust and commerce layer for AI agents">
-  <meta name="twitter:description" content="Skill marketplace. Cryptographic attestations. x402 micropayments. Two-sided agent commerce.">
+  <meta name="twitter:title" content="ClawNet — Trust infrastructure for AI agents">
+  <meta name="twitter:description" content="Identity, proof, and reputation for AI agents. Open protocol. Running system. Verifiable trust scores.">
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="apple-touch-icon" href="/favicon.svg">
   <script>if(localStorage.getItem('clawnet_theme')==='light')document.documentElement.setAttribute('data-theme','light')</script>
@@ -277,6 +277,7 @@
     .stack-tag.built { background: var(--accent-dim); color: var(--accent); }
     .stack-tag.native { background: var(--purple-dim); color: var(--purple); }
     .stack-tag.aligned { background: var(--bg-surface-2); color: var(--text-muted); border: 1px solid var(--border-subtle); }
+    .stack-tag.bridged { background: var(--info-dim); color: var(--info); }
 
     /* ── API DEMO ── */
     .api-demo { max-width: 900px; border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); overflow: hidden; background: var(--bg-primary); }
@@ -343,6 +344,18 @@
     .pricing-chip-credits { font-family: var(--font-mono); font-size: 12px; color: var(--accent); }
     .pricing-chip-bonus { font-size: 10px; color: var(--warning); min-height: 14px; }
 
+    /* ── CONCEPT CARDS (3-col) ── */
+    .concept-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+    .concept-card {
+      padding: 28px; background: var(--bg-surface); border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg); transition: border-color 0.15s;
+    }
+    .concept-card:hover { border-color: var(--border-default); }
+    .concept-card h3 { font-size: 16px; font-weight: 600; color: var(--text-primary); margin-bottom: 12px; }
+    .concept-card p { font-size: 14px; color: var(--text-secondary); line-height: 1.6; }
+    .concept-card .card-link { display: inline-block; margin-top: 16px; font-size: 13px; font-weight: 500; color: var(--accent); text-decoration: none; transition: color 0.15s; }
+    .concept-card .card-link:hover { color: var(--accent-hover); }
+
     /* ── ANIMATED STATS ── */
     @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
     .status-dot.ok { animation: pulse-dot 2s ease-in-out infinite; }
@@ -378,6 +391,7 @@
       .two-col { grid-template-columns: 1fr; }
       .stack-row { grid-template-columns: 60px 1fr; gap: 8px; }
       .stack-tag { display: none; }
+      .concept-cards { grid-template-columns: 1fr; }
       .skill-grid { grid-template-columns: 1fr; }
       .pricing-row { flex-direction: column; align-items: center; }
       .pricing-chip { width: 100%; max-width: 300px; }
@@ -492,15 +506,15 @@
     </div>
 
     <h1 class="heading-xl" style="max-width:820px;margin-bottom:20px">
-      The trust and commerce layer<br>for AI agents.
+      AI agents are becoming economic actors. They need trust infrastructure.
     </h1>
     <p class="body-lg" style="max-width:640px;margin-bottom:36px">
-      One API call discovers the right data source. A marketplace where developers earn 85% for every call to their skills. Cryptographic proof on every response.
+      ClawNet is an open platform where agents verify identity, prove execution quality, and build reputation over time. The trust layer the agent economy is missing.
     </p>
 
     <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:48px">
-      <a href="/docs" class="btn btn-primary btn-lg">Read the Docs</a>
-      <a href="/marketplace" class="btn btn-ghost btn-lg">Explore the Marketplace</a>
+      <a href="/learn" class="btn btn-primary btn-lg">Learn How It Works</a>
+      <a href="/docs" class="btn btn-ghost btn-lg">Read the Docs</a>
     </div>
 
     <div class="hero-code" id="heroCode">
@@ -586,71 +600,49 @@
 </section>
 
 <!-- ═══════════════════════════════════════════════════════════════ -->
-<!-- HOW IT WORKS — TWO SIDES                                       -->
+<!-- THE PROBLEM                                                     -->
 <!-- ═══════════════════════════════════════════════════════════════ -->
-<section class="section" id="how-it-works">
+<section class="section" id="the-problem">
   <div class="container">
-    <p class="caption" style="margin-bottom:12px">How it works</p>
-    <h2 class="heading-lg" style="margin-bottom:48px">A two-sided platform for agent commerce.</h2>
+    <p class="caption" style="margin-bottom:12px">The problem</p>
+    <h2 class="heading-lg" style="margin-bottom:48px">Agents transact billions in value with zero trust infrastructure.</h2>
 
-    <div class="two-col">
-      <div class="two-col-card">
-        <h3>For agents that need data</h3>
-        <ul>
-          <li>Ask the orchestrator in natural language or structured queries</li>
-          <li>Get back the best endpoint, pricing, alternatives, and a TTL</li>
-          <li>Call the endpoint directly via x402 &mdash; or let orchestration handle it</li>
-          <li>Every response includes a cryptographic receipt</li>
-        </ul>
-        <div style="margin-top:20px">
-          <a href="/docs" class="btn btn-ghost" style="font-size:12px">Read the docs &rarr;</a>
-        </div>
+    <div class="concept-cards">
+      <div class="concept-card">
+        <h3>No identity</h3>
+        <p>A server receiving a payment has no way to know who sent it. A reliable agent with 10,000 successful transactions looks identical to one created five minutes ago.</p>
       </div>
-      <div class="two-col-card">
-        <h3>For developers who have data</h3>
-        <ul>
-          <li>Publish your API, model, or dataset as a skill</li>
-          <li>Set your own price per call</li>
-          <li>Earn 85% of every x402 payment &mdash; ClawNet keeps 15%</li>
-          <li>Built-in trust scoring, uptime monitoring, and discovery</li>
-        </ul>
-        <div style="margin-top:20px">
-          <a href="/marketplace" class="btn btn-ghost" style="font-size:12px">Explore the marketplace &rarr;</a>
-        </div>
+      <div class="concept-card">
+        <h3>No proof</h3>
+        <p>An agent calls an API, gets a response, pays for it. Was it accurate? Was it from the source claimed? There's no verifiable record of what actually happened.</p>
+      </div>
+      <div class="concept-card">
+        <h3>No reputation</h3>
+        <p>Every agent starts from zero on every platform. Trust built on one service doesn't carry to another. There's no portable reputation.</p>
       </div>
     </div>
   </div>
 </section>
 
 <!-- ═══════════════════════════════════════════════════════════════ -->
-<!-- WHERE CLAWNET FITS — PROTOCOL STACK                            -->
+<!-- THE VISION — APPROACH                                          -->
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <section class="section" style="border-top:1px solid var(--border-subtle)">
   <div class="container">
-    <p class="caption" style="margin-bottom:12px">Where ClawNet fits</p>
-    <h2 class="heading-lg" style="margin-bottom:16px">The agent commerce stack.</h2>
-    <p class="body" style="max-width:560px;margin-bottom:40px">ClawNet is the reference implementation of AID, the trust protocol for agent commerce. Every response is verified. Every skill creator is scored.</p>
+    <p class="caption" style="margin-bottom:12px">The approach</p>
+    <h2 class="heading-lg" style="margin-bottom:16px">Identity, proof, and reputation as infrastructure.</h2>
+    <p class="body" style="max-width:640px;margin-bottom:40px">ClawNet implements AID, an open protocol for agent trust. Four layers work together: cryptographic identity verifiable offline, pre-execution declarations of intent, tamper-evident proof of every action, and a trust score computed from real outcomes &mdash; not self-declared.</p>
 
     <div class="stack-table">
       <div class="stack-row">
         <span class="stack-name">AID</span>
-        <span class="stack-desc">Trust scoring and verification</span>
+        <span class="stack-desc">Identity + Trust scoring</span>
         <span class="stack-tag built">Built in</span>
-      </div>
-      <div class="stack-row">
-        <span class="stack-name">OWS</span>
-        <span class="stack-desc">Key management</span>
-        <span class="stack-tag aligned">Planned</span>
       </div>
       <div class="stack-row">
         <span class="stack-name">x402</span>
         <span class="stack-desc">Agent-to-agent payments</span>
         <span class="stack-tag native">Native</span>
-      </div>
-      <div class="stack-row">
-        <span class="stack-name">MCP-I</span>
-        <span class="stack-desc">Agent identity</span>
-        <span class="stack-tag aligned">Aligned</span>
       </div>
       <div class="stack-row">
         <span class="stack-name">MCP</span>
@@ -663,26 +655,27 @@
         <span class="stack-tag aligned">Aligned</span>
       </div>
       <div class="stack-row">
-        <span class="stack-name">UCP</span>
-        <span class="stack-desc">Agent commerce protocol</span>
-        <span class="stack-tag aligned">Aligned</span>
+        <span class="stack-name">ERC-8004</span>
+        <span class="stack-desc">On-chain agent registry</span>
+        <span class="stack-tag bridged">Bridged</span>
       </div>
     </div>
 
-    <div style="margin-top:24px">
-      <a href="/protocol" class="btn btn-ghost" style="font-size:12px">Learn about the protocol &rarr;</a>
+    <p class="body" style="max-width:560px;margin-top:28px;color:var(--text-tertiary)">AID is an open standard. The spec, scoring library, and middleware are all open-source.</p>
+    <div style="margin-top:16px">
+      <a href="/learn" class="btn btn-ghost" style="font-size:12px">Learn how AID works &rarr;</a>
     </div>
   </div>
 </section>
 
 <!-- ═══════════════════════════════════════════════════════════════ -->
-<!-- DEVELOPER QUICK START                                          -->
+<!-- LIVE PLATFORM — API DEMO + MARKETPLACE                         -->
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <section class="section" id="api" style="background:var(--bg-surface);padding:100px 24px;max-width:none">
   <div class="container">
-    <p class="caption" style="margin-bottom:12px">Start building</p>
-    <h2 class="heading-lg" style="margin-bottom:16px">One endpoint. Three lines of code.</h2>
-    <p class="body" style="max-width:520px;margin-bottom:16px">POST a question, get a structured answer. Works with any language, any framework, any agent.</p>
+    <p class="caption" style="margin-bottom:12px">Live platform</p>
+    <h2 class="heading-lg" style="margin-bottom:16px">Not a whitepaper. A running system.</h2>
+    <p class="body" style="max-width:520px;margin-bottom:16px">344+ endpoints. Real skills. Real pricing. Real trust scores.</p>
 
     <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:40px;font-family:var(--font-mono);font-size:12px">
       <code style="background:var(--bg-surface-2);padding:6px 12px;border-radius:var(--radius-md);border:1px solid var(--border-subtle);color:var(--text-secondary)">npm install @clawnet/sdk</code>
@@ -730,8 +723,8 @@
 <section class="section" id="marketplace-preview">
   <div class="container">
     <p class="caption" style="margin-bottom:12px">Skill marketplace</p>
-    <h2 class="heading-lg" style="margin-bottom:16px">Browse live skills.</h2>
-    <p class="body" style="max-width:520px;margin-bottom:40px">Real skills, real pricing, real response times. Agents discover these programmatically via the API.</p>
+    <h2 class="heading-lg" style="margin-bottom:16px">Live skills with trust scores.</h2>
+    <p class="body" style="max-width:520px;margin-bottom:40px">Every skill has a trust score computed from real execution outcomes. Agents discover and compare these programmatically.</p>
 
     <div class="skill-grid" id="skillGrid">
       <div class="skill-card">
@@ -816,12 +809,12 @@
 </section>
 
 <!-- ═══════════════════════════════════════════════════════════════ -->
-<!-- TRUST — RECEIPT EXAMPLE                                        -->
+<!-- VERIFICATION — RECEIPT EXAMPLE                                 -->
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <section class="section" style="border-top:1px solid var(--border-subtle)">
   <div class="container" style="text-align:center">
-    <p class="caption" style="margin-bottom:12px">Trust, built in</p>
-    <h2 class="heading-lg" style="margin-bottom:16px">Every response is verified.</h2>
+    <p class="caption" style="margin-bottom:12px">Verification</p>
+    <h2 class="heading-lg" style="margin-bottom:16px">Every response carries proof.</h2>
     <p class="body" style="max-width:520px;margin:0 auto 40px">Every response includes a signed receipt &mdash; who provided the data, when, and proof it wasn't tampered with.</p>
 
     <div class="receipt-block" style="margin:0 auto">
@@ -840,13 +833,13 @@
     </div>
 
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:500px;margin:32px auto 0">
-      <a href="/manifest" style="text-decoration:none;padding:16px;background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);transition:border-color 0.2s" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border-subtle)'">
+      <a href="/learn#manifest" style="text-decoration:none;padding:16px;background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);transition:border-color 0.2s" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border-subtle)'">
         <div style="font-size:15px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Manifests</div>
-        <div style="font-size:12px;color:var(--text-tertiary)">Verify before you act</div>
+        <div style="font-size:12px;color:var(--text-tertiary)">Declare intent before execution</div>
       </a>
-      <a href="/attestation" style="text-decoration:none;padding:16px;background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);transition:border-color 0.2s" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border-subtle)'">
+      <a href="/learn#attestation" style="text-decoration:none;padding:16px;background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);transition:border-color 0.2s" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border-subtle)'">
         <div style="font-size:15px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Attestations</div>
-        <div style="font-size:12px;color:var(--text-tertiary)">Prove after you did</div>
+        <div style="font-size:12px;color:var(--text-tertiary)">Prove what happened after</div>
       </a>
     </div>
   </div>
@@ -858,7 +851,7 @@
 <section class="section" id="pricing" style="border-top:1px solid var(--border-subtle)">
   <div class="container" style="text-align:center">
     <p class="caption" style="margin-bottom:12px">Pricing</p>
-    <h2 class="heading-lg" style="margin-bottom:16px">Simple, transparent pricing.</h2>
+    <h2 class="heading-lg" style="margin-bottom:16px">Transparent, usage-based pricing.</h2>
     <p class="body" style="max-width:520px;margin:0 auto 12px">1 credit = $0.001. Most queries cost less than a penny. Cached responses are 90% cheaper.</p>
     <p class="body" style="max-width:520px;margin:0 auto 40px;color:var(--text-tertiary)">Pay with card or USDC on Solana. Credits never expire.</p>
 
@@ -874,16 +867,29 @@
 </section>
 
 <!-- ═══════════════════════════════════════════════════════════════ -->
-<!-- FINAL CTA                                                      -->
+<!-- FOR DEVELOPERS                                                 -->
 <!-- ═══════════════════════════════════════════════════════════════ -->
-<section class="section-sm" style="text-align:center;border-top:1px solid var(--border-subtle)">
+<section class="section" style="border-top:1px solid var(--border-subtle)">
   <div class="container">
-    <h2 class="heading-lg" style="margin-bottom:12px">Start building.</h2>
-    <p class="body" style="max-width:480px;margin:0 auto 28px">Read the docs, explore the marketplace, or try the API in the playground.</p>
-    <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap">
-      <a href="/docs" class="btn btn-primary btn-lg">Read the Docs</a>
-      <a href="/marketplace" class="btn btn-ghost btn-lg">Explore Skills</a>
-      <a href="/playground" class="btn btn-ghost btn-lg">Playground</a>
+    <p class="caption" style="margin-bottom:12px">Get started</p>
+    <h2 class="heading-lg" style="margin-bottom:40px">Three paths forward.</h2>
+
+    <div class="concept-cards">
+      <div class="concept-card">
+        <h3>Use the API</h3>
+        <p>Browse skills, orchestrate queries, build agents. Start with the ClawNet docs.</p>
+        <a href="/docs" class="card-link">Documentation &rarr;</a>
+      </div>
+      <div class="concept-card">
+        <h3>Implement AID trust</h3>
+        <p>Add trust scoring to your own platform. Open protocol, MIT-licensed.</p>
+        <a href="/aid-docs" class="card-link">AID Protocol Docs &rarr;</a>
+      </div>
+      <div class="concept-card">
+        <h3>Explore interactively</h3>
+        <p>Look up trust scores, verify documents, try skills. No account needed.</p>
+        <a href="/aid-playground" class="card-link">AID Playground &rarr;</a>
+      </div>
     </div>
   </div>
 </section>
@@ -900,9 +906,9 @@
     </div>
     <div>
       <h4>Trust</h4>
-      <a href="/protocol">Protocol</a>
-      <a href="/manifest">Manifest</a>
-      <a href="/attestation">Attestation</a>
+      <a href="/learn">How It Works</a>
+      <a href="/aid">AID Protocol</a>
+      <a href="/aid-docs">AID Docs</a>
     </div>
     <div>
       <h4>Products</h4>
