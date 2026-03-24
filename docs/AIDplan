@@ -201,6 +201,94 @@ transaction makes it smarter.
 
 **Progress: 115/133 items complete (86%). NEXT: /aid site page → DIF TAAWG → on-chain TrustOracle → 10/10 plan (DSIR, EigenTrust, trust vectors).**
 
+### 10/10 PLAN — CORE SCORING EVOLUTION (Replaces attestation-primary with receipt-primary)
+
+**Thesis:** "AID replaces 'who vouches for this agent?' with 'show me the receipts.'"
+
+**⚠️ These items CHANGE the core scoring formula. Existing spec, test vectors, and npm package all need updating.**
+
+**Day 1: DSIR (Dual-Signed Interaction Receipts)**
+- ⬜ Define DualSignedInteractionReceipt interface (both parties sign, both classify outcome)
+- ⬜ Add OutcomeClassification enum (success, partial, failure, timeout, disputed)
+- ⬜ Receipt generation in x402 middleware (after payment + response, both sign)
+- ⬜ Receipt commitment log (per-agent append-only hash list, batch Merkle anchor to Solana/Base)
+- ⬜ 5 DSIR test vectors (both agree, both disagree, with/without payment evidence)
+
+**Day 2: Receipt-Primary Scoring**
+- ⬜ computeTrustScore() accepts DSIRs as primary input
+- ⬜ Trust input hierarchy: agreed DSIRs 1.0, disputed DSIRs 0.3, attestations with receipt 0.7, on-chain 0.5, oracle 0.3, self-declared 0.1
+- ⬜ Dispute rate as superlinear integrity signal: integrity_score *= (1 - dispute_rate) ^ 2
+- ⬜ Backwards compatible (attestations still work, DSIRs dominate when available)
+- ⬜ Scoring integration test vectors updated with DSIR inputs
+
+**Day 3: EigenTrust on Interaction Graph**
+- ⬜ EigenTrust iteration (nodes=DIDs, edges=DSIRs, converge until delta < 1e-6 or 50 iterations)
+- ⬜ Bootstrap transition: <500 nodes = guardian seeds, ≥500 = algorithmic (top-20 by receipt_count × diversity)
+- ⬜ Replace issuerTrustScore/100 with eigentrust_weight
+- ⬜ Test vectors: sybil cluster → near-zero, honest subgraph retained, seed transition at threshold
+
+**Day 4: Trust Vector + Verification APIs**
+- ⬜ ScoreResult returns trustVector (5 dimensions) + compositeScore + disputeRate + eigenvectorWeight + computationVersion
+- ⬜ GET /v1/aid/:did/receipts — receipt subgraph + Merkle proofs + commitment log proof
+- ⬜ GET /v1/aid/:did/trust — trust vector + composite score + metadata
+- ⬜ GET /v1/aid/scoring-params — public scoring config (versioned)
+- ⬜ End-to-end verification test: pull receipts → run locally → compare to server → match exactly
+
+**Day 5: Reputational Staking + Temporal + Security Docs**
+- ⬜ Reputational staking: endorsed agent flagged → endorser's integrity hit, synthetic negative, cascades through EigenTrust
+- ⬜ Superlinear temporal weight: log2(1 + account_age_days / 30)
+- ⬜ Second-order independence: overlap between issuer's issuers and subject's issuers → multiplier
+- ⬜ Security docs: verifiable computation property, intuitive security argument (conjectured, not proven), known limitations (honest), "trust-minimized, not trustless"
+
+**Spec-only (design now, implement later):**
+- ⬜ Chain trust composition — open problem for DIF (proposed: min_link × (avg_link/100)^(chain_length-1))
+- ⬜ Commit-reveal attestations (needs epoch infrastructure)
+- ⬜ Attestation bonds (needs $CLAWNET token)
+- ⬜ ZK trust proofs (needs circuit development)
+- ⬜ Formal security bound (conjectured, formalization in progress)
+- ⬜ DSIR as W3C-level primitive
+
+**DIF Presentation Slides:**
+1. "Show me the receipts" — DSIRs vs attestations
+2. Verifiable computation — commitment log ensures completeness
+3. EigenTrust — sybil suppression via linear algebra
+4. Security argument — genuine interactions OR suppressed clusters, no third option
+5. Trust composition — open problem for the working group
+6. Security harness — 17/20 passed, risk score 20 (LOW)
+7. LIVE DEMO — verify scores yourself, right now
+8. Standards alignment — DIF, NIST, ERC-8004 (36118/36119), x402 extension
+9. Open problems — chain composition, formal bound, seed calibration
+
+**What NOT to do:**
+- Don't claim "trustless like Bitcoin" — say "trust-minimized with verifiable computation"
+- Don't compare DSIRs to UTXOs — compare to signed receipts in commerce
+- Don't present security bound as proven theorem — it's conjectured
+- Don't claim no guardian dependency — say "guardian-bootstrapped, transitioning to algorithmic"
+- Don't resolve disputes by majority vote — dispute rate IS the signal
+
+### ATTESTATION & MANIFEST SPEC (Comprehensive — implements data profiles)
+
+**Not yet implemented. Existing profiles are simplified versions (~150 lines each). Full spec includes:**
+
+- ⬜ Full AttestationRecord interface with EvidenceRecord, IssuerRole enum, AttestationCategory (5 categories)
+- ⬜ Canonical serialization (RFC 8785) with explicit null handling + number edge cases
+- ⬜ Timestamp rules (eventTime ≤ issuanceTime, 30-day max gap, 90-730 day expiry)
+- ⬜ Evidence types: RECEIPT, ONCHAIN_TX, MERKLE_ROOT, ORACLE_REPORT, SELF_DECLARED, GUARDIAN_AUDIT
+- ⬜ Self-declared confidence hard-capped at 0.3
+- ⬜ Issuer diversity requirements (hard caps: score 80+ needs 20+ distinct issuers)
+- ⬜ Issuer independence scoring (independence² penalty for concentrated attestation patterns)
+- ⬜ Reporter credibility scoring (corroborated_negatives / total_negatives, 90-day window)
+- ⬜ Anti-collusion: CliqueDetection (Bron-Kerbosch), BurstDetection (z-score), ReciprocityDetection
+- ⬜ Revocation declarations with guardian co-sign (time-range revocation, not per-attestation)
+- ⬜ Full ManifestDeclaration with OperatorDeclaration, CapabilityDeclaration, ProtocolDeclaration, GuardianDeclaration
+- ⬜ Tiered manifest bonus (5/5/5 = 15% max: basic identity + operator transparency + full commitment)
+- ⬜ Manifest-attestation divergence engine (DIV-001 through DIV-009, 8 cross-reference checks)
+- ⬜ Integrity category weighted at 1.5x other categories
+- ⬜ All test vector files: attestation-canonical.json, attestation-validation.json, manifest-bonus.json, divergence-detection.json, collusion-detection.json, scoring-integration.json
+- ⬜ Zero-value attestations excluded from diversity minimum counts
+- ⬜ Arithmetic determinism: 64-bit IEEE 754, no intermediate rounding, banker's rounding at final step to 2 decimal places
+- ⬜ Summary field privacy rules (no PII, summaryHash alternative, encrypted for regulated domains)
+
 ---
 
 ## 1. WHY AID EXISTS
