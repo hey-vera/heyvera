@@ -1,5 +1,14 @@
 # AID — The Trust Layer for Agentic Commerce
 
+> **ARCHIVED March 24, 2026.** This monolithic document has been split into per-protocol plans:
+> - `private-aid/aid-trust/plan.md` — Protocol 1 (trust scoring + identity + verification)
+> - `private-aid/aid-receipt/plan.md` — Protocol 2 (DSIRs + commitment logs)
+> - `private-aid/aid-settle/plan.md` — Protocol 3 (trust-gated settlement)
+> - `private-aid/product/plan.md` — ClawNet product features (guardians, defense, etc.)
+> - `private-aid/strategy/` — Competitive, DIF, economics, regulatory, decentralization
+>
+> **Keep this file as reference. Stop editing it. Extract content into the per-protocol files.**
+
 **Agent Identity + Trust — scored, verifiable, portable.**
 
 AID unifies what every other protocol handles separately: identity, trust, payment, and reputation

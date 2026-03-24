@@ -1,5 +1,7 @@
-# AID Open Concerns
+# AID Open Concerns (Master)
 
+> **This is the master file.** Per-protocol concerns are in each protocol's directory.
+> This file tracks cross-cutting concerns and the dependency map.
 > Problems that are fundamentally hard — not "hasn't been built yet."
 > Each concern has a real tension, an unknown, or a dependency we can't control.
 > Review at the start of every session. If something gets resolved, move to CLOSED with rationale.
