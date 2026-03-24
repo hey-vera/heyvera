@@ -3,7 +3,8 @@
 > Problems that are fundamentally hard — not "hasn't been built yet."
 > Each concern has a real tension, an unknown, or a dependency we can't control.
 > Review at the start of every session. If something gets resolved, move to CLOSED with rationale.
-> Updated: March 24, 2026.
+> Resist the urge to "solve" these by adding more items to the AIDplan. These are concerns to monitor, not tasks to complete.
+> Updated: March 24, 2026. **16 concerns (3 RED, 8 ORANGE, 5 YELLOW) + 1 operational note.**
 
 ---
 
@@ -55,7 +56,9 @@
 
 **The deeper tension:** Decentralizing trust computation is fundamentally harder than decentralizing transactions. Bitcoin validators check simple rules (valid signatures, unspent outputs). Trust oracle validators must run a complex scoring formula over a large dataset. The computational and data requirements create natural centralization pressure.
 
-**What would close it:** Phase 1 (data publication) is achievable and genuinely useful — it makes ClawNet auditable even while centralized. But full decentralization may require a token for oracle operator incentives, which creates securities risk (R5). Catch-22.
+**What would close it:** Phase 1 (data publication) is achievable and genuinely useful — it makes ClawNet auditable even while centralized. But full decentralization may require a token for oracle operator incentives, which creates securities risk. Catch-22.
+
+**The bootstrap paradox within the paradox:** Even after publishing `@aidprotocol/trust-compute` as open-source, someone must actually RUN it independently against the published attestation data and compare results. Every decentralization roadmap in crypto stalls at Phase 1 because "anyone CAN verify" doesn't mean "anyone DOES verify." If we ship Phase 1 and nobody runs trust-compute independently for 6 months, the entire "trust-minimized" claim is marketing copy, not a technical property. **Track this actively:** measure how many independent trust-compute downloads lead to actual verification runs against published data.
 
 **AIDplan refs:** Part 5 D (Progressive Decentralization), Flaw 1, Flaw 7
 
@@ -158,9 +161,53 @@ Each parameter has a plausible argument but none has a mathematical derivation. 
 
 **What could invalidate it:** Mnemom gets DIF engagement. PayCrow gets absorbed by Coinbase. Google ships trust scoring as part of A2A v2. Any of these would undercut the "only standard" positioning.
 
-**This isn't solvable — it's a strategic bet.** The mitigation is speed: ship the DIF submission, get external implementations, build the coalition. But the outcome depends on competitors' moves, not just ours.
+**The DIF timeline compounds this:** DIF moves at 6-18 months to ratification. Mnemom doesn't need DIF approval to ship. Every month the standard takes to ratify, products gain more adoption. The bet on "standard beats product" assumes the standard arrives before the market consolidates around a product. If DIF takes 18 months and Mnemom has 5,000 MCP server integrations by then, the standard is dead on arrival.
+
+**This isn't solvable — it's a strategic bet.** The mitigation is speed: ship the DIF submission, get external implementations, build the coalition. But the outcome depends on competitors' moves AND DIF's pace, not just ours.
 
 **AIDplan refs:** Part 4 A (Strategic Positioning), Part 4 D (Competitive Steal Playbook)
+
+---
+
+### O7: DSIR Chicken-and-Egg (Bilateral Receipts Need Two Parties)
+
+**The problem:** Dual-Signed Interaction Receipts are AID's strongest technical differentiator — both parties sign, both classify outcome, selective omission is detectable. But DSIRs require TWO implementations of the protocol. Currently ClawNet is the only one. Until a second party implements DSIR signing, every "dual-signed" receipt is really "ClawNet signed both sides" — which is functionally a unilateral receipt with extra steps.
+
+**Why it's hard:** This isn't a build problem — the code works. It's an adoption problem that undermines the core technical claim. The completeness guarantee (O3) depends on independent commitment logs from both parties. If ClawNet runs both logs, the guarantee is meaningless. We can't prove bilateral integrity with a single implementation any more than you can prove a lock works by testing it with your own key.
+
+**The tension:** We need to present DSIRs at DIF as the protocol's key innovation. But a DIF reviewer asking "who else implements this?" gets the answer "nobody yet." The spec is sound; the deployment is unilateral. This is the gap between protocol design and protocol ecosystem.
+
+**What would help:** ONE external implementation — even a minimal one (verify + counter-sign, no scoring). An MCP server operator running `@aidprotocol/mcp-trust` that produces real counter-signatures would close this from "ClawNet talks to itself" to "two parties generating bilateral receipts." This is why the external implementation commitment strategy (AIDplan Part 5 H) exists, but it hasn't produced results yet.
+
+**AIDplan refs:** 10/10 Day 1 (DSIR), Part 2 B.1-B.4, Part 5 H (external implementation strategy)
+
+---
+
+### O8: Autonomous Defense System Needs Critical Mass
+
+**The problem:** The autonomous defense system (5 layers — proof of life, immune response, progressive containment, guardians, gravity well) is AID's most novel feature. But every layer depends on ecosystem scale that doesn't exist yet:
+- **Counterparty immune response** needs 3+ unique counterparties reporting bad behavior in 1 hour. With <100 active agents, that threshold may never trigger.
+- **Guardian agents** need a pool of guardians large enough for anti-concentration rules to matter. With 3 guardians, "max 10% of agents per guardian" means each guardian handles ~33% — no diversity.
+- **Gravity well scoring** needs transaction volume to produce meaningful decay signals. An agent doing 1 tx/week generates noise, not signal.
+- **Proof of life** needs enough agents that the 7/14/30/60/90-day decay schedule produces real pressure. With 50 agents, manual attention is feasible — the autonomous system solves a problem that doesn't exist yet at current scale.
+
+**Why it's hard:** You can't test an immune system without a body. The autonomous defense system is designed for 10K+ agents. At current scale (0 agents on the protocol path), it's pure theory. And the system's parameters (3 reports in 1 hour, 10+ for quarantine) were chosen for a scale that may take years to reach. At small scale, the thresholds are either too sensitive (false positives destroy trust in the system) or too insensitive (attacks go undetected because not enough counterparties exist to trigger alerts).
+
+**The tension:** We need to present the autonomous defense system to establish AID's differentiation from competitors. But we can't validate it without scale, and we can't get scale without differentiation. The system is designed for a future state — which is either visionary or premature depending on when that future arrives.
+
+**What would help:** Simulation with synthetic agent populations (ties into R1). Define minimum viable ecosystem size for each defense layer. Be explicit at DIF: "Layer 1 (proof of life) works at any scale. Layers 2-4 require N agents to be effective. Here's what N is for each layer."
+
+**AIDplan refs:** Part 3 C (Autonomous Defense System), Section 39.18-39.20
+
+---
+
+## OPERATIONAL NOTE
+
+### Bus Factor = 1
+
+This is a one-person project. Every concern above compounds when there's a single point of failure on the human side. This isn't a protocol concern — it's a project viability concern. It means: every DIF meeting, every code review, every security audit, every community response flows through one person. The autonomous defense system is designed so agents don't need human intervention, but the protocol development itself has zero redundancy.
+
+This doesn't have a "solution" at current stage — it's the reality of bootstrapping. It becomes a real risk if DIF engagement requires sustained multi-week presence, or if a security incident requires simultaneous code fix + community response + DIF communication.
 
 ---
 
