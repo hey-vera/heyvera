@@ -17,7 +17,7 @@ transaction makes it smarter.
 > This checklist is the CANONICAL build plan. All other build sequences in this document are archived references.
 > Updated: March 24, 2026. **DIF window is DAYS, not weeks.**
 
-**Progress: 147/264 items complete (56%).**
+**Progress: 155/272 items complete (57%).**
 
 ### TODAY (March 22 — Cannot Wait)
 - ✅ Join DIF as Contributor member (submitted)
@@ -238,6 +238,16 @@ transaction makes it smarter.
 - ✅ Route mounting architecture — /aid/* = pure protocol, /v1/* = credit auth (unchanged)
 - ✅ Security harness re-run guidance — test against /aid/* not /v1/*, X4-001/X4-004 resolution path
 
+**2026-03-24, Session 5 (Community feedback integration):**
+- ✅ External feedback tracker created — `private-aid/docs/external-feedback-tracker.md` (7 gaps mapped, status + resolution for each)
+- ✅ Input Integrity Model (Section A.5.1) — hard/soft input classification table, fabrication cost analysis, maps existing DSIR hierarchy to community vocabulary
+- ✅ Local Policy Overlay pattern (Section A.5.2) — documented recommended pattern for domain-specific adjustments on top of canonical score
+- ✅ Cold-start policy discovery (Section C.4 note) — rationale for server-side-only policy, optional `coldStartPolicy` heartbeat extension field
+- ✅ OATR added to competitive landscape — complementary (identity floor), maps to verificationTier multiplier, Phase 1 accept + Phase 2 bridge
+- ✅ Testing DID isolation (Section A.8) — `purpose: testing` in manifest, excluded from production scoring, pre-registered allowlist required
+- ✅ Value diversity signal (Section A.5 Phase 3 note) — `valueDiversity` as Phase 3 candidate sub-signal (coefficient of variation), acknowledged + deferred
+- ✅ External harness validation commitment — added to 10/10 cross-cutting: msaleme v3.6.0 (43 tests), rsbasic mesh (62 tests), Agent Identity WG vectors
+
 ---
 
 ### OPUS REVIEW 3 — DIF-READINESS UPGRADES (2026-03-24)
@@ -434,6 +444,7 @@ eliminates this attack surface entirely.
 - ⬜ AvoidFlagDeclaration in CDDL — quorum 3 validators, reason enum, evidence, 72h appeal window (Opus #4)
 - ⬜ E2E scenario conformance tests — register → transact → feedback → score → passport → verify (Opus #18)
 - ⬜ Standalone threat model document — extract 63 vectors into single doc for aid-spec repo (Opus #15 — CRITICAL)
+- ⬜ External harness validation — run AID reference endpoint against: msaleme x402 harness v3.6.0 (43 tests), rsbasic mesh harness (62 tests), Agent Identity WG conformance vectors (6 impls). Free adversarial validation. Report results as spec appendix alongside simulation harness. (Community feedback — March 24)
 
 **Spec-only (design now, implement later):**
 - ⬜ Chain trust composition — open problem for DIF (proposed: min_link × (avg_link/100)^(chain_length-1))
@@ -687,7 +698,7 @@ proofHash includes new inputs:
 ```
 BEHAVIORAL (50%):
   successRate, latencyConsistency, chainCoverage, uptimeScore,
-  outcomeReports, manifestAdherence
+  outcomeReports, manifestAdherence, valueDiversity (candidate)
 
 MARKET (30%):
   stakingDemand, consumerDiversity, crossConsumption, volumeGrowth
@@ -711,6 +722,107 @@ Progressive weight rebalancing before all layers exist:
   Phase 3 (trust oracle live):  Behavioral 60%, Community 25%, Market 15%
   Phase 4+ (bonding curve live): Behavioral 50%, Market 30%, Community 20%
 ```
+
+**Phase 3 candidate signal: valueDiversity (added March 24, 2026):**
+
+Transaction count alone is gameable — a Sybil can generate 1,000 identical $0.001 transactions trivially. Value diversity (variance in transaction amounts) is significantly harder to fake because it requires more capital and produces a realistic distribution pattern.
+
+```
+valueDiversity = 1 - (stddev(tx_values) == 0 ? 1 : 1 / (1 + cv(tx_values)))
+WHERE cv = coefficient of variation (stddev / mean)
+
+Sybil pattern:  1000 txs × $0.001 each → cv ≈ 0 → valueDiversity ≈ 0
+Real pattern:   1000 txs ($0.001, $0.05, $2.00, $0.003, ...) → cv ≈ 1.5 → valueDiversity ≈ 0.6
+```
+
+**Status:** Phase 3 candidate. May be integrated as a sub-signal within the volume dimension or as a supplementary signal alongside counterpartyDiversity. The signal is acknowledged but deferred because v1.1 (5 dimensions) must ship and stabilize before expanding further.
+
+---
+
+#### A.5.1 Input Integrity Model (Hard vs Soft Inputs)
+
+> **Added March 24, 2026. Addresses external feedback on fabrication resistance.**
+
+AID's scoring formula explicitly separates inputs by fabrication cost. Inputs that require real economic commitment ("hard") dominate scoring; inputs that a provider can self-report ("soft") are heavily discounted. This ensures Sybil attackers must commit real resources to reach higher tiers.
+
+**Input classification:**
+
+| Input Type | Classification | Weight | Why |
+|------------|---------------|--------|-----|
+| Agreed DSIRs (both parties sign, both classify outcome) | **Hard** | 1.0 | Requires real counterparty + real transaction + real payment. Cannot be fabricated without economic cost. |
+| On-chain settlement evidence (txHash, block confirmation) | **Hard** | 0.7 | Publicly verifiable, immutable. Costs real gas + real USDC. |
+| Dual-party commitment logs (Merkle-anchored, cross-referenced) | **Hard** | 0.7 | Both parties independently commit — selective omission is detectable. |
+| Attestations with receipt reference | **Medium** | 0.5 | Server-generated but references verifiable receipt. Harder to fabricate than pure self-report. |
+| Oracle-provided scores (ERC-8004, Cred, external) | **Medium** | 0.3 | External source, but oracle itself could be compromised. Capped at `building` tier (score 39). |
+| Disputed DSIRs (parties disagree on outcome) | **Soft** | 0.3 | Disagreement reduces confidence. Dispute rate feeds superlinear integrity penalty. |
+| Self-declared inputs (manifests, capability claims) | **Soft** | 0.1 | Provider-controlled. Manifest adherence is verified post-hoc but initial declaration is free. |
+
+**How hard inputs dominate tier placement:**
+
+```
+SYBIL ATTACK (soft inputs only):
+  Self-declared manifests (0.1) + self-reported success (0.1) = max effective weight 0.2
+  → Score capped around 20 (building tier, base price, no discount)
+  → Cannot reach "caution" (40+) without hard inputs
+
+LEGITIMATE AGENT (hard inputs available):
+  Agreed DSIRs (1.0) + on-chain settlement (0.7) + commitment logs (0.7)
+  → Full scoring weight, tier placement based on actual performance
+  → "proceed" (90+) requires 6mo of hard-input history + $50 revenue
+
+THE KEY INSIGHT:
+  Determinism helps verification (anyone can reproduce the score).
+  Input integrity helps resistance (soft inputs can't reach high tiers).
+  AID has both.
+```
+
+**Relationship to existing defenses:** The hard/soft classification works WITH counterpartyDiversity (v1.1), EigenTrust (10/10 Day 3), and dual-party commitment logs (10/10 Day 1) — not instead of them. counterpartyDiversity ensures hard inputs come from diverse sources. EigenTrust suppresses Sybil clusters even if they generate hard-looking transactions. Dual-party logs ensure hard inputs aren't selectively omitted.
+
+---
+
+#### A.5.2 Local Policy Overlay (Recommended Pattern)
+
+> **Added March 24, 2026. Documents how providers apply domain-specific adjustments on top of the canonical score.**
+
+AID trust scores are **portable and deterministic** — given the same inputs and formula version, every implementation produces the same score. However, providers MAY apply **local policy overlays** on top of the canonical score for domain-specific needs without breaking verifiability.
+
+**The pattern:**
+
+```
+CANONICAL SCORE:    Computed by @aidprotocol/trust-compute, deterministic, verifiable
+LOCAL ADJUSTMENT:   Provider-specific policy layer, transparent, non-canonical
+
+Example: DeFi provider weights recency 2x for their domain:
+  canonicalScore = computeTrustScore(did)     // 75 (deterministic, verifiable)
+  localMultiplier = recencyBoost(did, lambda=ln(2)/7)  // 1.12 (7-day half-life)
+  effectiveScore = min(100, canonicalScore * localMultiplier)  // 84
+
+The provider MUST:
+  1. Use the canonical score as the base (never replace it)
+  2. Disclose the local policy in heartbeat response (optional `localPolicy` field)
+  3. Include BOTH scores in receipts: canonicalScore + effectiveScore
+  4. Never claim the adjusted score IS the canonical score
+
+The consumer SHOULD:
+  1. Verify the canonical score independently (Merkle proof)
+  2. Understand that effectiveScore is provider-specific
+  3. Use canonicalScore for cross-platform comparisons
+```
+
+**Heartbeat extension (optional):**
+```json
+{
+  "localPolicy": {
+    "description": "DeFi-optimized: 2x recency weight, 7-day half-life",
+    "adjustments": [
+      { "dimension": "successRate", "modifier": "recencyBoost", "params": { "halfLifeDays": 7 } }
+    ],
+    "canonicalFormulaVersion": "1.1"
+  }
+}
+```
+
+**Why this strengthens portability:** By explicitly documenting the pattern, we acknowledge that domain-specific needs are real while preserving the canonical score as the cross-platform truth. A DeFi provider and a data provider can weight dimensions differently while both agreeing on the underlying score. This is analogous to how credit bureaus produce a base score but lenders apply their own risk models on top.
 
 ---
 
@@ -760,6 +872,7 @@ An agent can be `verified` (identity tier) but `caution` (trust verdict) -- they
 - **Onboarding milestones:** signed timestamps for key events (first attestation, 10th attestation, first cross-counterparty tx, identity verification, 6-month anniversary). Adds temporal context: "registered 2h ago with 3 attestations" (normal) vs "registered 6mo ago with 3 attestations" (suspicious). Stored as optional `onboarding.history` array in AID document.
 - **Merkle snapshot jitter:** snapshots run every 4h with +/-15 min random jitter, preventing timing-based gaming
 - **Superlinear dispute penalty:** `integrity_score *= (1 - dispute_rate) ^ 2`
+- **Testing DID isolation:** Authorized security testing (penetration tests, harness runs) SHOULD use a dedicated testing DID with `purpose: testing` in the manifest. Providers SHOULD maintain a testing DID allowlist and exclude testing DIDs from production scoring. Testing DIDs MUST NOT receive trust-gated discounts. This prevents security harness runs (e.g., msaleme's 43-test x402 harness) from triggering anomaly detection or polluting production trust data. A `context: security-test` claim without a pre-registered testing DID MUST be rejected — otherwise malicious agents could bypass threat assessment by claiming to be pentesters.
 
 ---
 
@@ -1332,6 +1445,31 @@ Every AID server MUST expose `GET /aid/heartbeat`. This consolidates service dis
   }
 }
 ```
+
+**Cold-start policy discovery (added March 24, 2026):**
+
+Cold-start policy is intentionally **server-side only** in the base protocol. The heartbeat pricing tiers already implicitly communicate new-agent treatment: `trustGate: 0` with `multiplier: 1.0` and `settlement: immediate` tells an agent "we accept score-0 agents at base price with prepay." This is sufficient for most use cases.
+
+**Rationale for not advertising explicit cold-start budgets in protocol headers:** Advertising cold-start allowances (e.g., "new agents get 3 free calls") tells Sybil attackers exactly how many free resources each identity farms. AID's design rejects this pattern — the `newAgentAllowance` concept was removed specifically because it creates a Sybil farming vector.
+
+**Optional extension for providers who want explicit constraints:**
+
+Providers MAY include an optional `coldStartPolicy` field in their ServiceListing to communicate constraints beyond what pricing tiers express:
+
+```json
+{
+  "id": "swap-executor",
+  "trustGate": 0,
+  "coldStartPolicy": {
+    "maxValuePerTx": "0.01",
+    "maxTxBeforeFullAccess": 10,
+    "requiresOATR": false,
+    "note": "New agents limited to $0.01/tx for first 10 transactions"
+  }
+}
+```
+
+This is a provider-optional extension, NOT a protocol requirement. The CDDL for ServiceListing includes it as an optional field. Providers who don't include it are saying "our pricing tiers are the complete policy."
 
 ---
 
@@ -3395,6 +3533,7 @@ All 40+ entries grouped by category, consolidated from Sections 15.4, 40.3, 43.1
 | authID Mandate | Biometric identity + governance framework for agentic AI in financial crime | authID + Section2 | Partnership announced 2026 | Niche (financial threat intelligence). Signals enterprise demand for agent accountability. Monitor only. |
 | Solana Agent Registry | ERC-8004 on Solana -- native identity + reputation + verification. Ed25519 native. | Quantu AI | Live (March 3, 2026) | AID's Ed25519 maps directly to Solana's native key type. Build AID-Solana-Registry bridge in parallel with AID-ERC-8004 bridge (Phase 2). |
 | IETF ANS | Agent Name Service -- DNS for agents, PKI-based discovery | IETF draft, GoDaddy PoC | Draft expired, discussed at IETF 124 dispatch | Future discovery bridge. Reference in spec, don't build yet. |
+| OATR | Operator Attestation Trust Registry -- operator verification with Ed25519 keys, 7 issuers, FROST governance planning. Agent Identity WG with 6 independent implementations, 3 ratified specs. | FransDevelopment + Agent Identity WG | Live, active development | **Complementary, not competitive.** OATR = "this operator is verified" (identity layer). AID = "this agent performs well" (reputation layer). OATR verification maps to AID's `verificationTier`: OATR-verified = `basic` or `verified` tier (1.1x-1.2x multiplier). An OATR-verified agent at trust score 0 is meaningfully different from an unverified agent at score 0 — OATR provides a hard identity floor. Phase 1: accept OATR attestation as verification input. Phase 2: bidirectional bridge. |
 
 **TRUST COMPETITORS (Layer 5)**
 
