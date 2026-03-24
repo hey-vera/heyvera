@@ -26,6 +26,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 
 import { env } from '../config/index';
+import { apiRegistry, getRegistryStats } from '../config/api-registry';
 const CLAWNET_BASE_URL = env.CLAWNET_BASE_URL;
 const CLAWNET_API_KEY = env.CLAWNET_API_KEY ?? '';
 
@@ -227,7 +228,7 @@ async function main() {
   // ── Tool: search-registry ──────────────────────────────────────────────────
   server.tool(
     'search-registry',
-    'Search ClawNet\'s API endpoint registry (12,000+ endpoints across 500+ providers). Find the right API for any task. Pricing: Free (read-only, no credits charged).',
+    `Search ClawNet's API endpoint registry (${apiRegistry.length}+ endpoints across ${Object.keys(getRegistryStats().byProvider).length}+ providers). Find the right API for any task. Pricing: Free (read-only, no credits charged).`,
     {
       query: z.string().describe('What capability you need (e.g. "web scraping", "crypto price", "email finder", "speech to text")'),
       category: z.string().describe('Filter by category: solana | social | defi | scraping | search | media | enrichment | security | ai-ml | infrastructure | weather | oracle | discovery').optional(),
@@ -419,7 +420,7 @@ async function main() {
   // ── Tool: discover ───────────────────────────────────────────────────────
   server.tool(
     'discover',
-    'Semantic search across 12,000+ API endpoints. Find the best data source for any need. Pricing: Free.',
+    `Semantic search across ${apiRegistry.length}+ API endpoints. Find the best data source for any need. Pricing: Free.`,
     {
       query: z.string().describe('What you need (e.g. "real-time crypto prices", "social media sentiment", "weather data")'),
     },

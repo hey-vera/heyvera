@@ -11,6 +11,7 @@
 
 import { Hono } from 'hono';
 import { env } from '../config/index';
+import { apiRegistry, getRegistryStats } from '../config/api-registry';
 import { logger } from '../utils/logger';
 
 const router = new Hono();
@@ -123,7 +124,7 @@ const toolDefinitions: ToolDefinition[] = [
   },
   {
     name: 'search-registry',
-    description: 'Search ClawNet\'s API endpoint registry (12,000+ endpoints across 500+ providers). Find the right API for any task.',
+    description: `Search ClawNet's API endpoint registry (${apiRegistry.length}+ endpoints across ${Object.keys(getRegistryStats().byProvider).length}+ providers). Find the right API for any task.`,
     inputSchema: {
       type: 'object',
       properties: {

@@ -1,12 +1,13 @@
 import { Hono } from 'hono';
 import { env } from '../config/index';
+import { apiRegistry } from '../config/api-registry';
 import { listPublicSkills, safeJsonParse } from '../db/index';
 
 const router = new Hono();
 
 function buildLlmsTxt(baseUrl: string): string {
   return `# ClawNet
-> Universal AI agent orchestration layer with 344+ API endpoints, skill marketplace, and x402 payment support.
+> Universal AI agent orchestration layer with ${apiRegistry.length}+ API endpoints, skill marketplace, and x402 payment support.
 
 Base URL: ${baseUrl}
 Version: 1.0.0
@@ -49,7 +50,7 @@ Pay-per-call via USDC micropayments. No account or API key needed.
 
 ## Discovery
 
-- GET ${baseUrl}/v1/endpoints — browse 344+ API endpoints
+- GET ${baseUrl}/v1/endpoints — browse ${apiRegistry.length}+ API endpoints
 - GET ${baseUrl}/v1/discover — semantic search (Trinity engine: semantic + p2p + onchain)
 - GET ${baseUrl}/v1/registry — live endpoint registry with health status
 - GET ${baseUrl}/v1/recommendations — personalized recommendations
@@ -140,7 +141,7 @@ skillMdRouter.get('/', (c) => {
 
   const md = `---
 name: claw-net
-description: AI agent orchestration with 344+ API endpoints, skill marketplace, x402 micropayments. Ask anything — get verified answers from 12,000+ data sources.
+description: AI agent orchestration with ${apiRegistry.length}+ API endpoints, skill marketplace, x402 micropayments. Ask anything — get verified answers from ${apiRegistry.length}+ data sources.
 metadata:
   homepage: https://claw-net.org
   api: ${baseUrl}
@@ -153,7 +154,7 @@ metadata:
 
 # ClawNet
 
-Ask anything. Get verified answers from 12,000+ data sources. Crypto, social, market intelligence — one query, one answer.
+Ask anything. Get verified answers from ${apiRegistry.length}+ data sources. Crypto, social, market intelligence — one query, one answer.
 
 ## Setup
 
@@ -174,7 +175,7 @@ curl -X POST ${baseUrl}/v1/orchestrate \\
 
 | Endpoint | Auth | Cost | Description |
 |---|---|---|---|
-| \`POST /v1/orchestrate\` | Key | 2cr+ | Natural language query across 12K+ sources |
+| \`POST /v1/orchestrate\` | Key | 2cr+ | Natural language query across ${apiRegistry.length}+ sources |
 | \`GET /v1/estimate?query=...\` | None | Free | Pre-flight cost estimate |
 | \`POST /v1/batch\` | Key | varies | Parallel multi-query (up to 10) |
 | \`GET /v1/stream/orchestrate\` | Key | 2cr+ | Streaming via SSE |
@@ -184,7 +185,7 @@ curl -X POST ${baseUrl}/v1/orchestrate \\
 | \`POST /v1/attest\` | Key | 0.25cr | Create signed attestation |
 | \`GET /v1/attest/verify/:id\` | None | Free | Verify attestation (public) |
 | \`GET /v1/marketplace/skills\` | None | Free | Browse skill catalog |
-| \`GET /v1/endpoints\` | None | Free | Browse 344+ endpoints |
+| \`GET /v1/endpoints\` | None | Free | Browse ${apiRegistry.length}+ endpoints |
 
 ## x402 (no API key needed)
 

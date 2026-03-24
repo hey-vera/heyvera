@@ -388,7 +388,7 @@
         <div class="phase-title">Core Infrastructure</div>
         <div class="phase-desc">The foundation — API orchestration, credit economy, skill marketplace.</div>
         <ul class="phase-items">
-          <li class="done">Universal API orchestration engine (390+ endpoints)</li>
+          <li class="done">Universal API orchestration engine (<span class="epCount">390+</span> endpoints)</li>
           <li class="done">Credit-based billing with decimal precision</li>
           <li class="done">Skill marketplace with 85/15 revenue split</li>
           <li class="done">x402 protocol integration for autonomous payments</li>
@@ -426,7 +426,7 @@
           <li class="done">Public roadmap with live revenue tracking</li>
           <li class="done">x402 keyless access (Base USDC)</li>
           <li class="done">x402-gated MCP server</li>
-          <li class="done">390+ endpoints (auto-discovered from clawapis.com)</li>
+          <li class="done"><span class="epCount">390+</span> endpoints (auto-discovered from clawapis.com)</li>
           <li class="done">Batch query API</li>
           <li class="done">Credit gifting</li>
           <li class="done">Agent discovery (.well-known endpoints)</li>
@@ -622,5 +622,18 @@ function navSignOut() { window.Clerk?.signOut?.().then(() => location.reload());
 </script>
 <script src="/clerk-recovery.js"></script>
 <script async crossorigin="anonymous" data-clerk-publishable-key="pk_live_Y2xlcmsuY2xhdy1uZXQub3JnJA" src="https://cdn.jsdelivr.net/npm/@clerk/clerk-js@5/dist/clerk.browser.js" onload="initNav()"></script>
+<script>
+(async function(){
+  try {
+    const r = await fetch('https://api.claw-net.org/v1/stats', { signal: AbortSignal.timeout(5000) });
+    if (!r.ok) return;
+    const s = await r.json();
+    const total = s.endpoints?.total ?? 0;
+    if (total > 0) {
+      document.querySelectorAll('.epCount').forEach(el => el.textContent = total.toLocaleString() + '+');
+    }
+  } catch(e) {}
+})();
+</script>
 </body>
 </html>

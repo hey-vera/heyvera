@@ -457,7 +457,7 @@ Content-Type: application/json
     <div class="agent-endpoints">
       <div class="agent-ep">
         <div><span class="method get">GET</span><span class="path">/v1/endpoints</span></div>
-        <div class="desc">390+ raw API endpoints. Browse the full registry of available capabilities.</div>
+        <div class="desc"><span class="epCount">390+</span> raw API endpoints. Browse the full registry of available capabilities.</div>
       </div>
       <div class="agent-ep">
         <div><span class="method post">POST</span><span class="path">/v1/discover</span></div>
@@ -560,5 +560,18 @@ loadStats();
 <script data-clerk-publishable-key="pk_live_Y2xlcmsuY2xhdy1uZXQub3JnJA"
   src="https://cdn.jsdelivr.net/npm/@clerk/clerk-js@5/dist/clerk.browser.js"
   onload="initNav()"></script>
+<script>
+(async function(){
+  try {
+    const r = await fetch('https://api.claw-net.org/v1/stats', { signal: AbortSignal.timeout(5000) });
+    if (!r.ok) return;
+    const s = await r.json();
+    const total = s.endpoints?.total ?? 0;
+    if (total > 0) {
+      document.querySelectorAll('.epCount').forEach(el => el.textContent = total.toLocaleString() + '+');
+    }
+  } catch(e) {}
+})();
+</script>
 </body>
 </html>

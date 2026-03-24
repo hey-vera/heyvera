@@ -383,7 +383,7 @@
     <!-- ═══════════════════════════════════════════════ WELCOME ═══════════════════════════════════════════════ -->
     <div class="docs-section" id="welcome">
       <h1 class="docs-section-title">ClawNet Documentation</h1>
-      <p class="docs-section-desc">ClawNet gives your AI agent 12,000+ API endpoints, automatic routing, and pay-per-use billing. One key, one query, done.</p>
+      <p class="docs-section-desc">ClawNet gives your AI agent <span class="epCount">12,000+</span> API endpoints, automatic routing, and pay-per-use billing. One key, one query, done.</p>
 
       <div class="intro-grid">
         <div class="intro-card"><div class="intro-card-title">Base URL</div><div class="intro-card-desc"><code>https://api.claw-net.org</code></div></div>
@@ -400,7 +400,7 @@
       <div class="concept-grid">
         <div class="concept-card">
           <div class="concept-icon">&#x1F511;</div>
-          <div class="concept-title">One Key, 12,000+ Endpoints</div>
+          <div class="concept-title">One Key, <span class="epCount">12,000+</span> Endpoints</div>
           <div class="concept-desc">No API key juggling. One ClawNet key gives your agent access to every endpoint. Pay in credits, ClawNet handles routing, caching, and upstream auth.</div>
         </div>
         <div class="concept-card">
@@ -424,10 +424,10 @@
       <table class="params-table">
         <thead><tr><th>Dimension</th><th>DIY</th><th>ClawNet</th></tr></thead>
         <tbody>
-          <tr><td>API Keys</td><td>Manage 20+ keys from different providers</td><td>One key (<code>cn-</code>), 12,000+ endpoints</td></tr>
+          <tr><td>API Keys</td><td>Manage 20+ keys from different providers</td><td>One key (<code>cn-</code>), <span class="epCount">12,000+</span> endpoints</td></tr>
           <tr><td>Caching</td><td>Build and maintain your own cache layer</td><td>3-layer smart cache, 90% cost savings automatic</td></tr>
           <tr><td>Billing</td><td>Track usage per provider, reconcile monthly</td><td>Pay-per-call credits, real-time balance</td></tr>
-          <tr><td>Discovery</td><td>Manually find and evaluate new APIs</td><td>Auto-discovery across 12,000+ endpoints and marketplace</td></tr>
+          <tr><td>Discovery</td><td>Manually find and evaluate new APIs</td><td>Auto-discovery across <span class="epCount">12,000+</span> endpoints and marketplace</td></tr>
           <tr><td>Trust</td><td>Build your own monitoring and verification</td><td>Auto-trust verdicts, hash-chained attestations, multi-source verification, public trust profiles, cross-agent sharing</td></tr>
           <tr><td>Agent Billing</td><td>Build delegation, budgets, sub-agent auth</td><td>Delegated keys, budget accounts, webhooks built-in</td></tr>
           <tr><td>Time to First Call</td><td>Days to weeks</td><td>5 minutes</td></tr>
@@ -546,7 +546,7 @@ print(res.json()['answer'])</code></pre>
         <div class="concept-card">
           <div class="concept-icon">&#x1F9E0;</div>
           <div class="concept-title">Orchestration</div>
-          <div class="concept-desc">Natural language in, structured data out. ClawNet picks the best endpoint from 12,000+ sources, fetches in parallel, returns one answer. You don't choose endpoints manually.</div>
+          <div class="concept-desc">Natural language in, structured data out. ClawNet picks the best endpoint from <span class="epCount">12,000+</span> sources, fetches in parallel, returns one answer. You don't choose endpoints manually.</div>
         </div>
         <div class="concept-card">
           <div class="concept-icon">&#x1F4BE;</div>
@@ -1340,7 +1340,7 @@ while (true) {
         <div class="concept-card">
           <div class="concept-icon">&#x1F50D;</div>
           <div class="concept-title">Auto-Discovery</div>
-          <div class="concept-desc">Discovery is built into orchestration. When you ask a question, ClawNet searches its 12,000+ endpoints <em>plus</em> the marketplace. If a marketplace data skill scores higher, it gets used automatically. No extra code needed.</div>
+          <div class="concept-desc">Discovery is built into orchestration. When you ask a question, ClawNet searches its <span class="epCount">12,000+</span> endpoints <em>plus</em> the marketplace. If a marketplace data skill scores higher, it gets used automatically. No extra code needed.</div>
         </div>
         <div class="concept-card">
           <div class="concept-icon">&#x1F4B0;</div>
@@ -2606,7 +2606,7 @@ while (true) {
         <p class="endpoint-desc">A2A agent card &mdash; the discovery endpoint that other agents use to find ClawNet's capabilities, supported skills, authentication methods, and pricing. Follows the A2A agent card spec.</p>
         <div class="code-block"><pre><code>{
   "name": "ClawNet",
-  "description": "AI agent orchestration with 12,000+ live APIs, skill marketplace, and cryptographic receipts",
+  "description": "AI agent orchestration with <span class='epCount'>12,000+</span> live APIs, skill marketplace, and cryptographic receipts",
   "url": "https://api.claw-net.org",
   "version": "0.3.0",
   "capabilities": {
@@ -2620,7 +2620,7 @@ while (true) {
     {
       "id": "orchestrate",
       "name": "Orchestrate Query",
-      "description": "Natural-language query across 12,000+ data endpoints"
+      "description": "Natural-language query across <span class='epCount'>12,000+</span> data endpoints"
     }
   ]
 }</code></pre></div>
@@ -3575,12 +3575,12 @@ app.post('/webhooks/clawnet', express.raw({ type: 'application/json' }), (req, r
     <!-- ═══════════════════════════════════════════════ ENDPOINT REGISTRY ═══════════════════════════════════════════════ -->
     <div class="docs-section" id="registry">
       <h2 class="docs-section-title">Endpoint Registry</h2>
-      <p class="docs-section-desc">ClawNet's orchestrator has access to 12,000+ external API endpoints across 11 capability groups. Browse them, check health, search by category, or use the LLM proxy.</p>
+      <p class="docs-section-desc">ClawNet's orchestrator has access to <span class="epCount">12,000+</span> external API endpoints across 11 capability groups. Browse them, check health, search by category, or use the LLM proxy.</p>
       <div class="alert alert-info"><strong>OpenAPI Spec:</strong> Machine-readable API specification available at <a href="https://api.claw-net.org/v1/openapi.json" style="color:var(--accent)">/v1/openapi.json</a> (OpenAPI 3.1). Also discoverable at <code style="font-family:var(--font-mono);color:var(--accent)">/.well-known/openapi.json</code>. Use it to auto-generate typed clients with openapi-generator.</div>
 
       <div class="endpoint">
         <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/endpoints</code></div>
-        <p class="endpoint-desc">List all 12,000+ registered endpoints with provider, category, cost per call, and latency. No auth required.</p>
+        <p class="endpoint-desc">List all <span class="epCount">12,000+</span> registered endpoints with provider, category, cost per call, and latency. No auth required.</p>
       </div>
 
       <div class="endpoint">
@@ -4978,5 +4978,19 @@ function navSignOut() { window.Clerk?.signOut?.().then(() => location.reload());
 </script>
 <script src="/clerk-recovery.js"></script>
 <script async crossorigin="anonymous" data-clerk-publishable-key="pk_live_Y2xlcmsuY2xhdy1uZXQub3JnJA" src="https://cdn.jsdelivr.net/npm/@clerk/clerk-js@5/dist/clerk.browser.js" onload="initNav()"></script>
+<script>
+(async function(){
+  try {
+    const r = await fetch('https://api.claw-net.org/v1/stats', { signal: AbortSignal.timeout(5000) });
+    if (!r.ok) return;
+    const s = await r.json();
+    const total = s.endpoints?.total ?? 0;
+    if (total > 0) {
+      const fmt = total > 999 ? (total/1000).toFixed(1).replace(/\.0$/,'') + 'K+' : total.toLocaleString() + '+';
+      document.querySelectorAll('.epCount').forEach(el => el.textContent = fmt);
+    }
+  } catch(e) {}
+})();
+</script>
 </body>
 </html>

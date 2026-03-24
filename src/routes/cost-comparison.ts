@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { apiRegistry } from '../config/api-registry';
 
 const router = new Hono();
 
@@ -34,7 +35,7 @@ router.get('/costs', async (c) => {
       'Hard budget locks — set a monthly limit, never exceed it',
       'No 136K token system prompt overhead',
       'Cost breakdown in every response',
-      '344 pre-integrated endpoints — no setup needed',
+      `${apiRegistry.length} pre-integrated endpoints — no setup needed`,
     ],
   });
 });

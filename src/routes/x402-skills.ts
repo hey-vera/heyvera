@@ -37,6 +37,7 @@ const { bazaarResourceServerExtension, declareDiscoveryExtension } = require('@x
   declareDiscoveryExtension: (config: { input?: unknown; inputSchema?: unknown; bodyType?: string; output?: unknown }) => Record<string, unknown>;
 };
 type HTTPRequestContext = { path: string; method: string; paymentHeader?: string };
+import { apiRegistry } from '../config/api-registry';
 import { getDb, getSkill, getApiKey, listPublicSkills, incrementSkillUses, safeJsonParse, getReputationScore, getReputationEvents, recordSkillMetric, recordReputation, createAutoAttestation, hashPayload, getAttestationById, logAudit } from '../db/index';
 import { maskApiKey } from '../utils/mask';
 import { renderTemplate } from '../utils/template';
@@ -361,7 +362,7 @@ function buildX402Middleware() {
           price: orchestratePrice,
           maxTimeoutSeconds: 60,
         },
-        description: 'ClawNet AI orchestration — natural language queries across 12,000+ data sources. Every response includes cryptographic attestation and trust verdict.',
+        description: `ClawNet AI orchestration — natural language queries across ${apiRegistry.length}+ data sources. Every response includes cryptographic attestation and trust verdict.`,
         mimeType: 'application/json',
         extensions: {
           ...declareDiscoveryExtension({

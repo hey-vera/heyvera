@@ -9,6 +9,8 @@
  *   const agent = new CdpAgent({ tools: [...clawnetTools] });
  */
 
+import { apiRegistry } from '../config/api-registry';
+
 export interface AgentKitTool {
   name: string;
   description: string;
@@ -26,7 +28,7 @@ export const clawnetTools: AgentKitTool[] = [
   {
     name: 'clawnet_orchestrate',
     description:
-      'Ask any question in natural language and get verified answers from 12,000+ data sources. Crypto, social, market intelligence.',
+      `Ask any question in natural language and get verified answers from ${apiRegistry.length}+ data sources. Crypto, social, market intelligence.`,
     parameters: {
       query: {
         type: 'string',
@@ -163,7 +165,7 @@ export const clawnetTools: AgentKitTool[] = [
   {
     name: 'clawnet_search_endpoints',
     description:
-      'Search 344+ API endpoints across all providers. Find the right data source for any query.',
+      `Search ${apiRegistry.length}+ API endpoints across all providers. Find the right data source for any query.`,
     parameters: {
       q: {
         type: 'string',

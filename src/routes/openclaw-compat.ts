@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { env } from '../config/index';
+import { apiRegistry } from '../config/api-registry';
 import { checkApiKey } from '../middleware/auth';
 
 const router = new Hono();
@@ -11,7 +12,7 @@ router.get('/skill-manifest', async (c) => {
   return c.json({
     name: 'clawnet-data',
     version: '1.0.0',
-    description: 'Access 344 crypto data endpoints through ClawNet. Prices, on-chain data, sentiment, risk scoring — with smart caching that saves 90% on repeat queries.',
+    description: `Access ${apiRegistry.length} crypto data endpoints through ClawNet. Prices, on-chain data, sentiment, risk scoring — with smart caching that saves 90% on repeat queries.`,
     author: 'ClawNet',
     capabilities: [
       'crypto_price', 'token_analysis', 'whale_tracking', 'social_sentiment',

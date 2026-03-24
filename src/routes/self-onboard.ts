@@ -12,6 +12,7 @@ import crypto from 'crypto';
 import { nanoid } from 'nanoid';
 import { getDb, logAudit } from '../db/index';
 import { env } from '../config/index';
+import { apiRegistry } from '../config/api-registry';
 import { cacheIncr } from '../cache/index';
 import { getClientIp } from '../middleware/rate-limit';
 import { logger } from '../utils/logger';
@@ -129,7 +130,7 @@ router.post('/register', async (c) => {
 router.get('/quickstart', (c) => {
   return c.json({
     name: 'ClawNet',
-    description: 'Universal AI agent orchestration layer — 344+ API endpoints, skill marketplace, x402 payments',
+    description: `Universal AI agent orchestration layer — ${apiRegistry.length}+ API endpoints, skill marketplace, x402 payments`,
     getStarted: [
       { step: 1, action: 'Register', method: 'POST /v1/self-onboard/register', body: { name: 'MyAgent' }, note: 'Returns API key instantly' },
       { step: 2, action: 'Browse Skills', method: 'GET /v1/marketplace/skills', note: 'No auth needed' },

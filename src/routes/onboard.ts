@@ -9,6 +9,7 @@ import { Hono } from 'hono';
 import crypto from 'crypto';
 import { nanoid } from 'nanoid';
 import { getDb, logAudit } from '../db/index';
+import { apiRegistry } from '../config/api-registry';
 import { cacheIncr } from '../cache/index';
 import { getClientIp } from '../middleware/rate-limit';
 import { logger } from '../utils/logger';
@@ -132,7 +133,7 @@ onboardRouter.get('/manifest', (c) => {
   // Hardcoded orchestrate tool — always first
   tools.push({
     name: 'orchestrate',
-    description: 'Ask any question about crypto, DeFi, tokens — AI plans and executes across 344 endpoints',
+    description: `Ask any question about crypto, DeFi, tokens — AI plans and executes across ${apiRegistry.length} endpoints`,
     inputSchema: {
       type: 'object',
       properties: { query: { type: 'string' } },
@@ -180,7 +181,7 @@ onboardRouter.get('/manifest', (c) => {
   return c.json({
     name: 'clawnet',
     version: '1.0.0',
-    description: `AI agent orchestration — 344 endpoints, ${skillCount} skills`,
+    description: `AI agent orchestration — ${apiRegistry.length} endpoints, ${skillCount} skills`,
     tools,
     authentication: {
       type: 'api-key',

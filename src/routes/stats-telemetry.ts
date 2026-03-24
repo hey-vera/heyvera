@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { getDb } from '../db/index';
+import { apiRegistry } from '../config/api-registry';
 import { logger } from '../utils/logger';
 
 const router = new Hono();
@@ -77,7 +78,7 @@ router.get('/', (c) => {
 
     return c.json({
       totalSkills,
-      totalEndpoints: totalEndpoints || 344, // fallback to registry count
+      totalEndpoints: totalEndpoints || apiRegistry.length, // fallback to registry count
       activeKeys,
       orchestrations30d,
       creditsTransacted30d: Math.round(creditsTransacted30d * 100) / 100,

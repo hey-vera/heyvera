@@ -6,6 +6,7 @@
  */
 import { Hono } from 'hono';
 import { env } from '../config/index';
+import { apiRegistry } from '../config/api-registry';
 import { getEd25519PublicKeyMultibase, getEd25519PublicKeyRaw } from '../utils/ed25519-signer';
 
 const router = new Hono();
@@ -14,7 +15,7 @@ const router = new Hono();
 router.get('/agent-card.json', (c) => {
   return c.json({
     name: 'ClawNet',
-    description: 'Universal AI agent orchestration layer — 12,000+ API endpoints, skill marketplace, x402 payments',
+    description: `Universal AI agent orchestration layer — ${apiRegistry.length}+ API endpoints, skill marketplace, x402 payments`,
     version: '1.0.0',
     url: env.CLAWNET_BASE_URL,
     capabilities: [
@@ -118,7 +119,7 @@ router.get('/agents.json', (c) => {
     agents: [
       {
         name: 'ClawNet Orchestrator',
-        description: 'Natural language → multi-step API orchestration with 390+ endpoints',
+        description: `Natural language → multi-step API orchestration with ${apiRegistry.length}+ endpoints`,
         endpoint: '/v1/orchestrate',
         methods: ['POST'],
         auth: 'X-API-Key or x402',
@@ -243,7 +244,7 @@ router.get('/x402.json', (c) => {
     x402Version: 2,
     provider: {
       name: 'ClawNet',
-      description: 'AI agent orchestration with 12,000+ live APIs, skill marketplace, and cryptographic receipts',
+      description: `AI agent orchestration with ${apiRegistry.length}+ live APIs, skill marketplace, and cryptographic receipts`,
       url: 'https://claw-net.org',
       contact: 'team@claw-net.org',
       logo: 'https://claw-net.org/assets/logo.png',
@@ -293,7 +294,7 @@ router.get('/x402.json', (c) => {
       {
         path: '/x402/orchestrate',
         method: 'POST',
-        description: 'AI orchestration across 390+ APIs',
+        description: `AI orchestration across ${apiRegistry.length}+ APIs`,
         pricing: { model: 'per_call', estimatedUsd: 0.002, currency: 'USDC' },
       },
       {
@@ -364,7 +365,7 @@ router.get('/x402.json', (c) => {
     discoverable: true,
     bazaar: {
       registered: true,
-      description: 'ClawNet AI Orchestration — 12,000+ API endpoints, skill marketplace, composite skills',
+      description: `ClawNet AI Orchestration — ${apiRegistry.length}+ API endpoints, skill marketplace, composite skills`,
       categories: ['orchestration', 'ai-ml', 'defi', 'social', 'search', 'security', 'infrastructure'],
       capabilities: ['skill-invocation', 'natural-language-orchestration', 'data-queries', 'composite-workflows'],
       pricing: {
@@ -395,7 +396,7 @@ router.get('/x402', (c) => {
       `${base}/x402/query/defi-yield-data`,
     ],
     ownershipProofs: [],
-    instructions: `ClawNet AI agent orchestration. 12,000+ API endpoints, 4 data skills, Manifest verification, Attestation proofs. Pay per call with USDC via x402. Full docs: ${base}/.well-known/x402.json`,
+    instructions: `ClawNet AI agent orchestration. ${apiRegistry.length}+ API endpoints, 4 data skills, Manifest verification, Attestation proofs. Pay per call with USDC via x402. Full docs: ${base}/.well-known/x402.json`,
   });
 });
 
@@ -403,7 +404,7 @@ router.get('/x402', (c) => {
 router.get('/agent.json', (c) => {
   return c.json({
     name: 'ClawNet',
-    description: 'AI agent orchestration with 12,000+ live APIs, skill marketplace, and cryptographic receipts',
+    description: `AI agent orchestration with ${apiRegistry.length}+ live APIs, skill marketplace, and cryptographic receipts`,
     url: env.CLAWNET_BASE_URL,
     version: '1.0.0',
     protocolVersion: '0.3.0',
@@ -416,7 +417,7 @@ router.get('/agent.json', (c) => {
       {
         id: 'orchestrate',
         name: 'AI Orchestration',
-        description: 'Query 390+ APIs via natural language with budget controls and strategy optimization',
+        description: `Query ${apiRegistry.length}+ APIs via natural language with budget controls and strategy optimization`,
         tags: ['orchestration', 'api', 'ai', 'multi-provider'],
         inputModes: ['application/json'],
         outputModes: ['application/json'],
@@ -488,7 +489,7 @@ router.get('/erc8004.json', (c) => {
     schemaVersion: '1.0.0',
     agentId: 'clawnet-platform',
     name: 'ClawNet',
-    description: 'Universal AI agent orchestration layer — 12,000+ API endpoints, skill marketplace, x402 payments',
+    description: `Universal AI agent orchestration layer — ${apiRegistry.length}+ API endpoints, skill marketplace, x402 payments`,
     url: env.CLAWNET_BASE_URL,
     capabilities: {
       streaming: true,
@@ -563,7 +564,7 @@ router.get('/erc8004-registration.json', (c) => {
   return c.json({
     type: 'https://eips.ethereum.org/EIPS/eip-8004#registration-v1',
     name: 'ClawNet',
-    description: 'The trust and commerce layer for AI agents. Skill marketplace, 12,000+ API endpoints, cryptographic attestations, x402 micropayments. AID trust protocol reference implementation.',
+    description: `The trust and commerce layer for AI agents. Skill marketplace, ${apiRegistry.length}+ API endpoints, cryptographic attestations, x402 micropayments. AID trust protocol reference implementation.`,
     image: 'https://claw-net.org/favicon.svg',
     services: [
       { name: 'web', endpoint: 'https://claw-net.org/' },
@@ -626,7 +627,7 @@ router.get('/aid-registration.json', (c) => {
     referenceImplementation: {
       name: 'ClawNet',
       url: 'https://claw-net.org',
-      endpoints: 12000,
+      endpoints: apiRegistry.length,
       trustEndpoint: 'https://api.claw-net.org/v1/aid/:did/trust',
     },
   });

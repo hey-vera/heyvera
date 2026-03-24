@@ -1,6 +1,6 @@
 # ClawNet
 
-> Universal AI agent orchestration layer — 344+ API endpoints, skill marketplace, x402 micropayments. Ask anything in natural language, get verified answers from 12,000+ data sources.
+> Universal AI agent orchestration layer — hundreds of API endpoints, skill marketplace, x402 micropayments. Ask anything in natural language, get verified answers from thousands of data sources.
 
 ## Quick Start
 
@@ -14,7 +14,7 @@
 - [Full llms.txt](https://api.claw-net.org/llms.txt): Complete endpoint reference with auth, pricing, skills
 - [llms.txt with skills](https://api.claw-net.org/llms.txt/full): Includes all public skill listings
 - [OpenAPI 3.1 Spec](https://api.claw-net.org/v1/openapi.json): SDK-ready specification
-- [Endpoint Catalog](https://api.claw-net.org/v1/endpoints): Live 344+ endpoint listing with health status
+- [Endpoint Catalog](https://api.claw-net.org/v1/endpoints): Live endpoint listing with health status
 
 ## Agent Discovery
 

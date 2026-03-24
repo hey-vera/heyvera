@@ -1085,7 +1085,7 @@
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
         </div>
         <h4>Browse the registry</h4>
-        <p>344+ endpoints across 183 APIs. Skills cover DeFi, trading, data analysis, market intelligence, and other domains.</p>
+        <p><span class="epCount">344+</span> endpoints across hundreds of APIs. Skills cover DeFi, trading, data analysis, market intelligence, and other domains.</p>
       </div>
       <div class="concept-card">
         <div class="concept-icon green">
@@ -1256,6 +1256,19 @@
     const saved = localStorage.getItem('clawnet_theme');
     if (saved === 'light') document.documentElement.setAttribute('data-theme', 'light');
   })();
+</script>
+<script>
+(async function(){
+  try {
+    const r = await fetch('https://api.claw-net.org/v1/stats', { signal: AbortSignal.timeout(5000) });
+    if (!r.ok) return;
+    const s = await r.json();
+    const total = s.endpoints?.total ?? 0;
+    if (total > 0) {
+      document.querySelectorAll('.epCount').forEach(el => el.textContent = total.toLocaleString() + '+');
+    }
+  } catch(e) {}
+})();
 </script>
 </body>
 </html>
