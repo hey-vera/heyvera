@@ -533,14 +533,16 @@ router.get('/erc8004.json', (c) => {
 // Same pattern as /.well-known/agent-card.json (A2A) and UCP.
 router.get('/aid.json', (c) => {
   return c.json({
-    did: `did:web:api.claw-net.org`,
+    did: 'did:web:api.claw-net.org',
     trustEndpoint: '/v1/aid/:did/trust',
     verifyEndpoint: '/v1/aid/verify',
     feedbackEndpoint: '/v1/aid/:did/feedback',
-    supportedAlgorithms: ['Ed25519'],
+    supportedSigningAlgorithms: ['Ed25519'],
     supportedHashAlgorithms: ['SHA-256'],
     specVersion: '1.0.0',
     minTrustScore: 0,
+    minTrustVector: null,
+    trustVectorSupported: true,
     erc8004: {
       chainId: 8453,
       agentId: 36118,
