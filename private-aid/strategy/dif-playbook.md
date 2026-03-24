@@ -12,6 +12,7 @@
 - What NOT to present (12 items)
 - Protocol/product boundary (endpoint lists)
 - DIF Newsletter #59 intel
+- Part 5 G: Friction audit (three paths to AID, time-to-value benchmark)
 
 ## Post-Split DIF Strategy
 

@@ -110,6 +110,7 @@ AID-Trust must have:
 
 Content to extract:
 - Part 2 B (B.1-B.7): Receipts, commitment logs, Merkle snapshots, lifecycle
+- Part 2 C.5: Feedback loop (takes receiptId — belongs here, not AID-Settle)
 - 10/10 Plan (Days 1-5): DSIRs, receipt-primary scoring, EigenTrust, verification APIs, reputational staking
 - Part 2 D.2: DSIR CDDL definitions
 - Part 3 D: Game-theoretic analysis (receipt-dependent parts)

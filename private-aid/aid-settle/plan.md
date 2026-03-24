@@ -53,7 +53,7 @@ AID-Receipt must exist (receipts are the settlement evidence). AID-Trust must be
 ## AIDplan Source Sections
 
 Content to extract:
-- Part 2 C (C.1-C.5): Settlement modes, onboarding, heartbeat, feedback pricing
+- Part 2 C (C.1-C.4): Settlement modes, onboarding, heartbeat (NOT C.5 — feedback is AID-Receipt)
 - Part 3 B.2-B.3: Permit phishing defense, bust-out fraud defense
 - Part 3 F.7: USDC pause detector
 - Part 3 F.15: Gas price circuit breaker
