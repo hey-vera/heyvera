@@ -1,5 +1,12 @@
 # AID External Feedback Tracker
 
+> **ARCHIVED March 24, 2026.** Replaced by per-protocol feedback files:
+> - `aid-trust/external-feedback.md`
+> - `aid-receipt/external-feedback.md`
+> - `aid-settle/external-feedback.md`
+>
+> Original content kept below for reference.
+
 > Tracks concerns raised by external reviewers (GitHub issue responses) against the AIDplan.
 > Each concern gets: status, where it's addressed, honest assessment, and action required.
 > Updated: March 24, 2026.
