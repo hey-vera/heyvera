@@ -27,7 +27,7 @@ import { AID_HASH_ALGORITHM } from './crypto-agility';
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 /**
- * We use a hash-based Pedersen commitment (simulated over SHA-384).
+ * We use a hash-based Pedersen commitment (simulated over SHA-256).
  *
  * Real EC Pedersen would use two independent generators on Curve25519,
  * but Node.js crypto doesn't expose raw curve point operations. This
@@ -98,7 +98,7 @@ export function createCommitment(score: number): PedersenCommitment {
   // Generate random blinding factor
   const blinding = crypto.randomBytes(32).toString('hex');
 
-  // Commitment = SHA-384(G_SEED || score_bytes || H_SEED || blinding_bytes)
+  // Commitment = SHA-256(G_SEED || score_bytes || H_SEED || blinding_bytes)
   const commitment = computeCommitmentHash(score, blinding);
 
   return { commitment, blinding };
@@ -130,7 +130,7 @@ function computeCommitmentHash(score: number, blinding: string): string {
  *   1. The commitment was correctly formed
  *   2. The score is within the claimed range
  *
- * Security: computational hiding (SHA-384 preimage resistance) +
+ * Security: computational hiding (SHA-256 preimage resistance) +
  * computational binding (commitment can't be opened to two different values).
  *
  * @param score - The actual trust score

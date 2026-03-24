@@ -8,7 +8,7 @@
  *   X-AID-TRUST-VERIFIED    — server's independently verified trust score for caller
  *
  * Per AID Protocol Specification Section 4.5:
- *   providerSignatureInput = SHA-384(providerDid + "\n" + receiptId + "\n" + timestamp + "\n" + SHA-384(responseBody))
+ *   providerSignatureInput = SHA-256(providerDid + "\n" + receiptId + "\n" + timestamp + "\n" + SHA-256(responseBody))
  */
 
 import type { MiddlewareHandler } from 'hono';

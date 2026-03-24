@@ -72,9 +72,9 @@ export function getEd25519PublicKeyMultibase(): string {
 /**
  * Sign a VC (without proof) using Ed25519. Returns the signature as base64url.
  *
- * Process (eddsa-jcs-2022 pattern, upgraded to SHA-384):
+ * Process (eddsa-jcs-2022 pattern, upgraded to SHA-256):
  *   1. JCS-canonicalize the VC object (RFC 8785 — deterministic JSON)
- *   2. SHA-384 hash the canonical bytes (quantum-resistant)
+ *   2. SHA-256 hash the canonical bytes (quantum-resistant)
  *   3. Ed25519-sign the hash (algorithm-agile via crypto-agility module)
  */
 export function signVC(vcWithoutProof: Record<string, unknown>): string {

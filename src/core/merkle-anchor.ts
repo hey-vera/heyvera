@@ -14,7 +14,7 @@ import { aidHash, AID_HASH_HEX_LENGTH } from '../utils/crypto-agility';
 
 /**
  * Hash two hex strings together (sorted order for determinism).
- * Uses SHA-384 via crypto-agility module for quantum resistance.
+ * Uses SHA-256 via crypto-agility module for quantum resistance.
  */
 function hashPair(a: string, b: string): string {
   // Consistent ordering: always hash the smaller value first
@@ -161,7 +161,7 @@ export function validateTreeStructure(tree: string[][]): { valid: boolean; error
     // Validate all elements are hex strings of expected length
     for (let i = 0; i < levelArr.length; i++) {
       const elem = levelArr[i];
-      // Accept both SHA-256 (64 hex) and SHA-384 (96 hex) for backwards compatibility
+      // Verify SHA-256 hex format (64 hex chars)
       if (typeof elem !== 'string' || !/^[0-9a-f]+$/.test(elem) || (elem.length !== 64 && elem.length !== AID_HASH_HEX_LENGTH)) {
         return { valid: false, error: `Level ${level}[${i}] is not a valid hex hash string` };
       }

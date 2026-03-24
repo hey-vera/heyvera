@@ -84,7 +84,7 @@ function verifyEd25519Signature(
     const spki = Buffer.concat([spkiHeader, rawPub]);
     const pubKey = crypto.createPublicKey({ key: spki, format: 'der', type: 'spki' });
 
-    // JCS canonicalize -> SHA-384 -> verify Ed25519 (algorithm-agile)
+    // JCS canonicalize -> SHA-256 -> verify Ed25519 (algorithm-agile)
     const canonical = Buffer.from(jcsSerialize(data), 'utf8');
     const hash = crypto.createHash(AID_HASH_ALGORITHM).update(canonical).digest();
     const algorithm = (data as any).signatureAlgorithm || 'EdDSA';
@@ -156,7 +156,7 @@ export function verifyAIDDocument(aidDoc: any, platformPublicKey?: string): Veri
     warnings.push('No platform countersignature found');
   }
 
-  // Verify Merkle root format (64 hex = SHA-256 legacy, 96 hex = SHA-384 current)
+  // Verify Merkle root format (64 hex chars for SHA-256)
   const merkleRoot = aidDoc.trustChain?.merkleRoot;
   if (typeof merkleRoot === 'string' && /^[0-9a-f]+$/.test(merkleRoot) && (merkleRoot.length === 64 || merkleRoot.length === 96)) {
     details.merkleRoot = true;

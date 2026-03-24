@@ -66,7 +66,7 @@ function verifyEd25519Proof(
     const pubKey = crypto.createPublicKey({ key: spki, format: 'der', type: 'spki' });
 
     // Reconstruct canonical signing input per spec Section 4.4:
-    // SHA-384(did + "\n" + timestamp + "\n" + nonce + "\n" + method + " " + path + "\n" + SHA-384(body))
+    // SHA-256(did + "\n" + timestamp + "\n" + nonce + "\n" + method + " " + path + "\n" + SHA-256(body))
     const bodyHash = crypto.createHash(AID_HASH_ALGORITHM).update(bodyBytes).digest('hex');
     const signingString = `${did}\n${timestamp}\n${nonce}\n${method} ${path}\n${bodyHash}`;
     const signatureInput = crypto.createHash(AID_HASH_ALGORITHM).update(signingString).digest();

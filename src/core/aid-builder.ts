@@ -401,7 +401,7 @@ export function buildTrustSnapshot(did: string, ownerKey: string): string | null
     'SELECT id, prev_attestation_hash FROM attestations WHERE api_key_hash = ? ORDER BY created_at ASC'
   ).all(ownerKey) as any[];
 
-  // Build Merkle tree from attestation ID hashes (SHA-384)
+  // Build Merkle tree from attestation ID hashes (SHA-256)
   const hashes = attestations.map((a: any) =>
     aidHash(a.id)
   );
@@ -480,7 +480,7 @@ export function computeTrustScoreWithProof(stats: TrustStats): TrustScoreProof {
     manifestScore * weights.manifestAdherence
   );
 
-  // Proof hash = SHA-384 of canonical JSON of inputs + weights + score
+  // Proof hash = SHA-256 of canonical JSON of inputs + weights + score
   const proofData = {
     inputs: stats,
     weights,

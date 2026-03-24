@@ -96,12 +96,12 @@ export interface AIDReceipt {
  * the original execution, only the signature).
  */
 export function aarToAid(aar: AARReceipt): AIDReceipt {
-  // Re-hash with SHA-384 (AID standard) if incoming uses SHA-256
-  const inputHash = aar.inputHash.startsWith('sha384:')
+  // Re-hash with SHA-256 (AID standard) if incoming uses SHA-256
+  const inputHash = aar.inputHash.startsWith('sha256:')
     ? aar.inputHash
     : aidHashPrefixed(aar.inputHash);
 
-  const resultHash = aar.outputHash.startsWith('sha384:')
+  const resultHash = aar.outputHash.startsWith('sha256:')
     ? aar.outputHash
     : aidHashPrefixed(aar.outputHash);
 
@@ -144,11 +144,11 @@ export function aarToAid(aar: AARReceipt): AIDReceipt {
  */
 export function aidToAar(aid: AIDReceipt): AARReceipt {
   // Downgrade hash to SHA-256 prefix for AAR compatibility
-  const inputHash = aid.service.inputHash.startsWith('sha384:')
+  const inputHash = aid.service.inputHash.startsWith('sha256:')
     ? `sha256:${aid.service.inputHash.split(':')[1]?.slice(0, 64) || ''}`
     : aid.service.inputHash;
 
-  const outputHash = aid.service.resultHash.startsWith('sha384:')
+  const outputHash = aid.service.resultHash.startsWith('sha256:')
     ? `sha256:${aid.service.resultHash.split(':')[1]?.slice(0, 64) || ''}`
     : aid.service.resultHash;
 

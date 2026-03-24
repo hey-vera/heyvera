@@ -2,29 +2,32 @@
  * crypto-agility.ts — Algorithm-agile cryptographic primitives for AID trust layer
  *
  * Centralizes all AID hashing and signature verification so that migrating
- * from Ed25519/SHA-256 to post-quantum algorithms (ML-DSA/SHA-384) is a
+ * from Ed25519/SHA-256 to post-quantum algorithms (ML-DSA/SHA-3-256) is a
  * configuration change, not a rewrite.
  *
  * NIST timeline: Ed25519-class crypto deprecated 2030, disallowed 2035.
  * AID is designed for algorithm migration from day one.
  *
- * Phase 1 (now): SHA-384 for AID trust hashes, Ed25519 for signatures.
- * Phase 2 (future): Hybrid Ed25519 + ML-DSA dual signatures.
+ * Phase 1 (now): SHA-256 for all AID trust hashes, Ed25519 for signatures.
+ * Phase 2 (future): Hybrid Ed25519 + ML-DSA dual signatures, SHA-3-256 hashing.
  * Phase 3 (future): ML-DSA-only when did:key gets standardized multicodec.
+ *
+ * HashAlgorithm = "SHA-256" | "SHA-3-256" (union type, extensible)
+ * SigningAlgorithm = "Ed25519" | "ML-DSA-65" (union type, extensible)
  */
 
 import crypto from 'crypto';
 
 // ─── Algorithm constants ─────────────────────────────────────────────────────
 
-/** Current AID hash algorithm — SHA-384 for quantum resistance on trust primitives. */
-export const AID_HASH_ALGORITHM = 'sha384';
+/** Current AID hash algorithm — SHA-256. Matches Solana, x402, ERC-8004, W3C VC ecosystem. */
+export const AID_HASH_ALGORITHM = 'sha256';
 
-/** Hash output length in hex characters (SHA-384 = 96 hex chars). */
-export const AID_HASH_HEX_LENGTH = 96;
+/** Hash output length in hex characters (SHA-256 = 64 hex chars). */
+export const AID_HASH_HEX_LENGTH = 64;
 
 /** Hash prefix used in portable receipts and attestation hashes. */
-export const AID_HASH_PREFIX = 'sha384';
+export const AID_HASH_PREFIX = 'sha256';
 
 /** Current AID signature algorithm identifier. */
 export const AID_SIGNATURE_ALGORITHM = 'EdDSA';
@@ -33,23 +36,23 @@ export const AID_SIGNATURE_ALGORITHM = 'EdDSA';
 export const AID_ALGORITHM_VERSION = '1.0';
 
 /** HMAC algorithm for attestation signing. */
-export const AID_HMAC_ALGORITHM = 'sha384';
+export const AID_HMAC_ALGORITHM = 'sha256';
 
 // ─── Hashing ─────────────────────────────────────────────────────────────────
 
 /**
- * SHA-384 hash for AID trust primitives (Merkle trees, attestations, receipts, proofs).
+ * SHA-256 hash for AID trust primitives (Merkle trees, attestations, receipts, proofs).
  * Returns the raw hex digest.
  *
- * Use this for ALL AID trust-layer hashing. Do NOT use for cache keys or
- * internal non-trust operations — those stay SHA-256 (no quantum concern).
+ * Use this for ALL AID trust-layer hashing. This is the ONLY place hash
+ * algorithms are called directly — everything else goes through aidHash().
  */
 export function aidHash(data: string | Buffer): string {
   return crypto.createHash(AID_HASH_ALGORITHM).update(data).digest('hex');
 }
 
 /**
- * SHA-384 hash with the standard AID prefix (e.g. "sha384:abc123...").
+ * SHA-256 hash with the standard AID prefix (e.g. "sha256:abc123...").
  * Used in receipt hashes and attestation source hashes.
  */
 export function aidHashPrefixed(data: string | Buffer): string {
@@ -57,7 +60,7 @@ export function aidHashPrefixed(data: string | Buffer): string {
 }
 
 /**
- * HMAC-SHA384 for attestation signing.
+ * HMAC-SHA256 for attestation signing.
  */
 export function aidHmac(secret: string, data: string): string {
   return crypto.createHmac(AID_HMAC_ALGORITHM, secret).update(data).digest('hex');

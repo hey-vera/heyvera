@@ -31,9 +31,9 @@ export interface CanaryRecord {
   sequence: number;
   /** ISO 8601 timestamp of canary generation */
   timestamp: string;
-  /** SHA-384 hash of the previous canary (hash chain) */
+  /** SHA-256 hash of the previous canary (hash chain) */
   previousHash: string;
-  /** SHA-384 hash of this canary */
+  /** SHA-256 hash of this canary */
   hash: string;
   /** Ed25519 signature over the canary hash (base64url) */
   signature: string;
@@ -132,7 +132,7 @@ function insertCanary(canary: CanaryRecord): void {
 export function generateCanary(): CanaryRecord {
   const previous = getLatestCanary();
   const sequence = previous ? previous.sequence + 1 : 1;
-  const previousHash = previous ? previous.hash : '0'.repeat(96); // 96 hex chars for SHA-384
+  const previousHash = previous ? previous.hash : '0'.repeat(64); // 64 hex chars for SHA-256
   const timestamp = new Date().toISOString();
 
   // Gather platform stats
