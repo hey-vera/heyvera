@@ -526,6 +526,34 @@ router.get('/erc8004.json', (c) => {
   });
 });
 
+// ── GET /aid.json — AID Protocol Discovery ──────────────────────────────────
+// Standard well-known endpoint for AID discovery. Any agent can check
+// /.well-known/aid.json to know if a server participates in AID,
+// what its DID is, and what trust requirements it has.
+// Same pattern as /.well-known/agent-card.json (A2A) and UCP.
+router.get('/aid.json', (c) => {
+  return c.json({
+    did: `did:web:api.claw-net.org`,
+    trustEndpoint: '/v1/aid/:did/trust',
+    verifyEndpoint: '/v1/aid/verify',
+    feedbackEndpoint: '/v1/aid/:did/feedback',
+    supportedAlgorithms: ['Ed25519'],
+    supportedHashAlgorithms: ['SHA-256'],
+    specVersion: '1.0.0',
+    minTrustScore: 0,
+    erc8004: {
+      chainId: 8453,
+      agentId: 36118,
+      registry: '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432',
+    },
+    packages: {
+      trustCompute: '@aidprotocol/trust-compute',
+      mcpTrust: '@aidprotocol/mcp-trust',
+    },
+    spec: 'https://github.com/aidprotocol/aid-spec',
+  });
+});
+
 // ── GET /erc8004-registration.json — ERC-8004 v1 Registration File ──────────
 // This is the agentURI file that the on-chain IdentityRegistry points to.
 // Format: https://eips.ethereum.org/EIPS/eip-8004#registration-v1
