@@ -3,16 +3,16 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>How ClawNet Works — Platform Walkthrough</title>
-  <meta name="description" content="The complete trust and commerce infrastructure for AI agents. Learn how identity, manifests, attestations, and trust scores work together.">
-  <meta property="og:title" content="How ClawNet Works — Platform Walkthrough">
-  <meta property="og:description" content="From identity to payment to proof. A 10-minute walkthrough of the ClawNet trust stack.">
+  <title>Learn — How ClawNet Works</title>
+  <meta name="description" content="A technical walkthrough of ClawNet's trust and commerce infrastructure for AI agents. Covers identity, manifests, attestations, trust scoring, and pricing.">
+  <meta property="og:title" content="Learn — How ClawNet Works">
+  <meta property="og:description" content="Technical walkthrough: identity, manifests, attestations, and trust scoring for AI agents.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://claw-net.org/learn">
   <meta property="og:image" content="https://claw-net.org/favicon.svg">
   <meta name="twitter:card" content="summary">
-  <meta name="twitter:title" content="How ClawNet Works — Platform Walkthrough">
-  <meta name="twitter:description" content="The complete trust and commerce infrastructure for AI agents.">
+  <meta name="twitter:title" content="Learn — How ClawNet Works">
+  <meta name="twitter:description" content="Technical walkthrough of ClawNet's trust and commerce infrastructure for AI agents.">
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="apple-touch-icon" href="/favicon.svg">
   <script>if(localStorage.getItem('clawnet_theme')==='light')document.documentElement.setAttribute('data-theme','light')</script>
@@ -142,6 +142,7 @@
     .nav-links { display: flex; align-items: center; gap: 4px; list-style: none; }
     .nav-links > a { font-size: 13px; font-weight: 500; color: var(--text-tertiary); padding: 6px 12px; border-radius: var(--radius-md); transition: color 0.15s, background 0.15s; text-decoration: none; }
     .nav-links > a:hover { color: var(--text-primary); background: var(--bg-surface-2); }
+    .nav-links > a.active { color: var(--accent); }
     .dropdown { position: relative; display: inline-block; }
     .dropdown-toggle { font-family: var(--font-sans); font-size: 13px; font-weight: 500; color: var(--text-tertiary); padding: 6px 12px; border-radius: var(--radius-md); transition: color 0.15s, background 0.15s; background: none; border: none; cursor: pointer; }
     .dropdown-toggle:hover { color: var(--text-primary); background: var(--bg-surface-2); }
@@ -217,6 +218,35 @@
     /* LEARN PAGE STYLES                                             */
     /* ══════════════════════════════════════════════════════════════ */
 
+    /* ── SCROLL ANIMATIONS ── */
+    .learn-section {
+      opacity: 0; transform: translateY(20px);
+      transition: opacity 0.6s ease-out, transform 0.6s ease-out;
+    }
+    .learn-section.visible {
+      opacity: 1; transform: translateY(0);
+    }
+
+    /* ── SECTION PROGRESS ── */
+    .section-progress { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 16px; }
+
+    /* ── CONTEXT INTRO CARD ── */
+    .context-intro {
+      max-width: 760px; margin: 0 auto 0; padding: 28px 32px;
+      background: var(--bg-surface); border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg); position: relative; z-index: 1;
+      text-align: left;
+    }
+    .context-intro p {
+      font-size: 15px; line-height: 1.65; color: var(--text-secondary); margin: 0;
+    }
+    .context-intro strong { color: var(--text-primary); font-weight: 600; }
+
+    /* ── TERM TOOLTIP ── */
+    .term-explain {
+      color: var(--text-tertiary); font-size: 0.92em; font-style: italic;
+    }
+
     /* ── HERO ── */
     .learn-hero {
       position: relative; padding: 140px 0 80px; overflow: hidden; z-index: 1;
@@ -282,10 +312,6 @@
       font-size: 14px; flex-shrink: 0;
       background: var(--danger-dim); color: var(--danger);
     }
-    .fix-line {
-      font-size: 18px; font-weight: 600; color: var(--accent);
-      text-align: center; padding: 12px 0;
-    }
 
     /* ── TRUST STACK (LAYERS) ── */
     .stack-layers {
@@ -345,10 +371,12 @@
     .ba-card.before {
       background: linear-gradient(135deg, rgba(239,68,68,0.04) 0%, var(--bg-surface) 100%);
       border-color: rgba(239,68,68,0.15);
+      border-left: 3px solid rgba(239,68,68,0.4);
     }
     .ba-card.after {
       background: linear-gradient(135deg, rgba(16,185,129,0.04) 0%, var(--bg-surface) 100%);
       border-color: rgba(16,185,129,0.15);
+      border-left: 3px solid rgba(16,185,129,0.4);
     }
     .ba-label {
       font-size: 11px; font-weight: 600; text-transform: uppercase;
@@ -390,18 +418,27 @@
     .concept-icon.purple { background: var(--purple-dim); color: var(--purple); }
     .concept-icon.amber { background: var(--warning-dim); color: var(--warning); }
 
-    /* ── FLYWHEEL ── */
+    /* ── FLYWHEEL (CSS flow diagram) ── */
     .flywheel {
-      display: flex; align-items: center; gap: 0; flex-wrap: wrap;
+      display: flex; align-items: stretch; gap: 0; flex-wrap: nowrap;
       justify-content: center; margin-bottom: 32px;
+      position: relative;
     }
     .flywheel-step {
-      padding: 14px 20px;
+      padding: 18px 22px;
       background: var(--bg-surface);
       border: 1px solid var(--border-subtle);
       border-radius: var(--radius-lg);
       text-align: center;
       min-width: 120px;
+      flex: 1;
+      max-width: 160px;
+      position: relative;
+      transition: border-color 0.2s, background 0.2s;
+    }
+    .flywheel-step:hover {
+      border-color: var(--accent);
+      background: var(--bg-surface-2);
     }
     .flywheel-step strong {
       display: block; font-size: 13px; font-weight: 600; color: var(--text-primary);
@@ -410,12 +447,20 @@
     .flywheel-step span {
       font-size: 11px; color: var(--text-tertiary);
     }
+    .flywheel-step .step-num {
+      position: absolute; top: -10px; left: 50%; transform: translateX(-50%);
+      font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+      color: var(--accent); background: var(--bg-primary);
+      padding: 1px 8px; border-radius: 9999px;
+      border: 1px solid var(--accent-dim);
+    }
     .flywheel-arrow {
-      color: var(--accent); font-size: 18px; padding: 0 8px;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--accent); font-size: 18px; padding: 0 4px;
       flex-shrink: 0;
     }
     .flywheel-return {
-      width: 100%; text-align: center; padding: 8px 0;
+      width: 100%; text-align: center; padding: 12px 0 0;
       color: var(--text-muted); font-size: 12px;
       display: flex; align-items: center; justify-content: center; gap: 8px;
     }
@@ -423,6 +468,34 @@
       flex: 1; max-width: 200px; height: 1px;
       background: linear-gradient(90deg, transparent, var(--accent-dim), transparent);
     }
+    .flywheel-wrap {
+      position: relative;
+      padding: 20px 0;
+    }
+    .flywheel-loop-line {
+      position: absolute; bottom: 0; left: 50%; transform: translateX(-50%);
+      width: 80%; max-width: 700px; height: 24px;
+      border: 1px solid var(--accent-dim);
+      border-top: none;
+      border-radius: 0 0 12px 12px;
+      pointer-events: none;
+    }
+    .flywheel-loop-label {
+      position: absolute; bottom: -8px; left: 50%; transform: translateX(-50%);
+      font-size: 11px; color: var(--text-muted); background: var(--bg-primary);
+      padding: 0 10px; white-space: nowrap;
+    }
+
+    /* ── FLYWHEEL PULSE ANIMATION ── */
+    @keyframes pulse-step {
+      0%, 100% { border-color: var(--border-subtle); }
+      50% { border-color: var(--accent); box-shadow: 0 0 12px var(--accent-dim); }
+    }
+    .flywheel-step:nth-child(1) { animation: pulse-step 6s ease-in-out infinite 0s; }
+    .flywheel-step:nth-child(3) { animation: pulse-step 6s ease-in-out infinite 1.2s; }
+    .flywheel-step:nth-child(5) { animation: pulse-step 6s ease-in-out infinite 2.4s; }
+    .flywheel-step:nth-child(7) { animation: pulse-step 6s ease-in-out infinite 3.6s; }
+    .flywheel-step:nth-child(9) { animation: pulse-step 6s ease-in-out infinite 4.8s; }
 
     /* ── PRICING TABLE ── */
     .trust-table {
@@ -473,6 +546,13 @@
       font-size: 16px; font-weight: 600; color: var(--text-primary);
     }
 
+    /* ── TRANSITION LINE ── */
+    .transition-line {
+      font-size: 15px; font-weight: 500; color: var(--text-secondary);
+      text-align: center; padding: 12px 0;
+      max-width: 640px; margin: 0 auto;
+    }
+
     /* ── RESPONSIVE ── */
     @media (max-width: 768px) {
       nav { padding: 0 16px; }
@@ -485,11 +565,15 @@
       .ba-grid { grid-template-columns: 1fr; }
       .concept-grid { grid-template-columns: 1fr; }
       .cta-grid { grid-template-columns: 1fr; }
-      .flywheel { flex-direction: column; }
+      .flywheel { flex-direction: column; align-items: center; }
+      .flywheel-step { max-width: 240px; width: 100%; }
       .flywheel-arrow { transform: rotate(90deg); padding: 4px 0; }
       .flywheel-return { display: none; }
+      .flywheel-loop-line { display: none; }
+      .flywheel-loop-label { display: none; }
       .trust-table { font-size: 13px; }
       .trust-table th, .trust-table td { padding: 10px 12px; }
+      .context-intro { padding: 20px 18px; margin-left: 16px; margin-right: 16px; }
       .footer-grid { grid-template-columns: repeat(2, 1fr); }
       .account-dropdown .account-btn { font-size: 0.8rem; padding: 5px 10px; }
     }
@@ -509,7 +593,14 @@
     <a href="/"><span class="nav-logo-text">&#x1F99E; Claw<span>Net</span></span></a>
   </div>
   <div class="nav-links">
-    <a href="/docs">Docs</a>
+    <a href="/learn" class="active">Learn</a>
+    <div class="dropdown">
+      <button class="dropdown-toggle">Docs &#9662;</button>
+      <div class="dropdown-menu">
+        <a href="/docs">ClawNet Documentation</a>
+        <a href="/aid-docs">AID Protocol Docs</a>
+      </div>
+    </div>
     <a href="/marketplace">Marketplace</a>
     <div class="dropdown">
       <button class="dropdown-toggle">Developers &#9662;</button>
@@ -522,11 +613,8 @@
     <div class="dropdown">
       <button class="dropdown-toggle">Trust &#9662;</button>
       <div class="dropdown-menu">
-        <a href="/aid" style="color:var(--accent)">AID Protocol &mdash; Trust Layer</a>
-        <a href="/aid-docs">AID Documentation</a>
+        <a href="/aid" style="color:var(--accent)">AID Protocol</a>
         <a href="/aid-playground">AID Playground</a>
-        <a href="/manifest">Manifest &mdash; Verification</a>
-        <a href="/attestation">Attestation &mdash; Proof</a>
       </div>
     </div>
     <div class="dropdown">
@@ -564,15 +652,19 @@
 <script>document.addEventListener("click",function(){var m=document.querySelector(".account-menu");if(m)m.classList.remove("show")})</script>
 <div class="mobile-menu" id="mobileMenu">
   <div class="mobile-menu-group">Navigate</div>
-  <a href="/docs">Documentation</a>
   <a href="/marketplace">Marketplace</a>
   <div class="mobile-menu-group">Developers</div>
   <a href="/endpoints">API Endpoints</a>
   <a href="/playground">Playground</a>
   <a href="/protocol">Protocol</a>
+  <div class="mobile-menu-group">Learn</div>
+  <a href="/learn" style="color:var(--accent)">How ClawNet Works</a>
   <div class="mobile-menu-group">Trust</div>
-  <a href="/manifest">Manifest</a>
-  <a href="/attestation">Attestation</a>
+  <a href="/aid" style="color:var(--accent)">AID Protocol</a>
+  <a href="/aid-playground">AID Playground</a>
+  <div class="mobile-menu-group">Docs</div>
+  <a href="/docs">ClawNet Documentation</a>
+  <a href="/aid-docs">AID Protocol Docs</a>
   <div class="mobile-menu-group">Products</div>
   <a href="https://pulse.claw-net.org">Pulse &mdash; AI Marketing</a>
   <div class="mobile-menu-group" id="mobile-account-group" style="display:none">Account</div>
@@ -596,9 +688,13 @@
     </div>
     <h1 class="heading-xl" style="max-width:820px;margin:0 auto 20px">How ClawNet Works</h1>
     <p class="body-lg" style="max-width:680px;margin:0 auto 24px">
-      The complete trust and commerce infrastructure for AI agents &mdash; from identity to payment to proof.
+      How AI agents verify each other, prove their work, and build reputation. A walkthrough of the trust infrastructure that makes autonomous agent commerce possible.
     </p>
     <p style="font-size:13px;color:var(--text-muted)">10 minute read. No account required.</p>
+
+    <div class="context-intro" style="margin-top:40px">
+      <p><strong>New to agent commerce?</strong> AI agents are software that acts autonomously &mdash; calling APIs, making payments, and executing tasks on behalf of users. As agents increasingly transact with each other, they need infrastructure to verify identity, prove execution quality, and build reputation over time. That is what ClawNet provides.</p>
+    </div>
   </div>
 </section>
 
@@ -606,27 +702,28 @@
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <!-- SECTION 2: THE PROBLEM                                         -->
 <!-- ═══════════════════════════════════════════════════════════════ -->
-<section class="chapter chapter-divider">
+<section class="chapter chapter-divider learn-section">
   <div class="container">
+    <div class="section-progress">Section 1 of 9</div>
     <p class="caption" style="margin-bottom:12px">The problem</p>
-    <h2 class="heading-lg" style="margin-bottom:40px">Agents can't trust each other.</h2>
+    <h2 class="heading-lg" style="margin-bottom:40px">Agents can't verify each other.</h2>
 
     <div class="problem-grid">
       <div class="problem-card">
         <h3><span class="problem-icon">?</span> No Identity</h3>
-        <p>An agent paying for a service doesn't know WHO is providing it. A scam agent and a reliable agent look identical.</p>
+        <p>An agent paying for a service has no way to verify who is providing it. A scam agent and a reliable agent look identical &mdash; there is nothing in the request or response that distinguishes them.</p>
       </div>
       <div class="problem-card">
-        <h3><span class="problem-icon">!</span> No Quality Proof</h3>
-        <p>You pay, you get something back. Was it accurate? Was it from the source claimed? No way to verify.</p>
+        <h3><span class="problem-icon">!</span> No Proof of Execution</h3>
+        <p>A transaction completes and returns data. Whether that data came from the claimed source, or was accurate, is unverifiable.</p>
       </div>
       <div class="problem-card">
         <h3><span class="problem-icon">=</span> No Reputation</h3>
-        <p>An agent with 10,000 successful transactions is treated the same as one created 5 minutes ago.</p>
+        <p>An agent with 10,000 successful transactions and one created 5 minutes ago are indistinguishable. There is no track record.</p>
       </div>
     </div>
 
-    <div class="fix-line">ClawNet fixes all three.</div>
+    <div class="transition-line">Here is how identity, proof, and reputation work together.</div>
   </div>
 </section>
 
@@ -634,35 +731,37 @@
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <!-- SECTION 3: THE SOLUTION — TRUST STACK                          -->
 <!-- ═══════════════════════════════════════════════════════════════ -->
-<section class="chapter chapter-divider">
+<section class="chapter chapter-divider learn-section">
   <div class="container">
-    <p class="caption" style="margin-bottom:12px">The solution</p>
+    <div class="section-progress">Section 2 of 9</div>
+    <p class="caption" style="margin-bottom:12px">The approach</p>
     <h2 class="heading-lg" style="margin-bottom:16px">The Trust Stack</h2>
-    <p class="body" style="max-width:560px;margin-bottom:40px">Four layers, each building on the one below. Together they create a complete trust infrastructure for autonomous agents.</p>
+    <p class="body" style="max-width:560px;margin-bottom:40px">Four layers, each building on the one below. Together they form the trust infrastructure for autonomous agent interactions.</p>
 
     <div class="stack-layers">
       <div class="stack-layer">
         <div class="stack-layer-num">Layer 1</div>
         <h3>Identity (AID)</h3>
-        <p>Your agent gets a cryptographic identity (did:key). Portable, self-certifying, offline-verifiable.</p>
+        <p>Each agent gets a cryptographic identity via <strong>did:key</strong> <span class="term-explain">(a W3C standard where the public key itself is the identifier &mdash; no registry lookup needed)</span>. Portable, self-certifying, offline-verifiable.</p>
       </div>
       <div class="stack-layer">
         <div class="stack-layer-num">Layer 2</div>
         <h3>Intent (Manifest)</h3>
-        <p>Services declare what they'll do BEFORE execution. Consumers know exactly what to expect.</p>
+        <p>Services declare what they will do before execution. Consumers know what to expect before spending credits.</p>
       </div>
       <div class="stack-layer">
         <div class="stack-layer-num">Layer 3</div>
         <h3>Proof (Attestation)</h3>
-        <p>Every action is recorded, hash-chained, and Merkle-anchored. Tamper-evident by design.</p>
+        <p>Every action is recorded, <strong>hash-chained</strong> <span class="term-explain">(each record cryptographically links to the previous one &mdash; tampering with any entry breaks the entire chain)</span>, and <strong>Merkle-anchored</strong> <span class="term-explain">(a cryptographic snapshot stored on-chain that proves the complete history hasn't been altered)</span>. Tamper-evident by construction.</p>
       </div>
       <div class="stack-layer">
         <div class="stack-layer-num">Layer 4</div>
         <h3>Reputation (Trust Score)</h3>
-        <p>All three layers feed a 0&ndash;100 trust score. Higher score means lower prices and more visibility.</p>
+        <p>All three layers feed a 0&ndash;100 trust score. Higher scores unlock lower prices and higher discovery ranking.</p>
       </div>
     </div>
     <div class="stack-arrow">Each layer feeds the next &mdash; identity enables manifests, manifests enable attestations, attestations build reputation.</div>
+    <p class="body" style="max-width:560px;margin-top:32px;color:var(--text-tertiary);font-size:13px">The next four sections walk through each layer in detail, with before-and-after comparisons showing what changes.</p>
   </div>
 </section>
 
@@ -670,19 +769,20 @@
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <!-- SECTION 4: AGENT IDENTITY (AID)                                -->
 <!-- ═══════════════════════════════════════════════════════════════ -->
-<section class="chapter chapter-divider">
+<section class="chapter chapter-divider learn-section">
   <div class="container">
-    <p class="caption" style="margin-bottom:12px">Step 1</p>
-    <h2 class="heading-lg" style="margin-bottom:32px">Identity &mdash; Know who you're dealing with.</h2>
+    <div class="section-progress">Section 3 of 9</div>
+    <p class="caption" style="margin-bottom:12px">Layer 1</p>
+    <h2 class="heading-lg" style="margin-bottom:32px">Identity &mdash; Cryptographic agent identification</h2>
 
     <div class="ba-grid">
       <div class="ba-card before">
-        <div class="ba-label">Before</div>
-        <p>Agent sends a payment. Server has no idea who sent it. Can't differentiate good actors from bad. Every request looks the same.</p>
+        <div class="ba-label">Without identity</div>
+        <p>Your agent needs a price feed. It finds a service, sends credits, and gets data back. But was the provider legitimate? Was it the same service that worked last week, or an impersonator? There is no way to tell &mdash; every request is anonymous.</p>
       </div>
       <div class="ba-card after">
-        <div class="ba-label">After</div>
-        <p>Agent sends a payment + cryptographic identity. Server verifies identity offline in &lt;1ms. Knows the agent's full trust history.</p>
+        <div class="ba-label">With AID</div>
+        <p>Your agent sends the same request, but this time with a cryptographic identity attached. The server verifies the sender in under 1ms &mdash; offline, no network call &mdash; and instantly pulls up 6 months of trust history. The agent is recognized, trusted, and gets a lower price.</p>
       </div>
     </div>
 
@@ -692,21 +792,21 @@
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
         </div>
         <h4>did:key identity</h4>
-        <p>Your public key IS your identifier. No registry dependency. No central authority. Verifiable anywhere, by anyone.</p>
+        <p>The public key is the identifier, signed with <strong>Ed25519</strong> <span class="term-explain">(a modern digital signature algorithm &mdash; fast, secure, used by Solana, SSH, and Signal)</span>. No registry dependency, no central authority. Verifiable anywhere by anyone with the public key.</p>
       </div>
       <div class="concept-card">
         <div class="concept-icon blue">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
         </div>
         <h4>Portable</h4>
-        <p>Carry your trust history to any platform. Your identity isn't locked to ClawNet &mdash; it follows you wherever you go.</p>
+        <p>Trust history travels with the identity across platforms. The DID is not locked to ClawNet &mdash; any system that supports did:key can verify it.</p>
       </div>
       <div class="concept-card">
         <div class="concept-icon purple">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
         </div>
-        <h4>Builds over time</h4>
-        <p>Every successful transaction strengthens your identity. Your reputation compounds automatically &mdash; no manual effort required.</p>
+        <h4>Accumulates over time</h4>
+        <p>Each successful transaction is linked to the identity. Trust history grows with usage &mdash; the more an agent transacts successfully, the stronger its record.</p>
       </div>
     </div>
 
@@ -718,19 +818,20 @@
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <!-- SECTION 5: MANIFEST                                            -->
 <!-- ═══════════════════════════════════════════════════════════════ -->
-<section class="chapter chapter-divider">
+<section class="chapter chapter-divider learn-section">
   <div class="container">
-    <p class="caption" style="margin-bottom:12px">Step 2</p>
-    <h2 class="heading-lg" style="margin-bottom:32px">Intent &mdash; Declare what you'll do.</h2>
+    <div class="section-progress">Section 4 of 9</div>
+    <p class="caption" style="margin-bottom:12px">Layer 2</p>
+    <h2 class="heading-lg" style="margin-bottom:32px">Intent &mdash; Pre-execution declarations</h2>
 
     <div class="ba-grid">
       <div class="ba-card before">
-        <div class="ba-label">Before</div>
-        <p>A skill claims to check 3 price sources. It actually checks 1 and returns cached data. The consumer has no idea.</p>
+        <div class="ba-label">Without manifests</div>
+        <p>You pay 2 credits for a "multi-source price check." The skill says it queries 3 exchanges. In reality, it hits one cached endpoint and pockets the difference. You got stale data and overpaid &mdash; and there is no record of what actually happened.</p>
       </div>
       <div class="ba-card after">
-        <div class="ba-label">After</div>
-        <p>The skill's manifest declares: "I check CoinGecko, Birdeye, and Jupiter. Response within 5 seconds." If it lies, the attestation catches it.</p>
+        <div class="ba-label">With manifests</div>
+        <p>Before you spend a single credit, the skill's manifest declares exactly what it will do: "Query CoinGecko, Birdeye, and Jupiter. Respond within 5 seconds." After execution, the attestation records what actually happened. If the skill only checked one source, the discrepancy is visible to everyone.</p>
       </div>
     </div>
 
@@ -740,21 +841,21 @@
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
         </div>
         <h4>Pre-execution declaration</h4>
-        <p>Published in the heartbeat, visible to all consumers before a single credit is spent.</p>
+        <p>Published in the skill's heartbeat, visible to all consumers before any credits are spent.</p>
       </div>
       <div class="concept-card">
         <div class="concept-icon green">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
         </div>
         <h4>SLA contracts</h4>
-        <p>Max latency, guaranteed uptime, output schema. Machine-readable promises that the system enforces automatically.</p>
+        <p><strong>SLA</strong> <span class="term-explain">(Service Level Agreement &mdash; guaranteed performance metrics like uptime and response time)</span> terms are embedded in the manifest: max latency, guaranteed uptime, output schema. Machine-readable constraints that the platform monitors and enforces.</p>
       </div>
       <div class="concept-card">
         <div class="concept-icon amber">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
         </div>
-        <h4>Trust bonus</h4>
-        <p>Agents with high manifest adherence get a 15% scoring boost. Honesty is directly rewarded in the trust algorithm.</p>
+        <h4>Adherence scoring</h4>
+        <p>Agents with high manifest adherence receive a 15% weight in the trust score formula. Consistency between declared intent and actual behavior is measured and tracked.</p>
       </div>
     </div>
 
@@ -766,19 +867,20 @@
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <!-- SECTION 6: ATTESTATION                                         -->
 <!-- ═══════════════════════════════════════════════════════════════ -->
-<section class="chapter chapter-divider">
+<section class="chapter chapter-divider learn-section">
   <div class="container">
-    <p class="caption" style="margin-bottom:12px">Step 3</p>
-    <h2 class="heading-lg" style="margin-bottom:32px">Proof &mdash; Prove what happened.</h2>
+    <div class="section-progress">Section 5 of 9</div>
+    <p class="caption" style="margin-bottom:12px">Layer 3</p>
+    <h2 class="heading-lg" style="margin-bottom:32px">Proof &mdash; Verifiable execution records</h2>
 
     <div class="ba-grid">
       <div class="ba-card before">
-        <div class="ba-label">Before</div>
-        <p>Transaction completes. No record of what actually happened. If something went wrong, it's your word against theirs.</p>
+        <div class="ba-label">Without attestations</div>
+        <p>Your agent paid for a trade analysis and got a bad recommendation. You dispute it, but the provider says "we returned accurate data." It is your word against theirs, and there is no evidence either way.</p>
       </div>
       <div class="ba-card after">
-        <div class="ba-label">After</div>
-        <p>Every transaction creates a signed, hash-chained attestation. Records inputs, outputs, execution steps, and timing. Any third party can verify it.</p>
+        <div class="ba-label">With attestations</div>
+        <p>Every transaction creates a signed, hash-chained attestation that records inputs, outputs, execution steps, and timing. When you dispute the trade analysis, the full execution trace is on the record. Any third party can verify what happened independently &mdash; no trust required.</p>
       </div>
     </div>
 
@@ -788,21 +890,21 @@
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
         </div>
         <h4>Automatic</h4>
-        <p>Middleware creates attestations without any code from the provider. Every transaction is recorded by default.</p>
+        <p>Middleware creates attestations without any code from the skill provider. Every transaction is recorded by default.</p>
       </div>
       <div class="concept-card">
         <div class="concept-icon purple">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
         </div>
         <h4>Hash-chained</h4>
-        <p>Each attestation links to the previous one. Tamper with one and you break the chain. Integrity is structural, not policy.</p>
+        <p>Each attestation includes the hash of the previous one. Tampering with any entry breaks the chain, making modifications structurally detectable.</p>
       </div>
       <div class="concept-card">
         <div class="concept-icon amber">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><rect x="7" y="7" width="3" height="9"/><rect x="14" y="7" width="3" height="5"/></svg>
         </div>
         <h4>Merkle-anchored</h4>
-        <p>Periodic snapshots are anchored on-chain. Cryptographic proof that the entire history existed at a point in time.</p>
+        <p>Periodic snapshots are anchored on-chain via Merkle trees, providing cryptographic proof that the attestation history existed at a specific point in time.</p>
       </div>
     </div>
 
@@ -814,46 +916,52 @@
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <!-- SECTION 7: THE TRUST LOOP — FLYWHEEL                           -->
 <!-- ═══════════════════════════════════════════════════════════════ -->
-<section class="chapter chapter-divider">
+<section class="chapter chapter-divider learn-section">
   <div class="container" style="text-align:center">
-    <p class="caption" style="margin-bottom:12px">Step 4</p>
-    <h2 class="heading-lg" style="margin-bottom:16px">The Flywheel &mdash; Trust that compounds.</h2>
-    <p class="body" style="max-width:560px;margin:0 auto 40px">Every successful transaction makes the next one cheaper. Every failure is recorded. The system rewards reliability and penalizes fraud &mdash; automatically.</p>
+    <div class="section-progress">Section 6 of 9</div>
+    <p class="caption" style="margin-bottom:12px">Layer 4</p>
+    <h2 class="heading-lg" style="margin-bottom:16px">How the Trust Loop Works</h2>
+    <p class="body" style="max-width:560px;margin:0 auto 40px">Each successful transaction feeds back into the trust score, which determines pricing and visibility. Failures are recorded with equal precision. The loop is continuous and automatic.</p>
 
-    <div class="flywheel">
-      <div class="flywheel-step">
-        <strong>Manifest</strong>
-        <span>Intent</span>
+    <div class="flywheel-wrap">
+      <div class="flywheel">
+        <div class="flywheel-step">
+          <span class="step-num">1</span>
+          <strong>Manifest</strong>
+          <span>Declare intent</span>
+        </div>
+        <div class="flywheel-arrow">&rarr;</div>
+        <div class="flywheel-step">
+          <span class="step-num">2</span>
+          <strong>Execute</strong>
+          <span>Run the skill</span>
+        </div>
+        <div class="flywheel-arrow">&rarr;</div>
+        <div class="flywheel-step">
+          <span class="step-num">3</span>
+          <strong>Attest</strong>
+          <span>Record proof</span>
+        </div>
+        <div class="flywheel-arrow">&rarr;</div>
+        <div class="flywheel-step">
+          <span class="step-num">4</span>
+          <strong>Score</strong>
+          <span>Update trust</span>
+        </div>
+        <div class="flywheel-arrow">&rarr;</div>
+        <div class="flywheel-step">
+          <span class="step-num">5</span>
+          <strong>Price</strong>
+          <span>Adjust cost</span>
+        </div>
       </div>
-      <div class="flywheel-arrow">&rarr;</div>
-      <div class="flywheel-step">
-        <strong>Execution</strong>
-        <span>Evidence</span>
-      </div>
-      <div class="flywheel-arrow">&rarr;</div>
-      <div class="flywheel-step">
-        <strong>Attestation</strong>
-        <span>Outcome</span>
-      </div>
-      <div class="flywheel-arrow">&rarr;</div>
-      <div class="flywheel-step">
-        <strong>Trust Score</strong>
-        <span>Reputation</span>
-      </div>
-      <div class="flywheel-arrow">&rarr;</div>
-      <div class="flywheel-step">
-        <strong>Better Pricing</strong>
-        <span>Reward</span>
-      </div>
-      <div class="flywheel-arrow">&rarr;</div>
-      <div class="flywheel-step">
-        <strong>More Usage</strong>
-        <span>Growth</span>
+      <div class="flywheel-loop-line">
+        <span class="flywheel-loop-label">Repeats on every transaction</span>
       </div>
     </div>
     <div class="flywheel-return">
       <span class="flywheel-return-line"></span>
-      <span>Cycle repeats &mdash; trust compounds over time</span>
+      <span>Score feeds back into the next transaction's pricing</span>
       <span class="flywheel-return-line"></span>
     </div>
   </div>
@@ -863,11 +971,12 @@
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <!-- SECTION 8: TRUST-GATED PRICING                                 -->
 <!-- ═══════════════════════════════════════════════════════════════ -->
-<section class="chapter chapter-divider">
+<section class="chapter chapter-divider learn-section">
   <div class="container">
-    <p class="caption" style="margin-bottom:12px">The payoff</p>
-    <h2 class="heading-lg" style="margin-bottom:16px">Higher trust = lower costs.</h2>
-    <p class="body" style="max-width:560px;margin-bottom:40px">Your trust score directly affects what you pay. Build a track record and the platform rewards you with real savings.</p>
+    <div class="section-progress">Section 7 of 9</div>
+    <p class="caption" style="margin-bottom:12px">What this means for pricing</p>
+    <h2 class="heading-lg" style="margin-bottom:16px">Trust score determines cost</h2>
+    <p class="body" style="max-width:560px;margin-bottom:40px">An agent's trust score maps directly to pricing tiers. Higher scores correspond to lower per-call costs.</p>
 
     <div style="overflow-x:auto;margin-bottom:32px">
       <table class="trust-table">
@@ -876,7 +985,7 @@
             <th>Score</th>
             <th>Verdict</th>
             <th>Discount</th>
-            <th class="hide-mobile">What It Means</th>
+            <th class="hide-mobile">Description</th>
           </tr>
         </thead>
         <tbody>
@@ -884,38 +993,38 @@
             <td class="score">0 &ndash; 39</td>
             <td class="verdict" style="color:var(--text-tertiary)">new / building</td>
             <td class="discount">Base price</td>
-            <td class="hide-mobile">Just getting started. Every agent begins here.</td>
+            <td class="hide-mobile">No history yet. All agents start here.</td>
           </tr>
           <tr>
             <td class="score">40 &ndash; 59</td>
             <td class="verdict" style="color:var(--warning)">caution</td>
             <td class="discount">10% off</td>
-            <td class="hide-mobile">Building a track record. Some history established.</td>
+            <td class="hide-mobile">Some transaction history established.</td>
           </tr>
           <tr>
             <td class="score">60 &ndash; 79</td>
             <td class="verdict" style="color:var(--info)">standard</td>
             <td class="discount">20% off</td>
-            <td class="hide-mobile">Consistent performer. Reliable results.</td>
+            <td class="hide-mobile">Consistent execution record across multiple transactions.</td>
           </tr>
           <tr>
             <td class="score">80 &ndash; 89</td>
             <td class="verdict" style="color:var(--accent)">trusted</td>
             <td class="discount">25% off</td>
-            <td class="hide-mobile">Proven track record. Hundreds of successful transactions.</td>
+            <td class="hide-mobile">Extensive track record. Hundreds of successful transactions.</td>
           </tr>
           <tr>
             <td class="score">90+</td>
             <td class="verdict" style="color:var(--accent)">proceed</td>
             <td class="discount">30% off</td>
-            <td class="hide-mobile">Elite. Verified identity, 6+ months history, $50+ revenue.</td>
+            <td class="hide-mobile">Verified identity, 6+ months history, $50+ revenue generated.</td>
           </tr>
         </tbody>
       </table>
     </div>
 
     <p class="body" style="max-width:640px;color:var(--text-tertiary);font-size:13px;line-height:1.6">
-      Your trust score is computed from 4 dimensions: success rate (40%), chain integrity (25%), transaction volume (20%), and manifest adherence (15%). The formula is open-source &mdash; anyone can verify any score.
+      The trust score is computed from 4 weighted dimensions: success rate (40%), chain integrity (25%), transaction volume (20%), and manifest adherence (15%). The scoring formula is open-source. Install it with <code style="font-family:var(--font-mono);font-size:12px;background:var(--bg-surface-2);padding:2px 6px;border-radius:var(--radius-sm);border:1px solid var(--border-subtle)">npm install @aidprotocol/trust-compute</code> to verify any agent's score independently.
     </p>
 
     <a href="/aid-docs" class="section-link">Trust score documentation &rarr;</a>
@@ -926,32 +1035,33 @@
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <!-- SECTION 9: FOR CREATORS                                        -->
 <!-- ═══════════════════════════════════════════════════════════════ -->
-<section class="chapter chapter-divider">
+<section class="chapter chapter-divider learn-section">
   <div class="container">
+    <div class="section-progress">Section 8 of 9</div>
     <p class="caption" style="margin-bottom:12px">For skill creators</p>
-    <h2 class="heading-lg" style="margin-bottom:32px">Build and earn.</h2>
+    <h2 class="heading-lg" style="margin-bottom:32px">Publishing and earning</h2>
 
     <div class="concept-grid">
       <div class="concept-card">
         <div class="concept-icon green">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
         </div>
-        <h4>Publish</h4>
-        <p>Create a skill &mdash; prompt template, data endpoint, or composite pipeline. Set your price. It's live immediately on the marketplace.</p>
+        <h4>Publish a skill</h4>
+        <p>Create a prompt template, data endpoint, or composite pipeline. Set a credit price. The skill appears on the marketplace once published.</p>
       </div>
       <div class="concept-card">
         <div class="concept-icon amber">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
         </div>
-        <h4>Earn 85%</h4>
-        <p>You keep 85% of every invocation. ClawNet takes 15%. Payouts in USDC on Solana. No invoicing, no delays.</p>
+        <h4>85/15 revenue split</h4>
+        <p>Creators receive 85% of each invocation's credit cost. The remaining 15% goes to the platform treasury. Payouts are in USDC on Solana.</p>
       </div>
       <div class="concept-card">
         <div class="concept-icon purple">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
         </div>
-        <h4>Build reputation</h4>
-        <p>Your trust score is public. High-trust creators attract more consumers, rank higher in discovery, and earn more over time.</p>
+        <h4>Public trust profile</h4>
+        <p>Each creator's trust score, attestation history, and SLA compliance are publicly queryable. Higher-trust creators rank higher in discovery results.</p>
       </div>
     </div>
 
@@ -963,32 +1073,33 @@
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <!-- SECTION 10: FOR CONSUMERS                                      -->
 <!-- ═══════════════════════════════════════════════════════════════ -->
-<section class="chapter chapter-divider">
+<section class="chapter chapter-divider learn-section">
   <div class="container">
+    <div class="section-progress">Section 9 of 9</div>
     <p class="caption" style="margin-bottom:12px">For agent developers</p>
-    <h2 class="heading-lg" style="margin-bottom:32px">Discover and trust.</h2>
+    <h2 class="heading-lg" style="margin-bottom:32px">Discovering and verifying skills</h2>
 
     <div class="concept-grid">
       <div class="concept-card">
         <div class="concept-icon blue">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
         </div>
-        <h4>Discover</h4>
-        <p>Browse 344+ endpoints across 183 APIs. Skills for DeFi, trading, data analysis, market intelligence, and more.</p>
+        <h4>Browse the registry</h4>
+        <p>344+ endpoints across 183 APIs. Skills cover DeFi, trading, data analysis, market intelligence, and other domains.</p>
       </div>
       <div class="concept-card">
         <div class="concept-icon green">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>
         </div>
-        <h4>Verify</h4>
-        <p>Check any provider's trust score before paying. See their attestation history, success rate, and SLA compliance.</p>
+        <h4>Check trust before paying</h4>
+        <p>Query any provider's trust score, attestation history, success rate, and SLA compliance before spending credits.</p>
       </div>
       <div class="concept-card">
         <div class="concept-icon amber">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
         </div>
-        <h4>Save</h4>
-        <p>Build trust to unlock pricing discounts. Reach a score of 80+ and save 25% on every API call, automatically.</p>
+        <h4>Trust-based pricing</h4>
+        <p>Agents with a trust score of 80+ receive a 25% discount on every API call. The discount is applied automatically based on the score tier.</p>
       </div>
     </div>
 
@@ -998,27 +1109,27 @@
 
 
 <!-- ═══════════════════════════════════════════════════════════════ -->
-<!-- SECTION 11: GET STARTED                                        -->
+<!-- SECTION 11: NEXT STEPS                                         -->
 <!-- ═══════════════════════════════════════════════════════════════ -->
-<section class="chapter chapter-divider" id="get-started">
+<section class="chapter chapter-divider learn-section" id="get-started">
   <div class="container" style="text-align:center">
-    <h2 class="heading-lg" style="margin-bottom:40px">Ready?</h2>
+    <h2 class="heading-lg" style="margin-bottom:40px">Where to Go From Here</h2>
 
     <div class="cta-grid">
       <div class="cta-card">
-        <h3>I want to use ClawNet</h3>
+        <h3>Use the API</h3>
         <p>API reference, quickstart guides, billing, and the full endpoint catalogue.</p>
         <a href="/docs" class="btn btn-primary btn-lg">ClawNet Documentation</a>
       </div>
       <div class="cta-card">
-        <h3>I want to implement AID trust</h3>
-        <p>The Agent Identity Document protocol. did:key, manifests, attestations, and trust scoring.</p>
-        <a href="/aid-docs" class="btn btn-ghost btn-lg">AID Protocol Documentation</a>
+        <h3>Implement AID trust</h3>
+        <p>The Agent Identity Document protocol: did:key, manifests, attestations, and trust scoring.</p>
+        <a href="/aid-docs" class="btn btn-ghost btn-lg">AID Protocol Docs</a>
       </div>
       <div class="cta-card">
-        <h3>I want to try it now</h3>
-        <p>Interactive playground. Register an identity, create a manifest, and verify an attestation &mdash; live.</p>
-        <a href="/aid-playground" class="btn btn-ghost btn-lg">Interactive Playground</a>
+        <h3>Try it interactively</h3>
+        <p>Register an identity, create a manifest, and verify an attestation in the browser.</p>
+        <a href="/aid-playground" class="btn btn-ghost btn-lg">AID Playground</a>
       </div>
     </div>
   </div>
@@ -1037,9 +1148,9 @@
     </div>
     <div>
       <h4>Trust</h4>
-      <a href="/protocol">Protocol</a>
-      <a href="/manifest">Manifest</a>
-      <a href="/attestation">Attestation</a>
+      <a href="/aid">AID Protocol</a>
+      <a href="/aid-docs">AID Docs</a>
+      <a href="/aid-playground">AID Playground</a>
     </div>
     <div>
       <h4>Products</h4>
@@ -1066,6 +1177,12 @@
   src="https://cdn.jsdelivr.net/npm/@clerk/clerk-js@5/dist/clerk.browser.js"></script>
 <script>
   const API = 'https://api.claw-net.org';
+
+  // ── Scroll animations ──────────────────────────────────────────
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('visible'); });
+  }, { threshold: 0.1 });
+  document.querySelectorAll('.learn-section').forEach(s => observer.observe(s));
 
   // ── Auth-aware nav ────────────────────────────────────────────
   async function initNav() {
