@@ -45,20 +45,36 @@ Five headers. One scoring formula. Merkle verification. Offline-verifiable trust
 
 ## What's Left to Build
 
+### Spec Extraction (populate aid-spec/protocols/aid-trust/spec.md)
+- [ ] Extract Part 2 A.1-A.10 from AIDplan → spec.md (identity, scoring, mutual auth, anti-gaming)
+- [ ] Extract Part 2 D.1 ABNF headers → spec.md
+- [ ] Extract Part 2 D.2 CDDL (ScoreResult, TrustVector, HeartbeatResponse) → spec.md
+- [ ] Extract Part 2 D.3 signing input canonical form → spec.md
+- [ ] Extract Part 2 D.5 error semantics (10 AID_* codes) → spec.md
+- [ ] Extract Part 2 D.6 conformance levels (Level 1 Core, Level 2 Trust) → spec.md
+- [ ] Extract Part 2 D.7 RFC 9421 alignment → spec.md
+- [ ] Extract Part 2 D.8 protocol/product boundary → spec.md
+
+### New Spec Content (doesn't exist yet in AIDplan)
 - [ ] Deterministic arithmetic spec (Opus #16 — CRITICAL for DIF)
-- [ ] Standalone threat model document (Opus #15 — extract from AIDplan)
+- [ ] Standalone threat model document (Opus #15 — extract from AIDplan Parts 3 A, B, E, F)
 - [ ] KERI compatibility note (Opus #10 — spec note, zero code)
 - [ ] ACDC interop note (Opus #11)
-- [ ] RFC 9421 HTTP Message Signatures alignment
-- [ ] E2E scenario conformance tests (Opus #18)
+- [ ] IPLD encoding note (Opus #12)
+- [ ] OpenTelemetry mapping note (Opus #13)
+- [ ] Biscuit token evaluation note (Opus #14)
 - [ ] Profile registry governance (Opus #17)
-- [ ] Run against external harnesses (msaleme, rsbasic, AIWG)
+
+### Validation
+- [ ] E2E scenario conformance tests (Opus #18)
+- [ ] Run against external harnesses (msaleme v3.6.0, rsbasic mesh, AIWG vectors)
+- [ ] Cross-language test vectors (TS + Python + Rust produce identical scores)
 
 ## What's Left to Ship (DIF Submission)
 
 - [ ] Submit AID-Trust to DIF TAAWG as focused spec
 - [ ] Get 1 external MCP server operator running mcp-trust
-- [ ] Rewrite DIF slides to match what's actually built
+- [ ] Rewrite DIF slides to match what's actually built (not what's planned)
 - [ ] Submit NIST NCCoE comment (deadline April 2)
 
 ## AIDplan Source Sections

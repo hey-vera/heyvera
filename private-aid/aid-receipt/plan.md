@@ -63,14 +63,41 @@ Bilateral, portable, Merkle-anchored receipts. Both parties sign. Both classify 
 - [ ] Sybil cluster test vectors
 
 ### Day 4: Verification APIs
-- [ ] GET /v1/aid/:did/receipts — receipt subgraph + proofs
-- [ ] Per-service maxTimestampSkew (Opus #7)
-- [ ] End-to-end verification test
+- [ ] ScoreResult returns trustVector (5 dimensions) + compositeScore + disputeRate + eigenvectorWeight + computationVersion
+- [ ] GET /v1/aid/:did/receipts — receipt subgraph + Merkle proofs + commitment log proof
+- [ ] GET /v1/aid/:did/trust — trust vector + composite score + metadata
+- [ ] GET /v1/aid/scoring-params — public scoring config (versioned)
+- [ ] Per-service maxTimestampSkew in ServiceListing CDDL + heartbeat (Opus #7)
+- [ ] End-to-end verification test: pull receipts → run locally → compare to server → match exactly
+- [ ] Negative test vectors: non-existent DID (404), revoked DID, malformed DID, NaN dimension, wrong Merkle path, version mismatch (406), >10K results (pagination)
 
-### Cross-cutting
-- [ ] AvoidFlagDeclaration in CDDL (Opus #4)
+### Day 5: Reputational Staking + Temporal + Security Docs
+- [ ] Reputational staking: endorsed agent flagged → endorser's integrity hit, synthetic negative, cascades through EigenTrust
+- [ ] Superlinear temporal weight: log2(1 + account_age_days / 30)
+- [ ] Second-order independence: overlap between issuer's issuers and subject's issuers → multiplier
+- [ ] Guardian precision tracking — correct_freezes / total_freezes, demotion at <0.8, removal at <0.5 (Opus #9)
+- [ ] Security docs: verifiable computation property, intuitive security argument (conjectured, not proven), known limitations, "trust-minimized, not trustless"
+- [ ] Game-theoretic cost-to-manipulate analysis (Part 3 D)
+- [ ] Simulation harness — Monte Carlo 10K agents x 100K rounds, parameterized attacks (Opus #1 — CRITICAL)
+- [ ] Negative test vectors: endorser of flagged agent (still takes hit), account_age=0 (weight=0, not negative), account_age=100yrs (capped), circular endorsement A→B→C→A (no infinite cascade), second-order independence=1.0 (near zero multiplier)
+
+### Cross-cutting (applies across all days)
+- [ ] Deterministic arithmetic — fixed-point 6 decimal places, integer weights (Opus #16 — CRITICAL)
+- [ ] AvoidFlagDeclaration in CDDL — quorum 3 validators, reason enum, evidence, 72h appeal (Opus #4)
 - [ ] Receipt schema evolution policy (Opus #5)
-- [ ] Simulation harness — Monte Carlo (Opus #1)
+- [ ] E2E scenario conformance tests — register → transact → feedback → score → passport → verify (Opus #18)
+- [ ] Standalone threat model document — extract vectors into single doc for aid-spec repo (Opus #15)
+- [ ] External harness validation — msaleme v3.6.0, rsbasic mesh, Agent Identity WG vectors
+
+### Attestation & Manifest Spec (Full — not yet implemented)
+- [ ] Full AttestationRecord interface with EvidenceRecord, IssuerRole, AttestationCategory
+- [ ] Canonical serialization (RFC 8785) with null handling + number edge cases
+- [ ] Timestamp rules (eventTime ≤ issuanceTime, 30-day max gap, 90-730 day expiry)
+- [ ] Evidence types: RECEIPT, ONCHAIN_TX, MERKLE_ROOT, ORACLE_REPORT, SELF_DECLARED, GUARDIAN_AUDIT
+- [ ] Issuer diversity requirements + independence scoring
+- [ ] Anti-collusion: CliqueDetection, BurstDetection, ReciprocityDetection
+- [ ] Full ManifestDeclaration + tiered bonus (5/5/5 = 15% max)
+- [ ] Manifest-attestation divergence engine (DIV-001 through DIV-009)
 
 ## Prerequisites
 
@@ -83,6 +110,7 @@ AID-Trust must have:
 
 Content to extract:
 - Part 2 B (B.1-B.7): Receipts, commitment logs, Merkle snapshots, lifecycle
-- 10/10 Plan (Days 1-4): DSIR implementation, receipt-primary scoring, EigenTrust, APIs
+- 10/10 Plan (Days 1-5): DSIRs, receipt-primary scoring, EigenTrust, verification APIs, reputational staking
 - Part 2 D.2: DSIR CDDL definitions
 - Part 3 D: Game-theoretic analysis (receipt-dependent parts)
+- Attestation & Manifest spec (comprehensive — from AIDplan post-10/10 section)
