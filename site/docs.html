@@ -100,7 +100,8 @@
 
     /* LAYOUT */
     .docs-wrap { display: flex; min-height: calc(100vh - 56px); }
-    .docs-sidebar { width: 260px; position: sticky; top: 56px; height: calc(100vh - 56px); overflow-y: auto; border-right: 1px solid var(--border-subtle); background: var(--bg-surface); flex-shrink: 0; }
+    .docs-sidebar { width: 260px; position: sticky; top: 56px; height: calc(100vh - 56px); overflow-y: auto; border-right: 1px solid var(--border-subtle); background: var(--bg-surface); flex-shrink: 0; scrollbar-width: none; -ms-overflow-style: none; }
+    .docs-sidebar::-webkit-scrollbar { display: none; }
     .sidebar-search { padding: 16px 16px 12px; }
     .sidebar-search input { width: 100%; font-family: var(--font-sans); font-size: 13px; background: var(--bg-primary); border: 1px solid var(--border-default); color: var(--text-primary); padding: 7px 12px; border-radius: var(--radius-md); outline: none; }
     .sidebar-search input::placeholder { color: var(--text-muted); }
@@ -251,8 +252,11 @@
       </div>
     </div>
     <div class="dropdown">
-      <button class="dropdown-toggle">Services &#9662;</button>
+      <button class="dropdown-toggle">Trust &#9662;</button>
       <div class="dropdown-menu">
+        <a href="/aid" style="color:var(--accent)">AID Protocol &mdash; Trust Layer</a>
+        <a href="/aid-docs">AID Documentation</a>
+        <a href="/aid-playground">AID Playground</a>
         <a href="/manifest">Manifest &mdash; Verification</a>
         <a href="/attestation">Attestation &mdash; Proof</a>
       </div>
@@ -291,11 +295,14 @@
 </nav>
 <script>document.addEventListener("click",function(){var m=document.querySelector(".account-menu");if(m)m.classList.remove("show")})</script>
 <div class="mobile-menu" id="mobileMenu">
-  <div class="mobile-menu-group">Products</div>
-  <a href="https://pulse.claw-net.org">Pulse &mdash; AI Marketing</a>
-  <div class="mobile-menu-group">Services</div>
+  <div class="mobile-menu-group">Trust</div>
+  <a href="/aid" style="color:var(--accent)">AID Protocol &mdash; Trust Layer</a>
+  <a href="/aid-docs">AID Documentation</a>
+  <a href="/aid-playground">AID Playground</a>
   <a href="/manifest">Manifest &mdash; Verification</a>
   <a href="/attestation">Attestation &mdash; Proof</a>
+  <div class="mobile-menu-group">Products</div>
+  <a href="https://pulse.claw-net.org">Pulse &mdash; AI Marketing</a>
   <div class="mobile-menu-group">Developers</div>
   <a href="/endpoints">API Endpoints</a>
   <a href="/marketplace">Marketplace</a>
