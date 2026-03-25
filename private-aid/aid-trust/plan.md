@@ -115,7 +115,7 @@ Imports reference ClawNet internals (`../../src/utils/jcs`, `../../src/core/cred
 - [x] D.8: protocol/product boundary — covered by spec abstract ("IS / IS NOT" sections) + composability.md cross-protocol design. Marked done in March 24 audit.
 
 ### New Spec Content (doesn't exist yet in AIDplan)
-- [ ] Deterministic arithmetic spec (Opus #16 — CRITICAL for DIF). Specify computation as numbered algorithm with explicit rounding at each step. Include every intermediate value in test vectors so cross-language divergence is pinpointed to exact step.
+- [x] Deterministic arithmetic spec (Opus #16 — CRITICAL for DIF). Added Section 4.1.2 with 6-step numbered algorithm, IEEE 754 binary64 requirement, explicit roundHalfUp mode, left-to-right evaluation order, cross-language implementation table (JS/Python/Rust/Go), worked example showing exact IEEE 754 intermediate values. March 24.
 - [ ] Standalone threat model document (Opus #15 — extract from AIDplan Parts 3 A, B, E, F)
 - [ ] KERI compatibility note (Opus #10 — spec note, zero code). **Strategic for DIF** — KERI is a DIF project. Showing compatibility = good politics.
 - [ ] ACDC interop note (Opus #11). **Strategic for DIF** — ACDCs are DIF/ToIP. Same political value.
@@ -134,7 +134,7 @@ Imports reference ClawNet internals (`../../src/utils/jcs`, `../../src/core/cred
 - [ ] E2E scenario conformance tests (Opus #18)
 - [ ] Run against external harnesses (msaleme v3.6.0, rsbasic mesh, AIWG vectors)
 - [x] Concrete test vectors with exact SHA-256 proof hashes — 8 vectors in test-vectors/trust-score.json (March 24)
-- [ ] Intermediate value test vectors — per-dimension products needed (e.g., `successRate × 40 = 38.0`). Current vectors have SOME intermediates (volumeNormalized, rawScore, jcsCanonical) but not every multiply/round step. Partially done, needs completion.
+- [x] Intermediate value test vectors — all 7 positive vectors now include full intermediates: volume, d1, d2, d3, d4, rawScore. IEEE 754 exact values (e.g., d3=4.9399999999999995). Two vectors include jcsCanonical. March 24.
 - [ ] Cross-language test vectors (Python + Rust produce identical scores to TS reference)
 - [ ] Sensitivity analysis — which parameters matter most, degradation curves if assumptions off by 2x (addresses R1 without requiring formal proof)
 
@@ -147,7 +147,7 @@ Imports reference ClawNet internals (`../../src/utils/jcs`, `../../src/core/cred
 
 ### DIF Submission Must-Haves (before submitting)
 - [ ] Audit findings AF-1 through AF-6 resolved (existing work must be consistent)
-- [ ] R2 closed — deterministic arithmetic with intermediate test vectors
+- [x] R2 closed — deterministic arithmetic with intermediate test vectors (Section 4.1.2 + trust-score.json, March 24)
 - [ ] ABNF (D.1) + JSON Schema (D.2) in spec — standards reviewers read these first
 - [ ] RFC 9421 compatibility note in spec
 - [ ] At least 1 external implementer (O7)
