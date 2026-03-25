@@ -34,7 +34,9 @@ These specific probabilities appear in BOTH the Nash equilibrium proof AND the p
 
 **Why it's still hard:** Fixed-point solves the representation problem but not the computation order problem. `(a * b) + (c * d)` vs `(a * b + c * d)` can differ at the 6th decimal due to intermediate rounding. The spec must prescribe exact computation ORDER, not just representation.
 
-**Immediate credibility risk (partially mitigated):** `@aidprotocol/trust-compute` was bumped to v3.0.0 (March 24) — SHA-384→SHA-256 aligned with spec and ClawNet production. 8 concrete test vectors with exact expected hashes published. The hash mismatch is fixed, but the underlying float determinism problem remains for cross-language implementations.
+**Immediate credibility risk (partially mitigated):** `@aidprotocol/trust-compute` was bumped to v3.0.0 (March 24) — SHA-256 aligned with spec and ClawNet production. 8 concrete test vectors with exact expected hashes published. The hash mismatch is fixed, but the underlying float determinism problem remains for cross-language implementations.
+
+**March 24 audit finding:** SHA-256 alignment is incomplete — `test-vectors/signing.json` and `test-vectors/validation-suite.ts` still use SHA-384. Also, validation-suite.ts imports ClawNet internals and can't run standalone from aid-spec. Additionally, spec Section 4.1 includes verification multiplier in the canonical formula but `computeTrustScore()` doesn't implement it — spec and implementation disagree on what the "canonical" computation is. See plan.md AF-1 through AF-6 for full list.
 
 **Resolution path (Opus audit, March 24):** Specify computation as a numbered algorithm with explicit rounding at each step (step 1: multiply X by weight W, step 2: round to 6 decimal places toward zero, step 3: ...). Test vectors must include every intermediate value — not just inputs and final output. If a Python implementation diverges, intermediates pinpoint exactly which step. This is how financial protocols handle it. Estimated 2-3 days of work to close for DIF submission.
 
