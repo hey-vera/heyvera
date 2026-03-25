@@ -20,6 +20,8 @@ These specific probabilities appear in BOTH the Nash equilibrium proof AND the p
 
 **What would close it:** Either (a) formal proof (unlikely — reputation systems don't have clean security reductions), or (b) 12+ months of production data showing actual detection rates match estimates. The simulation is necessary but not sufficient.
 
+**Reframing (Opus audit, March 24):** No reputation system has a formal security proof — not FICO, not eBay, not EigenTrust in practice. The question isn't proving p=0.15, it's presenting the argument maturely. What DIF will actually accept: clearly stated threat model with explicit assumptions, sensitivity analysis showing degradation curves if assumptions are wrong by 2x, and a roadmap for empirical validation. Frame as "we've analyzed sensitivity" not "we proved security." The simulation harness is valuable but should NOT block submission — ship analytical sensitivity analysis first.
+
 **Depends on:** O1 (shares the simulation harness dependency — if it doesn't get built, both stay open).
 
 ---
@@ -32,9 +34,11 @@ These specific probabilities appear in BOTH the Nash equilibrium proof AND the p
 
 **Why it's still hard:** Fixed-point solves the representation problem but not the computation order problem. `(a * b) + (c * d)` vs `(a * b + c * d)` can differ at the 6th decimal due to intermediate rounding. The spec must prescribe exact computation ORDER, not just representation.
 
-**Immediate credibility risk:** The current `@aidprotocol/trust-compute@2.0.0` on npm presumably uses JavaScript floats. If someone installs the published package today and gets different results than the spec describes, that's a credibility problem on day one.
+**Immediate credibility risk (partially mitigated):** `@aidprotocol/trust-compute` was bumped to v3.0.0 (March 24) — SHA-384→SHA-256 aligned with spec and ClawNet production. 8 concrete test vectors with exact expected hashes published. The hash mismatch is fixed, but the underlying float determinism problem remains for cross-language implementations.
 
-**What would close it:** Publish reference implementation in all 3 languages (TS/Python/Rust) with test vectors that include every intermediate value.
+**Resolution path (Opus audit, March 24):** Specify computation as a numbered algorithm with explicit rounding at each step (step 1: multiply X by weight W, step 2: round to 6 decimal places toward zero, step 3: ...). Test vectors must include every intermediate value — not just inputs and final output. If a Python implementation diverges, intermediates pinpoint exactly which step. This is how financial protocols handle it. Estimated 2-3 days of work to close for DIF submission.
+
+**What would fully close it:** Publish reference implementation in all 3 languages (TS/Python/Rust) with test vectors that include every intermediate value.
 
 **Blocks:** R3 (fraud proofs require deterministic scores — no determinism = no decentralization).
 
@@ -72,6 +76,8 @@ Each parameter has a plausible argument but none has a mathematical derivation. 
 
 **The tension:** Publish exact parameters = carved in stone. Keep configurable = determinism breaks.
 
+**Resolution path (Opus audit, March 24):** Separate the algorithm (fixed in spec) from the parameters (fixed per version, updatable through governance). Publish sensitivity analysis showing which parameters are robust vs fragile. This doesn't require simulation — analytical sensitivity (what happens if weight shifts ±5%?) is sufficient for DIF. The mature response: acknowledge parameters are empirical, publish them transparently, define a governance process for updating them based on production data.
+
 **What would help:** Simulation harness (R1) shows which parameters are sensitive vs robust. **But R1 and O1 share the same dependency.**
 
 ---
@@ -97,6 +103,8 @@ Each parameter has a plausible argument but none has a mathematical derivation. 
 **What could invalidate it:** Mnemom gets DIF engagement. Google ships trust scoring in A2A v2.
 
 **This isn't solvable — it's a strategic bet with a closing window.**
+
+**Implication (Opus audit, March 24):** You can't out-ship a competitor by perfecting a spec. Every week the spec isn't submitted is a week Mnemom gains adoption without needing DIF approval. Submit what you have, iterate in public, don't wait for perfection. Standards are living documents — the first submission needs to be credible, not final.
 
 ---
 

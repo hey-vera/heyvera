@@ -27,9 +27,10 @@ Five headers. One scoring formula. Merkle verification. Offline-verifiable trust
 
 ## What's Built (~80%)
 
-- `@aidprotocol/trust-compute` on npm (v2.1.0, MIT)
+- `@aidprotocol/trust-compute` on npm (v3.0.0, MIT, SHA-256 aligned)
 - `@aidprotocol/mcp-trust` on npm (v1.1.0, one-line MCP integration)
-- Middleware for Hono/Express/Fastify (`packages/middleware/`)
+- All @aidprotocol packages moved to `aidprotocol/aid-spec` repo (March 24)
+- Middleware for Hono/Express/Fastify (`aid-spec/packages/middleware/`)
 - Ed25519 signing + JCS + base58btc (production in ClawNet)
 - Merkle tree + proof gen/verify (production)
 - Offline AID verification (production)
@@ -46,17 +47,17 @@ Five headers. One scoring formula. Merkle verification. Offline-verifiable trust
 ## What's Left to Build
 
 ### Spec Extraction (populate aid-spec/protocols/aid-trust/spec.md)
-- [ ] Extract Part 2 A.1-A.10 from AIDplan → spec.md (identity, scoring, mutual auth, anti-gaming)
-- [ ] Extract Part 2 D.1 ABNF headers → spec.md
+- [x] Extract Part 2 A.1-A.10 from AIDplan → spec.md (identity, scoring, mutual auth, anti-gaming) — 715 lines, March 24
+- [ ] Extract Part 2 D.1 ABNF headers → spec.md (have header tables, need formal ABNF grammar)
 - [ ] Extract Part 2 D.2 CDDL (ScoreResult, TrustVector, HeartbeatResponse) → spec.md
-- [ ] Extract Part 2 D.3 signing input canonical form → spec.md
-- [ ] Extract Part 2 D.5 error semantics (10 AID_* codes) → spec.md
-- [ ] Extract Part 2 D.6 conformance levels (Level 1 Core, Level 2 Trust) → spec.md
+- [x] Extract Part 2 D.3 signing input canonical form → spec.md — Section 5.3
+- [x] Extract Part 2 D.5 error semantics → spec.md — Section 8.2 (5 AID-Trust codes, rest are AID-Settle)
+- [x] Extract Part 2 D.6 conformance levels (Level 1 Core, Level 2 Trust) → spec.md — Section 10
 - [ ] Extract Part 2 D.7 RFC 9421 alignment → spec.md
-- [ ] Extract Part 2 D.8 protocol/product boundary → spec.md
+- [ ] Extract Part 2 D.8 protocol/product boundary → spec.md (partially in composability.md)
 
 ### New Spec Content (doesn't exist yet in AIDplan)
-- [ ] Deterministic arithmetic spec (Opus #16 — CRITICAL for DIF)
+- [ ] Deterministic arithmetic spec (Opus #16 — CRITICAL for DIF). Specify computation as numbered algorithm with explicit rounding at each step. Include every intermediate value in test vectors so cross-language divergence is pinpointed to exact step.
 - [ ] Standalone threat model document (Opus #15 — extract from AIDplan Parts 3 A, B, E, F)
 - [ ] KERI compatibility note (Opus #10 — spec note, zero code)
 - [ ] ACDC interop note (Opus #11)
@@ -65,17 +66,38 @@ Five headers. One scoring formula. Merkle verification. Offline-verifiable trust
 - [ ] Biscuit token evaluation note (Opus #14)
 - [ ] Profile registry governance (Opus #17)
 
+### Standards Vocabulary Alignment (Opus audit, March 24)
+- [ ] IETF RFC 9334 (RATS Architecture) — use RATS terminology for attestation/evidence/appraisal where it maps to trust scoring pipeline. DIF reviewers already agreed on this vocabulary.
+- [ ] W3C Data Integrity proof format — compatibility note showing AID trust snapshots expressible as Data Integrity proofs. Don't adopt full stack, just show the mapping.
+- [ ] NIST SP 800-63 assurance level framing — frame trust tiers (new → proceed) as analogous to Identity Assurance Levels. Gives DIF reviewers a familiar mental model.
+- [ ] DID:webs trust anchoring — align terminology with closest existing DIF work to reduce friction.
+
 ### Validation
 - [ ] E2E scenario conformance tests (Opus #18)
 - [ ] Run against external harnesses (msaleme v3.6.0, rsbasic mesh, AIWG vectors)
-- [ ] Cross-language test vectors (TS + Python + Rust produce identical scores)
+- [x] Concrete test vectors with exact SHA-256 proof hashes — 8 vectors in test-vectors/trust-score.json (March 24)
+- [ ] Intermediate value test vectors — every step of the computation (multiply, round, accumulate) with exact values so cross-language divergence is pinpointed
+- [ ] Cross-language test vectors (Python + Rust produce identical scores to TS reference)
+- [ ] Sensitivity analysis — which parameters matter most, degradation curves if assumptions off by 2x (addresses R1 without requiring formal proof)
 
 ## What's Left to Ship (DIF Submission)
 
+- [ ] Get 1 external MCP server operator running mcp-trust — **HIGHEST ROI ACTION** (transforms narrative from "one company" to "emerging ecosystem")
+- [ ] Rewrite DIF slides — present ONLY what AID-Trust does today (identity, scoring, Merkle verification, mutual auth). Do NOT mention EigenTrust, simulation results, or settlement.
 - [ ] Submit AID-Trust to DIF TAAWG as focused spec
-- [ ] Get 1 external MCP server operator running mcp-trust
-- [ ] Rewrite DIF slides to match what's actually built (not what's planned)
 - [ ] Submit NIST NCCoE comment (deadline April 2)
+
+### DIF Submission Must-Haves (before submitting)
+- [ ] R2 closed — deterministic arithmetic with intermediate test vectors
+- [ ] ABNF (D.1) + CDDL (D.2) in spec — standards reviewers read these first
+- [ ] RFC 9421 compatibility note in spec
+- [ ] At least 1 external implementer (O7)
+
+### DIF Submission Nice-to-Haves (strengthen but don't block)
+- [ ] Sensitivity analysis for scoring parameters (R1)
+- [ ] RATS vocabulary alignment
+- [ ] Cross-language reference implementations
+- [ ] Simulation harness results
 
 ## AIDplan Source Sections
 
