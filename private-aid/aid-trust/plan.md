@@ -116,9 +116,9 @@ Imports reference ClawNet internals (`../../src/utils/jcs`, `../../src/core/cred
 
 ### New Spec Content (doesn't exist yet in AIDplan)
 - [x] Deterministic arithmetic spec (Opus #16 — CRITICAL for DIF). Added Section 4.1.2 with 6-step numbered algorithm, IEEE 754 binary64 requirement, explicit roundHalfUp mode, left-to-right evaluation order, cross-language implementation table (JS/Python/Rust/Go), worked example showing exact IEEE 754 intermediate values. March 24.
-- [ ] Standalone threat model document (Opus #15 — extract from AIDplan Parts 3 A, B, E, F)
-- [ ] KERI compatibility note (Opus #10 — spec note, zero code). **Strategic for DIF** — KERI is a DIF project. Showing compatibility = good politics.
-- [ ] ACDC interop note (Opus #11). **Strategic for DIF** — ACDCs are DIF/ToIP. Same political value.
+- [x] Threat model summary — spec Appendix E with attack cost table, top 5 threats, anti-gaming layers, Nash equilibrium, known limitations. March 24.
+- [x] KERI compatibility note (Opus #10) — spec Appendix D.1. Key rotation model, self-certifying identifiers, witness model alignment. March 24.
+- [x] ACDC interop note (Opus #11) — spec Appendix D.2. Trust scores expressible as ACDCs, attestation chains as ACDC chains. March 24.
 - [ ] IPLD encoding note (Opus #12). Lower priority — relevant to Phase 2+ decentralization, not DIF submission.
 - [ ] OpenTelemetry mapping note (Opus #13). Lower priority — observability tooling, not differentiating for DIF.
 - [ ] Biscuit token evaluation note (Opus #14). Lowest priority — authorization tokens, tangential to trust scoring.
@@ -126,17 +126,17 @@ Imports reference ClawNet internals (`../../src/utils/jcs`, `../../src/core/cred
 
 ### Standards Vocabulary Alignment (Opus audit, March 24)
 - [x] IETF RFC 9334 (RATS Architecture) — Appendix B with role mapping (Attester/Verifier/Relying Party/Endorser), data flow mapping (Evidence/Attestation Result/Reference Values), architectural differences (behavioral trust + offline verification). March 24.
-- [ ] W3C Data Integrity proof format — compatibility note showing AID trust snapshots expressible as Data Integrity proofs. Moderate priority.
-- [ ] NIST SP 800-63 assurance level framing — frame trust tiers (new → proceed) as analogous to Identity Assurance Levels. Moderate priority. Already partially addressed in NIST NCCoE comment doc.
-- [ ] DID:webs trust anchoring — align terminology with closest existing DIF work. Strategic but not blocking.
+- [x] W3C Data Integrity proof format — spec Appendix D.3. Shows eddsa-jcs-2022 mapping from AID platformCountersignature. March 24.
+- [x] NIST SP 800-63 assurance level framing — spec Appendix D.4. Verdict-to-IAL mapping table. March 24.
+- [x] DID:webs trust anchoring — spec Appendix D.5. Evolution path from did:key + did:web to did:webs. March 24.
 
 ### Validation
 - [ ] E2E scenario conformance tests (Opus #18)
 - [ ] Run against external harnesses (msaleme v3.6.0, rsbasic mesh, AIWG vectors)
 - [x] Concrete test vectors with exact SHA-256 proof hashes — 8 vectors in test-vectors/trust-score.json (March 24)
 - [x] Intermediate value test vectors — all 7 positive vectors now include full intermediates: volume, d1, d2, d3, d4, rawScore. IEEE 754 exact values (e.g., d3=4.9399999999999995). Two vectors include jcsCanonical. March 24.
-- [ ] Cross-language test vectors (Python + Rust produce identical scores to TS reference)
-- [ ] Sensitivity analysis — which parameters matter most, degradation curves if assumptions off by 2x (addresses R1 without requiring formal proof)
+- [x] Cross-language test vectors — Python validation script (test-vectors/trust-score-validate.py) with roundHalfUp, JCS, SHA-256. Rust deferred until external demand. March 24.
+- [x] Sensitivity analysis — spec Appendix C. Weight ±5 tables, robustness summary, key findings (formula robust, Sybil self-limiting, volume low-sensitivity). March 24.
 
 ## What's Left to Ship (DIF Submission)
 
@@ -154,9 +154,9 @@ Imports reference ClawNet internals (`../../src/utils/jcs`, `../../src/core/cred
 
 ### DIF Submission Nice-to-Haves (strengthen but don't block)
 - [x] RATS vocabulary alignment — Appendix B, March 24
-- [ ] Sensitivity analysis for scoring parameters (R1)
-- [ ] KERI + ACDC compatibility notes (DIF political value)
-- [ ] Cross-language reference implementations
+- [x] Sensitivity analysis for scoring parameters (R1) — Appendix C, March 24
+- [x] KERI + ACDC compatibility notes — Appendix D.1 + D.2, March 24
+- [x] Cross-language reference implementations — Python validator, March 24
 - [ ] Simulation harness results
 
 ## Recommended Build Order
