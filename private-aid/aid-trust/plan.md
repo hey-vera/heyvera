@@ -106,12 +106,12 @@ Imports reference ClawNet internals (`../../src/utils/jcs`, `../../src/core/cred
 
 ### Spec Extraction (populate aid-spec/protocols/aid-trust/spec.md)
 - [x] Extract Part 2 A.1-A.10 from AIDplan → spec.md (identity, scoring, mutual auth, anti-gaming) — 715 lines, March 24
-- [ ] D.1: ABNF headers → spec.md (have header tables, need formal ABNF grammar)
-- [ ] D.2: JSON Schema (ScoreResult, TrustVector, HeartbeatResponse) → spec.md. Changed from CDDL — AID is a JSON protocol, JSON Schema is the natural choice. CDDL (RFC 8610) targets CBOR; using it for JSON signals confusion about the data model. If CBOR encoding is added later, CDDL can be added then.
+- [x] D.1: ABNF headers → spec.md Section 5.2.1. RFC 5234 grammar for all 9 AID-Trust headers + X-AID-NEW, shared rules for date-time-z, base58btc-char, base64url-char. March 24.
+- [x] D.2: JSON Schema (TrustScoreResult, HeartbeatResponse, TrustVerdict) → spec.md Section 5.2.2. JSON Schema draft 2020-12, directly executable for validation. March 24.
 - [x] D.3: signing input canonical form → spec.md — Section 5.3
 - [x] D.5: error semantics → spec.md — Section 8.2 (5 AID-Trust codes, rest are AID-Settle)
 - [x] D.6: conformance levels (Level 1 Core, Level 2 Trust) → spec.md — Section 10
-- [ ] D.7: RFC 9421 alignment → spec.md — compatibility note showing how AID signing maps to HTTP Message Signatures concepts and where it extends beyond them
+- [x] D.7: RFC 9421 alignment → spec.md Section 8.4. Compatibility note: why AID uses purpose-built signing (DID binding, body commitment, mutual auth, simplicity), concept mapping table, migration path to RFC 9421 profile. March 24.
 - [x] D.8: protocol/product boundary — covered by spec abstract ("IS / IS NOT" sections) + composability.md cross-protocol design. Marked done in March 24 audit.
 
 ### New Spec Content (doesn't exist yet in AIDplan)
@@ -148,8 +148,8 @@ Imports reference ClawNet internals (`../../src/utils/jcs`, `../../src/core/cred
 ### DIF Submission Must-Haves (before submitting)
 - [ ] Audit findings AF-1 through AF-6 resolved (existing work must be consistent)
 - [x] R2 closed — deterministic arithmetic with intermediate test vectors (Section 4.1.2 + trust-score.json, March 24)
-- [ ] ABNF (D.1) + JSON Schema (D.2) in spec — standards reviewers read these first
-- [ ] RFC 9421 compatibility note in spec
+- [x] ABNF (D.1) + JSON Schema (D.2) in spec — Section 5.2.1 + 5.2.2, March 24
+- [x] RFC 9421 compatibility note in spec — Section 8.4, March 24
 - [ ] At least 1 external implementer (O7)
 
 ### DIF Submission Nice-to-Haves (strengthen but don't block)
