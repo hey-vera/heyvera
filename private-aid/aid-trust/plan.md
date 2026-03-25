@@ -125,7 +125,7 @@ Imports reference ClawNet internals (`../../src/utils/jcs`, `../../src/core/cred
 - [ ] Profile registry governance (Opus #17)
 
 ### Standards Vocabulary Alignment (Opus audit, March 24)
-- [ ] IETF RFC 9334 (RATS Architecture) — **Highest value.** RATS is THE framework DIF/IETF uses for attestation. Map AID trust scoring pipeline to RATS terminology (attestation → evidence → appraisal). Speaking their language matters more than having formal ABNF.
+- [x] IETF RFC 9334 (RATS Architecture) — Appendix B with role mapping (Attester/Verifier/Relying Party/Endorser), data flow mapping (Evidence/Attestation Result/Reference Values), architectural differences (behavioral trust + offline verification). March 24.
 - [ ] W3C Data Integrity proof format — compatibility note showing AID trust snapshots expressible as Data Integrity proofs. Moderate priority.
 - [ ] NIST SP 800-63 assurance level framing — frame trust tiers (new → proceed) as analogous to Identity Assurance Levels. Moderate priority. Already partially addressed in NIST NCCoE comment doc.
 - [ ] DID:webs trust anchoring — align terminology with closest existing DIF work. Strategic but not blocking.
@@ -153,7 +153,7 @@ Imports reference ClawNet internals (`../../src/utils/jcs`, `../../src/core/cred
 - [ ] At least 1 external implementer (O7)
 
 ### DIF Submission Nice-to-Haves (strengthen but don't block)
-- [ ] RATS vocabulary alignment (highest value nice-to-have — promotes to must-have if time allows)
+- [x] RATS vocabulary alignment — Appendix B, March 24
 - [ ] Sensitivity analysis for scoring parameters (R1)
 - [ ] KERI + ACDC compatibility notes (DIF political value)
 - [ ] Cross-language reference implementations
