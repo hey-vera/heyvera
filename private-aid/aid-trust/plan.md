@@ -1,9 +1,40 @@
 # AID-Trust — Build Plan
 
-> Protocol 1: Trust scoring + identity + verification.
-> The DIF submission. The "one npm install" protocol.
+> Protocol 1 of 3 in the AID family.
+> Trust scoring + identity + verification. The DIF submission.
 > Split from AIDplan on March 24, 2026.
-> Last audited: March 24, 2026 — cross-referenced every plan item against aid-spec repo contents.
+
+---
+
+## Table of Contents
+
+- [Status Summary](#status-summary)
+- [What AID-Trust IS / IS NOT](#what-aid-trust-is)
+- [Crypto Strategy](#crypto-strategy)
+- [What's Built (Production)](#whats-built-production)
+- [v1.0 Spec Work — COMPLETE](#v10-spec-work--complete)
+- [v1.0 Validation — IN PROGRESS](#v10-validation--in-progress)
+- [v1.0 DIF Submission — TODO](#v10-dif-submission--todo)
+- [v1.1 Roadmap — Behavioral Trust](#v11-roadmap--behavioral-trust)
+- [v1.1 Roadmap — Cost-Based Security](#v11-roadmap--cost-based-security)
+- [Deferred (not blocking)](#deferred-not-blocking)
+- [Audit Findings (March 24)](#audit-findings-march-24)
+
+---
+
+## Status Summary
+
+| Area | Status | Details |
+|------|--------|---------|
+| **Spec (aid-spec repo)** | ✅ Complete | ~1,230 lines, 10 sections, 6 appendices |
+| **Audit fixes (AF-1–AF-6)** | ✅ All resolved | SHA-256 alignment, verification multiplier, trust-compute v4.0.0 |
+| **DIF must-haves** | ✅ 5/6 done | R2, ABNF, JSON Schema, RFC 9421, RATS. O7 revised to non-blocking |
+| **Nice-to-haves** | ✅ 8/8 done | Sensitivity, threat model, KERI, ACDC, Data Integrity, 800-63, DID:webs, Python validator |
+| **Test harness** | ✅ 34 tests written | Pending: run on VPS against ClawNet |
+| **DIF submission** | ⬜ Not started | Slides + submit to TAAWG |
+| **v1.1 design** | ⬜ Not started | Behavioral trust + cost-based security bound |
+
+---
 
 ## What AID-Trust IS
 
@@ -21,161 +52,216 @@ Five headers. One scoring formula. Merkle verification. Offline-verifiable trust
 
 ## What AID-Trust IS NOT
 
-- Receipts (that's AID-Receipt)
-- Feedback endpoint (that's AID-Receipt — takes receiptId)
-- Settlement modes, pricing discounts (that's AID-Settle)
-- Guardians, insurance, social graph (that's ClawNet product)
+- Receipts (AID-Receipt)
+- Feedback endpoint (AID-Receipt — takes receiptId)
+- Settlement modes, pricing discounts (AID-Settle)
+- Guardians, insurance, social graph (ClawNet product)
+
+---
 
 ## Crypto Strategy
 
 SHA-256 everywhere now. Migration via `hashAlgorithm` field bump when needed.
 
-**Rationale:** The quantum threat is signatures (Shor breaks Ed25519), not hashes (Grover weakens SHA-256 to 128-bit preimage — still secure). The migration priority is `Ed25519 → ML-DSA`, already designed for via `signatureAlgorithm` + `algorithmVersion` fields. SHA-256 is the DIF/W3C/IETF ecosystem standard. Shorter proof hashes (64 hex vs 96) matter for Merkle proofs at scale. Crypto-agility fields ARE the future-proofing — you don't need SHA-384 now because the switch is a version bump, not a rewrite.
+**Rationale:** Quantum threat is signatures (Shor breaks Ed25519), not hashes (Grover weakens SHA-256 to 128-bit preimage — still secure). Migration priority is `Ed25519 → ML-DSA`. SHA-256 is the DIF/W3C/IETF standard. Crypto-agility fields ARE the future-proofing.
 
-**Migration path:** SHA-256 (now) → SHA-384 or SHA3-256 (when quantum timeline firms up) → field bump + 30-day notice per governance model.
+**Path:** SHA-256 (now) → SHA-384 or SHA3-256 (quantum timeline) → field bump + 30-day governance notice.
 
-## What's Built (~80%)
+---
 
-- `@aidprotocol/trust-compute` on npm (v3.0.0, MIT, SHA-256 aligned)
-- `@aidprotocol/mcp-trust` on npm (v1.1.0, one-line MCP integration)
-- All @aidprotocol packages moved to `aidprotocol/aid-spec` repo (March 24)
-- Middleware for Hono/Express/Fastify (`aid-spec/packages/middleware/`)
-- Ed25519 signing + JCS + base58btc (production in ClawNet)
-- Merkle tree + proof gen/verify (production)
-- Offline AID verification (production)
-- AID registration + key rotation (production)
-- Trust snapshots 4h cron (production)
-- Heartbeat endpoint (production)
-- Trust-gated pricing logic (production)
-- Public trust API — GET /v1/aid/:did/trust (production)
-- Pedersen commitment privacy option (production)
-- Protocol-level canary (production)
-- Trust score explanation API (production)
-- /.well-known/aid.json + aid-platform-key (production)
+## What's Built (Production)
+
+All running on ClawNet VPS (`guardian@24.199.121.137:3402`):
+
+- `@aidprotocol/trust-compute` v4.0.0 on npm (MIT, SHA-256, clean protocol boundary)
+- `@aidprotocol/mcp-trust` v1.1.0 on npm (one-line MCP integration)
+- All @aidprotocol packages in `aidprotocol/aid-spec` repo
+- Middleware for Hono/Express/Fastify
+- Ed25519 signing + JCS + base58btc
+- Merkle tree + proof gen/verify
+- Offline AID verification
+- AID registration + key rotation
+- Trust snapshots 4h cron
+- Heartbeat endpoint + /.well-known/aid.json
+- Trust-gated pricing logic
+- Public trust API (GET /v1/aid/:did/trust)
+- Pedersen commitment privacy option
+- Protocol-level canary
+- Trust score explanation API
+
+---
+
+## v1.0 Spec Work — COMPLETE
+
+All spec content is in `aid-spec/protocols/aid-trust/spec.md` (~1,230 lines).
+
+### Audit Fixes (AF-1 through AF-6)
+- ✅ AF-1: signing.json + validation-suite.ts SHA-384 → SHA-256
+- ✅ AF-2: Verification multiplier separated from canonical formula (new Section 4.1.1)
+- ✅ AF-3: Spec example shows base score 79 with real proofHash
+- ✅ AF-4: Abstract error code count fixed (6 → 5)
+- ✅ AF-5: trust-compute v4.0.0 — `getTrustVerdict()` returns `{ verdict }` only
+- ✅ AF-6: validation-suite.ts imports from `@aidprotocol/trust-compute`
+
+### Spec Extraction (from AIDplan)
+- ✅ A.1–A.10: Identity, scoring, mutual auth, anti-gaming (715 lines)
+- ✅ D.1: ABNF headers (Section 5.2.1, RFC 5234)
+- ✅ D.2: JSON Schema (Section 5.2.2, draft 2020-12)
+- ✅ D.3: Signing input canonical form (Section 5.3)
+- ✅ D.5: Error semantics (Section 8.2, 5 AID_* codes)
+- ✅ D.6: Conformance levels (Section 10, Level 1 + Level 2)
+- ✅ D.7: RFC 9421 compatibility note (Section 8.4)
+- ✅ D.8: Protocol/product boundary (spec abstract + composability.md)
+
+### New Spec Content
+- ✅ Deterministic arithmetic (Section 4.1.2) — 6-step algorithm, IEEE 754, roundHalfUp, cross-language table
+- ✅ Threat model summary (Appendix E) — attack costs, Nash equilibrium, anti-gaming, known limitations
+- ✅ KERI compatibility (Appendix D.1) — key rotation, self-certifying IDs, witness model
+- ✅ ACDC interop (Appendix D.2) — trust scores as ACDCs, attestation chains
+- ✅ W3C Data Integrity (Appendix D.3) — eddsa-jcs-2022 mapping
+- ✅ NIST SP 800-63 (Appendix D.4) — verdict-to-IAL framing
+- ✅ DID:webs (Appendix D.5) — evolution path from did:key to did:webs
+- ✅ Sensitivity analysis (Appendix C) — weight ±5 tables, robustness summary
+- ✅ RATS vocabulary (Appendix B) — RFC 9334 role + data flow mapping
+
+### Test Vectors
+- ✅ 8 concrete vectors with SHA-256 proof hashes (trust-score.json)
+- ✅ Full intermediate values (volume, d1–d4, rawScore, jcsCanonical)
+- ✅ Signing vector regenerated for SHA-256 (signing.json)
+- ✅ Python cross-language validator (trust-score-validate.py)
+
+---
+
+## v1.0 Validation — IN PROGRESS
+
+### Security Test Harness (34 tests)
+
+Built as `aid_trust_harness.py` inside msaleme's `red-team-blue-team-agent-fabric` (cloned locally).
+
+| Category | Tests | Spec Coverage |
+|----------|-------|---------------|
+| **identity** (6) | AID-001–006 | 3.1, 3.2, 3.4, 3.5, 6.1, 6.2 |
+| **scoring** (10) | AID-010–019 | 4.1, 4.1.1, 4.1.2, 4.3, 4.4, 4.5, 4.6, 4.7, 9.1 |
+| **mutual_auth** (6) | AID-020–025 | 5.3, 5.4, 6.3, 8.2 |
+| **anti_gaming** (3) | AID-060–062 | 3.5 rate limits, E.3 self-feedback, C.3 Sybil |
+| **privacy** (2) | AID-030–031 | 7.1 public, 7.2 owner-only |
+| **error_semantics** (3) | AID-040–042 | 8.2 (all 5 AID_* codes) |
+| **gdpr** (1) | AID-070 | 7.4 erasure |
+| **crypto** (1) | AID-050 | 3.3 agility |
+
+**Not testable externally:** Section 2 (design principles), Section 4.2 (trust input hierarchy — needs AID-Receipt).
+
+### Validation Status
+- ✅ Harness written (34 tests, 8 categories)
+- ✅ Registered in msaleme CLI as `aid-trust` module
+- ⬜ Run against ClawNet on VPS
+- ⬜ Run msaleme's existing modules (identity, mcp, x402) against ClawNet
+- ⬜ Run Python cross-language validator on VPS
+- ⬜ Analyze results, fix any failures
+
+---
+
+## v1.0 DIF Submission — TODO
+
+- ⬜ Rewrite DIF slides — present ONLY what AID-Trust delivers today
+- ⬜ Submit AID-Trust to DIF TAAWG as focused spec
+- ⬜ Submit NIST NCCoE comment (document at `aid-spec/docs/nist-nccoe-comment.md`)
+- ⬜ O7: External implementer — revised to non-blocking for initial submission. Outreach during review period is stronger leverage.
+
+---
+
+## v1.1 Roadmap — Behavioral Trust
+
+> The Satoshi insight: don't try to detect bad actors — make badness physically impossible to fake.
+
+v1.0 trust is based on DECLARED behavior (attestation counts, success rates). v1.1 adds EMERGENT behavioral signals that are unfakeable because they're side effects of actual computation.
+
+### 5th Dimension: Behavioral Authenticity
+
+Five signals, measured at the protocol level:
+
+1. **Latency plausibility** — if you claim to call 3 APIs, your response time must be ≥ sum of those API latencies. You can't be faster than the speed of light. Unfakeable by physics.
+2. **Output entropy** — real data follows Zipf's law and domain-specific distributions. Fake responses have different entropy. Measurable without seeing the actual content (hash-based entropy estimation).
+3. **Interaction topology** — honest agents form power-law interaction graphs. Sybil networks form dense clusters. The SHAPE of your interaction graph reveals what you are.
+4. **Temporal fingerprint** — real services have circadian patterns. Bots run flat 24/7. Temporal autocorrelation is a behavioral signature expensive to fake over months.
+5. **Cross-signal correlation** — any ONE signal can be faked. Faking ALL simultaneously is computationally intractable. Like an animal reading posture + heart rate + pupil dilation + movement — the correlation IS the detection.
+
+### Why This Matters
+
+Current v1.0 security argument: "gaming costs $80 to reach score 80, which is irrational given detection probability p > 0.002."
+
+v1.1 argument: "gaming requires faking correlated behavioral signals that emerge from actual computation. The cost of faking is not dollars — it's doing the actual work, which defeats the purpose of gaming."
+
+### Implementation Notes
+
+- Attestations already record `totalLatencyMs` and `stepEndpoints` — latency plausibility is measurable TODAY
+- `counterpartyDiversity` (v1.1 5th dimension from AIDplan) measures interaction topology
+- Temporal patterns measurable from existing attestation timestamps
+- No changes to v1.0 protocol needed — v1.1 adds dimensions, doesn't break existing
+
+---
+
+## v1.1 Roadmap — Cost-Based Security Bound
+
+> The equilibrium doesn't depend on detection probability. It depends on the cost of building trust.
+
+### The Math
+
+Current spec says equilibrium holds for p > 0.088. But the real bound is:
+
+```
+p_min = benefit_per_round / (cost_to_rebuild + NPV_future_earnings)
+p_min = $2.40 / ($80 + $1,140) = $2.40 / $1,220 = 0.002
+```
+
+The equilibrium holds for **p > 0.2%** — a 75x safety margin over the estimated p=0.15.
+
+**Why:** The trust score IS the stake. Building it costs real money and time ($80+ over months). Gaming risks losing all of it. The security comes from the COST of building trust, not from detecting attackers.
+
+### Spec Addition (Section 8.5)
+
+Add "Cost-Based Security Bound" to aid-spec spec.md:
+- Formal proof that equilibrium holds for p > 0.002
+- Independent of detection mechanism — pure economic argument
+- Shows 75x safety margin
+- No new code — just math that strengthens the existing spec
+
+---
+
+## Deferred (not blocking DIF submission)
+
+- ⬜ IPLD encoding note — relevant to Phase 2+ decentralization
+- ⬜ OpenTelemetry mapping — observability, not protocol
+- ⬜ Biscuit token evaluation — tangential to trust scoring
+- ⬜ Profile registry governance — wait until profiles exist to govern
+- ⬜ Simulation harness (10K agents × 100K rounds) — sensitivity analysis is sufficient for DIF
+- ⬜ Rust cross-language validator — defer until external demand
+
+---
 
 ## Audit Findings (March 24)
 
-Cross-referenced every plan item against aid-spec repo contents. Found 6 issues in existing work that must be fixed before building new spec content.
+> All 6 findings resolved. Preserved here for reference.
 
-### AF-1: SHA-256 alignment incomplete [aid-spec repo]
+<details>
+<summary>AF-1 through AF-6 (click to expand)</summary>
 
-`test-vectors/signing.json` and `test-vectors/validation-suite.ts` still use SHA-384 from before the v3.0.0 alignment. Spec, trust-compute, and trust-score.json all use SHA-256. These two files contradict the spec and will confuse any implementer.
+### AF-1: SHA-256 alignment incomplete
+`signing.json` and `validation-suite.ts` used SHA-384. Fixed: regenerated with SHA-256, verified intermediates.
 
-**Fix:** Update both files to SHA-256. Also fix validation-suite.ts imports — currently reference ClawNet internals (`../../src/utils/jcs`, `../../src/core/credits`, `../../src/utils/crypto-agility`), making the suite non-portable. Should import from `@aidprotocol/trust-compute` instead.
+### AF-2: Verification multiplier in canonical formula
+Spec and implementation disagreed. Fixed: separated base score (canonical, in proof hash) from verification adjustment (application layer, Section 4.1.1).
 
-### AF-2: Verification multiplier not in canonical formula [spec + trust-compute]
+### AF-3: Spec example score mismatch
+Section 3.2 showed score 87 (with multiplier). Fixed: shows base score 79 with real proofHash, note explains multiplier adjustment.
 
-Spec Section 4.1 says `finalScore = min(100, round(rawScore * verificationMultiplier))`. But `computeTrustScore()` does NOT accept or apply a multiplier. The proof hash covers the base score only — which is correct, because verification status is dynamic (linking/unlinking external identities). If the multiplier were canonical, proof hashes would change with verification state, breaking "same inputs → same hash."
+### AF-4: Error code count
+Abstract said 6, table had 5. Fixed: abstract says 5.
 
-**Fix:** Update spec Section 4.1 to separate clearly. Canonical formula = base score (4-dimension weighted sum → round → clamp). Verification multiplier = separate application-layer adjustment documented in spec but NOT part of proof hash computation. Update spec example in Section 3.2 (currently shows score 87 = round(78.74 × 1.1), should show base score 79 with a note about multiplier adjustment).
+### AF-5: trust-compute settlement leak
+`getTrustVerdict()` returned `{ verdict, discount, settlementMode }`. Fixed: returns `{ verdict }` only. v4.0.0.
 
-### AF-3: Spec example score doesn't match test vectors [spec]
+### AF-6: validation-suite.ts not portable
+Imported ClawNet internals. Fixed: imports from `@aidprotocol/trust-compute`.
 
-Section 3.2 example shows score 87 for the ts-001 inputs (successRate=0.95, chainCoverage=0.88, attestationCount=247, manifestAdherence=0.92). Test vector ts-001 gives score 79 for identical inputs. The discrepancy is the verification multiplier being silently applied in the example.
-
-**Fix:** Covered by AF-2. Update example to base score 79 or explicitly show the multiplier step.
-
-### AF-4: Abstract error code count wrong [spec]
-
-Spec abstract (line 31) says "6 AID_* error codes" but Section 8.2 table lists 5 (SIGNATURE_INVALID, TRUST_GATE_BLOCKED, VERSION_UNSUPPORTED, NONCE_REPLAY, PROOF_MISSING).
-
-**Fix:** Change abstract to "5 AID_* error codes."
-
-### AF-5: trust-compute leaks AID-Settle concepts [npm package]
-
-`getTrustVerdict()` in `@aidprotocol/trust-compute` returns `{ verdict, discount, settlementMode }`. But composability.md explicitly says "AID-Trust's spec contains NO settlement concepts." The canonical AID-Trust package violates the protocol boundary.
-
-**Fix (short-term):** Add JSDoc noting `discount` and `settlementMode` are convenience defaults from AID-Settle, not AID-Trust spec. Spec Section 4.4 is already clean (no settlement concepts).
-**Fix (v4.0.0):** `getTrustVerdict()` returns `{ verdict }` only. Settlement terms move to `@aidprotocol/settle-compute` or a separate export.
-
-### AF-6: validation-suite.ts not portable [aid-spec repo]
-
-Imports reference ClawNet internals (`../../src/utils/jcs`, `../../src/core/credits`, `../../src/utils/crypto-agility`). Cannot run from aid-spec standalone. The spec's own test suite should be self-contained or import from published packages.
-
-**Fix:** Rewrite imports to use `@aidprotocol/trust-compute` (which exports `jcsSerialize`). Trust verdict test should use `getTrustVerdict()` from the package. Crypto agility tests may need a minimal inline implementation or new package export.
-
-## What's Left to Build
-
-### Spec Fixes (from audit — do first)
-- [x] AF-1: Fix signing.json + validation-suite.ts SHA-384 → SHA-256 — regenerated signing vector with correct SHA-256 intermediates, March 24
-- [x] AF-2: Separate verification multiplier from canonical formula in spec Section 4.1 — added Section 4.1.1 (application layer), clarified proof hash covers base score only, March 24
-- [x] AF-3: Fix spec Section 3.2 example to show base score 79 — updated with real proofHash, added note showing verification adjustment to 87, March 24
-- [x] AF-4: Fix abstract error code count (6 → 5) — March 24
-- [x] AF-5: Clean break on trust-compute `getTrustVerdict()` — returns `{ verdict }` only, removed discount/settlementMode (AID-Settle concerns), bumped to v4.0.0, March 24
-- [x] AF-6: Fix validation-suite.ts imports to use `@aidprotocol/trust-compute` — rewrote with SHA-256, portable imports, added protocol boundary test, March 24
-
-### Spec Extraction (populate aid-spec/protocols/aid-trust/spec.md)
-- [x] Extract Part 2 A.1-A.10 from AIDplan → spec.md (identity, scoring, mutual auth, anti-gaming) — 715 lines, March 24
-- [x] D.1: ABNF headers → spec.md Section 5.2.1. RFC 5234 grammar for all 9 AID-Trust headers + X-AID-NEW, shared rules for date-time-z, base58btc-char, base64url-char. March 24.
-- [x] D.2: JSON Schema (TrustScoreResult, HeartbeatResponse, TrustVerdict) → spec.md Section 5.2.2. JSON Schema draft 2020-12, directly executable for validation. March 24.
-- [x] D.3: signing input canonical form → spec.md — Section 5.3
-- [x] D.5: error semantics → spec.md — Section 8.2 (5 AID-Trust codes, rest are AID-Settle)
-- [x] D.6: conformance levels (Level 1 Core, Level 2 Trust) → spec.md — Section 10
-- [x] D.7: RFC 9421 alignment → spec.md Section 8.4. Compatibility note: why AID uses purpose-built signing (DID binding, body commitment, mutual auth, simplicity), concept mapping table, migration path to RFC 9421 profile. March 24.
-- [x] D.8: protocol/product boundary — covered by spec abstract ("IS / IS NOT" sections) + composability.md cross-protocol design. Marked done in March 24 audit.
-
-### New Spec Content (doesn't exist yet in AIDplan)
-- [x] Deterministic arithmetic spec (Opus #16 — CRITICAL for DIF). Added Section 4.1.2 with 6-step numbered algorithm, IEEE 754 binary64 requirement, explicit roundHalfUp mode, left-to-right evaluation order, cross-language implementation table (JS/Python/Rust/Go), worked example showing exact IEEE 754 intermediate values. March 24.
-- [x] Threat model summary — spec Appendix E with attack cost table, top 5 threats, anti-gaming layers, Nash equilibrium, known limitations. March 24.
-- [x] KERI compatibility note (Opus #10) — spec Appendix D.1. Key rotation model, self-certifying identifiers, witness model alignment. March 24.
-- [x] ACDC interop note (Opus #11) — spec Appendix D.2. Trust scores expressible as ACDCs, attestation chains as ACDC chains. March 24.
-- [ ] IPLD encoding note (Opus #12). Lower priority — relevant to Phase 2+ decentralization, not DIF submission.
-- [ ] OpenTelemetry mapping note (Opus #13). Lower priority — observability tooling, not differentiating for DIF.
-- [ ] Biscuit token evaluation note (Opus #14). Lowest priority — authorization tokens, tangential to trust scoring.
-- [ ] Profile registry governance (Opus #17)
-
-### Standards Vocabulary Alignment (Opus audit, March 24)
-- [x] IETF RFC 9334 (RATS Architecture) — Appendix B with role mapping (Attester/Verifier/Relying Party/Endorser), data flow mapping (Evidence/Attestation Result/Reference Values), architectural differences (behavioral trust + offline verification). March 24.
-- [x] W3C Data Integrity proof format — spec Appendix D.3. Shows eddsa-jcs-2022 mapping from AID platformCountersignature. March 24.
-- [x] NIST SP 800-63 assurance level framing — spec Appendix D.4. Verdict-to-IAL mapping table. March 24.
-- [x] DID:webs trust anchoring — spec Appendix D.5. Evolution path from did:key + did:web to did:webs. March 24.
-
-### Validation
-- [ ] E2E scenario conformance tests (Opus #18)
-- [ ] Run against external harnesses (msaleme v3.6.0, rsbasic mesh, AIWG vectors)
-- [x] Concrete test vectors with exact SHA-256 proof hashes — 8 vectors in test-vectors/trust-score.json (March 24)
-- [x] Intermediate value test vectors — all 7 positive vectors now include full intermediates: volume, d1, d2, d3, d4, rawScore. IEEE 754 exact values (e.g., d3=4.9399999999999995). Two vectors include jcsCanonical. March 24.
-- [x] Cross-language test vectors — Python validation script (test-vectors/trust-score-validate.py) with roundHalfUp, JCS, SHA-256. Rust deferred until external demand. March 24.
-- [x] Sensitivity analysis — spec Appendix C. Weight ±5 tables, robustness summary, key findings (formula robust, Sybil self-limiting, volume low-sensitivity). March 24.
-
-## What's Left to Ship (DIF Submission)
-
-- [ ] **⚠️ Submit NIST NCCoE comment — DEADLINE APRIL 2 (9 days).** Document exists at `aid-spec/docs/nist-nccoe-comment.md` (96 lines). Confirm whether submitted or submit immediately.
-- [ ] Get 1 external MCP server operator running mcp-trust — **HIGHEST ROI ACTION** (transforms narrative from "one company" to "emerging ecosystem")
-- [ ] Rewrite DIF slides — present ONLY what AID-Trust does today (identity, scoring, Merkle verification, mutual auth). Do NOT mention EigenTrust, simulation results, or settlement.
-- [ ] Submit AID-Trust to DIF TAAWG as focused spec
-
-### DIF Submission Must-Haves (before submitting)
-- [ ] Audit findings AF-1 through AF-6 resolved (existing work must be consistent)
-- [x] R2 closed — deterministic arithmetic with intermediate test vectors (Section 4.1.2 + trust-score.json, March 24)
-- [x] ABNF (D.1) + JSON Schema (D.2) in spec — Section 5.2.1 + 5.2.2, March 24
-- [x] RFC 9421 compatibility note in spec — Section 8.4, March 24
-- [ ] At least 1 external implementer (O7)
-
-### DIF Submission Nice-to-Haves (strengthen but don't block)
-- [x] RATS vocabulary alignment — Appendix B, March 24
-- [x] Sensitivity analysis for scoring parameters (R1) — Appendix C, March 24
-- [x] KERI + ACDC compatibility notes — Appendix D.1 + D.2, March 24
-- [x] Cross-language reference implementations — Python validator, March 24
-- [ ] Simulation harness results
-
-## Recommended Build Order
-
-1. **Fix AF-1 through AF-6** — prerequisite, existing work must be consistent before building new
-2. **Submit NIST NCCoE comment** — deadline April 2, time-sensitive
-3. **R2: Deterministic arithmetic** — hardest must-have, unblocks intermediate test vectors
-4. **D.1: ABNF headers** — mechanical spec writing, ~30 min
-5. **D.2: JSON Schema** — mechanical spec writing, ~30 min
-6. **D.7: RFC 9421 note** — mechanical spec writing, ~30 min
-7. **O7: External implementer outreach** — parallel, user-driven, highest ROI
-8. **Nice-to-haves** — RATS vocabulary first, then KERI/ACDC, then sensitivity analysis
-
-## AIDplan Source Sections
-
-Content to extract from AIDplan:
-- Part 2 A (A.1-A.10): Identity + trust scoring + mutual auth
-- Part 2 D (D.1-D.8): Formal definitions (ABNF, JSON Schema, signing, errors, conformance)
-- Part 3 A: Threat model + attack vectors (trust-relevant subset)
-- Part 3 B: Anti-gaming defenses
-- Part 3 E: MCP ecosystem security
-- Part 3 F: Infrastructure security
+</details>
