@@ -9,6 +9,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { checkApiKey } from '../middleware/auth';
+import { checkAidProof, checkAidNew } from '../middleware/aid-auth';
 import { deductCredit, logAudit } from '../db/index';
 import { cacheIncr } from '../cache/index';
 import { trackDelegatedSpend } from '../utils/billing';
@@ -85,6 +86,19 @@ function resolveBillingKey(keyInfo: Record<string, unknown>): string {
 }
 
 /**
+ * Get caller DID from AID-native auth (checkAidProof).
+ * Verifies the authenticated DID matches the :did route parameter.
+ * Returns the DID or null if mismatch.
+ */
+function getAidCallerDid(c: any): string | null {
+  const aidProof = c.get('aidProofInfo');
+  if (!aidProof?.did) return null;
+  const routeDid = c.req.param('did');
+  if (routeDid && aidProof.did !== routeDid) return null; // can only act on own DID
+  return aidProof.did;
+}
+
+/**
  * Lightweight rate limit for public (unauthenticated) endpoints.
  * Uses IP address as the key. Returns true if rate limit exceeded.
  */
@@ -101,9 +115,78 @@ async function checkPublicRateLimit(c: any): Promise<boolean> {
 
 const router = new Hono();
 
-// ─── POST /register — Create AID for authenticated agent ─────────────────────
-router.post('/register', checkApiKey, async (c) => {
-  const keyInfo = c.get('apiKeyInfo');
+// ─── POST /register — Create AID (X-AID-NEW public or API key) ──────────────
+router.post('/register', async (c) => {
+  const aidNewName = c.req.header('x-aid-new');
+  const hasApiKey = !!c.req.header('x-api-key');
+
+  // Route 1: Public registration via X-AID-NEW (no API key required)
+  if (aidNewName) {
+    // Validate agent name
+    if (!/^[a-zA-Z0-9_-]{1,63}$/.test(aidNewName)) {
+      return c.json({ error: 'Agent name must be 1-63 chars (alphanumeric, hyphen, underscore)', code: 'INVALID_BODY' }, 400);
+    }
+
+    // Rate limit by IP: 3 per 24h per spec Section 3.5
+    const ip = c.req.header('x-forwarded-for')?.split(',')[0]?.trim()
+      || c.req.header('x-real-ip')
+      || 'unknown';
+    const rateLimitKey = `aid:new:${ip}`;
+    const count = await cacheIncr(rateLimitKey, 86400);
+    if (count > 3) {
+      return c.json({ error: 'Rate limit: 3 AIDs per IP per 24h', code: 'AID_RATE_LIMITED' }, 429);
+    }
+
+    // Generate keypair (no BYOK for public registration)
+    const aidBuilder = await getAidBuilder();
+    const aidDb = await getAidDb();
+    const keypair = await aidBuilder.generateAgentKeypair();
+
+    // Store with a synthetic owner key (the DID itself, since no API key)
+    const { id: aidKeyId } = aidDb.createAidKey({
+      ownerKey: keypair.did,
+      publicKeyMultibase: keypair.publicKeyMultibase,
+      did: keypair.did,
+      displayName: aidNewName,
+    });
+
+    logAudit({ entityType: 'aid', entityId: keypair.did, action: 'register_public', actorId: ip });
+    logger.info({ did: keypair.did, agentName: aidNewName, ip }, 'AID registered via X-AID-NEW');
+
+    const aidDocument = aidBuilder.buildAIDDocument(keypair.did);
+
+    return c.json({
+      did: keypair.did,
+      publicKeyMultibase: keypair.publicKeyMultibase,
+      privateKeySeed: keypair.privateKeySeed,
+      ...(keypair.mnemonic ? { mnemonic: keypair.mnemonic } : {}),
+      ...(keypair.evmAddress ? { evmAddress: keypair.evmAddress } : {}),
+      aidDocument,
+      warning: 'Save your privateKeySeed/mnemonic now — returned ONCE, never stored.',
+    }, 201);
+  }
+
+  // Route 2: Authenticated registration via ClawNet API key (existing behavior)
+  if (!hasApiKey) {
+    return c.json({
+      error: 'Provide X-AID-NEW header (public) or X-API-Key (ClawNet)',
+      code: 'AID_PROOF_MISSING',
+    }, 428);
+  }
+
+  // Run checkApiKey middleware manually for the API key path
+  let keyInfo: any;
+  try {
+    const { getApiKey, getDelegationInfo } = await import('../db/index');
+    const rawKey = c.req.header('x-api-key') || '';
+    const row = getApiKey(rawKey);
+    if (!row) return c.json({ error: 'Invalid API key', code: 'INVALID_API_KEY' }, 401);
+    keyInfo = row;
+    c.set('apiKeyInfo', keyInfo);
+  } catch {
+    return c.json({ error: 'Auth error', code: 'INVALID_API_KEY' }, 401);
+  }
+
   const billingKey = resolveBillingKey(keyInfo as unknown as Record<string, unknown>);
 
   let body: z.infer<typeof RegisterSchema>;
@@ -251,10 +334,12 @@ router.get('/:did/trust-chain', async (c) => {
 });
 
 // ─── POST /:did/attest — Add cross-platform attestation ─────────────────────
-router.post('/:did/attest', checkApiKey, async (c) => {
+router.post('/:did/attest', checkAidProof, async (c) => {
   const did = c.req.param('did');
-  const keyInfo = c.get('apiKeyInfo');
-  const billingKey = resolveBillingKey(keyInfo as unknown as Record<string, unknown>);
+  const callerDid = getAidCallerDid(c);
+  if (!callerDid) {
+    return c.json({ error: 'DID mismatch: you can only attest for your own AID', code: 'AID_NOT_OWNED' }, 403);
+  }
 
   let body: z.infer<typeof AttestSchema>;
   try {
@@ -264,8 +349,8 @@ router.post('/:did/attest', checkApiKey, async (c) => {
     return c.json({ error: message, code: 'INVALID_BODY' }, 400);
   }
 
-  // Rate limit: 50/hr
-  const rateLimitKey = `aid:attest:${billingKey}`;
+  // Rate limit: 50/hr per DID
+  const rateLimitKey = `aid:attest:${callerDid}`;
   const count = await cacheIncr(rateLimitKey, 3600);
   if (count > ATTEST_RATE_LIMIT) {
     return c.json({ error: 'Attestation rate limit exceeded (50/hr)', code: 'RATE_LIMIT_EXCEEDED' }, 429);
@@ -278,20 +363,10 @@ router.post('/:did/attest', checkApiKey, async (c) => {
     return c.json({ error: 'AID not found', code: 'AID_NOT_FOUND' }, 404);
   }
 
-  // Ownership check: only the AID owner can add attestations to their identity
-  if (billingKey !== aidKey.owner_key) {
-    return c.json({ error: 'Only the AID owner can add attestations', code: 'AID_NOT_OWNED' }, 403);
-  }
-
-  // Deduct credits
-  const deducted = deductCredit(billingKey, ATTEST_COST);
-  if (!deducted) {
-    return c.json({ error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS' }, 402);
-  }
-  trackDelegatedSpend(keyInfo, ATTEST_COST);
+  // AID-native auth: signature proves DID ownership — no separate ownership check needed
 
   const attestation = aidDb.addCrossPlatformAttestation({
-    ownerKey: billingKey,
+    ownerKey: callerDid,
     did,
     platform: body.platform,
     attestationType: body.attestationType,
@@ -303,7 +378,7 @@ router.post('/:did/attest', checkApiKey, async (c) => {
     entityType: 'aid',
     entityId: did,
     action: 'cross_platform_attest',
-    actorId: billingKey,
+    actorId: callerDid,
     data: { platform: body.platform, attestationType: body.attestationType },
   });
 
@@ -355,10 +430,12 @@ router.post('/verify', async (c) => {
 });
 
 // ─── GET /:did/export — Full AID export with fresh snapshot ─────────────────
-router.get('/:did/export', checkApiKey, async (c) => {
+router.get('/:did/export', checkAidProof, async (c) => {
   const did = c.req.param('did');
-  const keyInfo = c.get('apiKeyInfo');
-  const billingKey = resolveBillingKey(keyInfo as unknown as Record<string, unknown>);
+  const callerDid = getAidCallerDid(c);
+  if (!callerDid) {
+    return c.json({ error: 'DID mismatch: you can only export your own AID', code: 'AID_NOT_OWNED' }, 403);
+  }
 
   const aidDb = await getAidDb();
   const aidBuilder = await getAidBuilder();
@@ -367,18 +444,6 @@ router.get('/:did/export', checkApiKey, async (c) => {
   if (!aidKey) {
     return c.json({ error: 'AID not found', code: 'AID_NOT_FOUND' }, 404);
   }
-
-  // Must own the AID
-  if (billingKey !== aidKey.owner_key) {
-    return c.json({ error: 'You do not own this AID', code: 'AID_NOT_OWNED' }, 403);
-  }
-
-  // Deduct credits
-  const deducted = deductCredit(billingKey, EXPORT_COST);
-  if (!deducted) {
-    return c.json({ error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS' }, 402);
-  }
-  trackDelegatedSpend(keyInfo, EXPORT_COST);
 
   // Build fresh snapshot
   aidBuilder.buildTrustSnapshot(did, aidKey.owner_key);
@@ -398,7 +463,7 @@ router.get('/:did/export', checkApiKey, async (c) => {
   // Prune old snapshots (keep last 50 per DID)
   aidDb.pruneSnapshots(did, 50);
 
-  logAudit({ entityType: 'aid', entityId: did, action: 'export', actorId: billingKey });
+  logAudit({ entityType: 'aid', entityId: did, action: 'export', actorId: callerDid });
 
   return c.json({
     aidDocument,
@@ -410,10 +475,12 @@ router.get('/:did/export', checkApiKey, async (c) => {
 });
 
 // ─── POST /:did/rotate-key — Rotate agent's Ed25519 key ─────────────────────
-router.post('/:did/rotate-key', checkApiKey, async (c) => {
+router.post('/:did/rotate-key', checkAidProof, async (c) => {
   const did = c.req.param('did');
-  const keyInfo = c.get('apiKeyInfo');
-  const billingKey = resolveBillingKey(keyInfo as unknown as Record<string, unknown>);
+  const callerDid = getAidCallerDid(c);
+  if (!callerDid) {
+    return c.json({ error: 'DID mismatch: you can only rotate your own key', code: 'AID_NOT_OWNED' }, 403);
+  }
 
   let body: z.infer<typeof RotateKeySchema>;
   try {
@@ -439,25 +506,12 @@ router.post('/:did/rotate-key', checkApiKey, async (c) => {
     return c.json({ error: 'AID not found', code: 'AID_NOT_FOUND' }, 404);
   }
 
-  // Must own the AID
-  if (billingKey !== aidKey.owner_key) {
-    return c.json({ error: 'You do not own this AID', code: 'AID_NOT_OWNED' }, 403);
-  }
-
-  // Deduct credits
-  const deducted = deductCredit(billingKey, ROTATE_KEY_COST);
-  if (!deducted) {
-    return c.json({ error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS' }, 402);
-  }
-  trackDelegatedSpend(keyInfo, ROTATE_KEY_COST);
-
   let newPublicKeyMultibase: string;
   let privateKeySeed: string | undefined;
 
   if (body.newPublicKey) {
     newPublicKeyMultibase = body.newPublicKey;
   } else {
-    // Key rotation uses random keypair (no mnemonic — rotated keys are standalone)
     const keypair = aidBuilder.generateRandomKeypair();
     newPublicKeyMultibase = keypair.publicKeyMultibase;
     privateKeySeed = keypair.privateKeySeed;
@@ -468,7 +522,7 @@ router.post('/:did/rotate-key', checkApiKey, async (c) => {
 
   // Create new key record
   const { id: newKeyId } = aidDb.createAidKey({
-    ownerKey: billingKey,
+    ownerKey: callerDid,
     publicKeyMultibase: newPublicKeyMultibase,
     did,
     displayName: aidKey.display_name || undefined,
@@ -480,7 +534,7 @@ router.post('/:did/rotate-key', checkApiKey, async (c) => {
 
   // Update agent_identities if linked
   try {
-    aidDb.setIdentityAid(billingKey, did, newPublicKeyMultibase, newKeyId);
+    aidDb.setIdentityAid(callerDid, did, newPublicKeyMultibase, newKeyId);
   } catch {
     // best-effort
   }
@@ -489,11 +543,11 @@ router.post('/:did/rotate-key', checkApiKey, async (c) => {
     entityType: 'aid',
     entityId: did,
     action: 'rotate_key',
-    actorId: billingKey,
+    actorId: callerDid,
     data: { previousKey, newKey: newPublicKeyMultibase },
   });
 
-  logger.info({ did, ownerKey: billingKey }, 'AID key rotated');
+  logger.info({ did, ownerDid: callerDid }, 'AID key rotated');
 
   return c.json({
     did,
@@ -612,7 +666,7 @@ router.get('/:did/did.json', async (c) => {
 });
 
 // ─── POST /:did/freeze — Guardian freezes an AID (key compromise recovery) ──
-router.post('/:did/freeze', checkApiKey, async (c) => {
+router.post('/:did/freeze', checkAidProof, async (c) => {
   const did = c.req.param('did');
   const keyInfo = c.get('apiKeyInfo');
   const billingKey = resolveBillingKey(keyInfo as unknown as Record<string, unknown>);
@@ -623,22 +677,20 @@ router.post('/:did/freeze', checkApiKey, async (c) => {
     return c.json({ error: 'AID not found', code: 'AID_NOT_FOUND' }, 404);
   }
 
-  // Must be the guardian OR the owner
-  const isGuardian = (aidKey as any).guardian_address && billingKey === (aidKey as any).guardian_address;
-  const isOwner = billingKey === aidKey.owner_key;
-  if (!isGuardian && !isOwner) {
-    return c.json({ error: 'Only the AID owner or guardian can freeze', code: 'AID_NOT_AUTHORIZED' }, 403);
+  const callerDid = getAidCallerDid(c);
+  if (!callerDid) {
+    return c.json({ error: 'DID mismatch: you can only freeze your own AID', code: 'AID_NOT_OWNED' }, 403);
   }
 
   const { getDb } = await import('../db/connection');
   getDb().prepare(`
     UPDATE aid_keys SET frozen = 1, frozen_at = datetime('now'), frozen_by = ?, updated_at = datetime('now')
     WHERE did = ? AND key_status = 'active'
-  `).run(billingKey, did);
+  `).run(callerDid, did);
 
-  logAudit({ entityType: 'aid', entityId: did, action: 'freeze', actorId: billingKey });
+  logAudit({ entityType: 'aid', entityId: did, action: 'freeze', actorId: callerDid });
 
-  return c.json({ did, frozen: true, frozenAt: new Date().toISOString(), frozenBy: billingKey });
+  return c.json({ did, frozen: true, frozenAt: new Date().toISOString(), frozenBy: callerDid });
 });
 
 // ─── POST /:did/heartbeat — Proof of Life (Autonomous Defense System) ─────────
@@ -656,22 +708,17 @@ router.post('/:did/freeze', checkApiKey, async (c) => {
 //   90 days overdue: auto-freeze
 // ─────────────────────────────────────────────────────────────────────────────
 
-router.post('/:did/heartbeat', checkApiKey, async (c) => {
+router.post('/:did/heartbeat', checkAidProof, async (c) => {
   const did = c.req.param('did');
-  const keyInfo = c.get('apiKeyInfo');
-  const billingKey = resolveBillingKey(keyInfo as unknown as Record<string, unknown>);
+  const callerDid = getAidCallerDid(c);
+  if (!callerDid) {
+    return c.json({ error: 'DID mismatch: you can only heartbeat your own AID', code: 'AID_NOT_OWNED' }, 403);
+  }
 
   const aidDb = await getAidDb();
   const aidKey = aidDb.getAidKey(did);
   if (!aidKey) {
     return c.json({ error: 'AID not found', code: 'AID_NOT_FOUND' }, 404);
-  }
-
-  // Must be the owner (or guardian)
-  const isGuardian = (aidKey as any).guardian_address && billingKey === (aidKey as any).guardian_address;
-  const isOwner = billingKey === aidKey.owner_key;
-  if (!isOwner && !isGuardian) {
-    return c.json({ error: 'Only the AID owner or guardian can submit heartbeats', code: 'AID_NOT_AUTHORIZED' }, 403);
   }
 
   const { getDb: getDatabase } = await import('../db/connection');
@@ -684,7 +731,7 @@ router.post('/:did/heartbeat', checkApiKey, async (c) => {
     WHERE did = ? AND key_status = 'active'
   `).run(now, now, did);
 
-  logAudit({ entityType: 'aid', entityId: did, action: 'heartbeat', actorId: billingKey });
+  logAudit({ entityType: 'aid', entityId: did, action: 'heartbeat', actorId: callerDid });
 
   const intervalDays = (aidKey as any).heartbeat_interval_days || 7;
   const nextDue = new Date(Date.now() + intervalDays * 86400000).toISOString();
@@ -700,19 +747,17 @@ router.post('/:did/heartbeat', checkApiKey, async (c) => {
 });
 
 // ─── DELETE /:did — GDPR right to erasure ────────────────────────────────────
-router.delete('/:did', checkApiKey, async (c) => {
+router.delete('/:did', checkAidProof, async (c) => {
   const did = c.req.param('did');
-  const keyInfo = c.get('apiKeyInfo');
-  const billingKey = resolveBillingKey(keyInfo as unknown as Record<string, unknown>);
+  const callerDid = getAidCallerDid(c);
+  if (!callerDid) {
+    return c.json({ error: 'DID mismatch: you can only delete your own AID', code: 'AID_NOT_OWNED' }, 403);
+  }
 
   const aidDb = await getAidDb();
   const aidKey = aidDb.getAidKey(did);
   if (!aidKey) {
     return c.json({ error: 'AID not found', code: 'AID_NOT_FOUND' }, 404);
-  }
-
-  if (billingKey !== aidKey.owner_key) {
-    return c.json({ error: 'Only the AID owner can delete', code: 'AID_NOT_OWNED' }, 403);
   }
 
   const { getDb } = await import('../db/connection');
@@ -727,7 +772,7 @@ router.delete('/:did', checkApiKey, async (c) => {
     `).run(did);
   })();
 
-  logAudit({ entityType: 'aid', entityId: did, action: 'gdpr_erase', actorId: billingKey });
+  logAudit({ entityType: 'aid', entityId: did, action: 'gdpr_erase', actorId: callerDid });
 
   return c.body(null, 204); // HTTP 204 No Content — fitting for x204
 });
