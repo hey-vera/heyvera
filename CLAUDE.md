@@ -1,5 +1,5 @@
 # ClawNet — CLAUDE.md
-
+Always stage commit push after major changes.
 Sovereign AI agent orchestration layer. Hono API on port 3402, SQLite WAL (better-sqlite3, raw SQL — no ORM), Redis L2 cache, Clerk auth, Stripe + USDC/Solana payments. Single-process Node on a VPS.
 
 ## Quick Reference
@@ -58,7 +58,7 @@ POST /v1/orchestrate → parseIntent(query) → optimizePlan(intent, pricing)
 ```
 
 - **Budget:** `{ maxCredits?, strategy: cheapest|balanced|fastest|reliable }`
-- **Cache hits** = 0 credits per step; full-query cache = 10% of live cost (min 0.1cr)
+- **Cache hits** = 10% of live cost (min 0.1cr) — small cache fee, no call cost to caller or provider
 - **Orchestration fee:** 2 credits per LLM-routed query (burned, not credited)
 - `checkBudget()` returns 402 pre-flight if plan exceeds `maxCredits`
 

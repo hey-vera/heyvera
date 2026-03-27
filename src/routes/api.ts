@@ -280,11 +280,12 @@ apiRouter.post('/orchestrate', async (c) => {
     const unchangedData = execution.steps.filter((s) => s.contentChanged === false && !s.cached).length;
     const totalDurationMs = Date.now() - start;
 
-    // Smart billing: content-hash-aware pricing
-    // - Cache hits (fresh): cache rate (10%)
-    // - Stale served (SWR): cache rate (10%)
-    // - Fresh fetch, data unchanged: cache rate (10%) — same data = same savings
-    // - Fresh fetch, data changed: full rate
+    // Smart billing: freshness-aware pricing
+    // - Cache hits (fresh): cache rate (10%) — no call made, small cache fee only
+    // - Stale served (SWR): cache rate (10%) — serving best available while refresh queued
+    // - Fresh fetch, data unchanged: cache rate (10%) — same data, no new work done
+    // - Fresh fetch, data changed: full rate — new data, full cost
+    // Neither caller nor provider pays for the call itself on cache hits.
     let stepCredits = 0;
     for (const step of execution.steps) {
       if (!step.success) continue;
@@ -292,10 +293,10 @@ apiRouter.post('/orchestrate', async (c) => {
       if (!ep) continue;
       const liveCost = creditCostForEndpoint(ep);
       if (step.cached || step.staleServed) {
-        // Cache or SWR hit — cache rate
+        // Cache or SWR hit — small cache fee, no call cost
         stepCredits += cacheCreditCost(liveCost);
       } else if (step.contentChanged === false) {
-        // Fresh fetch but data didn't change — charge cache rate (smart pricing)
+        // Fresh fetch but data didn't change — cache rate
         stepCredits += cacheCreditCost(liveCost);
       } else {
         // Fresh fetch with new data — full rate
