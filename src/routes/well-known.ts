@@ -8,6 +8,7 @@ import { Hono } from 'hono';
 import { env } from '../config/index';
 import { apiRegistry } from '../config/api-registry';
 import { getEd25519PublicKeyMultibase, getEd25519PublicKeyRaw } from '../utils/ed25519-signer';
+import { getHeartSafe } from '../core/soma';
 
 const router = new Hono();
 
@@ -693,6 +694,28 @@ router.get('/aid-platform-key', (c) => {
     kid: `${DID_ID}#key-1`,
     use: 'sig',
     alg: 'EdDSA',
+  });
+});
+
+// ── GET /soma.json — Soma Heart identity and provenance discovery ────────
+router.get('/soma.json', (c) => {
+  const heart = getHeartSafe();
+  if (!heart) return c.json({ enabled: false });
+  return c.json({
+    enabled: true,
+    protocol: 'soma',
+    version: '1.0.0',
+    did: {
+      soma: heart.did,
+      aid: 'did:web:api.claw-net.org',
+    },
+    genome: heart.genomeCommitment,
+    heartbeat: {
+      chainLength: heart.heartbeats.length,
+      headHash: heart.heartbeats.head,
+      alive: heart.isAlive,
+    },
+    publicKey: getEd25519PublicKeyRaw().toString('hex'),
   });
 });
 

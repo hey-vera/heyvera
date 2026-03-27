@@ -3,7 +3,8 @@ import { ParsedIntent } from './intent-parser';
 import { findEndpoint } from '../config/api-registry';
 import { cacheKey, smartCacheGet, smartCacheSet, enqueueRefresh, computeDiff, coalesceRequest, cacheNegative, getNegativeCache, type CacheFreshness, type DiffResult } from '../cache/index';
 import { logger } from '../utils/logger';
-import { isClawApisReady, clawApiCall } from '../providers/clawapis';
+import { isClawApisReady, clawApiCall, getLastBirthCertificate } from '../providers/clawapis';
+import type { BirthCertificate } from 'soma-heart';
 import { getAgentContext, setAgentContext, getSkill } from '../db/index';
 import { creditCostForEndpoint, round6 } from './credits';
 
@@ -18,12 +19,14 @@ export interface StepResult {
   data?: unknown;
   diff?: DiffResult | null;    // Delta between previous and current (opt-in)
   error?: string;
+  birthCertificate?: BirthCertificate;  // Soma provenance (present when heart is active)
 }
 
 export interface ExecutionResult {
   steps: StepResult[];
   totalCost: number;
   totalDurationMs: number;
+  birthCertificates?: BirthCertificate[];  // Soma provenance from all steps
 }
 
 function mockData(endpointId: string): unknown {
@@ -484,9 +487,10 @@ async function executeStep(
     }
 
     recordSuccess(step.endpointId);
+    const birthCertificate = getLastBirthCertificate() ?? undefined;
     return {
       endpointId: step.endpointId, success: true, cached: false,
-      contentChanged, diff,
+      contentChanged, diff, birthCertificate,
       durationMs: Date.now() - start, cost: endpoint.costPerCall, data,
     };
   } catch (err) {
@@ -575,6 +579,12 @@ export async function executePlan(
 
   const steps = allResults.filter(Boolean);
   const totalCost = steps.reduce((sum, s) => sum + s.cost, 0);
+  const birthCertificates = steps
+    .map(s => s.birthCertificate)
+    .filter((c): c is BirthCertificate => c != null);
 
-  return { steps, totalCost, totalDurationMs: Date.now() - start };
+  return {
+    steps, totalCost, totalDurationMs: Date.now() - start,
+    ...(birthCertificates.length > 0 && { birthCertificates }),
+  };
 }

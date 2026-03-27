@@ -227,7 +227,8 @@ Treasury sweep optional — with 2-wallet setup, treasury credits are pure profi
 | `src/core/composite-executor.ts` | Output piping, parallel, conditionals, depth 3 |
 | `src/core/aid-builder.ts` | AID document builder, trust score, capabilities |
 | `src/cache/index.ts` | L1+L2, SWR, coalescing, negative cache |
-| `src/providers/clawapis.ts` | x402 client, clawApiCall() for upstream fetches |
+| `src/core/soma.ts` | Soma Heart singleton, key bridging, genome |
+| `src/providers/clawapis.ts` | x402 client, clawApiCall() + soma birth certificates |
 | `src/providers/x402-facilitator.ts` | Facilitator pool (Coinbase/PayAI/Skyfire), failover |
 | `src/utils/billing.ts` | trackDelegatedSpend() |
 | `src/utils/mask.ts` | maskApiKey() (first4+last4) |
@@ -242,6 +243,21 @@ Treasury sweep optional — with 2-wallet setup, treasury credits are pure profi
 | `src/middleware/aid-auth.ts` | AID-native Ed25519 request auth |
 | `x204` | AID protocol plan |
 | `flow.md` | System flow document |
+
+## Soma Heart (src/core/soma.ts)
+
+Cryptographic data provenance via [soma-heart](https://github.com/1xmint/Soma). Every outbound x402 API call through `clawApiCall()` gets a birth certificate (data hash + Ed25519 signature + heartbeat chain entry).
+
+**Key bridging:** Derives soma keypair from the same `PLATFORM_SIGNING_SECRET` SHA-256 seed as AID (`src/utils/ed25519-signer.ts`). Same Ed25519 key material, different DID encoding (soma: base64, AID: base58btc). AID DID (`did:web:api.claw-net.org`) is canonical.
+
+**Integration points:**
+- `src/core/soma.ts` — `initHeart()`, `getHeart()`, `getHeartSafe()`, `destroyHeart()`
+- `src/providers/clawapis.ts` — `clawApiCall()` wraps fetch in `heart.fetchData()`, stores birth certificate via `getLastBirthCertificate()`
+- `src/core/executor.ts` — `StepResult.birthCertificate`, `ExecutionResult.birthCertificates`
+- `src/routes/api.ts` — `POST /v1/orchestrate` response includes `provenance` field when certificates exist
+- `src/routes/well-known.ts` — `GET /.well-known/soma.json` exposes genome, both DIDs, heartbeat chain status
+
+**Not used:** `heart.generate()`, seeds, behavioral modification (claw-net is an orchestrator, not an LLM agent).
 
 ## Testing
 

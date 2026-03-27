@@ -14,6 +14,7 @@ import { stopSkillSchedulerCron } from '../core/skill-scheduler-cron';
 import { stopCacheWarmingCron } from '../core/cache-warming-cron';
 import { stopCreatorNotificationsCron } from '../core/creator-notifications';
 import { stopIndexSync } from '../core/index-sync';
+import { destroyHeart } from '../core/soma';
 let isShuttingDown = false;
 let httpServer: { close: () => void } | null = null;
 
@@ -61,7 +62,10 @@ export function setupGracefulShutdown() {
     stopCreatorNotificationsCron();
     stopIndexSync();
 
-    // 4. Stop external services (after drain — they may still use DB)
+    // 4. Destroy Soma Heart (wipe credentials from memory)
+    destroyHeart();
+
+    // 5. Stop external services (after drain — they may still use DB)
     try {
       await stopMeshNode();
     } catch (err) {
@@ -82,7 +86,7 @@ export function setupGracefulShutdown() {
       logger.warn({ err }, 'Error stopping XMTP');
     }
 
-    // 5. Close DB and Redis last
+    // 6. Close DB and Redis last
     closeDb();
 
     try {

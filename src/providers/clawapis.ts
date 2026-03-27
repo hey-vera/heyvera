@@ -1,5 +1,7 @@
 import { logger } from '../utils/logger';
 import { env } from '../config/index';
+import { getHeartSafe } from '../core/soma';
+import type { BirthCertificate } from 'soma-heart';
 
 const dynamicImport = new Function('specifier', 'return import(specifier)') as (s: string) => Promise<any>;
 
@@ -41,6 +43,14 @@ export function isClawApisReady(): boolean {
   return x402Client !== null;
 }
 
+// ── Soma provenance ────────────────────────────────────────────────────
+let _lastBirthCert: BirthCertificate | null = null;
+
+/** Get the birth certificate from the most recent clawApiCall(). */
+export function getLastBirthCertificate(): BirthCertificate | null {
+  return _lastBirthCert;
+}
+
 /**
  * Make an x402-paid API call to any provider.
  * The x402 client handles payment automatically for any URL that returns 402.
@@ -67,6 +77,27 @@ export async function clawApiCall(
     }
   }
 
+  // ── Soma Heart wrapping — birth certificate + heartbeat chain ────────
+  const heart = getHeartSafe();
+  if (heart) {
+    const result = await heart.fetchData(
+      'x402-upstream',
+      JSON.stringify({ url: url.toString() }),
+      async () => {
+        const res = await x402Client!.fetch(url.toString(), signal ? { signal } : undefined);
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(`x402 call error ${res.status} from ${url.hostname}: ${text.slice(0, 200)}`);
+        }
+        return await res.text();
+      },
+    );
+    _lastBirthCert = result.birthCertificate;
+    return JSON.parse(result.content);
+  }
+
+  // ── Fallback: no heart, original behavior ────────────────────────────
+  _lastBirthCert = null;
   const res = await x402Client.fetch(url.toString(), signal ? { signal } : undefined);
 
   if (!res.ok) {

@@ -454,6 +454,14 @@ async function start() {
     logger.info('ClawAPIs x402: no SOLANA_PRIVATE_KEY set, simulation mode active');
   }
 
+  // Soma Heart — cryptographic provenance on outbound x402 fetches
+  try {
+    const { initHeart } = await import('./core/soma');
+    initHeart();
+  } catch (err) {
+    logger.warn({ err }, 'Soma Heart init failed — continuing without provenance');
+  }
+
   setupGracefulShutdown();
   startHeartbeat();
 

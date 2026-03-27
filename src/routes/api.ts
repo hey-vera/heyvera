@@ -18,6 +18,7 @@ import { cacheGet, cacheSet, cacheIncr } from '../cache/index';
 import { apiRegistry, findEndpoint } from '../config/api-registry';
 import { env, isSimulationMode, rateTier, ORCHESTRATION_FEE } from '../config/index';
 import { logger } from '../utils/logger';
+import { getHeartSafe } from '../core/soma';
 import { sendApiKeyEmail, sendLowBalanceEmail, sendAdminAlert } from '../utils/email';
 import { wasEmailSentRecently, logEmailSend } from '../db/index';
 import crypto from 'crypto';
@@ -518,6 +519,13 @@ apiRouter.post('/orchestrate', async (c) => {
       ...(trustVerdict && { trust: trustVerdict }),
       ...(attestationId && {
         attestation: { id: attestationId, verifyUrl: `${env.CLAWNET_BASE_URL}/v1/attest/verify/${attestationId}` },
+      }),
+      ...(execution.birthCertificates?.length && {
+        provenance: {
+          certificates: execution.birthCertificates,
+          heartDid: getHeartSafe()?.did ?? null,
+          canonicalDid: 'did:web:api.claw-net.org',
+        },
       }),
     });
 
