@@ -10,16 +10,17 @@
  */
 
 import { createHash } from 'crypto';
-import { createSomaHeart, type HeartRuntime } from 'soma-heart';
-import { createGenome, commitGenome } from 'soma-heart/core';
 import { logger } from '../utils/logger';
 
 // tweetnacl is a transitive dep of soma-heart, hoisted to node_modules
 import nacl from 'tweetnacl';
 
+// Dynamic import types (resolved at runtime to avoid CJS/ESM mismatch in Docker)
+type HeartRuntime = Awaited<ReturnType<typeof import('soma-heart')>>['HeartRuntime'] extends new (...args: any[]) => infer R ? R : any;
+
 // ── Singleton ────────────────────────────────────────────────────────────
 
-let _heart: HeartRuntime | null = null;
+let _heart: any | null = null;
 
 /**
  * Initialize the Soma Heart using the same Ed25519 seed as AID.
@@ -30,47 +31,54 @@ let _heart: HeartRuntime | null = null;
  * The soma DID will differ from the AID DID (base64 vs base58btc encoding)
  * but the underlying Ed25519 key material is identical.
  */
-export function initHeart(): void {
+export async function initHeart(): Promise<void> {
   if (_heart) return;
 
-  const secret = process.env.PLATFORM_SIGNING_SECRET || 'clawnet-dev';
-  const seed = createHash('sha256').update(secret).digest().subarray(0, 32);
-  const signingKeyPair = nacl.sign.keyPair.fromSeed(new Uint8Array(seed));
+  try {
+    const somaHeart = await import('soma-heart');
+    const somaCore = await import('soma-heart/core');
 
-  const genome = createGenome({
-    modelProvider: 'orchestrator',
-    modelId: 'clawnet-orchestrator',
-    modelVersion: '1.0.0',
-    systemPrompt: 'ClawNet sovereign AI agent orchestration layer',
-    toolManifest: 'x402-proxy',
-    runtimeId: 'clawnet',
-    cloudProvider: 'vps',
-    region: 'nyc1',
-    deploymentTier: 'tier1',
-  });
+    const secret = process.env.PLATFORM_SIGNING_SECRET || 'clawnet-dev';
+    const seed = createHash('sha256').update(secret).digest().subarray(0, 32);
+    const signingKeyPair = nacl.sign.keyPair.fromSeed(new Uint8Array(seed));
 
-  const commitment = commitGenome(genome, signingKeyPair);
+    const genome = somaCore.createGenome({
+      modelProvider: 'orchestrator',
+      modelId: 'clawnet-orchestrator',
+      modelVersion: '1.0.0',
+      systemPrompt: 'ClawNet sovereign AI agent orchestration layer',
+      toolManifest: 'x402-proxy',
+      runtimeId: 'clawnet',
+      cloudProvider: 'vps',
+      region: 'nyc1',
+      deploymentTier: 'tier1',
+    });
 
-  _heart = createSomaHeart({
-    genome: commitment,
-    signingKeyPair,
-    modelApiKey: 'not-used-orchestrator',
-    modelBaseUrl: '',
-    modelId: 'none',
-    dataSources: [{ name: 'x402-upstream', url: 'https://clawapis.com' }],
-  });
+    const commitment = somaCore.commitGenome(genome, signingKeyPair);
 
-  logger.info({ somaDid: commitment.did }, 'Soma Heart initialized');
+    _heart = somaHeart.createSomaHeart({
+      genome: commitment,
+      signingKeyPair,
+      modelApiKey: 'not-used-orchestrator',
+      modelBaseUrl: '',
+      modelId: 'none',
+      dataSources: [{ name: 'x402-upstream', url: 'https://clawapis.com' }],
+    });
+
+    logger.info({ somaDid: commitment.did }, 'Soma Heart initialized');
+  } catch (err: any) {
+    logger.warn({ err: err.message }, 'Soma Heart init failed — running without provenance');
+  }
 }
 
 /** Get the heart or throw if not initialized. */
-export function getHeart(): HeartRuntime {
+export function getHeart(): any {
   if (!_heart) throw new Error('Soma Heart not initialized');
   return _heart;
 }
 
 /** Get the heart or null (for optional wrapping). */
-export function getHeartSafe(): HeartRuntime | null {
+export function getHeartSafe(): any | null {
   return _heart;
 }
 

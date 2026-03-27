@@ -4,7 +4,8 @@ import { findEndpoint } from '../config/api-registry';
 import { cacheKey, smartCacheGet, smartCacheSet, enqueueRefresh, computeDiff, coalesceRequest, cacheNegative, getNegativeCache, type CacheFreshness, type DiffResult } from '../cache/index';
 import { logger } from '../utils/logger';
 import { isClawApisReady, clawApiCall, getLastBirthCertificate } from '../providers/clawapis';
-import type { BirthCertificate } from 'soma-heart';
+// BirthCertificate type from soma-heart (inline to avoid CJS/ESM resolution)
+type BirthCertificate = { dataHash: string; signature: string; timestamp: string; publicKey: string; heartbeatIndex: number };
 import { getAgentContext, setAgentContext, getSkill } from '../db/index';
 import { creditCostForEndpoint, round6 } from './credits';
 

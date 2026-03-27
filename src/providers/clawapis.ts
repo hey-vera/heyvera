@@ -1,7 +1,8 @@
 import { logger } from '../utils/logger';
 import { env } from '../config/index';
 import { getHeartSafe } from '../core/soma';
-import type { BirthCertificate } from 'soma-heart';
+// BirthCertificate type from soma-heart (inline to avoid CJS/ESM resolution)
+type BirthCertificate = { dataHash: string; signature: string; timestamp: string; publicKey: string; heartbeatIndex: number };
 
 const dynamicImport = new Function('specifier', 'return import(specifier)') as (s: string) => Promise<any>;
 

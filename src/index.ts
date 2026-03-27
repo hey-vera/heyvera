@@ -457,7 +457,7 @@ async function start() {
   // Soma Heart — cryptographic provenance on outbound x402 fetches
   try {
     const { initHeart } = await import('./core/soma');
-    initHeart();
+    await initHeart();
   } catch (err) {
     logger.warn({ err }, 'Soma Heart init failed — continuing without provenance');
   }
