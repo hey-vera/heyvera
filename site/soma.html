@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Soma — Identity as Execution — ClawNet</title>
+  <meta name="description" content="Soma is an open protocol where the agent's identity is the execution pathway. Cryptographic provenance, per-token HMAC, birth certificates, and behavioral verification.">
+  <meta property="og:title" content="Soma — Identity as Execution — ClawNet">
+  <meta property="og:description" content="An open protocol where the agent's identity is the execution pathway. No heart, no credentials, no computation.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://claw-net.org/soma">
+  <meta property="og:image" content="https://claw-net.org/favicon.svg">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="Soma — Identity as Execution — ClawNet">
+  <meta name="twitter:description" content="An open protocol where the agent's identity is the execution pathway. No heart, no credentials, no computation.">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="apple-touch-icon" href="/favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-primary: #0a0a0b; --bg-surface: #111113; --bg-surface-2: #18181b; --bg-surface-3: #1f1f23;
+      --border-subtle: #1e1e22; --border-default: #27272a; --border-strong: #3f3f46;
+      --text-primary: #fafafa; --text-secondary: #a1a1aa; --text-tertiary: #71717a; --text-muted: #52525b;
+      --accent: #10b981; --accent-dim: rgba(16,185,129,0.12); --accent-subtle: rgba(16,185,129,0.06);
+      --accent-hover: #34d399; --accent-text: #6ee7b7;
+      --danger: #ef4444; --danger-dim: rgba(239,68,68,0.12);
+      --warning: #f59e0b; --warning-dim: rgba(245,158,11,0.12);
+      --info: #3b82f6; --info-dim: rgba(59,130,246,0.12);
+      --purple: #8b5cf6; --purple-dim: rgba(139,92,246,0.12);
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', Consolas, monospace;
+      --font-display: 'Inter', -apple-system, system-ui, sans-serif;
+      --radius-sm: 4px; --radius-md: 6px; --radius-lg: 8px; --radius-xl: 12px;
+      --grid-color: rgba(255,255,255,0.03);
+      --nav-bg: rgba(10,10,11,0.8);
+    }
+    [data-theme="light"] {
+      --bg-primary: #f5f5f5; --bg-surface: #ffffff; --bg-surface-2: #f0f0f2; --bg-surface-3: #e8e8ec;
+      --bg-overlay: rgba(255,255,255,0.85); --border-subtle: #e4e4e7; --border-default: #d4d4d8; --border-strong: #a1a1aa;
+      --text-primary: #09090b; --text-secondary: #3f3f46; --text-tertiary: #71717a; --text-muted: #a1a1aa;
+      --accent-dim: rgba(16,185,129,0.10); --accent-subtle: rgba(16,185,129,0.05);
+      --danger-dim: rgba(239,68,68,0.10); --warning-dim: rgba(245,158,11,0.10);
+      --info-dim: rgba(59,130,246,0.10); --purple-dim: rgba(139,92,246,0.10);
+      --grid-color: rgba(0,0,0,0.04);
+      --nav-bg: rgba(245,245,245,0.85);
+    }
+    .nav-logo-text { font-family: var(--font-sans); font-size: 18px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.02em; white-space: nowrap; }
+    .nav-logo-text span { color: var(--accent); }
+    .theme-toggle {
+      background: var(--bg-surface-2); border: 1px solid var(--border-default); border-radius: 6px;
+      width: 34px; height: 34px; display: flex; align-items: center; justify-content: center;
+      cursor: pointer; color: var(--text-tertiary); transition: all 0.15s; padding: 0; flex-shrink: 0;
+    }
+    .theme-toggle:hover { color: var(--text-primary); border-color: var(--border-strong); }
+    .theme-toggle .icon-sun, .theme-toggle .icon-moon { width: 16px; height: 16px; }
+    .theme-toggle .icon-sun { display: none; }
+    [data-theme="light"] .theme-toggle .icon-sun { display: block; }
+    [data-theme="light"] .theme-toggle .icon-moon { display: none; }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body { font-family: var(--font-sans); background: var(--bg-primary); color: var(--text-secondary); font-size: 14px; line-height: 1.6; overflow-x: hidden; background-image: linear-gradient(var(--grid-color) 1px, transparent 1px), linear-gradient(90deg, var(--grid-color) 1px, transparent 1px); background-size: 48px 48px; }
+    a { color: inherit; text-decoration: none; }
+    ::selection { background: var(--accent-dim); }
+
+    nav { position: fixed; top: 0; left: 0; right: 0; z-index: 100; height: 56px; padding: 0 24px; display: flex; align-items: center; justify-content: space-between; background: var(--nav-bg); border-bottom: 1px solid var(--border-subtle); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }
+    .nav-brand { display: flex; align-items: center; }
+    .nav-brand a { text-decoration: none; }
+    .nav-links { display: flex; align-items: center; gap: 4px; list-style: none; }
+    .nav-links > a { font-size: 13px; font-weight: 500; color: var(--text-tertiary); padding: 6px 12px; border-radius: var(--radius-md); transition: color 0.15s, background 0.15s; text-decoration: none; }
+    .nav-links > a:hover { color: var(--text-primary); background: var(--bg-surface-2); }
+    .dropdown { position: relative; display: inline-block; }
+    .dropdown-toggle { font-family: var(--font-sans); font-size: 13px; font-weight: 500; color: var(--text-tertiary); padding: 6px 12px; border-radius: var(--radius-md); transition: color 0.15s, background 0.15s; background: none; border: none; cursor: pointer; }
+    .dropdown-toggle:hover { color: var(--text-primary); background: var(--bg-surface-2); }
+    .dropdown-menu { display: none; position: absolute; top: calc(100% + 4px); left: 0; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: var(--radius-lg); min-width: 220px; padding: 8px 0; z-index: 200; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+    .dropdown:hover .dropdown-menu { display: block; }
+    .dropdown-menu::before { content: ""; position: absolute; top: -12px; left: 0; right: 0; height: 12px; }
+    .dropdown-menu a { display: block; padding: 8px 16px; color: var(--text-secondary); text-decoration: none; font-size: 0.88rem; transition: background 0.15s, color 0.15s; }
+    .dropdown-menu a:hover { background: var(--bg-surface-2); color: var(--text-primary); }
+    .nav-right { display: flex; align-items: center; gap: 12px; }
+    .nav-status { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-tertiary); padding: 4px 10px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); }
+    .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); transition: background 0.3s; flex-shrink: 0; }
+    .status-dot.ok { background: var(--accent); }
+    .status-dot.err { background: var(--danger); }
+    .nav-credits { font-family: var(--font-mono); font-size: 12px; color: var(--accent); padding: 4px 10px; border: 1px solid var(--accent-dim); border-radius: var(--radius-md); display: none; align-items: center; gap: 4px; }
+    .nav-credits.show { display: flex; }
+    .account-dropdown { position: relative; display: none; }
+    .account-dropdown.show { display: block; }
+    .account-btn { background: #21262d; color: #e6edf3; border: 1px solid #30363d; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 500; font-family: var(--font-sans); }
+    .account-btn:hover { background: #30363d; }
+    .account-menu { display: none; position: absolute; right: 0; top: calc(100% + 6px); background: #161b22; border: 1px solid #30363d; border-radius: 8px; min-width: 220px; padding: 8px 0; z-index: 200; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+    .account-dropdown:hover .account-menu, .account-menu.show { display: block; }
+    .account-menu::before { content: ""; position: absolute; top: -12px; left: 0; right: 0; height: 12px; }
+    .account-email { padding: 8px 16px; color: #8b949e; font-size: 0.78rem; border-bottom: 1px solid #21262d; margin-bottom: 4px; }
+    .dropdown-divider { height: 1px; background: #21262d; margin: 4px 0; }
+    .nav-login { color: var(--text-secondary); border: 1px solid var(--border-default); background: transparent; text-decoration: none; padding: 6px 14px; font-size: 13px; border-radius: var(--radius-md); }
+    .nav-login:hover { border-color: var(--border-strong); color: var(--text-primary); }
+    .nav-cta { background: var(--accent); color: #000; font-weight: 600; text-decoration: none; padding: 6px 14px; font-size: 13px; border-radius: var(--radius-md); }
+    .nav-cta:hover { background: var(--accent-hover); }
+    .mobile-menu-btn { display: none; background: none; border: 1px solid var(--border-default); border-radius: 6px; padding: 6px 10px; cursor: pointer; color: var(--text-secondary); font-size: 18px; line-height: 1; }
+    .mobile-menu-btn:hover { color: var(--text-primary); border-color: var(--border-strong); }
+
+    .mobile-menu { display: none; position: fixed; top: 56px; left: 0; right: 0; background: var(--bg-surface); border-bottom: 1px solid var(--border-default); z-index: 99; padding: 12px 24px; max-height: calc(100vh - 56px); overflow-y: auto; }
+    .mobile-menu.open { display: block; }
+    .mobile-menu a { display: block; padding: 10px 0; font-size: 14px; color: var(--text-secondary); border-bottom: 1px solid var(--border-subtle); text-decoration: none; }
+    .mobile-menu a:last-child { border-bottom: none; }
+    .mobile-menu a:hover { color: var(--accent); }
+    .mobile-menu-group { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; padding: 12px 0 4px; }
+    .mobile-menu-group:first-child { padding-top: 0; }
+
+    main { max-width: 1240px; margin: 0 auto; padding: 72px 32px 80px; }
+
+    /* Hero */
+    .hero { padding: 80px 0 56px; text-align: center; border-bottom: 1px solid var(--border-subtle); margin-bottom: 64px; }
+    .hero-eyebrow { font-size: 12px; text-transform: uppercase; letter-spacing: 0.18em; color: var(--accent); margin-bottom: 20px; font-weight: 700; }
+    .hero h1 { font-family: var(--font-display); font-size: clamp(32px, 4.5vw, 48px); font-weight: 700; color: var(--text-primary); letter-spacing: -0.03em; margin-bottom: 20px; line-height: 1.15; }
+    .hero-sub { font-size: 18px; color: var(--text-secondary); line-height: 1.7; max-width: 620px; margin: 0 auto 32px; }
+    .hero-cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+    .hero-cta a { display: inline-block; padding: 12px 28px; border-radius: var(--radius-lg); font-weight: 600; font-size: 15px; text-decoration: none; transition: all 0.15s; }
+    .hero-cta .cta-primary { background: var(--accent); color: #000; }
+    .hero-cta .cta-primary:hover { background: var(--accent-hover); }
+    .hero-cta .cta-secondary { border: 1px solid var(--border-default); color: var(--text-primary); font-family: var(--font-mono); font-size: 14px; }
+    .hero-cta .cta-secondary:hover { border-color: var(--border-strong); }
+
+    /* Section headings */
+    .section { margin-bottom: 64px; }
+    .section h2 { font-family: var(--font-display); font-size: 26px; font-weight: 600; color: var(--text-primary); margin-bottom: 8px; letter-spacing: -0.02em; }
+    .section > p { font-size: 15px; color: var(--text-tertiary); margin-bottom: 24px; line-height: 1.6; }
+    .section-eyebrow { font-size: 11px; text-transform: uppercase; letter-spacing: 0.15em; color: var(--accent); font-weight: 700; margin-bottom: 12px; }
+
+    /* Problem section */
+    .problem-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+    .problem-card { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 28px 24px; }
+    .problem-card:hover { border-color: var(--border-default); }
+    .problem-card h3 { font-size: 15px; font-weight: 600; color: var(--text-primary); margin-bottom: 10px; }
+    .problem-card p { font-size: 13px; color: var(--text-tertiary); line-height: 1.7; }
+    .problem-card .stat { font-family: var(--font-mono); font-size: 28px; font-weight: 700; color: var(--danger); margin-bottom: 8px; }
+
+    /* Architecture diagram */
+    .arch-grid { display: grid; grid-template-columns: 1fr auto 1fr; gap: 0; align-items: stretch; }
+    .arch-box { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 28px 24px; }
+    .arch-box:hover { border-color: var(--border-default); }
+    .arch-box h3 { font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 16px; }
+    .arch-box h3.heart-label { color: var(--accent); }
+    .arch-box h3.sense-label { color: var(--purple); }
+    .arch-item { font-size: 13px; color: var(--text-secondary); padding: 6px 0; border-bottom: 1px solid var(--border-subtle); display: flex; align-items: center; gap: 8px; }
+    .arch-item:last-child { border-bottom: none; }
+    .arch-item code { font-family: var(--font-mono); font-size: 11.5px; color: var(--accent-text); background: var(--bg-surface-2); padding: 2px 6px; border-radius: 3px; }
+    .arch-channel { display: flex; align-items: center; justify-content: center; padding: 0 20px; }
+    .channel-line { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+    .channel-line .arrow { font-size: 20px; color: var(--warning); }
+    .channel-line .label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--warning); writing-mode: vertical-lr; text-orientation: mixed; }
+
+    /* Layer cards */
+    .layer-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+    .layer-card { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 28px 24px; transition: border-color 0.15s; }
+    .layer-card:hover { border-color: var(--border-default); }
+    .layer-num { font-family: var(--font-mono); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 12px; }
+    .layer-num.l1 { color: var(--accent); }
+    .layer-num.l2 { color: var(--purple); }
+    .layer-num.l3 { color: var(--warning); }
+    .layer-card h3 { font-size: 15px; font-weight: 600; color: var(--text-primary); margin-bottom: 8px; }
+    .layer-card p { font-size: 13px; color: var(--text-tertiary); line-height: 1.7; }
+    .layer-card ul { list-style: none; margin-top: 12px; }
+    .layer-card ul li { font-size: 12.5px; color: var(--text-secondary); padding: 4px 0; border-bottom: 1px solid var(--border-subtle); }
+    .layer-card ul li:last-child { border-bottom: none; }
+    .layer-card ul li::before { content: ""; display: inline-block; width: 4px; height: 4px; border-radius: 50%; margin-right: 8px; vertical-align: middle; }
+    .layer-card.l1-card ul li::before { background: var(--accent); }
+    .layer-card.l2-card ul li::before { background: var(--purple); }
+    .layer-card.l3-card ul li::before { background: var(--warning); }
+
+    /* Code blocks */
+    .code-label { font-size: 12px; font-weight: 600; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 8px; }
+    .code-block { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 20px 24px; font-family: var(--font-mono); font-size: 12.5px; color: var(--text-secondary); line-height: 1.7; overflow-x: auto; white-space: pre; }
+    .code-block .kw { color: var(--purple); }
+    .code-block .str { color: var(--accent-text); }
+    .code-block .cm { color: var(--text-muted); }
+    .code-block .num { color: var(--warning); }
+    .code-block .bool { color: var(--info); }
+    .code-full { margin-bottom: 20px; }
+    .code-full .code-block { width: 100%; }
+
+    /* Audience cards */
+    .audience-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+    .audience-card { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 28px 24px; transition: border-color 0.15s; }
+    .audience-card:hover { border-color: var(--border-default); }
+    .audience-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 10px; }
+    .audience-label.data { color: var(--info); }
+    .audience-label.dev { color: var(--accent); }
+    .audience-label.platform { color: var(--purple); }
+    .audience-card h3 { font-size: 15px; font-weight: 600; color: var(--text-primary); margin-bottom: 8px; }
+    .audience-card p { font-size: 13px; color: var(--text-tertiary); line-height: 1.7; }
+
+    /* Links row */
+    .links-row { display: flex; gap: 16px; flex-wrap: wrap; }
+    .links-row a { display: inline-flex; align-items: center; gap: 6px; padding: 10px 20px; border: 1px solid var(--border-default); border-radius: var(--radius-lg); font-size: 13px; font-weight: 500; color: var(--text-primary); transition: all 0.15s; }
+    .links-row a:hover { border-color: var(--border-strong); background: var(--bg-surface); }
+    .links-row a code { font-family: var(--font-mono); font-size: 12px; color: var(--accent-text); }
+
+    footer { border-top: 1px solid var(--border-subtle); padding: 48px 24px 32px; max-width: 1240px; margin: 0 auto; }
+    .footer-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 32px; margin-bottom: 32px; }
+    .footer-grid h4 { font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+    .footer-grid a { display: block; font-size: 13px; color: var(--text-tertiary); text-decoration: none; padding: 4px 0; transition: color 0.15s; }
+    .footer-grid a:hover { color: var(--text-primary); }
+    .footer-bottom { padding-top: 24px; border-top: 1px solid var(--border-subtle); text-align: center; }
+    .footer-bottom span { font-size: 12px; color: var(--text-muted); }
+
+    @media(max-width:900px) { .nav-links { display: none; } .mobile-menu-btn { display: block; } .nav-status { display: none; } .problem-grid { grid-template-columns: 1fr; } .arch-grid { grid-template-columns: 1fr; } .arch-channel { padding: 16px 0; } .channel-line { flex-direction: row; } .channel-line .label { writing-mode: horizontal-tb; } .layer-grid { grid-template-columns: 1fr; } .audience-grid { grid-template-columns: 1fr; } .footer-grid { grid-template-columns: repeat(2, 1fr); } }
+    @media(max-width:640px) { main { padding: 64px 16px 60px; } .hero h1 { font-size: 28px; } }
+  </style>
+<script>if(localStorage.getItem('clawnet_theme')==='light')document.documentElement.setAttribute('data-theme','light')</script>
+</head>
+<body>
+<div id="toast-container"></div>
+
+<nav>
+  <div class="nav-brand">
+    <a href="/"><span class="nav-logo-text">&#x1F99E; Claw<span>Net</span></span></a>
+  </div>
+  <div class="nav-links">
+    <a href="/learn">Learn</a>
+    <a href="/soma" style="color:var(--accent)">Soma</a>
+    <a href="/docs">Docs</a>
+    <a href="/marketplace">Marketplace</a>
+    <div class="dropdown">
+      <button class="dropdown-toggle">Developers &#9662;</button>
+      <div class="dropdown-menu">
+        <a href="/endpoints">API Endpoints</a>
+        <a href="/playground">Playground</a>
+      </div>
+    </div>
+    <div class="dropdown">
+      <button class="dropdown-toggle">Products &#9662;</button>
+      <div class="dropdown-menu">
+        <a href="https://pulse.claw-net.org">Pulse &mdash; AI Marketing</a>
+      </div>
+    </div>
+  </div>
+  <div class="nav-right">
+    <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Toggle theme">
+      <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+    </button>
+    <div class="nav-status" id="navApiStatus"><span class="status-dot" id="statusDot"></span><span id="statusLabel">Checking...</span></div>
+    <div class="nav-credits" id="nav-credits-badge"><svg width="14" height="14" viewBox="0 0 24 24" style="vertical-align:-2px;flex-shrink:0;margin-right:2px"><circle cx="12" cy="12" r="11" fill="#92400e"/><circle cx="12" cy="12" r="9.5" fill="#f59e0b"/><circle cx="12" cy="12" r="7.5" fill="#fbbf24"/><path d="M8.5 7.5 Q12 5.5 15.5 8" stroke="rgba(255,255,255,0.45)" stroke-width="1.5" fill="none" stroke-linecap="round"/><text x="12" y="16.5" text-anchor="middle" font-size="10" font-weight="800" fill="#78350f" font-family="Arial,sans-serif">C</text></svg> <span id="nav-credits-num">&mdash;</span> credits</div>
+    <a href="/login" class="nav-login" id="nav-login-btn">Sign In</a>
+    <a href="/#pricing" class="nav-cta" id="nav-getkey-btn">Get API Key</a>
+    <div class="dropdown account-dropdown" id="account-dropdown">
+      <button class="dropdown-toggle account-btn" onclick="this.nextElementSibling.classList.toggle('show');event.stopPropagation()">My Account &#9662;</button>
+      <div class="dropdown-menu account-menu">
+        <div class="account-email" id="account-email-display"></div>
+        <a href="/dashboard" class="dropdown-item">Dashboard</a>
+        <a href="/contact-section" class="dropdown-item">Contact</a>
+        <div class="dropdown-divider"></div>
+        <a href="#" class="dropdown-item" id="sign-out-link" onclick="navSignOut();return false;" style="color:#f85149;">Log out</a>
+      </div>
+    </div>
+    <button class="mobile-menu-btn" onclick="document.getElementById('mobileMenu').classList.toggle('open')" aria-label="Menu">&#9776;</button>
+  </div>
+</nav>
+<script>document.addEventListener("click",function(){var m=document.querySelector(".account-menu");if(m)m.classList.remove("show")})</script>
+<div class="mobile-menu" id="mobileMenu">
+  <div class="mobile-menu-group">Navigate</div>
+  <a href="/learn">Learn</a>
+  <a href="/soma" style="color:var(--accent)">Soma</a>
+  <a href="/marketplace">Marketplace</a>
+  <div class="mobile-menu-group">Developers</div>
+  <a href="/endpoints">API Endpoints</a>
+  <a href="/playground">Playground</a>
+  <div class="mobile-menu-group">Docs</div>
+  <a href="/docs">Documentation</a>
+  <div class="mobile-menu-group">Products</div>
+  <a href="https://pulse.claw-net.org">Pulse &mdash; AI Marketing</a>
+  <div class="mobile-menu-group" id="mobile-account-group" style="display:none">Account</div>
+  <span class="mobile-account-email" id="mobile-account-email" style="display:none;padding:6px 0;font-size:12px;color:var(--text-tertiary)"></span>
+  <a href="/dashboard">Dashboard</a>
+  <a href="/contact-section">Contact</a>
+  <a href="#" id="mobile-sign-out" onclick="navSignOut();return false;" style="display:none;color:#f85149;">Log out</a>
+</div>
+
+<main>
+  <!-- HERO -->
+  <div class="hero">
+    <div class="hero-eyebrow">Open Protocol</div>
+    <h1>Soma: Identity as Execution</h1>
+    <p class="hero-sub">An open protocol where the agent's identity is the execution pathway. No heart, no credentials, no computation.</p>
+    <div class="hero-cta">
+      <a href="https://doi.org/10.5281/zenodo.19260081" class="cta-primary" target="_blank">Read the Paper</a>
+      <a href="https://www.npmjs.com/package/soma-heart" class="cta-secondary" target="_blank">npm install soma-heart</a>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- 1. THE PROBLEM -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <div class="section" id="problem">
+    <div class="section-eyebrow">The Problem</div>
+    <h2>Agents can lie about what they are</h2>
+    <p>The gap between computation and identity is where all agent fraud lives.</p>
+  </div>
+  <div class="problem-grid" style="margin-bottom:64px">
+    <div class="problem-card">
+      <h3>Invisible substitution</h3>
+      <p>An operator commits to running Claude Sonnet. They secretly substitute GPT-4o-mini. Every credential check passes. Every API key is valid. The fraud is invisible because identity and computation are separate systems.</p>
+    </div>
+    <div class="problem-card">
+      <div class="stat">80%</div>
+      <h3>of AI agents don't properly identify themselves</h3>
+      <p>No standard exists for proving what model is actually running, what tools are available, or what data sources are being used. Agent cards describe intent. Soma proves execution.</p>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- 2. HOW SOMA WORKS -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <div class="section" id="architecture">
+    <div class="section-eyebrow">Architecture</div>
+    <h2>Identity lives inside computation</h2>
+    <p>Two machines, one encrypted channel. The heart executes. The sense verifies.</p>
+  </div>
+  <div class="arch-grid" style="margin-bottom:64px">
+    <div class="arch-box">
+      <h3 class="heart-label">Agent Machine &mdash; soma-heart</h3>
+      <div class="arch-item">Credential Vault &mdash; API keys and tool credentials live inside the heart</div>
+      <div class="arch-item">Per-Token HMAC &mdash; every token carries proof of this specific heart</div>
+      <div class="arch-item">Heartbeat Chain &mdash; tamper-evident hash chain of every step</div>
+      <div class="arch-item">Birth Certificates &mdash; data hash + Ed25519 signature + chain entry</div>
+      <div class="arch-item"><code>generate()</code> &mdash; LLM inference through the heart</div>
+      <div class="arch-item"><code>callTool()</code> &mdash; tool invocations through the heart</div>
+      <div class="arch-item"><code>fetchData()</code> &mdash; external data through the heart</div>
+    </div>
+    <div class="arch-channel">
+      <div class="channel-line">
+        <span class="arrow">&larr;</span>
+        <span class="label">X25519 + Secretbox</span>
+        <span class="arrow">&rarr;</span>
+      </div>
+    </div>
+    <div class="arch-box">
+      <h3 class="sense-label">Observer Machine &mdash; soma-sense</h3>
+      <div class="arch-item">Behavioral Landscape &mdash; statistical model of expected behavior</div>
+      <div class="arch-item">Phenotype Atlas &mdash; fingerprint database of known model behaviors</div>
+      <div class="arch-item">Seed Verification &mdash; confirms genome commitment matches execution</div>
+      <div class="arch-item">Heartbeat Validation &mdash; verifies hash chain integrity</div>
+      <div class="arch-item">3 Senses &mdash; independent verification channels</div>
+      <div class="arch-item" style="border-bottom:none">Verdict: <span style="color:var(--accent);font-weight:600">GREEN</span> / <span style="color:var(--danger);font-weight:600">RED</span></div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- 3. THREE LAYERS -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <div class="section" id="layers">
+    <div class="section-eyebrow">Three Layers</div>
+    <h2>Heart, Sense, Channel</h2>
+    <p>Each layer is independent. Use what you need.</p>
+  </div>
+  <div class="layer-grid" style="margin-bottom:64px">
+    <div class="layer-card l1-card">
+      <div class="layer-num l1">Layer 1 &mdash; The Heart</div>
+      <h3>Process Integrity</h3>
+      <p>The execution runtime. All computation passes through it. Credentials never leave it.</p>
+      <ul>
+        <li>Per-token HMAC authentication</li>
+        <li>Birth certificates for every data fetch</li>
+        <li>Tamper-evident heartbeat hash chain</li>
+        <li>Genome commitment (model + tools + config)</li>
+      </ul>
+    </div>
+    <div class="layer-card l2-card">
+      <div class="layer-num l2">Layer 2 &mdash; The Sense</div>
+      <h3>Behavioral Verification</h3>
+      <p>The observer that validates the heart is running the claimed model. Pure verification, no trust required.</p>
+      <ul>
+        <li>Behavioral landscape analysis</li>
+        <li>Phenotype atlas model fingerprinting</li>
+        <li>Seed and genome verification</li>
+        <li>Heartbeat chain integrity checks</li>
+      </ul>
+    </div>
+    <div class="layer-card l3-card">
+      <div class="layer-num l3">Layer 3 &mdash; The Channel</div>
+      <h3>Secure Communication</h3>
+      <p>X25519 key exchange with NaCl secretbox encryption. The heart and sense communicate through it.</p>
+      <ul>
+        <li>X25519 Diffie-Hellman key exchange</li>
+        <li>NaCl secretbox authenticated encryption</li>
+        <li>Forward secrecy per session</li>
+        <li>No third-party infrastructure required</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- 4. CODE EXAMPLE -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <div class="section" id="code">
+    <div class="section-eyebrow">Usage</div>
+    <h2>Get started in minutes</h2>
+    <p>Install the package, define a genome, create a heart. All computation goes through it.</p>
+  </div>
+  <div class="code-full" style="margin-bottom:24px">
+    <div class="code-label">Define the genome and create a heart</div>
+    <div class="code-block"><span class="kw">import</span> { createSomaHeart } <span class="kw">from</span> <span class="str">"soma-heart"</span>;
+<span class="kw">import</span> { createGenome, commitGenome } <span class="kw">from</span> <span class="str">"soma-heart/core"</span>;
+
+<span class="cm">// The genome declares what this agent is</span>
+<span class="kw">const</span> genome = createGenome({
+  modelProvider: <span class="str">"anthropic"</span>,
+  modelId: <span class="str">"claude-sonnet-4"</span>,
+  modelVersion: <span class="str">"1.0.0"</span>,
+  systemPrompt: <span class="str">"You are a helpful assistant"</span>,
+  toolManifest: <span class="str">"search,database"</span>,
+  runtimeId: <span class="str">"my-agent"</span>,
+  cloudProvider: <span class="str">"aws"</span>,
+  region: <span class="str">"us-east-1"</span>,
+  deploymentTier: <span class="str">"tier1"</span>,
+});
+
+<span class="cm">// Cryptographic commitment — locks the genome</span>
+<span class="kw">const</span> commitment = commitGenome(genome, signingKeyPair);
+
+<span class="cm">// Create the heart — all computation passes through it</span>
+<span class="kw">const</span> heart = createSomaHeart({
+  genome: commitment,
+  signingKeyPair,
+  modelApiKey: process.env.ANTHROPIC_API_KEY,
+  modelBaseUrl: <span class="str">"https://api.anthropic.com/v1"</span>,
+  modelId: <span class="str">"claude-sonnet-4"</span>,
+});</div>
+  </div>
+  <div class="code-full" style="margin-bottom:64px">
+    <div class="code-label">Run computation through the heart</div>
+    <div class="code-block"><span class="cm">// LLM inference — per-token HMAC authentication</span>
+<span class="kw">const</span> stream = heart.generate({ messages: [...] });
+
+<span class="cm">// External data — birth certificate (hash + signature + chain entry)</span>
+<span class="kw">const</span> data = <span class="kw">await</span> heart.fetchData(<span class="str">"market-api"</span>, <span class="str">"query"</span>, fetcher);
+
+<span class="cm">// Tool calls — recorded in heartbeat chain</span>
+<span class="kw">const</span> result = <span class="kw">await</span> heart.callTool(<span class="str">"search"</span>, { query: <span class="str">"latest news"</span> });
+
+<span class="cm">// Every operation is cryptographically linked to this specific heart.</span>
+<span class="cm">// Swap the model? The HMAC chain breaks. The sense detects it.</span></div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- 5. WHO IT'S FOR -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <div class="section" id="audience">
+    <div class="section-eyebrow">Who It's For</div>
+    <h2>Built for the agent ecosystem</h2>
+    <p>Whether you produce data, build agents, or run a platform.</p>
+  </div>
+  <div class="audience-grid" style="margin-bottom:64px">
+    <div class="audience-card">
+      <div class="audience-label data">Data Providers</div>
+      <h3>Prove your data is genuine</h3>
+      <p>Every response gets a birth certificate &mdash; a cryptographic hash, Ed25519 signature, and heartbeat chain entry. Downstream consumers can verify provenance without trusting your word.</p>
+    </div>
+    <div class="audience-card">
+      <div class="audience-label dev">Agent Developers</div>
+      <h3>Prove your agent runs what it claims</h3>
+      <p>Commit to a genome (model, tools, config) and let the heart enforce it. The sense can verify from the outside. Cryptographic execution proof, not just a promise in an agent card.</p>
+    </div>
+    <div class="audience-card">
+      <div class="audience-label platform">Platforms &amp; Registries</div>
+      <h3>Verify any agent's identity</h3>
+      <p>No trust required &mdash; pure math. Deploy a sense observer and validate that agents in your registry are running exactly what they declared. Behavioral fingerprinting catches substitution.</p>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- 6. OPEN STANDARD -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <div class="section" id="open">
+    <div class="section-eyebrow">Open Standard</div>
+    <h2>MIT licensed. Peer-reviewed. Published.</h2>
+    <p>Soma is an open protocol. Use it, fork it, build on it.</p>
+  </div>
+  <div class="links-row" style="margin-bottom:64px">
+    <a href="https://doi.org/10.5281/zenodo.19260081" target="_blank">Paper &mdash; Zenodo DOI</a>
+    <a href="https://github.com/1xmint/Soma" target="_blank">GitHub &mdash; 1xmint/Soma</a>
+    <a href="https://www.npmjs.com/package/soma-heart" target="_blank"><code>soma-heart</code> on npm</a>
+    <a href="https://www.npmjs.com/package/soma-sense" target="_blank"><code>soma-sense</code> on npm</a>
+  </div>
+</main>
+
+<footer>
+  <div class="footer-grid">
+    <div>
+      <h4>Platform</h4>
+      <a href="/marketplace">Marketplace</a>
+      <a href="/docs">Documentation</a>
+      <a href="/endpoints">Endpoints</a>
+      <a href="/playground">Playground</a>
+    </div>
+    <div>
+      <h4>Soma</h4>
+      <a href="/soma">Soma Protocol</a>
+      <a href="https://doi.org/10.5281/zenodo.19260081" target="_blank">Paper</a>
+      <a href="https://github.com/1xmint/Soma" target="_blank">GitHub</a>
+    </div>
+    <div>
+      <h4>Products</h4>
+      <a href="https://pulse.claw-net.org">Pulse</a>
+      <a href="https://radar.claw-net.org">Radar</a>
+    </div>
+    <div>
+      <h4>Community</h4>
+      <a href="https://x.com/i/communities/2031805527043576245" target="_blank">X Community</a>
+      <a href="https://github.com/1xmint" target="_blank">GitHub</a>
+      <a href="https://t.me/claw_net" target="_blank">Telegram</a>
+      <a href="/contact-section">Contact</a>
+      <a href="/status">Status</a>
+    </div>
+  </div>
+  <div class="footer-bottom"><span>&copy; 2026 ClawNet. All rights reserved.</span></div>
+</footer>
+
+<script>
+const API = 'https://api.claw-net.org';
+
+function toggleTheme() {
+  const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+  document.documentElement.setAttribute('data-theme', isLight ? '' : 'light');
+  localStorage.setItem('clawnet_theme', isLight ? 'dark' : 'light');
+}
+
+// Status check
+async function checkStatus() {
+  try {
+    const r = await fetch(`${API}/health`);
+    document.getElementById('statusDot').classList.toggle('ok', r.ok);
+    document.getElementById('statusDot').classList.toggle('err', !r.ok);
+    document.getElementById('statusLabel').textContent = r.ok ? 'Operational' : 'Degraded';
+  } catch {
+    document.getElementById('statusLabel').textContent = 'Offline';
+    document.getElementById('statusDot').classList.add('err');
+  }
+}
+
+// Auth (Clerk)
+async function initNav() {
+  try {
+    if (!await loadClerkSafe()) return;
+    const user = window.Clerk.user;
+    if (!user) return;
+    document.getElementById('nav-login-btn').style.display = 'none';
+    document.getElementById('nav-getkey-btn').style.display = 'none';
+    document.getElementById('account-dropdown').classList.add('show');
+    const email = user.primaryEmailAddress?.emailAddress ?? user.username ?? '';
+    if (email) {
+      document.getElementById('account-email-display').textContent = email;
+      const me = document.getElementById('mobile-account-email');
+      if (me) { me.textContent = email; me.style.display = 'block'; }
+    }
+    const mag = document.getElementById('mobile-account-group');
+    if (mag) mag.style.display = '';
+    const mso = document.getElementById('mobile-sign-out');
+    if (mso) mso.style.display = '';
+    const cachedCredits = localStorage.getItem('clawnet_credits');
+    document.getElementById('nav-credits-num').textContent = cachedCredits !== null ? parseInt(cachedCredits).toLocaleString() : '\u2014';
+    document.getElementById('nav-credits-badge').classList.add('show');
+    try {
+      const token = await window.Clerk.session.getToken();
+      const res = await fetch(API + '/v1/dashboard/me', { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.credits !== undefined) {
+          localStorage.setItem('clawnet_credits', data.credits);
+          document.getElementById('nav-credits-num').textContent = data.credits.toLocaleString();
+        }
+      }
+    } catch (e) {}
+  } catch (e) {}
+}
+async function navSignOut() { await window.Clerk.signOut(); window.location.reload(); }
+
+checkStatus();
+</script>
+<script src="/clerk-recovery.js"></script>
+<script data-clerk-publishable-key="pk_live_Y2xlcmsuY2xhdy1uZXQub3JnJA"
+  src="https://cdn.jsdelivr.net/npm/@clerk/clerk-js@5/dist/clerk.browser.js"
+  onload="initNav()"></script>
+</body>
+</html>
