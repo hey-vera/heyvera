@@ -4,7 +4,7 @@
 > - `private-aid/aid-trust/plan.md` — Protocol 1 (trust scoring + identity + verification)
 > - `private-aid/aid-receipt/plan.md` — Protocol 2 (DSIRs + commitment logs)
 > - `private-aid/aid-settle/plan.md` — Protocol 3 (trust-gated settlement)
-> - `private-aid/product/plan.md` — ClawNet product features (guardians, defense, etc.)
+> - `docs/product/plan.md` — ClawNet only product features (guardians, defense, etc.)
 > - `private-aid/strategy/` — Competitive, DIF, economics, regulatory, decentralization
 >
 > **Keep this file as reference. Stop editing it. Extract content into the per-protocol files.**

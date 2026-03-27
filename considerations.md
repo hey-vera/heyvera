@@ -1069,3 +1069,32 @@ When an agent pays for a trust computation, the response should break down what 
 - The `computation` field is OPTIONAL in ScoreResult — only added by the API wrapper, not the library
 
 **Effort:** 2-3 days once the token launch is underway and all referenced features are confirmed live.
+
+The presentation format (it's built on Gamma, a pitch deck tool) is clean and worth noting if you ever need to make a visual pitch deck for investors or DIF. But the technology itself is a completely different domain.
+
+Let me be straight with you: building for 1M users right now would be premature engineering that costs weeks and delivers zero value at your current scale.
+
+Here's why:
+
+Architecture	Users it handles	What it requires
+Current (post-fixes)	~5,000	Single VPS, SQLite, JSON files
+1M users	1,000,000	PostgreSQL, Redis, BullMQ, S3, load balancer, multiple servers
+The jump from SQLite → PostgreSQL alone touches every DB query in the codebase. Per-tenant SQLite at 1M means 1M open database files — that's worse, not better. The real 1M architecture is:
+
+PostgreSQL replaces SQLite (the single biggest change)
+Redis for sessions, OTPs, state caching, rate limits
+BullMQ (Redis-backed job queue) replaces the scheduler
+S3 / object storage for tenant configs (not local filesystem)
+Stateless app servers behind a load balancer (no local state at all)
+That's a platform rewrite, not a feature add. It would take weeks and you'd be building infrastructure for users you don't have yet.
+
+The pragmatic path:
+
+Milestone	When	What to build
+0–100 users	Now (you're here)	What we just shipped — AsyncLocalStorage, DB OTPs, file locking, parallel scheduler
+100–1,000	When you hit ~50 active users	Add Redis for sessions + OTPs (drop-in, ~2 hours)
+1,000–10,000	When you hit ~500 active users	PostgreSQL migration, BullMQ scheduler
+10,000–1M	When revenue justifies it	Multi-server, S3, load balancer
+Each step takes maybe 1-2 days and is triggered by actual growth, not speculation. You never build more than one step ahead.
+
+The x402 MCP Toolkit is the most relevant piece. It lets developers monetize MCP tools directly. That's essentially what your marketplace does — skill creators publish endpoints and earn per call. If x402 now has a native MCP monetization toolkit, you should evaluate whether ClawNet's marketplace should integrate with it or whether it's a competing approach. Either way, you need to be aware of it.

@@ -3,6 +3,11 @@
     "allow": [
       "*"
     ],
+    "deny": [
+      "Bash(git push --force:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(rm -rf:*)"
+    ],
     "additionalDirectories": [
       "C:\\Users\\Josh\\Desktop\\GitHub\\mint",
       "C:\\Users\\Josh\\Desktop\\GitHub\\pulse",
