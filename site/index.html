@@ -385,27 +385,14 @@
   </div>
   <div class="nav-links">
     <a href="/learn">Learn</a>
-    <div class="dropdown">
-      <button class="dropdown-toggle">Docs &#9662;</button>
-      <div class="dropdown-menu">
-        <a href="/docs">ClawNet Documentation</a>
-        <a href="/aid-docs">AID Protocol Docs</a>
-      </div>
-    </div>
+    <a href="/soma" style="color:var(--accent)">Soma</a>
+    <a href="/docs">Docs</a>
     <a href="/marketplace">Marketplace</a>
     <div class="dropdown">
       <button class="dropdown-toggle">Developers &#9662;</button>
       <div class="dropdown-menu">
         <a href="/endpoints">API Endpoints</a>
         <a href="/playground">Playground</a>
-        <a href="/protocol">Protocol</a>
-      </div>
-    </div>
-    <div class="dropdown">
-      <button class="dropdown-toggle">Trust &#9662;</button>
-      <div class="dropdown-menu">
-        <a href="/aid" style="color:var(--accent)">AID Protocol</a>
-        <a href="/aid-playground">AID Playground</a>
       </div>
     </div>
     <div class="dropdown">
@@ -444,18 +431,14 @@
 <div class="mobile-menu" id="mobileMenu">
   <div class="mobile-menu-group">Navigate</div>
   <a href="/marketplace">Marketplace</a>
+  <a href="/soma" style="color:var(--accent)">Soma</a>
   <div class="mobile-menu-group">Developers</div>
   <a href="/endpoints">API Endpoints</a>
   <a href="/playground">Playground</a>
-  <a href="/protocol">Protocol</a>
   <div class="mobile-menu-group">Learn</div>
   <a href="/learn">How ClawNet Works</a>
-  <div class="mobile-menu-group">Trust</div>
-  <a href="/aid" style="color:var(--accent)">AID Protocol</a>
-  <a href="/aid-playground">AID Playground</a>
   <div class="mobile-menu-group">Docs</div>
   <a href="/docs">ClawNet Documentation</a>
-  <a href="/aid-docs">AID Protocol Docs</a>
   <div class="mobile-menu-group">Products</div>
   <a href="https://pulse.claw-net.org">Pulse &mdash; AI Marketing</a>
   <div class="mobile-menu-group" id="mobile-account-group" style="display:none">Account</div>
@@ -579,11 +562,11 @@
       <div class="value-card">
         <span class="icon" style="color:var(--purple)">&#128737;</span>
         <h3>Verifiable Trust</h3>
-        <p>Every transaction produces a cryptographic receipt. Trust scores computed from real outcomes, not self-declared. Portable across platforms via the open AID protocol.</p>
+        <p>Every API call produces a cryptographic birth certificate via the Soma protocol. Proof that data came from the claimed source, signed with Ed25519, recorded in a tamper-evident heartbeat chain.</p>
       </div>
     </div>
 
-    <p class="body" style="margin-top:32px;color:var(--text-tertiary);font-size:13px;max-width:600px">Built on open standards &mdash; <a href="/aid" style="color:var(--accent)">AID</a> for identity, x402 for payments, MCP for tools, A2A for communication. Everything interoperates. <a href="/learn" style="color:var(--accent)">Learn how &rarr;</a></p>
+    <p class="body" style="margin-top:32px;color:var(--text-tertiary);font-size:13px;max-width:600px">Built on open standards &mdash; <a href="/soma" style="color:var(--accent)">Soma</a> for identity, x402 for payments, MCP for tools, A2A for communication. Everything interoperates. <a href="/learn" style="color:var(--accent)">Learn how &rarr;</a></p>
   </div>
 </section>
 
@@ -611,12 +594,12 @@
       <div class="step">
         <div class="step-num">3</div>
         <h4>Execute</h4>
-        <p>Skills run, results aggregate. Each step produces a cryptographic receipt.</p>
+        <p>Skills run, results aggregate. Each step gets a Soma birth certificate — cryptographic proof of what was computed.</p>
       </div>
       <div class="step">
         <div class="step-num">4</div>
-        <h4>Bill &amp; Attest</h4>
-        <p>Credits deducted. Trust score updated. The provider earns reputation and revenue.</p>
+        <h4>Bill &amp; Prove</h4>
+        <p>Credits deducted. Provenance recorded in the heartbeat chain. The provider earns reputation and revenue.</p>
       </div>
     </div>
   </div>
@@ -818,9 +801,9 @@
         <div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Publish a skill</div>
         <div style="font-size:12px;color:var(--text-tertiary);line-height:1.5">Wrap any API, set your price, earn 85%</div>
       </a>
-      <a href="/aid" style="padding:24px;background:var(--bg-surface);text-decoration:none;transition:background 0.15s" onmouseover="this.style.background='var(--bg-surface-2)'" onmouseout="this.style.background='var(--bg-surface)'">
-        <div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:4px">AID Protocol</div>
-        <div style="font-size:12px;color:var(--text-tertiary);line-height:1.5">Open trust standard, MIT-licensed</div>
+      <a href="/soma" style="padding:24px;background:var(--bg-surface);text-decoration:none;transition:background 0.15s" onmouseover="this.style.background='var(--bg-surface-2)'" onmouseout="this.style.background='var(--bg-surface)'">
+        <div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Soma Protocol</div>
+        <div style="font-size:12px;color:var(--text-tertiary);line-height:1.5">Open identity standard for agents. MIT-licensed.</div>
       </a>
       <a href="/playground" style="padding:24px;background:var(--bg-surface);text-decoration:none;transition:background 0.15s" onmouseover="this.style.background='var(--bg-surface-2)'" onmouseout="this.style.background='var(--bg-surface)'">
         <div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Playground</div>
@@ -842,10 +825,10 @@
       <a href="/playground">Playground</a>
     </div>
     <div>
-      <h4>Trust</h4>
-      <a href="/learn">How It Works</a>
-      <a href="/aid">AID Protocol</a>
-      <a href="/aid-docs">AID Docs</a>
+      <h4>Soma</h4>
+      <a href="/soma">Protocol</a>
+      <a href="https://doi.org/10.5281/zenodo.19260081" target="_blank">Paper</a>
+      <a href="https://github.com/1xmint/Soma" target="_blank">GitHub</a>
     </div>
     <div>
       <h4>Products</h4>
