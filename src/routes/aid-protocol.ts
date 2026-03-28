@@ -1008,7 +1008,7 @@ router.get('/canary', async (c) => {
     });
   } catch (err: any) {
     logger.error({ err }, 'Canary status check failed');
-    return c.json({ status: 'error', error: err.message }, 500);
+    return c.json({ status: 'error', error: 'Canary check failed' }, 500);
   }
 });
 

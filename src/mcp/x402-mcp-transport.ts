@@ -15,6 +15,7 @@
 
 import { Hono } from 'hono';
 import { nanoid } from 'nanoid';
+import crypto from 'crypto';
 import { env } from '../config/index';
 import { logger } from '../utils/logger';
 import { getDb, getSkill } from '../db/index';
@@ -392,11 +393,12 @@ function insertX402McpReceipt(params: {
   durationMs: number;
   success: boolean;
   error: string | null;
+  paymentHash: string | null;
 }): void {
   try {
     getDb().prepare(`
-      INSERT INTO x402_receipts (request_id, skill_id, skill_name, price_usdc, network, payer_address, duration_ms, success, error)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO x402_receipts (request_id, skill_id, skill_name, price_usdc, network, payer_address, duration_ms, success, error, payment_hash)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       params.requestId,
       `mcp:${params.toolName}`,
@@ -407,6 +409,7 @@ function insertX402McpReceipt(params: {
       params.durationMs,
       params.success ? 1 : 0,
       params.error,
+      params.paymentHash,
     );
   } catch (err) {
     logger.warn({ requestId: params.requestId, err }, 'Failed to insert x402 MCP receipt');
@@ -535,6 +538,14 @@ router.post('/', async (c) => {
         }, 402);
       }
 
+      // Idempotency: check if this payment was already used
+      const paymentHash = crypto.createHash('sha256').update(paymentHeader).digest('hex');
+      const existingReceipt = getDb().prepare('SELECT request_id FROM x402_receipts WHERE payment_hash = ?').get(paymentHash) as { request_id: string } | undefined;
+      if (existingReceipt) {
+        logger.info({ paymentHash, existingRequestId: existingReceipt.request_id }, 'x402 MCP idempotent replay — payment already processed');
+        return c.json(jsonRpcError(null, -32000, 'Payment already processed (idempotent replay)'), 400);
+      }
+
       // Verify payment
       try {
         const verification = await facilitator.verifyPayment(paymentHeader, buildPaymentRequirements(totalPriceStr));
@@ -562,6 +573,7 @@ router.post('/', async (c) => {
         durationMs,
         success: true,
         error: null,
+        paymentHash: paymentHash ?? null,
       });
     }
 
@@ -618,6 +630,14 @@ router.post('/', async (c) => {
         }, 402);
       }
 
+      // Idempotency: check if this payment was already used
+      const singlePaymentHash = crypto.createHash('sha256').update(paymentHeader).digest('hex');
+      const existingSingle = getDb().prepare('SELECT request_id FROM x402_receipts WHERE payment_hash = ?').get(singlePaymentHash) as { request_id: string } | undefined;
+      if (existingSingle) {
+        logger.info({ paymentHash: singlePaymentHash, existingRequestId: existingSingle.request_id }, 'x402 MCP idempotent replay');
+        return c.json(jsonRpcError(req.id, -32000, 'Payment already processed (idempotent replay)'), 400);
+      }
+
       // Verify payment via facilitator
       try {
         const verification = await facilitator.verifyPayment(paymentHeader, buildPaymentRequirements(priceUsdc));
@@ -645,6 +665,7 @@ router.post('/', async (c) => {
           durationMs,
           success: true,
           error: null,
+          paymentHash: singlePaymentHash,
         });
 
         // Inject receipt metadata into the response result
@@ -668,10 +689,11 @@ router.post('/', async (c) => {
           payerAddress: null,
           durationMs,
           success: false,
-          error: String(execErr),
+          error: env.NODE_ENV === 'production' ? 'Tool execution failed' : String(execErr),
+          paymentHash: singlePaymentHash,
         });
         return c.json(jsonRpcSuccess(req.id, {
-          content: [{ type: 'text', text: `Tool execution error: ${String(execErr)}` }],
+          content: [{ type: 'text', text: env.NODE_ENV === 'production' ? 'Tool execution failed' : `Tool execution error: ${String(execErr)}` }],
           isError: true,
         }));
       }

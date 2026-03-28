@@ -203,7 +203,7 @@ export async function runSwarm(swarmId: string, agentKey: string, body: SwarmPar
         return { index: i, subtask: st.subtask, skillId: null, result: resp.content, ok: true };
       }
     } catch (err) {
-      return { index: i, subtask: st.subtask, skillId: st.skillId ?? null, result: null, ok: false, error: String(err) };
+      return { index: i, subtask: st.subtask, skillId: st.skillId ?? null, result: null, ok: false, error: env.NODE_ENV === 'production' ? 'Subtask failed' : String(err) };
     }
   }));
 
