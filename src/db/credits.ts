@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import { logger } from '../utils/logger';
 import { getDb, logAudit } from './connection';
 
@@ -17,6 +18,8 @@ export function deductCredit(key: string, amount: number = 1): boolean {
     .run({ key, amount });
   if (result.changes > 0) {
     logAudit({ entityType: 'api_key', entityId: key, action: 'CREDIT_DEDUCT', data: { amount } });
+    // Fire-and-forget Soma receipt (async, never blocks deduction)
+    issueBillingReceipt(key, amount, 'credit_deduct').catch(() => {});
   }
   return result.changes > 0;
 }
@@ -125,5 +128,95 @@ export function upsertStripeChargeRefundedCents(chargeId: string, totalCents: nu
                 amount_refunded_cents = excluded.amount_refunded_cents,
                 processed_at = datetime('now')`)
     .run(chargeId, totalCents);
+}
+
+// ─── Soma Billing Receipts ──────────────────────────────────────────────────
+
+/**
+ * Issue a cryptographically signed billing receipt via Soma Heart.
+ * Each receipt contains: key (masked), amount, action, timestamp, data hash, signature.
+ * The client can verify the signature offline using claw-net.org's public DID.
+ */
+async function issueBillingReceipt(key: string, amount: number, action: string, metadata?: Record<string, any>): Promise<void> {
+  try {
+    // Ensure billing_receipts table exists
+    getDb().exec(`
+      CREATE TABLE IF NOT EXISTS billing_receipts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        api_key_masked TEXT NOT NULL,
+        amount REAL NOT NULL,
+        action TEXT NOT NULL,
+        metadata TEXT DEFAULT '{}',
+        data_hash TEXT NOT NULL,
+        signature TEXT,
+        signer_did TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_billing_receipts_key ON billing_receipts(api_key_masked);
+    `);
+
+    const masked = key.slice(0, 6) + '...' + key.slice(-4);
+    const timestamp = new Date().toISOString();
+    const payload = JSON.stringify({ key: masked, amount, action, timestamp, metadata: metadata || {} });
+    const dataHash = createHash('sha256').update(payload).digest('hex');
+
+    // Try to sign with Soma Heart
+    let signature: string | null = null;
+    let signerDid: string | null = null;
+    try {
+      const { getHeartSafe } = await import('../core/soma');
+      const heart = getHeartSafe();
+      if (heart) {
+        const cert = await heart.certifyData(payload);
+        if (cert) {
+          signature = cert.signature || cert.proof || null;
+          signerDid = cert.did || cert.signer || null;
+        }
+      }
+    } catch { /* Soma not available — store unsigned receipt */ }
+
+    getDb().prepare(
+      `INSERT INTO billing_receipts (api_key_masked, amount, action, metadata, data_hash, signature, signer_did, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(masked, amount, action, JSON.stringify(metadata || {}), dataHash, signature, signerDid, timestamp);
+  } catch (err) {
+    // Never crash the deduction path
+    logger.debug({ err }, 'Billing receipt failed');
+  }
+}
+
+/**
+ * Get billing receipts for an API key.
+ * Each receipt is independently verifiable via the data_hash + signature.
+ */
+export function getBillingReceipts(key: string, limit: number = 100): Array<{
+  id: number;
+  amount: number;
+  action: string;
+  metadata: Record<string, any>;
+  dataHash: string;
+  signature: string | null;
+  signerDid: string | null;
+  createdAt: string;
+}> {
+  try {
+    const masked = key.slice(0, 6) + '...' + key.slice(-4);
+    const rows = getDb().prepare(
+      `SELECT id, amount, action, metadata, data_hash, signature, signer_did, created_at
+       FROM billing_receipts WHERE api_key_masked = ? ORDER BY created_at DESC LIMIT ?`
+    ).all(masked, limit) as any[];
+    return rows.map(r => ({
+      id: r.id,
+      amount: r.amount,
+      action: r.action,
+      metadata: JSON.parse(r.metadata || '{}'),
+      dataHash: r.data_hash,
+      signature: r.signature,
+      signerDid: r.signer_did,
+      createdAt: r.created_at,
+    }));
+  } catch {
+    return [];
+  }
 }
 

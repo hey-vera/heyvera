@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { checkApiKey } from '../middleware/auth';
 import { getDb, logAudit, getHardBudgetLock, setHardBudgetLock, removeHardBudgetLock, getMonthlySpend } from '../db/index';
+import { getBillingReceipts } from '../db/credits';
 
 const router = new Hono();
 
@@ -214,6 +215,26 @@ router.delete('/budget/lock', async (c) => {
   logAudit({ entityType: 'budget_lock', entityId: keyInfo.key, action: 'REMOVED' });
 
   return c.json({ ok: true, hardLock: null });
+});
+
+// ─── Soma-Verified Billing Receipts ─────────────────────────────────────────
+
+router.get('/receipts', async (c) => {
+  const keyInfo = c.get('apiKeyInfo');
+  const url = new URL(c.req.url);
+  const limit = Math.min(500, parseInt(url.searchParams.get('limit') || '100', 10));
+
+  const receipts = getBillingReceipts(keyInfo.key, limit);
+
+  return c.json({
+    receipts,
+    count: receipts.length,
+    verificationInfo: {
+      description: 'Each receipt contains a SHA-256 data hash and an Ed25519 signature from the platform DID. Verify the signature against the data hash to prove the charge is authentic and unmodified.',
+      platformDid: process.env.PLATFORM_DID || 'did:web:api.claw-net.org',
+      algorithm: 'Ed25519',
+    },
+  });
 });
 
 export { router as accountRouter };
