@@ -166,9 +166,10 @@ Features: content-hash validation, stale-while-revalidate, adaptive TTL, request
 | Cache warming | periodic | Preload popular cache entries |
 | Creator notifications | periodic | Email notifications |
 | Index sync | periodic | AG0 index synchronization |
-| Anchor | periodic | LEGACY (AID) — planned repurpose: anchor Soma verdict Merkle roots |
-| AID snapshot | 4h | LEGACY: Merkle tree rebuild, capability refresh (AID) |
-| Proof of life | periodic | LEGACY: AID heartbeat monitoring |
+| Soma anchor | periodic | Soma verdict Merkle root → Solana memo (replaces legacy AID anchor) |
+| ~~Anchor~~ | ~~periodic~~ | ~~LEGACY: replaced by Soma anchor~~ |
+| ~~AID snapshot~~ | ~~4h~~ | ~~LEGACY: disabled~~ |
+| ~~Proof of life~~ | ~~periodic~~ | ~~LEGACY: disabled~~ |
 | Canary | periodic | Canary checks |
 | Trust decay | periodic | Rating weight decay (10%/30 days) |
 
@@ -222,6 +223,9 @@ Treasury sweep optional — with 2-wallet setup, treasury credits are pure profi
 | `src/utils/crypto-agility.ts` | Shared: aidHash(), post-quantum migration path (Soma + legacy AID) |
 | `src/routes/api.ts` | POST /v1/orchestrate, GET /v1/estimate |
 | `src/routes/aid.ts` | LEGACY: AID register, resolve, trust, verify, export, rotate-key |
+| `src/routes/soma.ts` | Soma verdict API: trust, verdicts, export, anchors |
+| `src/core/soma-anchor-cron.ts` | Soma verdict Merkle anchoring on Solana |
+| `src/db/soma-verdicts.ts` | Soma verdict CRUD, stats, anchor lifecycle |
 | `src/routes/x402-skills.ts` | x402 payment-gated skill invocation |
 | `src/middleware/auth.ts` | checkApiKey, checkPermission, checkPolicy |
 | `src/middleware/aid-auth.ts` | LEGACY: AID-native Ed25519 request auth |
@@ -259,9 +263,21 @@ Refactor ClawNet's own LLM calls (intent parsing, response formatting) from `fet
 
 **Key distinction:** Data provenance (birth certificates) ≠ model verification (sense verdicts). Birth certificates prove "I fetched this data." Model verification proves "this was actually Claude." Never conflate them.
 
-### Planned (Phase 3 — on-chain anchored Soma verdicts)
+### Built (Phase 3 — on-chain anchored Soma verdicts)
 
-Repurpose existing Merkle infrastructure (`merkle-anchor.ts`, attestation tables, Solana anchoring cron) to anchor Soma verification verdicts on-chain. Creates public, immutable verification history ("Agent X verified GREEN 847 times across 23 observers"). This is the reputation layer AID tried to build, but backed by physics (temporal fingerprinting) instead of self-reported attestations. ClawNet's existing ERC-8004 on-chain identity anchors the Merkle roots. AID's ERC-8004 is dead with AID.
+Soma verdict infrastructure anchors verification outcomes on-chain via Merkle trees + Solana memo. This is the reputation layer AID tried to build, but backed by physics (temporal fingerprinting) instead of self-reported attestations. Soma has its own ERC-8004 on Base Mainnet (register via `scripts/register-soma-erc8004.ts`).
+
+**DB tables (v122 migration):** `soma_verdicts`, `soma_verdict_stats`, `soma_verdict_anchors`
+**Domain module:** `src/db/soma-verdicts.ts` — `recordSomaVerdict()`, `getSomaVerdictStats()`, `getRecentSomaVerdicts()`, anchor lifecycle
+
+**Routes (`src/routes/soma.ts`):**
+- `POST /v1/soma/verdicts` — submit verdict (observer-signed, self-verdicts blocked)
+- `GET  /v1/soma/:did/trust` — public "credit bureau" endpoint (free, no auth)
+- `GET  /v1/soma/:did/verdicts` — recent verdicts for an agent
+- `GET  /v1/soma/:did/export` — portable trust chain with per-verdict Merkle proofs
+- `GET  /v1/soma/anchors/:id` — anchor details (Solana tx hash, tree)
+
+**Cron (`src/core/soma-anchor-cron.ts`):** Periodically builds Merkle tree from unanchored verdicts, sends Solana memo with root. Uses existing `MERKLE_ANCHOR_ENABLED` flag. ~$0.024/day.
 
 ### Shared Crypto Primitives (used by Soma, also by legacy AID code)
 
