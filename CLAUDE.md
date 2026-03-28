@@ -89,7 +89,7 @@ creditsForExecution(steps, lookup) // Sum of live step costs (0 for cached/faile
 x402SurchargeCredits(usdAmount)  // 1:1 cost recovery → credited to clawhub-treasury
 cacheCreditCost(liveCost)        // round6(max(0.1, liveCost * 0.10))
 dynamicCreditCost(...)           // Surge (up to 5x) + volume discounts + off-peak
-trustGatedCreditCost(...)        // AID trust tiers (0-30% discounts)
+trustGatedCreditCost(...)        // LEGACY: AID trust tiers (0-30% discounts) — code exists, AID abandoned
 ```
 
 - **Credit rate:** CREDITS_PER_USD=1000 → $0.001/credit, fractional supported (min 0.001)
@@ -97,16 +97,17 @@ trustGatedCreditCost(...)        // AID trust tiers (0-30% discounts)
 - **Deduction guard:** `WHERE credits >= amount` + DB trigger
 - **Delegated billing:** auth resolves child→parent, `deductCredit(parent)` then `trackDelegatedSpend(child)` across 20+ billing sites
 
-## Auth (4 layers)
+## Auth (3 active layers + 1 legacy)
 
-| Layer | Header | Usage |
-|-------|--------|-------|
-| API Key | `X-API-Key` (cn-...) | Most /v1/* routes (not all — some are public) |
-| AID | `X-AID-DID` + `X-AID-PROOF` + `X-AID-TIMESTAMP` + `X-AID-NONCE` | Protocol-level Ed25519 auth (trust-gated pricing) |
-| Clerk | `Authorization: Bearer` | Escrow, user endpoints |
-| Admin | `X-Admin-Key` | /v1/admin/* (timing-safe SHA-256) |
+| Layer | Header | Usage | Status |
+|-------|--------|-------|--------|
+| API Key | `X-API-Key` (cn-...) | Most /v1/* routes (not all — some are public) | **Active** |
+| Clerk | `Authorization: Bearer` | Escrow, user endpoints | **Active** |
+| Admin | `X-Admin-Key` | /v1/admin/* (timing-safe SHA-256) | **Active** |
+| AID | `X-AID-DID` + `X-AID-PROOF` + `X-AID-TIMESTAMP` + `X-AID-NONCE` | Protocol-level Ed25519 auth (trust-gated pricing) | **Legacy** |
 
-**Middleware files (11):** auth, admin-auth, clerk-auth, aid-auth, aid-gateway, aid-verify, aid-enrich, aid-provider-proof, aid-verification-receipt, rate-limit, sign-response.
+**Active middleware (5):** auth, admin-auth, clerk-auth, rate-limit, sign-response.
+**Legacy AID middleware (6):** aid-auth, aid-gateway, aid-verify, aid-enrich, aid-provider-proof, aid-verification-receipt.
 
 ## Critical Gotchas
 
@@ -119,37 +120,20 @@ trustGatedCreditCost(...)        // AID trust tiers (0-30% discounts)
 - **Composite skills** — max depth 3, max 10 leaf invocations, BFS cycle detection
 - **Per-skill rate limit** — `checkSkillRateLimit()` uses `cacheIncr(key, 3600)`
 - **Webhook HMAC** — `X-ClawNet-Signature` + `X-ClawNet-Timestamp` headers
+- **Soma: provenance ≠ verification** — birth certificates prove data origin; model verification requires sense on observer side. Never conflate in code or marketing.
+- **Soma: never self-verify** — ClawNet runs heart, callers run sense. Heart + sense in same process = self-attestation, not cryptographic verification.
 
-## AID — Agent Identity Document
+## AID — Agent Identity Document (LEGACY — abandoned, replaced by Soma)
 
-Self-sovereign agent identity with Ed25519 DIDs (`did:key:z...`), Merkle-anchored trust chains, and offline verification. Full plan in `x204` file.
+AID was a reputation-based trust system (attestation history → trust score). Abandoned in favor of Soma, which achieves stronger guarantees via physics-based verification (temporal fingerprinting + per-token HMAC — you can't fake a model's inference rhythm without running that model). The AID code still exists in the codebase (routes, middleware, migrations, DB tables) but is not the active path.
 
-**Key files:**
-| File | What |
-|------|------|
-| `src/core/aid-builder.ts` | `generateAgentKeypair()`, `buildAIDDocument()`, `computeTrustScoreWithProof()`, `deriveCapabilities()` |
-| `src/utils/aid-verifier.ts` | `verifyAIDDocument()` — offline verification, pure crypto |
-| `src/utils/ed25519-signer.ts` | `signVC()`, `verifyVCSignature()` — platform Ed25519 signing (deterministic from `PLATFORM_SIGNING_SECRET`) |
-| `src/utils/jcs.ts` | `jcsSerialize()`, `base58btcEncode/Decode()`, `validateMultibaseEd25519()` — shared crypto |
-| `src/utils/crypto-agility.ts` | `aidHash()`, `verifySignature()`, `negotiateAlgorithm()` — post-quantum migration path |
-| `src/core/merkle-anchor.ts` | `buildMerkleTree()`, `getMerkleProof()`, `verifyMerkleProof()` |
-| `src/db/aid.ts` | AID key CRUD, trust snapshots, cross-platform attestations, capabilities |
-| `src/db/attestations.ts` | `createAutoAttestation()` with `executionSteps[]` — three-layer trust lifecycle |
-| `src/routes/aid.ts` | register, resolve, trust-chain, attest, capabilities, verify, export, rotate-key, did.json, trust, freeze, heartbeat, erasure |
-| `src/middleware/aid-auth.ts` | AID-native protocol auth (Ed25519 signed requests, nonce replay detection) |
-
-**Trust score formula (LIVE):**
-```
-score = successRate*40 + chainCoverage*25 + volume*20 + manifestAdherence*15
-```
-
-**Three-layer trust lifecycle:**
-```
-MANIFEST (intent, optional) → EXECUTION PROOF (evidence, auto) → ATTESTATION (outcome, auto)
-All feed into trust score via attestation_stats table.
-```
-
-**Public trust API:** `GET /v1/aid/:did/trust` — free, no auth, rate-limited. Returns verdict (not exact score), attestation count, capabilities. The "credit bureau" endpoint.
+**AID code still in repo (not deleted, not actively developed):**
+- `src/routes/aid.ts` — 12+ endpoints (register, resolve, trust, verify, export, etc.)
+- `src/middleware/aid-auth.ts`, `aid-verify.ts`, `aid-enrich.ts`, `aid-provider-proof.ts`, `aid-verification-receipt.ts`, `aid-gateway.ts` — 6 middleware files
+- `src/core/aid-builder.ts` — trust score, keypair generation
+- `src/db/aid.ts`, `src/db/attestations.ts` — DB layer
+- `src/core/merkle-anchor.ts` — Merkle trees (could be repurposed for Soma later)
+- `src/utils/aid-verifier.ts` — offline verification
 
 ## x402 Payment Layer (src/routes/x402-skills.ts, src/payments/)
 
@@ -182,9 +166,9 @@ Features: content-hash validation, stale-while-revalidate, adaptive TTL, request
 | Cache warming | periodic | Preload popular cache entries |
 | Creator notifications | periodic | Email notifications |
 | Index sync | periodic | AG0 index synchronization |
-| Anchor | periodic | Merkle root Solana anchoring |
-| AID snapshot | 4h | Merkle tree rebuild, capability refresh |
-| Proof of life | periodic | AID heartbeat monitoring |
+| Anchor | periodic | LEGACY: Merkle root Solana anchoring (AID) |
+| AID snapshot | 4h | LEGACY: Merkle tree rebuild, capability refresh (AID) |
+| Proof of life | periodic | LEGACY: AID heartbeat monitoring |
 | Canary | periodic | Canary checks |
 | Trust decay | periodic | Rating weight decay (10%/30 days) |
 
@@ -225,9 +209,9 @@ Treasury sweep optional — with 2-wallet setup, treasury credits are pure profi
 | `src/core/executor.ts` | executePlan(), circuit breaker, cache |
 | `src/core/pricing.ts` | optimizePlan(), checkBudget(), 4 strategies |
 | `src/core/composite-executor.ts` | Output piping, parallel, conditionals, depth 3 |
-| `src/core/aid-builder.ts` | AID document builder, trust score, capabilities |
+| `src/core/aid-builder.ts` | LEGACY: AID document builder, trust score, capabilities |
 | `src/cache/index.ts` | L1+L2, SWR, coalescing, negative cache |
-| `src/core/soma.ts` | Soma Heart singleton, key bridging, genome |
+| `src/core/soma.ts` | Soma Heart singleton — primary identity system, key bridging, genome |
 | `src/providers/clawapis.ts` | x402 client, clawApiCall() + soma birth certificates |
 | `src/providers/x402-facilitator.ts` | Facilitator pool (Coinbase/PayAI/Skyfire), failover |
 | `src/utils/billing.ts` | trackDelegatedSpend() |
@@ -235,20 +219,32 @@ Treasury sweep optional — with 2-wallet setup, treasury credits are pure profi
 | `src/utils/solana-payout.ts` | sendSolanaUsdc(), balance checks |
 | `src/utils/shutdown.ts` | SIGTERM/SIGINT, 15s drain |
 | `src/utils/jcs.ts` | Shared JCS + base58btc + Ed25519 validation |
-| `src/utils/crypto-agility.ts` | aidHash(), post-quantum migration path |
+| `src/utils/crypto-agility.ts` | Shared: aidHash(), post-quantum migration path (Soma + legacy AID) |
 | `src/routes/api.ts` | POST /v1/orchestrate, GET /v1/estimate |
-| `src/routes/aid.ts` | AID: register, resolve, trust, verify, export, rotate-key |
+| `src/routes/aid.ts` | LEGACY: AID register, resolve, trust, verify, export, rotate-key |
 | `src/routes/x402-skills.ts` | x402 payment-gated skill invocation |
 | `src/middleware/auth.ts` | checkApiKey, checkPermission, checkPolicy |
-| `src/middleware/aid-auth.ts` | AID-native Ed25519 request auth |
-| `x204` | AID protocol plan |
+| `src/middleware/aid-auth.ts` | LEGACY: AID-native Ed25519 request auth |
+| `x204` | LEGACY: AID protocol plan |
 | `flow.md` | System flow document |
 
-## Soma Heart (src/core/soma.ts)
+## Soma — Identity as Execution (ACTIVE — primary identity/verification system)
 
-Cryptographic data provenance via [soma-heart](https://github.com/1xmint/Soma). Every outbound x402 API call through `clawApiCall()` gets a birth certificate (data hash + Ed25519 signature + heartbeat chain entry).
+Soma is the core identity and verification protocol. Unlike AID (reputation-based trust scoring), Soma proves identity through physics: temporal fingerprinting of model inference + per-token HMAC authentication. You can't fake Claude's inference rhythm without running Claude.
 
-**Key bridging:** Derives soma keypair from the same `PLATFORM_SIGNING_SECRET` SHA-256 seed as AID (`src/utils/ed25519-signer.ts`). Same Ed25519 key material, different DID encoding (soma: base64, AID: base58btc). AID DID (`did:web:api.claw-net.org`) is canonical.
+**Soma repo:** `C:\Users\Josh\Desktop\GitHub\Soma` ([github.com/1xmint/Soma](https://github.com/1xmint/Soma))
+
+**Two components:**
+- **soma-heart** (agent side) — execution runtime, credential vault, birth certificates, heartbeat chain, per-token HMAC
+- **soma-sense** (observer side) — temporal/topology/vocabulary fingerprinting, phenotype atlas, behavioral verdicts (GREEN/AMBER/RED/UNCANNY)
+
+**Strategic direction:** ClawNet makes itself verifiable. ClawNet runs the heart. Callers run the sense (if they want behavioral verification). ClawNet does NOT verify itself — self-verification = self-attestation = what AID was. The observer must be a separate party.
+
+### Current Integration (Phase 1 — data provenance)
+
+ClawNet uses `heart.fetchData()` for outbound x402 API calls. Every call gets a birth certificate (data hash + Ed25519 signature + heartbeat chain entry). This proves "I called this URL, got this data, here's the hash."
+
+**Key bridging:** Derives soma keypair from `PLATFORM_SIGNING_SECRET` via SHA-256 seed (`src/utils/ed25519-signer.ts`). Same Ed25519 key material used by both Soma and legacy AID code.
 
 **Integration points:**
 - `src/core/soma.ts` — `initHeart()`, `getHeart()`, `getHeartSafe()`, `destroyHeart()`
@@ -257,7 +253,20 @@ Cryptographic data provenance via [soma-heart](https://github.com/1xmint/Soma). 
 - `src/routes/api.ts` — `POST /v1/orchestrate` response includes `provenance` field when certificates exist
 - `src/routes/well-known.ts` — `GET /.well-known/soma.json` exposes genome, both DIDs, heartbeat chain status
 
-**Not used:** `heart.generate()`, seeds, behavioral modification (claw-net is an orchestrator, not an LLM agent).
+### Planned (Phase 2 — model verification)
+
+Refactor ClawNet's own LLM calls (intent parsing, response formatting) from `fetchData()` to `heart.generate()`. This enables per-token HMAC authentication and temporal fingerprinting on ClawNet's own inference. Callers connecting via MCP with soma-sense can then verify what model ClawNet actually used. Additionally, surface birth certificates + heartbeat chain + token HMACs in HTTP responses so any caller can verify offline without MCP.
+
+**Key distinction:** Data provenance (birth certificates) ≠ model verification (sense verdicts). Birth certificates prove "I fetched this data." Model verification proves "this was actually Claude." Never conflate them.
+
+### Shared Crypto Primitives (used by Soma, also by legacy AID code)
+
+| File | What | Removable? |
+|------|------|------------|
+| `src/utils/ed25519-signer.ts` | Deterministic Ed25519 keypair from `PLATFORM_SIGNING_SECRET` | NO — Soma depends on this |
+| `src/utils/jcs.ts` | JCS canonicalization (RFC 8785), base58btc encode/decode | NO — shared crypto |
+| `src/utils/crypto-agility.ts` | Algorithm-agile hashing/signing, post-quantum migration path | NO — shared crypto |
+| `src/core/merkle-anchor.ts` | Merkle tree build/verify (could be repurposed for Soma) | Keep for now |
 
 ## Testing
 
@@ -280,7 +289,7 @@ All env vars are Zod-validated in `src/config/index.ts`. See `.env.example` for 
 - `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`
 - `SOLANA_RECEIVING_WALLET`, `SOLANA_PRIVATE_KEY`, `SOLANA_RPC_URL`
 - `CREDITS_PER_USD=1000`, `COST_MARKUP_FACTOR=1500`, `ORCHESTRATION_FEE=2`
-- `PLATFORM_SIGNING_SECRET` (deterministic Ed25519 key derivation for AID)
+- `PLATFORM_SIGNING_SECRET` (deterministic Ed25519 key derivation — Soma Heart + legacy AID)
 - `X402_RECIPIENT_ADDRESS` (enables x402 payment mode)
 - `AG0_DISCOVERY_ENABLED`, `INDEX_SYNC_ENABLED`, `MERKLE_ANCHOR_ENABLED` (feature flags)
 - `SENTRY_DSN` (optional), `RESEND_API_KEY` (optional)
