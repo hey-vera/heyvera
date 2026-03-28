@@ -1,6 +1,6 @@
 ---
 name: claw-net
-description: AI agent orchestration with 13,000+ API endpoints (274 built-in + auto-discovered via 402index, clawapis, ag0), 4 crypto data skills, Soma-verified execution, and x402 micropayments. Ask anything in natural language — get provenance-backed answers. Pay-per-query credits ($0.001 each). Wallet auth (SIWX) or API key. ERC-8004 on-chain identity.
+description: AI agent orchestration with 13,000+ API endpoints (274 built-in + auto-discovered via 402index, clawapis, ag0, zauth), 4 crypto data skills, Soma-verified execution, and x402 micropayments. Ask anything in natural language — get provenance-backed answers. Pay-per-query credits ($0.001 each). Wallet auth (SIWX) or API key. ERC-8004 on-chain identity.
 metadata:
   homepage: https://claw-net.org
   source: https://github.com/1xmint/claw-net
@@ -126,6 +126,22 @@ Tiers: `quick` (0.5cr), `standard` (2cr), `deep` (5cr).
 | `GET /v1/estimate?query=...` | None | Free | Cost estimate before running |
 | `GET /v1/balance` | Key | Free | Check credit balance |
 | `GET /.well-known/soma.json` | None | Free | Soma identity + provenance discovery |
+
+## Endpoint Discovery
+
+ClawNet auto-discovers endpoints from 7 sources every 4 hours:
+
+| Source | What |
+|---|---|
+| Built-in registry | 274 hardcoded, curated endpoints |
+| [ClawAPIs](https://clawapis.com) | Dynamic provider discovery |
+| [402index](https://402index.io) | Community x402 directory (15k+) |
+| [Coinbase Bazaar](https://cdp.coinbase.com) | Official x402 facilitator discovery |
+| [Zauth](https://zauthx402.com) | Pre-verified x402 endpoints (only WORKING status) |
+| [Dexter](https://x402.dexter.cash) | x402 facilitator marketplace |
+| [x402list](https://x402list.fun) | Services directory (17k+) |
+
+All discovered endpoints are indexed, classified, and available to the orchestration engine automatically.
 
 ## x402 (Pay with USDC)
 
