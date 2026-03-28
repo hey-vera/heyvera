@@ -93,9 +93,11 @@ import { startSkillHealthCron } from './core/skill-health-cron';
 import { startSkillSchedulerCron } from './core/skill-scheduler-cron';
 import { startCacheWarmingCron } from './core/cache-warming-cron';
 import { startIndexSync } from './core/index-sync';
-// import { startAnchorCron } from './core/anchor-cron'; // LEGACY: repurpose for Soma verdict anchoring (Phase 3)
+// import { startAnchorCron } from './core/anchor-cron'; // LEGACY: replaced by soma-anchor-cron
 // import { startAidSnapshotCron } from './core/aid-snapshot-cron'; // LEGACY: AID abandoned
 // import { startProofOfLifeCron } from './core/proof-of-life-cron'; // LEGACY: AID abandoned
+import { startSomaAnchorCron } from './core/soma-anchor-cron';
+import { somaRouter } from './routes/soma';
 import { startCanaryCron } from './core/canary';
 import { getIndexedEndpoints, countIndexedEndpoints, searchIndexedEndpoints, getIndexedEndpointsSyncInfo } from './db/index';
 import { startCreatorNotificationsCron } from './core/creator-notifications';
@@ -311,6 +313,8 @@ app.route('/mcp', mcpHttpRouter);
 app.route('/mcp/x402', x402McpRouter);
 app.route('/v1/stats/telemetry', statsTelemetryRouter);
 app.route('/v1/register', registerRouter);
+// Soma verification routes (replaces AID trust endpoints)
+app.route('/v1/soma', somaRouter);
 // LEGACY: AID routes disabled — Soma replaced AID
 // app.route('/v1/aid', aidRouter);
 // app.route('/aid', aidProtocolRouter);
@@ -491,10 +495,11 @@ async function start() {
   startCacheWarmingCron();        cronsStarted++;
   startCreatorNotificationsCron(); cronsStarted++;
   startIndexSync();                cronsStarted++;
-  // LEGACY: AID crons disabled — repurpose for Soma verdict anchoring (Phase 3)
+  // LEGACY: AID crons replaced by Soma
   // startAnchorCron();               cronsStarted++;
   // startAidSnapshotCron();          cronsStarted++;
   // startProofOfLifeCron();          cronsStarted++;
+  startSomaAnchorCron();             cronsStarted++;
   startCanaryCron();               cronsStarted++;
   startTrustDecayCron();           cronsStarted++;
 
