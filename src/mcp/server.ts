@@ -27,6 +27,7 @@ import { z } from 'zod';
 
 import { env } from '../config/index';
 import { apiRegistry, getRegistryStats } from '../config/api-registry';
+import { buildSomaMetadata, logSomaMcpStatus } from './soma-mcp-wrapper';
 const CLAWNET_BASE_URL = env.CLAWNET_BASE_URL;
 const CLAWNET_API_KEY = env.CLAWNET_API_KEY ?? '';
 
@@ -99,9 +100,15 @@ function buildToolSchema(skill: SkillDetail): Record<string, z.ZodTypeAny> {
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 async function main() {
+  // Build Soma metadata for identity verification
+  const somaMetadata = buildSomaMetadata();
+
   const server = new McpServer({
     name: 'ClawNet',
     version: '1.0.0',
+    // Embed Soma genome commitment + ephemeral X25519 key in server info.
+    // Callers running soma-sense detect this and can verify ClawNet's model usage.
+    ...(somaMetadata && somaMetadata),
   });
 
   // ── Tool: list-skills ──────────────────────────────────────────────────────
@@ -474,6 +481,7 @@ async function main() {
   );
 
   // ── Connect via stdio transport ────────────────────────────────────────────
+  logSomaMcpStatus();
   const transport = new StdioServerTransport();
   await server.connect(transport);
 }

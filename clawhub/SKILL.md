@@ -167,12 +167,25 @@ POST https://api.claw-net.org/x402/query/{id}
 | `RATE_LIMITED` | 429 | Too many requests |
 | `SOURCE_ERROR` | 502 | Upstream API failed |
 
-## Recommended Workflow
+## How Agents Should Use ClawNet
 
-1. `GET /v1/balance` — confirm you have credits
-2. `GET /v1/marketplace/skills` — find the right skill
-3. `GET /v1/skills/:id` — read input schema
-4. `GET /v1/estimate?query=...` — preview cost (free)
-5. `POST /v1/orchestrate` — ask your question (provenance included automatically)
-6. `POST /v1/manifest` — verify the answer if needed
-7. Check `X-Soma-*` response headers or `provenance` field for cryptographic proof
+**Discovery phase** (free, no credits needed):
+1. `POST /v1/discover` or `GET /v1/marketplace/skills` — find relevant skills and endpoints
+2. `GET /v1/skills/:id` — read input schema, pricing, capabilities
+3. `GET /v1/estimate?query=...` — preview cost before committing
+
+**Orchestration phase** (uses credits or x402):
+4. `POST /v1/orchestrate` — natural language query across 13,000+ sources. ClawNet's LLM parses intent, selects optimal endpoints, executes in parallel, synthesizes the answer. Provenance included automatically.
+5. Check `X-Soma-*` response headers for cryptographic proof of what happened.
+
+**Direct call phase** (after discovery):
+Once you've discovered the right skill via orchestration, you can invoke it directly — skipping the LLM routing:
+6. `POST /v1/skills/:id/invoke` — call the skill directly with variables (cheaper, faster)
+7. `POST /x402/skills/:id` — same thing via x402 (USDC, no API key)
+
+**Re-discovery** (when needs change):
+8. Come back to `/v1/orchestrate` when you have new questions, need different data, or want to explore what's available. The registry updates every 4 hours with new endpoints from 7 discovery sources.
+
+**Verification** (optional):
+9. `POST /v1/manifest` — cross-reference any data against independent sources
+10. `GET /v1/soma/:did/trust` — check verification history for any agent
