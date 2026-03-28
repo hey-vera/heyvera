@@ -104,6 +104,23 @@ async function callOpenClaw(messages: LlmMessage[], _role: 'intent' | 'synthesis
 }
 
 export async function llmComplete(messages: LlmMessage[], role: 'intent' | 'synthesis' = 'synthesis'): Promise<LlmResponse> {
+  // Phase 2: Try heart.generate() first — routes LLM calls through Soma Heart
+  // for per-token HMAC authentication and heartbeat chain entries.
+  // Falls back to direct SDK calls if heart is unavailable or fails.
+  try {
+    const { heartLlmComplete } = await import('../core/soma');
+    const heartResult = await heartLlmComplete(messages, role);
+    if (heartResult) {
+      return {
+        content: heartResult.content,
+        provider: 'soma-heart',
+        outputTokens: heartResult.tokenCount,
+      };
+    }
+  } catch {
+    // Heart not available — fall through to direct SDK calls
+  }
+
   const providers: Array<() => Promise<LlmResponse>> = [];
 
   if (env.LLM_PROVIDER === 'anthropic' && env.ANTHROPIC_API_KEY) providers.push(() => callAnthropic(messages, role));

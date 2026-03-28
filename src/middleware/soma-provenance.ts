@@ -20,7 +20,7 @@
  */
 
 import type { MiddlewareHandler } from 'hono';
-import { getHeartSafe } from '../core/soma';
+import { getHeartSafe, getLastGenerationProvenance } from '../core/soma';
 import { getLastBirthCertificate } from '../providers/clawapis';
 import { getEd25519PublicKeyRaw } from '../utils/ed25519-signer';
 import { logger } from '../utils/logger';
@@ -33,20 +33,31 @@ export const somaProvenance: MiddlewareHandler = async (c, next) => {
   const heart = getHeartSafe();
   if (!heart) return;
 
-  const cert = getLastBirthCertificate();
-  if (!cert) return;
-
   try {
+    // Always set protocol + discovery + genome
     c.res.headers.set('X-Soma-Protocol', 'soma/1.0');
-    c.res.headers.set('X-Soma-Data-Hash', cert.dataHash);
-    c.res.headers.set('X-Soma-Signature', cert.signature);
-    c.res.headers.set('X-Soma-Heartbeat-Index', String(cert.heartbeatIndex));
-    c.res.headers.set('X-Soma-Public-Key', cert.publicKey);
     c.res.headers.set('X-Soma-Discovery', '/.well-known/soma.json');
-
-    // Add genome hash if available
     if (heart.genomeCommitment?.hash) {
       c.res.headers.set('X-Soma-Genome-Hash', heart.genomeCommitment.hash);
+    }
+
+    // Birth certificate headers (from fetchData — data provenance)
+    const cert = getLastBirthCertificate();
+    if (cert) {
+      c.res.headers.set('X-Soma-Data-Hash', cert.dataHash);
+      c.res.headers.set('X-Soma-Signature', cert.signature);
+      c.res.headers.set('X-Soma-Heartbeat-Index', String(cert.heartbeatIndex));
+      c.res.headers.set('X-Soma-Public-Key', cert.publicKey);
+    }
+
+    // Generation provenance headers (from heart.generate — model verification)
+    const gen = getLastGenerationProvenance();
+    if (gen) {
+      c.res.headers.set('X-Soma-Model-Verified', 'true');
+      c.res.headers.set('X-Soma-Token-Count', String(gen.tokenCount));
+      c.res.headers.set('X-Soma-Heartbeat-Count', String(gen.heartbeats.length));
+      c.res.headers.set('X-Soma-Model', gen.model);
+      c.res.headers.set('X-Soma-Has-HMACs', gen.tokenHmacs.some(t => t.hmac) ? 'true' : 'false');
     }
 
     if (!loggedOnce) {
