@@ -1,19 +1,31 @@
 ---
 name: claw-net
-description: AI agent orchestration with 12,000+ API endpoints, 4 crypto data skills, Manifest verification, and Attestation proofs. Ask anything in natural language — get verified answers. Pay-per-query credits ($0.001 each). Wallet auth (SIWX) or API key.
+description: AI agent orchestration with 13,000+ API endpoints (274 built-in + auto-discovered via 402index, clawapis, ag0), 4 crypto data skills, Soma-verified execution, and x402 micropayments. Ask anything in natural language — get provenance-backed answers. Pay-per-query credits ($0.001 each). Wallet auth (SIWX) or API key. ERC-8004 on-chain identity.
 metadata:
   homepage: https://claw-net.org
   source: https://github.com/1xmint/claw-net
+  soma: https://api.claw-net.org/.well-known/soma.json
+  erc8004:
+    chain: base
+    agentId: 36119
+    soma_agentId: 37696
   openclaw:
     requires:
       env:
         - CLAWNET_API_KEY
     primaryEnv: CLAWNET_API_KEY
+  tags:
+    - orchestration
+    - x402
+    - soma
+    - identity
+    - provenance
+    - data-skills
 ---
 
 # ClawNet
 
-Ask anything. Get verified answers from 12,000+ data sources. Crypto prices, social data, market intelligence — one query, one answer.
+Ask anything. Get verified answers from 13,000+ data sources. Crypto prices, social data, market intelligence — one query, one answer. Every response includes cryptographic provenance via [Soma](https://github.com/1xmint/Soma).
 
 ## Setup
 
@@ -30,12 +42,25 @@ curl -X POST https://api.claw-net.org/v1/orchestrate \
   -d '{"query": "What is the price of SOL right now?"}'
 ```
 
-Response:
+Response includes provenance headers automatically:
+```
+X-Soma-Protocol: soma/1.0
+X-Soma-Data-Hash: a1b2c3...
+X-Soma-Signature: <ed25519>
+X-Soma-Heartbeat-Index: 42
+X-Soma-Genome-Hash: d4e5f6...
+```
+
 ```json
 {
-  "answer": "SOL is currently $142.57, up 3.2% in 24h...",
+  "answer": "SOL is currently trading at ...",
   "costBreakdown": { "creditsUsed": 8, "costUsd": 0.008 },
-  "metadata": { "stepsExecuted": 3, "totalDurationMs": 1240 }
+  "provenance": {
+    "protocol": "soma",
+    "certificates": [...],
+    "heartDid": "...",
+    "discovery": "/.well-known/soma.json"
+  }
 }
 ```
 
@@ -56,6 +81,18 @@ curl "https://api.claw-net.org/v1/skills/price-oracle-data/query?token=SOL" \
   -H "X-API-Key: $CLAWNET_API_KEY"
 ```
 
+## Soma — Cryptographic Provenance
+
+Every response includes birth certificates (data hash + Ed25519 signature + heartbeat chain entry) proving what data was fetched and from where. No extra steps needed — provenance is automatic.
+
+**Discovery:** `GET /.well-known/soma.json` — genome commitment, heartbeat chain status, public key, ERC-8004 reference.
+
+**Verification verdicts:** Independent observers running [soma-sense](https://www.npmjs.com/package/soma-sense) can verify ClawNet's model usage. Verdicts are anchored on-chain via Merkle trees.
+
+**Public trust API:** `GET /v1/soma/:did/trust` — free, no auth, rate-limited. Returns verification history for any agent.
+
+**On-chain identity:** ERC-8004 on Base Mainnet — ClawNet (agentId [36119](https://basescan.org/nft/0x8004A169FB4a3325136EB29fA0ceB6D2e539a432/36119)), Soma protocol (agentId [37696](https://basescan.org/nft/0x8004A169FB4a3325136EB29fA0ceB6D2e539a432/37696)).
+
 ## Manifest — Verify Data Before Acting
 
 Cross-reference any data against independent sources. Check reasoning. Pre-flight actions.
@@ -67,49 +104,32 @@ curl -X POST https://api.claw-net.org/v1/manifest \
   -d '{
     "tier": "standard",
     "verify": {
-      "claims": [{ "type": "price", "subject": "SOL", "value": 142.57 }]
+      "claims": [{ "type": "price", "subject": "SOL", "value": 150.00 }]
     }
   }'
 ```
 
 Tiers: `quick` (0.5cr), `standard` (2cr), `deep` (5cr).
 
-## Attestation — Prove What Your Agent Did
-
-Every action creates a signed, tamper-proof record. W3C Verifiable Credential format. On-chain Merkle anchoring.
-
-```bash
-# Create attestation (0.25 credits)
-curl -X POST https://api.claw-net.org/v1/attest \
-  -H "X-API-Key: $CLAWNET_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"action_type": "swap", "input_data": "...", "outcome": "success"}'
-
-# Verify (free, no auth)
-curl https://api.claw-net.org/v1/attest/verify/att-abc123
-
-# W3C VC format (free, no auth)
-curl https://api.claw-net.org/v1/attest/verify/att-abc123?format=vc
-```
-
 ## Core Endpoints
 
 | Endpoint | Auth | Cost | Description |
 |---|---|---|---|
-| `POST /v1/orchestrate` | Key | 2cr+ | Natural language query across 12K+ sources |
+| `POST /v1/orchestrate` | Key | 2cr+ | Natural language query across 13,000+ sources |
 | `GET /v1/skills/:id/query` | Key | 1-2cr | Query a data skill (structured JSON) |
-| `POST /v1/manifest` | Key | 0.5-5cr | Verify data, assess reasoning, pre-flight actions |
-| `POST /v1/attest` | Key | 0.25cr | Create signed attestation |
-| `GET /v1/attest/verify/:id` | None | Free | Verify attestation (public) |
+| `POST /v1/manifest` | Key | 0.5-5cr | Verify data, assess reasoning, pre-flight |
+| `GET /v1/soma/:did/trust` | None | Free | Soma verification history (public) |
+| `GET /v1/soma/:did/verdicts` | None | Free | Recent verdicts for an agent |
 | `GET /v1/marketplace/skills` | None | Free | Browse skill catalog |
 | `GET /v1/skills/:id` | None | Free | Skill details + input schema |
 | `POST /v1/discover` | None | Free | Semantic search for skills |
 | `GET /v1/estimate?query=...` | None | Free | Cost estimate before running |
 | `GET /v1/balance` | Key | Free | Check credit balance |
+| `GET /.well-known/soma.json` | None | Free | Soma identity + provenance discovery |
 
 ## x402 (Pay with USDC)
 
-All endpoints also available via x402 protocol — pay per call with USDC on Base, no API key needed:
+All endpoints also available via x402 protocol — pay per call with USDC on Base, no API key needed. Every x402 response includes `X-Soma-*` provenance headers.
 
 ```bash
 # Requires x402-compatible wallet
@@ -137,5 +157,6 @@ POST https://api.claw-net.org/x402/query/{id}
 2. `GET /v1/marketplace/skills` — find the right skill
 3. `GET /v1/skills/:id` — read input schema
 4. `GET /v1/estimate?query=...` — preview cost (free)
-5. `POST /v1/orchestrate` — ask your question
+5. `POST /v1/orchestrate` — ask your question (provenance included automatically)
 6. `POST /v1/manifest` — verify the answer if needed
+7. Check `X-Soma-*` response headers or `provenance` field for cryptographic proof
