@@ -356,8 +356,12 @@ app.get('/feed.xml', (c) => {
     params.push(typeFilter);
   }
   if (tagFilter) {
-    conditions.push('tags_json LIKE ?');
-    params.push(`%"${tagFilter}"%`);
+    // Sanitize LIKE wildcards to prevent pattern injection
+    const sanitizedTag = tagFilter.replace(/[%_]/g, '');
+    if (sanitizedTag) {
+      conditions.push('tags_json LIKE ?');
+      params.push(`%"${sanitizedTag}"%`);
+    }
   }
 
   const sql = `SELECT id, name, description, skill_type, credit_cost, proxy_url, created_at, tags_json

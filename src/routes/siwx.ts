@@ -19,6 +19,8 @@ import { verifyMessage } from 'viem';
 import { env } from '../config/index';
 import { logger } from '../utils/logger';
 import { maskApiKey } from '../utils/mask';
+import { getClientIp } from '../middleware/rate-limit';
+import { cacheIncr } from '../cache/index';
 import {
   getApiKeyByWallet,
   createApiKeyForWallet,
@@ -156,6 +158,14 @@ siwxRouter.get('/nonce', (c) => {
 
 // POST / — verify signed CAIP-122 message, create/resolve wallet key + session
 siwxRouter.post('/', async (c) => {
+  // Rate limit account creation by IP — prevents wallet-farming empty accounts
+  const siwxIp = getClientIp(c);
+  const siwxRateKey = `siwx-rate:${siwxIp}`;
+  const siwxCount = await cacheIncr(siwxRateKey, 3600);
+  if (siwxCount > 20) {
+    return c.json({ error: 'Rate limited — 20 SIWX auth attempts per hour', code: 'RATE_LIMITED' }, 429);
+  }
+
   let body: { message?: string; signature?: string; chain?: string };
   try {
     body = await c.req.json();
