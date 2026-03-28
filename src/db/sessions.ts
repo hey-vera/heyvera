@@ -56,6 +56,10 @@ export function updateSessionState(id: string, apiKey: string, updates: Record<s
   if (!row) throw new Error('Session not found');
 
   const current = safeJsonParse<Record<string, unknown>>(row.state_json, {});
+  // Sanitize dangerous keys to prevent prototype pollution
+  delete updates.__proto__;
+  delete updates.constructor;
+  delete updates.prototype;
   const merged = Object.assign({}, current, updates);
   const serialized = JSON.stringify(merged);
 

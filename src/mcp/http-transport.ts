@@ -425,6 +425,9 @@ router.post('/', async (c) => {
     if (requests.length === 0) {
       return c.json(jsonRpcError(null, -32600, 'Empty batch'), 400);
     }
+    if (requests.length > 20) {
+      return c.json(jsonRpcError(null, -32600, 'Batch too large — max 20 requests'), 400);
+    }
 
     const responses = await Promise.all(
       requests.map((req) => handleRequest(req))

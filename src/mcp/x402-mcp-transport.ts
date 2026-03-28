@@ -488,6 +488,9 @@ router.post('/', async (c) => {
     if (requests.length === 0) {
       return c.json(jsonRpcError(null, -32600, 'Empty batch'), 400);
     }
+    if (requests.length > 20) {
+      return c.json(jsonRpcError(null, -32600, 'Batch too large — max 20 requests'), 400);
+    }
 
     // For batch requests, check if ANY contain paid tool calls
     // If so, require payment for the total price of all paid tools

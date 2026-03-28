@@ -80,8 +80,8 @@ oauthRouter.get('/authorize', requireClerkAuth, async (c) => {
       <li>Use credits for AI actions</li>
     </ul>
     <form method="POST" action="/v1/oauth/authorize">
-      <input type="hidden" name="app" value="${app}">
-      <input type="hidden" name="redirect" value="${redirect.replace(/"/g, '&quot;')}">
+      <input type="hidden" name="app" value="${app.replace(/[&<>"']/g, (c: string) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#x27;' }[c] ?? c))}">
+      <input type="hidden" name="redirect" value="${redirect.replace(/[&<>"']/g, (c: string) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#x27;' }[c] ?? c))}">
       <div class="actions">
         <button type="submit" class="btn btn-primary">Authorize</button>
         <a href="/" class="btn btn-cancel">Cancel</a>
@@ -123,15 +123,9 @@ oauthRouter.post('/authorize', async (c) => {
       clerkUserId = payload.sub;
       clerkEmail = (payload as any).email || '';
     } catch {
-      // Fallback: decode JWT payload
-      try {
-        const parts = token.split('.');
-        const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString());
-        clerkUserId = payload.sub || '';
-        clerkEmail = payload.email || '';
-      } catch {
-        return c.json({ error: 'Invalid token', code: 'INVALID_TOKEN' }, 401);
-      }
+      // SECURITY: Never decode JWT without signature verification.
+      // Fallback decode was removed — it allowed account takeover via forged JWTs.
+      return c.json({ error: 'Invalid or expired token', code: 'INVALID_TOKEN' }, 401);
     }
 
     if (!clerkUserId) {
