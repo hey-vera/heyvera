@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { logger } from '../utils/logger';
+import { getClientIp } from '../middleware/rate-limit';
 import {
   registerExternalEndpoint,
   getExternalRegistration,
@@ -53,9 +54,7 @@ const RegisterSchema = z.object({
 // ─── POST /v1/register — Register an external x402/L402 endpoint ────────────
 
 registerRouter.post('/', async (c) => {
-  const ip = c.req.header('x-forwarded-for')?.split(',')[0]?.trim()
-    ?? c.req.header('x-real-ip')
-    ?? 'unknown';
+  const ip = getClientIp(c);
 
   if (!checkIpRateLimit(ip)) {
     return c.json({ error: 'Rate limit exceeded — max 10 registrations per hour', code: 'RATE_LIMITED' }, 429);
