@@ -707,7 +707,7 @@ router.get('/soma.json', (c) => {
     version: '1.0.0',
     did: {
       soma: heart.did,
-      aid: 'did:web:api.claw-net.org',
+      canonical: 'did:web:api.claw-net.org',
     },
     genome: heart.genomeCommitment,
     heartbeat: {
@@ -716,6 +716,16 @@ router.get('/soma.json', (c) => {
       alive: heart.isAlive,
     },
     publicKey: getEd25519PublicKeyRaw().toString('hex'),
+    erc8004: {
+      registration: 'https://api.claw-net.org/.well-known/soma-registration.json',
+      chain: 'eip155:8453',
+      registry: '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432',
+    },
+    verification: {
+      type: 'behavioral',
+      direction: 'callers verify ClawNet (inverted model)',
+      note: 'ClawNet runs the heart. Connect with soma-sense to verify.',
+    },
   });
 });
 

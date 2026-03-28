@@ -523,9 +523,11 @@ apiRouter.post('/orchestrate', async (c) => {
       }),
       ...(execution.birthCertificates?.length && {
         provenance: {
+          protocol: 'soma',
           certificates: execution.birthCertificates,
           heartDid: getHeartSafe()?.did ?? null,
           canonicalDid: 'did:web:api.claw-net.org',
+          discovery: '/.well-known/soma.json',
         },
       }),
     });
