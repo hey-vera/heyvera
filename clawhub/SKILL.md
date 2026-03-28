@@ -93,9 +93,9 @@ curl "https://api.claw-net.org/v1/skills/price-oracle-data/query?token=SOL" \
 
 ## How to Use ClawNet
 
-### Step 1: Browse (free, no auth)
+### Step 1: Discover (free, no auth)
 
-See what's available without an API key:
+Browse and search without an API key:
 
 ```bash
 # Browse the skill catalog
@@ -103,15 +103,16 @@ GET /v1/marketplace/skills
 
 # Check a specific skill's input format and pricing
 GET /v1/marketplace/skills/price-oracle-data
+
+# Semantic search for skills by topic (uses local AI, no cost to us or you)
+POST /v1/discover  {"query": "solana token prices"}
 ```
 
-### Step 1b: Search & estimate (free, but needs API key)
+### Step 1b: Estimate cost (API key required)
+
+Estimate calls ClawNet's AI to parse your query and plan the execution — so it requires an API key. But it's free (no credits deducted):
 
 ```bash
-# Semantic search for skills by topic
-POST /v1/discover  {"query": "solana token prices"}
-
-# Preview cost before running a query
 GET /v1/estimate?query=What is SOL worth?
 ```
 
@@ -162,6 +163,7 @@ Tiers: `quick` (0.5 credits), `standard` (2 credits), `deep` (5 credits).
 |---|---|
 | `GET /v1/marketplace/skills` | Browse the skill catalog |
 | `GET /v1/marketplace/skills/:id` | Skill details, input schema, pricing |
+| `POST /v1/discover` | Semantic search for skills by topic |
 | `GET /v1/soma/:did/trust` | Check any agent's verification history |
 | `GET /v1/soma/:did/verdicts` | Recent verification verdicts for an agent |
 | `GET /.well-known/soma.json` | ClawNet's cryptographic identity |
@@ -170,8 +172,7 @@ Tiers: `quick` (0.5 credits), `standard` (2 credits), `deep` (5 credits).
 
 | Endpoint | What it does |
 |---|---|
-| `POST /v1/discover` | Semantic search for skills by topic |
-| `GET /v1/estimate?query=...` | Preview cost before running a query |
+| `GET /v1/estimate?query=...` | Preview cost before running (uses AI to plan, so needs auth) |
 | `GET /v1/balance` | Check your credit balance |
 
 ### Paid (API key or x402)

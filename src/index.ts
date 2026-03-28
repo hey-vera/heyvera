@@ -250,7 +250,7 @@ app.route('/v1/dashboard', dashboardRouter);
 app.route('/', contactRoute)
 
 app.use('/v1/orchestrate', checkApiKey);
-app.use('/v1/estimate', checkApiKey);
+app.use('/v1/estimate', checkApiKey); // Requires API key — calls LLM (parseIntent), costs real money
 app.use('/v1/balance', checkApiKey);
 // AID trust enrichment — optional, fail-through. If caller sends X-AID-DID alongside
 // LEGACY: AID trust-gated pricing disabled — Soma replaced AID

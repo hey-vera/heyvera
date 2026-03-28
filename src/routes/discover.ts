@@ -1,12 +1,23 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { checkApiKey } from '../middleware/auth';
 import { runDiscovery } from '../core/discovery-engine';
 import { isEmbeddingModelReady } from '../core/embeddings';
 import { logger } from '../utils/logger';
+import { cacheIncr } from '../cache/index';
 
 const discoverRouter = new Hono();
-discoverRouter.use('*', checkApiKey);
+
+// Public endpoint — no API key required. Rate-limited by IP (60 req/hour).
+discoverRouter.use('*', async (c, next) => {
+  const ip = c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ??
+    c.req.header('x-real-ip') ?? 'unknown';
+  const key = `discover-ratelimit:${ip}`;
+  const count = await cacheIncr(key, 3600);
+  if (count > 60) {
+    return c.json({ error: 'Rate limited — 60 requests per hour for unauthenticated discovery', code: 'RATE_LIMITED' }, 429);
+  }
+  return next();
+});
 
 const DiscoverBody = z.object({
   query: z.string().min(1).max(500),
