@@ -766,7 +766,12 @@ router.get('/soma-registration.json', (c) => {
     ],
     x402Support: false,
     active: true,
-    registrations: [],  // Updated after on-chain registration with agentId
+    registrations: [
+      {
+        agentId: 37696,
+        agentRegistry: 'eip155:8453:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432',
+      },
+    ],
     packages: {
       'soma-heart': { npm: 'soma-heart', license: 'MIT', description: 'Agent-side execution runtime — credential vault, birth certificates, heartbeat chain, per-token HMAC' },
       'soma-sense': { npm: 'soma-sense', license: 'MIT', description: 'Observer-side verification — temporal/topology/vocabulary fingerprinting, phenotype atlas, behavioral verdicts' },
