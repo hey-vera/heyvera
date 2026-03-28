@@ -1416,6 +1416,72 @@ const MIGRATIONS: { version: number; sql: string }[] = [
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
   ` },
+
+  // ── Soma verdict infrastructure (Phase 3) ──────────────────────────────
+  // Replaces AID attestation-based trust with physics-based verification.
+  // Verdicts come from external observers running soma-sense, not self-attestation.
+  { version: 122, sql: `
+    CREATE TABLE IF NOT EXISTS soma_verdicts (
+      id TEXT PRIMARY KEY,
+      subject_did TEXT NOT NULL,
+      observer_did TEXT NOT NULL,
+      verdict TEXT NOT NULL CHECK(verdict IN ('GREEN','AMBER','RED','UNCANNY')),
+      confidence REAL NOT NULL CHECK(confidence >= 0 AND confidence <= 1),
+      genome_hash TEXT NOT NULL,
+      claimed_model TEXT,
+      detected_model TEXT,
+      session_id TEXT,
+      temporal_score REAL,
+      topology_score REAL,
+      vocabulary_score REAL,
+      atlas_match TEXT,
+      atlas_distance REAL,
+      drift_velocity REAL,
+      profile_maturity TEXT CHECK(profile_maturity IN ('embryonic','juvenile','adult','elder')),
+      observation_count INTEGER,
+      hmac_verified INTEGER NOT NULL DEFAULT 0,
+      heartbeat_chain_valid INTEGER NOT NULL DEFAULT 0,
+      birth_certificates_valid INTEGER NOT NULL DEFAULT 0,
+      seed_verified INTEGER NOT NULL DEFAULT 0,
+      observer_signature TEXT NOT NULL,
+      subject_signature TEXT,
+      anchor_id TEXT,
+      anchored_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_soma_verdict_subject ON soma_verdicts(subject_did, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_soma_verdict_observer ON soma_verdicts(observer_did, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_soma_verdict_type ON soma_verdicts(verdict, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_soma_verdict_genome ON soma_verdicts(genome_hash);
+    CREATE INDEX IF NOT EXISTS idx_soma_verdict_anchor ON soma_verdicts(anchor_id) WHERE anchor_id IS NOT NULL;
+
+    CREATE TABLE IF NOT EXISTS soma_verdict_stats (
+      subject_did TEXT PRIMARY KEY,
+      total_verdicts INTEGER NOT NULL DEFAULT 0,
+      green_count INTEGER NOT NULL DEFAULT 0,
+      amber_count INTEGER NOT NULL DEFAULT 0,
+      red_count INTEGER NOT NULL DEFAULT 0,
+      uncanny_count INTEGER NOT NULL DEFAULT 0,
+      unique_observers INTEGER NOT NULL DEFAULT 0,
+      avg_confidence REAL NOT NULL DEFAULT 0,
+      last_verdict TEXT,
+      last_verdict_at TEXT,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS soma_verdict_anchors (
+      id TEXT PRIMARY KEY,
+      merkle_root TEXT NOT NULL,
+      verdict_count INTEGER NOT NULL,
+      solana_tx_hash TEXT,
+      tree_json TEXT,
+      erc8004_agent_id INTEGER,
+      anchored_at TEXT NOT NULL DEFAULT (datetime('now')),
+      status TEXT NOT NULL DEFAULT 'pending'
+    );
+    CREATE INDEX IF NOT EXISTS idx_soma_anchor_status ON soma_verdict_anchors(status);
+    CREATE INDEX IF NOT EXISTS idx_soma_anchor_created ON soma_verdict_anchors(anchored_at DESC);
+  ` },
 ];
 
 function runMigrations(): void {

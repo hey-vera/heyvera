@@ -26,3 +26,4 @@ export * from './identities';
 export * from './aid';
 export * from './agent-memory';
 export * from './social-graph';
+export * from './soma-verdicts';
