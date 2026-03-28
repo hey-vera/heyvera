@@ -35,8 +35,12 @@ interface GenerationProvenance {
 
 let _lastGenerationProvenance: GenerationProvenance | null = null;
 
+/** Get and clear the last generation provenance. Clearing prevents stale
+ *  provenance from leaking to the next request in concurrent scenarios. */
 export function getLastGenerationProvenance(): GenerationProvenance | null {
-  return _lastGenerationProvenance;
+  const prov = _lastGenerationProvenance;
+  _lastGenerationProvenance = null;
+  return prov;
 }
 
 /**

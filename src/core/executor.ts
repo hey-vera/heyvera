@@ -4,6 +4,7 @@ import { findEndpoint } from '../config/api-registry';
 import { cacheKey, smartCacheGet, smartCacheSet, enqueueRefresh, computeDiff, coalesceRequest, cacheNegative, getNegativeCache, type CacheFreshness, type DiffResult } from '../cache/index';
 import { logger } from '../utils/logger';
 import { isClawApisReady, clawApiCall, getLastBirthCertificate } from '../providers/clawapis';
+import { checkEndpointViaZauth } from './zauth-discovery';
 // BirthCertificate type from soma-heart (inline to avoid CJS/ESM resolution)
 type BirthCertificate = { dataHash: string; signature: string; timestamp: string; publicKey: string; heartbeatIndex: number };
 import { getAgentContext, setAgentContext, getSkill } from '../db/index';
@@ -423,6 +424,19 @@ async function executeStep(
 
   if (!isEndpointAvailable(step.endpointId)) {
     return { endpointId: step.endpointId, success: false, cached: false, durationMs: 0, cost: 0, error: 'CIRCUIT_OPEN' };
+  }
+
+  // Zauth pre-flight: skip endpoints that zauth reports as FAILING (non-blocking, best-effort)
+  if (endpoint.path && isClawApisReady()) {
+    try {
+      const zauthStatus = await checkEndpointViaZauth(endpoint.path);
+      if (zauthStatus?.status === 'FAILING') {
+        logger.info({ endpointId: step.endpointId, zauthStatus: zauthStatus.status }, 'Zauth pre-flight: endpoint FAILING — skipping');
+        return { endpointId: step.endpointId, success: false, cached: false, durationMs: Date.now() - start, cost: 0, error: 'ZAUTH_FAILING' };
+      }
+    } catch {
+      // Zauth check failed — proceed anyway, don't block on zauth availability
+    }
   }
 
   const STEP_TIMEOUT_MS = 15_000;

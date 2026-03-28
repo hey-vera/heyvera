@@ -47,9 +47,13 @@ export function isClawApisReady(): boolean {
 // ── Soma provenance ────────────────────────────────────────────────────
 let _lastBirthCert: BirthCertificate | null = null;
 
-/** Get the birth certificate from the most recent clawApiCall(). */
+/** Get the birth certificate from the most recent clawApiCall() and clear it.
+ *  Clearing prevents stale provenance from leaking to the next request
+ *  in concurrent scenarios. */
 export function getLastBirthCertificate(): BirthCertificate | null {
-  return _lastBirthCert;
+  const cert = _lastBirthCert;
+  _lastBirthCert = null;
+  return cert;
 }
 
 /**

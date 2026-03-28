@@ -17,10 +17,65 @@ import {
   getVerdictAnchor,
 } from '../db/soma-verdicts';
 import { buildMerkleTree, getMerkleProof } from '../core/merkle-anchor';
-import { aidHash } from '../utils/crypto-agility';
+import { aidHash, verifySignature } from '../utils/crypto-agility';
+import { jcsSerialize, base58btcDecode } from '../utils/jcs';
 import { getHeartSafe } from '../core/soma';
 import { getEd25519PublicKeyRaw } from '../utils/ed25519-signer';
 import { logger } from '../utils/logger';
+import { createPublicKey } from 'crypto';
+import { cacheIncr } from '../cache/index';
+
+/**
+ * Extract Ed25519 public key from a did:key DID.
+ * did:key:z... → base58btc decode → strip 0xed 0x01 prefix → 32-byte raw key.
+ */
+function publicKeyFromDid(did: string): Buffer | null {
+  if (!did.startsWith('did:key:z')) return null;
+  try {
+    const multibase = did.slice('did:key:'.length);
+    const decoded = base58btcDecode(multibase.slice(1)); // strip 'z' prefix
+    if (decoded.length !== 34 || decoded[0] !== 0xed || decoded[1] !== 0x01) return null;
+    return decoded.subarray(2); // 32-byte raw Ed25519 public key
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Verify that the observer actually signed this verdict.
+ * Prevents anyone from submitting fake verdicts with arbitrary observer DIDs.
+ */
+function verifyVerdictSignature(
+  verdict: { subjectDid: string; observerDid: string; verdict: string; confidence: number; genomeHash: string },
+  signature: string,
+  observerDid: string,
+): boolean {
+  const rawKey = publicKeyFromDid(observerDid);
+  if (!rawKey) return false;
+
+  try {
+    // Build canonical verdict data for signature verification
+    const canonical = jcsSerialize({
+      subjectDid: verdict.subjectDid,
+      observerDid: verdict.observerDid,
+      verdict: verdict.verdict,
+      confidence: verdict.confidence,
+      genomeHash: verdict.genomeHash,
+    });
+    const message = Buffer.from(aidHash(canonical), 'hex');
+    const sig = Buffer.from(signature, 'base64url');
+
+    // Build Ed25519 public key in DER format for Node.js crypto
+    const derPrefix = Buffer.from('302a300506032b6570032100', 'hex'); // Ed25519 SPKI header
+    const derKey = Buffer.concat([derPrefix, rawKey]);
+    const publicKey = createPublicKey({ key: derKey, format: 'der', type: 'spki' });
+
+    return verifySignature('Ed25519', sig, message, publicKey);
+  } catch (err) {
+    logger.warn({ err, observerDid }, 'Verdict signature verification failed');
+    return false;
+  }
+}
 
 const router = new Hono();
 
@@ -69,6 +124,28 @@ router.post('/verdicts', async (c) => {
   // Self-verdicts are not allowed (observer must be different from subject)
   if (body.subjectDid === body.observerDid) {
     return c.json({ error: 'Self-verification is not allowed — observer must be a different party', code: 'SELF_VERDICT' }, 400);
+  }
+
+  // Rate limit: 100 verdicts per observer per hour
+  const rateKey = `soma-verdict-rate:${body.observerDid}`;
+  const rateCount = await cacheIncr(rateKey, 3600);
+  if (rateCount > 100) {
+    return c.json({ error: 'Rate limited — 100 verdicts per observer per hour', code: 'RATE_LIMITED' }, 429);
+  }
+
+  // Verify observer signature — prevents fake verdict injection
+  if (!body.observerDid.startsWith('did:key:z')) {
+    return c.json({ error: 'observerDid must be a did:key with Ed25519 public key', code: 'INVALID_DID' }, 400);
+  }
+
+  const sigValid = verifyVerdictSignature(
+    { subjectDid: body.subjectDid, observerDid: body.observerDid, verdict: body.verdict, confidence: body.confidence, genomeHash: body.genomeHash },
+    body.observerSignature,
+    body.observerDid,
+  );
+
+  if (!sigValid) {
+    return c.json({ error: 'Invalid observer signature — verdict must be signed by the observer\'s Ed25519 key', code: 'INVALID_SIGNATURE' }, 403);
   }
 
   try {

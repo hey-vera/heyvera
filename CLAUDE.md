@@ -75,7 +75,7 @@ getDb().transaction(() => { /* ... */ })();
 logAudit({ entityType, entityId, action, actorId?, data? });
 ```
 
-- **121 migrations** in `src/db/connection.ts` (v1–v121)
+- **122 migrations** in `src/db/connection.ts` (v1–v122)
 - **Adding a migration:** append `{ version: 122, sql: 'ALTER TABLE ...' }` to the `MIGRATIONS` array in `connection.ts`. Increment version. Runs automatically on next `initDb()`. No rollback support.
 - **Barrel export** at `src/db/index.ts` — import from here, never from domain files directly
 - Financial safety triggers on `credits`, `credit_cost`, `amount_credits` columns
@@ -302,7 +302,7 @@ Soma verdict infrastructure anchors verification outcomes on-chain via Merkle tr
 ## Testing
 
 ```bash
-npm run test:unit           # 185 tests via Vitest (12 test files)
+npm run test:unit           # 197 tests via Vitest (11 test files, 1 legacy AID test skipped)
 npm run test:unit:coverage  # With coverage
 npm run typecheck           # tsc --noEmit (0 errors expected)
 ```
