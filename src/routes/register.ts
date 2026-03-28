@@ -79,6 +79,24 @@ registerRouter.post('/', async (c) => {
 
   const data = parsed.data;
 
+  // SSRF protection — block probes to internal/private addresses
+  try {
+    const probeUrl = new URL(data.url);
+    if (probeUrl.protocol !== 'https:' && probeUrl.protocol !== 'http:') {
+      return c.json({ error: 'URL must use http or https', code: 'INVALID_URL' }, 400);
+    }
+    const host = probeUrl.hostname.toLowerCase();
+    if (host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '0.0.0.0' ||
+      /^10\./.test(host) || /^172\.(1[6-9]|2\d|3[01])\./.test(host) || /^192\.168\./.test(host) ||
+      /^169\.254\./.test(host) || host.startsWith('fc') || host.startsWith('fd') ||
+      host.startsWith('fe8') || host.startsWith('fe9') || host.startsWith('fea') || host.startsWith('feb') ||
+      host.startsWith('::ffff:')) {
+      return c.json({ error: 'URL must not point to private/internal addresses', code: 'SSRF_BLOCKED' }, 400);
+    }
+  } catch {
+    return c.json({ error: 'Invalid URL', code: 'INVALID_URL' }, 400);
+  }
+
   // Probe the URL to verify it returns 402 (basic health check)
   let healthStatus = 'unknown';
   let probeResult = '';

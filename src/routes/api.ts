@@ -597,8 +597,13 @@ apiRouter.get('/balance', (c) => {
 });
 
 // GET /v1/estimate?query=...&strategy=...&maxCredits=... — runs intent parsing only, returns estimated credit cost
-// No credits are deducted. Useful for budgeting before committing to an orchestration.
+// No credits are deducted, but requires >= 1 credit to prevent LLM cost drain attacks.
 apiRouter.get('/estimate', async (c) => {
+  const keyInfo = c.get('apiKeyInfo');
+  if (!keyInfo.isEnvKey && keyInfo.credits < 1) {
+    return c.json({ error: 'Minimum 1 credit required to use estimate (no credits are deducted)', code: 'INSUFFICIENT_CREDITS', creditsAvailable: keyInfo.credits }, 402);
+  }
+
   const query = c.req.query('query')?.trim();
   if (!query) return c.json({ error: 'Missing required query parameter: query', code: 'MISSING_QUERY' }, 400);
   if (query.length > 2000) return c.json({ error: 'Query too long (max 2000 chars)', code: 'QUERY_TOO_LONG' }, 400);

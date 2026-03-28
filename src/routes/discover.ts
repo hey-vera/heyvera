@@ -4,13 +4,13 @@ import { runDiscovery } from '../core/discovery-engine';
 import { isEmbeddingModelReady } from '../core/embeddings';
 import { logger } from '../utils/logger';
 import { cacheIncr } from '../cache/index';
+import { getClientIp } from '../middleware/rate-limit';
 
 const discoverRouter = new Hono();
 
 // Public endpoint — no API key required. Rate-limited by IP (60 req/hour).
 discoverRouter.use('*', async (c, next) => {
-  const ip = c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ??
-    c.req.header('x-real-ip') ?? 'unknown';
+  const ip = getClientIp(c);
   const key = `discover-ratelimit:${ip}`;
   const count = await cacheIncr(key, 3600);
   if (count > 60) {

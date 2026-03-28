@@ -24,6 +24,7 @@ import { getEd25519PublicKeyRaw } from '../utils/ed25519-signer';
 import { logger } from '../utils/logger';
 import { createPublicKey } from 'crypto';
 import { cacheIncr } from '../cache/index';
+import { getClientIp } from '../middleware/rate-limit';
 
 /**
  * Extract Ed25519 public key from a did:key DID.
@@ -126,10 +127,18 @@ router.post('/verdicts', async (c) => {
     return c.json({ error: 'Self-verification is not allowed — observer must be a different party', code: 'SELF_VERDICT' }, 400);
   }
 
-  // Rate limit: 100 verdicts per observer per hour
-  const rateKey = `soma-verdict-rate:${body.observerDid}`;
-  const rateCount = await cacheIncr(rateKey, 3600);
-  if (rateCount > 100) {
+  // Rate limit: 100 verdicts per observer DID per hour + 200 per IP per hour
+  // DID limit prevents one identity from spamming. IP limit prevents key farming.
+  const ip = getClientIp(c);
+  const ipRateKey = `soma-verdict-ip:${ip}`;
+  const ipCount = await cacheIncr(ipRateKey, 3600);
+  if (ipCount > 200) {
+    return c.json({ error: 'Rate limited — 200 verdicts per IP per hour', code: 'RATE_LIMITED' }, 429);
+  }
+
+  const didRateKey = `soma-verdict-did:${body.observerDid}`;
+  const didCount = await cacheIncr(didRateKey, 3600);
+  if (didCount > 100) {
     return c.json({ error: 'Rate limited — 100 verdicts per observer per hour', code: 'RATE_LIMITED' }, 429);
   }
 
@@ -255,7 +264,14 @@ router.get('/:did/verdicts', (c) => {
 
 // ── GET /:did/export — Portable trust chain with Merkle proofs ──────────────
 // Callers can export an agent's verification history for offline verification.
-router.get('/:did/export', (c) => {
+// Rate-limited: computationally expensive (builds Merkle tree + proofs).
+router.get('/:did/export', async (c) => {
+  const exportIp = getClientIp(c);
+  const exportRateKey = `soma-export-rate:${exportIp}`;
+  const exportCount = await cacheIncr(exportRateKey, 3600);
+  if (exportCount > 10) {
+    return c.json({ error: 'Rate limited — 10 exports per IP per hour', code: 'RATE_LIMITED' }, 429);
+  }
   const did = c.req.param('did');
   const stats = getSomaVerdictStats(did);
   const verdicts = getRecentSomaVerdicts(did, 100);
