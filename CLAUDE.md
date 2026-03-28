@@ -132,7 +132,7 @@ AID was a reputation-based trust system (attestation history → trust score). A
 - `src/middleware/aid-auth.ts`, `aid-verify.ts`, `aid-enrich.ts`, `aid-provider-proof.ts`, `aid-verification-receipt.ts`, `aid-gateway.ts` — 6 middleware files
 - `src/core/aid-builder.ts` — trust score, keypair generation
 - `src/db/aid.ts`, `src/db/attestations.ts` — DB layer
-- `src/core/merkle-anchor.ts` — Merkle trees (could be repurposed for Soma later)
+- `src/core/merkle-anchor.ts` — Merkle trees (planned repurpose: anchor Soma verdicts on-chain, Phase 3)
 - `src/utils/aid-verifier.ts` — offline verification
 
 ## x402 Payment Layer (src/routes/x402-skills.ts, src/payments/)
@@ -166,7 +166,7 @@ Features: content-hash validation, stale-while-revalidate, adaptive TTL, request
 | Cache warming | periodic | Preload popular cache entries |
 | Creator notifications | periodic | Email notifications |
 | Index sync | periodic | AG0 index synchronization |
-| Anchor | periodic | LEGACY: Merkle root Solana anchoring (AID) |
+| Anchor | periodic | LEGACY (AID) — planned repurpose: anchor Soma verdict Merkle roots |
 | AID snapshot | 4h | LEGACY: Merkle tree rebuild, capability refresh (AID) |
 | Proof of life | periodic | LEGACY: AID heartbeat monitoring |
 | Canary | periodic | Canary checks |
@@ -259,6 +259,10 @@ Refactor ClawNet's own LLM calls (intent parsing, response formatting) from `fet
 
 **Key distinction:** Data provenance (birth certificates) ≠ model verification (sense verdicts). Birth certificates prove "I fetched this data." Model verification proves "this was actually Claude." Never conflate them.
 
+### Planned (Phase 3 — on-chain anchored Soma verdicts)
+
+Repurpose existing Merkle infrastructure (`merkle-anchor.ts`, attestation tables, Solana anchoring cron) to anchor Soma verification verdicts on-chain. Creates public, immutable verification history ("Agent X verified GREEN 847 times across 23 observers"). This is the reputation layer AID tried to build, but backed by physics (temporal fingerprinting) instead of self-reported attestations. ClawNet's existing ERC-8004 on-chain identity anchors the Merkle roots. AID's ERC-8004 is dead with AID.
+
 ### Shared Crypto Primitives (used by Soma, also by legacy AID code)
 
 | File | What | Removable? |
@@ -266,7 +270,7 @@ Refactor ClawNet's own LLM calls (intent parsing, response formatting) from `fet
 | `src/utils/ed25519-signer.ts` | Deterministic Ed25519 keypair from `PLATFORM_SIGNING_SECRET` | NO — Soma depends on this |
 | `src/utils/jcs.ts` | JCS canonicalization (RFC 8785), base58btc encode/decode | NO — shared crypto |
 | `src/utils/crypto-agility.ts` | Algorithm-agile hashing/signing, post-quantum migration path | NO — shared crypto |
-| `src/core/merkle-anchor.ts` | Merkle tree build/verify (could be repurposed for Soma) | Keep for now |
+| `src/core/merkle-anchor.ts` | Merkle tree build/verify — repurpose for Soma verdict anchoring (Phase 3) | Keep — critical for Phase 3 |
 
 ## Testing
 
