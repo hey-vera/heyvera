@@ -257,9 +257,16 @@ ClawNet uses `heart.fetchData()` for outbound x402 API calls. Every call gets a 
 - `src/routes/api.ts` — `POST /v1/orchestrate` response includes `provenance` field when certificates exist
 - `src/routes/well-known.ts` — `GET /.well-known/soma.json` exposes genome, both DIDs, heartbeat chain status
 
-### Planned (Phase 2 — model verification)
+### Built (Phase 2 — model verification)
 
-Refactor ClawNet's own LLM calls (intent parsing, response formatting) from `fetchData()` to `heart.generate()`. This enables per-token HMAC authentication and temporal fingerprinting on ClawNet's own inference. Callers connecting via MCP with soma-sense can then verify what model ClawNet actually used. Additionally, surface birth certificates + heartbeat chain + token HMACs in HTTP responses so any caller can verify offline without MCP.
+ClawNet's own LLM calls (`parseIntent()`, `formatResponse()`, manifest engine, etc.) now route through `heart.generate()` via `heartLlmComplete()` in `src/core/soma.ts`. Every `llmComplete()` call tries the heart first, falls back to direct SDK if unavailable.
+
+This gives ClawNet's internal LLM calls:
+- Per-token HMAC authentication (cryptographic proof per token)
+- Heartbeat chain entries (tamper-evident computation log)
+- Generation provenance in response headers (`X-Soma-Model-Verified`, `X-Soma-Token-Count`, etc.)
+
+**Remaining:** MCP server endpoint with `SomaTransport` for full behavioral verification (callers connecting with soma-sense for temporal fingerprint, encrypted channel).
 
 **Key distinction:** Data provenance (birth certificates) ≠ model verification (sense verdicts). Birth certificates prove "I fetched this data." Model verification proves "this was actually Claude." Never conflate them.
 
