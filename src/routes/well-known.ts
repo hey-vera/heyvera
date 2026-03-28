@@ -28,8 +28,8 @@ router.get('/agent-card.json', (c) => {
       'streaming',
       'escrow',
       'governance',
-      'manifest',
-      'attestation',
+      'soma-verification',
+      'data-provenance',
     ],
     authentication: {
       apiKey: {
@@ -321,6 +321,8 @@ router.get('/x402.json', (c) => {
       openapi: '/v1/openapi.json',
       a2a: '/.well-known/agent.json',
       erc8004: '/v1/erc8004/catalog',
+      soma: '/.well-known/soma.json',
+      somaRegistration: '/.well-known/soma-registration.json',
       healthCheck: '/v1/stats/health/skills',
       liveness: '/health/live',
     },
@@ -405,7 +407,7 @@ router.get('/x402', (c) => {
 router.get('/agent.json', (c) => {
   return c.json({
     name: 'ClawNet',
-    description: `AI agent orchestration with ${apiRegistry.length}+ live APIs, skill marketplace, and cryptographic receipts`,
+    description: `AI agent orchestration with ${apiRegistry.length}+ live APIs, skill marketplace, Soma-verified execution, and cryptographic provenance`,
     url: env.CLAWNET_BASE_URL,
     version: '1.0.0',
     protocolVersion: '0.3.0',
@@ -413,6 +415,13 @@ router.get('/agent.json', (c) => {
       streaming: false,
       pushNotifications: false,
       stateTransitionHistory: true,
+      somaVerification: true,
+    },
+    soma: {
+      supported: true,
+      discovery: '/.well-known/soma.json',
+      provenanceHeaders: ['X-Soma-Protocol', 'X-Soma-Data-Hash', 'X-Soma-Signature', 'X-Soma-Heartbeat-Index', 'X-Soma-Genome-Hash'],
+      note: 'All x402 and orchestration responses include X-Soma-* provenance headers when Heart is active',
     },
     skills: [
       {
@@ -490,12 +499,20 @@ router.get('/erc8004.json', (c) => {
     schemaVersion: '1.0.0',
     agentId: 'clawnet-platform',
     name: 'ClawNet',
-    description: `Universal AI agent orchestration layer — ${apiRegistry.length}+ API endpoints, skill marketplace, x402 payments`,
+    description: `Universal AI agent orchestration layer — ${apiRegistry.length}+ API endpoints, skill marketplace, x402 payments, Soma-verified execution`,
     url: env.CLAWNET_BASE_URL,
     capabilities: {
       streaming: true,
       pushNotifications: false,
       stateTransitionHistory: true,
+      somaVerification: true,
+      dataProvenance: true,
+    },
+    soma: {
+      discovery: '/.well-known/soma.json',
+      registration: '/.well-known/soma-registration.json',
+      provenanceHeaders: 'X-Soma-*',
+      verdictApi: '/v1/soma/:did/trust',
     },
     authentication: {
       schemes: [

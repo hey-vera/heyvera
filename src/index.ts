@@ -84,6 +84,7 @@ import { startTrustDecayCron } from './core/trust-decay-cron';
 import { startEndpointHealthCron } from './core/endpoint-health-cron';
 import { startEndpointDiscoveryCron } from './core/endpoint-discovery';
 import { signResponse } from './middleware/sign-response';
+import { somaProvenance } from './middleware/soma-provenance';
 // import { aidEnrich } from './middleware/aid-enrich'; // LEGACY: AID trust-gated pricing disabled
 import { startEscrowCron } from './core/escrow-cron';
 import { startSkillAbCron } from './core/skill-ab-cron';
@@ -254,7 +255,9 @@ app.use('/v1/balance', checkApiKey);
 // LEGACY: AID trust-gated pricing disabled — Soma replaced AID
 // app.use('/v1/orchestrate', aidEnrich);
 // app.use('/v1/estimate', aidEnrich);
+app.use('/v1/orchestrate', somaProvenance);
 app.use('/v1/orchestrate', signResponse);
+app.use('/v1/skills/*/invoke', somaProvenance);
 app.use('/v1/skills/*/invoke', signResponse);
 app.use('/v1/batch', signResponse);
 app.use('/v1/balance', signResponse);
@@ -276,6 +279,7 @@ app.route('/v1/openclaw', openclawRouter);
 app.route('/v1', openapiRouter);
 app.route('', openapiRouter); // Also serve OpenAPI at /openapi.json (x402scan discovery)
 app.route('/v1', apiRouter);
+app.use('/x402/*', somaProvenance);
 app.route('/x402', x402SkillsRouter);
 app.route('/v1/llm', llmRouter);
 app.route('/v1/registry', registryRouter);
