@@ -93,21 +93,25 @@ curl "https://api.claw-net.org/v1/skills/price-oracle-data/query?token=SOL" \
 
 ## How to Use ClawNet
 
-### Step 1: Discover (free)
+### Step 1: Browse (free, no auth)
 
-Find what's available before spending credits:
+See what's available without an API key:
 
 ```bash
-# Search for skills by topic
-POST /v1/discover  {"query": "solana token prices"}
-
 # Browse the skill catalog
 GET /v1/marketplace/skills
 
 # Check a specific skill's input format and pricing
-GET /v1/skills/price-oracle-data
+GET /v1/marketplace/skills/price-oracle-data
+```
 
-# Preview cost before running
+### Step 1b: Search & estimate (free, but needs API key)
+
+```bash
+# Semantic search for skills by topic
+POST /v1/discover  {"query": "solana token prices"}
+
+# Preview cost before running a query
 GET /v1/estimate?query=What is SOL worth?
 ```
 
@@ -157,12 +161,18 @@ Tiers: `quick` (0.5 credits), `standard` (2 credits), `deep` (5 credits).
 | Endpoint | What it does |
 |---|---|
 | `GET /v1/marketplace/skills` | Browse the skill catalog |
-| `GET /v1/skills/:id` | Skill details, input schema, pricing |
-| `POST /v1/discover` | Search for skills by topic |
-| `GET /v1/estimate?query=...` | Preview cost before running a query |
+| `GET /v1/marketplace/skills/:id` | Skill details, input schema, pricing |
 | `GET /v1/soma/:did/trust` | Check any agent's verification history |
 | `GET /v1/soma/:did/verdicts` | Recent verification verdicts for an agent |
 | `GET /.well-known/soma.json` | ClawNet's cryptographic identity |
+
+### Requires API key (but no credit cost)
+
+| Endpoint | What it does |
+|---|---|
+| `POST /v1/discover` | Semantic search for skills by topic |
+| `GET /v1/estimate?query=...` | Preview cost before running a query |
+| `GET /v1/balance` | Check your credit balance |
 
 ### Paid (API key or x402)
 
@@ -172,7 +182,6 @@ Tiers: `quick` (0.5 credits), `standard` (2 credits), `deep` (5 credits).
 | `GET /v1/skills/:id/query` | 1-2 credits | Query a data skill (structured JSON) |
 | `POST /v1/skills/:id/invoke` | varies | Invoke a skill directly with variables |
 | `POST /v1/manifest` | 0.5-5 credits | Cross-reference data against independent sources |
-| `GET /v1/balance` | free | Check your credit balance |
 
 ## Pricing
 
