@@ -565,7 +565,7 @@ router.get('/erc8004-registration.json', (c) => {
   return c.json({
     type: 'https://eips.ethereum.org/EIPS/eip-8004#registration-v1',
     name: 'ClawNet',
-    description: `The trust and commerce layer for AI agents. Skill marketplace, ${apiRegistry.length}+ API endpoints, cryptographic attestations, x402 micropayments. AID trust protocol reference implementation.`,
+    description: `The trust and commerce layer for AI agents. Skill marketplace, ${apiRegistry.length}+ API endpoints, Soma-verified execution, x402 micropayments. The only orchestrator that makes itself cryptographically verifiable.`,
     image: 'https://claw-net.org/favicon.svg',
     services: [
       { name: 'web', endpoint: 'https://claw-net.org/' },
@@ -573,7 +573,7 @@ router.get('/erc8004-registration.json', (c) => {
       { name: 'MCP', endpoint: 'https://api.claw-net.org/v1/mcp', version: '2025-06-18' },
       { name: 'A2A', endpoint: 'https://api.claw-net.org/.well-known/agent-card.json', version: '0.3.0' },
       { name: 'x402', endpoint: 'https://api.claw-net.org/v1/skills', version: '0.1.0' },
-      { name: 'AID', endpoint: 'https://api.claw-net.org/v1/aid', version: '1.0.0' },
+      { name: 'Soma', endpoint: 'https://api.claw-net.org/.well-known/soma.json', version: '1.0.0' },
     ],
     x402Support: true,
     active: true,
@@ -583,9 +583,9 @@ router.get('/erc8004-registration.json', (c) => {
         agentRegistry: 'eip155:8453:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432',
       },
     ],
-    supportedTrust: ['reputation', 'validation'],
+    supportedTrust: ['behavioral-verification', 'data-provenance'],
     protocols: {
-      aid: { version: '1.0.0', spec: 'https://claw-net.org/docs/aid-protocol-spec.md', trustEndpoint: '/v1/aid/:did/trust' },
+      soma: { version: '1.0.0', spec: 'https://github.com/1xmint/Soma', discovery: '/.well-known/soma.json' },
       x402: { supported: true, network: 'base', facilitator: 'https://facilitator.claw-net.org' },
     },
   });
@@ -716,6 +716,54 @@ router.get('/soma.json', (c) => {
       alive: heart.isAlive,
     },
     publicKey: getEd25519PublicKeyRaw().toString('hex'),
+  });
+});
+
+// ── GET /soma-registration.json — ERC-8004 v1 Registration for Soma Protocol ─
+// Soma is the identity-as-execution verification protocol. Separate from ClawNet
+// (which implements Soma) and AID (which Soma replaced). Soma proves agent identity
+// through physics (temporal fingerprinting + per-token HMAC), not reputation.
+router.get('/soma-registration.json', (c) => {
+  const heart = getHeartSafe();
+  return c.json({
+    type: 'https://eips.ethereum.org/EIPS/eip-8004#registration-v1',
+    name: 'Soma',
+    description: 'Identity as Execution — cryptographic agent verification protocol. Temporal fingerprinting + per-token HMAC proves which model is running. 88.5% cloud accuracy, 8/8 attacks detected. Open source (MIT).',
+    image: 'https://claw-net.org/soma-logo.png',
+    services: [
+      { name: 'spec', endpoint: 'https://github.com/1xmint/Soma' },
+      { name: 'npm:heart', endpoint: 'https://www.npmjs.com/package/soma-heart' },
+      { name: 'npm:sense', endpoint: 'https://www.npmjs.com/package/soma-sense' },
+      { name: 'paper', endpoint: 'https://doi.org/10.5281/zenodo.19260081' },
+      { name: 'discovery', endpoint: 'https://api.claw-net.org/.well-known/soma.json' },
+    ],
+    x402Support: false,
+    active: true,
+    registrations: [],  // Updated after on-chain registration with agentId
+    packages: {
+      'soma-heart': { npm: 'soma-heart', license: 'MIT', description: 'Agent-side execution runtime — credential vault, birth certificates, heartbeat chain, per-token HMAC' },
+      'soma-sense': { npm: 'soma-sense', license: 'MIT', description: 'Observer-side verification — temporal/topology/vocabulary fingerprinting, phenotype atlas, behavioral verdicts' },
+    },
+    protocol: {
+      version: '1.0.0',
+      encryption: 'X25519 + XSalsa20-Poly1305',
+      signing: 'Ed25519 (crypto-agile, post-quantum migration path)',
+      verification: {
+        senses: ['temporal (5x weight, 88.5%)', 'topology (2x weight)', 'vocabulary (1x weight)'],
+        verdicts: ['GREEN', 'AMBER', 'RED', 'UNCANNY'],
+        attacks: '8/8 detected (impersonation, replay, signal injection, timing manipulation, composite agent, seed prediction, slow drift, mutation abuse)',
+      },
+    },
+    identity: {
+      genomeDid: heart?.did ?? null,
+      canonicalDid: 'did:web:api.claw-net.org',
+      publicKey: heart ? getEd25519PublicKeyRaw().toString('hex') : null,
+    },
+    referenceImplementation: {
+      name: 'ClawNet',
+      url: 'https://claw-net.org',
+      somaDiscovery: 'https://api.claw-net.org/.well-known/soma.json',
+    },
   });
 });
 
