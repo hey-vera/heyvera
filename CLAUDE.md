@@ -167,6 +167,7 @@ Features: content-hash validation, stale-while-revalidate, adaptive TTL, request
 | Creator notifications | periodic | Email notifications |
 | Index sync | periodic | AG0 index synchronization |
 | Soma anchor | periodic | Soma verdict Merkle root → Solana memo (replaces legacy AID anchor) |
+| Zauth discovery | 4h | Auto-discover verified x402 endpoints from zauthx402.com |
 | ~~Anchor~~ | ~~periodic~~ | ~~LEGACY: replaced by Soma anchor~~ |
 | ~~AID snapshot~~ | ~~4h~~ | ~~LEGACY: disabled~~ |
 | ~~Proof of life~~ | ~~periodic~~ | ~~LEGACY: disabled~~ |
@@ -226,6 +227,9 @@ Treasury sweep optional — with 2-wallet setup, treasury credits are pure profi
 | `src/routes/soma.ts` | Soma verdict API: trust, verdicts, export, anchors |
 | `src/core/soma-anchor-cron.ts` | Soma verdict Merkle anchoring on Solana |
 | `src/db/soma-verdicts.ts` | Soma verdict CRUD, stats, anchor lifecycle |
+| `src/middleware/soma-provenance.ts` | X-Soma-* provenance headers on all responses |
+| `src/mcp/soma-mcp-wrapper.ts` | Soma MCP identity (genome + X25519 for sense verification) |
+| `src/core/zauth-discovery.ts` | Zauth auto-discovery (verified x402 endpoints) |
 | `src/routes/x402-skills.ts` | x402 payment-gated skill invocation |
 | `src/middleware/auth.ts` | checkApiKey, checkPermission, checkPolicy |
 | `src/middleware/aid-auth.ts` | LEGACY: AID-native Ed25519 request auth |
@@ -266,7 +270,7 @@ This gives ClawNet's internal LLM calls:
 - Heartbeat chain entries (tamper-evident computation log)
 - Generation provenance in response headers (`X-Soma-Model-Verified`, `X-Soma-Token-Count`, etc.)
 
-**Remaining:** MCP server endpoint with `SomaTransport` for full behavioral verification (callers connecting with soma-sense for temporal fingerprint, encrypted channel).
+**MCP verification endpoint:** `src/mcp/soma-mcp-wrapper.ts` embeds Soma metadata (genome commitment + ephemeral X25519 public key) in MCP initialize response. Callers running soma-sense detect this and can verify ClawNet's model usage via encrypted channel. `src/mcp/server.ts` integrates the wrapper.
 
 **Key distinction:** Data provenance (birth certificates) ≠ model verification (sense verdicts). Birth certificates prove "I fetched this data." Model verification proves "this was actually Claude." Never conflate them.
 
