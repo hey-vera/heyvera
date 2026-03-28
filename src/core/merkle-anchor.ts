@@ -10,7 +10,7 @@
  * (prevents second-preimage attacks from naive leaf duplication).
  */
 
-import { aidHash, AID_HASH_HEX_LENGTH } from '../utils/crypto-agility';
+import { somaHash, SOMA_HASH_HEX_LENGTH } from '../utils/crypto-agility';
 
 /**
  * Hash two hex strings together (sorted order for determinism).
@@ -19,7 +19,7 @@ import { aidHash, AID_HASH_HEX_LENGTH } from '../utils/crypto-agility';
 function hashPair(a: string, b: string): string {
   // Consistent ordering: always hash the smaller value first
   const [left, right] = a < b ? [a, b] : [b, a];
-  return aidHash(left + right);
+  return somaHash(left + right);
 }
 
 /**
@@ -35,7 +35,7 @@ function hashPair(a: string, b: string): string {
  */
 export function buildMerkleTree(hashes: string[]): { root: string; tree: string[][] } {
   if (hashes.length === 0) {
-    const emptyRoot = aidHash('');
+    const emptyRoot = somaHash('');
     return { root: emptyRoot, tree: [[emptyRoot]] };
   }
 
@@ -162,7 +162,7 @@ export function validateTreeStructure(tree: string[][]): { valid: boolean; error
     for (let i = 0; i < levelArr.length; i++) {
       const elem = levelArr[i];
       // Verify SHA-256 hex format (64 hex chars)
-      if (typeof elem !== 'string' || !/^[0-9a-f]+$/.test(elem) || (elem.length !== 64 && elem.length !== AID_HASH_HEX_LENGTH)) {
+      if (typeof elem !== 'string' || !/^[0-9a-f]+$/.test(elem) || (elem.length !== 64 && elem.length !== SOMA_HASH_HEX_LENGTH)) {
         return { valid: false, error: `Level ${level}[${i}] is not a valid hex hash string` };
       }
     }

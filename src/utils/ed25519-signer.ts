@@ -15,7 +15,7 @@
 
 import { createHash, createPrivateKey, createPublicKey, sign, verify, KeyObject } from 'crypto';
 import { jcsCanonicalizeToBytes, base58btcEncode } from './jcs';
-import { AID_HASH_ALGORITHM, signWithAlgorithm, AID_SIGNATURE_ALGORITHM } from './crypto-agility';
+import { SOMA_HASH_ALGORITHM, signWithAlgorithm, SOMA_SIGNATURE_ALGORITHM } from './crypto-agility';
 
 // ─── Ed25519 PKCS#8 DER header (RFC 8410) ─────────────────────────────────
 // 30 2e 02 01 00 30 05 06 03 2b 65 70 04 22 04 20 + 32-byte seed
@@ -80,8 +80,8 @@ export function getEd25519PublicKeyMultibase(): string {
 export function signVC(vcWithoutProof: Record<string, unknown>): string {
   ensureKeyPair();
   const canonical = jcsCanonicalizeToBytes(vcWithoutProof);
-  const hash = createHash(AID_HASH_ALGORITHM).update(canonical).digest();
-  const signature = signWithAlgorithm(AID_SIGNATURE_ALGORITHM, hash, _privateKey!);
+  const hash = createHash(SOMA_HASH_ALGORITHM).update(canonical).digest();
+  const signature = signWithAlgorithm(SOMA_SIGNATURE_ALGORITHM, hash, _privateKey!);
   return signature.toString('base64url');
 }
 
@@ -92,7 +92,7 @@ export function verifyVCSignature(vcWithoutProof: Record<string, unknown>, proof
   ensureKeyPair();
   try {
     const canonical = jcsCanonicalizeToBytes(vcWithoutProof);
-    const hash = createHash(AID_HASH_ALGORITHM).update(canonical).digest();
+    const hash = createHash(SOMA_HASH_ALGORITHM).update(canonical).digest();
     return verify(null, hash, _publicKey!, Buffer.from(proofValue, 'base64url'));
   } catch {
     return false;

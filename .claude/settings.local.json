@@ -6,7 +6,15 @@
     "deny": [
       "Bash(git push --force:*)",
       "Bash(git reset --hard:*)",
-      "Bash(rm -rf:*)"
+      "Bash(rm -rf:*)",
+      "Bash(ssh*cat*.env*)",
+      "Bash(ssh*grep*.env*)",
+      "Bash(ssh*head*.env*)",
+      "Bash(ssh*tail*.env*)",
+      "Bash(ssh*less*.env*)",
+      "Bash(ssh*more*.env*)",
+      "Bash(ssh*sed*.env*)",
+      "Bash(ssh*awk*.env*)"
     ],
     "additionalDirectories": [
       "C:\\Users\\Josh\\Desktop\\GitHub\\mint",

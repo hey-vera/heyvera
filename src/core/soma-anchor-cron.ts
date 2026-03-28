@@ -27,7 +27,7 @@ import {
 } from '@solana/web3.js';
 import bs58 from 'bs58';
 import { buildMerkleTree } from './merkle-anchor';
-import { aidHash } from '../utils/crypto-agility';
+import { somaHash } from '../utils/crypto-agility';
 import {
   getUnanchoredVerdicts,
   createVerdictAnchor,
@@ -48,7 +48,7 @@ let _running = false;
  * Deterministic: same verdict always produces the same hash.
  */
 function verdictLeafHash(v: { id: string; verdict: string; subjectDid: string; observerDid: string; confidence: number; createdAt: string }): string {
-  return aidHash(`${v.id}|${v.subjectDid}|${v.observerDid}|${v.verdict}|${v.confidence}|${v.createdAt}`);
+  return somaHash(`${v.id}|${v.subjectDid}|${v.observerDid}|${v.verdict}|${v.confidence}|${v.createdAt}`);
 }
 
 /**

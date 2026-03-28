@@ -69,15 +69,7 @@ import { mcpHttpRouter } from './mcp/http-transport';
 import { x402McpRouter } from './mcp/x402-mcp-transport';
 import { registerRouter } from './routes/register';
 import { statsTelemetryRouter } from './routes/stats-telemetry';
-// LEGACY (AID abandoned — Soma replaced it): routes disabled, crons disabled
-// import { aidRouter } from './routes/aid';
-// import { aidProtocolRouter } from './routes/aid-protocol';
 import { x402FacilitatorRouter } from './routes/x402-facilitator';
-// import { aidDisputesRouter } from './routes/aid-disputes';
-// import { aidStreamRouter } from './routes/aid-stream';
-// import { aidA2aRouter } from './routes/aid-a2a';
-// import { aidFreezeRouter } from './routes/aid-freeze';
-// import { aidExplainRouter } from './routes/aid-explain';
 import { skillBuilderRouter } from './routes/skill-builder';
 import { startTrustDecayCron } from './core/trust-decay-cron';
 // import { referralRouter } from './routes/referral'; // disabled — re-enable when referral program launches
@@ -85,7 +77,6 @@ import { startEndpointHealthCron } from './core/endpoint-health-cron';
 import { startEndpointDiscoveryCron } from './core/endpoint-discovery';
 import { signResponse } from './middleware/sign-response';
 import { somaProvenance } from './middleware/soma-provenance';
-// import { aidEnrich } from './middleware/aid-enrich'; // LEGACY: AID trust-gated pricing disabled
 import { startEscrowCron } from './core/escrow-cron';
 import { startSkillAbCron } from './core/skill-ab-cron';
 import { startStakeUnlockCron } from './core/stake-unlock-cron';
@@ -94,9 +85,6 @@ import { startSkillHealthCron } from './core/skill-health-cron';
 import { startSkillSchedulerCron } from './core/skill-scheduler-cron';
 import { startCacheWarmingCron } from './core/cache-warming-cron';
 import { startIndexSync } from './core/index-sync';
-// import { startAnchorCron } from './core/anchor-cron'; // LEGACY: replaced by soma-anchor-cron
-// import { startAidSnapshotCron } from './core/aid-snapshot-cron'; // LEGACY: AID abandoned
-// import { startProofOfLifeCron } from './core/proof-of-life-cron'; // LEGACY: AID abandoned
 import { startSomaAnchorCron } from './core/soma-anchor-cron';
 import { startZauthDiscovery } from './core/zauth-discovery';
 import { somaRouter } from './routes/soma';
@@ -253,9 +241,6 @@ app.use('/v1/orchestrate', checkApiKey);
 app.use('/v1/estimate', checkApiKey); // Requires API key — calls LLM (parseIntent), costs real money
 app.use('/v1/balance', checkApiKey);
 // AID trust enrichment — optional, fail-through. If caller sends X-AID-DID alongside
-// LEGACY: AID trust-gated pricing disabled — Soma replaced AID
-// app.use('/v1/orchestrate', aidEnrich);
-// app.use('/v1/estimate', aidEnrich);
 app.use('/v1/orchestrate', somaProvenance);
 app.use('/v1/orchestrate', signResponse);
 app.use('/v1/skills/*/invoke', somaProvenance);
@@ -318,17 +303,8 @@ app.route('/mcp', mcpHttpRouter);
 app.route('/mcp/x402', x402McpRouter);
 app.route('/v1/stats/telemetry', statsTelemetryRouter);
 app.route('/v1/register', registerRouter);
-// Soma verification routes (replaces AID trust endpoints)
 app.route('/v1/soma', somaRouter);
-// LEGACY: AID routes disabled — Soma replaced AID
-// app.route('/v1/aid', aidRouter);
-// app.route('/aid', aidProtocolRouter);
 app.route('/x402/facilitator', x402FacilitatorRouter);
-// app.route('/aid', aidDisputesRouter);
-// app.route('/aid', aidStreamRouter);
-// app.route('/aid', aidA2aRouter);
-// app.route('/aid', aidFreezeRouter);
-// app.route('/aid', aidExplainRouter);
 app.route('/v1/skills', skillBuilderRouter);
 // app.route('/v1/referral', referralRouter); // disabled — re-enable when referral program launches
 
@@ -504,10 +480,6 @@ async function start() {
   startCacheWarmingCron();        cronsStarted++;
   startCreatorNotificationsCron(); cronsStarted++;
   startIndexSync();                cronsStarted++;
-  // LEGACY: AID crons replaced by Soma
-  // startAnchorCron();               cronsStarted++;
-  // startAidSnapshotCron();          cronsStarted++;
-  // startProofOfLifeCron();          cronsStarted++;
   startSomaAnchorCron();             cronsStarted++;
   startZauthDiscovery();             cronsStarted++;
   startCanaryCron();               cronsStarted++;

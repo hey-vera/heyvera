@@ -17,7 +17,7 @@ import {
   getVerdictAnchor,
 } from '../db/soma-verdicts';
 import { buildMerkleTree, getMerkleProof } from '../core/merkle-anchor';
-import { aidHash, verifySignature } from '../utils/crypto-agility';
+import { somaHash, verifySignature } from '../utils/crypto-agility';
 import { jcsSerialize, base58btcDecode } from '../utils/jcs';
 import { getHeartSafe } from '../core/soma';
 import { getEd25519PublicKeyRaw } from '../utils/ed25519-signer';
@@ -63,7 +63,7 @@ function verifyVerdictSignature(
       confidence: verdict.confidence,
       genomeHash: verdict.genomeHash,
     });
-    const message = Buffer.from(aidHash(canonical), 'hex');
+    const message = Buffer.from(somaHash(canonical), 'hex');
     const sig = Buffer.from(signature, 'base64url');
 
     // Build Ed25519 public key in DER format for Node.js crypto
@@ -282,7 +282,7 @@ router.get('/:did/export', async (c) => {
 
   // Build Merkle tree from verdict hashes for portable proofs
   const verdictHashes = verdicts.map(v =>
-    aidHash(`${v.id}|${v.subjectDid}|${v.observerDid}|${v.verdict}|${v.confidence}|${v.createdAt}`)
+    somaHash(`${v.id}|${v.subjectDid}|${v.observerDid}|${v.verdict}|${v.confidence}|${v.createdAt}`)
   );
   const { root, tree } = buildMerkleTree(verdictHashes);
 

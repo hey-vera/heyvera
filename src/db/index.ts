@@ -23,7 +23,7 @@ export * from './bounties';
 export * from './skill-extensions';
 export * from './reseller';
 export * from './identities';
-export * from './aid';
+// AID DB module removed — Soma replaced AID. Tables remain in DB via migrations.
 export * from './agent-memory';
 export * from './social-graph';
 export * from './soma-verdicts';
