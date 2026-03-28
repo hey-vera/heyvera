@@ -98,6 +98,7 @@ import { startIndexSync } from './core/index-sync';
 // import { startAidSnapshotCron } from './core/aid-snapshot-cron'; // LEGACY: AID abandoned
 // import { startProofOfLifeCron } from './core/proof-of-life-cron'; // LEGACY: AID abandoned
 import { startSomaAnchorCron } from './core/soma-anchor-cron';
+import { startZauthDiscovery } from './core/zauth-discovery';
 import { somaRouter } from './routes/soma';
 import { startCanaryCron } from './core/canary';
 import { getIndexedEndpoints, countIndexedEndpoints, searchIndexedEndpoints, getIndexedEndpointsSyncInfo } from './db/index';
@@ -504,6 +505,7 @@ async function start() {
   // startAidSnapshotCron();          cronsStarted++;
   // startProofOfLifeCron();          cronsStarted++;
   startSomaAnchorCron();             cronsStarted++;
+  startZauthDiscovery();             cronsStarted++;
   startCanaryCron();               cronsStarted++;
   startTrustDecayCron();           cronsStarted++;
 
