@@ -50,7 +50,9 @@ site/              Static HTML website (not in src/)
 tests/unit/        Vitest tests (187 passing, 10 files)
 ```
 
-## Orchestration Pipeline
+## API Access (two paths)
+
+**Orchestrated (LLM-routed):** `POST /v1/orchestrate` — natural language query, LLM picks endpoints. 2-credit orchestration fee + endpoint costs. For agents that don't know which endpoint to call.
 
 ```
 POST /v1/orchestrate → parseIntent(query) → optimizePlan(intent, pricing)
@@ -58,9 +60,20 @@ POST /v1/orchestrate → parseIntent(query) → optimizePlan(intent, pricing)
 ```
 
 - **Budget:** `{ maxCredits?, strategy: cheapest|balanced|fastest|reliable }`
-- **Cache hits** = 10% of live cost (min 0.1cr) — small cache fee, no call cost to caller or provider
-- **Orchestration fee:** 2 credits per LLM-routed query (burned, not credited)
+- **Orchestration fee:** 2 credits per query (covers LLM parsing)
 - `checkBudget()` returns 402 pre-flight if plan exceeds `maxCredits`
+
+**Direct (no LLM):** `POST /v1/endpoints/:id/call` — call a specific registry endpoint by ID. No orchestration fee, no LLM. Endpoint cost only. For programmatic clients that know exactly which endpoint they want.
+
+```
+POST /v1/endpoints/twitsh-tweet-replies/call
+  { "params": { "tweetId": "123" } }
+→ upstream fetch → cache → bill credits → return data + Soma certificate
+```
+
+- **Cache hits** = 10% of live cost (min 0.1cr)
+- Returns `provenance` field with Soma birth certificate when heart is active
+- `X-Soma-*` headers on response (Data-Hash, Signature, Public-Key, Heartbeat-Index)
 
 ## Database Patterns
 
@@ -92,7 +105,8 @@ dynamicCreditCost(...)           // Surge (up to 5x) + volume discounts + off-pe
 ```
 
 - **Credit rate:** CREDITS_PER_USD=1000 → $0.001/credit, fractional supported (min 0.001)
-- **Revenue split:** 85% creator / 15% treasury (uses `round6()`, not `Math.floor()`)
+- **Revenue split (skills):** 85% creator / 15% treasury (uses `round6()`, not `Math.floor()`)
+- **Revenue split (registry endpoints):** 100% treasury (~33% margin via COST_MARKUP_FACTOR)
 - **Deduction guard:** `WHERE credits >= amount` + DB trigger
 - **Delegated billing:** auth resolves child→parent, `deductCredit(parent)` then `trackDelegatedSpend(child)` across 20+ billing sites
 
@@ -131,6 +145,20 @@ Agents can invoke skills via x402 without an account. Payment verified on-chain 
 **x402 client:** `clawApiCall()` in `src/providers/clawapis.ts` — outbound x402 calls to upstream endpoints using Solana wallet.
 
 **x402 MCP transport:** `src/mcp/x402-mcp-transport.ts` — x402-gated MCP tools with payment_hash idempotency.
+
+## Skills Marketplace (src/routes/skills.ts)
+
+Creator-registered high-value services. 85% revenue to creator, 15% to treasury.
+
+**Skill types:**
+- **`api_proxy`** — Creator-registered endpoints. The primary marketplace type. Creator runs a service, registers the URL, agents pay to invoke it.
+- **`prompt_template`** — LLM-powered skills with template variables and prompt engineering.
+- **`composite`** — Multi-step orchestrations chaining other skills (max depth 3, max 5 deps).
+- **`data`** — **Deprecated.** Auto-converts to `api_proxy` with `method=GET` on creation. Existing data skills still work.
+
+**Invoke:** `POST /v1/skills/:id/invoke` (credits) or `POST /x402/skills/:id` (on-chain payment, no account needed).
+
+**Not skills:** Raw API registry endpoints (twitsh, cascade, etc.) are called via `POST /v1/endpoints/:id/call`. These are commodity data pipes, 100% treasury revenue. Skills are for high-value creator services.
 
 ## Smart Cache v2 (src/cache/)
 
@@ -207,6 +235,7 @@ Treasury sweep optional — with 2-wallet setup, treasury credits are pure profi
 | `src/utils/jcs.ts` | Shared JCS + base58btc + Ed25519 validation |
 | `src/utils/crypto-agility.ts` | somaHash(), post-quantum migration path |
 | `src/routes/api.ts` | POST /v1/orchestrate, GET /v1/estimate |
+| `src/routes/endpoints.ts` | GET /v1/endpoints (catalog), POST /v1/endpoints/:id/call (direct invoke) |
 | `src/routes/soma.ts` | Soma verdict API: trust, verdicts, export, anchors |
 | `src/core/soma-anchor-cron.ts` | Soma verdict Merkle anchoring on Solana |
 | `src/db/soma-verdicts.ts` | Soma verdict CRUD, stats, anchor lifecycle |
