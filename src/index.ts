@@ -240,11 +240,14 @@ app.route('/', contactRoute)
 app.use('/v1/orchestrate', checkApiKey);
 app.use('/v1/estimate', checkApiKey); // Requires API key — calls LLM (parseIntent), costs real money
 app.use('/v1/balance', checkApiKey);
+app.use('/v1/endpoints/*/call', checkApiKey); // Direct endpoint invocation — requires API key for billing
 // AID trust enrichment — optional, fail-through. If caller sends X-AID-DID alongside
 app.use('/v1/orchestrate', somaProvenance);
 app.use('/v1/orchestrate', signResponse);
 app.use('/v1/skills/*/invoke', somaProvenance);
 app.use('/v1/skills/*/invoke', signResponse);
+app.use('/v1/endpoints/*/call', somaProvenance);
+app.use('/v1/endpoints/*/call', signResponse);
 app.use('/v1/batch', signResponse);
 app.use('/v1/balance', signResponse);
 app.use('/v1/tasks', signResponse);
