@@ -183,7 +183,7 @@ export interface AgentServiceMatch {
 function findAgentServicesForCapability(capability: string): AgentServiceMatch[] {
   try {
     // Search public skills that could satisfy this capability
-    // Prefer api_proxy and data skills (real services, not prompt templates)
+    // Prefer api_proxy skills (creator-registered endpoints with real services)
     const skills = listPublicSkills(0, 20);
 
     // Score each skill by keyword match against the capability string

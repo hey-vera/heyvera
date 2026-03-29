@@ -81,7 +81,7 @@ const CreateSkillSchema = z.object({
   displayName: z.string().min(2).max(80).trim().optional(),
   category: z.enum(['general', 'defi', 'security', 'social', 'ai', 'search', 'media', 'enrichment', 'utility', 'infrastructure', 'weather', 'analytics', 'data']).default('general'),
   description: z.string().min(10).max(500).trim(),
-  // prompt_template and data skills don't need a prompt — defaults to '' for data skills
+  // prompt_template = LLM-powered skill; api_proxy/composite = endpoint/orchestration
   promptTemplate: z.string().max(2000).trim().default(''),
   public: z.boolean().default(false),
   creditCost: z.number().int().min(0).max(10000).default(0),
@@ -90,6 +90,8 @@ const CreateSkillSchema = z.object({
   inputSchema: z.record(z.unknown()).optional(),
   outputSchema: z.record(z.unknown()).optional(),
   tags: z.array(z.string().max(32)).max(10).optional(),
+  // 'data' is deprecated — auto-converted to api_proxy with method=GET on creation.
+  // Existing data skills continue to work but new ones are stored as api_proxy.
   skillType: z.enum(['prompt_template', 'api_proxy', 'data', 'composite']).default('prompt_template'),
   proxyUrl: z.string().url().optional(),
   proxyMethod: z.enum(['GET', 'POST', 'PUT', 'PATCH']).default('POST'),
@@ -98,12 +100,12 @@ const CreateSkillSchema = z.object({
   creatorEvmWallet: z.string().regex(/^0x[0-9a-fA-F]{40}$/, 'Must be a valid EVM address (0x...)')
     .refine(addr => addr !== '0x0000000000000000000000000000000000000000', 'Cannot use zero/burn address')
     .optional(),
-  // ── Data skill fields ───────────────────────────────────────────────────────
-  /** A real example of what this skill returns. Shown on marketplace card so agents know exactly what they'll get. */
+  // ── Endpoint skill metadata (applies to api_proxy; legacy data skills auto-convert) ─
+  /** A real example of what this skill returns. Shown on marketplace card. */
   sampleOutput: z.record(z.unknown()).optional(),
-  /** How often the underlying data source updates. Controls Redis cache TTL automatically. */
+  /** How often the underlying data source updates. Controls Redis cache TTL. */
   updateFrequency: z.enum(['realtime', 'hourly', 'daily', 'weekly', 'static']).default('static'),
-  /** Link to the paired skill (LLM ↔ data variant) for marketplace toggle cards. Must be a skill you own. */
+  /** Link to a paired skill variant for marketplace toggle cards. Must be a skill you own. */
   pairedSkillId: z.string().max(50).optional(),
   /** Max invocations per hour (rate limit). Null = unlimited. */
   maxCallsPerHour: z.number().int().min(1).max(100000).optional(),
@@ -248,14 +250,24 @@ skillsRouter.post('/', checkApiKey, async (c) => {
 
   const data = parsed.data;
 
-  // SSRF prevention — block proxy/data source URLs pointing to internal addresses
-  if ((data.skillType === 'api_proxy' || data.skillType === 'data') && data.proxyUrl && !isProxyUrlSafe(data.proxyUrl)) {
+  // ── Deprecation: auto-convert 'data' → 'api_proxy' with GET ────────────
+  // 'data' skills were just GET proxies with no LLM. Now redundant with
+  // POST /v1/endpoints/:id/call for registry endpoints and api_proxy for
+  // creator-registered endpoints. Existing data skills still work — this
+  // only affects new creation.
+  if (data.skillType === 'data') {
+    data.skillType = 'api_proxy' as typeof data.skillType;
+    if (data.proxyMethod === 'POST') data.proxyMethod = 'GET';
+  }
+
+  // SSRF prevention — block proxy URLs pointing to internal addresses
+  if (data.skillType === 'api_proxy' && data.proxyUrl && !isProxyUrlSafe(data.proxyUrl)) {
     return c.json({ error: 'Source URL must be a public HTTPS URL (no localhost, private IPs, or metadata endpoints)', code: 'INVALID_PROXY_URL' }, 400);
   }
 
-  // Data skills must have a source URL
-  if (data.skillType === 'data' && !data.proxyUrl) {
-    return c.json({ error: 'Data skills require a proxyUrl (the URL of your data source)', code: 'MISSING_DATA_SOURCE' }, 400);
+  // api_proxy skills must have a proxyUrl
+  if (data.skillType === 'api_proxy' && !data.proxyUrl) {
+    return c.json({ error: 'Endpoint skills require a proxyUrl (the URL of your service)', code: 'MISSING_PROXY_URL' }, 400);
   }
 
   // prompt_template skills must have a non-empty template

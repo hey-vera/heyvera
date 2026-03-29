@@ -58,7 +58,7 @@ const USD_PER_CREDIT = 0.001;
 const DEFAULT_CREDIT_COSTS: Record<string, number> = {
   api_proxy: 1,
   prompt_template: 2,
-  data: 0.5,
+  data: 1,          // deprecated — auto-converts to api_proxy on creation
   composite: 3,
 };
 
@@ -72,15 +72,17 @@ export function generateSkillTemplate(
   name: string,
   description: string,
 ): SkillTemplate {
-  const creditCost = DEFAULT_CREDIT_COSTS[type] ?? 1;
+  // 'data' is deprecated — treat as api_proxy with GET
+  const effectiveType = type === 'data' ? 'api_proxy' : type;
+  const creditCost = DEFAULT_CREDIT_COSTS[effectiveType] ?? 1;
 
   const base: SkillTemplate = {
     name,
     description,
-    skill_type: type,
+    skill_type: effectiveType,
     prompt_template: '',
     credit_cost: creditCost,
-    tags_json: JSON.stringify([type]),
+    tags_json: JSON.stringify([effectiveType]),
     input_schema_json: JSON.stringify({
       type: 'object',
       properties: { query: { type: 'string', description: 'Input query' } },
@@ -93,21 +95,14 @@ export function generateSkillTemplate(
     sample_output_json: JSON.stringify({ result: 'Sample output for ' + name }),
   };
 
-  switch (type) {
+  switch (effectiveType) {
     case 'prompt_template':
       base.prompt_template = `You are a helpful assistant for ${name}.\n\nUser query: {{query}}\n\nRespond concisely and accurately.`;
       break;
     case 'api_proxy':
       base.proxy_url = 'https://api.example.com/v1/endpoint';
-      base.proxy_method = 'POST';
+      base.proxy_method = type === 'data' ? 'GET' : 'POST';
       base.prompt_template = name;
-      break;
-    case 'data':
-      base.prompt_template = name;
-      base.sample_output_json = JSON.stringify({
-        data: [{ id: '1', value: 'sample' }],
-        updated_at: new Date().toISOString(),
-      });
       break;
     case 'composite':
       base.prompt_template = name;
