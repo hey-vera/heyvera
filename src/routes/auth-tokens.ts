@@ -115,9 +115,11 @@ authRouter.post('/deduct', checkApiKey, (c) => {
     // Record idempotency key (best-effort, INSERT OR IGNORE prevents duplicates)
     if (idempotencyKey) {
       try {
-        getDb()
-          .prepare('INSERT OR IGNORE INTO deduction_idempotency (idempotency_key, api_key, amount, reason) VALUES (?, ?, ?, ?)')
+        const db = getDb();
+        db.prepare('INSERT OR IGNORE INTO deduction_idempotency (idempotency_key, api_key, amount, reason) VALUES (?, ?, ?, ?)')
           .run(idempotencyKey, keyInfo.key, deductAmount, deductReason);
+        // Purge records older than 24h (self-cleaning, prevents unbounded growth)
+        db.prepare("DELETE FROM deduction_idempotency WHERE created_at < datetime('now', '-1 day')").run();
       } catch { /* best-effort */ }
     }
 
