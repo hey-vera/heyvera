@@ -1482,6 +1482,16 @@ const MIGRATIONS: { version: number; sql: string }[] = [
     CREATE INDEX IF NOT EXISTS idx_soma_anchor_status ON soma_verdict_anchors(status);
     CREATE INDEX IF NOT EXISTS idx_soma_anchor_created ON soma_verdict_anchors(anchored_at DESC);
   ` },
+  { version: 123, sql: `
+    CREATE TABLE IF NOT EXISTS deduction_idempotency (
+      idempotency_key TEXT PRIMARY KEY,
+      api_key TEXT NOT NULL,
+      amount REAL NOT NULL,
+      reason TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_dedup_key ON deduction_idempotency(api_key);
+  ` },
 ];
 
 function runMigrations(): void {

@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { checkApiKey } from '../middleware/auth';
 import { getSkill, getUsageStats, deductCredit, getClerkIdForKey } from '../db/index';
 import { maskApiKey } from '../utils/mask';
-import { logAudit } from '../db/connection';
+import { logAudit, getDb } from '../db/connection';
 import { env } from '../config/index';
 
 export const authRouter = new Hono();
@@ -79,6 +79,7 @@ authRouter.get('/usage', checkApiKey, (c) => {
 authRouter.post('/deduct', checkApiKey, (c) => {
   const keyInfo = c.get('apiKeyInfo');
   const { amount, reason } = c.req.query() as any;
+  const idempotencyKey = c.req.header('Idempotency-Key') || '';
   const body = c.req.raw.clone();
 
   // Parse from body if not in query
@@ -90,9 +91,34 @@ authRouter.post('/deduct', checkApiKey, (c) => {
       return c.json({ error: 'Invalid amount (0-1000)', code: 'INVALID_AMOUNT' }, 400);
     }
 
+    // Idempotency: if this key was already processed, return the original result
+    if (idempotencyKey) {
+      const existing = getDb()
+        .prepare('SELECT amount, reason FROM deduction_idempotency WHERE idempotency_key = ?')
+        .get(idempotencyKey) as { amount: number; reason: string } | undefined;
+      if (existing) {
+        return c.json({
+          ok: true,
+          deducted: existing.amount,
+          reason: existing.reason,
+          remaining: keyInfo.credits,
+          idempotent: true,
+        });
+      }
+    }
+
     const deducted = deductCredit(keyInfo.key, deductAmount);
     if (!deducted) {
       return c.json({ error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS', credits: keyInfo.credits }, 402);
+    }
+
+    // Record idempotency key (best-effort, INSERT OR IGNORE prevents duplicates)
+    if (idempotencyKey) {
+      try {
+        getDb()
+          .prepare('INSERT OR IGNORE INTO deduction_idempotency (idempotency_key, api_key, amount, reason) VALUES (?, ?, ?, ?)')
+          .run(idempotencyKey, keyInfo.key, deductAmount, deductReason);
+      } catch { /* best-effort */ }
     }
 
     logAudit({
