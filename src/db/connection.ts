@@ -1492,6 +1492,36 @@ const MIGRATIONS: { version: number; sql: string }[] = [
     );
     CREATE INDEX IF NOT EXISTS idx_dedup_key ON deduction_idempotency(api_key);
   ` },
+
+  // ─── v124: Soma Receipt Layer — unified cryptographic receipts ───────────
+  { version: 124, sql: `
+    CREATE TABLE IF NOT EXISTS soma_receipts (
+      id TEXT PRIMARY KEY,
+      request_id TEXT,
+      api_key_hash TEXT,
+      payment_method TEXT NOT NULL,
+      payment_ref TEXT,
+      credits_cost REAL NOT NULL DEFAULT 0,
+      request_hash TEXT,
+      response_hash TEXT,
+      soma_data_hash TEXT,
+      heartbeat_index INTEGER,
+      eas_attestation_json TEXT,
+      eas_uid TEXT,
+      signature_ed25519 TEXT,
+      signature_mldsa65 TEXT,
+      algorithm_version TEXT NOT NULL DEFAULT '1.0',
+      anchor_id TEXT,
+      anchored_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_soma_receipts_request ON soma_receipts(request_id);
+    CREATE INDEX IF NOT EXISTS idx_soma_receipts_key ON soma_receipts(api_key_hash);
+    CREATE INDEX IF NOT EXISTS idx_soma_receipts_eas ON soma_receipts(eas_uid);
+    CREATE INDEX IF NOT EXISTS idx_soma_receipts_anchor ON soma_receipts(anchor_id);
+    CREATE INDEX IF NOT EXISTS idx_soma_receipts_unanchored ON soma_receipts(anchored_at) WHERE anchored_at IS NULL;
+    CREATE INDEX IF NOT EXISTS idx_soma_receipts_created ON soma_receipts(created_at DESC);
+  ` },
 ];
 
 function runMigrations(): void {

@@ -122,6 +122,23 @@ const envSchema = z.object({
     z.boolean().default(false),
   ),
   MERKLE_ANCHOR_INTERVAL_MS: z.coerce.number().int().min(60000).max(86400000).default(3600000), // 1 hour
+
+  // ─── EAS (Ethereum Attestation Service) on Base ────────────────────────────
+  // Schema UID from Base schema registry (set after one-time registration)
+  EAS_SCHEMA_UID: z.string().optional(),
+  // Enable periodic Merkle-root anchoring of receipts on Base via EAS
+  EAS_ANCHOR_ENABLED: z.preprocess(
+    (v) => v === 'true' || v === '1' || v === true,
+    z.boolean().default(false),
+  ),
+  EAS_ANCHOR_INTERVAL_MS: z.coerce.number().int().min(60000).max(86400000).default(3600000), // 1 hour
+
+  // ─── Post-Quantum Cryptography ─────────────────────────────────────────────
+  // Enable hybrid Ed25519 + ML-DSA-65 dual signatures on all receipts
+  PQ_SIGNATURES_ENABLED: z.preprocess(
+    (v) => v === 'true' || v === '1' || v === true,
+    z.boolean().default(false),
+  ),
 });
 
 const parsed = envSchema.safeParse(process.env);

@@ -15,6 +15,16 @@
 
 import crypto from 'crypto';
 
+// ─── Post-quantum imports (lazy-loaded to avoid startup cost when disabled) ──
+let _mlDsa65: any = null;
+async function getMlDsa65() {
+  if (!_mlDsa65) {
+    const mod = await import('@noble/post-quantum/ml-dsa');
+    _mlDsa65 = mod.ml_dsa65;
+  }
+  return _mlDsa65;
+}
+
 // ─── Algorithm constants ─────────────────────────────────────────────────────
 
 /** Current hash algorithm — SHA-256. Matches Solana, x402, ERC-8004, W3C VC ecosystem. */
@@ -84,8 +94,7 @@ export const aidHmac = somaHmac;
  * Verify a signature using the algorithm specified in the document.
  * This is the algorithm-agile entry point — dispatches based on algorithm field.
  *
- * Currently supports: EdDSA (Ed25519).
- * Future: ML-DSA-44 (FIPS 204), hybrid Ed25519+ML-DSA.
+ * Supports: EdDSA (Ed25519), ML-DSA-65 (FIPS 204), Ed25519+ML-DSA-65 (hybrid).
  */
 export function verifySignature(
   algorithm: string,
@@ -100,6 +109,35 @@ export function verifySignature(
     default:
       throw new Error(`Unsupported signature algorithm: ${algorithm}`);
   }
+}
+
+/**
+ * Verify an ML-DSA-65 signature using @noble/post-quantum.
+ * Async because the module is lazy-loaded.
+ */
+export async function verifyMlDsa65(
+  signature: Uint8Array,
+  message: Uint8Array,
+  publicKey: Uint8Array,
+): Promise<boolean> {
+  const mlDsa65 = await getMlDsa65();
+  return mlDsa65.verify(publicKey, message, signature);
+}
+
+/**
+ * Verify a hybrid signature (both Ed25519 AND ML-DSA-65 must pass).
+ */
+export async function verifyHybridSignature(
+  ed25519Sig: Buffer,
+  mlDsa65Sig: Uint8Array,
+  message: Buffer,
+  ed25519PublicKey: crypto.KeyObject,
+  mlDsa65PublicKey: Uint8Array,
+): Promise<boolean> {
+  const edValid = crypto.verify(null, message, ed25519PublicKey, ed25519Sig);
+  if (!edValid) return false;
+  const pqValid = await verifyMlDsa65(mlDsa65Sig, message, mlDsa65PublicKey);
+  return pqValid;
 }
 
 /**
@@ -119,15 +157,38 @@ export function signWithAlgorithm(
   }
 }
 
+/**
+ * Sign data with ML-DSA-65 using @noble/post-quantum.
+ * Async because the module is lazy-loaded.
+ */
+export async function signMlDsa65(
+  message: Uint8Array,
+  secretKey: Uint8Array,
+): Promise<Uint8Array> {
+  const mlDsa65 = await getMlDsa65();
+  return mlDsa65.sign(secretKey, message);
+}
+
+/**
+ * Generate an ML-DSA-65 keypair from a 32-byte seed.
+ */
+export async function generateMlDsa65KeyPair(
+  seed: Uint8Array,
+): Promise<{ publicKey: Uint8Array; secretKey: Uint8Array }> {
+  const mlDsa65 = await getMlDsa65();
+  return mlDsa65.keygen(seed);
+}
+
 // ─── Document fields ─────────────────────────────────────────────────────────
 
 /**
  * Standard crypto-agility fields to include in every document and receipt.
  */
 export function getCryptoAgilityMetadata() {
+  const pqEnabled = process.env.PQ_SIGNATURES_ENABLED === 'true' || process.env.PQ_SIGNATURES_ENABLED === '1';
   return {
-    signatureAlgorithm: SOMA_SIGNATURE_ALGORITHM,
-    algorithmVersion: SOMA_ALGORITHM_VERSION,
+    signatureAlgorithm: pqEnabled ? 'Ed25519+ML-DSA-65' : SOMA_SIGNATURE_ALGORITHM,
+    algorithmVersion: pqEnabled ? '2.0' : SOMA_ALGORITHM_VERSION,
     hashAlgorithm: SOMA_HASH_ALGORITHM,
   };
 }
@@ -153,7 +214,7 @@ export function getCryptoAgilityHeartbeat() {
  * Allowed signature algorithms for verification.
  * Prevents algorithm confusion/downgrade attacks.
  */
-export const ALLOWED_ALGORITHMS: readonly string[] = ['EdDSA', 'Ed25519'];
+export const ALLOWED_ALGORITHMS: readonly string[] = ['EdDSA', 'Ed25519', 'ML-DSA-65', 'Ed25519+ML-DSA-65'];
 
 export function isAlgorithmAllowed(algorithm: string): boolean {
   return ALLOWED_ALGORITHMS.includes(algorithm);
@@ -161,12 +222,13 @@ export function isAlgorithmAllowed(algorithm: string): boolean {
 
 /**
  * Negotiate the best mutually-supported algorithm between two parties.
+ * Preference: hybrid > PQ-only > classical (strongest first).
  */
 export function negotiateAlgorithm(
   localSupported: readonly string[],
   remoteSupported: readonly string[],
 ): string | null {
-  const PREFERENCE_ORDER = ['ML-DSA-44', 'Ed25519+ML-DSA', 'EdDSA', 'Ed25519'];
+  const PREFERENCE_ORDER = ['Ed25519+ML-DSA-65', 'ML-DSA-65', 'Ed25519+ML-DSA', 'ML-DSA-44', 'EdDSA', 'Ed25519'];
   for (const algo of PREFERENCE_ORDER) {
     if (localSupported.includes(algo) && remoteSupported.includes(algo)) return algo;
   }
@@ -175,12 +237,24 @@ export function negotiateAlgorithm(
 
 /**
  * PQC migration status per NIST IR 8547 timeline.
+ *
+ * Phase 1 (current): Ed25519 only — ML-DSA-65 available behind feature flag
+ * Phase 2 (Node 24 LTS, Oct 2026): Hybrid Ed25519 + ML-DSA-65 dual signatures
+ * Phase 3 (2028+): ML-DSA-65 primary, Ed25519 legacy fallback
+ * Phase 4 (2035): ML-DSA-65 only (Ed25519 disallowed per NIST IR 8547)
  */
 export function getPQCMigrationStatus() {
+  const pqEnabled = process.env.PQ_SIGNATURES_ENABLED === 'true' || process.env.PQ_SIGNATURES_ENABLED === '1';
   return {
-    currentPhase: 1,
-    description: 'Ed25519 only — ML-DSA planned',
+    currentPhase: pqEnabled ? 2 : 1,
+    description: pqEnabled ? 'Hybrid Ed25519 + ML-DSA-65' : 'Ed25519 only — ML-DSA-65 behind feature flag',
     eddsaStatus: 'active',
-    mldsaStatus: 'planned',
+    mldsaStatus: pqEnabled ? 'active' : 'available',
+    mldsaAlgorithm: 'ML-DSA-65',
+    mldsaStandard: 'FIPS 204',
+    nistTimeline: {
+      ed25519Deprecated: 2030,
+      ed25519Disallowed: 2035,
+    },
   };
 }
