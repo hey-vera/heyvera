@@ -16,7 +16,8 @@ dynamicCreditCost(...)           // Surge (up to 5x) + volume discounts + off-pe
 ## Rates & Splits
 
 - **Credit rate:** CREDITS_PER_USD=1000 → $0.001/credit, fractional supported (min 0.001)
-- **Revenue split (skills):** 85% creator / 15% treasury (uses `round6()`, not `Math.floor()`)
-- **Revenue split (registry endpoints):** 100% treasury (~33% margin via COST_MARKUP_FACTOR)
+- **Revenue split (skills):** 90% creator / 10% platform (uses `round6()`, not `Math.floor()`)
+- **Revenue split (providers):** 90% provider / 10% platform on live calls; 0% provider on cache hits (server not touched)
+- **Revenue split (registry endpoints):** 100% platform (~33% margin via COST_MARKUP_FACTOR)
 - **Deduction guard:** `WHERE credits >= amount` + DB trigger
 - **Delegated billing:** auth resolves child→parent, `deductCredit(parent)` then `trackDelegatedSpend(child)` across 20+ billing sites

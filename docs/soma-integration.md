@@ -110,11 +110,18 @@ x402 providers running Soma heart produce their own birth certificates. ClawNet 
 - `X-Soma-Provider-Data-Hash`, `X-Soma-Provider-Signature`, `X-Soma-Provider-Public-Key`
 - Standard `X-Soma-Data-Hash`, `X-Soma-Signature`, `X-Soma-Public-Key` (platform)
 
-**Provider Umbrella:** x402 providers register endpoints with ClawNet via `POST /v1/providers`. They get smart caching, Soma provenance, PQ signatures, EAS receipts, and shared-cache flywheel. Provider-scoped API keys restrict access to owned endpoints only.
+**Provider Umbrella:** x402 providers register endpoints via `POST /v1/providers/register` (self-service, any API key holder) or `POST /v1/providers` (admin). They get smart caching, Soma provenance, PQ signatures, EAS receipts, and shared-cache flywheel. Provider-scoped API keys restrict access to owned endpoints only.
+
+**Revenue share:** 90% provider / 10% platform on live calls. Cache hits = 0% provider (server not touched). Configurable per-provider via `revenue_share_pct`.
+
+**Two modes:**
+- **Proxy mode** (default) — traffic routes through ClawNet, gets caching + Soma signing (+10-30ms latency)
+- **Verify mode** — agent calls provider directly, submits cert to `POST /v1/soma/verify` for async verification (zero latency)
 
 **Key files:**
-- `src/db/providers.ts` — `createProvider()`, `registerProviderEndpoint()`, `recordProviderCall()`, analytics
-- `src/routes/providers.ts` — 11 REST endpoints for provider management
+- `src/db/providers.ts` — `createProvider()`, `registerProviderEndpoint()`, `recordProviderCall()`, `creditProviderShare()`, analytics
+- `src/routes/providers.ts` — 13 REST endpoints including self-service registration
+- `src/routes/soma.ts` — `POST /v1/soma/verify` — verify mode endpoint
 - `src/middleware/auth.ts` — `checkProviderScope()` enforces provider endpoint ownership
 
 ## Phase 6 — zkTLS Verification (built, opt-in)

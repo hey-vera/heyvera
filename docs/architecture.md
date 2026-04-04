@@ -27,15 +27,16 @@
 | `src/utils/eas.ts` | EAS integration: off-chain attestations, schema encoding, batch timestamp |
 | `src/routes/api.ts` | POST /v1/orchestrate, GET /v1/estimate |
 | `src/routes/endpoints.ts` | GET /v1/endpoints (catalog), POST /v1/endpoints/:id/call |
-| `src/routes/soma.ts` | Soma verdict API + receipt lookup |
+| `src/routes/soma.ts` | Soma verdict API + receipt lookup + verify mode |
 | `src/routes/x402-skills.ts` | x402 payment-gated skill invocation |
+| `src/routes/providers.ts` | Provider umbrella REST API (13 endpoints, incl. self-service registration) |
 | `src/middleware/auth.ts` | checkApiKey, checkPermission, checkPolicy |
 | `src/middleware/soma-provenance.ts` | X-Soma-* provenance headers on all responses (dual-sign aware) |
 | `src/core/dual-sign.ts` | Dual-signed Soma: validate provider cert + platform co-sign |
 | `src/core/dual-sign-state.ts` | Request-scoped dual-sign state for middleware |
 | `src/core/zktls.ts` | zkTLS verification via Reclaim Protocol (opt-in) |
-| `src/db/providers.ts` | Provider CRUD, endpoint mapping, analytics |
-| `src/routes/providers.ts` | Provider umbrella REST API (11 endpoints) |
+| `src/db/providers.ts` | Provider CRUD, endpoint mapping, analytics, revenue share |
+| `src/db/promo-codes.ts` | Promo code CRUD + redemption (event-scoped, max_uses, expiry) |
 
 ## Cron Jobs
 
@@ -112,13 +113,27 @@ Layers 1-2 are opt-in. Layers 3-5 are always-on for paid interactions.
 
 ## Provider Umbrella
 
-x402 providers register their endpoints and route traffic through ClawNet to get caching, Soma provenance, and analytics without building infrastructure.
+x402 providers register their endpoints and route traffic through ClawNet to get caching, Soma provenance, and analytics without building infrastructure. 90% revenue share on live calls, 0% on cache hits.
 
-- **Registration:** `POST /v1/providers` (admin) — creates provider account
+- **Self-service:** `POST /v1/providers/register` (any API key holder) — creates provider in pending status
+- **Admin registration:** `POST /v1/providers` (admin) — creates provider account directly
 - **Endpoint mapping:** `POST /v1/providers/:id/endpoints` — links endpoints to provider
 - **Scoped keys:** `POST /v1/providers/:id/keys` — creates API key restricted to provider's endpoints
 - **Analytics:** `GET /v1/providers/:id/analytics` — calls, cache hits, revenue, latency
 - **Dual-sign:** Providers running Soma heart get automatic dual-signed provenance
+- **Verify mode:** `POST /v1/soma/verify` — agents call providers directly, submit cert for async verification (zero latency)
+
+## Promo Codes
+
+Admin-created event-scoped codes for controlled credit distribution.
+
+- **Admin create:** `POST /v1/admin/promo-codes` — code, credits_amount, max_uses, expires_at, event_name
+- **Admin list:** `GET /v1/admin/promo-codes` — all codes with usage stats
+- **Admin detail:** `GET /v1/admin/promo-codes/:id` — code + redemption list
+- **Deactivate:** `POST /v1/admin/promo-codes/:id/deactivate` — kill a code
+- **Redeem (new users):** `POST /v1/self-onboard/register` with `promoCode` field
+- **Redeem (existing):** `POST /v1/account/redeem-promo` with `code` field
+- One redemption per account per code. DB: `promo_codes` + `promo_redemptions` tables (migration v140)
 
 ## SDK & Integration Packages
 

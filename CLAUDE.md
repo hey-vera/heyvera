@@ -48,10 +48,11 @@ site/              Static HTML website
 tests/unit/        Vitest tests
 ```
 
-## API Access (two paths)
+## API Access (three paths)
 
 **Orchestrated:** `POST /v1/orchestrate` — LLM picks endpoints. 2-credit fee + endpoint costs.
 **Direct:** `POST /v1/endpoints/:id/call` — specific endpoint by ID. No LLM, endpoint cost only.
+**Verify:** `POST /v1/soma/verify` — agent calls provider directly, submits cert for async trust verification. Zero latency.
 
 ## Database Patterns
 
@@ -81,6 +82,8 @@ logAudit({ entityType, entityId, action, actorId?, data? });  // Fire-and-forget
 - **DB imports** — always from `src/db/index.ts`, never domain files directly
 - **Soma: provenance ≠ verification** — birth certificates prove data origin; sense verifies model
 - **Soma: never self-verify** — ClawNet runs heart, callers run sense
+- **Revenue share** — 90% provider / 10% platform on live calls. Cache hits = 0% provider. `creditProviderShare()` after `deductCredit()`
+- **Promo codes** — admin creates via `/v1/admin/promo-codes`, users redeem via self-onboard or `/v1/account/redeem-promo`
 
 ## Route Pattern
 
@@ -116,6 +119,5 @@ All env vars Zod-validated in `src/config/index.ts`. Full list in `.env.example`
 
 For deeper context on specific subsystems:
 - `docs/billing.md` — Credit math, revenue splits, pricing engine
-- `docs/soma-integration.md` — Soma phases 1-4, receipt layer, EAS, crypto primitives
-- `docs/x402.md` — x402 payment layer, facilitator pool, skills marketplace
-- `docs/architecture.md` — Key files, cron jobs, cache, wallet architecture, env vars
+- `docs/soma-integration.md` — Soma phases 1-6, receipt layer, EAS, verify mode, provider umbrella
+- `docs/architecture.md` — Key files, cron jobs, cache, wallet architecture, provider umbrella, promo codes
