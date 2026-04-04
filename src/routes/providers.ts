@@ -576,4 +576,289 @@ providersRouter.get('/:id/soma', async (c) => {
   });
 });
 
+// ─── POST /v1/providers/:id/invalidate — push-based cache invalidation ─────
+// Provider tells us their data changed. We immediately invalidate cache entries.
+// This eliminates stale data — provider knows best when their data updates.
+
+providersRouter.post('/:id/invalidate', checkApiKey, async (c) => {
+  const providerId = c.req.param('id');
+
+  // Verify caller owns this provider
+  const keyInfo = c.get('apiKeyInfo');
+  const keyProvider = getDb().prepare('SELECT provider_id FROM api_keys WHERE key = ?').get(keyInfo.key) as any;
+  const isOwner = keyProvider?.provider_id === providerId;
+  if (!isOwner && !requireAdmin(c)) {
+    return c.json({ error: 'Not authorized for this provider', code: 'PROVIDER_SCOPE_DENIED' }, 403);
+  }
+
+  const body = await c.req.json().catch(() => ({}));
+  const endpointIds: string[] = (body as any).endpointIds ?? ((body as any).endpointId ? [(body as any).endpointId] : []);
+  const invalidateAll = (body as any).all === true;
+
+  if (endpointIds.length === 0 && !invalidateAll) {
+    return c.json({ error: 'Provide endpointIds array, endpointId string, or all:true', code: 'VALIDATION_ERROR' }, 400);
+  }
+
+  const { invalidateByEndpoint } = await import('../cache/index');
+  let totalInvalidated = 0;
+
+  if (invalidateAll) {
+    // Invalidate all endpoints belonging to this provider
+    const providerEndpoints = getProviderEndpoints(providerId);
+    for (const eid of providerEndpoints) {
+      totalInvalidated += await invalidateByEndpoint(eid);
+    }
+  } else {
+    // Verify endpoints belong to this provider, then invalidate
+    const providerEndpoints = new Set(getProviderEndpoints(providerId));
+    for (const eid of endpointIds) {
+      if (providerEndpoints.has(eid)) {
+        totalInvalidated += await invalidateByEndpoint(eid);
+      }
+    }
+  }
+
+  logAudit({ entityType: 'provider', entityId: providerId, action: 'CACHE_INVALIDATED', data: { endpointIds, invalidateAll, totalInvalidated } });
+  logger.info({ providerId, totalInvalidated, endpointIds: endpointIds.length, all: invalidateAll }, 'Provider cache invalidation');
+
+  return c.json({
+    ok: true,
+    invalidated: totalInvalidated,
+    message: `${totalInvalidated} cache entries invalidated. Fresh data will be fetched on next request.`,
+  });
+});
+
+// ─── POST /v1/providers/:id/auto-discover — auto-map endpoints from pricing URL ──
+// Fetches the provider's /api/pricing endpoint, discovers all endpoints,
+// auto-registers them to this provider. One-command onboarding.
+
+providersRouter.post('/:id/auto-discover', checkApiKey, async (c) => {
+  const providerId = c.req.param('id');
+  const provider = getProvider(providerId);
+  if (!provider) {
+    return c.json({ error: 'Provider not found', code: 'PROVIDER_NOT_FOUND' }, 404);
+  }
+
+  // Verify caller owns this provider or is admin
+  const keyInfo = c.get('apiKeyInfo');
+  const keyProvider = getDb().prepare('SELECT provider_id FROM api_keys WHERE key = ?').get(keyInfo.key) as any;
+  const isOwner = keyProvider?.provider_id === providerId;
+  if (!isOwner && !requireAdmin(c)) {
+    return c.json({ error: 'Not authorized for this provider', code: 'PROVIDER_SCOPE_DENIED' }, 403);
+  }
+
+  const body = await c.req.json().catch(() => ({}));
+  const pricingUrl = (body as any).pricingUrl;
+  if (!pricingUrl || typeof pricingUrl !== 'string') {
+    return c.json({ error: 'pricingUrl is required (e.g. https://clawapis.com/api/pricing)', code: 'VALIDATION_ERROR' }, 400);
+  }
+
+  // Fetch pricing data
+  let pricingData: Record<string, any>;
+  try {
+    const resp = await fetch(pricingUrl, { signal: AbortSignal.timeout(10_000) });
+    if (!resp.ok) {
+      return c.json({ error: `Failed to fetch pricing: ${resp.status}`, code: 'FETCH_FAILED' }, 502);
+    }
+    pricingData = await resp.json();
+  } catch (err) {
+    return c.json({ error: `Failed to fetch pricing URL: ${err}`, code: 'FETCH_FAILED' }, 502);
+  }
+
+  // Parse endpoints from pricing response
+  // Expected format: flat object or nested { provider: { endpoint: { price, description } } }
+  const discovered: Array<{ id: string; price: string; description?: string }> = [];
+  const skipKeys = new Set(['totalEndpoints', 'total', 'meta', 'version', 'updatedAt', 'timestamp']);
+
+  function parseLevel(obj: Record<string, any>, prefix: string = '') {
+    for (const [key, val] of Object.entries(obj)) {
+      if (skipKeys.has(key)) continue;
+      if (val && typeof val === 'object' && val.price) {
+        // This is an endpoint entry
+        const id = prefix ? `${prefix}/${key}` : key;
+        discovered.push({ id, price: String(val.price), description: val.description });
+      } else if (val && typeof val === 'object' && !val.price) {
+        // Nested provider/category level
+        parseLevel(val, prefix ? `${prefix}/${key}` : key);
+      }
+    }
+  }
+  parseLevel(pricingData);
+
+  // Register discovered endpoints to this provider
+  let mapped = 0;
+  const results: Array<{ endpoint: string; found: boolean; mapped: boolean }> = [];
+
+  for (const ep of discovered) {
+    // Try to find a matching endpoint in the registry
+    const registryMatch = findEndpoint(ep.id) ?? findEndpoint(ep.id.split('/').pop() ?? '');
+    if (registryMatch) {
+      registerProviderEndpoint(providerId, registryMatch.id);
+      mapped++;
+      results.push({ endpoint: registryMatch.id, found: true, mapped: true });
+    } else {
+      results.push({ endpoint: ep.id, found: false, mapped: false });
+    }
+  }
+
+  logAudit({ entityType: 'provider', entityId: providerId, action: 'AUTO_DISCOVERED', data: { pricingUrl, discovered: discovered.length, mapped } });
+  logger.info({ providerId, pricingUrl, discovered: discovered.length, mapped }, 'Provider auto-discovery');
+
+  return c.json({
+    ok: true,
+    discovered: discovered.length,
+    mapped,
+    unmapped: discovered.length - mapped,
+    results,
+    message: mapped > 0
+      ? `${mapped} endpoints auto-mapped to your provider. ${discovered.length - mapped} endpoints not found in registry (may need manual registration).`
+      : 'No matching endpoints found in registry. Endpoints may need to be added to the ClawNet registry first.',
+    nextSteps: [
+      mapped > 0 ? `Set freshness: PATCH /v1/providers/${providerId}/endpoints/:eid/freshness` : null,
+      mapped > 0 ? `View revenue: GET /v1/providers/${providerId}/revenue` : null,
+      'Enable push invalidation: POST /v1/providers/' + providerId + '/invalidate when your data changes',
+    ].filter(Boolean),
+  });
+});
+
+// ─── GET /v1/providers/:id/insights — demand insights for providers ───────
+// Shows per-endpoint call volume, cache hit rates, trending endpoints,
+// and actionable recommendations. Helps providers optimize their setup.
+
+providersRouter.get('/:id/insights', checkApiKey, async (c) => {
+  const providerId = c.req.param('id');
+  const provider = getProvider(providerId);
+  if (!provider) {
+    return c.json({ error: 'Provider not found', code: 'PROVIDER_NOT_FOUND' }, 404);
+  }
+
+  const days = Math.min(parseInt(c.req.query('days') ?? '30', 10), 90);
+  const endpoints = getProviderEndpoints(providerId);
+
+  if (endpoints.length === 0) {
+    return c.json({
+      ok: true,
+      provider: { id: providerId, name: provider.name },
+      insights: { endpoints: [], recommendations: ['Register endpoints to start seeing demand insights.'] },
+    });
+  }
+
+  // Per-endpoint demand from cache_access_log
+  const placeholders = endpoints.map(() => '?').join(',');
+  const endpointDemand = getDb().prepare(`
+    SELECT endpoint_id,
+           COUNT(*) as total_requests,
+           SUM(hit) as cache_hits,
+           SUM(CASE WHEN hit = 0 THEN 1 ELSE 0 END) as cache_misses,
+           SUM(credits_saved) as total_credits_saved,
+           ROUND(AVG(hit) * 100, 1) as cache_hit_rate
+    FROM cache_access_log
+    WHERE endpoint_id IN (${placeholders})
+      AND created_at >= datetime('now', '-' || ? || ' days')
+    GROUP BY endpoint_id
+    ORDER BY total_requests DESC
+  `).all(...endpoints, days) as any[];
+
+  // Daily trend (last 7 days vs prior 7 days for growth calc)
+  const recentCalls = getDb().prepare(`
+    SELECT endpoint_id, COUNT(*) as calls
+    FROM cache_access_log
+    WHERE endpoint_id IN (${placeholders})
+      AND created_at >= datetime('now', '-7 days')
+    GROUP BY endpoint_id
+  `).all(...endpoints) as any[];
+
+  const priorCalls = getDb().prepare(`
+    SELECT endpoint_id, COUNT(*) as calls
+    FROM cache_access_log
+    WHERE endpoint_id IN (${placeholders})
+      AND created_at >= datetime('now', '-14 days')
+      AND created_at < datetime('now', '-7 days')
+    GROUP BY endpoint_id
+  `).all(...endpoints) as any[];
+
+  const recentMap = new Map(recentCalls.map((r: any) => [r.endpoint_id, r.calls]));
+  const priorMap = new Map(priorCalls.map((r: any) => [r.endpoint_id, r.calls]));
+
+  // Enrich with registry info + freshness config
+  const endpointInsights = endpointDemand.map((ep: any) => {
+    const registry = findEndpoint(ep.endpoint_id);
+    const recent = recentMap.get(ep.endpoint_id) ?? 0;
+    const prior = priorMap.get(ep.endpoint_id) ?? 0;
+    const growth = prior > 0 ? Math.round(((recent - prior) / prior) * 100) : (recent > 0 ? 100 : 0);
+
+    return {
+      endpointId: ep.endpoint_id,
+      name: registry?.name ?? ep.endpoint_id,
+      category: registry?.category ?? 'unknown',
+      totalRequests: ep.total_requests,
+      cacheHits: ep.cache_hits,
+      cacheMisses: ep.cache_misses,
+      cacheHitRate: `${ep.cache_hit_rate}%`,
+      creditsSaved: ep.total_credits_saved,
+      weeklyGrowth: `${growth >= 0 ? '+' : ''}${growth}%`,
+      trending: growth > 20,
+    };
+  });
+
+  // Zero-traffic endpoints (registered but no calls)
+  const activeEndpointIds = new Set(endpointDemand.map((e: any) => e.endpoint_id));
+  const dormant = endpoints.filter(id => !activeEndpointIds.has(id));
+
+  // Recommendations
+  const recommendations: string[] = [];
+  const highTrafficNoCacheWarm = endpointInsights
+    .filter((e: any) => e.totalRequests > 50 && e.cacheHitRate !== '100.0%')
+    .map((e: any) => e.endpointId);
+
+  if (highTrafficNoCacheWarm.length > 0) {
+    // Check which ones don't have cache warming enabled
+    for (const eid of highTrafficNoCacheWarm.slice(0, 3)) {
+      const freshness = getEndpointFreshness(eid);
+      if (!freshness?.cacheWarm) {
+        recommendations.push(`Enable cache warming for "${eid}" — high traffic but not all hits are cached.`);
+      }
+    }
+  }
+
+  const lowCacheRate = endpointInsights.filter((e: any) => parseFloat(e.cacheHitRate) < 50 && e.totalRequests > 10);
+  if (lowCacheRate.length > 0) {
+    recommendations.push(`${lowCacheRate.length} endpoint(s) have <50% cache hit rate. Set freshness declarations to improve.`);
+  }
+
+  if (dormant.length > 0) {
+    recommendations.push(`${dormant.length} registered endpoint(s) have zero traffic. Ensure they're in the API registry.`);
+  }
+
+  const trending = endpointInsights.filter((e: any) => e.trending);
+  if (trending.length > 0) {
+    recommendations.push(`${trending.length} endpoint(s) trending up >20% week-over-week — consider enabling cache warming.`);
+  }
+
+  if (provider.tier === 'open') {
+    recommendations.push('Upgrade to Standard tier to earn 50% of cache hit revenue (pure profit).');
+  }
+
+  return c.json({
+    ok: true,
+    provider: { id: providerId, name: provider.name, tier: provider.tier },
+    period: `${days} days`,
+    insights: {
+      endpoints: endpointInsights,
+      dormantEndpoints: dormant,
+      summary: {
+        totalEndpoints: endpoints.length,
+        activeEndpoints: endpointDemand.length,
+        dormantEndpoints: dormant.length,
+        totalRequests: endpointInsights.reduce((s: number, e: any) => s + e.totalRequests, 0),
+        avgCacheHitRate: endpointInsights.length > 0
+          ? `${Math.round(endpointInsights.reduce((s: number, e: any) => s + parseFloat(e.cacheHitRate), 0) / endpointInsights.length)}%`
+          : '0%',
+        trendingCount: trending.length,
+      },
+      recommendations,
+    },
+  });
+});
+
 export { providersRouter };

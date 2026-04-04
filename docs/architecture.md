@@ -135,6 +135,10 @@ Cache hits are pure profit for providers — their server is never touched.
 - **Dual-sign:** Providers running Soma heart get automatic dual-signed provenance
 - **Verify mode:** `POST /v1/soma/verify` — agents call providers directly, submit cert for async verification
 - **Cache warming:** Provider sets `cacheWarm: true` + `updateFrequencySeconds` — proactive refresh cron
+- **Push invalidation:** `POST /v1/providers/:id/invalidate` — provider pushes when data changes, immediate cache clear
+- **Auto-discover:** `POST /v1/providers/:id/auto-discover` — auto-map endpoints from pricing URL in one call
+- **Demand insights:** `GET /v1/providers/:id/insights` — per-endpoint volume, cache rates, growth trends, recommendations
+- **Agent freshness:** `POST /v1/endpoints/:id/call` accepts `freshness`: `realtime` (skip cache), `fast` (stale+refresh), `relaxed` (default)
 
 ## Certified Cache Layer
 

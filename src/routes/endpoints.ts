@@ -154,9 +154,10 @@ endpointsRouter.post('/:id/call', async (c) => {
 
   // ── Parse params ─────────────────────────────────────────────────────────
   let params: Record<string, unknown> = {};
+  let rawBody: Record<string, unknown> = {};
   try {
-    const body = await c.req.json();
-    params = body.params ?? body ?? {};
+    rawBody = await c.req.json();
+    params = (rawBody as any).params ?? rawBody ?? {};
   } catch {
     // Allow empty body for endpoints that take no params
   }
@@ -164,8 +165,19 @@ endpointsRouter.post('/:id/call', async (c) => {
   const maxAge: number | undefined = (params as any).maxAge;
   delete (params as any).cache;
   delete (params as any).maxAge;
+  delete (params as any).freshness;
 
-  const freshness: CacheFreshness = ((await c.req.json().catch(() => ({}))) as any).cache ?? 'smart';
+  // Agent freshness preference: realtime | fast | relaxed (or legacy cache param)
+  // - realtime: skip cache, always fetch live (maps to 'fresh')
+  // - fast: serve stale if available + background refresh (maps to 'prefer')
+  // - relaxed: full adaptive TTL, best cost savings (maps to 'smart') [default]
+  const agentFreshness = (rawBody as any).freshness as string | undefined;
+  const legacyCache = (rawBody as any).cache as string | undefined;
+  const freshness: CacheFreshness =
+    agentFreshness === 'realtime' ? 'fresh' :
+    agentFreshness === 'fast'     ? 'prefer' :
+    agentFreshness === 'relaxed'  ? 'smart' :
+    (legacyCache as CacheFreshness) ?? 'smart';
 
   // ── Auth + billing ───────────────────────────────────────────────────────
   const keyInfo = c.get('apiKeyInfo');
@@ -210,6 +222,7 @@ endpointsRouter.post('/:id/call', async (c) => {
       cached: true,
       creditsUsed: cacheCredits,
       durationMs,
+      freshness: agentFreshness ?? 'relaxed',
       provenance: cacheCert ? {
         type: 'certified-cache',
         cacheCertId: cacheCert.id,
@@ -320,6 +333,7 @@ endpointsRouter.post('/:id/call', async (c) => {
       cached: false,
       creditsUsed: endpointCredits,
       durationMs,
+      freshness: agentFreshness ?? 'relaxed',
       provenance: birthCertificate ?? null,
     });
   } catch (err) {
