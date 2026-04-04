@@ -2665,183 +2665,119 @@ while (true) {
 
     <!-- ═══════════════════════════════════════════════ AID TRUST LAYER ═══════════════════════════════════════════════ -->
     <div class="docs-section" id="aid-trust">
-      <h2 class="docs-section-title">AID Trust Layer</h2>
-      <p class="docs-section-desc">Build a verifiable trust score from real interactions. Higher trust unlocks pricing discounts and deferred settlement. AID is optional &mdash; your existing API key flow works exactly as before. AID adds trust on top.</p>
+      <h2 class="docs-section-title">Soma Provenance Chain</h2>
+      <p class="docs-section-desc">The only five-layer cryptographic trust stack in x402. Every API response can carry mathematically verifiable proof of data origin, processing integrity, and on-chain anchoring. No other platform offers this.</p>
 
-      <div class="alert alert-info"><strong>Progressive enhancement.</strong> Add AID headers alongside your API key to start building trust. Nothing breaks if you don't. Everything gets better if you do.</div>
+      <div class="alert alert-info"><strong>Always-on by default.</strong> Layers 3&ndash;5 (platform cert, PQ signature, on-chain anchor) are active on every paid interaction. Layers 1&ndash;2 (zkTLS, provider cert) are opt-in for providers who want maximum trust.</div>
+
+      <h4>Five-Layer Trust Stack</h4>
+      <table class="params-table">
+        <thead><tr><th>Layer</th><th>Technology</th><th>What It Proves</th><th>Status</th></tr></thead>
+        <tbody>
+          <tr><td><strong>1. TLS Origin</strong></td><td>zkTLS (Reclaim Protocol)</td><td>Data came from the server's TLS certificate</td><td>Opt-in</td></tr>
+          <tr><td><strong>2. Provider Cert</strong></td><td>Soma Heart (provider-side)</td><td>Provider processed data authentically</td><td>Opt-in</td></tr>
+          <tr><td><strong>3. Platform Cert</strong></td><td>Soma Heart (ClawNet-side)</td><td>Platform relayed without tampering</td><td>Always-on</td></tr>
+          <tr><td><strong>4. PQ Signature</strong></td><td>Ed25519 + ML-DSA-65</td><td>Quantum-resistant durability (FIPS 204)</td><td>Always-on</td></tr>
+          <tr><td><strong>5. On-Chain Anchor</strong></td><td>EAS on Base</td><td>Immutable public record</td><td>Always-on</td></tr>
+        </tbody>
+      </table>
 
       <h4>How It Works</h4>
       <div class="concept-grid" style="grid-template-columns:repeat(auto-fill,minmax(220px,1fr))">
         <div class="concept-card">
-          <div class="concept-title">1. Register</div>
-          <div class="concept-desc">Create an AID identity (free). You get an Ed25519 keypair &mdash; a <code>did:key</code> that is your portable identity.</div>
+          <div class="concept-title">1. Data Fetched</div>
+          <div class="concept-desc">ClawNet calls the upstream API. If zkTLS is enabled, the call goes through Reclaim's attestor network for a TLS-level origin proof.</div>
         </div>
         <div class="concept-card">
-          <div class="concept-title">2. Sign Requests</div>
-          <div class="concept-desc">Add <code>X-AID-DID</code>, <code>X-AID-PROOF</code>, <code>X-AID-TIMESTAMP</code>, <code>X-AID-NONCE</code> to your API calls alongside your <code>X-API-Key</code>.</div>
+          <div class="concept-title">2. Birth Certificate</div>
+          <div class="concept-desc">Soma Heart generates a birth certificate: SHA-256 hash + Ed25519 signature + heartbeat chain entry. This is the data's cryptographic fingerprint.</div>
         </div>
         <div class="concept-card">
-          <div class="concept-title">3. Build Trust</div>
-          <div class="concept-desc">Every successful transaction builds your trust score. Failed transactions reduce it. The score is computed from real outcomes, not self-declared.</div>
+          <div class="concept-title">3. Dual-Sign</div>
+          <div class="concept-desc">If the upstream provider runs Soma Heart, their cert is validated and co-signed by ClawNet. Two independent signatures, one chain hash binding them.</div>
         </div>
         <div class="concept-card">
-          <div class="concept-title">4. Unlock Discounts</div>
-          <div class="concept-desc">As your score rises, you automatically qualify for pricing discounts on every API call.</div>
+          <div class="concept-title">4. Receipt + Anchor</div>
+          <div class="concept-desc">A Soma Receipt binds payment + request + response + provenance. Anchored on Base via EAS. Browsable at <a href="https://base.easscan.org" style="color:var(--accent)">easscan.org</a>.</div>
         </div>
       </div>
 
-      <h4>Trust-Gated Pricing</h4>
-      <p class="endpoint-desc">Your trust score determines your pricing tier. Discounts are applied automatically when AID headers are present.</p>
+      <h4>Provenance Headers</h4>
+      <p class="endpoint-desc">Every API response includes <code>X-Soma-*</code> headers. Any client can verify data integrity without parsing the response body.</p>
       <table class="params-table">
-        <thead><tr><th>Score</th><th>Verdict</th><th>Discount</th><th>Settlement</th></tr></thead>
+        <thead><tr><th>Header</th><th>Value</th></tr></thead>
         <tbody>
-          <tr><td>0&ndash;39</td><td><code>new</code> / <code>building</code></td><td>Base price</td><td>Immediate</td></tr>
-          <tr><td>40&ndash;59</td><td><code>caution</code></td><td><strong>10% off</strong></td><td>Standard</td></tr>
-          <tr><td>60&ndash;79</td><td><code>standard</code></td><td><strong>20% off</strong></td><td>Batched</td></tr>
-          <tr><td>80&ndash;89</td><td><code>trusted</code></td><td><strong>25% off</strong></td><td>Batched</td></tr>
-          <tr><td>90+ <small>(verified, 6mo, $50 rev)</small></td><td><code>proceed</code></td><td><strong>30% off</strong></td><td>Deferred</td></tr>
+          <tr><td><code>X-Soma-Protocol</code></td><td><code>soma/1.0</code></td></tr>
+          <tr><td><code>X-Soma-Data-Hash</code></td><td>SHA-256 of response data</td></tr>
+          <tr><td><code>X-Soma-Signature</code></td><td>Ed25519 signature (platform)</td></tr>
+          <tr><td><code>X-Soma-Public-Key</code></td><td>Hex Ed25519 public key</td></tr>
+          <tr><td><code>X-Soma-Heartbeat-Index</code></td><td>Position in heartbeat chain</td></tr>
+          <tr><td><code>X-Soma-Discovery</code></td><td><code>/.well-known/soma.json</code></td></tr>
         </tbody>
       </table>
+      <p class="endpoint-desc" style="margin-top:8px"><strong>Dual-signed responses</strong> add: <code>X-Soma-Dual-Signed: true</code>, <code>X-Soma-Chain-Hash</code>, <code>X-Soma-Provider-Signature</code>, <code>X-Soma-Provider-Public-Key</code>, <code>X-Soma-Provider-Verified</code>.</p>
 
-      <h4>Trust Score Formula</h4>
-      <p class="endpoint-desc">Scores are computed from 4 behavioral dimensions (0&ndash;100 scale):</p>
-      <table class="params-table">
-        <thead><tr><th>Dimension</th><th>Weight</th><th>What It Measures</th></tr></thead>
-        <tbody>
-          <tr><td><code>successRate</code></td><td>40%</td><td>Successful transactions / total transactions</td></tr>
-          <tr><td><code>chainCoverage</code></td><td>25%</td><td>Hash-chain integrity (tamper evidence)</td></tr>
-          <tr><td><code>volume</code></td><td>20%</td><td>Total attestation count (capped at 1,000)</td></tr>
-          <tr><td><code>manifestAdherence</code></td><td>15%</td><td>Did the agent do what it promised?</td></tr>
-        </tbody>
-      </table>
-      <p class="endpoint-desc" style="margin-top:8px">Scores are publicly verifiable. Anyone can download the scoring library (<code>@aidprotocol/trust-compute</code>) and independently verify any agent's score.</p>
-
-      <h4>Getting Started with AID</h4>
-
+      <h4>Verify a Receipt</h4>
       <div class="endpoint">
-        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/aid/register</code></div>
-        <p class="endpoint-desc">Create your AID identity. Generates an Ed25519 keypair. The private key seed is returned <strong>once</strong> and never stored by ClawNet. Save it.</p>
-        <div class="endpoint-auth">Requires: <code>X-API-Key</code> &mdash; costs <strong>1 credit</strong></div>
-
-        <div class="code-block">
-          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
-          <pre><code>curl -X POST https://api.claw-net.org/v1/aid/register \
-  -H "X-API-Key: cn-your-key-here" \
-  -H "Content-Type: application/json" \
-  -d '{ "displayName": "my-trading-agent" }'</code></pre>
-        </div>
-        <h4>Response</h4>
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/soma/receipt/:id</code></div>
+        <p class="endpoint-desc">Look up any Soma Receipt. Returns the full cryptographic proof: hashes, signatures, EAS attestation, dual-sign data, and verification instructions. No auth required.</p>
+        <div class="endpoint-auth">Public &mdash; <strong>no auth required, free</strong></div>
         <div class="code-block"><pre><code>{
-  "did": "did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK",
-  "publicKeyMultibase": "z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK",
-  "privateKeySeed": "a1b2c3...hex (SAVE THIS — shown once, never stored)"
+  "id": "sr-a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "paymentMethod": "x402",
+  "requestHash": "sha256:3a7f...",
+  "responseHash": "sha256:9c2e...",
+  "signature": "ed25519:ab12...",
+  "algorithm": "Ed25519+ML-DSA-65",
+  "easUid": "0xabc...",
+  "easScanUrl": "https://base.easscan.org/offchain/attestation/view/0xabc...",
+  "dualSign": {
+    "providerSignature": "ed25519:cd34...",
+    "providerPublicKey": "hex...",
+    "dualSigned": true
+  },
+  "verification": {
+    "platformDid": "did:web:api.claw-net.org",
+    "publicKeyMultibase": "z6Mk...",
+    "algorithm": "Ed25519+ML-DSA-65"
+  }
 }</code></pre></div>
       </div>
 
-      <h4>Using AID on API Calls</h4>
-      <p class="endpoint-desc">Once registered, add these headers alongside your <code>X-API-Key</code> on any API call. ClawNet verifies both &mdash; API key for billing, AID for trust-gated pricing.</p>
-
-      <div class="code-block">
-        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
-        <pre><code>curl -X POST https://api.claw-net.org/v1/orchestrate \
-  -H "X-API-Key: cn-your-key-here" \
-  -H "X-AID-DID: did:key:z6MkhaXg..." \
-  -H "X-AID-PROOF: &lt;Ed25519 signature&gt;" \
-  -H "X-AID-TIMESTAMP: 2026-03-23T14:30:00Z" \
-  -H "X-AID-NONCE: a1b2c3d4e5f6a7b8a1b2c3d4e5f6a7b8" \
-  -H "Content-Type: application/json" \
-  -d '{ "query": "What is the price of SOL?" }'</code></pre>
-      </div>
-      <div class="alert alert-success"><strong>AID is optional.</strong> If the AID headers are missing or invalid, the request continues normally with base pricing. A valid API key is never blocked by the AID layer.</div>
-
-      <h4>Signing (X-AID-PROOF)</h4>
-      <p class="endpoint-desc">Sign a canonical string with your Ed25519 private key:</p>
-      <div class="code-block"><pre><code>signatureInput = SHA-256(
-  did + "\n" +
-  "did:web:api.claw-net.org" + "\n" +   // provider DID (always this value)
-  timestamp + "\n" +                      // X-AID-TIMESTAMP value
-  nonce + "\n" +                          // X-AID-NONCE value (32 hex chars)
-  method + " " + path + "\n" +            // e.g. "POST /v1/orchestrate"
-  SHA-256(requestBody)                    // hex-encoded body hash
-)
-
-X-AID-PROOF = base64url(Ed25519Sign(privateKey, signatureInput))</code></pre></div>
-
-      <h4>Public Trust Endpoints (Free, No Auth)</h4>
-      <p class="endpoint-desc">Look up any agent's trust data. These are free, public, and rate-limited.</p>
-
+      <h4>Soma Discovery</h4>
       <div class="endpoint">
-        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/aid/:did/trust</code></div>
-        <p class="endpoint-desc">Get an agent's trust score, verdict, and attestation summary.</p>
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/.well-known/soma.json</code></div>
+        <p class="endpoint-desc">Public discovery endpoint. Returns ClawNet's genome commitment, DID, public keys, supported algorithms, and heartbeat chain status. Used by external verifiers.</p>
         <div class="endpoint-auth">Public &mdash; <strong>no auth required, free</strong></div>
       </div>
 
+      <h4>Provider Umbrella</h4>
+      <p class="endpoint-desc">x402 providers can register their endpoints with ClawNet and get the full trust stack without building any infrastructure. Providers get smart caching (90% savings), Soma provenance, PQ signatures, EAS receipts, analytics, and shared-cache flywheel effects.</p>
+
       <div class="endpoint">
-        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/aid/:did</code></div>
-        <p class="endpoint-desc">Resolve an agent's identity document, public key, and capabilities.</p>
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/providers/:id/stats</code></div>
+        <p class="endpoint-desc">Provider summary: total calls, cache hit rate, revenue, endpoint count, average latency.</p>
+        <div class="endpoint-auth">Public &mdash; <strong>no auth required</strong></div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/providers/:id/soma</code></div>
+        <p class="endpoint-desc">Provider's Soma configuration: public key, discovery URL, dual-sign support status. If the provider hasn't integrated Soma Heart yet, returns integration instructions.</p>
+        <div class="endpoint-auth">Public &mdash; <strong>no auth required</strong></div>
+      </div>
+
+      <h4>Behavioral Verdicts</h4>
+      <p class="endpoint-desc">External observers submit behavioral verdicts (GREEN/AMBER/RED/UNCANNY) signed with Ed25519. Verdicts are Merkle-anchored on Solana. Self-verdicts are blocked.</p>
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/soma/verdicts</code></div>
+        <p class="endpoint-desc">Submit a behavioral verdict for an agent. Requires Ed25519 signature. Self-verdicts rejected.</p>
+        <div class="endpoint-auth">Requires: Ed25519-signed verdict payload</div>
+      </div>
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/soma/:did/trust</code></div>
+        <p class="endpoint-desc">Public trust profile for any agent. Returns verdict summary, trust score, and attestation count.</p>
         <div class="endpoint-auth">Public &mdash; <strong>no auth required, free</strong></div>
       </div>
-
-      <div class="endpoint">
-        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/aid/:did/trust-chain</code></div>
-        <p class="endpoint-desc">Export the agent's portable trust chain with Merkle proofs. Any service can verify this <strong>offline</strong> without calling ClawNet.</p>
-        <div class="endpoint-auth">Public &mdash; <strong>no auth required, free</strong></div>
-      </div>
-
-      <div class="endpoint">
-        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/aid/verify</code></div>
-        <p class="endpoint-desc">Verify an AID document. Pure cryptographic math &mdash; checks signatures, Merkle roots, trust score computation, and expiry. Stateless.</p>
-        <div class="endpoint-auth">Public &mdash; <strong>no auth required, free</strong></div>
-      </div>
-
-      <div class="endpoint">
-        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/aid/heartbeat</code></div>
-        <p class="endpoint-desc">Service discovery. Returns available services, pricing tiers, trust gate requirements, and platform health.</p>
-        <div class="endpoint-auth">Public &mdash; <strong>no auth required, free</strong></div>
-      </div>
-
-      <div class="endpoint">
-        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/.well-known/aid.json</code></div>
-        <p class="endpoint-desc">AID protocol discovery. Returns platform DID, supported algorithms, trust vector dimensions, and anchor chain.</p>
-        <div class="endpoint-auth">Public &mdash; <strong>no auth required, free</strong></div>
-      </div>
-
-      <h4>AID-Authenticated Endpoints</h4>
-      <p class="endpoint-desc">These require AID headers (not API key).</p>
-
-      <div class="endpoint">
-        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/aid/feedback</code></div>
-        <p class="endpoint-desc">Report the outcome of a transaction. Feedback is weighted by your own trust score &mdash; high-trust reporters have more influence.</p>
-        <div class="endpoint-auth">Requires: <code>X-AID-DID</code> + <code>X-AID-PROOF</code></div>
-        <div class="code-block"><pre><code>{
-  "receiptId": "rcpt-a1b2c3d4e5f6g7h8",
-  "outcome": "success",
-  "qualityScore": 9
-}</code></pre></div>
-      </div>
-
-      <h4>Key Management</h4>
-      <div class="endpoint">
-        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/aid/:did/rotate-key</code></div>
-        <p class="endpoint-desc">Rotate your Ed25519 key. Old key is marked as rotated. Existing receipts remain valid (verified against the key that was active at the time).</p>
-        <div class="endpoint-auth">Requires: <code>X-API-Key</code> (must own the DID) &mdash; costs <strong>0.5 credits</strong></div>
-      </div>
-
-      <h4>Pricing Summary</h4>
-      <table class="params-table">
-        <thead><tr><th>Action</th><th>Cost</th></tr></thead>
-        <tbody>
-          <tr><td>Register AID</td><td><strong>1 credit</strong></td></tr>
-          <tr><td>Resolve / trust lookup / verify / heartbeat</td><td><strong>FREE</strong></td></tr>
-          <tr><td>Trust chain export</td><td><strong>FREE</strong></td></tr>
-          <tr><td>Cross-platform attestation</td><td><strong>0.1 credits</strong></td></tr>
-          <tr><td>Full export (fresh snapshot)</td><td><strong>0.5 credits</strong></td></tr>
-          <tr><td>Key rotation</td><td><strong>0.5 credits</strong></td></tr>
-          <tr><td>Submit feedback</td><td><strong>FREE</strong> (requires AID auth)</td></tr>
-        </tbody>
-      </table>
-
-      <div class="alert alert-info"><strong>AID uses <code>did:key</code></strong> &mdash; a W3C standard where the public key IS the identifier. No registry lookup needed. Any platform can verify your agent's identity using only the DID and the trust chain document. <a href="/aid-playground" style="color:var(--accent)">Try the interactive playground &rarr;</a></div>
     </div>
 
     <!-- ═══════════════════════════════════════════════ TRUST & SAFETY ═══════════════════════════════════════════════ -->
@@ -4242,10 +4178,10 @@ app.post('/webhooks/clawnet', express.raw({ type: 'application/json' }), (req, r
 
     <!-- ═══════════════════════════════════════════════ AGENT IDENTITY (AID) ═══════════════════════════════════════════════ -->
     <div class="docs-section" id="agent-identity">
-      <h2 class="docs-section-title">Agent Identity (AID) &mdash; Endpoint Reference</h2>
-      <p class="docs-section-desc">Full endpoint reference for AID identity management. For the trust scoring overview and getting started guide, see <a href="#aid-trust" style="color:var(--accent)">AID Trust Layer</a> above.</p>
+      <h2 class="docs-section-title">Agent Identity &mdash; Endpoint Reference</h2>
+      <p class="docs-section-desc">Full endpoint reference for agent identity management. For the provenance and trust overview, see <a href="#aid-trust" style="color:var(--accent)">Soma Provenance Chain</a> above.</p>
 
-      <div class="alert alert-info"><strong>The Trust Stack:</strong> Manifest verifies BEFORE &rarr; Attestation proves AFTER &rarr; AID carries trust EVERYWHERE. Together they form the only complete trust infrastructure for AI agents.</div>
+      <div class="alert alert-info"><strong>The Trust Stack:</strong> Soma provenance verifies data origin &rarr; Attestation proves outcomes &rarr; Identity carries trust EVERYWHERE. Together they form the only complete trust infrastructure for AI agents.</div>
 
       <div class="endpoint">
         <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/aid/register</code></div>

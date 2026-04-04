@@ -86,6 +86,57 @@ Cryptographic receipts for every paid ClawNet interaction. Binds payment proof +
 
 **Post-quantum ready:** `PQ_SIGNATURES_ENABLED` flag enables hybrid Ed25519 + ML-DSA-65 (FIPS 204) dual signatures on all receipts. Uses `@noble/post-quantum` (portable JS). Domain-separated key derivation: `SHA-256(secret + ':ml-dsa-65')`. Both signatures must pass (AND rule). Upgrade to Node 24 native `crypto.sign('ml-dsa-65')` when available (~Oct 2026).
 
+## Phase 5 — Dual-Signed Soma + Provider Umbrella (built)
+
+x402 providers running Soma heart produce their own birth certificates. ClawNet validates the provider's certificate, then co-signs with the platform key, creating an unbroken chain of custody.
+
+**Dual-sign flow:**
+1. Provider calls upstream API via `heart.fetchData()` → birth cert #1 (provider signature)
+2. ClawNet receives data + provider `X-Soma-*` headers
+3. `extractProviderCert()` reads provider cert from headers
+4. `verifyProviderCert()` validates provider's Ed25519 signature
+5. `createDualSign()` creates chain hash binding both certs, platform co-signs
+6. Response carries both certs: `X-Soma-Provider-*` + `X-Soma-*` (platform)
+
+**Key files:**
+- `src/core/dual-sign.ts` — `createDualSign()`, `verifyDualSign()`, `extractProviderCert()`
+- `src/core/dual-sign-state.ts` — request-scoped state for middleware pickup
+- `src/middleware/soma-provenance.ts` — emits dual-sign headers when available
+
+**Response headers (dual-signed):**
+- `X-Soma-Dual-Signed: true`
+- `X-Soma-Chain-Hash` — binds provider + platform certs together
+- `X-Soma-Provider-Verified` — whether provider cert passed verification
+- `X-Soma-Provider-Data-Hash`, `X-Soma-Provider-Signature`, `X-Soma-Provider-Public-Key`
+- Standard `X-Soma-Data-Hash`, `X-Soma-Signature`, `X-Soma-Public-Key` (platform)
+
+**Provider Umbrella:** x402 providers register endpoints with ClawNet via `POST /v1/providers`. They get smart caching, Soma provenance, PQ signatures, EAS receipts, and shared-cache flywheel. Provider-scoped API keys restrict access to owned endpoints only.
+
+**Key files:**
+- `src/db/providers.ts` — `createProvider()`, `registerProviderEndpoint()`, `recordProviderCall()`, analytics
+- `src/routes/providers.ts` — 11 REST endpoints for provider management
+- `src/middleware/auth.ts` — `checkProviderScope()` enforces provider endpoint ownership
+
+## Phase 6 — zkTLS Verification (built, opt-in)
+
+Proves at the TLS layer that upstream API data came from the claimed server. Uses Reclaim Protocol's attestor network. Closes the trust gap where someone could argue ClawNet or the provider fabricated birth certificates.
+
+**Five-layer trust stack (complete):**
+1. **zkTLS** (Reclaim Protocol) — proves data came from server's TLS certificate
+2. **Provider Soma cert** — proves provider processed it authentically
+3. **Platform Soma cert** — proves platform relayed without tampering
+4. **PQ hybrid signature** (Ed25519 + ML-DSA-65) — quantum-resistant durability
+5. **EAS on-chain anchor** — immutable public record on Base
+
+**Opt-in:** Per-call `{ "zktls": true }` or per-endpoint registry flag. Adds ~200-500ms latency.
+
+**Key files:**
+- `src/core/zktls.ts` — `zkTlsFetch()`, `verifyZkTlsProof()`, `isZkTlsEnabled()`
+- DB: `zktls_proofs` table, linked to `soma_receipts.zktls_proof_id`
+- Env: `ZKTLS_ENABLED`, `RECLAIM_APP_ID`, `RECLAIM_APP_SECRET`
+
+**Dependencies (optional):** `@reclaimprotocol/zk-fetch`, `@reclaimprotocol/js-sdk`. Lazy-loaded — if not installed, zkTLS is silently disabled.
+
 ## Shared Crypto Primitives
 
 | File | What |

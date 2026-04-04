@@ -1593,6 +1593,27 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 134, sql: `ALTER TABLE soma_receipts ADD COLUMN dual_signed INTEGER NOT NULL DEFAULT 0` },
   { version: 135, sql: `CREATE INDEX IF NOT EXISTS idx_soma_receipts_provider ON soma_receipts(provider_id) WHERE provider_id IS NOT NULL` },
   { version: 136, sql: `CREATE INDEX IF NOT EXISTS idx_soma_receipts_dual ON soma_receipts(dual_signed) WHERE dual_signed = 1` },
+
+  // ─── v137-139: zkTLS Proofs (Reclaim Protocol) ────────────────────────────
+  { version: 137, sql: `
+    CREATE TABLE IF NOT EXISTS zktls_proofs (
+      id TEXT PRIMARY KEY,
+      url TEXT NOT NULL,
+      response_hash TEXT NOT NULL,
+      proof_identifier TEXT,
+      proof_json TEXT NOT NULL,
+      witnesses_json TEXT,
+      verified INTEGER NOT NULL DEFAULT 0,
+      epoch INTEGER NOT NULL DEFAULT 0,
+      claim_timestamp INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_zktls_hash ON zktls_proofs(response_hash);
+    CREATE INDEX IF NOT EXISTS idx_zktls_created ON zktls_proofs(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_zktls_verified ON zktls_proofs(verified);
+  ` },
+  { version: 138, sql: `ALTER TABLE soma_receipts ADD COLUMN zktls_proof_id TEXT` },
+  { version: 139, sql: `CREATE INDEX IF NOT EXISTS idx_soma_receipts_zktls ON soma_receipts(zktls_proof_id) WHERE zktls_proof_id IS NOT NULL` },
 ];
 
 function runMigrations(): void {

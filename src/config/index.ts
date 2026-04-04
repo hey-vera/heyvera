@@ -140,6 +140,15 @@ const envSchema = z.object({
     (v) => v === 'true' || v === '1' || v === true,
     z.boolean().default(false),
   ),
+
+  // ─── zkTLS (Reclaim Protocol) ─────────────────────────────────────────────
+  // Opt-in TLS-level data origin proofs via Reclaim's attestor network
+  ZKTLS_ENABLED: z.preprocess(
+    (v) => v === 'true' || v === '1' || v === true,
+    z.boolean().default(false),
+  ),
+  RECLAIM_APP_ID: z.string().optional(),     // From dev.reclaimprotocol.org
+  RECLAIM_APP_SECRET: z.string().optional(),  // From dev.reclaimprotocol.org
 });
 
 const parsed = envSchema.safeParse(process.env);

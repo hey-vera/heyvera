@@ -69,6 +69,8 @@ export interface SomaReceiptInput {
   providerDataHash?: string;
   /** Dual-sign: provider's heartbeat index */
   providerHeartbeatIndex?: number;
+  /** zkTLS: proof ID linking to zktls_proofs table */
+  zkTlsProofId?: string;
 }
 
 export interface SomaReceipt {
@@ -197,8 +199,8 @@ export async function createSomaReceipt(input: SomaReceiptInput): Promise<SomaRe
         signature_ed25519, signature_mldsa65, algorithm_version,
         provider_id, provider_signature, provider_public_key,
         provider_data_hash, provider_heartbeat_index, dual_signed,
-        created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        zktls_proof_id, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       input.requestId,
@@ -221,6 +223,7 @@ export async function createSomaReceipt(input: SomaReceiptInput): Promise<SomaRe
       input.providerDataHash ?? null,
       input.providerHeartbeatIndex ?? null,
       isDualSigned ? 1 : 0,
+      input.zkTlsProofId ?? null,
       now,
     );
 

@@ -30,7 +30,12 @@
 | `src/routes/soma.ts` | Soma verdict API + receipt lookup |
 | `src/routes/x402-skills.ts` | x402 payment-gated skill invocation |
 | `src/middleware/auth.ts` | checkApiKey, checkPermission, checkPolicy |
-| `src/middleware/soma-provenance.ts` | X-Soma-* provenance headers on all responses |
+| `src/middleware/soma-provenance.ts` | X-Soma-* provenance headers on all responses (dual-sign aware) |
+| `src/core/dual-sign.ts` | Dual-signed Soma: validate provider cert + platform co-sign |
+| `src/core/dual-sign-state.ts` | Request-scoped dual-sign state for middleware |
+| `src/core/zktls.ts` | zkTLS verification via Reclaim Protocol (opt-in) |
+| `src/db/providers.ts` | Provider CRUD, endpoint mapping, analytics |
+| `src/routes/providers.ts` | Provider umbrella REST API (11 endpoints) |
 
 ## Cron Jobs
 
@@ -88,4 +93,29 @@ All env vars Zod-validated in `src/config/index.ts`. See `.env.example` for the 
 - `EAS_SCHEMA_UID` (registered receipt schema on Base)
 - `AG0_DISCOVERY_ENABLED`, `INDEX_SYNC_ENABLED`, `MERKLE_ANCHOR_ENABLED` (feature flags)
 - `EAS_ANCHOR_ENABLED` (hourly receipt anchoring on Base), `PQ_SIGNATURES_ENABLED` (hybrid Ed25519+ML-DSA-65)
+- `ZKTLS_ENABLED`, `RECLAIM_APP_ID`, `RECLAIM_APP_SECRET` (opt-in zkTLS data origin proofs)
 - `SENTRY_DSN` (optional), `RESEND_API_KEY` (optional)
+
+## Five-Layer Trust Stack
+
+ClawNet provides the only five-layer cryptographic trust stack in x402:
+
+| Layer | Technology | What It Proves | File |
+|-------|-----------|----------------|------|
+| 1. TLS Origin | zkTLS (Reclaim Protocol) | Data came from the server's TLS certificate | `src/core/zktls.ts` |
+| 2. Provider Cert | Soma Heart (provider-side) | Provider processed data authentically | `src/core/dual-sign.ts` |
+| 3. Platform Cert | Soma Heart (ClawNet-side) | Platform relayed without tampering | `src/core/soma.ts` |
+| 4. PQ Signature | Ed25519 + ML-DSA-65 hybrid | Quantum-resistant durability | `src/utils/crypto-agility.ts` |
+| 5. On-Chain Anchor | EAS on Base | Immutable public record | `src/core/eas-anchor-cron.ts` |
+
+Layers 1-2 are opt-in. Layers 3-5 are always-on for paid interactions.
+
+## Provider Umbrella
+
+x402 providers register their endpoints and route traffic through ClawNet to get caching, Soma provenance, and analytics without building infrastructure.
+
+- **Registration:** `POST /v1/providers` (admin) — creates provider account
+- **Endpoint mapping:** `POST /v1/providers/:id/endpoints` — links endpoints to provider
+- **Scoped keys:** `POST /v1/providers/:id/keys` — creates API key restricted to provider's endpoints
+- **Analytics:** `GET /v1/providers/:id/analytics` — calls, cache hits, revenue, latency
+- **Dual-sign:** Providers running Soma heart get automatic dual-signed provenance
