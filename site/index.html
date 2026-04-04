@@ -205,6 +205,22 @@
       pointer-events: none; z-index: 0;
     }
     .hero-content { position: relative; z-index: 1; max-width: 740px; }
+    .hero-split { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; align-items: center; position: relative; z-index: 1; }
+    .hero-code {
+      background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-xl);
+      overflow: hidden; font-family: var(--font-mono); font-size: 12.5px; line-height: 1.7;
+    }
+    .hero-code-header {
+      display: flex; align-items: center; gap: 8px; padding: 10px 16px;
+      background: var(--bg-surface-2); border-bottom: 1px solid var(--border-subtle);
+    }
+    .hero-code-dot { width: 8px; height: 8px; border-radius: 50%; }
+    .hero-code pre { padding: 20px; margin: 0; overflow-x: auto; color: var(--text-secondary); }
+    .hero-code .hl-key { color: var(--accent-text); }
+    .hero-code .hl-str { color: #fbbf24; }
+    .hero-code .hl-com { color: var(--text-muted); font-style: italic; }
+    .hero-code .hl-num { color: #c084fc; }
+    .hero-code .hl-method { color: #60a5fa; }
     .hero-eyebrow {
       display: inline-flex; align-items: center; gap: 8px;
       font-size: 12px; font-weight: 500; color: var(--text-tertiary);
@@ -263,9 +279,12 @@
     .api-req-header, .api-res-header { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--border-subtle); min-width: 0; }
     .api-res-header span:last-child { white-space: nowrap; flex-shrink: 0; }
     .api-code { padding: 20px 16px; font-family: var(--font-mono); font-size: 12px; line-height: 1.7; color: var(--text-secondary); margin: 0; white-space: pre; overflow-x: auto; }
-    .c-key { color: var(--accent); }
-    .c-str { color: #f59e0b; }
-    .c-num { color: var(--info); }
+    .c-key { color: var(--accent-text); }
+    .c-str { color: #fbbf24; }
+    .c-num { color: #c084fc; }
+    .c-com { color: var(--text-muted); font-style: italic; }
+    .c-method { color: #60a5fa; }
+    .c-kw { color: var(--accent-text); }
     .method-badge { font-family: var(--font-mono); font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: var(--radius-sm); text-transform: uppercase; }
     .method-badge.post { background: var(--accent-dim); color: var(--accent); }
     .method-badge.get { background: var(--info-dim); color: var(--info); }
@@ -360,6 +379,8 @@
       .mobile-menu-btn { display: block; }
       .nav-status { display: none; }
       .hero { padding: 110px 0 64px; }
+      .hero-split { grid-template-columns: 1fr; }
+      .hero-code { display: none; }
       .section { padding: 80px 16px; }
       .section-sm { padding: 32px 16px; }
       .problem-grid { grid-template-columns: 1fr; }
@@ -460,24 +481,52 @@
 <section class="hero" id="hero">
   <div class="hero-glow"></div>
   <div class="container">
-    <div class="hero-content">
-      <div class="hero-eyebrow">
-        <span class="tw-relative tw-flex tw-h-2 tw-w-2"><span class="tw-animate-ping tw-absolute tw-inline-flex tw-h-full tw-w-full tw-rounded-full tw-opacity-75" style="background:var(--accent)"></span><span class="tw-relative tw-inline-flex tw-rounded-full tw-h-2 tw-w-2" style="background:var(--accent)"></span></span>
-        <span id="statEndpointCount">&mdash;</span> endpoints live
+    <div class="hero-split">
+      <div class="hero-content">
+        <div class="hero-eyebrow">
+          <span class="tw-relative tw-flex tw-h-2 tw-w-2"><span class="tw-animate-ping tw-absolute tw-inline-flex tw-h-full tw-w-full tw-rounded-full tw-opacity-75" style="background:var(--accent)"></span><span class="tw-relative tw-inline-flex tw-rounded-full tw-h-2 tw-w-2" style="background:var(--accent)"></span></span>
+          <span id="statEndpointCount">&mdash;</span> endpoints live
+        </div>
+
+        <h1 class="heading-xl" style="margin-bottom:24px">
+          The operating system for&nbsp;the agent economy.
+        </h1>
+        <p class="body-lg" style="max-width:600px;margin-bottom:40px">
+          AI agents need more than APIs. They need to discover services, compare providers, manage budgets, verify results, and build reputation. ClawNet is the platform where all of that works.
+        </p>
+
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+          <a href="/docs" class="btn btn-primary btn-lg">Start Building</a>
+          <a href="/learn" class="btn btn-ghost btn-lg">How It Works</a>
+        </div>
+        <p style="font-size:12px;color:var(--text-muted)">Free tier available. No credit card required.</p>
       </div>
 
-      <h1 class="heading-xl" style="margin-bottom:24px">
-        The operating system for&nbsp;the agent economy.
-      </h1>
-      <p class="body-lg" style="max-width:600px;margin-bottom:40px">
-        AI agents need more than APIs. They need to discover services, compare providers, manage budgets, verify results, and build reputation. ClawNet is the platform where all of that works.
-      </p>
+      <div class="hero-code">
+        <div class="hero-code-header">
+          <span class="hero-code-dot" style="background:#ff5f57"></span>
+          <span class="hero-code-dot" style="background:#febc2e"></span>
+          <span class="hero-code-dot" style="background:#28c840"></span>
+          <span style="font-size:11px;color:var(--text-muted);margin-left:8px">orchestrate.ts</span>
+        </div>
+<pre><span class="hl-com">// One call. 274+ APIs. Verified results.</span>
+<span class="hl-key">const</span> result = <span class="hl-key">await</span> claw.<span class="hl-method">orchestrate</span>(
+  <span class="hl-str">"What is the price of SOL?"</span>
+);
 
-      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
-        <a href="/docs" class="btn btn-primary btn-lg">Start Building</a>
-        <a href="/learn" class="btn btn-ghost btn-lg">How It Works</a>
+<span class="hl-com">// Every response has a Soma receipt</span>
+console.<span class="hl-method">log</span>(result.answer);
+<span class="hl-com">// → "SOL is trading at $142.50..."</span>
+
+<span class="hl-com">// Verify the receipt on-chain</span>
+<span class="hl-key">const</span> receipt = <span class="hl-key">await</span> ClawNet.<span class="hl-method">verifyReceiptPublic</span>(
+  result.receiptId
+);
+console.<span class="hl-method">log</span>(receipt.algorithm);
+<span class="hl-com">// → "Ed25519+ML-DSA-65"</span>
+console.<span class="hl-method">log</span>(receipt.easScanUrl);
+<span class="hl-com">// → "https://base.easscan.org/..."</span></pre>
       </div>
-      <p style="font-size:12px;color:var(--text-muted)">Free tier available. No credit card required.</p>
     </div>
   </div>
 </section>
@@ -598,31 +647,85 @@
 <!-- HOW IT WORKS                                                    -->
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <section class="section" style="border-top:1px solid var(--border-subtle)">
-  <div class="container" style="text-align:center">
-    <p class="caption" style="margin-bottom:12px">How it works</p>
-    <h2 class="heading-lg" style="margin-bottom:56px">From query to verified result in one call.</h2>
+  <div class="container">
+    <p class="caption" style="margin-bottom:12px;text-align:center">How it works</p>
+    <h2 class="heading-lg" style="margin-bottom:56px;text-align:center">From query to verified result in one call.</h2>
 
-    <div class="steps">
-      <div class="steps-line"></div>
-      <div class="step">
-        <div class="step-num">1</div>
-        <h4>Query</h4>
-        <p>Your agent sends a natural language request or calls a specific skill directly.</p>
+    <div style="display:grid;gap:32px;max-width:800px;margin:0 auto">
+      <!-- Step 1 -->
+      <div style="display:grid;grid-template-columns:48px 1fr;gap:20px">
+        <div style="display:flex;flex-direction:column;align-items:center">
+          <div class="step-num">1</div>
+          <div style="flex:1;width:1px;background:var(--border-subtle);margin-top:8px"></div>
+        </div>
+        <div>
+          <h4 style="font-size:15px;font-weight:600;color:var(--text-primary);margin-bottom:6px">Query</h4>
+          <p style="font-size:13px;color:var(--text-tertiary);line-height:1.55;margin-bottom:12px">Your agent sends a natural language request or calls a specific endpoint directly.</p>
+          <div class="hero-code" style="font-size:12px">
+            <div class="hero-code-header"><span style="font-size:11px;color:var(--text-muted)">request</span></div>
+<pre><span class="hl-key">const</span> result = <span class="hl-key">await</span> claw.<span class="hl-method">orchestrate</span>(
+  <span class="hl-str">"What is the price of SOL?"</span>,
+  { strategy: <span class="hl-str">"fastest"</span> }
+);</pre>
+          </div>
+        </div>
       </div>
-      <div class="step">
-        <div class="step-num">2</div>
-        <h4>Route</h4>
-        <p>The orchestration engine picks the best endpoints for cost, speed, or reliability.</p>
+
+      <!-- Step 2 -->
+      <div style="display:grid;grid-template-columns:48px 1fr;gap:20px">
+        <div style="display:flex;flex-direction:column;align-items:center">
+          <div class="step-num">2</div>
+          <div style="flex:1;width:1px;background:var(--border-subtle);margin-top:8px"></div>
+        </div>
+        <div>
+          <h4 style="font-size:15px;font-weight:600;color:var(--text-primary);margin-bottom:6px">Route</h4>
+          <p style="font-size:13px;color:var(--text-tertiary);line-height:1.55;margin-bottom:12px">The orchestration engine evaluates 274+ endpoints and picks the optimal combination for cost, speed, or reliability.</p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <span style="font-size:11px;font-family:var(--font-mono);padding:4px 10px;border-radius:var(--radius-sm);background:var(--accent-dim);color:var(--accent);border:1px solid rgba(16,185,129,0.2)">jupiter-price <i data-lucide="check" class="tw-w-3 tw-h-3 tw-inline-block" style="vertical-align:-2px"></i></span>
+            <span style="font-size:11px;font-family:var(--font-mono);padding:4px 10px;border-radius:var(--radius-sm);background:var(--bg-surface-2);color:var(--text-muted);border:1px solid var(--border-subtle)">coingecko-price</span>
+            <span style="font-size:11px;font-family:var(--font-mono);padding:4px 10px;border-radius:var(--radius-sm);background:var(--bg-surface-2);color:var(--text-muted);border:1px solid var(--border-subtle)">birdeye-token</span>
+          </div>
+        </div>
       </div>
-      <div class="step">
-        <div class="step-num">3</div>
-        <h4>Execute</h4>
-        <p>Skills run, results aggregate. Each step gets a Soma birth certificate — cryptographic proof of what was computed.</p>
+
+      <!-- Step 3 -->
+      <div style="display:grid;grid-template-columns:48px 1fr;gap:20px">
+        <div style="display:flex;flex-direction:column;align-items:center">
+          <div class="step-num">3</div>
+          <div style="flex:1;width:1px;background:var(--border-subtle);margin-top:8px"></div>
+        </div>
+        <div>
+          <h4 style="font-size:15px;font-weight:600;color:var(--text-primary);margin-bottom:6px">Execute &amp; Sign</h4>
+          <p style="font-size:13px;color:var(--text-tertiary);line-height:1.55;margin-bottom:12px">Endpoints run. Each response gets a Soma birth certificate and Ed25519 + ML-DSA-65 dual signature. Cached responses serve at 10% cost.</p>
+          <div class="hero-code" style="font-size:12px">
+            <div class="hero-code-header"><span style="font-size:11px;color:var(--text-muted)">response headers</span></div>
+<pre><span class="hl-key">X-Soma-Data-Hash:</span>  <span class="hl-str">sha256:a7f3c...</span>
+<span class="hl-key">X-Soma-Signature:</span> <span class="hl-str">z3hQ9x...</span>
+<span class="hl-key">X-Soma-Algorithm:</span> <span class="hl-str">Ed25519+ML-DSA-65</span>
+<span class="hl-key">X-Soma-Heartbeat:</span> <span class="hl-num">1847</span></pre>
+          </div>
+        </div>
       </div>
-      <div class="step">
-        <div class="step-num">4</div>
-        <h4>Bill &amp; Prove</h4>
-        <p>Credits deducted. Provenance recorded in the heartbeat chain. The provider earns reputation and revenue.</p>
+
+      <!-- Step 4 -->
+      <div style="display:grid;grid-template-columns:48px 1fr;gap:20px">
+        <div style="display:flex;flex-direction:column;align-items:center">
+          <div class="step-num">4</div>
+        </div>
+        <div>
+          <h4 style="font-size:15px;font-weight:600;color:var(--text-primary);margin-bottom:6px">Receipt &amp; Anchor</h4>
+          <p style="font-size:13px;color:var(--text-tertiary);line-height:1.55;margin-bottom:12px">A Soma receipt binds payment + request + response. Anchored on Base via EAS. Verifiable by anyone, forever.</p>
+          <div class="hero-code" style="font-size:12px">
+            <div class="hero-code-header"><span style="font-size:11px;color:var(--text-muted)">receipt</span></div>
+<pre>{
+  <span class="hl-key">"id"</span>: <span class="hl-str">"sr-a1b2c3..."</span>,
+  <span class="hl-key">"algorithm"</span>: <span class="hl-str">"Ed25519+ML-DSA-65"</span>,
+  <span class="hl-key">"creditsCost"</span>: <span class="hl-num">1.5</span>,
+  <span class="hl-key">"easScanUrl"</span>: <span class="hl-str">"https://base.easscan.org/..."</span>,
+  <span class="hl-key">"dualSigned"</span>: <span class="hl-num">true</span>
+}</pre>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -1008,7 +1111,11 @@ data = res.json()`,
     { <span class="c-key">"endpoint"</span>: <span class="c-str">"/v1/skills/solana-market/query"</span>, <span class="c-key">"credits"</span>: <span class="c-num">2</span> },
     { <span class="c-key">"endpoint"</span>: <span class="c-str">"/v1/skills/coin-price/query"</span>, <span class="c-key">"credits"</span>: <span class="c-num">1</span> }
   ],
-  <span class="c-key">"ttl"</span>: <span class="c-num">21600</span>
+  <span class="c-key">"ttl"</span>: <span class="c-num">21600</span>,
+  <span class="c-key">"provenance"</span>: {
+    <span class="c-key">"algorithm"</span>: <span class="c-str">"Ed25519+ML-DSA-65"</span>,
+    <span class="c-key">"receiptId"</span>: <span class="c-str">"sr-7f3a..."</span>
+  }
 }`
     },
     {
@@ -1036,9 +1143,11 @@ data = res.json()`,
     <span class="c-key">"creditsUsed"</span>: <span class="c-num">10</span>,
     <span class="c-key">"costUsd"</span>: <span class="c-num">0.010</span>
   },
-  <span class="c-key">"metadata"</span>: {
-    <span class="c-key">"stepsExecuted"</span>: <span class="c-num">4</span>,
-    <span class="c-key">"endpointsUsed"</span>: [<span class="c-str">"solscan"</span>, <span class="c-str">"helius"</span>, <span class="c-str">"twitter"</span>]
+  <span class="c-key">"provenance"</span>: {
+    <span class="c-key">"receiptId"</span>: <span class="c-str">"sr-b4e9..."</span>,
+    <span class="c-key">"algorithm"</span>: <span class="c-str">"Ed25519+ML-DSA-65"</span>,
+    <span class="c-key">"dualSigned"</span>: <span class="c-num">true</span>,
+    <span class="c-key">"easScanUrl"</span>: <span class="c-str">"https://base.easscan.org/..."</span>
   }
 }`
     },
@@ -1064,7 +1173,10 @@ data = res.json()`,
   },
   <span class="c-key">"cached"</span>: <span class="c-num">true</span>,
   <span class="c-key">"creditsUsed"</span>: <span class="c-num">0.1</span>,
-  <span class="c-key">"ttl"</span>: <span class="c-num">86400</span>
+  <span class="c-key">"provenance"</span>: {
+    <span class="c-key">"receiptId"</span>: <span class="c-str">"sr-c8d1..."</span>,
+    <span class="c-key">"fromCache"</span>: <span class="c-num">true</span>
+  }
 }`
     },
     {
@@ -1100,10 +1212,28 @@ res = requests.post('https://api.claw-net.org/v1/skills',
   let apiDemoIdx = 0;
   let apiDemoLang = 'curl';
   let apiDemoTimer = null;
+  function hlReq(code, lang) {
+    let h = code.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    // strings
+    h = h.replace(/(["'])(?:(?!\1).)*\1/g, '<span class="c-str">$&</span>');
+    if (lang === 'curl') {
+      h = h.replace(/\b(curl)\b/g, '<span class="c-kw">$1</span>');
+      h = h.replace(/(-[HXd])\b/g, '<span class="c-method">$1</span>');
+    } else if (lang === 'js') {
+      h = h.replace(/\b(const|let|var|await|async|function|return|new)\b/g, '<span class="c-kw">$1</span>');
+      h = h.replace(/\.(fetch|post|get|json|stringify)\b/g, '.<span class="c-method">$1</span>');
+    } else if (lang === 'python') {
+      h = h.replace(/\b(import|from|as|def|return|await)\b/g, '<span class="c-kw">$1</span>');
+      h = h.replace(/\.(post|get|json)\b/g, '.<span class="c-method">$1</span>');
+      h = h.replace(/#.*/g, '<span class="c-com">$&</span>');
+    }
+    h = h.replace(/\b(\d+\.?\d*)\b/g, '<span class="c-num">$1</span>');
+    return h;
+  }
   function showApiExample(idx) {
     apiDemoIdx = idx;
     const ex = API_EXAMPLES[idx];
-    document.getElementById('reqCode').textContent = ex[apiDemoLang];
+    document.getElementById('reqCode').innerHTML = hlReq(ex[apiDemoLang], apiDemoLang);
     document.getElementById('resCode').innerHTML = ex.response;
     document.getElementById('apiDemoMethod').textContent = ex.method;
     document.getElementById('apiDemoMethod').className = 'method-badge ' + ex.method.toLowerCase();
@@ -1117,7 +1247,7 @@ res = requests.post('https://api.claw-net.org/v1/skills',
     apiDemoLang = lang;
     document.querySelectorAll('.api-tab').forEach(t => t.classList.remove('active'));
     btn.classList.add('active');
-    document.getElementById('reqCode').textContent = API_EXAMPLES[apiDemoIdx][lang];
+    document.getElementById('reqCode').innerHTML = hlReq(API_EXAMPLES[apiDemoIdx][lang], lang);
     resetApiDemoTimer();
   }
   function copyApiCode() {
