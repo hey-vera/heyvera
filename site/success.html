@@ -267,8 +267,20 @@
   -H "Content-Type: application/json" \
   -d '{"query":"Is BONK safe to buy right now?"}'</div>
 
+      <div id="receipt-card" class="hidden" style="margin:24px 0;padding:16px 20px;border:1px solid var(--border-subtle);border-radius:var(--radius-lg);background:var(--bg-surface-2)">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-tertiary)">Soma Receipt</span>
+          <span style="font-size:10px;color:var(--accent)">Cryptographically signed</span>
+        </div>
+        <div style="font-family:var(--font-mono);font-size:12px;color:var(--text-secondary);word-break:break-all" id="receipt-id"></div>
+        <div style="margin-top:10px;display:flex;gap:12px">
+          <a id="receipt-verify-link" href="#" target="_blank" style="font-size:12px;color:var(--accent);text-decoration:none">View Receipt</a>
+          <a id="receipt-eas-link" href="#" target="_blank" style="font-size:12px;color:#0052ff;text-decoration:none;display:none">Verify on Base (EAS)</a>
+        </div>
+      </div>
+
       <div class="actions">
-        <a href="/dashboard" class="btn btn-primary">Go to Dashboard</a>
+        <a href="/dashboard?tab=receipts" class="btn btn-primary">Go to Dashboard</a>
         <a href="/" class="btn btn-ghost">Back to Home</a>
       </div>
     </div>
@@ -338,6 +350,26 @@ function showSuccess(data) {
     `  -H "<span class="hl">X-API-Key: ${esc(currentKey)}</span>" \\\n` +
     `  -H "Content-Type: application/json" \\\n` +
     `  -d '{"query":"Is BONK safe to buy right now?"}'`;
+  // Try to load the purchase receipt (fire-and-forget — non-critical)
+  loadPurchaseReceipt(sessionId);
+}
+
+async function loadPurchaseReceipt(sid) {
+  try {
+    const res = await fetch(`${API_BASE}/v1/soma/receipt/stripe-${sid}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    const r = data.receipt;
+    if (!r) return;
+    document.getElementById('receipt-card').classList.remove('hidden');
+    document.getElementById('receipt-id').textContent = r.id;
+    document.getElementById('receipt-verify-link').href = `${API_BASE}/v1/soma/receipt/${r.id}`;
+    if (r.easScanUrl) {
+      const easLink = document.getElementById('receipt-eas-link');
+      easLink.href = r.easScanUrl;
+      easLink.style.display = 'inline';
+    }
+  } catch { /* receipt display is non-critical */ }
 }
 
 function showError() {

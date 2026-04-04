@@ -590,6 +590,7 @@
         <button class="dash-tab active" onclick="switchDashTab('overview')">Overview</button>
         <button class="dash-tab" onclick="switchDashTab('reseller')" id="reseller-tab" style="display:none">Reseller</button>
         <button class="dash-tab" onclick="switchDashTab('keys')" id="keys-tab">Keys</button>
+        <button class="dash-tab" onclick="switchDashTab('receipts')">Receipts</button>
       </div>
 
       <!-- TAB: Overview -->
@@ -883,6 +884,21 @@
         <h2 style="font-size:20px;font-weight:600;color:var(--text-primary);margin-bottom:20px">API Keys</h2>
         <div id="keys-list">
           <p style="color:var(--text-muted)">Loading keys...</p>
+        </div>
+      </div>
+
+      <div id="tab-receipts" style="display:none">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+          <h2 style="font-size:20px;font-weight:600;color:var(--text-primary);margin:0">Receipts</h2>
+          <span style="font-size:12px;color:var(--text-tertiary)">Cryptographically signed &middot; Verifiable on-chain</span>
+        </div>
+        <div id="receipts-list">
+          <p style="color:var(--text-muted)">Loading receipts...</p>
+        </div>
+        <div id="receipts-pagination" style="display:none;margin-top:16px;text-align:center">
+          <button class="btn" onclick="loadReceipts(receiptsOffset - 50)" id="receipts-prev" style="font-size:12px;padding:6px 14px;margin-right:8px" disabled>Previous</button>
+          <span id="receipts-page-info" style="font-size:12px;color:var(--text-tertiary)"></span>
+          <button class="btn" onclick="loadReceipts(receiptsOffset + 50)" id="receipts-next" style="font-size:12px;padding:6px 14px;margin-left:8px">Next</button>
         </div>
       </div>
 
@@ -1717,6 +1733,69 @@
       if (tabContent) tabContent.style.display = 'block';
       if (tab === 'reseller') loadResellerData();
       if (tab === 'keys') loadKeysData();
+      if (tab === 'receipts') loadReceipts(0);
+    }
+
+    // ── RECEIPTS DATA ──
+    let receiptsOffset = 0;
+    async function loadReceipts(offset) {
+      receiptsOffset = Math.max(0, offset || 0);
+      const container = document.getElementById('receipts-list');
+      try {
+        const token = await window.Clerk?.session?.getToken();
+        const res = await fetch(`${API_BASE}/v1/account/soma-receipts?limit=50&offset=${receiptsOffset}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (!res.ok) { container.innerHTML = '<p style="color:var(--text-muted)">Failed to load receipts.</p>'; return; }
+        const data = await res.json();
+        if (!data.receipts || data.receipts.length === 0) {
+          container.innerHTML = '<div class="card" style="text-align:center;padding:32px"><p style="color:var(--text-tertiary);font-size:14px">No receipts yet. Receipts are created when you purchase credits or use the API.</p></div>';
+          document.getElementById('receipts-pagination').style.display = 'none';
+          return;
+        }
+        const methodBadge = (m) => {
+          const colors = { stripe:'#635bff', solana:'#9945ff', x402:'#0052ff', credits:'var(--accent)' };
+          return `<span style="display:inline-block;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:2px 8px;border-radius:4px;background:${colors[m]||'var(--bg-tertiary)'}22;color:${colors[m]||'var(--text-tertiary)'}">${m}</span>`;
+        };
+        let html = '<table style="width:100%;border-collapse:collapse;font-size:13px">';
+        html += '<thead><tr style="border-bottom:1px solid var(--border-subtle)">';
+        html += '<th style="text-align:left;padding:8px 12px;color:var(--text-tertiary);font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:0.5px">Date</th>';
+        html += '<th style="text-align:left;padding:8px 12px;color:var(--text-tertiary);font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:0.5px">Type</th>';
+        html += '<th style="text-align:right;padding:8px 12px;color:var(--text-tertiary);font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:0.5px">Credits</th>';
+        html += '<th style="text-align:center;padding:8px 12px;color:var(--text-tertiary);font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:0.5px">Provenance</th>';
+        html += '<th style="text-align:center;padding:8px 12px;color:var(--text-tertiary);font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:0.5px">Anchored</th>';
+        html += '<th style="text-align:right;padding:8px 12px;color:var(--text-tertiary);font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:0.5px">Verify</th>';
+        html += '</tr></thead><tbody>';
+        for (const r of data.receipts) {
+          const date = new Date(r.createdAt).toLocaleDateString('en-US', { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' });
+          const anchored = r.anchored ? '<span style="color:var(--accent)" title="On-chain anchored">&#x2693;</span>' : '<span style="color:var(--text-tertiary)" title="Pending anchor">&middot;</span>';
+          const provenance = r.hasProvenance ? '<span style="color:var(--accent)" title="Soma birth certificate">&#x2714;</span>' : '<span style="color:var(--text-tertiary)">&middot;</span>';
+          let verifyLinks = `<a href="/v1/soma/receipt/${r.id}" target="_blank" style="color:var(--accent);text-decoration:none;font-size:12px" title="View receipt">View</a>`;
+          if (r.easScanUrl) verifyLinks += ` &middot; <a href="${r.easScanUrl}" target="_blank" style="color:#0052ff;text-decoration:none;font-size:12px" title="Verify on Base">EAS</a>`;
+          html += `<tr style="border-bottom:1px solid var(--border-subtle)">`;
+          html += `<td style="padding:10px 12px;color:var(--text-secondary)">${date}</td>`;
+          html += `<td style="padding:10px 12px">${methodBadge(r.paymentMethod)}</td>`;
+          html += `<td style="padding:10px 12px;text-align:right;color:var(--text-primary);font-weight:500">${r.creditsCost.toLocaleString()}</td>`;
+          html += `<td style="padding:10px 12px;text-align:center">${provenance}</td>`;
+          html += `<td style="padding:10px 12px;text-align:center">${anchored}</td>`;
+          html += `<td style="padding:10px 12px;text-align:right">${verifyLinks}</td>`;
+          html += `</tr>`;
+        }
+        html += '</tbody></table>';
+        container.innerHTML = html;
+        // Pagination
+        const pagination = document.getElementById('receipts-pagination');
+        if (data.total > 50) {
+          pagination.style.display = 'block';
+          document.getElementById('receipts-prev').disabled = receiptsOffset === 0;
+          document.getElementById('receipts-next').disabled = receiptsOffset + 50 >= data.total;
+          document.getElementById('receipts-page-info').textContent = `${receiptsOffset + 1}\u2013${Math.min(receiptsOffset + 50, data.total)} of ${data.total}`;
+        } else {
+          pagination.style.display = 'none';
+        }
+      } catch (err) {
+        container.innerHTML = '<p style="color:var(--text-muted)">Failed to load receipts.</p>';
+      }
     }
 
     // ── RESELLER DATA ──
@@ -1803,6 +1882,9 @@
     // ── INIT ──
     async function init(){if(!await loadClerkSafe()){document.getElementById('loading-state').innerHTML='<p style="color:var(--danger);font-size:13px">Authentication unavailable. <a href="/login" style="color:var(--accent)">Sign in again</a></p>';return;}if(!window.Clerk.user){const p=new URLSearchParams(window.location.search);const c=p.get('claim_session')??p.get('claim');window.location.href=c?`/login?claim=${c}`:'/login';return;}const email=window.Clerk.user.primaryEmailAddress?.emailAddress??window.Clerk.user.username??'';document.getElementById('account-email-display').textContent=email;document.getElementById('account-dropdown').classList.add('show');const mobileEmail=document.getElementById('mobile-account-email');if(mobileEmail){mobileEmail.textContent=email;mobileEmail.style.display='block';}const mag=document.getElementById('mobile-account-group');if(mag)mag.style.display='';const mso=document.getElementById('mobile-sign-out');if(mso)mso.style.display='';const cachedCr=localStorage.getItem('clawnet_credits');document.getElementById('nav-credits-num').textContent=cachedCr!==null?parseInt(cachedCr).toLocaleString():'\u2014';document.getElementById('nav-credits-badge').classList.add('show');const p=new URLSearchParams(window.location.search);const cs=p.get('claim_session'),cr=p.get('claim');if(cs)await autoClaimSession(cs);if(cr){showClaimNotice(cr);window.history.replaceState({},'','/dashboard');}await loadDashboard();check2FAStatus();checkCreator();checkAdmin();checkReseller();}
     async function autoClaimSession(sessionId){try{const token=await window.Clerk?.session?.getToken();await fetch(`${API_BASE}/v1/dashboard/claim-session`,{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({sessionId})});}catch(err){console.error('Auto-claim failed:',err);}}
+    // Handle ?tab=receipts (or other tab) in URL
+    function checkTabParam(){const p=new URLSearchParams(window.location.search);const tab=p.get('tab');if(tab&&['overview','reseller','keys','receipts'].includes(tab)){switchDashTab(tab);}}
+    const origInit=init;init=async function(){await origInit();checkTabParam();}
     init();
   </script>
 </body>

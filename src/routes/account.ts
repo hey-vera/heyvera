@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { checkApiKey } from '../middleware/auth';
 import { getDb, logAudit, getHardBudgetLock, setHardBudgetLock, removeHardBudgetLock, getMonthlySpend } from '../db/index';
 import { getBillingReceipts } from '../db/credits';
+import { somaHash } from '../utils/crypto-agility';
+import { getEASScanUrl } from '../utils/eas';
 
 const router = new Hono();
 
@@ -234,6 +236,50 @@ router.get('/receipts', async (c) => {
       platformDid: process.env.PLATFORM_DID || 'did:web:api.claw-net.org',
       algorithm: 'Ed25519',
     },
+  });
+});
+
+// ─── Soma Receipts (for dashboard) ──────────────────────────────────────────
+
+router.get('/soma-receipts', async (c) => {
+  const keyInfo = c.get('apiKeyInfo') as { key: string };
+  const url = new URL(c.req.url);
+  const limit = Math.min(200, parseInt(url.searchParams.get('limit') || '50', 10));
+  const offset = Math.max(0, parseInt(url.searchParams.get('offset') || '0', 10));
+
+  const apiKeyHash = somaHash(keyInfo.key);
+
+  const rows = getDb().prepare(`
+    SELECT id, request_id, payment_method, credits_cost, request_hash, response_hash,
+           soma_data_hash, eas_uid, algorithm_version, anchor_id, anchored_at, created_at
+    FROM soma_receipts
+    WHERE api_key_hash = ?
+    ORDER BY created_at DESC
+    LIMIT ? OFFSET ?
+  `).all(apiKeyHash, limit, offset) as any[];
+
+  const total = (getDb().prepare(
+    'SELECT COUNT(*) as c FROM soma_receipts WHERE api_key_hash = ?'
+  ).get(apiKeyHash) as any).c;
+
+  return c.json({
+    receipts: rows.map(r => ({
+      id: r.id,
+      requestId: r.request_id,
+      paymentMethod: r.payment_method,
+      creditsCost: r.credits_cost,
+      requestHash: r.request_hash,
+      responseHash: r.response_hash,
+      hasProvenance: !!r.soma_data_hash,
+      easUid: r.eas_uid,
+      easScanUrl: r.eas_uid ? getEASScanUrl(r.eas_uid) : null,
+      algorithm: r.algorithm_version === '2.0' ? 'Ed25519+ML-DSA-65' : 'Ed25519',
+      anchored: !!r.anchored_at,
+      createdAt: r.created_at,
+    })),
+    total,
+    limit,
+    offset,
   });
 });
 
