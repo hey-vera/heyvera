@@ -1,14 +1,16 @@
 # Soma Integration — Identity & Verification
 
-Soma is the core identity and verification protocol. Proves identity through physics: temporal fingerprinting of model inference + per-token HMAC authentication. You can't fake Claude's inference rhythm without running Claude.
+Soma is the core identity and provenance protocol. Soma provides **cryptographic accountability**: every paid interaction is bound to a key, timestamp, and heartbeat chain. Proof of origin — "this data came from this key, at this time, processed through this heart" — is the guarantee we make.
+
+**What Soma is NOT:** Soma does not prove data is *factually true*. A malicious provider can sign wrong numbers and the birth certificate will be cryptographically valid. What Soma gives you is attribution — a provider cannot later deny what they signed, and an observer can always trace data back to its signer. From a *trusted* source, proof of origin is effectively proof of truth; from an untrusted source, it's the evidence you need to hold them accountable.
 
 **Soma repo:** `C:\Users\Josh\Desktop\GitHub\Soma` ([github.com/1xmint/Soma](https://github.com/1xmint/Soma))
 
 **Two components:**
-- **soma-heart** (agent side) — execution runtime, credential vault, birth certificates, heartbeat chain, per-token HMAC
-- **soma-sense** (observer side) — temporal/topology/vocabulary fingerprinting, phenotype atlas, behavioral verdicts (GREEN/AMBER/RED/UNCANNY)
+- **soma-heart** (agent side, production) — execution runtime, credential vault, birth certificates, heartbeat chain, per-token HMAC
+- **soma-sense** (observer side, experimental) — 10 sensory channels including temporal/topology/vocabulary fingerprinting, phenotype atlas, behavioral verdicts (GREEN/AMBER/RED/UNCANNY). The fingerprinting layer is **experimental research** based on limited published data (one IEEE paper reporting ~93% accuracy on cloud inference), not yet proven adversarially robust. Treat sense verdicts as advisory signals, not primary security controls.
 
-**Strategic direction:** ClawNet makes itself verifiable. ClawNet runs the heart. Callers run the sense (if they want behavioral verification). ClawNet does NOT verify itself — self-verification = self-attestation. The observer must be a separate party.
+**Strategic direction:** ClawNet makes itself verifiable. ClawNet runs the heart. Callers run the sense (if they want behavioral advisory signals). ClawNet does NOT verify itself — self-verification = self-attestation. The observer must be a separate party.
 
 **On-chain identity:** Three ERC-8004 registrations on Base Mainnet:
 - **36119** — ClawNet
@@ -143,6 +145,37 @@ Proves at the TLS layer that upstream API data came from the claimed server. Use
 - Env: `ZKTLS_ENABLED`, `RECLAIM_APP_ID`, `RECLAIM_APP_SECRET`
 
 **Dependencies (optional):** `@reclaimprotocol/zk-fetch`, `@reclaimprotocol/js-sdk`. Lazy-loaded — if not installed, zkTLS is silently disabled.
+
+## Phase 7 — Soma Check Protocol (built)
+
+First conditional payment protocol for APIs. Agents check a content hash before paying — if data hasn't changed, they pay nothing. Built on the existing birth-certificate `dataHash`, so the primitive that proves provenance also drives change detection.
+
+**Why it's in Soma:** No protocol (x402, ACP, AP2, L402) has conditional payments. The birth certificate's `dataHash` is content-addressed, so reusing it costs zero extra crypto. One hash, two capabilities.
+
+**Flow:**
+```
+1. Agent → GET /v1/endpoints/:id/check          → { dataHash, fresh, age } (FREE)
+2. Agent → POST /v1/endpoints/:id/call
+           + If-Soma-Hash: <previous_hash>
+   a. Hash MATCHES cache → { unchanged: true }   (0 credits)
+   b. Hash DIFFERS        → normal x402 flow      (full price, new dataHash returned)
+   c. No header           → normal x402 flow      (backward compatible)
+```
+
+**Response headers (on every call):**
+- `X-Soma-Hash` — data content hash
+- `X-Soma-Protocol: soma-check/1.0`
+
+Agents store the hash and send it as `If-Soma-Hash` on subsequent calls. Backward compatible — agents that don't know about Soma Check just pay normally.
+
+**Key files:**
+- `src/routes/endpoints.ts` — `GET /:id/check` (free hash probe), `If-Soma-Hash` header on `POST /:id/call`
+- `src/core/cache-certificate.ts` — `getCacheHashInfo()` lightweight hash lookup (no served-count bump)
+- `src/core/provider-cache-warm-cron.ts` — warming cron uses hash compare to skip re-cache on unchanged data
+
+**Soma Check in soma-heart (provider side):** Providers running soma-heart expose a hash-only endpoint that returns the birth certificate `dataHash` without re-running the full fetch. Upstream of ClawNet, this cascades: agents can do hash-only probes all the way to the origin provider.
+
+**Soma Check in soma-sense (consumer side):** `smartFetch()` helper wraps `fetch()`, tracks dataHash per URL, automatically sends `If-Soma-Hash` on subsequent calls, and returns cached data on `unchanged: true` responses. Zero effort for the agent developer.
 
 ## Client SDK Integration
 

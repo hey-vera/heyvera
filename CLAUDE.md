@@ -59,8 +59,9 @@ npm run test:unit    # Vitest unit tests
 - **`trackDelegatedSpend()`** — after every `deductCredit()`
 - **`creditProviderShare()`** — after every `deductCredit()` on endpoint calls
 - **DB imports** — always from `src/db/index.ts`, never domain files directly
-- **Soma: provenance ≠ verification** — birth certs prove origin; sense verifies model
-- **Soma: never self-verify** — ClawNet runs heart, callers run sense
+- **Soma: origin ≠ truth** — birth certs prove *who* signed data, not that data is factually correct
+- **Soma: never self-verify** — ClawNet runs heart, callers run sense (observer must be separate party)
+- **Soma sense is experimental** — temporal fingerprinting is advisory, not a primary security control
 
 ## Route Pattern
 
