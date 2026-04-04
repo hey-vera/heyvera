@@ -310,14 +310,42 @@ Soma verdict infrastructure anchors verification outcomes on-chain via Merkle tr
 
 **Cron (`src/core/soma-anchor-cron.ts`):** Periodically builds Merkle tree from unanchored verdicts, sends Solana memo with root. Uses existing `MERKLE_ANCHOR_ENABLED` flag. ~$0.024/day.
 
+### Phase 4 — Soma Receipt Layer (built)
+
+Cryptographic receipts for every paid ClawNet interaction. Binds payment proof + request hash + response hash + birth cert + heartbeat index into one verifiable artifact. Uses EAS (Ethereum Attestation Service) on Base for ecosystem-standard attestations.
+
+**Schema:** Registered on Base EAS — UID `0xf40dd2ae45c1db6e1facfdf188598fd5b7c74da7f1a25570f3dd3732258b610b` ([view on EASScan](https://base.easscan.org/schema/view/0xf40dd2ae45c1db6e1facfdf188598fd5b7c74da7f1a25570f3dd3732258b610b))
+
+**Receipt creation (all paths):**
+- `src/routes/stripe.ts` — Stripe credit purchase → Soma Receipt (fire-and-forget)
+- `src/routes/solana.ts` — Solana USDC purchase → receipt in API response
+- `src/routes/api.ts` — Credit-based orchestration → receipt (fire-and-forget)
+- `src/routes/endpoints.ts` — Direct endpoint call → receipt with birth cert data
+- `src/routes/x402-skills.ts` — x402 skill + orchestrate → receipt in response body
+
+**Public verification:**
+- `GET /v1/soma/receipt/:id` — public receipt lookup (no auth)
+- `GET /v1/soma/receipts/stats` — receipt statistics
+- `GET /v1/account/soma-receipts` — authenticated receipt list for dashboard
+- `site/verify.html` — paste receipt ID, see full verification details
+- EASScan: each receipt with EAS attestation is browsable at `base.easscan.org`
+
+**On-chain anchoring:** `src/core/eas-anchor-cron.ts` — hourly Merkle-root timestamp on Base via EAS (~$0.001/batch). Dual anchoring: Base (EAS) + Solana (memo for verdicts).
+
+**Dashboard:** Receipts tab shows paginated list with payment method badges, provenance status, anchor status, View + EAS verify links. Success page shows receipt card after Stripe checkout.
+
+**x402 agents (no account):** Receipt returned in response body with `receipt.id`, `receipt.verifyUrl`, `receipt.easScanUrl`. Verify anytime at public endpoint.
+
+**Post-quantum ready:** `PQ_SIGNATURES_ENABLED` flag enables hybrid Ed25519 + ML-DSA-65 (FIPS 204) dual signatures on all receipts. Uses `@noble/post-quantum` (portable JS). Domain-separated key derivation: `SHA-256(secret + ':ml-dsa-65')`. Both signatures must pass (AND rule). Upgrade to Node 24 native `crypto.sign('ml-dsa-65')` when available (~Oct 2026).
+
 ### Shared Crypto Primitives
 
 | File | What |
 |------|------|
-| `src/utils/ed25519-signer.ts` | Deterministic Ed25519 keypair from `PLATFORM_SIGNING_SECRET` |
+| `src/utils/ed25519-signer.ts` | Ed25519 keypair + ML-DSA-65 hybrid signing from `PLATFORM_SIGNING_SECRET` |
 | `src/utils/jcs.ts` | JCS canonicalization (RFC 8785), base58btc encode/decode |
-| `src/utils/crypto-agility.ts` | `somaHash()`, algorithm-agile signing, post-quantum migration path |
-| `src/core/merkle-anchor.ts` | Merkle tree build/verify for verdict anchoring |
+| `src/utils/crypto-agility.ts` | `somaHash()`, ML-DSA-65 dispatch, algorithm negotiation, PQC migration |
+| `src/core/merkle-anchor.ts` | Merkle tree build/verify for verdict + receipt anchoring |
 
 ## Testing
 
@@ -342,7 +370,11 @@ All env vars are Zod-validated in `src/config/index.ts`. See `.env.example` for 
 - `CREDITS_PER_USD=1000`, `COST_MARKUP_FACTOR=1500`, `ORCHESTRATION_FEE=2`
 - `PLATFORM_SIGNING_SECRET` (deterministic Ed25519 key derivation for Soma Heart)
 - `X402_RECIPIENT_ADDRESS` (enables x402 payment mode)
+- `EVM_PRIVATE_KEY` (Base wallet for EAS attestations + x402 payouts)
+- `BASE_RPC_URL` (Coinbase CDP), `BASE_RPC_FALLBACK` (Alchemy — auto-failover)
+- `EAS_SCHEMA_UID` (registered receipt schema on Base)
 - `AG0_DISCOVERY_ENABLED`, `INDEX_SYNC_ENABLED`, `MERKLE_ANCHOR_ENABLED` (feature flags)
+- `EAS_ANCHOR_ENABLED` (hourly receipt anchoring on Base), `PQ_SIGNATURES_ENABLED` (hybrid Ed25519+ML-DSA-65)
 - `SENTRY_DSN` (optional), `RESEND_API_KEY` (optional)
 
 ## Workflow
