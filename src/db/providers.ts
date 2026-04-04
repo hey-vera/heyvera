@@ -11,6 +11,7 @@
 
 import { getDb, logAudit } from './connection';
 import { nanoid } from 'nanoid';
+import { round6 } from '../core/credits';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -303,4 +304,53 @@ export function getProviderStats(providerId: string): {
     endpointCount: endpoints.length,
     avgLatencyMs: latency?.avg_ms ?? 0,
   };
+}
+
+// ─── Revenue Share ─────────────────────────────────────────────────────────
+
+/**
+ * Credit a provider's account with their revenue share from an endpoint call.
+ * Provider gets `revenue_share_pct` (default 90%) of the credits charged.
+ * Platform keeps `1 - revenue_share_pct` (default 10%).
+ * Cache hits = 0 provider share (their server wasn't touched).
+ *
+ * Returns the provider's credited amount, or 0 if no provider owns this endpoint.
+ */
+export function creditProviderShare(endpointId: string, creditsCharged: number, opts: {
+  cacheHit: boolean;
+  latencyMs: number;
+  error?: boolean;
+}): number {
+  const providerId = getEndpointProvider(endpointId);
+  if (!providerId) return 0;
+
+  const provider = getProvider(providerId);
+  if (!provider || provider.status !== 'active') return 0;
+
+  // Cache hits: provider server not touched, no revenue share
+  const providerCredits = opts.cacheHit ? 0 : round6(creditsCharged * provider.revenueSharePct);
+
+  // Credit provider's API key balance (if they have one linked)
+  if (providerCredits > 0) {
+    const providerKey = getDb().prepare(
+      'SELECT key FROM api_keys WHERE provider_id = ? AND active = 1 LIMIT 1'
+    ).get(providerId) as { key: string } | undefined;
+
+    if (providerKey) {
+      getDb().prepare('UPDATE api_keys SET credits = credits + ? WHERE key = ?')
+        .run(providerCredits, providerKey.key);
+    }
+  }
+
+  // Always record analytics
+  const creditsPerUsd = 1000; // env.CREDITS_PER_USD default
+  recordProviderCall(providerId, {
+    cacheHit: opts.cacheHit,
+    cacheSavingsCredits: opts.cacheHit ? creditsCharged : 0,
+    revenueUsdc: providerCredits / creditsPerUsd,
+    latencyMs: opts.latencyMs,
+    error: opts.error,
+  });
+
+  return providerCredits;
 }

@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { getDbStats, getAllPendingPayouts, updatePayoutStatus, getReconciliation, getRevenueBreakdown, getTreasuryStatus, revokeKeyByKey, revokeKeysByEmail, logAudit, getDb } from '../db/index';
+import { getDbStats, getAllPendingPayouts, updatePayoutStatus, getReconciliation, getRevenueBreakdown, getTreasuryStatus, revokeKeyByKey, revokeKeysByEmail, logAudit, getDb, createPromoCode, listPromoCodes, getPromoCode, deactivatePromoCode, getRedemptionsForCode } from '../db/index';
 import { cacheStats } from '../cache/index';
 import { cacheAdminRouter } from './cache-admin';
 import { getUsageStats } from '../utils/usage';
@@ -301,6 +301,53 @@ adminRouter.patch('/payouts/:id', async (c) => {
   updatePayoutStatus(id, body.status, body.notes);
   logAudit({ entityType: 'payout', entityId: id, action: 'PAYOUT_STATUS', actorId: 'admin', data: { status: body.status, notes: body.notes } });
   return c.json({ ok: true, id, status: body.status });
+});
+
+// ─── Promo Codes ────────────────────────────────────────────────────────────
+
+const CreatePromoBody = z.object({
+  code: z.string().min(3).max(30).regex(/^[A-Za-z0-9_-]+$/, 'Code must be alphanumeric with dashes/underscores'),
+  creditsAmount: z.number().min(1).max(100_000).default(100),
+  maxUses: z.number().int().min(1).max(1_000_000).default(100),
+  expiresAt: z.string().optional(),
+  eventName: z.string().max(200).optional(),
+  notes: z.string().max(500).optional(),
+});
+
+adminRouter.post('/promo-codes', async (c) => {
+  const body = await c.req.json();
+  const parsed = CreatePromoBody.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: 'Invalid promo code data', code: 'INVALID_DATA', details: parsed.error.flatten().fieldErrors }, 400);
+  }
+  try {
+    const promo = createPromoCode({ ...parsed.data, createdBy: 'admin' });
+    logAudit({ entityType: 'promo_code', entityId: promo.id, action: 'PROMO_CREATED', actorId: 'admin', data: { code: promo.code, credits: promo.credits_amount, maxUses: promo.max_uses, event: promo.event_name } });
+    return c.json({ ok: true, promoCode: promo }, 201);
+  } catch (err: any) {
+    if (err?.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+      return c.json({ error: 'Promo code already exists', code: 'DUPLICATE_CODE' }, 409);
+    }
+    throw err;
+  }
+});
+
+adminRouter.get('/promo-codes', (c) => {
+  return c.json({ promoCodes: listPromoCodes() });
+});
+
+adminRouter.get('/promo-codes/:id', (c) => {
+  const promo = getPromoCode(c.req.param('id'));
+  if (!promo) return c.json({ error: 'Not found', code: 'NOT_FOUND' }, 404);
+  const redemptions = getRedemptionsForCode(promo.id);
+  return c.json({ promoCode: promo, redemptions });
+});
+
+adminRouter.post('/promo-codes/:id/deactivate', (c) => {
+  const ok = deactivatePromoCode(c.req.param('id'));
+  if (!ok) return c.json({ error: 'Not found', code: 'NOT_FOUND' }, 404);
+  logAudit({ entityType: 'promo_code', entityId: c.req.param('id'), action: 'PROMO_DEACTIVATED', actorId: 'admin' });
+  return c.json({ ok: true });
 });
 
 // ─── Cache Admin Sub-Router ─────────────────────────────────────────────────

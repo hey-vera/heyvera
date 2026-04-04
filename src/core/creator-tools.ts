@@ -52,7 +52,7 @@ export interface CreatorStats {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const REVENUE_SHARE = 0.85;
+const REVENUE_SHARE = 0.90;
 const USD_PER_CREDIT = 0.001;
 
 const DEFAULT_CREDIT_COSTS: Record<string, number> = {

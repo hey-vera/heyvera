@@ -28,3 +28,4 @@ export * from './agent-memory';
 export * from './social-graph';
 export * from './soma-verdicts';
 export * from './providers';
+export * from './promo-codes';

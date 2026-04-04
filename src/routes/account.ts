@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { checkApiKey } from '../middleware/auth';
-import { getDb, logAudit, getHardBudgetLock, setHardBudgetLock, removeHardBudgetLock, getMonthlySpend } from '../db/index';
+import { getDb, logAudit, getHardBudgetLock, setHardBudgetLock, removeHardBudgetLock, getMonthlySpend, redeemPromoCode, getRedemptionsForKey } from '../db/index';
 import { getBillingReceipts } from '../db/credits';
 import { somaHash } from '../utils/crypto-agility';
 import { getEASScanUrl } from '../utils/eas';
@@ -281,6 +281,40 @@ router.get('/soma-receipts', async (c) => {
     limit,
     offset,
   });
+});
+
+// ─── POST /redeem-promo — redeem a promo code ──────────────────────────────
+
+router.post('/redeem-promo', async (c) => {
+  const keyInfo = c.get('apiKeyInfo');
+  const body = await c.req.json().catch(() => ({}));
+  const code = (body as any)?.code;
+  if (!code || typeof code !== 'string') {
+    return c.json({ error: 'Missing promo code', code: 'INVALID_DATA' }, 400);
+  }
+
+  const result = redeemPromoCode(code, keyInfo.key);
+  if (!result.ok) {
+    return c.json({ error: result.error, code: result.code }, 400);
+  }
+
+  logAudit({ entityType: 'promo_code', entityId: keyInfo.key, action: 'PROMO_REDEEMED', data: { code, credits: result.creditsGranted } });
+
+  // Fetch updated balance
+  const row = getDb().prepare('SELECT credits FROM api_keys WHERE key = ?').get(keyInfo.key) as { credits: number } | undefined;
+
+  return c.json({
+    ok: true,
+    creditsGranted: result.creditsGranted,
+    newBalance: row?.credits ?? 0,
+  });
+});
+
+// ─── GET /promo-history — list promo redemptions ────────────────────────────
+
+router.get('/promo-history', (c) => {
+  const keyInfo = c.get('apiKeyInfo');
+  return c.json({ redemptions: getRedemptionsForKey(keyInfo.key) });
 });
 
 export { router as accountRouter };

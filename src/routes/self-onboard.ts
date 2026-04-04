@@ -10,7 +10,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import crypto from 'crypto';
 import { nanoid } from 'nanoid';
-import { getDb, logAudit } from '../db/index';
+import { getDb, logAudit, redeemPromoCode } from '../db/index';
 import { env } from '../config/index';
 import { apiRegistry } from '../config/api-registry';
 import { cacheIncr } from '../cache/index';
@@ -34,6 +34,7 @@ const RegisterBody = z.object({
   agentType: z.enum(['autonomous', 'assisted', 'tool']).optional().default('autonomous'),
   capabilities: z.array(z.string().max(50)).max(20).optional(),
   webhookUrl: z.string().url().max(500).optional(),
+  promoCode: z.string().max(30).optional(),
 });
 
 router.post('/register', async (c) => {
@@ -57,16 +58,31 @@ router.post('/register', async (c) => {
     }, 400);
   }
 
-  const { name, description, email, agentType, capabilities, webhookUrl } = parsed.data;
+  const { name, description, email, agentType, capabilities, webhookUrl, promoCode } = parsed.data;
 
   const apiKey = generateApiKey();
-  const freeCredits = env.FREE_TRIAL_CREDITS;
+  const baseCredits = env.FREE_TRIAL_CREDITS;
 
   try {
     getDb().prepare(
       `INSERT INTO api_keys (key, email, credits, credits_used, created_at, stripe_session_id, amount_paid)
        VALUES (?, ?, ?, 0, datetime('now'), ?, 0)`
-    ).run(apiKey, email ?? '', freeCredits, `self-onboard:${nanoid(12)}`);
+    ).run(apiKey, email ?? '', baseCredits, `self-onboard:${nanoid(12)}`);
+
+    // Apply promo code if provided (after key exists so redemption can reference it)
+    let promoCredits = 0;
+    let promoError: string | undefined;
+    if (promoCode) {
+      const result = redeemPromoCode(promoCode, apiKey);
+      if (result.ok) {
+        promoCredits = result.creditsGranted!;
+        logAudit({ entityType: 'promo_code', entityId: apiKey, action: 'PROMO_REDEEMED_ON_REGISTER', data: { code: promoCode, credits: promoCredits } });
+      } else {
+        promoError = result.error;
+      }
+    }
+
+    const totalCredits = baseCredits + promoCredits;
 
     logAudit({
       entityType: 'api_key',
@@ -79,19 +95,23 @@ router.post('/register', async (c) => {
         description: description ?? undefined,
         capabilities: capabilities?.join(',') ?? undefined,
         webhookUrl: webhookUrl ?? undefined,
+        promoCode: promoCode ?? undefined,
+        promoCredits: promoCredits || undefined,
       },
     });
 
-    logger.info({ name, agentType, ip, freeCredits }, 'Agent self-registered');
+    logger.info({ name, agentType, ip, baseCredits, promoCredits, totalCredits }, 'Agent self-registered');
 
     return c.json({
       success: true,
       apiKey,
       name,
-      credits: freeCredits,
+      credits: totalCredits,
+      ...(promoCredits > 0 && { promoCredits, promoCode }),
+      ...(promoError && { promoError }),
       agentType,
-      message: freeCredits > 0
-        ? `Welcome to ClawNet! You have ${freeCredits} free credits to get started.`
+      message: totalCredits > 0
+        ? `Welcome to ClawNet! You have ${totalCredits} credits to get started.`
         : 'Welcome to ClawNet! Top up credits via /v1/solana/deposit or Stripe checkout.',
       quickStart: {
         orchestrate: {

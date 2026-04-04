@@ -1614,6 +1614,32 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   ` },
   { version: 138, sql: `ALTER TABLE soma_receipts ADD COLUMN zktls_proof_id TEXT` },
   { version: 139, sql: `CREATE INDEX IF NOT EXISTS idx_soma_receipts_zktls ON soma_receipts(zktls_proof_id) WHERE zktls_proof_id IS NOT NULL` },
+  { version: 140, sql: `
+    CREATE TABLE IF NOT EXISTS promo_codes (
+      id TEXT PRIMARY KEY,
+      code TEXT NOT NULL UNIQUE COLLATE NOCASE,
+      credits_amount REAL NOT NULL DEFAULT 100,
+      max_uses INTEGER NOT NULL DEFAULT 100,
+      current_uses INTEGER NOT NULL DEFAULT 0,
+      expires_at TEXT,
+      event_name TEXT,
+      notes TEXT,
+      active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_by TEXT
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_promo_code ON promo_codes(code);
+    CREATE TABLE IF NOT EXISTS promo_redemptions (
+      id TEXT PRIMARY KEY,
+      promo_code_id TEXT NOT NULL REFERENCES promo_codes(id),
+      api_key TEXT NOT NULL,
+      credits_granted REAL NOT NULL,
+      redeemed_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_promo_one_per_key ON promo_redemptions(promo_code_id, api_key);
+    CREATE INDEX IF NOT EXISTS idx_promo_redemptions_key ON promo_redemptions(api_key);
+  ` },
+  { version: 141, sql: `UPDATE providers SET revenue_share_pct = 0.90 WHERE revenue_share_pct = 0.85` },
 ];
 
 function runMigrations(): void {

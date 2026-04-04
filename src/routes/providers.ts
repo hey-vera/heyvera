@@ -21,6 +21,7 @@
  */
 
 import { Hono } from 'hono';
+import { z } from 'zod';
 import { checkApiKey } from '../middleware/auth';
 import { requireAdmin } from '../middleware/admin-auth';
 import {
@@ -41,10 +42,69 @@ import { logger } from '../utils/logger';
 import { nanoid } from 'nanoid';
 import crypto from 'crypto';
 import { getDb, logAudit } from '../db/index';
+import { cacheIncr } from '../cache/index';
+import { getClientIp } from '../middleware/rate-limit';
 
 const providersRouter = new Hono();
 
-// ─── POST /v1/providers — register new provider ────────────────────────────
+// ─── POST /v1/providers/register — self-service provider registration ──────
+// Any API key holder can register as a provider. Starts in 'pending' status.
+// Admin activates after review. Rate limited: 3 per IP per hour.
+
+const SelfRegisterBody = z.object({
+  name: z.string().min(2).max(100),
+  slug: z.string().min(2).max(50).regex(/^[a-z0-9-]+$/, 'Lowercase alphanumeric with hyphens'),
+  email: z.string().email(),
+  description: z.string().max(500).optional(),
+  websiteUrl: z.string().url().max(500).optional(),
+  solanaWallet: z.string().max(64).optional(),
+  evmWallet: z.string().max(64).optional(),
+  somaPublicKey: z.string().max(128).optional(),
+  somaDiscoveryUrl: z.string().url().max(500).optional(),
+});
+
+providersRouter.post('/register', checkApiKey, async (c) => {
+  const ip = getClientIp(c);
+  const count = await cacheIncr(`provider-register:ip:${ip}`, 3600);
+  if (count > 3) {
+    return c.json({ error: 'Rate limit exceeded. Max 3 registrations per hour.', code: 'RATE_LIMITED' }, 429);
+  }
+
+  const body = await c.req.json().catch(() => ({}));
+  const parsed = SelfRegisterBody.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: 'Invalid registration data', code: 'INVALID_DATA', details: parsed.error.flatten().fieldErrors }, 400);
+  }
+
+  const existing = getProviderBySlug(parsed.data.slug);
+  if (existing) {
+    return c.json({ error: 'Provider slug already taken', code: 'DUPLICATE_SLUG' }, 409);
+  }
+
+  const provider = createProvider(parsed.data);
+
+  // Link caller's API key to the new provider
+  const keyInfo = c.get('apiKeyInfo');
+  setApiKeyProvider(keyInfo.key, provider.id);
+
+  logAudit({ entityType: 'provider', entityId: provider.id, action: 'SELF_REGISTERED', data: { name: provider.name, slug: provider.slug, apiKey: keyInfo.key.slice(0, 7) + '...' } });
+  logger.info({ providerId: provider.id, slug: provider.slug }, 'Provider self-registered (pending review)');
+
+  return c.json({
+    ok: true,
+    provider,
+    message: 'Provider registered successfully. Status: pending — admin will review and activate.',
+    nextSteps: [
+      'Your API key is now linked to this provider.',
+      'Once activated, register your endpoints via POST /v1/providers/:id/endpoints.',
+      'You earn 90% of endpoint revenue on live calls through ClawNet.',
+      'Cache hits = $0 cost for you (your server is not touched).',
+      'Enable Soma dual-sign by adding your public key for provenance chain-of-custody.',
+    ],
+  }, 201);
+});
+
+// ─── POST /v1/providers — register new provider (admin) ────────────────────
 
 providersRouter.post('/', async (c) => {
   if (!requireAdmin(c)) {

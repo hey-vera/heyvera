@@ -5,7 +5,7 @@ import { getDb } from '../db/connection';
 import { creditCostForEndpoint, round6, cacheCreditCost } from '../core/credits';
 import { isClawApisReady, clawApiCall, getLastBirthCertificate } from '../providers/clawapis';
 import { cacheKey, smartCacheGet, smartCacheSet, cacheNegative, getNegativeCache, coalesceRequest, type CacheFreshness } from '../cache/index';
-import { deductCredit } from '../db/index';
+import { deductCredit, creditProviderShare } from '../db/index';
 import { trackDelegatedSpend } from '../utils/billing';
 import { checkProviderScope } from '../middleware/auth';
 import { maskApiKey } from '../utils/mask';
@@ -181,6 +181,8 @@ endpointsRouter.post('/:id/call', async (c) => {
       }
       trackDelegatedSpend(keyInfo, cacheCredits);
     }
+    // Provider analytics (no revenue share on cache hits — their server wasn't touched)
+    creditProviderShare(endpointId, cacheCredits, { cacheHit: true, latencyMs: Date.now() - start });
     logger.info({ requestId, endpointId, creditsUsed: cacheCredits }, 'Direct endpoint call — cache hit');
     return c.json({
       requestId,
@@ -246,7 +248,10 @@ endpointsRouter.post('/:id/call', async (c) => {
     const birthCertificate = getLastBirthCertificate() ?? undefined;
     const durationMs = Date.now() - start;
 
-    logger.info({ requestId, endpointId, creditsUsed: endpointCredits, durationMs, hasCert: !!birthCertificate }, 'Direct endpoint call — live');
+    // Provider revenue share: 90% to provider on live calls
+    const providerShare = creditProviderShare(endpointId, endpointCredits, { cacheHit: false, latencyMs: durationMs });
+
+    logger.info({ requestId, endpointId, creditsUsed: endpointCredits, providerShare, durationMs, hasCert: !!birthCertificate }, 'Direct endpoint call — live');
 
     // Set Soma provenance headers when certificate exists
     if (birthCertificate) {
