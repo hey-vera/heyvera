@@ -182,6 +182,7 @@ Features: content-hash validation, stale-while-revalidate, adaptive TTL, request
 | Creator notifications | periodic | Email notifications |
 | Index sync | periodic | Multi-source endpoint sync (402index, Coinbase, Satring, Cascade, Dexter, x402list) |
 | Soma anchor | periodic | Soma verdict Merkle root → Solana memo |
+| EAS anchor | periodic | Soma receipt Merkle root → Base EAS timestamp |
 | Zauth discovery | 4h | Auto-discover verified x402 endpoints from zauthx402.com |
 | Canary | periodic | Canary checks |
 | Trust decay | periodic | Rating weight decay (10%/30 days) |
@@ -233,7 +234,10 @@ Treasury sweep optional — with 2-wallet setup, treasury credits are pure profi
 | `src/utils/solana-payout.ts` | sendSolanaUsdc(), balance checks |
 | `src/utils/shutdown.ts` | SIGTERM/SIGINT, 15s drain |
 | `src/utils/jcs.ts` | Shared JCS + base58btc + Ed25519 validation |
-| `src/utils/crypto-agility.ts` | somaHash(), post-quantum migration path |
+| `src/utils/crypto-agility.ts` | somaHash(), ML-DSA-65 hybrid signing, post-quantum migration |
+| `src/utils/eas.ts` | EAS integration: off-chain attestations, schema encoding, batch timestamp |
+| `src/core/soma-receipt.ts` | Unified receipt builder for all payment paths |
+| `src/core/eas-anchor-cron.ts` | EAS receipt Merkle anchoring on Base |
 | `src/routes/api.ts` | POST /v1/orchestrate, GET /v1/estimate |
 | `src/routes/endpoints.ts` | GET /v1/endpoints (catalog), POST /v1/endpoints/:id/call (direct invoke) |
 | `src/routes/soma.ts` | Soma verdict API: trust, verdicts, export, anchors |
