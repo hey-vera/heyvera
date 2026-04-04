@@ -9,6 +9,7 @@ import { sendApiKeyEmail } from '../utils/email';
 import { maskApiKey } from '../utils/mask';
 import { env } from '../config/index';
 import crypto from 'crypto';
+import { createSomaReceipt } from '../core/soma-receipt';
 
 export const solanaRouter = new Hono();
 
@@ -222,14 +223,38 @@ solanaRouter.post('/verify', async (c) => {
       .catch((err) => logger.error({ err, clerkUserId }, 'USDC: confirmation email failed — credits were assigned'));
   }
 
+  // Soma Receipt — cryptographic proof of purchase (fire-and-forget)
+  const receiptPromise = createSomaReceipt({
+    requestId: `solana-${signature}`,
+    apiKey,
+    paymentMethod: 'solana',
+    paymentRef: signature,
+    creditsCost: credits,
+    requestData: JSON.stringify({ clerkUserId, expectedUsd, signature }),
+    responseData: JSON.stringify({ credits, totalCredits }),
+  }).catch((err) => logger.error({ err }, 'Soma receipt failed for Solana purchase'));
+
   // Never return the full API key in the response body — it was already emailed
   const maskedKey = maskApiKey(apiKey);
+
+  // Try to include receipt in response (non-blocking — falls back gracefully)
+  let receiptId: string | undefined;
+  let easScanUrl: string | undefined;
+  try {
+    const receipt = await Promise.race([receiptPromise, new Promise(r => setTimeout(r, 2000))]) as any;
+    if (receipt?.id) {
+      receiptId = receipt.id;
+      easScanUrl = receipt.easScanUrl ?? undefined;
+    }
+  } catch { /* non-critical */ }
+
   return c.json({
     ok: true,
     credits,
     totalCredits,
     maskedApiKey: maskedKey,
     message: `${credits.toLocaleString()} credits added. Your API key has been sent to your email.`,
+    ...(receiptId && { receipt: { id: receiptId, verifyUrl: `/v1/soma/receipt/${receiptId}`, easScanUrl } }),
   });
 });
 

@@ -41,15 +41,26 @@ export type PaymentMethodType = (typeof PaymentMethod)[keyof typeof PaymentMetho
 
 // ─── Lazy singletons ────────────────────────────────────────────────────────
 
-let _provider: ethers.JsonRpcProvider | null = null;
+let _provider: ethers.FallbackProvider | ethers.JsonRpcProvider | null = null;
 let _wallet: ethers.Wallet | null = null;
 let _eas: EAS | null = null;
 let _offchain: Offchain | null = null;
 let _schemaEncoder: SchemaEncoder | null = null;
 
-function getProvider(): ethers.JsonRpcProvider {
+function getProvider(): ethers.FallbackProvider | ethers.JsonRpcProvider {
   if (!_provider) {
-    _provider = new ethers.JsonRpcProvider(env.BASE_RPC_URL || BASE_RPC_DEFAULT);
+    const primaryUrl = env.BASE_RPC_URL || BASE_RPC_DEFAULT;
+    const fallbackUrl = env.BASE_RPC_FALLBACK;
+
+    if (fallbackUrl) {
+      // FallbackProvider: tries primary first, falls back to secondary
+      _provider = new ethers.FallbackProvider([
+        { provider: new ethers.JsonRpcProvider(primaryUrl), priority: 1, stallTimeout: 5000 },
+        { provider: new ethers.JsonRpcProvider(fallbackUrl), priority: 2, stallTimeout: 5000 },
+      ]);
+    } else {
+      _provider = new ethers.JsonRpcProvider(primaryUrl);
+    }
   }
   return _provider;
 }
@@ -57,7 +68,9 @@ function getProvider(): ethers.JsonRpcProvider {
 function getWallet(): ethers.Wallet | null {
   if (_wallet) return _wallet;
   if (!env.EVM_PRIVATE_KEY) return null;
-  _wallet = new ethers.Wallet(env.EVM_PRIVATE_KEY, getProvider());
+  const provider = getProvider();
+  // FallbackProvider works with Wallet directly
+  _wallet = new ethers.Wallet(env.EVM_PRIVATE_KEY, provider as any);
   return _wallet;
 }
 

@@ -88,6 +88,7 @@ const envSchema = z.object({
   PLATFORM_PAYOUT_PRIVATE_KEY: z.string().optional(), // bs58 Solana private key — used by payout cron to send USDC
   PAYOUT_USDC_PER_CREDIT: z.coerce.number().min(0.0001).max(1).default(0.00075), // 25% below buy rate ($0.001) — prevents arbitrage
   BASE_RPC_URL: z.string().optional(), // Optional custom Base RPC (defaults to public mainnet.base.org)
+  BASE_RPC_FALLBACK: z.string().optional(), // Fallback Base RPC (e.g. Alchemy) — used when primary fails
 
   // Treasury auto-sweep (optional — with 2-wallet setup, treasury credits are pure profit)
   TREASURY_SWEEP_WALLET: z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/, 'Invalid Solana address').optional(),

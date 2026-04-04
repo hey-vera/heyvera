@@ -7,6 +7,8 @@ import { sendApiKeyEmail } from '../utils/email';
 import { createApiKey, getApiKeyByEmail, topUpCredits, getApiKeyBalance, upsertSubscription, claimStripeSession, isStripeSessionClaimed, isStripeEventProcessed, markStripeEventProcessed, getDb, getStripeChargeRefundedCents, upsertStripeChargeRefundedCents } from '../db/index';
 import { round6 } from '../core/credits';
 import { creditsForDollars } from './billing';
+import { createSomaReceipt } from '../core/soma-receipt';
+import { maskApiKey } from '../utils/mask';
 
 export const stripeRouter = new Hono();
 
@@ -242,6 +244,17 @@ stripeRouter.post('/stripe', async (c) => {
   // Fire-and-forget — don't block the webhook response (Stripe retries on slow responses)
   sendApiKeyEmail({ to: normalizedEmail, apiKey, credits: totalCredits, amountPaid })
     .catch((err) => logger.error({ err, email: normalizedEmail }, 'Failed to send API key email — key was created/updated in DB'));
+
+  // Soma Receipt — cryptographic proof of purchase (fire-and-forget)
+  createSomaReceipt({
+    requestId: `stripe-${session.id}`,
+    apiKey,
+    paymentMethod: 'stripe',
+    paymentRef: session.id,
+    creditsCost: credits,
+    requestData: JSON.stringify({ email: normalizedEmail, amountPaid, sessionId: session.id }),
+    responseData: JSON.stringify({ credits, totalCredits, maskedApiKey: maskApiKey(apiKey) }),
+  }).catch((err) => logger.error({ err }, 'Soma receipt failed for Stripe purchase'));
 
   return c.json({ received: true });
 });

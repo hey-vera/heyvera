@@ -18,6 +18,7 @@ import {
 } from '../db/soma-verdicts';
 import { buildMerkleTree, getMerkleProof } from '../core/merkle-anchor';
 import { somaHash, verifySignature } from '../utils/crypto-agility';
+import { getSomaReceipt, getSomaReceiptByRequestId, getSomaReceiptStats } from '../core/soma-receipt';
 import { jcsSerialize, base58btcDecode } from '../utils/jcs';
 import { getHeartSafe } from '../core/soma';
 import { getEd25519PublicKeyRaw } from '../utils/ed25519-signer';
@@ -344,6 +345,39 @@ router.get('/anchors/:id', (c) => {
       explorer: `https://explorer.solana.com/tx/${anchor.solanaTxHash}`,
     }),
   });
+});
+
+// ─── Soma Receipt endpoints ─────────────────────────────────────────────────
+
+/**
+ * GET /v1/soma/receipt/:id — Public receipt lookup (no auth required).
+ * Anyone with a receipt ID can verify the transaction.
+ */
+router.get('/receipt/:id', async (c) => {
+  const id = c.req.param('id');
+  const receipt = getSomaReceipt(id) ?? getSomaReceiptByRequestId(id);
+
+  if (!receipt) {
+    return c.json({ error: 'Receipt not found', code: 'RECEIPT_NOT_FOUND' }, 404);
+  }
+
+  return c.json({
+    receipt,
+    _links: {
+      self: `/v1/soma/receipt/${receipt.id}`,
+      ...(receipt.easScanUrl && { easscan: receipt.easScanUrl }),
+      verify: `/v1/soma/receipt/${receipt.id}/verify`,
+      platform: '/.well-known/soma.json',
+    },
+  });
+});
+
+/**
+ * GET /v1/soma/receipts/stats — Receipt statistics (public).
+ */
+router.get('/receipts/stats', async (c) => {
+  const stats = getSomaReceiptStats();
+  return c.json(stats);
 });
 
 export { router as somaRouter };
