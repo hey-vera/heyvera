@@ -1522,6 +1522,77 @@ const MIGRATIONS: { version: number; sql: string }[] = [
     CREATE INDEX IF NOT EXISTS idx_soma_receipts_unanchored ON soma_receipts(anchored_at) WHERE anchored_at IS NULL;
     CREATE INDEX IF NOT EXISTS idx_soma_receipts_created ON soma_receipts(created_at DESC);
   ` },
+
+  // ─── v125-130: Provider Umbrella + Dual-Sign Protocol ──────────────────
+
+  // v125: Providers table — x402 providers who route through ClawNet
+  { version: 125, sql: `
+    CREATE TABLE IF NOT EXISTS providers (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      slug TEXT NOT NULL UNIQUE,
+      email TEXT NOT NULL,
+      clerk_user_id TEXT,
+      evm_wallet TEXT,
+      solana_wallet TEXT,
+      soma_public_key TEXT,
+      soma_discovery_url TEXT,
+      description TEXT,
+      website_url TEXT,
+      revenue_share_pct REAL NOT NULL DEFAULT 0.85,
+      status TEXT NOT NULL DEFAULT 'pending',
+      verified INTEGER NOT NULL DEFAULT 0,
+      soma_enabled INTEGER NOT NULL DEFAULT 0,
+      total_calls INTEGER NOT NULL DEFAULT 0,
+      total_cache_hits INTEGER NOT NULL DEFAULT 0,
+      total_revenue_usdc REAL NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_providers_slug ON providers(slug);
+    CREATE INDEX IF NOT EXISTS idx_providers_clerk ON providers(clerk_user_id) WHERE clerk_user_id IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_providers_status ON providers(status);
+  ` },
+
+  // v126: Provider endpoints mapping — which endpoints belong to which provider
+  { version: 126, sql: `
+    CREATE TABLE IF NOT EXISTS provider_endpoints (
+      provider_id TEXT NOT NULL,
+      endpoint_id TEXT NOT NULL,
+      registered_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (provider_id, endpoint_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_prov_ep_provider ON provider_endpoints(provider_id);
+    CREATE INDEX IF NOT EXISTS idx_prov_ep_endpoint ON provider_endpoints(endpoint_id);
+  ` },
+
+  // v127: Provider-scoped API keys — link api_keys to a provider
+  { version: 127, sql: `ALTER TABLE api_keys ADD COLUMN provider_id TEXT` },
+
+  // v128: Provider analytics — daily aggregates for dashboard
+  { version: 128, sql: `
+    CREATE TABLE IF NOT EXISTS provider_analytics (
+      provider_id TEXT NOT NULL,
+      date TEXT NOT NULL,
+      calls INTEGER NOT NULL DEFAULT 0,
+      cache_hits INTEGER NOT NULL DEFAULT 0,
+      cache_savings_credits REAL NOT NULL DEFAULT 0,
+      revenue_usdc REAL NOT NULL DEFAULT 0,
+      avg_latency_ms REAL NOT NULL DEFAULT 0,
+      errors INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (provider_id, date)
+    );
+  ` },
+
+  // v129: Dual-sign fields on soma_receipts — stores provider provenance alongside platform
+  { version: 129, sql: `ALTER TABLE soma_receipts ADD COLUMN provider_id TEXT` },
+  { version: 130, sql: `ALTER TABLE soma_receipts ADD COLUMN provider_signature TEXT` },
+  { version: 131, sql: `ALTER TABLE soma_receipts ADD COLUMN provider_public_key TEXT` },
+  { version: 132, sql: `ALTER TABLE soma_receipts ADD COLUMN provider_data_hash TEXT` },
+  { version: 133, sql: `ALTER TABLE soma_receipts ADD COLUMN provider_heartbeat_index INTEGER` },
+  { version: 134, sql: `ALTER TABLE soma_receipts ADD COLUMN dual_signed INTEGER NOT NULL DEFAULT 0` },
+  { version: 135, sql: `CREATE INDEX IF NOT EXISTS idx_soma_receipts_provider ON soma_receipts(provider_id) WHERE provider_id IS NOT NULL` },
+  { version: 136, sql: `CREATE INDEX IF NOT EXISTS idx_soma_receipts_dual ON soma_receipts(dual_signed) WHERE dual_signed = 1` },
 ];
 
 function runMigrations(): void {

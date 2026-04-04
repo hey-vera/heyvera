@@ -23,6 +23,7 @@ import type { MiddlewareHandler } from 'hono';
 import { getHeartSafe, getLastGenerationProvenance } from '../core/soma';
 import { getLastBirthCertificate } from '../providers/clawapis';
 import { getEd25519PublicKeyRaw } from '../utils/ed25519-signer';
+import { getLastDualSignResult } from '../core/dual-sign-state';
 import { logger } from '../utils/logger';
 
 let loggedOnce = false;
@@ -41,13 +42,39 @@ export const somaProvenance: MiddlewareHandler = async (c, next) => {
       c.res.headers.set('X-Soma-Genome-Hash', heart.genomeCommitment.hash);
     }
 
-    // Birth certificate headers (from fetchData — data provenance)
-    const cert = getLastBirthCertificate();
-    if (cert) {
-      c.res.headers.set('X-Soma-Data-Hash', cert.dataHash);
-      c.res.headers.set('X-Soma-Signature', cert.signature);
-      c.res.headers.set('X-Soma-Heartbeat-Index', String(cert.heartbeatIndex));
-      c.res.headers.set('X-Soma-Public-Key', cert.publicKey);
+    // ── Dual-sign headers (takes priority over single-sign) ─────────────
+    const dualSign = getLastDualSignResult();
+    if (dualSign) {
+      // Dual-sign meta
+      c.res.headers.set('X-Soma-Dual-Signed', 'true');
+      c.res.headers.set('X-Soma-Chain-Hash', dualSign.chainHash);
+      c.res.headers.set('X-Soma-Provider-Verified', String(dualSign.providerVerified));
+
+      // Provider cert headers
+      c.res.headers.set('X-Soma-Provider-Data-Hash', dualSign.provider.dataHash);
+      c.res.headers.set('X-Soma-Provider-Signature', dualSign.provider.signature);
+      c.res.headers.set('X-Soma-Provider-Public-Key', dualSign.provider.publicKey);
+      c.res.headers.set('X-Soma-Provider-Heartbeat-Index', String(dualSign.provider.heartbeatIndex));
+      if (dualSign.provider.genomeHash) {
+        c.res.headers.set('X-Soma-Provider-Genome-Hash', dualSign.provider.genomeHash);
+      }
+
+      // Platform cert headers (backwards compatible — standard X-Soma-* names)
+      c.res.headers.set('X-Soma-Data-Hash', dualSign.platform.dataHash);
+      c.res.headers.set('X-Soma-Signature', dualSign.platform.signature);
+      c.res.headers.set('X-Soma-Public-Key', dualSign.platform.publicKey);
+      if (dualSign.platform.heartbeatIndex != null) {
+        c.res.headers.set('X-Soma-Heartbeat-Index', String(dualSign.platform.heartbeatIndex));
+      }
+    } else {
+      // Single-sign: birth certificate headers (from fetchData — data provenance)
+      const cert = getLastBirthCertificate();
+      if (cert) {
+        c.res.headers.set('X-Soma-Data-Hash', cert.dataHash);
+        c.res.headers.set('X-Soma-Signature', cert.signature);
+        c.res.headers.set('X-Soma-Heartbeat-Index', String(cert.heartbeatIndex));
+        c.res.headers.set('X-Soma-Public-Key', cert.publicKey);
+      }
     }
 
     // Generation provenance headers (from heart.generate — model verification)
@@ -61,7 +88,7 @@ export const somaProvenance: MiddlewareHandler = async (c, next) => {
     }
 
     if (!loggedOnce) {
-      logger.info('Soma provenance headers active — X-Soma-* headers attached to responses');
+      logger.info('Soma provenance headers active — X-Soma-* headers attached to responses (dual-sign ready)');
       loggedOnce = true;
     }
   } catch (err) {

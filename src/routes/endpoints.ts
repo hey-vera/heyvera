@@ -7,6 +7,7 @@ import { isClawApisReady, clawApiCall, getLastBirthCertificate } from '../provid
 import { cacheKey, smartCacheGet, smartCacheSet, cacheNegative, getNegativeCache, coalesceRequest, type CacheFreshness } from '../cache/index';
 import { deductCredit } from '../db/index';
 import { trackDelegatedSpend } from '../utils/billing';
+import { checkProviderScope } from '../middleware/auth';
 import { maskApiKey } from '../utils/mask';
 import { logger } from '../utils/logger';
 import { nanoid } from 'nanoid';
@@ -139,6 +140,12 @@ endpointsRouter.post('/:id/call', async (c) => {
   const endpoint = findEndpoint(endpointId);
   if (!endpoint) {
     return c.json({ requestId, error: 'Endpoint not found', code: 'ENDPOINT_NOT_FOUND', hint: 'Browse available endpoints at GET /v1/endpoints' }, 404);
+  }
+
+  // ── Provider scope check ────────────────────────────────────────────────
+  const providerCheck = checkProviderScope(c, endpointId);
+  if (!providerCheck.allowed) {
+    return c.json({ requestId, error: providerCheck.reason, code: 'PROVIDER_SCOPE_DENIED' }, 403);
   }
 
   // ── Parse params ─────────────────────────────────────────────────────────

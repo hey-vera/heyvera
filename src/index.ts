@@ -88,6 +88,7 @@ import { startIndexSync } from './core/index-sync';
 import { startSomaAnchorCron } from './core/soma-anchor-cron';
 import { startEasAnchorCron } from './core/eas-anchor-cron';
 import { startZauthDiscovery } from './core/zauth-discovery';
+import { providersRouter } from './routes/providers';
 import { somaRouter } from './routes/soma';
 import { startCanaryCron } from './core/canary';
 import { getIndexedEndpoints, countIndexedEndpoints, searchIndexedEndpoints, getIndexedEndpointsSyncInfo } from './db/index';
@@ -308,6 +309,7 @@ app.route('/mcp/x402', x402McpRouter);
 app.route('/v1/stats/telemetry', statsTelemetryRouter);
 app.route('/v1/register', registerRouter);
 app.route('/v1/soma', somaRouter);
+app.route('/v1/providers', providersRouter);
 app.route('/x402/facilitator', x402FacilitatorRouter);
 app.route('/v1/skills', skillBuilderRouter);
 // app.route('/v1/referral', referralRouter); // disabled — re-enable when referral program launches

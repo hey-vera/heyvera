@@ -1,7 +1,7 @@
 import { createMiddleware } from 'hono/factory';
 import type { Context } from 'hono';
 import crypto from 'crypto';
-import { getApiKey, getDelegationInfo, resetBudgetCountersIfNeeded, checkBudgetLimits, safeJsonParse, getHardBudgetLock, getMonthlySpend } from '../db/index';
+import { getApiKey, getDelegationInfo, resetBudgetCountersIfNeeded, checkBudgetLimits, safeJsonParse, getHardBudgetLock, getMonthlySpend, getProviderForApiKey, isProviderEndpoint } from '../db/index';
 import { env } from '../config/index';
 import { logger } from '../utils/logger';
 import { maskApiKey } from '../utils/mask';
@@ -98,8 +98,30 @@ declare module 'hono' {
         allowedProviders?: string[] | null;
         activeHours?: { startUtc: number; endUtc: number } | null;
       };
+      /** Set when this is a provider-scoped key — can only call provider's own endpoints */
+      providerId?: string;
     };
   }
+}
+
+/**
+ * Check whether a provider-scoped key is allowed to call a given endpoint.
+ * Returns { allowed: true } or { allowed: false, reason: string }.
+ *
+ * Non-provider keys always pass. Provider keys can only call endpoints
+ * registered to their provider via the provider_endpoints table.
+ */
+export function checkProviderScope(c: Context, endpointId: string): { allowed: boolean; reason?: string } {
+  const keyInfo = c.get('apiKeyInfo');
+  if (!keyInfo?.providerId) return { allowed: true }; // not a provider key
+
+  if (!isProviderEndpoint(keyInfo.providerId, endpointId)) {
+    return {
+      allowed: false,
+      reason: `Provider-scoped key can only call endpoints registered to provider ${keyInfo.providerId}. Endpoint ${endpointId} is not registered.`,
+    };
+  }
+  return { allowed: true };
 }
 
 export const checkApiKey = createMiddleware(async (c, next) => {
@@ -200,6 +222,14 @@ export const checkApiKey = createMiddleware(async (c, next) => {
       amountPaid: keyRecord.amount_paid ?? 0,
       isEnvKey: false,
     });
+  }
+
+  // Resolve provider scope (if this key is provider-scoped)
+  const resolvedKey = delegation ? delegation.parent_key : key;
+  const providerId = getProviderForApiKey(resolvedKey);
+  if (providerId) {
+    const info = c.get('apiKeyInfo');
+    c.set('apiKeyInfo', { ...info, providerId });
   }
 
   // Check hard budget lock for the BILLING key (parent for delegated, direct otherwise)

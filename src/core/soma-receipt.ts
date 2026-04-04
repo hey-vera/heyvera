@@ -59,6 +59,16 @@ export interface SomaReceiptInput {
   cached?: boolean;
   /** Recipient address (for EAS attestation — caller's wallet if known) */
   recipientAddress?: string;
+  /** Dual-sign: provider ID if this call came through a Soma-enabled provider */
+  providerId?: string;
+  /** Dual-sign: provider's Ed25519 signature over their data hash */
+  providerSignature?: string;
+  /** Dual-sign: provider's Ed25519 public key */
+  providerPublicKey?: string;
+  /** Dual-sign: provider's data hash from their birth certificate */
+  providerDataHash?: string;
+  /** Dual-sign: provider's heartbeat index */
+  providerHeartbeatIndex?: number;
 }
 
 export interface SomaReceipt {
@@ -88,6 +98,15 @@ export interface SomaReceipt {
     attesterAddress: string | null;
     algorithm: string;
     hashAlgorithm: string;
+  };
+  /** Dual-sign provenance — present when provider runs Soma heart */
+  dualSign?: {
+    providerId: string;
+    providerSignature: string;
+    providerPublicKey: string;
+    providerDataHash: string;
+    providerHeartbeatIndex: number | null;
+    dualSigned: true;
   };
 }
 
@@ -166,8 +185,9 @@ export async function createSomaReceipt(input: SomaReceiptInput): Promise<SomaRe
       }
     }
 
-    // Store in DB
+    // Store in DB (includes dual-sign fields when provider runs Soma heart)
     const apiKeyHash = input.apiKey ? somaHash(input.apiKey) : null;
+    const isDualSigned = !!(input.providerSignature && input.providerPublicKey);
 
     getDb().prepare(`
       INSERT INTO soma_receipts (
@@ -175,8 +195,10 @@ export async function createSomaReceipt(input: SomaReceiptInput): Promise<SomaRe
         credits_cost, request_hash, response_hash, soma_data_hash,
         heartbeat_index, eas_attestation_json, eas_uid,
         signature_ed25519, signature_mldsa65, algorithm_version,
+        provider_id, provider_signature, provider_public_key,
+        provider_data_hash, provider_heartbeat_index, dual_signed,
         created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       input.requestId,
@@ -193,6 +215,12 @@ export async function createSomaReceipt(input: SomaReceiptInput): Promise<SomaRe
       signature,
       hybrid?.mlDsa65 || null,
       hybrid ? '2.0' : '1.0',
+      input.providerId ?? null,
+      input.providerSignature ?? null,
+      input.providerPublicKey ?? null,
+      input.providerDataHash ?? null,
+      input.providerHeartbeatIndex ?? null,
+      isDualSigned ? 1 : 0,
       now,
     );
 
@@ -206,6 +234,8 @@ export async function createSomaReceipt(input: SomaReceiptInput): Promise<SomaRe
         creditsCost: input.creditsCost,
         easUid,
         algorithm,
+        dualSigned: isDualSigned,
+        providerId: input.providerId,
       },
     });
 
@@ -234,6 +264,14 @@ export async function createSomaReceipt(input: SomaReceiptInput): Promise<SomaRe
         algorithm,
         hashAlgorithm: cryptoMeta.hashAlgorithm,
       },
+      dualSign: isDualSigned ? {
+        providerId: input.providerId!,
+        providerSignature: input.providerSignature!,
+        providerPublicKey: input.providerPublicKey!,
+        providerDataHash: input.providerDataHash!,
+        providerHeartbeatIndex: input.providerHeartbeatIndex ?? null,
+        dualSigned: true,
+      } : undefined,
     };
   } catch (err) {
     console.error('[SomaReceipt] Failed to create receipt:', err);
@@ -284,6 +322,14 @@ export function getSomaReceipt(receiptId: string): SomaReceipt | null {
       algorithm,
       hashAlgorithm: cryptoMeta.hashAlgorithm,
     },
+    dualSign: row.dual_signed ? {
+      providerId: row.provider_id,
+      providerSignature: row.provider_signature,
+      providerPublicKey: row.provider_public_key,
+      providerDataHash: row.provider_data_hash,
+      providerHeartbeatIndex: row.provider_heartbeat_index,
+      dualSigned: true,
+    } : undefined,
   };
 }
 
