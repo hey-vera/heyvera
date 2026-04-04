@@ -266,7 +266,25 @@
     .value-card.featured { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 40px; align-items: center; }
     .value-card.featured .icon { display: none; }
 
-    /* (stack chips removed) */
+    /* ── SOMA RECEIPT VISUAL ── */
+    .soma-receipt {
+      background: var(--bg-surface-2); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg);
+      font-family: var(--font-mono); font-size: 12px; overflow: hidden;
+    }
+    .soma-receipt-header {
+      display: flex; align-items: center; gap: 8px; padding: 10px 16px;
+      background: var(--bg-surface-3); border-bottom: 1px solid var(--border-subtle);
+    }
+    .soma-receipt-body { padding: 16px; display: flex; flex-direction: column; gap: 8px; }
+    .soma-receipt-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+    .soma-receipt-label { color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; }
+    .soma-receipt-val { color: var(--text-secondary); font-size: 11px; text-align: right; word-break: break-all; }
+    .soma-receipt-val.accent { color: var(--accent); }
+    .soma-receipt-val.purple { color: var(--purple); }
+    .soma-receipt-divider { border: none; border-top: 1px solid var(--border-subtle); margin: 4px 0; }
+    .soma-receipt-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 600; padding: 3px 8px; border-radius: 9999px; }
+    .soma-receipt-badge.green { background: var(--accent-dim); color: var(--accent); }
+    .soma-receipt-badge.blue { background: var(--info-dim); color: var(--info); }
 
     /* ── API DEMO ── */
     .api-demo { max-width: 900px; border: 1px solid var(--border-subtle); border-radius: var(--radius-xl); overflow: hidden; background: var(--bg-surface); box-shadow: var(--shadow-lg); }
@@ -587,17 +605,17 @@ console.<span class="hl-method">log</span>(receipt.easScanUrl);
 
     <div class="problem-grid">
       <div class="problem-card">
-        <div class="problem-num">01</div>
+        <div class="tw-mb-4 tw-inline-flex tw-items-center tw-justify-center tw-w-10 tw-h-10 tw-rounded-lg" style="background:var(--danger-dim)"><i data-lucide="unplug" class="tw-w-5 tw-h-5" style="color:var(--danger)"></i></div>
         <h3>No marketplace</h3>
         <p>Every agent team builds custom integrations for every data source. There's no shared layer where agents discover and consume services programmatically.</p>
       </div>
       <div class="problem-card">
-        <div class="problem-num">02</div>
+        <div class="tw-mb-4 tw-inline-flex tw-items-center tw-justify-center tw-w-10 tw-h-10 tw-rounded-lg" style="background:var(--warning-dim)"><i data-lucide="file-question" class="tw-w-5 tw-h-5" style="color:var(--warning)"></i></div>
         <h3>No accountability</h3>
         <p>An agent pays for a service and gets bad data. There's no receipt, no proof of what was delivered, no way to dispute it. Money gone.</p>
       </div>
       <div class="problem-card">
-        <div class="problem-num">03</div>
+        <div class="tw-mb-4 tw-inline-flex tw-items-center tw-justify-center tw-w-10 tw-h-10 tw-rounded-lg" style="background:var(--info-dim)"><i data-lucide="user-x" class="tw-w-5 tw-h-5" style="color:var(--info)"></i></div>
         <h3>No reputation</h3>
         <p>A reliable agent with 10,000 successful transactions looks identical to one created five minutes ago. Trust doesn't carry anywhere.</p>
       </div>
@@ -631,10 +649,56 @@ console.<span class="hl-method">log</span>(receipt.easScanUrl);
         <h3>Micropayments</h3>
         <p>Fractional credits from $0.001. Pay per query, not per month. Supports card and USDC on Solana. Delegated budgets let sub-agents spend on your behalf.</p>
       </div>
-      <div class="value-card">
-        <div class="tw-mb-3 tw-inline-flex tw-items-center tw-justify-center tw-w-10 tw-h-10 tw-rounded-lg" style="background:var(--purple-dim)"><i data-lucide="shield-check" class="tw-w-5 tw-h-5" style="color:var(--purple)"></i></div>
-        <h3>Verifiable Trust</h3>
-        <p>Every API call produces a cryptographic receipt via the Soma protocol. Ed25519 + ML-DSA-65 dual signatures, EAS attestation on Base, five-layer provenance chain.</p>
+      <div class="value-card featured" style="border-color:rgba(139,92,246,0.2)">
+        <div>
+          <div class="tw-mb-3 tw-inline-flex tw-items-center tw-justify-center tw-w-10 tw-h-10 tw-rounded-lg" style="background:var(--purple-dim)"><i data-lucide="shield-check" class="tw-w-5 tw-h-5" style="color:var(--purple)"></i></div>
+          <h3>Verifiable Trust</h3>
+          <p>Every API call produces a cryptographic receipt via the Soma protocol. Ed25519 + ML-DSA-65 dual signatures, EAS attestation on Base, five-layer provenance chain.</p>
+          <div style="display:flex;gap:8px;margin-top:16px;flex-wrap:wrap">
+            <span class="soma-receipt-badge green"><i data-lucide="check-circle" class="tw-w-3 tw-h-3"></i> Dual-signed</span>
+            <span class="soma-receipt-badge blue"><i data-lucide="anchor" class="tw-w-3 tw-h-3"></i> On-chain anchored</span>
+            <span class="soma-receipt-badge green"><i data-lucide="lock" class="tw-w-3 tw-h-3"></i> Post-quantum</span>
+          </div>
+        </div>
+        <div class="soma-receipt">
+          <div class="soma-receipt-header">
+            <i data-lucide="file-badge" class="tw-w-4 tw-h-4" style="color:var(--purple)"></i>
+            <span style="font-size:11px;font-weight:600;color:var(--text-primary)">Soma Receipt</span>
+            <span style="font-size:10px;color:var(--text-muted);margin-left:auto">sr-7f3a9b2c</span>
+          </div>
+          <div class="soma-receipt-body">
+            <div class="soma-receipt-row">
+              <span class="soma-receipt-label">Source</span>
+              <span class="soma-receipt-val">clawapis.com/sol-price</span>
+            </div>
+            <div class="soma-receipt-row">
+              <span class="soma-receipt-label">Data Hash</span>
+              <span class="soma-receipt-val" style="color:var(--accent-text)">sha256:a7f3c9e...d41b</span>
+            </div>
+            <div class="soma-receipt-row">
+              <span class="soma-receipt-label">Signature</span>
+              <span class="soma-receipt-val" style="color:#fbbf24">z3hQ9xR...k7Wp</span>
+            </div>
+            <hr class="soma-receipt-divider">
+            <div class="soma-receipt-row">
+              <span class="soma-receipt-label">Algorithm</span>
+              <span class="soma-receipt-val accent">Ed25519+ML-DSA-65</span>
+            </div>
+            <div class="soma-receipt-row">
+              <span class="soma-receipt-label">Heartbeat</span>
+              <span class="soma-receipt-val" style="color:#c084fc">#1847</span>
+            </div>
+            <div class="soma-receipt-row">
+              <span class="soma-receipt-label">EAS</span>
+              <span class="soma-receipt-val"><a href="https://base.easscan.org" style="color:var(--info);text-decoration:none;font-size:11px">base.easscan.org <i data-lucide="external-link" class="tw-w-2.5 tw-h-2.5 tw-inline-block" style="vertical-align:-1px"></i></a></span>
+            </div>
+            <hr class="soma-receipt-divider">
+            <div class="soma-receipt-row">
+              <span class="soma-receipt-label">Status</span>
+              <span class="soma-receipt-badge green" style="font-size:10px"><i data-lucide="check" class="tw-w-3 tw-h-3"></i> Verified</span>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -883,22 +947,36 @@ console.<span class="hl-method">log</span>(receipt.easScanUrl);
     <h2 class="heading-lg" style="margin-bottom:16px">Two ways to pay. Both usage-based.</h2>
     <p class="body" style="max-width:560px;margin-bottom:40px">No subscriptions, no minimums. You only pay for what your agent actually uses.</p>
 
+    <div style="text-align:center;margin-bottom:32px">
+      <span style="font-family:var(--font-mono);font-size:clamp(36px,4vw,52px);font-weight:700;color:var(--text-primary);letter-spacing:-0.03em">$0.001</span>
+      <span style="font-size:16px;color:var(--text-tertiary);margin-left:8px">per credit</span>
+      <div style="font-size:13px;color:var(--text-muted);margin-top:6px">Average query: 0.5 credits = $0.0005. Cached: 90% cheaper.</div>
+    </div>
+
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
-      <div class="pricing-inline">
+      <div class="pricing-inline" style="position:relative;overflow:hidden">
+        <div style="position:absolute;top:0;left:0;right:0;height:2px;background:var(--accent)"></div>
         <div class="pricing-main">
-          <h3 style="font-size:16px">Credits + API key</h3>
-          <div class="pricing-detail" style="margin-top:8px">
-            Pre-fund your account. 1 credit = $0.001. Most queries cost less than a penny. Cached responses are 90% cheaper. Credits never expire.<br>
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+            <div class="tw-inline-flex tw-items-center tw-justify-center tw-w-8 tw-h-8 tw-rounded-md" style="background:var(--accent-dim)"><i data-lucide="credit-card" class="tw-w-4 tw-h-4" style="color:var(--accent)"></i></div>
+            <h3 style="font-size:16px;margin:0">Credits + API key</h3>
+          </div>
+          <div class="pricing-detail">
+            Pre-fund your account. Most queries cost less than a penny. Cached responses are 90% cheaper. Credits never expire.<br>
             <span style="color:var(--text-muted);font-size:12px">Volume discounts up to +100%. Pay with card or USDC on Solana (+7% bonus).</span>
           </div>
           <a href="/dashboard" class="btn btn-ghost" style="margin-top:16px;font-size:12px">Dashboard &rarr;</a>
         </div>
       </div>
-      <div class="pricing-inline">
+      <div class="pricing-inline" style="position:relative;overflow:hidden">
+        <div style="position:absolute;top:0;left:0;right:0;height:2px;background:var(--purple)"></div>
         <div class="pricing-main">
-          <h3 style="font-size:16px">x402 + Solana wallet</h3>
-          <div class="pricing-detail" style="margin-top:8px">
-            No account needed. Your agent pays USDC per-request via the x402 protocol. Connect a Solana wallet and transact directly &mdash; no credits, no API key, no sign-up.<br>
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+            <div class="tw-inline-flex tw-items-center tw-justify-center tw-w-8 tw-h-8 tw-rounded-md" style="background:var(--purple-dim)"><i data-lucide="wallet" class="tw-w-4 tw-h-4" style="color:var(--purple)"></i></div>
+            <h3 style="font-size:16px;margin:0">x402 + Solana wallet</h3>
+          </div>
+          <div class="pricing-detail">
+            No account needed. Your agent pays USDC per-request via x402. Connect a Solana wallet and transact directly &mdash; no credits, no API key, no sign-up.<br>
             <span style="color:var(--text-muted);font-size:12px">Native agent-to-agent payment. Works with any x402-compatible client.</span>
           </div>
           <a href="/docs#x402" class="btn btn-ghost" style="margin-top:16px;font-size:12px">x402 Docs &rarr;</a>
