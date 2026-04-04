@@ -113,15 +113,38 @@ Layers 1-2 are opt-in. Layers 3-5 are always-on for paid interactions.
 
 ## Provider Umbrella
 
-x402 providers register their endpoints and route traffic through ClawNet to get caching, Soma provenance, and analytics without building infrastructure. 90% revenue share on live calls, 0% on cache hits.
+x402 providers register their endpoints and route traffic through ClawNet. Three tiers:
 
-- **Self-service:** `POST /v1/providers/register` (any API key holder) — creates provider in pending status
-- **Admin registration:** `POST /v1/providers` (admin) — creates provider account directly
+| Tier | Fee | Live Share | Cache Revenue | Key Features |
+|------|-----|-----------|---------------|-------------|
+| Open | 0% | 100% | None | Listing + basic analytics |
+| Standard | 5% | 95% | 50% of cache hits | Orchestration, cache revenue, Soma provenance |
+| Verified | 10% | 90% | 50% of cache hits | Priority orchestration, cache warming, PQ sigs, trust badge |
+
+Cache hits are pure profit for providers — their server is never touched.
+
+- **Tier comparison:** `GET /v1/providers/tiers` (public) — tier details and pricing
+- **Self-service:** `POST /v1/providers/register` (any API key holder) — pending review
+- **Admin registration:** `POST /v1/providers` (admin) — direct creation
+- **Tier change:** `POST /v1/providers/:id/tier` (admin) — set open/standard/verified
 - **Endpoint mapping:** `POST /v1/providers/:id/endpoints` — links endpoints to provider
-- **Scoped keys:** `POST /v1/providers/:id/keys` — creates API key restricted to provider's endpoints
+- **Freshness declarations:** `PATCH /v1/providers/:id/endpoints/:eid/freshness` — set TTL, enable cache warming
+- **Revenue dashboard:** `GET /v1/providers/:id/revenue` — live vs cache revenue, comparison to direct
+- **Scoped keys:** `POST /v1/providers/:id/keys` — API key restricted to provider's endpoints
 - **Analytics:** `GET /v1/providers/:id/analytics` — calls, cache hits, revenue, latency
 - **Dual-sign:** Providers running Soma heart get automatic dual-signed provenance
-- **Verify mode:** `POST /v1/soma/verify` — agents call providers directly, submit cert for async verification (zero latency)
+- **Verify mode:** `POST /v1/soma/verify` — agents call providers directly, submit cert for async verification
+- **Cache warming:** Provider sets `cacheWarm: true` + `updateFrequencySeconds` — proactive refresh cron
+
+## Certified Cache Layer
+
+Every cache entry gets a Soma certificate chaining to the original birth certificate. Cached data is MORE trustworthy than direct calls — triple provenance.
+
+- **Certificate creation:** On every cache set after a live fetch (`src/core/cache-certificate.ts`)
+- **Certificate serving:** Cache hits include `provenance.cacheCert` with original cert + cache cert + chain hash
+- **Freshness verification:** Agents request `maxAge` (seconds) — cache only serves if fresh enough
+- **Cleanup:** Expired certificates pruned automatically
+- **DB:** `cache_certificates` table (migration v144)
 
 ## Promo Codes
 

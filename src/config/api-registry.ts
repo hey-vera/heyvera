@@ -3779,6 +3779,23 @@ export function registryToPromptContextFiltered(query: string, maxEndpoints: num
       }
     }
 
+    // Trust-weighted orchestration: boost endpoints owned by high-trust providers
+    // Lazy-load to avoid circular dependency (config → db)
+    try {
+      const { getEndpointProvider, getProvider } = require('../db/providers');
+      const providerId = getEndpointProvider(ep.id);
+      if (providerId) {
+        const provider = getProvider(providerId);
+        if (provider?.status === 'active') {
+          // Trust score 0-100 maps to 0-3 bonus points
+          score += (provider.trustScore / 100) * 3;
+          // Verified providers get extra boost
+          if (provider.tier === 'verified') score += 2;
+          else if (provider.tier === 'standard') score += 1;
+        }
+      }
+    } catch { /* DB not initialized during startup — skip trust weighting */ }
+
     return { ep, score };
   });
 

@@ -36,6 +36,8 @@ import {
   getProviderAnalytics,
   getProviderStats,
   setApiKeyProvider,
+  updateEndpointFreshness,
+  getEndpointFreshness,
 } from '../db/index';
 import { findEndpoint } from '../config/api-registry';
 import { logger } from '../utils/logger';
@@ -46,6 +48,45 @@ import { cacheIncr } from '../cache/index';
 import { getClientIp } from '../middleware/rate-limit';
 
 const providersRouter = new Hono();
+
+// ─── GET /v1/providers/tiers — public tier comparison ──────────────────────
+
+providersRouter.get('/tiers', (c) => {
+  return c.json({
+    tiers: [
+      {
+        id: 'open',
+        name: 'Open',
+        platformFee: '0%',
+        liveCallShare: '100% to provider',
+        cacheRevenue: 'None',
+        features: ['Endpoint listing', 'Basic analytics'],
+        bestFor: 'Testing the waters — zero risk, zero cost',
+      },
+      {
+        id: 'standard',
+        name: 'Standard',
+        platformFee: '5%',
+        liveCallShare: '95% to provider',
+        cacheRevenue: '50% of cache hits (pure profit)',
+        features: ['Cache revenue share', 'Orchestration inclusion', 'Full analytics', 'Soma provenance'],
+        bestFor: 'Growing providers who want distribution + trust',
+      },
+      {
+        id: 'verified',
+        name: 'Verified',
+        platformFee: '10%',
+        liveCallShare: '90% to provider',
+        cacheRevenue: '50% of cache hits (pure profit)',
+        features: ['Everything in Standard', 'Priority orchestration', 'Cache warming', 'PQ signatures', 'Soma Verified badge', 'Trust score boost'],
+        bestFor: 'Production providers who want maximum trust + traffic',
+      },
+    ],
+    comparison: {
+      note: 'Cache hits are pure profit — your server is never touched. Providers typically earn MORE through ClawNet than direct due to orchestration discovery + cache revenue.',
+    },
+  });
+});
 
 // ─── POST /v1/providers/register — self-service provider registration ──────
 // Any API key holder can register as a provider. Starts in 'pending' status.
@@ -94,11 +135,22 @@ providersRouter.post('/register', checkApiKey, async (c) => {
     ok: true,
     provider,
     message: 'Provider registered successfully. Status: pending — admin will review and activate.',
+    tier: {
+      current: 'standard',
+      fee: '10%',
+      benefits: 'Cache revenue share, orchestration inclusion, analytics, Soma provenance',
+      tiers: {
+        open: { fee: '0%', benefits: 'Endpoint listing only — no cache, no orchestration priority' },
+        standard: { fee: '5%', benefits: 'Cache revenue share (50%), orchestration, analytics' },
+        verified: { fee: '10%', benefits: 'Full Soma provenance, cache warming, priority orchestration, PQ signatures, trust badge' },
+      },
+    },
     nextSteps: [
       'Your API key is now linked to this provider.',
       'Once activated, register your endpoints via POST /v1/providers/:id/endpoints.',
-      'You earn 90% of endpoint revenue on live calls through ClawNet.',
-      'Cache hits = $0 cost for you (your server is not touched).',
+      'You earn 90% of live call revenue + 50% of cache hit revenue (pure profit).',
+      'Set freshness declarations: PATCH /v1/providers/:id/endpoints/:eid/freshness.',
+      'Enable cache warming for always-fresh responses.',
       'Enable Soma dual-sign by adding your public key for provenance chain-of-custody.',
     ],
   }, 201);
@@ -214,6 +266,40 @@ providersRouter.post('/:id/activate', async (c) => {
   return c.json({ ok: true, provider: updated });
 });
 
+// ─── POST /v1/providers/:id/tier — set provider tier (admin) ───────────────
+
+const TIER_CONFIG = {
+  open:     { platformFeePct: 0, revenueSharePct: 1.00, cacheRevenueSharePct: 0 },
+  standard: { platformFeePct: 0.05, revenueSharePct: 0.95, cacheRevenueSharePct: 0.50 },
+  verified: { platformFeePct: 0.10, revenueSharePct: 0.90, cacheRevenueSharePct: 0.50 },
+} as const;
+
+providersRouter.post('/:id/tier', async (c) => {
+  if (!requireAdmin(c)) {
+    return c.json({ error: 'Admin access required', code: 'ADMIN_REQUIRED' }, 403);
+  }
+
+  const id = c.req.param('id');
+  const body = await c.req.json().catch(() => ({}));
+  const tier = (body as any).tier as string;
+
+  if (!tier || !['open', 'standard', 'verified'].includes(tier)) {
+    return c.json({ error: 'tier must be open, standard, or verified', code: 'VALIDATION_ERROR' }, 400);
+  }
+
+  const config = TIER_CONFIG[tier as keyof typeof TIER_CONFIG];
+
+  getDb().prepare(`
+    UPDATE providers SET tier = ?, platform_fee_pct = ?, revenue_share_pct = ?, cache_revenue_share_pct = ?, updated_at = datetime('now')
+    WHERE id = ?
+  `).run(tier, config.platformFeePct, config.revenueSharePct, config.cacheRevenueSharePct, id);
+
+  logAudit({ entityType: 'provider', entityId: id, action: 'TIER_CHANGED', data: { tier, ...config } });
+  const provider = getProvider(id);
+
+  return c.json({ ok: true, provider, tierConfig: config });
+});
+
 // ─── POST /v1/providers/:id/endpoints — register endpoint ──────────────────
 
 providersRouter.post('/:id/endpoints', async (c) => {
@@ -247,6 +333,36 @@ providersRouter.post('/:id/endpoints', async (c) => {
   logger.info({ providerId, registered, total: ids.length }, 'Provider endpoints registered');
 
   return c.json({ ok: true, registered, results });
+});
+
+// ─── PATCH /v1/providers/:id/endpoints/:eid/freshness — set freshness declarations ──
+
+providersRouter.patch('/:id/endpoints/:eid/freshness', checkApiKey, async (c) => {
+  const providerId = c.req.param('id');
+  const eid = c.req.param('eid');
+
+  // Provider can update their own endpoints, or admin can update any
+  const keyInfo = c.get('apiKeyInfo');
+  const keyProvider = getDb().prepare('SELECT provider_id FROM api_keys WHERE key = ?').get(keyInfo.key) as any;
+  const isOwner = keyProvider?.provider_id === providerId;
+
+  if (!isOwner && !requireAdmin(c)) {
+    return c.json({ error: 'Not authorized for this provider', code: 'PROVIDER_SCOPE_DENIED' }, 403);
+  }
+
+  const body = await c.req.json().catch(() => ({}));
+  const updated = updateEndpointFreshness(providerId, eid, {
+    declaredTtlSeconds: body.declaredTtlSeconds,
+    cacheWarm: body.cacheWarm,
+    updateFrequencySeconds: body.updateFrequencySeconds,
+  });
+
+  if (!updated) {
+    return c.json({ error: 'Endpoint not found for this provider', code: 'NOT_FOUND' }, 404);
+  }
+
+  logAudit({ entityType: 'provider_endpoint', entityId: `${providerId}:${eid}`, action: 'FRESHNESS_UPDATED', data: body });
+  return c.json({ ok: true, endpointId: eid, freshness: getEndpointFreshness(eid) });
 });
 
 // ─── DELETE /v1/providers/:id/endpoints/:eid — remove endpoint ──────────────
@@ -310,6 +426,79 @@ providersRouter.get('/:id/stats', async (c) => {
 
   const stats = getProviderStats(providerId);
   return c.json({ ok: true, provider: { id: providerId, name: provider.name }, stats });
+});
+
+// ─── GET /v1/providers/:id/revenue — revenue dashboard (proves "you earn more") ──
+
+providersRouter.get('/:id/revenue', checkApiKey, async (c) => {
+  const providerId = c.req.param('id');
+  const provider = getProvider(providerId);
+  if (!provider) {
+    return c.json({ error: 'Provider not found', code: 'PROVIDER_NOT_FOUND' }, 404);
+  }
+
+  const stats = getProviderStats(providerId);
+  const analytics = getProviderAnalytics(providerId, 30);
+
+  // Calculate revenue breakdown
+  const last30 = analytics.reduce((acc, day) => {
+    acc.liveCalls += day.calls - day.cacheHits;
+    acc.cacheHits += day.cacheHits;
+    acc.liveRevenue += day.revenueUsdc;
+    acc.cacheRevenue += (day as any).cacheRevenueCredits ?? 0;
+    return acc;
+  }, { liveCalls: 0, cacheHits: 0, liveRevenue: 0, cacheRevenue: 0 });
+
+  const totalCalls = last30.liveCalls + last30.cacheHits;
+  const cacheHitRate = totalCalls > 0 ? last30.cacheHits / totalCalls : 0;
+
+  // Estimate what they'd earn direct (no ClawNet)
+  // Direct = only live calls (no cache benefit, no orchestration traffic)
+  // Assumption: ~30% of calls are incremental from orchestrated discovery
+  const estimatedDirectCalls = Math.round(last30.liveCalls * 0.7);
+  const avgRevenuePerLiveCall = last30.liveCalls > 0 ? last30.liveRevenue / last30.liveCalls : 0;
+  const estimatedDirectRevenue = estimatedDirectCalls * avgRevenuePerLiveCall / provider.revenueSharePct; // 100% of call price
+
+  const totalClawNetRevenue = last30.liveRevenue + (last30.cacheRevenue / 1000); // cache revenue is in credits, convert
+
+  return c.json({
+    ok: true,
+    provider: {
+      id: providerId,
+      name: provider.name,
+      tier: provider.tier,
+      trustScore: provider.trustScore,
+    },
+    revenue: {
+      last30Days: {
+        liveCalls: last30.liveCalls,
+        cacheHits: last30.cacheHits,
+        cacheHitRate: Math.round(cacheHitRate * 100),
+        liveRevenueUsd: last30.liveRevenue,
+        cacheRevenueCredits: last30.cacheRevenue,
+        totalRevenueUsd: totalClawNetRevenue,
+      },
+      comparison: {
+        estimatedDirectRevenue: estimatedDirectRevenue,
+        clawNetRevenue: totalClawNetRevenue,
+        uplift: estimatedDirectRevenue > 0
+          ? `+${Math.round(((totalClawNetRevenue - estimatedDirectRevenue) / estimatedDirectRevenue) * 100)}%`
+          : 'N/A (no data yet)',
+        note: 'Estimated direct = your calls without ClawNet orchestration discovery. ClawNet revenue = live share + cache profit.',
+      },
+      lifetime: {
+        totalCalls: stats.totalCalls,
+        totalCacheHits: stats.totalCacheHits,
+        totalRevenueUsdc: stats.totalRevenueUsdc,
+        cacheRevenueCredits: provider.cacheRevenueCredits,
+      },
+    },
+    splits: {
+      liveCallShare: `${Math.round(provider.revenueSharePct * 100)}% to you`,
+      cacheHitShare: `${Math.round(provider.cacheRevenueSharePct * 100)}% to you (pure profit)`,
+      platformFee: `${Math.round(provider.platformFeePct * 100)}%`,
+    },
+  });
 });
 
 // ─── POST /v1/providers/:id/keys — create provider-scoped API key ───────────

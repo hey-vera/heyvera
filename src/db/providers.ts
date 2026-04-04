@@ -28,6 +28,11 @@ export interface Provider {
   description: string | null;
   websiteUrl: string | null;
   revenueSharePct: number;
+  cacheRevenueSharePct: number;
+  tier: 'open' | 'standard' | 'verified';
+  platformFeePct: number;
+  trustScore: number;
+  cacheRevenueCredits: number;
   status: 'pending' | 'active' | 'suspended';
   verified: boolean;
   somaEnabled: boolean;
@@ -71,6 +76,11 @@ function rowToProvider(row: any): Provider {
     description: row.description,
     websiteUrl: row.website_url,
     revenueSharePct: row.revenue_share_pct,
+    cacheRevenueSharePct: row.cache_revenue_share_pct ?? 0.50,
+    tier: row.tier ?? 'standard',
+    platformFeePct: row.platform_fee_pct ?? 0.10,
+    trustScore: row.trust_score ?? 50.0,
+    cacheRevenueCredits: row.cache_revenue_credits ?? 0,
     status: row.status,
     verified: !!row.verified,
     somaEnabled: !!row.soma_enabled,
@@ -174,10 +184,39 @@ export function updateProvider(id: string, updates: Partial<{
 
 // ─── Provider Endpoints ─────────────────────────────────────────────────────
 
-export function registerProviderEndpoint(providerId: string, endpointId: string): void {
+export function registerProviderEndpoint(providerId: string, endpointId: string, opts?: {
+  declaredTtlSeconds?: number;
+  cacheWarm?: boolean;
+  updateFrequencySeconds?: number;
+}): void {
   getDb().prepare(`
-    INSERT OR IGNORE INTO provider_endpoints (provider_id, endpoint_id) VALUES (?, ?)
-  `).run(providerId, endpointId);
+    INSERT OR IGNORE INTO provider_endpoints (provider_id, endpoint_id, declared_ttl_seconds, cache_warm, update_frequency_seconds)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(providerId, endpointId, opts?.declaredTtlSeconds ?? null, opts?.cacheWarm ? 1 : 0, opts?.updateFrequencySeconds ?? null);
+}
+
+export function updateEndpointFreshness(providerId: string, endpointId: string, opts: {
+  declaredTtlSeconds?: number;
+  cacheWarm?: boolean;
+  updateFrequencySeconds?: number;
+}): boolean {
+  const sets: string[] = [];
+  const vals: unknown[] = [];
+  if (opts.declaredTtlSeconds !== undefined) { sets.push('declared_ttl_seconds = ?'); vals.push(opts.declaredTtlSeconds); }
+  if (opts.cacheWarm !== undefined) { sets.push('cache_warm = ?'); vals.push(opts.cacheWarm ? 1 : 0); }
+  if (opts.updateFrequencySeconds !== undefined) { sets.push('update_frequency_seconds = ?'); vals.push(opts.updateFrequencySeconds); }
+  if (sets.length === 0) return false;
+  vals.push(providerId, endpointId);
+  const result = getDb().prepare(`UPDATE provider_endpoints SET ${sets.join(', ')} WHERE provider_id = ? AND endpoint_id = ?`).run(...vals);
+  return result.changes > 0;
+}
+
+export function getEndpointFreshness(endpointId: string): { declaredTtlSeconds: number | null; cacheWarm: boolean; updateFrequencySeconds: number | null } | null {
+  const row = getDb().prepare(
+    'SELECT declared_ttl_seconds, cache_warm, update_frequency_seconds FROM provider_endpoints WHERE endpoint_id = ? LIMIT 1'
+  ).get(endpointId) as any;
+  if (!row) return null;
+  return { declaredTtlSeconds: row.declared_ttl_seconds, cacheWarm: !!row.cache_warm, updateFrequencySeconds: row.update_frequency_seconds };
 }
 
 export function removeProviderEndpoint(providerId: string, endpointId: string): void {
@@ -220,6 +259,7 @@ export function setApiKeyProvider(apiKey: string, providerId: string): void {
 export function recordProviderCall(providerId: string, opts: {
   cacheHit: boolean;
   cacheSavingsCredits?: number;
+  cacheRevenueCredits?: number;
   revenueUsdc?: number;
   latencyMs: number;
   error?: boolean;
@@ -227,12 +267,13 @@ export function recordProviderCall(providerId: string, opts: {
   const today = new Date().toISOString().slice(0, 10);
 
   getDb().prepare(`
-    INSERT INTO provider_analytics (provider_id, date, calls, cache_hits, cache_savings_credits, revenue_usdc, avg_latency_ms, errors)
-    VALUES (?, ?, 1, ?, ?, ?, ?, ?)
+    INSERT INTO provider_analytics (provider_id, date, calls, cache_hits, cache_savings_credits, cache_revenue_credits, revenue_usdc, avg_latency_ms, errors)
+    VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(provider_id, date) DO UPDATE SET
       calls = calls + 1,
       cache_hits = cache_hits + ?,
       cache_savings_credits = cache_savings_credits + ?,
+      cache_revenue_credits = cache_revenue_credits + ?,
       revenue_usdc = revenue_usdc + ?,
       avg_latency_ms = (avg_latency_ms * calls + ?) / (calls + 1),
       errors = errors + ?
@@ -240,12 +281,14 @@ export function recordProviderCall(providerId: string, opts: {
     providerId, today,
     opts.cacheHit ? 1 : 0,
     opts.cacheSavingsCredits ?? 0,
+    opts.cacheRevenueCredits ?? 0,
     opts.revenueUsdc ?? 0,
     opts.latencyMs,
     opts.error ? 1 : 0,
     // ON CONFLICT values:
     opts.cacheHit ? 1 : 0,
     opts.cacheSavingsCredits ?? 0,
+    opts.cacheRevenueCredits ?? 0,
     opts.revenueUsdc ?? 0,
     opts.latencyMs,
     opts.error ? 1 : 0,
@@ -310,9 +353,13 @@ export function getProviderStats(providerId: string): {
 
 /**
  * Credit a provider's account with their revenue share from an endpoint call.
- * Provider gets `revenue_share_pct` (default 90%) of the credits charged.
- * Platform keeps `1 - revenue_share_pct` (default 10%).
- * Cache hits = 0 provider share (their server wasn't touched).
+ *
+ * Live calls:  Provider gets `revenue_share_pct` (default 90%) of credits charged.
+ * Cache hits:  Provider gets `cache_revenue_share_pct` (default 50%) of cache credits.
+ *              Their server wasn't touched, so cache revenue is pure profit for them.
+ *
+ * Tier-based platform fees: Open=0%, Standard=5%, Verified=10%.
+ * The `platform_fee_pct` field on the provider record controls the actual take rate.
  *
  * Returns the provider's credited amount, or 0 if no provider owns this endpoint.
  */
@@ -327,8 +374,11 @@ export function creditProviderShare(endpointId: string, creditsCharged: number, 
   const provider = getProvider(providerId);
   if (!provider || provider.status !== 'active') return 0;
 
-  // Cache hits: provider server not touched, no revenue share
-  const providerCredits = opts.cacheHit ? 0 : round6(creditsCharged * provider.revenueSharePct);
+  // Live calls: provider gets revenue_share_pct (90%)
+  // Cache hits: provider gets cache_revenue_share_pct (50%) — pure profit, server not touched
+  const providerCredits = opts.cacheHit
+    ? round6(creditsCharged * provider.cacheRevenueSharePct)
+    : round6(creditsCharged * provider.revenueSharePct);
 
   // Credit provider's API key balance (if they have one linked)
   if (providerCredits > 0) {
@@ -340,6 +390,12 @@ export function creditProviderShare(endpointId: string, creditsCharged: number, 
       getDb().prepare('UPDATE api_keys SET credits = credits + ? WHERE key = ?')
         .run(providerCredits, providerKey.key);
     }
+
+    // Track lifetime cache revenue on provider record
+    if (opts.cacheHit) {
+      getDb().prepare('UPDATE providers SET cache_revenue_credits = cache_revenue_credits + ? WHERE id = ?')
+        .run(providerCredits, providerId);
+    }
   }
 
   // Always record analytics
@@ -350,6 +406,7 @@ export function creditProviderShare(endpointId: string, creditsCharged: number, 
     revenueUsdc: providerCredits / creditsPerUsd,
     latencyMs: opts.latencyMs,
     error: opts.error,
+    cacheRevenueCredits: opts.cacheHit ? providerCredits : 0,
   });
 
   return providerCredits;

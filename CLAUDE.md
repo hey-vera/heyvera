@@ -82,7 +82,8 @@ logAudit({ entityType, entityId, action, actorId?, data? });  // Fire-and-forget
 - **DB imports** — always from `src/db/index.ts`, never domain files directly
 - **Soma: provenance ≠ verification** — birth certificates prove data origin; sense verifies model
 - **Soma: never self-verify** — ClawNet runs heart, callers run sense
-- **Revenue share** — 90% provider / 10% platform on live calls. Cache hits = 0% provider. `creditProviderShare()` after `deductCredit()`
+- **Revenue share (tiered)** — Open=0%, Standard=5%, Verified=10% platform fee. Providers earn 50% of cache hit revenue (pure profit). `creditProviderShare()` after `deductCredit()`
+- **Certified Cache** — every cache entry gets a Soma cert (`src/core/cache-certificate.ts`). Cache hits return `provenance.cacheCert` with chain of custody
 - **Promo codes** — admin creates via `/v1/admin/promo-codes`, users redeem via self-onboard or `/v1/account/redeem-promo`
 
 ## Route Pattern

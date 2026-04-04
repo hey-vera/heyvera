@@ -1640,6 +1640,66 @@ const MIGRATIONS: { version: number; sql: string }[] = [
     CREATE INDEX IF NOT EXISTS idx_promo_redemptions_key ON promo_redemptions(api_key);
   ` },
   { version: 141, sql: `UPDATE providers SET revenue_share_pct = 0.90 WHERE revenue_share_pct = 0.85` },
+
+  // ─── v142-146: Phase B-D — Cache economics, trust flywheel, tiers ────────
+
+  // v142: Provider cache revenue share + tier system
+  { version: 142, sql: `
+    ALTER TABLE providers ADD COLUMN cache_revenue_share_pct REAL NOT NULL DEFAULT 0.50;
+    ALTER TABLE providers ADD COLUMN tier TEXT NOT NULL DEFAULT 'standard';
+    ALTER TABLE providers ADD COLUMN platform_fee_pct REAL NOT NULL DEFAULT 0.10;
+    ALTER TABLE providers ADD COLUMN trust_score REAL NOT NULL DEFAULT 50.0;
+    ALTER TABLE providers ADD COLUMN cache_revenue_credits REAL NOT NULL DEFAULT 0;
+  ` },
+
+  // v143: Provider freshness declarations + cache warming on endpoints
+  { version: 143, sql: `
+    ALTER TABLE provider_endpoints ADD COLUMN declared_ttl_seconds INTEGER;
+    ALTER TABLE provider_endpoints ADD COLUMN cache_warm INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE provider_endpoints ADD COLUMN update_frequency_seconds INTEGER;
+  ` },
+
+  // v144: Cache certificates table — Certified Cache Layer
+  { version: 144, sql: `
+    CREATE TABLE IF NOT EXISTS cache_certificates (
+      id TEXT PRIMARY KEY,
+      cache_key TEXT NOT NULL,
+      endpoint_id TEXT NOT NULL,
+      original_data_hash TEXT NOT NULL,
+      original_signature TEXT,
+      original_public_key TEXT,
+      original_heartbeat_index INTEGER,
+      original_timestamp TEXT NOT NULL,
+      cache_data_hash TEXT NOT NULL,
+      cached_at TEXT NOT NULL DEFAULT (datetime('now')),
+      fresh_until TEXT NOT NULL,
+      served_count INTEGER NOT NULL DEFAULT 0,
+      platform_signature TEXT NOT NULL,
+      platform_public_key TEXT NOT NULL,
+      chain_hash TEXT NOT NULL,
+      algorithm TEXT NOT NULL DEFAULT 'Ed25519'
+    );
+    CREATE INDEX IF NOT EXISTS idx_cache_cert_key ON cache_certificates(cache_key);
+    CREATE INDEX IF NOT EXISTS idx_cache_cert_endpoint ON cache_certificates(endpoint_id);
+    CREATE INDEX IF NOT EXISTS idx_cache_cert_fresh ON cache_certificates(fresh_until);
+  ` },
+
+  // v145: Provider analytics — add cache_revenue_credits column
+  { version: 145, sql: `ALTER TABLE provider_analytics ADD COLUMN cache_revenue_credits REAL NOT NULL DEFAULT 0` },
+
+  // v146: Cache warming schedule table
+  { version: 146, sql: `
+    CREATE TABLE IF NOT EXISTS cache_warm_schedule (
+      endpoint_id TEXT PRIMARY KEY,
+      provider_id TEXT NOT NULL,
+      frequency_seconds INTEGER NOT NULL DEFAULT 60,
+      last_warmed_at TEXT,
+      next_warm_at TEXT,
+      consecutive_failures INTEGER NOT NULL DEFAULT 0,
+      enabled INTEGER NOT NULL DEFAULT 1
+    );
+    CREATE INDEX IF NOT EXISTS idx_cache_warm_next ON cache_warm_schedule(next_warm_at) WHERE enabled = 1;
+  ` },
 ];
 
 function runMigrations(): void {

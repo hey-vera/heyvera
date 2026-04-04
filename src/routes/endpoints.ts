@@ -8,6 +8,10 @@ import { cacheKey, smartCacheGet, smartCacheSet, cacheNegative, getNegativeCache
 import { deductCredit, creditProviderShare } from '../db/index';
 import { trackDelegatedSpend } from '../utils/billing';
 import { checkProviderScope } from '../middleware/auth';
+import { createCacheCertificate, getCacheCertificate } from '../core/cache-certificate';
+import { somaHash } from '../utils/crypto-agility';
+import { env } from '../config/index';
+import { getEndpointFreshness } from '../db/providers';
 import { maskApiKey } from '../utils/mask';
 import { logger } from '../utils/logger';
 import { nanoid } from 'nanoid';
@@ -157,7 +161,9 @@ endpointsRouter.post('/:id/call', async (c) => {
     // Allow empty body for endpoints that take no params
   }
   // Strip non-param fields if caller sent them at the top level
+  const maxAge: number | undefined = (params as any).maxAge;
   delete (params as any).cache;
+  delete (params as any).maxAge;
 
   const freshness: CacheFreshness = ((await c.req.json().catch(() => ({}))) as any).cache ?? 'smart';
 
@@ -169,7 +175,15 @@ endpointsRouter.post('/:id/call', async (c) => {
   const key = cacheKey(endpointId, params as Record<string, string>);
   const cacheResult = await smartCacheGet<unknown>(key, freshness, endpointId, endpointCredits);
 
-  if (cacheResult?.fresh) {
+  // maxAge filter: if agent requested data fresher than what's cached, skip cache
+  const cacheIsFreshEnough = !maxAge || !cacheResult?.fresh || (() => {
+    const cert = getCacheCertificate(key);
+    if (!cert) return true; // no cert = can't verify age, serve anyway
+    const cachedAtMs = new Date(cert.cacheCert.cachedAt).getTime();
+    return (Date.now() - cachedAtMs) <= maxAge * 1000;
+  })();
+
+  if (cacheResult?.fresh && cacheIsFreshEnough) {
     const cacheCredits = cacheCreditCost(endpointCredits);
     if (!keyInfo.isEnvKey) {
       if (keyInfo.credits < cacheCredits) {
@@ -181,16 +195,28 @@ endpointsRouter.post('/:id/call', async (c) => {
       }
       trackDelegatedSpend(keyInfo, cacheCredits);
     }
-    // Provider analytics (no revenue share on cache hits — their server wasn't touched)
-    creditProviderShare(endpointId, cacheCredits, { cacheHit: true, latencyMs: Date.now() - start });
-    logger.info({ requestId, endpointId, creditsUsed: cacheCredits }, 'Direct endpoint call — cache hit');
+    // Provider gets 50% of cache revenue (pure profit — their server wasn't touched)
+    const durationMs = Date.now() - start;
+    const cacheProviderShare = creditProviderShare(endpointId, cacheCredits, { cacheHit: true, latencyMs: durationMs });
+
+    // Certified Cache: serve the cache certificate alongside the data
+    const cacheCert = getCacheCertificate(key);
+
+    logger.info({ requestId, endpointId, creditsUsed: cacheCredits, hasCacheCert: !!cacheCert }, 'Direct endpoint call — cache hit');
     return c.json({
       requestId,
       endpointId,
       data: cacheResult.value,
       cached: true,
       creditsUsed: cacheCredits,
-      durationMs: Date.now() - start,
+      durationMs,
+      provenance: cacheCert ? {
+        type: 'certified-cache',
+        cacheCertId: cacheCert.id,
+        originalCert: cacheCert.originalCert,
+        cacheCert: cacheCert.cacheCert,
+        chainHash: cacheCert.chainHash,
+      } : null,
     });
   }
 
@@ -227,10 +253,23 @@ endpointsRouter.post('/:id/call', async (c) => {
       }
     });
 
-    // Cache the result
+    // Cache the result + create Certified Cache certificate
+    // Provider-declared TTL takes priority over endpoint default
+    const freshness_decl = getEndpointFreshness(endpointId);
+    const effectiveTtl = freshness_decl?.declaredTtlSeconds ?? endpoint.cacheTtl;
+
     const serialized = JSON.stringify(data);
+    const dataHash = somaHash(serialized);
     if (serialized.length <= 1_000_000) {
-      await smartCacheSet(key, data, endpoint.cacheTtl, endpointId, endpoint.creditCost ?? endpoint.costPerCall);
+      await smartCacheSet(key, data, effectiveTtl, endpointId, endpoint.creditCost ?? endpoint.costPerCall);
+      const birthCert = getLastBirthCertificate();
+      createCacheCertificate({
+        cacheKey: key,
+        endpointId,
+        dataHash,
+        ttlSeconds: effectiveTtl ?? env.CACHE_TTL_SECONDS,
+        birthCert: birthCert ?? null,
+      });
     }
 
     // Deduct credits
