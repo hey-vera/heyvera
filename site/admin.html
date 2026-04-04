@@ -117,6 +117,9 @@
 
     @media(max-width:640px) { .stat-grid { grid-template-columns:1fr 1fr; } }
   </style>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>tailwind.config={corePlugins:{preflight:false}}</script>
+  <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body>
 
@@ -337,6 +340,7 @@ function fmtUptime(secs) {
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 function esc(s) { return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+lucide.createIcons();
 </script>
 </body>
 </html>

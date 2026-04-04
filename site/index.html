@@ -16,6 +16,9 @@
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="apple-touch-icon" href="/favicon.svg">
   <script>if(localStorage.getItem('clawnet_theme')==='light')document.documentElement.setAttribute('data-theme','light')</script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>tailwind.config={corePlugins:{preflight:false}}</script>
+  <script src="https://unpkg.com/lucide@latest"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
   <style>
@@ -108,8 +111,8 @@
     .body-lg { font-size: 18px; line-height: 1.7; color: var(--text-secondary); font-weight: 400; }
     .body { font-size: 15px; line-height: 1.65; color: var(--text-secondary); }
     .caption {
-      font-size: 11px; font-weight: 600; color: var(--text-muted);
-      text-transform: uppercase; letter-spacing: 0.1em;
+      font-size: 11px; font-weight: 600; color: var(--accent);
+      text-transform: uppercase; letter-spacing: 0.12em;
     }
 
     /* ── COMPONENTS ── */
@@ -198,7 +201,7 @@
     .hero-glow {
       position: absolute; top: -300px; left: 50%; transform: translateX(-50%);
       width: 900px; height: 600px;
-      background: radial-gradient(ellipse 50% 60%, rgba(16,185,129,0.06) 0%, transparent 70%);
+      background: radial-gradient(ellipse 50% 60%, rgba(16,185,129,0.08) 0%, transparent 70%);
       pointer-events: none; z-index: 0;
     }
     .hero-content { position: relative; z-index: 1; max-width: 740px; }
@@ -231,7 +234,7 @@
     .problem-card { padding: 36px 32px; background: var(--bg-surface); }
     .problem-card h3 { font-size: 16px; font-weight: 600; color: var(--text-primary); margin-bottom: 12px; letter-spacing: -0.01em; }
     .problem-card p { font-size: 14px; color: var(--text-tertiary); line-height: 1.65; }
-    .problem-num { font-family: var(--font-mono); font-size: 12px; font-weight: 600; color: var(--text-muted); margin-bottom: 16px; }
+    .problem-num { font-family: var(--font-mono); font-size: 12px; font-weight: 700; color: var(--accent); margin-bottom: 16px; opacity: 0.6; }
 
     /* ── WHAT IS CLAWNET ── */
     .value-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
@@ -243,6 +246,7 @@
     .value-card h3 { font-size: 16px; font-weight: 600; color: var(--text-primary); margin-bottom: 10px; }
     .value-card p { font-size: 14px; color: var(--text-tertiary); line-height: 1.65; }
     .value-card .icon { font-size: 20px; margin-bottom: 16px; display: block; }
+    .value-card:hover { border-color: var(--border-strong); background: var(--bg-surface); }
     .value-card.featured { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 40px; align-items: center; }
     .value-card.featured .icon { display: none; }
 
@@ -295,9 +299,9 @@
     .step { padding: 0 24px; text-align: center; position: relative; }
     .step-num {
       width: 36px; height: 36px; border-radius: 50%;
-      background: var(--bg-surface); border: 1px solid var(--border-default);
+      background: var(--accent-dim); border: 1px solid var(--accent);
       display: flex; align-items: center; justify-content: center;
-      font-family: var(--font-mono); font-size: 13px; font-weight: 600; color: var(--text-primary);
+      font-family: var(--font-mono); font-size: 13px; font-weight: 700; color: var(--accent);
       margin: 0 auto 16px;
     }
     .step h4 { font-size: 14px; font-weight: 600; color: var(--text-primary); margin-bottom: 8px; }
@@ -458,7 +462,7 @@
   <div class="container">
     <div class="hero-content">
       <div class="hero-eyebrow">
-        <span class="dot"></span>
+        <span class="tw-relative tw-flex tw-h-2 tw-w-2"><span class="tw-animate-ping tw-absolute tw-inline-flex tw-h-full tw-w-full tw-rounded-full tw-opacity-75" style="background:var(--accent)"></span><span class="tw-relative tw-inline-flex tw-rounded-full tw-h-2 tw-w-2" style="background:var(--accent)"></span></span>
         <span id="statEndpointCount">&mdash;</span> endpoints live
       </div>
 
@@ -478,6 +482,24 @@
   </div>
 </section>
 
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- INTEGRATIONS BAR                                               -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section class="section-sm" style="border-top:1px solid var(--border-subtle);padding:32px 28px">
+  <div class="container" style="text-align:center">
+    <p style="font-size:11px;font-weight:500;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:20px">Built on open standards. Integrates with</p>
+    <div style="display:flex;align-items:center;justify-content:center;gap:32px;flex-wrap:wrap;opacity:0.5">
+      <span style="font-size:14px;font-weight:600;color:var(--text-secondary);display:flex;align-items:center;gap:6px"><i data-lucide="hexagon" class="tw-w-4 tw-h-4"></i>x402</span>
+      <span style="font-size:14px;font-weight:600;color:var(--text-secondary);display:flex;align-items:center;gap:6px"><i data-lucide="shield" class="tw-w-4 tw-h-4"></i>Soma</span>
+      <span style="font-size:14px;font-weight:600;color:var(--text-secondary);display:flex;align-items:center;gap:6px"><i data-lucide="layers" class="tw-w-4 tw-h-4"></i>Base / EAS</span>
+      <span style="font-size:14px;font-weight:600;color:var(--text-secondary);display:flex;align-items:center;gap:6px"><i data-lucide="circle-dot" class="tw-w-4 tw-h-4"></i>Solana</span>
+      <span style="font-size:14px;font-weight:600;color:var(--text-secondary);display:flex;align-items:center;gap:6px"><i data-lucide="plug" class="tw-w-4 tw-h-4"></i>MCP</span>
+      <span style="font-size:14px;font-weight:600;color:var(--text-secondary);display:flex;align-items:center;gap:6px"><i data-lucide="key" class="tw-w-4 tw-h-4"></i>Clerk</span>
+      <span style="font-size:14px;font-weight:600;color:var(--text-secondary);display:flex;align-items:center;gap:6px"><i data-lucide="credit-card" class="tw-w-4 tw-h-4"></i>Stripe</span>
+    </div>
+  </div>
+</section>
 
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <!-- LIVE STATS                                                     -->
@@ -546,24 +568,24 @@
 
     <div class="value-grid">
       <div class="value-card">
-        <span class="icon" style="color:var(--accent)">&#9889;</span>
+        <div class="tw-mb-3 tw-inline-flex tw-items-center tw-justify-center tw-w-10 tw-h-10 tw-rounded-lg" style="background:var(--accent-dim)"><i data-lucide="zap" class="tw-w-5 tw-h-5" style="color:var(--accent)"></i></div>
         <h3>Orchestration</h3>
         <p>One natural-language query routes to the best combination of endpoints based on cost, speed, or reliability. Your agent doesn't need to know which APIs exist.</p>
       </div>
       <div class="value-card">
-        <span class="icon" style="color:var(--info)">&#128269;</span>
+        <div class="tw-mb-3 tw-inline-flex tw-items-center tw-justify-center tw-w-10 tw-h-10 tw-rounded-lg" style="background:var(--info-dim)"><i data-lucide="layout-grid" class="tw-w-5 tw-h-5" style="color:var(--info)"></i></div>
         <h3>Skill Marketplace</h3>
         <p>Hundreds of live skills &mdash; data feeds, analysis tools, composites. Publish your own and earn 85% of every invocation. Agents discover and compare programmatically.</p>
       </div>
       <div class="value-card">
-        <span class="icon" style="color:var(--warning)">&#9878;</span>
+        <div class="tw-mb-3 tw-inline-flex tw-items-center tw-justify-center tw-w-10 tw-h-10 tw-rounded-lg" style="background:var(--warning-dim)"><i data-lucide="coins" class="tw-w-5 tw-h-5" style="color:var(--warning)"></i></div>
         <h3>Micropayments</h3>
         <p>Fractional credits from $0.001. Pay per query, not per month. Supports card and USDC on Solana. Delegated budgets let sub-agents spend on your behalf.</p>
       </div>
       <div class="value-card">
-        <span class="icon" style="color:var(--purple)">&#128737;</span>
+        <div class="tw-mb-3 tw-inline-flex tw-items-center tw-justify-center tw-w-10 tw-h-10 tw-rounded-lg" style="background:var(--purple-dim)"><i data-lucide="shield-check" class="tw-w-5 tw-h-5" style="color:var(--purple)"></i></div>
         <h3>Verifiable Trust</h3>
-        <p>Every API call produces a cryptographic birth certificate via the Soma protocol. Proof that data came from the claimed source, signed with Ed25519, recorded in a tamper-evident heartbeat chain.</p>
+        <p>Every API call produces a cryptographic receipt via the Soma protocol. Ed25519 + ML-DSA-65 dual signatures, EAS attestation on Base, five-layer provenance chain.</p>
       </div>
     </div>
 
@@ -617,7 +639,7 @@
     <p class="body" style="max-width:520px;margin-bottom:16px"><span id="statEndpointCount2">&mdash;</span> endpoints. Real skills. Real pricing. Production-ready.</p>
 
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:40px;font-family:var(--font-mono);font-size:12px">
-      <code style="background:var(--bg-surface-2);padding:6px 14px;border-radius:var(--radius-md);border:1px solid var(--border-subtle);color:var(--text-secondary)">npm install @clawnet/sdk</code>
+      <code style="background:var(--bg-surface-2);padding:6px 14px;border-radius:var(--radius-md);border:1px solid var(--border-subtle);color:var(--text-secondary)">npm i @1xmint/clawnet-sdk</code>
       <code style="background:var(--bg-surface-2);padding:6px 14px;border-radius:var(--radius-md);border:1px solid var(--border-subtle);color:var(--text-secondary)">pip install clawnet</code>
       <code style="background:var(--bg-surface-2);padding:6px 14px;border-radius:var(--radius-md);border:1px solid var(--border-subtle);color:var(--text-secondary)">curl https://api.claw-net.org/v1/orchestrate</code>
     </div>
@@ -674,9 +696,9 @@
         </div>
         <div class="skill-card-desc">Real-time Solana price from 12 exchanges. 24h change, volume, market cap.</div>
         <div class="skill-card-meta">
-          <span>&#9889; 0.8s</span>
-          <span>&#9733; 4.8</span>
-          <span>&#128274; Verified</span>
+          <span><i data-lucide="clock" class="tw-w-3 tw-h-3 tw-inline-block tw-mr-0.5" style="vertical-align:-2px"></i>0.8s</span>
+          <span><i data-lucide="star" class="tw-w-3 tw-h-3 tw-inline-block tw-mr-0.5" style="vertical-align:-2px"></i>4.8</span>
+          <span><i data-lucide="badge-check" class="tw-w-3 tw-h-3 tw-inline-block tw-mr-0.5" style="vertical-align:-2px"></i>Verified</span>
         </div>
       </div>
       <div class="skill-card">
@@ -686,9 +708,9 @@
         </div>
         <div class="skill-card-desc">Daily close, change, volume for the S&amp;P 500 index. Updated end of day.</div>
         <div class="skill-card-meta">
-          <span>&#9889; 0.3s</span>
-          <span>&#9733; 4.9</span>
-          <span>&#128274; Verified</span>
+          <span><i data-lucide="clock" class="tw-w-3 tw-h-3 tw-inline-block tw-mr-0.5" style="vertical-align:-2px"></i>0.3s</span>
+          <span><i data-lucide="star" class="tw-w-3 tw-h-3 tw-inline-block tw-mr-0.5" style="vertical-align:-2px"></i>4.9</span>
+          <span><i data-lucide="badge-check" class="tw-w-3 tw-h-3 tw-inline-block tw-mr-0.5" style="vertical-align:-2px"></i>Verified</span>
         </div>
       </div>
       <div class="skill-card">
@@ -698,9 +720,9 @@
         </div>
         <div class="skill-card-desc">Cross-references audits, liquidity locks, mint authority, holder distribution.</div>
         <div class="skill-card-meta">
-          <span>&#9889; 5.8s</span>
-          <span>&#9733; 4.6</span>
-          <span>&#128274; Verified</span>
+          <span><i data-lucide="clock" class="tw-w-3 tw-h-3 tw-inline-block tw-mr-0.5" style="vertical-align:-2px"></i>5.8s</span>
+          <span><i data-lucide="star" class="tw-w-3 tw-h-3 tw-inline-block tw-mr-0.5" style="vertical-align:-2px"></i>4.6</span>
+          <span><i data-lucide="badge-check" class="tw-w-3 tw-h-3 tw-inline-block tw-mr-0.5" style="vertical-align:-2px"></i>Verified</span>
         </div>
       </div>
       <div class="skill-card">
@@ -710,9 +732,9 @@
         </div>
         <div class="skill-card-desc">Live tweets, sentiment scoring, top influencers. Real social data for any token.</div>
         <div class="skill-card-meta">
-          <span>&#9889; 3.2s</span>
-          <span>&#9733; 4.5</span>
-          <span>&#128274; Verified</span>
+          <span><i data-lucide="clock" class="tw-w-3 tw-h-3 tw-inline-block tw-mr-0.5" style="vertical-align:-2px"></i>3.2s</span>
+          <span><i data-lucide="star" class="tw-w-3 tw-h-3 tw-inline-block tw-mr-0.5" style="vertical-align:-2px"></i>4.5</span>
+          <span><i data-lucide="badge-check" class="tw-w-3 tw-h-3 tw-inline-block tw-mr-0.5" style="vertical-align:-2px"></i>Verified</span>
         </div>
       </div>
       <div class="skill-card">
@@ -722,9 +744,9 @@
         </div>
         <div class="skill-card-desc">On-chain whale activity across Solana. Large transactions, wallet labels, timing.</div>
         <div class="skill-card-meta">
-          <span>&#9889; 4.1s</span>
-          <span>&#9733; 4.4</span>
-          <span>&#128274; Verified</span>
+          <span><i data-lucide="clock" class="tw-w-3 tw-h-3 tw-inline-block tw-mr-0.5" style="vertical-align:-2px"></i>4.1s</span>
+          <span><i data-lucide="star" class="tw-w-3 tw-h-3 tw-inline-block tw-mr-0.5" style="vertical-align:-2px"></i>4.4</span>
+          <span><i data-lucide="badge-check" class="tw-w-3 tw-h-3 tw-inline-block tw-mr-0.5" style="vertical-align:-2px"></i>Verified</span>
         </div>
       </div>
       <div class="skill-card">
@@ -734,9 +756,9 @@
         </div>
         <div class="skill-card-desc">Current yield rates across DeFi protocols. APY, TVL, risk ratings.</div>
         <div class="skill-card-meta">
-          <span>&#9889; 2.1s</span>
-          <span>&#9733; 4.7</span>
-          <span>&#128274; Verified</span>
+          <span><i data-lucide="clock" class="tw-w-3 tw-h-3 tw-inline-block tw-mr-0.5" style="vertical-align:-2px"></i>2.1s</span>
+          <span><i data-lucide="star" class="tw-w-3 tw-h-3 tw-inline-block tw-mr-0.5" style="vertical-align:-2px"></i>4.7</span>
+          <span><i data-lucide="badge-check" class="tw-w-3 tw-h-3 tw-inline-block tw-mr-0.5" style="vertical-align:-2px"></i>Verified</span>
         </div>
       </div>
     </div>
@@ -1112,6 +1134,9 @@ res = requests.post('https://api.claw-net.org/v1/skills',
   }
   showApiExample(0);
   resetApiDemoTimer();
+
+  // Initialize Lucide icons
+  lucide.createIcons();
 </script>
 </body>
 </html>

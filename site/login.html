@@ -79,6 +79,9 @@
     .footer-links a:hover { color:var(--text-secondary); }
   </style>
   <script>if(localStorage.getItem('clawnet_theme')==='light')document.documentElement.setAttribute('data-theme','light')</script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>tailwind.config={corePlugins:{preflight:false}}</script>
+  <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body>
 <nav>
@@ -141,6 +144,7 @@
       window.Clerk.openSignUp({ afterSignUpUrl: REDIRECT });
     });
   });
+lucide.createIcons();
 </script>
 </body>
 </html>

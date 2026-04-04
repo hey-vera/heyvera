@@ -10,6 +10,9 @@
   <meta property="og:url" content="https://claw-net.org/roadmap">
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <script>if(localStorage.getItem('clawnet_theme')==='light')document.documentElement.setAttribute('data-theme','light')</script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>tailwind.config={corePlugins:{preflight:false}}</script>
+  <script src="https://unpkg.com/lucide@latest"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
   <style>
@@ -610,6 +613,7 @@ function navSignOut() { window.Clerk?.signOut?.().then(() => location.reload());
     }
   } catch(e) {}
 })();
+lucide.createIcons();
 </script>
 </body>
 </html>

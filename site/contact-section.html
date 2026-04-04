@@ -147,6 +147,9 @@
     @media(max-width:540px) { .field-row { grid-template-columns:1fr; } }
   </style>
   <script>if(localStorage.getItem('clawnet_theme')==='light')document.documentElement.setAttribute('data-theme','light')</script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>tailwind.config={corePlugins:{preflight:false}}</script>
+  <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body>
 <nav>
@@ -345,6 +348,7 @@ function toggleTheme() {
     }
   });
 })();
+lucide.createIcons();
 </script>
 </body>
 </html>

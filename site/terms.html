@@ -106,6 +106,9 @@
     @media (max-width: 600px) { .footer-grid { grid-template-columns: repeat(2, 1fr); } }
   </style>
   <script>if(localStorage.getItem('clawnet_theme')==='light')document.documentElement.setAttribute('data-theme','light')</script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>tailwind.config={corePlugins:{preflight:false}}</script>
+  <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body>
 
@@ -334,5 +337,6 @@ window.addEventListener('load', initNav);
 </script>
 <script src="/clerk-recovery.js"></script>
 <script data-clerk-publishable-key="pk_live_Y2xlcmsuY2xhdy1uZXQub3JnJA" src="https://cdn.jsdelivr.net/npm/@clerk/clerk-js@5/dist/clerk.browser.js"></script>
+<script>lucide.createIcons();</script>
 </body>
 </html>

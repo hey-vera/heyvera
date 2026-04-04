@@ -237,6 +237,9 @@
     .footer-bottom span { font-size: 12px; color: var(--text-muted); }
   </style>
   <script>if(localStorage.getItem('clawnet_theme')==='light')document.documentElement.setAttribute('data-theme','light')</script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>tailwind.config={corePlugins:{preflight:false}}</script>
+  <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body>
 
@@ -4858,6 +4861,7 @@ function navSignOut() { window.Clerk?.signOut?.().then(() => location.reload());
     }
   } catch(e) {}
 })();
+lucide.createIcons();
 </script>
 </body>
 </html>

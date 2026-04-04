@@ -419,6 +419,9 @@
     @media (max-width: 768px) { .admin-stats-grid { grid-template-columns: repeat(2, 1fr); } .admin-revenue-grid { grid-template-columns: 1fr; } .admin-table { font-size: 11px; } }
   </style>
   <script>if(localStorage.getItem('clawnet_theme')==='light')document.documentElement.setAttribute('data-theme','light')</script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>tailwind.config={corePlugins:{preflight:false}}</script>
+  <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body>
   <div id="toast-container"></div>
@@ -1886,6 +1889,7 @@
     function checkTabParam(){const p=new URLSearchParams(window.location.search);const tab=p.get('tab');if(tab&&['overview','reseller','keys','receipts'].includes(tab)){switchDashTab(tab);}}
     const origInit=init;init=async function(){await origInit();checkTabParam();}
     init();
+    lucide.createIcons();
   </script>
 </body>
 </html>

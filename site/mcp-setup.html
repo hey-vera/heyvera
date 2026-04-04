@@ -160,6 +160,9 @@
     @media(max-width:640px) { main { padding: 64px 16px 60px; } .hero h1 { font-size: 26px; } .info-bar { flex-direction: column; align-items: center; gap: 12px; } .tools-grid { grid-template-columns: 1fr; } .links-grid { grid-template-columns: 1fr; } }
   </style>
 <script>if(localStorage.getItem('clawnet_theme')==='light')document.documentElement.setAttribute('data-theme','light')</script>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>tailwind.config={corePlugins:{preflight:false}}</script>
+<script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body>
 
@@ -497,6 +500,7 @@ setInterval(fetchApiStatus, 60000);
     }
   } catch(e) {}
 })();
+lucide.createIcons();
 </script>
 </body>
 </html>

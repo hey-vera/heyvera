@@ -131,6 +131,9 @@
     @media(max-width:640px) { main { padding: 64px 16px 60px; } .stats-grid { grid-template-columns: repeat(2, 1fr); } }
   </style>
 <script>if(localStorage.getItem('clawnet_theme')==='light')document.documentElement.setAttribute('data-theme','light')</script>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>tailwind.config={corePlugins:{preflight:false}}</script>
+<script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body>
 
@@ -331,5 +334,6 @@ setInterval(fetchApiStatus, 60000);
 <script data-clerk-publishable-key="pk_live_Y2xlcmsuY2xhdy1uZXQub3JnJA"
   src="https://cdn.jsdelivr.net/npm/@clerk/clerk-js@5/dist/clerk.browser.js"
   onload="initNav()"></script>
+<script>lucide.createIcons();</script>
 </body>
 </html>
