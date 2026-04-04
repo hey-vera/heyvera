@@ -61,13 +61,19 @@ function syncWarmSchedule(): void {
 
 /**
  * Get endpoints that are due for a warm fetch.
+ * Only warms endpoints with enough recent demand to justify the cost.
+ * Minimum 10 cache hits in the last 24h — otherwise warming is a net loss.
  */
 function getDueEndpoints(limit: number = 5): WarmScheduleRow[] {
   return getDb().prepare(`
-    SELECT * FROM cache_warm_schedule
-    WHERE enabled = 1 AND (next_warm_at IS NULL OR next_warm_at <= datetime('now'))
-    AND consecutive_failures < 5
-    ORDER BY next_warm_at ASC
+    SELECT s.* FROM cache_warm_schedule s
+    WHERE s.enabled = 1 AND (s.next_warm_at IS NULL OR s.next_warm_at <= datetime('now'))
+    AND s.consecutive_failures < 5
+    AND (
+      SELECT COUNT(*) FROM cache_access_log
+      WHERE endpoint_id = s.endpoint_id AND hit = 1 AND created_at >= datetime('now', '-1 day')
+    ) >= 10
+    ORDER BY s.next_warm_at ASC
     LIMIT ?
   `).all(limit) as WarmScheduleRow[];
 }
