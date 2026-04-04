@@ -86,6 +86,7 @@ import { startSkillSchedulerCron } from './core/skill-scheduler-cron';
 import { startCacheWarmingCron } from './core/cache-warming-cron';
 import { startIndexSync } from './core/index-sync';
 import { startSomaAnchorCron } from './core/soma-anchor-cron';
+import { startEasAnchorCron } from './core/eas-anchor-cron';
 import { startZauthDiscovery } from './core/zauth-discovery';
 import { somaRouter } from './routes/soma';
 import { startCanaryCron } from './core/canary';
@@ -484,6 +485,7 @@ async function start() {
   startCreatorNotificationsCron(); cronsStarted++;
   startIndexSync();                cronsStarted++;
   startSomaAnchorCron();             cronsStarted++;
+  startEasAnchorCron();              cronsStarted++;
   startZauthDiscovery();             cronsStarted++;
   startCanaryCron();               cronsStarted++;
   startTrustDecayCron();           cronsStarted++;

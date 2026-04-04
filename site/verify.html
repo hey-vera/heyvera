@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Verify Receipt — ClawNet</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-primary: #0a0a0b; --bg-surface: #111113; --bg-surface-2: #18181b;
+      --border-subtle: #1e1e22; --border-default: #27272a;
+      --text-primary: #fafafa; --text-secondary: #a1a1aa; --text-tertiary: #71717a; --text-muted: #52525b;
+      --accent: #10b981; --accent-dim: rgba(16,185,129,0.12);
+      --font-sans: 'Inter', system-ui, sans-serif; --font-mono: 'JetBrains Mono', monospace;
+      --radius-lg: 8px; --radius-md: 6px;
+    }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { background:var(--bg-primary); color:var(--text-primary); font-family:var(--font-sans); min-height:100vh; }
+    .nav-logo-text { font-size:18px; font-weight:700; color:var(--text-primary); letter-spacing:-0.02em; }
+    .nav-logo-text span { color:var(--accent); }
+    nav { display:flex; align-items:center; height:56px; padding:0 24px; border-bottom:1px solid var(--border-subtle); background:rgba(10,10,11,0.95); }
+    nav a { text-decoration:none; }
+    .container { max-width:640px; margin:60px auto; padding:0 24px; }
+    h1 { font-size:24px; font-weight:700; margin-bottom:8px; }
+    .subtitle { color:var(--text-tertiary); font-size:14px; margin-bottom:32px; }
+    .search-row { display:flex; gap:8px; margin-bottom:24px; }
+    .input { flex:1; background:var(--bg-surface); border:1px solid var(--border-default); color:var(--text-primary); padding:12px 16px; font-size:14px; font-family:var(--font-mono); border-radius:var(--radius-md); outline:none; }
+    .input:focus { border-color:var(--accent); }
+    .input::placeholder { color:var(--text-muted); }
+    .btn { background:var(--accent); color:#000; border:none; padding:12px 24px; font-size:14px; font-weight:600; font-family:var(--font-sans); border-radius:var(--radius-md); cursor:pointer; white-space:nowrap; }
+    .btn:hover { opacity:0.9; }
+    .btn:disabled { opacity:0.5; cursor:not-allowed; }
+    #result { display:none; }
+    .receipt-card { background:var(--bg-surface); border:1px solid var(--border-subtle); border-radius:var(--radius-lg); padding:24px; }
+    .receipt-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; }
+    .receipt-status { display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:600; padding:4px 12px; border-radius:12px; }
+    .status-verified { background:var(--accent-dim); color:var(--accent); }
+    .receipt-grid { display:grid; gap:16px; }
+    .receipt-field { }
+    .field-label { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-tertiary); margin-bottom:4px; }
+    .field-value { font-size:13px; color:var(--text-secondary); font-family:var(--font-mono); word-break:break-all; }
+    .field-value a { color:var(--accent); text-decoration:none; }
+    .field-value a:hover { text-decoration:underline; }
+    .divider { border:none; border-top:1px solid var(--border-subtle); margin:16px 0; }
+    .method-badge { display:inline-block; font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; padding:2px 8px; border-radius:4px; }
+    #error-msg { display:none; color:#ef4444; font-size:13px; padding:12px 16px; background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.2); border-radius:var(--radius-md); margin-bottom:16px; }
+    .crypto-info { margin-top:24px; padding:16px; background:var(--bg-surface-2); border:1px solid var(--border-subtle); border-radius:var(--radius-md); }
+    .crypto-info h3 { font-size:12px; font-weight:600; color:var(--text-tertiary); margin-bottom:8px; text-transform:uppercase; letter-spacing:0.5px; }
+    .crypto-row { display:flex; justify-content:space-between; padding:4px 0; font-size:12px; }
+    .crypto-label { color:var(--text-tertiary); }
+    .crypto-value { color:var(--text-secondary); font-family:var(--font-mono); }
+  </style>
+</head>
+<body>
+  <nav><a href="/"><span class="nav-logo-text">Claw <span>Network</span></span></a></nav>
+
+  <div class="container">
+    <h1>Verify Receipt</h1>
+    <p class="subtitle">Paste a Soma receipt ID to verify a ClawNet transaction. No account required.</p>
+
+    <div class="search-row">
+      <input type="text" class="input" id="receipt-input" placeholder="sr-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" autofocus>
+      <button class="btn" onclick="verifyReceipt()" id="verify-btn">Verify</button>
+    </div>
+
+    <div id="error-msg"></div>
+
+    <div id="result">
+      <div class="receipt-card">
+        <div class="receipt-header">
+          <span style="font-size:16px;font-weight:600">Transaction Receipt</span>
+          <span class="receipt-status status-verified" id="receipt-status"></span>
+        </div>
+
+        <div class="receipt-grid">
+          <div class="receipt-field">
+            <div class="field-label">Receipt ID</div>
+            <div class="field-value" id="r-id"></div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+            <div class="receipt-field">
+              <div class="field-label">Payment Method</div>
+              <div class="field-value" id="r-method"></div>
+            </div>
+            <div class="receipt-field">
+              <div class="field-label">Credits</div>
+              <div class="field-value" id="r-credits"></div>
+            </div>
+          </div>
+          <div class="receipt-field">
+            <div class="field-label">Date</div>
+            <div class="field-value" id="r-date"></div>
+          </div>
+
+          <hr class="divider">
+
+          <div class="receipt-field">
+            <div class="field-label">Request Hash</div>
+            <div class="field-value" id="r-request-hash"></div>
+          </div>
+          <div class="receipt-field">
+            <div class="field-label">Response Hash</div>
+            <div class="field-value" id="r-response-hash"></div>
+          </div>
+          <div class="receipt-field" id="r-provenance-row" style="display:none">
+            <div class="field-label">Data Provenance (Soma Birth Certificate)</div>
+            <div class="field-value" id="r-soma-hash"></div>
+          </div>
+
+          <hr class="divider">
+
+          <div class="receipt-field">
+            <div class="field-label">Signature Algorithm</div>
+            <div class="field-value" id="r-algorithm"></div>
+          </div>
+          <div class="receipt-field" id="r-eas-row" style="display:none">
+            <div class="field-label">EAS Attestation (Base Chain)</div>
+            <div class="field-value"><a id="r-eas-link" href="#" target="_blank">View on EASScan</a></div>
+          </div>
+          <div class="receipt-field" id="r-anchor-row" style="display:none">
+            <div class="field-label">On-Chain Anchor</div>
+            <div class="field-value" id="r-anchor" style="color:var(--accent)"></div>
+          </div>
+        </div>
+
+        <div class="crypto-info">
+          <h3>Verification Info</h3>
+          <div class="crypto-row"><span class="crypto-label">Platform DID</span><span class="crypto-value" id="r-did"></span></div>
+          <div class="crypto-row"><span class="crypto-label">Public Key</span><span class="crypto-value" id="r-pubkey" style="font-size:10px"></span></div>
+          <div class="crypto-row"><span class="crypto-label">Hash Algorithm</span><span class="crypto-value" id="r-hash-algo"></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+const API_BASE = 'https://api.claw-net.org';
+
+document.getElementById('receipt-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') verifyReceipt();
+});
+
+// Check URL params on load
+const params = new URLSearchParams(window.location.search);
+const idParam = params.get('id') || params.get('receipt');
+if (idParam) {
+  document.getElementById('receipt-input').value = idParam;
+  verifyReceipt();
+}
+
+async function verifyReceipt() {
+  const input = document.getElementById('receipt-input').value.trim();
+  const errorEl = document.getElementById('error-msg');
+  const resultEl = document.getElementById('result');
+  const btn = document.getElementById('verify-btn');
+
+  errorEl.style.display = 'none';
+  resultEl.style.display = 'none';
+
+  if (!input) { errorEl.textContent = 'Enter a receipt ID.'; errorEl.style.display = 'block'; return; }
+
+  btn.disabled = true;
+  btn.textContent = 'Verifying...';
+
+  try {
+    const res = await fetch(`${API_BASE}/v1/soma/receipt/${encodeURIComponent(input)}`);
+    if (!res.ok) {
+      errorEl.textContent = res.status === 404 ? 'Receipt not found. Check the ID and try again.' : `Error: ${res.status}`;
+      errorEl.style.display = 'block';
+      return;
+    }
+    const data = await res.json();
+    const r = data.receipt;
+
+    // Populate fields
+    document.getElementById('r-id').textContent = r.id;
+    document.getElementById('r-credits').textContent = r.creditsCost.toLocaleString();
+    document.getElementById('r-date').textContent = new Date(r.createdAt).toLocaleString();
+    document.getElementById('r-request-hash').textContent = r.requestHash;
+    document.getElementById('r-response-hash').textContent = r.responseHash;
+    document.getElementById('r-algorithm').textContent = r.algorithm;
+
+    // Method badge
+    const colors = { stripe:'#635bff', solana:'#9945ff', x402:'#0052ff', credits:'#10b981' };
+    const color = colors[r.paymentMethod] || '#71717a';
+    document.getElementById('r-method').innerHTML = `<span class="method-badge" style="background:${color}22;color:${color}">${r.paymentMethod}</span>`;
+
+    // Status
+    const statusEl = document.getElementById('receipt-status');
+    statusEl.innerHTML = '&#x2714; Signed';
+
+    // Provenance
+    if (r.somaDataHash) {
+      document.getElementById('r-provenance-row').style.display = 'block';
+      document.getElementById('r-soma-hash').textContent = r.somaDataHash;
+    }
+
+    // EAS
+    if (r.easScanUrl) {
+      document.getElementById('r-eas-row').style.display = 'block';
+      document.getElementById('r-eas-link').href = r.easScanUrl;
+    }
+
+    // Anchor
+    if (r.anchored) {
+      document.getElementById('r-anchor-row').style.display = 'block';
+      document.getElementById('r-anchor').textContent = 'Anchored on-chain';
+    }
+
+    // Verification info
+    if (r.verification) {
+      document.getElementById('r-did').textContent = r.verification.platformDid || '';
+      document.getElementById('r-pubkey').textContent = r.verification.publicKeyMultibase || '';
+      document.getElementById('r-hash-algo').textContent = r.verification.hashAlgorithm || '';
+    }
+
+    resultEl.style.display = 'block';
+
+    // Update URL without reload
+    const newUrl = `${window.location.pathname}?id=${encodeURIComponent(r.id)}`;
+    window.history.replaceState({}, '', newUrl);
+  } catch (err) {
+    errorEl.textContent = 'Failed to verify. Check your connection and try again.';
+    errorEl.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Verify';
+  }
+}
+</script>
+</body>
+</html>
