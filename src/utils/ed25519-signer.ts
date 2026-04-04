@@ -13,7 +13,7 @@
  * No external dependencies — pure Node.js crypto.
  */
 
-import { createHash, createPrivateKey, createPublicKey, sign, verify, KeyObject } from 'crypto';
+import { createHash, createPrivateKey, createPublicKey, sign, verify, KeyObject, hkdfSync } from 'crypto';
 import { jcsCanonicalizeToBytes, base58btcEncode } from './jcs';
 import {
   SOMA_HASH_ALGORITHM,
@@ -29,6 +29,36 @@ import {
 // 30 2e 02 01 00 30 05 06 03 2b 65 70 04 22 04 20 + 32-byte seed
 const ED25519_PKCS8_PREFIX = Buffer.from('302e020100300506032b657004220420', 'hex');
 
+// ─── HKDF Key Derivation (RFC 5869) ───────────────────────────────────────
+// Replaces raw SHA-256(secret). Domain-separated, formally sound KDF.
+// All files that need the platform signing secret import this function.
+
+let _devWarned = false;
+
+/**
+ * Derive a 32-byte seed from PLATFORM_SIGNING_SECRET using HKDF-SHA256.
+ * Domain separation ensures different key types produce independent keys.
+ *
+ * @param domain - Key purpose string (e.g., 'ed25519-platform', 'ml-dsa-65')
+ * @returns 32-byte deterministic seed
+ */
+export function derivePlatformSeed(domain: string): Buffer {
+  const secret = process.env.PLATFORM_SIGNING_SECRET;
+
+  if (!secret) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('PLATFORM_SIGNING_SECRET is required in production — cannot derive signing keys');
+    }
+    if (!_devWarned) {
+      console.warn('[WARN] PLATFORM_SIGNING_SECRET not set — using dev key. NOT FOR PRODUCTION.');
+      _devWarned = true;
+    }
+    return Buffer.from(hkdfSync('sha256', 'clawnet-dev-only', '', `clawnet:${domain}:v1`, 32));
+  }
+
+  return Buffer.from(hkdfSync('sha256', secret, '', `clawnet:${domain}:v1`, 32));
+}
+
 // ─── Cached keypair ────────────────────────────────────────────────────────
 
 let _privateKey: KeyObject | null = null;
@@ -37,13 +67,12 @@ let _publicKeyRaw: Buffer | null = null;
 
 /**
  * Derive a deterministic Ed25519 keypair from the platform signing secret.
- * SHA-256(secret) -> 32-byte seed -> Ed25519 private key via PKCS#8 DER import.
+ * HKDF-SHA256(secret, 'clawnet:ed25519-platform:v1') -> 32-byte seed -> Ed25519 key.
  */
 function ensureKeyPair(): void {
   if (_privateKey) return;
 
-  const secret = process.env.PLATFORM_SIGNING_SECRET || 'clawnet-dev';
-  const seed = createHash('sha256').update(secret).digest().subarray(0, 32);
+  const seed = derivePlatformSeed('ed25519-platform');
 
   // Build PKCS#8 DER: fixed header + 32-byte Ed25519 seed
   const pkcs8Der = Buffer.concat([ED25519_PKCS8_PREFIX, seed]);
@@ -130,9 +159,7 @@ let _mlDsaKeys: { publicKey: Uint8Array; secretKey: Uint8Array } | null = null;
 export async function ensureMlDsaKeyPair(): Promise<{ publicKey: Uint8Array; secretKey: Uint8Array }> {
   if (_mlDsaKeys) return _mlDsaKeys;
 
-  const secret = process.env.PLATFORM_SIGNING_SECRET || 'clawnet-dev';
-  // Domain separation: different seed than Ed25519
-  const seed = createHash('sha256').update(secret + ':ml-dsa-65').digest();
+  const seed = derivePlatformSeed('ml-dsa-65');
   _mlDsaKeys = await generateMlDsa65KeyPair(seed);
   return _mlDsaKeys;
 }

@@ -81,10 +81,10 @@ function getDueEndpoints(limit: number = 5): WarmScheduleRow[] {
 /**
  * Warm a single endpoint: fetch fresh data, cache it, create certificate.
  *
- * x403 optimization: after fetching, compare new dataHash to existing cert.
+ * Soma Check optimization: after fetching, compare new dataHash to existing cert.
  * If data didn't change, skip cache write + cert creation (saves CPU/disk).
  * The x402 payment still happens (we had to fetch to check). Full savings
- * require upstream x403 support (If-Soma-Hash → 304, no payment).
+ * require upstream Soma Check support (If-Soma-Hash → 304, no payment).
  */
 async function warmEndpoint(schedule: WarmScheduleRow): Promise<boolean> {
   const endpoint = findEndpoint(schedule.endpoint_id);
@@ -99,7 +99,7 @@ async function warmEndpoint(schedule: WarmScheduleRow): Promise<boolean> {
     const dataHash = somaHash(serialized);
     const ttl = schedule.frequency_seconds * 2; // Cache for 2x the update frequency
 
-    // x403: check if data actually changed since last warm
+    // Soma Check: check if data actually changed since last warm
     const existingHash = getCacheHashInfo(key);
     const dataChanged = !existingHash || existingHash.dataHash !== dataHash;
 
@@ -134,7 +134,7 @@ async function warmEndpoint(schedule: WarmScheduleRow): Promise<boolean> {
     `).run(schedule.frequency_seconds, schedule.endpoint_id);
 
     if (!dataChanged) {
-      logger.debug({ endpointId: schedule.endpoint_id }, 'Cache warm: data unchanged (x403 skip)');
+      logger.debug({ endpointId: schedule.endpoint_id }, 'Cache warm: data unchanged (Soma Check skip)');
     }
 
     return true;

@@ -56,8 +56,8 @@ export async function initHeart(): Promise<void> {
     const somaHeart = await import('soma-heart');
     const somaCore = await import('soma-heart/core');
 
-    const secret = process.env.PLATFORM_SIGNING_SECRET || 'clawnet-dev';
-    const seed = createHash('sha256').update(secret).digest().subarray(0, 32);
+    const { derivePlatformSeed } = await import('../utils/ed25519-signer');
+    const seed = derivePlatformSeed('ed25519-platform');
     const signingKeyPair = nacl.sign.keyPair.fromSeed(new Uint8Array(seed));
 
     // Determine which LLM provider to use for heart.generate()

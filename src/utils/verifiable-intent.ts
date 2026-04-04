@@ -85,8 +85,8 @@ let _privateKey: crypto.KeyObject | null = null;
 
 function ensurePrivateKey(): crypto.KeyObject {
   if (_privateKey) return _privateKey;
-  const secret = process.env.PLATFORM_SIGNING_SECRET || 'clawnet-dev';
-  const seed = crypto.createHash('sha256').update(secret).digest().subarray(0, 32);
+  const { derivePlatformSeed } = require('../utils/ed25519-signer');
+  const seed = derivePlatformSeed('ed25519-platform');
   const pkcs8Header = Buffer.from('302e020100300506032b657004220420', 'hex');
   const pkcs8Der = Buffer.concat([pkcs8Header, seed]);
   _privateKey = crypto.createPrivateKey({ key: pkcs8Der, format: 'der', type: 'pkcs8' });

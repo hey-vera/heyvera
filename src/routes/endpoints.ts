@@ -131,10 +131,10 @@ endpointsRouter.get('/', (c) => {
   });
 });
 
-// ─── GET /v1/endpoints/:id/check — x403 free hash check ──────────────────────
+// ─── GET /v1/endpoints/:id/check — soma-check free hash check ──────────────────────
 // Returns the cached data hash + freshness info. Zero credits. No auth required.
 // Agents use this to decide if they need to pay for a full fetch.
-// Protocol: x403 — conditional payment via content-addressed change detection.
+// Protocol: soma-check — conditional payment via content-addressed change detection.
 
 endpointsRouter.get('/:id/check', (c) => {
   const endpointId = c.req.param('id');
@@ -158,14 +158,14 @@ endpointsRouter.get('/:id/check', (c) => {
       endpointId,
       cached: false,
       dataHash: null,
-      protocol: 'x403',
+      protocol: 'soma-check',
       creditsUsed: 0,
       hint: 'No cached data. A full fetch (POST /v1/endpoints/:id/call) is required.',
     });
   }
 
   c.header('X-Soma-Hash', hashInfo.dataHash);
-  c.header('X-Soma-Protocol', 'x403/1.0');
+  c.header('X-Soma-Protocol', 'soma-check/1.0');
 
   return c.json({
     endpointId,
@@ -177,7 +177,7 @@ endpointsRouter.get('/:id/check', (c) => {
     age: hashInfo.age,
     certId: hashInfo.certId,
     chainHash: hashInfo.chainHash,
-    protocol: 'x403',
+    protocol: 'soma-check',
     creditsUsed: 0,
     usage: {
       checkHash: `Send If-Soma-Hash: ${hashInfo.dataHash} on your next POST to skip payment if unchanged.`,
@@ -189,7 +189,7 @@ endpointsRouter.get('/:id/check', (c) => {
 // ─── POST /v1/endpoints/:id/call — direct endpoint invocation ────────────────
 // No LLM, no orchestration fee. Caller pays only the endpoint's credit cost.
 // Returns raw data + Soma birth certificate when available.
-// Supports x403: send If-Soma-Hash header to skip payment when data unchanged.
+// Supports soma-check: send If-Soma-Hash header to skip payment when data unchanged.
 
 endpointsRouter.post('/:id/call', async (c) => {
   const requestId = nanoid(12);
@@ -242,7 +242,7 @@ endpointsRouter.post('/:id/call', async (c) => {
   // ── Smart cache check ────────────────────────────────────────────────────
   const key = cacheKey(endpointId, params as Record<string, string>);
 
-  // ── x403 conditional payment: If-Soma-Hash ──────────────────────────────
+  // ── soma-check conditional payment: If-Soma-Hash ──────────────────────────────
   // Agent sends their last known data hash. If it matches our cache, they
   // already have the latest data — return 0 credits, no data transfer.
   const ifSomaHash = c.req.header('If-Soma-Hash') || (rawBody as any).ifSomaHash;
@@ -250,8 +250,8 @@ endpointsRouter.post('/:id/call', async (c) => {
     const hashInfo = getCacheHashInfo(key);
     if (hashInfo && hashInfo.dataHash === ifSomaHash) {
       c.header('X-Soma-Hash', hashInfo.dataHash);
-      c.header('X-Soma-Protocol', 'x403/1.0');
-      logger.info({ requestId, endpointId, protocol: 'x403' }, 'x403 hash match — no charge');
+      c.header('X-Soma-Protocol', 'soma-check/1.0');
+      logger.info({ requestId, endpointId, protocol: 'soma-check' }, 'soma-check hash match — no charge');
       return c.json({
         requestId,
         endpointId,
@@ -262,7 +262,7 @@ endpointsRouter.post('/:id/call', async (c) => {
         age: hashInfo.age,
         creditsUsed: 0,
         durationMs: Date.now() - start,
-        protocol: 'x403',
+        protocol: 'soma-check',
       });
     }
     // Hash mismatch or no cache — fall through to normal flow (data has changed)
@@ -297,10 +297,10 @@ endpointsRouter.post('/:id/call', async (c) => {
     // Certified Cache: serve the cache certificate alongside the data
     const cacheCert = getCacheCertificate(key);
 
-    // x403: include data hash so agents can use If-Soma-Hash on next request
+    // soma-check: include data hash so agents can use If-Soma-Hash on next request
     if (cacheCert) {
       c.header('X-Soma-Hash', cacheCert.cacheCert.dataHash);
-      c.header('X-Soma-Protocol', 'x403/1.0');
+      c.header('X-Soma-Protocol', 'soma-check/1.0');
     }
 
     logger.info({ requestId, endpointId, creditsUsed: cacheCredits, hasCacheCert: !!cacheCert }, 'Direct endpoint call — cache hit');
@@ -313,7 +313,7 @@ endpointsRouter.post('/:id/call', async (c) => {
       durationMs,
       dataHash: cacheCert?.cacheCert.dataHash ?? null,
       freshness: agentFreshness ?? 'relaxed',
-      protocol: 'x403',
+      protocol: 'soma-check',
       provenance: cacheCert ? {
         type: 'certified-cache',
         cacheCertId: cacheCert.id,
@@ -396,9 +396,9 @@ endpointsRouter.post('/:id/call', async (c) => {
 
     logger.info({ requestId, endpointId, creditsUsed: endpointCredits, providerShare, durationMs, hasCert: !!birthCertificate }, 'Direct endpoint call — live');
 
-    // x403 + Soma provenance headers — dataHash serves both trust and conditional payment
+    // soma-check + Soma provenance headers — dataHash serves both trust and conditional payment
     c.header('X-Soma-Hash', dataHash);
-    c.header('X-Soma-Protocol', 'x403/1.0');
+    c.header('X-Soma-Protocol', 'soma-check/1.0');
     if (birthCertificate) {
       c.header('X-Soma-Data-Hash', birthCertificate.dataHash);
       c.header('X-Soma-Signature', birthCertificate.signature);
@@ -427,7 +427,7 @@ endpointsRouter.post('/:id/call', async (c) => {
       durationMs,
       dataHash,
       freshness: agentFreshness ?? 'relaxed',
-      protocol: 'x403',
+      protocol: 'soma-check',
       provenance: birthCertificate ?? null,
     });
   } catch (err) {

@@ -185,7 +185,7 @@ export function getCacheCertificate(cacheKey: string): CacheCertificate | null {
 }
 
 /**
- * Lightweight hash lookup for x403 conditional checks.
+ * Lightweight hash lookup for Soma Check conditional checks.
  * Returns hash + freshness info without incrementing served_count.
  * Includes stale certs — the hash is still useful for comparison.
  */

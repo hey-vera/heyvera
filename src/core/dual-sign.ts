@@ -121,8 +121,8 @@ export function verifyProviderCert(cert: ProviderCertificate): boolean {
  * Get the platform's Ed25519 signing keypair (same seed as soma.ts and ed25519-signer.ts).
  */
 function getPlatformKeyPair(): nacl.SignKeyPair {
-  const secret = process.env.PLATFORM_SIGNING_SECRET || 'clawnet-dev';
-  const seed = createHash('sha256').update(secret).digest().subarray(0, 32);
+  const { derivePlatformSeed } = require('../utils/ed25519-signer');
+  const seed = derivePlatformSeed('ed25519-platform');
   return nacl.sign.keyPair.fromSeed(new Uint8Array(seed));
 }
 
