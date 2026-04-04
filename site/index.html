@@ -403,10 +403,13 @@
       .section-sm { padding: 32px 16px; }
       .problem-grid { grid-template-columns: 1fr; }
       .value-grid { grid-template-columns: 1fr; }
-      .skill-grid { grid-template-columns: 1fr; }
+      .value-card.featured { grid-template-columns: 1fr; gap: 20px; }
+      .soma-receipt { font-size: 11px; }
+      .skill-grid { grid-template-columns: 1fr 1fr; }
       .steps { grid-template-columns: 1fr 1fr; gap: 32px; }
       .steps-line { display: none; }
       .cta-cards { grid-template-columns: 1fr; }
+      .cta-grid { grid-template-columns: 1fr !important; }
       .stats-row { grid-template-columns: repeat(2, 1fr); }
       .stat-item:nth-child(3)::before { display: none; }
       .footer-grid { grid-template-columns: repeat(2, 1fr); }
@@ -416,6 +419,7 @@
     }
     @media (max-width: 480px) {
       .steps { grid-template-columns: 1fr; }
+      .skill-grid { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -857,30 +861,42 @@ console.<span class="hl-method">log</span>(receipt.easScanUrl);
 
     <div class="skill-grid" id="skillGrid">
       <div class="skill-card">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
+          <span style="font-size:10px;font-weight:500;color:var(--accent);background:var(--accent-dim);padding:2px 7px;border-radius:var(--radius-sm)">Market Data</span>
+          <span style="font-size:10px;color:var(--text-muted)">12 exchanges</span>
+        </div>
         <div class="skill-card-head">
           <span class="skill-card-name">SOL Price Feed</span>
           <span class="skill-card-price">1.5 cr</span>
         </div>
-        <div class="skill-card-desc">Real-time Solana price from 12 exchanges. 24h change, volume, market cap.</div>
+        <div class="skill-card-desc">Real-time Solana price. 24h change, volume, market cap.</div>
         <div class="skill-card-meta">
           <span><i data-lucide="clock" class="tw-w-3 tw-h-3 tw-inline-block tw-mr-0.5" style="vertical-align:-2px"></i>0.8s</span>
-          <span><i data-lucide="star" class="tw-w-3 tw-h-3 tw-inline-block tw-mr-0.5" style="vertical-align:-2px"></i>4.8</span>
-          <span><i data-lucide="badge-check" class="tw-w-3 tw-h-3 tw-inline-block tw-mr-0.5" style="vertical-align:-2px"></i>Verified</span>
+          <span style="font-family:var(--font-mono)">4.8</span>
+          <span><i data-lucide="shield-check" class="tw-w-3 tw-h-3 tw-inline-block tw-mr-0.5" style="vertical-align:-2px;color:var(--accent)"></i>Soma</span>
         </div>
       </div>
       <div class="skill-card">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
+          <span style="font-size:10px;font-weight:500;color:var(--info);background:var(--info-dim);padding:2px 7px;border-radius:var(--radius-sm)">Market Data</span>
+          <span style="font-size:10px;color:var(--text-muted)">end-of-day</span>
+        </div>
         <div class="skill-card-head">
           <span class="skill-card-name">S&amp;P 500 Daily</span>
           <span class="skill-card-price">1 cr</span>
         </div>
-        <div class="skill-card-desc">Daily close, change, volume for the S&amp;P 500 index. Updated end of day.</div>
+        <div class="skill-card-desc">Daily close, change, volume for the S&amp;P 500 index.</div>
         <div class="skill-card-meta">
           <span><i data-lucide="clock" class="tw-w-3 tw-h-3 tw-inline-block tw-mr-0.5" style="vertical-align:-2px"></i>0.3s</span>
-          <span><i data-lucide="star" class="tw-w-3 tw-h-3 tw-inline-block tw-mr-0.5" style="vertical-align:-2px"></i>4.9</span>
-          <span><i data-lucide="badge-check" class="tw-w-3 tw-h-3 tw-inline-block tw-mr-0.5" style="vertical-align:-2px"></i>Verified</span>
+          <span style="font-family:var(--font-mono)">4.9</span>
+          <span><i data-lucide="shield-check" class="tw-w-3 tw-h-3 tw-inline-block tw-mr-0.5" style="vertical-align:-2px;color:var(--accent)"></i>Soma</span>
         </div>
       </div>
       <div class="skill-card">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
+          <span style="font-size:10px;font-weight:500;color:var(--danger);background:var(--danger-dim);padding:2px 7px;border-radius:var(--radius-sm)">Risk</span>
+          <span style="font-size:10px;color:var(--text-muted)">audits + on-chain</span>
+        </div>
         <div class="skill-card-head">
           <span class="skill-card-name">Token Risk Scorer</span>
           <span class="skill-card-price">5 cr</span>
@@ -888,35 +904,47 @@ console.<span class="hl-method">log</span>(receipt.easScanUrl);
         <div class="skill-card-desc">Cross-references audits, liquidity locks, mint authority, holder distribution.</div>
         <div class="skill-card-meta">
           <span><i data-lucide="clock" class="tw-w-3 tw-h-3 tw-inline-block tw-mr-0.5" style="vertical-align:-2px"></i>5.8s</span>
-          <span><i data-lucide="star" class="tw-w-3 tw-h-3 tw-inline-block tw-mr-0.5" style="vertical-align:-2px"></i>4.6</span>
-          <span><i data-lucide="badge-check" class="tw-w-3 tw-h-3 tw-inline-block tw-mr-0.5" style="vertical-align:-2px"></i>Verified</span>
+          <span style="font-family:var(--font-mono)">4.6</span>
+          <span><i data-lucide="shield-check" class="tw-w-3 tw-h-3 tw-inline-block tw-mr-0.5" style="vertical-align:-2px;color:var(--accent)"></i>Soma</span>
         </div>
       </div>
       <div class="skill-card">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
+          <span style="font-size:10px;font-weight:500;color:var(--purple);background:var(--purple-dim);padding:2px 7px;border-radius:var(--radius-sm)">Social</span>
+          <span style="font-size:10px;color:var(--text-muted)">live tweets</span>
+        </div>
         <div class="skill-card-head">
           <span class="skill-card-name">X/Twitter Sentiment</span>
           <span class="skill-card-price">3 cr</span>
         </div>
-        <div class="skill-card-desc">Live tweets, sentiment scoring, top influencers. Real social data for any token.</div>
+        <div class="skill-card-desc">Sentiment scoring, top influencers. Real social data for any token.</div>
         <div class="skill-card-meta">
           <span><i data-lucide="clock" class="tw-w-3 tw-h-3 tw-inline-block tw-mr-0.5" style="vertical-align:-2px"></i>3.2s</span>
-          <span><i data-lucide="star" class="tw-w-3 tw-h-3 tw-inline-block tw-mr-0.5" style="vertical-align:-2px"></i>4.5</span>
-          <span><i data-lucide="badge-check" class="tw-w-3 tw-h-3 tw-inline-block tw-mr-0.5" style="vertical-align:-2px"></i>Verified</span>
+          <span style="font-family:var(--font-mono)">4.5</span>
+          <span><i data-lucide="shield-check" class="tw-w-3 tw-h-3 tw-inline-block tw-mr-0.5" style="vertical-align:-2px;color:var(--accent)"></i>Soma</span>
         </div>
       </div>
       <div class="skill-card">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
+          <span style="font-size:10px;font-weight:500;color:var(--warning);background:var(--warning-dim);padding:2px 7px;border-radius:var(--radius-sm)">DeFi</span>
+          <span style="font-size:10px;color:var(--text-muted)">on-chain activity</span>
+        </div>
         <div class="skill-card-head">
           <span class="skill-card-name">Whale Tracker</span>
           <span class="skill-card-price">4 cr</span>
         </div>
-        <div class="skill-card-desc">On-chain whale activity across Solana. Large transactions, wallet labels, timing.</div>
+        <div class="skill-card-desc">Whale activity across Solana. Large transactions, wallet labels, timing.</div>
         <div class="skill-card-meta">
           <span><i data-lucide="clock" class="tw-w-3 tw-h-3 tw-inline-block tw-mr-0.5" style="vertical-align:-2px"></i>4.1s</span>
-          <span><i data-lucide="star" class="tw-w-3 tw-h-3 tw-inline-block tw-mr-0.5" style="vertical-align:-2px"></i>4.4</span>
-          <span><i data-lucide="badge-check" class="tw-w-3 tw-h-3 tw-inline-block tw-mr-0.5" style="vertical-align:-2px"></i>Verified</span>
+          <span style="font-family:var(--font-mono)">4.4</span>
+          <span><i data-lucide="shield-check" class="tw-w-3 tw-h-3 tw-inline-block tw-mr-0.5" style="vertical-align:-2px;color:var(--accent)"></i>Soma</span>
         </div>
       </div>
       <div class="skill-card">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
+          <span style="font-size:10px;font-weight:500;color:var(--accent);background:var(--accent-dim);padding:2px 7px;border-radius:var(--radius-sm)">DeFi</span>
+          <span style="font-size:10px;color:var(--text-muted)">multi-protocol</span>
+        </div>
         <div class="skill-card-head">
           <span class="skill-card-name">DeFi Yield Scanner</span>
           <span class="skill-card-price">2 cr</span>
@@ -924,8 +952,8 @@ console.<span class="hl-method">log</span>(receipt.easScanUrl);
         <div class="skill-card-desc">Current yield rates across DeFi protocols. APY, TVL, risk ratings.</div>
         <div class="skill-card-meta">
           <span><i data-lucide="clock" class="tw-w-3 tw-h-3 tw-inline-block tw-mr-0.5" style="vertical-align:-2px"></i>2.1s</span>
-          <span><i data-lucide="star" class="tw-w-3 tw-h-3 tw-inline-block tw-mr-0.5" style="vertical-align:-2px"></i>4.7</span>
-          <span><i data-lucide="badge-check" class="tw-w-3 tw-h-3 tw-inline-block tw-mr-0.5" style="vertical-align:-2px"></i>Verified</span>
+          <span style="font-family:var(--font-mono)">4.7</span>
+          <span><i data-lucide="shield-check" class="tw-w-3 tw-h-3 tw-inline-block tw-mr-0.5" style="vertical-align:-2px;color:var(--accent)"></i>Soma</span>
         </div>
       </div>
     </div>
@@ -1000,16 +1028,20 @@ console.<span class="hl-method">log</span>(receipt.easScanUrl);
       <a href="/learn" class="btn btn-ghost btn-lg">How It Works</a>
     </div>
 
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--border-subtle);border-radius:var(--radius-lg);overflow:hidden;text-align:left;max-width:800px;margin:0 auto">
+    <div class="cta-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--border-subtle);border-radius:var(--radius-lg);overflow:hidden;text-align:left;max-width:800px;margin:0 auto">
       <a href="/docs#publish" style="padding:24px;background:var(--bg-surface);text-decoration:none;transition:background 0.15s" onmouseover="this.style.background='var(--bg-surface-2)'" onmouseout="this.style.background='var(--bg-surface)'">
+        <i data-lucide="package-plus" class="tw-w-5 tw-h-5 tw-mb-2" style="color:var(--accent)"></i>
         <div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Publish a skill</div>
         <div style="font-size:12px;color:var(--text-tertiary);line-height:1.5">Wrap any API, set your price, earn 85%</div>
       </a>
       <a href="/soma" style="padding:24px;background:var(--bg-surface);text-decoration:none;transition:background 0.15s" onmouseover="this.style.background='var(--bg-surface-2)'" onmouseout="this.style.background='var(--bg-surface)'">
+        <i data-lucide="shield-check" class="tw-w-5 tw-h-5 tw-mb-2" style="color:var(--purple)"></i>
         <div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Soma Protocol</div>
         <div style="font-size:12px;color:var(--text-tertiary);line-height:1.5">Open identity standard for agents. MIT-licensed.</div>
+        <span style="display:inline-flex;align-items:center;gap:4px;margin-top:8px;font-size:10px;font-weight:500;color:var(--info);background:var(--info-dim);padding:2px 8px;border-radius:var(--radius-sm)"><i data-lucide="book-open" class="tw-w-3 tw-h-3"></i> Published Research</span>
       </a>
       <a href="/playground" style="padding:24px;background:var(--bg-surface);text-decoration:none;transition:background 0.15s" onmouseover="this.style.background='var(--bg-surface-2)'" onmouseout="this.style.background='var(--bg-surface)'">
+        <i data-lucide="terminal" class="tw-w-5 tw-h-5 tw-mb-2" style="color:var(--warning)"></i>
         <div style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Playground</div>
         <div style="font-size:12px;color:var(--text-tertiary);line-height:1.5">Try the API interactively, no sign-up</div>
       </a>
