@@ -27,4 +27,4 @@ dependencies = [
 [project.urls]
 Homepage = "https://claw-net.org"
 Documentation = "https://claw-net.org/docs"
-Repository = "https://github.com/clawnet/claw-net"
+Repository = "https://github.com/1xmint/claw-net"

@@ -1,8 +1,8 @@
 /**
- * @clawnet/sdk -- TypeScript client for ClawNet API
+ * @1xmint/clawnet-sdk -- TypeScript client for ClawNet API
  *
  * Usage:
- *   import { ClawNet } from '@clawnet/sdk';
+ *   import { ClawNet } from '@1xmint/clawnet-sdk';
  *   const claw = new ClawNet({ apiKey: 'cn-xxxx' });
  *   const result = await claw.orchestrate('What is the price of SOL?');
  */
@@ -112,6 +112,73 @@ export interface Manifest {
   name: string;
   version: string;
   endpoints: Array<{ method: string; path: string; description: string }>;
+}
+
+export interface SomaReceipt {
+  id: string;
+  requestId: string;
+  paymentMethod: string;
+  creditsCost: number;
+  requestHash: string;
+  responseHash: string;
+  somaDataHash: string | null;
+  heartbeatIndex: number | null;
+  cached: boolean;
+  signature: string;
+  algorithm: string;
+  hybridSignature?: {
+    version: '2.0';
+    algorithms: ['Ed25519', 'ML-DSA-65'];
+    ed25519: string;
+    mlDsa65: string;
+  };
+  easUid: string | null;
+  easScanUrl: string | null;
+  createdAt: string;
+  verification: {
+    platformDid: string;
+    publicKeyMultibase: string;
+    attesterAddress: string | null;
+    algorithm: string;
+    hashAlgorithm: string;
+  };
+  dualSign?: {
+    providerId: string;
+    providerSignature: string;
+    providerPublicKey: string;
+    providerDataHash: string;
+    providerHeartbeatIndex: number | null;
+    dualSigned: true;
+  };
+}
+
+export interface TrustProfile {
+  did: string;
+  trustScore: number;
+  verdict: string;
+  attestationCount: number;
+  recentVerdicts: Array<{
+    observerDid: string;
+    outcome: string;
+    confidence: number;
+    timestamp: string;
+  }>;
+}
+
+export interface SomaReceiptStats {
+  total: number;
+  anchored: number;
+  unanchored: number;
+  byMethod: Record<string, number>;
+}
+
+export interface Endpoint {
+  id: string;
+  name: string;
+  provider: string;
+  description: string;
+  costPerCall: number;
+  category: string;
 }
 
 // ─── Client ─────────────────────────────────────────────────────────────────────
@@ -226,6 +293,39 @@ export class ClawNet {
     return this.request<TTLSuggestion[]>('GET', '/v1/cache/optimizer');
   }
 
+  // ─── Endpoints ─────────────────────────────────────────────────────────────
+
+  async listEndpoints(query?: string, category?: string): Promise<Endpoint[]> {
+    const params = new URLSearchParams();
+    if (query) params.set('q', query);
+    if (category) params.set('category', category);
+    const qs = params.toString();
+    const result = await this.request<{ endpoints: Endpoint[] }>('GET', `/v1/endpoints${qs ? `?${qs}` : ''}`);
+    return result.endpoints ?? [];
+  }
+
+  async callEndpoint(endpointId: string, params?: Record<string, unknown>): Promise<unknown> {
+    return this.request<unknown>('POST', `/v1/endpoints/${encodeURIComponent(endpointId)}/call`, params);
+  }
+
+  // ─── Soma Trust ────────────────────────────────────────────────────────────
+
+  /** Verify a Soma receipt by ID. Public endpoint — no auth required. */
+  async verifyReceipt(receiptId: string): Promise<SomaReceipt> {
+    return this.request<SomaReceipt>('GET', `/v1/soma/receipt/${encodeURIComponent(receiptId)}`);
+  }
+
+  /** Get aggregate receipt statistics. */
+  async getReceiptStats(): Promise<SomaReceiptStats> {
+    return this.request<SomaReceiptStats>('GET', '/v1/soma/receipts/stats');
+  }
+
+  /** List your Soma receipts (authenticated). */
+  async getSomaReceipts(limit?: number): Promise<SomaReceipt[]> {
+    const qs = limit ? `?limit=${limit}` : '';
+    return this.request<SomaReceipt[]>('GET', `/v1/account/soma-receipts${qs}`);
+  }
+
   // ─── Static (no auth) ──────────────────────────────────────────────────────
 
   static async onboard(
@@ -243,6 +343,32 @@ export class ClawNet {
       throw new ClawNetError(res.status, err.error ?? 'Unknown error', err.code);
     }
     return res.json() as Promise<OnboardResult>;
+  }
+
+  /** Look up Soma trust profile for any agent DID. No auth required. */
+  static async getTrust(did: string, baseUrl?: string): Promise<TrustProfile> {
+    const url = (baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, '');
+    const res = await fetch(`${url}/v1/soma/${encodeURIComponent(did)}/trust`, {
+      headers: { 'Accept': 'application/json' },
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText })) as { error?: string; code?: string };
+      throw new ClawNetError(res.status, err.error ?? 'Unknown error', err.code);
+    }
+    return res.json() as Promise<TrustProfile>;
+  }
+
+  /** Verify a Soma receipt by ID. No auth required. */
+  static async verifyReceiptPublic(receiptId: string, baseUrl?: string): Promise<SomaReceipt> {
+    const url = (baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, '');
+    const res = await fetch(`${url}/v1/soma/receipt/${encodeURIComponent(receiptId)}`, {
+      headers: { 'Accept': 'application/json' },
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText })) as { error?: string; code?: string };
+      throw new ClawNetError(res.status, err.error ?? 'Unknown error', err.code);
+    }
+    return res.json() as Promise<SomaReceipt>;
   }
 
   static async getManifest(baseUrl?: string): Promise<Manifest> {

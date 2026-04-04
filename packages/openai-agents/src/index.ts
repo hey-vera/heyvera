@@ -1,13 +1,14 @@
 /**
- * @clawnet/openai-agents — OpenAI Agents SDK tools for ClawNet
+ * @1xmint/clawnet-openai-agents — OpenAI Agents SDK tools for ClawNet
  *
- * 3 function-calling tools for any OpenAI agent:
- *   - clawnet_orchestrate   — query 390+ APIs via AI orchestration
- *   - clawnet_invoke_skill  — invoke a marketplace skill by ID
- *   - clawnet_search        — search available APIs and skills
+ * 4 function-calling tools for any OpenAI agent:
+ *   - clawnet_orchestrate      — query 390+ APIs via AI orchestration
+ *   - clawnet_invoke_skill     — invoke a marketplace skill by ID
+ *   - clawnet_search           — search available APIs and skills
+ *   - clawnet_verify_receipt   — verify a Soma cryptographic receipt
  *
  * Usage:
- *   import { clawnetTools, handleClawNetToolCall } from '@clawnet/openai-agents';
+ *   import { clawnetTools, handleClawNetToolCall } from '@1xmint/clawnet-openai-agents';
  *
  *   const response = await openai.chat.completions.create({
  *     model: 'gpt-4o',
@@ -124,6 +125,28 @@ const searchTool: OpenAIFunctionTool = {
   },
 };
 
+const verifyReceiptTool: OpenAIFunctionTool = {
+  type: 'function',
+  function: {
+    name: 'clawnet_verify_receipt',
+    description:
+      'Verify a Soma cryptographic receipt by ID. Returns Ed25519 + ML-DSA-65 signatures, ' +
+      'request/response hashes, EAS attestation link, payment proof, and dual-sign provenance. ' +
+      'Receipts are public — no auth required.',
+    parameters: {
+      type: 'object',
+      properties: {
+        receipt_id: {
+          type: 'string',
+          description: 'The Soma receipt ID (starts with "sr-")',
+        },
+      },
+      required: ['receipt_id'],
+      additionalProperties: false,
+    },
+  },
+};
+
 /**
  * Array of all ClawNet tool definitions in OpenAI function-calling format.
  * Pass directly as `tools` to `openai.chat.completions.create()`.
@@ -132,6 +155,7 @@ export const clawnetTools: OpenAIFunctionTool[] = [
   orchestrateTool,
   invokeSkillTool,
   searchTool,
+  verifyReceiptTool,
 ];
 
 // ─── HTTP helper ────────────────────────────────────────────────────────────
@@ -262,6 +286,31 @@ export async function handleClawNetToolCall(
           creditCost: s.credit_cost,
           tags: s.tags,
         })),
+      });
+    }
+
+    case 'clawnet_verify_receipt': {
+      const receiptId = args.receipt_id as string;
+      const res = await fetch(`${base}/v1/soma/receipt/${encodeURIComponent(receiptId)}`, {
+        headers: { 'Accept': 'application/json' },
+      });
+
+      if (!res.ok) {
+        return JSON.stringify({ error: `Receipt not found (${res.status})` });
+      }
+
+      const r = await res.json() as Record<string, unknown>;
+      return JSON.stringify({
+        id: r.id,
+        verified: true,
+        paymentMethod: r.paymentMethod,
+        creditsCost: r.creditsCost,
+        algorithm: r.algorithm,
+        requestHash: r.requestHash,
+        responseHash: r.responseHash,
+        easScanUrl: r.easScanUrl,
+        dualSigned: !!(r as any).dualSign,
+        createdAt: r.createdAt,
       });
     }
 

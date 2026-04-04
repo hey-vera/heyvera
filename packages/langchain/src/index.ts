@@ -1,13 +1,14 @@
 /**
- * @clawnet/langchain — LangChain tools for ClawNet
+ * @1xmint/clawnet-langchain — LangChain tools for ClawNet
  *
- * 3 tools for any LangChain agent:
- *   - ClawNetOrchestrateTool  — query 390+ APIs via AI orchestration
- *   - ClawNetSkillTool        — invoke a specific marketplace skill
- *   - ClawNetSearchTool       — search the endpoint registry
+ * 4 tools for any LangChain agent:
+ *   - ClawNetOrchestrateTool    — query 390+ APIs via AI orchestration
+ *   - ClawNetSkillTool          — invoke a specific marketplace skill
+ *   - ClawNetSearchTool         — search the endpoint registry
+ *   - ClawNetVerifyReceiptTool  — verify a Soma cryptographic receipt
  *
  * Usage:
- *   import { ClawNetOrchestrateTool, ClawNetSkillTool, ClawNetSearchTool } from '@clawnet/langchain';
+ *   import { ClawNetOrchestrateTool, ClawNetSkillTool, ClawNetSearchTool } from '@1xmint/clawnet-langchain';
  *
  *   const tools = [
  *     new ClawNetOrchestrateTool({ apiKey: 'cn-xxxx' }),
@@ -212,6 +213,55 @@ export class ClawNetSearchTool extends StructuredTool {
         creditCost: s.credit_cost,
         tags: s.tags,
       })),
+    });
+  }
+}
+
+// ─── ClawNetVerifyReceiptTool ─────────────────────────────────────────────
+
+export class ClawNetVerifyReceiptTool extends StructuredTool {
+  name = 'clawnet_verify_receipt';
+
+  description =
+    'Verify a Soma cryptographic receipt by ID. Returns Ed25519 + ML-DSA-65 signatures, ' +
+    'request/response hashes, EAS attestation link, payment proof, and dual-sign provenance. ' +
+    'Receipts are public — no auth required. Use this to verify any ClawNet interaction.';
+
+  schema = z.object({
+    receiptId: z
+      .string()
+      .describe('The Soma receipt ID (starts with "sr-")'),
+  });
+
+  private config: ClawNetToolConfig;
+
+  constructor(config: ClawNetToolConfig) {
+    super();
+    this.config = config;
+  }
+
+  async _call(input: z.infer<typeof this.schema>): Promise<string> {
+    const base = (this.config.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, '');
+    const res = await fetch(`${base}/v1/soma/receipt/${encodeURIComponent(input.receiptId)}`, {
+      headers: { 'Accept': 'application/json' },
+    });
+
+    if (!res.ok) {
+      return JSON.stringify({ error: `Receipt not found (${res.status})` });
+    }
+
+    const r = await res.json() as any;
+    return JSON.stringify({
+      id: r.id,
+      verified: true,
+      paymentMethod: r.paymentMethod,
+      creditsCost: r.creditsCost,
+      algorithm: r.algorithm,
+      requestHash: r.requestHash,
+      responseHash: r.responseHash,
+      easScanUrl: r.easScanUrl,
+      dualSigned: !!r.dualSign,
+      createdAt: r.createdAt,
     });
   }
 }

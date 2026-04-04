@@ -119,3 +119,22 @@ x402 providers register their endpoints and route traffic through ClawNet to get
 - **Scoped keys:** `POST /v1/providers/:id/keys` — creates API key restricted to provider's endpoints
 - **Analytics:** `GET /v1/providers/:id/analytics` — calls, cache hits, revenue, latency
 - **Dual-sign:** Providers running Soma heart get automatic dual-signed provenance
+
+## SDK & Integration Packages
+
+All published under `@1xmint` scope on npm. Soma repos published unscoped.
+
+| Package | npm | What |
+|---------|-----|------|
+| `@1xmint/clawnet-sdk` | 1.0.0 | TypeScript SDK — orchestrate, skills, receipts, trust |
+| `@1xmint/clawnet-mcp` | 1.0.0 | MCP server for Claude Code, Cursor, etc. |
+| `@1xmint/clawnet-agentkit` | unpublished | Coinbase AgentKit actions (x402 native) |
+| `@1xmint/clawnet-langchain` | unpublished | LangChain StructuredTool integration |
+| `@1xmint/clawnet-elizaos` | unpublished | ElizaOS plugin (5 actions) |
+| `@1xmint/clawnet-openai-agents` | unpublished | OpenAI Agents SDK function tools |
+| `@1xmint/clawnet-vercel-ai` | unpublished | Vercel AI SDK tool factory |
+| `soma-heart` | 0.1.1 | Soma execution runtime (provider-side) |
+| `soma-sense` | 0.1.0 | Soma verification sensorium (observer-side) |
+
+All integration packages expose: orchestrate, invoke skill, search, verify receipt.
+AgentKit adds x402 USDC payment. ElizaOS adds Soma trust check.

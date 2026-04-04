@@ -341,7 +341,7 @@
       <a class="sidebar-link" href="#a2a">A2A Protocol</a>
 
       <div class="sidebar-heading">Trust &amp; Safety</div>
-      <a class="sidebar-link" href="#aid-trust">AID Trust Layer</a>
+      <a class="sidebar-link" href="#aid-trust">Soma Provenance</a>
       <a class="sidebar-link" href="#trust">Trust &amp; Safety</a>
       <a class="sidebar-link" href="#webhooks">Webhooks</a>
 
@@ -577,8 +577,8 @@ print(res.json()['answer'])</code></pre>
           <div class="concept-desc"><strong>Zero-key onboarding</strong> — connect with just a wallet. Sign a challenge message, get a session and API key automatically. Supports Solana (Phantom) and all EVM chains (Base, Ethereum, Optimism, Arbitrum). No email, no password, no registration form.</div>
         </div>
         <div class="concept-card">
-          <div class="concept-title" style="color:var(--info)">AID Trust (Optional)</div>
-          <div class="concept-desc">Add <code>X-AID-DID</code> + <code>X-AID-PROOF</code> alongside your API key to unlock <strong>trust-gated pricing discounts</strong>. Your trust score builds from real interactions. See <a href="#aid-trust" style="color:var(--accent)">AID Trust Layer</a>.</div>
+          <div class="concept-title" style="color:var(--info)">Soma Provenance (Automatic)</div>
+          <div class="concept-desc">Every paid interaction produces a <strong>Soma receipt</strong> with Ed25519 + ML-DSA-65 signatures, EAS attestation on Base, and optional dual-sign from upstream providers. Verify any receipt at <code>GET /v1/soma/receipt/:id</code>. See <a href="#aid-trust" style="color:var(--accent)">Soma Provenance Chain</a>.</div>
         </div>
         <div class="concept-card">
           <div class="concept-title" style="color:var(--purple)">Clerk Session</div>
@@ -863,12 +863,19 @@ const { payment, delivery } = await res.json();
       </div>
 
       <h4>Framework Integrations</h4>
+      <p>All packages published under <code>@1xmint</code> scope on npm. Install and go.</p>
       <table class="params-table">
         <thead><tr><th>Package</th><th>Framework</th><th>What It Does</th></tr></thead>
         <tbody>
-          <tr><td><code>@clawnet/langchain</code></td><td>LangChain</td><td>3 StructuredTools: Orchestrate, InvokeSkill, Search. Drop into any LangChain agent.</td></tr>
-          <tr><td><code>@clawnet/agentkit</code></td><td>Coinbase AgentKit</td><td>3 actions: orchestrate, invoke_skill, pay_x402. Native x402 via AgentKit wallets.</td></tr>
-          <tr><td><code>@clawnet/mcp</code></td><td>MCP (Claude, Cursor)</td><td>6 MCP tools. <code>npx -y @clawnet/mcp</code> to start.</td></tr>
+          <tr><td><code>@1xmint/clawnet-sdk</code></td><td>TypeScript/Node</td><td>Full SDK: orchestrate, skills, endpoints, receipts, trust. <code>npm i @1xmint/clawnet-sdk</code></td></tr>
+          <tr><td><code>@1xmint/clawnet-mcp</code></td><td>MCP (Claude, Cursor)</td><td>MCP server. <code>npx -y @1xmint/clawnet-mcp</code> to start.</td></tr>
+          <tr><td><code>@1xmint/clawnet-langchain</code></td><td>LangChain</td><td>4 StructuredTools: Orchestrate, InvokeSkill, Search, VerifyReceipt.</td></tr>
+          <tr><td><code>@1xmint/clawnet-agentkit</code></td><td>Coinbase AgentKit</td><td>4 actions: orchestrate, invoke_skill, pay_x402, verify_receipt. Native x402 via wallets.</td></tr>
+          <tr><td><code>@1xmint/clawnet-openai-agents</code></td><td>OpenAI Agents SDK</td><td>4 function tools with handler. Drop into any OpenAI agent.</td></tr>
+          <tr><td><code>@1xmint/clawnet-vercel-ai</code></td><td>Vercel AI SDK</td><td>4 tools via <code>createClawNetTools()</code>. Works with generateText/streamText.</td></tr>
+          <tr><td><code>@1xmint/clawnet-elizaos</code></td><td>ElizaOS</td><td>5 actions plugin: orchestrate, skill, search, Soma trust, verify receipt.</td></tr>
+          <tr><td><code>soma-heart</code></td><td>Any (provider-side)</td><td>Soma execution runtime. Birth certs, HMAC auth, heartbeat chain. <code>npm i soma-heart</code></td></tr>
+          <tr><td><code>soma-sense</code></td><td>Any (observer-side)</td><td>Soma verification sensorium. Temporal fingerprint, receipt verify. <code>npm i soma-sense</code></td></tr>
         </tbody>
       </table>
 
@@ -4176,196 +4183,143 @@ app.post('/webhooks/clawnet', express.raw({ type: 'application/json' }), (req, r
       <div class="alert alert-info"><strong>Attestation Webhooks:</strong> Subscribe to <code>ATTESTATION_CREATED</code> and <code>TRUST_SCORE_CHANGED</code> events via the <a href="#webhooks" style="color:var(--accent)">webhooks system</a>. React to trust changes in real-time.</div>
     </div>
 
-    <!-- ═══════════════════════════════════════════════ AGENT IDENTITY (AID) ═══════════════════════════════════════════════ -->
+    <!-- ═══════════════════════════════════════════════ SOMA ENDPOINTS ═══════════════════════════════════════════════ -->
     <div class="docs-section" id="agent-identity">
-      <h2 class="docs-section-title">Agent Identity &mdash; Endpoint Reference</h2>
-      <p class="docs-section-desc">Full endpoint reference for agent identity management. For the provenance and trust overview, see <a href="#aid-trust" style="color:var(--accent)">Soma Provenance Chain</a> above.</p>
+      <h2 class="docs-section-title">Soma Verification &mdash; Endpoint Reference</h2>
+      <p class="docs-section-desc">Full endpoint reference for Soma trust verification, receipts, and provenance. For the trust stack overview, see <a href="#aid-trust" style="color:var(--accent)">Soma Provenance Chain</a> above.</p>
 
-      <div class="alert alert-info"><strong>The Trust Stack:</strong> Soma provenance verifies data origin &rarr; Attestation proves outcomes &rarr; Identity carries trust EVERYWHERE. Together they form the only complete trust infrastructure for AI agents.</div>
+      <div class="alert alert-info"><strong>Five-layer trust stack:</strong> zkTLS (data origin) &rarr; Provider cert (provider attestation) &rarr; Platform cert (relay integrity) &rarr; PQ signature (quantum-resistant) &rarr; EAS anchor (immutable on-chain record). Layers 1-2 opt-in, layers 3-5 automatic for all paid interactions.</div>
 
       <div class="endpoint">
-        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/aid/register</code></div>
-        <p class="endpoint-desc">Create a self-sovereign Agent Identity Document. Generates an Ed25519 keypair &mdash; the private key is returned ONCE and never stored by ClawNet. Optionally bring your own public key.</p>
-        <div class="endpoint-auth">Requires: <code>X-API-Key</code> &mdash; costs <strong>1 credit</strong></div>
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/soma/receipt/:id</code></div>
+        <p class="endpoint-desc">Look up and verify a Soma receipt by ID. Returns cryptographic proof binding payment + request + response + provenance. Every field is independently verifiable.</p>
+        <div class="endpoint-auth">Public &mdash; <strong>no auth required, free</strong></div>
 
-        <h4>Body Parameters</h4>
+        <h4>Path Parameters</h4>
         <table class="params-table">
-          <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+          <thead><tr><th>Name</th><th>Type</th><th>Description</th></tr></thead>
           <tbody>
-            <tr><td><code>displayName</code></td><td><span class="param-type">string</span></td><td><span class="param-opt">No</span></td><td>Human-readable name for the agent</td></tr>
-            <tr><td><code>publicKey</code></td><td><span class="param-type">string</span></td><td><span class="param-opt">No</span></td><td>Bring your own Ed25519 public key (multibase). If omitted, ClawNet generates a keypair.</td></tr>
+            <tr><td><code>id</code></td><td><span class="param-type">string</span></td><td>Soma receipt ID (starts with <code>sr-</code>)</td></tr>
           </tbody>
         </table>
-
-        <h4>Example</h4>
-        <div class="code-block">
-          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
-          <pre><code>curl -X POST https://api.claw-net.org/v1/aid/register \
-  -H "X-API-Key: cn-your-key-here" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "displayName": "my-trading-agent"
-  }'</code></pre>
-        </div>
 
         <h4>Response</h4>
         <div class="code-block">
           <button class="copy-btn" onclick="copyCode(this)">Copy</button>
           <pre><code>{
-  "did": "did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK",
-  "publicKeyMultibase": "z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK",
-  "privateKeySeed": "a1b2c3...hex (SAVE THIS — shown once, never stored)",
-  "aidDocument": { "..." }
-}</code></pre>
-        </div>
-      </div>
-
-      <div class="endpoint">
-        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/aid/:did</code></div>
-        <p class="endpoint-desc">Resolve any agent's identity document by DID. Returns trust score, capabilities, attestation stats, and verification proofs.</p>
-        <div class="endpoint-auth">Public &mdash; <strong>no auth required, free</strong></div>
-
-        <h4>Path Parameters</h4>
-        <table class="params-table">
-          <thead><tr><th>Name</th><th>Type</th><th>Description</th></tr></thead>
-          <tbody>
-            <tr><td><code>did</code></td><td><span class="param-type">string</span></td><td>Agent DID (e.g. <code>did:key:z6Mkh...</code>)</td></tr>
-          </tbody>
-        </table>
-      </div>
-
-      <div class="endpoint">
-        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/aid/:did/trust-chain</code></div>
-        <p class="endpoint-desc">Export the agent's portable trust chain. Self-contained &mdash; includes recent attestations with Merkle proofs, the platform's public key, and trust score computation proof. Any service can verify this OFFLINE without calling ClawNet.</p>
-        <div class="endpoint-auth">Public &mdash; <strong>no auth required, free</strong></div>
-
-        <h4>Path Parameters</h4>
-        <table class="params-table">
-          <thead><tr><th>Name</th><th>Type</th><th>Description</th></tr></thead>
-          <tbody>
-            <tr><td><code>did</code></td><td><span class="param-type">string</span></td><td>Agent DID</td></tr>
-          </tbody>
-        </table>
-
-        <h4>Query Parameters</h4>
-        <table class="params-table">
-          <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
-          <tbody>
-            <tr><td><code>limit</code></td><td><span class="param-type">integer</span></td><td><span class="param-opt">No</span></td><td>Number of recent attestations to include (default 50, max 200)</td></tr>
-          </tbody>
-        </table>
-      </div>
-
-      <div class="endpoint">
-        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/aid/:did/attest</code></div>
-        <p class="endpoint-desc">Add a cross-platform attestation to an agent's trust chain. External platforms (Dexter, PayAI, zauth) can submit attestations that become part of the agent's portable identity.</p>
-        <div class="endpoint-auth">Requires: <code>X-API-Key</code> &mdash; costs <strong>0.1 credits</strong></div>
-
-        <h4>Path Parameters</h4>
-        <table class="params-table">
-          <thead><tr><th>Name</th><th>Type</th><th>Description</th></tr></thead>
-          <tbody>
-            <tr><td><code>did</code></td><td><span class="param-type">string</span></td><td>Agent DID to attest</td></tr>
-          </tbody>
-        </table>
-
-        <h4>Body Parameters</h4>
-        <table class="params-table">
-          <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
-          <tbody>
-            <tr><td><code>platform</code></td><td><span class="param-type">string</span></td><td><span class="param-req">Yes</span></td><td>Platform name</td></tr>
-            <tr><td><code>attestationType</code></td><td><span class="param-type">string</span></td><td><span class="param-req">Yes</span></td><td>Type of attestation</td></tr>
-            <tr><td><code>attestationData</code></td><td><span class="param-type">object</span></td><td><span class="param-req">Yes</span></td><td>Attestation payload</td></tr>
-            <tr><td><code>platformSignature</code></td><td><span class="param-type">string</span></td><td><span class="param-opt">No</span></td><td>Platform's signature over the data</td></tr>
-          </tbody>
-        </table>
-      </div>
-
-      <div class="endpoint">
-        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/aid/:did/capabilities</code></div>
-        <p class="endpoint-desc">What this agent has successfully done, derived from attestation history. Categories include defi, trading, data, skills, verification.</p>
-        <div class="endpoint-auth">Public &mdash; <strong>no auth required, free</strong></div>
-
-        <h4>Path Parameters</h4>
-        <table class="params-table">
-          <thead><tr><th>Name</th><th>Type</th><th>Description</th></tr></thead>
-          <tbody>
-            <tr><td><code>did</code></td><td><span class="param-type">string</span></td><td>Agent DID</td></tr>
-          </tbody>
-        </table>
-      </div>
-
-      <div class="endpoint">
-        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/aid/verify</code></div>
-        <p class="endpoint-desc">Verify an AID document offline. Send the full document &mdash; ClawNet checks signatures, Merkle roots, trust score computation, and expiry. Zero database calls &mdash; pure cryptographic math. This same logic is available as an npm package (<code>@clawnet/verify</code>).</p>
-        <div class="endpoint-auth">Public &mdash; <strong>no auth required, free, STATELESS</strong></div>
-
-        <h4>Body</h4>
-        <p class="endpoint-desc">Full AID document (as returned by <code>/v1/aid/:did/trust-chain</code> or <code>/v1/aid/:did/export</code>).</p>
-
-        <h4>Response</h4>
-        <div class="code-block">
-          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
-          <pre><code>{
-  "valid": true,
-  "trustScore": 82,
-  "warnings": [],
-  "details": {
-    "platformSignature": true,
-    "merkleRoot": true,
-    "trustScoreMatch": true,
-    "chainIntegrity": true,
-    "expired": false,
-    "attestationsVerified": 47
+  "id": "sr-a1b2c3d4-...",
+  "requestId": "req-...",
+  "paymentMethod": "credits",
+  "creditsCost": 4.5,
+  "requestHash": "sha256:...",
+  "responseHash": "sha256:...",
+  "somaDataHash": "sha256:...",
+  "heartbeatIndex": 1847,
+  "signature": "base58btc:...",
+  "algorithm": "Ed25519+ML-DSA-65",
+  "hybridSignature": {
+    "version": "2.0",
+    "algorithms": ["Ed25519", "ML-DSA-65"],
+    "ed25519": "...",
+    "mlDsa65": "..."
+  },
+  "easUid": "0xabc...",
+  "easScanUrl": "https://base.easscan.org/offchain/attestation/view/0xabc...",
+  "verification": {
+    "platformDid": "did:web:api.claw-net.org",
+    "publicKeyMultibase": "z6Mk...",
+    "attesterAddress": "0x...",
+    "algorithm": "Ed25519+ML-DSA-65",
+    "hashAlgorithm": "SHA-256"
+  },
+  "dualSign": {
+    "providerId": "provider-clawapis",
+    "providerSignature": "...",
+    "providerPublicKey": "z6Mk...",
+    "providerDataHash": "sha256:...",
+    "dualSigned": true
   }
 }</code></pre>
         </div>
       </div>
 
       <div class="endpoint">
-        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/aid/:did/export</code></div>
-        <p class="endpoint-desc">Full AID export with a fresh trust snapshot. The exported document is self-contained and can be shared with any platform for offline verification.</p>
-        <div class="endpoint-auth">Requires: <code>X-API-Key</code> (must own) &mdash; costs <strong>0.5 credits</strong></div>
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/soma/receipts/stats</code></div>
+        <p class="endpoint-desc">Aggregate receipt statistics: total, anchored, unanchored, and breakdown by payment method.</p>
+        <div class="endpoint-auth">Public &mdash; <strong>no auth required, free</strong></div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/soma/:did/trust</code></div>
+        <p class="endpoint-desc">Public trust profile for any agent. Returns trust score (0-100), behavioral verdict, attestation count. The "credit bureau" for agent trust &mdash; free and open.</p>
+        <div class="endpoint-auth">Public &mdash; <strong>no auth required, free</strong></div>
 
         <h4>Path Parameters</h4>
         <table class="params-table">
           <thead><tr><th>Name</th><th>Type</th><th>Description</th></tr></thead>
           <tbody>
-            <tr><td><code>did</code></td><td><span class="param-type">string</span></td><td>Agent DID (must be owned by the requesting API key)</td></tr>
+            <tr><td><code>did</code></td><td><span class="param-type">string</span></td><td>Agent DID (e.g. <code>did:key:z6Mkh...</code> or <code>did:web:api.example.com</code>)</td></tr>
           </tbody>
         </table>
       </div>
 
       <div class="endpoint">
-        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/aid/:did/rotate-key</code></div>
-        <p class="endpoint-desc">Rotate the agent's Ed25519 key. Old DID chains forward to the new one. Provide a new public key or let ClawNet generate one.</p>
-        <div class="endpoint-auth">Requires: <code>X-API-Key</code> (must own) &mdash; costs <strong>0.5 credits</strong></div>
+        <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/soma/verdicts</code></div>
+        <p class="endpoint-desc">Submit a behavioral verification verdict for an agent. Ed25519 signature required. Self-verdicts are blocked. Dual rate limited by IP + DID.</p>
+        <div class="endpoint-auth">Requires: Ed25519 signed payload</div>
 
-        <h4>Path Parameters</h4>
+        <h4>Body Parameters</h4>
         <table class="params-table">
-          <thead><tr><th>Name</th><th>Type</th><th>Description</th></tr></thead>
+          <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
           <tbody>
-            <tr><td><code>did</code></td><td><span class="param-type">string</span></td><td>Agent DID (must be owned by the requesting API key)</td></tr>
+            <tr><td><code>subjectDid</code></td><td><span class="param-type">string</span></td><td><span class="param-req">Yes</span></td><td>DID of the agent being verified</td></tr>
+            <tr><td><code>observerDid</code></td><td><span class="param-type">string</span></td><td><span class="param-req">Yes</span></td><td>DID of the observer (you)</td></tr>
+            <tr><td><code>outcome</code></td><td><span class="param-type">string</span></td><td><span class="param-req">Yes</span></td><td>GREEN, AMBER, RED, or UNCANNY</td></tr>
+            <tr><td><code>confidence</code></td><td><span class="param-type">number</span></td><td><span class="param-req">Yes</span></td><td>Confidence 0.0-1.0</td></tr>
+            <tr><td><code>signature</code></td><td><span class="param-type">string</span></td><td><span class="param-req">Yes</span></td><td>Ed25519 signature over JCS-canonical payload</td></tr>
           </tbody>
         </table>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/soma/:did/verdicts</code></div>
+        <p class="endpoint-desc">Recent behavioral verdicts for an agent. Returns timestamped list of GREEN/AMBER/RED/UNCANNY verdicts from observers.</p>
+        <div class="endpoint-auth">Public &mdash; <strong>no auth required, free</strong></div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/soma/:did/export</code></div>
+        <p class="endpoint-desc">Portable trust chain export with per-verdict Merkle proofs. Self-contained &mdash; can be verified offline with the platform public key.</p>
+        <div class="endpoint-auth">Public &mdash; <strong>rate limited</strong></div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/v1/soma/anchors/:id</code></div>
+        <p class="endpoint-desc">On-chain anchor details including Solana transaction hash and Merkle tree data.</p>
+        <div class="endpoint-auth">Public &mdash; <strong>no auth required, free</strong></div>
+      </div>
+
+      <div class="endpoint">
+        <div class="endpoint-header"><span class="method-badge get">GET</span><code class="endpoint-path">/.well-known/soma.json</code></div>
+        <p class="endpoint-desc">Soma discovery document. Exposes genome commitment, DIDs, ERC-8004 token IDs, heartbeat chain status, and public keys. Used by soma-sense for automated discovery.</p>
+        <div class="endpoint-auth">Public &mdash; <strong>no auth required, free</strong></div>
       </div>
 
       <h4>Pricing</h4>
       <table class="params-table">
         <thead><tr><th>Action</th><th>Cost</th><th>Notes</th></tr></thead>
         <tbody>
-          <tr><td>Register AID</td><td><strong>1 credit</strong></td><td>One-time, generates keypair</td></tr>
-          <tr><td>Resolve AID</td><td><strong>FREE</strong></td><td>Public, no auth</td></tr>
-          <tr><td>Trust chain export</td><td><strong>FREE</strong></td><td>Public, includes Merkle proofs</td></tr>
-          <tr><td>Cross-platform attestation</td><td><strong>0.1 credits</strong></td><td>Rate limited 50/hr</td></tr>
-          <tr><td>Capabilities</td><td><strong>FREE</strong></td><td>Public</td></tr>
-          <tr><td>Verify (offline)</td><td><strong>FREE</strong></td><td>Stateless, pure math</td></tr>
-          <tr><td>Full export</td><td><strong>0.5 credits</strong></td><td>Fresh snapshot + countersignature</td></tr>
-          <tr><td>Key rotation</td><td><strong>0.5 credits</strong></td><td>Old DID chains forward</td></tr>
+          <tr><td>Verify receipt</td><td><strong>FREE</strong></td><td>Public, no auth</td></tr>
+          <tr><td>Trust lookup</td><td><strong>FREE</strong></td><td>Public, no auth</td></tr>
+          <tr><td>Submit verdict</td><td><strong>FREE</strong></td><td>Ed25519 signature required, rate limited</td></tr>
+          <tr><td>Verdicts list</td><td><strong>FREE</strong></td><td>Public, no auth</td></tr>
+          <tr><td>Trust export</td><td><strong>FREE</strong></td><td>Rate limited, includes Merkle proofs</td></tr>
+          <tr><td>Receipt stats</td><td><strong>FREE</strong></td><td>Public aggregate</td></tr>
+          <tr><td>Soma discovery</td><td><strong>FREE</strong></td><td>/.well-known/soma.json</td></tr>
         </tbody>
       </table>
 
-      <div class="alert alert-success"><strong>The DID method <code>did:key</code> is self-certifying</strong> &mdash; the public key IS the identifier. No registry lookup needed. Any platform can resolve and verify an agent's identity using only the DID and the portable trust chain document. ClawNet is the issuer, but verification is decentralized. See <a href="#aid-trust" style="color:inherit;text-decoration:underline">AID Trust Layer</a> for the full trust-gated pricing flow.</div>
+      <div class="alert alert-success"><strong>All Soma verification is free and public.</strong> Receipts, trust profiles, verdicts, and anchors can be verified by anyone without a ClawNet account. Verification is the public good; ClawNet monetizes the infrastructure that produces verifiable data, not the verification itself.</div>
     </div>
 
     <!-- ═══════════════════════════════════════════════ TROUBLESHOOTING ═══════════════════════════════════════════════ -->

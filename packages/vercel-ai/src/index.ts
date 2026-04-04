@@ -1,13 +1,14 @@
 /**
- * @clawnet/vercel-ai — Vercel AI SDK tools for ClawNet
+ * @1xmint/clawnet-vercel-ai — Vercel AI SDK tools for ClawNet
  *
- * 3 tools for any Vercel AI SDK agent:
- *   - clawnet_orchestrate   — query 390+ APIs via AI orchestration
- *   - clawnet_invoke_skill  — invoke a specific marketplace skill
- *   - clawnet_search        — search the endpoint registry & skill marketplace
+ * 4 tools for any Vercel AI SDK agent:
+ *   - clawnet_orchestrate      — query 390+ APIs via AI orchestration
+ *   - clawnet_invoke_skill     — invoke a specific marketplace skill
+ *   - clawnet_search           — search the endpoint registry & skill marketplace
+ *   - clawnet_verify_receipt   — verify a Soma cryptographic receipt
  *
  * Usage:
- *   import { createClawNetTools } from '@clawnet/vercel-ai';
+ *   import { createClawNetTools } from '@1xmint/clawnet-vercel-ai';
  *   import { generateText } from 'ai';
  *   import { openai } from '@ai-sdk/openai';
  *
@@ -76,7 +77,7 @@ async function clawnetFetch<T>(
  * ```ts
  * import { generateText } from 'ai';
  * import { openai } from '@ai-sdk/openai';
- * import { createClawNetTools } from '@clawnet/vercel-ai';
+ * import { createClawNetTools } from '@1xmint/clawnet-vercel-ai';
  *
  * const tools = createClawNetTools({ apiKey: process.env.CLAWNET_API_KEY! });
  *
@@ -215,6 +216,41 @@ export function createClawNetTools(config: ClawNetToolsConfig) {
             creditCost: s.credit_cost,
             tags: s.tags,
           })),
+        };
+      },
+    }),
+
+    clawnet_verify_receipt: tool({
+      description:
+        'Verify a Soma cryptographic receipt by ID. Returns Ed25519 + ML-DSA-65 signatures, ' +
+        'request/response hashes, EAS attestation link, and dual-sign provenance. Public — no auth required.',
+      parameters: z.object({
+        receiptId: z
+          .string()
+          .describe('The Soma receipt ID (starts with "sr-")'),
+      }),
+      execute: async ({ receiptId }) => {
+        const base = (config.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, '');
+        const res = await fetch(`${base}/v1/soma/receipt/${encodeURIComponent(receiptId)}`, {
+          headers: { 'Accept': 'application/json' },
+        });
+
+        if (!res.ok) {
+          return { error: `Receipt not found (${res.status})` };
+        }
+
+        const r = await res.json() as any;
+        return {
+          id: r.id,
+          verified: true,
+          paymentMethod: r.paymentMethod,
+          creditsCost: r.creditsCost,
+          algorithm: r.algorithm,
+          requestHash: r.requestHash,
+          responseHash: r.responseHash,
+          easScanUrl: r.easScanUrl,
+          dualSigned: !!r.dualSign,
+          createdAt: r.createdAt,
         };
       },
     }),

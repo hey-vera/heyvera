@@ -1,5 +1,5 @@
 /**
- * @clawnet/elizaos — ClawNet plugin for ElizaOS
+ * @1xmint/clawnet-elizaos — ClawNet plugin for ElizaOS
  *
  * 3 actions for any ElizaOS agent:
  *   - CLAWNET_ORCHESTRATE  — query 390+ APIs via AI orchestration
@@ -7,7 +7,7 @@
  *   - CLAWNET_SEARCH       — search endpoints and skills
  *
  * Usage:
- *   import { clawnetPlugin } from '@clawnet/elizaos';
+ *   import { clawnetPlugin } from '@1xmint/clawnet-elizaos';
  *
  *   // Add to your character config
  *   const character = {
@@ -297,42 +297,42 @@ const searchAction: ElizaAction = {
   },
 };
 
-// ─── Action 4: AID_CHECK_TRUST — AID trust score lookup ──────────────────────
+// ─── Action 4: SOMA_CHECK_TRUST — Soma trust score lookup ───────────────────
 
 const checkTrustAction: ElizaAction = {
-  name: 'AID_CHECK_TRUST',
+  name: 'SOMA_CHECK_TRUST',
 
   description:
-    'Check the AID trust score of any agent by DID. Returns trust score (0-100), ' +
-    'verdict (new/building/caution/standard/trusted/proceed), attestation count, ' +
-    'and whether the agent is safe to transact with.',
+    'Check the Soma trust profile of any agent by DID. Returns trust score (0-100), ' +
+    'verdict (GREEN/AMBER/RED/UNCANNY), attestation count, and whether the agent is safe to transact with. ' +
+    'Soma uses temporal fingerprinting and cryptographic heartbeat chains for verification.',
 
-  similes: ['CHECK_AGENT_TRUST', 'VERIFY_AGENT', 'TRUST_SCORE', 'IS_AGENT_SAFE'],
+  similes: ['CHECK_AGENT_TRUST', 'VERIFY_AGENT', 'TRUST_SCORE', 'IS_AGENT_SAFE', 'SOMA_VERIFY'],
 
   examples: [
     [
       { user: '{{user1}}', content: { text: 'Check the trust score for did:key:z6Mk...' } },
-      { user: '{{agent}}', content: { text: 'Looking up the AID trust score for that agent...' } },
+      { user: '{{agent}}', content: { text: 'Looking up the Soma trust profile for that agent...' } },
     ],
     [
       { user: '{{user1}}', content: { text: 'Is this agent trustworthy? did:key:z6MkpTH...' } },
-      { user: '{{agent}}', content: { text: 'Let me verify their AID trust profile.' } },
+      { user: '{{agent}}', content: { text: 'Let me verify their Soma trust profile.' } },
     ],
   ],
 
-  async validate(): Promise<boolean> { return true; }, // no API key needed for trust lookups
+  async validate(): Promise<boolean> { return true; },
 
   async handler(_runtime, message, _state, _options, callback): Promise<void> {
     try {
       const text: string = message.content?.text ?? message.content ?? '';
-      const didMatch = text.match(/did:key:z[A-Za-z0-9]+/);
+      const didMatch = text.match(/did:(?:key|web):[A-Za-z0-9.:_-]+/);
       if (!didMatch) {
         callback({ text: 'Please provide a DID to check. Example: "check trust for did:key:z6Mk..."' });
         return;
       }
 
       const did = didMatch[0];
-      const res = await fetch(`${BASE_URL}/v1/aid/${encodeURIComponent(did)}/trust`, {
+      const res = await fetch(`${BASE_URL}/v1/soma/${encodeURIComponent(did)}/trust`, {
         headers: { 'Accept': 'application/json' },
         signal: AbortSignal.timeout(5000),
       });
@@ -348,11 +348,10 @@ const checkTrustAction: ElizaAction = {
       const attestations = data.attestationCount ?? 0;
 
       const safe = score >= 40;
-      const emoji = safe ? '✅' : score >= 20 ? '⚠️' : '🚫';
 
       callback({
-        text: `${emoji} **AID Trust Report**\n` +
-          `DID: \`${did.slice(0, 20)}...${did.slice(-8)}\`\n` +
+        text: `**Soma Trust Report**\n` +
+          `DID: \`${did.slice(0, 24)}...${did.slice(-8)}\`\n` +
           `Score: **${score}/100** (${verdict})\n` +
           `Attestations: ${attestations}\n` +
           `${safe ? 'Safe to transact.' : 'Low trust — exercise caution.'}`,
@@ -363,16 +362,77 @@ const checkTrustAction: ElizaAction = {
   },
 };
 
+// ─── Action 5: SOMA_VERIFY_RECEIPT — Verify a Soma receipt ──────────────────
+
+const verifyReceiptAction: ElizaAction = {
+  name: 'SOMA_VERIFY_RECEIPT',
+
+  description:
+    'Verify a Soma receipt by ID. Returns cryptographic proof of a paid interaction: ' +
+    'payment method, request/response hashes, Ed25519 + ML-DSA-65 signatures, ' +
+    'EAS attestation link, and dual-sign provenance if available.',
+
+  similes: ['VERIFY_RECEIPT', 'CHECK_RECEIPT', 'SOMA_RECEIPT', 'PROOF_OF_PAYMENT'],
+
+  examples: [
+    [
+      { user: '{{user1}}', content: { text: 'Verify receipt sr-abc123' } },
+      { user: '{{agent}}', content: { text: 'Looking up the Soma receipt for verification...' } },
+    ],
+  ],
+
+  async validate(): Promise<boolean> { return true; },
+
+  async handler(_runtime, message, _state, _options, callback): Promise<void> {
+    try {
+      const text: string = message.content?.text ?? message.content ?? '';
+      const receiptMatch = text.match(/sr-[a-f0-9-]+/i);
+      if (!receiptMatch) {
+        callback({ text: 'Please provide a receipt ID (starts with "sr-"). Example: "verify receipt sr-abc123..."' });
+        return;
+      }
+
+      const receiptId = receiptMatch[0];
+      const res = await fetch(`${BASE_URL}/v1/soma/receipt/${encodeURIComponent(receiptId)}`, {
+        headers: { 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(5000),
+      });
+
+      if (!res.ok) {
+        callback({ text: `Receipt not found (${res.status}).` });
+        return;
+      }
+
+      const r = await res.json() as any;
+      const lines = [
+        `**Soma Receipt Verified**`,
+        `ID: \`${r.id}\``,
+        `Payment: ${r.paymentMethod} | ${r.creditsCost} credits`,
+        `Algorithm: ${r.algorithm}`,
+        `Request Hash: \`${r.requestHash?.slice(0, 16)}...\``,
+        `Response Hash: \`${r.responseHash?.slice(0, 16)}...\``,
+      ];
+      if (r.easScanUrl) lines.push(`EAS: ${r.easScanUrl}`);
+      if (r.dualSign) lines.push(`Dual-signed by provider: ${r.dualSign.providerId}`);
+      lines.push(`Created: ${r.createdAt}`);
+
+      callback({ text: lines.join('\n') });
+    } catch (err: any) {
+      callback({ text: `Receipt verification failed: ${err.message}` });
+    }
+  },
+};
+
 // ─── Plugin export ─────────────────────────────────────────────────────────
 
 export const clawnetPlugin: ElizaPlugin = {
   name: 'clawnet',
   description:
-    'ClawNet AI agent orchestration — 390+ APIs, skill marketplace, AID trust scoring',
-  actions: [orchestrateAction, invokeSkillAction, searchAction, checkTrustAction],
+    'ClawNet AI agent orchestration — 390+ APIs, skill marketplace, Soma trust verification, cryptographic receipts',
+  actions: [orchestrateAction, invokeSkillAction, searchAction, checkTrustAction, verifyReceiptAction],
 };
 
 export default clawnetPlugin;
 
 // Named exports for individual actions
-export { orchestrateAction, invokeSkillAction, searchAction, checkTrustAction };
+export { orchestrateAction, invokeSkillAction, searchAction, checkTrustAction, verifyReceiptAction };

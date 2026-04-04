@@ -1,12 +1,13 @@
 {
-  "name": "@clawnet/langchain",
+  "name": "@1xmint/clawnet-langchain",
   "version": "1.0.0",
   "description": "LangChain tools for ClawNet — orchestrate 390+ APIs, invoke marketplace skills, and search the endpoint registry",
   "keywords": ["langchain", "clawnet", "ai", "agents", "tools", "orchestration", "web3", "solana", "x402"],
   "homepage": "https://claw-net.org",
   "repository": {
     "type": "git",
-    "url": "https://github.com/clawnet/clawnet.git"
+    "url": "https://github.com/1xmint/claw-net.git",
+    "directory": "packages/langchain"
   },
   "license": "MIT",
   "main": "dist/index.js",

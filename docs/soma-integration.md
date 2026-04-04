@@ -137,6 +137,29 @@ Proves at the TLS layer that upstream API data came from the claimed server. Use
 
 **Dependencies (optional):** `@reclaimprotocol/zk-fetch`, `@reclaimprotocol/js-sdk`. Lazy-loaded — if not installed, zkTLS is silently disabled.
 
+## Client SDK Integration
+
+Soma trust features are exposed through all ClawNet SDK packages:
+
+```typescript
+// Verify any receipt (public, no auth)
+const receipt = await ClawNet.verifyReceiptPublic('sr-abc123');
+console.log(receipt.algorithm);     // 'Ed25519+ML-DSA-65'
+console.log(receipt.easScanUrl);    // EAS attestation link
+console.log(receipt.dualSign);      // provider dual-sign data (if present)
+
+// Trust lookup (public, no auth)
+const trust = await ClawNet.getTrust('did:web:api.example.com');
+console.log(trust.trustScore);      // 0-100
+console.log(trust.verdict);         // GREEN/AMBER/RED/UNCANNY
+```
+
+All framework integrations (LangChain, OpenAI Agents, Vercel AI, AgentKit, ElizaOS) include a `clawnet_verify_receipt` tool for agent-accessible verification.
+
+Published npm packages:
+- `soma-heart` (0.1.1) — provider-side execution runtime
+- `soma-sense` (0.1.0) — observer-side verification, includes `verifyClawNetReceipt()`
+
 ## Shared Crypto Primitives
 
 | File | What |

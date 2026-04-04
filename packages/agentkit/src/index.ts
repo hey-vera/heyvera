@@ -1,15 +1,16 @@
 /**
- * @clawnet/agentkit — Coinbase AgentKit actions for ClawNet
+ * @1xmint/clawnet-agentkit — Coinbase AgentKit actions for ClawNet
  *
- * 3 actions for any AgentKit-powered agent:
- *   - clawnet_orchestrate   — query 390+ APIs via AI orchestration
- *   - clawnet_invoke_skill  — invoke a marketplace skill
- *   - clawnet_pay_x402      — invoke a skill via x402 USDC payment (no API key needed)
+ * 4 actions for any AgentKit-powered agent:
+ *   - clawnet_orchestrate      — query 390+ APIs via AI orchestration
+ *   - clawnet_invoke_skill     — invoke a marketplace skill
+ *   - clawnet_pay_x402         — invoke a skill via x402 USDC payment (no API key needed)
+ *   - clawnet_verify_receipt   — verify a Soma cryptographic receipt
  *
  * AgentKit agents already have Base wallets, making x402 (USDC on Base) native.
  *
  * Usage with AgentKit:
- *   import { getClawNetActions } from '@clawnet/agentkit';
+ *   import { getClawNetActions } from '@1xmint/clawnet-agentkit';
  *
  *   // API key mode (credit-based)
  *   const actions = getClawNetActions({ apiKey: 'cn-xxxx' });
@@ -227,6 +228,44 @@ function createX402SkillAction(config: ClawNetActionConfig): AgentKitAction {
   };
 }
 
+function createVerifyReceiptAction(config: ClawNetActionConfig): AgentKitAction {
+  return {
+    name: 'clawnet_verify_receipt',
+
+    description:
+      'Verify a Soma cryptographic receipt by ID. Returns Ed25519 + ML-DSA-65 signatures, ' +
+      'request/response hashes, EAS attestation link, payment proof, and dual-sign provenance. ' +
+      'Receipts are public — no auth or wallet required.',
+
+    schema: z.object({
+      receiptId: z.string().describe('The Soma receipt ID (starts with "sr-")'),
+    }),
+
+    async invoke(input) {
+      const base = (config.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, '');
+      const res = await fetch(`${base}/v1/soma/receipt/${encodeURIComponent(input.receiptId as string)}`, {
+        headers: { 'Accept': 'application/json' },
+      });
+
+      if (!res.ok) {
+        return JSON.stringify({ error: `Receipt not found (${res.status})` });
+      }
+
+      const r = await res.json() as Record<string, unknown>;
+      return JSON.stringify({
+        id: r.id,
+        verified: true,
+        paymentMethod: r.paymentMethod,
+        creditsCost: r.creditsCost,
+        algorithm: r.algorithm,
+        easScanUrl: r.easScanUrl,
+        dualSigned: !!(r as any).dualSign,
+        createdAt: r.createdAt,
+      });
+    },
+  };
+}
+
 // ─── Export ─────────────────────────────────────────────────────────────────
 
 /**
@@ -234,7 +273,7 @@ function createX402SkillAction(config: ClawNetActionConfig): AgentKitAction {
  *
  * @example
  * ```ts
- * import { getClawNetActions } from '@clawnet/agentkit';
+ * import { getClawNetActions } from '@1xmint/clawnet-agentkit';
  *
  * // Credit-based (API key)
  * const actions = getClawNetActions({ apiKey: 'cn-xxxx' });
@@ -265,8 +304,11 @@ export function getClawNetActions(config: ClawNetActionConfig): AgentKitAction[]
     actions.push(createX402SkillAction(config));
   }
 
+  // Receipt verification always available (public, no auth)
+  actions.push(createVerifyReceiptAction(config));
+
   return actions;
 }
 
 // Named exports for individual action constructors
-export { createOrchestrateAction, createInvokeSkillAction, createX402SkillAction };
+export { createOrchestrateAction, createInvokeSkillAction, createX402SkillAction, createVerifyReceiptAction };

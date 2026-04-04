@@ -1,5 +1,5 @@
 {
-  "name": "@clawnet/openai-agents",
+  "name": "@1xmint/clawnet-openai-agents",
   "version": "1.0.0",
   "description": "ClawNet tools for OpenAI Agents SDK — 390+ AI APIs, skill marketplace, cryptographic receipts",
   "main": "dist/index.js",
@@ -21,7 +21,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/clawnet/claw-net",
+    "url": "https://github.com/1xmint/claw-net.git",
     "directory": "packages/openai-agents"
   },
   "homepage": "https://claw-net.org",
