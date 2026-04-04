@@ -19,6 +19,7 @@ import { apiRegistry, findEndpoint } from '../config/api-registry';
 import { env, isSimulationMode, rateTier, ORCHESTRATION_FEE } from '../config/index';
 import { logger } from '../utils/logger';
 import { getHeartSafe } from '../core/soma';
+import { createSomaReceipt } from '../core/soma-receipt';
 import { sendApiKeyEmail, sendLowBalanceEmail, sendAdminAlert } from '../utils/email';
 import { wasEmailSentRecently, logEmailSend } from '../db/index';
 import crypto from 'crypto';
@@ -514,6 +515,18 @@ apiRouter.post('/orchestrate', async (c) => {
 
     // Store in query cache
     await cacheSet(qKey, responsePayload);
+
+    // Soma Receipt — cryptographic delivery proof (fire-and-forget)
+    createSomaReceipt({
+      requestId,
+      apiKey: keyInfo.key,
+      paymentMethod: 'credits',
+      creditsCost: totalCredits,
+      requestData: JSON.stringify({ query: query.slice(0, 200) }),
+      responseData: JSON.stringify({ answer: (responsePayload as any).answer?.slice(0, 500) }),
+      somaDataHash: execution.birthCertificates?.[0]?.dataHash,
+      cached: cacheHits > 0,
+    }).catch((err) => logger.warn({ requestId, err }, 'Soma receipt failed for orchestration'));
 
     return c.json({
       requestId, ...responsePayload,

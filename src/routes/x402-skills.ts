@@ -14,6 +14,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { nanoid } from 'nanoid';
+import { createSomaReceipt } from '../core/soma-receipt';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { paymentMiddleware } = require('@x402/hono') as {
   paymentMiddleware: (...args: unknown[]) => import('hono').MiddlewareHandler;
@@ -749,6 +750,23 @@ x402SkillsRouter.post('/skills/:id', async (c) => {
       logger.warn({ requestId, err: receiptErr }, 'Failed to insert x402 receipt');
     }
 
+    // Soma Receipt — cryptographic delivery proof (fire-and-forget)
+    const somaReceiptPromise = createSomaReceipt({
+      requestId,
+      paymentMethod: 'x402',
+      paymentRef: payCtx.paymentHash ?? requestId,
+      creditsCost: skill.credit_cost ?? 1,
+      requestData: JSON.stringify({ skillId: id, skillName: skill.name }),
+      responseData: JSON.stringify({ answer: formatted.answer?.slice(0, 500) }),
+      recipientAddress: payCtx.payerAddress ?? undefined,
+    }).catch((err) => logger.warn({ requestId, err }, 'Soma receipt failed for x402 skill'));
+
+    // Try to include receipt in response (2s timeout)
+    let somaReceipt: any;
+    try {
+      somaReceipt = await Promise.race([somaReceiptPromise, new Promise(r => setTimeout(r, 2000))]);
+    } catch { /* non-critical */ }
+
     return c.json({
       requestId,
       skillId: id,
@@ -766,6 +784,9 @@ x402SkillsRouter.post('/skills/:id', async (c) => {
         ...(attestationId && { attestationId }),
         ...(payToInfo.isDirectPayout && { directPayout: true, payTo: payToInfo.creatorWallet }),
       },
+      ...(somaReceipt?.id && {
+        receipt: { id: somaReceipt.id, verifyUrl: `/v1/soma/receipt/${somaReceipt.id}`, easScanUrl: somaReceipt.easScanUrl },
+      }),
     });
   } catch (err) {
     const totalDurationMs = Date.now() - start;
@@ -888,6 +909,22 @@ x402SkillsRouter.post('/orchestrate', async (c) => {
       logger.warn({ requestId, err: receiptErr }, 'Failed to insert x402 orchestration receipt');
     }
 
+    // Soma Receipt — cryptographic delivery proof (fire-and-forget)
+    const somaReceiptPromise = createSomaReceipt({
+      requestId,
+      paymentMethod: 'x402',
+      paymentRef: payCtx.paymentHash ?? requestId,
+      creditsCost: totalCredits,
+      requestData: JSON.stringify({ query: query?.slice(0, 200) }),
+      responseData: JSON.stringify({ answer: formatted.answer?.slice(0, 500) }),
+      recipientAddress: payCtx.payerAddress ?? undefined,
+    }).catch((err) => logger.warn({ requestId, err }, 'Soma receipt failed for x402 orchestrate'));
+
+    let somaReceipt: any;
+    try {
+      somaReceipt = await Promise.race([somaReceiptPromise, new Promise(r => setTimeout(r, 2000))]);
+    } catch { /* non-critical */ }
+
     return c.json({
       requestId,
       answer: formatted.answer,
@@ -909,6 +946,9 @@ x402SkillsRouter.post('/orchestrate', async (c) => {
         receiptId: requestId,
         ...(attestationId && { attestationId }),
       },
+      ...(somaReceipt?.id && {
+        receipt: { id: somaReceipt.id, verifyUrl: `/v1/soma/receipt/${somaReceipt.id}`, easScanUrl: somaReceipt.easScanUrl },
+      }),
     });
   } catch (err) {
     const durationMs = Date.now() - start;

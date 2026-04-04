@@ -11,6 +11,7 @@ import { maskApiKey } from '../utils/mask';
 import { logger } from '../utils/logger';
 import { nanoid } from 'nanoid';
 import { recordSuccess, recordFailure } from '../core/circuit-breaker';
+import { createSomaReceipt } from '../core/soma-receipt';
 
 const endpointsRouter = new Hono();
 
@@ -248,6 +249,18 @@ endpointsRouter.post('/:id/call', async (c) => {
       c.header('X-Soma-Heartbeat-Index', String(birthCertificate.heartbeatIndex));
       c.header('X-Soma-Protocol', 'soma/1.0');
     }
+
+    // Soma Receipt — cryptographic delivery proof (fire-and-forget)
+    createSomaReceipt({
+      requestId,
+      apiKey: keyInfo.key,
+      paymentMethod: 'credits',
+      creditsCost: endpointCredits,
+      requestData: JSON.stringify({ endpointId, params: c.req.query() }),
+      responseData: typeof data === 'string' ? data.slice(0, 1000) : JSON.stringify(data).slice(0, 1000),
+      somaDataHash: birthCertificate?.dataHash,
+      heartbeatIndex: birthCertificate?.heartbeatIndex,
+    }).catch((err) => logger.warn({ requestId, err }, 'Soma receipt failed for endpoint call'));
 
     return c.json({
       requestId,
