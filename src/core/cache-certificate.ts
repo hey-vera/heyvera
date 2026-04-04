@@ -71,7 +71,8 @@ export function createCacheCertificate(opts: {
     const cachedAt = now.toISOString();
     const freshUntilStr = freshUntil.toISOString();
 
-    // Build the payload that the platform signs
+    // Build the payload that the platform signs — full context prevents replay
+    const platformPublicKey = Buffer.from(getEd25519PublicKeyRaw()).toString('base64');
     const certPayload = {
       id,
       cacheKey: opts.cacheKey,
@@ -80,11 +81,11 @@ export function createCacheCertificate(opts: {
       cacheDataHash: opts.dataHash,
       cachedAt,
       freshUntil: freshUntilStr,
+      signer: platformPublicKey,
     };
 
     // Platform signs the cert payload
     const platformSignature = signVC(certPayload);
-    const platformPublicKey = Buffer.from(getEd25519PublicKeyRaw()).toString('base64');
 
     // Chain hash binds original + cache certs together
     const chainHash = somaHash(JSON.stringify({
