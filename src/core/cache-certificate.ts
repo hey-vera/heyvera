@@ -185,6 +185,45 @@ export function getCacheCertificate(cacheKey: string): CacheCertificate | null {
 }
 
 /**
+ * Lightweight hash lookup for x403 conditional checks.
+ * Returns hash + freshness info without incrementing served_count.
+ * Includes stale certs — the hash is still useful for comparison.
+ */
+export function getCacheHashInfo(cacheKey: string): {
+  dataHash: string;
+  cachedAt: string;
+  freshUntil: string;
+  fresh: boolean;
+  age: number;
+  certId: string;
+  chainHash: string;
+  endpointId: string;
+} | null {
+  const row = getDb().prepare(`
+    SELECT id, endpoint_id, cache_data_hash, cached_at, fresh_until, chain_hash
+    FROM cache_certificates
+    WHERE cache_key = ?
+    ORDER BY cached_at DESC LIMIT 1
+  `).get(cacheKey) as any;
+
+  if (!row) return null;
+
+  const cachedAtMs = new Date(row.cached_at).getTime();
+  const freshUntilMs = new Date(row.fresh_until).getTime();
+
+  return {
+    dataHash: row.cache_data_hash,
+    cachedAt: row.cached_at,
+    freshUntil: row.fresh_until,
+    fresh: freshUntilMs > Date.now(),
+    age: Math.round((Date.now() - cachedAtMs) / 1000),
+    certId: row.id,
+    chainHash: row.chain_hash,
+    endpointId: row.endpoint_id,
+  };
+}
+
+/**
  * Clean up expired cache certificates. Call periodically.
  */
 export function pruneExpiredCacheCerts(): number {

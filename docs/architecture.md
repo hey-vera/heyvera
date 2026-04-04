@@ -97,6 +97,29 @@ All env vars Zod-validated in `src/config/index.ts`. See `.env.example` for the 
 - `ZKTLS_ENABLED`, `RECLAIM_APP_ID`, `RECLAIM_APP_SECRET` (opt-in zkTLS data origin proofs)
 - `SENTRY_DSN` (optional), `RESEND_API_KEY` (optional)
 
+## x403 Protocol — Conditional Payment via Content-Addressed Change Detection
+
+First conditional payment protocol for APIs. Agents check a content hash before paying — if data hasn't changed, they pay nothing. Built on Soma's existing `dataHash` from birth certificates.
+
+**Flow:**
+```
+1. Agent → GET /v1/endpoints/:id/check          → { dataHash, fresh, age } (FREE)
+2. Agent → POST /v1/endpoints/:id/call
+           + If-Soma-Hash: <previous_hash>
+   a. Hash MATCHES cache → { unchanged: true }   (0 credits)
+   b. Hash DIFFERS        → normal x402 flow      (full price, new dataHash returned)
+   c. No header           → normal x402 flow      (backward compatible)
+```
+
+**Key files:**
+- `src/routes/endpoints.ts` — `GET /:id/check` (free hash probe), `If-Soma-Hash` header on `POST /:id/call`
+- `src/core/cache-certificate.ts` — `getCacheHashInfo()` lightweight hash lookup
+- `src/core/provider-cache-warm-cron.ts` — x403 hash comparison skips re-cache on unchanged data
+
+**Response headers:** All endpoint responses include `X-Soma-Hash` (data content hash) and `X-Soma-Protocol: x403/1.0`. Agents store the hash and send it as `If-Soma-Hash` on subsequent requests.
+
+**Why it's in Soma:** The hash that enables conditional payments IS the same hash that proves data provenance. One primitive, two capabilities. No other protocol has this — x402, ACP, AP2, L402 all charge unconditionally.
+
 ## Five-Layer Trust Stack
 
 ClawNet provides the only five-layer cryptographic trust stack in x402:

@@ -22,7 +22,7 @@ import { getDb } from '../db/connection';
 import { findEndpoint } from '../config/api-registry';
 import { isClawApisReady, clawApiCall, getLastBirthCertificate } from '../providers/clawapis';
 import { smartCacheSet, cacheKey } from '../cache/index';
-import { createCacheCertificate } from './cache-certificate';
+import { createCacheCertificate, getCacheHashInfo } from './cache-certificate';
 import { somaHash } from '../utils/crypto-agility';
 import { env } from '../config/index';
 import { logger } from '../utils/logger';
@@ -80,6 +80,11 @@ function getDueEndpoints(limit: number = 5): WarmScheduleRow[] {
 
 /**
  * Warm a single endpoint: fetch fresh data, cache it, create certificate.
+ *
+ * x403 optimization: after fetching, compare new dataHash to existing cert.
+ * If data didn't change, skip cache write + cert creation (saves CPU/disk).
+ * The x402 payment still happens (we had to fetch to check). Full savings
+ * require upstream x403 support (If-Soma-Hash → 304, no payment).
  */
 async function warmEndpoint(schedule: WarmScheduleRow): Promise<boolean> {
   const endpoint = findEndpoint(schedule.endpoint_id);
@@ -94,16 +99,30 @@ async function warmEndpoint(schedule: WarmScheduleRow): Promise<boolean> {
     const dataHash = somaHash(serialized);
     const ttl = schedule.frequency_seconds * 2; // Cache for 2x the update frequency
 
-    await smartCacheSet(key, data, ttl, schedule.endpoint_id, endpoint.creditCost ?? endpoint.costPerCall);
+    // x403: check if data actually changed since last warm
+    const existingHash = getCacheHashInfo(key);
+    const dataChanged = !existingHash || existingHash.dataHash !== dataHash;
 
-    const birthCert = getLastBirthCertificate();
-    createCacheCertificate({
-      cacheKey: key,
-      endpointId: schedule.endpoint_id,
-      dataHash,
-      ttlSeconds: ttl,
-      birthCert: birthCert ?? null,
-    });
+    if (dataChanged) {
+      // Data changed — full cache set + new certificate
+      await smartCacheSet(key, data, ttl, schedule.endpoint_id, endpoint.creditCost ?? endpoint.costPerCall);
+
+      const birthCert = getLastBirthCertificate();
+      createCacheCertificate({
+        cacheKey: key,
+        endpointId: schedule.endpoint_id,
+        dataHash,
+        ttlSeconds: ttl,
+        birthCert: birthCert ?? null,
+      });
+    } else {
+      // Data unchanged — just extend the TTL on the existing cert
+      getDb().prepare(`
+        UPDATE cache_certificates SET fresh_until = datetime('now', '+' || ? || ' seconds')
+        WHERE cache_key = ? AND cache_data_hash = ?
+        ORDER BY cached_at DESC LIMIT 1
+      `).run(ttl, key, dataHash);
+    }
 
     // Mark success
     getDb().prepare(`
@@ -113,6 +132,10 @@ async function warmEndpoint(schedule: WarmScheduleRow): Promise<boolean> {
           consecutive_failures = 0
       WHERE endpoint_id = ?
     `).run(schedule.frequency_seconds, schedule.endpoint_id);
+
+    if (!dataChanged) {
+      logger.debug({ endpointId: schedule.endpoint_id }, 'Cache warm: data unchanged (x403 skip)');
+    }
 
     return true;
   } catch (err) {

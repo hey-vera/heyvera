@@ -30,11 +30,12 @@ npm run test:unit    # Vitest unit tests
 | Clerk + Phantom   | Reown AppKit                |
 | .env on VPS       | sops / systemd secrets      |
 
-## API Access (three paths)
+## API Access (four paths)
 
 **Orchestrated:** `POST /v1/orchestrate` — LLM picks endpoints. 2-credit fee + endpoint costs.
 **Direct:** `POST /v1/endpoints/:id/call` — specific endpoint by ID. No LLM, endpoint cost only.
 **Verify:** `POST /v1/soma/verify` — agent calls provider directly, submits cert for async trust verification.
+**x403 Check:** `GET /v1/endpoints/:id/check` — free hash probe. Send `If-Soma-Hash` header on calls to skip payment when data unchanged.
 
 ## Database Patterns
 
