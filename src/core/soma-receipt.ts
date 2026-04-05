@@ -357,7 +357,7 @@ export function getSomaReceiptByRequestId(requestId: string): SomaReceipt | null
  */
 export function getUnanchoredReceipts(limit = 10000): { id: string; easUid: string }[] {
   return getDb().prepare(`
-    SELECT id, eas_uid FROM soma_receipts
+    SELECT id, eas_uid AS easUid FROM soma_receipts
     WHERE anchored_at IS NULL AND eas_uid IS NOT NULL
     ORDER BY created_at ASC
     LIMIT ?
