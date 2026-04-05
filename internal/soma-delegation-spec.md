@@ -153,6 +153,58 @@ Intent is advisory — providers enforce their own policy. But intent is signed,
 - `403 Forbidden` — scope violation or intent rejection
 - `410 Gone` — key expired
 
+### 5.1 Issuer API (reference implementation)
+
+ClawNet's reference implementation exposes these endpoints at `/v1/economy/keys/*` (API-key auth):
+
+#### `POST /v1/economy/keys/delegate` — issue delegation
+
+Request body:
+```json
+{
+  "label": "research-swarm-1",
+  "spendLimit": 100,
+  "expiresInHours": 24,
+  "permissions": ["invoke", "query"],
+  "maxDepth": 2,
+  "branchSpendLimit": 25,
+  "intentDeclaration": "price-oracle polling for backtest analysis",
+  "dataDomain": "public-chain-data",
+  "scopeEndpointsGlob": ["helius.rpc.*", "coingecko.prices.*"],
+  "scopeMethodsCsv": "GET,POST"
+}
+```
+
+Response (201):
+```json
+{ "ok": true, "childKey": "cn-...", ... }
+```
+
+Error codes: `DEPTH_EXCEEDED`, `BRANCH_CAP_EXCEEDED`, `SCOPE_VIOLATION`, `INVALID_DATA_DOMAIN`, `INVALID_MAX_DEPTH`, `INTENT_TOO_LONG`.
+
+#### `GET /v1/economy/keys/delegated` — list children of caller
+
+Returns all active delegations where `parent_key = caller` with full v0.1 fields (depth, maxDepth, branchSpendLimit, intentDeclaration, dataDomain, scopeEndpointsGlob, scopeMethodsCsv).
+
+#### `GET /v1/economy/keys/delegated/:childKey/chain` — walk lineage
+
+Returns the full chain from `childKey` up to the root key (masked). Useful for parent agents auditing deep subtrees. Caller must appear somewhere in the chain (parent or descendant) OR be the leaf itself.
+
+```json
+{
+  "protocol": "soma-delegation/0.1",
+  "leaf": "cn-...",
+  "root": "cn-...",
+  "depth": 2,
+  "hops": 3,
+  "chain": [ /* leaf delegation first, root-adjacent last */ ]
+}
+```
+
+#### `DELETE /v1/economy/keys/delegated/:childKey` — cascade revoke
+
+Revokes `childKey` AND all descendants (BFS). Returns `{ ok, revoked, cascade: true, revokedCount }`.
+
 ---
 
 ## 6. Examples
@@ -200,8 +252,10 @@ ClawNet's `delegated_keys` table (as of 2026-Q1) has partial implementation:
 - ✓ **Migration 149 (2026-04-05):** `depth`, `max_depth`, `branch_spend_limit`, `intent_declaration`, `data_domain`, `scope_endpoints_glob`, `scope_methods_csv`, `revoked_at` columns added
 - ✓ **Recursive cascade revoke** — `revokeDelegatedKey()` BFS-traverses and revokes entire subtree (`src/db/transfers.ts`)
 - ✓ **Depth-aware creation** — `createDelegatedKey()` enforces `max_depth`, `branch_spend_limit`, and (conservative shell-glob) scope narrowing at issue time
+- ✓ **Public HTTP surface (2026-04-05)** — `POST/GET/DELETE /v1/economy/keys/delegated*` + `GET .../chain` for lineage walk (`src/routes/economy.ts`)
 - ⚠ Glob-subset check is simplified to prefix-matching — good enough for v0.1, formal subset semantics pending
 - ⚠ Intent rejection at provider serving side not yet wired
+- ⚠ `X-Soma-Delegation-Chain` header on outgoing proxy calls not yet attached (see §10 — publish to public repo blocks on this)
 - ⚠ Cross-issuer trust registry (cross-platform delegation) not implemented
 
 ---

@@ -375,6 +375,35 @@ export function getDelegationInfo(childKey: string): DelegatedKey | undefined {
     .get(childKey) as DelegatedKey | undefined;
 }
 
+/**
+ * Walk the delegation chain from `childKey` up to the root key.
+ * Returns [leaf, ..., root-delegation] with the leaf delegation first.
+ * If `childKey` is not a delegated key, returns [].
+ * Used by GET /v1/economy/keys/delegated/:childKey/chain + the
+ * X-Soma-Delegation-Chain header builder. Soma Delegation Spec §5.
+ *
+ * Safe against cycles — capped at 32 hops (well above any sane max_depth).
+ */
+export function getDelegationChain(childKey: string): DelegatedKey[] {
+  const db = getDb();
+  const chain: DelegatedKey[] = [];
+  const seen = new Set<string>();
+  let cursor: string | null = childKey;
+  let hops = 0;
+  while (cursor && hops < 32) {
+    if (seen.has(cursor)) break; // cycle guard
+    seen.add(cursor);
+    const row = db
+      .prepare('SELECT * FROM delegated_keys WHERE child_key = ?')
+      .get(cursor) as DelegatedKey | undefined;
+    if (!row) break;
+    chain.push(row);
+    cursor = row.parent_key;
+    hops++;
+  }
+  return chain;
+}
+
 export function incrementDelegatedSpend(childKey: string, amount: number): boolean {
   const result = getDb()
     .prepare(

@@ -181,10 +181,18 @@ ClawNet = **reference implementation of Soma + the agent economy built on top.**
 - [x] New v0.1 fields on `DelegatedKey` interface
 - [x] 7 new delegation tests (209/209 pass)
 
-**Phase 2 — publish + wire (next):**
+**Phase 2 — public HTTP surface (SHIPPED 2026-04-05):**
+- [x] `POST /v1/economy/keys/delegate` accepts full v0.1 body (maxDepth, branchSpendLimit, intentDeclaration, dataDomain, scopeEndpointsGlob, scopeMethodsCsv) + typed error codes (DEPTH_EXCEEDED, BRANCH_CAP_EXCEEDED, SCOPE_VIOLATION)
+- [x] `GET /v1/economy/keys/delegated` returns all v0.1 fields in the list response
+- [x] `GET /v1/economy/keys/delegated/:childKey/chain` — walks lineage leaf→root with per-hop scope/budget/intent (masked keys); caller must appear in chain
+- [x] `DELETE /v1/economy/keys/delegated/:childKey` — returns `{ cascade: true, revokedCount }` reflecting subtree revoke
+- [x] `getDelegationChain()` in `src/db/transfers.ts` with cycle guard (32-hop cap) + 4 new unit tests
+- [x] §5.1 "Issuer API (reference implementation)" added to spec doc
+
+**Phase 3 — publish + wire (next):**
 - [ ] Publish `soma-delegation-spec.md` to `github.com/1xmint/soma-delegation-spec` as separate public repo
-- [ ] Add POST /v1/delegation/keys route accepting v0.1 fields (currently `createDelegatedKey` is only called internally)
-- [ ] Parse `X-Soma-Delegation-Chain` + `X-Soma-Intent` request headers on the proxy path, enforce intent
+- [ ] Wire `X-Soma-Delegation-Chain` response header on the proxy path when caller's key is delegated (leaks masked chain + depth + intent to upstream providers)
+- [ ] Parse `X-Soma-Intent` request headers on the proxy path, enforce intent vs dataDomain
 - [ ] Open issue on `coinbase/x402` proposing as x402 extension
 - [ ] Submit to IETF draft-klrc working group as reference-implementation input
 - [ ] Reference client in `@clawnet/soma-delegation` npm package

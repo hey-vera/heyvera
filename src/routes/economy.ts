@@ -15,6 +15,7 @@ import {
   createDelegatedKey,
   getDelegatedKeys,
   revokeDelegatedKey,
+  getDelegationChain,
   getReceipts,
   setAutoPayoutConfig,
   getAutoPayoutConfig,
@@ -122,7 +123,19 @@ economyRouter.post('/keys/delegate', async (c) => {
   const keyInfo = c.get('apiKeyInfo');
   if (keyInfo.isEnvKey) return c.json({ error: 'Env keys cannot delegate', code: 'FORBIDDEN' }, 403);
 
-  let body: { label?: string; spendLimit?: number; expiresInHours?: number; permissions?: string[] };
+  let body: {
+    label?: string;
+    spendLimit?: number;
+    expiresInHours?: number;
+    permissions?: string[];
+    // Soma Delegation Spec v0.1 (§4.1–4.3)
+    maxDepth?: number;
+    branchSpendLimit?: number;
+    intentDeclaration?: string;
+    dataDomain?: string;
+    scopeEndpointsGlob?: string[];
+    scopeMethodsCsv?: string;
+  };
   try {
     body = await c.req.json();
   } catch {
@@ -141,15 +154,38 @@ economyRouter.post('/keys/delegate', async (c) => {
     }
   }
 
+  const validDomains = ['public-chain-data', 'private-user-data', 'model-output', 'training-data', 'other'];
+  if (body.dataDomain && !validDomains.includes(body.dataDomain)) {
+    return c.json({ error: `Invalid dataDomain: ${body.dataDomain}. Valid: ${validDomains.join(', ')}`, code: 'INVALID_DATA_DOMAIN' }, 400);
+  }
+  if (body.maxDepth !== undefined && (typeof body.maxDepth !== 'number' || body.maxDepth < 0 || body.maxDepth > 8)) {
+    return c.json({ error: 'maxDepth must be integer 0..8', code: 'INVALID_MAX_DEPTH' }, 400);
+  }
+  if (body.intentDeclaration && body.intentDeclaration.length > 512) {
+    return c.json({ error: 'intentDeclaration must be 512 characters or less', code: 'INTENT_TOO_LONG' }, 400);
+  }
+
   const result = createDelegatedKey({
     parentKey: keyInfo.key,
     label: body.label,
     spendLimit: body.spendLimit,
     expiresInHours: body.expiresInHours,
     permissions: body.permissions,
+    maxDepth: body.maxDepth,
+    branchSpendLimit: body.branchSpendLimit,
+    intentDeclaration: body.intentDeclaration,
+    dataDomain: body.dataDomain as 'public-chain-data' | 'private-user-data' | 'model-output' | 'training-data' | 'other' | undefined,
+    scopeEndpointsGlob: body.scopeEndpointsGlob,
+    scopeMethodsCsv: body.scopeMethodsCsv,
   });
 
-  if (!result.ok) return c.json({ error: result.error, code: 'DELEGATION_FAILED' }, 400);
+  if (!result.ok) {
+    const code = result.error?.startsWith('DEPTH_EXCEEDED') ? 'DEPTH_EXCEEDED'
+      : result.error?.startsWith('BRANCH_CAP_EXCEEDED') ? 'BRANCH_CAP_EXCEEDED'
+      : result.error?.startsWith('SCOPE_VIOLATION') ? 'SCOPE_VIOLATION'
+      : 'DELEGATION_FAILED';
+    return c.json({ error: result.error, code }, 400);
+  }
 
   return c.json({
     ok: true,
@@ -157,6 +193,12 @@ economyRouter.post('/keys/delegate', async (c) => {
     spendLimit: body.spendLimit,
     expiresInHours: body.expiresInHours ?? null,
     permissions: body.permissions ?? ['invoke', 'query'],
+    maxDepth: body.maxDepth ?? 0,
+    branchSpendLimit: body.branchSpendLimit ?? null,
+    intentDeclaration: body.intentDeclaration ?? null,
+    dataDomain: body.dataDomain ?? null,
+    scopeEndpointsGlob: body.scopeEndpointsGlob ?? null,
+    scopeMethodsCsv: body.scopeMethodsCsv ?? null,
   }, 201);
 });
 
@@ -174,6 +216,62 @@ economyRouter.get('/keys/delegated', (c) => {
       expiresAt: k.expires_at,
       permissions: safeJsonParse(k.permissions_json, []),
       createdAt: k.created_at,
+      // Soma Delegation Spec v0.1 fields
+      depth: k.depth,
+      maxDepth: k.max_depth,
+      branchSpendLimit: k.branch_spend_limit,
+      intentDeclaration: k.intent_declaration,
+      dataDomain: k.data_domain,
+      scopeEndpointsGlob: k.scope_endpoints_glob ? safeJsonParse(k.scope_endpoints_glob, []) : null,
+      scopeMethodsCsv: k.scope_methods_csv,
+    })),
+  });
+});
+
+/**
+ * Walk the delegation lineage for a child key up to the root.
+ * Per Soma Delegation Spec §5 — parents can audit every descendant's chain.
+ * Only returns the chain if caller's key appears in it (parent or child).
+ */
+economyRouter.get('/keys/delegated/:childKey/chain', (c) => {
+  const keyInfo = c.get('apiKeyInfo');
+  const childKey = c.req.param('childKey');
+  const chain = getDelegationChain(childKey);
+
+  if (chain.length === 0) {
+    return c.json({ error: 'Not a delegated key', code: 'NOT_DELEGATED', childKey }, 404);
+  }
+
+  // Authorization: caller must be either the leaf key OR anywhere in the chain.
+  const inChain = chain.some(d => d.child_key === keyInfo.key || d.parent_key === keyInfo.key);
+  if (!inChain && keyInfo.key !== childKey) {
+    return c.json({ error: 'Not authorized to view this chain', code: 'FORBIDDEN' }, 403);
+  }
+
+  const rootKey = chain[chain.length - 1].parent_key;
+
+  return c.json({
+    protocol: 'soma-delegation/0.1',
+    leaf: childKey,
+    root: rootKey,
+    depth: chain[0].depth,
+    hops: chain.length,
+    chain: chain.map((d) => ({
+      childKey: maskApiKey(d.child_key),
+      parentKey: maskApiKey(d.parent_key),
+      depth: d.depth,
+      maxDepth: d.max_depth,
+      spendLimit: d.spend_limit,
+      spent: d.spent,
+      branchSpendLimit: d.branch_spend_limit,
+      intentDeclaration: d.intent_declaration,
+      dataDomain: d.data_domain,
+      scopeEndpointsGlob: d.scope_endpoints_glob ? safeJsonParse(d.scope_endpoints_glob, []) : null,
+      scopeMethodsCsv: d.scope_methods_csv,
+      active: d.active === 1,
+      createdAt: d.created_at,
+      expiresAt: d.expires_at,
+      revokedAt: d.revoked_at,
     })),
   });
 });
@@ -185,7 +283,12 @@ economyRouter.delete('/keys/delegated/:childKey', (c) => {
   const result = revokeDelegatedKey(keyInfo.key, childKey);
   if (!result.ok) return c.json({ error: result.error, code: 'REVOKE_FAILED' }, 400);
 
-  return c.json({ ok: true, revoked: childKey });
+  return c.json({
+    ok: true,
+    revoked: childKey,
+    cascade: true,
+    revokedCount: result.revokedCount ?? 1,
+  });
 });
 
 // ─── Receipts ────────────────────────────────────────────────────────────────

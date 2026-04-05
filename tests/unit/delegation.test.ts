@@ -18,6 +18,7 @@ import {
   createDelegatedKey,
   revokeDelegatedKey,
   getDelegationInfo,
+  getDelegationChain,
 } from '../../src/db/index';
 
 beforeAll(() => {
@@ -147,5 +148,55 @@ describe('Soma Delegation v0.1 — cascade revoke', () => {
     const rev = revokeDelegatedKey(root, r.childKey!);
     expect(rev.ok).toBe(true);
     expect(rev.revokedCount).toBe(1);
+  });
+});
+
+describe('Soma Delegation v0.1 — chain walk', () => {
+  it('returns empty chain for a non-delegated (root) key', () => {
+    const { key: root } = seedApiKey(getTestDb(), { credits: 1000 });
+    expect(getDelegationChain(root)).toEqual([]);
+  });
+
+  it('returns single-entry chain for depth-0 child', () => {
+    const { key: root } = seedApiKey(getTestDb(), { credits: 1000 });
+    const r = createDelegatedKey({ parentKey: root, spendLimit: 100 });
+    const chain = getDelegationChain(r.childKey!);
+    expect(chain.length).toBe(1);
+    expect(chain[0].child_key).toBe(r.childKey);
+    expect(chain[0].parent_key).toBe(root);
+    expect(chain[0].depth).toBe(0);
+  });
+
+  it('returns full chain leaf→root for a 3-hop delegation', () => {
+    const { key: root } = seedApiKey(getTestDb(), { credits: 10_000 });
+    const r1 = createDelegatedKey({ parentKey: root, spendLimit: 1000, maxDepth: 3, branchSpendLimit: 500 });
+    const r2 = createDelegatedKey({ parentKey: r1.childKey!, spendLimit: 400, maxDepth: 2, branchSpendLimit: 200 });
+    const r3 = createDelegatedKey({ parentKey: r2.childKey!, spendLimit: 100, maxDepth: 1 });
+
+    const chain = getDelegationChain(r3.childKey!);
+    expect(chain.length).toBe(3);
+    // Leaf first
+    expect(chain[0].child_key).toBe(r3.childKey);
+    expect(chain[0].parent_key).toBe(r2.childKey);
+    expect(chain[0].depth).toBe(2);
+    // Middle
+    expect(chain[1].child_key).toBe(r2.childKey);
+    expect(chain[1].parent_key).toBe(r1.childKey);
+    expect(chain[1].depth).toBe(1);
+    // Root-adjacent
+    expect(chain[2].child_key).toBe(r1.childKey);
+    expect(chain[2].parent_key).toBe(root);
+    expect(chain[2].depth).toBe(0);
+  });
+
+  it('includes revoked entries so parents can audit historical chains', () => {
+    const { key: root } = seedApiKey(getTestDb(), { credits: 1000 });
+    const r = createDelegatedKey({ parentKey: root, spendLimit: 100 });
+    revokeDelegatedKey(root, r.childKey!);
+
+    const chain = getDelegationChain(r.childKey!);
+    expect(chain.length).toBe(1);
+    expect(chain[0].active).toBe(0);
+    expect(chain[0].revoked_at).not.toBeNull();
   });
 });
