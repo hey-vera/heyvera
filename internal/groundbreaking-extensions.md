@@ -273,6 +273,45 @@ Old receipts must remain verifiable in 10, 20, 50 years — even after quantum c
 
 ---
 
+### Extension 9.5: Soma Bazaar — verifiable discovery + transitive trust
+
+**Written 2026-04-05.** Inspired by x402's viral rail-propagation mechanic (0xJeff, March 2026): agents discover each other via MCP bazaar, pay via HTTP 402, auto-install each other's payment rails — trust and tooling spread like a virus.
+
+**Problem solved:** x402 Bazaar lists paid endpoints but has no identity guarantee. MCP bazaars list tools but no payment or continuity proof. Nobody bundles *discovery + identity + conditional payment* into one lookup.
+
+**Design:** superset of x402 Bazaar. Every entry carries two optional fields (`soma_heart_url`, `last_cert_hash`) that make it backwards-compatible — legacy x402 clients ignore them, Soma-aware clients get three extra layers.
+
+**Four pieces:**
+
+1. **`/.well-known/soma-heart` manifest** (free, public GET)
+   Every endpoint/agent exposes `{ hash, birth_cert, capabilities, price, last_rotation }`. Discovery = identity-verified by default. Pairs natively with x402 ETag: `If-Soma-Hash` header lets callers skip re-verification AND re-payment if unchanged.
+
+2. **Transitive trust credentials (the viral loop)**
+   When Agent A's sense-observer verifies Agent B, A can emit a signed `TrustAttestation{ verifier: A, subject: B, at_hash: X, verdict, expires }`. When A later hires Z, it passes the attestation along. Z uses it as a warm-start prior (not a verdict skip) — lowers verification latency/cost for the second-hop peer. Trust spreads exactly like x402 rails spread in 0xJeff's mechanic.
+
+3. **Soma DHT / pubsub broadcast** (uses the pending libp2p port 4001)
+   Hearts announce cert rotations to a gossipsub topic. Observers subscribe instead of polling. Push-based discovery. Converts the x402 ETag conditional-GET pattern into a push channel for identity changes.
+
+4. **Reputation-weighted ranking**
+   Bazaar sorts entries by `(uptime × verified-observer-count × attestation-age × slash-history)`. Merges with Extension 6 (agent reputation). Turns discovery into a trust market.
+
+**Positioning move:** submit a PR to the existing x402 Bazaar spec adding the two optional fields. If accepted → Soma embedded into the viral standard. If rejected → fork with "verified tier" story. Either outcome wins.
+
+**Adoption story (answers IMG_2463 pain point):** agent continuity. Philipp's rant ("dementia hit — facts from 48+ hours ago forgotten — breaks with every update") is really about identity discontinuity: the agent you trusted yesterday is a stranger today. Birth cert + lineage proves "same agent as yesterday" across restarts/updates. Market Soma as the cure for agent-amnesia trust breaks.
+
+**Implementation phases:**
+1. `/.well-known/soma-heart` manifest spec + reference server middleware
+2. `TrustAttestation` schema + sense-observer export hook
+3. libp2p gossipsub topic + subscribe SDK
+4. Bazaar listing schema PR to x402 Bazaar
+5. Ranking algorithm + public directory UI
+
+**Why A-tier (arguably S-tier):** fuses three primitives nobody else has bundled. Creates the discovery layer competitors must build through, not around. Viral adoption mechanic is proven (x402 did it for payment rails — we do it for trust).
+
+**Risk:** blocked by scale test — can't broadcast cert rotations if heart rotation rate is unproven. Blocked by Extension 6 (reputation) for ranking. Blocked by sense-observer API stability for trust attestations.
+
+---
+
 ## B-tier — valuable additions
 
 ### Extension 10: Cross-protocol bridge

@@ -73,6 +73,7 @@ Per `internal/soma-future-proofing.md`:
 
 ### Other ideas
 
+- **Soma Bazaar** (2026-04-05) — verifiable discovery + transitive trust attestations + libp2p gossipsub for cert rotations + x402 Bazaar backwards-compat via two optional fields. Full spec in `groundbreaking-extensions.md` Extension 9.5. Viral trust loop parallel to 0xJeff's x402 rail-propagation mechanic.
 - **Soma SDK ports** — Python, Rust, Go, Java soma-heart implementations (currently TypeScript-only)
 - **Soma browser extension** — observer runs in browser, verifies any agent you interact with
 - **Soma for MCP servers** — every MCP server auto-gets a Soma heart, every MCP client auto-runs sense
