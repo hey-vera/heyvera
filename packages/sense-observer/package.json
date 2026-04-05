@@ -1,0 +1,52 @@
+{
+  "name": "@clawnet/sense-observer",
+  "version": "0.1.0",
+  "description": "External verifier for Soma birth certificates — the Sense side of heart/sense separation. Runs in the caller's environment, not the heart's.",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "sense": "dist/cli.js"
+  },
+  "files": ["dist/", "README.md"],
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "soma",
+    "soma-sense",
+    "soma-heart",
+    "birth-certificate",
+    "provenance",
+    "verification",
+    "clawnet",
+    "agents",
+    "ai"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/1xmint/claw-net",
+    "directory": "packages/sense-observer"
+  },
+  "homepage": "https://claw-net.org",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "tweetnacl": "^1.0.3"
+  },
+  "devDependencies": {
+    "esbuild": "^0.20.0",
+    "typescript": "^5.4.0",
+    "@types/node": "^20.0.0"
+  }
+}
