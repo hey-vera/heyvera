@@ -126,6 +126,53 @@ Full strategy in `internal/x402-etag-strategy.md`. Summary of things not actione
 
 ---
 
+## Proof-of-Delivery layer (the "holy shit" play)
+
+**Researched 2026-04-04.** State of x402: volume collapsed 92% from Dec 2025 peak (Artemis), ~50% wash trading, real commerce ~$14k/day. Payment rails shipped before market exists. Window is open because **everyone is fighting over payment, nobody is fighting over delivery trust**.
+
+### Top 5 x402 pain points we uniquely solve
+
+1. **Payment-without-delivery race** (GitHub coinbase/x402#1062) — facilitator timeout < Base confirmation, wallet debited, no refund, no webhook. Most-cited dev complaint. **Our fix:** Soma hash-before-pay via x402 ETag probe makes race impossible.
+2. **Centralized facilitator tax** — Coinbase charges $0.001/settlement since Jan 2026. ChaosChain racing to decentralize. **Our fix:** ClawNet as neutral facilitator; Soma cert replaces facilitator trust.
+3. **"Paid, got garbage"** — x402 is pure payment transport, no delivery/quality verification. x402Disputes.com exists as unadopted band-aid. **Our fix:** literally Soma's thesis — birth-cert the response, cryptographic dispute evidence.
+4. **No batching/subscriptions** — every call = on-chain settlement. Stripe's MPP (Mar 2026, $500M Series A) pitches batching as THE x402-killer. **Our fix:** x402 ETag + Range + Subscribe + Batch sub-protocols.
+5. **Wallet privacy leak** — every x402 call reveals wallet address, leaks agent economic graph. **Our fix:** Soma selective disclosure + PQ + stealth-address roadmap.
+
+### 3 groundbreaking ideas (ranked)
+
+**A. Verifiable x402 — EigenLayer AVS for Soma attestation.** Restaked ETH slashes providers who lie about "unchanged" or ship bad data. Shared economic security for data honesty. ERC-8004 (live Jan 2026) covers identity; nobody has slashing for delivery quality. The missing piece of the agentic trust stack.
+
+**B. TEE-attested x402 ETag — hardware-signed hashes.** Provider runs in Nitro/TDX, signs hash with attested enclave key. Coinbase Agentic Wallets (Feb 2026) already does TEE for keys — pattern is mainstream. Premium tier: "Verified-by-TEE."
+
+**C. Intent-based x402 — CowSwap for APIs.** Agent declares intent (*"BTC price ≤ $0.01, freshness ≤ 5s, Soma-verified"*), solvers compete, warmest x402 ETag cache wins. Solvers stake Soma reputation. Nobody has shipped solver competition for API calls. **Turns API markets into auction markets.**
+
+### The positioning play — Proof-of-Delivery for Agent Commerce
+
+Protocol-agnostic middleware sitting ABOVE x402/MPP/L402/AP2/TAP. The honesty layer x402 structurally cannot provide. Stack: x402 ETag + Soma birth certs + EigenLayer AVS + TEE attestation + intent-based routing.
+
+**Pitch:** *"x402 says money moved. Soma proves data was real. Together: trustless agent commerce."*
+
+**Why we win regardless of which payment protocol wins:**
+- x402 wins → payment rails commoditize → trust layer becomes premium → we own it
+- MPP wins → same story, we're protocol-agnostic → win
+- Multi-protocol world → we span them all → win bigger
+
+**Artemis's "mirage" critique is our wedge:** agent commerce hasn't exploded because agents can't trust what they're buying. Payment isn't the bottleneck — trust is. We're building the trust bottleneck release.
+
+### References to track (post-research 2026-04-04)
+
+- `coinbase/x402` GitHub — issues #694 (delegated billing), #839 (escrow), #1057 (rate limits), #1062 (timeout race), #447 (Circle Gateway)
+- ChaosChain decentralized facilitator — `github.com/ChaosChain/chaoschain-x402`
+- Stripe/Tempo MPP — direct competitor, $500M Series A Mar 2026
+- Google AP2 (ap2-protocol.org), Visa TAP, ERC-8004 (live mainnet 20k agents)
+- L402 / Lightning Labs `lightning-agent-tools` — Lightning-native alt
+- Bankr x402 Cloud (launched 4/02/2026), x402Disputes.com, World AgentKit
+- EigenLayer AVS docs for verifiable AI
+- Artemis x402 dashboard — `app.artemisanalytics.com/asset/x402`
+- Cloudflare x402 blog post, CoinDesk 2026-03-11 volume-collapse coverage
+
+---
+
 ## Pulse
 
 (Referenced in memory — separate repo, different context.)
