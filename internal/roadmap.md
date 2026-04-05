@@ -1,6 +1,6 @@
 # Roadmap — what, why, todos
 
-**Last updated:** 2026-04-05
+**Last updated:** 2026-04-05 (Phase 2 mid-sprint progress: dashboard + SDK + zauth pivot shipped)
 **Scope:** Soma Protocol Stack + ClawNet, full forward-looking view
 **Status:** living doc — update on every Phase milestone
 
@@ -78,7 +78,7 @@ ClawNet = **reference implementation of Soma + the agent economy built on top.**
 **Why:** We have telemetry running but zero stakeholders can see it. Need a dashboard to close the loop: telemetry → pitch → signup → case study. clawapis is our reference customer (free forever, case-study rights).
 
 **Todos:**
-- [ ] Build provider-facing savings dashboard UI under `site/` consuming `/v1/soma/check/stats`
+- [x] Build provider-facing savings dashboard UI under `site/` consuming `/v1/soma/check/stats` — shipped `site/soma-check.html` (commit `90ea3e7`)
 - [ ] Enable shadow mode on clawapis-registered endpoints (Path A = proxy-side, zero provider effort)
 - [ ] 14-day silent telemetry run
 - [ ] Export CSV + "you would have saved $X" pitch packet
@@ -93,8 +93,9 @@ ClawNet = **reference implementation of Soma + the agent economy built on top.**
 
 **Todos:**
 - [ ] Audit what `indexed_endpoints` rows exist with `source='zauth'` (expect 0)
-- [ ] Decide: delete zauth-discovery.ts OR rename to `x402scan-discovery.ts` and rewrite against x402scan API
-- [ ] If rewrite: contact Merit Systems / read x402scan API docs
+- [x] Decide: delete zauth-discovery.ts OR rename to `x402scan-discovery.ts` and rewrite against x402scan API — decided: **preserve both** (zauth flag-gated OFF for partnership restoration, x402scan stub added). Commit `90ea3e7`.
+- [x] If rewrite: contact Merit Systems / read x402scan API docs — API surface documented in `src/core/x402scan-discovery.ts`
+- [ ] Wire x402 client-side payment signing so x402scan cron can actually poll ($0.01/call blocker)
 - [ ] Update `docs/architecture.md` discovery section
 
 ### Phase 3 — ecosystem wedge (parallel to Phase 2)
@@ -104,7 +105,7 @@ ClawNet = **reference implementation of Soma + the agent economy built on top.**
 **Why:** We need spec-level recognition to make Soma Check a default assumption, not a ClawNet feature. And we need zero-friction client adoption — every extra line of code agents must write is a barrier.
 
 **Todos:**
-- [ ] Ship `@clawnet/soma-check` npm package (client helper: automatic ETag caching, If-None-Match on every call)
+- [x] Ship `@clawnet/soma-check` npm package (client helper: automatic ETag caching, If-None-Match on every call) — shipped `packages/soma-check/` v0.1.0 (commit `444c654`). Ready for `npm publish --access public`.
 - [ ] Submit x402 spec extension PR to `coinbase/x402`
 - [ ] Outreach: 3-5 target providers (Helius, x.com API, Messari, QuickNode, Elsa AI)
 - [ ] Blog post: "We shipped conditional payment in x402 and saved agents 78%" (after real numbers)
