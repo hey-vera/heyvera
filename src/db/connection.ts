@@ -1721,6 +1721,13 @@ const MIGRATIONS: { version: number; sql: string }[] = [
     CREATE INDEX IF NOT EXISTS idx_soma_check_events_hit ON soma_check_events(endpoint_id, was_hit) WHERE was_hit = 1;
     CREATE INDEX IF NOT EXISTS idx_soma_check_events_would ON soma_check_events(endpoint_id, would_have_hit) WHERE would_have_hit = 1;
   ` },
+
+  // v148: Soma Check tier per provider (0=shadow, 1=passive, 2=verified, 3=champion).
+  // Distinct from the legacy `tier` text column which drives UI badges.
+  // See internal/soma-onboarding-ladder.md for the 4-tier definition.
+  { version: 148, sql: `
+    ALTER TABLE providers ADD COLUMN soma_check_tier INTEGER NOT NULL DEFAULT 0;
+  ` },
 ];
 
 function runMigrations(): void {

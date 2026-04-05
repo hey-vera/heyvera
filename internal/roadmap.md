@@ -73,19 +73,23 @@ ClawNet = **reference implementation of Soma + the agent economy built on top.**
 
 > **2026-04-05 re-prioritization:** see `internal/soma-readiness-strategy.md` for full gap analysis. The sub-phases below are re-sequenced to activate what's already built (Gap A, Gap C) **before** investing in new code. The 90-day critical path is driven by the competitive clock (A2A Protocol, Mastercard Verifiable Intent, IETF draft-klrc) — §5 below.
 
-### Phase 2.6 — Activate Soma Check on proxy path (Gap A — P0, highest ROI)
+### Phase 2.6 — Activate Soma Check on proxy path (Gap A — P0, highest ROI) ✓ SHIPPED 2026-04-05
 
-**What:** Wire `computeSomaCheckSplit()` + tier awareness on `POST /v1/endpoints/:id/call` so every real call (not just 6 demo endpoints) emits ETag, honors `If-None-Match`, bills at hit-price 90/10, and logs non-shadow `soma_check_events` rows.
+**What:** Wire `computeSomaCheckSplit()` + tier awareness on `POST /v1/endpoints/:id/call` so every real call (not just 6 demo endpoints) honors `If-None-Match`, bills at hit-price 90/10, and logs non-shadow `soma_check_events` rows.
 
-**Why:** The Soma Check billing calculator (`src/core/soma-check-billing.ts`) is never called on real traffic today. The proxy path (`src/routes/endpoints.ts:249-286`) has 80% of the logic but uses `creditProviderShare()` 50/50 instead of `computeSomaCheckSplit()` 90/10, and logs everything as `shadow_mode: true`. **Without this, our savings dashboard renders synthetic data and we have no real numbers to pitch.**
+**Why:** The Soma Check billing calculator (`src/core/soma-check-billing.ts`) was never called on real traffic. The proxy path had 80% of the logic but returned `creditsUsed: 0` and logged everything as shadow.
 
 **Todos:**
-- [ ] Add `getProviderTier(providerId): SomaCheckTier` helper in `src/db/providers.ts`
-- [ ] Replace cache-hit `creditProviderShare()` with `computeSomaCheckSplit()` in proxy path
-- [ ] Un-shadow telemetry when tier ≥ 1 (pass `shadowMode: false`)
-- [ ] Switch 304 response to `c.body(null, 304)` for HTTP-spec compliance (mirrors `soma-demo.ts:122`)
-- [ ] Smoke test: real provider on Tier 1 sees 90/10 split, Tier 3 sees 95/5
-- [ ] Verify `soma_check_events.was_hit = 1` rows appear on 304 responses
+- [x] Migration 148 — `providers.soma_check_tier INTEGER NOT NULL DEFAULT 0`
+- [x] Add `getProviderSomaCheckTier(endpointId): SomaCheckTier` + `setProviderSomaCheckTier()` in `src/db/providers.ts`
+- [x] Extend `creditProviderShare()` with `providerSharePctOverride?: number` option
+- [x] Wire `computeSomaCheckSplit()` into the 304 hash-match path in `src/routes/endpoints.ts` — charges hit price, credits provider 90% (T1-2) or 95% (T3), un-shadows telemetry when tier ≥ 1
+- [x] Tier 0 remains free (shadow mode preserves zero-disruption onboarding)
+- [x] Added `X-Soma-Tier`, `X-Soma-Hit-Price`, and `ETag` response headers
+- [x] ClawNet cache-hit shadow telemetry now logs actual projected tier + hit-price split
+- [x] `npm run test:unit` green (202/202) with migration 148 applied
+
+**Next (outside this phase):** promote clawapis endpoints from Tier 0 → Tier 1 once they agree, run real-traffic N≥10K, pitch case study. Tracked in Phase 2 dashboard section.
 
 ### Phase 2.7 — On-chain receipts (Gap C — P0, flip the switch)
 

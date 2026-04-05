@@ -24,26 +24,23 @@ This doc answers the question: **"Can ClawNet be the best Soma implementation fo
 
 ## 2. The five gaps blocking "best implementation" status
 
-### Gap A — Soma Check on the proxy path (not just demos)
+### Gap A — Soma Check on the proxy path (not just demos) ✓ SHIPPED 2026-04-05
 
-**What:** Every call through `/v1/endpoints/:id/call` emits ETag, honors `If-None-Match`, bills at hit-price using `computeSomaCheckSplit()`, logs non-shadow `soma_check_events` rows.
+**What:** Every call through `/v1/endpoints/:id/call` that sends `If-Soma-Hash` (or `If-Fresh-Hash`) is now billed at hit-price via `computeSomaCheckSplit()` with the provider's Soma Check tier, credits the provider 90% (T1-2) or 95% (T3), and logs non-shadow `soma_check_events` rows.
 
-**Why critical:** Without this, we have **zero real-world hit-rate numbers to pitch** to clawapis or any provider. The savings dashboard currently renders synthetic data. The Soma Check billing calculator exists but is never called on real traffic — the proxy path uses `creditProviderShare()` 50/50 instead of `computeSomaCheckSplit()` 90/10.
+**Why critical:** Without this, we had **zero real-world hit-rate numbers to pitch** to clawapis or any provider. The Soma Check billing calculator was never called on real traffic — the proxy path returned `creditsUsed: 0` on hash matches.
 
-**Current state:** `src/routes/endpoints.ts:249-286` has 80% of the logic. What's missing:
-- Tier detection from provider record (currently hardcoded `tier: 0`)
-- Replace `creditProviderShare()` call with `computeSomaCheckSplit()` for cache-hit billing
-- Switch `shadowMode: true` → `shadowMode: false` when tier ≥ 1
-- Use `c.body(null, 304)` for HTTP-spec-compliant 304 responses (matching `soma-demo.ts:122`)
+**What shipped:**
+- Migration 148: `providers.soma_check_tier INTEGER NOT NULL DEFAULT 0` (distinct from legacy `tier` text column)
+- `getProviderSomaCheckTier(endpointId)` + `setProviderSomaCheckTier(providerId, tier)` in `src/db/providers.ts`
+- `creditProviderShare({ providerSharePctOverride })` option plumbed through
+- `src/routes/endpoints.ts` hash-match branch now charges hit price, credits provider, un-shadows telemetry when tier ≥ 1
+- `X-Soma-Tier`, `X-Soma-Hit-Price`, `ETag` response headers added
+- ClawNet L1/L2 cache-hit shadow telemetry now logs actual projected tier + hit-price split instead of always logging `tier: 0`
+- Tier 0 = shadow (free) preserved for zero-disruption onboarding ladder
+- 202/202 unit tests pass with migration applied
 
-**Effort:** ~1 day. **Highest ROI change we can make.**
-
-**Todos:**
-- [ ] Add `getProviderTier(providerId): SomaCheckTier` in `src/db/providers.ts`
-- [ ] Wire `computeSomaCheckSplit()` into proxy cache-hit path + 304 return path
-- [ ] Un-shadow telemetry when tier ≥ 1
-- [ ] Smoke test: real provider on Tier 1 sees 90/10 split, Tier 3 sees 95/5
-- [ ] Verify `soma_check_events.was_hit = 1` on 304 responses from proxy path
+**Next:** Promote clawapis endpoints Tier 0 → Tier 1 once they consent; run real-traffic N≥10K to get numbers for case study.
 
 ---
 

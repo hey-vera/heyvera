@@ -12,6 +12,7 @@
 import { getDb, logAudit } from './connection';
 import { nanoid } from 'nanoid';
 import { round6 } from '../core/credits';
+import type { SomaCheckTier } from '../core/soma-check-billing';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -30,6 +31,7 @@ export interface Provider {
   revenueSharePct: number;
   cacheRevenueSharePct: number;
   tier: 'open' | 'standard' | 'verified';
+  somaCheckTier: SomaCheckTier;
   platformFeePct: number;
   trustScore: number;
   cacheRevenueCredits: number;
@@ -62,6 +64,13 @@ export interface ProviderAnalyticsRow {
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
+function clampSomaCheckTier(n: number): SomaCheckTier {
+  const i = Math.trunc(Number(n) || 0);
+  if (i <= 0) return 0;
+  if (i >= 3) return 3;
+  return i as SomaCheckTier;
+}
+
 function rowToProvider(row: any): Provider {
   return {
     id: row.id,
@@ -78,6 +87,7 @@ function rowToProvider(row: any): Provider {
     revenueSharePct: row.revenue_share_pct,
     cacheRevenueSharePct: row.cache_revenue_share_pct ?? 0.50,
     tier: row.tier ?? 'standard',
+    somaCheckTier: clampSomaCheckTier(row.soma_check_tier ?? 0),
     platformFeePct: row.platform_fee_pct ?? 0.10,
     trustScore: row.trust_score ?? 50.0,
     cacheRevenueCredits: row.cache_revenue_credits ?? 0,
@@ -349,6 +359,30 @@ export function getProviderStats(providerId: string): {
   };
 }
 
+// ─── Soma Check Tier ───────────────────────────────────────────────────────
+
+/**
+ * Get the Soma Check onboarding tier for the provider that owns an endpoint.
+ * Returns 0 (shadow mode) if the endpoint has no provider or the provider is
+ * inactive. See internal/soma-onboarding-ladder.md for the 4-tier definition.
+ */
+export function getProviderSomaCheckTier(endpointId: string): SomaCheckTier {
+  const providerId = getEndpointProvider(endpointId);
+  if (!providerId) return 0;
+  const row = getDb().prepare(
+    "SELECT soma_check_tier, status FROM providers WHERE id = ?"
+  ).get(providerId) as { soma_check_tier: number; status: string } | undefined;
+  if (!row || row.status !== 'active') return 0;
+  return clampSomaCheckTier(row.soma_check_tier ?? 0);
+}
+
+/** Promote (or demote) a provider's Soma Check tier. Caller is responsible for policy. */
+export function setProviderSomaCheckTier(providerId: string, tier: SomaCheckTier): void {
+  getDb().prepare('UPDATE providers SET soma_check_tier = ?, updated_at = datetime(\'now\') WHERE id = ?')
+    .run(clampSomaCheckTier(tier), providerId);
+  logAudit({ entityType: 'provider', entityId: providerId, action: 'soma_check_tier_set', data: { tier } });
+}
+
 // ─── Revenue Share ─────────────────────────────────────────────────────────
 
 /**
@@ -367,6 +401,13 @@ export function creditProviderShare(endpointId: string, creditsCharged: number, 
   cacheHit: boolean;
   latencyMs: number;
   error?: boolean;
+  /**
+   * When set, bypasses the provider's default revenue_share_pct /
+   * cache_revenue_share_pct and credits this fraction of `creditsCharged`.
+   * Used by Soma Check (RFC 9111 ETag 304 path) where the caller has
+   * already applied the 10% hit-price ratio + tier-aware 90/10 or 95/5 split.
+   */
+  providerSharePctOverride?: number;
 }): number {
   const providerId = getEndpointProvider(endpointId);
   if (!providerId) return 0;
@@ -376,9 +417,12 @@ export function creditProviderShare(endpointId: string, creditsCharged: number, 
 
   // Live calls: provider gets revenue_share_pct (90%)
   // Cache hits: provider gets cache_revenue_share_pct (50%) — pure profit, server not touched
-  const providerCredits = opts.cacheHit
-    ? round6(creditsCharged * provider.cacheRevenueSharePct)
-    : round6(creditsCharged * provider.revenueSharePct);
+  // Soma Check hits: caller passes providerSharePctOverride (0.90 T0-2 / 0.95 T3).
+  const providerCredits = opts.providerSharePctOverride !== undefined
+    ? round6(creditsCharged * opts.providerSharePctOverride)
+    : opts.cacheHit
+      ? round6(creditsCharged * provider.cacheRevenueSharePct)
+      : round6(creditsCharged * provider.revenueSharePct);
 
   // Credit provider's API key balance (if they have one linked)
   if (providerCredits > 0) {

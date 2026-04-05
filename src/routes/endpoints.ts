@@ -11,7 +11,8 @@ import { checkProviderScope } from '../middleware/auth';
 import { createCacheCertificate, getCacheCertificate, getCacheHashInfo } from '../core/cache-certificate';
 import { somaHash } from '../utils/crypto-agility';
 import { env } from '../config/index';
-import { getEndpointFreshness } from '../db/providers';
+import { getEndpointFreshness, getProviderSomaCheckTier } from '../db/providers';
+import { computeSomaCheckSplit, cacheHitProviderShareByTier } from '../core/soma-check-billing';
 import { maskApiKey } from '../utils/mask';
 import { logger } from '../utils/logger';
 import { nanoid } from 'nanoid';
@@ -257,17 +258,60 @@ endpointsRouter.post('/:id/call', async (c) => {
   if (ifSomaHash && typeof ifSomaHash === 'string') {
     const hashInfo = getCacheHashInfo(key);
     if (hashInfo && hashInfo.dataHash === ifSomaHash) {
+      // Resolve this provider's Soma Check tier. Tier 0 = shadow (free, no
+      // billing yet), Tier 1-2 = active at 90/10 of hit price, Tier 3 = 95/5.
+      const somaTier = getProviderSomaCheckTier(endpointId);
+      const split = computeSomaCheckSplit(endpointCredits, true, somaTier);
+
+      // Shadow tier: keep it free to preserve zero-disruption onboarding.
+      // Active tiers: charge the hit price (10% of origin) and credit provider.
+      const billed = somaTier >= 1;
+      const hitPriceCredits = billed ? split.agentPays : 0;
+
+      if (billed && !keyInfo.isEnvKey) {
+        if (keyInfo.credits < hitPriceCredits) {
+          return c.json({
+            requestId,
+            error: 'Insufficient credits',
+            code: 'INSUFFICIENT_CREDITS',
+            creditsRequired: hitPriceCredits,
+            creditsAvailable: keyInfo.credits,
+          }, 402);
+        }
+        const deducted = deductCredit(keyInfo.key, hitPriceCredits);
+        if (!deducted) {
+          return c.json({ requestId, error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS' }, 402);
+        }
+        trackDelegatedSpend(keyInfo, hitPriceCredits);
+      }
+
+      const durationMs = Date.now() - start;
+      if (billed) {
+        // Provider gets 90% (T1-2) or 95% (T3) of the hit price.
+        creditProviderShare(endpointId, hitPriceCredits, {
+          cacheHit: true,
+          latencyMs: durationMs,
+          providerSharePctOverride: cacheHitProviderShareByTier(somaTier),
+        });
+      }
+
       c.header('X-Fresh-Hash', hashInfo.dataHash);
       c.header('X-Soma-Hash', hashInfo.dataHash);
       c.header('X-Fresh-Protocol', 'x402-fresh/1.0');
       c.header('X-Soma-Protocol', 'soma-check/1.0');
-      logger.info({ requestId, endpointId, protocol: 'soma-check' }, 'soma-check hash match — no charge');
+      c.header('X-Soma-Tier', String(somaTier));
+      c.header('X-Soma-Hit-Price', String(hitPriceCredits));
+      c.header('ETag', `"${hashInfo.dataHash}"`);
+      logger.info(
+        { requestId, endpointId, protocol: 'soma-check', somaTier, hitPriceCredits },
+        billed ? 'soma-check hash match — billed hit' : 'soma-check hash match — shadow (free)'
+      );
       logSomaCheckEvent({
         endpointId, requestId, cacheKey: key,
         hash: hashInfo.dataHash, clientIfNoneMatch: ifSomaHash,
         wouldHaveHit: true, wasHit: true,
-        originPriceCredits: endpointCredits, hitPriceCredits: 0,
-        rail: 'credits', tier: 0, shadowMode: false,
+        originPriceCredits: endpointCredits, hitPriceCredits,
+        rail: 'credits', tier: somaTier, shadowMode: !billed,
       });
       return c.json({
         requestId,
@@ -277,8 +321,9 @@ endpointsRouter.post('/:id/call', async (c) => {
         cachedAt: hashInfo.cachedAt,
         fresh: hashInfo.fresh,
         age: hashInfo.age,
-        creditsUsed: 0,
-        durationMs: Date.now() - start,
+        creditsUsed: hitPriceCredits,
+        somaTier,
+        durationMs,
         protocol: 'soma-check',
       });
     }
@@ -324,14 +369,19 @@ endpointsRouter.post('/:id/call', async (c) => {
     }
 
     logger.info({ requestId, endpointId, creditsUsed: cacheCredits, hasCacheCert: !!cacheCert }, 'Direct endpoint call — cache hit');
-    // Soma Check shadow telemetry: a matching client hash would have skipped payment entirely.
+    // Soma Check shadow telemetry: a matching client hash would have skipped
+    // a full origin charge. ClawNet cache path always logs as shadow regardless
+    // of tier — this is the ClawNet L1/L2 50/50 rail, NOT the Soma Check rail.
+    // See internal/cache-layers-distinction.md.
     if (cacheCert) {
+      const shadowTier = getProviderSomaCheckTier(endpointId);
+      const projectedSplit = computeSomaCheckSplit(endpointCredits, true, shadowTier);
       logSomaCheckEvent({
         endpointId, requestId, cacheKey: key,
         hash: cacheCert.cacheCert.dataHash, clientIfNoneMatch: ifSomaHash ?? null,
         wouldHaveHit: true, wasHit: false,
-        originPriceCredits: endpointCredits, hitPriceCredits: cacheCredits,
-        rail: 'credits', tier: 0, shadowMode: true,
+        originPriceCredits: endpointCredits, hitPriceCredits: projectedSplit.agentPays,
+        rail: 'credits', tier: shadowTier, shadowMode: true,
       });
     }
     return c.json({
