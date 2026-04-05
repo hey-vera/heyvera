@@ -8,6 +8,7 @@ import { getCircuitStats } from '../core/circuit-breaker';
 import { requireAdmin } from '../middleware/admin-auth';
 import { escapeHtml } from '../utils/html';
 import { maskApiKey } from '../utils/mask';
+import { runEasAnchorCycle } from '../core/eas-anchor-cron';
 
 export const adminRouter = new Hono();
 
@@ -348,6 +349,13 @@ adminRouter.post('/promo-codes/:id/deactivate', (c) => {
   if (!ok) return c.json({ error: 'Not found', code: 'NOT_FOUND' }, 404);
   logAudit({ entityType: 'promo_code', entityId: c.req.param('id'), action: 'PROMO_DEACTIVATED', actorId: 'admin' });
   return c.json({ ok: true });
+});
+
+// ─── EAS anchor (manual trigger — normally runs hourly via cron) ────────────
+adminRouter.post('/eas/anchor', async (c) => {
+  const result = await runEasAnchorCycle();
+  logAudit({ entityType: 'eas_receipt_anchor', entityId: result.anchorId ?? 'n/a', action: 'EAS_ANCHOR_MANUAL_TRIGGER', actorId: 'admin', data: result });
+  return c.json(result);
 });
 
 // ─── Cache Admin Sub-Router ─────────────────────────────────────────────────

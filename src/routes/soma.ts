@@ -29,6 +29,7 @@ import { cacheIncr } from '../cache/index';
 import { getClientIp } from '../middleware/rate-limit';
 import { checkApiKey } from '../middleware/auth';
 import { getEndpointProvider, getProvider, creditProviderShare } from '../db/index';
+import { getDb } from '../db/connection';
 import { nanoid } from 'nanoid';
 import { signVC } from '../utils/ed25519-signer';
 
@@ -374,6 +375,65 @@ router.get('/receipt/:id', async (c) => {
       verify: `/v1/soma/receipt/${receipt.id}/verify`,
       platform: '/.well-known/soma.json',
     },
+  });
+});
+
+/**
+ * GET /v1/soma/receipt/:id/onchain — Public on-chain anchor lookup.
+ * Returns the EAS scan URL + Base tx hash (if anchored) so anyone can
+ * verify the receipt was timestamped on Base mainnet.
+ */
+router.get('/receipt/:id/onchain', async (c) => {
+  const id = c.req.param('id');
+  const row = getDb().prepare(`
+    SELECT id, eas_uid, anchor_id, anchored_at FROM soma_receipts WHERE id = ? LIMIT 1
+  `).get(id) as { id: string; eas_uid: string | null; anchor_id: string | null; anchored_at: string | null } | undefined;
+
+  if (!row) {
+    return c.json({ error: 'Receipt not found', code: 'RECEIPT_NOT_FOUND' }, 404);
+  }
+
+  const easScanUrl = row.eas_uid
+    ? `https://base.easscan.org/offchain/attestation/view/${row.eas_uid}`
+    : null;
+
+  if (!row.anchored_at || !row.anchor_id) {
+    return c.json({
+      receiptId: row.id,
+      easUid: row.eas_uid,
+      easScanUrl,
+      anchored: false,
+      hint: 'Off-chain attestation signed but not yet batch-anchored on Base (next cron cycle or manual admin trigger)',
+    });
+  }
+
+  // Look up the Base tx hash from the audit log entry for this anchor batch
+  const auditRow = getDb().prepare(`
+    SELECT data_json FROM audit_log
+    WHERE entity_type = 'eas_receipt_anchor' AND entity_id = ? AND action = 'EAS_ANCHOR_CONFIRMED'
+    ORDER BY timestamp DESC LIMIT 1
+  `).get(row.anchor_id) as { data_json: string } | undefined;
+
+  let baseTxHash: string | null = null;
+  let merkleRoot: string | null = null;
+  if (auditRow?.data_json) {
+    try {
+      const data = JSON.parse(auditRow.data_json);
+      baseTxHash = data.baseTxHash ?? null;
+      merkleRoot = data.merkleRoot ?? null;
+    } catch { /* ignore */ }
+  }
+
+  return c.json({
+    receiptId: row.id,
+    easUid: row.eas_uid,
+    easScanUrl,
+    anchored: true,
+    anchorId: row.anchor_id,
+    anchoredAt: row.anchored_at,
+    merkleRoot,
+    baseTxHash,
+    baseScanUrl: baseTxHash ? `https://basescan.org/tx/${baseTxHash}` : null,
   });
 });
 
