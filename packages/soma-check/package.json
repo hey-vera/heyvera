@@ -1,0 +1,46 @@
+{
+  "name": "@clawnet/soma-check",
+  "version": "0.1.0",
+  "description": "Drop-in fetch wrapper for Soma Check / x402 ETag — automatic 304 caching skips payment when data is unchanged",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "files": ["dist/", "README.md"],
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "soma",
+    "soma-check",
+    "x402",
+    "x402-etag",
+    "clawnet",
+    "conditional-payment",
+    "etag",
+    "http-caching",
+    "agents",
+    "ai"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/1xmint/claw-net",
+    "directory": "packages/soma-check"
+  },
+  "homepage": "https://claw-net.org",
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "esbuild": "^0.20.0",
+    "typescript": "^5.4.0"
+  }
+}
