@@ -190,9 +190,11 @@ export async function batchTimestamp(uids: string[]): Promise<string | null> {
   if (!eas || uids.length === 0) return null;
 
   try {
+    // EAS SDK v2.9.0 returns Transaction<bigint[]> — wait() returns T (bigint[]),
+    // the actual TransactionReceipt is stored on tx.receipt after wait() completes.
     const tx = await eas.multiTimestamp(uids);
-    const receipt = await tx.wait();
-    return receipt?.hash ?? null;
+    await tx.wait();
+    return tx.receipt?.hash ?? null;
   } catch (err) {
     console.error('[EAS] Batch timestamp failed:', err);
     return null;
@@ -209,8 +211,8 @@ export async function timestampSingle(uid: string): Promise<string | null> {
 
   try {
     const tx = await eas.timestamp(uid);
-    const receipt = await tx.wait();
-    return receipt?.hash ?? null;
+    await tx.wait();
+    return tx.receipt?.hash ?? null;
   } catch (err) {
     console.error('[EAS] Timestamp failed:', err);
     return null;
