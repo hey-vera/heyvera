@@ -183,7 +183,11 @@ export async function createSomaReceipt(input: SomaReceiptInput): Promise<SomaRe
       const easResult = await createOffchainReceipt(easData, input.recipientAddress);
       if (easResult) {
         easUid = easResult.uid;
-        easAttestationJson = JSON.stringify(easResult.attestation);
+        // EAS SDK attestations contain BigInt fields (time, nonce, etc.);
+        // default JSON.stringify throws TypeError on BigInt, so coerce to string.
+        easAttestationJson = JSON.stringify(easResult.attestation, (_key, value) =>
+          typeof value === 'bigint' ? value.toString() : value,
+        );
       }
     }
 
