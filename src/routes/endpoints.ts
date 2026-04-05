@@ -164,7 +164,9 @@ endpointsRouter.get('/:id/check', (c) => {
     });
   }
 
+  c.header('X-Fresh-Hash', hashInfo.dataHash);
   c.header('X-Soma-Hash', hashInfo.dataHash);
+  c.header('X-Fresh-Protocol', 'x402-fresh/1.0');
   c.header('X-Soma-Protocol', 'soma-check/1.0');
 
   return c.json({
@@ -178,9 +180,10 @@ endpointsRouter.get('/:id/check', (c) => {
     certId: hashInfo.certId,
     chainHash: hashInfo.chainHash,
     protocol: 'soma-check',
+    externalProtocol: 'x402-fresh/1.0',
     creditsUsed: 0,
     usage: {
-      checkHash: `Send If-Soma-Hash: ${hashInfo.dataHash} on your next POST to skip payment if unchanged.`,
+      checkHash: `Send If-Fresh-Hash: ${hashInfo.dataHash} on your next POST to skip payment if unchanged.`,
       forceRefresh: 'Use freshness: "realtime" to always get live data.',
     },
   });
@@ -242,14 +245,20 @@ endpointsRouter.post('/:id/call', async (c) => {
   // ── Smart cache check ────────────────────────────────────────────────────
   const key = cacheKey(endpointId, params as Record<string, string>);
 
-  // ── soma-check conditional payment: If-Soma-Hash ──────────────────────────────
-  // Agent sends their last known data hash. If it matches our cache, they
-  // already have the latest data — return 0 credits, no data transfer.
-  const ifSomaHash = c.req.header('If-Soma-Hash') || (rawBody as any).ifSomaHash;
+  // ── soma-check / x402 Fresh conditional payment ──────────────────────────
+  // Agent sends their last known data hash via If-Fresh-Hash (external name)
+  // or If-Soma-Hash (alias). If it matches our cache, they already have the
+  // latest data — return 0 credits, no data transfer.
+  const ifSomaHash =
+    c.req.header('If-Fresh-Hash') ||
+    c.req.header('If-Soma-Hash') ||
+    (rawBody as any).ifSomaHash;
   if (ifSomaHash && typeof ifSomaHash === 'string') {
     const hashInfo = getCacheHashInfo(key);
     if (hashInfo && hashInfo.dataHash === ifSomaHash) {
+      c.header('X-Fresh-Hash', hashInfo.dataHash);
       c.header('X-Soma-Hash', hashInfo.dataHash);
+      c.header('X-Fresh-Protocol', 'x402-fresh/1.0');
       c.header('X-Soma-Protocol', 'soma-check/1.0');
       logger.info({ requestId, endpointId, protocol: 'soma-check' }, 'soma-check hash match — no charge');
       return c.json({
@@ -297,9 +306,12 @@ endpointsRouter.post('/:id/call', async (c) => {
     // Certified Cache: serve the cache certificate alongside the data
     const cacheCert = getCacheCertificate(key);
 
-    // soma-check: include data hash so agents can use If-Soma-Hash on next request
+    // soma-check / x402 Fresh: include data hash so agents can use
+    // If-Fresh-Hash (or If-Soma-Hash alias) on next request.
     if (cacheCert) {
+      c.header('X-Fresh-Hash', cacheCert.cacheCert.dataHash);
       c.header('X-Soma-Hash', cacheCert.cacheCert.dataHash);
+      c.header('X-Fresh-Protocol', 'x402-fresh/1.0');
       c.header('X-Soma-Protocol', 'soma-check/1.0');
     }
 

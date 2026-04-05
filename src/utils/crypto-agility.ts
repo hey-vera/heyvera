@@ -19,7 +19,7 @@ import crypto from 'crypto';
 let _mlDsa65: any = null;
 async function getMlDsa65() {
   if (!_mlDsa65) {
-    const mod = await import('@noble/post-quantum/ml-dsa');
+    const mod = await import('@noble/post-quantum/ml-dsa.js');
     _mlDsa65 = mod.ml_dsa65;
   }
   return _mlDsa65;
