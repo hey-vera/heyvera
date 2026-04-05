@@ -71,6 +71,36 @@ ClawNet = **reference implementation of Soma + the agent economy built on top.**
 
 ## 3. Near-term roadmap (next 2-4 weeks)
 
+> **2026-04-05 re-prioritization:** see `internal/soma-readiness-strategy.md` for full gap analysis. The sub-phases below are re-sequenced to activate what's already built (Gap A, Gap C) **before** investing in new code. The 90-day critical path is driven by the competitive clock (A2A Protocol, Mastercard Verifiable Intent, IETF draft-klrc) — §5 below.
+
+### Phase 2.6 — Activate Soma Check on proxy path (Gap A — P0, highest ROI)
+
+**What:** Wire `computeSomaCheckSplit()` + tier awareness on `POST /v1/endpoints/:id/call` so every real call (not just 6 demo endpoints) emits ETag, honors `If-None-Match`, bills at hit-price 90/10, and logs non-shadow `soma_check_events` rows.
+
+**Why:** The Soma Check billing calculator (`src/core/soma-check-billing.ts`) is never called on real traffic today. The proxy path (`src/routes/endpoints.ts:249-286`) has 80% of the logic but uses `creditProviderShare()` 50/50 instead of `computeSomaCheckSplit()` 90/10, and logs everything as `shadow_mode: true`. **Without this, our savings dashboard renders synthetic data and we have no real numbers to pitch.**
+
+**Todos:**
+- [ ] Add `getProviderTier(providerId): SomaCheckTier` helper in `src/db/providers.ts`
+- [ ] Replace cache-hit `creditProviderShare()` with `computeSomaCheckSplit()` in proxy path
+- [ ] Un-shadow telemetry when tier ≥ 1 (pass `shadowMode: false`)
+- [ ] Switch 304 response to `c.body(null, 304)` for HTTP-spec compliance (mirrors `soma-demo.ts:122`)
+- [ ] Smoke test: real provider on Tier 1 sees 90/10 split, Tier 3 sees 95/5
+- [ ] Verify `soma_check_events.was_hit = 1` rows appear on 304 responses
+
+### Phase 2.7 — On-chain receipts (Gap C — P0, flip the switch)
+
+**What:** Activate EAS anchoring on Base so Soma Receipts become cryptographically verifiable on-chain, not just SQLite rows.
+
+**Why:** All crypto code exists. All flags are `false`. **We're one env-var flip from shipping on-chain audit trails.** Mastercard Verifiable Intent (Jan 2026) is building this for enterprise SOC2/HIPAA demand. Zero design work required.
+
+**Todos:**
+- [ ] Register EAS schema on Base (one-time, ~$0.10 gas): fields request_hash, response_hash, payment_method, amount_usd, timestamp, signer
+- [ ] Set `EAS_SCHEMA_UID` in VPS `.env`
+- [ ] Fund Base wallet with ~$5 USDC for gas headroom
+- [ ] Flip `EAS_ANCHOR_ENABLED=true` on staging first, monitor 24h
+- [ ] Promote to prod, announce as Receipt Layer milestone
+- [ ] Add public endpoint: `GET /v1/soma/receipt/:id/onchain` returns EAS tx hash
+
 ### Phase 2 — clawapis + dashboard (highest priority)
 
 **What:** Make Soma Check visible to providers via UI + get clawapis.com onboarded as first real external customer.
@@ -131,6 +161,38 @@ ClawNet = **reference implementation of Soma + the agent economy built on top.**
 - [ ] Auto-inject Soma Check headers in `@clawnet/mcp` client
 - [ ] Security audit of hash layer (replay windows, signature spoofing, JCS edge cases)
 - [ ] Signed responses (`X-Soma-Signer` + `X-Soma-Signature`) on origin calls → ties Check to Identity layer
+
+---
+
+## 3.9 — Soma Delegation Spec (Gap B — P1, the strategic moat)
+
+**What:** Formalize scoped-delegation primitive (depth limits, per-branch spend caps, cascade revoke, intent declaration). Published at `github.com/1xmint/soma-delegation-spec` as open standard. Spec drafted in `internal/soma-delegation-spec.md`.
+
+**Why:** This is our biggest strategic whitespace. `trackDelegatedSpend()` is production code (2026-Q1) — no competitor has this. **IETF `draft-klrc-aiagent-auth-01` is standardizing agent auth NOW**. If adopted first, Soma Delegation becomes a ClawNet feature instead of the reference implementation of a standard. 8-week race.
+
+**Todos:**
+- [ ] Publish `soma-delegation-spec.md` to GitHub as separate repo
+- [ ] Ship migration 148: `depth`, `max_depth`, `branch_spend_cap_usd`, `intent_declaration`, `data_domain` columns on `delegation_keys`
+- [ ] Implement recursive cascade revoke in `src/db/delegation.ts`
+- [ ] Enforce scope narrowing at key-creation endpoint
+- [ ] Open issue on `coinbase/x402` proposing as x402 extension
+- [ ] Submit to IETF draft-klrc working group as reference implementation input
+- [ ] Reference client in `@clawnet/soma-delegation` npm package
+
+---
+
+## 3.95 — Bazaar MVP (Gap E — P1, A2A defense)
+
+**What:** `GET /v1/soma/bazaar/search?capability=X` returning endpoints ranked by verdict data + volume + tenure. A2A-compatible agent-card.json per provider.
+
+**Why:** A2A Protocol (Google + Linux Foundation, 50+ partners) is building agent-card discovery right now. If A2A adds payment routing, our Bazaar layer is commoditized. **Differentiate on trust-weighted discovery** (we have `soma_verdicts`, A2A doesn't).
+
+**Todos:**
+- [ ] Design ranking formula using existing `providers` + `soma_verdicts` tables
+- [ ] Build search endpoint with capability filter
+- [ ] Add Bazaar tab to `site/soma-check.html`
+- [ ] Expose per-provider `agent-card.json` (A2A-interop format)
+- [ ] Transitive trust v1: 2-hop verdict graph walk, weight by signer reputation
 
 ---
 
@@ -229,6 +291,19 @@ These are NOT yet on the build queue. They're the 10/10 expansion surface. Each 
 
 ## 5. Competitive landscape (2026-04-05 snapshot)
 
+**Strategic threats requiring response in the next 90 days:**
+
+| Threat | What they do | Status | Our counter | Deadline |
+|---|---|---|---|---|
+| **A2A Protocol** (Google + LF, 50+ partners) | Agent Cards, capability discovery | Already shipping | Bazaar MVP with A2A-compatible agent-cards (§3.95) | Q2 2026 |
+| **Mastercard Verifiable Intent** | Enterprise agent attestations | Jan 2026 launch | Flip EAS_ANCHOR_ENABLED=true, publish Receipt spec (§2.7) | Q2 2026 |
+| **IETF draft-klrc-aiagent-auth** | Agent auth/delegation | Draft pending adoption | Publish Soma Delegation Spec v0.1 (§3.9) | **8 weeks** |
+| **IETF draft-sharif-agent-payment-trust** | Payment trust attestations | Draft pending adoption | Link Soma Identity terminology to this draft | Q3 2026 |
+| **x402 Foundation** (Coinbase + Cloudflare) | Payment standardization | Tailwind | Push clawapis onto x402 stack | ongoing |
+| **MCP 2026 roadmap** | Audit trails, task lifecycle | Q2-Q4 2026 | Position Soma as MCP audit layer | Q3 2026 |
+
+**Complementary / partnership targets:**
+
 | Player | What they do | Our relationship |
 |---|---|---|
 | **Coinbase x402 / Linux Foundation** | Core protocol (payment primitive) | Complementary — we build on top |
@@ -270,6 +345,9 @@ These are NOT yet on the build queue. They're the 10/10 expansion surface. Each 
 - [ ] **Champion Tier activation criteria:** volume? referrals? time-based? Needs spec.
 - [ ] **Streaming gap A:** target ship Q3 2026, or wait for LLM provider demand signal?
 - [ ] **Submission to Linux Foundation x402 WG:** when + who presents?
+- [ ] **6th Soma layer candidate:** Safety-Interlock vs. Intent Declaration — which do we claim first? See `soma-readiness-strategy.md` §4.
+- [ ] **A2A interop:** ship agent-card.json matching A2A format, or publish our own and link? (Leaning interop.)
+- [ ] **EAS schema registration on Base:** who holds the wallet that registers the schema? Ops decision before Phase 2.7.
 
 ---
 
@@ -284,6 +362,8 @@ These are NOT yet on the build queue. They're the 10/10 expansion surface. Each 
 Each `internal/*.md` file drills into specifics. This doc is the overview.
 
 ### Related docs
+- `internal/soma-readiness-strategy.md` — **gap analysis + 90-day critical path (read first for strategy)**
+- `internal/soma-delegation-spec.md` — **Soma Delegation v0.1 draft spec (Gap B deliverable)**
 - `internal/soma-check-strategy.md` — Soma Check specifics
 - `internal/soma-check-billing.md` — billing math in detail
 - `internal/soma-onboarding-ladder.md` — 4-tier provider migration

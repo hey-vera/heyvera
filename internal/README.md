@@ -27,6 +27,8 @@ If a doc needs to grow into multiple files, make a subdirectory (e.g. `internal/
 
 **Start here:**
 - `roadmap.md` — **master what/why/todos doc. Single source of truth for forward plans.** Read this first.
+- `soma-readiness-strategy.md` — **gap analysis + 90-day critical path vs. competitive clock.** Read second.
+- `soma-delegation-spec.md` — **Soma Delegation v0.1 draft spec (doctrinal play vs. IETF draft-klrc).**
 
 **Soma Check (conditional payment protocol):**
 - `soma-check-strategy.md` — canonical strategy, locked decisions
