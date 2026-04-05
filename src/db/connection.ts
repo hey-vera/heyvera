@@ -1700,6 +1700,27 @@ const MIGRATIONS: { version: number; sql: string }[] = [
     );
     CREATE INDEX IF NOT EXISTS idx_cache_warm_next ON cache_warm_schedule(next_warm_at) WHERE enabled = 1;
   ` },
+  { version: 147, sql: `
+    CREATE TABLE IF NOT EXISTS soma_check_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      endpoint_id TEXT NOT NULL,
+      request_id TEXT,
+      cache_key TEXT,
+      hash TEXT NOT NULL,
+      client_if_none_match TEXT,
+      would_have_hit INTEGER NOT NULL DEFAULT 0,
+      was_hit INTEGER NOT NULL DEFAULT 0,
+      origin_price_credits REAL,
+      hit_price_credits REAL,
+      rail TEXT NOT NULL DEFAULT 'credits',
+      tier INTEGER NOT NULL DEFAULT 0,
+      shadow_mode INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_soma_check_events_endpoint ON soma_check_events(endpoint_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_soma_check_events_hit ON soma_check_events(endpoint_id, was_hit) WHERE was_hit = 1;
+    CREATE INDEX IF NOT EXISTS idx_soma_check_events_would ON soma_check_events(endpoint_id, would_have_hit) WHERE would_have_hit = 1;
+  ` },
 ];
 
 function runMigrations(): void {

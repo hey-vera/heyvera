@@ -17,6 +17,7 @@ import { logger } from '../utils/logger';
 import { nanoid } from 'nanoid';
 import { recordSuccess, recordFailure } from '../core/circuit-breaker';
 import { createSomaReceipt } from '../core/soma-receipt';
+import { logSomaCheckEvent } from '../db/soma-check';
 
 const endpointsRouter = new Hono();
 
@@ -261,6 +262,13 @@ endpointsRouter.post('/:id/call', async (c) => {
       c.header('X-Fresh-Protocol', 'x402-fresh/1.0');
       c.header('X-Soma-Protocol', 'soma-check/1.0');
       logger.info({ requestId, endpointId, protocol: 'soma-check' }, 'soma-check hash match — no charge');
+      logSomaCheckEvent({
+        endpointId, requestId, cacheKey: key,
+        hash: hashInfo.dataHash, clientIfNoneMatch: ifSomaHash,
+        wouldHaveHit: true, wasHit: true,
+        originPriceCredits: endpointCredits, hitPriceCredits: 0,
+        rail: 'credits', tier: 0, shadowMode: false,
+      });
       return c.json({
         requestId,
         endpointId,
@@ -316,6 +324,16 @@ endpointsRouter.post('/:id/call', async (c) => {
     }
 
     logger.info({ requestId, endpointId, creditsUsed: cacheCredits, hasCacheCert: !!cacheCert }, 'Direct endpoint call — cache hit');
+    // Soma Check shadow telemetry: a matching client hash would have skipped payment entirely.
+    if (cacheCert) {
+      logSomaCheckEvent({
+        endpointId, requestId, cacheKey: key,
+        hash: cacheCert.cacheCert.dataHash, clientIfNoneMatch: ifSomaHash ?? null,
+        wouldHaveHit: true, wasHit: false,
+        originPriceCredits: endpointCredits, hitPriceCredits: cacheCredits,
+        rail: 'credits', tier: 0, shadowMode: true,
+      });
+    }
     return c.json({
       requestId,
       endpointId,
@@ -407,6 +425,14 @@ endpointsRouter.post('/:id/call', async (c) => {
     const providerShare = creditProviderShare(endpointId, endpointCredits, { cacheHit: false, latencyMs: durationMs });
 
     logger.info({ requestId, endpointId, creditsUsed: endpointCredits, providerShare, durationMs, hasCert: !!birthCertificate }, 'Direct endpoint call — live');
+    // Soma Check shadow telemetry: live origin fetch — establishes the hash other clients will match against.
+    logSomaCheckEvent({
+      endpointId, requestId, cacheKey: key,
+      hash: dataHash, clientIfNoneMatch: ifSomaHash ?? null,
+      wouldHaveHit: false, wasHit: false,
+      originPriceCredits: endpointCredits, hitPriceCredits: 0,
+      rail: 'credits', tier: 0, shadowMode: true,
+    });
 
     // soma-check + Soma provenance headers — dataHash serves both trust and conditional payment
     c.header('X-Soma-Hash', dataHash);
