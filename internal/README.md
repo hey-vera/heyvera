@@ -22,3 +22,32 @@ These docs cover strategy across:
 - `{partner}-pitch.md` for partner-specific outreach drafts
 
 If a doc needs to grow into multiple files, make a subdirectory (e.g. `internal/soma/` or `internal/x402-etag/`).
+
+## Doc index (2026-04-05)
+
+**Start here:**
+- `roadmap.md` — **master what/why/todos doc. Single source of truth for forward plans.** Read this first.
+
+**Soma Check (conditional payment protocol):**
+- `soma-check-strategy.md` — canonical strategy, locked decisions
+- `soma-check-billing.md` — 90/10 split math, volume paradox, scale projections
+- `soma-check-header-spec.md` — ETag + X-Soma-* header contract
+- `soma-onboarding-ladder.md` — 4-tier provider migration ladder
+
+**Soma broader:**
+- `groundbreaking-extensions.md` — extension ideas (Bazaar, transitive trust, 9.5, etc.)
+- `proof-of-delivery-roadmap.md` — Receipt Layer 5-phase plan
+- `scale-test-plan.md` — Soma scale test sequencing (blocks Receipt Layer)
+- `soma-future-proofing.md` — pause-and-resume strategy
+
+**Capture:**
+- `brainstorm.md` — raw idea log, pre-sifting
+
+## Convention for plans
+
+Plans in this folder should always answer:
+1. **What** — concrete deliverable
+2. **Why** — motivation / unsolved problem / strategic rationale
+3. **Todos** — actionable checklist items
+
+The `roadmap.md` file enforces this pattern — follow suit in any new plan docs.
