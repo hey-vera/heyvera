@@ -3,7 +3,15 @@
 **Status:** RFC  
 **Proposed as:** x402 extension (like Bazaar, Discovery)  
 **Reference impl:** [github.com/1xmint/claw-net](https://github.com/1xmint/claw-net) (production since 2026-Q1)  
-**Spec:** [github.com/1xmint/soma-delegation-spec](https://github.com/1xmint/soma-delegation-spec) (v0.1)
+**Spec:** [github.com/1xmint/Soma/blob/master/SOMA-DELEGATION-SPEC.md](https://github.com/1xmint/Soma/blob/master/SOMA-DELEGATION-SPEC.md) (v0.1)
+
+> **DO NOT FILE YET.** This draft is ready but should not be opened as a GitHub
+> issue until we have production evidence to cite. Target state before filing:
+> (1) real multi-agent traffic through ClawNet with delegation chains depth ≥ 2,
+> (2) at least one cascade revoke incident observed end-to-end,
+> (3) publicly-accessible metrics page showing chain counts + revocation latency.
+> Proposing a spec is weak. Proposing a spec + "here are N production chains
+> enforcing it, here's the dashboard" is the adoption pitch.
 
 ---
 
@@ -70,7 +78,7 @@ Already in production in ClawNet (since 2026-Q1):
 - Scope + depth + branch-cap enforcement at issue AND serving time
 - 23 unit tests covering backward compat, depth chains, cascade revoke, chain walk, scope enforcement, response headers
 
-Full spec: [github.com/1xmint/soma-delegation-spec](https://github.com/1xmint/soma-delegation-spec)
+Full spec: [github.com/1xmint/Soma/blob/master/SOMA-DELEGATION-SPEC.md](https://github.com/1xmint/Soma/blob/master/SOMA-DELEGATION-SPEC.md)
 
 ---
 

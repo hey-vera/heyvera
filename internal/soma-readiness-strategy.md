@@ -67,7 +67,7 @@ This doc answers the question: **"Can ClawNet be the best Soma implementation fo
 - [ ] Write `internal/soma-delegation-spec.md` (v0.1 draft) — scope, depth, revoke, intent
 - [ ] Add `depth`, `max_depth`, `branch_spend_limit`, `intent_declaration` columns to `delegation_keys` table (migration 148)
 - [ ] Implement cascade revoke: revoking parent key marks all `parent_key = ?` children inactive recursively
-- [ ] Publish spec to `github.com/1xmint/soma-delegation-spec` before IETF draft-klrc adoption
+- [x] Publish spec to `github.com/1xmint/Soma/blob/master/SOMA-DELEGATION-SPEC.md` (2026-04-05) — co-located with SOMA-CHECK-SPEC in Soma repo
 - [ ] Submit as x402 Foundation extension + MCP delegation pattern reference
 
 ---

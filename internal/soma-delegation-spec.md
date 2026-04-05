@@ -1,6 +1,6 @@
 # Soma Delegation Spec v0.1 (draft)
 
-**Status:** internal draft — to be published as `github.com/1xmint/soma-delegation-spec` before IETF `draft-klrc-aiagent-auth` adoption
+**Status:** internal draft — published as [SOMA-DELEGATION-SPEC.md in the Soma repo](https://github.com/1xmint/Soma/blob/master/SOMA-DELEGATION-SPEC.md) (2026-04-05). Iteration continues here; publish deltas upstream as they stabilize.
 **Authors:** ClawNet team
 **Date:** 2026-04-05
 **Prior art:** ClawNet `delegation_keys` table + `trackDelegatedSpend()` implementation (production since 2026-Q1)
@@ -319,7 +319,7 @@ ClawNet's `delegated_keys` table (as of 2026-Q1) has partial implementation:
 - [x] Chain helper tests (getDelegationChain + buildDelegationChainHeaders)
 
 **Phase 3 (Publish + standardize) — pending:**
-- [ ] Publish this doc to `github.com/1xmint/soma-delegation-spec`
+- [x] Publish this doc to `github.com/1xmint/Soma/blob/master/SOMA-DELEGATION-SPEC.md` (2026-04-05)
 - [ ] Open issue on `coinbase/x402` proposing this as x402 extension
 - [ ] Enforce intent declaration + scope on the serving path (not just creation)
 - [ ] Add wire-format tests against the spec examples in §6

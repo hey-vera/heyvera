@@ -189,11 +189,16 @@ ClawNet = **reference implementation of Soma + the agent economy built on top.**
 - [x] `getDelegationChain()` in `src/db/transfers.ts` with cycle guard (32-hop cap) + 4 new unit tests
 - [x] §5.1 "Issuer API (reference implementation)" added to spec doc
 
-**Phase 3 — publish + wire (next):**
-- [ ] Publish `soma-delegation-spec.md` to `github.com/1xmint/soma-delegation-spec` as separate public repo
-- [ ] Wire `X-Soma-Delegation-Chain` response header on the proxy path when caller's key is delegated (leaks masked chain + depth + intent to upstream providers)
+**Phase 3 — publish + wire (SHIPPED 2026-04-05):**
+- [x] Publish `soma-delegation-spec.md` to `github.com/1xmint/Soma/blob/master/SOMA-DELEGATION-SPEC.md` (co-located with SOMA-CHECK-SPEC)
+- [x] Wire `X-Soma-Delegation-{Chain,Depth,Hops,Root,Intent}` response headers on the proxy path via `buildDelegationChainHeaders()` in `src/utils/billing.ts`
+- [x] Enforce scope_endpoints_glob + scope_methods_csv at serving time via `checkDelegationScope()` in `src/middleware/auth.ts` (returns 403 + X-Soma-Delegation-Error:SCOPE_VIOLATION)
+- [x] x402 extension proposal drafted at `internal/x402-delegation-issue.md` — HELD until production evidence accumulates (multi-agent chains + cascade revoke observed + public metrics)
+
+**Phase 4 — standardize (pending production evidence):**
+- [ ] Collect production metrics: chain counts, avg depth, fanout, cascade revoke latency, scope rejection rate
+- [ ] Open issue on `coinbase/x402` proposing as x402 extension (after metrics exist)
 - [ ] Parse `X-Soma-Intent` request headers on the proxy path, enforce intent vs dataDomain
-- [ ] Open issue on `coinbase/x402` proposing as x402 extension
 - [ ] Submit to IETF draft-klrc working group as reference-implementation input
 - [ ] Reference client in `@clawnet/soma-delegation` npm package
 
