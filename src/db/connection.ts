@@ -4,6 +4,7 @@ import { nanoid } from 'nanoid';
 import { logger } from '../utils/logger';
 import { maskApiKey } from '../utils/mask';
 import * as sqliteVec from 'sqlite-vec';
+import { apiRegistry, type ApiEndpoint } from '../config/api-registry';
 
 export const DB_PATH = path.join(process.cwd(), 'data', 'orchestrator.db');
 
@@ -1745,6 +1746,42 @@ const MIGRATIONS: { version: number; sql: string }[] = [
     ALTER TABLE delegated_keys ADD COLUMN revoked_at TEXT;
     CREATE INDEX IF NOT EXISTS idx_delegated_child ON delegated_keys(child_key);
   ` },
+
+  // v150: Dynamic endpoint registry — single source of truth for all callable endpoints.
+  // Replaces in-memory apiRegistry[] lookup with DB-driven findEndpoint().
+  // Seeded from static api-registry.ts on first run (see seedEndpointsTable).
+  { version: 150, sql: `
+    CREATE TABLE IF NOT EXISTS endpoints (
+      id TEXT PRIMARY KEY,
+      provider TEXT NOT NULL,
+      provider_id TEXT,
+      base_url TEXT,
+      path TEXT,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      category TEXT NOT NULL DEFAULT 'utility',
+      cost_per_call REAL NOT NULL DEFAULT 0,
+      latency_ms INTEGER NOT NULL DEFAULT 0,
+      input_schema_json TEXT,
+      output_fields_json TEXT,
+      rate_limit INTEGER,
+      cache_ttl INTEGER,
+      credit_cost REAL,
+      status TEXT NOT NULL DEFAULT 'active',
+      source TEXT NOT NULL DEFAULT 'seed',
+      http_method TEXT NOT NULL DEFAULT 'POST',
+      health_status TEXT NOT NULL DEFAULT 'healthy',
+      reliability_score REAL,
+      submitted_by TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_endpoints_category ON endpoints(category);
+    CREATE INDEX IF NOT EXISTS idx_endpoints_provider ON endpoints(provider);
+    CREATE INDEX IF NOT EXISTS idx_endpoints_provider_id ON endpoints(provider_id);
+    CREATE INDEX IF NOT EXISTS idx_endpoints_status ON endpoints(status);
+    CREATE INDEX IF NOT EXISTS idx_endpoints_source ON endpoints(source);
+  ` },
 ];
 
 function runMigrations(): void {
@@ -2090,5 +2127,52 @@ export function initDb(): void {
     CREATE INDEX IF NOT EXISTS idx_skills_public_active ON skills(public, active);
   `);
 
+  // Seed endpoints table from static registry (one-time, idempotent)
+  seedEndpointsTable();
+
   logger.info({ path: DB_PATH }, 'Database initialised');
+}
+
+/**
+ * Seed the endpoints table from the static apiRegistry array.
+ * Runs once — skips if the table already has seed data.
+ * Uses INSERT OR IGNORE so re-runs are safe.
+ */
+function seedEndpointsTable(): void {
+  const count = (db.prepare('SELECT COUNT(*) as c FROM endpoints WHERE source = ?').get('seed') as any)?.c ?? 0;
+  if (count > 0) {
+    logger.debug({ seedCount: count }, 'Endpoints table already seeded — skipping');
+    return;
+  }
+
+  const stmt = db.prepare(`
+    INSERT OR IGNORE INTO endpoints (
+      id, provider, base_url, path, name, description, category,
+      cost_per_call, latency_ms, input_schema_json, output_fields_json,
+      rate_limit, cache_ttl, credit_cost, status, source
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', 'seed')
+  `);
+
+  db.transaction(() => {
+    for (const ep of apiRegistry) {
+      stmt.run(
+        ep.id,
+        ep.provider,
+        ep.baseUrl ?? null,
+        ep.path ?? null,
+        ep.name,
+        ep.description,
+        ep.category,
+        ep.costPerCall,
+        ep.latencyMs,
+        JSON.stringify(ep.inputSchema),
+        JSON.stringify(ep.outputFields),
+        ep.rateLimit ?? null,
+        ep.cacheTtl ?? null,
+        ep.creditCost ?? null,
+      );
+    }
+  })();
+
+  logger.info({ seeded: apiRegistry.length }, 'Endpoints table seeded from static registry');
 }
