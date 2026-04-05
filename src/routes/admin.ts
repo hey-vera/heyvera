@@ -351,6 +351,33 @@ adminRouter.post('/promo-codes/:id/deactivate', (c) => {
   return c.json({ ok: true });
 });
 
+// ─── Endpoint moderation (post-hoc) ─────────────────────────────────────────
+
+adminRouter.post('/endpoints/:id/disable', (c) => {
+  const id = c.req.param('id');
+  const ep = getDb().prepare('SELECT id, status FROM endpoints WHERE id = ?').get(id) as any;
+  if (!ep) return c.json({ error: 'Endpoint not found', code: 'NOT_FOUND' }, 404);
+
+  getDb().prepare("UPDATE endpoints SET status = 'disabled', updated_at = datetime('now') WHERE id = ?").run(id);
+  logAudit({ entityType: 'endpoint', entityId: id, action: 'ENDPOINT_DISABLED', actorId: 'admin' });
+  return c.json({ ok: true, endpointId: id, status: 'disabled' });
+});
+
+adminRouter.post('/endpoints/:id/enable', (c) => {
+  const id = c.req.param('id');
+  const ep = getDb().prepare('SELECT id, status FROM endpoints WHERE id = ?').get(id) as any;
+  if (!ep) return c.json({ error: 'Endpoint not found', code: 'NOT_FOUND' }, 404);
+
+  getDb().prepare("UPDATE endpoints SET status = 'active', updated_at = datetime('now') WHERE id = ?").run(id);
+  logAudit({ entityType: 'endpoint', entityId: id, action: 'ENDPOINT_ENABLED', actorId: 'admin' });
+  return c.json({ ok: true, endpointId: id, status: 'active' });
+});
+
+adminRouter.get('/endpoints/pending', (c) => {
+  const pending = getDb().prepare("SELECT id, provider, provider_id, name, category, source, submitted_by, created_at FROM endpoints WHERE status = 'pending' ORDER BY created_at DESC").all();
+  return c.json({ endpoints: pending, count: pending.length });
+});
+
 // ─── EAS anchor (manual trigger — normally runs hourly via cron) ────────────
 adminRouter.post('/eas/anchor', async (c) => {
   const result = await runEasAnchorCycle();

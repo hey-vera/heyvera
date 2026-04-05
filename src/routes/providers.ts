@@ -11,8 +11,10 @@
  *   GET    /v1/providers/:id           — Get provider details
  *   PATCH  /v1/providers/:id           — Update provider (admin)
  *   POST   /v1/providers/:id/activate  — Activate provider (admin)
- *   POST   /v1/providers/:id/endpoints — Register endpoint to provider (admin)
- *   DELETE /v1/providers/:id/endpoints/:eid — Remove endpoint from provider (admin)
+ *   POST   /v1/providers/:id/endpoints — Register existing endpoint to provider (admin)
+ *   POST   /v1/providers/:id/endpoints/submit — Submit new endpoint (provider self-service)
+ *   PATCH  /v1/providers/:id/endpoints/:eid — Update own endpoint (provider/admin)
+ *   DELETE /v1/providers/:id/endpoints/:eid — Remove endpoint (provider/admin)
  *   GET    /v1/providers/:id/endpoints — List provider's endpoints
  *   GET    /v1/providers/:id/analytics — Provider analytics dashboard
  *   GET    /v1/providers/:id/stats     — Provider summary stats
@@ -41,11 +43,11 @@ import {
   getProviderSomaCheckEarnings,
   type SomaCheckWindow,
 } from '../db/index';
-import { findEndpoint } from '../config/api-registry';
+import { findEndpoint, invalidateEndpointCache, type ApiEndpoint } from '../config/api-registry';
 import { logger } from '../utils/logger';
 import { nanoid } from 'nanoid';
 import crypto from 'crypto';
-import { getDb, logAudit } from '../db/index';
+import { getDb, logAudit, dbRowToApiEndpoint, safeJsonParse } from '../db/index';
 import { cacheIncr } from '../cache/index';
 import { getClientIp } from '../middleware/rate-limit';
 
@@ -337,6 +339,198 @@ providersRouter.post('/:id/endpoints', async (c) => {
   return c.json({ ok: true, registered, results });
 });
 
+// ─── POST /v1/providers/:id/endpoints/submit — self-service endpoint submission ─────
+
+const VALID_CATEGORIES = [
+  'solana', 'social', 'utility', 'defi', 'intelligence', 'oracle', 'scraping',
+  'discovery', 'infrastructure', 'search', 'media', 'enrichment', 'weather', 'ai-ml', 'security',
+] as const;
+
+const EndpointSubmitBody = z.object({
+  name: z.string().min(2).max(100),
+  description: z.string().min(10).max(500),
+  category: z.enum(VALID_CATEGORIES),
+  baseUrl: z.string().url().max(500),
+  path: z.string().max(200).optional(),
+  httpMethod: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']).default('POST'),
+  costPerCall: z.number().min(0).max(10).default(0.001),
+  latencyMs: z.number().int().min(0).max(30000).default(1000),
+  inputSchema: z.record(z.string()).optional(),
+  outputFields: z.array(z.string()).optional(),
+  cacheTtl: z.number().int().min(0).max(604800).optional(), // max 7 days
+  creditCost: z.number().min(0).max(100).optional(),
+});
+
+providersRouter.post('/:id/endpoints/submit', checkApiKey, async (c) => {
+  const providerId = c.req.param('id');
+  const provider = getProvider(providerId);
+  if (!provider) {
+    return c.json({ error: 'Provider not found', code: 'PROVIDER_NOT_FOUND' }, 404);
+  }
+
+  // Auth: provider's own API key or admin
+  const keyInfo = c.get('apiKeyInfo');
+  const keyProvider = getDb().prepare('SELECT provider_id FROM api_keys WHERE key = ?').get(keyInfo.key) as any;
+  const isOwner = keyProvider?.provider_id === providerId;
+  if (!isOwner && !requireAdmin(c)) {
+    return c.json({ error: 'Not authorized for this provider', code: 'PROVIDER_SCOPE_DENIED' }, 403);
+  }
+
+  // Provider must be active
+  if (provider.status !== 'active') {
+    return c.json({ error: 'Provider must be active to submit endpoints. Contact admin for activation.', code: 'PROVIDER_NOT_ACTIVE' }, 403);
+  }
+
+  const body = await c.req.json().catch(() => ({}));
+  const parsed = EndpointSubmitBody.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: 'Invalid endpoint data', code: 'INVALID_DATA', details: parsed.error.flatten().fieldErrors }, 400);
+  }
+
+  const data = parsed.data;
+
+  // Generate deterministic ID from provider slug + name
+  const slug = provider.slug || provider.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+  const nameSlug = data.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40);
+  const endpointId = `${slug}-${nameSlug}`;
+
+  // Check for duplicate
+  const existing = getDb().prepare('SELECT id FROM endpoints WHERE id = ?').get(endpointId);
+  if (existing) {
+    return c.json({ error: `Endpoint ID "${endpointId}" already exists. Use a different name.`, code: 'DUPLICATE_ENDPOINT' }, 409);
+  }
+
+  // Auto-approve all submissions — moderate after the fact for mass adoption.
+  // Admin can disable bad actors via POST /v1/admin/endpoints/:id/disable.
+  const status = 'active';
+
+  getDb().prepare(`
+    INSERT INTO endpoints (
+      id, provider, provider_id, base_url, path, name, description, category,
+      cost_per_call, latency_ms, input_schema_json, output_fields_json,
+      rate_limit, cache_ttl, credit_cost, status, source, http_method, submitted_by
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'provider', ?, ?)
+  `).run(
+    endpointId,
+    provider.name,
+    providerId,
+    data.baseUrl,
+    data.path ?? null,
+    data.name,
+    data.description,
+    data.category,
+    data.costPerCall,
+    data.latencyMs,
+    data.inputSchema ? JSON.stringify(data.inputSchema) : null,
+    data.outputFields ? JSON.stringify(data.outputFields) : null,
+    null, // rate_limit
+    data.cacheTtl ?? null,
+    data.creditCost ?? null,
+    status,
+    data.httpMethod,
+    keyInfo.key.slice(0, 7) + '...',
+  );
+
+  // Also link in provider_endpoints junction
+  registerProviderEndpoint(providerId, endpointId);
+
+  invalidateEndpointCache(endpointId);
+
+  logAudit({
+    entityType: 'endpoint',
+    entityId: endpointId,
+    action: 'ENDPOINT_SUBMITTED',
+    actorId: keyInfo.key.slice(0, 7) + '...',
+    data: { providerId, name: data.name, category: data.category },
+  });
+
+  logger.info({ endpointId, providerId }, 'Provider endpoint submitted and live');
+
+  return c.json({
+    ok: true,
+    endpointId,
+    status,
+    message: 'Endpoint is live. Callers can now use it via POST /v1/endpoints/' + endpointId + '/call.',
+    endpoint: {
+      id: endpointId,
+      name: data.name,
+      description: data.description,
+      category: data.category,
+      baseUrl: data.baseUrl,
+      path: data.path,
+      costPerCall: data.costPerCall,
+      status,
+    },
+  }, 201);
+});
+
+// ─── PATCH /v1/providers/:id/endpoints/:eid — update own endpoint ───────────
+
+const EndpointUpdateBody = z.object({
+  name: z.string().min(2).max(100).optional(),
+  description: z.string().min(10).max(500).optional(),
+  category: z.enum(VALID_CATEGORIES).optional(),
+  baseUrl: z.string().url().max(500).optional(),
+  path: z.string().max(200).optional(),
+  httpMethod: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']).optional(),
+  costPerCall: z.number().min(0).max(10).optional(),
+  latencyMs: z.number().int().min(0).max(30000).optional(),
+  inputSchema: z.record(z.string()).optional(),
+  outputFields: z.array(z.string()).optional(),
+  cacheTtl: z.number().int().min(0).max(604800).optional(),
+  creditCost: z.number().min(0).max(100).optional(),
+});
+
+providersRouter.patch('/:id/endpoints/:eid', checkApiKey, async (c) => {
+  const providerId = c.req.param('id');
+  const eid = c.req.param('eid');
+
+  // Auth: provider's own API key or admin
+  const keyInfo = c.get('apiKeyInfo');
+  const keyProvider = getDb().prepare('SELECT provider_id FROM api_keys WHERE key = ?').get(keyInfo.key) as any;
+  const isOwner = keyProvider?.provider_id === providerId;
+  if (!isOwner && !requireAdmin(c)) {
+    return c.json({ error: 'Not authorized for this provider', code: 'PROVIDER_SCOPE_DENIED' }, 403);
+  }
+
+  // Verify endpoint belongs to this provider
+  const ep = getDb().prepare('SELECT * FROM endpoints WHERE id = ? AND provider_id = ?').get(eid, providerId) as any;
+  if (!ep) {
+    return c.json({ error: 'Endpoint not found for this provider', code: 'NOT_FOUND' }, 404);
+  }
+
+  const body = await c.req.json().catch(() => ({}));
+  const parsed = EndpointUpdateBody.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: 'Invalid data', code: 'INVALID_DATA', details: parsed.error.flatten().fieldErrors }, 400);
+  }
+
+  const updates = parsed.data;
+  const sets: string[] = ["updated_at = datetime('now')"];
+  const vals: unknown[] = [];
+
+  if (updates.name !== undefined)        { sets.push('name = ?'); vals.push(updates.name); }
+  if (updates.description !== undefined) { sets.push('description = ?'); vals.push(updates.description); }
+  if (updates.category !== undefined)    { sets.push('category = ?'); vals.push(updates.category); }
+  if (updates.baseUrl !== undefined)     { sets.push('base_url = ?'); vals.push(updates.baseUrl); }
+  if (updates.path !== undefined)        { sets.push('path = ?'); vals.push(updates.path); }
+  if (updates.httpMethod !== undefined)  { sets.push('http_method = ?'); vals.push(updates.httpMethod); }
+  if (updates.costPerCall !== undefined) { sets.push('cost_per_call = ?'); vals.push(updates.costPerCall); }
+  if (updates.latencyMs !== undefined)   { sets.push('latency_ms = ?'); vals.push(updates.latencyMs); }
+  if (updates.inputSchema !== undefined) { sets.push('input_schema_json = ?'); vals.push(JSON.stringify(updates.inputSchema)); }
+  if (updates.outputFields !== undefined){ sets.push('output_fields_json = ?'); vals.push(JSON.stringify(updates.outputFields)); }
+  if (updates.cacheTtl !== undefined)    { sets.push('cache_ttl = ?'); vals.push(updates.cacheTtl); }
+  if (updates.creditCost !== undefined)  { sets.push('credit_cost = ?'); vals.push(updates.creditCost); }
+
+  vals.push(eid);
+  getDb().prepare(`UPDATE endpoints SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+  invalidateEndpointCache(eid);
+
+  logAudit({ entityType: 'endpoint', entityId: eid, action: 'ENDPOINT_UPDATED', actorId: keyInfo.key.slice(0, 7) + '...', data: updates });
+
+  return c.json({ ok: true, endpointId: eid, updated: Object.keys(updates) });
+});
+
 // ─── PATCH /v1/providers/:id/endpoints/:eid/freshness — set freshness declarations ──
 
 providersRouter.patch('/:id/endpoints/:eid/freshness', checkApiKey, async (c) => {
@@ -369,13 +563,30 @@ providersRouter.patch('/:id/endpoints/:eid/freshness', checkApiKey, async (c) =>
 
 // ─── DELETE /v1/providers/:id/endpoints/:eid — remove endpoint ──────────────
 
-providersRouter.delete('/:id/endpoints/:eid', async (c) => {
-  if (!requireAdmin(c)) {
-    return c.json({ error: 'Admin access required', code: 'ADMIN_REQUIRED' }, 403);
+providersRouter.delete('/:id/endpoints/:eid', checkApiKey, async (c) => {
+  const providerId = c.req.param('id');
+  const eid = c.req.param('eid');
+
+  // Auth: provider's own API key or admin
+  const keyInfo = c.get('apiKeyInfo');
+  const keyProvider = getDb().prepare('SELECT provider_id FROM api_keys WHERE key = ?').get(keyInfo.key) as any;
+  const isOwner = keyProvider?.provider_id === providerId;
+  if (!isOwner && !requireAdmin(c)) {
+    return c.json({ error: 'Not authorized for this provider', code: 'PROVIDER_SCOPE_DENIED' }, 403);
   }
 
-  removeProviderEndpoint(c.req.param('id'), c.req.param('eid'));
-  return c.json({ ok: true });
+  // Remove from provider_endpoints junction
+  removeProviderEndpoint(providerId, eid);
+
+  // If provider-submitted, also disable in endpoints table
+  const ep = getDb().prepare('SELECT source FROM endpoints WHERE id = ? AND provider_id = ?').get(eid, providerId) as any;
+  if (ep?.source === 'provider') {
+    getDb().prepare("UPDATE endpoints SET status = 'disabled', updated_at = datetime('now') WHERE id = ?").run(eid);
+    invalidateEndpointCache(eid);
+  }
+
+  logAudit({ entityType: 'endpoint', entityId: eid, action: 'ENDPOINT_REMOVED', actorId: keyInfo.key.slice(0, 7) + '...' });
+  return c.json({ ok: true, endpointId: eid });
 });
 
 // ─── GET /v1/providers/:id/endpoints — list provider's endpoints ────────────
