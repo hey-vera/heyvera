@@ -80,7 +80,15 @@ ClawNet = **reference implementation of Soma + the agent economy built on top.**
 **Todos:**
 - [x] Build provider-facing savings dashboard UI under `site/` consuming `/v1/soma/check/stats` — shipped `site/soma-check.html` (commit `90ea3e7`)
 - [ ] Enable shadow mode on clawapis-registered endpoints (Path A = proxy-side, zero provider effort)
-- [ ] 14-day silent telemetry run
+- [ ] **Telemetry run: compressed from 14 days → "N≥10K calls AND ≥5 weekday+2 weekend days, whichever comes first"**
+  - **Why 14 days was arbitrary:** no hard requirement behind it, just a "silent observation" placeholder
+  - **Real goals:** (a) statistical sample N≥10K for believable pitch numbers, (b) weekday/weekend polling variance, (c) telemetry-bug detection before scaling
+  - **Compression paths (pick 1-2):**
+    - Synthetic load against demo endpoints (10K calls/hr achievable) → **2 hours** to N=10K
+    - Our own poller bot 24/7 against clawapis endpoints → **24-48h** to N=10K
+    - A/B live: flip telemetry on for 5 real clawapis endpoints → **3-5 days** real numbers
+    - Hybrid: synthetic load (validate infra 48h) + real traffic (validate numbers 5d) = **~1 week**
+  - **Recommended:** hybrid — synthetic today to prove dashboard renders, real-traffic telemetry on clawapis concurrently
 - [ ] Export CSV + "you would have saved $X" pitch packet
 - [ ] Publish first real savings numbers as case study
 - [ ] Add demo endpoints catalog link to public site nav
@@ -280,6 +288,8 @@ Each `internal/*.md` file drills into specifics. This doc is the overview.
 - `internal/soma-check-billing.md` — billing math in detail
 - `internal/soma-onboarding-ladder.md` — 4-tier provider migration
 - `internal/soma-check-header-spec.md` — header contract
+- `internal/cache-layers-distinction.md` — ClawNet L1/L2 cache vs Soma Check (critical distinction)
+- `internal/funds-flow.md` — how money actually reaches providers + "is 10% sketchy?" analysis
 - `internal/groundbreaking-extensions.md` — extension ideas (Bazaar, etc.)
 - `internal/proof-of-delivery-roadmap.md` — Receipt Layer 5-phase plan
 - `internal/scale-test-plan.md` — Soma scale test sequencing
