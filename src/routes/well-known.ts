@@ -799,6 +799,48 @@ router.get('/soma-registration.json', (c) => {
   });
 });
 
+// ── GET /soma-heart — Soma Bazaar discovery manifest (Phase 1) ───────────
+// Public, unauthenticated. Lets peers discover identity + cert hash in one GET.
+// Pairs with If-Soma-Hash for conditional payment (x402 ETag). Entries that
+// opt into this manifest become eligible for Soma Bazaar listing (see
+// internal/groundbreaking-extensions.md Extension 9.5).
+//
+// Backwards-compatible with x402 Bazaar: consumers that only care about
+// price/capabilities can ignore the birth_cert + cert_hash fields.
+router.get('/soma-heart', (c) => {
+  const heart = getHeartSafe();
+  if (!heart) {
+    return c.json({ enabled: false, reason: 'heart_not_initialized' }, 503);
+  }
+  const certHash = heart.heartbeats?.head ?? null;
+  c.header('Cache-Control', 'public, max-age=30');
+  if (certHash) c.header('ETag', `"${certHash}"`);
+  return c.json({
+    enabled: true,
+    protocol: 'soma-bazaar',
+    version: '0.1.0',
+    subject: 'did:web:api.claw-net.org',
+    cert_hash: certHash,
+    birth_cert: {
+      did: heart.did,
+      genome: heart.genomeCommitment,
+      public_key: getEd25519PublicKeyRaw().toString('hex'),
+      signing: 'Ed25519',
+    },
+    capabilities: {
+      endpoints: `${apiRegistry.length}+`,
+      verification: 'inverted (callers run soma-sense)',
+      conditional_payment: 'x402-etag',
+    },
+    links: {
+      heart_manifest: 'https://api.claw-net.org/.well-known/soma.json',
+      x402_bazaar: 'https://api.claw-net.org/.well-known/x402.json',
+      registration: 'https://api.claw-net.org/.well-known/soma-registration.json',
+    },
+    last_rotation: heart.lastRotationAt ?? null,
+  });
+});
+
 // ── GET /openapi.json — redirect to /v1/openapi.json ────────────────────
 router.get('/openapi.json', (c) => c.redirect('/v1/openapi.json', 302));
 
