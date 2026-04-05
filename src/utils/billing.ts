@@ -1,4 +1,4 @@
-import { incrementDelegatedSpend, incrementBudgetSpend } from '../db/index';
+import { incrementDelegatedSpend, incrementBudgetSpend, getDelegationChain } from '../db/index';
 import { logger } from './logger';
 import { maskApiKey } from './mask';
 
@@ -22,4 +22,38 @@ export function trackDelegatedSpend(
     }
     incrementBudgetSpend(keyInfo.delegatedFrom, amount);
   }
+}
+
+/**
+ * Soma Delegation Spec v0.1 §5 — build response headers exposing the authority
+ * chain for a delegated call. Returns null when the caller isn't using a
+ * delegated key. All key identifiers are masked (first 4 + last 4) per
+ * least-privilege disclosure.
+ *
+ * Headers:
+ *   X-Soma-Delegation-Chain  — comma-separated masked keys, leaf first
+ *   X-Soma-Delegation-Depth  — leaf's depth in the chain (0 = first hop)
+ *   X-Soma-Delegation-Hops   — number of delegation hops from root
+ *   X-Soma-Delegation-Root   — masked root API key (parent of oldest delegation)
+ *   X-Soma-Delegation-Intent — leaf's intent.declaration (if set)
+ */
+export function buildDelegationChainHeaders(
+  delegatedFrom: string | undefined,
+): Record<string, string> | null {
+  if (!delegatedFrom) return null;
+  const chain = getDelegationChain(delegatedFrom);
+  if (chain.length === 0) return null;
+
+  const leaf = chain[0];
+  const rootAdjacent = chain[chain.length - 1];
+  const headers: Record<string, string> = {
+    'X-Soma-Delegation-Chain': chain.map((link) => maskApiKey(link.child_key)).join(','),
+    'X-Soma-Delegation-Depth': String(leaf.depth),
+    'X-Soma-Delegation-Hops': String(chain.length),
+    'X-Soma-Delegation-Root': maskApiKey(rootAdjacent.parent_key),
+  };
+  if (leaf.intent_declaration) {
+    headers['X-Soma-Delegation-Intent'] = leaf.intent_declaration;
+  }
+  return headers;
 }

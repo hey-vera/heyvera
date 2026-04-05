@@ -6,7 +6,7 @@ import { creditCostForEndpoint, round6, cacheCreditCost } from '../core/credits'
 import { isClawApisReady, clawApiCall, getLastBirthCertificate } from '../providers/clawapis';
 import { cacheKey, smartCacheGet, smartCacheSet, cacheNegative, getNegativeCache, coalesceRequest, type CacheFreshness } from '../cache/index';
 import { deductCredit, creditProviderShare } from '../db/index';
-import { trackDelegatedSpend } from '../utils/billing';
+import { trackDelegatedSpend, buildDelegationChainHeaders } from '../utils/billing';
 import { checkProviderScope } from '../middleware/auth';
 import { createCacheCertificate, getCacheCertificate, getCacheHashInfo } from '../core/cache-certificate';
 import { somaHash } from '../utils/crypto-agility';
@@ -243,6 +243,16 @@ endpointsRouter.post('/:id/call', async (c) => {
   // ── Auth + billing ───────────────────────────────────────────────────────
   const keyInfo = c.get('apiKeyInfo');
   const endpointCredits = creditCostForEndpoint(endpoint);
+
+  // ── Soma Delegation chain headers ────────────────────────────────────────
+  // If this call came through a delegated key, expose the masked authority
+  // chain so upstream providers + agent authors can trace the path.
+  const delegationHeaders = buildDelegationChainHeaders(keyInfo.delegatedFrom);
+  if (delegationHeaders) {
+    for (const [name, value] of Object.entries(delegationHeaders)) {
+      c.header(name, value);
+    }
+  }
 
   // ── Smart cache check ────────────────────────────────────────────────────
   const key = cacheKey(endpointId, params as Record<string, string>);

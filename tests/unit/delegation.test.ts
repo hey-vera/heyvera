@@ -20,6 +20,7 @@ import {
   getDelegationInfo,
   getDelegationChain,
 } from '../../src/db/index';
+import { buildDelegationChainHeaders } from '../../src/utils/billing';
 
 beforeAll(() => {
   initDb();
@@ -198,5 +199,53 @@ describe('Soma Delegation v0.1 — chain walk', () => {
     expect(chain.length).toBe(1);
     expect(chain[0].active).toBe(0);
     expect(chain[0].revoked_at).not.toBeNull();
+  });
+});
+
+describe('Soma Delegation v0.1 — chain response headers', () => {
+  it('returns null when no delegated key is in use', () => {
+    expect(buildDelegationChainHeaders(undefined)).toBeNull();
+  });
+
+  it('returns null when key is not a delegation child', () => {
+    const { key: root } = seedApiKey(getTestDb(), { credits: 1000 });
+    // root is a plain api key, not a delegation child
+    expect(buildDelegationChainHeaders(root)).toBeNull();
+  });
+
+  it('returns masked single-hop headers for a depth-0 child', () => {
+    const { key: root } = seedApiKey(getTestDb(), { credits: 1000 });
+    const r = createDelegatedKey({
+      parentKey: root,
+      spendLimit: 100,
+      intentDeclaration: 'research: summarize DeFi TVL',
+    });
+    const headers = buildDelegationChainHeaders(r.childKey!);
+    expect(headers).not.toBeNull();
+    expect(headers!['X-Soma-Delegation-Depth']).toBe('0');
+    expect(headers!['X-Soma-Delegation-Hops']).toBe('1');
+    expect(headers!['X-Soma-Delegation-Intent']).toBe('research: summarize DeFi TVL');
+    // Chain should contain one masked leaf key
+    expect(headers!['X-Soma-Delegation-Chain']).toMatch(/^.{4}••••.{4}$/);
+    // Root should mask the original API key (not the child)
+    expect(headers!['X-Soma-Delegation-Root']).toMatch(/^.{4}••••.{4}$/);
+    expect(headers!['X-Soma-Delegation-Root']).not.toBe(headers!['X-Soma-Delegation-Chain']);
+  });
+
+  it('returns full leaf→root chain for a 3-hop delegation', () => {
+    const { key: root } = seedApiKey(getTestDb(), { credits: 10_000 });
+    const r1 = createDelegatedKey({ parentKey: root, spendLimit: 1000, maxDepth: 3, branchSpendLimit: 500 });
+    const r2 = createDelegatedKey({ parentKey: r1.childKey!, spendLimit: 400, maxDepth: 2, branchSpendLimit: 200 });
+    const r3 = createDelegatedKey({ parentKey: r2.childKey!, spendLimit: 100, maxDepth: 1 });
+
+    const headers = buildDelegationChainHeaders(r3.childKey!);
+    expect(headers).not.toBeNull();
+    expect(headers!['X-Soma-Delegation-Depth']).toBe('2');
+    expect(headers!['X-Soma-Delegation-Hops']).toBe('3');
+    // Chain should be leaf first, 3 comma-separated masked keys
+    const chainParts = headers!['X-Soma-Delegation-Chain'].split(',');
+    expect(chainParts.length).toBe(3);
+    // No intent set → header should be absent
+    expect(headers!['X-Soma-Delegation-Intent']).toBeUndefined();
   });
 });

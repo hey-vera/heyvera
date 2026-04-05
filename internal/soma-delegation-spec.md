@@ -140,6 +140,20 @@ Intent is advisory — providers enforce their own policy. But intent is signed,
 | `X-Soma-Delegation-Chain` | optional | JSON array of ancestor key_ids (oldest first) |
 | `X-Soma-Intent` | optional | Repeat of `intent.declaration` for quick policy match |
 
+### Response headers (on successful delegation call)
+
+The issuing server SHOULD attach these headers on responses when the caller is using a delegated key, so upstream providers + the caller can trace authority:
+
+| Header | Value |
+|---|---|
+| `X-Soma-Delegation-Chain` | Comma-separated masked key_ids, leaf first (e.g. `dlg_8f2a••••a1c9,dlg_3c1e••••44d0`) |
+| `X-Soma-Delegation-Depth` | Leaf's `depth` integer |
+| `X-Soma-Delegation-Hops` | Number of delegation hops (chain length) |
+| `X-Soma-Delegation-Root` | Masked root API key (parent of the oldest delegation) |
+| `X-Soma-Delegation-Intent` | Leaf's `intent.declaration` (if set) |
+
+Key IDs MUST be masked (first 4 + last 4 chars) to preserve least-privilege disclosure — upstream providers learn the shape of the chain without gaining credentials.
+
 ### Response headers (on delegation rejection)
 
 | Header | Value |
@@ -253,9 +267,9 @@ ClawNet's `delegated_keys` table (as of 2026-Q1) has partial implementation:
 - ✓ **Recursive cascade revoke** — `revokeDelegatedKey()` BFS-traverses and revokes entire subtree (`src/db/transfers.ts`)
 - ✓ **Depth-aware creation** — `createDelegatedKey()` enforces `max_depth`, `branch_spend_limit`, and (conservative shell-glob) scope narrowing at issue time
 - ✓ **Public HTTP surface (2026-04-05)** — `POST/GET/DELETE /v1/economy/keys/delegated*` + `GET .../chain` for lineage walk (`src/routes/economy.ts`)
+- ✓ **Chain response headers (2026-04-05)** — `X-Soma-Delegation-Chain/Depth/Hops/Root/Intent` attached on proxy path (`src/routes/endpoints.ts` via `buildDelegationChainHeaders()` in `src/utils/billing.ts`)
 - ⚠ Glob-subset check is simplified to prefix-matching — good enough for v0.1, formal subset semantics pending
 - ⚠ Intent rejection at provider serving side not yet wired
-- ⚠ `X-Soma-Delegation-Chain` header on outgoing proxy calls not yet attached (see §10 — publish to public repo blocks on this)
 - ⚠ Cross-issuer trust registry (cross-platform delegation) not implemented
 
 ---
@@ -296,11 +310,17 @@ ClawNet's `delegated_keys` table (as of 2026-Q1) has partial implementation:
 - [x] Recursive cascade revoke in `src/db/transfers.ts:revokeDelegatedKey()`
 - [x] Depth + branch-cap + (conservative) scope-narrowing enforcement at issue time in `createDelegatedKey()`
 
-**Phase 2 (Publish + wire) — pending:**
+**Phase 2 (Issuer API + wire) — SHIPPED 2026-04-05:**
+- [x] POST /v1/economy/keys/delegate accepting the new v0.1 fields (depth/maxDepth/branchSpendLimit/intentDeclaration/dataDomain/scopeEndpointsGlob/scopeMethodsCsv)
+- [x] GET /v1/economy/keys/delegated returning all v0.1 fields
+- [x] GET /v1/economy/keys/delegated/:childKey/chain for lineage walking with auth check
+- [x] DELETE /v1/economy/keys/delegated/:childKey with cascade + revokedCount
+- [x] `X-Soma-Delegation-Chain/Depth/Hops/Root/Intent` response headers on proxy path (POST /v1/endpoints/:id/call)
+- [x] Chain helper tests (getDelegationChain + buildDelegationChainHeaders)
+
+**Phase 3 (Publish + standardize) — pending:**
 - [ ] Publish this doc to `github.com/1xmint/soma-delegation-spec`
 - [ ] Open issue on `coinbase/x402` proposing this as x402 extension
-- [ ] Add POST /v1/delegation/keys route accepting the new v0.1 fields
-- [ ] Add `X-Soma-Delegation-Chain` + `X-Soma-Intent` request-header handling on proxy path
 - [ ] Enforce intent declaration + scope on the serving path (not just creation)
 - [ ] Add wire-format tests against the spec examples in §6
 - [ ] Submit to IETF as input to `draft-klrc-aiagent-auth` working group
