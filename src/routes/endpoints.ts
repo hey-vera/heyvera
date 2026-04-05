@@ -9,9 +9,10 @@ import { deductCredit, creditProviderShare } from '../db/index';
 import { trackDelegatedSpend, buildDelegationChainHeaders } from '../utils/billing';
 import { checkProviderScope, checkDelegationScope } from '../middleware/auth';
 import { createCacheCertificate, getCacheCertificate, getCacheHashInfo } from '../core/cache-certificate';
-import { somaHash } from '../utils/crypto-agility';
+import { somaHashJson } from '../utils/crypto-agility';
 import { env } from '../config/index';
-import { getEndpointFreshness, getProviderSomaCheckTier } from '../db/providers';
+import { getEndpointFreshness, getProviderSomaCheckTier, getEndpointProvider } from '../db/providers';
+import { extractDualSignReceiptFields } from '../core/dual-sign-state';
 import { computeSomaCheckSplit, cacheHitProviderShareByTier } from '../core/soma-check-billing';
 import { maskApiKey } from '../utils/mask';
 import { logger } from '../utils/logger';
@@ -296,6 +297,8 @@ endpointsRouter.post('/:id/call', async (c) => {
       const billed = somaTier >= 1;
       const hitPriceCredits = billed ? split.agentPays : 0;
 
+      const durationMs = Date.now() - start;
+
       if (billed && !keyInfo.isEnvKey) {
         if (keyInfo.credits < hitPriceCredits) {
           return c.json({
@@ -306,16 +309,30 @@ endpointsRouter.post('/:id/call', async (c) => {
             creditsAvailable: keyInfo.credits,
           }, 402);
         }
-        const deducted = deductCredit(keyInfo.key, hitPriceCredits);
-        if (!deducted) {
-          return c.json({ requestId, error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS' }, 402);
+        // Transactional: deduct agent + credit provider atomically so a mid-
+        // flight failure can never leave the agent charged without paying the
+        // provider (or vice versa). Concurrent probes serialize at the api_keys
+        // row via the atomic UPDATE in deductCredit's WHERE clause.
+        try {
+          getDb().transaction(() => {
+            const deducted = deductCredit(keyInfo.key, hitPriceCredits);
+            if (!deducted) throw new Error('INSUFFICIENT_CREDITS');
+            trackDelegatedSpend(keyInfo, hitPriceCredits);
+            // Provider gets 90% (T1-2) or 95% (T3) of the hit price.
+            creditProviderShare(endpointId, hitPriceCredits, {
+              cacheHit: true,
+              latencyMs: durationMs,
+              providerSharePctOverride: cacheHitProviderShareByTier(somaTier),
+            });
+          })();
+        } catch (err) {
+          if (err instanceof Error && err.message === 'INSUFFICIENT_CREDITS') {
+            return c.json({ requestId, error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS' }, 402);
+          }
+          throw err;
         }
-        trackDelegatedSpend(keyInfo, hitPriceCredits);
-      }
-
-      const durationMs = Date.now() - start;
-      if (billed) {
-        // Provider gets 90% (T1-2) or 95% (T3) of the hit price.
+      } else if (billed) {
+        // Env-key caller (no deduction) — still credit provider.
         creditProviderShare(endpointId, hitPriceCredits, {
           cacheHit: true,
           latencyMs: durationMs,
@@ -471,7 +488,9 @@ endpointsRouter.post('/:id/call', async (c) => {
     const effectiveTtl = freshness_decl?.declaredTtlSeconds ?? endpoint.cacheTtl;
 
     const serialized = JSON.stringify(data);
-    const dataHash = somaHash(serialized);
+    // JCS-canonical hash so semantic equality survives key-order variance
+    // between upstream provider fetches. See utils/crypto-agility.ts.
+    const dataHash = somaHashJson(data);
     if (serialized.length <= 1_000_000) {
       await smartCacheSet(key, data, effectiveTtl, endpointId, endpoint.creditCost ?? endpoint.costPerCall);
       const birthCert = getLastBirthCertificate();
@@ -523,6 +542,7 @@ endpointsRouter.post('/:id/call', async (c) => {
     }
 
     // Soma Receipt — cryptographic delivery proof (fire-and-forget)
+    // Dual-sign fields auto-populate when upstream provider returns X-Soma-* headers.
     createSomaReceipt({
       requestId,
       apiKey: keyInfo.key,
@@ -532,6 +552,7 @@ endpointsRouter.post('/:id/call', async (c) => {
       responseData: typeof data === 'string' ? data.slice(0, 1000) : JSON.stringify(data).slice(0, 1000),
       somaDataHash: birthCertificate?.dataHash,
       heartbeatIndex: birthCertificate?.heartbeatIndex,
+      ...extractDualSignReceiptFields(getEndpointProvider(endpointId) ?? undefined),
     }).catch((err) => logger.warn({ requestId, err }, 'Soma receipt failed for endpoint call'));
 
     return c.json({

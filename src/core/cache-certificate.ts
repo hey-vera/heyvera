@@ -15,7 +15,7 @@
 
 import { nanoid } from 'nanoid';
 import { getDb } from '../db/connection';
-import { somaHash } from '../utils/crypto-agility';
+import { somaHashJson } from '../utils/crypto-agility';
 import { signVC, getEd25519PublicKeyRaw } from '../utils/ed25519-signer';
 import { logger } from '../utils/logger';
 
@@ -87,14 +87,14 @@ export function createCacheCertificate(opts: {
     // Platform signs the cert payload
     const platformSignature = signVC(certPayload);
 
-    // Chain hash binds original + cache certs together
-    const chainHash = somaHash(JSON.stringify({
+    // Chain hash binds original + cache certs together (JCS-canonical for stability)
+    const chainHash = somaHashJson({
       original: opts.birthCert?.dataHash ?? opts.dataHash,
       originalSig: opts.birthCert?.signature ?? null,
       cache: opts.dataHash,
       cacheSig: platformSignature,
       timestamp: cachedAt,
-    }));
+    });
 
     // Persist to DB
     getDb().prepare(`

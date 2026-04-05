@@ -14,6 +14,7 @@
  */
 
 import crypto from 'crypto';
+import { jcsSerialize } from './jcs';
 
 // ─── Post-quantum imports (lazy-loaded to avoid startup cost when disabled) ──
 let _mlDsa65: any = null;
@@ -73,6 +74,24 @@ export const aidHash = somaHash;
  */
 export function somaHashPrefixed(data: string | Buffer): string {
   return `${SOMA_HASH_PREFIX}:${somaHash(data)}`;
+}
+
+/**
+ * Canonical SHA-256 of a JSON-serializable value via RFC 8785 JCS.
+ *
+ * Use this INSTEAD of `somaHash(JSON.stringify(x))` whenever the hash is
+ * going to be compared across different serializations of the same
+ * semantic data (e.g. Soma Check conditional-payment probes, where an
+ * upstream provider may return keys in a different order on a repeat
+ * fetch). Stable output across key-order, whitespace, and
+ * number-precision variance.
+ *
+ * DO NOT use for content-addressed pre-serialized blobs (binary,
+ * already-signed payloads, opaque strings) — those need byte-exact
+ * hashing via `somaHash()`.
+ */
+export function somaHashJson(value: unknown): string {
+  return somaHash(jcsSerialize(value));
 }
 
 /** Legacy alias */

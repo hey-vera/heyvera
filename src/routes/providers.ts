@@ -38,6 +38,8 @@ import {
   setApiKeyProvider,
   updateEndpointFreshness,
   getEndpointFreshness,
+  getProviderSomaCheckEarnings,
+  type SomaCheckWindow,
 } from '../db/index';
 import { findEndpoint } from '../config/api-registry';
 import { logger } from '../utils/logger';
@@ -426,6 +428,34 @@ providersRouter.get('/:id/stats', async (c) => {
 
   const stats = getProviderStats(providerId);
   return c.json({ ok: true, provider: { id: providerId, name: provider.name }, stats });
+});
+
+// ─── GET /v1/providers/:id/soma-check — Soma Check earnings dashboard ─────
+// Provider-scoped view of If-Soma-Hash activity: cache-hit count, credits
+// earned from hits (Tier 1+), projected earnings in shadow mode (Tier 0),
+// agent savings, per-endpoint breakdown. window=day|week|month (default day).
+
+providersRouter.get('/:id/soma-check', async (c) => {
+  const providerId = c.req.param('id');
+  const provider = getProvider(providerId);
+  if (!provider) {
+    return c.json({ error: 'Provider not found', code: 'PROVIDER_NOT_FOUND' }, 404);
+  }
+
+  const windowParam = (c.req.query('window') ?? 'day') as string;
+  if (!['day', 'week', 'month'].includes(windowParam)) {
+    return c.json({
+      error: 'Invalid window (must be day|week|month)',
+      code: 'INVALID_WINDOW',
+    }, 400);
+  }
+
+  const earnings = getProviderSomaCheckEarnings(providerId, windowParam as SomaCheckWindow);
+  return c.json({
+    ok: true,
+    provider: { id: providerId, name: provider.name },
+    ...earnings,
+  });
 });
 
 // ─── GET /v1/providers/:id/revenue — revenue dashboard (proves "you earn more") ──

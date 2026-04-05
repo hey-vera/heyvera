@@ -23,7 +23,7 @@ import { findEndpoint } from '../config/api-registry';
 import { isClawApisReady, clawApiCall, getLastBirthCertificate } from '../providers/clawapis';
 import { smartCacheSet, cacheKey } from '../cache/index';
 import { createCacheCertificate, getCacheHashInfo } from './cache-certificate';
-import { somaHash } from '../utils/crypto-agility';
+import { somaHashJson } from '../utils/crypto-agility';
 import { env } from '../config/index';
 import { logger } from '../utils/logger';
 
@@ -95,8 +95,8 @@ async function warmEndpoint(schedule: WarmScheduleRow): Promise<boolean> {
     const data = await clawApiCall(apiPath, {}, endpoint.baseUrl);
 
     const key = cacheKey(schedule.endpoint_id, {});
-    const serialized = JSON.stringify(data);
-    const dataHash = somaHash(serialized);
+    // JCS-canonical hash — MUST match serving path (endpoints.ts:490) for cache probes to hit
+    const dataHash = somaHashJson(data);
     const ttl = schedule.frequency_seconds * 2; // Cache for 2x the update frequency
 
     // Soma Check: check if data actually changed since last warm

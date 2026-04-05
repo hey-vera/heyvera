@@ -26,7 +26,7 @@ import { createHash } from 'crypto';
 import nacl from 'tweetnacl';
 import { logger } from '../utils/logger';
 import { somaHash } from '../utils/crypto-agility';
-import { getEd25519PublicKeyRaw } from '../utils/ed25519-signer';
+import { getEd25519PublicKeyRaw, derivePlatformSeed } from '../utils/ed25519-signer';
 import { env } from '../config/index';
 
 // ─���─ Types ──────────────────────────────────────────────────────────────────
@@ -121,7 +121,6 @@ export function verifyProviderCert(cert: ProviderCertificate): boolean {
  * Get the platform's Ed25519 signing keypair (same seed as soma.ts and ed25519-signer.ts).
  */
 function getPlatformKeyPair(): nacl.SignKeyPair {
-  const { derivePlatformSeed } = require('../utils/ed25519-signer');
   const seed = derivePlatformSeed('ed25519-platform');
   return nacl.sign.keyPair.fromSeed(new Uint8Array(seed));
 }

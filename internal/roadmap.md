@@ -113,6 +113,9 @@ ClawNet = **reference implementation of Soma + the agent economy built on top.**
 
 **Todos:**
 - [x] Build provider-facing savings dashboard UI under `site/` consuming `/v1/soma/check/stats` — shipped `site/soma-check.html` (commit `90ea3e7`)
+- [x] Build provider-scoped earnings dashboard — shipped `site/provider-dashboard.html` + `GET /v1/providers/:id/soma-check?window=day|week|month` (2026-04-05)
+- [x] JCS canonicalization on all three hash sites (serving path + cache warm cron + chain hash) so key-reorder no longer breaks `If-Soma-Hash` probes (2026-04-05)
+- [x] Dual-sign wired into SomaReceipts — `peekLastDualSignResult()` + `extractDualSignReceiptFields()` flow provider cert fields into every receipt that passed through a Soma-emitting upstream (2026-04-05)
 - [ ] Enable shadow mode on clawapis-registered endpoints (Path A = proxy-side, zero provider effort)
 - [ ] **Telemetry run: compressed from 14 days → "N≥10K calls AND ≥5 weekday+2 weekend days, whichever comes first"**
   - **Why 14 days was arbitrary:** no hard requirement behind it, just a "silent observation" placeholder

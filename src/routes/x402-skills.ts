@@ -15,6 +15,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { nanoid } from 'nanoid';
 import { createSomaReceipt } from '../core/soma-receipt';
+import { extractDualSignReceiptFields } from '../core/dual-sign-state';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { paymentMiddleware } = require('@x402/hono') as {
   paymentMiddleware: (...args: unknown[]) => import('hono').MiddlewareHandler;
@@ -759,6 +760,7 @@ x402SkillsRouter.post('/skills/:id', async (c) => {
       requestData: JSON.stringify({ skillId: id, skillName: skill.name }),
       responseData: JSON.stringify({ answer: formatted.answer?.slice(0, 500) }),
       recipientAddress: payCtx.payerAddress ?? undefined,
+      ...extractDualSignReceiptFields(),
     }).catch((err) => logger.warn({ requestId, err }, 'Soma receipt failed for x402 skill'));
 
     // Try to include receipt in response (2s timeout)
@@ -918,6 +920,7 @@ x402SkillsRouter.post('/orchestrate', async (c) => {
       requestData: JSON.stringify({ query: query?.slice(0, 200) }),
       responseData: JSON.stringify({ answer: formatted.answer?.slice(0, 500) }),
       recipientAddress: payCtx.payerAddress ?? undefined,
+      ...extractDualSignReceiptFields(),
     }).catch((err) => logger.warn({ requestId, err }, 'Soma receipt failed for x402 orchestrate'));
 
     let somaReceipt: any;

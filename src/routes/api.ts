@@ -20,6 +20,7 @@ import { env, isSimulationMode, rateTier, ORCHESTRATION_FEE } from '../config/in
 import { logger } from '../utils/logger';
 import { getHeartSafe } from '../core/soma';
 import { createSomaReceipt } from '../core/soma-receipt';
+import { extractDualSignReceiptFields } from '../core/dual-sign-state';
 import { sendApiKeyEmail, sendLowBalanceEmail, sendAdminAlert } from '../utils/email';
 import { wasEmailSentRecently, logEmailSend } from '../db/index';
 import crypto from 'crypto';
@@ -517,6 +518,8 @@ apiRouter.post('/orchestrate', async (c) => {
     await cacheSet(qKey, responsePayload);
 
     // Soma Receipt — cryptographic delivery proof (fire-and-forget)
+    // Dual-sign auto-populates when the last orchestrated step returned
+    // provider X-Soma-* headers.
     createSomaReceipt({
       requestId,
       apiKey: keyInfo.key,
@@ -526,6 +529,7 @@ apiRouter.post('/orchestrate', async (c) => {
       responseData: JSON.stringify({ answer: (responsePayload as any).answer?.slice(0, 500) }),
       somaDataHash: execution.birthCertificates?.[0]?.dataHash,
       cached: cacheHits > 0,
+      ...extractDualSignReceiptFields(),
     }).catch((err) => logger.warn({ requestId, err }, 'Soma receipt failed for orchestration'));
 
     return c.json({

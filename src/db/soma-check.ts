@@ -105,6 +105,179 @@ export function getSomaCheckStats(opts: {
   }));
 }
 
+// ─── Provider-scoped earnings ───────────────────────────────────────────────
+
+/**
+ * Soma Check earnings window options.
+ *   day   = last 24h
+ *   week  = last 7 days
+ *   month = last 30 days
+ */
+export type SomaCheckWindow = 'day' | 'week' | 'month';
+
+const WINDOW_HOURS: Record<SomaCheckWindow, number> = {
+  day: 24,
+  week: 24 * 7,
+  month: 24 * 30,
+};
+
+export interface ProviderSomaCheckEarnings {
+  providerId: string;
+  window: SomaCheckWindow;
+  windowHours: number;
+  tier: number;
+  totals: {
+    totalCalls: number;
+    liveCalls: number;
+    cacheHits: number;
+    wouldHaveHits: number; // shadow-mode projection
+    hitRate: number;
+    wouldHaveHitRate: number;
+  };
+  earnings: {
+    // Provider's slice of origin (live) calls, in credits
+    liveCreditsEarned: number;
+    // Provider's slice of cache-hit calls, in credits (Tier 1+ only)
+    cacheCreditsEarned: number;
+    // Sum of the above — what actually hit the provider's ledger
+    totalCreditsEarned: number;
+    // If running in shadow mode, this is the credits they WOULD have earned
+    // from cache hits if they flipped to Tier 1+
+    projectedCacheCreditsIfActive: number;
+  };
+  savings: {
+    // Credits agents saved by using Soma Check vs full-fresh calls
+    agentCreditsSaved: number;
+  };
+  endpoints: Array<{
+    endpointId: string;
+    totalCalls: number;
+    cacheHits: number;
+    wouldHaveHits: number;
+    hitRate: number;
+    cacheCreditsEarned: number;
+  }>;
+}
+
+/**
+ * Per-provider Soma Check earnings for a window.
+ *
+ * Joins soma_check_events → provider_endpoints. Only counts rows whose
+ * endpoint_id is registered to this provider. Splits the credited share
+ * using the provider's current soma_check_tier (Tier 0 = shadow, no
+ * credit; Tier 1-2 = 90%; Tier 3 = 95%).
+ */
+export function getProviderSomaCheckEarnings(
+  providerId: string,
+  window: SomaCheckWindow = 'day',
+): ProviderSomaCheckEarnings {
+  const windowHours = WINDOW_HOURS[window];
+  const since = new Date(Date.now() - windowHours * 3600_000).toISOString();
+
+  // Current tier governs the share for rows billed during this window.
+  const tierRow = getDb().prepare(
+    'SELECT soma_check_tier FROM providers WHERE id = ? LIMIT 1',
+  ).get(providerId) as { soma_check_tier: number } | undefined;
+  const tier = tierRow?.soma_check_tier ?? 0;
+  const providerShareOnHit = tier === 3 ? 0.95 : 0.90; // Tier 0 still projects at 90%
+
+  // Per-endpoint aggregates, restricted to this provider's endpoints.
+  const rows = getDb().prepare(`
+    SELECT
+      e.endpoint_id                                                                     AS endpointId,
+      COUNT(*)                                                                          AS totalCalls,
+      SUM(e.was_hit)                                                                    AS cacheHits,
+      SUM(e.would_have_hit)                                                             AS wouldHaveHits,
+      SUM(CASE WHEN e.was_hit = 1 THEN COALESCE(e.hit_price_credits, 0) ELSE 0 END)     AS hitCreditsTotal,
+      SUM(CASE WHEN e.was_hit = 0 THEN COALESCE(e.origin_price_credits, 0) ELSE 0 END)  AS originCreditsTotal,
+      SUM(CASE WHEN e.was_hit = 1
+               THEN COALESCE(e.origin_price_credits, 0) - COALESCE(e.hit_price_credits, 0)
+               ELSE 0 END)                                                              AS agentSavings,
+      SUM(CASE WHEN e.would_have_hit = 1 AND e.was_hit = 0
+               THEN COALESCE(e.origin_price_credits, 0) * 0.10
+               ELSE 0 END)                                                              AS projectedHitCreditsShadow
+    FROM soma_check_events e
+    INNER JOIN provider_endpoints pe ON pe.endpoint_id = e.endpoint_id
+    WHERE pe.provider_id = ? AND e.created_at >= ?
+    GROUP BY e.endpoint_id
+    ORDER BY totalCalls DESC
+  `).all(providerId, since) as Array<{
+    endpointId: string;
+    totalCalls: number;
+    cacheHits: number | null;
+    wouldHaveHits: number | null;
+    hitCreditsTotal: number | null;
+    originCreditsTotal: number | null;
+    agentSavings: number | null;
+    projectedHitCreditsShadow: number | null;
+  }>;
+
+  let totalCalls = 0;
+  let cacheHits = 0;
+  let wouldHaveHits = 0;
+  let hitCreditsTotal = 0;
+  let originCreditsTotal = 0;
+  let agentSavings = 0;
+  let projectedHitCreditsShadow = 0;
+
+  const endpoints = rows.map(r => {
+    const eCacheHits = r.cacheHits ?? 0;
+    const eWouldHits = r.wouldHaveHits ?? 0;
+    const eHitCredits = r.hitCreditsTotal ?? 0;
+
+    totalCalls += r.totalCalls;
+    cacheHits += eCacheHits;
+    wouldHaveHits += eWouldHits;
+    hitCreditsTotal += eHitCredits;
+    originCreditsTotal += r.originCreditsTotal ?? 0;
+    agentSavings += r.agentSavings ?? 0;
+    projectedHitCreditsShadow += r.projectedHitCreditsShadow ?? 0;
+
+    return {
+      endpointId: r.endpointId,
+      totalCalls: r.totalCalls,
+      cacheHits: eCacheHits,
+      wouldHaveHits: eWouldHits,
+      hitRate: r.totalCalls > 0 ? eCacheHits / r.totalCalls : 0,
+      cacheCreditsEarned: eHitCredits * providerShareOnHit,
+    };
+  });
+
+  const liveCalls = totalCalls - cacheHits;
+  const hitRate = totalCalls > 0 ? cacheHits / totalCalls : 0;
+  const wouldHaveHitRate = totalCalls > 0 ? wouldHaveHits / totalCalls : 0;
+
+  // Live calls pay 90/10 (provider/platform) in the standard billing path.
+  const liveCreditsEarned = originCreditsTotal * 0.90;
+  const cacheCreditsEarned = hitCreditsTotal * providerShareOnHit;
+  const projectedCacheCreditsIfActive = projectedHitCreditsShadow * providerShareOnHit;
+
+  return {
+    providerId,
+    window,
+    windowHours,
+    tier,
+    totals: {
+      totalCalls,
+      liveCalls,
+      cacheHits,
+      wouldHaveHits,
+      hitRate,
+      wouldHaveHitRate,
+    },
+    earnings: {
+      liveCreditsEarned,
+      cacheCreditsEarned,
+      totalCreditsEarned: liveCreditsEarned + cacheCreditsEarned,
+      projectedCacheCreditsIfActive,
+    },
+    savings: {
+      agentCreditsSaved: agentSavings,
+    },
+    endpoints,
+  };
+}
+
 /** Totals across all endpoints for dashboard top-line. */
 export function getSomaCheckSummary(opts: { sinceHours?: number } = {}) {
   const stats = getSomaCheckStats({ sinceHours: opts.sinceHours });
