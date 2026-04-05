@@ -429,6 +429,23 @@ endpointsRouter.post('/:id/call', async (c) => {
         rail: 'credits', tier: shadowTier, shadowMode: true,
       });
     }
+
+    // Soma Receipt — cache hits are still paid interactions (fire-and-forget)
+    createSomaReceipt({
+      requestId,
+      apiKey: keyInfo.key,
+      paymentMethod: 'credits',
+      creditsCost: cacheCredits,
+      requestData: JSON.stringify({ endpointId, params: c.req.query() }),
+      responseData: typeof cacheResult.value === 'string'
+        ? cacheResult.value.slice(0, 1000)
+        : JSON.stringify(cacheResult.value).slice(0, 1000),
+      somaDataHash: cacheCert?.originalCert.dataHash,
+      heartbeatIndex: cacheCert?.originalCert.heartbeatIndex ?? undefined,
+      cached: true,
+      ...extractDualSignReceiptFields(getEndpointProvider(endpointId) ?? undefined),
+    }).catch((err) => logger.warn({ requestId, err }, 'Soma receipt failed for cache-hit endpoint call'));
+
     return c.json({
       requestId,
       endpointId,
