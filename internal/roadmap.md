@@ -196,8 +196,9 @@ ClawNet = **reference implementation of Soma + the agent economy built on top.**
 - [x] x402 extension proposal drafted at `internal/x402-delegation-issue.md` — HELD until production evidence accumulates (multi-agent chains + cascade revoke observed + public metrics)
 
 **Phase 4 — standardize (pending production evidence):**
-- [ ] Collect production metrics: chain counts, avg depth, fanout, cascade revoke latency, scope rejection rate
-- [ ] Open issue on `coinbase/x402` proposing as x402 extension (after metrics exist)
+- [x] `getDelegationMetrics()` + `GET /v1/stats/delegation` — active chain count, depth distribution, fanout, 24h cascade revokes, 24h SCOPE_VIOLATION count, intent distribution. Audit-logs SCOPE_VIOLATION as `DELEGATE_SCOPE_REJECT` so it's countable. Tests in `tests/unit/delegation.test.ts` (29 pass).
+- [ ] Dogfood: run CrewAI-style multi-agent demo through ClawNet producing real chains depth ≥ 2, observe cascade revoke, capture metrics snapshot
+- [ ] Open issue on `coinbase/x402` proposing as x402 extension (after metrics show real traffic)
 - [ ] Parse `X-Soma-Intent` request headers on the proxy path, enforce intent vs dataDomain
 - [ ] Submit to IETF draft-klrc working group as reference-implementation input
 - [ ] Reference client in `@clawnet/soma-delegation` npm package

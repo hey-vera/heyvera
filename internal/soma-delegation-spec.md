@@ -268,6 +268,7 @@ ClawNet's `delegated_keys` table (as of 2026-Q1) has partial implementation:
 - ✓ **Depth-aware creation** — `createDelegatedKey()` enforces `max_depth`, `branch_spend_limit`, and (conservative shell-glob) scope narrowing at issue time
 - ✓ **Public HTTP surface (2026-04-05)** — `POST/GET/DELETE /v1/economy/keys/delegated*` + `GET .../chain` for lineage walk (`src/routes/economy.ts`)
 - ✓ **Chain response headers (2026-04-05)** — `X-Soma-Delegation-Chain/Depth/Hops/Root/Intent` attached on proxy path (`src/routes/endpoints.ts` via `buildDelegationChainHeaders()` in `src/utils/billing.ts`)
+- ✓ **Public metrics endpoint (2026-04-05)** — `GET /v1/stats/delegation` exposes active chain count, depth distribution, fanout, cascade revoke counts, and `SCOPE_VIOLATION` 24h rejection rate. Powers the evidence dashboard required before filing the x402 extension issue.
 - ⚠ Glob-subset check is simplified to prefix-matching — good enough for v0.1, formal subset semantics pending
 - ⚠ Intent rejection at provider serving side not yet wired
 - ⚠ Cross-issuer trust registry (cross-platform delegation) not implemented

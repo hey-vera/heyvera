@@ -404,6 +404,133 @@ export function getDelegationChain(childKey: string): DelegatedKey[] {
   return chain;
 }
 
+/**
+ * Aggregate metrics over delegated_keys + audit_log. Used by
+ * GET /v1/stats/delegation to publish evidence that Soma Delegation v0.1
+ * is enforcing chains in production. Returns counts, not keys — safe to
+ * expose on an unauthenticated endpoint.
+ *
+ * Soma Delegation Spec v0.1 §5 / internal/soma-delegation-spec.md.
+ */
+export interface DelegationMetrics {
+  protocol: 'soma-delegation/0.1';
+  generated_at: string;
+  totals: {
+    active_delegations: number;
+    revoked_all_time: number;
+    max_depth_observed: number;
+    chains_depth_gte_2: number;
+  };
+  depth_distribution: Record<string, number>;
+  fanout: {
+    parents_with_children: number;
+    avg_children_per_parent: number;
+    max_children_per_parent: number;
+  };
+  window_24h: {
+    created: number;
+    cascade_revokes: number;
+    cascade_total_revoked: number;
+    scope_violations: number;
+  };
+  intent_distribution: Record<string, number>;
+}
+
+export function getDelegationMetrics(): DelegationMetrics {
+  const db = getDb();
+
+  // ── Totals ──────────────────────────────────────────────────────────────
+  const active = (db.prepare(
+    'SELECT COUNT(*) as n FROM delegated_keys WHERE active = 1'
+  ).get() as { n: number }).n;
+
+  const revoked = (db.prepare(
+    'SELECT COUNT(*) as n FROM delegated_keys WHERE revoked_at IS NOT NULL'
+  ).get() as { n: number }).n;
+
+  const maxDepth = (db.prepare(
+    'SELECT COALESCE(MAX(depth), 0) as d FROM delegated_keys WHERE active = 1'
+  ).get() as { d: number }).d;
+
+  const deepChains = (db.prepare(
+    'SELECT COUNT(*) as n FROM delegated_keys WHERE active = 1 AND depth >= 2'
+  ).get() as { n: number }).n;
+
+  // ── Depth distribution (active only) ────────────────────────────────────
+  const depthRows = db.prepare(
+    'SELECT depth, COUNT(*) as n FROM delegated_keys WHERE active = 1 GROUP BY depth ORDER BY depth ASC'
+  ).all() as { depth: number; n: number }[];
+  const depthDistribution: Record<string, number> = {};
+  for (const row of depthRows) depthDistribution[String(row.depth)] = row.n;
+
+  // ── Fanout (active parents with active children) ────────────────────────
+  const fanoutRows = db.prepare(
+    `SELECT parent_key, COUNT(*) as children
+     FROM delegated_keys WHERE active = 1 GROUP BY parent_key`
+  ).all() as { parent_key: string; children: number }[];
+  const parentsWithChildren = fanoutRows.length;
+  const maxChildren = fanoutRows.reduce((m, r) => Math.max(m, r.children), 0);
+  const avgChildren = parentsWithChildren > 0
+    ? round6(fanoutRows.reduce((s, r) => s + r.children, 0) / parentsWithChildren)
+    : 0;
+
+  // ── 24h window from audit_log ───────────────────────────────────────────
+  const created24h = (db.prepare(
+    `SELECT COUNT(*) as n FROM audit_log
+     WHERE action = 'DELEGATE_CREATE' AND timestamp > datetime('now', '-24 hours')`
+  ).get() as { n: number }).n;
+
+  const cascadeRows = db.prepare(
+    `SELECT data_json FROM audit_log
+     WHERE action = 'DELEGATE_REVOKE' AND timestamp > datetime('now', '-24 hours')`
+  ).all() as { data_json: string | null }[];
+  let cascadeTotal = 0;
+  for (const row of cascadeRows) {
+    if (!row.data_json) continue;
+    try {
+      const d = JSON.parse(row.data_json) as { revokedCount?: number };
+      if (typeof d.revokedCount === 'number') cascadeTotal += d.revokedCount;
+    } catch { /* ignore malformed rows */ }
+  }
+
+  const scope24h = (db.prepare(
+    `SELECT COUNT(*) as n FROM audit_log
+     WHERE action = 'DELEGATE_SCOPE_REJECT' AND timestamp > datetime('now', '-24 hours')`
+  ).get() as { n: number }).n;
+
+  // ── Intent distribution (active, non-null data_domain) ──────────────────
+  const intentRows = db.prepare(
+    `SELECT COALESCE(data_domain, 'unspecified') as domain, COUNT(*) as n
+     FROM delegated_keys WHERE active = 1 GROUP BY domain`
+  ).all() as { domain: string; n: number }[];
+  const intentDistribution: Record<string, number> = {};
+  for (const row of intentRows) intentDistribution[row.domain] = row.n;
+
+  return {
+    protocol: 'soma-delegation/0.1',
+    generated_at: new Date().toISOString(),
+    totals: {
+      active_delegations: active,
+      revoked_all_time: revoked,
+      max_depth_observed: maxDepth,
+      chains_depth_gte_2: deepChains,
+    },
+    depth_distribution: depthDistribution,
+    fanout: {
+      parents_with_children: parentsWithChildren,
+      avg_children_per_parent: avgChildren,
+      max_children_per_parent: maxChildren,
+    },
+    window_24h: {
+      created: created24h,
+      cascade_revokes: cascadeRows.length,
+      cascade_total_revoked: cascadeTotal,
+      scope_violations: scope24h,
+    },
+    intent_distribution: intentDistribution,
+  };
+}
+
 export function incrementDelegatedSpend(childKey: string, amount: number): boolean {
   const result = getDb()
     .prepare(

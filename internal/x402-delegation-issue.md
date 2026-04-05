@@ -12,6 +12,12 @@
 > (3) publicly-accessible metrics page showing chain counts + revocation latency.
 > Proposing a spec is weak. Proposing a spec + "here are N production chains
 > enforcing it, here's the dashboard" is the adoption pitch.
+>
+> **Metrics endpoint wired (2026-04-05):** `GET /v1/stats/delegation` returns
+> active chain count, depth distribution, fanout, 24h cascade-revoke count, 24h
+> `SCOPE_VIOLATION` rejection rate, and intent-distribution breakdown. This is
+> the evidence URL to embed when filing. Blocker is now real multi-agent traffic
+> (dogfooding), not tooling.
 
 ---
 

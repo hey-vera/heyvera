@@ -19,6 +19,7 @@ import {
   revokeDelegatedKey,
   getDelegationInfo,
   getDelegationChain,
+  getDelegationMetrics,
 } from '../../src/db/index';
 import { buildDelegationChainHeaders } from '../../src/utils/billing';
 
@@ -29,6 +30,7 @@ beforeAll(() => {
 beforeEach(() => {
   getTestDb().prepare('DELETE FROM delegated_keys').run();
   getTestDb().prepare('DELETE FROM api_keys').run();
+  getTestDb().prepare('DELETE FROM audit_log').run();
 });
 
 describe('Soma Delegation v0.1 — backward compat', () => {
@@ -347,5 +349,93 @@ describe('Soma Delegation v0.1 — chain response headers', () => {
     expect(chainParts.length).toBe(3);
     // No intent set → header should be absent
     expect(headers!['X-Soma-Delegation-Intent']).toBeUndefined();
+  });
+});
+
+describe('Soma Delegation v0.1 — metrics', () => {
+  it('returns zeroed metrics on an empty table', () => {
+    const m = getDelegationMetrics();
+    expect(m.protocol).toBe('soma-delegation/0.1');
+    expect(m.totals.active_delegations).toBe(0);
+    expect(m.totals.revoked_all_time).toBe(0);
+    expect(m.totals.max_depth_observed).toBe(0);
+    expect(m.totals.chains_depth_gte_2).toBe(0);
+    expect(m.depth_distribution).toEqual({});
+    expect(m.fanout.parents_with_children).toBe(0);
+    expect(m.window_24h.created).toBe(0);
+    expect(m.window_24h.cascade_revokes).toBe(0);
+    expect(m.window_24h.scope_violations).toBe(0);
+  });
+
+  it('counts active delegations + depth distribution', () => {
+    const { key: root } = seedApiKey(getTestDb(), { credits: 10_000 });
+    createDelegatedKey({ parentKey: root, spendLimit: 100, maxDepth: 2, branchSpendLimit: 50 });
+    const r1 = createDelegatedKey({ parentKey: root, spendLimit: 100, maxDepth: 2, branchSpendLimit: 50 });
+    createDelegatedKey({ parentKey: r1.childKey!, spendLimit: 40, maxDepth: 1 });
+
+    const m = getDelegationMetrics();
+    expect(m.totals.active_delegations).toBe(3);
+    expect(m.totals.max_depth_observed).toBe(1);
+    expect(m.depth_distribution['0']).toBe(2);
+    expect(m.depth_distribution['1']).toBe(1);
+    // root has 2 children, r1 has 1
+    expect(m.fanout.parents_with_children).toBe(2);
+    expect(m.fanout.max_children_per_parent).toBe(2);
+  });
+
+  it('counts chains_depth_gte_2 once depth≥2 key exists', () => {
+    const { key: root } = seedApiKey(getTestDb(), { credits: 10_000 });
+    const r1 = createDelegatedKey({ parentKey: root, spendLimit: 1000, maxDepth: 3, branchSpendLimit: 500 });
+    const r2 = createDelegatedKey({ parentKey: r1.childKey!, spendLimit: 400, maxDepth: 2, branchSpendLimit: 200 });
+    createDelegatedKey({ parentKey: r2.childKey!, spendLimit: 100, maxDepth: 1 });
+
+    const m = getDelegationMetrics();
+    expect(m.totals.max_depth_observed).toBe(2);
+    expect(m.totals.chains_depth_gte_2).toBe(1);
+  });
+
+  it('counts cascade revoke + revoked_all_time in 24h window', () => {
+    const { key: root } = seedApiKey(getTestDb(), { credits: 10_000 });
+    const r1 = createDelegatedKey({ parentKey: root, spendLimit: 1000, maxDepth: 2, branchSpendLimit: 500 });
+    createDelegatedKey({ parentKey: r1.childKey!, spendLimit: 100, maxDepth: 1 });
+    createDelegatedKey({ parentKey: r1.childKey!, spendLimit: 100, maxDepth: 1 });
+
+    const rev = revokeDelegatedKey(root, r1.childKey!);
+    expect(rev.ok).toBe(true);
+    expect(rev.revokedCount).toBe(3); // r1 + 2 grandchildren
+
+    const m = getDelegationMetrics();
+    expect(m.totals.active_delegations).toBe(0);
+    expect(m.totals.revoked_all_time).toBe(3);
+    expect(m.window_24h.cascade_revokes).toBe(1);
+    expect(m.window_24h.cascade_total_revoked).toBe(3);
+  });
+
+  it('tracks intent_distribution by data_domain', () => {
+    const { key: root } = seedApiKey(getTestDb(), { credits: 10_000 });
+    createDelegatedKey({ parentKey: root, spendLimit: 50, dataDomain: 'public-chain-data' });
+    createDelegatedKey({ parentKey: root, spendLimit: 50, dataDomain: 'public-chain-data' });
+    createDelegatedKey({ parentKey: root, spendLimit: 50, dataDomain: 'model-output' });
+    createDelegatedKey({ parentKey: root, spendLimit: 50 });
+
+    const m = getDelegationMetrics();
+    expect(m.intent_distribution['public-chain-data']).toBe(2);
+    expect(m.intent_distribution['model-output']).toBe(1);
+    expect(m.intent_distribution['unspecified']).toBe(1);
+  });
+
+  it('counts scope_violations from audit_log', () => {
+    const db = getTestDb();
+    const { key: root } = seedApiKey(db, { credits: 5000 });
+    const r = createDelegatedKey({ parentKey: root, spendLimit: 100 });
+    // Simulate a SCOPE_VIOLATION audit log entry (what endpoints.ts writes).
+    db.prepare(
+      `INSERT INTO audit_log (id, entity_type, entity_id, action, actor_id, data_json)
+       VALUES (?, 'delegated_key', ?, 'DELEGATE_SCOPE_REJECT', ?, ?)`
+    ).run('aud_' + Math.random().toString(36).slice(2, 10), r.childKey!, r.childKey!,
+      JSON.stringify({ endpointId: 'helius.rpc.getBalance', method: 'POST' }));
+
+    const m = getDelegationMetrics();
+    expect(m.window_24h.scope_violations).toBe(1);
   });
 });

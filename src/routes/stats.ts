@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { getDb, getDbStats, getActiveUserCount, getRevenueBreakdown, getReputationAnchors, getReputationAnchor, verifyReputationAnchor } from '../db/index';
+import { getDb, getDbStats, getActiveUserCount, getRevenueBreakdown, getReputationAnchors, getReputationAnchor, verifyReputationAnchor, getDelegationMetrics } from '../db/index';
 import { apiRegistry, getRegistryStats } from '../config/api-registry';
 import { getLastDiscoveryResult } from '../core/endpoint-discovery';
 import { round6 } from '../core/credits';
@@ -411,6 +411,16 @@ statsRouter.get('/reputation/verify/:anchorId', (c) => {
     skillId: anchor.skill_id,
     createdAt: anchor.created_at,
   });
+});
+
+// ─── Soma Delegation Metrics ─────────────────────────────────────────────────
+// Public — no auth required. Publishes aggregate counts only (no keys).
+// This is the evidence endpoint cited in internal/x402-delegation-issue.md:
+// before filing the x402 extension we want a live dashboard link showing
+// real multi-agent chains + cascade revokes enforced in production.
+
+statsRouter.get('/delegation', (c) => {
+  return c.json(getDelegationMetrics());
 });
 
 export { statsRouter };

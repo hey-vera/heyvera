@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { apiRegistry, findEndpoint } from '../config/api-registry';
 import { getCircuitStats, isEndpointAvailable } from '../core/circuit-breaker';
-import { getDb } from '../db/connection';
+import { getDb, logAudit } from '../db/connection';
 import { creditCostForEndpoint, round6, cacheCreditCost } from '../core/credits';
 import { isClawApisReady, clawApiCall, getLastBirthCertificate } from '../providers/clawapis';
 import { cacheKey, smartCacheGet, smartCacheSet, cacheNegative, getNegativeCache, coalesceRequest, type CacheFreshness } from '../cache/index';
@@ -217,6 +217,17 @@ endpointsRouter.post('/:id/call', async (c) => {
   const delegationScope = checkDelegationScope(c, endpointId, 'POST');
   if (!delegationScope.allowed) {
     c.header('X-Soma-Delegation-Error', delegationScope.code || 'SCOPE_VIOLATION');
+    // Audit-log the rejection so getDelegationMetrics() can count it.
+    const rejectedKey = c.get('apiKeyInfo')?.key;
+    if (rejectedKey) {
+      logAudit({
+        entityType: 'delegated_key',
+        entityId: rejectedKey,
+        action: 'DELEGATE_SCOPE_REJECT',
+        actorId: rejectedKey,
+        data: { endpointId, method: 'POST', reason: delegationScope.reason },
+      });
+    }
     return c.json({ requestId, error: delegationScope.reason, code: delegationScope.code || 'SCOPE_VIOLATION' }, 403);
   }
 
