@@ -195,7 +195,13 @@ export async function batchTimestamp(uids: string[]): Promise<string | null> {
     const tx = await eas.multiTimestamp(uids);
     await tx.wait();
     return tx.receipt?.hash ?? null;
-  } catch (err) {
+  } catch (err: any) {
+    // AlreadyTimestamped (0x2e267946) means the UIDs are already on-chain —
+    // return sentinel so callers can mark receipts anchored without a fresh tx hash.
+    if (err?.data === '0x2e267946' || String(err).includes('AlreadyTimestamped') || String(err).includes('2e267946')) {
+      console.warn('[EAS] Batch already timestamped on-chain — UIDs were previously anchored');
+      return 'already-timestamped';
+    }
     console.error('[EAS] Batch timestamp failed:', err);
     return null;
   }
@@ -213,7 +219,11 @@ export async function timestampSingle(uid: string): Promise<string | null> {
     const tx = await eas.timestamp(uid);
     await tx.wait();
     return tx.receipt?.hash ?? null;
-  } catch (err) {
+  } catch (err: any) {
+    if (err?.data === '0x2e267946' || String(err).includes('AlreadyTimestamped') || String(err).includes('2e267946')) {
+      console.warn('[EAS] UID already timestamped on-chain');
+      return 'already-timestamped';
+    }
     console.error('[EAS] Timestamp failed:', err);
     return null;
   }
