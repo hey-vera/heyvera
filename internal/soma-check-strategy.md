@@ -152,28 +152,35 @@ After Path A proves savings, pitch: "add the middleware to clawapis.com directly
 - Write onboarding ladder + billing + header specs
 - Add Soma Protocol Stack reference to groundbreaking-extensions.md
 
-**Phase 1 (dogfood, 2-3 days):**
-- Scaffold 6 free-API reference endpoints
-- Build shadow middleware + telemetry
-- 72h internal shadow run
-- Publish internal savings numbers
+**Phase 1 (dogfood) — SHIPPED 2026-04-05 (commit `27eb8e3`):**
+- ✓ Migration 147: `soma_check_events` table + 3 indexes
+- ✓ `src/core/soma-check-billing.ts` — rail-agnostic split calculator
+- ✓ `src/db/soma-check.ts` — telemetry logger + stats aggregation
+- ✓ `GET /v1/soma/check/stats[/:endpointId]` — dashboard data
+- ✓ `GET /v1/soma/demo/*` — 6 free-API reference endpoints with standard ETag + X-Soma-* headers + 304 on match
+- ✓ Telemetry wired into `POST /v1/endpoints/:id/call` at all three branches
+- Open: 72h shadow run on VPS, publish internal savings numbers
 
-**Phase 2 (clawapis, 3-5 days after Phase 1):**
-- Enable shadow on clawapis-registered endpoints
-- Build savings dashboard
-- 14-day silent telemetry
-- Export + pitch
+**Phase 2 (clawapis, next):**
+- Provider-facing savings dashboard UI under `site/` (consumes `/v1/soma/check/stats`)
+- Enable shadow on clawapis-registered endpoints (Path A stays proxy-side, zero provider effort)
+- 14-day silent telemetry window
+- Export CSV + "you would have saved $X" pitch packet
+- Tier 1 (Passive) upgrade path: direct provider ETag stamping, still matches 90/10
+- Add demo endpoints to `docs/architecture.md` catalog
 
 **Phase 3 (ecosystem, parallel + after):**
-- Public case study
-- Submit x402 spec extension
-- Outreach to Helius, x.com, next 3-5 providers
-- Ship `@clawnet/soma-check` npm package
+- Public case study (first real provider savings numbers)
+- Submit x402 spec extension / contribute to Linux Foundation x402 WG
+- Outreach: Helius, x.com, next 3-5 providers
+- Ship `@clawnet/soma-check` npm package (client helper: automatic ETag caching, If-None-Match on every call)
+- Blog post + example repo
 
 **Phase 4 (monetization):**
-- Champion Tier activation + dashboard
+- Champion Tier activation + dashboard (95/5 upgrade)
 - Agent SDK auto-injection in `@clawnet/mcp`
-- Security audit of hash layer
+- Security audit of hash layer (replay windows, signature spoofing, JCS edge cases)
+- Signed responses (`X-Soma-Signer` + `X-Soma-Signature`) on origin calls — ties Check to Identity layer
 
 ---
 

@@ -112,11 +112,19 @@ First conditional payment protocol for APIs. Agents check a content hash before 
 ```
 
 **Key files:**
-- `src/routes/endpoints.ts` — `GET /:id/check` (free hash probe), `If-Soma-Hash` header on `POST /:id/call`
+- `src/routes/endpoints.ts` — `GET /:id/check` (free hash probe), `If-Soma-Hash` header on `POST /:id/call`, telemetry hooks
+- `src/routes/soma-check.ts` — `GET /v1/soma/check/stats[/:endpointId]` savings dashboard
+- `src/routes/soma-demo.ts` — 6 free public-API reference endpoints (`GET /v1/soma/demo/*`) emitting standard `ETag` + `X-Soma-*` headers + 304 on match
+- `src/core/soma-check-billing.ts` — rail-agnostic split calculator (90/10 tiers 0-2, 95/5 Champion)
+- `src/db/soma-check.ts` — `logSomaCheckEvent` + per-endpoint aggregation
 - `src/core/cache-certificate.ts` — `getCacheHashInfo()` lightweight hash lookup
 - `src/core/provider-cache-warm-cron.ts` — Soma Check hash comparison skips re-cache on unchanged data
 
-**Response headers:** All endpoint responses include `X-Soma-Hash` (data content hash) and `X-Soma-Protocol: Soma Check/1.0`. Agents store the hash and send it as `If-Soma-Hash` on subsequent requests.
+**Response headers:** All endpoint responses include `X-Soma-Hash` (data content hash) and `X-Soma-Protocol: Soma Check/1.0`. Agents store the hash and send it as `If-Soma-Hash` on subsequent requests. Demo endpoints also emit standard `ETag` + `Cache-Control` per RFC 9111 for off-the-shelf HTTP client compatibility.
+
+**Telemetry:** Every call logs a row to `soma_check_events` (migration 147) recording hash, would-have-hit (shadow projection), was-hit (actual), origin/hit prices, rail, tier. Dashboard aggregates at `/v1/soma/check/stats`.
+
+**Canonical specs:** `internal/soma-check-strategy.md`, `internal/soma-check-billing.md`, `internal/soma-check-header-spec.md`, `internal/soma-onboarding-ladder.md`.
 
 **Why it's in Soma:** The hash that enables conditional payments IS the same hash that proves data provenance. One primitive, two capabilities. No other protocol has this — x402, ACP, AP2, L402 all charge unconditionally.
 
