@@ -117,6 +117,21 @@ const envSchema = z.object({
     z.boolean().default(false),
   ),
 
+  // zauth discovery cron — DEPRECATED: zauthx402.com/api/* returns 404 (verified 2026-04-05).
+  // Leave off until zauth ships a real public consumer API. Replace with x402scan below.
+  ZAUTH_DISCOVERY_ENABLED: z.preprocess(
+    (v) => v === 'true' || v === '1' || v === true,
+    z.boolean().default(false),
+  ),
+
+  // x402scan discovery cron — real x402 explorer by Merit Systems. Public API at
+  // www.x402scan.com/api/x402/resources requires x402 payment ($0.01/call). Off
+  // until wallet-signing infra is wired. See src/core/x402scan-discovery.ts.
+  X402SCAN_DISCOVERY_ENABLED: z.preprocess(
+    (v) => v === 'true' || v === '1' || v === true,
+    z.boolean().default(false),
+  ),
+
   // Merkle root anchoring — on-chain attestation proofs (opt-in, costs SOL per anchor)
   MERKLE_ANCHOR_ENABLED: z.preprocess(
     (v) => v === 'true' || v === '1' || v === true,

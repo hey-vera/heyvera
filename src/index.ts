@@ -89,6 +89,7 @@ import { startIndexSync } from './core/index-sync';
 import { startSomaAnchorCron } from './core/soma-anchor-cron';
 import { startEasAnchorCron } from './core/eas-anchor-cron';
 import { startZauthDiscovery } from './core/zauth-discovery';
+import { startX402scanDiscovery } from './core/x402scan-discovery';
 import { providersRouter } from './routes/providers';
 import { somaRouter } from './routes/soma';
 import somaCheckRouter from './routes/soma-check';
@@ -495,6 +496,7 @@ async function start() {
   startSomaAnchorCron();             cronsStarted++;
   startEasAnchorCron();              cronsStarted++;
   startZauthDiscovery();             cronsStarted++;
+  startX402scanDiscovery();          cronsStarted++;
   startCanaryCron();               cronsStarted++;
   startTrustDecayCron();           cronsStarted++;
 

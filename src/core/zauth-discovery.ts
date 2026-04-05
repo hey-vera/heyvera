@@ -1,18 +1,21 @@
 /**
- * Zauth Auto-Discovery — discovers verified x402 endpoints from zauth's
- * live verification database.
+ * Zauth Auto-Discovery — DEPRECATED as of 2026-04-05.
  *
- * Zauth (zauthx402.com) continuously tests x402 endpoints with real agents
- * and maintains a live database of endpoint status (WORKING/FAILING/FLAKY).
+ * zauthx402.com's public REST API at /api/services|endpoints|directory|verify
+ * returns HTTP 404 — verified directly against their live Next.js site. They
+ * never shipped a public consumer API; their only real product is an inbound
+ * provider SDK (`@zauthx402/sdk` on npm) that collects telemetry FROM providers.
  *
- * This cron:
- *   1. Queries zauth's REST API for verified endpoints
- *   2. Filters to WORKING status only
- *   3. Merges into ClawNet's indexed_endpoints table
- *   4. Optionally pre-screens endpoints before spending credits
+ * Cron is now env-flagged OFF by default (`ZAUTH_DISCOVERY_ENABLED=false`).
+ * This file is kept for partnership restoration — if zauth ships a real
+ * public API, flip the flag. Meanwhile discovery is being pivoted to x402scan
+ * (see src/core/x402scan-discovery.ts).
  *
- * Runs every 4 hours alongside ClawAPIs discovery and index-sync.
- * Source tag: 'zauth' in indexed_endpoints table.
+ * Original design:
+ *   1. Query zauth REST API for verified endpoints
+ *   2. Filter to WORKING status only
+ *   3. Merge into ClawNet's indexed_endpoints (source='zauth')
+ *   4. Optionally pre-screen endpoints before spending credits
  */
 
 import { env } from '../config/index';
@@ -236,6 +239,12 @@ export async function runZauthDiscovery(): Promise<void> {
 // ─── Cron ────────────────────────────────────────────────────────────────────
 
 export function startZauthDiscovery(): void {
+  // Flag-gated: DEPRECATED until zauth ships a real public consumer API.
+  if (!env.ZAUTH_DISCOVERY_ENABLED) {
+    logger.info('Zauth discovery cron skipped (ZAUTH_DISCOVERY_ENABLED=false, deprecated — see x402scan-discovery)');
+    return;
+  }
+
   // Initial run after 60s (after other discovery crons have settled)
   setTimeout(() => {
     runZauthDiscovery().catch(err => logger.error({ err }, 'Zauth initial discovery failed'));
@@ -245,7 +254,7 @@ export function startZauthDiscovery(): void {
     runZauthDiscovery().catch(err => logger.error({ err }, 'Zauth discovery cron failed'));
   }, ZAUTH_DISCOVERY_INTERVAL);
 
-  logger.info({ intervalMs: ZAUTH_DISCOVERY_INTERVAL }, 'Zauth discovery cron started');
+  logger.warn({ intervalMs: ZAUTH_DISCOVERY_INTERVAL }, 'Zauth discovery cron started (DEPRECATED — zauthx402.com/api returns 404)');
 }
 
 export function stopZauthDiscovery(): void {
