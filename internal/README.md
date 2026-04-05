@@ -39,7 +39,7 @@ If a doc needs to grow into multiple files, make a subdirectory (e.g. `internal/
 **Soma broader:**
 - `cache-layers-distinction.md` — ClawNet L1/L2 cache vs Soma Check (CRITICAL: do not conflate)
 - `funds-flow.md` — how money reaches providers + "is 10% sketchy?" professionalism analysis
-- `groundbreaking-extensions.md` — extension ideas (Bazaar, transitive trust, 9.5, etc.)
+- `groundbreaking-extensions.md` — extension ideas (Vouch origin spec §9.5, transitive trust, etc.)
 - `proof-of-delivery-roadmap.md` — Receipt Layer 5-phase plan
 - `scale-test-plan.md` — Soma scale test sequencing (blocks Receipt Layer)
 - `soma-future-proofing.md` — pause-and-resume strategy

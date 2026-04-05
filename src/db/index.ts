@@ -30,3 +30,4 @@ export * from './soma-verdicts';
 export * from './providers';
 export * from './promo-codes';
 export * from './soma-check';
+export * from './vouch';

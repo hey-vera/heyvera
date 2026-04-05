@@ -52,10 +52,10 @@ Immediate targets:
 | Category definition | First conditional-payment protocol for paid APIs |
 | Protocol ownership | Soma spec lives with us; reference impl is ours |
 | Data flywheel | See hit rates across 14k+ endpoints in registry |
-| Network effects | Every enabled endpoint makes Soma Bazaar more valuable |
+| Network effects | Every enabled endpoint makes Soma Vouch more valuable |
 | Trust anchor | Soma cert chain backs the hash — "server can't lie about unchanged" |
 | Revenue (direct) | 10% share of hit price = 1% of origin at scale |
-| Revenue (indirect) | Hit traffic drives agents into Bazaar + Identity + Receipt layers |
+| Revenue (indirect) | Hit traffic drives agents into Vouch + Identity + Receipt layers |
 | Spec leverage | Submit to Linux Foundation alongside x402 V2 |
 
 ---
@@ -79,7 +79,7 @@ Immediate targets:
 
 **Rail-agnostic:** same ratios apply to credits, x402 USDC, future Stripe integrations. Split logic lives in ClawNet's x402 facilitator + credit settlement module.
 
-**Scale math:** 100M calls/day, 50% cache-hit rate, $0.01 avg origin → ClawNet earns $55K/day from Soma Check alone (most from origin share; hit-layer adds $5K/day). Combined with other 4 Soma layers (Bazaar listing, Identity certification, Receipt anchoring, Pay facilitation) → sustainable at scale.
+**Scale math:** 100M calls/day, 50% cache-hit rate, $0.01 avg origin → ClawNet earns $55K/day from Soma Check alone (most from origin share; hit-layer adds $5K/day). Combined with other 4 Soma layers (Vouch listing, Identity certification, Receipt anchoring, Pay facilitation) → sustainable at scale.
 
 Full spec: `internal/soma-check-billing.md`.
 
@@ -91,7 +91,7 @@ Full spec: `internal/soma-check-billing.md`.
 |---|---|---|---|---|
 | **0. Shadow** | None (ClawNet proxy runs middleware) | Zero | 90/90 (same as origin) | Savings dashboard only |
 | **1. Passive** | Flip flag on ClawNet side | Only opt-in clients see 304s | 90/90 | Revenue from cache hits |
-| **2. Verified** | Generate Soma heart, sign responses | Invisible (header-only) | 90/90 | Soma Bazaar listing + trust badge |
+| **2. Verified** | Generate Soma heart, sign responses | Invisible (header-only) | 90/90 | Soma Vouch listing + trust badge |
 | **3. Champion** | Volume + referrals + case study | Invisible | 90/95 | Priority ranking + co-marketing + kickbacks |
 
 Full spec: `internal/soma-onboarding-ladder.md`.
@@ -104,7 +104,7 @@ Full spec: `internal/soma-onboarding-ladder.md`.
 2. **Soma cert chain** — cryptographic provenance on every hash. Competitors can copy headers; they can't copy the identity layer.
 3. **Distribution moat** — 14k+ endpoints already in ClawNet registry get hashes via certified cache layer.
 4. **Rail-agnostic** — works with credits, x402, Stripe. Not locked to any payment ecosystem.
-5. **5-layer flywheel** — Check → Identity → Bazaar → Pay → Receipt. Each layer pulls adopters into the next.
+5. **5-layer flywheel** — Check → Identity → Vouch → Pay → Receipt. Each layer pulls adopters into the next.
 6. **x402 alignment** — submit as x402 extension. Even if Coinbase rejects, we're "the team that proposed conditional payment to x402."
 
 **Defensive actions:**
@@ -189,7 +189,7 @@ After Path A proves savings, pitch: "add the middleware to clawapis.com directly
 | Model | Mechanism | Who pays |
 |---|---|---|
 | **Hit share** (primary) | 10% share of every cache-hit settlement | Agent (via hit price) |
-| **Bazaar listing** | $X/mo for premium placement | Provider |
+| **Vouch listing** | $X/mo for premium placement | Provider |
 | **Champion Tier invite** | Earned via volume/referrals, no fee | — |
 | **Analytics API** | $Z/mo for hit-rate + freshness data | Provider/agent |
 | **Soma Identity certification** | Per-endpoint fee for verified cert | Provider |
@@ -227,6 +227,6 @@ Clawapis + first 3-5 adopters = free forever (reference customers).
 - `internal/soma-onboarding-ladder.md` — 4-tier provider migration spec
 - `internal/soma-check-billing.md` — billing math + scale projections
 - `internal/soma-check-header-spec.md` — HTTP header contract
-- `internal/groundbreaking-extensions.md` — full Soma stack (Ext 9.5 Soma Bazaar)
+- `internal/groundbreaking-extensions.md` — full Soma stack (Ext 9.5 Soma Vouch origin spec)
 - `internal/scale-test-plan.md` — blocks identity layer, orthogonal to Soma Check
 - `internal/brainstorm.md` — running log

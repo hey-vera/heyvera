@@ -66,7 +66,7 @@
 - Real-world validation of the billing model
 - Bandwidth/egress savings
 
-**Exit criteria to Tier 2:** provider wants identity verification + Bazaar listing boost.
+**Exit criteria to Tier 2:** provider wants identity verification + Vouch listing boost.
 
 ---
 
@@ -82,13 +82,13 @@
 
 **What provider gets:**
 - "Soma Verified" badge (visual distinction)
-- Priority ranking in Soma Bazaar discovery
+- Priority ranking in Soma Vouch discovery
 - Trust propagation — agents can pass verified attestations to peers
 - Access to Soma Identity layer APIs (selective disclosure, delegation)
 
 **What ClawNet gets:**
 - Identity layer adoption (feeds the 5-layer flywheel)
-- Soma Bazaar grows in verified-provider count
+- Soma Vouch grows in verified-provider count
 - Provider stickiness increases
 
 **Exit criteria to Tier 3:** provider achieves volume thresholds + refers peers.
@@ -106,7 +106,7 @@
 **Billing:** Cache hit split shifts to **95/5** (provider/ClawNet). Provider earns 9.5% of origin per cache hit (vs 9% at Tier 2).
 
 **What provider gets:**
-- Top placement in Soma Bazaar
+- Top placement in Soma Vouch
 - Co-branded case study on soma.dev
 - Referral kickbacks (% of first-year revenue from referred providers)
 - Early access to new Soma layers
@@ -178,7 +178,7 @@
 | Projected hit rate | ✓ | — | — | — |
 | Actual hit rate | — | ✓ | ✓ | ✓ |
 | Revenue from hits | — | ✓ | ✓ | ✓ |
-| Bazaar rank | — | — | ✓ | ✓ priority |
+| Vouch rank | — | — | ✓ | ✓ priority |
 | Referred providers | — | — | — | ✓ |
 | Co-marketing exposure | — | — | — | ✓ |
 

@@ -101,7 +101,7 @@ Rejected alternatives:
 
 ClawNet from Soma Check alone: **$550,000/day** (~$200M/year).
 
-**Important:** this is ONLY the Soma Check layer. Revenue from other 4 Soma layers (Bazaar listings, Identity certification, Receipt anchoring, Pay facilitation fees) stacks on top.
+**Important:** this is ONLY the Soma Check layer. Revenue from other 4 Soma layers (Vouch listings, Identity certification, Receipt anchoring, Pay facilitation fees) stacks on top.
 
 ---
 
@@ -131,9 +131,9 @@ Criteria (ALL required):
 Benefits:
 - 95/5 split on cache hits (provider gets 9.5% of origin vs 9%)
 - Referral kickback: 5% of first-year Soma Check revenue from providers they referred
-- Top-3 placement in Soma Bazaar for their category
+- Top-3 placement in Soma Vouch for their category
 - Co-branded content on soma.dev
-- Early access to Soma layer releases (Bazaar, Receipts, etc.)
+- Early access to Soma layer releases (Vouch, Receipts, etc.)
 
 Revocation: Champion status drops to Tier 2 if volume falls below 50K/month for 2 consecutive months. No penalty beyond the tier change.
 

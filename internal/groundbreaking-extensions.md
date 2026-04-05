@@ -4,7 +4,7 @@
 
 **Written 2026-04-04, updated 2026-04-05.** Intended to be pickable months later without re-deriving context.
 
-**Protocol framing (2026-04-05):** Soma is a 5-layer open protocol (Bazaar, Check, Pay, Identity, Receipt). ClawNet is its reference implementation + premium platform. See `soma-check-strategy.md` for the top-level framing and layer breakdown.
+**Protocol framing (2026-04-05):** Soma is a 5-layer open protocol (Vouch, Check, Pay, Identity, Receipt). ClawNet is its reference implementation + premium platform. See `soma-check-strategy.md` for the top-level framing and layer breakdown.
 
 ---
 
@@ -275,11 +275,11 @@ Old receipts must remain verifiable in 10, 20, 50 years — even after quantum c
 
 ---
 
-### Extension 9.5: Soma Bazaar — verifiable discovery + transitive trust
+### Extension 9.5: Soma Vouch — verifiable discovery + transitive trust
 
-**Written 2026-04-05.** Inspired by x402's viral rail-propagation mechanic (0xJeff, March 2026): agents discover each other via MCP bazaar, pay via HTTP 402, auto-install each other's payment rails — trust and tooling spread like a virus.
+**Written 2026-04-05** (renamed from Soma Bazaar 2026-04-05 to position as the trust-attestation layer on top of any directory, not a competing marketplace). Inspired by x402's viral rail-propagation mechanic (0xJeff, March 2026): agents discover each other via MCP bazaar, pay via HTTP 402, auto-install each other's payment rails — trust and tooling spread like a virus.
 
-**Problem solved:** x402 Bazaar lists paid endpoints but has no identity guarantee. MCP bazaars list tools but no payment or continuity proof. Nobody bundles *discovery + identity + conditional payment* into one lookup.
+**Problem solved:** x402 Bazaar, MCP bazaars, and A2A agent-cards all list endpoints but none guarantee identity, continuity, or trust. Nobody bundles *discovery + identity + conditional payment* into one lookup. Vouch is the trust layer that consumes any of these directories and answers "which of these should I actually pay?"
 
 **Design:** superset of x402 Bazaar. Every entry carries two optional fields (`soma_heart_url`, `last_cert_hash`) that make it backwards-compatible — legacy x402 clients ignore them, Soma-aware clients get three extra layers.
 
@@ -295,7 +295,7 @@ Old receipts must remain verifiable in 10, 20, 50 years — even after quantum c
    Hearts announce cert rotations to a gossipsub topic. Observers subscribe instead of polling. Push-based discovery. Converts the x402 ETag conditional-GET pattern into a push channel for identity changes.
 
 4. **Reputation-weighted ranking**
-   Bazaar sorts entries by `(uptime × verified-observer-count × attestation-age × slash-history)`. Merges with Extension 6 (agent reputation). Turns discovery into a trust market.
+   Vouch sorts entries by `(uptime × verified-observer-count × attestation-age × slash-history)`. Merges with Extension 6 (agent reputation). Turns discovery into a trust market.
 
 **Positioning move:** submit a PR to the existing x402 Bazaar spec adding the two optional fields. If accepted → Soma embedded into the viral standard. If rejected → fork with "verified tier" story. Either outcome wins.
 
@@ -305,7 +305,7 @@ Old receipts must remain verifiable in 10, 20, 50 years — even after quantum c
 1. `/.well-known/soma-heart` manifest spec + reference server middleware
 2. `TrustAttestation` schema + sense-observer export hook
 3. libp2p gossipsub topic + subscribe SDK
-4. Bazaar listing schema PR to x402 Bazaar
+4. Vouch listing schema PR to x402 Bazaar (external directory)
 5. Ranking algorithm + public directory UI
 
 **Why A-tier (arguably S-tier):** fuses three primitives nobody else has bundled. Creates the discovery layer competitors must build through, not around. Viral adoption mechanic is proven (x402 did it for payment rails — we do it for trust).

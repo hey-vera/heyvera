@@ -16,7 +16,7 @@ This doc answers the question: **"Can ClawNet be the best Soma implementation fo
 | **Receipt** | 70% code / **0% live** | All crypto wired. Every anchor flag is OFF (`EAS_ANCHOR_ENABLED=false`, `PQ_SIGNATURES_ENABLED=false`, `ZKTLS_ENABLED=false`, `MERKLE_ANCHOR_ENABLED=false`). Zero on-chain attestations. |
 | **Check** | 65% code / **partial live** | Works on 6 demo endpoints. **Not** on the real proxy path `/v1/endpoints/:id/call`. Demo numbers are theatre. |
 | **Identity** | 40% | Heart initialized + signs. Sense verdict schema exists but `birth_certificates_valid`, `hmac_verified`, `heartbeat_chain_valid` flags stored without computation. |
-| **Bazaar** | 15% | `providers` table + `/.well-known/agent-card.json`. Zero ranking, zero discovery API, zero trust graph. |
+| **Vouch** | 60% | `providers` table + ranking + `/v1/soma/vouch/search` + A2A-compatible agent-card.json. MVP live. Transitive trust graph + verdict wiring pending. |
 
 **Honest headline:** ClawNet is a solid billing platform with Soma *hooks*. It is not yet running a 5-layer Soma stack in anger.
 
@@ -114,11 +114,11 @@ This doc answers the question: **"Can ClawNet be the best Soma implementation fo
 
 ---
 
-### Gap E — Bazaar ranking + discovery API
+### Gap E — Vouch ranking + discovery API ✓ MVP SHIPPED 2026-04-05
 
-**What:** `GET /v1/soma/bazaar/search?capability=X` returning endpoints ranked by verdict data + volume + tenure + transitive trust.
+**What:** `GET /v1/soma/vouch/search?capability=X` returning endpoints ranked by verdict data + volume + tenure + transitive trust.
 
-**Why critical:** **A2A Protocol (Google + Linux Foundation, 50+ partners including PayPal, Salesforce, MongoDB)** is Agent Cards = Bazaar equivalent. If A2A bolts payment routing on top, our discovery layer is commoditized. ([a2aproject/A2A](https://github.com/a2aproject/A2A))
+**Why critical:** **A2A Protocol (Google + Linux Foundation, 50+ partners including PayPal, Salesforce, MongoDB)**, MCP bazaar, and x402 self-propagation are all building agent discovery. Discovery is commodity; trust is moat. Vouch is the trust layer on top of any directory. ([a2aproject/A2A](https://github.com/a2aproject/A2A))
 
 **Current state:** `providers` table exists. Zero ranking, zero search, zero transitive traversal.
 
@@ -129,7 +129,7 @@ This doc answers the question: **"Can ClawNet be the best Soma implementation fo
 **Todos:**
 - [ ] Design ranking formula: `score = verdict_positive_ratio × volume_factor × tenure × freshness_factor`
 - [ ] Implement `GET /v1/soma/bazaar/search` with capability filter + ranked results
-- [ ] Add Bazaar tab to `site/soma-check.html` dashboard for provider discoverability
+- [ ] Add Vouch tab to `site/soma-check.html` dashboard for provider discoverability
 - [ ] Expose agent-card.json endpoint per-provider (A2A-compatible format)
 - [ ] Transitive trust v1: walk verdict graph 2 hops, weight by signer reputation
 - [ ] Cross-reference agent-card.json with A2A spec for interop
@@ -142,7 +142,7 @@ This doc answers the question: **"Can ClawNet be the best Soma implementation fo
 |---|---|---|---|
 | Trading bots (24/7 polling) | Conditional payment | Check | ✓ after Gap A |
 | AI coding assistants | Data provenance + spend caps | Identity + Pay | ~ partial |
-| Research/analyst agents | Citation attestations, transitive trust | Bazaar + Receipt | ✗ |
+| Research/analyst agents | Citation attestations, transitive trust | Vouch + Receipt | ✗ |
 | Real-time chat agents | Async/lazy receipt verification | Receipt (new mode) | ✗ |
 | Data pipeline agents | Batch Merkle manifest | Receipt (batch mode) | ~ code exists, off |
 | **Multi-agent swarms** | **Scoped delegation** | Pay + Identity (new) | ~ **our moat** |
@@ -151,7 +151,7 @@ This doc answers the question: **"Can ClawNet be the best Soma implementation fo
 | Enterprise SOC2/HIPAA | Immutable on-chain audit | Receipt | ✗ after Gap C |
 | Consumer privacy agents | Blind/ZK payments | Pay (new variant) | ✗ |
 | Agentic commerce | Escrow + dispute | Receipt + Pay | ~ escrow partial |
-| Red-team / bug-bounty | Attested intent at handshake | Bazaar + Identity | ✗ |
+| Red-team / bug-bounty | Attested intent at handshake | Vouch + Identity | ✗ |
 
 **Verdict:** after closing Gap A, we cover Scenario 1 at production quality. After Gaps A+B+C, we cover Scenarios 1, 6, 9 well. Everything else requires new layers or substantial new code.
 
@@ -171,7 +171,7 @@ This doc answers the question: **"Can ClawNet be the best Soma implementation fo
 
 ### Layer 6B — Intent Declaration (pre-transaction)
 
-**What:** Agent declares *why* it's calling + what it'll do with the data, signed and posted to Bazaar.
+**What:** Agent declares *why* it's calling + what it'll do with the data, signed and posted to Vouch.
 
 **Why:** Providers can price by intent (research vs. production), rate-limit adversarial use, distinguish legitimate bounty probing from APT exfiltration.
 
@@ -185,7 +185,7 @@ This doc answers the question: **"Can ClawNet be the best Soma implementation fo
 
 | Threat | What they do | Status | Our counter | Deadline |
 |---|---|---|---|---|
-| **A2A Protocol** (Google + LF) | Agent Cards, capability discovery | Already shipping, 50+ partners | Bazaar MVP with A2A-compatible agent-cards | Q2 2026 |
+| **A2A Protocol** (Google + LF) | Agent Cards, capability discovery | Already shipping, 50+ partners | Vouch MVP with A2A-compatible agent-cards | Q2 2026 |
 | **Mastercard Verifiable Intent** | Enterprise agent attestations | Jan 2026 launch | Flip `EAS_ANCHOR_ENABLED=true`, publish Receipt spec | Q2 2026 |
 | **IETF draft-klrc-aiagent-auth** | Agent auth/delegation | Draft pending adoption | Publish Soma Delegation Spec v0.1 | **8 weeks** |
 | **IETF draft-sharif-agent-payment-trust** | Payment trust attestations | Draft pending adoption | Link Soma Identity to this draft's terminology | Q3 2026 |
@@ -213,7 +213,7 @@ This doc answers the question: **"Can ClawNet be the best Soma implementation fo
 3. **Gap C activation** — flip `EAS_ANCHOR_ENABLED=true` (1 day + monitoring)
 
 ### Week 3-4 (high priority — P1)
-4. **Bazaar MVP ranking API** (1 week, uses existing tables)
+4. **Vouch MVP ranking API** (1 week, uses existing tables)
 5. **Delegation primitive code** — depth limits + cascade revoke (1-2 weeks)
 6. **Receipt async batch mode** — inline sign, hourly EAS batch (code exists, needs policy)
 

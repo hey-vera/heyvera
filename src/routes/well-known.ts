@@ -799,14 +799,15 @@ router.get('/soma-registration.json', (c) => {
   });
 });
 
-// ── GET /soma-heart — Soma Bazaar discovery manifest (Phase 1) ───────────
+// ── GET /soma-heart — Soma Vouch discovery manifest (Phase 1) ────────────
 // Public, unauthenticated. Lets peers discover identity + cert hash in one GET.
 // Pairs with If-Soma-Hash for conditional payment (x402 ETag). Entries that
-// opt into this manifest become eligible for Soma Bazaar listing (see
+// opt into this manifest become eligible for Soma Vouch listing (see
 // internal/groundbreaking-extensions.md Extension 9.5).
 //
-// Backwards-compatible with x402 Bazaar: consumers that only care about
-// price/capabilities can ignore the birth_cert + cert_hash fields.
+// Backwards-compatible with x402 Bazaar (Coinbase's external directory):
+// consumers that only care about price/capabilities can ignore the
+// birth_cert + cert_hash fields.
 router.get('/soma-heart', (c) => {
   const heart = getHeartSafe();
   if (!heart) {
@@ -817,7 +818,7 @@ router.get('/soma-heart', (c) => {
   if (certHash) c.header('ETag', `"${certHash}"`);
   return c.json({
     enabled: true,
-    protocol: 'soma-bazaar',
+    protocol: 'soma-vouch',
     version: '0.1.0',
     subject: 'did:web:api.claw-net.org',
     cert_hash: certHash,

@@ -32,7 +32,7 @@ ClawNet = **reference implementation of Soma + the agent economy built on top.**
 
 | Layer | Purpose | Status |
 |---|---|---|
-| **Bazaar** | Verifiable discovery + transitive trust | Design phase (extension 9.5 in groundbreaking-extensions.md) |
+| **Vouch** | Trust-weighted discovery (sits on top of any directory) | **MVP shipped** (2026-04-05) |
 | **Check** | Conditional payment via content-addressed hashing | **Phase 1 shipped** (2026-04-05) |
 | **Pay** | Rail-agnostic billing (credits / USDC / Stripe / SOL) | Shipped (rail abstraction in place) |
 | **Identity** | Heart + Sense verification | Heart live; Sense experimental |
@@ -191,18 +191,26 @@ ClawNet = **reference implementation of Soma + the agent economy built on top.**
 
 ---
 
-## 3.95 — Bazaar MVP (Gap E — P1, A2A defense)
+## 3.95 — Vouch MVP (Gap E — P1, A2A defense) ✓ MVP SHIPPED 2026-04-05
 
-**What:** `GET /v1/soma/bazaar/search?capability=X` returning endpoints ranked by verdict data + volume + tenure. A2A-compatible agent-card.json per provider.
+**What:** `GET /v1/soma/vouch/search` trust-weighted provider discovery. A2A-compatible agent-card.json per provider.
 
-**Why:** A2A Protocol (Google + Linux Foundation, 50+ partners) is building agent-card discovery right now. If A2A adds payment routing, our Bazaar layer is commoditized. **Differentiate on trust-weighted discovery** (we have `soma_verdicts`, A2A doesn't).
+**Why:** A2A Protocol (Google + LF, 50+ partners), MCP bazaar, and x402 self-propagation are all building agent discovery right now. Discovery is table-stakes; trust is the moat. Vouch sits on top of any directory (A2A/MCP/x402) and answers "which of these should I pay?" using signals they don't have (`soma_verdicts`, delegation lineage, Soma tier).
 
-**Todos:**
-- [ ] Design ranking formula using existing `providers` + `soma_verdicts` tables
-- [ ] Build search endpoint with capability filter
-- [ ] Add Bazaar tab to `site/soma-check.html`
-- [ ] Expose per-provider `agent-card.json` (A2A-interop format)
+**Phase 1 — MVP (SHIPPED 2026-04-05):**
+- [x] Ranking formula in `src/core/vouch-ranking.ts`: `(0.40*trust + 0.20*volume + 0.20*tenure + 0.10*freshness + 0.10*hits) * somaBonus` where bonus is 1.0/1.15/1.25/1.30 by tier
+- [x] Search query in `src/db/vouch.ts` filtering by q / category / verified / somaEnabled / minTier
+- [x] `GET /v1/soma/vouch/search` endpoint
+- [x] `GET /v1/soma/vouch/providers/:slug` detail endpoint
+- [x] `GET /v1/soma/vouch/providers/:slug/agent-card.json` — A2A schemaVersion 0.2 compatible with `x-vouch` extension fields
+- [x] 7 ranking tests (216/216 pass)
+
+**Phase 2 — enhancements (next):**
+- [ ] Add Vouch tab to `site/soma-check.html` (public browsing UI)
+- [ ] Wire verdict data from `soma_verdicts` into trust_score (currently a standalone column)
 - [ ] Transitive trust v1: 2-hop verdict graph walk, weight by signer reputation
+- [ ] Publish `/.well-known/agent-card.json` aggregate index pointing at all providers
+- [ ] Adapter endpoint: `POST /v1/soma/vouch/score` accepts external agent-card JSON, returns Vouch score — makes Vouch consumable from A2A/MCP/x402 directories
 
 ---
 
@@ -305,7 +313,7 @@ These are NOT yet on the build queue. They're the 10/10 expansion surface. Each 
 
 | Threat | What they do | Status | Our counter | Deadline |
 |---|---|---|---|---|
-| **A2A Protocol** (Google + LF, 50+ partners) | Agent Cards, capability discovery | Already shipping | Bazaar MVP with A2A-compatible agent-cards (§3.95) | Q2 2026 |
+| **A2A Protocol** (Google + LF, 50+ partners) | Agent Cards, capability discovery | Already shipping | Vouch MVP with A2A-compatible agent-cards (§3.95) | Q2 2026 |
 | **Mastercard Verifiable Intent** | Enterprise agent attestations | Jan 2026 launch | Flip EAS_ANCHOR_ENABLED=true, publish Receipt spec (§2.7) | Q2 2026 |
 | **IETF draft-klrc-aiagent-auth** | Agent auth/delegation | Draft pending adoption | Publish Soma Delegation Spec v0.1 (§3.9) | **8 weeks** |
 | **IETF draft-sharif-agent-payment-trust** | Payment trust attestations | Draft pending adoption | Link Soma Identity terminology to this draft | Q3 2026 |
@@ -380,7 +388,7 @@ Each `internal/*.md` file drills into specifics. This doc is the overview.
 - `internal/soma-check-header-spec.md` — header contract
 - `internal/cache-layers-distinction.md` — ClawNet L1/L2 cache vs Soma Check (critical distinction)
 - `internal/funds-flow.md` — how money actually reaches providers + "is 10% sketchy?" analysis
-- `internal/groundbreaking-extensions.md` — extension ideas (Bazaar, etc.)
+- `internal/groundbreaking-extensions.md` — extension ideas (Vouch origin spec as Extension 9.5, etc.)
 - `internal/proof-of-delivery-roadmap.md` — Receipt Layer 5-phase plan
 - `internal/scale-test-plan.md` — Soma scale test sequencing
 - `internal/soma-future-proofing.md` — pause-and-resume strategy
