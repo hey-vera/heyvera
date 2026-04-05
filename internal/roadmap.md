@@ -174,13 +174,19 @@ ClawNet = **reference implementation of Soma + the agent economy built on top.**
 
 **Why:** This is our biggest strategic whitespace. `trackDelegatedSpend()` is production code (2026-Q1) — no competitor has this. **IETF `draft-klrc-aiagent-auth-01` is standardizing agent auth NOW**. If adopted first, Soma Delegation becomes a ClawNet feature instead of the reference implementation of a standard. 8-week race.
 
-**Todos:**
-- [ ] Publish `soma-delegation-spec.md` to GitHub as separate repo
-- [ ] Ship migration 148: `depth`, `max_depth`, `branch_spend_cap_usd`, `intent_declaration`, `data_domain` columns on `delegation_keys`
-- [ ] Implement recursive cascade revoke in `src/db/delegation.ts`
-- [ ] Enforce scope narrowing at key-creation endpoint
+**Phase 1 — core DB + runtime (SHIPPED 2026-04-05):**
+- [x] Migration 149: `depth`, `max_depth`, `branch_spend_limit`, `intent_declaration`, `data_domain`, `scope_endpoints_glob`, `scope_methods_csv`, `revoked_at` columns on `delegated_keys` (correct table name)
+- [x] Recursive cascade revoke in `src/db/transfers.ts:revokeDelegatedKey()` — BFS subtree
+- [x] Depth + branch-cap + (conservative) scope-narrowing at creation time in `createDelegatedKey()`
+- [x] New v0.1 fields on `DelegatedKey` interface
+- [x] 7 new delegation tests (209/209 pass)
+
+**Phase 2 — publish + wire (next):**
+- [ ] Publish `soma-delegation-spec.md` to `github.com/1xmint/soma-delegation-spec` as separate public repo
+- [ ] Add POST /v1/delegation/keys route accepting v0.1 fields (currently `createDelegatedKey` is only called internally)
+- [ ] Parse `X-Soma-Delegation-Chain` + `X-Soma-Intent` request headers on the proxy path, enforce intent
 - [ ] Open issue on `coinbase/x402` proposing as x402 extension
-- [ ] Submit to IETF draft-klrc working group as reference implementation input
+- [ ] Submit to IETF draft-klrc working group as reference-implementation input
 - [ ] Reference client in `@clawnet/soma-delegation` npm package
 
 ---

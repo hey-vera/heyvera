@@ -1728,6 +1728,23 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 148, sql: `
     ALTER TABLE providers ADD COLUMN soma_check_tier INTEGER NOT NULL DEFAULT 0;
   ` },
+
+  // v149: Soma Delegation Spec v0.1 fields on delegated_keys.
+  // Adds depth/max_depth/branch_spend_limit/intent/scope for scoped multi-hop
+  // agent-to-agent delegation. Backward-compatible: existing rows default to
+  // depth=0, max_depth=0 (= current 1-hop behavior). See
+  // internal/soma-delegation-spec.md.
+  { version: 149, sql: `
+    ALTER TABLE delegated_keys ADD COLUMN depth INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE delegated_keys ADD COLUMN max_depth INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE delegated_keys ADD COLUMN branch_spend_limit REAL;
+    ALTER TABLE delegated_keys ADD COLUMN intent_declaration TEXT;
+    ALTER TABLE delegated_keys ADD COLUMN data_domain TEXT;
+    ALTER TABLE delegated_keys ADD COLUMN scope_endpoints_glob TEXT;
+    ALTER TABLE delegated_keys ADD COLUMN scope_methods_csv TEXT;
+    ALTER TABLE delegated_keys ADD COLUMN revoked_at TEXT;
+    CREATE INDEX IF NOT EXISTS idx_delegated_child ON delegated_keys(child_key);
+  ` },
 ];
 
 function runMigrations(): void {

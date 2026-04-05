@@ -163,6 +163,15 @@ export interface DelegatedKey {
   allowed_skills_json: string | null;
   allowed_providers_json: string | null;
   active_hours_json: string | null;
+  // v149: Soma Delegation Spec v0.1 fields
+  depth: number;
+  max_depth: number;
+  branch_spend_limit: number | null;
+  intent_declaration: string | null;
+  data_domain: string | null;
+  scope_endpoints_glob: string | null;
+  scope_methods_csv: string | null;
+  revoked_at: string | null;
 }
 
 export function createDelegatedKey(params: {
@@ -171,17 +180,64 @@ export function createDelegatedKey(params: {
   spendLimit: number;
   expiresInHours?: number;
   permissions?: string[];
+  // v149 Soma Delegation Spec v0.1 — all optional + backward compatible.
+  maxDepth?: number;                // how many further hops this child may delegate (default 0)
+  branchSpendLimit?: number;        // per-immediate-grandchild cap
+  intentDeclaration?: string;       // free-text "why does this agent exist"
+  dataDomain?: 'public-chain-data' | 'private-user-data' | 'model-output' | 'training-data' | 'other';
+  scopeEndpointsGlob?: string[];    // e.g. ["helius.rpc.*","claw.solscan.*"]
+  scopeMethodsCsv?: string;         // e.g. "GET,POST"
 }): { ok: boolean; childKey?: string; error?: string } {
   const db = getDb();
 
   if (params.spendLimit < 10) return { ok: false, error: 'Minimum spend limit is 10 credits' };
   if (params.spendLimit > 1_000_000) return { ok: false, error: 'Maximum spend limit is 1,000,000 credits' };
 
-  // Don't allow creating sub-keys from sub-keys (max 1 level deep)
-  const parentDelegation = db.prepare('SELECT 1 FROM delegated_keys WHERE child_key = ? AND active = 1').get(params.parentKey);
-  if (parentDelegation) return { ok: false, error: 'Cannot create sub-keys from a delegated key' };
+  // Depth-aware chain validation (Soma Delegation Spec §4.1/4.2).
+  // If the caller's key is itself a delegated key, enforce:
+  //   - parent.max_depth > 0  (parent allowed to delegate further)
+  //   - child scope ⊆ parent scope
+  //   - child spend_limit <= parent.branch_spend_limit (if set)
+  const parentDelegation = db.prepare(
+    'SELECT * FROM delegated_keys WHERE child_key = ? AND active = 1'
+  ).get(params.parentKey) as DelegatedKey | undefined;
 
-  // Get parent info
+  let childDepth = 0;
+  if (parentDelegation) {
+    if (parentDelegation.max_depth <= 0) {
+      return { ok: false, error: 'DEPTH_EXCEEDED: parent key is not allowed to delegate further (max_depth=0)' };
+    }
+    childDepth = parentDelegation.depth + 1;
+
+    // Branch cap enforcement.
+    if (parentDelegation.branch_spend_limit !== null
+        && params.spendLimit > parentDelegation.branch_spend_limit) {
+      return {
+        ok: false,
+        error: `BRANCH_CAP_EXCEEDED: spend_limit ${params.spendLimit} > parent.branch_spend_limit ${parentDelegation.branch_spend_limit}`,
+      };
+    }
+
+    // Child's max_depth must strictly decrease: child.max_depth <= parent.max_depth - 1.
+    const requestedMaxDepth = params.maxDepth ?? 0;
+    if (requestedMaxDepth > parentDelegation.max_depth - 1) {
+      return {
+        ok: false,
+        error: `DEPTH_EXCEEDED: requested max_depth ${requestedMaxDepth} must be <= parent.max_depth-1 (${parentDelegation.max_depth - 1})`,
+      };
+    }
+
+    // Scope narrowing: child endpoint globs must be subset of parent's.
+    if (params.scopeEndpointsGlob && parentDelegation.scope_endpoints_glob) {
+      const parentGlobs: string[] = JSON.parse(parentDelegation.scope_endpoints_glob);
+      const narrowed = params.scopeEndpointsGlob.every(g => isGlobSubset(g, parentGlobs));
+      if (!narrowed) {
+        return { ok: false, error: 'SCOPE_VIOLATION: child endpoint globs are not a subset of parent scope' };
+      }
+    }
+  }
+
+  // Get parent info (from api_keys — all delegated children are also api_keys rows)
   const parentRow = db.prepare('SELECT email, active FROM api_keys WHERE key = ? AND active = 1').get(params.parentKey) as { email: string; active: number } | undefined;
   if (!parentRow) return { ok: false, error: 'Parent key not found or inactive' };
 
@@ -205,18 +261,58 @@ export function createDelegatedKey(params: {
 
       // Insert delegation record
       db.prepare(
-        `INSERT INTO delegated_keys (child_key, parent_key, label, spend_limit, expires_at, permissions_json)
-         VALUES (?, ?, ?, ?, ?, ?)`
-      ).run(childKey, params.parentKey, params.label ?? null, params.spendLimit, expiresAt, JSON.stringify(permissions));
+        `INSERT INTO delegated_keys (
+           child_key, parent_key, label, spend_limit, expires_at, permissions_json,
+           depth, max_depth, branch_spend_limit, intent_declaration, data_domain,
+           scope_endpoints_glob, scope_methods_csv
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        childKey, params.parentKey, params.label ?? null, params.spendLimit, expiresAt, JSON.stringify(permissions),
+        childDepth,
+        params.maxDepth ?? 0,
+        params.branchSpendLimit ?? null,
+        params.intentDeclaration ?? null,
+        params.dataDomain ?? null,
+        params.scopeEndpointsGlob ? JSON.stringify(params.scopeEndpointsGlob) : null,
+        params.scopeMethodsCsv ?? null,
+      );
     })();
 
     logAudit({ entityType: 'delegated_key', entityId: childKey, action: 'DELEGATE_CREATE', actorId: params.parentKey,
-      data: { spendLimit: params.spendLimit, expiresAt, permissions } });
+      data: {
+        spendLimit: params.spendLimit, expiresAt, permissions,
+        depth: childDepth, maxDepth: params.maxDepth ?? 0,
+        branchSpendLimit: params.branchSpendLimit ?? null,
+        intentDeclaration: params.intentDeclaration ?? null,
+      },
+    });
 
     return { ok: true, childKey };
   } catch (err) {
     return { ok: false, error: (err instanceof Error ? err.message : String(err)) };
   }
+}
+
+/**
+ * Returns true if glob `candidate` is a subset of the union of globs in `parents`.
+ * Simple shell-glob check: candidate matches if at least one parent glob's prefix
+ * (up to first wildcard) is a prefix of candidate. This is conservative — good
+ * enough for v0.1. See internal/soma-delegation-spec.md §4.2 + §8 open Q #2.
+ */
+function isGlobSubset(candidate: string, parents: string[]): boolean {
+  if (parents.length === 0) return false;
+  // If parent has a pure wildcard "*" in any position, accept anything that
+  // shares prefix before the wildcard.
+  for (const p of parents) {
+    const starIdx = p.indexOf('*');
+    if (starIdx === -1) {
+      if (p === candidate) return true;
+      continue;
+    }
+    const prefix = p.slice(0, starIdx);
+    if (candidate.startsWith(prefix)) return true;
+  }
+  return false;
 }
 
 export function getDelegatedKeys(parentKey: string): DelegatedKey[] {
@@ -225,19 +321,49 @@ export function getDelegatedKeys(parentKey: string): DelegatedKey[] {
     .all(parentKey) as DelegatedKey[];
 }
 
-export function revokeDelegatedKey(parentKey: string, childKey: string): { ok: boolean; error?: string } {
+/**
+ * Revoke a delegated key AND all of its descendants recursively.
+ * Implements cascade revoke per Soma Delegation Spec §4.4.
+ * Safe for depth-0 chains (current default) — in that case no descendants exist
+ * and behavior matches the original 1-hop revoke.
+ */
+export function revokeDelegatedKey(parentKey: string, childKey: string): { ok: boolean; revokedCount?: number; error?: string } {
   const db = getDb();
+  let revokedCount = 0;
   try {
     db.transaction(() => {
       const row = db.prepare('SELECT 1 FROM delegated_keys WHERE child_key = ? AND parent_key = ? AND active = 1').get(childKey, parentKey);
       if (!row) throw new Error('Delegated key not found or already revoked');
 
-      db.prepare('UPDATE delegated_keys SET active = 0 WHERE child_key = ?').run(childKey);
-      db.prepare('UPDATE api_keys SET active = 0 WHERE key = ?').run(childKey);
+      // BFS the subtree rooted at `childKey`.
+      const toRevoke: string[] = [childKey];
+      const frontier: string[] = [childKey];
+      while (frontier.length > 0) {
+        const placeholders = frontier.map(() => '?').join(',');
+        const descendants = db
+          .prepare(`SELECT child_key FROM delegated_keys WHERE parent_key IN (${placeholders}) AND active = 1`)
+          .all(...frontier) as { child_key: string }[];
+        frontier.length = 0;
+        for (const d of descendants) {
+          toRevoke.push(d.child_key);
+          frontier.push(d.child_key);
+        }
+      }
+
+      const now = new Date().toISOString();
+      const placeholders = toRevoke.map(() => '?').join(',');
+      const delRes = db
+        .prepare(`UPDATE delegated_keys SET active = 0, revoked_at = ? WHERE child_key IN (${placeholders})`)
+        .run(now, ...toRevoke);
+      db.prepare(`UPDATE api_keys SET active = 0 WHERE key IN (${placeholders})`).run(...toRevoke);
+      revokedCount = delRes.changes;
     })();
 
-    logAudit({ entityType: 'delegated_key', entityId: childKey, action: 'DELEGATE_REVOKE', actorId: parentKey });
-    return { ok: true };
+    logAudit({
+      entityType: 'delegated_key', entityId: childKey, action: 'DELEGATE_REVOKE', actorId: parentKey,
+      data: { cascade: true, revokedCount },
+    });
+    return { ok: true, revokedCount };
   } catch (err) {
     return { ok: false, error: (err instanceof Error ? err.message : String(err)) };
   }

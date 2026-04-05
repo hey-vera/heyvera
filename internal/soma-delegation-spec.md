@@ -193,17 +193,16 @@ Child burns $10 in 1 minute trying to DOS parent's wallet. Parent's remaining $9
 
 ## 7. Relationship to ClawNet implementation
 
-ClawNet's `delegation_keys` table (as of 2026-Q1) has partial implementation:
+ClawNet's `delegated_keys` table (as of 2026-Q1) has partial implementation:
 - ✓ `parent_key` column
-- ✓ `spend_cap_usd` tracking via `trackDelegatedSpend()`
+- ✓ `spend_limit` cap + `trackDelegatedSpend()` per-call enforcement
 - ✓ TTL via `expires_at`
-- ✗ `max_depth` column (needs migration)
-- ✗ `branch_spend_cap_usd` column (needs migration)
-- ✗ `intent_declaration`, `data_domain` columns (needs migration)
-- ✗ Recursive cascade revoke (currently only 1-hop)
-- ✗ Scope narrowing enforcement at creation time
-
-**Migration 148** (pending) should add: `depth`, `max_depth`, `branch_spend_cap_usd`, `intent_declaration`, `data_domain`, `scope_endpoints_glob`, `scope_methods_csv`.
+- ✓ **Migration 149 (2026-04-05):** `depth`, `max_depth`, `branch_spend_limit`, `intent_declaration`, `data_domain`, `scope_endpoints_glob`, `scope_methods_csv`, `revoked_at` columns added
+- ✓ **Recursive cascade revoke** — `revokeDelegatedKey()` BFS-traverses and revokes entire subtree (`src/db/transfers.ts`)
+- ✓ **Depth-aware creation** — `createDelegatedKey()` enforces `max_depth`, `branch_spend_limit`, and (conservative shell-glob) scope narrowing at issue time
+- ⚠ Glob-subset check is simplified to prefix-matching — good enough for v0.1, formal subset semantics pending
+- ⚠ Intent rejection at provider serving side not yet wired
+- ⚠ Cross-issuer trust registry (cross-platform delegation) not implemented
 
 ---
 
@@ -237,14 +236,21 @@ ClawNet's `delegation_keys` table (as of 2026-Q1) has partial implementation:
 
 ## 10. Next steps
 
+**Phase 1 (Spec + core DB/runtime) — SHIPPED 2026-04-05:**
+- [x] Draft this doc (v0.1)
+- [x] Migration 149 adding `depth/max_depth/branch_spend_limit/intent_declaration/data_domain/scope_endpoints_glob/scope_methods_csv/revoked_at` to `delegated_keys`
+- [x] Recursive cascade revoke in `src/db/transfers.ts:revokeDelegatedKey()`
+- [x] Depth + branch-cap + (conservative) scope-narrowing enforcement at issue time in `createDelegatedKey()`
+
+**Phase 2 (Publish + wire) — pending:**
 - [ ] Publish this doc to `github.com/1xmint/soma-delegation-spec`
 - [ ] Open issue on `coinbase/x402` proposing this as x402 extension
-- [ ] Ship migration 148 adding missing columns to `delegation_keys`
-- [ ] Implement recursive cascade revoke in `src/db/delegation.ts`
-- [ ] Enforce scope narrowing at key-creation endpoint
-- [ ] Add wire-format tests against spec examples
+- [ ] Add POST /v1/delegation/keys route accepting the new v0.1 fields
+- [ ] Add `X-Soma-Delegation-Chain` + `X-Soma-Intent` request-header handling on proxy path
+- [ ] Enforce intent declaration + scope on the serving path (not just creation)
+- [ ] Add wire-format tests against the spec examples in §6
 - [ ] Submit to IETF as input to `draft-klrc-aiagent-auth` working group
-- [ ] Write reference client in `@clawnet/soma-check` or new `@clawnet/soma-delegation` package
+- [ ] Write reference client in `@clawnet/soma-delegation` package
 
 ---
 
