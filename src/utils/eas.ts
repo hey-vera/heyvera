@@ -180,18 +180,19 @@ export async function createOffchainReceipt(
  * Batch-anchor multiple off-chain attestation UIDs on Base via Merkle root.
  * One on-chain transaction timestamps all UIDs regardless of batch size (~$0.001).
  *
- * Returns the transaction hash or null if EAS is not configured.
+ * EAS attestation UIDs from signOffchainAttestation() are already bytes32 hex
+ * strings (0x + 64 hex chars), so we pass them directly to multiTimestamp.
+ *
+ * Returns the Base transaction hash or null if EAS is not configured / tx failed.
  */
 export async function batchTimestamp(uids: string[]): Promise<string | null> {
   const eas = getEAS();
   if (!eas || uids.length === 0) return null;
 
   try {
-    const tx = await eas.multiTimestamp(uids.map(uid =>
-      ethers.encodeBytes32String(uid.length > 31 ? uid.slice(0, 31) : uid)
-    ));
+    const tx = await eas.multiTimestamp(uids);
     const receipt = await tx.wait();
-    return receipt;
+    return receipt?.hash ?? null;
   } catch (err) {
     console.error('[EAS] Batch timestamp failed:', err);
     return null;
@@ -200,14 +201,16 @@ export async function batchTimestamp(uids: string[]): Promise<string | null> {
 
 /**
  * Timestamp a single off-chain attestation UID on-chain.
+ * UID is already a bytes32 hex string from signOffchainAttestation().
  */
 export async function timestampSingle(uid: string): Promise<string | null> {
   const eas = getEAS();
   if (!eas) return null;
 
   try {
-    const tx = await eas.timestamp(ethers.encodeBytes32String(uid.length > 31 ? uid.slice(0, 31) : uid));
-    return await tx.wait();
+    const tx = await eas.timestamp(uid);
+    const receipt = await tx.wait();
+    return receipt?.hash ?? null;
   } catch (err) {
     console.error('[EAS] Timestamp failed:', err);
     return null;
