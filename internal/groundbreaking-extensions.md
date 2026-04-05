@@ -1,8 +1,10 @@
 # Groundbreaking Extensions — the S/A/B-tier ideas
 
-**Status:** internal strategy + engineering spec. Complements `proof-of-delivery-roadmap.md` (which covers the core AVS/TEE/Intent tracks). This doc covers the extensions that take Soma + x402 ETag from "good protocol" to "category-defining platform."
+**Status:** internal strategy + engineering spec. Complements `proof-of-delivery-roadmap.md` (which covers the core AVS/TEE/Intent tracks). This doc covers the extensions that take the Soma Protocol Stack from "good protocol" to "category-defining platform."
 
-**Written 2026-04-04.** Intended to be pickable months later without re-deriving context.
+**Written 2026-04-04, updated 2026-04-05.** Intended to be pickable months later without re-deriving context.
+
+**Protocol framing (2026-04-05):** Soma is a 5-layer open protocol (Bazaar, Check, Pay, Identity, Receipt). ClawNet is its reference implementation + premium platform. See `soma-check-strategy.md` for the top-level framing and layer breakdown.
 
 ---
 
