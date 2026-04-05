@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { apiRegistry, findEndpoint } from '../config/api-registry';
 import { getCircuitStats, isEndpointAvailable } from '../core/circuit-breaker';
-import { getDb, logAudit } from '../db/connection';
+import { getDb, logAudit, dbRowToApiEndpoint, safeJsonParse } from '../db/connection';
 import { creditCostForEndpoint, round6, cacheCreditCost } from '../core/credits';
 import { isClawApisReady, clawApiCall, getLastBirthCertificate } from '../providers/clawapis';
 import { cacheKey, smartCacheGet, smartCacheSet, cacheNegative, getNegativeCache, coalesceRequest, type CacheFreshness } from '../cache/index';
@@ -35,65 +35,88 @@ endpointsRouter.get('/', (c) => {
 
   const circuits = getCircuitStats();
 
-  // Static registry endpoints
-  const staticData = apiRegistry.map((ep) => {
-    const circuit = circuits[ep.id];
+  // ── Query endpoints table (unified source of truth) ──────────────────────
+  let countSql = "SELECT COUNT(*) as n FROM endpoints WHERE status = 'active'";
+  let sql = "SELECT * FROM endpoints WHERE status = 'active'";
+  const params: unknown[] = [];
+  const countParams: unknown[] = [];
+
+  if (category) {
+    sql += ' AND category = ?'; params.push(category);
+    countSql += ' AND category = ?'; countParams.push(category);
+  }
+  if (source) {
+    sql += ' AND source = ?'; params.push(source);
+    countSql += ' AND source = ?'; countParams.push(source);
+  }
+  if (search) {
+    const like = `%${search}%`;
+    sql += ' AND (name LIKE ? OR description LIKE ? OR category LIKE ? OR provider LIKE ?)';
+    params.push(like, like, like, like);
+    countSql += ' AND (name LIKE ? OR description LIKE ? OR category LIKE ? OR provider LIKE ?)';
+    countParams.push(like, like, like, like);
+  }
+
+  const registryTotal = (getDb().prepare(countSql).get(...countParams) as { n: number })?.n ?? 0;
+  sql += ' ORDER BY provider ASC, name ASC LIMIT ? OFFSET ?';
+  params.push(limit, offset);
+
+  const rows = getDb().prepare(sql).all(...params) as any[];
+  const registryData = rows.map((row) => {
+    const circuit = circuits[row.id];
     const state = circuit?.state ?? 'CLOSED';
     const failures = circuit?.failures ?? 0;
-    const status: 'operational' | 'degraded' | 'down' =
-      state === 'CLOSED'    ? 'operational' :
-      state === 'HALF_OPEN' ? 'degraded'    : 'down';
+    const epStatus: 'operational' | 'degraded' | 'down' =
+      row.health_status === 'degraded' ? 'degraded' :
+      row.health_status === 'down'     ? 'down'     :
+      state === 'CLOSED'               ? 'operational' :
+      state === 'HALF_OPEN'            ? 'degraded'    : 'down';
 
     return {
-      id:           ep.id,
-      provider:     ep.provider,
-      name:         ep.name,
-      description:  ep.description,
-      category:     ep.category,
-      costPerCall:  ep.costPerCall,
-      latencyMs:    ep.latencyMs,
-      inputSchema:  ep.inputSchema,
-      outputFields: ep.outputFields,
-      rateLimit:    ep.rateLimit ?? null,
-      status,
+      id:           row.id,
+      provider:     row.provider,
+      name:         row.name,
+      description:  row.description,
+      category:     row.category,
+      costPerCall:  row.cost_per_call,
+      latencyMs:    row.latency_ms,
+      inputSchema:  safeJsonParse(row.input_schema_json, null),
+      outputFields: safeJsonParse(row.output_fields_json, null),
+      rateLimit:    row.rate_limit ?? null,
+      status:       epStatus,
       circuitState: state,
       failures,
-      source: 'registry',
+      source:       row.source,
     };
   });
 
-  // Indexed (discovered) endpoints from DB
+  // ── Indexed (discovered/staging) endpoints — not yet in endpoints table ──
   let indexedData: any[] = [];
   let indexedTotal = 0;
   try {
-    let countSql = 'SELECT COUNT(*) as n FROM indexed_endpoints WHERE 1=1';
-    let sql = 'SELECT * FROM indexed_endpoints WHERE 1=1';
-    const params: unknown[] = [];
-    const countParams: unknown[] = [];
+    let idxCountSql = 'SELECT COUNT(*) as n FROM indexed_endpoints WHERE 1=1';
+    let idxSql = 'SELECT * FROM indexed_endpoints WHERE 1=1';
+    const idxParams: unknown[] = [];
+    const idxCountParams: unknown[] = [];
 
     if (category) {
-      sql += ' AND category = ?'; params.push(category);
-      countSql += ' AND category = ?'; countParams.push(category);
-    }
-    if (source) {
-      sql += ' AND source = ?'; params.push(source);
-      countSql += ' AND source = ?'; countParams.push(source);
+      idxSql += ' AND category = ?'; idxParams.push(category);
+      idxCountSql += ' AND category = ?'; idxCountParams.push(category);
     }
     if (search) {
       const like = `%${search}%`;
-      sql += ' AND (name LIKE ? OR description LIKE ? OR category LIKE ? OR provider LIKE ?)';
-      params.push(like, like, like, like);
-      countSql += ' AND (name LIKE ? OR description LIKE ? OR category LIKE ? OR provider LIKE ?)';
-      countParams.push(like, like, like, like);
+      idxSql += ' AND (name LIKE ? OR description LIKE ? OR category LIKE ? OR provider LIKE ?)';
+      idxParams.push(like, like, like, like);
+      idxCountSql += ' AND (name LIKE ? OR description LIKE ? OR category LIKE ? OR provider LIKE ?)';
+      idxCountParams.push(like, like, like, like);
     }
 
-    indexedTotal = (getDb().prepare(countSql).get(...countParams) as { n: number })?.n ?? 0;
+    indexedTotal = (getDb().prepare(idxCountSql).get(...idxCountParams) as { n: number })?.n ?? 0;
+    idxSql += ' ORDER BY reliability_score DESC NULLS LAST, last_synced DESC LIMIT ? OFFSET ?';
+    idxParams.push(limit, offset);
 
-    sql += ' ORDER BY reliability_score DESC NULLS LAST, last_synced DESC LIMIT ? OFFSET ?';
-    params.push(limit, offset);
-
-    const rows = getDb().prepare(sql).all(...params) as any[];
-    indexedData = rows.map((ep) => ({
+    const idxRows = getDb().prepare(idxSql).all(...idxParams) as any[];
+    indexedData = idxRows.map((ep) => ({
       id:           ep.id,
       provider:     ep.provider || ep.source,
       name:         ep.name,
@@ -104,7 +127,7 @@ endpointsRouter.get('/', (c) => {
       inputSchema:  null,
       outputFields: null,
       rateLimit:    null,
-      status:       ep.health_status === 'healthy' ? 'operational' : ep.health_status === 'degraded' ? 'degraded' : 'degraded',
+      status:       ep.health_status === 'healthy' ? 'operational' : 'degraded',
       circuitState: 'CLOSED',
       failures:     0,
       source:       ep.source,
@@ -116,9 +139,9 @@ endpointsRouter.get('/', (c) => {
     }));
   } catch { /* indexed_endpoints table may not exist yet */ }
 
-  // Merge: static registry first, then indexed
-  const allEndpoints = [...staticData, ...indexedData];
-  const total = apiRegistry.length + indexedTotal;
+  // Merge: registry endpoints first, then discovered/staging
+  const allEndpoints = [...registryData, ...indexedData];
+  const total = registryTotal + indexedTotal;
   const operational = allEndpoints.filter((e) => e.status === 'operational').length;
   const degraded = allEndpoints.filter((e) => e.status === 'degraded').length;
   const providers = [...new Set(allEndpoints.map((e) => e.provider).filter(Boolean))].length;
@@ -128,7 +151,7 @@ endpointsRouter.get('/', (c) => {
   const avgLatency = withLatency.length > 0 ? Math.round(withLatency.reduce((s, e) => s + e.latencyMs, 0) / withLatency.length) : 0;
 
   return c.json({
-    meta: { total, operational, degraded, providers, avgCost: +avgCost.toFixed(4), avgLatency, page, limit, indexedTotal, registryTotal: apiRegistry.length },
+    meta: { total, operational, degraded, providers, avgCost: +avgCost.toFixed(4), avgLatency, page, limit, indexedTotal, registryTotal },
     endpoints: allEndpoints,
     generatedAt: new Date().toISOString(),
   });
