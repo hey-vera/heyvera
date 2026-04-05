@@ -227,6 +227,168 @@ Shor's algorithm compromises current signatures.
 
 ---
 
+## Delegation chain architecture (implementation spec)
+
+This is the concrete design for the agent-lineage DAG gap. Fulfills: delegated children, ephemeral agents, proof-of-computation chains, revocation propagation.
+
+### Design decision: children get their own hearts
+
+When parent agent P spawns child C, each gets own keypair + own heart. **Not** shared heart, **not** session keys only. Reasons:
+- Selective disclosure remains possible per-child
+- Parent signs once (birth cert) instead of signing every child event
+- Child can spawn grandchild without round-trip to parent
+- Matches existing Soma primitives (DIDs, birth certs, revocation log)
+- Preserves observer-sovereignty principle per-child
+
+Session keys are a complement, not a replacement — used for ephemeral one-shot tasks that don't need full identity.
+
+### Delegation cert format
+
+```typescript
+interface DelegationCert {
+  parent_did: string;              // did:key:... or did:pkh:...
+  child_did: string;               // did:key derived from child_pubkey
+  child_pubkey: Uint8Array;        // Ed25519 or post-quantum
+  scope: string[];                 // capability tokens, e.g. ["call:endpoint:*"]
+  spend_limit?: number;            // USDC budget (optional)
+  expiry: number;                  // unix timestamp
+  nonce: string;                   // 32 bytes, prevents replay
+  issued_at: number;
+  parent_signature: Uint8Array;    // parent signs canonicalJson of above fields
+  parent_chain_hash?: string;      // set if parent is itself delegated (chain link)
+}
+```
+
+Scope strings are capability tokens parsed by verifier. Wildcards allowed (`call:endpoint:*`). Scope is INTERSECTED with parent's scope — child can never exceed parent's authority.
+
+### Proof-of-computation chain
+
+When child C produces data D:
+1. C computes D (any work)
+2. C signs receipt(D) with C's heart — includes C's DID
+3. receipt embeds C's birth cert (which contains parent's delegation to C)
+4. C's delegation is signed by B (C's parent)
+5. B's delegation is signed by A (B's parent, or root)
+
+**Verifier flow (given: D, receipt, chain, root_pubkey):**
+```
+verify(D, receipt(D, C), chain=[C_cert, B_cert, A_cert], root=A.pubkey):
+  1. verify sig(D) against C.pubkey             — D came from C
+  2. verify sig(C_cert) against B.pubkey         — B delegated to C
+  3. verify sig(B_cert) against A.pubkey         — A delegated to B
+  4. assert A.pubkey == root                     — trust anchor
+  5. for each link in chain:
+       check revocation log for link's DID
+       check expiry not passed
+       check scope intersection valid
+  6. return verified if all pass
+```
+
+Verifier only needs to trust root A's public key. Everything else is cryptographically derivable.
+
+### Chain constraints
+
+- **No hard depth limit.** Reasoning: a hard cap ("max 10 levels") presumes we can imagine the agent topologies of 2030. We can't. Agents may recursively self-improve, spawn deep delegation trees, compose across generations. A hard cap would become a future-limiting bottleneck.
+- **Soft limit:** warn at depth 100, never fail on depth alone.
+- **Verification cost:** O(depth) naively, O(1) with SNARK compression (see below).
+- **Practical depth today:** 3-5 covers 99% of real systems (Claude Code, LangGraph, Pulse). Plan for 10-100+.
+- **Scope monotonicity:** each level's scope ⊆ parent's scope (enforced at verification)
+- **Spend monotonicity:** each level's spend_limit ≤ parent's spend_limit
+
+### SNARK-compressed chains (removes depth as a verification bottleneck)
+
+Without compression, verifying a depth-N chain costs N signature verifications. At depth 100, that's ~10ms — unacceptable for high-frequency agents.
+
+**Solution: recursive SNARKs.** Each delegation link includes a succinct proof that "this link is valid AND parent link was valid." Verifier checks one SNARK, gets proof of entire chain validity.
+
+- **Constant-time verification:** O(1) regardless of depth
+- **Verdict cost:** single SNARK verify ~1-5ms (Nova/SuperNova/Sangria range)
+- **Proof size:** constant ~200-500 bytes regardless of chain depth
+- **Enables:** infinite delegation depth, recursive self-improvement chains, multi-generation agents
+
+**Fallback without SNARKs (staged rollout):**
+1. **Cached chain verification:** verifier caches verified parent certs, reuses across siblings. Cuts N→M where M = unique ancestors.
+2. **Batched verify via BLS:** verify N siblings' chains in one pairing op.
+3. **Progressive verify:** verify latest 5 links strictly, Merkle-proof the rest against trusted intermediate.
+4. **Revocation bloom filter:** O(1) revocation check with <1% false positive; fall back to full log only on hit.
+
+**Implementation sequence:**
+- Phase 1: Native chain verify with caching (MVP, no SNARKs)
+- Phase 2: BLS batch verify for siblings
+- Phase 3: SNARK wrapper (Nova/Sangria), opt-in
+- Phase 4: SNARK-by-default, native as fallback for non-SNARK verifiers
+
+### Low-compute / edge verification target
+
+**Target:** verify any receipt in <10ms on Raspberry Pi Zero (1GHz ARM, 512MB RAM).
+
+Enables:
+- Browser extension verifying every API response (zero user perception)
+- Mobile agents verifying inbound data
+- IoT-scale agent networks
+- Offline verification (bundle revocation snapshot + SNARK chain)
+
+Techniques:
+- Precompiled verifier in WASM (ships in browser, mobile runtime)
+- Bloom filter for revocation (O(1) with <1% false positive)
+- Verdict caching per-agent per-TTL window
+- SNARK compression for constant-time verify at any depth
+
+### Revocation propagation
+
+Revoke parent → all descendants implicitly revoked.
+
+Verifier MUST check revocation log for every ancestor in the chain, not just direct signer. This is non-negotiable for security.
+
+**Revocation log entry:**
+```typescript
+{ did: "did:key:parent", revoked_at: unix_ts, reason?: string, signed_by: parent_key }
+```
+
+When P is revoked at time T:
+- receipts produced by P's descendants AFTER time T are invalid
+- receipts produced BEFORE time T remain valid (time-bounded revocation)
+- grace period: configurable clock-skew tolerance (default 60s)
+
+### Storage model
+
+Delegation cert stored in CHILD's birth cert. Verifier only needs:
+- receipt bytes
+- chain of delegation certs (bundled with receipt)
+- root pubkey (out-of-band trust)
+- access to revocation log (Soma sensorium has it)
+
+No database lookup required for chain verification itself. Only revocation log requires live state.
+
+### Primitives needed to implement
+
+1. `Heart.delegate(child_did, child_pubkey, scope, spend_limit, expiry) → DelegationCert`
+2. `Heart.spawn(scope, spend_limit, expiry) → { childHeart, delegationCert }` — convenience
+3. `Sense.verifyChain(receipt, chain, rootPubkey) → VerdictWithChain`
+4. `Sense.walkRevocation(chain) → { allLive: boolean, revokedDids: string[] }`
+5. Scope parser + intersection algorithm
+6. `RevocationLog.checkMany(dids) → Map<did, revokedAt?>`
+
+### Ties to future scenarios
+
+| Scenario | How chain primitives handle it |
+|---|---|
+| Claude Code spawns 50 Tasks | Root = user's agent, tasks = delegated children, receipts chain back |
+| LangGraph orchestrator + workers | Orchestrator = root, workers = peers with common root |
+| Self-modifying agent (v1 → v2) | v1 signs birth cert for v2 (genome evolution = special delegation) |
+| Ephemeral task agent (30s TTL) | Short-lived delegation with 30s expiry, keypair discarded after |
+| On-chain autonomous agent | did:pkh as root, contract signs via contract key |
+| Swarm with BLS | Individual signs own delegation, BLS aggregate for collective decisions |
+
+### What we haven't decided (needs thought during Phase A)
+
+- **Cert size budget:** target <4KB per chain at depth 5 (affects receipt payload size)
+- **Caching strategy:** verifier should cache verified chains (parent cert verified once, reused for 100 siblings)
+- **Cross-tenant chain sharing:** if tenant A's child is also tenant B's grandchild (unusual), how?
+- **Revocation timing proofs:** verifier needs to know "was X revoked AT the time of the receipt" — requires trusted timestamp
+
+---
+
 ## Decisions locked in
 
 - **Positioning:** "Identity layer for agentic computation" — never tie the pitch to LLMs specifically
@@ -234,3 +396,5 @@ Shor's algorithm compromises current signatures.
 - **Crypto-agility:** Non-negotiable. Every signature/hash algorithm must be swappable.
 - **DID-agility:** Non-negotiable. Any DID scheme must be pluggable.
 - **Observer sovereignty:** Non-negotiable. Verifier controls verification, forever.
+- **Delegation topology:** children get own hearts, not shared. Chain is append-only.
+- **Verification trust model:** only trust root pubkey out-of-band; chain self-verifies.

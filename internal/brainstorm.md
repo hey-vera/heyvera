@@ -171,6 +171,94 @@ Protocol-agnostic middleware sitting ABOVE x402/MPP/L402/AP2/TAP. The honesty la
 - Artemis x402 dashboard — `app.artemisanalytics.com/asset/x402`
 - Cloudflare x402 blog post, CoinDesk 2026-03-11 volume-collapse coverage
 
+### Detailed roadmaps (new 2026-04-04)
+
+- `proof-of-delivery-roadmap.md` — full implementation specs for AVS + TEE + Intent tracks
+- `groundbreaking-extensions.md` — S/A/B-tier extensions (SNARK chains, universal badge, provenance graphs, confidential compute, marketplaces, credit scores, etc.)
+
+---
+
+## Agent topology + delegation architecture
+
+**Captured 2026-04-04 after realizing the original "100 flat hearts" scale test measured the wrong thing first.**
+
+### Core realization
+
+Real agent systems (Claude Code Task tool, LangGraph, AutoGen, CrewAI, Pulse) are **hierarchical/delegated**, not flat. The flat 100-heart test only measures multi-tenant hosting capacity. The realistic hot path is 1 parent spawning 100 delegated children.
+
+### Test matrix (updated in `scale-test-plan.md`)
+
+- **Test B (realistic hot path):** 1 × 100 delegated — run first
+- **Test A (multi-tenant floor):** 100 flat — run second
+- **Test C:** 10 × 10 hierarchical multi-tenant
+- **Test D:** ephemeral 1000/sec spawn-die
+- **Test E:** 10-deep chain depth stress
+
+### Delegation architecture (full spec in `soma-future-proofing.md`)
+
+- Each child gets own heart (not shared parent heart)
+- Delegation cert = parent signs child's birth + scope + spend limit + expiry
+- Proof-of-computation chain: data → child cert → parent cert → root
+- Verifier only trusts root pubkey; chain self-verifies
+- Revocation: revoke parent → all descendants implicitly revoked
+
+### NO hard depth cap
+
+**Changed 2026-04-04.** Originally spec'd 10-level hard cap. User correctly pointed out this limits future agent topologies. New design:
+- No hard limit
+- Soft warning at depth 100
+- SNARK-compressed chains give O(1) verify regardless of depth
+- Fallback without SNARKs: caching + batching + Merkle proofs
+
+### Fast + low-compute verification targets
+
+- **Target:** <500µs verdict on mobile/edge, any chain depth
+- **Today:** 1-3ms at depth 5 (linear with depth without compression)
+- **Techniques:** SNARK compression, WASM verifier, verdict caching, bloom-filter revocation, batch verify via BLS
+- **Ambition:** verify on Raspberry Pi Zero in <10ms; browser extension verifies every response zero user perception
+
+---
+
+## Adoption blockers we need to solve
+
+Not technical novelty — these are the things that keep Soma + x402 ETag from being adopted at scale. Full detail in `groundbreaking-extensions.md` section "Adoption-focused additions."
+
+### Developer UX
+- **1-line SDK target**: `soma.middleware({ endpointId })` on server, `soma.call(url, { verify: true })` on client
+- **15-minute POC** from install to first verified endpoint
+- **SDKs in every major language** (JS/TS, Python, Go, Rust, Java) before public push
+
+### Trust signal
+- **Universal verification badge** (browser extension + `X-Soma-Verified` header + `verify.soma.dev` explorer)
+- **Soma HTTPS lock** — visual/cultural parity with SSL green lock
+- **`soma://` URI scheme** for clickable receipt verification
+
+### Debugging
+- **Chain explorer at verify.soma.dev** — Etherscan-for-Soma-receipts
+- **Failure reasons** — not just "verify failed" but "cert signature mismatch at level 3, signed by revoked key K"
+- **Timeline view** — related receipts + revocation events + AVS slashing activity
+
+### Performance escape hatches
+- **Fast lane** for HFT/gaming: pre-verified session tokens, batched verify at intervals
+- **Opt-out** of chain walk for trusted local providers (with audit log)
+
+### Graceful failure modes
+- **Sensorium offline** → cached revocation fallback + degraded-mode warning
+- **Key compromise** → emergency revocation broadcast + grace period on new keys
+- **ClawNet hit-by-bus** → decentralized operator continuation
+- **Cert format v2** → dual-verify during migration window
+
+### Legal + regulatory
+- **AVS slashing = securities?** Legal review pre-mainnet
+- **Receipt storage = data retention regs?** GDPR/HIPAA analysis
+- **Operator KYC requirements** by jurisdiction
+- **Staking regulation** (where do operators incorporate?)
+
+### Long-term sustainability
+- **10-year question:** who pays for sensorium + AVS infrastructure?
+- **Revenue mix:** protocol fees + verification subscriptions + reputation oracle queries + certification fees + marketplace fees
+- **Bridge strategy:** ClawNet funds bootstrap → self-sustaining by year 3 via fee capture
+
 ---
 
 ## Pulse
@@ -219,16 +307,24 @@ If/when Pulse integrates with ClawNet endpoints: opportunity for Pulse agents to
 **Checklist for picking back up:**
 
 1. Re-read this file (brainstorm.md)
-2. Re-read `internal/x402-etag-strategy.md` for priorities
-3. Re-read `internal/soma-future-proofing.md` for positioning invariants
-4. Check task list for pending items (#77 Soma 100-hearts bench, #106-110 x402 ETag Tier 1)
-5. Check memory for recent decisions
-6. Pick the highest-leverage item from Tier 1 of whichever strategy doc applies
+2. Re-read `internal/x402-etag-strategy.md` for x402 ETag priorities
+3. Re-read `internal/soma-future-proofing.md` for positioning invariants + delegation chain spec
+4. Re-read `internal/scale-test-plan.md` for topology test matrix
+5. Re-read `internal/proof-of-delivery-roadmap.md` for AVS/TEE/Intent implementation specs
+6. Re-read `internal/groundbreaking-extensions.md` for S/A/B-tier extensions + adoption playbook
+7. Check task list for pending items (#77 Soma 100-hearts bench, #106-110 x402 ETag Tier 1)
+8. Check memory for recent decisions
+9. Pick highest-leverage item from Tier 1 of whichever strategy doc applies
 
 **First three things to do on resume (recommended):**
 1. Lock x402-etag.org domain (defensive, 5 minutes)
-2. Build 100-hearts Soma scale bench (unblocks everything)
+2. Build **Test B** from scale-test-plan (1 × 100 delegated — realistic hot path, NOT flat 100)
 3. USDC telemetry + discovery flag on ClawNet (unblocks clawapis)
+
+**Post-scale decisions (revisit after tests B + A complete):**
+- Start AVS Phase 1 stub? (from proof-of-delivery-roadmap.md)
+- Start universal badge browser extension? (from groundbreaking-extensions.md)
+- Start delegation chain cert implementation? (from soma-future-proofing.md)
 
 ---
 
