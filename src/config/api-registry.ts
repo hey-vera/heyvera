@@ -3722,6 +3722,31 @@ export const apiRegistry: ApiEndpoint[] = [
 const _registryMap = new Map<string, ApiEndpoint>();
 for (const ep of apiRegistry) _registryMap.set(ep.id, ep);
 
+// ─── DB-backed lookup (injected at runtime after initDb) ────────────────────
+
+/** In-memory cache for DB lookups — avoids hitting SQLite on every call */
+const _dbCache = new Map<string, { ep: ApiEndpoint; at: number }>();
+const DB_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+let _dbLookup: ((id: string) => ApiEndpoint | undefined) | null = null;
+
+/**
+ * Inject DB lookup function after initDb(). Called once from connection.ts.
+ * After injection, findEndpoint() checks DB (with cache) before static fallback.
+ */
+export function setEndpointDbLookup(fn: (id: string) => ApiEndpoint | undefined): void {
+  _dbLookup = fn;
+}
+
+/** Invalidate the in-memory endpoint cache (call after DB writes). */
+export function invalidateEndpointCache(id?: string): void {
+  if (id) {
+    _dbCache.delete(id);
+  } else {
+    _dbCache.clear();
+  }
+}
+
 export function registryToPromptContext(): string {
   const lines: string[] = ['Available API endpoints:\n'];
   for (const ep of apiRegistry) {
@@ -3831,6 +3856,18 @@ export function registryToPromptContextFiltered(query: string, maxEndpoints: num
 }
 
 export function findEndpoint(id: string): ApiEndpoint | undefined {
+  // After DB is initialized, check DB first (with in-memory cache)
+  if (_dbLookup) {
+    const cached = _dbCache.get(id);
+    if (cached && Date.now() - cached.at < DB_CACHE_TTL) return cached.ep;
+
+    const ep = _dbLookup(id);
+    if (ep) {
+      _dbCache.set(id, { ep, at: Date.now() });
+      return ep;
+    }
+  }
+  // Fallback to static registry (covers pre-initDb and missing entries)
   return _registryMap.get(id);
 }
 

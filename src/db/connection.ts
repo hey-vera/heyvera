@@ -4,7 +4,7 @@ import { nanoid } from 'nanoid';
 import { logger } from '../utils/logger';
 import { maskApiKey } from '../utils/mask';
 import * as sqliteVec from 'sqlite-vec';
-import { apiRegistry, type ApiEndpoint } from '../config/api-registry';
+import { apiRegistry, setEndpointDbLookup, type ApiEndpoint } from '../config/api-registry';
 
 export const DB_PATH = path.join(process.cwd(), 'data', 'orchestrator.db');
 
@@ -2130,7 +2130,38 @@ export function initDb(): void {
   // Seed endpoints table from static registry (one-time, idempotent)
   seedEndpointsTable();
 
+  // Inject DB-backed findEndpoint() lookup — all callers now resolve from endpoints table
+  setEndpointDbLookup((id: string): ApiEndpoint | undefined => {
+    const row = db.prepare(
+      'SELECT * FROM endpoints WHERE id = ? AND status = ?'
+    ).get(id, 'active') as any;
+    if (!row) return undefined;
+    return dbRowToApiEndpoint(row);
+  });
+
   logger.info({ path: DB_PATH }, 'Database initialised');
+}
+
+/**
+ * Convert an endpoints DB row back to ApiEndpoint interface.
+ */
+export function dbRowToApiEndpoint(row: any): ApiEndpoint {
+  return {
+    id: row.id,
+    provider: row.provider,
+    baseUrl: row.base_url ?? undefined,
+    path: row.path ?? undefined,
+    name: row.name,
+    description: row.description,
+    category: row.category,
+    costPerCall: row.cost_per_call,
+    latencyMs: row.latency_ms,
+    inputSchema: safeJsonParse(row.input_schema_json, {}),
+    outputFields: safeJsonParse(row.output_fields_json, []),
+    rateLimit: row.rate_limit ?? undefined,
+    cacheTtl: row.cache_ttl ?? undefined,
+    creditCost: row.credit_cost ?? undefined,
+  };
 }
 
 /**
