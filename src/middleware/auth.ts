@@ -97,11 +97,77 @@ declare module 'hono' {
         allowedSkills?: string[] | null;
         allowedProviders?: string[] | null;
         activeHours?: { startUtc: number; endUtc: number } | null;
+        /** Soma Delegation v0.1 scope fields (migration 149) */
+        scopeEndpointsGlob?: string[] | null;
+        scopeMethodsCsv?: string | null;
       };
       /** Set when this is a provider-scoped key — can only call provider's own endpoints */
       providerId?: string;
     };
   }
+}
+
+/**
+ * Soma Delegation v0.1 §4.2 — check whether a delegated key is permitted to
+ * call the given endpoint/method combination. Enforced at serving time so
+ * scope declared at issue time is actually respected on the wire.
+ *
+ * Non-delegated keys always pass. Delegated keys with no scope set always
+ * pass (unscoped delegation). Only when scope fields are populated do we
+ * restrict.
+ *
+ * Returns { allowed: true } or { allowed: false, reason, code }.
+ */
+export function checkDelegationScope(
+  c: Context,
+  endpointId: string,
+  method: string,
+): { allowed: boolean; reason?: string; code?: string } {
+  const keyInfo = c.get('apiKeyInfo');
+  if (!keyInfo?.delegation) return { allowed: true };
+
+  const { scopeEndpointsGlob, scopeMethodsCsv } = keyInfo.delegation;
+
+  // Endpoint glob check — at least one glob must match
+  if (scopeEndpointsGlob && scopeEndpointsGlob.length > 0) {
+    const match = scopeEndpointsGlob.some((g) => globMatches(g, endpointId));
+    if (!match) {
+      return {
+        allowed: false,
+        code: 'SCOPE_VIOLATION',
+        reason: `Delegated key scope does not permit endpoint ${endpointId} (allowed: ${scopeEndpointsGlob.join(', ')})`,
+      };
+    }
+  }
+
+  // Methods CSV check
+  if (scopeMethodsCsv) {
+    const allowed = scopeMethodsCsv.split(',').map((m) => m.trim().toUpperCase()).filter(Boolean);
+    if (allowed.length > 0 && !allowed.includes(method.toUpperCase())) {
+      return {
+        allowed: false,
+        code: 'SCOPE_VIOLATION',
+        reason: `Delegated key scope does not permit method ${method} (allowed: ${allowed.join(',')})`,
+      };
+    }
+  }
+
+  return { allowed: true };
+}
+
+/**
+ * Minimal shell-style glob match: `*` matches any run of characters.
+ * Conservative — good enough for v0.1 scope checks. See
+ * internal/soma-delegation-spec.md §4.2 + §8 open Q #2.
+ */
+function globMatches(pattern: string, candidate: string): boolean {
+  if (pattern === candidate) return true;
+  if (!pattern.includes('*')) return false;
+  // Escape regex metachars except '*', then replace '*' with '.*'
+  const escaped = pattern
+    .replace(/[.+?^${}()|[\]\\]/g, '\\$&')
+    .replace(/\*/g, '.*');
+  return new RegExp('^' + escaped + '$').test(candidate);
 }
 
 /**
@@ -192,6 +258,7 @@ export const checkApiKey = createMiddleware(async (c, next) => {
     const allowedSkills: string[] | null = delegation.allowed_skills_json ? safeJsonParse<string[]>(delegation.allowed_skills_json, []) : null;
     const allowedProviders: string[] | null = delegation.allowed_providers_json ? safeJsonParse<string[]>(delegation.allowed_providers_json, []) : null;
     const activeHours: { startUtc: number; endUtc: number } | null = delegation.active_hours_json ? safeJsonParse(delegation.active_hours_json, null) : null;
+    const scopeEndpointsGlob: string[] | null = delegation.scope_endpoints_glob ? safeJsonParse<string[]>(delegation.scope_endpoints_glob, []) : null;
     c.set('apiKeyInfo', {
       key: delegation.parent_key,
       email: parentRecord.email,
@@ -209,6 +276,8 @@ export const checkApiKey = createMiddleware(async (c, next) => {
         allowedSkills,
         allowedProviders,
         activeHours,
+        scopeEndpointsGlob,
+        scopeMethodsCsv: delegation.scope_methods_csv ?? null,
       },
     });
     // Fall through to shared hard budget lock check below

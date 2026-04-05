@@ -7,7 +7,7 @@ import { isClawApisReady, clawApiCall, getLastBirthCertificate } from '../provid
 import { cacheKey, smartCacheGet, smartCacheSet, cacheNegative, getNegativeCache, coalesceRequest, type CacheFreshness } from '../cache/index';
 import { deductCredit, creditProviderShare } from '../db/index';
 import { trackDelegatedSpend, buildDelegationChainHeaders } from '../utils/billing';
-import { checkProviderScope } from '../middleware/auth';
+import { checkProviderScope, checkDelegationScope } from '../middleware/auth';
 import { createCacheCertificate, getCacheCertificate, getCacheHashInfo } from '../core/cache-certificate';
 import { somaHash } from '../utils/crypto-agility';
 import { env } from '../config/index';
@@ -211,6 +211,13 @@ endpointsRouter.post('/:id/call', async (c) => {
   const providerCheck = checkProviderScope(c, endpointId);
   if (!providerCheck.allowed) {
     return c.json({ requestId, error: providerCheck.reason, code: 'PROVIDER_SCOPE_DENIED' }, 403);
+  }
+
+  // ── Soma Delegation scope check (endpoint + method) ─────────────────────
+  const delegationScope = checkDelegationScope(c, endpointId, 'POST');
+  if (!delegationScope.allowed) {
+    c.header('X-Soma-Delegation-Error', delegationScope.code || 'SCOPE_VIOLATION');
+    return c.json({ requestId, error: delegationScope.reason, code: delegationScope.code || 'SCOPE_VIOLATION' }, 403);
   }
 
   // ── Parse params ─────────────────────────────────────────────────────────

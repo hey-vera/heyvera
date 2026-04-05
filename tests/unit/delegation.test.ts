@@ -202,6 +202,106 @@ describe('Soma Delegation v0.1 — chain walk', () => {
   });
 });
 
+describe('Soma Delegation v0.1 — serving-time scope enforcement', () => {
+  // We test the helper directly with a mock Context shape since wiring a full
+  // Hono app for this would be heavier than the 20-line logic warrants.
+  function mkCtx(delegation: {
+    scopeEndpointsGlob?: string[] | null;
+    scopeMethodsCsv?: string | null;
+  } | null) {
+    return {
+      get: (k: string) =>
+        k === 'apiKeyInfo'
+          ? delegation
+            ? { delegation: { parentKey: 'p', spendLimit: 0, spent: 0, permissions: [], ...delegation } }
+            : { /* no delegation */ }
+          : undefined,
+    } as any;
+  }
+
+  it('allows non-delegated keys through', async () => {
+    const { checkDelegationScope } = await import('../../src/middleware/auth');
+    const res = checkDelegationScope(mkCtx(null), 'helius.rpc.call', 'POST');
+    expect(res.allowed).toBe(true);
+  });
+
+  it('allows delegated keys with no scope set (unscoped delegation)', async () => {
+    const { checkDelegationScope } = await import('../../src/middleware/auth');
+    const res = checkDelegationScope(
+      mkCtx({ scopeEndpointsGlob: null, scopeMethodsCsv: null }),
+      'helius.rpc.call',
+      'POST',
+    );
+    expect(res.allowed).toBe(true);
+  });
+
+  it('allows matching endpoint glob', async () => {
+    const { checkDelegationScope } = await import('../../src/middleware/auth');
+    const res = checkDelegationScope(
+      mkCtx({ scopeEndpointsGlob: ['helius.rpc.*'] }),
+      'helius.rpc.call',
+      'POST',
+    );
+    expect(res.allowed).toBe(true);
+  });
+
+  it('rejects endpoint outside glob scope', async () => {
+    const { checkDelegationScope } = await import('../../src/middleware/auth');
+    const res = checkDelegationScope(
+      mkCtx({ scopeEndpointsGlob: ['helius.rpc.*'] }),
+      'coingecko.prices',
+      'POST',
+    );
+    expect(res.allowed).toBe(false);
+    expect(res.code).toBe('SCOPE_VIOLATION');
+    expect(res.reason).toMatch(/does not permit endpoint/);
+  });
+
+  it('allows method in scopeMethodsCsv', async () => {
+    const { checkDelegationScope } = await import('../../src/middleware/auth');
+    const res = checkDelegationScope(
+      mkCtx({ scopeMethodsCsv: 'GET,POST' }),
+      'any.endpoint',
+      'POST',
+    );
+    expect(res.allowed).toBe(true);
+  });
+
+  it('rejects method outside scopeMethodsCsv', async () => {
+    const { checkDelegationScope } = await import('../../src/middleware/auth');
+    const res = checkDelegationScope(
+      mkCtx({ scopeMethodsCsv: 'GET' }),
+      'any.endpoint',
+      'POST',
+    );
+    expect(res.allowed).toBe(false);
+    expect(res.code).toBe('SCOPE_VIOLATION');
+    expect(res.reason).toMatch(/does not permit method/);
+  });
+
+  it('enforces both glob + method together', async () => {
+    const { checkDelegationScope } = await import('../../src/middleware/auth');
+    // Endpoint matches, method does not
+    const res = checkDelegationScope(
+      mkCtx({ scopeEndpointsGlob: ['helius.*'], scopeMethodsCsv: 'GET' }),
+      'helius.rpc.call',
+      'POST',
+    );
+    expect(res.allowed).toBe(false);
+    expect(res.code).toBe('SCOPE_VIOLATION');
+  });
+
+  it('handles multi-segment globs', async () => {
+    const { checkDelegationScope } = await import('../../src/middleware/auth');
+    const res = checkDelegationScope(
+      mkCtx({ scopeEndpointsGlob: ['claw.solscan.*', 'helius.*'] }),
+      'claw.solscan.tx',
+      'POST',
+    );
+    expect(res.allowed).toBe(true);
+  });
+});
+
 describe('Soma Delegation v0.1 — chain response headers', () => {
   it('returns null when no delegated key is in use', () => {
     expect(buildDelegationChainHeaders(undefined)).toBeNull();
