@@ -6,6 +6,7 @@ COPY package*.json ./
 RUN npm install --omit=dev && npm install tsx
 COPY tsconfig.json ./
 COPY src ./src
+COPY dashboard/dist ./dashboard/dist
 # Use the built-in 'node' user (UID/GID 1000) from the base image.
 # This matches the host 'guardian' user (UID 1000) so Docker volume mounts
 # (data/) remain writable without chown on the host.
