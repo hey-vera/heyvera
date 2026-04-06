@@ -1,5 +1,6 @@
 import { type ReactNode, useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
+import { UserButton } from '@clerk/clerk-react';
 import {
   LayoutDashboard,
   Globe,
@@ -8,7 +9,6 @@ import {
   Key,
   Settings,
   Menu,
-  LogOut,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -33,7 +33,7 @@ const TIER_LABELS: Record<string, string> = {
 };
 
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
-  const { provider, disconnect } = useProvider();
+  const { provider } = useProvider();
   const location = useLocation();
 
   return (
@@ -76,7 +76,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
 
       <Separator />
 
-      {/* Provider info */}
+      {/* Provider info + Clerk user button */}
       <div className="px-4 py-4 space-y-3">
         <div className="space-y-1">
           <p className="text-sm font-medium truncate">
@@ -86,15 +86,11 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
             {TIER_LABELS[provider?.tier ?? 'founding'] ?? 'T1 Active'}
           </Badge>
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="w-full justify-start text-muted-foreground"
-          onClick={disconnect}
-        >
-          <LogOut className="mr-2 h-3.5 w-3.5" />
-          Disconnect
-        </Button>
+        <UserButton
+          appearance={{
+            elements: { avatarBox: 'h-8 w-8' },
+          }}
+        />
       </div>
     </div>
   );

@@ -199,7 +199,7 @@ app.use('*', (c, next) => {
   c.header('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
   // Portal serves a full SPA — needs permissive CSP. API routes stay locked down.
   if (c.req.path.startsWith('/portal')) {
-    c.header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self' https://api.claw-net.org");
+    c.header('Content-Security-Policy', "default-src 'self'; script-src 'self' https://*.clerk.accounts.dev https://challenges.cloudflare.com 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: https://img.clerk.com; connect-src 'self' https://*.clerk.accounts.dev https://api.claw-net.org; frame-src https://*.clerk.accounts.dev https://challenges.cloudflare.com");
   } else {
     c.header('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'");
     c.header('Cache-Control', 'no-store, no-cache, must-revalidate');

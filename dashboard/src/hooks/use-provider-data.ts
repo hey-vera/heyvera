@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useAuth } from '@clerk/clerk-react';
 import { apiFetch } from '../lib/api';
 import { useProvider } from '../contexts/provider-context';
 import type {
@@ -10,9 +11,12 @@ import type {
   WithdrawalsResponse,
 } from '../lib/types';
 
-function useApiKey() {
-  const { apiKey } = useProvider();
-  return apiKey!;
+function useAuthHeaders() {
+  const { getToken } = useAuth();
+  return async () => {
+    const token = await getToken();
+    return { Authorization: `Bearer ${token}` };
+  };
 }
 
 function useProviderId() {
@@ -22,48 +26,50 @@ function useProviderId() {
 
 // --- Stats ---
 export function useProviderStats() {
-  const key = useApiKey();
+  const getHeaders = useAuthHeaders();
   const id = useProviderId();
   return useQuery({
     queryKey: ['provider', id, 'stats'],
-    queryFn: () =>
-      apiFetch<ProviderStats>(`/v1/providers/${id}/stats`, { apiKey: key }),
+    queryFn: async () =>
+      apiFetch<ProviderStats>(`/v1/providers/${id}/stats`, {
+        headers: await getHeaders(),
+      }),
   });
 }
 
 // --- Analytics (daily breakdown) ---
 export function useProviderAnalytics(days = 30) {
-  const key = useApiKey();
+  const getHeaders = useAuthHeaders();
   const id = useProviderId();
   return useQuery({
     queryKey: ['provider', id, 'analytics', days],
-    queryFn: () =>
+    queryFn: async () =>
       apiFetch<{ stats: ProviderStats; analytics: AnalyticsRow[] }>(
         `/v1/providers/${id}/analytics?days=${days}`,
-        { apiKey: key },
+        { headers: await getHeaders() },
       ),
   });
 }
 
 // --- Endpoints ---
 export function useProviderEndpoints() {
-  const key = useApiKey();
+  const getHeaders = useAuthHeaders();
   const id = useProviderId();
   return useQuery({
     queryKey: ['provider', id, 'endpoints'],
-    queryFn: () =>
+    queryFn: async () =>
       apiFetch<ProviderEndpoint[]>(`/v1/providers/${id}/endpoints`, {
-        apiKey: key,
+        headers: await getHeaders(),
       }),
   });
 }
 
 export function useSubmitEndpoint() {
-  const key = useApiKey();
+  const getHeaders = useAuthHeaders();
   const id = useProviderId();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: {
+    mutationFn: async (data: {
       name: string;
       description?: string;
       category: string;
@@ -74,7 +80,7 @@ export function useSubmitEndpoint() {
       cacheTtl?: number;
     }) =>
       apiFetch(`/v1/providers/${id}/endpoints/submit`, {
-        apiKey: key,
+        headers: await getHeaders(),
         method: 'POST',
         body: JSON.stringify(data),
       }),
@@ -85,16 +91,16 @@ export function useSubmitEndpoint() {
 }
 
 export function useUpdateEndpoint() {
-  const key = useApiKey();
+  const getHeaders = useAuthHeaders();
   const id = useProviderId();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({
+    mutationFn: async ({
       endpointId,
       ...data
     }: { endpointId: string } & Record<string, unknown>) =>
       apiFetch(`/v1/providers/${id}/endpoints/${endpointId}`, {
-        apiKey: key,
+        headers: await getHeaders(),
         method: 'PATCH',
         body: JSON.stringify(data),
       }),
@@ -105,13 +111,13 @@ export function useUpdateEndpoint() {
 }
 
 export function useDeleteEndpoint() {
-  const key = useApiKey();
+  const getHeaders = useAuthHeaders();
   const id = useProviderId();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (endpointId: string) =>
+    mutationFn: async (endpointId: string) =>
       apiFetch(`/v1/providers/${id}/endpoints/${endpointId}`, {
-        apiKey: key,
+        headers: await getHeaders(),
         method: 'DELETE',
       }),
     onSuccess: () => {
@@ -122,50 +128,52 @@ export function useDeleteEndpoint() {
 
 // --- Soma Check Earnings ---
 export function useSomaCheckEarnings(window: 'day' | 'week' | 'month' = 'week') {
-  const key = useApiKey();
+  const getHeaders = useAuthHeaders();
   const id = useProviderId();
   return useQuery({
     queryKey: ['provider', id, 'soma-check', window],
-    queryFn: () =>
+    queryFn: async () =>
       apiFetch<SomaCheckEarnings>(
         `/v1/providers/${id}/soma-check?window=${window}`,
-        { apiKey: key },
+        { headers: await getHeaders() },
       ),
   });
 }
 
 // --- Revenue ---
 export function useProviderRevenue() {
-  const key = useApiKey();
+  const getHeaders = useAuthHeaders();
   const id = useProviderId();
   return useQuery({
     queryKey: ['provider', id, 'revenue'],
-    queryFn: () =>
-      apiFetch<RevenueData>(`/v1/providers/${id}/revenue`, { apiKey: key }),
+    queryFn: async () =>
+      apiFetch<RevenueData>(`/v1/providers/${id}/revenue`, {
+        headers: await getHeaders(),
+      }),
   });
 }
 
 // --- Withdrawals ---
 export function useProviderWithdrawals() {
-  const key = useApiKey();
+  const getHeaders = useAuthHeaders();
   const id = useProviderId();
   return useQuery({
     queryKey: ['provider', id, 'withdrawals'],
-    queryFn: () =>
+    queryFn: async () =>
       apiFetch<WithdrawalsResponse>(`/v1/providers/${id}/withdrawals`, {
-        apiKey: key,
+        headers: await getHeaders(),
       }),
   });
 }
 
 export function useRequestWithdrawal() {
-  const key = useApiKey();
+  const getHeaders = useAuthHeaders();
   const id = useProviderId();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (amountCredits: number) =>
+    mutationFn: async (amountCredits: number) =>
       apiFetch(`/v1/providers/${id}/withdraw`, {
-        apiKey: key,
+        headers: await getHeaders(),
         method: 'POST',
         body: JSON.stringify({ amountCredits }),
       }),
@@ -178,13 +186,13 @@ export function useRequestWithdrawal() {
 
 // --- Payout Wallet ---
 export function useSetPayoutWallet() {
-  const key = useApiKey();
+  const getHeaders = useAuthHeaders();
   const id = useProviderId();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (wallet: string) =>
+    mutationFn: async (wallet: string) =>
       apiFetch(`/v1/providers/${id}/payout-wallet`, {
-        apiKey: key,
+        headers: await getHeaders(),
         method: 'PATCH',
         body: JSON.stringify({ wallet }),
       }),
@@ -197,12 +205,12 @@ export function useSetPayoutWallet() {
 
 // --- Cache Invalidation ---
 export function useInvalidateCache() {
-  const key = useApiKey();
+  const getHeaders = useAuthHeaders();
   const id = useProviderId();
   return useMutation({
-    mutationFn: (endpointId: string) =>
+    mutationFn: async (endpointId: string) =>
       apiFetch(`/v1/providers/${id}/endpoints/${endpointId}/invalidate`, {
-        apiKey: key,
+        headers: await getHeaders(),
         method: 'POST',
         body: JSON.stringify({}),
       }),

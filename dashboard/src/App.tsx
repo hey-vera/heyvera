@@ -1,7 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
+import { SignedIn, SignedOut, SignIn } from '@clerk/clerk-react';
 import { useProvider } from './contexts/provider-context';
 import { PortalLayout } from './components/layout/portal-layout';
-import { ConnectPage } from './components/connect-page';
 import { OverviewPage } from './pages/overview';
 import { EndpointsPage } from './pages/endpoints';
 import { EarningsPage } from './pages/earnings';
@@ -9,10 +9,8 @@ import { PayoutsPage } from './pages/payouts';
 import { ApiKeysPage } from './pages/api-keys';
 import { SettingsPage } from './pages/settings';
 
-export default function App() {
-  const { provider, apiKey, isLoading } = useProvider();
-
-  if (!apiKey) return <ConnectPage />;
+function PortalRoutes() {
+  const { provider, isLoading, error } = useProvider();
 
   if (isLoading) {
     return (
@@ -25,7 +23,21 @@ export default function App() {
     );
   }
 
-  if (!provider) return <ConnectPage />;
+  if (!provider) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background p-4">
+        <div className="max-w-md text-center space-y-4">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-primary text-primary-foreground font-bold text-lg">
+            C
+          </div>
+          <h1 className="text-xl font-semibold">No Provider Account</h1>
+          <p className="text-sm text-muted-foreground">
+            {error ?? 'Your account is not linked to a provider. Contact the ClawNet team to get set up.'}
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <PortalLayout>
@@ -39,5 +51,20 @@ export default function App() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </PortalLayout>
+  );
+}
+
+export default function App() {
+  return (
+    <>
+      <SignedOut>
+        <div className="flex min-h-screen items-center justify-center bg-background p-4">
+          <SignIn routing="hash" />
+        </div>
+      </SignedOut>
+      <SignedIn>
+        <PortalRoutes />
+      </SignedIn>
+    </>
   );
 }

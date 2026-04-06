@@ -102,18 +102,52 @@ const SelfRegisterBody = z.object({
   somaCheckTier: z.number().int().min(0).max(2).optional(),
 });
 
-// ─── GET /v1/providers/me — resolve current provider from API key ────────────
+// ─── GET /v1/providers/me — resolve current provider from Clerk session or API key
 
-providersRouter.get('/me', checkApiKey, async (c) => {
-  const keyInfo = c.get('apiKeyInfo') as { providerId?: string };
-  if (!keyInfo?.providerId) {
-    return c.json({ error: 'API key not linked to a provider', code: 'NO_PROVIDER' }, 404);
+import { requireClerkAuth } from '../middleware/clerk-auth';
+import { getProviderByClerkUser } from '../db/index';
+
+providersRouter.get('/me', async (c) => {
+  const authHeader = c.req.header('Authorization') ?? '';
+  const apiKeyHeader = c.req.header('X-API-Key') ?? '';
+
+  // Try Clerk Bearer token first
+  if (authHeader.startsWith('Bearer ')) {
+    try {
+      // Run Clerk middleware inline
+      let resolved = false;
+      await requireClerkAuth(c, async () => { resolved = true; });
+      if (resolved) {
+        const clerkUserId = c.get('clerkUserId');
+        const provider = getProviderByClerkUser(clerkUserId);
+        if (!provider) {
+          return c.json({ error: 'No provider linked to this account', code: 'NO_PROVIDER' }, 404);
+        }
+        return c.json(provider);
+      }
+    } catch {
+      // Clerk auth failed — fall through to API key
+    }
   }
-  const provider = getProvider(keyInfo.providerId);
-  if (!provider) {
-    return c.json({ error: 'Provider not found', code: 'NOT_FOUND' }, 404);
+
+  // Fall back to API key auth
+  if (apiKeyHeader) {
+    let resolved = false;
+    await checkApiKey(c, async () => { resolved = true; });
+    if (resolved) {
+      const keyInfo = c.get('apiKeyInfo') as { providerId?: string };
+      if (!keyInfo?.providerId) {
+        return c.json({ error: 'API key not linked to a provider', code: 'NO_PROVIDER' }, 404);
+      }
+      const provider = getProvider(keyInfo.providerId);
+      if (!provider) {
+        return c.json({ error: 'Provider not found', code: 'NOT_FOUND' }, 404);
+      }
+      return c.json(provider);
+    }
   }
-  return c.json(provider);
+
+  return c.json({ error: 'Unauthorized — provide Bearer token or X-API-Key', code: 'UNAUTHORIZED' }, 401);
 });
 
 providersRouter.post('/register', checkApiKey, async (c) => {
