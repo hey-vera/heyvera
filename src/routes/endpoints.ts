@@ -5,7 +5,7 @@ import { getDb, logAudit, dbRowToApiEndpoint, safeJsonParse } from '../db/connec
 import { creditCostForEndpoint, round6, cacheCreditCost } from '../core/credits';
 import { isClawApisReady, clawApiCall, getLastBirthCertificate } from '../providers/clawapis';
 import { cacheKey, smartCacheGet, smartCacheSet, cacheNegative, getNegativeCache, coalesceRequest, enqueueRefresh, type CacheFreshness } from '../cache/index';
-import { recordDemand } from '../cache/keep-warm';
+import { recordDemand, recordWarmHit } from '../cache/keep-warm';
 import { deductCredit, creditProviderShare } from '../db/index';
 import { trackDelegatedSpend, buildDelegationChainHeaders } from '../utils/billing';
 import { checkProviderScope, checkDelegationScope } from '../middleware/auth';
@@ -480,6 +480,7 @@ endpointsRouter.post('/:id/call', async (c) => {
     const cacheProviderId = getEndpointProvider(endpointId);
     if (cacheProviderId) awardSignal({ apiKey: `provider:${cacheProviderId}`, providerId: cacheProviderId, action: 'cache_hit', metadata: { endpointId } });
 
+    recordWarmHit(key); // ROI tracking for keep-warm
     logger.info({ requestId, endpointId, creditsUsed: cacheCredits, hasCacheCert: !!cacheCert }, 'Direct endpoint call — cache hit');
     // Soma Check shadow telemetry: a matching client hash would have skipped
     // a full origin charge. ClawNet cache path always logs as shadow regardless
@@ -621,14 +622,15 @@ endpointsRouter.post('/:id/call', async (c) => {
   // ── Keep-warm: record demand for auto-enrollment ───────────────────────
   const warmTtl = declaredTtl ?? endpoint.cacheTtl ?? env.CACHE_TTL_SECONDS;
   const warmApiPath = endpoint.path ?? `/${endpointId}`;
+  const warmCreditCost = endpoint.creditCost ?? endpoint.costPerCall ?? 0.001;
   recordDemand(endpointId, key, warmTtl, async () => {
     const data = await clawApiCall(warmApiPath, params, endpoint.baseUrl);
     const dataHash = somaHashJson(data);
-    await smartCacheSet(key, data, warmTtl, endpointId, endpoint.creditCost ?? endpoint.costPerCall);
+    await smartCacheSet(key, data, warmTtl, endpointId, warmCreditCost);
     const birthCert = getLastBirthCertificate();
     createCacheCertificate({ cacheKey: key, endpointId, dataHash, ttlSeconds: warmTtl, birthCert: birthCert ?? null });
     return data;
-  });
+  }, warmCreditCost);
 
   // ── Live fetch ──────────────────────────────────────────────────────────
   try {
