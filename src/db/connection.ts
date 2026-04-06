@@ -1782,6 +1782,9 @@ const MIGRATIONS: { version: number; sql: string }[] = [
     CREATE INDEX IF NOT EXISTS idx_endpoints_status ON endpoints(status);
     CREATE INDEX IF NOT EXISTS idx_endpoints_source ON endpoints(source);
   ` },
+
+  // v151: Fix provider tier defaults — standard tier is 5% fee / 95% revenue, not 10% / 85%
+  { version: 151, sql: `UPDATE providers SET platform_fee_pct = 0.05, revenue_share_pct = 0.95 WHERE tier = 'standard' AND (platform_fee_pct = 0.10 OR revenue_share_pct < 0.95)` },
 ];
 
 function runMigrations(): void {

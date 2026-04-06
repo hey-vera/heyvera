@@ -117,10 +117,12 @@ export function createProvider(opts: {
   websiteUrl?: string;
 }): Provider {
   const id = `prov-${nanoid(16)}`;
+  // Standard tier: 5% platform fee, 95% live revenue, 50% cache revenue
   getDb().prepare(`
     INSERT INTO providers (id, name, slug, email, clerk_user_id, evm_wallet, solana_wallet,
-      soma_public_key, soma_discovery_url, description, website_url)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      soma_public_key, soma_discovery_url, description, website_url,
+      platform_fee_pct, revenue_share_pct, cache_revenue_share_pct, tier)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0.05, 0.95, 0.50, 'standard')
   `).run(
     id, opts.name, opts.slug, opts.email,
     opts.clerkUserId ?? null, opts.evmWallet ?? null, opts.solanaWallet ?? null,
