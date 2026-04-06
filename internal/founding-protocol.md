@@ -208,6 +208,26 @@ These can NEVER be earned after token launch. Genuine scarcity.
 - Season management system
 - Governance/Founding Council setup
 
+### Future (Soma Check Moat — Verified Freshness)
+
+The competitive moat for x402 ETag is the **proof chain** — cryptographic evidence that a DIY ETag can never produce. Implemented 2026-04-06: every Soma Check hash match now returns:
+
+- `X-Soma-Chain-Hash` — JCS-canonical hash binding birth cert + cache cert
+- `X-Soma-Platform-Signature` — ClawNet's Ed25519 signature (independent third party)
+- `X-Soma-Birth-Signature` — original provider's signature (if Soma Heart enabled)
+- `proofChain` object in response body with all verification data
+
+**Why this defends against DIY ETags:**
+- DIY ETag = "trust me, data hasn't changed" (provider's word only, self-certification)
+- ClawNet ETag = "here's cryptographic proof from an independent party" (Soma principle: never self-verify)
+- For valuable data (financial, medical, legal), agents will pay 5-15% for verified freshness over free unverified freshness
+
+**Future enhancements:**
+- EAS on-chain receipts attached to hash matches (auditable, tamper-proof)
+- Cross-agent consensus scoring (1000 agents with same hash = high confidence)
+- Trust score impact: endpoints with verified freshness get higher orchestration weight
+- Provider dashboard "you're leaving money on the table" nudge (shadow → active conversion)
+
 ---
 
 ## Future: Dual-Mechanic Token Model (Stake + Burn)

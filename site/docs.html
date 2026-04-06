@@ -391,8 +391,8 @@
         </div>
         <div class="concept-card">
           <div class="concept-icon">&#x1F4B8;</div>
-          <div class="concept-title">Earn 85% Revenue</div>
-          <div class="concept-desc">Register your API as a skill. You set the price. On every call, 85% goes to you, 15% to the platform. Credit-based payouts in USDC to your Solana wallet; x402 splits go to your EVM (Ethereum Virtual Machine) wallet on Base (Coinbase's Ethereum L2 chain).</div>
+          <div class="concept-title">Earn 90% Revenue</div>
+          <div class="concept-desc">Register your API as a skill. You set the price. On every call, 90% goes to you, 10% to the platform. Credit-based payouts in USDC to your Solana wallet; x402 splits go to your EVM (Ethereum Virtual Machine) wallet on Base (Coinbase's Ethereum L2 chain).</div>
         </div>
         <div class="concept-card">
           <div class="concept-icon">&#x1F6E1;</div>
@@ -514,7 +514,7 @@ print(res.json()['answer'])</code></pre>
         </a>
         <a href="#skills-create" class="concept-card" style="text-decoration:none;cursor:pointer;border-color:rgba(139,92,246,0.25)">
           <div class="concept-title" style="color:#8b5cf6">I want to sell my API</div>
-          <div class="concept-desc">Register a service, set pricing, earn 85% &rarr;</div>
+          <div class="concept-desc">Register a service, set pricing, earn 90% &rarr;</div>
         </a>
       </div>
     </div>
@@ -542,7 +542,7 @@ print(res.json()['answer'])</code></pre>
         <div class="concept-card">
           <div class="concept-icon">&#x1F527;</div>
           <div class="concept-title">Data Skills</div>
-          <div class="concept-desc">Curated, SLA-backed data endpoints on the <a href="/marketplace" style="color:var(--accent)">Skills</a>. Browse existing skills or register your own &mdash; earn 85% of every credit spent on your data.</div>
+          <div class="concept-desc">Curated, SLA-backed data endpoints on the <a href="/marketplace" style="color:var(--accent)">Skills</a>. Browse existing skills or register your own &mdash; earn 90% of every credit spent on your data.</div>
         </div>
       </div>
 
@@ -882,7 +882,7 @@ const { payment, delivery } = await res.json();
         </tbody>
       </table>
 
-      <div class="alert alert-info">x402 payments use USDC on Base chain. Standard creator payouts (from credit-based calls) go to your Solana wallet. x402 creator splits (85%) go directly to your EVM wallet on Base.</div>
+      <div class="alert alert-info">x402 payments use USDC on Base chain. Standard creator payouts (from credit-based calls) go to your Solana wallet. x402 creator splits (90%) go directly to your EVM wallet on Base.</div>
     </div>
 
     <!-- ═══════════════════════════════════════════════ ERRORS ═══════════════════════════════════════════════ -->
@@ -1321,7 +1321,7 @@ while (true) {
     <!-- ═══════════════════════════════════════════════ AGENT SERVICES ═══════════════════════════════════════════════ -->
     <div class="docs-section" id="agent-services">
       <h2 class="docs-section-title">Skills</h2>
-      <p class="docs-section-desc">The Data Skill Marketplace is where developers register refined data endpoints that agents discover and pay for. Your complex agent just became a business &mdash; sign it in and earn 85% on every call.</p>
+      <p class="docs-section-desc">The Data Skill Marketplace is where developers register refined data endpoints that agents discover and pay for. Your complex agent just became a business &mdash; sign it in and earn 90% on every call.</p>
 
       <div class="alert alert-info" style="margin:20px 0">
         <strong>What is a Data Skill?</strong><br>
@@ -1338,7 +1338,7 @@ while (true) {
         <div class="concept-card">
           <div class="concept-icon">&#x1F4B0;</div>
           <div class="concept-title">Creator Economics</div>
-          <div class="concept-desc">Register your API as a data skill. You set the price in credits. On every call, you earn <strong style="color:var(--accent)">85%</strong> &mdash; the other 15% goes to the platform. Payouts in USDC to your Solana wallet.</div>
+          <div class="concept-desc">Register your API as a data skill. You set the price in credits. On every call, you earn <strong style="color:var(--accent)">90%</strong> &mdash; the other 10% goes to the platform. Payouts in USDC to your Solana wallet.</div>
         </div>
         <div class="concept-card">
           <div class="concept-icon">&#x1F6E1;</div>
@@ -1534,7 +1534,7 @@ while (true) {
     <!-- ═══════════════════════════════════════════════ CREATING SKILLS ═══════════════════════════════════════════════ -->
     <div class="docs-section" id="skills-create">
       <h2 class="docs-section-title">Creating a Skill / Service</h2>
-      <p class="docs-section-desc">Anyone with an API key can create a skill. You set the price, and you earn 85% of every call. Here's how to create each type.</p>
+      <p class="docs-section-desc">Anyone with an API key can create a skill. You set the price, and you earn 90% of every call. Here's how to create each type.</p>
 
       <div class="endpoint">
         <div class="endpoint-header"><span class="method-badge post">POST</span><code class="endpoint-path">/v1/skills</code></div>
@@ -1792,13 +1792,13 @@ while (true) {
       <table class="params-table">
         <thead><tr><th>What Happens</th><th>You (Creator)</th><th>Platform</th></tr></thead>
         <tbody>
-          <tr><td>Skill invoked (live)</td><td>85% of credits</td><td>15% to treasury</td></tr>
+          <tr><td>Skill invoked (live)</td><td>90% of credits</td><td>10% to treasury</td></tr>
           <tr><td>Skill invoked (cached)</td><td>0%</td><td>100% (cache revenue)</td></tr>
-          <tr><td>x402 payment</td><td>85% USDC instant</td><td>15% USDC</td></tr>
+          <tr><td>x402 payment</td><td>90% USDC instant</td><td>10% USDC</td></tr>
         </tbody>
       </table>
 
-      <div class="alert alert-info">Example: A DeFi price oracle priced at 2 credits, called 50,000 times/month. With realtime data (low cache hits ~20%), you earn: 40,000 live calls &times; 2 credits &times; 85% = 68,000 credits = $51/month in USDC. Higher-priced skills with unique-per-call results earn significantly more. A 10-credit sentiment analyzer with 5,000 calls/month and 30% cache rate would earn $29.75/month.</div>
+      <div class="alert alert-info">Example: A DeFi price oracle priced at 2 credits, called 50,000 times/month. With realtime data (low cache hits ~20%), you earn: 40,000 live calls &times; 2 credits &times; 90% = 72,000 credits = $54/month in USDC. Higher-priced skills with unique-per-call results earn significantly more. A 10-credit sentiment analyzer with 5,000 calls/month and 30% cache rate would earn $29.75/month.</div>
 
       <h4>Pricing You Control</h4>
       <table class="params-table">

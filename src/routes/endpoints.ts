@@ -385,6 +385,22 @@ endpointsRouter.post('/:id/call', async (c) => {
       c.header('X-Soma-Tier', String(somaTier));
       c.header('X-Soma-Hit-Price', String(hitPriceCredits));
       c.header('ETag', `"${hashInfo.dataHash}"`);
+      // Proof chain: cryptographic evidence a DIY ETag can't produce.
+      // Chain hash binds birth cert + cache cert. Platform signature proves
+      // an independent third party verified the hash. Birth signature proves
+      // who originally produced the data.
+      c.header('X-Soma-Chain-Hash', hashInfo.chainHash);
+      const fullCert = getCacheCertificate(key);
+      if (fullCert) {
+        c.header('X-Soma-Platform-Signature', fullCert.cacheCert.signature);
+        c.header('X-Soma-Platform-Public-Key', fullCert.cacheCert.publicKey);
+        if (fullCert.originalCert.signature) {
+          c.header('X-Soma-Birth-Signature', fullCert.originalCert.signature);
+        }
+        if (fullCert.originalCert.publicKey) {
+          c.header('X-Soma-Birth-Public-Key', fullCert.originalCert.publicKey);
+        }
+      }
       logger.info(
         { requestId, endpointId, protocol: 'soma-check', somaTier, hitPriceCredits },
         billed ? 'soma-check hash match — billed hit' : 'soma-check hash match — shadow (free)'
@@ -408,6 +424,15 @@ endpointsRouter.post('/:id/call', async (c) => {
         somaTier,
         durationMs,
         protocol: 'soma-check',
+        // Proof chain in body too — agents can verify independently
+        proofChain: fullCert ? {
+          chainHash: hashInfo.chainHash,
+          platformSignature: fullCert.cacheCert.signature,
+          platformPublicKey: fullCert.cacheCert.publicKey,
+          birthSignature: fullCert.originalCert.signature ?? null,
+          birthPublicKey: fullCert.originalCert.publicKey ?? null,
+          algorithm: fullCert.cacheCert.algorithm,
+        } : null,
       });
     }
     // Hash mismatch or no cache — fall through to normal flow (data has changed)

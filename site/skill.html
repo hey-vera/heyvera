@@ -351,8 +351,8 @@ async function loadSkill() {
         <h2>Pricing</h2>
         <div class="cost-table">
           <div class="cost-row"><span>You pay per call</span><span style="color:var(--accent);font-weight:600">${s.creditCost} credits (${creditsToUsd(s.creditCost)})</span></div>
-          <div class="cost-row"><span>Creator receives (85%)</span><span>${s.sellerReceives || Math.round(s.creditCost * 0.85)} credits</span></div>
-          <div class="cost-row"><span>Platform fee (15%)</span><span>${s.feeCredits || Math.round(s.creditCost * 0.15)} credits</span></div>
+          <div class="cost-row"><span>Creator receives (90%)</span><span>${s.sellerReceives || Math.round(s.creditCost * 0.90)} credits</span></div>
+          <div class="cost-row"><span>Platform fee (10%)</span><span>${s.feeCredits || Math.round(s.creditCost * 0.10)} credits</span></div>
           ${s.skillType === 'data' ? `<div class="cost-row" style="border-top:1px solid var(--border-subtle);padding-top:10px"><span style="color:var(--accent)">Cached response</span><span style="color:var(--accent);font-weight:600">0.1 credits ($0.0001)</span></div>` : ''}
         </div>
       </div>
