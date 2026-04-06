@@ -62,35 +62,20 @@ const providersRouter = new Hono();
 
 providersRouter.get('/tiers', (c) => {
   return c.json({
-    tiers: [
-      {
-        id: 'open',
-        name: 'Open',
-        platformFee: '0%',
-        liveCallShare: '100% to provider',
-        cacheRevenue: 'None',
-        features: ['Endpoint listing', 'Basic analytics'],
-        bestFor: 'Testing the waters — zero risk, zero cost',
-      },
-      {
-        id: 'standard',
-        name: 'Standard',
-        platformFee: '5%',
-        liveCallShare: '95% to provider',
-        cacheRevenue: '50% of cache hits (pure profit)',
-        features: ['Cache revenue share', 'Orchestration inclusion', 'Full analytics', 'Soma provenance'],
-        bestFor: 'Growing providers who want distribution + trust',
-      },
-      {
-        id: 'verified',
-        name: 'Verified',
-        platformFee: '10%',
-        liveCallShare: '90% to provider',
-        cacheRevenue: '50% of cache hits (pure profit)',
-        features: ['Everything in Standard', 'Priority orchestration', 'Cache warming', 'PQ signatures', 'Soma Verified badge', 'Trust score boost'],
-        bestFor: 'Production providers who want maximum trust + traffic',
-      },
+    model: 'flat',
+    platformFee: '10%',
+    liveCallShare: '90% to provider',
+    cacheRevenue: '50% of cache hits (pure profit)',
+    features: [
+      'Endpoint listing + orchestration inclusion',
+      'Cache revenue share (50% of cache hits)',
+      'Full analytics dashboard',
+      'Soma provenance + PQ signatures',
+      'Cache warming',
+      'Trust score',
     ],
+    note: 'The old Open/Standard/Verified tier system has been retired. All providers now operate on a flat 10% platform fee with all features included.',
+    foundingProtocol: 'Early providers are founding members. Token staking will unlock reduced fees and governance rights — details coming soon.',
     comparison: {
       note: 'Cache hits are pure profit — your server is never touched. Providers typically earn MORE through ClawNet than direct due to orchestration discovery + cache revenue.',
     },
@@ -151,21 +136,19 @@ providersRouter.post('/register', checkApiKey, async (c) => {
     ok: true,
     provider,
     message: 'Provider registered successfully. Status: pending — admin will review and activate.',
-    tier: {
-      current: 'standard',
-      fee: '5%',
-      benefits: 'Cache revenue share, orchestration inclusion, analytics, Soma provenance',
-      tiers: {
-        open: { fee: '0%', benefits: 'Endpoint listing, 100% live call revenue — no cache revenue' },
-        standard: { fee: '5%', benefits: '95% live call revenue, cache revenue share (50%), orchestration, analytics' },
-        verified: { fee: '10%', benefits: '90% live call revenue, cache warming, priority orchestration, PQ signatures, trust badge' },
-      },
+    pricing: {
+      model: 'flat',
+      fee: '10%',
+      liveCallShare: '90% to you',
+      cacheRevenue: '50% of cache hits (pure profit)',
+      allFeaturesIncluded: true,
+      foundingProtocol: 'You are a founding provider. Token staking will unlock reduced fees and governance rights — details coming soon.',
     },
     nextSteps: [
       'Your API key is now linked to this provider.',
       'Status: pending — admin will review and activate (usually within 24h). Contact hello@claw-net.org if urgent.',
       'Once activated, submit endpoints via POST /v1/providers/' + provider.id + '/endpoints/submit.',
-      'You earn 95% of live call revenue + 50% of cache hit revenue (pure profit).',
+      'You earn 90% of live call revenue + 50% of cache hit revenue (pure profit).',
       'Set freshness declarations: PATCH /v1/providers/:id/endpoints/:eid/freshness.',
       'Enable cache warming for always-fresh responses.',
       'Enable Soma dual-sign by adding your public key for provenance chain-of-custody.',
@@ -283,38 +266,13 @@ providersRouter.post('/:id/activate', async (c) => {
   return c.json({ ok: true, provider: updated });
 });
 
-// ─── POST /v1/providers/:id/tier — set provider tier (admin) ───────────────
-
-const TIER_CONFIG = {
-  open:     { platformFeePct: 0, revenueSharePct: 1.00, cacheRevenueSharePct: 0 },
-  standard: { platformFeePct: 0.05, revenueSharePct: 0.95, cacheRevenueSharePct: 0.50 },
-  verified: { platformFeePct: 0.10, revenueSharePct: 0.90, cacheRevenueSharePct: 0.50 },
-} as const;
+// ─── POST /v1/providers/:id/tier — DEPRECATED (flat 10% fee model) ───────────
 
 providersRouter.post('/:id/tier', async (c) => {
-  if (!requireAdmin(c)) {
-    return c.json({ error: 'Admin access required', code: 'ADMIN_REQUIRED' }, 403);
-  }
-
-  const id = c.req.param('id');
-  const body = await c.req.json().catch(() => ({}));
-  const tier = (body as any).tier as string;
-
-  if (!tier || !['open', 'standard', 'verified'].includes(tier)) {
-    return c.json({ error: 'tier must be open, standard, or verified', code: 'VALIDATION_ERROR' }, 400);
-  }
-
-  const config = TIER_CONFIG[tier as keyof typeof TIER_CONFIG];
-
-  getDb().prepare(`
-    UPDATE providers SET tier = ?, platform_fee_pct = ?, revenue_share_pct = ?, cache_revenue_share_pct = ?, updated_at = datetime('now')
-    WHERE id = ?
-  `).run(tier, config.platformFeePct, config.revenueSharePct, config.cacheRevenueSharePct, id);
-
-  logAudit({ entityType: 'provider', entityId: id, action: 'TIER_CHANGED', data: { tier, ...config } });
-  const provider = getProvider(id);
-
-  return c.json({ ok: true, provider, tierConfig: config });
+  return c.json({
+    error: 'Tier system has been replaced with flat 10% fee. Token staking coming soon.',
+    code: 'TIERS_DEPRECATED',
+  }, 410);
 });
 
 // ─── POST /v1/providers/:id/endpoints — register endpoint ──────────────────

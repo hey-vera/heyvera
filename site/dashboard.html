@@ -134,6 +134,35 @@
     .cache-explainer { font-size: 12px; color: var(--text-tertiary); line-height: 1.6; margin-top: 12px; padding: 12px; background: var(--bg-surface-2); border-radius: var(--radius-md); border-left: 3px solid var(--accent); }
     @media (max-width: 768px) { .cache-metrics { grid-template-columns: repeat(2, 1fr); } }
 
+    /* ── SIGNAL / FOUNDING PROTOCOL ── */
+    .signal-card { background: var(--bg-surface); border: 1px solid rgba(139,92,246,0.15); border-radius: var(--radius-lg); padding: 24px; margin-bottom: 16px; position: relative; overflow: hidden; }
+    .signal-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, var(--purple), rgba(139,92,246,0.3)); }
+    .signal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+    .signal-header-left { display: flex; align-items: center; gap: 10px; }
+    .signal-icon { width: 32px; height: 32px; border-radius: var(--radius-md); background: var(--purple-dim); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .signal-title { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+    .signal-subtitle { font-size: 11px; color: var(--text-tertiary); margin-top: 1px; }
+    .signal-balance-pill { font-family: var(--font-mono); font-size: 13px; font-weight: 700; color: var(--purple); background: var(--purple-dim); border: 1px solid rgba(139,92,246,0.2); padding: 6px 14px; border-radius: 9999px; white-space: nowrap; }
+    .signal-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
+    .signal-metric { background: var(--bg-surface-2); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 14px; text-align: center; }
+    .signal-metric-val { font-family: var(--font-mono); font-size: 20px; font-weight: 700; color: var(--text-primary); margin-bottom: 2px; }
+    .signal-metric-val.purple { color: var(--purple); }
+    .signal-metric-label { font-size: 11px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.04em; }
+    .signal-activity { list-style: none; margin: 0 0 16px; padding: 0; }
+    .signal-activity li { font-size: 12px; color: var(--text-secondary); padding: 6px 0; border-bottom: 1px solid var(--border-subtle); display: flex; justify-content: space-between; align-items: center; }
+    .signal-activity li:last-child { border-bottom: none; }
+    .signal-action-name { color: var(--text-tertiary); font-size: 11px; }
+    .signal-action-pts { font-family: var(--font-mono); font-size: 12px; color: var(--purple); font-weight: 600; }
+    .vault-summary { background: var(--bg-surface-2); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 16px; }
+    .vault-summary-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+    .vault-summary-title { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+    .vault-summary-val { font-family: var(--font-mono); font-size: 13px; color: var(--accent); font-weight: 700; }
+    .vault-locks-list { margin: 0; padding: 0; list-style: none; }
+    .vault-locks-list li { font-size: 12px; color: var(--text-secondary); padding: 4px 0; display: flex; justify-content: space-between; }
+    .vault-lock-multiplier { font-family: var(--font-mono); font-size: 11px; color: var(--warning); }
+    .signal-links { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
+    @media (max-width: 768px) { .signal-metrics { grid-template-columns: 1fr; } }
+
     /* ── KEY SECTION ── */
     .key-block { background: var(--bg-primary); border: 1px solid var(--border-default); border-radius: var(--radius-md); margin-bottom: 16px; overflow: hidden; }
     .key-block-header { display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--border-subtle); background: var(--bg-surface-2); font-size: 11px; color: var(--text-tertiary); }
@@ -660,6 +689,59 @@
         </div>
       </div>
 
+      <!-- Signal / Founding Protocol -->
+      <div class="signal-card hidden" id="signal-card">
+        <div class="signal-header">
+          <div class="signal-header-left">
+            <div class="signal-icon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--purple)" stroke-width="2" stroke-linecap="round"><path d="M2 20h.01"/><path d="M7 20v-4"/><path d="M12 20v-8"/><path d="M17 20V8"/><path d="M22 4v16"/></svg>
+            </div>
+            <div>
+              <div class="signal-title">Founding Protocol</div>
+              <div class="signal-subtitle">Earn Signal points &rarr; convert to $CLAWNET at token launch</div>
+            </div>
+          </div>
+          <div class="signal-balance-pill" id="signal-balance-pill">0 Signal</div>
+        </div>
+
+        <div class="signal-metrics">
+          <div class="signal-metric">
+            <div class="signal-metric-val purple" id="signal-total">0</div>
+            <div class="signal-metric-label">Total Signal</div>
+          </div>
+          <div class="signal-metric">
+            <div class="signal-metric-val" id="signal-rank">&mdash;</div>
+            <div class="signal-metric-label">Leaderboard Rank</div>
+          </div>
+          <div class="signal-metric">
+            <div class="signal-metric-val" id="signal-vault-locked">0</div>
+            <div class="signal-metric-label">Credits Locked</div>
+          </div>
+        </div>
+
+        <!-- Recent Signal Activity -->
+        <div id="signal-activity-wrap" class="hidden">
+          <div style="font-size:11px;font-weight:500;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:8px;">Recent Activity</div>
+          <ul class="signal-activity" id="signal-activity-list"></ul>
+        </div>
+
+        <!-- Vault Summary -->
+        <div id="vault-summary-wrap" class="hidden">
+          <div class="vault-summary">
+            <div class="vault-summary-header">
+              <div class="vault-summary-title">Founding Vault</div>
+              <div class="vault-summary-val" id="vault-total-locked">0 credits locked</div>
+            </div>
+            <ul class="vault-locks-list" id="vault-locks-list"></ul>
+          </div>
+        </div>
+
+        <div class="signal-links">
+          <a href="/founding" class="btn btn-ghost" style="border-color:rgba(139,92,246,0.3);color:var(--purple);">Pulse Board</a>
+          <a href="/roadmap#founding" class="btn btn-ghost">Roadmap</a>
+        </div>
+      </div>
+
       <!-- API Key -->
       <div class="card">
         <div class="card-label">Your API Key</div>
@@ -1102,6 +1184,7 @@
         renderDashboard(data);
         loadTaskHistory();
         loadUsageBreakdown();
+        renderSignalCard(data.signal);
         loadReferral();
       } catch(err) {
         console.error('Dashboard load failed:',err);
@@ -1182,6 +1265,68 @@
           document.getElementById('usage-mkt-credits').textContent=(data.marketplace.creditsSpent||0).toLocaleString();
         }
       } catch {}
+    }
+
+    // ── SIGNAL / FOUNDING PROTOCOL ──
+    function renderSignalCard(signalData) {
+      if (!signalData) return;
+      const signal = signalData.balance || 0;
+      const history = signalData.history || [];
+      const vault = signalData.vault || {};
+
+      // Show card (even with 0 signal — Founding Protocol is always visible)
+      const card = document.getElementById('signal-card');
+      card.classList.remove('hidden');
+
+      // Balance
+      document.getElementById('signal-balance-pill').textContent = signal.toLocaleString() + ' Signal';
+      document.getElementById('signal-total').textContent = signal.toLocaleString();
+
+      // Find rank from leaderboard (public endpoint, non-blocking)
+      fetch(`${API_BASE}/v1/signal/leaderboard?limit=100`)
+        .then(r => r.ok ? r.json() : null)
+        .then(lb => {
+          if (!lb) return;
+          const entries = lb.leaderboard || [];
+          const myRank = entries.findIndex(e => e.totalSignal <= signal);
+          document.getElementById('signal-rank').textContent = myRank >= 0 ? '#' + (myRank + 1) : entries.length > 0 ? '#' + (entries.length + 1) : '--';
+        }).catch(() => {});
+
+      // Recent activity
+      if (history.length > 0) {
+        document.getElementById('signal-activity-wrap').classList.remove('hidden');
+        const list = document.getElementById('signal-activity-list');
+        list.innerHTML = '';
+        const actionLabels = {
+          endpoint_called: 'API Call', cache_hit: 'Cache Hit', cache_hit_agent: 'Cache Save',
+          agent_signup: 'Signup Bonus', provider_register: 'Provider Registered',
+          endpoint_listed: 'Endpoint Listed', vault_drip: 'Vault Drip',
+          skill_published: 'Skill Published', skill_purchased: 'Skill Purchased',
+        };
+        history.slice(0, 5).forEach(h => {
+          const li = document.createElement('li');
+          li.innerHTML = `<span class="signal-action-name">${esc(actionLabels[h.action] || h.action)}</span><span class="signal-action-pts">+${h.signal}</span>`;
+          list.appendChild(li);
+        });
+      }
+
+      // Vault data
+      const totalLocked = vault.totalLocked || 0;
+      const locks = vault.locks || [];
+      document.getElementById('signal-vault-locked').textContent = totalLocked.toLocaleString();
+
+      if (locks.length > 0) {
+        document.getElementById('vault-summary-wrap').classList.remove('hidden');
+        document.getElementById('vault-total-locked').textContent = totalLocked.toLocaleString() + ' credits locked';
+        const lockList = document.getElementById('vault-locks-list');
+        lockList.innerHTML = '';
+        locks.filter(l => l.status === 'locked').forEach(l => {
+          const li = document.createElement('li');
+          const unlockDate = new Date(l.unlocksAt).toLocaleDateString();
+          li.innerHTML = `<span>${l.creditsLocked.toLocaleString()} credits &middot; unlocks ${unlockDate}</span><span class="vault-lock-multiplier">${l.multiplier}x bonus</span>`;
+          lockList.appendChild(li);
+        });
+      }
     }
 
     // ── 2FA / TOTP ──

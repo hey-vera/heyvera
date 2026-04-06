@@ -30,7 +30,7 @@ export interface Provider {
   websiteUrl: string | null;
   revenueSharePct: number;
   cacheRevenueSharePct: number;
-  tier: 'open' | 'standard' | 'verified';
+  tier: 'open' | 'standard' | 'verified' | 'flat';
   somaCheckTier: SomaCheckTier;
   platformFeePct: number;
   trustScore: number;
@@ -86,7 +86,7 @@ function rowToProvider(row: any): Provider {
     websiteUrl: row.website_url,
     revenueSharePct: row.revenue_share_pct,
     cacheRevenueSharePct: row.cache_revenue_share_pct ?? 0.50,
-    tier: row.tier ?? 'standard',
+    tier: row.tier ?? 'flat',
     somaCheckTier: clampSomaCheckTier(row.soma_check_tier ?? 0),
     platformFeePct: row.platform_fee_pct ?? 0.10,
     trustScore: row.trust_score ?? 50.0,
@@ -117,12 +117,12 @@ export function createProvider(opts: {
   websiteUrl?: string;
 }): Provider {
   const id = `prov-${nanoid(16)}`;
-  // Standard tier: 5% platform fee, 95% live revenue, 50% cache revenue
+  // Flat fee: 10% platform fee, 90% live revenue, 50% cache revenue
   getDb().prepare(`
     INSERT INTO providers (id, name, slug, email, clerk_user_id, evm_wallet, solana_wallet,
       soma_public_key, soma_discovery_url, description, website_url,
       platform_fee_pct, revenue_share_pct, cache_revenue_share_pct, tier)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0.05, 0.95, 0.50, 'standard')
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0.10, 0.90, 0.50, 'flat')
   `).run(
     id, opts.name, opts.slug, opts.email,
     opts.clerkUserId ?? null, opts.evmWallet ?? null, opts.solanaWallet ?? null,
@@ -394,8 +394,8 @@ export function setProviderSomaCheckTier(providerId: string, tier: SomaCheckTier
  * Cache hits:  Provider gets `cache_revenue_share_pct` (default 50%) of cache credits.
  *              Their server wasn't touched, so cache revenue is pure profit for them.
  *
- * Tier-based platform fees: Open=0%, Standard=5%, Verified=10%.
- * The `platform_fee_pct` field on the provider record controls the actual take rate.
+ * Flat 10% platform fee for all providers. The `platform_fee_pct` field on the
+ * provider record controls the actual take rate (token staking will replace tiers).
  *
  * Returns the provider's credited amount, or 0 if no provider owns this endpoint.
  */

@@ -35,6 +35,7 @@ import {
 import { env } from '../config/index';
 import { cacheIncr } from '../cache/index';
 import { maskApiKey } from '../utils/mask';
+import { getSignalBalance, getSignalHistory, getVaultLocks } from '../db/signal';
 
 function generateApiKey(): string {
   return 'cn-' + crypto.randomBytes(24).toString('hex');
@@ -93,6 +94,12 @@ dashboardRouter.get('/me', requireClerkAuth, async (c) => {
   const stats = getKeyStats(keyRow.key);
   const cacheStats = getUserCacheStats(keyRow.key);
 
+  // Signal / Founding Protocol
+  const signalBalance = getSignalBalance(keyRow.key);
+  const signalHistory = getSignalHistory(keyRow.key, 10);
+  const vaultLocks = getVaultLocks(keyRow.key);
+  const vaultTotalLocked = vaultLocks.filter(l => l.status === 'locked').reduce((s, l) => s + l.creditsLocked, 0);
+
   return c.json({
     hasKey: true,
     maskedKey: maskApiKey(keyRow.key),
@@ -102,6 +109,11 @@ dashboardRouter.get('/me', requireClerkAuth, async (c) => {
     memberSince: balance.created_at,
     stats,
     cacheStats,
+    signal: {
+      balance: signalBalance,
+      history: signalHistory,
+      vault: { totalLocked: vaultTotalLocked, locks: vaultLocks },
+    },
   });
 });
 
