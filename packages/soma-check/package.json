@@ -1,5 +1,5 @@
 {
-  "name": "@clawnet/soma-check",
+  "name": "@1xmint/soma-check",
   "version": "0.1.0",
   "description": "Drop-in fetch wrapper for Soma Check / x402 ETag — automatic 304 caching skips payment when data is unchanged",
   "main": "dist/index.js",
