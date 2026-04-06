@@ -445,6 +445,15 @@ app.get('/v1/indexed', (c) => {
   });
 });
 
+// ─── Provider Portal — static React dashboard at /portal/* ────────────────────
+import { serveStatic } from '@hono/node-server/serve-static';
+import path from 'path';
+
+const portalRoot = path.resolve(__dirname, '..', 'dashboard', 'dist');
+app.use('/portal/*', serveStatic({ root: portalRoot, rewriteRequestPath: (p) => p.replace(/^\/portal/, '') }));
+// SPA fallback: serve index.html for any /portal/* route that doesn't match a file
+app.get('/portal/*', serveStatic({ root: portalRoot, path: 'index.html' }));
+
 app.notFound((c) => c.json({ error: 'Not found', code: 'NOT_FOUND' }, 404));
 
 async function start() {
