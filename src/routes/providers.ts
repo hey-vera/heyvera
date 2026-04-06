@@ -102,6 +102,20 @@ const SelfRegisterBody = z.object({
   somaCheckTier: z.number().int().min(0).max(2).optional(),
 });
 
+// ─── GET /v1/providers/me — resolve current provider from API key ────────────
+
+providersRouter.get('/me', checkApiKey, async (c) => {
+  const keyInfo = c.get('apiKeyInfo') as { providerId?: string };
+  if (!keyInfo?.providerId) {
+    return c.json({ error: 'API key not linked to a provider', code: 'NO_PROVIDER' }, 404);
+  }
+  const provider = getProvider(keyInfo.providerId);
+  if (!provider) {
+    return c.json({ error: 'Provider not found', code: 'NOT_FOUND' }, 404);
+  }
+  return c.json(provider);
+});
+
 providersRouter.post('/register', checkApiKey, async (c) => {
   const ip = getClientIp(c);
   const count = await cacheIncr(`provider-register:ip:${ip}`, 3600);
