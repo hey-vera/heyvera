@@ -397,8 +397,9 @@ export function setProviderSomaCheckTier(providerId: string, tier: SomaCheckTier
 /**
  * Credit a provider's account with their revenue share from an endpoint call.
  *
- * Live calls:  Provider gets `revenue_share_pct` (default 90%) of credits charged.
- * Cache hits:  Provider gets `cache_revenue_share_pct` (default 50%) of cache credits.
+ * Live calls:  Provider gets `revenue_share_pct` of credits charged.
+ *              Founding era: 100% (0% platform fee). Post-provenance: 90% (10% fee).
+ * Cache hits:  Provider gets `cache_revenue_share_pct` (50%) of cache credits.
  *              Their server wasn't touched, so cache revenue is pure profit for them.
  *
  * Founding era: 0% platform fee on live calls (provider keeps 100%).

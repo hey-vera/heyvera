@@ -1887,6 +1887,9 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   // Founding era stays at 0% platform fee on live calls.
   // Revenue comes from cache splits (50/50) and Soma Check (90/10).
   // See internal/founding-protocol.md Phase 2.
+
+  // ── v161: Fix skills revenue share — stuck at 85% since v63, should be 90/10 ──
+  { version: 161, sql: `UPDATE skills SET revenue_share_pct = 0.90 WHERE revenue_share_pct < 0.90` },
 ];
 
 function runMigrations(): void {
