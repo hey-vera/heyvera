@@ -397,13 +397,23 @@ These are NOT yet on the build queue. They're the 10/10 expansion surface. Each 
 Each `internal/*.md` file drills into specifics. This doc is the overview.
 
 ### Related docs
-- `internal/soma-readiness-strategy.md` — **gap analysis + 90-day critical path (read first for strategy)**
-- `internal/soma-delegation-spec.md` — **Soma Delegation v0.1 draft spec (Gap B deliverable)**
+
+**Strategic (read these first):**
+- `internal/golden-plan.md` — **master strategic vision: 3-layer architecture, infrastructure positioning, growth flywheel**
+- `internal/pricing-economics.md` — **credit denomination (USD display), take rates, cache hit economics**
+- `internal/tier-system.md` — **unified agent + provider tier system (replaces 3 overlapping systems)**
+- `internal/token-architecture.md` — **$CLAWNET token design: BME model, burn mechanics, staking, regulatory**
+- `internal/soma-readiness-strategy.md` — gap analysis + 90-day critical path
+
+**Soma subsystems:**
+- `internal/soma-delegation-spec.md` — Soma Delegation v0.1 draft spec (Gap B deliverable)
 - `internal/soma-check-strategy.md` — Soma Check specifics
 - `internal/soma-check-billing.md` — billing math in detail
 - `internal/soma-onboarding-ladder.md` — 4-tier provider migration
 - `internal/soma-check-header-spec.md` — header contract
 - `internal/cache-layers-distinction.md` — ClawNet L1/L2 cache vs Soma Check (critical distinction)
+
+**Other:**
 - `internal/funds-flow.md` — how money actually reaches providers + "is 10% sketchy?" analysis
 - `internal/groundbreaking-extensions.md` — extension ideas (Vouch origin spec as Extension 9.5, etc.)
 - `internal/proof-of-delivery-roadmap.md` — Receipt Layer 5-phase plan

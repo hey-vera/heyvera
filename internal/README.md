@@ -26,9 +26,15 @@ If a doc needs to grow into multiple files, make a subdirectory (e.g. `internal/
 ## Doc index (2026-04-05)
 
 **Start here:**
-- `roadmap.md` — **master what/why/todos doc. Single source of truth for forward plans.** Read this first.
-- `soma-readiness-strategy.md` — **gap analysis + 90-day critical path vs. competitive clock.** Read second.
+- `golden-plan.md` — **master strategic vision: 3-layer architecture, positioning, moat stack, growth flywheel.** Read this first for the big picture.
+- `roadmap.md` — **master what/why/todos doc. Single source of truth for forward plans.** Read this second for what to build.
+- `soma-readiness-strategy.md` — **gap analysis + 90-day critical path vs. competitive clock.**
 - `soma-delegation-spec.md` — **Soma Delegation v0.1 draft spec (doctrinal play vs. IETF draft-klrc).**
+
+**Economics & Token:**
+- `pricing-economics.md` — **credit denomination (USD display), take rates, cache hit economics, volume pricing. Evidence-based.**
+- `tier-system.md` — **unified agent + provider tier system. Replaces 3 overlapping systems.**
+- `token-architecture.md` — **$CLAWNET token design: BME model, 25% revenue burn, staking for tiers, SEC "digital tools" compliance.**
 
 **Soma Check (conditional payment protocol):**
 - `soma-check-strategy.md` — canonical strategy, locked decisions
