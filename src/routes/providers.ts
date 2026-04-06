@@ -119,7 +119,7 @@ providersRouter.post('/register', checkApiKey, async (c) => {
     return c.json({ error: 'Provider slug already taken', code: 'DUPLICATE_SLUG' }, 409);
   }
 
-  const provider = createProvider(parsed.data);
+  let provider = createProvider(parsed.data);
 
   // Set Soma Check tier if requested (default: 0 = shadow mode)
   if (parsed.data.somaCheckTier && parsed.data.somaCheckTier > 0) {
@@ -129,6 +129,9 @@ providersRouter.post('/register', checkApiKey, async (c) => {
   // Link caller's API key to the new provider
   const keyInfo = c.get('apiKeyInfo');
   setApiKeyProvider(keyInfo.key, provider.id);
+
+  // Re-read after all mutations so response reflects actual state
+  provider = getProvider(provider.id)!;
 
   logAudit({ entityType: 'provider', entityId: provider.id, action: 'SELF_REGISTERED', data: { name: provider.name, slug: provider.slug, apiKey: keyInfo.key.slice(0, 7) + '...' } });
   awardSignal({ apiKey: keyInfo.key, providerId: provider.id, action: 'provider_register', metadata: { slug: provider.slug } });
