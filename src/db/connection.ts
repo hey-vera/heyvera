@@ -1847,6 +1847,7 @@ const MIGRATIONS: { version: number; sql: string }[] = [
     );
   ` },
   { version: 155, sql: `UPDATE providers SET platform_fee_pct = 0.10, revenue_share_pct = 0.90, cache_revenue_share_pct = 0.50, tier = 'flat' WHERE tier IN ('open', 'standard', 'verified')` },
+  { version: 156, sql: `UPDATE providers SET platform_fee_pct = 0, revenue_share_pct = 1.00, tier = 'founding'` },
 ];
 
 function runMigrations(): void {

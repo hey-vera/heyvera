@@ -62,23 +62,24 @@ const providersRouter = new Hono();
 
 providersRouter.get('/tiers', (c) => {
   return c.json({
-    model: 'flat',
-    platformFee: '10%',
-    liveCallShare: '90% to provider',
-    cacheRevenue: '50% of cache hits (pure profit)',
+    model: 'founding',
+    platformFee: '0% on live calls (Founding era)',
+    liveCallShare: '100% to provider',
+    cacheRevenue: '50% of cache hits (pure profit — your server is never touched)',
+    somaCheck: 'x402 ETag starts in shadow mode (free telemetry), opt-in to billing when ready',
     features: [
       'Endpoint listing + orchestration inclusion',
       'Cache revenue share (50% of cache hits)',
       'Full analytics dashboard',
-      'Soma provenance + PQ signatures',
-      'Cache warming',
-      'Trust score',
+      'x402 ETag / Soma Check (conditional payment)',
     ],
-    note: 'The old Open/Standard/Verified tier system has been retired. All providers now operate on a flat 10% platform fee with all features included.',
-    foundingProtocol: 'Early providers are founding members. Token staking will unlock reduced fees and governance rights — details coming soon.',
-    comparison: {
-      note: 'Cache hits are pure profit — your server is never touched. Providers typically earn MORE through ClawNet than direct due to orchestration discovery + cache revenue.',
+    feeProgression: {
+      now: '0% platform fee — provider keeps 100% of live call revenue',
+      somaCheckLive: 'Platform earns small cut of Soma Check efficiency savings (opt-in)',
+      somaHeartLaunch: '10% platform fee kicks in — justified by provenance, trust layer, PQ signatures',
+      tokenStaking: '$CLAWNET staking reduces fee from 10% down to 3%',
     },
+    note: 'Founding providers pay nothing on live calls. Platform earns only from cache infrastructure (50/50 split on cache hits) and Soma Check when opted in. The 10% fee activates when Soma Heart launches and delivers real value.',
   });
 });
 
@@ -137,21 +138,19 @@ providersRouter.post('/register', checkApiKey, async (c) => {
     provider,
     message: 'Provider registered successfully. Status: pending — admin will review and activate.',
     pricing: {
-      model: 'flat',
-      fee: '10%',
-      liveCallShare: '90% to you',
-      cacheRevenue: '50% of cache hits (pure profit)',
-      allFeaturesIncluded: true,
-      foundingProtocol: 'You are a founding provider. Token staking will unlock reduced fees and governance rights — details coming soon.',
+      model: 'founding',
+      liveCallFee: '0% — you keep 100% of live call revenue',
+      cacheRevenue: '50% of cache hits (pure profit — your server is never touched)',
+      somaCheck: 'x402 ETag starts in free shadow mode. Opt-in to billing when ready.',
+      future: 'Platform fee increases to 10% when Soma Heart launches. $CLAWNET staking reduces it further.',
     },
     nextSteps: [
       'Your API key is now linked to this provider.',
       'Status: pending — admin will review and activate (usually within 24h). Contact hello@claw-net.org if urgent.',
       'Once activated, submit endpoints via POST /v1/providers/' + provider.id + '/endpoints/submit.',
-      'You earn 90% of live call revenue + 50% of cache hit revenue (pure profit).',
+      'You earn 100% of live call revenue + 50% of cache hit revenue (pure profit).',
       'Set freshness declarations: PATCH /v1/providers/:id/endpoints/:eid/freshness.',
       'Enable cache warming for always-fresh responses.',
-      'Enable Soma dual-sign by adding your public key for provenance chain-of-custody.',
     ],
   }, 201);
 });

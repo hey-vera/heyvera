@@ -4,16 +4,28 @@ ClawNet is moving to a flat 10% fee model across all revenue sources, replacing 
 
 ---
 
-## Fee Model: "10 / Stake / Earn"
+## Fee Model: Progressive "Earn When We Deliver"
 
-### Base: 10% Flat Everywhere
+### Founding Era (Now): 0% Live Call Fee
 
-- Every transaction, every source — skills, provider endpoints, orchestration
-- Replaces the old tiered system (Open 0%, Standard 5%, Verified 10%)
-- Competitive: lower than RapidAPI (25%), justified by orchestration + Soma + caching + billing abstraction
-- Skills marketplace: updated from 15% to 10%
+- Providers keep **100%** of live call revenue — zero platform fee
+- Platform earns only from cache hit revenue split (50/50) and Soma Check spread
+- Why: no traffic to offer distribution, caching value unproven, Soma Heart not ready
+- Charging 10% before delivering value is extractive and kills adoption
+- Skills marketplace: 10% (different value prop — hosting, discovery, billing for skill creators)
 
-### Cache Revenue: Universal
+### Phase 1: Soma Check Goes Live
+
+- Platform earns small cut of Soma Check efficiency savings (provider opts in)
+- Live calls still 0% — provider loses nothing
+
+### Phase 2: Soma Heart Launches → 10% Kicks In
+
+- Birth certs, provenance, PQ signatures = real value that justifies the fee
+- 10% platform fee on live calls, provider keeps 90%
+- Cache revenue: 50/50 (unchanged)
+
+### Cache Revenue: Universal (All Phases)
 
 - ALL providers get 50% of cache hit fees from day one, no gate
 - Cache hits cost agents 10% of live price
