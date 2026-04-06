@@ -1848,6 +1848,33 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   ` },
   { version: 155, sql: `UPDATE providers SET platform_fee_pct = 0.10, revenue_share_pct = 0.90, cache_revenue_share_pct = 0.50, tier = 'flat' WHERE tier IN ('open', 'standard', 'verified')` },
   { version: 156, sql: `UPDATE providers SET platform_fee_pct = 0, revenue_share_pct = 1.00, tier = 'founding'` },
+
+  // v157: Provider withdrawal system — payout wallet + withdrawal requests
+  { version: 157, sql: `
+    ALTER TABLE providers ADD COLUMN payout_wallet TEXT;
+    ALTER TABLE providers ADD COLUMN payout_wallet_verified INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE providers ADD COLUMN withdrawable_credits REAL NOT NULL DEFAULT 0;
+  ` },
+  { version: 158, sql: `
+    CREATE TABLE IF NOT EXISTS withdrawal_requests (
+      id TEXT PRIMARY KEY,
+      provider_id TEXT NOT NULL REFERENCES providers(id),
+      amount_credits REAL NOT NULL,
+      amount_usdc REAL NOT NULL,
+      payout_wallet TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      hold_until TEXT NOT NULL,
+      requested_at TEXT NOT NULL DEFAULT (datetime('now')),
+      reviewed_at TEXT,
+      reviewed_by TEXT,
+      completed_at TEXT,
+      tx_hash TEXT,
+      reject_reason TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_withdrawals_provider ON withdrawal_requests(provider_id);
+    CREATE INDEX IF NOT EXISTS idx_withdrawals_status ON withdrawal_requests(status);
+  ` },
 ];
 
 function runMigrations(): void {

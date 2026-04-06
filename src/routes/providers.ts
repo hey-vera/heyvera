@@ -1322,4 +1322,84 @@ providersRouter.get('/:id/insights', checkApiKey, async (c) => {
   });
 });
 
+// ─── Provider Withdrawal System ──────────────────────────────────────────
+
+// PATCH /v1/providers/:id/payout-wallet — set Solana payout wallet
+providersRouter.patch('/:id/payout-wallet', checkApiKey, async (c) => {
+  const providerId = c.req.param('id');
+  const keyInfo = c.get('apiKeyInfo');
+  const keyProvider = getDb().prepare('SELECT provider_id FROM api_keys WHERE key = ?').get(keyInfo.key) as any;
+  if (!keyProvider || keyProvider.provider_id !== providerId) {
+    return c.json({ error: 'Not your provider', code: 'NOT_OWNER' }, 403);
+  }
+
+  const body = await c.req.json().catch(() => ({}));
+  const wallet = body.wallet as string;
+  if (!wallet || typeof wallet !== 'string' || wallet.length < 32 || wallet.length > 44) {
+    return c.json({ error: 'Invalid Solana wallet address', code: 'INVALID_WALLET' }, 400);
+  }
+
+  // Basic Solana address validation (base58, 32-44 chars)
+  if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(wallet)) {
+    return c.json({ error: 'Invalid Solana wallet address format', code: 'INVALID_WALLET' }, 400);
+  }
+
+  const { setPayoutWallet, verifyPayoutWallet } = await import('../db/providers');
+  setPayoutWallet(providerId, wallet);
+  // Auto-verify for now (future: require signed message)
+  verifyPayoutWallet(providerId);
+
+  return c.json({ ok: true, payoutWallet: wallet, verified: true, message: 'Payout wallet set and verified' });
+});
+
+// GET /v1/providers/:id/withdrawals — list provider's withdrawal history
+providersRouter.get('/:id/withdrawals', checkApiKey, async (c) => {
+  const providerId = c.req.param('id');
+  const keyInfo = c.get('apiKeyInfo');
+  const keyProvider = getDb().prepare('SELECT provider_id FROM api_keys WHERE key = ?').get(keyInfo.key) as any;
+  if (!keyProvider || keyProvider.provider_id !== providerId) {
+    return c.json({ error: 'Not your provider', code: 'NOT_OWNER' }, 403);
+  }
+
+  const { getProviderWithdrawals, getProvider } = await import('../db/providers');
+  const provider = getProvider(providerId);
+  if (!provider) return c.json({ error: 'Provider not found', code: 'NOT_FOUND' }, 404);
+
+  return c.json({
+    ok: true,
+    withdrawableCredits: provider.withdrawableCredits,
+    payoutWallet: provider.payoutWallet,
+    payoutWalletVerified: provider.payoutWalletVerified,
+    withdrawals: getProviderWithdrawals(providerId),
+  });
+});
+
+// POST /v1/providers/:id/withdraw — request credit withdrawal
+providersRouter.post('/:id/withdraw', checkApiKey, async (c) => {
+  const providerId = c.req.param('id');
+  const keyInfo = c.get('apiKeyInfo');
+  const keyProvider = getDb().prepare('SELECT provider_id FROM api_keys WHERE key = ?').get(keyInfo.key) as any;
+  if (!keyProvider || keyProvider.provider_id !== providerId) {
+    return c.json({ error: 'Not your provider', code: 'NOT_OWNER' }, 403);
+  }
+
+  const body = await c.req.json().catch(() => ({}));
+  const amountCredits = Number(body.amountCredits);
+  if (!amountCredits || amountCredits <= 0) {
+    return c.json({ error: 'amountCredits required (positive number)', code: 'INVALID_AMOUNT' }, 400);
+  }
+
+  const { requestWithdrawal } = await import('../db/providers');
+  const result = requestWithdrawal(providerId, amountCredits);
+  if (!result.ok) {
+    return c.json({ error: result.error, code: result.code }, 400);
+  }
+
+  return c.json({
+    ok: true,
+    withdrawal: result.withdrawal,
+    message: `Withdrawal of ${amountCredits} credits ($${result.withdrawal!.amountUsdc} USDC) requested. Hold period: 7 days. Admin approval required.`,
+  });
+});
+
 export { providersRouter };

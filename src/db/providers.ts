@@ -35,6 +35,9 @@ export interface Provider {
   platformFeePct: number;
   trustScore: number;
   cacheRevenueCredits: number;
+  payoutWallet: string | null;
+  payoutWalletVerified: boolean;
+  withdrawableCredits: number;
   status: 'pending' | 'active' | 'suspended';
   verified: boolean;
   somaEnabled: boolean;
@@ -91,6 +94,9 @@ function rowToProvider(row: any): Provider {
     platformFeePct: row.platform_fee_pct ?? 0.10,
     trustScore: row.trust_score ?? 50.0,
     cacheRevenueCredits: row.cache_revenue_credits ?? 0,
+    payoutWallet: row.payout_wallet ?? null,
+    payoutWalletVerified: !!(row.payout_wallet_verified),
+    withdrawableCredits: row.withdrawable_credits ?? 0,
     status: row.status,
     verified: !!row.verified,
     somaEnabled: !!row.soma_enabled,
@@ -439,10 +445,14 @@ export function creditProviderShare(endpointId: string, creditsCharged: number, 
         .run(providerCredits, providerKey.key);
     }
 
-    // Track lifetime cache revenue on provider record
+    // Track lifetime cache revenue + withdrawable balance on provider record
     if (opts.cacheHit) {
-      getDb().prepare('UPDATE providers SET cache_revenue_credits = cache_revenue_credits + ? WHERE id = ?')
-        .run(providerCredits, providerId);
+      getDb().prepare('UPDATE providers SET cache_revenue_credits = cache_revenue_credits + ?, withdrawable_credits = withdrawable_credits + ? WHERE id = ?')
+        .run(providerCredits, providerCredits, providerId);
+    } else {
+      // Live calls: provider already gets x402 payment. Credit share is usable
+      // on ClawNet but NOT withdrawable (avoids double-payment).
+      // Only cache/Soma Check revenue (where no x402 payment occurred) is withdrawable.
     }
   }
 
@@ -609,4 +619,197 @@ export function getProviderVolatility(providerId: string, days = 30): ProviderVo
     },
     overallScore: Math.min(100, Math.max(0, overall)),
   };
+}
+
+// ─── Provider Withdrawal System ──────────────────────────────────────────
+
+const MIN_WITHDRAWAL_CREDITS = 100;  // $0.10 minimum
+const HOLD_DAYS = 7;                 // Credits must age 7 days
+const COOLDOWN_DAYS = 7;             // 1 withdrawal per 7 days
+
+export interface WithdrawalRequest {
+  id: string;
+  providerId: string;
+  amountCredits: number;
+  amountUsdc: number;
+  payoutWallet: string;
+  status: 'pending' | 'approved' | 'completed' | 'rejected' | 'failed';
+  holdUntil: string;
+  requestedAt: string;
+  reviewedAt: string | null;
+  reviewedBy: string | null;
+  completedAt: string | null;
+  txHash: string | null;
+  rejectReason: string | null;
+}
+
+export function setPayoutWallet(providerId: string, wallet: string): void {
+  getDb().prepare('UPDATE providers SET payout_wallet = ?, payout_wallet_verified = 0, updated_at = datetime(\'now\') WHERE id = ?')
+    .run(wallet, providerId);
+}
+
+export function verifyPayoutWallet(providerId: string): void {
+  getDb().prepare('UPDATE providers SET payout_wallet_verified = 1, updated_at = datetime(\'now\') WHERE id = ?')
+    .run(providerId);
+}
+
+export function requestWithdrawal(providerId: string, amountCredits: number, creditsPerUsd: number = 1000): {
+  ok: boolean;
+  error?: string;
+  code?: string;
+  withdrawal?: WithdrawalRequest;
+} {
+  const provider = getProvider(providerId);
+  if (!provider) return { ok: false, error: 'Provider not found', code: 'NOT_FOUND' };
+  if (provider.status !== 'active') return { ok: false, error: 'Provider not active', code: 'NOT_ACTIVE' };
+  if (!provider.payoutWallet) return { ok: false, error: 'No payout wallet set', code: 'NO_WALLET' };
+  if (!provider.payoutWalletVerified) return { ok: false, error: 'Payout wallet not verified', code: 'WALLET_NOT_VERIFIED' };
+  if (amountCredits < MIN_WITHDRAWAL_CREDITS) return { ok: false, error: `Minimum withdrawal: ${MIN_WITHDRAWAL_CREDITS} credits`, code: 'BELOW_MINIMUM' };
+  if (amountCredits > provider.withdrawableCredits) return { ok: false, error: `Insufficient withdrawable balance: ${provider.withdrawableCredits} credits`, code: 'INSUFFICIENT_BALANCE' };
+
+  // Cooldown check: no withdrawal in last COOLDOWN_DAYS days
+  const recent = getDb().prepare(
+    `SELECT id FROM withdrawal_requests WHERE provider_id = ? AND status IN ('pending', 'approved', 'completed') AND requested_at > datetime('now', '-${COOLDOWN_DAYS} days')`
+  ).get(providerId) as any;
+  if (recent) return { ok: false, error: `One withdrawal per ${COOLDOWN_DAYS} days. Try again later.`, code: 'COOLDOWN' };
+
+  const id = `wd-${nanoid(16)}`;
+  const amountUsdc = round6(amountCredits / creditsPerUsd);
+
+  getDb().transaction(() => {
+    // Deduct from withdrawable balance
+    getDb().prepare('UPDATE providers SET withdrawable_credits = withdrawable_credits - ? WHERE id = ?')
+      .run(amountCredits, providerId);
+
+    // Create withdrawal request with hold period
+    getDb().prepare(`
+      INSERT INTO withdrawal_requests (id, provider_id, amount_credits, amount_usdc, payout_wallet, status, hold_until)
+      VALUES (?, ?, ?, ?, ?, 'pending', datetime('now', '+${HOLD_DAYS} days'))
+    `).run(id, providerId, amountCredits, amountUsdc, provider.payoutWallet);
+  })();
+
+  logAudit({ entityType: 'withdrawal', entityId: id, action: 'WITHDRAWAL_REQUESTED', actorId: providerId, data: { amountCredits, amountUsdc } });
+
+  return {
+    ok: true,
+    withdrawal: getWithdrawal(id)!,
+  };
+}
+
+export function getWithdrawal(id: string): WithdrawalRequest | null {
+  const row = getDb().prepare('SELECT * FROM withdrawal_requests WHERE id = ?').get(id) as any;
+  if (!row) return null;
+  return {
+    id: row.id,
+    providerId: row.provider_id,
+    amountCredits: row.amount_credits,
+    amountUsdc: row.amount_usdc,
+    payoutWallet: row.payout_wallet,
+    status: row.status,
+    holdUntil: row.hold_until,
+    requestedAt: row.requested_at,
+    reviewedAt: row.reviewed_at,
+    reviewedBy: row.reviewed_by,
+    completedAt: row.completed_at,
+    txHash: row.tx_hash,
+    rejectReason: row.reject_reason,
+  };
+}
+
+export function getProviderWithdrawals(providerId: string): WithdrawalRequest[] {
+  const rows = getDb().prepare('SELECT * FROM withdrawal_requests WHERE provider_id = ? ORDER BY requested_at DESC').all(providerId) as any[];
+  return rows.map(row => ({
+    id: row.id,
+    providerId: row.provider_id,
+    amountCredits: row.amount_credits,
+    amountUsdc: row.amount_usdc,
+    payoutWallet: row.payout_wallet,
+    status: row.status,
+    holdUntil: row.hold_until,
+    requestedAt: row.requested_at,
+    reviewedAt: row.reviewed_at,
+    reviewedBy: row.reviewed_by,
+    completedAt: row.completed_at,
+    txHash: row.tx_hash,
+    rejectReason: row.reject_reason,
+  }));
+}
+
+export function getPendingWithdrawals(): WithdrawalRequest[] {
+  const rows = getDb().prepare(
+    `SELECT * FROM withdrawal_requests WHERE status = 'pending' AND hold_until <= datetime('now') ORDER BY requested_at ASC`
+  ).all() as any[];
+  return rows.map(row => ({
+    id: row.id,
+    providerId: row.provider_id,
+    amountCredits: row.amount_credits,
+    amountUsdc: row.amount_usdc,
+    payoutWallet: row.payout_wallet,
+    status: row.status,
+    holdUntil: row.hold_until,
+    requestedAt: row.requested_at,
+    reviewedAt: row.reviewed_at,
+    reviewedBy: row.reviewed_by,
+    completedAt: row.completed_at,
+    txHash: row.tx_hash,
+    rejectReason: row.reject_reason,
+  }));
+}
+
+export function approveWithdrawal(id: string, adminKey: string): boolean {
+  const result = getDb().prepare(`
+    UPDATE withdrawal_requests SET status = 'approved', reviewed_at = datetime('now'), reviewed_by = ?
+    WHERE id = ? AND status = 'pending' AND hold_until <= datetime('now')
+  `).run(adminKey, id);
+  if (result.changes > 0) {
+    logAudit({ entityType: 'withdrawal', entityId: id, action: 'WITHDRAWAL_APPROVED', actorId: adminKey });
+  }
+  return result.changes > 0;
+}
+
+export function rejectWithdrawal(id: string, adminKey: string, reason: string): boolean {
+  const withdrawal = getWithdrawal(id);
+  if (!withdrawal || withdrawal.status !== 'pending') return false;
+
+  getDb().transaction(() => {
+    // Refund the credits back to provider
+    getDb().prepare('UPDATE providers SET withdrawable_credits = withdrawable_credits + ? WHERE id = ?')
+      .run(withdrawal.amountCredits, withdrawal.providerId);
+    getDb().prepare(`
+      UPDATE withdrawal_requests SET status = 'rejected', reviewed_at = datetime('now'), reviewed_by = ?, reject_reason = ?
+      WHERE id = ?
+    `).run(adminKey, reason, id);
+  })();
+
+  logAudit({ entityType: 'withdrawal', entityId: id, action: 'WITHDRAWAL_REJECTED', actorId: adminKey, data: { reason } });
+  return true;
+}
+
+export function completeWithdrawal(id: string, txHash: string): boolean {
+  const result = getDb().prepare(`
+    UPDATE withdrawal_requests SET status = 'completed', completed_at = datetime('now'), tx_hash = ?
+    WHERE id = ? AND status = 'approved'
+  `).run(txHash, id);
+  if (result.changes > 0) {
+    logAudit({ entityType: 'withdrawal', entityId: id, action: 'WITHDRAWAL_COMPLETED', data: { txHash } });
+  }
+  return result.changes > 0;
+}
+
+export function failWithdrawal(id: string, reason: string): boolean {
+  const withdrawal = getWithdrawal(id);
+  if (!withdrawal || withdrawal.status !== 'approved') return false;
+
+  getDb().transaction(() => {
+    // Refund credits on failure
+    getDb().prepare('UPDATE providers SET withdrawable_credits = withdrawable_credits + ? WHERE id = ?')
+      .run(withdrawal.amountCredits, withdrawal.providerId);
+    getDb().prepare(`
+      UPDATE withdrawal_requests SET status = 'failed', reject_reason = ?
+      WHERE id = ?
+    `).run(reason, id);
+  })();
+
+  logAudit({ entityType: 'withdrawal', entityId: id, action: 'WITHDRAWAL_FAILED', data: { reason } });
+  return true;
 }

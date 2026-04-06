@@ -385,5 +385,56 @@ adminRouter.post('/eas/anchor', async (c) => {
   return c.json(result);
 });
 
+// ─── Provider Withdrawal Admin ──────────────────────────────────────────────
+
+// GET /v1/admin/withdrawals/pending — list withdrawals ready for approval
+adminRouter.get('/withdrawals/pending', async (c) => {
+  const { getPendingWithdrawals } = await import('../db/providers');
+  return c.json({ ok: true, withdrawals: getPendingWithdrawals() });
+});
+
+// POST /v1/admin/withdrawals/:id/approve — approve + execute payout
+adminRouter.post('/withdrawals/:id/approve', async (c) => {
+  const id = c.req.param('id');
+  const { approveWithdrawal, getWithdrawal, completeWithdrawal, failWithdrawal } = await import('../db/providers');
+
+  const withdrawal = getWithdrawal(id);
+  if (!withdrawal) return c.json({ error: 'Withdrawal not found', code: 'NOT_FOUND' }, 404);
+  if (withdrawal.status !== 'pending') return c.json({ error: `Cannot approve: status is ${withdrawal.status}`, code: 'INVALID_STATUS' }, 400);
+
+  const holdDate = new Date(withdrawal.holdUntil);
+  if (holdDate > new Date()) {
+    return c.json({ error: `Hold period not elapsed. Eligible after ${withdrawal.holdUntil}`, code: 'HOLD_ACTIVE' }, 400);
+  }
+
+  const approved = approveWithdrawal(id, 'admin');
+  if (!approved) return c.json({ error: 'Approval failed', code: 'APPROVAL_FAILED' }, 500);
+
+  // Execute payout
+  try {
+    const { sendSolanaUsdc } = await import('../utils/solana-payout');
+    const txHash = await sendSolanaUsdc(withdrawal.payoutWallet, withdrawal.amountUsdc);
+    completeWithdrawal(id, txHash);
+    return c.json({ ok: true, withdrawal: getWithdrawal(id), txHash, message: `Paid $${withdrawal.amountUsdc} USDC to ${withdrawal.payoutWallet}` });
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    failWithdrawal(id, errMsg);
+    return c.json({ error: `Payout failed: ${errMsg}`, code: 'PAYOUT_FAILED', withdrawal: getWithdrawal(id) }, 500);
+  }
+});
+
+// POST /v1/admin/withdrawals/:id/reject — reject + refund credits
+adminRouter.post('/withdrawals/:id/reject', async (c) => {
+  const id = c.req.param('id');
+  const body = await c.req.json().catch(() => ({}));
+  const reason = body.reason || 'No reason provided';
+
+  const { rejectWithdrawal, getWithdrawal } = await import('../db/providers');
+  const rejected = rejectWithdrawal(id, 'admin', reason);
+  if (!rejected) return c.json({ error: 'Rejection failed (not found or wrong status)', code: 'REJECTION_FAILED' }, 400);
+
+  return c.json({ ok: true, withdrawal: getWithdrawal(id), message: 'Withdrawal rejected, credits refunded' });
+});
+
 // ─── Cache Admin Sub-Router ─────────────────────────────────────────────────
 adminRouter.route('/', cacheAdminRouter);
