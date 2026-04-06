@@ -446,13 +446,37 @@ app.get('/v1/indexed', (c) => {
 });
 
 // ─── Provider Portal — static React dashboard at /portal/* ────────────────────
-import { serveStatic } from '@hono/node-server/serve-static';
 import path from 'path';
+import fs from 'fs';
 
 const portalRoot = path.resolve(__dirname, '..', 'dashboard', 'dist');
-app.use('/portal/*', serveStatic({ root: portalRoot, rewriteRequestPath: (p) => p.replace(/^\/portal/, '') }));
-// SPA fallback: serve index.html for any /portal/* route that doesn't match a file
-app.get('/portal/*', serveStatic({ root: portalRoot, path: 'index.html' }));
+const MIME: Record<string, string> = {
+  '.html': 'text/html', '.js': 'application/javascript', '.css': 'text/css',
+  '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.png': 'image/png',
+  '.json': 'application/json', '.ico': 'image/x-icon',
+};
+
+app.get('/portal', (c) => c.redirect('/portal/'));
+app.get('/portal/*', (c) => {
+  const urlPath = c.req.path.replace(/^\/portal\/?/, '') || 'index.html';
+  const filePath = path.join(portalRoot, urlPath);
+  // Prevent directory traversal
+  if (!filePath.startsWith(portalRoot)) return c.json({ error: 'Forbidden' }, 403);
+  try {
+    if (fs.statSync(filePath).isFile()) {
+      const ext = path.extname(filePath);
+      c.header('Content-Type', MIME[ext] ?? 'application/octet-stream');
+      if (ext !== '.html') c.header('Cache-Control', 'public, max-age=31536000, immutable');
+      return c.body(fs.readFileSync(filePath));
+    }
+  } catch { /* file doesn't exist — SPA fallback below */ }
+  // SPA fallback: serve index.html for client-side routes
+  try {
+    return c.html(fs.readFileSync(path.join(portalRoot, 'index.html'), 'utf-8'));
+  } catch {
+    return c.json({ error: 'Portal not built. Run: cd dashboard && npx vite build', code: 'NOT_FOUND' }, 404);
+  }
+});
 
 app.notFound((c) => c.json({ error: 'Not found', code: 'NOT_FOUND' }, 404));
 
