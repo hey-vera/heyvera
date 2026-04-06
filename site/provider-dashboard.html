@@ -167,18 +167,9 @@
     <button class="window-btn" data-window="month">Last 30d</button>
   </div>
 
-  <div class="shadow-banner" id="shadowBanner">
-    <div class="shadow-banner-title">Shadow Mode &mdash; Tier 0</div>
-    <div class="shadow-banner-body">
-      You're not billing for cache hits yet. Below is what you <strong>would have earned</strong> if you flipped to Tier 1+.
-      <strong id="shadowProjection">--</strong> credits in this window.
-      <a href="/docs#soma-tiers" style="color:var(--warning);font-weight:600;">Activate billing &rarr;</a>
-    </div>
-  </div>
-
   <div class="stats-grid">
-    <div class="stat-card highlight"><div class="stat-label">Total Credits Earned</div><div class="stat-value accent" id="sTotalEarned">--</div><div class="stat-sub" id="sTotalEarnedSub">live + cache</div></div>
-    <div class="stat-card"><div class="stat-label">Live-Call Credits</div><div class="stat-value" id="sLiveEarned">--</div><div class="stat-sub">90% of origin</div></div>
+    <div class="stat-card highlight"><div class="stat-label">Total Credits Earned</div><div class="stat-value accent" id="sTotalEarned">--</div><div class="stat-sub" id="sTotalEarnedSub">live + cache + soma check</div></div>
+    <div class="stat-card"><div class="stat-label">Live-Call Credits</div><div class="stat-value" id="sLiveEarned">--</div><div class="stat-sub">100% (founding era)</div></div>
     <div class="stat-card"><div class="stat-label">Cache-Hit Credits</div><div class="stat-value info" id="sCacheEarned">--</div><div class="stat-sub" id="sCacheEarnedSub">90% share</div></div>
     <div class="stat-card"><div class="stat-label">Hit Rate</div><div class="stat-value purple" id="sHitRate">--</div><div class="stat-sub" id="sHitRateSub">of soma-check probes</div></div>
     <div class="stat-card"><div class="stat-label">Total Calls</div><div class="stat-value" id="sTotalCalls">--</div><div class="stat-sub" id="sTotalCallsSub">live + hits</div></div>
@@ -215,7 +206,7 @@ const API = (window.location.hostname === 'localhost' || window.location.hostnam
   ? 'http://localhost:3402'
   : 'https://api.claw-net.org';
 
-const TIER_NAMES = { 0: 'Shadow', 1: 'Passive', 2: 'Verified', 3: 'Champion' };
+const TIER_NAMES = { 1: 'Active', 2: 'Verified', 3: 'Champion' };
 
 let currentWindow = 'day';
 let currentProviderId = null;
@@ -263,8 +254,8 @@ async function fetchEarnings(providerId, windowStr) {
 
 function renderEarnings(data) {
   // Header
-  const tier = data.tier ?? 0;
-  const tierName = TIER_NAMES[tier] || 'Unknown';
+  const tier = data.tier ?? 1;
+  const tierName = TIER_NAMES[tier] || 'Active';
   const tierBadge = '<span class="tier-badge t' + tier + '">Tier ' + tier + ' &middot; ' + tierName + '</span>';
   document.getElementById('providerNameLine').innerHTML = (data.provider?.name || 'Provider') + tierBadge;
 
@@ -279,14 +270,7 @@ function renderEarnings(data) {
   setText('sTotalCallsSub', fmt(data.totals.liveCalls) + ' live + ' + fmt(data.totals.cacheHits) + ' hits');
   setText('sAgentSaved', fmtCredits(data.savings.agentCreditsSaved));
 
-  // Shadow-mode banner
-  const shadowEl = document.getElementById('shadowBanner');
-  if (tier === 0 && data.earnings.projectedCacheCreditsIfActive > 0) {
-    shadowEl.classList.add('show');
-    setText('shadowProjection', fmtCredits(data.earnings.projectedCacheCreditsIfActive));
-  } else {
-    shadowEl.classList.remove('show');
-  }
+  // All providers are now T1+ (shadow mode removed)
 
   // Per-endpoint table
   const tbody = document.getElementById('endpointRows');

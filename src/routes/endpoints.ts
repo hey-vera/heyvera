@@ -4,7 +4,8 @@ import { getCircuitStats, isEndpointAvailable } from '../core/circuit-breaker';
 import { getDb, logAudit, dbRowToApiEndpoint, safeJsonParse } from '../db/connection';
 import { creditCostForEndpoint, round6, cacheCreditCost } from '../core/credits';
 import { isClawApisReady, clawApiCall, getLastBirthCertificate } from '../providers/clawapis';
-import { cacheKey, smartCacheGet, smartCacheSet, cacheNegative, getNegativeCache, coalesceRequest, enqueueRefresh, type CacheFreshness } from '../cache/index';
+import { cacheKey, smartCacheGet, smartCacheSet, cacheNegative, getNegativeCache, coalesceRequest, enqueueRefresh, cacheIncr, type CacheFreshness } from '../cache/index';
+import { getClientIp } from '../middleware/rate-limit';
 import { recordDemand, recordWarmHit } from '../cache/keep-warm';
 import { deductCredit, creditProviderShare } from '../db/index';
 import { trackDelegatedSpend, buildDelegationChainHeaders } from '../utils/billing';
@@ -164,7 +165,15 @@ endpointsRouter.get('/', (c) => {
 // Agents use this to decide if they need to pay for a full fetch.
 // Protocol: soma-check — conditional payment via content-addressed change detection.
 
-endpointsRouter.get('/:id/check', (c) => {
+endpointsRouter.get('/:id/check', async (c) => {
+  // Tighter rate limit for free unauthenticated probe (60/min/IP vs global limit)
+  const checkIp = getClientIp(c);
+  const checkCount = await cacheIncr(`rl:check:${checkIp}`, 60);
+  if (checkCount > 60) {
+    c.header('Retry-After', '60');
+    return c.json({ error: 'Too many check requests', code: 'RATE_LIMITED', retryAfter: 60 }, 429);
+  }
+
   const endpointId = c.req.param('id');
   const endpoint = findEndpoint(endpointId);
   if (!endpoint) {
