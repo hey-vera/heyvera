@@ -115,7 +115,7 @@
   const CLAIM_SESSION = new URLSearchParams(window.location.search).get('claim');
   const REDIRECT = CLAIM_SESSION
     ? `/dashboard?claim_session=${CLAIM_SESSION}`
-    : `/dashboard.html`;
+    : `/dashboard`;
 
   window.addEventListener('load', async () => {
     // Handle stale session / OAuth callback errors — sign out and retry

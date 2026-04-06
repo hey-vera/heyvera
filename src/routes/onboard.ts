@@ -98,7 +98,7 @@ onboardRouter.post('/', async (c) => {
     gettingStarted: {
       buyCredits: 'POST /v1/stripe/checkout or send USDC to the receiving wallet',
       orchestrate: 'POST /v1/orchestrate with { query: "your question" }',
-      skills: 'GET /v1/skills to browse available skills',
+      skills: 'GET /v1/marketplace/skills to browse available skills',
       invoke: 'POST /v1/skills/:id/invoke to run a specific skill',
       discover: 'POST /v1/discover to search for skills semantically',
       budget: 'POST /v1/economy/keys/budget-account to set spending limits',

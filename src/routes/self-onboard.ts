@@ -112,7 +112,7 @@ router.post('/register', async (c) => {
       agentType,
       message: totalCredits > 0
         ? `Welcome to ClawNet! You have ${totalCredits} credits to get started.`
-        : 'Welcome to ClawNet! Top up credits via /v1/solana/deposit or Stripe checkout.',
+        : 'Welcome to ClawNet! Top up credits via POST /v1/solana/build-tx (USDC) or POST /v1/billing/checkout (Stripe).',
       quickStart: {
         orchestrate: {
           endpoint: 'POST /v1/orchestrate',
