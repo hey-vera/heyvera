@@ -44,6 +44,7 @@ import {
   getEndpointFreshness,
   getProviderSomaCheckEarnings,
   getProviderVolatility,
+  setProviderSomaCheckTier,
   type SomaCheckWindow,
 } from '../db/index';
 import { findEndpoint, invalidateEndpointCache, type ApiEndpoint } from '../config/api-registry';
@@ -97,6 +98,7 @@ const SelfRegisterBody = z.object({
   evmWallet: z.string().max(64).optional(),
   somaPublicKey: z.string().max(128).optional(),
   somaDiscoveryUrl: z.string().url().max(500).optional(),
+  somaCheckTier: z.number().int().min(0).max(2).optional(),
 });
 
 providersRouter.post('/register', checkApiKey, async (c) => {
@@ -118,6 +120,11 @@ providersRouter.post('/register', checkApiKey, async (c) => {
   }
 
   const provider = createProvider(parsed.data);
+
+  // Set Soma Check tier if requested (default: 0 = shadow mode)
+  if (parsed.data.somaCheckTier && parsed.data.somaCheckTier > 0) {
+    setProviderSomaCheckTier(provider.id, parsed.data.somaCheckTier as 0 | 1 | 2 | 3);
+  }
 
   // Link caller's API key to the new provider
   const keyInfo = c.get('apiKeyInfo');
@@ -272,6 +279,43 @@ providersRouter.post('/:id/tier', async (c) => {
     error: 'Tier system has been replaced with flat 10% fee. Token staking coming soon.',
     code: 'TIERS_DEPRECATED',
   }, 410);
+});
+
+// ─── POST /v1/providers/:id/soma-check/activate — self-service Soma Check opt-in
+// Provider (human or agent) can switch from shadow (Tier 0) to active billing (Tier 1).
+// No admin needed. Provider auth: caller's API key must be linked to this provider.
+
+providersRouter.post('/:id/soma-check/activate', checkApiKey, async (c) => {
+  const keyInfo = c.get('apiKeyInfo');
+  const providerId = c.req.param('id');
+
+  // Verify caller owns this provider
+  const providerKey = getDb().prepare('SELECT provider_id FROM api_keys WHERE key = ?').get(keyInfo.key) as { provider_id: string | null } | undefined;
+  if (!providerKey || providerKey.provider_id !== providerId) {
+    return c.json({ error: 'Not your provider', code: 'NOT_OWNER' }, 403);
+  }
+
+  const provider = getProvider(providerId);
+  if (!provider) return c.json({ error: 'Provider not found', code: 'PROVIDER_NOT_FOUND' }, 404);
+
+  let body: { tier?: number };
+  try { body = await c.req.json(); } catch { body = {}; }
+
+  const tier = body.tier ?? 1;
+  if (typeof tier !== 'number' || ![0, 1, 2].includes(tier)) {
+    return c.json({ error: 'tier must be 0 (shadow), 1, or 2 (Tier 3 requires admin promotion)', code: 'INVALID_TIER' }, 400);
+  }
+
+  setProviderSomaCheckTier(providerId, tier as 0 | 1 | 2 | 3);
+  logger.info({ providerId, tier, apiKey: keyInfo.key.slice(0, 7) }, 'Provider self-activated Soma Check billing');
+
+  return c.json({
+    ok: true,
+    somaCheckTier: tier,
+    message: `Soma Check billing activated (Tier ${tier}). You now earn 90% of hit price on hash matches instead of 50% on regular cache hits.`,
+    benefit: 'Hash matches earn ~2x more than regular cache hits. Agents also prefer endpoints with conditional payment.',
+    revert: `POST /v1/providers/${providerId}/soma-check/activate with { "tier": 0 } to return to shadow mode.`,
+  });
 });
 
 // ─── POST /v1/providers/:id/endpoints — register endpoint ──────────────────
