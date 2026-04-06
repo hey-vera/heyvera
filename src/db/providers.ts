@@ -677,17 +677,29 @@ export function requestWithdrawal(providerId: string, amountCredits: number, cre
   const id = `wd-${nanoid(16)}`;
   const amountUsdc = round6(amountCredits / creditsPerUsd);
 
-  getDb().transaction(() => {
-    // Deduct from withdrawable balance
-    getDb().prepare('UPDATE providers SET withdrawable_credits = withdrawable_credits - ? WHERE id = ?')
-      .run(amountCredits, providerId);
+  try {
+    getDb().transaction(() => {
+      // Atomic deduct: WHERE guard prevents negative balance even under concurrent requests
+      const result = getDb().prepare(
+        'UPDATE providers SET withdrawable_credits = withdrawable_credits - ? WHERE id = ? AND withdrawable_credits >= ?'
+      ).run(amountCredits, providerId, amountCredits);
 
-    // Create withdrawal request with hold period
-    getDb().prepare(`
-      INSERT INTO withdrawal_requests (id, provider_id, amount_credits, amount_usdc, payout_wallet, status, hold_until)
+      if (result.changes === 0) {
+        throw new Error('INSUFFICIENT_BALANCE');
+      }
+
+      // Create withdrawal request with hold period
+      getDb().prepare(`
+        INSERT INTO withdrawal_requests (id, provider_id, amount_credits, amount_usdc, payout_wallet, status, hold_until)
       VALUES (?, ?, ?, ?, ?, 'pending', datetime('now', '+${HOLD_DAYS} days'))
-    `).run(id, providerId, amountCredits, amountUsdc, provider.payoutWallet);
-  })();
+      `).run(id, providerId, amountCredits, amountUsdc, provider.payoutWallet);
+    })();
+  } catch (err: any) {
+    if (err?.message === 'INSUFFICIENT_BALANCE') {
+      return { ok: false, error: 'Balance changed — insufficient withdrawable credits', code: 'INSUFFICIENT_BALANCE' };
+    }
+    throw err;
+  }
 
   logAudit({ entityType: 'withdrawal', entityId: id, action: 'WITHDRAWAL_REQUESTED', actorId: providerId, data: { amountCredits, amountUsdc } });
 

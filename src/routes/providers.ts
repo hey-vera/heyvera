@@ -56,6 +56,7 @@ import { cacheIncr } from '../cache/index';
 import { getClientIp } from '../middleware/rate-limit';
 import { sendAdminAlert } from '../utils/email';
 import { awardSignal } from '../db/signal';
+import { maskApiKey } from '../utils/mask';
 
 const providersRouter = new Hono();
 
@@ -133,7 +134,7 @@ providersRouter.post('/register', checkApiKey, async (c) => {
   // Re-read after all mutations so response reflects actual state
   provider = getProvider(provider.id)!;
 
-  logAudit({ entityType: 'provider', entityId: provider.id, action: 'SELF_REGISTERED', data: { name: provider.name, slug: provider.slug, apiKey: keyInfo.key.slice(0, 7) + '...' } });
+  logAudit({ entityType: 'provider', entityId: provider.id, action: 'SELF_REGISTERED', data: { name: provider.name, slug: provider.slug, apiKey: maskApiKey(keyInfo.key) } });
   awardSignal({ apiKey: keyInfo.key, providerId: provider.id, action: 'provider_register', metadata: { slug: provider.slug } });
   logger.info({ providerId: provider.id, slug: provider.slug }, 'Provider self-registered (pending review)');
 
@@ -310,7 +311,7 @@ providersRouter.post('/:id/soma-check/activate', checkApiKey, async (c) => {
   }
 
   setProviderSomaCheckTier(providerId, tier as 0 | 1 | 2 | 3);
-  logger.info({ providerId, tier, apiKey: keyInfo.key.slice(0, 7) }, 'Provider self-activated Soma Check billing');
+  logger.info({ providerId, tier, apiKey: maskApiKey(keyInfo.key) }, 'Provider self-activated Soma Check billing');
 
   return c.json({
     ok: true,
@@ -445,7 +446,7 @@ providersRouter.post('/:id/endpoints/submit', checkApiKey, async (c) => {
     data.creditCost ?? null,
     status,
     data.httpMethod,
-    keyInfo.key.slice(0, 7) + '...',
+    maskApiKey(keyInfo.key),
   );
 
   // Also link in provider_endpoints junction
@@ -457,7 +458,7 @@ providersRouter.post('/:id/endpoints/submit', checkApiKey, async (c) => {
     entityType: 'endpoint',
     entityId: endpointId,
     action: 'ENDPOINT_SUBMITTED',
-    actorId: keyInfo.key.slice(0, 7) + '...',
+    actorId: maskApiKey(keyInfo.key),
     data: { providerId, name: data.name, category: data.category },
   });
 
@@ -596,7 +597,7 @@ providersRouter.post('/:id/endpoints/notify', checkApiKey, async (c) => {
     entityType: 'provider',
     entityId: providerId,
     action: 'ENDPOINTS_NOTIFY',
-    actorId: keyInfo.key.slice(0, 7) + '...',
+    actorId: maskApiKey(keyInfo.key),
     data: { refetch: !!refetch, inlineCount: inlineEndpoints?.length ?? 0, added },
   });
 
@@ -670,7 +671,7 @@ providersRouter.patch('/:id/endpoints/:eid', checkApiKey, async (c) => {
   getDb().prepare(`UPDATE endpoints SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
   invalidateEndpointCache(eid);
 
-  logAudit({ entityType: 'endpoint', entityId: eid, action: 'ENDPOINT_UPDATED', actorId: keyInfo.key.slice(0, 7) + '...', data: updates });
+  logAudit({ entityType: 'endpoint', entityId: eid, action: 'ENDPOINT_UPDATED', actorId: maskApiKey(keyInfo.key), data: updates });
 
   return c.json({ ok: true, endpointId: eid, updated: Object.keys(updates) });
 });
@@ -746,7 +747,7 @@ providersRouter.post('/:id/endpoints/:eid/invalidate', checkApiKey, async (c) =>
     prepopulated = true;
   }
 
-  logAudit({ entityType: 'endpoint', entityId: eid, action: 'CACHE_INVALIDATED', actorId: keyInfo.key.slice(0, 7) + '...', data: { invalidated, prepopulated } });
+  logAudit({ entityType: 'endpoint', entityId: eid, action: 'CACHE_INVALIDATED', actorId: maskApiKey(keyInfo.key), data: { invalidated, prepopulated } });
 
   return c.json({
     ok: true,
@@ -783,7 +784,7 @@ providersRouter.delete('/:id/endpoints/:eid', checkApiKey, async (c) => {
     invalidateEndpointCache(eid);
   }
 
-  logAudit({ entityType: 'endpoint', entityId: eid, action: 'ENDPOINT_REMOVED', actorId: keyInfo.key.slice(0, 7) + '...' });
+  logAudit({ entityType: 'endpoint', entityId: eid, action: 'ENDPOINT_REMOVED', actorId: maskApiKey(keyInfo.key) });
   return c.json({ ok: true, endpointId: eid });
 });
 
@@ -812,6 +813,12 @@ providersRouter.get('/:id/analytics', checkApiKey, async (c) => {
   const provider = getProvider(providerId);
   if (!provider) {
     return c.json({ error: 'Provider not found', code: 'PROVIDER_NOT_FOUND' }, 404);
+  }
+
+  // Ownership check: only the provider's own key or admin can view detailed analytics
+  const keyInfo = c.get('apiKeyInfo');
+  if (keyInfo.providerId !== providerId && !keyInfo.isEnvKey) {
+    return c.json({ error: 'Access denied — use your provider API key', code: 'NOT_OWNER' }, 403);
   }
 
   const days = parseInt(c.req.query('days') ?? '30', 10);
@@ -874,6 +881,12 @@ providersRouter.get('/:id/revenue', checkApiKey, async (c) => {
   const provider = getProvider(providerId);
   if (!provider) {
     return c.json({ error: 'Provider not found', code: 'PROVIDER_NOT_FOUND' }, 404);
+  }
+
+  // Ownership check
+  const keyInfo = c.get('apiKeyInfo');
+  if (keyInfo.providerId !== providerId && !keyInfo.isEnvKey) {
+    return c.json({ error: 'Access denied — use your provider API key', code: 'NOT_OWNER' }, 403);
   }
 
   const stats = getProviderStats(providerId);
@@ -991,7 +1004,7 @@ providersRouter.post('/:id/keys', async (c) => {
 
   logAudit({
     entityType: 'api_key',
-    entityId: key.slice(0, 7) + '...',
+    entityId: maskApiKey(key),
     action: 'provider_key_created',
     data: { providerId, credits },
   });

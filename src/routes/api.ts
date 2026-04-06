@@ -16,6 +16,7 @@ import {
 import { logUsage, getRecentUsage, getUsageStats } from '../utils/usage';
 import { cacheGet, cacheSet, cacheIncr } from '../cache/index';
 import { apiRegistry, findEndpoint } from '../config/api-registry';
+import { creditProviderShare } from '../db/providers';
 import { env, isSimulationMode, rateTier, ORCHESTRATION_FEE } from '../config/index';
 import { logger } from '../utils/logger';
 import { getHeartSafe } from '../core/soma';
@@ -382,6 +383,22 @@ apiRouter.post('/orchestrate', async (c) => {
             .catch((err) => logger.warn({ err }, 'Low-balance email failed'));
         }
       }
+    }
+
+    // ─── Credit providers for their endpoints used in orchestration ─────
+    // Each successful step that hit a provider endpoint earns the provider
+    // their share. Cache hits = cacheHit rate, live fetches = live rate.
+    for (const step of execution.steps) {
+      if (!step.success) continue;
+      const ep = findEndpoint(step.endpointId);
+      if (!ep) continue;
+      const liveCost = creditCostForEndpoint(ep);
+      const isCacheHit = step.cached || step.staleServed || step.contentChanged === false;
+      const creditsCost = isCacheHit ? cacheCreditCost(liveCost) : liveCost;
+      creditProviderShare(step.endpointId, creditsCost, {
+        cacheHit: isCacheHit,
+        latencyMs: step.durationMs ?? 0,
+      });
     }
 
     const usageEntry = {
