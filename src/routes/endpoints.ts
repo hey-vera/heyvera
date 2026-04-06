@@ -320,7 +320,14 @@ endpointsRouter.post('/:id/call', async (c) => {
       // Resolve this provider's Soma Check tier. Tier 0 = shadow (free, no
       // billing yet), Tier 1-2 = active at 90/10 of hit price, Tier 3 = 95/5.
       const somaTier = getProviderSomaCheckTier(endpointId);
-      const split = computeSomaCheckSplit(endpointCredits, true, somaTier);
+      // Compute staleness for dynamic hit pricing: fresher data costs less,
+      // staler data costs more (5%/10%/15% of origin based on TTL elapsed).
+      const cachedAtMs = new Date(hashInfo.cachedAt).getTime();
+      const freshUntilMs = new Date(hashInfo.freshUntil).getTime();
+      const ttlMs = freshUntilMs - cachedAtMs;
+      const ageMs = hashInfo.age * 1000;
+      const split = computeSomaCheckSplit(endpointCredits, true, somaTier,
+        ttlMs > 0 ? { ageMs, ttlMs } : undefined);
 
       // Shadow tier: keep it free to preserve zero-disruption onboarding.
       // Active tiers: charge the hit price (10% of origin) and credit provider.
