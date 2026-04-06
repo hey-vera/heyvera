@@ -26,9 +26,22 @@ npm run test:unit    # Vitest unit tests
 | npm               | pnpm                        |
 | better-sqlite3    | Drizzle / any ORM           |
 | Single flat repo  | Turborepo / monorepo        |
-| Plain HTML (site/)| Vite / React SPA            |
+| Plain HTML (site/)| *(for marketing/landing pages)* |
+| React+Vite+shadcn (dashboard/) | *(for provider portal/dashboards)* |
 | Clerk + Phantom   | Reown AppKit                |
 | .env on VPS       | sops / systemd secrets      |
+
+### Dashboard Stack (dashboard/ subfolder)
+Provider portal and interactive dashboards use React + Vite + shadcn/ui:
+- `dashboard/` has its own `package.json` (NOT a monorepo — just a subfolder with a build step)
+- React 19 + TypeScript + Vite + Tailwind v4
+- shadcn/ui components (copy-paste, not a dependency)
+- TanStack Query for API data, TanStack Table for grids, Recharts for charts
+- React Hook Form + Zod for validated forms
+- Clerk React SDK for auth
+- `npm run build` in dashboard/ outputs static files to `dashboard/dist/`
+- Hono serves `dashboard/dist/` at `/portal/*` via `serveStatic()`
+- Marketing pages (site/) remain plain HTML — no change
 
 ## API Access (four paths)
 
@@ -92,5 +105,6 @@ All env vars Zod-validated in `src/config/index.ts`. Full list in `.env.example`
 
 For deeper context on specific subsystems:
 - `docs/billing.md` — Credit math, tiered revenue splits, cache economics, pricing engine
-- `docs/soma-integration.md` — Soma phases 1-6, receipt layer, EAS, verify mode, provider umbrella
+- `docs/soma-integration.md` — Soma phases 1-6, recei
+pt layer, EAS, verify mode, provider umbrella
 - `docs/architecture.md` — Key files, cron jobs, cache, certified cache layer, provider tiers, promo codes
