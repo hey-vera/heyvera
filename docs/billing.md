@@ -16,7 +16,7 @@ dynamicCreditCost(...)           // Surge (up to 5x) + volume discounts + off-pe
 ## Rates & Splits
 
 - **Credit rate:** CREDITS_PER_USD=1000 → $0.001/credit, fractional supported (min 0.001)
-- **Revenue split (skills):** 85% creator / 15% platform (uses `round6()`, not `Math.floor()`)
+- **Revenue split (skills):** 90% creator / 10% platform (uses `round6()`, not `Math.floor()`)
 - **Revenue split (providers, tiered):**
   - Open: 0% fee — 100% provider on live calls, no cache revenue
   - Standard: 5% fee — 95% provider on live, 50% of cache revenue (pure profit)
