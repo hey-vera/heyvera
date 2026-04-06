@@ -50,6 +50,7 @@ import crypto from 'crypto';
 import { getDb, logAudit, dbRowToApiEndpoint, safeJsonParse } from '../db/index';
 import { cacheIncr } from '../cache/index';
 import { getClientIp } from '../middleware/rate-limit';
+import { sendAdminAlert } from '../utils/email';
 
 const providersRouter = new Hono();
 
@@ -134,6 +135,12 @@ providersRouter.post('/register', checkApiKey, async (c) => {
 
   logAudit({ entityType: 'provider', entityId: provider.id, action: 'SELF_REGISTERED', data: { name: provider.name, slug: provider.slug, apiKey: keyInfo.key.slice(0, 7) + '...' } });
   logger.info({ providerId: provider.id, slug: provider.slug }, 'Provider self-registered (pending review)');
+
+  // Fire-and-forget admin notification
+  sendAdminAlert({
+    subject: `New provider: ${provider.name}`,
+    body: `Provider "${provider.name}" (${provider.slug}) registered.\nEmail: ${parsed.data.email}\nID: ${provider.id}\nStatus: pending — activate at /v1/providers/${provider.id}/activate`,
+  }).catch(() => {});
 
   return c.json({
     ok: true,
@@ -445,6 +452,12 @@ providersRouter.post('/:id/endpoints/submit', checkApiKey, async (c) => {
   });
 
   logger.info({ endpointId, providerId }, 'Provider endpoint submitted and live');
+
+  // Fire-and-forget admin notification
+  sendAdminAlert({
+    subject: `New endpoint: ${data.name}`,
+    body: `Provider "${provider.name}" submitted endpoint "${data.name}" (${endpointId}).\nCategory: ${data.category}\nURL: ${data.baseUrl}${data.path || ''}\nCost: $${data.costPerCall}/call\nStatus: live`,
+  }).catch(() => {});
 
   return c.json({
     ok: true,
