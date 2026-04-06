@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { cacheStats, smartCacheSet, invalidateByEndpoint, invalidateKey } from '../cache/index';
 import { getVolatilityStats, cleanupOldVolatility } from '../cache/adaptive-ttl';
 import { getHotKeys, getWarmingCandidates, getCacheAnalytics, cleanupAccessLog } from '../cache/warming';
+import { getKeepWarmStats } from '../cache/keep-warm';
 import { getDb } from '../db/index';
 
 export const cacheAdminRouter = new Hono();
@@ -26,6 +27,11 @@ cacheAdminRouter.get('/cache/hot-keys', (c) => {
 // GET /cache/warming-candidates — keys to pre-warm
 cacheAdminRouter.get('/cache/warming-candidates', (c) => {
   return c.json(getWarmingCandidates());
+});
+
+// GET /cache/keep-warm — demand-driven warming stats
+cacheAdminRouter.get('/cache/keep-warm', (c) => {
+  return c.json(getKeepWarmStats());
 });
 
 // DELETE /cache/cleanup — prune old volatility + access log data

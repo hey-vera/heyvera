@@ -12,6 +12,7 @@ import { stopPayoutCron } from '../core/payout-cron';
 import { stopSkillHealthCron } from '../core/skill-health-cron';
 import { stopSkillSchedulerCron } from '../core/skill-scheduler-cron';
 import { stopCacheWarmingCron } from '../core/cache-warming-cron';
+import { stopKeepWarm } from '../cache/keep-warm';
 import { stopCreatorNotificationsCron } from '../core/creator-notifications';
 import { stopIndexSync } from '../core/index-sync';
 import { destroyHeart } from '../core/soma';
@@ -59,6 +60,7 @@ export function setupGracefulShutdown() {
     stopSkillHealthCron();
     stopSkillSchedulerCron();
     stopCacheWarmingCron();
+    stopKeepWarm();
     stopCreatorNotificationsCron();
     stopIndexSync();
 

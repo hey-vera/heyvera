@@ -705,6 +705,60 @@ providersRouter.patch('/:id/endpoints/:eid/freshness', checkApiKey, async (c) =>
   return c.json({ ok: true, endpointId: eid, freshness: getEndpointFreshness(eid) });
 });
 
+// ─── POST /v1/providers/:id/endpoints/:eid/invalidate — push cache invalidation ──
+// Provider pushes when their data changes — cache updates instantly, zero polling.
+// Optionally include { data } to pre-populate the cache with fresh data.
+
+providersRouter.post('/:id/endpoints/:eid/invalidate', checkApiKey, async (c) => {
+  const providerId = c.req.param('id');
+  const eid = c.req.param('eid');
+
+  const keyInfo = c.get('apiKeyInfo');
+  const keyProvider = getDb().prepare('SELECT provider_id FROM api_keys WHERE key = ?').get(keyInfo.key) as any;
+  const isOwner = keyProvider?.provider_id === providerId;
+  if (!isOwner && !requireAdmin(c)) {
+    return c.json({ error: 'Not authorized for this provider', code: 'PROVIDER_SCOPE_DENIED' }, 403);
+  }
+
+  const ep = getDb().prepare('SELECT * FROM endpoints WHERE id = ? AND provider_id = ?').get(eid, providerId) as any;
+  if (!ep) {
+    return c.json({ error: 'Endpoint not found for this provider', code: 'NOT_FOUND' }, 404);
+  }
+
+  // Invalidate all cache entries for this endpoint
+  const { invalidateByEndpoint } = await import('../cache/index');
+  const invalidated = await invalidateByEndpoint(eid);
+  invalidateEndpointCache(eid);
+
+  // Optional: pre-populate cache with new data
+  let prepopulated = false;
+  const body = await c.req.json().catch(() => ({}));
+  if (body.data != null) {
+    const { smartCacheSet, cacheKey } = await import('../cache/index');
+    const { createCacheCertificate } = await import('../core/cache-certificate');
+    const { somaHashJson } = await import('../utils/crypto-agility');
+
+    const key = cacheKey(eid, {});
+    const ttl = ep.cache_ttl ?? 60;
+    const dataHash = somaHashJson(body.data);
+    await smartCacheSet(key, body.data, ttl, eid, ep.credit_cost ?? ep.cost_per_call);
+    createCacheCertificate({ cacheKey: key, endpointId: eid, dataHash, ttlSeconds: ttl, birthCert: null });
+    prepopulated = true;
+  }
+
+  logAudit({ entityType: 'endpoint', entityId: eid, action: 'CACHE_INVALIDATED', actorId: keyInfo.key.slice(0, 7) + '...', data: { invalidated, prepopulated } });
+
+  return c.json({
+    ok: true,
+    endpointId: eid,
+    cacheEntriesInvalidated: invalidated,
+    prepopulated,
+    message: prepopulated
+      ? `Cache invalidated (${invalidated} entries) and pre-populated with fresh data`
+      : `Cache invalidated (${invalidated} entries) — next call will fetch fresh`,
+  });
+});
+
 // ─── DELETE /v1/providers/:id/endpoints/:eid — remove endpoint ──────────────
 
 providersRouter.delete('/:id/endpoints/:eid', checkApiKey, async (c) => {

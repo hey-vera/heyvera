@@ -4,7 +4,8 @@ import { getCircuitStats, isEndpointAvailable } from '../core/circuit-breaker';
 import { getDb, logAudit, dbRowToApiEndpoint, safeJsonParse } from '../db/connection';
 import { creditCostForEndpoint, round6, cacheCreditCost } from '../core/credits';
 import { isClawApisReady, clawApiCall, getLastBirthCertificate } from '../providers/clawapis';
-import { cacheKey, smartCacheGet, smartCacheSet, cacheNegative, getNegativeCache, coalesceRequest, type CacheFreshness } from '../cache/index';
+import { cacheKey, smartCacheGet, smartCacheSet, cacheNegative, getNegativeCache, coalesceRequest, enqueueRefresh, type CacheFreshness } from '../cache/index';
+import { recordDemand } from '../cache/keep-warm';
 import { deductCredit, creditProviderShare } from '../db/index';
 import { trackDelegatedSpend, buildDelegationChainHeaders } from '../utils/billing';
 import { checkProviderScope, checkDelegationScope } from '../middleware/auth';
@@ -532,6 +533,71 @@ endpointsRouter.post('/:id/call', async (c) => {
     });
   }
 
+  // ── SWR: stale-while-revalidate ─────────────────────────────────────────
+  // Agent gets relaxed/fast freshness AND cache has stale (expired but not evicted) data?
+  // Serve it instantly (2ms) and trigger a background refresh. Realtime agents skip this.
+  if (cacheResult?.stale && freshness !== 'fresh') {
+    const cacheCredits = cacheCreditCost(endpointCredits);
+    if (!keyInfo.isEnvKey) {
+      if (keyInfo.credits < cacheCredits) {
+        return c.json({ requestId, error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS', creditsRequired: cacheCredits, creditsAvailable: keyInfo.credits }, 402);
+      }
+      const deducted = deductCredit(keyInfo.key, cacheCredits);
+      if (!deducted) {
+        return c.json({ requestId, error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS' }, 402);
+      }
+      trackDelegatedSpend(keyInfo, cacheCredits);
+    }
+
+    const durationMs = Date.now() - start;
+    creditProviderShare(endpointId, cacheCredits, { cacheHit: true, latencyMs: durationMs });
+
+    const cacheCert = getCacheCertificate(key);
+    if (cacheCert) {
+      c.header('X-Fresh-Hash', cacheCert.cacheCert.dataHash);
+      c.header('X-Soma-Hash', cacheCert.cacheCert.dataHash);
+      c.header('X-Soma-Protocol', 'soma-check/1.0');
+    }
+
+    // Background refresh — fetches fresh data for the NEXT caller
+    const swrApiPath = endpoint.path ?? `/${endpointId}`;
+    const swrTtl = declaredTtl ?? endpoint.cacheTtl ?? env.CACHE_TTL_SECONDS;
+    if (isClawApisReady()) {
+      enqueueRefresh(key, async () => {
+        const data = await clawApiCall(swrApiPath, params, endpoint.baseUrl);
+        const dataHash = somaHashJson(data);
+        await smartCacheSet(key, data, swrTtl, endpointId, endpoint.creditCost ?? endpoint.costPerCall);
+        const birthCert = getLastBirthCertificate();
+        createCacheCertificate({ cacheKey: key, endpointId, dataHash, ttlSeconds: swrTtl, birthCert: birthCert ?? null });
+        return data;
+      }, swrTtl);
+    }
+
+    const staleAge = Math.round((Date.now() - cacheResult.cachedAt) / 1000);
+    logger.info({ requestId, endpointId, creditsUsed: cacheCredits, staleAge, durationMs }, 'Direct endpoint call — SWR (stale served + background refresh)');
+
+    return c.json({
+      requestId,
+      endpointId,
+      data: cacheResult.value,
+      cached: true,
+      stale: true,
+      creditsUsed: cacheCredits,
+      durationMs,
+      dataHash: cacheCert?.cacheCert.dataHash ?? null,
+      age: staleAge,
+      freshness: agentFreshness ?? 'relaxed',
+      protocol: 'soma-check',
+      provenance: cacheCert ? {
+        type: 'certified-cache',
+        cacheCertId: cacheCert.id,
+        originalCert: cacheCert.originalCert,
+        cacheCert: cacheCert.cacheCert,
+        chainHash: cacheCert.chainHash,
+      } : null,
+    });
+  }
+
   // ── Pre-flight checks ───────────────────────────────────────────────────
   if (!keyInfo.isEnvKey) {
     if (keyInfo.credits < endpointCredits) {
@@ -551,6 +617,18 @@ endpointsRouter.post('/:id/call', async (c) => {
   if (!isClawApisReady()) {
     return c.json({ requestId, error: 'x402 client not initialized', code: 'X402_NOT_READY' }, 503);
   }
+
+  // ── Keep-warm: record demand for auto-enrollment ───────────────────────
+  const warmTtl = declaredTtl ?? endpoint.cacheTtl ?? env.CACHE_TTL_SECONDS;
+  const warmApiPath = endpoint.path ?? `/${endpointId}`;
+  recordDemand(endpointId, key, warmTtl, async () => {
+    const data = await clawApiCall(warmApiPath, params, endpoint.baseUrl);
+    const dataHash = somaHashJson(data);
+    await smartCacheSet(key, data, warmTtl, endpointId, endpoint.creditCost ?? endpoint.costPerCall);
+    const birthCert = getLastBirthCertificate();
+    createCacheCertificate({ cacheKey: key, endpointId, dataHash, ttlSeconds: warmTtl, birthCert: birthCert ?? null });
+    return data;
+  });
 
   // ── Live fetch ──────────────────────────────────────────────────────────
   try {

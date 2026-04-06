@@ -86,6 +86,7 @@ import { startSkillHealthCron } from './core/skill-health-cron';
 import { startSkillSchedulerCron } from './core/skill-scheduler-cron';
 import { startCacheWarmingCron } from './core/cache-warming-cron';
 import { startProviderCacheWarmCron } from './core/provider-cache-warm-cron';
+import { startKeepWarm } from './cache/keep-warm';
 import { startIndexSync } from './core/index-sync';
 import { startSomaAnchorCron } from './core/soma-anchor-cron';
 import { startEasAnchorCron } from './core/eas-anchor-cron';
@@ -496,6 +497,7 @@ async function start() {
   startSkillSchedulerCron();      cronsStarted++;
   startCacheWarmingCron();        cronsStarted++;
   startProviderCacheWarmCron();   cronsStarted++;
+  startKeepWarm();               cronsStarted++;
   startCreatorNotificationsCron(); cronsStarted++;
   startIndexSync();                cronsStarted++;
   startSomaAnchorCron();             cronsStarted++;
