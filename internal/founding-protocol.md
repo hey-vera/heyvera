@@ -198,6 +198,43 @@ These can NEVER be earned after token launch. Genuine scarcity.
 
 ---
 
+## Future: Dual-Mechanic Token Model (Stake + Burn)
+
+The Founding Protocol uses stake-for-fee-reduction (Binance model). Post-launch, add a second mechanic: **burn-for-trust-computation** (trust gas).
+
+| Mechanic | What it does | Demand type |
+|----------|-------------|-------------|
+| STAKE | Lock $CLAWNET → reduce platform fee (10% → 3%) | Holding demand |
+| BURN | Spend $CLAWNET → trust operations (Soma verify, trust score, identity) | Usage demand (deflationary) |
+
+**Trust gas ROI:** Agent burns ~$5 in $CLAWNET → trust score 87 → saves 25% on 1,000 USDC transactions/month = $250 saved. 50x ROI. Agents buy $CLAWNET because having trust is cheaper than not having trust.
+
+**Why both:** Staking alone is a fee discount (USDC could also do this). Burn alone is gas (ETH could also do this). Both together create two independent demand vectors — the token appreciates because supply shrinks (burn) AND circulating supply is locked (stake). Unique.
+
+**Key rule from tokenomics analysis:** Remove buyback mechanic from roadmap. Revenue should NOT buy tokens from open market (securities risk, Howey test). Instead: burn is the price mechanism. If $CLAWNET is worth $0.001, agents burn more. If $1, they burn less. The trust layer works either way.
+
+---
+
+## Future: Discovery Network (Self-Propagating Adoption)
+
+Based on the 0xJeff x402 "good virus" thesis. Research confirms: NO agent-to-agent capability propagation exists anywhere. A2A has static `.well-known/agent.json`. MCP has a centralized registry. Nobody has built viral capability sharing.
+
+**The mechanic:**
+1. Agent A installs @clawnet/mcp → discovers 13K+ endpoints
+2. Agent A calls a weather endpoint → gets Soma birth certificate
+3. Agent A talks to Agent Z (never used ClawNet)
+4. Agent Z: "Can you get weather data?" → Agent A: "Yes, via ClawNet, Soma-verified"
+5. Agent Z verifies birth cert via @clawnet/sense-observer
+6. Agent Z installs ClawNet MCP → discovers ALL capabilities → tells Agents B, C, D...
+
+Every agent with ClawNet MCP becomes a discovery node. Soma trust propagates alongside capabilities. This is the Vouch layer realized.
+
+**Why ClawNet uniquely can do this:** Requires all four: capability registry (13K+ endpoints), trust verification (Soma), payment (x402/credits), agent integration (MCP). Zero competitors have all four.
+
+**Build phase:** Post-token, Phase 5. Requires mature MCP package + Soma sense adoption.
+
+---
+
 ## Research Basis
 
 | Reference | Takeaway |
