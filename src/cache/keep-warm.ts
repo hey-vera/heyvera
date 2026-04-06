@@ -89,6 +89,7 @@ const MAX_TRACKERS = 5000;
 const warmMap = new Map<string, WarmEntry>();
 const demandMap = new Map<string, DemandScore>();
 let intervalHandle: ReturnType<typeof setInterval> | null = null;
+let tickRunning = false; // Prevents overlapping ticks
 
 // Hourly cost tracking
 let hourlyCostCredits = 0;
@@ -288,6 +289,17 @@ function findLowestScoreEntry(): string | null {
 // ── Background Tick ────────────────────────────────────────────────────────
 
 async function tick(): Promise<void> {
+  // Guard: prevent overlapping ticks if a refresh takes longer than CHECK_INTERVAL_MS
+  if (tickRunning) return;
+  tickRunning = true;
+  try {
+    await tickInner();
+  } finally {
+    tickRunning = false;
+  }
+}
+
+async function tickInner(): Promise<void> {
   const now = Date.now();
 
   // Reset hourly cost counter
@@ -375,6 +387,37 @@ export function startKeepWarm(): void {
     tick().catch(err => logger.warn({ err }, 'Keep-warm tick failed'));
   }, CHECK_INTERVAL_MS);
   intervalHandle.unref();
+
+  // Quick re-enrollment: seed demand scores from recent access log so
+  // popular endpoints re-enroll faster after a deploy/restart.
+  try {
+    const { getHotKeys } = require('./warming');
+    const hotKeys = getHotKeys(5, 1); // 5+ accesses in the last hour
+    let seeded = 0;
+    for (const hk of hotKeys.slice(0, 20)) {
+      if (hk.endpointId && hk.cacheKey) {
+        // Seed with a score just below enrollment threshold —
+        // one or two real requests will push it over
+        const ttl = 60; // Conservative default; real TTL applied on first call
+        demandMap.set(hk.cacheKey, {
+          endpointId: hk.endpointId,
+          cacheKey: hk.cacheKey,
+          ttlSeconds: ttl,
+          creditCost: 0.001,
+          score: enrollThreshold(ttl) * 0.7, // 70% of threshold — needs real traffic to enroll
+          lastUpdated: Date.now(),
+          fetchFn: async () => null, // Placeholder — real fetchFn set on first call
+        });
+        seeded++;
+      }
+    }
+    if (seeded > 0) {
+      logger.info({ seeded }, 'Keep-warm: seeded demand scores from access log');
+    }
+  } catch {
+    // Access log may not be available yet — safe to skip
+  }
+
   logger.info(
     {
       intervalMs: CHECK_INTERVAL_MS,

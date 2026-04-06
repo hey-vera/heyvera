@@ -620,10 +620,12 @@ endpointsRouter.post('/:id/call', async (c) => {
   }
 
   // ── Keep-warm: record demand for auto-enrollment ───────────────────────
-  const warmTtl = declaredTtl ?? endpoint.cacheTtl ?? env.CACHE_TTL_SECONDS;
+  // Skip alwaysFresh endpoints (TTL=0) — they return unique data per call,
+  // warming them would serve stale unique data. Also skip TTL < 5s (too fast to warm).
+  const warmTtl = declaredTtl || endpoint.cacheTtl || env.CACHE_TTL_SECONDS;
   const warmApiPath = endpoint.path ?? `/${endpointId}`;
   const warmCreditCost = endpoint.creditCost ?? endpoint.costPerCall ?? 0.001;
-  recordDemand(endpointId, key, warmTtl, async () => {
+  if (!alwaysFresh && warmTtl >= 5) recordDemand(endpointId, key, warmTtl, async () => {
     const data = await clawApiCall(warmApiPath, params, endpoint.baseUrl);
     const dataHash = somaHashJson(data);
     await smartCacheSet(key, data, warmTtl, endpointId, warmCreditCost);
