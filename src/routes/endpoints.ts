@@ -232,11 +232,9 @@ endpointsRouter.post('/:id/call', async (c) => {
     return c.json({ requestId, error: 'Endpoint not found', code: 'ENDPOINT_NOT_FOUND', hint: 'Browse available endpoints at GET /v1/endpoints' }, 404);
   }
 
-  // ── Provider scope check ────────────────────────────────────────────────
-  const providerCheck = checkProviderScope(c, endpointId);
-  if (!providerCheck.allowed) {
-    return c.json({ requestId, error: providerCheck.reason, code: 'PROVIDER_SCOPE_DENIED' }, 403);
-  }
+  // Provider keys are NOT restricted from calling other providers' endpoints.
+  // A provider is also a consumer — one key, dual role. Provider scope only
+  // applies to management routes (editing endpoints, analytics, etc.).
 
   // ── Soma Delegation scope check (endpoint + method) ─────────────────────
   const delegationScope = checkDelegationScope(c, endpointId, 'POST');
