@@ -299,6 +299,13 @@ endpointsRouter.post('/:id/call', async (c) => {
   // ── Smart cache check ────────────────────────────────────────────────────
   const key = cacheKey(endpointId, params as Record<string, string>);
 
+  // Provider-declared TTL: 0 means "always fresh / never cache" — skip
+  // Soma Check matching and cache serving entirely. Essential for endpoints
+  // that return unique data per call (image generation, random content, etc.).
+  const freshnessDecl = getEndpointFreshness(endpointId);
+  const declaredTtl = freshnessDecl?.declaredTtlSeconds ?? endpoint.cacheTtl ?? null;
+  const alwaysFresh = declaredTtl === 0;
+
   // ── soma-check / x402 Fresh conditional payment ──────────────────────────
   // Agent sends their last known data hash via If-Fresh-Hash (external name)
   // or If-Soma-Hash (alias). If it matches our cache, they already have the
@@ -307,7 +314,7 @@ endpointsRouter.post('/:id/call', async (c) => {
     c.req.header('If-Fresh-Hash') ||
     c.req.header('If-Soma-Hash') ||
     (rawBody as any).ifSomaHash;
-  if (ifSomaHash && typeof ifSomaHash === 'string') {
+  if (!alwaysFresh && ifSomaHash && typeof ifSomaHash === 'string') {
     const hashInfo = getCacheHashInfo(key);
     if (hashInfo && hashInfo.dataHash === ifSomaHash) {
       // Resolve this provider's Soma Check tier. Tier 0 = shadow (free, no
@@ -398,7 +405,7 @@ endpointsRouter.post('/:id/call', async (c) => {
     // Hash mismatch or no cache — fall through to normal flow (data has changed)
   }
 
-  const cacheResult = await smartCacheGet<unknown>(key, freshness, endpointId, endpointCredits);
+  const cacheResult = alwaysFresh ? null : await smartCacheGet<unknown>(key, freshness, endpointId, endpointCredits);
 
   // maxAge filter: if agent requested data fresher than what's cached, skip cache
   const cacheIsFreshEnough = !maxAge || !cacheResult?.fresh || (() => {
@@ -522,16 +529,15 @@ endpointsRouter.post('/:id/call', async (c) => {
       }
     });
 
-    // Cache the result + create Certified Cache certificate
-    // Provider-declared TTL takes priority over endpoint default
-    const freshness_decl = getEndpointFreshness(endpointId);
-    const effectiveTtl = freshness_decl?.declaredTtlSeconds ?? endpoint.cacheTtl;
-
     const serialized = JSON.stringify(data);
     // JCS-canonical hash so semantic equality survives key-order variance
     // between upstream provider fetches. See utils/crypto-agility.ts.
     const dataHash = somaHashJson(data);
-    if (serialized.length <= 1_000_000) {
+
+    // Cache the result + create Certified Cache certificate
+    // Skip entirely for alwaysFresh endpoints (unique data per call).
+    if (!alwaysFresh && serialized.length <= 1_000_000) {
+      const effectiveTtl = declaredTtl ?? endpoint.cacheTtl;
       await smartCacheSet(key, data, effectiveTtl, endpointId, endpoint.creditCost ?? endpoint.costPerCall);
       const birthCert = getLastBirthCertificate();
       createCacheCertificate({
