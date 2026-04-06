@@ -195,11 +195,16 @@ app.use('*', (c, next) => {
   c.header('X-Content-Type-Options', 'nosniff');
   c.header('X-Frame-Options', 'DENY');
   c.header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
-  c.header('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'");
   c.header('Referrer-Policy', 'strict-origin-when-cross-origin');
   c.header('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
-  c.header('Cache-Control', 'no-store, no-cache, must-revalidate');
-  c.header('Pragma', 'no-cache');
+  // Portal serves a full SPA — needs permissive CSP. API routes stay locked down.
+  if (c.req.path.startsWith('/portal')) {
+    c.header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self' https://api.claw-net.org");
+  } else {
+    c.header('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'");
+    c.header('Cache-Control', 'no-store, no-cache, must-revalidate');
+    c.header('Pragma', 'no-cache');
+  }
   return next();
 });
 
