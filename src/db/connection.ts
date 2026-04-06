@@ -1890,6 +1890,19 @@ const MIGRATIONS: { version: number; sql: string }[] = [
 
   // ── v161: Fix skills revenue share — stuck at 85% since v63, should be 90/10 ──
   { version: 161, sql: `UPDATE skills SET revenue_share_pct = 0.90 WHERE revenue_share_pct < 0.90` },
+
+  // ── v162: Ensure new skills default to 90/10 (table DEFAULT was 0.85 from original schema) ──
+  // Can't ALTER TABLE to change DEFAULT in SQLite, so catch any stragglers on boot.
+  { version: 162, sql: `UPDATE skills SET revenue_share_pct = 0.90 WHERE revenue_share_pct < 0.90` },
+
+  // ── v163: Golden model — 10% rule everywhere ──
+  // Cache revenue: 50/50 → 90/10 (provider keeps 90%, matches all other revenue paths).
+  // Soma Check: T0 shadow → T1 active for all providers (instant revenue, no free tier).
+  // "ClawNet takes 10%. Always. Everywhere."
+  { version: 163, sql: `
+    UPDATE providers SET cache_revenue_share_pct = 0.90 WHERE cache_revenue_share_pct < 0.90;
+    UPDATE providers SET soma_check_tier = 1 WHERE soma_check_tier = 0;
+  ` },
 ];
 
 function runMigrations(): void {

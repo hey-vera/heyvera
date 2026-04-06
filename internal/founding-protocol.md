@@ -14,16 +14,16 @@ The principle: don't charge until you deliver something that justifies the charg
 | Path | Agent Pays | Platform Cut | Provider Gets | Justification |
 |------|-----------|-------------|--------------|---------------|
 | Live call | Full price | **0%** | 100% | No provenance yet → no fee. Earn trust first. |
-| Cache hit | 10% of live | **50%** | 50% | ClawNet serves 100% of infra, provider sleeps. |
-| Soma Check | 5-15% of live | **10%** | 90% | Hash verification + proof chain. |
+| Cache hit | 10% of live | **10%** | 90% | 10% rule — consistent across all paths. |
+| Soma Check | 10% of live (flat) | **10%** | 90% | Hash verification + proof chain. |
 | Orchestration | +2 credits | **100%** | n/a | LLM routing — pure platform. |
 
 **Why 0% on live calls:** "We take 10% of your profits" with no provenance, no distribution, no
 trust scoring is an extractive pitch. ClawNet hasn't earned it yet. 0% hooks providers, cache
 passive income and Soma Check savings make them sticky.
 
-**Why cache 50/50:** Provider contributed $0 infra to serve cached responses. Revenue is purely
-additive — without ClawNet, provider earns $0 from cache. 50% of something > 100% of nothing.
+**Why cache 90/10:** Same 10% rule as everywhere else. Provider earns passive income while server
+sleeps. ClawNet's 10% covers L1/L2/Redis infrastructure + adaptive TTL + warming.
 
 **Why Soma Check 90/10:** Provider earns 90% of a revenue stream that doesn't exist without
 ClawNet's verification infra. 10% of an already-discounted price is tiny.
@@ -33,7 +33,7 @@ ClawNet's verification infra. 10% of an already-discounted price is tiny.
 | Path | Platform Cut | Justification |
 |------|-------------|---------------|
 | Live call | **10%** | Birth certs, PQ sigs, trust scoring, independent verification. |
-| Cache hit | **50%** | Unchanged — same infra. |
+| Cache hit | **10%** | Unchanged — same 10% rule. |
 | Soma Check | **10%** | Unchanged — same verification. |
 
 10% is justified by cryptographic provenance no competitor offers. Half what RapidAPI charges (25%),
@@ -41,10 +41,11 @@ competitive with OpenRouter (5.5%). Provider can point to birth cert and say "So
 
 ### Cache Revenue: Universal (All Phases)
 
-- ALL providers get 50% of cache hit fees from day one, no gate
-- Cache hits cost agents 10% of live price (dynamic: 5-15% based on staleness)
-- Provider gets 50% of that — their server is never touched
+- ALL providers get 90% of cache hit fees from day one, no gate
+- Cache hits cost agents 10% of live price (flat rate)
+- Provider gets 90% of that — their server is never touched
 - This is the enrollment hook: "earn money while your server sleeps"
+- Dynamic staleness-aware pricing deferred — see `internal/future-pricing-ideas.md`
 
 ### $CLAWNET Token Fee Reduction (Post-Launch)
 
@@ -234,7 +235,7 @@ The competitive moat for x402 ETag is the **proof chain** — cryptographic evid
 **Why this defends against DIY ETags:**
 - DIY ETag = "trust me, data hasn't changed" (provider's word only, self-certification)
 - ClawNet ETag = "here's cryptographic proof from an independent party" (Soma principle: never self-verify)
-- For valuable data (financial, medical, legal), agents will pay 5-15% for verified freshness over free unverified freshness
+- For valuable data (financial, medical, legal), agents will pay 10% for verified freshness over free unverified freshness
 
 **Future enhancements:**
 - EAS on-chain receipts attached to hash matches (auditable, tamper-proof)

@@ -2,7 +2,7 @@
  * Base chain USDC payout utility (Option C lite — x402 auto-split).
  *
  * When a skill is invoked via x402 and the creator has set a `creator_evm_wallet`,
- * this function fires an 85% USDC split to that address on Base mainnet.
+ * this function fires a 90% USDC split to that address on Base mainnet.
  *
  * Uses viem. Requires EVM_PRIVATE_KEY (hex or 0x-prefixed) in env.
  * USDC on Base mainnet: 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913

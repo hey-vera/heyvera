@@ -30,21 +30,21 @@ ClawNet's cut matches the infrastructure it provides. No flat tax — each path 
 | Path | Agent Pays | Platform Cut | Provider Gets | Justification |
 |------|-----------|-------------|--------------|---------------|
 | **Live call** | Full price | **0%** | 100% | No provenance yet → no fee. Earn trust first. |
-| **Cache hit** | 10% of live | **50%** | 50% | ClawNet serves 100% of infra. Provider's server untouched. |
-| **Soma Check (ETag)** | 5-15% of live | **10%** | 90% | ClawNet runs hash verification + proof chain. |
+| **Cache hit** | 10% of live | **10%** | 90% | 10% rule — consistent across all paths. |
+| **Soma Check (ETag)** | 10% of live (flat) | **10%** | 90% | ClawNet runs hash verification + proof chain. |
 | **Orchestration** | +2 credits | **100%** | n/a | LLM endpoint selection — pure platform service. |
 
-**Why cache 50/50:** Provider contributed $0 of infrastructure to serve cached responses. Cache revenue is purely additive — without ClawNet, provider earns $0 from cache. 50% of something > 100% of nothing.
+**Why cache 90/10:** Same 10% rule as everywhere else. Maximum transparency. Provider earns passive income while their server sleeps. ClawNet's 10% covers cache infrastructure (L1/L2/Redis/warming).
 
-**Why Soma Check 90/10:** Provider earns 90% of a revenue stream that doesn't exist without ClawNet's verification infra. The 10% platform cut is on an already-discounted price (5-15% of live).
+**Why Soma Check 90/10:** Provider earns 90% of a revenue stream that doesn't exist without ClawNet's verification infra. The 10% platform cut is on an already-discounted price (10% of live).
 
 ### Phase 2 — When Soma Provenance Ships → 10% Live Call Fee
 
 | Path | Agent Pays | Platform Cut | Provider Gets | Justification |
 |------|-----------|-------------|--------------|---------------|
 | **Live call** | Full price | **10%** | 90% | Birth certs, PQ signatures, trust scoring, independent verification. |
-| **Cache hit** | 10% of live | **50%** | 50% | Unchanged — same infrastructure. |
-| **Soma Check** | 5-15% of live | **10%** | 90% | Unchanged — same verification. |
+| **Cache hit** | 10% of live | **10%** | 90% | Unchanged — same 10% rule. |
+| **Soma Check** | 10% of live (flat) | **10%** | 90% | Unchanged — same verification. |
 
 10% is half what RapidAPI charges (25%), competitive with OpenRouter (5.5%), and justified by cryptographic provenance no competitor offers.
 
@@ -60,13 +60,12 @@ ClawNet's cut matches the infrastructure it provides. No flat tax — each path 
 
 ### Cache Economics (All Phases)
 
-Cache hits cost agents 10% of live price. Dynamic staleness pricing adjusts:
-- Fresh (<20% TTL): 5% of origin — agent gets near-live data cheap
-- Mid (20-70%): 10% of origin — standard rate
-- Stale (>70%): 15% of origin — data aging, less certainty
+Cache hits cost agents 10% of live price (flat rate, minimum 0.1 credits).
+Soma Check hits also cost 10% of live price (flat). Dynamic staleness-aware pricing
+is deferred — see `internal/future-pricing-ideas.md` for when to revisit.
 
-`cacheCreditCost()` computes the base; `dynamicHitPriceRatio()` adjusts by staleness.
-`creditProviderShare()` handles both live and cache paths. Soma Check uses `computeSomaCheckSplit()`.
+`cacheCreditCost()` computes the cache base. `computeSomaCheckSplit()` handles Soma Check billing.
+`creditProviderShare()` handles both live and cache paths.
 
 ### Soma Check Tiers (Independent of Fee Tiers)
 

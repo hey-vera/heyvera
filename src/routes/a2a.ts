@@ -19,7 +19,7 @@ import { formatResponse } from '../core/formatter';
 import { creditsForExecution, creditsToUsd, cacheCreditCost, creditCostForEndpoint, round6 } from '../core/credits';
 import { optimizePlan, checkBudget, estimatePlanCost, PricingPreferencesSchema, type PricingPreferences } from '../core/pricing';
 import { findEndpoint } from '../config/api-registry';
-import { deductCredit } from '../db/index';
+import { deductCredit, creditProviderShare } from '../db/index';
 import { trackDelegatedSpend } from '../utils/billing';
 import { maskApiKey } from '../utils/mask';
 import { logger } from '../utils/logger';
@@ -321,6 +321,20 @@ router.post('/tasks/send', checkApiKey, signResponse, async (c) => {
         return c.json({ ...task }, 402);
       }
       trackDelegatedSpend(keyInfo, creditsToDeduct);
+    }
+
+    // Credit providers for their endpoints used in A2A orchestration
+    for (const step of execution.steps) {
+      if (!step.success) continue;
+      const ep = findEndpoint(step.endpointId);
+      if (!ep) continue;
+      const liveCost = creditCostForEndpoint(ep);
+      const isCacheHit = step.cached || step.staleServed || step.contentChanged === false;
+      const creditsCost = isCacheHit ? cacheCreditCost(liveCost) : liveCost;
+      creditProviderShare(step.endpointId, creditsCost, {
+        cacheHit: isCacheHit,
+        latencyMs: step.durationMs ?? 0,
+      });
     }
 
     const totalDurationMs = Date.now() - start;

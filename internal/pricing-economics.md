@@ -49,36 +49,38 @@ Research findings:
 
 **Gurley's research:** Optimal take rate is almost always LOWER than what maximizes short-term revenue. Booking.com at 10% destroyed competitors at 30%. oDesk cut from 30% to 10% and became market leader.
 
-### Decided Rates
+### Decided Rates — Golden Model (2026-04-06)
+
+**Founding Era (NOW — 0% live call fee until Soma provenance ships):**
 
 | Call type | Agent pays | Provider gets | Platform gets |
 |-----------|-----------|---------------|---------------|
-| **Origin (live call)** | 100% of price | 90% | **10%** |
-| **Orchestrated call** | Price + $0.002 flat | 90% of price | 10% of price + $0.002 |
-| **Soma Check hit (T1-2)** | 5-15% of origin (staleness-based) | 95% of hit price | 5% of hit price |
-| **Soma Check hit (T3 Champion)** | 5-15% of origin (staleness-based) | 97% of hit price | 3% of hit price |
+| **Origin (live call)** | 100% of price | **100%** | **0%** |
+| **Orchestrated call** | Price + $0.002 flat | 100% of per-step price | $0.002 fee only |
+| **Soma Check hit (T1-2)** | 10% of origin (flat) | 90% of hit price | 10% of hit price |
+| **Soma Check hit (T3 Champion)** | 10% of origin (flat) | 95% of hit price | 5% of hit price |
 | **Soma Check hit (T0 Shadow)** | $0 (free) | $0 | $0 |
-| **L1/L2 cache hit (transparent)** | Full price | 90% | 10% |
+| **L1/L2 cache hit** | 10% of live (min 0.1cr) | **90%** | **10%** |
+| **Skill marketplace** | Skill price | **90%** | **10%** |
 
-### Cache Hit Economics: Why 95/5 (or 0% Platform)
+**Post-Provenance (when Soma Heart + birth certs are production-proven):**
 
-**Two options under consideration:**
+| Call type | Agent pays | Provider gets | Platform gets |
+|-----------|-----------|---------------|---------------|
+| **Origin (live call)** | 100% of price | **90%** | **10%** |
+| All other paths | Unchanged | Unchanged | Unchanged |
 
-**Option A (95/5):** Platform takes 5% of cache hit revenue.
-- Pro: Small but meaningful revenue at scale ($2.5K/day at 100M calls)
-- Pro: Funds cache infrastructure
-- Con: Gives providers a reason to consider going direct
+### Cache Hit Economics: Why 90/10 (Decided)
 
-**Option B (0% platform):** Provider keeps 100% of cache hits. Platform gets $0.
-- Pro: Eliminates ALL incentive for providers to leave
-- Pro: Aligns with CDN industry (Cloudflare doesn't charge for cache bandwidth)
-- Pro: OpenAI gives 50-90% discount on cached tokens — caching should be cheaper
-- Con: ~$5K/day less revenue at 100M calls/day scale
-- Con: Platform incentive misalignment (we'd profit from lower cache hit rates)
+Cache hits charge agents 10% of live price. That 10% is split **90/10** — same as every other path.
 
-**Current leaning: Option A (95/5) with path to Option B as scale proves viable.** Start generous, get more generous. Never raise the take on cache hits.
-
-**CDN industry evidence:** Major CDNs do NOT charge differently for cache hits vs misses. Cloudflare bundles bandwidth into flat-rate plans. The developer-beloved model is "caching makes things cheaper, not more expensive."
+**Why 90/10 (not 50/50):**
+- Consistency: "ClawNet takes 10%. Always. Everywhere." One rule, zero confusion.
+- Provider earns 90% of cache passive income — stronger enrollment hook than 50%.
+- At scale, 10% of massive cache volume covers infrastructure easily.
+- No perverse incentives: ClawNet earns same % from cache and live calls.
+- Providers are more incentivized to optimize caching (higher earnings per hit).
+- "Earn money while your server sleeps" — 90% is a much better pitch than 50%.
 
 ### Volume Paradox (preserved from soma-check-billing.md)
 
@@ -118,17 +120,13 @@ Fewer tiers than current. Cleaner math. Dashboard always shows dollar balance.
 
 ---
 
-## 5. Dynamic Pricing (Already Built)
+## 5. Dynamic Pricing
 
-### Staleness-Based Hit Pricing
+### Staleness-Based Hit Pricing — DEFERRED
 
-| Data freshness | Hit price (% of origin) |
-|----------------|------------------------|
-| Fresh (< 20% TTL elapsed) | 5% |
-| Mid (20-70% elapsed) | 10% |
-| Stale (> 70% elapsed) | 15% |
-
-Implemented in `src/core/soma-check-billing.ts:dynamicHitPriceRatio()`.
+Stripped to flat 10% for simplicity. The 5-15% range on typical endpoints was fractions of a penny.
+`dynamicHitPriceRatio()` exists in `soma-check-billing.ts` but returns flat 10%.
+See `internal/future-pricing-ideas.md` for when to revisit.
 
 ### Adaptive TTL
 
@@ -158,14 +156,15 @@ Token staking also provides tier benefits (fee discounts, rate limit upgrades). 
 
 | Source | Type | When |
 |--------|------|------|
-| Origin call take rate (10%) | Transaction | Now |
-| Orchestration fee ($0.002 flat) | Transaction | Now |
-| Volume discount spread | Float | Now |
-| Buy/sell spread (15%) | Float | Now |
+| Cache hit split (50/50) | Transaction | **Now** |
+| Soma Check platform cut (10%) | Transaction | **Now** |
+| Orchestration fee ($0.002 flat) | Transaction | **Now** |
+| Volume discount spread | Float | **Now** |
+| Buy/sell spread (15%) | Float | **Now** |
+| Skill marketplace (10%) | Transaction | **Now** |
+| Origin call take rate (10%) | Transaction | **Post-provenance** |
 | Premium trust (PQ, compliance, SLA) | Subscription | Q3 2026 |
-| Demand signals & analytics | Subscription | Q3 2026 |
-| Enterprise features | Contract | Q4 2026 |
-| $CLAWNET buy-and-burn (25% of revenue) | Token economics | At revenue milestone |
+| $CLAWNET staking + burn mechanics | Token economics | At revenue milestone |
 
 ---
 

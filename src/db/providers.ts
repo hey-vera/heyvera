@@ -88,9 +88,9 @@ function rowToProvider(row: any): Provider {
     description: row.description,
     websiteUrl: row.website_url,
     revenueSharePct: row.revenue_share_pct,
-    cacheRevenueSharePct: row.cache_revenue_share_pct ?? 0.50,
+    cacheRevenueSharePct: row.cache_revenue_share_pct ?? 0.90,
     tier: row.tier ?? 'founding',
-    somaCheckTier: clampSomaCheckTier(row.soma_check_tier ?? 0),
+    somaCheckTier: clampSomaCheckTier(row.soma_check_tier ?? 1),
     platformFeePct: row.platform_fee_pct ?? 0.10,
     trustScore: row.trust_score ?? 50.0,
     cacheRevenueCredits: row.cache_revenue_credits ?? 0,
@@ -123,13 +123,14 @@ export function createProvider(opts: {
   websiteUrl?: string;
 }): Provider {
   const id = `prov-${nanoid(16)}`;
-  // Founding era: 0% platform fee on live calls, 100% to provider. Cache revenue 50/50.
-  // Fee increases to 10% when Soma Heart launches (value justifies cost).
+  // Founding era: 0% platform fee on live calls, 100% to provider. Cache revenue 90/10.
+  // All revenue paths use the 10% rule: ClawNet takes 10%, provider keeps 90%.
+  // Soma Check tier starts at 1 (active) — no shadow mode, instant revenue for both parties.
   getDb().prepare(`
     INSERT INTO providers (id, name, slug, email, clerk_user_id, evm_wallet, solana_wallet,
       soma_public_key, soma_discovery_url, description, website_url,
-      platform_fee_pct, revenue_share_pct, cache_revenue_share_pct, tier)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1.00, 0.50, 'founding')
+      platform_fee_pct, revenue_share_pct, cache_revenue_share_pct, tier, soma_check_tier)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1.00, 0.90, 'founding', 1)
   `).run(
     id, opts.name, opts.slug, opts.email,
     opts.clerkUserId ?? null, opts.evmWallet ?? null, opts.solanaWallet ?? null,
@@ -399,7 +400,7 @@ export function setProviderSomaCheckTier(providerId: string, tier: SomaCheckTier
  *
  * Live calls:  Provider gets `revenue_share_pct` of credits charged.
  *              Founding era: 100% (0% platform fee). Post-provenance: 90% (10% fee).
- * Cache hits:  Provider gets `cache_revenue_share_pct` (50%) of cache credits.
+ * Cache hits:  Provider gets `cache_revenue_share_pct` (90%) of cache credits.
  *              Their server wasn't touched, so cache revenue is pure profit for them.
  *
  * Founding era: 0% platform fee on live calls (provider keeps 100%).
@@ -426,9 +427,9 @@ export function creditProviderShare(endpointId: string, creditsCharged: number, 
   const provider = getProvider(providerId);
   if (!provider || provider.status !== 'active') return 0;
 
-  // Live calls: provider gets revenue_share_pct (90%)
+  // Live calls: provider gets revenue_share_pct (100% founding, 90% post-provenance)
   // Cache hits: provider gets cache_revenue_share_pct (50%) — pure profit, server not touched
-  // Soma Check hits: caller passes providerSharePctOverride (0.90 T0-2 / 0.95 T3).
+  // Soma Check hits: caller passes providerSharePctOverride (0.90 T1-2 / 0.95 T3).
   const providerCredits = opts.providerSharePctOverride !== undefined
     ? round6(creditsCharged * opts.providerSharePctOverride)
     : opts.cacheHit

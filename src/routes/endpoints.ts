@@ -465,7 +465,7 @@ endpointsRouter.post('/:id/call', async (c) => {
       }
       trackDelegatedSpend(keyInfo, cacheCredits);
     }
-    // Provider gets 50% of cache revenue (pure profit — their server wasn't touched)
+    // Provider gets 90% of cache revenue (pure profit — their server wasn't touched)
     const durationMs = Date.now() - start;
     const cacheProviderShare = creditProviderShare(endpointId, cacheCredits, { cacheHit: true, latencyMs: durationMs });
 
@@ -688,7 +688,7 @@ endpointsRouter.post('/:id/call', async (c) => {
     const birthCertificate = getLastBirthCertificate() ?? undefined;
     const durationMs = Date.now() - start;
 
-    // Provider revenue share: 90% to provider on live calls
+    // Provider revenue share: 100% founding era (0% platform fee), 90% post-provenance
     const providerShare = creditProviderShare(endpointId, endpointCredits, { cacheHit: false, latencyMs: durationMs });
 
     // Signal: award provider for live call

@@ -27,7 +27,7 @@
  *   When a third-party skill triggers x402 API calls, the platform pays those
  *   upstream costs. The surcharge passes that cost through to the caller at the
  *   buy rate (1:1 cost recovery). Creator revenue is unaffected — surcharge is
- *   separate from the 85/15 split.
+ *   separate from the 90/10 split.
  *
  */
 
@@ -98,20 +98,18 @@ export function x402SurchargeCredits(apiCostUsd: number): number {
 }
 
 /**
- * Smart cache pricing: 10% of live cost, minimum 0.1 credits.
+ * Smart cache pricing: always 10% of live cost. No minimum floor.
  *
- * Why proportional:
- * - Flat 1cr was unfair: a $25 bulk endpoint cached for $0.001 (giving it away),
- *   while a $0.0001 endpoint cached for $0.001 (barely a discount).
- * - 10% of live = consistent 90% savings for users, proportional revenue for platform.
- * - Creator still earns full credit_cost on cache hits (unchanged).
- * - Minimum 0.1 credits ($0.0001) ensures even the cheapest endpoints generate revenue.
+ * Matches Soma Check pricing: always proportional, never inflated.
+ * A 0.001cr endpoint caches at 0.0001cr — agent always saves exactly 90%.
+ *
+ * The old 0.1cr minimum overcharged cheap endpoints (100x proportional rate
+ * on a 0.001cr endpoint). Removed for the "10% rule everywhere" golden model.
  */
 const CACHE_DISCOUNT_PCT = 0.10;
-const CACHE_MIN_CREDITS = 0.1;
 
 export function cacheCreditCost(liveCreditCost: number): number {
-  return round6(Math.max(CACHE_MIN_CREDITS, liveCreditCost * CACHE_DISCOUNT_PCT));
+  return round6(Math.max(0.001, liveCreditCost * CACHE_DISCOUNT_PCT));
 }
 
 // ─── Dynamic Pricing ────────────────────────────────────────────────────────

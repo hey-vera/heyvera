@@ -703,8 +703,8 @@ x402SkillsRouter.post('/skills/:id', async (c) => {
         data: { priceUsdc, creatorWallet: payToInfo.creatorWallet, network: env.X402_NETWORK } });
       logger.info({ skillId: id, priceUsdc, creatorWallet: payToInfo.creatorWallet }, 'x402 direct payout — creator received payment on-chain');
     } else if (skill.creator_evm_wallet && env.EVM_PRIVATE_KEY) {
-      // Legacy path: platform received payment, auto-split 85% to creator's Base wallet
-      const creatorShare = parseFloat((parseFloat(priceUsdc) * 0.85).toFixed(6));
+      // Legacy path: platform received payment, auto-split 90% to creator's Base wallet
+      const creatorShare = parseFloat((parseFloat(priceUsdc) * 0.90).toFixed(6));
       if (creatorShare > 0) {
         sendBaseUsdc(skill.creator_evm_wallet, creatorShare).catch((err) =>
           logger.error({ skillId: id, wallet: skill.creator_evm_wallet, err }, 'x402 creator split failed')
@@ -1158,7 +1158,7 @@ x402SkillsRouter.post('/query/:id', async (c) => {
         data: { priceUsdc, creatorWallet: dataPayToInfo.creatorWallet, network: env.X402_NETWORK } });
       logger.info({ skillId: id, priceUsdc, creatorWallet: dataPayToInfo.creatorWallet }, 'x402 data query direct payout — creator received payment on-chain');
     } else if (skill.creator_evm_wallet && env.EVM_PRIVATE_KEY) {
-      const creatorShare = parseFloat((parseFloat(priceUsdc) * 0.85).toFixed(6));
+      const creatorShare = parseFloat((parseFloat(priceUsdc) * 0.90).toFixed(6));
       if (creatorShare > 0) {
         sendBaseUsdc(skill.creator_evm_wallet, creatorShare).catch((err) =>
           logger.error({ skillId: id, wallet: skill.creator_evm_wallet, err }, 'x402 data query creator split failed')

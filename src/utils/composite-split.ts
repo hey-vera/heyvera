@@ -12,7 +12,7 @@ export interface SplitRecipient {
 /**
  * Calculate revenue split for a composite skill execution.
  * Each sub-skill creator gets proportional share based on their credit_cost.
- * Platform keeps 15% of total (existing treasury split).
+ * Platform keeps 10% of total (treasury split).
  */
 export function calculateCompositeSplit(params: {
   compositeSkillId: string;
@@ -22,7 +22,7 @@ export function calculateCompositeSplit(params: {
   const { totalCreditsCharged, subSkillIds } = params;
 
   if (subSkillIds.length === 0) {
-    return { recipients: [], treasuryShare: round6(totalCreditsCharged * 0.15), assemblyFee: round6(totalCreditsCharged * 0.85) };
+    return { recipients: [], treasuryShare: round6(totalCreditsCharged * 0.10), assemblyFee: round6(totalCreditsCharged * 0.90) };
   }
 
   // Look up each sub-skill's credit_cost and author
@@ -42,9 +42,9 @@ export function calculateCompositeSplit(params: {
     }
   }
 
-  // 15% to treasury
-  const treasuryShare = round6(totalCreditsCharged * 0.15);
-  const creatorPool = round6(totalCreditsCharged * 0.85);
+  // 10% to treasury
+  const treasuryShare = round6(totalCreditsCharged * 0.10);
+  const creatorPool = round6(totalCreditsCharged * 0.90);
 
   if (totalSubCost === 0 || recipients.length === 0) {
     return { recipients: [], treasuryShare, assemblyFee: creatorPool };

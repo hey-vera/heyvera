@@ -1,13 +1,12 @@
 /**
- * Soma Check billing split calculator (rail-agnostic).
+ * Soma Check billing — flat 10% hit price, 90/10 split.
  *
- * Encodes the billing rule from internal/soma-check-billing.md:
- *   - Cache hit price = 10% of origin
- *   - Split 90/10 (provider/ClawNet) at Tiers 0-2, matching origin
- *   - Split 95/5 at Tier 3 (Champion)
+ * When an agent's If-Soma-Hash matches cached data:
+ *   - Agent pays 10% of live price (90% savings)
+ *   - Provider gets 90% of that (T0-T2) or 95% (T3 Champion)
+ *   - ClawNet gets the remainder (10% or 5%)
  *
- * Same ratios apply to credits, x402 USDC, Stripe. Callers convert
- * origin price into their unit; this helper doesn't care about currency.
+ * Rail-agnostic: same ratios for credits, x402 USDC, Stripe.
  */
 import { round6 } from './credits';
 
@@ -18,22 +17,15 @@ export type SomaCheckTier = 0 | 1 | 2 | 3;
 export const SOMA_CHECK_HIT_PRICE_RATIO = 0.10;
 
 /**
- * Staleness-aware hit price ratio.
- * Fresher data is worth more to the agent (they'd have paid full price anyway),
- * staler data is worth less (closer to expiry, higher chance of change).
+ * Hit price ratio — flat 10% of origin on every Soma Check hit.
  *
- *   Fresh  (< 20% of TTL elapsed): 5% of origin  — agent gets near-live data cheap
- *   Mid    (20-70% elapsed):       10% of origin  — standard rate
- *   Stale  (> 70% elapsed):        15% of origin  — data aging, worth less certainty
- *
- * Returns the ratio (0.05 - 0.15). Falls back to 0.10 if age info unavailable.
+ * Previously had dynamic staleness-aware pricing (5%/10%/15%) but stripped
+ * for simplicity. The range was fractions of a penny on typical endpoints —
+ * not worth the complexity. See internal/future-pricing-ideas.md for when
+ * to revisit dynamic pricing.
  */
-export function dynamicHitPriceRatio(ageMs: number, ttlMs: number): number {
-  if (ttlMs <= 0) return SOMA_CHECK_HIT_PRICE_RATIO;
-  const elapsed = Math.min(ageMs / ttlMs, 1.0);
-  if (elapsed < 0.20) return 0.05;
-  if (elapsed < 0.70) return 0.10;
-  return 0.15;
+export function dynamicHitPriceRatio(_ageMs: number, _ttlMs: number): number {
+  return SOMA_CHECK_HIT_PRICE_RATIO; // flat 10%
 }
 
 /** Provider share of cache-hit price by tier. */
