@@ -4,31 +4,45 @@ ClawNet is moving to a flat 10% fee model across all revenue sources, replacing 
 
 ---
 
-## Fee Model: Progressive "Earn When We Deliver"
+## Fee Model: "Earn the Fee Before You Charge It"
 
-### Founding Era (Now): 0% Live Call Fee
+ClawNet's cut matches the infrastructure it provides at each layer. No flat tax.
+The principle: don't charge until you deliver something that justifies the charge.
 
-- Providers keep **100%** of live call revenue — zero platform fee
-- Platform earns only from cache hit revenue split (50/50) and Soma Check spread
-- Why: no traffic to offer distribution, caching value unproven, Soma Heart not ready
-- Charging 10% before delivering value is extractive and kills adoption
-- Skills marketplace: 10% (different value prop — hosting, discovery, billing for skill creators)
+### Founding Era (NOW): 0% Live Call Fee
 
-### Phase 1: Soma Check Goes Live
+| Path | Agent Pays | Platform Cut | Provider Gets | Justification |
+|------|-----------|-------------|--------------|---------------|
+| Live call | Full price | **0%** | 100% | No provenance yet → no fee. Earn trust first. |
+| Cache hit | 10% of live | **50%** | 50% | ClawNet serves 100% of infra, provider sleeps. |
+| Soma Check | 5-15% of live | **10%** | 90% | Hash verification + proof chain. |
+| Orchestration | +2 credits | **100%** | n/a | LLM routing — pure platform. |
 
-- Platform earns small cut of Soma Check efficiency savings (provider opts in)
-- Live calls still 0% — provider loses nothing
+**Why 0% on live calls:** "We take 10% of your profits" with no provenance, no distribution, no
+trust scoring is an extractive pitch. ClawNet hasn't earned it yet. 0% hooks providers, cache
+passive income and Soma Check savings make them sticky.
 
-### Phase 2: Soma Heart Launches → 10% Kicks In
+**Why cache 50/50:** Provider contributed $0 infra to serve cached responses. Revenue is purely
+additive — without ClawNet, provider earns $0 from cache. 50% of something > 100% of nothing.
 
-- Birth certs, provenance, PQ signatures = real value that justifies the fee
-- 10% platform fee on live calls, provider keeps 90%
-- Cache revenue: 50/50 (unchanged)
+**Why Soma Check 90/10:** Provider earns 90% of a revenue stream that doesn't exist without
+ClawNet's verification infra. 10% of an already-discounted price is tiny.
+
+### Phase 2: Soma Provenance Ships → 10% Live Call Fee
+
+| Path | Platform Cut | Justification |
+|------|-------------|---------------|
+| Live call | **10%** | Birth certs, PQ sigs, trust scoring, independent verification. |
+| Cache hit | **50%** | Unchanged — same infra. |
+| Soma Check | **10%** | Unchanged — same verification. |
+
+10% is justified by cryptographic provenance no competitor offers. Half what RapidAPI charges (25%),
+competitive with OpenRouter (5.5%). Provider can point to birth cert and say "Soma-verified."
 
 ### Cache Revenue: Universal (All Phases)
 
 - ALL providers get 50% of cache hit fees from day one, no gate
-- Cache hits cost agents 10% of live price
+- Cache hits cost agents 10% of live price (dynamic: 5-15% based on staleness)
 - Provider gets 50% of that — their server is never touched
 - This is the enrollment hook: "earn money while your server sleeps"
 

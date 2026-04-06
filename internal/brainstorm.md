@@ -35,8 +35,8 @@
 - **Treasury diversification** — don't hold all USDC on one wallet; multi-sig, yield-bearing strategies
 - **Token launch ($CLAWNET)** — full architecture in `internal/token-architecture.md`: BME model, 25% revenue burn, staking for tier benefits, "digital tools" SEC classification. Launch at $50-100K monthly revenue milestone.
 - **Credit denomination change** — display USD not credits. Details in `internal/pricing-economics.md`.
-- **Tier system unification** — merge 3 overlapping tier systems into 2 clean ladders. Details in `internal/tier-system.md`.
-- **Cache hit economics revision** — provider keeps 95-100% of cache hits (down from 90/10 platform split). Details in `internal/pricing-economics.md`.
+- ~~**Tier system unification**~~ — DONE (2026-04-06). Old tiers deprecated, all 'founding'. Soma Check T0-T3 separate. See `internal/tier-system.md`.
+- ~~**Cache hit economics revision**~~ — DECIDED (2026-04-06). Keeping 50/50 cache split. See `docs/billing.md`.
 - **Provider payout spread reduction** — 25% -> 15% buy/sell spread. Details in `internal/pricing-economics.md`.
 
 ### Open questions

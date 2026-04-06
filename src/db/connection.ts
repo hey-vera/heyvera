@@ -1875,6 +1875,18 @@ const MIGRATIONS: { version: number; sql: string }[] = [
     CREATE INDEX IF NOT EXISTS idx_withdrawals_provider ON withdrawal_requests(provider_id);
     CREATE INDEX IF NOT EXISTS idx_withdrawals_status ON withdrawal_requests(status);
   ` },
+
+  // ── v159: Clean up test ClawAPIs registration (CoinGecko test data) ───────
+  { version: 159, sql: `
+    DELETE FROM provider_endpoints WHERE provider_id = 'prov-LlL21xSq36dwG8-m';
+    DELETE FROM api_keys WHERE provider_id = 'prov-LlL21xSq36dwG8-m';
+    DELETE FROM providers WHERE id = 'prov-LlL21xSq36dwG8-m';
+  ` },
+
+  // ── v160: RESERVED — 10% live call fee activates when Soma provenance ships.
+  // Founding era stays at 0% platform fee on live calls.
+  // Revenue comes from cache splits (50/50) and Soma Check (90/10).
+  // See internal/founding-protocol.md Phase 2.
 ];
 
 function runMigrations(): void {

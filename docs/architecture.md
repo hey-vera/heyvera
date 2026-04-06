@@ -157,7 +157,7 @@ Cache hits are pure profit for providers — their server is never touched.
 - **Tier comparison:** `GET /v1/providers/tiers` (public) — tier details and pricing
 - **Self-service:** `POST /v1/providers/register` (any API key holder) — pending review
 - **Admin registration:** `POST /v1/providers` (admin) — direct creation
-- **Tier change:** `POST /v1/providers/:id/tier` (admin) — set open/standard/verified
+- **Tier change:** `POST /v1/providers/:id/tier` (admin) — founding era (all 'founding'). Soma Check tiers: `POST /v1/providers/:id/soma-check/activate`
 - **Endpoint mapping:** `POST /v1/providers/:id/endpoints` — links endpoints to provider
 - **Freshness declarations:** `PATCH /v1/providers/:id/endpoints/:eid/freshness` — set TTL, enable cache warming
 - **Revenue dashboard:** `GET /v1/providers/:id/revenue` — live vs cache revenue, comparison to direct
