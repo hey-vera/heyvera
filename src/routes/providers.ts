@@ -18,6 +18,7 @@
  *   GET    /v1/providers/:id/endpoints — List provider's endpoints
  *   GET    /v1/providers/:id/analytics — Provider analytics dashboard
  *   GET    /v1/providers/:id/stats     — Provider summary stats
+ *   GET    /v1/providers/:id/volatility — Volatility dashboard (call/cache/latency variance)
  *   POST   /v1/providers/:id/keys      — Create provider-scoped API key (admin)
  *   GET    /v1/providers/:id/soma      — Provider Soma config (public key, discovery)
  */
@@ -41,6 +42,7 @@ import {
   updateEndpointFreshness,
   getEndpointFreshness,
   getProviderSomaCheckEarnings,
+  getProviderVolatility,
   type SomaCheckWindow,
 } from '../db/index';
 import { findEndpoint, invalidateEndpointCache, type ApiEndpoint } from '../config/api-registry';
@@ -752,6 +754,28 @@ providersRouter.get('/:id/revenue', checkApiKey, async (c) => {
       cacheHitShare: `${Math.round(provider.cacheRevenueSharePct * 100)}% to you (pure profit)`,
       platformFee: `${Math.round(provider.platformFeePct * 100)}%`,
     },
+  });
+});
+
+// ─── GET /v1/providers/:id/volatility — volatility dashboard ────────────────
+// Shows how stable a provider's metrics are over time: call volume variance,
+// cache hit rate swings, latency jitter, error spikes, data freshness churn.
+// Overall score 0-100 (higher = more volatile). ?days=7|14|30|60|90
+
+providersRouter.get('/:id/volatility', checkApiKey, async (c) => {
+  const providerId = c.req.param('id');
+  const provider = getProvider(providerId);
+  if (!provider) {
+    return c.json({ error: 'Provider not found', code: 'PROVIDER_NOT_FOUND' }, 404);
+  }
+
+  const days = Math.min(Math.max(parseInt(c.req.query('days') ?? '30', 10) || 30, 7), 90);
+  const volatility = getProviderVolatility(providerId, days);
+
+  return c.json({
+    ok: true,
+    provider: { id: providerId, name: provider.name, tier: provider.tier },
+    ...volatility,
   });
 });
 

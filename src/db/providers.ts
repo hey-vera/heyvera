@@ -455,3 +455,154 @@ export function creditProviderShare(endpointId: string, creditsCharged: number, 
 
   return providerCredits;
 }
+
+// ─── Volatility Dashboard ─────────────────────────────────────────────────
+
+export interface ProviderVolatility {
+  providerId: string;
+  window: string;
+  period: { from: string; to: string };
+  callVolatility: {
+    dailyMean: number;
+    dailyStddev: number;
+    coefficientOfVariation: number;
+    trend: 'increasing' | 'decreasing' | 'stable';
+  };
+  cacheHitVolatility: {
+    dailyMean: number;
+    dailyStddev: number;
+    min: number;
+    max: number;
+  };
+  latencyVolatility: {
+    meanMs: number;
+    stddevMs: number;
+    minMs: number;
+    maxMs: number;
+  };
+  errorRate: {
+    mean: number;
+    max: number;
+    totalErrors: number;
+  };
+  dataFreshness: {
+    avgChangeRate: number;
+    endpointCount: number;
+  };
+  overallScore: number;
+}
+
+/**
+ * Compute volatility metrics from provider_analytics daily rows.
+ * Pure SQL aggregation — no new tables needed.
+ */
+export function getProviderVolatility(providerId: string, days = 30): ProviderVolatility {
+  const dayStr = `-${Math.min(days, 90)} days`;
+
+  // Daily aggregates for the window
+  const rows = getDb().prepare(`
+    SELECT date, calls, cache_hits, avg_latency_ms, errors
+    FROM provider_analytics
+    WHERE provider_id = ? AND date >= date('now', ?)
+    ORDER BY date ASC
+  `).all(providerId, dayStr) as any[];
+
+  // Data freshness from cache_volatility (provider's endpoints)
+  const freshness = getDb().prepare(`
+    SELECT AVG(CASE WHEN check_count > 0 THEN CAST(change_count AS REAL) / check_count ELSE 0 END) as avg_change_rate,
+           COUNT(*) as endpoint_count
+    FROM cache_volatility cv
+    JOIN provider_endpoints pe ON cv.endpoint_id = pe.endpoint_id
+    WHERE pe.provider_id = ?
+  `).get(providerId) as any;
+
+  const n = rows.length;
+  if (n === 0) {
+    return {
+      providerId,
+      window: `${days}d`,
+      period: { from: '', to: '' },
+      callVolatility: { dailyMean: 0, dailyStddev: 0, coefficientOfVariation: 0, trend: 'stable' },
+      cacheHitVolatility: { dailyMean: 0, dailyStddev: 0, min: 0, max: 0 },
+      latencyVolatility: { meanMs: 0, stddevMs: 0, minMs: 0, maxMs: 0 },
+      errorRate: { mean: 0, max: 0, totalErrors: 0 },
+      dataFreshness: { avgChangeRate: 0, endpointCount: 0 },
+      overallScore: 0,
+    };
+  }
+
+  // ── Call volatility ──
+  const calls = rows.map(r => r.calls as number);
+  const callMean = calls.reduce((a, b) => a + b, 0) / n;
+  const callStddev = Math.sqrt(calls.reduce((s, v) => s + (v - callMean) ** 2, 0) / n);
+  const callCv = callMean > 0 ? callStddev / callMean : 0;
+
+  // Trend: compare last 7 days avg vs prior
+  const recentCalls = calls.slice(-7);
+  const priorCalls = calls.slice(0, -7);
+  const recentAvg = recentCalls.length > 0 ? recentCalls.reduce((a, b) => a + b, 0) / recentCalls.length : 0;
+  const priorAvg = priorCalls.length > 0 ? priorCalls.reduce((a, b) => a + b, 0) / priorCalls.length : recentAvg;
+  const trendDelta = priorAvg > 0 ? (recentAvg - priorAvg) / priorAvg : 0;
+  const trend: 'increasing' | 'decreasing' | 'stable' =
+    trendDelta > 0.15 ? 'increasing' : trendDelta < -0.15 ? 'decreasing' : 'stable';
+
+  // ── Cache hit rate volatility ──
+  const hitRates = rows.map(r => r.calls > 0 ? (r.cache_hits as number) / (r.calls as number) : 0);
+  const hitMean = hitRates.reduce((a, b) => a + b, 0) / n;
+  const hitStddev = Math.sqrt(hitRates.reduce((s, v) => s + (v - hitMean) ** 2, 0) / n);
+
+  // ── Latency volatility ──
+  const latencies = rows.map(r => r.avg_latency_ms as number);
+  const latMean = latencies.reduce((a, b) => a + b, 0) / n;
+  const latStddev = Math.sqrt(latencies.reduce((s, v) => s + (v - latMean) ** 2, 0) / n);
+
+  // ── Error rate ──
+  const errorRates = rows.map(r => r.calls > 0 ? (r.errors as number) / (r.calls as number) : 0);
+  const errMean = errorRates.reduce((a, b) => a + b, 0) / n;
+  const totalErrors = rows.reduce((s, r) => s + (r.errors as number), 0);
+
+  // ── Overall volatility score (0-100) ──
+  const callVol = Math.min(100, callCv * 100);
+  const cacheVol = Math.min(100, hitRates.length > 0 ? ((Math.max(...hitRates) - Math.min(...hitRates)) / Math.max(Math.max(...hitRates), 0.01)) * 100 : 0);
+  const latVol = Math.min(100, latMean > 0 ? (latStddev / latMean) * 100 : 0);
+  const errVol = Math.min(100, Math.max(...errorRates) * 1000); // scale: 0.1% error → 100
+  const freshVol = (freshness?.avg_change_rate ?? 0) * 100;
+
+  const overall = Math.round(
+    callVol * 0.25 + cacheVol * 0.25 + latVol * 0.20 + errVol * 0.15 + freshVol * 0.15
+  );
+
+  return {
+    providerId,
+    window: `${days}d`,
+    period: { from: rows[0].date, to: rows[n - 1].date },
+    callVolatility: {
+      dailyMean: round6(callMean),
+      dailyStddev: round6(callStddev),
+      coefficientOfVariation: round6(callCv),
+      trend,
+    },
+    cacheHitVolatility: {
+      dailyMean: round6(hitMean),
+      dailyStddev: round6(hitStddev),
+      min: round6(Math.min(...hitRates)),
+      max: round6(Math.max(...hitRates)),
+    },
+    latencyVolatility: {
+      meanMs: round6(latMean),
+      stddevMs: round6(latStddev),
+      minMs: round6(Math.min(...latencies)),
+      maxMs: round6(Math.max(...latencies)),
+    },
+    errorRate: {
+      mean: round6(errMean),
+      max: round6(Math.max(...errorRates)),
+      totalErrors,
+    },
+    dataFreshness: {
+      avgChangeRate: round6(freshness?.avg_change_rate ?? 0),
+      endpointCount: freshness?.endpoint_count ?? 0,
+    },
+    overallScore: Math.min(100, Math.max(0, overall)),
+  };
+}

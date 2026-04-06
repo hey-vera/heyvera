@@ -51,14 +51,67 @@ type SkillDetail = Skill & {
   inputSchema?: Record<string, { type?: string; description?: string }>;
 };
 
+// ─── Soma Hash Cache (auto hash tracking for x402 ETag / Soma Check) ────────
+// Agents automatically save the last X-Soma-Hash from each unique call and
+// send it back as If-Soma-Hash on repeat calls. When data hasn't changed,
+// the agent pays cache-hit price (5-15% of origin) instead of full price.
+
+const somaHashCache = new Map<string, { hash: string; ts: number }>();
+const HASH_CACHE_MAX_AGE_MS = 10 * 60 * 1000; // 10 minutes
+
+function getCacheKey(path: string, body?: string): string {
+  // Simple key: path + body hash (body is usually JSON-stringified params)
+  return body ? `${path}:${simpleHash(body)}` : path;
+}
+
+function simpleHash(s: string): string {
+  // Fast 32-bit FNV-1a — good enough for in-memory cache keys
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(36);
+}
+
+function lookupHash(key: string): string | null {
+  const entry = somaHashCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.ts > HASH_CACHE_MAX_AGE_MS) {
+    somaHashCache.delete(key);
+    return null;
+  }
+  return entry.hash;
+}
+
+function storeHash(key: string, hash: string): void {
+  somaHashCache.set(key, { hash, ts: Date.now() });
+  // Evict oldest entries if cache grows too large (unlikely in MCP sessions)
+  if (somaHashCache.size > 500) {
+    const oldest = somaHashCache.keys().next().value;
+    if (oldest) somaHashCache.delete(oldest);
+  }
+}
+
 // ─── Fetch helpers ────────────────────────────────────────────────────────────
 
-async function fetchApi(path: string, options?: RequestInit): Promise<unknown> {
+interface FetchResult {
+  data: unknown;
+  somaHash: string | null;
+  somaHit: boolean;
+}
+
+async function fetchApi(path: string, options?: RequestInit): Promise<FetchResult> {
+  const bodyStr = typeof options?.body === 'string' ? options.body : undefined;
+  const cacheKey = getCacheKey(path, bodyStr);
+  const lastHash = lookupHash(cacheKey);
+
   const res = await fetch(`${CLAWNET_BASE_URL}${path}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
       ...(CLAWNET_API_KEY ? { 'X-API-Key': CLAWNET_API_KEY } : {}),
+      ...(lastHash ? { 'If-Soma-Hash': lastHash } : {}),
       ...(options?.headers ?? {}),
     },
   });
@@ -66,10 +119,19 @@ async function fetchApi(path: string, options?: RequestInit): Promise<unknown> {
     const text = await res.text().catch(() => res.statusText);
     throw new Error(`ClawNet API error ${res.status}: ${text}`);
   }
-  return res.json();
+
+  const data = await res.json();
+
+  // Track the response hash for future conditional requests
+  const somaHash = res.headers.get('x-soma-hash') ?? res.headers.get('x-fresh-hash');
+  if (somaHash) storeHash(cacheKey, somaHash);
+
+  const somaHit = res.headers.get('x-soma-hit') === 'true';
+
+  return { data, somaHash, somaHit };
 }
 
-async function invokeSkill(id: string, variables: Record<string, string>): Promise<unknown> {
+async function invokeSkill(id: string, variables: Record<string, string>): Promise<FetchResult> {
   return fetchApi(`/v1/skills/${id}/invoke`, {
     method: 'POST',
     body: JSON.stringify({ variables }),
@@ -98,8 +160,8 @@ async function main() {
         let path = '/v1/marketplace/skills?sort=popular&limit=50';
         if (search) path += `&q=${encodeURIComponent(search)}`;
         if (category) path += `&category=${encodeURIComponent(category)}`;
-        const data = await fetchApi(path) as { skills?: Skill[] };
-        const skills = data.skills ?? [];
+        const { data } = await fetchApi(path);
+        const skills = (data as { skills?: Skill[] }).skills ?? [];
 
         const text = skills.map((s) =>
           `• ${s.displayName ?? s.name} (id: ${s.id})\n  ${s.description}\n  Cost: ${s.creditCost} credits | Tags: ${(s.tags ?? []).join(', ')}`
@@ -128,7 +190,8 @@ async function main() {
     },
     async ({ skillId }: { skillId: string }) => {
       try {
-        const skill = await fetchApi(`/v1/marketplace/skills/${skillId}`) as SkillDetail;
+        const { data } = await fetchApi(`/v1/marketplace/skills/${skillId}`);
+        const skill = data as SkillDetail;
         const vars = skill.inputSchema
           ? Object.entries(skill.inputSchema).map(([k, v]) => {
             const desc = typeof v === 'object' && v !== null ? (v as { description?: string }).description ?? k : String(v);
@@ -175,12 +238,16 @@ async function main() {
         };
       }
       try {
-        const result = await invokeSkill(skillId, variables ?? {}) as Record<string, unknown>;
+        const { data, somaHit } = await invokeSkill(skillId, variables ?? {});
+        const result = data as Record<string, unknown>;
         const answer = result.answer ?? result.result ?? JSON.stringify(result, null, 2);
         const meta = result.metadata as Record<string, unknown> | undefined;
-        const footer = meta
-          ? `\n\n---\nCost: ${result.creditsCharged ?? '?'} credits | Duration: ${meta.durationMs ?? '?'}ms`
-          : '';
+        const parts = [
+          somaHit ? 'Cached (reduced cost)' : null,
+          `Cost: ${result.creditsCharged ?? '?'} credits`,
+          meta?.durationMs ? `Duration: ${meta.durationMs}ms` : null,
+        ].filter(Boolean).join(' | ');
+        const footer = parts ? `\n\n---\n${parts}` : '';
         return { content: [{ type: 'text' as const, text: String(answer) + footer }] };
       } catch (err) {
         return { content: [{ type: 'text' as const, text: `Skill invocation failed: ${String(err)}` }], isError: true };
@@ -210,16 +277,21 @@ async function main() {
         const body: Record<string, unknown> = { query };
         if (maxCredits) body.pricing = { maxCredits };
 
-        const result = await fetchApi('/v1/orchestrate', {
+        const { data, somaHit } = await fetchApi('/v1/orchestrate', {
           method: 'POST',
           body: JSON.stringify(body),
-        }) as Record<string, unknown>;
+        });
+        const result = data as Record<string, unknown>;
 
         const answer = result.answer ?? result.result ?? JSON.stringify(result, null, 2);
         const meta = result.metadata as Record<string, unknown> | undefined;
-        const footer = meta
-          ? `\n\n---\nCredits used: ${result.creditsCharged ?? '?'} | Steps: ${(result.steps as unknown[])?.length ?? '?'} | Duration: ${meta.durationMs ?? '?'}ms`
-          : '';
+        const parts = [
+          somaHit ? 'Cached (reduced cost)' : null,
+          `Credits used: ${result.creditsCharged ?? '?'}`,
+          `Steps: ${(result.steps as unknown[])?.length ?? '?'}`,
+          meta?.durationMs ? `Duration: ${meta.durationMs}ms` : null,
+        ].filter(Boolean).join(' | ');
+        const footer = parts ? `\n\n---\n${parts}` : '';
 
         return { content: [{ type: 'text' as const, text: String(answer) + footer }] };
       } catch (err) {
@@ -240,8 +312,8 @@ async function main() {
       try {
         let path = `/v1/endpoints?q=${encodeURIComponent(query)}`;
         if (category) path += `&category=${encodeURIComponent(category)}`;
-        const data = await fetchApi(path) as { endpoints?: Array<{ id: string; name: string; description: string; provider: string; category: string; costPerCall: number }> };
-        const endpoints = data.endpoints ?? [];
+        const { data } = await fetchApi(path);
+        const endpoints = (data as { endpoints?: Array<{ id: string; name: string; description: string; provider: string; category: string; costPerCall: number }> }).endpoints ?? [];
 
         const text = endpoints.slice(0, 20).map((e) =>
           `• ${e.name} (${e.id})\n  Provider: ${e.provider} | Category: ${e.category} | Cost: $${e.costPerCall}/call\n  ${e.description}`
@@ -274,15 +346,16 @@ async function main() {
         };
       }
       try {
-        const data = await fetchApi('/v1/balance') as { credits?: number; creditsUsed?: number; amountPaid?: number };
+        const { data } = await fetchApi('/v1/balance');
+        const balance = data as { credits?: number; creditsUsed?: number; amountPaid?: number };
         return {
           content: [{
             type: 'text' as const,
             text: [
               `ClawNet Balance:`,
-              `  Credits remaining: ${(data.credits ?? 0).toLocaleString()}`,
-              `  Credits used: ${(data.creditsUsed ?? 0).toLocaleString()}`,
-              `  Total paid: $${((data.amountPaid ?? 0) / 100).toFixed(2)}`,
+              `  Credits remaining: ${(balance.credits ?? 0).toLocaleString()}`,
+              `  Credits used: ${(balance.creditsUsed ?? 0).toLocaleString()}`,
+              `  Total paid: $${((balance.amountPaid ?? 0) / 100).toFixed(2)}`,
               ``,
               `Top up at https://claw-net.org`,
             ].join('\n'),
