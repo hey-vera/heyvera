@@ -449,7 +449,13 @@ app.get('/v1/indexed', (c) => {
 import path from 'path';
 import fs from 'fs';
 
-const portalRoot = path.resolve(process.cwd(), 'dashboard', 'dist');
+// Resolve portal root: try cwd first, then relative to compiled dist/, then absolute fallback
+const portalCandidates = [
+  path.resolve(process.cwd(), 'dashboard', 'dist'),
+  path.resolve(__dirname, '..', 'dashboard', 'dist'),
+  '/home/guardian/claw-net/dashboard/dist',
+];
+const portalRoot = portalCandidates.find((p) => { try { return fs.statSync(path.join(p, 'index.html')).isFile(); } catch { return false; } }) ?? portalCandidates[0];
 const MIME: Record<string, string> = {
   '.html': 'text/html', '.js': 'application/javascript', '.css': 'text/css',
   '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.png': 'image/png',
