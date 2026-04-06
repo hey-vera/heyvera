@@ -54,6 +54,7 @@ import { getDb, logAudit, dbRowToApiEndpoint, safeJsonParse } from '../db/index'
 import { cacheIncr } from '../cache/index';
 import { getClientIp } from '../middleware/rate-limit';
 import { sendAdminAlert } from '../utils/email';
+import { awardSignal } from '../db/signal';
 
 const providersRouter = new Hono();
 
@@ -137,6 +138,7 @@ providersRouter.post('/register', checkApiKey, async (c) => {
   setApiKeyProvider(keyInfo.key, provider.id);
 
   logAudit({ entityType: 'provider', entityId: provider.id, action: 'SELF_REGISTERED', data: { name: provider.name, slug: provider.slug, apiKey: keyInfo.key.slice(0, 7) + '...' } });
+  awardSignal({ apiKey: keyInfo.key, providerId: provider.id, action: 'provider_register', metadata: { slug: provider.slug } });
   logger.info({ providerId: provider.id, slug: provider.slug }, 'Provider self-registered (pending review)');
 
   // Fire-and-forget admin notification
@@ -455,6 +457,7 @@ providersRouter.post('/:id/endpoints/submit', checkApiKey, async (c) => {
     data: { providerId, name: data.name, category: data.category },
   });
 
+  awardSignal({ apiKey: keyInfo.key, providerId, action: 'endpoint_listed', metadata: { endpointId, name: data.name } });
   logger.info({ endpointId, providerId }, 'Provider endpoint submitted and live');
 
   // Fire-and-forget admin notification

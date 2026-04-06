@@ -20,6 +20,7 @@ import { nanoid } from 'nanoid';
 import { recordSuccess, recordFailure } from '../core/circuit-breaker';
 import { createSomaReceipt } from '../core/soma-receipt';
 import { logSomaCheckEvent } from '../db/soma-check';
+import { awardSignal } from '../db/signal';
 
 const endpointsRouter = new Hono();
 
@@ -450,6 +451,11 @@ endpointsRouter.post('/:id/call', async (c) => {
       c.header('X-Soma-Protocol', 'soma-check/1.0');
     }
 
+    // Signal: award agent for cache hit, provider for passive income
+    awardSignal({ apiKey: keyInfo.key, action: 'cache_hit_agent', metadata: { endpointId } });
+    const cacheProviderId = getEndpointProvider(endpointId);
+    if (cacheProviderId) awardSignal({ apiKey: `provider:${cacheProviderId}`, providerId: cacheProviderId, action: 'cache_hit', metadata: { endpointId } });
+
     logger.info({ requestId, endpointId, creditsUsed: cacheCredits, hasCacheCert: !!cacheCert }, 'Direct endpoint call — cache hit');
     // Soma Check shadow telemetry: a matching client hash would have skipped
     // a full origin charge. ClawNet cache path always logs as shadow regardless
@@ -573,6 +579,10 @@ endpointsRouter.post('/:id/call', async (c) => {
 
     // Provider revenue share: 90% to provider on live calls
     const providerShare = creditProviderShare(endpointId, endpointCredits, { cacheHit: false, latencyMs: durationMs });
+
+    // Signal: award provider for live call
+    const liveProviderId = getEndpointProvider(endpointId);
+    if (liveProviderId) awardSignal({ apiKey: `provider:${liveProviderId}`, providerId: liveProviderId, action: 'endpoint_called', metadata: { endpointId } });
 
     logger.info({ requestId, endpointId, creditsUsed: endpointCredits, providerShare, durationMs, hasCert: !!birthCertificate }, 'Direct endpoint call — live');
     // Soma Check shadow telemetry: live origin fetch — establishes the hash other clients will match against.

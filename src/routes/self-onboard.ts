@@ -16,6 +16,7 @@ import { apiRegistry } from '../config/api-registry';
 import { cacheIncr } from '../cache/index';
 import { getClientIp } from '../middleware/rate-limit';
 import { logger } from '../utils/logger';
+import { awardSignal } from '../db/signal';
 
 const router = new Hono();
 
@@ -100,6 +101,7 @@ router.post('/register', async (c) => {
       },
     });
 
+    awardSignal({ apiKey, action: 'agent_signup', metadata: { name, agentType } });
     logger.info({ name, agentType, ip, baseCredits, promoCredits, totalCredits }, 'Agent self-registered');
 
     return c.json({

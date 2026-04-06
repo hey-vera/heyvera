@@ -1785,6 +1785,67 @@ const MIGRATIONS: { version: number; sql: string }[] = [
 
   // v151: Fix provider tier defaults — standard tier is 5% fee / 95% revenue, not 10% / 85%
   { version: 151, sql: `UPDATE providers SET platform_fee_pct = 0.05, revenue_share_pct = 0.95 WHERE tier = 'standard' AND (platform_fee_pct = 0.10 OR revenue_share_pct < 0.95)` },
+
+  // ─── v152-154: Founding Protocol — Signal points, Founding Vault, milestones ──
+
+  // v152: Signal points ledger — every earned point is an event row
+  { version: 152, sql: `
+    CREATE TABLE IF NOT EXISTS signal_events (
+      id TEXT PRIMARY KEY,
+      api_key TEXT NOT NULL,
+      provider_id TEXT,
+      action TEXT NOT NULL,
+      signal INTEGER NOT NULL,
+      metadata_json TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_signal_key ON signal_events(api_key);
+    CREATE INDEX IF NOT EXISTS idx_signal_provider ON signal_events(provider_id);
+    CREATE INDEX IF NOT EXISTS idx_signal_action ON signal_events(action);
+
+    CREATE TABLE IF NOT EXISTS signal_balances (
+      api_key TEXT PRIMARY KEY,
+      provider_id TEXT,
+      total_signal INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_signal_bal_provider ON signal_balances(provider_id);
+    CREATE INDEX IF NOT EXISTS idx_signal_bal_total ON signal_balances(total_signal DESC);
+  ` },
+
+  // v153: Founding Vault — credit lockups with bonus multipliers
+  { version: 153, sql: `
+    CREATE TABLE IF NOT EXISTS founding_vault (
+      id TEXT PRIMARY KEY,
+      api_key TEXT NOT NULL,
+      provider_id TEXT,
+      credits_locked REAL NOT NULL,
+      lock_days INTEGER NOT NULL,
+      locked_at TEXT NOT NULL DEFAULT (datetime('now')),
+      unlocks_at TEXT NOT NULL,
+      multiplier REAL NOT NULL DEFAULT 1.25,
+      status TEXT NOT NULL DEFAULT 'locked',
+      unlocked_at TEXT,
+      signal_earned INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_vault_key ON founding_vault(api_key);
+    CREATE INDEX IF NOT EXISTS idx_vault_status ON founding_vault(status);
+  ` },
+
+  // v154: Network milestones — cooperative unlock tracking
+  { version: 154, sql: `
+    CREATE TABLE IF NOT EXISTS network_milestones (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL,
+      target_value INTEGER NOT NULL,
+      current_value INTEGER NOT NULL DEFAULT 0,
+      reward_type TEXT NOT NULL,
+      reward_value TEXT NOT NULL,
+      reached INTEGER NOT NULL DEFAULT 0,
+      reached_at TEXT
+    );
+  ` },
 ];
 
 function runMigrations(): void {

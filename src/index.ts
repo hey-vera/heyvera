@@ -68,6 +68,7 @@ import { bountiesRouter } from './routes/bounties';
 import { mcpHttpRouter } from './mcp/http-transport';
 import { x402McpRouter } from './mcp/x402-mcp-transport';
 import { registerRouter } from './routes/register';
+import { signalRouter } from './routes/signal';
 import { statsTelemetryRouter } from './routes/stats-telemetry';
 import { x402FacilitatorRouter } from './routes/x402-facilitator';
 import { skillBuilderRouter } from './routes/skill-builder';
@@ -88,6 +89,7 @@ import { startProviderCacheWarmCron } from './core/provider-cache-warm-cron';
 import { startIndexSync } from './core/index-sync';
 import { startSomaAnchorCron } from './core/soma-anchor-cron';
 import { startEasAnchorCron } from './core/eas-anchor-cron';
+import { startSignalCron } from './core/signal-cron';
 import { startZauthDiscovery } from './core/zauth-discovery';
 import { startX402scanDiscovery } from './core/x402scan-discovery';
 import { providersRouter } from './routes/providers';
@@ -318,6 +320,7 @@ app.route('/v1/soma/check', somaCheckRouter);
 app.route('/v1/soma/vouch', vouchRouter);
 app.route('/v1/soma/demo', somaDemoRouter);
 app.route('/v1/providers', providersRouter);
+app.route('/v1/signal', signalRouter);
 app.route('/x402/facilitator', x402FacilitatorRouter);
 app.route('/v1/skills', skillBuilderRouter);
 // app.route('/v1/referral', referralRouter); // disabled — re-enable when referral program launches
@@ -501,6 +504,7 @@ async function start() {
   startX402scanDiscovery();          cronsStarted++;
   startCanaryCron();               cronsStarted++;
   startTrustDecayCron();           cronsStarted++;
+  startSignalCron();               cronsStarted++;
 
   // Load embedding model + seed in background — don't block server startup
   loadEmbeddingModel()
