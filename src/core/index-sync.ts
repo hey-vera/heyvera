@@ -1,19 +1,21 @@
 /**
- * Multi-Source Index Sync
+ * Multi-Source Index Sync — Tiered Polling
  *
- * Periodically fetches x402/L402 endpoints from six registries:
- *   1. 402index.io — community x402 directory (15k+ endpoints)
- *   2. Coinbase Bazaar — official x402 facilitator discovery
- *   3. Satring — curated L402 + x402 directory
- *   4. Cascade Surf — pay-per-call APIs (Twitter, Reddit, Web, LLM)
- *   5. Dexter — largest x402 facilitator marketplace
- *   6. x402list.fun — 17k+ services directory
+ * Fetches x402/L402 endpoints from live registries:
+ *   1. 402index.io — community x402 directory (13k+ endpoints) — BULK (4h)
+ *   2. Coinbase Bazaar — official x402 facilitator discovery  — HOT (5 min)
+ *   3. Satring — curated L402 + x402 directory (600+)         — WARM (30 min)
+ *   4. Cascade Surf — pay-per-call APIs (Twitter, Reddit, Web) — HOT (5 min)
+ *   5. Provider discovery URLs — registered providers' soma_discovery_url — WARM (30 min)
+ *
+ * Three polling tiers:
+ *   HOT  (5 min)  — small, fast sources (Bazaar, Cascade). Instant-ish.
+ *   WARM (30 min) — medium sources (Satring). Near-real-time.
+ *   BULK (4 hr)   — large paginated crawls (402index.io). Background sync.
  *
  * Endpoints are stored in the indexed_endpoints table with a `source`
  * tag and become available to the orchestration engine via
  * mergeDiscoveredEndpoints().
- *
- * Runs every 4 hours (configurable via INDEX_SYNC_INTERVAL_MS).
  */
 
 import { env } from '../config/index';
@@ -35,14 +37,12 @@ const CASCADE_OPENAPI_URLS = [
   'https://reddit.surf.cascade.fyi/openapi.json',
   'https://web.surf.cascade.fyi/openapi.json',
 ];
-const DEXTER_API = 'https://x402.dexter.cash';
-const X402LIST_URLS = [
-  'https://x402list.fun/api/services',
-  'https://x402list.fun/api/v1/services',
-  'https://api.x402list.fun/services',
-];
+// Dexter (x402.dexter.cash) — REMOVED 2026-04-06: returns 404, site dead
+// x402list.fun — REMOVED 2026-04-06: returns 404, site dead
 
-const SYNC_INTERVAL = 4 * 60 * 60 * 1000; // 4 hours
+const HOT_INTERVAL  =  5 * 60 * 1000; // 5 minutes — Bazaar, Cascade
+const WARM_INTERVAL = 30 * 60 * 1000; // 30 minutes — Satring
+const BULK_INTERVAL =  4 * 60 * 60 * 1000; // 4 hours — 402index.io (13k+ paginated)
 
 /** Clean up endpoint names — many sources put descriptions in the name field */
 function cleanName(rawName: string, url: string, provider: string): string {
@@ -141,7 +141,7 @@ interface NormalizedEndpoint {
   source: string;
 }
 
-let syncTimer: ReturnType<typeof setInterval> | null = null;
+const timers: ReturnType<typeof setInterval>[] = [];
 
 export function startIndexSync(): void {
   if (!env.INDEX_SYNC_ENABLED) {
@@ -149,64 +149,69 @@ export function startIndexSync(): void {
     return;
   }
 
-  logger.info('[index-sync] Starting multi-source catalog sync (every 4h)');
+  logger.info('[index-sync] Starting tiered catalog sync (hot=5m, warm=30m, bulk=4h)');
 
-  // Run immediately on startup, then every 4h
-  syncCatalog().catch(err => logger.error({ err }, '[index-sync] Initial sync failed'));
-  syncTimer = setInterval(() => {
-    syncCatalog().catch(err => logger.error({ err }, '[index-sync] Sync failed'));
-  }, SYNC_INTERVAL);
-  syncTimer.unref();
+  // ── Initial run: all tiers on startup (stagger to avoid thundering herd) ──
+  setTimeout(() => syncTier('hot').catch(e => logger.error({ err: e }, '[index-sync] hot init')), 5_000);
+  setTimeout(() => syncTier('warm').catch(e => logger.error({ err: e }, '[index-sync] warm init')), 15_000);
+  setTimeout(() => syncTier('bulk').catch(e => logger.error({ err: e }, '[index-sync] bulk init')), 30_000);
+
+  // ── Recurring timers ──
+  const hot = setInterval(() => syncTier('hot').catch(e => logger.error({ err: e }, '[index-sync] hot')), HOT_INTERVAL);
+  const warm = setInterval(() => syncTier('warm').catch(e => logger.error({ err: e }, '[index-sync] warm')), WARM_INTERVAL);
+  const bulk = setInterval(() => syncTier('bulk').catch(e => logger.error({ err: e }, '[index-sync] bulk')), BULK_INTERVAL);
+
+  hot.unref(); warm.unref(); bulk.unref();
+  timers.push(hot, warm, bulk);
 }
 
 export function stopIndexSync(): void {
-  if (syncTimer) {
-    clearInterval(syncTimer);
-    syncTimer = null;
-  }
+  for (const t of timers) clearInterval(t);
+  timers.length = 0;
 }
 
-// ─── Main sync orchestrator ──────────────────────────────────────────────────
+// ─── Tiered sync orchestrator ────────────────────────────────────────────────
 
-async function syncCatalog(): Promise<void> {
-  logger.info('[index-sync] Fetching catalogs from all sources...');
+type SyncTier = 'hot' | 'warm' | 'bulk';
 
-  const results = await Promise.allSettled([
-    syncFrom402Index(),
-    syncFromBazaar(),
-    syncFromSatring(),
-    syncFromCascade(),
-    syncFromDexter(),
-    syncFromX402List(),
-  ]);
+async function syncTier(tier: SyncTier): Promise<void> {
+  const jobs: { name: string; fn: () => Promise<number> }[] = [];
 
-  const sourceNames = ['402index', 'bazaar', 'satring', 'cascade', 'dexter', 'x402list'];
+  if (tier === 'hot') {
+    jobs.push({ name: 'bazaar', fn: syncFromBazaar });
+    jobs.push({ name: 'cascade', fn: syncFromCascade });
+  } else if (tier === 'warm') {
+    jobs.push({ name: 'satring', fn: syncFromSatring });
+    jobs.push({ name: 'provider-urls', fn: syncProviderDiscoveryUrls });
+  } else {
+    jobs.push({ name: '402index', fn: syncFrom402Index });
+  }
+
+  const results = await Promise.allSettled(jobs.map(j => j.fn()));
   let totalSynced = 0;
 
   for (const [i, result] of results.entries()) {
-    const source = sourceNames[i];
+    const { name } = jobs[i];
     if (result.status === 'fulfilled') {
-      logger.info(`[index-sync] ${source}: synced ${result.value} endpoints`);
+      if (result.value > 0) logger.info(`[index-sync:${tier}] ${name}: ${result.value} endpoints`);
       totalSynced += result.value;
     } else {
-      logger.warn(`[index-sync] ${source}: failed - ${result.reason}`);
+      logger.warn(`[index-sync:${tier}] ${name}: failed - ${result.reason}`);
     }
   }
 
-  if (totalSynced === 0) {
-    logger.info('[index-sync] No endpoints synced from any source — skipping cleanup');
-    return;
-  }
+  if (totalSynced === 0) return;
 
-  // Clean up stale entries (not synced in 48 hours)
-  const cleaned = getDb().prepare(
-    `DELETE FROM indexed_endpoints WHERE last_synced < datetime('now', '-${STALE_HOURS} hours')`,
-  ).run();
+  // Only clean stale entries on bulk cycle (avoid hammering DB every 5 min)
+  if (tier === 'bulk') {
+    const cleaned = getDb().prepare(
+      `DELETE FROM indexed_endpoints WHERE last_synced < datetime('now', '-${STALE_HOURS} hours')`,
+    ).run();
+    if (cleaned.changes > 0) logger.info(`[index-sync] Cleaned ${cleaned.changes} stale entries`);
+  }
 
   // Merge into the live API registry so orchestration can use them
   mergeIndexedIntoRegistry();
-
-  logger.info(`[index-sync] Total: ${totalSynced} endpoints synced, ${cleaned.changes} stale entries cleaned`);
 }
 
 // ─── Shared upsert helper ────────────────────────────────────────────────────
@@ -329,22 +334,31 @@ async function syncFrom402Index(): Promise<number> {
 }
 
 // ─── Source 2: Coinbase Bazaar ───────────────────────────────────────────────
+// Actual response shape (verified 2026-04-06):
+//   { items: [{ resource: "https://...", type: "http", x402Version: 1,
+//     accepts: [{ resource, description, maxAmountRequired, network, asset,
+//                 payTo, scheme, extra: { name, version }, outputSchema }] }] }
 
-interface BazaarResource {
-  url?: string;
-  resource_url?: string;
-  endpoint?: string;
-  name?: string;
-  title?: string;
-  description?: string;
-  price?: number | string | { amount?: number | string; currency?: string };
-  network?: string;
-  asset?: string;
-  facilitator?: string;
-  category?: string;
-  provider?: string;
-  method?: string;
-  http_method?: string;
+interface BazaarItem {
+  resource?: string;
+  type?: string;
+  x402Version?: number;
+  lastUpdated?: string;
+  accepts?: Array<{
+    resource?: string;
+    description?: string;
+    maxAmountRequired?: string;
+    network?: string;
+    asset?: string;
+    payTo?: string;
+    scheme?: string;
+    mimeType?: string;
+    extra?: { name?: string; version?: string };
+    outputSchema?: {
+      input?: { method?: string; discoverable?: boolean; type?: string; bodyFields?: Record<string, unknown> };
+      output?: Record<string, unknown>;
+    };
+  }>;
 }
 
 async function syncFromBazaar(): Promise<number> {
@@ -372,47 +386,50 @@ async function syncFromBazaar(): Promise<number> {
     return 0;
   }
 
-  // Handle various response shapes: { resources: [...] }, { data: [...] }, or direct array
-  const resources = extractArray(data, ['resources', 'data', 'items', 'results']);
-  if (resources.length === 0) {
+  const items = extractArray(data, ['items', 'resources', 'data']);
+  if (items.length === 0) {
     logger.info('[index-sync] Bazaar returned 0 resources');
     return 0;
   }
 
   const endpoints: NormalizedEndpoint[] = [];
-  for (const raw of resources) {
-    const r = raw as BazaarResource;
-    const url = r.url || r.resource_url || r.endpoint;
+  for (const raw of items) {
+    const item = raw as BazaarItem;
+    const url = item.resource;
     if (!url || typeof url !== 'string') continue;
 
-    // Extract price — could be number, string, or { amount, currency }
+    // Each item can have multiple accepts entries (different networks/prices).
+    // Take the first one with a description for metadata, lowest price for cost.
+    const accepts = item.accepts ?? [];
+    const first = accepts[0];
+    if (!first) continue;
+
+    // Price is maxAmountRequired as a string (e.g. "0.001")
     let priceUsd: number | null = null;
-    if (typeof r.price === 'number') {
-      priceUsd = r.price;
-    } else if (typeof r.price === 'string') {
-      priceUsd = parseFloat(r.price) || null;
-    } else if (r.price && typeof r.price === 'object') {
-      priceUsd = typeof r.price.amount === 'number' ? r.price.amount
-        : typeof r.price.amount === 'string' ? parseFloat(r.price.amount) || null
-        : null;
+    for (const a of accepts) {
+      const p = parseFloat(a.maxAmountRequired ?? '');
+      if (!isNaN(p) && (priceUsd === null || p < priceUsd)) priceUsd = p;
     }
+
+    const description = first.description || first.extra?.name || '';
+    const method = first.outputSchema?.input?.method?.toUpperCase() || 'GET';
 
     endpoints.push({
       source_id: `bazaar-${nanoid(8)}`,
-      name: cleanName(r.name || r.title || url, url, r.provider || 'coinbase-bazaar'),
-      description: (r.description || '').slice(0, 500),
+      name: cleanName(first.extra?.name || description.split('.')[0] || url, url, 'Coinbase Bazaar'),
+      description: description.slice(0, 500),
       url,
       protocol: 'x402',
       price_usd: priceUsd,
-      payment_asset: r.asset || 'USDC',
-      payment_network: r.network || 'base',
-      category: (r.category || 'uncategorized').slice(0, 100),
-      provider: (r.provider || r.facilitator || 'coinbase-bazaar').slice(0, 100),
-      health_status: 'healthy', // Bazaar only lists active resources
+      payment_asset: first.asset || 'USDC',
+      payment_network: first.network || 'base',
+      category: 'uncategorized',
+      provider: 'Coinbase Bazaar',
+      health_status: 'healthy',
       uptime_30d: null,
       latency_p50_ms: null,
       reliability_score: null,
-      http_method: r.method || r.http_method || 'GET',
+      http_method: method,
       source: 'bazaar',
     });
   }
@@ -421,83 +438,101 @@ async function syncFromBazaar(): Promise<number> {
 }
 
 // ─── Source 3: Satring ───────────────────────────────────────────────────────
+// Actual response shape (verified 2026-04-06):
+//   { services: [{ name, slug, protocol: "L402", pricing_model: "per-request",
+//     pricing_sats: 10, categories: ["energy"], domain_verified: bool,
+//     avg_rating, hit_count_30d, created_at }], total: 600, page, page_size }
+// NOTE: Satring is L402 (Lightning), not x402 (USDC). We index them anyway —
+// ClawNet can proxy the payment rail.
 
 interface SatringService {
+  name?: string;
+  slug?: string;
   url?: string;
   endpoint?: string;
-  api_url?: string;
-  name?: string;
-  title?: string;
   description?: string;
-  price?: number | string;
-  price_usd?: number | string;
   protocol?: string;
-  network?: string;
-  asset?: string;
-  category?: string;
-  provider?: string;
-  method?: string;
-  http_method?: string;
-  status?: string;
-  health?: string;
+  pricing_model?: string;
+  pricing_sats?: number;
+  price_usd?: number;
+  categories?: string[];
+  domain_verified?: boolean;
+  avg_rating?: number;
+  hit_count_30d?: number;
+  created_at?: string;
 }
 
+// 1 sat ≈ $0.0006 at ~$60K BTC (rough, updated periodically)
+const SATS_TO_USD = 0.0006;
+
 async function syncFromSatring(): Promise<number> {
-  // Try common API patterns — Satring's exact API shape is unknown
-  for (const url of SATRING_URLS) {
+  const allEndpoints: NormalizedEndpoint[] = [];
+  let page = 1;
+  const pageSize = 20; // Satring default
+
+  for (const baseUrl of SATRING_URLS) {
     try {
-      const res = await fetch(url, {
-        signal: AbortSignal.timeout(FETCH_TIMEOUT),
-        headers: { 'User-Agent': USER_AGENT },
-      });
-
-      if (!res.ok) continue;
-
-      let data: unknown;
-      try {
-        data = await res.json();
-      } catch {
-        continue;
-      }
-
-      const services = extractArray(data, ['services', 'data', 'items', 'results', 'endpoints']);
-      if (services.length === 0) continue;
-
-      const endpoints: NormalizedEndpoint[] = [];
-      for (const raw of services) {
-        const s = raw as SatringService;
-        const epUrl = s.url || s.endpoint || s.api_url;
-        if (!epUrl || typeof epUrl !== 'string') continue;
-
-        let priceUsd: number | null = null;
-        const rawPrice = s.price_usd ?? s.price;
-        if (typeof rawPrice === 'number') priceUsd = rawPrice;
-        else if (typeof rawPrice === 'string') priceUsd = parseFloat(rawPrice) || null;
-
-        endpoints.push({
-          source_id: `satring-${nanoid(8)}`,
-          name: cleanName(s.name || s.title || epUrl, epUrl, s.provider || 'satring'),
-          description: (s.description || '').slice(0, 500),
-          url: epUrl,
-          protocol: s.protocol || 'x402',
-          price_usd: priceUsd,
-          payment_asset: s.asset || 'USDC',
-          payment_network: s.network || null,
-          category: (s.category || 'uncategorized').slice(0, 100),
-          provider: (s.provider || 'satring').slice(0, 100),
-          health_status: s.status || s.health || 'unknown',
-          uptime_30d: null,
-          latency_p50_ms: null,
-          reliability_score: null,
-          http_method: s.method || s.http_method || 'GET',
-          source: 'satring',
+      // Paginate through all results
+      while (true) {
+        const url = page === 1 ? baseUrl : `${baseUrl}?page=${page}`;
+        const res = await fetch(url, {
+          signal: AbortSignal.timeout(FETCH_TIMEOUT),
+          headers: { 'User-Agent': USER_AGENT },
         });
+
+        if (!res.ok) break;
+
+        let data: unknown;
+        try { data = await res.json(); } catch { break; }
+
+        const services = extractArray(data, ['services', 'data', 'items']);
+        if (services.length === 0) break;
+
+        for (const raw of services) {
+          const s = raw as SatringService;
+          // Satring may not have a URL field — construct from slug if needed
+          const epUrl = s.url || s.endpoint || (s.slug ? `https://satring.com/api/s/${s.slug}` : null);
+          if (!epUrl) continue;
+
+          // Convert sats to USD, or use price_usd if available
+          let priceUsd: number | null = null;
+          if (s.price_usd != null) priceUsd = s.price_usd;
+          else if (s.pricing_sats != null) priceUsd = round6(s.pricing_sats * SATS_TO_USD);
+
+          const category = (s.categories?.[0] || 'uncategorized').slice(0, 100);
+
+          allEndpoints.push({
+            source_id: `satring-${s.slug || nanoid(8)}`,
+            name: cleanName(s.name || s.slug || epUrl, epUrl, 'Satring'),
+            description: (s.description || s.name || '').slice(0, 500),
+            url: epUrl,
+            protocol: s.protocol || 'L402',
+            price_usd: priceUsd,
+            payment_asset: 'BTC',
+            payment_network: 'lightning',
+            category,
+            provider: 'Satring',
+            health_status: s.domain_verified ? 'healthy' : 'unknown',
+            uptime_30d: null,
+            latency_p50_ms: null,
+            reliability_score: s.avg_rating != null ? round6(s.avg_rating * 20) : null, // 0-5 → 0-100
+            http_method: 'GET',
+            source: 'satring',
+          });
+        }
+
+        // Check if there are more pages
+        const total = (data as any)?.total ?? 0;
+        if (page * pageSize >= total || services.length < pageSize) break;
+        page++;
+
+        // Rate limit
+        await new Promise(r => setTimeout(r, 500));
       }
 
-      const count = upsertEndpoints(endpoints);
-      if (count > 0) {
-        logger.info(`[index-sync] Satring: found API at ${url}`);
-        return count;
+      if (allEndpoints.length > 0) {
+        logger.info(`[index-sync] Satring: found ${allEndpoints.length} services at ${baseUrl}`);
+        return upsertEndpoints(allEndpoints);
       }
     } catch {
       continue;
@@ -575,167 +610,75 @@ async function syncFromCascade(): Promise<number> {
   return upsertEndpoints(allEndpoints);
 }
 
-// ─── Source 5: Dexter Marketplace ────────────────────────────────────────────
+// Sources 5 (Dexter) and 6 (x402list.fun) removed 2026-04-06 — both return 404.
 
-interface DexterResource {
-  url?: string;
-  endpoint?: string;
-  name?: string;
-  title?: string;
-  description?: string;
-  price?: number | string;
-  network?: string;
-  category?: string;
-  provider?: string;
-  method?: string;
-}
+// ─── Provider Discovery URL Polling ─────────────────────────────────────────
+// Registered providers can set soma_discovery_url. We poll it on the WARM
+// tier (30 min) and merge any new endpoints into the live registry.
+// Expected response: { endpoints: [{ name, url, description?, category?, method?, price? }] }
+// or a flat array of the same shape.
 
-async function syncFromDexter(): Promise<number> {
-  // Try marketplace/discovery endpoints
-  const discoveryUrls = [
-    `${DEXTER_API}/resources`,
-    `${DEXTER_API}/marketplace`,
-    `${DEXTER_API}/api/resources`,
-    `${DEXTER_API}/api/v1/resources`,
-  ];
+async function syncProviderDiscoveryUrls(): Promise<number> {
+  let rows: Array<{ id: string; name: string; slug: string; soma_discovery_url: string }>;
+  try {
+    rows = getDb().prepare(
+      "SELECT id, name, slug, soma_discovery_url FROM providers WHERE soma_discovery_url IS NOT NULL AND soma_discovery_url != '' AND status = 'active'"
+    ).all() as any[];
+  } catch {
+    return 0;
+  }
 
-  for (const url of discoveryUrls) {
+  if (rows.length === 0) return 0;
+
+  let totalAdded = 0;
+
+  for (const provider of rows) {
     try {
-      const res = await fetch(url, {
+      const res = await fetch(provider.soma_discovery_url, {
         signal: AbortSignal.timeout(FETCH_TIMEOUT),
         headers: { 'User-Agent': USER_AGENT },
       });
-
       if (!res.ok) continue;
 
       let data: unknown;
       try { data = await res.json(); } catch { continue; }
 
-      const resources = extractArray(data, ['resources', 'data', 'items', 'results', 'services']);
-      if (resources.length === 0) continue;
+      const eps = extractArray(data, ['endpoints', 'services', 'data', 'items']);
+      if (eps.length === 0) continue;
 
-      const endpoints: NormalizedEndpoint[] = [];
-      for (const raw of resources) {
-        const r = raw as DexterResource;
-        const epUrl = r.url || r.endpoint;
-        if (!epUrl || typeof epUrl !== 'string') continue;
+      const slug = provider.slug || provider.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
 
-        let priceUsd: number | null = null;
-        if (typeof r.price === 'number') priceUsd = r.price;
-        else if (typeof r.price === 'string') priceUsd = parseFloat(r.price) || null;
+      for (const raw of eps) {
+        const ep = raw as { name?: string; url?: string; endpoint?: string; description?: string; category?: string; method?: string; price?: number; costPerCall?: number };
+        const epUrl = ep.url || ep.endpoint;
+        if (!ep.name || !epUrl) continue;
 
-        endpoints.push({
-          source_id: `dexter-${nanoid(8)}`,
-          name: cleanName(r.name || r.title || epUrl, epUrl, r.provider || 'dexter'),
-          description: (r.description || '').slice(0, 500),
-          url: epUrl,
-          protocol: 'x402',
-          price_usd: priceUsd,
-          payment_asset: 'USDC',
-          payment_network: r.network || 'base',
-          category: (r.category || 'uncategorized').slice(0, 100),
-          provider: (r.provider || 'dexter').slice(0, 100),
-          health_status: 'healthy',
-          uptime_30d: null,
-          latency_p50_ms: null,
-          reliability_score: null,
-          http_method: r.method || 'GET',
-          source: 'dexter',
-        });
+        const nameSlug = ep.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40);
+        const endpointId = `${slug}-${nameSlug}`;
+
+        const existing = getDb().prepare('SELECT id FROM endpoints WHERE id = ?').get(endpointId);
+        if (!existing) {
+          getDb().prepare(`
+            INSERT INTO endpoints (id, provider, provider_id, base_url, name, description, category, cost_per_call, status, source, http_method)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', 'provider', ?)
+          `).run(
+            endpointId, provider.name, provider.id, epUrl, ep.name,
+            ep.description || '', mapCategory(ep.category || 'utility'),
+            ep.price ?? ep.costPerCall ?? 0.001, ep.method || 'GET',
+          );
+          totalAdded++;
+        }
       }
 
-      const count = upsertEndpoints(endpoints);
-      if (count > 0) {
-        logger.info(`[index-sync] Dexter: found API at ${url}`);
-        return count;
+      if (totalAdded > 0) {
+        logger.info({ providerId: provider.id, name: provider.name, added: totalAdded }, 'Provider discovery URL synced');
       }
-    } catch { continue; }
+    } catch {
+      continue;
+    }
   }
 
-  logger.info('[index-sync] Dexter: no working discovery API found — skipping');
-  return 0;
-}
-
-// ─── Source 6: x402list.fun ─────────────────────────────────────────────────
-
-interface X402ListService {
-  url?: string;
-  endpoint?: string;
-  api_url?: string;
-  name?: string;
-  title?: string;
-  description?: string;
-  price?: number | string;
-  price_usd?: number | string;
-  protocol?: string;
-  network?: string;
-  chain?: string;
-  asset?: string;
-  category?: string;
-  provider?: string;
-  method?: string;
-  http_method?: string;
-  status?: string;
-  health?: string;
-}
-
-async function syncFromX402List(): Promise<number> {
-  for (const url of X402LIST_URLS) {
-    try {
-      const res = await fetch(url, {
-        signal: AbortSignal.timeout(FETCH_TIMEOUT),
-        headers: { 'User-Agent': USER_AGENT },
-      });
-
-      if (!res.ok) continue;
-
-      let data: unknown;
-      try { data = await res.json(); } catch { continue; }
-
-      const services = extractArray(data, ['services', 'data', 'items', 'results', 'endpoints']);
-      if (services.length === 0) continue;
-
-      const endpoints: NormalizedEndpoint[] = [];
-      for (const raw of services) {
-        const s = raw as X402ListService;
-        const epUrl = s.url || s.endpoint || s.api_url;
-        if (!epUrl || typeof epUrl !== 'string') continue;
-
-        let priceUsd: number | null = null;
-        const rawPrice = s.price_usd ?? s.price;
-        if (typeof rawPrice === 'number') priceUsd = rawPrice;
-        else if (typeof rawPrice === 'string') priceUsd = parseFloat(rawPrice) || null;
-
-        endpoints.push({
-          source_id: `x402list-${nanoid(8)}`,
-          name: cleanName(s.name || s.title || epUrl, epUrl, s.provider || 'x402list'),
-          description: (s.description || '').slice(0, 500),
-          url: epUrl,
-          protocol: s.protocol || 'x402',
-          price_usd: priceUsd,
-          payment_asset: s.asset || 'USDC',
-          payment_network: s.network || s.chain || null,
-          category: (s.category || 'uncategorized').slice(0, 100),
-          provider: (s.provider || 'x402list').slice(0, 100),
-          health_status: s.status || s.health || 'unknown',
-          uptime_30d: null,
-          latency_p50_ms: null,
-          reliability_score: null,
-          http_method: s.method || s.http_method || 'GET',
-          source: 'x402list',
-        });
-      }
-
-      const count = upsertEndpoints(endpoints);
-      if (count > 0) {
-        logger.info(`[index-sync] x402list: found API at ${url}`);
-        return count;
-      }
-    } catch { continue; }
-  }
-
-  logger.info('[index-sync] x402list: no working API found — skipping');
-  return 0;
+  return totalAdded;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

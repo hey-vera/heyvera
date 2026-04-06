@@ -111,10 +111,10 @@ const envSchema = z.object({
   ),
   AG0_SUBGRAPH_URL: z.string().url().optional(),
 
-  // 402index.io catalog sync (off by default)
+  // Multi-source catalog sync (402index.io, Coinbase Bazaar, Cascade, Satring, provider URLs)
   INDEX_SYNC_ENABLED: z.preprocess(
     (v) => v === 'true' || v === '1' || v === true,
-    z.boolean().default(false),
+    z.boolean().default(true),
   ),
 
   // zauth discovery cron — DEPRECATED: zauthx402.com/api/* returns 404 (verified 2026-04-05).

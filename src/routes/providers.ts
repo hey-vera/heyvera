@@ -13,6 +13,7 @@
  *   POST   /v1/providers/:id/activate  — Activate provider (admin)
  *   POST   /v1/providers/:id/endpoints — Register existing endpoint to provider (admin)
  *   POST   /v1/providers/:id/endpoints/submit — Submit new endpoint (provider self-service)
+ *   POST   /v1/providers/:id/endpoints/notify — Instant discovery push (re-fetch or inline)
  *   PATCH  /v1/providers/:id/endpoints/:eid — Update own endpoint (provider/admin)
  *   DELETE /v1/providers/:id/endpoints/:eid — Remove endpoint (provider/admin)
  *   GET    /v1/providers/:id/endpoints — List provider's endpoints
@@ -477,6 +478,126 @@ providersRouter.post('/:id/endpoints/submit', checkApiKey, async (c) => {
       status,
     },
   }, 201);
+});
+
+// ─── POST /v1/providers/:id/endpoints/notify — instant discovery push ────────
+// Providers call this to tell ClawNet "I have new/updated endpoints, re-fetch now"
+// instead of waiting for the next poll cycle. If the provider has a
+// soma_discovery_url, we re-fetch it immediately. Otherwise they can pass
+// endpoints inline.
+
+const NotifyBody = z.object({
+  // Option A: provider tells us to re-fetch their discovery URL
+  refetch: z.boolean().optional(),
+  // Option B: provider pushes endpoints inline
+  endpoints: z.array(z.object({
+    name: z.string().min(2).max(100),
+    description: z.string().max(500).default(''),
+    category: z.enum(VALID_CATEGORIES).default('utility'),
+    baseUrl: z.string().url().max(500),
+    path: z.string().max(200).optional(),
+    httpMethod: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']).default('GET'),
+    costPerCall: z.number().min(0).max(10).default(0.001),
+    cacheTtl: z.number().int().min(0).max(604800).optional(),
+  })).optional(),
+});
+
+providersRouter.post('/:id/endpoints/notify', checkApiKey, async (c) => {
+  const providerId = c.req.param('id');
+  const provider = getProvider(providerId);
+  if (!provider) {
+    return c.json({ error: 'Provider not found', code: 'PROVIDER_NOT_FOUND' }, 404);
+  }
+
+  const keyInfo = c.get('apiKeyInfo');
+  const keyProvider = getDb().prepare('SELECT provider_id FROM api_keys WHERE key = ?').get(keyInfo.key) as any;
+  const isOwner = keyProvider?.provider_id === providerId;
+  if (!isOwner && !requireAdmin(c)) {
+    return c.json({ error: 'Not authorized for this provider', code: 'PROVIDER_SCOPE_DENIED' }, 403);
+  }
+
+  const body = await c.req.json().catch(() => ({}));
+  const parsed = NotifyBody.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: 'Invalid notify payload', code: 'INVALID_DATA', details: parsed.error.flatten().fieldErrors }, 400);
+  }
+
+  const { refetch, endpoints: inlineEndpoints } = parsed.data;
+  let added = 0;
+
+  // Option A: Re-fetch provider's soma_discovery_url
+  if (refetch && provider.somaDiscoveryUrl) {
+    try {
+      const res = await fetch(provider.somaDiscoveryUrl, {
+        signal: AbortSignal.timeout(15_000),
+        headers: { 'User-Agent': 'ClawNet/1.0 (provider-notify)' },
+      });
+      if (res.ok) {
+        const data = await res.json() as { endpoints?: Array<{ name: string; url: string; description?: string; category?: string; method?: string; price?: number }> };
+        const eps = data.endpoints ?? (Array.isArray(data) ? data as any[] : []);
+        for (const ep of eps) {
+          if (!ep.name || !ep.url) continue;
+          const slug = provider.slug || provider.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+          const nameSlug = ep.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40);
+          const endpointId = `${slug}-${nameSlug}`;
+
+          const existing = getDb().prepare('SELECT id FROM endpoints WHERE id = ?').get(endpointId);
+          if (!existing) {
+            getDb().prepare(`
+              INSERT INTO endpoints (id, provider, provider_id, base_url, path, name, description, category, cost_per_call, status, source, http_method)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', 'provider', ?)
+            `).run(endpointId, provider.name, providerId, ep.url, null, ep.name, ep.description || '', ep.category || 'utility', ep.price || 0.001, ep.method || 'GET');
+            registerProviderEndpoint(providerId, endpointId);
+            added++;
+          }
+        }
+        logger.info({ providerId, added, url: provider.somaDiscoveryUrl }, 'Provider discovery URL re-fetched');
+      }
+    } catch (err) {
+      logger.warn({ err, providerId }, 'Failed to re-fetch provider discovery URL');
+    }
+  }
+
+  // Option B: Inline endpoint push
+  if (inlineEndpoints?.length) {
+    for (const ep of inlineEndpoints) {
+      const slug = provider.slug || provider.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+      const nameSlug = ep.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40);
+      const endpointId = `${slug}-${nameSlug}`;
+
+      const existing = getDb().prepare('SELECT id FROM endpoints WHERE id = ?').get(endpointId);
+      if (existing) {
+        // Update existing endpoint
+        getDb().prepare(`
+          UPDATE endpoints SET base_url = ?, description = ?, category = ?, cost_per_call = ?, http_method = ?, cache_ttl = ?, updated_at = datetime('now')
+          WHERE id = ?
+        `).run(ep.baseUrl, ep.description, ep.category, ep.costPerCall, ep.httpMethod, ep.cacheTtl ?? null, endpointId);
+      } else {
+        getDb().prepare(`
+          INSERT INTO endpoints (id, provider, provider_id, base_url, path, name, description, category, cost_per_call, status, source, http_method, cache_ttl)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', 'provider', ?, ?)
+        `).run(endpointId, provider.name, providerId, ep.baseUrl, ep.path ?? null, ep.name, ep.description, ep.category, ep.costPerCall, ep.httpMethod, ep.cacheTtl ?? null);
+        registerProviderEndpoint(providerId, endpointId);
+        added++;
+      }
+      invalidateEndpointCache(endpointId);
+    }
+  }
+
+  logAudit({
+    entityType: 'provider',
+    entityId: providerId,
+    action: 'ENDPOINTS_NOTIFY',
+    actorId: keyInfo.key.slice(0, 7) + '...',
+    data: { refetch: !!refetch, inlineCount: inlineEndpoints?.length ?? 0, added },
+  });
+
+  return c.json({
+    ok: true,
+    added,
+    updated: (inlineEndpoints?.length ?? 0) - added,
+    message: added > 0 ? `${added} new endpoint(s) are live immediately.` : 'All endpoints up to date.',
+  });
 });
 
 // ─── PATCH /v1/providers/:id/endpoints/:eid — update own endpoint ───────────
