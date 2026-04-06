@@ -224,7 +224,7 @@ app.onError((err, c) => {
 app.get('/', (c) => c.json({
   name: 'ClawNet Orchestrator',
   version: '1.0.0',
-  description: 'Universal Workflow Orchestration Layer for ClawAPIs',
+  description: 'Sovereign AI agent orchestration layer — Soma-verified execution, x402 payments',
   docs: '/v1/endpoints',
   health: '/health',
 }));
