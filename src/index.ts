@@ -449,7 +449,7 @@ app.get('/v1/indexed', (c) => {
 import path from 'path';
 import fs from 'fs';
 
-const portalRoot = path.resolve(__dirname, '..', 'dashboard', 'dist');
+const portalRoot = path.resolve(process.cwd(), 'dashboard', 'dist');
 const MIME: Record<string, string> = {
   '.html': 'text/html', '.js': 'application/javascript', '.css': 'text/css',
   '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.png': 'image/png',
