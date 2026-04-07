@@ -404,8 +404,8 @@ export function setProviderSomaCheckTier(providerId: string, tier: SomaCheckTier
  *              Their server wasn't touched, so cache revenue is pure profit for them.
  *
  * Founding era: 0% platform fee on live calls (provider keeps 100%).
- * Platform earns from cache hit revenue split (50/50) and Soma Check spread.
- * Fee increases to 10% when Soma Heart launches. Token staking reduces further.
+ * Platform earns 10% of cache hit revenue and 10% of Soma Check hit revenue.
+ * Fee increases to 10% on live calls when Soma Heart launches. Token staking reduces further.
  *
  * Returns the provider's credited amount, or 0 if no provider owns this endpoint.
  */
@@ -428,7 +428,7 @@ export function creditProviderShare(endpointId: string, creditsCharged: number, 
   if (!provider || provider.status !== 'active') return 0;
 
   // Live calls: provider gets revenue_share_pct (100% founding, 90% post-provenance)
-  // Cache hits: provider gets cache_revenue_share_pct (50%) — pure profit, server not touched
+  // Cache hits: provider gets cache_revenue_share_pct (90%) — pure profit, server not touched
   // Soma Check hits: caller passes providerSharePctOverride (0.90 T1-2 / 0.95 T3).
   const providerCredits = opts.providerSharePctOverride !== undefined
     ? round6(creditsCharged * opts.providerSharePctOverride)

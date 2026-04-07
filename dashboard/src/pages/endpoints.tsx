@@ -38,6 +38,8 @@ import {
   useDeleteEndpoint,
   useInvalidateCache,
 } from '@/hooks/use-provider-data';
+import { useProvider } from '@/contexts/provider-context';
+import { ProviderPendingBanner } from '@/components/provider-pending-banner';
 
 const CATEGORIES = [
   'solana', 'social', 'utility', 'defi', 'intelligence', 'oracle',
@@ -47,7 +49,7 @@ const CATEGORIES = [
 
 const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
 
-function AddEndpointDialog() {
+function AddEndpointDialog({ disabled }: { disabled?: boolean }) {
   const [open, setOpen] = useState(false);
   const submit = useSubmitEndpoint();
 
@@ -92,7 +94,7 @@ function AddEndpointDialog() {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button size="sm" />}>
+      <DialogTrigger render={<Button size="sm" disabled={disabled} />}>
         <Plus className="mr-1.5 h-3.5 w-3.5" />
         Add Endpoint
       </DialogTrigger>
@@ -294,10 +296,14 @@ function EndpointRow({ ep }: { ep: { id: string; name: string; description?: str
 }
 
 export function EndpointsPage() {
+  const { provider } = useProvider();
   const { data: endpoints, isLoading } = useProviderEndpoints();
+  const isPending = provider && provider.status !== 'active';
 
   return (
     <div className="space-y-6">
+      {provider && <ProviderPendingBanner status={provider.status} />}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -306,7 +312,7 @@ export function EndpointsPage() {
             {endpoints?.length ?? 0} endpoint{(endpoints?.length ?? 0) !== 1 ? 's' : ''} registered
           </p>
         </div>
-        <AddEndpointDialog />
+        <AddEndpointDialog disabled={!!isPending} />
       </div>
 
       {/* Table */}
@@ -325,7 +331,7 @@ export function EndpointsPage() {
               <p className="text-xs text-muted-foreground mt-1 mb-4">
                 Add your first API endpoint to start earning on ClawNet.
               </p>
-              <AddEndpointDialog />
+              <AddEndpointDialog disabled={!!isPending} />
             </div>
           ) : (
             <Table>

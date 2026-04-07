@@ -35,6 +35,7 @@ import {
   useRequestWithdrawal,
   useSetPayoutWallet,
 } from '@/hooks/use-provider-data';
+import { ProviderPendingBanner } from '@/components/provider-pending-banner';
 
 const STATUS_COLORS: Record<string, 'default' | 'secondary' | 'destructive'> = {
   pending: 'secondary',
@@ -236,6 +237,8 @@ export function PayoutsPage() {
 
   return (
     <div className="space-y-6">
+      {provider && <ProviderPendingBanner status={provider.status} />}
+
       <WalletSetup />
 
       {/* Balance card */}

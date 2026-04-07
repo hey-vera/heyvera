@@ -1,7 +1,18 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@clerk/clerk-react';
 import { apiFetch } from '../lib/api';
 import type { AdminStats, AdminLogs } from '../lib/types';
+
+export interface AdminProvider {
+  id: string;
+  name: string;
+  slug: string;
+  email: string;
+  status: string;
+  tier: string;
+  websiteUrl?: string;
+  createdAt: string;
+}
 
 function useAuthHeaders() {
   const { getToken } = useAuth();
@@ -49,5 +60,32 @@ export function useAdminLogs(period: 'week' | 'month' = 'week') {
       apiFetch<AdminLogs>(`/v1/dashboard/admin-logs?period=${period}`, {
         headers: await getHeaders(),
       }),
+  });
+}
+
+export function useAdminProviders(status?: string) {
+  const getHeaders = useAuthHeaders();
+  return useQuery({
+    queryKey: ['admin', 'providers', status],
+    queryFn: async () =>
+      apiFetch<{ providers: AdminProvider[] }>(
+        `/v1/dashboard/admin-providers${status ? `?status=${status}` : ''}`,
+        { headers: await getHeaders() },
+      ),
+  });
+}
+
+export function useActivateProvider() {
+  const getHeaders = useAuthHeaders();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (providerId: string) =>
+      apiFetch<{ ok: boolean }>(`/v1/dashboard/admin-providers/${providerId}/activate`, {
+        headers: await getHeaders(),
+        method: 'POST',
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin', 'providers'] });
+    },
   });
 }

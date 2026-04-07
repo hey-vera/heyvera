@@ -37,7 +37,7 @@ import { cacheIncr } from '../cache/index';
 import { maskApiKey } from '../utils/mask';
 import { getSignalBalance, getSignalHistory, getVaultLocks, createVaultLock, requestVaultUnlock, getSignalLeaderboard, getSignalStats, awardSignal } from '../db/signal';
 import { deductCredit } from '../db/credits';
-import { listTasks, countTasks, createProvider, getProviderBySlug, getProviderByClerkUser, setApiKeyProvider, logAudit, getChildKeys, createDelegatedKey, revokeDelegatedKey } from '../db/index';
+import { listTasks, countTasks, createProvider, getProviderBySlug, getProviderByClerkUser, setApiKeyProvider, logAudit, getChildKeys, createDelegatedKey, revokeDelegatedKey, listProviders, updateProvider } from '../db/index';
 import { z } from 'zod';
 import { sendAdminAlert } from '../utils/email';
 
@@ -372,6 +372,43 @@ dashboardRouter.get('/admin-logs', requireClerkAuth, (c) => {
   const callLogs = getRecentCallLogs(period);
   const skillLogs = getSkillInvocationLogs(period);
   return c.json({ period, callLogs, skillLogs });
+});
+
+// ─── GET /v1/dashboard/admin-providers — list providers (admin only) ─────────
+
+dashboardRouter.get('/admin-providers', requireClerkAuth, (c) => {
+  if (!isAdminEmail(c.get('clerkEmail'))) {
+    return c.json({ error: 'Forbidden', code: 'FORBIDDEN' }, 403);
+  }
+  const status = c.req.query('status') || undefined;
+  const providers = listProviders(status);
+  return c.json({
+    providers: providers.map(p => ({
+      id: p.id,
+      name: p.name,
+      slug: p.slug,
+      email: p.email,
+      status: p.status,
+      tier: p.tier,
+      websiteUrl: p.websiteUrl,
+      createdAt: p.createdAt,
+    })),
+  });
+});
+
+// ─── POST /v1/dashboard/admin-providers/:id/activate — activate provider ────
+
+dashboardRouter.post('/admin-providers/:id/activate', requireClerkAuth, (c) => {
+  if (!isAdminEmail(c.get('clerkEmail'))) {
+    return c.json({ error: 'Forbidden', code: 'FORBIDDEN' }, 403);
+  }
+  const id = c.req.param('id');
+  const updated = updateProvider(id, { status: 'active', verified: true });
+  if (!updated) {
+    return c.json({ error: 'Provider not found', code: 'PROVIDER_NOT_FOUND' }, 404);
+  }
+  logAudit({ entityType: 'provider', entityId: id, action: 'activated_via_dashboard', actorId: c.get('clerkEmail') });
+  return c.json({ ok: true, provider: updated });
 });
 
 // ─── POST /v1/dashboard/become-provider — self-service provider signup ──────

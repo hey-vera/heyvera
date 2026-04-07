@@ -34,7 +34,8 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { useAdminStats, useAdminLogs } from '@/hooks/use-admin-data';
+import { useAdminStats, useAdminLogs, useAdminProviders, useActivateProvider } from '@/hooks/use-admin-data';
+import { toast } from 'sonner';
 
 function PeriodToggle({
   period,
@@ -342,6 +343,90 @@ function SkillLogs({ period }: { period: 'week' | 'month' }) {
   );
 }
 
+function PendingProviders() {
+  const { data, isLoading } = useAdminProviders('pending');
+  const activate = useActivateProvider();
+  const providers = data?.providers ?? [];
+
+  if (!isLoading && providers.length === 0) return null;
+
+  async function handleActivate(id: string, name: string) {
+    try {
+      await activate.mutateAsync(id);
+      toast.success(`${name} activated`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to activate');
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <Users className="h-4 w-4" />
+          Pending Providers
+        </CardTitle>
+        <CardDescription>
+          {providers.length} provider{providers.length !== 1 ? 's' : ''} awaiting activation
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="p-0">
+        {isLoading ? (
+          <div className="p-6 space-y-3">
+            {[1, 2].map((i) => (
+              <Skeleton key={i} className="h-10 w-full" />
+            ))}
+          </div>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Email</TableHead>
+                <TableHead>Website</TableHead>
+                <TableHead>Applied</TableHead>
+                <TableHead className="text-right">Action</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {providers.map((p) => (
+                <TableRow key={p.id}>
+                  <TableCell className="text-sm font-medium">{p.name}</TableCell>
+                  <TableCell className="text-sm text-muted-foreground">{p.email}</TableCell>
+                  <TableCell className="text-xs">
+                    {p.websiteUrl ? (
+                      <a
+                        href={p.websiteUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-primary hover:underline"
+                      >
+                        {new URL(p.websiteUrl).hostname}
+                      </a>
+                    ) : '-'}
+                  </TableCell>
+                  <TableCell className="text-xs text-muted-foreground">
+                    {new Date(p.createdAt).toLocaleDateString()}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <Button
+                      size="sm"
+                      onClick={() => handleActivate(p.id, p.name)}
+                      disabled={activate.isPending}
+                    >
+                      Activate
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function AdminPage() {
   const [period, setPeriod] = useState<'week' | 'month'>('week');
   const { data: statsData, isLoading: statsLoading } = useAdminStats(period);
@@ -384,6 +469,8 @@ export function AdminPage() {
           loading={statsLoading}
         />
       </div>
+
+      <PendingProviders />
 
       <div className="grid gap-6 lg:grid-cols-2">
         <CallsChart period={period} />

@@ -29,6 +29,8 @@ import {
   useProviderAnalytics,
   useSomaCheckEarnings,
 } from '@/hooks/use-provider-data';
+import { useProvider } from '@/contexts/provider-context';
+import { ProviderPendingBanner } from '@/components/provider-pending-banner';
 
 type Window = 'day' | 'week' | 'month';
 
@@ -67,6 +69,7 @@ function SummaryCard({
 }
 
 export function EarningsPage() {
+  const { provider } = useProvider();
   const [window, setWindow] = useState<Window>('week');
   const { data: revenue, isLoading: revLoading } = useProviderRevenue();
   const { data: analytics, isLoading: chartLoading } = useProviderAnalytics(30);
@@ -77,6 +80,8 @@ export function EarningsPage() {
 
   return (
     <div className="space-y-6">
+      {provider && <ProviderPendingBanner status={provider.status} />}
+
       {/* Summary cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <SummaryCard
