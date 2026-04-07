@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { CreditCard, ExternalLink, Receipt, Loader2 } from 'lucide-react';
+import { CreditCard, ExternalLink, Receipt, Loader2, ChevronDown, ShieldCheck, Link2, Hash, Copy, Check } from 'lucide-react';
 import {
   Card,
   CardContent,
@@ -166,23 +166,64 @@ function BillingPortalCard() {
   );
 }
 
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+
+  function handleCopy() {
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }
+
+  return (
+    <button
+      onClick={handleCopy}
+      className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors"
+      title="Copy to clipboard"
+    >
+      {copied ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
+    </button>
+  );
+}
+
+function HashDisplay({ label, hash }: { label: string; hash: string }) {
+  const short = hash.length > 20 ? `${hash.slice(0, 10)}...${hash.slice(-8)}` : hash;
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-xs text-muted-foreground w-24 shrink-0">{label}</span>
+      <code className="text-xs font-mono bg-muted px-1.5 py-0.5 rounded">{short}</code>
+      <CopyButton text={hash} />
+    </div>
+  );
+}
+
 function ReceiptsTable() {
   const [page, setPage] = useState(0);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const pageSize = 10;
   const { data, isLoading } = useReceipts(page * pageSize, pageSize);
   const receipts = data?.receipts ?? [];
   const total = data?.total ?? 0;
   const totalPages = Math.ceil(total / pageSize);
 
+  function toggleExpand(id: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
   return (
     <Card>
       <CardHeader>
         <CardTitle className="text-base flex items-center gap-2">
           <Receipt className="h-4 w-4" />
-          Receipts
+          Soma Receipts
         </CardTitle>
         <CardDescription>
-          Credit purchase history. Soma-verified receipts are anchored on-chain.
+          Every API call produces a cryptographically signed receipt. Click a row to view verification details.
         </CardDescription>
       </CardHeader>
       <CardContent className="p-0">
@@ -194,53 +235,131 @@ function ReceiptsTable() {
           </div>
         ) : receipts.length === 0 ? (
           <div className="py-10 text-center text-sm text-muted-foreground">
-            No receipts yet. Purchase credits to see your history.
+            No receipts yet. Make API calls to see your Soma receipts.
           </div>
         ) : (
           <>
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-8" />
                   <TableHead>Date</TableHead>
                   <TableHead>Method</TableHead>
-                  <TableHead className="text-right">Credits</TableHead>
-                  <TableHead>Verified</TableHead>
+                  <TableHead className="text-right">Cost</TableHead>
+                  <TableHead>Signature</TableHead>
+                  <TableHead>On-Chain</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {receipts.map((r) => (
-                  <TableRow key={r.id}>
-                    <TableCell className="text-sm">
-                      {new Date(r.createdAt).toLocaleDateString()}
-                    </TableCell>
-                    <TableCell className="text-sm capitalize">
-                      {r.paymentMethod}
-                    </TableCell>
-                    <TableCell className="text-right text-sm font-mono">
-                      {r.creditsPurchased.toLocaleString()} cr
-                    </TableCell>
-                    <TableCell>
-                      {r.somaVerified ? (
-                        <Badge variant="default" className="text-xs">
-                          Soma
-                        </Badge>
-                      ) : r.anchored ? (
-                        <Badge variant="secondary" className="text-xs">
-                          Anchored
-                        </Badge>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">-</span>
+                {receipts.map((r) => {
+                  const isOpen = expanded.has(r.id);
+                  return (
+                    <>
+                      <TableRow
+                        key={r.id}
+                        className="cursor-pointer hover:bg-muted/50"
+                        onClick={() => toggleExpand(r.id)}
+                      >
+                        <TableCell className="w-8 px-2">
+                          <ChevronDown
+                            className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${isOpen ? 'rotate-180' : ''}`}
+                          />
+                        </TableCell>
+                        <TableCell className="text-sm">
+                          {new Date(r.createdAt).toLocaleDateString()}
+                        </TableCell>
+                        <TableCell className="text-sm capitalize">
+                          {r.paymentMethod}
+                        </TableCell>
+                        <TableCell className="text-right text-sm font-mono">
+                          {r.creditsCost.toFixed(1)} cr
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            variant={r.algorithm.includes('ML-DSA') ? 'default' : 'secondary'}
+                            className="text-[10px] font-mono gap-1"
+                          >
+                            <ShieldCheck className="h-3 w-3" />
+                            {r.algorithm}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          {r.easScanUrl ? (
+                            <a
+                              href={r.easScanUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                            >
+                              <Link2 className="h-3 w-3" />
+                              EAS
+                            </a>
+                          ) : r.anchored ? (
+                            <Badge variant="secondary" className="text-[10px]">
+                              Anchored
+                            </Badge>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">Pending</span>
+                          )}
+                        </TableCell>
+                      </TableRow>
+
+                      {/* Expandable detail row */}
+                      {isOpen && (
+                        <TableRow key={`${r.id}-detail`} className="bg-muted/30 hover:bg-muted/30">
+                          <TableCell colSpan={6} className="p-4">
+                            <div className="space-y-3">
+                              {/* Hashes */}
+                              <div className="space-y-1.5">
+                                <HashDisplay label="Receipt ID" hash={r.id} />
+                                <HashDisplay label="Request Hash" hash={r.requestHash} />
+                                <HashDisplay label="Response Hash" hash={r.responseHash} />
+                                {r.easUid && <HashDisplay label="EAS UID" hash={r.easUid} />}
+                              </div>
+
+                              {/* Status badges */}
+                              <div className="flex flex-wrap gap-2">
+                                {r.hasProvenance && (
+                                  <Badge variant="default" className="text-xs gap-1">
+                                    <Hash className="h-3 w-3" />
+                                    Soma Provenance
+                                  </Badge>
+                                )}
+                                {r.anchored && (
+                                  <Badge variant="secondary" className="text-xs gap-1">
+                                    <ShieldCheck className="h-3 w-3" />
+                                    Merkle Anchored
+                                  </Badge>
+                                )}
+                              </div>
+
+                              {/* Links */}
+                              {r.easScanUrl && (
+                                <a
+                                  href={r.easScanUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline"
+                                >
+                                  <ExternalLink className="h-3 w-3" />
+                                  View on EAS Scan (Base)
+                                </a>
+                              )}
+                            </div>
+                          </TableCell>
+                        </TableRow>
                       )}
-                    </TableCell>
-                  </TableRow>
-                ))}
+                    </>
+                  );
+                })}
               </TableBody>
             </Table>
 
             {totalPages > 1 && (
               <div className="flex items-center justify-between border-t border-border px-4 py-3">
                 <p className="text-xs text-muted-foreground">
-                  Page {page + 1} of {totalPages}
+                  Page {page + 1} of {totalPages} ({total} receipts)
                 </p>
                 <div className="flex gap-2">
                   <Button

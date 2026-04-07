@@ -10,7 +10,6 @@ import { CustomerOverviewPage } from './pages/customer-overview';
 import { KeysPage } from './pages/keys';
 import { BillingPage } from './pages/billing';
 import { UsagePage } from './pages/usage';
-import { SignalPage } from './pages/signal';
 import { ReferralPage } from './pages/referral';
 
 // Provider pages
@@ -74,7 +73,6 @@ function DashboardRoutes() {
         <Route path="/keys" element={<KeysPage />} />
         <Route path="/billing" element={<BillingPage />} />
         <Route path="/usage" element={<UsagePage />} />
-        <Route path="/signal" element={<SignalPage />} />
         <Route path="/referral" element={<ReferralPage />} />
 
         {/* Provider routes — guarded */}

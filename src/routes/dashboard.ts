@@ -104,6 +104,14 @@ dashboardRouter.get('/me', requireClerkAuth, async (c) => {
   const vaultLocks = getVaultLocks(keyRow.key);
   const vaultTotalLocked = vaultLocks.filter(l => l.status === 'locked').reduce((s, l) => s + l.creditsLocked, 0);
 
+  // 7-day usage sparkline (daily call counts + credits spent)
+  const { getDb } = await import('../db/connection');
+  const trend = getDb().prepare(`
+    SELECT date(created_at) as day, COUNT(*) as calls, COALESCE(SUM(credits_cost), 0) as credits
+    FROM tasks WHERE requester_key = ? AND created_at >= datetime('now', '-7 days')
+    GROUP BY date(created_at) ORDER BY day
+  `).all(keyRow.key) as { day: string; calls: number; credits: number }[];
+
   return c.json({
     hasKey: true,
     maskedKey: maskApiKey(keyRow.key),
@@ -113,11 +121,7 @@ dashboardRouter.get('/me', requireClerkAuth, async (c) => {
     memberSince: balance.created_at,
     stats,
     cacheStats,
-    signal: {
-      balance: signalBalance,
-      history: signalHistory,
-      vault: { totalLocked: vaultTotalLocked, locks: vaultLocks },
-    },
+    trend,
   });
 });
 

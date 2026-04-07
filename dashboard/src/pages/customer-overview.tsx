@@ -25,6 +25,8 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useDashboardMe, useTaskHistory, useHealthCheck } from '@/hooks/use-dashboard-data';
+import { Sparkline } from '@/components/sparkline';
+import { GaugeRing } from '@/components/gauge-ring';
 
 function StatCard({
   title,
@@ -32,12 +34,14 @@ function StatCard({
   subtitle,
   icon: Icon,
   loading,
+  sparkData,
 }: {
   title: string;
   value: string;
   subtitle?: string;
   icon: React.ComponentType<{ className?: string }>;
   loading?: boolean;
+  sparkData?: number[];
 }) {
   return (
     <Card>
@@ -51,12 +55,17 @@ function StatCard({
         {loading ? (
           <Skeleton className="h-7 w-24" />
         ) : (
-          <>
-            <p className="text-2xl font-bold">{value}</p>
-            {subtitle && (
-              <p className="text-xs text-muted-foreground mt-1">{subtitle}</p>
+          <div className="flex items-end justify-between gap-2">
+            <div>
+              <p className="text-2xl font-bold">{value}</p>
+              {subtitle && (
+                <p className="text-xs text-muted-foreground mt-1">{subtitle}</p>
+              )}
+            </div>
+            {sparkData && sparkData.length >= 2 && (
+              <Sparkline data={sparkData} width={72} height={28} className="opacity-80" />
             )}
-          </>
+          </div>
         )}
       </CardContent>
     </Card>
@@ -150,11 +159,16 @@ function RecentTasks() {
   );
 }
 
-function CacheCard({ loading }: { loading: boolean }) {
+function CacheGauge({ loading }: { loading: boolean }) {
   const { data } = useDashboardMe();
   const cache = data?.cacheStats;
 
   if (!cache && !loading) return null;
+
+  const hitRate = ((cache?.hitRate ?? 0) * 100);
+  const creditsSaved = cache?.creditsSaved ?? 0;
+  const totalHits = cache?.totalHits ?? 0;
+  const totalMisses = cache?.totalMisses ?? 0;
 
   return (
     <Card>
@@ -164,26 +178,38 @@ function CacheCard({ loading }: { loading: boolean }) {
       </CardHeader>
       <CardContent>
         {loading ? (
-          <Skeleton className="h-20 w-full" />
+          <Skeleton className="h-28 w-full" />
         ) : cache ? (
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1">
-              <p className="text-xs text-muted-foreground">Hit Rate</p>
-              <p className="text-lg font-bold">
-                {((cache.hitRate ?? 0) * 100).toFixed(1)}%
-              </p>
+          <div className="flex items-center gap-6">
+            {/* Gauge ring */}
+            <div className="relative shrink-0">
+              <GaugeRing
+                value={hitRate}
+                label={`${hitRate.toFixed(0)}%`}
+                sublabel="hit rate"
+                size={96}
+                strokeWidth={8}
+              />
             </div>
-            <div className="space-y-1">
-              <p className="text-xs text-muted-foreground">Credits Saved</p>
-              <p className="text-lg font-bold">{(cache.creditsSaved ?? 0).toFixed(1)} cr</p>
-            </div>
-            <div className="space-y-1">
-              <p className="text-xs text-muted-foreground">Cache Hits</p>
-              <p className="text-sm">{(cache.totalHits ?? 0).toLocaleString()}</p>
-            </div>
-            <div className="space-y-1">
-              <p className="text-xs text-muted-foreground">Cache Misses</p>
-              <p className="text-sm">{(cache.totalMisses ?? 0).toLocaleString()}</p>
+
+            {/* Stats grid */}
+            <div className="grid grid-cols-2 gap-x-6 gap-y-3 flex-1">
+              <div className="space-y-0.5">
+                <p className="text-xs text-muted-foreground">Credits Saved</p>
+                <p className="text-lg font-bold">{creditsSaved.toFixed(1)} cr</p>
+              </div>
+              <div className="space-y-0.5">
+                <p className="text-xs text-muted-foreground">Cache Hits</p>
+                <p className="text-sm font-medium">{totalHits.toLocaleString()}</p>
+              </div>
+              <div className="space-y-0.5">
+                <p className="text-xs text-muted-foreground">Cache Misses</p>
+                <p className="text-sm font-medium">{totalMisses.toLocaleString()}</p>
+              </div>
+              <div className="space-y-0.5">
+                <p className="text-xs text-muted-foreground">USD Saved</p>
+                <p className="text-sm font-medium">${(creditsSaved * 0.001).toFixed(4)}</p>
+              </div>
             </div>
           </div>
         ) : null}
@@ -198,6 +224,11 @@ export function CustomerOverviewPage() {
   const credits = data?.credits ?? 0;
   const creditsUsed = data?.creditsUsed ?? 0;
   const stats = data?.stats;
+  const trend = data?.trend ?? [];
+
+  // Build sparkline arrays from trend data (pad to 7 days)
+  const callsSpark = trend.map(t => t.calls);
+  const creditsSpark = trend.map(t => t.credits);
 
   return (
     <div className="space-y-6">
@@ -214,7 +245,7 @@ export function CustomerOverviewPage() {
         <HealthIndicator />
       </div>
 
-      {/* Stat cards */}
+      {/* Stat cards with sparklines */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
           title="Credit Balance"
@@ -228,6 +259,7 @@ export function CustomerOverviewPage() {
           value={`${creditsUsed.toFixed(1)} cr`}
           icon={Zap}
           loading={isLoading}
+          sparkData={creditsSpark}
         />
         <StatCard
           title="Total Tasks"
@@ -235,6 +267,7 @@ export function CustomerOverviewPage() {
           subtitle={`${stats?.completedTasks ?? 0} completed, ${stats?.failedTasks ?? 0} failed`}
           icon={Activity}
           loading={isLoading}
+          sparkData={callsSpark}
         />
         <StatCard
           title="Cache Savings"
@@ -245,9 +278,9 @@ export function CustomerOverviewPage() {
         />
       </div>
 
-      {/* Cache + Recent tasks */}
+      {/* Cache gauge + Recent tasks */}
       <div className="grid gap-6 lg:grid-cols-2">
-        <CacheCard loading={isLoading} />
+        <CacheGauge loading={isLoading} />
         <RecentTasks />
       </div>
     </div>

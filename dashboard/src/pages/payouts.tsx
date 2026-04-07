@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Wallet, ExternalLink } from 'lucide-react';
+import { Wallet, ExternalLink, Copy, Check, AlertTriangle } from 'lucide-react';
 import {
   Card,
   CardContent,
@@ -110,15 +110,21 @@ function WithdrawDialog({
               Available: {balance.toFixed(2)} cr. Min 100 cr.
             </p>
           </div>
-          <div className="rounded-lg border border-border p-3 text-sm space-y-1">
-            <p>
-              <span className="text-muted-foreground">Wallet:</span>{' '}
-              <code className="text-xs">{wallet}</code>
-            </p>
-            <p>
-              <span className="text-muted-foreground">Est. USD:</span>{' '}
-              ~${((parseFloat(amount) || 0) * 0.001).toFixed(4)}
-            </p>
+          <div className="rounded-lg border border-border p-3 text-sm space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Wallet</span>
+              <code className="text-xs font-mono">
+                {wallet!.slice(0, 6)}...{wallet!.slice(-4)}
+              </code>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Est. USD</span>
+              <span className="font-medium">~${((parseFloat(amount) || 0) * 0.001).toFixed(4)}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Rate</span>
+              <span className="text-xs">1,000 cr = $1.00 USDC</span>
+            </div>
           </div>
           <Button
             type="submit"
@@ -130,6 +136,40 @@ function WithdrawDialog({
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function WalletDisplay({ address }: { address: string }) {
+  const [copied, setCopied] = useState(false);
+  const short = `${address.slice(0, 6)}...${address.slice(-4)}`;
+
+  function handleCopy() {
+    navigator.clipboard.writeText(address);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }
+
+  return (
+    <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2">
+      <Wallet className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+      <code className="text-xs font-mono">{short}</code>
+      <button
+        onClick={handleCopy}
+        className="text-muted-foreground hover:text-foreground transition-colors"
+        title="Copy full address"
+      >
+        {copied ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
+      </button>
+      <a
+        href={`https://solscan.io/account/${address}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-muted-foreground hover:text-foreground transition-colors"
+        title="View on Solscan"
+      >
+        <ExternalLink className="h-3 w-3" />
+      </a>
+    </div>
   );
 }
 
@@ -162,14 +202,21 @@ function WalletSetup() {
       </CardHeader>
       <CardContent className="space-y-3">
         <Input
-          placeholder="Solana wallet address"
+          placeholder="Solana wallet address (e.g. 7xKXt...)"
           value={address}
           onChange={(e) => setAddress(e.target.value)}
+          className="font-mono text-sm"
         />
+        {address.trim() && !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address.trim()) && (
+          <p className="text-xs text-destructive flex items-center gap-1">
+            <AlertTriangle className="h-3 w-3" />
+            Doesn't look like a valid Solana address
+          </p>
+        )}
         <Button
           size="sm"
           onClick={handleSave}
-          disabled={setWallet.isPending || !address.trim()}
+          disabled={setWallet.isPending || !address.trim() || !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address.trim())}
         >
           {setWallet.isPending ? 'Saving...' : 'Save Wallet'}
         </Button>
@@ -225,11 +272,7 @@ export function PayoutsPage() {
 
               <WithdrawDialog balance={balance} wallet={wallet} />
 
-              {wallet && (
-                <p className="text-xs text-muted-foreground">
-                  Payouts to: <code>{wallet.slice(0, 8)}...{wallet.slice(-4)}</code>
-                </p>
-              )}
+              {wallet && <WalletDisplay address={wallet} />}
             </>
           )}
         </CardContent>

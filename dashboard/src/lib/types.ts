@@ -9,7 +9,13 @@ export interface DashboardMe {
   memberSince?: string;
   stats?: KeyStats;
   cacheStats?: CacheStats;
-  signal?: SignalData;
+  trend?: TrendPoint[];
+}
+
+export interface TrendPoint {
+  day: string;
+  calls: number;
+  credits: number;
 }
 
 export interface KeyStats {
@@ -61,11 +67,17 @@ export interface UsageBreakdown {
 
 export interface SomaReceipt {
   id: string;
+  requestId: string;
   paymentMethod: string;
-  creditsPurchased: number;
-  createdAt: string;
+  creditsCost: number;
+  requestHash: string;
+  responseHash: string;
+  hasProvenance: boolean;
+  easUid: string | null;
+  easScanUrl: string | null;
+  algorithm: string;
   anchored: boolean;
-  somaVerified: boolean;
+  createdAt: string;
 }
 
 // --- Admin types ---

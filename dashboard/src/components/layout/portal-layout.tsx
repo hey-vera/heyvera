@@ -11,7 +11,6 @@ import {
   Menu,
   CreditCard,
   BarChart3,
-  Flame,
   Gift,
   ShieldCheck,
   LifeBuoy,
@@ -38,9 +37,6 @@ const CUSTOMER_NAV: NavItem[] = [
   { to: '/referral', icon: Gift, label: 'Referrals' },
 ];
 
-const EXTRAS_NAV: NavItem[] = [
-  { to: '/signal', icon: Flame, label: 'Founding Protocol' },
-];
 
 const PROVIDER_NAV: NavItem[] = [
   { to: '/endpoints', icon: Globe, label: 'Endpoints' },
@@ -56,7 +52,7 @@ const COMMON_NAV: NavItem[] = [
   { to: '/settings', icon: Settings, label: 'Settings' },
 ];
 
-const ALL_NAV = [...CUSTOMER_NAV, ...EXTRAS_NAV, ...PROVIDER_NAV, ...ADMIN_NAV, ...COMMON_NAV];
+const ALL_NAV = [...CUSTOMER_NAV, ...PROVIDER_NAV, ...ADMIN_NAV, ...COMMON_NAV];
 
 const TIER_LABELS: Record<string, string> = {
   founding: 'T1 Active',
@@ -131,14 +127,6 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
       {/* Nav */}
       <nav className="flex-1 space-y-4 px-3 py-4">
         <NavSection items={CUSTOMER_NAV} location={location} onNavigate={onNavigate} />
-
-        <Separator className="mx-0" />
-        <NavSection
-          items={EXTRAS_NAV}
-          label="Extras"
-          location={location}
-          onNavigate={onNavigate}
-        />
 
         {(provider || isAdmin) && (
           <>
