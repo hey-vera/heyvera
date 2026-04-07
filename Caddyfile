@@ -23,6 +23,15 @@ claw-net.org, www.claw-net.org {
 	# Static site — clean URLs
 	root * /var/www/claw-net
 
+	# Dashboard SPA — must route BEFORE try_files rewrites
+	# (try_files would rewrite /dashboard to dashboard.html if the old file exists)
+	route /dashboard* {
+		reverse_proxy localhost:3402
+	}
+	route /portal* {
+		reverse_proxy localhost:3402
+	}
+
 	# Clean URL rewrite: /endpoints → endpoints.html
 	# Order: exact path → path.html → path/index.html → 404
 	try_files {path} {path}.html {path}/index.html
@@ -52,12 +61,6 @@ claw-net.org, www.claw-net.org {
 		reverse_proxy localhost:3402
 	}
 	handle /health/* {
-		reverse_proxy localhost:3402
-	}
-	handle /dashboard* {
-		reverse_proxy localhost:3402
-	}
-	handle /portal* {
 		reverse_proxy localhost:3402
 	}
 	handle /llms.txt {

@@ -14,6 +14,8 @@ git pull origin main
 
 echo "[site] Syncing site/ → $WWW_DIR"
 mkdir -p "$WWW_DIR"
+# Remove stale files that were deleted from repo but still exist on VPS
+rm -f "$WWW_DIR/dashboard.html" "$WWW_DIR/provider-dashboard.html" 2>/dev/null || true
 cp -r site/. "$WWW_DIR/"
 
 echo "[caddy] Updating Caddyfile..."
