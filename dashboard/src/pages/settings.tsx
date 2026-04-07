@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { CheckCircle2, Circle, ExternalLink } from 'lucide-react';
+import { CheckCircle2, Circle, ExternalLink, Shield, Moon, Sun } from 'lucide-react';
+import { useUser } from '@clerk/clerk-react';
 import {
   Card,
   CardContent,
@@ -15,11 +16,11 @@ import { Separator } from '@/components/ui/separator';
 import { toast } from 'sonner';
 import { useProvider } from '@/contexts/provider-context';
 import { useSetPayoutWallet } from '@/hooks/use-provider-data';
+import { useDashboardMe } from '@/hooks/use-dashboard-data';
 
-const TIER_INFO: Record<string, { label: string; color: string; benefits: string[] }> = {
+const TIER_INFO: Record<string, { label: string; benefits: string[] }> = {
   founding: {
     label: 'T1 Active',
-    color: 'default',
     benefits: [
       '100% of live call revenue (founding era)',
       '90% of cache revenue',
@@ -29,7 +30,6 @@ const TIER_INFO: Record<string, { label: string; color: string; benefits: string
   },
   verified: {
     label: 'T2 Verified',
-    color: 'default',
     benefits: [
       'Everything in T1',
       'Verified badge on marketplace',
@@ -39,7 +39,6 @@ const TIER_INFO: Record<string, { label: string; color: string; benefits: string
   },
   champion: {
     label: 'T3 Champion',
-    color: 'default',
     benefits: [
       'Everything in T2',
       '95% of cache revenue',
@@ -49,15 +48,194 @@ const TIER_INFO: Record<string, { label: string; color: string; benefits: string
   },
 };
 
-export function SettingsPage() {
+function ThemeToggle() {
+  const [dark, setDark] = useState(
+    document.documentElement.classList.contains('dark'),
+  );
+
+  function toggle() {
+    const next = !dark;
+    document.documentElement.classList.toggle('dark', next);
+    localStorage.setItem('theme', next ? 'dark' : 'light');
+    setDark(next);
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Appearance</CardTitle>
+        <CardDescription>Toggle light and dark mode.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Button variant="outline" size="sm" onClick={toggle} className="gap-2">
+          {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+          {dark ? 'Light Mode' : 'Dark Mode'}
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+function AccountCard() {
+  const { user } = useUser();
+  const { data } = useDashboardMe();
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Account</CardTitle>
+        <CardDescription>Your ClawNet account details.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-1">
+            <Label className="text-muted-foreground">Name</Label>
+            <p className="text-sm font-medium">
+              {user?.fullName ?? user?.firstName ?? '-'}
+            </p>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-muted-foreground">Email</Label>
+            <p className="text-sm">
+              {user?.emailAddresses?.[0]?.emailAddress ?? '-'}
+            </p>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-muted-foreground">Member Since</Label>
+            <p className="text-sm">
+              {data?.memberSince
+                ? new Date(data.memberSince).toLocaleDateString()
+                : '-'}
+            </p>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-muted-foreground">Credit Balance</Label>
+            <p className="text-sm font-medium">
+              {(data?.credits ?? 0).toLocaleString()} cr
+            </p>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function SecurityCard() {
+  const { user } = useUser();
+  const hasMfa = (user?.twoFactorEnabled) ?? false;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <Shield className="h-4 w-4" />
+          Security
+        </CardTitle>
+        <CardDescription>
+          Multi-factor authentication and session settings.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="space-y-0.5">
+            <p className="text-sm font-medium">Two-Factor Authentication</p>
+            <p className="text-xs text-muted-foreground">
+              {hasMfa
+                ? 'Enabled — your account is protected with 2FA.'
+                : 'Add an extra layer of security to your account.'}
+            </p>
+          </div>
+          <Badge variant={hasMfa ? 'default' : 'secondary'}>
+            {hasMfa ? 'Enabled' : 'Disabled'}
+          </Badge>
+        </div>
+
+        {!hasMfa && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              // Clerk's UserProfile component handles 2FA setup
+              // Open Clerk user profile modal
+              const btn = document.querySelector<HTMLButtonElement>(
+                '[data-clerk-component="UserButton"] button',
+              );
+              btn?.click();
+              toast.info('Open "Security" in the profile menu to enable 2FA.');
+            }}
+          >
+            Set Up 2FA
+          </Button>
+        )}
+
+        <Separator />
+
+        <div className="space-y-0.5">
+          <p className="text-sm font-medium">Session Timeout</p>
+          <p className="text-xs text-muted-foreground">
+            Sessions automatically expire after 30 minutes of inactivity.
+            A warning appears at 25 minutes.
+          </p>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ProviderProfileCard() {
+  const { provider } = useProvider();
+  if (!provider) return null;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Provider Profile</CardTitle>
+        <CardDescription>
+          Your provider account information.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-1">
+            <Label className="text-muted-foreground">Provider Name</Label>
+            <p className="text-sm font-medium">{provider.name}</p>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-muted-foreground">Slug</Label>
+            <p className="text-sm font-mono">{provider.slug}</p>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-muted-foreground">Email</Label>
+            <p className="text-sm">{provider.email}</p>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-muted-foreground">Provider ID</Label>
+            <p className="text-sm font-mono text-xs">{provider.id}</p>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-muted-foreground">Status</Label>
+            <Badge variant="secondary">{provider.status}</Badge>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-muted-foreground">Joined</Label>
+            <p className="text-sm">
+              {new Date(provider.createdAt).toLocaleDateString()}
+            </p>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function PayoutWalletCard() {
   const { provider } = useProvider();
   const setWallet = useSetPayoutWallet();
   const [walletAddress, setWalletAddress] = useState(
     provider?.solanaWallet ?? '',
   );
 
-  const tier = provider?.tier ?? 'founding';
-  const tierInfo = TIER_INFO[tier] ?? TIER_INFO.founding;
+  if (!provider) return null;
 
   async function handleSaveWallet() {
     if (!walletAddress.trim()) return;
@@ -72,169 +250,164 @@ export function SettingsPage() {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Profile */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Profile</CardTitle>
-          <CardDescription>
-            Your provider account information.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-1">
-              <Label className="text-muted-foreground">Provider Name</Label>
-              <p className="text-sm font-medium">{provider?.name ?? '-'}</p>
-            </div>
-            <div className="space-y-1">
-              <Label className="text-muted-foreground">Slug</Label>
-              <p className="text-sm font-mono">{provider?.slug ?? '-'}</p>
-            </div>
-            <div className="space-y-1">
-              <Label className="text-muted-foreground">Email</Label>
-              <p className="text-sm">{provider?.email ?? '-'}</p>
-            </div>
-            <div className="space-y-1">
-              <Label className="text-muted-foreground">Provider ID</Label>
-              <p className="text-sm font-mono text-xs">
-                {provider?.id ?? '-'}
-              </p>
-            </div>
-            <div className="space-y-1">
-              <Label className="text-muted-foreground">Status</Label>
-              <Badge variant="secondary">{provider?.status ?? '-'}</Badge>
-            </div>
-            <div className="space-y-1">
-              <Label className="text-muted-foreground">Joined</Label>
-              <p className="text-sm">
-                {provider?.createdAt
-                  ? new Date(provider.createdAt).toLocaleDateString()
-                  : '-'}
-              </p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Payout Wallet */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Payout Wallet</CardTitle>
-          <CardDescription>
-            Solana wallet address for USDC payouts.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="flex gap-3">
-            <Input
-              placeholder="Solana wallet address"
-              value={walletAddress}
-              onChange={(e) => setWalletAddress(e.target.value)}
-              className="flex-1"
-            />
-            <Button
-              onClick={handleSaveWallet}
-              disabled={
-                setWallet.isPending ||
-                !walletAddress.trim() ||
-                walletAddress === provider?.solanaWallet
-              }
-            >
-              {setWallet.isPending ? 'Saving...' : 'Save'}
-            </Button>
-          </div>
-          {provider?.solanaWallet && (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              {provider.payoutWalletVerified ? (
-                <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
-              ) : (
-                <Circle className="h-3.5 w-3.5" />
-              )}
-              <span>
-                {provider.payoutWalletVerified ? 'Verified' : 'Pending verification'}
-              </span>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Soma Heart */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Soma Heart</CardTitle>
-          <CardDescription>
-            Cryptographic provenance signing for your API responses.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="flex items-center gap-2">
-            {provider?.somaPublicKey ? (
-              <CheckCircle2 className="h-4 w-4 text-green-500" />
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Payout Wallet</CardTitle>
+        <CardDescription>
+          Solana wallet address for USDC payouts.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="flex gap-3">
+          <Input
+            placeholder="Solana wallet address"
+            value={walletAddress}
+            onChange={(e) => setWalletAddress(e.target.value)}
+            className="flex-1"
+          />
+          <Button
+            onClick={handleSaveWallet}
+            disabled={
+              setWallet.isPending ||
+              !walletAddress.trim() ||
+              walletAddress === provider.solanaWallet
+            }
+          >
+            {setWallet.isPending ? 'Saving...' : 'Save'}
+          </Button>
+        </div>
+        {provider.solanaWallet && (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            {provider.payoutWalletVerified ? (
+              <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
             ) : (
-              <Circle className="h-4 w-4 text-muted-foreground" />
+              <Circle className="h-3.5 w-3.5" />
             )}
-            <span className="text-sm">
-              {provider?.somaPublicKey
-                ? 'Soma Heart configured'
-                : 'Not configured'}
+            <span>
+              {provider.payoutWalletVerified ? 'Verified' : 'Pending verification'}
             </span>
           </div>
-          {provider?.somaPublicKey && (
-            <div className="space-y-1">
-              <Label className="text-muted-foreground text-xs">
-                Public Key
-              </Label>
-              <code className="block text-xs font-mono bg-muted rounded px-2 py-1 break-all">
-                {provider.somaPublicKey}
-              </code>
-            </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function SomaHeartCard() {
+  const { provider } = useProvider();
+  if (!provider) return null;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Soma Heart</CardTitle>
+        <CardDescription>
+          Cryptographic provenance signing for your API responses.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="flex items-center gap-2">
+          {provider.somaPublicKey ? (
+            <CheckCircle2 className="h-4 w-4 text-green-500" />
+          ) : (
+            <Circle className="h-4 w-4 text-muted-foreground" />
           )}
-          {provider?.somaDiscoveryUrl && (
-            <div className="space-y-1">
-              <Label className="text-muted-foreground text-xs">
-                Discovery URL
-              </Label>
-              <a
-                href={provider.somaDiscoveryUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
-              >
-                {provider.somaDiscoveryUrl}
-                <ExternalLink className="h-3 w-3" />
-              </a>
+          <span className="text-sm">
+            {provider.somaPublicKey ? 'Soma Heart configured' : 'Not configured'}
+          </span>
+        </div>
+        {provider.somaPublicKey && (
+          <div className="space-y-1">
+            <Label className="text-muted-foreground text-xs">Public Key</Label>
+            <code className="block text-xs font-mono bg-muted rounded px-2 py-1 break-all">
+              {provider.somaPublicKey}
+            </code>
+          </div>
+        )}
+        {provider.somaDiscoveryUrl && (
+          <div className="space-y-1">
+            <Label className="text-muted-foreground text-xs">Discovery URL</Label>
+            <a
+              href={provider.somaDiscoveryUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
+            >
+              {provider.somaDiscoveryUrl}
+              <ExternalLink className="h-3 w-3" />
+            </a>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ProviderTierCard() {
+  const { provider } = useProvider();
+  if (!provider) return null;
+
+  const tier = provider.tier ?? 'founding';
+  const tierInfo = TIER_INFO[tier] ?? TIER_INFO.founding;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Provider Tier</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex items-center gap-3">
+          <Badge>{tierInfo.label}</Badge>
+          <span className="text-sm text-muted-foreground">
+            Soma Check Tier: T{provider.somaCheckTier ?? 1}
+          </span>
+        </div>
+
+        <Separator />
+
+        <div className="space-y-2">
+          <p className="text-sm font-medium">Benefits</p>
+          {tierInfo.benefits.map((b) => (
+            <div
+              key={b}
+              className="flex items-center gap-2 text-sm text-muted-foreground"
+            >
+              <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
+              {b}
             </div>
-          )}
-        </CardContent>
-      </Card>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
-      {/* Tier */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Provider Tier</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center gap-3">
-            <Badge>{tierInfo.label}</Badge>
-            <span className="text-sm text-muted-foreground">
-              Soma Check Tier: T{provider?.somaCheckTier ?? 1}
-            </span>
-          </div>
+export function SettingsPage() {
+  const { provider } = useProvider();
 
-          <Separator />
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-lg font-semibold">Settings</h2>
+        <p className="text-sm text-muted-foreground">
+          Account, security, and preferences.
+        </p>
+      </div>
 
-          <div className="space-y-2">
-            <p className="text-sm font-medium">Benefits</p>
-            {tierInfo.benefits.map((b) => (
-              <div key={b} className="flex items-center gap-2 text-sm text-muted-foreground">
-                <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
-                {b}
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+      {/* Customer settings — always visible */}
+      <AccountCard />
+      <SecurityCard />
+      <ThemeToggle />
+
+      {/* Provider settings — only rendered when provider exists (hooks require provider ID) */}
+      {provider && (
+        <>
+          <ProviderProfileCard />
+          <PayoutWalletCard />
+          <SomaHeartCard />
+          <ProviderTierCard />
+        </>
+      )}
     </div>
   );
 }

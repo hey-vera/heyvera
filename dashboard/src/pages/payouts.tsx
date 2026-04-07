@@ -82,11 +82,9 @@ function WithdrawDialog({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button disabled={!canWithdraw} size="sm">
-          <Wallet className="mr-1.5 h-3.5 w-3.5" />
-          Withdraw
-        </Button>
+      <DialogTrigger render={<Button disabled={!canWithdraw} size="sm" />}>
+        <Wallet className="mr-1.5 h-3.5 w-3.5" />
+        Withdraw
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>

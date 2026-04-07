@@ -1,6 +1,6 @@
 import { type ReactNode, useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { UserButton } from '@clerk/clerk-react';
+import { UserButton, useUser } from '@clerk/clerk-react';
 import {
   LayoutDashboard,
   Globe,
@@ -9,6 +9,8 @@ import {
   Key,
   Settings,
   Menu,
+  CreditCard,
+  BarChart3,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -17,14 +19,30 @@ import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { Separator } from '@/components/ui/separator';
 import { useProvider } from '@/contexts/provider-context';
 
-const NAV_ITEMS = [
-  { to: '/', icon: LayoutDashboard, label: 'Overview' },
+interface NavItem {
+  to: string;
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+}
+
+const CUSTOMER_NAV: NavItem[] = [
+  { to: '/', icon: LayoutDashboard, label: 'Home' },
+  { to: '/keys', icon: Key, label: 'API Keys' },
+  { to: '/billing', icon: CreditCard, label: 'Billing' },
+  { to: '/usage', icon: BarChart3, label: 'Usage' },
+];
+
+const PROVIDER_NAV: NavItem[] = [
   { to: '/endpoints', icon: Globe, label: 'Endpoints' },
   { to: '/earnings', icon: TrendingUp, label: 'Earnings' },
   { to: '/payouts', icon: Wallet, label: 'Payouts' },
-  { to: '/keys', icon: Key, label: 'API Keys' },
+];
+
+const COMMON_NAV: NavItem[] = [
   { to: '/settings', icon: Settings, label: 'Settings' },
-] as const;
+];
+
+const ALL_NAV = [...CUSTOMER_NAV, ...PROVIDER_NAV, ...COMMON_NAV];
 
 const TIER_LABELS: Record<string, string> = {
   founding: 'T1 Active',
@@ -32,9 +50,57 @@ const TIER_LABELS: Record<string, string> = {
   champion: 'T3 Champion',
 };
 
+function NavSection({
+  items,
+  label,
+  location,
+  onNavigate,
+}: {
+  items: NavItem[];
+  label?: string;
+  location: ReturnType<typeof useLocation>;
+  onNavigate?: () => void;
+}) {
+  return (
+    <div className="space-y-1">
+      {label && (
+        <p className="px-3 pb-1 text-xs font-medium uppercase tracking-wider text-muted-foreground/60">
+          {label}
+        </p>
+      )}
+      {items.map(({ to, icon: Icon, label: navLabel }) => {
+        const active =
+          to === '/'
+            ? location.pathname === '/'
+            : location.pathname.startsWith(to);
+        return (
+          <NavLink
+            key={to}
+            to={to}
+            onClick={onNavigate}
+            className={cn(
+              'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+              active
+                ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+                : 'text-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground',
+            )}
+          >
+            <Icon className="h-4 w-4" />
+            {navLabel}
+          </NavLink>
+        );
+      })}
+    </div>
+  );
+}
+
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const { provider } = useProvider();
+  const { user } = useUser();
   const location = useLocation();
+
+  const displayName =
+    provider?.name ?? user?.firstName ?? user?.emailAddresses?.[0]?.emailAddress ?? 'User';
 
   return (
     <div className="flex h-full flex-col">
@@ -49,42 +115,36 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
       <Separator />
 
       {/* Nav */}
-      <nav className="flex-1 space-y-1 px-3 py-4">
-        {NAV_ITEMS.map(({ to, icon: Icon, label }) => {
-          const active =
-            to === '/'
-              ? location.pathname === '/'
-              : location.pathname.startsWith(to);
-          return (
-            <NavLink
-              key={to}
-              to={to}
-              onClick={onNavigate}
-              className={cn(
-                'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
-                active
-                  ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-                  : 'text-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground',
-              )}
-            >
-              <Icon className="h-4 w-4" />
-              {label}
-            </NavLink>
-          );
-        })}
+      <nav className="flex-1 space-y-4 px-3 py-4">
+        <NavSection items={CUSTOMER_NAV} location={location} onNavigate={onNavigate} />
+
+        {provider && (
+          <>
+            <Separator className="mx-0" />
+            <NavSection
+              items={PROVIDER_NAV}
+              label="Provider"
+              location={location}
+              onNavigate={onNavigate}
+            />
+          </>
+        )}
+
+        <Separator className="mx-0" />
+        <NavSection items={COMMON_NAV} location={location} onNavigate={onNavigate} />
       </nav>
 
       <Separator />
 
-      {/* Provider info + Clerk user button */}
+      {/* User info */}
       <div className="px-4 py-4 space-y-3">
         <div className="space-y-1">
-          <p className="text-sm font-medium truncate">
-            {provider?.name ?? 'Provider'}
-          </p>
-          <Badge variant="secondary" className="text-xs">
-            {TIER_LABELS[provider?.tier ?? 'founding'] ?? 'T1 Active'}
-          </Badge>
+          <p className="text-sm font-medium truncate">{displayName}</p>
+          {provider && (
+            <Badge variant="secondary" className="text-xs">
+              {TIER_LABELS[provider.tier] ?? 'T1 Active'}
+            </Badge>
+          )}
         </div>
         <UserButton
           appearance={{
@@ -98,13 +158,13 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
 
 function PageTitle() {
   const location = useLocation();
-  const current = NAV_ITEMS.find((item) =>
+  const current = ALL_NAV.find((item) =>
     item.to === '/'
       ? location.pathname === '/'
       : location.pathname.startsWith(item.to),
   );
   return (
-    <h1 className="text-lg font-semibold">{current?.label ?? 'Portal'}</h1>
+    <h1 className="text-lg font-semibold">{current?.label ?? 'Dashboard'}</h1>
   );
 }
 
@@ -124,10 +184,8 @@ export function PortalLayout({ children }: { children: ReactNode }) {
         <header className="flex h-14 items-center gap-4 border-b border-border px-4 md:px-6">
           {/* Mobile menu */}
           <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-            <SheetTrigger asChild>
-              <Button variant="ghost" size="icon" className="md:hidden">
-                <Menu className="h-5 w-5" />
-              </Button>
+            <SheetTrigger render={<Button variant="ghost" size="icon" className="md:hidden" />}>
+              <Menu className="h-5 w-5" />
             </SheetTrigger>
             <SheetContent side="left" className="w-60 p-0">
               <SidebarContent onNavigate={() => setSheetOpen(false)} />

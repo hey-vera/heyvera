@@ -7,11 +7,9 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { useProvider } from '@/contexts/provider-context';
+
 
 export function ApiKeysPage() {
-  const { provider } = useProvider();
-
   return (
     <div className="space-y-6">
       <div>

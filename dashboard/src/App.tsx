@@ -2,38 +2,39 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { SignedIn, SignedOut, SignIn } from '@clerk/clerk-react';
 import { useProvider } from './contexts/provider-context';
 import { PortalLayout } from './components/layout/portal-layout';
-import { OverviewPage } from './pages/overview';
+import { SessionTimeout } from './components/session-timeout';
+
+// Customer pages
+import { CustomerOverviewPage } from './pages/customer-overview';
+import { KeysPage } from './pages/keys';
+import { BillingPage } from './pages/billing';
+import { UsagePage } from './pages/usage';
+
+// Provider pages
 import { EndpointsPage } from './pages/endpoints';
 import { EarningsPage } from './pages/earnings';
 import { PayoutsPage } from './pages/payouts';
-import { ApiKeysPage } from './pages/api-keys';
+
+// Shared
 import { SettingsPage } from './pages/settings';
 
-function PortalRoutes() {
-  const { provider, isLoading, error } = useProvider();
+/** Guard that redirects non-providers to home */
+function ProviderGuard({ children }: { children: React.ReactNode }) {
+  const { provider, isLoading } = useProvider();
+  if (isLoading) return null;
+  if (!provider) return <Navigate to="/" replace />;
+  return <>{children}</>;
+}
+
+function DashboardRoutes() {
+  const { isLoading } = useProvider();
 
   if (isLoading) {
     return (
       <div className="flex h-screen items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-3">
           <div className="h-8 w-8 animate-spin rounded-full border-2 border-muted-foreground border-t-primary" />
-          <p className="text-sm text-muted-foreground">Loading portal...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!provider) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-background p-4">
-        <div className="max-w-md text-center space-y-4">
-          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-primary text-primary-foreground font-bold text-lg">
-            C
-          </div>
-          <h1 className="text-xl font-semibold">No Provider Account</h1>
-          <p className="text-sm text-muted-foreground">
-            {error ?? 'Your account is not linked to a provider. Contact the ClawNet team to get set up.'}
-          </p>
+          <p className="text-sm text-muted-foreground">Loading dashboard...</p>
         </div>
       </div>
     );
@@ -42,12 +43,20 @@ function PortalRoutes() {
   return (
     <PortalLayout>
       <Routes>
-        <Route path="/" element={<OverviewPage />} />
-        <Route path="/endpoints" element={<EndpointsPage />} />
-        <Route path="/earnings" element={<EarningsPage />} />
-        <Route path="/payouts" element={<PayoutsPage />} />
-        <Route path="/keys" element={<ApiKeysPage />} />
+        {/* Customer routes — always available */}
+        <Route path="/" element={<CustomerOverviewPage />} />
+        <Route path="/keys" element={<KeysPage />} />
+        <Route path="/billing" element={<BillingPage />} />
+        <Route path="/usage" element={<UsagePage />} />
+
+        {/* Provider routes — guarded */}
+        <Route path="/endpoints" element={<ProviderGuard><EndpointsPage /></ProviderGuard>} />
+        <Route path="/earnings" element={<ProviderGuard><EarningsPage /></ProviderGuard>} />
+        <Route path="/payouts" element={<ProviderGuard><PayoutsPage /></ProviderGuard>} />
+
+        {/* Shared */}
         <Route path="/settings" element={<SettingsPage />} />
+
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </PortalLayout>
@@ -63,7 +72,8 @@ export default function App() {
         </div>
       </SignedOut>
       <SignedIn>
-        <PortalRoutes />
+        <SessionTimeout />
+        <DashboardRoutes />
       </SignedIn>
     </>
   );

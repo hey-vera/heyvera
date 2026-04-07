@@ -1,3 +1,75 @@
+// --- Customer types (from /v1/dashboard/me) ---
+
+export interface DashboardMe {
+  hasKey: boolean;
+  maskedKey?: string;
+  email?: string;
+  credits?: number;
+  creditsUsed?: number;
+  memberSince?: string;
+  stats?: KeyStats;
+  cacheStats?: CacheStats;
+  signal?: SignalData;
+}
+
+export interface KeyStats {
+  totalTasks: number;
+  completedTasks: number;
+  failedTasks: number;
+  creditsSpent: number;
+  skillPurchases: number;
+  skillCreditsSpent: number;
+}
+
+export interface CacheStats {
+  totalHits: number;
+  totalMisses: number;
+  hitRate: number;
+  creditsSaved: number;
+  savingsUsd: number;
+}
+
+export interface SignalData {
+  balance: number;
+  history: Array<{ action: string; amount: number; createdAt: string }>;
+  vault: { totalLocked: number; locks: VaultLock[] };
+}
+
+export interface VaultLock {
+  id: string;
+  creditsLocked: number;
+  lockDays: number;
+  multiplier: number;
+  status: string;
+  createdAt: string;
+  unlocksAt: string;
+}
+
+export interface TaskRow {
+  id: string;
+  skill_name?: string;
+  status: string;
+  credits_cost: number;
+  duration_ms?: number;
+  created_at: string;
+}
+
+export interface UsageBreakdown {
+  tasks: { total: number; completed: number; failed: number; creditsSpent: number };
+  skills: { purchases: number; creditsSpent: number };
+}
+
+export interface SomaReceipt {
+  id: string;
+  paymentMethod: string;
+  creditsPurchased: number;
+  createdAt: string;
+  anchored: boolean;
+  somaVerified: boolean;
+}
+
+// --- Provider types ---
+
 export interface Provider {
   id: string;
   name: string;

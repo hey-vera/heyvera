@@ -54,6 +54,9 @@ claw-net.org, www.claw-net.org {
 	handle /health/* {
 		reverse_proxy localhost:3402
 	}
+	handle /dashboard* {
+		reverse_proxy localhost:3402
+	}
 	handle /portal* {
 		reverse_proxy localhost:3402
 	}

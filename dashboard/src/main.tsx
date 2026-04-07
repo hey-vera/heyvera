@@ -18,9 +18,9 @@ const queryClient = new QueryClient({
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <ClerkProvider publishableKey={CLERK_KEY} afterSignOutUrl="/portal/">
+    <ClerkProvider publishableKey={CLERK_KEY} afterSignOutUrl="/dashboard/">
       <QueryClientProvider client={queryClient}>
-        <BrowserRouter basename="/portal">
+        <BrowserRouter basename="/dashboard">
           <ProviderProvider>
             <App />
           </ProviderProvider>

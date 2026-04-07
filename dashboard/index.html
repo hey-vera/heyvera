@@ -4,7 +4,14 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ClawNet Portal</title>
+    <title>ClawNet Dashboard</title>
+    <script>
+      // Apply theme before React loads to prevent flash
+      document.documentElement.classList.toggle(
+        'dark',
+        localStorage.getItem('theme') !== 'light'
+      );
+    </script>
   </head>
   <body class="dark">
     <div id="root"></div>

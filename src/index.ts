@@ -198,7 +198,7 @@ app.use('*', (c, next) => {
   c.header('Referrer-Policy', 'strict-origin-when-cross-origin');
   c.header('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
   // Portal serves a full SPA — needs permissive CSP. API routes stay locked down.
-  if (c.req.path.startsWith('/portal')) {
+  if (c.req.path.startsWith('/dashboard') || c.req.path.startsWith('/portal')) {
     c.header('Content-Security-Policy', "default-src 'self'; script-src 'self' https://*.clerk.accounts.dev https://challenges.cloudflare.com 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: https://img.clerk.com; connect-src 'self' https://*.clerk.accounts.dev https://api.claw-net.org; frame-src https://*.clerk.accounts.dev https://challenges.cloudflare.com");
   } else {
     c.header('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'");
@@ -450,29 +450,31 @@ app.get('/v1/indexed', (c) => {
   });
 });
 
-// ─── Provider Portal — static React dashboard at /portal/* ────────────────────
+// ─── React Dashboard — static SPA at /dashboard/* ─────────────────────────────
 import path from 'path';
 import fs from 'fs';
 
-// Resolve portal root — Docker workdir is /app, VPS host is /home/guardian/claw-net
-const portalCandidates = [
+const dashCandidates = [
   path.resolve(process.cwd(), 'dashboard', 'dist'),
   '/app/dashboard/dist',
   '/home/guardian/claw-net/dashboard/dist',
 ];
-const portalRoot = portalCandidates.find((p) => { try { return fs.statSync(path.join(p, 'index.html')).isFile(); } catch { return false; } }) ?? portalCandidates[0];
+const dashRoot = dashCandidates.find((p) => { try { return fs.statSync(path.join(p, 'index.html')).isFile(); } catch { return false; } }) ?? dashCandidates[0];
 const MIME: Record<string, string> = {
   '.html': 'text/html', '.js': 'application/javascript', '.css': 'text/css',
   '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.png': 'image/png',
   '.json': 'application/json', '.ico': 'image/x-icon',
 };
 
-app.get('/portal', (c) => c.redirect('/portal/'));
-app.get('/portal/*', (c) => {
-  const urlPath = c.req.path.replace(/^\/portal\/?/, '') || 'index.html';
-  const filePath = path.join(portalRoot, urlPath);
-  // Prevent directory traversal
-  if (!filePath.startsWith(portalRoot)) return c.json({ error: 'Forbidden' }, 403);
+// Redirect old /portal URLs
+app.get('/portal', (c) => c.redirect('/dashboard/', 301));
+app.get('/portal/*', (c) => c.redirect(c.req.path.replace('/portal', '/dashboard'), 301));
+
+app.get('/dashboard', (c) => c.redirect('/dashboard/'));
+app.get('/dashboard/*', (c) => {
+  const urlPath = c.req.path.replace(/^\/dashboard\/?/, '') || 'index.html';
+  const filePath = path.join(dashRoot, urlPath);
+  if (!filePath.startsWith(dashRoot)) return c.json({ error: 'Forbidden' }, 403);
   try {
     if (fs.statSync(filePath).isFile()) {
       const ext = path.extname(filePath);
@@ -480,12 +482,11 @@ app.get('/portal/*', (c) => {
       if (ext !== '.html') c.header('Cache-Control', 'public, max-age=31536000, immutable');
       return c.body(fs.readFileSync(filePath));
     }
-  } catch { /* file doesn't exist — SPA fallback below */ }
-  // SPA fallback: serve index.html for client-side routes
+  } catch { /* SPA fallback */ }
   try {
-    return c.html(fs.readFileSync(path.join(portalRoot, 'index.html'), 'utf-8'));
+    return c.html(fs.readFileSync(path.join(dashRoot, 'index.html'), 'utf-8'));
   } catch {
-    return c.json({ error: 'Portal not built. Run: cd dashboard && npx vite build', code: 'NOT_FOUND' }, 404);
+    return c.json({ error: 'Dashboard not built', code: 'NOT_FOUND' }, 404);
   }
 });
 

@@ -1,12 +1,6 @@
 import { useState } from 'react';
-import { Globe, Plus, Trash2, RefreshCw, Pencil } from 'lucide-react';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
+import { Globe, Plus, Trash2, RefreshCw } from 'lucide-react';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -97,11 +91,9 @@ function AddEndpointDialog() {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button size="sm">
-          <Plus className="mr-1.5 h-3.5 w-3.5" />
-          Add Endpoint
-        </Button>
+      <DialogTrigger render={<Button size="sm" />}>
+        <Plus className="mr-1.5 h-3.5 w-3.5" />
+        Add Endpoint
       </DialogTrigger>
       <DialogContent className="max-w-lg">
         <DialogHeader>
@@ -124,7 +116,7 @@ function AddEndpointDialog() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="ep-category">Category</Label>
-              <Select value={form.category} onValueChange={(v) => updateField('category', v)}>
+              <Select value={form.category} onValueChange={(v) => v && updateField('category', v)}>
                 <SelectTrigger id="ep-category">
                   <SelectValue />
                 </SelectTrigger>
@@ -163,7 +155,7 @@ function AddEndpointDialog() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="ep-method">Method</Label>
-              <Select value={form.httpMethod} onValueChange={(v) => updateField('httpMethod', v)}>
+              <Select value={form.httpMethod} onValueChange={(v) => v && updateField('httpMethod', v)}>
                 <SelectTrigger id="ep-method">
                   <SelectValue />
                 </SelectTrigger>
