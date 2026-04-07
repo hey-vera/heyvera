@@ -73,7 +73,7 @@ import { statsTelemetryRouter } from './routes/stats-telemetry';
 import { x402FacilitatorRouter } from './routes/x402-facilitator';
 import { skillBuilderRouter } from './routes/skill-builder';
 import { startTrustDecayCron } from './core/trust-decay-cron';
-// import { referralRouter } from './routes/referral'; // disabled — re-enable when referral program launches
+import { referralRouter } from './routes/referral';
 import { startEndpointHealthCron } from './core/endpoint-health-cron';
 import { startEndpointDiscoveryCron } from './core/endpoint-discovery';
 import { signResponse } from './middleware/sign-response';
@@ -329,7 +329,7 @@ app.route('/v1/providers', providersRouter);
 app.route('/v1/signal', signalRouter);
 app.route('/x402/facilitator', x402FacilitatorRouter);
 app.route('/v1/skills', skillBuilderRouter);
-// app.route('/v1/referral', referralRouter); // disabled — re-enable when referral program launches
+app.route('/v1/referral', referralRouter);
 
 // ─── JSON-LD Context — W3C VC attestation vocabulary ────────────────────────
 import { getAttestationContext } from './utils/vc-envelope';
@@ -470,8 +470,7 @@ const MIME: Record<string, string> = {
 app.get('/portal', (c) => c.redirect('/dashboard/', 301));
 app.get('/portal/*', (c) => c.redirect(c.req.path.replace('/portal', '/dashboard'), 301));
 
-app.get('/dashboard', (c) => c.redirect('/dashboard/'));
-app.get('/dashboard/*', (c) => {
+function serveDashboard(c: any) {
   const urlPath = c.req.path.replace(/^\/dashboard\/?/, '') || 'index.html';
   const filePath = path.join(dashRoot, urlPath);
   if (!filePath.startsWith(dashRoot)) return c.json({ error: 'Forbidden' }, 403);
@@ -488,7 +487,10 @@ app.get('/dashboard/*', (c) => {
   } catch {
     return c.json({ error: 'Dashboard not built', code: 'NOT_FOUND' }, 404);
   }
-});
+}
+app.get('/dashboard', (c) => c.redirect('/dashboard/'));
+app.get('/dashboard/', serveDashboard);
+app.get('/dashboard/*', serveDashboard);
 
 app.notFound((c) => c.json({ error: 'Not found', code: 'NOT_FOUND' }, 404));
 
