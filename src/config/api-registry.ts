@@ -17,6 +17,8 @@ export interface ApiEndpoint {
   cacheTtl?: number;
   /** Fixed credit cost per invocation (value-based pricing). Omit to auto-tier from costPerCall. */
   creditCost?: number;
+  /** Computation type for verified computation (Heartbeat Fraud Proofs). Omit for raw data fetch. */
+  computationType?: string;
 }
 
 export const apiRegistry: ApiEndpoint[] = [

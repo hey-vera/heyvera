@@ -546,6 +546,7 @@ apiRouter.post('/orchestrate', async (c) => {
       responseData: JSON.stringify({ answer: (responsePayload as any).answer?.slice(0, 500) }),
       somaDataHash: execution.birthCertificates?.[0]?.dataHash,
       cached: cacheHits > 0,
+      computationCertId: execution.steps.find(s => s.computationCertId)?.computationCertId,
       ...extractDualSignReceiptFields(),
     }).catch((err) => logger.warn({ requestId, err }, 'Soma receipt failed for orchestration'));
 

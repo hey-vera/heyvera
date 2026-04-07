@@ -18,6 +18,7 @@ import { feedbackRouter } from './routes/feedback';
 import { initTelegram, stopTelegram } from './integrations/telegram';
 import { initXmtp, stopXmtp } from './integrations/xmtp';
 import { initDb, getDb } from './db/index';
+import { registerBuiltinTypes } from './core/computation-types';
 import { adminRouter } from './routes/admin';
 import { initX402Client } from './providers/x402-client';
 import { stripeRouter } from './routes/stripe';
@@ -503,6 +504,7 @@ async function start() {
   const startTime = Date.now();
 
   initDb();
+  registerBuiltinTypes();
   try { seedOfficialSkills(); } catch (e) { logger.warn({ err: e }, 'Failed to seed official skills — continuing'); }
   initPaymentGateway();
   await initRedis();

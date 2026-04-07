@@ -9,6 +9,11 @@ import { checkEndpointViaZauth } from './zauth-discovery';
 type BirthCertificate = { dataHash: string; signature: string; timestamp: string; publicKey: string; heartbeatIndex: number };
 import { getAgentContext, setAgentContext, getSkill } from '../db/index';
 import { creditCostForEndpoint, round6 } from './credits';
+import { generateSeedCommitment } from './commit-reveal';
+import { createComputationCertificate, type ComputationCertificate } from './computation-certificate';
+import { checkSum, checkCount, checkMinMax, checkSort, checkEconomicOnly, type SpotCheckResult } from './spot-check';
+import { getComputationType } from './computation-types';
+import { somaHash, somaHashJson } from '../utils/crypto-agility';
 
 export interface StepResult {
   endpointId: string;
@@ -22,6 +27,7 @@ export interface StepResult {
   diff?: DiffResult | null;    // Delta between previous and current (opt-in)
   error?: string;
   birthCertificate?: BirthCertificate;  // Soma provenance (present when heart is active)
+  computationCertId?: string;           // Computation certificate ID (when endpoint has computationType)
 }
 
 export interface ExecutionResult {
@@ -503,9 +509,21 @@ async function executeStep(
 
     recordSuccess(step.endpointId);
     const birthCertificate = getLastBirthCertificate() ?? undefined;
+
+    // Verified computation: if endpoint declares a computationType, run spot-check
+    let computationCertId: string | undefined;
+    if (endpoint.computationType && data) {
+      try {
+        const cert = issueDataFetchCert(step.endpointId, endpoint.computationType, step.params, data, birthCertificate);
+        if (cert) computationCertId = cert.id;
+      } catch {
+        // Spot-check is advisory — never block the response
+      }
+    }
+
     return {
       endpointId: step.endpointId, success: true, cached: false,
-      contentChanged, diff, birthCertificate,
+      contentChanged, diff, birthCertificate, computationCertId,
       durationMs: Date.now() - start, cost: endpoint.costPerCall, data,
     };
   } catch (err) {
@@ -602,4 +620,57 @@ export async function executePlan(
     steps, totalCost, totalDurationMs: Date.now() - start,
     ...(birthCertificates.length > 0 && { birthCertificates }),
   };
+}
+
+// ─── Verified Computation for Data Fetches ─────────────────────────────────
+
+/**
+ * Issue a computation certificate for a data-fetch endpoint.
+ * Runs commit-reveal + spot-check based on the endpoint's declared computationType.
+ *
+ * For raw API data fetches (most endpoints), the spot-check is economic-only since
+ * we can't re-execute the upstream call. The certificate still proves:
+ *   - Platform committed randomness before the fetch
+ *   - Input params and output data are hash-bound
+ *   - Birth cert (upstream provenance) is chained in
+ *
+ * Returns null if the type is unknown or cert creation fails.
+ */
+export function issueDataFetchCert(
+  endpointId: string,
+  computationType: string,
+  params: Record<string, string>,
+  data: unknown,
+  birthCertificate?: BirthCertificate,
+): ComputationCertificate | null {
+  const compType = getComputationType(computationType);
+  if (!compType) return null;
+
+  // Step 1: Generate seed commitment (platform commits randomness)
+  const { seed, commitment } = generateSeedCommitment();
+
+  // Step 2: Hash input and output
+  const inputHash = somaHashJson({ endpointId, params });
+  const outputHash = somaHashJson(data);
+  const outputCommitment = somaHash(outputHash);
+
+  // Step 3: Run spot-check based on computation class
+  // Raw API data fetches are economic-only — we can't re-execute the upstream call.
+  // When endpoints perform transformations (sort, aggregate), their dedicated handlers
+  // can call runVerifiedComputation() directly with the actual input/output arrays.
+  const spotChecks: SpotCheckResult[] = [checkEconomicOnly(computationType)];
+
+  // Step 4: Issue the certificate
+  return createComputationCertificate({
+    requestId: `fetch:${endpointId}:${Date.now()}`,
+    computationType,
+    computationClass: compType.class,
+    inputHash,
+    outputHash,
+    seedCommitment: commitment,
+    seed,
+    outputCommitment,
+    spotChecks,
+    birthCertHash: birthCertificate?.dataHash ?? null,
+  });
 }

@@ -72,6 +72,12 @@ export interface SomaReceiptInput {
   providerHeartbeatIndex?: number;
   /** zkTLS: proof ID linking to zktls_proofs table */
   zkTlsProofId?: string;
+  /** Spot-check: JSON-serialized spot-check results from verified computation */
+  spotChecksJson?: string;
+  /** Spot-check: seed commitment H(seed) from commit-reveal protocol */
+  seedCommitment?: string;
+  /** Spot-check: computation certificate ID linking to computation_certificates table */
+  computationCertId?: string;
 }
 
 export interface SomaReceipt {
@@ -206,8 +212,9 @@ export async function createSomaReceipt(input: SomaReceiptInput): Promise<SomaRe
         signature_ed25519, signature_mldsa65, algorithm_version,
         provider_id, provider_signature, provider_public_key,
         provider_data_hash, provider_heartbeat_index, dual_signed,
-        zktls_proof_id, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        zktls_proof_id, spot_checks_json, seed_commitment, computation_cert_id,
+        created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       input.requestId,
@@ -231,6 +238,9 @@ export async function createSomaReceipt(input: SomaReceiptInput): Promise<SomaRe
       input.providerHeartbeatIndex ?? null,
       isDualSigned ? 1 : 0,
       input.zkTlsProofId ?? null,
+      input.spotChecksJson ?? null,
+      input.seedCommitment ?? null,
+      input.computationCertId ?? null,
       now,
     );
 

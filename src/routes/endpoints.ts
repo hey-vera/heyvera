@@ -21,6 +21,7 @@ import { logger } from '../utils/logger';
 import { nanoid } from 'nanoid';
 import { recordSuccess, recordFailure } from '../core/circuit-breaker';
 import { createSomaReceipt } from '../core/soma-receipt';
+import { issueDataFetchCert } from '../core/executor';
 import { logSomaCheckEvent } from '../db/soma-check';
 import { awardSignal } from '../db/signal';
 
@@ -670,6 +671,17 @@ endpointsRouter.post('/:id/call', async (c) => {
     // Retrieve birth cert ONCE — getLastBirthCertificate() clears on read
     const birthCertificate = getLastBirthCertificate() ?? undefined;
 
+    // Verified computation: issue cert if endpoint declares a computationType
+    let computationCertId: string | undefined;
+    if (endpoint.computationType && data) {
+      try {
+        const cert = issueDataFetchCert(endpointId, endpoint.computationType, c.req.query() as Record<string, string>, data, birthCertificate);
+        if (cert) computationCertId = cert.id;
+      } catch {
+        // Spot-check is advisory — never block the response
+      }
+    }
+
     // Cache the result + create Certified Cache certificate
     // Skip entirely for alwaysFresh endpoints (unique data per call).
     if (!alwaysFresh && serialized.length <= 1_000_000) {
@@ -736,6 +748,7 @@ endpointsRouter.post('/:id/call', async (c) => {
       responseData: typeof data === 'string' ? data.slice(0, 1000) : JSON.stringify(data).slice(0, 1000),
       somaDataHash: birthCertificate?.dataHash,
       heartbeatIndex: birthCertificate?.heartbeatIndex,
+      computationCertId,
       ...extractDualSignReceiptFields(getEndpointProvider(endpointId) ?? undefined),
     }).catch((err) => logger.warn({ requestId, err }, 'Soma receipt failed for endpoint call'));
 
