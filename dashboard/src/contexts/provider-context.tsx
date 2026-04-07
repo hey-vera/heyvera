@@ -29,6 +29,7 @@ export function ProviderProvider({ children }: { children: ReactNode }) {
     data: provider,
     isLoading: queryLoading,
     error,
+    isError,
   } = useQuery({
     queryKey: ['provider', 'me'],
     queryFn: async () => {
@@ -41,7 +42,8 @@ export function ProviderProvider({ children }: { children: ReactNode }) {
     retry: false,
   });
 
-  const isLoading = !isLoaded || (isSignedIn && queryLoading);
+  // Don't stay in loading state on error — treat errors as "no provider"
+  const isLoading = !isLoaded || (isSignedIn && queryLoading && !isError);
 
   return (
     <ProviderContext.Provider

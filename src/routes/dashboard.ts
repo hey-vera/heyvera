@@ -35,9 +35,11 @@ import {
 import { env } from '../config/index';
 import { cacheIncr } from '../cache/index';
 import { maskApiKey } from '../utils/mask';
-import { getSignalBalance, getSignalHistory, getVaultLocks, createVaultLock, requestVaultUnlock, getSignalLeaderboard, getSignalStats } from '../db/signal';
+import { getSignalBalance, getSignalHistory, getVaultLocks, createVaultLock, requestVaultUnlock, getSignalLeaderboard, getSignalStats, awardSignal } from '../db/signal';
 import { deductCredit } from '../db/credits';
-import { listTasks, countTasks } from '../db/index';
+import { listTasks, countTasks, createProvider, getProviderBySlug, getProviderByClerkUser, setApiKeyProvider, logAudit, getChildKeys, createDelegatedKey, revokeDelegatedKey } from '../db/index';
+import { z } from 'zod';
+import { sendAdminAlert } from '../utils/email';
 
 function generateApiKey(): string {
   return 'cn-' + crypto.randomBytes(24).toString('hex');
@@ -366,6 +368,197 @@ dashboardRouter.get('/admin-logs', requireClerkAuth, (c) => {
   const callLogs = getRecentCallLogs(period);
   const skillLogs = getSkillInvocationLogs(period);
   return c.json({ period, callLogs, skillLogs });
+});
+
+// ─── POST /v1/dashboard/become-provider — self-service provider signup ──────
+// Creates a provider record linked to the Clerk user. Starts as 'pending'.
+
+const BecomeProviderBody = z.object({
+  name: z.string().min(2).max(100),
+  email: z.string().email(),
+  description: z.string().max(500).optional(),
+  websiteUrl: z.string().url().max(500).optional(),
+  solanaWallet: z.string().max(64).optional(),
+  tosAccepted: z.literal(true, { errorMap: () => ({ message: 'You must accept the Terms of Service' }) }),
+});
+
+dashboardRouter.post('/become-provider', requireClerkAuth, async (c) => {
+  const clerkUserId = c.get('clerkUserId');
+  const clerkEmail = c.get('clerkEmail');
+  const ip = c.req.header('x-forwarded-for') ?? c.req.header('x-real-ip') ?? 'unknown';
+
+  // Check if already a provider
+  const existing = getProviderByClerkUser(clerkUserId);
+  if (existing) {
+    return c.json({ error: 'You are already registered as a provider', code: 'ALREADY_PROVIDER', provider: existing }, 409);
+  }
+
+  // Rate limit
+  const count = await cacheIncr(`become-provider:clerk:${clerkUserId}`, 3600);
+  if (count > 3) {
+    return c.json({ error: 'Rate limit exceeded. Try again in an hour.', code: 'RATE_LIMITED' }, 429);
+  }
+
+  const body = await c.req.json().catch(() => ({}));
+  const parsed = BecomeProviderBody.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: parsed.error.errors[0].message, code: 'VALIDATION_ERROR' }, 400);
+  }
+
+  // Generate slug from name
+  const slug = parsed.data.name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 50);
+
+  if (slug.length < 2) {
+    return c.json({ error: 'Name must produce a valid slug (at least 2 alphanumeric chars)', code: 'VALIDATION_ERROR' }, 400);
+  }
+
+  // Check slug collision — append suffix if needed
+  let finalSlug = slug;
+  if (getProviderBySlug(finalSlug)) {
+    finalSlug = `${slug}-${Date.now().toString(36).slice(-4)}`;
+  }
+
+  const provider = createProvider({
+    name: parsed.data.name,
+    slug: finalSlug,
+    email: parsed.data.email,
+    clerkUserId,
+    solanaWallet: parsed.data.solanaWallet,
+    description: parsed.data.description,
+    websiteUrl: parsed.data.websiteUrl,
+  });
+
+  // Link API key to provider if user has one
+  let keyRow = getApiKeyByClerkId(clerkUserId);
+  if (!keyRow && clerkEmail) keyRow = getApiKeyByEmail(clerkEmail);
+  if (keyRow) {
+    setApiKeyProvider(keyRow.key, provider.id);
+    awardSignal({ apiKey: keyRow.key, providerId: provider.id, action: 'provider_register', metadata: { slug: finalSlug } });
+  }
+
+  logAudit({
+    entityType: 'provider',
+    entityId: provider.id,
+    action: 'DASHBOARD_SIGNUP',
+    data: { name: provider.name, slug: finalSlug, tosAcceptedAt: new Date().toISOString(), tosAcceptedIp: ip },
+  });
+
+  logger.info({ providerId: provider.id, slug: finalSlug }, 'Provider registered via dashboard');
+
+  // Notify admin
+  sendAdminAlert({
+    subject: `New provider signup: ${provider.name}`,
+    body: `Provider "${provider.name}" (${finalSlug}) registered via dashboard.\nEmail: ${parsed.data.email}\nID: ${provider.id}\nTOS accepted from IP: ${ip}\nStatus: pending — activate at /v1/providers/${provider.id}/activate`,
+  }).catch(() => {});
+
+  return c.json({
+    ok: true,
+    provider,
+    message: 'Provider registered. Status: pending — you\'ll be activated shortly.',
+  }, 201);
+});
+
+// ─── Delegated Keys — parent→child key hierarchy ────────────────────────────
+
+// List child keys for the current user's API key
+dashboardRouter.get('/keys/children', requireClerkAuth, (c) => {
+  const clerkUserId = c.get('clerkUserId');
+  const clerkEmail = c.get('clerkEmail');
+  let keyRow = getApiKeyByClerkId(clerkUserId);
+  if (!keyRow && clerkEmail) keyRow = getApiKeyByEmail(clerkEmail);
+  if (!keyRow) return c.json({ children: [] });
+
+  const children = getChildKeys(keyRow.key);
+  return c.json({
+    children: children.map(k => ({
+      maskedKey: k.maskedKey,
+      label: k.label,
+      credits: k.credits,
+      maxCredits: k.maxCredits,
+      creditsDelegated: k.creditsDelegated,
+      allowedEndpoints: k.allowedEndpoints,
+      expiresAt: k.expiresAt,
+      rateLimitRpm: k.rateLimitRpm,
+      delegationDepth: k.delegationDepth,
+      active: k.active,
+      revokedAt: k.revokedAt,
+      createdAt: k.createdAt,
+      lastUsedAt: k.lastUsedAt,
+    })),
+    parentKey: maskApiKey(keyRow.key),
+    creditsDelegated: (keyRow as any).credits_delegated ?? 0,
+  });
+});
+
+// Create a delegated child key
+const CreateDelegatedKeyBody = z.object({
+  label: z.string().min(1).max(100).optional(),
+  maxCredits: z.number().positive().optional(),
+  allowedEndpoints: z.array(z.string()).optional(),
+  expiresAt: z.string().datetime().optional(),
+  rateLimitRpm: z.number().int().positive().max(10000).optional(),
+});
+
+dashboardRouter.post('/keys/delegate', requireClerkAuth, async (c) => {
+  const clerkUserId = c.get('clerkUserId');
+  const clerkEmail = c.get('clerkEmail');
+  let keyRow = getApiKeyByClerkId(clerkUserId);
+  if (!keyRow && clerkEmail) keyRow = getApiKeyByEmail(clerkEmail);
+  if (!keyRow) return c.json({ error: 'No API key found', code: 'NO_KEY' }, 404);
+
+  const body = await c.req.json().catch(() => ({}));
+  const parsed = CreateDelegatedKeyBody.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: parsed.error.errors[0].message, code: 'VALIDATION_ERROR' }, 400);
+  }
+
+  try {
+    const result = createDelegatedKey({
+      parentKey: keyRow.key,
+      ...parsed.data,
+    });
+
+    return c.json({
+      ok: true,
+      apiKey: result.key, // Full key — shown once, never again
+      delegatedKey: {
+        maskedKey: result.delegatedKey.maskedKey,
+        label: result.delegatedKey.label,
+        maxCredits: result.delegatedKey.maxCredits,
+        allowedEndpoints: result.delegatedKey.allowedEndpoints,
+        expiresAt: result.delegatedKey.expiresAt,
+        rateLimitRpm: result.delegatedKey.rateLimitRpm,
+        delegationDepth: result.delegatedKey.delegationDepth,
+      },
+      message: 'Delegated key created. Copy it now — it will not be shown again.',
+    }, 201);
+  } catch (err) {
+    return c.json({ error: (err as Error).message, code: 'DELEGATION_FAILED' }, 400);
+  }
+});
+
+// Revoke a delegated key (by masked key pattern)
+dashboardRouter.post('/keys/revoke', requireClerkAuth, async (c) => {
+  const clerkUserId = c.get('clerkUserId');
+  const clerkEmail = c.get('clerkEmail');
+  let keyRow = getApiKeyByClerkId(clerkUserId);
+  if (!keyRow && clerkEmail) keyRow = getApiKeyByEmail(clerkEmail);
+  if (!keyRow) return c.json({ error: 'No API key found', code: 'NO_KEY' }, 404);
+
+  const { maskedKey } = await c.req.json().catch(() => ({ maskedKey: '' }));
+  if (!maskedKey) return c.json({ error: 'maskedKey required', code: 'VALIDATION_ERROR' }, 400);
+
+  // Find the actual key from the masked version among children
+  const children = getChildKeys(keyRow.key);
+  const target = children.find(k => k.maskedKey === maskedKey);
+  if (!target) return c.json({ error: 'Key not found among your delegated keys', code: 'NOT_FOUND' }, 404);
+
+  const revoked = revokeDelegatedKey(target.key, keyRow.key);
+  return c.json({ ok: true, revoked, message: `${revoked} key(s) revoked.` });
 });
 
 // ─── GET /v1/dashboard/creator-stats — Clerk-auth'd creator earnings ──────────

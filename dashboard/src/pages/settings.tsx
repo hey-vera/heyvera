@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { CheckCircle2, Circle, ExternalLink, Shield, Moon, Sun } from 'lucide-react';
-import { useUser } from '@clerk/clerk-react';
+import { CheckCircle2, Circle, ExternalLink, Shield, Moon, Sun, Globe, Trash2 } from 'lucide-react';
+import { useUser, useAuth } from '@clerk/clerk-react';
 import {
   Card,
   CardContent,
@@ -16,7 +16,7 @@ import { Separator } from '@/components/ui/separator';
 import { toast } from 'sonner';
 import { useProvider } from '@/contexts/provider-context';
 import { useSetPayoutWallet } from '@/hooks/use-provider-data';
-import { useDashboardMe } from '@/hooks/use-dashboard-data';
+import { useDashboardMe, useBecomeProvider } from '@/hooks/use-dashboard-data';
 
 const TIER_INFO: Record<string, { label: string; benefits: string[] }> = {
   founding: {
@@ -382,6 +382,211 @@ function ProviderTierCard() {
   );
 }
 
+function DangerZoneCard() {
+  const { user } = useUser();
+  const { signOut } = useAuth();
+  const [confirmText, setConfirmText] = useState('');
+  const [deleting, setDeleting] = useState(false);
+
+  async function handleDelete() {
+    if (confirmText !== 'DELETE') return;
+    setDeleting(true);
+    try {
+      await user?.delete();
+      await signOut({ redirectUrl: '/dashboard/' });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete account');
+      setDeleting(false);
+    }
+  }
+
+  return (
+    <Card className="border-destructive/20">
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2 text-destructive">
+          <Trash2 className="h-4 w-4" />
+          Danger Zone
+        </CardTitle>
+        <CardDescription>
+          Permanently delete your account and all associated data. This cannot be undone.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="space-y-2">
+          <p className="text-sm text-muted-foreground">
+            Type <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">DELETE</code> to confirm:
+          </p>
+          <div className="flex gap-3">
+            <Input
+              value={confirmText}
+              onChange={(e) => setConfirmText(e.target.value)}
+              placeholder="DELETE"
+              className="max-w-[200px] font-mono"
+            />
+            <Button
+              variant="destructive"
+              onClick={handleDelete}
+              disabled={confirmText !== 'DELETE' || deleting}
+            >
+              {deleting ? 'Deleting...' : 'Delete Account'}
+            </Button>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function BecomeProviderCard() {
+  const { user } = useUser();
+  const becomeProvider = useBecomeProvider();
+  const [form, setForm] = useState({
+    name: '',
+    email: user?.emailAddresses?.[0]?.emailAddress ?? '',
+    description: '',
+    websiteUrl: '',
+    solanaWallet: '',
+    tosAccepted: false,
+  });
+
+  function updateField(field: string, value: string | boolean) {
+    setForm((prev) => ({ ...prev, [field]: value }));
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!form.tosAccepted) {
+      toast.error('You must accept the Terms of Service');
+      return;
+    }
+    try {
+      const result = await becomeProvider.mutateAsync({
+        name: form.name,
+        email: form.email,
+        description: form.description || undefined,
+        websiteUrl: form.websiteUrl || undefined,
+        solanaWallet: form.solanaWallet || undefined,
+        tosAccepted: true,
+      });
+      toast.success(result.message);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Registration failed');
+    }
+  }
+
+  return (
+    <Card className="border-primary/20">
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <Globe className="h-4 w-4" />
+          Become a Provider
+        </CardTitle>
+        <CardDescription>
+          List your API endpoints on ClawNet and earn credits when agents call them.
+          You keep 100% of live call revenue during the founding era.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="prov-name">Company / Provider Name</Label>
+              <Input
+                id="prov-name"
+                placeholder="ClawAPIs"
+                value={form.name}
+                onChange={(e) => updateField('name', e.target.value)}
+                required
+                minLength={2}
+                maxLength={100}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="prov-email">Contact Email</Label>
+              <Input
+                id="prov-email"
+                type="email"
+                placeholder="hello@company.com"
+                value={form.email}
+                onChange={(e) => updateField('email', e.target.value)}
+                required
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="prov-desc">Description</Label>
+            <Input
+              id="prov-desc"
+              placeholder="What does your service do?"
+              value={form.description}
+              onChange={(e) => updateField('description', e.target.value)}
+              maxLength={500}
+            />
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="prov-url">Website URL</Label>
+              <Input
+                id="prov-url"
+                type="url"
+                placeholder="https://clawapis.com"
+                value={form.websiteUrl}
+                onChange={(e) => updateField('websiteUrl', e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="prov-wallet">Solana Wallet (optional)</Label>
+              <Input
+                id="prov-wallet"
+                placeholder="For USDC payouts"
+                value={form.solanaWallet}
+                onChange={(e) => updateField('solanaWallet', e.target.value)}
+              />
+            </div>
+          </div>
+
+          <Separator />
+
+          <div className="flex items-start gap-3">
+            <input
+              type="checkbox"
+              id="tos-accept"
+              checked={form.tosAccepted}
+              onChange={(e) => updateField('tosAccepted', e.target.checked)}
+              className="mt-1 h-4 w-4 rounded border-border"
+            />
+            <label htmlFor="tos-accept" className="text-sm text-muted-foreground leading-relaxed">
+              I accept the{' '}
+              <a href="https://claw-net.org/tos" target="_blank" rel="noopener noreferrer" className="underline hover:text-foreground">
+                Terms of Service
+              </a>{' '}
+              and{' '}
+              <a href="https://claw-net.org/provider-agreement" target="_blank" rel="noopener noreferrer" className="underline hover:text-foreground">
+                Provider Agreement
+              </a>.
+              I understand that my endpoints will be accessible to AI agents via ClawNet's API.
+            </label>
+          </div>
+
+          <Button
+            type="submit"
+            disabled={becomeProvider.isPending || !form.name || !form.email || !form.tosAccepted}
+            className="w-full"
+          >
+            {becomeProvider.isPending ? 'Registering...' : 'Register as Provider'}
+          </Button>
+
+          <p className="text-xs text-muted-foreground text-center">
+            Registration is reviewed within 24 hours. You'll be able to add endpoints once activated.
+          </p>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
+
 export function SettingsPage() {
   const { provider } = useProvider();
 
@@ -399,14 +604,19 @@ export function SettingsPage() {
       <SecurityCard />
       <ThemeToggle />
 
-      {/* Provider settings — only rendered when provider exists (hooks require provider ID) */}
-      {provider && (
+      {/* Danger zone */}
+      <DangerZoneCard />
+
+      {/* Provider settings — only rendered when provider exists */}
+      {provider ? (
         <>
           <ProviderProfileCard />
           <PayoutWalletCard />
           <SomaHeartCard />
           <ProviderTierCard />
         </>
+      ) : (
+        <BecomeProviderCard />
       )}
     </div>
   );

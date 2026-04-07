@@ -1903,6 +1903,23 @@ const MIGRATIONS: { version: number; sql: string }[] = [
     UPDATE providers SET cache_revenue_share_pct = 0.90 WHERE cache_revenue_share_pct < 0.90;
     UPDATE providers SET soma_check_tier = 1 WHERE soma_check_tier = 0;
   ` },
+
+  // ── v164: Delegated API keys — parent→child key hierarchy with constraints ──
+  // Agents can create scoped child keys with credit caps, endpoint restrictions, expiry, and rate limits.
+  // Children inherit parent identity but can only narrow constraints, never widen.
+  // Max delegation depth: 3 levels.
+  { version: 164, sql: `
+    ALTER TABLE api_keys ADD COLUMN parent_key TEXT REFERENCES api_keys(key);
+    ALTER TABLE api_keys ADD COLUMN label TEXT;
+    ALTER TABLE api_keys ADD COLUMN max_credits REAL;
+    ALTER TABLE api_keys ADD COLUMN credits_delegated REAL NOT NULL DEFAULT 0;
+    ALTER TABLE api_keys ADD COLUMN allowed_endpoints_json TEXT;
+    ALTER TABLE api_keys ADD COLUMN expires_at TEXT;
+    ALTER TABLE api_keys ADD COLUMN rate_limit_rpm INTEGER;
+    ALTER TABLE api_keys ADD COLUMN delegation_depth INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE api_keys ADD COLUMN revoked_at TEXT;
+  ` },
+  { version: 165, sql: `CREATE INDEX IF NOT EXISTS idx_api_keys_parent ON api_keys(parent_key) WHERE parent_key IS NOT NULL` },
 ];
 
 function runMigrations(): void {

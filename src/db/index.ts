@@ -32,3 +32,4 @@ export * from './promo-codes';
 export * from './soma-check';
 export * from './vouch';
 export * from './signal';
+export * from './delegated-keys';

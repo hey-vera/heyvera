@@ -118,3 +118,28 @@ export function useHealthCheck() {
     retry: false,
   });
 }
+
+// --- Become a provider ---
+export function useBecomeProvider() {
+  const getHeaders = useAuthHeaders();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: {
+      name: string;
+      email: string;
+      description?: string;
+      websiteUrl?: string;
+      solanaWallet?: string;
+      tosAccepted: true;
+    }) =>
+      apiFetch<{ ok: boolean; provider: unknown; message: string }>('/v1/dashboard/become-provider', {
+        headers: await getHeaders(),
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      // Refresh provider context so sidebar updates
+      qc.invalidateQueries({ queryKey: ['provider', 'me'] });
+    },
+  });
+}

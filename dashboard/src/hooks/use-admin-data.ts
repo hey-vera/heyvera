@@ -15,11 +15,18 @@ export function useAdminCheck() {
   const getHeaders = useAuthHeaders();
   return useQuery({
     queryKey: ['admin', 'check'],
-    queryFn: async () =>
-      apiFetch<{ isAdmin: boolean }>('/v1/dashboard/admin-check', {
-        headers: await getHeaders(),
-      }),
+    queryFn: async () => {
+      try {
+        return await apiFetch<{ isAdmin: boolean }>('/v1/dashboard/admin-check', {
+          headers: await getHeaders(),
+        });
+      } catch {
+        // Don't crash — just return not-admin
+        return { isAdmin: false };
+      }
+    },
     retry: false,
+    staleTime: 5 * 60_000, // Cache admin check for 5 min to reduce flicker on navigation
   });
 }
 

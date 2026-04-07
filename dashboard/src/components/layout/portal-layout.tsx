@@ -14,6 +14,7 @@ import {
   Flame,
   Gift,
   ShieldCheck,
+  LifeBuoy,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -120,10 +121,8 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <div className="flex h-full flex-col">
       {/* Logo */}
-      <div className="flex items-center gap-2 px-4 py-5">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold text-sm">
-          C
-        </div>
+      <div className="flex items-center gap-2.5 px-4 py-5">
+        <span className="text-2xl leading-none" role="img" aria-label="ClawNet">🦀</span>
         <span className="text-lg font-semibold tracking-tight">ClawNet</span>
       </div>
 
@@ -168,6 +167,19 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         <Separator className="mx-0" />
         <NavSection items={COMMON_NAV} location={location} onNavigate={onNavigate} />
       </nav>
+
+      <Separator />
+
+      {/* Support link */}
+      <div className="px-3 py-2">
+        <a
+          href="mailto:hello@claw-net.org"
+          className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground transition-colors"
+        >
+          <LifeBuoy className="h-4 w-4" />
+          Support
+        </a>
+      </div>
 
       <Separator />
 
