@@ -1920,6 +1920,40 @@ const MIGRATIONS: { version: number; sql: string }[] = [
     ALTER TABLE api_keys ADD COLUMN revoked_at TEXT;
   ` },
   { version: 165, sql: `CREATE INDEX IF NOT EXISTS idx_api_keys_parent ON api_keys(parent_key) WHERE parent_key IS NOT NULL` },
+
+  // ── v166: Computation certificates (Heartbeat Fraud Proofs Phase A) ─────────
+  { version: 166, sql: `
+    CREATE TABLE IF NOT EXISTS computation_certificates (
+      id TEXT PRIMARY KEY,
+      request_id TEXT NOT NULL,
+      computation_type TEXT NOT NULL,
+      computation_class TEXT NOT NULL,
+      input_hash TEXT NOT NULL,
+      output_hash TEXT NOT NULL,
+      seed_commitment TEXT NOT NULL,
+      seed TEXT NOT NULL,
+      output_commitment TEXT NOT NULL,
+      spot_checks_json TEXT NOT NULL DEFAULT '[]',
+      all_passed INTEGER NOT NULL DEFAULT 0,
+      birth_cert_hash TEXT,
+      signature TEXT NOT NULL,
+      public_key TEXT NOT NULL,
+      algorithm TEXT NOT NULL DEFAULT 'Ed25519',
+      chain_hash TEXT NOT NULL,
+      bond_tier INTEGER NOT NULL DEFAULT 0,
+      bond_credits REAL NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  ` },
+  { version: 167, sql: `CREATE INDEX IF NOT EXISTS idx_comp_certs_request ON computation_certificates(request_id)` },
+  { version: 168, sql: `CREATE INDEX IF NOT EXISTS idx_comp_certs_type ON computation_certificates(computation_type)` },
+
+  // ── v169: Add spot-check fields to soma_receipts ────────────────────────────
+  { version: 169, sql: `
+    ALTER TABLE soma_receipts ADD COLUMN spot_checks_json TEXT;
+    ALTER TABLE soma_receipts ADD COLUMN seed_commitment TEXT;
+    ALTER TABLE soma_receipts ADD COLUMN computation_cert_id TEXT;
+  ` },
 ];
 
 function runMigrations(): void {

@@ -25,6 +25,9 @@ export const SIGNAL_REWARDS = {
   soma_verify_request:    200,
   cache_hit_agent:        1,     // agent used If-Soma-Hash
 
+  // Computation verification (Heartbeat Fraud Proofs)
+  computation_verified:   5,     // spot-checks passed for a computation
+
   // Vault
   vault_daily_per_1k:     10,    // per 1K credits locked per day
 } as const;
