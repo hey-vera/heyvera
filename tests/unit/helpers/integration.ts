@@ -3,24 +3,24 @@
  * backed by the in-memory test DB, with mocked external services.
  *
  * Mocks:
- *   - clawApiCall: returns configurable test data + sets birth cert
- *   - isClawApisReady: always true
+ *   - x402Call: returns configurable test data + sets birth cert
+ *   - isX402Ready: always true
  *   - getHeartSafe: returns null (no heart in unit-level integration tests)
  *   - Redis: falls back to in-memory (no REDIS_URL)
  *   - Rate limiter: passthrough (no real rate limiting)
  *
  * Usage:
  *   import { setupTestDb, getTestDb, seedApiKey } from './helpers/db';
- *   import { createTestApp, mockClawApiCall } from './helpers/integration';
+ *   import { createTestApp, mockX402Call } from './helpers/integration';
  *   setupTestDb();
  *   // ... in tests:
  *   const app = createTestApp();
- *   mockClawApiCall({ price: 42 });
+ *   mockX402Call({ price: 42 });
  *   const res = await app.request('/v1/endpoints/claw-token-price/call', { ... });
  */
 import { vi } from 'vitest';
 
-// ── Mock clawApiCall BEFORE any src imports ────────────────────────────────
+// ── Mock x402Call BEFORE any src imports ────────────────────────────────
 
 type BirthCertificate = {
   dataHash: string;
@@ -34,15 +34,15 @@ let _mockData: unknown = { price: 42 };
 let _mockBirthCert: BirthCertificate | null = null;
 let _mockShouldThrow: Error | null = null;
 
-vi.mock('../../../src/providers/clawapis', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../../src/providers/clawapis')>();
+vi.mock('../../../src/providers/x402-client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../src/providers/x402-client')>();
   let _lastCert: BirthCertificate | null = null;
 
   return {
     ...actual,
-    initClawApis: vi.fn(async () => true),
-    isClawApisReady: vi.fn(() => true),
-    clawApiCall: vi.fn(async () => {
+    initX402Client: vi.fn(async () => true),
+    isX402Ready: vi.fn(() => true),
+    x402Call: vi.fn(async () => {
       if (_mockShouldThrow) throw _mockShouldThrow;
       // Set birth cert (mimics heart.fetchData flow)
       _lastCert = _mockBirthCert;
@@ -94,18 +94,18 @@ vi.mock('../../../src/cache/keep-warm', () => ({
 
 // ── Public API ─────────────────────────────────────────────────────────────
 
-/** Set what clawApiCall returns on next invocation */
-export function mockClawApiCall(data: unknown): void {
+/** Set what x402Call returns on next invocation */
+export function mockX402Call(data: unknown): void {
   _mockData = data;
 }
 
-/** Set a birth cert that clawApiCall will produce (mimics heart.fetchData) */
+/** Set a birth cert that x402Call will produce (mimics heart.fetchData) */
 export function mockBirthCert(cert: BirthCertificate | null): void {
   _mockBirthCert = cert;
 }
 
-/** Make clawApiCall throw on next invocation */
-export function mockClawApiThrow(err: Error | null): void {
+/** Make x402Call throw on next invocation */
+export function mockX402Throw(err: Error | null): void {
   _mockShouldThrow = err;
 }
 

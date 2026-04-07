@@ -3,7 +3,7 @@ import { ParsedIntent } from './intent-parser';
 import { findEndpoint } from '../config/api-registry';
 import { cacheKey, smartCacheGet, smartCacheSet, enqueueRefresh, computeDiff, coalesceRequest, cacheNegative, getNegativeCache, type CacheFreshness, type DiffResult } from '../cache/index';
 import { logger } from '../utils/logger';
-import { isClawApisReady, clawApiCall, getLastBirthCertificate } from '../providers/clawapis';
+import { isX402Ready, x402Call, getLastBirthCertificate } from '../providers/x402-client';
 import { checkEndpointViaZauth } from './zauth-discovery';
 // BirthCertificate type from soma-heart (inline to avoid CJS/ESM resolution)
 type BirthCertificate = { dataHash: string; signature: string; timestamp: string; publicKey: string; heartbeatIndex: number };
@@ -389,12 +389,12 @@ async function executeStep(
 
       // Enqueue background refresh
       enqueueRefresh(key, async () => {
-        if (!isClawApisReady()) return mockData(step.endpointId);
+        if (!isX402Ready()) return mockData(step.endpointId);
         const apiPath = endpoint.path ?? '/solscan/token/meta';
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), 15_000);
         try {
-          const freshData = await clawApiCall(apiPath, normalizeParams(step.endpointId, step.params), endpoint.baseUrl, controller.signal);
+          const freshData = await x402Call(apiPath, normalizeParams(step.endpointId, step.params), endpoint.baseUrl, controller.signal);
           recordSuccess(step.endpointId);
           // Also update agent context
           if (agentKey) {
@@ -427,7 +427,7 @@ async function executeStep(
   }
 
   // Zauth pre-flight: skip endpoints that zauth reports as FAILING (non-blocking, best-effort)
-  if (endpoint.path && isClawApisReady()) {
+  if (endpoint.path && isX402Ready()) {
     try {
       const zauthStatus = await checkEndpointViaZauth(endpoint.path);
       if (zauthStatus?.status === 'FAILING') {
@@ -447,11 +447,11 @@ async function executeStep(
     // Request coalescing: if another request for the same key is in-flight,
     // wait for it instead of making a duplicate upstream call
     data = await coalesceRequest(key, async () => {
-      if (isClawApisReady()) {
+      if (isX402Ready()) {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), STEP_TIMEOUT_MS);
         try {
-          return await clawApiCall(apiPath, normalizeParams(step.endpointId, step.params), endpoint.baseUrl, controller.signal);
+          return await x402Call(apiPath, normalizeParams(step.endpointId, step.params), endpoint.baseUrl, controller.signal);
         } finally {
           clearTimeout(timer);
         }

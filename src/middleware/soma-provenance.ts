@@ -21,7 +21,7 @@
 
 import type { MiddlewareHandler } from 'hono';
 import { getHeartSafe, getLastGenerationProvenance } from '../core/soma';
-import { getLastBirthCertificate } from '../providers/clawapis';
+import { getLastBirthCertificate } from '../providers/x402-client';
 import { getEd25519PublicKeyRaw } from '../utils/ed25519-signer';
 import { getProvenance } from '../core/request-context';
 import { logger } from '../utils/logger';

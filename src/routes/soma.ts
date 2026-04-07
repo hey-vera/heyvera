@@ -90,44 +90,38 @@ const router = new Hono();
 // ── POST /verdicts — Submit a Soma verdict ──────────────────────────────────
 // External observers running soma-sense submit their verification results here.
 // The observer signs the verdict with their Ed25519 key.
+const VerdictBody = z.object({
+  subjectDid: z.string().min(1),
+  observerDid: z.string().min(1),
+  verdict: z.enum(['GREEN', 'AMBER', 'RED', 'UNCANNY']),
+  confidence: z.number().min(0).max(1),
+  genomeHash: z.string().min(1),
+  claimedModel: z.string().optional(),
+  detectedModel: z.string().optional(),
+  sessionId: z.string().optional(),
+  temporalScore: z.number().optional(),
+  topologyScore: z.number().optional(),
+  vocabularyScore: z.number().optional(),
+  atlasMatch: z.string().optional(),
+  atlasDistance: z.number().optional(),
+  driftVelocity: z.number().optional(),
+  profileMaturity: z.enum(['embryonic', 'juvenile', 'adult', 'elder']).optional(),
+  observationCount: z.number().int().min(0).optional(),
+  hmacVerified: z.boolean().optional(),
+  heartbeatChainValid: z.boolean().optional(),
+  birthCertificatesValid: z.boolean().optional(),
+  seedVerified: z.boolean().optional(),
+  observerSignature: z.string().min(1),
+  subjectSignature: z.string().optional(),
+});
+
 router.post('/verdicts', async (c) => {
-  const body = await c.req.json<{
-    subjectDid: string;
-    observerDid: string;
-    verdict: 'GREEN' | 'AMBER' | 'RED' | 'UNCANNY';
-    confidence: number;
-    genomeHash: string;
-    claimedModel?: string;
-    detectedModel?: string;
-    sessionId?: string;
-    temporalScore?: number;
-    topologyScore?: number;
-    vocabularyScore?: number;
-    atlasMatch?: string;
-    atlasDistance?: number;
-    driftVelocity?: number;
-    profileMaturity?: 'embryonic' | 'juvenile' | 'adult' | 'elder';
-    observationCount?: number;
-    hmacVerified?: boolean;
-    heartbeatChainValid?: boolean;
-    birthCertificatesValid?: boolean;
-    seedVerified?: boolean;
-    observerSignature: string;
-    subjectSignature?: string;
-  }>();
-
-  // Validate required fields
-  if (!body.subjectDid || !body.observerDid || !body.verdict || body.confidence == null || !body.genomeHash || !body.observerSignature) {
-    return c.json({ error: 'Missing required fields: subjectDid, observerDid, verdict, confidence, genomeHash, observerSignature', code: 'MISSING_FIELDS' }, 400);
+  const raw = await c.req.json().catch(() => null);
+  const parsed = VerdictBody.safeParse(raw);
+  if (!parsed.success) {
+    return c.json({ error: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; '), code: 'VALIDATION_ERROR' }, 400);
   }
-
-  if (!['GREEN', 'AMBER', 'RED', 'UNCANNY'].includes(body.verdict)) {
-    return c.json({ error: 'verdict must be GREEN, AMBER, RED, or UNCANNY', code: 'INVALID_VERDICT' }, 400);
-  }
-
-  if (body.confidence < 0 || body.confidence > 1) {
-    return c.json({ error: 'confidence must be between 0 and 1', code: 'INVALID_CONFIDENCE' }, 400);
-  }
+  const body = parsed.data;
 
   // Self-verdicts are not allowed (observer must be different from subject)
   if (body.subjectDid === body.observerDid) {

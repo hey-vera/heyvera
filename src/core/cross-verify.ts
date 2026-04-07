@@ -17,7 +17,7 @@
  */
 
 import { findEndpoint } from '../config/api-registry';
-import { isClawApisReady, clawApiCall } from '../providers/clawapis';
+import { isX402Ready, x402Call } from '../providers/x402-client';
 import { logger } from '../utils/logger';
 
 export interface VerificationResult {
@@ -88,15 +88,15 @@ export async function crossVerify(
     const endpoint = findEndpoint(source.endpointId);
     if (!endpoint) return null;
 
-    // Only attempt verification if ClawAPIs is ready (live data available)
-    if (!isClawApisReady()) return null;
+    // Only attempt verification if x402 client is ready (live data available)
+    if (!isX402Ready()) return null;
 
     const apiPath = endpoint.path;
     if (!apiPath) return null;
 
     // Build params from the input — pass through as-is for the reference call
     const params = typeof input === 'object' && input !== null ? { ...input } : {};
-    const referenceResult = await clawApiCall(apiPath, params, endpoint.baseUrl, AbortSignal.timeout(10_000));
+    const referenceResult = await x402Call(apiPath, params, endpoint.baseUrl, AbortSignal.timeout(10_000));
     if (!referenceResult) return null;
 
     // Compare

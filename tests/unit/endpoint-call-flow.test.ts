@@ -16,9 +16,9 @@ setupTestDb();
 import {
   createTestApp,
   callEndpoint,
-  mockClawApiCall,
+  mockX402Call,
   mockBirthCert,
-  mockClawApiThrow,
+  mockX402Throw,
   makeBirthCert,
   validApiKey,
 } from './helpers/integration';
@@ -35,9 +35,9 @@ beforeAll(async () => {
 beforeEach(() => {
   getTestDb().prepare('DELETE FROM api_keys').run();
   // Reset mock state
-  mockClawApiCall({ price: 42, symbol: 'SOL' });
+  mockX402Call({ price: 42, symbol: 'SOL' });
   mockBirthCert(null);
-  mockClawApiThrow(null);
+  mockX402Throw(null);
 });
 
 // ─── Full Call Flow ───────────────────────────────────────────────────────────
@@ -45,7 +45,7 @@ beforeEach(() => {
 describe('full call flow (live fetch)', () => {
   it('returns data and deducts credits for a valid call', async () => {
     const { key } = seedApiKey(getTestDb(), { key: validApiKey(), credits: 100 });
-    mockClawApiCall({ price: 142.5, symbol: 'SOL' });
+    mockX402Call({ price: 142.5, symbol: 'SOL' });
 
     const res = await callEndpoint(app, 'claw-token-price', {
       apiKey: key,
@@ -72,7 +72,7 @@ describe('full call flow (live fetch)', () => {
     const { key } = seedApiKey(getTestDb(), { key: validApiKey(), credits: 100 });
     const cert = makeBirthCert('sha256:test-data-hash-123');
     mockBirthCert(cert);
-    mockClawApiCall({ temperature: 72 });
+    mockX402Call({ temperature: 72 });
 
     const res = await callEndpoint(app, 'claw-token-price', {
       apiKey: key,
@@ -145,7 +145,7 @@ describe('full call flow (live fetch)', () => {
 
   it('returns 502 when upstream provider throws', async () => {
     const { key } = seedApiKey(getTestDb(), { key: validApiKey(), credits: 100 });
-    mockClawApiThrow(new Error('upstream 500'));
+    mockX402Throw(new Error('upstream 500'));
 
     const res = await callEndpoint(app, 'claw-token-price', {
       apiKey: key,
@@ -181,7 +181,7 @@ describe('cache hit flow', () => {
   it('second identical call is served from cache at reduced price', async () => {
     const { key } = seedApiKey(getTestDb(), { key: validApiKey(), credits: 100 });
     const uniqueMint = `cache-test-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    mockClawApiCall({ price: 142.5 });
+    mockX402Call({ price: 142.5 });
 
     // First call — force live fetch with realtime
     const res1 = await callEndpoint(app, 'claw-token-price', {
@@ -215,7 +215,7 @@ describe('cache hit flow', () => {
 
   it('cache hit includes X-Soma-Hash header for conditional payment', async () => {
     const { key } = seedApiKey(getTestDb(), { key: validApiKey(), credits: 100 });
-    mockClawApiCall({ data: 'test' });
+    mockX402Call({ data: 'test' });
 
     // Prime the cache
     await callEndpoint(app, 'claw-token-price', {
@@ -239,7 +239,7 @@ describe('cache hit flow', () => {
 
   it('different params bypass cache', async () => {
     const { key } = seedApiKey(getTestDb(), { key: validApiKey(), credits: 100 });
-    mockClawApiCall({ price: 1.0 });
+    mockX402Call({ price: 1.0 });
 
     // First call
     await callEndpoint(app, 'claw-token-price', {
@@ -248,7 +248,7 @@ describe('cache hit flow', () => {
     });
 
     // Different params — should NOT hit cache
-    mockClawApiCall({ price: 2.0 });
+    mockX402Call({ price: 2.0 });
     const res2 = await callEndpoint(app, 'claw-token-price', {
       apiKey: key,
       params: { mintAddress: 'token-B' },
@@ -265,7 +265,7 @@ describe('cache hit flow', () => {
 describe('Soma Check conditional payment', () => {
   it('returns unchanged=true when hash matches (shadow tier = free)', async () => {
     const { key } = seedApiKey(getTestDb(), { key: validApiKey(), credits: 100 });
-    mockClawApiCall({ data: 'stable-data' });
+    mockX402Call({ data: 'stable-data' });
 
     // Prime the cache to establish a hash
     const res1 = await callEndpoint(app, 'claw-token-price', {
@@ -300,7 +300,7 @@ describe('Soma Check conditional payment', () => {
 
   it('falls through to normal flow when hash does not match', async () => {
     const { key } = seedApiKey(getTestDb(), { key: validApiKey(), credits: 100 });
-    mockClawApiCall({ data: 'new-data' });
+    mockX402Call({ data: 'new-data' });
 
     // Prime cache
     await callEndpoint(app, 'claw-token-price', {
@@ -328,7 +328,7 @@ describe('Soma Check conditional payment', () => {
 
   it('Soma Check headers are present on hash match', async () => {
     const { key } = seedApiKey(getTestDb(), { key: validApiKey(), credits: 100 });
-    mockClawApiCall({ data: 'headers-test' });
+    mockX402Call({ data: 'headers-test' });
 
     // Prime
     const res1 = await callEndpoint(app, 'claw-token-price', {
@@ -362,7 +362,7 @@ describe('concurrent deduction safety', () => {
     const totalCredits = creditsPerCall * 5; // exactly 5 calls worth
     const { key } = seedApiKey(getTestDb(), { key: validApiKey(), credits: totalCredits });
 
-    mockClawApiCall({ price: 1 });
+    mockX402Call({ price: 1 });
 
     // Fire 10 concurrent calls
     const promises = Array.from({ length: 10 }, (_, i) =>
@@ -393,7 +393,7 @@ describe('concurrent deduction safety', () => {
 
   it('rapid sequential calls accumulate correct totals', async () => {
     const { key } = seedApiKey(getTestDb(), { key: validApiKey(), credits: 500 });
-    mockClawApiCall({ data: 'seq' });
+    mockX402Call({ data: 'seq' });
 
     // 10 sequential calls with realtime freshness
     for (let i = 0; i < 10; i++) {
@@ -430,7 +430,7 @@ describe('edge cases', () => {
 
   it('env-based API key skips credit deduction', async () => {
     // The env key is set via API_KEYS config — use a known test key
-    mockClawApiCall({ data: 'env-key-test' });
+    mockX402Call({ data: 'env-key-test' });
 
     const res = await callEndpoint(app, 'claw-token-price', {
       apiKey: 'test-key-123',
@@ -447,7 +447,7 @@ describe('edge cases', () => {
 
   it('credits_used tracks cumulative usage across calls', async () => {
     const { key } = seedApiKey(getTestDb(), { key: validApiKey(), credits: 100 });
-    mockClawApiCall({ data: 'tracking' });
+    mockX402Call({ data: 'tracking' });
 
     // Three live calls with different params
     for (let i = 0; i < 3; i++) {

@@ -232,12 +232,17 @@ export async function timestampSingle(uid: string): Promise<string | null> {
 // ─── Verification (offline — no chain call) ─────────────────────────────────
 
 /**
- * Verify an off-chain attestation signature. Pure cryptographic check — no RPC needed.
- * Returns true if the attestation was signed by the expected attester.
+ * Verify an off-chain attestation signature + revocation status.
+ * Step 1: Pure cryptographic check (no RPC needed for signature).
+ * Step 2: On-chain revocation check via EAS contract (requires RPC).
+ *
+ * @param checkRevocation — if true, queries on-chain revocation status (audit M3).
+ *   Defaults to false for backward compatibility.
  */
 export async function verifyOffchainReceipt(
   attestation: any,
   expectedAttester?: string,
+  checkRevocation = false,
 ): Promise<boolean> {
   try {
     const offchain = await getOffchain();
@@ -246,7 +251,20 @@ export async function verifyOffchainReceipt(
     const attester = expectedAttester || getWallet()?.address;
     if (!attester) return false;
 
-    return offchain.verifyOffchainAttestationSignature(attester, attestation);
+    const sigValid = offchain.verifyOffchainAttestationSignature(attester, attestation);
+    if (!sigValid) return false;
+
+    // On-chain revocation check (audit M3) — if the attestation UID has been
+    // revoked on-chain, the receipt is no longer valid even if the sig checks out.
+    if (checkRevocation && attestation.uid) {
+      const eas = getEAS();
+      if (eas) {
+        const onChain = await eas.getAttestation(attestation.uid);
+        if (onChain.revocationTime > 0n) return false;
+      }
+    }
+
+    return true;
   } catch {
     return false;
   }

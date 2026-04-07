@@ -27,7 +27,7 @@ import { trackDelegatedSpend } from '../utils/billing';
 import { deductCredit, getDb, getResellerConfig, upsertResellerConfig, deleteResellerConfig, createAutoAttestation } from '../db/index';
 import { round6, cacheCreditCost } from '../core/credits';
 import { cacheGet, cacheSet, cacheIncr } from '../cache/index';
-import { clawApiCall } from '../providers/clawapis';
+import { x402Call } from '../providers/x402-client';
 import { env, rateTier } from '../config/index';
 import { logger } from '../utils/logger';
 import { maskApiKey } from '../utils/mask';
@@ -250,7 +250,7 @@ llmRouter.post('/chat', checkApiKey, async (c) => {
       ...(temperature !== undefined ? { temperature } : {}),
     };
 
-    const result = await clawApiCall(
+    const result = await x402Call(
       modelMeta.path,
       normalizedPayload,
       X402ENGINE_BASE,
@@ -355,7 +355,7 @@ llmRouter.post('/embeddings', checkApiKey, async (c) => {
   }
 
   try {
-    const result = await clawApiCall('/api/embeddings', { input, model }, X402ENGINE_BASE) as Record<string, unknown>;
+    const result = await x402Call('/api/embeddings', { input, model }, X402ENGINE_BASE) as Record<string, unknown>;
 
     if (!keyInfo.isEnvKey) {
       let ok = false;
@@ -417,7 +417,7 @@ llmRouter.post('/code/run', checkApiKey, async (c) => {
   }
 
   try {
-    const result = await clawApiCall('/api/code/run', parsed.data, X402ENGINE_BASE);
+    const result = await x402Call('/api/code/run', parsed.data, X402ENGINE_BASE);
 
     if (!keyInfo.isEnvKey) {
       let ok = false;

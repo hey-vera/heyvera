@@ -19,7 +19,7 @@ import { initTelegram, stopTelegram } from './integrations/telegram';
 import { initXmtp, stopXmtp } from './integrations/xmtp';
 import { initDb, getDb } from './db/index';
 import { adminRouter } from './routes/admin';
-import { initClawApis } from './providers/clawapis';
+import { initX402Client } from './providers/x402-client';
 import { stripeRouter } from './routes/stripe';
 import { clerkWebhookRouter } from './routes/clerk-webhook';
 import { solanaRouter } from './routes/solana';
@@ -508,11 +508,11 @@ async function start() {
   await initRedis();
   await preloadCache();
 
-  const clawReady = await initClawApis();
+  const clawReady = await initX402Client();
   if (clawReady) {
-    logger.info('ClawAPIs x402: ready for real API calls');
+    logger.info('x402 client: ready for real API calls');
   } else {
-    logger.info('ClawAPIs x402: no SOLANA_PRIVATE_KEY set, simulation mode active');
+    logger.info('x402 client: no SOLANA_PRIVATE_KEY set, simulation mode active');
   }
 
   // Soma Heart — cryptographic provenance on outbound x402 fetches

@@ -3,7 +3,7 @@ import { apiRegistry, findEndpoint } from '../config/api-registry';
 import { getCircuitStats, isEndpointAvailable } from '../core/circuit-breaker';
 import { getDb, logAudit, dbRowToApiEndpoint, safeJsonParse } from '../db/connection';
 import { creditCostForEndpoint, round6, cacheCreditCost } from '../core/credits';
-import { isClawApisReady, clawApiCall, getLastBirthCertificate } from '../providers/clawapis';
+import { isX402Ready, x402Call, getLastBirthCertificate } from '../providers/x402-client';
 import { cacheKey, smartCacheGet, smartCacheSet, cacheNegative, getNegativeCache, coalesceRequest, enqueueRefresh, cacheIncr, type CacheFreshness } from '../cache/index';
 import { getClientIp } from '../middleware/rate-limit';
 import { recordDemand, recordWarmHit } from '../cache/keep-warm';
@@ -578,9 +578,9 @@ endpointsRouter.post('/:id/call', async (c) => {
     // Background refresh — fetches fresh data for the NEXT caller
     const swrApiPath = endpoint.path ?? `/${endpointId}`;
     const swrTtl = declaredTtl ?? endpoint.cacheTtl ?? env.CACHE_TTL_SECONDS;
-    if (isClawApisReady()) {
+    if (isX402Ready()) {
       enqueueRefresh(key, async () => {
-        const data = await clawApiCall(swrApiPath, params, endpoint.baseUrl);
+        const data = await x402Call(swrApiPath, params, endpoint.baseUrl);
         const dataHash = somaHashJson(data);
         await smartCacheSet(key, data, swrTtl, endpointId, endpoint.creditCost ?? endpoint.costPerCall);
         const birthCert = getLastBirthCertificate();
@@ -630,7 +630,7 @@ endpointsRouter.post('/:id/call', async (c) => {
     return c.json({ requestId, error: `Endpoint recently failed: ${negError}`, code: 'CACHED_FAILURE' }, 503);
   }
 
-  if (!isClawApisReady()) {
+  if (!isX402Ready()) {
     return c.json({ requestId, error: 'x402 client not initialized', code: 'X402_NOT_READY' }, 503);
   }
 
@@ -641,7 +641,7 @@ endpointsRouter.post('/:id/call', async (c) => {
   const warmApiPath = endpoint.path ?? `/${endpointId}`;
   const warmCreditCost = endpoint.creditCost ?? endpoint.costPerCall ?? 0.001;
   if (!alwaysFresh && warmTtl >= 5) recordDemand(endpointId, key, warmTtl, async () => {
-    const data = await clawApiCall(warmApiPath, params, endpoint.baseUrl);
+    const data = await x402Call(warmApiPath, params, endpoint.baseUrl);
     const dataHash = somaHashJson(data);
     await smartCacheSet(key, data, warmTtl, endpointId, warmCreditCost);
     const birthCert = getLastBirthCertificate();
@@ -656,7 +656,7 @@ endpointsRouter.post('/:id/call', async (c) => {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 15_000);
       try {
-        return await clawApiCall(apiPath, params, endpoint.baseUrl, controller.signal);
+        return await x402Call(apiPath, params, endpoint.baseUrl, controller.signal);
       } finally {
         clearTimeout(timer);
       }

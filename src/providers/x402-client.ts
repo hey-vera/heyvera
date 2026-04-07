@@ -10,7 +10,7 @@ const dynamicImport = new Function('specifier', 'return import(specifier)') as (
 
 let x402Client: { fetch: (input: string, init?: RequestInit) => Promise<Response> } | null = null;
 
-export async function initClawApis(): Promise<boolean> {
+export async function initX402Client(): Promise<boolean> {
   const privateKey = env.SOLANA_PRIVATE_KEY;
   if (!privateKey) return false;
 
@@ -34,15 +34,15 @@ export async function initClawApis(): Promise<boolean> {
       network: 'solana',
     });
 
-    logger.info({ wallet: keypair.publicKey.toBase58() }, 'ClawAPIs x402 initialized');
+    logger.info({ wallet: keypair.publicKey.toBase58() }, 'x402 client initialized');
     return true;
   } catch (err) {
-    logger.error({ err }, 'Failed to initialize ClawAPIs x402');
+    logger.error({ err }, 'Failed to initialize x402 client');
     return false;
   }
 }
 
-export function isClawApisReady(): boolean {
+export function isX402Ready(): boolean {
   return x402Client !== null;
 }
 
@@ -64,13 +64,13 @@ export function getLastBirthCertificate(): BirthCertificate | null {
  * @param params        — query string parameters
  * @param baseUrlOverride — provider base URL (overrides clawapis.com for multi-provider routing)
  */
-export async function clawApiCall(
+export async function x402Call(
   endpointPath: string,
   params: Record<string, unknown> = {},
   baseUrlOverride?: string,
   signal?: AbortSignal,
 ): Promise<unknown> {
-  if (!x402Client) throw new Error('ClawAPIs x402 not initialized');
+  if (!x402Client) throw new Error('x402 client not initialized');
 
   // If endpointPath is already a full URL, use it directly
   const isFullUrl = endpointPath.startsWith('http');

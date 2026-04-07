@@ -224,7 +224,9 @@ export function verifyBirthCert(input: VerifyInput): VerifyResult {
 
 /**
  * Verify a chain of birth certificates. Each cert MUST list its parent's
- * dataHash in parentCertificates. The chain is walked root→leaf.
+ * sha256(receiverSignature) in parentCertificates — matching soma-heart's
+ * convention (see birth-certificate.js:verifyBirthCertificateChain).
+ * The chain is walked root→leaf.
  */
 export function verifyBirthCertChain(
   chain: BirthCertificate[],
@@ -243,13 +245,15 @@ export function verifyBirthCertChain(
       return { valid: false, brokenAt: i, reason: result.reasons.join('; ') };
     }
     // Parent-pointer consistency (skip for root)
+    // soma-heart links via sha256(parent.receiverSignature), NOT parent.dataHash
     if (i > 0) {
       const parent = chain[i - 1];
-      if (!cert.parentCertificates.includes(parent.dataHash)) {
+      const parentRef = createHash('sha256').update(parent.receiverSignature).digest('hex');
+      if (!cert.parentCertificates.includes(parentRef)) {
         return {
           valid: false,
           brokenAt: i,
-          reason: `cert[${i}] does not reference parent cert[${i - 1}].dataHash`,
+          reason: `cert[${i}] does not reference sha256(parent cert[${i - 1}].receiverSignature)`,
         };
       }
     }

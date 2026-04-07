@@ -2,7 +2,7 @@
  * VIE Data Source Fetching Layer — Verified Intelligence Engine
  *
  * Fetches raw data from 5 categories in parallel, each with a primary + fallback
- * endpoint. Uses the same x402/clawApiCall pattern as the executor for ClawAPIs
+ * endpoint. Uses the same x402Call pattern as the executor for x402 providers
  * and direct fetch for free/external endpoints.
  *
  * Categories:
@@ -14,7 +14,7 @@
  */
 
 import { findEndpoint, type ApiEndpoint } from '../config/api-registry';
-import { isClawApisReady, clawApiCall } from '../providers/clawapis';
+import { isX402Ready, x402Call } from '../providers/x402-client';
 import { round6 } from './credits';
 import { logger } from '../utils/logger';
 
@@ -55,7 +55,7 @@ const FETCH_TIMEOUT_MS = 5_000;
 // ─── Endpoint Calling ───────────────────────────────────────────────────────
 
 /**
- * Call a registry endpoint by ID. Uses clawApiCall for x402/ClawAPIs endpoints,
+ * Call a registry endpoint by ID. Uses x402Call for x402 provider endpoints,
  * direct fetch for free external APIs (DexScreener, etc.).
  */
 async function callEndpoint(
@@ -74,12 +74,12 @@ async function callEndpoint(
     return directFetch(endpoint, params);
   }
 
-  // x402/ClawAPIs — use the standard clawApiCall
-  if (!isClawApisReady()) {
-    throw new Error('ClawAPIs x402 not initialized');
+  // x402 provider call
+  if (!isX402Ready()) {
+    throw new Error('x402 client not initialized');
   }
 
-  return clawApiCall(path, params, endpoint.baseUrl, AbortSignal.timeout(FETCH_TIMEOUT_MS));
+  return x402Call(path, params, endpoint.baseUrl, AbortSignal.timeout(FETCH_TIMEOUT_MS));
 }
 
 /**

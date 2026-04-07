@@ -13,7 +13,7 @@
 
 import { nanoid } from 'nanoid';
 import { findEndpoint, type ApiEndpoint } from '../config/api-registry';
-import { isClawApisReady, clawApiCall } from '../providers/clawapis';
+import { isX402Ready, x402Call } from '../providers/x402-client';
 import { llmComplete } from '../providers/llm';
 import { round6 } from './credits';
 import { getIntelScore } from '../db/intel';
@@ -246,12 +246,12 @@ async function callEndpoint(
     return directFetch(endpoint, params);
   }
 
-  // x402/ClawAPIs
-  if (!isClawApisReady()) {
-    throw new Error('ClawAPIs x402 not initialized');
+  // x402 provider call
+  if (!isX402Ready()) {
+    throw new Error('x402 client not initialized');
   }
 
-  return clawApiCall(path, params, endpoint.baseUrl, AbortSignal.timeout(FETCH_TIMEOUT_MS));
+  return x402Call(path, params, endpoint.baseUrl, AbortSignal.timeout(FETCH_TIMEOUT_MS));
 }
 
 async function directFetch(

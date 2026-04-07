@@ -16,8 +16,8 @@ setupTestDb();
 import {
   createTestApp,
   callEndpoint,
-  mockClawApiCall,
-  mockClawApiThrow,
+  mockX402Call,
+  mockX402Throw,
   validApiKey,
 } from './helpers/integration';
 
@@ -35,8 +35,8 @@ beforeEach(() => {
   const db = getTestDb();
   db.prepare('DELETE FROM api_keys').run();
   db.prepare('DELETE FROM delegated_keys').run();
-  mockClawApiCall({ data: 'scale-test' });
-  mockClawApiThrow(null);
+  mockX402Call({ data: 'scale-test' });
+  mockX402Throw(null);
 });
 
 describe('1×100 delegated keys — concurrent load', () => {
@@ -98,7 +98,7 @@ describe('1×100 delegated keys — concurrent load', () => {
       childKeys.push(r.childKey!);
     }
 
-    mockClawApiCall({ result: 'ok' });
+    mockX402Call({ result: 'ok' });
 
     // All 20 delegated keys call simultaneously
     const promises = childKeys.map((ck, i) =>
@@ -139,7 +139,7 @@ describe('1×100 delegated keys — concurrent load', () => {
       spendLimit: 100,
     })!;
 
-    mockClawApiCall({ result: 'ok' });
+    mockX402Call({ result: 'ok' });
 
     // 5 sequential calls — each costs 1.5 credits
     for (let i = 0; i < 5; i++) {
@@ -224,7 +224,7 @@ describe('1×100 delegated keys — concurrent load', () => {
       childKeys.push(r.childKey!);
     }
 
-    mockClawApiCall({ stress: true });
+    mockX402Call({ stress: true });
 
     // 20 keys × 5 calls = 100 concurrent requests
     const promises: Promise<Response>[] = [];

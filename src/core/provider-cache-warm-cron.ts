@@ -8,7 +8,7 @@
  * How it works:
  *   1. Provider sets `cache_warm = true` + `update_frequency_seconds` on their endpoint
  *   2. This cron checks the cache_warm_schedule table every 30s
- *   3. When an endpoint is due, it fetches fresh data via clawApiCall()
+ *   3. When an endpoint is due, it fetches fresh data via x402Call()
  *   4. Data is cached + a new Certified Cache certificate is created
  *   5. Agents hitting this endpoint always get a fresh, certified cache hit
  *
@@ -20,7 +20,7 @@
 
 import { getDb } from '../db/connection';
 import { findEndpoint } from '../config/api-registry';
-import { isClawApisReady, clawApiCall, getLastBirthCertificate } from '../providers/clawapis';
+import { isX402Ready, x402Call, getLastBirthCertificate } from '../providers/x402-client';
 import { smartCacheSet, cacheKey } from '../cache/index';
 import { createCacheCertificate, getCacheHashInfo } from './cache-certificate';
 import { somaHashJson } from '../utils/crypto-agility';
@@ -92,7 +92,7 @@ async function warmEndpoint(schedule: WarmScheduleRow): Promise<boolean> {
 
   try {
     const apiPath = endpoint.path ?? `/${schedule.endpoint_id}`;
-    const data = await clawApiCall(apiPath, {}, endpoint.baseUrl);
+    const data = await x402Call(apiPath, {}, endpoint.baseUrl);
 
     const key = cacheKey(schedule.endpoint_id, {});
     // JCS-canonical hash — MUST match serving path (endpoints.ts:490) for cache probes to hit
@@ -159,7 +159,7 @@ export function startProviderCacheWarmCron(): void {
   try { syncWarmSchedule(); } catch { /* DB might not be ready */ }
 
   _cronTimer = setInterval(async () => {
-    if (!isClawApisReady()) return;
+    if (!isX402Ready()) return;
 
     try {
       // Periodic sync (every ~5 minutes worth of cycles)

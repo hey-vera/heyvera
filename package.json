@@ -10,6 +10,7 @@
     "test:unit": "vitest run",
     "test:unit:watch": "vitest",
     "test:unit:coverage": "vitest run --coverage",
+    "audit:prod": "npm audit --production --audit-level=high || echo 'WARN: npm audit found high/critical vulnerabilities'",
     "typecheck": "tsc --noEmit",
     "mcp": "tsx src/mcp/server.ts",
     "x-outreach": "tsx src/bots/x-outreach.ts"

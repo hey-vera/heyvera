@@ -22,10 +22,11 @@
  * public keys from each party's /.well-known/soma.json endpoint.
  */
 
-import { createHash } from 'crypto';
+import { createHash, createPublicKey, verify as cryptoVerify } from 'crypto';
 import nacl from 'tweetnacl';
 import { logger } from '../utils/logger';
 import { somaHash } from '../utils/crypto-agility';
+import { isValidHex } from '../utils/encoding';
 import { getEd25519PublicKeyRaw, derivePlatformSeed } from '../utils/ed25519-signer';
 import { env } from '../config/index';
 
@@ -91,14 +92,25 @@ export function extractProviderCert(headers: Record<string, string | undefined>)
 
 /**
  * Verify a provider's Ed25519 birth certificate signature.
- * Returns true if the signature is valid for the given data hash and public key.
+ * Uses Node native crypto.verify for strict RFC 8032 §5.1.7 compliance
+ * (rejects malleable signatures where S >= L, unlike TweetNaCl).
  */
-const HEX_RE = /^[0-9a-f]+$/i;
+// DER prefix for Ed25519 SPKI public key: SEQUENCE { SEQUENCE { OID 1.3.101.112 }, BIT STRING }
+const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
+
+function ed25519Verify(message: Buffer, sig: Buffer, pubKeyRaw: Buffer): boolean {
+  const spkiKey = createPublicKey({
+    key: Buffer.concat([ED25519_SPKI_PREFIX, pubKeyRaw]),
+    format: 'der',
+    type: 'spki',
+  });
+  return cryptoVerify(null, message, spkiKey, sig);
+}
 
 export function verifyProviderCert(cert: ProviderCertificate): boolean {
   try {
-    // Validate hex format before Buffer.from — prevents silent garbled bytes (audit M7)
-    if (!HEX_RE.test(cert.dataHash) || !HEX_RE.test(cert.signature) || !HEX_RE.test(cert.publicKey)) {
+    // Validate hex format before Buffer.from — prevents silent garbled bytes (audit M7, H2)
+    if (!isValidHex(cert.dataHash) || !isValidHex(cert.signature) || !isValidHex(cert.publicKey)) {
       logger.warn('Provider cert contains non-hex fields — rejecting');
       return false;
     }
@@ -111,11 +123,7 @@ export function verifyProviderCert(cert: ProviderCertificate): boolean {
       return false;
     }
 
-    return nacl.sign.detached.verify(
-      new Uint8Array(message),
-      new Uint8Array(sig),
-      new Uint8Array(pubKey),
-    );
+    return ed25519Verify(message, sig, pubKey);
   } catch (err) {
     logger.warn({ err }, 'Provider cert verification failed');
     return false;
@@ -228,18 +236,14 @@ export function verifyDualSign(result: DualSignResult): {
   const expectedChainHash = somaHash(chainPayload);
   const chainOk = expectedChainHash === result.chainHash;
 
-  // Verify platform signature over chain hash
+  // Verify platform signature over chain hash (Node crypto for strict RFC 8032)
   let platformOk = false;
   try {
     const chainHashBytes = Buffer.from(result.chainHash, 'hex');
     const sig = Buffer.from(result.platform.signature, 'hex');
     const pubKey = Buffer.from(result.platform.publicKey, 'hex');
 
-    platformOk = nacl.sign.detached.verify(
-      new Uint8Array(chainHashBytes),
-      new Uint8Array(sig),
-      new Uint8Array(pubKey),
-    );
+    platformOk = ed25519Verify(chainHashBytes, sig, pubKey);
   } catch {
     platformOk = false;
   }
