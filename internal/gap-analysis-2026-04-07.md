@@ -342,12 +342,14 @@ LAYER 5: Built on everything
 - **Dependency:** Phase 1 (heart producing certs)
 
 ### Phase 3: Integration Tests + Scale (Week 3-4)
-- [ ] Full call flow integration test
-- [ ] Concurrent deduction test
-- [ ] Soma Check billing flow test
+- [x] Full call flow integration test (auth → fetch → deduct → headers → response)
+- [x] Concurrent deduction test (parallel calls never produce negative balance)
+- [x] Soma Check billing flow test (hash match → free shadow, hash miss → full cost)
+- [x] Cache hit flow test (reduced price, cert headers, param isolation)
+- [x] Edge cases (inactive key, env key, 404, 401, 502, empty body)
 - [ ] Scale test B (1×100 delegated) — the realistic hot path
 - [ ] Scale test A (100 flat hearts)
-- **Time:** 1-2 weeks
+- **Status:** Integration tests DONE (19 tests). Scale tests remain.
 - **Dependency:** Phase 2 (all core modules working)
 
 ### Phase 4: Real Traffic + Telemetry (Week 5-6)
