@@ -347,9 +347,9 @@ LAYER 5: Built on everything
 - [x] Soma Check billing flow test (hash match → free shadow, hash miss → full cost)
 - [x] Cache hit flow test (reduced price, cert headers, param isolation)
 - [x] Edge cases (inactive key, env key, 404, 401, 502, empty body)
-- [ ] Scale test B (1×100 delegated) — the realistic hot path
-- [ ] Scale test A (100 flat hearts)
-- **Status:** Integration tests DONE (19 tests). Scale tests remain.
+- [x] Scale test B: 20 delegated keys × 5 calls = 100 concurrent (credit atomicity + spend limits)
+- [x] Scale test A: 100 flat hearts — create, sign, destroy lifecycle (crypto throughput)
+- **Status:** DONE. 31 new tests (19 integration + 7 delegation scale + 5 heart scale). 292 total.
 - **Dependency:** Phase 2 (all core modules working)
 
 ### Phase 4: Real Traffic + Telemetry (Week 5-6)

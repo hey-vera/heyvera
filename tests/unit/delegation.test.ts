@@ -328,9 +328,9 @@ describe('Soma Delegation v0.1 — chain response headers', () => {
     expect(headers!['X-Soma-Delegation-Hops']).toBe('1');
     expect(headers!['X-Soma-Delegation-Intent']).toBe('research: summarize DeFi TVL');
     // Chain should contain one masked leaf key
-    expect(headers!['X-Soma-Delegation-Chain']).toMatch(/^.{4}••••.{4}$/);
+    expect(headers!['X-Soma-Delegation-Chain']).toMatch(/^.{4}\*{4}.{4}$/);
     // Root should mask the original API key (not the child)
-    expect(headers!['X-Soma-Delegation-Root']).toMatch(/^.{4}••••.{4}$/);
+    expect(headers!['X-Soma-Delegation-Root']).toMatch(/^.{4}\*{4}.{4}$/);
     expect(headers!['X-Soma-Delegation-Root']).not.toBe(headers!['X-Soma-Delegation-Chain']);
   });
 
