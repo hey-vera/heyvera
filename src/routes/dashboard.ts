@@ -37,6 +37,7 @@ import { cacheIncr } from '../cache/index';
 import { maskApiKey } from '../utils/mask';
 import { getSignalBalance, getSignalHistory, getVaultLocks, createVaultLock, requestVaultUnlock, getSignalLeaderboard, getSignalStats } from '../db/signal';
 import { deductCredit } from '../db/credits';
+import { listTasks, countTasks } from '../db/index';
 
 function generateApiKey(): string {
   return 'cn-' + crypto.randomBytes(24).toString('hex');
@@ -534,6 +535,20 @@ dashboardRouter.post('/vault/:id/unlock', requireClerkAuth, async (c) => {
   } catch (err: any) {
     return c.json({ error: err.message, code: 'VAULT_ERROR' }, 400);
   }
+});
+
+// GET /v1/dashboard/tasks — Clerk-auth'd task history proxy
+dashboardRouter.get('/tasks', requireClerkAuth, (c) => {
+  const info = getKeyForClerk(c);
+  if (!info) return c.json({ error: 'No API key found', code: 'KEY_NOT_FOUND' }, 404);
+
+  const limit = Math.min(parseInt(c.req.query('limit') ?? '10') || 10, 100);
+  const offset = parseInt(c.req.query('offset') ?? '0') || 0;
+
+  const tasks = listTasks(info.key, limit, offset);
+  const total = countTasks(info.key);
+
+  return c.json({ tasks, total });
 });
 
 // GET /v1/dashboard/signal — detailed signal data for leaderboard context

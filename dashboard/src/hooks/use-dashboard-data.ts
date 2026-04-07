@@ -55,7 +55,7 @@ export function useTaskHistory(limit = 10) {
   return useQuery({
     queryKey: ['tasks', limit],
     queryFn: async () =>
-      apiFetch<{ tasks: TaskRow[] }>(`/v1/tasks?limit=${limit}`, {
+      apiFetch<{ tasks: TaskRow[]; total: number }>(`/v1/dashboard/tasks?limit=${limit}`, {
         headers: await getHeaders(),
       }),
   });

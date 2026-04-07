@@ -135,7 +135,7 @@ function RecentTasks() {
                     </div>
                   </TableCell>
                   <TableCell className="text-right text-sm">
-                    {t.credits_cost.toFixed(1)} cr
+                    {(t.credits_cost ?? 0).toFixed(1)} cr
                   </TableCell>
                   <TableCell className="text-right text-xs text-muted-foreground">
                     {t.duration_ms ? `${t.duration_ms}ms` : '-'}
@@ -170,20 +170,20 @@ function CacheCard({ loading }: { loading: boolean }) {
             <div className="space-y-1">
               <p className="text-xs text-muted-foreground">Hit Rate</p>
               <p className="text-lg font-bold">
-                {(cache.hitRate * 100).toFixed(1)}%
+                {((cache.hitRate ?? 0) * 100).toFixed(1)}%
               </p>
             </div>
             <div className="space-y-1">
               <p className="text-xs text-muted-foreground">Credits Saved</p>
-              <p className="text-lg font-bold">{cache.creditsSaved.toFixed(1)} cr</p>
+              <p className="text-lg font-bold">{(cache.creditsSaved ?? 0).toFixed(1)} cr</p>
             </div>
             <div className="space-y-1">
               <p className="text-xs text-muted-foreground">Cache Hits</p>
-              <p className="text-sm">{cache.totalHits.toLocaleString()}</p>
+              <p className="text-sm">{(cache.totalHits ?? 0).toLocaleString()}</p>
             </div>
             <div className="space-y-1">
               <p className="text-xs text-muted-foreground">Cache Misses</p>
-              <p className="text-sm">{cache.totalMisses.toLocaleString()}</p>
+              <p className="text-sm">{(cache.totalMisses ?? 0).toLocaleString()}</p>
             </div>
           </div>
         ) : null}
