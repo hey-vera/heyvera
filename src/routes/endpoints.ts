@@ -22,6 +22,7 @@ import { nanoid } from 'nanoid';
 import { recordSuccess, recordFailure } from '../core/circuit-breaker';
 import { createSomaReceipt } from '../core/soma-receipt';
 import { issueDataFetchCert } from '../core/executor';
+import { resolveComputationType } from '../core/computation-types';
 import { logSomaCheckEvent } from '../db/soma-check';
 import { awardSignal } from '../db/signal';
 
@@ -671,11 +672,12 @@ endpointsRouter.post('/:id/call', async (c) => {
     // Retrieve birth cert ONCE — getLastBirthCertificate() clears on read
     const birthCertificate = getLastBirthCertificate() ?? undefined;
 
-    // Verified computation: issue cert if endpoint declares a computationType
+    // Verified computation: resolve computationType (explicit or category default)
     let computationCertId: string | undefined;
-    if (endpoint.computationType && data) {
+    const resolvedCompType = resolveComputationType(endpoint);
+    if (resolvedCompType && data) {
       try {
-        const cert = issueDataFetchCert(endpointId, endpoint.computationType, c.req.query() as Record<string, string>, data, birthCertificate);
+        const cert = issueDataFetchCert(endpointId, resolvedCompType, c.req.query() as Record<string, string>, data, birthCertificate);
         if (cert) computationCertId = cert.id;
       } catch {
         // Spot-check is advisory — never block the response

@@ -12,7 +12,7 @@ import { creditCostForEndpoint, round6 } from './credits';
 import { generateSeedCommitment } from './commit-reveal';
 import { createComputationCertificate, type ComputationCertificate } from './computation-certificate';
 import { checkSum, checkCount, checkMinMax, checkSort, checkEconomicOnly, type SpotCheckResult } from './spot-check';
-import { getComputationType } from './computation-types';
+import { getComputationType, resolveComputationType } from './computation-types';
 import { somaHash, somaHashJson } from '../utils/crypto-agility';
 
 export interface StepResult {
@@ -510,11 +510,12 @@ async function executeStep(
     recordSuccess(step.endpointId);
     const birthCertificate = getLastBirthCertificate() ?? undefined;
 
-    // Verified computation: if endpoint declares a computationType, run spot-check
+    // Verified computation: resolve computationType (explicit or category default)
     let computationCertId: string | undefined;
-    if (endpoint.computationType && data) {
+    const resolvedCompType = resolveComputationType(endpoint);
+    if (resolvedCompType && data) {
       try {
-        const cert = issueDataFetchCert(step.endpointId, endpoint.computationType, step.params, data, birthCertificate);
+        const cert = issueDataFetchCert(step.endpointId, resolvedCompType, step.params, data, birthCertificate);
         if (cert) computationCertId = cert.id;
       } catch {
         // Spot-check is advisory — never block the response

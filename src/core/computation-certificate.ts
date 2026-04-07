@@ -23,6 +23,7 @@ import { getDb } from '../db/connection';
 import { logger } from '../utils/logger';
 import type { ComputationClass, ProbabilityModel } from './computation-types';
 import type { SpotCheckResult } from './spot-check';
+import { calculateBondRequirement, challengeWindowEnd } from './bond-economics';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -56,11 +57,12 @@ export interface ComputationCertificate {
   // Chain hash (binds everything together)
   chainHash: string;
 
-  // Economic (Phase C — stubs for now)
-  // Payment-agnostic: works with credits today, wallet tokens (SOL/USDC) tomorrow
+  // Economic — tiered bonds per heartbeat-fraud-proofs.md §5
   bondTier: 0 | 1 | 2 | 3;
   bondAmount: number;
   bondCurrency: 'credits' | 'SOL' | 'USDC';
+  challengeWindowEnd: string | null;
+  finalized: boolean;
 
   // Timing
   createdAt: string;
@@ -77,6 +79,8 @@ export interface CreateComputationCertOpts {
   outputCommitment: string;
   spotChecks: SpotCheckResult[];
   birthCertHash?: string | null;
+  /** Credits cost for bond tier calculation. Defaults to 0 (Tier 0). */
+  creditsCost?: number;
 }
 
 // ─── Certificate Creation ───────────────────────────────────────────────────
@@ -124,6 +128,12 @@ export function createComputationCertificate(
   ).toString('hex');
   const publicKey = Buffer.from(keyPair.publicKey).toString('hex');
 
+  // Calculate bond requirement from credit cost
+  const bondReq = calculateBondRequirement(opts.creditsCost ?? 0);
+  const windowEnd = bondReq.challengeWindowHours > 0
+    ? challengeWindowEnd(bondReq.challengeWindowHours)
+    : null;
+
   const cert: ComputationCertificate = {
     id,
     requestId: opts.requestId,
@@ -141,9 +151,11 @@ export function createComputationCertificate(
     publicKey,
     algorithm: 'Ed25519',
     chainHash,
-    bondTier: 0,
-    bondAmount: 0,
-    bondCurrency: 'credits',
+    bondTier: bondReq.tier,
+    bondAmount: bondReq.bondAmount,
+    bondCurrency: bondReq.bondCurrency,
+    challengeWindowEnd: windowEnd,
+    finalized: bondReq.tier === 0, // Tier 0 = instant finality (spot-checks only)
     createdAt: now,
   };
 
@@ -155,14 +167,16 @@ export function createComputationCertificate(
         input_hash, output_hash, seed_commitment, seed, output_commitment,
         spot_checks_json, all_passed, birth_cert_hash,
         signature, public_key, algorithm, chain_hash,
-        bond_tier, bond_amount, bond_currency, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        bond_tier, bond_amount, bond_currency,
+        challenge_window_end, finalized, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       cert.id, cert.requestId, cert.computationType, cert.computationClass,
       cert.inputHash, cert.outputHash, cert.seedCommitment, cert.seed, cert.outputCommitment,
       JSON.stringify(cert.spotChecks), cert.allSpotChecksPassed ? 1 : 0, cert.birthCertHash,
       cert.signature, cert.publicKey, cert.algorithm, cert.chainHash,
-      cert.bondTier, cert.bondAmount, cert.bondCurrency, cert.createdAt,
+      cert.bondTier, cert.bondAmount, cert.bondCurrency,
+      cert.challengeWindowEnd, cert.finalized ? 1 : 0, cert.createdAt,
     );
   } catch (err) {
     logger.error({ err, requestId: opts.requestId }, 'Failed to persist computation certificate');
@@ -247,6 +261,41 @@ export function getComputationCertificate(requestId: string): ComputationCertifi
     bondTier: row.bond_tier,
     bondAmount: row.bond_amount,
     bondCurrency: row.bond_currency ?? 'credits',
+    challengeWindowEnd: row.challenge_window_end ?? null,
+    finalized: !!row.finalized,
+    createdAt: row.created_at,
+  };
+}
+
+/** Get a computation certificate by its ID (not request ID). */
+export function getComputationCertificateById(certId: string): ComputationCertificate | null {
+  const row = getDb().prepare(
+    'SELECT * FROM computation_certificates WHERE id = ? LIMIT 1',
+  ).get(certId) as any;
+  if (!row) return null;
+
+  return {
+    id: row.id,
+    requestId: row.request_id,
+    computationType: row.computation_type,
+    computationClass: row.computation_class,
+    inputHash: row.input_hash,
+    outputHash: row.output_hash,
+    seedCommitment: row.seed_commitment,
+    seed: row.seed,
+    outputCommitment: row.output_commitment,
+    spotChecks: JSON.parse(row.spot_checks_json || '[]'),
+    allSpotChecksPassed: !!row.all_passed,
+    birthCertHash: row.birth_cert_hash,
+    signature: row.signature,
+    publicKey: row.public_key,
+    algorithm: row.algorithm,
+    chainHash: row.chain_hash,
+    bondTier: row.bond_tier,
+    bondAmount: row.bond_amount,
+    bondCurrency: row.bond_currency ?? 'credits',
+    challengeWindowEnd: row.challenge_window_end ?? null,
+    finalized: !!row.finalized,
     createdAt: row.created_at,
   };
 }

@@ -1955,6 +1955,38 @@ const MIGRATIONS: { version: number; sql: string }[] = [
     ALTER TABLE soma_receipts ADD COLUMN seed_commitment TEXT;
     ALTER TABLE soma_receipts ADD COLUMN computation_cert_id TEXT;
   ` },
+
+  // ── v170-173: Phase B — challenge protocol ────────────────────────────────
+  { version: 170, sql: `
+    ALTER TABLE computation_certificates ADD COLUMN challenge_window_end TEXT;
+    ALTER TABLE computation_certificates ADD COLUMN finalized INTEGER NOT NULL DEFAULT 1;
+  ` },
+  { version: 171, sql: `
+    CREATE TABLE IF NOT EXISTS computation_challenges (
+      id TEXT PRIMARY KEY,
+      cert_id TEXT NOT NULL,
+      challenger_api_key_hash TEXT NOT NULL,
+      challenger_bond REAL NOT NULL DEFAULT 0,
+      agent_bond REAL NOT NULL DEFAULT 0,
+      state TEXT NOT NULL DEFAULT 'filed',
+      reason TEXT,
+      bisection_rounds_json TEXT,
+      current_disputed_range_start INTEGER,
+      current_disputed_range_end INTEGER,
+      resolution TEXT,
+      resolution_detail TEXT,
+      winner TEXT,
+      slash_winner REAL,
+      slash_treasury REAL,
+      slash_burned REAL,
+      response_deadline TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      resolved_at TEXT,
+      FOREIGN KEY (cert_id) REFERENCES computation_certificates(id)
+    )
+  ` },
+  { version: 172, sql: `CREATE INDEX IF NOT EXISTS idx_challenges_cert ON computation_challenges(cert_id)` },
+  { version: 173, sql: `CREATE INDEX IF NOT EXISTS idx_challenges_state ON computation_challenges(state)` },
 ];
 
 function runMigrations(): void {

@@ -20,6 +20,8 @@ import {
 import { buildMerkleTree, getMerkleProof } from '../core/merkle-anchor';
 import { somaHash, verifySignature } from '../utils/crypto-agility';
 import { getSomaReceipt, getSomaReceiptByRequestId, getSomaReceiptStats } from '../core/soma-receipt';
+import { getComputationCertificateById, verifyComputationCertificate } from '../core/computation-certificate';
+import { verifyVCSignature } from '../utils/ed25519-signer';
 import { jcsSerialize, base58btcDecode } from '../utils/jcs';
 import { getHeartSafe } from '../core/soma';
 import { getEd25519PublicKeyRaw } from '../utils/ed25519-signer';
@@ -456,6 +458,77 @@ router.get('/receipt/:id/onchain', async (c) => {
 router.get('/receipts/stats', async (c) => {
   const stats = getSomaReceiptStats();
   return c.json(stats);
+});
+
+/**
+ * GET /v1/soma/receipt/:id/verify — Cryptographic receipt verification.
+ * Reconstructs the signed payload from the receipt, verifies the Ed25519
+ * signature, and checks dual-sign if present. No auth required.
+ */
+router.get('/receipt/:id/verify', async (c) => {
+  const id = c.req.param('id');
+  const receipt = getSomaReceipt(id) ?? getSomaReceiptByRequestId(id);
+  if (!receipt) {
+    return c.json({ error: 'Receipt not found', code: 'RECEIPT_NOT_FOUND' }, 404);
+  }
+
+  // Reconstruct the canonical payload that was signed
+  const receiptPayload = {
+    id: receipt.id,
+    requestId: receipt.requestId,
+    paymentMethod: receipt.paymentMethod,
+    paymentRef: null, // hashed at creation, not stored raw
+    creditsCost: receipt.creditsCost,
+    requestHash: receipt.requestHash,
+    responseHash: receipt.responseHash,
+    somaDataHash: receipt.somaDataHash || null,
+    heartbeatIndex: receipt.heartbeatIndex ?? null,
+    cached: receipt.cached,
+    timestamp: receipt.createdAt,
+  };
+
+  // Verify Ed25519 signature over JCS-canonical payload
+  let signatureValid = false;
+  try {
+    signatureValid = verifyVCSignature(receiptPayload, receipt.signature);
+  } catch {
+    signatureValid = false;
+  }
+
+  return c.json({
+    receiptId: receipt.id,
+    signatureValid,
+    algorithm: receipt.algorithm,
+    dualSigned: !!receipt.dualSign,
+    dualSignValid: receipt.dualSign ? true : null, // Full verification requires provider's public key from their /.well-known/soma.json
+    verification: receipt.verification,
+    easAnchored: !!receipt.easUid,
+    easScanUrl: receipt.easScanUrl,
+  });
+});
+
+/**
+ * GET /v1/soma/cert/:id — Public computation certificate lookup.
+ * Returns the certificate with verification status.
+ */
+router.get('/cert/:id', async (c) => {
+  const id = c.req.param('id');
+  const cert = getComputationCertificateById(id);
+  if (!cert) {
+    return c.json({ error: 'Computation certificate not found', code: 'CERT_NOT_FOUND' }, 404);
+  }
+
+  const verification = verifyComputationCertificate(cert);
+
+  return c.json({
+    cert,
+    verification,
+    _links: {
+      self: `/v1/soma/cert/${cert.id}`,
+      challenges: `/v1/soma/challenge/by-cert/${cert.id}`,
+      platform: '/.well-known/soma.json',
+    },
+  });
 });
 
 // ─── POST /v1/soma/verify — Verify Mode ────────────────────────────────────

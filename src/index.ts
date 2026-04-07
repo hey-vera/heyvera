@@ -73,6 +73,8 @@ import { signalRouter } from './routes/signal';
 import { statsTelemetryRouter } from './routes/stats-telemetry';
 import { x402FacilitatorRouter } from './routes/x402-facilitator';
 import { skillBuilderRouter } from './routes/skill-builder';
+import { challengeRouter } from './routes/soma-challenge';
+import { startChallengeFinalizeCron } from './core/challenge-finalize-cron';
 import { startTrustDecayCron } from './core/trust-decay-cron';
 import { referralRouter } from './routes/referral';
 import { startEndpointHealthCron } from './core/endpoint-health-cron';
@@ -331,6 +333,7 @@ app.route('/v1/soma', somaRouter);
 app.route('/v1/soma/check', somaCheckRouter);
 app.route('/v1/soma/vouch', vouchRouter);
 app.route('/v1/soma/demo', somaDemoRouter);
+app.route('/v1/soma/challenge', challengeRouter);
 app.route('/v1/providers', providersRouter);
 app.route('/v1/signal', signalRouter);
 app.route('/x402/facilitator', x402FacilitatorRouter);
@@ -561,6 +564,7 @@ async function start() {
   startCanaryCron();               cronsStarted++;
   startTrustDecayCron();           cronsStarted++;
   startSignalCron();               cronsStarted++;
+  startChallengeFinalizeCron();     cronsStarted++;
 
   // Load embedding model + seed in background — don't block server startup
   loadEmbeddingModel()

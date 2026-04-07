@@ -203,4 +203,53 @@ export function registerBuiltinTypes(): void {
     probabilityModel: 'none',
     description: 'LLM generation — inherently non-deterministic, economic verification only',
   });
+  registerComputationType({
+    id: 'data-fetch',
+    name: 'External Data Fetch',
+    class: 'economic-only',
+    probabilityModel: 'none',
+    description: 'External API data retrieval — cannot re-execute upstream, economic verification only',
+  });
+}
+
+// ─── Category → Computation Type Defaults ──────────────────────────────────
+
+/**
+ * Default computation type per endpoint category.
+ * Used when an endpoint doesn't declare an explicit computationType.
+ * All external API pass-throughs are economic-only — the certificate binds
+ * payment → request → response → birth cert even without spot-check verification.
+ */
+const CATEGORY_DEFAULTS: Record<string, string> = {
+  solana: 'data-fetch',
+  oracle: 'data-fetch',
+  defi: 'data-fetch',
+  social: 'data-fetch',
+  utility: 'data-fetch',
+  scraping: 'data-fetch',
+  discovery: 'data-fetch',
+  infrastructure: 'data-fetch',
+  search: 'data-fetch',
+  enrichment: 'data-fetch',
+  weather: 'data-fetch',
+  intelligence: 'ml-inference',
+  security: 'ml-inference',
+  'ai-ml': 'llm-generation',
+  media: 'ml-inference',
+};
+
+/**
+ * Resolve the computation type for an endpoint.
+ * Checks explicit computationType first, then falls back to category default.
+ * Returns null if neither is set (should not happen with CATEGORY_DEFAULTS).
+ */
+export function resolveComputationType(endpoint: {
+  computationType?: string;
+  category?: string;
+}): string | null {
+  if (endpoint.computationType) return endpoint.computationType;
+  if (endpoint.category && CATEGORY_DEFAULTS[endpoint.category]) {
+    return CATEGORY_DEFAULTS[endpoint.category];
+  }
+  return null;
 }
