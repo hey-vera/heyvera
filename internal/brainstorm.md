@@ -4,7 +4,7 @@
 
 **Organized by project.** Cross-reference other strategy docs when relevant.
 
-**Last updated:** 2026-04-05.
+**Last updated:** 2026-04-07.
 
 ---
 
@@ -38,6 +38,40 @@
 - ~~**Tier system unification**~~ — DONE (2026-04-06). Old tiers deprecated, all 'founding'. Soma Check T0-T3 separate. See `internal/tier-system.md`.
 - ~~**Cache hit economics revision**~~ — DECIDED (2026-04-06). Keeping 50/50 cache split. See `docs/billing.md`.
 - **Provider payout spread reduction** — 25% -> 15% buy/sell spread. Details in `internal/pricing-economics.md`.
+
+### Verified Data Machine (2026-04-07)
+
+- **Full vision doc:** `internal/verified-data-machine.md` — unified Heart+Cache+Check+Receipt machine
+- **Provenance chain architecture:** `internal/provenance-chain-architecture.md` — DerivationCert schema, provenance DAG, 7 levels of proof, C2PA/OpenLineage interop
+- **Modular Heart concept** — each module standalone, composes seamlessly, no combination fails
+- **$CLAWNET expanded role** — verification staking, verifier rewards, governance (beyond BME)
+- **Blacksmith provenance chain** — derivation certs, `X-Soma-Derived-From`, full DAG from data origin through every agent transformation
+- **Session A COMPLETE** — provenance chain architecture in `provenance-chain-architecture.md`
+- **5 ultra-think sessions remaining** — token v2 (B), modular design (C), proof assessment (D), 10-year stress test (E), agent network operator platform (F)
+- **Key research findings:** No framework has data verification. $12.9M/year avg cost of bad data. Agent memory gap (Soma Check uniquely fills "has source changed?"). Credit bureau model ($124B market) is the long-term moat analogy.
+
+#### Agent Networks & Hierarchical Hearts (2026-04-07)
+
+Core finding: every agent needs its own heart. Not debatable — 40 years of PKI, SPIFFE/SPIRE, Ethereum validators, military DoD PKI, and every 2026 AI agent identity proposal all converge on individual identity.
+
+**Architecture:** Root Heart (cold) → Fleet Heart (intermediate) → Agent Heart (leaf). HD derivation from single seed = 1000-key management is operationally same as 1-key. BLS aggregate signatures compress 1000 sigs into O(1) verification. SPIFFE-style short-lived SVIDs auto-expire for ephemeral agents.
+
+**Cross-network hiring flow:** Agent A (Network X) hires Agent B (Network Y) → delegation cert scopes work + spend + expiry → B's output carries B's birth cert + A's delegation cert → full chain verifiable by anyone who trusts Root X.
+
+**Competitive landscape for "agents hire agents" economy:**
+- **CrewAI** — orchestration, no trust/payment layer. Cooperate (run crews with Soma hearts)
+- **Olas (Autonolas)** — agent marketplace, token-staked registry. Compete on trust layer, cooperate on discovery
+- **Virtuals ACP** — agent commerce protocol, 4-phase lifecycle. Compete on evaluator role (ClawNet as evaluator oracle)
+- **MS Agent Governance Toolkit** (2026-04-03) — DID identity, trust 0-1000, delegation chains. Most direct overlap. Governance focus, NOT provenance. We beat them on provenance chain.
+- **ERC-8004** — on-chain agent identity (85K+ agents). Identity + Reputation + Validation registries. Cooperate (register Soma hearts as ERC-8004 identities)
+- **ERC-8183** — programmable escrow for agent commerce. ClawNet as evaluator oracle is a natural fit.
+- **MCP/A2A** — transport layers. Cooperate (Soma hearts for every MCP server, sense for every client)
+
+**Massive gap nobody fills:** trust + payment + provenance in a single flow. Everyone has one piece. ClawNet has all three.
+
+**Credit bureau moat:** Trust data accumulation creates non-replicable moat. Equifax: $5.5B revenue from credit scores. Agent trust scores backed by verified transaction history cannot be forked. Long-term demand driver for $CLAWNET.
+
+**Agent Network Operator Platform concept:** Fleet management dashboard, one-click 1000 hearts, cross-network hiring marketplace, trust score aggregation, fleet-level billing. See Session F in verified-data-machine.md for full ultra-think prompt.
 
 ### Open questions
 
@@ -315,14 +349,16 @@ If/when Pulse integrates with ClawNet endpoints: opportunity for Pulse agents to
 **Checklist for picking back up:**
 
 1. Re-read this file (brainstorm.md)
-2. Re-read `internal/x402-etag-strategy.md` for x402 ETag priorities
-3. Re-read `internal/soma-future-proofing.md` for positioning invariants + delegation chain spec
-4. Re-read `internal/scale-test-plan.md` for topology test matrix
-5. Re-read `internal/proof-of-delivery-roadmap.md` for AVS/TEE/Intent implementation specs
-6. Re-read `internal/groundbreaking-extensions.md` for S/A/B-tier extensions + adoption playbook
-7. Check task list for pending items (#77 Soma 100-hearts bench, #106-110 x402 ETag Tier 1)
-8. Check memory for recent decisions
-9. Pick highest-leverage item from Tier 1 of whichever strategy doc applies
+2. Re-read `internal/verified-data-machine.md` for unified Machine vision + ultra-think session prompts
+3. Re-read `internal/provenance-chain-architecture.md` for DerivationCert schema + provenance DAG
+4. Re-read `internal/x402-etag-strategy.md` for x402 ETag priorities
+5. Re-read `internal/soma-future-proofing.md` for positioning invariants + delegation chain spec
+6. Re-read `internal/scale-test-plan.md` for topology test matrix
+7. Re-read `internal/proof-of-delivery-roadmap.md` for AVS/TEE/Intent implementation specs
+8. Re-read `internal/groundbreaking-extensions.md` for S/A/B-tier extensions + adoption playbook
+9. Check task list for pending items (#77 Soma 100-hearts bench, #106-110 x402 ETag Tier 1)
+10. Check memory for recent decisions
+11. Pick highest-leverage item from Tier 1 of whichever strategy doc applies
 
 **First three things to do on resume (recommended):**
 1. Lock x402-etag.org domain (defensive, 5 minutes)

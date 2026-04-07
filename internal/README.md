@@ -23,11 +23,12 @@ These docs cover strategy across:
 
 If a doc needs to grow into multiple files, make a subdirectory (e.g. `internal/soma/` or `internal/x402-etag/`).
 
-## Doc index (2026-04-05)
+## Doc index (2026-04-07)
 
 **Start here:**
 - `golden-plan.md` — **master strategic vision: 3-layer architecture, positioning, moat stack, growth flywheel.** Read this first for the big picture.
 - `roadmap.md` — **master what/why/todos doc. Single source of truth for forward plans.** Read this second for what to build.
+- `gap-analysis-2026-04-07.md` — **HONEST codebase audit: what's real vs planned, security vulns, dependency chain, ground-up build plan.** Read this before building.
 - `soma-readiness-strategy.md` — **gap analysis + 90-day critical path vs. competitive clock.**
 - `soma-delegation-spec.md` — **Soma Delegation v0.1 draft spec (doctrinal play vs. IETF draft-klrc).**
 
@@ -49,6 +50,10 @@ If a doc needs to grow into multiple files, make a subdirectory (e.g. `internal/
 - `proof-of-delivery-roadmap.md` — Receipt Layer 5-phase plan
 - `scale-test-plan.md` — Soma scale test sequencing (blocks Receipt Layer)
 - `soma-future-proofing.md` — pause-and-resume strategy
+
+**Vision:**
+- `verified-data-machine.md` — **unified Machine vision: Heart+Cache+Check+Receipt as one system. Token fit, modularity, missing components, ultra-think prompts. Read after golden-plan.md.**
+- `provenance-chain-architecture.md` — **Session A ultra-think: DerivationCert schema, provenance DAG, blacksmith chain, levels of proof, build phases. Read after verified-data-machine.md.**
 
 **Capture:**
 - `brainstorm.md` — raw idea log, pre-sifting
