@@ -66,10 +66,11 @@ export function rankProvider(inp: VouchRankInputs): VouchRankResult {
   const base = 0.40 * trust + 0.20 * volume + 0.20 * tenure + 0.10 * freshness + 0.10 * hits;
 
   // Soma bonus: reward providers who've actively engaged the protocol.
+  // Mutually exclusive tiers — highest matching tier wins (audit L3: was non-exclusive cascade)
   let somaBonus = 1.00;
-  if (inp.somaEnabled) somaBonus = 1.15;
-  if (inp.verified) somaBonus = 1.25;
-  if (inp.somaCheckTier >= 3) somaBonus = 1.30;
+  if (inp.somaCheckTier >= 3 && inp.verified) somaBonus = 1.30;      // champion: verified + tier 3
+  else if (inp.verified) somaBonus = 1.25;                            // verified
+  else if (inp.somaEnabled) somaBonus = 1.15;                         // enabled but not verified
 
   const raw = base * somaBonus;
   const score = Math.round(Math.min(1, raw) * 10000) / 100;

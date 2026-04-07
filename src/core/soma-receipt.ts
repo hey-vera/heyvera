@@ -17,6 +17,7 @@
  */
 
 import { randomUUID } from 'crypto';
+import { logger } from '../utils/logger';
 import { getDb, logAudit } from '../db/connection';
 import { somaHash, somaHashPrefixed, getCryptoAgilityMetadata } from '../utils/crypto-agility';
 import { signVC, signVCAdaptive, getEd25519PublicKeyMultibase } from '../utils/ed25519-signer';
@@ -138,12 +139,14 @@ export async function createSomaReceipt(input: SomaReceiptInput): Promise<SomaRe
     const timestamp = Math.floor(Date.now() / 1000);
 
     // Hash request and response data
+    // When actual data is not provided, bind to requestId + timestamp + endpoint
+    // so the hash is at least unique per interaction (audit H6)
     const requestHash = input.requestData
       ? somaHashPrefixed(input.requestData)
-      : somaHashPrefixed(input.requestId);
+      : somaHashPrefixed(`${input.requestId}:${now}:request`);
     const responseHash = input.responseData
       ? somaHashPrefixed(input.responseData)
-      : somaHashPrefixed(`${input.requestId}:response`);
+      : somaHashPrefixed(`${input.requestId}:${now}:response`);
 
     // Build the receipt payload for signing (JCS-canonical)
     const receiptPayload: Record<string, unknown> = {
@@ -281,7 +284,8 @@ export async function createSomaReceipt(input: SomaReceiptInput): Promise<SomaRe
       } : undefined,
     };
   } catch (err) {
-    console.error('[SomaReceipt] Failed to create receipt:', err);
+    // Use structured logger, not console.error (audit C4)
+    logger.error({ err, requestId: input.requestId }, 'Failed to create Soma receipt — paid interaction has no cryptographic proof');
     return null;
   }
 }
@@ -310,7 +314,7 @@ export function getSomaReceipt(receiptId: string): SomaReceipt | null {
     responseHash: row.response_hash,
     somaDataHash: row.soma_data_hash,
     heartbeatIndex: row.heartbeat_index,
-    cached: false,
+    cached: !!row.cached,
     signature: row.signature_ed25519,
     algorithm,
     hybridSignature: row.signature_mldsa65 ? {

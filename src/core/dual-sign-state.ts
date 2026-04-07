@@ -1,59 +1,66 @@
 /**
- * dual-sign-state.ts — Thread-local-ish state for dual-sign results.
+ * dual-sign-state.ts — Request-scoped dual-sign state.
  *
- * Same pattern as _lastBirthCert in clawapis.ts and _lastGenerationProvenance
- * in soma.ts: store the most recent dual-sign result so the provenance
- * middleware can attach headers without threading the result through
- * every call site.
+ * Now delegates to AsyncLocalStorage (request-context.ts) instead of
+ * module-level singletons. This eliminates the race condition where
+ * concurrent requests could swap dual-sign results (audit C1).
  *
- * Get-and-clear prevents stale data leaking to the next request.
+ * Exports are preserved for backward compatibility — all importers
+ * continue to work without changes.
  */
 
-import type { DualSignResult } from './dual-sign';
+import { getProvenance, setProvenance } from './request-context';
 
-let _lastDualSignResult: DualSignResult | null = null;
-
-/** Store a dual-sign result for the middleware to pick up. */
-export function setLastDualSignResult(result: DualSignResult): void {
-  _lastDualSignResult = result;
+export interface DualSignResult {
+  provider: {
+    dataHash: string;
+    signature: string;
+    publicKey: string;
+    heartbeatIndex?: number;
+    genomeHash?: string;
+  };
+  platform: {
+    dataHash: string;
+    signature: string;
+    heartbeatIndex: number | null;
+    publicKey: string;
+  };
+  providerVerified: boolean;
+  chainHash: string;
+  timestamp: string;
 }
 
-/** Get and clear the last dual-sign result. Clearing prevents stale data. */
+/** Store dual-sign result for the current request. */
+export function setLastDualSignResult(result: DualSignResult | null): void {
+  setProvenance('dualSign', result);
+}
+
+/** Get and clear dual-sign result for the current request. */
 export function getLastDualSignResult(): DualSignResult | null {
-  const result = _lastDualSignResult;
-  _lastDualSignResult = null;
-  return result;
+  const ds = getProvenance('dualSign') as DualSignResult | null;
+  setProvenance('dualSign', null);
+  return ds;
 }
 
-/** Peek at the last dual-sign result without clearing. Used by code paths
- *  that need to consume the result multiple times in the same request
- *  (e.g. response headers AND receipt creation). */
+/** Peek at the dual-sign result without clearing it. */
 export function peekLastDualSignResult(): DualSignResult | null {
-  return _lastDualSignResult;
+  return getProvenance('dualSign') as DualSignResult | null;
 }
 
 /**
- * Extract dual-sign fields for a Soma receipt, if a result is present.
- * Returns an object suitable for spreading into `createSomaReceipt()` input.
- * Returns an empty object if no dual-sign state exists.
- *
- * Does NOT clear state — the response-header middleware also needs to
- * consume it. The state is cleared when the middleware runs `getLastDualSignResult`.
+ * Extract dual-sign fields for Soma receipt creation.
+ * Returns empty object if no dual-sign result is available for this request.
  */
-export function extractDualSignReceiptFields(providerId?: string): {
-  providerId?: string;
-  providerSignature?: string;
-  providerPublicKey?: string;
-  providerDataHash?: string;
-  providerHeartbeatIndex?: number;
-} {
-  const result = peekLastDualSignResult();
-  if (!result) return {};
+export function extractDualSignReceiptFields(providerId?: string): Record<string, any> {
+  const ds = getProvenance('dualSign') as DualSignResult | null;
+  if (!ds) return {};
   return {
+    dualSignChainHash: ds.chainHash,
+    providerVerified: ds.providerVerified,
     providerId: providerId ?? 'upstream',
-    providerSignature: result.provider.signature,
-    providerPublicKey: result.provider.publicKey,
-    providerDataHash: result.provider.dataHash,
-    providerHeartbeatIndex: result.provider.heartbeatIndex,
+    providerSignature: ds.provider.signature,
+    providerPublicKey: ds.provider.publicKey,
+    providerDataHash: ds.provider.dataHash,
+    providerHeartbeatIndex: ds.provider.heartbeatIndex ?? null,
   };
 }

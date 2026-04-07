@@ -53,7 +53,8 @@ export function buildDelegationChainHeaders(
     'X-Soma-Delegation-Root': maskApiKey(rootAdjacent.parent_key),
   };
   if (leaf.intent_declaration) {
-    headers['X-Soma-Delegation-Intent'] = leaf.intent_declaration;
+    // Sanitize: strip CRLF and non-ASCII to prevent header injection (audit M8)
+    headers['X-Soma-Delegation-Intent'] = leaf.intent_declaration.replace(/[\r\n\x00-\x1f\x7f-\xff]/g, '');
   }
   return headers;
 }

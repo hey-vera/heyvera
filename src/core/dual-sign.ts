@@ -93,8 +93,15 @@ export function extractProviderCert(headers: Record<string, string | undefined>)
  * Verify a provider's Ed25519 birth certificate signature.
  * Returns true if the signature is valid for the given data hash and public key.
  */
+const HEX_RE = /^[0-9a-f]+$/i;
+
 export function verifyProviderCert(cert: ProviderCertificate): boolean {
   try {
+    // Validate hex format before Buffer.from — prevents silent garbled bytes (audit M7)
+    if (!HEX_RE.test(cert.dataHash) || !HEX_RE.test(cert.signature) || !HEX_RE.test(cert.publicKey)) {
+      logger.warn('Provider cert contains non-hex fields — rejecting');
+      return false;
+    }
     const message = Buffer.from(cert.dataHash, 'hex');
     const sig = Buffer.from(cert.signature, 'hex');
     const pubKey = Buffer.from(cert.publicKey, 'hex');
@@ -141,15 +148,18 @@ export function createDualSign(
   providerCert: ProviderCertificate,
   responseData: string | Buffer,
   heartbeatIndex?: number | null,
-): DualSignResult {
-  // Verify the provider's certificate
+): DualSignResult | null {
+  // Verify the provider's certificate — refuse to co-sign if verification fails (audit C2).
+  // Previously the platform would co-sign with providerVerified=false, which gave consumers
+  // a valid platform signature on unverified provider data.
   const providerVerified = verifyProviderCert(providerCert);
 
   if (!providerVerified) {
     logger.warn({
       providerKey: providerCert.publicKey.slice(0, 16) + '...',
       dataHash: providerCert.dataHash.slice(0, 16) + '...',
-    }, 'Provider cert failed verification — dual-signing anyway with providerVerified=false');
+    }, 'Provider cert failed verification — refusing to dual-sign (single-sign only)');
+    return null;
   }
 
   // Hash the response data as received by the platform
@@ -157,13 +167,14 @@ export function createDualSign(
 
   // Chain hash: binds provider cert + platform observation together
   // This proves the platform received exactly this provider cert for exactly this data
+  // Uses pipe delimiter — all fields are hex so pipe cannot appear naturally (audit L1)
   const chainPayload = [
     providerCert.dataHash,
     providerCert.signature,
     providerCert.publicKey,
     platformDataHash,
     String(heartbeatIndex ?? 0),
-  ].join(':');
+  ].join('|');
   const chainHash = somaHash(chainPayload);
 
   // Platform signs the chain hash
@@ -206,14 +217,14 @@ export function verifyDualSign(result: DualSignResult): {
   // Verify provider cert
   const providerOk = verifyProviderCert(result.provider);
 
-  // Reconstruct and verify chain hash
+  // Reconstruct and verify chain hash (pipe delimiter matches createDualSign)
   const chainPayload = [
     result.provider.dataHash,
     result.provider.signature,
     result.provider.publicKey,
     result.platform.dataHash,
     String(result.platform.heartbeatIndex ?? 0),
-  ].join(':');
+  ].join('|');
   const expectedChainHash = somaHash(chainPayload);
   const chainOk = expectedChainHash === result.chainHash;
 

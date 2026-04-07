@@ -13,6 +13,7 @@ import { setupTestDb } from './helpers/db';
 setupTestDb();
 
 import { initDb } from '../../src/db/connection';
+import { runWithProvenance } from '../../src/core/request-context';
 import {
   setLastDualSignResult,
   getLastDualSignResult,
@@ -60,55 +61,65 @@ function makeSignedProviderCert(data: string): {
 
 describe('dual-sign state — extract helper', () => {
   it('returns empty object when no dual-sign state is set', () => {
-    const fields = extractDualSignReceiptFields('prov-foo');
-    expect(fields).toEqual({});
+    runWithProvenance(() => {
+      const fields = extractDualSignReceiptFields('prov-foo');
+      expect(fields).toEqual({});
+    });
   });
 
   it('returns provider fields when dual-sign state is present', () => {
-    const { cert } = makeSignedProviderCert('hello world');
-    const dualSign = createDualSign(cert, 'hello world', 7);
-    setLastDualSignResult(dualSign);
+    runWithProvenance(() => {
+      const { cert } = makeSignedProviderCert('hello world');
+      const dualSign = createDualSign(cert, 'hello world', 7);
+      setLastDualSignResult(dualSign);
 
-    const fields = extractDualSignReceiptFields('prov-clawapis');
-    expect(fields.providerId).toBe('prov-clawapis');
-    expect(fields.providerSignature).toBe(cert.signature);
-    expect(fields.providerPublicKey).toBe(cert.publicKey);
-    expect(fields.providerDataHash).toBe(cert.dataHash);
-    expect(fields.providerHeartbeatIndex).toBe(cert.heartbeatIndex);
+      const fields = extractDualSignReceiptFields('prov-clawapis');
+      expect(fields.providerId).toBe('prov-clawapis');
+      expect(fields.providerSignature).toBe(cert.signature);
+      expect(fields.providerPublicKey).toBe(cert.publicKey);
+      expect(fields.providerDataHash).toBe(cert.dataHash);
+      expect(fields.providerHeartbeatIndex).toBe(cert.heartbeatIndex);
+    });
   });
 
   it('falls back to "upstream" when no providerId is given', () => {
-    const { cert } = makeSignedProviderCert('x');
-    setLastDualSignResult(createDualSign(cert, 'x'));
-    const fields = extractDualSignReceiptFields();
-    expect(fields.providerId).toBe('upstream');
+    runWithProvenance(() => {
+      const { cert } = makeSignedProviderCert('x');
+      setLastDualSignResult(createDualSign(cert, 'x'));
+      const fields = extractDualSignReceiptFields();
+      expect(fields.providerId).toBe('upstream');
+    });
   });
 
   it('extract does NOT clear state — middleware can still read it', () => {
-    const { cert } = makeSignedProviderCert('pick me twice');
-    setLastDualSignResult(createDualSign(cert, 'pick me twice'));
+    runWithProvenance(() => {
+      const { cert } = makeSignedProviderCert('pick me twice');
+      setLastDualSignResult(createDualSign(cert, 'pick me twice'));
 
-    // Receipt side reads it
-    const first = extractDualSignReceiptFields('prov-x');
-    expect(first.providerSignature).toBe(cert.signature);
+      // Receipt side reads it
+      const first = extractDualSignReceiptFields('prov-x');
+      expect(first.providerSignature).toBe(cert.signature);
 
-    // Middleware side can still read it
-    const peeked = peekLastDualSignResult();
-    expect(peeked).not.toBeNull();
-    expect(peeked!.provider.signature).toBe(cert.signature);
+      // Middleware side can still read it
+      const peeked = peekLastDualSignResult();
+      expect(peeked).not.toBeNull();
+      expect(peeked!.provider.signature).toBe(cert.signature);
+    });
   });
 
   it('get clears state but peek does not', () => {
-    const { cert } = makeSignedProviderCert('clear me');
-    setLastDualSignResult(createDualSign(cert, 'clear me'));
+    runWithProvenance(() => {
+      const { cert } = makeSignedProviderCert('clear me');
+      setLastDualSignResult(createDualSign(cert, 'clear me'));
 
-    expect(peekLastDualSignResult()).not.toBeNull();
-    expect(peekLastDualSignResult()).not.toBeNull(); // peek can be called twice
+      expect(peekLastDualSignResult()).not.toBeNull();
+      expect(peekLastDualSignResult()).not.toBeNull(); // peek can be called twice
 
-    const result = getLastDualSignResult();
-    expect(result).not.toBeNull();
-    expect(peekLastDualSignResult()).toBeNull(); // now cleared
-    expect(getLastDualSignResult()).toBeNull();
+      const result = getLastDualSignResult();
+      expect(result).not.toBeNull();
+      expect(peekLastDualSignResult()).toBeNull(); // now cleared
+      expect(getLastDualSignResult()).toBeNull();
+    });
   });
 });
 
@@ -118,28 +129,24 @@ describe('dual-sign createDualSign + verifyDualSign roundtrip', () => {
     const { cert } = makeSignedProviderCert(responseData);
     const dualSign = createDualSign(cert, responseData, cert.heartbeatIndex);
 
-    expect(dualSign.providerVerified).toBe(true);
-    const v = verifyDualSign(dualSign);
+    expect(dualSign).not.toBeNull();
+    expect(dualSign!.providerVerified).toBe(true);
+    const v = verifyDualSign(dualSign!);
     expect(v.provider).toBe(true);
     expect(v.platform).toBe(true);
     expect(v.chain).toBe(true);
   });
 
-  it('tampered provider signature → providerVerified=false but chain+platform still sound', () => {
+  it('tampered provider signature → createDualSign returns null (refuses to co-sign)', () => {
     const { cert } = makeSignedProviderCert('body');
     // Flip a byte in the signature hex
     const badSig = cert.signature.slice(0, 2) === 'ff'
       ? '00' + cert.signature.slice(2)
       : 'ff' + cert.signature.slice(2);
     const tampered: ProviderCertificate = { ...cert, signature: badSig };
+    // Platform refuses to co-sign unverified provider certs (audit C2)
     const dualSign = createDualSign(tampered, 'body');
-    expect(dualSign.providerVerified).toBe(false);
-
-    const v = verifyDualSign(dualSign);
-    expect(v.provider).toBe(false);
-    // Platform still signed the (bad) chain consistently → platform + chain pass
-    expect(v.chain).toBe(true);
-    expect(v.platform).toBe(true);
+    expect(dualSign).toBeNull();
   });
 
   it('different responseData produces different chain hash', () => {
@@ -147,6 +154,8 @@ describe('dual-sign createDualSign + verifyDualSign roundtrip', () => {
     const { cert: c2 } = makeSignedProviderCert('b');
     const d1 = createDualSign(c1, 'a');
     const d2 = createDualSign(c2, 'b');
-    expect(d1.chainHash).not.toBe(d2.chainHash);
+    expect(d1).not.toBeNull();
+    expect(d2).not.toBeNull();
+    expect(d1!.chainHash).not.toBe(d2!.chainHash);
   });
 });

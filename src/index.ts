@@ -78,6 +78,7 @@ import { startEndpointHealthCron } from './core/endpoint-health-cron';
 import { startEndpointDiscoveryCron } from './core/endpoint-discovery';
 import { signResponse } from './middleware/sign-response';
 import { somaProvenance } from './middleware/soma-provenance';
+import { runWithProvenance } from './core/request-context';
 import { startEscrowCron } from './core/escrow-cron';
 import { startSkillAbCron } from './core/skill-ab-cron';
 import { startStakeUnlockCron } from './core/stake-unlock-cron';
@@ -167,6 +168,10 @@ app.get('/health', (c) => {
 app.get('/health/live', (c) => {
   return c.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
+
+// Request-scoped provenance store — replaces module-level singletons that
+// caused race conditions under concurrent requests (audit finding C1).
+app.use('*', (c, next) => runWithProvenance(next));
 
 app.use('*', cors({
   origin: env.NODE_ENV === 'production'

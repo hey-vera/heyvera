@@ -22,9 +22,11 @@ import nacl from 'tweetnacl';
 
 let _heart: any | null = null;
 
-// ── Last generation provenance (similar to _lastBirthCert pattern) ───────
+// ── Generation provenance (now request-scoped via AsyncLocalStorage) ────
 // Stores heartbeats + token HMACs from the most recent heart.generate() call.
 // Retrieved by the provenance middleware to attach to HTTP responses.
+import { getProvenance, setProvenance } from './request-context';
+
 interface GenerationProvenance {
   heartbeats: Array<{ sequence: number; eventType: string; hash: string; timestamp: number }>;
   tokenHmacs: Array<{ token: string; hmac?: string; sequence: number; timestamp: number }>;
@@ -33,14 +35,9 @@ interface GenerationProvenance {
   role: string;
 }
 
-let _lastGenerationProvenance: GenerationProvenance | null = null;
-
-/** Get and clear the last generation provenance. Clearing prevents stale
- *  provenance from leaking to the next request in concurrent scenarios. */
+/** Get the generation provenance for the current request (from AsyncLocalStorage). */
 export function getLastGenerationProvenance(): GenerationProvenance | null {
-  const prov = _lastGenerationProvenance;
-  _lastGenerationProvenance = null;
-  return prov;
+  return getProvenance('generationProvenance');
 }
 
 /**
@@ -139,14 +136,14 @@ export async function heartLlmComplete(
 
     const content = tokens.join('');
 
-    // Store provenance for the middleware to attach to response
-    _lastGenerationProvenance = {
+    // Store provenance for the middleware to attach to response (request-scoped)
+    setProvenance('generationProvenance', {
       heartbeats,
       tokenHmacs,
       tokenCount: tokens.length,
       model: _heart.modelId ?? 'unknown',
       role,
-    };
+    });
 
     return { content, tokenCount: tokens.length, heartbeats };
   } catch (err: any) {

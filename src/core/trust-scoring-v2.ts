@@ -242,8 +242,10 @@ export function computeTrustScoreV2(ownerKey: string, did: string): TrustScoreV2
     finalScore >= 60 ? 'standard' : finalScore >= 40 ? 'caution' :
     finalScore >= 20 ? 'building' : 'new';
 
-  // Proof hash
-  const proofInput = JSON.stringify({
+  // Proof hash — use JCS for canonical serialization (audit M5: JSON.stringify
+  // key order depends on insertion order, which is implementation-defined)
+  const { jcsSerialize } = require('../utils/jcs');
+  const proofInput = jcsSerialize({
     behavioral, market, community, weights,
     rawScore, verificationMultiplier, finalScore,
   });

@@ -2,7 +2,7 @@ import { logger } from '../utils/logger';
 import { env } from '../config/index';
 import { getHeartSafe } from '../core/soma';
 import { extractProviderCert, createDualSign } from '../core/dual-sign';
-import { setLastDualSignResult } from '../core/dual-sign-state';
+import { setProvenance } from '../core/request-context';
 // BirthCertificate type from soma-heart (inline to avoid CJS/ESM resolution)
 type BirthCertificate = { dataHash: string; signature: string; timestamp: string; publicKey: string; heartbeatIndex: number };
 
@@ -47,15 +47,14 @@ export function isClawApisReady(): boolean {
 }
 
 // ── Soma provenance ────────────────────────────────────────────────────
-let _lastBirthCert: BirthCertificate | null = null;
+// Birth cert is now stored in request-scoped AsyncLocalStorage (request-context.ts)
+// instead of a module-level singleton. This eliminates the race condition where
+// concurrent requests could swap each other's birth certificates (audit C1).
+import { getProvenance } from '../core/request-context';
 
-/** Get the birth certificate from the most recent clawApiCall() and clear it.
- *  Clearing prevents stale provenance from leaking to the next request
- *  in concurrent scenarios. */
+/** Get the birth certificate for the current request (from AsyncLocalStorage). */
 export function getLastBirthCertificate(): BirthCertificate | null {
-  const cert = _lastBirthCert;
-  _lastBirthCert = null;
-  return cert;
+  return getProvenance('birthCert');
 }
 
 /**
@@ -104,18 +103,20 @@ export async function clawApiCall(
         return await res.text();
       },
     );
-    _lastBirthCert = result.birthCertificate;
+    setProvenance('birthCert', result.birthCertificate);
 
     // ── Dual-sign: if upstream provider runs Soma heart, co-sign their cert ──
     const providerCert = extractProviderCert(upstreamHeaders);
     if (providerCert) {
       try {
         const dualSign = createDualSign(providerCert, result.content, result.birthCertificate?.heartbeatIndex);
-        setLastDualSignResult(dualSign);
-        logger.info({
-          provider: providerCert.publicKey.slice(0, 16) + '...',
-          verified: dualSign.providerVerified,
-        }, 'Dual-signed provenance chain created');
+        if (dualSign) {
+          setProvenance('dualSign', dualSign);
+          logger.info({
+            provider: providerCert.publicKey.slice(0, 16) + '...',
+            verified: dualSign.providerVerified,
+          }, 'Dual-signed provenance chain created');
+        }
       } catch (err) {
         logger.warn({ err }, 'Dual-sign failed — serving with single-sign only');
       }
@@ -125,7 +126,6 @@ export async function clawApiCall(
   }
 
   // ── Fallback: no heart, original behavior ────────────────────────────
-  _lastBirthCert = null;
   const res = await x402Client.fetch(url.toString(), signal ? { signal } : undefined);
 
   if (!res.ok) {

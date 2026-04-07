@@ -23,7 +23,7 @@ import type { MiddlewareHandler } from 'hono';
 import { getHeartSafe, getLastGenerationProvenance } from '../core/soma';
 import { getLastBirthCertificate } from '../providers/clawapis';
 import { getEd25519PublicKeyRaw } from '../utils/ed25519-signer';
-import { getLastDualSignResult } from '../core/dual-sign-state';
+import { getProvenance } from '../core/request-context';
 import { logger } from '../utils/logger';
 
 let loggedOnce = false;
@@ -43,7 +43,7 @@ export const somaProvenance: MiddlewareHandler = async (c, next) => {
     }
 
     // ── Dual-sign headers (takes priority over single-sign) ─────────────
-    const dualSign = getLastDualSignResult();
+    const dualSign = getProvenance('dualSign') as import('../core/dual-sign-state').DualSignResult | null;
     if (dualSign) {
       // Dual-sign meta
       c.res.headers.set('X-Soma-Dual-Signed', 'true');

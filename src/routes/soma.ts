@@ -199,8 +199,13 @@ router.post('/verdicts', async (c) => {
 
 // ── GET /:did/trust — Public trust query (the "credit bureau" endpoint) ─────
 // Free, no auth, rate-limited. Returns verdict summary, not raw data.
-// This is the Soma replacement for AID's /v1/aid/:did/trust endpoint.
-router.get('/:did/trust', (c) => {
+router.get('/:did/trust', async (c) => {
+  const trustIp = getClientIp(c);
+  const trustRateKey = `soma-trust-lookup:${trustIp}`;
+  const trustCount = await cacheIncr(trustRateKey, 3600);
+  if (trustCount > 120) {
+    return c.json({ error: 'Rate limited — 120 trust lookups per IP per hour', code: 'RATE_LIMITED' }, 429);
+  }
   const did = c.req.param('did');
   const stats = getSomaVerdictStats(did);
 
@@ -245,7 +250,14 @@ router.get('/:did/trust', (c) => {
 });
 
 // ── GET /:did/verdicts — Recent verdicts for an agent ───────────────────────
-router.get('/:did/verdicts', (c) => {
+// Rate-limited to prevent enumeration (audit H7)
+router.get('/:did/verdicts', async (c) => {
+  const verdictIp = getClientIp(c);
+  const verdictRateKey = `soma-did-verdicts:${verdictIp}`;
+  const verdictCount = await cacheIncr(verdictRateKey, 3600);
+  if (verdictCount > 60) {
+    return c.json({ error: 'Rate limited — 60 verdict lookups per IP per hour', code: 'RATE_LIMITED' }, 429);
+  }
   const did = c.req.param('did');
   const limit = Math.min(parseInt(c.req.query('limit') || '20'), 100);
   const verdicts = getRecentSomaVerdicts(did, limit);
@@ -360,6 +372,13 @@ router.get('/anchors/:id', (c) => {
  * Anyone with a receipt ID can verify the transaction.
  */
 router.get('/receipt/:id', async (c) => {
+  // Rate-limit receipt lookups to prevent enumeration (audit H7)
+  const receiptIp = getClientIp(c);
+  const receiptRateKey = `soma-receipt-lookup:${receiptIp}`;
+  const receiptCount = await cacheIncr(receiptRateKey, 3600);
+  if (receiptCount > 120) {
+    return c.json({ error: 'Rate limited — 120 receipt lookups per IP per hour', code: 'RATE_LIMITED' }, 429);
+  }
   const id = c.req.param('id');
   const receipt = getSomaReceipt(id) ?? getSomaReceiptByRequestId(id);
 
