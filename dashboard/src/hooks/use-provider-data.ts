@@ -19,9 +19,9 @@ function useAuthHeaders() {
   };
 }
 
-function useProviderId() {
+function useProviderId(): string | null {
   const { provider } = useProvider();
-  return provider!.id;
+  return provider?.id ?? null;
 }
 
 // --- Stats ---
@@ -34,6 +34,7 @@ export function useProviderStats() {
       apiFetch<ProviderStats>(`/v1/providers/${id}/stats`, {
         headers: await getHeaders(),
       }),
+    enabled: !!id,
   });
 }
 
@@ -48,6 +49,7 @@ export function useProviderAnalytics(days = 30) {
         `/v1/providers/${id}/analytics?days=${days}`,
         { headers: await getHeaders() },
       ),
+    enabled: !!id,
   });
 }
 
@@ -61,6 +63,7 @@ export function useProviderEndpoints() {
       apiFetch<ProviderEndpoint[]>(`/v1/providers/${id}/endpoints`, {
         headers: await getHeaders(),
       }),
+    enabled: !!id,
   });
 }
 
@@ -78,12 +81,14 @@ export function useSubmitEndpoint() {
       httpMethod: string;
       creditCost: number;
       cacheTtl?: number;
-    }) =>
-      apiFetch(`/v1/providers/${id}/endpoints/submit`, {
+    }) => {
+      if (!id) throw new Error('No provider profile');
+      return apiFetch(`/v1/providers/${id}/endpoints/submit`, {
         headers: await getHeaders(),
         method: 'POST',
         body: JSON.stringify(data),
-      }),
+      });
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['provider', id, 'endpoints'] });
     },
@@ -98,12 +103,14 @@ export function useUpdateEndpoint() {
     mutationFn: async ({
       endpointId,
       ...data
-    }: { endpointId: string } & Record<string, unknown>) =>
-      apiFetch(`/v1/providers/${id}/endpoints/${endpointId}`, {
+    }: { endpointId: string } & Record<string, unknown>) => {
+      if (!id) throw new Error('No provider profile');
+      return apiFetch(`/v1/providers/${id}/endpoints/${endpointId}`, {
         headers: await getHeaders(),
         method: 'PATCH',
         body: JSON.stringify(data),
-      }),
+      });
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['provider', id, 'endpoints'] });
     },
@@ -115,11 +122,13 @@ export function useDeleteEndpoint() {
   const id = useProviderId();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (endpointId: string) =>
-      apiFetch(`/v1/providers/${id}/endpoints/${endpointId}`, {
+    mutationFn: async (endpointId: string) => {
+      if (!id) throw new Error('No provider profile');
+      return apiFetch(`/v1/providers/${id}/endpoints/${endpointId}`, {
         headers: await getHeaders(),
         method: 'DELETE',
-      }),
+      });
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['provider', id, 'endpoints'] });
     },
@@ -137,6 +146,7 @@ export function useSomaCheckEarnings(window: 'day' | 'week' | 'month' = 'week') 
         `/v1/providers/${id}/soma-check?window=${window}`,
         { headers: await getHeaders() },
       ),
+    enabled: !!id,
   });
 }
 
@@ -150,6 +160,7 @@ export function useProviderRevenue() {
       apiFetch<RevenueData>(`/v1/providers/${id}/revenue`, {
         headers: await getHeaders(),
       }),
+    enabled: !!id,
   });
 }
 
@@ -163,6 +174,7 @@ export function useProviderWithdrawals() {
       apiFetch<WithdrawalsResponse>(`/v1/providers/${id}/withdrawals`, {
         headers: await getHeaders(),
       }),
+    enabled: !!id,
   });
 }
 
@@ -171,12 +183,14 @@ export function useRequestWithdrawal() {
   const id = useProviderId();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (amountCredits: number) =>
-      apiFetch(`/v1/providers/${id}/withdraw`, {
+    mutationFn: async (amountCredits: number) => {
+      if (!id) throw new Error('No provider profile');
+      return apiFetch(`/v1/providers/${id}/withdraw`, {
         headers: await getHeaders(),
         method: 'POST',
         body: JSON.stringify({ amountCredits }),
-      }),
+      });
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['provider', id, 'withdrawals'] });
       qc.invalidateQueries({ queryKey: ['provider', id, 'stats'] });
@@ -190,12 +204,14 @@ export function useSetPayoutWallet() {
   const id = useProviderId();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (wallet: string) =>
-      apiFetch(`/v1/providers/${id}/payout-wallet`, {
+    mutationFn: async (wallet: string) => {
+      if (!id) throw new Error('No provider profile');
+      return apiFetch(`/v1/providers/${id}/payout-wallet`, {
         headers: await getHeaders(),
         method: 'PATCH',
         body: JSON.stringify({ wallet }),
-      }),
+      });
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['provider', 'me'] });
       qc.invalidateQueries({ queryKey: ['provider', id, 'withdrawals'] });
@@ -208,11 +224,13 @@ export function useInvalidateCache() {
   const getHeaders = useAuthHeaders();
   const id = useProviderId();
   return useMutation({
-    mutationFn: async (endpointId: string) =>
-      apiFetch(`/v1/providers/${id}/endpoints/${endpointId}/invalidate`, {
+    mutationFn: async (endpointId: string) => {
+      if (!id) throw new Error('No provider profile');
+      return apiFetch(`/v1/providers/${id}/endpoints/${endpointId}/invalidate`, {
         headers: await getHeaders(),
         method: 'POST',
         body: JSON.stringify({}),
-      }),
+      });
+    },
   });
 }

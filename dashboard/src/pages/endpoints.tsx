@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { Globe, Plus, Trash2, RefreshCw } from 'lucide-react';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -220,64 +221,75 @@ function AddEndpointDialog() {
 function EndpointRow({ ep }: { ep: { id: string; name: string; description?: string; category: string; httpMethod: string; creditCost: number; enabled: boolean } }) {
   const deleteEp = useDeleteEndpoint();
   const invalidate = useInvalidateCache();
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const handleDelete = useCallback(() => {
+    deleteEp.mutate(ep.id, {
+      onSuccess: () => toast.success('Endpoint removed'),
+      onError: () => toast.error('Failed to delete'),
+    });
+  }, [deleteEp, ep.id]);
 
   return (
-    <TableRow>
-      <TableCell>
-        <div>
-          <p className="font-medium text-sm">{ep.name}</p>
-          {ep.description && (
-            <p className="text-xs text-muted-foreground truncate max-w-[200px]">
-              {ep.description}
-            </p>
-          )}
-        </div>
-      </TableCell>
-      <TableCell>
-        <Badge variant="secondary" className="text-xs">
-          {ep.category}
-        </Badge>
-      </TableCell>
-      <TableCell className="text-xs font-mono">{ep.httpMethod}</TableCell>
-      <TableCell className="text-right">{ep.creditCost} cr</TableCell>
-      <TableCell>
-        <Badge variant={ep.enabled ? 'default' : 'secondary'}>
-          {ep.enabled ? 'Active' : 'Paused'}
-        </Badge>
-      </TableCell>
-      <TableCell className="text-right">
-        <div className="flex items-center justify-end gap-1">
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            title="Invalidate cache"
-            onClick={() => {
-              invalidate.mutate(ep.id, {
-                onSuccess: () => toast.success('Cache invalidated'),
-                onError: () => toast.error('Failed to invalidate'),
-              });
-            }}
-          >
-            <RefreshCw className="h-3 w-3" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            title="Delete"
-            onClick={() => {
-              if (confirm(`Delete ${ep.name}?`)) {
-                deleteEp.mutate(ep.id, {
-                  onSuccess: () => toast.success('Endpoint removed'),
-                  onError: () => toast.error('Failed to delete'),
+    <>
+      <TableRow>
+        <TableCell>
+          <div>
+            <p className="font-medium text-sm">{ep.name}</p>
+            {ep.description && (
+              <p className="text-xs text-muted-foreground truncate max-w-[200px]">
+                {ep.description}
+              </p>
+            )}
+          </div>
+        </TableCell>
+        <TableCell>
+          <Badge variant="secondary" className="text-xs">
+            {ep.category}
+          </Badge>
+        </TableCell>
+        <TableCell className="text-xs font-mono">{ep.httpMethod}</TableCell>
+        <TableCell className="text-right">{ep.creditCost} cr</TableCell>
+        <TableCell>
+          <Badge variant={ep.enabled ? 'default' : 'secondary'}>
+            {ep.enabled ? 'Active' : 'Paused'}
+          </Badge>
+        </TableCell>
+        <TableCell className="text-right">
+          <div className="flex items-center justify-end gap-1">
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              title="Invalidate cache"
+              onClick={() => {
+                invalidate.mutate(ep.id, {
+                  onSuccess: () => toast.success('Cache invalidated'),
+                  onError: () => toast.error('Failed to invalidate'),
                 });
-              }
-            }}
-          >
-            <Trash2 className="h-3 w-3" />
-          </Button>
-        </div>
-      </TableCell>
-    </TableRow>
+              }}
+            >
+              <RefreshCw className="h-3 w-3" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              title="Delete"
+              onClick={() => setConfirmDelete(true)}
+            >
+              <Trash2 className="h-3 w-3" />
+            </Button>
+          </div>
+        </TableCell>
+      </TableRow>
+      <ConfirmDialog
+        open={confirmDelete}
+        onOpenChange={setConfirmDelete}
+        title={`Delete ${ep.name}?`}
+        description="This will permanently remove this endpoint from ClawNet. Any agents calling it will get errors. This cannot be undone."
+        confirmLabel="Delete Endpoint"
+        onConfirm={handleDelete}
+      />
+    </>
   );
 }
 

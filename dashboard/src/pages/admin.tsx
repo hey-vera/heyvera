@@ -111,28 +111,29 @@ function CallsChart({ period }: { period: 'week' | 'month' }) {
             <AreaChart data={chartData}>
               <defs>
                 <linearGradient id="fillCalls" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="hsl(0 0% 60%)" stopOpacity={0.3} />
-                  <stop offset="95%" stopColor="hsl(0 0% 60%)" stopOpacity={0} />
+                  <stop offset="5%" stopColor="var(--color-muted-foreground)" stopOpacity={0.3} />
+                  <stop offset="95%" stopColor="var(--color-muted-foreground)" stopOpacity={0} />
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(0 0% 20%)" />
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
               <XAxis
                 dataKey="date"
-                tick={{ fill: 'hsl(0 0% 45%)', fontSize: 12 }}
+                tick={{ fill: 'var(--color-muted-foreground)', fontSize: 12 }}
                 tickFormatter={(v: string) => v.slice(5)}
               />
-              <YAxis tick={{ fill: 'hsl(0 0% 45%)', fontSize: 12 }} />
+              <YAxis tick={{ fill: 'var(--color-muted-foreground)', fontSize: 12 }} />
               <Tooltip
                 contentStyle={{
-                  background: 'hsl(0 0% 12%)',
-                  border: '1px solid hsl(0 0% 20%)',
+                  background: 'var(--color-popover)',
+                  border: '1px solid var(--color-border)',
                   borderRadius: 8,
+                  color: 'var(--color-popover-foreground)',
                 }}
               />
               <Area
                 type="monotone"
                 dataKey="calls"
-                stroke="hsl(0 0% 65%)"
+                stroke="var(--color-primary)"
                 fill="url(#fillCalls)"
                 name="Calls"
               />

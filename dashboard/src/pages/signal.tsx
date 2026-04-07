@@ -37,6 +37,7 @@ import {
 import { toast } from 'sonner';
 import { useSignalDetail, useVaultLock, useVaultUnlock } from '@/hooks/use-signal-data';
 import { useDashboardMe } from '@/hooks/use-dashboard-data';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 
 const LOCK_TIERS = [
   { days: 30 as const, multiplier: '1.2x', label: '30 Days' },
@@ -151,15 +152,17 @@ function VaultTable() {
   const { data, isLoading } = useSignalDetail();
   const unlock = useVaultUnlock();
   const locks = data?.vault.locks ?? [];
+  const [unlockTarget, setUnlockTarget] = useState<string | null>(null);
 
-  async function handleUnlock(id: string) {
-    if (!confirm('Early unlock forfeits your multiplier bonus. Continue?')) return;
+  async function handleUnlock() {
+    if (!unlockTarget) return;
     try {
-      await unlock.mutateAsync(id);
+      await unlock.mutateAsync(unlockTarget);
       toast.success('Unlock requested (7-day cooldown)');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Unlock failed');
     }
+    setUnlockTarget(null);
   }
 
   return (
@@ -228,7 +231,7 @@ function VaultTable() {
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => handleUnlock(lock.id)}
+                        onClick={() => setUnlockTarget(lock.id)}
                         disabled={unlock.isPending}
                         className="gap-1 text-xs"
                       >
@@ -243,6 +246,15 @@ function VaultTable() {
           </Table>
         )}
       </CardContent>
+      <ConfirmDialog
+        open={unlockTarget !== null}
+        onOpenChange={(open) => { if (!open) setUnlockTarget(null); }}
+        title="Early Unlock"
+        description="Unlocking early forfeits your multiplier bonus. A 7-day cooldown applies before credits are returned. This cannot be undone."
+        confirmLabel="Unlock Now"
+        variant="destructive"
+        onConfirm={handleUnlock}
+      />
     </Card>
   );
 }
@@ -352,9 +364,13 @@ export function SignalPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-lg font-semibold">Founding Protocol</h2>
+        <div className="flex items-center gap-2">
+          <h2 className="text-lg font-semibold">Founding Protocol</h2>
+          <Badge variant="secondary" className="text-xs">Beta</Badge>
+        </div>
         <p className="text-sm text-muted-foreground">
-          Earn Signal points toward the $CLAWNET token launch. Lock credits for multiplier bonuses.
+          Early supporters earn Signal points toward the $CLAWNET token launch.
+          Lock credits now for multiplier bonuses when tokens go live.
         </p>
       </div>
 

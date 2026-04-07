@@ -24,18 +24,30 @@ import { AdminPage } from './pages/admin';
 // Shared
 import { SettingsPage } from './pages/settings';
 
-/** Guard that redirects non-providers to home */
+function GuardSpinner() {
+  return (
+    <div className="flex h-[60vh] items-center justify-center">
+      <div className="flex flex-col items-center gap-3">
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-muted-foreground border-t-primary" />
+        <p className="text-xs text-muted-foreground">Checking access...</p>
+      </div>
+    </div>
+  );
+}
+
+/** Guard that redirects non-providers to home (admins bypass) */
 function ProviderGuard({ children }: { children: React.ReactNode }) {
   const { provider, isLoading } = useProvider();
-  if (isLoading) return null;
-  if (!provider) return <Navigate to="/" replace />;
+  const { data: adminData, isLoading: adminLoading } = useAdminCheck();
+  if (isLoading || adminLoading) return <GuardSpinner />;
+  if (!provider && !adminData?.isAdmin) return <Navigate to="/" replace />;
   return <>{children}</>;
 }
 
 /** Guard that redirects non-admins to home */
 function AdminGuard({ children }: { children: React.ReactNode }) {
   const { data, isLoading } = useAdminCheck();
-  if (isLoading) return null;
+  if (isLoading) return <GuardSpinner />;
   if (!data?.isAdmin) return <Navigate to="/" replace />;
   return <>{children}</>;
 }
