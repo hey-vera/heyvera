@@ -11,7 +11,7 @@ import {
   completeBounty,
   cancelBounty,
 } from '../db/bounties';
-import { deductCredit, topUpCredits } from '../db/index';
+import { deductCredit, topUpCredits, getDb } from '../db/index';
 
 const router = new Hono();
 
@@ -65,24 +65,32 @@ router.post('/', checkApiKey, async (c) => {
 
   const { title, description, requirements, rewardCredits, deadline, tags, category } = parsed.data;
 
-  // Escrow the reward credits from the creator
-  const deducted = deductCredit(keyInfo.key, rewardCredits);
-  if (!deducted) {
-    return c.json({ error: 'Insufficient credits to fund bounty', code: 'INSUFFICIENT_CREDITS' }, 402);
+  // Escrow + create in one transaction so credits aren't lost if createBounty throws
+  try {
+    const bounty = getDb().transaction(() => {
+      const deducted = deductCredit(keyInfo.key, rewardCredits);
+      if (!deducted) return null;
+
+      return createBounty({
+        creatorKey: keyInfo.key,
+        title,
+        description,
+        requirements,
+        rewardCredits,
+        deadline,
+        tags,
+        category,
+      });
+    })();
+
+    if (!bounty) {
+      return c.json({ error: 'Insufficient credits to fund bounty', code: 'INSUFFICIENT_CREDITS' }, 402);
+    }
+
+    return c.json({ ok: true, bounty }, 201);
+  } catch {
+    return c.json({ error: 'Failed to create bounty', code: 'CREATE_FAILED' }, 500);
   }
-
-  const bounty = createBounty({
-    creatorKey: keyInfo.key,
-    title,
-    description,
-    requirements,
-    rewardCredits,
-    deadline,
-    tags,
-    category,
-  });
-
-  return c.json({ ok: true, bounty }, 201);
 });
 
 router.post('/:id/claim', checkApiKey, (c) => {

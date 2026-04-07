@@ -667,18 +667,20 @@ endpointsRouter.post('/:id/call', async (c) => {
     // between upstream provider fetches. See utils/crypto-agility.ts.
     const dataHash = somaHashJson(data);
 
+    // Retrieve birth cert ONCE — getLastBirthCertificate() clears on read
+    const birthCertificate = getLastBirthCertificate() ?? undefined;
+
     // Cache the result + create Certified Cache certificate
     // Skip entirely for alwaysFresh endpoints (unique data per call).
     if (!alwaysFresh && serialized.length <= 1_000_000) {
       const effectiveTtl = declaredTtl ?? endpoint.cacheTtl;
       await smartCacheSet(key, data, effectiveTtl, endpointId, endpoint.creditCost ?? endpoint.costPerCall);
-      const birthCert = getLastBirthCertificate();
       createCacheCertificate({
         cacheKey: key,
         endpointId,
         dataHash,
         ttlSeconds: effectiveTtl ?? env.CACHE_TTL_SECONDS,
-        birthCert: birthCert ?? null,
+        birthCert: birthCertificate ?? null,
       });
     }
 
@@ -694,7 +696,6 @@ endpointsRouter.post('/:id/call', async (c) => {
     }
 
     recordSuccess(endpointId);
-    const birthCertificate = getLastBirthCertificate() ?? undefined;
     const durationMs = Date.now() - start;
 
     // Provider revenue share: 100% founding era (0% platform fee), 90% post-provenance

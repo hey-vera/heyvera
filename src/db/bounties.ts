@@ -3,6 +3,10 @@ import { getDb, logAudit } from './connection';
 import { logger } from '../utils/logger';
 import { round6 } from '../core/credits';
 
+function escapeLike(value: string): string {
+  return value.replace(/[%_\\]/g, '\\$&');
+}
+
 export interface Bounty {
   id: string;
   creator_key: string;
@@ -73,8 +77,8 @@ export function listBounties(params: {
     values.push(params.category);
   }
   if (params.tag) {
-    conditions.push('tags_json LIKE ?');
-    values.push(`%"${params.tag}"%`);
+    conditions.push("tags_json LIKE ? ESCAPE '\\'");
+    values.push(`%"${escapeLike(params.tag)}"%`);
   }
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';

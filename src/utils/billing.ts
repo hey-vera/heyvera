@@ -18,7 +18,7 @@ export function trackDelegatedSpend(
   if (keyInfo.delegatedFrom && amount > 0) {
     const updated = incrementDelegatedSpend(keyInfo.delegatedFrom, amount);
     if (!updated) {
-      logger.warn({ key: maskApiKey(keyInfo.delegatedFrom), amount }, 'incrementDelegatedSpend failed — spend limit may have been reached');
+      logger.error({ key: maskApiKey(keyInfo.delegatedFrom), amount }, 'incrementDelegatedSpend failed — spend limit reached or DB error; credits already deducted');
     }
     incrementBudgetSpend(keyInfo.delegatedFrom, amount);
   }
