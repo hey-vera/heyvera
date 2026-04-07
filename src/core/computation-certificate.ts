@@ -57,8 +57,10 @@ export interface ComputationCertificate {
   chainHash: string;
 
   // Economic (Phase C — stubs for now)
+  // Payment-agnostic: works with credits today, wallet tokens (SOL/USDC) tomorrow
   bondTier: 0 | 1 | 2 | 3;
-  bondCredits: number;
+  bondAmount: number;
+  bondCurrency: 'credits' | 'SOL' | 'USDC';
 
   // Timing
   createdAt: string;
@@ -140,7 +142,8 @@ export function createComputationCertificate(
     algorithm: 'Ed25519',
     chainHash,
     bondTier: 0,
-    bondCredits: 0,
+    bondAmount: 0,
+    bondCurrency: 'credits',
     createdAt: now,
   };
 
@@ -152,14 +155,14 @@ export function createComputationCertificate(
         input_hash, output_hash, seed_commitment, seed, output_commitment,
         spot_checks_json, all_passed, birth_cert_hash,
         signature, public_key, algorithm, chain_hash,
-        bond_tier, bond_credits, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        bond_tier, bond_amount, bond_currency, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       cert.id, cert.requestId, cert.computationType, cert.computationClass,
       cert.inputHash, cert.outputHash, cert.seedCommitment, cert.seed, cert.outputCommitment,
       JSON.stringify(cert.spotChecks), cert.allSpotChecksPassed ? 1 : 0, cert.birthCertHash,
       cert.signature, cert.publicKey, cert.algorithm, cert.chainHash,
-      cert.bondTier, cert.bondCredits, cert.createdAt,
+      cert.bondTier, cert.bondAmount, cert.bondCurrency, cert.createdAt,
     );
   } catch (err) {
     logger.error({ err, requestId: opts.requestId }, 'Failed to persist computation certificate');
@@ -242,7 +245,8 @@ export function getComputationCertificate(requestId: string): ComputationCertifi
     algorithm: row.algorithm,
     chainHash: row.chain_hash,
     bondTier: row.bond_tier,
-    bondCredits: row.bond_credits,
+    bondAmount: row.bond_amount,
+    bondCurrency: row.bond_currency ?? 'credits',
     createdAt: row.created_at,
   };
 }

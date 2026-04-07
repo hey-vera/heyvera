@@ -1941,7 +1941,8 @@ const MIGRATIONS: { version: number; sql: string }[] = [
       algorithm TEXT NOT NULL DEFAULT 'Ed25519',
       chain_hash TEXT NOT NULL,
       bond_tier INTEGER NOT NULL DEFAULT 0,
-      bond_credits REAL NOT NULL DEFAULT 0,
+      bond_amount REAL NOT NULL DEFAULT 0,
+      bond_currency TEXT NOT NULL DEFAULT 'credits',
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )
   ` },
