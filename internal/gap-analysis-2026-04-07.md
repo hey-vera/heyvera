@@ -14,8 +14,8 @@ The Verified Data Machine vision describes a 4-module system where every API res
 
 | Module | Vision | Actual State | Grade |
 |--------|--------|-------------|-------|
-| **Heart** (signing) | Every response gets a birth cert | Only LLM calls wrapped. API endpoint calls get NOTHING signed. | **D** |
-| **Cache** (storage) | Signed, verified, offline-verifiable | Cache works great. But it stores raw bytes, not signed artifacts. "Verified cache" is 0% built. | **C** |
+| **Heart** (signing) | Every response gets a birth cert | FIXED: heart.fetchData() produces certs, double-read bug fixed. Birth certs now reach headers + receipts. | **B+** |
+| **Cache** (storage) | Signed, verified, offline-verifiable | CORRECTED: cache-certificate.ts IS creating CacheCertificates binding original→cached. Platform signs. Headers served. | **B** |
 | **Check** (freshness) | Conditional payment on every endpoint | **WORKING.** Real billing, wired into proxy, tier-aware. | **A** |
 | **Receipt** (attestation) | On-chain EAS on every transaction | Receipts created in SQLite. EAS flag disabled. Zero on-chain. | **C+** |
 
@@ -157,31 +157,20 @@ The Verified Data Machine vision describes a 4-module system where every API res
 
 **Effort:** 2-4 hours for the flip. 1 day including monitoring.
 
-### 2.4 Dual-Sign — Grade F (Dead Code)
+### 2.4 Dual-Sign — Grade B (WIRED, audit was wrong)
 
-**What exists:**
-- `src/core/dual-sign.ts` — `extractProviderCert()`, `verifyProviderCert()`, `createDualSign()`
-- `src/core/dual-sign-state.ts` — thread-local state management
-- `src/middleware/soma-provenance.ts` — middleware scaffolding
-- Tests pass for the isolated functions
+**CORRECTION:** Deeper code review revealed dual-sign IS fully wired:
+1. `clawapis.ts:110-121` — calls `createDualSign()` when upstream has X-Soma-* headers ✓
+2. `setLastDualSignResult()` IS called (in clawapis.ts, line 114) ✓
+3. `soma-provenance.ts` middleware IS mounted on `/v1/endpoints/*/call` and reads dual-sign state ✓
+4. `extractDualSignReceiptFields()` peeks state and adds to receipts ✓
+5. `setDualSignHeaders()` utility + full header suite implemented ✓
 
-**What's missing:**
-- **No middleware calls `createDualSign()` on endpoint responses.** The request pipeline never invokes it.
-- **`setLastDualSignResult()` is defined but never called.** There's literally no call site.
-- **No response headers** (`X-Platform-Signature`, `X-Provider-Signature`) are attached.
-- **Receipt dual-sign fields** (`dualSign.providerId`, `providerSignature`, etc.) are always null in production.
+**Why it appears "dead":** No upstream providers currently run Soma heart, so the `extractProviderCert()` check always returns null. The code will activate automatically when a provider starts sending X-Soma-* headers. This is an ecosystem/deployment gap, not a code gap.
 
-**Why this matters:** Dual-sign is Level 1.5 in the proof hierarchy. Two parties agreeing on data is stronger than one party signing. This is the first step toward real provenance and it's been dead since it was written.
+**What's actually needed:** Get first provider running Soma heart SDK so dual-sign activates. The `@clawnet/sense-observer` package exists for this.
 
-**What to build:**
-1. Middleware in the endpoint call path: after upstream fetch, call `extractProviderCert()` from response headers
-2. If provider has a Soma heart (sends X-Soma-* headers): verify provider cert, create dual-sign
-3. Attach dual-sign result to response headers and to the receipt
-4. For providers WITHOUT Soma hearts: skip gracefully (single platform sign only)
-
-**Dependency:** Provider must send `X-Soma-Data-Hash` + `X-Soma-Signature` headers. Currently only ClawNet's own LLM calls produce these. External providers would need Soma Heart SDK.
-
-**Effort:** 1-2 days to wire middleware. The code is 90% done.
+**Effort:** Zero code changes needed. Ecosystem adoption work only.
 
 ---
 

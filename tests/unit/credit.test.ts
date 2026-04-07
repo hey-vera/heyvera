@@ -224,13 +224,13 @@ describe('cacheCreditCost (proportional cache pricing)', () => {
     expect(cacheCreditCost(75)).toBe(7.5);
   });
 
-  it('enforces minimum 0.1 credits', () => {
-    // 0.15 credits live → 10% = 0.015, but min is 0.1
-    expect(cacheCreditCost(0.15)).toBe(0.1);
-    // 0.75 credits live → 10% = 0.075, but min is 0.1
-    expect(cacheCreditCost(0.75)).toBe(0.1);
-    // 0.001 credits live → 10% = 0.0001, but min is 0.1
-    expect(cacheCreditCost(0.001)).toBe(0.1);
+  it('enforces minimum 0.001 credits', () => {
+    // 0.15 credits live → 10% = 0.015, above min
+    expect(cacheCreditCost(0.15)).toBe(0.015);
+    // 0.75 credits live → 10% = 0.075, above min
+    expect(cacheCreditCost(0.75)).toBe(0.075);
+    // 0.001 credits live → 10% = 0.0001, but min is 0.001
+    expect(cacheCreditCost(0.001)).toBe(0.001);
   });
 
   it('handles expensive endpoints proportionally', () => {

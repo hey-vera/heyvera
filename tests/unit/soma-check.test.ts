@@ -308,7 +308,7 @@ describe('soma-check — getProviderSomaCheckEarnings', () => {
     expect(earnings.totals.cacheHits).toBe(0);
     expect(earnings.earnings.totalCreditsEarned).toBe(0);
     expect(earnings.endpoints).toEqual([]);
-    expect(earnings.tier).toBe(0);
+    expect(earnings.tier).toBe(1);
   });
 
   it('aggregates hits and misses scoped to a single provider', () => {

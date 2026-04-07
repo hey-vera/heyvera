@@ -385,6 +385,34 @@ adminRouter.post('/eas/anchor', async (c) => {
   return c.json(result);
 });
 
+// ─── EAS schema registration (one-time — call once to get EAS_SCHEMA_UID) ──
+adminRouter.post('/eas/register-schema', async (c) => {
+  const { isEASReady, registerSchema } = await import('../utils/eas');
+  if (isEASReady()) {
+    return c.json({ error: 'EAS already configured — schema UID is set', code: 'ALREADY_CONFIGURED' }, 409);
+  }
+  const uid = await registerSchema();
+  if (!uid) {
+    return c.json({ error: 'Schema registration failed — check EVM_PRIVATE_KEY and Base wallet balance', code: 'REGISTRATION_FAILED' }, 500);
+  }
+  logAudit({ entityType: 'eas_schema', entityId: uid, action: 'EAS_SCHEMA_REGISTERED', actorId: 'admin' });
+  return c.json({ ok: true, schemaUid: uid, next: `Set EAS_SCHEMA_UID=${uid} in VPS .env and restart` });
+});
+
+// ─── EAS status check ──────────────────────────────────────────────────────
+adminRouter.get('/eas/status', async (c) => {
+  const { isEASReady, getAttesterAddress } = await import('../utils/eas');
+  const { getSomaReceiptStats } = await import('../core/soma-receipt');
+  const stats = getSomaReceiptStats();
+  return c.json({
+    ready: isEASReady(),
+    attesterAddress: getAttesterAddress(),
+    schemaUidSet: !!env.EAS_SCHEMA_UID,
+    anchorEnabled: !!env.EAS_ANCHOR_ENABLED,
+    receipts: stats,
+  });
+});
+
 // ─── Provider Withdrawal Admin ──────────────────────────────────────────────
 
 // GET /v1/admin/withdrawals/pending — list withdrawals ready for approval
