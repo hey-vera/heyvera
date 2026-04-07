@@ -35,7 +35,8 @@ import {
 import { env } from '../config/index';
 import { cacheIncr } from '../cache/index';
 import { maskApiKey } from '../utils/mask';
-import { getSignalBalance, getSignalHistory, getVaultLocks } from '../db/signal';
+import { getSignalBalance, getSignalHistory, getVaultLocks, createVaultLock, requestVaultUnlock, getSignalLeaderboard, getSignalStats } from '../db/signal';
+import { deductCredit } from '../db/credits';
 
 function generateApiKey(): string {
   return 'cn-' + crypto.randomBytes(24).toString('hex');
@@ -469,3 +470,101 @@ async function sendClaimEmail(params: {
     }),
   });
 }
+
+// ─── Vault operations (Clerk auth proxy) ────────────────────────────────────
+
+function getKeyForClerk(c: any): { key: string; credits: number } | null {
+  const clerkUserId = c.get('clerkUserId');
+  const clerkEmail = c.get('clerkEmail');
+  let keyRow = getApiKeyByClerkId(clerkUserId);
+  if (!keyRow && clerkEmail) keyRow = getApiKeyByEmail(clerkEmail.toLowerCase().trim());
+  if (!keyRow) return null;
+  const balance = getApiKeyBalance(keyRow.key);
+  return balance ? { key: keyRow.key, credits: balance.credits } : null;
+}
+
+// POST /v1/dashboard/vault/lock — lock credits in Founding Vault via Clerk auth
+dashboardRouter.post('/vault/lock', requireClerkAuth, async (c) => {
+  const info = getKeyForClerk(c);
+  if (!info) return c.json({ error: 'No API key found', code: 'KEY_NOT_FOUND' }, 404);
+
+  let body: { credits?: number; lockDays?: number };
+  try { body = await c.req.json(); } catch {
+    return c.json({ error: 'Invalid JSON', code: 'INVALID_JSON' }, 400);
+  }
+
+  const credits = body.credits;
+  const lockDays = body.lockDays;
+  if (typeof credits !== 'number' || credits <= 0) {
+    return c.json({ error: 'credits must be a positive number', code: 'INVALID_CREDITS' }, 400);
+  }
+  if (typeof lockDays !== 'number' || ![30, 90, 180].includes(lockDays)) {
+    return c.json({ error: 'lockDays must be 30, 90, or 180', code: 'INVALID_LOCK_DAYS' }, 400);
+  }
+  if (info.credits < credits) {
+    return c.json({ error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS', available: info.credits }, 402);
+  }
+
+  const deducted = deductCredit(info.key, credits);
+  if (!deducted) return c.json({ error: 'Failed to deduct credits', code: 'DEDUCT_FAILED' }, 500);
+
+  try {
+    const lock = createVaultLock({ apiKey: info.key, providerId: undefined, credits, lockDays });
+    return c.json({
+      ok: true,
+      vault: { id: lock.id, creditsLocked: credits, lockDays, multiplier: lock.multiplier, unlocksAt: lock.unlocksAt },
+      message: `Locked ${credits.toLocaleString()} credits for ${lockDays} days. Token conversion bonus: ${lock.multiplier}x.`,
+    });
+  } catch (err: any) {
+    const { getDb } = await import('../db/connection');
+    getDb().prepare('UPDATE api_keys SET credits = credits + ? WHERE key = ?').run(credits, info.key);
+    return c.json({ error: err.message, code: 'VAULT_ERROR' }, 400);
+  }
+});
+
+// POST /v1/dashboard/vault/:id/unlock — early unlock via Clerk auth
+dashboardRouter.post('/vault/:id/unlock', requireClerkAuth, async (c) => {
+  const info = getKeyForClerk(c);
+  if (!info) return c.json({ error: 'No API key found', code: 'KEY_NOT_FOUND' }, 404);
+
+  const lockId = c.req.param('id');
+  try {
+    const result = requestVaultUnlock(lockId, info.key);
+    return c.json({ ok: true, ...result });
+  } catch (err: any) {
+    return c.json({ error: err.message, code: 'VAULT_ERROR' }, 400);
+  }
+});
+
+// GET /v1/dashboard/signal — detailed signal data for leaderboard context
+dashboardRouter.get('/signal', requireClerkAuth, (c) => {
+  const info = getKeyForClerk(c);
+  if (!info) return c.json({ error: 'No API key found', code: 'KEY_NOT_FOUND' }, 404);
+
+  const balance = getSignalBalance(info.key);
+  const history = getSignalHistory(info.key, 25);
+  const locks = getVaultLocks(info.key);
+  const leaderboard = getSignalLeaderboard(10, 0);
+  const stats = getSignalStats();
+
+  // Find user's rank
+  const allEntries = getSignalLeaderboard(1000, 0);
+  const rank = allEntries.findIndex(e => e.apiKey === info.key) + 1;
+
+  return c.json({
+    signal: balance,
+    rank: rank || null,
+    recentActivity: history,
+    vault: {
+      totalLocked: locks.filter(l => l.status === 'locked').reduce((s, l) => s + l.creditsLocked, 0),
+      locks,
+    },
+    leaderboard: leaderboard.map((e, i) => ({
+      rank: i + 1,
+      totalSignal: e.totalSignal,
+      keyHint: e.apiKey.slice(0, 7) + '...',
+      isYou: e.apiKey === info.key,
+    })),
+    network: { totalSignal: stats.totalSignal, participants: stats.participants },
+  });
+});

@@ -3,17 +3,23 @@ import { SignedIn, SignedOut, SignIn } from '@clerk/clerk-react';
 import { useProvider } from './contexts/provider-context';
 import { PortalLayout } from './components/layout/portal-layout';
 import { SessionTimeout } from './components/session-timeout';
+import { useAdminCheck } from './hooks/use-admin-data';
 
 // Customer pages
 import { CustomerOverviewPage } from './pages/customer-overview';
 import { KeysPage } from './pages/keys';
 import { BillingPage } from './pages/billing';
 import { UsagePage } from './pages/usage';
+import { SignalPage } from './pages/signal';
+import { ReferralPage } from './pages/referral';
 
 // Provider pages
 import { EndpointsPage } from './pages/endpoints';
 import { EarningsPage } from './pages/earnings';
 import { PayoutsPage } from './pages/payouts';
+
+// Admin
+import { AdminPage } from './pages/admin';
 
 // Shared
 import { SettingsPage } from './pages/settings';
@@ -23,6 +29,14 @@ function ProviderGuard({ children }: { children: React.ReactNode }) {
   const { provider, isLoading } = useProvider();
   if (isLoading) return null;
   if (!provider) return <Navigate to="/" replace />;
+  return <>{children}</>;
+}
+
+/** Guard that redirects non-admins to home */
+function AdminGuard({ children }: { children: React.ReactNode }) {
+  const { data, isLoading } = useAdminCheck();
+  if (isLoading) return null;
+  if (!data?.isAdmin) return <Navigate to="/" replace />;
   return <>{children}</>;
 }
 
@@ -48,11 +62,16 @@ function DashboardRoutes() {
         <Route path="/keys" element={<KeysPage />} />
         <Route path="/billing" element={<BillingPage />} />
         <Route path="/usage" element={<UsagePage />} />
+        <Route path="/signal" element={<SignalPage />} />
+        <Route path="/referral" element={<ReferralPage />} />
 
         {/* Provider routes — guarded */}
         <Route path="/endpoints" element={<ProviderGuard><EndpointsPage /></ProviderGuard>} />
         <Route path="/earnings" element={<ProviderGuard><EarningsPage /></ProviderGuard>} />
         <Route path="/payouts" element={<ProviderGuard><PayoutsPage /></ProviderGuard>} />
+
+        {/* Admin — guarded */}
+        <Route path="/admin" element={<AdminGuard><AdminPage /></AdminGuard>} />
 
         {/* Shared */}
         <Route path="/settings" element={<SettingsPage />} />

@@ -68,6 +68,73 @@ export interface SomaReceipt {
   somaVerified: boolean;
 }
 
+// --- Admin types ---
+
+export interface AdminStats {
+  period: string;
+  stats: {
+    totalCalls: number;
+    totalRevenue: number;
+    profit: number;
+    activeUsers: number;
+    skills: number;
+  };
+  chart: Array<{ date: string; calls: number }>;
+  revenue: Record<string, number>;
+  reconciliation: Record<string, number>;
+  treasury: Record<string, number>;
+  cacheStats: {
+    totalHits: number;
+    hitRate: number;
+    creditsSaved: number;
+  };
+}
+
+export interface AdminLogs {
+  period: string;
+  callLogs: Array<{
+    id: string;
+    createdAt: string;
+    query: string;
+    skillName?: string;
+    creditsCost: number;
+    maskedKey: string;
+    status: string;
+  }>;
+  skillLogs: Array<{
+    skillName: string;
+    invocations: number;
+    creditsEarned: number;
+  }>;
+}
+
+// --- Signal types ---
+
+export interface SignalDetail {
+  signal: number;
+  rank: number | null;
+  recentActivity: Array<{ action: string; amount: number; createdAt: string }>;
+  vault: { totalLocked: number; locks: VaultLock[] };
+  leaderboard: Array<{
+    rank: number;
+    totalSignal: number;
+    keyHint: string;
+    isYou: boolean;
+  }>;
+  network: { totalSignal: number; participants: number };
+}
+
+// --- Referral types ---
+
+export interface ReferralInfo {
+  code: string;
+  uses: number;
+  shareUrl: string;
+  bonusCreditsForFriend: number;
+  bonusCreditsForYou: number;
+  hint: string;
+}
+
 // --- Provider types ---
 
 export interface Provider {

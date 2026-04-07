@@ -11,6 +11,9 @@ import {
   Menu,
   CreditCard,
   BarChart3,
+  Flame,
+  Gift,
+  ShieldCheck,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -18,6 +21,7 @@ import { Badge } from '@/components/ui/badge';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { Separator } from '@/components/ui/separator';
 import { useProvider } from '@/contexts/provider-context';
+import { useAdminCheck } from '@/hooks/use-admin-data';
 
 interface NavItem {
   to: string;
@@ -30,6 +34,8 @@ const CUSTOMER_NAV: NavItem[] = [
   { to: '/keys', icon: Key, label: 'API Keys' },
   { to: '/billing', icon: CreditCard, label: 'Billing' },
   { to: '/usage', icon: BarChart3, label: 'Usage' },
+  { to: '/signal', icon: Flame, label: 'Signal' },
+  { to: '/referral', icon: Gift, label: 'Referrals' },
 ];
 
 const PROVIDER_NAV: NavItem[] = [
@@ -38,11 +44,15 @@ const PROVIDER_NAV: NavItem[] = [
   { to: '/payouts', icon: Wallet, label: 'Payouts' },
 ];
 
+const ADMIN_NAV: NavItem[] = [
+  { to: '/admin', icon: ShieldCheck, label: 'Admin' },
+];
+
 const COMMON_NAV: NavItem[] = [
   { to: '/settings', icon: Settings, label: 'Settings' },
 ];
 
-const ALL_NAV = [...CUSTOMER_NAV, ...PROVIDER_NAV, ...COMMON_NAV];
+const ALL_NAV = [...CUSTOMER_NAV, ...PROVIDER_NAV, ...ADMIN_NAV, ...COMMON_NAV];
 
 const TIER_LABELS: Record<string, string> = {
   founding: 'T1 Active',
@@ -98,6 +108,8 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const { provider } = useProvider();
   const { user } = useUser();
   const location = useLocation();
+  const { data: adminData } = useAdminCheck();
+  const isAdmin = adminData?.isAdmin ?? false;
 
   const displayName =
     provider?.name ?? user?.firstName ?? user?.emailAddresses?.[0]?.emailAddress ?? 'User';
@@ -124,6 +136,18 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
             <NavSection
               items={PROVIDER_NAV}
               label="Provider"
+              location={location}
+              onNavigate={onNavigate}
+            />
+          </>
+        )}
+
+        {isAdmin && (
+          <>
+            <Separator className="mx-0" />
+            <NavSection
+              items={ADMIN_NAV}
+              label="Admin"
               location={location}
               onNavigate={onNavigate}
             />
