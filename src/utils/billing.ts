@@ -7,6 +7,11 @@ import { maskApiKey } from './mask';
  * Also tracks daily/weekly budget spend for budget accounts.
  * No-op if the request isn't using a delegated key.
  *
+ * Throws if the delegation spend counter cannot be updated — this means
+ * the child key hit its spend limit or was deactivated. The parent's credits
+ * were already deducted, so the caller should handle the error (the route
+ * will return 500, alerting the client that something went wrong).
+ *
  * Usage in routes:
  *   const deducted = deductCredit(keyInfo.key, amount);
  *   if (deducted) trackDelegatedSpend(keyInfo, amount);
@@ -18,7 +23,8 @@ export function trackDelegatedSpend(
   if (keyInfo.delegatedFrom && amount > 0) {
     const updated = incrementDelegatedSpend(keyInfo.delegatedFrom, amount);
     if (!updated) {
-      logger.error({ key: maskApiKey(keyInfo.delegatedFrom), amount }, 'incrementDelegatedSpend failed — spend limit reached or DB error; credits already deducted');
+      logger.fatal({ key: maskApiKey(keyInfo.delegatedFrom), amount }, 'incrementDelegatedSpend failed — spend limit reached or key inactive; credits already deducted from parent');
+      throw new Error(`Delegated spend tracking failed for ${maskApiKey(keyInfo.delegatedFrom)} (amount: ${amount}). Credits deducted from parent but child counter not updated.`);
     }
     incrementBudgetSpend(keyInfo.delegatedFrom, amount);
   }
