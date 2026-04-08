@@ -29,11 +29,8 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
-    deploy:
-      resources:
-        limits:
-          memory: 3.5G
-          cpus: '2.0'
+    # No memory limit — prover Groth16 setup needs ~2GB + Node needs ~500MB.
+    # On 4GB VPS with 4GB swap, let the OS manage memory.
 
   redis:
     image: redis:7-alpine
