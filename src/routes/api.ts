@@ -21,6 +21,7 @@ import { env, isSimulationMode, rateTier, ORCHESTRATION_FEE } from '../config/in
 import { logger } from '../utils/logger';
 import { getHeartSafe } from '../core/soma';
 import { createSomaReceipt } from '../core/soma-receipt';
+import { getPlatformDid, appendAction } from '../core/soma-heartbeat';
 import { extractDualSignReceiptFields } from '../core/dual-sign-state';
 import { sendApiKeyEmail, sendLowBalanceEmail, sendAdminAlert } from '../utils/email';
 import { wasEmailSentRecently, logEmailSend } from '../db/index';
@@ -418,6 +419,16 @@ apiRouter.post('/orchestrate', async (c) => {
     };
     logUsage(usageEntry);
     insertOrchestration({ id: requestId, ...usageEntry, apiKey: keyInfo?.key });
+
+    // ─── Platform Heart — fold orchestration into ClawNet's own pulse tree ─
+    try {
+      appendAction(getPlatformDid(), {
+        endpointId: 'orchestrate',
+        success: true,
+        durationMs: totalDurationMs,
+        cached: cacheHits > 0,
+      }, creditsToDeduct);
+    } catch (err) { logger.warn({ err, requestId }, 'Platform heart fold failed (non-fatal)'); }
 
     // ─── Auto-Manifest (inline trust verdict — free, no extra cost) ────
     let trustVerdict: { verdict: string; confidence: number; sources: number; attestationId?: string } | null = null;

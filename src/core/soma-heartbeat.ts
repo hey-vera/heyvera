@@ -35,6 +35,17 @@ export function resolveAgentDid(apiKey: string): string {
   return createAgentIdentity(rootSeed).did;
 }
 
+let _platformDid: string | null = null;
+
+/** Deterministic DID for ClawNet's own heart — the platform itself as an agent. */
+export function getPlatformDid(): string {
+  if (_platformDid) return _platformDid;
+  const platformSeed = derivePlatformSeed('agent-roots');
+  const rootSeed = Buffer.from(hkdfSync('sha256', platformSeed, '', 'platform:clawnet', 32));
+  _platformDid = createAgentIdentity(rootSeed).did;
+  return _platformDid;
+}
+
 // ─── In-Memory Tree Cache ─────────────────────────────────────────────────
 
 const treeCache = new Map<string, PulseTree>();

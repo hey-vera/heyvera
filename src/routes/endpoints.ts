@@ -25,7 +25,7 @@ import { issueDataFetchCert } from '../core/executor';
 import { resolveComputationType } from '../core/computation-types';
 import { logSomaCheckEvent } from '../db/soma-check';
 import { awardSignal } from '../db/signal';
-import { resolveAgentDid, appendAction } from '../core/soma-heartbeat';
+import { resolveAgentDid, appendAction, getPlatformDid } from '../core/soma-heartbeat';
 
 const endpointsRouter = new Hono();
 
@@ -422,6 +422,7 @@ endpointsRouter.post('/:id/call', async (c) => {
       try {
         const agentDid = resolveAgentDid(keyInfo.key);
         appendAction(agentDid, { endpointId, success: true, durationMs, cached: true }, hitPriceCredits);
+        appendAction(getPlatformDid(), { endpointId, success: true, durationMs, cached: true }, hitPriceCredits);
       } catch (err) { logger.warn({ err, requestId }, 'Pulse Tree append failed (non-fatal)'); }
 
       logger.info(
@@ -503,6 +504,7 @@ endpointsRouter.post('/:id/call', async (c) => {
     try {
       const agentDid = resolveAgentDid(keyInfo.key);
       appendAction(agentDid, { endpointId, success: true, durationMs, cached: true }, cacheCredits);
+      appendAction(getPlatformDid(), { endpointId, success: true, durationMs, cached: true }, cacheCredits);
     } catch (err) { logger.warn({ err, requestId }, 'Pulse Tree append failed (non-fatal)'); }
 
     // Signal: award agent for cache hit, provider for passive income
@@ -587,6 +589,7 @@ endpointsRouter.post('/:id/call', async (c) => {
     try {
       const agentDid = resolveAgentDid(keyInfo.key);
       appendAction(agentDid, { endpointId, success: true, durationMs, cached: true }, cacheCredits);
+      appendAction(getPlatformDid(), { endpointId, success: true, durationMs, cached: true }, cacheCredits);
     } catch (err) { logger.warn({ err, requestId }, 'Pulse Tree append failed (non-fatal)'); }
 
     const cacheCert = getCacheCertificate(key);
@@ -738,6 +741,7 @@ endpointsRouter.post('/:id/call', async (c) => {
     try {
       const agentDid = resolveAgentDid(keyInfo.key);
       appendAction(agentDid, { endpointId, success: true, durationMs, cached: false }, endpointCredits);
+      appendAction(getPlatformDid(), { endpointId, success: true, durationMs, cached: false }, endpointCredits);
     } catch (err) { logger.warn({ err, requestId }, 'Pulse Tree append failed (non-fatal)'); }
 
     // Signal: award provider for live call
