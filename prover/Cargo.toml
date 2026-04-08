@@ -1,0 +1,21 @@
+[package]
+name = "soma-nova-prover"
+version = "0.1.0"
+edition = "2021"
+description = "Soma Nova IVC prover — stdin/stdout JSON IPC for Node.js integration"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+hex = "0.4"
+
+# Nova folding + Groth16 compression (uncomment when dependencies are ready)
+# nova-snark = { version = "0.34", features = ["default"] }
+# bellpepper-core = "0.4"
+# ff = "0.13"
+# pasta_curves = "0.5"
+
+[profile.release]
+opt-level = 3
+lto = true

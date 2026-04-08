@@ -2039,6 +2039,54 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 176, sql: `CREATE INDEX IF NOT EXISTS idx_burners_parent ON burner_agents(parent_did, status)` },
   { version: 177, sql: `CREATE INDEX IF NOT EXISTS idx_burners_expires ON burner_agents(expires_at) WHERE status = 'active'` },
   { version: 178, sql: `CREATE INDEX IF NOT EXISTS idx_death_certs_did ON death_certificates(agent_did)` },
+
+  // ── v179-180: Soma Pulse Tree — per-agent MMR state + leaf storage ─────
+  { version: 179, sql: `
+    CREATE TABLE IF NOT EXISTS agent_pulse_state (
+      agent_did TEXT PRIMARY KEY,
+      heartbeat_index INTEGER NOT NULL DEFAULT 0,
+      leaf_count INTEGER NOT NULL DEFAULT 0,
+      total_credits REAL NOT NULL DEFAULT 0,
+      root_hash TEXT NOT NULL DEFAULT '',
+      peaks_json TEXT NOT NULL DEFAULT '[]',
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  ` },
+  { version: 180, sql: `
+    CREATE TABLE IF NOT EXISTS pulse_tree_leaves (
+      id TEXT PRIMARY KEY,
+      agent_did TEXT NOT NULL,
+      leaf_index INTEGER NOT NULL,
+      position INTEGER NOT NULL,
+      type INTEGER NOT NULL,
+      heartbeat_index INTEGER NOT NULL,
+      timestamp TEXT NOT NULL,
+      payload_hash TEXT NOT NULL,
+      credit_delta REAL NOT NULL DEFAULT 0,
+      root_after TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_ptl_agent ON pulse_tree_leaves(agent_did, leaf_index);
+    CREATE INDEX IF NOT EXISTS idx_ptl_type ON pulse_tree_leaves(agent_did, type);
+    CREATE INDEX IF NOT EXISTS idx_ptl_heartbeat ON pulse_tree_leaves(agent_did, heartbeat_index);
+  ` },
+  { version: 181, sql: `
+    CREATE TABLE IF NOT EXISTS soma_checkpoints (
+      agent_did TEXT NOT NULL,
+      checkpoint_index INTEGER NOT NULL,
+      heartbeat_start INTEGER NOT NULL,
+      heartbeat_end INTEGER NOT NULL,
+      action_count INTEGER NOT NULL DEFAULT 0,
+      success_count INTEGER NOT NULL DEFAULT 0,
+      total_credits_delta REAL NOT NULL DEFAULT 0,
+      prev_checkpoint_hash TEXT NOT NULL DEFAULT '',
+      pulse_root TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      checkpoint_hash TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (agent_did, checkpoint_index)
+    );
+    CREATE INDEX IF NOT EXISTS idx_checkpoints_agent ON soma_checkpoints(agent_did, checkpoint_index DESC);
+  ` },
 ];
 
 function runMigrations(): void {

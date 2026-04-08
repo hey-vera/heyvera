@@ -44,6 +44,7 @@ import { maskApiKey } from '../utils/mask';
 import { deductCredit } from '../db/index';
 import { trackDelegatedSpend } from '../utils/billing';
 import { round6 } from '../core/credits';
+import { appendBurner, appendWallet, appendDeath, getAgentPulseState, generatePulseProof, getRecentLeaves, resolveAgentDid } from '../core/soma-heartbeat';
 
 const router = new Hono();
 
@@ -96,19 +97,34 @@ router.post('/wallet/derive', checkApiKey, async (c) => {
 
   const rootSeed = agentRootSeed(keyInfo.key);
 
+  const identity = createAgentIdentity(rootSeed);
+
   if (body.chain === 'solana') {
     const wallet = deriveSolanaWallet(rootSeed, body.index);
     const proof = body.withProof ? createWalletOwnershipProof(rootSeed, wallet) : undefined;
+
+    try {
+      appendWallet(identity.did, { chain: 'solana', index: body.index, address: wallet.publicKey });
+    } catch (err) {
+      logger.warn({ err }, 'Pulse Tree wallet append failed (non-fatal)');
+    }
+
     return c.json({ wallet, proof });
   }
 
   // EVM: return the derivation path + a note that the caller needs ethers/viem
   const evmSeed = deriveEvmWalletSeed(rootSeed, body.index);
+
+  try {
+    appendWallet(identity.did, { chain: 'evm', index: body.index, address: evmSeed.derivationPath });
+  } catch (err) {
+    logger.warn({ err }, 'Pulse Tree wallet append failed (non-fatal)');
+  }
+
   return c.json({
     wallet: {
       purpose: evmSeed.purpose,
       derivationPath: evmSeed.derivationPath,
-      // Don't return the private key over HTTP — agent should derive locally
       note: 'Use soma-wallet.deriveEvmWalletSeed() locally to get the private key',
     },
   });
@@ -174,6 +190,13 @@ router.post('/burner/create', checkApiKey, async (c) => {
     return c.json({ error: 'Burner creation failed — max active limit reached', code: 'BURNER_LIMIT' }, 429);
   }
 
+  // Pulse Tree: record burner creation
+  try {
+    appendBurner(identity.did, { action: 'create', burnerId: burner.id, bondAmount });
+  } catch (err) {
+    logger.warn({ err }, 'Pulse Tree burner append failed (non-fatal)');
+  }
+
   return c.json({
     burner: {
       id: burner.id,
@@ -213,6 +236,13 @@ router.post('/burner/revoke', checkApiKey, async (c) => {
   if (refund > 0 && !keyInfo.isEnvKey) {
     const { topUpCredits } = await import('../db/index');
     topUpCredits(keyInfo.key, refund);
+  }
+
+  // Pulse Tree: record burner revocation
+  try {
+    appendBurner(identity.did, { action: 'revoke', burnerId, bondAmount: refund });
+  } catch (err) {
+    logger.warn({ err }, 'Pulse Tree burner revoke append failed (non-fatal)');
   }
 
   return c.json({ revoked: true, bondRefunded: refund });
@@ -309,6 +339,17 @@ router.post('/shutdown', checkApiKey, async (c) => {
     reason: body.reason ?? 'graceful',
   });
 
+  // Pulse Tree: seal with DEATH leaf (final event)
+  try {
+    appendDeath(identity.did, {
+      reason: body.reason ?? 'graceful',
+      successorDid: body.successorDid,
+      finalBalance: cert.totalCredits,
+    });
+  } catch (err) {
+    logger.warn({ err }, 'Pulse Tree death append failed (non-fatal)');
+  }
+
   const verification = verifyDeathCertificate(cert);
 
   return c.json({
@@ -354,6 +395,65 @@ router.get('/:did/lifecycle', async (c) => {
         verification: verifyDeathCertificate(deathCert),
       },
     }),
+  });
+});
+
+// ─── GET /v1/agent/:did/heartbeat ──────────────────────────────────────────
+
+router.get('/:did/heartbeat', async (c) => {
+  const did = c.req.param('did');
+  const state = getAgentPulseState(did);
+
+  if (!state) return c.json({ error: 'No pulse state for this agent', code: 'NOT_FOUND' }, 404);
+
+  return c.json({
+    did,
+    heartbeatIndex: state.heartbeatIndex,
+    leafCount: state.leafCount,
+    totalCredits: state.totalCredits,
+    root: state.root,
+    alive: state.heartbeatIndex > 0,
+  });
+});
+
+// ─── GET /v1/agent/:did/pulse/proof/:leafIndex ────────────────────────────
+
+router.get('/:did/pulse/proof/:leafIndex', async (c) => {
+  const did = c.req.param('did');
+  const leafIndex = parseInt(c.req.param('leafIndex'), 10);
+
+  if (isNaN(leafIndex) || leafIndex < 0) {
+    return c.json({ error: 'Invalid leaf index', code: 'INVALID_PARAM' }, 400);
+  }
+
+  try {
+    const proof = generatePulseProof(did, leafIndex);
+    return c.json({ proof });
+  } catch (err: any) {
+    return c.json({ error: err.message, code: 'PROOF_ERROR' }, 400);
+  }
+});
+
+// ─── GET /v1/agent/:did/pulse/leaves ──────────────────────────────────────
+
+router.get('/:did/pulse/leaves', async (c) => {
+  const did = c.req.param('did');
+  const limit = Math.min(parseInt(c.req.query('limit') ?? '20', 10), 100);
+
+  const leaves = getRecentLeaves(did, limit);
+  return c.json({ did, leaves });
+});
+
+// ─── GET /v1/agent/me/pulse ───────────────────────────────────────────────
+
+router.get('/me/pulse', checkApiKey, async (c) => {
+  const keyInfo = c.get('apiKeyInfo');
+  const agentDid = resolveAgentDid(keyInfo.key);
+  const state = getAgentPulseState(agentDid);
+
+  return c.json({
+    did: agentDid,
+    ...(state ?? { heartbeatIndex: 0, leafCount: 0, totalCredits: 0, root: '' }),
   });
 });
 

@@ -14,6 +14,7 @@ import { createComputationCertificate, type ComputationCertificate } from './com
 import { checkSum, checkCount, checkMinMax, checkSort, checkEconomicOnly, type SpotCheckResult } from './spot-check';
 import { getComputationType, resolveComputationType } from './computation-types';
 import { somaHash, somaHashJson } from '../utils/crypto-agility';
+import { resolveAgentDid, appendAction } from './soma-heartbeat';
 
 export interface StepResult {
   endpointId: string;
@@ -616,6 +617,25 @@ export async function executePlan(
   const birthCertificates = steps
     .map(s => s.birthCertificate)
     .filter((c): c is BirthCertificate => c != null);
+
+  // ─── Pulse Tree: append ACTION leaf for each successful step ──────────
+  if (agentKey) {
+    try {
+      const agentDid = resolveAgentDid(agentKey);
+      for (const step of steps) {
+        if (step.success) {
+          appendAction(agentDid, {
+            endpointId: step.endpointId,
+            success: step.success,
+            durationMs: step.durationMs,
+            cached: step.cached,
+          }, step.cost);
+        }
+      }
+    } catch (err) {
+      logger.warn({ err }, 'Pulse Tree append failed (non-fatal)');
+    }
+  }
 
   return {
     steps, totalCost, totalDurationMs: Date.now() - start,
