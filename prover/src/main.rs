@@ -22,7 +22,6 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine as Base64Engine
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::{self, BufRead, Write};
-use std::path::PathBuf;
 
 use folding_schemes::{
     commitment::{kzg::KZG, pedersen::Pedersen},
@@ -126,8 +125,8 @@ struct Prover {
         <N as FoldingScheme<G1, G2, FC>>::ProverParam,
         <N as FoldingScheme<G1, G2, FC>>::VerifierParam,
     ),
-    decider_pp: <D as Decider<G1, G2, FC, N>>::ProverParam,
-    decider_vp: <D as Decider<G1, G2, FC, N>>::VerifierParam,
+    decider_pp: Option<<D as Decider<G1, G2, FC, N>>::ProverParam>,
+    decider_vp: Option<<D as Decider<G1, G2, FC, N>>::VerifierParam>,
     circuit: FC,
     agents: HashMap<String, AgentState>,
 }
@@ -150,41 +149,46 @@ fn field_to_hex(f: &Fr) -> String {
     hex::encode(bytes)
 }
 
-/// Path for cached params file.
-fn params_path() -> PathBuf {
-    let mut p = std::env::current_dir().unwrap_or_default();
-    p.push("prover");
-    p.push("params.bin");
-    p
-}
-
 impl Prover {
     fn new() -> Result<Self, String> {
         let circuit = FC::new(()).map_err(|e| format!("Circuit init failed: {}", e))?;
         let poseidon_config = poseidon_canonical_config::<Fr>();
         let mut rng = ark_std::rand::rngs::OsRng;
 
-        // Setup Nova public params
+        // Setup Nova public params (fast, ~2.5s, low memory)
         eprintln!("[prover] Generating Nova public parameters...");
         let nova_preprocess = PreprocessorParam::new(poseidon_config, circuit);
         let nova_params = N::preprocess(&mut rng, &nova_preprocess)
             .map_err(|e| format!("Nova setup failed: {}", e))?;
         eprintln!("[prover] Nova params ready.");
 
-        // Setup Groth16 decider (trusted setup)
-        eprintln!("[prover] Running Groth16 trusted setup...");
-        let (decider_pp, decider_vp) =
-            D::preprocess(&mut rng, (nova_params.clone(), circuit.state_len()))
-                .map_err(|e| format!("Decider setup failed: {}", e))?;
-        eprintln!("[prover] Groth16 decider ready.");
+        // Groth16 decider setup deferred to first compress() call.
+        // Trusted setup needs ~3.5GB RSS — too heavy for startup on 4GB VPS.
 
         Ok(Self {
             nova_params,
-            decider_pp,
-            decider_vp,
+            decider_pp: None,
+            decider_vp: None,
             circuit,
             agents: HashMap::new(),
         })
+    }
+
+    /// Lazily initialize Groth16 decider params on first compress.
+    /// Needs ~3.5GB RSS and takes 3-7 minutes on a 4GB VPS with swap.
+    fn ensure_decider(&mut self) -> Result<(), String> {
+        if self.decider_pp.is_some() {
+            return Ok(());
+        }
+        eprintln!("[prover] Running Groth16 trusted setup (deferred)...");
+        let mut rng = ark_std::rand::rngs::OsRng;
+        let (decider_pp, decider_vp) =
+            D::preprocess(&mut rng, (self.nova_params.clone(), self.circuit.state_len()))
+                .map_err(|e| format!("Decider setup failed: {}", e))?;
+        self.decider_pp = Some(decider_pp);
+        self.decider_vp = Some(decider_vp);
+        eprintln!("[prover] Groth16 decider ready.");
+        Ok(())
     }
 
     fn get_or_init_agent(&mut self, agent_did: &str) -> Result<&mut AgentState, String> {
@@ -238,6 +242,9 @@ impl Prover {
     }
 
     fn compress(&mut self, agent_did: &str) -> Result<CompressResponse, String> {
+        // Lazy Groth16 setup on first compress call
+        self.ensure_decider()?;
+
         let agent = self
             .agents
             .get(agent_did)
@@ -250,7 +257,7 @@ impl Prover {
         let rng = ark_std::rand::rngs::OsRng;
 
         // Generate Groth16 proof
-        let proof = D::prove(rng, self.decider_pp.clone(), agent.nova.clone())
+        let proof = D::prove(rng, self.decider_pp.as_ref().unwrap().clone(), agent.nova.clone())
             .map_err(|e| format!("Groth16 compression failed: {}", e))?;
 
         // Serialize proof to bytes
@@ -299,13 +306,14 @@ impl Prover {
             .ok_or_else(|| format!("No state for agent {}", agent_did))?;
 
         let state = agent.nova.state();
+        let mode = if self.decider_pp.is_some() { "nova-groth16" } else { "nova-only" };
 
         Ok(StateResponse {
             ok: true,
             agent_did: agent_did.to_string(),
             state: field_to_hex(&state[0]),
             fold_count: agent.fold_count,
-            mode: "nova-groth16".to_string(),
+            mode: mode.to_string(),
         })
     }
 
@@ -338,7 +346,7 @@ fn main() {
     let ready = serde_json::json!({
         "ready": true,
         "version": "0.2.0",
-        "mode": "nova-groth16",
+        "mode": "nova-only",
         "curve": "bn254"
     });
     writeln!(stdout, "{}", ready).unwrap();
@@ -397,13 +405,16 @@ fn main() {
                     serde_json::to_string(&serde_json::json!({"ok": true})).unwrap()
                 }
 
-                Command::Ping => serde_json::to_string(&PingResponse {
-                    ok: true,
-                    version: "0.2.0".to_string(),
-                    mode: "nova-groth16".to_string(),
-                    agents: prover.agents.len(),
-                })
-                .unwrap(),
+                Command::Ping => {
+                    let mode = if prover.decider_pp.is_some() { "nova-groth16" } else { "nova-only" };
+                    serde_json::to_string(&PingResponse {
+                        ok: true,
+                        version: "0.2.0".to_string(),
+                        mode: mode.to_string(),
+                        agents: prover.agents.len(),
+                    })
+                    .unwrap()
+                }
             },
             Err(e) => serde_json::to_string(&ErrorResponse {
                 ok: false,

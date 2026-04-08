@@ -145,7 +145,8 @@ export class NovaBridge {
    * Compress the accumulated folded instance into a Groth16 proof.
    */
   async compress(agentDid: string): Promise<CompressResult> {
-    return this.send({ cmd: 'compress', agent_did: agentDid });
+    // First compress may trigger lazy Groth16 setup (~3-7 min)
+    return this.send({ cmd: 'compress', agent_did: agentDid }, 600_000);
   }
 
   /**
@@ -178,7 +179,7 @@ export class NovaBridge {
 
   // ─── Internal ──────────────────────────────────────────────────────────
 
-  private async send<T>(command: object): Promise<T> {
+  private async send<T>(command: object, timeoutMs = 30_000): Promise<T> {
     if (!this._ready || !this.process?.stdin) {
       throw new Error('Nova prover not available');
     }
@@ -186,7 +187,7 @@ export class NovaBridge {
     const line = JSON.stringify(command);
     this.process.stdin.write(line + '\n');
 
-    const responseLine = await this.waitForLine(30000); // 30s timeout for compression
+    const responseLine = await this.waitForLine(timeoutMs);
     const parsed = JSON.parse(responseLine);
 
     if (!parsed.ok) {
