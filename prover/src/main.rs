@@ -26,11 +26,7 @@ use std::path::PathBuf;
 
 use folding_schemes::{
     commitment::{kzg::KZG, pedersen::Pedersen},
-    folding::{
-        nova::{decider_eth::Decider as DeciderEth, Nova, PreprocessorParam},
-        #[allow(unused_imports)]
-        traits::CommittedInstanceOps,
-    },
+    folding::nova::{decider_eth::Decider as DeciderEth, Nova, PreprocessorParam},
     frontend::FCircuit,
     transcript::poseidon::poseidon_canonical_config,
     Decider, FoldingScheme,
