@@ -28,6 +28,9 @@ import {
   writeAuditLog, safeJsonParse,
 } from '../db/index';
 import { creditsForExecution, creditsToUsd, x402SurchargeCredits, round6, cacheCreditCost } from '../core/credits';
+import { getHeartSafe } from '../core/soma';
+import { createSomaReceipt } from '../core/soma-receipt';
+import { extractDualSignReceiptFields } from '../core/dual-sign-state';
 import { parseIntent } from '../core/intent-parser';
 import { executePlan } from '../core/executor';
 import { formatResponse } from '../core/formatter';
@@ -215,7 +218,30 @@ openclawRouter.post('/invoke', checkApiKey, async (c) => {
             success: s.success, cached: s.cached, durationMs: s.durationMs,
           })),
         },
+        ...(execution.birthCertificates?.length && {
+          provenance: {
+            protocol: 'soma',
+            certificates: execution.birthCertificates,
+            heartDid: getHeartSafe()?.did ?? null,
+            canonicalDid: 'did:web:api.claw-net.org',
+            discovery: '/.well-known/soma.json',
+          },
+        }),
       };
+
+      // Soma Receipt — cryptographic delivery proof
+      createSomaReceipt({
+        requestId,
+        apiKey: keyInfo.key,
+        paymentMethod: 'credits',
+        creditsCost: creditsUsed,
+        requestData: JSON.stringify({ query: query.slice(0, 200), action: 'query' }),
+        responseData: JSON.stringify({ answer: formatted.answer?.slice(0, 500) }),
+        somaDataHash: execution.birthCertificates?.[0]?.dataHash,
+        cached: cacheHits > 0,
+        computationCertId: execution.steps.find(s => s.computationCertId)?.computationCertId,
+        ...extractDualSignReceiptFields(),
+      }).catch((err) => logger.warn({ requestId, err }, 'Soma receipt failed for openclaw query'));
 
       await cacheSet(qKey, result);
 
@@ -373,7 +399,30 @@ openclawRouter.post('/invoke', checkApiKey, async (c) => {
         suggestedActions: formatted.suggestedActions,
         skill: { id: skill.id, name: skill.name },
         costBreakdown: { costUsd: Math.round(apiCosts * 10000) / 10000, creditsUsed, ...(surcharge > 0 && { skillCost: skillCredits, x402Surcharge: surcharge }) },
+        ...(execution.birthCertificates?.length && {
+          provenance: {
+            protocol: 'soma',
+            certificates: execution.birthCertificates,
+            heartDid: getHeartSafe()?.did ?? null,
+            canonicalDid: 'did:web:api.claw-net.org',
+            discovery: '/.well-known/soma.json',
+          },
+        }),
       };
+
+      // Soma Receipt — cryptographic delivery proof
+      createSomaReceipt({
+        requestId,
+        apiKey: keyInfo.key,
+        paymentMethod: 'credits',
+        creditsCost: creditsUsed,
+        requestData: JSON.stringify({ skillId, action: 'skill', variables: Object.keys(variables) }),
+        responseData: JSON.stringify({ answer: formatted.answer?.slice(0, 500) }),
+        somaDataHash: execution.birthCertificates?.[0]?.dataHash,
+        cached: cacheHits > 0,
+        computationCertId: execution.steps.find(s => s.computationCertId)?.computationCertId,
+        ...extractDualSignReceiptFields(),
+      }).catch((err) => logger.warn({ requestId, err }, 'Soma receipt failed for openclaw skill'));
 
       await cacheSet(qKey, result);
 

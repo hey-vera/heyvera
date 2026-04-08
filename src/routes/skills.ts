@@ -28,6 +28,9 @@ import { formatResponse } from '../core/formatter';
 import { buildIntentFromPlan } from '../core/skill-executor';
 import { creditsForExecution, x402SurchargeCredits, round6, cacheCreditCost, dynamicCreditCost } from '../core/credits';
 import { computeRequestHash, computeResultHash } from '../utils/receipt-hash';
+import { getHeartSafe } from '../core/soma';
+import { createSomaReceipt } from '../core/soma-receipt';
+import { extractDualSignReceiptFields } from '../core/dual-sign-state';
 import { fireWebhookEvent } from '../utils/webhooks';
 import { executeCompositeSkill } from '../core/composite-executor';
 import { findEndpoint } from '../config/api-registry';
@@ -1421,7 +1424,30 @@ skillsRouter.post('/:id/invoke', checkApiKey, async (c) => {
         ...(skill.skill_class !== 'standard' && { skillClass: skill.skill_class }),
       },
       provider: buildProviderInfo(skill),
+      ...(execution.birthCertificates?.length && {
+        provenance: {
+          protocol: 'soma',
+          certificates: execution.birthCertificates,
+          heartDid: getHeartSafe()?.did ?? null,
+          canonicalDid: 'did:web:api.claw-net.org',
+          discovery: '/.well-known/soma.json',
+        },
+      }),
     };
+
+    // Soma Receipt — cryptographic delivery proof
+    createSomaReceipt({
+      requestId,
+      apiKey: keyInfo.key,
+      paymentMethod: 'credits',
+      creditsCost: creditsToDeduct,
+      requestData: JSON.stringify({ skillId: id, action: 'skill_invoke' }),
+      responseData: JSON.stringify({ answer: formatted.answer?.slice(0, 500) }),
+      somaDataHash: execution.birthCertificates?.[0]?.dataHash,
+      cached: cacheHits > 0,
+      computationCertId: execution.steps.find(s => s.computationCertId)?.computationCertId,
+      ...extractDualSignReceiptFields(),
+    }).catch((err) => logger.warn({ requestId, err }, 'Soma receipt failed for skill invoke'));
 
     await cacheSet(qKey, responsePayload);
     return c.json({
