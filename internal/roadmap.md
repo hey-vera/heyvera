@@ -413,6 +413,12 @@ Each `internal/*.md` file drills into specifics. This doc is the overview.
 - `internal/soma-check-header-spec.md` — header contract
 - `internal/cache-layers-distinction.md` — ClawNet L1/L2 cache vs Soma Check (critical distinction)
 
+**Agent Economy + Future Vision:**
+- `internal/soma-computation-witness.md` — MMR-based continuous computation proofs (Metabolism of the Machine)
+- `internal/phase5-soma-verified-economy.md` — anti-bundler trading platform + computation-as-mining
+- `internal/soma-horizon.md` — down-the-road future considerations (swarm proofs, cross-chain identity, agent labor markets, insurance, hardware Heart, etc.)
+- `internal/heartbeat-fraud-proofs.md` — economic verification without ZK overhead
+
 **Other:**
 - `internal/funds-flow.md` — how money actually reaches providers + "is 10% sketchy?" analysis
 - `internal/groundbreaking-extensions.md` — extension ideas (Vouch origin spec as Extension 9.5, etc.)
