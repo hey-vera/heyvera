@@ -13,6 +13,7 @@ import { initRedis, cacheStats, preloadCache } from './cache/index';
 import { checkApiKey } from './middleware/auth';
 import { rateLimiter } from './middleware/rate-limit';
 import { startHeartbeat } from './core/heartbeat';
+import { initNovaBridge } from './core/nova-bridge';
 import { setupGracefulShutdown, setHttpServer } from './utils/shutdown';
 import { feedbackRouter } from './routes/feedback';
 import { initTelegram, stopTelegram } from './integrations/telegram';
@@ -538,6 +539,9 @@ async function start() {
   startHeartbeat();
 
   // Non-critical services: isolate failures so the HTTP server still starts
+  try { await initNovaBridge(); } catch (err) {
+    logger.warn({ err }, 'Nova prover init failed — agents will use signed-only mode');
+  }
   let meshActive = false;
   try { await initTelegram(); } catch (err) {
     logger.error({ err }, 'Telegram init failed — continuing without bot');
