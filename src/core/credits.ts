@@ -45,9 +45,15 @@ const COST_MARKUP_FACTOR = env.COST_MARKUP_FACTOR;
 /**
  * Round a credit value to 6 decimal places to prevent floating-point drift.
  * All credit math should pass through this before DB writes.
+ *
+ * Throws on NaN/Infinity — a non-finite value in the billing pipeline
+ * means a bug upstream (e.g., dividing by zero, missing price data).
+ * Silently returning 0 would mask the bug and corrupt financial records.
  */
 export function round6(n: number): number {
-  if (!Number.isFinite(n)) return 0;
+  if (!Number.isFinite(n)) {
+    throw new Error(`round6: non-finite value "${n}" in credit math — this is a bug upstream`);
+  }
   return Math.round(n * 1_000_000) / 1_000_000;
 }
 

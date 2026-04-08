@@ -16,6 +16,7 @@
 
 import { nanoid } from 'nanoid';
 import nacl from 'tweetnacl';
+import { createPublicKey, verify as cryptoVerify } from 'crypto';
 import { somaHash } from '../utils/crypto-agility';
 import { jcsSerialize } from '../utils/jcs';
 import { derivePlatformSeed } from '../utils/ed25519-signer';
@@ -211,17 +212,13 @@ export function verifyComputationCertificate(cert: ComputationCertificate): {
   const expectedChainHash = somaHash(chainPayload);
   const chainHashValid = expectedChainHash === cert.chainHash;
 
-  // Verify platform signature over chain hash
+  // Verify platform signature over chain hash (Node native crypto — OpenSSL-backed)
   let signatureValid = false;
   try {
     const chainHashBytes = Buffer.from(cert.chainHash, 'hex');
     const sig = Buffer.from(cert.signature, 'hex');
     const pubKey = Buffer.from(cert.publicKey, 'hex');
-    signatureValid = nacl.sign.detached.verify(
-      new Uint8Array(chainHashBytes),
-      new Uint8Array(sig),
-      new Uint8Array(pubKey),
-    );
+    signatureValid = nativeEd25519Verify(chainHashBytes, sig, pubKey);
   } catch {
     signatureValid = false;
   }
@@ -300,9 +297,29 @@ export function getComputationCertificateById(certId: string): ComputationCertif
   };
 }
 
-// ─── Platform Key ───────────────────────────────────────────────────────────
+// ─── Platform Key (cached) ──────────────────────────────────────────────────
+
+let _cachedKeyPair: nacl.SignKeyPair | null = null;
 
 function getPlatformKeyPair(): nacl.SignKeyPair {
+  if (_cachedKeyPair) return _cachedKeyPair;
   const seed = derivePlatformSeed('ed25519-platform');
-  return nacl.sign.keyPair.fromSeed(new Uint8Array(seed));
+  _cachedKeyPair = nacl.sign.keyPair.fromSeed(new Uint8Array(seed));
+  return _cachedKeyPair;
+}
+
+// DER prefix for Ed25519 SPKI public key
+const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
+
+/**
+ * Verify Ed25519 signature using Node native crypto (OpenSSL-backed).
+ * ~10x faster than TweetNaCl pure-JS verification.
+ */
+function nativeEd25519Verify(message: Buffer, sig: Buffer, pubKeyRaw: Buffer): boolean {
+  const spkiKey = createPublicKey({
+    key: Buffer.concat([ED25519_SPKI_PREFIX, pubKeyRaw]),
+    format: 'der',
+    type: 'spki',
+  });
+  return cryptoVerify(null, message, spkiKey, sig);
 }

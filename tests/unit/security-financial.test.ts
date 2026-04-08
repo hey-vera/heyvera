@@ -43,16 +43,16 @@ beforeEach(() => {
 // ─── round6() Edge Cases ──────────────────────────────────────────────────
 
 describe('round6 edge cases', () => {
-  it('NaN → 0 (silent, no throw)', () => {
-    expect(round6(NaN)).toBe(0);
+  it('NaN throws (catches bugs upstream)', () => {
+    expect(() => round6(NaN)).toThrow('non-finite');
   });
 
-  it('Infinity → 0', () => {
-    expect(round6(Infinity)).toBe(0);
+  it('Infinity throws', () => {
+    expect(() => round6(Infinity)).toThrow('non-finite');
   });
 
-  it('-Infinity → 0', () => {
-    expect(round6(-Infinity)).toBe(0);
+  it('-Infinity throws', () => {
+    expect(() => round6(-Infinity)).toThrow('non-finite');
   });
 
   it('negative zero → 0 (numeric equality)', () => {
@@ -180,18 +180,12 @@ describe('credit deduction guards', () => {
 // ─── Bond Calculation Edge Cases ──────────────────────────────────────────
 
 describe('bond calculation pathological inputs', () => {
-  it('NaN creditsCost → Tier 0 (round6 returns 0)', () => {
-    const req = calculateBondRequirement(NaN);
-    // NaN < 10 is false, NaN < 100 is false, NaN < 1000 is false
-    // Falls through to Tier 3 but round6(NaN * 20) = 0
-    // This is a known edge case — bond amount is 0 which is wrong for Tier 3
-    expect(req.bondAmount).toBe(0);
+  it('NaN creditsCost throws (catches bugs upstream)', () => {
+    expect(() => calculateBondRequirement(NaN)).toThrow('non-finite');
   });
 
-  it('Infinity creditsCost → Tier 3 with 0 bond (round6 clamps)', () => {
-    const req = calculateBondRequirement(Infinity);
-    expect(req.tier).toBe(3);
-    expect(req.bondAmount).toBe(0); // round6(Infinity * 20) = 0
+  it('Infinity creditsCost throws', () => {
+    expect(() => calculateBondRequirement(Infinity)).toThrow('non-finite');
   });
 
   it('negative creditsCost → Tier 0', () => {
@@ -230,18 +224,12 @@ describe('slash math extremes', () => {
     expect(total).toBe(10_000_000);
   });
 
-  it('NaN bond → all zeros', () => {
-    const slash = calculateSlashAmounts(NaN);
-    expect(slash.winner).toBe(0);
-    expect(slash.treasury).toBe(0);
-    expect(slash.burned).toBe(0);
+  it('NaN bond throws', () => {
+    expect(() => calculateSlashAmounts(NaN)).toThrow('non-finite');
   });
 
-  it('Infinity bond → all zeros (round6 clamps)', () => {
-    const slash = calculateSlashAmounts(Infinity);
-    expect(slash.winner).toBe(0);
-    expect(slash.treasury).toBe(0);
-    expect(slash.burned).toBe(0);
+  it('Infinity bond throws', () => {
+    expect(() => calculateSlashAmounts(Infinity)).toThrow('non-finite');
   });
 
   it('invariant holds across 1000 random bond amounts (within 3e-6)', () => {

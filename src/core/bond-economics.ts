@@ -48,8 +48,12 @@ export type ChallengeState =
 
 /**
  * Determine the bond tier and requirements based on credit cost.
+ * Throws on NaN/Infinity — caller must validate inputs.
  */
 export function calculateBondRequirement(creditsCost: number): BondRequirement {
+  if (!Number.isFinite(creditsCost)) {
+    throw new Error(`calculateBondRequirement: non-finite creditsCost "${creditsCost}"`);
+  }
   if (creditsCost < 10) {
     return {
       tier: 0,
@@ -127,12 +131,16 @@ export function calculateChallengeEconomics(creditsCost: number): ChallengeEcono
 /**
  * Calculate slash amounts when a dispute is resolved.
  * Returns the amounts distributed to winner, treasury, and burned.
+ * Throws on NaN/Infinity — caller must validate inputs.
  */
 export function calculateSlashAmounts(loserBond: number): {
   winner: number;
   treasury: number;
   burned: number;
 } {
+  if (!Number.isFinite(loserBond)) {
+    throw new Error(`calculateSlashAmounts: non-finite loserBond "${loserBond}"`);
+  }
   return {
     winner: round6(loserBond * 0.60),
     treasury: round6(loserBond * 0.35),
