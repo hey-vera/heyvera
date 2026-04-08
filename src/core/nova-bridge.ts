@@ -17,7 +17,8 @@ import { logger } from '../utils/logger';
 
 export interface FoldResult {
   ok: boolean;
-  new_state_hash: string;
+  agent_did: string;
+  new_state: string;
   heartbeat_index: number;
   fold_count: number;
 }
@@ -129,10 +130,10 @@ export class NovaBridge {
   /**
    * Fold a new leaf into the running Nova instance.
    */
-  async fold(prevRoot: string, leafHash: string, heartbeatIndex: number): Promise<FoldResult> {
+  async fold(agentDid: string, leafHash: string, heartbeatIndex: number): Promise<FoldResult> {
     return this.send({
       cmd: 'fold',
-      prev_root: prevRoot,
+      agent_did: agentDid,
       leaf_hash: leafHash,
       heartbeat_index: heartbeatIndex,
     });
@@ -141,29 +142,29 @@ export class NovaBridge {
   /**
    * Compress the accumulated folded instance into a Groth16 proof.
    */
-  async compress(): Promise<CompressResult> {
-    return this.send({ cmd: 'compress' });
+  async compress(agentDid: string): Promise<CompressResult> {
+    return this.send({ cmd: 'compress', agent_did: agentDid });
   }
 
   /**
-   * Verify a compressed proof against a root and heartbeat index.
+   * Verify a compressed Groth16 proof.
    */
-  async verify(proof: string, root: string, heartbeatIndex: number): Promise<VerifyResult> {
-    return this.send({ cmd: 'verify', proof, root, heartbeat_index: heartbeatIndex });
+  async verify(proof: string, foldCount: number): Promise<VerifyResult> {
+    return this.send({ cmd: 'verify', proof, fold_count: foldCount });
   }
 
   /**
-   * Get the current prover state.
+   * Get the current prover state for an agent.
    */
-  async getState(): Promise<ProverState> {
-    return this.send({ cmd: 'state' });
+  async getState(agentDid: string): Promise<ProverState> {
+    return this.send({ cmd: 'state', agent_did: agentDid });
   }
 
   /**
-   * Reset the prover state (new agent or test).
+   * Reset the prover state for an agent.
    */
-  async reset(): Promise<{ ok: boolean }> {
-    return this.send({ cmd: 'reset' });
+  async reset(agentDid: string): Promise<{ ok: boolean }> {
+    return this.send({ cmd: 'reset', agent_did: agentDid });
   }
 
   /**

@@ -1,21 +1,39 @@
 [package]
 name = "soma-nova-prover"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
-description = "Soma Nova IVC prover — stdin/stdout JSON IPC for Node.js integration"
+description = "Soma Nova IVC prover — real folding proofs + Groth16 compression for Pulse Tree"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-sha2 = "0.10"
 hex = "0.4"
+base64 = "0.22"
 
-# Nova folding + Groth16 compression (uncomment when dependencies are ready)
-# nova-snark = { version = "0.34", features = ["default"] }
-# bellpepper-core = "0.4"
-# ff = "0.13"
-# pasta_curves = "0.5"
+# Sonobe folding schemes — Nova IVC + Groth16 decider over BN254
+folding-schemes = { git = "https://github.com/privacy-scaling-explorations/sonobe", package = "folding-schemes" }
+
+# Arkworks — BN254/Grumpkin curve cycle for EVM-compatible proofs
+ark-bn254 = "0.5"
+ark-grumpkin = "0.5"
+ark-groth16 = "0.5"
+ark-ff = "0.5"
+ark-r1cs-std = "0.5"
+ark-relations = "0.5"
+ark-std = "0.5"
+ark-serialize = { version = "0.5", features = ["derive"] }
+ark-crypto-primitives = { version = "0.5", default-features = false, features = ["r1cs", "sponge"] }
 
 [profile.release]
 opt-level = 3
-lto = true
+lto = "thin"
+codegen-units = 4
+
+[profile.dev]
+opt-level = 1
+
+# Required: Sonobe uses patched arkworks forks
+[patch.crates-io]
+ark-groth16 = { git = "https://github.com/arkworks-rs/groth16", rev = "b3b4a15" }
+ark-crypto-primitives = { git = "https://github.com/flyingnobita/crypto-primitives", rev = "f559264" }
+ark-r1cs-std = { git = "https://github.com/flyingnobita/r1cs-std_yelhousni", rev = "b4bab0c" }

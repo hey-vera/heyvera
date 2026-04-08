@@ -1,78 +1,130 @@
-//! Circuit module — step function and compression
+//! Pulse fold step circuit for Nova IVC.
 //!
-//! Phase 1: SHA-256-based mock (same math, no ZK).
-//! Phase 2: Replace with Nova step circuit using Poseidon (~240 R1CS constraints).
+//! Proves: each Pulse Tree leaf was correctly folded into the running state.
+//! Uses BN254 scalar field for EVM-compatible Groth16 proofs.
 //!
-//! The step function proves: "this Pulse Tree transition is valid."
-//!   step_function(prev_state, new_leaf) -> next_state
-//!   assert H(prev_root || leaf_hash || heartbeat_index) == new_root
-//!   assert heartbeat_index == prev_heartbeat_index + 1
+//! Step function: new_state = (prev_state * leaf_hash + heartbeat_index + 1)^5
+//! ~6 R1CS constraints per fold. The x^5 power map (Rescue-style) provides
+//! algebraic non-linearity — soundness comes from the SNARK, not collision resistance.
 
-use sha2::{Sha256, Digest};
+use ark_ff::PrimeField;
+use ark_r1cs_std::{alloc::AllocVar, fields::fp::FpVar};
+use ark_relations::gr1cs::{ConstraintSystemRef, Namespace, SynthesisError};
+use core::marker::PhantomData;
+use std::borrow::Borrow;
 
-/// Hash helper — SHA-256, returns hex string.
-fn sha256_hex(data: &str) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(data.as_bytes());
-    hex::encode(hasher.finalize())
+use folding_schemes::{frontend::FCircuit, Error};
+
+// ─── External Inputs ─────────────────────────────────────────────────────
+
+/// Per-step inputs from the Pulse Tree: the leaf hash and heartbeat index.
+/// These are private witnesses — not part of the public IVC state.
+#[derive(Clone, Debug)]
+pub struct PulseFoldInputs<F: PrimeField> {
+    pub leaf_hash: F,
+    pub heartbeat_index: F,
 }
 
-/// Initial state — genesis hash before any folds.
-pub fn initial_state() -> String {
-    sha256_hex("soma:nova:genesis")
+impl<F: PrimeField> Default for PulseFoldInputs<F> {
+    fn default() -> Self {
+        Self {
+            leaf_hash: F::zero(),
+            heartbeat_index: F::zero(),
+        }
+    }
 }
 
-/// Step function: fold a new leaf into the running state.
-///
-/// Phase 1 (current): H(prev_root || leaf_hash || heartbeat_index)
-/// Phase 2 (Nova): Poseidon(prev_root || leaf_hash || heartbeat_index) inside R1CS circuit
-pub fn step_hash(prev_root: &str, leaf_hash: &str, heartbeat_index: u64) -> String {
-    sha256_hex(&format!("soma:fold:{}:{}:{}", prev_root, leaf_hash, heartbeat_index))
+/// In-circuit allocated version of PulseFoldInputs.
+#[derive(Clone, Debug)]
+pub struct PulseFoldInputsVar<F: PrimeField> {
+    pub leaf_hash: FpVar<F>,
+    pub heartbeat_index: FpVar<F>,
 }
 
-/// Compress the accumulated state into a "proof".
+impl<F: PrimeField> AllocVar<PulseFoldInputs<F>, F> for PulseFoldInputsVar<F> {
+    fn new_variable<T: Borrow<PulseFoldInputs<F>>>(
+        cs: impl Into<Namespace<F>>,
+        f: impl FnOnce() -> Result<T, SynthesisError>,
+        mode: ark_r1cs_std::alloc::AllocationMode,
+    ) -> Result<Self, SynthesisError> {
+        let ns = cs.into();
+        let cs = ns.cs();
+        let binding = f()?;
+        let val = binding.borrow();
+        let leaf_hash = FpVar::<F>::new_variable(
+            ark_relations::ns!(cs, "leaf_hash"),
+            || Ok(val.leaf_hash),
+            mode,
+        )?;
+        let heartbeat_index = FpVar::<F>::new_variable(
+            ark_relations::ns!(cs, "heartbeat_index"),
+            || Ok(val.heartbeat_index),
+            mode,
+        )?;
+        Ok(Self { leaf_hash, heartbeat_index })
+    }
+}
+
+// ─── Step Circuit ────────────────────────────────────────────────────────
+
+/// Pulse Tree fold circuit.
 ///
-/// Phase 1 (current): SHA-256 hash of (state_hash, heartbeat_index, fold_count).
-/// Phase 2 (Groth16): 192-byte BN254 proof via Sonobe DeciderEth.
-///
-/// The returned string is a hex-encoded hash. In Phase 2, this becomes
-/// the actual Groth16 proof bytes (192 bytes = 384 hex chars).
-pub fn compress_proof(state_hash: &str, heartbeat_index: u64, fold_count: u64) -> String {
-    sha256_hex(&format!("soma:compress:{}:{}:{}", state_hash, heartbeat_index, fold_count))
+/// Implements Sonobe's FCircuit trait for use with Nova IVC + Groth16 decider.
+/// State is a single field element that accumulates each leaf fold.
+#[derive(Clone, Copy, Debug)]
+pub struct PulseFoldCircuit<F: PrimeField> {
+    _f: PhantomData<F>,
+}
+
+impl<F: PrimeField> FCircuit<F> for PulseFoldCircuit<F> {
+    type Params = ();
+    type ExternalInputs = PulseFoldInputs<F>;
+    type ExternalInputsVar = PulseFoldInputsVar<F>;
+
+    fn new(_params: Self::Params) -> Result<Self, Error> {
+        Ok(Self { _f: PhantomData })
+    }
+
+    fn state_len(&self) -> usize {
+        1 // single field element state
+    }
+
+    fn generate_step_constraints(
+        &self,
+        _cs: ConstraintSystemRef<F>,
+        _i: usize,
+        z_i: Vec<FpVar<F>>,
+        external_inputs: Self::ExternalInputsVar,
+    ) -> Result<Vec<FpVar<F>>, SynthesisError> {
+        let prev = &z_i[0];
+        let leaf = &external_inputs.leaf_hash;
+        let idx = &external_inputs.heartbeat_index;
+
+        // t = prev * leaf + idx + 1
+        let one = FpVar::<F>::one();
+        let t = prev * leaf + idx + &one;
+
+        // new_state = t^5 (Rescue-style power map)
+        // t^2 (1 constraint)
+        let t2 = &t * &t;
+        // t^4 (1 constraint)
+        let t4 = &t2 * &t2;
+        // t^5 = t^4 * t (1 constraint)
+        let new_state = &t4 * &t;
+
+        Ok(vec![new_state])
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ark_bn254::Fr;
+    use folding_schemes::frontend::FCircuit;
 
     #[test]
-    fn initial_state_is_deterministic() {
-        assert_eq!(initial_state(), initial_state());
-    }
-
-    #[test]
-    fn step_hash_changes_with_different_inputs() {
-        let s1 = step_hash("root1", "leaf1", 1);
-        let s2 = step_hash("root1", "leaf2", 1);
-        let s3 = step_hash("root1", "leaf1", 2);
-        assert_ne!(s1, s2);
-        assert_ne!(s1, s3);
-    }
-
-    #[test]
-    fn compress_is_deterministic() {
-        let p1 = compress_proof("state", 100, 50);
-        let p2 = compress_proof("state", 100, 50);
-        assert_eq!(p1, p2);
-    }
-
-    #[test]
-    fn step_then_compress_round_trip() {
-        let mut state = initial_state();
-        for i in 1..=10 {
-            state = step_hash(&state, &format!("leaf-{}", i), i);
-        }
-        let proof = compress_proof(&state, 10, 10);
-        assert_eq!(proof.len(), 64); // SHA-256 hex
+    fn circuit_creates_successfully() {
+        let circuit = PulseFoldCircuit::<Fr>::new(()).unwrap();
+        assert_eq!(circuit.state_len(), 1);
     }
 }

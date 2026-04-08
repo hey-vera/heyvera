@@ -187,24 +187,24 @@ function appendLeaf(agentDid: string, type: PulseType, payloadHash: string, cred
   })();
 
   // Fire-and-forget Nova IVC fold — non-blocking, non-fatal
-  novaFold(root, payloadHash, heartbeatIndex).catch(() => {});
+  novaFold(agentDid, payloadHash, heartbeatIndex).catch(() => {});
 
   return { heartbeatIndex, position, root };
 }
 
 /**
  * Fold a leaf into the running Nova IVC instance.
- * ~1-3ms IPC overhead + 50-100ms proof generation (Phase 2).
- * Phase 1 (SHA-256 mock): <5ms total.
+ * Real Nova: ~50-100ms proof generation per fold.
+ * Groth16 compression happens separately via novaCompress().
  */
-async function novaFold(root: string, leafHash: string, heartbeatIndex: number): Promise<void> {
+async function novaFold(agentDid: string, leafHash: string, heartbeatIndex: number): Promise<void> {
   const bridge = getNovaBridge();
   if (!bridge.ready) return;
 
   try {
-    await bridge.fold(root, leafHash, heartbeatIndex);
+    await bridge.fold(agentDid, leafHash, heartbeatIndex);
   } catch (err) {
-    logger.warn({ err, heartbeatIndex }, 'Nova fold failed (non-fatal)');
+    logger.warn({ err, agentDid, heartbeatIndex }, 'Nova fold failed (non-fatal)');
   }
 }
 
@@ -224,7 +224,7 @@ export async function novaCompress(agentDid: string): Promise<{
   if (!bridge.ready) return null;
 
   try {
-    const result = await bridge.compress();
+    const result = await bridge.compress(agentDid);
     // Record the proof as a ZK_PROOF leaf
     appendZkProof(agentDid, {
       proofType: 'groth16',
@@ -234,8 +234,8 @@ export async function novaCompress(agentDid: string): Promise<{
     return {
       proof: result.proof,
       proofSizeBytes: result.proof_size_bytes,
-      root: result.root,
-      heartbeatIndex: result.heartbeat_index,
+      root: '', // root derived from Nova state, not Pulse Tree root
+      heartbeatIndex: 0,
       foldCount: result.fold_count,
     };
   } catch (err) {
