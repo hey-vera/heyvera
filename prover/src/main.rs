@@ -162,7 +162,7 @@ impl Prover {
     fn new() -> Result<Self, String> {
         let circuit = FC::new(()).map_err(|e| format!("Circuit init failed: {}", e))?;
         let poseidon_config = poseidon_canonical_config::<Fr>();
-        let rng = ark_std::rand::rngs::OsRng;
+        let mut rng = ark_std::rand::rngs::OsRng;
 
         // Setup Nova public params
         eprintln!("[prover] Generating Nova public parameters...");
