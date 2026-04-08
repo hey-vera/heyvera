@@ -2106,6 +2106,23 @@ const MIGRATIONS: { version: number; sql: string }[] = [
     UPDATE providers SET cache_revenue_share_pct = 1.00 WHERE cache_revenue_share_pct < 1.00;
     UPDATE providers SET platform_fee_pct = 0 WHERE platform_fee_pct > 0;
   ` },
+  { version: 184, sql: `
+    CREATE TABLE IF NOT EXISTS vouch_stakes (
+      id TEXT PRIMARY KEY,
+      voucher_did TEXT NOT NULL,
+      vouchee_did TEXT NOT NULL,
+      stake_amount REAL NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'revoked', 'slashed')),
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      expires_at TEXT,
+      revoked_at TEXT,
+      slash_reason TEXT,
+      UNIQUE(voucher_did, vouchee_did, status)
+    );
+    CREATE INDEX IF NOT EXISTS idx_vs_voucher ON vouch_stakes(voucher_did, status);
+    CREATE INDEX IF NOT EXISTS idx_vs_vouchee ON vouch_stakes(vouchee_did, status);
+    CREATE INDEX IF NOT EXISTS idx_vs_expires ON vouch_stakes(expires_at) WHERE expires_at IS NOT NULL;
+  ` },
 ];
 
 function runMigrations(): void {
