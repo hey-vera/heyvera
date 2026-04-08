@@ -14,15 +14,15 @@ base64 = "0.22"
 folding-schemes = { git = "https://github.com/privacy-scaling-explorations/sonobe", package = "folding-schemes" }
 
 # Arkworks — BN254/Grumpkin curve cycle for EVM-compatible proofs
-ark-bn254 = "0.5"
-ark-grumpkin = "0.5"
-ark-groth16 = "0.5"
-ark-ff = "0.5"
-ark-r1cs-std = "0.5"
-ark-relations = "0.5"
-ark-std = "0.5"
-ark-serialize = { version = "0.5", features = ["derive"] }
-ark-crypto-primitives = { version = "0.5", default-features = false, features = ["constraints", "sponge"] }
+ark-bn254 = { version = "^0.5.0", default-features = false }
+ark-grumpkin = { version = "^0.5.0", default-features = false }
+ark-groth16 = { version = "^0.5.0" }
+ark-ff = { version = "^0.5.0", default-features = false, features = ["asm"] }
+ark-r1cs-std = { version = "^0.5.0", default-features = false }
+ark-relations = { version = "^0.5.0", default-features = false }
+ark-std = { version = "^0.5.0", default-features = false }
+ark-serialize = { version = "^0.5.0" }
+ark-crypto-primitives = { version = "^0.5.0", default-features = false, features = ["constraints", "sponge"] }
 
 [profile.release]
 opt-level = 3
@@ -32,8 +32,27 @@ codegen-units = 4
 [profile.dev]
 opt-level = 1
 
-# Required: Sonobe uses patched arkworks forks
+# ── Patches: must match Sonobe's workspace patches exactly ────────────────
+# Without these, Cargo resolves crates.io 0.5 releases (r1cs) alongside
+# Sonobe's git forks (gr1cs), causing duplicate type errors.
 [patch.crates-io]
+# Pinned revs (Sonobe-specific forks)
 ark-groth16 = { git = "https://github.com/arkworks-rs/groth16", rev = "b3b4a15" }
 ark-crypto-primitives = { git = "https://github.com/flyingnobita/crypto-primitives", rev = "f559264" }
 ark-r1cs-std = { git = "https://github.com/flyingnobita/r1cs-std_yelhousni", rev = "b4bab0c" }
+
+# Core algebra crates (track main — same repo, Cargo locks to one rev)
+ark-ff = { git = "https://github.com/arkworks-rs/algebra" }
+ark-ec = { git = "https://github.com/arkworks-rs/algebra" }
+ark-serialize = { git = "https://github.com/arkworks-rs/algebra" }
+ark-poly = { git = "https://github.com/arkworks-rs/algebra" }
+ark-bn254 = { git = "https://github.com/arkworks-rs/algebra" }
+ark-grumpkin = { git = "https://github.com/arkworks-rs/algebra" }
+
+# Snark traits
+ark-relations = { git = "https://github.com/arkworks-rs/snark" }
+ark-snark = { git = "https://github.com/arkworks-rs/snark" }
+
+# Remaining arkworks ecosystem
+ark-std = { git = "https://github.com/arkworks-rs/std" }
+ark-poly-commit = { git = "https://github.com/arkworks-rs/poly-commit" }
