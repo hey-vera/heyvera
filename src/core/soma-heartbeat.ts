@@ -13,6 +13,7 @@ import { hkdfSync } from 'crypto';
 import { getDb, logAudit } from '../db/connection';
 import { somaHash, somaHashJson } from '../utils/crypto-agility';
 import { derivePlatformSeed } from '../utils/ed25519-signer';
+import { getNovaBridge } from './nova-bridge';
 import { createAgentIdentity } from './soma-wallet';
 import { logger } from '../utils/logger';
 import {
@@ -159,6 +160,10 @@ interface AppendResult {
 /**
  * Core append: increment heartbeat, append leaf, persist, return result.
  * All typed append functions delegate here.
+ *
+ * After persisting, fires an async Nova IVC fold (non-blocking).
+ * The fold incrementally proves this leaf was correctly appended to the tree.
+ * If the prover is unavailable, the append still succeeds (graceful degradation).
  */
 function appendLeaf(agentDid: string, type: PulseType, payloadHash: string, creditDelta: number): AppendResult {
   const heartbeatIndex = incrementHeartbeat(agentDid);
@@ -180,7 +185,62 @@ function appendLeaf(agentDid: string, type: PulseType, payloadHash: string, cred
     persistTreeState(agentDid, tree);
   })();
 
+  // Fire-and-forget Nova IVC fold — non-blocking, non-fatal
+  novaFold(root, payloadHash, heartbeatIndex).catch(() => {});
+
   return { heartbeatIndex, position, root };
+}
+
+/**
+ * Fold a leaf into the running Nova IVC instance.
+ * ~1-3ms IPC overhead + 50-100ms proof generation (Phase 2).
+ * Phase 1 (SHA-256 mock): <5ms total.
+ */
+async function novaFold(root: string, leafHash: string, heartbeatIndex: number): Promise<void> {
+  const bridge = getNovaBridge();
+  if (!bridge.ready) return;
+
+  try {
+    await bridge.fold(root, leafHash, heartbeatIndex);
+  } catch (err) {
+    logger.warn({ err, heartbeatIndex }, 'Nova fold failed (non-fatal)');
+  }
+}
+
+/**
+ * Compress the current Nova instance into a Groth16 proof.
+ * Call this periodically (e.g., every N heartbeats or on checkpoint).
+ * Returns null if prover is unavailable.
+ */
+export async function novaCompress(agentDid: string): Promise<{
+  proof: string;
+  proofSizeBytes: number;
+  root: string;
+  heartbeatIndex: number;
+  foldCount: number;
+} | null> {
+  const bridge = getNovaBridge();
+  if (!bridge.ready) return null;
+
+  try {
+    const result = await bridge.compress();
+    // Record the proof as a ZK_PROOF leaf
+    appendZkProof(agentDid, {
+      proofType: 'groth16',
+      proofHash: somaHash(result.proof),
+      stepCount: result.fold_count,
+    });
+    return {
+      proof: result.proof,
+      proofSizeBytes: result.proof_size_bytes,
+      root: result.root,
+      heartbeatIndex: result.heartbeat_index,
+      foldCount: result.fold_count,
+    };
+  } catch (err) {
+    logger.warn({ err, agentDid }, 'Nova compress failed');
+    return null;
+  }
 }
 
 /**
