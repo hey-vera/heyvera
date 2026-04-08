@@ -38,6 +38,16 @@ export type TrustVerdict = 'sovereign' | 'verified' | 'trusted' | 'building' | '
 
 export type ProofTier = 'zk-verified' | 'ivc-folded' | 'signed-only';
 
+export type IdentityTier = 'biometric' | 'kyc-attested' | 'passport' | 'anonymous';
+
+/** Identity tier multiplier — scales effective trust by operator verification strength. */
+export const IDENTITY_TIER_MULTIPLIER: Record<IdentityTier, number> = {
+  'biometric': 1.0,       // Iris-verified unique human (World AgentKit / Orb)
+  'kyc-attested': 0.9,    // Verified Coinbase trading account (EAS on Base)
+  'passport': 0.8,        // ML humanity score (Human Passport)
+  'anonymous': 0.65,      // No identity verification — default
+};
+
 /**
  * Proof tier multiplier — scales effective trust by cryptographic proof strength.
  * Blended formula: effectiveTrust = score * (0.5 + 0.5 * multiplier)
@@ -107,7 +117,8 @@ export interface TrustQueryResult {
 
   // Proof tier (all tiers) — cryptographic proof strength
   proofTier: ProofTier;
-  effectiveTrust: number;  // trustScore * proofTierMultiplier
+  identityTier: IdentityTier;
+  effectiveTrust: number;  // trustScore * proofBlended * identityBlended
 
   // Metadata (all tiers)
   validUntil: string;  // TTL — trust is perishable
@@ -162,6 +173,26 @@ export function getProofTier(agentDid: string): ProofTier {
   if (bridge.ready && leafCount > 0) return 'ivc-folded';
 
   return 'signed-only';
+}
+
+/**
+ * Get the identity verification tier for an agent.
+ * Checks agent_identity_verification table, respects expiry.
+ */
+export function getIdentityTier(agentDid: string): IdentityTier {
+  const row = getDb().prepare(
+    'SELECT identity_tier, expires_at FROM agent_identity_verification WHERE agent_did = ?'
+  ).get(agentDid) as { identity_tier: string; expires_at: string | null } | undefined;
+
+  if (!row) return 'anonymous';
+
+  // Check expiry
+  if (row.expires_at) {
+    const expired = Date.now() > new Date(row.expires_at + 'Z').getTime();
+    if (expired) return 'anonymous';
+  }
+
+  return row.identity_tier as IdentityTier;
 }
 
 // ─── Dimension Computation ──────────────────────────────────────────────────
@@ -492,8 +523,13 @@ export function queryTrust(agentDid: string, tier: TrustTier): TrustQueryResult 
   // Proof tier — cryptographic proof strength affects effective trust
   // Blended formula prevents cliff effects: 0.5 + 0.5 * multiplier
   const proofTier = getProofTier(agentDid);
-  const blendedMultiplier = 0.5 + 0.5 * PROOF_TIER_MULTIPLIER[proofTier];
-  const effectiveTrust = Math.round(trustScore * blendedMultiplier);
+  const proofBlended = 0.5 + 0.5 * PROOF_TIER_MULTIPLIER[proofTier];
+
+  // Identity tier — operator verification strength
+  const identityTier = getIdentityTier(agentDid);
+  const identityBlended = 0.5 + 0.5 * IDENTITY_TIER_MULTIPLIER[identityTier];
+
+  const effectiveTrust = Math.round(trustScore * proofBlended * identityBlended);
 
   // TTL
   const ttl = TTL_MINUTES[tier];
@@ -509,6 +545,7 @@ export function queryTrust(agentDid: string, tier: TrustTier): TrustQueryResult 
     confidence,
     riskFlags,
     proofTier,
+    identityTier,
     effectiveTrust,
     validUntil,
     proofHash: '', // computed below
@@ -558,6 +595,7 @@ export function queryTrust(agentDid: string, tier: TrustTier): TrustQueryResult 
     confidence,
     riskFlags,
     proofTier,
+    identityTier,
     effectiveTrust,
     dimensions: tier !== 'basic' ? dimensions : undefined,
     computedAt,

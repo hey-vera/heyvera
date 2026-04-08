@@ -2126,6 +2126,20 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 185, sql: `
     ALTER TABLE agent_pulse_state ADD COLUMN last_groth16_at TEXT;
   ` },
+  { version: 186, sql: `
+    CREATE TABLE IF NOT EXISTS agent_identity_verification (
+      agent_did TEXT PRIMARY KEY,
+      identity_tier TEXT NOT NULL DEFAULT 'anonymous'
+        CHECK(identity_tier IN ('biometric', 'kyc-attested', 'passport', 'anonymous')),
+      provider TEXT,
+      verification_hash TEXT,
+      verified_at TEXT,
+      expires_at TEXT,
+      wallet_address TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  ` },
 ];
 
 function runMigrations(): void {

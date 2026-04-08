@@ -23,6 +23,9 @@ import {
   listPublicIdentities,
   verifyIdentityJwt,
 } from '../db/identities';
+import { getDb, logAudit } from '../db/connection';
+import { somaHash } from '../utils/crypto-agility';
+import { getIdentityTier, type IdentityTier } from '../core/trust-oracle';
 import { logger } from '../utils/logger';
 
 // ─── Zod Schemas ────────────────────────────────────────────────────────────
@@ -249,4 +252,275 @@ identityRouter.get('/:id', async (c) => {
     created_at: identity.created_at,
     profile_url: `https://api.claw-net.org/v1/identity/${identity.id}`,
   });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Identity Verification — Operator verification tiers (biometric/KYC/passport)
+// Three-axis trust: behavioral * proof * identity
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ─── Helpers ───────────────────────────────────────────────────────────────
+
+function upsertIdentityVerification(
+  agentDid: string,
+  tier: IdentityTier,
+  provider: string,
+  walletAddress: string | null,
+  verificationData: string,
+  expiresAt: string | null,
+): void {
+  const verificationHash = somaHash(verificationData);
+  getDb().prepare(`
+    INSERT INTO agent_identity_verification
+      (agent_did, identity_tier, provider, verification_hash, wallet_address, verified_at, expires_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, datetime('now'), ?, datetime('now'))
+    ON CONFLICT(agent_did) DO UPDATE SET
+      identity_tier = excluded.identity_tier,
+      provider = excluded.provider,
+      verification_hash = excluded.verification_hash,
+      wallet_address = excluded.wallet_address,
+      verified_at = datetime('now'),
+      expires_at = excluded.expires_at,
+      updated_at = datetime('now')
+  `).run(agentDid, tier, provider, verificationHash, walletAddress, expiresAt);
+
+  logAudit({
+    entityType: 'identity_verification',
+    entityId: agentDid,
+    action: 'identity_verified',
+    data: { tier, provider },
+  });
+}
+
+// ─── GET /v1/identity/verify/:did — Get identity tier for an agent ─────────
+
+identityRouter.get('/verify/:did', async (c) => {
+  const did = c.req.param('did');
+  const tier = getIdentityTier(did);
+
+  const row = getDb().prepare(
+    'SELECT * FROM agent_identity_verification WHERE agent_did = ?'
+  ).get(did) as {
+    identity_tier: string; provider: string | null; verified_at: string | null;
+    expires_at: string | null; wallet_address: string | null; created_at: string;
+  } | undefined;
+
+  return c.json({
+    agentDid: did,
+    identityTier: tier,
+    provider: row?.provider ?? null,
+    verifiedAt: row?.verified_at ?? null,
+    expiresAt: row?.expires_at ?? null,
+    walletAddress: row?.wallet_address ?? null,
+  });
+});
+
+// ─── POST /v1/identity/verify/passport — Human Passport verification ───────
+// Calls passport.xyz API to get Humanity Score. Score >= 20 = verified human.
+// Free tier — no biometrics, ML-based on-chain behavior analysis.
+
+const PassportVerifySchema = z.object({
+  agent_did: z.string().min(1),
+  wallet_address: z.string().regex(/^0x[a-fA-F0-9]{40}$/, 'Invalid EVM address'),
+});
+
+identityRouter.post('/verify/passport', checkApiKey, async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const parsed = PassportVerifySchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: parsed.error.errors[0]?.message, code: 'INVALID_REQUEST' }, 400);
+  }
+
+  const { agent_did, wallet_address } = parsed.data;
+
+  try {
+    // Call Human Passport API
+    const resp = await fetch(`https://api.passport.xyz/v2/stamps/${wallet_address}/score`, {
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    if (!resp.ok) {
+      logger.warn({ status: resp.status, wallet: wallet_address }, 'Human Passport API error');
+      return c.json({ error: 'Human Passport API unavailable', code: 'PASSPORT_API_ERROR' }, 502);
+    }
+
+    const data = await resp.json() as { score?: number; status?: string };
+    const score = data.score ?? 0;
+    const PASSPORT_THRESHOLD = 20;
+
+    if (score < PASSPORT_THRESHOLD) {
+      return c.json({
+        error: 'Humanity score below threshold',
+        code: 'PASSPORT_SCORE_LOW',
+        score,
+        threshold: PASSPORT_THRESHOLD,
+        hint: 'Build on-chain activity to raise your Humanity Score',
+      }, 403);
+    }
+
+    // Verification passes — expires in 90 days (scores can change)
+    const expiresAt = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString();
+    upsertIdentityVerification(agent_did, 'passport', 'human-passport', wallet_address, JSON.stringify(data), expiresAt);
+
+    logger.info({ agentDid: agent_did, score }, 'Human Passport verification passed');
+
+    return c.json({
+      ok: true,
+      agentDid: agent_did,
+      identityTier: 'passport' as IdentityTier,
+      humanityScore: score,
+      expiresAt,
+    });
+  } catch (err) {
+    logger.error({ err, wallet: wallet_address }, 'Human Passport verification failed');
+    return c.json({ error: 'Verification failed', code: 'PASSPORT_FAILED' }, 500);
+  }
+});
+
+// ─── POST /v1/identity/verify/coinbase — Coinbase EAS attestation check ────
+// Queries EAS on Base mainnet to check if wallet has Coinbase Verified Account.
+// Uses the Coinbase Indexer contract to look up attestations.
+
+const COINBASE_ATTESTER = '0x357458739F90461b99789350868CD7CF330Dd7EE';
+const COINBASE_SCHEMA_UID = '0xf8b05c79f090979bf4a80270aba232dff11a10d9ca55c4f88de95317970f0de9';
+const COINBASE_INDEXER = '0x2c7eE1E5f416dfF40054c27A62f7B357C4E8619C';
+
+const CoinbaseVerifySchema = z.object({
+  agent_did: z.string().min(1),
+  wallet_address: z.string().regex(/^0x[a-fA-F0-9]{40}$/, 'Invalid EVM address'),
+});
+
+identityRouter.post('/verify/coinbase', checkApiKey, async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const parsed = CoinbaseVerifySchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: parsed.error.errors[0]?.message, code: 'INVALID_REQUEST' }, 400);
+  }
+
+  const { agent_did, wallet_address } = parsed.data;
+
+  try {
+    // Query Coinbase Indexer contract on Base via eth_call
+    // getAttestationUid(address schemaId, address recipient) → bytes32
+    // Function selector: keccak256("getAttestationUid(bytes32,address)")
+    // We encode: schemaUID (bytes32) + recipient address (address padded to 32 bytes)
+    const baseRpc = process.env.BASE_RPC_URL || 'https://mainnet.base.org';
+    const recipientPadded = wallet_address.toLowerCase().replace('0x', '').padStart(64, '0');
+    const schemaUidClean = COINBASE_SCHEMA_UID.replace('0x', '');
+    // getAttestationUid(bytes32,address) selector: 0x1a02dd87 (pre-computed)
+    const calldata = `0x1a02dd87${schemaUidClean}${recipientPadded}`;
+
+    const resp = await fetch(baseRpc, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'eth_call',
+        params: [{ to: COINBASE_INDEXER, data: calldata }, 'latest'],
+        id: 1,
+      }),
+    });
+
+    const rpcResult = await resp.json() as { result?: string; error?: { message: string } };
+
+    if (rpcResult.error) {
+      logger.warn({ error: rpcResult.error }, 'Base RPC error for Coinbase attestation');
+      return c.json({ error: 'Base RPC error', code: 'RPC_ERROR' }, 502);
+    }
+
+    // Result is bytes32 UID — 0x0000...0000 means no attestation
+    const uid = rpcResult.result ?? '0x0000000000000000000000000000000000000000000000000000000000000000';
+    const hasAttestation = uid !== '0x0000000000000000000000000000000000000000000000000000000000000000'
+      && uid !== '0x' && uid.length > 2;
+
+    if (!hasAttestation) {
+      return c.json({
+        error: 'No Coinbase verification attestation found for this wallet',
+        code: 'COINBASE_NOT_VERIFIED',
+        wallet: wallet_address,
+        hint: 'Verify your identity at coinbase.com — attestations are issued on Base',
+      }, 403);
+    }
+
+    // Attestation found — expires in 180 days (attestation is persistent but we re-check periodically)
+    const expiresAt = new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toISOString();
+    upsertIdentityVerification(agent_did, 'kyc-attested', 'coinbase', wallet_address, uid, expiresAt);
+
+    logger.info({ agentDid: agent_did, attestationUid: uid }, 'Coinbase KYC attestation verified');
+
+    return c.json({
+      ok: true,
+      agentDid: agent_did,
+      identityTier: 'kyc-attested' as IdentityTier,
+      attestationUid: uid,
+      attester: COINBASE_ATTESTER,
+      expiresAt,
+    });
+  } catch (err) {
+    logger.error({ err, wallet: wallet_address }, 'Coinbase verification failed');
+    return c.json({ error: 'Verification failed', code: 'COINBASE_FAILED' }, 500);
+  }
+});
+
+// ─── POST /v1/identity/verify/world — World AgentKit biometric verification ──
+// Accepts proof from World AgentKit (iris biometric via Orb).
+// This is a stub — full integration requires @worldcoin/agentkit middleware
+// and physical Orb verification. The route stores verified proofs.
+
+const WorldVerifySchema = z.object({
+  agent_did: z.string().min(1),
+  wallet_address: z.string().regex(/^0x[a-fA-F0-9]{40}$/, 'Invalid EVM address'),
+  world_proof: z.object({
+    nullifier_hash: z.string().min(1),
+    merkle_root: z.string().min(1),
+    proof: z.string().min(1),
+    verification_level: z.enum(['orb', 'device']).default('orb'),
+  }),
+});
+
+identityRouter.post('/verify/world', checkApiKey, async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const parsed = WorldVerifySchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: parsed.error.errors[0]?.message, code: 'INVALID_REQUEST' }, 400);
+  }
+
+  const { agent_did, wallet_address, world_proof } = parsed.data;
+
+  // Only orb-level verification qualifies for biometric tier
+  if (world_proof.verification_level !== 'orb') {
+    return c.json({
+      error: 'Only Orb (iris biometric) verification qualifies for biometric tier',
+      code: 'WORLD_DEVICE_ONLY',
+      hint: 'Visit a World App Orb operator for biometric verification',
+    }, 403);
+  }
+
+  try {
+    // TODO: Verify the proof on-chain via World ID contract or verify API
+    // For now, we trust the submitted proof and store it.
+    // Full verification path: worldcoin.org/api/v2/verify/{app_id}
+    // or on-chain via WorldIdRouter on Worldchain/Base.
+
+    // Store verification — biometric tier, expires in 365 days
+    const expiresAt = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
+    upsertIdentityVerification(
+      agent_did, 'biometric', 'world',
+      wallet_address, JSON.stringify(world_proof), expiresAt,
+    );
+
+    logger.info({ agentDid: agent_did, nullifier: world_proof.nullifier_hash }, 'World biometric verification stored');
+
+    return c.json({
+      ok: true,
+      agentDid: agent_did,
+      identityTier: 'biometric' as IdentityTier,
+      verificationLevel: world_proof.verification_level,
+      expiresAt,
+      _note: 'On-chain proof verification will be added when World AgentKit middleware is integrated',
+    });
+  } catch (err) {
+    logger.error({ err, agentDid: agent_did }, 'World verification failed');
+    return c.json({ error: 'Verification failed', code: 'WORLD_FAILED' }, 500);
+  }
 });
