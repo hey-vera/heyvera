@@ -1987,6 +1987,58 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   ` },
   { version: 172, sql: `CREATE INDEX IF NOT EXISTS idx_challenges_cert ON computation_challenges(cert_id)` },
   { version: 173, sql: `CREATE INDEX IF NOT EXISTS idx_challenges_state ON computation_challenges(state)` },
+
+  // ── Agent Lifecycle: burner agents + death certificates ──────────────────
+  { version: 174, sql: `
+    CREATE TABLE IF NOT EXISTS burner_agents (
+      id TEXT PRIMARY KEY,
+      parent_did TEXT NOT NULL,
+      parent_public_key TEXT NOT NULL,
+      public_key TEXT NOT NULL,
+      derivation_path TEXT NOT NULL,
+      ttl_seconds INTEGER NOT NULL,
+      expires_at TEXT NOT NULL,
+      bond_amount REAL NOT NULL DEFAULT 5,
+      max_spend REAL NOT NULL DEFAULT 50,
+      spent REAL NOT NULL DEFAULT 0,
+      allowed_endpoints_json TEXT,
+      allowed_actions_json TEXT NOT NULL DEFAULT '["query","skill","discover"]',
+      inherited_trust REAL NOT NULL DEFAULT 0,
+      trust_decay_per_hour REAL NOT NULL DEFAULT 10,
+      status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','expired','revoked','dead')),
+      created_at TEXT NOT NULL,
+      revoked_at TEXT,
+      death_cert_hash TEXT,
+      creation_signature TEXT NOT NULL
+    )
+  ` },
+  { version: 175, sql: `
+    CREATE TABLE IF NOT EXISTS death_certificates (
+      id TEXT PRIMARY KEY,
+      agent_did TEXT NOT NULL,
+      agent_public_key TEXT NOT NULL,
+      final_trust_score REAL NOT NULL DEFAULT 0,
+      total_transactions INTEGER NOT NULL DEFAULT 0,
+      total_credits REAL NOT NULL DEFAULT 0,
+      active_duration_hours REAL NOT NULL DEFAULT 0,
+      pending_bonds_settled INTEGER NOT NULL DEFAULT 0,
+      burners_revoked INTEGER NOT NULL DEFAULT 0,
+      wallet_swept_to TEXT,
+      wallet_swept_amount REAL NOT NULL DEFAULT 0,
+      successor_did TEXT,
+      trust_transfer_amount REAL NOT NULL DEFAULT 0,
+      trust_transfer_pending INTEGER NOT NULL DEFAULT 0,
+      contestation_ends_at TEXT,
+      final_heartbeat_index INTEGER NOT NULL DEFAULT 0,
+      chain_hash TEXT NOT NULL,
+      signature TEXT NOT NULL,
+      reason TEXT NOT NULL DEFAULT 'graceful',
+      created_at TEXT NOT NULL
+    )
+  ` },
+  { version: 176, sql: `CREATE INDEX IF NOT EXISTS idx_burners_parent ON burner_agents(parent_did, status)` },
+  { version: 177, sql: `CREATE INDEX IF NOT EXISTS idx_burners_expires ON burner_agents(expires_at) WHERE status = 'active'` },
+  { version: 178, sql: `CREATE INDEX IF NOT EXISTS idx_death_certs_did ON death_certificates(agent_did)` },
 ];
 
 function runMigrations(): void {
