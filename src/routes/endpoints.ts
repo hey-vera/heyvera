@@ -25,6 +25,7 @@ import { issueDataFetchCert } from '../core/executor';
 import { resolveComputationType } from '../core/computation-types';
 import { logSomaCheckEvent } from '../db/soma-check';
 import { awardSignal } from '../db/signal';
+import { resolveAgentDid, appendAction } from '../core/soma-heartbeat';
 
 const endpointsRouter = new Hono();
 
@@ -417,6 +418,12 @@ endpointsRouter.post('/:id/call', async (c) => {
           c.header('X-Soma-Birth-Public-Key', fullCert.originalCert.publicKey);
         }
       }
+      // Pulse Tree: record this Soma Check hit as an ACTION leaf
+      try {
+        const agentDid = resolveAgentDid(keyInfo.key);
+        appendAction(agentDid, { endpointId, success: true, durationMs, cached: true }, hitPriceCredits);
+      } catch (err) { logger.warn({ err, requestId }, 'Pulse Tree append failed (non-fatal)'); }
+
       logger.info(
         { requestId, endpointId, protocol: 'soma-check', somaTier, hitPriceCredits },
         billed ? 'soma-check hash match — billed hit' : 'soma-check hash match — shadow (free)'
@@ -491,6 +498,12 @@ endpointsRouter.post('/:id/call', async (c) => {
       c.header('X-Fresh-Protocol', 'x402-fresh/1.0');
       c.header('X-Soma-Protocol', 'soma-check/1.0');
     }
+
+    // Pulse Tree: record cache hit as an ACTION leaf
+    try {
+      const agentDid = resolveAgentDid(keyInfo.key);
+      appendAction(agentDid, { endpointId, success: true, durationMs, cached: true }, cacheCredits);
+    } catch (err) { logger.warn({ err, requestId }, 'Pulse Tree append failed (non-fatal)'); }
 
     // Signal: award agent for cache hit, provider for passive income
     awardSignal({ apiKey: keyInfo.key, action: 'cache_hit_agent', metadata: { endpointId } });
@@ -569,6 +582,12 @@ endpointsRouter.post('/:id/call', async (c) => {
 
     const durationMs = Date.now() - start;
     creditProviderShare(endpointId, cacheCredits, { cacheHit: true, latencyMs: durationMs });
+
+    // Pulse Tree: record SWR hit as an ACTION leaf
+    try {
+      const agentDid = resolveAgentDid(keyInfo.key);
+      appendAction(agentDid, { endpointId, success: true, durationMs, cached: true }, cacheCredits);
+    } catch (err) { logger.warn({ err, requestId }, 'Pulse Tree append failed (non-fatal)'); }
 
     const cacheCert = getCacheCertificate(key);
     if (cacheCert) {
@@ -714,6 +733,12 @@ endpointsRouter.post('/:id/call', async (c) => {
 
     // Provider revenue share: 100% founding era (0% platform fee), 90% post-provenance
     const providerShare = creditProviderShare(endpointId, endpointCredits, { cacheHit: false, latencyMs: durationMs });
+
+    // Pulse Tree: record live fetch as an ACTION leaf
+    try {
+      const agentDid = resolveAgentDid(keyInfo.key);
+      appendAction(agentDid, { endpointId, success: true, durationMs, cached: false }, endpointCredits);
+    } catch (err) { logger.warn({ err, requestId }, 'Pulse Tree append failed (non-fatal)'); }
 
     // Signal: award provider for live call
     const liveProviderId = getEndpointProvider(endpointId);

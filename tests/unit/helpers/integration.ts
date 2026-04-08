@@ -125,14 +125,18 @@ export async function createTestApp() {
   const { Hono } = await import('hono');
   const { checkApiKey } = await import('../../../src/middleware/auth');
   const { endpointsRouter } = await import('../../../src/routes/endpoints');
+  const { trustQueryRouter } = await import('../../../src/routes/trust-query');
+  const { vouchGraphRouter } = await import('../../../src/routes/vouch-graph');
 
   const app = new Hono();
 
   // Auth middleware on call routes (mirrors index.ts)
   app.use('/v1/endpoints/*/call', checkApiKey);
 
-  // Mount endpoints router
+  // Mount routers (mirrors src/index.ts)
   app.route('/v1/endpoints', endpointsRouter);
+  app.route('/v1/trust', trustQueryRouter);
+  app.route('/v1/vouch/graph', vouchGraphRouter);
 
   return app;
 }
