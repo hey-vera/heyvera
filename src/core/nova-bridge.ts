@@ -96,8 +96,9 @@ export class NovaBridge {
       this.readline.on('line', (line) => this.handleLine(line));
 
       // Wait for ready signal
-      // Groth16 trusted setup takes ~30-40s on first run (params are cached after)
-      const readyLine = await this.waitForLine(120_000);
+      // Groth16 trusted setup takes 3-5 min on 4GB VPS (swap-heavy).
+      // Subsequent starts will be faster once param caching is added.
+      const readyLine = await this.waitForLine(600_000);
       const ready = JSON.parse(readyLine);
 
       if (ready.ready) {
