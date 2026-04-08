@@ -9,6 +9,7 @@ services:
       - NODE_ENV=production
     volumes:
       - ./data:/app/data
+      - ./prover/target/release/soma-nova-prover:/app/prover/target/release/soma-nova-prover:ro
     depends_on:
       redis:
         condition: service_healthy
