@@ -38,6 +38,10 @@ const { bazaarResourceServerExtension, declareDiscoveryExtension } = require('@x
   bazaarResourceServerExtension: unknown;
   declareDiscoveryExtension: (config: { input?: unknown; inputSchema?: unknown; bodyType?: string; output?: unknown }) => Record<string, unknown>;
 };
+import {
+  agentkitResourceServerExtension,
+  declareAgentkitExtension,
+} from '@worldcoin/agentkit';
 type HTTPRequestContext = { path: string; method: string; paymentHeader?: string };
 import { apiRegistry } from '../config/api-registry';
 import { getDb, getSkill, getApiKey, listPublicSkills, incrementSkillUses, safeJsonParse, getReputationScore, getReputationEvents, recordSkillMetric, recordReputation, createAutoAttestation, hashPayload, getAttestationById, logAudit } from '../db/index';
@@ -52,7 +56,24 @@ import { env } from '../config/index';
 import { round6 } from '../core/credits';
 import { cacheGet, cacheSet } from '../cache/index';
 import { getFacilitatorPool } from '../providers/x402-facilitator';
+import {
+  createAgentBookVerifier,
+  parseAgentkitHeader,
+  validateAgentkitMessage,
+  verifyAgentkitSignature,
+} from '@worldcoin/agentkit-core';
 import crypto from 'crypto';
+
+// ─── AgentKit: on-chain human verification for x402 agents ──────────────────
+// When an x402 agent includes an `agentkit` header (CAIP-122 signed message),
+// we verify their wallet is registered in AgentBook on Worldchain (iris biometric).
+// Auto-upgrades identity tier to 'biometric' — no separate /verify/world call needed.
+
+let _agentBookX402: ReturnType<typeof createAgentBookVerifier> | null = null;
+function getAgentBookVerifier() {
+  if (!_agentBookX402) _agentBookX402 = createAgentBookVerifier();
+  return _agentBookX402;
+}
 
 // ─── x402 Receipt helpers ────────────────────────────────────────────────────
 
@@ -288,9 +309,11 @@ function buildX402Middleware() {
   const chainId = env.X402_NETWORK === 'base-mainnet' ? '8453' : '84532';
   const network = `eip155:${chainId}` as `eip155:${string}`;
 
-  // Build resource server with ExactEvmScheme + Bazaar discovery registered
+  // Build resource server with ExactEvmScheme + Bazaar + AgentKit extensions
   const resourceServer = new x402ResourceServer(facilitator);
-  try { (resourceServer as unknown as { registerExtension: (ext: unknown) => void }).registerExtension(bazaarResourceServerExtension); } catch { /* extension optional */ }
+  const regExt = (ext: unknown) => { try { (resourceServer as unknown as { registerExtension: (e: unknown) => void }).registerExtension(ext); } catch { /* extension optional */ } };
+  regExt(bazaarResourceServerExtension);
+  regExt(agentkitResourceServerExtension);
   (resourceServer as unknown as { register: (n: string, s: unknown) => unknown }).register(network, new ExactEvmScheme());
 
   /** Resolve price and payTo per-request for skill routes (supports direct payout). */
@@ -331,6 +354,10 @@ function buildX402Middleware() {
         description: 'ClawNet skill invocation — pay per call with USDC on Base. 370+ API endpoints, marketplace skills, trust attestations.',
         mimeType: 'application/json',
         extensions: {
+          ...declareAgentkitExtension({
+            statement: 'Prove your agent is backed by a real human for enhanced trust scoring',
+            mode: { type: 'free-trial', uses: 0 }, // Detection only — no free access, payment still required
+          }),
           ...declareDiscoveryExtension({
             input: { skillId: 'sol-price-data', variables: { token: 'SOL' } },
             inputSchema: {
@@ -359,6 +386,10 @@ function buildX402Middleware() {
         description: `ClawNet AI orchestration — natural language queries across ${apiRegistry.length}+ data sources. Every response includes cryptographic attestation and trust verdict.`,
         mimeType: 'application/json',
         extensions: {
+          ...declareAgentkitExtension({
+            statement: 'Prove your agent is backed by a real human for enhanced trust scoring',
+            mode: { type: 'free-trial', uses: 0 },
+          }),
           ...declareDiscoveryExtension({
             input: { query: 'What is the price of SOL?', pricing: { strategy: 'balanced' } },
             inputSchema: {
@@ -393,6 +424,10 @@ function buildX402Middleware() {
         description: 'ClawNet data skill query — structured JSON data from 370+ endpoints. No LLM, fast, cheap.',
         mimeType: 'application/json',
         extensions: {
+          ...declareAgentkitExtension({
+            statement: 'Prove your agent is backed by a real human for enhanced trust scoring',
+            mode: { type: 'free-trial', uses: 0 },
+          }),
           ...declareDiscoveryExtension({
             input: { token: 'SOL' },
             inputSchema: {
@@ -504,6 +539,70 @@ x402SkillsRouter.use('*', async (c, next) => {
     'X-PAYMENT-OFFER': encoded,
     'X-Payment-Protocol': 'x402',
   });
+});
+
+// ─── AgentKit identity detection middleware ─────────────────────────────────
+// Runs BEFORE x402 payment verification. If agent includes `agentkit` header:
+//   1. Parse + validate CAIP-122 signed message
+//   2. Verify signature (EIP-191/1271 for EVM, Ed25519 for Solana)
+//   3. Look up signer in AgentBook on Worldchain
+//   4. If registered → auto-upgrade identity tier to 'biometric'
+// Payment is still required — this only detects identity, doesn't bypass payment.
+x402SkillsRouter.use('*', async (c, next) => {
+  const agentkitHeader = c.req.header('agentkit');
+  if (!agentkitHeader) return next();
+
+  try {
+    const payload = parseAgentkitHeader(agentkitHeader);
+    const resourceUrl = c.req.url;
+
+    const validation = await validateAgentkitMessage(payload, resourceUrl, { maxAge: 300_000 });
+    if (!validation.valid) {
+      logger.debug({ error: validation.error }, 'AgentKit validation failed');
+      return next(); // Non-fatal — proceed with normal x402
+    }
+
+    const verification = await verifyAgentkitSignature(payload);
+    if (!verification.valid || !verification.address) {
+      logger.debug({ error: 'Signature verification failed' }, 'AgentKit signature invalid');
+      return next();
+    }
+
+    // On-chain AgentBook lookup — confirm wallet registered by iris-verified human
+    const humanId = await getAgentBookVerifier().lookupHuman(verification.address, payload.chainId ?? 'eip155:480');
+    if (!humanId) {
+      logger.debug({ address: verification.address }, 'AgentKit wallet not in AgentBook');
+      return next();
+    }
+
+    // Verified human-backed agent — auto-upgrade identity tier
+    // Use did:pkh DID derived from wallet address (deterministic)
+    const agentDid = `did:pkh:eip155:1:${verification.address.toLowerCase()}`;
+    getDb().prepare(`
+      INSERT INTO agent_identity_verification
+        (agent_did, identity_tier, provider, verification_hash, wallet_address, verified_at, expires_at, updated_at)
+      VALUES (?, 'biometric', 'world-agentkit', ?, ?, datetime('now'), ?, datetime('now'))
+      ON CONFLICT(agent_did) DO UPDATE SET
+        identity_tier = 'biometric', provider = 'world-agentkit',
+        verification_hash = excluded.verification_hash,
+        wallet_address = excluded.wallet_address,
+        verified_at = datetime('now'),
+        expires_at = excluded.expires_at,
+        updated_at = datetime('now')
+    `).run(agentDid, humanId, verification.address.toLowerCase(), new Date(Date.now() + 365 * 86_400_000).toISOString());
+
+    // Store in context for downstream handlers
+    c.set('agentkitHumanId', humanId);
+    c.set('agentkitAddress', verification.address);
+    c.set('agentkitDid', agentDid);
+
+    logger.info({ address: verification.address, humanId, agentDid }, 'AgentKit: iris-verified agent detected via x402');
+  } catch (err) {
+    // Non-fatal — AgentKit detection is best-effort alongside payment
+    logger.debug({ err }, 'AgentKit header processing failed');
+  }
+
+  return next();
 });
 
 if (x402Middleware) {

@@ -33,3 +33,4 @@ export * from './soma-check';
 export * from './vouch';
 export * from './signal';
 export * from './delegated-keys';
+export * from './agentkit-storage';

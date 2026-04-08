@@ -26,7 +26,17 @@ import {
 import { getDb, logAudit } from '../db/connection';
 import { somaHash } from '../utils/crypto-agility';
 import { getIdentityTier, type IdentityTier } from '../core/trust-oracle';
+import { createAgentBookVerifier } from '@worldcoin/agentkit-core';
 import { logger } from '../utils/logger';
+
+// ─── AgentBook Verifier (singleton) ────────────────────────────────────────
+// On-chain lookup against World Chain AgentBook contract.
+// Confirms a wallet has been registered by an iris-verified human via Orb.
+let _agentBook: ReturnType<typeof createAgentBookVerifier> | null = null;
+function getAgentBook() {
+  if (!_agentBook) _agentBook = createAgentBookVerifier();
+  return _agentBook;
+}
 
 // ─── Zod Schemas ────────────────────────────────────────────────────────────
 
@@ -463,19 +473,13 @@ identityRouter.post('/verify/coinbase', checkApiKey, async (c) => {
 });
 
 // ─── POST /v1/identity/verify/world — World AgentKit biometric verification ──
-// Accepts proof from World AgentKit (iris biometric via Orb).
-// This is a stub — full integration requires @worldcoin/agentkit middleware
-// and physical Orb verification. The route stores verified proofs.
+// Verifies wallet is registered in AgentBook on Worldchain (on-chain lookup).
+// Registration requires physical Orb iris scan → World App → AgentBook contract.
+// Flow: human scans iris → registers agent wallet via `npx @worldcoin/agentkit-cli register` → we verify here.
 
 const WorldVerifySchema = z.object({
   agent_did: z.string().min(1),
   wallet_address: z.string().regex(/^0x[a-fA-F0-9]{40}$/, 'Invalid EVM address'),
-  world_proof: z.object({
-    nullifier_hash: z.string().min(1),
-    merkle_root: z.string().min(1),
-    proof: z.string().min(1),
-    verification_level: z.enum(['orb', 'device']).default('orb'),
-  }),
 });
 
 identityRouter.post('/verify/world', checkApiKey, async (c) => {
@@ -485,39 +489,38 @@ identityRouter.post('/verify/world', checkApiKey, async (c) => {
     return c.json({ error: parsed.error.errors[0]?.message, code: 'INVALID_REQUEST' }, 400);
   }
 
-  const { agent_did, wallet_address, world_proof } = parsed.data;
-
-  // Only orb-level verification qualifies for biometric tier
-  if (world_proof.verification_level !== 'orb') {
-    return c.json({
-      error: 'Only Orb (iris biometric) verification qualifies for biometric tier',
-      code: 'WORLD_DEVICE_ONLY',
-      hint: 'Visit a World App Orb operator for biometric verification',
-    }, 403);
-  }
+  const { agent_did, wallet_address } = parsed.data;
 
   try {
-    // TODO: Verify the proof on-chain via World ID contract or verify API
-    // For now, we trust the submitted proof and store it.
-    // Full verification path: worldcoin.org/api/v2/verify/{app_id}
-    // or on-chain via WorldIdRouter on Worldchain/Base.
+    // On-chain lookup: check AgentBook contract on Worldchain
+    // Returns humanId (nullifier hash) if wallet is registered by an iris-verified human, null otherwise
+    const agentBook = getAgentBook();
+    const humanId = await agentBook.lookupHuman(wallet_address, 'eip155:480');
 
-    // Store verification — biometric tier, expires in 365 days
+    if (!humanId) {
+      return c.json({
+        error: 'Wallet not registered in AgentBook — no iris verification found',
+        code: 'WORLD_NOT_REGISTERED',
+        wallet: wallet_address,
+        hint: 'Register via: npx @worldcoin/agentkit-cli register <wallet>',
+      }, 403);
+    }
+
+    // Wallet is registered by an iris-verified human — store biometric tier (365-day expiry)
     const expiresAt = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
     upsertIdentityVerification(
       agent_did, 'biometric', 'world',
-      wallet_address, JSON.stringify(world_proof), expiresAt,
+      wallet_address, humanId, expiresAt,
     );
 
-    logger.info({ agentDid: agent_did, nullifier: world_proof.nullifier_hash }, 'World biometric verification stored');
+    logger.info({ agentDid: agent_did, humanId, wallet: wallet_address }, 'World biometric verification confirmed (AgentBook on-chain)');
 
     return c.json({
       ok: true,
       agentDid: agent_did,
       identityTier: 'biometric' as IdentityTier,
-      verificationLevel: world_proof.verification_level,
+      humanId,
       expiresAt,
-      _note: 'On-chain proof verification will be added when World AgentKit middleware is integrated',
     });
   } catch (err) {
     logger.error({ err, agentDid: agent_did }, 'World verification failed');

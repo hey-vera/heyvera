@@ -2140,6 +2140,19 @@ const MIGRATIONS: { version: number; sql: string }[] = [
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
   ` },
+  { version: 187, sql: `
+    CREATE TABLE IF NOT EXISTS agentkit_usage (
+      endpoint TEXT NOT NULL,
+      human_id TEXT NOT NULL,
+      count INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (endpoint, human_id)
+    );
+    CREATE TABLE IF NOT EXISTS agentkit_nonces (
+      nonce TEXT PRIMARY KEY,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  ` },
 ];
 
 function runMigrations(): void {
