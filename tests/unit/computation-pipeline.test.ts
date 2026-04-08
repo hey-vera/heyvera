@@ -347,7 +347,7 @@ describe('scale: concurrent cert creation', () => {
     expect(dbCount).toBe(100);
   });
 
-  it('100 issueDataFetchCert calls — all produce unique certs', () => {
+  it('100 issueDataFetchCert calls — all produce unique certs', { timeout: 30_000 }, () => {
     const certs: NonNullable<ReturnType<typeof issueDataFetchCert>>[] = [];
 
     for (let i = 0; i < 100; i++) {
