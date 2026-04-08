@@ -201,10 +201,14 @@ export const checkApiKey = createMiddleware(async (c, next) => {
   }
 
   // Check env-based keys first (test-key-123, admin keys etc.)
+  // Hash-then-compare: normalizes length to 32 bytes so timingSafeEqual
+  // never throws on length mismatch, eliminating the timing side-channel
+  // that the old `ek.length !== key.length` early-return leaked.
   const envKeys = env.API_KEYS ? env.API_KEYS.split(',').map((k) => k.trim()).filter(Boolean) : [];
+  const keyHash = crypto.createHash('sha256').update(key).digest();
   const isEnvKeyMatch = envKeys.some((ek) => {
-    if (ek.length !== key.length) return false;
-    return crypto.timingSafeEqual(Buffer.from(ek), Buffer.from(key));
+    const ekHash = crypto.createHash('sha256').update(ek).digest();
+    return crypto.timingSafeEqual(ekHash, keyHash);
   });
   if (isEnvKeyMatch) {
     c.set('apiKeyInfo', { key, email: 'env-key', credits: Infinity, creditsUsed: 0, amountPaid: 0, isEnvKey: true });
