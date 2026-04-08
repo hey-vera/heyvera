@@ -10,6 +10,10 @@ When it's time to build something from here, move it to `active/` and update it 
 - `soma-horizon.md` -- long-horizon future (high-conviction, probable, speculative tiers)
 - `future-pricing-ideas.md` -- 5 deferred dynamic pricing concepts (revisit with data)
 
+## Revenue & Trust Extensions
+- `proving-verification-revenue.md` -- second moat: proving-as-a-service, verification stipends, "mining but useful"
+- `composite-agent-trust.md` -- delegation dimension, dynamic agent teams, cross-network trust
+
 ## Deferred Builds
 - `token-architecture.md` -- $CLAWNET BME model design (deferred to after PMF milestone)
 - `phase5-soma-verified-economy.md` -- verified trading + continuous computation witness (prerequisites not met)
