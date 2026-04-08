@@ -46,8 +46,8 @@ ClawNet = **reference implementation of Soma + the agent economy built on top.**
 
 ### Soma Check Phase 0 (docs) ✓
 - `internal/soma-check-strategy.md` — canonical strategy, decisions locked
-- `internal/soma-onboarding-ladder.md` — 4-tier provider migration spec
-- `internal/soma-check-billing.md` — 90/10 split, volume paradox math
+- `internal/archive/soma-onboarding-ladder.md (archived)` — 4-tier provider migration spec
+- `internal/archive/soma-check-billing.md (archived)` — 90/10 split, volume paradox math
 - `internal/soma-check-header-spec.md` — ETag + X-Soma-* header contract
 
 ### Soma Check Phase 1 (build) ✓ (commit `27eb8e3` + `459f491`)
@@ -400,16 +400,16 @@ Each `internal/*.md` file drills into specifics. This doc is the overview.
 
 **Strategic (read these first):**
 - `internal/golden-plan.md` — **master strategic vision: 3-layer architecture, infrastructure positioning, growth flywheel**
-- `internal/pricing-economics.md` — **credit denomination (USD display), take rates, cache hit economics**
-- `internal/tier-system.md` — **unified agent + provider tier system (replaces 3 overlapping systems)**
+- `internal/archive/pricing-economics.md (archived)` — **credit denomination (USD display), take rates, cache hit economics**
+- `internal/archive/tier-system.md (archived)` — **unified agent + provider tier system (replaces 3 overlapping systems)**
 - `internal/token-architecture.md` — **$CLAWNET token design: BME model, burn mechanics, staking, regulatory**
 - `internal/soma-readiness-strategy.md` — gap analysis + 90-day critical path
 
 **Soma subsystems:**
 - `internal/soma-delegation-spec.md` — Soma Delegation v0.1 draft spec (Gap B deliverable)
 - `internal/soma-check-strategy.md` — Soma Check specifics
-- `internal/soma-check-billing.md` — billing math in detail
-- `internal/soma-onboarding-ladder.md` — 4-tier provider migration
+- `internal/archive/soma-check-billing.md (archived)` — billing math in detail
+- `internal/archive/soma-onboarding-ladder.md (archived)` — 4-tier provider migration
 - `internal/soma-check-header-spec.md` — header contract
 - `internal/cache-layers-distinction.md` — ClawNet L1/L2 cache vs Soma Check (critical distinction)
 
@@ -420,7 +420,7 @@ Each `internal/*.md` file drills into specifics. This doc is the overview.
 - `internal/heartbeat-fraud-proofs.md` — economic verification without ZK overhead
 
 **Other:**
-- `internal/funds-flow.md` — how money actually reaches providers + "is 10% sketchy?" analysis
+- `internal/archive/funds-flow.md (archived)` — how money actually reaches providers + "is 10% sketchy?" analysis
 - `internal/groundbreaking-extensions.md` — extension ideas (Vouch origin spec as Extension 9.5, etc.)
 - `internal/proof-of-delivery-roadmap.md` — Receipt Layer 5-phase plan
 - `internal/scale-test-plan.md` — Soma scale test sequencing

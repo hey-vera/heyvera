@@ -251,6 +251,6 @@ This doc answers the question: **"Can ClawNet be the best Soma implementation fo
 - `internal/roadmap.md` — master what/why/todos (this doc's priorities flow into roadmap §3)
 - `internal/soma-check-strategy.md` — Soma Check specifics
 - `internal/cache-layers-distinction.md` — ClawNet cache vs Soma Check
-- `internal/funds-flow.md` — how money reaches providers
+- `internal/archive/funds-flow.md (archived)` — how money reaches providers
 - `internal/soma-delegation-spec.md` — (to be written, part of Gap B)
 - `internal/groundbreaking-extensions.md` — extension ideas (overlaps with §3 scenarios)

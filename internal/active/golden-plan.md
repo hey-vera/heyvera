@@ -78,7 +78,7 @@ Every horizontal API marketplace has failed: RapidAPI ($1B valuation -> sold to 
 
 ## 3. Pricing Philosophy
 
-**Display in USD, not credits.** See `internal/pricing-economics.md` for full rationale. Summary:
+**Display in USD, not credits.** See `internal/archive/pricing-economics.md (archived)` for full rationale. Summary:
 - 78% of developers reject tools with unclear pricing
 - Gaming-style inflated credits (millions of tokens) destroy B2B trust
 - Twilio, Stripe, AWS all show real currency — we should too
@@ -87,7 +87,7 @@ Every horizontal API marketplace has failed: RapidAPI ($1B valuation -> sold to 
 **Take rates (evidence-based):**
 - 10% on live calls — confirmed by Gurley research, Booking.com case study, competitive benchmarks
 - 5% on Soma Check cache hits (Tier 1-2), 3% on Champion (Tier 3)
-- OR: 0% platform share on cache hits (provider keeps 100%) — see `internal/pricing-economics.md` for full analysis
+- OR: 0% platform share on cache hits (provider keeps 100%) — see `internal/archive/pricing-economics.md (archived)` for full analysis
 - $0.002 flat orchestration fee — like Stripe's per-txn fee
 
 ---
@@ -122,9 +122,9 @@ Open Soma Protocol (free)
 
 ## 6. Related Docs
 
-- `internal/pricing-economics.md` — credit denomination, take rates, cache economics, volume discounts
-- `internal/tier-system.md` — unified agent + provider tier system
+- `internal/archive/pricing-economics.md (archived)` — credit denomination, take rates, cache economics, volume discounts
+- `internal/archive/tier-system.md (archived)` — unified agent + provider tier system
 - `internal/token-architecture.md` — $CLAWNET token design, BME model, burn mechanics, regulatory
 - `internal/roadmap.md` — implementation order and timelines
-- `internal/soma-check-billing.md` — per-call billing math
-- `internal/soma-onboarding-ladder.md` — provider onboarding flow
+- `internal/archive/soma-check-billing.md (archived)` — per-call billing math
+- `internal/archive/soma-onboarding-ladder.md (archived)` — provider onboarding flow

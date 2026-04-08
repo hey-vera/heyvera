@@ -1,3 +1,7 @@
+> **ARCHIVED** — Partially superseded on 2026-04-08
+> **Outcome:** Revenue model changed: "Provider keeps 90%, ClawNet keeps 10%" is now "Provider keeps 100%, ClawNet takes $0 from routing." Competitive positioning, clawapis outreach plan, and Phase 1-4 roadmap are still valid. Revenue projections need recalculation against trust query model.
+> **See instead:** `active/revenue-architecture.md` for current revenue model
+
 # Soma Check — strategy, roadmap, value capture
 
 **Status:** internal strategy doc. Do NOT publish publicly — contains pricing analysis, competitive positioning, named-partner context.

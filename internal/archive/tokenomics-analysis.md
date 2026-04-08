@@ -1,3 +1,7 @@
+> **ARCHIVED** — Addressed on 2026-04-06
+> **Outcome:** Critiques about securities law risk and launch timing were incorporated into `active/founding-protocol.md` (Signal-first, no premature token). Burn-and-mint model revised in `backlog/token-architecture.md`. This analysis was the catalyst for the safer approach.
+> **See instead:** `active/founding-protocol.md`, `backlog/token-architecture.md`
+
 I'm going to give you the honest breakdown — the good, the dangerous, and the revised version that could actually work.
 The Honest Assessment
 The tokenomics structure itself is solid. The 50% burn is aggressive but defensible for a deflationary utility token. The split between treasury, LP, and rewards covers the right bases. You've clearly studied this.

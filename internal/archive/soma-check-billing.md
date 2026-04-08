@@ -1,3 +1,7 @@
+> **ARCHIVED** — Superseded on 2026-04-08
+> **Outcome:** Doc describes 90/10 provider/platform split, but code now gives 100% to provider (`cacheHitProviderShareByTier() => 1.0`). ClawNet takes $0 from Soma Check — revenue comes only from trust queries. Scale projections for Soma Check volume are still directionally useful.
+> **See instead:** `active/revenue-architecture.md`, `src/core/soma-check-billing.ts` (code is truth)
+
 # Soma Check — Billing Model + Scale Projections
 
 **Status:** canonical billing spec for Soma Check.

@@ -1,3 +1,7 @@
+> **ARCHIVED** — Superseded on 2026-04-08
+> **Outcome:** 10% platform take rate on routing replaced by free routing model. ClawNet revenue comes only from trust queries. Credit denomination decisions (display in USD) are still valid.
+> **See instead:** `active/revenue-architecture.md`
+
 # Pricing & Economics — The Professional Model
 
 **Status:** canonical pricing decisions. Supersedes ad-hoc pricing in other docs where conflicts exist.

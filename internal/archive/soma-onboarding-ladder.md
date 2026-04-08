@@ -1,3 +1,7 @@
+> **ARCHIVED** — Superseded on 2026-04-08
+> **Outcome:** Shadow tier (Tier 0) removed in migration v163 — all providers start at Tier 1 (active billing). Provider gets 100% of all hit revenue. The tier progression concept (Passive → Verified → Champion) may still apply for future features but billing splits are now flat 100% provider.
+> **See instead:** `active/revenue-architecture.md`
+
 # Soma Check — Provider Onboarding Ladder
 
 **Status:** canonical onboarding spec for the Soma Check layer.

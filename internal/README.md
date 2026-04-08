@@ -2,67 +2,53 @@
 
 Anything in this folder is **private**. Do not publish externally, link from public docs, or paste into outreach without redaction.
 
+## Folder Structure
+
+```
+internal/
+  active/    -- CURRENT TRUTH. If it's here, trust it.
+  backlog/   -- Future ideas. Explicitly "not now." Never stale.
+  archive/   -- Completed, superseded, or shelved. Preserved with status headers.
+```
+
+### Rules
+
+1. **`active/`** -- Only docs that reflect current reality or active build plans. When something ships, gets replaced, or becomes outdated, move it to `archive/` with a status header. If you read a file in `active/`, you can trust every line.
+
+2. **`backlog/`** -- Ideas, brainstorms, future extensions, "what if" docs. These are explicitly "someday" -- they can't go stale because they make no claims about current state. Good ideas live here until they graduate to `active/` when it's time to build.
+
+3. **`archive/`** -- Everything that shipped, was superseded, or paused. Every file gets a 3-line header at the top:
+   ```
+   > **ARCHIVED** -- [Completed|Superseded|Shelved] on YYYY-MM-DD
+   > **Outcome:** [what shipped / what replaced it / why paused]
+   > **See instead:** [path to current doc, if applicable]
+   ```
+   Original content stays intact below the header. Never delete good ideas.
+
+### Moving files between folders
+
+- **active/ -> archive/:** When a plan ships or gets replaced. Add the archive header.
+- **active/ -> backlog/:** When work is paused but the plan is still valid for later.
+- **backlog/ -> active/:** When it's time to build. Review and update before promoting.
+- **archive/ -> backlog/:** When a shelved idea becomes relevant again. Remove the archive header.
+
 ## Convention
 
-- Internal strategy, roadmaps, pricing analysis, partner pitches, competitive positioning, revenue models → here.
-- Public-facing engineering docs (architecture, billing mechanics, integration guides for customers) → `docs/`.
-- Public protocol specs, API references, philosophy, limits → live in their respective project repos (e.g. `Soma/docs/` for Soma, not here).
-
-## Scope
-
-These docs cover strategy across:
-- Soma — scaling plans, internal audits, adoption strategy
-- x402 ETag — protocol family roadmap, value capture, clawapis pilot
-- ClawNet — positioning, moat analysis, revenue model options
+- Internal strategy, roadmaps, pricing analysis, partner pitches, competitive positioning, revenue models go here.
+- Public-facing engineering docs (architecture, billing mechanics, integration guides) go in `docs/`.
+- Public protocol specs, API references, philosophy go in their respective project repos.
 
 ## Naming
 
 - `{topic}-strategy.md` for comprehensive strategy on one topic
 - `{topic}-plan.md` for time-phased build/roll-out plans
+- `{topic}-spec.md` for protocol/technical specifications
 - `{partner}-pitch.md` for partner-specific outreach drafts
 
-If a doc needs to grow into multiple files, make a subdirectory (e.g. `internal/soma/` or `internal/x402-etag/`).
+## Reading order (for new conversations)
 
-## Doc index (2026-04-07)
-
-**Start here:**
-- `golden-plan.md` — **master strategic vision: 3-layer architecture, positioning, moat stack, growth flywheel.** Read this first for the big picture.
-- `roadmap.md` — **master what/why/todos doc. Single source of truth for forward plans.** Read this second for what to build.
-- `gap-analysis-2026-04-07.md` — **HONEST codebase audit: what's real vs planned, security vulns, dependency chain, ground-up build plan.** Read this before building.
-- `soma-readiness-strategy.md` — **gap analysis + 90-day critical path vs. competitive clock.**
-- `soma-delegation-spec.md` — **Soma Delegation v0.1 draft spec (doctrinal play vs. IETF draft-klrc).**
-
-**Economics & Token:**
-- `pricing-economics.md` — **credit denomination (USD display), take rates, cache hit economics, volume pricing. Evidence-based.**
-- `tier-system.md` — **unified agent + provider tier system. Replaces 3 overlapping systems.**
-- `token-architecture.md` — **$CLAWNET token design: BME model, 25% revenue burn, staking for tiers, SEC "digital tools" compliance.**
-
-**Soma Check (conditional payment protocol):**
-- `soma-check-strategy.md` — canonical strategy, locked decisions
-- `soma-check-billing.md` — 90/10 split math, volume paradox, scale projections
-- `soma-check-header-spec.md` — ETag + X-Soma-* header contract
-- `soma-onboarding-ladder.md` — 4-tier provider migration ladder
-
-**Soma broader:**
-- `cache-layers-distinction.md` — ClawNet L1/L2 cache vs Soma Check (CRITICAL: do not conflate)
-- `funds-flow.md` — how money reaches providers + "is 10% sketchy?" professionalism analysis
-- `groundbreaking-extensions.md` — extension ideas (Vouch origin spec §9.5, transitive trust, etc.)
-- `proof-of-delivery-roadmap.md` — Receipt Layer 5-phase plan
-- `scale-test-plan.md` — Soma scale test sequencing (blocks Receipt Layer)
-- `soma-future-proofing.md` — pause-and-resume strategy
-
-**Vision:**
-- `verified-data-machine.md` — **unified Machine vision: Heart+Cache+Check+Receipt as one system. Token fit, modularity, missing components, ultra-think prompts. Read after golden-plan.md.**
-- `provenance-chain-architecture.md` — **Session A ultra-think: DerivationCert schema, provenance DAG, blacksmith chain, levels of proof, build phases. Read after verified-data-machine.md.**
-
-**Capture:**
-- `brainstorm.md` — raw idea log, pre-sifting
-
-## Convention for plans
-
-Plans in this folder should always answer:
-1. **What** — concrete deliverable
-2. **Why** — motivation / unsolved problem / strategic rationale
-3. **Todos** — actionable checklist items
-
-The `roadmap.md` file enforces this pattern — follow suit in any new plan docs.
+1. `active/golden-plan.md` -- master strategic vision (read first)
+2. `active/revenue-architecture.md` -- current revenue model (free routing, paid trust)
+3. `active/roadmap.md` -- what to build and why
+4. `active/gap-analysis-2026-04-07.md` -- honest codebase audit
+5. Then whatever's relevant to the task at hand

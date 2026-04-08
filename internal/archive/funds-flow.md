@@ -1,3 +1,7 @@
+> **ARCHIVED** — Superseded on 2026-04-08
+> **Outcome:** Revenue splits changed: providers now get 100% of all routing revenue (live, cache, Soma Check). ClawNet revenue comes only from trust queries. The payment rails (credits, x402, Stripe) described below are still valid.
+> **See instead:** `active/revenue-architecture.md`
+
 # Funds Flow — How Money Actually Moves
 
 **Written 2026-04-05.** Answers the question: "if someone uses Soma Check, how does the provider actually receive their cut, and how does ClawNet receive ours?"

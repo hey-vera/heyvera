@@ -1,3 +1,7 @@
+> **ARCHIVED** — Partially superseded on 2026-04-08
+> **Outcome:** Shadow tier removed, revenue model changed to free routing. The earned-not-bought tier philosophy and agent tier design (spend-based rate limits) are still directionally valid. Provider tiers need rethinking now that routing is free and revenue comes from trust queries.
+> **See instead:** `active/revenue-architecture.md`, `active/founding-protocol.md`
+
 # Tier System — Unified Agent + Provider Tiers
 
 **Status:** proposed redesign. Current code has three overlapping tier systems. This doc unifies them into two clean ladders.

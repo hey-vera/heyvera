@@ -1,6 +1,6 @@
 # Cache Layers — ClawNet Internal Cache vs Soma Check
 
-**Written 2026-04-05.** Companion to `soma-check-billing.md`.
+**Written 2026-04-05.** Companion to `archive/soma-check-billing.md` (archived).
 
 There are **TWO distinct cache layers** in ClawNet. They are not interchangeable, not competing, and not redundant. Internal docs/comms must keep them straight.
 
@@ -80,7 +80,7 @@ Agent → ClawNet
 
 **In internal docs:**
 - Always specify which layer you mean. Say "ClawNet L1/L2 cache" or "Soma Check (ETag)" — never ambiguous "cache hit" without context.
-- Billing docs must disambiguate: `docs/billing.md` talks about the ClawNet cache (50/50); `internal/soma-check-billing.md` talks about Soma Check (90/10).
+- Billing docs must disambiguate: `docs/billing.md` talks about the ClawNet cache (50/50); `internal/archive/soma-check-billing.md (archived)` talks about Soma Check (90/10).
 
 ---
 
@@ -106,7 +106,7 @@ The term "cache hit" in `docs/billing.md` (written before Soma Check existed) re
 ## Related docs
 
 - `docs/billing.md` — ClawNet cache economics (50/50, `creditProviderShare()`)
-- `internal/soma-check-billing.md` — Soma Check economics (90/10, `computeSomaCheckSplit()`)
+- `internal/archive/soma-check-billing.md (archived)` — Soma Check economics (90/10, `computeSomaCheckSplit()`)
 - `internal/soma-check-header-spec.md` — ETag + X-Soma-* header contract
 - `src/cache/index.ts` — L1/L2 implementation with semantic normalization
 - `src/routes/soma-check.ts` — Soma Check protocol handler

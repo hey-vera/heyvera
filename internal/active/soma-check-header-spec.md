@@ -212,8 +212,8 @@ Tier 1+ enables actual 304 returns. Shadow mode is telemetry-only.
 ## Related docs
 
 - `internal/soma-check-strategy.md` — overall strategy
-- `internal/soma-check-billing.md` — how `X-Soma-Freshness-Price` gets computed
-- `internal/soma-onboarding-ladder.md` — when Tier 2+ headers activate
+- `internal/archive/soma-check-billing.md (archived)` — how `X-Soma-Freshness-Price` gets computed
+- `internal/archive/soma-onboarding-ladder.md (archived)` — when Tier 2+ headers activate
 - RFC 9111 — HTTP Caching
 - RFC 9110 §15.4.5 — 304 Not Modified semantics
 - RFC 8785 — JSON Canonicalization Scheme (JCS)
