@@ -96,7 +96,8 @@ export class NovaBridge {
       this.readline.on('line', (line) => this.handleLine(line));
 
       // Wait for ready signal
-      const readyLine = await this.waitForLine(5000);
+      // Groth16 trusted setup takes ~30-40s on first run (params are cached after)
+      const readyLine = await this.waitForLine(120_000);
       const ready = JSON.parse(readyLine);
 
       if (ready.ready) {
