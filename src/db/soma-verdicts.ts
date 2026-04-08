@@ -12,6 +12,8 @@
 
 import { getDb, logAudit } from './connection';
 import { nanoid } from 'nanoid';
+import { slashVouches } from '../core/vouch-graph';
+import { logger } from '../utils/logger';
 
 export interface SomaVerdict {
   id: string;
@@ -90,6 +92,14 @@ export function recordSomaVerdict(v: Omit<SomaVerdict, 'id' | 'createdAt'>): str
 
   // Update aggregate stats
   updateVerdictStats(v.subjectDid, v.verdict, v.confidence, v.observerDid);
+
+  // Auto-slash vouches on RED verdict with high confidence
+  if (v.verdict === 'RED' && v.confidence >= 0.7) {
+    const slashed = slashVouches(v.subjectDid, 'red_verdicts');
+    if (slashed > 0) {
+      logger.warn({ subjectDid: v.subjectDid, slashed, confidence: v.confidence }, 'auto-slashed vouches on RED verdict');
+    }
+  }
 
   logAudit({
     entityType: 'soma_verdict', entityId: id, action: 'verdict_recorded',

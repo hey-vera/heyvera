@@ -14,6 +14,7 @@ import { getDb, logAudit } from '../db/connection';
 import { somaHash, somaHashJson } from '../utils/crypto-agility';
 import { derivePlatformSeed } from '../utils/ed25519-signer';
 import { getNovaBridge } from './nova-bridge';
+import { slashVouches } from './vouch-graph';
 import { createAgentIdentity } from './soma-wallet';
 import { logger } from '../utils/logger';
 import {
@@ -324,11 +325,17 @@ export function appendDeath(
   // Evict from cache — tree is sealed, no more appends
   evictTreeCache(agentDid);
 
+  // Auto-slash all vouches — dead agents can't honor trust
+  const slashed = slashVouches(agentDid, 'agent_death');
+  if (slashed > 0) {
+    logger.info({ agentDid, slashed }, 'auto-slashed vouches on agent death');
+  }
+
   logAudit({
     entityType: 'pulse_tree',
     entityId: agentDid,
     action: 'death_sealed',
-    data: { root: result.root, heartbeatIndex: result.heartbeatIndex },
+    data: { root: result.root, heartbeatIndex: result.heartbeatIndex, vouchesSlashed: slashed },
   });
 
   return result;

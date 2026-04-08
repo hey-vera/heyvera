@@ -6,7 +6,10 @@
  *   - Soma verdicts (GREEN/AMBER/RED from independent observers)
  *   - Behavioral scoring (success rate, latency, disputes)
  *   - Checkpoints (periodic behavioral summaries)
- *   - Trust v2 dimensions (11-dim behavioral/market/community)
+ *   - Vouch graph (agent-to-agent trust staking, Layer 4)
+ *
+ * Six trust dimensions: reliability, economic, verification, longevity,
+ * consistency, social (vouch graph).
  *
  * Three query tiers:
  *   BASIC       — trust score + level + confidence (cheapest)
@@ -22,6 +25,7 @@ import { getDb } from '../db/connection';
 import { somaHash, somaHashJson } from '../utils/crypto-agility';
 import { getAgentPulseState, getRecentLeaves } from './soma-heartbeat';
 import { getSomaVerdictStats } from '../db/soma-verdicts';
+import { getVouchScore } from './vouch-graph';
 import { round6 } from './credits';
 import { logger } from '../utils/logger';
 
@@ -43,6 +47,7 @@ export interface TrustDimensions {
   verification: TrustDimension;
   longevity: TrustDimension;
   consistency: TrustDimension;
+  social: TrustDimension;  // vouch graph — who trusts this agent
 }
 
 export interface PulseSnapshot {
@@ -245,6 +250,37 @@ function computeConsistency(agentDid: string): TrustDimension {
   return { score, confidence: round6(confidence), sampleSize: checkpoints.length };
 }
 
+function computeSocial(agentDid: string): TrustDimension {
+  const vouch = getVouchScore(agentDid);
+
+  if (vouch.uniqueVouchers === 0) {
+    return { score: 0, confidence: 0, sampleSize: 0 };
+  }
+
+  // Score: combination of voucher count, total staked, and slash history
+  let score = 0;
+
+  // Unique vouchers (up to 40 points — 5+ vouchers = max)
+  score += Math.round(Math.min(vouch.uniqueVouchers / 5, 1) * 40);
+
+  // Total staked (up to 40 points — 100+ credits staked = max)
+  score += Math.round(Math.min(vouch.totalStaked / 100, 1) * 40);
+
+  // Average stake strength (up to 20 points — 10+ avg = max)
+  score += Math.round(Math.min(vouch.avgStake / 10, 1) * 20);
+
+  // Slash penalty: each slash reduces score by 20
+  score = Math.max(0, score - vouch.slashCount * 20);
+
+  const confidence = Math.min(vouch.uniqueVouchers / 3, 1);
+
+  return {
+    score: Math.min(100, score),
+    confidence: round6(confidence),
+    sampleSize: vouch.uniqueVouchers,
+  };
+}
+
 // ─── Risk Flag Detection ────────────────────────────────────────────────────
 
 function detectRiskFlags(agentDid: string, dimensions: TrustDimensions): string[] {
@@ -276,6 +312,11 @@ function detectRiskFlags(agentDid: string, dimensions: TrustDimensions): string[
   if (dimensions.reliability.score < 30 && dimensions.reliability.sampleSize >= 10) flags.push('LOW_RELIABILITY');
   if (dimensions.verification.score < 30 && dimensions.verification.sampleSize >= 5) flags.push('LOW_VERIFICATION');
 
+  // Vouch-specific flags
+  const vouchData = getVouchScore(agentDid);
+  if (vouchData.slashCount > 0) flags.push('SLASHED_VOUCHES');
+  if (vouchData.uniqueVouchers === 0 && pulse.heartbeatIndex >= 50) flags.push('NO_VOUCHERS');
+
   // Staleness — no activity in 7+ days
   const latest = getDb().prepare(`
     SELECT timestamp FROM pulse_tree_leaves
@@ -292,13 +333,14 @@ function detectRiskFlags(agentDid: string, dimensions: TrustDimensions): string[
 
 // ─── Composite Scoring ──────────────────────────────────────────────────────
 
-// Dimension weights
+// Dimension weights (6 dimensions, sum = 1.0)
 const WEIGHTS = {
-  reliability: 0.30,
-  economic: 0.15,
-  verification: 0.25,
-  longevity: 0.15,
+  reliability: 0.25,
+  economic: 0.10,
+  verification: 0.20,
+  longevity: 0.10,
   consistency: 0.15,
+  social: 0.20,       // vouch graph — who trusts this agent
 };
 
 function computeCompositeScore(dims: TrustDimensions): number {
@@ -371,13 +413,14 @@ export function queryTrust(agentDid: string, tier: TrustTier): TrustQueryResult 
   const queryId = `tq-${nanoid(12)}`;
   const computedAt = new Date().toISOString();
 
-  // Compute all dimensions (needed for composite even at basic tier)
+  // Compute all 6 dimensions (needed for composite even at basic tier)
   const dimensions: TrustDimensions = {
     reliability: computeReliability(agentDid),
     economic: computeEconomic(agentDid),
     verification: computeVerification(agentDid),
     longevity: computeLongevity(agentDid),
     consistency: computeConsistency(agentDid),
+    social: computeSocial(agentDid),
   };
 
   const trustScore = computeCompositeScore(dimensions);

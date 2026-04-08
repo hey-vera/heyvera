@@ -18,6 +18,7 @@ import {
   appendWallet,
   evictTreeCache,
 } from '../../src/core/soma-heartbeat';
+import { stakeVouch } from '../../src/core/vouch-graph';
 
 initDb();
 
@@ -31,6 +32,7 @@ beforeEach(() => {
   getDb().exec('DELETE FROM trust_queries');
   try { getDb().exec('DELETE FROM soma_verdict_stats'); } catch { /* may not exist in test */ }
   try { getDb().exec('DELETE FROM soma_verdicts'); } catch { /* may not exist in test */ }
+  try { getDb().exec('DELETE FROM vouch_stakes'); } catch { /* may not exist in test */ }
   evictTreeCache(DID);
   evictTreeCache('did:key:unknown-agent');
 });
@@ -72,7 +74,7 @@ describe('Basic trust query', () => {
 // ─── Dimensional Tier ────────────────────────────────────────────────────────
 
 describe('Dimensional trust query', () => {
-  it('includes 5 dimensions', () => {
+  it('includes 6 dimensions', () => {
     for (let i = 0; i < 10; i++) {
       appendAction(DID, { endpointId: `ep-${i}`, success: true, durationMs: 50, cached: false }, 1);
     }
@@ -83,6 +85,7 @@ describe('Dimensional trust query', () => {
     expect(result.dimensions!.verification).toBeDefined();
     expect(result.dimensions!.longevity).toBeDefined();
     expect(result.dimensions!.consistency).toBeDefined();
+    expect(result.dimensions!.social).toBeDefined();
   });
 
   it('each dimension has score, confidence, sampleSize', () => {
@@ -103,6 +106,21 @@ describe('Dimensional trust query', () => {
     }
     const result = queryTrust(DID, 'dimensional');
     expect(result.dimensions!.reliability.score).toBeGreaterThanOrEqual(80);
+  });
+
+  it('social dimension reflects vouch graph', () => {
+    appendAction(DID, { endpointId: 'ep-1', success: true, durationMs: 50, cached: false }, 1);
+    // No vouches → social score = 0
+    const before = queryTrust(DID, 'dimensional');
+    expect(before.dimensions!.social.score).toBe(0);
+
+    // Add vouches
+    stakeVouch('did:key:voucher-1', DID, 10);
+    stakeVouch('did:key:voucher-2', DID, 20);
+    const after = queryTrust(DID, 'dimensional');
+    expect(after.dimensions!.social.score).toBeGreaterThan(0);
+    expect(after.dimensions!.social.sampleSize).toBe(2);
+    expect(after.trustScore).toBeGreaterThan(before.trustScore);
   });
 
   it('does NOT include pulse or verdictSummary at dimensional tier', () => {
