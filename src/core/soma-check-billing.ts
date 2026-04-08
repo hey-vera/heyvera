@@ -28,9 +28,11 @@ export function dynamicHitPriceRatio(_ageMs: number, _ttlMs: number): number {
   return SOMA_CHECK_HIT_PRICE_RATIO; // flat 10%
 }
 
-/** Provider share of cache-hit price by tier. */
-export function cacheHitProviderShareByTier(tier: SomaCheckTier): number {
-  return tier === 3 ? 0.95 : 0.90;
+/** Provider share of cache-hit price by tier.
+ * Revenue architecture v2: provider gets 100% of all cache hit revenue.
+ * ClawNet revenue comes from trust queries, not routing. */
+export function cacheHitProviderShareByTier(_tier: SomaCheckTier): number {
+  return 1.0;
 }
 
 export interface SomaCheckSplit {

@@ -2100,6 +2100,12 @@ const MIGRATIONS: { version: number; sql: string }[] = [
     CREATE INDEX IF NOT EXISTS idx_tq_subject ON trust_queries(subject_did);
     CREATE INDEX IF NOT EXISTS idx_tq_created ON trust_queries(created_at DESC);
   ` },
+  { version: 183, sql: `
+    -- Revenue architecture v2: routing is free. Provider gets 100% of all call revenue.
+    -- ClawNet revenue comes from trust queries, not routing cuts.
+    UPDATE providers SET cache_revenue_share_pct = 1.00 WHERE cache_revenue_share_pct < 1.00;
+    UPDATE providers SET platform_fee_pct = 0 WHERE platform_fee_pct > 0;
+  ` },
 ];
 
 function runMigrations(): void {

@@ -88,7 +88,7 @@ function rowToProvider(row: any): Provider {
     description: row.description,
     websiteUrl: row.website_url,
     revenueSharePct: row.revenue_share_pct,
-    cacheRevenueSharePct: row.cache_revenue_share_pct ?? 0.90,
+    cacheRevenueSharePct: row.cache_revenue_share_pct ?? 1.00,
     tier: row.tier ?? 'founding',
     somaCheckTier: clampSomaCheckTier(row.soma_check_tier ?? 1),
     platformFeePct: row.platform_fee_pct ?? 0.10,
@@ -123,14 +123,14 @@ export function createProvider(opts: {
   websiteUrl?: string;
 }): Provider {
   const id = `prov-${nanoid(16)}`;
-  // Founding era: 0% platform fee on live calls, 100% to provider. Cache revenue 90/10.
-  // All revenue paths use the 10% rule: ClawNet takes 10%, provider keeps 90%.
-  // Soma Check tier starts at 1 (active) — no shadow mode, instant revenue for both parties.
+  // Revenue architecture v2: 0% platform cut on ALL routing (live + cache).
+  // Provider gets 100% of live calls AND 100% of cache hit revenue.
+  // ClawNet revenue comes from trust queries, not routing.
   getDb().prepare(`
     INSERT INTO providers (id, name, slug, email, clerk_user_id, evm_wallet, solana_wallet,
       soma_public_key, soma_discovery_url, description, website_url,
       platform_fee_pct, revenue_share_pct, cache_revenue_share_pct, tier, soma_check_tier)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1.00, 0.90, 'founding', 1)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1.00, 1.00, 'founding', 1)
   `).run(
     id, opts.name, opts.slug, opts.email,
     opts.clerkUserId ?? null, opts.evmWallet ?? null, opts.solanaWallet ?? null,
@@ -416,8 +416,8 @@ export function creditProviderShare(endpointId: string, creditsCharged: number, 
   /**
    * When set, bypasses the provider's default revenue_share_pct /
    * cache_revenue_share_pct and credits this fraction of `creditsCharged`.
-   * Used by Soma Check (RFC 9111 ETag 304 path) where the caller has
-   * already applied the 10% hit-price ratio + tier-aware 90/10 or 95/5 split.
+   * Used by Soma Check (RFC 9111 ETag 304 path). Revenue architecture v2:
+   * always 1.0 (provider gets 100% of cache hit revenue).
    */
   providerSharePctOverride?: number;
 }): number {
@@ -427,9 +427,10 @@ export function creditProviderShare(endpointId: string, creditsCharged: number, 
   const provider = getProvider(providerId);
   if (!provider || provider.status !== 'active') return 0;
 
-  // Live calls: provider gets revenue_share_pct (100% founding, 90% post-provenance)
-  // Cache hits: provider gets cache_revenue_share_pct (90%) — pure profit, server not touched
-  // Soma Check hits: caller passes providerSharePctOverride (0.90 T1-2 / 0.95 T3).
+  // Revenue architecture v2: provider gets 100% of all routing revenue.
+  // Live calls: provider gets revenue_share_pct (100%)
+  // Cache hits: provider gets cache_revenue_share_pct (100%) — pure passive income
+  // Soma Check hits: provider gets 100% via providerSharePctOverride
   const providerCredits = opts.providerSharePctOverride !== undefined
     ? round6(creditsCharged * opts.providerSharePctOverride)
     : opts.cacheHit
