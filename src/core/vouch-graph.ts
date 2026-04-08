@@ -54,7 +54,7 @@ export interface VouchScore {
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-const MIN_STAKE = 1.0;       // minimum credits to vouch
+const MIN_STAKE = 10.0;      // minimum credits to vouch (prevents cheap Sybil boosting)
 const MAX_VOUCHES_PER_AGENT = 20; // max agents one agent can vouch for
 const MAX_PATH_DEPTH = 3;    // max hops for transitive trust
 const SLASH_PENALTY = 1.0;   // slash burns 100% of stake
@@ -191,22 +191,37 @@ export function getVouchesBy(did: string): VouchStake[] {
   return rows.map(rowToVouchStake);
 }
 
-/** Compute aggregate vouch score for an agent. */
+/** Compute aggregate vouch score for an agent, excluding circular vouches. */
 export function getVouchScore(did: string): VouchScore {
-  const row = getDb().prepare(`
-    SELECT
-      COALESCE(SUM(stake_amount), 0) as total_staked,
-      COUNT(DISTINCT voucher_did) as unique_vouchers,
-      COALESCE(AVG(stake_amount), 0) as avg_stake,
-      COALESCE(MAX(stake_amount), 0) as strongest_vouch
-    FROM vouch_stakes
+  // Get all active vouchers for this agent
+  const vouchers = getDb().prepare(`
+    SELECT voucher_did, stake_amount FROM vouch_stakes
     WHERE vouchee_did = ? AND status = 'active'
-  `).get(did) as {
-    total_staked: number;
-    unique_vouchers: number;
-    avg_stake: number;
-    strongest_vouch: number;
-  };
+  `).all(did) as Array<{ voucher_did: string; stake_amount: number }>;
+
+  // Detect circular vouches: A→B and B→A (reciprocal)
+  // These are discounted 50% — legitimate mutual trust exists, but it's easier to game
+  const reciprocals = new Set<string>();
+  if (vouchers.length > 0) {
+    const placeholders = vouchers.map(() => '?').join(',');
+    const reverseVouches = getDb().prepare(`
+      SELECT vouchee_did FROM vouch_stakes
+      WHERE voucher_did = ? AND vouchee_did IN (${placeholders}) AND status = 'active'
+    `).all(did, ...vouchers.map(v => v.voucher_did)) as Array<{ vouchee_did: string }>;
+    for (const rv of reverseVouches) reciprocals.add(rv.vouchee_did);
+  }
+
+  // Compute totals with circular discount
+  let totalStaked = 0;
+  let uniqueVouchers = 0;
+  let strongestVouch = 0;
+  for (const v of vouchers) {
+    const weight = reciprocals.has(v.voucher_did) ? 0.5 : 1.0;
+    totalStaked += v.stake_amount * weight;
+    uniqueVouchers += weight; // circular vouchers count as 0.5
+    strongestVouch = Math.max(strongestVouch, v.stake_amount * weight);
+  }
+  const avgStake = uniqueVouchers > 0 ? totalStaked / uniqueVouchers : 0;
 
   const slashCount = (getDb().prepare(
     "SELECT COUNT(*) as n FROM vouch_stakes WHERE vouchee_did = ? AND status = 'slashed'"
@@ -214,10 +229,10 @@ export function getVouchScore(did: string): VouchScore {
 
   return {
     did,
-    totalStaked: round6(row.total_staked),
-    uniqueVouchers: row.unique_vouchers,
-    avgStake: round6(row.avg_stake),
-    strongestVouch: round6(row.strongest_vouch),
+    totalStaked: round6(totalStaked),
+    uniqueVouchers: Math.round(uniqueVouchers), // rounded since 0.5 weights
+    avgStake: round6(avgStake),
+    strongestVouch: round6(strongestVouch),
     slashCount,
   };
 }

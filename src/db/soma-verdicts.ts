@@ -48,7 +48,7 @@ export interface SomaVerdictStats {
   greenCount: number;
   amberCount: number;
   redCount: number;
-  uncannnyCount: number;
+  uncannyCount: number;
   uniqueObservers: number;
   avgConfidence: number;
   lastVerdict?: string;
@@ -142,7 +142,7 @@ export function getSomaVerdictStats(subjectDid: string): SomaVerdictStats | null
     greenCount: row.green_count as number,
     amberCount: row.amber_count as number,
     redCount: row.red_count as number,
-    uncannnyCount: row.uncanny_count as number,
+    uncannyCount: row.uncanny_count as number,
     uniqueObservers: row.unique_observers as number,
     avgConfidence: row.avg_confidence as number,
     lastVerdict: row.last_verdict as string | undefined,

@@ -178,29 +178,31 @@ interface AppendResult {
  * If the prover is unavailable, the append still succeeds (graceful degradation).
  */
 function appendLeaf(agentDid: string, type: PulseType, payloadHash: string, creditDelta: number): AppendResult {
-  const heartbeatIndex = incrementHeartbeat(agentDid);
-  const tree = getAgentTree(agentDid);
+  // Entire append is atomic: heartbeat increment + tree mutation + DB persist.
+  // Prevents race condition where concurrent requests corrupt the pulse tree.
+  const result = getDb().transaction(() => {
+    const heartbeatIndex = incrementHeartbeat(agentDid);
+    const tree = getAgentTree(agentDid);
 
-  const leaf: PulseLeaf = {
-    type,
-    heartbeatIndex,
-    timestamp: new Date().toISOString(),
-    payloadHash,
-    creditDelta,
-  };
+    const leaf: PulseLeaf = {
+      type,
+      heartbeatIndex,
+      timestamp: new Date().toISOString(),
+      payloadHash,
+      creditDelta,
+    };
 
-  const { position, root } = tree.append(leaf);
-
-  // Persist to DB (leaf + state) in a transaction
-  getDb().transaction(() => {
+    const { position, root } = tree.append(leaf);
     storeLeaf(agentDid, leaf, position, root);
     persistTreeState(agentDid, tree);
+
+    return { heartbeatIndex, position, root };
   })();
 
   // Fire-and-forget Nova IVC fold — non-blocking, non-fatal
-  novaFold(agentDid, payloadHash, heartbeatIndex).catch(() => {});
+  novaFold(agentDid, payloadHash, result.heartbeatIndex).catch(() => {});
 
-  return { heartbeatIndex, position, root };
+  return result;
 }
 
 /**
@@ -227,8 +229,6 @@ async function novaFold(agentDid: string, leafHash: string, heartbeatIndex: numb
 export async function novaCompress(agentDid: string): Promise<{
   proof: string;
   proofSizeBytes: number;
-  root: string;
-  heartbeatIndex: number;
   foldCount: number;
 } | null> {
   const bridge = getNovaBridge();
@@ -245,8 +245,6 @@ export async function novaCompress(agentDid: string): Promise<{
     return {
       proof: result.proof,
       proofSizeBytes: result.proof_size_bytes,
-      root: '', // root derived from Nova state, not Pulse Tree root
-      heartbeatIndex: 0,
       foldCount: result.fold_count,
     };
   } catch (err) {
@@ -297,7 +295,16 @@ export function appendZkProof(
   payload: { proofType: 'nova_fold' | 'groth16'; proofHash: string; stepCount?: number },
 ): AppendResult {
   const payloadHash = somaHashJson(payload);
-  return appendLeaf(agentDid, PULSE_TYPE.ZK_PROOF, payloadHash, 0);
+  const result = appendLeaf(agentDid, PULSE_TYPE.ZK_PROOF, payloadHash, 0);
+
+  // Track Groth16 proofs separately for proof tier detection
+  if (payload.proofType === 'groth16') {
+    getDb().prepare(
+      "UPDATE agent_pulse_state SET last_groth16_at = datetime('now') WHERE agent_did = ?"
+    ).run(agentDid);
+  }
+
+  return result;
 }
 
 /**

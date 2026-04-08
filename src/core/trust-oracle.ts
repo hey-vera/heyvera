@@ -38,7 +38,14 @@ export type TrustVerdict = 'sovereign' | 'verified' | 'trusted' | 'building' | '
 
 export type ProofTier = 'zk-verified' | 'ivc-folded' | 'signed-only';
 
-/** Proof tier multiplier — scales effective trust by cryptographic proof strength. */
+/**
+ * Proof tier multiplier — scales effective trust by cryptographic proof strength.
+ * Blended formula: effectiveTrust = score * (0.5 + 0.5 * multiplier)
+ * This prevents cliff effects where mediocre zk-verified agents outrank excellent signed-only ones.
+ *   zk-verified:  score * 1.0  (full trust)
+ *   ivc-folded:   score * 0.925  (half of the 0.85 gap)
+ *   signed-only:  score * 0.8  (not 0.6 — excellent agents still rank well)
+ */
 export const PROOF_TIER_MULTIPLIER: Record<ProofTier, number> = {
   'zk-verified': 1.0,   // Groth16 proof — EVM-verifiable, full trust
   'ivc-folded': 0.85,   // Nova IVC folds running — strong but not compressed
@@ -130,16 +137,22 @@ export const PROOF_GENERATION_COST = 50; // ~$0.50
 
 /**
  * Determine the cryptographic proof tier for an agent.
- *   zk-verified: has at least one Groth16 proof (ZK_PROOF leaf, type=4)
+ *   zk-verified: has a Groth16 proof generated within the last 90 days
  *   ivc-folded:  Nova bridge running + agent has pulse leaves (folds happening)
  *   signed-only: pulse tree entries exist but no cryptographic proofs
  */
 export function getProofTier(agentDid: string): ProofTier {
-  const zkCount = (getDb().prepare(
-    'SELECT COUNT(*) as n FROM pulse_tree_leaves WHERE agent_did = ? AND type = 4'
-  ).get(agentDid) as { n: number }).n;
+  // Check for recent Groth16 proof (not just any ZK_PROOF leaf — Nova folds also use type=4)
+  const state = getDb().prepare(
+    'SELECT last_groth16_at FROM agent_pulse_state WHERE agent_did = ?'
+  ).get(agentDid) as { last_groth16_at: string | null } | undefined;
 
-  if (zkCount > 0) return 'zk-verified';
+  if (state?.last_groth16_at) {
+    const proofAge = Date.now() - new Date(state.last_groth16_at + 'Z').getTime();
+    const NINETY_DAYS = 90 * 24 * 60 * 60 * 1000;
+    if (proofAge < NINETY_DAYS) return 'zk-verified';
+    // Proof expired — fall through to ivc-folded or signed-only
+  }
 
   const bridge = getNovaBridge();
   const leafCount = (getDb().prepare(
@@ -218,16 +231,21 @@ function computeVerification(agentDid: string): TrustDimension {
   }
 
   const greenRate = stats.greenCount / stats.totalVerdicts;
-  const observerBonus = Math.min(stats.uniqueObservers / 5, 1) * 10;
 
-  let score = Math.round(greenRate * 80) + Math.round(observerBonus);
+  // Anti-sybil: require minimum 3 distinct observers for full score.
+  // Single-observer verdicts are discounted — too easy to self-verify.
+  const observerDiversityFactor = Math.min(stats.uniqueObservers / 3, 1);
+  const observerBonus = Math.round(observerDiversityFactor * 10);
+
+  // Green rate scaled by observer diversity — 1 observer can only contribute 33% of green score
+  let score = Math.round(greenRate * 80 * Math.max(observerDiversityFactor, 0.33)) + observerBonus;
   if (stats.redCount > 0) score -= stats.redCount * 15;
   score = Math.max(0, Math.min(100, score));
 
-  // Confidence grows with verdicts AND observer diversity
+  // Confidence: observer diversity weighted higher (anti-sybil)
   const verdictConf = Math.min(stats.totalVerdicts / 20, 1);
-  const observerConf = Math.min(stats.uniqueObservers / 3, 1);
-  const confidence = round6((verdictConf * 0.6 + observerConf * 0.4));
+  const observerConf = Math.min(stats.uniqueObservers / 5, 1);
+  const confidence = round6((verdictConf * 0.4 + observerConf * 0.6));
 
   return { score, confidence, sampleSize: stats.totalVerdicts };
 }
@@ -300,21 +318,22 @@ function computeSocial(agentDid: string): TrustDimension {
   }
 
   // Score: combination of voucher count, total staked, and slash history
+  // Hardened thresholds: MIN_STAKE=10, need 10+ vouchers and 500+ staked for max
   let score = 0;
 
-  // Unique vouchers (up to 40 points — 5+ vouchers = max)
-  score += Math.round(Math.min(vouch.uniqueVouchers / 5, 1) * 40);
+  // Unique vouchers (up to 40 points — 10+ vouchers = max, harder to Sybil)
+  score += Math.round(Math.min(vouch.uniqueVouchers / 10, 1) * 40);
 
-  // Total staked (up to 40 points — 100+ credits staked = max)
-  score += Math.round(Math.min(vouch.totalStaked / 100, 1) * 40);
+  // Total staked (up to 40 points — 500+ credits staked = max)
+  score += Math.round(Math.min(vouch.totalStaked / 500, 1) * 40);
 
-  // Average stake strength (up to 20 points — 10+ avg = max)
-  score += Math.round(Math.min(vouch.avgStake / 10, 1) * 20);
+  // Average stake strength (up to 20 points — 25+ avg = max)
+  score += Math.round(Math.min(vouch.avgStake / 25, 1) * 20);
 
   // Slash penalty: each slash reduces score by 20
   score = Math.max(0, score - vouch.slashCount * 20);
 
-  const confidence = Math.min(vouch.uniqueVouchers / 3, 1);
+  const confidence = Math.min(vouch.uniqueVouchers / 5, 1);
 
   return {
     score: Math.min(100, score),
@@ -471,8 +490,10 @@ export function queryTrust(agentDid: string, tier: TrustTier): TrustQueryResult 
   const riskFlags = detectRiskFlags(agentDid, dimensions);
 
   // Proof tier — cryptographic proof strength affects effective trust
+  // Blended formula prevents cliff effects: 0.5 + 0.5 * multiplier
   const proofTier = getProofTier(agentDid);
-  const effectiveTrust = Math.round(trustScore * PROOF_TIER_MULTIPLIER[proofTier]);
+  const blendedMultiplier = 0.5 + 0.5 * PROOF_TIER_MULTIPLIER[proofTier];
+  const effectiveTrust = Math.round(trustScore * blendedMultiplier);
 
   // TTL
   const ttl = TTL_MINUTES[tier];
@@ -536,6 +557,8 @@ export function queryTrust(agentDid: string, tier: TrustTier): TrustQueryResult 
     trustVerdict,
     confidence,
     riskFlags,
+    proofTier,
+    effectiveTrust,
     dimensions: tier !== 'basic' ? dimensions : undefined,
     computedAt,
   }));

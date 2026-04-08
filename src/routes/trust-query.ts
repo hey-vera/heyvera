@@ -59,8 +59,9 @@ router.get('/:did', checkApiKey, async (c) => {
       },
     });
   } catch (err) {
-    logger.error({ err, did }, 'Trust query failed');
-    return c.json({ error: 'Trust query failed', code: 'QUERY_FAILED' }, 500);
+    topUpCredits(keyInfo.key, cost);
+    logger.error({ err, did }, 'Trust query failed — credits refunded');
+    return c.json({ error: 'Trust query failed', code: 'QUERY_FAILED', refunded: cost }, 500);
   }
 });
 
@@ -95,8 +96,9 @@ router.get('/:did/dimensions', checkApiKey, async (c) => {
       },
     });
   } catch (err) {
-    logger.error({ err, did }, 'Trust query (dimensional) failed');
-    return c.json({ error: 'Trust query failed', code: 'QUERY_FAILED' }, 500);
+    topUpCredits(keyInfo.key, cost);
+    logger.error({ err, did }, 'Trust query (dimensional) failed — credits refunded');
+    return c.json({ error: 'Trust query failed', code: 'QUERY_FAILED', refunded: cost }, 500);
   }
 });
 
@@ -129,8 +131,9 @@ router.get('/:did/full', checkApiKey, async (c) => {
       },
     });
   } catch (err) {
-    logger.error({ err, did }, 'Trust query (full) failed');
-    return c.json({ error: 'Trust query failed', code: 'QUERY_FAILED' }, 500);
+    topUpCredits(keyInfo.key, cost);
+    logger.error({ err, did }, 'Trust query (full) failed — credits refunded');
+    return c.json({ error: 'Trust query failed', code: 'QUERY_FAILED', refunded: cost }, 500);
   }
 });
 

@@ -2123,6 +2123,9 @@ const MIGRATIONS: { version: number; sql: string }[] = [
     CREATE INDEX IF NOT EXISTS idx_vs_vouchee ON vouch_stakes(vouchee_did, status);
     CREATE INDEX IF NOT EXISTS idx_vs_expires ON vouch_stakes(expires_at) WHERE expires_at IS NOT NULL;
   ` },
+  { version: 185, sql: `
+    ALTER TABLE agent_pulse_state ADD COLUMN last_groth16_at TEXT;
+  ` },
 ];
 
 function runMigrations(): void {
