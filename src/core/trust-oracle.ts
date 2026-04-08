@@ -26,6 +26,7 @@ import { somaHash, somaHashJson } from '../utils/crypto-agility';
 import { getAgentPulseState, getRecentLeaves } from './soma-heartbeat';
 import { getSomaVerdictStats } from '../db/soma-verdicts';
 import { getVouchScore } from './vouch-graph';
+import { getNovaBridge } from './nova-bridge';
 import { round6 } from './credits';
 import { logger } from '../utils/logger';
 
@@ -34,6 +35,15 @@ import { logger } from '../utils/logger';
 export type TrustTier = 'basic' | 'dimensional' | 'full';
 
 export type TrustVerdict = 'sovereign' | 'verified' | 'trusted' | 'building' | 'new' | 'unknown';
+
+export type ProofTier = 'zk-verified' | 'ivc-folded' | 'signed-only';
+
+/** Proof tier multiplier — scales effective trust by cryptographic proof strength. */
+export const PROOF_TIER_MULTIPLIER: Record<ProofTier, number> = {
+  'zk-verified': 1.0,   // Groth16 proof — EVM-verifiable, full trust
+  'ivc-folded': 0.85,   // Nova IVC folds running — strong but not compressed
+  'signed-only': 0.6,   // Pulse tree + signatures — baseline trust
+};
 
 export interface TrustDimension {
   score: number;       // 0-100
@@ -88,6 +98,10 @@ export interface TrustQueryResult {
     avgCreditDelta: number;
   };
 
+  // Proof tier (all tiers) — cryptographic proof strength
+  proofTier: ProofTier;
+  effectiveTrust: number;  // trustScore * proofTierMultiplier
+
   // Metadata (all tiers)
   validUntil: string;  // TTL — trust is perishable
   proofHash: string;   // H(all data) for offline verification
@@ -108,6 +122,34 @@ const TTL_MINUTES: Record<TrustTier, number> = {
   dimensional: 30,
   full: 15,
 };
+
+/** Cost for Groth16 proof generation (separate from trust query costs). */
+export const PROOF_GENERATION_COST = 50; // ~$0.50
+
+// ─── Proof Tier Detection ──────────────────────────────────────────────────
+
+/**
+ * Determine the cryptographic proof tier for an agent.
+ *   zk-verified: has at least one Groth16 proof (ZK_PROOF leaf, type=4)
+ *   ivc-folded:  Nova bridge running + agent has pulse leaves (folds happening)
+ *   signed-only: pulse tree entries exist but no cryptographic proofs
+ */
+export function getProofTier(agentDid: string): ProofTier {
+  const zkCount = (getDb().prepare(
+    'SELECT COUNT(*) as n FROM pulse_tree_leaves WHERE agent_did = ? AND type = 4'
+  ).get(agentDid) as { n: number }).n;
+
+  if (zkCount > 0) return 'zk-verified';
+
+  const bridge = getNovaBridge();
+  const leafCount = (getDb().prepare(
+    'SELECT COUNT(*) as n FROM pulse_tree_leaves WHERE agent_did = ?'
+  ).get(agentDid) as { n: number }).n;
+
+  if (bridge.ready && leafCount > 0) return 'ivc-folded';
+
+  return 'signed-only';
+}
 
 // ─── Dimension Computation ──────────────────────────────────────────────────
 
@@ -428,6 +470,10 @@ export function queryTrust(agentDid: string, tier: TrustTier): TrustQueryResult 
   const trustVerdict = mapVerdict(trustScore, confidence);
   const riskFlags = detectRiskFlags(agentDid, dimensions);
 
+  // Proof tier — cryptographic proof strength affects effective trust
+  const proofTier = getProofTier(agentDid);
+  const effectiveTrust = Math.round(trustScore * PROOF_TIER_MULTIPLIER[proofTier]);
+
   // TTL
   const ttl = TTL_MINUTES[tier];
   const validUntil = new Date(Date.now() + ttl * 60_000).toISOString();
@@ -441,6 +487,8 @@ export function queryTrust(agentDid: string, tier: TrustTier): TrustQueryResult 
     trustVerdict,
     confidence,
     riskFlags,
+    proofTier,
+    effectiveTrust,
     validUntil,
     proofHash: '', // computed below
     computedAt,
