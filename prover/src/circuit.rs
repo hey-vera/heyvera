@@ -8,7 +8,7 @@
 //! algebraic non-linearity — soundness comes from the SNARK, not collision resistance.
 
 use ark_ff::PrimeField;
-use ark_r1cs_std::{alloc::AllocVar, fields::fp::FpVar};
+use ark_r1cs_std::{alloc::AllocVar, fields::fp::FpVar, fields::FieldVar};
 use ark_relations::gr1cs::{ConstraintSystemRef, Namespace, SynthesisError};
 use core::marker::PhantomData;
 use std::borrow::Borrow;

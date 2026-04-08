@@ -21,7 +21,6 @@ use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as Base64Engine};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::fs;
 use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
 
@@ -29,6 +28,7 @@ use folding_schemes::{
     commitment::{kzg::KZG, pedersen::Pedersen},
     folding::{
         nova::{decider_eth::Decider as DeciderEth, Nova, PreprocessorParam},
+        #[allow(unused_imports)]
         traits::CommittedInstanceOps,
     },
     frontend::FCircuit,
@@ -166,7 +166,7 @@ impl Prover {
     fn new() -> Result<Self, String> {
         let circuit = FC::new(()).map_err(|e| format!("Circuit init failed: {}", e))?;
         let poseidon_config = poseidon_canonical_config::<Fr>();
-        let mut rng = ark_std::rand::rngs::OsRng;
+        let rng = ark_std::rand::rngs::OsRng;
 
         // Setup Nova public params
         eprintln!("[prover] Generating Nova public parameters...");
@@ -215,7 +215,7 @@ impl Prover {
 
     fn fold(&mut self, agent_did: &str, leaf_hash: &str, heartbeat_index: u64) -> Result<FoldResponse, String> {
         let agent = self.get_or_init_agent(agent_did)?;
-        let mut rng = ark_std::rand::rngs::OsRng;
+        let rng = ark_std::rand::rngs::OsRng;
 
         let inputs = PulseFoldInputs {
             leaf_hash: hex_to_field(leaf_hash),
@@ -251,7 +251,7 @@ impl Prover {
             return Err("Cannot compress zero folds".to_string());
         }
 
-        let mut rng = ark_std::rand::rngs::OsRng;
+        let rng = ark_std::rand::rngs::OsRng;
 
         // Generate Groth16 proof
         let proof = D::prove(rng, self.decider_pp.clone(), agent.nova.clone())
@@ -275,12 +275,12 @@ impl Prover {
         })
     }
 
-    fn verify(&self, proof_b64: &str, fold_count: u64) -> Result<VerifyResponse, String> {
+    fn verify(&self, proof_b64: &str, _fold_count: u64) -> Result<VerifyResponse, String> {
         let proof_bytes = BASE64
             .decode(proof_b64)
             .map_err(|e| format!("Invalid base64 proof: {}", e))?;
 
-        let proof =
+        let _proof =
             <<D as Decider<G1, G2, FC, N>>::Proof as CanonicalDeserialize>::deserialize_compressed(
                 &proof_bytes[..],
             )
