@@ -78,6 +78,7 @@ import { agentLifecycleRouter } from './routes/agent-lifecycle';
 import { startChallengeFinalizeCron } from './core/challenge-finalize-cron';
 import { startTrustDecayCron } from './core/trust-decay-cron';
 import { referralRouter } from './routes/referral';
+import { trustQueryRouter } from './routes/trust-query';
 import { startEndpointHealthCron } from './core/endpoint-health-cron';
 import { startEndpointDiscoveryCron } from './core/endpoint-discovery';
 import { signResponse } from './middleware/sign-response';
@@ -341,6 +342,7 @@ app.route('/v1/signal', signalRouter);
 app.route('/x402/facilitator', x402FacilitatorRouter);
 app.route('/v1/skills', skillBuilderRouter);
 app.route('/v1/referral', referralRouter);
+app.route('/v1/trust', trustQueryRouter);
 
 // ─── JSON-LD Context — W3C VC attestation vocabulary ────────────────────────
 import { getAttestationContext } from './utils/vc-envelope';

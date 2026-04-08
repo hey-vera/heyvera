@@ -2087,6 +2087,19 @@ const MIGRATIONS: { version: number; sql: string }[] = [
     );
     CREATE INDEX IF NOT EXISTS idx_checkpoints_agent ON soma_checkpoints(agent_did, checkpoint_index DESC);
   ` },
+  { version: 182, sql: `
+    CREATE TABLE IF NOT EXISTS trust_queries (
+      id TEXT PRIMARY KEY,
+      querier_key TEXT NOT NULL,
+      subject_did TEXT NOT NULL,
+      tier TEXT NOT NULL CHECK(tier IN ('basic', 'dimensional', 'full')),
+      credits_charged REAL NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_tq_querier ON trust_queries(querier_key);
+    CREATE INDEX IF NOT EXISTS idx_tq_subject ON trust_queries(subject_did);
+    CREATE INDEX IF NOT EXISTS idx_tq_created ON trust_queries(created_at DESC);
+  ` },
 ];
 
 function runMigrations(): void {
