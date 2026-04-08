@@ -22,7 +22,7 @@ ark-r1cs-std = "0.5"
 ark-relations = "0.5"
 ark-std = "0.5"
 ark-serialize = { version = "0.5", features = ["derive"] }
-ark-crypto-primitives = { version = "0.5", default-features = false, features = ["r1cs", "sponge"] }
+ark-crypto-primitives = { version = "0.5", default-features = false, features = ["constraints", "sponge"] }
 
 [profile.release]
 opt-level = 3
