@@ -642,4 +642,95 @@ router.post('/verify', checkApiKey, async (c) => {
   });
 });
 
+// ─── GET /v1/soma/platform — ClawNet's own trust proof ──────────────────────
+// Public endpoint showing ClawNet as its own first Soma-verified agent.
+// This is the living proof that Soma works: anyone can query ClawNet's
+// trust score, identity signals, proof tier, and pulse tree stats.
+
+import { getPlatformDid, getAgentPulseState } from '../core/soma-heartbeat';
+import { queryTrust, getCompositeIdentity, getProofTier } from '../core/trust-oracle';
+import { getNovaBridge } from '../core/nova-bridge';
+import { getEd25519PublicKeyMultibase } from '../utils/ed25519-signer';
+import { getAttesterAddress } from '../utils/eas';
+
+router.get('/platform', async (c) => {
+  const platformDid = getPlatformDid();
+
+  // Trust oracle query (free — this is our own public proof)
+  const trust = queryTrust(platformDid, 'full');
+  const identity = getCompositeIdentity(platformDid);
+  const proofTier = getProofTier(platformDid);
+  const pulse = getAgentPulseState(platformDid);
+  const bridge = getNovaBridge();
+
+  return c.json({
+    platform: {
+      did: platformDid,
+      displayName: 'ClawNet Platform',
+      description: 'Sovereign AI agent orchestration layer — the first Soma implementation',
+      publicKey: getEd25519PublicKeyMultibase(),
+      attesterAddress: getAttesterAddress(),
+    },
+
+    // Trust score — same oracle that scores every agent
+    trust: {
+      score: trust.trustScore,
+      verdict: trust.trustVerdict,
+      confidence: trust.confidence,
+      effectiveTrust: trust.effectiveTrust,
+      riskFlags: trust.riskFlags,
+      dimensions: trust.dimensions,
+    },
+
+    // Identity — composite multi-signal scoring
+    identity: {
+      compositeScore: identity.compositeScore,
+      effectiveMultiplier: identity.effectiveMultiplier,
+      legacyTier: identity.legacyTier,
+      signals: identity.signals,
+      signalCount: identity.signalCount,
+      hint: identity.compositeScore < 0.5
+        ? 'Platform operator can boost identity by linking biometric (World Orb) and KYC (Coinbase) verifications to the platform DID'
+        : undefined,
+    },
+
+    // Proof tier — cryptographic proof strength
+    proof: {
+      tier: proofTier,
+      novaAvailable: bridge.ready,
+      novaMode: bridge.mode,
+      description: proofTier === 'zk-verified'
+        ? 'Full Groth16 proof — 192 bytes proves entire platform lifetime'
+        : proofTier === 'ivc-folded'
+        ? 'Nova IVC folding active — actions are incrementally proven'
+        : 'Signed-only — signatures on every response, waiting for Nova prover',
+    },
+
+    // Pulse tree — the append-only lifecycle record
+    pulseTree: pulse ? {
+      heartbeatIndex: pulse.heartbeatIndex,
+      leafCount: pulse.leafCount,
+      totalCredits: pulse.totalCredits,
+      root: pulse.root,
+    } : { heartbeatIndex: 0, leafCount: 0, totalCredits: 0, root: '' },
+
+    // Verification instructions
+    verify: {
+      trustQuery: `GET /v1/soma/${platformDid}/trust`,
+      identityCheck: `GET /v1/identity/verify/${platformDid}`,
+      receiptProof: 'GET /v1/soma/receipts/:id — each receipt has EAS attestation on Base',
+      senseObserver: 'npm install @clawnet/sense-observer — run independent behavioral verification',
+      onChainProof: proofTier === 'zk-verified'
+        ? 'Groth16 proof verifiable on Base — 192 bytes, 185K gas'
+        : 'Pending Nova prover deployment — will produce on-chain verifiable proofs',
+    },
+
+    meta: {
+      queriedAt: new Date().toISOString(),
+      protocol: 'soma/1.0',
+      note: 'ClawNet is its own first customer. Every field above uses the same systems that score every agent on the platform.',
+    },
+  });
+});
+
 export { router as somaRouter };

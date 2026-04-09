@@ -538,6 +538,14 @@ async function start() {
   setupGracefulShutdown();
   startHeartbeat();
 
+  // Bootstrap ClawNet as its own first Soma-verified agent
+  try {
+    const { bootstrapPlatformIdentity } = await import('./core/soma-heartbeat');
+    bootstrapPlatformIdentity();
+  } catch (err) {
+    logger.warn({ err }, 'Platform identity bootstrap failed — non-fatal');
+  }
+
   // Non-critical services: isolate failures so the HTTP server still starts
   try { await initNovaBridge(); } catch (err) {
     logger.warn({ err }, 'Nova prover init failed — agents will use signed-only mode');

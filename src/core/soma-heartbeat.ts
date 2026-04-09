@@ -387,6 +387,72 @@ export function generatePulseProof(agentDid: string, leafIndex: number): PulseIn
   return tree.generateProof(leafIndex);
 }
 
+// ─── Platform Self-Registration ──────────────────────────────────────────
+
+/**
+ * Bootstrap ClawNet's platform DID as the first identity-verified agent.
+ * Called once on server startup. Ensures the platform appears in its own
+ * trust oracle, pulse tree, and identity system — eating its own dogfood.
+ *
+ * This makes ClawNet the living proof that Soma works:
+ *   - Platform DID has a Pulse Tree (every orchestration is an ACTION leaf)
+ *   - Platform DID has identity signals (behavioral + social from real traffic)
+ *   - Platform DID has a trust score from the trust oracle
+ *   - When Nova prover runs: platform actions fold into IVC → Groth16 on-chain
+ */
+export function bootstrapPlatformIdentity(): void {
+  const platformDid = getPlatformDid();
+
+  // Ensure pulse state row exists (so trust oracle can score us)
+  const existing = getDb().prepare(
+    'SELECT 1 FROM agent_pulse_state WHERE agent_did = ?'
+  ).get(platformDid);
+
+  if (!existing) {
+    getDb().prepare(`
+      INSERT OR IGNORE INTO agent_pulse_state
+        (agent_did, heartbeat_index, leaf_count, total_credits, root_hash, peaks_json, updated_at)
+      VALUES (?, 0, 0, 0, '', '[]', datetime('now'))
+    `).run(platformDid);
+  }
+
+  // Ensure identity signals table has a record for behavioral signal
+  // (The composite scoring reads from this + derives behavioral/social from trust dimensions)
+  // Platform doesn't get biometric/kyc/passport automatically — those require
+  // the operator to link their own verifications. But we seed the row so the
+  // composite scorer can find us.
+  const identityExists = getDb().prepare(
+    'SELECT 1 FROM agent_identity_composite WHERE agent_did = ?'
+  ).get(platformDid);
+
+  if (!identityExists) {
+    getDb().prepare(`
+      INSERT OR IGNORE INTO agent_identity_composite
+        (agent_did, composite_score, effective_multiplier, biometric_signal, kyc_signal,
+         passport_signal, behavioral_signal, social_signal, signal_count, last_recomputed)
+      VALUES (?, 0, 0.5, 0, 0, 0, 0, 0, 0, datetime('now'))
+    `).run(platformDid);
+  }
+
+  // Register an agent identity record if none exists
+  const agentIdentity = getDb().prepare(
+    'SELECT 1 FROM agent_identities WHERE id = ? OR api_key_hash = ?'
+  ).get(platformDid, somaHash(platformDid));
+
+  if (!agentIdentity) {
+    getDb().prepare(`
+      INSERT OR IGNORE INTO agent_identities
+        (id, api_key_hash, display_name, description, agent_type, capabilities_json,
+         owner_verified, public_profile, created_at, updated_at)
+      VALUES (?, ?, 'ClawNet Platform', 'Sovereign AI agent orchestration layer — the first Soma implementation',
+              'autonomous', '["orchestration","trust-oracle","soma-check","identity-verification","vouch-graph"]',
+              1, 1, datetime('now'), datetime('now'))
+    `).run(platformDid, somaHash(platformDid));
+  }
+
+  logger.info({ platformDid }, 'Platform identity bootstrapped — ClawNet is its own first verified agent');
+}
+
 /** Get recent leaves for an agent (most recent first). */
 export function getRecentLeaves(agentDid: string, limit = 20): Array<{
   type: number;
