@@ -1,7 +1,7 @@
 /**
- * trust-import.ts — Cross-protocol trust import (Section 36.5)
+ * trust-import.ts — Cross-protocol trust import
  *
- * Agents with strong trust on other platforms can import it to AID
+ * Agents with trust on other platforms can import it to ClawNet
  * instead of starting from zero.
  *
  * Supported sources:
@@ -9,14 +9,16 @@
  *   - x402 payment history (facilitator-signed receipts)
  *   - Maiat trust scores (API-queryable)
  *
- * Rules (Section 39.4 — tightened):
+ * Rules:
  *   - Imported trust capped at 39 (building tier, base price, NO discount)
- *   - Requires 20 local AID transactions before import adds to score
+ *   - Requires 20 local transactions before import adds to score
  *   - Import only proves "this agent exists on other platforms"
+ *   - proofData is NOT yet validated — see soma-trust-mining.md Innovation 4
+ *     for the planned "import evidence, not verdicts" upgrade
  */
 
 import { getDb, logAudit } from '../db/connection';
-import { aidHash } from '../utils/crypto-agility';
+import { somaHash } from '../utils/crypto-agility';
 import { logger } from '../utils/logger';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -54,7 +56,7 @@ const LOCAL_TX_REQUIRED = 20;
 /**
  * Import trust from an external platform.
  *
- * @param did - Agent's AID DID
+ * @param did - Agent's DID
  * @param source - Source platform
  * @param sourceIdentifier - Platform-specific ID (ERC-8004 agent ID, x402 wallet, etc.)
  * @param externalScore - The claimed score from the external platform (0-100)
@@ -98,7 +100,7 @@ export function importTrust(
   } catch { /* non-critical */ }
 
   // Create verification hash
-  const verificationHash = aidHash(JSON.stringify({
+  const verificationHash = somaHash(JSON.stringify({
     did, source, sourceIdentifier, externalScore, timestamp: Date.now(),
     proof: proofData,
   }));

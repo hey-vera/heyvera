@@ -1,16 +1,14 @@
 /**
- * sybil-signal.ts — Sybil risk as supplementary signal in AID documents (Section 15.7)
+ * sybil-signal.ts — Sybil risk as supplementary signal in trust scoring
  *
  * Computes a Sybil risk score based on behavioral patterns, not wallet analysis.
- * AID scores behavior. This module detects suspicious patterns that suggest
- * an agent may be part of a Sybil cluster.
+ * Detects suspicious patterns that suggest an agent may be part of a Sybil cluster.
  *
- * Signals analyzed:
+ * Signals analyzed (4 implemented):
  *   1. Counterparty concentration — transacts with very few unique counterparties
  *   2. Temporal clustering — bursts of activity followed by inactivity
  *   3. Feedback reciprocity — mutual positive feedback patterns
- *   4. Registration pattern — created close in time to other similar agents
- *   5. Volume/diversity ratio — high volume but low counterparty diversity
+ *   4. Volume/diversity ratio — high volume but low counterparty diversity
  */
 
 import { getDb } from '../db/connection';

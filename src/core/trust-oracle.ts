@@ -176,7 +176,7 @@ const TTL_MINUTES: Record<TrustTier, number> = {
 };
 
 /** Cost for Groth16 proof generation (separate from trust query costs). */
-export const PROOF_GENERATION_COST = 50; // ~$0.50
+export const PROOF_GENERATION_COST = 25; // 25cr per fee-spine.md + token-architecture.md (first/month free)
 
 // ─── Proof Tier Detection ──────────────────────────────────────────────────
 
