@@ -85,6 +85,10 @@ export function stakeVouch(
   voucheeDid: string,
   stakeAmount: number,
   expiresAt?: string,
+  /** Voucher's current trust score (0-100). If provided, enforces trust budget:
+   *  total committed trust_cost + new trust_cost ≤ trustScore.
+   *  Pass from queryTrust() in the route handler to avoid circular imports. */
+  voucherTrustScore?: number,
 ): VouchStake {
   if (voucherDid === voucheeDid) {
     throw new Error('Cannot vouch for yourself');
@@ -112,6 +116,20 @@ export function stakeVouch(
   // Conservation of trust: compute transfer costs
   const trustCost = round6(stakeAmount * COST_FACTOR);
   const trustTransferred = round6(stakeAmount * DECAY_FACTOR);
+
+  // Trust budget enforcement (Q7): max vouch = current_trust / cost_factor
+  // Total committed trust_cost cannot exceed voucher's trust score.
+  if (voucherTrustScore !== undefined) {
+    const committed = getVouchCostCommitted(voucherDid);
+    if (committed + trustCost > voucherTrustScore) {
+      const remaining = round6(Math.max(0, voucherTrustScore - committed));
+      const maxStake = round6(remaining / COST_FACTOR);
+      throw new Error(
+        `Trust budget exceeded: score ${voucherTrustScore}, committed ${committed}, ` +
+        `new cost ${trustCost}. Max additional stake: ${maxStake}`
+      );
+    }
+  }
 
   const id = `vs-${nanoid(12)}`;
   getDb().prepare(`

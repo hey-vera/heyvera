@@ -44,22 +44,59 @@ export interface SybilRiskAssessment {
 export function assessSybilRisk(ownerKey: string, did: string): SybilRiskAssessment {
   let dataPoints = 0;
 
-  // 1. Counterparty concentration
+  // 1. Counterparty concentration (trust-weighted diversity)
+  //    Raw unique count is trivially gameable — 100 Sybil counterparties score the same as 100 real ones.
+  //    Trust-weighted: each counterparty weighted by their pulse tree activity level.
+  //    Interacting with 100 zero-activity Sybils < interacting with 10 active agents.
   let counterpartyConcentration = 0;
   try {
-    const stats = getDb().prepare(`
-      SELECT COUNT(*) as total,
-             COUNT(DISTINCT source_key) as unique_counterparties
-      FROM attestations
-      WHERE owner_key = ? AND created_at > datetime('now', '-30 days')
-    `).get(ownerKey) as { total: number; unique_counterparties: number };
+    // Get counterparties from bilateral pulse entries (more reliable than attestation source_key)
+    const counterparties = getDb().prepare(`
+      SELECT DISTINCT b.agent_did as counterparty_did
+      FROM pulse_tree_leaves a
+      JOIN pulse_tree_leaves b ON a.bilateral_ref = b.id
+      WHERE a.agent_did = ? AND a.timestamp > datetime('now', '-30 days')
+    `).all(did) as Array<{ counterparty_did: string }>;
 
-    dataPoints += stats.total;
+    const totalEntries = (getDb().prepare(`
+      SELECT COUNT(*) as n FROM pulse_tree_leaves
+      WHERE agent_did = ? AND timestamp > datetime('now', '-30 days')
+    `).get(did) as { n: number }).n;
 
-    if (stats.total >= 10) {
-      // High concentration = suspicious (many txs, few counterparties)
-      const ratio = stats.unique_counterparties / Math.max(1, stats.total);
-      counterpartyConcentration = Math.max(0, 1 - ratio * 5); // 20% unique = 0 risk, 0% = 1.0 risk
+    dataPoints += totalEntries;
+
+    if (totalEntries >= 10) {
+      // Weight each counterparty by their own activity (pulse heartbeat count)
+      // Active agents contribute 1.0, new/empty agents contribute near 0
+      let weightedDiversity = 0;
+      for (const cp of counterparties) {
+        const cpState = getDb().prepare(
+          'SELECT heartbeat_index FROM agent_pulse_state WHERE agent_did = ?'
+        ).get(cp.counterparty_did) as { heartbeat_index: number } | undefined;
+        // Weight: min(heartbeats / 50, 1.0) — 50+ heartbeats = fully trusted counterparty
+        const weight = Math.min((cpState?.heartbeat_index ?? 0) / 50, 1.0);
+        weightedDiversity += weight;
+      }
+
+      // Trust-weighted ratio: high-quality counterparties score better than raw count
+      const weightedRatio = weightedDiversity / Math.max(1, totalEntries);
+      counterpartyConcentration = Math.max(0, 1 - weightedRatio * 5);
+    }
+
+    // Fallback: also check attestation-based diversity for agents without bilateral entries
+    if (dataPoints === 0) {
+      const stats = getDb().prepare(`
+        SELECT COUNT(*) as total,
+               COUNT(DISTINCT source_key) as unique_counterparties
+        FROM attestations
+        WHERE owner_key = ? AND created_at > datetime('now', '-30 days')
+      `).get(ownerKey) as { total: number; unique_counterparties: number };
+
+      dataPoints += stats.total;
+      if (stats.total >= 10) {
+        const ratio = stats.unique_counterparties / Math.max(1, stats.total);
+        counterpartyConcentration = Math.max(0, 1 - ratio * 5);
+      }
     }
   } catch { /* non-critical */ }
 

@@ -2239,6 +2239,8 @@ const MIGRATIONS: { version: number; sql: string }[] = [
     );
     CREATE INDEX IF NOT EXISTS idx_epoch_root ON epoch_snapshots(epoch_root);
   ` },
+  // ── Weighted bilateral credit (Q6): 1.0 routed, 0.75 verify, 0 direct ──
+  { version: 196, sql: `ALTER TABLE pulse_tree_leaves ADD COLUMN bilateral_weight REAL NOT NULL DEFAULT 1.0` },
 ];
 
 function runMigrations(): void {

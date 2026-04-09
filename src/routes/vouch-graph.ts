@@ -26,7 +26,7 @@ import {
   getVouchScore,
   resolveVouchPath,
 } from '../core/vouch-graph';
-import { recordTrustQuery } from '../core/trust-oracle';
+import { recordTrustQuery, queryTrust } from '../core/trust-oracle';
 
 const router = new Hono();
 
@@ -49,8 +49,15 @@ router.post('/stake', checkApiKey, async (c) => {
 
   const voucherDid = resolveAgentDid(keyInfo.key);
 
+  // Query voucher's trust score for budget enforcement (Q7: max vouch = trust / cost_factor)
+  let voucherTrustScore: number | undefined;
   try {
-    const stake = stakeVouch(voucherDid, parsed.data.voucheeDid, parsed.data.stakeAmount, parsed.data.expiresAt);
+    const trust = queryTrust(voucherDid, 'basic');
+    voucherTrustScore = trust.trustScore;
+  } catch { /* non-critical — allow vouch without budget check if trust query fails */ }
+
+  try {
+    const stake = stakeVouch(voucherDid, parsed.data.voucheeDid, parsed.data.stakeAmount, parsed.data.expiresAt, voucherTrustScore);
     return c.json({ ok: true, stake });
   } catch (err: any) {
     return c.json({ error: err.message, code: 'VOUCH_FAILED' }, 400);

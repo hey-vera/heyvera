@@ -85,9 +85,9 @@ const SCORING_CIRCUIT_V1 = somaHashJson({
  */
 function buildPulseEntriesSubtree(since?: string): { root: string; count: number; agentDids: Set<string> } {
   const query = since
-    ? `SELECT agent_did, leaf_index, type, heartbeat_index, timestamp, payload_hash, credit_delta, bilateral_ref
+    ? `SELECT agent_did, leaf_index, type, heartbeat_index, timestamp, payload_hash, credit_delta, bilateral_ref, bilateral_weight
        FROM pulse_tree_leaves WHERE timestamp > ? ORDER BY agent_did, leaf_index`
-    : `SELECT agent_did, leaf_index, type, heartbeat_index, timestamp, payload_hash, credit_delta, bilateral_ref
+    : `SELECT agent_did, leaf_index, type, heartbeat_index, timestamp, payload_hash, credit_delta, bilateral_ref, bilateral_weight
        FROM pulse_tree_leaves ORDER BY agent_did, leaf_index`;
 
   const rows = since
@@ -99,10 +99,10 @@ function buildPulseEntriesSubtree(since?: string): { root: string; count: number
 
   for (const row of rows) {
     agentDids.add(row.agent_did);
-    // Deterministic leaf hash — includes bilateral_ref for Innovation 2 linkage
+    // Deterministic leaf hash — includes bilateral_ref + weight for Innovation 2 linkage
     hashes.push(somaHash(
       `${row.agent_did}:${row.leaf_index}:${row.type}:${row.heartbeat_index}:` +
-      `${row.timestamp}:${row.payload_hash}:${row.credit_delta}:${row.bilateral_ref ?? 'none'}`
+      `${row.timestamp}:${row.payload_hash}:${row.credit_delta}:${row.bilateral_ref ?? 'none'}:${row.bilateral_weight ?? 1.0}`
     ));
   }
 
@@ -119,6 +119,7 @@ interface PulseLeafRow {
   payload_hash: string;
   credit_delta: number;
   bilateral_ref: string | null;
+  bilateral_weight: number | null;
 }
 
 /**
@@ -336,6 +337,133 @@ export function getEpochStatus(): { epochCount: number; latestRoot: string | nul
     latestRoot: latest.epoch_root,
     latestTimestamp: latest.epoch_timestamp,
   };
+}
+
+// ─── Conservation Law Verification (Q10) ────────────────────────────────────
+
+export interface ConservationResult {
+  passed: boolean;
+  epochNumber: number;
+  /** Trust created from bilateral economic activity in this epoch */
+  bilateralTrustCreated: number;
+  /** Trust destroyed by vouch conservation (cost - transferred) */
+  vouchTrustDestroyed: number;
+  /** Trust lost to revocations (50% burn on revoke) */
+  revocationTrustBurned: number;
+  /** Trust lost to slashing (100% of stakes) */
+  slashTrustBurned: number;
+  /** Expected net delta */
+  expectedDelta: number;
+  /** Actual net delta (from DB query) */
+  actualDelta: number;
+  /** Absolute difference */
+  deviation: number;
+  /** Threshold: 0.000001 * agent_count */
+  threshold: number;
+}
+
+/**
+ * Verify the conservation law holds for an epoch.
+ *
+ * Conservation law (Q10): trust enters via bilateral economic activity,
+ * exits via decay + slashing + vouch cost premium. The expected delta
+ * should match the actual change in total trust scores to 6 decimals.
+ *
+ * Run this on every epoch during OpenClaw testing.
+ */
+export function verifyConservationLaw(epochNumber: number): ConservationResult {
+  const epoch = getEpoch(epochNumber);
+  if (!epoch) throw new Error(`Epoch ${epochNumber} not found`);
+
+  // 1. Bilateral trust created: sum of credit_delta from bilateral pulse entries
+  //    Only bilateral entries (with bilateral_ref) create trust — unilateral don't
+  const bilateral = getDb().prepare(`
+    SELECT COALESCE(SUM(ABS(credit_delta)), 0) as total
+    FROM pulse_tree_leaves
+    WHERE bilateral_ref IS NOT NULL
+      AND timestamp <= ?
+      ${epochNumber > 0 ? "AND timestamp > (SELECT epoch_timestamp FROM epoch_snapshots WHERE epoch_number = ?)" : ''}
+  `).get(
+    epoch.epochTimestamp,
+    ...(epochNumber > 0 ? [epochNumber - 1] : []),
+  ) as { total: number };
+  const bilateralTrustCreated = round6(bilateral.total);
+
+  // 2. Vouch trust destroyed: sum of (trust_cost - trust_transferred) for vouches created in epoch
+  const vouchCreated = getDb().prepare(`
+    SELECT COALESCE(SUM(trust_cost - trust_transferred), 0) as destroyed
+    FROM vouch_stakes
+    WHERE created_at <= ?
+      ${epochNumber > 0 ? "AND created_at > (SELECT epoch_timestamp FROM epoch_snapshots WHERE epoch_number = ?)" : ''}
+  `).get(
+    epoch.epochTimestamp,
+    ...(epochNumber > 0 ? [epochNumber - 1] : []),
+  ) as { destroyed: number };
+  const vouchTrustDestroyed = round6(vouchCreated.destroyed);
+
+  // 3. Trust lost to revocations (50% of trust_cost burned on revoke)
+  const revoked = getDb().prepare(`
+    SELECT COALESCE(SUM(trust_cost * 0.5), 0) as burned
+    FROM vouch_stakes
+    WHERE status = 'revoked' AND revoked_at <= ?
+      ${epochNumber > 0 ? "AND revoked_at > (SELECT epoch_timestamp FROM epoch_snapshots WHERE epoch_number = ?)" : ''}
+  `).get(
+    epoch.epochTimestamp,
+    ...(epochNumber > 0 ? [epochNumber - 1] : []),
+  ) as { burned: number };
+  const revocationTrustBurned = round6(revoked.burned);
+
+  // 4. Trust lost to slashing (100% of stake_amount for slashed vouches)
+  const slashed = getDb().prepare(`
+    SELECT COALESCE(SUM(stake_amount), 0) as burned
+    FROM vouch_stakes
+    WHERE status = 'slashed' AND revoked_at <= ?
+      ${epochNumber > 0 ? "AND revoked_at > (SELECT epoch_timestamp FROM epoch_snapshots WHERE epoch_number = ?)" : ''}
+  `).get(
+    epoch.epochTimestamp,
+    ...(epochNumber > 0 ? [epochNumber - 1] : []),
+  ) as { burned: number };
+  const slashTrustBurned = round6(slashed.burned);
+
+  // Expected delta = created - destroyed - revocation_burn - slash_burn
+  const expectedDelta = round6(bilateralTrustCreated - vouchTrustDestroyed - revocationTrustBurned - slashTrustBurned);
+
+  // Actual delta: sum of all credit_delta changes in this epoch
+  const actual = getDb().prepare(`
+    SELECT COALESCE(SUM(credit_delta), 0) as total
+    FROM pulse_tree_leaves
+    WHERE timestamp <= ?
+      ${epochNumber > 0 ? "AND timestamp > (SELECT epoch_timestamp FROM epoch_snapshots WHERE epoch_number = ?)" : ''}
+  `).get(
+    epoch.epochTimestamp,
+    ...(epochNumber > 0 ? [epochNumber - 1] : []),
+  ) as { total: number };
+  const actualDelta = round6(actual.total);
+
+  const deviation = round6(Math.abs(actualDelta - expectedDelta));
+  const threshold = round6(0.000001 * Math.max(epoch.agentCount, 1));
+
+  const result: ConservationResult = {
+    passed: deviation <= threshold,
+    epochNumber,
+    bilateralTrustCreated,
+    vouchTrustDestroyed,
+    revocationTrustBurned,
+    slashTrustBurned,
+    expectedDelta,
+    actualDelta,
+    deviation,
+    threshold,
+  };
+
+  logger.info({
+    epoch: epochNumber,
+    passed: result.passed,
+    deviation,
+    threshold,
+  }, `Conservation law ${result.passed ? 'PASSED' : 'FAILED'}`);
+
+  return result;
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
