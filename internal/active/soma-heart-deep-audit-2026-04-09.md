@@ -380,3 +380,183 @@ These findings need dedicated tests that don't exist yet:
 | 3.1 | Signature (R, S+L) — should reject |
 | 3.2 | Handshake with all-zeros ephemeral key — should reject |
 | 3.5 | Sign with NFC string, verify with NFD — document expected behavior |
+
+---
+
+## 8. OpenClaw Agent Swarms — Full-System Testing Architecture
+
+The hacker audit (`soma-heart-hacker-audit-2026-04-09.md`, Part 4) defines 6 test agents targeting soma-heart internals. This section designs the FULL-SYSTEM swarm architecture that tests everything ClawNet is — platform, trust, payments, providers, and every future system from the vision brainstorm — once it's all built.
+
+### Design Philosophy
+
+**Swarms, not individual agents.** A single test agent probes one surface. A swarm coordinates N agents that attack multiple surfaces simultaneously, exposing failures that only appear under cross-layer interaction. Real attackers don't target one file — they chain weaknesses across auth, billing, trust, and identity.
+
+**Always-on, not one-shot.** Swarms run continuously against staging (and a subset against prod). Every deploy triggers a swarm pass. Regressions are caught at commit time, not audit time.
+
+**Graduated severity.** Each swarm has 3 modes:
+- **Probe** — non-destructive read-only checks (safe for prod)
+- **Stress** — adversarial writes at scale (staging only)
+- **Siege** — full-power coordinated attack simulation (dedicated test environment)
+
+---
+
+### Swarm 1: "Gatekeepers" — Platform Foundation
+
+Tests ClawNet's core: auth, routing, billing, cache, crons, error handling.
+
+| Agent | What it attacks | Key tests |
+|---|---|---|
+| **KeySmith** | API key auth surface | Timing attacks on `X-API-Key` comparison, key format fuzzing (`cn-` prefix bypass), revoked key reuse, short key masking (`maskApiKey` vs `.slice()`), Clerk JWT expiry edge cases, admin key brute-force rate limiting |
+| **BillGrinder** | Credit math + billing | Race conditions on `deductCredit()` (concurrent requests drain below 0), floating-point rounding divergence (verify `round6()` everywhere), delegated spend tracking consistency, cache hit pricing (verify 10% of live), credit-to-USD ratio consistency ($0.001 everywhere, not $0.0005) |
+| **CachePoisoner** | L1/L2 cache + certified cache | Inject bad data via cache warming race, stale-while-revalidate serving expired certs, cache key collision (semantic normalization: SOL vs sol vs Solana), Soma Check hash manipulation (`If-Soma-Hash` spoofing), `cache_access_log` write amplification under load |
+| **CronStomper** | 21+ concurrent crons | Fire all crons simultaneously (thundering herd), verify WAL doesn't stall under cron contention, verify a runaway cron (e.g., cache warming doing 50+ HTTP calls) doesn't starve the HTTP event loop, test cron jitter effectiveness |
+| **ErrorHarvester** | Error paths + information leakage | Send malformed JSON/headers to every route, verify error responses never leak stack traces/env vars/SQL, check every `SNAKE_CASE_CODE` error code matches docs, verify audit logging fires on all sensitive operations |
+
+**Swarm coordination test:** KeySmith creates 100 API keys, BillGrinder burns credits on all 100 simultaneously, CachePoisoner floods L1 during the burn — does the system maintain consistency?
+
+---
+
+### Swarm 2: "TrustBreakers" — Trust Economy
+
+Tests the trust oracle, vouch graph, sybil detection, trust delegation, decay, and every future trust feature (trust utility, trust certificates, trust staking, credit lines, real-time monitoring).
+
+| Agent | What it attacks | Key tests |
+|---|---|---|
+| **TrustFarmer** | Trust score gaming | Farm the 5 non-conserved dimensions (90% of score weight) without spending anything, create a trust 95 agent with zero real economic activity, exploit the longevity placeholder (always returns 0.5), game smooth pricing curves at boundaries |
+| **SybilSwarm** | Sybil resistance | Spawn 50 agents with shared behavioral patterns, spread activity over 31+ days to evade 30-day sybil windows, keep counterparty concentration just below 10-entry threshold, mutual vouch ring (A→B→C→A beyond depth-1 detection) |
+| **VouchParasite** | Conservation of trust bypass | Chain vouches through intermediate agents to launder trust cost, exploit the fact conservation only applies to social dimension (0.10 weight), test that COST_FACTOR=1.3 and DECAY_FACTOR=0.6 actually net-destroy trust, verify circular vouch detection at depths 2-4 |
+| **DelegationAbuser** | Trust delegation chain | Forge delegation with hash-only "signature" (critical 1.2 from quality audit), inherit parent trust through fabricated delegation, verify `owner_key` column fix actually connects trust decay/scoring, test delegation expiry enforcement |
+| **TrustSaboteur** | Destructive trust attacks | Slash a competitor's trust via false dispute claims, revoke vouches to trigger cascade trust collapse, trigger emergency trust freeze conditions, test trust velocity alerts fire correctly on rapid decline |
+| **CertForger** | Trust certificates (future) | Forge a trust certificate with the wrong ClawNet signing key, replay an expired cert, modify cert fields without breaking signature (malleable signatures), test range cert ("trust > 70") reveals no additional information, verify revocation feed propagation speed |
+
+**Swarm coordination test (The Cartel):** 10 SybilSwarm agents + 1 TrustFarmer coordinate to build a high-trust ring. VouchParasite launders trust between ring members. TrustSaboteur simultaneously attacks a legitimate competitor. Does the system detect and break the cartel?
+
+---
+
+### Swarm 3: "EconomyBreakers" — Agent Economy
+
+Tests everything in the transaction lifecycle: discovery, handshake, contracts, escrow, arbitration, credit lines, trust mining seasons — the full agent-to-agent economy once built.
+
+| Agent | What it attacks | Key tests |
+|---|---|---|
+| **DiscoverySpammer** | Agent discovery (Gap 2) | Register 1000 fake capabilities with trust just above minimum (20), verify pulse tree verification catches unverified capabilities, test liveness signals (heartbeat age), test private/invite-only discovery modes, overwhelm the discovery index with stale entries |
+| **ContractBreaker** | Transaction protocol (Gap 3) | Go dark mid-task (test `max_silence_period` enforcement), complete 70% and dispute (test milestone-based escrow), trigger Tier 2 arbitration with fabricated evidence, test multi-party contract failure (1 of 3 workers fails), abandon negotiation after counterparty invests time (test intent bonds) |
+| **EscrowManipulator** | Escrow + payments | Race condition: complete task AND cancel escrow simultaneously, test escrow expiry timing edge cases, verify delegated spend tracks correctly through escrow release, attempt escrow double-spend (same funds backing two contracts), test streaming escrow partial release math |
+| **CreditLineAbuser** | Trust-backed credit lines (Golden 4) | Borrow max credits, immediately attempt to transfer/delegate them, trigger death cert while loan outstanding, coordinate 100 agents to borrow max simultaneously (systemic risk test), verify auto-repayment deducts 50% of earnings, test credit limit smooth curve vs cliff gaming |
+| **SeasonGamer** | Trust mining seasons (Golden 3) | Wash trade with a single counterparty (test 10% cap), intentionally de-rank to compete in easier bracket, create fake tasks between colluding agents, verify conservation of trust prevents trust farming, test season transition (does earned trust carry forward?) |
+| **HandshakeAttacker** | Agent Handshake Protocol (Golden 2) | Replay a captured HELLO message (test nonce + timestamp rejection), impersonate Agent B using B's captured trust cert, stall negotiation past 3-round limit, version downgrade attack (force v1.0 when both support v2.0), test walk-away cost (intent bond refund) |
+
+**Swarm coordination test (The Market Maker):** DiscoverySpammer floods discovery with fake agents. ContractBreaker creates contracts with real agents, then abandons them. SeasonGamer farms the abandoned contracts for trust mining credit. Does the system detect that abandoned contracts shouldn't generate mining trust?
+
+---
+
+### Swarm 4: "Cryptonauts" — Soma Heart
+
+The 6 agents from the hacker audit (Forger, Interceptor, Bomber, Mimic, Poisoner, Auditor) plus new agents targeting the deep audit findings:
+
+| Agent | What it attacks | Key tests (new, beyond hacker audit) |
+|---|---|---|
+| **TimingOracle** | Side-channel leakage | Measure `gfMul()` timing variance across GF(256) table lookups, time Ed25519 verification for malleable vs normal signatures, measure session ID generation time (does `Math.random()` vs `crypto.randomUUID()` show timing difference?), constant-time comparison coverage audit |
+| **ChainForker** | Heartbeat equivocation | Maintain two parallel heartbeat chains from same genesis, present chain A to observer X and chain B to observer Y, verify equivocation detection (if implemented) catches same-sequence-different-hash, test that signed chain heads prevent forking |
+| **MemoryDiver** | Key material in memory | Take heap snapshot during signing ceremony, search for 64-byte Ed25519 keys, verify `fill(0)` scrubs keys in destroy(), check for PBKDF2 intermediates in buffer pool, verify ephemeral session keys are scrubbed after channel teardown |
+
+---
+
+### Swarm 5: "ProviderPirates" — Provider Umbrella
+
+Tests the provider registration, dual-sign, cache warming, revenue splits, and x402 integration.
+
+| Agent | What it attacks | Key tests |
+|---|---|---|
+| **FakeProvider** | Provider registration + trust | Register as provider with fabricated endpoints, return poisoned data through the dual-sign pipeline, test that Soma birth certs prove origin but NOT truth (does the system correctly handle "authentic garbage"?), test self-verification rejection (heart + sense on same party) |
+| **RevenueThief** | Revenue splits + billing | Manipulate cache warming to generate infinite cache hit revenue, test revenue split math at tier boundaries (Open 0%, Standard 5%, Verified 10%), verify `creditProviderShare()` fires after every `deductCredit()`, test Soma Check billing (90/10 vs 95/5 Champion tiers) |
+| **CacheWarmer** | Provider cache layer | Push invalidation flood (test rate limiting), declare unrealistically short `updateFrequencySeconds`, test cache warming cron under 50+ concurrent HTTP calls (event loop starvation), verify expired cache certificates are pruned |
+
+---
+
+### Swarm 6: "Compliance" — Regulatory + Audit Trail
+
+Tests that every system produces the artifacts needed for EU AI Act, SOC2, and general auditability.
+
+| Agent | What it attacks | Key tests |
+|---|---|---|
+| **AuditTrailVerifier** | `logAudit()` completeness | Trigger every sensitive operation in the system, verify each one has a corresponding audit log entry, check that audit logs are tamper-evident (no gaps in sequence), verify `maskApiKey()` is used everywhere (not `.slice()`), test that error paths also log audits |
+| **ComplianceReporter** | Compliance report generation (future) | Generate EU AI Act report for an agent, verify all required fields (Article 12 record-keeping, Article 14 human oversight), verify pulse tree data maps correctly to compliance framework, test that on-chain EAS attestations are referenced in the report |
+| **FeeSpineAuditor** | Fee transparency | Verify every paid interaction produces a fee spine breakdown, check formula IDs match published specs, verify that fee spine + trust audit together provide full economic + reputation transparency, test that the fee spine isn't silently modified between calculation and delivery |
+
+---
+
+### Swarm Composition: "The Full Siege"
+
+The ultimate test runs ALL swarms simultaneously against a staging environment. This tests cross-layer failures that individual swarms can't find:
+
+```
+Phase 1: Foundation (Gatekeepers)
+  - Verify platform handles baseline load
+  - Establish auth, billing, cache baselines
+
+Phase 2: Trust (TrustBreakers) + Crypto (Cryptonauts)
+  - Attack trust while crypto layer is under stress
+  - Test: does a timing side-channel in Shamir enable trust farming?
+
+Phase 3: Economy (EconomyBreakers) + Providers (ProviderPirates)
+  - Attack marketplace while provider layer is under stress
+  - Test: can a fake provider manipulate discovery ranking via cache warming?
+
+Phase 4: Cross-layer coordinated attacks
+  - The Cartel: sybil ring + trust farming + credit line abuse
+  - The Insider: compromised provider + revenue theft + trust sabotage
+  - The Regulator: compliance verification during active siege
+```
+
+---
+
+### Data Pipeline
+
+Every agent reports in the same format (extends the schema from hacker audit Part 6):
+
+```json
+{
+  "swarm": "TrustBreakers",
+  "agent": "SybilSwarm",
+  "test": "30-day-window-evasion",
+  "mode": "stress",
+  "timestamp": "2026-04-09T14:30:00Z",
+  "result": "EXPLOITABLE",
+  "expected": "DETECTED",
+  "tte_ms": 1200,
+  "detection_latency_ms": null,
+  "blast_radius": "all-sybil-signals",
+  "recovery_cost": "backfill-7d-30d-90d-windows",
+  "clawnet_version": "1.x.x",
+  "soma_version": "0.2.x",
+  "cross_refs": ["quality-audit-3.5", "deep-audit-3.1"],
+  "metrics": {
+    "agents_spawned": 50,
+    "trust_achieved": 72,
+    "detection_events": 0,
+    "economic_cost_credits": 0,
+    "wall_time_seconds": 2700
+  }
+}
+```
+
+**Dashboard:** `/portal/openclaw` — real-time swarm results, historical trends, regression alerts. Each finding links back to the audit doc that predicted it.
+
+**CI integration:**
+- **Every PR:** Gatekeepers (Probe mode) + Cryptonauts Auditor agent — fast, deterministic
+- **Nightly:** All swarms in Stress mode against staging
+- **Release candidate:** Full Siege in dedicated test environment
+- **Post-deploy:** Gatekeepers (Probe mode) against prod — verify no regressions in the live system
+
+---
+
+### What This Architecture Catches That Static Audits Don't
+
+1. **Cross-layer chains:** A cache poisoning attack that only works when combined with a trust delegation bug — no single-layer audit finds this.
+2. **Temporal attacks:** Race conditions between cron execution and API requests — only a concurrent swarm can trigger these.
+3. **Economic attacks:** A sybil ring that takes 31 days to build — static audits identify the window, swarms prove it's exploitable at scale.
+4. **Regression detection:** A fix for bug X accidentally re-opens bug Y — continuous swarm testing catches this on the next commit.
+5. **Load-dependent failures:** WAL checkpoint delays under 21 concurrent crons + 1000 API requests — only the Full Siege reveals the breaking point.
+
+The static audits (quality audit, hacker audit, deep audit, tech landscape) tell you WHERE the weaknesses are. The OpenClaw swarms tell you WHETHER the fixes actually hold — continuously, at scale, under adversarial conditions.
