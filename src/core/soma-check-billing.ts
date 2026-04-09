@@ -13,11 +13,12 @@ import { round6 } from './credits';
 /** Soma Check onboarding tier (see internal/soma-onboarding-ladder.md). */
 export type SomaCheckTier = 0 | 1 | 2 | 3;
 
-/** Base fraction of origin price charged on cache hit (mid-life data). */
-export const SOMA_CHECK_HIT_PRICE_RATIO = 0.10;
+/** Base fraction of origin price charged on Soma Check hit.
+ *  Fee spine v1: reduced from 10% to 5% — agent saves 95%. */
+export const SOMA_CHECK_HIT_PRICE_RATIO = 0.05;
 
 /**
- * Hit price ratio — flat 10% of origin on every Soma Check hit.
+ * Hit price ratio — flat 5% of origin on every Soma Check hit.
  *
  * Previously had dynamic staleness-aware pricing (5%/10%/15%) but stripped
  * for simplicity. The range was fractions of a penny on typical endpoints —
@@ -25,7 +26,7 @@ export const SOMA_CHECK_HIT_PRICE_RATIO = 0.10;
  * to revisit dynamic pricing.
  */
 export function dynamicHitPriceRatio(_ageMs: number, _ttlMs: number): number {
-  return SOMA_CHECK_HIT_PRICE_RATIO; // flat 10%
+  return SOMA_CHECK_HIT_PRICE_RATIO; // flat 5% (fee spine v1)
 }
 
 /** Provider share of cache-hit price by tier.

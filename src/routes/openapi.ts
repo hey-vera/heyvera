@@ -528,7 +528,7 @@ openapiRouter.get('/openapi.json', (c) => {
       '/v1/swarm/task': {
         post: {
           summary: 'Run a swarm task',
-          description: 'Decomposes a complex goal into parallel sub-tasks using LLM planning, then executes them across the skill network. Charges SWARM_BASE_FEE (20cr) upfront plus per-subtask costs.',
+          description: 'Decomposes a complex goal into parallel sub-tasks using LLM planning, then executes them across the skill network. Free coordination (fee spine v1) plus per-subtask costs.',
           operationId: 'runSwarmTask',
           tags: ['Swarm'],
           requestBody: {

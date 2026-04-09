@@ -104,15 +104,13 @@ export function x402SurchargeCredits(apiCostUsd: number): number {
 }
 
 /**
- * Smart cache pricing: always 10% of live cost. No minimum floor.
+ * Smart cache pricing: 5% of live cost. Agent saves 95%.
  *
- * Matches Soma Check pricing: always proportional, never inflated.
- * A 0.001cr endpoint caches at 0.0001cr — agent always saves exactly 90%.
- *
- * The old 0.1cr minimum overcharged cheap endpoints (100x proportional rate
- * on a 0.001cr endpoint). Removed for the "10% rule everywhere" golden model.
+ * Fee spine v1: reduced from 10% to 5%. Cached responses cost ClawNet
+ * nearly nothing (Redis/SQLite lookup). Pass the savings to agents.
+ * A 0.001cr endpoint caches at 0.00005cr.
  */
-const CACHE_DISCOUNT_PCT = 0.10;
+const CACHE_DISCOUNT_PCT = 0.05;
 
 export function cacheCreditCost(liveCreditCost: number): number {
   return round6(Math.max(0.001, liveCreditCost * CACHE_DISCOUNT_PCT));

@@ -86,7 +86,7 @@ const envSchema = z.object({
 
   // Hot wallet (same key as SOLANA_PRIVATE_KEY in 2-wallet setup)
   PLATFORM_PAYOUT_PRIVATE_KEY: z.string().optional(), // bs58 Solana private key — used by payout cron to send USDC
-  PAYOUT_USDC_PER_CREDIT: z.coerce.number().min(0.0001).max(1).default(0.00075), // 25% below buy rate ($0.001) — prevents arbitrage
+  PAYOUT_USDC_PER_CREDIT: z.coerce.number().min(0.0001).max(1).default(0.0009), // Fee spine v1: 10% spread (was 25%) — covers Stripe fees + tx costs only
   BASE_RPC_URL: z.string().optional(), // Optional custom Base RPC (defaults to public mainnet.base.org)
   BASE_RPC_FALLBACK: z.string().optional(), // Fallback Base RPC (e.g. Alchemy) — used when primary fails
 
@@ -102,7 +102,7 @@ const envSchema = z.object({
 
   // Pricing engine — previously raw parseInt, now Zod-validated with bounds
   COST_MARKUP_FACTOR: z.coerce.number().int().min(500).max(10000).default(1500), // 1000=break-even, 1500=33-50% margin
-  ORCHESTRATION_FEE: z.coerce.number().int().min(0).max(100).default(2),         // flat credits per LLM-routed query
+  ORCHESTRATION_FEE: z.coerce.number().int().min(0).max(100).default(0),         // Fee spine v1: free routing — discovery is infrastructure, not product
 
   // ag0 decentralized agent registry (off by default)
   AG0_DISCOVERY_ENABLED: z.preprocess(
@@ -178,8 +178,8 @@ export const env = parsed.data;
 // Simulation mode: real API calls only when SOLANA_PRIVATE_KEY is set (x402-solana payment provider)
 export const isSimulationMode = !env.SOLANA_PRIVATE_KEY;
 
-// Swarm base fee — deducted upfront before sub-task budget; shared by swarm.ts and openclaw.ts
-export const SWARM_BASE_FEE = 20;
+// Fee spine v1: free swarm coordination — multi-agent is the future, don't tax it
+export const SWARM_BASE_FEE = 0;
 
 // Orchestration fee — now Zod-validated (min 0, max 100)
 export const ORCHESTRATION_FEE = env.ORCHESTRATION_FEE;

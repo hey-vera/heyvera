@@ -78,7 +78,7 @@ async function fetchApi(path: string, options?: RequestInit): Promise<unknown> {
 
 const TOOL_PRICING: Record<string, number> = {
   'invoke-skill': 0, // dynamic — based on skill credit_cost
-  'orchestrate': 2, // ORCHESTRATION_FEE
+  'orchestrate': 0, // ORCHESTRATION_FEE (fee spine v1: free routing)
   'list-skills': 0,
   'get-skill': 0,
   'search-registry': 0,

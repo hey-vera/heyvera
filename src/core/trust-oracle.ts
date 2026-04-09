@@ -160,10 +160,12 @@ export interface TrustQueryResult {
 
 // ─── Credit costs per tier ──────────────────────────────────────────────────
 
+// Fee spine v1: basic trust queries are FREE (ecosystem safety baseline).
+// Dimensional and full are the premium product — ClawNet's credit bureau.
 export const TRUST_QUERY_COSTS: Record<TrustTier, number> = {
-  basic: 0.01,        // ~$0.0001
-  dimensional: 0.05,  // ~$0.0005
-  full: 0.10,         // ~$0.001
+  basic: 0,           // FREE — every interaction should have baseline trust
+  dimensional: 0.03,  // ~$0.00003
+  full: 0.05,         // ~$0.00005
 };
 
 // TTL per tier (minutes)

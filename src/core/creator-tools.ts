@@ -52,7 +52,10 @@ export interface CreatorStats {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const REVENUE_SHARE = 0.90;
+// Fee spine v1: creator keeps 95% base (was 90%).
+// Infrastructure rate is 5% for new agents, scales to 2% at 90+ trust.
+// See fee-spine.ts for the full trust-scaled formula.
+const REVENUE_SHARE = 0.95;
 const USD_PER_CREDIT = 0.001;
 
 const DEFAULT_CREDIT_COSTS: Record<string, number> = {

@@ -7,8 +7,11 @@ import { maskApiKey } from '../utils/mask';
 
 // ─── Credit Transfers (Agent-to-Agent) ───────────────────────────────────────
 
-const TRANSFER_FEE_PCT = 0.01; // 1% platform fee
-const TRANSFER_FEE_MIN = 1;    // minimum 1 credit fee
+// Fee spine v1: zero-fee transfers — encourage agent economy, don't tax it.
+// Old: 1% platform fee. New: 0%. Every transfer still gets a fee breakdown
+// pulse tree leaf proving we took nothing (see fee-spine.ts).
+const TRANSFER_FEE_PCT = 0;    // 0% — free transfers
+const TRANSFER_FEE_MIN = 0;    // no minimum fee
 const TRANSFER_MIN = 10;       // minimum 10 credits per transfer
 const TRANSFER_MAX = 100_000;  // maximum per transfer (intentional friction for large amounts)
 
