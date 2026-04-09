@@ -3,6 +3,11 @@
 Third trust axis alongside behavioral scoring and proof tiers.
 Proves the human behind an agent is real, unique, and verified.
 
+**v2 (2026-04-09):** Upgraded to **composite identity scoring** — peak identity requires
+convergence across 5 independent signals (biometric, KYC, passport, behavioral, social).
+Single iris scan alone gives 0.35/1.0 instead of 1.0/1.0. See `backlog/composite-identity-scoring.md`
+for the full design and future phases (wallet linking, sybil curves, identity detachment).
+
 ## Three Axes of Trust
 
 ```

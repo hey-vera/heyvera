@@ -48,6 +48,29 @@ export const IDENTITY_TIER_MULTIPLIER: Record<IdentityTier, number> = {
   'anonymous': 0.65,      // No identity verification — default
 };
 
+/** Composite identity signal weights — peak identity requires convergence across all axes. */
+const IDENTITY_SIGNAL_WEIGHTS = {
+  biometric: 0.35,   // World Orb iris — proves unique human
+  kyc: 0.25,         // Coinbase EAS — proves legal identity
+  passport: 0.15,    // Human Passport — ML sybil detection
+  behavioral: 0.15,  // Trust oracle reliability + consistency
+  social: 0.10,      // Vouch graph endorsements
+} as const;
+
+export interface CompositeIdentity {
+  compositeScore: number;      // 0-1 blended score
+  effectiveMultiplier: number; // 0.5 + 0.5 * compositeScore (same blending as before)
+  signals: {
+    biometric: number;
+    kyc: number;
+    passport: number;
+    behavioral: number;
+    social: number;
+  };
+  signalCount: number;         // how many non-zero signals
+  legacyTier: IdentityTier;   // backward compat: mapped from composite score
+}
+
 /**
  * Proof tier multiplier — scales effective trust by cryptographic proof strength.
  * Blended formula: effectiveTrust = score * (0.5 + 0.5 * multiplier)
@@ -118,6 +141,15 @@ export interface TrustQueryResult {
   // Proof tier (all tiers) — cryptographic proof strength
   proofTier: ProofTier;
   identityTier: IdentityTier;
+  identityScore: number;   // composite identity score (0-1)
+  identitySignals?: {      // per-signal breakdown (dimensional + full tiers)
+    biometric: number;
+    kyc: number;
+    passport: number;
+    behavioral: number;
+    social: number;
+    signalCount: number;
+  };
   effectiveTrust: number;  // trustScore * proofBlended * identityBlended
 
   // Metadata (all tiers)
@@ -176,23 +208,112 @@ export function getProofTier(agentDid: string): ProofTier {
 }
 
 /**
- * Get the identity verification tier for an agent.
+ * Get the identity verification tier for an agent (legacy single-tier).
  * Checks agent_identity_verification table, respects expiry.
+ * Prefer getCompositeIdentity() for the multi-signal composite score.
  */
 export function getIdentityTier(agentDid: string): IdentityTier {
-  const row = getDb().prepare(
-    'SELECT identity_tier, expires_at FROM agent_identity_verification WHERE agent_did = ?'
-  ).get(agentDid) as { identity_tier: string; expires_at: string | null } | undefined;
+  const composite = getCompositeIdentity(agentDid);
+  return composite.legacyTier;
+}
 
-  if (!row) return 'anonymous';
+/**
+ * Compute composite identity score from all available signals.
+ * Reads biometric/kyc/passport from agent_identity_signals,
+ * derives behavioral from trust dimensions, social from vouch graph.
+ * Caches result in agent_identity_composite.
+ *
+ * Peak identity (1.0) requires convergence across ALL five axes.
+ * A single iris scan alone gives 0.35 — not enough to game the system.
+ */
+export function getCompositeIdentity(agentDid: string): CompositeIdentity {
+  // 1. External verification signals (biometric, kyc, passport)
+  const externalSignals = getDb().prepare(`
+    SELECT signal_type, signal_score, expires_at
+    FROM agent_identity_signals
+    WHERE agent_did = ?
+  `).all(agentDid) as Array<{ signal_type: string; signal_score: number; expires_at: string | null }>;
 
-  // Check expiry
-  if (row.expires_at) {
-    const expired = Date.now() > new Date(row.expires_at + 'Z').getTime();
-    if (expired) return 'anonymous';
+  let biometricSignal = 0;
+  let kycSignal = 0;
+  let passportSignal = 0;
+
+  for (const sig of externalSignals) {
+    // Check expiry
+    if (sig.expires_at) {
+      const expired = Date.now() > new Date(sig.expires_at + 'Z').getTime();
+      if (expired) continue;
+    }
+    if (sig.signal_type === 'biometric') biometricSignal = sig.signal_score;
+    else if (sig.signal_type === 'kyc') kycSignal = sig.signal_score;
+    else if (sig.signal_type === 'passport') passportSignal = sig.signal_score;
   }
 
-  return row.identity_tier as IdentityTier;
+  // 2. Behavioral signal — derived from reliability + consistency dimensions
+  const reliability = computeReliability(agentDid);
+  const consistency = computeConsistency(agentDid);
+  const behavioralSignal = (reliability.confidence > 0 || consistency.confidence > 0)
+    ? round6((reliability.score + consistency.score) / 200)
+    : 0;
+
+  // 3. Social signal — derived from vouch graph
+  const vouch = getVouchScore(agentDid);
+  const socialSignal = vouch.uniqueVouchers > 0
+    ? round6(Math.min(1.0, vouch.totalStaked / 50))
+    : 0;
+
+  // 4. Compute weighted composite
+  const compositeScore = round6(
+    biometricSignal * IDENTITY_SIGNAL_WEIGHTS.biometric +
+    kycSignal * IDENTITY_SIGNAL_WEIGHTS.kyc +
+    passportSignal * IDENTITY_SIGNAL_WEIGHTS.passport +
+    behavioralSignal * IDENTITY_SIGNAL_WEIGHTS.behavioral +
+    socialSignal * IDENTITY_SIGNAL_WEIGHTS.social
+  );
+
+  const effectiveMultiplier = round6(0.5 + 0.5 * compositeScore);
+
+  const signalCount = [biometricSignal, kycSignal, passportSignal, behavioralSignal, socialSignal]
+    .filter(s => s > 0).length;
+
+  // 5. Map to legacy tier for backward compat
+  let legacyTier: IdentityTier = 'anonymous';
+  if (compositeScore >= 0.85) legacyTier = 'biometric';
+  else if (compositeScore >= 0.60) legacyTier = 'kyc-attested';
+  else if (compositeScore >= 0.35) legacyTier = 'passport';
+
+  // 6. Cache in agent_identity_composite (fire-and-forget)
+  try {
+    getDb().prepare(`
+      INSERT INTO agent_identity_composite
+        (agent_did, composite_score, effective_multiplier, biometric_signal, kyc_signal, passport_signal, behavioral_signal, social_signal, signal_count, last_recomputed)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      ON CONFLICT(agent_did) DO UPDATE SET
+        composite_score = excluded.composite_score,
+        effective_multiplier = excluded.effective_multiplier,
+        biometric_signal = excluded.biometric_signal,
+        kyc_signal = excluded.kyc_signal,
+        passport_signal = excluded.passport_signal,
+        behavioral_signal = excluded.behavioral_signal,
+        social_signal = excluded.social_signal,
+        signal_count = excluded.signal_count,
+        last_recomputed = datetime('now')
+    `).run(agentDid, compositeScore, effectiveMultiplier, biometricSignal, kycSignal, passportSignal, behavioralSignal, socialSignal, signalCount);
+  } catch { /* cache is best-effort */ }
+
+  return {
+    compositeScore,
+    effectiveMultiplier,
+    signals: {
+      biometric: biometricSignal,
+      kyc: kycSignal,
+      passport: passportSignal,
+      behavioral: behavioralSignal,
+      social: socialSignal,
+    },
+    signalCount,
+    legacyTier,
+  };
 }
 
 // ─── Dimension Computation ──────────────────────────────────────────────────
@@ -525,9 +646,10 @@ export function queryTrust(agentDid: string, tier: TrustTier): TrustQueryResult 
   const proofTier = getProofTier(agentDid);
   const proofBlended = 0.5 + 0.5 * PROOF_TIER_MULTIPLIER[proofTier];
 
-  // Identity tier — operator verification strength
-  const identityTier = getIdentityTier(agentDid);
-  const identityBlended = 0.5 + 0.5 * IDENTITY_TIER_MULTIPLIER[identityTier];
+  // Identity — composite multi-signal scoring (replaces single-tier)
+  const compositeIdentity = getCompositeIdentity(agentDid);
+  const identityTier = compositeIdentity.legacyTier;
+  const identityBlended = compositeIdentity.effectiveMultiplier;
 
   const effectiveTrust = Math.round(trustScore * proofBlended * identityBlended);
 
@@ -546,15 +668,20 @@ export function queryTrust(agentDid: string, tier: TrustTier): TrustQueryResult 
     riskFlags,
     proofTier,
     identityTier,
+    identityScore: compositeIdentity.compositeScore,
     effectiveTrust,
     validUntil,
     proofHash: '', // computed below
     computedAt,
   };
 
-  // Dimensional + Full: include dimension breakdown
+  // Dimensional + Full: include dimension breakdown + identity signals
   if (tier === 'dimensional' || tier === 'full') {
     result.dimensions = dimensions;
+    result.identitySignals = {
+      ...compositeIdentity.signals,
+      signalCount: compositeIdentity.signalCount,
+    };
   }
 
   // Full: include pulse snapshot, verdict summary, recent activity
@@ -596,6 +723,7 @@ export function queryTrust(agentDid: string, tier: TrustTier): TrustQueryResult 
     riskFlags,
     proofTier,
     identityTier,
+    identityScore: compositeIdentity.compositeScore,
     effectiveTrust,
     dimensions: tier !== 'basic' ? dimensions : undefined,
     computedAt,

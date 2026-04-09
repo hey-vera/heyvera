@@ -25,7 +25,7 @@ import {
 } from '../db/identities';
 import { getDb, logAudit } from '../db/connection';
 import { somaHash } from '../utils/crypto-agility';
-import { getIdentityTier, type IdentityTier } from '../core/trust-oracle';
+import { getIdentityTier, getCompositeIdentity, type IdentityTier } from '../core/trust-oracle';
 import { createAgentBookVerifier } from '@worldcoin/agentkit-core';
 import { logger } from '../utils/logger';
 
@@ -271,6 +271,13 @@ identityRouter.get('/:id', async (c) => {
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
+/** Map identity tier to signal type for the new multi-provider table. */
+const TIER_TO_SIGNAL: Record<string, string> = {
+  'biometric': 'biometric',
+  'kyc-attested': 'kyc',
+  'passport': 'passport',
+};
+
 function upsertIdentityVerification(
   agentDid: string,
   tier: IdentityTier,
@@ -280,6 +287,8 @@ function upsertIdentityVerification(
   expiresAt: string | null,
 ): void {
   const verificationHash = somaHash(verificationData);
+
+  // Write to legacy table (backward compat)
   getDb().prepare(`
     INSERT INTO agent_identity_verification
       (agent_did, identity_tier, provider, verification_hash, wallet_address, verified_at, expires_at, updated_at)
@@ -294,6 +303,24 @@ function upsertIdentityVerification(
       updated_at = datetime('now')
   `).run(agentDid, tier, provider, verificationHash, walletAddress, expiresAt);
 
+  // Write to new multi-provider signals table (composite identity)
+  const signalType = TIER_TO_SIGNAL[tier];
+  if (signalType) {
+    getDb().prepare(`
+      INSERT INTO agent_identity_signals
+        (agent_did, signal_type, provider, signal_score, verification_hash, verified_at, expires_at, wallet_address, updated_at)
+      VALUES (?, ?, ?, 1.0, ?, datetime('now'), ?, ?, datetime('now'))
+      ON CONFLICT(agent_did, signal_type) DO UPDATE SET
+        provider = excluded.provider,
+        signal_score = excluded.signal_score,
+        verification_hash = excluded.verification_hash,
+        verified_at = datetime('now'),
+        expires_at = excluded.expires_at,
+        wallet_address = excluded.wallet_address,
+        updated_at = datetime('now')
+    `).run(agentDid, signalType, provider, verificationHash, expiresAt, walletAddress);
+  }
+
   logAudit({
     entityType: 'identity_verification',
     entityId: agentDid,
@@ -306,22 +333,31 @@ function upsertIdentityVerification(
 
 identityRouter.get('/verify/:did', async (c) => {
   const did = c.req.param('did');
-  const tier = getIdentityTier(did);
+  const composite = getCompositeIdentity(did);
 
-  const row = getDb().prepare(
-    'SELECT * FROM agent_identity_verification WHERE agent_did = ?'
-  ).get(did) as {
-    identity_tier: string; provider: string | null; verified_at: string | null;
-    expires_at: string | null; wallet_address: string | null; created_at: string;
-  } | undefined;
+  // Also fetch per-signal details from signals table
+  const signals = getDb().prepare(
+    'SELECT signal_type, provider, signal_score, verified_at, expires_at, wallet_address FROM agent_identity_signals WHERE agent_did = ?'
+  ).all(did) as Array<{
+    signal_type: string; provider: string; signal_score: number;
+    verified_at: string | null; expires_at: string | null; wallet_address: string | null;
+  }>;
 
   return c.json({
     agentDid: did,
-    identityTier: tier,
-    provider: row?.provider ?? null,
-    verifiedAt: row?.verified_at ?? null,
-    expiresAt: row?.expires_at ?? null,
-    walletAddress: row?.wallet_address ?? null,
+    identityTier: composite.legacyTier,
+    identityScore: composite.compositeScore,
+    effectiveMultiplier: composite.effectiveMultiplier,
+    signals: composite.signals,
+    signalCount: composite.signalCount,
+    verifications: signals.map(s => ({
+      signalType: s.signal_type,
+      provider: s.provider,
+      score: s.signal_score,
+      verifiedAt: s.verified_at,
+      expiresAt: s.expires_at,
+      walletAddress: s.wallet_address,
+    })),
   });
 });
 

@@ -2153,6 +2153,49 @@ const MIGRATIONS: { version: number; sql: string }[] = [
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
   ` },
+  { version: 188, sql: `
+    CREATE TABLE IF NOT EXISTS agent_identity_signals (
+      agent_did TEXT NOT NULL,
+      signal_type TEXT NOT NULL CHECK(signal_type IN ('biometric', 'kyc', 'passport')),
+      provider TEXT NOT NULL,
+      signal_score REAL NOT NULL DEFAULT 1.0,
+      verification_hash TEXT,
+      verified_at TEXT,
+      expires_at TEXT,
+      wallet_address TEXT,
+      metadata_json TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (agent_did, signal_type)
+    );
+    CREATE INDEX IF NOT EXISTS idx_ais_expires ON agent_identity_signals(expires_at) WHERE expires_at IS NOT NULL;
+
+    INSERT OR IGNORE INTO agent_identity_signals (agent_did, signal_type, provider, signal_score, verification_hash, verified_at, expires_at, wallet_address, created_at, updated_at)
+      SELECT agent_did,
+        CASE identity_tier
+          WHEN 'biometric' THEN 'biometric'
+          WHEN 'kyc-attested' THEN 'kyc'
+          WHEN 'passport' THEN 'passport'
+        END,
+        provider, 1.0, verification_hash, verified_at, expires_at, wallet_address, created_at, updated_at
+      FROM agent_identity_verification
+      WHERE identity_tier != 'anonymous';
+  ` },
+  { version: 189, sql: `
+    CREATE TABLE IF NOT EXISTS agent_identity_composite (
+      agent_did TEXT PRIMARY KEY,
+      composite_score REAL NOT NULL DEFAULT 0,
+      effective_multiplier REAL NOT NULL DEFAULT 0.5,
+      biometric_signal REAL NOT NULL DEFAULT 0,
+      kyc_signal REAL NOT NULL DEFAULT 0,
+      passport_signal REAL NOT NULL DEFAULT 0,
+      behavioral_signal REAL NOT NULL DEFAULT 0,
+      social_signal REAL NOT NULL DEFAULT 0,
+      signal_count INTEGER NOT NULL DEFAULT 0,
+      last_recomputed TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  ` },
 ];
 
 function runMigrations(): void {

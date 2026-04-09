@@ -578,6 +578,9 @@ x402SkillsRouter.use('*', async (c, next) => {
     // Verified human-backed agent — auto-upgrade identity tier
     // Use did:pkh DID derived from wallet address (deterministic)
     const agentDid = `did:pkh:eip155:1:${verification.address.toLowerCase()}`;
+    const expiresAt = new Date(Date.now() + 365 * 86_400_000).toISOString();
+
+    // Legacy table (backward compat)
     getDb().prepare(`
       INSERT INTO agent_identity_verification
         (agent_did, identity_tier, provider, verification_hash, wallet_address, verified_at, expires_at, updated_at)
@@ -589,7 +592,22 @@ x402SkillsRouter.use('*', async (c, next) => {
         verified_at = datetime('now'),
         expires_at = excluded.expires_at,
         updated_at = datetime('now')
-    `).run(agentDid, humanId, verification.address.toLowerCase(), new Date(Date.now() + 365 * 86_400_000).toISOString());
+    `).run(agentDid, humanId, verification.address.toLowerCase(), expiresAt);
+
+    // New multi-provider signals table (composite identity)
+    getDb().prepare(`
+      INSERT INTO agent_identity_signals
+        (agent_did, signal_type, provider, signal_score, verification_hash, verified_at, expires_at, wallet_address, updated_at)
+      VALUES (?, 'biometric', 'world-agentkit', 1.0, ?, datetime('now'), ?, ?, datetime('now'))
+      ON CONFLICT(agent_did, signal_type) DO UPDATE SET
+        provider = excluded.provider,
+        signal_score = excluded.signal_score,
+        verification_hash = excluded.verification_hash,
+        verified_at = datetime('now'),
+        expires_at = excluded.expires_at,
+        wallet_address = excluded.wallet_address,
+        updated_at = datetime('now')
+    `).run(agentDid, humanId, expiresAt, verification.address.toLowerCase());
 
     // Store in context for downstream handlers
     c.set('agentkitHumanId', humanId);
