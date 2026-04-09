@@ -1,22 +1,21 @@
 /**
- * fee-spine.ts — ClawNet Fee Formula (Additive Model)
+ * fee-spine.ts — ClawNet Fee Formula (Trust-First Model)
  *
  * ClawNet's implementation of the Soma Economic Protocol.
- * One formula, trust-scaled, additive:
  *
- *   agentPays = providerPrice + (providerPrice × infraRate × trustMultiplier)
+ * Routing is the funnel. Trust is the product.
+ *   - Agent pays raw provider cost (no markup, no infrastructure fee)
+ *   - Provider gets 100% of their price
+ *   - Platform revenue comes from trust products (queries, proofs)
+ *   - Every economic event — even free routing — gets a proof leaf
  *
- * Provider always gets 100% of their price. Platform fee is transparent,
- * added on top, never carved from the total. Even zero-fee events are
- * recorded to prove the platform took nothing.
- *
- * Three principles:
- *   1. Infrastructure rate: 5% base, trust-scaled down to 2%
- *   2. Products priced transparently (fixed, published)
- *   3. Zero hidden fees (transfers, routing, basic trust = free)
+ * The fee spine is primarily a PROOF LAYER:
+ *   - Records zero-fee breakdowns for routing (proves platform took nothing)
+ *   - Records product fees for trust operations
+ *   - All breakdowns are ECONOMIC leaves in the pulse tree
  *
  * Formula is public: GET /v1/fees/formula
- * Proof is on-chain: every breakdown is an ECONOMIC leaf in the pulse tree
+ * Proof is on-chain: every breakdown verifiable via Soma Economic Protocol
  */
 
 import { round6 } from './credits';
@@ -40,9 +39,10 @@ export const FEE_FORMULA_VERSION = 'clawnet-additive-v1';
 
 // ─── Infrastructure Rate ────────────────────────────────────────────────────
 
-/** Base infrastructure rate — covers hosting, billing, trust oracle,
- *  Soma provenance, marketplace, escrow. Added ON TOP of provider price. */
-export const BASE_INFRASTRUCTURE_RATE = 0.05; // 5%
+/** Infrastructure rate — set to 0: free routing is the funnel.
+ *  Platform revenue comes from trust products, not routing tolls.
+ *  Kept as a configurable value (not removed) for future flexibility. */
+export const BASE_INFRASTRUCTURE_RATE = 0; // 0% — free routing
 
 /**
  * Trust multiplier table — higher trust = lower infrastructure fee.
@@ -225,31 +225,28 @@ export function getPublicFeeSchedule() {
   return {
     version: FEE_FORMULA_VERSION,
     somaProtocol: `soma-economics-v${SOMA_ECONOMICS_VERSION}`,
-    model: 'additive',
+    model: 'trust-first',
     effectiveDate: '2026-04-09',
-    infrastructure: {
-      description: 'Platform fee added ON TOP of provider price. Provider always gets 100% of their price.',
-      formula: 'agentPays = providerPrice + (providerPrice × baseRate × trustMultiplier)',
-      baseRate: BASE_INFRASTRUCTURE_RATE,
-      trustMultipliers: TRUST_MULTIPLIERS.map(t => ({
-        minTrust: t.minTrust,
-        multiplier: t.multiplier,
-        effectiveRate: round6(BASE_INFRASTRUCTURE_RATE * t.multiplier),
-      })),
+    routing: {
+      description: 'Free routing. Agent pays raw provider cost. Provider gets 100%. Platform takes $0 from routing.',
+      infrastructureRate: BASE_INFRASTRUCTURE_RATE,
+      note: 'Routing is the funnel. Trust is the product.',
       appliesTo: ['endpoint_call', 'cache_hit', 'soma_check_hit', 'skill_invoke'],
     },
-    products: {
-      orchestration: { price: 0, note: 'Free — discovery is infrastructure' },
+    trustProducts: {
+      description: 'Platform revenue comes from trust operations — the only thing agents cannot get elsewhere.',
       trustQueryBasic: { price: 0, note: 'Free — ecosystem safety baseline' },
-      trustQueryDimensional: { price: 0.03, unit: 'credits' },
-      trustQueryFull: { price: 0.05, unit: 'credits' },
-      groth16Proof: { price: 25, unit: 'credits', note: 'First proof per month free' },
-      custodyEvent: { price: 0, note: 'Free — Soma protocol primitive' },
+      trustQueryDimensional: { price: 0.03, unit: 'credits', note: '6-dimension scoring + compute' },
+      trustQueryFull: { price: 0.05, unit: 'credits', note: 'Merkle proofs + behavioral summary' },
+      novaIvcFold: { price: 'micro', unit: '$CLAWNET burn', note: 'Per-action proof fold (~0.0001cr equiv)' },
+      groth16Proof: { price: 25, unit: 'credits', note: 'Monthly compression, first per month free' },
     },
-    zeroFees: [
+    freeServices: [
+      { type: 'endpoint_call', note: 'Agent pays raw cost, provider gets 100%' },
+      { type: 'cache_hit', note: '5% of live cost, provider gets 100%' },
       { type: 'transfer', note: 'Agent-to-agent transfers are free' },
       { type: 'orchestration', note: 'LLM routing is free' },
-      { type: 'custody_event', note: 'Data custody is free' },
+      { type: 'custody_event', note: 'Data custody is free (Soma primitive)' },
       { type: 'deposit', note: 'Credit purchases are free' },
     ],
     payoutPolicy: {
@@ -257,7 +254,7 @@ export function getPublicFeeSchedule() {
       spread: '5%',
       note: 'Covers Stripe fees + blockchain tx costs. Zero platform surplus.',
     },
-    proofGuarantee: 'Every fee breakdown is an ECONOMIC leaf in the agent pulse tree, ' +
+    proofGuarantee: 'Every economic event is an ECONOMIC leaf in the agent pulse tree, ' +
       'recorded via Soma Economic Protocol (schema v' + SOMA_ECONOMICS_VERSION + '). ' +
       'Verify any transaction on-chain.',
   };

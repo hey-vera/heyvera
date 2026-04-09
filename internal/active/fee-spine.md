@@ -1,10 +1,10 @@
-# Soma Fee Spine — Additive Transparent Fee System
+# Soma Fee Spine — Trust-First Proof Layer
 
 Two-layer architecture:
 - **Soma Economic Protocol** (`soma-economics.ts`) — platform-agnostic schema, recording, verification
-- **ClawNet Fee Spine** (`fee-spine.ts`) — ClawNet's specific additive formula
+- **ClawNet Fee Spine** (`fee-spine.ts`) — proof layer for all economic events
 
-**One formula. Additive model. Every fee proven. Even zero fees.**
+**Routing is the funnel. Trust is the product. Every event proven. Even free ones.**
 
 ## Architecture: Soma Protocol vs ClawNet Business Logic
 
@@ -32,35 +32,39 @@ Functions: `hashFeeBreakdown()`, `verifyFeeBreakdown()`, `recordEconomicEvent()`
 
 ### ClawNet Fee Spine (our implementation)
 
-ClawNet's specific formula using the Soma schema. Formula ID: `clawnet-additive-v1`.
+ClawNet's proof layer using the Soma schema. Formula ID: `clawnet-additive-v1`.
 
-## The Additive Model
+## Trust-First Model
 
-Provider gets 100% of their price. Platform fee is added ON TOP. Never carved from the total.
+Free routing. Provider gets 100%. Platform takes $0 from routing.
 
 ```
-agentPays = providerPrice + (providerPrice × baseRate × trustMultiplier)
+Routing:  agentPays = providerPrice (platform fee = 0)
+Products: agentPays = productPrice (100% to platform)
 ```
 
-| Trust Score | Multiplier | Effective Rate | On 1.0cr endpoint |
-|-------------|-----------|----------------|-------------------|
-| 0-20 (new) | 1.00 | 5.0% | Agent pays 1.05cr (provider: 1.0, platform: 0.05) |
-| 20-40 | 0.85 | 4.25% | Agent pays 1.0425cr |
-| 40-60 | 0.70 | 3.5% | Agent pays 1.035cr |
-| 60-80 | 0.55 | 2.75% | Agent pays 1.0275cr |
-| 80-90 | 0.45 | 2.25% | Agent pays 1.0225cr |
-| 90+ (sovereign) | 0.40 | 2.0% | Agent pays 1.02cr |
+| Event | Agent Pays | Provider Gets | Platform Gets |
+|-------|-----------|--------------|---------------|
+| Endpoint call | Raw cost (1.0cr) | 100% (1.0cr) | $0 |
+| Cache hit | 5% of live (0.05cr) | 100% (0.05cr) | $0 |
+| Trust query (dimensional) | 0.03cr | N/A | 0.03cr |
+| Trust query (full) | 0.05cr | N/A | 0.05cr |
+| Groth16 proof | 25cr | N/A | 25cr |
+| Transfer | Free | 100% | $0 |
 
-**Why additive:**
-- Provider ALWAYS covers their costs (gets 100% of declared price)
-- Agent sees exactly what goes where (providerPrice + platformFee)
-- No hidden markup — COST_MARKUP_FACTOR = 1000 (1:1 raw cost)
-- Platform fee is justified: hosting, billing, trust, Soma, marketplace
+**Why free routing:**
+- Maximum adoption (no reason NOT to use ClawNet)
+- Provider always gets 100% of their price
+- COST_MARKUP_FACTOR = 1000 (1:1 raw cost, no markup)
+- Platform revenue from trust products, not routing tolls
 
-**Why trust reduces it:**
-- High-trust agents cost less to serve (fewer fraud checks, batched settlement)
-- They bring more value to the ecosystem
-- Natural incentive: use Soma → build trust → pay less → use more Soma
+**Trust multiplier table** (retained for trust product discounts and future use):
+
+| Trust Score | Multiplier | Purpose |
+|-------------|-----------|---------|
+| 90+ (sovereign) | 0.40 | Lowest trust product costs |
+| 60-80 | 0.55 | Moderate discounts |
+| 0-20 (new) | 1.00 | Base pricing |
 
 ## Products Priced Transparently
 
@@ -134,11 +138,11 @@ Anyone can verify: recompute hash from the breakdown fields, check it exists as 
 
 Endpoints are auto-priced at 1:1 raw API cost:
 - $0.001 endpoint → 1.0 credits (provider's price)
-- Agent pays: 1.0 + 5% infra = 1.05 credits
-- Provider gets: 1.0 credits (100% of their cost)
-- Platform gets: 0.05 credits
+- Agent pays: 1.0 credits (no markup, no infra fee)
+- Provider gets: 1.0 credits (100%)
+- Platform gets: $0 from routing
 
-Providers who want margin set explicit `creditCost`. The market decides pricing — not a blind multiplier.
+Providers who want margin set explicit `creditCost`. The market decides pricing.
 
 ### Payout: $0.00095/credit (5% spread)
 
@@ -148,13 +152,10 @@ Covers real costs only:
 - 5% spread covers both with minimal buffer
 - Zero platform surplus on payouts
 
-### Progressive Creator Split
+### Creator Revenue
 
-Infrastructure rate replaces flat splits. Creator gets `providerPrice` (100%).
-Platform fee is additive, not carved from creator revenue.
-
-At 5% base: creator keeps 100%, agent pays 105%.
-At 2% sovereign: creator keeps 100%, agent pays 102%.
+Creator gets 100% of their declared price. Platform takes nothing from routing.
+Revenue comes from trust products that creators' endpoints generate demand for.
 
 ## Public Endpoints
 
@@ -163,13 +164,20 @@ GET /v1/fees/formula  → published formula, versioned, auditable
 GET /v1/fees/estimate → preview breakdown for hypothetical transaction
 ```
 
-## What Changed from v1
+## What Changed
 
-| v1 (inclusive) | v2 (additive) |
-|---------------|---------------|
-| COST_MARKUP_FACTOR = 1500 | COST_MARKUP_FACTOR = 1000 |
-| Platform fee carved from total | Platform fee added on top |
-| Provider gets 95% of agent payment | Provider gets 100% of their price |
-| FeeBreakdown (ClawNet-specific) | SomaFeeBreakdown (protocol standard) |
-| PAYOUT_USDC_PER_CREDIT = 0.0009 | PAYOUT_USDC_PER_CREDIT = 0.00095 |
-| Fee spine is ClawNet-only | Schema is Soma protocol (open source) |
+| v1 (inclusive) | v2 (additive) | v3 (trust-first) |
+|---------------|---------------|-------------------|
+| COST_MARKUP_FACTOR = 1500 | 1000 | 1000 |
+| 5% platform fee (carved) | 5% (additive) | 0% (free routing) |
+| Provider gets 95% | 100% | 100% |
+| Revenue from routing | Revenue from routing | Revenue from trust |
+| FeeBreakdown | SomaFeeBreakdown | SomaFeeBreakdown |
+| PAYOUT spread 25% | 10% | 5% |
+| No token model | No token model | $CLAWNET trust gas |
+
+## Token Integration
+
+See `internal/active/token-architecture.md` for the full $CLAWNET trust gas model.
+The fee spine records SomaFeeBreakdowns that the token smart contract uses to verify
+burn demand matches real platform usage. Every burn is provable on-chain.
