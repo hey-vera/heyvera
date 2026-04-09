@@ -1,33 +1,30 @@
 /**
  * Credit cost calculation — single source of truth.
  *
- * Value-based pricing model (v3 — decimal credits):
+ * Additive pricing model (v4 — fee spine):
  * - Each endpoint can declare an explicit creditCost override (can be fractional)
- * - Without override, auto-priced at 1.5× API cost (COST_MARKUP_FACTOR = 1500)
- * - Guarantees minimum ~33% margin on every API call at $0.001/credit sale price
- * - Orchestration fee (default 2cr) covers LLM intent parsing + synthesis
- * - Cache hits = 0 credits (no flat tax on cached responses)
- * - Fractional credits supported: a $0.0001 endpoint = 0.15 credits (not rounded up to 1)
+ * - Without override, auto-priced at 1:1 raw cost (COST_MARKUP_FACTOR = 1000)
+ * - Platform revenue comes from additive infrastructure fee (see fee-spine.ts)
+ * - Orchestration: free (discovery is infrastructure)
+ * - Cache hits: 5% of live cost (95% savings for agents)
+ * - Fractional credits supported: a $0.0001 endpoint = 0.1 credits
  *
  * Economics:
- *   Purchase rate: 1 credit = $0.001 (1000 credits/$1 at base Stripe tier)
- *   Cost markup:   1.5× raw API cost → ~33-50% gross margin
- *   Orch fee:      2 credits per query → pure profit (covers LLM ~$0.0004/call)
- *   Payout rate:   $0.00075/credit (25% below buy rate — prevents arbitrage)
+ *   Purchase rate: 1 credit = $0.001 (1000 credits/$1)
+ *   Auto-pricing:  1:1 raw API cost → provider price (no platform markup)
+ *   Infra fee:     5% additive, trust-scaled to 2% (fee-spine.ts)
+ *   Payout rate:   $0.00095/credit (5% spread — covers Stripe + tx costs)
  *
- * Example pricing at 1500× markup:
- *   $0.0001 endpoint → 0.15 credits  ($0.00015 revenue, 33% margin)
- *   $0.0005 endpoint → 0.75 credits  ($0.00075 revenue, 33% margin)
- *   $0.001 endpoint  → 1.5 credits   ($0.0015 revenue, 33% margin)
- *   $0.005 endpoint  → 7.5 credits   ($0.0075 revenue, 33% margin)
- *   $0.010 endpoint  → 15 credits    ($0.015 revenue, 33% margin)
- *   $0.050 endpoint  → 75 credits    ($0.075 revenue, 33% margin)
+ * Example pricing at 1000× factor (raw cost):
+ *   $0.0001 endpoint → 0.1 credits   (provider price, +5% infra fee)
+ *   $0.001 endpoint  → 1.0 credits   (provider price, +5% infra fee)
+ *   $0.010 endpoint  → 10 credits    (provider price, +5% infra fee)
+ *   $0.050 endpoint  → 50 credits    (provider price, +5% infra fee)
  *
  * x402 surcharge (third-party prompt_template skills):
  *   When a third-party skill triggers x402 API calls, the platform pays those
- *   upstream costs. The surcharge passes that cost through to the caller at the
- *   buy rate (1:1 cost recovery). Creator revenue is unaffected — surcharge is
- *   separate from the 90/10 split.
+ *   upstream costs. The surcharge passes that cost through at the buy rate
+ *   (1:1 cost recovery). Creator revenue is unaffected.
  *
  */
 
@@ -36,9 +33,11 @@ import { env } from '../config/index';
 const CREDITS_PER_USD = env.CREDITS_PER_USD;
 
 /**
- * Cost-to-credit markup factor. At sale price $0.001/credit:
- *   1000 = break-even, 1500 = 33-50% margin, 2000 = 50-100% margin
- * Validated via Zod in src/config/index.ts (min 500, max 10000).
+ * Cost-to-credit conversion factor. At 1000:
+ *   rawCost × 1000 = credit price (1:1 at $0.001/credit)
+ * Platform revenue comes from the additive infrastructure fee
+ * (fee-spine.ts), not from markup on this factor.
+ * Providers set explicit creditCost for custom margins.
  */
 const COST_MARKUP_FACTOR = env.COST_MARKUP_FACTOR;
 
@@ -104,11 +103,10 @@ export function x402SurchargeCredits(apiCostUsd: number): number {
 }
 
 /**
- * Smart cache pricing: 5% of live cost. Agent saves 95%.
+ * Cache pricing: 5% of live cost. Agent saves 95%.
  *
- * Fee spine v1: reduced from 10% to 5%. Cached responses cost ClawNet
- * nearly nothing (Redis/SQLite lookup). Pass the savings to agents.
- * A 0.001cr endpoint caches at 0.00005cr.
+ * Cached responses cost nearly nothing (Redis/SQLite lookup).
+ * Pass the savings to agents. A 1.0cr endpoint caches at 0.05cr.
  */
 const CACHE_DISCOUNT_PCT = 0.05;
 

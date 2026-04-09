@@ -1,34 +1,47 @@
 /**
- * fee-spine.ts — Unified Transparent Fee System
+ * fee-spine.ts — ClawNet Fee Formula (Additive Model)
  *
- * Every credit that flows through ClawNet passes through ONE function
- * that produces a transparent breakdown. The breakdown becomes a pulse
- * tree ECONOMIC leaf — auditable, on-chain, verifiable.
+ * ClawNet's implementation of the Soma Economic Protocol.
+ * One formula, trust-scaled, additive:
  *
- * One function. One formula. Every fee proven. Even zero fees.
+ *   agentPays = providerPrice + (providerPrice × infraRate × trustMultiplier)
+ *
+ * Provider always gets 100% of their price. Platform fee is transparent,
+ * added on top, never carved from the total. Even zero-fee events are
+ * recorded to prove the platform took nothing.
  *
  * Three principles:
  *   1. Infrastructure rate: 5% base, trust-scaled down to 2%
  *   2. Products priced transparently (fixed, published)
  *   3. Zero hidden fees (transfers, routing, basic trust = free)
  *
- * The fee formula is public: GET /v1/fees/formula
- * The proof is on-chain: every breakdown is a pulse tree leaf
+ * Formula is public: GET /v1/fees/formula
+ * Proof is on-chain: every breakdown is an ECONOMIC leaf in the pulse tree
  */
 
 import { round6 } from './credits';
-import { somaHashJson } from '../utils/crypto-agility';
-import { appendEconomic } from './soma-heartbeat';
+import {
+  type SomaFeeBreakdown,
+  SOMA_ECONOMICS_VERSION,
+  hashFeeBreakdown,
+  recordEconomicEvent,
+} from './soma-economics';
 import { logger } from '../utils/logger';
 
-// ─── Fee Formula Version ────────────────────────────────────────────────────
+// Re-export Soma types for convenience
+export type { SomaFeeBreakdown } from './soma-economics';
 
-export const FEE_FORMULA_VERSION = 'v1';
+// ─── ClawNet Identity ──────────────────────────────────────────────────────
+
+const CLAWNET_PLATFORM = 'clawnet';
+
+/** ClawNet formula version — changes when rates or model change. */
+export const FEE_FORMULA_VERSION = 'clawnet-additive-v1';
 
 // ─── Infrastructure Rate ────────────────────────────────────────────────────
 
-/** Base infrastructure rate — what ClawNet charges for hosting, billing,
- *  trust oracle, Soma provenance, marketplace, and escrow management. */
+/** Base infrastructure rate — covers hosting, billing, trust oracle,
+ *  Soma provenance, marketplace, escrow. Added ON TOP of provider price. */
 export const BASE_INFRASTRUCTURE_RATE = 0.05; // 5%
 
 /**
@@ -52,7 +65,7 @@ export function getTrustMultiplier(trustScore: number): number {
   return 1.0;
 }
 
-// ─── Fee Breakdown Types ────────────────────────────────────────────────────
+// ─── Fee Types (ClawNet-specific) ───────────────────────────────────────────
 
 export type FeeType =
   | 'endpoint_call'      // Live API call to provider
@@ -67,143 +80,111 @@ export type FeeType =
   | 'deposit'            // Credit purchase
   | 'payout';            // Credit withdrawal
 
-export interface FeeBreakdown {
-  version: string;           // FEE_FORMULA_VERSION
-  type: FeeType;
-  amount: number;            // total credits charged to agent
-  providerShare: number;     // credits to provider/creator
-  platformFee: number;       // credits to ClawNet
-  platformRate: number;      // effective rate applied (0.0 - 0.05)
-  trustScore: number;        // agent's trust at time of transaction
-  trustMultiplier: number;   // multiplier applied
-  formula: 'infrastructure' | 'product_fixed' | 'zero_fee';
-  hash: string;              // H(breakdown) for proof
-}
-
-// ─── Core Fee Computation ───────────────────────────────────────────────────
+// ─── Core Fee Computation (Additive) ───────────────────────────────────────
 
 /**
- * Compute fee breakdown for an infrastructure-rate transaction.
- * Used when someone ELSE provides value through ClawNet:
- * endpoint calls, cache hits, soma check hits, skill invocations.
+ * Compute fee for an infrastructure-rate transaction.
  *
- * Platform takes: amount × BASE_RATE × trustMultiplier
- * Provider gets: amount - platformFee
+ * ADDITIVE MODEL:
+ *   Provider gets: providerPrice (100% of their declared price)
+ *   Platform gets: providerPrice × baseRate × trustMultiplier
+ *   Agent pays:    providerPrice + platformFee
+ *
+ * The provider ALWAYS covers their costs. The platform fee is a
+ * transparent, separately-itemized charge. No hidden markup.
+ *
+ * @param type ClawNet event type
+ * @param providerPrice Provider's price in credits (NOT the agent total)
+ * @param trustScore Agent's trust score (0-100)
  */
 export function computeInfrastructureFee(
   type: FeeType,
-  amount: number,
+  providerPrice: number,
   trustScore: number,
-): FeeBreakdown {
+): SomaFeeBreakdown {
   const multiplier = getTrustMultiplier(trustScore);
   const effectiveRate = round6(BASE_INFRASTRUCTURE_RATE * multiplier);
-  const platformFee = round6(Math.max(0, amount * effectiveRate));
-  const providerShare = round6(amount - platformFee);
+  const platformFee = round6(Math.max(0, providerPrice * effectiveRate));
+  const amount = round6(providerPrice + platformFee);
 
-  const breakdown: FeeBreakdown = {
-    version: FEE_FORMULA_VERSION,
-    type,
-    amount: round6(amount),
-    providerShare,
+  const partial: Omit<SomaFeeBreakdown, 'hash'> = {
+    schemaVersion: SOMA_ECONOMICS_VERSION,
+    platform: CLAWNET_PLATFORM,
+    eventType: type,
+    amount,
+    recipientShare: round6(providerPrice),
     platformFee,
-    platformRate: effectiveRate,
-    trustScore,
-    trustMultiplier: multiplier,
-    formula: 'infrastructure',
-    hash: '', // filled below
+    formulaId: FEE_FORMULA_VERSION,
+    formulaInputs: {
+      providerPrice,
+      trustScore,
+      baseRate: BASE_INFRASTRUCTURE_RATE,
+      multiplier,
+      effectiveRate,
+    },
   };
-  breakdown.hash = somaHashJson(breakdown);
-  return breakdown;
+  return { ...partial, hash: hashFeeBreakdown(partial) };
 }
 
 /**
- * Compute fee breakdown for a zero-fee transaction.
+ * Compute a zero-fee breakdown.
+ * Proves the platform took nothing on this transaction.
  * Used for: transfers, orchestration routing, custody events, deposits.
- * Platform takes NOTHING. This breakdown PROVES it.
  */
 export function computeZeroFee(
   type: FeeType,
   amount: number,
   trustScore: number,
-): FeeBreakdown {
-  const breakdown: FeeBreakdown = {
-    version: FEE_FORMULA_VERSION,
-    type,
+): SomaFeeBreakdown {
+  const partial: Omit<SomaFeeBreakdown, 'hash'> = {
+    schemaVersion: SOMA_ECONOMICS_VERSION,
+    platform: CLAWNET_PLATFORM,
+    eventType: type,
     amount: round6(amount),
-    providerShare: round6(amount),
+    recipientShare: round6(amount),
     platformFee: 0,
-    platformRate: 0,
-    trustScore,
-    trustMultiplier: 0,
-    formula: 'zero_fee',
-    hash: '',
+    formulaId: FEE_FORMULA_VERSION,
+    formulaInputs: { amount, trustScore },
   };
-  breakdown.hash = somaHashJson(breakdown);
-  return breakdown;
+  return { ...partial, hash: hashFeeBreakdown(partial) };
 }
 
 /**
- * Compute fee breakdown for a ClawNet product (trust query, proof gen).
- * Fixed pricing — 100% to platform (it's our product, not a fee on others).
+ * Compute fee for a ClawNet product (trust query, proof generation).
+ * Fixed pricing — 100% to platform (our product, not a fee on others).
  */
 export function computeProductFee(
   type: FeeType,
   amount: number,
   trustScore: number,
-): FeeBreakdown {
-  const breakdown: FeeBreakdown = {
-    version: FEE_FORMULA_VERSION,
-    type,
+): SomaFeeBreakdown {
+  const partial: Omit<SomaFeeBreakdown, 'hash'> = {
+    schemaVersion: SOMA_ECONOMICS_VERSION,
+    platform: CLAWNET_PLATFORM,
+    eventType: type,
     amount: round6(amount),
-    providerShare: 0,
+    recipientShare: 0,
     platformFee: round6(amount),
-    platformRate: 1.0,
-    trustScore,
-    trustMultiplier: 1.0,
-    formula: 'product_fixed',
-    hash: '',
+    formulaId: FEE_FORMULA_VERSION,
+    formulaInputs: { amount, trustScore },
   };
-  breakdown.hash = somaHashJson(breakdown);
-  return breakdown;
-}
-
-// ─── Record Fee Breakdown to Pulse Tree ─────────────────────────────────────
-
-/**
- * Record a fee breakdown as an ECONOMIC leaf in the agent's pulse tree.
- * This is the proof — the breakdown is hashed, appended, and eventually
- * compressed into a monthly Groth16 proof anchored on-chain.
- *
- * Called after every economic event. Even zero-fee events get recorded
- * to prove ClawNet took nothing.
- */
-export function recordFeeBreakdown(agentDid: string, breakdown: FeeBreakdown): void {
-  try {
-    appendEconomic(agentDid, {
-      action: `fee:${breakdown.type}`,
-      amount: breakdown.amount,
-      ref: breakdown.hash,
-    });
-  } catch (err) {
-    // Non-fatal — fee recording should never block the transaction
-    logger.warn({ err, agentDid, type: breakdown.type }, 'Failed to record fee breakdown (non-fatal)');
-  }
+  return { ...partial, hash: hashFeeBreakdown(partial) };
 }
 
 // ─── Convenience: Compute + Record ──────────────────────────────────────────
 
 /**
- * Compute an infrastructure fee breakdown AND record it to the pulse tree.
+ * Compute an infrastructure fee AND record it to the pulse tree.
  * One call for the common case: endpoint/cache/skill events.
  */
 export function chargeInfrastructureFee(
   agentDid: string,
   type: FeeType,
-  amount: number,
+  providerPrice: number,
   trustScore: number,
-): FeeBreakdown {
-  const breakdown = computeInfrastructureFee(type, amount, trustScore);
-  recordFeeBreakdown(agentDid, breakdown);
+): SomaFeeBreakdown {
+  const breakdown = computeInfrastructureFee(type, providerPrice, trustScore);
+  recordEconomicEvent(agentDid, breakdown);
   return breakdown;
 }
 
@@ -216,14 +197,14 @@ export function recordZeroFeeEvent(
   type: FeeType,
   amount: number,
   trustScore: number,
-): FeeBreakdown {
+): SomaFeeBreakdown {
   const breakdown = computeZeroFee(type, amount, trustScore);
-  recordFeeBreakdown(agentDid, breakdown);
+  recordEconomicEvent(agentDid, breakdown);
   return breakdown;
 }
 
 /**
- * Compute a product fee breakdown AND record it to the pulse tree.
+ * Compute a product fee AND record it to the pulse tree.
  * Used for trust queries and proof generation.
  */
 export function chargeProductFee(
@@ -231,9 +212,9 @@ export function chargeProductFee(
   type: FeeType,
   amount: number,
   trustScore: number,
-): FeeBreakdown {
+): SomaFeeBreakdown {
   const breakdown = computeProductFee(type, amount, trustScore);
-  recordFeeBreakdown(agentDid, breakdown);
+  recordEconomicEvent(agentDid, breakdown);
   return breakdown;
 }
 
@@ -243,8 +224,12 @@ export function chargeProductFee(
 export function getPublicFeeSchedule() {
   return {
     version: FEE_FORMULA_VERSION,
+    somaProtocol: `soma-economics-v${SOMA_ECONOMICS_VERSION}`,
+    model: 'additive',
     effectiveDate: '2026-04-09',
     infrastructure: {
+      description: 'Platform fee added ON TOP of provider price. Provider always gets 100% of their price.',
+      formula: 'agentPays = providerPrice + (providerPrice × baseRate × trustMultiplier)',
       baseRate: BASE_INFRASTRUCTURE_RATE,
       trustMultipliers: TRUST_MULTIPLIERS.map(t => ({
         minTrust: t.minTrust,
@@ -252,7 +237,6 @@ export function getPublicFeeSchedule() {
         effectiveRate: round6(BASE_INFRASTRUCTURE_RATE * t.multiplier),
       })),
       appliesTo: ['endpoint_call', 'cache_hit', 'soma_check_hit', 'skill_invoke'],
-      description: 'Platform infrastructure: hosting, billing, trust oracle, Soma provenance, marketplace',
     },
     products: {
       orchestration: { price: 0, note: 'Free — discovery is infrastructure' },
@@ -269,11 +253,12 @@ export function getPublicFeeSchedule() {
       { type: 'deposit', note: 'Credit purchases are free' },
     ],
     payoutPolicy: {
-      method: 'Face value minus actual transaction costs',
-      platformMargin: 0,
-      note: 'Zero platform spread on payouts — only real tx costs deducted',
+      rate: 0.00095,
+      spread: '5%',
+      note: 'Covers Stripe fees + blockchain tx costs. Zero platform surplus.',
     },
     proofGuarantee: 'Every fee breakdown is an ECONOMIC leaf in the agent pulse tree, ' +
-      'compressed into monthly Groth16 proofs on Base. Verify any transaction on-chain.',
+      'recorded via Soma Economic Protocol (schema v' + SOMA_ECONOMICS_VERSION + '). ' +
+      'Verify any transaction on-chain.',
   };
 }

@@ -86,7 +86,7 @@ const envSchema = z.object({
 
   // Hot wallet (same key as SOLANA_PRIVATE_KEY in 2-wallet setup)
   PLATFORM_PAYOUT_PRIVATE_KEY: z.string().optional(), // bs58 Solana private key — used by payout cron to send USDC
-  PAYOUT_USDC_PER_CREDIT: z.coerce.number().min(0.0001).max(1).default(0.0009), // Fee spine v1: 10% spread (was 25%) — covers Stripe fees + tx costs only
+  PAYOUT_USDC_PER_CREDIT: z.coerce.number().min(0.0001).max(1).default(0.00095), // 5% spread — covers Stripe fees + blockchain tx costs, zero surplus
   BASE_RPC_URL: z.string().optional(), // Optional custom Base RPC (defaults to public mainnet.base.org)
   BASE_RPC_FALLBACK: z.string().optional(), // Fallback Base RPC (e.g. Alchemy) — used when primary fails
 
@@ -101,7 +101,7 @@ const envSchema = z.object({
   CLAWNET_API_KEY: z.string().optional(), // API key for MCP server self-referencing calls
 
   // Pricing engine — previously raw parseInt, now Zod-validated with bounds
-  COST_MARKUP_FACTOR: z.coerce.number().int().min(500).max(10000).default(1500), // 1000=break-even, 1500=33-50% margin
+  COST_MARKUP_FACTOR: z.coerce.number().int().min(500).max(10000).default(1000), // 1000=raw cost (additive fee spine handles platform revenue)
   ORCHESTRATION_FEE: z.coerce.number().int().min(0).max(100).default(0),         // Fee spine v1: free routing — discovery is infrastructure, not product
 
   // ag0 decentralized agent registry (off by default)
