@@ -2219,6 +2219,26 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   // ── Conservation of trust: vouching transfers trust with decay + cost ──
   { version: 193, sql: `ALTER TABLE vouch_stakes ADD COLUMN trust_cost REAL NOT NULL DEFAULT 0` },
   { version: 194, sql: `ALTER TABLE vouch_stakes ADD COLUMN trust_transferred REAL NOT NULL DEFAULT 0` },
+  // ── Epoch snapshots: multi-subtree Merkle tree for PoTW ──
+  { version: 195, sql: `
+    CREATE TABLE IF NOT EXISTS epoch_snapshots (
+      epoch_number INTEGER PRIMARY KEY,
+      epoch_timestamp TEXT NOT NULL,
+      previous_epoch_root TEXT,
+      scoring_circuit_hash TEXT NOT NULL,
+      pulse_entries_root TEXT NOT NULL,
+      vouch_graph_root TEXT NOT NULL,
+      attestation_stats_root TEXT NOT NULL,
+      metadata_root TEXT NOT NULL,
+      epoch_root TEXT NOT NULL,
+      agent_count INTEGER NOT NULL DEFAULT 0,
+      entry_count INTEGER NOT NULL DEFAULT 0,
+      vouch_count INTEGER NOT NULL DEFAULT 0,
+      tree_json TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_epoch_root ON epoch_snapshots(epoch_root);
+  ` },
 ];
 
 function runMigrations(): void {
