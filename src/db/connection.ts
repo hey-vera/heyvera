@@ -2196,6 +2196,23 @@ const MIGRATIONS: { version: number; sql: string }[] = [
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
   ` },
+  { version: 190, sql: `
+    CREATE TABLE IF NOT EXISTS custody_events (
+      id TEXT PRIMARY KEY,
+      agent_did TEXT NOT NULL,
+      subject_id TEXT NOT NULL,
+      event_type TEXT NOT NULL CHECK(event_type IN ('accept', 'access', 'release')),
+      dek_fingerprint TEXT,
+      destruction_proof TEXT,
+      fields_manifest_json TEXT,
+      fields_accessed_json TEXT,
+      access_reason TEXT,
+      pulse_leaf_index INTEGER,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_custody_agent_subject ON custody_events(agent_did, subject_id);
+    CREATE INDEX IF NOT EXISTS idx_custody_agent_type ON custody_events(agent_did, event_type);
+  ` },
 ];
 
 function runMigrations(): void {

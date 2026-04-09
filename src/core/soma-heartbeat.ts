@@ -331,6 +331,26 @@ export function appendBurner(
 }
 
 /**
+ * Append a CUSTODY leaf — data custody event (accept/access/release).
+ * Proves how an agent handles custodied data: when it was accepted,
+ * every time it was accessed, and when it was crypto-shredded.
+ */
+export function appendCustody(
+  agentDid: string,
+  payload: {
+    event: 'accept' | 'access' | 'release';
+    subjectId: string;
+    dekFingerprint?: string;
+    destructionProof?: string;
+    fieldsAccessed?: string[];
+    reason?: string;
+  },
+): AppendResult {
+  const payloadHash = somaHashJson(payload);
+  return appendLeaf(agentDid, PULSE_TYPE.CUSTODY, payloadHash, 0);
+}
+
+/**
  * Append a DEATH leaf — final event, seals the tree forever.
  */
 export function appendDeath(

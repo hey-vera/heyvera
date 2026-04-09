@@ -10,6 +10,7 @@
  *   - ZK proofs (Nova IVC / Groth16, stored as leaves)
  *   - Wallet derivations
  *   - Burner agent events (create/revoke/slash)
+ *   - Data custody events (accept/access/release — crypto-shredding proofs)
  *   - Death certificate (final event, seals the tree)
  *
  * Properties:
@@ -35,6 +36,7 @@ export const PULSE_TYPE = {
   WALLET:     0x05,
   BURNER:     0x06,
   DEATH:      0x07,
+  CUSTODY:    0x08,
 } as const;
 
 export type PulseType = (typeof PULSE_TYPE)[keyof typeof PULSE_TYPE];
