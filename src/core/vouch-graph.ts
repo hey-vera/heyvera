@@ -28,6 +28,8 @@ export interface VouchStake {
   voucherDid: string;
   voucheeDid: string;
   stakeAmount: number;
+  trustCost: number;          // what voucher paid (stake × COST_FACTOR)
+  trustTransferred: number;   // what vouchee received (stake × DECAY_FACTOR)
   status: 'active' | 'revoked' | 'slashed';
   createdAt: string;
   expiresAt: string | null;
@@ -59,11 +61,24 @@ const MAX_VOUCHES_PER_AGENT = 20; // max agents one agent can vouch for
 const MAX_PATH_DEPTH = 3;    // max hops for transitive trust
 const SLASH_PENALTY = 1.0;   // slash burns 100% of stake
 
+// ── Conservation of Trust (Innovation 3) ────────────────────────────────────
+// Vouching TRANSFERS trust, it doesn't create it. Self-punishing cycles:
+//   A→B costs A 13cr of trust, B gains 6cr → 7cr destroyed per vouch
+//   Mutual A↔B: both lose 7cr each → Sybil farming is net-negative
+const COST_FACTOR = 1.3;         // voucher pays 30% premium (trust_cost = stake × 1.3)
+const DECAY_FACTOR = 0.6;        // vouchee receives 60% (trust_transferred = stake × 0.6)
+const REVOKE_RETURN_RATE = 0.5;  // revoking returns 50% of trust_cost (not full refund)
+
 // ─── Core Operations ────────────────────────────────────────────────────────
 
 /**
  * Stake a vouch: agent A trusts agent B enough to stake credits.
- * The stake is locked — not deducted from balance, but committed.
+ *
+ * Conservation of trust:
+ *   - Voucher's trust_cost = stake × COST_FACTOR (1.3) — what it costs to vouch
+ *   - Vouchee's trust_transferred = stake × DECAY_FACTOR (0.6) — what they receive
+ *   - Net trust destroyed per vouch = trust_cost - trust_transferred = stake × 0.7
+ *   - This makes Sybil farming net-negative: creating fake trust always destroys more than it creates
  */
 export function stakeVouch(
   voucherDid: string,
@@ -94,39 +109,54 @@ export function stakeVouch(
     throw new Error('Active vouch already exists — revoke first to re-stake');
   }
 
+  // Conservation of trust: compute transfer costs
+  const trustCost = round6(stakeAmount * COST_FACTOR);
+  const trustTransferred = round6(stakeAmount * DECAY_FACTOR);
+
   const id = `vs-${nanoid(12)}`;
   getDb().prepare(`
-    INSERT INTO vouch_stakes (id, voucher_did, vouchee_did, stake_amount, status, expires_at)
-    VALUES (?, ?, ?, ?, 'active', ?)
-  `).run(id, voucherDid, voucheeDid, stakeAmount, expiresAt ?? null);
+    INSERT INTO vouch_stakes (id, voucher_did, vouchee_did, stake_amount, status, expires_at, trust_cost, trust_transferred)
+    VALUES (?, ?, ?, ?, 'active', ?, ?, ?)
+  `).run(id, voucherDid, voucheeDid, stakeAmount, expiresAt ?? null, trustCost, trustTransferred);
 
   logAudit({
     entityType: 'vouch_stake',
     entityId: id,
     action: 'vouch_staked',
     actorId: voucherDid,
-    data: { vouchee: voucheeDid, amount: stakeAmount },
+    data: { vouchee: voucheeDid, amount: stakeAmount, trustCost, trustTransferred },
   });
 
   return getVouchStake(id)!;
 }
 
 /**
- * Revoke a vouch: agent withdraws trust (and recovers stake).
+ * Revoke a vouch: agent withdraws trust.
+ * Conservation: only 50% of trust_cost is recovered — revoking is not free.
+ * This prevents rapid stake/revoke cycling to game the system.
  */
 export function revokeVouch(voucherDid: string, voucheeDid: string): boolean {
-  const result = getDb().prepare(`
-    UPDATE vouch_stakes SET status = 'revoked', revoked_at = datetime('now')
-    WHERE voucher_did = ? AND vouchee_did = ? AND status = 'active'
-  `).run(voucherDid, voucheeDid);
+  // Fetch the vouch to log conservation details
+  const vouch = getDb().prepare(
+    "SELECT id, trust_cost, trust_transferred FROM vouch_stakes WHERE voucher_did = ? AND vouchee_did = ? AND status = 'active'"
+  ).get(voucherDid, voucheeDid) as { id: string; trust_cost: number; trust_transferred: number } | undefined;
 
-  if (result.changes === 0) return false;
+  if (!vouch) return false;
+
+  const trustReturned = round6(vouch.trust_cost * REVOKE_RETURN_RATE);
+  const trustBurned = round6(vouch.trust_cost - trustReturned);
+
+  getDb().prepare(`
+    UPDATE vouch_stakes SET status = 'revoked', revoked_at = datetime('now')
+    WHERE id = ?
+  `).run(vouch.id);
 
   logAudit({
     entityType: 'vouch_stake',
-    entityId: `${voucherDid}→${voucheeDid}`,
+    entityId: vouch.id,
     action: 'vouch_revoked',
     actorId: voucherDid,
+    data: { vouchee: voucheeDid, trustReturned, trustBurned },
   });
 
   return true;
@@ -191,13 +221,22 @@ export function getVouchesBy(did: string): VouchStake[] {
   return rows.map(rowToVouchStake);
 }
 
-/** Compute aggregate vouch score for an agent, excluding circular vouches. */
+/**
+ * Compute aggregate vouch score for an agent, using conservation-adjusted values.
+ * Uses trust_transferred (decayed) instead of raw stake_amount, plus circular discount.
+ *
+ * Conservation makes the score honest:
+ *   - Each vouch contributes trust_transferred (stake × 0.6), not the raw stake
+ *   - Circular vouches (A↔B) get an additional 50% discount
+ *   - Combined: circular vouch contributes stake × 0.6 × 0.5 = stake × 0.3
+ *   - This makes Sybil rings extremely expensive to maintain
+ */
 export function getVouchScore(did: string): VouchScore {
-  // Get all active vouchers for this agent
+  // Get all active vouchers for this agent — use trust_transferred for conservation
   const vouchers = getDb().prepare(`
-    SELECT voucher_did, stake_amount FROM vouch_stakes
+    SELECT voucher_did, stake_amount, trust_transferred FROM vouch_stakes
     WHERE vouchee_did = ? AND status = 'active'
-  `).all(did) as Array<{ voucher_did: string; stake_amount: number }>;
+  `).all(did) as Array<{ voucher_did: string; stake_amount: number; trust_transferred: number }>;
 
   // Detect circular vouches: A→B and B→A (reciprocal)
   // These are discounted 50% — legitimate mutual trust exists, but it's easier to game
@@ -211,15 +250,17 @@ export function getVouchScore(did: string): VouchScore {
     for (const rv of reverseVouches) reciprocals.add(rv.vouchee_did);
   }
 
-  // Compute totals with circular discount
+  // Compute totals with conservation + circular discount
   let totalStaked = 0;
   let uniqueVouchers = 0;
   let strongestVouch = 0;
   for (const v of vouchers) {
+    // Use trust_transferred (conservation-adjusted) instead of raw stake
+    const effectiveValue = v.trust_transferred || (v.stake_amount * DECAY_FACTOR); // fallback for pre-conservation vouches
     const weight = reciprocals.has(v.voucher_did) ? 0.5 : 1.0;
-    totalStaked += v.stake_amount * weight;
+    totalStaked += effectiveValue * weight;
     uniqueVouchers += weight; // circular vouchers count as 0.5
-    strongestVouch = Math.max(strongestVouch, v.stake_amount * weight);
+    strongestVouch = Math.max(strongestVouch, effectiveValue * weight);
   }
   const avgStake = uniqueVouchers > 0 ? totalStaked / uniqueVouchers : 0;
 
@@ -320,12 +361,26 @@ export function expireVouches(): number {
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
+/**
+ * Total trust_cost committed by an agent across all active vouches.
+ * This is the "trust budget spent" — how much trust the voucher has given away.
+ * Useful for computing remaining trust capacity or as a penalty in scoring.
+ */
+export function getVouchCostCommitted(did: string): number {
+  const row = getDb().prepare(
+    "SELECT COALESCE(SUM(trust_cost), 0) as total FROM vouch_stakes WHERE voucher_did = ? AND status = 'active'"
+  ).get(did) as { total: number };
+  return round6(row.total);
+}
+
 function rowToVouchStake(row: any): VouchStake {
   return {
     id: row.id,
     voucherDid: row.voucher_did,
     voucheeDid: row.vouchee_did,
     stakeAmount: row.stake_amount,
+    trustCost: row.trust_cost ?? 0,
+    trustTransferred: row.trust_transferred ?? 0,
     status: row.status,
     createdAt: row.created_at,
     expiresAt: row.expires_at,

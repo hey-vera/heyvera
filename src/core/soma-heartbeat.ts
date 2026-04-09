@@ -99,15 +99,16 @@ function persistTreeState(agentDid: string, tree: PulseTree): void {
     );
 }
 
-/** Store a leaf in the DB for later proof generation. */
-function storeLeaf(agentDid: string, leaf: PulseLeaf, position: number, root: string): void {
+/** Store a leaf in the DB for later proof generation. Returns the leaf ID. */
+function storeLeaf(agentDid: string, leaf: PulseLeaf, position: number, root: string, bilateralRef?: string): string {
+  const id = nanoid(16);
   getDb()
     .prepare(`
-      INSERT INTO pulse_tree_leaves (id, agent_did, leaf_index, position, type, heartbeat_index, timestamp, payload_hash, credit_delta, root_after)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO pulse_tree_leaves (id, agent_did, leaf_index, position, type, heartbeat_index, timestamp, payload_hash, credit_delta, root_after, bilateral_ref)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
     .run(
-      nanoid(16),
+      id,
       agentDid,
       leaf.heartbeatIndex - 1, // leaf_index is 0-based
       position,
@@ -117,7 +118,9 @@ function storeLeaf(agentDid: string, leaf: PulseLeaf, position: number, root: st
       leaf.payloadHash,
       leaf.creditDelta,
       root,
+      bilateralRef ?? null,
     );
+  return id;
 }
 
 // ─── Tree Management ──────────────────────────────────────────────────────
@@ -164,6 +167,7 @@ export function evictTreeCache(agentDid: string): void {
 // ─── Typed Append Functions ───────────────────────────────────────────────
 
 interface AppendResult {
+  leafId: string;
   heartbeatIndex: number;
   position: number;
   root: string;
@@ -177,7 +181,7 @@ interface AppendResult {
  * The fold incrementally proves this leaf was correctly appended to the tree.
  * If the prover is unavailable, the append still succeeds (graceful degradation).
  */
-function appendLeaf(agentDid: string, type: PulseType, payloadHash: string, creditDelta: number): AppendResult {
+function appendLeaf(agentDid: string, type: PulseType, payloadHash: string, creditDelta: number, bilateralRef?: string): AppendResult {
   // Entire append is atomic: heartbeat increment + tree mutation + DB persist.
   // Prevents race condition where concurrent requests corrupt the pulse tree.
   const result = getDb().transaction(() => {
@@ -193,10 +197,10 @@ function appendLeaf(agentDid: string, type: PulseType, payloadHash: string, cred
     };
 
     const { position, root } = tree.append(leaf);
-    storeLeaf(agentDid, leaf, position, root);
+    const leafId = storeLeaf(agentDid, leaf, position, root, bilateralRef);
     persistTreeState(agentDid, tree);
 
-    return { heartbeatIndex, position, root };
+    return { leafId, heartbeatIndex, position, root };
   })();
 
   // Fire-and-forget Nova IVC fold — non-blocking, non-fatal
@@ -263,6 +267,38 @@ export function appendAction(
 ): AppendResult {
   const payloadHash = somaHashJson(payload);
   return appendLeaf(agentDid, PULSE_TYPE.ACTION, payloadHash, creditCost);
+}
+
+/**
+ * Append a bilateral ACTION — both parties get cross-referenced entries.
+ * Innovation 2: double-entry pulse trees. Both agent and counterparty fold
+ * the same interaction, making Sybil farming O(k²) instead of O(k).
+ *
+ * Returns both leaf results. The bilateral_ref on each leaf points to the
+ * counterparty's leaf, proving both sides witnessed the interaction.
+ */
+export function appendBilateralAction(
+  agentDid: string,
+  counterpartyDid: string,
+  payload: { endpointId: string; success: boolean; durationMs: number; cached: boolean },
+  creditCost: number,
+): { agent: AppendResult; counterparty: AppendResult } {
+  const payloadHash = somaHashJson(payload);
+
+  // Agent's leaf first
+  const agentResult = appendLeaf(agentDid, PULSE_TYPE.ACTION, payloadHash, creditCost);
+
+  // Counterparty's leaf references agent's
+  const counterpartyResult = appendLeaf(counterpartyDid, PULSE_TYPE.ACTION, payloadHash, creditCost, agentResult.leafId);
+
+  // Back-link: update agent's leaf to reference counterparty's
+  try {
+    getDb().prepare(
+      'UPDATE pulse_tree_leaves SET bilateral_ref = ? WHERE id = ?'
+    ).run(counterpartyResult.leafId, agentResult.leafId);
+  } catch { /* non-critical — leaf exists, cross-ref is bonus */ }
+
+  return { agent: agentResult, counterparty: counterpartyResult };
 }
 
 /**

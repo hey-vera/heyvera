@@ -2213,6 +2213,12 @@ const MIGRATIONS: { version: number; sql: string }[] = [
     CREATE INDEX IF NOT EXISTS idx_custody_agent_subject ON custody_events(agent_did, subject_id);
     CREATE INDEX IF NOT EXISTS idx_custody_agent_type ON custody_events(agent_did, event_type);
   ` },
+  // ── Bilateral commitment: cross-reference pulse tree entries ──
+  { version: 191, sql: `ALTER TABLE pulse_tree_leaves ADD COLUMN bilateral_ref TEXT` },
+  { version: 192, sql: `CREATE INDEX IF NOT EXISTS idx_ptl_bilateral ON pulse_tree_leaves(bilateral_ref) WHERE bilateral_ref IS NOT NULL` },
+  // ── Conservation of trust: vouching transfers trust with decay + cost ──
+  { version: 193, sql: `ALTER TABLE vouch_stakes ADD COLUMN trust_cost REAL NOT NULL DEFAULT 0` },
+  { version: 194, sql: `ALTER TABLE vouch_stakes ADD COLUMN trust_transferred REAL NOT NULL DEFAULT 0` },
 ];
 
 function runMigrations(): void {
