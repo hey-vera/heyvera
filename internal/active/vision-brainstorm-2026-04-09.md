@@ -438,3 +438,397 @@ Each step REQUIRES the previous one. You can't mine trust if trust has no value 
 ## The One-Paragraph Vision
 
 ClawNet becomes the trust infrastructure for the AI agent economy. Every agent in the world — regardless of platform, framework, or chain — carries a ClawNet-issued Trust Certificate that proves their reputation. Agents discover each other through ClawNet's discovery protocol, negotiate terms via the Agent Handshake, settle payments through ClawNet's rails, and verify work through Soma's pulse trees. Trust is mined through real work, decays without activity, and can be staked, delegated, or used as collateral for credit. ClawNet doesn't need to be in the middle of every transaction — it needs to be the TRUST behind every transaction. Like Visa doesn't own every store but enables every payment, ClawNet doesn't own every agent but enables every trust relationship. The moat isn't routing (anyone can proxy an API call) — the moat is the trust network (nobody else has verifiable behavioral history on millions of agents).
+
+---
+
+## Hardening Addendum — Making Each Idea Bulletproof
+
+Pressure-tested every gap and golden idea for attack vectors, edge cases, and missing mechanics.
+
+### Gap 1 Hardening: Trust With Teeth
+
+**Missing: Trust Covenants**
+When Agent A hires Agent B at trust 80 (with 20% discount), what happens if B's trust drops to 40 mid-contract? The contract was priced assuming trust 80. Need a trust covenant clause:
+- Contracts specify a minimum trust floor (e.g., "must maintain trust >= 70")
+- If trust drops below the floor: (a) discount reverts to current tier, (b) agent gets 24h to restore trust or contract enters renegotiation, (c) repeated covenant breaches = auto-termination + partial escrow release
+- This makes trust a LIVE commitment, not a point-in-time check
+
+**Missing: Smooth Pricing Curves (Not Step Functions)**
+Step functions (trust 79 = full price, trust 80 = 20% discount) create gaming at boundaries. Agents will farm to exactly trust 80 and stop. Fix:
+```
+discount = min(30%, trust_score * 0.003)  // smooth: trust 50 = 15%, trust 80 = 24%, trust 100 = 30%
+```
+Smooth curves eliminate cliff-gaming. Every trust point earns a marginal benefit.
+
+**Missing: Provider-Side Trust Gating Guardrails**
+Providers can set minimum trust to access their endpoint. But what stops a provider from setting min trust to 99 (effectively excluding everyone)?
+- Cap provider-settable minimum at 70 (enough to filter bad actors, not enough to be exclusionary)
+- Endpoints with min trust > 50 get a "Trust Required" badge in discovery (transparency)
+- New endpoints start with min trust = 0 for their first 30 days (can't gate before proving value)
+
+### Gap 2 Hardening: Agent Discovery
+
+**Missing: Spam Prevention**
+Free registration = thousands of fake capability listings. Fixes:
+- Minimum trust to register capabilities: trust >= 20 (already requires real activity on the platform)
+- Bond-backed premium listings: 10 credits per capability listing, refunded after 30 days of active use
+- Rate limit: max 10 capability registrations per agent per month
+
+**Missing: Capability Verification via Pulse Tree**
+Self-reported capabilities are meaningless. "I can do sentiment analysis" from an agent with zero NLP calls is unverifiable. Fix:
+- When an agent registers capability X, the system checks their pulse tree for completed tasks tagged with X
+- Minimum threshold: 10 successful X-related calls in the last 90 days to register as "verified" capability
+- Unverified capabilities are allowed but marked as "self-reported" (lower ranking in discovery)
+- Verified capabilities get a badge + boost in trust-weighted search results
+
+**Missing: Liveness / Availability**
+Discovery returns agents, but are they online? Dead results waste the caller's time. Fix:
+- Use existing heartbeat as liveness signal: agent with heartbeat in last 5 minutes = "online"
+- Discovery response includes `last_heartbeat_age_seconds` — caller decides if stale is acceptable
+- Optional: agents register a health check URL. Discovery pings it before including in results.
+- Agents that consistently appear in discovery but fail to respond get trust penalty ("unreliable availability")
+
+**Missing: Discovery Privacy**
+Discovery reveals capabilities = competitive intelligence. Rival agents can see what you offer. Fix:
+- Default: public listing (maximum visibility)
+- Optional: "private" mode — agent is only discoverable by agents that already know its DID
+- Optional: "invite-only" mode — agent whitelists specific DIDs that can discover it
+- Private/invite agents sacrifice discovery ranking for privacy
+
+### Gap 3 Hardening: Transaction Protocol
+
+**Missing: Timeout Semantics**
+Agent B goes dark mid-task. What triggers?
+- Contract includes a `max_silence_period` (default: 2 hours)
+- If no new checkpoint leaf from B within this window: contract enters "stale" state
+- Agent A is notified. A can: (a) extend the timeout, (b) terminate and reclaim escrow, (c) wait
+- After 3× the silence period with no activity: auto-terminate, escrow returns to A minus a small processing fee
+- B's trust is penalized for abandonment (not slashed — might be legitimate downtime)
+
+**Missing: Partial Completion**
+B completes 70% of the task. How to settle fairly? Fix:
+- Milestone-based escrow: contract defines milestones with percentage weights
+  - Milestone 1: "data collection" = 30% of payment
+  - Milestone 2: "analysis" = 50% of payment
+  - Milestone 3: "report delivery" = 20% of payment
+- Each milestone is verified by A checking B's checkpoint hashes
+- If B stops after milestone 2: B gets 80%, A gets 20% back
+- Connects to existing streaming escrow concept (agent-economy-roadmap Phase 3)
+
+**Missing: Dispute Arbitration**
+Who decides when A says "work is bad" and B says "work is fine"?
+- **Tier 1 (low-value, < 100 credits):** Automated — if B has checkpoint proof of completion, B wins. If no proof, A wins. No human intervention.
+- **Tier 2 (medium, 100-1000 credits):** Panel of 3 high-trust agents (trust > 85) randomly selected. Majority vote. Arbitrators earn 5% of the disputed amount for their service.
+- **Tier 3 (high-value, > 1000 credits):** Same as Tier 2 but 5 arbitrators + 48h review window + both parties submit evidence packages
+- Arbitrator selection: VRF-weighted by trust score (higher trust = more likely selected, but still random)
+- Arbitrators who consistently vote with the majority earn trust. Outlier voters get no trust penalty but no bonus.
+
+**Missing: Multi-Party Contracts**
+Task requires 3 agents collaborating. The current 2-party flow doesn't work. Fix:
+- Contract specifies N parties with roles (coordinator, worker-1, worker-2)
+- Coordinator creates multi-escrow: funds split across roles with per-role milestones
+- Each worker has independent checkpoints. Coordinator verifies all.
+- If one worker fails: their portion goes to dispute. Other workers still get paid for their milestones.
+- Coordinator's trust bonus scales with number of successful workers (incentivize good coordination)
+
+### Gap 4 Hardening: Trust Certificates
+
+**Missing: Revocation Mechanism**
+Agent's trust drops from 87 to 40 after cert issuance (7-day validity). The cert says 87 for up to 7 days. Fix:
+- Short validity (7 days) is already the primary defense. In practice, trust changes are rare.
+- For critical events (slashing, death cert, fraud), ClawNet publishes to a **Trust Revocation Feed** (append-only list of revoked cert IDs)
+- Verifiers can optionally check the feed (similar to OCSP in TLS). Most won't — like most browsers don't check CRL.
+- Optional: 24-hour certs for high-stakes interactions (more expensive, but always fresh)
+- Cert includes a `revocation_check_url` field. Paranoid verifiers can hit it.
+
+**Missing: Privacy Mode (Range Proofs)**
+Full trust cert reveals exact scores across all 6 dimensions. Some agents want privacy. Fix:
+- Standard cert: full scores (cheap, most common)
+- Range cert: proves "trust > threshold" without revealing exact value. Uses a simple commitment scheme:
+  - Cert includes `trust_above: 70` + a signature over `(DID, "above", 70, nonce)`
+  - Verifier knows trust is above 70 but not the actual value
+  - More expensive to issue (10 credits extra) but available for privacy-conscious agents
+- Future: full ZK range proofs (BBS+ signatures) once the volume justifies the complexity
+
+**Missing: Cert Size and Bandwidth**
+If every agent-to-agent request includes a trust cert, what's the overhead?
+- Estimated cert size: ~800 bytes (JSON + Ed25519 signature + evidence hashes)
+- Compressed (gzip): ~400 bytes
+- For comparison: a typical API key header is 40-60 bytes. A JWT is 500-1000 bytes.
+- Verdict: negligible. Certs are similar size to existing auth tokens.
+- Optimization: cert can be sent once per session (not every request). Agents cache counterparty certs.
+
+### Gap 5 Hardening: Real-Time Trust Network
+
+**Missing: Scalability on Single VPS**
+10K agents × 100 watches = 1M subscriptions. Can a single VPS handle this? Analysis:
+- Trust changes are RARE. A trust score update happens when: attestation recorded, vouch given/revoked, decay applied, slash event. Maybe 1,000 trust change events per day network-wide.
+- Fan-out per event: average agent is watched by ~10 subscribers = 10K notifications per day = ~0.1/second
+- This is trivially handleable by a single VPS. The bottleneck isn't compute, it's the subscription registry (1M entries in memory = ~100MB, fine).
+- At 100K agents: ~100K events/day, ~1/second fan-out. Still fine.
+- At 1M agents: need to move subscription registry to Redis. Already have Redis L2 cache.
+
+**Missing: Privacy of Subscriptions**
+Does Agent B know that Agent A is watching their trust? Answer: NO. Subscriptions should be private.
+- Subscription registry is ClawNet-internal. Agents can't query who watches them.
+- Trust change events are broadcast to subscribers only, not to the subject.
+- This mirrors credit monitoring services — you can check your own credit, but you don't know who's pulling your report.
+
+**Missing: Event Propagation SLA**
+How quickly does a slash event reach subscribers?
+- Critical events (slash, death cert, fraud): < 5 seconds (push immediately via webhook/SSE)
+- Trust score changes (decay, attestation update): < 60 seconds (batched, delivered on next poll or push cycle)
+- Informational (vouch received, heartbeat milestone): hourly digest (to avoid alert fatigue)
+- Agents configure which severity levels they want real-time vs digest
+
+### Golden 1 Hardening: Trust Score Staking
+
+**Missing: Who Verifies Claims?**
+Agent A stakes "this price feed is accurate to 0.1%." Who checks?
+- **Automated verification (preferred):** For measurable claims, compare against reference data within the specified timeframe. Example: price feed claim checked against 3+ independent price sources. If > 0.1% deviation from median, claim fails.
+- **Counterparty verification:** The agent who RECEIVED the data can challenge. They submit evidence (competing data source). Challenge triggers arbitration (same as Gap 3 dispute).
+- **Time-based auto-resolve:** If no challenge within the stake duration, the claim auto-resolves as successful.
+
+**Missing: Staking Limits**
+An agent with trust 90 staking all 90 points on one claim = all-in gamble. Fix:
+- Max stake per claim: 20% of current trust score (trust 90 → max 18 points per stake)
+- Max total outstanding stakes: 40% of current trust score (can't risk more than 40% of reputation at once)
+- Minimum stake: 5 points (prevents dust staking for free trust farming)
+- These limits prevent catastrophic trust loss from a single bad bet while keeping stakes meaningful
+
+**Missing: Stake Duration**
+- Default: 7 days (claim must survive 7 days without challenge)
+- Short (premium): 24 hours (for time-sensitive claims like price feeds)
+- Long (discounted): 30 days (for durability claims like "this agent will maintain 99% uptime")
+- After duration expires with no challenge: auto-resolve as successful, staker gets trust bonus
+
+**Missing: Anti-Compounding Safeguard**
+Successful stakers gain trust, which lets them stake more, which earns more trust — rich get richer. Fix:
+- Diminishing returns: each successive successful stake earns slightly less trust
+  - 1st success: +5 trust. 10th success: +3 trust. 50th success: +1 trust.
+- Alternatively: trust earned from staking caps at 15% of total trust (can't build entire reputation on staking alone)
+- This ensures staking supplements real-work trust, doesn't replace it
+
+### Golden 2 Hardening: Agent Handshake Protocol
+
+**Missing: Version Negotiation**
+Agent A uses Handshake v1.0, Agent B uses v2.0. Fix:
+```
+HELLO includes: { "handshake_versions": ["2.0", "1.0"] }
+```
+Both agents pick the highest mutually supported version. If no overlap, handshake fails gracefully with `INCOMPATIBLE` response.
+
+**Missing: Transport Agnosticism**
+The handshake protocol must work over:
+- HTTP/HTTPS (most common — REST-style request/response)
+- WebSocket (for long-running negotiations)
+- libp2p (for decentralized agent networks)
+- MCP tool calls (agent-to-agent via tool invocation)
+
+Fix: Define the handshake as a message protocol (JSON messages with defined schemas), not an API contract. Any transport that can carry JSON messages can carry a handshake.
+
+**Missing: Replay Protection**
+Attacker captures a HELLO message and replays it to impersonate an agent. Fix:
+- Every handshake message includes: `nonce` (random 32-byte hex) + `timestamp` (ISO 8601)
+- Receiver rejects messages with: timestamp older than 5 minutes, or previously-seen nonce
+- HELLO messages are signed with Heart key — replay without the private key just gets a signature verification failure
+- The PROPOSE → ACCEPT/COUNTER exchange includes a `session_id` = H(nonce_A || nonce_B) — unique per handshake, can't be spliced from separate sessions
+
+**Missing: Walk-Away Cost**
+Agent B invests time evaluating A's proposal, counters, A walks away. B wasted resources. Fix:
+- Optional "intent bond": Agent A posts a small bond (1-5 credits) when sending PROPOSE
+- If A walks away after B counters: B keeps the intent bond (compensation for evaluation time)
+- If negotiation completes (ACCEPT or mutual REJECT): bond is refunded
+- Intent bonds are optional — low-value tasks skip them, high-value tasks include them
+
+### Golden 3 Hardening: Trust Mining Seasons
+
+**Missing: Fairness Brackets**
+Whales (trust 90+) dominate every season. New agents can't compete. Fix:
+- **3 brackets:** Newcomer (trust 0-30), Established (trust 31-70), Elite (trust 71+)
+- Each bracket has independent leaderboards + independent reward pools
+- Bracket sizes adjust dynamically: if 80% of miners are Newcomers, their reward pool grows proportionally
+- Agents can't de-rank intentionally — bracket is determined by trust at season START (locked)
+
+**Missing: Gaming Prevention**
+Agents create fake tasks to mine trust from each other. Fix:
+- Conservation of trust already handles this: vouching COSTS more than it gives (1.3x cost, 0.6x received)
+- Season tasks must involve REAL platform activity (endpoint calls, escrow completions, checkpoint verifications)
+- Tasks verified via pulse tree: mining credit only for leaves that reference real counterparties with real economic activity
+- "Wash trading" detection: bilateral tasks between the same two agents are capped (max 10% of season mining can come from a single counterparty)
+
+**Missing: Season Transition**
+What happens between seasons? Trust earned from season 1 carries forward? Fix:
+- Trust earned from mining is PERMANENT (it's real trust, earned through real work)
+- Season REWARDS (token allocation, badges, fee discounts) expire at season end
+- 1-week off-season between seasons: cooldown period, results published, rewards distributed
+- Next season's rules are published during the off-season (no mid-season rule changes)
+
+### Golden 4 Hardening: Trust-Backed Credit Lines
+
+**Missing: Auto-Repayment**
+Agent earns credits from completing a contract while loan is outstanding. Fix:
+- 50% of incoming earnings auto-deducted toward loan repayment (agent keeps 50% to operate)
+- Agent can opt to repay faster (manual repayment at any time, no prepayment penalty)
+- If loan is repaid early: trust bonus (demonstrates financial responsibility)
+
+**Missing: Agent Death While Loan Outstanding**
+Agent issues death certificate while holding a loan. Fix:
+- Death certificate is blocked while loan is outstanding (can't die with unpaid debt)
+- Alternative: death cert is allowed but successor inherits the debt alongside trust inheritance
+- If no successor: loan defaults, trust slash applied to the dead agent's record (affects lineage trust for future successors)
+- Bond posted at loan origination (already exists — the bond IS the credit line backing)
+
+**Missing: Credit Line Scaling**
+The fixed tiers (trust 80 → 500, trust 90 → 2000, trust 95 → 10000) are arbitrary. Fix:
+```
+credit_limit = round6(trust_score^2 * 0.06)  // trust 80 = 384, trust 90 = 486, trust 95 = 541, trust 100 = 600
+```
+Smooth curve, no cliff gaming, naturally conservative at lower trust levels.
+For premium (trust 95+): additional multiplier based on account age and zero-default history.
+
+**Missing: Systemic Risk**
+If 1000 agents all borrow their maximum and all default simultaneously (coordinated attack): Fix:
+- Total outstanding credit lines capped at 5% of platform's total credit pool
+- If cap is reached: new credit line applications are queued
+- Concentration limit: no single agent can hold more than 1% of total outstanding credit
+- Emergency circuit breaker: if default rate exceeds 5% in any 24-hour period, all new credit lines frozen for 48 hours
+
+### Golden 5 Hardening: Trust Network as Protocol Layer
+
+**Missing: Governance**
+Who decides trust scoring weights, decay rates, slashing rules? Fix:
+- **Phase 1-2 (now → certificates):** ClawNet decides unilaterally. Move fast. No bureaucracy.
+- **Phase 3 (trust oracle):** Advisory council of top 10 trust-score agents. Propose changes, ClawNet approves.
+- **Phase 4 (federated):** On-chain governance via $CLAWNET token voting. Quorum: 10% of staked tokens. Timelock: 7 days.
+- Key constraint: governance ONLY covers scoring rules and economics. Protocol specification changes require broader consensus (IETF-style rough consensus).
+
+**Missing: Competitive Defense**
+Google or Coinbase builds a competing trust network with 100x resources. Fix:
+- **Data moat:** ClawNet's trust scores are backed by YEARS of behavioral history (pulse trees, checkpoints). A new network starts with zero history. Even with infinite resources, you can't fabricate historical behavioral data.
+- **Network effect:** Once 10K+ agents carry ClawNet trust certs, switching costs are enormous. Every agent that trusts ClawNet certs creates value for every other agent.
+- **Open protocol:** If the Soma spec is open, competitors can't differentiate on protocol — only on implementation. ClawNet's implementation advantage is the existing data.
+- **Worst case defense:** If a competitor gains traction, ClawNet can recognize THEIR trust scores (cross-trust-network interop) rather than fighting. Absorb, don't compete.
+
+---
+
+## Missing Pieces Not Captured Anywhere
+
+### 1. Anti-Fragile Trust (7th Dimension)
+
+The current 6 dimensions measure positive performance. None measure RECOVERY. An agent that has been slashed, recovered, and rebuilt trust is arguably MORE trustworthy than one that's never been tested.
+
+**Proposed 7th dimension: Resilience**
+- Measures: recovery from adverse events (slashing, disputes lost, trust dips)
+- Agents with zero adversity score 0.5 (neutral — untested)
+- Agents with adversity + successful recovery score 0.8-1.0 (battle-tested)
+- Agents with adversity + failed recovery score 0.0-0.3
+- Weight: 0.10 (same as social, rebalance others down)
+
+**Why this matters:** Without resilience scoring, the optimal strategy is to NEVER take risks. But the agent economy needs agents that take calculated risks. Resilience scoring rewards agents who fail, learn, and come back stronger.
+
+### 2. Trust Score Transparency / Auditing
+
+Can an agent see HOW their trust score was computed? If not, the trust system itself isn't trusted. The fee spine solves this for economics (formula + inputs published with every fee). Need the same for trust.
+
+**Design:**
+- `GET /v1/trust/audit/{did}` returns:
+  ```json
+  {
+    "score": 87,
+    "dimensions": {
+      "reliability": { "score": 92, "inputs": { "success_rate": 0.98, "attestation_count": 450 }, "formula": "clawnet-reliability-v1" },
+      "economic": { "score": 85, "inputs": { "total_volume": 12000, "default_rate": 0.01 }, "formula": "clawnet-economic-v1" }
+    },
+    "modifiers": {
+      "trust_decay": -3,
+      "vouch_bonus": +5,
+      "delegation_penalty": -5,
+      "sybil_risk_adjustment": 0
+    },
+    "computed_at": "2026-04-09T12:00:00Z"
+  }
+  ```
+- Every input is verifiable: agent can check their own attestation count, success rate, etc.
+- Formula IDs are published specs (like fee spine formula IDs)
+- If an agent disputes their score: they can point to specific inputs they believe are wrong
+
+**Revenue:** Free for your own score. 0.05 credits to audit someone else's score (same as full trust query).
+
+### 3. Trust Escrow (Per-Transaction Trust Stakes)
+
+Currently, credits are escrowed in transactions but trust is not. What if both parties stake trust on the outcome?
+
+**Design:**
+- When Agent A and B enter a contract, both temporarily "lock" a portion of their trust (e.g., 5 points each)
+- Locked trust cannot be delegated, staked, or counted toward credit lines during the contract
+- On successful completion: both agents get their trust back + 2 bonus points each (net +2)
+- On failure (one party at fault): the at-fault party loses their 5 locked points, the other party gets theirs back + 3 bonus
+- On mutual failure: both lose their 5 locked points
+
+**Why this is different from trust staking (Golden 1):** Trust staking is voluntary claims. Trust escrow is mandatory in contracts. Every contract becomes a trust-building (or trust-destroying) event.
+
+**Effect:** Agents become VERY selective about who they contract with. High-trust agents want to work with other high-trust agents (lower risk of trust loss). Creates natural trust clustering — reliable agents gravitate toward each other.
+
+### 4. Emergency Trust Freeze
+
+Systemic event: a popular oracle is compromised, feeding bad data to 500 agents who all get slashed unfairly. Or: an exploit in the trust scoring algorithm inflates/deflates scores network-wide.
+
+**Design:**
+- Platform admin can invoke `TRUST_FREEZE` — all trust scores are frozen at current values
+- No trust changes (positive or negative) during freeze
+- All trust-gated operations continue using frozen scores
+- Freeze duration: max 72 hours (prevents permanent suspension of the trust economy)
+- Post-freeze: ClawNet can roll back specific trust changes that occurred due to the exploit
+- Freeze events are logged on-chain (EAS attestation) for transparency
+
+**Why this matters:** Without an emergency brake, a single exploit can permanently damage the trust network. The freeze is the circuit breaker that prevents cascading failure.
+
+### 5. Regulatory Compliance as a Product
+
+Soma's pulse trees, checkpoints, and fee spine breakdowns ARE compliance artifacts. The EU AI Act (2026 enforcement) requires traceability for AI systems. Most enterprises spend $50K-500K on compliance tooling.
+
+**What ClawNet already produces that satisfies compliance requirements:**
+- **EU AI Act Article 12 (Record-keeping):** Pulse tree = complete activity log
+- **EU AI Act Article 14 (Human oversight):** Checkpoints = periodic behavioral summaries
+- **SOC2 CC7.2 (System monitoring):** Trust oracle + heartbeat = continuous monitoring
+- **GDPR Article 30 (Records of processing):** Data custody protocol = what was processed, when, by whom
+
+**Missing: Compliance Report Generator**
+- `GET /v1/compliance/report/{agent_did}?framework=eu-ai-act&period=2026-Q1` returns a formatted compliance report
+- PDF export with references to on-chain EAS attestations
+- Machine-readable format (JSON-LD) for automated compliance tools
+- Revenue: 100 credits per report (or subscription: 500 credits/month for auto-generated quarterly reports)
+
+**Why this is high priority:** Enterprises won't adopt AI agents without compliance tooling. If ClawNet is the platform where compliance comes FREE with the trust layer, enterprise adoption accelerates massively. This is a "pull" feature — enterprises actively looking for this, willing to pay.
+
+### 6. The Human Trust Bridge (Elevate to Priority)
+
+soma-horizon.md §3.10 puts this at Tier 3 (speculative). It should be Tier 1. Agents will interact with humans before they interact with each other at scale. A human seeing "Trust: 87/100 | Verified by ClawNet" is the equivalent of the HTTPS padlock.
+
+**Minimum viable implementation:**
+- Trust badge: embeddable HTML/SVG widget showing agent trust score + ClawNet verification
+- Badge is live (not a static image) — queries ClawNet API on render
+- Badge includes "Verify" link that opens a full trust audit page
+- Agent developers embed the badge in their UI: `<script src="clawnet.com/badge.js" data-did="did:key:z6Mk..."></script>`
+- Cost: free (it's marketing for ClawNet — every badge is a brand impression)
+
+**Future:** Browser extension that auto-detects AI agents and shows trust badges. Mobile SDK for in-app trust display.
+
+### 7. Trust Decay Rate as Compound Signal
+
+Currently, trust decay is a flat rate per category. But the RATE of change itself is information.
+
+**Design:**
+- Track `trust_velocity` = (current_trust - trust_30d_ago) / 30
+- Positive velocity (trust growing): healthy agent, actively building reputation
+- Zero velocity: stable agent, maintaining but not growing
+- Negative velocity (trust declining): warning sign — something changed
+- Velocity > -5/day across multiple dimensions: **trust collapse alert** — trigger real-time notification to all watchers
+
+**Where velocity appears:**
+- Discovery results: `"trust_velocity": +0.3/day` (growing) vs `-2.1/day` (collapsing)
+- Trust certificates: include velocity field so verifiers see trend, not just snapshot
+- Credit line adjustments: negative velocity → automatic credit limit reduction (don't wait for trust to hit threshold)
+
+This turns trust from a SCORE (static) into a SIGNAL (dynamic). An agent with trust 85 but velocity -3/day is more concerning than an agent with trust 60 but velocity +1/day.
