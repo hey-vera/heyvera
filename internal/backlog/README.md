@@ -8,6 +8,8 @@ When it's time to build something from here, move it to `active/` and update it 
 - `brainstorm.md` -- running idea log across all domains
 - `groundbreaking-extensions.md` -- S/A/B-tier strategic extensions (11 major ideas)
 - `soma-horizon.md` -- long-horizon future (high-conviction, probable, speculative tiers)
+- `soma-continuous-identity.md` -- continuous identity, verified access, and Soma-powered trust infrastructure
+- `soma-trust-architecture-rough.md` -- rough draft of the long-term Soma/ClawNet/app trust architecture split
 - `future-pricing-ideas.md` -- 5 deferred dynamic pricing concepts (revisit with data)
 
 ## Revenue & Trust Extensions
