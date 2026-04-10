@@ -105,6 +105,26 @@ describe('Typed leaf appends', () => {
     const state = getAgentPulseState(did);
     expect(state!.leafCount).toBe(2);
   });
+
+  it('refuses any appends after a DEATH leaf (death seal)', () => {
+    appendAction(did, { endpointId: 'ep-1', success: true, durationMs: 50, cached: false }, 1);
+    appendDeath(did, { reason: 'graceful', finalBalance: 0 });
+
+    // A fresh action attempt must fail — even if the in-memory tree has
+    // been evicted and would be rebuilt from storage.
+    expect(() =>
+      appendAction(did, { endpointId: 'ep-2', success: true, durationMs: 10, cached: false }, 1),
+    ).toThrow(/sealed/);
+
+    // A second DEATH is also rejected — the seal is final.
+    expect(() =>
+      appendDeath(did, { reason: 'graceful', finalBalance: 0 }),
+    ).toThrow(/sealed/);
+
+    // Leaf count is still exactly the 2 legitimate leaves.
+    const state = getAgentPulseState(did);
+    expect(state!.leafCount).toBe(2);
+  });
 });
 
 // ─── Pulse State ──────────────────────────────────────────────────────────

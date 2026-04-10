@@ -192,6 +192,20 @@ function appendLeaf(
   // Entire append is atomic: heartbeat increment + tree mutation + DB persist.
   // Prevents race condition where concurrent requests corrupt the pulse tree.
   const result = getDb().transaction(() => {
+    // Death seal: once a DEATH leaf has been written, the tree is sealed
+    // forever. No further appends of any type — including another DEATH —
+    // are permitted. Cache eviction alone is not enough; the tree is
+    // rebuilt from storage on next access, so the guard must consult the
+    // DB, not the in-memory cache.
+    const sealed = getDb()
+      .prepare(
+        'SELECT 1 FROM pulse_tree_leaves WHERE agent_did = ? AND type = ? LIMIT 1',
+      )
+      .get(agentDid, PULSE_TYPE.DEATH);
+    if (sealed) {
+      throw new Error(`pulse tree for ${agentDid} is sealed (DEATH leaf present)`);
+    }
+
     const heartbeatIndex = incrementHeartbeat(agentDid);
     const tree = getAgentTree(agentDid);
 
