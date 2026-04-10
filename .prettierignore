@@ -1,0 +1,13 @@
+dist/
+node_modules/
+data/
+dashboard/dist/
+packages/*/node_modules/
+package-lock.json
+*.db
+*.db-wal
+*.db-shm
+*.png
+*.jpg
+*.jpeg
+*.pdf

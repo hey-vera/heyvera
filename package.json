@@ -6,6 +6,10 @@
     "dev": "tsx watch --env-file=.env src/index.ts",
     "build": "tsc --noCheck",
     "start": "node dist/index.js",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier . --write",
+    "format:check": "prettier . --check",
     "test": "tsx --env-file=.env tests/run.ts",
     "test:unit": "vitest run",
     "test:unit:watch": "vitest",
@@ -64,11 +68,16 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@eslint/js": "^9.0.0",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.0.0",
     "@vitest/coverage-v8": "^4.0.18",
+    "eslint": "^9.0.0",
+    "globals": "^15.0.0",
     "pino-pretty": "^13.0.0",
+    "prettier": "^3.0.0",
     "tsx": "^4.19.0",
+    "typescript-eslint": "^8.0.0",
     "typescript": "^5.6.0",
     "vitest": "^4.0.18"
   }

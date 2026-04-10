@@ -23,6 +23,12 @@ jobs:
       - name: Dependency audit
         run: npm audit --production --audit-level=moderate
 
+      - name: Lint
+        run: npm run lint
+
+      - name: Format check
+        run: npm run format:check
+
       - name: Type check
         run: npm run typecheck
 

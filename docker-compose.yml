@@ -2,9 +2,9 @@ services:
   orchestrator:
     build: .
     ports:
-      - "3402:3402"
+      - '3402:3402'
     env_file:
-      - .env
+      - ${ENV_FILE:-.env}
     environment:
       - NODE_ENV=production
     volumes:
@@ -21,10 +21,16 @@ services:
     logging:
       driver: json-file
       options:
-        max-size: "10m"
-        max-file: "3"
+        max-size: '10m'
+        max-file: '3'
     healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3402/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "require('http').get('http://localhost:3402/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))",
+        ]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -38,15 +44,15 @@ services:
     logging:
       driver: json-file
       options:
-        max-size: "10m"
-        max-file: "3"
+        max-size: '10m'
+        max-file: '3'
     environment:
       - REDIS_PASSWORD=${REDIS_PASSWORD:-}
     command: >
       sh -c "redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru
       $${REDIS_PASSWORD:+--requirepass $$REDIS_PASSWORD}"
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli $${REDIS_PASSWORD:+-a $$REDIS_PASSWORD} ping"]
+      test: ['CMD-SHELL', 'redis-cli $${REDIS_PASSWORD:+-a $$REDIS_PASSWORD} ping']
       interval: 10s
       timeout: 5s
       retries: 3

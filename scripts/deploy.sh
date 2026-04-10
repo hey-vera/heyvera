@@ -3,8 +3,17 @@ set -euo pipefail
 
 REPO_DIR="/home/guardian/claw-net"
 WWW_DIR="/var/www/claw-net"
+EXTERNAL_ENV_FILE="${EXTERNAL_ENV_FILE:-/etc/claw-net/claw-net.env}"
 
 cd "$REPO_DIR"
+
+if [ -f "$EXTERNAL_ENV_FILE" ]; then
+  export ENV_FILE="$EXTERNAL_ENV_FILE"
+  echo "[env] Using external env file: $ENV_FILE"
+else
+  export ENV_FILE=".env"
+  echo "[env] External env file not found, falling back to repo-local .env"
+fi
 
 echo "[backup] Pre-deploy database backup..."
 bash "$REPO_DIR/scripts/backup.sh" || echo "[backup] WARNING: backup failed — continuing deploy"
