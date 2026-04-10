@@ -73,3 +73,4 @@ npm run test:unit
 - [docs/billing.md](C:\Users\Josh\Desktop\GitHub\claw-net\docs\billing.md)
 - [docs/soma-integration.md](C:\Users\Josh\Desktop\GitHub\claw-net\docs\soma-integration.md)
 - [docs/RUNBOOK.md](C:\Users\Josh\Desktop\GitHub\claw-net\docs\RUNBOOK.md)
+- [docs/vps-hardening.md](C:\Users\Josh\Desktop\GitHub\claw-net\docs\vps-hardening.md)

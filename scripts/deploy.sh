@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_DIR="/home/guardian/claw-net"
-WWW_DIR="/var/www/claw-net"
+DEPLOY_USER="${DEPLOY_USER:-deploy}"
+REPO_DIR="${REPO_DIR:-/home/${DEPLOY_USER}/claw-net}"
+WWW_DIR="${WWW_DIR:-/var/www/claw-net}"
 EXTERNAL_ENV_FILE="${EXTERNAL_ENV_FILE:-/etc/claw-net/claw-net.env}"
+GIT_BRANCH="${GIT_BRANCH:-main}"
 
 cd "$REPO_DIR"
 
@@ -16,14 +18,14 @@ else
 fi
 
 echo "[backup] Pre-deploy database backup..."
-bash "$REPO_DIR/scripts/backup.sh" || echo "[backup] WARNING: backup failed — continuing deploy"
+bash "$REPO_DIR/scripts/backup.sh" || echo "[backup] WARNING: backup failed - continuing deploy"
 
-echo "[git] Pulling latest..."
-git pull origin main
+echo "[git] Pulling latest from ${GIT_BRANCH}..."
+git pull origin "$GIT_BRANCH"
 
-echo "[site] Syncing site/ → $WWW_DIR"
+echo "[site] Syncing site/ to $WWW_DIR"
 mkdir -p "$WWW_DIR"
-# Remove stale files that were deleted from repo but still exist on VPS
+# Remove stale files that were deleted from repo but still exist on VPS.
 rm -f "$WWW_DIR/dashboard.html" "$WWW_DIR/provider-dashboard.html" 2>/dev/null || true
 cp -r site/. "$WWW_DIR/"
 
@@ -33,7 +35,7 @@ if [ -f "$REPO_DIR/Caddyfile" ]; then
   sudo systemctl reload caddy
   echo "[caddy] Reloaded"
 else
-  echo "[caddy] No Caddyfile found — skipping"
+  echo "[caddy] No Caddyfile found - skipping"
 fi
 
 echo "[docker] Building and restarting containers..."
