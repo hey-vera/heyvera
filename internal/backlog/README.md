@@ -6,6 +6,8 @@ When it's time to build something from here, move it to `active/` and update it 
 
 ## Ideas & Brainstorms
 - `brainstorm.md` -- running idea log across all domains
+- `heydata-clawapis-soma-pitch.md` -- Soma 1.1 step-up pitch for HeyDATA (iOS voice agent) + ClawAPIs/Nova; first external client target
+- `coding-orchestration-brain.md` -- coding-agent wedge into trusted orchestration, benchmark-first plan, Soma-native path
 - `groundbreaking-extensions.md` -- S/A/B-tier strategic extensions (11 major ideas)
 - `soma-horizon.md` -- long-horizon future (high-conviction, probable, speculative tiers)
 - `soma-continuous-identity.md` -- continuous identity, verified access, and Soma-powered trust infrastructure
@@ -17,6 +19,7 @@ When it's time to build something from here, move it to `active/` and update it 
 - `composite-agent-trust.md` -- delegation dimension, dynamic agent teams, cross-network trust
 
 ## Deferred Builds
+- `soma-agent-auth-paid-upgrades.md` -- HSM, Yubikeys, APNs, SMS, multi-region heart — paid hardening for the agent-auth stack (v0 ships without any of it)
 - `token-architecture.md` -- $CLAWNET BME model design (deferred to after PMF milestone)
 - `phase5-soma-verified-economy.md` -- verified trading + continuous computation witness (prerequisites not met)
 - `proof-of-delivery-roadmap.md` -- EigenLayer AVS, TEE-attested ETags, intent-based x402 (post-Phase-2)
