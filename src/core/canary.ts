@@ -135,11 +135,11 @@ export function generateCanary(): CanaryRecord {
   const previousHash = previous ? previous.hash : '0'.repeat(64); // 64 hex chars for SHA-256
   const timestamp = new Date().toISOString();
 
-  // Gather platform stats
+  // Gather platform stats — count from live tables (api_keys + attestations)
   let activeAgents = 0;
   let totalAttestations = 0;
   try {
-    const agentRow = getDb().prepare(`SELECT COUNT(*) as c FROM aid_keys WHERE key_status = 'active'`).get() as any;
+    const agentRow = getDb().prepare(`SELECT COUNT(*) as c FROM api_keys WHERE active = 1`).get() as any;
     activeAgents = agentRow?.c ?? 0;
     const attestRow = getDb().prepare(`SELECT COUNT(*) as c FROM attestations`).get() as any;
     totalAttestations = attestRow?.c ?? 0;
@@ -147,13 +147,13 @@ export function generateCanary(): CanaryRecord {
 
   const uptimeSeconds = Math.floor((Date.now() - startTime) / 1000);
 
-  // Get latest Merkle root if available
+  // Latest epoch Merkle root — live source-of-truth for canary anchoring (PoTW epoch snapshots).
   let merkleRoot: string | null = null;
   try {
     const snapRow = getDb().prepare(
-      `SELECT merkle_root FROM aid_trust_snapshots ORDER BY snapshot_id DESC LIMIT 1`
+      `SELECT epoch_root FROM epoch_snapshots ORDER BY epoch_number DESC LIMIT 1`
     ).get() as any;
-    merkleRoot = snapRow?.merkle_root ?? null;
+    merkleRoot = snapRow?.epoch_root ?? null;
   } catch { /* non-critical */ }
 
   const stats = { activeAgents, totalAttestations, uptimeSeconds };

@@ -79,7 +79,6 @@ import { custodyRouter } from './routes/custody';
 import { feesRouter } from './routes/fees';
 import { agentLifecycleRouter } from './routes/agent-lifecycle';
 import { startChallengeFinalizeCron } from './core/challenge-finalize-cron';
-import { startTrustDecayCron } from './core/trust-decay-cron';
 import { referralRouter } from './routes/referral';
 import { trustQueryRouter } from './routes/trust-query';
 import { vouchGraphRouter } from './routes/vouch-graph';
@@ -584,7 +583,6 @@ async function start() {
   startZauthDiscovery();             cronsStarted++;
   startX402scanDiscovery();          cronsStarted++;
   startCanaryCron();               cronsStarted++;
-  startTrustDecayCron();           cronsStarted++;
   startSignalCron();               cronsStarted++;
   startChallengeFinalizeCron();     cronsStarted++;
 
