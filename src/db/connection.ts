@@ -2282,6 +2282,12 @@ const MIGRATIONS: { version: number; sql: string }[] = [
       authoritative INTEGER NOT NULL DEFAULT 0
     );
   ` },
+  // Real action-outcome column. Prior state: soma-checkpoint hardcoded
+  // successCount = actionCount and trust-oracle.computeReliability used
+  // credit_delta >= 0 as a proxy, neither reflecting actual outcome.
+  // Callers of appendAction already pass success in the payload; this
+  // column persists it for downstream trust computation.
+  { version: 199, sql: `ALTER TABLE pulse_tree_leaves ADD COLUMN success INTEGER NOT NULL DEFAULT 1` },
 ];
 
 function runMigrations(): void {

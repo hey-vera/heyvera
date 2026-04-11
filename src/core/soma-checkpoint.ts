@@ -120,17 +120,19 @@ export function createCheckpoint(agentDid: string): CheckpointData {
     throw new Error('No new actions since last checkpoint');
   }
 
-  // Count actions and successes in the window
+  // Count actions and successes in the window.
+  // `success` column is populated by appendAction from payload.success —
+  // see src/db/connection.ts migration 199.
   const leaves = getDb()
     .prepare(`
-      SELECT type, credit_delta FROM pulse_tree_leaves
+      SELECT type, credit_delta, success FROM pulse_tree_leaves
       WHERE agent_did = ? AND heartbeat_index >= ? AND heartbeat_index <= ?
       ORDER BY leaf_index ASC
     `)
-    .all(agentDid, heartbeatStart, heartbeatEnd) as Array<{ type: number; credit_delta: number }>;
+    .all(agentDid, heartbeatStart, heartbeatEnd) as Array<{ type: number; credit_delta: number; success: number }>;
 
   const actionCount = leaves.filter(l => l.type === 0x01).length;
-  const successCount = actionCount; // all appended actions are successful
+  const successCount = leaves.filter(l => l.type === 0x01 && l.success === 1).length;
   const totalCreditsDelta = leaves.reduce((sum, l) => sum + l.credit_delta, 0);
 
   const checkpointIndex = prev ? prev.checkpointIndex + 1 : 0;

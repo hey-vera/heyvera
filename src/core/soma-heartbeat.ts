@@ -102,13 +102,13 @@ function persistTreeState(agentDid: string, tree: PulseTree): void {
 /** Store a leaf in the DB for later proof generation. Returns the leaf ID. */
 function storeLeaf(
   agentDid: string, leaf: PulseLeaf, position: number, root: string,
-  bilateralRef?: string, bilateralWeight = 1.0,
+  bilateralRef: string | undefined, bilateralWeight: number, success: boolean,
 ): string {
   const id = nanoid(16);
   getDb()
     .prepare(`
-      INSERT INTO pulse_tree_leaves (id, agent_did, leaf_index, position, type, heartbeat_index, timestamp, payload_hash, credit_delta, root_after, bilateral_ref, bilateral_weight)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO pulse_tree_leaves (id, agent_did, leaf_index, position, type, heartbeat_index, timestamp, payload_hash, credit_delta, root_after, bilateral_ref, bilateral_weight, success)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
     .run(
       id,
@@ -123,6 +123,7 @@ function storeLeaf(
       root,
       bilateralRef ?? null,
       bilateralWeight,
+      success ? 1 : 0,
     );
   return id;
 }
@@ -187,7 +188,7 @@ interface AppendResult {
  */
 function appendLeaf(
   agentDid: string, type: PulseType, payloadHash: string, creditDelta: number,
-  bilateralRef?: string, bilateralWeight = 1.0,
+  bilateralRef?: string, bilateralWeight = 1.0, success = true,
 ): AppendResult {
   // Entire append is atomic: heartbeat increment + tree mutation + DB persist.
   // Prevents race condition where concurrent requests corrupt the pulse tree.
@@ -218,7 +219,7 @@ function appendLeaf(
     };
 
     const { position, root } = tree.append(leaf);
-    const leafId = storeLeaf(agentDid, leaf, position, root, bilateralRef, bilateralWeight);
+    const leafId = storeLeaf(agentDid, leaf, position, root, bilateralRef, bilateralWeight, success);
     persistTreeState(agentDid, tree);
 
     return { leafId, heartbeatIndex, position, root };
@@ -287,7 +288,7 @@ export function appendAction(
   creditCost: number,
 ): AppendResult {
   const payloadHash = somaHashJson(payload);
-  return appendLeaf(agentDid, PULSE_TYPE.ACTION, payloadHash, creditCost);
+  return appendLeaf(agentDid, PULSE_TYPE.ACTION, payloadHash, creditCost, undefined, 1.0, payload.success);
 }
 
 /**
@@ -309,10 +310,10 @@ export function appendBilateralAction(
   const payloadHash = somaHashJson(payload);
 
   // Agent's leaf first
-  const agentResult = appendLeaf(agentDid, PULSE_TYPE.ACTION, payloadHash, creditCost, undefined, bilateralWeight);
+  const agentResult = appendLeaf(agentDid, PULSE_TYPE.ACTION, payloadHash, creditCost, undefined, bilateralWeight, payload.success);
 
   // Counterparty's leaf references agent's
-  const counterpartyResult = appendLeaf(counterpartyDid, PULSE_TYPE.ACTION, payloadHash, creditCost, agentResult.leafId, bilateralWeight);
+  const counterpartyResult = appendLeaf(counterpartyDid, PULSE_TYPE.ACTION, payloadHash, creditCost, agentResult.leafId, bilateralWeight, payload.success);
 
   // Back-link: update agent's leaf to reference counterparty's
   try {

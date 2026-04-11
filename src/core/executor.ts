@@ -618,19 +618,21 @@ export async function executePlan(
     .map(s => s.birthCertificate)
     .filter((c): c is BirthCertificate => c != null);
 
-  // ─── Pulse Tree: append ACTION leaf for each successful step ──────────
+  // ─── Pulse Tree: append an ACTION leaf for every step (success + failure) ─
+  // Failed steps must land on the tree with success=false so
+  // trust-oracle.computeReliability sees real failure rates. Previously this
+  // loop filtered to successful steps only, which made every agent look 100%
+  // reliable regardless of actual outcome.
   if (agentKey) {
     try {
       const agentDid = resolveAgentDid(agentKey);
       for (const step of steps) {
-        if (step.success) {
-          appendAction(agentDid, {
-            endpointId: step.endpointId,
-            success: step.success,
-            durationMs: step.durationMs,
-            cached: step.cached,
-          }, step.cost);
-        }
+        appendAction(agentDid, {
+          endpointId: step.endpointId,
+          success: step.success,
+          durationMs: step.durationMs,
+          cached: step.cached,
+        }, step.cost);
       }
     } catch (err) {
       logger.warn({ err }, 'Pulse Tree append failed (non-fatal)');

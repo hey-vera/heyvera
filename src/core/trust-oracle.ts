@@ -321,10 +321,13 @@ export function getCompositeIdentity(agentDid: string): CompositeIdentity {
 // ─── Dimension Computation ──────────────────────────────────────────────────
 
 function computeReliability(agentDid: string): TrustDimension {
-  // Action leaves with success data
+  // Reliability = actual action success rate, read directly from the
+  // pulse_tree_leaves.success column (migration 199). Previously used
+  // credit_delta >= 0 as a proxy, which counted cheap/free calls as
+  // successes even when they had failed upstream.
   const rows = getDb().prepare(`
     SELECT COUNT(*) as total,
-           SUM(CASE WHEN credit_delta >= 0 THEN 1 ELSE 0 END) as successful
+           COALESCE(SUM(success), 0) as successful
     FROM pulse_tree_leaves
     WHERE agent_did = ? AND type = 1
   `).get(agentDid) as { total: number; successful: number } | undefined;

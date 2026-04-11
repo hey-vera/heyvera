@@ -796,6 +796,19 @@ endpointsRouter.post('/:id/call', async (c) => {
     const isTimeout = err instanceof Error && err.name === 'AbortError';
     cacheNegative(key, isTimeout ? 'TIMEOUT' : error.slice(0, 100));
     recordFailure(endpointId);
+
+    // Pulse Tree: record the failed live fetch with success=false so
+    // trust-oracle.computeReliability sees real upstream failure rates.
+    try {
+      const agentDid = resolveAgentDid(keyInfo.key);
+      appendBilateralAction(
+        agentDid,
+        getPlatformDid(),
+        { endpointId, success: false, durationMs: Date.now() - start, cached: false },
+        0,
+      );
+    } catch (pulseErr) { logger.warn({ err: pulseErr, requestId }, 'Pulse Tree append (failure branch) failed'); }
+
     logger.error({ requestId, endpointId, error, timeout: isTimeout }, 'Direct endpoint call failed');
     return c.json({ requestId, error: isTimeout ? 'Endpoint timed out' : error, code: isTimeout ? 'TIMEOUT' : 'UPSTREAM_ERROR' }, 502);
   }

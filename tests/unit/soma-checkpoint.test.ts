@@ -48,6 +48,21 @@ describe('Checkpoint creation', () => {
     expect(cp.pulseRoot.length).toBe(64);
   });
 
+  it('successCount reflects actual action outcome, not raw count', () => {
+    // Mix of successful and failed actions. The previous implementation
+    // hardcoded successCount = actionCount, so failing this test proves the
+    // success column from migration 199 is actually being consulted.
+    appendAction(DID, { endpointId: 'ep-ok-1', success: true, durationMs: 50, cached: false }, 1);
+    appendAction(DID, { endpointId: 'ep-fail-1', success: false, durationMs: 120, cached: false }, 1);
+    appendAction(DID, { endpointId: 'ep-ok-2', success: true, durationMs: 40, cached: false }, 1);
+    appendAction(DID, { endpointId: 'ep-fail-2', success: false, durationMs: 200, cached: false }, 1);
+    appendAction(DID, { endpointId: 'ep-ok-3', success: true, durationMs: 30, cached: false }, 1);
+
+    const cp = createCheckpoint(DID);
+    expect(cp.actionCount).toBe(5);
+    expect(cp.successCount).toBe(3); // 3 successes, 2 failures
+  });
+
   it('throws when no actions exist', () => {
     expect(() => createCheckpoint(DID)).toThrow('no actions recorded');
   });
