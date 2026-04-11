@@ -1,274 +1,165 @@
-# Session Mode + Human Consent Ceremony
+# Session Mode — ClawNet Wiring
 
-**Status:** active design doc — blueprint for PR-A..PR-D
-**Created:** 2026-04-11
+**Status:** active — Soma primitives shipped, ClawNet wiring pending (PR-C)
+**Soma design doc:** `Soma/docs/design/session-mode.md` (architectural
+blueprint, primitive specs, ceremony tiers). Read that first.
 **Owners:** Josh + Claude
-**Cross-refs:**
-- `rotation-battle-test-and-roadmap.md` §3 (agent primitives)
-- `soma-delegation-spec.md` (existing macaroon-style delegation)
-- `gameplan-post-1-1.md` step 4 (agent + human auth into heart + VPS)
-- `soma-heart/src/heart/delegation.ts` (existing capability envelope)
 
----
+This doc only covers what **ClawNet** needs to do to consume Soma's
+session-mode primitives. The architecture, the `HumanDelegation` type,
+the `CeremonyPolicy` engine, the `HumanSessionRegistry`, and the tier
+definitions all live in the Soma repo as first-class Soma design — Soma
+is the machine, ClawNet is the first consumer.
 
-## §1 Economic reality — why session mode exists
+## What Soma already ships
 
-The naive Soma mental model assumes the "agent" is an autonomous program with its
-own durable identity. That is almost never what happens in practice today:
+- `createHumanDelegation` / `verifyHumanDelegation` / `computeChallengeHash`
+- `createCeremonyPolicy` with fail-safe defaults (read=L0, write=L1,
+  spend/deploy=L2, admin=L3, unknown=L2)
+- `HumanSessionRegistry` — verified-open, invoke gating, budget +
+  invocation drain, terminal states, `prune`, `revoke`
+- `consent_required` / `consent_granted` heartbeat event types
+- Pluggable `AttestationVerifier` — Soma is WebAuthn-agnostic by design
 
-- Claude/GPT API usage is expensive per-call; running a fully-autonomous agent
-  that signs every operation with its own durable key is cost-prohibitive for
-  most dev-tier users.
-- Openclaw-style harnesses often gate Anthropic API access behind paid-user
-  accounts. The *human* is the paying customer; the model is a rented tool.
-- Real-world usage: **human prompts Claude → Claude (running in harness) acts on
-  human's behalf → signs things using delegated authority → may sign out before
-  the next prompt → signs back in**.
-- The durable, liability-bearing identity is the **human** (or their hardware
-  key-holder). The agent is ephemeral: it holds a delegated session with a
-  ceiling on budget, actions, time, and scope.
+ClawNet does not extend any of these. It imports them and wires them to
+HTTP.
 
-This inverts the primitive we need. Instead of:
+## PR-C — ClawNet session routes (next build)
 
-> agent.durableDid signs everything
-
-we need:
-
-> human.durableDid delegates a bounded session to agent.ephemeralDid;
-> heart records the delegation handshake + every action in the session
-> under both identities; sense-observer replays the chain and can pin
-> liability on either side depending on whether the action stayed
-> inside the envelope.
-
-## §2 Session mode — the primitive
-
-A **session** is:
+Four routes, all gated on Clerk auth because the *human* is the Clerk
+user:
 
 ```
-Session {
-  sessionId: string                 // UUID, logged everywhere
-  humanDid: string                  // durable, registered during onboarding
-  agentEphemeralDid: string         // fresh keypair per session
-  capabilityEnvelope: Caveat[]      // reuses existing delegation caveat system
-  humanDelegation: HumanDelegation  // signed consent payload — §7
-  startedAt: number
-  expiresAt: number                 // hard TTL
-  workflowId?: string               // optional cross-session continuity
-}
+POST /v1/auth/session-begin     → computes challenge, returns QR/deep-link
+POST /v1/auth/session-confirm   → verifies attestation, creates session,
+                                  returns session token
+POST /v1/auth/session-escalate  → mid-session bump to higher tier
+POST /v1/auth/session-end       → explicit close
 ```
 
-Key design choices:
+Session tokens are opaque bearer strings the harness presents on
+subsequent calls. They map internally to a `HumanSession` row in the
+registry.
 
-- **Ephemeral session keypair** — generated in-harness, private key never
-  touches disk outside the harness's sealed area. On session end, key is
-  discarded.
-- **Capability envelope reuses `soma/delegation/v1`** — we already have
-  `expires-at`, `budget`, `max-invocations`, `host-allowlist`,
-  `command-allowlist`, `requires-stepup`, `time-window` caveats. Session mode
-  is a *bundling* of these, not a new caveat language.
-- **HumanDelegation** (new type) binds the agent ephemeral DID to the human
-  durable DID via a signature from the human's hardware authenticator
-  (WebAuthn / Secure Enclave / hardware SSH key). §7 details the struct.
-- **Workflow container** (optional) lets one human consent ceremony cover
-  multiple short sessions that constitute a single logical unit of work —
-  e.g., "refactor this module over the next 4 hours, budget 50k credits."
+### Attestation verifier
 
-## §3 End-to-end ceremony walkthrough
+ClawNet writes a `clawnetAttestationVerifier` function that:
 
-Concrete flow for "human asks Claude to deploy a change to the VPS":
+1. Parses a WebAuthn `AuthenticatorAssertionResponse` out of the
+   request body.
+2. Validates it against the registered credential for the human's
+   Clerk user (stored at enrollment time).
+3. Maps the authenticator type to a `CeremonyTier`:
+   - Platform (Touch ID, Windows Hello) → L1
+   - Cross-platform hardware key (YubiKey, Solo) → L2
+   - L2 + a second factor (hardware SSH signature) → L3
+4. Returns `{ ok: true, tier }` or `{ ok: false, reason }`.
 
-1. Human opens a local or VPS-hosted harness and asks Claude to do work.
-2. Harness calls `POST /v1/auth/session-begin` with:
-   - humanDid (looked up from human's existing Soma identity)
-   - requested capabilityEnvelope (what actions Claude will need)
-   - requested TTL + budget
-3. ClawNet returns a **ConsentRequired** challenge:
-   - sessionId (pre-committed so it's the same across the handshake)
-   - agentEphemeralPubkey (generated by Soma heart on ClawNet's side)
-   - a hash of (envelope || TTL || sessionId || agentEphemeralPubkey)
-   - a deep link + QR code for the human's phone
-4. Human picks up phone, the link opens the ClawNet consent app:
-   - Displays *human-readable summary* of the envelope ("Claude can run
-     `deploy` on guardian-vps, spend up to 50k credits, for 4h")
-   - Prompts WebAuthn `navigator.credentials.get({ userVerification: 'required' })`
-   - Phone asks for Face ID / Touch ID / iris / whatever is registered
-   - On success, the authenticator signs the challenge hash
-5. Phone posts signed challenge back to `POST /v1/auth/session-confirm`.
-6. ClawNet:
-   - Verifies WebAuthn signature against the human's registered credential
-   - Constructs `HumanDelegation` (§7)
-   - Emits **ConsentGranted** into the heart's heartbeat chain (§7)
-   - Returns session token to the harness
-7. Harness now acts using the session token. Every action hits the heart,
-   which checks the envelope and logs to the sense-observer stream.
-8. Session ends either by TTL, by the harness explicitly signing out, or by
-   a mid-session escalation (§6).
+That function is the **only** browser-crypto code ClawNet writes. Soma
+itself stays clean.
 
-**Harness trust boundary caveat:** a harness running on the user's laptop is
-inside the trust boundary of a laptop attacker. A harness running on a
-hardened VPS (guardian-vps) with its own sealed identity narrows that
-boundary. For high-stakes actions, prefer the VPS-hosted harness; for
-dev-tier use, the laptop is fine but actions that move money or touch
-production should require L2+ ceremony.
+### Enrollment
 
-## §4 Ceremony tiers
+A new dashboard page: `dashboard/src/pages/auth/register-authenticator.tsx`.
 
-| Tier | Hardware                          | Use case                                    |
-|------|-----------------------------------|---------------------------------------------|
-| L0   | Password / bearer token           | Read-only, observational calls              |
-| L1   | Platform WebAuthn (Touch ID)      | Normal dev work, ≤ small budget             |
-| L2   | Hardware WebAuthn + biometric     | Production deploys, money movement          |
-| L3   | L2 + second factor hardware SSH + biometric witness | Key rotation, escrow disputes, admin ops |
+- Calls `POST /v1/auth/enroll-begin` → gets a WebAuthn registration
+  challenge
+- Browser calls `navigator.credentials.create(...)`
+- Calls `POST /v1/auth/enroll-finish` with the attestation
+- ClawNet stores the credential id + public key against the Clerk user
+  id
 
-WebAuthn is the primitive that makes L1/L2 actually usable — it's built into
-every modern phone and browser and does not require custom hardware. L3 is
-the "extremist" case (the user's phrase): iris + hardware SSH + face scan +
-whatever else. It exists so the policy engine can refuse to grant certain
-delegations without it, not because it's expected on every call.
+No Soma involvement — this is all ClawNet → WebAuthn.
 
-## §5 Nova as session verifier
+### Database
 
-Nova is the natural home for session verification because:
+New tables (migration append to `src/db/connection.ts`):
 
-- Nova already holds the receipt archive and replay pipeline.
-- A session is a *sequence of heart events* — exactly what Nova is built for.
-- Nova can produce a "session transcript" proof: the full ordered chain
-  from ConsentGranted → every in-session action → session end, with the
-  envelope attached, signed as a single artifact.
+```sql
+CREATE TABLE human_authenticators (
+  id TEXT PRIMARY KEY,
+  clerk_user_id TEXT NOT NULL,
+  credential_id TEXT NOT NULL UNIQUE,
+  public_key BLOB NOT NULL,
+  tier_hint TEXT NOT NULL, -- 'L1' | 'L2' | 'L3'
+  registered_at INTEGER NOT NULL,
+  last_used_at INTEGER
+);
 
-Nova does **not** issue the delegation — that's the heart's job. Nova
-**verifies** after the fact and produces replayable receipts. This matches
-the Soma separation: heart = runtime, sense = observer.
-
-## §6 Composition with the rotation controller
-
-Session mode and credential rotation are orthogonal:
-
-- The **human** holds a durable Soma identity whose credentials rotate on
-  the Class A/B/C schedule under the existing CredentialRotationController.
-- The **agent ephemeral session key** does not rotate — it is born and
-  dies within one session. Rotation semantics don't apply.
-- The **HumanDelegation** payload names the *current* human credential at
-  the moment of consent. If the human's credential rotates mid-session,
-  the delegation remains valid against the lineage chain; the controller
-  already supports this via the DID + credential-id binding.
-
-Mid-session escalation: if the envelope forbids an action and the agent
-needs it, the harness can call `POST /v1/auth/session-escalate`, which
-triggers a new ConsentRequired event bound to the existing sessionId. The
-human approves (or doesn't) through the same consent app. This is how we
-avoid forcing humans to pre-authorize the full blast radius up-front.
-
-## §7 Missing primitives (the build surface)
-
-Everything below does not yet exist and is what PR-A..PR-D will build.
-
-### 7.1 `HumanDelegation` (Soma-side, PR-A)
-
-```typescript
-// soma-heart/src/heart/human-delegation.ts
-export interface HumanDelegation {
-  version: 'soma/human-delegation/v1';
-  sessionId: string;
-  humanDid: string;
-  humanCredentialId: string;       // the specific rotated credential that signed
-  agentEphemeralDid: string;
-  agentEphemeralPubkey: Uint8Array;
-  envelope: Caveat[];              // reuses delegation caveats
-  issuedAt: number;
-  expiresAt: number;
-  ceremonyTier: 'L0' | 'L1' | 'L2' | 'L3';
-  attestation: {
-    kind: 'webauthn' | 'ssh-hardware' | 'platform-bio';
-    payload: Uint8Array;           // opaque, passed through to verifier
-    challengeHash: Uint8Array;
-  };
-  signature: Uint8Array;            // human credential signs the whole payload
-}
+CREATE TABLE human_sessions (
+  session_id TEXT PRIMARY KEY,
+  clerk_user_id TEXT NOT NULL,
+  human_did TEXT NOT NULL,
+  agent_ephemeral_did TEXT NOT NULL,
+  delegation_json TEXT NOT NULL, -- serialized HumanDelegation
+  tier TEXT NOT NULL,
+  status TEXT NOT NULL,
+  started_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  remaining_credits INTEGER,
+  remaining_invocations INTEGER
+);
 ```
 
-Verifier:
+The ClawNet `HumanSessionRegistry` instance is hydrated from
+`human_sessions` on startup and persisted on every mutation. That's
+the one bit of state-management work that's ClawNet-side — Soma's
+registry is pure in-memory by design.
 
-```typescript
-export async function verifyHumanDelegation(
-  d: HumanDelegation,
-  resolver: DidMethodRegistry,
-  attestationVerifier: AttestationVerifier,
-  now: number,
-): Promise<VerifyResult>
-```
+## Composition with existing ClawNet auth
 
-Pure, no I/O beyond what the resolver does. Unit-testable against a mock
-`AttestationVerifier` that just yes/no's the payload.
+ClawNet already has three auth layers (API key, Clerk, Admin). Session
+mode is a **fourth** layer *on top of* Clerk:
 
-### 7.2 Heartbeat event types (PR-A, same commit)
+- Clerk authenticates the human.
+- Session mode gates what the *harness acting for that human* is allowed
+  to do within a time-bounded envelope.
+- Legacy `cn-...` API keys keep working as a pre-existing billing
+  primitive; session tokens route to the same usage metering.
 
-Two new event kinds the heart emits:
+Routes that require high ceremony (e.g. payout endpoints, escrow
+resolution, admin) will read the session's tier and reject if
+`CeremonyPolicy` says no. Low-ceremony routes stay on plain Clerk.
 
-```typescript
-| { kind: 'consent-required'; sessionId: string; envelopeHash: Uint8Array; ... }
-| { kind: 'consent-granted'; sessionId: string; humanDelegationHash: Uint8Array; ... }
-```
+## Harness trust boundary
 
-These flow through the existing heartbeat chain so sense-observer sees them
-without any new plumbing.
+A harness on the user's laptop is inside the trust boundary of a laptop
+attacker. A harness on a hardened VPS (guardian-vps) with its own
+sealed identity narrows that boundary. For high-stakes actions, prefer
+the VPS-hosted harness; for dev work, the laptop is fine but actions
+that move money or touch production should require L2+ ceremony via
+`CeremonyPolicy` overrides.
 
-### 7.3 `HeartRuntime.createSession` (PR-B)
+This is a **ClawNet operational decision**, not a Soma one — Soma
+doesn't know what a VPS is.
 
-Wraps HumanDelegation + ephemeral key generation + envelope enforcement.
-This is where the heart becomes session-aware. All existing code paths
-continue to work — a session is an *additional* context the runtime can
-operate in, not a replacement for durable identities.
+## ClawNet-specific open questions
 
-### 7.4 `CeremonyPolicy` engine (PR-B)
+- **Enrollment UX** — do we force WebAuthn at Clerk signup, or make it a
+  one-time upgrade the first time a session is needed? Lean: upgrade on
+  first use, pop a modal.
+- **Session token format** — opaque random bytes or signed JWT? Opaque
+  is simpler; JWT is stateless but requires key management. Lean:
+  opaque, registry is already stateful.
+- **Dashboard session management** — users should be able to see
+  active sessions and revoke them. Out of scope for PR-C, add in PR-C.1.
 
-Maps (action class, envelope, target) → required ceremony tier. Lives in
-the heart. Pure config-driven, no crypto. Rejects or escalates requests
-that exceed what the current delegation authorized.
+## Build order (ClawNet side)
 
-### 7.5 ClawNet `/v1/auth/session-*` routes (PR-C)
+- **PR-C.1** — DB migrations + `HumanSessionRegistry` hydration glue
+- **PR-C.2** — `clawnetAttestationVerifier` + enrollment routes +
+  dashboard page
+- **PR-C.3** — `/v1/auth/session-*` routes, gated on Clerk
+- **PR-C.4** — policy overrides for ClawNet-specific action classes
+  (voice-call, admin-resolve, etc.) + wiring gatekeepers onto existing
+  high-stakes routes
 
-```
-POST /v1/auth/session-begin      → ConsentRequired
-POST /v1/auth/session-confirm    → ConsentGranted + session token
-POST /v1/auth/session-escalate   → mid-session bump
-POST /v1/auth/session-end        → explicit close
-```
+## Cross-refs
 
-Plus a Clerk-gated WebAuthn enrollment flow in the dashboard so humans
-can register their authenticators once and reuse them.
-
-### 7.6 Workflow container (PR-D, deferred)
-
-Only build this after PR-C surfaces the UX tension of "every 1h session
-needs re-consent." Container holds a cross-session budget and lets the
-human authorize a whole workflow at a higher ceremony tier once. Do not
-design speculatively.
-
-## §8 Build order
-
-- **PR-A** (Soma-side, no ClawNet changes): `HumanDelegation` type, verifier,
-  `consent-required` / `consent-granted` heartbeat events. Pure primitive,
-  mockable, unit-testable. Lands in `Soma/src/heart/human-delegation.ts`.
-- **PR-B** (Soma-side): `HeartRuntime.createSession` + `CeremonyPolicy`
-  engine. Composes PR-A with the existing runtime.
-- **PR-C** (ClawNet-side): `/v1/auth/session-*` routes + dashboard WebAuthn
-  enrollment. First user-visible surface.
-- **PR-D** (deferred): workflow container, only if PR-C shows the need.
-
-Parallel (independent of session mode): **canary credential** primitive from
-`rotation-battle-test-and-roadmap.md` — cheap, high-signal compromise
-detection, no dependency on session work.
-
-## §9 Open questions
-
-- Attestation verifier pluggability — do we ship a WebAuthn verifier inside
-  Soma, or keep Soma agnostic and make ClawNet pass in a verified payload?
-  Lean: Soma stays agnostic; ClawNet does the WebAuthn parse and passes the
-  verdict in. Keeps Soma free of browser crypto dependencies.
-- Revocation of in-flight sessions — a rotation that burns the human
-  credential mid-session should probably kill the session. Controller
-  already supports revocation; we need to add a session-revoke path in
-  PR-B.
-- Offline consent — for air-gapped scenarios where the phone can't reach
-  ClawNet during the ceremony. Defer until a real user asks for it.
+- `Soma/docs/design/session-mode.md` — the architectural blueprint
+- `Soma/src/heart/human-delegation.ts`, `ceremony-policy.ts`,
+  `human-session.ts` — the primitives
+- `internal/active/rotation-battle-test-and-roadmap.md` §3 — agent
+  primitives roadmap
+- `internal/active/gameplan-post-1-1.md` step 4 — where this slots
+  into the overall plan
