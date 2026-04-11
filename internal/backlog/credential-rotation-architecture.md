@@ -669,6 +669,55 @@ In order, after ratification:
 8. Cut over a test account first, then the live `cn-...` keys behind a flag.
 9. Once stable, start `@soma/evm-backend` as the second real consumer.
 
+### 9a. Cutover addendum — shadow-adopt-cutover sequence (2026-04-11)
+
+The "single-commit cutover" framing in step 7 above turned out to be
+too aggressive once the `ClawNetApiKeyBackend` shipped and we actually
+read `src/middleware/auth.ts` end-to-end. The existing middleware
+resolves a lot more per-request than just "is this key valid": it
+reads `api_keys.email / credits / credits_used / amount_paid`, resolves
+`getDelegationInfo` for parent/child sub-keys with spend limits and
+budget counters, loads `getProviderForApiKey` for provider-scoped keys,
+and enforces `getHardBudgetLock` with monthly spend. The rotation
+backend only knows `{identityId, expiresAt}`. A single-commit cutover
+would either lose all of that billing context or require a monster
+migration with real risk to live customer billing.
+
+Revised sequence, preserving invariant 11 (no legacy path) at the
+**end state** without a reckless flip:
+
+**Phase 1 — Shadow adoption (safe, reversible).**
+- New table `api_key_rotation_adoptions` joining `api_keys.key` →
+  rotation `identityId`.
+- New admin route `POST /v1/admin/rotation/adopt` that takes an
+  existing `cn-...` key, creates a Soma identity for it, and incepts
+  a rotation credential whose bearer is the existing key string.
+- `checkApiKey` gains a *shadow check*: when an adopted key comes in
+  it ALSO calls `backend.lookupByBearer()` and logs any disagreement
+  with the legacy path. Legacy path still wins every decision.
+- Metrics counters for shadow agreements / disagreements.
+- Run against own (operator) keys for a few days, confirm zero
+  divergence under real traffic.
+
+**Phase 2 — Authoritative adoption (one key at a time).**
+- Flip a per-key flag: for adopted keys, the rotation backend becomes
+  authoritative for identity lookup; `api_keys` row becomes
+  billing-only context (credits, delegation, provider scope).
+- Requires extending `lookupByBearer` (or a join helper) to return
+  the billing context as well, without leaking ClawNet types back
+  into Soma — the join lives in claw-net, not in soma-heart.
+- Rollback per-key is still possible by clearing the flag.
+
+**Phase 3 — Legacy deletion (invariant 11 satisfied).**
+- Once 100% of live keys are adopted and authoritative for some
+  cooling period, delete the legacy static-key code path from
+  `checkApiKey` in a single commit. This is the "kill the legacy
+  path" commit invariant 11 requires — it just lands at the end of
+  the sequence, not the start.
+
+The vision behind why this sequence is worth the extra steps rather
+than a rip-and-replace is in `soma-rotation-controller-vision.md`.
+
 Everything in this doc is proposal-grade until the user ratifies the twelve invariants (§13c) and the seven open decisions (§10 D1–D5, §13d D6–D7). Once ratified, the doc becomes the spec and the build follows. See §14 for the ratified locks.
 
 ---
@@ -725,12 +774,14 @@ All seven open decisions are locked as follows. Each lock records the choice, th
 
 ### D5 — Existing `src/heart/key-rotation.ts`
 
-**Lock:** delete in the same commit that introduces `src/heart/credential-rotation/`. No flag, no deprecation period, no re-export shim.
+**Lock (revised 2026-04-10 after code audit):** retain `KeyHistory` as the internal KERI pre-rotation log primitive; demote it from a user-facing API to an internal building block that the `ed25519-identity` backend wraps. The `CredentialRotationController` becomes the only user-facing rotation API.
 
-**Why:**
-- Zero runtime callers — nothing breaks.
-- Two parallel rotation mechanisms in the same tree is a permanent source of reader confusion.
-- Invariant 11 (no legacy path) applies recursively to the rotation code itself: we do not keep the old path alive when the new one lands.
+**Why the revision:**
+- Pre-ratification the assumption was "no runtime callers." Actual audit shows `KeyHistory` is re-exported from `src/heart/index.ts`, has a live test suite (`tests/heart/key-rotation.test.ts`), an attack test (`tests/attacks/07-stolen-key-rotation.test.ts`), a benchmark, an example, and public documentation. Deleting it on day one would break all of the above without replacing their functionality, because the new controller sits at a higher level of abstraction (backends, TTLs, challenge periods) and doesn't reimplement the underlying chain semantics.
+- The KERI pre-rotation primitive in `KeyHistory` is exactly the shape we need underneath the `ed25519-identity` backend. Re-implementing it would introduce a second chain format for no benefit.
+- Invariant 11 (no legacy path) is preserved at the level that matters: after the controller lands, no user-facing rotation call goes through `KeyHistory` directly. The `heart/index.ts` re-export is removed as part of the controller commit, so `KeyHistory` becomes a private implementation detail reachable only via the backend.
+
+**Migration rule:** `KeyHistory` is *not* deleted but *sealed* — removed from the `src/heart/index.ts` barrel, its tests kept as unit tests of the internal primitive, its example and bench updated to go through the new controller in a follow-up commit. Any future rotation change lands in the controller, never in `KeyHistory` directly.
 
 ### D6 — Ratchet state durability
 
