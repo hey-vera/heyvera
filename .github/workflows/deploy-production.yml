@@ -38,7 +38,7 @@ jobs:
         run: |
           test -n "$TAILSCALE_HOST"
           ssh -o StrictHostKeyChecking=accept-new "${DEPLOY_USER}@${TAILSCALE_HOST}" \
-            "cd /home/${DEPLOY_USER}/claw-net && GIT_BRANCH='${{ inputs.branch }}' AUTO_SWITCH_BRANCH=1 bash scripts/deploy.sh"
+            "cd /home/${DEPLOY_USER}/claw-net && DEPLOY_USER='${DEPLOY_USER}' GIT_BRANCH='${{ inputs.branch }}' AUTO_SWITCH_BRANCH=1 bash scripts/deploy.sh"
 
       - name: Verify deploy info
         env:
