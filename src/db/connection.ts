@@ -2268,6 +2268,20 @@ const MIGRATIONS: { version: number; sql: string }[] = [
       ttl_ms INTEGER NOT NULL
     );
   ` },
+
+  // Shadow-adopt-cutover Phase 1: maps an existing api_keys.key to a Soma
+  // rotation identity so checkApiKey can perform a non-authoritative shadow
+  // lookup against the rotation backend. `authoritative = 0` means legacy
+  // still wins (Phase 1); flipping to 1 promotes the rotation backend to
+  // primary for this key (Phase 2). See credential-rotation-architecture.md §9a.
+  { version: 198, sql: `
+    CREATE TABLE IF NOT EXISTS api_key_rotation_adoptions (
+      api_key TEXT PRIMARY KEY,
+      identity_id TEXT NOT NULL UNIQUE,
+      adopted_at INTEGER NOT NULL,
+      authoritative INTEGER NOT NULL DEFAULT 0
+    );
+  ` },
 ];
 
 function runMigrations(): void {

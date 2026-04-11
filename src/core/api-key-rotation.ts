@@ -134,6 +134,13 @@ export class ClawNetApiKeyBackend implements CredentialBackend {
   private readonly provider = getCryptoProvider();
   private readonly db: Database;
   private readonly staged = new Map<string, StagedRotation>();
+  /**
+   * One-shot override used by the shadow-adoption path: when set, the very
+   * next `mintEntry` call uses this bearer as the credentialId instead of
+   * minting a fresh one via `mintBearerToken()`. Consumed (cleared) on use.
+   * See credential-rotation-architecture.md §9a Phase 1.
+   */
+  private pendingAdoptBearer: string | null = null;
 
   constructor(opts: ClawNetApiKeyBackendOptions = {}) {
     this.backendId = opts.backendId ?? 'clawnet-api-key';
@@ -366,6 +373,30 @@ export class ClawNetApiKeyBackend implements CredentialBackend {
     return ident?.current_credential_id ?? null;
   }
 
+  /**
+   * Arm the backend so the NEXT `issueCredential` call (normally triggered
+   * by `controller.incept`) uses `bearer` as the credentialId instead of
+   * minting a fresh `cn-...` token. Used by the shadow-adoption path in
+   * `src/core/rotation-adoption.ts` to graft an existing api_keys.key onto
+   * a brand-new Soma identity without changing the customer-visible string.
+   *
+   * Single-use. Caller must validate the bearer format before calling —
+   * the backend stores it verbatim.
+   */
+  adoptExistingBearer(bearer: string): void {
+    if (!/^cn-[a-f0-9]{48}$/.test(bearer)) {
+      throw new Error(
+        `ClawNetApiKeyBackend.adoptExistingBearer: malformed bearer ${bearer.slice(0, 8)}…`,
+      );
+    }
+    if (this.pendingAdoptBearer !== null) {
+      throw new Error(
+        'ClawNetApiKeyBackend.adoptExistingBearer: another adoption is already armed',
+      );
+    }
+    this.pendingAdoptBearer = bearer;
+  }
+
   // ─── Internals ──────────────────────────────────────────────────────────
 
   private mintEntry(args: {
@@ -384,7 +415,17 @@ export class ClawNetApiKeyBackend implements CredentialBackend {
       },
       this.provider,
     );
-    const credentialId = mintBearerToken();
+    // Shadow-adoption path: if an existing bearer was stashed via
+    // `adoptExistingBearer`, use it as the credentialId so the rotation row
+    // keys off the customer's existing `cn-...` string. One-shot, cleared
+    // on use so subsequent rotations mint fresh tokens normally.
+    let credentialId: string;
+    if (this.pendingAdoptBearer !== null) {
+      credentialId = this.pendingAdoptBearer;
+      this.pendingAdoptBearer = null;
+    } else {
+      credentialId = mintBearerToken();
+    }
     const expiresAt = args.issuedAt + args.ttlMs;
 
     this.db

@@ -464,5 +464,89 @@ adminRouter.post('/withdrawals/:id/reject', async (c) => {
   return c.json({ ok: true, withdrawal: getWithdrawal(id), message: 'Withdrawal rejected, credits refunded' });
 });
 
+// ─── Rotation Adoption (shadow mode) ────────────────────────────────────────
+//
+// POST /v1/admin/rotation/adopt    — adopt an existing cn-... key into the
+//                                    Soma rotation stack (Phase 1, shadow).
+// GET  /v1/admin/rotation/adoptions — list adopted keys + shadow counters.
+//
+// Phase 1 is purely observational: adopted keys get a Soma identity and a
+// rotation credential row whose bearer equals the existing cn- string, but
+// `checkApiKey` still uses the legacy path authoritatively. The shadow check
+// runs alongside and logs any divergence. See credential-rotation-architecture.md §9a.
+
+const AdoptKeyBody = z.object({
+  key: z.string().regex(/^cn-[a-f0-9]{48}$/, 'Must be a valid cn-... api key'),
+});
+
+adminRouter.post('/rotation/adopt', async (c) => {
+  let body: z.infer<typeof AdoptKeyBody>;
+  try {
+    body = AdoptKeyBody.parse(await c.req.json());
+  } catch (err) {
+    const details = err instanceof z.ZodError ? err.flatten().fieldErrors : undefined;
+    return c.json({ error: 'Invalid body', code: 'VALIDATION_ERROR', details }, 400);
+  }
+
+  // Verify the key actually exists in api_keys before adopting. The adoption
+  // record is meaningless if the legacy row isn't there.
+  const existing = getDb()
+    .prepare('SELECT key FROM api_keys WHERE key = ? AND active = 1')
+    .get(body.key);
+  if (!existing) {
+    return c.json(
+      { error: 'API key not found or inactive', code: 'KEY_NOT_FOUND' },
+      404,
+    );
+  }
+
+  try {
+    const { adoptApiKey } = await import('../core/rotation-adoption');
+    const record = await adoptApiKey(body.key);
+    return c.json({
+      ok: true,
+      adoption: {
+        keyMasked: maskApiKey(record.apiKey),
+        identityId: record.identityId,
+        adoptedAt: record.adoptedAt,
+        authoritative: record.authoritative,
+      },
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return c.json(
+      { error: `Adoption failed: ${msg}`, code: 'ADOPTION_FAILED' },
+      500,
+    );
+  }
+});
+
+adminRouter.get('/rotation/adoptions', async (c) => {
+  const rows = getDb()
+    .prepare(
+      'SELECT api_key, identity_id, adopted_at, authoritative FROM api_key_rotation_adoptions ORDER BY adopted_at DESC',
+    )
+    .all() as Array<{
+    api_key: string;
+    identity_id: string;
+    adopted_at: number;
+    authoritative: number;
+  }>;
+
+  const { shadowCheckCounters } = await import('../core/rotation-adoption');
+
+  return c.json({
+    ok: true,
+    count: rows.length,
+    adoptions: rows.map((r) => ({
+      keyMasked: maskApiKey(r.api_key),
+      identityId: r.identity_id,
+      adoptedAt: r.adopted_at,
+      authoritative: r.authoritative === 1,
+    })),
+    shadowCounters: { ...shadowCheckCounters },
+  });
+});
+
 // ─── Cache Admin Sub-Router ─────────────────────────────────────────────────
 adminRouter.route('/', cacheAdminRouter);

@@ -5,6 +5,7 @@ import { getApiKey, getDelegationInfo, resetBudgetCountersIfNeeded, checkBudgetL
 import { env } from '../config/index';
 import { logger } from '../utils/logger';
 import { maskApiKey } from '../utils/mask';
+import { shadowCheckApiKey } from '../core/rotation-adoption';
 
 /**
  * Check whether the current request has a specific permission.
@@ -303,6 +304,18 @@ export const checkApiKey = createMiddleware(async (c, next) => {
   if (providerId) {
     const info = c.get('apiKeyInfo');
     c.set('apiKeyInfo', { ...info, providerId });
+  }
+
+  // Shadow-adoption Phase 1: observe the rotation backend's verdict for
+  // this key alongside the legacy path. Purely observational — we log
+  // any disagreement via counters/logs inside shadowCheckApiKey but the
+  // legacy path still wins every decision. Wrapped in try/catch so a
+  // bug in the rotation stack can never block an incoming request. See
+  // credential-rotation-architecture.md §9a.
+  try {
+    shadowCheckApiKey(key, Date.now());
+  } catch (err) {
+    logger.warn({ err, key: maskApiKey(key) }, 'shadow rotation check threw');
   }
 
   // Check hard budget lock for the BILLING key (parent for delegated, direct otherwise)
