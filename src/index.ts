@@ -1,4 +1,6 @@
 import { serve } from '@hono/node-server';
+import fs from 'node:fs';
+import path from 'node:path';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger as honoLogger } from 'hono/logger';
@@ -15,6 +17,35 @@ const app = new Hono();
 
 app.use('*', cors());
 app.use('*', honoLogger());
+
+const readDeployMeta = (): Record<string, unknown> | null => {
+  try {
+    const deployMetaPath = path.resolve(process.cwd(), 'deploy-meta.json');
+    if (!fs.existsSync(deployMetaPath)) return null;
+    return JSON.parse(fs.readFileSync(deployMetaPath, 'utf-8')) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+};
+
+app.get('/health', (c) => c.json({
+  status: 'ok',
+  service: 'claw-net',
+  deploy: readDeployMeta(),
+}));
+
+app.get('/api/deploy-info', (c) => c.json({
+  status: 'ok',
+  service: 'claw-net',
+  deploy: readDeployMeta(),
+}));
+
+app.get('/v1/health', (c) => c.json({
+  status: 'ok',
+  service: 'claw-net',
+  deploy: readDeployMeta(),
+}));
+
 app.use('*', rateLimiter);
 
 app.use('*', async (c, next) => {

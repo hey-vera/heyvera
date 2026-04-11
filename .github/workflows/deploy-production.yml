@@ -1,0 +1,48 @@
+name: Deploy Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: Branch to deploy
+        required: true
+        default: main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: clawnet-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch }}
+
+      - name: Join tailnet
+        uses: tailscale/github-action@v3
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+
+      - name: Deploy ClawNet
+        env:
+          DEPLOY_USER: ${{ vars.DEPLOY_USER || 'deploy' }}
+          TAILSCALE_HOST: ${{ vars.TAILSCALE_HOST }}
+        run: |
+          test -n "$TAILSCALE_HOST"
+          ssh -o StrictHostKeyChecking=accept-new "${DEPLOY_USER}@${TAILSCALE_HOST}" \
+            "cd /home/${DEPLOY_USER}/claw-net && GIT_BRANCH='${{ inputs.branch }}' AUTO_SWITCH_BRANCH=1 bash scripts/deploy.sh"
+
+      - name: Verify deploy info
+        env:
+          PUBLIC_API_URL: ${{ vars.PUBLIC_API_URL }}
+        run: |
+          test -n "$PUBLIC_API_URL"
+          curl --fail --silent --show-error "${PUBLIC_API_URL%/}/api/deploy-info"
