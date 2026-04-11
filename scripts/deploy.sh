@@ -21,11 +21,18 @@ fi
 
 TARGET_BRANCH="${GIT_BRANCH:-$CURRENT_BRANCH}"
 
-if [ "$ALLOW_DIRTY" != "1" ] && [ -n "$(git status --porcelain)" ]; then
-  echo "[git] ERROR: working tree is dirty."
-  echo "      Commit/stash changes before deploy, or re-run with ALLOW_DIRTY=1 if you really intend to deploy local edits."
-  git status --short
-  exit 1
+if [ "$ALLOW_DIRTY" != "1" ]; then
+  if ! git diff --quiet || ! git diff --cached --quiet; then
+    echo "[git] ERROR: tracked files are dirty."
+    echo "      Commit/stash changes before deploy, or re-run with ALLOW_DIRTY=1 if you really intend to deploy local edits."
+    git status --short
+    exit 1
+  fi
+
+  if [ -n "$(git ls-files --others --exclude-standard)" ]; then
+    echo "[git] WARNING: untracked files present; continuing because tracked files are clean."
+    git ls-files --others --exclude-standard
+  fi
 fi
 
 if [ "$CURRENT_BRANCH" != "$TARGET_BRANCH" ]; then
