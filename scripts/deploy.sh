@@ -58,7 +58,8 @@ fi
 
 echo "[git] Fetching and fast-forwarding ${TARGET_BRANCH}..."
 git fetch origin "$TARGET_BRANCH"
-git pull --ff-only origin "$TARGET_BRANCH"
+git checkout "$TARGET_BRANCH"
+git reset --hard "origin/$TARGET_BRANCH"
 
 DEPLOY_COMMIT="$(git rev-parse HEAD)"
 DEPLOY_COMMIT_SHORT="$(git rev-parse --short HEAD)"
