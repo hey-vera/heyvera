@@ -23,6 +23,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.branch }}
+          fetch-depth: 0
 
       - name: Join tailnet
         uses: tailscale/github-action@v3
@@ -31,6 +32,16 @@ jobs:
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:ci
 
+      - name: Sync GitHub commit to server mirror
+        env:
+          DEPLOY_USER: ${{ vars.DEPLOY_USER || 'deploy' }}
+          TAILSCALE_HOST: ${{ vars.TAILSCALE_HOST }}
+        run: |
+          test -n "$TAILSCALE_HOST"
+          export GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=accept-new"
+          git remote add server-mirror "ssh://${DEPLOY_USER}@${TAILSCALE_HOST}/home/${DEPLOY_USER}/claw-net.git"
+          git push --force server-mirror "HEAD:refs/heads/${{ inputs.branch }}"
+
       - name: Deploy ClawNet
         env:
           DEPLOY_USER: ${{ vars.DEPLOY_USER || 'deploy' }}
@@ -38,7 +49,7 @@ jobs:
         run: |
           test -n "$TAILSCALE_HOST"
           ssh -o StrictHostKeyChecking=accept-new "${DEPLOY_USER}@${TAILSCALE_HOST}" \
-            "cd /home/${DEPLOY_USER}/claw-net && GIT_BRANCH='${{ inputs.branch }}' AUTO_SWITCH_BRANCH=1 bash scripts/deploy.sh"
+            "cd /home/${DEPLOY_USER}/claw-net && git fetch origin '${{ inputs.branch }}' && git checkout '${{ inputs.branch }}' && git reset --hard 'origin/${{ inputs.branch }}' && DEPLOY_USER='${DEPLOY_USER}' GIT_BRANCH='${{ inputs.branch }}' AUTO_SWITCH_BRANCH=1 bash scripts/deploy.sh"
 
       - name: Verify deploy info
         env:
