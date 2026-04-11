@@ -31,6 +31,16 @@ jobs:
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:ci
 
+      - name: Sync GitHub commit to server mirror
+        env:
+          DEPLOY_USER: ${{ vars.DEPLOY_USER || 'deploy' }}
+          TAILSCALE_HOST: ${{ vars.TAILSCALE_HOST }}
+        run: |
+          test -n "$TAILSCALE_HOST"
+          export GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=accept-new"
+          git remote add server-mirror "ssh://${DEPLOY_USER}@${TAILSCALE_HOST}/home/${DEPLOY_USER}/claw-net.git"
+          git push --force server-mirror "HEAD:refs/heads/${{ inputs.branch }}"
+
       - name: Deploy ClawNet
         env:
           DEPLOY_USER: ${{ vars.DEPLOY_USER || 'deploy' }}
