@@ -2,7 +2,7 @@
 
 Status: **backlog / design notes** — ideas extracted before deletion, not yet build work.
 Opened: 2026-04-11
-Related: `soma-1-2-scope.md`, `trust-accountability-teeth.md`, `moat-compounding-thesis.md`, memory `feedback_wiring_discipline`
+Related: `soma-1-2-scope.md`, `soma-1-2-adversarial-pressure-test.md`, `trust-accountability-teeth.md`, `trust-mining-economy.md`, `moat-compounding-thesis.md`, memory `feedback_wiring_discipline`, memory `feedback_soma_open_source_threat_model`
 
 ## Why this doc exists
 
@@ -60,6 +60,12 @@ Effective weight of a receipt cluster = `sum(independence_score_i)`, not raw cou
 
 `trust-accountability-teeth.md` v1 doesn't address this — the v1 plan assumes verifiers are already independent. Reality: a buyer-paid verification market with low barrier to entry will attract Sybil farms. This salvaged concept is the hard defense.
 
+**Hardening under open-source threat model (added 2026-04-11 pressure test).** The original AID implementation used *observable-distance* penalties: creationTime correlation, sharedCounterparties, behavioralCorrelation, directTransaction. Under the Soma open-source threat model (memory `feedback_soma_open_source_threat_model`), a Sybil farm that reads the formula can tune inter-rater distance right above each penalty threshold and game the score. Observable-distance is defeated by reading the source code.
+
+**Replace with expected-cost scoring.** Independence is a function of *public on-chain history depth* — rater age, unique counterparties outside the rater cluster, stake currently at risk, provenance of credential issuance. Adversaries can't fake chain-age cheaply. This is the Chainalysis approach to blockchain forensics and it survives full source-code disclosure because the cost to fake each input is real economic cost, not an algorithmic threshold.
+
+The four observable-distance dimensions above should still be kept as *inputs* to a cost-based model — they're useful signals — but they must feed into a function whose adversarial gradient has an economic floor, not a numeric one. See `soma-1-2-adversarial-pressure-test.md` Perspective 1 "Sybil rater farms" for the full argument.
+
 ## 5. Parent-penalized-for-child delegation accountability
 
 From `trust-delegation.ts`. Soma 1.1 has delegation and 1.2 adds outcome-log-driven trust. Missing piece: when a child agent misbehaves, the parent who delegated to them should take a proportional score hit.
@@ -73,6 +79,22 @@ where `PARENT_FACTOR ≈ 0.5` and `BASE_PENALTY ≈ 5`.
 Without this, delegation is one-way — Alice freely delegates to Bob and bears no consequence if Bob is garbage. The parent-penalty closes the loop and creates real incentive to only delegate to agents the parent would stake their own score on.
 
 Implementation note: the original AID version had `penalizeParent()` as a no-op that logged but never mutated state — textbook wiring-discipline failure (see `feedback_wiring_discipline`). The Soma version must **actually append** a penalty receipt to the parent's outcome log, so the penalty is visible in the same public structure as any other receipt.
+
+**Adversary correction (added 2026-04-11 pressure test).** The fixed-penalty formula above has a known economic flaw: an adversary can spawn a child, do honest high-value work under the child's identity, cash out the parent's reputation as loans / staking positions / further delegations, then burn the child with one bad action for cheap. Net: parent loses 5 points, gained 100 from the good work. **The fixed penalty is just a toll the adversary budgets for.**
+
+**Corrected formula:** restructure as a clawback on parent earnings *attributed to the child*, not a fixed point penalty:
+
+```
+parentPenalty = max(
+  BASE_PENALTY,
+  childPenalty * PARENT_FACTOR,
+  earnings_extracted_via_child * CLAWBACK_FACTOR
+)
+```
+
+where `earnings_extracted_via_child` is the sum of reputation-leveraged value (loans taken against the parent score, staking positions opened, further delegations enabled) that the parent obtained *after* delegating to the child. `CLAWBACK_FACTOR` should be close to 1.0 — any benefit extracted via a later-compromised delegation should be clawed back in full.
+
+This requires tracking "earnings attributed to the child" which is a non-trivial bookkeeping addition in the outcome log — but without it, the parent-penalty rule is decorative. See `soma-1-2-adversarial-pressure-test.md` Perspective 1 "Parent-penalty via burner children" for the full attack description.
 
 ## 6. Cross-platform trust import with local-tx gating
 

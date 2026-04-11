@@ -2,7 +2,7 @@
 
 Status: **backlog / design** — rough, not ratified. New architectural framing.
 Opened: 2026-04-11
-Related: `moat-compounding-thesis.md`, `soma-1-2-scope.md`, `heart-billing-spine.md`, `trust-accountability-teeth.md`, memory `project_smart_contracts` (Groth16 verifier on Base via Sonobe)
+Related: `moat-compounding-thesis.md`, `soma-1-2-scope.md`, `soma-1-2-adversarial-pressure-test.md`, `heart-billing-spine.md`, `trust-accountability-teeth.md`, `soma-trust-salvage-from-aid.md`, memory `project_smart_contracts` (Groth16 verifier on Base via Sonobe)
 
 ## Core shift: ClawNet profits at mine-time, not read-time
 
@@ -32,7 +32,9 @@ A **folded session** is the novel tier. Nova recursion (Sonobe) lets us aggregat
 2. Miner responds: *"Estimated readiness at T+Nmin. Fee locked."*
 3. Miner pulls recent outcome-log entries for Agent X, runs the reputation aggregator, folds the window into a Nova proof, signs the result.
 4. Miner posts the mined block on-chain (Base L2 via Sonobe Groth16 verifier — see memory `project_smart_contracts`).
-5. Mined block contains: `agentDid`, `capabilityClass`, `windowStart`, `windowEnd`, `minedAt`, `validUntil`, `requestingDid`, `aggregatorVersion`, `proof`, `outcomeLogCommitment`.
+5. Mined block contains: `agentDid`, `capabilityClass`, `windowStart`, `windowEnd`, `minedAt`, `validUntil`, `requestingDid`, `aggregatorVersion`, `anchorBlockHash`, `proof`, `outcomeLogCommitment`.
+
+   `anchorBlockHash` is the Base block hash the outcome log head is pinned to at mine-time — see "Outcome log head anchoring" below for why this is non-optional. `requestingDid` defaults to **opt-in pseudonymous**: commercial buyers who don't want to reveal who they're scoring carry an ephemeral per-block pseudonym linked by zero-knowledge proof to the real DID for dispute purposes. Public-goods blocks carry the real DID for transparency. This mirrors the Moody's model where the obligor is public on published ratings but the commissioning party behind a private rating can be confidential.
 6. Buyer reads the block on-chain (free, public) and makes their decision.
 
 **Revenue event for ClawNet:** step 1 (buyer pays miner, L1 heart-metering fee captured in the x402 payment envelope) and step 4 (Base gas + optional L5 tier fee). Both events happen regardless of how many later parties read the block.
@@ -54,6 +56,20 @@ A mined block carries `requestingDid` and `capabilityClass`. Resale is permitted
 Moody's-style: ratings are issued *to* specific obligors for specific instruments. A rating of a utility bond doesn't cleanly transfer to a high-yield bond even though both are the same issuer.
 
 Critically, **this is not DRM.** Anyone can read and cite any block. The binding is informational — it lets consumers and caveats intelligently refuse stale-for-purpose data without relying on secrecy.
+
+## Outcome log head anchoring — the canonical-source defense
+
+A mined block commits to an `outcomeLogCommitment` — but a commitment is only meaningful if the head it commits to is *canonical*. Otherwise a miner can equivocate: publish head A to the prover at mine-time, keep head B private, and the block is defensible either way. The attack: a miner aggregating Agent X can cherry-pick the ten best receipts out of fifteen, fold only those ten, and commit to a head they only ever published to the prover. Dispute fails because there's no ground truth for "what the head actually was" at mine-time.
+
+**Required defense**: the outcome log head used in any mined block must be anchored to a neutral clock *before* the block is valid. Candidate anchors:
+
+- **Base block hash** — include `anchorBlockHash` in the mined block. The outcome log head must be the head as of that Base block number. Disputers recompute against the head publicly committed at that anchor. Cheap (one bytes32), natively available in the Sonobe verifier path.
+- **Ethereum L1 beacon slot** — same pattern, broader canonicity, higher latency.
+- **Heart-published head commitments on libp2p gossip** — heart publishes `(headHash, anchorSlot, signature)` to a public gossip topic; any observer who saw a different head for the same slot can challenge the miner with cryptographic evidence.
+
+**Default for Phase 1: Base block hash as the neutral anchor.** Cheap, smart-contract-accessible, and gives disputers a bounded recomputation window. Every mined block carries `anchorBlockHash` (see step 5 of the Commissioned Mining Flow). Without this, the folded-session mining tier is decoration — see memory `feedback_wiring_discipline`.
+
+This requirement elevates outcome log heads from internal aggregator inputs to first-class public objects. It also creates the primitive disputers need: a fixed point against which to recompute. See `soma-1-2-adversarial-pressure-test.md` Perspective 1 "Cherry-picked fold windows" for the full attack description and `trust-accountability-teeth.md` "Outcome log head equivocation" for the broader slashing story.
 
 ## Termination of "miners mining miners"
 
@@ -86,6 +102,8 @@ Sonobe + Groth16 verifier on Base (memory `project_smart_contracts`) is the cano
 - Block is a standing reference anyone can cite
 
 The Groth16 verifier contract on Base should expose a `mintTrustBlock(proof, metadata)` entry point that checks the proof and the L5 fee in the same transaction. Sonobe folding lets us batch arbitrarily many receipts into one on-chain call — critical for amortizing gas across receipt volume.
+
+**Miner bond source.** Miners (like verifiers) must be bondable for slashing — a miner who posts a block that's proven bad by the disputer loses their bond. For Year 1, before $CLAWNET has real secondary-market depth, bonds should come from **EigenLayer AVS restaked ETH** (see `soma-1-2-scope.md` D5 — EigenLayer AVS as primary L4 bond source). The same AVS position covers both verifier and miner roles since the underlying operator is the dual-role OpenClaw heart from the section above. This borrows from a ~$18B restaked-ETH pool, 1000× bigger than $CLAWNET will be in Year 1, which is the only realistic way to bond high-value folded-session blocks against economic-bribery attacks.
 
 ## What this lets us say to buyers
 
