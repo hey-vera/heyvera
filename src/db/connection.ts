@@ -2241,6 +2241,33 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   ` },
   // ── Weighted bilateral credit (Q6): 1.0 routed, 0.75 verify, 0 direct ──
   { version: 196, sql: `ALTER TABLE pulse_tree_leaves ADD COLUMN bilateral_weight REAL NOT NULL DEFAULT 1.0` },
+  // ── Credential rotation backend state (Soma primitive dogfood) ──
+  // Two tables own the durable half of ClawNetApiKeyBackend: minted credentials
+  // (active + revoked, kept until the controller's verify-before-revoke drops
+  // them) and per-identity staging pointers. No touch to `api_keys` yet — that
+  // migration is a separate step, see backlog credential-rotation-architecture.md §9.
+  { version: 197, sql: `
+    CREATE TABLE IF NOT EXISTS api_key_rotation_credentials (
+      credential_id TEXT PRIMARY KEY,
+      identity_id TEXT NOT NULL,
+      algorithm_suite TEXT NOT NULL,
+      class TEXT NOT NULL,
+      public_key TEXT NOT NULL,
+      secret_key TEXT NOT NULL,
+      next_manifest_commitment TEXT NOT NULL,
+      issued_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL,
+      revoked INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_akrc_identity ON api_key_rotation_credentials(identity_id);
+    CREATE TABLE IF NOT EXISTS api_key_rotation_identities (
+      identity_id TEXT PRIMARY KEY,
+      current_credential_id TEXT NOT NULL,
+      next_public_key TEXT NOT NULL,
+      next_secret_key TEXT NOT NULL,
+      ttl_ms INTEGER NOT NULL
+    );
+  ` },
 ];
 
 function runMigrations(): void {
