@@ -2288,6 +2288,15 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   // Callers of appendAction already pass success in the payload; this
   // column persists it for downstream trust computation.
   { version: 199, sql: `ALTER TABLE pulse_tree_leaves ADD COLUMN success INTEGER NOT NULL DEFAULT 1` },
+  // P0.1 vault-encryption-at-rest marker. No schema change: legacy
+  // plaintext rows in api_key_rotation_credentials.secret_key and
+  // api_key_rotation_identities.next_secret_key are accepted on read
+  // (see src/core/vault-crypto.ts) and transparently rewritten as
+  // `v1:…` on their next update. The migration slot exists so the
+  // cutover is recorded in schema_migrations and future audits can
+  // correlate "this DB post-dates vault encryption" against the tree
+  // state. See internal/active/rotation-battle-test-and-roadmap.md §1.
+  { version: 200, sql: `SELECT 1 /* vault-crypto at rest live (P0.1); no-op marker */` },
 ];
 
 function runMigrations(): void {

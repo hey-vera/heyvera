@@ -57,6 +57,7 @@ import {
 import { getCryptoProvider } from 'soma-heart/crypto-provider';
 
 import { getDb } from '../db/connection';
+import { decryptSecret, encryptSecret, nextSecretAad } from './vault-crypto';
 
 // ─── Bearer-token generator ─────────────────────────────────────────────────
 
@@ -184,7 +185,7 @@ export class ClawNetApiKeyBackend implements CredentialBackend {
         args.identityId,
         credential.credentialId,
         this.b64(nextKeyPair.publicKey),
-        this.b64(nextKeyPair.secretKey),
+        encryptSecret(nextKeyPair.secretKey, nextSecretAad(args.identityId)),
         args.ttlMs,
       );
 
@@ -210,7 +211,12 @@ export class ClawNetApiKeyBackend implements CredentialBackend {
     // generate the fresh next-next pair that the new credential will
     // commit to. Neither durable row moves yet — only the credential
     // row is inserted so the controller can collect the new key's PoP.
-    const promotedSecretKey = this.decodeB64(ident.next_secret_key);
+    // `next_secret_key` is vault-wrapped (AEAD-bound to `${id}:next`),
+    // so decryption doubles as a row-integrity check.
+    const promotedSecretKey = decryptSecret(
+      ident.next_secret_key,
+      nextSecretAad(args.identityId),
+    );
     const promotedPublicKey = this.decodeB64(ident.next_public_key);
     const nextNextKeyPair = this.provider.signing.generateKeyPair();
 
@@ -247,7 +253,7 @@ export class ClawNetApiKeyBackend implements CredentialBackend {
       .run(
         stage.stagedCredentialId,
         this.b64(stage.nextNextPublicKey),
-        this.b64(stage.nextNextSecretKey),
+        encryptSecret(stage.nextNextSecretKey, nextSecretAad(identityId)),
         identityId,
       );
     this.staged.delete(identityId);
@@ -276,12 +282,12 @@ export class ClawNetApiKeyBackend implements CredentialBackend {
     message: Uint8Array,
   ): Promise<Uint8Array> {
     const row = this.requireLiveCredential(credentialId);
-    const secretKey = this.decodeB64(row.secret_key);
-    try {
-      return this.provider.signing.sign(message, secretKey);
-    } finally {
-      secretKey.fill(0);
-    }
+    // Vault-unwrap the secret with AAD bound to credentialId — ciphertext
+    // pasted in from another row fails the AEAD check. Zeroing the local
+    // buffer after use is cosmetic in Node (V8 copies during GC) — real
+    // protection is the at-rest KEK. See rotation-battle-test-and-roadmap.md §1.
+    const secretKey = decryptSecret(row.secret_key, credentialId);
+    return this.provider.signing.sign(message, secretKey);
   }
 
   async verifyWithCredential(
@@ -309,11 +315,13 @@ export class ClawNetApiKeyBackend implements CredentialBackend {
   // ─── Revocation / cleanup ───────────────────────────────────────────────
 
   async revokeCredential(credentialId: string): Promise<void> {
-    // Mark revoked and overwrite the stored secret key with zero bytes.
-    // The row is kept so the controller's accepted-pool can still look
-    // up the public key to verify in-flight signatures against it until
-    // the grace window expires.
-    const zeroBytes = this.b64(new Uint8Array(32));
+    // Mark revoked and overwrite the stored secret key with 64 zero bytes
+    // (matches Ed25519 secret length — an earlier revision wrote 32 bytes,
+    // which left a decoded buffer of the wrong length for any later verify
+    // path that accidentally re-read the column). The row is kept so the
+    // controller's accepted-pool can still look up the public key to verify
+    // in-flight signatures against it until the grace window expires.
+    const zeroBytes = this.b64(new Uint8Array(64));
     this.db
       .prepare(
         'UPDATE api_key_rotation_credentials SET revoked = 1, secret_key = ? WHERE credential_id = ?',
@@ -327,7 +335,7 @@ export class ClawNetApiKeyBackend implements CredentialBackend {
     if (this.staged.has(identityId)) {
       await this.abortStagedRotation(identityId);
     }
-    const zeroBytes = this.b64(new Uint8Array(32));
+    const zeroBytes = this.b64(new Uint8Array(64));
     const tx = this.db.transaction(() => {
       this.db
         .prepare(
@@ -397,6 +405,16 @@ export class ClawNetApiKeyBackend implements CredentialBackend {
     this.pendingAdoptBearer = bearer;
   }
 
+  /**
+   * Clear a previously-armed adoption slot without consuming it. Idempotent.
+   * Called from the adoption wrapper's rollback path when the enclosing
+   * transaction aborts before `issueCredential` gets a chance to consume
+   * the slot. Safe no-op if no slot was armed or it was already consumed.
+   */
+  clearPendingAdoptBearer(): void {
+    this.pendingAdoptBearer = null;
+  }
+
   // ─── Internals ──────────────────────────────────────────────────────────
 
   private mintEntry(args: {
@@ -442,7 +460,9 @@ export class ClawNetApiKeyBackend implements CredentialBackend {
         this.algorithmSuite,
         this.class,
         this.b64(args.publicKey),
-        this.b64(args.secretKey),
+        // Vault-wrap the secret, AAD-bound to credentialId so ciphertext
+        // cannot be lifted into a different row without failing verify.
+        encryptSecret(args.secretKey, credentialId),
         nextManifestCommitment,
         args.issuedAt,
         expiresAt,

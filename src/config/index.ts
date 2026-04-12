@@ -164,6 +164,16 @@ const envSchema = z.object({
   ),
   RECLAIM_APP_ID: z.string().optional(),     // From dev.reclaimprotocol.org
   RECLAIM_APP_SECRET: z.string().optional(),  // From dev.reclaimprotocol.org
+
+  // ─── Credential vault (rotation backend secret-at-rest) ───────────────────
+  // Base64-encoded 32-byte KEK that wraps secret_key / next_secret_key rows
+  // in api_key_rotation_credentials and api_key_rotation_identities.
+  // Format: exactly 32 random bytes, base64-encoded (44 chars incl. padding).
+  // Generate with: `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`
+  // If unset outside of tests, new rotation secrets fall back to plaintext
+  // base64 and log a warning — existing rows keep working unchanged. Setting
+  // this before any rotation is the P0.1 blocker (see rotation-battle-test-and-roadmap.md §1).
+  CREDENTIAL_VAULT_KEK: z.string().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);
