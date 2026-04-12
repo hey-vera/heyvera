@@ -9,6 +9,13 @@ Sovereign AI agent orchestration layer. Hono API on port 3402, SQLite WAL (bette
    Use `Actions -> Deploy Production` on `main`. The workflow syncs the exact GitHub commit to the server mirror, connects over Tailscale SSH, runs the hardened deploy script, and should be verified with `/health` or `/api/deploy-info`.
 3. Never assume - always verify. Check actual code, docs, and runtime behavior before answering.
 
+## Merge Conventions
+
+- Default to `Squash and merge`.
+- Use `Merge commit` only when preserving branch history is intentionally valuable.
+- If a PR is ready but still waiting on checks, prefer asking whether to enable auto-merge.
+- Be collaborative: when a PR looks merge-ready, explicitly prompt the user before merging instead of assuming.
+
 ## Quick Reference
 
 ```bash
