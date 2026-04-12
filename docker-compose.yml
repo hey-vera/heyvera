@@ -2,7 +2,7 @@ services:
   orchestrator:
     build: .
     ports:
-      - "3402:3402"
+      - "127.0.0.1:3402:3402"
     env_file:
       - .env
     environment:
