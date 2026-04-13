@@ -16,6 +16,9 @@
  *      because `:memory:` databases always report `memory` regardless
  *      of the WAL pragma — WAL is a file-backed mode.
  */
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
@@ -23,7 +26,7 @@ import {
   closeDb,
   getDb,
   initDb,
-} from '../../src/db/connection';
+} from '../../src/db/index';
 
 beforeEach(() => {
   _resetDbForTests();
@@ -66,5 +69,44 @@ describe('db/connection', () => {
     const busy = db.pragma('busy_timeout', { simple: true });
     expect(fk).toBe(1);
     expect(busy).toBe(5000);
+  });
+
+  it('records v1 rotation-schema migration in schema_migrations', () => {
+    const db = initDb({ path: ':memory:' });
+    const row = db
+      .prepare('SELECT version, applied_at FROM schema_migrations WHERE version = 1')
+      .get() as { version: number; applied_at: string } | undefined;
+    expect(row?.version).toBe(1);
+    expect(typeof row?.applied_at).toBe('string');
+  });
+
+  it('migration is idempotent across simulated process restarts', () => {
+    // Use a real on-disk path so state persists between initDb calls.
+    // :memory: can't exercise this because each handle gets a fresh db.
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'clawnet-db-test-'));
+    const dbPath = path.join(tmpDir, 'test.db');
+    try {
+      const first = initDb({ path: dbPath });
+      const firstRows = first
+        .prepare('SELECT version FROM schema_migrations ORDER BY version')
+        .all() as { version: number }[];
+      expect(firstRows.map((r) => r.version)).toEqual([1]);
+
+      // Simulate a process restart: close the handle, reset the module
+      // cache, and re-init against the same file.
+      closeDb();
+      _resetDbForTests();
+
+      const second = initDb({ path: dbPath });
+      const secondRows = second
+        .prepare('SELECT version FROM schema_migrations ORDER BY version')
+        .all() as { version: number }[];
+      // Still exactly one row — the migration is skipped because
+      // version 1 is already applied.
+      expect(secondRows.map((r) => r.version)).toEqual([1]);
+    } finally {
+      closeDb();
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 });

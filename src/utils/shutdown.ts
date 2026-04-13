@@ -1,6 +1,6 @@
 import { logger } from './logger';
 import { closeRedis } from '../cache/index';
-import { closeDb } from '../db/connection';
+import { closeDb } from '../db/index';
 import { stopHeartbeat } from '../core/heartbeat';
 
 let isShuttingDown = false;
