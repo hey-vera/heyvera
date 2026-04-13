@@ -31,11 +31,13 @@ const envSchema = z.object({
 
   // ─── Persistent storage ───────────────────────────────────────────────────
   // Path to the SQLite database file. Consumed by `src/db/connection.ts`.
-  // Default is a repo-relative `./data/claw-net.db`; the runner creates the
-  // parent directory on startup. In Docker this path lands inside the bind-
-  // mounted `./data` volume defined in docker-compose.yml, so the database
-  // survives container rebuilds.
-  DB_PATH: z.string().default('./data/claw-net.db'),
+  // Default is repo-relative `./data/orchestrator.db` to match the filename
+  // already used in production — the live VPS database is `data/orchestrator.db`
+  // and the backup/restore tooling is aligned around that name, so we pick
+  // the same default here to keep runtime, backup, and restore naming in lockstep.
+  // In Docker this path lands inside the bind-mounted `./data` volume defined
+  // in docker-compose.yml, so the database survives container rebuilds.
+  DB_PATH: z.string().default('./data/orchestrator.db'),
 
   // ─── Credential vault (secret-at-rest) ────────────────────────────────────
   // Base64-encoded 32-byte key-encryption-key that wraps stored secrets via
