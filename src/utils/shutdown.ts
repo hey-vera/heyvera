@@ -1,5 +1,6 @@
 import { logger } from './logger';
 import { closeRedis } from '../cache/index';
+import { closeDb } from '../db/connection';
 import { stopHeartbeat } from '../core/heartbeat';
 
 let isShuttingDown = false;
@@ -20,6 +21,12 @@ export function setupGracefulShutdown() {
       await closeRedis();
     } catch (err) {
       logger.warn({ err }, 'Error closing Redis');
+    }
+
+    try {
+      closeDb();
+    } catch (err) {
+      logger.warn({ err }, 'Error closing database');
     }
 
     logger.info('Shutdown complete');
