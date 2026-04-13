@@ -8,6 +8,7 @@ import { env, isSimulationMode } from './config/index';
 import { logger } from './utils/logger';
 import { apiRouter } from './routes/api';
 import { initRedis } from './cache/index';
+import { initDb } from './db/connection';
 import { checkApiKey } from './middleware/auth';
 import { rateLimiter } from './middleware/rate-limit';
 import { startHeartbeat } from './core/heartbeat';
@@ -70,6 +71,7 @@ app.route('/v1', apiRouter);
 app.notFound((c) => c.json({ error: 'Not found', code: 'NOT_FOUND' }, 404));
 
 async function start() {
+  initDb();
   await initRedis();
   setupGracefulShutdown();
   startHeartbeat();

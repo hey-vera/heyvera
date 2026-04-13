@@ -29,6 +29,16 @@ const envSchema = z.object({
   TELEGRAM_BOT_TOKEN: z.string().optional(),
   TELEGRAM_CHANNEL_ID: z.string().optional(),
 
+  // ─── Persistent storage ───────────────────────────────────────────────────
+  // Path to the SQLite database file. Consumed by `src/db/connection.ts`.
+  // Default is repo-relative `./data/orchestrator.db` to match the filename
+  // already used in production — the live VPS database is `data/orchestrator.db`
+  // and the backup/restore tooling is aligned around that name, so we pick
+  // the same default here to keep runtime, backup, and restore naming in lockstep.
+  // In Docker this path lands inside the bind-mounted `./data` volume defined
+  // in docker-compose.yml, so the database survives container rebuilds.
+  DB_PATH: z.string().default('./data/orchestrator.db'),
+
   // ─── Credential vault (secret-at-rest) ────────────────────────────────────
   // Base64-encoded 32-byte key-encryption-key that wraps stored secrets via
   // AES-256-GCM. Consumed by `src/core/vault-crypto.ts`. Optional at this
