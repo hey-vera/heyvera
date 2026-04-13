@@ -3,8 +3,8 @@ set -euo pipefail
 
 REPO_DIR="${REPO_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 DATA_DIR="${DATA_DIR:-$REPO_DIR/data}"
-BACKUP_DIR="${BACKUP_DIR:-$REPO_DIR/backups}"
-DB_BASENAME="${DB_BASENAME:-claw-net.db}"
+BACKUP_DIR="${BACKUP_DIR:-$DATA_DIR/backups}"
+DB_BASENAME="${DB_BASENAME:-orchestrator.db}"
 RETENTION_DAYS="${RETENTION_DAYS:-14}"
 
 DB_PATH="$DATA_DIR/$DB_BASENAME"
