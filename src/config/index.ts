@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 const envSchema = z.object({
   PORT: z.coerce.number().default(3402),
-  NODE_ENV: z.enum(['development', 'production']).default('development'),
+  NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
 
   LLM_PROVIDER: z.enum(['anthropic', 'openai', 'openclaw']).default('anthropic'),
@@ -28,6 +28,14 @@ const envSchema = z.object({
 
   TELEGRAM_BOT_TOKEN: z.string().optional(),
   TELEGRAM_CHANNEL_ID: z.string().optional(),
+
+  // ─── Credential vault (secret-at-rest) ────────────────────────────────────
+  // Base64-encoded 32-byte key-encryption-key that wraps stored secrets via
+  // AES-256-GCM. Consumed by `src/core/vault-crypto.ts`. Optional at this
+  // stage: when unset, `encryptSecret` falls back to a plain base64 passthrough
+  // and logs a one-time warning, so existing deployments keep running.
+  // Generate with: `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`
+  CREDENTIAL_VAULT_KEK: z.string().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);
