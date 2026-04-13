@@ -149,8 +149,16 @@ export function initDb(options: InitDbOptions = {}): DbHandle {
       .map((row) => (row as { version: number }).version),
   );
 
+  // `OR IGNORE` on the schema_migrations insert makes the migration
+  // step race-tolerant: if two initializers somehow hit the same
+  // on-disk database before either has committed (not a supported
+  // operating mode today — the orchestrator runs as a single Node
+  // process — but also not guaranteed by anything architectural), the
+  // second writer's `CREATE TABLE IF NOT EXISTS` is already a no-op,
+  // and this insert silently no-ops instead of tripping the PRIMARY
+  // KEY constraint and rolling the whole transaction back.
   const insertApplied = handle.prepare(
-    'INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)',
+    'INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)',
   );
 
   for (const migration of MIGRATIONS) {
