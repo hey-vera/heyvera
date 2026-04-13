@@ -26,11 +26,18 @@ npm run test:unit
 ```
 
 **VPS admin:** `guardian-vps-tail`  
+**Deploy-user SSH alias:** `claw-vps-tail` (may be blocked by Tailscale SSH policy for human/agent sessions; CI uses `deploy`)  
 **Production host:** `clawguard` (`tag:deploy`)  
-**Server repo path:** `/home/guardian/claw-net`  
+**Live server repo path:** `/home/guardian/claw-net`  
 **Deploy branch:** `main`  
 **Preferred release path:** GitHub Actions `Deploy Production`  
 **Emergency fallback:** SSH as `guardian`, then run `bash scripts/deploy.sh` from `/home/guardian/claw-net`
+
+## Ops Access Notes
+
+- Future agents should assume host inspection happens over `guardian-vps-tail` unless a human explicitly confirms deploy-user SSH is allowed for their session.
+- Do not assume a repo note grants SSH by itself. Real access still depends on the local machine having the right SSH keys, SSH config aliases, active Tailscale auth, and matching Tailscale SSH policy.
+- When checking live production state, prefer verifying the actual server path and user on the box instead of assuming `/home/deploy/...` from workflow variables.
 
 ## Stack Rules (CRITICAL)
 
