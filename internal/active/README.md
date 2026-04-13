@@ -6,6 +6,8 @@ Some files are current strategy, some are active plans, some are audits, and som
 
 If a fact should guide any contributor as shipped repo truth, put it in `docs/`.
 
+Before creating implementation issues from an active internal doc, check `../idea-triage-index.md` and make sure the idea has a repo owner, stage, confidence, and next action.
+
 ## Typical Contents
 
 - current strategy

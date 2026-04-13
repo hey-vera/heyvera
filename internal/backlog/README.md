@@ -16,6 +16,10 @@ They capture good ideas that are not yet active workstreams or canonical repo pr
 
 When an idea becomes real:
 
-1. move it to `internal/active/`
-2. tighten the problem statement and boundary assumptions
-3. write a repo-level proposal or ADR if needed
+1. add or update its row in `../idea-triage-index.md`
+2. classify repo owner, stage, confidence, and next action
+3. move it to `internal/active/` only if it becomes a real workstream
+4. tighten the problem statement and boundary assumptions
+5. write a repo-level proposal or ADR if needed
+
+If the owner or next action is unclear, use `../triage/` instead of inventing an implementation issue.

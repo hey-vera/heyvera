@@ -33,6 +33,15 @@ Heuristic:
 - accepted structural choices belong in `docs/decisions/`
 - shipped truth belongs in canonical docs under `docs/`
 
+Idea triage rule:
+
+- preserve raw brainstorms, but do not treat them as committed direction
+- classify internal ideas by repo owner (`Soma`, `claw-net`, `pulse`, `cross-repo`, `unsure`), stage, confidence, and next action before creating implementation issues
+- use `internal/idea-triage-index.md` as the queue for promoting brainstorms into GitHub Project discovery cards, proposal docs, ADRs, or implementation issues
+- promote only high-signal ideas with a clear owner; leave unclear or speculative ideas in `internal/backlog/` or mark them `unsure`
+- if an idea changes protocol semantics, credential trust, repo boundaries, product scope, production behavior, or release posture, require a proposal and likely an ADR before implementation
+- for the current Soma credential rotation work, keep Soma protocol semantics in `Soma`, ClawNet first-consumer integration in `claw-net`, and use the GitHub Project to connect the cross-repo slice
+
 ## Repo Truth Rules
 
 - Treat GitHub as the source of truth. Normal code pushes should go to the GitHub remote and land through PRs.
@@ -118,3 +127,4 @@ npm run test:unit
 - `docs/proposals/PROPOSAL-TEMPLATE.md`
 - `docs/reference/github-project-schema.md`
 - `internal/active/idea-to-production-loop.md`
+- `internal/idea-triage-index.md`
