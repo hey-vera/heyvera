@@ -29,6 +29,8 @@ They require a repository or organization secret named `ADD_TO_PROJECT_PAT` with
 
 For a classic token, GitHub's `actions/add-to-project` docs call for `repo` and `project` scopes for private repos. Prefer a fine-grained token if available and practical: grant organization Projects read/write plus read-only issue and pull request access for the participating repos.
 
+Until the secret exists, the workflow safely no-ops instead of failing every PR.
+
 ## External Soma Issues
 
 `Soma` is intentionally separate under `1xmint/Soma`.
