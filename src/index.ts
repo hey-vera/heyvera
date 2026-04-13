@@ -8,7 +8,7 @@ import { env, isSimulationMode } from './config/index';
 import { logger } from './utils/logger';
 import { apiRouter } from './routes/api';
 import { initRedis } from './cache/index';
-import { initDb } from './db/connection';
+import { initDb } from './db/index';
 import { checkApiKey } from './middleware/auth';
 import { rateLimiter } from './middleware/rate-limit';
 import { startHeartbeat } from './core/heartbeat';

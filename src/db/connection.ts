@@ -47,11 +47,63 @@ interface Migration {
 /**
  * Registered schema migrations, applied in order.
  *
- * Empty in the db-scaffold PR. Each later PR that introduces a new
- * table appends one entry here with a monotonically-increasing
- * `version` and an idempotent `up` function.
+ * Each entry must be idempotent under `CREATE TABLE IF NOT EXISTS` /
+ * `CREATE INDEX IF NOT EXISTS` so that replaying the migration on a
+ * database that already has the table is a no-op. Version numbers
+ * are monotonically increasing; never re-use or re-order a version
+ * once it has been merged to main.
  */
-const MIGRATIONS: Migration[] = [];
+const MIGRATIONS: Migration[] = [
+  {
+    version: 1,
+    description: 'api_key_rotation credentials + identities',
+    up: (db) => {
+      // Durable half of the upcoming ClawNetApiKeyBackend:
+      //
+      //   api_key_rotation_credentials — every minted credential, active
+      //   or revoked. The controller's verify-before-revoke keeps stale
+      //   rows around until the next identity rotation drops them.
+      //
+      //   api_key_rotation_identities  — per-identity pointer tracking
+      //   the current credential and the pre-committed next keypair.
+      //
+      // Both tables are INERT in this PR: no request-path code reads or
+      // writes them yet. The backend wiring, admin mint endpoint, and
+      // shadow-check lookup land in later PRs (#5/#6/#7).
+      //
+      // Secret columns store either a plain base64 row (legacy/no KEK)
+      // or a `v1:…` AES-256-GCM blob from `src/core/vault-crypto.ts`.
+      // Both forms are transparently handled by `decryptSecret`.
+      //
+      // No foreign keys: `identity_id` is a free-form string, and the
+      // identities table is not populated from any cross-table source
+      // that would meaningfully constrain it.
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS api_key_rotation_credentials (
+          credential_id TEXT PRIMARY KEY,
+          identity_id TEXT NOT NULL,
+          algorithm_suite TEXT NOT NULL,
+          class TEXT NOT NULL,
+          public_key TEXT NOT NULL,
+          secret_key TEXT NOT NULL,
+          next_manifest_commitment TEXT NOT NULL,
+          issued_at INTEGER NOT NULL,
+          expires_at INTEGER NOT NULL,
+          revoked INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_akrc_identity
+          ON api_key_rotation_credentials(identity_id);
+        CREATE TABLE IF NOT EXISTS api_key_rotation_identities (
+          identity_id TEXT PRIMARY KEY,
+          current_credential_id TEXT NOT NULL,
+          next_public_key TEXT NOT NULL,
+          next_secret_key TEXT NOT NULL,
+          ttl_ms INTEGER NOT NULL
+        );
+      `);
+    },
+  },
+];
 
 let db: DbHandle | null = null;
 
