@@ -17,11 +17,12 @@ That is fast, but it often skips boundary checks, architectural shaping, and ris
 The stronger version is:
 
 1. capture the idea clearly
-2. shape it into a proposal
-3. decide ownership and repo boundaries
-4. record any structural decisions
-5. break work into small execution slices
-6. implement through PRs
+2. triage owner, stage, confidence, and next action
+3. shape it into a proposal
+4. decide ownership and repo boundaries
+5. record any structural decisions
+6. break work into small execution slices
+7. implement through PRs
 
 ## Recommended Flow
 
@@ -43,9 +44,24 @@ Start in:
 
 - a GitHub Discussion
 - `internal/backlog/`
+- `internal/triage/` if owner or next action is unclear
 - or a structured issue draft
 
-### 2. Proposal Shaping
+### 2. Triage
+
+Before a brainstorm becomes execution work, classify it in `internal/idea-triage-index.md`.
+
+Required fields:
+
+- repo owner: `Soma`, `claw-net`, `pulse`, `cross-repo`, or `unsure`
+- stage: `brainstorm`, `discovery`, `proposal-candidate`, `ADR-candidate`, `implementation-candidate`, or `archive`
+- confidence: `high`, `medium`, or `low`
+- next action: `leave`, `research`, `project-card`, `proposal`, `ADR`, `issue`, or `archive`
+- canonical target if accepted
+
+Do not create implementation issues from raw brainstorms.
+
+### 3. Proposal Shaping
 
 Turn the idea into a proposal that answers:
 
@@ -59,7 +75,7 @@ Turn the idea into a proposal that answers:
 
 If the idea is serious, write a proposal in `docs/proposals/`.
 
-### 3. Boundary Check
+### 4. Boundary Check
 
 Before building, decide:
 
@@ -74,11 +90,11 @@ Example:
 - first-consumer integration belongs in `claw-net`
 - product usage docs belong in the consumer repo
 
-### 4. Decision Record
+### 5. Decision Record
 
 If the work changes structure, scope, trust model, or repo boundaries, write an ADR.
 
-### 5. Work Breakdown
+### 6. Work Breakdown
 
 Open a parent issue for the initiative, then create sub-issues for:
 
@@ -90,7 +106,7 @@ Open a parent issue for the initiative, then create sub-issues for:
 
 Each PR should land one reviewable slice.
 
-### 6. Production Readiness Gate
+### 7. Production Readiness Gate
 
 Before merging a large capability, ask:
 
