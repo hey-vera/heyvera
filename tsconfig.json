@@ -14,7 +14,13 @@
     "declaration": true,
     "sourceMap": true,
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "soma-heart/credential-rotation": [
+        "./node_modules/soma-heart/dist/heart/credential-rotation/index.d.ts"
+      ],
+      "soma-heart/crypto-provider": [
+        "./node_modules/soma-heart/dist/core/crypto-provider.d.ts"
+      ]
     }
   },
   "include": ["src/**/*"],
