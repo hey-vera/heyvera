@@ -25,7 +25,7 @@ jobs:
       ADD_TO_PROJECT_PAT: ${{ secrets.ADD_TO_PROJECT_PAT }}
     steps:
       - name: Add to Soma + ClawNet + Pulse project
-        if: ${{ env.ADD_TO_PROJECT_PAT != '' }}
+        if: ${{ env.ADD_TO_PROJECT_PAT != '' && (github.event_name == 'issues' || github.event_name == 'pull_request') }}
         uses: actions/add-to-project@244f685bbc3b7adfa8466e08b698b5577571133e # v1.0.2
         with:
           project-url: https://github.com/orgs/claw-net/projects/1

@@ -31,6 +31,8 @@ For a classic token, GitHub's `actions/add-to-project` docs call for `repo` and 
 
 Until the secret exists, the workflow safely no-ops instead of failing every PR.
 
+Manual `workflow_dispatch` runs are a smoke test for workflow validity only. The add-to-project step intentionally runs only for `issues` and `pull_request` events because GitHub's add action needs an issue or PR content ID.
+
 ## External Soma Issues
 
 `Soma` is intentionally separate under `1xmint/Soma`.
