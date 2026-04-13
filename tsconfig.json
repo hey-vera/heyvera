@@ -13,8 +13,27 @@
     "resolveJsonModule": true,
     "declaration": true,
     "sourceMap": true,
+    // TEMPORARY TYPE-RESOLUTION SHIM — technical debt, not a durable pattern.
+    // soma-heart@0.3.0 is ESM-only and exposes `./credential-rotation` and
+    // `./crypto-provider` only via the package.json `exports` field. The
+    // classic `moduleResolution: node` resolver does not honor `exports`,
+    // so TypeScript cannot find these subpaths without help. The `paths`
+    // entries below hardcode the same `.d.ts` files that soma-heart's own
+    // `exports.types` points at, duplicating the upstream declaration so
+    // typecheck succeeds. Runtime is unaffected — Node resolves the real
+    // `exports` field via `require(esm)` on Node >=22.12.0.
+    //
+    // Exit condition: remove these entries when claw-net migrates to
+    // `moduleResolution: NodeNext` (or `bundler`) repo-wide. Tracked in
+    // internal/backlog/moduleresolution-nodenext-migration.md.
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "soma-heart/credential-rotation": [
+        "./node_modules/soma-heart/dist/heart/credential-rotation/index.d.ts"
+      ],
+      "soma-heart/crypto-provider": [
+        "./node_modules/soma-heart/dist/core/crypto-provider.d.ts"
+      ]
     }
   },
   "include": ["src/**/*"],
