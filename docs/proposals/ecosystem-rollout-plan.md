@@ -1,4 +1,9 @@
+Status: proposed
+
 # ClawNet Ecosystem Rollout Plan
+
+Status: proposed
+
 
 This is the cleanest rollout order for the three-repo system:
 
@@ -55,34 +60,32 @@ The important outcome is stable published versions for:
 - optionally install `soma-heart` after ClawNet proves the version in production
 - avoid taking experimental Soma versions first unless Pulse is intentionally the canary
 
-## Current State
-
-- `claw-net` production deploys are running through GitHub Actions over Tailscale
-- `pulse` production deploys are running through GitHub Actions over Tailscale
-- `Soma` has the release workflow and trusted-publisher path for `soma-heart` and `soma-sense`
-
-So the private-app release path is no longer a plan on paper. The remaining work is cleanup, branch-policy tightening, and disciplined package adoption.
-
 ## Immediate Execution Order
 
 ### Stage 1: ClawNet
 
-1. Keep using `Deploy Production` instead of ad hoc shell deploys.
-2. Finish the remaining branch-protection and ruleset cleanup as plan limits allow.
-3. Move ClawNet from on-host rebuilds to immutable Docker image deploys.
+1. Turn on branch protection and required checks.
+2. Create the GitHub `production` environment.
+3. Add Tailscale deploy secrets and variables.
+4. Start using `Deploy Production` instead of ad hoc shell deploys.
+5. After that is stable, move ClawNet from on-host rebuilds to immutable Docker image deploys.
 
 ### Stage 2: Pulse
 
-1. Keep using `Deploy Production` instead of ad hoc shell deploys.
-2. Finish the remaining branch-protection and ruleset cleanup as plan limits allow.
-3. Move Pulse to immutable deploy artifacts or containers.
+1. Turn on branch protection and required checks.
+2. Create the GitHub `production` environment.
+3. Add Tailscale deploy secrets and variables.
+4. Start using `Deploy Production`.
+5. After stability, move Pulse to immutable deploy artifacts or containers.
 
 ### Stage 3: Soma
 
-1. Keep `npm-release` as the controlled publish path.
-2. Publish intentional versions from GitHub Actions.
-3. Make ClawNet consume released `soma-heart` versions first.
-4. Make Pulse consume those released versions second.
+1. Turn on branch protection and required checks.
+2. Create the GitHub `npm-release` environment.
+3. Configure npm trusted publishing for `soma-heart` and `soma-sense`.
+4. Publish intentional versions from GitHub Actions.
+5. Make ClawNet consume released `soma-heart` versions first.
+6. Make Pulse consume those released versions second.
 
 ## Production Adoption Rule
 

@@ -1,5 +1,8 @@
 # ClawNet Secure Release Workflow
 
+Status: canonical
+
+
 This is the recommended production workflow for ClawNet if we want the release path to be modern, reviewable, and difficult to misuse.
 
 ## Target State

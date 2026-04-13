@@ -1,0 +1,7 @@
+# Keep ownership narrow and explicit for high-risk areas.
+
+* @clawnet
+/docs/ @clawnet
+/.github/ @clawnet
+/scripts/ @clawnet
+/src/ @clawnet
