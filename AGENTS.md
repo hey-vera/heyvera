@@ -41,6 +41,10 @@ Idea triage rule:
 - promote only high-signal ideas with a clear owner; leave unclear or speculative ideas in `internal/backlog/` or mark them `unsure`
 - if an idea changes protocol semantics, credential trust, repo boundaries, product scope, production behavior, or release posture, require a proposal and likely an ADR before implementation
 - for the current Soma credential rotation work, keep Soma protocol semantics in `Soma`, ClawNet first-consumer integration in `claw-net`, and use the GitHub Project to connect the cross-repo slice
+- do not mark a downstream ClawNet integration idea as complete while an upstream Soma protocol/spec/security dependency is still undecided, weak, or missing its proposal/ADR/spec gate
+- treat prematurely-built work as `partial-foundation`, not `done`, until it reaches a terminal state: shipped with docs/tests/rollout, rejected with rationale, archived with status, or superseded by a newer decision
+- use a fitness check when touching existing or proposed functionality: does it still serve the ClawNet vision, is it secure enough for its exposure level, is there evidence it is needed, and should it be kept, reshaped, paused, or removed?
+- do not run broad random audits as a substitute for execution; discover gaps naturally by applying the fitness check during proposals, PR reviews, security-sensitive changes, incidents, and when old code blocks current work
 
 ## Repo Truth Rules
 

@@ -22,6 +22,14 @@ Describe the idea in plain language first.
 
 What would make this truly production-ready, not just a demo?
 
+## Fitness Check
+
+- vision fit:
+- real user/operator need:
+- security exposure:
+- evidence this is needed now:
+- keep / reshape / pause / remove:
+
 ## Repo Ownership
 
 - protocol truth:
