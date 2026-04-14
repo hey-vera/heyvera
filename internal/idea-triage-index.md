@@ -15,6 +15,18 @@ Use it before creating implementation issues. The flow is:
 - `ADR`: use when the idea changes repo boundaries, trust model, product scope, production behavior, release posture, public package API, or protocol semantics.
 - `issue`: use only after the next action is concrete enough to execute.
 - `archive`: use when the idea is superseded, historical, or not actionable.
+- `partial-foundation`: use when code or docs exist but the idea has not passed its proposal/ADR/spec/readiness gates.
+
+## Completion Rule
+
+An idea is not complete just because code exists or an experiment worked. Mark it terminal only as:
+
+- `shipped`: accepted proposal, ADR/spec if needed, implementation merged, tests/docs updated, rollout/deploy completed when applicable.
+- `rejected`: decision recorded with rationale.
+- `archived`: preserved with status metadata and no longer treated as active truth.
+- `superseded`: linked to the newer proposal, ADR, issue, or shipped implementation that replaced it.
+
+For cross-repo work, the weakest required dependency controls completion. A ClawNet integration cannot be done if Soma semantics, trust model, package/API surface, or security posture is still undecided.
 
 ## Current High-Priority Queue
 
@@ -102,6 +114,7 @@ Use this flow for the active Soma credential rotation work:
 3. Keep ClawNet first-consumer implementation in ClawNet issues/PRs.
 4. Require threat model, rollback, recovery, and docs update before production rollout.
 5. Do not implement straight from brainstorm notes.
+6. Treat existing inert foundation work as `partial-foundation` until Soma protocol semantics and the ClawNet rollout/readiness gates are accepted.
 
 ## Maintenance Rule
 
