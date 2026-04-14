@@ -28,6 +28,21 @@ An idea is not complete just because code exists or an experiment worked. Mark i
 
 For cross-repo work, the weakest required dependency controls completion. A ClawNet integration cannot be done if Soma semantics, trust model, package/API surface, or security posture is still undecided.
 
+## Evidence Ledger Rule
+
+Use an evidence ledger when a feature or idea was built before this operating system, salvaged from old notes, or partially implemented before its proposal/ADR/spec gates. The ledger is intentionally small:
+
+- `current status`: `partial-foundation`, `proposal`, `ADR-needed`, `implementation-ready`, `shipped`, `superseded`, `archived`, or `rejected`.
+- `vision fit`: why it still serves Soma, ClawNet, Pulse, or the cross-repo system.
+- `security exposure`: what risk class it touches and whether the current evidence is enough.
+- `upstream dependencies`: unresolved protocol/spec/package/runtime decisions.
+- `missing evidence`: tests, docs, threat model, rollout, owner decision, or user/operator proof.
+- `blocks current work`: whether this must be resolved now or can remain parked.
+- `next gate`: proposal, ADR/spec, issue, focused audit, implementation slice, archive, or rejection.
+- `terminal condition`: the concrete state that makes it done.
+
+Do not audit the whole repo randomly. Add or update a ledger only when old work becomes active, security-sensitive, production-facing, confusing to agents, or blocks a current slice.
+
 ## Current High-Priority Queue
 
 | Idea | Source | Owner | Stage | Confidence | Next action | Notes |
