@@ -103,6 +103,45 @@ const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 2,
+    description: 'api_key_rotation_adoption mapping (G7.2)',
+    up: (db) => {
+      // Storage-only mapping for the Gate 7.2 adoption primitive. Each
+      // row claims a `cn-[a-f0-9]{48}` legacy bearer as a rotation
+      // credential: the `bearer` column equals the corresponding
+      // `api_key_rotation_credentials.credential_id` by construction,
+      // because the adoption path writes both rows in a single sync
+      // transaction with `credential_id = bearer`.
+      //
+      // Three columns only. No `source`, no `authoritative`, no FK.
+      // Rationale:
+      //   - `source` / `authoritative` belong to the post-Gate-7
+      //     cutover and would pre-commit schema decisions that that
+      //     work deserves to make in its own PR.
+      //   - No FK because v1 skips FKs and v2 stays consistent.
+      //
+      // Rollback (documented-only, no down hook):
+      //   DROP INDEX idx_akra_identity;
+      //   DROP TABLE api_key_rotation_adoption;
+      //
+      // This migration is additive and cannot corrupt v1 state.
+      // SQLite quirk: `bearer TEXT PRIMARY KEY` alone would permit NULL
+      // in the PK column (historical behavior preserved for backwards
+      // compatibility; see https://sqlite.org/lang_createtable.html#the_primary_key).
+      // Declare `NOT NULL` explicitly so `PRAGMA table_info` reports
+      // notnull=1 and a NULL insert is refused at the engine level.
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS api_key_rotation_adoption (
+          bearer TEXT PRIMARY KEY NOT NULL,
+          identity_id TEXT NOT NULL,
+          adopted_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_akra_identity
+          ON api_key_rotation_adoption(identity_id);
+      `);
+    },
+  },
 ];
 
 let db: DbHandle | null = null;

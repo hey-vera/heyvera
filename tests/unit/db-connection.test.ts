@@ -80,6 +80,15 @@ describe('db/connection', () => {
     expect(typeof row?.applied_at).toBe('string');
   });
 
+  it('records v2 adoption-schema migration in schema_migrations', () => {
+    const db = initDb({ path: ':memory:' });
+    const row = db
+      .prepare('SELECT version, applied_at FROM schema_migrations WHERE version = 2')
+      .get() as { version: number; applied_at: string } | undefined;
+    expect(row?.version).toBe(2);
+    expect(typeof row?.applied_at).toBe('string');
+  });
+
   it('migration is idempotent across simulated process restarts', () => {
     // Use a real on-disk path so state persists between initDb calls.
     // :memory: can't exercise this because each handle gets a fresh db.
@@ -90,7 +99,7 @@ describe('db/connection', () => {
       const firstRows = first
         .prepare('SELECT version FROM schema_migrations ORDER BY version')
         .all() as { version: number }[];
-      expect(firstRows.map((r) => r.version)).toEqual([1]);
+      expect(firstRows.map((r) => r.version)).toEqual([1, 2]);
 
       // Simulate a process restart: close the handle, reset the module
       // cache, and re-init against the same file.
@@ -101,9 +110,9 @@ describe('db/connection', () => {
       const secondRows = second
         .prepare('SELECT version FROM schema_migrations ORDER BY version')
         .all() as { version: number }[];
-      // Still exactly one row — the migration is skipped because
-      // version 1 is already applied.
-      expect(secondRows.map((r) => r.version)).toEqual([1]);
+      // Still exactly two rows — the migrations are skipped because
+      // versions 1 and 2 are already applied.
+      expect(secondRows.map((r) => r.version)).toEqual([1, 2]);
     } finally {
       closeDb();
       fs.rmSync(tmpDir, { recursive: true, force: true });
