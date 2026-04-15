@@ -95,6 +95,21 @@ import { getCryptoProvider } from 'soma-heart/crypto-provider';
 import { getDb } from '../db/index';
 import { decryptSecret, encryptSecret, nextSecretAad } from './vault-crypto';
 
+/**
+ * Thrown by `ClawNetApiKeyBackend.adoptPreVerifiedBearer` when a
+ * rotation credential row already exists for the target bearer but is
+ * not registered in `api_key_rotation_adoption`. Refusing here prevents
+ * a stray rotation mint from being retroactively claimed as adopted.
+ */
+export class AdoptionBearerCollisionError extends Error {
+  constructor(public readonly bearer: string) {
+    super(
+      `AdoptionBearerCollision: a rotation credential already exists for bearer ${bearer} with no adoption row`,
+    );
+    this.name = 'AdoptionBearerCollisionError';
+  }
+}
+
 // ─── Bearer-token generator ─────────────────────────────────────────────────
 
 /**
@@ -381,6 +396,225 @@ export class ClawNetApiKeyBackend implements CredentialBackend {
         .run(identityId);
     });
     tx();
+  }
+
+  // ─── G7.2 adoption primitive ────────────────────────────────────────────
+
+  /**
+   * Storage-only adoption of a pre-verified legacy `cn-…` bearer.
+   *
+   * **This is a backend/storage primitive, not a rotation-controller
+   * operation.** It writes a rotation credential row, an identity row,
+   * and an adoption-mapping row in a single sync `db.transaction(...)`
+   * with the invariant `credential_id == bearer`. It does **not** call
+   * `CredentialRotationController.incept`, does not advance a rotation
+   * event chain (`pending → anchored → effective`), and does not make
+   * the rotation backend authoritative. Middleware is untouched.
+   *
+   * The caller proves pre-verification by passing a
+   * `VerifiedLegacyBearer` (see `src/core/rotation-adoption.ts`). That
+   * brand is erased at runtime, so this method also re-checks the
+   * bearer format as defense-in-depth.
+   *
+   * Atomicity: the three INSERTs are wrapped in `db.transaction(fn)`,
+   * which better-sqlite3 guarantees as all-or-nothing with automatic
+   * rollback on any throw inside `fn`. All async-capable work (keypair
+   * generation, manifest-commitment hashing) happens **before** the
+   * transaction opens, so the writer lock window holds only prepared
+   * statements.
+   *
+   * Idempotency: if an adoption row already exists for `bearer`, the
+   * transaction reads it back and returns `{idempotent: true}` without
+   * writing. A pre-existing rotation credential row with the same id
+   * that is **not** yet adopted throws `AdoptionBearerCollision` — the
+   * primitive refuses to retroactively claim a stray credential.
+   *
+   * No public setter exposes the bearer string anywhere else in the
+   * backend — `adoptPreVerifiedBearer` is the only path that writes a
+   * credential row whose `credential_id` is caller-chosen instead of
+   * mint-generated.
+   */
+  adoptPreVerifiedBearer(args: {
+    bearer: string;
+    identityId: string;
+    issuedAt: number;
+    ttlMs: number;
+  }): {
+    credential: Credential;
+    adoption: { bearer: string; identityId: string; adoptedAt: number };
+    idempotent: boolean;
+  } {
+    // Defense-in-depth: the brand has been checked by the wrapper, but
+    // runtime erasure means a compromised caller could downcast. Enforce
+    // the format invariant at the storage boundary too.
+    if (!/^cn-[a-f0-9]{48}$/.test(args.bearer)) {
+      throw new Error(
+        `ClawNetApiKeyBackend.adoptPreVerifiedBearer: bearer does not match cn-[a-f0-9]{48}: ${args.bearer}`,
+      );
+    }
+
+    // Pre-compute crypto OUTSIDE the transaction so the writer lock
+    // holds only prepared-statement time. Keypair generation is the
+    // slowest step by a wide margin.
+    const keyPair = this.provider.signing.generateKeyPair();
+    const nextKeyPair = this.provider.signing.generateKeyPair();
+    const nextManifestCommitment = computeManifestCommitment(
+      {
+        backendId: this.backendId,
+        algorithmSuite: this.algorithmSuite,
+        publicKey: nextKeyPair.publicKey,
+      },
+      this.provider,
+    );
+    const expiresAt = args.issuedAt + args.ttlMs;
+    // Vault-wrap ciphertexts before the transaction so the lock window
+    // does not include AEAD work.
+    const wrappedSecret = encryptSecret(keyPair.secretKey, args.bearer);
+    const wrappedNextSecret = encryptSecret(
+      nextKeyPair.secretKey,
+      nextSecretAad(args.identityId),
+    );
+    const publicKeyB64 = this.b64(keyPair.publicKey);
+    const nextPublicKeyB64 = this.b64(nextKeyPair.publicKey);
+
+    // Closure state so the transaction body can return a value through
+    // better-sqlite3's db.transaction() wrapper.
+    let resultIdempotent = false;
+    let resultCredential: Credential;
+    let resultAdoption: {
+      bearer: string;
+      identityId: string;
+      adoptedAt: number;
+    };
+
+    const tx = this.db.transaction(() => {
+      // Idempotent short-circuit: an existing adoption row for the
+      // same bearer is a no-op re-adoption. Read the row back and
+      // return the previously minted credential.
+      const existingAdoption = this.db
+        .prepare(
+          'SELECT bearer, identity_id, adopted_at FROM api_key_rotation_adoption WHERE bearer = ?',
+        )
+        .get(args.bearer) as
+        | { bearer: string; identity_id: string; adopted_at: number }
+        | undefined;
+
+      if (existingAdoption) {
+        const existingCred = this.readCredential(args.bearer);
+        if (!existingCred) {
+          throw new Error(
+            `ClawNetApiKeyBackend.adoptPreVerifiedBearer: adoption row exists for ${args.bearer} but credential row is missing`,
+          );
+        }
+        resultCredential = {
+          credentialId: existingCred.credential_id,
+          identityId: existingCred.identity_id,
+          backendId: this.backendId,
+          algorithmSuite: this.algorithmSuite,
+          class: existingCred.class as CredentialClass,
+          publicKey: this.decodeB64(existingCred.public_key),
+          issuedAt: existingCred.issued_at,
+          expiresAt: existingCred.expires_at,
+          nextManifestCommitment: existingCred.next_manifest_commitment,
+        };
+        resultAdoption = {
+          bearer: existingAdoption.bearer,
+          identityId: existingAdoption.identity_id,
+          adoptedAt: existingAdoption.adopted_at,
+        };
+        resultIdempotent = true;
+        return;
+      }
+
+      // Collision guard: a rotation credential row with this id must
+      // not already exist outside the adoption table. Refusing here
+      // prevents a stray mint (e.g. from a test bypass) from being
+      // retroactively claimed as an adopted bearer.
+      const straylingCred = this.db
+        .prepare(
+          'SELECT credential_id FROM api_key_rotation_credentials WHERE credential_id = ?',
+        )
+        .get(args.bearer) as { credential_id: string } | undefined;
+      if (straylingCred) {
+        throw new AdoptionBearerCollisionError(args.bearer);
+      }
+
+      this.db
+        .prepare(
+          `INSERT INTO api_key_rotation_credentials
+             (credential_id, identity_id, algorithm_suite, class,
+              public_key, secret_key, next_manifest_commitment,
+              issued_at, expires_at, revoked)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+        )
+        .run(
+          args.bearer,
+          args.identityId,
+          this.algorithmSuite,
+          this.class,
+          publicKeyB64,
+          wrappedSecret,
+          nextManifestCommitment,
+          args.issuedAt,
+          expiresAt,
+        );
+
+      this.db
+        .prepare(
+          `INSERT INTO api_key_rotation_identities
+             (identity_id, current_credential_id, next_public_key, next_secret_key, ttl_ms)
+           VALUES (?, ?, ?, ?, ?)`,
+        )
+        .run(
+          args.identityId,
+          args.bearer,
+          nextPublicKeyB64,
+          wrappedNextSecret,
+          args.ttlMs,
+        );
+
+      this.db
+        .prepare(
+          `INSERT INTO api_key_rotation_adoption (bearer, identity_id, adopted_at)
+           VALUES (?, ?, ?)`,
+        )
+        .run(args.bearer, args.identityId, args.issuedAt);
+
+      resultCredential = {
+        credentialId: args.bearer,
+        identityId: args.identityId,
+        backendId: this.backendId,
+        algorithmSuite: this.algorithmSuite,
+        class: this.class,
+        publicKey: keyPair.publicKey,
+        issuedAt: args.issuedAt,
+        expiresAt,
+        nextManifestCommitment,
+      };
+      resultAdoption = {
+        bearer: args.bearer,
+        identityId: args.identityId,
+        adoptedAt: args.issuedAt,
+      };
+    });
+
+    try {
+      tx();
+    } catch (err) {
+      // Zeroise the freshly generated secret material on any throw so
+      // it cannot linger in heap memory beyond the failed call. The
+      // wrappedSecret ciphertexts are already inert under an unknown
+      // IV/tag so there is nothing to scrub there.
+      keyPair.secretKey.fill(0);
+      nextKeyPair.secretKey.fill(0);
+      throw err;
+    }
+
+    return {
+      credential: resultCredential!,
+      adoption: resultAdoption!,
+      idempotent: resultIdempotent,
+    };
   }
 
   // ─── Read helpers (exposed for future middleware / tests) ──────────────
