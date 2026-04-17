@@ -171,6 +171,34 @@ const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 4,
+    description: 'api_keys — core account table (no-op on live DB, migration debt repair)',
+    up: (db) => {
+      // CREATE TABLE IF NOT EXISTS is a safe no-op on the live database where
+      // this table already exists (created by the guardian-vps migration lineage).
+      // On a fresh database (CI, local dev, new VPS) this creates the table so
+      // that GET /v1/auth/me and the OAuth auto-create path work without external
+      // SQL setup. Columns and defaults exactly match the guardian-vps production
+      // schema as of 2026-04.
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS api_keys (
+          key TEXT PRIMARY KEY,
+          email TEXT NOT NULL,
+          credits INTEGER NOT NULL DEFAULT 0,
+          credits_used INTEGER NOT NULL DEFAULT 0,
+          stripe_session_id TEXT UNIQUE,
+          amount_paid REAL NOT NULL DEFAULT 0,
+          active INTEGER NOT NULL DEFAULT 1,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          last_used_at TEXT,
+          clerk_user_id TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_api_keys_clerk
+          ON api_keys(clerk_user_id);
+      `);
+    },
+  },
 ];
 
 let db: DbHandle | null = null;

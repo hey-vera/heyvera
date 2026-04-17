@@ -14,6 +14,7 @@ import { rateLimiter } from './middleware/rate-limit';
 import { startHeartbeat } from './core/heartbeat';
 import { setupGracefulShutdown } from './utils/shutdown';
 import { oauthRouter } from './routes/oauth';
+import { authRouter } from './routes/auth';
 
 const app = new Hono();
 
@@ -69,6 +70,7 @@ app.use('/v1/orchestrate', checkApiKey);
 
 app.route('/v1', apiRouter);
 app.route('/v1/oauth', oauthRouter);
+app.route('/v1/auth', authRouter);
 
 app.notFound((c) => c.json({ error: 'Not found', code: 'NOT_FOUND' }, 404));
 
