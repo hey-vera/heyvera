@@ -142,7 +142,11 @@ oauthRouter.post('/authorize', async (c) => {
     } catch {
       return c.json({ error: 'Not authenticated', code: 'UNAUTHORIZED' }, 401);
     }
-    clerkUserId = c.get('clerkUserId');
+    // requireClerkAuth returns a Response on auth failure — it does not throw.
+    // Check the context variable it sets; if absent, auth failed and we must reject.
+    const resolvedId = c.get('clerkUserId');
+    if (!resolvedId) return c.json({ error: 'Not authenticated', code: 'UNAUTHORIZED' }, 401);
+    clerkUserId = resolvedId;
     clerkEmail = c.get('clerkEmail') ?? '';
     const formBody = await c.req.parseBody();
     app = String(formBody.app ?? '');
@@ -208,9 +212,34 @@ oauthRouter.post('/authorize', async (c) => {
   return c.redirect(redirectUrl);
 });
 
+// ─── POST /v1/oauth/token — Rate limiter ────────────────────────────────────
+// 10 attempts per IP per minute, in-process, no external dependency.
+
+const tokenRateMap = new Map<string, { count: number; resetAt: number }>();
+
+function checkTokenRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const entry = tokenRateMap.get(ip);
+  if (!entry || now >= entry.resetAt) {
+    tokenRateMap.set(ip, { count: 1, resetAt: now + 60_000 });
+    return true;
+  }
+  if (entry.count >= 10) return false;
+  entry.count++;
+  return true;
+}
+
 // ─── POST /v1/oauth/token — Exchange code for session info ──────────────────
 
 oauthRouter.post('/token', async (c) => {
+  const ip =
+    c.req.header('CF-Connecting-IP') ??
+    c.req.header('X-Forwarded-For')?.split(',')[0]?.trim() ??
+    'unknown';
+  if (!checkTokenRateLimit(ip)) {
+    return c.json({ error: 'Too many requests', code: 'RATE_LIMITED' }, 429);
+  }
+
   let body: { code?: string; app?: string };
   try {
     body = await c.req.json();
@@ -228,24 +257,32 @@ oauthRouter.post('/token', async (c) => {
     return c.json({ error: 'Unknown app', code: 'INVALID_APP' }, 400);
   }
 
-  const row = getDb().prepare(`
-    SELECT code, user_id, api_key, app, email, expires_at
-    FROM oauth_codes WHERE code = ? AND app = ?
-  `).get(code, app) as {
-    code: string; user_id: string; api_key: string; app: string; email: string; expires_at: string;
-  } | undefined;
+  // Atomically check + consume the code in a single transaction so a replayed
+  // request racing with the first cannot pass the SELECT before the DELETE lands.
+  type OAuthCodeRow = { code: string; user_id: string; api_key: string; app: string; email: string; expires_at: string };
+  type ConsumeResult = { row: OAuthCodeRow; expired: boolean } | null;
 
-  if (!row) {
+  const db = getDb();
+  const consumeCode = db.transaction((codeParam: string, appParam: string): ConsumeResult => {
+    const found = db.prepare(
+      'SELECT code, user_id, api_key, app, email, expires_at FROM oauth_codes WHERE code = ? AND app = ?'
+    ).get(codeParam, appParam) as OAuthCodeRow | undefined;
+    if (!found) return null;
+    // Always delete — expired codes must not linger or be reused
+    db.prepare('DELETE FROM oauth_codes WHERE code = ?').run(codeParam);
+    return { row: found, expired: new Date(found.expires_at) < new Date() };
+  });
+
+  const consumed = consumeCode(code, app) as ConsumeResult;
+
+  if (!consumed) {
     return c.json({ error: 'Invalid or expired auth code', code: 'INVALID_CODE' }, 401);
   }
-
-  if (new Date(row.expires_at) < new Date()) {
-    getDb().prepare('DELETE FROM oauth_codes WHERE code = ?').run(code);
+  if (consumed.expired) {
     return c.json({ error: 'Auth code expired', code: 'CODE_EXPIRED' }, 401);
   }
 
-  // One-time use
-  getDb().prepare('DELETE FROM oauth_codes WHERE code = ?').run(code);
+  const row = consumed.row;
 
   const keyRow = getDb().prepare(
     'SELECT credits FROM api_keys WHERE key = ? AND active = 1'

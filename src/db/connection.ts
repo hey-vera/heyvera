@@ -145,7 +145,7 @@ const MIGRATIONS: Migration[] = [
   },
   {
     version: 3,
-    description: 'oauth_codes — Sign in with ClawNet auth codes',
+    description: 'oauth_codes + audit_log — Sign in with ClawNet foundation tables',
     up: (db) => {
       db.exec(`
         CREATE TABLE IF NOT EXISTS oauth_codes (
@@ -156,7 +156,18 @@ const MIGRATIONS: Migration[] = [
           email TEXT DEFAULT '',
           expires_at TEXT NOT NULL,
           created_at TEXT NOT NULL DEFAULT (datetime('now'))
-        )
+        );
+        CREATE TABLE IF NOT EXISTS audit_log (
+          id TEXT PRIMARY KEY,
+          entity_type TEXT NOT NULL,
+          entity_id TEXT NOT NULL,
+          action TEXT NOT NULL,
+          actor_id TEXT,
+          data_json TEXT,
+          timestamp TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_audit_log_entity
+          ON audit_log(entity_type, entity_id);
       `);
     },
   },
