@@ -46,6 +46,9 @@ const envSchema = z.object({
   // and logs a one-time warning, so existing deployments keep running.
   // Generate with: `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`
   CREDENTIAL_VAULT_KEK: z.string().optional(),
+
+  // ─── Clerk authentication ──────────────────────────────────────────────────
+  CLERK_SECRET_KEY: z.string().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);
