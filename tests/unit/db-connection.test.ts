@@ -99,7 +99,7 @@ describe('db/connection', () => {
       const firstRows = first
         .prepare('SELECT version FROM schema_migrations ORDER BY version')
         .all() as { version: number }[];
-      expect(firstRows.map((r) => r.version)).toEqual([1, 2, 3]);
+      expect(firstRows.map((r) => r.version)).toEqual([1, 2, 3, 4]);
 
       // Simulate a process restart: close the handle, reset the module
       // cache, and re-init against the same file.
@@ -110,9 +110,9 @@ describe('db/connection', () => {
       const secondRows = second
         .prepare('SELECT version FROM schema_migrations ORDER BY version')
         .all() as { version: number }[];
-      // Still exactly three rows — the migrations are skipped because
-      // versions 1, 2, and 3 are already applied.
-      expect(secondRows.map((r) => r.version)).toEqual([1, 2, 3]);
+      // Still exactly four rows — the migrations are skipped because
+      // versions 1, 2, 3, and 4 are already applied.
+      expect(secondRows.map((r) => r.version)).toEqual([1, 2, 3, 4]);
     } finally {
       closeDb();
       fs.rmSync(tmpDir, { recursive: true, force: true });

@@ -2,6 +2,13 @@
 
 Status: canonical
 
+Current-main note: this document previously mixed target architecture and
+older/fork-era trust-network claims with shipped runtime truth. For the
+verified current-main status of Soma and trust surfaces, see
+[`docs/reference/current-trust-surfaces.md`](./current-trust-surfaces.md).
+Any section below that names a file absent from that status page is proposal or
+historical context until a fresh PR supplies source, tests, and updated docs.
+
 
 Soma is the core identity and provenance protocol. Soma provides **cryptographic accountability**: every paid interaction is bound to a key, timestamp, and heartbeat chain. Proof of origin — "this data came from this key, at this time, processed through this heart" — is the guarantee we make.
 

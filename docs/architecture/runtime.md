@@ -2,6 +2,13 @@
 
 Status: canonical
 
+Current-main note: this reference is being reconciled after pre-system and
+fork-era trust work. For the verified current-main trust/Soma/provider/cache
+surface inventory, see
+[`docs/reference/current-trust-surfaces.md`](../reference/current-trust-surfaces.md).
+Rows or sections below that name absent files are not shipped runtime truth
+until a fresh PR adds source, tests, and docs.
+
 
 ## Key Files
 
