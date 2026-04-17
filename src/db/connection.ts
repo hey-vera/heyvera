@@ -32,6 +32,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
+import { nanoid } from 'nanoid';
 
 import { env } from '../config/index';
 import { logger } from '../utils/logger';
@@ -139,6 +140,34 @@ const MIGRATIONS: Migration[] = [
         );
         CREATE INDEX IF NOT EXISTS idx_akra_identity
           ON api_key_rotation_adoption(identity_id);
+      `);
+    },
+  },
+  {
+    version: 3,
+    description: 'oauth_codes + audit_log — Sign in with ClawNet foundation tables',
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS oauth_codes (
+          code TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL,
+          api_key TEXT NOT NULL,
+          app TEXT NOT NULL,
+          email TEXT DEFAULT '',
+          expires_at TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS audit_log (
+          id TEXT PRIMARY KEY,
+          entity_type TEXT NOT NULL,
+          entity_id TEXT NOT NULL,
+          action TEXT NOT NULL,
+          actor_id TEXT,
+          data_json TEXT,
+          timestamp TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_audit_log_entity
+          ON audit_log(entity_type, entity_id);
       `);
     },
   },
@@ -253,4 +282,34 @@ export function closeDb(): void {
  */
 export function _resetDbForTests(): void {
   db = null;
+}
+
+/**
+ * Append a row to audit_log — fire-and-forget, never throws.
+ * Silently no-ops if the audit_log table doesn't exist (e.g. fresh dev DB).
+ */
+export function logAudit(params: {
+  entityType: string;
+  entityId: string;
+  action: string;
+  actorId?: string;
+  data?: Record<string, unknown>;
+}): void {
+  try {
+    getDb()
+      .prepare(
+        `INSERT INTO audit_log (id, entity_type, entity_id, action, actor_id, data_json)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        nanoid(16),
+        params.entityType,
+        params.entityId,
+        params.action,
+        params.actorId ?? null,
+        params.data ? JSON.stringify(params.data) : null,
+      );
+  } catch {
+    // Never let audit failures crash the caller
+  }
 }
