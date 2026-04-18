@@ -226,8 +226,10 @@ const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  // Version 198: guardian-vps prior system occupies schema_migrations rows 1–196.
+  // Versions 197+ are reserved for this repo. Do not use versions below 197 for new migrations.
   {
-    version: 6,
+    version: 198,
     description: 'delegated_keys — Soma delegation key issuance + spend tracking',
     up: (db) => {
       // Economy delegation keys: issued by a root cn- account, scoped to a set
