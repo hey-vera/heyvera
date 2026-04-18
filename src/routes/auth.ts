@@ -24,6 +24,40 @@ authRouter.get('/me', (c) => {
     return c.json({ error: 'Invalid or missing API key', code: 'UNAUTHORIZED' }, 401);
   }
 
+  if (apiKey.startsWith('cn-dlg-')) {
+    type DkJoinRow = {
+      email: string;
+      credits: number;
+      active: number;
+      clerk_user_id: string | null;
+    };
+
+    const row = getDb()
+      .prepare(
+        `SELECT ak.email, ak.credits, ak.active, ak.clerk_user_id
+         FROM delegated_keys dk
+         JOIN api_keys ak ON ak.key = dk.account_key
+         WHERE dk.key = ?
+           AND dk.revoked_at IS NULL
+           AND (dk.expires_at IS NULL OR dk.expires_at > datetime('now'))
+           AND ak.active = 1`,
+      )
+      .get(apiKey) as DkJoinRow | undefined;
+
+    if (!row) {
+      return c.json({ error: 'Delegation key not found, revoked, or expired', code: 'UNAUTHORIZED' }, 401);
+    }
+
+    return c.json({
+      email: row.email,
+      userId: row.clerk_user_id ?? '',
+      credits: row.credits,
+      active: true,
+      plan: 'free',
+      is_delegation: true,
+    });
+  }
+
   type KeyRow = {
     key: string;
     email: string;
