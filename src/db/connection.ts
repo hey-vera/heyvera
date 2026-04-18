@@ -200,7 +200,7 @@ const MIGRATIONS: Migration[] = [
     },
   },
   {
-    version: 5,
+    version: 197,
     description: 'soma_delegations — Soma identity leaf per ClawNet account',
     up: (db) => {
       // One row per account: the delegation leaf issued by ClawNet's root heart
@@ -223,6 +223,42 @@ const MIGRATIONS: Migration[] = [
           ON soma_delegations(api_key_id);
         CREATE INDEX IF NOT EXISTS idx_soma_delegations_clerk
           ON soma_delegations(clerk_user_id);
+      `);
+    },
+  },
+  {
+    version: 6,
+    description: 'delegated_keys — Soma delegation key issuance + spend tracking',
+    up: (db) => {
+      // Economy delegation keys: issued by a root cn- account, scoped to a set
+      // of endpoint globs, optionally capped on spend. account_key always points
+      // to the root api_keys.key so billing deducts from the owner regardless of
+      // which delegation key is presented.  scope_endpoints stores a JSON array
+      // (e.g. '["pulse.*"]').  spend_used_credits is incremented atomically with
+      // the api_keys deduction inside a single transaction (see POST /v1/auth/deduct).
+      //
+      // Rollback: DROP INDEX idx_delegated_keys_{account,parent}; DROP TABLE delegated_keys;
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS delegated_keys (
+          key TEXT PRIMARY KEY NOT NULL,
+          account_key TEXT NOT NULL REFERENCES api_keys(key),
+          parent_key TEXT NOT NULL,
+          label TEXT,
+          depth INTEGER NOT NULL DEFAULT 1,
+          max_depth INTEGER NOT NULL DEFAULT 0,
+          scope_endpoints TEXT,
+          spend_cap_credits INTEGER,
+          spend_used_credits INTEGER NOT NULL DEFAULT 0,
+          branch_spend_cap_credits INTEGER,
+          intent_declaration TEXT,
+          expires_at TEXT,
+          revoked_at TEXT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_delegated_keys_account
+          ON delegated_keys(account_key);
+        CREATE INDEX IF NOT EXISTS idx_delegated_keys_parent
+          ON delegated_keys(parent_key);
       `);
     },
   },
