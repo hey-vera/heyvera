@@ -56,6 +56,13 @@ const envSchema = z.object({
 
   // ─── Clerk authentication ──────────────────────────────────────────────────
   CLERK_SECRET_KEY: z.string().optional(),
+
+  // ─── Rotation shadow-check (G7.3) ─────────────────────────────────────────
+  // Set to any non-empty string to enable the read-only rotation shadow-check
+  // in src/middleware/rotation-shadow-check.ts. Default absent = off. Remove
+  // the var (or set it to empty string) to kill the shadow-check at the next
+  // request boundary without a redeploy.
+  ROTATION_SHADOW_CHECK_ENABLED: z.string().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);
