@@ -47,6 +47,13 @@ const envSchema = z.object({
   // Generate with: `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`
   CREDENTIAL_VAULT_KEK: z.string().optional(),
 
+  // ─── Soma heart ───────────────────────────────────────────────────────────
+  // Password used to encrypt/decrypt the heart state file with scrypt + XSalsa20.
+  // Required at runtime. Generate with: openssl rand -base64 48
+  CLAWNET_HEART_SECRET: z.string().optional(),
+  // Path to the persisted heart state file. Defaults to data/clawnet-heart.json.
+  CLAWNET_HEART_PATH: z.string().optional(),
+
   // ─── Clerk authentication ──────────────────────────────────────────────────
   CLERK_SECRET_KEY: z.string().optional(),
 });

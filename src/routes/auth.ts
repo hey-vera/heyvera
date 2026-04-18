@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { getDb } from '../db/connection';
+import { hasSomaDelegation } from '../db/index';
 
 export const authRouter = new Hono();
 
@@ -46,5 +47,6 @@ authRouter.get('/me', (c) => {
     credits: row.credits,
     active: true,
     plan: 'free',
+    has_soma_identity: hasSomaDelegation(apiKey),
   });
 });

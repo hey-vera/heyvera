@@ -28,6 +28,9 @@
     // internal/backlog/moduleresolution-nodenext-migration.md.
     "paths": {
       "@/*": ["./src/*"],
+      "soma-heart/core": [
+        "./node_modules/soma-heart/dist/core/genome.d.ts"
+      ],
       "soma-heart/credential-rotation": [
         "./node_modules/soma-heart/dist/heart/credential-rotation/index.d.ts"
       ],

@@ -1,7 +1,8 @@
 import { Hono } from 'hono';
 import crypto from 'crypto';
 import { requireClerkAuth } from '../middleware/clerk-auth';
-import { getApiKeyByClerkId, createApiKeyForClerk } from '../db/index';
+import { getApiKeyByClerkId, createApiKeyForClerk, storeSomaDelegation } from '../db/index';
+import { getHeart } from '../core/soma-heart';
 import { getDb, logAudit } from '../db/connection';
 import { logger } from '../utils/logger';
 
@@ -184,6 +185,17 @@ oauthRouter.post('/authorize', async (c) => {
     });
     keyRecord = { key: newKey, email: clerkEmail, credits: 0, amount_paid: 0 };
     logger.info({ clerkUserId, app }, 'OAuth: auto-created API key for user');
+
+    try {
+      const delegation = getHeart().delegate({
+        subjectDid: `did:clawnet:${clerkUserId}`,
+        capabilities: ['clawnet:identity'],
+      });
+      storeSomaDelegation(newKey, clerkUserId, delegation);
+      logger.info({ clerkUserId, delegationId: delegation.id }, 'OAuth: Soma delegation leaf issued');
+    } catch (err) {
+      logger.warn({ err, clerkUserId }, 'OAuth: Soma delegation failed — account created without leaf');
+    }
   }
 
   // Generate one-time auth code
