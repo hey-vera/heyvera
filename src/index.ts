@@ -15,6 +15,7 @@ import { startHeartbeat } from './core/heartbeat';
 import { setupGracefulShutdown } from './utils/shutdown';
 import { oauthRouter } from './routes/oauth';
 import { authRouter } from './routes/auth';
+import { initSomaHeart } from './core/soma-heart';
 
 const app = new Hono();
 
@@ -77,6 +78,7 @@ app.notFound((c) => c.json({ error: 'Not found', code: 'NOT_FOUND' }, 404));
 async function start() {
   initDb();
   await initRedis();
+  await initSomaHeart();
   setupGracefulShutdown();
   startHeartbeat();
 
