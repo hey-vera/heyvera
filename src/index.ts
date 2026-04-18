@@ -13,6 +13,10 @@ import { checkApiKey } from './middleware/auth';
 import { rateLimiter } from './middleware/rate-limit';
 import { startHeartbeat } from './core/heartbeat';
 import { setupGracefulShutdown } from './utils/shutdown';
+import { oauthRouter } from './routes/oauth';
+import { authRouter } from './routes/auth';
+import { economyRouter } from './routes/economy';
+import { initSomaHeart } from './core/soma-heart';
 
 const app = new Hono();
 
@@ -67,12 +71,16 @@ app.get('/', (c) => c.json({
 app.use('/v1/orchestrate', checkApiKey);
 
 app.route('/v1', apiRouter);
+app.route('/v1/oauth', oauthRouter);
+app.route('/v1/auth', authRouter);
+app.route('/v1/economy', economyRouter);
 
 app.notFound((c) => c.json({ error: 'Not found', code: 'NOT_FOUND' }, 404));
 
 async function start() {
   initDb();
   await initRedis();
+  await initSomaHeart();
   setupGracefulShutdown();
   startHeartbeat();
 

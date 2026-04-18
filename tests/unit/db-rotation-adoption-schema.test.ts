@@ -158,7 +158,7 @@ describe('db rotation adoption schema (migration v2)', () => {
     const versions = db
       .prepare('SELECT version FROM schema_migrations ORDER BY version')
       .all() as { version: number }[];
-    expect(versions.map((r) => r.version)).toEqual([1, 2]);
+    expect(versions.map((r) => r.version)).toEqual([1, 2, 3, 4, 197, 198]);
   });
 
   it('migration v2 is idempotent across simulated process restarts', () => {
@@ -173,7 +173,7 @@ describe('db rotation adoption schema (migration v2)', () => {
       const versions = second
         .prepare('SELECT version FROM schema_migrations ORDER BY version')
         .all() as { version: number }[];
-      expect(versions.map((r) => r.version)).toEqual([1, 2]);
+      expect(versions.map((r) => r.version)).toEqual([1, 2, 3, 4, 197, 198]);
 
       // Table still present and empty.
       const count = (

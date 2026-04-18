@@ -32,6 +32,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
+import { nanoid } from 'nanoid';
 
 import { env } from '../config/index';
 import { logger } from '../utils/logger';
@@ -139,6 +140,127 @@ const MIGRATIONS: Migration[] = [
         );
         CREATE INDEX IF NOT EXISTS idx_akra_identity
           ON api_key_rotation_adoption(identity_id);
+      `);
+    },
+  },
+  {
+    version: 3,
+    description: 'oauth_codes + audit_log — Sign in with ClawNet foundation tables',
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS oauth_codes (
+          code TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL,
+          api_key TEXT NOT NULL,
+          app TEXT NOT NULL,
+          email TEXT DEFAULT '',
+          expires_at TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS audit_log (
+          id TEXT PRIMARY KEY,
+          entity_type TEXT NOT NULL,
+          entity_id TEXT NOT NULL,
+          action TEXT NOT NULL,
+          actor_id TEXT,
+          data_json TEXT,
+          timestamp TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_audit_log_entity
+          ON audit_log(entity_type, entity_id);
+      `);
+    },
+  },
+  {
+    version: 4,
+    description: 'api_keys — core account table (no-op on live DB, migration debt repair)',
+    up: (db) => {
+      // CREATE TABLE IF NOT EXISTS is a safe no-op on the live database where
+      // this table already exists (created by the guardian-vps migration lineage).
+      // On a fresh database (CI, local dev, new VPS) this creates the table so
+      // that GET /v1/auth/me and the OAuth auto-create path work without external
+      // SQL setup. Columns and defaults exactly match the guardian-vps production
+      // schema as of 2026-04.
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS api_keys (
+          key TEXT PRIMARY KEY,
+          email TEXT NOT NULL,
+          credits INTEGER NOT NULL DEFAULT 0,
+          credits_used INTEGER NOT NULL DEFAULT 0,
+          stripe_session_id TEXT UNIQUE,
+          amount_paid REAL NOT NULL DEFAULT 0,
+          active INTEGER NOT NULL DEFAULT 1,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          last_used_at TEXT,
+          clerk_user_id TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_api_keys_clerk
+          ON api_keys(clerk_user_id);
+      `);
+    },
+  },
+  {
+    version: 197,
+    description: 'soma_delegations — Soma identity leaf per ClawNet account',
+    up: (db) => {
+      // One row per account: the delegation leaf issued by ClawNet's root heart
+      // at signup. delegation_json holds the full signed Delegation so it can be
+      // returned to clients or chain-verified without re-issuing.
+      //
+      // INSERT OR IGNORE in the writer prevents duplicate rows on re-issue.
+      // FK to api_keys.key enforced by foreign_keys=ON pragma set in initDb.
+      // Rollback: DROP INDEX idx_soma_delegations_{api_key,clerk}; DROP TABLE soma_delegations;
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS soma_delegations (
+          id TEXT PRIMARY KEY,
+          api_key_id TEXT NOT NULL REFERENCES api_keys(key),
+          clerk_user_id TEXT NOT NULL,
+          subject_did TEXT NOT NULL,
+          delegation_json TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_soma_delegations_api_key
+          ON soma_delegations(api_key_id);
+        CREATE INDEX IF NOT EXISTS idx_soma_delegations_clerk
+          ON soma_delegations(clerk_user_id);
+      `);
+    },
+  },
+  // Version 198: guardian-vps prior system occupies schema_migrations rows 1–196.
+  // Versions 197+ are reserved for this repo. Do not use versions below 197 for new migrations.
+  {
+    version: 198,
+    description: 'delegated_keys — Soma delegation key issuance + spend tracking',
+    up: (db) => {
+      // Economy delegation keys: issued by a root cn- account, scoped to a set
+      // of endpoint globs, optionally capped on spend. account_key always points
+      // to the root api_keys.key so billing deducts from the owner regardless of
+      // which delegation key is presented.  scope_endpoints stores a JSON array
+      // (e.g. '["pulse.*"]').  spend_used_credits is incremented atomically with
+      // the api_keys deduction inside a single transaction (see POST /v1/auth/deduct).
+      //
+      // Rollback: DROP INDEX idx_delegated_keys_{account,parent}; DROP TABLE delegated_keys;
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS delegated_keys (
+          key TEXT PRIMARY KEY NOT NULL,
+          account_key TEXT NOT NULL REFERENCES api_keys(key),
+          parent_key TEXT NOT NULL,
+          label TEXT,
+          depth INTEGER NOT NULL DEFAULT 1,
+          max_depth INTEGER NOT NULL DEFAULT 0,
+          scope_endpoints TEXT,
+          spend_cap_credits INTEGER,
+          spend_used_credits INTEGER NOT NULL DEFAULT 0,
+          branch_spend_cap_credits INTEGER,
+          intent_declaration TEXT,
+          expires_at TEXT,
+          revoked_at TEXT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_delegated_keys_account
+          ON delegated_keys(account_key);
+        CREATE INDEX IF NOT EXISTS idx_delegated_keys_parent
+          ON delegated_keys(parent_key);
       `);
     },
   },
@@ -253,4 +375,34 @@ export function closeDb(): void {
  */
 export function _resetDbForTests(): void {
   db = null;
+}
+
+/**
+ * Append a row to audit_log — fire-and-forget, never throws.
+ * Silently no-ops if the audit_log table doesn't exist (e.g. fresh dev DB).
+ */
+export function logAudit(params: {
+  entityType: string;
+  entityId: string;
+  action: string;
+  actorId?: string;
+  data?: Record<string, unknown>;
+}): void {
+  try {
+    getDb()
+      .prepare(
+        `INSERT INTO audit_log (id, entity_type, entity_id, action, actor_id, data_json)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        nanoid(16),
+        params.entityType,
+        params.entityId,
+        params.action,
+        params.actorId ?? null,
+        params.data ? JSON.stringify(params.data) : null,
+      );
+  } catch {
+    // Never let audit failures crash the caller
+  }
 }
