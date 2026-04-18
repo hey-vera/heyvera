@@ -8,6 +8,7 @@
  * accessor layer) land without rewriting every call site.
  */
 import { getDb, logAudit } from './connection';
+import type { Delegation } from 'soma-heart';
 
 export {
   _resetDbForTests,
@@ -24,6 +25,19 @@ export function getApiKeyByClerkId(clerkUserId: string): {
   return getDb()
     .prepare('SELECT key, email, credits, amount_paid FROM api_keys WHERE clerk_user_id = ? AND active = 1')
     .get(clerkUserId) as { key: string; email: string; credits: number; amount_paid: number } | undefined;
+}
+
+export function storeSomaDelegation(apiKeyId: string, clerkUserId: string, delegation: Delegation): void {
+  getDb().prepare(`
+    INSERT OR IGNORE INTO soma_delegations (id, api_key_id, clerk_user_id, subject_did, delegation_json)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(delegation.id, apiKeyId, clerkUserId, delegation.subjectDid, JSON.stringify(delegation));
+}
+
+export function hasSomaDelegation(apiKeyId: string): boolean {
+  return getDb()
+    .prepare('SELECT 1 FROM soma_delegations WHERE api_key_id = ? LIMIT 1')
+    .get(apiKeyId) !== undefined;
 }
 
 export function createApiKeyForClerk(opts: {

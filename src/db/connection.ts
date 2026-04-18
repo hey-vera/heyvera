@@ -199,6 +199,33 @@ const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 5,
+    description: 'soma_delegations — Soma identity leaf per ClawNet account',
+    up: (db) => {
+      // One row per account: the delegation leaf issued by ClawNet's root heart
+      // at signup. delegation_json holds the full signed Delegation so it can be
+      // returned to clients or chain-verified without re-issuing.
+      //
+      // INSERT OR IGNORE in the writer prevents duplicate rows on re-issue.
+      // FK to api_keys.key enforced by foreign_keys=ON pragma set in initDb.
+      // Rollback: DROP INDEX idx_soma_delegations_{api_key,clerk}; DROP TABLE soma_delegations;
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS soma_delegations (
+          id TEXT PRIMARY KEY,
+          api_key_id TEXT NOT NULL REFERENCES api_keys(key),
+          clerk_user_id TEXT NOT NULL,
+          subject_did TEXT NOT NULL,
+          delegation_json TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_soma_delegations_api_key
+          ON soma_delegations(api_key_id);
+        CREATE INDEX IF NOT EXISTS idx_soma_delegations_clerk
+          ON soma_delegations(clerk_user_id);
+      `);
+    },
+  },
 ];
 
 let db: DbHandle | null = null;
