@@ -10,6 +10,7 @@ import { apiRouter } from './routes/api';
 import { initRedis } from './cache/index';
 import { initDb } from './db/index';
 import { checkApiKey } from './middleware/auth';
+import { rotationShadowCheck } from './middleware/rotation-shadow-check';
 import { rateLimiter } from './middleware/rate-limit';
 import { startHeartbeat } from './core/heartbeat';
 import { setupGracefulShutdown } from './utils/shutdown';
@@ -69,6 +70,7 @@ app.get('/', (c) => c.json({
 
 // Auth only on orchestrate endpoint
 app.use('/v1/orchestrate', checkApiKey);
+app.use('/v1/orchestrate', rotationShadowCheck);
 
 app.route('/v1', apiRouter);
 app.route('/v1/oauth', oauthRouter);
