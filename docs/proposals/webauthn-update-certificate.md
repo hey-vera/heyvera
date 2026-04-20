@@ -1,11 +1,92 @@
 # Proposal: WebAuthn + UpdateCertificate — Securing Soma Releases Through ClawNet Heart
 
-**Status:** proposed → ready for implementation  
+Status: proposed — ready for implementation  
 **Author:** Claude (research synthesis), decisions by Josh  
 **Date:** April 20, 2026  
 **Version:** 3 (authenticator registry, upgrade path)  
 **Depends on:** UpdateCertificate (PR #75, shipped), api-key-rotation.ts, rotation-backend.ts  
 **Repos:** soma (`src/supply-chain/update-certificate.ts`), claw-net (`src/core/soma-heart.ts`)
+
+---
+
+## Problem
+
+Soma releases currently have no human authorization gate. CI can publish to npm without the founder's explicit approval. Supply chain attacks are the #1 ecosystem risk. There is no cryptographic proof that a human reviewed and authorized a specific release. UpdateCertificate exists but has no WebAuthn ceremony to gate it.
+
+## Why Now
+
+UpdateCertificate shipped (PR #75). ClawNet heart is live with lineage support (PR #59, soma-heart 0.8.0). The signing ceremony is the missing link — the infrastructure to support it is ready.
+
+## Broad Idea
+
+WebAuthn-gated signing ceremony where the founder's biometric authentication through the ClawNet heart is sole authority for approving Soma UpdateCertificates. CI publishes first, founder authenticates when convenient, heart co-signs. Authenticator registry supports role-based credential management and upgrade path.
+
+## What 10/10 Looks Like
+
+- Permanent certificates attesting historical release facts
+- Authenticator registry with first-class upgrade path
+- Multi-ecosystem passkey resilience (Apple + Google)
+- Dashboard + CLI as dual production paths
+- No pipeline blocking — decoupled CI and ceremony
+- Offline recovery seed as catastrophic backup
+- .well-known/soma-updates.json as authoritative distribution
+
+## Fitness Check
+
+- vision fit: core to Soma's trust model — human authorization for every release
+- real user/operator need: founder needs cryptographic proof of release authorization; downstream consumers need verifiable provenance
+- security exposure: high — this is the signing authority for all Soma packages
+- evidence this is needed now: UpdateCertificate and heart are shipped; this is the next gate
+- keep / reshape / pause / remove: keep
+
+## Evidence Ledger
+
+- current status: proposal ready, upstream dependencies shipped
+- upstream dependencies: UpdateCertificate (PR #75, shipped), soma-heart 0.8.0 (PR #59, shipped), api-key-rotation.ts, rotation-backend.ts
+- missing evidence: none — design is complete
+- blocks current work: yes — no releases can be ceremony-signed until Phase 1 ships
+- next gate: Phase 1 implementation
+- terminal condition: ceremony flow operational with at least one enrolled authenticator
+
+## Repo Ownership
+
+- protocol truth: Soma (UpdateCertificate, verifyPackageProvenance)
+- platform/runtime truth: claw-net (WebAuthn endpoints, ceremony flow, dashboard, CLI)
+- product/integration truth: claw-net
+- internal-only material: none
+
+## First Consumer
+
+claw-net
+
+## Security / Reliability Requirements
+
+- threat model: compromised CI, stolen passkey ecosystem, replay attacks (counter-based detection), phishing (domain-bound credentials)
+- rollback or recovery: three-layer recovery (Apple primary, Google backup, offline Ed25519 seed with 72h time-lock)
+- auditability: revoked credentials kept forever, ceremony records with authenticator kind, audit_log integration
+- failure modes: both passkey ecosystems lost (recovery seed), VPS destroyed (recovery seed + heart backup), ceremony request expiry (re-publish cycle)
+
+## Delivery Shape
+
+Phase 1: Foundation (enrollment, registry, manual ceremony, dashboard, CLI) — this proposal's scope
+Phase 2: CI integration (GitHub Action, OIDC validation)
+Phase 3: Recovery hardening (72h time-lock activation flow)
+Phase 4: Certificate distribution (.well-known endpoint, EAS)
+
+## ADR Needed?
+
+- yes
+- WebAuthn as sole signing authority changes the trust model for Soma releases (ceremony tier L2: WebAuthn + heart dual-authority)
+
+## Open Questions
+
+none — design is complete
+
+## Links
+
+- parent issue: (TBD)
+- related: UpdateCertificate PR #75, soma-heart 0.8.0 PR #59
+- proposal: docs/proposals/webauthn-update-certificate.md
 
 ---
 
