@@ -57,6 +57,10 @@ const envSchema = z.object({
   // ─── Clerk authentication ──────────────────────────────────────────────────
   CLERK_SECRET_KEY: z.string().optional(),
 
+  // ─── WebAuthn ceremony ──────────────────────────────────────────────
+  WEBAUTHN_RP_ID: z.string().default('localhost'),
+  WEBAUTHN_RP_ORIGIN: z.string().default('http://localhost:3402'),
+
   // ─── Rotation shadow-check (G7.3) ─────────────────────────────────────────
   // Set to any non-empty string to enable the read-only rotation shadow-check
   // in src/middleware/rotation-shadow-check.ts. Default absent = off. Remove
