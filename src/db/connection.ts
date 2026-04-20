@@ -264,6 +264,71 @@ const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 199,
+    description: 'webauthn_credentials + pending_ceremonies — WebAuthn signing ceremony',
+    up: (db) => {
+      // WebAuthn authenticator registry and signing ceremony state for
+      // Soma UpdateCertificate authorization (proposal §8).
+      //
+      //   webauthn_credentials — every enrolled authenticator (passkey,
+      //   hardware key, recovery seed). Credentials are never deleted;
+      //   revoked rows stay with status='revoked' and revoked_at set.
+      //   Role determines ceremony inclusion: primary and backup appear
+      //   in allowCredentials, recovery is excluded (dedicated flow only).
+      //
+      //   pending_ceremonies — each CI-initiated ceremony request.
+      //   Status lifecycle: awaiting_webauthn → completed | expired | cancelled.
+      //   authenticator_credential_id references webauthn_credentials.id
+      //   by convention but is not enforced (consistent with v1/v2 FK pattern).
+      //
+      // Rollback:
+      //   DROP INDEX idx_pending_ceremonies_{status,expires};
+      //   DROP INDEX idx_webauthn_credentials_{status,role};
+      //   DROP TABLE pending_ceremonies;
+      //   DROP TABLE webauthn_credentials;
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS webauthn_credentials (
+          id TEXT PRIMARY KEY,
+          credential_id TEXT UNIQUE NOT NULL,
+          public_key TEXT NOT NULL,
+          counter INTEGER NOT NULL DEFAULT 0,
+          transports TEXT,
+          aaguid TEXT,
+          ecosystem TEXT NOT NULL,
+          role TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'active',
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          last_used_at TEXT,
+          revoked_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_webauthn_credentials_status
+          ON webauthn_credentials(status);
+        CREATE INDEX IF NOT EXISTS idx_webauthn_credentials_role
+          ON webauthn_credentials(role);
+        CREATE TABLE IF NOT EXISTS pending_ceremonies (
+          id TEXT PRIMARY KEY,
+          package_name TEXT NOT NULL,
+          target_version TEXT NOT NULL,
+          tarball_sha256 TEXT NOT NULL,
+          git_commit TEXT NOT NULL,
+          release_log_sequence INTEGER,
+          release_log_entry_hash TEXT,
+          status TEXT NOT NULL DEFAULT 'awaiting_webauthn',
+          expires_at TEXT NOT NULL,
+          completed_at TEXT,
+          authenticator_credential_id TEXT,
+          authenticator_kind TEXT,
+          certificate_json TEXT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_pending_ceremonies_status
+          ON pending_ceremonies(status);
+        CREATE INDEX IF NOT EXISTS idx_pending_ceremonies_expires
+          ON pending_ceremonies(expires_at);
+      `);
+    },
+  },
 ];
 
 let db: DbHandle | null = null;

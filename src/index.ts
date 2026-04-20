@@ -17,6 +17,8 @@ import { setupGracefulShutdown } from './utils/shutdown';
 import { oauthRouter } from './routes/oauth';
 import { authRouter } from './routes/auth';
 import { economyRouter } from './routes/economy';
+import { authnRouter } from './routes/authn';
+import { ceremonyRouter } from './routes/ceremony';
 import { initSomaHeart } from './core/soma-heart';
 
 const app = new Hono();
@@ -76,6 +78,12 @@ app.route('/v1', apiRouter);
 app.route('/v1/oauth', oauthRouter);
 app.route('/v1/auth', authRouter);
 app.route('/v1/economy', economyRouter);
+
+// WebAuthn authenticator registry (§4)
+app.route('/api/authn', authnRouter);
+
+// WebAuthn ceremony flow (§5.2) — manual in Phase 1
+app.route('/api/ceremony', ceremonyRouter);
 
 app.notFound((c) => c.json({ error: 'Not found', code: 'NOT_FOUND' }, 404));
 
