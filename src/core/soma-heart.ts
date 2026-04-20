@@ -25,6 +25,12 @@ export async function initSomaHeart(): Promise<void> {
     const blob = fs.readFileSync(heartPath, 'utf-8');
     _heart = loadSomaHeart(blob, secret);
     logger.info({ did: _heart.did }, 'Soma heart loaded');
+    if (_heart.lineage) {
+      logger.info(
+        { rootDid: _heart.lineage.rootDid, chainLength: _heart.lineage.chain.length },
+        'Soma heart carries lineage',
+      );
+    }
     return;
   }
 
