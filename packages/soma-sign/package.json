@@ -1,0 +1,19 @@
+{
+  "name": "soma-sign",
+  "version": "0.1.0",
+  "description": "CLI for Soma release signing ceremony",
+  "type": "module",
+  "bin": {
+    "soma-sign": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/cli.ts"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "tsx": "^4.19.0",
+    "@types/node": "^22.0.0"
+  }
+}
