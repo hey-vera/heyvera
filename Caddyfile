@@ -1,0 +1,90 @@
+# ClawNet — Caddy reverse proxy config
+# Deploy to /etc/caddy/Caddyfile on guardian-vps
+#
+# Static site:  /var/www/claw-net/ (clean URLs, no .html extensions)
+# API:          localhost:3402 (Hono, Docker)
+# Dashboard:    /var/www/claw-net-dashboard/ (Soma Signing Authority SPA)
+
+api.claw-net.org {
+	reverse_proxy localhost:3402
+}
+
+pulse.claw-net.org {
+	reverse_proxy localhost:3457
+}
+
+radar.claw-net.org {
+	reverse_proxy localhost:3459
+}
+
+claw-net.org, www.claw-net.org {
+	# Static site — clean URLs
+	root * /var/www/claw-net
+
+	# Dashboard SPA — serve built Vite app as static files
+	# All /dashboard/* paths serve from the dashboard dist dir
+	# with SPA fallback (all sub-routes serve index.html)
+	handle_path /dashboard/* {
+		root * /var/www/claw-net-dashboard
+		try_files {path} /index.html
+		file_server
+	}
+	# Bare /dashboard redirects to /dashboard/
+	redir /dashboard /dashboard/ 308
+
+	# ADDITION: Proxy /api/* to API server so dashboard API
+	# calls work from same origin (dashboard uses relative URLs
+	# like /api/authn/register/options)
+	handle /api/* {
+		reverse_proxy localhost:3402
+	}
+
+	# Portal — also proxy to API (legacy path)
+	route /portal* {
+		reverse_proxy localhost:3402
+	}
+
+	# Clean URL rewrite: /endpoints → endpoints.html
+	try_files {path} {path}.html {path}/index.html
+
+	file_server
+
+	# API reverse proxy — all /v1/*, /x402/*, /mcp/*, /health, etc.
+	handle /v1/* {
+		reverse_proxy localhost:3402
+	}
+	handle /x402/* {
+		reverse_proxy localhost:3402
+	}
+	handle /mcp/* {
+		reverse_proxy localhost:3402
+	}
+	handle /health {
+		reverse_proxy localhost:3402
+	}
+	handle /.well-known/* {
+		reverse_proxy localhost:3402
+	}
+	handle /a2a/* {
+		reverse_proxy localhost:3402
+	}
+	handle /feed.xml {
+		reverse_proxy localhost:3402
+	}
+	handle /health/* {
+		reverse_proxy localhost:3402
+	}
+	handle /llms.txt {
+		reverse_proxy localhost:3402
+	}
+	handle /llms.txt/* {
+		reverse_proxy localhost:3402
+	}
+
+	# Security headers
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+	}
+}

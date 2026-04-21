@@ -98,6 +98,25 @@ else
   echo "[site] No site/ directory found - skipping static asset sync"
 fi
 
+DASHBOARD_WWW="${DASHBOARD_WWW:-/var/www/claw-net-dashboard}"
+echo "[dashboard] Building and deploying dashboard SPA..."
+if [ -f "$REPO_DIR/dashboard/package.json" ]; then
+  cd "$REPO_DIR/dashboard"
+  npm ci
+  npm run build
+  cd "$REPO_DIR"
+  mkdir -p "$DASHBOARD_WWW"
+  if command -v rsync >/dev/null 2>&1; then
+    rsync -a --delete "$REPO_DIR/dashboard/dist/" "$DASHBOARD_WWW/"
+  else
+    echo "[dashboard] WARNING: rsync not found, falling back to cp -r without stale-file cleanup"
+    cp -r "$REPO_DIR/dashboard/dist/." "$DASHBOARD_WWW/"
+  fi
+  echo "[dashboard] Synced dashboard/dist/ to $DASHBOARD_WWW"
+else
+  echo "[dashboard] No dashboard/package.json found - skipping dashboard build"
+fi
+
 echo "[caddy] Updating Caddyfile..."
 if [ -f "$REPO_DIR/Caddyfile" ]; then
   if command -v caddy >/dev/null 2>&1; then
