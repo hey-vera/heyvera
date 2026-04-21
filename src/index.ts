@@ -4,7 +4,7 @@ import path from 'node:path';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger as honoLogger } from 'hono/logger';
-import { env, isSimulationMode } from './config/index';
+import { env } from './config/index';
 import { logger } from './utils/logger';
 import { apiRouter } from './routes/api';
 import { initRedis } from './cache/index';
@@ -96,7 +96,7 @@ async function start() {
 
   serve({ fetch: app.fetch, port: env.PORT, hostname: '0.0.0.0' }, () => {
     logger.info(`ClawNet running on port ${env.PORT}`);
-    logger.info(`Mode: ${env.NODE_ENV} | Simulation: ${isSimulationMode}`);
+    logger.info(`Mode: ${env.NODE_ENV}`);
     logger.info(`LLM: ${env.LLM_PROVIDER}`);
   });
 }

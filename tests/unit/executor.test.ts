@@ -2,11 +2,7 @@ import crypto from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../src/config/index', () => ({
-  env: {
-    CLAWAPIS_BASE_URL: 'https://example.invalid',
-    CLAWAPIS_API_KEY: 'your-clawapis-key',
-  },
-  isSimulationMode: true,
+  env: {},
 }));
 
 import { executePlan } from '../../src/core/executor';

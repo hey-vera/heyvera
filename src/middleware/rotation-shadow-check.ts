@@ -21,6 +21,14 @@ export const rotationShadowCheck: MiddlewareHandler = async (c, next) => {
 
   if (bearer) {
     try {
+      // Admin-key skip: ADMIN_API_KEY is a separate env var, never in
+      // the rotation backend. Skip without a lookup.
+      if (bearer === env.ADMIN_API_KEY) {
+        logger.info({ shadowCheck: 'skipped' });
+        await next();
+        return;
+      }
+
       // Env-key skip: mirrors checkApiKey's exact split/trim/filter.
       // Env keys are never in the rotation backend; a lookup would always
       // produce a misleading notAdopted metric.
