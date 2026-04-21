@@ -329,6 +329,42 @@ const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 200,
+    description: 'rotation tables — guardian version collision fix',
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS api_key_rotation_credentials (
+          credential_id TEXT PRIMARY KEY,
+          identity_id TEXT NOT NULL,
+          algorithm_suite TEXT NOT NULL,
+          class TEXT NOT NULL,
+          public_key TEXT NOT NULL,
+          secret_key TEXT NOT NULL,
+          next_manifest_commitment TEXT NOT NULL,
+          issued_at INTEGER NOT NULL,
+          expires_at INTEGER NOT NULL,
+          revoked INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_akrc_identity
+          ON api_key_rotation_credentials(identity_id);
+        CREATE TABLE IF NOT EXISTS api_key_rotation_identities (
+          identity_id TEXT PRIMARY KEY,
+          current_credential_id TEXT NOT NULL,
+          next_public_key TEXT NOT NULL,
+          next_secret_key TEXT NOT NULL,
+          ttl_ms INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS api_key_rotation_adoption (
+          bearer TEXT PRIMARY KEY NOT NULL,
+          identity_id TEXT NOT NULL,
+          adopted_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_akra_identity
+          ON api_key_rotation_adoption(identity_id);
+      `);
+    },
+  },
 ];
 
 /**
