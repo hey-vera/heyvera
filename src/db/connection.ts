@@ -331,6 +331,65 @@ const MIGRATIONS: Migration[] = [
   },
 ];
 
+/**
+ * Align a guardian-vps-era `delegated_keys` table with the schema v198
+ * expects.  No-op on fresh DBs where the table does not exist yet.
+ */
+function alignLegacyDelegatedKeys(handle: DbHandle): void {
+  const cols = handle.pragma('table_info(delegated_keys)') as Array<{
+    name: string;
+  }>;
+  if (cols.length === 0) return;
+
+  const names = new Set(cols.map((c) => c.name));
+  const isLegacy = names.has('child_key') || !names.has('account_key');
+  if (!isLegacy) return;
+
+  handle.transaction(() => {
+    // Guardian-vps PK was "child_key"; v198 expects "key".
+    if (names.has('child_key') && !names.has('key')) {
+      handle.exec(
+        'ALTER TABLE delegated_keys RENAME COLUMN child_key TO key',
+      );
+    }
+
+    // v198 indexes delegated_keys(account_key) — missing from legacy.
+    // Backfill from parent_key which served the same billing role.
+    if (!names.has('account_key')) {
+      handle.exec('ALTER TABLE delegated_keys ADD COLUMN account_key TEXT');
+      handle.exec(
+        'UPDATE delegated_keys SET account_key = parent_key WHERE account_key IS NULL',
+      );
+    }
+
+    if (!names.has('spend_cap_credits')) {
+      handle.exec(
+        'ALTER TABLE delegated_keys ADD COLUMN spend_cap_credits INTEGER',
+      );
+    }
+    if (!names.has('spend_used_credits')) {
+      handle.exec(
+        'ALTER TABLE delegated_keys ADD COLUMN spend_used_credits INTEGER NOT NULL DEFAULT 0',
+      );
+    }
+    if (!names.has('branch_spend_cap_credits')) {
+      handle.exec(
+        'ALTER TABLE delegated_keys ADD COLUMN branch_spend_cap_credits INTEGER',
+      );
+    }
+    if (names.has('scope_endpoints_glob') && !names.has('scope_endpoints')) {
+      handle.exec(
+        'ALTER TABLE delegated_keys RENAME COLUMN scope_endpoints_glob TO scope_endpoints',
+      );
+    } else if (!names.has('scope_endpoints')) {
+      handle.exec(
+        'ALTER TABLE delegated_keys ADD COLUMN scope_endpoints TEXT',
+      );
+    }
+  })();
+  logger.info('db: aligned legacy delegated_keys schema');
+}
+
 let db: DbHandle | null = null;
 
 export interface InitDbOptions {
@@ -360,6 +419,8 @@ export function initDb(options: InitDbOptions = {}): DbHandle {
   handle.pragma('journal_mode = WAL');
   handle.pragma('foreign_keys = ON');
   handle.pragma('busy_timeout = 5000');
+
+  alignLegacyDelegatedKeys(handle);
 
   handle.exec(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
