@@ -329,7 +329,102 @@ const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 200,
+    description: 'rotation tables — guardian version collision fix',
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS api_key_rotation_credentials (
+          credential_id TEXT PRIMARY KEY,
+          identity_id TEXT NOT NULL,
+          algorithm_suite TEXT NOT NULL,
+          class TEXT NOT NULL,
+          public_key TEXT NOT NULL,
+          secret_key TEXT NOT NULL,
+          next_manifest_commitment TEXT NOT NULL,
+          issued_at INTEGER NOT NULL,
+          expires_at INTEGER NOT NULL,
+          revoked INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_akrc_identity
+          ON api_key_rotation_credentials(identity_id);
+        CREATE TABLE IF NOT EXISTS api_key_rotation_identities (
+          identity_id TEXT PRIMARY KEY,
+          current_credential_id TEXT NOT NULL,
+          next_public_key TEXT NOT NULL,
+          next_secret_key TEXT NOT NULL,
+          ttl_ms INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS api_key_rotation_adoption (
+          bearer TEXT PRIMARY KEY NOT NULL,
+          identity_id TEXT NOT NULL,
+          adopted_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_akra_identity
+          ON api_key_rotation_adoption(identity_id);
+      `);
+    },
+  },
 ];
+
+/**
+ * Align a guardian-vps-era `delegated_keys` table with the schema v198
+ * expects.  No-op on fresh DBs where the table does not exist yet.
+ */
+function alignLegacyDelegatedKeys(handle: DbHandle): void {
+  const cols = handle.pragma('table_info(delegated_keys)') as Array<{
+    name: string;
+  }>;
+  if (cols.length === 0) return;
+
+  const names = new Set(cols.map((c) => c.name));
+  const isLegacy = names.has('child_key') || !names.has('account_key');
+  if (!isLegacy) return;
+
+  handle.transaction(() => {
+    // Guardian-vps PK was "child_key"; v198 expects "key".
+    if (names.has('child_key') && !names.has('key')) {
+      handle.exec(
+        'ALTER TABLE delegated_keys RENAME COLUMN child_key TO key',
+      );
+    }
+
+    // v198 indexes delegated_keys(account_key) — missing from legacy.
+    // Backfill from parent_key which served the same billing role.
+    if (!names.has('account_key')) {
+      handle.exec('ALTER TABLE delegated_keys ADD COLUMN account_key TEXT');
+      handle.exec(
+        'UPDATE delegated_keys SET account_key = parent_key WHERE account_key IS NULL',
+      );
+    }
+
+    if (!names.has('spend_cap_credits')) {
+      handle.exec(
+        'ALTER TABLE delegated_keys ADD COLUMN spend_cap_credits INTEGER',
+      );
+    }
+    if (!names.has('spend_used_credits')) {
+      handle.exec(
+        'ALTER TABLE delegated_keys ADD COLUMN spend_used_credits INTEGER NOT NULL DEFAULT 0',
+      );
+    }
+    if (!names.has('branch_spend_cap_credits')) {
+      handle.exec(
+        'ALTER TABLE delegated_keys ADD COLUMN branch_spend_cap_credits INTEGER',
+      );
+    }
+    if (names.has('scope_endpoints_glob') && !names.has('scope_endpoints')) {
+      handle.exec(
+        'ALTER TABLE delegated_keys RENAME COLUMN scope_endpoints_glob TO scope_endpoints',
+      );
+    } else if (!names.has('scope_endpoints')) {
+      handle.exec(
+        'ALTER TABLE delegated_keys ADD COLUMN scope_endpoints TEXT',
+      );
+    }
+  })();
+  logger.info('db: aligned legacy delegated_keys schema');
+}
 
 let db: DbHandle | null = null;
 
@@ -360,6 +455,8 @@ export function initDb(options: InitDbOptions = {}): DbHandle {
   handle.pragma('journal_mode = WAL');
   handle.pragma('foreign_keys = ON');
   handle.pragma('busy_timeout = 5000');
+
+  alignLegacyDelegatedKeys(handle);
 
   handle.exec(`
     CREATE TABLE IF NOT EXISTS schema_migrations (

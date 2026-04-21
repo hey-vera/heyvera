@@ -19,6 +19,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
@@ -99,7 +100,7 @@ describe('db/connection', () => {
       const firstRows = first
         .prepare('SELECT version FROM schema_migrations ORDER BY version')
         .all() as { version: number }[];
-      expect(firstRows.map((r) => r.version)).toEqual([1, 2, 3, 4, 197, 198, 199]);
+      expect(firstRows.map((r) => r.version)).toEqual([1, 2, 3, 4, 197, 198, 199, 200]);
 
       // Simulate a process restart: close the handle, reset the module
       // cache, and re-init against the same file.
@@ -112,10 +113,134 @@ describe('db/connection', () => {
         .all() as { version: number }[];
       // Still exactly five rows — the migrations are skipped because
       // versions 1–5 are already applied.
-      expect(secondRows.map((r) => r.version)).toEqual([1, 2, 3, 4, 197, 198, 199]);
+      expect(secondRows.map((r) => r.version)).toEqual([1, 2, 3, 4, 197, 198, 199, 200]);
     } finally {
       closeDb();
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
+  });
+
+  it('aligns legacy guardian-vps delegated_keys schema before v198 runs', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'clawnet-db-legacy-'));
+    const dbPath = path.join(tmpDir, 'legacy.db');
+    try {
+      // Phase 1: build a database that looks like production (guardian-vps
+      // migrations 1–196 applied, legacy delegated_keys with child_key PK).
+      const raw = new Database(dbPath);
+
+      raw.exec(`
+        CREATE TABLE schema_migrations (
+          version INTEGER PRIMARY KEY,
+          applied_at TEXT NOT NULL
+        )
+      `);
+      const ins = raw.prepare(
+        'INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)',
+      );
+      for (let v = 1; v <= 196; v++) {
+        ins.run(v, '2025-01-01T00:00:00.000Z');
+      }
+
+      raw.exec(`
+        CREATE TABLE api_keys (
+          key TEXT PRIMARY KEY,
+          email TEXT NOT NULL,
+          credits INTEGER NOT NULL DEFAULT 0,
+          credits_used INTEGER NOT NULL DEFAULT 0,
+          stripe_session_id TEXT UNIQUE,
+          amount_paid REAL NOT NULL DEFAULT 0,
+          active INTEGER NOT NULL DEFAULT 1,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          last_used_at TEXT,
+          clerk_user_id TEXT
+        )
+      `);
+      raw.exec(`
+        CREATE TABLE delegated_keys (
+          child_key TEXT PRIMARY KEY,
+          parent_key TEXT NOT NULL,
+          label TEXT,
+          spend_limit REAL NOT NULL,
+          spent REAL NOT NULL DEFAULT 0,
+          expires_at TEXT,
+          permissions_json TEXT NOT NULL DEFAULT '["invoke","query"]',
+          active INTEGER NOT NULL DEFAULT 1,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          depth INTEGER NOT NULL DEFAULT 0,
+          max_depth INTEGER NOT NULL DEFAULT 0,
+          branch_spend_limit REAL,
+          intent_declaration TEXT,
+          scope_endpoints_glob TEXT,
+          revoked_at TEXT
+        )
+      `);
+
+      raw.exec(
+        "INSERT INTO api_keys (key, email) VALUES ('cn-root', 'r@test.com')",
+      );
+      raw.exec(
+        "INSERT INTO delegated_keys (child_key, parent_key, spend_limit) VALUES ('cn-child', 'cn-root', 100)",
+      );
+      raw.close();
+
+      // Phase 2: initDb should align the legacy schema then apply v197+v198+v199.
+      const db = initDb({ path: dbPath });
+
+      const cols = (
+        db.pragma('table_info(delegated_keys)') as Array<{ name: string }>
+      ).map((c) => c.name);
+      expect(cols).toContain('key');
+      expect(cols).not.toContain('child_key');
+      expect(cols).toContain('account_key');
+      expect(cols).toContain('spend_cap_credits');
+      expect(cols).toContain('spend_used_credits');
+      expect(cols).toContain('scope_endpoints');
+      expect(cols).not.toContain('scope_endpoints_glob');
+
+      const row = db
+        .prepare(
+          'SELECT key, account_key, parent_key FROM delegated_keys WHERE key = ?',
+        )
+        .get('cn-child') as {
+        key: string;
+        account_key: string;
+        parent_key: string;
+      };
+      expect(row.key).toBe('cn-child');
+      expect(row.account_key).toBe('cn-root');
+      expect(row.parent_key).toBe('cn-root');
+
+      const versions = (
+        db
+          .prepare(
+            'SELECT version FROM schema_migrations WHERE version >= 197 ORDER BY version',
+          )
+          .all() as { version: number }[]
+      ).map((v) => v.version);
+      expect(versions).toEqual([197, 198, 199, 200]);
+
+      const indexes = (
+        db
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='delegated_keys'",
+          )
+          .all() as { name: string }[]
+      ).map((i) => i.name);
+      expect(indexes).toContain('idx_delegated_keys_account');
+      expect(indexes).toContain('idx_delegated_keys_parent');
+    } finally {
+      closeDb();
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('alignment is a no-op on fresh databases', () => {
+    const db = initDb({ path: ':memory:' });
+    const cols = (
+      db.pragma('table_info(delegated_keys)') as Array<{ name: string }>
+    ).map((c) => c.name);
+    expect(cols).toContain('key');
+    expect(cols).toContain('account_key');
+    expect(cols).not.toContain('child_key');
   });
 });
