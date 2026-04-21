@@ -6,7 +6,7 @@ import { formatResponse } from '../core/formatter';
 import { logUsage, getRecentUsage, getUsageStats } from '../utils/usage';
 import { cacheStats, cacheGet, cacheSet } from '../cache/index';
 import { apiRegistry } from '../config/api-registry';
-import { env, isSimulationMode } from '../config/index';
+import { env } from '../config/index';
 import { logger } from '../utils/logger';
 import crypto from 'crypto';
 
@@ -94,7 +94,6 @@ apiRouter.post('/orchestrate', async (c) => {
         cacheHits,
         totalDurationMs,
         llmProvider: env.LLM_PROVIDER,
-        simulationMode: isSimulationMode,
       },
       route: {
         summary: intent.summary,
@@ -155,7 +154,6 @@ apiRouter.get('/health', (c) => {
     status: 'ok',
     version: '1.0.0',
     uptime: Math.floor(process.uptime()),
-    simulationMode: isSimulationMode,
     cache,
     usage: stats,
     endpoints: apiRegistry.length,

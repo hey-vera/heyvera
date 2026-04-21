@@ -28,7 +28,7 @@ Check https://github.com/claw-net/claw-net/actions — `main` branch must be gre
 **1.3 — Verify at least one adoption row exists**
 
 ```bash
-docker compose exec api node -e "
+docker compose exec orchestrator node -e "
   const Database = require('better-sqlite3');
   const db = new Database('/app/data/orchestrator.db', { readonly: true });
   const row = db.prepare('SELECT count(*) AS n FROM api_key_rotation_adoption').get();
@@ -43,7 +43,7 @@ If zero rows: insert a test adoption row for a known key before continuing.
 **1.4 — Verify baseline has zero shadow-check log entries**
 
 ```bash
-docker compose logs api | grep shadowCheck
+docker compose logs orchestrator | grep shadowCheck
 # Must be empty
 ```
 
@@ -58,7 +58,7 @@ docker compose up -d --no-build
 curl -sS https://api.claw-net.org/v1/orchestrate -H 'X-API-Key: <test-key>'
 
 # Confirm log entry appears
-docker compose logs --tail=20 api | grep shadowCheck
+docker compose logs --tail=20 orchestrator | grep shadowCheck
 
 # Disable again
 sed -i '/ROTATION_SHADOW_CHECK_ENABLED/d' ~/claw-net/.env
@@ -66,10 +66,19 @@ docker compose up -d --no-build
 
 # Confirm log entries stop
 curl -sS https://api.claw-net.org/v1/orchestrate -H 'X-API-Key: <test-key>'
-docker compose logs --tail=10 api | grep shadowCheck   # should be empty for the new request
+docker compose logs --tail=10 orchestrator | grep shadowCheck   # should be empty for the new request
 ```
 
 If the kill-switch smoke test fails, stop here. Do not proceed.
+
+**1.6 — Run adoption script**
+
+```bash
+docker compose exec orchestrator npx tsx scripts/adopt-legacy-keys.ts
+```
+
+All cn- keys in the `api_keys` table should show `adopt` or `idem` (idempotent).
+If any errors appear, investigate before proceeding.
 
 ---
 
@@ -91,7 +100,7 @@ curl -sS https://api.claw-net.org/v1/health | grep -i ok
 
 # Make a test request and confirm shadow-check fires
 curl -sS https://api.claw-net.org/v1/orchestrate -H 'X-API-Key: <test-key>'
-docker compose logs --tail=20 api | grep shadowCheck
+docker compose logs --tail=20 orchestrator | grep shadowCheck
 # Expect: {"shadowCheck":"match"} or {"shadowCheck":"notAdopted"}
 ```
 
@@ -103,16 +112,16 @@ Run these periodically after enabling.
 
 ```bash
 # Match count (bearer found in rotation backend)
-docker compose logs api | grep '"shadowCheck":"match"' | wc -l
+docker compose logs orchestrator | grep '"shadowCheck":"match"' | wc -l
 
 # NotAdopted count (bearer not yet adopted — expected for unadopted keys)
-docker compose logs api | grep '"shadowCheck":"notAdopted"' | wc -l
+docker compose logs orchestrator | grep '"shadowCheck":"notAdopted"' | wc -l
 
 # Skip count (env key or delegated key — expected and healthy)
-docker compose logs api | grep '"shadowCheck":"skipped"' | wc -l
+docker compose logs orchestrator | grep '"shadowCheck":"skipped"' | wc -l
 
 # Error count (rotation backend threw — should be zero)
-docker compose logs api | grep '"shadowCheck":"error"' | wc -l
+docker compose logs orchestrator | grep '"shadowCheck":"error"' | wc -l
 ```
 
 **Interpretation:**
@@ -140,7 +149,7 @@ docker compose up -d --no-build
 
 # Confirm: subsequent requests produce no shadow-check log entries
 curl -sS https://api.claw-net.org/v1/orchestrate -H 'X-API-Key: <test-key>'
-docker compose logs --tail=10 api | grep shadowCheck   # must be empty
+docker compose logs --tail=10 orchestrator | grep shadowCheck   # must be empty
 ```
 
 No code redeploy required.

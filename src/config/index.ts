@@ -13,9 +13,6 @@ const envSchema = z.object({
   OPENCLAW_API_URL: z.string().default('http://localhost:3000'),
   OPENCLAW_API_KEY: z.string().optional(),
 
-  CLAWAPIS_BASE_URL: z.string().default('https://api.clawapis.com'),
-  CLAWAPIS_API_KEY: z.string().default('your-clawapis-key'),
-
   REDIS_URL: z.string().optional(),
   CACHE_TTL_SECONDS: z.coerce.number().default(300),
   CACHE_MAX_MEMORY_ITEMS: z.coerce.number().default(10000),
@@ -24,6 +21,7 @@ const envSchema = z.object({
   TREASURY_WALLET: z.string().optional(),
 
   API_KEYS: z.string().optional(),
+  ADMIN_API_KEY: z.string().optional(),
   RATE_LIMIT_PER_MIN: z.coerce.number().default(60),
 
   TELEGRAM_BOT_TOKEN: z.string().optional(),
@@ -78,5 +76,3 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
-export const isSimulationMode =
-  !env.CLAWAPIS_API_KEY || env.CLAWAPIS_API_KEY === 'your-clawapis-key';

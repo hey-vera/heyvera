@@ -1,7 +1,6 @@
 import { ParsedIntent } from './intent-parser';
 import { findEndpoint } from '../config/api-registry';
 import { cacheGet, cacheSet, cacheKey } from '../cache/index';
-import { env, isSimulationMode } from '../config/index';
 import { logger } from '../utils/logger';
 
 export interface StepResult {
@@ -41,17 +40,6 @@ function mockData(endpointId: string): unknown {
   return mocks[endpointId] ?? { result: 'mock data', endpointId };
 }
 
-async function callClawApi(endpointId: string, params: Record<string, string>): Promise<unknown> {
-  const url = `${env.CLAWAPIS_BASE_URL}/${endpointId}`;
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.CLAWAPIS_API_KEY}` },
-    body: JSON.stringify(params),
-    signal: AbortSignal.timeout(10000),
-  });
-  if (!response.ok) throw new Error(`ClawAPIs error: ${response.status}`);
-  return response.json();
-}
 
 async function executeStep(
   stepIndex: number,
@@ -73,7 +61,7 @@ async function executeStep(
   }
 
   try {
-    const data = isSimulationMode ? mockData(step.endpointId) : await callClawApi(step.endpointId, step.params);
+    const data = mockData(step.endpointId);
     await cacheSet(key, data);
     return { endpointId: step.endpointId, success: true, cached: false, durationMs: Date.now() - start, cost: endpoint.costPerCall, data };
   } catch (err) {
