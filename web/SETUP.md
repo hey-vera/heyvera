@@ -1,177 +1,264 @@
-# Setup Guide — First Time Dev
+# Setup Guide - First Time Dev
 
-This walks you through everything from zero to seeing your first
-page in the browser. No experience needed.
+This guide is for a first-time vibe coder working on the HeyVera landing
+page.
+
+Goal: get the page running locally, then use your AI assistant to build
+one section at a time.
 
 ---
 
 ## Step 1: Install the basics
 
-You need three things installed. Open PowerShell or Terminal.
+You need:
+- Node.js
+- Git
+- Aider
+- Ollama with Qwen coder
 
-### Node.js (runs JavaScript)
-```
+### Node.js
+
+```powershell
 winget install OpenJS.NodeJS.LTS
 ```
-Close and reopen your terminal after installing. Check it worked:
-```
+
+Close and reopen your terminal, then check:
+
+```powershell
 node --version
 ```
-Should print something like `v22.x.x`.
 
-### Git (version control)
-You probably already have this if you cloned the repo. Check:
-```
+### Git
+
+```powershell
 git --version
 ```
-If not installed:
-```
+
+If missing:
+
+```powershell
 winget install Git.Git
 ```
 
-### Aider (AI coding assistant that talks to your Qwen model)
-```
-pip install aider-chat
-```
-If `pip` isn't found, install Python first:
-```
+### Python + Aider
+
+If Python is not installed:
+
+```powershell
 winget install Python.Python.3.12
 ```
-Then close/reopen terminal and run the pip install again.
+
+Then install Aider:
+
+```powershell
+pip install aider-chat
+```
+
+Check it worked:
+
+```powershell
+aider --version
+```
 
 ---
 
 ## Step 2: Clone the repo
 
-```
+```powershell
 git clone https://github.com/hey-vera/heyvera.git
 cd heyvera
 ```
 
 ---
 
-## Step 3: Set up the web project
+## Step 3: Create your branch
 
-The landing page lives in the `web/` folder. First time only:
+Do this before making changes:
 
-```
-cd web
-npm create vite@latest . -- --template react-ts
-```
-If it asks "Current directory is not empty, please choose": pick
-"Ignore files and continue" or similar.
-
-Then install Tailwind:
-```
-npm install tailwindcss @tailwindcss/vite
+```powershell
+git checkout -b feat/landing-page
 ```
 
 ---
 
-## Step 4: Run the dev server
+## Step 4: Install the landing page app
 
+The landing page lives in `web/` and is already scaffolded.
+
+```powershell
+cd web
+npm install
 ```
+
+---
+
+## Step 5: Start the dev server
+
+```powershell
 npm run dev
 ```
 
-Open the URL it shows (usually http://localhost:5173) in your browser.
-You should see a basic React page. Every time you save a file, the
-browser updates automatically.
+Open the local URL shown in the terminal, usually:
 
-**Keep this running in one terminal while you work.**
+```text
+http://localhost:5173
+```
+
+You should see the starter page.
+
+Keep this terminal running.
 
 ---
 
-## Step 5: Start coding with Aider + Qwen
+## Step 6: Start your AI assistant
 
-Open a SECOND terminal (keep the dev server running in the first one).
+Open a second terminal.
 
-Make sure Ollama is running with your Qwen model:
-```
+Check Ollama:
+
+```powershell
 ollama run qwen2.5-coder:14b
 ```
-(If it loads, great — close it with `/bye`. We just needed to confirm
-it's ready.)
 
-Now start Aider in the web/ folder:
-```
-cd heyvera/web
-aider --model ollama/qwen2.5-coder:14b
+If it opens, exit with:
+
+```text
+/bye
 ```
 
-Tell Aider what to do:
-```
-> Read BRIEF.md and build the Navbar component first
+Then start Aider inside `web/`:
+
+```powershell
+cd heyvera\web
+aider --model ollama/qwen2.5-coder:14b --read AGENTS.md
 ```
 
-Aider will:
-- Read the file
-- Generate code
-- Show you the changes
-- Ask if you want to apply them
-- Auto-commit to git
+First prompt to give Aider:
 
-After each change, check your browser — the page updates live.
+```text
+Read AGENTS.md, CONTEXT.md, BRIEF.md, PLAN.md, and SETUP.md.
+Then build only Slice 2: the Navbar. Explain what you changed.
+```
 
 ---
 
-## Step 6: Push your work
+## Step 7: Work slice by slice
 
-When you have something working and want to share it:
+Do not try to build the whole page in one shot.
 
+Recommended order:
+1. Navbar
+2. Hero
+3. Features
+4. How It Works
+5. Community
+6. Get Started
+7. Footer
+8. Mobile pass
+9. Polish
+
+After each slice:
+- check the page in the browser
+- make sure nothing broke
+- commit working progress
+
+---
+
+## Step 8: Save and push work
+
+Check changes:
+
+```powershell
+git status
 ```
-git checkout -b feat/landing-page
+
+Commit:
+
+```powershell
+git add .
+git commit -m "feat: add navbar slice"
+```
+
+Push:
+
+```powershell
 git push origin feat/landing-page
 ```
 
-Then go to github.com/hey-vera/heyvera — GitHub will show a
-"Create pull request" button. Click it, add a short description,
-submit. Josh will review and merge.
-
-After merge, the site auto-deploys to heyvera.org.
+Then create a pull request on GitHub.
 
 ---
 
-## Workflow cheat sheet
+## What To Read Before Coding
 
-| Task | Command |
-|---|---|
-| Start dev server | `cd web && npm run dev` |
-| Start AI assistant | `cd web && aider --model ollama/qwen2.5-coder:14b` |
-| See your work | Open http://localhost:5173 in browser |
-| Save progress | Aider auto-commits, or `git add . && git commit -m "description"` |
-| Push to GitHub | `git push origin feat/landing-page` |
-| Create PR | Go to GitHub, click "Create pull request" |
+Inside `web/`, these files matter most:
+- `AGENTS.md`
+- `CONTEXT.md`
+- `BRIEF.md`
+- `PLAN.md`
+
+Use them as the source of truth.
 
 ---
-
-## Tips
-
-- **Read BRIEF.md** — it has the full design spec for the landing page
-- **Work one section at a time** — Navbar first, then Hero, then Features
-- **Check the browser after every change** — seeing your work is the
-  best way to learn
-- **Don't worry about perfect code** — get it working first, clean up later
-- **Ask Aider specific things** like "make the hero section with a dark
-  background and the headline 'Your AI. Your Name. Your Sovereignty.'"
-- **If Aider gives weird output**, try being more specific or saying
-  "undo that" and trying a different approach
-- **The old site** had a good design system — check git history
-  (`site/index.html`) for color schemes and typography if you want
-  reference
 
 ## Troubleshooting
 
-**"npm not found"** — close and reopen your terminal after installing Node.js
+### `npm run dev` starts the wrong thing
 
-**"aider not found"** — close and reopen your terminal after pip install
+You are probably not inside the `web/` folder.
 
-**Qwen is slow** — make sure Ollama is using your GPU, not CPU.
-Run `ollama ps` to check. If it says CPU, check that your GPU drivers
-are up to date. For AMD 9070 XT: may need `HSA_OVERRIDE_GFX_VERSION=11.0.0`
+Check:
 
-**Page is blank** — check the terminal running `npm run dev` for errors.
-Usually a typo in the code — ask Aider to fix it.
+```powershell
+pwd
+```
 
-**Git push rejected** — you might be trying to push to main. Create a
-branch first: `git checkout -b feat/landing-page`
+You should be in:
+
+```text
+...\heyvera\web
+```
+
+### `node` or `npm` not found
+
+Close and reopen the terminal after installing Node.
+
+### `aider` not found
+
+Close and reopen the terminal after installing it.
+
+### Qwen is slow
+
+Check whether Ollama is using GPU:
+
+```powershell
+ollama ps
+```
+
+If it says CPU, fix your Ollama/GPU setup first.
+
+### The page is blank
+
+- read the terminal error
+- open browser dev tools
+- ask the AI assistant to fix the exact error
+
+### Aider starts making weird unrelated changes
+
+Tell it:
+
+```text
+Stop. Only work inside web/. Read PLAN.md again. Build one slice only.
+```
+
+---
+
+## Quick Commands
+
+| Task | Command |
+|---|---|
+| Start page | `cd web && npm run dev` |
+| Start AI helper | `cd web && aider --model ollama/qwen2.5-coder:14b --read AGENTS.md` |
+| Check branch | `git branch` |
+| Check changes | `git status` |
+| Push work | `git push origin feat/landing-page` |
