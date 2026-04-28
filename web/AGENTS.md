@@ -1,91 +1,113 @@
-# HeyVera Landing Page — AGENTS.md
+# HeyVera Landing Page - AGENTS.md
 
-<!-- Universal AI project memory. Works with any AI coding tool.
-     Claude Code: reads this automatically.
-     Aider: use `aider --read AGENTS.md`
-     Other tools: paste this as context or tell your AI "read AGENTS.md first." -->
+Universal AI project memory for the `web/` landing page.
 
-Public landing page for heyvera.org. React 19 + Vite + Tailwind CSS 4.
-Static marketing site — no backend, no API, no database.
+If you are an AI assistant working in this folder, read these files in
+this order before writing code:
 
-## What to Build
+1. `AGENTS.md`
+2. `CONTEXT.md`
+3. `BRIEF.md`
+4. `PLAN.md`
+5. `SETUP.md`
 
-Read `BRIEF.md` in this directory for the full spec — page sections,
-design guidelines, content copy, and file structure.
+## Project Type
 
-Read `SETUP.md` for environment setup instructions.
+Static marketing site for `heyvera.org`.
+
+Stack:
+- React 19
+- TypeScript
+- Vite
+- Tailwind CSS 4
+- Cloudflare Pages
+
+This is **not** a backend app.
+This is **not** a dashboard.
+This is **not** a product shell.
+
+## Mission
+
+Build a landing page that makes HeyVera feel:
+- real
+- premium
+- memorable
+- easy to understand
+- aligned with the actual Vera vision
+
+The page should be clean enough for a first release and strong enough
+to impress a lot of people. Avoid generic AI startup styling.
+
+## Product Guardrails
+
+Stay aligned with the current vision:
+- HeyVera helps people own AI agents
+- Vera is a shared intelligence layer, not a chatbot product
+- Soma is the trust protocol underneath
+- sovereignty, proof, and shared learning matter
+- do not promise features that are not part of Day 0
+
+Do not invent:
+- enterprise features
+- live dashboards
+- magical autonomy claims
+- agent marketplace flows
+- pricing pages
+- unsupported product claims
+
+## Design Guardrails
+
+- Dark theme
+- Strong typography
+- One accent color
+- Clean terminal-inspired details
+- Mobile responsive
+- Minimal dependencies
+- Code split into components
+
+Avoid:
+- template-looking AI SaaS sections
+- purple dashboard aesthetics
+- heavy animations
+- stock photos
+- clutter
 
 ## Workflow
 
-### Slices
-Build one component at a time. Order matters — build top to bottom:
-1. Project setup (Vite + React + Tailwind running)
+Build one slice at a time.
+
+Order:
+1. Project setup sanity check
 2. Navbar
-3. Hero section with terminal mockup
-4. Features (3 columns)
-5. How It Works (3 steps)
-6. Community section
-7. Get Started (email capture)
+3. Hero
+4. Features
+5. How It Works
+6. Community
+7. Get Started
 8. Footer
-9. Mobile responsive pass
-10. Polish (animations, spacing)
+9. Mobile polish
+10. Final visual polish
 
-### Quality checks before every commit
-- Page loads without console errors
-- Looks correct on desktop (full width)
-- Looks correct on mobile (dev tools device toggle)
-- Code is in the right component file (not all in App.tsx)
-- Slice works end-to-end before starting the next one
+After each slice:
+- run the page
+- check for console errors
+- verify mobile layout
+- keep files organized
 
-### Git rules
-- Branch: `feat/landing-page`
-- Commit after each working slice
-- Message format: `feat: add hero section with terminal mockup`
-- Push and create PR — Josh merges, site auto-deploys
+## Rules For AI Assistants
 
-## Stack Rules
+- Read all planning docs before coding
+- Do not rewrite the whole app when only one slice is requested
+- Do not install unnecessary packages
+- Do not touch anything outside `web/`
+- Do not add backend code or APIs
+- Do not replace the stack
+- Do not make product claims that are not supported by `CONTEXT.md`
 
-| Use | NOT |
-|---|---|
-| React 19 + TypeScript | Plain HTML or other frameworks |
-| Vite | Webpack, Create React App |
-| Tailwind CSS 4 (utility classes) | Inline styles, CSS modules, styled-components |
-| npm | yarn, pnpm |
-| Component files in src/components/ | Everything in App.tsx |
+## If You Get Stuck
 
-## Design Rules
-
-- Dark theme (#09090b background)
-- ONE accent color (emerald #10b981 or pick one, stay consistent)
-- Inter font for text, JetBrains Mono for code/terminal
-- Large headlines with clamp() for responsive sizing
-- Generous whitespace (120px section padding desktop, 80px mobile)
-- No stock photos, no complex animations, no 3D effects
-
-## File Structure
-
-```
-web/
-  src/
-    App.tsx
-    components/
-      Navbar.tsx
-      Hero.tsx
-      Features.tsx
-      HowItWorks.tsx
-      Community.tsx
-      GetStarted.tsx
-      Footer.tsx
-    index.css
-  index.html
-  package.json
-  vite.config.ts
-```
-
-## What NOT to do
-
-- Don't touch anything outside the web/ directory
-- Don't add backend code, API calls, or database connections
-- Don't install unnecessary packages — keep deps minimal
-- Don't use CDN scripts — everything through npm
-- Don't push to main — always use a branch and PR
+- Read the current error output
+- Check the browser
+- Re-read `PLAN.md`
+- Make the smallest correction needed
+- If uncertain, ask the human for the exact decision instead of guessing
