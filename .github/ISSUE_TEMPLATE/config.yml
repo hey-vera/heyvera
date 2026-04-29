@@ -3,3 +3,6 @@ contact_links:
   - name: Architecture decisions
     url: ./docs/decisions/README.md
     about: Record durable structural choices in ADR-style docs once a proposal is adopted.
+  - name: Frontend sync notes
+    url: ./web/frontend-sync/README.md
+    about: For day-to-day packet status, blockers, decisions, and reviews inside the repo.

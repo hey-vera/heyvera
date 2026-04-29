@@ -1,0 +1,49 @@
+name: Frontend blocker
+description: Record a frontend implementation blocker or product ambiguity
+title: "[frontend blocker] "
+labels:
+  - triage
+body:
+  - type: input
+    id: packet
+    attributes:
+      label: Packet
+      description: Which packet is blocked?
+      placeholder: Packet 1 / Packet 2 / Packet 3
+    validations:
+      required: true
+
+  - type: dropdown
+    id: blocker_type
+    attributes:
+      label: Blocker type
+      options:
+        - error
+        - ambiguity
+        - design drift
+        - scope question
+        - doc conflict
+    validations:
+      required: true
+
+  - type: textarea
+    id: happened
+    attributes:
+      label: What happened?
+      description: Explain the problem briefly and concretely.
+    validations:
+      required: true
+
+  - type: textarea
+    id: tried
+    attributes:
+      label: What was tried?
+    validations:
+      required: false
+
+  - type: textarea
+    id: needed
+    attributes:
+      label: What answer or decision is needed?
+    validations:
+      required: true

@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: clawnet-ci-${{ github.workflow }}-${{ github.ref }}
+  group: heyvera-ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -35,6 +35,29 @@ jobs:
 
       - name: Unit tests
         run: npm run test:unit
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install web dependencies
+        run: npm ci
+
+      - name: Type check web
+        run: npm run typecheck
+
+      - name: Build web
+        run: npm run build
 
   runtime-floor:
     # Proves the built CJS artifact can load soma-heart (ESM-only) via

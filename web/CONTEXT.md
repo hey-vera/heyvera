@@ -1,67 +1,87 @@
-# HeyVera Landing Page - Context
+# HeyVera Frontend - Context
 
-This file gives a frontend builder enough product context to make good
-choices without needing to read the full company strategy system.
+This file gives a frontend builder enough product context to build the
+public site without inventing product truth.
 
-## The Big Picture
+## Big Picture
 
 HeyVera is building sovereign AI agents.
 
-The core idea:
-- every person should be able to own an AI agent
-- that agent should work for them, not trap them
-- Vera is the shared intelligence layer that makes those agents smarter
-- Soma is the trust protocol underneath
+Core truth:
+- the user should own their AI
+- the agent should have continuity, not session amnesia
+- Vera improves agents through shared intelligence
+- Soma is the continuity, identity, authority, and proof substrate
 
 Short version:
 
-**Don't compete on bigger brains. Compete on proof.**
+**Own the agent. Learn through Vera. Prove through Soma.**
 
-## What The Landing Page Must Communicate
+## Surface Truth
+
+HeyVera should be understood as one living surface with multiple
+regions, not separate disconnected products.
+
+Public mode now:
+- the landing experience at `heyvera.org`
+- explains the worldview
+- previews the shape of the future surface
+
+Signed-in mode later:
+- the deeper working surface
+- user, agent, proof, network, and market regions
+
+This means the public site should feel like the front door to a larger
+system, not a throwaway brochure.
+
+## What The Public Site Must Communicate
 
 A visitor should quickly understand:
 - this is about owning your AI
-- this is different from generic AI assistants
-- shared intelligence improves the experience
-- the product has a serious technical and philosophical point of view
+- this is different from rented assistants
+- this has a real product shape beyond one hero section
+- Vera improves the agent through shared intelligence
+- Soma gives continuity and proof underneath
 
 The page does not need to explain every architecture detail.
-It does need to feel real, coherent, and trustworthy.
+It does need to feel coherent, serious, and intentional.
 
 ## Positioning
 
 HeyVera is not:
 - another chat app
 - a generic AI wrapper
-- an agent marketplace
-- a dashboard product
+- an agent marketplace homepage
+- a crypto-first destination
+- an admin dashboard
 
 HeyVera is:
 - a sovereignty-first AI product
-- a gateway into owning a named AI agent
-- a product built around trust-verified learning
+- a stewarded surface for users and their agents
+- a gateway into a larger networked product world
+- a system where local ownership and network legitimacy both matter
 
 ## Day 0 Truth
 
-Stay aligned with current roadmap reality:
-- Day 0 is about the loop
-- Vera knowledge comes first
+Stay aligned with current reality:
+- the public site is the first deliverable
 - the product is early, serious, and being built now
-- do not overpromise full future capabilities as if they already exist
+- the public site can preview the future shape
+- the public site must not overclaim fully shipped deep app regions
 
 Good claims:
 - own your AI agent
-- shared intelligence
 - runs on your hardware
-- built on Soma trust infrastructure
-- open, forkable, sovereignty-minded
+- shared intelligence through Vera
+- built on Soma
+- local-first with networked learning
 
 Bad claims:
-- fully autonomous universal AGI
-- enterprise platform today
-- live reputation markets
+- universal AGI
+- fully shipped social network
+- fully shipped live trust graph
 - token utility live now
-- magic automation claims with no product backing
+- magic autonomous workflow claims
 
 ## Audience
 
@@ -70,10 +90,11 @@ Primary early audience:
 - AI-native developers
 - open-source minded people
 - sovereignty-curious users
-- early believers who care about proof, ownership, and future leverage
+- early believers who care about ownership, trust, and leverage
 
-The copy should be understandable to non-experts, but it should still
-feel smart enough for technical people.
+Secondary audience:
+- thoughtful non-technical people who can understand a strong product
+  thesis when it is explained clearly
 
 ## Desired Feeling
 
@@ -81,60 +102,38 @@ The site should feel:
 - sharp
 - premium
 - future-facing
-- trustworthy
 - calm
-- more like infrastructure with taste than hype with gradients
+- trustworthy
+- like infrastructure with taste
 
 Not:
-- corporate fintech
-- playful toy AI
-- generic venture landing page
-- dashboard promo site
+- like a startup template
+- like a toy AI site
+- like a crypto landing page
+- like a dashboard demo
 
-## Visual Reference Guidance
+## Design References
 
-Use old ClawNet materials only for:
-- spacing ideas
-- dark surface treatment
-- terminal/code presentation
-- general craft level
+Reuse old ClawNet materials only for:
+- spacing rhythm
+- dark surface craft
+- terminal treatment
+- infrastructure seriousness
 
 Do not reuse:
 - old product language
-- purple-heavy interaction styling
-- backend or dashboard layout ideas
+- purple-heavy dashboard styling
+- ceremony or roster admin visuals
+- marketplace-first framing
 
-## Experience Bar
-
-This page should be simple enough for millions of visitors to use and
-strong enough to be memorable to millions of visitors who see it.
-
-That means:
-- excellent mobile experience
-- clear hierarchy
-- strong performance
-- a visual identity people remember
-
-Future versions may add:
-- custom illustration
-- AI-assisted art direction
-- motion systems
-- richer storytelling blocks
-
-But version 1 should still ship as a strong code-native marketing page.
-
-## Core Message Options
-
-These are good message anchors:
-- "Your AI. Your Name. Your Sovereignty."
-- "Make your AI actually good at your job."
-- "Shared intelligence for sovereign agents."
+Use Pulse-era thinking only as input for future social and discovery
+regions, not as a public-site template.
 
 ## Build Priority
 
-For this page, prioritize:
+For the public site, prioritize:
 1. clarity
 2. visual quality
-3. mobile polish
-4. consistency with product truth
+3. future-shape coherence
+4. mobile polish
 5. maintainable code

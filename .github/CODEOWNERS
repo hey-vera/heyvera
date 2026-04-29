@@ -5,3 +5,6 @@
 /.github/ @clawnet
 /scripts/ @clawnet
 /src/ @clawnet
+/web/ @clawnet
+/web/frontend-plan/ @clawnet
+/web/frontend-sync/ @clawnet

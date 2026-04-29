@@ -1,10 +1,17 @@
 # Setup Guide - First Time Dev
 
-This guide is for a first-time vibe coder working on the HeyVera landing
-page.
+This guide is for a first-time vibe coder working on the HeyVera public
+site.
 
 Goal: get the page running locally, then use your AI assistant to build
-one section at a time.
+one packet at a time.
+
+Platform note:
+- the command examples below were originally written for Windows
+- Xotic is working on Linux
+- on Linux, use your distro package manager for installs and use
+  forward-slash paths like `cd heyvera/web`
+- the product and workflow guidance stays the same across platforms
 
 ---
 
@@ -129,38 +136,37 @@ If it opens, exit with:
 Then start Aider inside `web/`:
 
 ```powershell
-cd heyvera\web
-aider --model ollama/qwen2.5-coder:14b --read AGENTS.md
+cd heyvera/web
+aider --model ollama/qwen2.5-coder:14b
 ```
+
+Why this is shorter now:
+- `web/.aider.conf.yml` auto-loads the read-only planning files
+- Aider will also auto-run `npm run build` after edits
 
 First prompt to give Aider:
 
 ```text
-Read AGENTS.md, CONTEXT.md, BRIEF.md, PLAN.md, and SETUP.md.
-Then build only Slice 2: the Navbar. Explain what you changed.
+Build only Packet 1. Do not build anything related to the signed-in app. Explain what you changed and stop.
 ```
 
 ---
 
-## Step 7: Work slice by slice
+## Step 7: Work packet by packet
 
 Do not try to build the whole page in one shot.
 
 Recommended order:
-1. Navbar
-2. Hero
-3. Features
-4. How It Works
-5. Community
-6. Get Started
-7. Footer
-8. Mobile pass
-9. Polish
+1. Packet 1: foundation
+2. Packet 2: core public sections
+3. Packet 3: supporting public sections and mobile polish
+4. Stop for review
 
-After each slice:
+After each packet:
 - check the page in the browser
 - make sure nothing broke
-- commit working progress
+- explain what changed
+- stop for review if the packet is complete
 
 ---
 
@@ -196,8 +202,18 @@ Inside `web/`, these files matter most:
 - `CONTEXT.md`
 - `BRIEF.md`
 - `PLAN.md`
+- `frontend-plan/README.md`
+- `frontend-plan/MASTER-PLAN.md`
+- `frontend-plan/PUBLIC-SITE.md`
+- `frontend-plan/EXECUTION-PACKETS.md`
+- `frontend-plan/XOTIC-WORKFLOW.md`
+- `frontend-sync/README.md`
+- `frontend-sync/GIT-SYNC.md`
 
-Use them as the source of truth.
+Use `frontend-plan/` as the source of truth for product direction.
+Use `SETUP.md` as tooling guidance only.
+Use `frontend-sync/` to record blockers, decisions, and packet status.
+Use `frontend-sync/GIT-SYNC.md` for fetch/pull discipline.
 
 ---
 
@@ -248,8 +264,26 @@ If it says CPU, fix your Ollama/GPU setup first.
 Tell it:
 
 ```text
-Stop. Only work inside web/. Read PLAN.md again. Build one slice only.
+Stop. Only work inside web/. Re-read frontend-plan/PUBLIC-SITE.md and EXECUTION-PACKETS.md. Build one packet only. Do not add dashboard UI or extra sections.
 ```
+
+### Qwen wants to improvise product or design decisions
+
+Tell it:
+
+```text
+Do not invent product truth. Use the docs as ground truth. Keep the current packet structurally simple.
+```
+
+### Qwen needs internet context
+
+Assume it does not have reliable web access by default.
+
+If needed:
+- give it exact URLs
+- or paste the exact source text
+
+Do not ask it to research the product direction for you.
 
 ---
 
@@ -258,7 +292,7 @@ Stop. Only work inside web/. Read PLAN.md again. Build one slice only.
 | Task | Command |
 |---|---|
 | Start page | `cd web && npm run dev` |
-| Start AI helper | `cd web && aider --model ollama/qwen2.5-coder:14b --read AGENTS.md` |
+| Start AI helper | `cd web && aider --model ollama/qwen2.5-coder:14b` |
 | Check branch | `git branch` |
 | Check changes | `git status` |
 | Push work | `git push origin feat/landing-page` |

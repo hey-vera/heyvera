@@ -1,159 +1,96 @@
-# HeyVera Landing Page - Build Plan
+# HeyVera Frontend - Build Plan
 
-This is the practical plan for building the page.
+Also read:
+- `frontend-plan/README.md`
+- `frontend-plan/PUBLIC-SITE.md`
+- `frontend-plan/EXECUTION-PACKETS.md`
+
+Current priority:
+- build and review the public HeyVera surface first
+- do not start signed-in app work from this folder until the public
+  site is approved
 
 ## Objective
 
-Ship a strong first landing page for `heyvera.org` that is:
-- visually polished
-- easy to understand
-- aligned with the real Vera vision
-- straightforward for a first-time vibe coder to extend
+Ship a strong first public surface for `heyvera.org` that:
+- explains the product clearly
+- feels premium and memorable
+- previews the long-run product shape
+- is simple for Xotic and Qwen to build packet by packet
 
-## Slice Plan
+## Packet Order
 
-### Slice 1 - Setup sanity check
-
-Goal:
-- `npm run dev` works in `web/`
-- starter page loads
-
-Done when:
-- local page renders
-- no console errors
-
-### Slice 2 - Navbar
+### Packet 1 - Foundation
 
 Build:
-- text logo
-- section links
-- clear CTA button
+- global tokens
+- type system
+- background atmosphere
+- section rhythm
+- shared layout patterns
 
 Done when:
-- nav looks intentional on desktop and mobile
-- CTA is visible without clutter
+- the page already feels intentional before all content is present
+- styling is not trapped in one giant component
 
-Suggested AI prompt:
-```text
-Read AGENTS.md, CONTEXT.md, BRIEF.md, and PLAN.md.
-Build only Slice 2: a clean responsive Navbar for HeyVera.
-Do not build any other section yet.
-```
-
-### Slice 3 - Hero
+### Packet 2 - Core public sections
 
 Build:
-- headline
-- supporting paragraph
-- CTA
-- terminal mockup
+- navbar
+- hero
+- problem
+- surface map
+- three pillars
 
 Done when:
-- hero explains the product fast
-- terminal mockup feels believable
-- section looks premium, not generic
+- the hero explains HeyVera quickly
+- the surface preview looks believable
+- the surface-map section makes the future shape legible
 
-Suggested AI prompt:
-```text
-Build only Slice 3: the Hero section with the approved headline,
-supporting copy, CTA, and a terminal mockup. Keep it dark, clean,
-and memorable.
-```
-
-### Slice 4 - Features
+### Packet 3 - Supporting public sections
 
 Build:
-- three feature cards
-- clear benefit-driven copy
+- how it works
+- founding network
+- get started
+- footer
+- mobile polish
 
 Done when:
-- the three cards are visually balanced
-- each card says something distinct
+- the page story resolves clearly
+- the page hints at the future living surface
+- the page feels premium on desktop and mobile
 
-### Slice 5 - How It Works
+## Stop Gate
 
-Build:
-- three-step flow
-- strong hierarchy
-
-Done when:
-- a visitor understands the mental model quickly
-
-### Slice 6 - Community
-
-Build:
-- founding guild / community section
-- contribution angle
-
-Done when:
-- section supports the shared-intelligence story
-
-### Slice 7 - Get Started
-
-Build:
-- clear CTA area
-- waitlist placeholder or GitHub action
-
-Done when:
-- there is a clear next step
-
-### Slice 8 - Footer
-
-Build:
-- links
-- simple brand close
-
-Done when:
-- footer feels finished, not forgotten
-
-### Slice 9 - Mobile pass
-
-Check:
-- spacing
-- text wrapping
-- nav behavior
-- terminal mockup fit
-
-Done when:
-- page feels intentionally designed on a phone
-
-### Slice 10 - Polish
-
-Add carefully:
-- subtle motion
-- section transitions
-- refined spacing
-- stronger atmosphere
-
-Done when:
-- page feels launch-worthy
+After Packet 3:
+- stop
+- review the result
+- decide whether it feels 10/10
+- only then continue into later planning or implementation
 
 ## Reuse Strategy
 
-Reuse from old ClawNet materials:
-- dark visual discipline
+Reuse from old ClawNet:
+- dark craft
 - spacing rhythm
-- code/terminal treatment
+- terminal treatment
+
+Reuse from Pulse carefully:
+- network/discovery instincts
+- only as future region input, not public-site structure
 
 Do not reuse:
 - old product copy
-- dashboard structure
-- purple-heavy UI language
+- purple dashboards
+- ceremony or roster admin language
+- marketplace-first IA
 
-## Questions To Ask Before Going Off Script
-
-Ask the human before:
-- changing the main headline
-- introducing a new accent color direction
-- adding custom art or large visual motifs
-- adding any new section not listed in `BRIEF.md`
-- changing the stack
-
-## Definition of Success
+## Definition Of Success
 
 Xotic should be able to:
 - open `web/`
 - run the page
-- point an AI assistant at the docs
-- build one section at a time
-- avoid getting confused about product positioning
+- read the docs in order
+- build one packet at a time
+- avoid guessing the product truth
