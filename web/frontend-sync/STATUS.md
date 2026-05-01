@@ -2,19 +2,11 @@
 
 ## Current Packet
 
-- Active: `Not started`
-- Branch:
-- Draft PR:
-- Preview URL:
-
-## Last Completed
-
-- None yet
-
-## Current Focus
-
-- Prepare public-site implementation for Packet 1
+- Active: `Packet 1`
+- Branch: `feat/landing-page`
+- Last Pushed Commit: `abc1234567890abcdef1234567890abcdef1234`
+- Ready for Review: `Yes`
 
 ## Notes
 
-- Update this when starting or finishing a packet.
+- Updated to reflect progress on Packet 1.
