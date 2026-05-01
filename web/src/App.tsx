@@ -1,6 +1,9 @@
+import Navbar from './components/Navbar';
+
 function App() {
   return (
     <main className="min-h-screen bg-neutral-950 px-6 py-24 text-neutral-50">
+      <Navbar />
       <div className="mx-auto flex max-w-5xl flex-col gap-8">
         <p className="text-sm uppercase tracking-[0.3em] text-emerald-400">
           HeyVera
