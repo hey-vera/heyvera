@@ -4,6 +4,14 @@ This file turns the frontend plan into practical work packets.
 
 Each packet should be done in order.
 
+Machine-facing execution files:
+- `PACKET-1-EXEC.md`
+- `PACKET-2-EXEC.md`
+- `PACKET-3-EXEC.md`
+
+Use those for actual model runs. This file stays as the higher-level
+packet overview.
+
 ## Packet 1: Foundation
 
 Scope:

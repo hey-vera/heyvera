@@ -4,3 +4,10 @@ data/
 .env
 *.log
 .DS_Store
+.aider.chat.history.md
+.aider.input.history
+.aider.tags.cache.v4/
+web/tsconfig.app.tsbuildinfo
+web/tsconfig.node.tsbuildinfo
+web/vite.config.d.ts
+web/vite.config.js

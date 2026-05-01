@@ -1,17 +1,8 @@
 read:
-  - AGENTS.md
-  - CONTEXT.md
-  - BRIEF.md
-  - PLAN.md
-  - SETUP.md
   - CONVENTIONS.md
-  - frontend-plan/README.md
-  - frontend-plan/MASTER-PLAN.md
-  - frontend-plan/PUBLIC-SITE.md
-  - frontend-plan/EXECUTION-PACKETS.md
+  - PRE-FLIGHT.md
   - frontend-plan/XOTIC-WORKFLOW.md
   - frontend-sync/README.md
-  - frontend-sync/GIT-SYNC.md
 
 auto-test: true
 test-cmd: npm run build

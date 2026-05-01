@@ -44,12 +44,17 @@ For this project, 10/10 means:
 3. `PUBLIC-SITE.md`
 4. `EXECUTION-PACKETS.md`
 5. `XOTIC-WORKFLOW.md`
+6. `AIDER-COMMANDS.md`
+7. `DRIFT-RECOVERY.md`
+8. `PACKET-1-EXEC.md`
+9. `PACKET-2-EXEC.md`
+10. `PACKET-3-EXEC.md`
 
 ### For later planning and wiring
 
-6. `APP-SURFACES.md`
-7. `BACKEND-SEAMS.md`
-8. `SOVEREIGNTY-MIGRATION.md`
+11. `APP-SURFACES.md`
+12. `BACKEND-SEAMS.md`
+13. `SOVEREIGNTY-MIGRATION.md`
 
 ## Who This Is For
 

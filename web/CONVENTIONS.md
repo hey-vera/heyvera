@@ -29,6 +29,21 @@ Core message:
 - Do not jump ahead automatically
 - Stop after the packet and explain what changed
 - If the current packet is unclear, simplify rather than expand
+- Make the smallest working edit that satisfies the packet
+- Preserve existing structure unless the packet explicitly requires a restructure
+
+## Editing Discipline
+
+- Do not replace real copy with generic filler
+- Do not add placeholder values to live repo files
+- Do not invent example branch names, commit hashes, or status values
+- Do not create extra files, routes, pages, or components unless the packet explicitly needs them
+- If asked to wire an existing component, wire it into the existing scaffold with the smallest sensible diff
+
+If you do not know an exact value:
+- leave the field unchanged or blank if appropriate
+- or stop and ask for a tighter instruction
+- do not fabricate a stand-in value
 
 ## Design Rules
 
@@ -73,3 +88,11 @@ If you hit a product, design, or scope ambiguity:
 - do not guess
 - update `frontend-sync/STATUS.md`
 - log it in `frontend-sync/BLOCKERS.md`
+
+If you are about to:
+- replace existing copy with generic text
+- add routing or pages that were not requested
+- write placeholder status metadata
+- restructure the app beyond the packet
+
+stop and simplify instead.

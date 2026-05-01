@@ -64,6 +64,21 @@ Keep entries:
 - easy to scan
 
 Do not write long essays here.
+Do not write placeholder values here.
+
+Use exact live values only for:
+- branch name
+- last pushed commit
+- ready-for-review state
+
+If an exact value is not known yet:
+- leave it blank
+- or update it after the push
+
+Preferred status path:
+- use `npm run status:update -- "Packet N" yes`
+- do not type commit hashes into `STATUS.md` by hand unless the script
+  is unavailable
 
 ## Human Loop
 
@@ -72,3 +87,37 @@ Codex can read this folder directly.
 
 That means Xotic does not need to manually relay every small issue
 through chat as long as the important unknowns are recorded here.
+
+## Low-Friction Review Loop
+
+Preferred flow:
+- Xotic builds one packet
+- Xotic pushes the branch
+- Xotic updates `STATUS.md` briefly
+- Xotic stops
+- Josh/Codex inspect the actual code, diff, CI state, and notes directly
+- Josh/Codex decide whether to:
+  - approve and move forward
+  - give a tighter next prompt
+  - correct drift
+  - fix a small issue directly
+
+This means the default is not:
+- "Xotic must self-audit everything first"
+
+The default is:
+- "push the state, then review from the real repo state"
+
+Packet-complete rule:
+- a packet is not considered handed off until the branch is pushed
+- `STATUS.md` should include the last pushed commit and whether the
+  branch is ready for review
+- "local only" is still in-progress, not review-ready
+
+Proof rule:
+- before claiming a packet is done, verify the actual files show the
+  packet work
+- preferred proof:
+  - `npm run proof`
+- if the files do not visibly contain the packet scope, the packet is
+  not done yet

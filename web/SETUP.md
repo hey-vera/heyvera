@@ -9,8 +9,7 @@ one packet at a time.
 Platform note:
 - the command examples below were originally written for Windows
 - Xotic is working on Linux
-- on Linux, use your distro package manager for installs and use
-  forward-slash paths like `cd heyvera/web`
+- on Linux, use forward-slash paths like `cd heyvera/web`
 - the product and workflow guidance stays the same across platforms
 
 ---
@@ -78,19 +77,19 @@ cd heyvera
 
 ---
 
-## Step 3: Create your branch
+## Step 3: Use the active branch
 
-Do this before making changes:
+For the current frontend workflow, use:
 
 ```powershell
-git checkout -b feat/landing-page
+git checkout feat/heyvera-web-scaffold-main
 ```
 
 ---
 
 ## Step 4: Install the landing page app
 
-The landing page lives in `web/` and is already scaffolded.
+The landing page lives in `web/`.
 
 ```powershell
 cd web
@@ -110,8 +109,6 @@ Open the local URL shown in the terminal, usually:
 ```text
 http://localhost:5173
 ```
-
-You should see the starter page.
 
 Keep this terminal running.
 
@@ -141,13 +138,22 @@ aider --model ollama/qwen2.5-coder:14b
 ```
 
 Why this is shorter now:
-- `web/.aider.conf.yml` auto-loads the read-only planning files
-- Aider will also auto-run `npm run build` after edits
+- `web/.aider.conf.yml` auto-loads only the short durable files
+- Aider will auto-run `npm run build` after edits
 
-First prompt to give Aider:
+Before giving Aider a packet task, keep the read set small.
+
+Recommended Aider setup for Packet 1:
 
 ```text
-Build only Packet 1. Do not build anything related to the signed-in app. Explain what you changed and stop.
+/read frontend-plan/PACKET-1-EXEC.md
+/add src/App.tsx src/index.css
+```
+
+Then give a short prompt like:
+
+```text
+Build only Packet 1 from PACKET-1-EXEC.md. Stop after the packet.
 ```
 
 ---
@@ -165,8 +171,17 @@ Recommended order:
 After each packet:
 - check the page in the browser
 - make sure nothing broke
-- explain what changed
-- stop for review if the packet is complete
+- run `npm run proof`
+- run `npm run status:update -- "Packet N" yes`
+- explain what changed briefly
+- push the branch
+- stop for review
+
+Important:
+- a packet is not complete until the branch is pushed
+- local commits alone are not the handoff point
+- do not hand-edit commit hashes into `frontend-sync/STATUS.md`
+- let `npm run status:update` write the live branch and commit
 
 ---
 
@@ -182,38 +197,34 @@ Commit:
 
 ```powershell
 git add .
-git commit -m "feat: add navbar slice"
+git commit -m "feat: complete packet work"
 ```
 
 Push:
 
 ```powershell
-git push origin feat/landing-page
+git push origin feat/heyvera-web-scaffold-main
 ```
-
-Then create a pull request on GitHub.
 
 ---
 
 ## What To Read Before Coding
 
-Inside `web/`, these files matter most:
-- `AGENTS.md`
-- `CONTEXT.md`
-- `BRIEF.md`
-- `PLAN.md`
-- `frontend-plan/README.md`
-- `frontend-plan/MASTER-PLAN.md`
-- `frontend-plan/PUBLIC-SITE.md`
-- `frontend-plan/EXECUTION-PACKETS.md`
+Inside `web/`, these files matter most for actual model runs:
+- `PRE-FLIGHT.md`
+- `CONVENTIONS.md`
 - `frontend-plan/XOTIC-WORKFLOW.md`
+- `frontend-plan/AIDER-COMMANDS.md`
+- `frontend-plan/DRIFT-RECOVERY.md`
+- `frontend-plan/PACKET-1-EXEC.md`
+- `frontend-plan/PACKET-2-EXEC.md`
+- `frontend-plan/PACKET-3-EXEC.md`
 - `frontend-sync/README.md`
 - `frontend-sync/GIT-SYNC.md`
 
 Use `frontend-plan/` as the source of truth for product direction.
 Use `SETUP.md` as tooling guidance only.
 Use `frontend-sync/` to record blockers, decisions, and packet status.
-Use `frontend-sync/GIT-SYNC.md` for fetch/pull discipline.
 
 ---
 
@@ -229,51 +240,32 @@ Check:
 pwd
 ```
 
-You should be in:
+### `aider` starts making weird unrelated changes
+
+Tell it:
 
 ```text
-...\heyvera\web
+Stop. Re-read the current PACKET-N-EXEC.md file. Build one packet only. Do not add dashboard UI, routes, pages, or extra sections.
 ```
 
-### `node` or `npm` not found
+### Qwen starts replacing real content with filler or fake values
 
-Close and reopen the terminal after installing Node.
+Tell it:
 
-### `aider` not found
+```text
+Make the smallest working edit only. Preserve existing structure and approved copy. Do not add placeholder text, fake commit hashes, fake branch names, routes, or pages. If you do not know an exact value, stop instead of inventing one.
+```
 
-Close and reopen the terminal after installing it.
+### Qwen says a packet is done but the files do not show it
 
-### Qwen is slow
-
-Check whether Ollama is using GPU:
+Run:
 
 ```powershell
-ollama ps
+npm run proof
 ```
 
-If it says CPU, fix your Ollama/GPU setup first.
-
-### The page is blank
-
-- read the terminal error
-- open browser dev tools
-- ask the AI assistant to fix the exact error
-
-### Aider starts making weird unrelated changes
-
-Tell it:
-
-```text
-Stop. Only work inside web/. Re-read frontend-plan/PUBLIC-SITE.md and EXECUTION-PACKETS.md. Build one packet only. Do not add dashboard UI or extra sections.
-```
-
-### Qwen wants to improvise product or design decisions
-
-Tell it:
-
-```text
-Do not invent product truth. Use the docs as ground truth. Keep the current packet structurally simple.
-```
+If the printed `src/App.tsx` and `src/` file list do not clearly show
+the packet work, the packet is not done yet.
 
 ### Qwen needs internet context
 
@@ -293,6 +285,8 @@ Do not ask it to research the product direction for you.
 |---|---|
 | Start page | `cd web && npm run dev` |
 | Start AI helper | `cd web && aider --model ollama/qwen2.5-coder:14b` |
+| Proof a packet | `cd web && npm run proof` |
+| Update status automatically | `cd web && npm run status:update -- "Packet N" yes` |
 | Check branch | `git branch` |
 | Check changes | `git status` |
-| Push work | `git push origin feat/landing-page` |
+| Push work | `git push origin feat/heyvera-web-scaffold-main` |

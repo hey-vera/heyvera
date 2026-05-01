@@ -9,4 +9,5 @@
 
 ## Notes
 
-- Updated to reflect progress on Packet 1.
+- Prefer `npm run status:update -- "Packet N" yes` over hand-editing
+  this file.

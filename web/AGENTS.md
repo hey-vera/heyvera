@@ -10,15 +10,22 @@ this order before writing code:
 3. `BRIEF.md`
 4. `PLAN.md`
 5. `SETUP.md`
-6. `frontend-plan/README.md`
-7. `frontend-plan/PUBLIC-SITE.md`
-8. `frontend-plan/EXECUTION-PACKETS.md`
-9. `frontend-plan/XOTIC-WORKFLOW.md`
-10. `frontend-sync/README.md`
-11. `CONVENTIONS.md`
+6. `PRE-FLIGHT.md`
+7. `frontend-plan/README.md`
+8. `frontend-plan/PUBLIC-SITE.md`
+9. `frontend-plan/EXECUTION-PACKETS.md`
+10. `frontend-plan/XOTIC-WORKFLOW.md`
+11. `frontend-sync/README.md`
+12. `CONVENTIONS.md`
 
 If a file in `frontend-plan/` is more specific than an older `web/`
 doc, follow `frontend-plan/`.
+
+For actual packet implementation with a local coding model:
+- prefer the matching `frontend-plan/PACKET-N-EXEC.md`
+- keep the machine-facing read set small
+- do not reload the entire planning stack every packet unless Josh says
+  the docs changed
 
 ## Project Type
 
@@ -105,10 +112,10 @@ Current active packets:
 3. Supporting public sections and mobile polish
 
 After each packet:
-- run the page
-- check for console errors
-- verify mobile layout
-- explain what changed
+- run `npm run proof`
+- run `npm run status:update -- "Packet N" yes`
+- commit
+- push
 - stop
 
 ## Rules For AI Assistants
@@ -122,6 +129,9 @@ After each packet:
 - Do not let old ClawNet or Pulse structures become automatic defaults
 - Use `frontend-sync/` to log blockers, decisions, and packet status
   instead of guessing
+- Do not replace real content with generic placeholder copy
+- Do not write fake branch names, fake commit hashes, or fake status values
+- Prefer the smallest working diff over a broad rewrite
 
 ## If You Get Stuck
 
