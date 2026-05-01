@@ -2,10 +2,10 @@
 
 ## Current Packet
 
-- Active: `Packet 1`
-- Branch: `feat/heyvera-web-scaffold-main`
-- Last Pushed Commit: 
-- Ready for Review: `yes`
+- Active: Packet 1
+- Branch: feat/heyvera-web-scaffold-main
+- Last Pushed Commit: YOUR-REAL-HEAD-COMMIT
+- Ready for Review: yes
 
 ## Notes
 
