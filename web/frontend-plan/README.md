@@ -49,12 +49,14 @@ For this project, 10/10 means:
 8. `PACKET-1-EXEC.md`
 9. `PACKET-2-EXEC.md`
 10. `PACKET-3-EXEC.md`
+11. `TEMPORARY-PUBLIC-SITE-TAKEOVER.md` when temporary execution-support
+    takeover is active
 
 ### For later planning and wiring
 
-11. `APP-SURFACES.md`
-12. `BACKEND-SEAMS.md`
-13. `SOVEREIGNTY-MIGRATION.md`
+12. `APP-SURFACES.md`
+13. `BACKEND-SEAMS.md`
+14. `SOVEREIGNTY-MIGRATION.md`
 
 ## Who This Is For
 
