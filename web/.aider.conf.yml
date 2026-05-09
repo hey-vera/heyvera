@@ -1,0 +1,8 @@
+read:
+  - CONVENTIONS.md
+  - PRE-FLIGHT.md
+  - frontend-plan/XOTIC-WORKFLOW.md
+  - frontend-sync/README.md
+
+auto-test: true
+test-cmd: npm run build

@@ -1,10 +1,16 @@
 # Setup Guide - First Time Dev
 
-This guide is for a first-time vibe coder working on the HeyVera landing
-page.
+This guide is for a first-time vibe coder working on the HeyVera public
+site.
 
 Goal: get the page running locally, then use your AI assistant to build
-one section at a time.
+one packet at a time.
+
+Platform note:
+- the command examples below were originally written for Windows
+- Xotic is working on Linux
+- on Linux, use forward-slash paths like `cd heyvera/web`
+- the product and workflow guidance stays the same across platforms
 
 ---
 
@@ -71,19 +77,19 @@ cd heyvera
 
 ---
 
-## Step 3: Create your branch
+## Step 3: Use the active branch
 
-Do this before making changes:
+For the current frontend workflow, use:
 
 ```powershell
-git checkout -b feat/landing-page
+git checkout feat/heyvera-web-scaffold-main
 ```
 
 ---
 
 ## Step 4: Install the landing page app
 
-The landing page lives in `web/` and is already scaffolded.
+The landing page lives in `web/`.
 
 ```powershell
 cd web
@@ -103,8 +109,6 @@ Open the local URL shown in the terminal, usually:
 ```text
 http://localhost:5173
 ```
-
-You should see the starter page.
 
 Keep this terminal running.
 
@@ -129,38 +133,55 @@ If it opens, exit with:
 Then start Aider inside `web/`:
 
 ```powershell
-cd heyvera\web
-aider --model ollama/qwen2.5-coder:14b --read AGENTS.md
+cd heyvera/web
+aider --model ollama/qwen2.5-coder:14b
 ```
 
-First prompt to give Aider:
+Why this is shorter now:
+- `web/.aider.conf.yml` auto-loads only the short durable files
+- Aider will auto-run `npm run build` after edits
+
+Before giving Aider a packet task, keep the read set small.
+
+Recommended Aider setup for Packet 1:
 
 ```text
-Read AGENTS.md, CONTEXT.md, BRIEF.md, PLAN.md, and SETUP.md.
-Then build only Slice 2: the Navbar. Explain what you changed.
+/read frontend-plan/PACKET-1-EXEC.md
+/add src/App.tsx src/index.css
+```
+
+Then give a short prompt like:
+
+```text
+Build only Packet 1 from PACKET-1-EXEC.md. Stop after the packet.
 ```
 
 ---
 
-## Step 7: Work slice by slice
+## Step 7: Work packet by packet
 
 Do not try to build the whole page in one shot.
 
 Recommended order:
-1. Navbar
-2. Hero
-3. Features
-4. How It Works
-5. Community
-6. Get Started
-7. Footer
-8. Mobile pass
-9. Polish
+1. Packet 1: foundation
+2. Packet 2: core public sections
+3. Packet 3: supporting public sections and mobile polish
+4. Stop for review
 
-After each slice:
+After each packet:
 - check the page in the browser
 - make sure nothing broke
-- commit working progress
+- run `npm run proof`
+- run `npm run status:update -- "Packet N" yes`
+- explain what changed briefly
+- push the branch
+- stop for review
+
+Important:
+- a packet is not complete until the branch is pushed
+- local commits alone are not the handoff point
+- do not hand-edit commit hashes into `frontend-sync/STATUS.md`
+- let `npm run status:update` write the live branch and commit
 
 ---
 
@@ -176,28 +197,34 @@ Commit:
 
 ```powershell
 git add .
-git commit -m "feat: add navbar slice"
+git commit -m "feat: complete packet work"
 ```
 
 Push:
 
 ```powershell
-git push origin feat/landing-page
+git push origin feat/heyvera-web-scaffold-main
 ```
-
-Then create a pull request on GitHub.
 
 ---
 
 ## What To Read Before Coding
 
-Inside `web/`, these files matter most:
-- `AGENTS.md`
-- `CONTEXT.md`
-- `BRIEF.md`
-- `PLAN.md`
+Inside `web/`, these files matter most for actual model runs:
+- `PRE-FLIGHT.md`
+- `CONVENTIONS.md`
+- `frontend-plan/XOTIC-WORKFLOW.md`
+- `frontend-plan/AIDER-COMMANDS.md`
+- `frontend-plan/DRIFT-RECOVERY.md`
+- `frontend-plan/PACKET-1-EXEC.md`
+- `frontend-plan/PACKET-2-EXEC.md`
+- `frontend-plan/PACKET-3-EXEC.md`
+- `frontend-sync/README.md`
+- `frontend-sync/GIT-SYNC.md`
 
-Use them as the source of truth.
+Use `frontend-plan/` as the source of truth for product direction.
+Use `SETUP.md` as tooling guidance only.
+Use `frontend-sync/` to record blockers, decisions, and packet status.
 
 ---
 
@@ -213,43 +240,42 @@ Check:
 pwd
 ```
 
-You should be in:
-
-```text
-...\heyvera\web
-```
-
-### `node` or `npm` not found
-
-Close and reopen the terminal after installing Node.
-
-### `aider` not found
-
-Close and reopen the terminal after installing it.
-
-### Qwen is slow
-
-Check whether Ollama is using GPU:
-
-```powershell
-ollama ps
-```
-
-If it says CPU, fix your Ollama/GPU setup first.
-
-### The page is blank
-
-- read the terminal error
-- open browser dev tools
-- ask the AI assistant to fix the exact error
-
-### Aider starts making weird unrelated changes
+### `aider` starts making weird unrelated changes
 
 Tell it:
 
 ```text
-Stop. Only work inside web/. Read PLAN.md again. Build one slice only.
+Stop. Re-read the current PACKET-N-EXEC.md file. Build one packet only. Do not add dashboard UI, routes, pages, or extra sections.
 ```
+
+### Qwen starts replacing real content with filler or fake values
+
+Tell it:
+
+```text
+Make the smallest working edit only. Preserve existing structure and approved copy. Do not add placeholder text, fake commit hashes, fake branch names, routes, or pages. If you do not know an exact value, stop instead of inventing one.
+```
+
+### Qwen says a packet is done but the files do not show it
+
+Run:
+
+```powershell
+npm run proof
+```
+
+If the printed `src/App.tsx` and `src/` file list do not clearly show
+the packet work, the packet is not done yet.
+
+### Qwen needs internet context
+
+Assume it does not have reliable web access by default.
+
+If needed:
+- give it exact URLs
+- or paste the exact source text
+
+Do not ask it to research the product direction for you.
 
 ---
 
@@ -258,7 +284,9 @@ Stop. Only work inside web/. Read PLAN.md again. Build one slice only.
 | Task | Command |
 |---|---|
 | Start page | `cd web && npm run dev` |
-| Start AI helper | `cd web && aider --model ollama/qwen2.5-coder:14b --read AGENTS.md` |
+| Start AI helper | `cd web && aider --model ollama/qwen2.5-coder:14b` |
+| Proof a packet | `cd web && npm run proof` |
+| Update status automatically | `cd web && npm run status:update -- "Packet N" yes` |
 | Check branch | `git branch` |
 | Check changes | `git status` |
-| Push work | `git push origin feat/landing-page` |
+| Push work | `git push origin feat/heyvera-web-scaffold-main` |

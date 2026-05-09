@@ -5,10 +5,15 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "typecheck": "tsc -b --pretty false",
     "build": "tsc -b && vite build",
+    "check": "npm run build",
+    "proof": "node ./scripts/proof-packet.mjs",
+    "status:update": "node ./scripts/update-status.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@clerk/clerk-react": "^5.61.6",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

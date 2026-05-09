@@ -1,27 +1,233 @@
+import { Component, useEffect, useState } from "react";
+import type { ErrorInfo, ReactNode } from "react";
+import { ApiErrorBanner } from "./components/shared/ApiErrorBanner";
 import { PageShell } from "./components/layout/PageShell";
-import { Footer } from "./components/public/Footer";
-import { FoundingNetwork } from "./components/public/FoundingNetwork";
-import { GetStarted } from "./components/public/GetStarted";
-import { Hero } from "./components/public/Hero";
-import { HowItWorks } from "./components/public/HowItWorks";
-import { Navbar } from "./components/public/Navbar";
-import { Problem } from "./components/public/Problem";
-import { SurfaceMap } from "./components/public/SurfaceMap";
-import { ThreePillars } from "./components/public/ThreePillars";
+import { AuthProviderSafe } from "./hooks/AuthProviderSafe";
+import { useAuthContext } from "./hooks/useAuthContext";
+import { useFallbackDetector } from "./hooks/useFallbackDetector";
+import { useShellState } from "./hooks/useShellState";
+import {
+  BottomRegionNav,
+  type AppRegion,
+} from "./components/app/BottomRegionNav";
+import { HomeRegion } from "./components/app/HomeRegion";
+import { NetworkRegion } from "./components/app/NetworkRegion";
+import { RegionPlaceholder } from "./components/app/RegionPlaceholder";
+import { RegionRail } from "./components/app/RegionRail";
+import { TopContextBar } from "./components/app/TopContextBar";
+
+type ErrorBoundaryProps = { children: ReactNode };
+type ErrorBoundaryState = { hasError: boolean };
+
+class RegionErrorBoundary extends Component<
+  ErrorBoundaryProps,
+  ErrorBoundaryState
+> {
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(): ErrorBoundaryState {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error("RegionErrorBoundary caught:", error, info);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="tab-error-state">
+          <p className="tab-error-headline">
+            Something went wrong loading this region.
+          </p>
+          <button
+            type="button"
+            className="button button-outline tab-error-retry"
+            onClick={() => {
+              this.setState({ hasError: false });
+              window.location.reload();
+            }}
+          >
+            Refresh page
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+function AppShell() {
+  const [activeRegion, setActiveRegion] = useState<AppRegion>(() => {
+    if (typeof window === "undefined") return "home";
+    const saved = window.localStorage.getItem("heyvera-active-region");
+    return saved === "home" ||
+      saved === "agent" ||
+      saved === "network" ||
+      saved === "market" ||
+      saved === "proof"
+      ? saved
+      : "home";
+  });
+  const { isFallback, recoveryCount, isRechecking } = useFallbackDetector();
+  const {
+    authEnabled,
+    isSignedIn,
+    viewerLabel,
+    myProfile,
+    myProfileLoading,
+    myProfileNotFound,
+  } = useAuthContext();
+  const shellState = useShellState({
+    authEnabled,
+    isSignedIn,
+    myProfileLoading,
+    myProfileNotFound,
+    hasProfile: !!myProfile,
+  });
+
+  useEffect(() => {
+    window.localStorage.setItem("heyvera-active-region", activeRegion);
+  }, [activeRegion]);
+
+  return (
+    <PageShell>
+      <RegionRail
+        activeRegion={activeRegion}
+        onChange={setActiveRegion}
+        shellState={shellState}
+        viewerLabel={myProfile?.profile.displayName ?? viewerLabel}
+      />
+
+      <main className="app-shell-main">
+        {isFallback === true && (
+          <ApiErrorBanner
+            isFallback={isFallback}
+            isRechecking={isRechecking}
+          />
+        )}
+
+        <TopContextBar
+          activeRegion={activeRegion}
+          shellState={shellState}
+          viewerLabel={myProfile?.profile.displayName ?? viewerLabel}
+          onPrimaryAction={() => {
+            if (activeRegion === "home" || activeRegion === "network") {
+              const feed = document.getElementById("feed");
+              feed?.scrollIntoView({ behavior: "smooth", block: "start" });
+            }
+          }}
+        />
+
+        <RegionErrorBoundary key={`${activeRegion}-${recoveryCount}`}>
+          {activeRegion === "home" && (
+            <HomeRegion
+              shellState={shellState}
+              viewerLabel={
+                myProfile?.profile.displayName ?? viewerLabel ?? undefined
+              }
+            />
+          )}
+          {activeRegion === "network" && (
+            <NetworkRegion shellState={shellState} />
+          )}
+          {activeRegion === "agent" && (
+            <RegionPlaceholder
+              region="agent"
+              title="Agent is ready for shell work, not fake runtime work."
+              intro="This region will become the quiet work mode for your sovereign agent life. The shell can exist now, but the live runtime, memory, and membrane controls need Vera truth before we wire them."
+              sections={[
+                {
+                  label: "Ready now",
+                  items: [
+                    "Shell layout and region switching",
+                    "Command-surface placement",
+                    "Empty-task and no-fleet states",
+                  ],
+                },
+                {
+                  label: "Blocked on Vera",
+                  items: [
+                    "Active task contract",
+                    "Fleet visibility and controls",
+                    "Memory and teaching action surface",
+                    "Membrane and permissions controls",
+                  ],
+                },
+              ]}
+            />
+          )}
+          {activeRegion === "market" && (
+            <RegionPlaceholder
+              region="market"
+              title="Market needs real launch, work, package, and bounty contracts."
+              intro="The region shape is clear, but we are not going to fake trust-pool participation or marketplace behavior. This stays an honest scaffold until Vera and Soma lock the primitives."
+              sections={[
+                {
+                  label: "Ready now",
+                  items: [
+                    "Market shell and subnavigation",
+                    "Launches, Work, Packages, and Bounties IA",
+                    "Truthful non-live states",
+                  ],
+                },
+                {
+                  label: "Blocked on Vera and Soma",
+                  items: [
+                    "Trust-pool launch objects",
+                    "Work and package listing contracts",
+                    "Bounty primitives",
+                    "Wallet, settlement, and participation signing semantics",
+                  ],
+                },
+              ]}
+            />
+          )}
+          {activeRegion === "proof" && (
+            <RegionPlaceholder
+              region="proof"
+              title="Proof is the legibility layer, but the substrate truth still belongs upstream."
+              intro="This region will hold trust weather, lineage, growth, and archive views. We can scaffold the drawer patterns now, but the real proof objects need Soma contracts."
+              sections={[
+                {
+                  label: "Ready now",
+                  items: [
+                    "Proof region shell",
+                    "Overview, Lineage, Trust, Growth, and Archive nav",
+                    "View-proof entry patterns",
+                  ],
+                },
+                {
+                  label: "Blocked on Soma",
+                  items: [
+                    "Proof snapshots and verification layers",
+                    "Continuity and trust history",
+                    "Recovery-linked trust states",
+                    "RootWeave and archive data surfaces",
+                  ],
+                },
+              ]}
+            />
+          )}
+        </RegionErrorBoundary>
+      </main>
+
+      <BottomRegionNav
+        activeRegion={activeRegion}
+        onChange={setActiveRegion}
+      />
+    </PageShell>
+  );
+}
 
 function App() {
   return (
-    <PageShell>
-      <Navbar />
-      <Hero />
-      <Problem />
-      <SurfaceMap />
-      <ThreePillars />
-      <HowItWorks />
-      <FoundingNetwork />
-      <GetStarted />
-      <Footer />
-    </PageShell>
+    <AuthProviderSafe>
+      <AppShell />
+    </AuthProviderSafe>
   );
 }
 
