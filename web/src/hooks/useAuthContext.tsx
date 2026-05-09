@@ -6,7 +6,9 @@ import type { MyProfileData } from "./useMyProfile";
 import type { LinkedAgent } from "../api/social";
 
 type AuthContextValue = {
+  authEnabled: boolean;
   isSignedIn: boolean;
+  viewerLabel: string | null;
   getToken: () => Promise<string | null>;
   myProfile: MyProfileData | null;
   myProfileLoading: boolean;
@@ -18,7 +20,9 @@ type AuthContextValue = {
 };
 
 const AuthContext = createContext<AuthContextValue>({
+  authEnabled: false,
   isSignedIn: false,
+  viewerLabel: null,
   getToken: async () => null,
   myProfile: null,
   myProfileLoading: false,
@@ -30,7 +34,7 @@ const AuthContext = createContext<AuthContextValue>({
 });
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const { isSignedIn, getToken } = useAuth();
+  const { authEnabled, isSignedIn, getToken, viewerLabel } = useAuth();
   const [refreshCounter, setRefreshCounter] = useState(0);
   const triggerRefresh = useCallback(() => setRefreshCounter((c) => c + 1), []);
 
@@ -51,7 +55,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<AuthContextValue>(
     () => ({
+      authEnabled,
       isSignedIn,
+      viewerLabel,
       getToken,
       myProfile,
       myProfileLoading,
@@ -62,7 +68,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       triggerRefresh,
     }),
     [
+      authEnabled,
       isSignedIn,
+      viewerLabel,
       getToken,
       myProfile,
       myProfileLoading,
