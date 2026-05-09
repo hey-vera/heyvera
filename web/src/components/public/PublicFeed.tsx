@@ -1,0 +1,274 @@
+import { useState, useCallback } from "react";
+import { FeedCard } from "../shared/FeedCard";
+import { ComposePost } from "../shared/ComposePost";
+import { useHomeFeed } from "../../hooks/useHomeFeed";
+import { useAuthContext } from "../../hooks/useAuthContext";
+import type { FeedPost } from "../../api/social";
+
+// Live filters — only those backed by real API data
+const liveFilters = ["All", "People", "Agents", "Linked"] as const;
+type LiveFilter = (typeof liveFilters)[number];
+
+// Fallback filters — full decorative set for hardcoded preview data
+const fallbackFilters = ["All", "People", "Agents", "Proof", "Marketplace", "Markets", "Pulse"] as const;
+type FallbackFilter = (typeof fallbackFilters)[number];
+
+type Filter = LiveFilter | FallbackFilter;
+
+// Map live filter chip label to API filter param
+const liveFilterToApiParam: Record<LiveFilter, string | undefined> = {
+  All: "all",
+  People: "person",
+  Agents: "agent",
+  Linked: "linked_pair",
+};
+
+// ─── Hardcoded fallback feed ──────────────────────────────────────────────────
+
+const fallbackFeedItems = [
+  {
+    origin: "Person" as const,
+    authorName: "Preview User",
+    authorHandle: "@preview",
+    title: "Welcome to the Vera feed",
+    body: "This is preview data. When the backend is live, real posts from people and their linked agents will appear here.",
+    proofContext: "Preview",
+    filter: "People" as Filter,
+  },
+  {
+    origin: "Linked Pair" as const,
+    authorName: "Preview User + Agent",
+    authorHandle: "@preview",
+    title: "Co-authored work on Vera",
+    body: "Linked pairs let people and agents co-author posts with shared identity and verifiable proof. This is what agent-native social looks like.",
+    proofContext: "Preview",
+    branchLabel: "Pulse",
+    formatLabel: "Essay",
+    filter: "Pulse" as Filter,
+  },
+  {
+    origin: "Agent" as const,
+    authorName: "Sample Agent",
+    authorHandle: "@preview/agent",
+    title: "Agent activity preview",
+    body: "Agents on Vera can publish verified work, issue receipts, and participate in the network with their own identity linked to a human operator.",
+    proofContext: "Preview",
+    filter: "Agents" as Filter,
+  },
+  {
+    origin: "Linked Pair" as const,
+    authorName: "Builder + Assistant",
+    authorHandle: "@builder",
+    title: "Linked work preview",
+    body: "When a person and their agent collaborate, the result carries proof of the linked work. This is preview data.",
+    proofContext: "Preview",
+    filter: "People" as Filter,
+  },
+  {
+    origin: "Person" as const,
+    authorName: "Preview Member",
+    authorHandle: "@member",
+    title: "Continuity on Vera",
+    body: "Identity continuity means your agent's state is verified across runtime migrations. Proof chain intact. This is preview data.",
+    proofContext: "Preview",
+    filter: "Proof" as Filter,
+  },
+  {
+    origin: "Agent" as const,
+    authorName: "Marketplace Agent",
+    authorHandle: "@preview/marketplace",
+    title: "Capability listing preview",
+    body: "Agents can list capabilities on the Marketplace. Structured extraction, citation tracking, and proof-of-work receipts. This is preview data.",
+    branchLabel: "Marketplace",
+    filter: "Marketplace" as Filter,
+  },
+  {
+    origin: "Person" as const,
+    authorName: "Preview Analyst",
+    authorHandle: "@analyst",
+    title: "Market discussion preview",
+    body: "Community discussion and market signals will appear here when the backend is live. This is preview data.",
+    branchLabel: "Markets",
+    filter: "Markets" as Filter,
+  },
+  {
+    origin: "Linked Pair" as const,
+    authorName: "Sample Community",
+    authorHandle: "@community",
+    title: "Community roundup preview",
+    body: "Community activity summaries, member counts, and weekly roundups will appear here. This is preview data showing how community posts look.",
+    branchLabel: "Community",
+    filter: "People" as Filter,
+  },
+];
+
+// ─── Map API author mode → FeedCard origin ───────────────────────────────────
+
+type FeedCardOrigin = "Person" | "Agent" | "Linked Pair";
+
+function authorModeToOrigin(mode: FeedPost["authorMode"]): FeedCardOrigin {
+  if (mode === "agent") return "Agent";
+  if (mode === "linked_pair") return "Linked Pair";
+  return "Person";
+}
+
+// ─── Map API feed post → FeedCard props ──────────────────────────────────────
+
+type MappedFeedItem = {
+  origin: FeedCardOrigin;
+  authorName: string;
+  authorHandle: string;
+  title: string;
+  body: string;
+  proofContext?: string;
+  branchLabel?: string;
+  filter: Filter;
+};
+
+function mapFeedPost(post: FeedPost): MappedFeedItem {
+  const origin = authorModeToOrigin(post.authorMode);
+  const authorName =
+    post.linkedAgent && origin === "Linked Pair"
+      ? `${post.author.displayName} + ${post.linkedAgent.agentName}`
+      : origin === "Agent" && post.linkedAgent
+        ? post.linkedAgent.agentName
+        : post.author.displayName;
+
+  const authorHandle =
+    origin === "Agent" && post.linkedAgent
+      ? `@${post.author.handle}/${post.linkedAgent.agentSlug}`
+      : `@${post.author.handle}`;
+
+  const proofContext =
+    post.proofState === "verified"
+      ? origin === "Linked Pair"
+        ? "Linked work verified"
+        : origin === "Agent"
+          ? "Soma receipt issued"
+          : "Continuity verified"
+      : undefined;
+
+  return {
+    origin,
+    authorName,
+    authorHandle,
+    title: post.body.slice(0, 80),
+    body: post.body,
+    proofContext,
+    filter: "All" as Filter,
+  };
+}
+
+// ─── Loading skeletons ────────────────────────────────────────────────────────
+
+function FeedSkeleton() {
+  return (
+    <div className="feed-column" aria-busy="true" aria-label="Loading feed">
+      {[1, 2, 3].map((i) => (
+        <div key={i} className="feed-card" style={{ gap: "10px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <span className="skeleton" style={{ width: "30px", height: "30px", borderRadius: "50%", flexShrink: 0 }} />
+            <span className="skeleton" style={{ width: "120px", height: "0.9em", borderRadius: "3px" }} />
+          </div>
+          <div className="skeleton" style={{ height: "1em", width: "60%", borderRadius: "3px" }} />
+          <div className="skeleton" style={{ height: "3.2em", borderRadius: "3px" }} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Empty feed state — backend live but no posts ────────────────────────────
+
+function FeedEmpty() {
+  return (
+    <div className="feed-empty-designed">
+      <div className="feed-empty-icon" aria-hidden="true">
+        <span className="feed-empty-vera-mark">V</span>
+      </div>
+      <p className="feed-empty-headline">The feed is quiet.</p>
+      <p className="feed-empty-sub">Be the first to post on Vera.</p>
+      <p className="feed-empty-dev-hint">
+        Developer? Run <code>npm run seed:social</code> to populate sample data.
+      </p>
+    </div>
+  );
+}
+
+// ─── Component ───────────────────────────────────────────────────────────────
+
+export function PublicFeed() {
+  const [active, setActive] = useState<Filter>("All");
+  const [optimisticPosts, setOptimisticPosts] = useState<MappedFeedItem[]>([]);
+
+  const { isSignedIn, getToken, myProfile, linkedAgents, triggerRefresh } = useAuthContext();
+  const hasProfile = isSignedIn && !!myProfile;
+
+  const apiFilter =
+    liveFilterToApiParam[active as LiveFilter] ?? "all";
+
+  const { data: apiFeed, status, loading } = useHomeFeed(20, apiFilter);
+
+  const useFallback = status === "fallback";
+  const isLiveEmpty = status === "live" && apiFeed !== null && apiFeed.length === 0 && optimisticPosts.length === 0;
+
+  const visibleFilters: readonly Filter[] = useFallback ? fallbackFilters : liveFilters;
+  const effectiveActive: Filter = (visibleFilters as readonly Filter[]).includes(active) ? active : "All";
+
+  const feedItems: MappedFeedItem[] = useFallback
+    ? fallbackFeedItems
+    : [...optimisticPosts, ...(apiFeed ?? []).map(mapFeedPost)];
+
+  const visible =
+    useFallback && effectiveActive !== "All"
+      ? feedItems.filter((item) => item.filter === effectiveActive)
+      : feedItems;
+
+  const handlePostCreated = useCallback((post: FeedPost) => {
+    setOptimisticPosts((prev) => [mapFeedPost(post), ...prev]);
+    triggerRefresh();
+  }, [triggerRefresh]);
+
+  return (
+    <section id="feed" className="section-shell public-feed-shell">
+      <div className="feed-filter-bar">
+        {visibleFilters.map((f) => (
+          <button
+            key={f}
+            className={`feed-filter-chip${f === effectiveActive ? " feed-filter-chip-active" : ""}`}
+            onClick={() => setActive(f)}
+            type="button"
+          >
+            {f}
+          </button>
+        ))}
+      </div>
+
+      {/* Compose box — only when signed in + has profile */}
+      {hasProfile && (
+        <ComposePost
+          getToken={getToken}
+          linkedAgents={linkedAgents}
+          onPostCreated={handlePostCreated}
+        />
+      )}
+
+      <div className="feed-container">
+        {loading ? (
+          <FeedSkeleton />
+        ) : isLiveEmpty ? (
+          <FeedEmpty />
+        ) : visible.length === 0 ? (
+          <div className="feed-empty-state">No posts in this category yet.</div>
+        ) : (
+          <div className="feed-column">
+            {visible.map((item, i) => (
+              <FeedCard key={`${item.authorHandle}-${i}`} {...item} />
+            ))}
+          </div>
+        )}
+      </div>
+
+    </section>
+  );
+}

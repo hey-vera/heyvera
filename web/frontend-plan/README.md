@@ -17,14 +17,14 @@ It is the front door to that larger surface.
 
 ## Current Priority
 
-Right now, the only active build target is the public `heyvera.org`
-surface.
+Right now, the public `heyvera.org` work is valuable groundwork, but it is
+no longer the whole frontend frame.
 
 That means:
-- finish the public site first
-- make it excellent before expanding
-- use future-region docs only to prevent drift
-- do not start the signed-in shell yet
+- public site still matters
+- signed-in shell work is now active
+- `Home` social work maps into the larger app rather than replacing it
+- new region work should follow the shell baseline before expanding
 
 ## What 10/10 Means
 
@@ -52,12 +52,16 @@ For this project, 10/10 means:
 10. `PACKET-2-EXEC.md`
 11. `PACKET-3-EXEC.md`
 12. `TEMPORARY-PUBLIC-SITE-TAKEOVER.md` only for historical continuity
+13. `VERA-SOCIALS-PUBLIC-SURFACE.md` when shaping the next live homepage
+    pass around the public social surface
+14. `VERA-SOCIALS-HOMEPAGE-WIREFRAME.md` when preparing the concrete next
+    homepage implementation pass
 
 ### For later planning and wiring
 
-13. `APP-SURFACES.md`
-14. `BACKEND-SEAMS.md`
-15. `SOVEREIGNTY-MIGRATION.md`
+15. `APP-SURFACES.md`
+16. `BACKEND-SEAMS.md`
+17. `SOVEREIGNTY-MIGRATION.md`
 
 ## Who This Is For
 

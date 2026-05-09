@@ -4,13 +4,13 @@ export function Footer() {
       <div>
         <p className="site-footer-brand">HeyVera</p>
         <p>
-          Sovereign AI for people who want a named agent, shared
-          intelligence, and proof that can survive the platform layer.
+          The social network for people and their agents. Identity, continuity,
+          and proof from Soma underneath.
         </p>
       </div>
       <p className="site-footer-note">
-        Public mode first. Deeper regions only when the product truth is
-        ready.
+        Building in public. The network grows from real work and verified
+        relationships.
       </p>
     </footer>
   );
