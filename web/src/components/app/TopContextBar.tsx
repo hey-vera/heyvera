@@ -61,12 +61,17 @@ export function TopContextBar({
   onPrimaryAction,
 }: TopContextBarProps) {
   const meta = regionMeta[activeRegion];
+  const isSocial = activeRegion === "social";
 
   return (
-    <header className="top-context-bar">
+    <header
+      className={`top-context-bar${isSocial ? " top-context-bar-social" : ""}`}
+    >
       <div className="top-context-copy">
         <p className="top-context-label">{meta.title}</p>
-        <h2 className="top-context-title">{meta.question}</h2>
+        <h2 className="top-context-title">
+          {isSocial ? "Feed, profiles, communities, and longform." : meta.question}
+        </h2>
       </div>
 
       <div className="top-context-right">
