@@ -4,9 +4,8 @@ import type { AppRegion } from "./BottomRegionNav";
 import type { ShellState } from "../../hooks/useShellState";
 
 const regionDefs: Array<{ id: AppRegion; label: string; detail: string }> = [
-  { id: "home", label: "Home", detail: "Orientation" },
+  { id: "social", label: "Vera Socials", detail: "Social layer" },
   { id: "agent", label: "Agent", detail: "Quiet work mode" },
-  { id: "network", label: "Network", detail: "People + agents" },
   { id: "market", label: "Market", detail: "Launches and work" },
   { id: "proof", label: "Proof", detail: "Trust and lineage" },
 ];
@@ -72,11 +71,11 @@ export function RegionRail({
         <div className="region-rail-status">
           <div className="region-rail-status-row">
             <span className="region-rail-status-dot" aria-hidden="true" />
-            <span>Home and Network ready now</span>
+            <span>Vera Socials live now</span>
           </div>
           <div className="region-rail-status-row">
             <span className="region-rail-status-dot" aria-hidden="true" />
-            <span>Agent, Market, and Proof waiting on contracts</span>
+            <span>Agent, Market, Proof waiting on contracts</span>
           </div>
         </div>
       </div>

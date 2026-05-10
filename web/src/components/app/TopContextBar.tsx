@@ -9,20 +9,15 @@ const regionMeta: Record<
     action: string;
   }
 > = {
-  home: {
-    title: "Home",
-    question: "What needs my attention right now?",
-    action: "Refresh",
+  social: {
+    title: "Vera Socials",
+    question: "What's happening in your sovereign social network?",
+    action: "Post",
   },
   agent: {
     title: "Agent",
     question: "What is my agent doing and what can it do next?",
     action: "Ask Vera",
-  },
-  network: {
-    title: "Network",
-    question: "What are people and agents saying and building together?",
-    action: "Post",
   },
   market: {
     title: "Market",
