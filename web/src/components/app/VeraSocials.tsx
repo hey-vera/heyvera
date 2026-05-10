@@ -169,6 +169,36 @@ function SidebarLinkedAgents({ linkedAgents }: { linkedAgents: LinkedAgent[] }) 
   );
 }
 
+// ─── Utilities ─────────────────────────────────────────────────────────────
+
+/** Format a date string as relative time (e.g. "3 months ago"). */
+function formatRelativeTime(dateStr: string): string {
+  const now = Date.now();
+  const then = new Date(dateStr).getTime();
+  const diffMs = now - then;
+  const diffSec = Math.floor(diffMs / 1000);
+  const diffMin = Math.floor(diffSec / 60);
+  const diffHr = Math.floor(diffMin / 60);
+  const diffDays = Math.floor(diffHr / 24);
+  const diffWeeks = Math.floor(diffDays / 7);
+  const diffMonths = Math.floor(diffDays / 30);
+  const diffYears = Math.floor(diffDays / 365);
+
+  if (diffYears >= 1) return `${diffYears} year${diffYears > 1 ? "s" : ""} ago`;
+  if (diffMonths >= 1) return `${diffMonths} month${diffMonths > 1 ? "s" : ""} ago`;
+  if (diffWeeks >= 1) return `${diffWeeks} week${diffWeeks > 1 ? "s" : ""} ago`;
+  if (diffDays >= 1) return `${diffDays} day${diffDays > 1 ? "s" : ""} ago`;
+  if (diffHr >= 1) return `${diffHr} hour${diffHr > 1 ? "s" : ""} ago`;
+  if (diffMin >= 1) return `${diffMin} minute${diffMin > 1 ? "s" : ""} ago`;
+  return "just now";
+}
+
+/** Estimate reading time in minutes from a body of text. */
+function estimateReadingTime(text: string): number {
+  const words = text.trim().split(/\s+/).length;
+  return Math.max(1, Math.ceil(words / 200));
+}
+
 // ─── Pulse tab (coming soon) ────────────────────────────────────────────────
 
 function PulseTab() {
@@ -181,6 +211,71 @@ function PulseTab() {
           posting, replying, and engaging communities with your approval and under
           your proof chain.
         </p>
+      </div>
+
+      {/* How it will work — step-based flow */}
+      <div className="pulse-how-section">
+        <h4 className="pulse-how-title">How it will work</h4>
+        <div className="pulse-timeline">
+          <div className="pulse-timeline-step">
+            <div className="pulse-timeline-marker">
+              <span className="pulse-timeline-dot" aria-hidden="true" />
+              <span className="pulse-timeline-line" aria-hidden="true" />
+            </div>
+            <div className="pulse-timeline-content">
+              <strong>You configure</strong>
+              <p>Set automation rules — what your agent can post, which communities it can engage, and what needs your approval first.</p>
+            </div>
+          </div>
+          <div className="pulse-timeline-step">
+            <div className="pulse-timeline-marker">
+              <span className="pulse-timeline-dot" aria-hidden="true" />
+              <span className="pulse-timeline-line" aria-hidden="true" />
+            </div>
+            <div className="pulse-timeline-content">
+              <strong>Agent acts</strong>
+              <p>Your linked agent drafts posts, replies to threads, and participates in communities within the boundaries you set.</p>
+            </div>
+          </div>
+          <div className="pulse-timeline-step">
+            <div className="pulse-timeline-marker">
+              <span className="pulse-timeline-dot" aria-hidden="true" />
+              <span className="pulse-timeline-line" aria-hidden="true" />
+            </div>
+            <div className="pulse-timeline-content">
+              <strong>Proof receipt</strong>
+              <p>Every automated action produces a verifiable receipt on your proof chain — full auditability, no black boxes.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Prerequisites */}
+      <div className="pulse-prereqs">
+        <h4 className="pulse-prereqs-title">Prerequisites</h4>
+        <div className="pulse-prereqs-list">
+          <div className="pulse-prereq-item">
+            <span className="pulse-prereq-icon" aria-hidden="true" />
+            <div className="pulse-prereq-text">
+              <strong>Linked agent</strong>
+              <p>At least one agent linked to your profile with an active link state.</p>
+            </div>
+          </div>
+          <div className="pulse-prereq-item">
+            <span className="pulse-prereq-icon" aria-hidden="true" />
+            <div className="pulse-prereq-text">
+              <strong>Soma session</strong>
+              <p>An authenticated session with Soma contracts to authorize agent actions on-chain.</p>
+            </div>
+          </div>
+          <div className="pulse-prereq-item">
+            <span className="pulse-prereq-icon" aria-hidden="true" />
+            <div className="pulse-prereq-text">
+              <strong>Active proof chain</strong>
+              <p>A verified continuity state so that every automated action can be anchored to your identity.</p>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div className="vera-socials-pulse-features">
@@ -698,6 +793,28 @@ function CommunityDetailPanel({
   const [joined, setJoined] = useState(false);
   const [joining, setJoining] = useState(false);
 
+  // Fetch creator's recent activity as a proxy for community activity
+  const [creatorPosts, setCreatorPosts] = useState<FeedPost[]>([]);
+  const [creatorPostsLoading, setCreatorPostsLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setCreatorPostsLoading(true);
+
+    fetchProfileFeed(community.creator.handle, 5)
+      .then((result) => {
+        if (!cancelled) setCreatorPosts(result.feed);
+      })
+      .catch(() => {
+        if (!cancelled) setCreatorPosts([]);
+      })
+      .finally(() => {
+        if (!cancelled) setCreatorPostsLoading(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [community.creator.handle]);
+
   async function handleJoin() {
     if (!isSignedIn || joining || joined) return;
     setJoining(true);
@@ -714,60 +831,106 @@ function CommunityDetailPanel({
   }
 
   return (
-    <div className="network-community-detail">
-      <div className="network-community-detail-header">
-        <div className="network-community-avatar" aria-hidden="true">
+    <div className="community-detail-panel">
+      {/* Header banner */}
+      <div className="community-detail-banner">
+        <div className="community-detail-banner-avatar" aria-hidden="true">
           {community.name.charAt(0)}
         </div>
-        <div>
-          <strong className="network-community-detail-name">{community.name}</strong>
+        <div className="community-detail-banner-info">
+          <strong className="community-detail-banner-name">{community.name}</strong>
           <span className="network-community-slug">/{community.slug}</span>
+          <span className="community-detail-age">
+            Created {formatRelativeTime(community.createdAt)}
+          </span>
+        </div>
+        <div className="community-detail-banner-actions">
+          {showWriteCtas && isSignedIn && (
+            <button
+              type="button"
+              className={`button ${joined ? "button-primary" : "button-outline"}`}
+              onClick={handleJoin}
+              disabled={joining || joined}
+            >
+              {joining ? "..." : joined ? "Joined" : "Join"}
+            </button>
+          )}
+          <button type="button" className="button button-outline" onClick={onClose}>
+            Back
+          </button>
         </div>
       </div>
 
-      {community.description && (
-        <p className="network-community-detail-desc">{community.description}</p>
-      )}
+      {/* About / description */}
+      <div className="community-detail-about">
+        <h4 className="community-detail-section-title">About</h4>
+        {community.description ? (
+          <p className="community-detail-about-body">{community.description}</p>
+        ) : (
+          <p className="community-detail-about-body community-detail-about-empty">
+            No description provided yet.
+          </p>
+        )}
+        <div className="community-detail-meta-row">
+          <span className="community-detail-meta-chip">{community.visibility}</span>
+          <span className="community-detail-meta-chip">
+            Created by @{community.creator.handle}
+          </span>
+          <span className="community-detail-meta-chip">
+            {new Date(community.createdAt).toLocaleDateString()}
+          </span>
+        </div>
+      </div>
 
-      <div className="network-community-detail-meta">
-        <span>Created by @{community.creator.handle}</span>
-        <span className="community-detail-meta-chip">{community.visibility}</span>
-        <span className="community-detail-meta-chip">
-          Created {new Date(community.createdAt).toLocaleDateString()}
-        </span>
+      {/* Community rules scaffold */}
+      <div className="community-detail-rules">
+        <h4 className="community-detail-section-title">Community Rules</h4>
+        <ol className="community-detail-rules-list">
+          <li>Be respectful of all members and their linked agents.</li>
+          <li>No impersonation — all posts must originate from a verified identity.</li>
+          <li>Automated agent activity must be clearly labeled.</li>
+        </ol>
+        <p className="community-detail-rules-note">
+          Custom rules will be configurable by community creators once Soma contracts are live.
+        </p>
       </div>
 
       {/* Members section */}
-      <div className="network-community-detail-members">
-        <strong>Members</strong>
-        <p className="network-sidebar-empty">
-          Member count not yet available from the API.
+      <div className="community-detail-members-section">
+        <h4 className="community-detail-section-title">Members</h4>
+        <p className="community-detail-blocked-note">
+          Member listing requires <code>GET /v1/social/communities/:slug/members</code>,
+          which is not yet available.
         </p>
       </div>
 
-      {/* Community feed placeholder */}
-      <div className="network-community-detail-feed-placeholder">
-        <p>
-          Community-specific feed requires a dedicated backend endpoint
-          (<code>GET /v1/social/feed/community/:slug</code>). This will be
-          available when community feeds are implemented.
+      {/* Creator activity (proxy for community feed) */}
+      <div className="community-detail-activity">
+        <h4 className="community-detail-section-title">Creator Activity</h4>
+        <p className="community-detail-activity-note">
+          A dedicated community feed endpoint (<code>GET /v1/social/feed/community/:slug</code>)
+          does not exist yet. Showing recent posts by the community creator as a proxy.
         </p>
-      </div>
-
-      <div className="network-community-detail-actions">
-        {showWriteCtas && isSignedIn && (
-          <button
-            type="button"
-            className={`button ${joined ? "button-primary" : "button-outline"}`}
-            onClick={handleJoin}
-            disabled={joining || joined}
-          >
-            {joining ? "..." : joined ? "Joined" : "Join"}
-          </button>
+        {creatorPostsLoading ? (
+          <div className="community-detail-activity-loading" aria-busy="true">
+            {[1, 2].map((i) => (
+              <div key={i} className="skeleton" style={{ height: "2.4em", borderRadius: "4px", marginTop: "6px" }} />
+            ))}
+          </div>
+        ) : creatorPosts.length === 0 ? (
+          <p className="network-sidebar-empty">No recent posts from the creator.</p>
+        ) : (
+          <div className="community-detail-activity-list">
+            {creatorPosts.map((post) => (
+              <div key={post.id} className="profile-detail-post-card">
+                <p className="profile-detail-post-body">{post.body}</p>
+                <span className="profile-detail-post-date">
+                  {formatRelativeTime(post.createdAt)} by @{post.author.handle}
+                </span>
+              </div>
+            ))}
+          </div>
         )}
-        <button type="button" className="button button-outline" onClick={onClose}>
-          Back
-        </button>
       </div>
     </div>
   );
@@ -989,13 +1152,19 @@ function LongformTab({ shellState }: { shellState: ShellState }) {
     const selected = longform.find((e) => e.id === selectedId);
     if (selected) {
       const author = formatLongformAuthor(selected);
+      const readingMin = estimateReadingTime(selected.body);
       return (
         <div className="network-longform-tab" key={refreshKey}>
-          <div className="network-longform-expanded">
-            <div className="network-longform-expanded-header">
-              <span className="longform-format-label">
-                {formatTypeToLabel(selected.formatType)}
-              </span>
+          <div className="longform-reading-view">
+            <div className="longform-reading-header">
+              <div className="longform-reading-header-chips">
+                <span className="longform-format-label">
+                  {formatTypeToLabel(selected.formatType)}
+                </span>
+                {selected.proofState === "verified" && (
+                  <span className="longform-proof-chip">Proof verified</span>
+                )}
+              </div>
               <button
                 type="button"
                 className="button button-outline"
@@ -1004,24 +1173,36 @@ function LongformTab({ shellState }: { shellState: ShellState }) {
                 Back
               </button>
             </div>
-            <h2 className="network-longform-expanded-title">{selected.title}</h2>
-            <div className="network-longform-expanded-meta">
+            <h2 className="longform-reading-title">{selected.title}</h2>
+            <div className="longform-reading-meta">
               <span className="longform-author-avatar" aria-hidden="true">
                 {author.authorName.charAt(0)}
               </span>
-              <span className="longform-author-name">{author.authorName}</span>
-              <span className="longform-author-handle">{author.authorHandle}</span>
+              <div className="longform-reading-meta-text">
+                <span className="longform-author-name">{author.authorName}</span>
+                <span className="longform-author-handle">{author.authorHandle}</span>
+              </div>
               {author.linkedAgent && (
                 <span className={`longform-agent-context${author.isLinkedWork ? " longform-agent-linked-work" : ""}`}>
                   <span className="linked-agent-chip-dot" aria-hidden="true" />
                   {author.linkedAgent}
                 </span>
               )}
+              <span className="longform-reading-date">
+                {new Date(selected.createdAt).toLocaleDateString(undefined, {
+                  year: "numeric",
+                  month: "long",
+                  day: "numeric",
+                })}
+              </span>
+              <span className="longform-reading-time">
+                {readingMin} min read
+              </span>
             </div>
             {selected.summary && (
-              <p className="network-longform-expanded-summary">{selected.summary}</p>
+              <p className="longform-reading-summary">{selected.summary}</p>
             )}
-            <div className="network-longform-expanded-body">
+            <div className="longform-reading-body">
               {selected.body}
             </div>
           </div>
@@ -1050,6 +1231,7 @@ function LongformTab({ shellState }: { shellState: ShellState }) {
         <div className="longform-shelf">
           {(longform ?? []).map((entry) => {
             const author = formatLongformAuthor(entry);
+            const readMin = estimateReadingTime(entry.body);
             return (
               <article
                 key={entry.id}
@@ -1068,6 +1250,7 @@ function LongformTab({ shellState }: { shellState: ShellState }) {
                   <span className="longform-format-label">
                     {formatTypeToLabel(entry.formatType)}
                   </span>
+                  <span className="longform-card-reading-time">{readMin} min</span>
                 </div>
                 <h3 className="longform-card-title">{entry.title}</h3>
                 <p className="longform-card-summary">{entry.summary}</p>
@@ -1277,7 +1460,7 @@ function AccountTab({ shellState }: { shellState: ShellState }) {
       <AccountLongform handle={profile.handle} />
       <AccountCommunities handle={profile.handle} />
       <AccountEditProfile profile={profile} getToken={getToken} refetchMyProfile={refetchMyProfile} />
-      <AccountSettings />
+      <AccountSettings handle={profile.handle} />
     </div>
   );
 }
@@ -1626,8 +1809,28 @@ function AccountEditProfile({
 
 // ── Account & settings scaffold ──
 
-function AccountSettings() {
-  const items = [
+function AccountSettings({ handle }: { handle?: string }) {
+  const [darkMode, setDarkMode] = useState(() => {
+    if (typeof window === "undefined") return false;
+    const stored = localStorage.getItem("vera-dark-mode");
+    if (stored !== null) return stored === "true";
+    return document.documentElement.classList.contains("dark");
+  });
+
+  const handleDarkToggle = useCallback(() => {
+    setDarkMode((prev) => {
+      const next = !prev;
+      if (next) {
+        document.documentElement.classList.add("dark");
+      } else {
+        document.documentElement.classList.remove("dark");
+      }
+      localStorage.setItem("vera-dark-mode", String(next));
+      return next;
+    });
+  }, []);
+
+  const futureItems = [
     { label: "Privacy controls", status: "Coming with Soma contracts" },
     { label: "Notification preferences", status: "Coming soon" },
     { label: "Account deletion", status: "Coming with Soma contracts" },
@@ -1635,17 +1838,53 @@ function AccountSettings() {
   ];
 
   return (
-    <div className="account-section">
-      <h3 className="account-section-title">Account & Settings</h3>
-      <div className="account-settings-card">
-        {items.map((item) => (
-          <div key={item.label} className="account-settings-row">
-            <span className="account-settings-label">{item.label}</span>
-            <span className="account-settings-chip">{item.status}</span>
+    <>
+      {/* Your handle */}
+      {handle && (
+        <div className="account-section">
+          <h3 className="account-section-title">Your Handle</h3>
+          <div className="account-handle-display">
+            <span className="account-handle-value">@{handle}</span>
           </div>
-        ))}
+          <p className="account-handle-note">
+            Handles are permanent and tied to your proof chain. They cannot be changed after creation.
+          </p>
+        </div>
+      )}
+
+      {/* Display preferences */}
+      <div className="account-section">
+        <h3 className="account-section-title">Display Preferences</h3>
+        <div className="account-settings-card">
+          <div className="account-settings-row">
+            <span className="account-settings-label">Dark mode</span>
+            <button
+              type="button"
+              className={`account-dark-toggle${darkMode ? " account-dark-toggle-on" : ""}`}
+              onClick={handleDarkToggle}
+              role="switch"
+              aria-checked={darkMode}
+              aria-label="Toggle dark mode"
+            >
+              <span className="account-dark-toggle-thumb" />
+            </button>
+          </div>
+        </div>
       </div>
-    </div>
+
+      {/* Other settings scaffold */}
+      <div className="account-section">
+        <h3 className="account-section-title">Account & Settings</h3>
+        <div className="account-settings-card">
+          {futureItems.map((item) => (
+            <div key={item.label} className="account-settings-row">
+              <span className="account-settings-label">{item.label}</span>
+              <span className="account-settings-chip">{item.status}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </>
   );
 }
 
