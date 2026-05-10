@@ -197,6 +197,14 @@ export async function fetchHomeFeed(limit = 20, cursor = 0, filter?: string): Pr
   return apiFetch(`/feed/home?${params.toString()}`);
 }
 
+export async function fetchProfileFeed(handle: string, limit = 20, cursor = 0): Promise<{
+  profile: Profile;
+  feed: FeedPost[];
+  pageInfo: PageInfo;
+}> {
+  return apiFetch(`/feed/profile/${handle}?limit=${limit}&cursor=${cursor}`);
+}
+
 export async function fetchProfileStats(handle: string): Promise<{
   stats: ProfileStats;
 }> {

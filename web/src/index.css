@@ -3767,3 +3767,272 @@ html.dark .profile-detail-trust-chip {
   background: var(--bg-raised);
   border-color: var(--border);
 }
+
+/* ─── Profile detail: recent posts section ─── */
+
+.profile-detail-posts {
+  margin: 12px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.profile-detail-posts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.profile-detail-post-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.profile-detail-post-card .profile-detail-post-body {
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  margin: 0;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+.profile-detail-post-card .profile-detail-post-date {
+  font-size: 0.72rem;
+  color: var(--text-soft);
+}
+
+/* ─── Feed card: inline reply compose ─── */
+
+.feed-card-reply-compose {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-top: none;
+  border-radius: 0 0 8px 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.feed-card-reply-compose-input {
+  width: 100%;
+  min-height: 48px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  font-family: inherit;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.feed-card-reply-compose-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.feed-card-reply-compose-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.feed-card-reply-gate {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-top: none;
+  border-radius: 0 0 8px 8px;
+  padding: 10px 12px;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+/* ─── Pulse tab: feature grid ─── */
+
+.vera-socials-pulse-features {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.vera-socials-pulse-feature {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.vera-socials-pulse-feature strong {
+  font-size: 0.9rem;
+  color: var(--text-primary);
+}
+
+.vera-socials-pulse-feature p {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  margin: 0;
+  line-height: 1.4;
+}
+
+.vera-socials-pulse-status-chip {
+  display: inline-block;
+  font-size: 0.7rem;
+  color: var(--text-soft);
+  background: var(--accent-surface, rgba(0, 0, 0, 0.04));
+  padding: 2px 8px;
+  border-radius: 999px;
+  margin-top: 4px;
+  align-self: flex-start;
+  border: 1px solid var(--border);
+}
+
+/* ─── Feed card: linked-pair left border accent ─── */
+
+.feed-card-linked-border {
+  border-left: 3px solid var(--accent);
+}
+
+/* ─── Feed card: linked work badge ─── */
+
+.feed-card-linked-work-badge {
+  display: inline-block;
+  font-size: 0.68rem;
+  color: var(--accent);
+  background: var(--accent-surface, rgba(0, 0, 0, 0.04));
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-weight: 500;
+}
+
+/* ─── Feed card: agent accent ─── */
+
+.feed-card-agent-accent {
+  position: relative;
+}
+
+.feed-card-agent-accent .feed-card-author-avatar {
+  background: var(--accent-surface, rgba(0, 0, 0, 0.06));
+  color: var(--accent);
+  border: 1px solid var(--accent-border, rgba(0, 0, 0, 0.08));
+}
+
+/* ─── Community detail: metadata chips ─── */
+
+.community-detail-meta-chip {
+  display: inline-block;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  background: var(--accent-surface, rgba(0, 0, 0, 0.03));
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+}
+
+/* ─── Community detail: members placeholder ─── */
+
+.network-community-detail-members {
+  margin: 10px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* ─── Community detail: feed placeholder card ─── */
+
+.network-community-detail-feed-placeholder {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px 14px;
+  margin: 10px 0;
+}
+
+.network-community-detail-feed-placeholder p {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.network-community-detail-feed-placeholder code {
+  font-size: 0.78rem;
+  background: var(--surface-strong);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+/* ─── Dark mode: depth pass 2 additions ─── */
+
+html.dark .profile-detail-post-card {
+  background: var(--bg-raised);
+  border-color: var(--border);
+}
+
+html.dark .feed-card-reply-compose {
+  background: var(--bg-raised);
+  border-color: var(--border);
+}
+
+html.dark .feed-card-reply-compose-input {
+  background: var(--bg);
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+
+html.dark .feed-card-reply-gate {
+  background: var(--bg-raised);
+  border-color: var(--border);
+}
+
+html.dark .vera-socials-pulse-feature {
+  background: var(--bg-raised);
+  border-color: var(--border);
+}
+
+html.dark .vera-socials-pulse-status-chip {
+  background: var(--bg-raised);
+  border-color: var(--border);
+}
+
+html.dark .feed-card-linked-border {
+  border-left-color: var(--accent);
+}
+
+html.dark .feed-card-linked-work-badge {
+  background: var(--bg-raised);
+}
+
+html.dark .feed-card-agent-accent .feed-card-author-avatar {
+  background: var(--bg-raised);
+  border-color: var(--accent-border);
+}
+
+html.dark .community-detail-meta-chip {
+  background: var(--bg-raised);
+  border-color: var(--border);
+}
+
+html.dark .network-community-detail-feed-placeholder {
+  background: var(--bg-raised);
+  border-color: var(--border);
+}
+
+html.dark .network-community-detail-feed-placeholder code {
+  background: var(--surface-strong);
+}
