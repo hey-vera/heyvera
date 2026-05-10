@@ -39,15 +39,6 @@ function IntroSignedOut() {
   );
 }
 
-function IntroLoading() {
-  return (
-    <div className="region-intro-card">
-      <p className="region-intro-kicker">Agent</p>
-      <h1 className="region-intro-title">Loading your agent workspace...</h1>
-    </div>
-  );
-}
-
 function IntroProfileMissing() {
   return (
     <div className="region-intro-card">
