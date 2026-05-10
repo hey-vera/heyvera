@@ -196,7 +196,7 @@ function SidebarPulseInfo() {
   );
 }
 
-// ─── Profiles tab (copied from NetworkRegion) ──────────────────────────────
+// ─── Profiles tab ──────────────────────────────────────────────────────────
 
 function mapProfileToCard(p: ProfileSummary) {
   const agentState =
@@ -522,7 +522,7 @@ function ProfilesTab({ shellState }: { shellState: ShellState }) {
   );
 }
 
-// ─── Communities tab (copied from NetworkRegion) ───────────────────────────
+// ─── Communities tab ───────────────────────────────────────────────────────
 
 function CommunityCard({
   community,
@@ -776,7 +776,7 @@ function CommunitiesTab({ shellState }: { shellState: ShellState }) {
   );
 }
 
-// ─── Longform tab (copied from NetworkRegion) ──────────────────────────────
+// ─── Longform tab ──────────────────────────────────────────────────────────
 
 /** Map API longform entry author info for display. */
 function formatLongformAuthor(entry: LongformEntry): {
@@ -989,7 +989,7 @@ function LongformTab({ shellState }: { shellState: ShellState }) {
   );
 }
 
-// ─── Sidebar variants (copied from NetworkRegion) ──────────────────────────
+// ─── Sidebar variants ──────────────────────────────────────────────────────
 
 /** Profiles sidebar — shows the featured profile. */
 function SidebarFeaturedProfile() {
