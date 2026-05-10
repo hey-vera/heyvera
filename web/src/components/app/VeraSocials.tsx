@@ -20,6 +20,9 @@ import {
   followProfile,
   unfollowProfile,
   fetchFollowStatus,
+  fetchLongform,
+  fetchCommunities,
+  updateProfile,
 } from "../../api/social";
 import type {
   ProfileSummary,
@@ -30,7 +33,7 @@ import type {
   FeedPost,
 } from "../../api/social";
 
-type SocialsTab = "feed" | "profiles" | "communities" | "longform" | "pulse";
+type SocialsTab = "feed" | "profiles" | "communities" | "longform" | "pulse" | "you";
 
 type VeraSocialsProps = {
   shellState: ShellState;
@@ -1223,6 +1226,472 @@ function SidebarActiveCommunities() {
   );
 }
 
+// ─── Account / You tab ────────────────────────────────────────────────────
+
+function AccountTab({ shellState }: { shellState: ShellState }) {
+  const { myProfile, getToken, refetchMyProfile, linkedAgents } = useAuthContext();
+
+  // ── Non-ready states ──
+  if (shellState === "signed_out" || shellState === "public") {
+    return (
+      <div className="account-tab">
+        <p className="account-empty">Sign in to view your profile.</p>
+      </div>
+    );
+  }
+  if (shellState === "loading") {
+    return (
+      <div className="account-tab" aria-busy="true">
+        <div className="skeleton" style={{ height: "6em", borderRadius: "6px" }} />
+        <div className="skeleton" style={{ height: "4em", borderRadius: "6px", marginTop: "12px" }} />
+        <div className="skeleton" style={{ height: "8em", borderRadius: "6px", marginTop: "12px" }} />
+      </div>
+    );
+  }
+  if (shellState === "profile_missing") {
+    return (
+      <div className="account-tab">
+        <p className="account-empty">Create your profile first.</p>
+        <div style={{ marginTop: "12px" }}>
+          <CreateProfileForm getToken={getToken} onProfileCreated={refetchMyProfile} />
+        </div>
+      </div>
+    );
+  }
+
+  if (!myProfile) {
+    return (
+      <div className="account-tab">
+        <p className="account-empty">Unable to load your profile.</p>
+      </div>
+    );
+  }
+
+  const profile = myProfile.profile;
+
+  return (
+    <div className="account-tab">
+      <AccountHeader profile={profile} />
+      <AccountLinkedAgents linkedAgents={linkedAgents} />
+      <AccountPosts handle={profile.handle} />
+      <AccountLongform handle={profile.handle} />
+      <AccountCommunities handle={profile.handle} />
+      <AccountEditProfile profile={profile} getToken={getToken} refetchMyProfile={refetchMyProfile} />
+      <AccountSettings />
+    </div>
+  );
+}
+
+// ── Profile header section ──
+
+function AccountHeader({ profile }: { profile: Profile }) {
+  const { data: stats, loading: statsLoading } = useProfileStats(profile.handle);
+
+  return (
+    <div className="account-header">
+      <div className="account-header-avatar" aria-hidden="true">
+        {profile.displayName.charAt(0).toUpperCase()}
+      </div>
+      <div className="account-header-info">
+        <strong className="account-header-name">{profile.displayName}</strong>
+        <span className="account-header-handle">@{profile.handle}</span>
+        {profile.bio && <p className="account-header-bio">{profile.bio}</p>}
+        <div className="profile-detail-trust-chips" style={{ marginTop: "6px" }}>
+          <span className="profile-detail-trust-chip">proof: {profile.proofState}</span>
+          <span className="profile-detail-trust-chip">continuity: {profile.continuityState}</span>
+        </div>
+        <span className="account-header-member-since">
+          Member since {new Date(profile.createdAt).toLocaleDateString()}
+        </span>
+      </div>
+      {!statsLoading && stats && (
+        <div className="account-header-stats">
+          <span>{stats.postCount} posts</span>
+          <span>{stats.followerCount} followers</span>
+          <span>{stats.followingCount} following</span>
+          <span>{stats.communityCount} communities</span>
+          <span>{stats.longformCount} longform</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Linked agents section ──
+
+function AccountLinkedAgents({ linkedAgents }: { linkedAgents: LinkedAgent[] }) {
+  return (
+    <div className="account-section">
+      <h3 className="account-section-title">Linked Agents</h3>
+      {linkedAgents.length > 0 ? (
+        <div className="account-agents-grid">
+          {linkedAgents.map((a) => (
+            <div key={a.id} className={`account-agent-card${a.isPrimary ? " account-agent-primary" : ""}`}>
+              <div className="account-agent-card-header">
+                <strong>{a.agentName}</strong>
+                {a.isPrimary && <span className="account-agent-primary-badge">Primary</span>}
+              </div>
+              <span className="account-agent-card-slug">@{a.agentSlug}</span>
+              <span className="account-agent-card-type">{a.agentType}</span>
+              <span className="account-agent-card-state">State: {a.linkState}</span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="account-empty">No agents linked yet.</p>
+      )}
+      <p className="account-blocked-note">Linking new agents requires a Soma session.</p>
+    </div>
+  );
+}
+
+// ── Your posts section ──
+
+function AccountPosts({ handle }: { handle: string }) {
+  const [posts, setPosts] = useState<FeedPost[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+
+    fetchProfileFeed(handle, 10)
+      .then((result) => {
+        if (!cancelled) setPosts(result.feed);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [handle]);
+
+  return (
+    <div className="account-section">
+      <h3 className="account-section-title">Your Posts</h3>
+      {loading ? (
+        <div className="account-posts-list" aria-busy="true">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="skeleton" style={{ height: "3em", borderRadius: "4px", marginBottom: "8px" }} />
+          ))}
+        </div>
+      ) : error ? (
+        <p className="account-empty">Unable to load posts: {error}</p>
+      ) : posts.length === 0 ? (
+        <p className="account-empty">You haven&apos;t posted yet.</p>
+      ) : (
+        <div className="account-posts-list">
+          {posts.map((post) => (
+            <div key={post.id} className="profile-detail-post-card">
+              <p className="profile-detail-post-body">{post.body}</p>
+              <span className="profile-detail-post-date">
+                {new Date(post.createdAt).toLocaleDateString()}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Your longform section ──
+
+function AccountLongform({ handle }: { handle: string }) {
+  const [entries, setEntries] = useState<LongformEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+
+    fetchLongform(50)
+      .then((result) => {
+        if (!cancelled) {
+          setEntries(result.longform.filter((e) => e.author.handle === handle));
+        }
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [handle]);
+
+  return (
+    <div className="account-section">
+      <h3 className="account-section-title">Your Longform</h3>
+      {loading ? (
+        <div className="account-longform-list" aria-busy="true">
+          {[1, 2].map((i) => (
+            <div key={i} className="skeleton" style={{ height: "3.5em", borderRadius: "4px", marginBottom: "8px" }} />
+          ))}
+        </div>
+      ) : error ? (
+        <p className="account-empty">Unable to load longform entries: {error}</p>
+      ) : entries.length === 0 ? (
+        <p className="account-empty">No longform entries yet.</p>
+      ) : (
+        <div className="account-longform-list">
+          {entries.map((entry) => (
+            <div key={entry.id} className="account-longform-card">
+              <span className="longform-format-label">{formatTypeToLabel(entry.formatType)}</span>
+              <strong className="account-longform-card-title">{entry.title}</strong>
+              {entry.summary && <p className="account-longform-card-summary">{entry.summary}</p>}
+              <span className="account-longform-card-date">
+                {new Date(entry.createdAt).toLocaleDateString()}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Your communities section ──
+
+function AccountCommunities({ handle }: { handle: string }) {
+  const [communities, setCommunities] = useState<Community[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+
+    fetchCommunities(50)
+      .then((result) => {
+        if (!cancelled) {
+          setCommunities(result.communities.filter((c) => c.creator.handle === handle));
+        }
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [handle]);
+
+  return (
+    <div className="account-section">
+      <h3 className="account-section-title">Your Communities</h3>
+      {loading ? (
+        <div className="account-communities-list" aria-busy="true">
+          {[1, 2].map((i) => (
+            <div key={i} className="skeleton" style={{ height: "3em", borderRadius: "4px", marginBottom: "8px" }} />
+          ))}
+        </div>
+      ) : error ? (
+        <p className="account-empty">Unable to load communities: {error}</p>
+      ) : communities.length === 0 ? (
+        <p className="account-empty">No communities created yet.</p>
+      ) : (
+        <div className="account-communities-list">
+          {communities.map((c) => (
+            <div key={c.id} className="account-community-card">
+              <strong className="account-community-card-name">{c.name}</strong>
+              <span className="account-community-card-slug">/{c.slug}</span>
+              {c.description && <p className="account-community-card-desc">{c.description}</p>}
+            </div>
+          ))}
+        </div>
+      )}
+      <p className="account-blocked-note">
+        Joined communities require a membership endpoint not yet available.
+      </p>
+    </div>
+  );
+}
+
+// ── Edit profile form ──
+
+function AccountEditProfile({
+  profile,
+  getToken,
+  refetchMyProfile,
+}: {
+  profile: Profile;
+  getToken: () => Promise<string | null>;
+  refetchMyProfile: () => void;
+}) {
+  const [displayName, setDisplayName] = useState(profile.displayName);
+  const [bio, setBio] = useState(profile.bio);
+  const [location, setLocation] = useState(profile.location ?? "");
+  const [websiteUrl, setWebsiteUrl] = useState(profile.websiteUrl ?? "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    setError(null);
+    setSuccess(false);
+
+    try {
+      const token = await getToken();
+      if (!token) {
+        setError("Not authenticated.");
+        return;
+      }
+      await updateProfile(token, {
+        displayName,
+        bio,
+        location: location || undefined,
+        websiteUrl: websiteUrl || undefined,
+      });
+      setSuccess(true);
+      refetchMyProfile();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="account-section">
+      <h3 className="account-section-title">Edit Profile</h3>
+      <p className="account-edit-warning">
+        Profile editing requires Soma session. Changes may not save until Soma
+        contracts are live.
+      </p>
+      <form className="account-edit-form" onSubmit={handleSubmit}>
+        <div className="account-edit-field">
+          <label htmlFor="account-edit-displayName">Display Name</label>
+          <input
+            id="account-edit-displayName"
+            type="text"
+            className="account-edit-input"
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+          />
+        </div>
+        <div className="account-edit-field">
+          <label htmlFor="account-edit-bio">Bio</label>
+          <textarea
+            id="account-edit-bio"
+            className="account-edit-textarea"
+            value={bio}
+            onChange={(e) => setBio(e.target.value)}
+            rows={3}
+          />
+        </div>
+        <div className="account-edit-field">
+          <label htmlFor="account-edit-location">Location</label>
+          <input
+            id="account-edit-location"
+            type="text"
+            className="account-edit-input"
+            value={location}
+            onChange={(e) => setLocation(e.target.value)}
+            placeholder="Optional"
+          />
+        </div>
+        <div className="account-edit-field">
+          <label htmlFor="account-edit-website">Website</label>
+          <input
+            id="account-edit-website"
+            type="url"
+            className="account-edit-input"
+            value={websiteUrl}
+            onChange={(e) => setWebsiteUrl(e.target.value)}
+            placeholder="https://..."
+          />
+        </div>
+        {error && <p className="account-edit-error">{error}</p>}
+        {success && <p className="account-edit-success">Profile updated.</p>}
+        <button type="submit" className="button button-primary" disabled={saving}>
+          {saving ? "Saving..." : "Save Changes"}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+// ── Account & settings scaffold ──
+
+function AccountSettings() {
+  const items = [
+    { label: "Privacy controls", status: "Coming with Soma contracts" },
+    { label: "Notification preferences", status: "Coming soon" },
+    { label: "Account deletion", status: "Coming with Soma contracts" },
+    { label: "Export data", status: "Coming soon" },
+  ];
+
+  return (
+    <div className="account-section">
+      <h3 className="account-section-title">Account & Settings</h3>
+      <div className="account-settings-card">
+        {items.map((item) => (
+          <div key={item.label} className="account-settings-row">
+            <span className="account-settings-label">{item.label}</span>
+            <span className="account-settings-chip">{item.status}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Sidebar for You tab ──
+
+function SidebarAccountInfo() {
+  const { myProfile } = useAuthContext();
+  const handle = myProfile?.profile.handle;
+  const { data: stats, loading: statsLoading } = useProfileStats(handle);
+
+  if (!myProfile) {
+    return (
+      <div className="account-sidebar-info">
+        <p className="network-sidebar-section-title">Your Profile</p>
+        <p className="network-sidebar-empty">Not available.</p>
+      </div>
+    );
+  }
+
+  const profile = myProfile.profile;
+
+  return (
+    <div className="account-sidebar-info">
+      <p className="network-sidebar-section-title">Your Profile</p>
+      <div className="account-sidebar-identity">
+        <div className="network-sidebar-list-avatar" aria-hidden="true">
+          {profile.displayName.charAt(0).toUpperCase()}
+        </div>
+        <div className="account-sidebar-identity-text">
+          <strong>{profile.displayName}</strong>
+          <span className="network-sidebar-list-handle">@{profile.handle}</span>
+        </div>
+      </div>
+      {!statsLoading && stats && (
+        <div className="account-sidebar-stats">
+          <span>{stats.postCount} posts</span>
+          <span>{stats.followerCount} followers</span>
+        </div>
+      )}
+      <p className="account-sidebar-hint">
+        Others see your profile on the Profiles tab.
+      </p>
+    </div>
+  );
+}
+
 // ─── Component ──────────────────────────────────────────────────────────────
 
 export function VeraSocials({ shellState, viewerLabel }: VeraSocialsProps) {
@@ -1256,6 +1725,8 @@ export function VeraSocials({ shellState, viewerLabel }: VeraSocialsProps) {
         return <SidebarActiveCommunities />;
       case "pulse":
         return <SidebarPulseInfo />;
+      case "you":
+        return <SidebarAccountInfo />;
     }
   };
 
@@ -1282,7 +1753,7 @@ export function VeraSocials({ shellState, viewerLabel }: VeraSocialsProps) {
         {/* Functional subnav */}
         {showLoading ? (
           <div className="region-subnav" aria-busy="true">
-            {[1, 2, 3, 4, 5].map((i) => (
+            {[1, 2, 3, 4, 5, 6].map((i) => (
               <span
                 key={i}
                 className="region-subnav-item skeleton"
@@ -1307,6 +1778,15 @@ export function VeraSocials({ shellState, viewerLabel }: VeraSocialsProps) {
                 {label}
               </button>
             ))}
+            {shellState === "ready" && (
+              <button
+                type="button"
+                className={`region-subnav-item${activeTab === "you" ? " region-subnav-item-active" : ""}`}
+                onClick={() => setActiveTab("you")}
+              >
+                You
+              </button>
+            )}
           </div>
         )}
 
@@ -1343,6 +1823,7 @@ export function VeraSocials({ shellState, viewerLabel }: VeraSocialsProps) {
             {activeTab === "communities" && <CommunitiesTab shellState={shellState} />}
             {activeTab === "longform" && <LongformTab shellState={shellState} />}
             {activeTab === "pulse" && <PulseTab />}
+            {activeTab === "you" && <AccountTab shellState={shellState} />}
           </>
         )}
 
