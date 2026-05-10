@@ -9,8 +9,8 @@ import type { FeedPost } from "../../api/social";
 const liveFilters = ["All", "People", "Agents", "Linked"] as const;
 type LiveFilter = (typeof liveFilters)[number];
 
-// Fallback filters — full decorative set for hardcoded preview data
-const fallbackFilters = ["All", "People", "Agents", "Proof", "Marketplace", "Markets", "Pulse"] as const;
+// Fallback filters — decorative set for hardcoded preview data
+const fallbackFilters = ["All", "People", "Agents", "Linked", "Proof"] as const;
 type FallbackFilter = (typeof fallbackFilters)[number];
 
 type Filter = LiveFilter | FallbackFilter;
@@ -42,9 +42,8 @@ const fallbackFeedItems = [
     title: "Co-authored work on Vera",
     body: "Linked pairs let people and agents co-author posts with shared identity and verifiable proof. This is what agent-native social looks like.",
     proofContext: "Preview",
-    branchLabel: "Pulse",
     formatLabel: "Essay",
-    filter: "Pulse" as Filter,
+    filter: "Linked" as Filter,
   },
   {
     origin: "Agent" as const,
@@ -79,8 +78,7 @@ const fallbackFeedItems = [
     authorHandle: "@preview/marketplace",
     title: "Capability listing preview",
     body: "Agents can list capabilities on the Marketplace. Structured extraction, citation tracking, and proof-of-work receipts. This is preview data.",
-    branchLabel: "Marketplace",
-    filter: "Marketplace" as Filter,
+    filter: "Agents" as Filter,
   },
   {
     origin: "Person" as const,
@@ -88,8 +86,7 @@ const fallbackFeedItems = [
     authorHandle: "@analyst",
     title: "Market discussion preview",
     body: "Community discussion and market signals will appear here when the backend is live. This is preview data.",
-    branchLabel: "Markets",
-    filter: "Markets" as Filter,
+    filter: "People" as Filter,
   },
   {
     origin: "Linked Pair" as const,
@@ -123,6 +120,9 @@ type MappedFeedItem = {
   proofContext?: string;
   branchLabel?: string;
   filter: Filter;
+  postId?: string;
+  isReply?: boolean;
+  linkedAgentName?: string;
 };
 
 function mapFeedPost(post: FeedPost): MappedFeedItem {
@@ -156,6 +156,9 @@ function mapFeedPost(post: FeedPost): MappedFeedItem {
     body: post.body,
     proofContext,
     filter: "All" as Filter,
+    postId: post.id,
+    isReply: post.replyToPostId != null,
+    linkedAgentName: post.linkedAgent?.agentName,
   };
 }
 
@@ -263,7 +266,19 @@ export function PublicFeed() {
         ) : (
           <div className="feed-column">
             {visible.map((item, i) => (
-              <FeedCard key={`${item.authorHandle}-${i}`} {...item} />
+              <FeedCard
+                key={`${item.authorHandle}-${i}`}
+                origin={item.origin}
+                authorName={item.authorName}
+                authorHandle={item.authorHandle}
+                title={item.title}
+                body={item.body}
+                proofContext={item.proofContext}
+                branchLabel={item.branchLabel}
+                postId={item.postId}
+                replyToHandle={item.isReply ? "reply" : undefined}
+                linkedAgentName={item.linkedAgentName}
+              />
             ))}
           </div>
         )}

@@ -10,6 +10,8 @@ type PublicIdentityCardProps = {
   proofLabel: string;
   statusLine: string;
   compact?: boolean;
+  proofState?: string;
+  continuityState?: string;
 };
 
 export function PublicIdentityCard({
@@ -21,6 +23,8 @@ export function PublicIdentityCard({
   proofLabel,
   statusLine,
   compact,
+  proofState,
+  continuityState,
 }: PublicIdentityCardProps) {
   const monogram = displayName.charAt(0).toUpperCase();
 
@@ -39,6 +43,16 @@ export function PublicIdentityCard({
           <LinkedAgentChip agentName={agentName} state={agentState} />
           <ProofChip label={proofLabel} />
         </div>
+        {(proofState || continuityState) && (
+          <div className="profile-detail-trust-chips">
+            {proofState && (
+              <span className="profile-detail-trust-chip">proof: {proofState}</span>
+            )}
+            {continuityState && (
+              <span className="profile-detail-trust-chip">continuity: {continuityState}</span>
+            )}
+          </div>
+        )}
         <p className="identity-card-status">{statusLine}</p>
       </div>
     </div>
