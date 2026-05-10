@@ -196,7 +196,7 @@ function SidebarPulseInfo() {
   );
 }
 
-// ─── Profiles tab (copied from NetworkRegion) ──────────────────────────────
+// ─── Profiles tab ──────────────────────────────────────────────────────────
 
 function mapProfileToCard(p: ProfileSummary) {
   const agentState =
@@ -219,6 +219,8 @@ function mapProfileToCard(p: ProfileSummary) {
     agentState,
     proofLabel,
     statusLine: "",
+    proofState: p.proofState,
+    continuityState: p.continuityState,
   };
 }
 
@@ -232,7 +234,8 @@ function ProfileDetailPanel({
   onClose: () => void;
   shellState: ShellState;
 }) {
-  const { isSignedIn, getToken } = useAuthContext();
+  const { isSignedIn, getToken, myProfile } = useAuthContext();
+  const isSelf = myProfile?.profile.handle === handle;
   const [profile, setProfile] = useState<Profile | null>(null);
   const [agents, setAgents] = useState<LinkedAgent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -341,7 +344,16 @@ function ProfileDetailPanel({
         <div>
           <strong className="network-profile-detail-name">{profile.displayName}</strong>
           <span className="network-profile-detail-handle">@{profile.handle}</span>
+          {isSelf && (
+            <span className="profile-detail-self-badge">This is you</span>
+          )}
         </div>
+      </div>
+
+      {/* Trust state chips */}
+      <div className="profile-detail-trust-chips">
+        <span className="profile-detail-trust-chip">proof: {profile.proofState}</span>
+        <span className="profile-detail-trust-chip">continuity: {profile.continuityState}</span>
       </div>
 
       {profile.bio && (
@@ -522,7 +534,7 @@ function ProfilesTab({ shellState }: { shellState: ShellState }) {
   );
 }
 
-// ─── Communities tab (copied from NetworkRegion) ───────────────────────────
+// ─── Communities tab ───────────────────────────────────────────────────────
 
 function CommunityCard({
   community,
@@ -776,7 +788,7 @@ function CommunitiesTab({ shellState }: { shellState: ShellState }) {
   );
 }
 
-// ─── Longform tab (copied from NetworkRegion) ──────────────────────────────
+// ─── Longform tab ──────────────────────────────────────────────────────────
 
 /** Map API longform entry author info for display. */
 function formatLongformAuthor(entry: LongformEntry): {
@@ -989,7 +1001,7 @@ function LongformTab({ shellState }: { shellState: ShellState }) {
   );
 }
 
-// ─── Sidebar variants (copied from NetworkRegion) ──────────────────────────
+// ─── Sidebar variants ──────────────────────────────────────────────────────
 
 /** Profiles sidebar — shows the featured profile. */
 function SidebarFeaturedProfile() {
@@ -1177,25 +1189,71 @@ export function VeraSocials({ shellState, viewerLabel }: VeraSocialsProps) {
         )}
 
         {/* Functional subnav */}
-        <div className="region-subnav">
-          {TAB_LABELS.map(({ key, label }) => (
-            <button
-              key={key}
-              type="button"
-              className={`region-subnav-item${activeTab === key ? " region-subnav-item-active" : ""}`}
-              onClick={() => setActiveTab(key)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        {showLoading ? (
+          <div className="region-subnav" aria-busy="true">
+            {[1, 2, 3, 4, 5].map((i) => (
+              <span
+                key={i}
+                className="region-subnav-item skeleton"
+                style={{
+                  display: "inline-block",
+                  width: `${50 + i * 8}px`,
+                  height: "1.6em",
+                  borderRadius: "999px",
+                }}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="region-subnav">
+            {TAB_LABELS.map(({ key, label }) => (
+              <button
+                key={key}
+                type="button"
+                className={`region-subnav-item${activeTab === key ? " region-subnav-item-active" : ""}`}
+                onClick={() => setActiveTab(key)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Tab content */}
-        {activeTab === "feed" && <PublicFeed />}
-        {activeTab === "profiles" && <ProfilesTab shellState={shellState} />}
-        {activeTab === "communities" && <CommunitiesTab shellState={shellState} />}
-        {activeTab === "longform" && <LongformTab shellState={shellState} />}
-        {activeTab === "pulse" && <PulseTab />}
+        {showLoading ? (
+          <div className="feed-column" aria-busy="true">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="feed-card" style={{ gap: "10px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                  <span
+                    className="skeleton"
+                    style={{ width: "30px", height: "30px", borderRadius: "50%", flexShrink: 0 }}
+                  />
+                  <span
+                    className="skeleton"
+                    style={{ width: "120px", height: "0.9em", borderRadius: "3px" }}
+                  />
+                </div>
+                <div
+                  className="skeleton"
+                  style={{ height: "1em", width: "60%", borderRadius: "3px" }}
+                />
+                <div
+                  className="skeleton"
+                  style={{ height: "3.2em", borderRadius: "3px" }}
+                />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <>
+            {activeTab === "feed" && <PublicFeed />}
+            {activeTab === "profiles" && <ProfilesTab shellState={shellState} />}
+            {activeTab === "communities" && <CommunitiesTab shellState={shellState} />}
+            {activeTab === "longform" && <LongformTab shellState={shellState} />}
+            {activeTab === "pulse" && <PulseTab />}
+          </>
+        )}
 
         {/* JoinBar — prominent for public/signed_out */}
         {(shellState === "public" || shellState === "signed_out") && (

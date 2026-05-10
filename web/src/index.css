@@ -3659,3 +3659,111 @@ html.dark .vera-socials-sidebar-pulse {
   background: var(--bg-raised);
   border-color: var(--border);
 }
+
+/* ─── Feed card: reply indicator ─── */
+
+.feed-card-reply-indicator {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+/* ─── Feed card: actions row ─── */
+
+.feed-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border-light, rgba(0, 0, 0, 0.06));
+}
+
+.feed-card-reply-action {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  padding: 2px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.feed-card-reply-action:hover {
+  background: var(--accent-surface, rgba(0, 0, 0, 0.04));
+  color: var(--text);
+}
+
+.feed-card-reply-count {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+/* ─── Feed card: linked agent chip ─── */
+
+.feed-card-linked-agent {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  background: var(--accent-surface, rgba(0, 0, 0, 0.03));
+  padding: 1px 7px;
+  border-radius: 999px;
+}
+
+/* ─── Profile detail: self badge ─── */
+
+.profile-detail-self-badge {
+  display: inline-block;
+  font-size: 0.7rem;
+  color: var(--accent);
+  background: var(--accent-surface, rgba(0, 0, 0, 0.04));
+  padding: 1px 8px;
+  border-radius: 999px;
+  margin-left: 6px;
+  vertical-align: middle;
+  font-weight: 500;
+}
+
+/* ─── Profile detail: trust state chips ─── */
+
+.profile-detail-trust-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0;
+}
+
+.profile-detail-trust-chip {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  background: var(--accent-surface, rgba(0, 0, 0, 0.03));
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border-light, rgba(0, 0, 0, 0.06));
+}
+
+/* ─── Dark mode: feed card + profile detail additions ─── */
+
+html.dark .feed-card-actions {
+  border-top-color: var(--border);
+}
+
+html.dark .feed-card-reply-action:hover {
+  background: var(--bg-raised);
+}
+
+html.dark .feed-card-linked-agent {
+  background: var(--bg-raised);
+}
+
+html.dark .profile-detail-self-badge {
+  background: var(--bg-raised);
+}
+
+html.dark .profile-detail-trust-chip {
+  background: var(--bg-raised);
+  border-color: var(--border);
+}
