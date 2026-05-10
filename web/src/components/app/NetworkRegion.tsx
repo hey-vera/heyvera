@@ -1,17 +1,30 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import type { ShellState } from "../../hooks/useShellState";
 import { useAuthContext } from "../../hooks/useAuthContext";
 import { useProfiles } from "../../hooks/useProfiles";
 import { useCommunities } from "../../hooks/useCommunities";
 import { useLongform } from "../../hooks/useLongform";
+import { useFeaturedProfile } from "../../hooks/useFeaturedProfile";
+import { useProfileStats } from "../../hooks/useProfileStats";
 import { BranchRails } from "../public/BranchRails";
-import { LongformShelf } from "../public/LongformShelf";
 import { PublicFeed } from "../public/PublicFeed";
 import { PublicIdentityCard } from "../shared/PublicIdentityCard";
 import { CreateCommunityForm } from "../shared/CreateCommunityForm";
 import { CreateLongformForm } from "../shared/CreateLongformForm";
-import { joinCommunity } from "../../api/social";
-import type { ProfileSummary, Community } from "../../api/social";
+import {
+  joinCommunity,
+  fetchProfileWithLinkedAgents,
+  followProfile,
+  unfollowProfile,
+  fetchFollowStatus,
+} from "../../api/social";
+import type {
+  ProfileSummary,
+  Community,
+  LongformEntry,
+  LinkedAgent,
+  Profile,
+} from "../../api/social";
 
 type NetworkTab = "feed" | "profiles" | "communities" | "longform";
 
@@ -25,6 +38,49 @@ const TAB_LABELS: { key: NetworkTab; label: string }[] = [
   { key: "communities", label: "Communities" },
   { key: "longform", label: "Longform" },
 ];
+
+/** Whether the shell state allows write actions (compose, join, create). */
+function canWrite(state: ShellState): boolean {
+  return state === "ready";
+}
+
+// ─── Auth-aware banners ─────────────────────────────────────────────────────
+
+function SignInBanner() {
+  return (
+    <div className="network-auth-banner network-auth-banner-signin">
+      <p>Sign in to participate in the network.</p>
+    </div>
+  );
+}
+
+function ProfileMissingBanner() {
+  return (
+    <div className="network-auth-banner network-auth-banner-profile">
+      <p>
+        Create your profile to participate.{" "}
+        <span className="network-auth-banner-hint">
+          Profile creation is available on the Home screen.
+        </span>
+      </p>
+    </div>
+  );
+}
+
+function LoadingIntroSkeleton() {
+  return (
+    <div className="region-intro-card region-intro-card-compact" aria-busy="true">
+      <div
+        className="skeleton"
+        style={{ width: "60px", height: "0.85em", borderRadius: "3px", marginBottom: "6px" }}
+      />
+      <div
+        className="skeleton"
+        style={{ width: "80%", height: "1.4em", borderRadius: "3px" }}
+      />
+    </div>
+  );
+}
 
 // ─── Profiles tab ───────────────────────────────────────────────────────────
 
@@ -52,9 +108,188 @@ function mapProfileToCard(p: ProfileSummary) {
   };
 }
 
-function ProfilesTab() {
+/** Inline detail panel for a selected profile. */
+function ProfileDetailPanel({
+  handle,
+  onClose,
+  shellState,
+}: {
+  handle: string;
+  onClose: () => void;
+  shellState: ShellState;
+}) {
+  const { isSignedIn, getToken } = useAuthContext();
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [agents, setAgents] = useState<LinkedAgent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const { data: stats, loading: statsLoading } = useProfileStats(handle);
+
+  const [followState, setFollowState] = useState<"unknown" | "following" | "not_following">("unknown");
+  const [followLoading, setFollowLoading] = useState(false);
+
+  // Fetch profile + linked agents
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+
+    fetchProfileWithLinkedAgents(handle)
+      .then((result) => {
+        if (!cancelled) {
+          setProfile(result.profile);
+          setAgents(result.linkedAgents);
+        }
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : String(err));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [handle]);
+
+  // Check follow status if signed in
+  useEffect(() => {
+    if (!isSignedIn) return;
+    let cancelled = false;
+
+    getToken().then((token) => {
+      if (!token || cancelled) return;
+      fetchFollowStatus(token, handle)
+        .then((result) => {
+          if (!cancelled) {
+            setFollowState(result.following ? "following" : "not_following");
+          }
+        })
+        .catch(() => {
+          // Silently ignore — follow status is best-effort
+        });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [handle, isSignedIn, getToken]);
+
+  async function handleToggleFollow() {
+    if (!isSignedIn || followLoading) return;
+    setFollowLoading(true);
+    try {
+      const token = await getToken();
+      if (!token) return;
+      if (followState === "following") {
+        await unfollowProfile(token, handle);
+        setFollowState("not_following");
+      } else {
+        await followProfile(token, handle);
+        setFollowState("following");
+      }
+    } catch (err) {
+      console.error("Follow toggle error:", err);
+    } finally {
+      setFollowLoading(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="network-profile-detail" aria-busy="true">
+        <div className="skeleton" style={{ height: "3em", borderRadius: "3px" }} />
+      </div>
+    );
+  }
+
+  if (error || !profile) {
+    return (
+      <div className="network-profile-detail">
+        <p className="network-fallback-msg">Unable to load profile details.</p>
+        <button type="button" className="button button-outline" onClick={onClose}>
+          Back
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="network-profile-detail">
+      <div className="network-profile-detail-header">
+        <div className="network-profile-detail-avatar" aria-hidden="true">
+          {profile.displayName.charAt(0).toUpperCase()}
+        </div>
+        <div>
+          <strong className="network-profile-detail-name">{profile.displayName}</strong>
+          <span className="network-profile-detail-handle">@{profile.handle}</span>
+        </div>
+      </div>
+
+      {profile.bio && (
+        <p className="network-profile-detail-bio">{profile.bio}</p>
+      )}
+
+      {/* Stats */}
+      {!statsLoading && stats && (
+        <div className="network-profile-detail-stats">
+          <span>{stats.postCount} posts</span>
+          <span>{stats.followerCount} followers</span>
+          <span>{stats.followingCount} following</span>
+          <span>{stats.communityCount} communities</span>
+          <span>{stats.longformCount} longform</span>
+        </div>
+      )}
+
+      {/* Linked agents */}
+      {agents.length > 0 && (
+        <div className="network-profile-detail-agents">
+          <strong>Linked agents:</strong>
+          <ul>
+            {agents.map((a) => (
+              <li key={a.id}>
+                {a.agentName}{" "}
+                <span className="network-profile-detail-agent-state">
+                  ({a.linkState})
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Actions */}
+      <div className="network-profile-detail-actions">
+        {canWrite(shellState) && followState !== "unknown" && (
+          <button
+            type="button"
+            className={`button ${followState === "following" ? "button-primary" : "button-outline"}`}
+            onClick={handleToggleFollow}
+            disabled={followLoading}
+          >
+            {followLoading
+              ? "..."
+              : followState === "following"
+                ? "Following"
+                : "Follow"}
+          </button>
+        )}
+        <button type="button" className="button button-outline" onClick={onClose}>
+          Back
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ProfilesTab({ shellState }: { shellState: ShellState }) {
   const { data: profiles, status, loading } = useProfiles(20);
   const [filter, setFilter] = useState("");
+  const [selectedHandle, setSelectedHandle] = useState<string | null>(null);
 
   const filtered = profiles
     ? profiles.filter((p) => {
@@ -107,12 +342,36 @@ function ProfilesTab() {
     );
   }
 
+  // Fallback state — backend unreachable
+  if (status === "fallback") {
+    return (
+      <div className="network-profiles-tab">
+        <p className="network-fallback-msg">
+          Unable to reach the network — profiles unavailable.
+        </p>
+      </div>
+    );
+  }
+
   if (status === "live" && filtered !== null && filtered.length === 0 && !filter.trim()) {
     return (
       <div className="network-profiles-tab">
         <p className="network-empty-state">
           No profiles yet. Be the first to join the network.
         </p>
+      </div>
+    );
+  }
+
+  // If a profile is selected, show the detail panel
+  if (selectedHandle) {
+    return (
+      <div className="network-profiles-tab">
+        <ProfileDetailPanel
+          handle={selectedHandle}
+          onClose={() => setSelectedHandle(null)}
+          shellState={shellState}
+        />
       </div>
     );
   }
@@ -128,12 +387,20 @@ function ProfilesTab() {
       />
       {filtered && filtered.length === 0 ? (
         <p className="network-empty-state">
-          No profiles matching "{filter}".
+          No profiles matching &ldquo;{filter}&rdquo;.
         </p>
       ) : (
         <div className="network-profiles-grid">
           {(filtered ?? []).map((p) => (
-            <PublicIdentityCard key={p.handle} {...mapProfileToCard(p)} />
+            <button
+              key={p.handle}
+              type="button"
+              className="network-profile-card-button"
+              onClick={() => setSelectedHandle(p.handle)}
+              aria-label={`View profile for ${p.displayName}`}
+            >
+              <PublicIdentityCard {...mapProfileToCard(p)} />
+            </button>
           ))}
         </div>
       )}
@@ -143,7 +410,15 @@ function ProfilesTab() {
 
 // ─── Communities tab ────────────────────────────────────────────────────────
 
-function CommunityCard({ community }: { community: Community }) {
+function CommunityCard({
+  community,
+  showWriteCtas,
+  onSelect,
+}: {
+  community: Community;
+  showWriteCtas: boolean;
+  onSelect: (slug: string) => void;
+}) {
   const { isSignedIn, getToken } = useAuthContext();
   const [joined, setJoined] = useState(false);
   const [joining, setJoining] = useState(false);
@@ -165,23 +440,32 @@ function CommunityCard({ community }: { community: Community }) {
 
   return (
     <article className="network-community-card">
-      <div className="network-community-header">
-        <div className="network-community-avatar" aria-hidden="true">
-          {community.name.charAt(0)}
+      <button
+        type="button"
+        className="network-community-card-clickable"
+        onClick={() => onSelect(community.slug)}
+        aria-label={`View details for ${community.name}`}
+      >
+        <div className="network-community-header">
+          <div className="network-community-avatar" aria-hidden="true">
+            {community.name.charAt(0)}
+          </div>
+          <div className="network-community-info">
+            <strong className="network-community-name">{community.name}</strong>
+            <span className="network-community-slug">/{community.slug}</span>
+          </div>
         </div>
-        <div className="network-community-info">
-          <strong className="network-community-name">{community.name}</strong>
-          <span className="network-community-slug">/{community.slug}</span>
-        </div>
-      </div>
-      {community.description && (
-        <p className="network-community-desc">{community.description}</p>
-      )}
+        {community.description && (
+          <p className="network-community-desc">{community.description}</p>
+        )}
+      </button>
       <div className="network-community-footer">
         <span className="network-community-creator">
           by @{community.creator.handle}
         </span>
-        {isSignedIn && (
+        {/* TODO: API does not return member counts. Show placeholder until backend adds memberCount to Community response. */}
+        <span className="network-community-members">Members: --</span>
+        {showWriteCtas && isSignedIn && (
           <button
             type="button"
             className={`button ${joined ? "button-primary" : "button-outline"} network-community-join`}
@@ -196,11 +480,89 @@ function CommunityCard({ community }: { community: Community }) {
   );
 }
 
-function CommunitiesTab() {
+/** Inline detail panel for a selected community. */
+function CommunityDetailPanel({
+  community,
+  showWriteCtas,
+  onClose,
+}: {
+  community: Community;
+  showWriteCtas: boolean;
+  onClose: () => void;
+}) {
+  const { isSignedIn, getToken } = useAuthContext();
+  const [joined, setJoined] = useState(false);
+  const [joining, setJoining] = useState(false);
+
+  async function handleJoin() {
+    if (!isSignedIn || joining || joined) return;
+    setJoining(true);
+    try {
+      const token = await getToken();
+      if (!token) return;
+      await joinCommunity(token, community.slug);
+      setJoined(true);
+    } catch (err) {
+      console.error("Join community error:", err);
+    } finally {
+      setJoining(false);
+    }
+  }
+
+  return (
+    <div className="network-community-detail">
+      <div className="network-community-detail-header">
+        <div className="network-community-avatar" aria-hidden="true">
+          {community.name.charAt(0)}
+        </div>
+        <div>
+          <strong className="network-community-detail-name">{community.name}</strong>
+          <span className="network-community-slug">/{community.slug}</span>
+        </div>
+      </div>
+
+      {community.description && (
+        <p className="network-community-detail-desc">{community.description}</p>
+      )}
+
+      <div className="network-community-detail-meta">
+        <span>Created by @{community.creator.handle}</span>
+        {/* TODO: API does not return member counts */}
+        <span>Members: --</span>
+        <span>Visibility: {community.visibility}</span>
+      </div>
+
+      {/* TODO: Community-specific feed endpoint does not exist yet. When GET /v1/social/feed/community/:slug is available, render a feed view here. */}
+      <p className="network-community-detail-feed-placeholder">
+        Community feed coming soon.
+      </p>
+
+      <div className="network-community-detail-actions">
+        {showWriteCtas && isSignedIn && (
+          <button
+            type="button"
+            className={`button ${joined ? "button-primary" : "button-outline"}`}
+            onClick={handleJoin}
+            disabled={joining || joined}
+          >
+            {joining ? "..." : joined ? "Joined" : "Join"}
+          </button>
+        )}
+        <button type="button" className="button button-outline" onClick={onClose}>
+          Back
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function CommunitiesTab({ shellState }: { shellState: ShellState }) {
   const { isSignedIn, getToken, myProfile } = useAuthContext();
   const hasProfile = isSignedIn && !!myProfile;
+  const showWriteCtas = canWrite(shellState);
   const [refreshKey, setRefreshKey] = useState(0);
   const { data: communities, status, loading } = useCommunities(20);
+  const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
 
   const handleCreated = useCallback(() => {
     setRefreshKey((k) => k + 1);
@@ -242,12 +604,39 @@ function CommunitiesTab() {
     );
   }
 
+  // Fallback state — backend unreachable
+  if (status === "fallback") {
+    return (
+      <div className="network-communities-tab">
+        <p className="network-fallback-msg">
+          Unable to reach the network — communities unavailable.
+        </p>
+      </div>
+    );
+  }
+
   const isLiveEmpty =
     status === "live" && communities !== null && communities.length === 0;
 
+  // Show detail panel for selected community
+  if (selectedSlug && communities) {
+    const selected = communities.find((c) => c.slug === selectedSlug);
+    if (selected) {
+      return (
+        <div className="network-communities-tab" key={refreshKey}>
+          <CommunityDetailPanel
+            community={selected}
+            showWriteCtas={showWriteCtas}
+            onClose={() => setSelectedSlug(null)}
+          />
+        </div>
+      );
+    }
+  }
+
   return (
     <div className="network-communities-tab" key={refreshKey}>
-      {hasProfile && (
+      {showWriteCtas && hasProfile && (
         <div className="network-communities-create">
           <CreateCommunityForm
             getToken={getToken}
@@ -263,7 +652,12 @@ function CommunitiesTab() {
       ) : (
         <div className="network-communities-grid">
           {(communities ?? []).map((c) => (
-            <CommunityCard key={c.id} community={c} />
+            <CommunityCard
+              key={c.id}
+              community={c}
+              showWriteCtas={showWriteCtas}
+              onSelect={setSelectedSlug}
+            />
           ))}
         </div>
       )}
@@ -273,11 +667,53 @@ function CommunitiesTab() {
 
 // ─── Longform tab ───────────────────────────────────────────────────────────
 
-function LongformTab() {
+/** Map API longform entry author info for display. */
+function formatLongformAuthor(entry: LongformEntry): {
+  authorName: string;
+  authorHandle: string;
+  linkedAgent?: string;
+  isLinkedWork: boolean;
+} {
+  const isLinkedWork = entry.authorMode === "linked_pair";
+  const authorName =
+    isLinkedWork && entry.linkedAgent
+      ? `${entry.author.displayName} + ${entry.linkedAgent.agentName}`
+      : entry.authorMode === "agent" && entry.linkedAgent
+        ? entry.linkedAgent.agentName
+        : entry.author.displayName;
+
+  const authorHandle =
+    entry.authorMode === "agent" && entry.linkedAgent
+      ? `@${entry.author.handle}/${entry.linkedAgent.agentSlug}`
+      : `@${entry.author.handle}`;
+
+  return {
+    authorName,
+    authorHandle,
+    linkedAgent: entry.linkedAgent?.agentName,
+    isLinkedWork,
+  };
+}
+
+function formatTypeToLabel(formatType: string): string {
+  const map: Record<string, string> = {
+    essay: "Essay",
+    broadcast: "Broadcast",
+    research_log: "Research Log",
+    journal: "Journal",
+    thread: "Thread",
+    note: "Note",
+  };
+  return map[formatType] ?? formatType.replace(/_/g, " ");
+}
+
+function LongformTab({ shellState }: { shellState: ShellState }) {
   const { isSignedIn, getToken, myProfile } = useAuthContext();
   const hasProfile = isSignedIn && !!myProfile;
+  const showWriteCtas = canWrite(shellState);
   const [refreshKey, setRefreshKey] = useState(0);
   const { data: longform, status, loading } = useLongform(20);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const handleCreated = useCallback(() => {
     setRefreshKey((k) => k + 1);
@@ -317,12 +753,69 @@ function LongformTab() {
     );
   }
 
+  // Fallback state — backend unreachable
+  if (status === "fallback") {
+    return (
+      <div className="network-longform-tab">
+        <p className="network-fallback-msg">
+          Unable to reach the network — longform entries unavailable.
+        </p>
+      </div>
+    );
+  }
+
   const isLiveEmpty =
     status === "live" && longform !== null && longform.length === 0;
 
+  // If a longform entry is selected, show expanded reading view
+  if (selectedId && longform) {
+    const selected = longform.find((e) => e.id === selectedId);
+    if (selected) {
+      const author = formatLongformAuthor(selected);
+      return (
+        <div className="network-longform-tab" key={refreshKey}>
+          <div className="network-longform-expanded">
+            <div className="network-longform-expanded-header">
+              <span className="longform-format-label">
+                {formatTypeToLabel(selected.formatType)}
+              </span>
+              <button
+                type="button"
+                className="button button-outline"
+                onClick={() => setSelectedId(null)}
+              >
+                Back
+              </button>
+            </div>
+            <h2 className="network-longform-expanded-title">{selected.title}</h2>
+            <div className="network-longform-expanded-meta">
+              <span className="longform-author-avatar" aria-hidden="true">
+                {author.authorName.charAt(0)}
+              </span>
+              <span className="longform-author-name">{author.authorName}</span>
+              <span className="longform-author-handle">{author.authorHandle}</span>
+              {author.linkedAgent && (
+                <span className={`longform-agent-context${author.isLinkedWork ? " longform-agent-linked-work" : ""}`}>
+                  <span className="linked-agent-chip-dot" aria-hidden="true" />
+                  {author.linkedAgent}
+                </span>
+              )}
+            </div>
+            {selected.summary && (
+              <p className="network-longform-expanded-summary">{selected.summary}</p>
+            )}
+            <div className="network-longform-expanded-body">
+              {selected.body}
+            </div>
+          </div>
+        </div>
+      );
+    }
+  }
+
   return (
     <div className="network-longform-tab" key={refreshKey}>
-      {hasProfile && (
+      {showWriteCtas && hasProfile && (
         <div className="network-longform-create">
           <CreateLongformForm
             getToken={getToken}
@@ -337,7 +830,49 @@ function LongformTab() {
           started.
         </p>
       ) : (
-        <LongformShelf />
+        <div className="longform-shelf">
+          {(longform ?? []).map((entry) => {
+            const author = formatLongformAuthor(entry);
+            return (
+              <article
+                key={entry.id}
+                className="longform-card network-longform-card-clickable"
+                role="button"
+                tabIndex={0}
+                onClick={() => setSelectedId(entry.id)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    setSelectedId(entry.id);
+                  }
+                }}
+              >
+                <div className="longform-card-header">
+                  <span className="longform-format-label">
+                    {formatTypeToLabel(entry.formatType)}
+                  </span>
+                </div>
+                <h3 className="longform-card-title">{entry.title}</h3>
+                <p className="longform-card-summary">{entry.summary}</p>
+                <div className="longform-card-footer">
+                  <div className="longform-card-author">
+                    <span className="longform-author-avatar" aria-hidden="true">
+                      {author.authorName.charAt(0)}
+                    </span>
+                    <span className="longform-author-name">{author.authorName}</span>
+                    <span className="longform-author-handle">{author.authorHandle}</span>
+                  </div>
+                  {author.linkedAgent && (
+                    <span className={`longform-agent-context${author.isLinkedWork ? " longform-agent-linked-work" : ""}`}>
+                      <span className="linked-agent-chip-dot" aria-hidden="true" />
+                      {author.linkedAgent}
+                    </span>
+                  )}
+                </div>
+              </article>
+            );
+          })}
+        </div>
       )}
     </div>
   );
@@ -345,45 +880,176 @@ function LongformTab() {
 
 // ─── Sidebar variants ───────────────────────────────────────────────────────
 
-function SidebarDiscovery({ label }: { label: string }) {
+/** Profiles sidebar — shows the featured profile. */
+function SidebarFeaturedProfile() {
+  const { data, loading } = useFeaturedProfile();
+
+  if (loading) {
+    return (
+      <div className="network-sidebar-featured" aria-busy="true">
+        <p className="network-sidebar-section-title">Featured Profile</p>
+        <div className="skeleton" style={{ height: "3em", borderRadius: "3px" }} />
+      </div>
+    );
+  }
+
+  if (!data) {
+    return (
+      <div className="network-sidebar-featured">
+        <p className="network-sidebar-section-title">Featured Profile</p>
+        <p className="network-sidebar-empty">No featured profile available.</p>
+      </div>
+    );
+  }
+
+  const p = data.profile;
   return (
-    <div className="network-sidebar-discovery">
-      <p className="network-sidebar-discovery-title">Explore more</p>
-      <p className="network-sidebar-discovery-copy">
-        Discover {label} across the Vera network.
-      </p>
+    <div className="network-sidebar-featured">
+      <p className="network-sidebar-section-title">Featured Profile</p>
+      <div className="network-sidebar-featured-card">
+        <div className="network-sidebar-featured-avatar" aria-hidden="true">
+          {p.displayName.charAt(0).toUpperCase()}
+        </div>
+        <div className="network-sidebar-featured-info">
+          <strong>{p.displayName}</strong>
+          <span className="network-sidebar-featured-handle">@{p.handle}</span>
+          {p.bio && <p className="network-sidebar-featured-bio">{p.bio}</p>}
+        </div>
+      </div>
+      {data.linkedAgents.length > 0 && (
+        <div className="network-sidebar-featured-agents">
+          {data.linkedAgents.map((a) => (
+            <span key={a.id} className="network-sidebar-agent-chip">
+              {a.agentName}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Communities sidebar — shows a short list of recent profiles. */
+function SidebarActiveProfiles() {
+  const { data: profiles, loading } = useProfiles(3);
+
+  if (loading) {
+    return (
+      <div className="network-sidebar-profiles" aria-busy="true">
+        <p className="network-sidebar-section-title">Active Profiles</p>
+        <div className="skeleton" style={{ height: "2em", borderRadius: "3px" }} />
+      </div>
+    );
+  }
+
+  if (!profiles || profiles.length === 0) {
+    return (
+      <div className="network-sidebar-profiles">
+        <p className="network-sidebar-section-title">Active Profiles</p>
+        <p className="network-sidebar-empty">No profiles yet.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="network-sidebar-profiles">
+      <p className="network-sidebar-section-title">Active Profiles</p>
+      <ul className="network-sidebar-list">
+        {profiles.map((p) => (
+          <li key={p.handle} className="network-sidebar-list-item">
+            <span className="network-sidebar-list-avatar" aria-hidden="true">
+              {p.displayName.charAt(0).toUpperCase()}
+            </span>
+            <span className="network-sidebar-list-name">{p.displayName}</span>
+            <span className="network-sidebar-list-handle">@{p.handle}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** Longform sidebar — shows a short list of communities. */
+function SidebarActiveCommunities() {
+  const { data: communities, loading } = useCommunities(3);
+
+  if (loading) {
+    return (
+      <div className="network-sidebar-communities" aria-busy="true">
+        <p className="network-sidebar-section-title">Active Communities</p>
+        <div className="skeleton" style={{ height: "2em", borderRadius: "3px" }} />
+      </div>
+    );
+  }
+
+  if (!communities || communities.length === 0) {
+    return (
+      <div className="network-sidebar-communities">
+        <p className="network-sidebar-section-title">Active Communities</p>
+        <p className="network-sidebar-empty">No communities yet.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="network-sidebar-communities">
+      <p className="network-sidebar-section-title">Active Communities</p>
+      <ul className="network-sidebar-list">
+        {communities.map((c) => (
+          <li key={c.id} className="network-sidebar-list-item">
+            <span className="network-sidebar-list-avatar" aria-hidden="true">
+              {c.name.charAt(0)}
+            </span>
+            <span className="network-sidebar-list-name">{c.name}</span>
+            <span className="network-sidebar-list-handle">/{c.slug}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
-export function NetworkRegion({ shellState: _shellState }: NetworkRegionProps) {
+export function NetworkRegion({ shellState }: NetworkRegionProps) {
   const [activeTab, setActiveTab] = useState<NetworkTab>("feed");
+
+  const showAuthBanner =
+    shellState === "public" || shellState === "signed_out";
+  const showProfileBanner = shellState === "profile_missing";
+  const showLoading = shellState === "loading";
 
   const renderSidebar = () => {
     switch (activeTab) {
       case "feed":
         return <BranchRails />;
       case "profiles":
-        return <SidebarDiscovery label="agents and recent activity" />;
+        return <SidebarFeaturedProfile />;
       case "communities":
-        return <SidebarDiscovery label="profiles and builders" />;
+        return <SidebarActiveProfiles />;
       case "longform":
-        return <SidebarDiscovery label="topics and communities" />;
+        return <SidebarActiveCommunities />;
     }
   };
 
   return (
     <div className="region-layout">
       <section className="region-main">
-        {/* Compact intro */}
-        <div className="region-intro-card region-intro-card-compact">
-          <p className="region-intro-kicker">Network</p>
-          <h1 className="region-intro-title">
-            The deeper social layer for exploration and discovery.
-          </h1>
-        </div>
+        {/* Compact intro — skeleton when loading auth */}
+        {showLoading ? (
+          <LoadingIntroSkeleton />
+        ) : (
+          <div className="region-intro-card region-intro-card-compact">
+            <p className="region-intro-kicker">Network</p>
+            <h1 className="region-intro-title">
+              The deeper social layer for exploration and discovery.
+            </h1>
+          </div>
+        )}
+
+        {/* Auth-aware banners */}
+        {showAuthBanner && <SignInBanner />}
+        {showProfileBanner && <ProfileMissingBanner />}
 
         {/* Functional subnav */}
         <div className="region-subnav">
@@ -401,9 +1067,9 @@ export function NetworkRegion({ shellState: _shellState }: NetworkRegionProps) {
 
         {/* Tab content */}
         {activeTab === "feed" && <PublicFeed />}
-        {activeTab === "profiles" && <ProfilesTab />}
-        {activeTab === "communities" && <CommunitiesTab />}
-        {activeTab === "longform" && <LongformTab />}
+        {activeTab === "profiles" && <ProfilesTab shellState={shellState} />}
+        {activeTab === "communities" && <CommunitiesTab shellState={shellState} />}
+        {activeTab === "longform" && <LongformTab shellState={shellState} />}
       </section>
 
       <aside className="region-side">{renderSidebar()}</aside>
