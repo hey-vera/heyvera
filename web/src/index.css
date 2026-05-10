@@ -3581,3 +3581,81 @@ html.dark .agent-sidebar-info {
   background: var(--bg-raised);
   border-color: var(--border);
 }
+
+/* ─── Vera Socials ─── */
+
+.vera-socials-linked-agents {
+  padding: 16px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin-bottom: 16px;
+}
+
+.vera-socials-agent-state {
+  font-size: 0.8rem;
+  color: var(--text-soft);
+  margin-left: 4px;
+}
+
+.vera-socials-pulse-tab {
+  padding: 24px 0;
+}
+
+.vera-socials-pulse-card {
+  padding: 28px 24px;
+  background: var(--bg-raised);
+  border: 1px solid var(--accent-border);
+  border-radius: 10px;
+  text-align: center;
+}
+
+.vera-socials-pulse-title {
+  font-size: 1.15rem;
+  font-weight: 600;
+  margin: 0 0 8px;
+}
+
+.vera-socials-pulse-desc {
+  font-size: 0.92rem;
+  color: var(--text-muted);
+  line-height: 1.55;
+  margin: 0 0 12px;
+}
+
+.vera-socials-pulse-status {
+  font-size: 0.82rem;
+  color: var(--text-soft);
+  margin: 0;
+}
+
+.vera-socials-sidebar-pulse {
+  padding: 16px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.vera-socials-sidebar-pulse-copy {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* ─── Dark mode: Vera Socials ─── */
+
+html.dark .vera-socials-linked-agents {
+  background: var(--bg-raised);
+  border-color: var(--border);
+}
+
+html.dark .vera-socials-pulse-card {
+  background: var(--bg-raised);
+  border-color: var(--accent-border);
+}
+
+html.dark .vera-socials-sidebar-pulse {
+  background: var(--bg-raised);
+  border-color: var(--border);
+}

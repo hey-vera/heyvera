@@ -11,8 +11,7 @@ import {
   type AppRegion,
 } from "./components/app/BottomRegionNav";
 import { AgentRegion } from "./components/app/AgentRegion";
-import { HomeRegion } from "./components/app/HomeRegion";
-import { NetworkRegion } from "./components/app/NetworkRegion";
+import { VeraSocials } from "./components/app/VeraSocials";
 import { RegionPlaceholder } from "./components/app/RegionPlaceholder";
 import { RegionRail } from "./components/app/RegionRail";
 import { TopContextBar } from "./components/app/TopContextBar";
@@ -63,15 +62,14 @@ class RegionErrorBoundary extends Component<
 
 function AppShell() {
   const [activeRegion, setActiveRegion] = useState<AppRegion>(() => {
-    if (typeof window === "undefined") return "home";
+    if (typeof window === "undefined") return "social";
     const saved = window.localStorage.getItem("heyvera-active-region");
-    return saved === "home" ||
+    return saved === "social" ||
       saved === "agent" ||
-      saved === "network" ||
       saved === "market" ||
       saved === "proof"
       ? saved
-      : "home";
+      : "social";
   });
   const { isFallback, recoveryCount, isRechecking } = useFallbackDetector();
   const {
@@ -116,7 +114,7 @@ function AppShell() {
           shellState={shellState}
           viewerLabel={myProfile?.profile.displayName ?? viewerLabel}
           onPrimaryAction={() => {
-            if (activeRegion === "home" || activeRegion === "network") {
+            if (activeRegion === "social") {
               const feed = document.getElementById("feed");
               feed?.scrollIntoView({ behavior: "smooth", block: "start" });
             }
@@ -124,16 +122,13 @@ function AppShell() {
         />
 
         <RegionErrorBoundary key={`${activeRegion}-${recoveryCount}`}>
-          {activeRegion === "home" && (
-            <HomeRegion
+          {activeRegion === "social" && (
+            <VeraSocials
               shellState={shellState}
               viewerLabel={
                 myProfile?.profile.displayName ?? viewerLabel ?? undefined
               }
             />
-          )}
-          {activeRegion === "network" && (
-            <NetworkRegion shellState={shellState} />
           )}
           {activeRegion === "agent" && (
             <AgentRegion shellState={shellState} />
