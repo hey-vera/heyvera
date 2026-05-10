@@ -3,6 +3,7 @@ import { FeedCard } from "../shared/FeedCard";
 import { ComposePost } from "../shared/ComposePost";
 import { useHomeFeed } from "../../hooks/useHomeFeed";
 import { useAuthContext } from "../../hooks/useAuthContext";
+import { createPost } from "../../api/social";
 import type { FeedPost } from "../../api/social";
 
 // Live filters — only those backed by real API data
@@ -200,9 +201,92 @@ function FeedEmpty() {
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
+function InlineReplyCompose({
+  postId,
+  canWrite: canWriteReply,
+  getToken,
+  onReplyCreated,
+  onCancel,
+}: {
+  postId: string;
+  canWrite: boolean;
+  getToken: () => Promise<string | null>;
+  onReplyCreated: (post: FeedPost) => void;
+  onCancel: () => void;
+}) {
+  const [body, setBody] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (!canWriteReply) {
+    return (
+      <div className="feed-card-reply-gate">
+        Sign in to reply
+      </div>
+    );
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!body.trim() || submitting) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const token = await getToken();
+      if (!token) {
+        setError("Not authenticated");
+        return;
+      }
+      const result = await createPost(token, {
+        body: body.trim(),
+        replyToPostId: postId,
+      });
+      setBody("");
+      onReplyCreated(result.post);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to post reply");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <form className="feed-card-reply-compose" onSubmit={handleSubmit}>
+      <textarea
+        className="feed-card-reply-compose-input"
+        placeholder="Write a reply..."
+        value={body}
+        onChange={(e) => setBody(e.target.value)}
+        rows={2}
+        maxLength={5000}
+        disabled={submitting}
+      />
+      <div className="feed-card-reply-compose-actions">
+        <button
+          type="submit"
+          className="button button-primary"
+          disabled={!body.trim() || submitting}
+        >
+          {submitting ? "Replying..." : "Reply"}
+        </button>
+        <button
+          type="button"
+          className="button button-outline"
+          onClick={onCancel}
+          disabled={submitting}
+        >
+          Cancel
+        </button>
+      </div>
+      {error && <p className="compose-post-error">{error}</p>}
+    </form>
+  );
+}
+
 export function PublicFeed() {
   const [active, setActive] = useState<Filter>("All");
   const [optimisticPosts, setOptimisticPosts] = useState<MappedFeedItem[]>([]);
+  const [replyingToPostId, setReplyingToPostId] = useState<string | null>(null);
 
   const { isSignedIn, getToken, myProfile, linkedAgents, triggerRefresh } = useAuthContext();
   const hasProfile = isSignedIn && !!myProfile;
@@ -229,6 +313,16 @@ export function PublicFeed() {
 
   const handlePostCreated = useCallback((post: FeedPost) => {
     setOptimisticPosts((prev) => [mapFeedPost(post), ...prev]);
+    triggerRefresh();
+  }, [triggerRefresh]);
+
+  const handleReplyClick = useCallback((postId: string) => {
+    setReplyingToPostId((prev) => (prev === postId ? null : postId));
+  }, []);
+
+  const handleReplyCreated = useCallback((post: FeedPost) => {
+    setOptimisticPosts((prev) => [mapFeedPost(post), ...prev]);
+    setReplyingToPostId(null);
     triggerRefresh();
   }, [triggerRefresh]);
 
@@ -266,19 +360,30 @@ export function PublicFeed() {
         ) : (
           <div className="feed-column">
             {visible.map((item, i) => (
-              <FeedCard
-                key={`${item.authorHandle}-${i}`}
-                origin={item.origin}
-                authorName={item.authorName}
-                authorHandle={item.authorHandle}
-                title={item.title}
-                body={item.body}
-                proofContext={item.proofContext}
-                branchLabel={item.branchLabel}
-                postId={item.postId}
-                replyToHandle={item.isReply ? "reply" : undefined}
-                linkedAgentName={item.linkedAgentName}
-              />
+              <div key={`${item.authorHandle}-${i}`}>
+                <FeedCard
+                  origin={item.origin}
+                  authorName={item.authorName}
+                  authorHandle={item.authorHandle}
+                  title={item.title}
+                  body={item.body}
+                  proofContext={item.proofContext}
+                  branchLabel={item.branchLabel}
+                  postId={item.postId}
+                  replyToHandle={item.isReply ? "reply" : undefined}
+                  linkedAgentName={item.linkedAgentName}
+                  onReplyClick={item.postId ? handleReplyClick : undefined}
+                />
+                {replyingToPostId && item.postId === replyingToPostId && (
+                  <InlineReplyCompose
+                    postId={replyingToPostId}
+                    canWrite={hasProfile}
+                    getToken={getToken}
+                    onReplyCreated={handleReplyCreated}
+                    onCancel={() => setReplyingToPostId(null)}
+                  />
+                )}
+              </div>
             ))}
           </div>
         )}

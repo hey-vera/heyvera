@@ -13,6 +13,7 @@ type FeedCardProps = {
   replyToHandle?: string;
   replyCount?: number;
   linkedAgentName?: string;
+  onReplyClick?: (postId: string) => void;
 };
 
 const originClasses: Record<FeedCardOrigin, string> = {
@@ -30,16 +31,21 @@ export function FeedCard({
   proofContext,
   branchLabel,
   formatLabel,
+  postId,
   replyToHandle,
   replyCount,
   linkedAgentName,
+  onReplyClick,
 }: FeedCardProps) {
+  const isLinkedBorder = origin === "Linked Pair";
+  const isAgentAccent = origin === "Agent";
+
   return (
-    <article className={`feed-card ${originClasses[origin]}`}>
+    <article className={`feed-card ${originClasses[origin]}${isLinkedBorder ? " feed-card-linked-border" : ""}${isAgentAccent ? " feed-card-agent-accent" : ""}`}>
       {/* Reply indicator */}
       {replyToHandle && (
         <div className="feed-card-reply-indicator">
-          Replying to @{replyToHandle}
+          Reply
         </div>
       )}
 
@@ -54,6 +60,9 @@ export function FeedCard({
         </div>
         <div className="feed-card-header-chips">
           <span className={`feed-card-origin-label ${originClasses[origin]}`}>{origin}</span>
+          {isLinkedBorder && (
+            <span className="feed-card-linked-work-badge">Linked work</span>
+          )}
           {linkedAgentName ? (
             <span className="feed-card-linked-agent">
               <span className="linked-agent-chip-dot" aria-hidden="true" />
@@ -76,7 +85,14 @@ export function FeedCard({
 
       {/* Reply action slot */}
       <div className="feed-card-actions">
-        <button type="button" className="feed-card-reply-action" aria-label="Reply">
+        <button
+          type="button"
+          className="feed-card-reply-action"
+          aria-label="Reply"
+          onClick={() => {
+            if (onReplyClick && postId) onReplyClick(postId);
+          }}
+        >
           Reply
         </button>
         {replyCount != null && replyCount > 0 && (

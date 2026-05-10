@@ -16,6 +16,7 @@ import { CreateLongformForm } from "../shared/CreateLongformForm";
 import {
   joinCommunity,
   fetchProfileWithLinkedAgents,
+  fetchProfileFeed,
   followProfile,
   unfollowProfile,
   fetchFollowStatus,
@@ -26,6 +27,7 @@ import type {
   LongformEntry,
   LinkedAgent,
   Profile,
+  FeedPost,
 } from "../../api/social";
 
 type SocialsTab = "feed" | "profiles" | "communities" | "longform" | "pulse";
@@ -170,14 +172,35 @@ function PulseTab() {
   return (
     <div className="vera-socials-pulse-tab">
       <div className="vera-socials-pulse-card">
-        <h3 className="vera-socials-pulse-title">Pulse</h3>
+        <h3 className="vera-socials-pulse-title">Pulse — Social Automation</h3>
         <p className="vera-socials-pulse-desc">
-          Social automation for your agent fleet. Coming when Vera runtime
-          contracts are live.
+          Pulse lets your linked agents participate in Vera Socials on your behalf —
+          posting, replying, and engaging communities with your approval and under
+          your proof chain.
         </p>
-        <p className="vera-socials-pulse-status">
-          Status: waiting on contracts
-        </p>
+      </div>
+
+      <div className="vera-socials-pulse-features">
+        <div className="vera-socials-pulse-feature">
+          <strong>Auto-posting</strong>
+          <p>Schedule and delegate posts through your linked agents.</p>
+          <span className="vera-socials-pulse-status-chip">Waiting on Vera runtime</span>
+        </div>
+        <div className="vera-socials-pulse-feature">
+          <strong>Reply automation</strong>
+          <p>Let agents reply to threads and community discussions on your behalf.</p>
+          <span className="vera-socials-pulse-status-chip">Waiting on Vera runtime</span>
+        </div>
+        <div className="vera-socials-pulse-feature">
+          <strong>Community engagement</strong>
+          <p>Agent-managed community participation with membrane controls.</p>
+          <span className="vera-socials-pulse-status-chip">Waiting on Soma contracts</span>
+        </div>
+        <div className="vera-socials-pulse-feature">
+          <strong>Proof receipts</strong>
+          <p>Every automated action produces a verifiable receipt on your proof chain.</p>
+          <span className="vera-socials-pulse-status-chip">Waiting on Soma contracts</span>
+        </div>
       </div>
     </div>
   );
@@ -246,6 +269,9 @@ function ProfileDetailPanel({
   const [followState, setFollowState] = useState<"unknown" | "following" | "not_following">("unknown");
   const [followLoading, setFollowLoading] = useState(false);
 
+  const [recentPosts, setRecentPosts] = useState<FeedPost[]>([]);
+  const [postsLoading, setPostsLoading] = useState(true);
+
   // Fetch profile + linked agents
   useEffect(() => {
     let cancelled = false;
@@ -295,6 +321,31 @@ function ProfileDetailPanel({
       cancelled = true;
     };
   }, [handle, isSignedIn, getToken]);
+
+  // Fetch recent posts for the profile
+  useEffect(() => {
+    let cancelled = false;
+    setPostsLoading(true);
+
+    fetchProfileFeed(handle, 5)
+      .then((result) => {
+        if (!cancelled) {
+          setRecentPosts(result.feed);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setRecentPosts([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setPostsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [handle]);
 
   async function handleToggleFollow() {
     if (!isSignedIn || followLoading) return;
@@ -370,6 +421,31 @@ function ProfileDetailPanel({
           <span>{stats.longformCount} longform</span>
         </div>
       )}
+
+      {/* Recent posts */}
+      <div className="profile-detail-posts">
+        <strong>Recent posts</strong>
+        {postsLoading ? (
+          <div className="profile-detail-posts-skeleton" aria-busy="true">
+            {[1, 2].map((i) => (
+              <div key={i} className="skeleton" style={{ height: "2.4em", borderRadius: "3px", marginTop: "6px" }} />
+            ))}
+          </div>
+        ) : recentPosts.length === 0 ? (
+          <p className="network-sidebar-empty">No posts yet.</p>
+        ) : (
+          <div className="profile-detail-posts-list">
+            {recentPosts.map((post) => (
+              <div key={post.id} className="profile-detail-post-card">
+                <p className="profile-detail-post-body">{post.body}</p>
+                <span className="profile-detail-post-date">
+                  {new Date(post.createdAt).toLocaleDateString()}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Linked agents */}
       {agents.length > 0 && (
@@ -652,13 +728,28 @@ function CommunityDetailPanel({
 
       <div className="network-community-detail-meta">
         <span>Created by @{community.creator.handle}</span>
-        <span>Members: --</span>
-        <span>Visibility: {community.visibility}</span>
+        <span className="community-detail-meta-chip">{community.visibility}</span>
+        <span className="community-detail-meta-chip">
+          Created {new Date(community.createdAt).toLocaleDateString()}
+        </span>
       </div>
 
-      <p className="network-community-detail-feed-placeholder">
-        Community feed coming soon.
-      </p>
+      {/* Members section */}
+      <div className="network-community-detail-members">
+        <strong>Members</strong>
+        <p className="network-sidebar-empty">
+          Member count not yet available from the API.
+        </p>
+      </div>
+
+      {/* Community feed placeholder */}
+      <div className="network-community-detail-feed-placeholder">
+        <p>
+          Community-specific feed requires a dedicated backend endpoint
+          (<code>GET /v1/social/feed/community/:slug</code>). This will be
+          available when community feeds are implemented.
+        </p>
+      </div>
 
       <div className="network-community-detail-actions">
         {showWriteCtas && isSignedIn && (
