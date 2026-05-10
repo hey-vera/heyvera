@@ -10,6 +10,7 @@ import {
   BottomRegionNav,
   type AppRegion,
 } from "./components/app/BottomRegionNav";
+import { AgentRegion } from "./components/app/AgentRegion";
 import { HomeRegion } from "./components/app/HomeRegion";
 import { NetworkRegion } from "./components/app/NetworkRegion";
 import { RegionPlaceholder } from "./components/app/RegionPlaceholder";
@@ -135,30 +136,7 @@ function AppShell() {
             <NetworkRegion shellState={shellState} />
           )}
           {activeRegion === "agent" && (
-            <RegionPlaceholder
-              region="agent"
-              title="Agent is ready for shell work, not fake runtime work."
-              intro="This region will become the quiet work mode for your sovereign agent life. The shell can exist now, but the live runtime, memory, and membrane controls need Vera truth before we wire them."
-              sections={[
-                {
-                  label: "Ready now",
-                  items: [
-                    "Shell layout and region switching",
-                    "Command-surface placement",
-                    "Empty-task and no-fleet states",
-                  ],
-                },
-                {
-                  label: "Blocked on Vera",
-                  items: [
-                    "Active task contract",
-                    "Fleet visibility and controls",
-                    "Memory and teaching action surface",
-                    "Membrane and permissions controls",
-                  ],
-                },
-              ]}
-            />
+            <AgentRegion shellState={shellState} />
           )}
           {activeRegion === "market" && (
             <RegionPlaceholder
