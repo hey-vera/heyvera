@@ -139,21 +139,6 @@ function ProfileMissingBanner() {
   );
 }
 
-function LoadingIntroSkeleton() {
-  return (
-    <div className="region-intro-card region-intro-card-compact" aria-busy="true">
-      <div
-        className="skeleton"
-        style={{ width: "60px", height: "0.85em", borderRadius: "3px", marginBottom: "6px" }}
-      />
-      <div
-        className="skeleton"
-        style={{ width: "80%", height: "1.4em", borderRadius: "3px" }}
-      />
-    </div>
-  );
-}
-
 // ─── Linked agents sidebar card ─────────────────────────────────────────────
 
 function SidebarLinkedAgents({ linkedAgents }: { linkedAgents: LinkedAgent[] }) {
