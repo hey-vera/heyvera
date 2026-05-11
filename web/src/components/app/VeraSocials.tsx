@@ -137,7 +137,7 @@ function SidebarLinkedAgents({ linkedAgents }: { linkedAgents: LinkedAgent[] }) 
                 {a.agentName.charAt(0).toUpperCase()}
               </span>
               <span className="network-sidebar-list-name">{a.agentName}</span>
-              <span className="vera-socials-agent-state">({a.linkState})</span>
+              <span className={`sidebar-agent-state-dot sidebar-agent-state-dot-${a.linkState}`} aria-label={a.linkState} />
             </li>
           ))}
         </ul>
@@ -463,6 +463,8 @@ function ProfileDetailPanel({
     );
   }
 
+  const proof = proofSummary(profile.proofState, profile.continuityState);
+
   return (
     <div className="network-profile-detail">
       <div className="network-profile-detail-header">
@@ -478,11 +480,10 @@ function ProfileDetailPanel({
         </div>
       </div>
 
-      {/* Trust state chips */}
-      <div className="profile-detail-trust-chips">
-        <span className="profile-detail-trust-chip">proof: {profile.proofState}</span>
-        <span className="profile-detail-trust-chip">continuity: {profile.continuityState}</span>
-      </div>
+      <span className={`account-proof-badge${proof.verified ? " account-proof-badge-verified" : ""}`}>
+        <span className="account-proof-badge-dot" aria-hidden="true" />
+        {proof.label}
+      </span>
 
       {profile.bio && (
         <p className="network-profile-detail-bio">{profile.bio}</p>
@@ -516,7 +517,7 @@ function ProfileDetailPanel({
               <div key={post.id} className="profile-detail-post-card">
                 <p className="profile-detail-post-body">{post.body}</p>
                 <span className="profile-detail-post-date">
-                  {new Date(post.createdAt).toLocaleDateString()}
+                  {formatRelativeTime(post.createdAt)}
                 </span>
               </div>
             ))}
@@ -742,7 +743,8 @@ function CommunityCard({
         <span className="network-community-creator">
           by @{community.creator.handle}
         </span>
-        <span className="network-community-members">Members: --</span>
+        <span className="network-community-visibility-chip">{community.visibility}</span>
+        <span className="network-community-age">{formatRelativeTime(community.createdAt)}</span>
         {showWriteCtas && isSignedIn && (
           <button
             type="button"
@@ -861,34 +863,25 @@ function CommunityDetailPanel({
         </div>
       </div>
 
-      {/* Community rules scaffold */}
+      {/* Community rules */}
       <div className="community-detail-rules">
         <h4 className="community-detail-section-title">Community Rules</h4>
-        <ol className="community-detail-rules-list">
-          <li>Be respectful of all members and their linked agents.</li>
-          <li>No impersonation — all posts must originate from a verified identity.</li>
-          <li>Automated agent activity must be clearly labeled.</li>
-        </ol>
         <p className="community-detail-rules-note">
-          Custom rules will be configurable by community creators once Soma contracts are live.
+          Community-specific rules are set by the creator. Custom rules arrive with Soma contracts.
         </p>
       </div>
 
       {/* Members section */}
       <div className="community-detail-members-section">
         <h4 className="community-detail-section-title">Members</h4>
-        <p className="community-detail-blocked-note">
-          Member listing requires <code>GET /v1/social/communities/:slug/members</code>,
-          which is not yet available.
-        </p>
+        <p className="community-detail-blocked-note">Member directory isn't available yet.</p>
       </div>
 
       {/* Creator activity (proxy for community feed) */}
       <div className="community-detail-activity">
-        <h4 className="community-detail-section-title">Creator Activity</h4>
+        <h4 className="community-detail-section-title">Recent from creator</h4>
         <p className="community-detail-activity-note">
-          A dedicated community feed endpoint (<code>GET /v1/social/feed/community/:slug</code>)
-          does not exist yet. Showing recent posts by the community creator as a proxy.
+          Community feeds are coming. Showing recent posts by @{community.creator.handle}.
         </p>
         {creatorPostsLoading ? (
           <div className="community-detail-activity-loading" aria-busy="true">
@@ -904,7 +897,7 @@ function CommunityDetailPanel({
               <div key={post.id} className="profile-detail-post-card">
                 <p className="profile-detail-post-body">{post.body}</p>
                 <span className="profile-detail-post-date">
-                  {formatRelativeTime(post.createdAt)} by @{post.author.handle}
+                  {formatRelativeTime(post.createdAt)}
                 </span>
               </div>
             ))}
@@ -2044,9 +2037,9 @@ export function VeraSocials({ shellState }: VeraSocialsProps) {
       case "profiles":
         return <SidebarFeaturedProfile />;
       case "communities":
-        return <SidebarActiveProfiles />;
-      case "longform":
         return <SidebarActiveCommunities />;
+      case "longform":
+        return <SidebarActiveProfiles />;
       case "pulse":
         return <SidebarPulseInfo />;
       case "you":
