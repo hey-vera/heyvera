@@ -40,12 +40,13 @@ type VeraSocialsProps = {
   shellState: ShellState;
 };
 
-const TAB_LABELS: { key: SocialsTab; label: string }[] = [
+const TAB_DEFS: { key: SocialsTab; label: string; requiresReady?: boolean }[] = [
   { key: "feed", label: "Feed" },
   { key: "profiles", label: "Profiles" },
   { key: "communities", label: "Communities" },
   { key: "longform", label: "Longform" },
   { key: "pulse", label: "Pulse" },
+  { key: "you", label: "You", requiresReady: true },
 ];
 
 const ACCOUNT_TABS: Array<{ key: AccountViewTab; label: string }> = [
@@ -1973,6 +1974,9 @@ export function VeraSocials({ shellState }: VeraSocialsProps) {
   const showLoading = shellState === "loading";
   const showReady = shellState === "ready";
 
+  const visibleTab: SocialsTab =
+    activeTab === "you" && shellState !== "ready" ? "feed" : activeTab;
+
   const renderIntro = () => {
     if (showLoading) return null;
     if (shellState === "public") return <IntroPublic />;
@@ -1983,7 +1987,7 @@ export function VeraSocials({ shellState }: VeraSocialsProps) {
   };
 
   const renderSidebar = () => {
-    switch (activeTab) {
+    switch (visibleTab) {
       case "feed":
         return <BranchRails />;
       case "profiles":
@@ -2018,7 +2022,7 @@ export function VeraSocials({ shellState }: VeraSocialsProps) {
 
           {showLoading ? (
             <div className="region-subnav vera-socials-subnav" aria-busy="true">
-              {[1, 2, 3, 4, 5, 6].map((i) => (
+              {TAB_DEFS.filter((t) => !t.requiresReady).map((_, i) => (
                 <span
                   key={i}
                   className="region-subnav-item skeleton"
@@ -2032,27 +2036,20 @@ export function VeraSocials({ shellState }: VeraSocialsProps) {
               ))}
             </div>
           ) : (
-            <div className="region-subnav vera-socials-subnav">
-              {TAB_LABELS.map(({ key, label }) => (
+            <nav className="region-subnav vera-socials-subnav" aria-label="Vera Socials sections">
+              {TAB_DEFS.filter((t) => !t.requiresReady || shellState === "ready").map(({ key, label }) => (
                 <button
                   key={key}
                   type="button"
-                  className={`region-subnav-item${activeTab === key ? " region-subnav-item-active" : ""}`}
+                  role="tab"
+                  aria-selected={visibleTab === key}
+                  className={`region-subnav-item${visibleTab === key ? " region-subnav-item-active" : ""}`}
                   onClick={() => setActiveTab(key)}
                 >
                   {label}
                 </button>
               ))}
-              {shellState === "ready" && (
-                <button
-                  type="button"
-                  className={`region-subnav-item${activeTab === "you" ? " region-subnav-item-active" : ""}`}
-                  onClick={() => setActiveTab("you")}
-                >
-                  You
-                </button>
-              )}
-            </div>
+            </nav>
           )}
         </div>
 
@@ -2084,12 +2081,12 @@ export function VeraSocials({ shellState }: VeraSocialsProps) {
             </div>
           ) : (
             <>
-              {activeTab === "feed" && <PublicFeed />}
-              {activeTab === "profiles" && <ProfilesTab shellState={shellState} />}
-              {activeTab === "communities" && <CommunitiesTab shellState={shellState} />}
-              {activeTab === "longform" && <LongformTab shellState={shellState} />}
-              {activeTab === "pulse" && <PulseTab />}
-              {activeTab === "you" && <AccountTab shellState={shellState} />}
+              {visibleTab === "feed" && <PublicFeed />}
+              {visibleTab === "profiles" && <ProfilesTab shellState={shellState} />}
+              {visibleTab === "communities" && <CommunitiesTab shellState={shellState} />}
+              {visibleTab === "longform" && <LongformTab shellState={shellState} />}
+              {visibleTab === "pulse" && <PulseTab />}
+              {visibleTab === "you" && <AccountTab shellState={shellState} />}
             </>
           )}
 
