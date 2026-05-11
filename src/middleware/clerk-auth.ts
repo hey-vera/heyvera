@@ -30,6 +30,33 @@ declare module 'hono' {
   }
 }
 
+// Social routes accept any valid Clerk JWT — no authorizedParties restriction
+// because the heyvera frontend is not in the claw-net.org domain list.
+export const requireSocialAuth = createMiddleware(async (c, next) => {
+  const authHeader = c.req.header('Authorization');
+  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+
+  if (!token) {
+    return c.json({ error: 'Unauthorized — missing Bearer token', code: 'UNAUTHORIZED' }, 401);
+  }
+
+  const secretKey = env.CLERK_SECRET_KEY ?? '';
+  if (!secretKey) {
+    logger.error('CLERK_SECRET_KEY not set');
+    return c.json({ error: 'Auth not configured' }, 500);
+  }
+
+  try {
+    const payload = await verifyToken(token, { secretKey });
+    c.set('clerkUserId', payload.sub);
+    c.set('clerkEmail', null);
+    await next();
+  } catch (err) {
+    logger.warn({ err }, 'Clerk social token verification failed');
+    return c.json({ error: 'Invalid or expired session', code: 'UNAUTHORIZED' }, 401);
+  }
+});
+
 export const requireClerkAuth = createMiddleware(async (c, next) => {
   const authHeader = c.req.header('Authorization');
   const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;

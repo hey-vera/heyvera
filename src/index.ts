@@ -19,6 +19,7 @@ import { authRouter } from './routes/auth';
 import { economyRouter } from './routes/economy';
 import { authnRouter } from './routes/authn';
 import { ceremonyRouter } from './routes/ceremony';
+import { socialRouter } from './routes/social';
 import { initSomaHeart } from './core/soma-heart';
 
 const app = new Hono();
@@ -84,6 +85,9 @@ app.route('/api/authn', authnRouter);
 
 // WebAuthn ceremony flow (§5.2) — manual in Phase 1
 app.route('/api/ceremony', ceremonyRouter);
+
+// Vera Socials layer
+app.route('/v1/social', socialRouter);
 
 app.notFound((c) => c.json({ error: 'Not found', code: 'NOT_FOUND' }, 404));
 

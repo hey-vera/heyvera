@@ -204,3 +204,35 @@ export function expireOldCeremonies(): number {
     .prepare(`UPDATE pending_ceremonies SET status = 'expired' WHERE status = 'awaiting_webauthn' AND expires_at <= datetime('now')`)
     .run().changes;
 }
+
+// ─── Social layer ────────────────────────────────────────────────────────────
+
+export {
+  findSocialProfileByClerkId,
+  findSocialProfileByHandle,
+  listSocialProfiles,
+  getFirstSocialProfile,
+  insertSocialProfile,
+  updateSocialProfile,
+  getLinkedAgentsByProfileId,
+  insertLinkedAgent,
+  getProfileStats,
+  listFeedPosts,
+  listFeedPostsByHandle,
+  insertSocialPost,
+  getFollowStatus,
+  insertSocialFollow,
+  deleteSocialFollow,
+  listSocialCommunities,
+  findSocialCommunityBySlug,
+  insertSocialCommunity,
+  insertCommunityMembership,
+  listSocialLongform,
+  insertSocialLongform,
+  type SocialProfileRow,
+  type SocialProfileSummaryRow,
+  type SocialLinkedAgentRow,
+  type SocialPostWithAuthorRow,
+  type SocialCommunityWithCreatorRow,
+  type SocialLongformWithAuthorRow,
+} from './social';
