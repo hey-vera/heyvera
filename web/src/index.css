@@ -4310,15 +4310,6 @@ html.dark .network-community-detail-feed-placeholder code {
   color: var(--text-muted);
 }
 
-.account-header-stats span {
-  white-space: nowrap;
-  padding: 14px 20px;
-  border-right: 1px solid var(--border);
-}
-
-.account-header-stats span:last-child {
-  border-right: none;
-}
 
 .account-section {
   padding: 18px 20px;
@@ -4689,6 +4680,296 @@ html.dark .account-settings-chip {
 html.dark .account-blocked-note {
   background: var(--surface);
   border-color: var(--border);
+}
+
+/* ─── P02: Profile destination improvements ─── */
+
+/* Proof badge in account header — replaces raw trust chip pair */
+
+.account-proof-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-overlay);
+  color: var(--text-soft);
+  font-size: 0.76rem;
+  align-self: flex-start;
+}
+
+.account-proof-badge-verified {
+  border-color: var(--accent-border);
+  background: var(--accent-surface);
+  color: var(--accent);
+}
+
+.account-proof-badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+/* Stats row — clickable buttons and static spans share padding */
+
+.account-header-stat,
+.account-header-stat-btn,
+.account-header-stat-placeholder {
+  white-space: nowrap;
+  padding: 14px 20px;
+  border-right: 1px solid var(--border);
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.account-header-stat:last-child,
+.account-header-stat-btn:last-child {
+  border-right: none;
+}
+
+.account-header-stat-btn {
+  background: none;
+  border-top: none;
+  border-bottom: none;
+  border-left: none;
+  cursor: pointer;
+  transition: background 160ms ease, color 160ms ease;
+  text-align: left;
+}
+
+.account-header-stat-btn:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.account-header-stat-placeholder {
+  width: 80px;
+  background: var(--surface-strong);
+  animation: skeleton-pulse 1.6s ease-in-out infinite;
+}
+
+.account-header-stat strong,
+.account-header-stat-btn strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+/* Settings gear in profile tab nav */
+
+.account-profile-nav-settings {
+  margin-left: auto;
+  padding: 14px 16px;
+  border: 0;
+  color: var(--text-soft);
+  font-size: 0.88rem;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color 160ms ease;
+}
+
+.account-profile-nav-settings:hover {
+  color: var(--text-primary);
+}
+
+/* Linked agent rows (list layout replacing grid) */
+
+.account-agents-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+
+.account-agent-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  transition: background 160ms ease;
+}
+
+.account-agent-row:last-child {
+  border-bottom: none;
+}
+
+.account-agent-row:hover {
+  background: var(--surface-hover);
+}
+
+.account-agent-row-primary {
+  background: var(--accent-surface);
+}
+
+.account-agent-row-primary:hover {
+  background: var(--accent-surface-strong);
+}
+
+.account-agent-row-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: var(--surface-overlay-strong);
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+}
+
+.account-agent-row-primary .account-agent-row-avatar {
+  background: var(--accent-surface-strong);
+  border-color: var(--accent-border);
+  color: var(--accent);
+}
+
+.account-agent-row-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.account-agent-row-name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.account-agent-row-name {
+  font-size: 0.92rem;
+}
+
+.account-agent-row-slug {
+  font-size: 0.78rem;
+  color: var(--text-soft);
+}
+
+/* Agent link-state chip */
+
+.account-agent-state-chip {
+  font-size: 0.72rem;
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  letter-spacing: 0.04em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-overlay);
+  color: var(--text-soft);
+  flex-shrink: 0;
+}
+
+.account-agent-state-verified {
+  border-color: var(--accent-border);
+  background: var(--accent-surface);
+  color: var(--accent);
+}
+
+.account-agent-state-active {
+  border-color: var(--accent-border);
+  background: var(--accent-surface);
+  color: var(--accent);
+}
+
+/* Post items in account posts list */
+
+.account-post-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 0;
+  border-left: 0;
+  border-right: 0;
+  background: var(--bg);
+  transition: background 160ms ease;
+}
+
+.account-post-item:first-child {
+  border-top-left-radius: 10px;
+  border-top-right-radius: 10px;
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+}
+
+.account-post-item:last-child {
+  border-bottom-left-radius: 10px;
+  border-bottom-right-radius: 10px;
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+}
+
+.account-post-item:only-child {
+  border-radius: 10px;
+  border: 1px solid var(--border);
+}
+
+.account-post-item:hover {
+  background: var(--surface-hover);
+}
+
+.account-post-body {
+  font-size: 0.92rem;
+  color: var(--text-muted);
+  line-height: 1.65;
+  margin: 0;
+}
+
+.account-post-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.76rem;
+  color: var(--text-soft);
+}
+
+.account-post-reply-tag {
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-overlay);
+  color: var(--text-soft);
+}
+
+/* Dark mode overrides for P02 additions */
+
+html.dark .account-agent-row {
+  background: var(--bg-raised);
+  border-color: var(--border);
+}
+
+html.dark .account-agent-row:hover {
+  background: var(--surface-hover);
+}
+
+html.dark .account-agent-row-primary {
+  background: var(--accent-surface);
+}
+
+html.dark .account-post-item {
+  background: var(--bg-raised);
+  border-color: var(--border);
+}
+
+html.dark .account-post-item:hover {
+  background: var(--surface-hover);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════ */

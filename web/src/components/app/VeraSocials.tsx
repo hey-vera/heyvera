@@ -54,7 +54,6 @@ const ACCOUNT_TABS: Array<{ key: AccountViewTab; label: string }> = [
   { key: "longform", label: "Longform" },
   { key: "communities", label: "Communities" },
   { key: "agents", label: "Agents" },
-  { key: "settings", label: "Settings" },
 ];
 
 /** Whether the shell state allows write actions (compose, join, create). */
@@ -1435,7 +1434,11 @@ function AccountTab({ shellState }: { shellState: ShellState }) {
 
   return (
     <div className="account-page">
-      <AccountHeader profile={profile} onEditProfile={() => setActiveTab("settings")} />
+      <AccountHeader
+        profile={profile}
+        onEditProfile={() => setActiveTab("settings")}
+        onTabChange={setActiveTab}
+      />
 
       <div className="account-profile-nav" role="tablist" aria-label="Profile sections">
         {ACCOUNT_TABS.map((tab) => (
@@ -1450,6 +1453,15 @@ function AccountTab({ shellState }: { shellState: ShellState }) {
             {tab.label}
           </button>
         ))}
+        <button
+          type="button"
+          className="account-profile-nav-settings"
+          onClick={() => setActiveTab("settings")}
+          aria-label="Profile settings"
+          title="Settings"
+        >
+          ⚙
+        </button>
       </div>
 
       <div className="account-tab">
@@ -1470,14 +1482,27 @@ function AccountTab({ shellState }: { shellState: ShellState }) {
 
 // ── Profile header section ──
 
+function proofSummary(proofState: string, continuityState: string): { label: string; verified: boolean } {
+  if (proofState === "verified" && continuityState === "verified") {
+    return { label: "Verified", verified: true };
+  }
+  if (proofState === "verified") {
+    return { label: "Proof active", verified: true };
+  }
+  return { label: "Pending verification", verified: false };
+}
+
 function AccountHeader({
   profile,
   onEditProfile,
+  onTabChange,
 }: {
   profile: Profile;
   onEditProfile: () => void;
+  onTabChange: (tab: AccountViewTab) => void;
 }) {
   const { data: stats, loading: statsLoading } = useProfileStats(profile.handle);
+  const proof = proofSummary(profile.proofState, profile.continuityState);
 
   return (
     <div className="account-header">
@@ -1514,21 +1539,38 @@ function AccountHeader({
           <span>Joined {new Date(profile.createdAt).toLocaleDateString()}</span>
         </div>
 
-        <div className="profile-detail-trust-chips account-header-trust">
-          <span className="profile-detail-trust-chip">proof: {profile.proofState}</span>
-          <span className="profile-detail-trust-chip">continuity: {profile.continuityState}</span>
-        </div>
+        <span className={`account-proof-badge${proof.verified ? " account-proof-badge-verified" : ""}`}>
+          <span className="account-proof-badge-dot" aria-hidden="true" />
+          {proof.label}
+        </span>
       </div>
 
-      {!statsLoading && stats && (
-        <div className="account-header-stats">
-          <span>{stats.postCount} posts</span>
-          <span>{stats.followerCount} followers</span>
-          <span>{stats.followingCount} following</span>
-          <span>{stats.communityCount} communities</span>
-          <span>{stats.longformCount} longform</span>
-        </div>
-      )}
+      <div className="account-header-stats" aria-label="Profile statistics">
+        {statsLoading ? (
+          <>
+            <span className="account-header-stat-placeholder" />
+            <span className="account-header-stat-placeholder" />
+          </>
+        ) : stats ? (
+          <>
+            <button type="button" className="account-header-stat-btn" onClick={() => onTabChange("posts")}>
+              <strong>{stats.postCount}</strong>{" "}posts
+            </button>
+            <span className="account-header-stat">
+              <strong>{stats.followerCount}</strong>{" "}followers
+            </span>
+            <span className="account-header-stat">
+              <strong>{stats.followingCount}</strong>{" "}following
+            </span>
+            <button type="button" className="account-header-stat-btn" onClick={() => onTabChange("communities")}>
+              <strong>{stats.communityCount}</strong>{" "}communities
+            </button>
+            <button type="button" className="account-header-stat-btn" onClick={() => onTabChange("longform")}>
+              <strong>{stats.longformCount}</strong>{" "}longform
+            </button>
+          </>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -1540,16 +1582,22 @@ function AccountLinkedAgents({ linkedAgents }: { linkedAgents: LinkedAgent[] }) 
     <div className="account-section">
       <h3 className="account-section-title">Linked Agents</h3>
       {linkedAgents.length > 0 ? (
-        <div className="account-agents-grid">
+        <div className="account-agents-list">
           {linkedAgents.map((a) => (
-            <div key={a.id} className={`account-agent-card${a.isPrimary ? " account-agent-primary" : ""}`}>
-              <div className="account-agent-card-header">
-                <strong>{a.agentName}</strong>
-                {a.isPrimary && <span className="account-agent-primary-badge">Primary</span>}
+            <div key={a.id} className={`account-agent-row${a.isPrimary ? " account-agent-row-primary" : ""}`}>
+              <div className="account-agent-row-avatar" aria-hidden="true">
+                {a.agentName.charAt(0).toUpperCase()}
               </div>
-              <span className="account-agent-card-slug">@{a.agentSlug}</span>
-              <span className="account-agent-card-type">{a.agentType}</span>
-              <span className="account-agent-card-state">State: {a.linkState}</span>
+              <div className="account-agent-row-body">
+                <div className="account-agent-row-name-row">
+                  <strong className="account-agent-row-name">{a.agentName}</strong>
+                  {a.isPrimary && <span className="account-agent-primary-badge">Primary</span>}
+                </div>
+                <span className="account-agent-row-slug">@{a.agentSlug}</span>
+              </div>
+              <span className={`account-agent-state-chip account-agent-state-${a.linkState}`}>
+                {a.linkState}
+              </span>
             </div>
           ))}
         </div>
@@ -1589,24 +1637,27 @@ function AccountPosts({ handle }: { handle: string }) {
 
   return (
     <div className="account-section">
-      <h3 className="account-section-title">Your Posts</h3>
+      <h3 className="account-section-title">Posts</h3>
       {loading ? (
         <div className="account-posts-list" aria-busy="true">
           {[1, 2, 3].map((i) => (
-            <div key={i} className="skeleton" style={{ height: "3em", borderRadius: "4px", marginBottom: "8px" }} />
+            <div key={i} className="skeleton" style={{ height: "3.2em", borderRadius: "4px", marginBottom: "1px" }} />
           ))}
         </div>
       ) : error ? (
         <p className="account-empty">Unable to load posts: {error}</p>
       ) : posts.length === 0 ? (
-        <p className="account-empty">You haven&apos;t posted yet.</p>
+        <p className="account-empty">No posts yet.</p>
       ) : (
         <div className="account-posts-list">
           {posts.map((post) => (
-            <div key={post.id} className="profile-detail-post-card">
-              <p className="profile-detail-post-body">{post.body}</p>
-              <span className="profile-detail-post-date">
-                {new Date(post.createdAt).toLocaleDateString()}
+            <div key={post.id} className="account-post-item">
+              <p className="account-post-body">{post.body}</p>
+              <span className="account-post-meta">
+                {formatRelativeTime(post.createdAt)}
+                {post.replyToPostId && (
+                  <span className="account-post-reply-tag">reply</span>
+                )}
               </span>
             </div>
           ))}
