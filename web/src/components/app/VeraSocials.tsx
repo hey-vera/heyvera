@@ -20,11 +20,14 @@ import {
   followProfile,
   unfollowProfile,
   fetchFollowStatus,
-  fetchLongform,
   fetchCommunityFeed,
+  fetchCommunityMembers,
+  fetchCommunityMembershipStatus,
+  leaveCommunity,
   fetchMyCommunities,
   fetchProfileFollowers,
   fetchProfileFollowing,
+  fetchProfileLongform,
   updateProfile,
 } from "../../api/social";
 import type {
@@ -866,42 +869,83 @@ function CommunityDetailPanel({
   onClose: () => void;
 }) {
   const { isSignedIn, getToken } = useAuthContext();
-  const [joined, setJoined] = useState(false);
-  const [joining, setJoining] = useState(false);
+  const [isMember, setIsMember] = useState<boolean | null>(null);
+  const [membershipPending, setMembershipPending] = useState(false);
 
   const [communityFeed, setCommunityFeed] = useState<FeedPost[]>([]);
   const [feedLoading, setFeedLoading] = useState(true);
+  const [members, setMembers] = useState<ProfileSummary[]>([]);
+  const [membersLoading, setMembersLoading] = useState(true);
 
+  // Fetch community feed
   useEffect(() => {
     let cancelled = false;
     setFeedLoading(true);
-
     fetchCommunityFeed(community.slug, 10)
-      .then((result) => {
-        if (!cancelled) setCommunityFeed(result.feed);
-      })
-      .catch(() => {
-        if (!cancelled) setCommunityFeed([]);
-      })
-      .finally(() => {
-        if (!cancelled) setFeedLoading(false);
-      });
-
+      .then((r) => { if (!cancelled) setCommunityFeed(r.feed); })
+      .catch(() => { if (!cancelled) setCommunityFeed([]); })
+      .finally(() => { if (!cancelled) setFeedLoading(false); });
     return () => { cancelled = true; };
   }, [community.slug]);
 
+  // Fetch member list
+  useEffect(() => {
+    let cancelled = false;
+    setMembersLoading(true);
+    fetchCommunityMembers(community.slug, 50)
+      .then((r) => { if (!cancelled) setMembers(r.members); })
+      .catch(() => { if (!cancelled) setMembers([]); })
+      .finally(() => { if (!cancelled) setMembersLoading(false); });
+    return () => { cancelled = true; };
+  }, [community.slug]);
+
+  // Check membership status when signed in
+  useEffect(() => {
+    if (!isSignedIn) return;
+    let cancelled = false;
+    getToken().then((token) => {
+      if (!token || cancelled) return;
+      fetchCommunityMembershipStatus(token, community.slug)
+        .then((r) => { if (!cancelled) setIsMember(r.member); })
+        .catch(() => { /* best-effort */ });
+    });
+    return () => { cancelled = true; };
+  }, [isSignedIn, getToken, community.slug]);
+
   async function handleJoin() {
-    if (!isSignedIn || joining || joined) return;
-    setJoining(true);
+    if (!isSignedIn || membershipPending || isMember) return;
+    setMembershipPending(true);
     try {
       const token = await getToken();
       if (!token) return;
       await joinCommunity(token, community.slug);
-      setJoined(true);
+      setIsMember(true);
+      // Re-fetch member list to include the new member
+      fetchCommunityMembers(community.slug, 50)
+        .then((r) => setMembers(r.members))
+        .catch(() => {});
     } catch (err) {
       console.error("Join community error:", err);
     } finally {
-      setJoining(false);
+      setMembershipPending(false);
+    }
+  }
+
+  async function handleLeave() {
+    if (!isSignedIn || membershipPending || !isMember) return;
+    setMembershipPending(true);
+    try {
+      const token = await getToken();
+      if (!token) return;
+      await leaveCommunity(token, community.slug);
+      setIsMember(false);
+      fetchCommunityMembers(community.slug, 50)
+        .then((r) => setMembers(r.members))
+        .catch(() => {});
+    } catch (err) {
+      console.error("Leave community error:", err);
+    } finally {
+      setMembershipPending(false);
     }
   }
 
@@ -920,14 +964,24 @@ function CommunityDetailPanel({
           </span>
         </div>
         <div className="community-detail-banner-actions">
-          {showWriteCtas && isSignedIn && (
+          {showWriteCtas && isSignedIn && isMember === false && (
             <button
               type="button"
-              className={`button ${joined ? "button-primary" : "button-outline"}`}
+              className="button button-outline"
               onClick={handleJoin}
-              disabled={joining || joined}
+              disabled={membershipPending}
             >
-              {joining ? "..." : joined ? "Joined" : "Join"}
+              {membershipPending ? "..." : "Join"}
+            </button>
+          )}
+          {showWriteCtas && isSignedIn && isMember === true && (
+            <button
+              type="button"
+              className="button button-primary"
+              onClick={handleLeave}
+              disabled={membershipPending}
+            >
+              {membershipPending ? "..." : "Leave"}
             </button>
           )}
           <button type="button" className="button button-outline" onClick={onClose}>
@@ -967,8 +1021,30 @@ function CommunityDetailPanel({
 
       {/* Members section */}
       <div className="community-detail-members-section">
-        <h4 className="community-detail-section-title">Members</h4>
-        <p className="community-detail-blocked-note">Member directory isn't available yet.</p>
+        <h4 className="community-detail-section-title">
+          Members{!membersLoading && members.length > 0 ? ` (${members.length})` : ""}
+        </h4>
+        {membersLoading ? (
+          <div aria-busy="true">
+            {[1, 2].map((i) => (
+              <div key={i} className="skeleton" style={{ height: "2em", borderRadius: "4px", marginBottom: "6px" }} />
+            ))}
+          </div>
+        ) : members.length === 0 ? (
+          <p className="network-sidebar-empty">No members yet.</p>
+        ) : (
+          <ul className="network-sidebar-list" style={{ margin: 0, padding: 0 }}>
+            {members.map((m) => (
+              <li key={m.handle} className="network-sidebar-list-item">
+                <span className="network-sidebar-list-avatar" aria-hidden="true">
+                  {m.displayName.charAt(0).toUpperCase()}
+                </span>
+                <span className="network-sidebar-list-name">{m.displayName}</span>
+                <span className="network-sidebar-list-handle">@{m.handle}</span>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       {/* Community activity feed */}
@@ -1767,11 +1843,9 @@ function AccountLongform({ handle }: { handle: string }) {
     setLoading(true);
     setError(null);
 
-    fetchLongform(50)
+    fetchProfileLongform(handle, 50)
       .then((result) => {
-        if (!cancelled) {
-          setEntries(result.longform.filter((e) => e.author.handle === handle));
-        }
+        if (!cancelled) setEntries(result.longform);
       })
       .catch((err: unknown) => {
         if (!cancelled) setError(err instanceof Error ? err.message : String(err));
@@ -1820,29 +1894,34 @@ function AccountCommunities({ getToken }: { getToken: () => Promise<string | nul
   const [communities, setCommunities] = useState<CommunityMembership[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [leaving, setLeaving] = useState<Set<string>>(new Set());
 
-  useEffect(() => {
-    let cancelled = false;
+  const reload = useCallback(() => {
     setLoading(true);
     setError(null);
-
     getToken()
-      .then((token) => {
-        if (!token || cancelled) return;
-        return fetchMyCommunities(token, 50);
-      })
-      .then((result) => {
-        if (!cancelled && result) setCommunities(result.communities);
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-
-    return () => { cancelled = true; };
+      .then((token) => (token ? fetchMyCommunities(token, 50) : undefined))
+      .then((result) => { if (result) setCommunities(result.communities); })
+      .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)))
+      .finally(() => setLoading(false));
   }, [getToken]);
+
+  useEffect(() => { reload(); }, [reload]);
+
+  async function handleLeave(slug: string) {
+    if (leaving.has(slug)) return;
+    setLeaving((prev) => new Set(prev).add(slug));
+    try {
+      const token = await getToken();
+      if (!token) return;
+      await leaveCommunity(token, slug);
+      setCommunities((prev) => prev.filter((c) => c.slug !== slug));
+    } catch (err) {
+      console.error("Leave community error:", err);
+    } finally {
+      setLeaving((prev) => { const next = new Set(prev); next.delete(slug); return next; });
+    }
+  }
 
   return (
     <div className="account-section">
@@ -1861,8 +1940,21 @@ function AccountCommunities({ getToken }: { getToken: () => Promise<string | nul
         <div className="account-communities-list">
           {communities.map((c) => (
             <div key={c.id} className="account-community-card">
-              <strong className="account-community-card-name">{c.name}</strong>
-              <span className="account-community-card-slug">/{c.slug}</span>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                <div>
+                  <strong className="account-community-card-name">{c.name}</strong>
+                  <span className="account-community-card-slug">/{c.slug}</span>
+                </div>
+                <button
+                  type="button"
+                  className="button button-outline"
+                  style={{ fontSize: "0.75rem", padding: "2px 8px", marginLeft: "8px", flexShrink: 0 }}
+                  onClick={() => handleLeave(c.slug)}
+                  disabled={leaving.has(c.slug)}
+                >
+                  {leaving.has(c.slug) ? "..." : "Leave"}
+                </button>
+              </div>
               {c.description && <p className="account-community-card-desc">{c.description}</p>}
               <span className="account-post-meta" style={{ marginTop: "2px" }}>
                 Joined {formatRelativeTime(c.joinedAt)}

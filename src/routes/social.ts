@@ -20,11 +20,15 @@ import {
   findSocialCommunityBySlug,
   insertSocialCommunity,
   insertCommunityMembership,
+  getCommunityMembershipStatus,
+  deleteCommunityMembership,
+  listCommunityMembers,
   listCommunityFeedPosts,
   listJoinedCommunities,
   listFollowers,
   listFollowing,
   listSocialLongform,
+  listLongformByHandle,
   insertSocialLongform,
   type SocialProfileRow,
   type SocialProfileSummaryRow,
@@ -255,6 +259,24 @@ socialRouter.get('/profiles/:handle/following', (c) => {
   });
 });
 
+// ─── Public: profile longform ────────────────────────────────────────────────
+
+socialRouter.get('/profiles/:handle/longform', (c) => {
+  const handle = c.req.param('handle');
+  const limit = Math.min(Number(c.req.query('limit') ?? '20'), 100);
+  const cursor = Math.max(Number(c.req.query('cursor') ?? '0'), 0);
+  const profile = findSocialProfileByHandle(handle);
+  if (!profile) {
+    return c.json({ error: 'Profile not found', code: 'NOT_FOUND' }, 404);
+  }
+  const entries = listLongformByHandle(handle, limit, cursor);
+  return c.json({
+    profile: profileToApi(profile),
+    longform: entries.map(longformToApi),
+    pageInfo: { limit, nextCursor: entries.length === limit ? String(cursor + limit) : null },
+  });
+});
+
 // ─── Public: single profile ──────────────────────────────────────────────────
 
 socialRouter.get('/profiles/:handle', (c) => {
@@ -345,6 +367,58 @@ socialRouter.get('/communities/mine', requireSocialAuth, (c) => {
   }
   const communities = listJoinedCommunities(profile.id, limit);
   return c.json({ communities: communities.map(communityMembershipToApi) });
+});
+
+// ─── Public: community member directory ──────────────────────────────────────
+
+socialRouter.get('/communities/:slug/members', (c) => {
+  const slug = c.req.param('slug');
+  const limit = Math.min(Number(c.req.query('limit') ?? '50'), 100);
+  const cursor = Math.max(Number(c.req.query('cursor') ?? '0'), 0);
+  const community = findSocialCommunityBySlug(slug);
+  if (!community) {
+    return c.json({ error: 'Community not found', code: 'NOT_FOUND' }, 404);
+  }
+  const members = listCommunityMembers(community.id, limit, cursor);
+  return c.json({
+    community: communityToApi(community),
+    members: members.map(profileSummaryToApi),
+    pageInfo: { limit, nextCursor: members.length === limit ? String(cursor + limit) : null },
+  });
+});
+
+// ─── Authenticated: community membership status ───────────────────────────────
+
+socialRouter.get('/communities/:slug/membership/status', requireSocialAuth, (c) => {
+  const clerkUserId = c.get('clerkUserId');
+  const slug = c.req.param('slug');
+  const community = findSocialCommunityBySlug(slug);
+  if (!community) {
+    return c.json({ error: 'Community not found', code: 'NOT_FOUND' }, 404);
+  }
+  const myProfile = findSocialProfileByClerkId(clerkUserId);
+  if (!myProfile) {
+    return c.json({ member: false });
+  }
+  const member = getCommunityMembershipStatus(community.id, myProfile.id);
+  return c.json({ member });
+});
+
+// ─── Authenticated: leave community ──────────────────────────────────────────
+
+socialRouter.delete('/communities/:slug/membership', requireSocialAuth, (c) => {
+  const clerkUserId = c.get('clerkUserId');
+  const slug = c.req.param('slug');
+  const myProfile = findSocialProfileByClerkId(clerkUserId);
+  if (!myProfile) {
+    return c.json({ error: 'No profile found', code: 'NOT_FOUND' }, 404);
+  }
+  const community = findSocialCommunityBySlug(slug);
+  if (!community) {
+    return c.json({ error: 'Community not found', code: 'NOT_FOUND' }, 404);
+  }
+  deleteCommunityMembership(community.id, myProfile.id);
+  return c.json({ ok: true, state: 'not_member' });
 });
 
 // ─── Public: longform ────────────────────────────────────────────────────────

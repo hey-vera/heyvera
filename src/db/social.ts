@@ -384,6 +384,39 @@ export function insertCommunityMembership(communityId: string, profileId: string
   return row.id;
 }
 
+export function getCommunityMembershipStatus(communityId: string, profileId: string): boolean {
+  return getDb()
+    .prepare('SELECT 1 FROM social_community_memberships WHERE community_id = ? AND profile_id = ?')
+    .get(communityId, profileId) !== undefined;
+}
+
+export function deleteCommunityMembership(communityId: string, profileId: string): void {
+  getDb()
+    .prepare('DELETE FROM social_community_memberships WHERE community_id = ? AND profile_id = ?')
+    .run(communityId, profileId);
+}
+
+export function listCommunityMembers(
+  communityId: string,
+  limit: number,
+  offset: number,
+): SocialProfileSummaryRow[] {
+  return getDb().prepare(`
+    SELECT
+      p.*,
+      la.agent_name  AS primary_agent_name,
+      la.agent_slug  AS primary_agent_slug,
+      la.link_state  AS primary_agent_link_state
+    FROM social_community_memberships scm
+    JOIN social_profiles p ON p.id = scm.profile_id
+    LEFT JOIN social_linked_agents la
+      ON la.profile_id = p.id AND la.is_primary = 1
+    WHERE scm.community_id = ?
+    ORDER BY scm.joined_at ASC
+    LIMIT ? OFFSET ?
+  `).all(communityId, limit, offset) as SocialProfileSummaryRow[];
+}
+
 // ─── Community membership row (adds joined_at over the base community row) ───
 
 export interface SocialCommunityMembershipRow extends SocialCommunityWithCreatorRow {
@@ -495,6 +528,27 @@ export function listSocialLongform(limit: number, offset: number): SocialLongfor
     ORDER BY sl.created_at DESC
     LIMIT ? OFFSET ?
   `).all(limit, offset) as SocialLongformWithAuthorRow[];
+}
+
+export function listLongformByHandle(
+  handle: string,
+  limit: number,
+  offset: number,
+): SocialLongformWithAuthorRow[] {
+  return getDb().prepare(`
+    SELECT
+      sl.*,
+      p.handle       AS author_handle,
+      p.display_name AS author_display_name,
+      la.agent_name  AS agent_name,
+      la.agent_slug  AS agent_slug
+    FROM social_longform sl
+    JOIN social_profiles p ON p.id = sl.profile_id AND p.handle = ?
+    LEFT JOIN social_linked_agents la ON la.id = sl.linked_agent_id
+    WHERE sl.visibility = 'public'
+    ORDER BY sl.created_at DESC
+    LIMIT ? OFFSET ?
+  `).all(handle, limit, offset) as SocialLongformWithAuthorRow[];
 }
 
 export function insertSocialLongform(data: {

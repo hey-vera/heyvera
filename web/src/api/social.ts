@@ -234,6 +234,14 @@ export async function fetchLongform(limit = 20, cursor = 0): Promise<{
   return apiFetch(`/longform?limit=${limit}&cursor=${cursor}`);
 }
 
+export async function fetchCommunityMembers(slug: string, limit = 50, cursor = 0): Promise<{
+  community: Community;
+  members: ProfileSummary[];
+  pageInfo: PageInfo;
+}> {
+  return apiFetch(`/communities/${slug}/members?limit=${limit}&cursor=${cursor}`);
+}
+
 export async function fetchCommunityFeed(slug: string, limit = 20, cursor = 0): Promise<{
   community: Community;
   feed: FeedPost[];
@@ -343,6 +351,27 @@ export async function fetchMyCommunities(token: string, limit = 20): Promise<{
   communities: CommunityMembership[];
 }> {
   return apiAuthFetch(`/communities/mine?limit=${limit}`, { method: "GET", token });
+}
+
+export async function fetchCommunityMembershipStatus(token: string, slug: string): Promise<{
+  member: boolean;
+}> {
+  return apiAuthFetch(`/communities/${slug}/membership/status`, { method: "GET", token });
+}
+
+export async function leaveCommunity(token: string, slug: string): Promise<{
+  ok: true;
+  state: string;
+}> {
+  return apiAuthFetch(`/communities/${slug}/membership`, { method: "DELETE", token });
+}
+
+export async function fetchProfileLongform(handle: string, limit = 20, cursor = 0): Promise<{
+  profile: Profile;
+  longform: LongformEntry[];
+  pageInfo: PageInfo;
+}> {
+  return apiFetch(`/profiles/${handle}/longform?limit=${limit}&cursor=${cursor}`);
 }
 
 export async function createLongform(
