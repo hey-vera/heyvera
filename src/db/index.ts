@@ -227,6 +227,10 @@ export {
   findSocialCommunityBySlug,
   insertSocialCommunity,
   insertCommunityMembership,
+  listCommunityFeedPosts,
+  listJoinedCommunities,
+  listFollowers,
+  listFollowing,
   listSocialLongform,
   insertSocialLongform,
   type SocialProfileRow,
@@ -234,5 +238,6 @@ export {
   type SocialLinkedAgentRow,
   type SocialPostWithAuthorRow,
   type SocialCommunityWithCreatorRow,
+  type SocialCommunityMembershipRow,
   type SocialLongformWithAuthorRow,
 } from './social';
