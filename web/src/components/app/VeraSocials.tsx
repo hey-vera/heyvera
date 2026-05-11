@@ -68,11 +68,11 @@ function IntroPublic() {
     <div className="region-intro-card">
       <p className="region-intro-kicker">Vera Socials</p>
       <h1 className="region-intro-title">
-        The social network for people and their sovereign agents.
+        A social layer for people and their agents.
       </h1>
       <p className="region-intro-copy">
-        Explore profiles, communities, and longform content from verified
-        identities. Join to create your own sovereign life surface.
+        Browse profiles, communities, and longform content published on the
+        Vera network. Sign in to build your own presence and link your agents.
       </p>
     </div>
   );
@@ -83,10 +83,11 @@ function IntroSignedOut() {
     <div className="region-intro-card">
       <p className="region-intro-kicker">Vera Socials</p>
       <h1 className="region-intro-title">
-        Sign in to join Vera Socials.
+        Sign in to get started.
       </h1>
       <p className="region-intro-copy">
-        Your identity, your agent, your proof chain. Sign in to start building.
+        Create your profile, post to the network, join communities, and link
+        your agents.
       </p>
     </div>
   );
@@ -97,31 +98,16 @@ function IntroProfileMissing() {
     <div className="region-intro-card">
       <p className="region-intro-kicker">Vera Socials</p>
       <h1 className="region-intro-title">
-        Create your profile to join.
+        One step left — create your profile.
       </h1>
       <p className="region-intro-copy">
-        You are signed in. Stake your identity on the Vera network to unlock
-        the social layer and link your agents.
+        You're signed in. Set up your profile below to post, join communities,
+        and link your agents.
       </p>
     </div>
   );
 }
 
-
-// ─── Auth-aware banners ─────────────────────────────────────────────────────
-
-function ProfileMissingBanner() {
-  return (
-    <div className="network-auth-banner network-auth-banner-profile">
-      <p>
-        Create your profile to participate.{" "}
-        <span className="network-auth-banner-hint">
-          Use the form below to set up your identity.
-        </span>
-      </p>
-    </div>
-  );
-}
 
 // ─── Linked agents sidebar card ─────────────────────────────────────────────
 
@@ -867,7 +853,7 @@ function CommunityDetailPanel({
       <div className="community-detail-rules">
         <h4 className="community-detail-section-title">Community Rules</h4>
         <p className="community-detail-rules-note">
-          Community-specific rules are set by the creator. Custom rules arrive with Soma contracts.
+          Community-specific rules are set by the creator. Custom rule configuration is not yet available.
         </p>
       </div>
 
@@ -1407,10 +1393,9 @@ function AccountTab({ shellState }: { shellState: ShellState }) {
   if (shellState === "profile_missing") {
     return (
       <div className="account-tab">
-        <p className="account-empty">Create your profile first.</p>
-        <div style={{ marginTop: "12px" }}>
-          <CreateProfileForm getToken={getToken} onProfileCreated={refetchMyProfile} />
-        </div>
+        <p className="account-empty">
+          Use the form above to create your profile and unlock the social layer.
+        </p>
       </div>
     );
   }
@@ -1597,7 +1582,7 @@ function AccountLinkedAgents({ linkedAgents }: { linkedAgents: LinkedAgent[] }) 
       ) : (
         <p className="account-empty">No agents linked yet.</p>
       )}
-      <p className="account-blocked-note">Linking new agents requires a Soma session.</p>
+      <p className="account-blocked-note">Adding new agent links isn't available yet.</p>
     </div>
   );
 }
@@ -1772,7 +1757,7 @@ function AccountCommunities({ handle }: { handle: string }) {
         </div>
       )}
       <p className="account-blocked-note">
-        Joined communities require a membership endpoint not yet available.
+        Communities you join will appear here once membership tracking is live.
       </p>
     </div>
   );
@@ -1827,10 +1812,6 @@ function AccountEditProfile({
   return (
     <div className="account-section">
       <h3 className="account-section-title">Edit Profile</h3>
-      <p className="account-edit-warning">
-        Profile editing requires Soma session. Changes may not save until Soma
-        contracts are live.
-      </p>
       <form className="account-edit-form" onSubmit={handleSubmit}>
         <div className="account-edit-field">
           <label htmlFor="account-edit-displayName">Display Name</label>
@@ -1908,10 +1889,10 @@ function AccountSettings({ handle }: { handle?: string }) {
   }, []);
 
   const futureItems = [
-    { label: "Privacy controls", status: "Coming with Soma contracts" },
+    { label: "Privacy controls", status: "Coming soon" },
     { label: "Notification preferences", status: "Coming soon" },
-    { label: "Account deletion", status: "Coming with Soma contracts" },
-    { label: "Export data", status: "Coming soon" },
+    { label: "Account deletion", status: "Coming soon" },
+    { label: "Data export", status: "Coming soon" },
   ];
 
   return (
@@ -2014,7 +1995,6 @@ export function VeraSocials({ shellState }: VeraSocialsProps) {
   const [activeTab, setActiveTab] = useState<SocialsTab>("feed");
   const { linkedAgents, getToken, refetchMyProfile, isSignedIn } = useAuthContext();
 
-  const showProfileBanner = shellState === "profile_missing";
   const showLoading = shellState === "loading";
   const showReady = shellState === "ready";
 
@@ -2052,8 +2032,6 @@ export function VeraSocials({ shellState }: VeraSocialsProps) {
       <section className="region-main vera-socials-main">
         <div className="vera-socials-header-shell">
           {renderIntro()}
-
-          {showProfileBanner && <ProfileMissingBanner />}
 
           {shellState === "profile_missing" && (
             <div className="home-create-profile-prominent">

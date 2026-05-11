@@ -4582,15 +4582,6 @@ html.dark .network-community-detail-feed-placeholder code {
   border-color: var(--accent);
 }
 
-.account-edit-warning {
-  font-size: 0.82rem;
-  color: var(--text-soft);
-  padding: 8px 10px;
-  border: 1px solid var(--accent-border);
-  border-radius: 6px;
-  background: var(--accent-surface);
-}
-
 .account-edit-error {
   font-size: 0.85rem;
   color: #d32f2f;
@@ -4723,11 +4714,6 @@ html.dark .account-edit-textarea {
   background: var(--bg);
   border-color: var(--border);
   color: var(--text-primary);
-}
-
-html.dark .account-edit-warning {
-  background: var(--accent-surface);
-  border-color: var(--accent-border);
 }
 
 html.dark .account-settings-chip {
