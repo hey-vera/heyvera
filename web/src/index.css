@@ -3099,7 +3099,7 @@ html.dark .button-primary {
     bottom: 12px;
     z-index: 40;
     display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(6, minmax(0, 1fr));
     gap: 8px;
     padding: 10px;
     border: 1px solid var(--border);
@@ -3310,4 +3310,322 @@ html.dark .network-sidebar-discovery {
 html.dark .home-create-profile-prominent {
   border-color: var(--accent-border-strong);
   background: var(--accent-surface);
+}
+
+/* ─── Identity region styles ─── */
+
+.identity-overview {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.identity-overview-account {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 18px 20px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--bg-raised);
+}
+
+.identity-overview-name {
+  font-size: 1.3rem;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.identity-overview-handle {
+  color: var(--accent);
+  font-size: 0.88rem;
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+}
+
+.identity-overview-bio {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  line-height: 1.55;
+  margin-top: 4px;
+}
+
+.identity-overview-agents {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.identity-agent-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.identity-agent-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-raised);
+}
+
+.identity-agent-name {
+  font-weight: 600;
+  font-size: 0.92rem;
+}
+
+.identity-agent-meta {
+  color: var(--text-soft);
+  font-size: 0.8rem;
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+}
+
+.identity-badge {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 0.74rem;
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  letter-spacing: 0.04em;
+}
+
+.identity-badge-ok {
+  border-color: var(--accent-border);
+  background: var(--accent-surface);
+  color: var(--accent);
+}
+
+.identity-badge-muted {
+  color: var(--text-soft);
+}
+
+.identity-badge-warn {
+  border-color: rgba(234, 179, 8, 0.3);
+  background: rgba(234, 179, 8, 0.08);
+  color: #a07a00;
+}
+
+html.dark .identity-badge-warn {
+  color: #e3c157;
+}
+
+.identity-section {
+  margin-bottom: 24px;
+}
+
+.identity-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.identity-section-title {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+
+.identity-section-header .identity-section-title {
+  margin-bottom: 0;
+}
+
+.identity-section-action {
+  font-size: 0.82rem;
+  min-height: 32px;
+  padding: 0 12px;
+}
+
+.identity-state-card {
+  padding: 18px 20px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg-raised);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.identity-state-card-blocked {
+  border-color: var(--border-strong);
+  background: var(--accent-surface);
+}
+
+.identity-state-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.identity-state-body {
+  color: var(--text-muted);
+  font-size: 0.88rem;
+  line-height: 1.6;
+}
+
+.identity-loading {
+  color: var(--text-soft);
+  font-size: 0.88rem;
+}
+
+.identity-empty {
+  color: var(--text-soft);
+  font-size: 0.88rem;
+}
+
+.identity-roster-list,
+.identity-ceremony-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.identity-roster-row,
+.identity-ceremony-row {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-raised);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.identity-roster-meta,
+.identity-ceremony-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.identity-roster-ecosystem {
+  font-size: 0.88rem;
+  font-weight: 500;
+}
+
+.identity-roster-date {
+  color: var(--text-soft);
+  font-size: 0.8rem;
+}
+
+.identity-ceremony-pkg {
+  font-size: 0.9rem;
+  font-weight: 500;
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+}
+
+.identity-ceremony-version {
+  color: var(--text-soft);
+  font-weight: 400;
+}
+
+.identity-profile-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.identity-credentials-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.identity-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 480px;
+}
+
+.identity-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.identity-form-label {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.identity-form-input {
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  transition: border-color 140ms ease;
+}
+
+.identity-form-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.identity-form-textarea {
+  resize: vertical;
+  min-height: 80px;
+  font-family: inherit;
+}
+
+.identity-form-mono {
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.84rem;
+}
+
+.identity-form-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.identity-form-error {
+  color: #c0392b;
+  font-size: 0.84rem;
+}
+
+html.dark .identity-form-error {
+  color: #ff7a7a;
+}
+
+.identity-form-success {
+  color: var(--accent);
+  font-size: 0.84rem;
+}
+
+.button-accent {
+  min-height: 38px;
+  padding: 0 18px;
+  border-radius: 10px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.88rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 140ms ease;
+}
+
+.button-accent:hover:not(:disabled) {
+  background: var(--accent-strong);
+}
+
+.button-accent:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+html.dark .button-accent {
+  color: #09090b;
 }

@@ -9,6 +9,7 @@ const regionDefs: Array<{ id: AppRegion; label: string; detail: string }> = [
   { id: "network", label: "Network", detail: "People + agents" },
   { id: "market", label: "Market", detail: "Launches and work" },
   { id: "proof", label: "Proof", detail: "Trust and lineage" },
+  { id: "identity", label: "Identity", detail: "Continuity and authority" },
 ];
 
 type RegionRailProps = {
@@ -72,7 +73,7 @@ export function RegionRail({
         <div className="region-rail-status">
           <div className="region-rail-status-row">
             <span className="region-rail-status-dot" aria-hidden="true" />
-            <span>Home and Network ready now</span>
+            <span>Home, Network, and Identity ready now</span>
           </div>
           <div className="region-rail-status-row">
             <span className="region-rail-status-dot" aria-hidden="true" />

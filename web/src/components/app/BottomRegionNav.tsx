@@ -1,4 +1,4 @@
-export type AppRegion = "home" | "agent" | "network" | "market" | "proof";
+export type AppRegion = "home" | "agent" | "network" | "market" | "proof" | "identity";
 
 type RegionDef = {
   id: AppRegion;
@@ -11,6 +11,7 @@ const regions: RegionDef[] = [
   { id: "network", label: "Network" },
   { id: "market", label: "Market" },
   { id: "proof", label: "Proof" },
+  { id: "identity", label: "Identity" },
 ];
 
 type BottomRegionNavProps = {

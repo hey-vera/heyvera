@@ -34,6 +34,11 @@ const regionMeta: Record<
     question: "Why is this trusted and how did it become what it is?",
     action: "Inspect",
   },
+  identity: {
+    title: "Identity",
+    question: "Who am I here, and what can I do from this position?",
+    action: "View",
+  },
 };
 
 type TopContextBarProps = {

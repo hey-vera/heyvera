@@ -11,6 +11,7 @@ import {
   type AppRegion,
 } from "./components/app/BottomRegionNav";
 import { HomeRegion } from "./components/app/HomeRegion";
+import { IdentityRegion } from "./components/app/IdentityRegion";
 import { NetworkRegion } from "./components/app/NetworkRegion";
 import { RegionPlaceholder } from "./components/app/RegionPlaceholder";
 import { RegionRail } from "./components/app/RegionRail";
@@ -68,7 +69,8 @@ function AppShell() {
       saved === "agent" ||
       saved === "network" ||
       saved === "market" ||
-      saved === "proof"
+      saved === "proof" ||
+      saved === "identity"
       ? saved
       : "home";
   });
@@ -212,6 +214,7 @@ function AppShell() {
               ]}
             />
           )}
+          {activeRegion === "identity" && <IdentityRegion />}
         </RegionErrorBoundary>
       </main>
 
