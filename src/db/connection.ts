@@ -365,6 +365,126 @@ const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 201,
+    description: 'social layer — profiles, posts, follows, communities, longform',
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS social_profiles (
+          id TEXT PRIMARY KEY,
+          clerk_user_id TEXT NOT NULL,
+          handle TEXT NOT NULL,
+          display_name TEXT NOT NULL,
+          bio TEXT NOT NULL DEFAULT '',
+          avatar_url TEXT,
+          banner_url TEXT,
+          location TEXT,
+          website_url TEXT,
+          proof_state TEXT NOT NULL DEFAULT 'pending',
+          continuity_state TEXT NOT NULL DEFAULT 'pending',
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_social_profiles_clerk
+          ON social_profiles(clerk_user_id);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_social_profiles_handle
+          ON social_profiles(handle);
+
+        CREATE TABLE IF NOT EXISTS social_linked_agents (
+          id TEXT PRIMARY KEY,
+          profile_id TEXT NOT NULL REFERENCES social_profiles(id),
+          agent_name TEXT NOT NULL,
+          agent_slug TEXT NOT NULL,
+          agent_key TEXT NOT NULL,
+          agent_type TEXT NOT NULL DEFAULT 'general',
+          link_state TEXT NOT NULL DEFAULT 'active',
+          visibility TEXT NOT NULL DEFAULT 'public',
+          proof_state TEXT NOT NULL DEFAULT 'pending',
+          is_primary INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_social_linked_agents_profile
+          ON social_linked_agents(profile_id);
+
+        CREATE TABLE IF NOT EXISTS social_posts (
+          id TEXT PRIMARY KEY,
+          profile_id TEXT NOT NULL REFERENCES social_profiles(id),
+          linked_agent_id TEXT REFERENCES social_linked_agents(id),
+          body TEXT NOT NULL,
+          visibility TEXT NOT NULL DEFAULT 'public',
+          proof_state TEXT NOT NULL DEFAULT 'pending',
+          author_mode TEXT NOT NULL DEFAULT 'person',
+          reply_to_post_id TEXT REFERENCES social_posts(id),
+          quote_post_id TEXT REFERENCES social_posts(id),
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_social_posts_profile
+          ON social_posts(profile_id);
+        CREATE INDEX IF NOT EXISTS idx_social_posts_created
+          ON social_posts(created_at);
+
+        CREATE TABLE IF NOT EXISTS social_follows (
+          id TEXT PRIMARY KEY,
+          follower_profile_id TEXT NOT NULL REFERENCES social_profiles(id),
+          following_profile_id TEXT NOT NULL REFERENCES social_profiles(id),
+          created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_social_follows_pair
+          ON social_follows(follower_profile_id, following_profile_id);
+        CREATE INDEX IF NOT EXISTS idx_social_follows_follower
+          ON social_follows(follower_profile_id);
+        CREATE INDEX IF NOT EXISTS idx_social_follows_following
+          ON social_follows(following_profile_id);
+
+        CREATE TABLE IF NOT EXISTS social_communities (
+          id TEXT PRIMARY KEY,
+          creator_profile_id TEXT NOT NULL REFERENCES social_profiles(id),
+          slug TEXT NOT NULL,
+          name TEXT NOT NULL,
+          description TEXT NOT NULL DEFAULT '',
+          visibility TEXT NOT NULL DEFAULT 'public',
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_social_communities_slug
+          ON social_communities(slug);
+        CREATE INDEX IF NOT EXISTS idx_social_communities_creator
+          ON social_communities(creator_profile_id);
+
+        CREATE TABLE IF NOT EXISTS social_community_memberships (
+          id TEXT PRIMARY KEY,
+          community_id TEXT NOT NULL REFERENCES social_communities(id),
+          profile_id TEXT NOT NULL REFERENCES social_profiles(id),
+          joined_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_social_memberships_pair
+          ON social_community_memberships(community_id, profile_id);
+        CREATE INDEX IF NOT EXISTS idx_social_memberships_profile
+          ON social_community_memberships(profile_id);
+
+        CREATE TABLE IF NOT EXISTS social_longform (
+          id TEXT PRIMARY KEY,
+          profile_id TEXT NOT NULL REFERENCES social_profiles(id),
+          linked_agent_id TEXT REFERENCES social_linked_agents(id),
+          title TEXT NOT NULL,
+          summary TEXT NOT NULL DEFAULT '',
+          body TEXT NOT NULL,
+          format_type TEXT NOT NULL DEFAULT 'essay',
+          visibility TEXT NOT NULL DEFAULT 'public',
+          proof_state TEXT NOT NULL DEFAULT 'pending',
+          author_mode TEXT NOT NULL DEFAULT 'person',
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_social_longform_profile
+          ON social_longform(profile_id);
+        CREATE INDEX IF NOT EXISTS idx_social_longform_created
+          ON social_longform(created_at);
+      `);
+    },
+  },
 ];
 
 /**
