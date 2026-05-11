@@ -137,15 +137,18 @@ Do not inherit directly:
 2. Build the public mode
 3. Review whether it truly feels like the front door to a larger world
 4. Freeze the signed-in shell truth
-5. Wire only the regions supported by real backend seams
-6. Design later regions without pretending they are already shipped
+5. Build the signed-in shell baseline
+6. Expand only the regions supported by real backend seams
+7. Design later regions without pretending they are already shipped
 
 ## Immediate Working Rule
 
-Until the public site is approved:
-- do not build the signed-in shell
-- do not build extra public routes
-- do not turn the site into a dashboard preview
+Right now:
+- the public site remains important reference work
+- the signed-in shell baseline already exists on its clean branch
+- next shell expansion should follow the packet docs and real seam map
+- do not build unsupported regions as if they are already live
+- do not turn the shell into a generic dashboard preview
 
 ## Source Of Truth Rule
 

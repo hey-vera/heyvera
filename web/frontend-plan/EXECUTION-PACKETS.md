@@ -8,6 +8,8 @@ Machine-facing execution files:
 - `PACKET-1-EXEC.md`
 - `PACKET-2-EXEC.md`
 - `PACKET-3-EXEC.md`
+- `PACKET-4-EXEC.md`
+- `PACKET-5-EXEC.md`
 
 Use those for actual model runs. This file stays as the higher-level
 packet overview.
@@ -103,15 +105,21 @@ Done when:
 - the future app shape is visible
 - public-mode thinking and app-shell thinking feel related
 
-This packet is not active until the public site is approved.
+Current repo truth:
+- the signed-in shell baseline already exists on
+  `feat/heyvera-shell-baseline-clean`
+- use `PACKET-4-EXEC.md` only if Josh asks to rebuild or tighten that
+  baseline deliberately
 
 ## Packet 5: Identity Lite
 
 Scope:
 - use current real seams only
 - account and identity views
-- delegation management
+- profile and linked-agent completion
 - credential roster and ceremony UI
+- blocked-state handling for authority surfaces that are not browser-safe
+  yet
 
 Done when:
 - a signed-in user can understand their current identity and authority
@@ -151,7 +159,6 @@ For every packet:
 
 ## Current Active Packets
 
-Right now, only these packets are active:
-- Packet 1
-- Packet 2
-- Packet 3
+Right now, the active execution-ready packets are:
+- Packet 4 as the already-built signed-in shell baseline reference
+- Packet 5 as the next signed-in implementation packet

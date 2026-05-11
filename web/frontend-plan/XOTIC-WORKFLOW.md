@@ -27,6 +27,8 @@ Read in this order:
    - `frontend-plan/PACKET-1-EXEC.md`
    - or `frontend-plan/PACKET-2-EXEC.md`
    - or `frontend-plan/PACKET-3-EXEC.md`
+   - or `frontend-plan/PACKET-4-EXEC.md`
+   - or `frontend-plan/PACKET-5-EXEC.md`
 7. `frontend-sync/README.md`
 8. `frontend-sync/GIT-SYNC.md`
 
@@ -34,7 +36,7 @@ Only re-read the longer planning docs if Josh explicitly says the
 product or packet direction changed.
 
 Only read the later planning files when Josh explicitly says to move
-beyond the public site:
+beyond the public site or when the current packet file tells you to:
 - `frontend-plan/APP-SURFACES.md`
 - `frontend-plan/BACKEND-SEAMS.md`
 - `frontend-plan/SOVEREIGNTY-MIGRATION.md`
@@ -42,6 +44,27 @@ beyond the public site:
 Use `frontend-plan/` for product truth and design direction.
 Use `SETUP.md` for tooling and commands only.
 Use `CONVENTIONS.md` as the short durable coding contract for Aider.
+
+## Execution Gate
+
+Only start work from committed repo files.
+
+That means:
+- do not start from chat-only packet names
+- do not substitute a "closest" packet if the named one is missing
+- do not infer the next packet from conversation history alone
+
+If the packet file or file set is missing:
+- log the blocker in `frontend-sync/BLOCKERS.md`
+- stop
+- wait for a committed packet file or an explicit redirect to an
+  existing committed file set
+
+Manager-owned prep should happen before you are asked to execute:
+- packet authoring
+- packet naming cleanup
+- branch/status reconciliation
+- small coordination and prompt-tightening tasks
 
 ## How To Work
 
@@ -106,6 +129,8 @@ packet is not done no matter what the model said.
 Before starting a packet or after Josh says docs changed:
 - run a sync check using `frontend-sync/GIT-SYNC.md`
 - do not assume your local docs are current
+- if docs and chat disagree, follow the committed repo files and log the
+  mismatch
 
 When starting Aider for a packet:
 - stay in `web/`
@@ -171,7 +196,10 @@ Stop after Phase 1 and wait for review.
 
 - Packet 7: `Proof`, `Network`, `Discover`, and `Markets` shells
 
-Phases 2 to 5 are later. They are not current work.
+Current signed-in repo truth:
+- Packet 4 shell baseline already exists on the clean branch
+- Packet 5 is the next execution-ready packet
+- Packet 6 and later still wait for Packet 5 review
 
 ## Prompt Style
 

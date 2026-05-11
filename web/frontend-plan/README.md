@@ -51,10 +51,13 @@ For this project, 10/10 means:
 9. `PACKET-1-EXEC.md`
 10. `PACKET-2-EXEC.md`
 11. `PACKET-3-EXEC.md`
-12. `TEMPORARY-PUBLIC-SITE-TAKEOVER.md` only for historical continuity
-13. `VERA-SOCIALS-PUBLIC-SURFACE.md` when shaping the next live homepage
+12. `PACKET-4-EXEC.md` when rebuilding or tightening the signed-in shell
+    baseline
+13. `PACKET-5-EXEC.md` for the next signed-in `Identity Lite` pass
+14. `TEMPORARY-PUBLIC-SITE-TAKEOVER.md` only for historical continuity
+15. `VERA-SOCIALS-PUBLIC-SURFACE.md` when shaping the next live homepage
     pass around the public social surface
-14. `VERA-SOCIALS-HOMEPAGE-WIREFRAME.md` when preparing the concrete next
+16. `VERA-SOCIALS-HOMEPAGE-WIREFRAME.md` when preparing the concrete next
     homepage implementation pass
 
 ### For later planning and wiring
@@ -92,3 +95,26 @@ This plan package covers four linked tracks:
 For current implementation, Track 1 is active.
 Tracks 2 to 4 exist so the public site does not drift away from the
 later product.
+
+The signed-in shell baseline now exists as a real repo state.
+That means the next execution-ready shell packet is:
+- `PACKET-5-EXEC.md`
+
+## Execution Handoff Rule
+
+Xotic should receive execution-ready work only.
+
+That means manager-side prep should happen before a handoff:
+- missing packet files get authored and committed first
+- packet naming gets reconciled with the real repo docs first
+- branch and status confusion gets resolved first
+- small scope corrections and prompt tightening happen before execution
+
+Do not hand Xotic chat-only packet names and expect him to infer the
+real repo shape.
+
+If the committed packet file is missing:
+- do not start implementation
+- log the blocker
+- stop until the packet exists or the task is redirected to an existing
+  committed file set
