@@ -123,12 +123,7 @@ function AppShell() {
 
         <RegionErrorBoundary key={`${activeRegion}-${recoveryCount}`}>
           {activeRegion === "social" && (
-            <VeraSocials
-              shellState={shellState}
-              viewerLabel={
-                myProfile?.profile.displayName ?? viewerLabel ?? undefined
-              }
-            />
+            <VeraSocials shellState={shellState} />
           )}
           {activeRegion === "agent" && (
             <AgentRegion shellState={shellState} />

@@ -34,10 +34,10 @@ import type {
 } from "../../api/social";
 
 type SocialsTab = "feed" | "profiles" | "communities" | "longform" | "pulse" | "you";
+type AccountViewTab = "posts" | "longform" | "communities" | "agents" | "settings";
 
 type VeraSocialsProps = {
   shellState: ShellState;
-  viewerLabel?: string;
 };
 
 const TAB_LABELS: { key: SocialsTab; label: string }[] = [
@@ -46,6 +46,14 @@ const TAB_LABELS: { key: SocialsTab; label: string }[] = [
   { key: "communities", label: "Communities" },
   { key: "longform", label: "Longform" },
   { key: "pulse", label: "Pulse" },
+];
+
+const ACCOUNT_TABS: Array<{ key: AccountViewTab; label: string }> = [
+  { key: "posts", label: "Posts" },
+  { key: "longform", label: "Longform" },
+  { key: "communities", label: "Communities" },
+  { key: "agents", label: "Agents" },
+  { key: "settings", label: "Settings" },
 ];
 
 /** Whether the shell state allows write actions (compose, join, create). */
@@ -84,15 +92,6 @@ function IntroSignedOut() {
   );
 }
 
-function IntroLoading() {
-  return (
-    <div className="region-intro-card" aria-busy="true">
-      <p className="region-intro-kicker">Vera Socials</p>
-      <h1 className="region-intro-title">Loading your social identity...</h1>
-    </div>
-  );
-}
-
 function IntroProfileMissing() {
   return (
     <div className="region-intro-card">
@@ -108,28 +107,8 @@ function IntroProfileMissing() {
   );
 }
 
-function IntroReady({ viewerLabel }: { viewerLabel?: string }) {
-  const greeting = viewerLabel ? `Welcome back, ${viewerLabel}.` : "Welcome back.";
-  return (
-    <div className="region-intro-card">
-      <p className="region-intro-kicker">Vera Socials</p>
-      <h1 className="region-intro-title">{greeting}</h1>
-      <p className="region-intro-copy">
-        Your social layer — where people, agents, and communities converge.
-      </p>
-    </div>
-  );
-}
 
 // ─── Auth-aware banners ─────────────────────────────────────────────────────
-
-function SignInBanner() {
-  return (
-    <div className="network-auth-banner network-auth-banner-signin">
-      <p>Sign in to participate in Vera Socials.</p>
-    </div>
-  );
-}
 
 function ProfileMissingBanner() {
   return (
@@ -1413,6 +1392,7 @@ function SidebarActiveCommunities() {
 
 function AccountTab({ shellState }: { shellState: ShellState }) {
   const { myProfile, getToken, refetchMyProfile, linkedAgents } = useAuthContext();
+  const [activeTab, setActiveTab] = useState<AccountViewTab>("posts");
 
   // ── Non-ready states ──
   if (shellState === "signed_out" || shellState === "public") {
@@ -1453,40 +1433,92 @@ function AccountTab({ shellState }: { shellState: ShellState }) {
   const profile = myProfile.profile;
 
   return (
-    <div className="account-tab">
-      <AccountHeader profile={profile} />
-      <AccountLinkedAgents linkedAgents={linkedAgents} />
-      <AccountPosts handle={profile.handle} />
-      <AccountLongform handle={profile.handle} />
-      <AccountCommunities handle={profile.handle} />
-      <AccountEditProfile profile={profile} getToken={getToken} refetchMyProfile={refetchMyProfile} />
-      <AccountSettings handle={profile.handle} />
+    <div className="account-page">
+      <AccountHeader profile={profile} onEditProfile={() => setActiveTab("settings")} />
+
+      <div className="account-profile-nav" role="tablist" aria-label="Profile sections">
+        {ACCOUNT_TABS.map((tab) => (
+          <button
+            key={tab.key}
+            type="button"
+            role="tab"
+            aria-selected={activeTab === tab.key}
+            className={`account-profile-nav-item${activeTab === tab.key ? " account-profile-nav-item-active" : ""}`}
+            onClick={() => setActiveTab(tab.key)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="account-tab">
+        {activeTab === "posts" && <AccountPosts handle={profile.handle} />}
+        {activeTab === "longform" && <AccountLongform handle={profile.handle} />}
+        {activeTab === "communities" && <AccountCommunities handle={profile.handle} />}
+        {activeTab === "agents" && <AccountLinkedAgents linkedAgents={linkedAgents} />}
+        {activeTab === "settings" && (
+          <>
+            <AccountEditProfile profile={profile} getToken={getToken} refetchMyProfile={refetchMyProfile} />
+            <AccountSettings handle={profile.handle} />
+          </>
+        )}
+      </div>
     </div>
   );
 }
 
 // ── Profile header section ──
 
-function AccountHeader({ profile }: { profile: Profile }) {
+function AccountHeader({
+  profile,
+  onEditProfile,
+}: {
+  profile: Profile;
+  onEditProfile: () => void;
+}) {
   const { data: stats, loading: statsLoading } = useProfileStats(profile.handle);
 
   return (
     <div className="account-header">
-      <div className="account-header-avatar" aria-hidden="true">
-        {profile.displayName.charAt(0).toUpperCase()}
+      <div className="account-header-banner" aria-hidden="true" />
+
+      <div className="account-header-body">
+        <div className="account-header-avatar" aria-hidden="true">
+          {profile.displayName.charAt(0).toUpperCase()}
+        </div>
+        <button
+          type="button"
+          className="button button-outline account-header-action"
+          onClick={onEditProfile}
+        >
+          Edit profile
+        </button>
       </div>
+
       <div className="account-header-info">
-        <strong className="account-header-name">{profile.displayName}</strong>
-        <span className="account-header-handle">@{profile.handle}</span>
+        <div className="account-header-identity">
+          <strong className="account-header-name">{profile.displayName}</strong>
+          <span className="account-header-handle">@{profile.handle}</span>
+        </div>
+
         {profile.bio && <p className="account-header-bio">{profile.bio}</p>}
-        <div className="profile-detail-trust-chips" style={{ marginTop: "6px" }}>
+
+        <div className="account-header-meta">
+          {profile.location && <span>{profile.location}</span>}
+          {profile.websiteUrl && (
+            <a href={profile.websiteUrl} target="_blank" rel="noreferrer">
+              {profile.websiteUrl.replace(/^https?:\/\//, "")}
+            </a>
+          )}
+          <span>Joined {new Date(profile.createdAt).toLocaleDateString()}</span>
+        </div>
+
+        <div className="profile-detail-trust-chips account-header-trust">
           <span className="profile-detail-trust-chip">proof: {profile.proofState}</span>
           <span className="profile-detail-trust-chip">continuity: {profile.continuityState}</span>
         </div>
-        <span className="account-header-member-since">
-          Member since {new Date(profile.createdAt).toLocaleDateString()}
-        </span>
       </div>
+
       {!statsLoading && stats && (
         <div className="account-header-stats">
           <span>{stats.postCount} posts</span>
@@ -1933,22 +1965,20 @@ function SidebarAccountInfo() {
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
-export function VeraSocials({ shellState, viewerLabel }: VeraSocialsProps) {
+export function VeraSocials({ shellState }: VeraSocialsProps) {
   const [activeTab, setActiveTab] = useState<SocialsTab>("feed");
   const { linkedAgents, getToken, refetchMyProfile, isSignedIn } = useAuthContext();
 
-  const showAuthBanner =
-    shellState === "public" || shellState === "signed_out";
   const showProfileBanner = shellState === "profile_missing";
   const showLoading = shellState === "loading";
   const showReady = shellState === "ready";
 
   const renderIntro = () => {
-    if (showLoading) return <IntroLoading />;
+    if (showLoading) return null;
     if (shellState === "public") return <IntroPublic />;
     if (shellState === "signed_out") return <IntroSignedOut />;
     if (shellState === "profile_missing") return <IntroProfileMissing />;
-    if (shellState === "ready") return <IntroReady viewerLabel={viewerLabel} />;
+    if (shellState === "ready") return null;
     return null;
   };
 
@@ -1970,110 +2000,106 @@ export function VeraSocials({ shellState, viewerLabel }: VeraSocialsProps) {
   };
 
   return (
-    <div className="region-layout">
-      <section className="region-main">
-        {/* Intro card — varies by shell state */}
-        {renderIntro()}
+    <div className="region-layout vera-socials-layout">
+      <section className="region-main vera-socials-main">
+        <div className="vera-socials-header-shell">
+          {renderIntro()}
 
-        {/* Auth-aware banners */}
-        {showAuthBanner && <SignInBanner />}
-        {showProfileBanner && <ProfileMissingBanner />}
+          {showProfileBanner && <ProfileMissingBanner />}
 
-        {/* Create profile CTA — prominent when profile_missing */}
-        {shellState === "profile_missing" && (
-          <div className="home-create-profile-prominent">
-            <CreateProfileForm
-              getToken={getToken}
-              onProfileCreated={refetchMyProfile}
-            />
-          </div>
-        )}
-
-        {/* Functional subnav */}
-        {showLoading ? (
-          <div className="region-subnav" aria-busy="true">
-            {[1, 2, 3, 4, 5, 6].map((i) => (
-              <span
-                key={i}
-                className="region-subnav-item skeleton"
-                style={{
-                  display: "inline-block",
-                  width: `${50 + i * 8}px`,
-                  height: "1.6em",
-                  borderRadius: "999px",
-                }}
+          {shellState === "profile_missing" && (
+            <div className="home-create-profile-prominent">
+              <CreateProfileForm
+                getToken={getToken}
+                onProfileCreated={refetchMyProfile}
               />
-            ))}
-          </div>
-        ) : (
-          <div className="region-subnav">
-            {TAB_LABELS.map(({ key, label }) => (
-              <button
-                key={key}
-                type="button"
-                className={`region-subnav-item${activeTab === key ? " region-subnav-item-active" : ""}`}
-                onClick={() => setActiveTab(key)}
-              >
-                {label}
-              </button>
-            ))}
-            {shellState === "ready" && (
-              <button
-                type="button"
-                className={`region-subnav-item${activeTab === "you" ? " region-subnav-item-active" : ""}`}
-                onClick={() => setActiveTab("you")}
-              >
-                You
-              </button>
-            )}
-          </div>
-        )}
+            </div>
+          )}
 
-        {/* Tab content */}
-        {showLoading ? (
-          <div className="feed-column" aria-busy="true">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="feed-card" style={{ gap: "10px" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                  <span
+          {showLoading ? (
+            <div className="region-subnav vera-socials-subnav" aria-busy="true">
+              {[1, 2, 3, 4, 5, 6].map((i) => (
+                <span
+                  key={i}
+                  className="region-subnav-item skeleton"
+                  style={{
+                    display: "inline-block",
+                    width: `${50 + i * 8}px`,
+                    height: "1.6em",
+                    borderRadius: "999px",
+                  }}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="region-subnav vera-socials-subnav">
+              {TAB_LABELS.map(({ key, label }) => (
+                <button
+                  key={key}
+                  type="button"
+                  className={`region-subnav-item${activeTab === key ? " region-subnav-item-active" : ""}`}
+                  onClick={() => setActiveTab(key)}
+                >
+                  {label}
+                </button>
+              ))}
+              {shellState === "ready" && (
+                <button
+                  type="button"
+                  className={`region-subnav-item${activeTab === "you" ? " region-subnav-item-active" : ""}`}
+                  onClick={() => setActiveTab("you")}
+                >
+                  You
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="vera-socials-stream">
+          {showLoading ? (
+            <div className="feed-column" aria-busy="true">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="feed-card" style={{ gap: "10px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                    <span
+                      className="skeleton"
+                      style={{ width: "30px", height: "30px", borderRadius: "50%", flexShrink: 0 }}
+                    />
+                    <span
+                      className="skeleton"
+                      style={{ width: "120px", height: "0.9em", borderRadius: "3px" }}
+                    />
+                  </div>
+                  <div
                     className="skeleton"
-                    style={{ width: "30px", height: "30px", borderRadius: "50%", flexShrink: 0 }}
+                    style={{ height: "1em", width: "60%", borderRadius: "3px" }}
                   />
-                  <span
+                  <div
                     className="skeleton"
-                    style={{ width: "120px", height: "0.9em", borderRadius: "3px" }}
+                    style={{ height: "3.2em", borderRadius: "3px" }}
                   />
                 </div>
-                <div
-                  className="skeleton"
-                  style={{ height: "1em", width: "60%", borderRadius: "3px" }}
-                />
-                <div
-                  className="skeleton"
-                  style={{ height: "3.2em", borderRadius: "3px" }}
-                />
-              </div>
-            ))}
-          </div>
-        ) : (
-          <>
-            {activeTab === "feed" && <PublicFeed />}
-            {activeTab === "profiles" && <ProfilesTab shellState={shellState} />}
-            {activeTab === "communities" && <CommunitiesTab shellState={shellState} />}
-            {activeTab === "longform" && <LongformTab shellState={shellState} />}
-            {activeTab === "pulse" && <PulseTab />}
-            {activeTab === "you" && <AccountTab shellState={shellState} />}
-          </>
-        )}
+              ))}
+            </div>
+          ) : (
+            <>
+              {activeTab === "feed" && <PublicFeed />}
+              {activeTab === "profiles" && <ProfilesTab shellState={shellState} />}
+              {activeTab === "communities" && <CommunitiesTab shellState={shellState} />}
+              {activeTab === "longform" && <LongformTab shellState={shellState} />}
+              {activeTab === "pulse" && <PulseTab />}
+              {activeTab === "you" && <AccountTab shellState={shellState} />}
+            </>
+          )}
 
-        {/* JoinBar — prominent for public/signed_out */}
-        {(shellState === "public" || shellState === "signed_out") && (
-          <JoinBar />
-        )}
+          {(shellState === "public" || shellState === "signed_out") && (
+            <JoinBar />
+          )}
+        </div>
       </section>
 
-      <aside className="region-side">
-        {/* Linked agents card — shown when signed in */}
+      <aside className="region-side vera-socials-side">
         {showReady && isSignedIn && (
           <SidebarLinkedAgents linkedAgents={linkedAgents} />
         )}
