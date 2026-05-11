@@ -2950,13 +2950,18 @@ html.dark .button-primary {
   background: var(--bg-raised);
 }
 
-.top-context-bar-social {
+.top-context-bar-social-strip {
+  display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 10px 16px;
-  margin-bottom: 12px;
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--bg-raised) 80%, transparent);
+  gap: 8px;
+  padding: 8px 20px;
+  margin-bottom: 8px;
+  color: var(--text-soft);
+  font-size: 0.76rem;
+}
+
+.top-context-strip-status {
+  line-height: 1.4;
 }
 
 .top-context-copy {
@@ -2981,20 +2986,6 @@ html.dark .button-primary {
   line-height: 1.35;
 }
 
-.top-context-bar-social .top-context-copy {
-  gap: 1px;
-}
-
-.top-context-bar-social .top-context-label {
-  font-size: 0.7rem;
-}
-
-.top-context-bar-social .top-context-title {
-  font-size: 0.92rem;
-  font-weight: 600;
-  color: var(--text-muted);
-}
-
 .top-context-right {
   display: flex;
   align-items: center;
@@ -3014,15 +3005,6 @@ html.dark .button-primary {
   min-height: 38px;
   padding: 0 16px;
   font-size: 0.84rem;
-}
-
-.top-context-bar-social .top-context-status {
-  font-size: 0.76rem;
-}
-
-.top-context-bar-social .top-context-action {
-  min-height: 34px;
-  padding: 0 14px;
 }
 
 .region-layout {
@@ -3047,7 +3029,7 @@ html.dark .button-primary {
 
 .vera-socials-header-shell {
   position: sticky;
-  top: 72px;
+  top: 44px;
   z-index: 8;
   margin-bottom: 10px;
   background: linear-gradient(180deg, var(--bg) 74%, transparent);
@@ -3059,7 +3041,7 @@ html.dark .button-primary {
 
 .vera-socials-side {
   position: sticky;
-  top: 72px;
+  top: 44px;
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -3219,11 +3201,6 @@ html.dark .button-primary {
   .top-context-bar {
     flex-direction: column;
     align-items: stretch;
-  }
-
-  .top-context-bar-social {
-    gap: 10px;
-    padding: 12px 14px;
   }
 
   .top-context-right {

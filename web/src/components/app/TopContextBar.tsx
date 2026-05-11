@@ -63,15 +63,22 @@ export function TopContextBar({
   const meta = regionMeta[activeRegion];
   const isSocial = activeRegion === "social";
 
+  if (isSocial) {
+    return (
+      <div className="top-context-bar-social-strip" aria-label="Vera Socials status">
+        <span className="top-context-status-dot" aria-hidden="true" />
+        <span className="top-context-strip-status">
+          {shellStateSummary(shellState, viewerLabel)}
+        </span>
+      </div>
+    );
+  }
+
   return (
-    <header
-      className={`top-context-bar${isSocial ? " top-context-bar-social" : ""}`}
-    >
+    <header className="top-context-bar">
       <div className="top-context-copy">
         <p className="top-context-label">{meta.title}</p>
-        <h2 className="top-context-title">
-          {isSocial ? "Feed, profiles, communities, and longform." : meta.question}
-        </h2>
+        <h2 className="top-context-title">{meta.question}</h2>
       </div>
 
       <div className="top-context-right">
