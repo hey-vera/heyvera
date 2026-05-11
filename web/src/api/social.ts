@@ -92,6 +92,10 @@ export type LongformEntry = {
   } | null;
 };
 
+export type CommunityMembership = Community & {
+  joinedAt: string;
+};
+
 export type PageInfo = {
   limit: number;
   nextCursor: string | null;
@@ -230,6 +234,30 @@ export async function fetchLongform(limit = 20, cursor = 0): Promise<{
   return apiFetch(`/longform?limit=${limit}&cursor=${cursor}`);
 }
 
+export async function fetchCommunityFeed(slug: string, limit = 20, cursor = 0): Promise<{
+  community: Community;
+  feed: FeedPost[];
+  pageInfo: PageInfo;
+}> {
+  return apiFetch(`/feed/community/${slug}?limit=${limit}&cursor=${cursor}`);
+}
+
+export async function fetchProfileFollowers(handle: string, limit = 20, cursor = 0): Promise<{
+  profile: Profile;
+  followers: ProfileSummary[];
+  pageInfo: PageInfo;
+}> {
+  return apiFetch(`/profiles/${handle}/followers?limit=${limit}&cursor=${cursor}`);
+}
+
+export async function fetchProfileFollowing(handle: string, limit = 20, cursor = 0): Promise<{
+  profile: Profile;
+  following: ProfileSummary[];
+  pageInfo: PageInfo;
+}> {
+  return apiFetch(`/profiles/${handle}/following?limit=${limit}&cursor=${cursor}`);
+}
+
 // ─── Authenticated: my profile ─────────────────────────────────────────────
 
 export async function fetchMyProfile(token: string): Promise<{
@@ -309,6 +337,12 @@ export async function joinCommunity(
   slug: string,
 ): Promise<{ ok: true; membershipId: string }> {
   return apiAuthFetch(`/communities/${slug}/join`, { method: "POST", token });
+}
+
+export async function fetchMyCommunities(token: string, limit = 20): Promise<{
+  communities: CommunityMembership[];
+}> {
+  return apiAuthFetch(`/communities/mine?limit=${limit}`, { method: "GET", token });
 }
 
 export async function createLongform(

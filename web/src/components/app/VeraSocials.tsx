@@ -21,12 +21,16 @@ import {
   unfollowProfile,
   fetchFollowStatus,
   fetchLongform,
-  fetchCommunities,
+  fetchCommunityFeed,
+  fetchMyCommunities,
+  fetchProfileFollowers,
+  fetchProfileFollowing,
   updateProfile,
 } from "../../api/social";
 import type {
   ProfileSummary,
   Community,
+  CommunityMembership,
   LongformEntry,
   LinkedAgent,
   Profile,
@@ -34,7 +38,7 @@ import type {
 } from "../../api/social";
 
 type SocialsTab = "feed" | "profiles" | "communities" | "longform" | "pulse" | "you";
-type AccountViewTab = "posts" | "longform" | "communities" | "agents" | "settings";
+type AccountViewTab = "posts" | "longform" | "communities" | "agents" | "settings" | "followers" | "following";
 
 type VeraSocialsProps = {
   shellState: ShellState;
@@ -334,6 +338,7 @@ function ProfileDetailPanel({
 
   const [recentPosts, setRecentPosts] = useState<FeedPost[]>([]);
   const [postsLoading, setPostsLoading] = useState(true);
+  const [connectionView, setConnectionView] = useState<null | "followers" | "following">(null);
 
   // Fetch profile + linked agents
   useEffect(() => {
@@ -451,6 +456,16 @@ function ProfileDetailPanel({
 
   const proof = proofSummary(profile.proofState, profile.continuityState);
 
+  if (connectionView) {
+    return (
+      <ProfileConnectionPanel
+        handle={handle}
+        view={connectionView}
+        onBack={() => setConnectionView(null)}
+      />
+    );
+  }
+
   return (
     <div className="network-profile-detail">
       <div className="network-profile-detail-header">
@@ -479,8 +494,22 @@ function ProfileDetailPanel({
       {!statsLoading && stats && (
         <div className="network-profile-detail-stats">
           <span>{stats.postCount} posts</span>
-          <span>{stats.followerCount} followers</span>
-          <span>{stats.followingCount} following</span>
+          <button
+            type="button"
+            className="account-header-stat-btn"
+            style={{ fontSize: "inherit" }}
+            onClick={() => setConnectionView("followers")}
+          >
+            {stats.followerCount} followers
+          </button>
+          <button
+            type="button"
+            className="account-header-stat-btn"
+            style={{ fontSize: "inherit" }}
+            onClick={() => setConnectionView("following")}
+          >
+            {stats.followingCount} following
+          </button>
           <span>{stats.communityCount} communities</span>
           <span>{stats.longformCount} longform</span>
         </div>
@@ -548,6 +577,86 @@ function ProfileDetailPanel({
           Back
         </button>
       </div>
+    </div>
+  );
+}
+
+/** Inline panel showing a profile's followers or following list. */
+function ProfileConnectionPanel({
+  handle,
+  view,
+  onBack,
+}: {
+  handle: string;
+  view: "followers" | "following";
+  onBack: () => void;
+}) {
+  const [people, setPeople] = useState<ProfileSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    const fetch = view === "followers"
+      ? fetchProfileFollowers(handle, 50)
+      : fetchProfileFollowing(handle, 50);
+
+    fetch
+      .then((result) => {
+        if (!cancelled) {
+          setPeople(view === "followers"
+            ? (result as Awaited<ReturnType<typeof fetchProfileFollowers>>).followers
+            : (result as Awaited<ReturnType<typeof fetchProfileFollowing>>).following);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setPeople([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [handle, view]);
+
+  return (
+    <div className="network-profile-detail">
+      <div className="network-profile-detail-actions" style={{ marginBottom: "12px" }}>
+        <button type="button" className="button button-outline" onClick={onBack}>
+          ← Back
+        </button>
+        <strong style={{ marginLeft: "8px" }}>
+          {view === "followers" ? "Followers" : "Following"} for @{handle}
+        </strong>
+      </div>
+      {loading ? (
+        <div aria-busy="true">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="skeleton" style={{ height: "2.2em", borderRadius: "4px", marginBottom: "6px" }} />
+          ))}
+        </div>
+      ) : people.length === 0 ? (
+        <p className="network-sidebar-empty">
+          {view === "followers" ? "No followers yet." : "Not following anyone yet."}
+        </p>
+      ) : (
+        <ul className="network-sidebar-list" style={{ margin: 0, padding: 0 }}>
+          {people.map((p) => (
+            <li key={p.handle} className="network-sidebar-list-item">
+              <span className="network-sidebar-list-avatar" aria-hidden="true">
+                {p.displayName.charAt(0).toUpperCase()}
+              </span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <span className="network-sidebar-list-name">{p.displayName}</span>
+                <span className="network-sidebar-list-handle">@{p.handle}</span>
+              </div>
+              {p.primaryAgent && (
+                <span className={`sidebar-agent-state-dot sidebar-agent-state-dot-${p.primaryAgent.linkState}`} aria-label={p.primaryAgent.linkState} />
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
@@ -760,27 +869,26 @@ function CommunityDetailPanel({
   const [joined, setJoined] = useState(false);
   const [joining, setJoining] = useState(false);
 
-  // Fetch creator's recent activity as a proxy for community activity
-  const [creatorPosts, setCreatorPosts] = useState<FeedPost[]>([]);
-  const [creatorPostsLoading, setCreatorPostsLoading] = useState(true);
+  const [communityFeed, setCommunityFeed] = useState<FeedPost[]>([]);
+  const [feedLoading, setFeedLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
-    setCreatorPostsLoading(true);
+    setFeedLoading(true);
 
-    fetchProfileFeed(community.creator.handle, 5)
+    fetchCommunityFeed(community.slug, 10)
       .then((result) => {
-        if (!cancelled) setCreatorPosts(result.feed);
+        if (!cancelled) setCommunityFeed(result.feed);
       })
       .catch(() => {
-        if (!cancelled) setCreatorPosts([]);
+        if (!cancelled) setCommunityFeed([]);
       })
       .finally(() => {
-        if (!cancelled) setCreatorPostsLoading(false);
+        if (!cancelled) setFeedLoading(false);
       });
 
     return () => { cancelled = true; };
-  }, [community.creator.handle]);
+  }, [community.slug]);
 
   async function handleJoin() {
     if (!isSignedIn || joining || joined) return;
@@ -863,24 +971,24 @@ function CommunityDetailPanel({
         <p className="community-detail-blocked-note">Member directory isn't available yet.</p>
       </div>
 
-      {/* Creator activity (proxy for community feed) */}
+      {/* Community activity feed */}
       <div className="community-detail-activity">
-        <h4 className="community-detail-section-title">Recent from creator</h4>
-        <p className="community-detail-activity-note">
-          Community feeds are coming. Showing recent posts by @{community.creator.handle}.
-        </p>
-        {creatorPostsLoading ? (
+        <h4 className="community-detail-section-title">Community Activity</h4>
+        {feedLoading ? (
           <div className="community-detail-activity-loading" aria-busy="true">
             {[1, 2].map((i) => (
               <div key={i} className="skeleton" style={{ height: "2.4em", borderRadius: "4px", marginTop: "6px" }} />
             ))}
           </div>
-        ) : creatorPosts.length === 0 ? (
-          <p className="network-sidebar-empty">No recent posts from the creator.</p>
+        ) : communityFeed.length === 0 ? (
+          <p className="network-sidebar-empty">No posts from members yet.</p>
         ) : (
           <div className="community-detail-activity-list">
-            {creatorPosts.map((post) => (
+            {communityFeed.map((post) => (
               <div key={post.id} className="profile-detail-post-card">
+                <span className="profile-detail-post-date" style={{ marginBottom: "2px" }}>
+                  @{post.author.handle}
+                </span>
                 <p className="profile-detail-post-body">{post.body}</p>
                 <span className="profile-detail-post-date">
                   {formatRelativeTime(post.createdAt)}
@@ -1445,7 +1553,9 @@ function AccountTab({ shellState }: { shellState: ShellState }) {
       <div className="account-tab">
         {activeTab === "posts" && <AccountPosts handle={profile.handle} />}
         {activeTab === "longform" && <AccountLongform handle={profile.handle} />}
-        {activeTab === "communities" && <AccountCommunities handle={profile.handle} />}
+        {activeTab === "communities" && <AccountCommunities getToken={getToken} />}
+        {activeTab === "followers" && <AccountFollowers handle={profile.handle} />}
+        {activeTab === "following" && <AccountFollowing handle={profile.handle} />}
         {activeTab === "agents" && <AccountLinkedAgents linkedAgents={linkedAgents} />}
         {activeTab === "settings" && (
           <>
@@ -1534,12 +1644,12 @@ function AccountHeader({
             <button type="button" className="account-header-stat-btn" onClick={() => onTabChange("posts")}>
               <strong>{stats.postCount}</strong>{" "}posts
             </button>
-            <span className="account-header-stat">
+            <button type="button" className="account-header-stat-btn" onClick={() => onTabChange("followers")}>
               <strong>{stats.followerCount}</strong>{" "}followers
-            </span>
-            <span className="account-header-stat">
+            </button>
+            <button type="button" className="account-header-stat-btn" onClick={() => onTabChange("following")}>
               <strong>{stats.followingCount}</strong>{" "}following
-            </span>
+            </button>
             <button type="button" className="account-header-stat-btn" onClick={() => onTabChange("communities")}>
               <strong>{stats.communityCount}</strong>{" "}communities
             </button>
@@ -1706,8 +1816,8 @@ function AccountLongform({ handle }: { handle: string }) {
 
 // ── Your communities section ──
 
-function AccountCommunities({ handle }: { handle: string }) {
-  const [communities, setCommunities] = useState<Community[]>([]);
+function AccountCommunities({ getToken }: { getToken: () => Promise<string | null> }) {
+  const [communities, setCommunities] = useState<CommunityMembership[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -1716,11 +1826,13 @@ function AccountCommunities({ handle }: { handle: string }) {
     setLoading(true);
     setError(null);
 
-    fetchCommunities(50)
+    getToken()
+      .then((token) => {
+        if (!token || cancelled) return;
+        return fetchMyCommunities(token, 50);
+      })
       .then((result) => {
-        if (!cancelled) {
-          setCommunities(result.communities.filter((c) => c.creator.handle === handle));
-        }
+        if (!cancelled && result) setCommunities(result.communities);
       })
       .catch((err: unknown) => {
         if (!cancelled) setError(err instanceof Error ? err.message : String(err));
@@ -1730,11 +1842,11 @@ function AccountCommunities({ handle }: { handle: string }) {
       });
 
     return () => { cancelled = true; };
-  }, [handle]);
+  }, [getToken]);
 
   return (
     <div className="account-section">
-      <h3 className="account-section-title">Communities You Created</h3>
+      <h3 className="account-section-title">Your Communities</h3>
       {loading ? (
         <div className="account-communities-list" aria-busy="true">
           {[1, 2].map((i) => (
@@ -1744,7 +1856,7 @@ function AccountCommunities({ handle }: { handle: string }) {
       ) : error ? (
         <p className="account-empty">Unable to load communities: {error}</p>
       ) : communities.length === 0 ? (
-        <p className="account-empty">You haven't created any communities yet.</p>
+        <p className="account-empty">You haven't joined any communities yet.</p>
       ) : (
         <div className="account-communities-list">
           {communities.map((c) => (
@@ -1752,14 +1864,99 @@ function AccountCommunities({ handle }: { handle: string }) {
               <strong className="account-community-card-name">{c.name}</strong>
               <span className="account-community-card-slug">/{c.slug}</span>
               {c.description && <p className="account-community-card-desc">{c.description}</p>}
+              <span className="account-post-meta" style={{ marginTop: "2px" }}>
+                Joined {formatRelativeTime(c.joinedAt)}
+              </span>
             </div>
           ))}
         </div>
       )}
-      <p className="account-blocked-note">
-        Communities you join will appear here once the membership API is live.
-        Only communities you created are shown above.
-      </p>
+    </div>
+  );
+}
+
+// ── Followers / following sections ──
+
+function AccountFollowers({ handle }: { handle: string }) {
+  const [people, setPeople] = useState<ProfileSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    fetchProfileFollowers(handle, 50)
+      .then((r) => { if (!cancelled) setPeople(r.followers); })
+      .catch(() => { if (!cancelled) setPeople([]); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [handle]);
+
+  return (
+    <div className="account-section">
+      <h3 className="account-section-title">Followers</h3>
+      {loading ? (
+        <div aria-busy="true">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="skeleton" style={{ height: "2.4em", borderRadius: "4px", marginBottom: "6px" }} />
+          ))}
+        </div>
+      ) : people.length === 0 ? (
+        <p className="account-empty">No followers yet.</p>
+      ) : (
+        <ul className="network-sidebar-list" style={{ margin: 0, padding: 0 }}>
+          {people.map((p) => (
+            <li key={p.handle} className="network-sidebar-list-item">
+              <span className="network-sidebar-list-avatar" aria-hidden="true">
+                {p.displayName.charAt(0).toUpperCase()}
+              </span>
+              <span className="network-sidebar-list-name">{p.displayName}</span>
+              <span className="network-sidebar-list-handle">@{p.handle}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function AccountFollowing({ handle }: { handle: string }) {
+  const [people, setPeople] = useState<ProfileSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    fetchProfileFollowing(handle, 50)
+      .then((r) => { if (!cancelled) setPeople(r.following); })
+      .catch(() => { if (!cancelled) setPeople([]); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [handle]);
+
+  return (
+    <div className="account-section">
+      <h3 className="account-section-title">Following</h3>
+      {loading ? (
+        <div aria-busy="true">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="skeleton" style={{ height: "2.4em", borderRadius: "4px", marginBottom: "6px" }} />
+          ))}
+        </div>
+      ) : people.length === 0 ? (
+        <p className="account-empty">Not following anyone yet.</p>
+      ) : (
+        <ul className="network-sidebar-list" style={{ margin: 0, padding: 0 }}>
+          {people.map((p) => (
+            <li key={p.handle} className="network-sidebar-list-item">
+              <span className="network-sidebar-list-avatar" aria-hidden="true">
+                {p.displayName.charAt(0).toUpperCase()}
+              </span>
+              <span className="network-sidebar-list-name">{p.displayName}</span>
+              <span className="network-sidebar-list-handle">@{p.handle}</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
