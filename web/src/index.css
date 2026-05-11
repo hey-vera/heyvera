@@ -1423,10 +1423,43 @@ html.dark .button-primary {
 .network-sidebar-list-item {
   padding: 10px 0;
   border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .network-sidebar-list-item:last-child {
   border-bottom: none;
+}
+
+.network-sidebar-list-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--accent-surface);
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 0.78rem;
+  flex-shrink: 0;
+}
+
+.network-sidebar-list-name {
+  font-size: 0.88rem;
+  font-weight: 500;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.network-sidebar-list-handle {
+  font-size: 0.76rem;
+  color: var(--text-soft);
+  flex-shrink: 0;
 }
 
 .network-sidebar-featured-card {
@@ -3354,6 +3387,24 @@ html.dark .button-primary {
   padding: 4px 12px;
 }
 
+.network-community-visibility-chip {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  background: var(--surface);
+}
+
+.network-community-age {
+  font-size: 0.78rem;
+  color: var(--text-soft);
+  flex: 1;
+}
+
 .network-communities-tab {
   padding: 4px 0;
 }
@@ -3712,10 +3763,17 @@ html.dark .agent-sidebar-info {
   margin-bottom: 16px;
 }
 
-.vera-socials-agent-state {
-  font-size: 0.8rem;
-  color: var(--text-soft);
-  margin-left: 4px;
+.sidebar-agent-state-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-soft);
+  flex-shrink: 0;
+}
+
+.sidebar-agent-state-dot-verified,
+.sidebar-agent-state-dot-active {
+  background: var(--accent);
 }
 
 .vera-socials-pulse-tab {
