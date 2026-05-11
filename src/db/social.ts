@@ -384,6 +384,100 @@ export function insertCommunityMembership(communityId: string, profileId: string
   return row.id;
 }
 
+// ─── Community membership row (adds joined_at over the base community row) ───
+
+export interface SocialCommunityMembershipRow extends SocialCommunityWithCreatorRow {
+  joined_at: string;
+}
+
+// ─── Community feed queries ──────────────────────────────────────────────────
+
+export function listCommunityFeedPosts(
+  communityId: string,
+  limit: number,
+  offset: number,
+): SocialPostWithAuthorRow[] {
+  return getDb().prepare(`
+    SELECT
+      sp.*,
+      p.handle       AS author_handle,
+      p.display_name AS author_display_name,
+      la.agent_name  AS agent_name,
+      la.agent_slug  AS agent_slug
+    FROM social_posts sp
+    JOIN social_profiles p ON p.id = sp.profile_id
+    JOIN social_community_memberships scm
+      ON scm.profile_id = sp.profile_id AND scm.community_id = ?
+    LEFT JOIN social_linked_agents la ON la.id = sp.linked_agent_id
+    WHERE sp.visibility = 'public'
+    ORDER BY sp.created_at DESC
+    LIMIT ? OFFSET ?
+  `).all(communityId, limit, offset) as SocialPostWithAuthorRow[];
+}
+
+export function listJoinedCommunities(
+  profileId: string,
+  limit: number,
+): SocialCommunityMembershipRow[] {
+  return getDb().prepare(`
+    SELECT
+      sc.*,
+      p.handle       AS creator_handle,
+      p.display_name AS creator_display_name,
+      scm.joined_at  AS joined_at
+    FROM social_community_memberships scm
+    JOIN social_communities sc ON sc.id = scm.community_id
+    JOIN social_profiles p ON p.id = sc.creator_profile_id
+    WHERE scm.profile_id = ?
+    ORDER BY scm.joined_at DESC
+    LIMIT ?
+  `).all(profileId, limit) as SocialCommunityMembershipRow[];
+}
+
+// ─── Follower / following list queries ───────────────────────────────────────
+
+export function listFollowers(
+  profileId: string,
+  limit: number,
+  offset: number,
+): SocialProfileSummaryRow[] {
+  return getDb().prepare(`
+    SELECT
+      p.*,
+      la.agent_name  AS primary_agent_name,
+      la.agent_slug  AS primary_agent_slug,
+      la.link_state  AS primary_agent_link_state
+    FROM social_follows sf
+    JOIN social_profiles p ON p.id = sf.follower_profile_id
+    LEFT JOIN social_linked_agents la
+      ON la.profile_id = p.id AND la.is_primary = 1
+    WHERE sf.following_profile_id = ?
+    ORDER BY sf.created_at DESC
+    LIMIT ? OFFSET ?
+  `).all(profileId, limit, offset) as SocialProfileSummaryRow[];
+}
+
+export function listFollowing(
+  profileId: string,
+  limit: number,
+  offset: number,
+): SocialProfileSummaryRow[] {
+  return getDb().prepare(`
+    SELECT
+      p.*,
+      la.agent_name  AS primary_agent_name,
+      la.agent_slug  AS primary_agent_slug,
+      la.link_state  AS primary_agent_link_state
+    FROM social_follows sf
+    JOIN social_profiles p ON p.id = sf.following_profile_id
+    LEFT JOIN social_linked_agents la
+      ON la.profile_id = p.id AND la.is_primary = 1
+    WHERE sf.follower_profile_id = ?
+    ORDER BY sf.created_at DESC
+    LIMIT ? OFFSET ?
+  `).all(profileId, limit, offset) as SocialProfileSummaryRow[];
+}
+
 // ─── Longform queries ────────────────────────────────────────────────────────
 
 export function listSocialLongform(limit: number, offset: number): SocialLongformWithAuthorRow[] {

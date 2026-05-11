@@ -20,6 +20,10 @@ import {
   findSocialCommunityBySlug,
   insertSocialCommunity,
   insertCommunityMembership,
+  listCommunityFeedPosts,
+  listJoinedCommunities,
+  listFollowers,
+  listFollowing,
   listSocialLongform,
   insertSocialLongform,
   type SocialProfileRow,
@@ -27,6 +31,7 @@ import {
   type SocialLinkedAgentRow,
   type SocialPostWithAuthorRow,
   type SocialCommunityWithCreatorRow,
+  type SocialCommunityMembershipRow,
   type SocialLongformWithAuthorRow,
 } from '../db/index';
 
@@ -126,6 +131,13 @@ function communityToApi(c: SocialCommunityWithCreatorRow) {
   };
 }
 
+function communityMembershipToApi(c: SocialCommunityMembershipRow) {
+  return {
+    ...communityToApi(c),
+    joinedAt: c.joined_at,
+  };
+}
+
 function longformToApi(l: SocialLongformWithAuthorRow) {
   return {
     id: l.id,
@@ -209,6 +221,40 @@ socialRouter.get('/profiles/:handle/stats', (c) => {
   return c.json({ stats });
 });
 
+// ─── Public: follower / following lists ──────────────────────────────────────
+
+socialRouter.get('/profiles/:handle/followers', (c) => {
+  const handle = c.req.param('handle');
+  const limit = Math.min(Number(c.req.query('limit') ?? '20'), 100);
+  const cursor = Math.max(Number(c.req.query('cursor') ?? '0'), 0);
+  const profile = findSocialProfileByHandle(handle);
+  if (!profile) {
+    return c.json({ error: 'Profile not found', code: 'NOT_FOUND' }, 404);
+  }
+  const followers = listFollowers(profile.id, limit, cursor);
+  return c.json({
+    profile: profileToApi(profile),
+    followers: followers.map(profileSummaryToApi),
+    pageInfo: { limit, nextCursor: followers.length === limit ? String(cursor + limit) : null },
+  });
+});
+
+socialRouter.get('/profiles/:handle/following', (c) => {
+  const handle = c.req.param('handle');
+  const limit = Math.min(Number(c.req.query('limit') ?? '20'), 100);
+  const cursor = Math.max(Number(c.req.query('cursor') ?? '0'), 0);
+  const profile = findSocialProfileByHandle(handle);
+  if (!profile) {
+    return c.json({ error: 'Profile not found', code: 'NOT_FOUND' }, 404);
+  }
+  const following = listFollowing(profile.id, limit, cursor);
+  return c.json({
+    profile: profileToApi(profile),
+    following: following.map(profileSummaryToApi),
+    pageInfo: { limit, nextCursor: following.length === limit ? String(cursor + limit) : null },
+  });
+});
+
 // ─── Public: single profile ──────────────────────────────────────────────────
 
 socialRouter.get('/profiles/:handle', (c) => {
@@ -259,12 +305,46 @@ socialRouter.get('/feed/profile/:handle', (c) => {
   });
 });
 
+// ─── Public: community activity feed ─────────────────────────────────────────
+
+socialRouter.get('/feed/community/:slug', (c) => {
+  const slug = c.req.param('slug');
+  const limit = Math.min(Number(c.req.query('limit') ?? '20'), 100);
+  const cursor = Math.max(Number(c.req.query('cursor') ?? '0'), 0);
+  const community = findSocialCommunityBySlug(slug);
+  if (!community) {
+    return c.json({ error: 'Community not found', code: 'NOT_FOUND' }, 404);
+  }
+  const posts = listCommunityFeedPosts(community.id, limit, cursor);
+  return c.json({
+    community: communityToApi(community),
+    feed: posts.map(postToApi),
+    pageInfo: { limit, nextCursor: posts.length === limit ? String(cursor + limit) : null },
+  });
+});
+
 // ─── Public: communities ─────────────────────────────────────────────────────
 
 socialRouter.get('/communities', (c) => {
   const limit = Math.min(Number(c.req.query('limit') ?? '20'), 100);
   const communities = listSocialCommunities(limit);
   return c.json({ communities: communities.map(communityToApi) });
+});
+
+// ─── Authenticated: my joined communities ────────────────────────────────────
+// Note: must remain before any future GET /communities/:slug to prevent "mine"
+// from being swallowed by a slug param (Hono's radix router prefers literals,
+// but keeping the ordering explicit is safer).
+
+socialRouter.get('/communities/mine', requireSocialAuth, (c) => {
+  const clerkUserId = c.get('clerkUserId');
+  const limit = Math.min(Number(c.req.query('limit') ?? '20'), 100);
+  const profile = findSocialProfileByClerkId(clerkUserId);
+  if (!profile) {
+    return c.json({ error: 'No profile found', code: 'NOT_FOUND' }, 404);
+  }
+  const communities = listJoinedCommunities(profile.id, limit);
+  return c.json({ communities: communities.map(communityMembershipToApi) });
 });
 
 // ─── Public: longform ────────────────────────────────────────────────────────
