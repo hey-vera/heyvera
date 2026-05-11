@@ -192,9 +192,6 @@ function FeedEmpty() {
       </div>
       <p className="feed-empty-headline">The feed is quiet.</p>
       <p className="feed-empty-sub">Be the first to post on Vera.</p>
-      <p className="feed-empty-dev-hint">
-        Developer? Run <code>npm run seed:social</code> to populate sample data.
-      </p>
     </div>
   );
 }

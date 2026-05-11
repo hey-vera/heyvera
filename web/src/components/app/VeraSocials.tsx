@@ -1734,7 +1734,7 @@ function AccountCommunities({ handle }: { handle: string }) {
 
   return (
     <div className="account-section">
-      <h3 className="account-section-title">Your Communities</h3>
+      <h3 className="account-section-title">Communities You Created</h3>
       {loading ? (
         <div className="account-communities-list" aria-busy="true">
           {[1, 2].map((i) => (
@@ -1744,7 +1744,7 @@ function AccountCommunities({ handle }: { handle: string }) {
       ) : error ? (
         <p className="account-empty">Unable to load communities: {error}</p>
       ) : communities.length === 0 ? (
-        <p className="account-empty">No communities created yet.</p>
+        <p className="account-empty">You haven't created any communities yet.</p>
       ) : (
         <div className="account-communities-list">
           {communities.map((c) => (
@@ -1757,7 +1757,8 @@ function AccountCommunities({ handle }: { handle: string }) {
         </div>
       )}
       <p className="account-blocked-note">
-        Communities you join will appear here once membership tracking is live.
+        Communities you join will appear here once the membership API is live.
+        Only communities you created are shown above.
       </p>
     </div>
   );
