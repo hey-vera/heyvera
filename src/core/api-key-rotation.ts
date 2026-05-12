@@ -89,8 +89,8 @@ import {
   type CredentialBackend,
   type CredentialClass,
   type CredentialManifest,
-} from 'soma-heart/credential-rotation';
-import { getCryptoProvider } from 'soma-heart/crypto-provider';
+} from '../shims/soma-heart-credential-rotation';
+import { getCryptoProvider } from '../shims/soma-heart-crypto-provider';
 
 import { getDb } from '../db/index';
 import { decryptSecret, encryptSecret, nextSecretAad } from './vault-crypto';

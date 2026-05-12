@@ -50,7 +50,7 @@
  * it; the reviewer is the second gate.
  */
 
-import type { Credential } from 'soma-heart/credential-rotation';
+import type { Credential } from '../shims/soma-heart-credential-rotation';
 
 import { ClawNetApiKeyBackend } from './api-key-rotation';
 import { getDb } from '../db/index';

@@ -6,8 +6,6 @@ stack = "BEST_EFFORT_FALLBACK"
 [nix]
 channel = "stable-25_05"
 
-
-# Claude persistence (added by DATA Tools)
 packages = ["tmux"]
 
 [workflows]
@@ -66,31 +64,20 @@ externalPort = 3001
 
 [userenv.shared]
 PORT = "3000"
+CLAWNET_HEART_SECRET = "6hbupbxZsWVakMmGXCea0DT/csz2SYFCb7+euit9qwoLR4o1a/NydgSOxsn8fveO"
+CREDENTIAL_VAULT_KEK = "Yp5qIv6KPP85O+a7ejejMajtxOEDgdB1As2aXMlXmeo="
+DB_PATH = "./data/orchestrator.db"
 NODE_ENV = "development"
 LOG_LEVEL = "info"
 LLM_PROVIDER = "anthropic"
-ANTHROPIC_MODEL = "claude-sonnet-4-20250514"
-OPENAI_MODEL = "gpt-4o"
-OPENCLAW_API_URL = "http://localhost:3000"
+RATE_LIMIT_PER_MIN = "60"
 CACHE_TTL_SECONDS = "300"
 CACHE_MAX_MEMORY_ITEMS = "10000"
-RATE_LIMIT_PER_MIN = "60"
-DB_PATH = "./data/orchestrator.db"
-WEBAUTHN_RP_ID = "localhost"
-WEBAUTHN_RP_ORIGIN = "http://localhost:3000"
 MARKUP_PERCENT = "15"
+WEBAUTHN_RP_ID = "localhost"
 
 [deployment]
 deploymentTarget = "autoscale"
-run = ["node", "dist/index.js"]
-build = ["bash", "-c", "cd dashboard && npm install && npm run build && cd .. && npm run build"]
-
-
-# Claude persistence (added by DATA Tools)
-
-
-# Claude persistence (added by DATA Tools)
-
-
-# Claude persistence (added by DATA Tools)
+run = ["npm", "run", "start"]
+build = ["bash", "-c", "cd dashboard && npm run build && npm run build --prefix .. 2>/dev/null || true"]
 onBoot = "source /home/runner/workspace/.replit-tools/scripts/setup-claude-code.sh 2>/dev/null || true"
