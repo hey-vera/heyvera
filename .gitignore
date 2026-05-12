@@ -3,37 +3,6 @@ dist/
 data/
 .env
 *.log
-*.tsbuildinfo
-web/vite.config.d.ts
-web/vite.config.js
 .DS_Store
 # DATA Tools - All sensitive data in one place (added by DATA Tools)
 .replit-tools/
-.claude/hooks/usage-*.jsonl
-.claude/hooks/.budget-alerted
-.claude/hooks/.drift-warned
-.claude/reviews/
-
-# Dual-Brain Orchestrator
-.claude/hooks/usage.jsonl
-
-# Dual-Brain Orchestrator
-.claude/dual-brain.profile.json
-.claude/hooks/usage-summary-*.json
-.claude/hooks/decision-ledger.jsonl
-
-# Dual-Brain Orchestrator
-.claude/.launched
-
-# Dual-Brain Orchestrator
-.claude/dual-brain.memory.json
-
-# Dual-Brain Orchestrator
-.claude/dual-brain.version.json
-.claude/dual-brain.update-check.json
-.claude/dual-brain.permissions.json
-
-
-# Added by cargo
-
-/target
