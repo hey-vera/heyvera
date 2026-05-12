@@ -250,6 +250,7 @@ function InlineReplyCompose({
     <form className="feed-card-reply-compose" onSubmit={handleSubmit}>
       <textarea
         className="feed-card-reply-compose-input"
+        aria-label="Write a reply"
         placeholder="Write a reply..."
         value={body}
         onChange={(e) => setBody(e.target.value)}
@@ -340,6 +341,7 @@ export function PublicFeed() {
             className={`feed-filter-chip${f === effectiveActive ? " feed-filter-chip-active" : ""}`}
             onClick={() => setActive(f)}
             type="button"
+            aria-pressed={f === effectiveActive}
           >
             {f}
           </button>

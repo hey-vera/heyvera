@@ -140,6 +140,21 @@ function SocialHomeHeader({
           ? "Public network preview"
           : "Live public surface";
 
+  if (shellState === "ready") {
+    return (
+      <div className="social-home-appbar">
+        <div>
+          <p className="social-home-kicker">Home</p>
+          <h1 className="social-home-appbar-title">For You</h1>
+        </div>
+        <div className="social-home-appbar-status" aria-label="Network status">
+          <span className="social-home-status-dot" aria-hidden="true" />
+          <span>{statusLabel}</span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="social-home-hero">
       <div className="social-home-hero-copy">
@@ -2387,10 +2402,12 @@ export function VeraSocials({ shellState }: VeraSocialsProps) {
                 viewerLabel={resolvedViewerLabel}
                 linkedAgentCount={linkedAgents.length}
               />
-              <SocialComposePrompt
-                shellState={shellState}
-                viewerLabel={resolvedViewerLabel}
-              />
+              {!showReady && (
+                <SocialComposePrompt
+                  shellState={shellState}
+                  viewerLabel={resolvedViewerLabel}
+                />
+              )}
             </>
           ) : (
             renderIntro()
@@ -2421,7 +2438,7 @@ export function VeraSocials({ shellState }: VeraSocialsProps) {
               ))}
             </div>
           ) : (
-            <nav className="region-subnav vera-socials-subnav" aria-label="Vera Socials sections">
+            <nav className="region-subnav vera-socials-subnav" role="tablist" aria-label="Vera Socials sections">
               {TAB_DEFS.filter((t) => !t.requiresReady || shellState === "ready").map(({ key, label }) => (
                 <button
                   key={key}
