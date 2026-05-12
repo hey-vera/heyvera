@@ -17,7 +17,10 @@ export function getHeart(): HeartRuntime {
 
 export async function initSomaHeart(): Promise<void> {
   const secret = process.env.CLAWNET_HEART_SECRET;
-  if (!secret) throw new Error('CLAWNET_HEART_SECRET env var is required to initialize the Soma heart');
+  if (!secret) {
+    logger.warn('CLAWNET_HEART_SECRET not set — Soma heart disabled (identity features unavailable)');
+    return;
+  }
 
   const heartPath = process.env.CLAWNET_HEART_PATH ?? DEFAULT_HEART_PATH;
 
