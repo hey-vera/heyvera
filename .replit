@@ -8,7 +8,6 @@ channel = "stable-25_05"
 
 
 # Claude persistence (added by DATA Tools)
-onBoot = "source /home/runner/workspace/.replit-tools/scripts/setup-claude-code.sh 2>/dev/null || true"
 packages = ["tmux"]
 
 [workflows]
@@ -52,12 +51,16 @@ args = "npm run dev"
 waitForPort = 3000
 
 [[ports]]
+localPort = 3000
+externalPort = 3000
+
+[[ports]]
 localPort = 5000
 externalPort = 80
 
 [[ports]]
-localPort = 3000
-externalPort = 3000
+localPort = 5001
+externalPort = 3001
 
 [userenv]
 
@@ -81,3 +84,13 @@ MARKUP_PERCENT = "15"
 deploymentTarget = "autoscale"
 run = ["node", "dist/index.js"]
 build = ["bash", "-c", "cd dashboard && npm install && npm run build && cd .. && npm run build"]
+
+
+# Claude persistence (added by DATA Tools)
+
+
+# Claude persistence (added by DATA Tools)
+
+
+# Claude persistence (added by DATA Tools)
+onBoot = "source /home/runner/workspace/.replit-tools/scripts/setup-claude-code.sh 2>/dev/null || true"
