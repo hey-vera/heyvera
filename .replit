@@ -9,6 +9,7 @@ channel = "stable-25_05"
 
 # Claude persistence (added by DATA Tools)
 onBoot = "source /home/runner/workspace/.replit-tools/scripts/setup-claude-code.sh 2>/dev/null || true"
+packages = ["tmux"]
 
 [workflows]
 runButton = "Project"
