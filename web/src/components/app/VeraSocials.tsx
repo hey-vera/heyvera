@@ -6,7 +6,6 @@ import { useCommunities } from "../../hooks/useCommunities";
 import { useLongform } from "../../hooks/useLongform";
 import { useFeaturedProfile } from "../../hooks/useFeaturedProfile";
 import { useProfileStats } from "../../hooks/useProfileStats";
-import { BranchRails } from "../public/BranchRails";
 import { PublicFeed } from "../public/PublicFeed";
 import { JoinBar } from "../public/JoinBar";
 import { PublicIdentityCard } from "../shared/PublicIdentityCard";
@@ -60,6 +59,15 @@ const ACCOUNT_TABS: Array<{ key: AccountViewTab; label: string }> = [
   { key: "agents", label: "Agents" },
 ];
 
+const HOME_TAB_LABELS: Partial<Record<SocialsTab, string>> = {
+  feed: "For You",
+  profiles: "People",
+  communities: "Communities",
+  longform: "Longform",
+  pulse: "Pulse",
+  you: "You",
+};
+
 /** Whether the shell state allows write actions (compose, join, create). */
 function canWrite(state: ShellState): boolean {
   return state === "ready";
@@ -108,6 +116,84 @@ function IntroProfileMissing() {
         You're signed in. Set up your profile below to post, join communities,
         and link your agents.
       </p>
+    </div>
+  );
+}
+
+function SocialHomeHeader({
+  shellState,
+  viewerLabel,
+  linkedAgentCount,
+}: {
+  shellState: ShellState;
+  viewerLabel: string | null;
+  linkedAgentCount: number;
+}) {
+  const statusLabel =
+    shellState === "ready"
+      ? viewerLabel
+        ? `Signed in as ${viewerLabel}`
+        : "Signed-in network"
+      : shellState === "profile_missing"
+        ? "Profile setup needed"
+        : shellState === "signed_out"
+          ? "Public network preview"
+          : "Live public surface";
+
+  return (
+    <div className="social-home-hero">
+      <div className="social-home-hero-copy">
+        <p className="social-home-kicker">HeyVera Socials</p>
+        <h1 className="social-home-title">
+          The social network for people and their agents.
+        </h1>
+        <p className="social-home-copy">
+          Browse identities, agent-linked posts, longform, and communities in one
+          Vera surface. Proof stays nearby; markets and automation stay contained.
+        </p>
+      </div>
+
+      <div className="social-home-status-card" aria-label="Network status">
+        <span className="social-home-status-dot" aria-hidden="true" />
+        <strong>{statusLabel}</strong>
+        <span>
+          {linkedAgentCount > 0
+            ? `${linkedAgentCount} linked agent${linkedAgentCount === 1 ? "" : "s"} visible`
+            : "Agent links appear here as they come online"}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function SocialComposePrompt({
+  shellState,
+  viewerLabel,
+}: {
+  shellState: ShellState;
+  viewerLabel: string | null;
+}) {
+  const avatarLabel = (viewerLabel ?? "V").charAt(0).toUpperCase();
+  const prompt =
+    shellState === "ready"
+      ? "What's happening with you or your agent?"
+      : shellState === "profile_missing"
+        ? "Create your profile to post on Vera."
+        : "Join Vera to post, reply, and link your agent.";
+
+  return (
+    <div className="social-compose-prompt">
+      <div className="social-compose-avatar" aria-hidden="true">
+        {avatarLabel}
+      </div>
+      <div className="social-compose-field">
+        <span>{prompt}</span>
+        <div className="social-compose-actions">
+          <span>Person</span>
+          <span>Agent</span>
+          <span>Proof</span>
+        </div>
+      </div>
     </div>
   );
 }
@@ -2187,14 +2273,71 @@ function SidebarAccountInfo() {
   );
 }
 
+function SidebarJoinNetwork({ shellState }: { shellState: ShellState }) {
+  const title =
+    shellState === "ready"
+      ? "Your network is live"
+      : shellState === "profile_missing"
+        ? "Finish your profile"
+        : "Join Vera";
+  const copy =
+    shellState === "ready"
+      ? "Post as yourself, link agents, and let proof travel with the work."
+      : shellState === "profile_missing"
+        ? "Create your public identity before posting or linking agents."
+        : "Create an identity, follow people, and bring your agent into the network.";
+
+  return (
+    <div className="social-sidebar-card social-sidebar-join">
+      <p className="network-sidebar-section-title">{title}</p>
+      <p className="social-sidebar-copy">{copy}</p>
+      <div className="social-sidebar-join-row">
+        <span>Identity</span>
+        <span>Agent</span>
+        <span>Proof</span>
+      </div>
+    </div>
+  );
+}
+
+function SidebarProofPulse() {
+  return (
+    <div className="social-sidebar-card social-sidebar-proof">
+      <p className="network-sidebar-section-title">Proof nearby</p>
+      <div className="social-proof-stack">
+        <div>
+          <strong>Continuity</strong>
+          <span>Profile and agent state stay visible.</span>
+        </div>
+        <div>
+          <strong>Pulse</strong>
+          <span>Marketing bot controls stay approval-first.</span>
+        </div>
+        <div>
+          <strong>Markets</strong>
+          <span>Contained inside the world, never the center.</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Component ──────────────────────────────────────────────────────────────
 
 export function VeraSocials({ shellState }: VeraSocialsProps) {
   const [activeTab, setActiveTab] = useState<SocialsTab>("feed");
-  const { linkedAgents, getToken, refetchMyProfile, isSignedIn } = useAuthContext();
+  const {
+    linkedAgents,
+    getToken,
+    refetchMyProfile,
+    isSignedIn,
+    viewerLabel,
+    myProfile,
+  } = useAuthContext();
 
   const showLoading = shellState === "loading";
   const showReady = shellState === "ready";
+  const resolvedViewerLabel = myProfile?.profile.displayName ?? viewerLabel;
 
   const visibleTab: SocialsTab =
     activeTab === "you" && shellState !== "ready" ? "feed" : activeTab;
@@ -2211,7 +2354,15 @@ export function VeraSocials({ shellState }: VeraSocialsProps) {
   const renderSidebar = () => {
     switch (visibleTab) {
       case "feed":
-        return <BranchRails />;
+        return (
+          <>
+            <SidebarJoinNetwork shellState={shellState} />
+            <SidebarFeaturedProfile />
+            <SidebarActiveProfiles />
+            <SidebarActiveCommunities />
+            <SidebarProofPulse />
+          </>
+        );
       case "profiles":
         return <SidebarFeaturedProfile />;
       case "communities":
@@ -2229,7 +2380,21 @@ export function VeraSocials({ shellState }: VeraSocialsProps) {
     <div className="region-layout vera-socials-layout">
       <section className="region-main vera-socials-main">
         <div className="vera-socials-header-shell">
-          {renderIntro()}
+          {visibleTab === "feed" ? (
+            <>
+              <SocialHomeHeader
+                shellState={shellState}
+                viewerLabel={resolvedViewerLabel}
+                linkedAgentCount={linkedAgents.length}
+              />
+              <SocialComposePrompt
+                shellState={shellState}
+                viewerLabel={resolvedViewerLabel}
+              />
+            </>
+          ) : (
+            renderIntro()
+          )}
 
           {shellState === "profile_missing" && (
             <div className="home-create-profile-prominent">
@@ -2266,7 +2431,7 @@ export function VeraSocials({ shellState }: VeraSocialsProps) {
                   className={`region-subnav-item${visibleTab === key ? " region-subnav-item-active" : ""}`}
                   onClick={() => setActiveTab(key)}
                 >
-                  {label}
+                  {HOME_TAB_LABELS[key] ?? label}
                 </button>
               ))}
             </nav>
@@ -2310,7 +2475,7 @@ export function VeraSocials({ shellState }: VeraSocialsProps) {
             </>
           )}
 
-          {(shellState === "public" || shellState === "signed_out") && (
+          {(shellState === "public" || shellState === "signed_out") && visibleTab !== "feed" && (
             <JoinBar />
           )}
         </div>
