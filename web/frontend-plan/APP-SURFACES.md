@@ -3,9 +3,9 @@
 This file defines the long-run HeyVera signed-in shape.
 
 Important:
-- this is future-planning context
-- this is not the current build target
-- use it to keep the public site aligned with the later product
+- this is both future-planning context and current shell direction
+- the signed-in shell baseline already exists
+- use it to keep the public site and app shell aligned as one product
 
 ## Main Principle
 
@@ -22,15 +22,15 @@ It should not become:
 
 The long-run shell should converge around these regions:
 
-1. `Work`
-2. `Network`
-3. `Discover`
-4. `Proof`
-5. `Identity`
+1. `Home`
+2. `Identity`
+3. `Work`
+4. `Network`
+5. `Proof`
 6. `Markets`
 
 Optional:
-- `Home` as an overview state or default landing state
+- `Discover` as a later browsing lens if it earns its place
 
 ## What Each Region Means
 
@@ -83,6 +83,12 @@ Purpose:
 
 This is where old account/dashboard truth lands.
 
+Identity Lite:
+- show real account and profile state
+- show linked agents and proof/continuity labels already returned by the API
+- make missing credential, recovery, delegation, and ceremony contracts explicit
+- feel like authority and continuity, not a generic settings page
+
 ### Markets
 
 Purpose:
@@ -110,11 +116,10 @@ Mobile:
 Build priority later:
 1. Shell overview
 2. Identity Lite
-3. Work Lite
+3. Work or Agent Lite
 4. Proof shell
-5. Network shell
-6. Discover shell
-7. Markets shell
+5. Network depth
+6. Markets shell
 
 ## Mapping Old Surfaces
 
@@ -142,5 +147,6 @@ The app should always feel like:
 ## Current Status
 
 For now:
-- use this file to avoid future drift
-- do not let it distract from the public-site build
+- public site work still matters
+- signed-in shell work is active now
+- Identity Lite is the next honest signed-in step

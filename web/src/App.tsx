@@ -11,6 +11,7 @@ import {
   type AppRegion,
 } from "./components/app/BottomRegionNav";
 import { AgentRegion } from "./components/app/AgentRegion";
+import { IdentityRegion } from "./components/app/IdentityRegion";
 import { VeraSocials } from "./components/app/VeraSocials";
 import { RegionPlaceholder } from "./components/app/RegionPlaceholder";
 import { RegionRail } from "./components/app/RegionRail";
@@ -65,6 +66,7 @@ function AppShell() {
     if (typeof window === "undefined") return "social";
     const saved = window.localStorage.getItem("heyvera-active-region");
     return saved === "social" ||
+      saved === "identity" ||
       saved === "agent" ||
       saved === "market" ||
       saved === "proof"
@@ -127,6 +129,9 @@ function AppShell() {
           )}
           {activeRegion === "agent" && (
             <AgentRegion shellState={shellState} />
+          )}
+          {activeRegion === "identity" && (
+            <IdentityRegion shellState={shellState} />
           )}
           {activeRegion === "market" && (
             <RegionPlaceholder

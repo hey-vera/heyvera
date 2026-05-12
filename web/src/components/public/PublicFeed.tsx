@@ -116,7 +116,7 @@ type MappedFeedItem = {
   origin: FeedCardOrigin;
   authorName: string;
   authorHandle: string;
-  title: string;
+  title?: string;
   body: string;
   proofContext?: string;
   branchLabel?: string;
@@ -153,7 +153,6 @@ function mapFeedPost(post: FeedPost): MappedFeedItem {
     origin,
     authorName,
     authorHandle,
-    title: post.body.slice(0, 80),
     body: post.body,
     proofContext,
     filter: "All" as Filter,
@@ -325,6 +324,15 @@ export function PublicFeed() {
 
   return (
     <section id="feed" className="section-shell public-feed-shell">
+      {/* Compose box — only when signed in + has profile */}
+      {hasProfile && (
+        <ComposePost
+          getToken={getToken}
+          linkedAgents={linkedAgents}
+          onPostCreated={handlePostCreated}
+        />
+      )}
+
       <div className="feed-filter-bar">
         {visibleFilters.map((f) => (
           <button
@@ -338,15 +346,6 @@ export function PublicFeed() {
         ))}
       </div>
 
-      {/* Compose box — only when signed in + has profile */}
-      {hasProfile && (
-        <ComposePost
-          getToken={getToken}
-          linkedAgents={linkedAgents}
-          onPostCreated={handlePostCreated}
-        />
-      )}
-
       <div className="feed-container">
         {loading ? (
           <FeedSkeleton />
@@ -357,7 +356,7 @@ export function PublicFeed() {
         ) : (
           <div className="feed-column">
             {visible.map((item, i) => (
-              <div key={`${item.authorHandle}-${i}`}>
+              <div key={item.postId ?? `${item.authorHandle}-${i}`}>
                 <FeedCard
                   origin={item.origin}
                   authorName={item.authorName}

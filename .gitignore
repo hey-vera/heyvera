@@ -3,4 +3,9 @@ dist/
 data/
 .env
 *.log
+*.tsbuildinfo
+web/vite.config.d.ts
+web/vite.config.js
 .DS_Store
+# DATA Tools - All sensitive data in one place (added by DATA Tools)
+.replit-tools/

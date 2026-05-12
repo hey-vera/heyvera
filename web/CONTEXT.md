@@ -5,13 +5,15 @@ public site without inventing product truth.
 
 ## Big Picture
 
-HeyVera is building sovereign AI agents.
+HeyVera is the human-facing product surface for a sovereign intelligence
+system.
 
 Core truth:
-- the user should own their AI
-- the agent should have continuity, not session amnesia
-- Vera improves agents through shared intelligence
-- Soma is the continuity, identity, authority, and proof substrate
+- Soma is the sovereign trust and continuity substrate
+- Vera is the shared intelligence layer
+- HeyVera is the visible product shell people actually use
+- the user should own their AI relationship, not rent a stateless assistant
+- the agent should have continuity, identity, authority, and proof nearby
 
 Short version:
 
@@ -27,9 +29,15 @@ Public mode now:
 - explains the worldview
 - previews the shape of the future surface
 
-Signed-in mode later:
+Signed-in mode now:
+- the shell baseline exists
+- Home and Network-oriented social surfaces are active
+- Agent, Market, and Proof remain honest placeholders
+- Identity Lite is the next real signed-in step
+
+Signed-in mode over time:
 - the deeper working surface
-- user, agent, proof, network, and market regions
+- Home, Identity, Work or Agent, Network, Proof, and Markets regions
 
 This means the public site should feel like the front door to a larger
 system, not a throwaway brochure.
@@ -64,10 +72,13 @@ HeyVera is:
 ## Day 0 Truth
 
 Stay aligned with current reality:
-- the public site is the first deliverable
+- the public site still matters as the front door
+- signed-in shell work is active product truth
 - the product is early, serious, and being built now
 - the public site can preview the future shape
-- the public site must not overclaim fully shipped deep app regions
+- the frontend must not overclaim fully shipped deep app regions
+- Identity Lite can show profile, linked-agent, credential, and ceremony state
+  that exists today while labeling blocked upstream truth honestly
 
 Good claims:
 - own your AI agent

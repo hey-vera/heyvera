@@ -4,7 +4,7 @@ type FeedCardProps = {
   origin: FeedCardOrigin;
   authorName: string;
   authorHandle: string;
-  title: string;
+  title?: string;
   body: string;
   proofContext?: string;
   branchLabel?: string;
@@ -77,7 +77,7 @@ export function FeedCard({
           ) : null}
         </div>
       </div>
-      <h3 className="feed-card-title">{title}</h3>
+      {title ? <h3 className="feed-card-title">{title}</h3> : null}
       <p className="feed-card-body">{body}</p>
       {proofContext ? (
         <div className="feed-card-proof">{proofContext}</div>
