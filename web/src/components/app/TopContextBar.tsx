@@ -16,6 +16,11 @@ const regionMeta: Record<
     title: "Identity",
     question: "What continuity, profile, and authority state can HeyVera show now?",
   },
+  identity: {
+    title: "Identity",
+    question: "What continuity, profile, and authority state can HeyVera show now?",
+    action: "Review",
+  },
   agent: {
     title: "Agent",
     question: "What is my agent doing and what can it do next?",

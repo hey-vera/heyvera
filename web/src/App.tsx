@@ -1,4 +1,4 @@
-import { Component, useState } from "react";
+import { Component, useEffect, useState } from "react";
 import type { ErrorInfo, ReactNode } from "react";
 import { ApiErrorBanner } from "./components/shared/ApiErrorBanner";
 import { PageShell } from "./components/layout/PageShell";
@@ -12,7 +12,6 @@ import {
 } from "./components/app/BottomRegionNav";
 import { AgentRegion } from "./components/app/AgentRegion";
 import { IdentityRegion } from "./components/app/IdentityRegion";
-import { ProofRegion } from "./components/app/ProofRegion";
 import { VeraSocials } from "./components/app/VeraSocials";
 import { RegionPlaceholder } from "./components/app/RegionPlaceholder";
 import { RegionRail } from "./components/app/RegionRail";
@@ -63,7 +62,17 @@ class RegionErrorBoundary extends Component<
 }
 
 function AppShell() {
-  const [activeRegion, setActiveRegion] = useState<AppRegion>("social");
+  const [activeRegion, setActiveRegion] = useState<AppRegion>(() => {
+    if (typeof window === "undefined") return "social";
+    const saved = window.localStorage.getItem("heyvera-active-region");
+    return saved === "social" ||
+      saved === "identity" ||
+      saved === "agent" ||
+      saved === "market" ||
+      saved === "proof"
+      ? saved
+      : "social";
+  });
   const { isFallback, recoveryCount, isRechecking } = useFallbackDetector();
   const {
     authEnabled,
@@ -80,6 +89,10 @@ function AppShell() {
     myProfileNotFound,
     hasProfile: !!myProfile,
   });
+
+  useEffect(() => {
+    window.localStorage.setItem("heyvera-active-region", activeRegion);
+  }, [activeRegion]);
 
   return (
     <PageShell>
@@ -102,6 +115,12 @@ function AppShell() {
           activeRegion={activeRegion}
           shellState={shellState}
           viewerLabel={myProfile?.profile.displayName ?? viewerLabel}
+          onPrimaryAction={() => {
+            if (activeRegion === "social") {
+              const feed = document.getElementById("feed");
+              feed?.scrollIntoView({ behavior: "smooth", block: "start" });
+            }
+          }}
         />
 
         <RegionErrorBoundary key={`${activeRegion}-${recoveryCount}`}>
@@ -118,7 +137,7 @@ function AppShell() {
             <RegionPlaceholder
               region="market"
               title="Market needs real launch, work, package, and bounty contracts."
-              intro="The region shape is clear, but trust-pool participation and marketplace behavior are not live here yet. This stays an honest scaffold until Vera and Soma lock the primitives."
+              intro="The region shape is clear, but we are not going to fake trust-pool participation or marketplace behavior. This stays an honest scaffold until Vera and Soma lock the primitives."
               sections={[
                 {
                   label: "Ready now",
@@ -141,7 +160,30 @@ function AppShell() {
             />
           )}
           {activeRegion === "proof" && (
-            <ProofRegion shellState={shellState} />
+            <RegionPlaceholder
+              region="proof"
+              title="Proof is the legibility layer, but the substrate truth still belongs upstream."
+              intro="This region will hold trust weather, lineage, growth, and archive views. We can scaffold the drawer patterns now, but the real proof objects need Soma contracts."
+              sections={[
+                {
+                  label: "Ready now",
+                  items: [
+                    "Proof region shell",
+                    "Overview, Lineage, Trust, Growth, and Archive nav",
+                    "View-proof entry patterns",
+                  ],
+                },
+                {
+                  label: "Blocked on Soma",
+                  items: [
+                    "Proof snapshots and verification layers",
+                    "Continuity and trust history",
+                    "Recovery-linked trust states",
+                    "RootWeave and archive data surfaces",
+                  ],
+                },
+              ]}
+            />
           )}
         </RegionErrorBoundary>
       </main>
