@@ -3483,6 +3483,335 @@ html.dark .home-create-profile-prominent {
   background: var(--accent-surface);
 }
 
+/* ─── Identity Lite region ─── */
+
+.identity-region {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.identity-hero {
+  position: relative;
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 240px;
+  gap: 22px;
+  align-items: stretch;
+  padding: 22px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background:
+    linear-gradient(135deg, var(--bg-raised), var(--bg) 58%),
+    radial-gradient(circle at 86% 18%, var(--accent-surface), transparent 34%);
+}
+
+.identity-hero-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 760px;
+}
+
+.identity-hero-title {
+  font-size: clamp(1.55rem, 2.5vw, 2.35rem);
+  line-height: 1.08;
+}
+
+.identity-hero-text {
+  max-width: 58rem;
+  color: var(--text-muted);
+  line-height: 1.65;
+}
+
+.identity-continuity-orb {
+  position: relative;
+  min-height: 180px;
+  border: 1px solid var(--accent-border);
+  border-radius: 16px;
+  background:
+    linear-gradient(180deg, var(--accent-surface), transparent),
+    var(--bg);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 4px;
+  padding: 18px;
+  isolation: isolate;
+}
+
+.identity-continuity-ring {
+  position: absolute;
+  inset: 24px 28px auto auto;
+  width: 92px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  border: 1px solid var(--accent-border);
+  box-shadow: inset 0 0 0 14px var(--accent-surface);
+  opacity: 0.82;
+  z-index: -1;
+}
+
+.identity-continuity-orb strong {
+  font-size: 1rem;
+}
+
+.identity-continuity-orb span:not(.identity-continuity-ring) {
+  color: var(--text-soft);
+  font-size: 0.82rem;
+}
+
+.identity-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.identity-card {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg-raised);
+  padding: 16px;
+}
+
+.identity-profile-card,
+.identity-agents-card {
+  min-height: 260px;
+}
+
+.identity-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.identity-status-pill,
+.identity-muted-pill {
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 9px;
+  color: var(--text-soft);
+  font-size: 0.74rem;
+  line-height: 1;
+}
+
+.identity-status-ready,
+.identity-status-profile_missing {
+  border-color: var(--accent-border);
+  color: var(--accent);
+  background: var(--accent-surface);
+}
+
+.identity-profile-lockup {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  margin-bottom: 12px;
+}
+
+.identity-avatar,
+.identity-agent-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: 1px solid var(--accent-border);
+  background: var(--accent-surface);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.identity-avatar {
+  width: 58px;
+  height: 58px;
+  border-radius: 16px;
+  font-size: 1.2rem;
+}
+
+.identity-profile-name {
+  font-size: 1.35rem;
+  line-height: 1.15;
+}
+
+.identity-profile-handle,
+.identity-profile-bio,
+.identity-empty,
+.identity-credential-row p,
+.identity-ceremony-stack p {
+  color: var(--text-muted);
+}
+
+.identity-profile-handle {
+  font-size: 0.9rem;
+}
+
+.identity-profile-bio {
+  line-height: 1.6;
+  margin-bottom: 16px;
+}
+
+.identity-fact-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.identity-fact-grid div {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 11px;
+  background: var(--bg);
+}
+
+.identity-fact-grid dt {
+  margin-bottom: 4px;
+  color: var(--text-soft);
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.identity-fact-grid dd {
+  margin: 0;
+  font-size: 0.9rem;
+  text-transform: capitalize;
+}
+
+.identity-empty {
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  line-height: 1.55;
+}
+
+.identity-empty-strong {
+  border-color: var(--accent-border);
+  background: var(--accent-surface);
+}
+
+.identity-credential-list,
+.identity-agent-list,
+.identity-ceremony-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.identity-credential-row {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.identity-credential-row:last-child {
+  border-bottom: 0;
+}
+
+.identity-credential-dot {
+  width: 9px;
+  height: 9px;
+  margin-top: 5px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.identity-credential-dot-live {
+  border-color: var(--accent-border);
+  background: var(--accent);
+}
+
+.identity-credential-row strong,
+.identity-ceremony-stack strong {
+  display: block;
+  margin-bottom: 3px;
+  font-size: 0.9rem;
+}
+
+.identity-credential-row p,
+.identity-ceremony-stack p {
+  margin: 0;
+  font-size: 0.83rem;
+  line-height: 1.5;
+}
+
+.identity-agent-row {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg);
+}
+
+.identity-agent-mark {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+}
+
+.identity-agent-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.identity-agent-copy span,
+.identity-agent-state {
+  color: var(--text-soft);
+  font-size: 0.78rem;
+}
+
+.identity-agent-state {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px 8px;
+  white-space: nowrap;
+}
+
+.identity-ceremony-card {
+  background:
+    linear-gradient(180deg, var(--accent-surface), transparent 64%),
+    var(--bg-raised);
+}
+
+@media (max-width: 980px) {
+  .identity-hero,
+  .identity-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .identity-continuity-orb {
+    min-height: 132px;
+  }
+}
+
+@media (max-width: 560px) {
+  .identity-hero,
+  .identity-card {
+    padding: 14px;
+  }
+
+  .identity-fact-grid,
+  .identity-agent-row {
+    grid-template-columns: 1fr;
+  }
+
+  .identity-agent-mark {
+    display: none;
+  }
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════ */
 /* Agent region                                                              */
 /* ═══════════════════════════════════════════════════════════════════════════ */

@@ -29,21 +29,27 @@ For actual packet implementation with a local coding model:
 
 ## Project Type
 
-`web/` is the current public mode of the HeyVera surface.
+`web/` is the current frontend product surface for HeyVera.
 
 Today:
-- it is a public-facing landing experience
+- it includes the public-facing front door at `heyvera.org`
+- it includes the signed-in shell baseline
+- `Home`/Network-oriented social surfaces and the shell are active product truth
+- `Identity Lite` is the next real signed-in step
+- `Agent`, `Market`, and `Proof` can remain honest placeholders until their contracts are real
 - it is a static frontend app
 - it should explain the product and establish the visual language
 
 Not today:
-- it is not the signed-in app shell yet
 - it is not a backend app
 - it is not an admin dashboard
+- it is not a crypto-first shell
+- it should not pretend incomplete Soma-native credentials, markets, or proof contracts are live
 
 Important nuance:
-- the public site should feel related to the future signed-in product
-- do not design it like an isolated brochure that ignores the later app
+- the public site and signed-in shell are one HeyVera surface
+- do not design the public site like an isolated brochure that ignores the app
+- do not let older ClawNet lineage become the future-facing frontend identity
 
 ## Stack
 
@@ -61,6 +67,7 @@ Build a public HeyVera surface that makes people feel:
 - this is not generic AI SaaS
 - this is not a crypto casino
 - this has a clear future shape beyond one marketing page
+- this can grow into identity, work, proof, network, and markets without fragmenting
 
 ## Product Guardrails
 
@@ -69,6 +76,7 @@ Stay aligned with the current vision:
 - Vera is the shared intelligence fabric
 - Soma is the continuity, identity, and authority substrate
 - the long-run product is one living surface with multiple regions
+- the signed-in direction is your agent first, proof nearby, network additive, markets contained
 - crypto is a proving-ground region, not the center of the product
 - offline-first local truth and online-shared legitimacy both matter
 

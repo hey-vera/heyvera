@@ -1,4 +1,4 @@
-export type AppRegion = "social" | "agent" | "market" | "proof";
+export type AppRegion = "social" | "identity" | "agent" | "market" | "proof";
 
 type RegionDef = {
   id: AppRegion;
@@ -7,6 +7,7 @@ type RegionDef = {
 
 const regions: RegionDef[] = [
   { id: "social", label: "Vera Socials" },
+  { id: "identity", label: "Identity" },
   { id: "agent", label: "Agent" },
   { id: "market", label: "Market" },
   { id: "proof", label: "Proof" },

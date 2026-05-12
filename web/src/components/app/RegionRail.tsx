@@ -5,6 +5,7 @@ import type { ShellState } from "../../hooks/useShellState";
 
 const regionDefs: Array<{ id: AppRegion; label: string; detail: string }> = [
   { id: "social", label: "Vera Socials", detail: "Social layer" },
+  { id: "identity", label: "Identity", detail: "Continuity state" },
   { id: "agent", label: "Agent", detail: "Quiet work mode" },
   { id: "market", label: "Market", detail: "Launches and work" },
   { id: "proof", label: "Proof", detail: "Trust and lineage" },
