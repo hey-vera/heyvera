@@ -6001,6 +6001,16 @@ html.dark .account-dark-toggle-thumb {
     radial-gradient(circle at 92% 12%, var(--accent-surface), transparent 38%);
 }
 
+.social-home-appbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 15px 18px 13px;
+  border-bottom: 1px solid var(--border);
+  background: var(--nav-bg);
+}
+
 .social-home-hero-copy {
   display: flex;
   min-width: 0;
@@ -6020,6 +6030,11 @@ html.dark .account-dark-toggle-thumb {
   max-width: 34rem;
   font-size: clamp(1.45rem, 2.4vw, 2.12rem);
   line-height: 1.08;
+}
+
+.social-home-appbar-title {
+  font-size: 1.28rem;
+  line-height: 1.1;
 }
 
 .social-home-copy {
@@ -6060,6 +6075,23 @@ html.dark .account-dark-toggle-thumb {
   color: var(--text-soft);
   font-size: 0.78rem;
   line-height: 1.4;
+}
+
+.social-home-appbar-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  max-width: 52%;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.social-home-appbar-status .social-home-status-dot {
+  width: 8px;
+  height: 8px;
+  margin-bottom: 0;
+  box-shadow: 0 0 0 5px var(--accent-surface);
+  flex-shrink: 0;
 }
 
 .social-compose-prompt {
@@ -6124,11 +6156,24 @@ html.dark .account-dark-toggle-thumb {
   padding: 14px 12px 13px;
   border-bottom-width: 3px;
   text-align: center;
+  transition:
+    background 150ms ease,
+    color 150ms ease,
+    border-color 150ms ease;
 }
 
 .vera-socials-subnav .region-subnav-item-active {
   border-color: var(--accent);
   background: color-mix(in srgb, var(--accent-surface) 46%, transparent);
+}
+
+.vera-socials-subnav .region-subnav-item:focus-visible,
+.feed-filter-chip:focus-visible,
+.feed-card-reply-action:focus-visible,
+.compose-post-select:focus-visible,
+.compose-post-submit:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .public-feed-shell {
@@ -6146,6 +6191,12 @@ html.dark .account-dark-toggle-thumb {
   border-bottom: 1px solid var(--border);
   overflow-x: auto;
   flex-wrap: nowrap;
+  scrollbar-width: none;
+}
+
+.feed-filter-bar::-webkit-scrollbar,
+.vera-socials-subnav::-webkit-scrollbar {
+  display: none;
 }
 
 .feed-filter-chip {
@@ -6170,8 +6221,13 @@ html.dark .account-dark-toggle-thumb {
   background: var(--bg);
 }
 
+.feed-column > div:last-child .feed-card {
+  border-bottom: 0;
+}
+
 .feed-card {
   padding: 16px 18px;
+  position: relative;
 }
 
 .feed-card-author-prominent {
@@ -6197,7 +6253,8 @@ html.dark .account-dark-toggle-thumb {
 .feed-card-header-chips {
   margin-left: auto;
   justify-content: flex-end;
-  max-width: 48%;
+  max-width: min(52%, 320px);
+  min-width: 0;
 }
 
 .feed-card-title {
@@ -6210,6 +6267,7 @@ html.dark .account-dark-toggle-thumb {
   color: var(--text-primary);
   font-size: 0.96rem;
   line-height: 1.58;
+  overflow-wrap: anywhere;
 }
 
 .feed-card-proof {
@@ -6220,6 +6278,19 @@ html.dark .account-dark-toggle-thumb {
   margin-left: 40px;
   border-top: 0;
   padding-top: 2px;
+  justify-content: flex-start;
+}
+
+.feed-card-reply-action {
+  min-height: 30px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  color: var(--text-muted);
+}
+
+.feed-card-reply-action:hover {
+  background: var(--accent-surface);
+  color: var(--text-primary);
 }
 
 .compose-post {
@@ -6238,6 +6309,7 @@ html.dark .account-dark-toggle-thumb {
   background: transparent;
   font-size: 1rem;
   min-height: 72px;
+  resize: none;
 }
 
 .compose-post-input:focus {
@@ -6268,6 +6340,10 @@ html.dark .account-dark-toggle-thumb {
   background: var(--bg-raised);
 }
 
+.vera-socials-side > * {
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--border) 70%, transparent);
+}
+
 .social-sidebar-card {
   padding: 16px 18px;
   border: 1px solid var(--border);
@@ -6277,6 +6353,23 @@ html.dark .account-dark-toggle-thumb {
   color: var(--text-muted);
   font-size: 0.84rem;
   line-height: 1.5;
+}
+
+.network-sidebar-featured-card {
+  padding: 12px;
+}
+
+.network-sidebar-featured-avatar {
+  width: 42px;
+  height: 42px;
+}
+
+.network-sidebar-list-item {
+  min-height: 44px;
+}
+
+.network-sidebar-list-item:hover {
+  color: var(--text-primary);
 }
 
 .social-sidebar-join-row {
@@ -6368,6 +6461,10 @@ html.dark .account-dark-toggle-thumb {
     border-inline: 0;
   }
 
+  .social-home-appbar {
+    padding-inline: 16px;
+  }
+
   .social-home-hero {
     grid-template-columns: 1fr;
     padding: 16px;
@@ -6390,6 +6487,16 @@ html.dark .account-dark-toggle-thumb {
 }
 
 @media (max-width: 560px) {
+  .social-home-appbar {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .social-home-appbar-status {
+    max-width: none;
+  }
+
   .social-home-title {
     font-size: 1.42rem;
   }
@@ -6409,7 +6516,7 @@ html.dark .account-dark-toggle-thumb {
 
   .feed-card-header-chips {
     max-width: none;
-    margin-left: 40px;
+    margin-left: 0;
     justify-content: flex-start;
     flex-basis: 100%;
   }
@@ -6428,5 +6535,26 @@ html.dark .account-dark-toggle-thumb {
 
   .compose-post-mode {
     flex-wrap: wrap;
+  }
+
+  .social-home-hero {
+    gap: 12px;
+    padding: 14px;
+  }
+
+  .social-home-status-card {
+    min-height: 76px;
+    padding: 12px;
+  }
+
+  .social-compose-prompt {
+    grid-template-columns: 34px minmax(0, 1fr);
+    gap: 10px;
+    padding-block: 12px;
+  }
+
+  .social-compose-avatar {
+    width: 34px;
+    height: 34px;
   }
 }

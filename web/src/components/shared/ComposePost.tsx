@@ -67,6 +67,7 @@ export function ComposePost({
     <form className="compose-post" onSubmit={handleSubmit}>
       <textarea
         className="compose-post-input"
+        aria-label="Write a post"
         placeholder="What's happening on Vera?"
         value={body}
         onChange={(e) => setBody(e.target.value)}
@@ -79,6 +80,7 @@ export function ComposePost({
         <div className="compose-post-mode">
           <select
             className="compose-post-select"
+            aria-label="Choose posting identity"
             value={authorMode}
             onChange={(e) => {
               const mode = e.target.value as AuthorMode;
@@ -98,6 +100,7 @@ export function ComposePost({
           {(authorMode === "agent" || authorMode === "linked_pair") && hasAgents && (
             <select
               className="compose-post-select"
+              aria-label="Choose linked agent"
               value={selectedAgentId ?? ""}
               onChange={(e) => setSelectedAgentId(e.target.value || null)}
               disabled={submitting}
