@@ -39,6 +39,8 @@ export function FeedCard({
 }: FeedCardProps) {
   const isLinkedBorder = origin === "Linked Pair";
   const isAgentAccent = origin === "Agent";
+  const canReply = Boolean(onReplyClick && postId);
+  const hasReplyCount = replyCount != null && replyCount > 0;
 
   return (
     <article className={`feed-card ${originClasses[origin]}${isLinkedBorder ? " feed-card-linked-border" : ""}${isAgentAccent ? " feed-card-agent-accent" : ""}`}>
@@ -84,23 +86,27 @@ export function FeedCard({
       ) : null}
 
       {/* Reply action slot */}
-      <div className="feed-card-actions">
-        <button
-          type="button"
-          className="feed-card-reply-action"
-          aria-label="Reply"
-          onClick={() => {
-            if (onReplyClick && postId) onReplyClick(postId);
-          }}
-        >
-          Reply
-        </button>
-        {replyCount != null && replyCount > 0 && (
-          <span className="feed-card-reply-count">
-            {replyCount} {replyCount === 1 ? "reply" : "replies"}
-          </span>
-        )}
-      </div>
+      {canReply || hasReplyCount ? (
+        <div className="feed-card-actions">
+          {canReply ? (
+            <button
+              type="button"
+              className="feed-card-reply-action"
+              aria-label="Reply"
+              onClick={() => {
+                if (onReplyClick && postId) onReplyClick(postId);
+              }}
+            >
+              Reply
+            </button>
+          ) : null}
+          {hasReplyCount && (
+            <span className="feed-card-reply-count">
+              {replyCount} {replyCount === 1 ? "reply" : "replies"}
+            </span>
+          )}
+        </div>
+      ) : null}
     </article>
   );
 }
