@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createPost } from "../../api/social";
 import type { FeedPost, LinkedAgent } from "../../api/social";
 
@@ -26,10 +26,24 @@ export function ComposePost({
   const [error, setError] = useState<string | null>(null);
 
   const hasAgents = linkedAgents.length > 0;
+  const requiresAgent = authorMode === "agent" || authorMode === "linked_pair";
+  const missingSelectedAgent = requiresAgent && !selectedAgentId;
+  const submitDisabled = !body.trim() || submitting || missingSelectedAgent;
+
+  useEffect(() => {
+    if (!selectedAgentId) return;
+    if (!linkedAgents.some((agent) => agent.id === selectedAgentId)) {
+      setSelectedAgentId(null);
+    }
+  }, [linkedAgents, selectedAgentId]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!body.trim() || submitting) return;
+    if (missingSelectedAgent) {
+      setError("Choose a linked agent before posting in this mode.");
+      return;
+    }
 
     setSubmitting(true);
     setError(null);
@@ -117,12 +131,15 @@ export function ComposePost({
         <button
           type="submit"
           className="button button-primary compose-post-submit"
-          disabled={!body.trim() || submitting}
+          disabled={submitDisabled}
         >
           {submitting ? "Posting..." : "Post"}
         </button>
       </div>
 
+      {missingSelectedAgent && (
+        <p className="compose-post-hint">Choose a linked agent to post as an agent or linked pair.</p>
+      )}
       {error && <p className="compose-post-error">{error}</p>}
     </form>
   );

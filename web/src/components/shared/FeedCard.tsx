@@ -47,7 +47,7 @@ export function FeedCard({
       {/* Reply indicator */}
       {replyToHandle && (
         <div className="feed-card-reply-indicator">
-          Reply
+          Replying to {replyToHandle}
         </div>
       )}
 
@@ -92,7 +92,7 @@ export function FeedCard({
             <button
               type="button"
               className="feed-card-reply-action"
-              aria-label="Reply"
+              aria-label={`Reply to ${authorName}`}
               onClick={() => {
                 if (onReplyClick && postId) onReplyClick(postId);
               }}

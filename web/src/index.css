@@ -2154,6 +2154,12 @@ html.dark .button-primary {
   text-align: center;
 }
 
+.feed-empty-designed-compact {
+  padding: 36px 20px;
+  border-inline: 1px solid var(--border);
+  background: var(--bg);
+}
+
 .feed-empty-icon {
   width: 48px;
   height: 48px;
@@ -2185,6 +2191,7 @@ html.dark .button-primary {
   font-size: 0.88rem;
   color: var(--text-soft);
   margin: 0;
+  max-width: 28rem;
 }
 
 /* BranchRails — no communities */
@@ -2525,6 +2532,12 @@ html.dark .button-primary {
   font-size: 0.82rem;
   color: hsl(0 60% 50%);
   margin: 0;
+}
+
+.compose-post-hint {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 0.8rem;
 }
 
 /* ─── Create profile form ─── */
@@ -6704,6 +6717,14 @@ html.dark .account-dark-toggle-thumb {
   font-size: 0.74rem;
 }
 
+.vera-socials-header-shell > .join-bar {
+  margin: 0;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--bg-raised);
+}
+
 .vera-socials-subnav {
   border: 0;
   border-radius: 0;
@@ -6745,6 +6766,33 @@ html.dark .account-dark-toggle-thumb {
   padding: 0;
 }
 
+.feed-mode-banner {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 10px 14px;
+  border-inline: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-raised);
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.feed-mode-banner strong {
+  flex-shrink: 0;
+  color: var(--text-primary);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.feed-mode-banner-preview {
+  background:
+    linear-gradient(90deg, var(--accent-surface), transparent 72%),
+    var(--bg-raised);
+}
+
 .feed-filter-bar {
   margin: 0;
   padding: 8px 12px;
@@ -6752,6 +6800,7 @@ html.dark .account-dark-toggle-thumb {
   border-bottom: 1px solid var(--border);
   overflow-x: auto;
   flex-wrap: nowrap;
+  scroll-snap-type: x proximity;
   scrollbar-width: none;
 }
 
@@ -6764,6 +6813,7 @@ html.dark .account-dark-toggle-thumb {
   flex: 0 0 auto;
   padding: 8px 12px;
   border: 1px solid transparent;
+  scroll-snap-align: start;
 }
 
 .feed-filter-chip-active {
@@ -7067,8 +7117,13 @@ html.dark .account-dark-toggle-thumb {
   }
 
   .vera-socials-subnav .region-subnav-item {
-    min-width: 96px;
+    min-width: 84px;
     flex: 0 0 auto;
+  }
+
+  .feed-mode-banner {
+    flex-direction: column;
+    gap: 3px;
   }
 
   .feed-card-author-prominent {
