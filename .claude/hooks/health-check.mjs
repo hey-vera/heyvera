@@ -29,7 +29,8 @@ import { spawnSync } from "child_process";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const HOOKS_DIR     = __dirname;
 const CONFIG_FILE   = join(__dirname, "..", "orchestrator.json");
-const USAGE_FILE    = join(__dirname, "usage.jsonl");
+const USAGE_FILE_LEGACY = join(__dirname, "usage.jsonl");
+const USAGE_FILE_TODAY  = join(__dirname, `usage-${new Date().toISOString().slice(0, 10)}.jsonl`);
 const WORKSPACE     = join(__dirname, "..", "..");
 
 // ---------------------------------------------------------------------------
@@ -166,21 +167,25 @@ function checkHookScripts() {
   );
 }
 
-/** 5. usage.jsonl active — check for entries from last 15 minutes */
+/** 5. usage log active — check dated files and legacy for entries from last 15 minutes */
 function checkUsageJsonl() {
-  if (!existsSync(USAGE_FILE)) {
-    return check("usage.jsonl", STATUS.warn, "file not found — PostToolUse hook may not be wired");
+  const usageFile = existsSync(USAGE_FILE_TODAY) ? USAGE_FILE_TODAY
+    : existsSync(USAGE_FILE_LEGACY) ? USAGE_FILE_LEGACY
+    : null;
+
+  if (!usageFile) {
+    return check("usage log", STATUS.warn, "no usage files found — PostToolUse hook may not be wired");
   }
 
   let lines;
   try {
-    lines = readFileSync(USAGE_FILE, "utf8").split("\n").filter(Boolean);
+    lines = readFileSync(usageFile, "utf8").split("\n").filter(Boolean);
   } catch {
-    return check("usage.jsonl", STATUS.warn, "file unreadable");
+    return check("usage log", STATUS.warn, "file unreadable");
   }
 
   if (lines.length === 0) {
-    return check("usage.jsonl", STATUS.warn, "file empty — PostToolUse hook may not be wired");
+    return check("usage log", STATUS.warn, "file empty — PostToolUse hook may not be wired");
   }
 
   const fifteenMinAgo = Date.now() - 15 * 60 * 1000;
@@ -192,20 +197,18 @@ function checkUsageJsonl() {
       if (entry.timestamp && Date.parse(entry.timestamp) >= fifteenMinAgo) {
         recentCount++;
       }
-    } catch {
-      // skip malformed lines
-    }
+    } catch {}
   }
 
   if (recentCount === 0) {
     return check(
-      "usage.jsonl",
+      "usage log",
       STATUS.warn,
       `${lines.length} entries, none in last 15 min — PostToolUse hook may not be wired`
     );
   }
 
-  return check("usage.jsonl", STATUS.pass, `${recentCount} recent entries`);
+  return check("usage log", STATUS.pass, `${recentCount} recent entries`);
 }
 
 /** 6. Codex CLI available and authenticated */

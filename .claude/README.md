@@ -1,24 +1,40 @@
 # Dual-Brain Orchestrator
 
-Dual-provider orchestration for Claude Code across Claude ($100 Max) and OpenAI ($100 Pro) subscriptions. Routes search work to Haiku, execution to Sonnet, and reserves Opus for thinking on the Claude lane. Dispatches isolated and long-running tasks to GPT via Codex CLI, with dual-brain analysis for high-risk decisions.
+Dual-provider orchestration for Claude Code across Claude and OpenAI subscriptions. Routes search work to cheap models, execution to mid-tier, and reserves the most capable models for thinking. Dispatches isolated tasks to GPT via Codex CLI, with dual-brain analysis for high-risk decisions.
 
 ## Install
 
-1. Copy the `.claude/` folder into your project root
-2. Run the setup wizard: `node .claude/hooks/setup-wizard.mjs`
-3. Restart your Claude Code session
+```bash
+npx dual-brain init
+```
 
-The wizard asks about your subscription plans and generates `orchestrator.json` with the right models and cost rates for your tier.
+Then run the setup wizard:
+
+```bash
+node .claude/hooks/setup-wizard.mjs
+```
+
+Restart your Claude Code session. The wizard configures `orchestrator.json` with the right models and cost rates for your subscription tier.
+
+**What the installer does:**
+- Copies 13 hook scripts to `.claude/hooks/`
+- Copies orchestrator config and hookify rules to `.claude/`
+- Registers `enforce-tier.mjs` (PreToolUse) and `cost-logger.mjs` (PostToolUse) in `.claude/settings.json`
+- Creates a `review-rules.md` template for your project-specific GPT review rules
+- Updates `.gitignore` to exclude usage logs and review artifacts
 
 ## How it works
 
-Three hookify rules in `.claude/hookify.orchestrator-*.local.md` inject system messages at key moments:
+Two hooks are registered in `.claude/settings.json` and run automatically:
 
-- **Route** (UserPromptSubmit): Reminds the session to delegate subagents at the right tier
-- **Gate** (Stop): Catches code changes that weren't reviewed before the session ends
-- **Cost** (PostToolUse on Agent): Checks that dispatched subagents use the correct model tier
+- **enforce-tier.mjs** (PreToolUse on Agent): Classifies agent tasks by keyword, advises the correct model tier, detects duplicates, and suggests cross-provider routing
+- **cost-logger.mjs** (PostToolUse on all tools): Logs usage data to daily rotated files for cost tracking
 
-A PreToolUse hook (`hooks/enforce-tier.mjs`) classifies Agent calls by keyword and advises the correct model when there's a mismatch.
+Three hookify rules in `.claude/hookify.orchestrator-*.local.md` provide session-level guidance:
+
+- **Route**: Reminds the session to delegate subagents at the right tier
+- **Gate**: Catches code changes that weren't reviewed before the session ends
+- **Cost**: Checks that dispatched subagents use the correct model tier
 
 ## Scripts
 
@@ -27,57 +43,37 @@ A PreToolUse hook (`hooks/enforce-tier.mjs`) classifies Agent calls by keyword a
 | `hooks/setup-wizard.mjs` | Interactive setup — configure your subscription and preferences |
 | `hooks/cost-report.mjs` | Activity & cost estimates by model tier |
 | `hooks/dual-brain-review.mjs` | Send current git diff to GPT for independent review |
-| `hooks/quality-gate.mjs` | Config-driven quality gate with review artifacts |
-| `hooks/test-orchestrator.mjs` | Self-test harness — validates all hooks work correctly |
-| `hooks/cost-logger.mjs` | PostToolUse hook that logs usage data (runs automatically) |
-| `hooks/enforce-tier.mjs` | PreToolUse hook that enforces model tier routing (runs automatically) |
-| `hooks/install-git-hooks.mjs` | Install a git pre-commit hook that enforces the quality gate at commit time |
-| `hooks/health-check.mjs` | Verify all hooks and dependencies are configured and reachable |
-| `hooks/session-report.mjs` | Comprehensive session-end summary: activity, routing compliance, quality gate, data quality, drift warnings |
+| `hooks/dual-brain-think.mjs` | Dual-perspective analysis on architecture decisions |
+| `hooks/quality-gate.mjs` | Config-driven quality gate with sensitivity scoring |
 | `hooks/budget-balancer.mjs` | Show provider balance and routing recommendations |
 | `hooks/gpt-work-dispatcher.mjs` | Dispatch execution tasks to GPT via Codex CLI |
-| `hooks/dual-brain-think.mjs` | Dual-perspective analysis on architecture decisions |
-
-## Codex Skills
-
-The `codex_skills` section in `orchestrator.json` registers CLI commands that can be invoked from any session:
-
-- `node .claude/hooks/dual-brain-review.mjs` — GPT code review via ChatGPT subscription
-- `node .claude/hooks/quality-gate.mjs` — run the quality gate (checks config, filters files, triggers review)
-- `node .claude/hooks/cost-report.mjs` — session activity and cost breakdown
-- `node .claude/hooks/test-orchestrator.mjs` — validate all hooks pass
-- `node .claude/hooks/session-report.mjs` — comprehensive session-end summary report
+| `hooks/session-report.mjs` | Session-end summary: activity, routing compliance, quality gate |
+| `hooks/health-check.mjs` | Verify all hooks and dependencies are configured |
+| `hooks/test-orchestrator.mjs` | Self-test harness — validates all hooks work correctly |
+| `hooks/install-git-hooks.mjs` | Install a git pre-commit hook for the quality gate |
+| `hooks/enforce-tier.mjs` | PreToolUse hook — enforces model tier routing (automatic) |
+| `hooks/cost-logger.mjs` | PostToolUse hook — logs usage data (automatic) |
 
 ## Model Intelligence
 
-The `model_intelligence` section in `orchestrator.json` provides per-model metadata:
-
-- **strengths/weaknesses** — what each model is good and bad at
-- **best_for/avoid_for** — task guidance for the tier router
-- **context_window/max_output** — token limits per model
-- **codex_compatible** — whether the model works with `codex exec`
-
-The `enforce-tier.mjs` hook reads this data to give context-aware routing advice.
-
-### Known Issues
-
-- The `model:` parameter on Agent calls may be silently ignored in some Claude Code versions ([#43869](https://github.com/anthropics/claude-code/issues/43869)). Set `CLAUDE_CODE_SUBAGENT_MODEL` as env var fallback.
-- Opus 4.7 uses a new tokenizer that consumes 12-35% more tokens for the same text. Factor this into cost estimates.
-- Pricing was last verified 2026-05-13. Run the setup wizard to update rates.
+The `model_intelligence` section in `orchestrator.json` provides per-model metadata: strengths, weaknesses, best-for/avoid-for task guidance, context windows, and Codex compatibility. The `enforce-tier.mjs` hook reads this to give context-aware routing advice.
 
 ## Customize
 
-Edit `orchestrator.json` to change:
-- `subscriptions` — your plans and available models per provider
-- `tiers` — which task types map to which tier
-- `quality_gate` — file extensions that trigger review, patterns to skip
-- `routing_rules` — subagent type defaults, concurrency limits
-- `codex_skills` — registered CLI skills
-- `review-rules.md` — project-specific rules injected into GPT review prompts
+- `orchestrator.json` — subscriptions, tiers, quality gate, routing rules, budgets
+- `.claude/review-rules.md` — project-specific rules injected into GPT review prompts
+- `.claude/settings.json` — hook registrations (auto-generated by installer)
 
 ## Requirements
 
-- Node 20+ (for native fetch in dual-brain-review)
-- Python 3.12+ (optional, for hookify rule engine)
-- Hookify plugin installed (comes with Claude Code marketplace)
-- Codex CLI installed and logged into ChatGPT (`codex login`) — for GPT dual-brain review via subscription. Falls back to `OPENAI_API_KEY` env var if Codex isn't available.
+- Node 20+
+- Codex CLI (optional) — for GPT-lane features: `npm i -g @anthropic-ai/codex` then `codex login`. Falls back to `OPENAI_API_KEY` env var. Without Codex, Claude-lane features work normally.
+
+## Works with any subscription
+
+The setup wizard supports any combination:
+- Claude only ($20 Pro / $100 Max / $200 Max / API)
+- OpenAI only ($20 Plus / $100 Pro)
+- Both providers (recommended for dual-brain features)
+
+Without an OpenAI subscription, GPT-lane features gracefully degrade — all work routes through Claude.

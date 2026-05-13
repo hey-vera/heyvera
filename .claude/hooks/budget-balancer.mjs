@@ -82,7 +82,7 @@ function loadConfig() {
 
 function getThresholds(config, provider) {
   return (
-    config?.providers?.[provider]?.pressureThresholds || DEFAULT_THRESHOLDS
+    config?.providers?.[provider]?.pressure_thresholds || DEFAULT_THRESHOLDS
   );
 }
 

@@ -94,6 +94,7 @@ async function main() {
       max_concurrent_execute: 3,
       max_concurrent_search: 4,
     },
+    pricing_verified: new Date().toISOString().slice(0, 10),
   };
 
   writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2) + '\n');

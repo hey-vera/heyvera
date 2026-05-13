@@ -52,16 +52,23 @@ const CODEX_TIMEOUT = 90;
 function findCodex() {
   const candidates = [
     process.env.CODEX_BIN,
-    '/home/runner/workspace/.config/npm/node_global/bin/codex',
-  ];
+  ].filter(Boolean);
   for (const c of candidates) {
-    if (c) {
-      try { execSync(`${c} --version`, { stdio: 'pipe', timeout: 3000 }); return c; } catch {}
-    }
+    try { spawnSync(c, ['--version'], { stdio: 'pipe', timeout: 3000 }); return c; } catch {}
   }
   try {
-    return execSync('which codex', { encoding: 'utf8', stdio: 'pipe' }).trim() || null;
+    const which = spawnSync('which', ['codex'], { encoding: 'utf8', stdio: 'pipe', timeout: 3000 });
+    if (which.status === 0 && which.stdout.trim()) return which.stdout.trim();
   } catch {}
+  const home = process.env.HOME || process.env.USERPROFILE || '';
+  const fallbacks = [
+    join(home, '.local', 'bin', 'codex'),
+    join(home, 'bin', 'codex'),
+    '/usr/local/bin/codex',
+  ];
+  for (const p of fallbacks) {
+    try { spawnSync(p, ['--version'], { stdio: 'pipe', timeout: 3000 }); return p; } catch {}
+  }
   return null;
 }
 
@@ -125,7 +132,7 @@ function exit(obj) {
 function tryCodexReview(diff) {
   if (!CODEX_BIN) return null;
   try {
-    execSync(`${CODEX_BIN} login status`, {
+    spawnSync(CODEX_BIN, ['login', 'status'], {
       encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 5000,
     });
   } catch {
