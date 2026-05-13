@@ -1,0 +1,76 @@
+{
+  "subscriptions": {
+    "claude": {
+      "plan": "$100",
+      "models": {
+        "opus":   { "tier": "think",   "input_per_mtok": 15.0,  "output_per_mtok": 75.0  },
+        "sonnet": { "tier": "execute", "input_per_mtok": 3.0,   "output_per_mtok": 15.0  },
+        "haiku":  { "tier": "search",  "input_per_mtok": 0.80,  "output_per_mtok": 4.0   }
+      }
+    },
+    "openai": {
+      "plan": "$100",
+      "models": {
+        "gpt-5.5": { "tier": "think",   "input_per_mtok": 10.0,  "output_per_mtok": 30.0  },
+        "gpt-5.4": { "tier": "execute", "input_per_mtok": 2.5,   "output_per_mtok": 10.0  },
+        "gpt-4.1-mini": { "tier": "search", "input_per_mtok": 0.40, "output_per_mtok": 1.60 }
+      }
+    }
+  },
+
+  "tiers": {
+    "search": {
+      "description": "Read-only lookups, exploration, grep, find, file reads",
+      "prefer": "cheapest available model",
+      "tasks": ["explore", "grep", "find", "ls", "read_file", "git_log", "git_status"]
+    },
+    "execute": {
+      "description": "Implementation, edits, test runs, git operations, linting",
+      "prefer": "mid-tier model",
+      "tasks": ["edit", "write", "test_run", "lint", "format", "simple_fix", "refactor_small"]
+    },
+    "think": {
+      "description": "Architecture, review, planning, security, complex debugging",
+      "prefer": "most capable model",
+      "tasks": ["architecture", "review", "planning", "security", "complex_debug", "design"]
+    }
+  },
+
+  "quality_gate": {
+    "enabled": true,
+    "trigger_extensions": [".ts", ".tsx", ".js", ".jsx", ".py", ".rs", ".go", ".java", ".rb", ".swift", ".kt"],
+    "skip_patterns": ["test", "__tests__", "spec", ".md", ".json", ".yaml", ".toml", ".txt"]
+  },
+
+  "routing_rules": {
+    "subagent_defaults": {
+      "Explore": "search",
+      "general-purpose": "execute",
+      "Plan": "think",
+      "code-reviewer": "think"
+    },
+    "max_concurrent_think": 1,
+    "max_concurrent_execute": 3,
+    "max_concurrent_search": 4
+  },
+
+  "codex_skills": {
+    "review": {
+      "description": "Independent GPT code review via ChatGPT subscription",
+      "command": "node .claude/hooks/dual-brain-review.mjs",
+      "requires": "codex_auth"
+    },
+    "quality_gate": {
+      "description": "Config-driven quality gate with review artifacts",
+      "command": "node .claude/hooks/quality-gate.mjs"
+    },
+    "cost_report": {
+      "description": "Session activity and cost estimate by model tier",
+      "command": "node .claude/hooks/cost-report.mjs"
+    },
+    "test": {
+      "description": "Self-test harness for all orchestrator hooks",
+      "command": "node .claude/hooks/test-orchestrator.mjs"
+    }
+  }
+}
