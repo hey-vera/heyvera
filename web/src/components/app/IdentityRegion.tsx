@@ -117,7 +117,7 @@ export function IdentityRegion({ shellState }: { shellState: ShellState }) {
           </div>
           <div className="identity-credential-list">
             <div className="identity-credential-row">
-              <span className="identity-credential-dot identity-credential-dot-live" />
+              <span className={`identity-credential-dot${isSignedIn ? " identity-credential-dot-live" : ""}`} />
               <div>
                 <strong>Account session</strong>
                 <p>{isSignedIn ? viewerLabel ?? "Signed in" : "No signed-in session"}</p>

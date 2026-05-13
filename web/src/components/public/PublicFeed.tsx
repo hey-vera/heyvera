@@ -143,10 +143,10 @@ function mapFeedPost(post: FeedPost): MappedFeedItem {
   const proofContext =
     post.proofState === "verified"
       ? origin === "Linked Pair"
-        ? "Linked work verified"
+        ? "Linked work marked verified"
         : origin === "Agent"
-          ? "Soma receipt issued"
-          : "Continuity verified"
+          ? "Agent work marked verified"
+          : "Continuity marked verified"
       : undefined;
 
   return {

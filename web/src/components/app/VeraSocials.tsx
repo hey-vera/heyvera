@@ -314,7 +314,7 @@ function PulseTab() {
   ];
 
   const launchGates = [
-    { label: "Social backend writes", state: "Partial" },
+    { label: "Social backend writes", state: "Separate chat" },
     { label: "Linked agent identity", state: "Blocked" },
     { label: "Vera runtime", state: "Blocked" },
     { label: "Soma contracts", state: "Blocked" },
@@ -437,7 +437,7 @@ function PulseTab() {
             </div>
             <div className="pulse-timeline-content">
               <strong>Proof receipt</strong>
-              <p>Every automated action produces a verifiable receipt on your proof chain — full auditability, no black boxes.</p>
+              <p>Every automated action will need to produce a verifiable receipt on your proof chain before automation becomes live.</p>
             </div>
           </div>
         </div>
@@ -489,7 +489,7 @@ function PulseTab() {
         </div>
         <div className="vera-socials-pulse-feature">
           <strong>Proof receipts</strong>
-          <p>Every automated action produces a verifiable receipt on your proof chain.</p>
+          <p>Every automated action will need to produce a verifiable receipt on your proof chain.</p>
           <span className="vera-socials-pulse-status-chip">Waiting on Soma contracts</span>
         </div>
       </div>
@@ -1770,7 +1770,9 @@ function AccountTab({ shellState }: { shellState: ShellState }) {
         ))}
         <button
           type="button"
-          className="account-profile-nav-settings"
+          role="tab"
+          aria-selected={activeTab === "settings"}
+          className={`account-profile-nav-settings${activeTab === "settings" ? " account-profile-nav-settings-active" : ""}`}
           onClick={() => setActiveTab("settings")}
           aria-label="Profile settings"
           title="Settings"
