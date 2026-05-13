@@ -2483,6 +2483,11 @@ html.dark .button-primary {
   border-color: var(--accent);
 }
 
+.compose-post-input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .compose-post-input::placeholder {
   color: var(--text-soft);
 }
@@ -3575,6 +3580,11 @@ html.dark .home-create-profile-prominent {
   padding: 16px;
 }
 
+.identity-region .identity-card {
+  display: flex;
+  flex-direction: column;
+}
+
 .identity-profile-card,
 .identity-agents-card {
   min-height: 260px;
@@ -4332,6 +4342,51 @@ html.dark .agent-sidebar-info {
   letter-spacing: 0.06em;
 }
 
+@media (max-width: 980px) {
+  .pulse-command-hero,
+  .pulse-control-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .pulse-command-status {
+    min-height: 104px;
+  }
+
+  .pulse-rules-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .pulse-launch-gate-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .pulse-command-hero,
+  .pulse-control-panel,
+  .pulse-rule-card,
+  .pulse-launch-gates,
+  .pulse-how-section,
+  .pulse-prereqs {
+    padding: 14px;
+  }
+
+  .pulse-panel-header,
+  .pulse-rule-card-header,
+  .pulse-approval-item {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .pulse-approval-state {
+    white-space: normal;
+  }
+
+  .pulse-launch-gate-list {
+    grid-template-columns: 1fr;
+  }
+}
+
 .vera-socials-pulse-card {
   padding: 28px 24px;
   background: var(--bg-raised);
@@ -4601,6 +4656,11 @@ html.dark .profile-detail-trust-chip {
 .feed-card-reply-compose-input:focus {
   outline: none;
   border-color: var(--accent);
+}
+
+.feed-card-reply-compose-input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .feed-card-reply-compose-actions {
@@ -5503,6 +5563,11 @@ html.dark .account-blocked-note {
 
 .account-profile-nav-settings:hover {
   color: var(--text-primary);
+}
+
+.account-profile-nav-settings-active {
+  color: var(--text-primary);
+  box-shadow: inset 0 -2px 0 var(--accent);
 }
 
 /* Linked agent rows (list layout replacing grid) */
@@ -7008,6 +7073,7 @@ html.dark .account-dark-toggle-thumb {
 
   .feed-card-author-prominent {
     align-items: flex-start;
+    flex-wrap: wrap;
   }
 
   .feed-card-header-chips {
