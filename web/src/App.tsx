@@ -116,12 +116,6 @@ function AppShell() {
           activeRegion={activeRegion}
           shellState={shellState}
           viewerLabel={myProfile?.profile.displayName ?? viewerLabel}
-          onPrimaryAction={() => {
-            if (activeRegion === "social") {
-              const feed = document.getElementById("feed");
-              feed?.scrollIntoView({ behavior: "smooth", block: "start" });
-            }
-          }}
         />
 
         <RegionErrorBoundary key={`${activeRegion}-${recoveryCount}`}>

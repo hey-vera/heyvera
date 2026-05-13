@@ -6,33 +6,27 @@ const regionMeta: Record<
   {
     title: string;
     question: string;
-    action: string;
   }
 > = {
   social: {
     title: "Vera Socials",
     question: "What's happening in your sovereign social network?",
-    action: "Post",
   },
   identity: {
     title: "Identity",
     question: "What continuity, profile, and authority state can HeyVera show now?",
-    action: "Review",
   },
   agent: {
     title: "Agent",
     question: "What is my agent doing and what can it do next?",
-    action: "Ask Vera",
   },
   market: {
     title: "Market",
     question: "What can I fund, buy, sell, or back here?",
-    action: "Browse",
   },
   proof: {
     title: "Proof",
     question: "Why is this trusted and how did it become what it is?",
-    action: "Inspect",
   },
 };
 
@@ -40,7 +34,6 @@ type TopContextBarProps = {
   activeRegion: AppRegion;
   shellState: ShellState;
   viewerLabel: string | null;
-  onPrimaryAction: () => void;
 };
 
 function shellStateSummary(shellState: ShellState, viewerLabel: string | null) {
@@ -63,7 +56,6 @@ export function TopContextBar({
   activeRegion,
   shellState,
   viewerLabel,
-  onPrimaryAction,
 }: TopContextBarProps) {
   const meta = regionMeta[activeRegion];
   const isSocial = activeRegion === "social";
@@ -91,13 +83,6 @@ export function TopContextBar({
           <span className="top-context-status-dot" aria-hidden="true" />
           <span>{shellStateSummary(shellState, viewerLabel)}</span>
         </div>
-        <button
-          type="button"
-          className="button button-outline top-context-action"
-          onClick={onPrimaryAction}
-        >
-          {meta.action}
-        </button>
       </div>
     </header>
   );

@@ -144,7 +144,8 @@ svg {
 .site-shell {
   position: relative;
   min-height: 100vh;
-  overflow: hidden;
+  overflow-x: clip;
+  overflow-y: visible;
   background: var(--bg);
 }
 
@@ -303,6 +304,11 @@ html.dark .site-backdrop-glow {
 .button:hover,
 .button:focus-visible {
   transform: translateY(-1px);
+}
+
+.button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
 }
 
 .button-primary {
@@ -2918,6 +2924,12 @@ html.dark .button-primary {
   color: var(--text-primary);
 }
 
+.region-rail-item:focus-visible,
+.bottom-region-nav-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
 .region-rail-item-active {
   background: var(--accent-surface);
   border-color: var(--accent-border);
@@ -3012,7 +3024,11 @@ html.dark .button-primary {
 }
 
 .top-context-strip-status {
+  min-width: 0;
+  overflow: hidden;
   line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .top-context-copy {
@@ -3050,12 +3066,6 @@ html.dark .button-primary {
   gap: 8px;
   color: var(--text-soft);
   font-size: 0.8rem;
-}
-
-.top-context-action {
-  min-height: 38px;
-  padding: 0 16px;
-  font-size: 0.84rem;
 }
 
 .region-layout {
@@ -3246,7 +3256,7 @@ html.dark .button-primary {
   }
 
   .app-shell-main {
-    padding: 16px 14px 96px;
+    padding: 16px 14px calc(112px + env(safe-area-inset-bottom));
   }
 
   .top-context-bar {
@@ -3267,7 +3277,7 @@ html.dark .button-primary {
     position: fixed;
     left: 12px;
     right: 12px;
-    bottom: 12px;
+    bottom: max(12px, env(safe-area-inset-bottom));
     z-index: 40;
     display: grid;
     grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -3281,7 +3291,7 @@ html.dark .button-primary {
   }
 
   .bottom-region-nav-item {
-    min-height: 42px;
+    min-height: 48px;
     padding: 0 8px;
     border-radius: 12px;
     border: 1px solid transparent;
@@ -5334,6 +5344,7 @@ html.dark .network-community-detail-feed-placeholder code {
   background: var(--bg);
   overflow-x: auto;
   scroll-snap-type: x proximity;
+  mask-image: linear-gradient(90deg, transparent 0, #000 18px, #000 calc(100% - 18px), transparent 100%);
 }
 
 .account-profile-nav-item {
@@ -7326,6 +7337,7 @@ html.dark .account-dark-toggle-thumb {
   border-radius: 0;
   border-bottom: 1px solid var(--border);
   padding: 0;
+  mask-image: linear-gradient(90deg, transparent 0, #000 16px, #000 calc(100% - 16px), transparent 100%);
 }
 
 .vera-socials-subnav .region-subnav-item {
@@ -7398,6 +7410,7 @@ html.dark .account-dark-toggle-thumb {
   flex-wrap: nowrap;
   scroll-snap-type: x proximity;
   scrollbar-width: none;
+  mask-image: linear-gradient(90deg, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
 }
 
 .feed-filter-bar::-webkit-scrollbar,
@@ -7651,7 +7664,7 @@ html.dark .account-dark-toggle-thumb {
   }
 
   .app-shell-main {
-    padding: 0 0 92px;
+    padding: 0 0 calc(112px + env(safe-area-inset-bottom));
   }
 
   .top-context-bar-social-strip {
@@ -7670,6 +7683,10 @@ html.dark .account-dark-toggle-thumb {
 
   .social-home-appbar {
     padding-inline: 16px;
+  }
+
+  .top-context-strip-status {
+    white-space: normal;
   }
 
   .social-home-hero {
@@ -7753,6 +7770,11 @@ html.dark .account-dark-toggle-thumb {
   .feed-card-proof,
   .feed-card-actions {
     margin-left: 0;
+  }
+
+  .feed-card-reply-action {
+    min-height: 40px;
+    padding-inline: 14px;
   }
 
   .compose-post-controls {

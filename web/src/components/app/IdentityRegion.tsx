@@ -42,6 +42,7 @@ export function IdentityRegion({ shellState }: { shellState: ShellState }) {
   } = useAuthContext();
   const profile = myProfile?.profile ?? null;
   const primaryAgent = linkedAgents.find((agent) => agent.isPrimary) ?? linkedAgents[0];
+  const isLoading = shellState === "loading" || myProfileLoading;
 
   return (
     <div className="identity-region">
@@ -71,7 +72,7 @@ export function IdentityRegion({ shellState }: { shellState: ShellState }) {
             </span>
           </div>
 
-          {myProfileLoading ? (
+          {isLoading ? (
             <div className="identity-empty">Loading profile state.</div>
           ) : profile ? (
             <>
@@ -132,14 +133,14 @@ export function IdentityRegion({ shellState }: { shellState: ShellState }) {
               <span className={`identity-credential-dot${profile ? " identity-credential-dot-live" : ""}`} />
               <div>
                 <strong>HeyVera profile</strong>
-                <p>{profile ? `@${profile.handle}` : "Profile has not been created"}</p>
+                <p>{isLoading ? "Loading profile state" : profile ? `@${profile.handle}` : "Profile has not been created"}</p>
               </div>
             </div>
             <div className="identity-credential-row">
               <span className={`identity-credential-dot${primaryAgent ? " identity-credential-dot-live" : ""}`} />
               <div>
                 <strong>Linked agent</strong>
-                <p>{primaryAgent ? `${primaryAgent.agentName} · ${normalizeState(primaryAgent.linkState)}` : "No linked agent yet"}</p>
+                <p>{isLoading ? "Loading agent links" : primaryAgent ? `${primaryAgent.agentName} · ${normalizeState(primaryAgent.linkState)}` : "No linked agent yet"}</p>
               </div>
             </div>
             <div className="identity-credential-row">
@@ -157,7 +158,9 @@ export function IdentityRegion({ shellState }: { shellState: ShellState }) {
             <p className="region-summary-label">Linked Agents</p>
             <span className="identity-muted-pill">{linkedAgents.length}</span>
           </div>
-          {linkedAgents.length > 0 ? (
+          {isLoading ? (
+            <div className="identity-empty">Loading linked-agent state.</div>
+          ) : linkedAgents.length > 0 ? (
             <div className="identity-agent-list">
               {linkedAgents.map((agent) => (
                 <article key={agent.id} className="identity-agent-row">

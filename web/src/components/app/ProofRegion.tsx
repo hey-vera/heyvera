@@ -84,12 +84,33 @@ function ProofOverview({
 function ProofSignals({
   profile,
   linkedAgents,
+  loading,
 }: {
   profile: Profile | null;
   linkedAgents: LinkedAgent[];
+  loading: boolean;
 }) {
   const summary = proofSummary(profile);
   const primaryAgent = linkedAgents.find((agent) => agent.isPrimary) ?? linkedAgents[0];
+
+  if (loading) {
+    return (
+      <section className="proof-section">
+        <h2 className="proof-section-title">Visible Signals</h2>
+        <div className="proof-signal-grid" aria-busy="true">
+          {["Profile proof", "Continuity", "Primary agent", "Receipt ledger"].map((label) => (
+            <ProofSignalCard
+              key={label}
+              label={label}
+              value="Loading"
+              detail="Waiting for the signed-in shell to resolve current state."
+              live={false}
+            />
+          ))}
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="proof-section">
@@ -176,16 +197,18 @@ function ProofBlockedGates() {
 function ProofSidebar({
   profile,
   linkedAgents,
+  loading,
 }: {
   profile: Profile | null;
   linkedAgents: LinkedAgent[];
+  loading: boolean;
 }) {
   return (
     <aside className="region-side proof-side">
       <div className="proof-side-card">
         <p className="proof-side-title">Current source</p>
-        <strong>{profile ? `@${profile.handle}` : "No profile yet"}</strong>
-        <span>{profile ? proofSummary(profile).label : "Create profile first"}</span>
+        <strong>{loading ? "Loading profile" : profile ? `@${profile.handle}` : "No profile yet"}</strong>
+        <span>{loading ? "Resolving proof state" : profile ? proofSummary(profile).label : "Create profile first"}</span>
       </div>
       <div className="proof-side-card">
         <p className="proof-side-title">Agent proof labels</p>
@@ -213,16 +236,17 @@ function ProofSidebar({
 export function ProofRegion({ shellState }: { shellState: ShellState }) {
   const { myProfile, linkedAgents } = useAuthContext();
   const profile = myProfile?.profile ?? null;
+  const loading = shellState === "loading";
 
   return (
     <div className="region-layout proof-region">
       <section className="region-main proof-main">
         <ProofOverview shellState={shellState} profile={profile} linkedAgents={linkedAgents} />
-        <ProofSignals profile={profile} linkedAgents={linkedAgents} />
+        <ProofSignals profile={profile} linkedAgents={linkedAgents} loading={loading} />
         <ProofLineage />
         <ProofBlockedGates />
       </section>
-      <ProofSidebar profile={profile} linkedAgents={linkedAgents} />
+      <ProofSidebar profile={profile} linkedAgents={linkedAgents} loading={loading} />
     </div>
   );
 }
