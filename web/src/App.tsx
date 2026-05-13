@@ -12,6 +12,7 @@ import {
 } from "./components/app/BottomRegionNav";
 import { AgentRegion } from "./components/app/AgentRegion";
 import { IdentityRegion } from "./components/app/IdentityRegion";
+import { ProofRegion } from "./components/app/ProofRegion";
 import { VeraSocials } from "./components/app/VeraSocials";
 import { RegionPlaceholder } from "./components/app/RegionPlaceholder";
 import { RegionRail } from "./components/app/RegionRail";
@@ -160,30 +161,7 @@ function AppShell() {
             />
           )}
           {activeRegion === "proof" && (
-            <RegionPlaceholder
-              region="proof"
-              title="Proof is the legibility layer, but the substrate truth still belongs upstream."
-              intro="This region will hold trust weather, lineage, growth, and archive views. We can scaffold the drawer patterns now, but the real proof objects need Soma contracts."
-              sections={[
-                {
-                  label: "Ready now",
-                  items: [
-                    "Proof region shell",
-                    "Overview, Lineage, Trust, Growth, and Archive nav",
-                    "View-proof entry patterns",
-                  ],
-                },
-                {
-                  label: "Blocked on Soma",
-                  items: [
-                    "Proof snapshots and verification layers",
-                    "Continuity and trust history",
-                    "Recovery-linked trust states",
-                    "RootWeave and archive data surfaces",
-                  ],
-                },
-              ]}
-            />
+            <ProofRegion shellState={shellState} />
           )}
         </RegionErrorBoundary>
       </main>

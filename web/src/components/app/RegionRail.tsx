@@ -72,11 +72,11 @@ export function RegionRail({
         <div className="region-rail-status">
           <div className="region-rail-status-row">
             <span className="region-rail-status-dot" aria-hidden="true" />
-            <span>Vera Socials live now</span>
+            <span>Social, Identity, Agent, and Proof shell signals visible</span>
           </div>
           <div className="region-rail-status-row">
             <span className="region-rail-status-dot" aria-hidden="true" />
-            <span>Agent, Market, Proof waiting on contracts</span>
+            <span>Market and proof receipts waiting on contracts</span>
           </div>
         </div>
       </div>
