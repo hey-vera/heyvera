@@ -9,15 +9,15 @@ conditions:
     pattern: .+
 ---
 
-**[Tier Router]** Route subagents by tier (config: `.claude/orchestrator.json`):
+**[Tier Router]** Route work across both providers (config: `.claude/orchestrator.json`):
 
-**Search** (`model: "haiku"`): Read-only lookups, grep, explore, file reads.
-  → Agent must return: exact files/symbols found, line references, confidence level, what was not checked.
+**Claude lane** (fast, interactive):
+- Search (`model: "haiku"`): Read-only lookups, grep, explore. Agent must return: files found, line refs, confidence.
+- Execute (`model: "sonnet"`): Edits, tests, git ops. Agent must return: files changed, tests run, edge cases.
+- Think (main session): Architecture, review, planning. Agent must return: decision, alternatives, risks.
 
-**Execute** (`model: "sonnet"`): Implementation, edits, tests, git ops, refactoring.
-  → Agent must return: files changed, behavior changed, tests run + results, edge cases considered, assumptions made.
+**GPT lane** (parallel, isolated work):
+- Use `node .claude/hooks/gpt-work-dispatcher.mjs --task "..." --model gpt-5.4` for isolated execution
+- Use `node .claude/hooks/dual-brain-think.mjs --question "..."` for dual-perspective decisions
 
-**Think** (main session): Architecture, review, planning, security, complex debug.
-  → Agent must return: decision with rationale, alternatives considered, risks identified, verification plan.
-
-Spawn independent agents in parallel. Think > execute > search when task spans multiple tiers.
+**Routing:** Tasks <3min → Claude. Isolated tasks >3min → check balance first (`node .claude/hooks/budget-balancer.mjs`). High-risk → dual-brain. Think > execute > search when task spans tiers.

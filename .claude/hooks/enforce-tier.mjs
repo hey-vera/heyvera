@@ -64,6 +64,42 @@ function checkDuplicate(promptHash) {
   return null;
 }
 
+function detectProvider(model) {
+  if (!model || model === 'main-session') return 'claude';
+  const m = String(model).toLowerCase();
+  if (m.includes('gpt') || m.includes('o1') || m.includes('o3') || m.includes('o4')) return 'openai';
+  if (m.includes('opus') || m.includes('sonnet') || m.includes('haiku') || m.includes('claude')) return 'claude';
+  return 'claude';
+}
+
+function quickPressureCheck(tier) {
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const logFile = join(__dirname, `usage-${today}.jsonl`);
+    const lines = readFileSync(logFile, 'utf8').split('\n').filter(Boolean);
+
+    const fiveHoursAgo = Date.now() - 5 * 60 * 60 * 1000;
+    let claudeCalls = 0, openaiCalls = 0;
+
+    for (const line of lines) {
+      try {
+        const entry = JSON.parse(line);
+        if (Date.parse(entry.timestamp) < fiveHoursAgo) continue;
+        if (entry.tier !== tier) continue;
+
+        const provider = entry.provider ||
+          (entry.model?.includes('gpt') ? 'openai' : 'claude');
+        if (provider === 'claude') claudeCalls++;
+        else openaiCalls++;
+      } catch {}
+    }
+
+    return { claudeCalls, openaiCalls };
+  } catch {
+    return null;
+  }
+}
+
 const SEARCH_WORDS = /\b(explore|search|find|grep|locate|where\s+is|list\s+files|read[-\s]?only|lookup|scan)\b/i;
 const THINK_WORDS = /\b(plan|design|architect|review|audit|security|code[-\s]?review|threat[-\s]?model|complex[-\s]?debug)\b/i;
 
@@ -117,9 +153,12 @@ try {
     if (subType === key.toLowerCase()) { tier = val; break; }
   }
 
-  // Helper to prepend optional warnings (duplicate + drift) before a message
+  // Balance hint — populated after tier is fully resolved
+  let balanceHint = null;
+
+  // Helper to prepend optional warnings (duplicate + drift + balance) before a message
   const prependWarnings = (msg) => {
-    const parts = [duplicateWarning, driftWarning, msg].filter(Boolean);
+    const parts = [duplicateWarning, driftWarning, msg, balanceHint].filter(Boolean);
     return parts.join('\n\n');
   };
 
@@ -158,6 +197,18 @@ try {
     else tier = 'execute';
   }
 
+  // Compute balance hint now that tier is resolved
+  {
+    const currentProvider = detectProvider(currentModel);
+    if (currentProvider === 'claude') {
+      const balance = quickPressureCheck(tier);
+      if (balance && balance.claudeCalls > balance.openaiCalls * 2 && balance.claudeCalls > 10) {
+        const dispatchModel = tier === 'think' ? 'gpt-5.5' : tier === 'execute' ? 'gpt-5.4' : 'gpt-4.1-mini';
+        balanceHint = `\n\n💡 **Balance tip:** Claude has ${balance.claudeCalls} ${tier} calls vs OpenAI's ${balance.openaiCalls} in the last 5hrs. Consider dispatching isolated work to GPT: \`node .claude/hooks/gpt-work-dispatcher.mjs --task "..." --model ${dispatchModel}\``;
+      }
+    }
+  }
+
   const expected = preferredModel(config, tier);
 
   if (tier === 'think') {
@@ -171,7 +222,7 @@ try {
         promptHash,
         followed: true,
       });
-      const onlyWarnings = [duplicateWarning, driftWarning].filter(Boolean).join('\n\n');
+      const onlyWarnings = [duplicateWarning, driftWarning, balanceHint].filter(Boolean).join('\n\n');
       if (onlyWarnings) {
         process.stdout.write(JSON.stringify({ systemMessage: onlyWarnings }));
       } else {
@@ -201,7 +252,7 @@ try {
         promptHash,
         followed: true,
       });
-      const onlyWarnings = [duplicateWarning, driftWarning].filter(Boolean).join('\n\n');
+      const onlyWarnings = [duplicateWarning, driftWarning, balanceHint].filter(Boolean).join('\n\n');
       if (onlyWarnings) {
         process.stdout.write(JSON.stringify({ systemMessage: onlyWarnings }));
       } else {

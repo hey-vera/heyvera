@@ -125,6 +125,18 @@
     "session_report": {
       "description": "Comprehensive session-end summary: activity by tier, routing compliance, quality gate status, data quality, drift warnings",
       "command": "node .claude/hooks/session-report.mjs"
+    },
+    "setup_wizard": {
+      "description": "Interactive setup wizard — configures Claude Code hooks, dual-provider routing (Claude + OpenAI/Codex), subscription tiers, and cost-tracking settings",
+      "command": "node .claude/hooks/setup-wizard.mjs"
+    },
+    "gpt_dispatch": {
+      "description": "Dispatch execution tasks to GPT via Codex CLI",
+      "command": "node .claude/hooks/gpt-work-dispatcher.mjs"
+    },
+    "budget_balance": {
+      "description": "Show provider balance status and routing recommendations",
+      "command": "node .claude/hooks/budget-balancer.mjs"
     }
   },
 
@@ -136,5 +148,68 @@
     "daily_warn_usd": 20.00,
     "daily_limit_usd": 50.00,
     "alert_cooldown_minutes": 15
+  },
+
+  "routing": {
+    "strategy": "hybrid-specialized-balanced",
+    "codex_startup_penalty_ms": 20000,
+    "min_codex_task_ms": 180000,
+    "dual_thinking_permission_threshold": {
+      "estimated_tokens": 50000,
+      "agent_count": 2
+    }
+  },
+
+  "providers": {
+    "claude": {
+      "enabled": true,
+      "subscription": "max-5x",
+      "models": {
+        "think": "opus",
+        "execute": "sonnet",
+        "search": "haiku"
+      },
+      "rolling_window_hours": 5,
+      "pressure_thresholds": {
+        "warm": 0.65,
+        "hot": 0.82,
+        "throttled": 0.95
+      }
+    },
+    "openai": {
+      "enabled": true,
+      "subscription": "pro",
+      "codex_command": "codex",
+      "models": {
+        "think": "gpt-5.5",
+        "execute": "gpt-5.4",
+        "search": "gpt-4.1-mini"
+      },
+      "rolling_window_hours": 5,
+      "pressure_thresholds": {
+        "warm": 0.65,
+        "hot": 0.82,
+        "throttled": 0.95
+      }
+    }
+  },
+
+  "dual_thinking": {
+    "enabled": true,
+    "auto_triggers": [
+      "architecture",
+      "security",
+      "database-migration",
+      "public-api",
+      "large-refactor",
+      "dependency-upgrade",
+      "production-incident"
+    ],
+    "sensitive_paths": [
+      "auth", "security", "middleware/auth", "payment", "billing",
+      "migration", "schema", "permissions", "secrets", "crypto",
+      "api/public", ".env"
+    ],
+    "conflict_resolver": "least-pressured-think-model"
   }
 }

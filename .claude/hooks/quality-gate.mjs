@@ -39,6 +39,72 @@ function runGit(cmd) {
   }
 }
 
+function scoreSensitivity(files, config) {
+  const sensitivePaths = config?.dual_thinking?.sensitive_paths || [
+    'auth', 'security', 'middleware/auth', 'payment', 'billing',
+    'migration', 'schema', 'permissions', 'secrets', 'crypto',
+    'api/public', '.env'
+  ];
+
+  let score = 0;
+  const reasons = [];
+
+  for (const file of files) {
+    const lower = file.toLowerCase();
+
+    // Check sensitive paths
+    for (const sp of sensitivePaths) {
+      if (lower.includes(sp)) {
+        score += 30;
+        reasons.push(`sensitive path: ${sp} in ${file}`);
+        break;
+      }
+    }
+
+    // Database/migration files
+    if (/migrat|schema|\.sql/i.test(lower)) {
+      score += 25;
+      reasons.push(`database change: ${file}`);
+    }
+
+    // Config/env files
+    if (/\.env|config.*\.(ts|js|json)|docker|ci|\.yml|\.yaml/i.test(lower)) {
+      score += 15;
+      reasons.push(`config/infra change: ${file}`);
+    }
+
+    // Dependency changes
+    if (/package\.json|requirements\.txt|go\.mod|Cargo\.toml/i.test(lower)) {
+      score += 20;
+      reasons.push(`dependency change: ${file}`);
+    }
+  }
+
+  // Scale by number of files
+  if (files.length > 10) {
+    score += 15;
+    reasons.push(`large changeset: ${files.length} files`);
+  }
+
+  // Determine risk level
+  let risk, gate;
+  if (score >= 50) {
+    risk = 'critical';
+    gate = 'dual-brain-required';
+  } else if (score >= 30) {
+    risk = 'high';
+    gate = 'dual-brain-recommended';
+  } else if (score >= 10) {
+    risk = 'medium';
+    gate = 'single-review';
+  } else {
+    risk = 'low';
+    gate = 'self-check';
+  }
+
+  return { score, risk, gate, reasons };
+}
+
 function matchesSkipPattern(filePath, patterns) {
   const segments = filePath.split('/');
   const basename = segments[segments.length - 1];
@@ -93,7 +159,22 @@ function main() {
     exit({ gate: 'pass', reason: 'no qualifying code changes' });
   }
 
-  // 6. Run dual-brain review
+  // 5a. Score sensitivity BEFORE running any external review
+  const sensitivity = scoreSensitivity(qualifyingFiles, config);
+
+  // 5b. Low risk — skip GPT review entirely
+  if (sensitivity.gate === 'self-check') {
+    exit({
+      gate: 'pass',
+      risk: 'low',
+      sensitivity_score: sensitivity.score,
+      sensitivity_reasons: sensitivity.reasons,
+      reason: 'low sensitivity — self-check only',
+      files: qualifyingFiles,
+    });
+  }
+
+  // 6. Run dual-brain review (medium / high / critical)
   let reviewResult = {};
   try {
     const proc = spawnSync(process.execPath, [DUAL_BRAIN], {
@@ -121,12 +202,15 @@ function main() {
   const diff = runGit('git diff HEAD');
   const diffHash = createHash('sha256').update(diff).digest('hex').slice(0, 8);
 
-  // Build review record
+  // Build review record (includes sensitivity info)
   const timestamp = new Date().toISOString();
   const record = {
     timestamp,
     files_changed: qualifyingFiles,
     diff_hash: diffHash,
+    risk: sensitivity.risk,
+    sensitivity_score: sensitivity.score,
+    sensitivity_reasons: sensitivity.reasons,
     model: reviewResult.model ?? 'unknown',
     review: reviewResult.review ?? '',
     issues_found: reviewResult.issues_found ?? false,
@@ -142,31 +226,51 @@ function main() {
     // Non-fatal: still output summary
   }
 
-  // 8. Determine gate status from review result
+  // 8. Determine gate status from review result + sensitivity tier
   const reviewUnavailable =
     reviewResult.skip_reason === 'no_gpt_auth' ||
     reviewResult.error === true ||
     !reviewResult.review;
 
   let gateStatus;
-  if (reviewUnavailable) {
+  if (sensitivity.gate === 'dual-brain-required') {
+    // Critical: always flag for dual-brain + user attention regardless of review outcome
+    gateStatus = 'needs_dual_think';
+  } else if (reviewUnavailable) {
     gateStatus = 'needs_human_review';
   } else if (reviewResult.issues_found) {
     gateStatus = 'issues_found';
   } else {
-    gateStatus = 'pass';
+    gateStatus = sensitivity.gate === 'dual-brain-recommended' ? 'reviewed' : 'pass';
   }
 
-  // 9. Output summary
-  exit({
+  // 9. Build output object — common fields first
+  const output = {
     gate: gateStatus,
+    risk: sensitivity.risk,
+    sensitivity_score: sensitivity.score,
+    sensitivity_reasons: sensitivity.reasons,
     files: qualifyingFiles,
     issues_found: Boolean(reviewResult.issues_found),
     review_unavailable: reviewUnavailable,
     review_path: reviewFile,
     model: reviewResult.model || null,
     auth_type: reviewResult.auth_type || null,
-  });
+  };
+
+  // High risk: recommend dual-brain-think in addition
+  if (sensitivity.gate === 'dual-brain-recommended') {
+    output.dual_thinking_recommended = true;
+  }
+
+  // Critical risk: add strong warning
+  if (sensitivity.gate === 'dual-brain-required') {
+    output.warning =
+      'Critical sensitivity detected. Dual-brain review + explicit user approval strongly recommended before merging.';
+    output.reasons = sensitivity.reasons;
+  }
+
+  exit(output);
 }
 
 try {

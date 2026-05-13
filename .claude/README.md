@@ -1,6 +1,6 @@
 # Dual-Brain Orchestrator
 
-Tiered model routing for Claude Code. Routes search work to Haiku, execution to Sonnet, and reserves Opus for thinking. Optionally sends diffs to GPT for independent dual-brain code review.
+Dual-provider orchestration for Claude Code across Claude ($100 Max) and OpenAI ($100 Pro) subscriptions. Routes search work to Haiku, execution to Sonnet, and reserves Opus for thinking on the Claude lane. Dispatches isolated and long-running tasks to GPT via Codex CLI, with dual-brain analysis for high-risk decisions.
 
 ## Install
 
@@ -34,6 +34,9 @@ A PreToolUse hook (`hooks/enforce-tier.mjs`) classifies Agent calls by keyword a
 | `hooks/install-git-hooks.mjs` | Install a git pre-commit hook that enforces the quality gate at commit time |
 | `hooks/health-check.mjs` | Verify all hooks and dependencies are configured and reachable |
 | `hooks/session-report.mjs` | Comprehensive session-end summary: activity, routing compliance, quality gate, data quality, drift warnings |
+| `hooks/budget-balancer.mjs` | Show provider balance and routing recommendations |
+| `hooks/gpt-work-dispatcher.mjs` | Dispatch execution tasks to GPT via Codex CLI |
+| `hooks/dual-brain-think.mjs` | Dual-perspective analysis on architecture decisions |
 
 ## Codex Skills
 

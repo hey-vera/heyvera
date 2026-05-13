@@ -279,6 +279,37 @@ test('orchestrator.json: pricing_verified', () => {
   return true;
 });
 
+// ─── Test 12: budget-balancer: loads and runs ────────────────────────────────
+test('budget-balancer: loads and runs', () => {
+  const proc = spawnSync('node', [resolve(__dirname, 'budget-balancer.mjs')], {
+    encoding: 'utf8',
+    timeout: 10000,
+    cwd: resolve(__dirname, '..', '..'),
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  if (proc.status !== 0) return `exit code ${proc.status}: ${proc.stderr}`;
+  if (!proc.stdout.includes('Provider Balance')) return 'missing output header';
+  return true;
+});
+
+// ─── Test 13: orchestrator.json: providers configured ────────────────────────
+test('orchestrator.json: providers configured', () => {
+  const config = JSON.parse(readFileSync(resolve(__dirname, '..', 'orchestrator.json'), 'utf8'));
+  if (!config.providers?.claude?.enabled) return 'claude provider not enabled';
+  if (!config.providers?.openai?.enabled) return 'openai provider not enabled';
+  if (!config.routing?.strategy) return 'routing strategy missing';
+  return true;
+});
+
+// ─── Test 14: orchestrator.json: dual_thinking configured ────────────────────
+test('orchestrator.json: dual_thinking configured', () => {
+  const config = JSON.parse(readFileSync(resolve(__dirname, '..', 'orchestrator.json'), 'utf8'));
+  if (!config.dual_thinking?.enabled) return 'dual_thinking not enabled';
+  if (!config.dual_thinking?.auto_triggers?.length) return 'no auto_triggers';
+  if (!config.dual_thinking?.sensitive_paths?.length) return 'no sensitive_paths';
+  return true;
+});
+
 // ─── Summary ─────────────────────────────────────────────────────────────────
 const total = passed + failed;
 console.log(`\n${passed}/${total} tests passed`);

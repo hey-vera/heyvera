@@ -68,6 +68,15 @@ function modelToTier(model) {
   return null;
 }
 
+/** Detect the provider from a model name */
+function detectProvider(model) {
+  if (!model || model === 'main-session') return 'claude';
+  const m = String(model).toLowerCase();
+  if (m.includes('gpt') || m.includes('o1') || m.includes('o3') || m.includes('o4')) return 'openai';
+  if (m.includes('opus') || m.includes('sonnet') || m.includes('haiku') || m.includes('claude')) return 'claude';
+  return 'claude'; // default to claude since we're in Claude Code
+}
+
 /** Extract canonical model name from an arbitrary model string */
 function canonicalModel(model) {
   if (!model) return "main-session";
@@ -212,6 +221,8 @@ async function main() {
     tier,
     tool: toolName,
     model,
+    provider: detectProvider(model),
+    dispatcher: 'claude-code',
     status,
     session_id: process.env.CLAUDE_SESSION_ID || null,
     input_tokens: inputTokens,

@@ -202,6 +202,69 @@ function buildActivitySection(records, rateMap) {
 }
 
 // ---------------------------------------------------------------------------
+// Section 1b: Provider Balance
+// ---------------------------------------------------------------------------
+function detectProvider(record) {
+  if (record.provider) return record.provider;
+  const m = (record.model || '').toLowerCase();
+  if (m.includes('gpt') || m.includes('o1') || m.includes('o3')) return 'openai';
+  if (m.includes('opus') || m.includes('sonnet') || m.includes('haiku')) return 'claude';
+  return 'unknown';
+}
+
+function buildProviderBalanceSection(records) {
+  const activity = records.filter(r => r.type !== 'tier_recommendation');
+
+  // Count calls per provider
+  const providerCounts = {};
+  for (const r of activity) {
+    const provider = detectProvider(r);
+    providerCounts[provider] = (providerCounts[provider] || 0) + 1;
+  }
+
+  const totalCalls = Object.values(providerCounts).reduce((s, n) => s + n, 0);
+
+  // Special event counts
+  const gptDispatches   = records.filter(r => r.dispatcher === 'gpt-work-dispatcher').length;
+  const dualThinkEvents = records.filter(r => r.tool === 'dual-brain-think').length;
+
+  const lines = [];
+  lines.push(boxLine('Provider Balance'));
+  lines.push(boxLine('─'.repeat(INNER)));
+
+  if (totalCalls === 0) {
+    lines.push(boxLine('  (no usage data recorded today)'));
+  } else {
+    // Render each provider sorted by count descending
+    const sorted = Object.entries(providerCounts).sort((a, b) => b[1] - a[1]);
+    for (const [provider, count] of sorted) {
+      const pct    = Math.round((count / totalCalls) * 100);
+      const label  = padR(provider.charAt(0).toUpperCase() + provider.slice(1) + ':', 9);
+      lines.push(boxLine(`${label} ${padL(pct + '%', 3)} of work (${count} calls)`));
+    }
+  }
+
+  lines.push(boxBlank());
+  lines.push(boxLine(`GPT Dispatches: ${gptDispatches}`));
+  lines.push(boxLine(`Dual-Think Events: ${dualThinkEvents}`));
+
+  // Recommendation line when imbalance is significant (one provider >70%)
+  if (totalCalls > 0) {
+    for (const [provider, count] of Object.entries(providerCounts)) {
+      const pct = (count / totalCalls) * 100;
+      if (pct > 70) {
+        const other = provider === 'claude' ? 'OpenAI' : 'Claude';
+        lines.push(boxBlank());
+        lines.push(boxLine(`Next session: Route more execution work to ${other}`));
+        break;
+      }
+    }
+  }
+
+  return { lines };
+}
+
+// ---------------------------------------------------------------------------
 // Section 2: Routing Compliance
 // ---------------------------------------------------------------------------
 function buildComplianceSection(records, rateMap) {
@@ -412,6 +475,11 @@ function main() {
   // --- Section 1: Activity Summary ---
   const { lines: actLines } = buildActivitySection(records, rateMap);
   output.push(...actLines);
+  output.push(boxBlank());
+
+  // --- Section 1b: Provider Balance ---
+  const { lines: provLines } = buildProviderBalanceSection(records);
+  output.push(...provLines);
   output.push(boxBlank());
 
   // --- Section 2: Routing Compliance ---
