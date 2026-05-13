@@ -40,7 +40,7 @@ export function LeftRail() {
         </ul>
 
         <div className="left-rail-cta">
-          <a className="button button-primary left-rail-join" href="#join">
+          <a className="button button-primary left-rail-join" href="#get-started">
             Join Vera
           </a>
         </div>
@@ -51,11 +51,11 @@ export function LeftRail() {
           <div className="left-rail-trust">
             <div className="left-rail-trust-row">
               <span className="left-rail-trust-dot" aria-hidden="true" />
-              <span className="left-rail-trust-label">Soma substrate active</span>
+              <span className="left-rail-trust-label">Proof labels visible</span>
             </div>
             <div className="left-rail-trust-row">
               <span className="left-rail-trust-dot" aria-hidden="true" />
-              <span className="left-rail-trust-label">Proof chain running</span>
+              <span className="left-rail-trust-label">Receipts pending contracts</span>
             </div>
           </div>
         </div>
@@ -76,7 +76,7 @@ export function LeftRail() {
         </div>
         <AuthBarSafe />
         <ThemeToggle />
-        <a className="button button-primary mobile-nav-join" href="#join">
+        <a className="button button-primary mobile-nav-join" href="#get-started">
           Join Vera
         </a>
       </nav>

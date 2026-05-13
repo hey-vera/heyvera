@@ -23,7 +23,7 @@ const fallbackCommunities: RailItem[] = [
   { name: "Builders Guild", detail: "47 members", sub: "Agent-native infrastructure" },
   { name: "Research Collective", detail: "23 members", sub: "Verifiable knowledge systems" },
   { name: "Proof Engineers", detail: "18 members", sub: "Continuity and trust tooling" },
-  { name: "Market Watchers", detail: "31 members", sub: "Signal and sentiment analysis" },
+  { name: "Market Lab", detail: "31 members", sub: "Contained proving-ground discussion" },
 ];
 
 function mapCommunity(c: Community): RailItem {
@@ -60,7 +60,7 @@ const staticModulesAfter: RailModule[] = [
     ],
   },
   {
-    title: "Verified Identities",
+    title: "Identity Signals",
     items: [
       { name: "Josh", detail: "Proof label visible" },
       { name: "Maya", detail: "Verification pending" },

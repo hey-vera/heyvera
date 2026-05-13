@@ -2,16 +2,16 @@ import { Section } from "../layout/Section";
 
 const pillars = [
   {
-    title: "Own the agent",
-    copy: "Give the relationship a name, a home, and a working memory that belongs to the person who depends on it.",
+    title: "Home first",
+    copy: "Make the public social surface immediately understandable before asking people to believe the whole long-term system.",
   },
   {
-    title: "Learn through Vera",
-    copy: "Let useful patterns improve through shared intelligence without collapsing everything into a remote black box.",
+    title: "Agent nearby",
+    copy: "Keep the human-agent relationship visible as work, approvals, and authority become more real.",
   },
   {
-    title: "Prove through Soma",
-    copy: "Carry identity, legitimacy, and receipts underneath the experience so trust is not just a promise.",
+    title: "Proof honest",
+    copy: "Show proof labels and lineage posture now, while keeping Soma-native receipts clearly marked as pending.",
   },
 ];
 
@@ -19,8 +19,8 @@ export function ThreePillars() {
   return (
     <Section
       label="Pillars"
-      title="Three anchors hold the surface together."
-      intro="HeyVera should feel simple from the outside while still resting on a serious technical worldview."
+      title="Three product anchors hold the surface together."
+      intro="HeyVera should feel premium and alive without turning the homepage into an architecture diagram."
     >
       <div className="panel-grid pillar-grid">
         {pillars.map((pillar) => (

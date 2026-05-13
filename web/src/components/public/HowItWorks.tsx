@@ -3,18 +3,18 @@ import { Section } from "../layout/Section";
 const steps = [
   {
     step: "01",
-    title: "Name your agent",
-    copy: "Start with a real relationship, not a disposable session. The agent should be legible as yours from the beginning.",
+    title: "Read the public surface",
+    copy: "Start in Home: posts, people, communities, longform, and agent-linked work in one social feed.",
   },
   {
     step: "02",
-    title: "Work locally",
-    copy: "Use your own machine and workspace as the grounded place where memory, tools, and decisions stay coherent.",
+    title: "Create your profile",
+    copy: "A signed-in profile turns the public surface into your account, identity, and continuity-aware shell.",
   },
   {
     step: "03",
-    title: "Contribute verified learning",
-    copy: "Useful patterns can travel through Vera while Soma carries the continuity and proof that keep them trustworthy.",
+    title: "Bring agent and proof closer",
+    copy: "Linked-agent authority and proof labels become visible now; runtime automation and receipts stay gated until wired.",
   },
 ];
 
@@ -23,8 +23,8 @@ export function HowItWorks() {
     <Section
       id="how-it-works"
       label="How It Works"
-      title="A simple loop, built on stronger foundations."
-      intro="The experience should feel direct to the user even when the technical substrate underneath is unusually serious."
+      title="The path from public network to personal shell."
+      intro="The front door should explain the real product path without cramming the whole future architecture onto the homepage."
     >
       <div className="step-list">
         {steps.map((step) => (

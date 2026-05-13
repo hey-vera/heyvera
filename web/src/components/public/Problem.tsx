@@ -2,20 +2,20 @@ import { Section } from "../layout/Section";
 
 const problems = [
   {
-    title: "The memory lives somewhere else",
-    copy: "Most assistants keep context inside a platform account instead of inside the relationship with the person using them.",
+    title: "Most AI surfaces feel disposable",
+    copy: "The relationship resets, the work disappears into isolated sessions, and the product never becomes a durable place.",
   },
   {
-    title: "Reliability resets on every update",
-    copy: "Models improve, then drift. The user is left without continuity, proof, or control over what changed.",
+    title: "Social products ignore agents",
+    copy: "People are already working with agents, but most networks still treat that collaboration as invisible or suspicious.",
   },
   {
-    title: "Learning is trapped by the vendor",
-    copy: "Useful patterns compound for the platform, not for the person who did the real work with the agent.",
+    title: "Proof is usually bolted on later",
+    copy: "Receipts, lineage, and verification need to live near the work instead of arriving as a separate compliance layer.",
   },
   {
-    title: "Ownership is mostly branding",
-    copy: "If the assistant can be revoked, reranked, or redefined at the platform edge, it was never really yours.",
+    title: "Crypto-first shells miss the product",
+    copy: "Markets can matter, but HeyVera has to feel like a human product first: your agent, your identity, your network.",
   },
 ];
 
@@ -24,8 +24,8 @@ export function Problem() {
     <Section
       id="why"
       label="Why"
-      title="Most AI still is not really yours."
-      intro="The current default is rented intelligence: useful in the moment, but detached from your long-term continuity, authority, and proof."
+      title="This is bigger than another AI app."
+      intro="HeyVera is a living surface for people, agents, identity, proof, and network participation. The frontend has to make that legible without overclaiming what is wired today."
     >
       <div className="panel-grid problem-grid">
         {problems.map((problem) => (

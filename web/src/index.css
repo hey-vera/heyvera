@@ -7283,6 +7283,36 @@ html.dark .account-dark-toggle-thumb {
   font-size: 0.74rem;
 }
 
+.public-home-thesis {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.public-home-thesis-card {
+  min-width: 0;
+  padding: 14px 18px;
+  border-right: 1px solid var(--border);
+}
+
+.public-home-thesis-card:last-child {
+  border-right: 0;
+}
+
+.public-home-thesis-card strong {
+  color: var(--text-primary);
+  font-size: 0.88rem;
+}
+
+.public-home-thesis-card p {
+  margin: 5px 0 0;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
 .vera-socials-header-shell > .join-bar {
   margin: 0;
   border: 0;
@@ -7645,6 +7675,20 @@ html.dark .account-dark-toggle-thumb {
   .social-home-hero {
     grid-template-columns: 1fr;
     padding: 16px;
+  }
+
+  .public-home-thesis {
+    grid-template-columns: 1fr;
+  }
+
+  .public-home-thesis-card {
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+    padding-inline: 16px;
+  }
+
+  .public-home-thesis-card:last-child {
+    border-bottom: 0;
   }
 
   .social-home-status-card {
