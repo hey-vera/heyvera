@@ -73,6 +73,11 @@ function canWrite(state: ShellState): boolean {
   return state === "ready";
 }
 
+function formatStateLabel(value: string | null | undefined) {
+  if (!value) return "Pending";
+  return value.replace(/_/g, " ");
+}
+
 // ─── Intro card variants per shell state ───────────────────────────────────
 
 function IntroPublic() {
@@ -1660,8 +1665,12 @@ function AccountTab({ shellState }: { shellState: ShellState }) {
         {activeTab === "agents" && <AccountLinkedAgents linkedAgents={linkedAgents} />}
         {activeTab === "settings" && (
           <>
+            <AccountAuthorityPanel
+              profile={profile}
+              linkedAgents={linkedAgents}
+            />
             <AccountEditProfile profile={profile} getToken={getToken} refetchMyProfile={refetchMyProfile} />
-            <AccountSettings handle={profile.handle} />
+            <AccountSettings profile={profile} linkedAgents={linkedAgents} />
           </>
         )}
       </div>
@@ -1732,6 +1741,14 @@ function AccountHeader({
           <span className="account-proof-badge-dot" aria-hidden="true" />
           {proof.label}
         </span>
+        <div className="account-authority-chips" aria-label="Identity state">
+          <span className="account-authority-chip">
+            Continuity {formatStateLabel(profile.continuityState)}
+          </span>
+          <span className="account-authority-chip">
+            Proof {formatStateLabel(profile.proofState)}
+          </span>
+        </div>
       </div>
 
       <div className="account-header-stats" aria-label="Profile statistics">
@@ -1761,6 +1778,56 @@ function AccountHeader({
         ) : null}
       </div>
     </div>
+  );
+}
+
+function AccountAuthorityPanel({
+  profile,
+  linkedAgents,
+}: {
+  profile: Profile;
+  linkedAgents: LinkedAgent[];
+}) {
+  const primaryAgent = linkedAgents.find((agent) => agent.isPrimary) ?? linkedAgents[0];
+  const proof = proofSummary(profile.proofState, profile.continuityState);
+
+  return (
+    <section className="account-authority-panel" aria-label="Identity authority">
+      <div className="account-authority-panel-copy">
+        <p className="region-summary-label">Identity Surface</p>
+        <h3 className="account-authority-title">
+          Your HeyVera identity is active, with deeper Soma credentials still explicit.
+        </h3>
+        <p className="account-authority-copy">
+          Profile, handle, proof labels, and linked agents are visible today. Recovery,
+          delegation, and ceremony credentials stay marked as pending until the upstream
+          contracts exist.
+        </p>
+      </div>
+
+      <div className="account-authority-grid">
+        <div className="account-authority-tile account-authority-tile-accent">
+          <span>Handle</span>
+          <strong>@{profile.handle}</strong>
+          <small>Permanent public identity</small>
+        </div>
+        <div className="account-authority-tile">
+          <span>Continuity</span>
+          <strong>{formatStateLabel(profile.continuityState)}</strong>
+          <small>{proof.verified ? "Proof and continuity aligned" : "Awaiting stronger verification"}</small>
+        </div>
+        <div className="account-authority-tile">
+          <span>Primary agent</span>
+          <strong>{primaryAgent?.agentName ?? "Not linked"}</strong>
+          <small>{primaryAgent ? formatStateLabel(primaryAgent.linkState) : "Agent authority not connected"}</small>
+        </div>
+        <div className="account-authority-tile">
+          <span>Ceremony</span>
+          <strong>Pending</strong>
+          <small>Soma-native recovery and delegation are not live here yet</small>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -2166,7 +2233,13 @@ function AccountEditProfile({
 
 // ── Account & settings scaffold ──
 
-function AccountSettings({ handle }: { handle?: string }) {
+function AccountSettings({
+  profile,
+  linkedAgents,
+}: {
+  profile: Profile;
+  linkedAgents: LinkedAgent[];
+}) {
   const [darkMode, setDarkMode] = useState(() => {
     if (typeof window === "undefined") return false;
     const stored = localStorage.getItem("vera-dark-mode");
@@ -2188,26 +2261,42 @@ function AccountSettings({ handle }: { handle?: string }) {
   }, []);
 
   const futureItems = [
-    { label: "Privacy controls", status: "Coming soon" },
-    { label: "Notification preferences", status: "Coming soon" },
-    { label: "Account deletion", status: "Coming soon" },
+    { label: "Recovery ceremony", status: "Waiting on Soma" },
+    { label: "Delegation controls", status: "Waiting on Soma" },
+    { label: "Private credential vault", status: "Waiting on contracts" },
     { label: "Data export", status: "Coming soon" },
   ];
 
   return (
     <>
-      {/* Your handle */}
-      {handle && (
-        <div className="account-section">
-          <h3 className="account-section-title">Your Handle</h3>
-          <div className="account-handle-display">
-            <span className="account-handle-value">@{handle}</span>
+      <div className="account-section account-section-authority">
+        <h3 className="account-section-title">Continuity & Authority</h3>
+        <div className="account-settings-card account-continuity-card">
+          <div className="account-settings-row">
+            <span className="account-settings-label">Public handle</span>
+            <span className="account-handle-value">@{profile.handle}</span>
           </div>
-          <p className="account-handle-note">
-            Handles are permanent and tied to your proof chain. They cannot be changed after creation.
-          </p>
+          <div className="account-settings-row">
+            <span className="account-settings-label">Continuity state</span>
+            <span className="account-settings-chip account-settings-chip-accent">
+              {formatStateLabel(profile.continuityState)}
+            </span>
+          </div>
+          <div className="account-settings-row">
+            <span className="account-settings-label">Proof state</span>
+            <span className="account-settings-chip account-settings-chip-accent">
+              {formatStateLabel(profile.proofState)}
+            </span>
+          </div>
+          <div className="account-settings-row">
+            <span className="account-settings-label">Linked agents</span>
+            <span className="account-settings-chip">{linkedAgents.length}</span>
+          </div>
         </div>
-      )}
+        <p className="account-handle-note">
+          Handle, profile, proof labels, and linked agents are the identity facts HeyVera can show now.
+        </p>
+      </div>
 
       {/* Display preferences */}
       <div className="account-section">
@@ -2231,7 +2320,7 @@ function AccountSettings({ handle }: { handle?: string }) {
 
       {/* Other settings scaffold */}
       <div className="account-section">
-        <h3 className="account-section-title">Account & Settings</h3>
+        <h3 className="account-section-title">Soma-Native Settings</h3>
         <div className="account-settings-card">
           {futureItems.map((item) => (
             <div key={item.label} className="account-settings-row">
