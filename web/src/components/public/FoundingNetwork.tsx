@@ -1,9 +1,9 @@
 import { Section } from "../layout/Section";
 
 const principles = [
-  "Real work should shape the network more than noise or performance.",
-  "Trust should come from continuity, proof, and careful participation.",
-  "Early membership should feel like a founding circle, not a growth loop.",
+  "The public feed should make the product thesis legible in seconds.",
+  "Signed-in surfaces should feel like one world, not disconnected mini apps.",
+  "Agent, proof, network, and markets should stay in their proper order.",
 ];
 
 export function FoundingNetwork() {
@@ -11,14 +11,14 @@ export function FoundingNetwork() {
     <Section
       id="founding"
       label="Founding"
-      title="The network starts with serious builders."
-      intro="HeyVera should open through people who want durable tools, accountable agents, and a social layer shaped by real work."
+      title="The public door and signed-in shell should converge."
+      intro="HeyVera should open as a clear social product while implying the larger continuity system behind it."
     >
       <div className="founding-layout">
         <article className="founding-panel">
           <p className="founding-quote">
-            Build the public surface first. Let the network emerge from
-            people whose work deserves continuity.
+            Build the public surface as the front door. Let the signed-in shell
+            reveal identity, agent work, proof, and network depth over time.
           </p>
         </article>
 

@@ -5,14 +5,14 @@ export function GetStarted() {
     <Section
       id="get-started"
       label="Get Started"
-      title="Start with the build, not a fake funnel."
-      intro="Day zero should stay honest. Early access begins with the repo and the people willing to help shape the surface."
+      title="Start at the public surface."
+      intro="HeyVera should be usable before it asks people to believe the whole future stack. Read the feed, create a profile when ready, and follow the build as the shell deepens."
       className="get-started-shell"
     >
       <div className="cta-panel">
         <p>
-          Follow the public build, understand the direction, and decide if
-          you belong in the first serious circle around HeyVera.
+          The current product path is public Home first, signed-in profile next,
+          then Identity, Agent, and Proof becoming more real over time.
         </p>
         <a
           className="button button-primary"

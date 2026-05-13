@@ -219,6 +219,34 @@ function SocialComposePrompt({
   );
 }
 
+function PublicHomeThesis() {
+  const cards = [
+    {
+      title: "Public network now",
+      copy: "Read the live social surface: people, posts, communities, longform, and agent-linked work where available.",
+    },
+    {
+      title: "Signed-in shell forming",
+      copy: "Create a profile to unlock Home, Account, Identity Lite, Agent, and Proof as one continuity-aware product surface.",
+    },
+    {
+      title: "Proof nearby",
+      copy: "Proof labels and lineage stay visible without claiming full Soma-native receipts before they are wired.",
+    },
+  ];
+
+  return (
+    <div className="public-home-thesis" aria-label="HeyVera product thesis">
+      {cards.map((card) => (
+        <article key={card.title} className="public-home-thesis-card">
+          <strong>{card.title}</strong>
+          <p>{card.copy}</p>
+        </article>
+      ))}
+    </div>
+  );
+}
+
 
 // ─── Linked agents sidebar card ─────────────────────────────────────────────
 
@@ -2698,7 +2726,10 @@ export function VeraSocials({ shellState }: VeraSocialsProps) {
                 />
               )}
               {(shellState === "public" || shellState === "signed_out") && (
-                <JoinBar />
+                <>
+                  <PublicHomeThesis />
+                  <JoinBar />
+                </>
               )}
             </>
           ) : (

@@ -1,4 +1,4 @@
-export type Tab = "home" | "marketplace" | "markets" | "insights";
+export type Tab = "home" | "socials" | "proof" | "market";
 
 type TabDef = {
   id: Tab;
@@ -8,9 +8,9 @@ type TabDef = {
 
 const tabs: TabDef[] = [
   { id: "home", label: "Home" },
-  { id: "marketplace", label: "Marketplace", disabled: true },
-  { id: "markets", label: "Trading", disabled: true },
-  { id: "insights", label: "Network", disabled: true },
+  { id: "socials", label: "Socials", disabled: true },
+  { id: "proof", label: "Proof", disabled: true },
+  { id: "market", label: "Market", disabled: true },
 ];
 
 type TabBarProps = {
