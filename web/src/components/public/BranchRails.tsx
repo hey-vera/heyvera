@@ -62,9 +62,9 @@ const staticModulesAfter: RailModule[] = [
   {
     title: "Verified Identities",
     items: [
-      { name: "Josh", detail: "Continuity verified" },
-      { name: "Maya", detail: "Soma-backed" },
-      { name: "Kai", detail: "Continuity verified" },
+      { name: "Josh", detail: "Proof label visible" },
+      { name: "Maya", detail: "Verification pending" },
+      { name: "Kai", detail: "Proof label visible" },
     ],
   },
 ];

@@ -4895,6 +4895,7 @@ html.dark .network-community-detail-feed-placeholder code {
   border-top: 0;
   background: var(--bg);
   overflow-x: auto;
+  scroll-snap-type: x proximity;
 }
 
 .account-profile-nav-item {
@@ -4905,6 +4906,7 @@ html.dark .network-community-detail-feed-placeholder code {
   font-size: 0.84rem;
   font-weight: 600;
   white-space: nowrap;
+  scroll-snap-align: start;
 }
 
 .account-profile-nav-item:hover {
@@ -5022,6 +5024,100 @@ html.dark .network-community-detail-feed-placeholder code {
   border-top: 1px solid var(--border);
   font-size: 0.85rem;
   color: var(--text-muted);
+}
+
+.account-continuity-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(300px, 1.1fr);
+  gap: 18px;
+  padding: 18px 20px;
+  border: 1px solid var(--border);
+  border-top: 0;
+  background:
+    linear-gradient(135deg, var(--bg), var(--bg-raised) 72%),
+    radial-gradient(circle at 92% 18%, var(--accent-surface), transparent 34%);
+}
+
+.account-continuity-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.account-continuity-copy h3 {
+  max-width: 32rem;
+  margin: 0;
+  color: var(--text-primary);
+  font-size: clamp(1.08rem, 1.55vw, 1.38rem);
+  line-height: 1.2;
+}
+
+.account-continuity-copy p:last-child {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.88rem;
+  line-height: 1.55;
+}
+
+.account-continuity-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.account-continuity-fact {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 9px;
+  align-items: start;
+  min-width: 0;
+  padding: 11px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg);
+}
+
+.account-continuity-dot {
+  width: 9px;
+  height: 9px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: var(--text-soft);
+  box-shadow: 0 0 0 5px var(--surface);
+}
+
+.account-continuity-dot-live {
+  background: var(--accent);
+  box-shadow: 0 0 0 5px var(--accent-surface);
+}
+
+.account-continuity-fact strong {
+  display: block;
+  color: var(--text-primary);
+  font-size: 0.82rem;
+}
+
+.account-continuity-fact p {
+  overflow: hidden;
+  margin: 2px 0 0;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+}
+
+.account-continuity-fact small {
+  justify-self: end;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 7px;
+  color: var(--text-soft);
+  background: var(--surface-overlay);
+  font-size: 0.68rem;
+  line-height: 1.35;
+  white-space: nowrap;
+  text-transform: capitalize;
 }
 
 
@@ -5352,6 +5448,22 @@ html.dark .network-community-detail-feed-placeholder code {
   background: var(--bg);
 }
 
+.account-settings-note {
+  max-width: 42rem;
+  margin: -4px 0 12px;
+  color: var(--text-muted);
+  font-size: 0.84rem;
+  line-height: 1.55;
+}
+
+.account-settings-card-pending {
+  background: var(--bg-raised);
+}
+
+.account-settings-card-pending .account-settings-row {
+  opacity: 0.74;
+}
+
 .account-settings-row {
   display: flex;
   align-items: center;
@@ -5441,6 +5553,18 @@ html.dark .network-community-detail-feed-placeholder code {
 
 html.dark .account-header {
   background: var(--bg-raised);
+  border-color: var(--border);
+}
+
+html.dark .account-continuity-summary {
+  background:
+    linear-gradient(135deg, var(--bg), var(--bg-raised) 72%),
+    radial-gradient(circle at 92% 18%, var(--accent-surface), transparent 34%);
+  border-color: var(--border);
+}
+
+html.dark .account-continuity-fact {
+  background: var(--bg);
   border-color: var(--border);
 }
 
@@ -5559,28 +5683,6 @@ html.dark .account-blocked-note {
 .account-header-stat-btn strong {
   color: var(--text-primary);
   font-weight: 600;
-}
-
-/* Settings gear in profile tab nav */
-
-.account-profile-nav-settings {
-  margin-left: auto;
-  padding: 14px 16px;
-  border: 0;
-  color: var(--text-soft);
-  font-size: 0.88rem;
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: color 160ms ease;
-}
-
-.account-profile-nav-settings:hover {
-  color: var(--text-primary);
-}
-
-.account-profile-nav-settings-active {
-  color: var(--text-primary);
-  box-shadow: inset 0 -2px 0 var(--accent);
 }
 
 /* Linked agent rows (list layout replacing grid) */
@@ -6393,7 +6495,6 @@ html.dark .account-dark-toggle-thumb {
 }
 
 .account-profile-nav-item:focus-visible,
-.account-profile-nav-settings:focus-visible,
 .account-header-stat-btn:focus-visible,
 .account-header-action:focus-visible,
 .account-dark-toggle:focus-visible,
@@ -6462,6 +6563,7 @@ html.dark .account-dark-toggle-thumb {
 
   .account-header-info,
   .account-section,
+  .account-continuity-summary,
   .account-authority-panel {
     padding: 16px;
   }
@@ -6483,7 +6585,12 @@ html.dark .account-dark-toggle-thumb {
     grid-template-columns: 1fr;
   }
 
+  .account-continuity-summary,
   .account-authority-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .account-continuity-facts {
     grid-template-columns: 1fr;
   }
 
