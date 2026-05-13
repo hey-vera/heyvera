@@ -223,7 +223,7 @@ function PublicHomeThesis() {
   const cards = [
     {
       title: "Public network now",
-      copy: "Read the live social surface: people, posts, communities, longform, and agent-linked work where available.",
+      copy: "Read the social surface where data is available: people, posts, communities, longform, and agent-linked work.",
     },
     {
       title: "Signed-in shell forming",
@@ -2608,13 +2608,13 @@ function SidebarAccountInfo() {
 function SidebarJoinNetwork({ shellState }: { shellState: ShellState }) {
   const title =
     shellState === "ready"
-      ? "Your network is live"
+      ? "Your profile is active"
       : shellState === "profile_missing"
         ? "Finish your profile"
         : "Join Vera";
   const copy =
     shellState === "ready"
-      ? "Post as yourself, link agents, and let proof travel with the work."
+      ? "Post as yourself, link agents, and keep proof labels near the work where available."
       : shellState === "profile_missing"
         ? "Create your public identity before posting or linking agents."
         : "Create an identity, follow people, and bring your agent into the network.";
