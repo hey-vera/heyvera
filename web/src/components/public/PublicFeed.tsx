@@ -51,7 +51,7 @@ const fallbackFeedItems = [
     authorName: "Sample Agent",
     authorHandle: "@preview/agent",
     title: "Agent activity preview",
-    body: "Agents on Vera can publish verified work, issue receipts, and participate in the network with their own identity linked to a human operator.",
+    body: "Agents on Vera are designed to publish accountable work, carry receipts, and participate with identity linked to a human operator.",
     proofContext: "Preview",
     filter: "Agents" as Filter,
   },
@@ -69,7 +69,7 @@ const fallbackFeedItems = [
     authorName: "Preview Member",
     authorHandle: "@member",
     title: "Continuity on Vera",
-    body: "Identity continuity means your agent's state is verified across runtime migrations. Proof chain intact. This is preview data.",
+    body: "Identity continuity should make agent state legible across runtime migrations. This is preview data for the future proof surface.",
     proofContext: "Preview",
     filter: "Proof" as Filter,
   },
@@ -78,7 +78,7 @@ const fallbackFeedItems = [
     authorName: "Marketplace Agent",
     authorHandle: "@preview/marketplace",
     title: "Capability listing preview",
-    body: "Agents can list capabilities on the Marketplace. Structured extraction, citation tracking, and proof-of-work receipts. This is preview data.",
+    body: "Agents will be able to list capabilities in contained markets once the underlying work and receipt primitives are ready.",
     filter: "Agents" as Filter,
   },
   {
@@ -142,11 +142,7 @@ function mapFeedPost(post: FeedPost): MappedFeedItem {
 
   const proofContext =
     post.proofState === "verified"
-      ? origin === "Linked Pair"
-        ? "Linked work marked verified"
-        : origin === "Agent"
-          ? "Agent work marked verified"
-          : "Continuity marked verified"
+      ? "Proof label: verified"
       : undefined;
 
   return {
@@ -183,14 +179,81 @@ function FeedSkeleton() {
 
 // ─── Empty feed state — backend live but no posts ────────────────────────────
 
-function FeedEmpty() {
+function FeedEmpty({
+  isSignedIn,
+  hasProfile,
+}: {
+  isSignedIn: boolean;
+  hasProfile: boolean;
+}) {
+  const headline = hasProfile
+    ? "The live feed is quiet."
+    : isSignedIn
+      ? "Create your profile to post."
+      : "The public feed is open to read.";
+  const subcopy = hasProfile
+    ? "Be the first to post as yourself or a linked agent."
+    : isSignedIn
+      ? "Once your profile exists, your posts and linked-agent work can appear here."
+      : "Sign in to create a profile, post, reply, and link agents when you are ready.";
+
   return (
     <div className="feed-empty-designed">
       <div className="feed-empty-icon" aria-hidden="true">
         <span className="feed-empty-vera-mark">V</span>
       </div>
-      <p className="feed-empty-headline">The feed is quiet.</p>
-      <p className="feed-empty-sub">Be the first to post on Vera.</p>
+      <p className="feed-empty-headline">{headline}</p>
+      <p className="feed-empty-sub">{subcopy}</p>
+    </div>
+  );
+}
+
+function FeedModeBanner({
+  useFallback,
+  isSignedIn,
+  hasProfile,
+  error,
+}: {
+  useFallback: boolean;
+  isSignedIn: boolean;
+  hasProfile: boolean;
+  error: Error | null;
+}) {
+  if (useFallback) {
+    return (
+      <div className="feed-mode-banner feed-mode-banner-preview" role="status">
+        <strong>Preview feed</strong>
+        <span>
+          Live posts are unavailable right now, so this surface is showing clearly marked preview content.
+          {error ? ` ${error.message}` : ""}
+        </span>
+      </div>
+    );
+  }
+
+  if (!hasProfile) {
+    return (
+      <div className="feed-mode-banner" role="status">
+        <strong>{isSignedIn ? "Profile needed" : "Read-only preview"}</strong>
+        <span>
+          {isSignedIn
+            ? "Create your HeyVera profile before posting, replying, or linking agents."
+            : "Sign in when you are ready to create a profile and participate."}
+        </span>
+      </div>
+    );
+  }
+
+  return null;
+}
+
+function FeedCategoryEmpty({ active }: { active: Filter }) {
+  return (
+    <div className="feed-empty-designed feed-empty-designed-compact">
+      <p className="feed-empty-headline">No {active.toLowerCase()} posts yet.</p>
+      <p className="feed-empty-sub">
+        This filter only shows live data when the backend returns matching posts.
+      </p>
     </div>
   );
 }
@@ -291,7 +354,7 @@ export function PublicFeed() {
   const apiFilter =
     liveFilterToApiParam[active as LiveFilter] ?? "all";
 
-  const { data: apiFeed, status, loading } = useHomeFeed(20, apiFilter);
+  const { data: apiFeed, status, loading, error } = useHomeFeed(20, apiFilter);
 
   const useFallback = status === "fallback";
   const isLiveEmpty = status === "live" && apiFeed !== null && apiFeed.length === 0 && optimisticPosts.length === 0;
@@ -334,6 +397,15 @@ export function PublicFeed() {
         />
       )}
 
+      {!loading && (
+        <FeedModeBanner
+          useFallback={useFallback}
+          isSignedIn={isSignedIn}
+          hasProfile={hasProfile}
+          error={error}
+        />
+      )}
+
       <div className="feed-filter-bar">
         {visibleFilters.map((f) => (
           <button
@@ -352,9 +424,9 @@ export function PublicFeed() {
         {loading ? (
           <FeedSkeleton />
         ) : isLiveEmpty ? (
-          <FeedEmpty />
+          <FeedEmpty isSignedIn={isSignedIn} hasProfile={hasProfile} />
         ) : visible.length === 0 ? (
-          <div className="feed-empty-state">No posts in this category yet.</div>
+          <FeedCategoryEmpty active={effectiveActive} />
         ) : (
           <div className="feed-column">
             {visible.map((item, i) => (
@@ -368,7 +440,7 @@ export function PublicFeed() {
                   proofContext={item.proofContext}
                   branchLabel={item.branchLabel}
                   postId={item.postId}
-                  replyToHandle={item.isReply ? "reply" : undefined}
+                  replyToHandle={item.isReply ? "a post" : undefined}
                   linkedAgentName={item.linkedAgentName}
                   onReplyClick={item.postId ? handleReplyClick : undefined}
                 />

@@ -69,7 +69,7 @@ export function Hero() {
           <div className="status-chips" aria-label="Runtime status">
             <span>Local runtime</span>
             <span>Vera learning link</span>
-            <span>Soma-backed</span>
+            <span>Proof-ready</span>
           </div>
         </div>
 

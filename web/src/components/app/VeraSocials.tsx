@@ -143,7 +143,7 @@ function SocialHomeHeader({
         ? "Profile setup needed"
         : shellState === "signed_out"
           ? "Public network preview"
-          : "Live public surface";
+          : "Public network preview";
 
   if (shellState === "ready") {
     return (
@@ -465,7 +465,7 @@ function PulseTab() {
             <span className="pulse-prereq-icon" aria-hidden="true" />
             <div className="pulse-prereq-text">
               <strong>Active proof chain</strong>
-              <p>A verified continuity state so that every automated action can be anchored to your identity.</p>
+              <p>A continuity state that can anchor automated actions once Soma proof wiring is ready.</p>
             </div>
           </div>
         </div>
@@ -527,8 +527,8 @@ function mapProfileToCard(p: ProfileSummary) {
 
   const proofLabel =
     p.continuityState === "verified" || p.proofState === "verified"
-      ? "Continuity verified"
-      : "Soma-backed";
+      ? "Proof label: verified"
+      : "Verification pending";
 
   return {
     displayName: p.displayName,
@@ -1457,7 +1457,7 @@ function LongformTab({ shellState }: { shellState: ShellState }) {
                   {formatTypeToLabel(selected.formatType)}
                 </span>
                 {selected.proofState === "verified" && (
-                  <span className="longform-proof-chip">Proof verified</span>
+                  <span className="longform-proof-chip">Proof label: verified</span>
                 )}
               </div>
               <button
@@ -2621,6 +2621,9 @@ export function VeraSocials({ shellState }: VeraSocialsProps) {
                   shellState={shellState}
                   viewerLabel={resolvedViewerLabel}
                 />
+              )}
+              {(shellState === "public" || shellState === "signed_out") && (
+                <JoinBar />
               )}
             </>
           ) : (
