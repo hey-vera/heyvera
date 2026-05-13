@@ -12,7 +12,8 @@ const MARKER = '# dual-brain-orchestrator';
 // actual newlines are preserved when written to disk.
 const GATE_BLOCK = `
 ${MARKER} quality gate
-GATE_RESULT=$(node .claude/hooks/quality-gate.mjs 2>/dev/null)
+REPO_ROOT=$(git rev-parse --show-toplevel)
+GATE_RESULT=$(node "$REPO_ROOT/.claude/hooks/quality-gate.mjs" 2>/dev/null)
 GATE_STATUS=$(echo "$GATE_RESULT" | node -e "
   let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{
     try{console.log(JSON.parse(d).gate)}catch{console.log('error')}
