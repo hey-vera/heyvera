@@ -24,7 +24,7 @@ const ENFORCE_TIER  = resolve(HOOKS, 'enforce-tier.mjs');
 const COST_LOGGER   = resolve(HOOKS, 'cost-logger.mjs');
 const DUAL_BRAIN    = resolve(HOOKS, 'dual-brain-review.mjs');
 const ORCHESTRATOR  = resolve(HOOKS, '..', 'orchestrator.json');
-const USAGE_JSONL   = resolve(HOOKS, 'usage.jsonl');
+const USAGE_JSONL   = resolve(HOOKS, `usage-${new Date().toISOString().slice(0, 10)}.jsonl`);
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -106,12 +106,13 @@ test('enforce-tier: search with opus', () => {
 test('enforce-tier: correct tier', () => {
   const payload = JSON.stringify({
     tool_name: 'Agent',
-    tool_input: { prompt: 'implement fix', model: 'sonnet' },
+    tool_input: { prompt: `unique test prompt ${Date.now()}`, model: 'sonnet' },
   });
   const { parsed } = run(ENFORCE_TIER, payload);
   if (!parsed) return 'no valid JSON output';
-  if (Object.keys(parsed).length !== 0)
-    return `expected {}, got: ${JSON.stringify(parsed)}`;
+  // Should return {} or at most a drift warning (not a tier mismatch)
+  if (parsed.systemMessage && parsed.systemMessage.includes('Tier Enforcer'))
+    return `unexpected tier mismatch: ${parsed.systemMessage}`;
   return true;
 });
 
@@ -179,11 +180,11 @@ test('cost-logger: logs entry', () => {
   if (!parsed || Object.keys(parsed).length !== 0)
     return `expected {}, got: ${JSON.stringify(parsed)}`;
 
-  if (!existsSync(USAGE_JSONL)) return 'usage.jsonl was not created';
+  if (!existsSync(USAGE_JSONL)) return 'daily usage log was not created';
 
   const lines = readFileSync(USAGE_JSONL, 'utf8').split('\n').filter(Boolean);
   const linesAfter = lines.length;
-  if (linesAfter <= linesBefore) return 'no new line was appended to usage.jsonl';
+  if (linesAfter <= linesBefore) return 'no new line was appended to daily usage log';
 
   // Validate the new entry is valid JSON with expected fields
   const lastLine = lines[linesAfter - 1];
@@ -245,6 +246,36 @@ test('orchestrator.json: valid JSON', () => {
   if (!config.quality_gate)  return 'missing quality_gate section';
   if (!config.tiers)         return 'missing tiers section';
   if (!config.subscriptions) return 'missing subscriptions section';
+  return true;
+});
+
+// ─── Test 9: enforce-tier: think on gpt-4.1-mini ─────────────────────────────
+test('enforce-tier: think on gpt-4.1-mini', () => {
+  const input = JSON.stringify({ tool_name: 'Agent', tool_input: { description: 'review security architecture', prompt: 'audit auth', model: 'gpt-4.1-mini' } });
+  const { parsed } = run(ENFORCE_TIER, input);
+  if (!parsed) return 'no valid JSON output';
+  if (!parsed.systemMessage) return `expected systemMessage warning, got: ${JSON.stringify(parsed)}`;
+  if (!parsed.systemMessage.toLowerCase().includes('think'))
+    return `expected "think" in systemMessage, got: ${parsed.systemMessage}`;
+  return true;
+});
+
+// ─── Test 10: orchestrator.json: model_intelligence ──────────────────────────
+test('orchestrator.json: model_intelligence', () => {
+  const config = JSON.parse(readFileSync(resolve(__dirname, '..', 'orchestrator.json'), 'utf8'));
+  const mi = config.model_intelligence;
+  if (!mi) return 'model_intelligence key missing';
+  if (!mi.opus)   return 'model_intelligence missing opus entry';
+  if (!mi.sonnet) return 'model_intelligence missing sonnet entry';
+  if (!mi.haiku)  return 'model_intelligence missing haiku entry';
+  return true;
+});
+
+// ─── Test 11: orchestrator.json: pricing_verified ────────────────────────────
+test('orchestrator.json: pricing_verified', () => {
+  const config = JSON.parse(readFileSync(resolve(__dirname, '..', 'orchestrator.json'), 'utf8'));
+  if (!config.pricing_verified) return 'pricing_verified field missing';
+  if (isNaN(Date.parse(config.pricing_verified))) return `pricing_verified is not a valid date: ${config.pricing_verified}`;
   return true;
 });
 

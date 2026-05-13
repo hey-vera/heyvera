@@ -12,7 +12,7 @@
  *   .claude/orchestrator.json       — cost rates per model
  */
 
-import { readFileSync, existsSync } from "fs";
+import { readFileSync, existsSync, readdirSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { execSync } from "child_process";
@@ -22,7 +22,6 @@ import { execSync } from "child_process";
 // ---------------------------------------------------------------------------
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const WORKSPACE  = join(__dirname, "..", ".."); // workspace root
-const USAGE_FILE = join(__dirname, "usage.jsonl");
 const CONFIG_FILE = join(__dirname, "..", "orchestrator.json");
 
 // ---------------------------------------------------------------------------
@@ -59,15 +58,23 @@ function buildRateMap(config) {
 // Load & parse usage log
 // ---------------------------------------------------------------------------
 function loadUsage() {
-  if (!existsSync(USAGE_FILE)) return [];
-  const lines = readFileSync(USAGE_FILE, "utf8").split("\n").filter(Boolean);
+  const files = readdirSync(__dirname)
+    .filter(f => f.startsWith('usage-') && f.endsWith('.jsonl'))
+    .sort();
+
+  // Also check legacy usage.jsonl for backwards compat
+  if (existsSync(join(__dirname, 'usage.jsonl'))) {
+    files.unshift('usage.jsonl');
+  }
+
   const records = [];
-  for (const line of lines) {
+  for (const f of files) {
     try {
-      records.push(JSON.parse(line));
-    } catch {
-      // skip malformed lines
-    }
+      const lines = readFileSync(join(__dirname, f), 'utf8').split('\n').filter(Boolean);
+      for (const line of lines) {
+        try { records.push(JSON.parse(line)); } catch {}
+      }
+    } catch {}
   }
   return records;
 }
@@ -159,7 +166,7 @@ function aggregate(records, rateMap, datePrefix = null) {
     buckets[tier].calls += 1;
     buckets[tier].costSum += estimateCost(tier, model, rateMap, record);
     buckets[tier].modelCounts[model] = (buckets[tier].modelCounts[model] || 0) + 1;
-    if (record.input_tokens != null) buckets[tier].actualCount = (buckets[tier].actualCount || 0) + 1;
+    if (record.input_tokens != null && record.output_tokens != null) buckets[tier].actualCount = (buckets[tier].actualCount || 0) + 1;
   }
 
   // Resolve dominant model per tier
@@ -185,7 +192,7 @@ function allOpusCost(records, rateMap, datePrefix = null) {
     : records;
 
   return filtered.reduce((sum, record) => {
-    return sum + estimateCost("think", "opus", rateMap);
+    return sum + estimateCost("think", "opus", rateMap, record);
   }, 0);
 }
 
@@ -212,7 +219,7 @@ function pad(str, len, align = "left") {
   return align === "right" ? spaces + str : str + spaces;
 }
 
-function renderTable(title, aggregated, allOpus) {
+function renderTable(title, aggregated, allOpus, records = []) {
   const totalCost  = Object.values(aggregated).reduce((s, v) => s + v.cost, 0);
   const savings    = allOpus - totalCost;
   const savingsPct = allOpus > 0 ? Math.round((savings / allOpus) * 100) : 0;
@@ -243,6 +250,12 @@ function renderTable(title, aggregated, allOpus) {
     actualCalls === totalCalls ? 'high (actual tokens)' :
     `medium (${Math.round(actualCalls/totalCalls*100)}% actual)`;
 
+  // Data quality stats
+  const totalRecords = Object.values(aggregated).reduce((s, v) => s + v.calls, 0);
+  const unknownModels = records.filter(r => !r.model || r.model === 'unknown').length;
+  const v2Records = records.filter(r => r.schema_version >= 2).length;
+  const errorRecords = records.filter(r => r.status === 'error').length;
+
   const lines = [
     border("╔", "╗"),
     line(pad(title, W - 2)),
@@ -256,6 +269,13 @@ function renderTable(title, aggregated, allOpus) {
     line(`Confidence: ${confidence}`),
     border("╚", "╝"),
   ];
+
+  if (unknownModels > 0 || errorRecords > 0) {
+    lines.splice(-1, 0,
+      line(`Unknown models: ${unknownModels}/${totalRecords} entries`),
+      line(`Errors: ${errorRecords} tool calls failed`),
+    );
+  }
 
   return lines.join("\n");
 }
@@ -301,10 +321,11 @@ function main() {
     // Today's report
     const todayAgg  = aggregate(records, rateMap, today);
     const todayOpus = allOpusCost(records, rateMap, today);
+    const todayRecords = records.filter(r => r.timestamp?.startsWith(today));
     const hasTodayData = Object.keys(todayAgg).length > 0;
 
     if (hasTodayData) {
-      console.log(renderTable("Activity & Cost Estimate — Today", todayAgg, todayOpus));
+      console.log(renderTable("Activity & Cost Estimate — Today", todayAgg, todayOpus, todayRecords));
     } else {
       console.log("  No activity recorded for today yet.");
     }
@@ -315,7 +336,7 @@ function main() {
   // All-time report
   const allAgg  = aggregate(records, rateMap);
   const allOpus = allOpusCost(records, rateMap);
-  console.log(renderTable("Activity & Cost Estimate — All Time", allAgg, allOpus));
+  console.log(renderTable("Activity & Cost Estimate — All Time", allAgg, allOpus, records));
 }
 
 main();

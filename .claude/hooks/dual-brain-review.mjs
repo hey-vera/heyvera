@@ -25,16 +25,25 @@ const REVIEW_PROMPT = `Review the current uncommitted changes in this repo for:
 3. Edge cases — what could break under unusual input
 4. Quality — naming, structure, unnecessary complexity
 
-Also enforce these repo rules:
-- Must use Hono, not Fastify
-- Must use npm, not pnpm
-- Must use better-sqlite3 with raw SQL, no ORM
-- Use round6() for all credit math
-- Use maskApiKey(), never raw .slice() for key masking
-- Import DB helpers from src/db/index.ts, not domain files
-- Soma origin does not prove factual truth
+Required output:
+- Findings only, ordered by severity
+- File/line references when possible
+- Whether tests cover the changed behavior
+- Whether the change follows existing repo patterns
+- Whether any issue should block merge
 
 Be concise. Flag only real issues, not style preferences. If the code looks good, say "LGTM" and note any minor suggestions. Output your review as plain text, not JSON.`;
+
+function loadReviewRules() {
+  const rulesFile = resolve(__dirname, '..', 'review-rules.md');
+  try {
+    const content = readFileSync(rulesFile, 'utf8').trim();
+    if (!content) return '';
+    return '\n\nAlso enforce these project-specific rules:\n' + content;
+  } catch {
+    return '';
+  }
+}
 
 const MAX_DIFF_CHARS = 15000;
 const MIN_DIFF_LINES = 5;
@@ -129,11 +138,12 @@ function tryCodexReview(diff) {
       ? diff.slice(0, MAX_DIFF_CHARS) + '\n[truncated]'
       : diff;
 
+    const fullPrompt = REVIEW_PROMPT + loadReviewRules();
     const proc = spawnSync(CODEX_BIN, [
       'exec', '--json', '--ephemeral',
       '-c', `model="${model}"`,
       '-s', 'danger-full-access',
-      REVIEW_PROMPT,
+      fullPrompt,
     ], {
       input: truncated,
       encoding: 'utf8',
@@ -197,6 +207,7 @@ async function tryApiReview(diff) {
     ? diff.slice(0, MAX_DIFF_CHARS) + '\n[truncated]'
     : diff;
 
+  const fullPrompt = REVIEW_PROMPT + loadReviewRules();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 30_000);
 
@@ -211,7 +222,7 @@ async function tryApiReview(diff) {
       body: JSON.stringify({
         model,
         messages: [
-          { role: 'system', content: REVIEW_PROMPT },
+          { role: 'system', content: fullPrompt },
           { role: 'user', content: `Review this diff:\n\n\`\`\`diff\n${truncated}\n\`\`\`` },
         ],
         temperature: 0,

@@ -8,7 +8,7 @@
  * Output contract: must print "{}" to stdout and exit 0 within ~100 ms.
  */
 
-import { appendFileSync, mkdirSync } from "fs";
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 
@@ -16,7 +16,11 @@ import { fileURLToPath } from "url";
 // Paths
 // ---------------------------------------------------------------------------
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const USAGE_FILE = join(__dirname, "usage.jsonl");
+
+function usageFile(date) {
+  const d = date || new Date().toISOString().slice(0, 10);
+  return join(__dirname, `usage-${d}.jsonl`);
+}
 
 // Ensure the hooks dir exists (idempotent, defensive)
 mkdirSync(__dirname, { recursive: true });
@@ -119,6 +123,54 @@ function classify(toolName, toolInput = {}, agentModel = null) {
 }
 
 // ---------------------------------------------------------------------------
+// Budget alerts
+// ---------------------------------------------------------------------------
+
+function checkBudget() {
+  let config;
+  try {
+    config = JSON.parse(readFileSync(join(__dirname, '..', 'orchestrator.json'), 'utf8'));
+  } catch { return null; }
+
+  const budgets = config.budgets;
+  if (!budgets) return null;
+
+  // Rate limit alerts
+  const cooldownFile = join(__dirname, '.budget-alerted');
+  const cooldownMin = budgets.alert_cooldown_minutes || 15;
+  try {
+    const lastAlert = readFileSync(cooldownFile, 'utf8').trim();
+    if (Date.now() - Date.parse(lastAlert) < cooldownMin * 60 * 1000) return null;
+  } catch {}
+
+  // Calculate today's estimated cost
+  const todayFile = usageFile();
+  let records = [];
+  try {
+    records = readFileSync(todayFile, 'utf8').split('\n').filter(Boolean).map(l => {
+      try { return JSON.parse(l); } catch { return null; }
+    }).filter(Boolean);
+  } catch { return null; }
+
+  // Simple cost estimate using tier heuristics
+  const RATES = { search: 0.003, execute: 0.012, think: 0.055 };
+  const totalCost = records.reduce((sum, r) => sum + (RATES[r.tier] || RATES.execute), 0);
+
+  let msg = null;
+  if (budgets.daily_limit_usd && totalCost >= budgets.daily_limit_usd) {
+    msg = `**[Budget Alert]** Daily cost estimate (~$${totalCost.toFixed(2)}) has reached the $${budgets.daily_limit_usd} limit. Consider pausing non-essential work.`;
+  } else if (budgets.daily_warn_usd && totalCost >= budgets.daily_warn_usd) {
+    msg = `**[Budget Alert]** Daily cost estimate (~$${totalCost.toFixed(2)}) has passed the $${budgets.daily_warn_usd} warning threshold.`;
+  }
+
+  if (msg) {
+    try { writeFileSync(cooldownFile, new Date().toISOString()); } catch {}
+    return msg;
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // Main — read stdin, classify, append, respond
 // ---------------------------------------------------------------------------
 
@@ -147,24 +199,40 @@ async function main() {
 
   const { tier, model } = classify(toolName, toolInput, agentModel);
 
+  // Extract actual token counts from payload (location varies by hook version)
+  const usage = payload?.usage || toolInput?.usage || {};
+  const inputTokens = usage.input_tokens ?? payload?.input_tokens ?? null;
+  const outputTokens = usage.output_tokens ?? payload?.output_tokens ?? null;
+
+  const status = (payload?.error || payload?.tool_response?.error || payload?.is_error) ? 'error' : 'ok';
+
   const entry = JSON.stringify({
+    schema_version: 2,
     timestamp: new Date().toISOString(),
     tier,
     tool: toolName,
     model,
+    status,
     session_id: process.env.CLAUDE_SESSION_ID || null,
-    input_tokens: toolInput?.usage?.input_tokens ?? null,
-    output_tokens: toolInput?.usage?.output_tokens ?? null,
+    input_tokens: inputTokens,
+    output_tokens: outputTokens,
   });
 
   try {
-    appendFileSync(USAGE_FILE, entry + "\n", { encoding: "utf8", flag: "a" });
+    appendFileSync(usageFile(), entry + "\n", { encoding: "utf8", flag: "a" });
   } catch {
     // Disk write failed — silently ignore so the hook never blocks the IDE
   }
 
+  // Check budget thresholds and emit a systemMessage if over limit
+  const budgetMsg = checkBudget();
+
   // PostToolUse hooks must emit a JSON object to stdout
-  process.stdout.write("{}\n");
+  if (budgetMsg) {
+    process.stdout.write(JSON.stringify({ systemMessage: budgetMsg }) + "\n");
+  } else {
+    process.stdout.write("{}\n");
+  }
   process.exit(0);
 }
 

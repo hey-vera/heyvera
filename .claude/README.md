@@ -31,6 +31,9 @@ A PreToolUse hook (`hooks/enforce-tier.mjs`) classifies Agent calls by keyword a
 | `hooks/test-orchestrator.mjs` | Self-test harness — validates all hooks work correctly |
 | `hooks/cost-logger.mjs` | PostToolUse hook that logs usage data (runs automatically) |
 | `hooks/enforce-tier.mjs` | PreToolUse hook that enforces model tier routing (runs automatically) |
+| `hooks/install-git-hooks.mjs` | Install a git pre-commit hook that enforces the quality gate at commit time |
+| `hooks/health-check.mjs` | Verify all hooks and dependencies are configured and reachable |
+| `hooks/session-report.mjs` | Comprehensive session-end summary: activity, routing compliance, quality gate, data quality, drift warnings |
 
 ## Codex Skills
 
@@ -40,6 +43,24 @@ The `codex_skills` section in `orchestrator.json` registers CLI commands that ca
 - `node .claude/hooks/quality-gate.mjs` — run the quality gate (checks config, filters files, triggers review)
 - `node .claude/hooks/cost-report.mjs` — session activity and cost breakdown
 - `node .claude/hooks/test-orchestrator.mjs` — validate all hooks pass
+- `node .claude/hooks/session-report.mjs` — comprehensive session-end summary report
+
+## Model Intelligence
+
+The `model_intelligence` section in `orchestrator.json` provides per-model metadata:
+
+- **strengths/weaknesses** — what each model is good and bad at
+- **best_for/avoid_for** — task guidance for the tier router
+- **context_window/max_output** — token limits per model
+- **codex_compatible** — whether the model works with `codex exec`
+
+The `enforce-tier.mjs` hook reads this data to give context-aware routing advice.
+
+### Known Issues
+
+- The `model:` parameter on Agent calls may be silently ignored in some Claude Code versions ([#43869](https://github.com/anthropics/claude-code/issues/43869)). Set `CLAUDE_CODE_SUBAGENT_MODEL` as env var fallback.
+- Opus 4.7 uses a new tokenizer that consumes 12-35% more tokens for the same text. Factor this into cost estimates.
+- Pricing was last verified 2026-05-13. Run the setup wizard to update rates.
 
 ## Customize
 
@@ -49,10 +70,11 @@ Edit `orchestrator.json` to change:
 - `quality_gate` — file extensions that trigger review, patterns to skip
 - `routing_rules` — subagent type defaults, concurrency limits
 - `codex_skills` — registered CLI skills
+- `review-rules.md` — project-specific rules injected into GPT review prompts
 
 ## Requirements
 
 - Node 20+ (for native fetch in dual-brain-review)
-- Python 3.12+ (for hookify rule engine)
+- Python 3.12+ (optional, for hookify rule engine)
 - Hookify plugin installed (comes with Claude Code marketplace)
 - Codex CLI installed and logged into ChatGPT (`codex login`) — for GPT dual-brain review via subscription. Falls back to `OPENAI_API_KEY` env var if Codex isn't available.

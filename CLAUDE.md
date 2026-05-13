@@ -32,10 +32,14 @@ This workspace uses tiered model routing to optimize cost and quality. Config li
 - **Execute agents** must return: files changed, behavior changed, tests run + results, edge cases, assumptions
 - **Think agents** must return: decision + rationale, alternatives considered, risks, verification plan
 
-**Tier advisor:** The PreToolUse hook in `.claude/hooks/enforce-tier.mjs` checks subagent model params against the task tier and injects a correction message when mismatched. Follow its guidance.
+**Tier advisor:** The PreToolUse hook in `.claude/hooks/enforce-tier.mjs` checks subagent model params against the task tier and injects a correction message when mismatched. Follow its guidance. Think > execute > search when a task spans multiple tiers.
+
+**Model routing caveat:** The `model:` parameter on Agent calls may be silently ignored in some Claude Code versions (issue #43869). If subagents all run on the parent model, set `CLAUDE_CODE_SUBAGENT_MODEL` env var as fallback.
+
+**Model intelligence:** See `model_intelligence` in `.claude/orchestrator.json` for each model's strengths, weaknesses, and best-for guidance. Use this to pick the right tier — not just the cheapest one.
 
 **Dual-brain review:** Run `node .claude/hooks/dual-brain-review.mjs` to send your diff to GPT-5.5 for independent review. Uses your ChatGPT subscription via Codex CLI (no API key needed). Falls back to `OPENAI_API_KEY` if Codex isn't available.
 
 **Cost tracking:** Run `node .claude/hooks/cost-report.mjs` to see session cost estimates by model tier.
 
-**Customization:** Edit `.claude/orchestrator.json` to change tier assignments, add models, or adjust cost rates for your subscription plan.
+**Customization:** Edit `.claude/orchestrator.json` to change tier assignments, add models, or adjust cost rates for your subscription plan. Pricing was last verified 2026-05-13.

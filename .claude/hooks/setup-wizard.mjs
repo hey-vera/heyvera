@@ -15,17 +15,17 @@ const rl = createInterface({ input: process.stdin, output: process.stdout });
 const ask = (q) => new Promise((resolve) => rl.question(q, resolve));
 
 const CLAUDE_PLANS = {
-  '$20':  { models: { sonnet: { tier: 'think', input_per_mtok: 3.0, output_per_mtok: 15.0 }, haiku: { tier: 'search', input_per_mtok: 0.80, output_per_mtok: 4.0 } } },
-  '$100': { models: { opus: { tier: 'think', input_per_mtok: 15.0, output_per_mtok: 75.0 }, sonnet: { tier: 'execute', input_per_mtok: 3.0, output_per_mtok: 15.0 }, haiku: { tier: 'search', input_per_mtok: 0.80, output_per_mtok: 4.0 } } },
-  '$200': { models: { opus: { tier: 'think', input_per_mtok: 15.0, output_per_mtok: 75.0 }, sonnet: { tier: 'execute', input_per_mtok: 3.0, output_per_mtok: 15.0 }, haiku: { tier: 'search', input_per_mtok: 0.80, output_per_mtok: 4.0 } } },
-  'api':  { models: { opus: { tier: 'think', input_per_mtok: 15.0, output_per_mtok: 75.0 }, sonnet: { tier: 'execute', input_per_mtok: 3.0, output_per_mtok: 15.0 }, haiku: { tier: 'search', input_per_mtok: 0.80, output_per_mtok: 4.0 } } },
+  '$20':  { models: { sonnet: { tier: 'think', input_per_mtok: 3.0, output_per_mtok: 15.0 }, haiku: { tier: 'search', input_per_mtok: 1.0, output_per_mtok: 5.0 } } },
+  '$100': { models: { opus: { tier: 'think', input_per_mtok: 5.0, output_per_mtok: 25.0 }, sonnet: { tier: 'execute', input_per_mtok: 3.0, output_per_mtok: 15.0 }, haiku: { tier: 'search', input_per_mtok: 1.0, output_per_mtok: 5.0 } } },
+  '$200': { models: { opus: { tier: 'think', input_per_mtok: 5.0, output_per_mtok: 25.0 }, sonnet: { tier: 'execute', input_per_mtok: 3.0, output_per_mtok: 15.0 }, haiku: { tier: 'search', input_per_mtok: 1.0, output_per_mtok: 5.0 } } },
+  'api':  { models: { opus: { tier: 'think', input_per_mtok: 5.0, output_per_mtok: 25.0 }, sonnet: { tier: 'execute', input_per_mtok: 3.0, output_per_mtok: 15.0 }, haiku: { tier: 'search', input_per_mtok: 1.0, output_per_mtok: 5.0 } } },
 };
 
 const OPENAI_PLANS = {
-  '$20':  { models: { 'gpt-5.4': { tier: 'think', input_per_mtok: 2.5, output_per_mtok: 10.0 }, 'gpt-4.1-mini': { tier: 'search', input_per_mtok: 0.40, output_per_mtok: 1.60 } } },
-  '$100': { models: { 'gpt-5.5': { tier: 'think', input_per_mtok: 10.0, output_per_mtok: 30.0 }, 'gpt-5.4': { tier: 'execute', input_per_mtok: 2.5, output_per_mtok: 10.0 }, 'gpt-4.1-mini': { tier: 'search', input_per_mtok: 0.40, output_per_mtok: 1.60 } } },
-  '$200': { models: { 'gpt-5.5': { tier: 'think', input_per_mtok: 10.0, output_per_mtok: 30.0 }, 'gpt-5.4': { tier: 'execute', input_per_mtok: 2.5, output_per_mtok: 10.0 }, 'gpt-4.1-mini': { tier: 'search', input_per_mtok: 0.40, output_per_mtok: 1.60 } } },
-  'api':  { models: { 'gpt-5.5': { tier: 'think', input_per_mtok: 10.0, output_per_mtok: 30.0 }, 'gpt-5.4': { tier: 'execute', input_per_mtok: 2.5, output_per_mtok: 10.0 }, 'gpt-4.1-mini': { tier: 'search', input_per_mtok: 0.40, output_per_mtok: 1.60 } } },
+  '$20':  { models: { 'gpt-5.4': { tier: 'think', input_per_mtok: 2.5, output_per_mtok: 15.0 }, 'gpt-4.1-mini': { tier: 'search', input_per_mtok: 0.40, output_per_mtok: 1.60 } } },
+  '$100': { models: { 'gpt-5.5': { tier: 'think', input_per_mtok: 5.0, output_per_mtok: 30.0 }, 'gpt-5.4': { tier: 'execute', input_per_mtok: 2.5, output_per_mtok: 15.0 }, 'gpt-4.1-mini': { tier: 'search', input_per_mtok: 0.40, output_per_mtok: 1.60 } } },
+  '$200': { models: { 'gpt-5.5': { tier: 'think', input_per_mtok: 5.0, output_per_mtok: 30.0 }, 'gpt-5.4': { tier: 'execute', input_per_mtok: 2.5, output_per_mtok: 15.0 }, 'gpt-4.1-mini': { tier: 'search', input_per_mtok: 0.40, output_per_mtok: 1.60 } } },
+  'api':  { models: { 'gpt-5.5': { tier: 'think', input_per_mtok: 5.0, output_per_mtok: 30.0 }, 'gpt-5.4': { tier: 'execute', input_per_mtok: 2.5, output_per_mtok: 15.0 }, 'gpt-4.1-mini': { tier: 'search', input_per_mtok: 0.40, output_per_mtok: 1.60 } } },
 };
 
 async function main() {
@@ -39,7 +39,11 @@ async function main() {
   console.log('  Claude subscription plans: $20, $100, $200, api');
   const claudePlan = (await ask('  Your Claude plan: ')).trim().toLowerCase();
   const cKey = claudePlan.startsWith('$') ? claudePlan : (claudePlan === 'api' ? 'api' : `$${claudePlan}`);
-  const claudeConfig = CLAUDE_PLANS[cKey] || CLAUDE_PLANS['$100'];
+  const claudeConfig = CLAUDE_PLANS[cKey];
+  if (!claudeConfig) {
+    console.log(`  ⚠ Unknown plan "${cKey}", using $100 defaults`);
+  }
+  const finalClaudeConfig = claudeConfig || CLAUDE_PLANS['$100'];
   console.log(`  -> Using Claude ${cKey} model set\n`);
 
   // OpenAI subscription
@@ -50,7 +54,11 @@ async function main() {
     console.log('  OpenAI plans: $20, $100, $200, api');
     const openaiPlan = (await ask('  Your OpenAI plan: ')).trim().toLowerCase();
     oKey = openaiPlan.startsWith('$') ? openaiPlan : (openaiPlan === 'api' ? 'api' : `$${openaiPlan}`);
-    openaiConfig = OPENAI_PLANS[oKey] || OPENAI_PLANS['$100'];
+    openaiConfig = OPENAI_PLANS[oKey];
+    if (!openaiConfig) {
+      console.log(`  ⚠ Unknown plan "${oKey}", using $100 defaults`);
+    }
+    openaiConfig = openaiConfig || OPENAI_PLANS['$100'];
     console.log(`  -> Using OpenAI ${oKey} model set\n`);
   }
 
@@ -67,7 +75,7 @@ async function main() {
   const config = {
     ...existing,
     subscriptions: {
-      claude: { plan: cKey, models: claudeConfig.models },
+      claude: { plan: cKey, models: finalClaudeConfig.models },
       ...(openaiConfig ? { openai: { plan: oKey, models: openaiConfig.models } } : {}),
     },
     tiers: existing.tiers || {
@@ -96,7 +104,7 @@ async function main() {
   console.log('  ║                   Configured!                    ║');
   console.log('  ╠══════════════════════════════════════════════════╣');
 
-  const claudeModels = Object.keys(claudeConfig.models).join(', ');
+  const claudeModels = Object.keys(finalClaudeConfig.models).join(', ');
   console.log(`  ║ Claude:     ${cKey.padEnd(6)} (${claudeModels})`.padEnd(53) + '║');
 
   if (openaiConfig) {
@@ -105,7 +113,7 @@ async function main() {
     console.log('  ║ Dual-brain: enabled'.padEnd(53) + '║');
   } else {
     console.log('  ║ OpenAI:     none'.padEnd(53) + '║');
-    console.log('  ║ Dual-brain: disabled (no OpenAI key)'.padEnd(53) + '║');
+    console.log('  ║ Dual-brain: disabled (add OpenAI or Codex)'.padEnd(53) + '║');
   }
 
   console.log(`  ║ Quality gate: ${gateEnabled ? 'enabled' : 'disabled'}`.padEnd(53) + '║');
