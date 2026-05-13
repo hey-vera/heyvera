@@ -57,6 +57,7 @@ const ACCOUNT_TABS: Array<{ key: AccountViewTab; label: string }> = [
   { key: "longform", label: "Longform" },
   { key: "communities", label: "Communities" },
   { key: "agents", label: "Agents" },
+  { key: "settings", label: "Settings" },
 ];
 
 const HOME_TAB_LABELS: Partial<Record<SocialsTab, string>> = {
@@ -1707,7 +1708,7 @@ function SidebarActiveCommunities() {
 // ─── Account / You tab ────────────────────────────────────────────────────
 
 function AccountTab({ shellState }: { shellState: ShellState }) {
-  const { myProfile, getToken, refetchMyProfile, linkedAgents } = useAuthContext();
+  const { myProfile, getToken, refetchMyProfile, linkedAgents, viewerLabel } = useAuthContext();
   const [activeTab, setActiveTab] = useState<AccountViewTab>("posts");
 
   // ── Non-ready states ──
@@ -1754,6 +1755,11 @@ function AccountTab({ shellState }: { shellState: ShellState }) {
         onEditProfile={() => setActiveTab("settings")}
         onTabChange={setActiveTab}
       />
+      <AccountContinuitySummary
+        profile={profile}
+        linkedAgents={linkedAgents}
+        viewerLabel={viewerLabel}
+      />
 
       <div className="account-profile-nav" role="tablist" aria-label="Profile sections">
         {ACCOUNT_TABS.map((tab) => (
@@ -1768,17 +1774,6 @@ function AccountTab({ shellState }: { shellState: ShellState }) {
             {tab.label}
           </button>
         ))}
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeTab === "settings"}
-          className={`account-profile-nav-settings${activeTab === "settings" ? " account-profile-nav-settings-active" : ""}`}
-          onClick={() => setActiveTab("settings")}
-          aria-label="Profile settings"
-          title="Settings"
-        >
-          ⚙
-        </button>
       </div>
 
       <div className="account-tab">
@@ -1807,12 +1802,17 @@ function AccountTab({ shellState }: { shellState: ShellState }) {
 
 function proofSummary(proofState: string, continuityState: string): { label: string; verified: boolean } {
   if (proofState === "verified" && continuityState === "verified") {
-    return { label: "Verified", verified: true };
+    return { label: "Proof + continuity verified", verified: true };
   }
   if (proofState === "verified") {
-    return { label: "Proof active", verified: true };
+    return { label: "Proof recorded", verified: false };
   }
-  return { label: "Pending verification", verified: false };
+  return { label: "Verification pending", verified: false };
+}
+
+function formatAgentAuthority(agent: LinkedAgent) {
+  const state = formatStateLabel(agent.linkState);
+  return agent.isPrimary ? `Primary · ${state}` : state;
 }
 
 function AccountHeader({
@@ -1906,6 +1906,77 @@ function AccountHeader({
   );
 }
 
+function AccountContinuitySummary({
+  profile,
+  linkedAgents,
+  viewerLabel,
+}: {
+  profile: Profile;
+  linkedAgents: LinkedAgent[];
+  viewerLabel: string | null;
+}) {
+  const primaryAgent = linkedAgents.find((agent) => agent.isPrimary) ?? linkedAgents[0];
+  const proof = proofSummary(profile.proofState, profile.continuityState);
+
+  const facts = [
+    {
+      label: "Account session",
+      value: viewerLabel ?? profile.displayName,
+      state: "Live",
+      live: true,
+    },
+    {
+      label: "HeyVera profile",
+      value: `@${profile.handle}`,
+      state: "Visible",
+      live: true,
+    },
+    {
+      label: "Proof label",
+      value: proof.label,
+      state: proof.verified ? "Visible" : "Pending",
+      live: proof.verified,
+    },
+    {
+      label: "Primary agent",
+      value: primaryAgent ? primaryAgent.agentName : "Not linked",
+      state: primaryAgent ? formatAgentAuthority(primaryAgent) : "Pending",
+      live: Boolean(primaryAgent),
+    },
+    {
+      label: "Soma ceremony",
+      value: "Recovery and delegation contracts are not live here yet",
+      state: "Blocked",
+      live: false,
+    },
+  ];
+
+  return (
+    <section className="account-continuity-summary" aria-label="Account continuity summary">
+      <div className="account-continuity-copy">
+        <p className="region-summary-label">Continuity Surface</p>
+        <h3>Your account, profile, proof label, and agent links in one readable state.</h3>
+        <p>
+          This mirrors Identity Lite: HeyVera shows the identity facts available now,
+          while Soma-native ceremony and recovery stay marked as pending.
+        </p>
+      </div>
+      <div className="account-continuity-facts">
+        {facts.map((fact) => (
+          <div key={fact.label} className="account-continuity-fact">
+            <span className={`account-continuity-dot${fact.live ? " account-continuity-dot-live" : ""}`} aria-hidden="true" />
+            <div>
+              <strong>{fact.label}</strong>
+              <p>{fact.value}</p>
+            </div>
+            <small>{fact.state}</small>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function AccountAuthorityPanel({
   profile,
   linkedAgents,
@@ -1934,17 +2005,17 @@ function AccountAuthorityPanel({
         <div className="account-authority-tile account-authority-tile-accent">
           <span>Handle</span>
           <strong>@{profile.handle}</strong>
-          <small>Permanent public identity</small>
+          <small>Current public identity</small>
         </div>
         <div className="account-authority-tile">
           <span>Continuity</span>
           <strong>{formatStateLabel(profile.continuityState)}</strong>
-          <small>{proof.verified ? "Proof and continuity aligned" : "Awaiting stronger verification"}</small>
+          <small>{proof.verified ? "Current proof label visible" : "Awaiting stronger verification"}</small>
         </div>
         <div className="account-authority-tile">
           <span>Primary agent</span>
           <strong>{primaryAgent?.agentName ?? "Not linked"}</strong>
-          <small>{primaryAgent ? formatStateLabel(primaryAgent.linkState) : "Agent authority not connected"}</small>
+          <small>{primaryAgent ? formatAgentAuthority(primaryAgent) : "Agent authority not connected"}</small>
         </div>
         <div className="account-authority-tile">
           <span>Ceremony</span>
@@ -1977,7 +2048,7 @@ function AccountLinkedAgents({ linkedAgents }: { linkedAgents: LinkedAgent[] }) 
                 <span className="account-agent-row-slug">@{a.agentSlug}</span>
               </div>
               <span className={`account-agent-state-chip account-agent-state-${a.linkState}`}>
-                {a.linkState}
+                {formatAgentAuthority(a)}
               </span>
             </div>
           ))}
@@ -2425,7 +2496,7 @@ function AccountSettings({
 
       {/* Display preferences */}
       <div className="account-section">
-        <h3 className="account-section-title">Display Preferences</h3>
+        <h3 className="account-section-title">Available Now</h3>
         <div className="account-settings-card">
           <div className="account-settings-row">
             <span className="account-settings-label">Dark mode</span>
@@ -2445,8 +2516,12 @@ function AccountSettings({
 
       {/* Other settings scaffold */}
       <div className="account-section">
-        <h3 className="account-section-title">Soma-Native Settings</h3>
-        <div className="account-settings-card">
+        <h3 className="account-section-title">Not Live Yet</h3>
+        <p className="account-settings-note">
+          These rows are informational only until Soma-native credential, recovery,
+          and delegation contracts are wired into the frontend.
+        </p>
+        <div className="account-settings-card account-settings-card-pending">
           {futureItems.map((item) => (
             <div key={item.label} className="account-settings-row">
               <span className="account-settings-label">{item.label}</span>
