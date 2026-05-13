@@ -54,6 +54,7 @@ This SSHes into the VPS over Tailscale and runs `scripts/deploy.sh`, which build
 - The "Add issue or PR to org project" CI check always fails (missing secret) — safe to ignore, not a required check
 - The "Cloudflare Pages" check in CI is the heyvera.org production build — success there means the site updated
 - Changes to the signed-in shell (`VeraSocials`, `IdentityRegion`, etc.) only appear after logging in on heyvera.org
+- Always auto-merge `web/` changes to `main` for heyvera.org using the clean-branch + PR flow above
 
 ## Local workflows
 
