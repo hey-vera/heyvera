@@ -281,15 +281,17 @@ function renderTable(title, aggregated, allOpus, records = []) {
 }
 
 function renderEmpty() {
+  const border = (l, r) => l + "═".repeat(W) + r;
+  const ln = (s) => `║ ${pad(s, W - 2)} ║`;
   return [
-    "╔══════════════════════════════════════════════════╗",
-    "║         Activity & Cost Estimate                  ║",
-    "╠══════════════════════════════════════════════════╣",
-    "║  No usage data yet.                              ║",
-    "║                                                  ║",
-    "║  Install cost-logger.mjs as a PostToolUse hook   ║",
-    "║  to start tracking usage.                        ║",
-    "╚══════════════════════════════════════════════════╝",
+    border("╔", "╗"),
+    ln("Activity & Cost Estimate"),
+    border("╠", "╣"),
+    ln("No usage data yet."),
+    ln(""),
+    ln("Install cost-logger.mjs as a PostToolUse hook"),
+    ln("to start tracking usage."),
+    border("╚", "╝"),
   ].join("\n");
 }
 

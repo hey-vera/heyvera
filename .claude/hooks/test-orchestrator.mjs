@@ -281,7 +281,7 @@ test('orchestrator.json: pricing_verified', () => {
 
 // ─── Test 12: budget-balancer: loads and runs ────────────────────────────────
 test('budget-balancer: loads and runs', () => {
-  const proc = spawnSync('node', [resolve(__dirname, 'budget-balancer.mjs')], {
+  const proc = spawnSync(process.execPath, [resolve(__dirname, 'budget-balancer.mjs')], {
     encoding: 'utf8',
     timeout: 10000,
     cwd: resolve(__dirname, '..', '..'),
