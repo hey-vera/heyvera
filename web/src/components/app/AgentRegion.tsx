@@ -13,12 +13,11 @@ function IntroPublic() {
     <div className="region-intro-card">
       <p className="region-intro-kicker">Agent</p>
       <h1 className="region-intro-title">
-        Agent is where your sovereign AI works quietly on your behalf.
+        Your agent-first workspace is forming here.
       </h1>
       <p className="region-intro-copy">
-        This region is the private command center for agent work — task
-        execution, fleet management, memory, and permissions. It is distinct
-        from the social layer. Sign in to access your agent workspace.
+        Agent is the focused work mode for HeyVera: human instruction, agent
+        drafts, approvals, and proof-adjacent receipts. Sign in to make it yours.
       </p>
     </div>
   );
@@ -32,8 +31,8 @@ function IntroSignedOut() {
         Sign in to access your agent workspace.
       </h1>
       <p className="region-intro-copy">
-        Your agent workspace is where sovereign AI does real work. Sign in to
-        get started.
+        Your agent workspace will hold drafts, work queues, approvals, and
+        receipt-ready actions once your identity is active.
       </p>
     </div>
   );
@@ -56,18 +55,23 @@ function IntroProfileMissing() {
 
 function IntroReady({ viewerLabel }: { viewerLabel?: string }) {
   const greeting = viewerLabel
-    ? `Your quiet workspace, ${viewerLabel}.`
-    : "Your quiet workspace.";
+    ? `Your agent workspace, ${viewerLabel}.`
+    : "Your agent workspace.";
   return (
     <div className="region-intro-card">
       <p className="region-intro-kicker">Agent</p>
       <h1 className="region-intro-title">{greeting}</h1>
       <p className="region-intro-copy">
-        This is the command center for your agent work. Fleet management,
-        tasks, memory, and permissions — all in one focused place.
+        This is the command center for human-agent collaboration: live linked
+        agents where available, honest runtime gates where Vera and Soma are not wired yet.
       </p>
     </div>
   );
+}
+
+function formatAgentState(agent: LinkedAgent) {
+  const state = agent.linkState.replace(/_/g, " ");
+  return agent.isPrimary ? `Primary · ${state}` : state;
 }
 
 // ─── Auth-aware banners ─────────────────────────────────────────────────────
@@ -148,10 +152,45 @@ function AgentFleetCard({ agent }: { agent: LinkedAgent }) {
       </div>
       <div className="agent-fleet-card-meta">
         <span className="agent-fleet-card-tag">{agent.agentType}</span>
-        <span className="agent-fleet-card-tag">{agent.linkState}</span>
+        <span className="agent-fleet-card-tag">{formatAgentState(agent)}</span>
         <span className="agent-fleet-card-tag">{agent.visibility}</span>
       </div>
     </article>
+  );
+}
+
+function AgentCommandSurface({ linkedAgents }: { linkedAgents: LinkedAgent[] }) {
+  const primaryAgent = linkedAgents.find((agent) => agent.isPrimary) ?? linkedAgents[0];
+
+  return (
+    <section className="agent-command-surface" aria-label="Agent command surface">
+      <div className="agent-command-copy">
+        <p className="region-summary-label">Command Surface</p>
+        <h2>{primaryAgent ? `${primaryAgent.agentName} is linked, runtime pending.` : "No linked agent is ready yet."}</h2>
+        <p>
+          HeyVera can show agent identity and authority state today. Drafting,
+          task execution, autonomous replies, and receipts remain gated until
+          Vera runtime and Soma proof contracts are connected.
+        </p>
+      </div>
+      <div className="agent-command-status-grid">
+        <div className="agent-command-status-card agent-command-status-card-live">
+          <span>Identity</span>
+          <strong>{primaryAgent ? formatAgentState(primaryAgent) : "Pending"}</strong>
+          <small>{primaryAgent ? `/${primaryAgent.agentSlug}` : "Link an agent after profile setup"}</small>
+        </div>
+        <div className="agent-command-status-card">
+          <span>Runtime</span>
+          <strong>Blocked</strong>
+          <small>Vera execution loop is not wired in this frontend slice</small>
+        </div>
+        <div className="agent-command-status-card">
+          <span>Proof</span>
+          <strong>Nearby</strong>
+          <small>Actions will need receipt objects before automation is live</small>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -184,15 +223,60 @@ function FleetPanel({ linkedAgents }: { linkedAgents: LinkedAgent[] }) {
 // ─── Blocked sections ───────────────────────────────────────────────────────
 
 function WorkActivitySection() {
+  const workItems = [
+    {
+      title: "Draft social post",
+      state: "Frontend shell",
+      copy: "A future agent draft should wait for human approval before reaching the feed.",
+    },
+    {
+      title: "Summarize network thread",
+      state: "Runtime pending",
+      copy: "Needs Vera runtime context and source references before it can become real work.",
+    },
+    {
+      title: "Prepare proof receipt",
+      state: "Soma pending",
+      copy: "Receipt creation is blocked until proof contracts expose frontend-safe objects.",
+    },
+  ];
+
   return (
     <section className="agent-section">
-      <h2 className="agent-section-title">Work & Activity</h2>
-      <div className="agent-blocked-card">
-        <strong className="agent-blocked-card-title">Activity feed</strong>
-        <p className="agent-blocked-card-copy">
-          Recent agent work and activity will appear here once task contracts
-          are live.
-        </p>
+      <h2 className="agent-section-title">Work Queue</h2>
+      <div className="agent-work-queue">
+        {workItems.map((item) => (
+          <article key={item.title} className="agent-work-item">
+            <div>
+              <strong>{item.title}</strong>
+              <p>{item.copy}</p>
+            </div>
+            <span>{item.state}</span>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ApprovalGatesSection() {
+  const gates = [
+    ["Human approval", "Required before public posts, replies, or market actions."],
+    ["Agent authority", "Must resolve to a linked agent identity."],
+    ["Proof receipt", "Must produce a receipt before autonomous execution goes live."],
+    ["Runtime boundary", "Needs Vera execution and memory policy before real tasks run."],
+  ];
+
+  return (
+    <section className="agent-section">
+      <h2 className="agent-section-title">Approval Gates</h2>
+      <div className="agent-gate-grid">
+        {gates.map(([title, copy]) => (
+          <div key={title} className="agent-gate-card">
+            <strong>{title}</strong>
+            <p>{copy}</p>
+          </div>
+        ))}
       </div>
     </section>
   );
@@ -201,26 +285,13 @@ function WorkActivitySection() {
 function MemoryTeachingSection() {
   return (
     <section className="agent-section">
-      <h2 className="agent-section-title">Memory & Teaching</h2>
+      <h2 className="agent-section-title">Memory, Teaching, and Membrane</h2>
       <div className="agent-blocked-card">
-        <strong className="agent-blocked-card-title">Teaching controls</strong>
+        <strong className="agent-blocked-card-title">Not live yet</strong>
         <p className="agent-blocked-card-copy">
-          Agent memory and teaching controls require Vera runtime integration.
-        </p>
-      </div>
-    </section>
-  );
-}
-
-function MembranePermissionsSection() {
-  return (
-    <section className="agent-section">
-      <h2 className="agent-section-title">Membrane & Permissions</h2>
-      <div className="agent-blocked-card">
-        <strong className="agent-blocked-card-title">Permission controls</strong>
-        <p className="agent-blocked-card-copy">
-          Agent membrane and permission controls will be available with Soma
-          contracts.
+          Agent memory, teaching controls, and permissions require Vera runtime
+          policy plus Soma-backed delegation semantics. The frontend keeps this
+          visible without presenting fake controls.
         </p>
       </div>
     </section>
@@ -241,7 +312,7 @@ function SidebarAgentStatus({ linkedAgents }: { linkedAgents: LinkedAgent[] }) {
                 {a.agentName.charAt(0).toUpperCase()}
               </span>
               <span className="agent-sidebar-list-name">{a.agentName}</span>
-              <span className="agent-sidebar-list-state">{a.linkState}</span>
+              <span className="agent-sidebar-list-state">{formatAgentState(a)}</span>
             </li>
           ))}
         </ul>
@@ -257,10 +328,23 @@ function SidebarRegionInfo() {
     <div className="agent-sidebar-info">
       <p className="agent-sidebar-section-title">About this region</p>
       <p className="agent-sidebar-info-copy">
-        Agent is the quiet work mode for your sovereign agent life. No social
-        feed, no community content — just focused workspace for fleet
-        management, task execution, memory, and permissions.
+        Agent is the work mode: your agent first, proof nearby, network
+        additive, markets contained. Real execution remains blocked until the
+        runtime and proof contracts exist.
       </p>
+    </div>
+  );
+}
+
+function SidebarProofAdjacency() {
+  return (
+    <div className="agent-sidebar-info">
+      <p className="agent-sidebar-section-title">Proof adjacency</p>
+      <div className="agent-sidebar-proof-stack">
+        <span>Drafts need human approval</span>
+        <span>Actions need receipts</span>
+        <span>Automation needs Soma gates</span>
+      </div>
     </div>
   );
 }
@@ -303,10 +387,11 @@ export function AgentRegion({ shellState }: AgentRegionProps) {
         {/* Ready state content */}
         {showReady && (
           <>
+            <AgentCommandSurface linkedAgents={linkedAgents} />
             <FleetPanel linkedAgents={linkedAgents} />
             <WorkActivitySection />
+            <ApprovalGatesSection />
             <MemoryTeachingSection />
-            <MembranePermissionsSection />
           </>
         )}
       </section>
@@ -323,6 +408,7 @@ export function AgentRegion({ shellState }: AgentRegionProps) {
         ) : (
           <>
             <SidebarAgentStatus linkedAgents={showReady ? linkedAgents : []} />
+            <SidebarProofAdjacency />
             <SidebarRegionInfo />
           </>
         )}
