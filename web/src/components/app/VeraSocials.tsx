@@ -73,6 +73,11 @@ function canWrite(state: ShellState): boolean {
   return state === "ready";
 }
 
+function formatStateLabel(value: string | null | undefined) {
+  if (!value) return "Pending";
+  return value.replace(/_/g, " ");
+}
+
 // ─── Intro card variants per shell state ───────────────────────────────────
 
 function IntroPublic() {
@@ -272,16 +277,134 @@ function estimateReadingTime(text: string): number {
 // ─── Pulse tab (coming soon) ────────────────────────────────────────────────
 
 function PulseTab() {
+  const automationRules = [
+    {
+      label: "Draft posts",
+      status: "Frontend shell",
+      copy: "Agent proposes public posts from approved topics. Human approval remains required before anything leaves the queue.",
+    },
+    {
+      label: "Reply boundaries",
+      status: "Waiting on Vera runtime",
+      copy: "Reply automation will need source, tone, community, and rate boundaries before it can act.",
+    },
+    {
+      label: "Proof receipts",
+      status: "Waiting on Soma contracts",
+      copy: "Approved actions should produce receipts that stay attached to identity, agent, and post lineage.",
+    },
+  ];
+
+  const approvalItems = [
+    {
+      action: "Draft post",
+      source: "Weekly product update",
+      state: "Needs human approval",
+    },
+    {
+      action: "Community reply",
+      source: "Founding network thread",
+      state: "Blocked: runtime missing",
+    },
+    {
+      action: "Market note",
+      source: "Signal digest",
+      state: "Blocked: proof contract missing",
+    },
+  ];
+
+  const launchGates = [
+    { label: "Social backend writes", state: "Partial" },
+    { label: "Linked agent identity", state: "Blocked" },
+    { label: "Vera runtime", state: "Blocked" },
+    { label: "Soma contracts", state: "Blocked" },
+    { label: "Proof receipt ledger", state: "Blocked" },
+  ];
+
   return (
     <div className="vera-socials-pulse-tab">
-      <div className="vera-socials-pulse-card">
-        <h3 className="vera-socials-pulse-title">Pulse — Social Automation</h3>
-        <p className="vera-socials-pulse-desc">
-          Pulse lets your linked agents participate in Vera Socials on your behalf —
-          posting, replying, and engaging communities with your approval and under
-          your proof chain.
-        </p>
+      <section className="pulse-command-hero">
+        <div className="pulse-command-copy">
+          <p className="region-summary-label">Pulse</p>
+          <h2 className="pulse-command-title">
+            Agent-assisted social presence, held behind approval and proof.
+          </h2>
+          <p className="pulse-command-desc">
+            Pulse is the future marketing-bot surface for Vera Socials. This frontend
+            shell shows the operating model now: configure boundaries, review drafts,
+            approve actions, and keep proof receipts nearby.
+          </p>
+        </div>
+        <div className="pulse-command-status" aria-label="Pulse readiness">
+          <span className="pulse-command-status-dot" aria-hidden="true" />
+          <strong>Not live</strong>
+          <span>Waiting on Vera runtime and Soma contracts</span>
+        </div>
+      </section>
+
+      <section className="pulse-control-grid" aria-label="Pulse control surface">
+        <div className="pulse-control-panel pulse-control-panel-wide">
+          <div className="pulse-panel-header">
+            <div>
+              <p className="region-summary-label">Approval Queue</p>
+              <h3 className="pulse-panel-title">Human review stays first.</h3>
+            </div>
+            <span className="vera-socials-pulse-status-chip">Static preview</span>
+          </div>
+          <div className="pulse-approval-list">
+            {approvalItems.map((item) => (
+              <article key={`${item.action}-${item.source}`} className="pulse-approval-item">
+                <div>
+                  <strong>{item.action}</strong>
+                  <span>{item.source}</span>
+                </div>
+                <span className="pulse-approval-state">{item.state}</span>
+              </article>
+            ))}
+          </div>
+        </div>
+
+        <div className="pulse-control-panel">
+          <p className="region-summary-label">Boundaries</p>
+          <h3 className="pulse-panel-title">What Pulse must know before acting.</h3>
+          <div className="pulse-boundary-stack">
+            <span>Allowed topics</span>
+            <span>Communities</span>
+            <span>Approval threshold</span>
+            <span>Proof requirement</span>
+          </div>
+        </div>
+      </section>
+
+      <div className="pulse-rules-grid">
+        {automationRules.map((rule) => (
+          <article key={rule.label} className="pulse-rule-card">
+            <div className="pulse-rule-card-header">
+              <strong>{rule.label}</strong>
+              <span className="vera-socials-pulse-status-chip">{rule.status}</span>
+            </div>
+            <p>{rule.copy}</p>
+          </article>
+        ))}
       </div>
+
+      <section className="pulse-launch-gates" aria-label="Pulse launch gates">
+        <div className="pulse-panel-header">
+          <div>
+            <p className="region-summary-label">Launch gates</p>
+            <h3 className="pulse-panel-title">What must become real before Pulse can act.</h3>
+          </div>
+          <span className="vera-socials-pulse-status-chip">Not connected</span>
+        </div>
+        <div className="pulse-launch-gate-list">
+          {launchGates.map((gate) => (
+            <div key={gate.label} className="pulse-launch-gate">
+              <span>{gate.label}</span>
+              <strong>{gate.state}</strong>
+            </div>
+          ))}
+        </div>
+      </section>
 
       {/* How it will work — step-based flow */}
       <div className="pulse-how-section">
@@ -377,12 +500,17 @@ function PulseTab() {
 function SidebarPulseInfo() {
   return (
     <div className="vera-socials-sidebar-pulse">
-      <p className="network-sidebar-section-title">About Pulse</p>
+      <p className="network-sidebar-section-title">Pulse status</p>
       <p className="vera-socials-sidebar-pulse-copy">
-        Pulse will let your linked agents post, reply, and participate in
-        communities on your behalf — with your approval and under your proof
-        chain.
+        Pulse is frontend-only here. Draft queues, automation rules, and proof
+        receipts need Vera runtime and Soma contract wiring before they become live.
       </p>
+      <div className="pulse-sidebar-status-list">
+        <span>Frontend shell visible</span>
+        <span>Approval-first UI</span>
+        <span>Runtime pending</span>
+        <span>Proof pending</span>
+      </div>
     </div>
   );
 }
@@ -1660,8 +1788,12 @@ function AccountTab({ shellState }: { shellState: ShellState }) {
         {activeTab === "agents" && <AccountLinkedAgents linkedAgents={linkedAgents} />}
         {activeTab === "settings" && (
           <>
+            <AccountAuthorityPanel
+              profile={profile}
+              linkedAgents={linkedAgents}
+            />
             <AccountEditProfile profile={profile} getToken={getToken} refetchMyProfile={refetchMyProfile} />
-            <AccountSettings handle={profile.handle} />
+            <AccountSettings profile={profile} linkedAgents={linkedAgents} />
           </>
         )}
       </div>
@@ -1732,6 +1864,14 @@ function AccountHeader({
           <span className="account-proof-badge-dot" aria-hidden="true" />
           {proof.label}
         </span>
+        <div className="account-authority-chips" aria-label="Identity state">
+          <span className="account-authority-chip">
+            Continuity {formatStateLabel(profile.continuityState)}
+          </span>
+          <span className="account-authority-chip">
+            Proof {formatStateLabel(profile.proofState)}
+          </span>
+        </div>
       </div>
 
       <div className="account-header-stats" aria-label="Profile statistics">
@@ -1761,6 +1901,56 @@ function AccountHeader({
         ) : null}
       </div>
     </div>
+  );
+}
+
+function AccountAuthorityPanel({
+  profile,
+  linkedAgents,
+}: {
+  profile: Profile;
+  linkedAgents: LinkedAgent[];
+}) {
+  const primaryAgent = linkedAgents.find((agent) => agent.isPrimary) ?? linkedAgents[0];
+  const proof = proofSummary(profile.proofState, profile.continuityState);
+
+  return (
+    <section className="account-authority-panel" aria-label="Identity authority">
+      <div className="account-authority-panel-copy">
+        <p className="region-summary-label">Identity Surface</p>
+        <h3 className="account-authority-title">
+          Your HeyVera identity is active, with deeper Soma credentials still explicit.
+        </h3>
+        <p className="account-authority-copy">
+          Profile, handle, proof labels, and linked agents are visible today. Recovery,
+          delegation, and ceremony credentials stay marked as pending until the upstream
+          contracts exist.
+        </p>
+      </div>
+
+      <div className="account-authority-grid">
+        <div className="account-authority-tile account-authority-tile-accent">
+          <span>Handle</span>
+          <strong>@{profile.handle}</strong>
+          <small>Permanent public identity</small>
+        </div>
+        <div className="account-authority-tile">
+          <span>Continuity</span>
+          <strong>{formatStateLabel(profile.continuityState)}</strong>
+          <small>{proof.verified ? "Proof and continuity aligned" : "Awaiting stronger verification"}</small>
+        </div>
+        <div className="account-authority-tile">
+          <span>Primary agent</span>
+          <strong>{primaryAgent?.agentName ?? "Not linked"}</strong>
+          <small>{primaryAgent ? formatStateLabel(primaryAgent.linkState) : "Agent authority not connected"}</small>
+        </div>
+        <div className="account-authority-tile">
+          <span>Ceremony</span>
+          <strong>Pending</strong>
+          <small>Soma-native recovery and delegation are not live here yet</small>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -2166,7 +2356,13 @@ function AccountEditProfile({
 
 // ── Account & settings scaffold ──
 
-function AccountSettings({ handle }: { handle?: string }) {
+function AccountSettings({
+  profile,
+  linkedAgents,
+}: {
+  profile: Profile;
+  linkedAgents: LinkedAgent[];
+}) {
   const [darkMode, setDarkMode] = useState(() => {
     if (typeof window === "undefined") return false;
     const stored = localStorage.getItem("vera-dark-mode");
@@ -2188,26 +2384,42 @@ function AccountSettings({ handle }: { handle?: string }) {
   }, []);
 
   const futureItems = [
-    { label: "Privacy controls", status: "Coming soon" },
-    { label: "Notification preferences", status: "Coming soon" },
-    { label: "Account deletion", status: "Coming soon" },
+    { label: "Recovery ceremony", status: "Waiting on Soma" },
+    { label: "Delegation controls", status: "Waiting on Soma" },
+    { label: "Private credential vault", status: "Waiting on contracts" },
     { label: "Data export", status: "Coming soon" },
   ];
 
   return (
     <>
-      {/* Your handle */}
-      {handle && (
-        <div className="account-section">
-          <h3 className="account-section-title">Your Handle</h3>
-          <div className="account-handle-display">
-            <span className="account-handle-value">@{handle}</span>
+      <div className="account-section account-section-authority">
+        <h3 className="account-section-title">Continuity & Authority</h3>
+        <div className="account-settings-card account-continuity-card">
+          <div className="account-settings-row">
+            <span className="account-settings-label">Public handle</span>
+            <span className="account-handle-value">@{profile.handle}</span>
           </div>
-          <p className="account-handle-note">
-            Handles are permanent and tied to your proof chain. They cannot be changed after creation.
-          </p>
+          <div className="account-settings-row">
+            <span className="account-settings-label">Continuity state</span>
+            <span className="account-settings-chip account-settings-chip-accent">
+              {formatStateLabel(profile.continuityState)}
+            </span>
+          </div>
+          <div className="account-settings-row">
+            <span className="account-settings-label">Proof state</span>
+            <span className="account-settings-chip account-settings-chip-accent">
+              {formatStateLabel(profile.proofState)}
+            </span>
+          </div>
+          <div className="account-settings-row">
+            <span className="account-settings-label">Linked agents</span>
+            <span className="account-settings-chip">{linkedAgents.length}</span>
+          </div>
         </div>
-      )}
+        <p className="account-handle-note">
+          Handle, profile, proof labels, and linked agents are the identity facts HeyVera can show now.
+        </p>
+      </div>
 
       {/* Display preferences */}
       <div className="account-section">
@@ -2231,7 +2443,7 @@ function AccountSettings({ handle }: { handle?: string }) {
 
       {/* Other settings scaffold */}
       <div className="account-section">
-        <h3 className="account-section-title">Account & Settings</h3>
+        <h3 className="account-section-title">Soma-Native Settings</h3>
         <div className="account-settings-card">
           {futureItems.map((item) => (
             <div key={item.label} className="account-settings-row">
