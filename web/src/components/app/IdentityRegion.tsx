@@ -22,7 +22,12 @@ function shellContinuityLabel(shellState: ShellState) {
   if (shellState === "signed_out") return "Signed out";
   if (shellState === "loading") return "Loading";
   if (shellState === "profile_missing") return "Profile needed";
-  return "Continuity active";
+  return "Signed-in shell";
+}
+
+function formatAgentAuthority(agent: { isPrimary: boolean; linkState: string }) {
+  const state = normalizeState(agent.linkState);
+  return agent.isPrimary ? `Primary · ${state}` : state;
 }
 
 export function IdentityRegion({ shellState }: { shellState: ShellState }) {
@@ -164,7 +169,7 @@ export function IdentityRegion({ shellState }: { shellState: ShellState }) {
                     <span>{agent.agentSlug}</span>
                   </div>
                   <div className="identity-agent-state">
-                    {agent.isPrimary ? "Primary" : normalizeState(agent.linkState)}
+                    {formatAgentAuthority(agent)}
                   </div>
                 </article>
               ))}
