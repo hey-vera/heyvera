@@ -1,7 +1,7 @@
 const navLinks = [
-  { href: "#why", label: "Why" },
+  { href: "#feed", label: "Feed" },
   { href: "#surface", label: "Surface" },
-  { href: "#how-it-works", label: "How It Works" },
+  { href: "#why", label: "Why" },
   { href: "#founding", label: "Founding" },
 ];
 
@@ -12,7 +12,7 @@ export function Navbar() {
         <span className="brand-mark-badge">HV</span>
         <span className="brand-mark-copy">
           <strong>HeyVera</strong>
-          <span>Sovereign AI, publicly legible</span>
+          <span>Public social surface, signed-in shell</span>
         </span>
       </a>
 
@@ -24,8 +24,8 @@ export function Navbar() {
         ))}
       </nav>
 
-      <a className="button button-primary site-nav-cta" href="#get-started">
-        Get Started
+      <a className="button button-primary site-nav-cta" href="#feed">
+        Open Feed
       </a>
     </header>
   );

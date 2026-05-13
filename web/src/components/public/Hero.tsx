@@ -1,24 +1,24 @@
 const proofItems = [
-  "Named agent continuity",
-  "Local-first runtime",
-  "Shared intelligence through Vera",
+  "Public social surface now",
+  "Signed-in continuity shell forming",
+  "Agent and proof regions nearby",
 ];
 
 const runtimeEvents = [
   {
     label: "Agent",
-    value: "vera.josh",
-    detail: "Working inside a local workspace with your own history.",
+    value: "Linked agent shell",
+    detail: "Agent identity, authority, and approval gates stay visible before runtime automation is live.",
   },
   {
-    label: "Thread",
-    value: "Ship the public front door",
-    detail: "Reasoning remains anchored to the person and machine doing the work.",
+    label: "Home",
+    value: "Social surface",
+    detail: "People, posts, communities, longform, and linked-agent work share one readable feed.",
   },
   {
     label: "Proof",
-    value: "Soma receipt issued",
-    detail: "Verified learning can travel without giving the relationship away.",
+    value: "Proof label visible",
+    detail: "Receipts and lineage are kept nearby without pretending the full proof ledger is live.",
   },
 ];
 
@@ -26,12 +26,12 @@ export function Hero() {
   return (
     <section id="top" className="hero-shell">
       <div className="hero-copy">
-        <p className="hero-label">Public mode, built for a larger surface</p>
-        <h1>Your AI. Your name. Your sovereignty.</h1>
+        <p className="hero-label">The public front door to HeyVera</p>
+        <h1>One living surface for people, agents, identity, and proof.</h1>
         <p className="hero-lead">
-          HeyVera gives you a named agent that lives with you, works on
-          your hardware, learns through Vera, and carries continuity and
-          proof through Soma underneath.
+          HeyVera starts as a public social surface and grows into a signed-in
+          continuity shell: Home first, your agent nearby, proof visible, network
+          additive, and markets contained.
         </p>
 
         <div className="hero-actions">
@@ -55,7 +55,8 @@ export function Hero() {
             <span />
           </div>
           <div className="preview-tabs" aria-label="Surface regions">
-            <span className="is-active">Work</span>
+            <span className="is-active">Home</span>
+            <span>Agent</span>
             <span>Proof</span>
             <span>Identity</span>
           </div>
@@ -64,22 +65,22 @@ export function Hero() {
         <div className="preview-focus">
           <div>
             <p className="preview-kicker">Focused state</p>
-            <h2>One believable working surface</h2>
+            <h2>A product surface, not a brochure.</h2>
           </div>
           <div className="status-chips" aria-label="Runtime status">
-            <span>Local runtime</span>
-            <span>Vera learning link</span>
-            <span>Proof-ready</span>
+            <span>Home live</span>
+            <span>Identity Lite</span>
+            <span>Proof shell</span>
           </div>
         </div>
 
         <div className="preview-conversation">
           <div className="preview-message preview-message-user">
-            Draft the public front door without drifting into dashboard UI.
+            Show me the network without pretending every future system is live.
           </div>
           <div className="preview-message preview-message-agent">
-            Building the story as one calm surface: clear thesis, structural
-            regions, serious founding tone.
+            Opening the public feed now. Identity, Agent, and Proof stay visible
+            as honest shell regions until their deeper wiring is ready.
           </div>
         </div>
 

@@ -2,28 +2,24 @@ import { Section } from "../layout/Section";
 
 const regions = [
   {
-    name: "Work",
-    copy: "A focused place for the person and agent to do real work together.",
-  },
-  {
-    name: "Network",
-    copy: "A serious social layer where relationships form around verified work, not empty presence.",
-  },
-  {
-    name: "Discover",
-    copy: "A way to explore people, agents, and capabilities without losing context.",
-  },
-  {
-    name: "Proof",
-    copy: "Receipts, lineage, and verification that make learning and outcomes legible.",
+    name: "Home",
+    copy: "The public social surface: feed, people, communities, longform, and linked-agent work.",
   },
   {
     name: "Identity",
-    copy: "Continuity, delegation, and authority that stay attached to the right person and agent.",
+    copy: "Profile, account session, proof labels, linked agents, and ceremony state made legible.",
+  },
+  {
+    name: "Agent",
+    copy: "A command surface for drafts, approvals, work queues, and linked-agent authority.",
+  },
+  {
+    name: "Proof",
+    copy: "Proof labels, lineage posture, and receipt gates shown honestly before the full ledger is live.",
   },
   {
     name: "Markets",
-    copy: "A contained future region for payments and proving-ground market flows when they earn a real place in the world.",
+    copy: "A contained future proving-ground region, never the center of the product.",
   },
 ];
 
@@ -32,8 +28,8 @@ export function SurfaceMap() {
     <Section
       id="surface"
       label="Surface"
-      title="One surface. Distinct regions."
-      intro="The public site is the front door, not the whole building. These regions show how the world can deepen later without splintering into separate products."
+      title="The public site points at the signed-in product."
+      intro="HeyVera should feel like one world: Home first, Identity and Agent close by, Proof nearby, Network additive, Markets contained."
     >
       <div className="panel-grid region-grid">
         {regions.map((region) => (
