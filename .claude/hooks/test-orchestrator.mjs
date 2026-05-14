@@ -1379,6 +1379,369 @@ test('config-validator: loadAndValidateConfig on real config', () => {
   return true;
 });
 
+// ─── Test 47: risk-classifier: exports classifyRiskEnhanced ─────────────────
+test('risk-classifier: exports classifyRiskEnhanced', () => {
+  const script = `
+    import { classifyRiskEnhanced } from './risk-classifier.mjs';
+    process.stdout.write(JSON.stringify({ exported: typeof classifyRiskEnhanced === 'function' }));
+  `;
+  const proc = spawnSync(process.execPath, [
+    '--input-type=module',
+    '-e', script,
+  ], { encoding: 'utf8', timeout: 5000, cwd: HOOKS });
+
+  if (proc.status !== 0) return `script failed: ${proc.stderr}`;
+  let result;
+  try { result = JSON.parse(proc.stdout.trim()); } catch { return `output not JSON: ${proc.stdout}`; }
+  if (!result.exported) return 'classifyRiskEnhanced is not exported as a function';
+  return true;
+});
+
+// ─── Test 48: risk-classifier: classifyRiskEnhanced returns expected shape ───
+test('risk-classifier: classifyRiskEnhanced returns { risk, basis, details }', () => {
+  const script = `
+    import { classifyRiskEnhanced } from './risk-classifier.mjs';
+    const result = classifyRiskEnhanced('src/utils/helper.js');
+    const errors = [];
+
+    if (typeof result !== 'object' || result === null) {
+      errors.push('result is not an object');
+    } else {
+      const validRisks = ['low', 'medium', 'high', 'critical'];
+      const validBases = ['static', 'churn', 'history', 'churn+history'];
+      if (!validRisks.includes(result.risk)) errors.push('risk not in valid set: ' + result.risk);
+      if (!validBases.includes(result.basis)) errors.push('basis not in valid set: ' + result.basis);
+      if (typeof result.details !== 'object' || result.details === null) {
+        errors.push('details is not an object');
+      } else {
+        if (!('static_risk' in result.details)) errors.push('details missing static_risk');
+        if (!('churn_commits' in result.details)) errors.push('details missing churn_commits');
+        if (!('history_success_rate' in result.details)) errors.push('details missing history_success_rate');
+      }
+    }
+
+    process.stdout.write(JSON.stringify({ errors }));
+  `;
+  const proc = spawnSync(process.execPath, [
+    '--input-type=module',
+    '-e', script,
+  ], { encoding: 'utf8', timeout: 5000, cwd: HOOKS });
+
+  if (proc.status !== 0) return `script failed: ${proc.stderr}`;
+  let result;
+  try { result = JSON.parse(proc.stdout.trim()); } catch { return `output not JSON: ${proc.stdout}`; }
+  if (result.errors.length > 0) return result.errors.join('; ');
+  return true;
+});
+
+// ─── Test 49: risk-classifier: static classification still works (auth → critical) ─
+test('risk-classifier: static auth path → critical', () => {
+  const script = `
+    import { classifyRiskEnhanced } from './risk-classifier.mjs';
+    const result = classifyRiskEnhanced('src/auth/credentials.mjs');
+    process.stdout.write(JSON.stringify({ risk: result.risk, static_risk: result.details.static_risk }));
+  `;
+  const proc = spawnSync(process.execPath, [
+    '--input-type=module',
+    '-e', script,
+  ], { encoding: 'utf8', timeout: 5000, cwd: HOOKS });
+
+  if (proc.status !== 0) return `script failed: ${proc.stderr}`;
+  let result;
+  try { result = JSON.parse(proc.stdout.trim()); } catch { return `output not JSON: ${proc.stdout}`; }
+  if (result.static_risk !== 'critical') return `expected static_risk=critical for auth path, got: ${result.static_risk}`;
+  if (result.risk !== 'critical') return `expected risk=critical for auth path, got: ${result.risk}`;
+  return true;
+});
+
+// ─── Test 50: risk-classifier: handles missing git gracefully ────────────────
+test('risk-classifier: handles missing git gracefully (no crash)', () => {
+  // Run classifyRiskEnhanced in a temp directory that has no git repo, so
+  // git log will fail — the function must not crash, must return a valid shape.
+  const tmpDir = spawnSync('mktemp', ['-d'], { encoding: 'utf8' }).stdout.trim();
+  try {
+    const script = `
+      import { classifyRiskEnhanced } from '${resolve(HOOKS, 'risk-classifier.mjs').replace(/\\/g, '/')}';
+      let result;
+      try {
+        result = classifyRiskEnhanced('some/random/file.js');
+      } catch (e) {
+        process.stdout.write(JSON.stringify({ threw: true, message: e.message }));
+        process.exit(0);
+      }
+      const validBases = ['static', 'churn', 'history', 'churn+history'];
+      const validRisks = ['low', 'medium', 'high', 'critical'];
+      const ok = validRisks.includes(result.risk) && validBases.includes(result.basis) && typeof result.details === 'object';
+      process.stdout.write(JSON.stringify({ ok, threw: false, result }));
+    `;
+    const proc = spawnSync(process.execPath, [
+      '--input-type=module',
+      '-e', script,
+    ], { encoding: 'utf8', timeout: 8000, cwd: tmpDir });
+
+    if (proc.status !== 0) return `script failed: ${proc.stderr}`;
+    let result;
+    try { result = JSON.parse(proc.stdout.trim()); } catch { return `output not JSON: ${proc.stdout}`; }
+    if (result.threw) return `classifyRiskEnhanced threw when git unavailable: ${result.message}`;
+    if (!result.ok) return `invalid shape returned when git unavailable: ${JSON.stringify(result.result)}`;
+    return true;
+  } finally {
+    spawnSync('rm', ['-rf', tmpDir], { stdio: 'pipe' });
+  }
+});
+
+// ─── Test 51: agent-chains: exports getChain and listChains ──────────────────
+test('agent-chains: exports getChain and listChains', () => {
+  const script = `
+    import { getChain, listChains } from './agent-chains.mjs';
+    const results = { errors: [] };
+    if (typeof getChain !== 'function') results.errors.push('getChain is not a function');
+    if (typeof listChains !== 'function') results.errors.push('listChains is not a function');
+    process.stdout.write(JSON.stringify(results));
+  `;
+  const proc = spawnSync(process.execPath, [
+    '--input-type=module',
+    '-e', script,
+  ], { encoding: 'utf8', timeout: 5000, cwd: HOOKS });
+
+  if (proc.status !== 0) return `agent-chains script failed: ${proc.stderr}`;
+  let results;
+  try { results = JSON.parse(proc.stdout.trim()); } catch { return `output not JSON: ${proc.stdout}`; }
+  if (results.errors.length > 0) return results.errors.join('; ');
+  return true;
+});
+
+// ─── Test 52: agent-chains: all 3 chains have required fields ────────────────
+test('agent-chains: all 3 chains have required fields', () => {
+  const script = `
+    import { listChains } from './agent-chains.mjs';
+    const results = { errors: [] };
+
+    const chains = listChains();
+    const EXPECTED = ['explore-then-fix', 'review-and-test', 'audit-and-plan'];
+
+    for (const name of EXPECTED) {
+      if (!chains.find(c => c.name === name))
+        results.errors.push('missing chain: ' + name);
+    }
+
+    for (const chain of chains) {
+      if (!chain.name) results.errors.push('chain missing name');
+      if (!chain.description) results.errors.push((chain.name || '?') + ': missing description');
+      if (!Array.isArray(chain.steps) || chain.steps.length < 2)
+        results.errors.push((chain.name || '?') + ': must have at least 2 steps');
+      for (const step of (chain.steps || [])) {
+        if (!step.label) results.errors.push((chain.name || '?') + ' step missing label');
+        if (!step.tier) results.errors.push((chain.name || '?') + ' step missing tier');
+        if (!step.model) results.errors.push((chain.name || '?') + ' step missing model');
+        if (!('template' in step)) results.errors.push((chain.name || '?') + ' step missing template key');
+      }
+    }
+
+    process.stdout.write(JSON.stringify(results));
+  `;
+  const proc = spawnSync(process.execPath, [
+    '--input-type=module',
+    '-e', script,
+  ], { encoding: 'utf8', timeout: 5000, cwd: HOOKS });
+
+  if (proc.status !== 0) return `agent-chains script failed: ${proc.stderr}`;
+  let results;
+  try { results = JSON.parse(proc.stdout.trim()); } catch { return `output not JSON: ${proc.stdout}`; }
+  if (results.errors.length > 0) return results.errors.join('; ');
+  return true;
+});
+
+// ─── Test 53: agent-chains: getChain returns null for unknown chains ──────────
+test('agent-chains: getChain returns null for unknown chains', () => {
+  const script = `
+    import { getChain } from './agent-chains.mjs';
+    const results = { errors: [] };
+
+    const unknown = getChain('no-such-chain');
+    if (unknown !== null) results.errors.push('expected null for unknown chain, got: ' + JSON.stringify(unknown));
+
+    const alsoUnknown = getChain('');
+    if (alsoUnknown !== null) results.errors.push('expected null for empty string, got: ' + JSON.stringify(alsoUnknown));
+
+    const known = getChain('explore-then-fix');
+    if (!known || known.name !== 'explore-then-fix')
+      results.errors.push('expected explore-then-fix chain, got: ' + JSON.stringify(known));
+
+    process.stdout.write(JSON.stringify(results));
+  `;
+  const proc = spawnSync(process.execPath, [
+    '--input-type=module',
+    '-e', script,
+  ], { encoding: 'utf8', timeout: 5000, cwd: HOOKS });
+
+  if (proc.status !== 0) return `agent-chains script failed: ${proc.stderr}`;
+  let results;
+  try { results = JSON.parse(proc.stdout.trim()); } catch { return `output not JSON: ${proc.stdout}`; }
+  if (results.errors.length > 0) return results.errors.join('; ');
+  return true;
+});
+
+// ─── Test 54: agent-templates: exports getTemplate, listTemplates, buildAgentPrompt ─
+test('agent-templates: exports getTemplate, listTemplates, buildAgentPrompt', () => {
+  const script = `
+    import { getTemplate, listTemplates, buildAgentPrompt } from './agent-templates.mjs';
+    const results = { errors: [] };
+
+    if (typeof getTemplate !== 'function')      results.errors.push('getTemplate not a function');
+    if (typeof listTemplates !== 'function')    results.errors.push('listTemplates not a function');
+    if (typeof buildAgentPrompt !== 'function') results.errors.push('buildAgentPrompt not a function');
+
+    process.stdout.write(JSON.stringify(results));
+  `;
+  const proc = spawnSync(process.execPath, [
+    '--input-type=module',
+    '-e', script,
+  ], { encoding: 'utf8', timeout: 5000, cwd: HOOKS });
+
+  if (proc.status !== 0) return `agent-templates script failed: ${proc.stderr}`;
+  let results;
+  try { results = JSON.parse(proc.stdout.trim()); } catch { return `output not JSON: ${proc.stdout}`; }
+  if (results.errors.length > 0) return results.errors.join('; ');
+  return true;
+});
+
+// ─── Test 55: agent-templates: all 4 templates have required fields ───────────
+test('agent-templates: all 4 templates have required fields', () => {
+  const script = `
+    import { TEMPLATES } from './agent-templates.mjs';
+    const results = { errors: [] };
+
+    const expected = ['explorer', 'security-review', 'test-writer', 'bug-hunter'];
+    const requiredFields = ['tier', 'risk', 'quality_gate', 'prompt_template', 'flags'];
+
+    for (const name of expected) {
+      const tmpl = TEMPLATES[name];
+      if (!tmpl) { results.errors.push('missing template: ' + name); continue; }
+      for (const f of requiredFields) {
+        if (tmpl[f] === undefined || tmpl[f] === null)
+          results.errors.push(name + ' missing field: ' + f);
+      }
+      // tier must be one of the known tiers
+      if (!['search', 'execute', 'think'].includes(tmpl.tier))
+        results.errors.push(name + ' has unknown tier: ' + tmpl.tier);
+      // risk must be a valid level
+      if (!['low', 'medium', 'high', 'critical'].includes(tmpl.risk))
+        results.errors.push(name + ' has unknown risk: ' + tmpl.risk);
+      // flags must be an object
+      if (typeof tmpl.flags !== 'object' || tmpl.flags === null)
+        results.errors.push(name + ' flags is not an object');
+    }
+
+    process.stdout.write(JSON.stringify(results));
+  `;
+  const proc = spawnSync(process.execPath, [
+    '--input-type=module',
+    '-e', script,
+  ], { encoding: 'utf8', timeout: 5000, cwd: HOOKS });
+
+  if (proc.status !== 0) return `agent-templates script failed: ${proc.stderr}`;
+  let results;
+  try { results = JSON.parse(proc.stdout.trim()); } catch { return `output not JSON: ${proc.stdout}`; }
+  if (results.errors.length > 0) return results.errors.join('; ');
+  return true;
+});
+
+// ─── Test 56: agent-templates: buildAgentPrompt interpolates flags correctly ──
+test('agent-templates: buildAgentPrompt interpolates flags correctly', () => {
+  const script = `
+    import { buildAgentPrompt } from './agent-templates.mjs';
+    const results = { errors: [] };
+
+    // explorer: question + scope
+    const explorerFull = buildAgentPrompt('explorer', { question: 'find auth files', scope: 'src/auth' });
+    if (!explorerFull) { results.errors.push('explorer returned null'); }
+    else {
+      if (!explorerFull.prompt.includes('find auth files'))
+        results.errors.push('explorer prompt missing question: ' + explorerFull.prompt.slice(0, 100));
+      if (!explorerFull.model) results.errors.push('explorer missing model');
+      if (!explorerFull.tier)  results.errors.push('explorer missing tier');
+      if (!explorerFull.risk)  results.errors.push('explorer missing risk');
+      if (!explorerFull.quality_gate) results.errors.push('explorer missing quality_gate');
+    }
+
+    // explorer: without scope
+    const explorerNoScope = buildAgentPrompt('explorer', { question: 'map the codebase' });
+    if (!explorerNoScope) { results.errors.push('explorer (no scope) returned null'); }
+    else {
+      if (!explorerNoScope.prompt.includes('map the codebase'))
+        results.errors.push('explorer prompt missing question (no scope): ' + explorerNoScope.prompt.slice(0, 100));
+    }
+
+    // test-writer: file flag
+    const testWriter = buildAgentPrompt('test-writer', { file: 'src/api.ts', framework: 'jest' });
+    if (!testWriter) { results.errors.push('test-writer returned null'); }
+    else {
+      if (!testWriter.prompt.includes('src/api.ts'))
+        results.errors.push('test-writer prompt missing file: ' + testWriter.prompt.slice(0, 100));
+    }
+
+    // bug-hunter: deep depth
+    const bugHunterDeep = buildAgentPrompt('bug-hunter', { area: 'payments', depth: 'deep' });
+    if (!bugHunterDeep) { results.errors.push('bug-hunter returned null'); }
+    else {
+      if (!bugHunterDeep.prompt.toLowerCase().includes('payments'))
+        results.errors.push('bug-hunter prompt missing area: ' + bugHunterDeep.prompt.slice(0, 100));
+    }
+
+    // security-review: severity filter
+    const secReview = buildAgentPrompt('security-review', { scope: 'src/auth', severity: 'high' });
+    if (!secReview) { results.errors.push('security-review returned null'); }
+    else {
+      if (secReview.risk !== 'high') results.errors.push('security-review risk should be high, got: ' + secReview.risk);
+      if (secReview.quality_gate !== 'dual_brain_review')
+        results.errors.push('security-review quality_gate should be dual_brain_review, got: ' + secReview.quality_gate);
+    }
+
+    process.stdout.write(JSON.stringify(results));
+  `;
+  const proc = spawnSync(process.execPath, [
+    '--input-type=module',
+    '-e', script,
+  ], { encoding: 'utf8', timeout: 5000, cwd: HOOKS });
+
+  if (proc.status !== 0) return `agent-templates script failed: ${proc.stderr}`;
+  let results;
+  try { results = JSON.parse(proc.stdout.trim()); } catch { return `output not JSON: ${proc.stdout}`; }
+  if (results.errors.length > 0) return results.errors.join('; ');
+  return true;
+});
+
+// ─── Test 57: agent-templates: getTemplate returns null for unknown ───────────
+test('agent-templates: getTemplate returns null for unknown template', () => {
+  const script = `
+    import { getTemplate } from './agent-templates.mjs';
+    const results = { errors: [] };
+
+    const unknown = getTemplate('no-such-template');
+    if (unknown !== null) results.errors.push('expected null for unknown template, got: ' + JSON.stringify(unknown));
+
+    const alsoUnknown = getTemplate('');
+    if (alsoUnknown !== null) results.errors.push('expected null for empty string, got: ' + JSON.stringify(alsoUnknown));
+
+    const known = getTemplate('explorer');
+    if (!known || known.name !== 'explorer')
+      results.errors.push('expected explorer template, got: ' + JSON.stringify(known));
+
+    process.stdout.write(JSON.stringify(results));
+  `;
+  const proc = spawnSync(process.execPath, [
+    '--input-type=module',
+    '-e', script,
+  ], { encoding: 'utf8', timeout: 5000, cwd: HOOKS });
+
+  if (proc.status !== 0) return `agent-templates script failed: ${proc.stderr}`;
+  let results;
+  try { results = JSON.parse(proc.stdout.trim()); } catch { return `output not JSON: ${proc.stdout}`; }
+  if (results.errors.length > 0) return results.errors.join('; ');
+  return true;
+});
+
 // ─── Summary ─────────────────────────────────────────────────────────────────
 const total = passed + failed;
 console.log(`\n${passed}/${total} tests passed`);

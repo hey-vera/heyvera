@@ -74,6 +74,12 @@ if (flag('--help') || flag('-h')) {
     plan         Generate execution plans (--utterance "...")
     memory       Persistent preferences and work threads
 
+  Agents:
+    agent        Run a specialist agent template (explorer, security-review, test-writer, bug-hunter)
+    agents       List all available agent templates
+    chain        Run a built-in agent chain (explore-then-fix, review-and-test, audit-and-plan)
+    chains       List all available agent chains
+
   Dev:
     test         Run self-tests
 
@@ -96,6 +102,11 @@ if (flag('--help') || flag('-h')) {
     ${cmd('npx dual-brain budget 8 25')}      # \$8 session / \$25 daily
     ${cmd('npx dual-brain think --question "should we use Redis?"')}
     ${cmd('npx dual-brain vibe "fix login and update nav"')}
+    ${cmd('npx dual-brain agents')}                         # list agent templates
+    ${cmd('npx dual-brain agent explorer --question "where is auth handled?"')}
+    ${cmd('npx dual-brain agent security-review --scope src/auth --severity high')}
+    ${cmd('npx dual-brain chains')}                         # list available chains
+    ${cmd('npx dual-brain chain explore-then-fix --question "auth bug" --scope "src/auth"')}
   `);
   process.exit(0);
 }
@@ -105,6 +116,8 @@ const SUBCOMMANDS = [
   'review', 'think', 'health', 'report', 'gate',
   'vibe', 'plan', 'cost', 'dispatch', 'memory',
   'test', 'ledger', 'doctor', 'reset', 'repair',
+  'chain', 'chains',
+  'agent', 'agents',
 ];
 if (subcommand && !SUBCOMMANDS.includes(subcommand)) {
   console.error(`  Unknown command: ${subcommand}`);
@@ -372,6 +385,7 @@ function install(workspace, env, mode) {
     'summary-checkpoint.mjs', 'decision-ledger.mjs', 'control-panel.mjs',
     'risk-classifier.mjs', 'failure-detector.mjs',
     'vibe-router.mjs', 'plan-generator.mjs', 'vibe-memory.mjs',
+    'agent-templates.mjs', 'agent-chains.mjs',
   ];
   for (const h of HOOKS) cpSync(join(__dirname, 'hooks', h), join(target, 'hooks', h));
   actions.push(`✓ ${HOOKS.length} hook scripts`);
@@ -1288,13 +1302,18 @@ const HOOK_COMMANDS = {
   memory:   'vibe-memory.mjs',
   test:     'test-orchestrator.mjs',
   ledger:   'decision-ledger.mjs',
+  chains:   'agent-chains.mjs',
 };
 
-function delegateToHook(hookFile) {
+function resolveHookScript(hookFile) {
   const workspace = resolve(process.cwd());
   const installed = join(workspace, '.claude', 'hooks', hookFile);
   const bundled = join(__dirname, 'hooks', hookFile);
-  const script = existsSync(installed) ? installed : existsSync(bundled) ? bundled : null;
+  return existsSync(installed) ? installed : existsSync(bundled) ? bundled : null;
+}
+
+function delegateToHook(hookFile) {
+  const script = resolveHookScript(hookFile);
 
   if (!script) {
     console.error(`  Hook not found: ${hookFile}`);
@@ -1306,7 +1325,23 @@ function delegateToHook(hookFile) {
   const extraArgs = process.argv.slice(3);
   const { status } = spawnSync(process.execPath, [script, ...extraArgs], {
     stdio: 'inherit',
-    cwd: workspace,
+    cwd: resolve(process.cwd()),
+  });
+  process.exit(status || 0);
+}
+
+function delegateToHookWithArgs(hookFile, args) {
+  const script = resolveHookScript(hookFile);
+
+  if (!script) {
+    console.error(`  Hook not found: ${hookFile}`);
+    console.error(`  Run: ${cmd('npx dual-brain')} to install hooks first.`);
+    process.exit(1);
+  }
+
+  const { status } = spawnSync(process.execPath, [script, ...args], {
+    stdio: 'inherit',
+    cwd: resolve(process.cwd()),
   });
   process.exit(status || 0);
 }
@@ -1326,6 +1361,44 @@ function main() {
   if (subcommand === 'doctor')  { cmdDoctor();  return; }
   if (subcommand === 'reset')   { cmdReset();   return; }
   if (subcommand === 'repair')  { cmdRepair();  return; }
+
+  // agent <template> [flags] → agent-templates.mjs --run <template> [flags]
+  if (subcommand === 'agent') {
+    const templateName = positional[1];
+    if (!templateName) {
+      // No template name — fall through to list
+      delegateToHookWithArgs('agent-templates.mjs', ['--list']);
+      return;
+    }
+    const extraFlags = process.argv.slice(4); // skip node, install.mjs, 'agent', <template>
+    delegateToHookWithArgs('agent-templates.mjs', ['--run', templateName, ...extraFlags]);
+    return;
+  }
+
+  // agents → agent-templates.mjs --list
+  if (subcommand === 'agents') {
+    delegateToHookWithArgs('agent-templates.mjs', ['--list']);
+    return;
+  }
+
+  // chain <name> [flags] → agent-chains.mjs --run <name> [flags]
+  if (subcommand === 'chain') {
+    const chainName = positional[1];
+    if (!chainName) {
+      // No chain name given — fall through to list
+      delegateToHookWithArgs('agent-chains.mjs', ['--list']);
+      return;
+    }
+    const extraFlags = process.argv.slice(4); // skip node, install.mjs, 'chain', <name>
+    delegateToHookWithArgs('agent-chains.mjs', ['--run', chainName, ...extraFlags]);
+    return;
+  }
+
+  // chains → agent-chains.mjs --list
+  if (subcommand === 'chains') {
+    delegateToHookWithArgs('agent-chains.mjs', ['--list']);
+    return;
+  }
 
   // Delegate hook-backed commands
   if (subcommand && HOOK_COMMANDS[subcommand]) {

@@ -2,7 +2,7 @@
 import { readFileSync, writeFileSync, appendFileSync } from 'fs';
 import { dirname, resolve, join } from 'path';
 import { fileURLToPath } from 'url';
-import { classifyRisk, extractPaths } from './risk-classifier.mjs';
+import { classifyRisk, classifyRiskEnhanced, extractPaths } from './risk-classifier.mjs';
 import { computePromptHash, checkFailureLoop, recordFailure } from './failure-detector.mjs';
 import { getOutcomeStats } from './decision-ledger.mjs';
 import { atomicWriteJSON } from './atomic-write.mjs';
@@ -345,16 +345,42 @@ try {
   }
 
   // Risk classification from file paths in description
+  // Use enhanced classifier (git churn + history) when a single file path is available,
+  // fall back to static classifier for multi-path or missing cases.
   const filePaths = extractPaths(ti.description || '');
-  const riskResult = classifyRisk(filePaths);
+  let riskResult;
+  let riskEscalationReason = null;
+
+  if (filePaths.length === 1) {
+    try {
+      const enhanced = classifyRiskEnhanced(filePaths[0]);
+      riskResult = { level: enhanced.risk, reason: filePaths[0] };
+      // Build human-readable escalation reason if empirical data bumped the risk
+      if (enhanced.basis === 'churn' || enhanced.basis === 'churn+history') {
+        riskEscalationReason = `Risk escalated: high git churn (${enhanced.details.churn_commits} commits in 30 days)`;
+      }
+      if (enhanced.basis === 'history' || enhanced.basis === 'churn+history') {
+        const historyNote = `${enhanced.details.history_success_rate}% failure rate on this file path`;
+        riskEscalationReason = riskEscalationReason
+          ? `${riskEscalationReason}; ${historyNote}`
+          : `Risk escalated: ${historyNote}`;
+      }
+    } catch {
+      riskResult = classifyRisk(filePaths);
+    }
+  } else {
+    riskResult = classifyRisk(filePaths);
+  }
+
   let autoStatus = null;
 
   // Bias high/critical risk toward think tier
   if ((riskResult.level === 'critical' || riskResult.level === 'high') && tier !== 'think') {
     tier = 'think';
-    autoStatus = riskResult.level === 'critical'
-      ? `This touches ${riskResult.reason.split(':')[0].toLowerCase()} — recommending dual-brain review for safety.`
-      : `Promoting to think tier — this is ${riskResult.reason.split(':')[0].toLowerCase()}.`;
+    const baseMsg = riskResult.level === 'critical'
+      ? `This touches ${String(riskResult.reason).split(':')[0].toLowerCase()} — recommending dual-brain review for safety.`
+      : `Promoting to think tier — this is ${String(riskResult.reason).split(':')[0].toLowerCase()}.`;
+    autoStatus = riskEscalationReason ? `${baseMsg} ${riskEscalationReason}.` : baseMsg;
   }
 
   // Failure loop detection
