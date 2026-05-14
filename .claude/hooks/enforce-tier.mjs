@@ -65,11 +65,109 @@ function loadProfile() {
 }
 
 const PROFILE_SETTINGS = {
-  auto:            { demote_think: false, promote_execute: false, bias: 0 },
-  balanced:        { demote_think: false, promote_execute: false, bias: 0 },
-  'cost-saver':    { demote_think: true,  promote_execute: false, bias: -20 },
-  'quality-first': { demote_think: false, promote_execute: true,  bias: 10 },
+  auto:            { demote_think: false, promote_execute: false, bias: 0,   mismatch_tolerance: 'strict' },
+  balanced:        { demote_think: false, promote_execute: false, bias: 0,   mismatch_tolerance: 'strict' },
+  'cost-saver':    { demote_think: true,  promote_execute: false, bias: -20, mismatch_tolerance: 'lenient' },
+  'quality-first': { demote_think: false, promote_execute: true,  bias: 10,  mismatch_tolerance: 'paranoid' },
 };
+
+/**
+ * Classify how severe a model/tier mismatch is.
+ *
+ * @param {string} detectedTier  - 'search' | 'execute' | 'think'
+ * @param {string} actualModel   - lowercase model string from tool_input.model
+ * @returns {{ severity: 'none'|'minor'|'major', reason: string, suggestedModel: string }}
+ */
+function classifyMismatchSeverity(detectedTier, actualModel) {
+  const model = (actualModel || '').toLowerCase();
+
+  // Canonical tier membership helpers
+  const isSearchModel  = model.includes('haiku') || model.includes('gpt-4.1-mini') || model.includes('4.1-mini');
+  const isExecuteModel = model.includes('sonnet') || model.includes('gpt-5.4') || model.includes('5.4');
+  const isThinkModel   = model.includes('opus') || model.includes('gpt-5.5') || model.includes('5.5') ||
+                         model.includes('o1') || model.includes('o3') || model.includes('o4');
+
+  const suggestedByTier = {
+    search:  'haiku (Claude) or gpt-4.1-mini (OpenAI)',
+    execute: 'sonnet (Claude) or gpt-5.4 (OpenAI)',
+    think:   'opus (Claude) or gpt-5.5 (OpenAI)',
+  };
+  const suggested = suggestedByTier[detectedTier] || 'sonnet';
+
+  // Empty/unset model — no mismatch to classify
+  if (!model || model === 'main-session') {
+    return { severity: 'none', reason: 'model not specified', suggestedModel: suggested };
+  }
+
+  if (detectedTier === 'think') {
+    if (isThinkModel) return { severity: 'none', reason: 'model matches think tier', suggestedModel: suggested };
+    if (isExecuteModel) return {
+      severity: 'minor',
+      reason: `${model} is capable but not optimal for think-tier work (architecture/review/planning)`,
+      suggestedModel: suggested,
+    };
+    // search-class model (haiku, gpt-4.1-mini) on think work → MAJOR
+    return {
+      severity: 'major',
+      reason: `${model} is too weak for think-tier tasks (architecture decisions, security review, complex planning)`,
+      suggestedModel: suggested,
+    };
+  }
+
+  if (detectedTier === 'execute') {
+    if (isExecuteModel) return { severity: 'none', reason: 'model matches execute tier', suggestedModel: suggested };
+    if (isThinkModel) return {
+      severity: 'minor',
+      reason: `${model} is overkill for execute-tier work — wastes budget`,
+      suggestedModel: suggested,
+    };
+    if (isSearchModel) return {
+      severity: 'minor',
+      reason: `${model} may lack capability for complex execution tasks`,
+      suggestedModel: suggested,
+    };
+    return { severity: 'none', reason: 'model tier unclear', suggestedModel: suggested };
+  }
+
+  if (detectedTier === 'search') {
+    if (isSearchModel) return { severity: 'none', reason: 'model matches search tier', suggestedModel: suggested };
+    if (isExecuteModel) return {
+      severity: 'minor',
+      reason: `${model} is more capable than needed for search/explore tasks — consider haiku for cost savings`,
+      suggestedModel: suggested,
+    };
+    if (isThinkModel) return {
+      severity: 'major',
+      reason: `${model} is massive overkill for search/grep/explore tasks — burns budget unnecessarily`,
+      suggestedModel: suggested,
+    };
+    return { severity: 'none', reason: 'model tier unclear', suggestedModel: suggested };
+  }
+
+  return { severity: 'none', reason: 'unknown tier', suggestedModel: suggested };
+}
+
+/**
+ * Given a mismatch severity and the active profile tolerance, decide whether
+ * to block, warn, or allow the call.
+ *
+ * @param {'none'|'minor'|'major'} severity
+ * @param {'lenient'|'strict'|'paranoid'} tolerance
+ * @returns {'block'|'warn'|'allow'}
+ */
+function decideAction(severity, tolerance) {
+  if (severity === 'none') return 'allow';
+  if (tolerance === 'lenient') {
+    // cost-saver: warn on major, ignore minor
+    return severity === 'major' ? 'warn' : 'allow';
+  }
+  if (tolerance === 'paranoid') {
+    // quality-first: block on both minor and major
+    return 'block';
+  }
+  // strict (auto, balanced): block on major, warn on minor
+  return severity === 'major' ? 'block' : 'warn';
+}
 
 function checkPricingDrift(config) {
   const verified = config.pricing_verified;
@@ -432,81 +530,64 @@ try {
 
   const expected = preferredModel(config, tier);
 
-  if (tier === 'think') {
-    const thinkModels = ['opus', 'gpt-5.5', 'o1', 'o3'];
-    const isThink = !currentModel || thinkModels.some(m => currentModel.includes(m));
-    if (isThink) {
-      logRecommendation({
-        tier,
-        recommended: expected,
-        actual: currentModel,
-        promptHash,
-        followed: true,
-        profile: profileName,
-      });
-      const onlyWarnings = [duplicateWarning, driftWarning, failureMessage, autoStatus, balanceHint, outcomeAdvisory].filter(Boolean).join('\n\n');
-      if (onlyWarnings) {
-        process.stdout.write(JSON.stringify({ systemMessage: onlyWarnings }));
-      } else {
-        process.stdout.write('{}');
-      }
-      process.exit(0);
-    }
-    // If we get here, a non-think model is being used for think work
-    logRecommendation({
-      tier,
-      recommended: expected,
-      actual: currentModel,
-      promptHash,
-      followed: false,
-      profile: profileName,
-    });
-    if (isOnCooldown('tier_warning')) {
-      const onlyWarnings = [duplicateWarning, driftWarning, failureMessage, autoStatus, balanceHint, outcomeAdvisory].filter(Boolean).join('\n\n');
-      process.stdout.write(JSON.stringify(onlyWarnings ? { systemMessage: onlyWarnings } : {}));
+  // ── Mismatch severity classification (v4.5.0) ──────────────────────────────
+  const mismatch = classifyMismatchSeverity(tier, currentModel);
+  const tolerance = profileSettings.mismatch_tolerance || 'strict';
+  const action = decideAction(mismatch.severity, tolerance);
+
+  const followed = action === 'allow';
+  logRecommendation({
+    tier,
+    recommended: expected,
+    actual: currentModel,
+    promptHash,
+    followed,
+    profile: profileName,
+  });
+
+  if (action === 'allow') {
+    // Model is fine — emit only ambient warnings (duplicate, drift, failure, balance, outcome)
+    const onlyWarnings = [duplicateWarning, driftWarning, failureMessage, autoStatus, balanceHint, outcomeAdvisory].filter(Boolean).join('\n\n');
+    if (onlyWarnings) {
+      process.stdout.write(JSON.stringify({ systemMessage: onlyWarnings }));
     } else {
-      const thinkBestFor = intelligence[expected || 'opus']?.best_for;
-      const thinkBestForSuffix = thinkBestFor ? ` (best for: ${thinkBestFor})` : '';
-      const msg = `This looks like think-level work (architecture/review/planning) — better kept on the main session (${expected || 'opus'}${thinkBestForSuffix}) rather than delegated to ${currentModel}.`;
-      process.stdout.write(JSON.stringify({ systemMessage: prependWarnings(msg) }));
+      process.stdout.write('{}');
     }
-  } else {
-    if (!expected || currentModel.includes(expected)) {
-      logRecommendation({
-        tier,
-        recommended: expected,
-        actual: currentModel,
-        promptHash,
-        followed: true,
-        profile: profileName,
-      });
-      const onlyWarnings = [duplicateWarning, driftWarning, failureMessage, autoStatus, balanceHint, outcomeAdvisory].filter(Boolean).join('\n\n');
-      if (onlyWarnings) {
-        process.stdout.write(JSON.stringify({ systemMessage: onlyWarnings }));
-      } else {
-        process.stdout.write('{}');
-      }
-      process.exit(0);
-    }
-    logRecommendation({
-      tier,
-      recommended: expected,
-      actual: currentModel,
-      promptHash,
-      followed: false,
-      profile: profileName,
-    });
-    if (isOnCooldown('tier_warning')) {
-      const onlyWarnings = [duplicateWarning, driftWarning, failureMessage, autoStatus, balanceHint, outcomeAdvisory].filter(Boolean).join('\n\n');
-      process.stdout.write(JSON.stringify(onlyWarnings ? { systemMessage: onlyWarnings } : {}));
-    } else {
-      const savings = tier === 'search' ? 'Haiku is 19x cheaper than Opus for read-only lookups.' : 'Sonnet is 5x cheaper than Opus for implementation work.';
-      const bestFor = intelligence[expected]?.best_for;
-      const bestForSuffix = bestFor ? ` (best for: ${bestFor})` : '';
-      const msg = `This looks like ${tier} work — use ${expected}${bestForSuffix} instead of ${currentModel || 'opus (inherited)'}. ${savings}`;
-      process.stdout.write(JSON.stringify({ systemMessage: prependWarnings(msg) }));
-    }
+    process.exit(0);
   }
+
+  // On cooldown — emit only ambient warnings (don't repeat tier advice)
+  if (isOnCooldown('tier_warning')) {
+    const onlyWarnings = [duplicateWarning, driftWarning, failureMessage, autoStatus, balanceHint, outcomeAdvisory].filter(Boolean).join('\n\n');
+    process.stdout.write(JSON.stringify(onlyWarnings ? { systemMessage: onlyWarnings } : {}));
+    process.exit(0);
+  }
+
+  // Build the tier advice message, calibrated to severity
+  const bestFor = intelligence[expected]?.best_for;
+  const bestForSuffix = bestFor ? ` (best for: ${bestFor})` : '';
+
+  let tierMsg;
+  if (action === 'block') {
+    // Strongest available signal — Claude Code PreToolUse hooks use systemMessage
+    // (no formal "block" key in the hook contract), so we make the message impossible to ignore.
+    tierMsg =
+      `⛔ BLOCKED: ${mismatch.reason}.\n` +
+      `Resubmit with model: '${mismatch.suggestedModel}'.\n` +
+      `This ${tier}-tier task requires at least ${tier === 'think' ? 'execute' : 'search'}-tier capability or higher.\n` +
+      `Correct model${bestForSuffix}: ${expected || mismatch.suggestedModel}`;
+  } else {
+    // warn
+    const savingsHint =
+      tier === 'search' ? 'Haiku is 19x cheaper than Opus for read-only lookups.' :
+      tier === 'execute' ? 'Sonnet is 5x cheaper than Opus for implementation work.' :
+      `${expected || 'opus'} is the recommended model for think-tier work.`;
+    tierMsg =
+      `⚠️ Model mismatch (${mismatch.severity}): ${mismatch.reason}. ` +
+      `Suggested: ${mismatch.suggestedModel}${bestForSuffix}. ${savingsHint}`;
+  }
+
+  process.stdout.write(JSON.stringify({ systemMessage: prependWarnings(tierMsg) }));
 } catch (err) {
   process.stdout.write(JSON.stringify({
     systemMessage: `[Tier Enforcer] Config error: ${err?.message?.slice(0, 100) || 'unknown'}. Falling back to main-session judgment.`

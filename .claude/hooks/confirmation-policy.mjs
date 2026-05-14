@@ -15,6 +15,8 @@ const RISK_ORDER = ['low', 'medium', 'high', 'critical'];
 const MUTATION_STEPS = new Set(['edit', 'pr', 'push']);
 // Steps that are validation (auto-run in careful mode too)
 const VALIDATION_STEPS = new Set(['test', 'gate']);
+// Heal step: a fix attempt — auto-runs unless in careful mode (where user confirms)
+const HEAL_STEPS = new Set(['heal']);
 
 /**
  * getConfirmationPolicy({ risk, mode, step })
@@ -22,7 +24,7 @@ const VALIDATION_STEPS = new Set(['test', 'gate']);
  * @param {object} options
  * @param {'low'|'medium'|'high'|'critical'} options.risk
  * @param {'default'|'yolo'|'careful'|'plan-only'} options.mode
- * @param {'plan'|'edit'|'test'|'gate'|'pr'|'push'} options.step
+ * @param {'plan'|'edit'|'test'|'gate'|'heal'|'pr'|'push'} options.step
  * @returns {{ shouldConfirm: boolean, shouldBlock: boolean, reason: string }}
  */
 export function getConfirmationPolicy({ risk, mode, step }) {
@@ -30,10 +32,17 @@ export function getConfirmationPolicy({ risk, mode, step }) {
   const safeRisk = risk || 'low';
   const safeStep = step || 'plan';
 
-  // PLAN-ONLY mode: block all mutations, allow plan display
+  // PLAN-ONLY mode: block all mutations, allow plan display; skip heal (no mutations)
   if (safeMode === 'plan-only') {
     if (safeStep === 'plan') {
       return { shouldConfirm: false, shouldBlock: false, reason: 'Plan-only mode — showing plan' };
+    }
+    if (HEAL_STEPS.has(safeStep)) {
+      return {
+        shouldConfirm: false,
+        shouldBlock: true,
+        reason: 'Plan-only mode — skipping heal (no mutations)',
+      };
     }
     return {
       shouldConfirm: false,
@@ -42,7 +51,7 @@ export function getConfirmationPolicy({ risk, mode, step }) {
     };
   }
 
-  // YOLO mode: no confirmations for any step at any risk level
+  // YOLO mode: no confirmations for any step at any risk level; auto-heal
   if (safeMode === 'yolo') {
     if (safeRisk === 'critical') {
       return {
@@ -54,10 +63,18 @@ export function getConfirmationPolicy({ risk, mode, step }) {
     return { shouldConfirm: false, shouldBlock: false, reason: 'YOLO mode — proceeding automatically' };
   }
 
-  // CAREFUL mode: confirm every mutation/plan step; validation steps auto-run
+  // CAREFUL mode: confirm every mutation/plan step; validation steps auto-run;
+  //               heal step requires confirmation before each attempt
   if (safeMode === 'careful') {
     if (VALIDATION_STEPS.has(safeStep)) {
       return { shouldConfirm: false, shouldBlock: false, reason: 'Validation step — auto-run' };
+    }
+    if (HEAL_STEPS.has(safeStep)) {
+      return {
+        shouldConfirm: true,
+        shouldBlock: false,
+        reason: 'Careful mode — confirming heal attempt',
+      };
     }
     return {
       shouldConfirm: true,
@@ -67,7 +84,15 @@ export function getConfirmationPolicy({ risk, mode, step }) {
   }
 
   // DEFAULT mode: risk-based policy
+  // Heal step: auto-heal for all risk levels — it's just a fix attempt, no worse than the original change
   if (safeMode === 'default') {
+    if (HEAL_STEPS.has(safeStep)) {
+      return {
+        shouldConfirm: false,
+        shouldBlock: false,
+        reason: 'Heal step — auto-proceeding (fix attempt only)',
+      };
+    }
     if (safeRisk === 'critical') {
       return {
         shouldConfirm: false,

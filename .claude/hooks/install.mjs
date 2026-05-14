@@ -444,6 +444,134 @@ function install(workspace, env, mode) {
   return actions;
 }
 
+// ─── Guided Auth ────────────────────────────────────────────────────────────
+
+function printGuidedAuth(env) {
+  const claudeOk = env.claude.installed && env.claude.authed;
+  const codexOk = env.codex.installed && env.codex.authed;
+
+  if (claudeOk && codexOk) return false; // nothing to guide
+
+  const claudeMissing = !env.claude.installed || !env.claude.authed;
+  const codexMissing = !env.codex.installed || !env.codex.authed;
+
+  console.log('');
+
+  if (claudeMissing && codexMissing) {
+    console.log('  ⚠️  No AI providers detected. You need at least one:');
+    console.log('');
+    console.log('  Claude (recommended):');
+    console.log('    npm install -g @anthropic-ai/claude-code && claude login');
+    console.log('');
+    console.log('  OpenAI (optional, enables dual-brain):');
+    console.log('    npm install -g @openai/codex && codex login');
+    console.log('');
+    console.log('  Then re-run: npx dual-brain');
+    console.log('');
+    return true;
+  }
+
+  if (claudeMissing) {
+    if (!env.claude.installed) {
+      console.log('  ⚠️  Claude CLI not detected. To enable Claude routing:');
+    } else {
+      console.log('  ⚠️  Claude CLI not authenticated. To enable Claude routing:');
+    }
+    console.log('');
+    console.log('  1. Install: npm install -g @anthropic-ai/claude-code');
+    console.log('  2. Login:   claude login');
+    console.log('');
+    console.log('  Run these commands, then re-run: npx dual-brain');
+    console.log('');
+  }
+
+  if (codexMissing) {
+    if (!env.codex.installed) {
+      console.log('  ℹ️  Codex CLI not detected. To enable GPT routing:');
+    } else {
+      console.log('  ℹ️  Codex CLI not authenticated. To enable GPT routing:');
+    }
+    console.log('');
+    console.log('  1. Install: npm install -g @openai/codex');
+    console.log('  2. Login:   codex login');
+    console.log('');
+    if (claudeMissing) {
+      console.log('  Run these commands, then re-run: npx dual-brain');
+    } else {
+      console.log('  Run these commands, then re-run: npx dual-brain');
+      console.log('  GPT features will be disabled until Codex is configured.');
+    }
+    console.log('');
+  }
+
+  return claudeMissing; // only block/poll if Claude (primary provider) is missing
+}
+
+async function waitForAuth(env) {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) return;
+
+  const claudeMissing = !env.claude.installed || !env.claude.authed;
+  if (!claudeMissing) return; // only wait if primary provider needs setup
+
+  process.stdout.write('  Would you like me to wait while you authenticate? [Y/n] ');
+
+  const answer = await new Promise((resolve) => {
+    process.stdin.setEncoding('utf8');
+    process.stdin.once('data', (chunk) => resolve(chunk.trim().toLowerCase()));
+    process.stdin.resume();
+  });
+
+  if (answer === 'n' || answer === 'no') {
+    process.stdin.pause();
+    console.log('');
+    console.log('  Re-run `npx dual-brain` after authenticating.');
+    console.log('');
+    process.exit(0);
+  }
+
+  console.log('');
+  console.log('  Waiting for Claude CLI to become available (checking every 5s, max 5 min)...');
+  console.log('');
+
+  const maxAttempts = 60; // 60 × 5s = 5 minutes
+  for (let i = 0; i < maxAttempts; i++) {
+    await new Promise(r => setTimeout(r, 5000));
+    process.stdout.write('.');
+    const fresh = detectClaude();
+    if (fresh.installed) {
+      console.log('');
+      console.log('');
+      console.log('  Claude CLI detected! Continuing setup...');
+      console.log('');
+      process.stdin.pause();
+      // Update env in-place
+      env.claude = fresh;
+      return;
+    }
+  }
+
+  console.log('');
+  console.log('');
+  console.log('  Timed out after 5 minutes. Re-run `npx dual-brain` after authenticating.');
+  console.log('');
+  process.stdin.pause();
+  process.exit(1);
+}
+
+// ─── Quick Start Block ───────────────────────────────────────────────────────
+
+function printQuickStart() {
+  console.log('  ✓ dual-brain installed successfully');
+  console.log('');
+  console.log('  Quick start:');
+  console.log(`    npx dual-brain do "fix a bug and write tests"   ← full pipeline`);
+  console.log('    npx dual-brain status                            ← check system');
+  console.log('    npx dual-brain doctor                            ← diagnose issues');
+  console.log('');
+  console.log('  All commands: npx dual-brain --help');
+  console.log('');
+}
+
 // ─── Status Report ──────────────────────────────────────────────────────────
 
 function printReport(env, mode, actions, isDryRun) {
@@ -464,8 +592,6 @@ function printReport(env, mode, actions, isDryRun) {
   if (actions) {
     lines.push(sep());
     for (const a of actions) lines.push(ln(`  ${a}`));
-    lines.push(sep());
-    lines.push(ln('✅ Installed — launching session manager...'));
   } else if (isDryRun) {
     lines.push(sep());
     lines.push(ln('Dry run — no files written'));
@@ -1362,7 +1488,7 @@ function delegateToHookWithArgs(hookFile, args) {
 
 // ─── Main ───────────────────────────────────────────────────────────────────
 
-function main() {
+async function main() {
   if (flag('--uninstall')) { cmdUninstall(); return; }
 
   if (subcommand === 'status') {
@@ -1511,13 +1637,13 @@ function main() {
     return;
   }
 
-  // resume → find most recent incomplete/failed run, print its state
+  // resume → find most recent incomplete/failed run, offer to re-execute from the failed step
   if (subcommand === 'resume') {
     const workspace = resolve(process.cwd());
     const runsDir = join(workspace, '.claude', 'runs');
     if (!existsSync(runsDir)) {
       console.log('');
-      console.log('  No runs directory found. Nothing to resume.');
+      console.log("  No runs found. Start with: npx dual-brain do '<goal>'");
       console.log('');
       return;
     }
@@ -1527,58 +1653,119 @@ function main() {
     } catch {
       files = [];
     }
-    const INCOMPLETE_STATUSES = ['failed', 'error', 'partial', 'running', 'pending', 'incomplete'];
-    let found = null;
-    for (const f of files) {
-      try {
-        const rec = JSON.parse(readFileSync(join(runsDir, f), 'utf8'));
-        if (INCOMPLETE_STATUSES.includes((rec.status || '').toLowerCase())) {
-          found = { file: f, rec };
-          break;
-        }
-      } catch {}
-    }
-    if (!found) {
-      // Fall back to the most recent run regardless of status
-      if (files.length > 0) {
-        try {
-          const rec = JSON.parse(readFileSync(join(runsDir, files[0]), 'utf8'));
-          found = { file: files[0], rec };
-        } catch {}
-      }
-    }
-    if (!found) {
+    if (files.length === 0) {
       console.log('');
-      console.log('  No runs found to resume.');
+      console.log("  No runs found. Start with: npx dual-brain do '<goal>'");
       console.log('');
       return;
     }
-    const { file, rec } = found;
+
+    // Load the most recent run record
+    let rec = null;
+    let recFile = null;
+    try {
+      recFile = files[0];
+      rec = JSON.parse(readFileSync(join(runsDir, recFile), 'utf8'));
+    } catch {}
+
+    if (!rec) {
+      console.log('');
+      console.log("  No runs found. Start with: npx dual-brain do '<goal>'");
+      console.log('');
+      return;
+    }
+
+    const INCOMPLETE_STATUSES = ['failed', 'error', 'partial', 'running', 'pending', 'incomplete', 'aborted'];
+    const steps = Array.isArray(rec.steps) ? rec.steps : [];
+    const isCompleted = (rec.status || '').toLowerCase() === 'completed';
+    const allDone = steps.length > 0 && steps.every(s =>
+      s.status === 'done' || s.status === 'complete' || s.status === 'skipped'
+    );
+
+    if (isCompleted && (allDone || steps.length === 0)) {
+      const goal = rec.goal || '(unknown)';
+      console.log('');
+      console.log('  Last run completed successfully.');
+      console.log(`  Start a new one with: npx dual-brain do '${goal}'`);
+      console.log('');
+      return;
+    }
+
+    // Run has failed/aborted/incomplete — print summary
+    const done = steps.filter(s => s.status === 'done' || s.status === 'complete').length;
+    const failedSteps = steps.filter(s => s.status === 'failed' || s.status === 'error');
+    const incompleteIdx = steps.findIndex(s =>
+      s.status !== 'done' && s.status !== 'complete' && s.status !== 'skipped'
+    );
+    const resumeFromIdx = incompleteIdx >= 0 ? incompleteIdx : steps.length;
+
     console.log('');
     console.log('  Last Run State');
     console.log('  ' + '─'.repeat(50));
-    console.log(`  ID:       ${rec.id || file.replace('.json', '')}`);
+    console.log(`  ID:       ${rec.id || recFile.replace('.json', '')}`);
     console.log(`  Goal:     ${rec.goal || '(unknown)'}`);
     console.log(`  Status:   ${rec.status || '(unknown)'}`);
-    if (Array.isArray(rec.steps)) {
-      const done = rec.steps.filter(s => s.status === 'done' || s.status === 'complete').length;
-      const failed = rec.steps.filter(s => s.status === 'failed' || s.status === 'error').length;
-      console.log(`  Steps:    ${done}/${rec.steps.length} done, ${failed} failed`);
-      const failedStep = rec.steps.find(s => s.status === 'failed' || s.status === 'error');
+    if (steps.length > 0) {
+      console.log(`  Steps:    ${done}/${steps.length} done, ${failedSteps.length} failed`);
+      const failedStep = failedSteps[0];
       if (failedStep) {
-        console.log(`  Failed:   ${failedStep.name || failedStep.label || '(step ' + rec.steps.indexOf(failedStep) + ')'}`);
+        const fi = steps.indexOf(failedStep);
+        const fname = failedStep.task || failedStep.name || failedStep.label || `step ${fi}`;
+        console.log(`  Failed:   ${fname}`);
         if (failedStep.error) console.log(`  Error:    ${failedStep.error}`);
       }
     }
     if (rec.started_at) console.log(`  Started:  ${rec.started_at.slice(0, 16).replace('T', ' ')}`);
     if (rec.error) console.log(`  Error:    ${rec.error}`);
     console.log('');
-    if (INCOMPLETE_STATUSES.includes((rec.status || '').toLowerCase())) {
-      const goalStr = rec.goal || 'your goal here';
-      console.log(`  To re-run: ${cmd('npx dual-brain do "' + goalStr + '"')}`);
-      console.log('  (Full resume from failed step coming in a future release)');
+
+    const isResumable = INCOMPLETE_STATUSES.includes((rec.status || '').toLowerCase()) && rec.goal;
+
+    if (!isResumable) {
+      console.log("  Use npx dual-brain do '<goal>' to start fresh");
+      console.log('');
+      return;
     }
-    console.log('');
+
+    const stepNum = resumeFromIdx + 1;
+    const totalSteps = steps.length || '?';
+    console.log(`  Resume from step ${stepNum}/${totalSteps}? [Y/n]`);
+
+    const yesFlag = flag('--yes') || flag('-y');
+
+    if (!yesFlag && process.stdin.isTTY) {
+      const { createInterface } = await import('readline');
+      const rl = createInterface({ input: process.stdin, output: process.stdout });
+      const answer = await new Promise((res) => {
+        rl.question('  > ', (a) => { rl.close(); res(a.trim()); });
+      });
+      if (answer !== '' && !/^y(es)?$/i.test(answer)) {
+        console.log('');
+        console.log(`  Use npx dual-brain do '${rec.goal}' to start fresh`);
+        console.log('');
+        return;
+      }
+    }
+
+    // Reconstruct flags from stored options in the run record
+    const storedOpts = rec.options || {};
+
+    // Dynamically import and invoke ship-captain's executeShipCaptain
+    const captainPath = resolveHookScript('ship-captain.mjs');
+    if (!captainPath) {
+      console.error('  ship-captain.mjs not found. Run: npx dual-brain to reinstall hooks.');
+      process.exit(1);
+    }
+    const { executeShipCaptain } = await import(captainPath);
+    await executeShipCaptain(rec.goal, {
+      yes: yesFlag || storedOpts.yes || false,
+      yolo: storedOpts.yolo || false,
+      careful: storedOpts.careful || false,
+      noPr: storedOpts.noPr || false,
+      mode: storedOpts.mode || null,
+      resumeFrom: resumeFromIdx,
+      resumedFromId: rec.id,
+    });
     return;
   }
 
@@ -1611,12 +1798,34 @@ function main() {
     console.log('');
   }
 
+  // Guided auth: print instructions if a provider is missing/not authed
+  // and offer to wait (interactive only)
+  const needsGuidance = printGuidedAuth(env);
+  if (needsGuidance && process.stdin.isTTY && process.stdout.isTTY && !process.env.CI) {
+    await waitForAuth(env);
+    // Re-resolve mode after potential auth
+    Object.assign(mode, resolveMode(env));
+  }
+
   const actions = install(env.workspace, env, mode);
   printReport(env, mode, actions);
 
-  // After install, launch the session manager (interactive TTY only)
+  // Always print quick-start block after successful install
+  printQuickStart();
+
+  // Offer to launch control panel (opt-in, interactive TTY only)
   if (process.stdin.isTTY && process.stdout.isTTY && !process.env.CI) {
-    launchPanel();
+    process.stdout.write('  Launch control panel? [y/N] ');
+    const answer = await new Promise((resolve) => {
+      process.stdin.setEncoding('utf8');
+      process.stdin.once('data', (chunk) => resolve(chunk.trim().toLowerCase()));
+      process.stdin.resume();
+    });
+    process.stdin.pause();
+    console.log('');
+    if (answer === 'y' || answer === 'yes') {
+      launchPanel();
+    }
   }
 }
 

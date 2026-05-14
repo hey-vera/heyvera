@@ -19,7 +19,7 @@
  */
 
 import { existsSync, readFileSync, readdirSync } from 'fs';
-import { spawnSync } from 'child_process';
+import { spawnSync, execSync } from 'child_process';
 import { dirname, join, resolve, basename } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -469,7 +469,150 @@ function buildPRBody({ goal, diff_summary, test_result, gate_result, run_id }) {
 }
 
 // ---------------------------------------------------------------------------
-// 5. Programmatic API
+// 5. Self-Healing Gate
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse structured issues from quality-gate output.
+ * Returns an array of issue strings suitable for a fix-agent prompt.
+ */
+function parseGateIssues(gateResult) {
+  const issues = [];
+
+  if (!gateResult) return issues;
+
+  // sensitivity_reasons is the most informative field
+  if (Array.isArray(gateResult.sensitivity_reasons) && gateResult.sensitivity_reasons.length > 0) {
+    issues.push(...gateResult.sensitivity_reasons);
+  }
+
+  // review text — may contain issue descriptions
+  if (gateResult.review && typeof gateResult.review === 'string') {
+    const trimmed = gateResult.review.trim();
+    if (trimmed) issues.push(trimmed);
+  }
+
+  // warning field
+  if (gateResult.warning && typeof gateResult.warning === 'string') {
+    issues.push(gateResult.warning);
+  }
+
+  // reasons array (critical risk)
+  if (Array.isArray(gateResult.reasons)) {
+    for (const r of gateResult.reasons) {
+      if (!issues.includes(r)) issues.push(r);
+    }
+  }
+
+  // Fallback: gate status itself as a clue
+  if (issues.length === 0) {
+    issues.push(`Quality gate status: ${gateResult.gate ?? 'issues_found'}`);
+    if (gateResult.risk) issues.push(`Risk level: ${gateResult.risk}`);
+  }
+
+  return issues;
+}
+
+/**
+ * Run quality gate and return its parsed result.
+ */
+function runQualityGate() {
+  const qgPath = join(__dirname, 'quality-gate.mjs');
+  if (!existsSync(qgPath)) return null;
+
+  const qgRes = spawnSync(process.execPath, [qgPath], {
+    encoding: 'utf8',
+    stdio: ['pipe', 'pipe', 'pipe'],
+    cwd: process.cwd(),
+    timeout: 120_000,
+  });
+
+  try {
+    return JSON.parse((qgRes.stdout || '').trim());
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * selfHealGate(gateResult, options) — Attempt to auto-fix quality gate issues.
+ *
+ * Spawns a claude fix agent to address the issues, then re-runs the gate.
+ * Retries up to maxRetries times.
+ *
+ * @param {object} gateResult  The quality gate result with gate === 'issues_found'
+ * @param {{ maxRetries?: number, noHeal?: boolean }} options
+ * @returns {{ healed: boolean, attempts: number, finalGateResult: object|null }}
+ */
+export async function selfHealGate(gateResult, options = {}) {
+  const { maxRetries = 2, noHeal = false } = options;
+
+  if (noHeal) {
+    return { healed: false, attempts: 0, finalGateResult: gateResult };
+  }
+
+  const issues = parseGateIssues(gateResult);
+  const issueText = issues.map((iss, i) => `${i + 1}. ${iss}`).join('\n');
+
+  let attempts = 0;
+  let currentGateResult = gateResult;
+
+  while (attempts < maxRetries) {
+    attempts++;
+    process.stderr.write(`[ship-gate] Quality gate found issues. Attempting auto-fix (attempt ${attempts}/${maxRetries})...\n`);
+    process.stdout.write(`\nQuality gate found issues. Attempting auto-fix (attempt ${attempts}/${maxRetries})...\n`);
+
+    const fixPrompt = `The quality gate found these issues in the code changes:\n\n${issueText}\n\nFix them. Do not introduce new features or refactor beyond what is needed to fix these specific issues.`;
+
+    // Spawn claude fix agent
+    const fixRes = spawnSync('claude', ['-p', fixPrompt], {
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      cwd: process.cwd(),
+      timeout: 300_000, // 5 minutes per attempt
+      shell: false,
+    });
+
+    if (fixRes.error) {
+      process.stderr.write(`[ship-gate]   Fix agent error: ${fixRes.error.message}\n`);
+    } else {
+      const fixStatus = fixRes.status === 0 ? 'completed' : `exited with code ${fixRes.status}`;
+      process.stderr.write(`[ship-gate]   Fix agent ${fixStatus}.\n`);
+    }
+
+    // Re-run quality gate
+    process.stderr.write('[ship-gate]   Re-running quality gate...\n');
+    const newGateResult = runQualityGate();
+    currentGateResult = newGateResult;
+
+    const gateStatus = newGateResult?.gate ?? 'unknown';
+    process.stderr.write(`[ship-gate]   Gate after fix: ${gateStatus}\n`);
+
+    // Check if healed
+    if (gateStatus !== 'issues_found' && gateStatus !== 'gate_failed') {
+      process.stdout.write(`Auto-fix successful! Gate status: ${gateStatus}\n`);
+      return { healed: true, attempts, finalGateResult: newGateResult };
+    }
+
+    // Update issues for next attempt if still failing
+    const newIssues = parseGateIssues(newGateResult);
+    if (newIssues.length > 0) {
+      const newIssueText = newIssues.map((iss, i) => `${i + 1}. ${iss}`).join('\n');
+      if (newIssueText !== issueText) {
+        process.stderr.write('[ship-gate]   Issues changed after fix attempt, updating for next retry.\n');
+      }
+    }
+  }
+
+  // All attempts exhausted
+  const finalIssues = parseGateIssues(currentGateResult);
+  process.stdout.write(`\nCould not auto-fix. Issues:\n${finalIssues.map((iss, i) => `  ${i + 1}. ${iss}`).join('\n')}\n`);
+
+  return { healed: false, attempts, finalGateResult: currentGateResult };
+}
+
+// ---------------------------------------------------------------------------
+// 6. Programmatic API
 // ---------------------------------------------------------------------------
 
 /**
@@ -496,6 +639,7 @@ export async function runShipGate(options = {}) {
     runId,
     yes = false,
     noPr = false,
+    noHeal = false,
     runRecord,
   } = options;
 
@@ -534,24 +678,31 @@ export async function runShipGate(options = {}) {
 
   // 2. Quality gate
   process.stderr.write('[ship-gate] Step 2/4: Running quality gate...\n');
-  const qgPath = join(__dirname, 'quality-gate.mjs');
-  let gateResult = null;
+  let gateResult = runQualityGate();
+  let healRecord = null;
 
-  if (existsSync(qgPath)) {
-    const qgRes = spawnSync(process.execPath, [qgPath], {
-      encoding: 'utf8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-      cwd: process.cwd(),
-      timeout: 120_000,
-    });
-    try {
-      gateResult = JSON.parse((qgRes.stdout || '').trim());
-      process.stderr.write(`[ship-gate]   Gate: ${gateResult.gate} | Risk: ${gateResult.risk ?? 'N/A'}\n`);
-    } catch {
+  if (gateResult) {
+    process.stderr.write(`[ship-gate]   Gate: ${gateResult.gate} | Risk: ${gateResult.risk ?? 'N/A'}\n`);
+  } else {
+    const qgPath = join(__dirname, 'quality-gate.mjs');
+    if (!existsSync(qgPath)) {
+      process.stderr.write('[ship-gate]   quality-gate.mjs not found — skipping.\n');
+    } else {
       process.stderr.write('[ship-gate]   Quality gate returned unparseable output.\n');
     }
-  } else {
-    process.stderr.write('[ship-gate]   quality-gate.mjs not found — skipping.\n');
+  }
+
+  // Self-heal if gate found issues
+  if (gateResult && gateResult.gate === 'issues_found') {
+    healRecord = await selfHealGate(gateResult, { maxRetries: 2, noHeal });
+    if (healRecord.healed) {
+      gateResult = healRecord.finalGateResult;
+      process.stderr.write(`[ship-gate]   Self-heal succeeded after ${healRecord.attempts} attempt(s).\n`);
+    } else {
+      // Healing failed — mark gate as gate_failed and stop
+      gateResult = { ...healRecord.finalGateResult, gate: 'gate_failed' };
+      process.stderr.write(`[ship-gate]   Self-heal failed after ${healRecord.attempts} attempt(s).\n`);
+    }
   }
 
   const gateOutput = gateResult
@@ -559,10 +710,13 @@ export async function runShipGate(options = {}) {
         status: gateResult.gate ?? 'unknown',
         risk: gateResult.risk ?? null,
         approval: gateResult.approval ?? null,
+        heal: healRecord
+          ? { healed: healRecord.healed, attempts: healRecord.attempts }
+          : undefined,
       }
     : null;
 
-  // Fail if gate explicitly failed (issues_found is a warning, not a hard stop in programmatic mode)
+  // Fail if gate explicitly failed
   if (gateResult && gateResult.gate === 'gate_failed') {
     const diffSummaryEarly = generateDiffSummary();
     return {
@@ -656,6 +810,7 @@ async function main() {
   const ship = has('--ship');
   const yes = has('--yes');
   const noPR = has('--no-pr');
+  const noHeal = has('--no-heal');
   const goal = get('--goal') ?? 'Ship changes';
   const runId = get('--run-id');
 
@@ -687,7 +842,7 @@ async function main() {
   if (ship || noPR) {
     console.log('=== Ship Gate ===\n');
 
-    const result = await runShipGate({ goal, runId, yes, noPr: noPR });
+    const result = await runShipGate({ goal, runId, yes, noPr: noPR, noHeal });
 
     // Surface test output if tests failed
     if (result.status === 'tests_failed') {

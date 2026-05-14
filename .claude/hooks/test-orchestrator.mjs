@@ -2044,6 +2044,260 @@ test('ship-gate: exports runShipGate', () => {
   return true;
 });
 
+// ─── Test 71: ship-captain run record includes options field ──────────────────
+test('ship-captain: planExecution returns plan with steps array', () => {
+  const script = `
+    import { planExecution } from './ship-captain.mjs';
+    const result = planExecution('write tests for the auth module');
+    const errors = [];
+    if (!result || typeof result !== 'object') {
+      errors.push('planExecution did not return an object');
+    } else {
+      if (!result.goal) errors.push('plan missing goal');
+      if (!Array.isArray(result.steps)) errors.push('plan missing steps array');
+      else if (result.steps.length === 0) errors.push('plan steps array is empty');
+      // Verify each step has the expected shape from planExecution
+      for (const step of (result.steps || [])) {
+        if (typeof step.index !== 'number') errors.push('step missing index');
+        if (typeof step.total !== 'number') errors.push('step missing total');
+        if (!step.task) errors.push('step missing task');
+      }
+    }
+    process.stdout.write(JSON.stringify({ errors }));
+  `;
+  const proc = spawnSync(process.execPath, [
+    '--input-type=module',
+    '-e', script,
+  ], { encoding: 'utf8', timeout: 15000, cwd: HOOKS });
+
+  if (proc.status !== 0) return `ship-captain planExecution script failed: ${proc.stderr}`;
+  let result;
+  try { result = JSON.parse(proc.stdout.trim()); } catch { return `output not JSON: ${proc.stdout}`; }
+  if (result.errors.length > 0) return result.errors.join('; ');
+  return true;
+});
+
+// ─── Test 72: resume handles missing runs directory gracefully ─────────────────
+test('resume: handles missing .claude/runs/ directory gracefully', () => {
+  // Run the install.mjs resume subcommand from a temp dir that has no .claude/runs/
+  const tmpDir = spawnSync('mktemp', ['-d'], { encoding: 'utf8' }).stdout.trim();
+  try {
+    const installScript = resolve(HOOKS, '..', 'install.mjs');
+    const proc = spawnSync(process.execPath, [installScript, 'resume'], {
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      cwd: tmpDir,
+      timeout: 8000,
+      env: { ...process.env, HOME: tmpDir },
+    });
+
+    // Should exit cleanly (0 or 1 is fine — just not crash with unhandled exception)
+    if (proc.status === null) return 'process timed out';
+
+    const combined = (proc.stdout || '') + (proc.stderr || '');
+    // Should print a helpful message, not a stack trace
+    if (combined.includes('TypeError') || combined.includes('ReferenceError') ||
+        combined.includes('SyntaxError') || combined.includes('at Object.<anonymous>'))
+      return `unexpected JS error in output: ${combined.slice(0, 200)}`;
+
+    // Should mention "No runs found" or similar
+    const hasHelpMsg = combined.includes('No runs') || combined.includes('no runs') ||
+                       combined.includes("Start with") || combined.includes('Nothing to resume');
+    if (!hasHelpMsg) return `expected helpful message, got: ${combined.slice(0, 200)}`;
+
+    return true;
+  } finally {
+    spawnSync('rm', ['-rf', tmpDir], { stdio: 'pipe' });
+  }
+});
+
+// ─── Test 73: mismatch severity — think task on haiku gets BLOCKED (major) ────
+test('enforce-tier v4.5: think on haiku → major mismatch, BLOCKED message', () => {
+  // Clear cooldown and use balanced profile (strict tolerance → block on major)
+  try { unlinkSync(COOLDOWN_FILE); } catch {}
+  const profileFile = resolve(__dirname, '..', 'dual-brain.profile.json');
+  let originalProfile;
+  try { originalProfile = readFileSync(profileFile, 'utf8'); } catch { originalProfile = null; }
+  try {
+    writeFileSync(profileFile, JSON.stringify({ active: 'balanced' }));
+    const payload = JSON.stringify({
+      tool_name: 'Agent',
+      tool_input: {
+        prompt: 'review security architecture and design the auth system',
+        model: 'haiku',
+      },
+    });
+    const { parsed } = run(ENFORCE_TIER, payload);
+    if (!parsed) return 'no valid JSON output';
+    if (!parsed.systemMessage) return `expected systemMessage, got: ${JSON.stringify(parsed)}`;
+    const msg = parsed.systemMessage;
+    if (!msg.includes('BLOCKED') && !msg.includes('⛔'))
+      return `expected BLOCKED marker for think/haiku major mismatch, got: ${msg}`;
+    if (!msg.toLowerCase().includes('opus') && !msg.toLowerCase().includes('gpt-5.5') && !msg.toLowerCase().includes('think'))
+      return `expected think-tier model suggestion in message, got: ${msg}`;
+    return true;
+  } finally {
+    if (originalProfile !== null) writeFileSync(profileFile, originalProfile);
+    else try { unlinkSync(profileFile); } catch {}
+  }
+});
+
+// ─── Test 74: mismatch severity — execute on sonnet gets no mismatch ──────────
+test('enforce-tier v4.5: execute on sonnet → no mismatch', () => {
+  try { unlinkSync(COOLDOWN_FILE); } catch {}
+  const profileFile = resolve(__dirname, '..', 'dual-brain.profile.json');
+  let originalProfile;
+  try { originalProfile = readFileSync(profileFile, 'utf8'); } catch { originalProfile = null; }
+  try {
+    writeFileSync(profileFile, JSON.stringify({ active: 'balanced' }));
+    const payload = JSON.stringify({
+      tool_name: 'Agent',
+      tool_input: {
+        prompt: `implement the fix and write unit tests ${Date.now()}`,
+        model: 'sonnet',
+      },
+    });
+    const { parsed } = run(ENFORCE_TIER, payload);
+    if (!parsed) return 'no valid JSON output';
+    const msg = parsed.systemMessage || '';
+    if (msg.includes('BLOCKED') || msg.includes('⛔'))
+      return `unexpected BLOCKED for execute/sonnet (correct tier), got: ${msg}`;
+    if (msg.toLowerCase().includes('mismatch'))
+      return `unexpected mismatch warning for execute/sonnet, got: ${msg}`;
+    return true;
+  } finally {
+    if (originalProfile !== null) writeFileSync(profileFile, originalProfile);
+    else try { unlinkSync(profileFile); } catch {}
+  }
+});
+
+// ─── Test 75: mismatch severity — search on opus gets BLOCKED (major, overkill) ─
+test('enforce-tier v4.5: search on opus → major mismatch, BLOCKED message', () => {
+  try { unlinkSync(COOLDOWN_FILE); } catch {}
+  const profileFile = resolve(__dirname, '..', 'dual-brain.profile.json');
+  let originalProfile;
+  try { originalProfile = readFileSync(profileFile, 'utf8'); } catch { originalProfile = null; }
+  try {
+    writeFileSync(profileFile, JSON.stringify({ active: 'balanced' }));
+    const payload = JSON.stringify({
+      tool_name: 'Agent',
+      tool_input: {
+        prompt: 'find all auth files',
+        model: 'opus',
+        subagent_type: 'Explore',
+      },
+    });
+    const { parsed } = run(ENFORCE_TIER, payload);
+    if (!parsed) return 'no valid JSON output';
+    if (!parsed.systemMessage) return `expected systemMessage, got: ${JSON.stringify(parsed)}`;
+    const msg = parsed.systemMessage;
+    if (!msg.includes('BLOCKED') && !msg.includes('⛔'))
+      return `expected BLOCKED marker for search/opus major mismatch (overkill), got: ${msg}`;
+    if (!msg.toLowerCase().includes('haiku') && !msg.toLowerCase().includes('gpt-4.1-mini') && !msg.toLowerCase().includes('search'))
+      return `expected search-tier model suggestion in message, got: ${msg}`;
+    return true;
+  } finally {
+    if (originalProfile !== null) writeFileSync(profileFile, originalProfile);
+    else try { unlinkSync(profileFile); } catch {}
+  }
+});
+
+// ─── Test 76: mismatch severity — think on sonnet gets minor WARNING (not block) ─
+test('enforce-tier v4.5: think on sonnet → minor mismatch, warning not block', () => {
+  try { unlinkSync(COOLDOWN_FILE); } catch {}
+  const profileFile = resolve(__dirname, '..', 'dual-brain.profile.json');
+  let originalProfile;
+  try { originalProfile = readFileSync(profileFile, 'utf8'); } catch { originalProfile = null; }
+  try {
+    writeFileSync(profileFile, JSON.stringify({ active: 'balanced' }));
+    const payload = JSON.stringify({
+      tool_name: 'Agent',
+      tool_input: {
+        prompt: 'review architecture and plan the migration strategy',
+        model: 'sonnet',
+      },
+    });
+    const { parsed } = run(ENFORCE_TIER, payload);
+    if (!parsed) return 'no valid JSON output';
+    if (!parsed.systemMessage) return `expected systemMessage warning, got: ${JSON.stringify(parsed)}`;
+    const msg = parsed.systemMessage;
+    // Minor mismatch under balanced profile → warn, not block
+    if (msg.includes('⛔') || msg.includes('BLOCKED'))
+      return `expected warning (not BLOCKED) for think/sonnet minor mismatch, got: ${msg}`;
+    if (!msg.toLowerCase().includes('think') && !msg.toLowerCase().includes('mismatch') && !msg.toLowerCase().includes('opus'))
+      return `expected think-tier mention in warning, got: ${msg}`;
+    return true;
+  } finally {
+    if (originalProfile !== null) writeFileSync(profileFile, originalProfile);
+    else try { unlinkSync(profileFile); } catch {}
+  }
+});
+
+// ─── Test 76: ship-gate exports selfHealGate as a function ───────────────────
+test('ship-gate: exports selfHealGate as a function', () => {
+  const script = `
+    import { selfHealGate } from './ship-gate.mjs';
+    const results = { errors: [] };
+    if (typeof selfHealGate !== 'function') results.errors.push('selfHealGate is not a function');
+    process.stdout.write(JSON.stringify(results));
+  `;
+  const proc = spawnSync(process.execPath, [
+    '--input-type=module',
+    '-e', script,
+  ], { encoding: 'utf8', timeout: 8000, cwd: HOOKS });
+
+  if (proc.status !== 0) return `ship-gate script failed: ${proc.stderr}`;
+  let results;
+  try { results = JSON.parse(proc.stdout.trim()); } catch { return `output not JSON: ${proc.stdout}`; }
+  if (results.errors.length > 0) return results.errors.join('; ');
+  return true;
+});
+
+// ─── Test 77: confirmation-policy handles 'heal' step correctly ───────────────
+test('confirmation-policy: heal step auto-proceeds in default mode', () => {
+  const script = `
+    import { getConfirmationPolicy } from './confirmation-policy.mjs';
+    const results = { errors: [] };
+
+    // Default mode: heal should auto-proceed at all risk levels
+    const healLow = getConfirmationPolicy({ risk: 'low', mode: 'default', step: 'heal' });
+    if (healLow.shouldBlock !== false) results.errors.push('default/low heal: expected shouldBlock=false, got: ' + healLow.shouldBlock);
+    if (healLow.shouldConfirm !== false) results.errors.push('default/low heal: expected shouldConfirm=false, got: ' + healLow.shouldConfirm);
+
+    const healHigh = getConfirmationPolicy({ risk: 'high', mode: 'default', step: 'heal' });
+    if (healHigh.shouldBlock !== false) results.errors.push('default/high heal: expected shouldBlock=false, got: ' + healHigh.shouldBlock);
+    if (healHigh.shouldConfirm !== false) results.errors.push('default/high heal: expected shouldConfirm=false, got: ' + healHigh.shouldConfirm);
+
+    const healCritical = getConfirmationPolicy({ risk: 'critical', mode: 'default', step: 'heal' });
+    if (healCritical.shouldBlock !== false) results.errors.push('default/critical heal: expected shouldBlock=false, got: ' + healCritical.shouldBlock);
+
+    // Careful mode: heal should require confirmation
+    const healCareful = getConfirmationPolicy({ risk: 'low', mode: 'careful', step: 'heal' });
+    if (healCareful.shouldConfirm !== true) results.errors.push('careful heal: expected shouldConfirm=true, got: ' + healCareful.shouldConfirm);
+
+    // Yolo mode: heal should auto-proceed
+    const healYolo = getConfirmationPolicy({ risk: 'critical', mode: 'yolo', step: 'heal' });
+    if (healYolo.shouldBlock !== false) results.errors.push('yolo heal: expected shouldBlock=false, got: ' + healYolo.shouldBlock);
+    if (healYolo.shouldConfirm !== false) results.errors.push('yolo heal: expected shouldConfirm=false, got: ' + healYolo.shouldConfirm);
+
+    // Plan-only mode: heal should be blocked (no mutations)
+    const healPlanOnly = getConfirmationPolicy({ risk: 'low', mode: 'plan-only', step: 'heal' });
+    if (healPlanOnly.shouldBlock !== true) results.errors.push('plan-only heal: expected shouldBlock=true, got: ' + healPlanOnly.shouldBlock);
+
+    process.stdout.write(JSON.stringify(results));
+  `;
+  const proc = spawnSync(process.execPath, [
+    '--input-type=module',
+    '-e', script,
+  ], { encoding: 'utf8', timeout: 5000, cwd: HOOKS });
+
+  if (proc.status !== 0) return `confirmation-policy script failed: ${proc.stderr}`;
+  let results;
+  try { results = JSON.parse(proc.stdout.trim()); } catch { return `output not JSON: ${proc.stdout}`; }
+  if (results.errors.length > 0) return results.errors.join('; ');
+  return true;
+});
+
 // ─── Summary ─────────────────────────────────────────────────────────────────
 const total = passed + failed;
 console.log(`\n${passed}/${total} tests passed`);
