@@ -19,7 +19,11 @@ import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const REVIEW_PROMPT = `Review the current uncommitted changes in this repo for:
+const REVIEW_PROMPT_R1 = `You are GPT-5.5 performing Round 1 of a dual-brain code review.
+Claude (Opus) will independently review the same changes, then send you their findings
+for a collaborative Round 2 discussion.
+
+Review the current uncommitted changes for:
 1. Correctness — logic errors, off-by-one, null/undefined risks
 2. Security — injection, auth bypass, data exposure
 3. Edge cases — what could break under unusual input
@@ -33,6 +37,24 @@ Required output:
 - Whether any issue should block merge
 
 Be concise. Flag only real issues, not style preferences. If the code looks good, say "LGTM" and note any minor suggestions. Output your review as plain text, not JSON.`;
+
+const REVIEW_PROMPT_R2 = `You are GPT-5.5 in Round 2 of a collaborative code review with Claude (Opus).
+You already reviewed this diff in Round 1. Claude has now independently reviewed the same changes.
+This is a professional peer review dialogue — two senior engineers refining their assessment together.
+
+Claude's review findings:
+---CLAUDE_REVIEW---
+
+Now respond as a peer reviewer:
+1. CONFIRMED: Issues you both found — these are high-confidence findings
+2. MISSED: Issues Claude caught that you missed — acknowledge them
+3. DISAGREE: Claude's findings you think are false positives — explain why
+4. ESCALATED: Issues that are MORE severe than either of you initially rated
+5. VERDICT: Combined assessment — LGTM, minor issues, or blocks merge
+
+Be direct. If Claude found something real that you missed, say so.
+If Claude flagged something that isn't actually a problem, explain why with evidence.
+The goal is the most accurate review, not defending your initial take.`;
 
 function loadReviewRules() {
   const rulesFile = resolve(__dirname, '..', 'review-rules.md');
@@ -113,7 +135,7 @@ function hasIssues(text) {
   if (hasIssueIndicators) return true;
 
   // No concrete issues — check if review explicitly says it's clean
-  const good = ['lgtm', 'looks good', 'no issues', 'no problems', 'no concerns', 'all good', 'clean'];
+  const good = ['lgtm', 'looks good', 'no issues', 'no problems', 'no concerns', 'all good', 'clean', 'approved', 'ship it', 'ready to merge', 'good to go', 'looks fine', 'no blockers'];
   if (good.some(g => lower.includes(g))) return false;
 
   // Ambiguous — default to flagging for human review
@@ -127,9 +149,9 @@ function exit(obj) {
 
 /**
  * Try GPT review via Codex CLI (uses ChatGPT subscription auth).
- * Returns review text or null if codex isn't available.
+ * Round 1: independent review. Round 2: respond to Claude's review.
  */
-function tryCodexReview(diff) {
+function tryCodexReview(diff, { round = 1, claudeReview = null } = {}) {
   if (!CODEX_BIN) return null;
   try {
     spawnSync(CODEX_BIN, ['login', 'status'], {
@@ -145,7 +167,14 @@ function tryCodexReview(diff) {
       ? diff.slice(0, MAX_DIFF_CHARS) + '\n[truncated]'
       : diff;
 
-    const fullPrompt = REVIEW_PROMPT + loadReviewRules();
+    let basePrompt;
+    if (round === 2 && claudeReview) {
+      basePrompt = REVIEW_PROMPT_R2.replace('---CLAUDE_REVIEW---', claudeReview);
+    } else {
+      basePrompt = REVIEW_PROMPT_R1;
+    }
+    const fullPrompt = basePrompt + loadReviewRules();
+
     const proc = spawnSync(CODEX_BIN, [
       'exec', '--json', '--ephemeral',
       '-c', `model="${model}"`,
@@ -159,7 +188,6 @@ function tryCodexReview(diff) {
     });
     const result = proc.stdout || '';
 
-    // Parse JSONL output, find agent_message items
     const messages = result
       .split('\n')
       .filter(l => l.trim())
@@ -173,16 +201,17 @@ function tryCodexReview(diff) {
     const usage = messages.find(m => m.type === 'turn.completed')?.usage;
 
     if (agentMessages.length > 0) {
+      const reviewText = agentMessages.join('\n\n');
       return {
-        review: agentMessages.join('\n\n'),
+        round,
+        review: reviewText,
         model,
         auth_type: 'codex_subscription',
-        issues_found: hasIssues(agentMessages.join(' ')),
+        issues_found: hasIssues(reviewText),
         tokens: usage || null,
       };
     }
 
-    // Check for errors
     const errors = messages.filter(m => m.type === 'error' || m.type === 'turn.failed');
     if (errors.length > 0) {
       return {
@@ -205,7 +234,7 @@ function tryCodexReview(diff) {
 /**
  * Try GPT review via direct API call (needs OPENAI_API_KEY).
  */
-async function tryApiReview(diff) {
+async function tryApiReview(diff, { round = 1, claudeReview = null } = {}) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return null;
 
@@ -214,7 +243,14 @@ async function tryApiReview(diff) {
     ? diff.slice(0, MAX_DIFF_CHARS) + '\n[truncated]'
     : diff;
 
-  const fullPrompt = REVIEW_PROMPT + loadReviewRules();
+  let basePrompt;
+  if (round === 2 && claudeReview) {
+    basePrompt = REVIEW_PROMPT_R2.replace('---CLAUDE_REVIEW---', claudeReview);
+  } else {
+    basePrompt = REVIEW_PROMPT_R1;
+  }
+  const fullPrompt = basePrompt + loadReviewRules();
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 30_000);
 
@@ -245,6 +281,7 @@ async function tryApiReview(diff) {
     if (!text) return null;
 
     return {
+      round,
       review: text,
       model,
       auth_type: 'api_key',
@@ -256,7 +293,37 @@ async function tryApiReview(diff) {
   }
 }
 
+function parseArgs(argv) {
+  const args = {};
+  let i = 0;
+  while (i < argv.length) {
+    const arg = argv[i];
+    if (arg.startsWith('--')) {
+      const eqIdx = arg.indexOf('=');
+      if (eqIdx !== -1) {
+        args[arg.slice(2, eqIdx)] = arg.slice(eqIdx + 1);
+      } else {
+        const key = arg.slice(2);
+        const next = argv[i + 1];
+        if (next !== undefined && !next.startsWith('--')) {
+          args[key] = next;
+          i++;
+        } else {
+          args[key] = true;
+        }
+      }
+    }
+    i++;
+  }
+  return args;
+}
+
 async function main() {
+  const args = parseArgs(process.argv.slice(2));
+  const round = args.round ? parseInt(args.round, 10) : 1;
+  const claudeReview = args['claude-review'] || null;
+  const opts = { round, claudeReview };
+
   // 1. Get diff
   let diff = runGit('git diff --staged') || '';
   if (countLines(diff) < MIN_DIFF_LINES) {
@@ -264,12 +331,11 @@ async function main() {
     if (countLines(headDiff) > countLines(diff)) diff = headDiff;
   }
 
-  // Also gather content of untracked source files
   try {
     const untracked = runGit('git ls-files --others --exclude-standard') || '';
     const sourceExts = /\.(ts|tsx|js|jsx|py|rs|go|java|rb|swift|kt|mjs|cjs)$/;
     const untrackedSrc = untracked.split('\n').filter(f => f && sourceExts.test(f));
-    for (const f of untrackedSrc.slice(0, 10)) { // cap at 10 files
+    for (const f of untrackedSrc.slice(0, 10)) {
       const content = runGit(`git diff --no-index /dev/null "${f}"`);
       if (content) diff += '\n' + content;
     }
@@ -279,13 +345,36 @@ async function main() {
     exit({ review: 'No significant changes to review' });
   }
 
-  // 2. Try Codex CLI first (uses ChatGPT subscription)
-  const codexResult = tryCodexReview(diff);
-  if (codexResult) exit(codexResult);
+  // 2. Try Codex CLI first
+  const codexResult = tryCodexReview(diff, opts);
+  if (codexResult) {
+    if (round === 1) {
+      codexResult.instructions = `Round 1 complete. Now:
+1. Provide YOUR independent code review of the same changes
+2. Then call Round 2 to send your findings back to GPT:
+   node .claude/hooks/dual-brain-review.mjs --round 2 --claude-review "<your findings>"
+3. GPT will respond — confirming shared findings, acknowledging misses, and pushing back on false positives
+4. You then synthesize both rounds into the final review verdict`;
+    } else {
+      codexResult.instructions = `GPT has responded to your review. Synthesize into a FINAL REVIEW:
+- CONFIRMED findings (both found) → high confidence, must fix
+- GPT-only findings you agree with → add to your list
+- Your findings GPT disputed → re-evaluate honestly
+- Final verdict: LGTM, minor issues, or blocks merge`;
+    }
+    exit(codexResult);
+  }
 
   // 3. Try direct API
-  const apiResult = await tryApiReview(diff);
-  if (apiResult) exit(apiResult);
+  const apiResult = await tryApiReview(diff, opts);
+  if (apiResult) {
+    if (round === 1) {
+      apiResult.instructions = `Round 1 complete. Provide YOUR independent review, then call Round 2 with --round 2 --claude-review "<findings>"`;
+    } else {
+      apiResult.instructions = `Synthesize both rounds into a final review verdict.`;
+    }
+    exit(apiResult);
+  }
 
   // 4. No GPT available
   exit({

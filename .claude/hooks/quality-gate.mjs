@@ -21,24 +21,52 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { dirname, extname, join, resolve } from 'path';
 import { fileURLToPath } from 'url';
 
+import { getProfileOverrides as _getProfileOverrides } from './profiles.mjs';
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ORCHESTRATOR_CONFIG = resolve(__dirname, '..', 'orchestrator.json');
-const PROFILE_FILE = resolve(__dirname, '..', 'dual-brain.profile.json');
 const REVIEWS_DIR = resolve(__dirname, '..', 'reviews');
 const DUAL_BRAIN = resolve(__dirname, 'dual-brain-review.mjs');
 
 const RISK_LEVELS = ['low', 'medium', 'high', 'critical'];
 
+const APPROVAL_MAP = {
+  low:      { recommendation: 'self_check',           message: 'Low risk — self-check is sufficient' },
+  medium:   { recommendation: 'review_recommended',   message: 'Medium risk — a code review would catch edge cases' },
+  high:     { recommendation: 'dual_brain_review',    message: 'High risk — recommending dual-brain review for safety' },
+  critical: { recommendation: 'user_approval_needed', message: 'Critical risk — this needs your explicit approval before merging' },
+};
+
+/**
+ * Compute approval recommendation from risk level + profile overrides.
+ * Profile escalation: if dual_brain_minimum is at or below the current risk,
+ * escalate the recommendation by one tier (e.g. medium → dual_brain_review
+ * under quality-first where dual_brain_minimum is 'medium').
+ */
+function computeApproval(risk, profileGate) {
+  let effectiveRisk = risk;
+
+  // Profile escalation: when dual_brain_minimum <= risk and the base
+  // recommendation would be below dual_brain_review, escalate one level.
+  const riskIdx = RISK_LEVELS.indexOf(risk);
+  const dualBrainIdx = RISK_LEVELS.indexOf(profileGate.dual_brain_minimum);
+  if (dualBrainIdx >= 0 && riskIdx >= dualBrainIdx && riskIdx < RISK_LEVELS.length - 1) {
+    const baseRec = APPROVAL_MAP[risk].recommendation;
+    if (baseRec !== 'dual_brain_review' && baseRec !== 'user_approval_needed') {
+      effectiveRisk = RISK_LEVELS[riskIdx + 1];
+    }
+  }
+
+  const entry = APPROVAL_MAP[effectiveRisk] || APPROVAL_MAP[risk];
+  return {
+    approval_recommendation: entry.recommendation,
+    approval_message: entry.message,
+  };
+}
+
 function loadProfileGateSettings() {
   try {
-    const data = JSON.parse(readFileSync(PROFILE_FILE, 'utf8'));
-    const name = data.active || 'balanced';
-    const defaults = {
-      balanced:        { sensitivity_floor: 'medium', dual_brain_minimum: 'high' },
-      'cost-saver':    { sensitivity_floor: 'high',   dual_brain_minimum: 'critical' },
-      'quality-first': { sensitivity_floor: 'low',    dual_brain_minimum: 'medium' },
-    };
-    return defaults[name] || defaults.balanced;
+    return _getProfileOverrides('quality-gate');
   } catch {
     return { sensitivity_floor: 'medium', dual_brain_minimum: 'high' };
   }
@@ -195,6 +223,7 @@ function main() {
       reason: `${sensitivity.risk} risk — below profile floor (${profileGate.sensitivity_floor})`,
       profile_floor: profileGate.sensitivity_floor,
       files: qualifyingFiles,
+      ...computeApproval(sensitivity.risk, profileGate),
     });
   }
 
@@ -273,6 +302,7 @@ function main() {
   }
 
   // 9. Build output object — common fields first
+  const approval = computeApproval(sensitivity.risk, profileGate);
   const output = {
     gate: gateStatus,
     risk: sensitivity.risk,
@@ -284,6 +314,8 @@ function main() {
     review_path: reviewFile,
     model: reviewResult.model || null,
     auth_type: reviewResult.auth_type || null,
+    approval_recommendation: approval.approval_recommendation,
+    approval_message: approval.approval_message,
   };
 
   // High risk: recommend dual-brain-think in addition

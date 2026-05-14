@@ -1,22 +1,35 @@
 #!/usr/bin/env node
 import { readFileSync, writeFileSync, appendFileSync, renameSync } from 'fs';
-import { createHash } from 'crypto';
 import { dirname, resolve, join } from 'path';
 import { fileURLToPath } from 'url';
+import { classifyRisk, extractPaths } from './risk-classifier.mjs';
+import { computePromptHash, checkFailureLoop, recordFailure } from './failure-detector.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CONFIG_FILE = resolve(__dirname, '..', 'orchestrator.json');
 const PROFILE_FILE = resolve(__dirname, '..', 'dual-brain.profile.json');
 const DRIFT_STATE = resolve(__dirname, '.drift-warned');
+const BURST_FILE = resolve(__dirname, '.burst-state');
+
+function detectBurst() {
+  const now = Date.now();
+  let state = { count: 0, window_start: now };
+  try { state = JSON.parse(readFileSync(BURST_FILE, 'utf8')); } catch {}
+  if (now - state.window_start > 90_000) state = { count: 0, window_start: now };
+  state.count++;
+  try { writeFileSync(BURST_FILE, JSON.stringify(state)); } catch {}
+  return state.count >= 3;
+}
 
 function loadProfile() {
   try {
     const data = JSON.parse(readFileSync(PROFILE_FILE, 'utf8'));
-    return data.active || 'balanced';
-  } catch { return 'balanced'; }
+    return data.active || 'auto';
+  } catch { return 'auto'; }
 }
 
 const PROFILE_SETTINGS = {
+  auto:            { demote_think: false, promote_execute: false, bias: 0 },
   balanced:        { demote_think: false, promote_execute: false, bias: 0 },
   'cost-saver':    { demote_think: true,  promote_execute: false, bias: -20 },
   'quality-first': { demote_think: false, promote_execute: true,  bias: 10 },
@@ -200,14 +213,25 @@ try {
   const currentModel = (ti.model || '').toLowerCase();
 
   // Compute prompt hash early for duplicate detection and logging
-  const promptHash = createHash('sha256').update(text).digest('hex').slice(0, 12);
+  const promptHash = computePromptHash(ti);
+
+  // Burst detection — suppress noise during wave launches (3+ agents in 90s)
+  const burstMode = detectBurst();
 
   // Check for duplicate agent dispatch before tier classification
   const duplicate = checkDuplicate(promptHash);
   let duplicateWarning = null;
   if (duplicate) {
     const minutesAgo = Math.round((Date.now() - Date.parse(duplicate.timestamp)) / 60000);
-    duplicateWarning = `**[Duplicate Warning]** A similar agent task was dispatched ${minutesAgo} minute${minutesAgo !== 1 ? 's' : ''} ago. Reuse the prior result unless the scope changed.`;
+    if (burstMode) {
+      // In burst mode, only warn on exact hash matches (same description+prompt)
+      if (duplicate.prompt_hash === promptHash) {
+        duplicateWarning = `Heads up — a similar task ran ${minutesAgo} minute${minutesAgo !== 1 ? 's' : ''} ago (wave detected). Reuse that result if the scope hasn't changed.`;
+      }
+      // Otherwise suppress — similar-but-different agents in a wave are expected
+    } else {
+      duplicateWarning = `Heads up — a similar task ran ${minutesAgo} minute${minutesAgo !== 1 ? 's' : ''} ago. Reuse that result if the scope hasn't changed.`;
+    }
   }
 
   let config;
@@ -231,9 +255,9 @@ try {
   // Balance hint — populated after tier is fully resolved
   let balanceHint = null;
 
-  // Helper to prepend optional warnings (duplicate + drift + balance) before a message
+  // Helper to prepend optional warnings (duplicate + drift + balance + auto) before a message
   const prependWarnings = (msg) => {
-    const parts = [duplicateWarning, driftWarning, msg, balanceHint].filter(Boolean);
+    const parts = [duplicateWarning, driftWarning, failureMessage, msg, autoStatus, balanceHint].filter(Boolean);
     return parts.join('\n\n');
   };
 
@@ -254,10 +278,10 @@ try {
     ].filter(Boolean);
 
     if (detectedTiers.length > 1) {
-      const splitMsg = `**[Tier Enforcer]** This spans **${detectedTiers.join(' + ')}** work. Consider splitting: ` +
+      const splitMsg = `This spans ${detectedTiers.join(' + ')} work. Consider splitting: ` +
         (hasSearch ? 'search first (haiku), ' : '') +
         (hasExecute ? 'then execute edits (sonnet), ' : '') +
-        (hasThink ? 'keep planning/review on think tier (opus).' : '');
+        (hasThink ? 'keep planning/review on the main session (opus).' : '');
       const fullMsg = prependWarnings(splitMsg.replace(/, $/, '.'));
       logRecommendation({
         tier: detectedTiers.join('+'),
@@ -277,6 +301,32 @@ try {
     else tier = 'execute';
   }
 
+  // Risk classification from file paths in description
+  const filePaths = extractPaths(ti.description || '');
+  const riskResult = classifyRisk(filePaths);
+  let autoStatus = null;
+
+  // Bias high/critical risk toward think tier
+  if ((riskResult.level === 'critical' || riskResult.level === 'high') && tier !== 'think') {
+    tier = 'think';
+    autoStatus = riskResult.level === 'critical'
+      ? `This touches ${riskResult.reason.split(':')[0].toLowerCase()} — recommending dual-brain review for safety.`
+      : `Promoting to think tier — this is ${riskResult.reason.split(':')[0].toLowerCase()}.`;
+  }
+
+  // Failure loop detection
+  const failureCheck = checkFailureLoop(promptHash);
+  let failureMessage = null;
+  if (failureCheck.isLoop) {
+    if (failureCheck.suggestion === 'promote_tier' && tier === 'execute') {
+      tier = 'think';
+      autoStatus = 'Escalating to think tier — this has failed before, let\'s take a different approach.';
+    } else if (failureCheck.suggestion === 'escalate_to_dual_brain') {
+      autoStatus = 'Repeated failures detected — recommending dual-brain review to diagnose the issue.';
+    }
+    failureMessage = `⚠️ This has failed ${failureCheck.count} times in the last 2 hours. Consider a dual-brain think session to diagnose the root cause.`;
+  }
+
   // Apply profile-driven tier adjustments
   if (profileSettings.demote_think && tier === 'think' && !THINK_WORDS.test(text)) {
     tier = 'execute';
@@ -286,14 +336,15 @@ try {
   }
 
   // Compute balance hint now that tier is resolved
-  {
+  // In burst mode, skip balance hints — one hint per wave is enough
+  if (!burstMode) {
     const currentProvider = detectProvider(currentModel);
     if (currentProvider === 'claude') {
       const balance = quickPressureCheck(tier);
       const biasThreshold = profileSettings.bias >= 0 ? 10 : 20;
       if (balance && balance.claudeCalls > balance.openaiCalls * 2 && balance.claudeCalls > biasThreshold) {
         const dispatchModel = tier === 'think' ? 'gpt-5.5' : tier === 'execute' ? 'gpt-5.4' : 'gpt-4.1-mini';
-        balanceHint = `\n\n💡 **Balance tip:** Claude has ${balance.claudeCalls} ${tier} calls vs OpenAI's ${balance.openaiCalls} in the last 5hrs. Consider dispatching isolated work to GPT: \`node .claude/hooks/gpt-work-dispatcher.mjs --task "..." --model ${dispatchModel}\``;
+        balanceHint = `\n\n💡 Claude is handling most work right now (${balance.claudeCalls} ${tier} calls vs ${balance.openaiCalls} GPT). For isolated tasks, consider routing to GPT to balance subscriptions.`;
       }
     }
   }
@@ -312,7 +363,7 @@ try {
         followed: true,
         profile: profileName,
       });
-      const onlyWarnings = [duplicateWarning, driftWarning, balanceHint].filter(Boolean).join('\n\n');
+      const onlyWarnings = [duplicateWarning, driftWarning, failureMessage, autoStatus, balanceHint].filter(Boolean).join('\n\n');
       if (onlyWarnings) {
         process.stdout.write(JSON.stringify({ systemMessage: onlyWarnings }));
       } else {
@@ -323,8 +374,7 @@ try {
     // If we get here, a non-think model is being used for think work
     const thinkBestFor = intelligence[expected || 'opus']?.best_for;
     const thinkBestForSuffix = thinkBestFor ? ` (best for: ${thinkBestFor})` : '';
-    const msg = `**[Tier Enforcer]** This looks like **think** work (architecture/review/planning). ` +
-      `Don't send it to "${currentModel}" — keep it on the main session (${expected || 'opus'}${thinkBestForSuffix}) for best results.`;
+    const msg = `This looks like think-level work (architecture/review/planning) — better kept on the main session (${expected || 'opus'}${thinkBestForSuffix}) rather than delegated to ${currentModel}.`;
     logRecommendation({
       tier,
       recommended: expected,
@@ -344,7 +394,7 @@ try {
         followed: true,
         profile: profileName,
       });
-      const onlyWarnings = [duplicateWarning, driftWarning, balanceHint].filter(Boolean).join('\n\n');
+      const onlyWarnings = [duplicateWarning, driftWarning, failureMessage, autoStatus, balanceHint].filter(Boolean).join('\n\n');
       if (onlyWarnings) {
         process.stdout.write(JSON.stringify({ systemMessage: onlyWarnings }));
       } else {
@@ -355,8 +405,7 @@ try {
     const savings = tier === 'search' ? 'Haiku is 19x cheaper than Opus for read-only lookups.' : 'Sonnet is 5x cheaper than Opus for implementation work.';
     const bestFor = intelligence[expected]?.best_for;
     const bestForSuffix = bestFor ? ` (best for: ${bestFor})` : '';
-    const msg = `**[Tier Enforcer]** This looks like **${tier}** work. ` +
-      `Use \`model: "${expected}"\`${bestForSuffix} instead of "${currentModel || 'opus (inherited)'}". ${savings}`;
+    const msg = `This looks like ${tier} work — use ${expected}${bestForSuffix} instead of ${currentModel || 'opus (inherited)'}. ${savings}`;
     logRecommendation({
       tier,
       recommended: expected,

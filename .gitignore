@@ -21,3 +21,6 @@ web/vite.config.js
 .claude/dual-brain.profile.json
 .claude/hooks/usage-summary-*.json
 .claude/hooks/decision-ledger.jsonl
+
+# Dual-Brain Orchestrator
+.claude/.launched

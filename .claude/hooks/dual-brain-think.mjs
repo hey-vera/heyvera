@@ -60,8 +60,33 @@ function findCodex() {
 // Prompt builder
 // ---------------------------------------------------------------------------
 
-function buildGptPrompt({ question, context, files }) {
+function buildGptPrompt({ question, context, files, round, claudePerspective }) {
+  if (round === 2 && claudePerspective) {
+    return `You are GPT-5.5 in a collaborative architectural discussion with Claude (Opus).
+You gave your initial analysis on a question. Claude has now provided its independent perspective.
+This is a professional dialogue — two experts refining a decision together.
+
+Original question: ${question}
+${context ? `\nContext: ${context}` : ''}
+
+Claude's perspective:
+${claudePerspective}
+
+Now respond as a colleague, not a critic. Structure your response:
+1. AGREEMENTS: Where Claude's analysis strengthens or confirms your thinking
+2. PUSHBACK: Where you disagree — be specific about WHY with evidence or reasoning
+3. NEW INSIGHTS: Anything Claude's perspective surfaced that you missed
+4. REFINED RECOMMENDATION: Your updated recommendation incorporating both perspectives
+5. REMAINING CONCERNS: Open questions neither of you fully resolved
+6. CONFIDENCE DELTA: Has your confidence changed? Why?
+
+Be direct and substantive. If Claude is right about something you got wrong, say so.
+If you still disagree after considering their points, explain what specific evidence would change your mind.`;
+  }
+
   return `You are GPT-5.5, providing an independent architectural perspective.
+This is Round 1 of a dual-brain analysis — Claude (Opus) will independently analyze the same question,
+then send you their perspective for a collaborative discussion in Round 2.
 
 Question: ${question}
 ${context ? `\nContext: ${context}` : ''}
@@ -165,7 +190,7 @@ function logUsage({ durationMs, usage, success }) {
 // Core exported function
 // ---------------------------------------------------------------------------
 
-export async function dualThink({ question, context, files } = {}) {
+export async function dualThink({ question, context, files, round, claudePerspective } = {}) {
   if (!question) {
     return {
       gpt: null,
@@ -173,6 +198,8 @@ export async function dualThink({ question, context, files } = {}) {
       fallback: 'Proceed with single-brain analysis on Claude Opus',
     };
   }
+
+  const effectiveRound = (round === 2 && claudePerspective) ? 2 : 1;
 
   const codexBin = findCodex();
   if (!codexBin) {
@@ -183,7 +210,6 @@ export async function dualThink({ question, context, files } = {}) {
     };
   }
 
-  // Check Codex auth before running
   try {
     execSync(`${codexBin} login status`, {
       encoding: 'utf8',
@@ -198,7 +224,7 @@ export async function dualThink({ question, context, files } = {}) {
     };
   }
 
-  const prompt = buildGptPrompt({ question, context, files });
+  const prompt = buildGptPrompt({ question, context, files, round: effectiveRound, claudePerspective });
   const raw = runGptAnalysis(codexBin, prompt);
 
   logUsage({ durationMs: raw.durationMs, usage: raw.usage, success: raw.success });
@@ -207,18 +233,44 @@ export async function dualThink({ question, context, files } = {}) {
     return {
       gpt: null,
       error: raw.error || 'GPT analysis failed',
-      fallback: 'Proceed with single-brain analysis on Claude Opus',
+      fallback: effectiveRound === 2
+        ? 'GPT rebuttal unavailable — synthesize from Round 1 analysis alone'
+        : 'Proceed with single-brain analysis on Claude Opus',
+    };
+  }
+
+  if (effectiveRound === 2) {
+    return {
+      round: 2,
+      gpt: {
+        rebuttal: raw.text,
+        model: MODEL,
+        durationMs: raw.durationMs,
+        tokens: raw.usage,
+      },
+      instructions: `GPT has responded to your analysis. Now synthesize both rounds into a FINAL DECISION:
+1. Where you both agree → high confidence, proceed
+2. Where GPT pushed back on your points → re-evaluate honestly
+3. Where you still disagree → state why and what evidence would resolve it
+4. Final recommendation with combined confidence level`,
+      question,
     };
   }
 
   return {
+    round: 1,
     gpt: {
       recommendation: raw.text,
       model: MODEL,
       durationMs: raw.durationMs,
       tokens: raw.usage,
     },
-    instructions: 'Now provide YOUR independent analysis of the same question. Then compare both perspectives and make a final decision. If you disagree with GPT, explain why with evidence.',
+    instructions: `Round 1 complete. Now:
+1. Provide YOUR independent analysis of the same question (same structure: recommendation, rationale, alternatives, risks, confidence, verification)
+2. Then call Round 2 to send your perspective back to GPT:
+   node .claude/hooks/dual-brain-think.mjs --question "<same question>" --round 2 --claude-says "<your analysis summary>"
+3. GPT will respond to your specific points — agreements, pushback, and refined recommendation
+4. You then synthesize both rounds into the final decision`,
     question,
     context: context || null,
   };
@@ -268,32 +320,41 @@ function printResult(result, question) {
   const TOP = '╔══════════════════════════════════════════════════╗';
   const BOT = '╚══════════════════════════════════════════════════╝';
 
+  const roundLabel = result.round === 2 ? 'Round 2 — Rebuttal' : 'Round 1 — Initial';
+
   console.log(TOP);
-  console.log('║              Dual-Brain Think                    ║');
+  console.log(`║  🧠 Dual-Brain Think · ${roundLabel}`.padEnd(51) + '║');
   console.log(BAR);
-  // Truncate question to fit the box
   const q = question.length > 44 ? question.slice(0, 41) + '...' : question;
   console.log(`║ Question: ${q.padEnd(38)} ║`);
   console.log(BAR);
 
   if (!result.gpt) {
-    // Failure path
-    console.log(`║ ERROR: ${(result.error || 'Unknown error').padEnd(41)} ║`);
+    console.log(`║ ❌ ${(result.error || 'Unknown error').padEnd(45)} ║`);
     console.log(BAR);
-    console.log(`║ Fallback: ${(result.fallback || '').padEnd(39)} ║`);
+    console.log(`║ ↩️  ${(result.fallback || '').padEnd(45)} ║`);
     console.log(BOT);
     return;
   }
 
-  const durSec = (result.gpt.durationMs / 1000).toFixed(1);
-  console.log(`║ GPT-5.5 Perspective (${MODEL}, ${durSec}s):`.padEnd(51) + '║');
+  const gptData = result.gpt;
+  const durSec = (gptData.durationMs / 1000).toFixed(1);
+  console.log(`║ 🤖 GPT-5.5 (${durSec}s):`.padEnd(51) + '║');
   console.log(BAR);
   console.log('');
-  console.log(result.gpt.recommendation);
+  console.log(gptData.recommendation || gptData.rebuttal);
   console.log('');
   console.log(BAR);
-  console.log('║ Now: Provide YOUR analysis and compare.          ║');
-  console.log('║ If you disagree, explain why with evidence.      ║');
+
+  if (result.round === 2) {
+    console.log('║ 🔄 Synthesize both rounds into final decision.  ║');
+    console.log('║ Where you agree → high confidence.               ║');
+    console.log('║ Where you disagree → state what would resolve it.║');
+  } else {
+    console.log('║ 📝 Your turn: analyze independently, then call   ║');
+    console.log('║    Round 2 with --round 2 --claude-says "..."    ║');
+    console.log('║    for GPT\'s rebuttal to your analysis.          ║');
+  }
   console.log(BOT);
 }
 
@@ -306,7 +367,8 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 
   if (!args.question) {
     console.error(
-      'Usage: node dual-brain-think.mjs --question "<question>" [--context "<context>"] [--files file1,file2]'
+      'Usage: node dual-brain-think.mjs --question "<question>" [--context "<ctx>"] [--files f1,f2]\n' +
+      '       node dual-brain-think.mjs --question "<question>" --round 2 --claude-says "<analysis>"'
     );
     process.exit(1);
   }
@@ -315,6 +377,8 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     question: args.question,
     context: args.context,
     files: args.files,
+    round: args.round ? parseInt(args.round, 10) : 1,
+    claudePerspective: args['claude-says'] || null,
   });
 
   printResult(result, args.question);

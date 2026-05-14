@@ -25,8 +25,8 @@ mkdirSync(__dirname, { recursive: true });
 function loadActiveProfile() {
   try {
     const data = JSON.parse(readFileSync(PROFILE_FILE, 'utf8'));
-    return data.active || 'balanced';
-  } catch { return 'balanced'; }
+    return data.active || 'auto';
+  } catch { return 'auto'; }
 }
 
 const SESSION_ID = process.env.CLAUDE_SESSION_ID || process.ppid?.toString() || null;
@@ -260,6 +260,17 @@ async function main() {
     const { updateSummary } = await import('./summary-checkpoint.mjs');
     updateSummary(entryObj);
   } catch {}
+
+  // Record failures for adaptive routing (failure-loop detection)
+  if (status === 'error' && toolName === 'Agent') {
+    try {
+      const { computePromptHash, recordFailure, pruneOldFailures } = await import('./failure-detector.mjs');
+      const promptHash = computePromptHash(toolInput);
+      recordFailure(promptHash, tier, payload?.error || 'agent_error');
+      // Best-effort cleanup of stale failure entries (>24h old)
+      try { pruneOldFailures(); } catch {}
+    } catch {}
+  }
 
   const budgetMsg = await checkBudget();
 

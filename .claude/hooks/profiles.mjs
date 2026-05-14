@@ -20,9 +20,48 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROFILE_FILE = join(__dirname, '..', 'dual-brain.profile.json');
 const CONFIG_FILE = join(__dirname, '..', 'orchestrator.json');
 
+const ALIASES = {
+  // auto
+  'auto': 'auto', 'adaptive': 'auto', 'smart': 'auto', 'default': 'auto', 'normal': 'auto',
+  // balanced
+  'balanced': 'balanced', 'even': 'balanced', 'equal': 'balanced',
+  // cost-saver
+  'cost-saver': 'cost-saver', 'cheap': 'cost-saver', 'save': 'cost-saver', 'conservative': 'cost-saver', 'frugal': 'cost-saver', 'budget': 'cost-saver', 'fast': 'cost-saver', 'quick': 'cost-saver',
+  // quality-first
+  'quality-first': 'quality-first', 'aggressive': 'quality-first', 'quality': 'quality-first', 'max': 'quality-first', 'full': 'quality-first', 'both': 'quality-first', 'careful': 'quality-first', 'thorough': 'quality-first', 'safe': 'quality-first',
+};
+
+function resolveProfileName(input) {
+  if (!input) return null;
+  const cleaned = input.toLowerCase().trim()
+    .replace(/^(go|be|use|switch to|set|mode)\s+/i, '')
+    .replace(/\s+mode$/i, '');
+  return ALIASES[cleaned] || null;
+}
+
 const PROFILES = {
+  auto: {
+    description: 'Adapts routing based on task risk, provider health, and outcomes',
+    routing: {
+      prefer_provider: 'auto',
+      think_threshold: 'adaptive',
+      gpt_dispatch_bias: 0,
+    },
+    budgets: {
+      session_warn_usd: 5.00,
+      session_limit_usd: 10.00,
+      daily_warn_usd: 20.00,
+      daily_limit_usd: 50.00,
+    },
+    quality_gate: {
+      sensitivity_floor: 'medium',
+      dual_brain_minimum: 'high',
+    },
+    tier_overrides: null,
+  },
+
   balanced: {
-    description: 'Standard routing — best model for each tier, normal budgets',
+    description: 'Auto-routes by complexity, uses both providers evenly',
     routing: {
       prefer_provider: 'auto',
       think_threshold: 'normal',
@@ -42,7 +81,7 @@ const PROFILES = {
   },
 
   'cost-saver': {
-    description: 'Minimize spend — prefer cheaper models, skip GPT for low risk',
+    description: 'Conservative — fewer GPT dispatches, sticks to Claude',
     routing: {
       prefer_provider: 'cheapest',
       think_threshold: 'strict',
@@ -65,7 +104,7 @@ const PROFILES = {
   },
 
   'quality-first': {
-    description: 'Maximum quality — dual-brain for medium+, stricter reviews',
+    description: 'Aggressive — maximizes both subscriptions, dual-brain for medium+',
     routing: {
       prefer_provider: 'most-capable',
       think_threshold: 'relaxed',
@@ -106,12 +145,12 @@ function loadConfig() {
 
 function getActiveProfile() {
   const saved = loadProfileFile();
-  const name = saved?.active || 'balanced';
-  const profile = PROFILES[name] || PROFILES.balanced;
+  const name = saved?.active || 'auto';
+  const profile = PROFILES[name] || PROFILES.auto;
   const customOverrides = saved?.custom_overrides || {};
 
   return {
-    name: PROFILES[name] ? name : 'balanced',
+    name: PROFILES[name] ? name : 'auto',
     ...profile,
     budgets: { ...profile.budgets, ...customOverrides.budgets },
     routing: { ...profile.routing, ...customOverrides.routing },
@@ -120,12 +159,22 @@ function getActiveProfile() {
 }
 
 function setActiveProfile(name, customOverrides = null) {
-  if (!PROFILES[name]) {
-    return { ok: false, error: `Unknown profile: ${name}. Available: ${Object.keys(PROFILES).join(', ')}` };
+  let resolved = name;
+  if (!PROFILES[resolved]) {
+    const alias = resolveProfileName(name);
+    if (alias) {
+      resolved = alias;
+    } else {
+      const aliasHint = Object.entries(ALIASES)
+        .filter(([k, v]) => k !== v)
+        .map(([k, v]) => `${k} → ${v}`)
+        .join(', ');
+      return { ok: false, error: `Unknown profile: ${name}. Available: ${Object.keys(PROFILES).join(', ')}. Aliases: ${aliasHint}` };
+    }
   }
 
   const data = {
-    active: name,
+    active: resolved,
     switched_at: new Date().toISOString(),
   };
   if (customOverrides) data.custom_overrides = customOverrides;
@@ -134,7 +183,7 @@ function setActiveProfile(name, customOverrides = null) {
     const tmp = PROFILE_FILE + '.tmp.' + process.pid;
     writeFileSync(tmp, JSON.stringify(data, null, 2) + '\n');
     renameSync(tmp, PROFILE_FILE);
-    return { ok: true, profile: PROFILES[name] };
+    return { ok: true, profile: PROFILES[resolved], resolvedName: resolved };
   } catch (err) {
     return { ok: false, error: `Failed to write profile: ${err.message}` };
   }
@@ -196,6 +245,8 @@ function getProfileOverrides(system) {
 
 export {
   PROFILES,
+  ALIASES,
+  resolveProfileName,
   getActiveProfile,
   setActiveProfile,
   setBudgetOverrides,

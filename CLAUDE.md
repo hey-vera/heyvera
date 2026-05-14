@@ -36,3 +36,9 @@ This workspace uses dual-provider orchestration across Claude ($100 Max) and Ope
 **Tier advisor:** PreToolUse hook classifies Agent calls, warns on mismatches, detects duplicates, suggests cross-provider routing when one subscription is underused.
 
 **Budget balancer:** Tracks rolling 5-hour usage pressure per provider. When Claude is hot, suggests routing to GPT and vice versa.
+
+**Vibe coding:** Speak naturally, the orchestrator handles structure.
+- `node .claude/hooks/vibe-router.mjs "fix login and update nav"` — decompose into structured tasks
+- `node .claude/hooks/plan-generator.mjs --utterance "..." --write` — 3-part execution plans
+- `node .claude/hooks/vibe-memory.mjs` — persistent preferences and work threads
+- Natural language profiles: "go aggressive", "be careful", "cheap mode", "fast"
