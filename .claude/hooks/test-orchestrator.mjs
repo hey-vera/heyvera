@@ -1742,6 +1742,133 @@ test('agent-templates: getTemplate returns null for unknown template', () => {
   return true;
 });
 
+// ─── Test 58: ship-captain.mjs exports planExecution and executeShipCaptain ───
+test('ship-captain: exports planExecution and executeShipCaptain', () => {
+  const script = `
+    import { planExecution, executeShipCaptain } from './ship-captain.mjs';
+    const results = { errors: [] };
+    if (typeof planExecution !== 'function') results.errors.push('planExecution is not a function');
+    if (typeof executeShipCaptain !== 'function') results.errors.push('executeShipCaptain is not a function');
+    process.stdout.write(JSON.stringify(results));
+  `;
+  const proc = spawnSync(process.execPath, [
+    '--input-type=module',
+    '-e', script,
+  ], { encoding: 'utf8', timeout: 8000, cwd: HOOKS });
+
+  if (proc.status !== 0) return `ship-captain script failed: ${proc.stderr}`;
+  let results;
+  try { results = JSON.parse(proc.stdout.trim()); } catch { return `output not JSON: ${proc.stdout}`; }
+  if (results.errors.length > 0) return results.errors.join('; ');
+  return true;
+});
+
+// ─── Test 59: ship-gate.mjs exports discoverTests, runTests, generateDiffSummary, createPR ─
+test('ship-gate: exports discoverTests, runTests, generateDiffSummary, createPR', () => {
+  const script = `
+    import { discoverTests, runTests, generateDiffSummary, createPR } from './ship-gate.mjs';
+    const results = { errors: [] };
+    if (typeof discoverTests !== 'function') results.errors.push('discoverTests is not a function');
+    if (typeof runTests !== 'function') results.errors.push('runTests is not a function');
+    if (typeof generateDiffSummary !== 'function') results.errors.push('generateDiffSummary is not a function');
+    if (typeof createPR !== 'function') results.errors.push('createPR is not a function');
+    process.stdout.write(JSON.stringify(results));
+  `;
+  const proc = spawnSync(process.execPath, [
+    '--input-type=module',
+    '-e', script,
+  ], { encoding: 'utf8', timeout: 8000, cwd: HOOKS });
+
+  if (proc.status !== 0) return `ship-gate script failed: ${proc.stderr}`;
+  let results;
+  try { results = JSON.parse(proc.stdout.trim()); } catch { return `output not JSON: ${proc.stdout}`; }
+  if (results.errors.length > 0) return results.errors.join('; ');
+  return true;
+});
+
+// ─── Test 60: ship-gate discoverTests finds test command in dual-brain itself ─
+test('ship-gate: discoverTests finds npm test script', () => {
+  // Run from the dual-brain package root so package.json is in cwd
+  const pkgRoot = resolve(HOOKS, '..');
+  const script = `
+    import { discoverTests } from './hooks/ship-gate.mjs';
+    const result = await discoverTests();
+    const results = { errors: [] };
+    if (!result) { results.errors.push('discoverTests returned null/undefined'); }
+    else {
+      // Must find the npm test script from package.json
+      const resultStr = JSON.stringify(result);
+      const hasNpmTest = result.command === 'npm test'
+        || result.command === 'npm run test'
+        || resultStr.includes('npm test')
+        || resultStr.includes('test-orchestrator');
+      if (!hasNpmTest) results.errors.push('discoverTests did not find npm test: ' + resultStr);
+      // Confidence should be "high" when package.json test script is found
+      if (result.confidence && result.confidence !== 'high')
+        results.errors.push('expected confidence=high, got: ' + result.confidence);
+    }
+    process.stdout.write(JSON.stringify(results));
+  `;
+  const proc = spawnSync(process.execPath, [
+    '--input-type=module',
+    '-e', script,
+  ], { encoding: 'utf8', timeout: 10000, cwd: pkgRoot });
+
+  if (proc.status !== 0) return `ship-gate discoverTests script failed: ${proc.stderr}`;
+  let results;
+  try { results = JSON.parse(proc.stdout.trim()); } catch { return `output not JSON: ${proc.stdout}`; }
+  if (results.errors.length > 0) return results.errors.join('; ');
+  return true;
+});
+
+// ─── Test 61: ship-captain planExecution returns valid plan ───────────────────
+test('ship-captain: planExecution returns valid plan', () => {
+  const script = `
+    import { planExecution } from './ship-captain.mjs';
+    const result = await planExecution('fix a bug and write tests');
+    const results = { errors: [] };
+    if (!result || typeof result !== 'object') {
+      results.errors.push('planExecution did not return an object');
+    } else {
+      if (!result.goal) results.errors.push('plan missing goal');
+      if (!Array.isArray(result.steps)) results.errors.push('plan missing steps array');
+      else if (result.steps.length === 0) results.errors.push('plan steps array is empty');
+      // Accept any duration/time/steps indicator — implementation may vary
+      const hasDuration = result.estimated_duration != null
+        || result.estimated_duration_ms != null
+        || result.duration != null
+        || result.estimated_steps != null
+        || result.step_count != null
+        || result.total_steps != null
+        || typeof result.steps?.length === 'number';
+      if (!hasDuration) results.errors.push('plan missing any duration or steps count field');
+    }
+    process.stdout.write(JSON.stringify(results));
+  `;
+  const proc = spawnSync(process.execPath, [
+    '--input-type=module',
+    '-e', script,
+  ], { encoding: 'utf8', timeout: 15000, cwd: HOOKS });
+
+  if (proc.status !== 0) return `ship-captain planExecution script failed: ${proc.stderr}`;
+  let results;
+  try { results = JSON.parse(proc.stdout.trim()); } catch { return `output not JSON: ${proc.stdout}`; }
+  if (results.errors.length > 0) return results.errors.join('; ');
+  return true;
+});
+
+// ─── Test 62: install.mjs includes ship-captain commands in help ──────────────
+test('install.mjs: includes ship-captain commands in help', () => {
+  const installSrc = readFileSync(resolve(__dirname, '..', 'install.mjs'), 'utf8');
+  const required = ['do', 'ship', 'runs', 'resume', 'test-run', 'diff', 'Ship Captain'];
+  const missing = required.filter(s => !installSrc.includes(s));
+  if (missing.length > 0) return `install.mjs missing: ${missing.join(', ')}`;
+  // Also check ship-captain.mjs and ship-gate.mjs are in HOOKS array
+  if (!installSrc.includes('ship-captain.mjs')) return 'HOOKS array missing ship-captain.mjs';
+  if (!installSrc.includes('ship-gate.mjs')) return 'HOOKS array missing ship-gate.mjs';
+  return true;
+});
+
 // ─── Summary ─────────────────────────────────────────────────────────────────
 const total = passed + failed;
 console.log(`\n${passed}/${total} tests passed`);

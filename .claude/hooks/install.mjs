@@ -80,6 +80,14 @@ if (flag('--help') || flag('-h')) {
     chain        Run a built-in agent chain (explore-then-fix, review-and-test, audit-and-plan)
     chains       List all available agent chains
 
+  Ship Captain:
+    do "<goal>"         Run agents to accomplish a goal end-to-end
+    ship                Create branch, run tests, open PR
+    test-run            Discover and run project tests
+    diff                Show current changes summary
+    runs                List recent Ship Captain runs
+    resume              Resume last incomplete run
+
   Dev:
     test         Run self-tests
 
@@ -118,6 +126,7 @@ const SUBCOMMANDS = [
   'test', 'ledger', 'doctor', 'reset', 'repair',
   'chain', 'chains',
   'agent', 'agents',
+  'do', 'ship', 'test-run', 'diff', 'runs', 'resume',
 ];
 if (subcommand && !SUBCOMMANDS.includes(subcommand)) {
   console.error(`  Unknown command: ${subcommand}`);
@@ -386,6 +395,7 @@ function install(workspace, env, mode) {
     'risk-classifier.mjs', 'failure-detector.mjs',
     'vibe-router.mjs', 'plan-generator.mjs', 'vibe-memory.mjs',
     'agent-templates.mjs', 'agent-chains.mjs',
+    'ship-captain.mjs', 'ship-gate.mjs',
   ];
   for (const h of HOOKS) cpSync(join(__dirname, 'hooks', h), join(target, 'hooks', h));
   actions.push(`✓ ${HOOKS.length} hook scripts`);
@@ -1397,6 +1407,174 @@ function main() {
   // chains → agent-chains.mjs --list
   if (subcommand === 'chains') {
     delegateToHookWithArgs('agent-chains.mjs', ['--list']);
+    return;
+  }
+
+  // ─── Ship Captain commands ─────────────────────────────────────────────────
+
+  // do "<goal>" → ship-captain.mjs --goal "<goal>" [remaining flags]
+  if (subcommand === 'do') {
+    const goal = positional[1] || '';
+    if (!goal) {
+      console.error('  Usage: npx dual-brain do "<goal>"');
+      process.exit(1);
+    }
+    // Collect remaining flags (everything after the goal string)
+    const extraFlags = process.argv.slice(4).filter(a => a.startsWith('-'));
+    delegateToHookWithArgs('ship-captain.mjs', ['--goal', goal, ...extraFlags]);
+    return;
+  }
+
+  // ship → ship-gate.mjs --ship [remaining flags]
+  if (subcommand === 'ship') {
+    const extraFlags = process.argv.slice(3).filter(a => a.startsWith('-'));
+    delegateToHookWithArgs('ship-gate.mjs', ['--ship', ...extraFlags]);
+    return;
+  }
+
+  // test-run → ship-gate.mjs --test-only
+  if (subcommand === 'test-run') {
+    const extraFlags = process.argv.slice(3).filter(a => a.startsWith('-'));
+    delegateToHookWithArgs('ship-gate.mjs', ['--test-only', ...extraFlags]);
+    return;
+  }
+
+  // diff → ship-gate.mjs --diff-only
+  if (subcommand === 'diff') {
+    delegateToHookWithArgs('ship-gate.mjs', ['--diff-only']);
+    return;
+  }
+
+  // runs → list recent Ship Captain runs from .claude/runs/
+  if (subcommand === 'runs') {
+    const workspace = resolve(process.cwd());
+    const runsDir = join(workspace, '.claude', 'runs');
+    if (!existsSync(runsDir)) {
+      console.log('');
+      console.log('  No Ship Captain runs found.');
+      console.log(`  Run: ${cmd('npx dual-brain do "<goal>"')} to start your first run.`);
+      console.log('');
+      return;
+    }
+    let files;
+    try {
+      files = readdirSync(runsDir).filter(f => f.endsWith('.json')).sort().reverse();
+    } catch {
+      files = [];
+    }
+    if (files.length === 0) {
+      console.log('');
+      console.log('  No run records found in .claude/runs/');
+      console.log('');
+      return;
+    }
+    const rows = [];
+    for (const f of files) {
+      try {
+        const rec = JSON.parse(readFileSync(join(runsDir, f), 'utf8'));
+        const id = rec.id || f.replace('.json', '');
+        const goal = (rec.goal || '').slice(0, 35);
+        const status = rec.status || '?';
+        const steps = Array.isArray(rec.steps) ? rec.steps.length : (rec.step_count || '?');
+        const dur = rec.duration_ms != null ? `${(rec.duration_ms / 1000).toFixed(1)}s` : rec.duration || '?';
+        const date = rec.started_at ? rec.started_at.slice(0, 16).replace('T', ' ') : (rec.date || '?');
+        rows.push({ id, goal, status, steps, dur, date });
+      } catch {}
+    }
+    if (rows.length === 0) {
+      console.log('  No readable run records.');
+      return;
+    }
+    const colW = { id: 14, goal: 37, status: 10, steps: 6, dur: 8, date: 16 };
+    const header = [
+      'ID'.padEnd(colW.id), 'GOAL'.padEnd(colW.goal), 'STATUS'.padEnd(colW.status),
+      'STEPS'.padStart(colW.steps), 'DUR'.padStart(colW.dur), 'DATE'.padEnd(colW.date),
+    ].join('  ');
+    console.log('');
+    console.log(`  Ship Captain Runs (${rows.length})`);
+    console.log('  ' + '─'.repeat(header.length));
+    console.log('  ' + header);
+    console.log('  ' + '─'.repeat(header.length));
+    for (const r of rows) {
+      const line = [
+        String(r.id).padEnd(colW.id), String(r.goal).padEnd(colW.goal),
+        String(r.status).padEnd(colW.status), String(r.steps).padStart(colW.steps),
+        String(r.dur).padStart(colW.dur), String(r.date).padEnd(colW.date),
+      ].join('  ');
+      console.log('  ' + line);
+    }
+    console.log('');
+    return;
+  }
+
+  // resume → find most recent incomplete/failed run, print its state
+  if (subcommand === 'resume') {
+    const workspace = resolve(process.cwd());
+    const runsDir = join(workspace, '.claude', 'runs');
+    if (!existsSync(runsDir)) {
+      console.log('');
+      console.log('  No runs directory found. Nothing to resume.');
+      console.log('');
+      return;
+    }
+    let files;
+    try {
+      files = readdirSync(runsDir).filter(f => f.endsWith('.json')).sort().reverse();
+    } catch {
+      files = [];
+    }
+    const INCOMPLETE_STATUSES = ['failed', 'error', 'partial', 'running', 'pending', 'incomplete'];
+    let found = null;
+    for (const f of files) {
+      try {
+        const rec = JSON.parse(readFileSync(join(runsDir, f), 'utf8'));
+        if (INCOMPLETE_STATUSES.includes((rec.status || '').toLowerCase())) {
+          found = { file: f, rec };
+          break;
+        }
+      } catch {}
+    }
+    if (!found) {
+      // Fall back to the most recent run regardless of status
+      if (files.length > 0) {
+        try {
+          const rec = JSON.parse(readFileSync(join(runsDir, files[0]), 'utf8'));
+          found = { file: files[0], rec };
+        } catch {}
+      }
+    }
+    if (!found) {
+      console.log('');
+      console.log('  No runs found to resume.');
+      console.log('');
+      return;
+    }
+    const { file, rec } = found;
+    console.log('');
+    console.log('  Last Run State');
+    console.log('  ' + '─'.repeat(50));
+    console.log(`  ID:       ${rec.id || file.replace('.json', '')}`);
+    console.log(`  Goal:     ${rec.goal || '(unknown)'}`);
+    console.log(`  Status:   ${rec.status || '(unknown)'}`);
+    if (Array.isArray(rec.steps)) {
+      const done = rec.steps.filter(s => s.status === 'done' || s.status === 'complete').length;
+      const failed = rec.steps.filter(s => s.status === 'failed' || s.status === 'error').length;
+      console.log(`  Steps:    ${done}/${rec.steps.length} done, ${failed} failed`);
+      const failedStep = rec.steps.find(s => s.status === 'failed' || s.status === 'error');
+      if (failedStep) {
+        console.log(`  Failed:   ${failedStep.name || failedStep.label || '(step ' + rec.steps.indexOf(failedStep) + ')'}`);
+        if (failedStep.error) console.log(`  Error:    ${failedStep.error}`);
+      }
+    }
+    if (rec.started_at) console.log(`  Started:  ${rec.started_at.slice(0, 16).replace('T', ' ')}`);
+    if (rec.error) console.log(`  Error:    ${rec.error}`);
+    console.log('');
+    if (INCOMPLETE_STATUSES.includes((rec.status || '').toLowerCase())) {
+      const goalStr = rec.goal || 'your goal here';
+      console.log(`  To re-run: ${cmd('npx dual-brain do "' + goalStr + '"')}`);
+      console.log('  (Full resume from failed step coming in a future release)');
+    }
+    console.log('');
     return;
   }
 
