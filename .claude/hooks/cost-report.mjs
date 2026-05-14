@@ -200,6 +200,8 @@ function allOpusCost(records, rateMap, datePrefix = null) {
 // Formatting helpers
 // ---------------------------------------------------------------------------
 
+const W = 50;
+
 const TIER_ORDER = ["search", "execute", "think"];
 
 const TIER_LABELS = {
@@ -223,8 +225,6 @@ function renderTable(title, aggregated, allOpus, records = []) {
   const totalCost  = Object.values(aggregated).reduce((s, v) => s + v.cost, 0);
   const savings    = allOpus - totalCost;
   const savingsPct = allOpus > 0 ? Math.round((savings / allOpus) * 100) : 0;
-
-  const W = 50; // total inner width (between ║ chars)
 
   const line   = (s)      => `║ ${pad(s, W - 2)} ║`;
   const border = (l, r, m) => l + "═".repeat(W) + r;

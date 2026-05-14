@@ -1,12 +1,26 @@
 #!/usr/bin/env node
-import { readFileSync, writeFileSync, appendFileSync } from 'fs';
+import { readFileSync, writeFileSync, appendFileSync, renameSync } from 'fs';
 import { createHash } from 'crypto';
 import { dirname, resolve, join } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CONFIG_FILE = resolve(__dirname, '..', 'orchestrator.json');
+const PROFILE_FILE = resolve(__dirname, '..', 'dual-brain.profile.json');
 const DRIFT_STATE = resolve(__dirname, '.drift-warned');
+
+function loadProfile() {
+  try {
+    const data = JSON.parse(readFileSync(PROFILE_FILE, 'utf8'));
+    return data.active || 'balanced';
+  } catch { return 'balanced'; }
+}
+
+const PROFILE_SETTINGS = {
+  balanced:        { demote_think: false, promote_execute: false, bias: 0 },
+  'cost-saver':    { demote_think: true,  promote_execute: false, bias: -20 },
+  'quality-first': { demote_think: false, promote_execute: true,  bias: 10 },
+};
 
 function checkPricingDrift(config) {
   const verified = config.pricing_verified;
@@ -29,9 +43,12 @@ function checkPricingDrift(config) {
   return `**[Drift Warning]** Pricing was last verified ${age} days ago. Run \`node .claude/hooks/setup-wizard.mjs\` to update.`;
 }
 
+const SESSION_ID = process.env.CLAUDE_SESSION_ID || process.ppid?.toString() || null;
+
 function logRecommendation(event) {
   const logFile = join(__dirname, `usage-${new Date().toISOString().slice(0, 10)}.jsonl`);
-  const entry = JSON.stringify({
+  const profileName = event.profile || 'balanced';
+  const entryObj = {
     timestamp: new Date().toISOString(),
     type: 'tier_recommendation',
     detected_tier: event.tier,
@@ -39,13 +56,64 @@ function logRecommendation(event) {
     actual_model: event.actual,
     prompt_hash: event.promptHash,
     followed: event.followed,
-  });
+    session_id: SESSION_ID,
+    profile: profileName,
+  };
+  const entry = JSON.stringify(entryObj);
   try {
     appendFileSync(logFile, entry + '\n');
+  } catch {}
+
+  // Sync summary update (for dupe detection on next call)
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const summaryFile = join(__dirname, `usage-summary-${today}.json`);
+    let summary;
+    try { summary = JSON.parse(readFileSync(summaryFile, 'utf8')); } catch { summary = { version: 1, recent_hashes: [] }; }
+    if (event.promptHash) {
+      summary.recent_hashes = summary.recent_hashes || [];
+      summary.recent_hashes.push({ hash: event.promptHash, ts: entryObj.timestamp });
+      const tenMinAgo = Date.now() - 10 * 60 * 1000;
+      summary.recent_hashes = summary.recent_hashes.filter(h => Date.parse(h.ts) >= tenMinAgo);
+    }
+    summary.updated_at = new Date().toISOString();
+    const tmp = summaryFile + '.tmp.' + process.pid;
+    writeFileSync(tmp, JSON.stringify(summary, null, 2) + '\n');
+    renameSync(tmp, summaryFile);
+  } catch {}
+
+  // Sync ledger write (append-only, fast)
+  try {
+    const ledgerEntry = JSON.stringify({
+      type: 'decision',
+      id: entryObj.timestamp.replace(/\W/g, '').slice(-12),
+      timestamp: entryObj.timestamp,
+      session_id: SESSION_ID,
+      profile: profileName,
+      tier: event.tier,
+      provider: detectProvider(event.actual),
+      model: event.actual || 'unknown',
+      recommended_model: event.recommended,
+      followed: event.followed,
+      prompt_hash: event.promptHash,
+    });
+    appendFileSync(join(__dirname, 'decision-ledger.jsonl'), ledgerEntry + '\n');
   } catch {}
 }
 
 function checkDuplicate(promptHash) {
+  // Try summary checkpoint first (O(1))
+  try {
+    const summaryPath = join(__dirname, `usage-summary-${new Date().toISOString().slice(0, 10)}.json`);
+    const summary = JSON.parse(readFileSync(summaryPath, 'utf8'));
+    const tenMinAgo = Date.now() - 10 * 60 * 1000;
+    const match = (summary.recent_hashes || []).find(
+      h => h.hash === promptHash && Date.parse(h.ts) >= tenMinAgo
+    );
+    if (match) return { timestamp: match.ts, prompt_hash: promptHash };
+  } catch {}
+
+  // Fallback: scan log
   const logFile = join(__dirname, `usage-${new Date().toISOString().slice(0, 10)}.jsonl`);
   try {
     const lines = readFileSync(logFile, 'utf8').split('\n').filter(Boolean);
@@ -73,27 +141,34 @@ function detectProvider(model) {
 }
 
 function quickPressureCheck(tier) {
+  // Try summary checkpoint first (O(1))
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const summaryPath = join(__dirname, `usage-summary-${today}.json`);
+    const summary = JSON.parse(readFileSync(summaryPath, 'utf8'));
+    const cutoff = Date.now() - 5 * 60 * 60 * 1000;
+    const claudeTs = (summary.pressure?.claude?.[tier] || []).filter(t => Date.parse(t) >= cutoff);
+    const openaiTs = (summary.pressure?.openai?.[tier] || []).filter(t => Date.parse(t) >= cutoff);
+    return { claudeCalls: claudeTs.length, openaiCalls: openaiTs.length };
+  } catch {}
+
+  // Fallback: scan log
   try {
     const today = new Date().toISOString().slice(0, 10);
     const logFile = join(__dirname, `usage-${today}.jsonl`);
     const lines = readFileSync(logFile, 'utf8').split('\n').filter(Boolean);
-
     const fiveHoursAgo = Date.now() - 5 * 60 * 60 * 1000;
     let claudeCalls = 0, openaiCalls = 0;
-
     for (const line of lines) {
       try {
         const entry = JSON.parse(line);
         if (Date.parse(entry.timestamp) < fiveHoursAgo) continue;
         if (entry.tier !== tier) continue;
-
-        const provider = entry.provider ||
-          (entry.model?.includes('gpt') ? 'openai' : 'claude');
+        const provider = entry.provider || (entry.model?.includes('gpt') ? 'openai' : 'claude');
         if (provider === 'claude') claudeCalls++;
         else openaiCalls++;
       } catch {}
     }
-
     return { claudeCalls, openaiCalls };
   } catch {
     return null;
@@ -162,6 +237,10 @@ try {
     return parts.join('\n\n');
   };
 
+  // Load profile early so all log entries can reference it
+  const profileName = loadProfile();
+  const profileSettings = PROFILE_SETTINGS[profileName] || PROFILE_SETTINGS.balanced;
+
   // Multi-tier detection — only when tier is not already resolved from subagent_defaults
   if (!tier) {
     const hasThink = THINK_WORDS.test(text);
@@ -186,6 +265,7 @@ try {
         actual: currentModel,
         promptHash,
         followed: false,
+        profile: profileName,
       });
       process.stdout.write(JSON.stringify({ systemMessage: fullMsg }));
       process.exit(0);
@@ -197,12 +277,21 @@ try {
     else tier = 'execute';
   }
 
+  // Apply profile-driven tier adjustments
+  if (profileSettings.demote_think && tier === 'think' && !THINK_WORDS.test(text)) {
+    tier = 'execute';
+  }
+  if (profileSettings.promote_execute && tier === 'execute' && THINK_WORDS.test(text)) {
+    tier = 'think';
+  }
+
   // Compute balance hint now that tier is resolved
   {
     const currentProvider = detectProvider(currentModel);
     if (currentProvider === 'claude') {
       const balance = quickPressureCheck(tier);
-      if (balance && balance.claudeCalls > balance.openaiCalls * 2 && balance.claudeCalls > 10) {
+      const biasThreshold = profileSettings.bias >= 0 ? 10 : 20;
+      if (balance && balance.claudeCalls > balance.openaiCalls * 2 && balance.claudeCalls > biasThreshold) {
         const dispatchModel = tier === 'think' ? 'gpt-5.5' : tier === 'execute' ? 'gpt-5.4' : 'gpt-4.1-mini';
         balanceHint = `\n\n💡 **Balance tip:** Claude has ${balance.claudeCalls} ${tier} calls vs OpenAI's ${balance.openaiCalls} in the last 5hrs. Consider dispatching isolated work to GPT: \`node .claude/hooks/gpt-work-dispatcher.mjs --task "..." --model ${dispatchModel}\``;
       }
@@ -221,6 +310,7 @@ try {
         actual: currentModel,
         promptHash,
         followed: true,
+        profile: profileName,
       });
       const onlyWarnings = [duplicateWarning, driftWarning, balanceHint].filter(Boolean).join('\n\n');
       if (onlyWarnings) {
@@ -241,6 +331,7 @@ try {
       actual: currentModel,
       promptHash,
       followed: false,
+      profile: profileName,
     });
     process.stdout.write(JSON.stringify({ systemMessage: prependWarnings(msg) }));
   } else {
@@ -251,6 +342,7 @@ try {
         actual: currentModel,
         promptHash,
         followed: true,
+        profile: profileName,
       });
       const onlyWarnings = [duplicateWarning, driftWarning, balanceHint].filter(Boolean).join('\n\n');
       if (onlyWarnings) {
@@ -271,6 +363,7 @@ try {
       actual: currentModel,
       promptHash,
       followed: false,
+      profile: profileName,
     });
     process.stdout.write(JSON.stringify({ systemMessage: prependWarnings(msg) }));
   }

@@ -23,8 +23,30 @@ import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ORCHESTRATOR_CONFIG = resolve(__dirname, '..', 'orchestrator.json');
+const PROFILE_FILE = resolve(__dirname, '..', 'dual-brain.profile.json');
 const REVIEWS_DIR = resolve(__dirname, '..', 'reviews');
 const DUAL_BRAIN = resolve(__dirname, 'dual-brain-review.mjs');
+
+const RISK_LEVELS = ['low', 'medium', 'high', 'critical'];
+
+function loadProfileGateSettings() {
+  try {
+    const data = JSON.parse(readFileSync(PROFILE_FILE, 'utf8'));
+    const name = data.active || 'balanced';
+    const defaults = {
+      balanced:        { sensitivity_floor: 'medium', dual_brain_minimum: 'high' },
+      'cost-saver':    { sensitivity_floor: 'high',   dual_brain_minimum: 'critical' },
+      'quality-first': { sensitivity_floor: 'low',    dual_brain_minimum: 'medium' },
+    };
+    return defaults[name] || defaults.balanced;
+  } catch {
+    return { sensitivity_floor: 'medium', dual_brain_minimum: 'high' };
+  }
+}
+
+function riskMeetsFloor(risk, floor) {
+  return RISK_LEVELS.indexOf(risk) >= RISK_LEVELS.indexOf(floor);
+}
 
 function exit(obj) {
   process.stdout.write(JSON.stringify(obj) + '\n');
@@ -162,14 +184,16 @@ function main() {
   // 5a. Score sensitivity BEFORE running any external review
   const sensitivity = scoreSensitivity(qualifyingFiles, config);
 
-  // 5b. Low risk — skip GPT review entirely
-  if (sensitivity.gate === 'self-check') {
+  // 5b. Apply profile-driven sensitivity floor
+  const profileGate = loadProfileGateSettings();
+  if (!riskMeetsFloor(sensitivity.risk, profileGate.sensitivity_floor)) {
     exit({
       gate: 'pass',
-      risk: 'low',
+      risk: sensitivity.risk,
       sensitivity_score: sensitivity.score,
       sensitivity_reasons: sensitivity.reasons,
-      reason: 'low sensitivity — self-check only',
+      reason: `${sensitivity.risk} risk — below profile floor (${profileGate.sensitivity_floor})`,
+      profile_floor: profileGate.sensitivity_floor,
       files: qualifyingFiles,
     });
   }
@@ -232,14 +256,18 @@ function main() {
     reviewResult.error === true ||
     !reviewResult.review;
 
+  // Profile can lower the dual-brain threshold
+  const needsDualBrain = riskMeetsFloor(sensitivity.risk, profileGate.dual_brain_minimum);
+
   let gateStatus;
-  if (sensitivity.gate === 'dual-brain-required') {
-    // Critical: always flag for dual-brain + user attention regardless of review outcome
+  if (sensitivity.gate === 'dual-brain-required' || (needsDualBrain && sensitivity.risk === 'critical')) {
     gateStatus = 'needs_dual_think';
   } else if (reviewUnavailable) {
     gateStatus = 'needs_human_review';
   } else if (reviewResult.issues_found) {
     gateStatus = 'issues_found';
+  } else if (needsDualBrain) {
+    gateStatus = 'reviewed';
   } else {
     gateStatus = sensitivity.gate === 'dual-brain-recommended' ? 'reviewed' : 'pass';
   }

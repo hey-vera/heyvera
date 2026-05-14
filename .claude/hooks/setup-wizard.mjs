@@ -119,7 +119,7 @@ async function main() {
 
   console.log(`  ║ Quality gate: ${gateEnabled ? 'enabled' : 'disabled'}`.padEnd(53) + '║');
   console.log('  ╠══════════════════════════════════════════════════╣');
-  console.log('  ║ Restart Claude Code to activate the orchestrator ║');
+  console.log('  ║ Hooks are active — no restart needed              ║');
   console.log('  ╚══════════════════════════════════════════════════╝');
   console.log('');
 

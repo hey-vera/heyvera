@@ -12,18 +12,24 @@ import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 
-// ---------------------------------------------------------------------------
-// Paths
-// ---------------------------------------------------------------------------
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const PROFILE_FILE = join(__dirname, '..', 'dual-brain.profile.json');
 
 function usageFile(date) {
   const d = date || new Date().toISOString().slice(0, 10);
   return join(__dirname, `usage-${d}.jsonl`);
 }
 
-// Ensure the hooks dir exists (idempotent, defensive)
 mkdirSync(__dirname, { recursive: true });
+
+function loadActiveProfile() {
+  try {
+    const data = JSON.parse(readFileSync(PROFILE_FILE, 'utf8'));
+    return data.active || 'balanced';
+  } catch { return 'balanced'; }
+}
+
+const SESSION_ID = process.env.CLAUDE_SESSION_ID || process.ppid?.toString() || null;
 
 // ---------------------------------------------------------------------------
 // Tier classification
@@ -135,14 +141,21 @@ function classify(toolName, toolInput = {}, agentModel = null) {
 // Budget alerts
 // ---------------------------------------------------------------------------
 
-function checkBudget() {
+async function checkBudget() {
   let config;
   try {
     config = JSON.parse(readFileSync(join(__dirname, '..', 'orchestrator.json'), 'utf8'));
   } catch { return null; }
 
-  const budgets = config.budgets;
+  // Merge profile budget overrides on top of config defaults
+  let budgets = config.budgets;
   if (!budgets) return null;
+  try {
+    const profileData = JSON.parse(readFileSync(PROFILE_FILE, 'utf8'));
+    if (profileData.custom_overrides?.budgets) {
+      budgets = { ...budgets, ...profileData.custom_overrides.budgets };
+    }
+  } catch {}
 
   // Rate limit alerts
   const cooldownFile = join(__dirname, '.budget-alerted');
@@ -152,18 +165,24 @@ function checkBudget() {
     if (Date.now() - Date.parse(lastAlert) < cooldownMin * 60 * 1000) return null;
   } catch {}
 
-  // Calculate today's estimated cost
-  const todayFile = usageFile();
-  let records = [];
+  // Use summary checkpoint for fast budget check (O(1) instead of full scan)
+  let totalCost = 0;
   try {
-    records = readFileSync(todayFile, 'utf8').split('\n').filter(Boolean).map(l => {
-      try { return JSON.parse(l); } catch { return null; }
-    }).filter(Boolean);
-  } catch { return null; }
-
-  // Simple cost estimate using tier heuristics
-  const RATES = { search: 0.003, execute: 0.012, think: 0.055 };
-  const totalCost = records.reduce((sum, r) => sum + (RATES[r.tier] || RATES.execute), 0);
+    const { readSummary } = await import('./summary-checkpoint.mjs');
+    const summary = readSummary();
+    totalCost = summary.totals.cost_estimate;
+  } catch {
+    // Fallback: scan the log (only if summary unavailable)
+    const todayFile = usageFile();
+    let records = [];
+    try {
+      records = readFileSync(todayFile, 'utf8').split('\n').filter(Boolean).map(l => {
+        try { return JSON.parse(l); } catch { return null; }
+      }).filter(Boolean);
+    } catch { return null; }
+    const RATES = { search: 0.003, execute: 0.012, think: 0.055 };
+    totalCost = records.reduce((sum, r) => sum + (RATES[r.tier] || RATES.execute), 0);
+  }
 
   let msg = null;
   if (budgets.daily_limit_usd && totalCost >= budgets.daily_limit_usd) {
@@ -215,8 +234,8 @@ async function main() {
 
   const status = (payload?.error || payload?.tool_response?.error || payload?.is_error) ? 'error' : 'ok';
 
-  const entry = JSON.stringify({
-    schema_version: 2,
+  const entryObj = {
+    schema_version: 3,
     timestamp: new Date().toISOString(),
     tier,
     tool: toolName,
@@ -224,19 +243,25 @@ async function main() {
     provider: detectProvider(model),
     dispatcher: 'claude-code',
     status,
-    session_id: process.env.CLAUDE_SESSION_ID || null,
+    session_id: SESSION_ID,
+    profile: loadActiveProfile(),
     input_tokens: inputTokens,
     output_tokens: outputTokens,
-  });
+  };
+
+  const entry = JSON.stringify(entryObj);
 
   try {
     appendFileSync(usageFile(), entry + "\n", { encoding: "utf8", flag: "a" });
-  } catch {
-    // Disk write failed — silently ignore so the hook never blocks the IDE
-  }
+  } catch {}
 
-  // Check budget thresholds and emit a systemMessage if over limit
-  const budgetMsg = checkBudget();
+  // Update summary checkpoint (non-blocking, best-effort)
+  try {
+    const { updateSummary } = await import('./summary-checkpoint.mjs');
+    updateSummary(entryObj);
+  } catch {}
+
+  const budgetMsg = await checkBudget();
 
   // PostToolUse hooks must emit a JSON object to stdout
   if (budgetMsg) {

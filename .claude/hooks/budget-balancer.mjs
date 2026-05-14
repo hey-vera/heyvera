@@ -48,12 +48,38 @@ const WINDOW_BUDGETS = {
   },
 };
 
-/** Estimated tokens consumed per call, by tier */
-const TOKENS_PER_CALL = {
+/** Static fallback tokens per call, by tier */
+const TOKENS_PER_CALL_DEFAULT = {
   search:  2_500,
   execute: 5_500,
   think:  11_000,
 };
+
+/** Load moving averages from summary checkpoint, fall back to static defaults */
+function getTokensPerCall() {
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const summaryPath = join(__dirname, `usage-summary-${today}.json`);
+    const summary = JSON.parse(readFileSync(summaryPath, 'utf8'));
+    const avgs = summary.token_averages || {};
+    const result = { ...TOKENS_PER_CALL_DEFAULT };
+    for (const tier of ['search', 'execute', 'think']) {
+      // Check both providers for averages, prefer whichever has data
+      for (const provider of ['claude', 'openai']) {
+        const key = `${provider}:${tier}`;
+        if (avgs[key]?.count >= 5) {
+          result[tier] = Math.round(avgs[key].avg_input + avgs[key].avg_output);
+          break;
+        }
+      }
+    }
+    return result;
+  } catch {
+    return { ...TOKENS_PER_CALL_DEFAULT };
+  }
+}
+
+const TOKENS_PER_CALL = getTokensPerCall();
 
 /** Default pressure thresholds (fraction 0–1) */
 const DEFAULT_THRESHOLDS = {
@@ -286,13 +312,26 @@ function chooseProvider(taskProfile = {}) {
     score -= PRESSURE_PENALTY[tierStatus.state] ?? 0;
 
     // Latency penalty (OpenAI only — Codex has higher startup overhead)
+    // Uses adaptive threshold from observed Codex startup times when available
     if (provider === "openai") {
-      if (estimatedDurationMs < 180_000) {
-        score -= 25; // < 3 min: overhead not worth it
+      let minTaskMs = 180_000;
+      try {
+        const today = new Date().toISOString().slice(0, 10);
+        const summaryPath = join(__dirname, `usage-summary-${today}.json`);
+        const summary = JSON.parse(readFileSync(summaryPath, 'utf8'));
+        const latencies = (summary.codex_latencies || []).map(l => l.startup_ms).filter(Boolean);
+        if (latencies.length >= 5) {
+          const sorted = latencies.sort((a, b) => a - b);
+          const p75 = sorted[Math.floor(sorted.length * 0.75)];
+          minTaskMs = Math.max(90_000, p75 * 4);
+        }
+      } catch {}
+
+      if (estimatedDurationMs < minTaskMs) {
+        score -= 25;
       } else if (estimatedDurationMs < 600_000) {
-        score -= 10; // < 10 min: minor penalty
+        score -= 10;
       }
-      // >= 10 min: no penalty
     }
 
     // Underused bonus

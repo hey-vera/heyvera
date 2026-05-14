@@ -14,7 +14,7 @@
 
 import { execSync, spawnSync } from 'child_process';
 import { readFileSync } from 'fs';
-import { dirname, resolve } from 'path';
+import { dirname, join, resolve } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));

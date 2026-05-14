@@ -18,7 +18,7 @@
  */
 
 import { execSync, spawnSync } from 'child_process';
-import { appendFileSync } from 'fs';
+import { appendFileSync, readFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -117,10 +117,19 @@ function executeCodex(codexBin, model, prompt, cwd, timeoutMs) {
     .filter(m => m.type === 'item.completed' && m.item?.type === 'command_execution')
     .map(m => m.item);
 
+  // Estimate startup time: time to first agent message or completed item
+  const firstItemTs = messages.find(m => m.type === 'item.completed')?.timestamp;
+  let startupMs = null;
+  if (firstItemTs) {
+    startupMs = Date.parse(firstItemTs) - startTime;
+    if (startupMs < 0 || startupMs > durationMs) startupMs = null;
+  }
+
   return {
     success: proc.status === 0 && errors.length === 0,
     summary: agentMessages.join('\n\n'),
     durationMs,
+    startupMs,
     model,
     usage: usage || null,
     errors: errors.map(e => e.message || e.error?.message || 'unknown'),
@@ -134,10 +143,18 @@ function executeCodex(codexBin, model, prompt, cwd, timeoutMs) {
 // Usage logger
 // ---------------------------------------------------------------------------
 
+function loadActiveProfile() {
+  try {
+    return JSON.parse(readFileSync(join(__dirname, '..', 'dual-brain.profile.json'), 'utf8')).active || 'balanced';
+  } catch { return 'balanced'; }
+}
+
+const SESSION_ID = process.env.CLAUDE_SESSION_ID || process.ppid?.toString() || null;
+
 function logUsageEvent(result, task) {
   const logFile = join(__dirname, `usage-${new Date().toISOString().slice(0, 10)}.jsonl`);
-  const entry = JSON.stringify({
-    schema_version: 2,
+  const entryObj = {
+    schema_version: 3,
     timestamp: new Date().toISOString(),
     provider: 'openai',
     tier: task.tier || 'execute',
@@ -145,14 +162,40 @@ function logUsageEvent(result, task) {
     model: result.model,
     status: result.success ? 'ok' : 'error',
     durationMs: result.durationMs,
+    codex_startup_ms: result.startupMs || null,
+    codex_total_ms: result.durationMs,
     input_tokens: result.usage?.input_tokens ?? null,
     output_tokens: result.usage?.output_tokens ?? null,
-    session_id: process.env.CLAUDE_SESSION_ID || null,
+    session_id: SESSION_ID,
+    profile: result.profile || 'balanced',
     dispatcher: 'gpt-work-dispatcher',
-  });
+  };
   try {
-    appendFileSync(logFile, entry + '\n');
+    appendFileSync(logFile, JSON.stringify(entryObj) + '\n');
   } catch {}
+
+  // Update summary checkpoint with codex latency
+  import('./summary-checkpoint.mjs').then(({ updateSummary }) => {
+    updateSummary(entryObj);
+  }).catch(() => {});
+
+  // Record to decision ledger
+  import('./decision-ledger.mjs').then(({ recordDecision, recordOutcome }) => {
+    const id = recordDecision({
+      session_id: SESSION_ID,
+      profile: entryObj.profile,
+      tier: task.tier || 'execute',
+      provider: 'openai',
+      model: result.model,
+    });
+    recordOutcome(id, {
+      actual_duration_ms: result.durationMs,
+      codex_startup_ms: result.startupMs || null,
+      success: result.success,
+      actual_input_tokens: result.usage?.input_tokens || null,
+      actual_output_tokens: result.usage?.output_tokens || null,
+    });
+  }).catch(() => {});
 }
 
 // ---------------------------------------------------------------------------
@@ -171,6 +214,7 @@ export async function dispatchGptTask(task) {
   const model = task.model || 'gpt-5.4';
   const prompt = buildPrompt(task);
   const result = executeCodex(codexBin, model, prompt, task.cwd, task.timeoutMs);
+  result.profile = loadActiveProfile();
   logUsageEvent(result, task);
   return result;
 }

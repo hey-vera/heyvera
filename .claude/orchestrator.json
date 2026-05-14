@@ -3,90 +3,198 @@
     "claude": {
       "plan": "$100",
       "models": {
-        "opus":   { "tier": "think",   "input_per_mtok": 5.0,   "output_per_mtok": 25.0,  "context_window": 1000000, "max_output": 128000 },
-        "sonnet": { "tier": "execute", "input_per_mtok": 3.0,   "output_per_mtok": 15.0,  "context_window": 1000000, "max_output": 64000 },
-        "haiku":  { "tier": "search",  "input_per_mtok": 1.0,   "output_per_mtok": 5.0,   "context_window": 200000,  "max_output": 64000 }
+        "opus": {
+          "tier": "think",
+          "input_per_mtok": 5,
+          "output_per_mtok": 25
+        },
+        "sonnet": {
+          "tier": "execute",
+          "input_per_mtok": 3,
+          "output_per_mtok": 15
+        },
+        "haiku": {
+          "tier": "search",
+          "input_per_mtok": 1,
+          "output_per_mtok": 5
+        }
       }
     },
     "openai": {
       "plan": "$100",
       "models": {
-        "gpt-5.5":      { "tier": "think",   "input_per_mtok": 5.0,   "output_per_mtok": 30.0,  "context_window": 1000000, "max_output": 128000 },
-        "gpt-5.4":      { "tier": "execute", "input_per_mtok": 2.5,   "output_per_mtok": 15.0,  "context_window": 1000000, "max_output": 128000 },
-        "gpt-4.1-mini": { "tier": "search",  "input_per_mtok": 0.40,  "output_per_mtok": 1.60,  "context_window": 1047576, "max_output": 32768 }
+        "gpt-5.5": {
+          "tier": "think",
+          "input_per_mtok": 5,
+          "output_per_mtok": 30
+        },
+        "gpt-5.4": {
+          "tier": "execute",
+          "input_per_mtok": 2.5,
+          "output_per_mtok": 15
+        },
+        "gpt-4.1-mini": {
+          "tier": "search",
+          "input_per_mtok": 0.4,
+          "output_per_mtok": 1.6
+        }
       }
     }
   },
-
   "model_intelligence": {
     "opus": {
       "model_id": "claude-opus-4-6",
-      "strengths": ["agentic coding", "complex reasoning", "tool use", "error recovery", "architecture decisions"],
-      "weaknesses": ["higher latency", "tokenizer tax on 4.7 (12-35% more tokens)"],
+      "strengths": [
+        "agentic coding",
+        "complex reasoning",
+        "tool use",
+        "error recovery",
+        "architecture decisions"
+      ],
+      "weaknesses": [
+        "higher latency",
+        "tokenizer tax on 4.7 (12-35% more tokens)"
+      ],
       "best_for": "architecture, security review, complex debugging, multi-step planning",
       "avoid_for": "simple file reads, grep, formatting — wasteful at this tier"
     },
     "sonnet": {
       "model_id": "claude-sonnet-4-6",
-      "strengths": ["best speed/intelligence ratio", "precise minimal diffs", "1M context", "extended thinking"],
-      "weaknesses": ["less reliable on complex multi-step reasoning than Opus"],
+      "strengths": [
+        "best speed/intelligence ratio",
+        "precise minimal diffs",
+        "1M context",
+        "extended thinking"
+      ],
+      "weaknesses": [
+        "less reliable on complex multi-step reasoning than Opus"
+      ],
       "best_for": "implementation, refactoring, test writing, code edits, git operations",
       "avoid_for": "architecture decisions, security audits — upgrade to think tier"
     },
     "haiku": {
       "model_id": "claude-haiku-4-5-20251001",
-      "strengths": ["fastest latency", "cheapest", "good enough for read-only tasks"],
-      "weaknesses": ["200k context (vs 1M for others)", "weaker reasoning", "older knowledge cutoff"],
+      "strengths": [
+        "fastest latency",
+        "cheapest",
+        "good enough for read-only tasks"
+      ],
+      "weaknesses": [
+        "200k context (vs 1M for others)",
+        "weaker reasoning",
+        "older knowledge cutoff"
+      ],
       "best_for": "file lookups, grep, explore, read-only research, listing files",
       "avoid_for": "any task requiring edits, reasoning, or judgment"
     },
     "gpt-5.5": {
       "model_id": "gpt-5.5",
-      "strengths": ["complex reasoning", "fast interactive responses", "strong code review", "independent perspective from Claude"],
-      "weaknesses": ["different failure modes than Claude — feature not bug for dual-brain"],
+      "strengths": [
+        "complex reasoning",
+        "fast interactive responses",
+        "strong code review",
+        "independent perspective from Claude"
+      ],
+      "weaknesses": [
+        "different failure modes than Claude — feature not bug for dual-brain"
+      ],
       "best_for": "independent code review (dual-brain), second opinions on architecture",
       "codex_compatible": true
     },
     "gpt-5.4": {
       "model_id": "gpt-5.4",
-      "strengths": ["good speed/cost ratio", "1M context", "strong instruction following"],
-      "weaknesses": ["less capable reasoning than gpt-5.5"],
+      "strengths": [
+        "good speed/cost ratio",
+        "1M context",
+        "strong instruction following"
+      ],
+      "weaknesses": [
+        "less capable reasoning than gpt-5.5"
+      ],
       "best_for": "implementation and execution tasks via Codex",
       "codex_compatible": true
     },
     "gpt-4.1-mini": {
       "model_id": "gpt-4.1-mini",
-      "strengths": ["extremely cheap", "good instruction following", "1M context"],
-      "weaknesses": ["32k max output", "no reasoning chain"],
+      "strengths": [
+        "extremely cheap",
+        "good instruction following",
+        "1M context"
+      ],
+      "weaknesses": [
+        "32k max output",
+        "no reasoning chain"
+      ],
       "best_for": "cheap search/lookup tasks via Codex",
       "codex_compatible": true
     }
   },
-
   "tiers": {
     "search": {
       "description": "Read-only lookups, exploration, grep, find, file reads",
       "prefer": "cheapest available model",
-      "tasks": ["explore", "grep", "find", "ls", "read_file", "git_log", "git_status"]
+      "tasks": [
+        "explore",
+        "grep",
+        "find",
+        "ls",
+        "read_file",
+        "git_log",
+        "git_status"
+      ]
     },
     "execute": {
       "description": "Implementation, edits, test runs, git operations, linting",
       "prefer": "mid-tier model",
-      "tasks": ["edit", "write", "test_run", "lint", "format", "simple_fix", "refactor_small"]
+      "tasks": [
+        "edit",
+        "write",
+        "test_run",
+        "lint",
+        "format",
+        "simple_fix",
+        "refactor_small"
+      ]
     },
     "think": {
       "description": "Architecture, review, planning, security, complex debugging",
       "prefer": "most capable model",
-      "tasks": ["architecture", "review", "planning", "security", "complex_debug", "design"]
+      "tasks": [
+        "architecture",
+        "review",
+        "planning",
+        "security",
+        "complex_debug",
+        "design"
+      ]
     }
   },
-
   "quality_gate": {
     "enabled": true,
-    "trigger_extensions": [".ts", ".tsx", ".js", ".jsx", ".py", ".rs", ".go", ".java", ".rb", ".swift", ".kt"],
-    "skip_patterns": ["test", "__tests__", "spec", ".md", ".json", ".yaml", ".toml", ".txt"]
+    "trigger_extensions": [
+      ".ts",
+      ".tsx",
+      ".js",
+      ".jsx",
+      ".py",
+      ".rs",
+      ".go",
+      ".java",
+      ".rb",
+      ".swift",
+      ".kt"
+    ],
+    "skip_patterns": [
+      "test",
+      "__tests__",
+      "spec",
+      ".md",
+      ".json",
+      ".yaml",
+      ".toml",
+      ".txt"
+    ]
   },
-
   "routing_rules": {
     "subagent_defaults": {
       "Explore": "search",
@@ -99,7 +207,6 @@
     "max_concurrent_search": 4,
     "model_routing_note": "Claude Code model: param may be silently ignored (issue #43869). Set CLAUDE_CODE_SUBAGENT_MODEL env var as fallback if subagents all run on parent model."
   },
-
   "codex_skills": {
     "review": {
       "description": "Independent GPT code review via ChatGPT subscription",
@@ -139,17 +246,14 @@
       "command": "node .claude/hooks/budget-balancer.mjs"
     }
   },
-
-  "pricing_verified": "2026-05-13",
-
+  "pricing_verified": "2026-05-14",
   "budgets": {
-    "session_warn_usd": 5.00,
-    "session_limit_usd": 10.00,
-    "daily_warn_usd": 20.00,
-    "daily_limit_usd": 50.00,
+    "session_warn_usd": 5,
+    "session_limit_usd": 10,
+    "daily_warn_usd": 20,
+    "daily_limit_usd": 50,
     "alert_cooldown_minutes": 15
   },
-
   "routing": {
     "strategy": "hybrid-specialized-balanced",
     "codex_startup_penalty_ms": 20000,
@@ -159,7 +263,6 @@
       "agent_count": 2
     }
   },
-
   "providers": {
     "claude": {
       "enabled": true,
@@ -193,7 +296,6 @@
       }
     }
   },
-
   "dual_thinking": {
     "enabled": true,
     "auto_triggers": [
@@ -206,9 +308,18 @@
       "production-incident"
     ],
     "sensitive_paths": [
-      "auth", "security", "middleware/auth", "payment", "billing",
-      "migration", "schema", "permissions", "secrets", "crypto",
-      "api/public", ".env"
+      "auth",
+      "security",
+      "middleware/auth",
+      "payment",
+      "billing",
+      "migration",
+      "schema",
+      "permissions",
+      "secrets",
+      "crypto",
+      "api/public",
+      ".env"
     ],
     "conflict_resolver": "least-pressured-think-model"
   }
