@@ -1869,6 +1869,181 @@ test('install.mjs: includes ship-captain commands in help', () => {
   return true;
 });
 
+// ─── Test 63: confirmation-policy: exports all required functions ─────────────
+test('confirmation-policy: exports all required functions', () => {
+  const script = `
+    import { getConfirmationPolicy, resolveMode, aggregateRisk, formatConfirmation } from './confirmation-policy.mjs';
+    const results = { errors: [] };
+    if (typeof getConfirmationPolicy !== 'function') results.errors.push('getConfirmationPolicy is not a function');
+    if (typeof resolveMode !== 'function') results.errors.push('resolveMode is not a function');
+    if (typeof aggregateRisk !== 'function') results.errors.push('aggregateRisk is not a function');
+    if (typeof formatConfirmation !== 'function') results.errors.push('formatConfirmation is not a function');
+    process.stdout.write(JSON.stringify(results));
+  `;
+  const proc = spawnSync(process.execPath, [
+    '--input-type=module',
+    '-e', script,
+  ], { encoding: 'utf8', timeout: 5000, cwd: HOOKS });
+
+  if (proc.status !== 0) return `confirmation-policy script failed: ${proc.stderr}`;
+  let results;
+  try { results = JSON.parse(proc.stdout.trim()); } catch { return `output not JSON: ${proc.stdout}`; }
+  if (results.errors.length > 0) return results.errors.join('; ');
+  return true;
+});
+
+// ─── Test 64: confirmation-policy default mode low risk skips confirmations ───
+test('confirmation-policy: default mode low risk skips confirmations', () => {
+  const script = `
+    import { getConfirmationPolicy } from './confirmation-policy.mjs';
+    const result = getConfirmationPolicy({ risk: 'low', mode: 'default', step: 'edit' });
+    const results = { errors: [] };
+    if (result.shouldConfirm !== false) results.errors.push('expected shouldConfirm=false, got: ' + result.shouldConfirm);
+    if (result.shouldBlock !== false) results.errors.push('expected shouldBlock=false, got: ' + result.shouldBlock);
+    process.stdout.write(JSON.stringify(results));
+  `;
+  const proc = spawnSync(process.execPath, [
+    '--input-type=module',
+    '-e', script,
+  ], { encoding: 'utf8', timeout: 5000, cwd: HOOKS });
+
+  if (proc.status !== 0) return `confirmation-policy script failed: ${proc.stderr}`;
+  let results;
+  try { results = JSON.parse(proc.stdout.trim()); } catch { return `output not JSON: ${proc.stdout}`; }
+  if (results.errors.length > 0) return results.errors.join('; ');
+  return true;
+});
+
+// ─── Test 65: confirmation-policy default mode critical risk blocks ────────────
+test('confirmation-policy: default mode critical risk blocks', () => {
+  const script = `
+    import { getConfirmationPolicy } from './confirmation-policy.mjs';
+    const result = getConfirmationPolicy({ risk: 'critical', mode: 'default', step: 'edit' });
+    const results = { errors: [] };
+    if (result.shouldBlock !== true) results.errors.push('expected shouldBlock=true, got: ' + result.shouldBlock);
+    process.stdout.write(JSON.stringify(results));
+  `;
+  const proc = spawnSync(process.execPath, [
+    '--input-type=module',
+    '-e', script,
+  ], { encoding: 'utf8', timeout: 5000, cwd: HOOKS });
+
+  if (proc.status !== 0) return `confirmation-policy script failed: ${proc.stderr}`;
+  let results;
+  try { results = JSON.parse(proc.stdout.trim()); } catch { return `output not JSON: ${proc.stdout}`; }
+  if (results.errors.length > 0) return results.errors.join('; ');
+  return true;
+});
+
+// ─── Test 66: confirmation-policy yolo mode allows critical ───────────────────
+test('confirmation-policy: yolo mode allows critical', () => {
+  const script = `
+    import { getConfirmationPolicy } from './confirmation-policy.mjs';
+    const result = getConfirmationPolicy({ risk: 'critical', mode: 'yolo', step: 'edit' });
+    const results = { errors: [] };
+    if (result.shouldBlock !== false) results.errors.push('expected shouldBlock=false in yolo mode, got: ' + result.shouldBlock);
+    if (result.shouldConfirm !== false) results.errors.push('expected shouldConfirm=false in yolo mode, got: ' + result.shouldConfirm);
+    process.stdout.write(JSON.stringify(results));
+  `;
+  const proc = spawnSync(process.execPath, [
+    '--input-type=module',
+    '-e', script,
+  ], { encoding: 'utf8', timeout: 5000, cwd: HOOKS });
+
+  if (proc.status !== 0) return `confirmation-policy script failed: ${proc.stderr}`;
+  let results;
+  try { results = JSON.parse(proc.stdout.trim()); } catch { return `output not JSON: ${proc.stdout}`; }
+  if (results.errors.length > 0) return results.errors.join('; ');
+  return true;
+});
+
+// ─── Test 67: confirmation-policy careful mode confirms everything ─────────────
+test('confirmation-policy: careful mode confirms everything', () => {
+  const script = `
+    import { getConfirmationPolicy } from './confirmation-policy.mjs';
+    const result = getConfirmationPolicy({ risk: 'low', mode: 'careful', step: 'edit' });
+    const results = { errors: [] };
+    if (result.shouldConfirm !== true) results.errors.push('expected shouldConfirm=true in careful mode, got: ' + result.shouldConfirm);
+    process.stdout.write(JSON.stringify(results));
+  `;
+  const proc = spawnSync(process.execPath, [
+    '--input-type=module',
+    '-e', script,
+  ], { encoding: 'utf8', timeout: 5000, cwd: HOOKS });
+
+  if (proc.status !== 0) return `confirmation-policy script failed: ${proc.stderr}`;
+  let results;
+  try { results = JSON.parse(proc.stdout.trim()); } catch { return `output not JSON: ${proc.stdout}`; }
+  if (results.errors.length > 0) return results.errors.join('; ');
+  return true;
+});
+
+// ─── Test 68: confirmation-policy aggregateRisk returns highest ───────────────
+test('confirmation-policy: aggregateRisk returns highest', () => {
+  const script = `
+    import { aggregateRisk } from './confirmation-policy.mjs';
+    const result = aggregateRisk(['low', 'medium', 'high', 'low']);
+    const results = { errors: [] };
+    if (result !== 'high') results.errors.push('expected "high", got: ' + result);
+    process.stdout.write(JSON.stringify(results));
+  `;
+  const proc = spawnSync(process.execPath, [
+    '--input-type=module',
+    '-e', script,
+  ], { encoding: 'utf8', timeout: 5000, cwd: HOOKS });
+
+  if (proc.status !== 0) return `confirmation-policy script failed: ${proc.stderr}`;
+  let results;
+  try { results = JSON.parse(proc.stdout.trim()); } catch { return `output not JSON: ${proc.stdout}`; }
+  if (results.errors.length > 0) return results.errors.join('; ');
+  return true;
+});
+
+// ─── Test 69: confirmation-policy resolveMode parses flags ────────────────────
+test('confirmation-policy: resolveMode parses flags', () => {
+  const script = `
+    import { resolveMode } from './confirmation-policy.mjs';
+    const results = { errors: [] };
+    const yolo = resolveMode(['--yolo']);
+    if (yolo !== 'yolo') results.errors.push('expected "yolo" for ["--yolo"], got: ' + yolo);
+    const careful = resolveMode(['--careful']);
+    if (careful !== 'careful') results.errors.push('expected "careful" for ["--careful"], got: ' + careful);
+    const def = resolveMode([]);
+    if (def !== 'default') results.errors.push('expected "default" for [], got: ' + def);
+    process.stdout.write(JSON.stringify(results));
+  `;
+  const proc = spawnSync(process.execPath, [
+    '--input-type=module',
+    '-e', script,
+  ], { encoding: 'utf8', timeout: 5000, cwd: HOOKS });
+
+  if (proc.status !== 0) return `confirmation-policy script failed: ${proc.stderr}`;
+  let results;
+  try { results = JSON.parse(proc.stdout.trim()); } catch { return `output not JSON: ${proc.stdout}`; }
+  if (results.errors.length > 0) return results.errors.join('; ');
+  return true;
+});
+
+// ─── Test 70: ship-gate exports runShipGate ───────────────────────────────────
+test('ship-gate: exports runShipGate', () => {
+  const script = `
+    import { runShipGate } from './ship-gate.mjs';
+    const results = { errors: [] };
+    if (typeof runShipGate !== 'function') results.errors.push('runShipGate is not a function');
+    process.stdout.write(JSON.stringify(results));
+  `;
+  const proc = spawnSync(process.execPath, [
+    '--input-type=module',
+    '-e', script,
+  ], { encoding: 'utf8', timeout: 8000, cwd: HOOKS });
+
+  if (proc.status !== 0) return `ship-gate script failed: ${proc.stderr}`;
+  let results;
+  try { results = JSON.parse(proc.stdout.trim()); } catch { return `output not JSON: ${proc.stdout}`; }
+  if (results.errors.length > 0) return results.errors.join('; ');
+  return true;
+});
+
 // ─── Summary ─────────────────────────────────────────────────────────────────
 const total = passed + failed;
 console.log(`\n${passed}/${total} tests passed`);

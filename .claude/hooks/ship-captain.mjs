@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 /**
- * ship-captain.mjs — End-to-end executor for dual-brain.
+ * ship-captain.mjs — End-to-end executor for dual-brain v4.4.1.
  *
  * Orchestrates natural language goals into structured, sequentially executed
- * agent tasks with durable run records and quality gate integration.
+ * agent tasks with durable run records, quality gate integration, tests, and PR.
  *
  * CLI:  node hooks/ship-captain.mjs "fix the auth bug and write tests"
- *       node hooks/ship-captain.mjs --goal "..." [--yes] [--dry-run] [--provider claude|gpt|auto]
+ *       node hooks/ship-captain.mjs --goal "..." [--yes] [--dry-run] [--plan-only]
+ *                                   [--provider claude|gpt|auto] [--yolo] [--careful]
+ *                                   [--no-pr] [--mode <profile>]
  *
  * Exports: planExecution(goal), executeShipCaptain(goal, options)
  */
@@ -72,6 +74,37 @@ function resolveProvider(task, forcedProvider) {
   } catch {
     return 'claude';
   }
+}
+
+// ─── Mode Resolution ──────────────────────────────────────────────────────
+
+/**
+ * Resolve the execution mode from argv flags and options.
+ * Tries to import confirmation-policy.mjs's resolveMode; falls back to inline logic.
+ * @param {object} opts - parsed CLI options
+ * @returns {string} mode string: 'yolo' | 'careful' | 'auto' | profile name
+ */
+async function resolveMode(opts) {
+  // Try to use confirmation-policy if available
+  try {
+    const cpPath = resolve(__dirname, 'confirmation-policy.mjs');
+    if (existsSync(cpPath)) {
+      const { resolveMode: cpResolveMode } = await import(cpPath);
+      return cpResolveMode({
+        yolo: opts.yolo,
+        careful: opts.careful,
+        mode: opts.mode,
+        provider: opts.provider,
+      });
+    }
+  } catch {
+    // confirmation-policy not available yet, use inline fallback
+  }
+
+  if (opts.yolo) return 'yolo';
+  if (opts.careful) return 'careful';
+  if (opts.mode) return opts.mode;
+  return 'auto';
 }
 
 // ─── Git State Snapshot ───────────────────────────────────────────────────
@@ -239,23 +272,141 @@ function writeRunRecord(record) {
   return fpath;
 }
 
+// ─── Confirmation Policy Integration ─────────────────────────────────────
+
+/**
+ * Load confirmation-policy.mjs exports if available.
+ * Returns null if file doesn't exist yet (other agent still building it).
+ */
+async function loadConfirmationPolicy() {
+  const cpPath = resolve(__dirname, 'confirmation-policy.mjs');
+  if (!existsSync(cpPath)) return null;
+  try {
+    const mod = await import(cpPath);
+    return {
+      getConfirmationPolicy: mod.getConfirmationPolicy,
+      resolveMode: mod.resolveMode,
+      aggregateRisk: mod.aggregateRisk,
+      formatConfirmation: mod.formatConfirmation,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Check whether to confirm/block a step based on confirmation policy.
+ * Falls back to the original stopBefore logic if policy module not available.
+ */
+async function checkStepConfirmation(cp, { risk, mode, stepName }) {
+  if (!cp || !cp.getConfirmationPolicy) {
+    // Fallback: block on high/critical in non-yolo mode
+    const isHighRisk = risk === 'high' || risk === 'critical';
+    return {
+      shouldBlock: false,
+      shouldConfirm: isHighRisk && mode !== 'yolo',
+      reason: isHighRisk ? `${risk} risk step` : null,
+    };
+  }
+  try {
+    return cp.getConfirmationPolicy({ risk, mode, step: stepName });
+  } catch {
+    return { shouldBlock: false, shouldConfirm: false, reason: null };
+  }
+}
+
+// ─── Risk Aggregation ─────────────────────────────────────────────────────
+
+const RISK_ORDER = ['low', 'medium', 'high', 'critical'];
+
+function aggregateRiskFallback(risks) {
+  let max = 'low';
+  for (const r of risks) {
+    if (RISK_ORDER.indexOf(r) > RISK_ORDER.indexOf(max)) max = r;
+  }
+  return max;
+}
+
+// ─── Ship Gate Integration ────────────────────────────────────────────────
+
+/**
+ * Attempt to import and run the ship gate pipeline.
+ * Returns null if ship-gate.mjs doesn't export runShipGate yet.
+ */
+async function runShipGatePipeline(goal, runRecord, options) {
+  const sgPath = resolve(__dirname, 'ship-gate.mjs');
+  if (!existsSync(sgPath)) {
+    return { status: 'skipped', reason: 'ship-gate.mjs not found' };
+  }
+
+  let runShipGate;
+  try {
+    const mod = await import(sgPath);
+    runShipGate = mod.runShipGate;
+  } catch (err) {
+    return { status: 'skipped', reason: `failed to import ship-gate.mjs: ${err.message}` };
+  }
+
+  if (typeof runShipGate !== 'function') {
+    // ship-gate.mjs exists but runShipGate export not added yet (other agent still building)
+    return { status: 'skipped', reason: 'runShipGate export not yet available in ship-gate.mjs' };
+  }
+
+  try {
+    const result = await runShipGate({
+      goal,
+      runId: runRecord.id,
+      yes: options.yes || options.yolo,
+      no_pr: options.noPr,
+      runRecord,
+    });
+    return result;
+  } catch (err) {
+    return { status: 'error', reason: err.message };
+  }
+}
+
 // ─── Main Executor ─────────────────────────────────────────────────────────
 
 /**
  * executeShipCaptain(goal, options) — Full orchestration flow.
  *
  * @param {string} goal
- * @param {{ yes?: boolean, dryRun?: boolean, provider?: string }} options
+ * @param {{
+ *   yes?: boolean,
+ *   dryRun?: boolean,
+ *   planOnly?: boolean,
+ *   provider?: string,
+ *   yolo?: boolean,
+ *   careful?: boolean,
+ *   noPr?: boolean,
+ *   mode?: string,
+ * }} options
  * @returns {object} run record
  */
 async function executeShipCaptain(goal, options = {}) {
-  const { yes = false, dryRun = false, provider: forcedProvider = 'auto' } = options;
+  const {
+    yes = false,
+    dryRun = false,
+    planOnly = false,
+    provider: forcedProvider = 'auto',
+    yolo = false,
+    careful = false,
+    noPr = false,
+  } = options;
+
+  // Resolve mode (uses confirmation-policy if available)
+  const mode = await resolveMode({ yolo, careful, mode: options.mode, provider: forcedProvider });
+
+  // Load confirmation policy module (graceful degradation if not ready)
+  const cp = await loadConfirmationPolicy();
 
   const plan = planExecution(goal);
   printPlan(plan, forcedProvider);
 
-  if (dryRun) {
-    console.log('  [--dry-run] Plan displayed. Nothing executed.\n');
+  if (dryRun || planOnly) {
+    const label = planOnly ? '--plan-only' : '--dry-run';
+    console.log(`  [${label}] Plan displayed. Nothing executed.\n`);
     return { id: null, status: 'dry_run', goal, steps: [] };
   }
 
@@ -265,15 +416,18 @@ async function executeShipCaptain(goal, options = {}) {
     id: runId,
     goal,
     status: 'running',
+    mode,
     steps: [],
     total_duration_ms: 0,
     files_changed: [],
     started_at: startedAt,
     completed_at: null,
+    ship_gate: null,
   };
 
   const allChangedFiles = new Set();
   const totalSteps = plan.steps.length;
+  const stepRisks = [];
 
   for (let i = 0; i < plan.steps.length; i++) {
     const step = plan.steps[i];
@@ -281,18 +435,50 @@ async function executeShipCaptain(goal, options = {}) {
     const tierLabel = TIER_BADGE[task.tier] || task.tier;
     const riskBadge = RISK_BADGE[task.risk] || `[${task.risk}]`;
 
-    // Stop point before high/critical steps (except first step)
-    if (stopBefore && !yes) {
-      const go = await askContinue(index, totalSteps);
-      if (!go) {
-        console.log('\n  Aborted before step', index, '\n');
+    stepRisks.push(task.risk || 'low');
+
+    // ── Confirmation policy check ──────────────────────────────────────────
+    if (mode !== 'yolo' && (stopBefore || mode === 'careful')) {
+      const conf = await checkStepConfirmation(cp, {
+        risk: task.risk,
+        mode,
+        stepName: 'edit',
+      });
+
+      if (conf.shouldBlock) {
+        console.log(`\n  [BLOCKED] Step ${index}/${totalSteps}: ${task.title}`);
+        console.log(`  Reason: ${conf.reason || 'blocked by confirmation policy'}`);
+        console.log('  Use --yolo to bypass, or adjust your profile.\n');
         runRecord.status = 'aborted';
         runRecord.completed_at = new Date().toISOString();
         runRecord.total_duration_ms = Date.now() - new Date(startedAt).getTime();
         runRecord.files_changed = [...allChangedFiles];
         const fpath = writeRunRecord(runRecord);
-        printFinalSummary(runRecord, fpath);
+        printFinalSummary(runRecord, fpath, null);
         return runRecord;
+      }
+
+      if (conf.shouldConfirm) {
+        const confirmMsg = cp && cp.formatConfirmation
+          ? cp.formatConfirmation('edit', task.risk, conf.reason)
+          : `\n  Continue to step ${index}/${totalSteps}? [Y/n] `;
+        const go = await (async () => {
+          if (!yes) {
+            const answer = await prompt(confirmMsg);
+            return answer === '' || /^y(es)?$/i.test(answer);
+          }
+          return true;
+        })();
+        if (!go) {
+          console.log('\n  Aborted before step', index, '\n');
+          runRecord.status = 'aborted';
+          runRecord.completed_at = new Date().toISOString();
+          runRecord.total_duration_ms = Date.now() - new Date(startedAt).getTime();
+          runRecord.files_changed = [...allChangedFiles];
+          const fpath = writeRunRecord(runRecord);
+          printFinalSummary(runRecord, fpath, null);
+          return runRecord;
+        }
       }
     }
 
@@ -313,7 +499,7 @@ async function executeShipCaptain(goal, options = {}) {
 
       let result;
       if (chainName) {
-        result = spawnChain(chainName, task, yes);
+        result = spawnChain(chainName, task, yes || yolo);
       } else {
         result = spawnTemplate(templateName, task);
       }
@@ -322,8 +508,8 @@ async function executeShipCaptain(goal, options = {}) {
 
       if (exitStatus !== 0) {
         console.log(`\n  Step ${index} exited with code ${exitStatus}.`);
-        if (yes) {
-          console.log('  [--yes] Aborting on failure.');
+        if (yes || yolo) {
+          console.log('  [auto] Aborting on failure.');
           stepStatus = 'failed';
         } else {
           const choice = await askOnFailure(index);
@@ -349,6 +535,7 @@ async function executeShipCaptain(goal, options = {}) {
     runRecord.steps.push({
       task: task.title,
       template: chainName || templateName,
+      risk: task.risk,
       status: stepStatus,
       files_changed: filesChanged,
       duration_ms: stepDuration,
@@ -365,7 +552,7 @@ async function executeShipCaptain(goal, options = {}) {
       runRecord.total_duration_ms = Date.now() - new Date(startedAt).getTime();
       runRecord.files_changed = [...allChangedFiles];
       const fpath = writeRunRecord(runRecord);
-      printFinalSummary(runRecord, fpath);
+      printFinalSummary(runRecord, fpath, null);
       return runRecord;
     }
   }
@@ -375,39 +562,146 @@ async function executeShipCaptain(goal, options = {}) {
   runRecord.total_duration_ms = Date.now() - new Date(startedAt).getTime();
   runRecord.files_changed = [...allChangedFiles];
 
+  // ── Ship Gate Pipeline ─────────────────────────────────────────────────
+  // Check aggregate risk vs confirmation policy before running gate/tests/PR
+  const aggRisk = cp && cp.aggregateRisk
+    ? cp.aggregateRisk(stepRisks)
+    : aggregateRiskFallback(stepRisks);
+
+  runRecord.aggregate_risk = aggRisk;
+
+  // Check if gate/test/pr steps are blocked
+  const gateConf = await checkStepConfirmation(cp, { risk: aggRisk, mode, stepName: 'gate' });
+  const prConf = await checkStepConfirmation(cp, { risk: aggRisk, mode, stepName: 'pr' });
+
+  const isBlocked = (gateConf.shouldBlock || prConf.shouldBlock) && mode !== 'yolo';
+
+  let shipGateResult = null;
+
+  if (isBlocked) {
+    console.log('\n  [WARNING] Ship gate blocked by confirmation policy.');
+    const reason = gateConf.shouldBlock
+      ? (gateConf.reason || 'critical risk requires manual review')
+      : (prConf.reason || 'PR creation requires manual approval');
+    console.log(`  Reason: ${reason}`);
+    console.log('  Use --yolo to bypass, or run manually:');
+    console.log('    npx dual-brain gate');
+    console.log('    npx dual-brain ship\n');
+    runRecord.ship_gate = { status: 'blocked', reason };
+  } else {
+    // Run the full ship gate pipeline
+    console.log('\n  Running ship gate (tests → quality gate → PR)...');
+    shipGateResult = await runShipGatePipeline(goal, runRecord, {
+      yes: yes || yolo,
+      noPr,
+    });
+
+    runRecord.ship_gate = shipGateResult;
+
+    if (shipGateResult && shipGateResult.status === 'skipped') {
+      console.log(`\n  [INFO] Ship gate skipped: ${shipGateResult.reason}`);
+      console.log('  Next: npx dual-brain gate    (run quality gate)');
+      console.log('        npx dual-brain ship    (create branch + PR)\n');
+    }
+  }
+
   const fpath = writeRunRecord(runRecord);
-  printFinalSummary(runRecord, fpath);
+  printFinalSummary(runRecord, fpath, shipGateResult);
   return runRecord;
 }
 
 // ─── Final Summary ────────────────────────────────────────────────────────
 
-function printFinalSummary(record, fpath) {
+function printFinalSummary(record, fpath, shipGateResult) {
   const hr = '━'.repeat(50);
-  const completed = record.steps.filter(s => s.status === 'done' || s.status === 'skipped').length;
-  const total = record.steps.length;
+  const completedSteps = record.steps.filter(s => s.status === 'done' || s.status === 'skipped').length;
+  const totalSteps = record.steps.length;
   const relPath = fpath
     ? fpath.replace(process.cwd() + '/', '')
     : '.claude/runs/[not written]';
 
+  const statusLabel = record.status === 'completed'
+    ? 'Complete'
+    : record.status.charAt(0).toUpperCase() + record.status.slice(1);
+
   console.log(`\n${hr}`);
-  console.log(`  Ship Captain ${record.status === 'completed' ? 'Complete' : record.status.charAt(0).toUpperCase() + record.status.slice(1)}`);
+  console.log(`  Ship Captain ${statusLabel}`);
   console.log(`${hr}`);
   console.log(`  Goal: ${record.goal}`);
-  console.log(`  Steps: ${completed}/${total} completed`);
+  console.log(`  Steps: ${completedSteps}/${totalSteps} completed`);
   console.log(`  Files changed: ${record.files_changed.length}`);
+
+  // Ship gate details (tests, gate, PR)
+  if (shipGateResult && shipGateResult.status !== 'skipped') {
+    // Tests
+    const tests = shipGateResult.tests;
+    if (tests) {
+      if (tests.passed === null) {
+        console.log('  Tests: not found');
+      } else if (tests.passed) {
+        console.log(`  Tests: passed (${tests.command_used || 'npm test'})`);
+      } else {
+        console.log(`  Tests: FAILED (exit ${tests.exit_code})`);
+      }
+    }
+
+    // Quality gate
+    const gate = shipGateResult.gate;
+    if (gate) {
+      const gateStatus = gate.gate || gate.status || 'unknown';
+      const gateRisk = gate.risk ? ` (${gate.risk} risk)` : '';
+      console.log(`  Quality gate: ${gateStatus}${gateRisk}`);
+    }
+
+    // PR
+    const pr = shipGateResult.pr;
+    if (record.ship_gate && record.ship_gate.status === 'blocked') {
+      console.log('  PR: skipped (use npx dual-brain ship)');
+    } else if (noPrFlagFromRecord(record)) {
+      console.log('  PR: skipped (--no-pr)');
+    } else if (pr && pr.pr_url) {
+      console.log(`  PR: ${pr.pr_url}`);
+    } else if (pr && pr.error) {
+      console.log(`  PR: failed — ${pr.error}`);
+    } else if (pr && pr.branch) {
+      console.log(`  PR: skipped (use npx dual-brain ship)`);
+    } else {
+      console.log('  PR: skipped (use npx dual-brain ship)');
+    }
+  } else if (record.ship_gate && record.ship_gate.status === 'blocked') {
+    console.log('  Tests: not run (blocked)');
+    console.log('  Quality gate: not run (blocked)');
+    console.log('  PR: skipped (use npx dual-brain ship)');
+  } else {
+    // Gate not run (skipped or not available)
+    console.log('  Next: npx dual-brain gate    (run quality gate)');
+    console.log('        npx dual-brain ship    (create branch + PR)');
+  }
+
   console.log(`  Duration: ${fmtDuration(record.total_duration_ms)}`);
   console.log(`  Run record: ${relPath}`);
-  console.log('');
-  console.log('  Next: npx dual-brain gate    (run quality gate)');
-  console.log('        npx dual-brain ship    (create branch + PR)');
   console.log(`${hr}\n`);
+}
+
+function noPrFlagFromRecord(record) {
+  // We can't easily recover noPr flag from the record alone; best effort
+  return false;
 }
 
 // ─── CLI Arg Parser ───────────────────────────────────────────────────────
 
 function parseArgs(argv) {
-  const opts = { goal: null, yes: false, dryRun: false, provider: 'auto' };
+  const opts = {
+    goal: null,
+    yes: false,
+    dryRun: false,
+    planOnly: false,
+    provider: 'auto',
+    yolo: false,
+    careful: false,
+    noPr: false,
+    mode: null,
+  };
   const positional = [];
 
   for (let i = 0; i < argv.length; i++) {
@@ -418,8 +712,18 @@ function parseArgs(argv) {
       opts.yes = true;
     } else if (a === '--dry-run') {
       opts.dryRun = true;
+    } else if (a === '--plan-only') {
+      opts.planOnly = true;
     } else if (a === '--provider') {
       opts.provider = argv[++i];
+    } else if (a === '--yolo') {
+      opts.yolo = true;
+    } else if (a === '--careful') {
+      opts.careful = true;
+    } else if (a === '--no-pr') {
+      opts.noPr = true;
+    } else if (a === '--mode') {
+      opts.mode = argv[++i];
     } else if (!a.startsWith('--')) {
       positional.push(a);
     }
@@ -445,7 +749,10 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1
     console.error(`
   Usage:
     node hooks/ship-captain.mjs "fix the auth bug and write tests"
-    node hooks/ship-captain.mjs --goal "..." [--yes] [--dry-run] [--provider claude|gpt|auto]
+    node hooks/ship-captain.mjs --goal "..." [--yes] [--dry-run] [--plan-only]
+                                             [--provider claude|gpt|auto]
+                                             [--yolo] [--careful] [--no-pr]
+                                             [--mode <profile>]
     `);
     process.exit(1);
   }
@@ -453,7 +760,12 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1
   executeShipCaptain(opts.goal, {
     yes: opts.yes,
     dryRun: opts.dryRun,
+    planOnly: opts.planOnly,
     provider: opts.provider,
+    yolo: opts.yolo,
+    careful: opts.careful,
+    noPr: opts.noPr,
+    mode: opts.mode,
   }).then((record) => {
     process.exit(record.status === 'completed' || record.status === 'dry_run' ? 0 : 1);
   }).catch((err) => {

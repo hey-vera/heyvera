@@ -469,7 +469,181 @@ function buildPRBody({ goal, diff_summary, test_result, gate_result, run_id }) {
 }
 
 // ---------------------------------------------------------------------------
-// 5. CLI Entry Point
+// 5. Programmatic API
+// ---------------------------------------------------------------------------
+
+/**
+ * Run the full ship flow programmatically.
+ *
+ * @param {{
+ *   goal?: string,
+ *   runId?: string,
+ *   yes?: boolean,
+ *   noPr?: boolean,
+ *   runRecord?: object,
+ * }} options
+ * @returns {Promise<{
+ *   tests: { ran: boolean, passed: boolean|null, output: string, command: string|null },
+ *   gate: { status: string, risk: string|null, approval: string|null } | null,
+ *   diff: { files_added: string[], files_modified: string[], files_deleted: string[], stats: string },
+ *   pr: { url: string|null, branch: string, commit: string|null } | null,
+ *   status: 'shipped'|'tests_failed'|'gate_failed'|'no_changes'|'pr_skipped',
+ * }>}
+ */
+export async function runShipGate(options = {}) {
+  const {
+    goal = 'Ship changes',
+    runId,
+    yes = false,
+    noPr = false,
+    runRecord,
+  } = options;
+
+  // 1. Test discovery and execution
+  process.stderr.write('[ship-gate] Step 1/4: Discovering and running tests...\n');
+  const discovery = discoverTests();
+  let testResult = null;
+  let testsRan = false;
+
+  if (discovery.command) {
+    process.stderr.write(`[ship-gate]   Command: ${discovery.command} (${discovery.framework ?? 'unknown'}, confidence: ${discovery.confidence})\n`);
+    testResult = runTests();
+    testsRan = true;
+    const status = testResult.passed ? 'PASSED' : 'FAILED';
+    process.stderr.write(`[ship-gate]   Result: ${status} (${testResult.duration_ms}ms)\n`);
+  } else {
+    process.stderr.write('[ship-gate]   No tests found — skipping.\n');
+  }
+
+  const testsOutput = {
+    ran: testsRan,
+    passed: testResult?.passed ?? null,
+    output: testResult?.output ?? '',
+    command: testResult?.command_used ?? discovery.command ?? null,
+  };
+
+  if (testsRan && !testResult.passed) {
+    return {
+      tests: testsOutput,
+      gate: null,
+      diff: generateDiffSummary(),
+      pr: null,
+      status: 'tests_failed',
+    };
+  }
+
+  // 2. Quality gate
+  process.stderr.write('[ship-gate] Step 2/4: Running quality gate...\n');
+  const qgPath = join(__dirname, 'quality-gate.mjs');
+  let gateResult = null;
+
+  if (existsSync(qgPath)) {
+    const qgRes = spawnSync(process.execPath, [qgPath], {
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      cwd: process.cwd(),
+      timeout: 120_000,
+    });
+    try {
+      gateResult = JSON.parse((qgRes.stdout || '').trim());
+      process.stderr.write(`[ship-gate]   Gate: ${gateResult.gate} | Risk: ${gateResult.risk ?? 'N/A'}\n`);
+    } catch {
+      process.stderr.write('[ship-gate]   Quality gate returned unparseable output.\n');
+    }
+  } else {
+    process.stderr.write('[ship-gate]   quality-gate.mjs not found — skipping.\n');
+  }
+
+  const gateOutput = gateResult
+    ? {
+        status: gateResult.gate ?? 'unknown',
+        risk: gateResult.risk ?? null,
+        approval: gateResult.approval ?? null,
+      }
+    : null;
+
+  // Fail if gate explicitly failed (issues_found is a warning, not a hard stop in programmatic mode)
+  if (gateResult && gateResult.gate === 'gate_failed') {
+    const diffSummaryEarly = generateDiffSummary();
+    return {
+      tests: testsOutput,
+      gate: gateOutput,
+      diff: diffSummaryEarly,
+      pr: null,
+      status: 'gate_failed',
+    };
+  }
+
+  // 3. Diff summary
+  process.stderr.write('[ship-gate] Step 3/4: Generating diff summary...\n');
+  const diffSummary = generateDiffSummary();
+  process.stderr.write(`[ship-gate]   ${diffSummary.stats}\n`);
+
+  const total = diffSummary.files_added.length + diffSummary.files_modified.length + diffSummary.files_deleted.length;
+  if (total === 0 && diffSummary.stats === 'no changes') {
+    return {
+      tests: testsOutput,
+      gate: gateOutput,
+      diff: diffSummary,
+      pr: null,
+      status: 'no_changes',
+    };
+  }
+
+  // 4. PR
+  process.stderr.write('[ship-gate] Step 4/4: Creating PR...\n');
+
+  const gatePassed = !gateResult || gateResult.gate === 'pass' || gateResult.gate === 'self_check';
+
+  if (noPr || !gatePassed) {
+    if (!gatePassed) {
+      process.stderr.write('[ship-gate]   Gate status requires review — skipping PR.\n');
+    } else {
+      process.stderr.write('[ship-gate]   --no-pr set — skipping PR creation.\n');
+    }
+    return {
+      tests: testsOutput,
+      gate: gateOutput,
+      diff: diffSummary,
+      pr: null,
+      status: 'pr_skipped',
+    };
+  }
+
+  const prResult = await createPR({
+    goal,
+    run_id: runId,
+    yes,
+    no_pr: false,
+    test_result: testResult,
+    gate_result: gateResult,
+    diff_summary: diffSummary,
+  });
+
+  const prOutput = {
+    url: prResult.pr_url ?? null,
+    branch: prResult.branch ?? null,
+    commit: prResult.commit_hash ?? null,
+    error: prResult.error ?? null,
+  };
+
+  if (prResult.error) {
+    process.stderr.write(`[ship-gate]   PR step error: ${prResult.error}\n`);
+  } else {
+    process.stderr.write(`[ship-gate]   PR created: ${prResult.pr_url ?? 'N/A'}\n`);
+  }
+
+  return {
+    tests: testsOutput,
+    gate: gateOutput,
+    diff: diffSummary,
+    pr: prOutput,
+    status: prResult.error ? 'pr_skipped' : 'shipped',
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 6. CLI Entry Point
 // ---------------------------------------------------------------------------
 
 async function main() {
@@ -513,93 +687,62 @@ async function main() {
   if (ship || noPR) {
     console.log('=== Ship Gate ===\n');
 
-    // 1. Tests
-    console.log('Step 1/4: Running tests...');
-    const discovery = discoverTests();
-    let testResult = null;
-    if (discovery.command) {
-      console.log(`  Command: ${discovery.command} (${discovery.framework ?? 'unknown'}, confidence: ${discovery.confidence})`);
-      testResult = runTests();
-      const status = testResult.passed ? 'PASSED' : 'FAILED';
-      console.log(`  Result: ${status} (${testResult.duration_ms}ms)`);
-      if (!testResult.passed) {
-        console.log(`\n  Output:\n${testResult.output?.split('\n').map(l => '  ' + l).join('\n')}`);
-        if (!yes && !confirm('\nTests failed. Continue anyway?')) {
-          console.log('Aborted.');
-          process.exit(1);
-        }
+    const result = await runShipGate({ goal, runId, yes, noPr: noPR });
+
+    // Surface test output if tests failed
+    if (result.status === 'tests_failed') {
+      console.log(`\nTests: FAILED`);
+      if (result.tests.output) {
+        console.log(`\n  Output:\n${result.tests.output.split('\n').map(l => '  ' + l).join('\n')}`);
       }
-    } else {
-      console.log('  No tests found — skipping.');
-    }
-
-    // 2. Quality gate
-    console.log('\nStep 2/4: Running quality gate...');
-    const qgPath = join(__dirname, 'quality-gate.mjs');
-    let gateResult = null;
-    if (existsSync(qgPath)) {
-      const qgRes = spawnSync(process.execPath, [qgPath], {
-        encoding: 'utf8',
-        stdio: ['pipe', 'pipe', 'pipe'],
-        cwd: process.cwd(),
-        timeout: 120_000,
-      });
-      try {
-        gateResult = JSON.parse((qgRes.stdout || '').trim());
-        console.log(`  Gate: ${gateResult.gate} | Risk: ${gateResult.risk ?? 'N/A'}`);
-        if (gateResult.gate === 'issues_found') {
-          console.log('  WARNING: Quality gate found issues. Review before shipping.');
-          if (!yes && !confirm('Continue with issues found?')) {
-            console.log('Aborted.');
-            process.exit(1);
-          }
-        }
-      } catch {
-        console.log('  Quality gate returned unparseable output.');
+      if (!yes && !confirm('\nTests failed. Continue anyway?')) {
+        console.log('Aborted.');
+        process.exit(1);
       }
-    } else {
-      console.log('  quality-gate.mjs not found — skipping.');
+      // Re-run with tests ignored (caller chose to continue)
+      const retry = await runShipGate({ goal, runId, yes: true, noPr: noPR });
+      return exitFromResult(retry);
     }
 
-    // 3. Diff summary
-    console.log('\nStep 3/4: Generating diff summary...');
-    const diffSummary = generateDiffSummary();
-    console.log(`  ${diffSummary.stats}`);
-    console.log(`  ${diffSummary.summary}`);
-
-    // 4. PR
-    console.log('\nStep 4/4: Creating PR...');
-    const prResult = await createPR({
-      goal,
-      run_id: runId,
-      yes,
-      no_pr: noPR,
-      test_result: testResult,
-      gate_result: gateResult,
-      diff_summary: diffSummary,
-    });
-
-    if (prResult.error) {
-      console.error(`\nPR step: ${prResult.error}`);
-      if (prResult.branch) console.log(`Branch: ${prResult.branch}`);
-      if (prResult.commit_hash) console.log(`Commit: ${prResult.commit_hash?.slice(0, 8)}`);
-      process.exit(1);
-    }
-
-    console.log('\n=== Ship Gate Complete ===');
-    if (prResult.pr_url) console.log(`PR: ${prResult.pr_url}`);
-    console.log(`Branch: ${prResult.branch}`);
-    console.log(`Commit: ${prResult.commit_hash?.slice(0, 8)}`);
+    exitFromResult(result);
+  } else {
+    // No mode specified
+    console.log('Usage:');
+    console.log('  node hooks/ship-gate.mjs --test-only');
+    console.log('  node hooks/ship-gate.mjs --diff-only');
+    console.log('  node hooks/ship-gate.mjs --ship --goal "..." [--run-id <path>] [--yes]');
+    console.log('  node hooks/ship-gate.mjs --no-pr --goal "..." [--yes]');
     process.exit(0);
   }
+}
 
-  // No mode specified
-  console.log('Usage:');
-  console.log('  node hooks/ship-gate.mjs --test-only');
-  console.log('  node hooks/ship-gate.mjs --diff-only');
-  console.log('  node hooks/ship-gate.mjs --ship --goal "..." [--run-id <path>] [--yes]');
-  console.log('  node hooks/ship-gate.mjs --no-pr --goal "..." [--yes]');
-  process.exit(0);
+function exitFromResult(result) {
+  const { tests, gate, diff, pr, status } = result;
+
+  console.log('\n=== Ship Gate Complete ===');
+  console.log(`Status: ${status}`);
+
+  if (tests.ran) {
+    console.log(`Tests: ${tests.passed ? 'PASSED' : 'FAILED'} (${tests.command})`);
+  } else {
+    console.log('Tests: not found');
+  }
+
+  if (gate) {
+    console.log(`Gate: ${gate.status} | Risk: ${gate.risk ?? 'N/A'}`);
+  }
+
+  console.log(`Diff: ${diff.stats}`);
+
+  if (pr) {
+    if (pr.url) console.log(`PR: ${pr.url}`);
+    if (pr.branch) console.log(`Branch: ${pr.branch}`);
+    if (pr.commit) console.log(`Commit: ${pr.commit?.slice(0, 8)}`);
+    if (pr.error) console.error(`PR error: ${pr.error}`);
+  }
+
+  const exitCode = status === 'shipped' || status === 'pr_skipped' || status === 'no_changes' ? 0 : 1;
+  process.exit(exitCode);
 }
 
 // Run CLI if invoked directly

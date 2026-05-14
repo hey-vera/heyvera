@@ -81,7 +81,11 @@ if (flag('--help') || flag('-h')) {
     chains       List all available agent chains
 
   Ship Captain:
-    do "<goal>"         Run agents to accomplish a goal end-to-end
+    do "<goal>"         Run full pipeline: agents → tests → gate → PR
+                      --yolo        Skip all confirmations
+                      --careful     Confirm every step
+                      --plan-only   Show plan without executing
+                      --no-pr       Skip PR creation
     ship                Create branch, run tests, open PR
     test-run            Discover and run project tests
     diff                Show current changes summary
@@ -395,7 +399,7 @@ function install(workspace, env, mode) {
     'risk-classifier.mjs', 'failure-detector.mjs',
     'vibe-router.mjs', 'plan-generator.mjs', 'vibe-memory.mjs',
     'agent-templates.mjs', 'agent-chains.mjs',
-    'ship-captain.mjs', 'ship-gate.mjs',
+    'ship-captain.mjs', 'ship-gate.mjs', 'confirmation-policy.mjs',
   ];
   for (const h of HOOKS) cpSync(join(__dirname, 'hooks', h), join(target, 'hooks', h));
   actions.push(`✓ ${HOOKS.length} hook scripts`);
