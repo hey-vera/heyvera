@@ -1,16 +1,17 @@
 # Review Rules
 
-Project-specific rules for the dual-brain GPT review. Edit these for your repo.
+Project-specific rules for GPT code review. Edit these for your repo.
 
-## Framework & Tooling
-- Must use Hono, not Fastify
-- Must use npm, not pnpm
-- Must use better-sqlite3 with raw SQL, no ORM
+## Examples (replace with your own)
 
-## Code Patterns
-- Use round6() for all credit math
-- Use maskApiKey(), never raw .slice() for key masking
-- Import DB helpers from src/db/index.ts, not domain files
+### Framework & Tooling
+- Must use [your framework], not [alternative]
+- Must use [your package manager]
+- Must use [your database approach]
 
-## Data Integrity
-- Soma origin does not prove factual truth
+### Code Patterns
+- Use [your utility function] for [specific math/formatting]
+- Import helpers from [canonical module path]
+
+### Domain Rules
+- [Your domain-specific invariants here]

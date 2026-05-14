@@ -17,9 +17,10 @@
  */
 
 import { execSync as _execSync } from 'child_process';
-import { existsSync, readFileSync, renameSync, writeFileSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
+import { atomicWriteJSON } from './atomic-write.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -80,10 +81,9 @@ function emptySummary() {
 
 const COST_PER_CALL = { search: 0.003, execute: 0.012, think: 0.055 };
 
+/** @deprecated Use atomicWriteJSON directly. Kept as re-export for backward compat. */
 function atomicWrite(path, data) {
-  const tmp = path + '.tmp.' + process.pid;
-  writeFileSync(tmp, JSON.stringify(data, null, 2) + '\n');
-  renameSync(tmp, path);
+  atomicWriteJSON(path, data);
 }
 
 function readSummary(date) {

@@ -24,3 +24,6 @@ web/vite.config.js
 
 # Dual-Brain Orchestrator
 .claude/.launched
+
+# Dual-Brain Orchestrator
+.claude/dual-brain.memory.json

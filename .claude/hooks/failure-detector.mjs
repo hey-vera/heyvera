@@ -12,6 +12,7 @@ import { createHash } from 'crypto';
 import { readFileSync, appendFileSync, writeFileSync, renameSync, unlinkSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
+import { atomicWriteJSON } from './atomic-write.mjs';
 
 
 const __dirname = dirname(fileURLToPath(import.meta.url));

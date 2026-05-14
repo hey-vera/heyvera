@@ -313,31 +313,116 @@ test('orchestrator.json: dual_thinking configured', () => {
   return true;
 });
 
-// ─── Test 15: profile consistency across modules ────────────────────────────
+// ─── Test 15: profile consistency (behavioral) ─────────────────────────────
 test('profiles: consistent across modules', () => {
-  const profilesSrc = readFileSync(resolve(__dirname, 'profiles.mjs'), 'utf8');
-  const profileNames = ['auto', 'balanced', 'cost-saver', 'quality-first'];
-  for (const name of profileNames) {
-    if (!profilesSrc.includes(`${name}:`) && !profilesSrc.includes(`'${name}':`)) return `profiles.mjs missing: ${name}`;
-  }
+  const script = `
+    import { PROFILES, getActiveProfile } from './profiles.mjs';
+    const results = { errors: [] };
 
-  const installSrc = readFileSync(resolve(__dirname, '..', 'install.mjs'), 'utf8');
-  for (const name of profileNames) {
-    if (!installSrc.includes(`${name}:`) && !installSrc.includes(`'${name}':`)) return `install.mjs missing profile: ${name}`;
-  }
+    // 1. All 4 profiles exist
+    const expected = ['auto', 'balanced', 'cost-saver', 'quality-first'];
+    for (const name of expected) {
+      if (!PROFILES[name]) results.errors.push('missing profile: ' + name);
+    }
 
-  const enforceSrc = readFileSync(resolve(__dirname, 'enforce-tier.mjs'), 'utf8');
-  if (!enforceSrc.includes('auto:')) return 'enforce-tier.mjs missing auto in PROFILE_SETTINGS';
+    // 2. Each profile has required fields
+    const requiredFields = ['description', 'routing', 'budgets', 'quality_gate'];
+    const routingFields = ['prefer_provider', 'think_threshold', 'gpt_dispatch_bias'];
+    const budgetFields = ['session_warn_usd', 'session_limit_usd', 'daily_warn_usd', 'daily_limit_usd'];
 
+    for (const name of expected) {
+      const p = PROFILES[name];
+      if (!p) continue;
+      for (const f of requiredFields) {
+        if (!p[f]) results.errors.push(name + ' missing field: ' + f);
+      }
+      for (const f of routingFields) {
+        if (p.routing[f] === undefined) results.errors.push(name + ' routing missing: ' + f);
+      }
+      for (const f of budgetFields) {
+        if (typeof p.budgets[f] !== 'number' || p.budgets[f] <= 0)
+          results.errors.push(name + ' budget not positive number: ' + f + '=' + p.budgets[f]);
+      }
+    }
+
+    // 3. getActiveProfile returns a valid profile
+    const active = getActiveProfile();
+    if (!active.name) results.errors.push('getActiveProfile missing name');
+    if (!active.routing) results.errors.push('getActiveProfile missing routing');
+    if (!active.budgets) results.errors.push('getActiveProfile missing budgets');
+
+    process.stdout.write(JSON.stringify(results));
+  `;
+  const proc = spawnSync(process.execPath, [
+    '--input-type=module',
+    '-e', script,
+  ], { encoding: 'utf8', timeout: 5000, cwd: HOOKS });
+
+  if (proc.status !== 0) return `profiles script failed: ${proc.stderr}`;
+  let results;
+  try { results = JSON.parse(proc.stdout.trim()); } catch { return `output not JSON: ${proc.stdout}`; }
+  if (results.errors.length > 0) return results.errors.join('; ');
   return true;
 });
 
-// ─── Test 16: failure-detector only counts real failures ─────────────────────
-test('failure-detector: ignores followed=false', () => {
-  const src = readFileSync(resolve(__dirname, 'failure-detector.mjs'), 'utf8');
-  if (src.includes('followed === false')) return 'still conflates followed=false with failure';
-  if (!src.includes('success === false') && !src.includes('success !== false')) return 'missing success check';
-  return true;
+// ─── Test 16: failure-detector API contract (behavioral) ────────────────────
+test('failure-detector: API contract', () => {
+  const LEDGER = resolve(HOOKS, 'decision-ledger.jsonl');
+  const backup = existsSync(LEDGER) ? readFileSync(LEDGER, 'utf8') : null;
+
+  try {
+    // Start with clean ledger
+    writeFileSync(LEDGER, '', 'utf8');
+
+    const script = `
+      import { computePromptHash, checkFailureLoop, recordFailure } from './failure-detector.mjs';
+      const results = { errors: [] };
+
+      // 1. computePromptHash returns 12-char hex string
+      const hash = computePromptHash({ prompt: 'test prompt', description: 'test desc' });
+      if (typeof hash !== 'string') results.errors.push('hash not a string: ' + typeof hash);
+      else if (hash.length !== 12) results.errors.push('hash length not 12: ' + hash.length);
+      else if (!/^[0-9a-f]{12}$/.test(hash)) results.errors.push('hash not hex: ' + hash);
+
+      // 2. checkFailureLoop returns { isLoop, score } shape (before any failures)
+      const check1 = checkFailureLoop(hash);
+      if (typeof check1 !== 'object' || check1 === null) results.errors.push('checkFailureLoop did not return object');
+      else {
+        if (typeof check1.isLoop !== 'boolean' && typeof check1.isLoop !== 'undefined')
+          // isLoop should be boolean
+          results.errors.push('isLoop not boolean: ' + typeof check1.isLoop);
+        if (!('weightedScore' in check1 || 'score' in check1))
+          results.errors.push('checkFailureLoop missing score field');
+      }
+
+      // 3. recordFailure is callable without throwing
+      try {
+        recordFailure(hash, 'execute', 'test_reason');
+      } catch (e) {
+        results.errors.push('recordFailure threw: ' + e.message);
+      }
+
+      // 4. After recording failures, checkFailureLoop detects them
+      recordFailure(hash, 'execute', 'test_reason_2');
+      const check2 = checkFailureLoop(hash);
+      if (check2.count < 2) results.errors.push('expected count >= 2 after 2 recordFailure calls, got: ' + check2.count);
+
+      process.stdout.write(JSON.stringify(results));
+    `;
+    const proc = spawnSync(process.execPath, [
+      '--input-type=module',
+      '-e', script,
+    ], { encoding: 'utf8', timeout: 5000, cwd: HOOKS });
+
+    if (proc.status !== 0) return `failure-detector script failed: ${proc.stderr}`;
+    let results;
+    try { results = JSON.parse(proc.stdout.trim()); } catch { return `output not JSON: ${proc.stdout}`; }
+    if (results.errors.length > 0) return results.errors.join('; ');
+    return true;
+  } finally {
+    if (backup !== null) writeFileSync(LEDGER, backup, 'utf8');
+    else try { writeFileSync(LEDGER, '', 'utf8'); } catch {}
+  }
 });
 
 // ─── Test 17: enforce-tier: malformed stdin ─────────────────────────────────
@@ -642,7 +727,7 @@ test('adaptive: cost-logger records Agent errors', () => {
     let entry;
     try { entry = JSON.parse(newEntry); } catch { return `last line not valid JSON: ${newEntry}`; }
     if (entry.success !== false) return `expected success=false, got: ${entry.success}`;
-    if (entry.type !== 'failure') return `expected type=failure, got: ${entry.type}`;
+    if (entry.type !== 'outcome') return `expected type=outcome, got: ${entry.type}`;
     return true;
   } finally {
     if (backup !== null) writeFileSync(LEDGER, backup, 'utf8');
@@ -799,7 +884,7 @@ test('hooks: output files use dual-brain-namespaced paths', () => {
     const src = readFileSync(resolve(__dirname, hookFile), 'utf8');
 
     // Find all file paths the hook writes to (writeFileSync / appendFileSync targets)
-    const writeTargets = [...src.matchAll(/(?:writeFileSync|appendFileSync|renameSync)\(\s*([^,)]+)/g)].map(m => m[1].trim());
+    const writeTargets = [...src.matchAll(/(?:writeFileSync|appendFileSync|renameSync|atomicWriteJSON)\(\s*([^,)]+)/g)].map(m => m[1].trim());
 
     if (writeTargets.length === 0) return `${hookFile}: no write targets found`;
 

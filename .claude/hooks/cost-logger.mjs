@@ -272,6 +272,28 @@ async function main() {
     } catch {}
   }
 
+  // Record outcomes (success + failure) to decision ledger for routing feedback
+  if (toolName === 'Agent') {
+    try {
+      const { computePromptHash } = await import('./failure-detector.mjs');
+      const { recordDecision, recordOutcome } = await import('./decision-ledger.mjs');
+      const promptHash = computePromptHash(toolInput);
+      const decisionId = recordDecision({
+        tier,
+        provider: detectProvider(model),
+        model,
+        prompt_hash: promptHash,
+        profile: loadActiveProfile(),
+        session_id: SESSION_ID,
+      });
+      recordOutcome(decisionId, {
+        success: status !== 'error',
+        actual_input_tokens: inputTokens,
+        actual_output_tokens: outputTokens,
+      });
+    } catch {}
+  }
+
   const budgetMsg = await checkBudget();
 
   // PostToolUse hooks must emit a JSON object to stdout

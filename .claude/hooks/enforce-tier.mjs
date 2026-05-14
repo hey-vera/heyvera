@@ -1,9 +1,11 @@
 #!/usr/bin/env node
-import { readFileSync, writeFileSync, appendFileSync, renameSync } from 'fs';
+import { readFileSync, writeFileSync, appendFileSync } from 'fs';
 import { dirname, resolve, join } from 'path';
 import { fileURLToPath } from 'url';
 import { classifyRisk, extractPaths } from './risk-classifier.mjs';
 import { computePromptHash, checkFailureLoop, recordFailure } from './failure-detector.mjs';
+import { getOutcomeStats } from './decision-ledger.mjs';
+import { atomicWriteJSON } from './atomic-write.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CONFIG_FILE = resolve(__dirname, '..', 'orchestrator.json');
@@ -17,7 +19,7 @@ function detectBurst() {
   try { state = JSON.parse(readFileSync(BURST_FILE, 'utf8')); } catch {}
   if (now - state.window_start > 90_000) state = { count: 0, window_start: now };
   state.count++;
-  try { writeFileSync(BURST_FILE, JSON.stringify(state)); } catch {}
+  try { atomicWriteJSON(BURST_FILE, state); } catch {}
   return state.count >= 3;
 }
 
@@ -90,9 +92,7 @@ function logRecommendation(event) {
       summary.recent_hashes = summary.recent_hashes.filter(h => Date.parse(h.ts) >= tenMinAgo);
     }
     summary.updated_at = new Date().toISOString();
-    const tmp = summaryFile + '.tmp.' + process.pid;
-    writeFileSync(tmp, JSON.stringify(summary, null, 2) + '\n');
-    renameSync(tmp, summaryFile);
+    atomicWriteJSON(summaryFile, summary);
   } catch {}
 
   // Sync ledger write (append-only, fast)
@@ -254,10 +254,12 @@ try {
 
   // Balance hint — populated after tier is fully resolved
   let balanceHint = null;
+  // Outcome advisory — populated after tier is fully resolved
+  let outcomeAdvisory = null;
 
-  // Helper to prepend optional warnings (duplicate + drift + balance + auto) before a message
+  // Helper to prepend optional warnings (duplicate + drift + balance + outcome + auto) before a message
   const prependWarnings = (msg) => {
-    const parts = [duplicateWarning, driftWarning, failureMessage, msg, autoStatus, balanceHint].filter(Boolean);
+    const parts = [duplicateWarning, driftWarning, failureMessage, msg, autoStatus, balanceHint, outcomeAdvisory].filter(Boolean);
     return parts.join('\n\n');
   };
 
@@ -349,6 +351,17 @@ try {
     }
   }
 
+  // Outcome stats advisory — best-effort, suppressed in burst mode
+  if (!burstMode) {
+    try {
+      const stats = getOutcomeStats();
+      const tierIssue = stats.underperforming.find(u => u.tier === tier);
+      if (tierIssue) {
+        outcomeAdvisory = `Heads up — ${tierIssue.tier} tasks have been struggling lately (${tierIssue.rate}% success over ${tierIssue.total} recent outcomes). Consider escalating to a higher tier.`;
+      }
+    } catch {}
+  }
+
   const expected = preferredModel(config, tier);
 
   if (tier === 'think') {
@@ -363,7 +376,7 @@ try {
         followed: true,
         profile: profileName,
       });
-      const onlyWarnings = [duplicateWarning, driftWarning, failureMessage, autoStatus, balanceHint].filter(Boolean).join('\n\n');
+      const onlyWarnings = [duplicateWarning, driftWarning, failureMessage, autoStatus, balanceHint, outcomeAdvisory].filter(Boolean).join('\n\n');
       if (onlyWarnings) {
         process.stdout.write(JSON.stringify({ systemMessage: onlyWarnings }));
       } else {
@@ -394,7 +407,7 @@ try {
         followed: true,
         profile: profileName,
       });
-      const onlyWarnings = [duplicateWarning, driftWarning, failureMessage, autoStatus, balanceHint].filter(Boolean).join('\n\n');
+      const onlyWarnings = [duplicateWarning, driftWarning, failureMessage, autoStatus, balanceHint, outcomeAdvisory].filter(Boolean).join('\n\n');
       if (onlyWarnings) {
         process.stdout.write(JSON.stringify({ systemMessage: onlyWarnings }));
       } else {

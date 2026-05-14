@@ -6,17 +6,23 @@
         "opus": {
           "tier": "think",
           "input_per_mtok": 5,
-          "output_per_mtok": 25
+          "output_per_mtok": 25,
+          "context_window": 1000000,
+          "max_output": 128000
         },
         "sonnet": {
           "tier": "execute",
           "input_per_mtok": 3,
-          "output_per_mtok": 15
+          "output_per_mtok": 15,
+          "context_window": 1000000,
+          "max_output": 64000
         },
         "haiku": {
           "tier": "search",
           "input_per_mtok": 1,
-          "output_per_mtok": 5
+          "output_per_mtok": 5,
+          "context_window": 200000,
+          "max_output": 64000
         }
       }
     },
@@ -26,17 +32,23 @@
         "gpt-5.5": {
           "tier": "think",
           "input_per_mtok": 5,
-          "output_per_mtok": 30
+          "output_per_mtok": 30,
+          "context_window": 1000000,
+          "max_output": 128000
         },
         "gpt-5.4": {
           "tier": "execute",
           "input_per_mtok": 2.5,
-          "output_per_mtok": 15
+          "output_per_mtok": 15,
+          "context_window": 1000000,
+          "max_output": 128000
         },
         "gpt-4.1-mini": {
           "tier": "search",
           "input_per_mtok": 0.4,
-          "output_per_mtok": 1.6
+          "output_per_mtok": 1.6,
+          "context_window": 1047576,
+          "max_output": 32768
         }
       }
     }
