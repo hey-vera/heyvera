@@ -13,3 +13,11 @@ web/vite.config.js
 .claude/hooks/.budget-alerted
 .claude/hooks/.drift-warned
 .claude/reviews/
+
+# Dual-Brain Orchestrator
+.claude/hooks/usage.jsonl
+
+# Dual-Brain Orchestrator
+.claude/dual-brain.profile.json
+.claude/hooks/usage-summary-*.json
+.claude/hooks/decision-ledger.jsonl

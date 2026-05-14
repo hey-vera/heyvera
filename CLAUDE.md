@@ -17,7 +17,9 @@ This workspace uses dual-provider orchestration across Claude ($100 Max) and Ope
 1. Tasks under 3 min → Claude (Codex startup overhead not worth it)
 2. Isolated tasks 3-10 min → GPT if OpenAI pressure is lower
 3. Large isolated tasks 10+ min → Actively use GPT via `node .claude/hooks/gpt-work-dispatcher.mjs`
-4. High-risk decisions → Dual-brain think: `node .claude/hooks/dual-brain-think.mjs`
+4. High-risk decisions → Dual-brain collaborative think (2-round dialogue):
+   - Round 1: `node .claude/hooks/dual-brain-think.mjs --question "..."`
+   - Analyze independently, then Round 2: `--round 2 --claude-says "<your analysis>"`
 5. Check balance: `node .claude/hooks/budget-balancer.mjs`
 
 **Agent output contracts — enforce when spawning subagents:**
