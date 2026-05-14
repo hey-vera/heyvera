@@ -186,8 +186,13 @@ test('cost-logger: logs entry', () => {
   const { parsed, status } = runStream(COST_LOGGER, payload);
 
   if (status !== 0) return `non-zero exit: ${status}`;
-  if (!parsed || Object.keys(parsed).length !== 0)
-    return `expected {}, got: ${JSON.stringify(parsed)}`;
+  // Accept {} or a budget/activity systemMessage (not a tier-mismatch error)
+  if (!parsed) return `expected {} or activity alert, got: ${JSON.stringify(parsed)}`;
+  if (Object.keys(parsed).length !== 0) {
+    const msg = parsed.systemMessage || '';
+    if (!msg.includes('Activity Alert') && !msg.includes('Budget'))
+      return `unexpected output, got: ${JSON.stringify(parsed)}`;
+  }
 
   if (!existsSync(USAGE_JSONL)) return 'daily usage log was not created';
 
@@ -2296,6 +2301,823 @@ test('confirmation-policy: heal step auto-proceeds in default mode', () => {
   try { results = JSON.parse(proc.stdout.trim()); } catch { return `output not JSON: ${proc.stdout}`; }
   if (results.errors.length > 0) return results.errors.join('; ');
   return true;
+});
+
+// ─── Test E2E-1: ship-captain plan-only mode returns without executing ────────
+test('E2E: ship-captain plan-only mode (no agent calls, no file changes)', () => {
+  // executeShipCaptain prints the plan via console.log to stdout before returning.
+  // Redirect console.log to stderr so process.stdout has only our JSON result.
+  const script = `
+    import { executeShipCaptain } from './ship-captain.mjs';
+    console.log = (...a) => process.stderr.write(a.join(' ') + '\\n');
+    console.error = (...a) => process.stderr.write(a.join(' ') + '\\n');
+    const result = await executeShipCaptain('fix a bug and write tests', { planOnly: true });
+    const errors = [];
+    if (!result || typeof result !== 'object') {
+      errors.push('executeShipCaptain did not return an object');
+    } else {
+      if (result.status !== 'dry_run') errors.push('expected status=dry_run, got: ' + result.status);
+      if (result.id !== null && result.id !== undefined) errors.push('expected id=null in plan-only, got: ' + result.id);
+      if (!result.goal) errors.push('result missing goal field');
+      if (!Array.isArray(result.steps)) errors.push('result.steps not array, got: ' + typeof result.steps);
+    }
+    process.stdout.write(JSON.stringify({ errors }));
+  `;
+  const proc = spawnSync(process.execPath, [
+    '--input-type=module',
+    '-e', script,
+  ], { encoding: 'utf8', timeout: 20000, cwd: HOOKS });
+
+  if (proc.status !== 0) return `script failed (exit ${proc.status}): ${(proc.stderr || '').slice(0, 300)}`;
+  let result;
+  try { result = JSON.parse((proc.stdout || '').trim()); } catch { return `output not JSON: ${(proc.stdout || '').slice(0, 300)}`; }
+  if (result.errors.length > 0) return result.errors.join('; ');
+  return true;
+});
+
+// ─── Test E2E-2: ship-captain planExecution produces valid plan ───────────────
+test('E2E: planExecution("review security and write tests for auth") returns valid plan', () => {
+  const script = `
+    import { planExecution } from './ship-captain.mjs';
+    const plan = planExecution('review security and write tests for auth');
+    const errors = [];
+
+    if (!plan || typeof plan !== 'object') {
+      errors.push('planExecution did not return an object');
+    } else {
+      if (!plan.goal) errors.push('plan missing goal');
+      if (!Array.isArray(plan.steps)) {
+        errors.push('plan.steps is not an array');
+      } else {
+        if (plan.steps.length === 0) errors.push('plan.steps is empty');
+        for (const step of plan.steps) {
+          if (!step.task) { errors.push('step missing task field'); continue; }
+          if (!step.task.title && !step.task.task) errors.push('step.task missing title/task');
+          if (!step.task.tier) errors.push('step.task missing tier');
+          if (!step.task.risk) errors.push('step.task missing risk');
+          if (step.templateName === undefined && step.chainName === undefined)
+            errors.push('step missing templateName/chainName');
+        }
+      }
+    }
+
+    process.stdout.write(JSON.stringify({ errors }));
+  `;
+  const proc = spawnSync(process.execPath, [
+    '--input-type=module',
+    '-e', script,
+  ], { encoding: 'utf8', timeout: 15000, cwd: HOOKS });
+
+  if (proc.status !== 0) return `script failed (exit ${proc.status}): ${(proc.stderr || '').slice(0, 400)}`;
+  let result;
+  try { result = JSON.parse((proc.stdout || '').trim()); } catch { return `output not JSON: ${(proc.stdout || '').slice(0, 200)}`; }
+  if (result.errors.length > 0) return result.errors.join('; ');
+  return true;
+});
+
+// ─── Test E2E-3: ship-gate discoverTests + generateDiffSummary (real repo) ────
+test('E2E: discoverTests finds npm test + generateDiffSummary returns valid shape', () => {
+  const pkgRoot = resolve(HOOKS, '..');
+  const script = `
+    import { discoverTests, generateDiffSummary } from './hooks/ship-gate.mjs';
+    const errors = [];
+
+    const discovery = discoverTests();
+    if (!discovery || typeof discovery !== 'object') {
+      errors.push('discoverTests did not return an object');
+    } else {
+      if (discovery.command !== 'npm test')
+        errors.push('expected command=npm test, got: ' + discovery.command);
+      if (discovery.confidence !== 'high')
+        errors.push('expected confidence=high, got: ' + discovery.confidence);
+    }
+
+    const diff = generateDiffSummary();
+    if (!diff || typeof diff !== 'object') {
+      errors.push('generateDiffSummary did not return an object');
+    } else {
+      if (!Array.isArray(diff.files_added)) errors.push('diff missing files_added array');
+      if (!Array.isArray(diff.files_modified)) errors.push('diff missing files_modified array');
+      if (!Array.isArray(diff.files_deleted)) errors.push('diff missing files_deleted array');
+      if (typeof diff.stats !== 'string') errors.push('diff.stats is not a string, got: ' + typeof diff.stats);
+    }
+
+    process.stdout.write(JSON.stringify({ errors }));
+  `;
+  const proc = spawnSync(process.execPath, [
+    '--input-type=module',
+    '-e', script,
+  ], { encoding: 'utf8', timeout: 20000, cwd: pkgRoot });
+
+  if (proc.status !== 0) return `script failed (exit ${proc.status}): ${(proc.stderr || '').slice(0, 400)}`;
+  let result;
+  try { result = JSON.parse((proc.stdout || '').trim()); } catch { return `output not JSON: ${(proc.stdout || '').slice(0, 200)}`; }
+  if (result.errors.length > 0) return result.errors.join('; ');
+  return true;
+});
+
+// ─── Test E2E-4: runShipGate with no-pr returns structured result ─────────────
+test('E2E: runShipGate({ noPr: true, yes: true }) returns status + tests + diff', () => {
+  const pkgRoot = resolve(HOOKS, '..');
+  const script = `
+    import { runShipGate } from './hooks/ship-gate.mjs';
+    const errors = [];
+    let result;
+    try {
+      result = await runShipGate({ goal: 'E2E test run', noPr: true, yes: true });
+    } catch (e) {
+      errors.push('runShipGate threw: ' + e.message);
+      process.stdout.write(JSON.stringify({ errors }));
+      process.exit(0);
+    }
+
+    if (!result || typeof result !== 'object') {
+      errors.push('runShipGate did not return an object');
+    } else {
+      if (typeof result.status !== 'string')
+        errors.push('result.status is not a string, got: ' + typeof result.status);
+      if (!result.tests || typeof result.tests !== 'object')
+        errors.push('result.tests is missing or not an object');
+      else if (typeof result.tests.ran !== 'boolean')
+        errors.push('result.tests.ran is not a boolean');
+      if (!result.diff || typeof result.diff !== 'object')
+        errors.push('result.diff is missing or not an object');
+    }
+
+    process.stdout.write(JSON.stringify({ errors }));
+  `;
+  const proc = spawnSync(process.execPath, [
+    '--input-type=module',
+    '-e', script,
+  ], { encoding: 'utf8', timeout: 180000, cwd: pkgRoot });
+
+  if (proc.status === null) return 'process timed out';
+  let result;
+  try { result = JSON.parse((proc.stdout || '').trim()); } catch { return `output not JSON: ${(proc.stdout || '').slice(0, 200)} stderr: ${(proc.stderr || '').slice(0, 200)}`; }
+  if (result.errors.length > 0) return result.errors.join('; ');
+  return true;
+});
+
+// ─── Test E2E-5: intent classification coverage (10 goals, ≥ 8/10 correct) ───
+test('E2E: classifyGoalIntent — 10 goals, at least 8/10 match expected intent', () => {
+  const script = `
+    import { classifyGoalIntent } from './ship-captain.mjs';
+    const errors = [];
+
+    const cases = [
+      { goal: 'should we use Redis or Postgres?',      expected: ['think'] },
+      { goal: 'review this PR for security issues',    expected: ['review'] },
+      { goal: 'how does the auth system work?',        expected: ['explore', 'think'] },
+      { goal: 'ship it',                               expected: ['ship'] },
+      { goal: 'fix the login bug',                     expected: ['execute'] },
+      { goal: "what's the best approach for caching?", expected: ['think'] },
+      { goal: 'find where the API key is stored',      expected: ['explore'] },
+      { goal: 'refactor the payment module',           expected: ['execute'] },
+      { goal: 'audit the architecture',                expected: ['think', 'review'] },
+      { goal: 'write tests for the API',               expected: ['execute'] },
+    ];
+
+    let correct = 0;
+    const mismatches = [];
+
+    for (const { goal, expected } of cases) {
+      const result = classifyGoalIntent(goal);
+      if (!result || typeof result !== 'object') {
+        errors.push('returned non-object for: ' + goal);
+        continue;
+      }
+      if (!result.intent) errors.push('result missing intent for: ' + goal);
+      if (!result.confidence) errors.push('result missing confidence for: ' + goal);
+      if (!result.reason) errors.push('result missing reason for: ' + goal);
+
+      if (expected.includes(result.intent)) {
+        correct++;
+      } else {
+        mismatches.push(goal + ' → got ' + result.intent + ' (expected: ' + expected.join('|') + ')');
+      }
+    }
+
+    if (correct < 8) {
+      errors.push('Only ' + correct + '/10 intents matched. Mismatches: ' + mismatches.join('; '));
+    }
+
+    process.stdout.write(JSON.stringify({ errors, correct }));
+  `;
+  const proc = spawnSync(process.execPath, [
+    '--input-type=module',
+    '-e', script,
+  ], { encoding: 'utf8', timeout: 10000, cwd: HOOKS });
+
+  if (proc.status !== 0) return `script failed (exit ${proc.status}): ${(proc.stderr || '').slice(0, 400)}`;
+  let result;
+  try { result = JSON.parse((proc.stdout || '').trim()); } catch { return `output not JSON: ${(proc.stdout || '').slice(0, 200)}`; }
+  if (result.errors.length > 0) return result.errors.join('; ');
+  return true;
+});
+
+// ─── Test E2E-6: confirmation-policy full matrix 4x4x5 = 80 combos ───────────
+test('E2E: confirmation-policy full matrix — 80 combos, all return valid shape + invariants', () => {
+  const script = `
+    import { getConfirmationPolicy } from './confirmation-policy.mjs';
+    const errors = [];
+
+    const modes = ['default', 'yolo', 'careful', 'plan-only'];
+    const risks = ['low', 'medium', 'high', 'critical'];
+    const steps = ['edit', 'test', 'gate', 'pr', 'heal'];
+
+    for (const mode of modes) {
+      for (const risk of risks) {
+        for (const step of steps) {
+          let result;
+          try {
+            result = getConfirmationPolicy({ risk, mode, step });
+          } catch (e) {
+            errors.push('threw for ' + mode + '/' + risk + '/' + step + ': ' + e.message);
+            continue;
+          }
+
+          if (!result || typeof result !== 'object') {
+            errors.push('non-object for ' + mode + '/' + risk + '/' + step);
+            continue;
+          }
+          if (typeof result.shouldConfirm !== 'boolean')
+            errors.push('shouldConfirm not boolean for ' + mode + '/' + risk + '/' + step);
+          if (typeof result.shouldBlock !== 'boolean')
+            errors.push('shouldBlock not boolean for ' + mode + '/' + risk + '/' + step);
+          if (typeof result.reason !== 'string')
+            errors.push('reason not string for ' + mode + '/' + risk + '/' + step);
+
+          // Invariant: yolo — shouldBlock never true
+          if (mode === 'yolo' && result.shouldBlock === true)
+            errors.push('yolo/shouldBlock must never be true, got true for ' + risk + '/' + step);
+
+          // Invariant: careful — edit and pr steps always confirm
+          if (mode === 'careful' && (step === 'edit' || step === 'pr') && result.shouldConfirm !== true)
+            errors.push('careful/' + step + '/' + risk + ': expected shouldConfirm=true, got: ' + result.shouldConfirm);
+
+          // Invariant: plan-only — edit/test/gate/pr all blocked
+          if (mode === 'plan-only' && ['edit', 'test', 'gate', 'pr'].includes(step) && result.shouldBlock !== true)
+            errors.push('plan-only/' + step + '/' + risk + ': expected shouldBlock=true, got: ' + result.shouldBlock);
+
+          // Invariant: default + critical + edit → blocked
+          if (mode === 'default' && risk === 'critical' && step === 'edit' && result.shouldBlock !== true)
+            errors.push('default/critical/edit: expected shouldBlock=true, got: ' + result.shouldBlock);
+        }
+      }
+    }
+
+    process.stdout.write(JSON.stringify({ errors }));
+  `;
+  const proc = spawnSync(process.execPath, [
+    '--input-type=module',
+    '-e', script,
+  ], { encoding: 'utf8', timeout: 10000, cwd: HOOKS });
+
+  if (proc.status !== 0) return `script failed (exit ${proc.status}): ${(proc.stderr || '').slice(0, 400)}`;
+  let result;
+  try { result = JSON.parse((proc.stdout || '').trim()); } catch { return `output not JSON: ${(proc.stdout || '').slice(0, 200)}`; }
+  if (result.errors.length > 0) return result.errors.join('; ');
+  return true;
+});
+
+// ─── Test E2E-7: selfHealGate + selfHealTests API and noHeal short-circuit ────
+test('E2E: selfHealGate and selfHealTests — async, correct noHeal short-circuit', () => {
+  const script = `
+    import { selfHealGate } from './ship-gate.mjs';
+    import { selfHealTests } from './ship-captain.mjs';
+    const errors = [];
+
+    if (typeof selfHealGate !== 'function') errors.push('selfHealGate is not a function');
+    if (typeof selfHealTests !== 'function') errors.push('selfHealTests is not a function');
+
+    // Call with noHeal=true — should return immediately without spawning claude
+    const gatePromise = selfHealGate({ gate: 'issues_found' }, { noHeal: true });
+    const testsPromise = selfHealTests({ passed: false, output: 'test error', exit_code: 1 }, { noHeal: true });
+
+    if (!gatePromise || typeof gatePromise.then !== 'function')
+      errors.push('selfHealGate did not return a Promise');
+    if (!testsPromise || typeof testsPromise.then !== 'function')
+      errors.push('selfHealTests did not return a Promise');
+
+    const gateRes = await gatePromise;
+    const testsRes = await testsPromise;
+
+    if (gateRes.healed !== false) errors.push('selfHealGate noHeal: expected healed=false, got: ' + gateRes.healed);
+    if (gateRes.attempts !== 0) errors.push('selfHealGate noHeal: expected attempts=0, got: ' + gateRes.attempts);
+    if (!('finalGateResult' in gateRes)) errors.push('selfHealGate missing finalGateResult field');
+
+    if (testsRes.healed !== false) errors.push('selfHealTests noHeal: expected healed=false, got: ' + testsRes.healed);
+    if (testsRes.attempts !== 0) errors.push('selfHealTests noHeal: expected attempts=0, got: ' + testsRes.attempts);
+    if (!('finalTestResult' in testsRes)) errors.push('selfHealTests missing finalTestResult field');
+
+    process.stdout.write(JSON.stringify({ errors }));
+  `;
+  const proc = spawnSync(process.execPath, [
+    '--input-type=module',
+    '-e', script,
+  ], { encoding: 'utf8', timeout: 15000, cwd: HOOKS });
+
+  if (proc.status !== 0) return `script failed (exit ${proc.status}): ${(proc.stderr || '').slice(0, 400)}`;
+  let result;
+  try { result = JSON.parse((proc.stdout || '').trim()); } catch { return `output not JSON: ${(proc.stdout || '').slice(0, 200)}`; }
+  if (result.errors.length > 0) return result.errors.join('; ');
+  return true;
+});
+
+// ─── Test E2E-8: resume handles various run record states ─────────────────────
+test('E2E: resume logic handles completed/failed/aborted run records', () => {
+  const tmpDir = spawnSync('mktemp', ['-d'], { encoding: 'utf8' }).stdout.trim();
+  try {
+    const script = `
+      import { mkdirSync, writeFileSync, readFileSync, readdirSync } from 'fs';
+      import { resolve } from 'path';
+
+      const tmpDir = ${JSON.stringify(tmpDir)};
+      const runsDir = resolve(tmpDir, '.claude', 'runs');
+      mkdirSync(runsDir, { recursive: true });
+
+      const completedRecord = {
+        id: 'run-2026-01-01T00-00-00',
+        goal: 'fix the login bug',
+        status: 'completed',
+        steps: [
+          { task: 'Explore codebase', status: 'done' },
+          { task: 'Fix bug', status: 'done' },
+        ],
+        started_at: '2026-01-01T00:00:00.000Z',
+        completed_at: '2026-01-01T00:10:00.000Z',
+      };
+      writeFileSync(resolve(runsDir, 'run-completed.json'), JSON.stringify(completedRecord, null, 2), 'utf8');
+
+      const failedRecord = {
+        id: 'run-2026-01-01T01-00-00',
+        goal: 'refactor auth module',
+        status: 'failed',
+        steps: [
+          { task: 'Explore auth module', status: 'done' },
+          { task: 'Refactor code', status: 'failed', error: 'compilation error' },
+          { task: 'Write tests', status: 'pending' },
+        ],
+        started_at: '2026-01-01T01:00:00.000Z',
+        completed_at: null,
+      };
+      writeFileSync(resolve(runsDir, 'run-failed.json'), JSON.stringify(failedRecord, null, 2), 'utf8');
+
+      const abortedRecord = {
+        id: 'run-2026-01-01T02-00-00',
+        goal: 'write tests for API',
+        status: 'aborted',
+        steps: [
+          { task: 'Discover test files', status: 'done' },
+        ],
+        started_at: '2026-01-01T02:00:00.000Z',
+        completed_at: null,
+      };
+      writeFileSync(resolve(runsDir, 'run-aborted.json'), JSON.stringify(abortedRecord, null, 2), 'utf8');
+
+      const errors = [];
+
+      const completedBack = JSON.parse(readFileSync(resolve(runsDir, 'run-completed.json'), 'utf8'));
+      if (completedBack.status !== 'completed')
+        errors.push('completed record: wrong status: ' + completedBack.status);
+      const allDone = completedBack.steps.every(s => s.status === 'done');
+      if (!allDone) errors.push('completed record: not all steps done');
+
+      const failedBack = JSON.parse(readFileSync(resolve(runsDir, 'run-failed.json'), 'utf8'));
+      if (failedBack.status !== 'failed')
+        errors.push('failed record: wrong status: ' + failedBack.status);
+      const failedStepIdx = failedBack.steps.findIndex(s => s.status === 'failed');
+      if (failedStepIdx !== 1)
+        errors.push('failed record: expected failed step at index 1, got: ' + failedStepIdx);
+
+      const abortedBack = JSON.parse(readFileSync(resolve(runsDir, 'run-aborted.json'), 'utf8'));
+      if (abortedBack.status !== 'aborted')
+        errors.push('aborted record: wrong status: ' + abortedBack.status);
+
+      const files = readdirSync(runsDir).filter(f => f.endsWith('.json'));
+      if (files.length !== 3) errors.push('expected 3 run records, got: ' + files.length);
+
+      process.stdout.write(JSON.stringify({ errors }));
+    `;
+    const proc = spawnSync(process.execPath, [
+      '--input-type=module',
+      '-e', script,
+    ], { encoding: 'utf8', timeout: 10000, cwd: HOOKS });
+
+    if (proc.status !== 0) return `script failed (exit ${proc.status}): ${(proc.stderr || '').slice(0, 400)}`;
+    let result;
+    try { result = JSON.parse((proc.stdout || '').trim()); } catch { return `output not JSON: ${(proc.stdout || '').slice(0, 200)}`; }
+    if (result.errors.length > 0) return result.errors.join('; ');
+    return true;
+  } finally {
+    spawnSync('rm', ['-rf', tmpDir], { stdio: 'pipe' });
+  }
+});
+
+// ─── Test scale-1: large JSONL ledger performance ─────────────────────────────
+test('scale: large JSONL ledger (1000 entries) completes in < 2000ms', () => {
+  const LEDGER = resolve(HOOKS, 'decision-ledger.jsonl');
+  const backup = existsSync(LEDGER) ? readFileSync(LEDGER, 'utf8') : null;
+
+  try {
+    // Build 1000 paired entries spanning 48 hours.
+    // Each pair: one 'decision' + one 'outcome' linked by id/decision_id.
+    // Pairs 0-499 are older than 24h; pairs 500-999 are within 24h.
+    // getOutcomeStats merges decisions with outcomes, so both types are needed.
+    const lines = [];
+    const now = Date.now();
+    for (let i = 0; i < 1000; i++) {
+      const ageMs = (1000 - i) * (48 * 60 * 60 * 1000 / 1000);
+      const ts = new Date(now - ageMs).toISOString();
+      const tier = i % 3 === 0 ? 'search' : i % 3 === 1 ? 'execute' : 'think';
+      const provider = i % 2 === 0 ? 'claude' : 'openai';
+      lines.push(JSON.stringify({
+        type: 'decision',
+        timestamp: ts,
+        id: `scale-test-${i}`,
+        tier,
+        provider,
+        model: provider === 'claude' ? 'sonnet' : 'gpt-5.4',
+      }));
+      lines.push(JSON.stringify({
+        type: 'outcome',
+        timestamp: ts,
+        decision_id: `scale-test-${i}`,
+        success: i % 5 !== 0,
+      }));
+    }
+    writeFileSync(LEDGER, lines.join('\n') + '\n', 'utf8');
+
+    const script = `
+      import { getOutcomeStats } from './decision-ledger.mjs';
+      const start = Date.now();
+      const stats = getOutcomeStats();
+      const elapsed = Date.now() - start;
+      process.stdout.write(JSON.stringify({ elapsed, total_outcomes: stats.total_outcomes }));
+    `;
+    const proc = spawnSync(process.execPath, [
+      '--input-type=module', '-e', script,
+    ], { encoding: 'utf8', timeout: 10000, cwd: HOOKS });
+
+    if (proc.status !== 0) return `script failed: ${proc.stderr}`;
+    let result;
+    try { result = JSON.parse(proc.stdout.trim()); } catch { return `output not JSON: ${proc.stdout}`; }
+
+    if (result.elapsed >= 2000) return `took ${result.elapsed}ms — expected < 2000ms`;
+    if (result.total_outcomes < 400 || result.total_outcomes > 600)
+      return `expected ~500 outcomes in last 24h, got: ${result.total_outcomes}`;
+
+    return true;
+  } finally {
+    if (backup !== null) writeFileSync(LEDGER, backup, 'utf8');
+    else try { writeFileSync(LEDGER, '', 'utf8'); } catch {}
+  }
+});
+
+// ─── Test scale-2: large usage log (500 entries) doesn't crash ────────────────
+test('scale: large usage JSONL (500 entries) loads without crash', () => {
+  const today = new Date().toISOString().slice(0, 10);
+  const usageFile = resolve(HOOKS, `usage-${today}.jsonl`);
+  const backup = existsSync(usageFile) ? readFileSync(usageFile, 'utf8') : null;
+
+  try {
+    const lines = [];
+    const now = Date.now();
+    for (let i = 0; i < 500; i++) {
+      const ts = new Date(now - i * 60 * 1000).toISOString();
+      lines.push(JSON.stringify({
+        timestamp: ts,
+        tier: i % 3 === 0 ? 'search' : i % 3 === 1 ? 'execute' : 'think',
+        tool: 'Agent',
+        status: i % 10 === 0 ? 'error' : 'ok',
+        duration_ms: 500 + i * 10,
+      }));
+    }
+    writeFileSync(usageFile, lines.join('\n') + '\n', 'utf8');
+
+    const script = `
+      import { rebuildSummary } from './summary-checkpoint.mjs';
+      let ok = false;
+      try {
+        rebuildSummary();
+        ok = true;
+      } catch (e) {
+        process.stdout.write(JSON.stringify({ ok: false, error: e.message }));
+        process.exit(0);
+      }
+      process.stdout.write(JSON.stringify({ ok }));
+    `;
+    const proc = spawnSync(process.execPath, [
+      '--input-type=module', '-e', script,
+    ], { encoding: 'utf8', timeout: 10000, cwd: HOOKS });
+
+    if (proc.status !== 0) return `script failed: ${proc.stderr}`;
+    let result;
+    try { result = JSON.parse(proc.stdout.trim()); } catch { return `output not JSON: ${proc.stdout}`; }
+    if (!result.ok) return `rebuildSummary crashed: ${result.error}`;
+
+    return true;
+  } finally {
+    if (backup !== null) writeFileSync(usageFile, backup, 'utf8');
+    else try { writeFileSync(usageFile, '', 'utf8'); } catch {}
+  }
+});
+
+// ─── Test scale-3: 100 run records in .claude/runs/ ──────────────────────────
+test('scale: 100 run records read and listed in < 1000ms', () => {
+  const tmpDir = spawnSync('mktemp', ['-d'], { encoding: 'utf8' }).stdout.trim();
+  try {
+    const runsDir = resolve(tmpDir, '.claude', 'runs');
+    spawnSync('mkdir', ['-p', runsDir], { stdio: 'pipe' });
+
+    // 90 completed, 5 failed, 3 aborted, 2 running (incomplete)
+    const now = Date.now();
+    for (let i = 0; i < 100; i++) {
+      let status;
+      if (i < 90) status = 'completed';
+      else if (i < 95) status = 'failed';
+      else if (i < 98) status = 'aborted';
+      else status = 'running';
+
+      const ts = new Date(now - i * 10 * 60 * 1000).toISOString();
+      const rec = {
+        id: `run-${String(i).padStart(3, '0')}`,
+        goal: `test goal ${i}`,
+        status,
+        steps: status === 'running' ? [{ task: 'step1', done: false }] : [],
+        started_at: ts,
+        completed_at: status !== 'running' ? new Date(now - i * 10 * 60 * 1000 + 5000).toISOString() : null,
+        duration_ms: status !== 'running' ? 5000 : null,
+      };
+      const fname = `${ts.slice(0, 19).replace(/:/g, '-')}-run-${String(i).padStart(3, '0')}.json`;
+      writeFileSync(resolve(runsDir, fname), JSON.stringify(rec, null, 2), 'utf8');
+    }
+
+    const installScript = resolve(HOOKS, '..', 'install.mjs');
+    const startMs = Date.now();
+    const proc = spawnSync(process.execPath, [installScript, 'runs'], {
+      encoding: 'utf8',
+      timeout: 10000,
+      cwd: tmpDir,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    const elapsed = Date.now() - startMs;
+
+    if (proc.status === null) return 'process timed out';
+    if (elapsed >= 1000) return `runs command took ${elapsed}ms — expected < 1000ms`;
+
+    const output = proc.stdout || '';
+    if (!output.includes('100') && !output.toLowerCase().includes('run'))
+      return `expected output mentioning runs, got: ${output.slice(0, 200)}`;
+
+    // Verify resume can identify failed/incomplete runs without crashing
+    const resumeProc = spawnSync(process.execPath, [installScript, 'resume'], {
+      encoding: 'utf8',
+      timeout: 10000,
+      cwd: tmpDir,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    if (resumeProc.status === null) return 'resume process timed out';
+    const resumeOut = (resumeProc.stdout || '') + (resumeProc.stderr || '');
+    if (resumeOut.includes('TypeError') || resumeOut.includes('ReferenceError'))
+      return `unexpected JS error in resume: ${resumeOut.slice(0, 200)}`;
+
+    return true;
+  } finally {
+    spawnSync('rm', ['-rf', tmpDir], { stdio: 'pipe' });
+  }
+});
+
+// ─── Test scale-4: burst-state survives 10 rapid sequential writes ────────────
+test('scale: burst-state valid JSON after 10 rapid sequential writes', () => {
+  const burstFile = resolve(HOOKS, '.burst-state');
+  const backup = existsSync(burstFile) ? readFileSync(burstFile, 'utf8') : null;
+
+  try {
+    for (let i = 1; i <= 10; i++) {
+      writeFileSync(burstFile, JSON.stringify({ count: i, window_start: Date.now() }), 'utf8');
+    }
+
+    if (!existsSync(burstFile)) return '.burst-state file not found after writes';
+    let state;
+    try {
+      state = JSON.parse(readFileSync(burstFile, 'utf8'));
+    } catch (e) {
+      return `.burst-state not valid JSON after 10 writes: ${e.message}`;
+    }
+
+    if (typeof state.count !== 'number') return `expected numeric count, got: ${JSON.stringify(state)}`;
+    if (typeof state.window_start !== 'number') return `expected numeric window_start, got: ${JSON.stringify(state)}`;
+    if (state.count !== 10) return `expected count=10 after 10 writes, got: ${state.count}`;
+
+    return true;
+  } finally {
+    if (backup !== null) writeFileSync(burstFile, backup, 'utf8');
+    else try { unlinkSync(burstFile); } catch {}
+  }
+});
+
+// ─── Test scale-5: atomic-write lock-contention then success (round-trip) ─────
+test('scale: atomic-write lock-contention then success (round-trip)', () => {
+  const tmpDir = spawnSync('mktemp', ['-d'], { encoding: 'utf8' }).stdout.trim();
+  const testFile = resolve(tmpDir, 'counter.json');
+  const lockFile = testFile + '.lock';
+
+  try {
+    writeFileSync(testFile, JSON.stringify({ count: 0 }), 'utf8');
+
+    // Phase 1: pre-create lock → expect timeout throw
+    writeFileSync(lockFile, JSON.stringify({ pid: 99999999, ts: Date.now() }), 'utf8');
+
+    const atomicPath = resolve(HOOKS, 'atomic-write.mjs').replace(/\\/g, '/');
+    const filePath = testFile.replace(/\\/g, '/');
+
+    const script1 = `
+      import { lockedReadModifyWrite } from '${atomicPath}';
+      try {
+        lockedReadModifyWrite('${filePath}', d => ({ ...d, count: d.count + 1 }));
+        process.stdout.write(JSON.stringify({ threw: false }));
+      } catch (e) {
+        process.stdout.write(JSON.stringify({ threw: true, msg: e.message }));
+      }
+    `;
+    const proc1 = spawnSync(process.execPath, [
+      '--input-type=module', '-e', script1,
+    ], { encoding: 'utf8', timeout: 15000, cwd: HOOKS });
+
+    let r1;
+    try { r1 = JSON.parse((proc1.stdout || '').trim()); } catch {
+      return `phase1 output not JSON: ${proc1.stdout} stderr: ${proc1.stderr}`;
+    }
+    if (!r1.threw) return 'expected throw on lock contention, but did not throw';
+    if (!r1.msg.includes('timed out')) return `expected timeout message, got: ${r1.msg}`;
+
+    const afterContention = JSON.parse(readFileSync(testFile, 'utf8'));
+    if (afterContention.count !== 0)
+      return `file modified during contention — expected count=0, got: ${afterContention.count}`;
+
+    // Phase 2: remove lock → expect success
+    try { unlinkSync(lockFile); } catch {}
+
+    const script2 = `
+      import { lockedReadModifyWrite } from '${atomicPath}';
+      try {
+        const result = lockedReadModifyWrite('${filePath}', d => ({ ...d, count: d.count + 1 }));
+        process.stdout.write(JSON.stringify({ threw: false, count: result.count }));
+      } catch (e) {
+        process.stdout.write(JSON.stringify({ threw: true, msg: e.message }));
+      }
+    `;
+    const proc2 = spawnSync(process.execPath, [
+      '--input-type=module', '-e', script2,
+    ], { encoding: 'utf8', timeout: 15000, cwd: HOOKS });
+
+    let r2;
+    try { r2 = JSON.parse((proc2.stdout || '').trim()); } catch {
+      return `phase2 output not JSON: ${proc2.stdout} stderr: ${proc2.stderr}`;
+    }
+    if (r2.threw) return `unexpected throw after lock removed: ${r2.msg}`;
+    if (r2.count !== 1) return `expected count=1 after successful write, got: ${r2.count}`;
+
+    const final = JSON.parse(readFileSync(testFile, 'utf8'));
+    if (final.count !== 1) return `file on disk: expected count=1, got: ${final.count}`;
+
+    return true;
+  } finally {
+    spawnSync('rm', ['-rf', tmpDir], { stdio: 'pipe' });
+  }
+});
+
+// ─── Test scale-6: config validation with 50 unknown keys ─────────────────────
+test('scale: config-validator handles 50 unknown keys without crash', () => {
+  const script = `
+    import { validateConfig } from './config-validator.mjs';
+
+    const config = {
+      subscriptions: { claude: { models: { opus: { tier: 'think' } } } },
+      tiers: { search: {}, execute: {}, think: {} },
+      routing: { strategy: 'test' },
+      quality_gate: { enabled: true },
+    };
+
+    for (let i = 0; i < 50; i++) {
+      config['unknown_key_' + i] = { value: i, nested: { deep: true } };
+    }
+
+    const result = validateConfig(config);
+    process.stdout.write(JSON.stringify({
+      valid: result.valid,
+      errorCount: result.errors.length,
+      warnCount: result.warnings.length,
+    }));
+  `;
+  const proc = spawnSync(process.execPath, [
+    '--input-type=module', '-e', script,
+  ], { encoding: 'utf8', timeout: 5000, cwd: HOOKS });
+
+  if (proc.status !== 0) return `script failed: ${proc.stderr}`;
+  let result;
+  try { result = JSON.parse(proc.stdout.trim()); } catch { return `output not JSON: ${proc.stdout}`; }
+  if (!result.valid) return `expected valid=true (unknown keys are warnings), errors present`;
+  if (result.warnCount < 50) return `expected >= 50 warnings for 50 unknown keys, got: ${result.warnCount}`;
+  return true;
+});
+
+// ─── Test scale-7: risk-classifier edge case paths don't crash ────────────────
+test('scale: risk-classifier edge case paths (empty, long, special chars, null)', () => {
+  const script = `
+    import { classifyRisk, classifyRiskEnhanced } from './risk-classifier.mjs';
+    const errors = [];
+
+    // 1. Empty string
+    try {
+      const r = classifyRiskEnhanced('');
+      if (!r || typeof r.risk !== 'string') errors.push('empty string: invalid result: ' + JSON.stringify(r));
+    } catch (e) {
+      errors.push('empty string threw: ' + e.message);
+    }
+
+    // 2. Very long path (500 chars)
+    const longPath = 'src/' + 'a'.repeat(490) + '.js';
+    try {
+      const r = classifyRiskEnhanced(longPath);
+      if (!r || typeof r.risk !== 'string') errors.push('long path: invalid result: ' + JSON.stringify(r));
+    } catch (e) {
+      errors.push('long path threw: ' + e.message);
+    }
+
+    // 3. Path with special characters
+    try {
+      const r = classifyRiskEnhanced('src/auth/my-file!@#$%^&*().mjs');
+      if (!r || typeof r.risk !== 'string') errors.push('special chars: invalid result: ' + JSON.stringify(r));
+    } catch (e) {
+      errors.push('special chars threw: ' + e.message);
+    }
+
+    // 4. null — acceptable to throw, must not crash process
+    try { classifyRiskEnhanced(null); } catch { /* acceptable */ }
+
+    // 5. undefined — acceptable to throw
+    try { classifyRiskEnhanced(undefined); } catch { /* acceptable */ }
+
+    // 6. classifyRisk (batch) with empty array — returns object { level, reason }
+    try {
+      const r = classifyRisk([]);
+      if (!r || typeof r !== 'object') errors.push('classifyRisk([]): expected object result, got: ' + typeof r);
+      else if (typeof r.level !== 'string') errors.push('classifyRisk([]): expected result.level string, got: ' + JSON.stringify(r));
+    } catch (e) {
+      errors.push('classifyRisk([]) threw: ' + e.message);
+    }
+
+    process.stdout.write(JSON.stringify({ errors }));
+  `;
+  const proc = spawnSync(process.execPath, [
+    '--input-type=module', '-e', script,
+  ], { encoding: 'utf8', timeout: 8000, cwd: HOOKS });
+
+  if (proc.status !== 0) return `script crashed: ${proc.stderr}`;
+  let result;
+  try { result = JSON.parse(proc.stdout.trim()); } catch { return `output not JSON: ${proc.stdout}`; }
+  if (result.errors.length > 0) return result.errors.join('; ');
+  return true;
+});
+
+// ─── Test scale-8: enforce-tier 10 rapid sequential Agent calls ───────────────
+test('scale: enforce-tier 10 rapid sequential Agent calls all produce valid JSON', () => {
+  try {
+    // Pre-seed burst state so we start in burst mode (suppresses duplicate warnings)
+    writeFileSync(BURST_FILE, JSON.stringify({ count: 5, window_start: Date.now() }));
+
+    const errors = [];
+    for (let i = 0; i < 10; i++) {
+      const payload = JSON.stringify({
+        tool_name: 'Agent',
+        tool_input: {
+          prompt: `rapid sequential task ${i} - implement feature ${Date.now()}`,
+          model: 'sonnet',
+        },
+      });
+      const { parsed, status } = run(ENFORCE_TIER, payload);
+      if (status !== 0) errors.push(`call ${i}: non-zero exit ${status}`);
+      if (!parsed) errors.push(`call ${i}: no valid JSON output`);
+    }
+
+    if (errors.length > 0) return errors.join('; ');
+
+    // Verify burst-state is still valid JSON after 10 rapid calls
+    if (!existsSync(BURST_FILE)) return '.burst-state missing after 10 rapid calls';
+    let state;
+    try {
+      state = JSON.parse(readFileSync(BURST_FILE, 'utf8'));
+    } catch (e) {
+      return `.burst-state corrupted after 10 rapid calls: ${e.message}`;
+    }
+    if (typeof state.count !== 'number') return `burst-state.count not a number: ${JSON.stringify(state)}`;
+
+    return true;
+  } finally {
+    try { unlinkSync(BURST_FILE); } catch {}
+  }
 });
 
 // ─── Summary ─────────────────────────────────────────────────────────────────

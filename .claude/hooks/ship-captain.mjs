@@ -525,7 +525,15 @@ function aggregateRiskFallback(risks) {
 /**
  * selfHealTests(testResult, options) — Attempt to auto-fix failing tests.
  *
- * Spawns a claude fix agent with the test output, then re-runs tests.
+ * Ownership boundary: selfHealTests owns test-failure healing only.
+ * Quality gate issues are NOT healed here — that is selfHealGate's job (ship-gate.mjs).
+ * Callers (executeShipCaptain) detect tests_failed from runShipGate, call selfHealTests,
+ * then re-call runShipGate once tests pass. This keeps the two heal loops non-overlapping:
+ *   - tests_failed → selfHealTests (here) → re-run full gate via runShipGate
+ *   - gate issues_found → selfHealGate (ship-gate.mjs) → re-run gate only
+ *
+ * Spawns a claude fix agent with the test output, then re-runs the SAME test command
+ * (not re-discovered) to keep retries deterministic.
  * Retries up to maxRetries times.
  *
  * @param {object} testResult  The failing runTests() result
@@ -539,16 +547,24 @@ export async function selfHealTests(testResult, options = {}) {
     return { healed: false, attempts: 0, finalTestResult: testResult };
   }
 
+  // Pin the test command from the first result so retries are deterministic.
+  // Re-discovering the command on each retry could pick a different test runner
+  // if package.json changes during the heal loop.
+  const pinnedCommand = testResult.command_used ?? null;
+
   let attempts = 0;
   let currentTestResult = testResult;
 
   while (attempts < maxRetries) {
     attempts++;
-    console.log(`\n  Tests failed. Attempting auto-fix (attempt ${attempts}/${maxRetries})...`);
+    console.log(`\n  Self-heal attempt ${attempts}/${maxRetries}: fixing test failures...`);
 
     // Build a concise summary of failures for the fix prompt
     const outputSnippet = (currentTestResult.output || '').slice(0, 4000); // cap to avoid huge prompts
     const fixPrompt = `These tests are failing:\n\n${outputSnippet}\n\nFix the code to make them pass. Do not modify the tests unless they have clear bugs. Do not introduce new features or refactor beyond what is needed to make the tests pass.`;
+
+    // Capture git state BEFORE the fix agent runs
+    const diffStatBefore = gitDiffStat();
 
     // Spawn claude fix agent
     const fixRes = spawnSync('claude', ['-p', fixPrompt], {
@@ -566,13 +582,22 @@ export async function selfHealTests(testResult, options = {}) {
       console.log(`  [auto-fix] Fix agent ${fixStatus}.`);
     }
 
-    // Re-run tests
-    console.log('  [auto-fix] Re-running tests...');
-    const newTestResult = runTests();
+    // Verify edits actually happened — if nothing changed, skip the test re-run
+    // (there's nothing to re-test; running tests again would just repeat the failure)
+    const diffStatAfter = gitDiffStat();
+    if (diffStatAfter === diffStatBefore) {
+      console.log('  [auto-fix] Fix agent produced no changes — skipping retry');
+      // Count as an exhausted attempt without re-running tests
+      continue;
+    }
+
+    // Re-run the SAME test command (pinned above) — not re-discovered — for determinism
+    console.log('  Re-running tests after fix...');
+    const newTestResult = runTests({ command: pinnedCommand });
     currentTestResult = newTestResult;
 
-    const status = newTestResult.passed ? 'PASSED' : 'FAILED';
-    console.log(`  [auto-fix] Tests: ${status}`);
+    const status = newTestResult.passed ? 'passed' : 'still failing';
+    console.log(`  Self-heal attempt ${attempts} result: ${status}`);
 
     if (newTestResult.passed) {
       console.log('  Auto-fix successful! Tests now pass.');
@@ -916,7 +941,12 @@ async function executeShipCaptain(goal, options = {}) {
       noPr,
     });
 
-    // Self-heal failing tests (if ship gate ran but tests failed)
+    // Self-heal failing tests (if ship gate ran but tests failed).
+    // Heal ownership:
+    //   - selfHealTests (below) owns test failures.  It fixes code and re-runs tests.
+    //   - selfHealGate (ship-gate.mjs) owns quality gate issues.  It fixes issues and re-runs the gate.
+    // runShipGate returns 'tests_failed' without touching gate healing, so there is no
+    // circular heal: tests are fixed here first, then the full gate runs again fresh.
     if (shipGateResult && shipGateResult.status === 'tests_failed' && shipGateResult.tests) {
       const fakeTestResult = {
         passed: shipGateResult.tests.passed ?? false,

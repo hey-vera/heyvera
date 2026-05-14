@@ -515,6 +515,10 @@ function parseGateIssues(gateResult) {
 
 /**
  * Run quality gate and return its parsed result.
+ * Returns null if quality-gate.mjs is missing.
+ * Returns { gate: 'gate_failed', _parseError: true } if output is not valid JSON
+ * or is valid JSON but missing the required 'gate' field — fail closed, never
+ * treat unparseable output as success.
  */
 function runQualityGate() {
   const qgPath = join(__dirname, 'quality-gate.mjs');
@@ -527,40 +531,69 @@ function runQualityGate() {
     timeout: 120_000,
   });
 
+  const raw = (qgRes.stdout || '').trim();
+
+  let parsed;
   try {
-    return JSON.parse((qgRes.stdout || '').trim());
+    parsed = JSON.parse(raw);
   } catch {
-    return null;
+    // Not valid JSON — fail closed
+    process.stderr.write('[ship-gate] Quality gate returned unparseable output — treating as failed\n');
+    process.stdout.write('Quality gate returned unparseable output — treating as failed\n');
+    return { gate: 'gate_failed', _parseError: true };
   }
+
+  if (!parsed || typeof parsed.gate !== 'string') {
+    // Valid JSON but missing the required 'gate' field — fail closed
+    process.stderr.write('[ship-gate] Quality gate returned unparseable output — treating as failed\n');
+    process.stdout.write('Quality gate returned unparseable output — treating as failed\n');
+    return { gate: 'gate_failed', _parseError: true };
+  }
+
+  return parsed;
 }
 
 /**
  * selfHealGate(gateResult, options) — Attempt to auto-fix quality gate issues.
+ *
+ * Ownership boundary: selfHealGate owns gate-issue healing only.
+ * Test failures are NOT healed here — that is ship-captain's job via selfHealTests.
+ * runShipGate returns 'tests_failed' without calling selfHealGate so there is no
+ * overlap: tests heal in captain, gate issues heal here, never both at once.
  *
  * Spawns a claude fix agent to address the issues, then re-runs the gate.
  * Retries up to maxRetries times.
  *
  * @param {object} gateResult  The quality gate result with gate === 'issues_found'
  * @param {{ maxRetries?: number, noHeal?: boolean }} options
- * @returns {{ healed: boolean, attempts: number, finalGateResult: object|null }}
+ * @returns {{ healed: boolean, attempts: number, finalGateResult: object|null, filesFixed: string[] }}
  */
 export async function selfHealGate(gateResult, options = {}) {
   const { maxRetries = 2, noHeal = false } = options;
 
   if (noHeal) {
-    return { healed: false, attempts: 0, finalGateResult: gateResult };
+    return { healed: false, attempts: 0, finalGateResult: gateResult, filesFixed: [] };
   }
 
   const issues = parseGateIssues(gateResult);
-  const issueText = issues.map((iss, i) => `${i + 1}. ${iss}`).join('\n');
+  let issueText = issues.map((iss, i) => `${i + 1}. ${iss}`).join('\n');
 
   let attempts = 0;
   let currentGateResult = gateResult;
+  const allFilesFixed = new Set();
 
   while (attempts < maxRetries) {
     attempts++;
     process.stderr.write(`[ship-gate] Quality gate found issues. Attempting auto-fix (attempt ${attempts}/${maxRetries})...\n`);
     process.stdout.write(`\nQuality gate found issues. Attempting auto-fix (attempt ${attempts}/${maxRetries})...\n`);
+
+    // Capture git state BEFORE the fix agent runs
+    const diffStatBefore = (() => {
+      try {
+        const r = spawnSync('git', ['diff', '--stat'], { encoding: 'utf8', cwd: process.cwd() });
+        return (r.stdout || '').trim();
+      } catch { return ''; }
+    })();
 
     const fixPrompt = `The quality gate found these issues in the code changes:\n\n${issueText}\n\nFix them. Do not introduce new features or refactor beyond what is needed to fix these specific issues.`;
 
@@ -580,18 +613,42 @@ export async function selfHealGate(gateResult, options = {}) {
       process.stderr.write(`[ship-gate]   Fix agent ${fixStatus}.\n`);
     }
 
+    // Verify edits actually happened — if nothing changed, count as failed attempt
+    const diffStatAfter = (() => {
+      try {
+        const r = spawnSync('git', ['diff', '--stat'], { encoding: 'utf8', cwd: process.cwd() });
+        return (r.stdout || '').trim();
+      } catch { return ''; }
+    })();
+
+    if (diffStatAfter === diffStatBefore) {
+      process.stderr.write('[ship-gate]   Fix agent produced no changes — skipping retry\n');
+      process.stdout.write('Fix agent produced no changes — skipping retry\n');
+      // Count as an exhausted attempt; do not re-run the gate for zero-change attempts
+      continue;
+    }
+
+    // Record which files changed during this heal attempt
+    const changedLines = diffStatAfter.split('\n').filter(l => l.includes('|'));
+    for (const line of changedLines) {
+      const file = line.trim().split(/\s+/)[0];
+      if (file) allFilesFixed.add(file);
+    }
+
     // Re-run quality gate
     process.stderr.write('[ship-gate]   Re-running quality gate...\n');
     const newGateResult = runQualityGate();
     currentGateResult = newGateResult;
 
-    const gateStatus = newGateResult?.gate ?? 'unknown';
+    // runQualityGate() now fails closed: unparseable or missing 'gate' → gate_failed
+    // So we only treat explicit non-failing statuses as healed.
+    const gateStatus = newGateResult?.gate ?? 'gate_failed';
     process.stderr.write(`[ship-gate]   Gate after fix: ${gateStatus}\n`);
 
-    // Check if healed
+    // Healed only if gate is in a known-good state (not issues_found and not gate_failed)
     if (gateStatus !== 'issues_found' && gateStatus !== 'gate_failed') {
       process.stdout.write(`Auto-fix successful! Gate status: ${gateStatus}\n`);
-      return { healed: true, attempts, finalGateResult: newGateResult };
+      return { healed: true, attempts, finalGateResult: newGateResult, filesFixed: [...allFilesFixed] };
     }
 
     // Update issues for next attempt if still failing
@@ -600,6 +657,7 @@ export async function selfHealGate(gateResult, options = {}) {
       const newIssueText = newIssues.map((iss, i) => `${i + 1}. ${iss}`).join('\n');
       if (newIssueText !== issueText) {
         process.stderr.write('[ship-gate]   Issues changed after fix attempt, updating for next retry.\n');
+        issueText = newIssueText;
       }
     }
   }
@@ -608,7 +666,7 @@ export async function selfHealGate(gateResult, options = {}) {
   const finalIssues = parseGateIssues(currentGateResult);
   process.stdout.write(`\nCould not auto-fix. Issues:\n${finalIssues.map((iss, i) => `  ${i + 1}. ${iss}`).join('\n')}\n`);
 
-  return { healed: false, attempts, finalGateResult: currentGateResult };
+  return { healed: false, attempts, finalGateResult: currentGateResult, filesFixed: [...allFilesFixed] };
 }
 
 // ---------------------------------------------------------------------------
@@ -667,6 +725,11 @@ export async function runShipGate(options = {}) {
   };
 
   if (testsRan && !testResult.passed) {
+    // Return tests_failed WITHOUT attempting to heal tests here.
+    // Test healing is ship-captain's responsibility (selfHealTests).
+    // Keeping healing ownership separate prevents circular heal loops:
+    //   - tests_failed → ship-captain heals tests → re-calls runShipGate
+    //   - issues_found → selfHealGate heals gate issues (this file only)
     return {
       tests: testsOutput,
       gate: null,
@@ -682,14 +745,13 @@ export async function runShipGate(options = {}) {
   let healRecord = null;
 
   if (gateResult) {
-    process.stderr.write(`[ship-gate]   Gate: ${gateResult.gate} | Risk: ${gateResult.risk ?? 'N/A'}\n`);
-  } else {
-    const qgPath = join(__dirname, 'quality-gate.mjs');
-    if (!existsSync(qgPath)) {
-      process.stderr.write('[ship-gate]   quality-gate.mjs not found — skipping.\n');
-    } else {
-      process.stderr.write('[ship-gate]   Quality gate returned unparseable output.\n');
+    // _parseError means runQualityGate() failed closed on bad output; already printed a message
+    if (!gateResult._parseError) {
+      process.stderr.write(`[ship-gate]   Gate: ${gateResult.gate} | Risk: ${gateResult.risk ?? 'N/A'}\n`);
     }
+  } else {
+    // gateResult is null only when quality-gate.mjs does not exist
+    process.stderr.write('[ship-gate]   quality-gate.mjs not found — skipping.\n');
   }
 
   // Self-heal if gate found issues
@@ -711,7 +773,7 @@ export async function runShipGate(options = {}) {
         risk: gateResult.risk ?? null,
         approval: gateResult.approval ?? null,
         heal: healRecord
-          ? { healed: healRecord.healed, attempts: healRecord.attempts }
+          ? { healed: healRecord.healed, attempts: healRecord.attempts, filesFixed: healRecord.filesFixed ?? [] }
           : undefined,
       }
     : null;
