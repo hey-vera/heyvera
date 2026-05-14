@@ -6,12 +6,46 @@ import { classifyRisk, extractPaths } from './risk-classifier.mjs';
 import { computePromptHash, checkFailureLoop, recordFailure } from './failure-detector.mjs';
 import { getOutcomeStats } from './decision-ledger.mjs';
 import { atomicWriteJSON } from './atomic-write.mjs';
+import { logHookError } from './error-channel.mjs';
+import { loadAndValidateConfig } from './config-validator.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CONFIG_FILE = resolve(__dirname, '..', 'orchestrator.json');
 const PROFILE_FILE = resolve(__dirname, '..', 'dual-brain.profile.json');
 const DRIFT_STATE = resolve(__dirname, '.drift-warned');
 const BURST_FILE = resolve(__dirname, '.burst-state');
+const COOLDOWN_FILE = resolve(__dirname, '.recommendation-cooldowns');
+
+// Cooldown durations per recommendation type (in milliseconds)
+const COOLDOWN_MS = {
+  balance_hint: 15 * 60 * 1000,    // 15 minutes — most wallpaper-prone
+  tier_warning: 5 * 60 * 1000,     // 5 minutes
+  outcome_advisory: 5 * 60 * 1000, // 5 minutes
+  duplicate_warning: 5 * 60 * 1000, // 5 minutes
+};
+
+/**
+ * Check if a recommendation type is on cooldown.
+ * Returns true if the recommendation should be suppressed.
+ * If not on cooldown, records the emission and returns false.
+ */
+function isOnCooldown(type) {
+  const now = Date.now();
+  let state = {};
+  try { state = JSON.parse(readFileSync(COOLDOWN_FILE, 'utf8')); } catch {}
+
+  const lastEmit = state[type] ? Date.parse(state[type]) : 0;
+  const cooldownDuration = COOLDOWN_MS[type] || 5 * 60 * 1000;
+
+  if (now - lastEmit < cooldownDuration) {
+    return true; // suppress
+  }
+
+  // Record this emission
+  state[type] = new Date(now).toISOString();
+  try { atomicWriteJSON(COOLDOWN_FILE, state); } catch (e) { logHookError('enforce-tier', 'cooldown state write', e); }
+  return false;
+}
 
 function detectBurst() {
   const now = Date.now();
@@ -19,7 +53,7 @@ function detectBurst() {
   try { state = JSON.parse(readFileSync(BURST_FILE, 'utf8')); } catch {}
   if (now - state.window_start > 90_000) state = { count: 0, window_start: now };
   state.count++;
-  try { atomicWriteJSON(BURST_FILE, state); } catch {}
+  try { atomicWriteJSON(BURST_FILE, state); } catch (e) { logHookError('enforce-tier', 'burst state write', e); }
   return state.count >= 3;
 }
 
@@ -53,7 +87,7 @@ function checkPricingDrift(config) {
 
   try {
     writeFileSync(DRIFT_STATE, new Date().toISOString().slice(0, 10));
-  } catch {}
+  } catch (e) { logHookError('enforce-tier', 'drift state write', e); }
 
   return `**[Drift Warning]** Pricing was last verified ${age} days ago. Run \`node .claude/hooks/setup-wizard.mjs\` to update.`;
 }
@@ -88,12 +122,12 @@ function logRecommendation(event) {
     if (event.promptHash) {
       summary.recent_hashes = summary.recent_hashes || [];
       summary.recent_hashes.push({ hash: event.promptHash, ts: entryObj.timestamp });
-      const tenMinAgo = Date.now() - 10 * 60 * 1000;
-      summary.recent_hashes = summary.recent_hashes.filter(h => Date.parse(h.ts) >= tenMinAgo);
+      const threeMinAgo = Date.now() - 3 * 60 * 1000;
+      summary.recent_hashes = summary.recent_hashes.filter(h => Date.parse(h.ts) >= threeMinAgo);
     }
     summary.updated_at = new Date().toISOString();
     atomicWriteJSON(summaryFile, summary);
-  } catch {}
+  } catch (e) { logHookError('enforce-tier', 'summary update', e); }
 
   // Sync ledger write (append-only, fast)
   try {
@@ -111,7 +145,7 @@ function logRecommendation(event) {
       prompt_hash: event.promptHash,
     });
     appendFileSync(join(__dirname, 'decision-ledger.jsonl'), ledgerEntry + '\n');
-  } catch {}
+  } catch (e) { logHookError('enforce-tier', 'decision ledger append', e); }
 }
 
 function checkDuplicate(promptHash) {
@@ -119,9 +153,9 @@ function checkDuplicate(promptHash) {
   try {
     const summaryPath = join(__dirname, `usage-summary-${new Date().toISOString().slice(0, 10)}.json`);
     const summary = JSON.parse(readFileSync(summaryPath, 'utf8'));
-    const tenMinAgo = Date.now() - 10 * 60 * 1000;
+    const threeMinAgo = Date.now() - 3 * 60 * 1000;
     const match = (summary.recent_hashes || []).find(
-      h => h.hash === promptHash && Date.parse(h.ts) >= tenMinAgo
+      h => h.hash === promptHash && Date.parse(h.ts) >= threeMinAgo
     );
     if (match) return { timestamp: match.ts, prompt_hash: promptHash };
   } catch {}
@@ -130,13 +164,13 @@ function checkDuplicate(promptHash) {
   const logFile = join(__dirname, `usage-${new Date().toISOString().slice(0, 10)}.jsonl`);
   try {
     const lines = readFileSync(logFile, 'utf8').split('\n').filter(Boolean);
-    const tenMinAgo = Date.now() - 10 * 60 * 1000;
+    const threeMinAgo = Date.now() - 3 * 60 * 1000;
     for (const line of lines) {
       try {
         const entry = JSON.parse(line);
         if (entry.type === 'tier_recommendation' &&
             entry.prompt_hash === promptHash &&
-            Date.parse(entry.timestamp) > tenMinAgo) {
+            Date.parse(entry.timestamp) > threeMinAgo) {
           return entry;
         }
       } catch {}
@@ -221,7 +255,7 @@ try {
   // Check for duplicate agent dispatch before tier classification
   const duplicate = checkDuplicate(promptHash);
   let duplicateWarning = null;
-  if (duplicate) {
+  if (duplicate && !isOnCooldown('duplicate_warning')) {
     const minutesAgo = Math.round((Date.now() - Date.parse(duplicate.timestamp)) / 60000);
     if (burstMode) {
       // In burst mode, only warn on exact hash matches (same description+prompt)
@@ -236,7 +270,8 @@ try {
 
   let config;
   try {
-    config = JSON.parse(readFileSync(CONFIG_FILE, 'utf8'));
+    const result = loadAndValidateConfig(CONFIG_FILE);
+    config = result.config;
   } catch {
     process.stdout.write('{}');
     process.exit(0);
@@ -244,7 +279,13 @@ try {
 
   const driftWarning = checkPricingDrift(config);
 
-  const intelligence = config.model_intelligence || {};
+  // Build flat model intelligence lookup from subscriptions (merged in v4.2.0)
+  const intelligence = {};
+  for (const provider of Object.values(config.subscriptions || {})) {
+    for (const [name, meta] of Object.entries(provider.models || {})) {
+      intelligence[name] = meta;
+    }
+  }
   const defaults = config.routing_rules?.subagent_defaults || {};
   let tier = null;
 
@@ -339,7 +380,8 @@ try {
 
   // Compute balance hint now that tier is resolved
   // In burst mode, skip balance hints — one hint per wave is enough
-  if (!burstMode) {
+  // Balance hints have a 15-minute cooldown (most wallpaper-prone)
+  if (!burstMode && !isOnCooldown('balance_hint')) {
     const currentProvider = detectProvider(currentModel);
     if (currentProvider === 'claude') {
       const balance = quickPressureCheck(tier);
@@ -351,8 +393,8 @@ try {
     }
   }
 
-  // Outcome stats advisory — best-effort, suppressed in burst mode
-  if (!burstMode) {
+  // Outcome stats advisory — best-effort, suppressed in burst mode and on cooldown
+  if (!burstMode && !isOnCooldown('outcome_advisory')) {
     try {
       const stats = getOutcomeStats();
       const tierIssue = stats.underperforming.find(u => u.tier === tier);
@@ -385,9 +427,6 @@ try {
       process.exit(0);
     }
     // If we get here, a non-think model is being used for think work
-    const thinkBestFor = intelligence[expected || 'opus']?.best_for;
-    const thinkBestForSuffix = thinkBestFor ? ` (best for: ${thinkBestFor})` : '';
-    const msg = `This looks like think-level work (architecture/review/planning) — better kept on the main session (${expected || 'opus'}${thinkBestForSuffix}) rather than delegated to ${currentModel}.`;
     logRecommendation({
       tier,
       recommended: expected,
@@ -396,7 +435,15 @@ try {
       followed: false,
       profile: profileName,
     });
-    process.stdout.write(JSON.stringify({ systemMessage: prependWarnings(msg) }));
+    if (isOnCooldown('tier_warning')) {
+      const onlyWarnings = [duplicateWarning, driftWarning, failureMessage, autoStatus, balanceHint, outcomeAdvisory].filter(Boolean).join('\n\n');
+      process.stdout.write(JSON.stringify(onlyWarnings ? { systemMessage: onlyWarnings } : {}));
+    } else {
+      const thinkBestFor = intelligence[expected || 'opus']?.best_for;
+      const thinkBestForSuffix = thinkBestFor ? ` (best for: ${thinkBestFor})` : '';
+      const msg = `This looks like think-level work (architecture/review/planning) — better kept on the main session (${expected || 'opus'}${thinkBestForSuffix}) rather than delegated to ${currentModel}.`;
+      process.stdout.write(JSON.stringify({ systemMessage: prependWarnings(msg) }));
+    }
   } else {
     if (!expected || currentModel.includes(expected)) {
       logRecommendation({
@@ -415,10 +462,6 @@ try {
       }
       process.exit(0);
     }
-    const savings = tier === 'search' ? 'Haiku is 19x cheaper than Opus for read-only lookups.' : 'Sonnet is 5x cheaper than Opus for implementation work.';
-    const bestFor = intelligence[expected]?.best_for;
-    const bestForSuffix = bestFor ? ` (best for: ${bestFor})` : '';
-    const msg = `This looks like ${tier} work — use ${expected}${bestForSuffix} instead of ${currentModel || 'opus (inherited)'}. ${savings}`;
     logRecommendation({
       tier,
       recommended: expected,
@@ -427,7 +470,16 @@ try {
       followed: false,
       profile: profileName,
     });
-    process.stdout.write(JSON.stringify({ systemMessage: prependWarnings(msg) }));
+    if (isOnCooldown('tier_warning')) {
+      const onlyWarnings = [duplicateWarning, driftWarning, failureMessage, autoStatus, balanceHint, outcomeAdvisory].filter(Boolean).join('\n\n');
+      process.stdout.write(JSON.stringify(onlyWarnings ? { systemMessage: onlyWarnings } : {}));
+    } else {
+      const savings = tier === 'search' ? 'Haiku is 19x cheaper than Opus for read-only lookups.' : 'Sonnet is 5x cheaper than Opus for implementation work.';
+      const bestFor = intelligence[expected]?.best_for;
+      const bestForSuffix = bestFor ? ` (best for: ${bestFor})` : '';
+      const msg = `This looks like ${tier} work — use ${expected}${bestForSuffix} instead of ${currentModel || 'opus (inherited)'}. ${savings}`;
+      process.stdout.write(JSON.stringify({ systemMessage: prependWarnings(msg) }));
+    }
   }
 } catch (err) {
   process.stdout.write(JSON.stringify({

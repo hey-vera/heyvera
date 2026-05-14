@@ -11,6 +11,7 @@
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
+import { logHookError } from './error-channel.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROFILE_FILE = join(__dirname, '..', 'dual-brain.profile.json');
@@ -166,11 +167,11 @@ async function checkBudget() {
   } catch {}
 
   // Use summary checkpoint for fast budget check (O(1) instead of full scan)
-  let totalCost = 0;
+  let activityScore = 0;
   try {
     const { readSummary } = await import('./summary-checkpoint.mjs');
     const summary = readSummary();
-    totalCost = summary.totals.cost_estimate;
+    activityScore = summary.totals.activity_score || 0;
   } catch {
     // Fallback: scan the log (only if summary unavailable)
     const todayFile = usageFile();
@@ -180,15 +181,26 @@ async function checkBudget() {
         try { return JSON.parse(l); } catch { return null; }
       }).filter(Boolean);
     } catch { return null; }
-    const RATES = { search: 0.003, execute: 0.012, think: 0.055 };
-    totalCost = records.reduce((sum, r) => sum + (RATES[r.tier] || RATES.execute), 0);
+    const TIER_WEIGHTS = { search: 3, execute: 10, think: 25 };
+    const rawActivity = records.reduce((sum, r) => {
+      if (r.input_tokens != null && r.output_tokens != null) {
+        return sum + (r.input_tokens * 1) + (r.output_tokens * 3);
+      }
+      return sum + (TIER_WEIGHTS[r.tier] || TIER_WEIGHTS.execute);
+    }, 0);
+    activityScore = Math.min(100, Math.round((rawActivity / 5_000_000) * 100));
   }
 
+  // Budget thresholds use activity score (0-100) instead of dollar amounts.
+  // Falls back to legacy daily_limit_usd / daily_warn_usd field names for compat.
+  const activityLimit = budgets.daily_activity_limit || (budgets.daily_limit_usd ? 85 : null);
+  const activityWarn = budgets.daily_activity_warn || (budgets.daily_warn_usd ? 65 : null);
+
   let msg = null;
-  if (budgets.daily_limit_usd && totalCost >= budgets.daily_limit_usd) {
-    msg = `**[Budget Alert]** Daily cost estimate (~$${totalCost.toFixed(2)}) has reached the $${budgets.daily_limit_usd} limit. Consider pausing non-essential work.`;
-  } else if (budgets.daily_warn_usd && totalCost >= budgets.daily_warn_usd) {
-    msg = `**[Budget Alert]** Daily cost estimate (~$${totalCost.toFixed(2)}) has passed the $${budgets.daily_warn_usd} warning threshold.`;
+  if (activityLimit && activityScore >= activityLimit) {
+    msg = `**[Activity Alert]** Session activity score (${activityScore}/100) has reached the limit. Consider pausing non-essential work.`;
+  } else if (activityWarn && activityScore >= activityWarn) {
+    msg = `**[Activity Alert]** Session activity score (${activityScore}/100) has passed the warning threshold.`;
   }
 
   if (msg) {
@@ -222,6 +234,14 @@ async function main() {
   }
 
   const toolName = payload?.tool_name || payload?.toolName || "unknown";
+
+  // Early exit for high-frequency read-only tools — not worth logging
+  const READ_ONLY_TOOLS = new Set(["Read", "Grep", "Glob", "LS", "ListDir"]);
+  if (READ_ONLY_TOOLS.has(toolName)) {
+    process.stdout.write("{}\n");
+    process.exit(0);
+  }
+
   const toolInput = payload?.tool_input || payload?.toolInput || {};
   const agentModel = payload?.model || payload?.agent_model || null;
 
@@ -253,13 +273,13 @@ async function main() {
 
   try {
     appendFileSync(usageFile(), entry + "\n", { encoding: "utf8", flag: "a" });
-  } catch {}
+  } catch (e) { logHookError('cost-logger', 'usage log write', e); }
 
   // Update summary checkpoint (non-blocking, best-effort)
   try {
     const { updateSummary } = await import('./summary-checkpoint.mjs');
     updateSummary(entryObj);
-  } catch {}
+  } catch (e) { logHookError('cost-logger', 'summary checkpoint update', e); }
 
   // Record failures for adaptive routing (failure-loop detection)
   if (status === 'error' && toolName === 'Agent') {
@@ -269,7 +289,7 @@ async function main() {
       recordFailure(promptHash, tier, payload?.error || 'agent_error');
       // Best-effort cleanup of stale failure entries (>24h old)
       try { pruneOldFailures(); } catch {}
-    } catch {}
+    } catch (e) { logHookError('cost-logger', 'failure recording', e); }
   }
 
   // Record outcomes (success + failure) to decision ledger for routing feedback
@@ -291,7 +311,7 @@ async function main() {
         actual_input_tokens: inputTokens,
         actual_output_tokens: outputTokens,
       });
-    } catch {}
+    } catch (e) { logHookError('cost-logger', 'decision ledger recording', e); }
   }
 
   const budgetMsg = await checkBudget();

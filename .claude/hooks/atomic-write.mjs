@@ -11,6 +11,7 @@
 
 import { openSync, closeSync, readFileSync, writeFileSync, renameSync, unlinkSync, statSync } from 'fs';
 import { constants } from 'fs';
+import { logHookError } from './error-channel.mjs';
 
 const LOCK_TIMEOUT_MS = 5_000;
 const STALE_LOCK_MS = 10_000;
@@ -86,8 +87,9 @@ export function lockedReadModifyWrite(filePath, modifyFn, defaultValue = {}) {
   const locked = acquireLock(lockPath);
 
   if (!locked) {
-    // Timeout — fall through without lock (better than hanging)
-    // This matches the previous unlocked behavior as a degraded fallback
+    const err = new Error(`Lock acquisition timed out after ${LOCK_TIMEOUT_MS}ms for ${filePath}`);
+    logHookError('atomic-write', 'lockedReadModifyWrite', err, { filePath });
+    throw err;
   }
 
   try {
@@ -102,6 +104,6 @@ export function lockedReadModifyWrite(filePath, modifyFn, defaultValue = {}) {
     atomicWriteJSON(filePath, updated);
     return updated;
   } finally {
-    if (locked) releaseLock(lockPath);
+    releaseLock(lockPath);
   }
 }

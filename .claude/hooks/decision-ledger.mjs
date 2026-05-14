@@ -23,6 +23,7 @@ import { appendFileSync, existsSync, readFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { randomBytes } from 'crypto';
+import { logHookError } from './error-channel.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const LEDGER_FILE = join(__dirname, 'decision-ledger.jsonl');
@@ -62,7 +63,7 @@ function recordDecision(decision = {}) {
 
   try {
     appendFileSync(LEDGER_FILE, entry + '\n');
-  } catch {}
+  } catch (e) { logHookError('decision-ledger', 'recordDecision append', e); }
 
   return id;
 }
@@ -97,7 +98,7 @@ function recordOutcome(decisionId, outcome = {}) {
 
   try {
     appendFileSync(LEDGER_FILE, entry + '\n');
-  } catch {}
+  } catch (e) { logHookError('decision-ledger', 'recordOutcome append', e); }
 }
 
 function loadLedger() {

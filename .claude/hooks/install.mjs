@@ -8,7 +8,7 @@
  *   npx dual-brain --dry-run        # detect only, don't install
  *   npx dual-brain --help
  */
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from 'fs';
+import { appendFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from 'fs';
 import { dirname, join, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { spawnSync } from 'child_process';
@@ -43,38 +43,69 @@ if (flag('--help') || flag('-h')) {
 
   Usage:  npx -y dual-brain [command] [options]
 
-  ⌨️  Commands:
-    (none)       🧠 Auto-detect and install/update orchestrator
-    status       🟢 Open live control panel
-    mode         🎛️  Show or switch profile
-    budget       💵 Set session/daily spend limits
-    explain      🧭 Explain last routing decision
+  Setup:
+    (none)       Auto-detect and install/update orchestrator
     init         Alias for default install
+    doctor       Check system health and report issues
+    reset        Clear all state files (keeps config/hooks)
+    repair       Fix corrupt files, stale locks, re-register hooks
+    --uninstall  Remove dual-brain hooks and state files
+
+  Status:
+    status       Open live control panel
+    health       Verify system health
+    budget       Show or set session/daily spend limits
+    cost         Activity and cost estimates
+    report       Generate session report
+
+  Routing:
+    mode         Show or switch profile
+    explain      Explain last routing decision
+    gate         Run quality gate
+    ledger       Routing outcome insights
+
+  GPT:
+    think        Dual-brain think (--question "..." [--round 2])
+    review       Dual-brain code review
+    dispatch     Dispatch work to GPT via Codex CLI
+
+  Vibe:
+    vibe         Decompose casual requests into structured work
+    plan         Generate execution plans (--utterance "...")
+    memory       Persistent preferences and work threads
+
+  Dev:
+    test         Run self-tests
 
   Options:
     --force      Overwrite all existing config
     --dry-run    Detect environment only
     --json       Output detection as JSON
-    --uninstall  Remove dual-brain hooks and state files
     --help       Show this help
 
-  🎛️  Routing modes:
-    🤖 Auto (default) Adapts routing based on risk, health, outcomes
-    ⚖️  Balanced       Auto-routes, uses both providers evenly
-    🛡️  Conservative   Fewer GPT dispatches, sticks to Claude
-    🚀 Aggressive     Maximizes both subscriptions, dual-brain for medium+
+  Routing modes:
+    Auto (default) Adapts routing based on risk, health, outcomes
+    Balanced       Auto-routes, uses both providers evenly
+    Conservative   Fewer GPT dispatches, sticks to Claude
+    Aggressive     Maximizes both subscriptions, dual-brain for medium+
 
-  🚀 Examples:
+  Examples:
     ${cmd('npx dual-brain')}                  # install or update
     ${cmd('npx dual-brain status')}           # open control panel
     ${cmd('npx dual-brain mode cost-saver')}  # switch profile
     ${cmd('npx dual-brain budget 8 25')}      # \$8 session / \$25 daily
-    ${cmd('npx dual-brain explain')}          # last routing decision
+    ${cmd('npx dual-brain think --question "should we use Redis?"')}
+    ${cmd('npx dual-brain vibe "fix login and update nav"')}
   `);
   process.exit(0);
 }
 
-const SUBCOMMANDS = ['init', 'status', 'mode', 'budget', 'explain'];
+const SUBCOMMANDS = [
+  'init', 'status', 'mode', 'budget', 'explain',
+  'review', 'think', 'health', 'report', 'gate',
+  'vibe', 'plan', 'cost', 'dispatch', 'memory',
+  'test', 'ledger', 'doctor', 'reset', 'repair',
+];
 if (subcommand && !SUBCOMMANDS.includes(subcommand)) {
   console.error(`  Unknown command: ${subcommand}`);
   console.error(`  Run: ${cmd('npx dual-brain --help')}`);
@@ -268,7 +299,7 @@ function generateSettings(workspace) {
     ],
     PostToolUse: [
       {
-        matcher: '',
+        matcher: 'Agent|Bash|Write|Edit',
         hooks: [{ type: 'command', command: 'node .claude/hooks/cost-logger.mjs' }],
       },
     ],
@@ -698,6 +729,431 @@ function cmdExplain() {
   console.log('');
 }
 
+// ─── Subcommand: doctor ───────────────────────────────────────────────────
+
+function cmdDoctor() {
+  const workspace = resolve(process.cwd());
+  const claudeDir = join(workspace, '.claude');
+  const hooksDir = join(claudeDir, 'hooks');
+  const results = [];
+
+  // 1. Hook installation check
+  const settingsPath = join(claudeDir, 'settings.json');
+  const DUAL_BRAIN_CMDS = [
+    'node .claude/hooks/enforce-tier.mjs',
+    'node .claude/hooks/cost-logger.mjs',
+  ];
+  if (existsSync(settingsPath)) {
+    try {
+      const settings = JSON.parse(readFileSync(settingsPath, 'utf8'));
+      const registeredCmds = [];
+      if (settings.hooks) {
+        for (const entries of Object.values(settings.hooks)) {
+          for (const entry of entries) {
+            for (const h of (entry.hooks || [])) {
+              if (DUAL_BRAIN_CMDS.includes(h.command)) registeredCmds.push(h.command);
+            }
+          }
+        }
+      }
+      const missing = DUAL_BRAIN_CMDS.filter(c => !registeredCmds.includes(c));
+      if (missing.length === 0) {
+        results.push({ name: 'Hook registration', status: 'pass', detail: `${DUAL_BRAIN_CMDS.length}/${DUAL_BRAIN_CMDS.length} hooks registered` });
+      } else {
+        results.push({ name: 'Hook registration', status: 'fail', detail: `Missing: ${missing.map(c => c.split('/').pop()).join(', ')}`, fix: 'Run: npx dual-brain repair' });
+      }
+    } catch (err) {
+      results.push({ name: 'Hook registration', status: 'fail', detail: `settings.json parse error: ${err.message}`, fix: 'Run: npx dual-brain repair' });
+    }
+  } else {
+    results.push({ name: 'Hook registration', status: 'fail', detail: 'settings.json not found', fix: 'Run: npx dual-brain' });
+  }
+
+  // 2. Config validity
+  const orchPath = join(claudeDir, 'orchestrator.json');
+  if (existsSync(orchPath)) {
+    try {
+      const config = JSON.parse(readFileSync(orchPath, 'utf8'));
+      const requiredKeys = ['subscriptions', 'tiers', 'providers', 'budgets'];
+      const missing = requiredKeys.filter(k => !config[k]);
+      if (missing.length === 0) {
+        results.push({ name: 'Config validity', status: 'pass', detail: 'orchestrator.json valid, all required keys present' });
+      } else {
+        results.push({ name: 'Config validity', status: 'warn', detail: `Missing keys: ${missing.join(', ')}`, fix: 'Run: npx dual-brain --force' });
+      }
+    } catch (err) {
+      results.push({ name: 'Config validity', status: 'fail', detail: `orchestrator.json corrupt: ${err.message}`, fix: 'Run: npx dual-brain repair' });
+    }
+  } else {
+    results.push({ name: 'Config validity', status: 'fail', detail: 'orchestrator.json not found', fix: 'Run: npx dual-brain' });
+  }
+
+  // 3. Auth status
+  const claude = detectClaude();
+  if (claude.authed) {
+    results.push({ name: 'Claude CLI', status: 'pass', detail: 'installed and authenticated' });
+  } else if (claude.installed) {
+    results.push({ name: 'Claude CLI', status: 'warn', detail: 'installed but not authenticated' });
+  } else {
+    results.push({ name: 'Claude CLI', status: 'warn', detail: 'not found' });
+  }
+
+  const codexResult = detectCodex();
+  if (codexResult.authed) {
+    results.push({ name: 'Codex CLI', status: 'pass', detail: 'installed and authenticated' });
+  } else if (codexResult.installed) {
+    results.push({ name: 'Codex CLI', status: 'warn', detail: 'installed but not authenticated' });
+  } else {
+    results.push({ name: 'Codex CLI', status: 'warn', detail: 'not found (GPT features disabled)' });
+  }
+
+  // 4. State file health
+  const stateCheckFiles = [
+    { path: join(hooksDir, '.burst-state'), label: '.burst-state', format: 'json' },
+    { path: join(hooksDir, 'burst-state.json'), label: 'burst-state.json', format: 'json' },
+    { path: join(hooksDir, '.drift-warned'), label: '.drift-warned', format: 'any' },
+    { path: join(claudeDir, 'dual-brain.profile.json'), label: 'dual-brain.profile.json', format: 'json' },
+    { path: join(hooksDir, 'decision-ledger.jsonl'), label: 'decision-ledger.jsonl', format: 'jsonl' },
+  ];
+
+  // Add any usage-*.jsonl files
+  try {
+    for (const f of readdirSync(hooksDir)) {
+      if (f.startsWith('usage-') && f.endsWith('.jsonl')) {
+        stateCheckFiles.push({ path: join(hooksDir, f), label: f, format: 'jsonl' });
+      }
+    }
+  } catch {}
+
+  let stateHealthy = 0, stateWarns = 0, stateFails = 0;
+  const stateIssues = [];
+
+  for (const sf of stateCheckFiles) {
+    if (!existsSync(sf.path)) continue;
+    try {
+      const raw = readFileSync(sf.path, 'utf8');
+      if (sf.format === 'json') {
+        JSON.parse(raw);
+        stateHealthy++;
+      } else if (sf.format === 'jsonl') {
+        const lines = raw.split('\n').filter(Boolean);
+        let badLines = 0;
+        for (const line of lines) {
+          try { JSON.parse(line); } catch { badLines++; }
+        }
+        if (badLines > 0) {
+          stateWarns++;
+          stateIssues.push(`${sf.label}: ${badLines}/${lines.length} unparseable lines`);
+        } else {
+          stateHealthy++;
+        }
+      } else {
+        stateHealthy++;
+      }
+    } catch (err) {
+      stateFails++;
+      stateIssues.push(`${sf.label}: corrupt (${err.message})`);
+    }
+  }
+
+  // Check for stale locks
+  let staleLocks = 0;
+  for (const dir of [hooksDir, claudeDir]) {
+    try {
+      for (const f of readdirSync(dir)) {
+        if (f.endsWith('.lock')) {
+          try {
+            const st = statSync(join(dir, f));
+            if (Date.now() - st.mtimeMs > 30_000) staleLocks++;
+          } catch {}
+        }
+      }
+    } catch {}
+  }
+
+  if (staleLocks > 0) {
+    stateIssues.push(`${staleLocks} stale lock file(s)`);
+    stateWarns++;
+  }
+
+  if (stateFails > 0) {
+    results.push({ name: 'State files', status: 'fail', detail: stateIssues.join('; '), fix: 'Run: npx dual-brain repair' });
+  } else if (stateWarns > 0) {
+    results.push({ name: 'State files', status: 'warn', detail: stateIssues.join('; '), fix: 'Run: npx dual-brain repair' });
+  } else {
+    results.push({ name: 'State files', status: 'pass', detail: `${stateHealthy} file(s) healthy` });
+  }
+
+  // 5. Error channel
+  const errorsFile = join(hooksDir, 'errors.jsonl');
+  if (existsSync(errorsFile)) {
+    try {
+      const raw = readFileSync(errorsFile, 'utf8');
+      const lines = raw.split('\n').filter(Boolean);
+      const entries = [];
+      for (const line of lines) {
+        try { entries.push(JSON.parse(line)); } catch {}
+      }
+
+      const cutoff24h = Date.now() - 24 * 60 * 60 * 1000;
+      const recent = entries.filter(e => e.timestamp && Date.parse(e.timestamp) >= cutoff24h);
+
+      if (recent.length === 0) {
+        results.push({ name: 'Error channel', status: 'pass', detail: 'no errors in last 24h' });
+      } else {
+        const last3 = recent.slice(-3);
+        const detail = `${recent.length} error(s) in last 24h`;
+        results.push({ name: 'Error channel', status: 'warn', detail, errors: last3 });
+      }
+    } catch {
+      results.push({ name: 'Error channel', status: 'warn', detail: 'errors.jsonl unreadable' });
+    }
+  } else {
+    results.push({ name: 'Error channel', status: 'pass', detail: 'no errors.jsonl (clean)' });
+  }
+
+  // Output
+  const passCount = results.filter(r => r.status === 'pass').length;
+  const warnCount = results.filter(r => r.status === 'warn').length;
+  const failCount = results.filter(r => r.status === 'fail').length;
+
+  console.log('');
+  console.log(`  🩺 dual-brain v${VERSION} — doctor`);
+  console.log('  ' + '─'.repeat(50));
+
+  for (const r of results) {
+    const icon = r.status === 'pass' ? '✓' : r.status === 'warn' ? '⚠' : '✗';
+    console.log(`  ${icon} ${r.name}: ${r.detail}`);
+    if (r.fix) console.log(`    → ${r.fix}`);
+    if (r.errors) {
+      for (const e of r.errors) {
+        const ts = e.timestamp ? e.timestamp.slice(11, 19) : '??:??:??';
+        console.log(`    ${ts} [${e.hook || '?'}] ${e.error || '?'}`);
+      }
+    }
+  }
+
+  console.log('  ' + '─'.repeat(50));
+  if (failCount > 0) {
+    console.log(`  ✗ Needs repair: ${failCount} issue(s) require attention`);
+  } else if (warnCount > 0) {
+    console.log(`  ⚠ Warnings: ${warnCount} — system functional but has issues`);
+  } else {
+    console.log(`  ✓ Healthy: all ${passCount} checks passed`);
+  }
+  console.log('');
+}
+
+// ─── Subcommand: reset ────────────────────────────────────────────────────
+
+function cmdReset() {
+  const workspace = resolve(process.cwd());
+  const claudeDir = join(workspace, '.claude');
+  const hooksDir = join(claudeDir, 'hooks');
+
+  // Collect state files (NOT config, hooks, or profile)
+  const STATE_FIXED = [
+    join(hooksDir, 'usage.jsonl'),
+    join(hooksDir, 'decision-ledger.jsonl'),
+    join(hooksDir, 'failure-ledger.json'),
+    join(hooksDir, '.burst-state'),
+    join(hooksDir, 'burst-state.json'),
+    join(hooksDir, '.drift-warned'),
+    join(hooksDir, '.budget-alerted'),
+    join(hooksDir, 'errors.jsonl'),
+    join(hooksDir, 'summary-checkpoint.json'),
+    join(claudeDir, '.launched'),
+  ];
+
+  const toDelete = [];
+  for (const f of STATE_FIXED) {
+    if (existsSync(f)) toDelete.push(f);
+  }
+
+  // Scan for date-stamped files and lock files
+  try {
+    for (const f of readdirSync(hooksDir)) {
+      if (f.startsWith('usage-') && f.endsWith('.jsonl')) toDelete.push(join(hooksDir, f));
+      if (f.startsWith('usage-summary-') && f.endsWith('.json')) toDelete.push(join(hooksDir, f));
+      if (f.endsWith('.lock')) toDelete.push(join(hooksDir, f));
+    }
+  } catch {}
+  try {
+    for (const f of readdirSync(claudeDir)) {
+      if (f.endsWith('.lock')) toDelete.push(join(claudeDir, f));
+    }
+  } catch {}
+
+  const unique = [...new Set(toDelete)].filter(f => existsSync(f));
+
+  if (unique.length === 0) {
+    console.log('');
+    console.log('  🔄 Nothing to reset — no state files found.');
+    console.log('');
+    return;
+  }
+
+  // Require --force or confirmation
+  if (!force) {
+    console.log('');
+    console.log(`  🔄 dual-brain reset — will delete ${unique.length} state file(s):`);
+    console.log('');
+    for (const f of unique) {
+      const rel = f.startsWith(workspace) ? f.slice(workspace.length + 1) : f;
+      console.log(`    ${rel}`);
+    }
+    console.log('');
+    console.log('  Preserved: orchestrator.json, settings.json, hooks, profile, CLAUDE.md');
+    console.log('');
+    console.log(`  To confirm: ${cmd('npx dual-brain reset --force')}`);
+    console.log('');
+    return;
+  }
+
+  let removed = 0;
+  const errors = [];
+  for (const f of unique) {
+    try {
+      unlinkSync(f);
+      removed++;
+    } catch (err) {
+      errors.push(`  ⚠ Could not remove ${f.split('/').pop()}: ${err.message}`);
+    }
+  }
+
+  console.log('');
+  console.log(`  🔄 dual-brain v${VERSION} — reset`);
+  console.log('  ' + '─'.repeat(40));
+  console.log(`  ✓ Removed ${removed} state file(s)`);
+  for (const e of errors) console.log(e);
+  console.log('');
+  console.log('  Preserved: orchestrator.json, settings.json, hooks, profile, CLAUDE.md');
+  console.log('  State will rebuild automatically on next session.');
+  console.log('');
+}
+
+// ─── Subcommand: repair ───────────────────────────────────────────────────
+
+function cmdRepair() {
+  const workspace = resolve(process.cwd());
+  const claudeDir = join(workspace, '.claude');
+  const hooksDir = join(claudeDir, 'hooks');
+  const actions = [];
+
+  // 1. Remove stale lock files (older than 30 seconds)
+  let staleLocks = 0;
+  for (const dir of [hooksDir, claudeDir]) {
+    try {
+      for (const f of readdirSync(dir)) {
+        if (!f.endsWith('.lock')) continue;
+        const lockPath = join(dir, f);
+        try {
+          const st = statSync(lockPath);
+          if (Date.now() - st.mtimeMs > 30_000) {
+            unlinkSync(lockPath);
+            staleLocks++;
+          }
+        } catch {}
+      }
+    } catch {}
+  }
+  if (staleLocks > 0) {
+    actions.push(`✓ Removed ${staleLocks} stale lock file(s)`);
+  } else {
+    actions.push('⊘ No stale locks found');
+  }
+
+  // 2. Repair corrupt JSONL files
+  const jsonlFiles = [
+    join(hooksDir, 'decision-ledger.jsonl'),
+    join(hooksDir, 'errors.jsonl'),
+    join(hooksDir, 'usage.jsonl'),
+  ];
+  try {
+    for (const f of readdirSync(hooksDir)) {
+      if (f.startsWith('usage-') && f.endsWith('.jsonl')) {
+        jsonlFiles.push(join(hooksDir, f));
+      }
+    }
+  } catch {}
+
+  let repairedJsonl = 0;
+  for (const filePath of [...new Set(jsonlFiles)]) {
+    if (!existsSync(filePath)) continue;
+    try {
+      const raw = readFileSync(filePath, 'utf8');
+      const lines = raw.split('\n').filter(Boolean);
+      let badCount = 0;
+      const goodLines = [];
+      for (const line of lines) {
+        try {
+          JSON.parse(line);
+          goodLines.push(line);
+        } catch {
+          badCount++;
+        }
+      }
+      if (badCount > 0) {
+        const tmp = filePath + '.tmp.' + process.pid;
+        writeFileSync(tmp, goodLines.length > 0 ? goodLines.join('\n') + '\n' : '');
+        renameSync(tmp, filePath);
+        repairedJsonl++;
+        actions.push(`✓ ${filePath.split('/').pop()}: removed ${badCount} corrupt line(s), kept ${goodLines.length}`);
+      }
+    } catch (err) {
+      actions.push(`⚠ ${filePath.split('/').pop()}: could not repair (${err.message})`);
+    }
+  }
+  if (repairedJsonl === 0) {
+    actions.push('⊘ No corrupt JSONL files found');
+  }
+
+  // 3. Re-validate and fix orchestrator.json formatting
+  const orchPath = join(claudeDir, 'orchestrator.json');
+  if (existsSync(orchPath)) {
+    try {
+      const raw = readFileSync(orchPath, 'utf8');
+      const config = JSON.parse(raw);
+      const pretty = JSON.stringify(config, null, 2) + '\n';
+      if (raw !== pretty) {
+        const tmp = orchPath + '.tmp.' + process.pid;
+        writeFileSync(tmp, pretty);
+        renameSync(tmp, orchPath);
+        actions.push('✓ orchestrator.json: re-formatted');
+      } else {
+        actions.push('⊘ orchestrator.json: already well-formatted');
+      }
+    } catch (err) {
+      actions.push(`✗ orchestrator.json: invalid JSON — ${err.message}`);
+      actions.push('  → Run: npx dual-brain --force (to regenerate from template)');
+    }
+  } else {
+    actions.push('✗ orchestrator.json: not found — run: npx dual-brain');
+  }
+
+  // 4. Re-run hook registration (ensure hooks are in settings.json)
+  if (existsSync(join(claudeDir, 'settings.json')) || existsSync(orchPath)) {
+    try {
+      const settings = generateSettings(workspace);
+      const tmp = join(claudeDir, 'settings.json.tmp.' + process.pid);
+      writeFileSync(tmp, JSON.stringify(settings, null, 2) + '\n');
+      renameSync(tmp, join(claudeDir, 'settings.json'));
+      actions.push('✓ settings.json: hooks re-registered');
+    } catch (err) {
+      actions.push(`⚠ settings.json: could not re-register hooks (${err.message})`);
+    }
+  }
+
+  // Print report
+  console.log('');
+  console.log(`  🔧 dual-brain v${VERSION} — repair`);
+  console.log('  ' + '─'.repeat(40));
+  for (const a of actions) {
+    console.log(`  ${a}`);
+  }
+  console.log('');
+}
+
 // ─── Uninstall ─────────────────────────────────────────────────────────────
 
 function cmdUninstall() {
@@ -817,6 +1273,44 @@ function cmdUninstall() {
   console.log('');
 }
 
+// ─── Hook Delegation ───────────────────────────────────────────────────────
+
+const HOOK_COMMANDS = {
+  review:   'dual-brain-review.mjs',
+  think:    'dual-brain-think.mjs',
+  health:   'health-check.mjs',
+  report:   'session-report.mjs',
+  gate:     'quality-gate.mjs',
+  vibe:     'vibe-router.mjs',
+  plan:     'plan-generator.mjs',
+  cost:     'cost-report.mjs',
+  dispatch: 'gpt-work-dispatcher.mjs',
+  memory:   'vibe-memory.mjs',
+  test:     'test-orchestrator.mjs',
+  ledger:   'decision-ledger.mjs',
+};
+
+function delegateToHook(hookFile) {
+  const workspace = resolve(process.cwd());
+  const installed = join(workspace, '.claude', 'hooks', hookFile);
+  const bundled = join(__dirname, 'hooks', hookFile);
+  const script = existsSync(installed) ? installed : existsSync(bundled) ? bundled : null;
+
+  if (!script) {
+    console.error(`  Hook not found: ${hookFile}`);
+    console.error(`  Run: ${cmd('npx dual-brain')} to install hooks first.`);
+    process.exit(1);
+  }
+
+  // Pass through all args after the subcommand
+  const extraArgs = process.argv.slice(3);
+  const { status } = spawnSync(process.execPath, [script, ...extraArgs], {
+    stdio: 'inherit',
+    cwd: workspace,
+  });
+  process.exit(status || 0);
+}
+
 // ─── Main ───────────────────────────────────────────────────────────────────
 
 function main() {
@@ -829,6 +1323,15 @@ function main() {
   if (subcommand === 'mode')    { cmdMode();    return; }
   if (subcommand === 'budget')  { cmdBudget();  return; }
   if (subcommand === 'explain') { cmdExplain(); return; }
+  if (subcommand === 'doctor')  { cmdDoctor();  return; }
+  if (subcommand === 'reset')   { cmdReset();   return; }
+  if (subcommand === 'repair')  { cmdRepair();  return; }
+
+  // Delegate hook-backed commands
+  if (subcommand && HOOK_COMMANDS[subcommand]) {
+    delegateToHook(HOOK_COMMANDS[subcommand]);
+    return;
+  }
 
   const env = detectEnvironment();
   const mode = resolveMode(env);

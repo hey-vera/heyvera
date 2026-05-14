@@ -28,6 +28,10 @@ const DUAL_BRAIN    = resolve(HOOKS, 'dual-brain-review.mjs');
 const ORCHESTRATOR  = resolve(HOOKS, '..', 'orchestrator.json');
 const USAGE_JSONL   = resolve(HOOKS, `usage-${new Date().toISOString().slice(0, 10)}.jsonl`);
 const BURST_FILE    = resolve(HOOKS, '.burst-state');
+const COOLDOWN_FILE = resolve(HOOKS, '.recommendation-cooldowns');
+
+// Clean up cooldown state before tests so cooldowns don't interfere
+try { unlinkSync(COOLDOWN_FILE); } catch {}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -121,6 +125,8 @@ test('enforce-tier: correct tier', () => {
 
 // ─── Test 3: enforce-tier: think task on haiku ───────────────────────────────
 test('enforce-tier: think on haiku', () => {
+  // Clear cooldown state so tier_warning isn't suppressed
+  try { unlinkSync(COOLDOWN_FILE); } catch {}
   const payload = JSON.stringify({
     tool_name: 'Agent',
     tool_input: { prompt: 'review security', model: 'haiku' },
@@ -173,8 +179,8 @@ test('cost-logger: logs entry', () => {
   }
 
   const payload = JSON.stringify({
-    tool_name: 'Read',
-    tool_input: { file_path: '/some/file.ts' },
+    tool_name: 'Bash',
+    tool_input: { command: 'echo hello' },
   });
   // cost-logger uses for-await on process.stdin → use runStream (spawnSync input pipe)
   const { parsed, status } = runStream(COST_LOGGER, payload);
@@ -254,6 +260,8 @@ test('orchestrator.json: valid JSON', () => {
 
 // ─── Test 9: enforce-tier: think on gpt-4.1-mini ─────────────────────────────
 test('enforce-tier: think on gpt-4.1-mini', () => {
+  // Clear cooldown state so tier_warning isn't suppressed
+  try { unlinkSync(COOLDOWN_FILE); } catch {}
   const input = JSON.stringify({ tool_name: 'Agent', tool_input: { description: 'review security architecture', prompt: 'audit auth', model: 'gpt-4.1-mini' } });
   const { parsed } = run(ENFORCE_TIER, input);
   if (!parsed) return 'no valid JSON output';
@@ -263,14 +271,19 @@ test('enforce-tier: think on gpt-4.1-mini', () => {
   return true;
 });
 
-// ─── Test 10: orchestrator.json: model_intelligence ──────────────────────────
-test('orchestrator.json: model_intelligence', () => {
+// ─── Test 10: orchestrator.json: model_intelligence (inline in subscriptions) ─
+test('orchestrator.json: model_intelligence (inline)', () => {
   const config = JSON.parse(readFileSync(resolve(__dirname, '..', 'orchestrator.json'), 'utf8'));
-  const mi = config.model_intelligence;
-  if (!mi) return 'model_intelligence key missing';
-  if (!mi.opus)   return 'model_intelligence missing opus entry';
-  if (!mi.sonnet) return 'model_intelligence missing sonnet entry';
-  if (!mi.haiku)  return 'model_intelligence missing haiku entry';
+  const claude = config.subscriptions?.claude?.models || {};
+  const openai = config.subscriptions?.openai?.models || {};
+  if (!claude.opus?.best_for)   return 'claude.models.opus missing best_for';
+  if (!claude.sonnet?.best_for) return 'claude.models.sonnet missing best_for';
+  if (!claude.haiku?.best_for)  return 'claude.models.haiku missing best_for';
+  if (!claude.opus?.model_id)   return 'claude.models.opus missing model_id';
+  // Verify openai models also have intelligence fields
+  for (const [name, meta] of Object.entries(openai)) {
+    if (!meta.best_for) return `openai.models.${name} missing best_for`;
+  }
   return true;
 });
 
@@ -545,6 +558,8 @@ test('enforce-tier: cost-saver demotes think', () => {
 
 // ─── Test 24: enforce-tier: quality-first promotes execute ──────────────────
 test('enforce-tier: quality-first promotes execute', () => {
+  // Clear cooldown state so tier_warning isn't suppressed
+  try { unlinkSync(COOLDOWN_FILE); } catch {}
   const profileFile = resolve(__dirname, '..', 'dual-brain.profile.json');
   let originalProfile;
   try { originalProfile = readFileSync(profileFile, 'utf8'); } catch { originalProfile = null; }
@@ -789,7 +804,14 @@ test('enforce-tier: burst mode suppresses duplicate warnings', () => {
 
 // ─── Test 32: enforce-tier: non-burst mode still warns on duplicates ───────
 test('enforce-tier: non-burst mode still warns on duplicates', () => {
+  // Clear cooldown and summary state to start clean
+  const summaryFile = resolve(HOOKS, `usage-summary-${new Date().toISOString().slice(0, 10)}.json`);
+  let savedSummary;
+  try { savedSummary = readFileSync(summaryFile, 'utf8'); } catch { savedSummary = null; }
   try {
+    try { unlinkSync(COOLDOWN_FILE); } catch {}
+    // Temporarily clear summary to prevent stale hash matches on first call
+    try { writeFileSync(summaryFile, JSON.stringify({ version: 1, recent_hashes: [] })); } catch {}
     // Expire burst state by setting window_start to 0 (well outside 90s window)
     writeFileSync(BURST_FILE, JSON.stringify({ count: 0, window_start: 0 }));
     const payload = JSON.stringify({
@@ -799,6 +821,8 @@ test('enforce-tier: non-burst mode still warns on duplicates', () => {
 
     // First call — establishes the prompt hash
     run(ENFORCE_TIER, payload);
+    // Clear cooldown between calls so the second call's duplicate warning isn't suppressed
+    try { unlinkSync(COOLDOWN_FILE); } catch {}
     // Second identical call — should trigger duplicate warning
     const { parsed, status } = run(ENFORCE_TIER, payload);
     if (status !== 0) return `non-zero exit: ${status}`;
@@ -810,6 +834,11 @@ test('enforce-tier: non-burst mode still warns on duplicates', () => {
     return true;
   } finally {
     try { unlinkSync(BURST_FILE); } catch {}
+    try { unlinkSync(COOLDOWN_FILE); } catch {}
+    // Restore summary file if it existed before
+    if (savedSummary) {
+      try { writeFileSync(summaryFile, savedSummary); } catch {}
+    }
   }
 });
 
@@ -1154,6 +1183,200 @@ test('adaptive loop: end-to-end hash match', () => {
     if (backup !== null) writeFileSync(LEDGER, backup, 'utf8');
     else try { writeFileSync(LEDGER, '', 'utf8'); } catch {}
   }
+});
+
+// ─── Test 41: error-channel exports logHookError and getRecentErrors ────────
+test('error-channel: exports logHookError and getRecentErrors', () => {
+  const ERROR_FILE = resolve(HOOKS, 'errors.jsonl');
+  const backup = existsSync(ERROR_FILE) ? readFileSync(ERROR_FILE, 'utf8') : null;
+
+  try {
+    // Start clean
+    try { writeFileSync(ERROR_FILE, '', 'utf8'); } catch {}
+
+    const script = `
+      import { logHookError, getRecentErrors } from './error-channel.mjs';
+      const results = { errors: [] };
+
+      // 1. Both functions exist and are functions
+      if (typeof logHookError !== 'function') results.errors.push('logHookError not a function');
+      if (typeof getRecentErrors !== 'function') results.errors.push('getRecentErrors not a function');
+
+      // 2. logHookError writes an entry
+      logHookError('test-hook', 'test-op', new Error('test error'), { extra: 'ctx' });
+
+      // 3. getRecentErrors reads it back
+      const recent = getRecentErrors(1);
+      if (!Array.isArray(recent)) results.errors.push('getRecentErrors did not return array');
+      else if (recent.length < 1) results.errors.push('getRecentErrors returned empty after logHookError');
+      else {
+        const entry = recent[0];
+        if (entry.hook !== 'test-hook') results.errors.push('entry.hook mismatch: ' + entry.hook);
+        if (entry.operation !== 'test-op') results.errors.push('entry.operation mismatch: ' + entry.operation);
+        if (!entry.error.includes('test error')) results.errors.push('entry.error mismatch: ' + entry.error);
+        if (!entry.timestamp) results.errors.push('entry missing timestamp');
+        if (entry.context?.extra !== 'ctx') results.errors.push('entry.context mismatch');
+      }
+
+      process.stdout.write(JSON.stringify(results));
+    `;
+    const proc = spawnSync(process.execPath, [
+      '--input-type=module',
+      '-e', script,
+    ], { encoding: 'utf8', timeout: 5000, cwd: HOOKS });
+
+    if (proc.status !== 0) return `error-channel script failed: ${proc.stderr}`;
+    let results;
+    try { results = JSON.parse(proc.stdout.trim()); } catch { return `output not JSON: ${proc.stdout}`; }
+    if (results.errors.length > 0) return results.errors.join('; ');
+    return true;
+  } finally {
+    if (backup !== null) writeFileSync(ERROR_FILE, backup, 'utf8');
+    else try { unlinkSync(ERROR_FILE); } catch {}
+  }
+});
+
+// ─── Test 42: atomic-write: lockedReadModifyWrite rejects on lock contention ─
+test('atomic-write: lockedReadModifyWrite rejects on lock contention', () => {
+  const tmpDir = spawnSync('mktemp', ['-d'], { encoding: 'utf8' }).stdout.trim();
+  const testFile = resolve(tmpDir, 'test-locked.json');
+  const lockFile = testFile + '.lock';
+
+  try {
+    // Write initial data
+    writeFileSync(testFile, JSON.stringify({ value: 1 }));
+    // Manually create a lock file to simulate contention
+    writeFileSync(lockFile, JSON.stringify({ pid: process.pid, ts: Date.now() }));
+
+    const script = `
+      import { lockedReadModifyWrite } from '${resolve(HOOKS, 'atomic-write.mjs').replace(/\\/g, '/')}';
+      try {
+        lockedReadModifyWrite('${testFile.replace(/\\/g, '/')}', (data) => ({ ...data, value: 2 }));
+        process.stdout.write(JSON.stringify({ threw: false }));
+      } catch (e) {
+        process.stdout.write(JSON.stringify({ threw: true, message: e.message }));
+      }
+    `;
+    const proc = spawnSync(process.execPath, [
+      '--input-type=module',
+      '-e', script,
+    ], { encoding: 'utf8', timeout: 15000, cwd: HOOKS });
+
+    if (proc.status !== 0 && proc.status !== null) {
+      // Non-zero exit is acceptable if process threw
+    }
+
+    let result;
+    try { result = JSON.parse((proc.stdout || '').trim()); } catch {
+      return `output not JSON: ${proc.stdout || ''} stderr: ${proc.stderr || ''}`;
+    }
+
+    if (!result.threw) return 'expected lockedReadModifyWrite to throw on lock contention, but it did not';
+    if (!result.message.includes('timed out')) return `expected timeout message, got: ${result.message}`;
+
+    // Verify the file was NOT modified (write should not have proceeded)
+    const data = JSON.parse(readFileSync(testFile, 'utf8'));
+    if (data.value !== 1) return `expected file value=1 (unchanged), got: ${data.value}`;
+
+    return true;
+  } finally {
+    spawnSync('rm', ['-rf', tmpDir], { stdio: 'pipe' });
+  }
+});
+
+// ─── Test 43: config-validator: validates good config ────────────────────────
+test('config-validator: validates good config', () => {
+  const script = `
+    import { validateConfig } from './config-validator.mjs';
+    const config = {
+      subscriptions: { claude: { models: { opus: { tier: 'think' } } } },
+      tiers: { search: {}, execute: {}, think: {} },
+      routing: { strategy: 'test' },
+      quality_gate: { enabled: true },
+    };
+    const result = validateConfig(config);
+    process.stdout.write(JSON.stringify(result));
+  `;
+  const proc = spawnSync(process.execPath, [
+    '--input-type=module',
+    '-e', script,
+  ], { encoding: 'utf8', timeout: 5000, cwd: HOOKS });
+
+  if (proc.status !== 0) return `script failed: ${proc.stderr}`;
+  let result;
+  try { result = JSON.parse(proc.stdout.trim()); } catch { return `output not JSON: ${proc.stdout}`; }
+  if (!result.valid) return `expected valid=true, got errors: ${result.errors.join('; ')}`;
+  return true;
+});
+
+// ─── Test 44: config-validator: detects missing keys ─────────────────────────
+test('config-validator: detects missing keys', () => {
+  const script = `
+    import { validateConfig } from './config-validator.mjs';
+    const result = validateConfig({ subscriptions: { claude: { models: { opus: { tier: 'think' } } } } });
+    process.stdout.write(JSON.stringify(result));
+  `;
+  const proc = spawnSync(process.execPath, [
+    '--input-type=module',
+    '-e', script,
+  ], { encoding: 'utf8', timeout: 5000, cwd: HOOKS });
+
+  if (proc.status !== 0) return `script failed: ${proc.stderr}`;
+  let result;
+  try { result = JSON.parse(proc.stdout.trim()); } catch { return `output not JSON: ${proc.stdout}`; }
+  if (result.valid) return 'expected valid=false for config missing tiers/routing/quality_gate';
+  if (result.errors.length < 3) return `expected at least 3 errors, got: ${result.errors.length}`;
+  return true;
+});
+
+// ─── Test 45: config-validator: warns on unknown keys ────────────────────────
+test('config-validator: warns on unknown keys', () => {
+  const script = `
+    import { validateConfig } from './config-validator.mjs';
+    const config = {
+      subscriptions: { claude: { models: { opus: { tier: 'think' } } } },
+      tiers: { search: {}, execute: {}, think: {} },
+      routing: {},
+      quality_gate: {},
+      typo_key: true,
+    };
+    const result = validateConfig(config);
+    process.stdout.write(JSON.stringify(result));
+  `;
+  const proc = spawnSync(process.execPath, [
+    '--input-type=module',
+    '-e', script,
+  ], { encoding: 'utf8', timeout: 5000, cwd: HOOKS });
+
+  if (proc.status !== 0) return `script failed: ${proc.stderr}`;
+  let result;
+  try { result = JSON.parse(proc.stdout.trim()); } catch { return `output not JSON: ${proc.stdout}`; }
+  if (!result.valid) return `expected valid=true (unknown keys are warnings, not errors): ${result.errors.join('; ')}`;
+  if (result.warnings.length === 0) return 'expected warning about unknown key "typo_key"';
+  if (!result.warnings[0].includes('typo_key')) return `expected warning about typo_key, got: ${result.warnings[0]}`;
+  return true;
+});
+
+// ─── Test 46: config-validator: loadAndValidateConfig on real config ─────────
+test('config-validator: loadAndValidateConfig on real config', () => {
+  const script = `
+    import { loadAndValidateConfig } from './config-validator.mjs';
+    import { resolve, dirname } from 'path';
+    import { fileURLToPath } from 'url';
+    const __dirname = dirname(fileURLToPath(import.meta.url));
+    const result = loadAndValidateConfig(resolve(__dirname, '..', 'orchestrator.json'));
+    process.stdout.write(JSON.stringify({ valid: result.validation.valid, errors: result.validation.errors, warnings: result.validation.warnings }));
+  `;
+  const proc = spawnSync(process.execPath, [
+    '--input-type=module',
+    '-e', script,
+  ], { encoding: 'utf8', timeout: 5000, cwd: HOOKS });
+
+  if (proc.status !== 0) return `script failed: ${proc.stderr}`;
+  let result;
+  try { result = JSON.parse(proc.stdout.trim()); } catch { return `output not JSON: ${proc.stdout}`; }
+  if (!result.valid) return `real orchestrator.json failed validation: ${result.errors.join('; ')}`;
+  return true;
 });
 
 // ─── Summary ─────────────────────────────────────────────────────────────────

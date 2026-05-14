@@ -14,40 +14,40 @@ Route subagents by task complexity:
 
 For isolated or parallel work, dispatch to GPT via Codex CLI:
 
-- `node .claude/hooks/gpt-work-dispatcher.mjs --task "..." --model gpt-5.4` — execution tasks
+- `npx dual-brain dispatch --task "..." --model gpt-5.4` — execution tasks
 
 ## Dual-Brain Collaboration
 
 Dual-brain is a multi-round conversation between Claude and GPT — not a single-shot dispatch.
 
 **Think flow** (architecture decisions):
-1. Round 1: `node .claude/hooks/dual-brain-think.mjs --question "..."`
+1. Round 1: `npx dual-brain think --question "..."`
    → GPT gives independent analysis
 2. You analyze the same question independently
-3. Round 2: `node .claude/hooks/dual-brain-think.mjs --question "..." --round 2 --claude-says "<your analysis>"`
+3. Round 2: `npx dual-brain think --question "..." --round 2 --claude-says "<your analysis>"`
    → GPT responds to your points: agreements, pushback, refined recommendation
 4. You synthesize both rounds into a final decision
 
 **Review flow** (code review):
-1. Round 1: `node .claude/hooks/dual-brain-review.mjs`
+1. Round 1: `npx dual-brain review`
    → GPT reviews the diff independently
 2. You review the same diff independently
-3. Round 2: `node .claude/hooks/dual-brain-review.mjs --round 2 --claude-review "<your findings>"`
+3. Round 2: `npx dual-brain review --round 2 --claude-review "<your findings>"`
    → GPT confirms shared findings, acknowledges misses, disputes false positives
 4. You synthesize into a final review verdict
 
 ## Routing Rules
 
 1. Tasks under 3 min → Claude (Codex startup overhead not worth it)
-2. Isolated tasks over 3 min → check balance: `node .claude/hooks/budget-balancer.mjs`
+2. Isolated tasks over 3 min → check balance: `npx dual-brain budget`
 3. High-risk decisions → dual-brain think
 4. When a task spans tiers: think > execute > search
 
 ## Quality Gate
 
 Before ending a session with code changes:
-1. Run `node .claude/hooks/session-report.mjs`
-2. Run `node .claude/hooks/quality-gate.mjs`
+1. Run `npx dual-brain report`
+2. Run `npx dual-brain gate`
 
 Gate statuses: `pass` (safe to end), `issues_found` (fix first), `needs_human_review` (GPT unavailable).
 
@@ -81,32 +81,39 @@ Casual natural language → structured work. The vibe coding system translates i
 
 **Intent compiler** — decompose multi-task requests:
 ```bash
-node .claude/hooks/vibe-router.mjs "fix the login bug and also update the nav"
+npx dual-brain vibe "fix the login bug and also update the nav"
 ```
 Returns structured tasks with tier/risk classification, complexity level, quality gates, and wave strategy.
 
 **Plan generator** — Steve-style 3-part markdown plans:
 ```bash
-node .claude/hooks/plan-generator.mjs --utterance "..." [--write]
+npx dual-brain plan --utterance "..." [--write]
 ```
 Generates: (1) dependency-ordered task table, (2) user stories + edge cases, (3) questions with suggested answers. Pass `--write` to save to `.claude/plans/`.
 
 **Durable memory** — preferences persist across sessions:
 ```bash
-node .claude/hooks/vibe-memory.mjs                              # show state
-node .claude/hooks/vibe-memory.mjs --set preferences.risk_tolerance=careful
-node .claude/hooks/vibe-memory.mjs --threads                    # active work
-node .claude/hooks/vibe-memory.mjs --infer                      # preference suggestions
+npx dual-brain memory                              # show state
+npx dual-brain memory --set preferences.risk_tolerance=careful
+npx dual-brain memory --threads                    # active work
+npx dual-brain memory --infer                      # preference suggestions
 ```
 Tracks preferred profile, risk tolerance, active threads, and learns from usage patterns.
 
 ## Available Tools
 
-- `node .claude/hooks/vibe-router.mjs "..."` — decompose casual requests into structured work
-- `node .claude/hooks/plan-generator.mjs --utterance "..."` — generate execution plans
-- `node .claude/hooks/vibe-memory.mjs` — persistent preferences and work threads
-- `node .claude/hooks/cost-report.mjs` — activity and cost estimates
-- `node .claude/hooks/health-check.mjs` — verify system health
-- `node .claude/hooks/budget-balancer.mjs` — provider balance status
-- `node .claude/hooks/decision-ledger.mjs` — routing outcome insights
-- `node .claude/hooks/test-orchestrator.mjs` — run self-tests (40 tests)
+All commands available via `npx dual-brain <command>`:
+
+- `npx dual-brain vibe "..."` — decompose casual requests into structured work
+- `npx dual-brain plan --utterance "..."` — generate execution plans
+- `npx dual-brain memory` — persistent preferences and work threads
+- `npx dual-brain cost` — activity and cost estimates
+- `npx dual-brain health` — verify system health
+- `npx dual-brain budget` — provider balance status
+- `npx dual-brain ledger` — routing outcome insights
+- `npx dual-brain think --question "..."` — dual-brain think collaboration
+- `npx dual-brain review` — dual-brain code review
+- `npx dual-brain dispatch --task "..."` — dispatch work to GPT
+- `npx dual-brain report` — generate session report
+- `npx dual-brain gate` — run quality gate
+- `npx dual-brain test` — run self-tests

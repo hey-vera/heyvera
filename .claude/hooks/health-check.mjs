@@ -11,7 +11,7 @@
  * Checks:
  *   1. orchestrator.json    — exists and parses as valid JSON
  *   2. pricing_verified     — exists, warn if >30 days, fail if >90 days
- *   3. model_intelligence   — exists and covers all subscription models
+ *   3. model_intelligence   — inline in subscriptions, covers all models
  *   4. hook scripts         — enforce-tier, cost-logger, quality-gate, dual-brain-review readable
  *   5. usage.jsonl active   — recent entries (last 15 min) indicate PostToolUse hook is wired
  *   6. codex CLI            — found on PATH or known locations; auth status checked
@@ -94,7 +94,7 @@ function checkPricingVerified() {
   return check("pricing_verified", STATUS.pass, `${ageDays} days ago`);
 }
 
-/** 3. model_intelligence — exists and has entries for at least the subscription models */
+/** 3. model_intelligence — merged into subscriptions; validate inline fields */
 function checkModelIntelligence() {
   let config;
   try {
@@ -103,31 +103,30 @@ function checkModelIntelligence() {
     return check("model_intelligence", STATUS.fail, "cannot read config");
   }
 
-  const mi = config.model_intelligence;
-  if (!mi || typeof mi !== "object") {
-    return check("model_intelligence", STATUS.fail, "key missing from config");
-  }
-
-  // Collect model keys from subscriptions
-  const subscriptionModels = new Set();
-  for (const provider of Object.values(config.subscriptions || {})) {
-    for (const key of Object.keys(provider.models || {})) {
-      subscriptionModels.add(key);
+  // Collect all models from subscriptions and check for intelligence fields
+  let entryCount = 0;
+  const missing = [];
+  for (const [providerName, provider] of Object.entries(config.subscriptions || {})) {
+    for (const [modelName, meta] of Object.entries(provider.models || {})) {
+      entryCount++;
+      if (!meta.best_for && !meta.model_id) {
+        missing.push(modelName);
+      }
     }
   }
 
-  const miKeys     = Object.keys(mi);
-  const missing    = [...subscriptionModels].filter((m) => !mi[m]);
-  const entryCount = miKeys.length;
+  if (entryCount === 0) {
+    return check("model_intelligence", STATUS.fail, "no models in subscriptions");
+  }
 
   if (missing.length > 0) {
     return check(
       "model_intelligence",
       STATUS.warn,
-      `${entryCount} models, missing: ${missing.join(", ")}`
+      `${entryCount} models, missing intelligence: ${missing.join(", ")}`
     );
   }
-  return check("model_intelligence", STATUS.pass, `${entryCount} models`);
+  return check("model_intelligence", STATUS.pass, `${entryCount} models (inline)`);
 }
 
 /** 4. Hook scripts readable */

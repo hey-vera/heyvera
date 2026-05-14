@@ -21,6 +21,7 @@ import { existsSync, readFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { atomicWriteJSON } from './atomic-write.mjs';
+import { logHookError } from './error-channel.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -43,7 +44,9 @@ function emptySummary() {
 
     totals: {
       calls: 0,
-      cost_estimate: 0,
+      activity_score: 0,        // token-weighted 0-100 scale, not dollars
+      activity_raw: 0,          // raw weighted token count before normalization
+      activity_basis: 'none',   // 'actual' | 'estimated' | 'mixed'
       by_tier: {},
       by_provider: {},
       by_model: {},
@@ -79,7 +82,14 @@ function emptySummary() {
   };
 }
 
-const COST_PER_CALL = { search: 0.003, execute: 0.012, think: 0.055 };
+// Tier-based fallback weights when actual token counts are unavailable (legacy entries).
+// These are unitless activity weights, NOT dollar costs.
+const TIER_ACTIVITY_WEIGHTS = { search: 3, execute: 10, think: 25 };
+
+// Activity formula: (input_tokens * 1) + (output_tokens * 3), normalized to 0-100 per session.
+// SESSION_ACTIVITY_CEILING is the raw token-weighted value that maps to score 100.
+// Calibrated to ~200 moderate tool calls in a session.
+const SESSION_ACTIVITY_CEILING = 5_000_000;
 
 /** @deprecated Use atomicWriteJSON directly. Kept as re-export for backward compat. */
 function atomicWrite(path, data) {
@@ -127,10 +137,27 @@ function applyEntry(summary, entry) {
   const tier = entry.tier || 'execute';
   const provider = entry.provider || 'claude';
   const model = entry.model || 'unknown';
-  const cost = COST_PER_CALL[tier] || COST_PER_CALL.execute;
+
+  // Compute activity from actual tokens when available, else use tier-based fallback
+  const hasTokens = entry.input_tokens != null && entry.output_tokens != null;
+  const rawActivity = hasTokens
+    ? (entry.input_tokens * 1) + (entry.output_tokens * 3)
+    : TIER_ACTIVITY_WEIGHTS[tier] || TIER_ACTIVITY_WEIGHTS.execute;
 
   summary.totals.calls++;
-  summary.totals.cost_estimate += cost;
+  summary.totals.activity_raw = (summary.totals.activity_raw || 0) + rawActivity;
+  summary.totals.activity_score = Math.min(100,
+    Math.round((summary.totals.activity_raw / SESSION_ACTIVITY_CEILING) * 100));
+
+  // Track whether scores are based on actual tokens or estimates
+  const prevBasis = summary.totals.activity_basis || 'none';
+  if (prevBasis === 'none') {
+    summary.totals.activity_basis = hasTokens ? 'actual' : 'estimated';
+  } else if (prevBasis === 'actual' && !hasTokens) {
+    summary.totals.activity_basis = 'mixed';
+  } else if (prevBasis === 'estimated' && hasTokens) {
+    summary.totals.activity_basis = 'mixed';
+  }
 
   summary.totals.by_tier[tier] = (summary.totals.by_tier[tier] || 0) + 1;
   summary.totals.by_provider[provider] = (summary.totals.by_provider[provider] || 0) + 1;
