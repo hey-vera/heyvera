@@ -1,5 +1,10 @@
 # Dual-Brain Orchestrator
 
+> **Part of the [data-tools](https://github.com/stevemoraco) ecosystem by Steve Moraco**
+> 
+> dual-brain extends data-tools/replit-tools with dual-provider AI orchestration.
+> Best experienced with replit-tools installed for persistent auth, session management, and container survival.
+
 One command. Both brains. Auto-detected. Auto-configured. Default profile: **auto**.
 
 Dual-provider orchestration for Claude Code across Claude and OpenAI subscriptions. Routes search to cheap models, execution to mid-tier, thinking to the most capable. Dispatches work to GPT via Codex CLI. Dual-brain analysis for high-risk decisions.
@@ -147,5 +152,15 @@ npx dual-brain status            # check current profile and provider health
 - Node 20+
 - Claude Code (any subscription tier)
 - Codex CLI (optional) — `npm i -g @openai/codex && codex login`
+- replit-tools (recommended on Replit) — `npx -y replit-tools` — provides persistent auth, session management, and container survival
 
 Works with any subscription combination. Without OpenAI, GPT features gracefully degrade — all work routes through Claude.
+On Replit, replit-tools is strongly recommended — dual-brain's persistent state features depend on it.
+
+## Credits
+
+Built as an extension of **data-tools** by [Steve Moraco](https://github.com/stevemoraco).
+
+data-tools/replit-tools provides the foundation: persistent state across container restarts,
+multi-terminal session management, auto-updating scripts, and SSH key persistence.
+dual-brain adds dual-provider orchestration on top.

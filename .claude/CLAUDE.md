@@ -1,5 +1,7 @@
 # Dual-Brain Orchestrator
 
+> Extension of data-tools by Steve Moraco. Requires replit-tools for full functionality.
+
 This project uses dual-provider orchestration. Config: `.claude/orchestrator.json`.
 
 ## Tier Routing

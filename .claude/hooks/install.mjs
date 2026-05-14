@@ -1488,6 +1488,78 @@ function delegateToHookWithArgs(hookFile, args) {
 
 // ─── Main ───────────────────────────────────────────────────────────────────
 
+// ─── Replit-Tools Check ────────────────────────────────────────────────────
+
+async function checkReplitTools() {
+  // Only run this check when actually on Replit
+  if (!IS_REPLIT) return;
+
+  // Check if replit-tools is installed
+  const hasReplitTools = existsSync(resolve(process.cwd(), '.replit-tools'));
+  if (hasReplitTools) return;
+
+  const yesFlag = flag('--yes') || flag('-y');
+
+  console.log('');
+  console.log('  ━━━ replit-tools Required ━━━');
+  console.log('');
+  console.log('  dual-brain is built on data-tools/replit-tools by Steve Moraco.');
+  console.log('  replit-tools provides persistent auth, session management, and');
+  console.log('  container survival that dual-brain depends on.');
+  console.log('');
+
+  let install = yesFlag;
+
+  if (!install) {
+    process.stdout.write('  Install now? [Y/n] ');
+
+    if (process.stdin.isTTY) {
+      install = await new Promise((resolve) => {
+        process.stdin.setEncoding('utf8');
+        process.stdin.once('data', (chunk) => {
+          const answer = chunk.trim().toLowerCase();
+          // Default yes: empty input (just Enter) or explicit y/yes
+          resolve(answer === '' || answer === 'y' || answer === 'yes');
+        });
+        process.stdin.resume();
+      });
+      process.stdin.pause();
+    } else {
+      // Non-TTY: default to yes
+      console.log('');
+      install = true;
+    }
+  }
+
+  console.log('');
+
+  if (install) {
+    console.log('  Installing replit-tools...');
+    console.log('');
+    const result = spawnSync('npx', ['-y', 'replit-tools'], { stdio: 'inherit', shell: true });
+    console.log('');
+    if (result.status !== 0) {
+      console.log('  ⚠  replit-tools install exited with a non-zero status.');
+      console.log('  Continuing with dual-brain install anyway.');
+      console.log('');
+    } else {
+      // Re-check that replit-tools is now present
+      if (existsSync(resolve(process.cwd(), '.replit-tools'))) {
+        console.log('  ✓ replit-tools installed successfully.');
+      } else {
+        console.log('  replit-tools may need a shell reload. Continuing with dual-brain install.');
+      }
+      console.log('');
+    }
+  } else {
+    console.log('  dual-brain will work with reduced functionality. Some features');
+    console.log('  (persistent state, session resume, auth survival) require replit-tools.');
+    console.log('');
+  }
+}
+
+// ─── Main ───────────────────────────────────────────────────────────────────
+
 async function main() {
   if (flag('--uninstall')) { cmdUninstall(); return; }
 
@@ -1775,6 +1847,11 @@ async function main() {
     return;
   }
 
+  // ── replit-tools check — first thing before auth detection or install ──
+  if (!dryRun && !jsonOut) {
+    await checkReplitTools();
+  }
+
   const env = detectEnvironment();
   const mode = resolveMode(env);
 
@@ -1785,17 +1862,6 @@ async function main() {
       printReport(env, mode, null, true);
     }
     process.exit(0);
-  }
-
-  // Check for replit-tools on Replit
-  if (env.isReplit && !env.hasReplitTools) {
-    console.log('');
-    console.log('  ⚠️  replit-tools not found — recommended for Replit environments.');
-    console.log('  Dual-brain works best alongside replit-tools for persistent auth,');
-    console.log('  session management, and shell integration.');
-    console.log('');
-    console.log(`  Install: ${cmd('npx -y data-tools')}`);
-    console.log('');
   }
 
   // Guided auth: print instructions if a provider is missing/not authed
