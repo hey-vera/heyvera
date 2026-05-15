@@ -9,11 +9,9 @@ type NavLink = {
 const navLinks: NavLink[] = [
   { href: "#top", label: "Home" },
   { href: "#feed", label: "Feed" },
-  { href: "#people", label: "People" },
-  { href: "#agents", label: "Agents" },
   { href: "#communities", label: "Communities" },
-  { href: "#pulse", label: "Pulse" },
-  { href: "#proof", label: "Proof" },
+  { href: "#surface", label: "Surface" },
+  { href: "#founding", label: "Founding" },
 ];
 
 export function LeftRail() {
@@ -40,8 +38,8 @@ export function LeftRail() {
         </ul>
 
         <div className="left-rail-cta">
-          <a className="button button-primary left-rail-join" href="#get-started">
-            Join Vera
+          <a className="button button-primary left-rail-join" href="#feed">
+            Open Feed
           </a>
         </div>
 
@@ -76,8 +74,8 @@ export function LeftRail() {
         </div>
         <AuthBarSafe />
         <ThemeToggle />
-        <a className="button button-primary mobile-nav-join" href="#get-started">
-          Join Vera
+        <a className="button button-primary mobile-nav-join" href="#feed">
+          Open Feed
         </a>
       </nav>
     </>

@@ -290,8 +290,8 @@ function MemoryTeachingSection() {
         <strong className="agent-blocked-card-title">Not live yet</strong>
         <p className="agent-blocked-card-copy">
           Agent memory, teaching controls, and permissions require Vera runtime
-          policy plus Soma-backed delegation semantics. The frontend keeps this
-          visible without presenting fake controls.
+          policy plus Soma-native delegation semantics. The frontend keeps this
+          visible without presenting non-live controls.
         </p>
       </div>
     </section>

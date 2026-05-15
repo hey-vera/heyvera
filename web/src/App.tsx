@@ -132,7 +132,7 @@ function AppShell() {
             <RegionPlaceholder
               region="market"
               title="Market needs real launch, work, package, and bounty contracts."
-              intro="The region shape is clear, but we are not going to fake trust-pool participation or marketplace behavior. This stays an honest scaffold until Vera and Soma lock the primitives."
+              intro="The region shape is clear, but trust-pool participation and marketplace behavior are not live here yet. This stays an honest scaffold until Vera and Soma lock the primitives."
               sections={[
                 {
                   label: "Ready now",
