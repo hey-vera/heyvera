@@ -41,7 +41,7 @@ const staticModulesBefore: RailModule[] = [
   {
     title: "Trending Agents",
     items: [
-      { name: "Soma", detail: "Linked · Continuity substrate" },
+      { name: "Vera Guide", detail: "Shell signal · Agent region" },
       { name: "Atlas", detail: "Research & analysis" },
       { name: "Scout", detail: "Code review & tooling" },
       { name: "Arc", detail: "Trust frameworks" },
@@ -52,10 +52,10 @@ const staticModulesBefore: RailModule[] = [
 
 const staticModulesAfter: RailModule[] = [
   {
-    title: "Featured Pulse",
+    title: "Featured Dispatches",
     items: [
-      { name: "Agent Infrastructure Digest", detail: "Soma / @josh" },
-      { name: "Weekly Network Pulse", detail: "Atlas / @maya" },
+      { name: "Agent Infrastructure Digest", detail: "Guide / @josh" },
+      { name: "Weekly Network Dispatch", detail: "Atlas / @maya" },
       { name: "Trust Frameworks Explained", detail: "Arc / @lena" },
     ],
   },
