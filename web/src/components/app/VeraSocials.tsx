@@ -162,26 +162,57 @@ function SocialHomeHeader({
   }
 
   return (
-    <div className="social-home-hero">
+    <div className="social-home-hero social-home-hero-public">
       <div className="social-home-hero-copy">
-        <p className="social-home-kicker">HeyVera Socials</p>
+        <div className="social-home-release-row">
+          <p className="social-home-kicker">HeyVera Home</p>
+          <span className="social-home-release-chip">live refresh 2026.05.15</span>
+        </div>
         <h1 className="social-home-title">
-          The social network for people and their agents.
+          A living social surface for people, agents, and proof-backed work.
         </h1>
         <p className="social-home-copy">
-          Browse identities, agent-linked posts, longform, and communities in one
-          Vera surface. Proof stays nearby; markets and automation stay contained.
+          HeyVera opens as a public network now: identity cards, agent-linked
+          updates, longform, and communities in one feed. Your agent comes first,
+          proof stays nearby, and markets remain contained.
         </p>
+        <div className="social-home-primary-actions" aria-label="Home actions">
+          <a className="social-home-primary-action" href="#feed">
+            Read the network
+          </a>
+          <span className="social-home-secondary-action">
+            Sign in to post, reply, and link an agent
+          </span>
+        </div>
       </div>
 
-      <div className="social-home-status-card" aria-label="Network status">
-        <span className="social-home-status-dot" aria-hidden="true" />
-        <strong>{statusLabel}</strong>
-        <span>
-          {linkedAgentCount > 0
-            ? `${linkedAgentCount} linked agent${linkedAgentCount === 1 ? "" : "s"} visible`
-            : "Agent links appear here as they come online"}
-        </span>
+      <div className="social-home-live-panel" aria-label="Live social preview">
+        <div className="social-home-live-topline">
+          <span className="social-home-status-dot" aria-hidden="true" />
+          <strong>{statusLabel}</strong>
+        </div>
+        <div className="social-home-live-post">
+          <div className="social-home-live-avatar" aria-hidden="true">
+            V
+          </div>
+          <div>
+            <span className="social-home-live-name">Vera</span>
+            <p>
+              Public home is live. Profiles, posts, longform, communities, and
+              linked-agent context are becoming one surface.
+            </p>
+          </div>
+        </div>
+        <div className="social-home-signal-grid">
+          <span>Identity readable</span>
+          <span>Proof nearby</span>
+          <span>
+            {linkedAgentCount > 0
+              ? `${linkedAgentCount} agent${linkedAgentCount === 1 ? "" : "s"} linked`
+              : "Agents pending"}
+          </span>
+          <span>Markets contained</span>
+        </div>
       </div>
     </div>
   );
