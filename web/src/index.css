@@ -7141,11 +7141,8 @@ html.dark .account-dark-toggle-thumb {
 }
 
 .social-home-hero {
-  display: grid;
-  grid-template-columns: minmax(0, 1.05fr) minmax(260px, 0.72fr);
-  gap: 22px;
-  align-items: stretch;
-  padding: 28px 24px 22px;
+  display: block;
+  padding: 34px 28px 24px;
   border-bottom: 1px solid var(--border);
   background:
     radial-gradient(circle at 10% 0%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 30%),
@@ -7188,6 +7185,7 @@ html.dark .account-dark-toggle-thumb {
   flex-direction: column;
   justify-content: center;
   gap: 13px;
+  max-width: 680px;
   z-index: 1;
 }
 
@@ -7218,7 +7216,7 @@ html.dark .account-dark-toggle-thumb {
 }
 
 .social-home-title {
-  max-width: 42rem;
+  max-width: 40rem;
   color: var(--text-primary);
   font-size: clamp(2.1rem, 5vw, 4.55rem);
   letter-spacing: -0.065em;
@@ -7231,7 +7229,7 @@ html.dark .account-dark-toggle-thumb {
 }
 
 .social-home-copy {
-  max-width: 42rem;
+  max-width: 38rem;
   color: var(--text-muted);
   font-size: clamp(1rem, 1.3vw, 1.14rem);
   line-height: 1.6;
@@ -7297,90 +7295,25 @@ html.dark .account-dark-toggle-thumb {
   line-height: 1.4;
 }
 
-.social-home-live-panel {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  min-height: 284px;
-  flex-direction: column;
-  justify-content: space-between;
-  gap: 14px;
-  border: 1px solid color-mix(in srgb, var(--accent-border) 76%, var(--border));
-  border-radius: 28px;
-  padding: 18px;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--bg-raised) 88%, transparent), color-mix(in srgb, var(--bg) 94%, transparent)),
-    var(--bg);
-  box-shadow:
-    0 22px 70px color-mix(in srgb, #000 18%, transparent),
-    inset 0 1px 0 color-mix(in srgb, #fff 18%, transparent);
-}
-
-.social-home-live-topline {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  color: var(--text-muted);
-  font-size: 0.82rem;
-}
-
-.social-home-live-topline .social-home-status-dot {
-  width: 9px;
-  height: 9px;
-  margin: 0;
-  flex-shrink: 0;
-}
-
-.social-home-live-post {
-  display: grid;
-  grid-template-columns: 42px minmax(0, 1fr);
-  gap: 12px;
-  border: 1px solid var(--border);
-  border-radius: 22px;
-  padding: 14px;
-  background: color-mix(in srgb, var(--bg-raised) 82%, transparent);
-}
-
-.social-home-live-avatar {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 42px;
-  height: 42px;
-  border-radius: 50%;
-  background:
-    radial-gradient(circle at 35% 25%, color-mix(in srgb, #fff 38%, transparent), transparent 38%),
-    linear-gradient(135deg, var(--accent), var(--accent-strong));
-  color: #fff;
-  font-weight: 900;
-}
-
-.social-home-live-name {
-  display: block;
-  margin-bottom: 4px;
-  color: var(--text-primary);
-  font-size: 0.9rem;
-  font-weight: 850;
-}
-
-.social-home-live-post p {
-  margin: 0;
-  color: var(--text-muted);
-  font-size: 0.9rem;
-  line-height: 1.5;
-}
-
 .social-home-signal-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(5, max-content);
   gap: 8px;
+  margin-top: 3px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: none;
+}
+
+.social-home-signal-grid::-webkit-scrollbar {
+  display: none;
 }
 
 .social-home-signal-grid span {
-  min-height: 38px;
+  min-height: 32px;
   border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 10px;
+  border-radius: 999px;
+  padding: 8px 10px;
   background: color-mix(in srgb, var(--accent-surface) 42%, transparent);
   color: var(--text-muted);
   font-size: 0.76rem;
@@ -7849,13 +7782,7 @@ html.dark .account-dark-toggle-thumb {
   }
 
   .social-home-hero {
-    grid-template-columns: 1fr;
     padding: 22px 16px 18px;
-  }
-
-  .social-home-live-panel {
-    min-height: 220px;
-    border-radius: 22px;
   }
 
   .public-home-thesis {
@@ -7952,28 +7879,16 @@ html.dark .account-dark-toggle-thumb {
   }
 
   .social-home-hero {
-    gap: 12px;
     padding: 18px 14px 14px;
   }
 
-  .social-home-status-card,
-  .social-home-live-panel {
+  .social-home-status-card {
     min-height: 76px;
     padding: 12px;
   }
 
-  .social-home-live-post {
-    grid-template-columns: 36px minmax(0, 1fr);
-    padding: 12px;
-  }
-
-  .social-home-live-avatar {
-    width: 36px;
-    height: 36px;
-  }
-
   .social-home-signal-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(5, max-content);
   }
 
   .social-compose-prompt {

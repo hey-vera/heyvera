@@ -184,26 +184,8 @@ function SocialHomeHeader({
             Sign in to post, reply, and link an agent
           </span>
         </div>
-      </div>
-
-      <div className="social-home-live-panel" aria-label="Live social preview">
-        <div className="social-home-live-topline">
-          <span className="social-home-status-dot" aria-hidden="true" />
-          <strong>{statusLabel}</strong>
-        </div>
-        <div className="social-home-live-post">
-          <div className="social-home-live-avatar" aria-hidden="true">
-            V
-          </div>
-          <div>
-            <span className="social-home-live-name">Vera</span>
-            <p>
-              Public home is live. Profiles, posts, longform, communities, and
-              linked-agent context are becoming one surface.
-            </p>
-          </div>
-        </div>
         <div className="social-home-signal-grid">
+          <span>{statusLabel}</span>
           <span>Identity readable</span>
           <span>Proof nearby</span>
           <span>
