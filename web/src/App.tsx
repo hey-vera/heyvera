@@ -1,4 +1,4 @@
-import { Component, useEffect, useState } from "react";
+import { Component, useState } from "react";
 import type { ErrorInfo, ReactNode } from "react";
 import { ApiErrorBanner } from "./components/shared/ApiErrorBanner";
 import { PageShell } from "./components/layout/PageShell";
@@ -63,17 +63,7 @@ class RegionErrorBoundary extends Component<
 }
 
 function AppShell() {
-  const [activeRegion, setActiveRegion] = useState<AppRegion>(() => {
-    if (typeof window === "undefined") return "social";
-    const saved = window.localStorage.getItem("heyvera-active-region");
-    return saved === "social" ||
-      saved === "identity" ||
-      saved === "agent" ||
-      saved === "market" ||
-      saved === "proof"
-      ? saved
-      : "social";
-  });
+  const [activeRegion, setActiveRegion] = useState<AppRegion>("social");
   const { isFallback, recoveryCount, isRechecking } = useFallbackDetector();
   const {
     authEnabled,
@@ -90,10 +80,6 @@ function AppShell() {
     myProfileNotFound,
     hasProfile: !!myProfile,
   });
-
-  useEffect(() => {
-    window.localStorage.setItem("heyvera-active-region", activeRegion);
-  }, [activeRegion]);
 
   return (
     <PageShell>
