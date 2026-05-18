@@ -129,6 +129,8 @@ export interface ChatMessage {
   role: ChatRole;
   content: string;
   createdAt: string;
+  provider?: string;
+  model?: string;
   providerLabel?: string;
   statusLabel?: string;
   isStreaming?: boolean;

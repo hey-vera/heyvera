@@ -9,16 +9,20 @@ import {
 interface SidebarProps {
   userId: string;
   activeConversationId: string | null;
+  refreshKey: number;
   onNewChat: () => void;
   onSelectConversation: (id: string) => void;
+  onConversationsChanged: () => void;
   onOpenSettings: () => void;
 }
 
 export default function Sidebar({
   userId,
   activeConversationId,
+  refreshKey,
   onNewChat,
   onSelectConversation,
+  onConversationsChanged,
   onOpenSettings,
 }: SidebarProps) {
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
@@ -38,12 +42,13 @@ export default function Sidebar({
     fetchConversations();
     const interval = setInterval(fetchConversations, 5000);
     return () => clearInterval(interval);
-  }, [userId]);
+  }, [userId, refreshKey]);
 
   const handleDelete = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
     await deleteConversation(id, userId);
     setConversations((prev) => prev.filter((c) => c.id !== id));
+    onConversationsChanged();
     if (activeConversationId === id) onNewChat();
   };
 

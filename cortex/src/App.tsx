@@ -12,6 +12,7 @@ export default function App() {
   const { isLoaded, isSignedIn, userId, AuthScreen, getToken } = useAuthGate();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const [conversationListVersion, setConversationListVersion] = useState(0);
 
   useEffect(() => {
     if (getToken) setAuthTokenGetter(getToken);
@@ -24,7 +25,16 @@ export default function App() {
     setDraft,
     sendMessage,
     updateApproval,
-  } = useChatSession();
+  } = useChatSession({
+    activeConversationId,
+    userId: userId ?? 'local',
+    onConversationCreated: (conversationId) => {
+      setActiveConversationId(conversationId);
+    },
+    onConversationsChanged: () => {
+      setConversationListVersion((version) => version + 1);
+    },
+  });
 
   const handleNewChat = useCallback(() => {
     setActiveConversationId(null);
@@ -52,8 +62,12 @@ export default function App() {
       <Sidebar
         userId={userId ?? 'local'}
         activeConversationId={activeConversationId}
+        refreshKey={conversationListVersion}
         onNewChat={handleNewChat}
         onSelectConversation={handleSelectConversation}
+        onConversationsChanged={() => {
+          setConversationListVersion((version) => version + 1);
+        }}
         onOpenSettings={() => setSettingsOpen(true)}
       />
 
