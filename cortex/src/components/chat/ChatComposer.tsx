@@ -1,4 +1,5 @@
 import { ArrowUp, Square } from 'lucide-react';
+import { useEffect, useRef } from 'react';
 import type { FormEvent, KeyboardEvent } from 'react';
 
 interface ChatComposerProps {
@@ -17,6 +18,14 @@ export default function ChatComposer({
   onStop,
 }: ChatComposerProps) {
   const canSend = draft.trim().length > 0 && !disabled;
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    textarea.style.height = 'auto';
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 192)}px`;
+  }, [draft]);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -34,6 +43,7 @@ export default function ChatComposer({
     <form className="border-t border-white/6 p-3 sm:p-4" onSubmit={handleSubmit}>
       <div className="rounded-[24px] border border-white/8 bg-[var(--composer)] p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
         <textarea
+          ref={textareaRef}
           value={draft}
           disabled={disabled}
           rows={1}
