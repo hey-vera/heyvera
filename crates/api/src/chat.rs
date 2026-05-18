@@ -15,7 +15,6 @@ use uuid::Uuid;
 use cortex_core::ledger::{LedgerEntry, LedgerEvent};
 use cortex_engine::classifier::classify_intent;
 use cortex_engine::router::Router;
-use cortex_worker::executor::Executor;
 use cortex_worker::stream::WorkerEvent;
 
 use crate::routes::ErrorResponse;
@@ -26,6 +25,12 @@ pub struct ChatRequest {
     pub message: String,
     #[serde(default)]
     pub file_paths: Vec<String>,
+    #[serde(default = "default_user_id")]
+    pub user_id: String,
+}
+
+fn default_user_id() -> String {
+    "local".to_string()
 }
 
 pub async fn chat(
@@ -64,29 +69,20 @@ pub async fn chat(
         let task_clone = task.clone();
         let decision_clone = decision.clone();
         let state_clone = state.clone();
+        let user_id = req.user_id.clone();
 
         tokio::spawn(async move {
-            let result = Executor::execute(&task_clone, &decision_clone, tx, Some(state_clone.workspace_dir.as_path())).await;
-
-            let status = match &result {
-                Ok(0) => cortex_core::task::TaskStatus::Completed,
-                _ => cortex_core::task::TaskStatus::Failed,
-            };
-            let duration = task_clone
-                .created_at
-                .signed_duration_since(chrono::Utc::now())
-                .num_milliseconds()
-                .unsigned_abs();
-
-            let outcome = LedgerEntry::new(LedgerEvent::TaskOutcome {
-                task_id: task_clone.id,
-                provider: decision_clone.provider,
-                status,
-                duration_ms: duration,
-                files_changed: 0,
-                tests_passed: None,
-            });
-            let _ = state_clone.ledger.append(&outcome);
+            match state_clone.dispatch_task(&user_id, task_clone.clone(), decision_clone.clone(), tx.clone()).await {
+                Ok(()) => {
+                    // Task dispatched to worker — results will stream back via WebSocket
+                }
+                Err(e) => {
+                    let _ = tx.send(WorkerEvent::Failed {
+                        task_id: task_clone.id,
+                        error: e,
+                    }).await;
+                }
+            }
         });
     } else {
         let task_id = Uuid::new_v4();

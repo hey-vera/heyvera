@@ -7,6 +7,7 @@ mod routes;
 mod sse;
 mod state;
 mod user;
+mod ws;
 
 use std::net::SocketAddr;
 
@@ -58,6 +59,8 @@ async fn main() {
         .route("/api/conversations/:id", patch(conversations::update_conversation))
         .route("/api/conversations/:id", delete(conversations::delete_conversation))
         .route("/api/conversations/:id/messages", post(conversations::add_message))
+        // Worker WebSocket
+        .route("/api/ws", get(ws::ws_handler))
         // User endpoints
         .route("/api/user/profile", get(user::get_profile))
         .route("/api/user/github/status", get(user::github_status))
