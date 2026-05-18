@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { CheckCircle, Copy, ExternalLink, Loader2, XCircle } from 'lucide-react';
 import {
   getAuthStatus,
-  startAuth,
   submitAuthCode,
   refreshAuth,
   type ProviderAuthInfo,
