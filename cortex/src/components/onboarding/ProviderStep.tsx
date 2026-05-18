@@ -67,7 +67,17 @@ export default function ProviderStep({ onNext }: ProviderStepProps) {
     updateState(provider, { phase: 'starting', error: null });
 
     try {
-      const result = await startAuth(provider);
+      const res = await fetch(`${import.meta.env.VITE_CORTEX_API ?? ''}/api/auth/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+        updateState(provider, { phase: 'idle', error: body.error ?? 'Failed to start auth' });
+        return;
+      }
+      const result = await res.json();
       if (result.auth_url) {
         if (isDeviceCodeFlow(provider) && result.device_code) {
           updateState(provider, {

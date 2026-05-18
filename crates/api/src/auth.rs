@@ -284,6 +284,17 @@ async fn start_provider_auth(
         let _ = child.wait().await;
     });
 
+    if result.url.is_none() {
+        if let Some(err) = &result.error {
+            return Err((
+                StatusCode::BAD_GATEWAY,
+                Json(ErrorResponse {
+                    error: err.clone(),
+                }),
+            ));
+        }
+    }
+
     Ok(Json(AuthStartResponse {
         provider: provider_name.to_string(),
         auth_url: result.url.clone(),
@@ -299,6 +310,7 @@ async fn start_provider_auth(
 struct AuthScanResult {
     url: Option<String>,
     code: Option<String>,
+    error: Option<String>,
 }
 
 async fn scan_for_auth_info(child: &mut tokio::process::Child) -> AuthScanResult {
@@ -328,11 +340,17 @@ async fn scan_for_auth_info(child: &mut tokio::process::Child) -> AuthScanResult
 
     let mut url = None;
     let mut code = None;
+    let mut error = None;
 
     let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(15);
     while tokio::time::Instant::now() < deadline {
         match tokio::time::timeout(tokio::time::Duration::from_secs(3), rx.recv()).await {
             Ok(Some(line)) => {
+                let clean = strip_ansi(&line);
+                let lower = clean.to_lowercase();
+                if lower.contains("error") || lower.contains("failed") || lower.contains("forbidden") {
+                    error = Some(clean.trim().to_string());
+                }
                 if url.is_none() {
                     if let Some(u) = extract_url(&line) {
                         url = Some(u);
@@ -353,8 +371,8 @@ async fn scan_for_auth_info(child: &mut tokio::process::Child) -> AuthScanResult
         }
     }
 
-    tracing::info!("auth scan complete — url: {:?}, code: {:?}", url, code);
-    AuthScanResult { url, code }
+    tracing::info!("auth scan complete — url: {:?}, code: {:?}, error: {:?}", url, code, error);
+    AuthScanResult { url, code, error }
 }
 
 fn strip_ansi(text: &str) -> String {
