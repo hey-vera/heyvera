@@ -346,7 +346,7 @@ async fn scan_for_auth_info(child: &mut tokio::process::Child) -> AuthScanResult
             }
             Ok(None) => break,
             Err(_) => {
-                if url.is_some() {
+                if url.is_some() && code.is_some() {
                     break;
                 }
             }
@@ -393,17 +393,19 @@ fn extract_url(text: &str) -> Option<String> {
 
 fn extract_device_code(text: &str) -> Option<String> {
     let text = &strip_ansi(text);
-    let lower = text.to_lowercase();
-    if lower.contains("code") || lower.contains("device") {
-        for word in text.split_whitespace() {
-            let clean = word.trim_matches(|c: char| !c.is_alphanumeric() && c != '-');
-            if clean.len() >= 8 && clean.contains('-') && clean.chars().all(|c| c.is_alphanumeric() || c == '-') {
-                let parts: Vec<&str> = clean.split('-').collect();
-                if parts.len() >= 2 && parts.iter().all(|p| !p.is_empty()) {
-                    return Some(clean.to_string());
-                }
-            }
+    for word in text.split_whitespace() {
+        let clean = word.trim_matches(|c: char| !c.is_alphanumeric() && c != '-');
+        if clean.len() < 7 || clean.len() > 20 || !clean.contains('-') {
+            continue;
         }
+        let parts: Vec<&str> = clean.split('-').collect();
+        if parts.len() < 2 || parts.len() > 4 {
+            continue;
+        }
+        if !parts.iter().all(|p| p.len() >= 2 && p.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())) {
+            continue;
+        }
+        return Some(clean.to_string());
     }
     None
 }
