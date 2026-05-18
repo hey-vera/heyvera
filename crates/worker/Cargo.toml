@@ -1,0 +1,15 @@
+[package]
+name = "cortex-worker"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "CLI session spawner for Cortex — executes work through authenticated provider tools"
+
+[dependencies]
+cortex-core = { path = "../core" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["process", "io-util", "sync"] }
+tracing.workspace = true
+uuid.workspace = true

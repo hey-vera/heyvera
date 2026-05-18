@@ -117,6 +117,38 @@ else
   echo "[dashboard] No dashboard/package.json found - skipping dashboard build"
 fi
 
+CORTEX_WWW="${CORTEX_WWW:-/var/www/cortex}"
+echo "[cortex] Building Cortex backend and frontend..."
+if [ -f "$REPO_DIR/Cargo.toml" ] && [ -f "$REPO_DIR/cortex/package.json" ]; then
+  echo "[cortex] Building Rust backend..."
+  cd "$REPO_DIR"
+  cargo build --release
+  sudo cp "$REPO_DIR/target/release/cortex-server" /usr/local/bin/cortex-server
+  echo "[cortex] Installed cortex-server binary"
+
+  echo "[cortex] Building Vite frontend..."
+  cd "$REPO_DIR/cortex"
+  npm ci
+  npm run build
+  cd "$REPO_DIR"
+  mkdir -p "$CORTEX_WWW"
+  if command -v rsync >/dev/null 2>&1; then
+    rsync -a --delete "$REPO_DIR/cortex/dist/" "$CORTEX_WWW/"
+  else
+    cp -r "$REPO_DIR/cortex/dist/." "$CORTEX_WWW/"
+  fi
+  echo "[cortex] Synced cortex/dist/ to $CORTEX_WWW"
+
+  if [ -f /etc/systemd/system/cortex.service ]; then
+    sudo systemctl restart cortex
+    echo "[cortex] Restarted cortex service"
+  else
+    echo "[cortex] WARNING: no systemd service found — run scripts/cortex-install-service.sh first"
+  fi
+else
+  echo "[cortex] Cargo.toml or cortex/package.json not found - skipping"
+fi
+
 echo "[caddy] Updating Caddyfile..."
 if [ -f "$REPO_DIR/Caddyfile" ]; then
   if command -v caddy >/dev/null 2>&1; then

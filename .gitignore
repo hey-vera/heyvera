@@ -27,3 +27,13 @@ web/vite.config.js
 
 # Dual-Brain Orchestrator
 .claude/dual-brain.memory.json
+
+# Dual-Brain Orchestrator
+.claude/dual-brain.version.json
+.claude/dual-brain.update-check.json
+.claude/dual-brain.permissions.json
+
+
+# Added by cargo
+
+/target

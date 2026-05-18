@@ -5,6 +5,24 @@
 # API:          localhost:3402 (Hono, Docker)
 # Dashboard:    /var/www/claw-net-dashboard/ (Soma Signing Authority SPA)
 
+cortex.heyvera.org {
+	# Cortex API — proxy to Rust backend
+	handle /api/* {
+		reverse_proxy localhost:3001
+	}
+
+	# Cortex SPA — serve built Vite app
+	root * /var/www/cortex
+	try_files {path} /index.html
+	file_server
+
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+	}
+}
+
 api.claw-net.org {
 	reverse_proxy localhost:3402
 }

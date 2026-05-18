@@ -1,0 +1,17 @@
+{
+  "context": {
+    "objective": "Continue Cortex dashboard testing. Inspect the workspace, verify the six orchestration panels, run the app/tests if available, and report any issues blocking live heyvera integration.",
+    "filesChanged": [],
+    "recentDecisions": [],
+    "conversationSummary": "Task brief: Continue Cortex dashboard testing. Inspect the workspace, verify the six orchestration panels, run the app/tests if available, and report any issues blocking live heyvera integration.",
+    "currentPhase": "resume from explicit handoff task brief",
+    "exportedAt": "2026-05-17T16:46:09.511Z"
+  },
+  "prompt": "# Handoff Context — Resuming Work From Another Provider\n\n## Objective\nContinue Cortex dashboard testing. Inspect the workspace, verify the six orchestration panels, run the app/tests if available, and report any issues blocking live heyvera integration.\n\n## Session Summary\nTask brief: Continue Cortex dashboard testing. Inspect the workspace, verify the six orchestration panels, run the app/tests if available, and report any issues blocking live heyvera integration.\n\n## Current Phase\nresume from explicit handoff task brief\n\n## Instructions\nContinue working on the objective above. The previous provider hit its rate limit.\nPick up where it left off — do not ask the user to repeat themselves.\nContext exported at: 2026-05-17T16:46:09.511Z",
+  "fromProvider": "anthropic",
+  "toProvider": "openai",
+  "auto": true,
+  "createdAt": "2026-05-17T16:46:09.511Z",
+  "_schemaVersion": 1,
+  "_writtenAt": "2026-05-17T16:46:09.511Z"
+}
