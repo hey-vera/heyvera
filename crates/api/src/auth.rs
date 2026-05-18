@@ -251,15 +251,18 @@ async fn start_provider_auth(
 
     let mut child = Command::new(cmd)
         .args(args)
+        .env("NO_COLOR", "1")
+        .env("TERM", "dumb")
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .stdin(std::process::Stdio::piped())
         .spawn()
         .map_err(|e| {
+            tracing::error!("failed to spawn {cmd} {}: {e}", args.join(" "));
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
-                    error: format!("failed to start {cmd}: {e}"),
+                    error: format!("{cmd} not found or failed to start — is it installed?"),
                 }),
             )
         })?;
@@ -306,7 +309,7 @@ async fn scan_for_auth_info(child: &mut tokio::process::Child) -> AuthScanResult
         tokio::spawn(async move {
             let mut lines = tokio::io::BufReader::new(stdout).lines();
             while let Ok(Some(line)) = lines.next_line().await {
-                tracing::debug!("auth stdout: {}", line);
+                tracing::info!("auth stdout: {}", line);
                 let _ = tx2.send(line).await;
             }
         });
@@ -316,7 +319,7 @@ async fn scan_for_auth_info(child: &mut tokio::process::Child) -> AuthScanResult
         tokio::spawn(async move {
             let mut lines = tokio::io::BufReader::new(stderr).lines();
             while let Ok(Some(line)) = lines.next_line().await {
-                tracing::debug!("auth stderr: {}", line);
+                tracing::info!("auth stderr: {}", line);
                 let _ = tx2.send(line).await;
             }
         });
@@ -350,11 +353,35 @@ async fn scan_for_auth_info(child: &mut tokio::process::Child) -> AuthScanResult
         }
     }
 
+    tracing::info!("auth scan complete — url: {:?}, code: {:?}", url, code);
     AuthScanResult { url, code }
 }
 
+fn strip_ansi(text: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\x1b' {
+            if chars.peek() == Some(&'[') {
+                chars.next();
+                while let Some(&next) = chars.peek() {
+                    chars.next();
+                    if next.is_ascii_alphabetic() {
+                        break;
+                    }
+                }
+            }
+        } else {
+            result.push(c);
+        }
+    }
+    result
+}
+
 fn extract_url(text: &str) -> Option<String> {
-    text.split_whitespace()
+    let clean = strip_ansi(text);
+    clean
+        .split_whitespace()
         .find(|word| word.starts_with("http://") || word.starts_with("https://"))
         .map(|url| {
             url.trim_matches(|c: char| {
@@ -365,6 +392,7 @@ fn extract_url(text: &str) -> Option<String> {
 }
 
 fn extract_device_code(text: &str) -> Option<String> {
+    let text = &strip_ansi(text);
     let lower = text.to_lowercase();
     if lower.contains("code") || lower.contains("device") {
         for word in text.split_whitespace() {
