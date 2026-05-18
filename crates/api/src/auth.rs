@@ -9,7 +9,6 @@ use tokio::process::Command;
 
 use cortex_core::provider::{ProviderId, ProviderStatus, Tier};
 
-use crate::clerk::ClerkUser;
 use crate::routes::ErrorResponse;
 use crate::state::AppState;
 
@@ -25,6 +24,7 @@ pub struct ProviderAuthInfo {
 pub struct AuthStartResponse {
     pub provider: String,
     pub auth_url: Option<String>,
+    pub device_code: Option<String>,
     pub message: String,
 }
 
@@ -158,7 +158,12 @@ async fn check_codex_auth() -> Option<ProviderAuthInfo> {
     })
 }
 
-async fn scan_for_url(child: &mut tokio::process::Child) -> Option<String> {
+struct AuthScanResult {
+    url: Option<String>,
+    code: Option<String>,
+}
+
+async fn scan_for_auth_info(child: &mut tokio::process::Child) -> AuthScanResult {
     let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(32);
 
     if let Some(stdout) = child.stdout.take() {
@@ -181,18 +186,28 @@ async fn scan_for_url(child: &mut tokio::process::Child) -> Option<String> {
     }
     drop(tx);
 
+    let mut url = None;
+    let mut code = None;
+
     let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(10);
     while tokio::time::Instant::now() < deadline {
         match tokio::time::timeout(tokio::time::Duration::from_secs(2), rx.recv()).await {
             Ok(Some(line)) => {
-                if let Some(url) = extract_url(&line) {
-                    return Some(url);
+                if url.is_none() {
+                    url = extract_url(&line);
+                }
+                if code.is_none() {
+                    code = extract_device_code(&line);
+                }
+                if url.is_some() && code.is_some() {
+                    break;
                 }
             }
             _ => break,
         }
     }
-    None
+
+    AuthScanResult { url, code }
 }
 
 async fn start_cli_auth(
@@ -215,7 +230,7 @@ async fn start_cli_auth(
             )
         })?;
 
-    let auth_url = scan_for_url(&mut child).await;
+    let result = scan_for_auth_info(&mut child).await;
 
     tokio::spawn(async move {
         let _ = child.wait().await;
@@ -223,9 +238,10 @@ async fn start_cli_auth(
 
     Ok(Json(AuthStartResponse {
         provider: provider_name.to_string(),
-        auth_url: auth_url.clone(),
-        message: if auth_url.is_some() {
-            format!("Open the link to authenticate with {provider_name}")
+        auth_url: result.url.clone(),
+        device_code: result.code,
+        message: if result.url.is_some() {
+            format!("Open the link and authorize your {provider_name} account")
         } else {
             format!("Authentication started — complete the flow in your browser")
         },
@@ -247,5 +263,27 @@ async fn start_codex_auth(
 fn extract_url(text: &str) -> Option<String> {
     text.split_whitespace()
         .find(|word| word.starts_with("http://") || word.starts_with("https://"))
-        .map(|url| url.trim_matches(|c: char| !c.is_alphanumeric() && c != ':' && c != '/' && c != '?' && c != '=' && c != '&' && c != '.' && c != '-' && c != '_').to_string())
+        .map(|url| {
+            url.trim_matches(|c: char| {
+                !c.is_alphanumeric() && c != ':' && c != '/' && c != '?' && c != '=' && c != '&' && c != '.' && c != '-' && c != '_'
+            })
+            .to_string()
+        })
+}
+
+fn extract_device_code(text: &str) -> Option<String> {
+    // Match patterns like "XXXX-XXXX", "code: ABCD-1234", "one-time code: ABCD-1234"
+    let lower = text.to_lowercase();
+    if lower.contains("code") {
+        for word in text.split_whitespace() {
+            let clean = word.trim_matches(|c: char| !c.is_alphanumeric() && c != '-');
+            if clean.len() >= 8 && clean.contains('-') && clean.chars().all(|c| c.is_alphanumeric() || c == '-') {
+                let parts: Vec<&str> = clean.split('-').collect();
+                if parts.len() == 2 && parts.iter().all(|p| p.len() >= 4) {
+                    return Some(clean.to_string());
+                }
+            }
+        }
+    }
+    None
 }

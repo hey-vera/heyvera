@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { CheckCircle, ExternalLink, Loader2, XCircle } from 'lucide-react';
+import { CheckCircle, Copy, ExternalLink, Loader2, XCircle } from 'lucide-react';
 import {
   getAuthStatus,
   startAuth,
@@ -14,6 +14,7 @@ interface ProviderStepProps {
 interface ProviderAuthState {
   connecting: boolean;
   authUrl: string | null;
+  deviceCode: string | null;
   error: string | null;
 }
 
@@ -40,7 +41,7 @@ export default function ProviderStep({ onNext }: ProviderStepProps) {
   }, [fetchStatus]);
 
   const getAuthState = (provider: string): ProviderAuthState =>
-    authStates[provider] ?? { connecting: false, authUrl: null, error: null };
+    authStates[provider] ?? { connecting: false, authUrl: null, deviceCode: null, error: null };
 
   const updateAuthState = (provider: string, update: Partial<ProviderAuthState>) => {
     setAuthStates((prev) => ({
@@ -50,13 +51,15 @@ export default function ProviderStep({ onNext }: ProviderStepProps) {
   };
 
   const handleConnect = async (provider: string) => {
-    updateAuthState(provider, { connecting: true, authUrl: null, error: null });
+    updateAuthState(provider, { connecting: true, authUrl: null, deviceCode: null, error: null });
 
     try {
       const result = await startAuth(provider);
       if (result.auth_url) {
-        updateAuthState(provider, { authUrl: result.auth_url });
-        window.open(result.auth_url, '_blank', 'noopener');
+        updateAuthState(provider, {
+          authUrl: result.auth_url,
+          deviceCode: result.device_code,
+        });
         pollUntilAuth(provider);
       } else {
         updateAuthState(provider, {
@@ -82,6 +85,7 @@ export default function ProviderStep({ onNext }: ProviderStepProps) {
           updateAuthState(provider, {
             connecting: false,
             authUrl: null,
+            deviceCode: null,
             error: null,
           });
           return;
@@ -93,8 +97,13 @@ export default function ProviderStep({ onNext }: ProviderStepProps) {
     updateAuthState(provider, {
       connecting: false,
       authUrl: null,
+      deviceCode: null,
       error: 'Authentication timed out — try again',
     });
+  };
+
+  const copyCode = (code: string) => {
+    navigator.clipboard.writeText(code);
   };
 
   const anyAuthed = providers.some((p) => p.authenticated);
@@ -174,27 +183,58 @@ export default function ProviderStep({ onNext }: ProviderStepProps) {
                   </button>
                 )}
 
-                {state.connecting && (
+                {state.connecting && !state.authUrl && (
                   <span className="flex items-center gap-1.5 text-xs text-[var(--muted)]">
                     <Loader2 className="h-3 w-3 animate-spin" />
-                    Waiting...
+                    Starting...
                   </span>
                 )}
               </div>
 
               {state.authUrl && (
                 <div className="border-t border-white/6 px-4 py-3">
-                  <p className="text-xs text-[var(--muted)]">
-                    Complete sign-in in the tab that opened. If it didn't open:
-                  </p>
-                  <a
-                    href={state.authUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-[var(--accent)] underline"
-                  >
-                    Open authentication page <ExternalLink className="h-3 w-3" />
-                  </a>
+                  <div className="flex flex-col gap-3">
+                    {state.deviceCode && (
+                      <div>
+                        <p className="mb-1.5 text-xs text-[var(--muted)]">
+                          Your one-time code:
+                        </p>
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 rounded-lg border border-white/10 bg-[var(--composer)] px-3 py-2 font-mono text-lg font-bold tracking-widest text-white">
+                            {state.deviceCode}
+                          </div>
+                          <button
+                            onClick={() => copyCode(state.deviceCode!)}
+                            className="rounded-lg border border-white/10 bg-white/5 p-2 text-[var(--muted)] transition hover:bg-white/10 hover:text-white"
+                            title="Copy code"
+                          >
+                            <Copy className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    <div>
+                      <p className="mb-1.5 text-xs text-[var(--muted)]">
+                        {state.deviceCode
+                          ? 'Open this link and paste the code:'
+                          : 'Open this link to sign in:'}
+                      </p>
+                      <a
+                        href={state.authUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--accent)]/30 bg-[var(--accent-soft)] px-3 py-2 text-xs font-medium text-[var(--accent)] transition hover:bg-[var(--accent)]/20"
+                      >
+                        Open authentication page <ExternalLink className="h-3 w-3" />
+                      </a>
+                    </div>
+
+                    <div className="flex items-center gap-2 text-xs text-[var(--muted)]">
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      Waiting for authorization...
+                    </div>
+                  </div>
                 </div>
               )}
 
