@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { PanelRight, Loader2, Menu } from 'lucide-react';
 import ChatComposer from './components/chat/ChatComposer';
 import ChatTimeline from './components/chat/ChatTimeline';
@@ -23,6 +23,8 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [workSurfaceOpen, setWorkSurfaceOpen] = useState(false);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const [renamingTitle, setRenamingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState('');
   const [conversationListVersion, setConversationListVersion] = useState(0);
   const [sessionControls, setSessionControls] = useState<ChatSessionControls>(
     DEFAULT_SESSION_CONTROLS,
@@ -40,6 +42,7 @@ export default function App() {
     setDraft,
     sendMessage,
     updateApproval,
+    renameConversation,
   } = useChatSession({
     activeConversationId,
     userId: userId ?? 'local',
@@ -50,6 +53,9 @@ export default function App() {
       setConversationListVersion((version) => version + 1);
     },
   });
+
+  const titleInputRef = useRef<HTMLInputElement | null>(null);
+  const skipTitleBlurSaveRef = useRef(false);
 
   const handleNewChat = useCallback(() => {
     setActiveConversationId(null);
@@ -69,6 +75,37 @@ export default function App() {
   const headerTitle = activeConversationTitle?.trim() || 'New chat';
   const approvalCount = messages.filter((message) => message.approvalRequest?.state === 'pending').length;
   const showWorkBadge = isStreaming || approvalCount > 0;
+
+  useEffect(() => {
+    if (!renamingTitle) return;
+    titleInputRef.current?.focus();
+    titleInputRef.current?.select();
+  }, [renamingTitle]);
+
+  const startTitleRename = useCallback(() => {
+    if (!activeConversationId) return;
+    setTitleDraft(headerTitle);
+    setRenamingTitle(true);
+  }, [activeConversationId, headerTitle]);
+
+  const cancelTitleRename = useCallback(() => {
+    skipTitleBlurSaveRef.current = true;
+    setRenamingTitle(false);
+    setTitleDraft('');
+  }, []);
+
+  const saveTitleRename = useCallback(() => {
+    const nextTitle = titleDraft.trim();
+    skipTitleBlurSaveRef.current = false;
+    if (!nextTitle) {
+      cancelTitleRename();
+      return;
+    }
+
+    setRenamingTitle(false);
+    setTitleDraft('');
+    void renameConversation(nextTitle);
+  }, [cancelTitleRename, renameConversation, titleDraft]);
 
   if (!isLoaded) {
     return (
@@ -134,13 +171,40 @@ export default function App() {
               <Menu className="h-4 w-4" />
             </button>
             <div className="min-w-0">
-              <button
-                type="button"
-                className="block max-w-[60vw] truncate text-left text-sm font-medium text-white transition hover:text-[var(--accent)]"
-                title="Rename conversation coming soon"
-              >
-                {headerTitle}
-              </button>
+              {renamingTitle ? (
+                <input
+                  ref={titleInputRef}
+                  value={titleDraft}
+                  onChange={(event) => setTitleDraft(event.target.value)}
+                  onBlur={() => {
+                    if (skipTitleBlurSaveRef.current) {
+                      skipTitleBlurSaveRef.current = false;
+                      return;
+                    }
+                    saveTitleRename();
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault();
+                      saveTitleRename();
+                    } else if (event.key === 'Escape') {
+                      event.preventDefault();
+                      cancelTitleRename();
+                    }
+                  }}
+                  className="block max-w-[60vw] rounded-md border border-white/10 bg-white/8 px-2 py-1 text-sm font-medium text-white outline-none transition focus:border-white/16"
+                />
+              ) : (
+                <button
+                  type="button"
+                  className="block max-w-[60vw] truncate text-left text-sm font-medium text-white transition hover:text-[var(--accent)] disabled:hover:text-white"
+                  title={activeConversationId ? 'Rename conversation' : 'Start a chat to rename it'}
+                  disabled={!activeConversationId}
+                  onClick={startTitleRename}
+                >
+                  {headerTitle}
+                </button>
+              )}
               <div className="hidden text-[11px] text-[var(--muted)] sm:block">
                 Workspace connected
               </div>

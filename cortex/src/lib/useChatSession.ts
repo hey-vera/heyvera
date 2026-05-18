@@ -152,6 +152,22 @@ export function useChatSession({
     );
   }, []);
 
+  const renameConversation = useCallback(async (title: string) => {
+    const conversationId = activeConversationIdRef.current;
+    const nextTitle = truncateTitle(title);
+    if (!conversationId || !nextTitle) return;
+
+    const previousTitle = activeConversationTitle;
+    setActiveConversationTitle(nextTitle);
+
+    try {
+      await updateConversationTitle(conversationId, nextTitle, userId);
+      onConversationsChanged();
+    } catch {
+      setActiveConversationTitle(previousTitle);
+    }
+  }, [activeConversationTitle, onConversationsChanged, userId]);
+
   const sendMessage = useCallback(() => {
     const text = draft.trim();
     if (!text || isStreaming) return;
@@ -372,5 +388,6 @@ export function useChatSession({
     setDraft,
     sendMessage,
     updateApproval,
+    renameConversation,
   };
 }
