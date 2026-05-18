@@ -18,7 +18,6 @@ use cortex_engine::router::Router;
 use cortex_worker::executor::Executor;
 use cortex_worker::stream::WorkerEvent;
 
-use crate::clerk::ClerkUser;
 use crate::routes::ErrorResponse;
 use crate::state::AppState;
 

@@ -1,9 +1,11 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use cortex_core::provider::{ProviderStatus, Tier};
 use cortex_engine::ledger::Ledger;
 use cortex_worker::executor::detect_available_providers;
+use tokio::process::ChildStdin;
 use tokio::sync::RwLock;
 
 use crate::clerk::JwksCache;
@@ -14,6 +16,7 @@ pub struct AppState {
     pub workspace_dir: PathBuf,
     pub clerk_secret_key: Option<String>,
     pub jwks_cache: RwLock<JwksCache>,
+    pub pending_auths: RwLock<HashMap<String, ChildStdin>>,
 }
 
 impl AppState {
@@ -54,6 +57,7 @@ impl AppState {
             workspace_dir,
             clerk_secret_key,
             jwks_cache: RwLock::new(JwksCache::empty()),
+            pending_auths: RwLock::new(HashMap::new()),
         })
     }
 }

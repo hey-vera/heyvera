@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
-import { CheckCircle, Copy, ExternalLink, Loader2, XCircle } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { CheckCircle, ExternalLink, Loader2, XCircle } from 'lucide-react';
 import {
   getAuthStatus,
   startAuth,
+  submitAuthCode,
   refreshAuth,
   type ProviderAuthInfo,
 } from '../../lib/cortexApi';
@@ -12,17 +13,27 @@ interface ProviderStepProps {
 }
 
 interface ProviderAuthState {
-  connecting: boolean;
+  phase: 'idle' | 'starting' | 'awaiting_code' | 'submitting' | 'polling';
   authUrl: string | null;
   deviceCode: string | null;
+  codeInput: string;
   error: string | null;
 }
+
+const INITIAL_STATE: ProviderAuthState = {
+  phase: 'idle',
+  authUrl: null,
+  deviceCode: null,
+  codeInput: '',
+  error: null,
+};
 
 export default function ProviderStep({ onNext }: ProviderStepProps) {
   const [providers, setProviders] = useState<ProviderAuthInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [authStates, setAuthStates] = useState<Record<string, ProviderAuthState>>({});
+  const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -40,70 +51,87 @@ export default function ProviderStep({ onNext }: ProviderStepProps) {
     fetchStatus();
   }, [fetchStatus]);
 
-  const getAuthState = (provider: string): ProviderAuthState =>
-    authStates[provider] ?? { connecting: false, authUrl: null, deviceCode: null, error: null };
+  const getState = (provider: string): ProviderAuthState =>
+    authStates[provider] ?? INITIAL_STATE;
 
-  const updateAuthState = (provider: string, update: Partial<ProviderAuthState>) => {
+  const updateState = (provider: string, update: Partial<ProviderAuthState>) => {
     setAuthStates((prev) => ({
       ...prev,
-      [provider]: { ...getAuthState(provider), ...update },
+      [provider]: { ...(prev[provider] ?? INITIAL_STATE), ...update },
     }));
   };
 
   const handleConnect = async (provider: string) => {
-    updateAuthState(provider, { connecting: true, authUrl: null, deviceCode: null, error: null });
+    updateState(provider, { phase: 'starting', error: null });
 
     try {
       const result = await startAuth(provider);
       if (result.auth_url) {
-        updateAuthState(provider, {
+        updateState(provider, {
+          phase: 'awaiting_code',
           authUrl: result.auth_url,
           deviceCode: result.device_code,
         });
-        pollUntilAuth(provider);
+        window.open(result.auth_url, '_blank', 'noopener');
+        setTimeout(() => inputRefs.current[provider]?.focus(), 100);
       } else {
-        updateAuthState(provider, {
-          error: result.message,
-          connecting: false,
+        updateState(provider, {
+          phase: 'idle',
+          error: result.message || 'Could not start authentication',
         });
       }
     } catch {
-      updateAuthState(provider, {
-        error: 'Failed to start authentication',
-        connecting: false,
-      });
+      updateState(provider, { phase: 'idle', error: 'Failed to start authentication' });
+    }
+  };
+
+  const handleSubmitCode = async (provider: string) => {
+    const state = getState(provider);
+    const code = state.codeInput.trim();
+    if (!code) return;
+
+    updateState(provider, { phase: 'submitting', error: null });
+
+    try {
+      const result = await submitAuthCode(provider, code);
+      if (result.success) {
+        updateState(provider, { ...INITIAL_STATE });
+        const status = await refreshAuth();
+        setProviders(status);
+      } else {
+        updateState(provider, { phase: 'polling' });
+        pollUntilAuth(provider);
+      }
+    } catch {
+      updateState(provider, { phase: 'awaiting_code', error: 'Failed to submit code' });
     }
   };
 
   const pollUntilAuth = async (provider: string) => {
-    for (let i = 0; i < 60; i++) {
+    for (let i = 0; i < 20; i++) {
       await new Promise((r) => setTimeout(r, 3000));
       try {
         const status = await refreshAuth();
         setProviders(status);
         if (status.find((s) => s.provider === provider)?.authenticated) {
-          updateAuthState(provider, {
-            connecting: false,
-            authUrl: null,
-            deviceCode: null,
-            error: null,
-          });
+          updateState(provider, { ...INITIAL_STATE });
           return;
         }
       } catch {
         // keep polling
       }
     }
-    updateAuthState(provider, {
-      connecting: false,
-      authUrl: null,
-      deviceCode: null,
-      error: 'Authentication timed out — try again',
+    updateState(provider, {
+      phase: 'idle',
+      error: 'Timed out — try again',
     });
   };
 
-  const copyCode = (code: string) => {
-    navigator.clipboard.writeText(code);
+  const handleKeyDown = (provider: string, e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleSubmitCode(provider);
+    }
   };
 
   const anyAuthed = providers.some((p) => p.authenticated);
@@ -124,7 +152,7 @@ export default function ProviderStep({ onNext }: ProviderStepProps) {
           {fetchError}
         </div>
         <button
-          onClick={fetchStatus}
+          onClick={() => { setLoading(true); fetchStatus(); }}
           className="rounded-lg bg-[var(--accent-soft)] px-4 py-2 text-sm font-medium text-[var(--accent)]"
         >
           Retry
@@ -138,18 +166,20 @@ export default function ProviderStep({ onNext }: ProviderStepProps) {
       <div>
         <h2 className="text-base font-medium text-white">Connect your AI providers</h2>
         <p className="mt-1 text-sm text-[var(--muted)]">
-          Cortex orchestrates your existing subscriptions. Connect at least one.
+          Link your existing subscriptions. Connect at least one to get started.
         </p>
       </div>
 
       <div className="flex flex-col gap-3">
         {providers.map((p) => {
-          const state = getAuthState(p.provider);
+          const state = getState(p.provider);
+          const isActive = state.phase !== 'idle';
           return (
             <div
               key={p.provider}
               className="rounded-xl border border-white/8 bg-white/4"
             >
+              {/* Provider header */}
               <div className="flex items-center justify-between px-4 py-3">
                 <div className="flex items-center gap-3">
                   <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-white/6 text-xs font-bold uppercase text-[var(--muted-strong)]">
@@ -174,7 +204,7 @@ export default function ProviderStep({ onNext }: ProviderStepProps) {
                   </div>
                 </div>
 
-                {!p.authenticated && !state.connecting && (
+                {!p.authenticated && !isActive && (
                   <button
                     onClick={() => handleConnect(p.provider)}
                     className="rounded-lg border border-[var(--accent)]/30 bg-[var(--accent-soft)] px-3 py-1.5 text-xs font-medium text-[var(--accent)] transition hover:bg-[var(--accent)]/20"
@@ -183,7 +213,7 @@ export default function ProviderStep({ onNext }: ProviderStepProps) {
                   </button>
                 )}
 
-                {state.connecting && !state.authUrl && (
+                {state.phase === 'starting' && (
                   <span className="flex items-center gap-1.5 text-xs text-[var(--muted)]">
                     <Loader2 className="h-3 w-3 animate-spin" />
                     Starting...
@@ -191,53 +221,72 @@ export default function ProviderStep({ onNext }: ProviderStepProps) {
                 )}
               </div>
 
-              {state.authUrl && (
+              {/* Auth flow panel */}
+              {(state.phase === 'awaiting_code' || state.phase === 'submitting' || state.phase === 'polling') && (
                 <div className="border-t border-white/6 px-4 py-3">
                   <div className="flex flex-col gap-3">
-                    {state.deviceCode && (
+                    {/* Step 1: Open link */}
+                    <div className="flex items-start gap-2">
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--accent-soft)] text-[10px] font-bold text-[var(--accent)]">1</span>
                       <div>
-                        <p className="mb-1.5 text-xs text-[var(--muted)]">
-                          Your one-time code:
+                        <p className="text-xs text-[var(--muted)]">
+                          Sign in and authorize access:
                         </p>
-                        <div className="flex items-center gap-2">
-                          <div className="flex-1 rounded-lg border border-white/10 bg-[var(--composer)] px-3 py-2 font-mono text-lg font-bold tracking-widest text-white">
-                            {state.deviceCode}
-                          </div>
+                        <a
+                          href={state.authUrl!}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="mt-1 inline-flex items-center gap-1.5 text-xs font-medium text-[var(--accent)] underline"
+                        >
+                          Open {p.provider === 'claude' ? 'Anthropic' : 'OpenAI'} <ExternalLink className="h-3 w-3" />
+                        </a>
+                      </div>
+                    </div>
+
+                    {/* Step 2: Paste code */}
+                    <div className="flex items-start gap-2">
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--accent-soft)] text-[10px] font-bold text-[var(--accent)]">2</span>
+                      <div className="flex-1">
+                        <p className="mb-1.5 text-xs text-[var(--muted)]">
+                          Copy the authorization code and paste it here:
+                        </p>
+                        <div className="flex gap-2">
+                          <input
+                            ref={(el) => { inputRefs.current[p.provider] = el; }}
+                            type="text"
+                            placeholder="Paste your code here"
+                            value={state.codeInput}
+                            onChange={(e) => updateState(p.provider, { codeInput: e.target.value })}
+                            onKeyDown={(e) => handleKeyDown(p.provider, e)}
+                            disabled={state.phase === 'submitting' || state.phase === 'polling'}
+                            className="flex-1 rounded-lg border border-white/10 bg-[var(--composer)] px-3 py-2 font-mono text-sm text-white placeholder:text-white/20 focus:border-[var(--accent)]/50 focus:outline-none disabled:opacity-50"
+                            autoComplete="off"
+                            spellCheck={false}
+                          />
                           <button
-                            onClick={() => copyCode(state.deviceCode!)}
-                            className="rounded-lg border border-white/10 bg-white/5 p-2 text-[var(--muted)] transition hover:bg-white/10 hover:text-white"
-                            title="Copy code"
+                            onClick={() => handleSubmitCode(p.provider)}
+                            disabled={!state.codeInput.trim() || state.phase === 'submitting' || state.phase === 'polling'}
+                            className="shrink-0 rounded-lg bg-[var(--accent-soft)] px-3 py-2 text-xs font-medium text-[var(--accent)] transition hover:bg-[var(--accent)]/20 disabled:opacity-30"
                           >
-                            <Copy className="h-4 w-4" />
+                            {state.phase === 'submitting' ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : state.phase === 'polling' ? (
+                              <span className="flex items-center gap-1">
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                                Verifying
+                              </span>
+                            ) : (
+                              'Submit'
+                            )}
                           </button>
                         </div>
                       </div>
-                    )}
-
-                    <div>
-                      <p className="mb-1.5 text-xs text-[var(--muted)]">
-                        {state.deviceCode
-                          ? 'Open this link and paste the code:'
-                          : 'Open this link to sign in:'}
-                      </p>
-                      <a
-                        href={state.authUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--accent)]/30 bg-[var(--accent-soft)] px-3 py-2 text-xs font-medium text-[var(--accent)] transition hover:bg-[var(--accent)]/20"
-                      >
-                        Open authentication page <ExternalLink className="h-3 w-3" />
-                      </a>
-                    </div>
-
-                    <div className="flex items-center gap-2 text-xs text-[var(--muted)]">
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                      Waiting for authorization...
                     </div>
                   </div>
                 </div>
               )}
 
+              {/* Error */}
               {state.error && (
                 <div className="border-t border-white/6 px-4 py-2.5">
                   <p className="text-xs text-red-300">{state.error}</p>

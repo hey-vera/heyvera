@@ -4,7 +4,7 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use axum::Json;
 use serde::{Deserialize, Serialize};
-use tokio::io::AsyncBufReadExt;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 use tokio::process::Command;
 
 use cortex_core::provider::{ProviderId, ProviderStatus, Tier};
@@ -31,6 +31,18 @@ pub struct AuthStartResponse {
 #[derive(Deserialize)]
 pub struct AuthStartRequest {
     pub provider: String,
+}
+
+#[derive(Deserialize)]
+pub struct AuthSubmitRequest {
+    pub provider: String,
+    pub code: String,
+}
+
+#[derive(Serialize)]
+pub struct AuthSubmitResponse {
+    pub success: bool,
+    pub message: String,
 }
 
 pub async fn auth_status() -> Json<Vec<ProviderAuthInfo>> {
@@ -68,8 +80,8 @@ pub async fn auth_start(
     let provider = req.provider.to_lowercase();
 
     match provider.as_str() {
-        "claude" => start_claude_auth(state).await,
-        "openai" | "codex" => start_codex_auth(state).await,
+        "claude" => start_provider_auth(&state, "claude", "claude", &["auth", "login"]).await,
+        "openai" | "codex" => start_provider_auth(&state, "openai", "codex", &["login", "--device-auth"]).await,
         _ => Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
@@ -77,6 +89,73 @@ pub async fn auth_start(
             }),
         )),
     }
+}
+
+pub async fn auth_submit(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<AuthSubmitRequest>,
+) -> Result<Json<AuthSubmitResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let provider = req.provider.to_lowercase();
+
+    let mut pending = state.pending_auths.write().await;
+    let stdin = pending.remove(&provider).ok_or_else(|| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: format!("no pending auth for {provider}"),
+            }),
+        )
+    })?;
+    drop(pending);
+
+    let mut stdin = stdin;
+    let code_with_newline = format!("{}\n", req.code.trim());
+
+    stdin.write_all(code_with_newline.as_bytes()).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("failed to send code: {e}"),
+            }),
+        )
+    })?;
+
+    stdin.flush().await.ok();
+
+    // Give the CLI a moment to process
+    tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+
+    // Check if auth succeeded
+    let authenticated = match provider.as_str() {
+        "claude" => check_claude_auth().await.is_some_and(|i| i.authenticated),
+        "openai" => check_codex_auth().await.is_some_and(|i| i.authenticated),
+        _ => false,
+    };
+
+    if authenticated {
+        // Update provider list
+        let mut providers = state.providers.write().await;
+        let all_tiers = vec![Tier::Search, Tier::Execute, Tier::Think];
+        let id = if provider == "claude" { ProviderId::Claude } else { ProviderId::Openai };
+
+        if !providers.iter().any(|p| p.provider == id) {
+            providers.push(ProviderStatus {
+                provider: id,
+                authenticated: true,
+                pressure: 0.0,
+                available_tiers: all_tiers,
+            });
+        }
+    }
+
+    Ok(Json(AuthSubmitResponse {
+        success: authenticated,
+        message: if authenticated {
+            format!("{provider} connected successfully")
+        } else {
+            format!("Code submitted — verifying {provider} auth...")
+        },
+    }))
 }
 
 pub async fn auth_refresh(
@@ -158,80 +237,46 @@ async fn check_codex_auth() -> Option<ProviderAuthInfo> {
     })
 }
 
-struct AuthScanResult {
-    url: Option<String>,
-    code: Option<String>,
-}
-
-async fn scan_for_auth_info(child: &mut tokio::process::Child) -> AuthScanResult {
-    let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(32);
-
-    if let Some(stdout) = child.stdout.take() {
-        let tx2 = tx.clone();
-        tokio::spawn(async move {
-            let mut lines = tokio::io::BufReader::new(stdout).lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                let _ = tx2.send(line).await;
-            }
-        });
-    }
-    if let Some(stderr) = child.stderr.take() {
-        let tx2 = tx.clone();
-        tokio::spawn(async move {
-            let mut lines = tokio::io::BufReader::new(stderr).lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                let _ = tx2.send(line).await;
-            }
-        });
-    }
-    drop(tx);
-
-    let mut url = None;
-    let mut code = None;
-
-    let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(10);
-    while tokio::time::Instant::now() < deadline {
-        match tokio::time::timeout(tokio::time::Duration::from_secs(2), rx.recv()).await {
-            Ok(Some(line)) => {
-                if url.is_none() {
-                    url = extract_url(&line);
-                }
-                if code.is_none() {
-                    code = extract_device_code(&line);
-                }
-                if url.is_some() && code.is_some() {
-                    break;
-                }
-            }
-            _ => break,
-        }
-    }
-
-    AuthScanResult { url, code }
-}
-
-async fn start_cli_auth(
+async fn start_provider_auth(
+    state: &AppState,
+    provider_name: &str,
     cmd: &str,
     args: &[&str],
-    provider_name: &str,
 ) -> Result<Json<AuthStartResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Kill any existing pending auth for this provider
+    {
+        let mut pending = state.pending_auths.write().await;
+        pending.remove(provider_name);
+    }
+
     let mut child = Command::new(cmd)
         .args(args)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
-        .stdin(std::process::Stdio::null())
+        .stdin(std::process::Stdio::piped())
         .spawn()
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
-                    error: format!("failed to start {cmd} auth: {e}"),
+                    error: format!("failed to start {cmd}: {e}"),
                 }),
             )
         })?;
 
+    // Take stdin before scanning output
+    let stdin = child.stdin.take();
+
+    // Scan stdout/stderr for URL and device code
     let result = scan_for_auth_info(&mut child).await;
 
+    // Store stdin for later code submission
+    if let Some(stdin) = stdin {
+        let mut pending = state.pending_auths.write().await;
+        pending.insert(provider_name.to_string(), stdin);
+    }
+
+    // Let the child process keep running in background
     tokio::spawn(async move {
         let _ = child.wait().await;
     });
@@ -241,23 +286,71 @@ async fn start_cli_auth(
         auth_url: result.url.clone(),
         device_code: result.code,
         message: if result.url.is_some() {
-            format!("Open the link and authorize your {provider_name} account")
+            format!("Open the link, authorize, and paste the code below")
         } else {
-            format!("Authentication started — complete the flow in your browser")
+            format!("Authentication started — waiting for response...")
         },
     }))
 }
 
-async fn start_claude_auth(
-    _state: Arc<AppState>,
-) -> Result<Json<AuthStartResponse>, (StatusCode, Json<ErrorResponse>)> {
-    start_cli_auth("claude", &["auth", "login"], "claude").await
+struct AuthScanResult {
+    url: Option<String>,
+    code: Option<String>,
 }
 
-async fn start_codex_auth(
-    _state: Arc<AppState>,
-) -> Result<Json<AuthStartResponse>, (StatusCode, Json<ErrorResponse>)> {
-    start_cli_auth("codex", &["login", "--device-auth"], "openai").await
+async fn scan_for_auth_info(child: &mut tokio::process::Child) -> AuthScanResult {
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(64);
+
+    if let Some(stdout) = child.stdout.take() {
+        let tx2 = tx.clone();
+        tokio::spawn(async move {
+            let mut lines = tokio::io::BufReader::new(stdout).lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                tracing::debug!("auth stdout: {}", line);
+                let _ = tx2.send(line).await;
+            }
+        });
+    }
+    if let Some(stderr) = child.stderr.take() {
+        let tx2 = tx.clone();
+        tokio::spawn(async move {
+            let mut lines = tokio::io::BufReader::new(stderr).lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                tracing::debug!("auth stderr: {}", line);
+                let _ = tx2.send(line).await;
+            }
+        });
+    }
+    drop(tx);
+
+    let mut url = None;
+    let mut code = None;
+
+    let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(15);
+    while tokio::time::Instant::now() < deadline {
+        match tokio::time::timeout(tokio::time::Duration::from_secs(3), rx.recv()).await {
+            Ok(Some(line)) => {
+                if url.is_none() {
+                    if let Some(u) = extract_url(&line) {
+                        url = Some(u);
+                    }
+                }
+                if code.is_none() {
+                    if let Some(c) = extract_device_code(&line) {
+                        code = Some(c);
+                    }
+                }
+            }
+            Ok(None) => break,
+            Err(_) => {
+                if url.is_some() {
+                    break;
+                }
+            }
+        }
+    }
+
+    AuthScanResult { url, code }
 }
 
 fn extract_url(text: &str) -> Option<String> {
@@ -265,21 +358,20 @@ fn extract_url(text: &str) -> Option<String> {
         .find(|word| word.starts_with("http://") || word.starts_with("https://"))
         .map(|url| {
             url.trim_matches(|c: char| {
-                !c.is_alphanumeric() && c != ':' && c != '/' && c != '?' && c != '=' && c != '&' && c != '.' && c != '-' && c != '_'
+                !c.is_alphanumeric() && c != ':' && c != '/' && c != '?' && c != '=' && c != '&' && c != '.' && c != '-' && c != '_' && c != '%'
             })
             .to_string()
         })
 }
 
 fn extract_device_code(text: &str) -> Option<String> {
-    // Match patterns like "XXXX-XXXX", "code: ABCD-1234", "one-time code: ABCD-1234"
     let lower = text.to_lowercase();
-    if lower.contains("code") {
+    if lower.contains("code") || lower.contains("device") {
         for word in text.split_whitespace() {
             let clean = word.trim_matches(|c: char| !c.is_alphanumeric() && c != '-');
             if clean.len() >= 8 && clean.contains('-') && clean.chars().all(|c| c.is_alphanumeric() || c == '-') {
                 let parts: Vec<&str> = clean.split('-').collect();
-                if parts.len() == 2 && parts.iter().all(|p| p.len() >= 4) {
+                if parts.len() >= 2 && parts.iter().all(|p| !p.is_empty()) {
                     return Some(clean.to_string());
                 }
             }

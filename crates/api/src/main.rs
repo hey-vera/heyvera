@@ -47,6 +47,7 @@ async fn main() {
         .route("/api/execute", post(sse::execute_task))
         .route("/api/chat", post(chat::chat))
         .route("/api/auth/start", post(auth::auth_start))
+        .route("/api/auth/submit", post(auth::auth_submit))
         .route("/api/auth/refresh", post(auth::auth_refresh))
         // User endpoints
         .route("/api/user/profile", get(user::get_profile))

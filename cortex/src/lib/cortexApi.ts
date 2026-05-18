@@ -116,8 +116,17 @@ export async function startAuth(provider: string): Promise<AuthStartResponse> {
   return res.json();
 }
 
+export async function submitAuthCode(provider: string, code: string): Promise<{ success: boolean; message: string }> {
+  const res = await fetch(`${BASE_URL}/api/auth/submit`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ provider, code }),
+  });
+  return res.json();
+}
+
 export async function refreshAuth(): Promise<ProviderAuthInfo[]> {
-  const res = await authedFetch(`${BASE_URL}/api/auth/refresh`, { method: 'POST' });
+  const res = await fetch(`${BASE_URL}/api/auth/refresh`, { method: 'POST' });
   return res.json();
 }
 
