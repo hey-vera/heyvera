@@ -1,32 +1,23 @@
 import { useCallback, useEffect, useState } from 'react';
-import { BrainCircuit, Loader2, ShieldCheck } from 'lucide-react';
+import { Loader2, Settings } from 'lucide-react';
 import ChatComposer from './components/chat/ChatComposer';
-import ChatHeader from './components/chat/ChatHeader';
 import ChatTimeline from './components/chat/ChatTimeline';
-import OnboardingFlow from './components/onboarding/OnboardingFlow';
+import Sidebar from './components/Sidebar';
+import SettingsPanel from './components/SettingsPanel';
 import { useChatSession } from './lib/useChatSession';
-import { isOnboarded, markOnboarded } from './lib/onboarding';
 import { useAuthGate } from './lib/useAuthGate';
 import { setAuthTokenGetter } from './lib/cortexApi';
 
 export default function App() {
   const { isLoaded, isSignedIn, userId, AuthScreen, getToken } = useAuthGate();
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
 
   useEffect(() => {
     if (getToken) setAuthTokenGetter(getToken);
   }, [getToken]);
 
-  const [onboarded, setOnboarded] = useState(() =>
-    userId ? isOnboarded(userId) : false,
-  );
-
-  const handleOnboardingComplete = useCallback(() => {
-    if (userId) markOnboarded(userId);
-    setOnboarded(true);
-  }, [userId]);
-
   const {
-    project,
     messages,
     draft,
     isStreaming,
@@ -34,6 +25,14 @@ export default function App() {
     sendMessage,
     updateApproval,
   } = useChatSession();
+
+  const handleNewChat = useCallback(() => {
+    setActiveConversationId(null);
+  }, []);
+
+  const handleSelectConversation = useCallback((id: string) => {
+    setActiveConversationId(id);
+  }, []);
 
   if (!isLoaded) {
     return (
@@ -47,35 +46,40 @@ export default function App() {
     return <AuthScreen />;
   }
 
-  if (!onboarded) {
-    return <OnboardingFlow onComplete={handleOnboardingComplete} />;
-  }
-
   return (
-    <div className="min-h-screen bg-[var(--bg)] text-[var(--fg)]">
-      <div className="mx-auto flex min-h-screen w-full max-w-3xl flex-col px-4 pb-4 pt-3 sm:px-6 sm:pb-6">
-        <ChatHeader project={project} />
+    <div className="flex h-screen bg-[var(--bg)] text-[var(--fg)]">
+      {/* Sidebar */}
+      <Sidebar
+        userId={userId ?? 'local'}
+        activeConversationId={activeConversationId}
+        onNewChat={handleNewChat}
+        onSelectConversation={handleSelectConversation}
+        onOpenSettings={() => setSettingsOpen(true)}
+      />
 
-        <main className="mt-4 flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-white/8 bg-[var(--panel)] shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
-          <div className="border-b border-white/6 px-4 py-3 sm:px-5">
-            <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--muted)]">
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-white/8 bg-white/4 px-2.5 py-1">
-                <BrainCircuit className="h-3.5 w-3.5" />
-                Provider blend active
+      {/* Main chat area */}
+      <div className="flex flex-1 flex-col">
+        {/* Top bar */}
+        <header className="flex h-12 items-center justify-between border-b border-white/6 px-4">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium text-white">Cortex</span>
+            {isStreaming && (
+              <span className="flex items-center gap-1.5 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-[11px] text-emerald-200">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-300 animate-pulse" />
+                Streaming
               </span>
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-white/8 bg-white/4 px-2.5 py-1">
-                <ShieldCheck className="h-3.5 w-3.5" />
-                Agent: cortex-heart
-              </span>
-              {isStreaming ? (
-                <span className="inline-flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-emerald-200">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-300 animate-pulse" />
-                  Streaming response
-                </span>
-              ) : null}
-            </div>
+            )}
           </div>
+          <button
+            onClick={() => setSettingsOpen(true)}
+            className="rounded-lg p-2 text-[var(--muted)] transition hover:bg-white/6 hover:text-white active:scale-95"
+          >
+            <Settings className="h-4 w-4" />
+          </button>
+        </header>
 
+        {/* Chat panel */}
+        <main className="flex min-h-0 flex-1 flex-col">
           <ChatTimeline messages={messages} onApprovalAction={updateApproval} />
           <ChatComposer
             draft={draft}
@@ -85,6 +89,9 @@ export default function App() {
           />
         </main>
       </div>
+
+      {/* Settings modal */}
+      {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
     </div>
   );
 }

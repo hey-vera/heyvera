@@ -172,3 +172,75 @@ export async function getUserProfile() {
   const res = await authedFetch(`${BASE_URL}/api/user/profile`);
   return res.json();
 }
+
+// Conversations
+
+export interface ConversationSummary {
+  id: string;
+  title: string | null;
+  updated_at: string;
+  message_count: number;
+  last_message_preview: string | null;
+}
+
+export interface ConversationMessage {
+  id: string;
+  conversation_id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  provider: string | null;
+  model: string | null;
+  created_at: string;
+}
+
+export interface ConversationWithMessages {
+  id: string;
+  user_id: string;
+  title: string | null;
+  created_at: string;
+  updated_at: string;
+  messages: ConversationMessage[];
+}
+
+export async function listConversations(userId = 'local'): Promise<ConversationSummary[]> {
+  const res = await authedFetch(`${BASE_URL}/api/conversations?user_id=${userId}`);
+  return res.json();
+}
+
+export async function createConversation(userId = 'local', title?: string): Promise<{ id: string }> {
+  const res = await authedFetch(`${BASE_URL}/api/conversations`, {
+    method: 'POST',
+    body: JSON.stringify({ user_id: userId, title }),
+  });
+  return res.json();
+}
+
+export async function getConversation(id: string, userId = 'local'): Promise<ConversationWithMessages> {
+  const res = await authedFetch(`${BASE_URL}/api/conversations/${id}?user_id=${userId}`);
+  return res.json();
+}
+
+export async function deleteConversation(id: string, userId = 'local'): Promise<void> {
+  await authedFetch(`${BASE_URL}/api/conversations/${id}?user_id=${userId}`, { method: 'DELETE' });
+}
+
+export async function updateConversationTitle(id: string, title: string, userId = 'local'): Promise<void> {
+  await authedFetch(`${BASE_URL}/api/conversations/${id}?user_id=${userId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ title }),
+  });
+}
+
+export async function addMessageToConversation(
+  conversationId: string,
+  role: string,
+  content: string,
+  provider?: string,
+  model?: string,
+): Promise<ConversationMessage> {
+  const res = await authedFetch(`${BASE_URL}/api/conversations/${conversationId}/messages`, {
+    method: 'POST',
+    body: JSON.stringify({ role, content, provider, model }),
+  });
+  return res.json();
+}

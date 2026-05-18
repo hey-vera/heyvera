@@ -29,3 +29,4 @@ futures-core.workspace = true
 tokio-stream.workspace = true
 jsonwebtoken.workspace = true
 reqwest.workspace = true
+rusqlite.workspace = true

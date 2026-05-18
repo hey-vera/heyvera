@@ -9,6 +9,7 @@ use tokio::process::ChildStdin;
 use tokio::sync::RwLock;
 
 use crate::clerk::JwksCache;
+use crate::db::Database;
 
 pub struct AppState {
     pub providers: RwLock<Vec<ProviderStatus>>,
@@ -17,6 +18,7 @@ pub struct AppState {
     pub clerk_secret_key: Option<String>,
     pub jwks_cache: RwLock<JwksCache>,
     pub pending_auths: RwLock<HashMap<String, ChildStdin>>,
+    pub db: Option<Database>,
 }
 
 impl AppState {
@@ -51,6 +53,10 @@ impl AppState {
             tracing::info!("clerk auth disabled (no CLERK_SECRET_KEY)");
         }
 
+        let db_path = workspace_dir.join(".cortex").join("cortex.db");
+        let db = Database::open(&db_path);
+        tracing::info!("database opened at {}", db_path.display());
+
         Arc::new(Self {
             providers: RwLock::new(providers),
             ledger: Ledger::new(ledger_path),
@@ -58,6 +64,7 @@ impl AppState {
             clerk_secret_key,
             jwks_cache: RwLock::new(JwksCache::empty()),
             pending_auths: RwLock::new(HashMap::new()),
+            db: Some(db),
         })
     }
 }

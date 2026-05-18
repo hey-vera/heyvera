@@ -1,6 +1,8 @@
 mod auth;
 mod chat;
 mod clerk;
+mod conversations;
+mod db;
 mod routes;
 mod sse;
 mod state;
@@ -8,7 +10,7 @@ mod user;
 
 use std::net::SocketAddr;
 
-use axum::routing::{get, post};
+use axum::routing::{delete, get, patch, post};
 use axum::Router;
 use tower_http::cors::CorsLayer;
 use tracing_subscriber::EnvFilter;
@@ -49,6 +51,13 @@ async fn main() {
         .route("/api/auth/start", post(auth::auth_start))
         .route("/api/auth/submit", post(auth::auth_submit))
         .route("/api/auth/refresh", post(auth::auth_refresh))
+        // Conversations
+        .route("/api/conversations", get(conversations::list_conversations))
+        .route("/api/conversations", post(conversations::create_conversation))
+        .route("/api/conversations/:id", get(conversations::get_conversation))
+        .route("/api/conversations/:id", patch(conversations::update_conversation))
+        .route("/api/conversations/:id", delete(conversations::delete_conversation))
+        .route("/api/conversations/:id/messages", post(conversations::add_message))
         // User endpoints
         .route("/api/user/profile", get(user::get_profile))
         .route("/api/user/github/status", get(user::github_status))
