@@ -11,19 +11,25 @@ interface ProviderStepProps {
   onNext: () => void;
 }
 
+interface ProviderAuthState {
+  connecting: boolean;
+  authUrl: string | null;
+  error: string | null;
+}
+
 export default function ProviderStep({ onNext }: ProviderStepProps) {
   const [providers, setProviders] = useState<ProviderAuthInfo[]>([]);
   const [loading, setLoading] = useState(true);
-  const [authInProgress, setAuthInProgress] = useState<string | null>(null);
-  const [authUrl, setAuthUrl] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [authStates, setAuthStates] = useState<Record<string, ProviderAuthState>>({});
 
   const fetchStatus = useCallback(async () => {
     try {
       const status = await getAuthStatus();
       setProviders(status);
+      setFetchError(null);
     } catch {
-      setError('Cannot reach Cortex backend');
+      setFetchError('Cannot reach Cortex backend');
     } finally {
       setLoading(false);
     }
@@ -33,24 +39,36 @@ export default function ProviderStep({ onNext }: ProviderStepProps) {
     fetchStatus();
   }, [fetchStatus]);
 
+  const getAuthState = (provider: string): ProviderAuthState =>
+    authStates[provider] ?? { connecting: false, authUrl: null, error: null };
+
+  const updateAuthState = (provider: string, update: Partial<ProviderAuthState>) => {
+    setAuthStates((prev) => ({
+      ...prev,
+      [provider]: { ...getAuthState(provider), ...update },
+    }));
+  };
+
   const handleConnect = async (provider: string) => {
-    setAuthInProgress(provider);
-    setAuthUrl(null);
-    setError(null);
+    updateAuthState(provider, { connecting: true, authUrl: null, error: null });
 
     try {
       const result = await startAuth(provider);
       if (result.auth_url) {
-        setAuthUrl(result.auth_url);
+        updateAuthState(provider, { authUrl: result.auth_url });
         window.open(result.auth_url, '_blank', 'noopener');
         pollUntilAuth(provider);
       } else {
-        setError(result.message);
-        setAuthInProgress(null);
+        updateAuthState(provider, {
+          error: result.message,
+          connecting: false,
+        });
       }
     } catch {
-      setError('Failed to start authentication');
-      setAuthInProgress(null);
+      updateAuthState(provider, {
+        error: 'Failed to start authentication',
+        connecting: false,
+      });
     }
   };
 
@@ -61,17 +79,22 @@ export default function ProviderStep({ onNext }: ProviderStepProps) {
         const status = await refreshAuth();
         setProviders(status);
         if (status.find((s) => s.provider === provider)?.authenticated) {
-          setAuthInProgress(null);
-          setAuthUrl(null);
+          updateAuthState(provider, {
+            connecting: false,
+            authUrl: null,
+            error: null,
+          });
           return;
         }
       } catch {
         // keep polling
       }
     }
-    setAuthInProgress(null);
-    setAuthUrl(null);
-    setError('Authentication timed out — try again');
+    updateAuthState(provider, {
+      connecting: false,
+      authUrl: null,
+      error: 'Authentication timed out — try again',
+    });
   };
 
   const anyAuthed = providers.some((p) => p.authenticated);
@@ -81,6 +104,22 @@ export default function ProviderStep({ onNext }: ProviderStepProps) {
       <div className="flex items-center justify-center gap-2 p-8 text-sm text-[var(--muted)]">
         <Loader2 className="h-4 w-4 animate-spin" />
         Checking providers...
+      </div>
+    );
+  }
+
+  if (fetchError) {
+    return (
+      <div className="flex flex-col gap-4 p-5">
+        <div className="rounded-xl border border-red-500/20 bg-red-500/10 p-3 text-xs text-red-200">
+          {fetchError}
+        </div>
+        <button
+          onClick={fetchStatus}
+          className="rounded-lg bg-[var(--accent-soft)] px-4 py-2 text-sm font-medium text-[var(--accent)]"
+        >
+          Retry
+        </button>
       </div>
     );
   }
@@ -95,75 +134,79 @@ export default function ProviderStep({ onNext }: ProviderStepProps) {
       </div>
 
       <div className="flex flex-col gap-3">
-        {providers.map((p) => (
-          <div
-            key={p.provider}
-            className="flex items-center justify-between rounded-xl border border-white/8 bg-white/4 px-4 py-3"
-          >
-            <div className="flex items-center gap-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-white/6 text-xs font-bold uppercase text-[var(--muted-strong)]">
-                {p.provider === 'claude' ? 'CL' : 'OA'}
-              </div>
-              <div>
-                <div className="text-sm font-medium text-white">
-                  {p.provider === 'claude' ? 'Claude (Anthropic)' : 'OpenAI (Codex)'}
+        {providers.map((p) => {
+          const state = getAuthState(p.provider);
+          return (
+            <div
+              key={p.provider}
+              className="rounded-xl border border-white/8 bg-white/4"
+            >
+              <div className="flex items-center justify-between px-4 py-3">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-white/6 text-xs font-bold uppercase text-[var(--muted-strong)]">
+                    {p.provider === 'claude' ? 'CL' : 'OA'}
+                  </div>
+                  <div>
+                    <div className="text-sm font-medium text-white">
+                      {p.provider === 'claude' ? 'Claude (Anthropic)' : 'OpenAI (Codex)'}
+                    </div>
+                    {p.authenticated ? (
+                      <div className="flex items-center gap-1 text-xs text-emerald-300">
+                        <CheckCircle className="h-3 w-3" />
+                        {p.email ?? 'Connected'}
+                        {p.subscription ? ` · ${p.subscription}` : ''}
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1 text-xs text-[var(--muted)]">
+                        <XCircle className="h-3 w-3" />
+                        Not connected
+                      </div>
+                    )}
+                  </div>
                 </div>
-                {p.authenticated ? (
-                  <div className="flex items-center gap-1 text-xs text-emerald-300">
-                    <CheckCircle className="h-3 w-3" />
-                    {p.email ?? 'Connected'}
-                    {p.subscription ? ` · ${p.subscription}` : ''}
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-1 text-xs text-[var(--muted)]">
-                    <XCircle className="h-3 w-3" />
-                    Not connected
-                  </div>
-                )}
-              </div>
-            </div>
 
-            {!p.authenticated && (
-              <button
-                onClick={() => handleConnect(p.provider)}
-                disabled={authInProgress !== null}
-                className="rounded-lg border border-[var(--accent)]/30 bg-[var(--accent-soft)] px-3 py-1.5 text-xs font-medium text-[var(--accent)] transition hover:bg-[var(--accent)]/20 disabled:opacity-40"
-              >
-                {authInProgress === p.provider ? (
-                  <span className="flex items-center gap-1.5">
+                {!p.authenticated && !state.connecting && (
+                  <button
+                    onClick={() => handleConnect(p.provider)}
+                    className="rounded-lg border border-[var(--accent)]/30 bg-[var(--accent-soft)] px-3 py-1.5 text-xs font-medium text-[var(--accent)] transition hover:bg-[var(--accent)]/20"
+                  >
+                    Connect
+                  </button>
+                )}
+
+                {state.connecting && (
+                  <span className="flex items-center gap-1.5 text-xs text-[var(--muted)]">
                     <Loader2 className="h-3 w-3 animate-spin" />
                     Waiting...
                   </span>
-                ) : (
-                  'Connect'
                 )}
-              </button>
-            )}
-          </div>
-        ))}
+              </div>
+
+              {state.authUrl && (
+                <div className="border-t border-white/6 px-4 py-3">
+                  <p className="text-xs text-[var(--muted)]">
+                    Complete sign-in in the tab that opened. If it didn't open:
+                  </p>
+                  <a
+                    href={state.authUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-[var(--accent)] underline"
+                  >
+                    Open authentication page <ExternalLink className="h-3 w-3" />
+                  </a>
+                </div>
+              )}
+
+              {state.error && (
+                <div className="border-t border-white/6 px-4 py-2.5">
+                  <p className="text-xs text-red-300">{state.error}</p>
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
-
-      {authUrl && (
-        <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-3">
-          <p className="text-xs text-amber-200">
-            Complete sign-in in the browser tab that opened. If it didn't open:
-          </p>
-          <a
-            href={authUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-amber-100 underline"
-          >
-            Open authentication page <ExternalLink className="h-3 w-3" />
-          </a>
-        </div>
-      )}
-
-      {error && (
-        <div className="rounded-xl border border-red-500/20 bg-red-500/10 p-3 text-xs text-red-200">
-          {error}
-        </div>
-      )}
 
       <div className="flex items-center justify-between pt-2">
         <button
