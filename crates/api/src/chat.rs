@@ -31,7 +31,6 @@ pub struct ChatRequest {
 
 pub async fn chat(
     State(state): State<Arc<AppState>>,
-    _user: ClerkUser,
     Json(req): Json<ChatRequest>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, (StatusCode, Json<ErrorResponse>)> {
     let intent = classify_intent(&req.message);

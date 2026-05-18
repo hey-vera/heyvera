@@ -63,7 +63,6 @@ pub async fn auth_status() -> Json<Vec<ProviderAuthInfo>> {
 
 pub async fn auth_start(
     State(state): State<Arc<AppState>>,
-    _user: ClerkUser,
     Json(req): Json<AuthStartRequest>,
 ) -> Result<Json<AuthStartResponse>, (StatusCode, Json<ErrorResponse>)> {
     let provider = req.provider.to_lowercase();
@@ -82,7 +81,6 @@ pub async fn auth_start(
 
 pub async fn auth_refresh(
     State(state): State<Arc<AppState>>,
-    _user: ClerkUser,
 ) -> Json<Vec<ProviderAuthInfo>> {
     let mut providers = state.providers.write().await;
     providers.clear();
