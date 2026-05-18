@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { CheckCircle, ExternalLink, Loader2, XCircle } from 'lucide-react';
+import { CheckCircle, Copy, ExternalLink, Loader2, XCircle } from 'lucide-react';
 import {
   getAuthStatus,
   startAuth,
@@ -61,19 +61,31 @@ export default function ProviderStep({ onNext }: ProviderStepProps) {
     }));
   };
 
+  const isDeviceCodeFlow = (provider: string) => provider === 'openai';
+
   const handleConnect = async (provider: string) => {
     updateState(provider, { phase: 'starting', error: null });
 
     try {
       const result = await startAuth(provider);
       if (result.auth_url) {
-        updateState(provider, {
-          phase: 'awaiting_code',
-          authUrl: result.auth_url,
-          deviceCode: result.device_code,
-        });
-        window.open(result.auth_url, '_blank', 'noopener');
-        setTimeout(() => inputRefs.current[provider]?.focus(), 100);
+        if (isDeviceCodeFlow(provider) && result.device_code) {
+          updateState(provider, {
+            phase: 'polling',
+            authUrl: result.auth_url,
+            deviceCode: result.device_code,
+          });
+          window.open(result.auth_url, '_blank', 'noopener');
+          pollUntilAuth(provider);
+        } else {
+          updateState(provider, {
+            phase: 'awaiting_code',
+            authUrl: result.auth_url,
+            deviceCode: result.device_code,
+          });
+          window.open(result.auth_url, '_blank', 'noopener');
+          setTimeout(() => inputRefs.current[provider]?.focus(), 100);
+        }
       } else {
         updateState(provider, {
           phase: 'idle',
@@ -221,11 +233,57 @@ export default function ProviderStep({ onNext }: ProviderStepProps) {
                 )}
               </div>
 
-              {/* Auth flow panel */}
-              {(state.phase === 'awaiting_code' || state.phase === 'submitting' || state.phase === 'polling') && (
+              {/* Auth flow panel — device code flow (OpenAI) */}
+              {isDeviceCodeFlow(p.provider) && state.phase === 'polling' && state.deviceCode && (
                 <div className="border-t border-white/6 px-4 py-3">
                   <div className="flex flex-col gap-3">
-                    {/* Step 1: Open link */}
+                    <div className="flex items-start gap-2">
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--accent-soft)] text-[10px] font-bold text-[var(--accent)]">1</span>
+                      <div>
+                        <p className="text-xs text-[var(--muted)]">
+                          Copy this code:
+                        </p>
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(state.deviceCode!);
+                          }}
+                          className="mt-1 inline-flex items-center gap-2 rounded-lg border border-white/10 bg-[var(--composer)] px-3 py-1.5 font-mono text-base font-bold tracking-widest text-white transition hover:border-[var(--accent)]/40"
+                        >
+                          {state.deviceCode}
+                          <Copy className="h-3.5 w-3.5 text-[var(--muted)]" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="flex items-start gap-2">
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--accent-soft)] text-[10px] font-bold text-[var(--accent)]">2</span>
+                      <div>
+                        <p className="text-xs text-[var(--muted)]">
+                          Open OpenAI and enter the code:
+                        </p>
+                        <a
+                          href={state.authUrl!}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="mt-1 inline-flex items-center gap-1.5 text-xs font-medium text-[var(--accent)] underline"
+                        >
+                          Open OpenAI <ExternalLink className="h-3 w-3" />
+                        </a>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 rounded-lg bg-white/4 px-3 py-2">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--accent)]" />
+                      <span className="text-xs text-[var(--muted)]">Waiting for authorization...</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Auth flow panel — paste code flow (Claude) */}
+              {!isDeviceCodeFlow(p.provider) && (state.phase === 'awaiting_code' || state.phase === 'submitting' || state.phase === 'polling') && (
+                <div className="border-t border-white/6 px-4 py-3">
+                  <div className="flex flex-col gap-3">
                     <div className="flex items-start gap-2">
                       <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--accent-soft)] text-[10px] font-bold text-[var(--accent)]">1</span>
                       <div>
@@ -238,12 +296,11 @@ export default function ProviderStep({ onNext }: ProviderStepProps) {
                           rel="noopener noreferrer"
                           className="mt-1 inline-flex items-center gap-1.5 text-xs font-medium text-[var(--accent)] underline"
                         >
-                          Open {p.provider === 'claude' ? 'Anthropic' : 'OpenAI'} <ExternalLink className="h-3 w-3" />
+                          Open Anthropic <ExternalLink className="h-3 w-3" />
                         </a>
                       </div>
                     </div>
 
-                    {/* Step 2: Paste code */}
                     <div className="flex items-start gap-2">
                       <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--accent-soft)] text-[10px] font-bold text-[var(--accent)]">2</span>
                       <div className="flex-1">
