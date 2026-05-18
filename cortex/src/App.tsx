@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Loader2, Settings } from 'lucide-react';
+import { Loader2, Menu } from 'lucide-react';
 import ChatComposer from './components/chat/ChatComposer';
 import ChatTimeline from './components/chat/ChatTimeline';
 import Sidebar from './components/Sidebar';
@@ -11,6 +11,7 @@ import { setAuthTokenGetter } from './lib/cortexApi';
 export default function App() {
   const { isLoaded, isSignedIn, userId, AuthScreen, getToken } = useAuthGate();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [conversationListVersion, setConversationListVersion] = useState(0);
 
@@ -38,10 +39,17 @@ export default function App() {
 
   const handleNewChat = useCallback(() => {
     setActiveConversationId(null);
+    setSidebarOpen(false);
   }, []);
 
   const handleSelectConversation = useCallback((id: string) => {
     setActiveConversationId(id);
+    setSidebarOpen(false);
+  }, []);
+
+  const handleOpenSettings = useCallback(() => {
+    setSettingsOpen(true);
+    setSidebarOpen(false);
   }, []);
 
   if (!isLoaded) {
@@ -57,26 +65,70 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-screen bg-[var(--bg)] text-[var(--fg)]">
-      {/* Sidebar */}
-      <Sidebar
-        userId={userId ?? 'local'}
-        activeConversationId={activeConversationId}
-        refreshKey={conversationListVersion}
-        onNewChat={handleNewChat}
-        onSelectConversation={handleSelectConversation}
-        onConversationsChanged={() => {
-          setConversationListVersion((version) => version + 1);
-        }}
-        onOpenSettings={() => setSettingsOpen(true)}
-      />
+    <div className="flex h-dvh overflow-hidden bg-[var(--bg)] text-[var(--fg)]">
+      <aside className="hidden h-full shrink-0 lg:block">
+        <Sidebar
+          userId={userId ?? 'local'}
+          activeConversationId={activeConversationId}
+          refreshKey={conversationListVersion}
+          onNewChat={handleNewChat}
+          onSelectConversation={handleSelectConversation}
+          onConversationsChanged={() => {
+            setConversationListVersion((version) => version + 1);
+          }}
+          onOpenSettings={handleOpenSettings}
+        />
+      </aside>
 
-      {/* Main chat area */}
-      <div className="flex flex-1 flex-col">
-        {/* Top bar */}
-        <header className="flex h-12 items-center justify-between border-b border-white/6 px-4">
+      {sidebarOpen && (
+        <div className="fixed inset-0 z-40 lg:hidden">
+          <button
+            type="button"
+            aria-label="Close conversations"
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            onClick={() => setSidebarOpen(false)}
+          />
+          <div className="relative h-full w-[min(20rem,calc(100vw-3rem))] translate-x-0 border-r border-white/8 bg-[var(--bg)] shadow-2xl">
+            <Sidebar
+              userId={userId ?? 'local'}
+              activeConversationId={activeConversationId}
+              refreshKey={conversationListVersion}
+              onNewChat={handleNewChat}
+              onSelectConversation={handleSelectConversation}
+              onConversationsChanged={() => {
+                setConversationListVersion((version) => version + 1);
+              }}
+              onOpenSettings={handleOpenSettings}
+            />
+          </div>
+        </div>
+      )}
+
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="flex h-12 shrink-0 items-center justify-between border-b border-white/6 px-3 sm:px-4">
+          <div className="flex min-w-0 items-center gap-2">
+            <button
+              type="button"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-[var(--muted)] transition hover:bg-white/6 hover:text-white active:scale-95 lg:hidden"
+              aria-label="Open conversations"
+              onClick={() => setSidebarOpen(true)}
+            >
+              <Menu className="h-4 w-4" />
+            </button>
+            <div className="min-w-0">
+              <button
+                type="button"
+                className="block max-w-[60vw] truncate text-left text-sm font-medium text-white transition hover:text-[var(--accent)]"
+                title="Rename conversation coming soon"
+              >
+                Cortex
+              </button>
+              <div className="hidden text-[11px] text-[var(--muted)] sm:block">
+                Workspace connected
+              </div>
+            </div>
+          </div>
           <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-white">Cortex</span>
             {isStreaming && (
               <span className="flex items-center gap-1.5 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-[11px] text-emerald-200">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-300 animate-pulse" />
@@ -84,16 +136,9 @@ export default function App() {
               </span>
             )}
           </div>
-          <button
-            onClick={() => setSettingsOpen(true)}
-            className="rounded-lg p-2 text-[var(--muted)] transition hover:bg-white/6 hover:text-white active:scale-95"
-          >
-            <Settings className="h-4 w-4" />
-          </button>
         </header>
 
-        {/* Chat panel */}
-        <main className="flex min-h-0 flex-1 flex-col">
+        <main className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col">
           <ChatTimeline messages={messages} onApprovalAction={updateApproval} />
           <ChatComposer
             draft={draft}
