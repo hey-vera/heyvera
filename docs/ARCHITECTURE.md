@@ -697,7 +697,377 @@ Semantic assertions over exact score matching:
 
 ---
 
-## 9. What This Design Does NOT Include (Intentionally Deferred)
+## 9. Workspace Isolation
+
+### Problem
+
+Worker A gets a step, starts editing files. Network blip → lease expires. Brain requeues to Worker B. Now both Workers may have modified the same files. Brain rejects Worker A's stale `lease_gen`, but the filesystem damage is already done.
+
+### Solution: Git Worktree Per Attempt
+
+Every step attempt runs in an isolated git worktree on a unique branch:
+
+```
+refs/cortex/attempts/{step_id}/{attempt_number}
+```
+
+- Worker creates worktree before execution, destroys after
+- Workers never modify the main working tree directly
+- Accepted results are merged by Brain-approved reconciliation (or by the Worker on Brain's instruction after acceptance)
+- Stale Workers receive `StaleLeaseNotice` and must stop, not push, not merge, and clean up their worktree
+- Workers never push directly to user branches — only to namespaced attempt refs
+
+### Stale Lease Response
+
+```rust
+pub enum BrainMessage {
+    // ... existing variants ...
+    StaleLeaseNotice {
+        step_id: String,
+        your_lease_gen: i64,
+        current_lease_gen: i64,
+        disposition: StaleDisposition,
+    },
+}
+
+pub enum StaleDisposition {
+    AbandonAndCleanup,   // delete worktree, stop
+    PreserveForInspection, // keep worktree but stop
+}
+```
+
+### Same Machine vs Different Machine
+
+- Same machine: worktrees provide filesystem isolation automatically
+- Different machines: each has its own clone, no conflict possible at filesystem level
+- Both cases: only the accepted attempt's changes get merged to the user's branch
+
+### V1 Simplification
+
+For v1 with single-Worker-per-user, worktree isolation is optional (collision is impossible). But the protocol should support it from day one so multi-Worker works when we need it.
+
+---
+
+## 10. Scheduler Architecture
+
+### Hybrid Event-Driven + Reconciliation
+
+Single global scheduler task. Events are hints; SQLite is truth.
+
+```rust
+enum SchedulerEvent {
+    RunCreated { run_id: String },
+    StepCompleted { run_id: String, step_id: String },
+    StepFailed { run_id: String, step_id: String },
+    WorkerConnected { worker_id: String },
+    WorkerDisconnected { worker_id: String },
+    Reconcile,
+}
+```
+
+Scheduler loop:
+
+```rust
+loop {
+    tokio::select! {
+        Some(event) = rx.recv() => {
+            state.apply_event(event).await;
+            state.schedule_until_blocked().await;
+        }
+        _ = reconcile_interval.tick() => {
+            state.reconcile_from_db().await;
+            state.expire_due_leases().await;
+            state.schedule_until_blocked().await;
+        }
+        _ = state.next_lease_deadline() => {
+            state.expire_due_leases().await;
+            state.schedule_until_blocked().await;
+        }
+    }
+}
+```
+
+### Fairness
+
+Round-robin across users with ready work. Per-user concurrency limits.
+
+```rust
+struct SchedulerState {
+    user_queues: HashMap<UserId, UserQueue>,
+    schedulable_users: VecDeque<UserId>,
+    workers: WorkerPool,
+    lease_deadlines: BinaryHeap<Reverse<LeaseDeadline>>,
+}
+
+struct UserQueue {
+    ready_steps: VecDeque<StepRef>,
+    running_count: usize,
+    max_concurrent: usize,  // default: 5
+}
+```
+
+User A has 10 runs, User B has 1 → B still gets assignments within one scheduling round.
+
+### Backpressure
+
+Only assign when: worker has capacity, user has concurrency budget, global budget exists. If all workers are busy, steps stay in `ready` state.
+
+### Worker Disconnect Grace
+
+```
+connected → disconnected_grace (15-60s) → lost
+```
+
+On disconnect: stop assigning new work. Start grace timer. If Worker reconnects and proves lease ownership → continue. If grace expires → shorten affected lease deadlines → normal expiry path requeues.
+
+### Brain Restart
+
+1. Open SQLite, run migrations
+2. Expire leases past deadline
+3. Rebuild per-user counters from `status = leased/running`
+4. Rebuild ready queues from dependency satisfaction
+5. Start WebSocket acceptor + scheduler loop
+6. Send initial `Reconcile` event
+
+---
+
+## 11. Scoring Algorithm — Exact Constants
+
+### Profile Weights
+
+```
+              intent  risk  budget  provider_fit
+balanced:      0.20   0.25   0.25     0.30
+cost-saver:    0.10   0.25   0.45     0.20
+quality-first: 0.15   0.35   0.10     0.40
+auto(normal):  0.20   0.25   0.25     0.30
+```
+
+### Final Score Formula
+
+```
+score = 50
+  + w.intent       × intent_score
+  + w.risk         × risk_score
+  + w.budget       × budget_score
+  + w.provider_fit × provider_fit_score
+```
+
+### Subscore Components
+
+**Intent score:**
+- +20 if provider supports requested tier exactly
+- +8 if provider can serve higher tier
+- -30 if provider only serves lower tier
+- Veto if unauthenticated or tier unavailable
+
+**Risk score:**
+- +20 if tier >= risk minimum tier
+- -40 if tier below minimum
+- Veto if critical risk and tier != think
+
+**Budget score:**
+- 30 - pressure_penalty + underused_bonus
+- Pressure penalty: smooth curve from 0 (healthy) to 100 (throttled)
+  - < 65%: 0
+  - 65-82%: 5-20 (linear)
+  - 82-95%: 20-60 (superlinear)
+  - 95%+: 85-100
+
+**Provider fit score:**
+- Capability bonus: +22 exact tier, +10 higher tier, -35 lower tier
+- Reliability bonus: (success_rate - 0.80) × 60, clamped [-15, +12], requires 20+ samples
+- Latency penalty: -18 if OpenAI + task < 90s, -10 if < 180s
+- Underused bonus: +12 if provider < 30% pressure and peers > 55%
+- Risk alignment: +20 critical/think, +12 high/think, +8 high/execute
+- Profile bias: cost-saver favors search (+8), quality-first favors think (+12)
+
+### Tiebreaking (deterministic)
+
+1. Higher recent success rate (last 50 outcomes)
+2. Lower pressure in selected tier
+3. Lower estimated startup latency
+4. Least recently selected for this user/tier
+5. Stable order: Claude > OpenAI > Gemini
+
+### Pressure Algorithm
+
+- Rolling 5-hour window
+- Per-tier token budgets: Search 5M, Execute 2M, Think 500K per provider
+- Token estimation when actual unavailable: Search 2.5K, Execute 5.5K, Think 11K
+- Transitions: Healthy(<65%) → Warm(65-82%) → Hot(82-95%) → Throttled(95%+)
+
+### Auto Profile State Machine
+
+```
+Normal
+  → ProtectBudget    if any tier pressure ≥ 82%
+  → ProtectQuality   if risk is High/Critical
+  → Recovering       if ≥2 failures in last 5 attempts on selected provider
+
+ProtectBudget → Normal   after all pressures < 65% for 30 minutes
+ProtectQuality → Normal  after run completes with no pending High/Critical steps
+Recovering → Normal      after 3 successful steps or 30 minutes without failure
+```
+
+### Profile Switch Behavior
+
+- Running steps: keep original RoutingDecision
+- Ready/queued steps: re-scored immediately
+- Leased steps: only cancelled and reissued on safety upgrades (balanced→quality-first on high risk)
+- Downgrades never interrupt in-flight work
+
+---
+
+## 12. Step Context Selection
+
+### Core Rule
+
+Direct dependencies get detailed projected slices. Non-adjacent ancestors contribute only durable run facts.
+
+### Context Budget
+
+- Target: 32K chars (~8-12K tokens)
+- Hard max: 48K chars
+- Heal steps: same budget but priority shifts to failure output
+
+### Per-Transition Data Flow
+
+| From → To | What Flows | What Doesn't |
+|-----------|-----------|--------------|
+| search → execute | File findings (ranked), symbols, snippets, search confidence | Raw grep output, terminal logs |
+| explore → fix | Architecture explanation, constraints, likely fix locations, risk notes | Full codebase analysis |
+| execute → test | Files changed, diff summary, commands run, suggested tests, risk | Full worker transcript, full patches |
+| test → heal | Failing command, exit code, failure excerpts, failing test names, changed files, original objective, previous heal attempts | Full test suite output |
+| heal → test | Heal summary, files fixed, attempt number, pinned test command | Heal reasoning transcript |
+| gate → heal | Gate status, issue list, severity, changed files | Gate internal scoring details |
+| test → gate | Test command, pass/fail, duration | If failed, gate usually shouldn't run |
+
+### Run Fact Index
+
+Every ancestor may contribute durable facts; only direct dependencies contribute detailed slices:
+
+```rust
+struct RunFactIndex {
+    relevant_files: Vec<FileFinding>,
+    changed_files: Vec<FileChange>,
+    decisions: Vec<DecisionFact>,
+    constraints: Vec<String>,
+    commands_run: Vec<CommandRecord>,
+}
+```
+
+### Truncation Priority
+
+1. Original objective + current step instruction
+2. Failure context (for heal steps)
+3. Files changed by direct predecessor
+4. Failing command/output excerpts
+5. Direct predecessor summary
+6. Relevant files from transitive facts
+7. Commands run
+8. Risk notes/constraints
+9. Free-form extra
+
+### Typed Step Outputs
+
+Workers produce typed structured outputs per step kind (not free-form JSON):
+
+```rust
+pub struct TestOutput {
+    pub passed: bool,
+    pub command: Option<String>,
+    pub exit_code: Option<i32>,
+    pub failing_tests: Vec<String>,
+    pub failure_excerpts: Vec<String>,
+}
+
+pub struct ExecuteOutput {
+    pub files_changed: Vec<FileChange>,
+    pub commands_run: Vec<CommandRecord>,
+    pub implementation_summary: String,
+    pub suggested_tests: Vec<String>,
+}
+
+pub struct HealOutput {
+    pub healed: bool,
+    pub attempts: u32,
+    pub files_changed: Vec<FileChange>,
+    pub failure_addressed: Option<String>,
+}
+```
+
+---
+
+## 13. SQLite Performance
+
+### Production PRAGMAs
+
+```sql
+PRAGMA journal_mode = WAL;
+PRAGMA synchronous = NORMAL;
+PRAGMA foreign_keys = ON;
+PRAGMA busy_timeout = 5000;
+PRAGMA temp_store = MEMORY;
+PRAGMA mmap_size = 268435456;  -- 256 MiB
+PRAGMA wal_autocheckpoint = 1000;  -- ~4 MiB
+```
+
+### Connection Architecture
+
+- 1 dedicated write connection (correctness transactions: step claims, run transitions, decisions)
+- 1 dedicated batch writer (usage_events, telemetry — flush every 50ms or 250 rows)
+- 4-8 read pool connections via `r2d2` (all reads via `spawn_blocking`)
+
+### Write Batching
+
+Only batch `usage_events` and non-critical telemetry. Correctness writes (step claims, outcomes, decisions) remain strongly transactional.
+
+### Hot Path Indexes
+
+```sql
+-- Scheduler: find ready steps
+CREATE INDEX idx_steps_status_ready ON steps(status, run_id) WHERE status = 'ready';
+
+-- Lease expiry
+CREATE INDEX idx_steps_lease ON steps(status, lease_deadline) WHERE status = 'leased';
+
+-- Pressure calculation
+CREATE INDEX idx_usage_window ON usage_events(provider, timestamp);
+
+-- Provider reliability
+CREATE INDEX idx_outcomes_provider ON outcomes(timestamp);
+CREATE INDEX idx_decisions_user ON decisions(user_id, timestamp);
+```
+
+### Retention
+
+- `usage_events`: 7-30 days raw, hourly rollups kept longer
+- `step_attempts`: 30-90 days
+- `decisions` + `outcomes`: long-term (audit trail)
+- Delete in chunks (5000 rows per batch), use `PRAGMA incremental_vacuum`
+
+### WAL Checkpoint
+
+- Auto-checkpoint at 1000 pages (~4 MiB)
+- Background `PRAGMA wal_checkpoint(PASSIVE)` every 30-60s
+- Alert if WAL > 256 MiB
+- `TRUNCATE` checkpoint only during maintenance windows
+
+### Backup
+
+- SQLite backup API every 5-15 minutes during production
+- `PRAGMA quick_check` after backup
+- Daily offsite retained snapshots
+- Periodic restore drills
+
+### Scaling Ceiling
+
+SQLite is sufficient for thousands of users with disciplined writes. Migration trigger: sustained hundreds of writes/sec mixed with correctness transactions, or need for horizontal write scaling. Migration path: repository trait boundary → dual-write → shadow reads → cutover to Postgres.
+
+---
+
+## 14. What This Design Does NOT Include (Intentionally Deferred)
 
 - LLM-powered intent parsing (deterministic is enough for v1)
 - Multi-Brain / distributed coordination (single process is fine at scale)
