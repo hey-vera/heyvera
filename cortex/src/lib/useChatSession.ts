@@ -77,6 +77,7 @@ export function useChatSession({
   const [messages, setMessages] = useState<ChatMessage[]>(getEmptyMessages);
   const [draft, setDraft] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
+  const [activeConversationTitle, setActiveConversationTitle] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const activeConversationIdRef = useRef<string | null>(activeConversationId);
   const messagesRef = useRef<ChatMessage[]>(messages);
@@ -108,6 +109,7 @@ export function useChatSession({
 
     if (!activeConversationId) {
       setMessages(getEmptyMessages());
+      setActiveConversationTitle(null);
       return;
     }
 
@@ -123,6 +125,7 @@ export function useChatSession({
             ? conversation.messages.map(mapConversationMessage)
             : getEmptyMessages(),
         );
+        setActiveConversationTitle(conversation.title);
       } catch {
         if (requestVersionRef.current !== requestVersion) return;
         setMessages([
@@ -135,6 +138,7 @@ export function useChatSession({
             content: 'Could not load this conversation.',
           },
         ]);
+        setActiveConversationTitle(null);
       }
     })();
   }, [activeConversationId, userId]);
@@ -233,7 +237,9 @@ export function useChatSession({
         await addMessageToConversation(conversationId, 'user', text);
 
         if (!hadPriorUserMessage) {
-          void updateConversationTitle(conversationId, truncateTitle(text), userId)
+          const nextTitle = truncateTitle(text);
+          setActiveConversationTitle(nextTitle);
+          void updateConversationTitle(conversationId, nextTitle, userId)
             .then(() => {
               onConversationsChanged();
             })
@@ -362,6 +368,7 @@ export function useChatSession({
     messages,
     draft,
     isStreaming,
+    activeConversationTitle,
     setDraft,
     sendMessage,
     updateApproval,

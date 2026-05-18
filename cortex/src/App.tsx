@@ -2,11 +2,19 @@ import { useCallback, useEffect, useState } from 'react';
 import { Loader2, Menu } from 'lucide-react';
 import ChatComposer from './components/chat/ChatComposer';
 import ChatTimeline from './components/chat/ChatTimeline';
+import SessionControls from './components/session/SessionControls';
 import Sidebar from './components/Sidebar';
 import SettingsPanel from './components/SettingsPanel';
 import { useChatSession } from './lib/useChatSession';
 import { useAuthGate } from './lib/useAuthGate';
 import { setAuthTokenGetter } from './lib/cortexApi';
+import type { ChatSessionControls } from './types';
+
+const DEFAULT_SESSION_CONTROLS: ChatSessionControls = {
+  speed: 'balanced',
+  intelligence: 'balanced',
+  autonomy: 'guided',
+};
 
 export default function App() {
   const { isLoaded, isSignedIn, userId, AuthScreen, getToken } = useAuthGate();
@@ -14,6 +22,9 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [conversationListVersion, setConversationListVersion] = useState(0);
+  const [sessionControls, setSessionControls] = useState<ChatSessionControls>(
+    DEFAULT_SESSION_CONTROLS,
+  );
 
   useEffect(() => {
     if (getToken) setAuthTokenGetter(getToken);
@@ -23,6 +34,7 @@ export default function App() {
     messages,
     draft,
     isStreaming,
+    activeConversationTitle,
     setDraft,
     sendMessage,
     updateApproval,
@@ -51,6 +63,8 @@ export default function App() {
     setSettingsOpen(true);
     setSidebarOpen(false);
   }, []);
+
+  const headerTitle = activeConversationTitle?.trim() || 'New chat';
 
   if (!isLoaded) {
     return (
@@ -121,7 +135,7 @@ export default function App() {
                 className="block max-w-[60vw] truncate text-left text-sm font-medium text-white transition hover:text-[var(--accent)]"
                 title="Rename conversation coming soon"
               >
-                Cortex
+                {headerTitle}
               </button>
               <div className="hidden text-[11px] text-[var(--muted)] sm:block">
                 Workspace connected
@@ -140,6 +154,7 @@ export default function App() {
 
         <main className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col">
           <ChatTimeline messages={messages} onApprovalAction={updateApproval} />
+          <SessionControls value={sessionControls} onChange={setSessionControls} />
           <ChatComposer
             draft={draft}
             disabled={isStreaming}

@@ -136,3 +136,18 @@ export interface ChatMessage {
   isStreaming?: boolean;
   approvalRequest?: ApprovalRequest;
 }
+
+export type SessionSpeed = 'steady' | 'balanced' | 'rapid';
+export type SessionIntelligence = 'focused' | 'balanced' | 'deep';
+export type SessionAutonomy =
+  | 'manual'
+  | 'guided'
+  | 'smart_auto'
+  | 'full_auto'
+  | 'custom';
+
+export interface ChatSessionControls {
+  speed: SessionSpeed;
+  intelligence: SessionIntelligence;
+  autonomy: SessionAutonomy;
+}
