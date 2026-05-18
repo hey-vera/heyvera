@@ -81,6 +81,7 @@ export function useChatSession({
   const activeConversationIdRef = useRef<string | null>(activeConversationId);
   const messagesRef = useRef<ChatMessage[]>(messages);
   const requestVersionRef = useRef(0);
+  const skipNextConversationLoadRef = useRef<string | null>(null);
 
   useEffect(() => {
     activeConversationIdRef.current = activeConversationId;
@@ -91,6 +92,14 @@ export function useChatSession({
   }, [messages]);
 
   useEffect(() => {
+    if (
+      activeConversationId &&
+      skipNextConversationLoadRef.current === activeConversationId
+    ) {
+      skipNextConversationLoadRef.current = null;
+      return;
+    }
+
     abortRef.current?.abort();
     abortRef.current = null;
     setIsStreaming(false);
@@ -216,6 +225,7 @@ export function useChatSession({
           const created = await createConversation(userId);
           conversationId = created.id;
           activeConversationIdRef.current = created.id;
+          skipNextConversationLoadRef.current = created.id;
           onConversationCreated(created.id);
           onConversationsChanged();
         }
