@@ -48,6 +48,18 @@ function stateApiPlugin() {
 
 export default defineConfig({
   plugins: [stateApiPlugin(), react(), tailwindcss()],
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return undefined;
+          if (id.includes('@clerk')) return 'auth-vendor';
+          if (id.includes('lucide-react')) return 'icons-vendor';
+          return 'vendor';
+        },
+      },
+    },
+  },
   server: {
     host: '0.0.0.0',
     port: 5001,

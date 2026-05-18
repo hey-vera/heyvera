@@ -1,11 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 import { PanelRight, Loader2, Menu } from 'lucide-react';
 import ChatComposer from './components/chat/ChatComposer';
 import ChatTimeline from './components/chat/ChatTimeline';
 import SessionControls from './components/session/SessionControls';
 import Sidebar from './components/Sidebar';
-import SettingsPanel from './components/SettingsPanel';
-import WorkSurface from './components/work-surface/WorkSurface';
 import { useChatSession } from './lib/useChatSession';
 import { useAuthGate } from './lib/useAuthGate';
 import { setAuthTokenGetter } from './lib/cortexApi';
@@ -16,6 +14,9 @@ const DEFAULT_SESSION_CONTROLS: ChatSessionControls = {
   intelligence: 'balanced',
   autonomy: 'guided',
 };
+
+const SettingsPanel = lazy(() => import('./components/SettingsPanel'));
+const WorkSurface = lazy(() => import('./components/work-surface/WorkSurface'));
 
 export default function App() {
   const { isLoaded, isSignedIn, userId, AuthScreen, getToken } = useAuthGate();
@@ -244,16 +245,22 @@ export default function App() {
         </main>
       </div>
 
-      <WorkSurface
-        messages={messages}
-        isStreaming={isStreaming}
-        open={workSurfaceOpen}
-        onClose={() => setWorkSurfaceOpen(false)}
-        onApprovalAction={updateApproval}
-      />
+      <Suspense fallback={null}>
+        <WorkSurface
+          messages={messages}
+          isStreaming={isStreaming}
+          open={workSurfaceOpen}
+          onClose={() => setWorkSurfaceOpen(false)}
+          onApprovalAction={updateApproval}
+        />
+      </Suspense>
 
       {/* Settings modal */}
-      {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
+      {settingsOpen && (
+        <Suspense fallback={null}>
+          <SettingsPanel onClose={() => setSettingsOpen(false)} />
+        </Suspense>
+      )}
     </div>
   );
 }
