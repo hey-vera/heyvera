@@ -55,10 +55,10 @@ async fn main() {
         // Conversations
         .route("/api/conversations", get(conversations::list_conversations))
         .route("/api/conversations", post(conversations::create_conversation))
-        .route("/api/conversations/:id", get(conversations::get_conversation))
-        .route("/api/conversations/:id", patch(conversations::update_conversation))
-        .route("/api/conversations/:id", delete(conversations::delete_conversation))
-        .route("/api/conversations/:id/messages", post(conversations::add_message))
+        .route("/api/conversations/{id}", get(conversations::get_conversation))
+        .route("/api/conversations/{id}", patch(conversations::update_conversation))
+        .route("/api/conversations/{id}", delete(conversations::delete_conversation))
+        .route("/api/conversations/{id}/messages", post(conversations::add_message))
         // Worker WebSocket
         .route("/api/ws", get(ws::ws_handler))
         // User endpoints
