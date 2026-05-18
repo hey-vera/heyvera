@@ -42,6 +42,7 @@ export default function App() {
     activeConversationTitle,
     setDraft,
     sendMessage,
+    stopStreaming,
     updateApproval,
     renameConversation,
   } = useChatSession({
@@ -241,6 +242,7 @@ export default function App() {
             disabled={isStreaming}
             onDraftChange={setDraft}
             onSend={sendMessage}
+            onStop={stopStreaming}
           />
         </main>
       </div>

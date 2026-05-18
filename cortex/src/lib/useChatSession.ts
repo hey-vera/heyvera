@@ -168,6 +168,50 @@ export function useChatSession({
     }
   }, [activeConversationTitle, onConversationsChanged, userId]);
 
+  const stopStreaming = useCallback(() => {
+    const streamingMessage = messagesRef.current.find(
+      (message) => message.role === 'assistant' && message.isStreaming,
+    );
+    if (!streamingMessage) return;
+
+    abortRef.current?.abort();
+    abortRef.current = null;
+    requestVersionRef.current += 1;
+
+    const stoppedContent = streamingMessage.content
+      ? `${streamingMessage.content}\n\nStopped by user.`
+      : 'Stopped by user.';
+    const conversationId = activeConversationIdRef.current;
+
+    setMessages((currentMessages) =>
+      currentMessages.map((message) =>
+        message.id === streamingMessage.id
+          ? {
+              ...message,
+              content: stoppedContent,
+              statusLabel: 'Stopped',
+              isStreaming: false,
+            }
+          : message,
+      ),
+    );
+    setIsStreaming(false);
+
+    if (conversationId) {
+      void addMessageToConversation(
+        conversationId,
+        'assistant',
+        stoppedContent,
+        streamingMessage.provider,
+        streamingMessage.model,
+      )
+        .then(() => onConversationsChanged())
+        .catch(() => {
+          // keep local stopped state even if persistence fails
+        });
+    }
+  }, [onConversationsChanged]);
+
   const sendMessage = useCallback(() => {
     const text = draft.trim();
     if (!text || isStreaming) return;
@@ -387,6 +431,7 @@ export function useChatSession({
     activeConversationTitle,
     setDraft,
     sendMessage,
+    stopStreaming,
     updateApproval,
     renameConversation,
   };

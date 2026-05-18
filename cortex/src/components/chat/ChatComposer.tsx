@@ -1,4 +1,4 @@
-import { ArrowUp } from 'lucide-react';
+import { ArrowUp, Square } from 'lucide-react';
 import type { FormEvent, KeyboardEvent } from 'react';
 
 interface ChatComposerProps {
@@ -6,6 +6,7 @@ interface ChatComposerProps {
   disabled?: boolean;
   onDraftChange: (value: string) => void;
   onSend: () => void;
+  onStop?: () => void;
 }
 
 export default function ChatComposer({
@@ -13,6 +14,7 @@ export default function ChatComposer({
   disabled = false,
   onDraftChange,
   onSend,
+  onStop,
 }: ChatComposerProps) {
   const canSend = draft.trim().length > 0 && !disabled;
 
@@ -41,14 +43,26 @@ export default function ChatComposer({
           onKeyDown={handleKeyDown}
         />
         <div className="flex items-center justify-end px-1 pb-1">
-          <button
-            type="submit"
-            disabled={!canSend}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-[var(--accent)] text-black transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
-            aria-label="Send message"
-          >
-            <ArrowUp className="h-4 w-4" />
-          </button>
+          {disabled && onStop ? (
+            <button
+              type="button"
+              className="inline-flex h-10 items-center gap-2 rounded-full border border-white/10 bg-white/8 px-4 text-sm text-white transition hover:bg-white/12 active:scale-95"
+              aria-label="Stop response"
+              onClick={onStop}
+            >
+              <Square className="h-3.5 w-3.5 fill-current" />
+              Stop
+            </button>
+          ) : (
+            <button
+              type="submit"
+              disabled={!canSend}
+              className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-[var(--accent)] text-black transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+              aria-label="Send message"
+            >
+              <ArrowUp className="h-4 w-4" />
+            </button>
+          )}
         </div>
       </div>
     </form>
