@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Loader2, Menu } from 'lucide-react';
+import { PanelRight, Loader2, Menu } from 'lucide-react';
 import ChatComposer from './components/chat/ChatComposer';
 import ChatTimeline from './components/chat/ChatTimeline';
 import SessionControls from './components/session/SessionControls';
 import Sidebar from './components/Sidebar';
 import SettingsPanel from './components/SettingsPanel';
+import WorkSurface from './components/work-surface/WorkSurface';
 import { useChatSession } from './lib/useChatSession';
 import { useAuthGate } from './lib/useAuthGate';
 import { setAuthTokenGetter } from './lib/cortexApi';
@@ -20,6 +21,7 @@ export default function App() {
   const { isLoaded, isSignedIn, userId, AuthScreen, getToken } = useAuthGate();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [workSurfaceOpen, setWorkSurfaceOpen] = useState(false);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [conversationListVersion, setConversationListVersion] = useState(0);
   const [sessionControls, setSessionControls] = useState<ChatSessionControls>(
@@ -65,6 +67,8 @@ export default function App() {
   }, []);
 
   const headerTitle = activeConversationTitle?.trim() || 'New chat';
+  const approvalCount = messages.filter((message) => message.approvalRequest?.state === 'pending').length;
+  const showWorkBadge = isStreaming || approvalCount > 0;
 
   if (!isLoaded) {
     return (
@@ -149,6 +153,18 @@ export default function App() {
                 Streaming
               </span>
             )}
+            <button
+              type="button"
+              className="relative inline-flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-xs text-[var(--muted)] transition hover:bg-white/6 hover:text-white active:scale-95 xl:hidden"
+              aria-label="Open work surface"
+              onClick={() => setWorkSurfaceOpen(true)}
+            >
+              <PanelRight className="h-4 w-4" />
+              <span className="hidden sm:inline">Work</span>
+              {showWorkBadge && (
+                <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-[var(--accent)]" />
+              )}
+            </button>
           </div>
         </header>
 
@@ -163,6 +179,14 @@ export default function App() {
           />
         </main>
       </div>
+
+      <WorkSurface
+        messages={messages}
+        isStreaming={isStreaming}
+        open={workSurfaceOpen}
+        onClose={() => setWorkSurfaceOpen(false)}
+        onApprovalAction={updateApproval}
+      />
 
       {/* Settings modal */}
       {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
