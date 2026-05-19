@@ -236,6 +236,48 @@ export async function getSomaMe(): Promise<SomaUserIdentity> {
   return requestJson<SomaUserIdentity>('/api/soma/me');
 }
 
+export interface SomaSpendDelegation {
+  delegation_id: string;
+  subject_did: string;
+  cumulative_spend: number;
+  receipt_count: number;
+  last_activity_ms: number | null;
+  capabilities: string[];
+}
+
+export interface SomaSpendSummary {
+  delegations: SomaSpendDelegation[];
+  total_spend: number;
+}
+
+export interface SomaSpendReceipt {
+  amount: number;
+  cumulative: number;
+  capability: string;
+  timestamp: number;
+}
+
+export interface SomaDelegationSpend {
+  delegation_id: string;
+  receipts: SomaSpendReceipt[];
+  cumulative: number;
+}
+
+export async function getSomaSpend(): Promise<SomaSpendSummary> {
+  return requestJson<SomaSpendSummary>('/api/soma/spend');
+}
+
+export async function getSomaDelegationSpend(delegationId: string): Promise<SomaDelegationSpend> {
+  return requestJson<SomaDelegationSpend>(`/api/soma/spend/${encodeURIComponent(delegationId)}`);
+}
+
+export async function revokeSomaDelegation(delegationId: string, subjectDid: string): Promise<{ revoked: boolean }> {
+  return requestJson<{ revoked: boolean }>('/api/soma/revoke', {
+    method: 'POST',
+    body: JSON.stringify({ delegation_id: delegationId, subject_did: subjectDid }),
+  });
+}
+
 export interface GitHubStatus {
   linked: boolean;
   username: string | null;

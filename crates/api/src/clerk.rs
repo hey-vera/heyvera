@@ -159,25 +159,43 @@ where
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
         let app_state: Arc<AppState> = Arc::from_ref(state);
 
+        // Try Soma auth first — if the header starts with "Soma ", delegate to extract_identity
+        let raw_auth = parts
+            .headers
+            .get("authorization")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string());
+
+        if let Some(ref header) = raw_auth {
+            if header.starts_with("Soma ") {
+                match crate::soma::extract_identity(parts, &app_state).await {
+                    Ok(identity) => {
+                        return Ok(ClerkUser {
+                            user_id: identity.user_id,
+                        });
+                    }
+                    Err(e) => {
+                        let msg = format!("{e:?}");
+                        return Err((
+                            StatusCode::UNAUTHORIZED,
+                            Json(ErrorResponse { error: msg }),
+                        ));
+                    }
+                }
+            }
+        }
+
         let clerk_secret = match &app_state.clerk_secret_key {
             Some(key) => key.clone(),
             None => {
-                // No Clerk key configured — allow all requests (local dev mode)
                 return Ok(ClerkUser {
                     user_id: "local".to_string(),
                 });
             }
         };
 
-        let auth_header = parts
-            .headers
-            .get("authorization")
-            .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.strip_prefix("Bearer "))
-            .map(|s| s.to_string());
-
-        let token = match auth_header {
-            Some(t) => t,
+        let token = match raw_auth.as_deref().and_then(|v| v.strip_prefix("Bearer ")) {
+            Some(t) => t.to_string(),
             None => {
                 return Err((
                     StatusCode::UNAUTHORIZED,
