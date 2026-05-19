@@ -63,11 +63,13 @@ export default function Sidebar({
   const [meta, setMeta] = useState<SidebarConversationMetaMap>({});
   const [archivedExpanded, setArchivedExpanded] = useState(false);
   const [menu, setMenu] = useState<MenuState | null>(null);
+  const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const clickTimeoutRef = useRef<number | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const renameInputRef = useRef<HTMLInputElement | null>(null);
+  const skipRenameBlurSaveRef = useRef(false);
 
   const fetchConversations = async () => {
     try {
@@ -92,7 +94,10 @@ export default function Sidebar({
   }, [userId]);
 
   useEffect(() => {
-    if (!menu) return;
+    if (!menu) {
+      setConfirmingDeleteId(null);
+      return;
+    }
 
     const handlePointerDown = (event: MouseEvent) => {
       if (menuRef.current?.contains(event.target as Node)) return;
@@ -145,17 +150,20 @@ export default function Sidebar({
 
   const startRename = (conversation: ConversationSummary) => {
     setMenu(null);
+    setConfirmingDeleteId(null);
     setRenamingId(conversation.id);
     setRenameValue(conversation.title || 'New conversation');
   };
 
   const cancelRename = () => {
+    skipRenameBlurSaveRef.current = true;
     setRenamingId(null);
     setRenameValue('');
   };
 
   const saveRename = async (conversationId: string) => {
     const nextTitle = renameValue.trim();
+    skipRenameBlurSaveRef.current = false;
     if (!nextTitle) {
       cancelRename();
       return;
@@ -175,6 +183,7 @@ export default function Sidebar({
 
   const handleDelete = async (id: string) => {
     setMenu(null);
+    setConfirmingDeleteId(null);
     await deleteConversation(id, userId);
     setConversations((prev) => prev.filter((conversation) => conversation.id !== id));
 
@@ -249,6 +258,7 @@ export default function Sidebar({
       x: event.clientX,
       y: event.clientY,
     });
+    setConfirmingDeleteId(null);
   };
 
   const formatTime = (iso: string) => {
@@ -318,6 +328,10 @@ export default function Sidebar({
                 onClick={(event) => event.stopPropagation()}
                 onDoubleClick={(event) => event.stopPropagation()}
                 onBlur={() => {
+                  if (skipRenameBlurSaveRef.current) {
+                    skipRenameBlurSaveRef.current = false;
+                    return;
+                  }
                   void saveRename(conversation.id);
                 }}
                 onKeyDown={(event) => {
@@ -354,6 +368,7 @@ export default function Sidebar({
                 x: rect.right,
                 y: rect.bottom + 6,
               });
+              setConfirmingDeleteId(null);
             }}
             className="shrink-0 rounded-md p-1 text-[var(--muted)] opacity-0 transition-all duration-150 group-hover:opacity-100 group-focus-within:opacity-100 hover:bg-white/6 hover:text-white"
           >
@@ -525,16 +540,38 @@ export default function Sidebar({
             {activeMenuConversation.archived ? 'Unarchive' : 'Archive'}
           </button>
           <div className="my-1 border-t border-white/8" />
-          <button
-            type="button"
-            onClick={() => {
-              void handleDelete(activeMenuConversation.id);
-            }}
-            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-red-300 transition hover:bg-red-500/12 hover:text-red-200"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-            Delete
-          </button>
+          {confirmingDeleteId === activeMenuConversation.id ? (
+            <div className="rounded-lg bg-red-500/10 p-2">
+              <p className="text-xs leading-4 text-red-100/80">Delete this conversation?</p>
+              <div className="mt-2 flex gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    void handleDelete(activeMenuConversation.id);
+                  }}
+                  className="flex-1 rounded-md bg-red-400 px-2 py-1.5 text-xs font-medium text-black transition hover:brightness-110 active:scale-95"
+                >
+                  Delete
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmingDeleteId(null)}
+                  className="flex-1 rounded-md border border-white/8 px-2 py-1.5 text-xs text-[var(--muted-strong)] transition hover:bg-white/6 active:scale-95"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setConfirmingDeleteId(activeMenuConversation.id)}
+              className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-red-300 transition hover:bg-red-500/12 hover:text-red-200"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Delete
+            </button>
+          )}
         </div>
       )}
     </div>
