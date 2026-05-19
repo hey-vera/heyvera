@@ -196,6 +196,36 @@ export async function getSomaIdentity(): Promise<SomaIdentity> {
   return requestJson<SomaIdentity>('/api/soma/identity');
 }
 
+export interface SomaDelegation {
+  id: string;
+  issuer_did: string;
+  subject_did: string;
+  capabilities: string[];
+  issued_at: number;
+  signature: string;
+}
+
+export interface SomaSession {
+  delegation: SomaDelegation;
+  user_identity: { did: string; public_key: string; created_at: number };
+  cortex_did: string;
+  root_did: string | null;
+}
+
+export interface SomaUserIdentity {
+  did: string;
+  public_key: string;
+  has_delegation: boolean;
+}
+
+export async function createSomaSession(): Promise<SomaSession> {
+  return requestJson<SomaSession>('/api/soma/session', { method: 'POST' });
+}
+
+export async function getSomaMe(): Promise<SomaUserIdentity> {
+  return requestJson<SomaUserIdentity>('/api/soma/me');
+}
+
 export interface GitHubStatus {
   linked: boolean;
   username: string | null;

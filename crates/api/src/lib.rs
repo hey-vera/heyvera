@@ -13,6 +13,7 @@ pub mod routes;
 mod run_stream;
 pub mod scheduler;
 pub mod soma;
+mod soma_bridge;
 mod sse;
 pub mod state;
 mod usage_api;
@@ -108,6 +109,9 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/auth/status", get(auth::auth_status))
         // Soma identity (public — lets clients discover Cortex's DID)
         .route("/api/soma/identity", get(soma_identity))
+        // Soma delegation bridge (Clerk user → Soma session)
+        .route("/api/soma/session", post(soma_bridge::create_session))
+        .route("/api/soma/me", get(soma_bridge::get_user_identity))
         // Protected — lightweight
         .route("/api/providers", get(routes::get_providers))
         .route("/api/ledger", get(routes::get_ledger))
