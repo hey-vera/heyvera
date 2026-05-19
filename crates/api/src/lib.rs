@@ -148,6 +148,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         // Merge rate-limited routes
         .merge(rate_limited)
         .layer(DefaultBodyLimit::max(2 * 1024 * 1024)) // 2MB max request body
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            soma::soma_headers_middleware,
+        ))
         .layer(cors_layer())
         .with_state(state)
 }

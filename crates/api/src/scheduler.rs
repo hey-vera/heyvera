@@ -86,18 +86,18 @@ async fn apply_event(state: &AppState, sched: &mut SchedulerState, event: &Sched
             load_ready_steps_for_run(state, sched, run_id).await;
         }
 
-        SchedulerEvent::StepCompleted { run_id, step_id } => {
+        SchedulerEvent::StepCompleted { run_id, step_id, cost_estimate } => {
             tracing::info!("scheduler: step completed {step_id} in run {run_id}");
             if let Some(heart) = &state.soma_heart {
                 heart.record_heartbeat(
                     soma::heartbeat::HeartbeatEventType::RouteCompleted,
-                    &serde_json::json!({"step_id": step_id, "run_id": run_id}).to_string(),
+                    &serde_json::json!({"step_id": step_id, "run_id": run_id, "cost": cost_estimate}).to_string(),
                 );
             }
             if let Some(db) = &state.db {
                 let user_id = get_run_user(db, run_id);
                 sched.mark_step_done(&user_id);
-                update_bandit_from_outcome(state, db, step_id, true).await;
+                update_bandit_from_outcome(state, db, step_id, true, *cost_estimate).await;
             }
             load_ready_steps_for_run(state, sched, run_id).await;
             check_run_done(state, run_id).await;
@@ -114,7 +114,7 @@ async fn apply_event(state: &AppState, sched: &mut SchedulerState, event: &Sched
             if let Some(db) = &state.db {
                 let user_id = get_run_user(db, run_id);
                 sched.mark_step_done(&user_id);
-                update_bandit_from_outcome(state, db, step_id, false).await;
+                update_bandit_from_outcome(state, db, step_id, false, None).await;
 
                 // Check for auth-related failures — these are not healable
                 let last_error = db.get_step_last_error(step_id);
@@ -371,6 +371,9 @@ async fn dispatch_step(state: &AppState, step: &StepRef) -> bool {
         .budget
         .pressure_for(decision.provider, tier);
 
+    // Issue a step-scoped sub-delegation from Cortex's heart
+    let step_delegation = issue_step_delegation(state, &step.step_id, deadline);
+
     let msg = BrainMessage::ExecuteStep {
         run_id: step.run_id.clone(),
         step_id: step.step_id.clone(),
@@ -383,6 +386,7 @@ async fn dispatch_step(state: &AppState, step: &StepRef) -> bool {
         task,
         decision,
         context,
+        delegation: step_delegation,
     };
 
     match worker_tx.send(msg).await {
@@ -581,7 +585,7 @@ fn route_step(
     (decision, evidence)
 }
 
-async fn update_bandit_from_outcome(state: &AppState, db: &Database, step_id: &str, success: bool) {
+async fn update_bandit_from_outcome(state: &AppState, db: &Database, step_id: &str, success: bool, cost_estimate: Option<f64>) {
     use cortex_engine::bandit::{ArmKey, TaskFamily};
 
     let step_info = db.get_step_info(step_id);
@@ -632,12 +636,13 @@ async fn update_bandit_from_outcome(state: &AppState, db: &Database, step_id: &s
         task_family, risk, provider, reward, contamination, trials,
     );
 
-    // Record Soma spend receipt for completed steps (1 credit per step)
+    // Record Soma spend receipt with real cost (falls back to 1.0 credit if no estimate)
     if success {
         if let Some(heart) = &state.soma_heart {
+            let cost = cost_estimate.unwrap_or(1.0);
             if let Err(e) = heart.record_spend(
                 step_id,
-                1.0,
+                cost,
                 &format!("route:{:?}", intent),
             ) {
                 tracing::warn!("soma spend receipt failed: {e}");
@@ -698,6 +703,49 @@ fn record_evidence(db: &Database, decision_id: &str, evidence: &DecisionEvidence
             None,
             now,
         );
+    }
+}
+
+// --- Sub-delegation for worker steps ---
+
+fn issue_step_delegation(state: &AppState, step_id: &str, lease_deadline_ms: i64) -> Option<serde_json::Value> {
+    let heart = state.soma_heart.as_ref()?;
+
+    let caveats = vec![
+        soma::delegation::Caveat::ExpiresAt {
+            timestamp: lease_deadline_ms as u64,
+        },
+        soma::delegation::Caveat::Capabilities {
+            allow: vec![format!("execute:step:{step_id}")],
+        },
+        soma::delegation::Caveat::MaxInvocations { count: 1 },
+    ];
+
+    match soma::delegation::create_delegation(
+        &heart.identity.secret_key,
+        &heart.identity.public_key,
+        &heart.identity.did,
+        &heart.identity.did, // self-delegation — worker presents this to prove dispatch authority
+        vec![format!("execute:step:{step_id}")],
+        caveats,
+        None,
+    ) {
+        Ok(delegation) => {
+            heart.record_heartbeat(
+                soma::heartbeat::HeartbeatEventType::DelegationIssued,
+                &serde_json::json!({
+                    "delegation_id": delegation.id,
+                    "step_id": step_id,
+                    "capability": format!("execute:step:{step_id}"),
+                })
+                .to_string(),
+            );
+            serde_json::to_value(&delegation).ok()
+        }
+        Err(e) => {
+            tracing::warn!("failed to issue step delegation: {e}");
+            None
+        }
     }
 }
 

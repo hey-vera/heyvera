@@ -406,6 +406,7 @@ async fn handle_worker_msg(
                         .emit_scheduler_event(SchedulerEvent::StepCompleted {
                             run_id: run_id.clone(),
                             step_id: step_id.clone(),
+                            cost_estimate: output.cost_estimate,
                         })
                         .await;
 

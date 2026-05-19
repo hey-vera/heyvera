@@ -335,6 +335,7 @@ impl AppState {
                 task,
                 decision,
                 context: StepContext::default(),
+                delegation: None,
             })
             .await
             .map_err(|_| "worker connection lost".to_string())?;

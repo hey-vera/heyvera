@@ -289,24 +289,30 @@ async fn verify_soma_token(
         .get(SOMA_DELEGATION_CHAIN_HEADER)
         .and_then(|v| v.to_str().ok());
 
+    // Look up cumulative spend for this delegation (budget enforcement)
+    let cumulative_spend = state
+        .soma_heart
+        .as_ref()
+        .map(|h| h.cumulative_spend(&delegation.id));
+
+    let cortex_did = state
+        .soma_heart
+        .as_ref()
+        .map(|h| h.did().to_string())
+        .unwrap_or_default();
+
+    let ctx = InvocationContext {
+        invoker_did: delegation.subject_did.clone(),
+        audience_did: Some(cortex_did),
+        capability: "route:*".into(),
+        cumulative_credits_spent: cumulative_spend,
+        ..Default::default()
+    };
+
     if let Some(chain_json) = chain_header {
-        // Full chain verification
         let chain: Vec<Delegation> = serde_json::from_str(chain_json).map_err(|e| {
             AuthError::InvalidToken(format!("malformed delegation chain: {e}"))
         })?;
-
-        let cortex_did = state
-            .soma_heart
-            .as_ref()
-            .map(|h| h.did().to_string())
-            .unwrap_or_default();
-
-        let ctx = InvocationContext {
-            invoker_did: delegation.subject_did.clone(),
-            audience_did: Some(cortex_did),
-            capability: "route:*".into(),
-            ..Default::default()
-        };
 
         let result = verify_delegation_chain(&chain, &ctx).map_err(|e| {
             AuthError::VerificationFailed(format!("chain verification error: {e}"))
@@ -318,20 +324,6 @@ async fn verify_soma_token(
             )));
         }
     } else {
-        // Single delegation verification
-        let cortex_did = state
-            .soma_heart
-            .as_ref()
-            .map(|h| h.did().to_string())
-            .unwrap_or_default();
-
-        let ctx = InvocationContext {
-            invoker_did: delegation.subject_did.clone(),
-            audience_did: Some(cortex_did),
-            capability: "route:*".into(),
-            ..Default::default()
-        };
-
         let result = verify_delegation(&delegation, &ctx).map_err(|e| {
             AuthError::VerificationFailed(format!("delegation verification error: {e}"))
         })?;
@@ -412,36 +404,23 @@ impl IntoResponse for AuthError {
     }
 }
 
-/// Soma response headers per SOMA-DELEGATION-SPEC.
-pub fn soma_response_headers(
-    delegation: &Delegation,
-    heart: &CortexHeart,
-) -> Vec<(String, String)> {
-    let mut headers = Vec::new();
-    headers.push((
-        "X-Soma-Protocol".into(),
-        "soma-delegation/0.1".into(),
-    ));
-    headers.push((
-        "X-Soma-Delegation-Depth".into(),
-        "1".into(),
-    ));
-    headers.push((
-        "X-Soma-Heart-DID".into(),
-        heart.did().to_string(),
-    ));
+/// Axum middleware that adds Soma provenance headers to every response.
+pub async fn soma_headers_middleware(
+    State(state): State<Arc<AppState>>,
+    request: axum::http::Request<axum::body::Body>,
+    next: axum::middleware::Next,
+) -> Response {
+    let mut response = next.run(request).await;
 
-    // Mask the delegation ID for privacy (first 4 + last 4 chars)
-    let masked = if delegation.id.len() > 8 {
-        format!(
-            "{}...{}",
-            &delegation.id[..4],
-            &delegation.id[delegation.id.len() - 4..]
-        )
-    } else {
-        delegation.id.clone()
-    };
-    headers.push(("X-Soma-Delegation-Root".into(), masked));
+    if let Some(heart) = &state.soma_heart {
+        let headers = response.headers_mut();
+        headers.insert("X-Soma-Protocol", "soma-delegation/0.1".parse().unwrap());
+        headers.insert("X-Soma-Heart-DID", heart.did().parse().unwrap());
+        let chain = heart.heartbeat_chain.lock().unwrap();
+        if let Ok(val) = chain.head_hash().parse() {
+            headers.insert("X-Soma-Heartbeat-Head", val);
+        }
+    }
 
-    headers
+    response
 }
