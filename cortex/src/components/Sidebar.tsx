@@ -70,6 +70,12 @@ function readRecord(value: unknown): Record<string, unknown> | null {
 }
 
 function normalizePressure(value: unknown): SidebarProviderHealth['pressure'] {
+  if (typeof value === 'number') {
+    if (value >= 0.95) return 'throttled';
+    if (value >= 0.82) return 'hot';
+    if (value >= 0.55) return 'warm';
+    return 'healthy';
+  }
   if (typeof value !== 'string') return 'unknown';
   const normalized = value.toLowerCase();
   if (normalized === 'healthy' || normalized === 'warm' || normalized === 'hot' || normalized === 'throttled') {
