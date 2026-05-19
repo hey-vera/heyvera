@@ -7,6 +7,7 @@ import {
   refreshAuth,
   type ProviderAuthInfo,
 } from '../lib/cortexApi';
+import SpendDashboard from './spend/SpendDashboard';
 
 interface SettingsPanelProps {
   onClose: () => void;
@@ -29,7 +30,7 @@ const INITIAL_STATE: ProviderAuthState = {
 };
 
 export default function SettingsPanel({ onClose }: SettingsPanelProps) {
-  const [tab, setTab] = useState<'providers'>('providers');
+  const [tab, setTab] = useState<'providers' | 'spend'>('providers');
   const [providers, setProviders] = useState<ProviderAuthInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [authStates, setAuthStates] = useState<Record<string, ProviderAuthState>>({});
@@ -141,7 +142,7 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
         </div>
 
         {/* Tabs */}
-        <div className="shrink-0 border-b border-white/6 px-5">
+        <div className="flex shrink-0 gap-4 border-b border-white/6 px-5">
           <button
             onClick={() => setTab('providers')}
             className={`border-b-2 px-1 py-2.5 text-sm font-medium transition ${
@@ -150,11 +151,21 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
           >
             Subscriptions
           </button>
+          <button
+            onClick={() => setTab('spend')}
+            className={`border-b-2 px-1 py-2.5 text-sm font-medium transition ${
+              tab === 'spend' ? 'border-[var(--accent)] text-white' : 'border-transparent text-[var(--muted)] hover:text-white'
+            }`}
+          >
+            Soma spend
+          </button>
         </div>
 
         {/* Content */}
         <div className="min-h-0 flex-1 overflow-y-auto p-5">
-          {loading ? (
+          {tab === 'spend' ? (
+            <SpendDashboard />
+          ) : loading ? (
             <div className="flex items-center justify-center gap-2 py-8 text-sm text-[var(--muted)]">
               <Loader2 className="h-4 w-4 animate-spin" />
               Loading...

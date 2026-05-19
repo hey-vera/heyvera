@@ -333,6 +333,7 @@ export default function App() {
       <aside className="hidden h-full shrink-0 lg:block">
         <Sidebar
           userId={userId ?? 'local'}
+          isSignedIn={Boolean(isSignedIn)}
           activeConversationId={activeConversationId}
           refreshKey={conversationListVersion}
           onNewChat={handleNewChat}
@@ -355,6 +356,7 @@ export default function App() {
           <div className="relative h-full w-[min(20rem,calc(100vw-3rem))] translate-x-0 border-r border-white/8 bg-[var(--bg)] shadow-2xl">
             <Sidebar
               userId={userId ?? 'local'}
+              isSignedIn={Boolean(isSignedIn)}
               activeConversationId={activeConversationId}
               refreshKey={conversationListVersion}
               onNewChat={handleNewChat}
