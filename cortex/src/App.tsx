@@ -4,9 +4,11 @@ import ChatComposer from './components/chat/ChatComposer';
 import ChatTimeline from './components/chat/ChatTimeline';
 import SessionControls from './components/session/SessionControls';
 import Sidebar from './components/Sidebar';
+import OnboardingFlow from './components/onboarding/OnboardingFlow';
 import { useChatSession } from './lib/useChatSession';
 import { useAuthGate } from './lib/useAuthGate';
 import { getUserRouting, setAuthTokenGetter, updateUserRouting } from './lib/cortexApi';
+import { isOnboarded, markOnboarded } from './lib/onboarding';
 import type { ChatSessionControls, RunProfile } from './types';
 
 const DEFAULT_SESSION_CONTROLS: ChatSessionControls = {
@@ -73,7 +75,7 @@ const SettingsPanel = lazy(() => import('./components/SettingsPanel'));
 const WorkSurface = lazy(() => import('./components/work-surface/WorkSurface'));
 
 export default function App() {
-  const { isLoaded, isSignedIn, userId, AuthScreen, getToken } = useAuthGate();
+  const { isLoaded, isSignedIn, userId, AuthScreen, getToken, clerkEnabled } = useAuthGate();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [workSurfaceOpen, setWorkSurfaceOpen] = useState(false);
@@ -87,6 +89,7 @@ export default function App() {
   const [runProfile, setRunProfile] = useState<RunProfile>(readRunProfile);
   const [runBridgeGoal, setRunBridgeGoal] = useState<string | null>(null);
   const [runBridgeNonce, setRunBridgeNonce] = useState(0);
+  const [onboarded, setOnboarded] = useState(() => !clerkEnabled || isOnboarded(userId ?? 'local'));
 
   const handleConversationCreated = useCallback((conversationId: string) => {
     setActiveConversationId(conversationId);
@@ -99,6 +102,10 @@ export default function App() {
   useEffect(() => {
     if (getToken) setAuthTokenGetter(getToken);
   }, [getToken]);
+
+  useEffect(() => {
+    setOnboarded(!clerkEnabled || isOnboarded(userId ?? 'local'));
+  }, [clerkEnabled, userId]);
 
   useEffect(() => {
     try {
@@ -304,6 +311,18 @@ export default function App() {
 
   if (!isSignedIn && AuthScreen) {
     return <AuthScreen />;
+  }
+
+  if (clerkEnabled && isSignedIn && !onboarded) {
+    return (
+      <OnboardingFlow
+        userId={userId ?? 'anonymous'}
+        onComplete={() => {
+          markOnboarded(userId ?? 'anonymous');
+          setOnboarded(true);
+        }}
+      />
+    );
   }
 
   return (

@@ -3,6 +3,7 @@ import {
   Archive,
   ChevronDown,
   ChevronRight,
+  Fingerprint,
   MessageSquarePlus,
   MoreHorizontal,
   Pencil,
@@ -15,8 +16,10 @@ import {
 import {
   deleteConversation,
   getProviders,
+  getSomaIdentity,
   listConversations,
   updateConversationTitle,
+  type SomaIdentity,
   type ConversationSummary,
 } from '../lib/cortexApi';
 import {
@@ -124,6 +127,11 @@ function pressureClass(pressure: SidebarProviderHealth['pressure']) {
   return 'bg-white/25';
 }
 
+function shortDid(did: string) {
+  if (did.length <= 22) return did;
+  return `${did.slice(0, 13)}...${did.slice(-6)}`;
+}
+
 export default function Sidebar({
   userId,
   activeConversationId,
@@ -139,6 +147,7 @@ export default function Sidebar({
   const [search, setSearch] = useState('');
   const [meta, setMeta] = useState<SidebarConversationMetaMap>({});
   const [providerHealth, setProviderHealth] = useState<SidebarProviderHealth[]>([]);
+  const [somaIdentity, setSomaIdentity] = useState<SomaIdentity | null>(null);
   const [archivedExpanded, setArchivedExpanded] = useState(false);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
@@ -185,6 +194,26 @@ export default function Sidebar({
 
     void fetchProviderHealth();
     const interval = window.setInterval(fetchProviderHealth, 10_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function fetchSomaIdentity() {
+      try {
+        const identity = await getSomaIdentity();
+        if (!cancelled) setSomaIdentity(identity);
+      } catch {
+        if (!cancelled) setSomaIdentity(null);
+      }
+    }
+
+    void fetchSomaIdentity();
+    const interval = window.setInterval(fetchSomaIdentity, 30_000);
     return () => {
       cancelled = true;
       window.clearInterval(interval);
@@ -583,6 +612,26 @@ export default function Sidebar({
       </div>
 
       <div className="border-t border-white/6 p-3">
+        {somaIdentity && (
+          <div className="mb-2 rounded-xl border border-[var(--accent)]/15 bg-[var(--accent)]/8 px-3 py-2.5">
+            <div className="mb-1.5 flex items-center justify-between gap-2">
+              <span className="inline-flex min-w-0 items-center gap-1.5 text-[10px] font-medium uppercase tracking-[0.08em] text-[var(--muted)]">
+                <Fingerprint className="h-3.5 w-3.5 text-[var(--accent)]" />
+                Soma
+              </span>
+              <span className="inline-flex items-center gap-1.5 text-[10px] text-[var(--accent)]">
+                <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent)] animate-pulse" />
+                {somaIdentity.heartbeats}
+              </span>
+            </div>
+            <p className="truncate font-mono text-[11px] text-[var(--muted-strong)]" title={somaIdentity.did}>
+              {shortDid(somaIdentity.did)}
+            </p>
+            <p className="mt-1 text-[10px] text-[var(--muted)]">
+              Instance identity
+            </p>
+          </div>
+        )}
         <div className="mb-2 rounded-xl border border-white/8 bg-white/[0.03] px-3 py-2.5">
           <div className="mb-2 flex items-center justify-between gap-2">
             <span className="text-[10px] font-medium uppercase tracking-[0.08em] text-[var(--muted)]">

@@ -10,6 +10,7 @@ interface AuthGateResult {
   userId: string;
   AuthScreen: ComponentType | null;
   getToken: (() => Promise<string | null>) | null;
+  clerkEnabled: boolean;
 }
 
 function useClerkGate(): AuthGateResult {
@@ -20,6 +21,7 @@ function useClerkGate(): AuthGateResult {
     userId: userId ?? 'anonymous',
     AuthScreen: SignInScreen,
     getToken: () => getToken(),
+    clerkEnabled: true,
   };
 }
 
@@ -30,6 +32,7 @@ function getLocalGate(): AuthGateResult {
     userId: 'local',
     AuthScreen: null,
     getToken: null,
+    clerkEnabled: false,
   };
 }
 

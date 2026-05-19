@@ -183,6 +183,19 @@ export async function getCortexState(): Promise<CortexState> {
   return requestJson<CortexState>('/api/cortex/state');
 }
 
+export interface SomaIdentity {
+  did: string;
+  genome?: unknown;
+  protocol: string;
+  heartbeats: number;
+  head_hash?: string;
+  capabilities?: unknown;
+}
+
+export async function getSomaIdentity(): Promise<SomaIdentity> {
+  return requestJson<SomaIdentity>('/api/soma/identity');
+}
+
 export interface GitHubStatus {
   linked: boolean;
   username: string | null;

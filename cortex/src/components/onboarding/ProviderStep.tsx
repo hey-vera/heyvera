@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { CheckCircle, Copy, ExternalLink, Loader2, XCircle } from 'lucide-react';
 import {
   getAuthStatus,
+  getProviders,
   startAuth,
   submitAuthCode,
   refreshAuth,
@@ -28,8 +29,50 @@ const INITIAL_STATE: ProviderAuthState = {
   error: null,
 };
 
+interface AvailableProvider {
+  provider: string;
+  available: boolean;
+  health: string;
+}
+
+function readProviderRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function parseAvailableProviders(payload: unknown): AvailableProvider[] {
+  const root = readProviderRecord(payload);
+  const providers = root?.providers ?? payload;
+  const entries = Array.isArray(providers)
+    ? providers.map((provider) => [undefined, provider] as const)
+    : Object.entries(readProviderRecord(providers) ?? {});
+
+  return entries
+    .map(([key, value]) => {
+      const record = readProviderRecord(value);
+      if (!record) return null;
+      const provider = String(record.provider ?? record.id ?? record.name ?? key ?? '').toLowerCase();
+      if (!provider) return null;
+      return {
+        provider,
+        available: Boolean(record.available ?? record.authenticated ?? record.connected ?? record.enabled ?? true),
+        health: String(record.health ?? record.status ?? record.pressure_state ?? 'unknown'),
+      };
+    })
+    .filter((provider): provider is AvailableProvider => Boolean(provider));
+}
+
+function providerLabel(provider: string) {
+  if (provider === 'claude' || provider === 'anthropic') return 'Claude';
+  if (provider === 'openai') return 'OpenAI';
+  if (provider === 'gemini' || provider === 'google') return 'Gemini';
+  return provider.replace(/^\w/, (letter) => letter.toUpperCase());
+}
+
 export default function ProviderStep({ onNext }: ProviderStepProps) {
   const [providers, setProviders] = useState<ProviderAuthInfo[]>([]);
+  const [availableProviders, setAvailableProviders] = useState<AvailableProvider[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [authStates, setAuthStates] = useState<Record<string, ProviderAuthState>>({});
@@ -38,7 +81,9 @@ export default function ProviderStep({ onNext }: ProviderStepProps) {
   const fetchStatus = useCallback(async () => {
     try {
       const status = await getAuthStatus();
+      const availability = await getProviders().then(parseAvailableProviders).catch(() => []);
       setProviders(status);
+      setAvailableProviders(availability);
       setFetchError(null);
     } catch {
       setFetchError('Cannot reach Cortex backend');
@@ -149,6 +194,14 @@ export default function ProviderStep({ onNext }: ProviderStepProps) {
     }
   };
 
+  const displayProviders = providers.length > 0
+    ? providers
+    : availableProviders.map((provider) => ({
+        provider: provider.provider,
+        authenticated: false,
+        email: null,
+        subscription: null,
+      }));
   const anyAuthed = providers.some((p) => p.authenticated);
 
   if (loading) {
@@ -186,9 +239,10 @@ export default function ProviderStep({ onNext }: ProviderStepProps) {
       </div>
 
       <div className="flex flex-col gap-3">
-        {providers.map((p) => {
+        {displayProviders.map((p) => {
           const state = getState(p.provider);
           const isActive = state.phase !== 'idle';
+          const availability = availableProviders.find((provider) => provider.provider === p.provider);
           return (
             <div
               key={p.provider}
@@ -198,11 +252,11 @@ export default function ProviderStep({ onNext }: ProviderStepProps) {
               <div className="flex items-center justify-between px-4 py-3">
                 <div className="flex items-center gap-3">
                   <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-white/6 text-xs font-bold uppercase text-[var(--muted-strong)]">
-                    {p.provider === 'claude' ? 'CL' : 'OA'}
+                      {providerLabel(p.provider).slice(0, 2).toUpperCase()}
                   </div>
                   <div>
                     <div className="text-sm font-medium text-white">
-                      {p.provider === 'claude' ? 'Claude (Anthropic)' : 'OpenAI (Codex)'}
+                      {providerLabel(p.provider)}
                     </div>
                     {p.authenticated ? (
                       <div className="flex items-center gap-1 text-xs text-emerald-300">
@@ -218,22 +272,29 @@ export default function ProviderStep({ onNext }: ProviderStepProps) {
                     )}
                   </div>
                 </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  {availability && (
+                    <span className="rounded-full border border-white/8 bg-white/4 px-2 py-0.5 text-[10px] capitalize text-[var(--muted)]">
+                      {availability.available ? availability.health : 'unavailable'}
+                    </span>
+                  )}
 
-                {!p.authenticated && !isActive && (
-                  <button
-                    onClick={() => handleConnect(p.provider)}
-                    className="rounded-lg border border-[var(--accent)]/30 bg-[var(--accent-soft)] px-3 py-1.5 text-xs font-medium text-[var(--accent)] transition hover:bg-[var(--accent)]/20"
-                  >
-                    Connect
-                  </button>
-                )}
+                  {!p.authenticated && !isActive && (
+                    <button
+                      onClick={() => handleConnect(p.provider)}
+                      className="rounded-lg border border-[var(--accent)]/30 bg-[var(--accent-soft)] px-3 py-1.5 text-xs font-medium text-[var(--accent)] transition hover:bg-[var(--accent)]/20"
+                    >
+                      Connect
+                    </button>
+                  )}
 
-                {state.phase === 'starting' && (
-                  <span className="flex items-center gap-1.5 text-xs text-[var(--muted)]">
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    Starting...
-                  </span>
-                )}
+                  {state.phase === 'starting' && (
+                    <span className="flex items-center gap-1.5 text-xs text-[var(--muted)]">
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      Starting...
+                    </span>
+                  )}
+                </div>
               </div>
 
               {/* Auth flow panel — device code flow (OpenAI) */}
