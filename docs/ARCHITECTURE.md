@@ -1,6 +1,7 @@
 # Cortex Architecture — Design Specification
 
 > Finalized via dual-brain (Claude Opus + GPT 5.5) architectural review.
+> Pressure-tested via adversarial GPT 5.5 review — all CRITICAL/HIGH findings resolved.
 > This document is the source of truth for the Rust implementation.
 
 ## Core Principle
@@ -43,12 +44,31 @@ CREATE TABLE messages (
     created_at      INTEGER NOT NULL
 );
 
+-- Workers and sessions (Brain-minted identities)
+CREATE TABLE workers (
+    id              TEXT PRIMARY KEY,  -- Brain-minted, not self-asserted
+    user_id         TEXT NOT NULL,
+    status          TEXT NOT NULL DEFAULT 'connected',  -- connected, grace, lost
+    created_at      INTEGER NOT NULL,
+    last_seen       INTEGER NOT NULL
+);
+
+CREATE TABLE worker_sessions (
+    id              TEXT PRIMARY KEY,
+    worker_id       TEXT NOT NULL REFERENCES workers(id),
+    connected_at    INTEGER NOT NULL,
+    disconnected_at INTEGER,
+    last_heartbeat  INTEGER NOT NULL,
+    grace_deadline  INTEGER  -- set on disconnect, cleared on reconnect
+);
+
 -- Provider capabilities (claims + verification)
 CREATE TABLE provider_capabilities (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    worker_id       TEXT NOT NULL,
+    worker_id       TEXT NOT NULL REFERENCES workers(id),
     user_id         TEXT NOT NULL,
     provider        TEXT NOT NULL,  -- claude, openai, gemini
+    cli_version     TEXT,
     status          TEXT NOT NULL DEFAULT 'claimed',  -- claimed, verified, degraded, cooling_down, unavailable
     last_reported   INTEGER NOT NULL,
     last_verified   INTEGER,
@@ -56,6 +76,36 @@ CREATE TABLE provider_capabilities (
     last_failure    INTEGER,
     failure_streak  INTEGER NOT NULL DEFAULT 0,
     UNIQUE(worker_id, provider)
+);
+
+-- User profiles (persisted, not ephemeral)
+CREATE TABLE user_profiles (
+    user_id             TEXT PRIMARY KEY,
+    active_profile      TEXT NOT NULL DEFAULT 'auto',
+    auto_mode           TEXT NOT NULL DEFAULT 'normal',  -- normal, protect_budget, protect_quality, recovering
+    auto_mode_since     INTEGER,
+    custom_overrides     TEXT,  -- JSON
+    updated_at          INTEGER NOT NULL
+);
+
+-- Artifacts (step outputs, logs, patches)
+CREATE TABLE artifacts (
+    id              TEXT PRIMARY KEY,
+    step_id         TEXT NOT NULL REFERENCES steps(id),
+    attempt_number  INTEGER NOT NULL,
+    kind            TEXT NOT NULL,  -- log, patch, test_report, file_list, json
+    uri             TEXT NOT NULL,
+    sha256          TEXT,
+    size_bytes      INTEGER,
+    created_at      INTEGER NOT NULL
+);
+
+-- Idempotency (message deduplication)
+CREATE TABLE idempotency_keys (
+    key             TEXT PRIMARY KEY,
+    result_json     TEXT,
+    created_at      INTEGER NOT NULL,
+    expires_at      INTEGER NOT NULL
 );
 
 -- Decision ledger (routing decisions + outcomes)
@@ -127,22 +177,36 @@ CREATE TABLE steps (
     -- search, execute, think, test, build, lint, heal, review, gate
     status          TEXT NOT NULL DEFAULT 'pending',
     -- pending, ready, leased, running, succeeded, failed, cancelled, orphaned, skipped
-    depends_on      TEXT NOT NULL DEFAULT '[]',  -- JSON array of step IDs
     tier            TEXT NOT NULL,
     risk            TEXT NOT NULL,
     objective       TEXT NOT NULL,
+    required_provider TEXT,         -- NULL = any, else specific provider required
+    required_repo   TEXT,           -- NULL = any, else specific repo URL
     input_context   TEXT,           -- JSON: compact context from predecessors
     output_summary  TEXT,
     files_changed   TEXT,           -- JSON array
+    base_commit     TEXT,           -- git commit step started from
+    head_commit     TEXT,           -- git commit step ended at
     attempt_count   INTEGER NOT NULL DEFAULT 0,
     max_attempts    INTEGER NOT NULL DEFAULT 3,
     lease_gen       INTEGER NOT NULL DEFAULT 0,
     lease_deadline  INTEGER,
-    assigned_worker TEXT,
+    assigned_worker TEXT REFERENCES workers(id),
     last_error      TEXT,
     created_at      INTEGER NOT NULL,
     updated_at      INTEGER NOT NULL,
     version         INTEGER NOT NULL DEFAULT 0
+);
+
+-- Normalized step dependencies (replaces JSON depends_on)
+CREATE TABLE step_dependencies (
+    step_id         TEXT NOT NULL REFERENCES steps(id),
+    depends_on_id   TEXT NOT NULL REFERENCES steps(id),
+    edge_type       TEXT NOT NULL DEFAULT 'success_required',
+    -- success_required: successor runs only if dependency succeeded
+    -- completion_required: successor runs when dependency is terminal (succeeded OR failed)
+    --   Used by heal steps that need to run AFTER a test fails
+    PRIMARY KEY (step_id, depends_on_id)
 );
 
 CREATE TABLE step_attempts (
@@ -191,13 +255,17 @@ JOIN decisions d ON o.decision_id = d.id
 WHERE o.timestamp > ? AND d.user_id = ?
 GROUP BY provider;
 
--- Ready steps (dependencies satisfied)
+-- Ready steps (all dependencies satisfied per edge type)
 SELECT s.* FROM steps s
 WHERE s.run_id = ? AND s.status = 'pending'
 AND NOT EXISTS (
-    SELECT 1 FROM steps dep
-    WHERE dep.id IN (SELECT value FROM json_each(s.depends_on))
-    AND dep.status != 'succeeded'
+    SELECT 1 FROM step_dependencies sd
+    JOIN steps dep ON dep.id = sd.depends_on_id
+    WHERE sd.step_id = s.id
+    AND (
+        (sd.edge_type = 'success_required' AND dep.status != 'succeeded')
+        OR (sd.edge_type = 'completion_required' AND dep.status NOT IN ('succeeded', 'failed'))
+    )
 );
 
 -- Expire stale leases
@@ -240,12 +308,17 @@ pub enum Intent {
 
 ### Compound Decomposition
 
-Split on: `and|also|then|after that|plus|,`
+Split on sentence-level boundaries: `and|also|then|after that|plus`
+
+Rules:
+- Never split inside quoted strings or code blocks
+- Comma splitting only at clause boundaries, not mid-phrase
+- If splitting produces > 5 segments → ask user to clarify instead of blindly decomposing
 
 Each segment gets independent intent + risk classification → becomes a Step in the run DAG.
 
-Ordered language (`then|after|first|before`) → sequential dependencies.
-No ordering cues + independent subsystems → parallel (no depends_on).
+Ordered language (`then|after|first|before`) → sequential dependencies (`success_required` edges).
+No ordering cues + independent subsystems → parallel (no dependencies).
 
 ---
 
@@ -440,7 +513,7 @@ pub enum FailureScope {
 | CliNotAuthenticated | WorkerTooling | Ask user to auth | Worker-tooling penalty until fixed |
 | WorkerCrashed | Worker | Different worker | Temporary worker cooldown |
 | WorkerDisconnected | Worker | Wait for reconnect or reassign | Temporary worker cooldown |
-| TaskTimeout | Task | Retry with larger model or decompose | No penalty (penalize task shape) |
+| TaskTimeout | Task | Retry with larger model or decompose | No penalty normally; 3+ timeouts on same provider in 1hr → temporary provider cooldown |
 | TestsFailed | Task | Heal step (up to 2x) | Quality signal, not reliability |
 | BuildFailed | Task | Heal step (up to 2x) | Quality signal |
 | GitConflict | Workspace | Ask user or rebase | No penalty |
@@ -464,14 +537,23 @@ pending → planning → running → succeeded
 ```
 pending → ready → leased → running → succeeded
                      ↓         ↓
-                  orphaned   failed → (retry?) → ready
-                     ↓
-                   ready (requeued)
+                  orphaned   failed
+                     ↓         ↓
+                   ready     [Brain may insert heal step with completion_required edge]
+                (requeued)   [heal step runs, then retry test step depends on heal]
 ```
+
+Steps that fail do NOT automatically retry. `failed` is terminal for that step.
+Retries happen via Brain inserting new steps into the DAG.
+`orphaned` steps (from lease expiry) DO requeue to `ready` if retries remain.
 
 ### Step Model
 
-Steps form a DAG via `depends_on`. A step becomes `ready` when all dependencies are `succeeded`. Brain checks readiness after every step state change.
+Steps form a DAG via `step_dependencies` table. Two edge types:
+- `success_required` — step becomes ready only when dependency `succeeded`
+- `completion_required` — step becomes ready when dependency is terminal (`succeeded` OR `failed`)
+
+The `completion_required` edge enables heal workflows: a heal step depends on a failed test step being finished, not succeeded. Brain checks readiness after every step state change.
 
 ### Dynamic Heal Insertion
 
@@ -554,21 +636,44 @@ Profiles are persisted per-user in SQLite.
 
 ## 7. Wire Protocol v2
 
+### Authentication
+
+WebSocket connection is authenticated via HeyVera JWT:
+- Worker sends JWT as query param or first message on connect
+- Brain verifies JWT, extracts `user_id` from claims
+- Brain mints `worker_id` and `session_id` — these are NOT self-asserted
+- `user_id` comes from JWT, never from Worker's Register message
+- All subsequent messages are authenticated by the connection (TLS + session binding)
+
 ### Brain → Worker
 
 ```rust
 pub enum BrainMessage {
-    Welcome { session_id: String },
+    Welcome {
+        session_id: String,
+        worker_id: String,       // Brain-minted
+        protocol_version: u32,   // for forward compatibility
+    },
     ExecuteStep {
         run_id: String,
         step_id: String,
+        attempt_id: String,      // Brain-minted, unique per attempt
         lease_gen: i64,
         lease_deadline_ms: i64,
+        workspace_id: String,    // Brain-assigned workspace scope
+        base_commit: Option<String>,
+        allowed_paths: Vec<String>,  // workspace path restrictions
         task: TaskContract,
         decision: RoutingDecision,
         context: StepContext,
     },
-    CancelStep { step_id: String },
+    CancelStep { step_id: String, reason: String },
+    StaleLeaseNotice {
+        step_id: String,
+        your_lease_gen: i64,
+        current_lease_gen: i64,
+        disposition: String,     // "abandon_and_cleanup" or "preserve_for_inspection"
+    },
     Ping,
 }
 ```
@@ -578,37 +683,44 @@ pub enum BrainMessage {
 ```rust
 pub enum WorkerMessage {
     Register {
-        worker_id: String,
-        user_id: String,
-        token: String,
+        token: String,           // HeyVera JWT — Brain extracts user_id from this
+        protocol_version: u32,
         providers: Vec<ProviderClaim>,
         workspace_dir: String,
         repos: Vec<RepoInfo>,
     },
     StepStarted {
+        message_id: String,      // UUID, for deduplication
         step_id: String,
+        attempt_id: String,
         lease_gen: i64,
         provider: String,
         model: String,
     },
     StepOutput {
         step_id: String,
+        attempt_id: String,
         lease_gen: i64,
         line: String,
     },
     StepCompleted {
+        message_id: String,
         step_id: String,
+        attempt_id: String,
         lease_gen: i64,
         exit_code: i32,
+        base_commit: Option<String>,
+        head_commit: Option<String>,
         output: StepOutput,
     },
     StepFailed {
+        message_id: String,
         step_id: String,
+        attempt_id: String,
         lease_gen: i64,
         failure: WorkerFailureReport,
     },
     Heartbeat {
-        worker_id: String,
         active_steps: Vec<String>,
     },
     Pong,
@@ -623,15 +735,18 @@ pub struct RepoInfo {
     pub path: String,
     pub remote_url: Option<String>,
     pub branch: Option<String>,
+    pub head_commit: Option<String>,
 }
 ```
 
 ### Key changes from v1:
-- `ExecuteTask` → `ExecuteStep` (step-aware, includes lease + context)
-- `StepCompleted` includes structured `StepOutput`
-- `StepFailed` includes typed `WorkerFailureReport` (not just string)
-- `Register` includes `ProviderClaim` with version + `RepoInfo`
-- `Heartbeat` includes list of active steps (Brain can detect orphans)
+- **Security**: worker_id/user_id are Brain-minted from JWT, not self-asserted
+- **Idempotency**: `message_id` on state-changing messages, Brain deduplicates
+- **Attempt tracking**: `attempt_id` on all step messages, Brain-minted per attempt
+- **Workspace authority**: Brain assigns `workspace_id`, `base_commit`, `allowed_paths`
+- **Stale lease handling**: explicit `StaleLeaseNotice` message
+- **Forward compatibility**: `protocol_version` on Register and Welcome
+- **Git provenance**: `base_commit` + `head_commit` on StepCompleted
 - All step messages include `lease_gen` for stale rejection
 
 ---
@@ -1015,9 +1130,10 @@ PRAGMA wal_autocheckpoint = 1000;  -- ~4 MiB
 
 ### Connection Architecture
 
-- 1 dedicated write connection (correctness transactions: step claims, run transitions, decisions)
-- 1 dedicated batch writer (usage_events, telemetry — flush every 50ms or 250 rows)
+- 1 single DB write actor (ALL writes serialized via mpsc channel — eliminates contention)
 - 4-8 read pool connections via `r2d2` (all reads via `spawn_blocking`)
+
+The single write actor handles both correctness transactions and batched telemetry, serialized naturally. No concurrent writer contention possible.
 
 ### Write Batching
 
@@ -1067,7 +1183,90 @@ SQLite is sufficient for thousands of users with disciplined writes. Migration t
 
 ---
 
-## 14. What This Design Does NOT Include (Intentionally Deferred)
+## 14. Security Model
+
+### Trust Boundaries
+
+- **Brain is fully trusted** — owns all state, decisions, and policy
+- **Worker is semi-trusted** — authenticated user, but evidence is validated
+- **User's CLI tools are untrusted** — Worker reports what CLI says, Brain validates patterns
+
+### Authentication
+
+- WebSocket: JWT verification on connect, Brain mints worker_id/session_id
+- HTTP API: Clerk JWT in Authorization header, verified per request
+- Admin API: separate admin JWT role claim required
+
+### Worker Evidence Validation
+
+Brain does NOT blindly trust Worker failure reports:
+- CLI error patterns validated against known provider error formats
+- Repeated identical errors flagged for human review
+- Score poisoning detection: if a worker's reports diverge significantly from other workers on same provider, flag anomaly
+
+### Tenant Isolation
+
+- user_id derived from JWT, never self-asserted
+- All queries filter by user_id — no cross-user data access
+- Workers can only receive tasks for their authenticated user
+- Artifacts scoped to user_id + run_id
+
+### Rate Limiting
+
+Per-user limits enforced at API layer:
+- `max_active_runs`: 10 (concurrent)
+- `max_runs_per_hour`: 30
+- `max_steps_per_hour`: 200
+- `max_workers_per_user`: 5
+
+Admission control: reject `RunCreated` if user exceeds limits.
+
+---
+
+## 15. Admin API
+
+Operational controls — authenticated with admin JWT role:
+
+```
+GET  /admin/runs                          — list runs by status, user, date
+GET  /admin/runs/{id}                     — full run detail with steps and attempts
+POST /admin/runs/{id}/retry-step/{step_id} — manually retry a failed step
+POST /admin/runs/{id}/cancel              — cancel a run and all in-flight steps
+
+GET  /admin/workers                       — list connected workers
+POST /admin/workers/{id}/drain            — stop assigning new work, wait for completion
+POST /admin/workers/{id}/quarantine       — disconnect and block worker
+
+POST /admin/providers/{id}/disable        — temporarily disable a provider globally
+POST /admin/providers/{id}/enable         — re-enable a disabled provider
+
+POST /admin/scheduler/pause               — pause scheduling (in-flight continues)
+POST /admin/scheduler/resume              — resume scheduling
+
+GET  /admin/metrics                       — scheduler queue depth, worker counts, etc.
+```
+
+---
+
+## 16. Monitoring Alerts
+
+Production alerts that should exist from day one:
+
+| Alert | Condition | Severity |
+|-------|-----------|----------|
+| Stuck run | Run in `running` state > 1 hour with no step progress | HIGH |
+| Scheduler stall | No assignments made in 5 minutes despite ready steps | CRITICAL |
+| WAL growth | WAL file > 256 MiB | HIGH |
+| Worker disconnect storm | > 50% of workers disconnect in 5 minutes | CRITICAL |
+| Provider degradation | Provider success rate < 50% over 30 minutes | HIGH |
+| Disk space | < 10% free disk | CRITICAL |
+| Lease expiry spike | > 10 leases expired in 5 minutes | MEDIUM |
+| Write queue depth | DB write actor queue > 1000 pending | HIGH |
+| Error rate | > 5% of API requests returning 5xx | HIGH |
+
+---
+
+## 17. What This Design Does NOT Include (Intentionally Deferred)
 
 - LLM-powered intent parsing (deterministic is enough for v1)
 - Multi-Brain / distributed coordination (single process is fine at scale)
