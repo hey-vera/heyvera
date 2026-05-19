@@ -113,6 +113,8 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/soma/session", post(soma_bridge::create_session))
         .route("/api/soma/revoke", post(soma_bridge::revoke_delegation))
         .route("/api/soma/me", get(soma_bridge::get_user_identity))
+        .route("/api/soma/spend", get(soma_bridge::get_spend))
+        .route("/api/soma/spend/{delegation_id}", get(soma_bridge::get_spend_detail))
         // Protected — lightweight
         .route("/api/providers", get(routes::get_providers))
         .route("/api/ledger", get(routes::get_ledger))

@@ -267,3 +267,113 @@ pub async fn get_user_identity(
         }))
     }
 }
+
+// --- Spend API ---
+
+#[derive(Serialize)]
+pub struct SpendSummary {
+    pub delegations: Vec<DelegationSpendSummary>,
+    pub total_spend: f64,
+}
+
+#[derive(Serialize)]
+pub struct DelegationSpendSummary {
+    pub delegation_id: String,
+    pub cumulative_spend: f64,
+    pub receipt_count: usize,
+    pub last_activity_ms: u64,
+}
+
+#[derive(Serialize)]
+pub struct DelegationSpendDetail {
+    pub delegation_id: String,
+    pub receipts: Vec<ReceiptSummary>,
+    pub cumulative: f64,
+}
+
+#[derive(Serialize)]
+pub struct ReceiptSummary {
+    pub amount: f64,
+    pub cumulative: f64,
+    pub capability: String,
+    pub timestamp: u64,
+}
+
+/// GET /api/soma/spend — Summary of all spend logs.
+pub async fn get_spend(
+    State(state): State<Arc<AppState>>,
+    _user: ClerkUser,
+) -> Result<Json<SpendSummary>, (StatusCode, Json<ErrorResponse>)> {
+    let heart = state.soma_heart.as_ref().ok_or_else(|| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ErrorResponse {
+                error: "soma heart not configured".into(),
+            }),
+        )
+    })?;
+
+    let logs = heart.spend_logs.lock().unwrap();
+    let mut total_spend = 0.0;
+    let delegations: Vec<DelegationSpendSummary> = logs
+        .values()
+        .map(|log| {
+            let cumulative = log.cumulative();
+            total_spend += cumulative;
+            DelegationSpendSummary {
+                delegation_id: log.delegation_id().to_string(),
+                cumulative_spend: cumulative,
+                receipt_count: log.len(),
+                last_activity_ms: log.last_activity_ms(),
+            }
+        })
+        .collect();
+
+    Ok(Json(SpendSummary {
+        delegations,
+        total_spend,
+    }))
+}
+
+/// GET /api/soma/spend/:delegation_id — Detailed receipts for one delegation.
+pub async fn get_spend_detail(
+    State(state): State<Arc<AppState>>,
+    _user: ClerkUser,
+    axum::extract::Path(delegation_id): axum::extract::Path<String>,
+) -> Result<Json<DelegationSpendDetail>, (StatusCode, Json<ErrorResponse>)> {
+    let heart = state.soma_heart.as_ref().ok_or_else(|| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ErrorResponse {
+                error: "soma heart not configured".into(),
+            }),
+        )
+    })?;
+
+    let logs = heart.spend_logs.lock().unwrap();
+    let log = logs.get(&delegation_id).ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: format!("no spend log for delegation {delegation_id}"),
+            }),
+        )
+    })?;
+
+    let receipts: Vec<ReceiptSummary> = log
+        .receipts()
+        .iter()
+        .map(|r| ReceiptSummary {
+            amount: r.amount,
+            cumulative: r.cumulative,
+            capability: r.capability.clone(),
+            timestamp: r.timestamp,
+        })
+        .collect();
+
+    Ok(Json(DelegationSpendDetail {
+        delegation_id,
+        receipts,
+        cumulative: log.cumulative(),
+    }))
+}
