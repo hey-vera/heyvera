@@ -23,7 +23,6 @@ import { appendFileSync, existsSync, readFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { randomBytes } from 'crypto';
-import { logHookError } from './error-channel.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const LEDGER_FILE = join(__dirname, 'decision-ledger.jsonl');
@@ -63,7 +62,7 @@ function recordDecision(decision = {}) {
 
   try {
     appendFileSync(LEDGER_FILE, entry + '\n');
-  } catch (e) { logHookError('decision-ledger', 'recordDecision append', e); }
+  } catch {}
 
   return id;
 }
@@ -98,7 +97,7 @@ function recordOutcome(decisionId, outcome = {}) {
 
   try {
     appendFileSync(LEDGER_FILE, entry + '\n');
-  } catch (e) { logHookError('decision-ledger', 'recordOutcome append', e); }
+  } catch {}
 }
 
 function loadLedger() {
@@ -205,55 +204,6 @@ function getInsights(opts = {}) {
   };
 }
 
-/**
- * getOutcomeStats — lightweight aggregation for the routing hot path.
- *
- * Returns success rates by tier and provider over the last 24 hours,
- * plus flags for any tier with < 50% success (with ≥ 5 outcomes).
- */
-function getOutcomeStats() {
-  const { decisions, outcomes } = loadLedger();
-  const merged = mergeDecisionsWithOutcomes(decisions, outcomes);
-
-  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  const recent = merged.filter(d => d.outcome && d.timestamp >= cutoff);
-
-  const byTier = {};
-  const byProvider = {};
-
-  for (const d of recent) {
-    // Tier stats
-    const t = d.tier || 'execute';
-    if (!byTier[t]) byTier[t] = { total: 0, success: 0 };
-    byTier[t].total++;
-    if (d.outcome.success) byTier[t].success++;
-
-    // Provider stats
-    const p = d.provider || 'claude';
-    if (!byProvider[p]) byProvider[p] = { total: 0, success: 0 };
-    byProvider[p].total++;
-    if (d.outcome.success) byProvider[p].success++;
-  }
-
-  // Flag underperforming tiers (< 50% success with ≥ 5 outcomes)
-  const underperforming = [];
-  for (const [tier, stats] of Object.entries(byTier)) {
-    if (stats.total >= 5) {
-      const rate = Math.round((stats.success / stats.total) * 100);
-      if (rate < 50) {
-        underperforming.push({ tier, rate, total: stats.total });
-      }
-    }
-  }
-
-  return {
-    by_tier: byTier,
-    by_provider: byProvider,
-    total_outcomes: recent.length,
-    underperforming,
-  };
-}
-
 // ─── CLI ────────────────────────────────────────────────────────────────────
 
 function printInsights() {
@@ -346,4 +296,4 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   }
 }
 
-export { recordDecision, recordOutcome, getInsights, getOutcomeStats, loadLedger };
+export { recordDecision, recordOutcome, getInsights, loadLedger };

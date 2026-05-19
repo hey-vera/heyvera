@@ -9,22 +9,50 @@
  *
  * Reads:
  *   .claude/hooks/usage.jsonl       — tool call log written by cost-logger.mjs
- *
- * Reports token-weighted activity scores (0-100), not dollar estimates.
+ *   .claude/orchestrator.json       — cost rates per model
  */
 
 import { readFileSync, existsSync, readdirSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
-import { execSync } from "child_process";
+import { spawnSync } from "child_process";
 
 // ---------------------------------------------------------------------------
 // Paths
 // ---------------------------------------------------------------------------
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const WORKSPACE  = join(__dirname, "..", ".."); // workspace root
-// Config and rate maps removed — cost-report no longer estimates dollar costs.
-// Activity scores are computed from token counts directly.
+const CONFIG_FILE = join(__dirname, "..", "orchestrator.json");
+
+// ---------------------------------------------------------------------------
+// Load orchestrator config
+// ---------------------------------------------------------------------------
+function loadConfig() {
+  try {
+    return JSON.parse(readFileSync(CONFIG_FILE, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Build a flat map: { "haiku": { input_per_mtok, output_per_mtok, tier }, … }
+ * from orchestrator.json's subscriptions block.
+ */
+function buildRateMap(config) {
+  const rates = {};
+  if (!config?.subscriptions) return rates;
+  for (const provider of Object.values(config.subscriptions)) {
+    for (const [modelKey, data] of Object.entries(provider.models || {})) {
+      rates[modelKey] = {
+        tier: data.tier,
+        input_per_mtok: data.input_per_mtok,
+        output_per_mtok: data.output_per_mtok,
+      };
+    }
+  }
+  return rates;
+}
 
 // ---------------------------------------------------------------------------
 // Load & parse usage log
@@ -55,20 +83,41 @@ function loadUsage() {
 // Cost estimation
 // ---------------------------------------------------------------------------
 
-// Tier-based fallback weights when actual token counts are unavailable (legacy entries).
-// These are unitless activity weights, NOT dollar costs.
-const TIER_ACTIVITY_WEIGHTS = { search: 3, execute: 10, think: 25 };
+/**
+ * Very rough token estimate per tool call.
+ * Without actual token counts from the session files, we use a conservative
+ * heuristic based on typical Claude Code usage patterns.
+ */
+const TOKEN_HEURISTICS = {
+  // { input_tok, output_tok }
+  search:  { input: 2_000,  output:   500 },
+  execute: { input: 4_000,  output: 1_500 },
+  think:   { input: 8_000,  output: 3_000 },
+};
 
-// Activity formula: (input_tokens * 1) + (output_tokens * 3)
-// SESSION_ACTIVITY_CEILING is the raw token-weighted value that maps to score 100.
-const SESSION_ACTIVITY_CEILING = 5_000_000;
-
-function computeActivity(tier, record = {}) {
+function estimateCost(tier, model, rateMap, record = {}) {
+  const heuristic = TOKEN_HEURISTICS[tier] || TOKEN_HEURISTICS.execute;
+  // Use actual tokens if logged, otherwise fall back to heuristics
   const hasActual = record.input_tokens != null && record.output_tokens != null;
-  if (hasActual) {
-    return { raw: (record.input_tokens * 1) + (record.output_tokens * 3), basis: 'actual' };
+  const inputTok = hasActual ? record.input_tokens : heuristic.input;
+  const outputTok = hasActual ? record.output_tokens : heuristic.output;
+  const rate = rateMap[model] || rateMap["main-session"];
+  if (!rate) {
+    // Fallback: use tier-matched rate from whatever model we know about
+    // "main-session" and "unknown" map to think-tier (Opus) since that's the session model
+    const fallbackTier = (model === "main-session" || model === "unknown") ? "think" : tier;
+    const tierRate = Object.values(rateMap).find((r) => r.tier === fallbackTier)
+      || Object.values(rateMap).find((r) => r.tier === tier);
+    if (!tierRate) return 0;
+    return (
+      (inputTok  / 1_000_000) * tierRate.input_per_mtok +
+      (outputTok / 1_000_000) * tierRate.output_per_mtok
+    );
   }
-  return { raw: TIER_ACTIVITY_WEIGHTS[tier] || TIER_ACTIVITY_WEIGHTS.execute, basis: 'estimated' };
+  return (
+    (inputTok  / 1_000_000) * rate.input_per_mtok +
+    (outputTok / 1_000_000) * rate.output_per_mtok
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -77,10 +126,17 @@ function computeActivity(tier, record = {}) {
 function gitFallbackSummary() {
   try {
     const today = new Date().toISOString().slice(0, 10);
-    const log = execSync(
-      `git -C "${WORKSPACE}" log --oneline --since="${today} 00:00" --until="${today} 23:59"`,
-      { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }
-    ).trim();
+    const proc = spawnSync("git", [
+      "-C", WORKSPACE,
+      "log", "--oneline",
+      `--since=${today} 00:00`,
+      `--until=${today} 23:59`,
+    ], {
+      encoding: "utf8",
+      stdio: ["pipe", "pipe", "pipe"],
+      timeout: 10_000,
+    });
+    const log = proc.status === 0 ? (proc.stdout || "").trim() : "";
     const commits = log ? log.split("\n").length : 0;
     return commits;
   } catch {
@@ -97,34 +153,28 @@ function todayPrefix() {
 }
 
 /**
- * Aggregate records into { [tier]: { model, calls, activityRaw, actualCount } }
+ * Aggregate records into { [tier]: { model, calls, cost } }
  * where model is the most-seen model for that tier.
  */
-function aggregate(records, datePrefix = null) {
+function aggregate(records, rateMap, datePrefix = null) {
   const filtered = datePrefix
     ? records.filter((r) => r.timestamp?.startsWith(datePrefix))
     : records;
 
-  // tier → { calls, activityRaw, actualCount, modelCounts }
+  // tier → { calls: number, costSum: number, modelCounts: { model: count } }
   const buckets = {};
 
   for (const record of filtered) {
     const tier = record.tier || "execute";
     const model = record.model || "unknown";
     if (!buckets[tier]) {
-      buckets[tier] = { calls: 0, activityRaw: 0, actualCount: 0, modelCounts: {} };
+      buckets[tier] = { calls: 0, costSum: 0, modelCounts: {} };
     }
     buckets[tier].calls += 1;
-    const { raw } = computeActivity(tier, record);
-    buckets[tier].activityRaw += raw;
+    buckets[tier].costSum += estimateCost(tier, model, rateMap, record);
     buckets[tier].modelCounts[model] = (buckets[tier].modelCounts[model] || 0) + 1;
-    if (record.input_tokens != null && record.output_tokens != null) {
-      buckets[tier].actualCount += 1;
-    }
+    if (record.input_tokens != null && record.output_tokens != null) buckets[tier].actualCount = (buckets[tier].actualCount || 0) + 1;
   }
-
-  // Compute total raw for percentage breakdown
-  const totalRaw = Object.values(buckets).reduce((s, b) => s + b.activityRaw, 0);
 
   // Resolve dominant model per tier
   const result = {};
@@ -133,23 +183,24 @@ function aggregate(records, datePrefix = null) {
     result[tier] = {
       model: dominantModel,
       calls: data.calls,
-      activityRaw: data.activityRaw,
-      activityPct: totalRaw > 0 ? Math.round((data.activityRaw / totalRaw) * 100) : 0,
-      actualCount: data.actualCount,
+      cost: data.costSum,
+      actualCount: data.actualCount || 0,
     };
   }
   return result;
 }
 
-/**
- * Classify overall activity level from score.
- */
-function activityLabel(score) {
-  if (score <= 10) return 'minimal';
-  if (score <= 30) return 'light';
-  if (score <= 60) return 'moderate';
-  if (score <= 85) return 'heavy';
-  return 'intense';
+// ---------------------------------------------------------------------------
+// Opus all-in cost (for savings calculation)
+// ---------------------------------------------------------------------------
+function allOpusCost(records, rateMap, datePrefix = null) {
+  const filtered = datePrefix
+    ? records.filter((r) => r.timestamp?.startsWith(datePrefix))
+    : records;
+
+  return filtered.reduce((sum, record) => {
+    return sum + estimateCost("think", "opus", rateMap, record);
+  }, 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -166,6 +217,10 @@ const TIER_LABELS = {
   think:   "Think  ",
 };
 
+function fmt$(n) {
+  return "$" + n.toFixed(2);
+}
+
 function pad(str, len, align = "left") {
   str = String(str);
   if (str.length >= len) return str.slice(0, len);
@@ -173,37 +228,39 @@ function pad(str, len, align = "left") {
   return align === "right" ? spaces + str : str + spaces;
 }
 
-function renderTable(title, aggregated, records = []) {
-  const totalRaw   = Object.values(aggregated).reduce((s, v) => s + v.activityRaw, 0);
-  const totalScore = Math.min(100, Math.round((totalRaw / SESSION_ACTIVITY_CEILING) * 100));
-  const label      = activityLabel(totalScore);
+function renderTable(title, aggregated, allOpus, records = []) {
+  const totalCost  = Object.values(aggregated).reduce((s, v) => s + v.cost, 0);
+  const savings    = allOpus - totalCost;
+  const savingsPct = allOpus > 0 ? Math.round((savings / allOpus) * 100) : 0;
 
   const line   = (s)      => `║ ${pad(s, W - 2)} ║`;
-  const border = (l, r) => l + "═".repeat(W) + r;
+  const border = (l, r, m) => l + "═".repeat(W) + r;
   const sep    = ()        => "╠" + "═".repeat(W) + "╣";
 
   const rows = TIER_ORDER
     .filter((t) => aggregated[t])
     .map((t) => {
-      const { model, calls, activityPct } = aggregated[t];
+      const { model, calls, cost } = aggregated[t];
       const tierLbl  = pad(TIER_LABELS[t] || t, 8);
       const modelLbl = pad(model,               10);
       const callsLbl = pad(String(calls), 5, "right");
-      const pctLbl   = pad(`${activityPct}%`, 10, "right");
-      return line(`${tierLbl} │ ${modelLbl} │ ${callsLbl} │ ${pctLbl}`);
+      const costLbl  = pad(fmt$(cost), 12, "right");
+      return line(`${tierLbl} │ ${modelLbl} │ ${callsLbl} │ ${costLbl}`);
     });
 
-  const header = line(`Tier     │ Model      │ Calls │ Activity % `);
+  const header = line(`Tier     │ Model      │ Calls │ Est. Cost  `);
   const hline  = line(`─────────┼────────────┼───────┼────────────`);
 
   const totalCalls = Object.values(aggregated).reduce((s, v) => s + v.calls, 0);
   const actualCalls = Object.values(aggregated).reduce((s, v) => s + (v.actualCount || 0), 0);
-  const basis = actualCalls === 0 ? 'estimated (no token data)' :
-    actualCalls === totalCalls ? 'actual token counts' :
-    `mixed (${Math.round(actualCalls/totalCalls*100)}% actual)`;
+  const confidence = actualCalls === 0 ? 'low (heuristic only)' :
+    actualCalls === totalCalls ? 'high (actual tokens)' :
+    `medium (${Math.round(actualCalls/totalCalls*100)}% actual)`;
 
   // Data quality stats
+  const totalRecords = Object.values(aggregated).reduce((s, v) => s + v.calls, 0);
   const unknownModels = records.filter(r => !r.model || r.model === 'unknown').length;
+  const v2Records = records.filter(r => r.schema_version >= 2).length;
   const errorRecords = records.filter(r => r.status === 'error').length;
 
   const lines = [
@@ -214,15 +271,15 @@ function renderTable(title, aggregated, records = []) {
     hline,
     ...rows,
     sep(),
-    line(`Session activity: ${totalScore}/100 (${label})`),
-    line(`Basis: ${basis}`),
-    line(`Activity score based on token usage, not billing`),
+    line(`Total estimated: ${fmt$(totalCost)}`),
+    line(`Savings vs all-Opus: ~${fmt$(Math.max(0, savings))} (${savingsPct}%)`),
+    line(`Confidence: ${confidence}`),
     border("╚", "╝"),
   ];
 
   if (unknownModels > 0 || errorRecords > 0) {
     lines.splice(-1, 0,
-      line(`Unknown models: ${unknownModels}/${totalCalls} entries`),
+      line(`Unknown models: ${unknownModels}/${totalRecords} entries`),
       line(`Errors: ${errorRecords} tool calls failed`),
     );
   }
@@ -235,7 +292,7 @@ function renderEmpty() {
   const ln = (s) => `║ ${pad(s, W - 2)} ║`;
   return [
     border("╔", "╗"),
-    ln("Session Activity Report"),
+    ln("Activity & Cost Estimate"),
     border("╠", "╣"),
     ln("No usage data yet."),
     ln(""),
@@ -253,6 +310,8 @@ function main() {
   const args    = process.argv.slice(2);
   const showAll = args.includes("--all");
 
+  const config  = loadConfig();
+  const rateMap = buildRateMap(config);
   const records = loadUsage();
 
   if (records.length === 0) {
@@ -269,12 +328,13 @@ function main() {
 
   if (!showAll) {
     // Today's report
-    const todayAgg  = aggregate(records, today);
+    const todayAgg  = aggregate(records, rateMap, today);
+    const todayOpus = allOpusCost(records, rateMap, today);
     const todayRecords = records.filter(r => r.timestamp?.startsWith(today));
     const hasTodayData = Object.keys(todayAgg).length > 0;
 
     if (hasTodayData) {
-      console.log(renderTable("Session Activity — Today", todayAgg, todayRecords));
+      console.log(renderTable("Activity & Cost Estimate — Today", todayAgg, todayOpus, todayRecords));
     } else {
       console.log("  No activity recorded for today yet.");
     }
@@ -283,8 +343,9 @@ function main() {
   }
 
   // All-time report
-  const allAgg  = aggregate(records);
-  console.log(renderTable("Session Activity — All Time", allAgg, records));
+  const allAgg  = aggregate(records, rateMap);
+  const allOpus = allOpusCost(records, rateMap);
+  console.log(renderTable("Activity & Cost Estimate — All Time", allAgg, allOpus, records));
 }
 
 main();

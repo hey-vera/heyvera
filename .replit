@@ -53,12 +53,28 @@ localPort = 3000
 externalPort = 3000
 
 [[ports]]
+localPort = 3001
+externalPort = 3003
+
+[[ports]]
+localPort = 3099
+externalPort = 5000
+
+[[ports]]
 localPort = 5000
 externalPort = 80
 
 [[ports]]
 localPort = 5001
 externalPort = 3001
+
+[[ports]]
+localPort = 5002
+externalPort = 3002
+
+[[ports]]
+localPort = 5003
+externalPort = 4200
 
 [userenv]
 
@@ -80,4 +96,13 @@ WEBAUTHN_RP_ID = "localhost"
 deploymentTarget = "autoscale"
 run = ["npm", "run", "start"]
 build = ["bash", "-c", "cd dashboard && npm run build && npm run build --prefix .. 2>/dev/null || true"]
+
+
+# Claude persistence (added by DATA Tools)
+
+
+# Claude persistence (added by DATA Tools)
+
+
+# Claude persistence (added by DATA Tools)
 onBoot = "source /home/runner/workspace/.replit-tools/scripts/setup-claude-code.sh 2>/dev/null || true"

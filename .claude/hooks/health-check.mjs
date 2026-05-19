@@ -6,12 +6,13 @@
  *   node .claude/hooks/health-check.mjs
  *
  * Validates that all hooks are wired, configs are valid, and the system
- * is functioning in a live session. Always exits 0 and outputs valid JSON.
+ * is functioning in a live session. Always exits 0. With --json flag, outputs
+ * only JSON to stdout. Without it, prints both table and JSON.
  *
  * Checks:
  *   1. orchestrator.json    — exists and parses as valid JSON
  *   2. pricing_verified     — exists, warn if >30 days, fail if >90 days
- *   3. model_intelligence   — inline in subscriptions, covers all models
+ *   3. model_intelligence   — exists and covers all subscription models
  *   4. hook scripts         — enforce-tier, cost-logger, quality-gate, dual-brain-review readable
  *   5. usage.jsonl active   — recent entries (last 15 min) indicate PostToolUse hook is wired
  *   6. codex CLI            — found on PATH or known locations; auth status checked
@@ -29,9 +30,11 @@ import { spawnSync } from "child_process";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const HOOKS_DIR     = __dirname;
 const CONFIG_FILE   = join(__dirname, "..", "orchestrator.json");
+const SETTINGS_FILE = join(__dirname, "..", "settings.json");
 const USAGE_FILE_LEGACY = join(__dirname, "usage.jsonl");
 const USAGE_FILE_TODAY  = join(__dirname, `usage-${new Date().toISOString().slice(0, 10)}.jsonl`);
 const WORKSPACE     = join(__dirname, "..", "..");
+const jsonOnly      = process.argv.includes("--json");
 
 // ---------------------------------------------------------------------------
 // Status helpers
@@ -40,6 +43,13 @@ const STATUS = { pass: "pass", warn: "warn", fail: "fail" };
 
 function check(name, status, detail) {
   return { name, status, detail };
+}
+
+function isCodexAuthenticated(result) {
+  const output = ((result?.stdout || "") + (result?.stderr || "")).toLowerCase();
+  if (/\b(not\s+logged\s+in|unauthenticated|logged\s+out|no\s+auth)\b/.test(output)) return false;
+  return result?.status === 0 ||
+    /\b(logged\s+in|authenticated|signed\s+in)\b/.test(output);
 }
 
 // ---------------------------------------------------------------------------
@@ -94,7 +104,7 @@ function checkPricingVerified() {
   return check("pricing_verified", STATUS.pass, `${ageDays} days ago`);
 }
 
-/** 3. model_intelligence — merged into subscriptions; validate inline fields */
+/** 3. model_intelligence — exists and has entries for at least the subscription models */
 function checkModelIntelligence() {
   let config;
   try {
@@ -103,30 +113,31 @@ function checkModelIntelligence() {
     return check("model_intelligence", STATUS.fail, "cannot read config");
   }
 
-  // Collect all models from subscriptions and check for intelligence fields
-  let entryCount = 0;
-  const missing = [];
-  for (const [providerName, provider] of Object.entries(config.subscriptions || {})) {
-    for (const [modelName, meta] of Object.entries(provider.models || {})) {
-      entryCount++;
-      if (!meta.best_for && !meta.model_id) {
-        missing.push(modelName);
-      }
+  const mi = config.model_intelligence;
+  if (!mi || typeof mi !== "object") {
+    return check("model_intelligence", STATUS.fail, "key missing from config");
+  }
+
+  // Collect model keys from subscriptions
+  const subscriptionModels = new Set();
+  for (const provider of Object.values(config.subscriptions || {})) {
+    for (const key of Object.keys(provider.models || {})) {
+      subscriptionModels.add(key);
     }
   }
 
-  if (entryCount === 0) {
-    return check("model_intelligence", STATUS.fail, "no models in subscriptions");
-  }
+  const miKeys     = Object.keys(mi);
+  const missing    = [...subscriptionModels].filter((m) => !mi[m]);
+  const entryCount = miKeys.length;
 
   if (missing.length > 0) {
     return check(
       "model_intelligence",
       STATUS.warn,
-      `${entryCount} models, missing intelligence: ${missing.join(", ")}`
+      `${entryCount} models, missing: ${missing.join(", ")}`
     );
   }
-  return check("model_intelligence", STATUS.pass, `${entryCount} models (inline)`);
+  return check("model_intelligence", STATUS.pass, `${entryCount} models`);
 }
 
 /** 4. Hook scripts readable */
@@ -164,6 +175,43 @@ function checkHookScripts() {
     STATUS.warn,
     `${readableCount}/${total} readable, missing: ${missing.join(", ")}`
   );
+}
+
+/** 4b. Hook registration — verify required hooks are configured in settings.json */
+function checkHookRegistration() {
+  if (!existsSync(SETTINGS_FILE)) {
+    return check("hook_registration", STATUS.fail, "settings.json not found");
+  }
+
+  let settings;
+  try {
+    settings = JSON.parse(readFileSync(SETTINGS_FILE, "utf8"));
+  } catch (err) {
+    return check("hook_registration", STATUS.warn, `invalid JSON: ${err.message}`);
+  }
+
+  const preToolUse = Array.isArray(settings?.hooks?.PreToolUse) ? settings.hooks.PreToolUse : [];
+  const postToolUse = Array.isArray(settings?.hooks?.PostToolUse) ? settings.hooks.PostToolUse : [];
+
+  const expectedPre = "node .claude/hooks/enforce-tier.mjs";
+  const expectedPost = "node .claude/hooks/cost-logger.mjs";
+
+  const hasCommand = (entries, cmd) => entries.some(e =>
+    e === cmd || e?.command === cmd || e?.hooks?.some(h => h.command === cmd)
+  );
+
+  const hasPre = hasCommand(preToolUse, expectedPre);
+  const hasPost = hasCommand(postToolUse, expectedPost);
+
+  if (hasPre && hasPost) {
+    return check("hook_registration", STATUS.pass, "required hooks registered");
+  }
+
+  const missing = [];
+  if (!hasPre) missing.push(`PreToolUse: ${expectedPre}`);
+  if (!hasPost) missing.push(`PostToolUse: ${expectedPost}`);
+
+  return check("hook_registration", STATUS.warn, `missing registrations: ${missing.join("; ")}`);
 }
 
 /** 5. usage log active — check dated files and legacy for entries from last 15 minutes */
@@ -255,7 +303,7 @@ function checkCodexCli() {
 
   const output = (loginResult.stdout + loginResult.stderr).toLowerCase();
 
-  if (loginResult.status === 0 || output.includes("logged in") || output.includes("authenticated")) {
+  if (isCodexAuthenticated(loginResult)) {
     return check("codex CLI", STATUS.pass, "authenticated");
   }
 
@@ -358,14 +406,21 @@ function main() {
     checkPricingVerified(),
     checkModelIntelligence(),
     checkHookScripts(),
+    checkHookRegistration(),
     checkUsageJsonl(),
     checkCodexCli(),
     checkGitRepo(),
   ];
 
   // Print formatted table
-  console.log(renderTable(checks));
-  console.log();
+  const tableOutput = renderTable(checks);
+  if (jsonOnly) {
+    console.error(tableOutput);
+    console.error();
+  } else {
+    console.log(tableOutput);
+    console.log();
+  }
 
   // Build JSON summary
   const passCount = checks.filter((c) => c.status === "pass").length;

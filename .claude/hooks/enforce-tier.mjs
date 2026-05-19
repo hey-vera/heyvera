@@ -1,59 +1,27 @@
 #!/usr/bin/env node
-import { readFileSync, writeFileSync, appendFileSync } from 'fs';
+import { readFileSync, writeFileSync, appendFileSync, renameSync } from 'fs';
 import { dirname, resolve, join } from 'path';
 import { fileURLToPath } from 'url';
-import { classifyRisk, classifyRiskEnhanced, extractPaths } from './risk-classifier.mjs';
+import { classifyRisk, extractPaths } from './risk-classifier.mjs';
 import { computePromptHash, checkFailureLoop, recordFailure } from './failure-detector.mjs';
-import { getOutcomeStats } from './decision-ledger.mjs';
-import { atomicWriteJSON } from './atomic-write.mjs';
-import { logHookError } from './error-channel.mjs';
-import { loadAndValidateConfig } from './config-validator.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CONFIG_FILE = resolve(__dirname, '..', 'orchestrator.json');
 const PROFILE_FILE = resolve(__dirname, '..', 'dual-brain.profile.json');
 const DRIFT_STATE = resolve(__dirname, '.drift-warned');
 const BURST_FILE = resolve(__dirname, '.burst-state');
-const COOLDOWN_FILE = resolve(__dirname, '.recommendation-cooldowns');
-
-// Cooldown durations per recommendation type (in milliseconds)
-const COOLDOWN_MS = {
-  balance_hint: 15 * 60 * 1000,    // 15 minutes — most wallpaper-prone
-  tier_warning: 5 * 60 * 1000,     // 5 minutes
-  outcome_advisory: 5 * 60 * 1000, // 5 minutes
-  duplicate_warning: 5 * 60 * 1000, // 5 minutes
-};
-
-/**
- * Check if a recommendation type is on cooldown.
- * Returns true if the recommendation should be suppressed.
- * If not on cooldown, records the emission and returns false.
- */
-function isOnCooldown(type) {
-  const now = Date.now();
-  let state = {};
-  try { state = JSON.parse(readFileSync(COOLDOWN_FILE, 'utf8')); } catch {}
-
-  const lastEmit = state[type] ? Date.parse(state[type]) : 0;
-  const cooldownDuration = COOLDOWN_MS[type] || 5 * 60 * 1000;
-
-  if (now - lastEmit < cooldownDuration) {
-    return true; // suppress
-  }
-
-  // Record this emission
-  state[type] = new Date(now).toISOString();
-  try { atomicWriteJSON(COOLDOWN_FILE, state); } catch (e) { logHookError('enforce-tier', 'cooldown state write', e); }
-  return false;
-}
 
 function detectBurst() {
   const now = Date.now();
   let state = { count: 0, window_start: now };
-  try { state = JSON.parse(readFileSync(BURST_FILE, 'utf8')); } catch {}
-  if (now - state.window_start > 90_000) state = { count: 0, window_start: now };
-  state.count++;
-  try { atomicWriteJSON(BURST_FILE, state); } catch (e) { logHookError('enforce-tier', 'burst state write', e); }
+  try {
+    try { state = JSON.parse(readFileSync(BURST_FILE, 'utf8')); } catch {}
+    if (now - state.window_start > 90_000) state = { count: 0, window_start: now };
+    state.count++;
+    const tmp = BURST_FILE + '.tmp.' + process.pid;
+    writeFileSync(tmp, JSON.stringify(state));
+    renameSync(tmp, BURST_FILE);
+  } catch {}
   return state.count >= 3;
 }
 
@@ -65,109 +33,11 @@ function loadProfile() {
 }
 
 const PROFILE_SETTINGS = {
-  auto:            { demote_think: false, promote_execute: false, bias: 0,   mismatch_tolerance: 'strict' },
-  balanced:        { demote_think: false, promote_execute: false, bias: 0,   mismatch_tolerance: 'strict' },
-  'cost-saver':    { demote_think: true,  promote_execute: false, bias: -20, mismatch_tolerance: 'lenient' },
-  'quality-first': { demote_think: false, promote_execute: true,  bias: 10,  mismatch_tolerance: 'paranoid' },
+  auto:            { demote_think: false, promote_execute: false, bias: 0 },
+  balanced:        { demote_think: false, promote_execute: false, bias: 0 },
+  'cost-saver':    { demote_think: true,  promote_execute: false, bias: -20 },
+  'quality-first': { demote_think: false, promote_execute: true,  bias: 10 },
 };
-
-/**
- * Classify how severe a model/tier mismatch is.
- *
- * @param {string} detectedTier  - 'search' | 'execute' | 'think'
- * @param {string} actualModel   - lowercase model string from tool_input.model
- * @returns {{ severity: 'none'|'minor'|'major', reason: string, suggestedModel: string }}
- */
-function classifyMismatchSeverity(detectedTier, actualModel) {
-  const model = (actualModel || '').toLowerCase();
-
-  // Canonical tier membership helpers
-  const isSearchModel  = model.includes('haiku') || model.includes('gpt-4.1-mini') || model.includes('4.1-mini');
-  const isExecuteModel = model.includes('sonnet') || model.includes('gpt-5.4') || model.includes('5.4');
-  const isThinkModel   = model.includes('opus') || model.includes('gpt-5.5') || model.includes('5.5') ||
-                         model.includes('o1') || model.includes('o3') || model.includes('o4');
-
-  const suggestedByTier = {
-    search:  'haiku (Claude) or gpt-4.1-mini (OpenAI)',
-    execute: 'sonnet (Claude) or gpt-5.4 (OpenAI)',
-    think:   'opus (Claude) or gpt-5.5 (OpenAI)',
-  };
-  const suggested = suggestedByTier[detectedTier] || 'sonnet';
-
-  // Empty/unset model — no mismatch to classify
-  if (!model || model === 'main-session') {
-    return { severity: 'none', reason: 'model not specified', suggestedModel: suggested };
-  }
-
-  if (detectedTier === 'think') {
-    if (isThinkModel) return { severity: 'none', reason: 'model matches think tier', suggestedModel: suggested };
-    if (isExecuteModel) return {
-      severity: 'minor',
-      reason: `${model} is capable but not optimal for think-tier work (architecture/review/planning)`,
-      suggestedModel: suggested,
-    };
-    // search-class model (haiku, gpt-4.1-mini) on think work → MAJOR
-    return {
-      severity: 'major',
-      reason: `${model} is too weak for think-tier tasks (architecture decisions, security review, complex planning)`,
-      suggestedModel: suggested,
-    };
-  }
-
-  if (detectedTier === 'execute') {
-    if (isExecuteModel) return { severity: 'none', reason: 'model matches execute tier', suggestedModel: suggested };
-    if (isThinkModel) return {
-      severity: 'minor',
-      reason: `${model} is overkill for execute-tier work — wastes budget`,
-      suggestedModel: suggested,
-    };
-    if (isSearchModel) return {
-      severity: 'minor',
-      reason: `${model} may lack capability for complex execution tasks`,
-      suggestedModel: suggested,
-    };
-    return { severity: 'none', reason: 'model tier unclear', suggestedModel: suggested };
-  }
-
-  if (detectedTier === 'search') {
-    if (isSearchModel) return { severity: 'none', reason: 'model matches search tier', suggestedModel: suggested };
-    if (isExecuteModel) return {
-      severity: 'minor',
-      reason: `${model} is more capable than needed for search/explore tasks — consider haiku for cost savings`,
-      suggestedModel: suggested,
-    };
-    if (isThinkModel) return {
-      severity: 'major',
-      reason: `${model} is massive overkill for search/grep/explore tasks — burns budget unnecessarily`,
-      suggestedModel: suggested,
-    };
-    return { severity: 'none', reason: 'model tier unclear', suggestedModel: suggested };
-  }
-
-  return { severity: 'none', reason: 'unknown tier', suggestedModel: suggested };
-}
-
-/**
- * Given a mismatch severity and the active profile tolerance, decide whether
- * to block, warn, or allow the call.
- *
- * @param {'none'|'minor'|'major'} severity
- * @param {'lenient'|'strict'|'paranoid'} tolerance
- * @returns {'block'|'warn'|'allow'}
- */
-function decideAction(severity, tolerance) {
-  if (severity === 'none') return 'allow';
-  if (tolerance === 'lenient') {
-    // cost-saver: warn on major, ignore minor
-    return severity === 'major' ? 'warn' : 'allow';
-  }
-  if (tolerance === 'paranoid') {
-    // quality-first: block on both minor and major
-    return 'block';
-  }
-  // strict (auto, balanced): block on major, warn on minor
-  return severity === 'major' ? 'block' : 'warn';
-}
 
 function checkPricingDrift(config) {
   const verified = config.pricing_verified;
@@ -185,7 +55,7 @@ function checkPricingDrift(config) {
 
   try {
     writeFileSync(DRIFT_STATE, new Date().toISOString().slice(0, 10));
-  } catch (e) { logHookError('enforce-tier', 'drift state write', e); }
+  } catch {}
 
   return `**[Drift Warning]** Pricing was last verified ${age} days ago. Run \`node .claude/hooks/setup-wizard.mjs\` to update.`;
 }
@@ -220,12 +90,14 @@ function logRecommendation(event) {
     if (event.promptHash) {
       summary.recent_hashes = summary.recent_hashes || [];
       summary.recent_hashes.push({ hash: event.promptHash, ts: entryObj.timestamp });
-      const threeMinAgo = Date.now() - 3 * 60 * 1000;
-      summary.recent_hashes = summary.recent_hashes.filter(h => Date.parse(h.ts) >= threeMinAgo);
+      const tenMinAgo = Date.now() - 10 * 60 * 1000;
+      summary.recent_hashes = summary.recent_hashes.filter(h => Date.parse(h.ts) >= tenMinAgo);
     }
     summary.updated_at = new Date().toISOString();
-    atomicWriteJSON(summaryFile, summary);
-  } catch (e) { logHookError('enforce-tier', 'summary update', e); }
+    const tmp = summaryFile + '.tmp.' + process.pid;
+    writeFileSync(tmp, JSON.stringify(summary, null, 2) + '\n');
+    renameSync(tmp, summaryFile);
+  } catch {}
 
   // Sync ledger write (append-only, fast)
   try {
@@ -243,7 +115,7 @@ function logRecommendation(event) {
       prompt_hash: event.promptHash,
     });
     appendFileSync(join(__dirname, 'decision-ledger.jsonl'), ledgerEntry + '\n');
-  } catch (e) { logHookError('enforce-tier', 'decision ledger append', e); }
+  } catch {}
 }
 
 function checkDuplicate(promptHash) {
@@ -251,9 +123,9 @@ function checkDuplicate(promptHash) {
   try {
     const summaryPath = join(__dirname, `usage-summary-${new Date().toISOString().slice(0, 10)}.json`);
     const summary = JSON.parse(readFileSync(summaryPath, 'utf8'));
-    const threeMinAgo = Date.now() - 3 * 60 * 1000;
+    const tenMinAgo = Date.now() - 10 * 60 * 1000;
     const match = (summary.recent_hashes || []).find(
-      h => h.hash === promptHash && Date.parse(h.ts) >= threeMinAgo
+      h => h.hash === promptHash && Date.parse(h.ts) >= tenMinAgo
     );
     if (match) return { timestamp: match.ts, prompt_hash: promptHash };
   } catch {}
@@ -262,13 +134,13 @@ function checkDuplicate(promptHash) {
   const logFile = join(__dirname, `usage-${new Date().toISOString().slice(0, 10)}.jsonl`);
   try {
     const lines = readFileSync(logFile, 'utf8').split('\n').filter(Boolean);
-    const threeMinAgo = Date.now() - 3 * 60 * 1000;
+    const tenMinAgo = Date.now() - 10 * 60 * 1000;
     for (const line of lines) {
       try {
         const entry = JSON.parse(line);
         if (entry.type === 'tier_recommendation' &&
             entry.prompt_hash === promptHash &&
-            Date.parse(entry.timestamp) > threeMinAgo) {
+            Date.parse(entry.timestamp) > tenMinAgo) {
           return entry;
         }
       } catch {}
@@ -320,8 +192,124 @@ function quickPressureCheck(tier) {
   }
 }
 
+// ─── Governance Check (inlined for standalone hook execution) ─────────────────
+
+const GOVERNANCE_MODEL_TIERS = {
+  1: ['claude-haiku-4-5-20251001', 'haiku', 'gpt-4o-mini', 'o4-mini'],
+  2: ['claude-sonnet-4-6', 'sonnet', 'gpt-4o', 'gpt-4.1'],
+  3: ['claude-opus-4-6', 'claude-opus-4-7', 'opus', 'o3'],
+};
+
+function getGovernanceTier(modelId) {
+  if (!modelId) return 2;
+  const normalized = String(modelId).toLowerCase();
+  for (const [tier, models] of Object.entries(GOVERNANCE_MODEL_TIERS)) {
+    if (models.some(m => normalized.includes(m))) return Number(tier);
+  }
+  return 2;
+}
+
+function loadWorkStyle() {
+  try {
+    const data = JSON.parse(readFileSync(PROFILE_FILE, 'utf8'));
+    return data.workStyle || data.active || 'auto';
+  } catch { return 'auto'; }
+}
+
+function loadGovernanceBudget() {
+  const statePath = resolve(__dirname, '..', '..', '.dualbrain', 'governance-state.json');
+  try {
+    const raw = JSON.parse(readFileSync(statePath, 'utf8'));
+    // Check staleness (30 min gap = new session)
+    const lastDispatch = raw.dispatches?.[raw.dispatches.length - 1];
+    if (lastDispatch && (Date.now() - Date.parse(lastDispatch.ts)) > 30 * 60 * 1000) {
+      return { totalEstimatedCost: 0 };
+    }
+    return raw;
+  } catch {
+    return { totalEstimatedCost: 0 };
+  }
+}
+
+function governanceCheck(input) {
+  const ti = input.tool_input || {};
+  const model = ti.model || '';
+  const tier = getGovernanceTier(model);
+
+  // Only apply governance enforcement to tier 3 models
+  if (tier < 3) return null;
+
+  const workStyle = loadWorkStyle();
+
+  // cost-saver profile: DENY tier 3
+  if (workStyle === 'cost-saver') {
+    return {
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        permissionDecision: 'deny',
+        permissionDecisionReason:
+          '[governance] Tier 3 (heavy) model denied — profile is cost-saver. Use tier 1-2 models or switch profile.',
+      },
+    };
+  }
+
+  // Budget check
+  try {
+    const configPath = resolve(__dirname, '..', 'orchestrator.json');
+    const config = JSON.parse(readFileSync(configPath, 'utf8'));
+    const sessionLimit = config?.budgets?.session_limit_usd || 10;
+    const state = loadGovernanceBudget();
+    const remaining = sessionLimit - (state.totalEstimatedCost || 0);
+    if (remaining <= 0) {
+      return {
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          permissionDecision: 'deny',
+          permissionDecisionReason:
+            `[governance] Session budget exhausted ($${state.totalEstimatedCost.toFixed(2)} / $${sessionLimit}). Wait for session reset or increase budget.`,
+        },
+      };
+    }
+  } catch {}
+
+  // auto/balanced profile: emit warning for tier 3 (pipeline handles consent)
+  if (workStyle === 'auto' || workStyle === 'balanced') {
+    return {
+      systemMessage: `[governance] Tier 3 (heavy) model requested: ${model || 'opus'}. Profile "${workStyle}" requires consent for heavy models. Proceeding — pipeline will handle approval.`,
+    };
+  }
+
+  return null;
+}
+
 const SEARCH_WORDS = /\b(explore|search|find|grep|locate|where\s+is|list\s+files|read[-\s]?only|lookup|scan)\b/i;
 const THINK_WORDS = /\b(plan|design|architect|review|audit|security|code[-\s]?review|threat[-\s]?model|complex[-\s]?debug)\b/i;
+
+// ─── Write-intent enforcement ─────────────────────────────────────────────────
+// Keywords that indicate an agent will mutate files or system state.
+const WRITE_INTENT_WORDS = /\b(edit|fix|change|update|create|write|modify|implement|refactor|add|remove|delete|build|install|configure|patch|apply|move|rename|migrate|replace|rewrite|generate|scaffold|init(?:ialize)?|setup|deploy|run\s+tests?|commit|push|install|uninstall)\b/i;
+
+// Dispatch marker prefix stamped by src/dispatch.mjs for all legitimate dispatches.
+const DISPATCH_MARKER_RE = /<!--\s*dual-brain-dispatch:[a-z0-9|:.\-]+\s*-->/i;
+
+function parseDispatchMarker(prompt) {
+  const match = prompt?.match(/<!-- dual-brain-dispatch:([^>]+) -->/);
+  if (!match) return null;
+  const parts = match[1].split('|');
+  const fields = { runId: parts[0] };
+  for (const part of parts.slice(1)) {
+    const [key, val] = part.split(':');
+    if (key && val) fields[key] = val;
+  }
+  return fields;
+}
+
+/**
+ * Determine whether a prompt is purely read-only (no write keywords at all).
+ */
+function isReadOnly(prompt) {
+  return !WRITE_INTENT_WORDS.test(prompt);
+}
 
 function preferredModel(config, tier) {
   const models = config?.subscriptions?.claude?.models ?? {};
@@ -340,9 +328,62 @@ try {
   }
 
   const ti = input.tool_input || {};
-  const text = `${ti.description || ''} ${ti.prompt || ''}`.toLowerCase();
+  // Use the raw prompt for dispatch-marker and write-intent checks (before lowercasing).
+  const rawPrompt = `${ti.description || ''} ${ti.prompt || ''}`;
+  const text = rawPrompt.toLowerCase();
   const subType = (ti.subagent_type || '').toLowerCase();
   const currentModel = (ti.model || '').toLowerCase();
+
+  // ── Dispatch pipeline gate ─────────────────────────────────────────────────
+  // Block write-capable agents that did NOT come through src/dispatch.mjs.
+  // Legitimate dispatches have a <!-- dual-brain-dispatch: <runId> --> marker
+  // prepended to the prompt by dispatch() / dispatchDualBrain().
+  //
+  // Skip enforcement when already inside a subagent (agent_id present) —
+  // nested agent spawns from within a work agent are fine.
+  const hasMarker = DISPATCH_MARKER_RE.test(rawPrompt);
+  const inSubagent = Boolean(input.agent_id);
+
+  if (!inSubagent && !hasMarker && !isReadOnly(rawPrompt)) {
+    // Write-intent detected in HEAD session without the dispatch marker → block.
+    process.stdout.write(JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        permissionDecision: 'deny',
+        permissionDecisionReason:
+          '[dual-brain] Write-capable agents must go through dispatch. Use: dual-brain go "task"',
+      },
+    }));
+    process.exit(2);
+  }
+  // (If hasMarker is true OR the prompt is read-only we fall through to normal
+  //  tier-routing logic below.)
+
+  // ── Governance enforcement (tier 3 gating + budget) ──────────────────────────
+  const govResult = governanceCheck(input);
+  if (govResult) {
+    if (govResult.hookSpecificOutput?.permissionDecision === 'deny') {
+      process.stdout.write(JSON.stringify(govResult));
+      process.exit(2);
+    }
+    // Non-blocking governance warning — will be included in final output
+  }
+
+  // ── Over-provisioning check via enriched dispatch marker ───────────────────
+  // If the marker carries governance scores, validate that the model tier isn't
+  // higher than the task actually requires (closes the brainstorm-opus loophole).
+  const markerFields = parseDispatchMarker(rawPrompt);
+  if (markerFields?.req && markerFields?.model) {
+    const reqTier = parseInt(markerFields.req, 10);
+    const modelTier = getGovernanceTier(markerFields.model);
+    if (!isNaN(reqTier) && modelTier > reqTier && reqTier <= 2) {
+      process.stdout.write(JSON.stringify({
+        systemMessage: `[governance] Over-provisioned: task requires tier ${reqTier} but using tier ${modelTier} model (${markerFields.model}). Consider downgrading.`,
+      }));
+      process.exit(0);
+    }
+  }
+  // ── End over-provisioning check ────────────────────────────────────────────
 
   // Compute prompt hash early for duplicate detection and logging
   const promptHash = computePromptHash(ti);
@@ -353,7 +394,7 @@ try {
   // Check for duplicate agent dispatch before tier classification
   const duplicate = checkDuplicate(promptHash);
   let duplicateWarning = null;
-  if (duplicate && !isOnCooldown('duplicate_warning')) {
+  if (duplicate) {
     const minutesAgo = Math.round((Date.now() - Date.parse(duplicate.timestamp)) / 60000);
     if (burstMode) {
       // In burst mode, only warn on exact hash matches (same description+prompt)
@@ -368,8 +409,7 @@ try {
 
   let config;
   try {
-    const result = loadAndValidateConfig(CONFIG_FILE);
-    config = result.config;
+    config = JSON.parse(readFileSync(CONFIG_FILE, 'utf8'));
   } catch {
     process.stdout.write('{}');
     process.exit(0);
@@ -377,13 +417,7 @@ try {
 
   const driftWarning = checkPricingDrift(config);
 
-  // Build flat model intelligence lookup from subscriptions (merged in v4.2.0)
-  const intelligence = {};
-  for (const provider of Object.values(config.subscriptions || {})) {
-    for (const [name, meta] of Object.entries(provider.models || {})) {
-      intelligence[name] = meta;
-    }
-  }
+  const intelligence = config.model_intelligence || {};
   const defaults = config.routing_rules?.subagent_defaults || {};
   let tier = null;
 
@@ -393,12 +427,13 @@ try {
 
   // Balance hint — populated after tier is fully resolved
   let balanceHint = null;
-  // Outcome advisory — populated after tier is fully resolved
-  let outcomeAdvisory = null;
+  let failureMessage = null;
+  let autoStatus = null;
 
-  // Helper to prepend optional warnings (duplicate + drift + balance + outcome + auto) before a message
+  // Helper to prepend optional warnings (duplicate + drift + balance + auto) before a message
+  const govWarning = govResult?.systemMessage || null;
   const prependWarnings = (msg) => {
-    const parts = [duplicateWarning, driftWarning, failureMessage, msg, autoStatus, balanceHint, outcomeAdvisory].filter(Boolean);
+    const parts = [govWarning, duplicateWarning, driftWarning, failureMessage, msg, autoStatus, balanceHint].filter(Boolean);
     return parts.join('\n\n');
   };
 
@@ -443,47 +478,19 @@ try {
   }
 
   // Risk classification from file paths in description
-  // Use enhanced classifier (git churn + history) when a single file path is available,
-  // fall back to static classifier for multi-path or missing cases.
   const filePaths = extractPaths(ti.description || '');
-  let riskResult;
-  let riskEscalationReason = null;
-
-  if (filePaths.length === 1) {
-    try {
-      const enhanced = classifyRiskEnhanced(filePaths[0]);
-      riskResult = { level: enhanced.risk, reason: filePaths[0] };
-      // Build human-readable escalation reason if empirical data bumped the risk
-      if (enhanced.basis === 'churn' || enhanced.basis === 'churn+history') {
-        riskEscalationReason = `Risk escalated: high git churn (${enhanced.details.churn_commits} commits in 30 days)`;
-      }
-      if (enhanced.basis === 'history' || enhanced.basis === 'churn+history') {
-        const historyNote = `${enhanced.details.history_success_rate}% failure rate on this file path`;
-        riskEscalationReason = riskEscalationReason
-          ? `${riskEscalationReason}; ${historyNote}`
-          : `Risk escalated: ${historyNote}`;
-      }
-    } catch {
-      riskResult = classifyRisk(filePaths);
-    }
-  } else {
-    riskResult = classifyRisk(filePaths);
-  }
-
-  let autoStatus = null;
+  const riskResult = classifyRisk(filePaths);
 
   // Bias high/critical risk toward think tier
   if ((riskResult.level === 'critical' || riskResult.level === 'high') && tier !== 'think') {
     tier = 'think';
-    const baseMsg = riskResult.level === 'critical'
-      ? `This touches ${String(riskResult.reason).split(':')[0].toLowerCase()} — recommending dual-brain review for safety.`
-      : `Promoting to think tier — this is ${String(riskResult.reason).split(':')[0].toLowerCase()}.`;
-    autoStatus = riskEscalationReason ? `${baseMsg} ${riskEscalationReason}.` : baseMsg;
+    autoStatus = riskResult.level === 'critical'
+      ? `This touches ${riskResult.reason.split(':')[0].toLowerCase()} — recommending dual-brain review for safety.`
+      : `Promoting to think tier — this is ${riskResult.reason.split(':')[0].toLowerCase()}.`;
   }
 
   // Failure loop detection
   const failureCheck = checkFailureLoop(promptHash);
-  let failureMessage = null;
   if (failureCheck.isLoop) {
     if (failureCheck.suggestion === 'promote_tier' && tier === 'execute') {
       tier = 'think';
@@ -504,8 +511,7 @@ try {
 
   // Compute balance hint now that tier is resolved
   // In burst mode, skip balance hints — one hint per wave is enough
-  // Balance hints have a 15-minute cooldown (most wallpaper-prone)
-  if (!burstMode && !isOnCooldown('balance_hint')) {
+  if (!burstMode) {
     const currentProvider = detectProvider(currentModel);
     if (currentProvider === 'claude') {
       const balance = quickPressureCheck(tier);
@@ -517,77 +523,73 @@ try {
     }
   }
 
-  // Outcome stats advisory — best-effort, suppressed in burst mode and on cooldown
-  if (!burstMode && !isOnCooldown('outcome_advisory')) {
-    try {
-      const stats = getOutcomeStats();
-      const tierIssue = stats.underperforming.find(u => u.tier === tier);
-      if (tierIssue) {
-        outcomeAdvisory = `Heads up — ${tierIssue.tier} tasks have been struggling lately (${tierIssue.rate}% success over ${tierIssue.total} recent outcomes). Consider escalating to a higher tier.`;
-      }
-    } catch {}
-  }
-
   const expected = preferredModel(config, tier);
 
-  // ── Mismatch severity classification (v4.5.0) ──────────────────────────────
-  const mismatch = classifyMismatchSeverity(tier, currentModel);
-  const tolerance = profileSettings.mismatch_tolerance || 'strict';
-  const action = decideAction(mismatch.severity, tolerance);
-
-  const followed = action === 'allow';
-  logRecommendation({
-    tier,
-    recommended: expected,
-    actual: currentModel,
-    promptHash,
-    followed,
-    profile: profileName,
-  });
-
-  if (action === 'allow') {
-    // Model is fine — emit only ambient warnings (duplicate, drift, failure, balance, outcome)
-    const onlyWarnings = [duplicateWarning, driftWarning, failureMessage, autoStatus, balanceHint, outcomeAdvisory].filter(Boolean).join('\n\n');
-    if (onlyWarnings) {
-      process.stdout.write(JSON.stringify({ systemMessage: onlyWarnings }));
-    } else {
-      process.stdout.write('{}');
+  if (tier === 'think') {
+    const thinkModels = ['opus', 'gpt-5.5', 'o1', 'o3'];
+    const isThink = !currentModel || thinkModels.some(m => currentModel.includes(m));
+    if (isThink) {
+      logRecommendation({
+        tier,
+        recommended: expected,
+        actual: currentModel,
+        promptHash,
+        followed: true,
+        profile: profileName,
+      });
+      const onlyWarnings = [govWarning, duplicateWarning, driftWarning, failureMessage, autoStatus, balanceHint].filter(Boolean).join('\n\n');
+      if (onlyWarnings) {
+        process.stdout.write(JSON.stringify({ systemMessage: onlyWarnings }));
+      } else {
+        process.stdout.write('{}');
+      }
+      process.exit(0);
     }
-    process.exit(0);
-  }
-
-  // On cooldown — emit only ambient warnings (don't repeat tier advice)
-  if (isOnCooldown('tier_warning')) {
-    const onlyWarnings = [duplicateWarning, driftWarning, failureMessage, autoStatus, balanceHint, outcomeAdvisory].filter(Boolean).join('\n\n');
-    process.stdout.write(JSON.stringify(onlyWarnings ? { systemMessage: onlyWarnings } : {}));
-    process.exit(0);
-  }
-
-  // Build the tier advice message, calibrated to severity
-  const bestFor = intelligence[expected]?.best_for;
-  const bestForSuffix = bestFor ? ` (best for: ${bestFor})` : '';
-
-  let tierMsg;
-  if (action === 'block') {
-    // Strongest available signal — Claude Code PreToolUse hooks use systemMessage
-    // (no formal "block" key in the hook contract), so we make the message impossible to ignore.
-    tierMsg =
-      `⛔ BLOCKED: ${mismatch.reason}.\n` +
-      `Resubmit with model: '${mismatch.suggestedModel}'.\n` +
-      `This ${tier}-tier task requires at least ${tier === 'think' ? 'execute' : 'search'}-tier capability or higher.\n` +
-      `Correct model${bestForSuffix}: ${expected || mismatch.suggestedModel}`;
+    // If we get here, a non-think model is being used for think work
+    const thinkBestFor = intelligence[expected || 'opus']?.best_for;
+    const thinkBestForSuffix = thinkBestFor ? ` (best for: ${thinkBestFor})` : '';
+    const msg = `This looks like think-level work (architecture/review/planning) — better kept on the main session (${expected || 'opus'}${thinkBestForSuffix}) rather than delegated to ${currentModel}.`;
+    logRecommendation({
+      tier,
+      recommended: expected,
+      actual: currentModel,
+      promptHash,
+      followed: false,
+      profile: profileName,
+    });
+    process.stdout.write(JSON.stringify({ systemMessage: prependWarnings(msg) }));
   } else {
-    // warn
-    const savingsHint =
-      tier === 'search' ? 'Haiku is 19x cheaper than Opus for read-only lookups.' :
-      tier === 'execute' ? 'Sonnet is 5x cheaper than Opus for implementation work.' :
-      `${expected || 'opus'} is the recommended model for think-tier work.`;
-    tierMsg =
-      `⚠️ Model mismatch (${mismatch.severity}): ${mismatch.reason}. ` +
-      `Suggested: ${mismatch.suggestedModel}${bestForSuffix}. ${savingsHint}`;
+    if (!expected || currentModel.includes(expected)) {
+      logRecommendation({
+        tier,
+        recommended: expected,
+        actual: currentModel,
+        promptHash,
+        followed: true,
+        profile: profileName,
+      });
+      const onlyWarnings = [govWarning, duplicateWarning, driftWarning, failureMessage, autoStatus, balanceHint].filter(Boolean).join('\n\n');
+      if (onlyWarnings) {
+        process.stdout.write(JSON.stringify({ systemMessage: onlyWarnings }));
+      } else {
+        process.stdout.write('{}');
+      }
+      process.exit(0);
+    }
+    const savings = tier === 'search' ? 'Haiku is 19x cheaper than Opus for read-only lookups.' : 'Sonnet is 5x cheaper than Opus for implementation work.';
+    const bestFor = intelligence[expected]?.best_for;
+    const bestForSuffix = bestFor ? ` (best for: ${bestFor})` : '';
+    const msg = `This looks like ${tier} work — use ${expected}${bestForSuffix} instead of ${currentModel || 'opus (inherited)'}. ${savings}`;
+    logRecommendation({
+      tier,
+      recommended: expected,
+      actual: currentModel,
+      promptHash,
+      followed: false,
+      profile: profileName,
+    });
+    process.stdout.write(JSON.stringify({ systemMessage: prependWarnings(msg) }));
   }
-
-  process.stdout.write(JSON.stringify({ systemMessage: prependWarnings(tierMsg) }));
 } catch (err) {
   process.stdout.write(JSON.stringify({
     systemMessage: `[Tier Enforcer] Config error: ${err?.message?.slice(0, 100) || 'unknown'}. Falling back to main-session judgment.`

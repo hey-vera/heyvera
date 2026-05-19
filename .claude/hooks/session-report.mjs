@@ -61,34 +61,56 @@ function boxTitle(s) {
 // ---------------------------------------------------------------------------
 function padR(s, n) { s = String(s); return s.length >= n ? s.slice(0, n) : s + ' '.repeat(n - s.length); }
 function padL(s, n) { s = String(s); return s.length >= n ? s.slice(0, n) : ' '.repeat(n - s.length) + s; }
+function fmt$(n) { return '$' + n.toFixed(2); }
 
 // ---------------------------------------------------------------------------
-// Load orchestrator config (used by drift section)
+// Load orchestrator config
 // ---------------------------------------------------------------------------
 function loadConfig() {
   try { return JSON.parse(readFileSync(CONFIG_FILE, 'utf8')); } catch { return null; }
 }
 
-// ---------------------------------------------------------------------------
-// Activity scoring (mirrors summary-checkpoint.mjs formula)
-// ---------------------------------------------------------------------------
-const TIER_ACTIVITY_WEIGHTS = { search: 3, execute: 10, think: 25 };
-const SESSION_ACTIVITY_CEILING = 5_000_000;
-
-function computeActivity(tier, record = {}) {
-  const hasActual = record.input_tokens != null && record.output_tokens != null;
-  if (hasActual) {
-    return (record.input_tokens * 1) + (record.output_tokens * 3);
+function buildRateMap(config) {
+  const rates = {};
+  if (!config?.subscriptions) return rates;
+  for (const provider of Object.values(config.subscriptions)) {
+    for (const [modelKey, data] of Object.entries(provider.models || {})) {
+      rates[modelKey] = {
+        tier: data.tier,
+        input_per_mtok:  data.input_per_mtok,
+        output_per_mtok: data.output_per_mtok,
+      };
+    }
   }
-  return TIER_ACTIVITY_WEIGHTS[tier] || TIER_ACTIVITY_WEIGHTS.execute;
+  return rates;
 }
 
-function activityLabel(score) {
-  if (score <= 10) return 'minimal';
-  if (score <= 30) return 'light';
-  if (score <= 60) return 'moderate';
-  if (score <= 85) return 'heavy';
-  return 'intense';
+// ---------------------------------------------------------------------------
+// Token heuristics (mirrors cost-report.mjs)
+// ---------------------------------------------------------------------------
+const TOKEN_HEURISTICS = {
+  search:  { input: 2_000,  output:   500 },
+  execute: { input: 4_000,  output: 1_500 },
+  think:   { input: 8_000,  output: 3_000 },
+};
+
+function estimateCost(tier, model, rateMap, record = {}) {
+  const heuristic = TOKEN_HEURISTICS[tier] || TOKEN_HEURISTICS.execute;
+  const hasActual = record.input_tokens != null && record.output_tokens != null;
+  const inputTok  = hasActual ? record.input_tokens  : heuristic.input;
+  const outputTok = hasActual ? record.output_tokens : heuristic.output;
+  const rate = rateMap[model] || rateMap['main-session'];
+  if (!rate) {
+    const fallbackTier = (model === 'main-session' || model === 'unknown') ? 'think' : tier;
+    const tierRate =
+      Object.values(rateMap).find(r => r.tier === fallbackTier) ||
+      Object.values(rateMap).find(r => r.tier === tier);
+    if (!tierRate) return 0;
+    return (inputTok / 1_000_000) * tierRate.input_per_mtok +
+           (outputTok / 1_000_000) * tierRate.output_per_mtok;
+  }
+  return (inputTok / 1_000_000) * rate.input_per_mtok +
+         (outputTok / 1_000_000) * rate.output_per_mtok;
 }
 
 // ---------------------------------------------------------------------------
@@ -131,54 +153,52 @@ function loadTodayRecords() {
 const TIER_ORDER  = ['search', 'execute', 'think'];
 const TIER_LABELS = { search: 'Search ', execute: 'Execute', think: 'Think  ' };
 
-function buildActivitySection(records) {
+function buildActivitySection(records, rateMap) {
   // Aggregate by tier — only non-recommendation records
   const activity = records.filter(r => r.type !== 'tier_recommendation');
 
   const buckets = {};
   for (const r of activity) {
     const tier  = r.tier  || 'execute';
-    if (!buckets[tier]) buckets[tier] = { calls: 0, activityRaw: 0, actualCount: 0 };
+    const model = r.model || 'unknown';
+    if (!buckets[tier]) buckets[tier] = { calls: 0, cost: 0, actualCount: 0 };
     buckets[tier].calls += 1;
-    buckets[tier].activityRaw += computeActivity(tier, r);
+    buckets[tier].cost  += estimateCost(tier, model, rateMap, r);
     if (r.input_tokens != null && r.output_tokens != null) buckets[tier].actualCount += 1;
   }
-
-  const totalRaw = Object.values(buckets).reduce((s, b) => s + b.activityRaw, 0);
-  const totalScore = Math.min(100, Math.round((totalRaw / SESSION_ACTIVITY_CEILING) * 100));
 
   const lines = [];
   lines.push(boxLine('Activity Summary'));
   lines.push(boxLine('─'.repeat(INNER)));
 
-  // Column widths: Tier(8) │ Calls(6) │ Activity %(10)
-  const header = padR('Tier', 8) + ' │ ' + padL('Calls', 5) + ' │ ' + padL('Activity %', 10);
+  // Column widths: Tier(8) │ Calls(6) │ Est. Cost(10)
+  const header = padR('Tier', 8) + ' │ ' + padL('Calls', 5) + ' │ ' + padL('Est. Cost', 10);
   const divRow = '─'.repeat(8) + '─┼─' + '─'.repeat(5) + '─┼─' + '─'.repeat(10);
   lines.push(boxLine(header));
   lines.push(boxLine(divRow));
 
   let totalCalls = 0;
+  let totalCost  = 0;
 
   for (const tier of TIER_ORDER) {
     const b = buckets[tier];
     if (!b) continue;
     const label = padR(TIER_LABELS[tier] || tier, 8);
     const calls = padL(String(b.calls), 5);
-    const pct   = totalRaw > 0 ? Math.round((b.activityRaw / totalRaw) * 100) : 0;
-    const pctStr = padL(`${pct}%`, 10);
-    lines.push(boxLine(`${label} │ ${calls} │ ${pctStr}`));
+    const cost  = padL(fmt$(b.cost), 10);
+    lines.push(boxLine(`${label} │ ${calls} │ ${cost}`));
     totalCalls += b.calls;
+    totalCost  += b.cost;
   }
 
   lines.push(boxLine(divRow));
-  lines.push(boxLine(padR('Total', 8) + ' │ ' + padL(String(totalCalls), 5) + ' │ ' + padL(`${totalScore}/100`, 10)));
-  lines.push(boxLine(`Activity: ${totalScore}/100 (${activityLabel(totalScore)})`));
+  lines.push(boxLine(padR('Total', 8) + ' │ ' + padL(String(totalCalls), 5) + ' │ ' + padL(fmt$(totalCost), 10)));
 
   if (totalCalls === 0) {
     lines.push(boxLine('  (no usage data recorded today)'));
   }
 
-  return { lines, totalCalls, totalScore, buckets };
+  return { lines, totalCalls, totalCost, buckets };
 }
 
 // ---------------------------------------------------------------------------
@@ -247,7 +267,7 @@ function buildProviderBalanceSection(records) {
 // ---------------------------------------------------------------------------
 // Section 2: Routing Compliance
 // ---------------------------------------------------------------------------
-function buildComplianceSection(records) {
+function buildComplianceSection(records, rateMap) {
   const recs = records.filter(r => r.type === 'tier_recommendation');
 
   const total     = recs.length;
@@ -256,15 +276,24 @@ function buildComplianceSection(records) {
   const followPct = total > 0 ? Math.round((followed / total) * 100) : 0;
   const ignorePct = total > 0 ? 100 - followPct : 0;
 
-  // Activity waste: diff between actual-tier weight and recommended-tier weight
-  let wastedActivity = 0;
+  // Overspend: for each ignored rec, diff between actual-tier cost and recommended-tier cost
+  let overspend = 0;
   for (const r of recs) {
     if (r.followed === true) continue;
     if (!r.recommended_tier || !r.actual_tier) continue;
-    const recWeight = TIER_ACTIVITY_WEIGHTS[r.recommended_tier] || TIER_ACTIVITY_WEIGHTS.execute;
-    const actWeight = TIER_ACTIVITY_WEIGHTS[r.actual_tier] || TIER_ACTIVITY_WEIGHTS.execute;
-    const delta = actWeight - recWeight;
-    if (delta > 0) wastedActivity += delta;
+    const recommended = TOKEN_HEURISTICS[r.recommended_tier] || TOKEN_HEURISTICS.execute;
+    const actual      = TOKEN_HEURISTICS[r.actual_tier]      || TOKEN_HEURISTICS.execute;
+
+    const recRate = Object.values(rateMap).find(x => x.tier === r.recommended_tier);
+    const actRate = Object.values(rateMap).find(x => x.tier === r.actual_tier);
+    if (!recRate || !actRate) continue;
+
+    const recCost = (recommended.input / 1_000_000) * recRate.input_per_mtok +
+                    (recommended.output / 1_000_000) * recRate.output_per_mtok;
+    const actCost = (actual.input / 1_000_000) * actRate.input_per_mtok +
+                    (actual.output / 1_000_000) * actRate.output_per_mtok;
+    const delta = actCost - recCost;
+    if (delta > 0) overspend += delta;
   }
 
   const lines = [];
@@ -273,7 +302,7 @@ function buildComplianceSection(records) {
   lines.push(boxLine(`Recommendations: ${total}`));
   lines.push(boxLine(`Followed:        ${followed} (${followPct}%)`));
   lines.push(boxLine(`Ignored:          ${ignored} (${ignorePct}%)`));
-  lines.push(boxLine(`Wasted activity:  ${wastedActivity} units (from misrouted calls)`));
+  lines.push(boxLine(`Estimated overspend: ~${fmt$(overspend)}`));
 
   return { lines };
 }
@@ -434,6 +463,7 @@ function buildDriftSection(config) {
 // ---------------------------------------------------------------------------
 function main() {
   const config  = loadConfig();
+  const rateMap = buildRateMap(config);
   const records = loadTodayRecords();
 
   const output = [];
@@ -443,7 +473,7 @@ function main() {
   output.push(boxDiv());
 
   // --- Section 1: Activity Summary ---
-  const { lines: actLines } = buildActivitySection(records);
+  const { lines: actLines } = buildActivitySection(records, rateMap);
   output.push(...actLines);
   output.push(boxBlank());
 
@@ -453,7 +483,7 @@ function main() {
   output.push(boxBlank());
 
   // --- Section 2: Routing Compliance ---
-  const { lines: compLines } = buildComplianceSection(records);
+  const { lines: compLines } = buildComplianceSection(records, rateMap);
   output.push(...compLines);
   output.push(boxBlank());
 

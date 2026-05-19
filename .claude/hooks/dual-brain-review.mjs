@@ -5,32 +5,21 @@
  * Sends git diffs to GPT for independent code review using the Codex CLI
  * (uses your ChatGPT subscription — no API key needed).
  *
- * Auto mode (default — no --round flag):
- *   Runs the full 2-round review collaboration automatically.
- *   node .claude/hooks/dual-brain-review.mjs
- *
- * Manual Round 1:
- *   node .claude/hooks/dual-brain-review.mjs --round 1
- *
- * Manual Round 2:
- *   node .claude/hooks/dual-brain-review.mjs --round 2 --claude-review "<findings>"
- *
- * Force manual mode:
- *   node .claude/hooks/dual-brain-review.mjs --manual
- *
  * Falls back to direct OpenAI API if OPENAI_API_KEY is set.
  * Falls back to "no GPT available" if neither works.
  *
- * Output: JSON to stdout — always valid, never crashes (manual/round mode).
- *         Human-readable output in auto mode.
+ * Usage:  node .claude/hooks/dual-brain-review.mjs
+ * Output: JSON to stdout — always valid, never crashes.
  */
 
-import { execSync, spawnSync } from 'child_process';
+import { spawnSync } from 'child_process';
 import { readFileSync } from 'fs';
 import { dirname, join, resolve } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const IS_REPLIT = !!(process.env.REPL_ID || process.env.REPL_SLUG);
+const SANDBOX = IS_REPLIT ? 'danger-full-access' : 'read-only';
 
 const REVIEW_PROMPT_R1 = `You are GPT-5.5 performing Round 1 of a dual-brain code review.
 Claude (Opus) will independently review the same changes, then send you their findings
@@ -69,16 +58,6 @@ Be direct. If Claude found something real that you missed, say so.
 If Claude flagged something that isn't actually a problem, explain why with evidence.
 The goal is the most accurate review, not defending your initial take.`;
 
-const CLAUDE_REVIEW_PROMPT = `Review the current git diff for bugs, security issues, and code quality problems.
-
-Look for:
-1. Correctness — logic errors, null/undefined risks, off-by-one
-2. Security — injection, auth bypass, data exposure
-3. Edge cases — what breaks under unusual input
-4. Quality — naming issues, unnecessary complexity
-
-Be concise — under 300 words. List findings ordered by severity. If the code looks good, say LGTM.`;
-
 function loadReviewRules() {
   const rulesFile = resolve(__dirname, '..', 'review-rules.md');
   try {
@@ -93,7 +72,6 @@ function loadReviewRules() {
 const MAX_DIFF_CHARS = 15000;
 const MIN_DIFF_LINES = 5;
 const CODEX_TIMEOUT = 90;
-const CLAUDE_TIMEOUT_MS = 60_000;
 
 function findCodex() {
   const candidates = [
@@ -118,32 +96,24 @@ function findCodex() {
   return null;
 }
 
-function findClaude() {
-  try {
-    const which = spawnSync('which', ['claude'], { encoding: 'utf8', stdio: 'pipe', timeout: 3000 });
-    if (which.status === 0 && which.stdout.trim()) return which.stdout.trim();
-  } catch {}
-  const home = process.env.HOME || process.env.USERPROFILE || '';
-  const fallbacks = [
-    join(home, '.local', 'bin', 'claude'),
-    join(home, 'bin', 'claude'),
-    '/usr/local/bin/claude',
-  ];
-  for (const p of fallbacks) {
-    try {
-      const res = spawnSync(p, ['--version'], { stdio: 'pipe', timeout: 3000 });
-      if (res.status === 0) return p;
-    } catch {}
-  }
-  return null;
-}
-
 const CODEX_BIN = findCodex();
 
-function runGit(cmd) {
+function runGit(args) {
   try {
-    return execSync(cmd, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+    const proc = spawnSync('git', args, {
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 10_000,
+    });
+    return proc.status === 0 ? proc.stdout : null;
   } catch { return null; }
+}
+
+function isCodexAuthenticated(result) {
+  const out = ((result?.stdout || '') + (result?.stderr || '')).toLowerCase();
+  if (/\b(not\s+logged\s+in|unauthenticated|logged\s+out|no\s+auth)\b/.test(out)) return false;
+  return result?.status === 0 ||
+    /\b(logged\s+in|authenticated|signed\s+in)\b/.test(out);
 }
 
 function countLines(str) {
@@ -186,58 +156,6 @@ function hasIssues(text) {
   return true;
 }
 
-function buildReviewSynthesis(gptR1Text, claudeText, gptR2Text) {
-  const lines = [];
-
-  lines.push('REVIEW SYNTHESIS');
-  lines.push('─'.repeat(50));
-
-  // CONFIRMED findings
-  const confirmedMatch = gptR2Text.match(/CONFIRMED[:\s\n]+([\s\S]*?)(?=\n\s*(?:MISSED|DISAGREE|ESCALATED|VERDICT|[0-9]+\.)|$)/i);
-  if (confirmedMatch && confirmedMatch[1].trim().length > 5) {
-    lines.push('');
-    lines.push('HIGH-CONFIDENCE FINDINGS (both found):');
-    lines.push(confirmedMatch[1].trim().split('\n').slice(0, 6).join('\n'));
-  }
-
-  // MISSED findings (Claude caught, GPT missed)
-  const missedMatch = gptR2Text.match(/MISSED[:\s\n]+([\s\S]*?)(?=\n\s*(?:DISAGREE|ESCALATED|VERDICT|[0-9]+\.)|$)/i);
-  if (missedMatch && missedMatch[1].trim().length > 5) {
-    lines.push('');
-    lines.push('ADDITIONAL FINDINGS (Claude caught):');
-    lines.push(missedMatch[1].trim().split('\n').slice(0, 4).join('\n'));
-  }
-
-  // ESCALATED
-  const escalatedMatch = gptR2Text.match(/ESCALATED[:\s\n]+([\s\S]*?)(?=\n\s*(?:VERDICT|[0-9]+\.)|$)/i);
-  if (escalatedMatch && escalatedMatch[1].trim().length > 5) {
-    lines.push('');
-    lines.push('ESCALATED SEVERITY:');
-    lines.push(escalatedMatch[1].trim().split('\n').slice(0, 3).join('\n'));
-  }
-
-  // DISAGREE
-  const disagreeMatch = gptR2Text.match(/DISAGREE[:\s\n]+([\s\S]*?)(?=\n\s*(?:ESCALATED|VERDICT|[0-9]+\.)|$)/i);
-  if (disagreeMatch && disagreeMatch[1].trim().length > 5) {
-    lines.push('');
-    lines.push('DISPUTED (possible false positives):');
-    lines.push(disagreeMatch[1].trim().split('\n').slice(0, 3).join('\n'));
-  }
-
-  // VERDICT
-  const verdictMatch = gptR2Text.match(/VERDICT[:\s\n]+([\s\S]*?)(?=\n\s*[0-9]+\.|$)/i);
-  if (verdictMatch) {
-    lines.push('');
-    lines.push('VERDICT:');
-    lines.push(verdictMatch[1].trim().split('\n').slice(0, 2).join('\n'));
-  }
-
-  lines.push('');
-  lines.push('─'.repeat(50));
-
-  return lines.join('\n');
-}
-
 function exit(obj) {
   process.stdout.write(JSON.stringify(obj) + '\n');
   process.exit(0);
@@ -249,11 +167,10 @@ function exit(obj) {
  */
 function tryCodexReview(diff, { round = 1, claudeReview = null } = {}) {
   if (!CODEX_BIN) return null;
-  try {
-    spawnSync(CODEX_BIN, ['login', 'status'], {
-      encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 5000,
-    });
-  } catch {
+  const login = spawnSync(CODEX_BIN, ['login', 'status'], {
+    encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 5000,
+  });
+  if (!isCodexAuthenticated(login)) {
     return null;
   }
 
@@ -274,7 +191,7 @@ function tryCodexReview(diff, { round = 1, claudeReview = null } = {}) {
     const proc = spawnSync(CODEX_BIN, [
       'exec', '--json', '--ephemeral',
       '-c', `model="${model}"`,
-      '-s', 'danger-full-access',
+      '-s', SANDBOX,
       fullPrompt,
     ], {
       input: truncated,
@@ -325,34 +242,6 @@ function tryCodexReview(diff, { round = 1, claudeReview = null } = {}) {
       auth_type: 'codex_subscription',
     };
   }
-}
-
-/**
- * Try Claude CLI review.
- */
-function tryClaudeReview(diff) {
-  const claudeBin = findClaude();
-  if (!claudeBin) return null;
-
-  const truncated = diff.length > MAX_DIFF_CHARS
-    ? diff.slice(0, MAX_DIFF_CHARS) + '\n[truncated]'
-    : diff;
-
-  const prompt = `${CLAUDE_REVIEW_PROMPT}\n\nDiff to review:\n\`\`\`diff\n${truncated}\n\`\`\``;
-
-  try {
-    const proc = spawnSync(claudeBin, ['-p', prompt], {
-      encoding: 'utf8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: CLAUDE_TIMEOUT_MS,
-    });
-
-    if (proc.status === 0 && proc.stdout && proc.stdout.trim()) {
-      return proc.stdout.trim();
-    }
-  } catch {}
-
-  return null;
 }
 
 /**
@@ -442,152 +331,29 @@ function parseArgs(argv) {
   return args;
 }
 
-// ---------------------------------------------------------------------------
-// Auto mode — full 2-round review collaboration in one shot
-// ---------------------------------------------------------------------------
-
-async function runAutoReviewMode(diff) {
-  const BAR = '╠══════════════════════════════════════════════════╣';
-  const TOP = '╔══════════════════════════════════════════════════╗';
-  const BOT = '╚══════════════════════════════════════════════════╝';
-  const WIDE = '║';
-
-  const lineCount = countLines(diff);
-
-  console.log(TOP);
-  console.log(`${WIDE}  Dual-Brain Review — Auto Mode`.padEnd(51) + WIDE);
-  console.log(`${WIDE}  ${lineCount} diff lines to review`.padEnd(51) + WIDE);
-  console.log(BOT);
-  console.log('');
-
-  if (!CODEX_BIN) {
-    console.log('[Auto mode] Codex CLI not found — falling back to manual mode.');
-    console.log('');
-    console.log('Manual steps:');
-    console.log('  1. Run: node hooks/dual-brain-review.mjs --round 1');
-    console.log('  2. Review independently');
-    console.log('  3. Run: node hooks/dual-brain-review.mjs --round 2 --claude-review "<findings>"');
-    return;
-  }
-
-  // Step 1: GPT Round 1
-  console.log('[ 1/4 ] Sending diff to GPT for Round 1 review...');
-  const r1Result = tryCodexReview(diff, { round: 1 });
-
-  if (!r1Result || r1Result.error) {
-    const errMsg = r1Result?.review || 'Codex unavailable or not authenticated';
-    console.log(`[Auto mode] GPT Round 1 failed: ${errMsg}`);
-
-    // Try API fallback
-    const apiR1 = await tryApiReview(diff, { round: 1 });
-    if (!apiR1) {
-      console.log('[Auto mode] No GPT available. Falling back to manual mode.');
-      return;
-    }
-    console.log('');
-    console.log(TOP);
-    console.log(`${WIDE}  Round 1 — GPT Review (API fallback)`.padEnd(51) + WIDE);
-    console.log(BOT);
-    console.log('');
-    console.log(apiR1.review);
-    console.log('');
-    // Can't continue with auto Round 2 via API easily — prompt manual
-    console.log('[Auto mode] API fallback: review Claude perspective manually, then run Round 2.');
-    return;
-  }
-
-  console.log('');
-  console.log(TOP);
-  console.log(`${WIDE}  Round 1 — GPT Review`.padEnd(51) + WIDE);
-  console.log(BOT);
-  console.log('');
-  console.log(r1Result.review);
-  console.log('');
-
-  // Step 2: Claude's independent review
-  console.log('[ 2/4 ] Generating Claude independent review...');
-  const claudeReviewText = tryClaudeReview(diff);
-
-  if (!claudeReviewText) {
-    console.log('[Auto mode] Claude CLI not available — skipping Claude review step.');
-    console.log('Set your PATH to include the `claude` binary to enable full auto mode.');
-    console.log('');
-  } else {
-    console.log('');
-    console.log(TOP);
-    console.log(`${WIDE}  Claude Independent Review`.padEnd(51) + WIDE);
-    console.log(BOT);
-    console.log('');
-    console.log(claudeReviewText);
-    console.log('');
-  }
-
-  // Step 3: GPT Round 2
-  const claudeFindings = claudeReviewText || '(Claude review unavailable — assess independently)';
-  console.log('[ 3/4 ] Sending Round 2 to GPT with Claude findings...');
-  const r2Result = tryCodexReview(diff, { round: 2, claudeReview: claudeFindings });
-
-  if (!r2Result || r2Result.error) {
-    console.log('[Auto mode] GPT Round 2 failed. Synthesis skipped.');
-    console.log('Review Round 1 and Claude findings above for your assessment.');
-    return;
-  }
-
-  console.log('');
-  console.log(TOP);
-  console.log(`${WIDE}  Round 2 — GPT Cross-Validation`.padEnd(51) + WIDE);
-  console.log(BOT);
-  console.log('');
-  console.log(r2Result.review);
-  console.log('');
-
-  // Step 4: Synthesis
-  console.log('[ 4/4 ] Building review synthesis...');
-  console.log('');
-  console.log(TOP);
-  console.log(`${WIDE}  Final Review Synthesis`.padEnd(51) + WIDE);
-  console.log(BOT);
-  console.log('');
-  console.log(buildReviewSynthesis(r1Result.review, claudeReviewText || '', r2Result.review));
-  console.log('');
-}
-
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const hasExplicitRound = args.round !== undefined;
-  const isManual = args.manual === true || hasExplicitRound;
-
   const round = args.round ? parseInt(args.round, 10) : 1;
   const claudeReview = args['claude-review'] || null;
   const opts = { round, claudeReview };
 
   // 1. Get diff
-  let diff = runGit('git diff --staged') || '';
+  let diff = runGit(['diff', '--staged']) || '';
   if (countLines(diff) < MIN_DIFF_LINES) {
-    const headDiff = runGit('git diff HEAD') || '';
+    const headDiff = runGit(['diff', 'HEAD']) || '';
     if (countLines(headDiff) > countLines(diff)) diff = headDiff;
   }
 
   try {
-    const untracked = runGit('git ls-files --others --exclude-standard') || '';
+    const untracked = runGit(['ls-files', '--others', '--exclude-standard']) || '';
     const sourceExts = /\.(ts|tsx|js|jsx|py|rs|go|java|rb|swift|kt|mjs|cjs)$/;
     const untrackedSrc = untracked.split('\n').filter(f => f && sourceExts.test(f));
     for (const f of untrackedSrc.slice(0, 10)) {
-      const content = runGit(`git diff --no-index /dev/null "${f}"`);
+      const content = runGit(['diff', '--no-index', '/dev/null', f]);
       if (content) diff += '\n' + content;
     }
   } catch {}
 
-  if (!isManual) {
-    // Auto mode — human-readable output when there are changes
-    if (countLines(diff) >= MIN_DIFF_LINES) {
-      await runAutoReviewMode(diff);
-      return;
-    }
-    // No changes: fall through to JSON output for programmatic callers
-  }
-
-  // Manual / round mode — JSON output (backward compat)
   if (countLines(diff) < MIN_DIFF_LINES) {
     exit({ review: 'No significant changes to review' });
   }

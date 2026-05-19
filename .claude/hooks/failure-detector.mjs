@@ -12,8 +12,6 @@ import { createHash } from 'crypto';
 import { readFileSync, appendFileSync, writeFileSync, renameSync, unlinkSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
-import { atomicWriteJSON } from './atomic-write.mjs';
-import { logHookError } from './error-channel.mjs';
 
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -92,7 +90,7 @@ function recordFailure(promptHash, tier, reason) {
   });
   try {
     appendFileSync(LEDGER_FILE, entry + '\n');
-  } catch (e) { logHookError('failure-detector', 'recordFailure append', e); }
+  } catch {}
 }
 
 /**

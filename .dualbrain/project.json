@@ -1,0 +1,15 @@
+{
+  "name": "claw-net",
+  "version": "1.0.0",
+  "created": "2026-05-17T15:05:01.929Z",
+  "workStyle": "balanced",
+  "userCalibration": {
+    "specificity": 3,
+    "corrections": 3.1,
+    "autonomy": 3,
+    "interactions": 1,
+    "lastUpdated": "2026-05-17T15:05:02.580Z"
+  },
+  "team": [],
+  "providers": {}
+}

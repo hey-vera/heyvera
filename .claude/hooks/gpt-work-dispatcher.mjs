@@ -9,20 +9,33 @@
  * Usage as CLI:
  *   node .claude/hooks/gpt-work-dispatcher.mjs \
  *     --task "Add tests for budget-balancer.mjs" \
- *     --model gpt-5.4 \
+ *     --tier execute \
  *     --files hooks/budget-balancer.mjs
  *
  * Usage as module:
  *   import { dispatchGptTask } from './gpt-work-dispatcher.mjs';
- *   const result = await dispatchGptTask({ task, model, files, constraints, timeoutMs });
+ *   const result = await dispatchGptTask({ task, model, tier, forceModel, files, constraints, timeoutMs });
  */
 
-import { execSync, spawnSync } from 'child_process';
+import { spawnSync } from 'child_process';
 import { appendFileSync, readFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const CONFIG_FILE = join(__dirname, '..', 'orchestrator.json');
+const EXECUTE_WORDS = /\b(edit|write|fix|implement|modify|refactor|delete|commit|test|build|run|add|update|create)\b/i;
+const SEARCH_WORDS = /\b(explore|search|find|grep|locate|list\s+files|read[-\s]?only|lookup|scan)\b/i;
+const THINK_WORDS = /\b(plan|design|architect|review|audit|security|code[-\s]?review|threat[-\s]?model|complex[-\s]?debug)\b/i;
+const IS_REPLIT = !!(process.env.REPL_ID || process.env.REPL_SLUG);
+const GPT_TIER_SANDBOX = IS_REPLIT
+  ? { search: 'danger-full-access', execute: 'danger-full-access', think: 'danger-full-access' }
+  : { search: 'read-only', execute: 'danger-full-access', think: 'read-only' };
+const GPT_TIER_PROMPTS = {
+  search: 'You are a READ-ONLY search agent. Do NOT edit files.',
+  execute: 'You are an execution agent. Edit files directly.',
+  think: 'You are an architecture/review agent. Analyze and recommend, do not edit unless explicitly asked.',
+};
 
 // ---------------------------------------------------------------------------
 // Codex discovery — mirrors dual-brain-review.mjs
@@ -51,16 +64,66 @@ function findCodex() {
   return null;
 }
 
+function isCodexAuthenticated(result) {
+  const out = ((result?.stdout || '') + (result?.stderr || '')).toLowerCase();
+  if (/\b(not\s+logged\s+in|unauthenticated|logged\s+out|no\s+auth)\b/.test(out)) return false;
+  return result?.status === 0 ||
+    /\b(logged\s+in|authenticated|signed\s+in)\b/.test(out);
+}
+
 // ---------------------------------------------------------------------------
 // Prompt builder
 // ---------------------------------------------------------------------------
 
+function normalizeTier(tier) {
+  return ['search', 'execute', 'think'].includes(tier) ? tier : null;
+}
+
+function loadOrchestratorConfig() {
+  try {
+    return JSON.parse(readFileSync(CONFIG_FILE, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+export function classifyGptTier(task) {
+  const text = [
+    task?.task,
+    ...(Array.isArray(task?.constraints) ? task.constraints : []),
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  if (THINK_WORDS.test(text)) return 'think';
+  if (EXECUTE_WORDS.test(text)) return 'execute';
+  if (SEARCH_WORDS.test(text)) return 'search';
+  return 'execute';
+}
+
+export function resolveGptModel(tier, config = loadOrchestratorConfig()) {
+  const normalizedTier = normalizeTier(tier);
+  if (!normalizedTier) return null;
+
+  const models = config?.subscriptions?.openai?.models ?? {};
+  for (const [model, meta] of Object.entries(models)) {
+    if (meta?.tier === normalizedTier) return model;
+  }
+
+  if (normalizedTier === 'think') return 'gpt-5.5';
+  if (normalizedTier === 'search') return 'gpt-4.1-mini';
+  return 'gpt-5.4';
+}
+
 function buildPrompt(task) {
+  const tierInstruction = GPT_TIER_PROMPTS[task.tier] || GPT_TIER_PROMPTS.execute;
   let prompt = `You are a GPT execution agent inside the Dual-Brain Orchestrator.
 
 Task: ${task.task}
 
-Own this task completely. Edit files directly.
+${tierInstruction}
+
+Own this task completely.
 
 `;
   if (task.files?.length) {
@@ -81,62 +144,121 @@ Own this task completely. Edit files directly.
 // Codex executor
 // ---------------------------------------------------------------------------
 
-function executeCodex(codexBin, model, prompt, cwd, timeoutMs) {
-  const startTime = Date.now();
+function classifyCodexFailure(proc) {
+  let failureType = null;
 
-  const proc = spawnSync(codexBin, [
+  if (proc.error?.code === 'ETIMEDOUT') {
+    failureType = 'timeout';
+  } else if (proc.error?.code === 'ENOENT') {
+    failureType = 'not_found';
+  } else if (proc.error) {
+    failureType = 'spawn_error';
+  }
+
+  const stderr = (proc.stderr || '').toLowerCase();
+  if (stderr.includes('unauthorized') || stderr.includes('401') || stderr.includes('not logged in')) {
+    failureType = 'auth';
+  } else if (stderr.includes('rate limit') || stderr.includes('429') || stderr.includes('too many')) {
+    failureType = 'rate_limit';
+  } else if (stderr.includes('timeout') || stderr.includes('timed out')) {
+    failureType = 'timeout';
+  }
+
+  return failureType;
+}
+
+function runCodexExec(codexBin, model, prompt, cwd, timeoutMs, sandbox, effort) {
+  const args = [
     'exec', '--json', '--ephemeral',
     '-m', model,
-    '-s', 'danger-full-access',
-    prompt,
-  ], {
+    '-s', sandbox,
+  ];
+  if (effort && ['low', 'medium', 'high', 'xhigh'].includes(effort)) {
+    args.push('-c', `reasoning.effort="${effort}"`);
+  }
+  args.push(prompt);
+  return spawnSync(codexBin, args, {
     encoding: 'utf8',
     stdio: ['pipe', 'pipe', 'pipe'],
     timeout: timeoutMs || 120000,
     cwd: cwd || process.cwd(),
   });
+}
 
-  const durationMs = Date.now() - startTime;
+function executeCodex(codexBin, model, prompt, cwd, timeoutMs, sandbox = 'danger-full-access', effort = null) {
+  const startTime = Date.now();
 
-  // Parse JSONL output
-  const messages = (proc.stdout || '')
-    .split('\n')
-    .filter(l => l.trim())
-    .map(l => { try { return JSON.parse(l); } catch { return null; } })
-    .filter(Boolean);
+  function finalizeAttempt(proc, attemptStartTime, attemptCount) {
+    const durationMs = Date.now() - attemptStartTime;
+    const failureType = classifyCodexFailure(proc);
 
-  const agentMessages = messages
-    .filter(m => m.type === 'item.completed' && m.item?.type === 'agent_message')
-    .map(m => m.item.text);
+    // Parse JSONL output
+    const messages = (proc.stdout || '')
+      .split('\n')
+      .filter(l => l.trim())
+      .map(l => { try { return JSON.parse(l); } catch { return null; } })
+      .filter(Boolean);
 
-  const usage = messages.find(m => m.type === 'turn.completed')?.usage;
-  const errors = messages.filter(m => m.type === 'error' || m.type === 'turn.failed');
+    const agentMessages = messages
+      .filter(m => m.type === 'item.completed' && m.item?.type === 'agent_message')
+      .map(m => m.item.text);
 
-  // Detect changed files from command_execution items
-  const commands = messages
-    .filter(m => m.type === 'item.completed' && m.item?.type === 'command_execution')
-    .map(m => m.item);
+    const usage = messages.find(m => m.type === 'turn.completed')?.usage;
+    const errors = messages.filter(m => m.type === 'error' || m.type === 'turn.failed');
+    const errorMessages = errors.map(e => e.message || e.error?.message || 'unknown');
 
-  // Estimate startup time: time to first agent message or completed item
-  const firstItemTs = messages.find(m => m.type === 'item.completed')?.timestamp;
-  let startupMs = null;
-  if (firstItemTs) {
-    startupMs = Date.parse(firstItemTs) - startTime;
-    if (startupMs < 0 || startupMs > durationMs) startupMs = null;
+    if (proc.error?.message) {
+      errorMessages.unshift(proc.error.message);
+    }
+    if (proc.stderr?.trim() && errorMessages.length === 0 && proc.status !== 0) {
+      errorMessages.push(proc.stderr.trim().slice(0, 200));
+    }
+
+    // Detect changed files from command_execution items
+    const commands = messages
+      .filter(m => m.type === 'item.completed' && m.item?.type === 'command_execution')
+      .map(m => m.item);
+
+    // Estimate startup time: time to first agent message or completed item
+    const firstItemTs = messages.find(m => m.type === 'item.completed')?.timestamp;
+    let startupMs = null;
+    if (firstItemTs) {
+      startupMs = Date.parse(firstItemTs) - attemptStartTime;
+      if (startupMs < 0 || startupMs > durationMs) startupMs = null;
+    }
+
+    return {
+      success: proc.status === 0 && errors.length === 0 && !failureType,
+      summary: agentMessages.join('\n\n'),
+      durationMs,
+      startupMs,
+      model,
+      usage: usage || null,
+      errors: errorMessages,
+      commands: commands.length,
+      exitCode: proc.status,
+      signal: proc.signal,
+      failureType: failureType || null,
+      stderrSummary: proc.stderr?.trim().slice(0, 200) || null,
+      spawnErrorMessage: proc.error?.message || null,
+      retryCount: attemptCount - 1,
+    };
   }
 
-  return {
-    success: proc.status === 0 && errors.length === 0,
-    summary: agentMessages.join('\n\n'),
-    durationMs,
-    startupMs,
-    model,
-    usage: usage || null,
-    errors: errors.map(e => e.message || e.error?.message || 'unknown'),
-    commands: commands.length,
-    exitCode: proc.status,
-    signal: proc.signal,
-  };
+  let attemptCount = 1;
+  let attemptStartTime = startTime;
+  let proc = runCodexExec(codexBin, model, prompt, cwd, timeoutMs, sandbox, effort);
+  let result = finalizeAttempt(proc, attemptStartTime, attemptCount);
+
+  if (!result.success && (result.failureType === 'rate_limit' || result.failureType === 'timeout')) {
+    spawnSync('sleep', ['3'], { stdio: 'ignore' });
+    attemptCount += 1;
+    attemptStartTime = Date.now();
+    proc = runCodexExec(codexBin, model, prompt, cwd, timeoutMs, sandbox, effort);
+    result = finalizeAttempt(proc, attemptStartTime, attemptCount);
+  }
+
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -154,12 +276,14 @@ const SESSION_ID = process.env.CLAUDE_SESSION_ID || process.ppid?.toString() || 
 function logUsageEvent(result, task) {
   const logFile = join(__dirname, `usage-${new Date().toISOString().slice(0, 10)}.jsonl`);
   const entryObj = {
-    schema_version: 3,
+    schema_version: 4,
     timestamp: new Date().toISOString(),
     provider: 'openai',
     tier: task.tier || 'execute',
+    classified_tier: task.classifiedTier || task.tier || 'execute',
     tool: 'codex-exec',
     model: result.model,
+    model_override: task.modelOverride || null,
     status: result.success ? 'ok' : 'error',
     durationMs: result.durationMs,
     codex_startup_ms: result.startupMs || null,
@@ -202,6 +326,18 @@ function logUsageEvent(result, task) {
 // Main exported function
 // ---------------------------------------------------------------------------
 
+function tryHealCodexAuth(codexBin) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) return false;
+  const pipe = spawnSync(codexBin, ['login', '--with-api-key'], {
+    input: apiKey,
+    encoding: 'utf8',
+    stdio: ['pipe', 'pipe', 'pipe'],
+    timeout: 10000,
+  });
+  return pipe.status === 0;
+}
+
 export async function dispatchGptTask(task) {
   const codexBin = findCodex();
   if (!codexBin) {
@@ -211,11 +347,72 @@ export async function dispatchGptTask(task) {
     };
   }
 
-  const model = task.model || 'gpt-5.4';
-  const prompt = buildPrompt(task);
-  const result = executeCodex(codexBin, model, prompt, task.cwd, task.timeoutMs);
+  // Pre-flight: check auth and heal if possible
+  const loginCheck = spawnSync(codexBin, ['login', 'status'], {
+    encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 5000,
+  });
+  const isAuthed = isCodexAuthenticated(loginCheck);
+  if (!isAuthed) {
+    const healed = tryHealCodexAuth(codexBin);
+    if (!healed) {
+      return {
+        success: false,
+        error: 'Codex not authenticated. Run: npx dual-brain (sign in with your ChatGPT subscription) or codex login --device-auth',
+      };
+    }
+  }
+
+  const config = loadOrchestratorConfig();
+  const classifiedTier = classifyGptTier(task);
+  const explicitTier = normalizeTier(task.tier);
+  const tier = explicitTier || classifiedTier;
+  const expectedModel = resolveGptModel(tier, config) || 'gpt-5.4';
+
+  let model = task.model || expectedModel;
+  let modelOverride = null;
+
+  if (task.model && !task.forceModel && task.model !== expectedModel) {
+    console.warn(`[gpt-work-dispatcher] Warning: task classified as "${tier}", overriding requested model "${task.model}" with "${expectedModel}". Use --force-model to bypass.`);
+    model = expectedModel;
+    modelOverride = {
+      requested: task.model,
+      effective: expectedModel,
+      forced: false,
+      reason: `tier:${tier}`,
+    };
+  } else if (!task.model) {
+    modelOverride = {
+      requested: null,
+      effective: expectedModel,
+      forced: false,
+      reason: `auto-select:${tier}`,
+    };
+  } else if (task.forceModel) {
+    modelOverride = {
+      requested: task.model,
+      effective: task.model,
+      forced: true,
+      reason: `force-model:${tier}`,
+    };
+  }
+
+  const preparedTask = {
+    ...task,
+    tier,
+    classifiedTier,
+    modelOverride,
+  };
+  const prompt = buildPrompt(preparedTask);
+  const sandbox = GPT_TIER_SANDBOX[tier] || GPT_TIER_SANDBOX.execute;
+  const effort = task.effort || null;
+  const result = executeCodex(codexBin, model, prompt, task.cwd, task.timeoutMs, sandbox, effort);
+  result.tier = tier;
+  result.classifiedTier = classifiedTier;
+  result.modelOverride = modelOverride;
+  result.effort = effort;
+  result.sandbox = sandbox;
   result.profile = loadActiveProfile();
-  logUsageEvent(result, task);
+  logUsageEvent(result, preparedTask);
   return result;
 }
 
@@ -261,6 +458,10 @@ function parseArgs(argv) {
     args.timeoutMs = Number(args.timeout) * 1000;
     delete args.timeout;
   }
+  if (typeof args['force-model'] === 'boolean') {
+    args.forceModel = args['force-model'];
+    delete args['force-model'];
+  }
 
   return args;
 }
@@ -273,7 +474,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const rawArgs = parseArgs(process.argv.slice(2));
 
   if (!rawArgs.task) {
-    console.error('Usage: node gpt-work-dispatcher.mjs --task "<description>" [--model gpt-5.4] [--files file1,file2] [--timeout 120]');
+    console.error('Usage: node gpt-work-dispatcher.mjs --task "<description>" [--tier think|execute|search] [--model MODEL] [--force-model] [--files file1,file2] [--timeout 120] [--effort low|medium|high|xhigh]');
     process.exit(1);
   }
 
@@ -290,6 +491,19 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     console.log(`║ Model: ${result.model}  Duration: ${(result.durationMs / 1000).toFixed(1)}s`);
     console.log('╚══════════════════════════════════════════════════╝');
   } else {
+    if (result.failureType) {
+      const friendlyMessage = {
+        auth: 'Codex not authenticated. Run: codex login --device-auth',
+        rate_limit: 'Rate limited by OpenAI. Try again in a few minutes.',
+        timeout: 'Codex timed out. Try a simpler task or increase timeout.',
+        not_found: 'Codex CLI not found. Run: npm i -g @openai/codex',
+        spawn_error: `Failed to start Codex: ${result.spawnErrorMessage || 'unknown spawn error'}`,
+      }[result.failureType];
+
+      if (friendlyMessage) {
+        console.error(friendlyMessage);
+      }
+    }
     console.error('Task failed:', result.errors?.join(', ') || result.error);
   }
 

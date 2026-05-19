@@ -3,21 +3,12 @@
  * dual-brain-think.mjs
  *
  * Runs a dual-perspective thinking process — GPT-5.5 (via Codex CLI) independently
- * analyzes a question, then Claude provides its own independent analysis, and both
- * perspectives are synthesized into a final recommendation.
+ * analyzes a question, then emits its output along with instructions for Claude
+ * (the main session) to provide its own independent analysis and compare both.
  *
- * Auto mode (default — no --round flag):
- *   Runs the full 2-round collaboration automatically in one command.
- *   node .claude/hooks/dual-brain-think.mjs --question "Should we use Redis?"
- *
- * Manual Round 1:
- *   node .claude/hooks/dual-brain-think.mjs --question "..." --round 1
- *
- * Manual Round 2:
- *   node .claude/hooks/dual-brain-think.mjs --question "..." --round 2 --claude-says "<analysis>"
- *
- * Force manual mode (skip auto):
- *   node .claude/hooks/dual-brain-think.mjs --question "..." --manual
+ * Usage as CLI:
+ *   node .claude/hooks/dual-brain-think.mjs \
+ *     --question "Should we use queues or direct API calls for the notification system?"
  *
  * Usage as module:
  *   import { dualThink } from './dual-brain-think.mjs';
@@ -28,15 +19,16 @@
  *   });
  */
 
-import { execSync, spawnSync } from 'child_process';
+import { spawnSync } from 'child_process';
 import { appendFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const IS_REPLIT = !!(process.env.REPL_ID || process.env.REPL_SLUG);
+const SANDBOX = IS_REPLIT ? 'danger-full-access' : 'read-only';
 
 const CODEX_TIMEOUT_MS = 120_000;
-const CLAUDE_TIMEOUT_MS = 60_000;
 const MODEL = 'gpt-5.5';
 
 // ---------------------------------------------------------------------------
@@ -66,28 +58,11 @@ function findCodex() {
   return null;
 }
 
-// ---------------------------------------------------------------------------
-// Claude CLI discovery
-// ---------------------------------------------------------------------------
-
-function findClaude() {
-  try {
-    const which = spawnSync('which', ['claude'], { encoding: 'utf8', stdio: 'pipe', timeout: 3000 });
-    if (which.status === 0 && which.stdout.trim()) return which.stdout.trim();
-  } catch {}
-  const home = process.env.HOME || process.env.USERPROFILE || '';
-  const fallbacks = [
-    join(home, '.local', 'bin', 'claude'),
-    join(home, 'bin', 'claude'),
-    '/usr/local/bin/claude',
-  ];
-  for (const p of fallbacks) {
-    try {
-      const res = spawnSync(p, ['--version'], { stdio: 'pipe', timeout: 3000 });
-      if (res.status === 0) return p;
-    } catch {}
-  }
-  return null;
+function isCodexAuthenticated(result) {
+  const out = ((result?.stdout || '') + (result?.stderr || '')).toLowerCase();
+  if (/\b(not\s+logged\s+in|unauthenticated|logged\s+out|no\s+auth)\b/.test(out)) return false;
+  return result?.status === 0 ||
+    /\b(logged\s+in|authenticated|signed\s+in)\b/.test(out);
 }
 
 // ---------------------------------------------------------------------------
@@ -145,7 +120,7 @@ function runGptAnalysis(codexBin, prompt) {
   const proc = spawnSync(codexBin, [
     'exec', '--json', '--ephemeral',
     '-m', MODEL,
-    '-s', 'danger-full-access',
+    '-s', SANDBOX,
     prompt,
   ], {
     encoding: 'utf8',
@@ -193,102 +168,6 @@ function runGptAnalysis(codexBin, prompt) {
     durationMs,
     usage: null,
   };
-}
-
-// ---------------------------------------------------------------------------
-// Claude CLI executor
-// ---------------------------------------------------------------------------
-
-function runClaudeAnalysis(claudeBin, question, context) {
-  const prompt = `You are providing an independent analysis for a dual-brain architecture discussion. Question: ${question}${context ? `\n\nContext: ${context}` : ''}
-
-Provide:
-1) Your recommendation (clear, 1-2 sentences)
-2) Key alternatives considered
-3) Risks with your recommendation
-4) Verification approach
-
-Be concise — under 300 words.`;
-
-  const startTime = Date.now();
-
-  const proc = spawnSync(claudeBin, ['-p', prompt], {
-    encoding: 'utf8',
-    stdio: ['pipe', 'pipe', 'pipe'],
-    timeout: CLAUDE_TIMEOUT_MS,
-  });
-
-  const durationMs = Date.now() - startTime;
-
-  if (proc.status === 0 && proc.stdout && proc.stdout.trim()) {
-    return {
-      success: true,
-      text: proc.stdout.trim(),
-      durationMs,
-    };
-  }
-
-  return {
-    success: false,
-    error: proc.stderr?.slice(0, 200) || 'Claude CLI returned no output',
-    durationMs,
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Synthesis builder — pattern-based, no AI call
-// ---------------------------------------------------------------------------
-
-function buildSynthesis(gptR1Text, claudeText, gptR2Text) {
-  const lines = [];
-
-  lines.push('SYNTHESIS');
-  lines.push('─'.repeat(50));
-
-  // Extract agreements from GPT Round 2 AGREEMENTS section
-  const agreementsMatch = gptR2Text.match(/AGREEMENTS?[:\s\n]+([\s\S]*?)(?=\n\s*(?:PUSHBACK|NEW INSIGHTS|REFINED|REMAINING|CONFIDENCE|[0-9]+\.)|$)/i);
-  if (agreementsMatch) {
-    lines.push('');
-    lines.push('AGREEMENTS (both aligned):');
-    lines.push(agreementsMatch[1].trim().split('\n').slice(0, 4).join('\n'));
-  }
-
-  // Extract pushback / disagreements from GPT Round 2
-  const pushbackMatch = gptR2Text.match(/PUSHBACK[:\s\n]+([\s\S]*?)(?=\n\s*(?:NEW INSIGHTS|REFINED|REMAINING|CONFIDENCE|[0-9]+\.)|$)/i);
-  if (pushbackMatch && pushbackMatch[1].trim().length > 10) {
-    lines.push('');
-    lines.push('DISAGREEMENTS (review carefully):');
-    lines.push(pushbackMatch[1].trim().split('\n').slice(0, 4).join('\n'));
-  }
-
-  // Extract refined recommendation from GPT Round 2
-  const refinedMatch = gptR2Text.match(/REFINED RECOMMENDATION[:\s\n]+([\s\S]*?)(?=\n\s*(?:REMAINING|CONFIDENCE|[0-9]+\.)|$)/i);
-  if (refinedMatch) {
-    lines.push('');
-    lines.push('RECOMMENDED ACTION:');
-    lines.push(refinedMatch[1].trim().split('\n').slice(0, 3).join('\n'));
-  } else {
-    // Fall back to R1 recommendation
-    const r1RecMatch = gptR1Text.match(/RECOMMENDATION[:\s\n]+([\s\S]*?)(?=\n\s*(?:RATIONALE|ALTERNATIVES|RISKS|CONFIDENCE|[0-9]+\.)|$)/i);
-    if (r1RecMatch) {
-      lines.push('');
-      lines.push('RECOMMENDED ACTION (from Round 1):');
-      lines.push(r1RecMatch[1].trim().split('\n').slice(0, 2).join('\n'));
-    }
-  }
-
-  // Confidence note
-  const confDeltaMatch = gptR2Text.match(/CONFIDENCE DELTA[:\s\n]+([\s\S]*?)(?=\n\s*[0-9]+\.|$)/i);
-  if (confDeltaMatch) {
-    lines.push('');
-    lines.push('CONFIDENCE NOTE:');
-    lines.push(confDeltaMatch[1].trim().split('\n').slice(0, 2).join('\n'));
-  }
-
-  lines.push('');
-  lines.push('─'.repeat(50));
-
-  return lines.join('\n');
 }
 
 // ---------------------------------------------------------------------------
@@ -340,13 +219,12 @@ export async function dualThink({ question, context, files, round, claudePerspec
     };
   }
 
-  try {
-    execSync(`${codexBin} login status`, {
-      encoding: 'utf8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: 5000,
-    });
-  } catch {
+  const login = spawnSync(codexBin, ['login', 'status'], {
+    encoding: 'utf8',
+    stdio: ['pipe', 'pipe', 'pipe'],
+    timeout: 5000,
+  });
+  if (!isCodexAuthenticated(login)) {
     return {
       gpt: null,
       error: 'Codex CLI not authenticated — run `codex login`',
@@ -407,131 +285,6 @@ export async function dualThink({ question, context, files, round, claudePerspec
 }
 
 // ---------------------------------------------------------------------------
-// Auto mode — full 2-round collaboration in one command
-// ---------------------------------------------------------------------------
-
-async function runAutoMode({ question, context, files }) {
-  const BAR  = '╠══════════════════════════════════════════════════╣';
-  const TOP  = '╔══════════════════════════════════════════════════╗';
-  const BOT  = '╚══════════════════════════════════════════════════╝';
-  const WIDE = '║';
-
-  const qShort = question.length > 44 ? question.slice(0, 41) + '...' : question;
-
-  console.log(TOP);
-  console.log(`${WIDE}  Dual-Brain Think — Auto Mode`.padEnd(51) + WIDE);
-  console.log(BAR);
-  console.log(`${WIDE} Question: ${qShort.padEnd(38)} ${WIDE}`);
-  console.log(BOT);
-  console.log('');
-
-  // Step 1: Check Codex
-  const codexBin = findCodex();
-  if (!codexBin) {
-    console.log('[Auto mode] Codex CLI not found — falling back to manual mode.');
-    console.log('');
-    console.log('Manual steps:');
-    console.log(`  1. Run: node hooks/dual-brain-think.mjs --question "${question}" --round 1`);
-    console.log(`  2. Analyze independently`);
-    console.log(`  3. Run: node hooks/dual-brain-think.mjs --question "${question}" --round 2 --claude-says "<your analysis>"`);
-    return;
-  }
-
-  try {
-    execSync(`${codexBin} login status`, {
-      encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 5000,
-    });
-  } catch {
-    console.log('[Auto mode] Codex not authenticated (run `codex login`) — falling back to manual mode.');
-    console.log('');
-    console.log('Manual steps:');
-    console.log(`  1. Run: node hooks/dual-brain-think.mjs --question "${question}" --round 1`);
-    console.log(`  2. Analyze independently`);
-    console.log(`  3. Run: node hooks/dual-brain-think.mjs --question "${question}" --round 2 --claude-says "<your analysis>"`);
-    return;
-  }
-
-  // Step 2: Round 1 — GPT analysis
-  console.log('[ 1/4 ] Sending to GPT for Round 1 analysis...');
-  const r1Prompt = buildGptPrompt({ question, context, files, round: 1 });
-  const r1Raw = runGptAnalysis(codexBin, r1Prompt);
-  logUsage({ durationMs: r1Raw.durationMs, usage: r1Raw.usage, success: r1Raw.success });
-
-  if (!r1Raw.success) {
-    console.log(`[Auto mode] GPT Round 1 failed: ${r1Raw.error}`);
-    console.log('Falling back to manual mode — see instructions above.');
-    return;
-  }
-
-  console.log('');
-  console.log(TOP);
-  console.log(`${WIDE}  Round 1 — GPT Analysis (${(r1Raw.durationMs / 1000).toFixed(1)}s)`.padEnd(51) + WIDE);
-  console.log(BOT);
-  console.log('');
-  console.log(r1Raw.text);
-  console.log('');
-
-  // Step 3: Claude's independent analysis
-  const claudeBin = findClaude();
-  let claudeText = null;
-
-  if (!claudeBin) {
-    console.log('[Auto mode] Claude CLI not found — skipping Claude analysis step.');
-    console.log('Set your PATH to include the `claude` binary to enable full auto mode.');
-    console.log('');
-  } else {
-    console.log('[ 2/4 ] Generating Claude independent analysis...');
-    const claudeRaw = runClaudeAnalysis(claudeBin, question, context);
-
-    if (!claudeRaw.success) {
-      console.log(`[Auto mode] Claude analysis failed: ${claudeRaw.error}`);
-      console.log('Continuing with GPT Round 2 without Claude perspective.');
-      console.log('');
-    } else {
-      claudeText = claudeRaw.text;
-      console.log('');
-      console.log(TOP);
-      console.log(`${WIDE}  Claude Independent Analysis (${(claudeRaw.durationMs / 1000).toFixed(1)}s)`.padEnd(51) + WIDE);
-      console.log(BOT);
-      console.log('');
-      console.log(claudeText);
-      console.log('');
-    }
-  }
-
-  // Step 4: Round 2 — GPT rebuttal
-  const claudePerspective = claudeText || '(Claude analysis unavailable — review independently)';
-  console.log('[ 3/4 ] Sending Round 2 to GPT with Claude perspective...');
-  const r2Prompt = buildGptPrompt({ question, context, files, round: 2, claudePerspective });
-  const r2Raw = runGptAnalysis(codexBin, r2Prompt);
-  logUsage({ durationMs: r2Raw.durationMs, usage: r2Raw.usage, success: r2Raw.success });
-
-  if (!r2Raw.success) {
-    console.log(`[Auto mode] GPT Round 2 failed: ${r2Raw.error}`);
-    console.log('Synthesis skipped — review Round 1 and Claude analysis above.');
-    return;
-  }
-
-  console.log('');
-  console.log(TOP);
-  console.log(`${WIDE}  Round 2 — GPT Rebuttal (${(r2Raw.durationMs / 1000).toFixed(1)}s)`.padEnd(51) + WIDE);
-  console.log(BOT);
-  console.log('');
-  console.log(r2Raw.text);
-  console.log('');
-
-  // Step 5: Synthesis
-  console.log('[ 4/4 ] Building synthesis...');
-  console.log('');
-  console.log(TOP);
-  console.log(`${WIDE}  Final Synthesis`.padEnd(51) + WIDE);
-  console.log(BOT);
-  console.log('');
-  console.log(buildSynthesis(r1Raw.text, claudeText || '', r2Raw.text));
-  console.log('');
-}
-
-// ---------------------------------------------------------------------------
 // CLI argument parser
 // ---------------------------------------------------------------------------
 
@@ -567,7 +320,7 @@ function parseArgs(argv) {
 }
 
 // ---------------------------------------------------------------------------
-// CLI output formatter (manual mode)
+// CLI output formatter
 // ---------------------------------------------------------------------------
 
 function printResult(result, question) {
@@ -578,23 +331,23 @@ function printResult(result, question) {
   const roundLabel = result.round === 2 ? 'Round 2 — Rebuttal' : 'Round 1 — Initial';
 
   console.log(TOP);
-  console.log(`║  Dual-Brain Think · ${roundLabel}`.padEnd(51) + '║');
+  console.log(`║  🧠 Dual-Brain Think · ${roundLabel}`.padEnd(51) + '║');
   console.log(BAR);
   const q = question.length > 44 ? question.slice(0, 41) + '...' : question;
   console.log(`║ Question: ${q.padEnd(38)} ║`);
   console.log(BAR);
 
   if (!result.gpt) {
-    console.log(`║   ${(result.error || 'Unknown error').padEnd(46)} ║`);
+    console.log(`║ ❌ ${(result.error || 'Unknown error').padEnd(45)} ║`);
     console.log(BAR);
-    console.log(`║   ${(result.fallback || '').padEnd(46)} ║`);
+    console.log(`║ ↩️  ${(result.fallback || '').padEnd(45)} ║`);
     console.log(BOT);
     return;
   }
 
   const gptData = result.gpt;
   const durSec = (gptData.durationMs / 1000).toFixed(1);
-  console.log(`║ GPT-5.5 (${durSec}s):`.padEnd(51) + '║');
+  console.log(`║ 🤖 GPT-5.5 (${durSec}s):`.padEnd(51) + '║');
   console.log(BAR);
   console.log('');
   console.log(gptData.recommendation || gptData.rebuttal);
@@ -602,13 +355,13 @@ function printResult(result, question) {
   console.log(BAR);
 
   if (result.round === 2) {
-    console.log('║ Synthesize both rounds into final decision.     ║');
-    console.log('║ Where you agree → high confidence.              ║');
-    console.log('║ Where you disagree → state what would resolve.  ║');
+    console.log('║ 🔄 Synthesize both rounds into final decision.  ║');
+    console.log('║ Where you agree → high confidence.               ║');
+    console.log('║ Where you disagree → state what would resolve it.║');
   } else {
-    console.log('║ Your turn: analyze independently, then call     ║');
-    console.log('║ Round 2 with --round 2 --claude-says "..."      ║');
-    console.log('║ for GPT\'s rebuttal to your analysis.            ║');
+    console.log('║ 📝 Your turn: analyze independently, then call   ║');
+    console.log('║    Round 2 with --round 2 --claude-says "..."    ║');
+    console.log('║    for GPT\'s rebuttal to your analysis.          ║');
   }
   console.log(BOT);
 }
@@ -623,32 +376,18 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   if (!args.question) {
     console.error(
       'Usage: node dual-brain-think.mjs --question "<question>" [--context "<ctx>"] [--files f1,f2]\n' +
-      '       node dual-brain-think.mjs --question "<question>" --round 2 --claude-says "<analysis>"\n' +
-      '       node dual-brain-think.mjs --question "<question>" --manual   (force old 1-step flow)'
+      '       node dual-brain-think.mjs --question "<question>" --round 2 --claude-says "<analysis>"'
     );
     process.exit(1);
   }
 
-  const hasExplicitRound = args.round !== undefined;
-  const isManual = args.manual === true || hasExplicitRound;
+  const result = await dualThink({
+    question: args.question,
+    context: args.context,
+    files: args.files,
+    round: args.round ? parseInt(args.round, 10) : 1,
+    claudePerspective: args['claude-says'] || null,
+  });
 
-  if (!isManual) {
-    // Auto mode: full 2-round collaboration in one shot
-    await runAutoMode({
-      question: args.question,
-      context: args.context,
-      files: args.files,
-    });
-  } else {
-    // Manual mode: original single-round behavior
-    const result = await dualThink({
-      question: args.question,
-      context: args.context,
-      files: args.files,
-      round: args.round ? parseInt(args.round, 10) : 1,
-      claudePerspective: args['claude-says'] || null,
-    });
-
-    printResult(result, args.question);
-  }
+  printResult(result, args.question);
 }

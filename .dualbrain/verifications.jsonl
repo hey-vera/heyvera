@@ -1,0 +1,10 @@
+{"claim":"claude-available","status":"verified","evidence":"claude CLI found","checkedAt":"2026-05-17T15:05:02.327Z","expiresAt":"2026-05-18T15:05:02.330Z","probe":"which claude"}
+{"claim":"openai-key","status":"verified","evidence":"codex CLI found (subscription auth)","checkedAt":"2026-05-17T15:05:02.330Z","expiresAt":"2026-05-18T15:05:02.335Z","probe":"which codex"}
+{"claim":"anthropic-key","status":"verified","evidence":"claude CLI found (subscription auth)","checkedAt":"2026-05-17T15:05:02.335Z","expiresAt":"2026-05-18T15:05:02.339Z","probe":"which claude"}
+{"claim":"git-available","status":"verified","evidence":"git version 2.50.1","checkedAt":"2026-05-17T15:05:02.339Z","expiresAt":"2026-05-18T15:05:02.345Z","probe":"git --version"}
+{"claim":"npm-auth","status":"failed","evidence":"npm auth failed","checkedAt":"2026-05-17T15:05:02.345Z","expiresAt":"2026-05-17T15:10:02.563Z","probe":"npm whoami"}
+{"claim":"database-reachable","status":"verified","evidence":"DATABASE_URL configured (not connection-tested)","checkedAt":"2026-05-17T15:05:02.563Z","expiresAt":"2026-05-17T15:10:02.563Z","probe":"env check"}
+{"claim":"codex-available","status":"verified","evidence":"codex CLI found","checkedAt":"2026-05-17T15:05:02.563Z","expiresAt":"2026-05-18T15:05:02.568Z","probe":"which codex"}
+{"claim":"rg-available","status":"verified","evidence":"ripgrep found","checkedAt":"2026-05-17T15:05:02.568Z","expiresAt":"2026-05-18T15:05:02.572Z","probe":"which rg"}
+{"claim":"living-docs-init","status":"verified","evidence":".dualbrain/ exists","checkedAt":"2026-05-17T15:05:02.572Z","expiresAt":"2026-05-17T15:10:02.573Z","probe":"fs check"}
+{"claim":"model-registry-fresh","status":"verified","evidence":"Registry 2 days old","checkedAt":"2026-05-17T15:05:02.573Z","expiresAt":"2026-05-24T15:05:02.573Z","probe":"registry age check"}

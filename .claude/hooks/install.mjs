@@ -29,8 +29,12 @@ const flag = (f) => argv.includes(f);
 const force = flag('--force');
 const dryRun = flag('--dry-run');
 const jsonOut = flag('--json');
+const yesFlag = flag('--yes') || flag('-y');
 const positional = argv.filter(a => !a.startsWith('-'));
 const subcommand = positional[0] || null;
+
+const BRAND = `Data Tools — Dual Brain v${VERSION}`;
+const BRAND_SUBTITLE = 'Built on replit-tools by Steve Moraco';
 
 if (flag('--version') || flag('-v')) {
   console.log(`dual-brain v${VERSION}`);
@@ -39,13 +43,15 @@ if (flag('--version') || flag('-v')) {
 
 if (flag('--help') || flag('-h')) {
   console.log(`
-  🧠 dual-brain v${VERSION} — Dual-provider orchestrator for Claude Code
+  ${BRAND}
+  ${BRAND_SUBTITLE}
 
   Usage:  npx -y dual-brain [command] [options]
 
   Setup:
-    (none)       Auto-detect and install/update orchestrator
+    (none)       Show quick start
     init         Alias for default install
+    setup        Configure runtime, providers, auth, and hooks
     doctor       Check system health and report issues
     reset        Clear all state files (keeps config/hooks)
     repair       Fix corrupt files, stale locks, re-register hooks
@@ -108,7 +114,8 @@ if (flag('--help') || flag('-h')) {
     Aggressive     Maximizes both subscriptions, dual-brain for medium+
 
   Examples:
-    ${cmd('npx dual-brain')}                  # install or update
+    ${cmd('npx dual-brain')}                  # quick start
+    ${cmd('npx dual-brain setup')}            # configure providers and hooks
     ${cmd('npx dual-brain status')}           # open control panel
     ${cmd('npx dual-brain mode cost-saver')}  # switch profile
     ${cmd('npx dual-brain budget 8 25')}      # \$8 session / \$25 daily
@@ -124,7 +131,7 @@ if (flag('--help') || flag('-h')) {
 }
 
 const SUBCOMMANDS = [
-  'init', 'status', 'mode', 'budget', 'explain',
+  'init', 'setup', 'status', 'mode', 'budget', 'explain',
   'review', 'think', 'health', 'report', 'gate',
   'vibe', 'plan', 'cost', 'dispatch', 'memory',
   'test', 'ledger', 'doctor', 'reset', 'repair',
@@ -259,6 +266,51 @@ function detectEnvironment() {
     existing: detectExisting(process.cwd()),
     workspace: resolve(process.cwd()),
   };
+}
+
+function runtimeInstalled(workspace = process.cwd()) {
+  return existsSync(resolve(workspace, '.replit-tools'));
+}
+
+function providerReadiness(env) {
+  const issues = [];
+  if (!env.claude.installed) issues.push('Claude CLI not found.');
+  else if (!env.claude.authed) issues.push('Claude CLI not authenticated.');
+
+  if (!env.codex.installed) issues.push('Codex CLI not found.');
+  else if (!env.codex.authed) issues.push('Codex CLI not authenticated.');
+
+  return { ready: issues.length === 0, issues };
+}
+
+function readInputLine(prompt) {
+  process.stdout.write(prompt);
+  return new Promise((resolve) => {
+    process.stdin.setEncoding('utf8');
+    process.stdin.once('data', (chunk) => resolve(chunk.trim()));
+    process.stdin.resume();
+  }).finally(() => {
+    process.stdin.pause();
+  });
+}
+
+function isRunningFromNpxCache() {
+  const scriptPath = fileURLToPath(import.meta.url);
+  return scriptPath.includes('/.npm/_npx/') || scriptPath.includes('\\.npm\\_npx\\');
+}
+
+function warnIfUpdateAvailable() {
+  if (!isRunningFromNpxCache()) return;
+  const pkg = JSON.parse(readFileSync(join(__dirname, 'package.json'), 'utf8'));
+  const packageName = pkg.name || 'dual-brain';
+  const latest = run('npm', ['view', packageName, 'version']);
+  if (latest.status !== 0) return;
+  const newest = latest.stdout.trim().split('\n').pop();
+  if (newest && newest !== VERSION) {
+    console.log('');
+    console.log(`  Update available: ${cmd('npx -y dual-brain@latest')}`);
+    console.log('');
+  }
 }
 
 // ─── Mode Resolution ────────────────────────────────────────────────────────
@@ -444,131 +496,17 @@ function install(workspace, env, mode) {
   return actions;
 }
 
-// ─── Guided Auth ────────────────────────────────────────────────────────────
-
-function printGuidedAuth(env) {
-  const claudeOk = env.claude.installed && env.claude.authed;
-  const codexOk = env.codex.installed && env.codex.authed;
-
-  if (claudeOk && codexOk) return false; // nothing to guide
-
-  const claudeMissing = !env.claude.installed || !env.claude.authed;
-  const codexMissing = !env.codex.installed || !env.codex.authed;
-
-  console.log('');
-
-  if (claudeMissing && codexMissing) {
-    console.log('  ⚠️  No AI providers detected. You need at least one:');
-    console.log('');
-    console.log('  Claude (recommended):');
-    console.log('    npm install -g @anthropic-ai/claude-code && claude login');
-    console.log('');
-    console.log('  OpenAI (optional, enables dual-brain):');
-    console.log('    npm install -g @openai/codex && codex login');
-    console.log('');
-    console.log('  Then re-run: npx dual-brain');
-    console.log('');
-    return true;
-  }
-
-  if (claudeMissing) {
-    if (!env.claude.installed) {
-      console.log('  ⚠️  Claude CLI not detected. To enable Claude routing:');
-    } else {
-      console.log('  ⚠️  Claude CLI not authenticated. To enable Claude routing:');
-    }
-    console.log('');
-    console.log('  1. Install: npm install -g @anthropic-ai/claude-code');
-    console.log('  2. Login:   claude login');
-    console.log('');
-    console.log('  Run these commands, then re-run: npx dual-brain');
-    console.log('');
-  }
-
-  if (codexMissing) {
-    if (!env.codex.installed) {
-      console.log('  ℹ️  Codex CLI not detected. To enable GPT routing:');
-    } else {
-      console.log('  ℹ️  Codex CLI not authenticated. To enable GPT routing:');
-    }
-    console.log('');
-    console.log('  1. Install: npm install -g @openai/codex');
-    console.log('  2. Login:   codex login');
-    console.log('');
-    if (claudeMissing) {
-      console.log('  Run these commands, then re-run: npx dual-brain');
-    } else {
-      console.log('  Run these commands, then re-run: npx dual-brain');
-      console.log('  GPT features will be disabled until Codex is configured.');
-    }
-    console.log('');
-  }
-
-  return claudeMissing; // only block/poll if Claude (primary provider) is missing
-}
-
-async function waitForAuth(env) {
-  if (!process.stdin.isTTY || !process.stdout.isTTY) return;
-
-  const claudeMissing = !env.claude.installed || !env.claude.authed;
-  if (!claudeMissing) return; // only wait if primary provider needs setup
-
-  process.stdout.write('  Would you like me to wait while you authenticate? [Y/n] ');
-
-  const answer = await new Promise((resolve) => {
-    process.stdin.setEncoding('utf8');
-    process.stdin.once('data', (chunk) => resolve(chunk.trim().toLowerCase()));
-    process.stdin.resume();
-  });
-
-  if (answer === 'n' || answer === 'no') {
-    process.stdin.pause();
-    console.log('');
-    console.log('  Re-run `npx dual-brain` after authenticating.');
-    console.log('');
-    process.exit(0);
-  }
-
-  console.log('');
-  console.log('  Waiting for Claude CLI to become available (checking every 5s, max 5 min)...');
-  console.log('');
-
-  const maxAttempts = 60; // 60 × 5s = 5 minutes
-  for (let i = 0; i < maxAttempts; i++) {
-    await new Promise(r => setTimeout(r, 5000));
-    process.stdout.write('.');
-    const fresh = detectClaude();
-    if (fresh.installed) {
-      console.log('');
-      console.log('');
-      console.log('  Claude CLI detected! Continuing setup...');
-      console.log('');
-      process.stdin.pause();
-      // Update env in-place
-      env.claude = fresh;
-      return;
-    }
-  }
-
-  console.log('');
-  console.log('');
-  console.log('  Timed out after 5 minutes. Re-run `npx dual-brain` after authenticating.');
-  console.log('');
-  process.stdin.pause();
-  process.exit(1);
-}
-
 // ─── Quick Start Block ───────────────────────────────────────────────────────
 
 function printQuickStart() {
-  console.log('  ✓ dual-brain installed successfully');
+  console.log('');
+  console.log(`  ${BRAND}`);
   console.log('');
   console.log('  Quick start:');
-  console.log(`    npx dual-brain do "fix a bug and write tests"   ← full pipeline`);
-  console.log('    npx dual-brain status                            ← check system');
-  console.log('    npx dual-brain doctor                            ← diagnose issues');
-  console.log('');
-  console.log('  All commands: npx dual-brain --help');
+  console.log('    npx dual-brain do "fix the login bug"    ← one command to PR');
+  console.log('    npx dual-brain setup                     ← configure providers');
+  console.log('    npx dual-brain doctor                    ← check system health');
+  console.log('    npx dual-brain help                      ← full command list');
   console.log('');
 }
 
@@ -578,16 +516,10 @@ function printReport(env, mode, actions, isDryRun) {
   const lines = [];
 
   lines.push(br('╔', '╗'));
-  lines.push(ln(`🧠 Dual-Brain v${VERSION}`));
+  lines.push(ln(BRAND));
+  lines.push(ln(BRAND_SUBTITLE));
   lines.push(sep());
-
-  const cAuth = env.claude.authed ? '✅' : env.claude.installed ? '⚠️' : '❌';
-  const xAuth = env.codex.authed ? '✅' : env.codex.installed ? '⚠️' : '❌';
-  lines.push(ln(`  🟠 Claude ${cAuth}   🟢 Codex ${xAuth}`));
-
-  if (env.isReplit) {
-    lines.push(ln(`  🌀 Replit${env.hasReplitTools ? ' + replit-tools' : ''}`));
-  }
+  lines.push(ln(`Workspace: ${env.workspace}`));
 
   if (actions) {
     lines.push(sep());
@@ -1847,6 +1779,33 @@ async function main() {
     return;
   }
 
+  // ── Bare invocation (no subcommand): quick start if already set up, else install ──
+  if (!subcommand) {
+    const workspace = resolve(process.cwd());
+    const alreadySetUp = existsSync(join(workspace, '.claude', 'hooks'))
+      || existsSync(join(workspace, '.claude', 'settings.json'));
+    if (alreadySetUp && !flag('--force')) {
+      printQuickStart();
+      return;
+    }
+    // Not set up yet — fall through to full install/setup wizard
+  }
+
+  if (subcommand === 'setup') {
+    if (!dryRun && !jsonOut) await checkReplitTools();
+    const env = detectEnvironment();
+    const mode = resolveMode(env);
+    const needsGuidance = printGuidedAuth(env);
+    if (needsGuidance && process.stdin.isTTY && process.stdout.isTTY && !process.env.CI) {
+      await waitForAuth(env);
+      Object.assign(mode, resolveMode(env));
+    }
+    const actions = install(env.workspace, env, mode);
+    printReport(env, mode, actions);
+    printQuickStart();
+    return;
+  }
+
   // ── replit-tools check — first thing before auth detection or install ──
   if (!dryRun && !jsonOut) {
     await checkReplitTools();
@@ -1869,30 +1828,12 @@ async function main() {
   const needsGuidance = printGuidedAuth(env);
   if (needsGuidance && process.stdin.isTTY && process.stdout.isTTY && !process.env.CI) {
     await waitForAuth(env);
-    // Re-resolve mode after potential auth
     Object.assign(mode, resolveMode(env));
   }
 
   const actions = install(env.workspace, env, mode);
   printReport(env, mode, actions);
-
-  // Always print quick-start block after successful install
   printQuickStart();
-
-  // Offer to launch control panel (opt-in, interactive TTY only)
-  if (process.stdin.isTTY && process.stdout.isTTY && !process.env.CI) {
-    process.stdout.write('  Launch control panel? [y/N] ');
-    const answer = await new Promise((resolve) => {
-      process.stdin.setEncoding('utf8');
-      process.stdin.once('data', (chunk) => resolve(chunk.trim().toLowerCase()));
-      process.stdin.resume();
-    });
-    process.stdin.pause();
-    console.log('');
-    if (answer === 'y' || answer === 'yes') {
-      launchPanel();
-    }
-  }
 }
 
 main();
