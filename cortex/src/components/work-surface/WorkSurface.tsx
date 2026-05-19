@@ -11,6 +11,7 @@ import {
 import { useEffect, useState } from 'react';
 import LedgerView from '../ledger/LedgerView';
 import RunPanel from '../runs/RunPanel';
+import UsageView from '../usage/UsageView';
 import type { ApprovalRequest, ApprovalState, ChatMessage, RunProfile, WorkEventItem } from '../../types';
 
 interface WorkSurfaceProps {
@@ -160,6 +161,7 @@ function WorkSurfaceContent({
             bridgeNonce={runBridgeNonce}
             onBridgeConsumed={onRunBridgeConsumed}
           />
+          <UsageView />
           <LedgerView />
 
           {!hasWork ? (

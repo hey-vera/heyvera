@@ -6,7 +6,7 @@ import SessionControls from './components/session/SessionControls';
 import Sidebar from './components/Sidebar';
 import { useChatSession } from './lib/useChatSession';
 import { useAuthGate } from './lib/useAuthGate';
-import { setAuthTokenGetter } from './lib/cortexApi';
+import { getUserRouting, setAuthTokenGetter, updateUserRouting } from './lib/cortexApi';
 import type { ChatSessionControls, RunProfile } from './types';
 
 const DEFAULT_SESSION_CONTROLS: ChatSessionControls = {
@@ -119,6 +119,26 @@ export default function App() {
     }
   }, [runProfile]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadRoutingProfile() {
+      try {
+        const routing = await getUserRouting();
+        if (!cancelled && isRunProfile(routing.profile)) {
+          setRunProfile(routing.profile);
+        }
+      } catch {
+        // keep local profile preference when backend routing settings are unavailable
+      }
+    }
+
+    void loadRoutingProfile();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const {
     messages,
     draft,
@@ -159,6 +179,13 @@ export default function App() {
   const handleSelectStarter = useCallback((prompt: string) => {
     setDraft(prompt);
   }, [setDraft]);
+
+  const handleRunProfileChange = useCallback((nextProfile: RunProfile) => {
+    setRunProfile(nextProfile);
+    void updateUserRouting(nextProfile).catch(() => {
+      // local preference still applies to run creation if profile persistence fails
+    });
+  }, []);
 
   const bridgeDraftToRun = useCallback(() => {
     const nextGoal = draft.trim();
@@ -406,7 +433,7 @@ export default function App() {
             value={sessionControls}
             runProfile={runProfile}
             onChange={setSessionControls}
-            onRunProfileChange={setRunProfile}
+            onRunProfileChange={handleRunProfileChange}
           />
           {showRunBridge && (
             <div className="border-t border-white/6 px-3 py-2 sm:px-4">

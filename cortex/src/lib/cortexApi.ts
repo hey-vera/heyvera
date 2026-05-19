@@ -214,6 +214,45 @@ export async function getUserProfile() {
   return requestJson('/api/user/profile');
 }
 
+export interface UserRoutingSettings {
+  profile: string;
+  auto_mode?: string;
+  pressure?: unknown;
+}
+
+export async function getUserRouting(): Promise<UserRoutingSettings> {
+  return requestJson<UserRoutingSettings>('/api/user/routing');
+}
+
+export async function updateUserRouting(profile: string): Promise<UserRoutingSettings> {
+  return requestJson<UserRoutingSettings>('/api/user/routing', {
+    method: 'POST',
+    body: JSON.stringify({ profile }),
+  });
+}
+
+export interface UsageSummary {
+  last_24h?: unknown;
+  last_30d?: unknown;
+  gate?: unknown;
+}
+
+export interface DailyUsage {
+  date: string;
+  tokens_in?: number;
+  tokens_out?: number;
+  cost?: number;
+  steps?: number;
+}
+
+export async function getUsage(): Promise<UsageSummary> {
+  return requestJson<UsageSummary>('/api/usage');
+}
+
+export async function getDailyUsage(days = 30): Promise<DailyUsage[]> {
+  return requestJson<DailyUsage[]>(`/api/usage/daily?days=${days}`);
+}
+
 // Decision ledger
 
 export interface LedgerEntry {
