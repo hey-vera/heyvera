@@ -108,16 +108,16 @@ pub fn pressure_penalty(pressure: f64) -> f64 {
 
 pub fn token_budget(provider: ProviderId, tier: Tier) -> u64 {
     match (provider, tier) {
-        (ProviderId::Claude, Tier::Search) => 5_000_000,
-        (ProviderId::Claude, Tier::Execute) => 2_000_000,
+        (ProviderId::Claude, Tier::Search) => 1_000_000,
+        (ProviderId::Claude, Tier::Execute) => 500_000,
         (ProviderId::Claude, Tier::Think) => 500_000,
 
-        (ProviderId::Openai, Tier::Search) => 5_000_000,
-        (ProviderId::Openai, Tier::Execute) => 2_000_000,
+        (ProviderId::Openai, Tier::Search) => 1_000_000,
+        (ProviderId::Openai, Tier::Execute) => 500_000,
         (ProviderId::Openai, Tier::Think) => 500_000,
 
-        (ProviderId::Gemini, Tier::Search) => 3_000_000,
-        (ProviderId::Gemini, Tier::Execute) => 1_200_000,
+        (ProviderId::Gemini, Tier::Search) => 600_000,
+        (ProviderId::Gemini, Tier::Execute) => 300_000,
         (ProviderId::Gemini, Tier::Think) => 300_000,
     }
 }
@@ -264,6 +264,13 @@ fn intent_score(candidate: &CandidateScore, evidence: &IntentEvidence) -> Option
         return None; // veto
     }
 
+    // Veto providers with known poor reliability (< 60% success over 30+ samples)
+    if let Some(rate) = candidate.success_rate {
+        if rate < 0.60 && candidate.sample_count >= 30 {
+            return None; // vetoed — unreliable provider
+        }
+    }
+
     let default_tier = evidence.default_tier;
     let candidate_rank = candidate.tier.rank();
     let default_rank = default_tier.rank();
@@ -349,11 +356,13 @@ fn risk_alignment_bonus(risk: RiskLevel, tier: Tier) -> f64 {
     }
 }
 
-fn profile_bias(profile: Profile, provider: ProviderId, tier: Tier) -> f64 {
+fn profile_bias(profile: Profile, provider: ProviderId, tier: Tier, risk: RiskLevel) -> f64 {
     match profile {
         Profile::CostSaver => match tier {
             Tier::Search => 8.0,
             Tier::Execute => 4.0,
+            // Don't penalize Think tier for high/critical risk — those tasks need it
+            Tier::Think if risk >= RiskLevel::High => 0.0,
             Tier::Think => -8.0,
         },
         Profile::QualityFirst => match tier {
@@ -377,7 +386,7 @@ fn provider_fit_score(
     let rel = reliability_bonus(candidate.success_rate, candidate.sample_count);
     let lat = latency_penalty(candidate.provider, candidate.estimated_duration_ms);
     let risk_align = risk_alignment_bonus(evidence.risk.level, candidate.tier);
-    let bias = profile_bias(profile, candidate.provider, candidate.tier);
+    let bias = profile_bias(profile, candidate.provider, candidate.tier, evidence.risk.level);
 
     cap + rel + lat + risk_align + bias
 }

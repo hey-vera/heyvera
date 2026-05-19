@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use cortex_core::protocol::{BrainMessage, StepContext};
@@ -16,7 +17,10 @@ use uuid::Uuid;
 
 use crate::clerk::JwksCache;
 use crate::db::Database;
+use crate::github::GitHubClient;
+use crate::mission_control::{McSubscriber, MissionControlEvent, SubscriberId};
 use crate::ratelimit::RateLimiter;
+use crate::storage::Storage;
 
 pub struct ConnectedWorker {
     pub worker_id: String,
@@ -40,6 +44,11 @@ pub struct AppState {
     pub rate_limiter: Arc<RateLimiter>,
     pub billing_enforced: bool,
     pub usage_limits: UsageLimits,
+    pub is_shutting_down: AtomicBool,
+    /// Mission Control WebSocket subscribers, keyed by user_id.
+    pub mc_subscribers: RwLock<HashMap<String, Vec<McSubscriber>>>,
+    /// GitHub API client, initialized from `GITHUB_TOKEN` env var.
+    pub github_client: Option<GitHubClient>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -136,6 +145,13 @@ impl AppState {
             usage_limits.monthly_cost_limit,
         );
 
+        let github_client = GitHubClient::from_env();
+        if github_client.is_some() {
+            tracing::info!("GitHub API client initialized (GITHUB_TOKEN set)");
+        } else {
+            tracing::info!("GitHub API client not available (no GITHUB_TOKEN), will fall back to gh CLI");
+        }
+
         Arc::new(Self {
             providers: RwLock::new(providers),
             ledger: Ledger::new(ledger_path),
@@ -150,7 +166,17 @@ impl AppState {
             rate_limiter: Arc::new(RateLimiter::default_per_user()),
             billing_enforced,
             usage_limits,
+            is_shutting_down: AtomicBool::new(false),
+            mc_subscribers: RwLock::new(HashMap::new()),
+            github_client,
         })
+    }
+
+    /// Return a reference to the database as a trait object, enabling
+    /// backend-agnostic code.  Returns `None` only if the database failed
+    /// to open (should not happen in practice).
+    pub fn storage(&self) -> Option<&dyn Storage> {
+        self.db.as_ref().map(|d| d as &dyn Storage)
     }
 
     pub async fn register_worker(
@@ -286,5 +312,117 @@ impl AppState {
                 tracing::error!("scheduler channel closed");
             }
         }
+    }
+
+    // --- Mission Control subscriber management ---
+
+    pub async fn subscribe_mc(
+        &self,
+        user_id: &str,
+        id: SubscriberId,
+        tx: mpsc::Sender<MissionControlEvent>,
+    ) {
+        let mut subs = self.mc_subscribers.write().await;
+        subs.entry(user_id.to_string())
+            .or_default()
+            .push(McSubscriber { id, tx });
+        tracing::debug!("mc: subscribed {id:?} for user {user_id}");
+    }
+
+    pub async fn unsubscribe_mc(&self, user_id: &str, id: SubscriberId) {
+        let mut subs = self.mc_subscribers.write().await;
+        if let Some(list) = subs.get_mut(user_id) {
+            list.retain(|s| s.id != id);
+            if list.is_empty() {
+                subs.remove(user_id);
+            }
+        }
+        tracing::debug!("mc: unsubscribed {id:?} for user {user_id}");
+    }
+
+    /// Emit a Mission Control event to all subscribers for a given user.
+    /// Drops subscribers whose channels are closed.
+    pub async fn emit_mc_event(&self, user_id: &str, event: MissionControlEvent) {
+        let subs = self.mc_subscribers.read().await;
+        if let Some(list) = subs.get(user_id) {
+            let mut closed = Vec::new();
+            for sub in list {
+                if sub.tx.try_send(event.clone()).is_err() {
+                    // Channel full or closed — mark for removal
+                    closed.push(sub.id);
+                }
+            }
+            drop(subs);
+
+            if !closed.is_empty() {
+                let mut subs = self.mc_subscribers.write().await;
+                if let Some(list) = subs.get_mut(user_id) {
+                    list.retain(|s| !closed.contains(&s.id));
+                    if list.is_empty() {
+                        subs.remove(user_id);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Graceful shutdown: cancel active steps, wait for workers, persist state.
+    pub async fn shutdown(&self) {
+        tracing::info!("initiating graceful shutdown");
+        self.is_shutting_down.store(true, Ordering::SeqCst);
+
+        // Send CancelStep to all workers for their active steps
+        let workers = self.workers.read().await;
+        let worker_count = workers.len();
+        tracing::info!("shutting down {worker_count} connected worker(s)");
+
+        for (worker_id, worker) in workers.iter() {
+            // Look up active steps from DB if available
+            let active_steps: Vec<String> = if let Some(db) = &self.db {
+                db.get_worker_active_steps(worker_id)
+            } else {
+                Vec::new()
+            };
+
+            for step_id in &active_steps {
+                tracing::info!("cancelling step {step_id} on worker {worker_id}");
+                let _ = worker.tx.send(BrainMessage::CancelStep {
+                    step_id: step_id.clone(),
+                    reason: "server shutting down".to_string(),
+                }).await;
+            }
+        }
+        drop(workers);
+
+        // Wait up to 30 seconds for workers to disconnect
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+        loop {
+            let count = self.workers.read().await.len();
+            if count == 0 {
+                tracing::info!("all workers disconnected cleanly");
+                break;
+            }
+            if tokio::time::Instant::now() >= deadline {
+                tracing::warn!("{count} worker(s) still connected after 30s timeout, proceeding with shutdown");
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        }
+
+        // Persist final state
+        if let Some(db) = &self.db {
+            // Mark any remaining leased steps as cancelled
+            let remaining_steps: Vec<String> = self.step_senders.read().await.keys().cloned().collect();
+            for step_id in &remaining_steps {
+                tracing::info!("marking in-flight step {step_id} as cancelled in DB");
+                db.fail_step(step_id, 0, "server shutdown", Some("shutdown"));
+            }
+        }
+
+        let final_workers = self.workers.read().await.len();
+        let final_steps = self.step_senders.read().await.len();
+        tracing::info!(
+            "shutdown complete: workers_remaining={final_workers}, steps_remaining={final_steps}"
+        );
     }
 }

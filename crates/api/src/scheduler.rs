@@ -20,6 +20,7 @@ use tokio::sync::mpsc;
 use uuid::Uuid;
 
 use crate::db::Database;
+use crate::mission_control::MissionControlEvent;
 use crate::state::AppState;
 
 pub type SchedulerTx = mpsc::Sender<SchedulerEvent>;
@@ -66,6 +67,21 @@ async fn apply_event(state: &AppState, sched: &mut SchedulerState, event: &Sched
             tracing::info!("scheduler: run created {run_id}");
             if let Some(db) = &state.db {
                 db.update_run_status(run_id, "running", None);
+
+                // Emit MC event for run creation
+                let user_id = get_run_user(db, run_id);
+                let goal = db.get_run_goal(run_id).unwrap_or_default();
+                let step_count = db.get_all_step_statuses(run_id).len();
+                state
+                    .emit_mc_event(
+                        &user_id,
+                        MissionControlEvent::RunCreated {
+                            run_id: run_id.clone(),
+                            goal,
+                            step_count,
+                        },
+                    )
+                    .await;
             }
             load_ready_steps_for_run(state, sched, run_id).await;
         }
@@ -85,8 +101,29 @@ async fn apply_event(state: &AppState, sched: &mut SchedulerState, event: &Sched
             if let Some(db) = &state.db {
                 let user_id = get_run_user(db, run_id);
                 sched.mark_step_done(&user_id);
+
+                // Check for auth-related failures — these are not healable
+                let last_error = db.get_step_last_error(step_id);
+                let is_auth_failure = last_error
+                    .as_deref()
+                    .map(|e| e.contains("CliNotAuthenticated") || e.contains("CliAuthExpired"))
+                    .unwrap_or(false);
+
+                if is_auth_failure {
+                    tracing::warn!(
+                        "skipping heal for step {step_id} — auth failure, cascading"
+                    );
+                    let skipped = db.cascade_failure(step_id);
+                    if !skipped.is_empty() {
+                        tracing::info!(
+                            "cascaded failure from step {step_id}: skipped {} downstream steps",
+                            skipped.len()
+                        );
+                    }
+                } else {
+                    try_heal(state, sched, run_id, step_id).await;
+                }
             }
-            try_heal(state, sched, run_id, step_id).await;
             load_ready_steps_for_run(state, sched, run_id).await;
             check_run_done(state, run_id).await;
         }
@@ -169,18 +206,30 @@ async fn dispatch_step(state: &AppState, step: &StepRef) -> bool {
 
     let (decision, evidence) = route_step(db, &step.user_id, step, tier, risk);
 
+    // Don't dispatch if no provider is actually available
+    if decision.rationale.iter().any(|r| {
+        matches!(r, cortex_core::routing::RationaleCode::ProviderUnavailable)
+    }) {
+        tracing::warn!(
+            "no available provider for step {} — all candidates vetoed",
+            step.step_id
+        );
+        db.fail_step(&step.step_id, 0, "no available provider", Some("NoProvider"));
+        return false; // Will trigger heal via StepFailed event
+    }
+
     let attempt_id = Uuid::new_v4().to_string();
     let lease_duration = step.kind.lease_duration_ms();
     let now_ms = chrono::Utc::now().timestamp_millis();
     let deadline = now_ms + lease_duration;
 
-    let leased = db.lease_step(&step.step_id, "scheduler", deadline);
-    if !leased {
-        tracing::warn!("CAS lease failed for step {} — skipping", step.step_id);
-        return false;
-    }
-
-    let lease_gen = 1;
+    let lease_gen = match db.lease_step(&step.step_id, "scheduler", deadline) {
+        Some(g) => g,
+        None => {
+            tracing::warn!("CAS lease failed for step {} — skipping", step.step_id);
+            return false;
+        }
+    };
 
     // Record attempt
     db.record_attempt(
@@ -231,6 +280,13 @@ async fn dispatch_step(state: &AppState, step: &StepRef) -> bool {
     let base_commit = db.get_run_latest_commit(&step.run_id);
     let allowed_paths = db.get_run_file_paths(&step.run_id);
 
+    // Capture values before decision is moved into msg
+    let mc_provider = decision.provider.to_string();
+    let mc_model = decision.model_id.clone();
+    let mc_pressure = evidence
+        .budget
+        .pressure_for(decision.provider, tier);
+
     let msg = BrainMessage::ExecuteStep {
         run_id: step.run_id.clone(),
         step_id: step.step_id.clone(),
@@ -252,10 +308,38 @@ async fn dispatch_step(state: &AppState, step: &StepRef) -> bool {
                 step.step_id,
                 step.user_id
             );
+
+            // Emit MC events for dispatch and routing decision
+            state
+                .emit_mc_event(
+                    &step.user_id,
+                    MissionControlEvent::StepDispatched {
+                        run_id: step.run_id.clone(),
+                        step_id: step.step_id.clone(),
+                        provider: mc_provider.clone(),
+                        model: mc_model.clone(),
+                        tier: step.tier.clone(),
+                    },
+                )
+                .await;
+            state
+                .emit_mc_event(
+                    &step.user_id,
+                    MissionControlEvent::RoutingDecision {
+                        step_id: step.step_id.clone(),
+                        provider: mc_provider,
+                        model: mc_model,
+                        rationale: rationale_str,
+                        pressure: mc_pressure,
+                    },
+                )
+                .await;
+
             true
         }
         Err(_) => {
-            tracing::error!("worker channel closed for user {}", step.user_id);
+            tracing::error!("worker channel closed for user {} — unleasing step {}", step.user_id, step.step_id);
+            db.unlease_step(&step.step_id, lease_gen);
             false
         }
     }
@@ -332,14 +416,12 @@ fn route_step(
             };
 
         // Check capability status from DB
+        // No capability record = not available (unknown providers default to unauthenticated)
         let cap_status = db.get_provider_status(user_id, &provider_str);
         let authenticated = cap_status
             .as_deref()
             .map(|s| s != "unavailable")
             .unwrap_or(false);
-
-        // If no capability record exists but provider is in detected list, assume available
-        let authenticated = authenticated || cap_status.is_none();
 
         let estimated_duration = match step.kind {
             StepKind::Search => 30_000,
@@ -521,6 +603,13 @@ async fn try_heal(state: &AppState, sched: &mut SchedulerState, run_id: &str, st
         tracing::info!(
             "run {run_id} exhausted heal budget ({heal_count}/{max_heals}), not healing step {step_id}"
         );
+        let skipped = db.cascade_failure(step_id);
+        if !skipped.is_empty() {
+            tracing::info!(
+                "cascaded failure from step {step_id}: skipped {} downstream steps",
+                skipped.len()
+            );
+        }
         return;
     }
 
@@ -622,6 +711,19 @@ async fn check_run_done(state: &AppState, run_id: &str) {
             RunStatus::Failed => "failed",
             _ => return,
         };
+
+        // Guard against double completion: check if run is already terminal
+        if let Some(run_info) = db.list_user_runs_by_id(run_id) {
+            if let Some(current_status) = run_info.get("status").and_then(|s| s.as_str()) {
+                if let Some(rs) = RunStatus::from_str(current_status) {
+                    if rs.is_terminal() {
+                        tracing::debug!("run {run_id} already in terminal state '{current_status}', skipping update");
+                        return;
+                    }
+                }
+            }
+        }
+
         db.update_run_status(run_id, status_str, None);
 
         // Log branch info for PR creation if the run succeeded with changes
@@ -635,6 +737,19 @@ async fn check_run_done(state: &AppState, run_id: &str) {
                 );
             }
         }
+
+        // Emit MC event for run completion
+        let user_id = get_run_user(db, run_id);
+        state
+            .emit_mc_event(
+                &user_id,
+                MissionControlEvent::RunCompleted {
+                    run_id: run_id.to_string(),
+                    status: status_str.to_string(),
+                    total_cost: None, // TODO: aggregate from step cost_estimates
+                },
+            )
+            .await;
 
         tracing::info!("run {run_id} → {status_str}");
     }
@@ -660,9 +775,20 @@ async fn reconcile_ready_steps(state: &AppState, sched: &mut SchedulerState) {
         None => return,
     };
 
-    let active_runs = db.get_active_run_ids();
-    for run_id in active_runs {
-        load_ready_steps_for_run(state, sched, &run_id).await;
+    // Single query fetches all ready steps across all active runs,
+    // replacing the N+1 pattern of get_active_run_ids() + find_ready_steps() per run.
+    let ready = db.find_all_ready_steps();
+    for (step_id, run_id, user_id, kind, tier, risk, objective) in ready {
+        let step_kind = parse_step_kind(&kind);
+        sched.enqueue_ready_step(StepRef {
+            step_id,
+            run_id,
+            user_id,
+            kind: step_kind,
+            tier,
+            risk,
+            objective,
+        });
     }
 }
 
@@ -817,25 +943,33 @@ pub async fn create_run_from_goal(
     let db = state.db.as_ref().ok_or("database not available")?;
     let now_ms = chrono::Utc::now().timestamp_millis();
 
-    let run_id = db.create_run(user_id, goal, profile, file_paths);
+    // Collect steps and edges for batch insertion in a single transaction
+    let steps: Vec<(String, String, String, String, String, i64)> = builder
+        .steps()
+        .iter()
+        .map(|step| {
+            (
+                step.id.clone(),
+                step.kind.as_str().to_string(),
+                step.tier.clone(),
+                step.risk.clone(),
+                step.objective.clone(),
+                now_ms,
+            )
+        })
+        .collect();
 
-    for step in builder.steps() {
-        db.create_step_with_id(
-            &step.id,
-            &run_id,
-            step.kind.as_str(),
-            &step.tier,
-            &step.risk,
-            &step.objective,
-            now_ms,
-        );
-    }
+    let edges: Vec<(String, String, String)> = builder
+        .edges()
+        .iter()
+        .map(|&(from_idx, to_idx, edge_type)| {
+            let from_id = builder.step_id(from_idx);
+            let to_id = builder.step_id(to_idx);
+            (to_id.to_string(), from_id.to_string(), edge_type.as_str().to_string())
+        })
+        .collect();
 
-    for &(from_idx, to_idx, edge_type) in builder.edges() {
-        let from_id = builder.step_id(from_idx);
-        let to_id = builder.step_id(to_idx);
-        db.add_step_dependency(to_id, from_id, edge_type.as_str());
-    }
+    let run_id = db.create_run_with_steps(user_id, goal, profile, file_paths, &steps, &edges);
 
     scheduler_tx
         .send(SchedulerEvent::RunCreated {

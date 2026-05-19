@@ -2,7 +2,7 @@ use std::path::Path;
 use std::sync::Mutex;
 
 use chrono::{Datelike, Utc};
-use cortex_core::usage::{DailyUsage, ProviderUsage, UsageSummary, estimate_cost};
+use cortex_core::usage::{DailyUsage, ProviderUsage, UsageSummary, estimate_cost_by_provider};
 use rusqlite::{params, Connection};
 use serde::Serialize;
 use uuid::Uuid;
@@ -598,6 +598,53 @@ impl Database {
         id
     }
 
+    /// Create a run with all its steps and dependency edges in a single transaction.
+    /// This avoids N+1 lock acquisitions that occur when calling create_run + N*create_step_with_id
+    /// + N*add_step_dependency individually.
+    pub fn create_run_with_steps(
+        &self,
+        user_id: &str,
+        goal: &str,
+        profile: &str,
+        file_paths: &[String],
+        steps: &[(String, String, String, String, String, i64)], // (id, kind, tier, risk, objective, created_at)
+        edges: &[(String, String, String)], // (step_id, depends_on_id, edge_type)
+    ) -> String {
+        let conn = self.conn.lock().unwrap();
+        let run_id = Uuid::new_v4().to_string();
+        let now = Utc::now().timestamp_millis();
+        let file_paths_json = if file_paths.is_empty() {
+            None
+        } else {
+            serde_json::to_string(file_paths).ok()
+        };
+
+        conn.execute("BEGIN", []).ok();
+
+        conn.execute(
+            "INSERT INTO runs (id, user_id, goal, status, profile, file_paths, created_at, updated_at) VALUES (?1, ?2, ?3, 'pending', ?4, ?5, ?6, ?6)",
+            params![run_id, user_id, goal, profile, file_paths_json, now],
+        ).expect("failed to create run in batch");
+
+        for (id, kind, tier, risk, objective, created_at) in steps {
+            conn.execute(
+                "INSERT INTO steps (id, run_id, kind, status, tier, risk, objective, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, 'pending', ?4, ?5, ?6, ?7, ?7)",
+                params![id, run_id, kind, tier, risk, objective, created_at],
+            ).expect("failed to create step in batch");
+        }
+
+        for (step_id, depends_on_id, edge_type) in edges {
+            conn.execute(
+                "INSERT OR IGNORE INTO step_dependencies (step_id, depends_on_id, edge_type) VALUES (?1, ?2, ?3)",
+                params![step_id, depends_on_id, edge_type],
+            ).ok();
+        }
+
+        conn.execute("COMMIT", []).ok();
+        run_id
+    }
+
     /// Record (or update) the branch name associated with a run.
     ///
     /// Called when a step completes with changes — the branch is preserved so
@@ -694,7 +741,7 @@ impl Database {
         let now = Utc::now().timestamp_millis();
         let mut stmt = conn.prepare(
             "SELECT s.id FROM steps s
-             WHERE s.run_id = ?1 AND s.status = 'pending'
+             WHERE s.run_id = ?1 AND s.status IN ('pending', 'orphaned')
              AND (s.earliest_dispatch_at IS NULL OR s.earliest_dispatch_at <= ?2)
              AND NOT EXISTS (
                  SELECT 1 FROM step_dependencies sd
@@ -713,17 +760,65 @@ impl Database {
             .collect()
     }
 
-    pub fn lease_step(&self, step_id: &str, worker_id: &str, deadline_ms: i64) -> bool {
+    /// Find all ready steps across all active runs in a single query.
+    /// Returns (step_id, run_id, user_id, kind, tier, risk, objective) tuples.
+    /// This replaces the N+1 pattern of get_active_run_ids() + find_ready_steps() per run.
+    pub fn find_all_ready_steps(&self) -> Vec<(String, String, String, String, String, String, String)> {
+        let conn = self.conn.lock().unwrap();
+        let now = Utc::now().timestamp_millis();
+        let mut stmt = conn.prepare(
+            "SELECT s.id, s.run_id, r.user_id, s.kind, s.tier, s.risk, s.objective
+             FROM steps s
+             JOIN runs r ON s.run_id = r.id
+             WHERE r.status IN ('planning', 'running')
+             AND s.status IN ('pending', 'orphaned')
+             AND (s.earliest_dispatch_at IS NULL OR s.earliest_dispatch_at <= ?1)
+             AND NOT EXISTS (
+                 SELECT 1 FROM step_dependencies sd
+                 JOIN steps dep ON dep.id = sd.depends_on_id
+                 WHERE sd.step_id = s.id
+                 AND (
+                     (sd.edge_type = 'success_required' AND dep.status != 'succeeded')
+                     OR (sd.edge_type = 'completion_required' AND dep.status NOT IN ('succeeded', 'failed'))
+                 )
+             )"
+        ).unwrap();
+
+        stmt.query_map(params![now], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
+                row.get::<_, String>(6)?,
+            ))
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
+    }
+
+    pub fn lease_step(&self, step_id: &str, worker_id: &str, deadline_ms: i64) -> Option<i64> {
         let conn = self.conn.lock().unwrap();
         let now = Utc::now().timestamp_millis();
         let rows = conn.execute(
             "UPDATE steps SET status = 'leased', assigned_worker = ?1, lease_deadline = ?2,
                  lease_gen = lease_gen + 1, attempt_count = attempt_count + 1,
                  updated_at = ?3, version = version + 1
-             WHERE id = ?4 AND status IN ('pending', 'ready')",
+             WHERE id = ?4 AND status IN ('pending', 'ready', 'orphaned')",
             params![worker_id, deadline_ms, now, step_id],
         ).unwrap_or(0);
-        rows > 0
+        if rows == 0 {
+            return None;
+        }
+        // Return the new lease_gen value
+        conn.query_row(
+            "SELECT lease_gen FROM steps WHERE id = ?1",
+            params![step_id],
+            |row| row.get::<_, i64>(0),
+        ).ok()
     }
 
     pub fn complete_step(
@@ -740,7 +835,7 @@ impl Database {
         let rows = conn.execute(
             "UPDATE steps SET status = 'succeeded', output_summary = ?1, files_changed = ?2,
                  base_commit = ?3, head_commit = ?4, updated_at = ?5, version = version + 1
-             WHERE id = ?6 AND lease_gen = ?7 AND status IN ('leased', 'running')",
+             WHERE id = ?6 AND lease_gen = ?7 AND status IN ('leased', 'running', 'orphaned')",
             params![output_summary, files_changed, base_commit, head_commit, now, step_id, lease_gen],
         ).unwrap_or(0);
         rows > 0
@@ -1058,6 +1153,28 @@ impl Database {
             "SELECT goal FROM runs WHERE id = ?1",
             params![run_id],
             |row| row.get(0),
+        ).ok()
+    }
+
+    /// Return timing metadata for a single run (used for PR body generation).
+    pub fn list_user_runs_by_id(&self, run_id: &str) -> Option<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT id, goal, status, profile, created_at, updated_at, started_at, finished_at
+             FROM runs WHERE id = ?1",
+            params![run_id],
+            |row| {
+                Ok(serde_json::json!({
+                    "id": row.get::<_, String>(0)?,
+                    "goal": row.get::<_, String>(1)?,
+                    "status": row.get::<_, String>(2)?,
+                    "profile": row.get::<_, String>(3)?,
+                    "created_at": row.get::<_, i64>(4)?,
+                    "updated_at": row.get::<_, i64>(5)?,
+                    "started_at": row.get::<_, Option<i64>>(6)?,
+                    "finished_at": row.get::<_, Option<i64>>(7)?,
+                }))
+            },
         ).ok()
     }
 
@@ -1468,14 +1585,75 @@ impl Database {
         ).ok();
     }
 
+    pub fn unlease_step(&self, step_id: &str, lease_gen: i64) -> bool {
+        let conn = self.conn.lock().unwrap();
+        let now = Utc::now().timestamp_millis();
+        let rows = conn.execute(
+            "UPDATE steps SET status = 'pending', assigned_worker = NULL, lease_deadline = NULL,
+                 updated_at = ?1, version = version + 1
+             WHERE id = ?2 AND lease_gen = ?3 AND status = 'leased'",
+            params![now, step_id, lease_gen],
+        ).unwrap_or(0);
+        rows > 0
+    }
+
     pub fn orphan_step(&self, step_id: &str) {
         let conn = self.conn.lock().unwrap();
         let now = Utc::now().timestamp_millis();
         conn.execute(
-            "UPDATE steps SET status = 'orphaned', updated_at = ?1, version = version + 1
+            "UPDATE steps SET status = 'orphaned', assigned_worker = NULL, lease_deadline = NULL,
+                 updated_at = ?1, version = version + 1
              WHERE id = ?2 AND status IN ('leased', 'running')",
             params![now, step_id],
         ).ok();
+    }
+
+    /// Cascade failure from a failed step to all downstream steps that depend on it
+    /// via `success_required` edges. Transitively marks them as 'skipped'.
+    /// Returns the list of all skipped step IDs.
+    pub fn cascade_failure(&self, failed_step_id: &str) -> Vec<String> {
+        let conn = self.conn.lock().unwrap();
+        let now = Utc::now().timestamp_millis();
+        let mut skipped = Vec::new();
+        let mut visited = std::collections::HashSet::new();
+        let mut queue = std::collections::VecDeque::new();
+
+        queue.push_back(failed_step_id.to_string());
+        visited.insert(failed_step_id.to_string());
+
+        while let Some(current_id) = queue.pop_front() {
+            // Find all steps that depend on current_id with success_required edge
+            let mut stmt = conn.prepare(
+                "SELECT sd.step_id FROM step_dependencies sd
+                 JOIN steps s ON s.id = sd.step_id
+                 WHERE sd.depends_on_id = ?1 AND sd.edge_type = 'success_required'
+                 AND s.status NOT IN ('succeeded', 'failed', 'cancelled', 'skipped')"
+            ).unwrap();
+
+            let dependents: Vec<String> = stmt
+                .query_map(params![current_id], |row| row.get::<_, String>(0))
+                .unwrap()
+                .filter_map(|r| r.ok())
+                .collect();
+
+            for dep_id in dependents {
+                if visited.contains(&dep_id) {
+                    continue;
+                }
+                visited.insert(dep_id.clone());
+
+                conn.execute(
+                    "UPDATE steps SET status = 'skipped', updated_at = ?1, version = version + 1
+                     WHERE id = ?2 AND status NOT IN ('succeeded', 'failed', 'cancelled', 'skipped')",
+                    params![now, dep_id],
+                ).ok();
+
+                skipped.push(dep_id.clone());
+                queue.push_back(dep_id);
+            }
+        }
+
+        skipped
     }
 
     // --- Usage aggregation ---
@@ -1500,7 +1678,7 @@ impl Database {
             let tokens_in: i64 = row.get(1)?;
             let tokens_out: i64 = row.get(2)?;
             let step_count: i64 = row.get(3)?;
-            let cost = estimate_cost(&provider, tokens_in, tokens_out);
+            let cost = estimate_cost_by_provider(&provider, tokens_in, tokens_out);
             Ok(ProviderUsage { provider, tokens_in, tokens_out, cost_estimate: cost, step_count })
         }).unwrap().filter_map(|r| r.ok()).collect();
 
@@ -1540,7 +1718,7 @@ impl Database {
             let tokens_out: i64 = row.get(2)?;
             let step_count: i64 = row.get(3)?;
             // Use a blended rate for daily aggregation
-            let cost_estimate = estimate_cost("claude", tokens_in, tokens_out);
+            let cost_estimate = estimate_cost_by_provider("claude", tokens_in, tokens_out);
             Ok(DailyUsage { date, tokens_in, tokens_out, cost_estimate, step_count })
         }).unwrap().filter_map(|r| r.ok()).collect()
     }
@@ -1564,7 +1742,7 @@ impl Database {
             let tokens_in: i64 = row.get(1)?;
             let tokens_out: i64 = row.get(2)?;
             let step_count: i64 = row.get(3)?;
-            let cost = estimate_cost(&provider, tokens_in, tokens_out);
+            let cost = estimate_cost_by_provider(&provider, tokens_in, tokens_out);
             Ok(ProviderUsage { provider, tokens_in, tokens_out, cost_estimate: cost, step_count })
         }).unwrap().filter_map(|r| r.ok()).collect();
 
@@ -1608,6 +1786,37 @@ impl Database {
                 (uid, summary)
             })
             .collect()
+    }
+
+    /// Get historical average step costs for a (user, tier, provider) combination
+    /// over the last 7 days. Returns (avg_tokens_in, avg_tokens_out, avg_duration_ms, sample_count).
+    pub fn get_historical_step_costs(
+        &self,
+        user_id: &str,
+        tier: &str,
+        provider: &str,
+    ) -> Option<(i64, i64, i64, i64)> {
+        let conn = self.conn.lock().unwrap();
+        let cutoff_ms = Utc::now().timestamp_millis() - (7 * 86_400_000);
+        conn.query_row(
+            "SELECT
+                COALESCE(AVG(COALESCE(tokens_in, 0)), 0),
+                COALESCE(AVG(COALESCE(tokens_out, 0)), 0),
+                COALESCE(AVG(COALESCE(duration_ms, 0)), 0),
+                COUNT(*)
+             FROM usage_events
+             WHERE user_id = ?1 AND tier = ?2 AND provider = ?3 AND timestamp > ?4",
+            params![user_id, tier, provider, cutoff_ms],
+            |row| {
+                let avg_in: f64 = row.get(0)?;
+                let avg_out: f64 = row.get(1)?;
+                let avg_dur: f64 = row.get(2)?;
+                let count: i64 = row.get(3)?;
+                Ok((avg_in as i64, avg_out as i64, avg_dur as i64, count))
+            },
+        )
+        .ok()
+        .filter(|(_, _, _, count)| *count > 0)
     }
 
     /// Get a user's usage cost for the current day (since midnight UTC).

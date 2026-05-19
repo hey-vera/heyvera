@@ -5,7 +5,10 @@ mod chat;
 pub mod clerk;
 mod conversations;
 pub mod db;
+pub mod github;
+pub mod mission_control;
 mod ratelimit;
+pub mod storage;
 pub mod routes;
 mod run_stream;
 pub mod scheduler;
@@ -32,6 +35,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/execute", post(sse::execute_task))
         .route("/api/chat", post(chat::chat))
         .route("/api/runs", get(routes::list_runs).post(routes::create_run))
+        .route("/api/runs/estimate", post(routes::estimate_run))
         .route("/api/runs/{id}", get(routes::get_run))
         .route("/api/runs/{id}/pr", post(routes::create_pr))
         .route("/api/runs/{id}/stream", get(run_stream::stream_run))
@@ -78,6 +82,8 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/admin/usage/users", get(usage_api::admin_usage_users))
         // Worker WebSocket
         .route("/api/ws", get(ws::ws_handler))
+        // Mission Control WebSocket (frontend observers)
+        .route("/api/mc", get(mission_control::mc_handler))
         // Merge rate-limited routes
         .merge(rate_limited)
         .layer(CorsLayer::permissive())

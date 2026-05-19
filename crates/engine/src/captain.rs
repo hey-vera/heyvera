@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -229,6 +229,7 @@ pub struct StepRef {
 pub struct SchedulerState {
     pub user_queues: HashMap<String, UserQueue>,
     pub schedulable_users: VecDeque<String>,
+    enqueued_step_ids: HashSet<String>,
 }
 
 impl SchedulerState {
@@ -236,10 +237,16 @@ impl SchedulerState {
         Self {
             user_queues: HashMap::new(),
             schedulable_users: VecDeque::new(),
+            enqueued_step_ids: HashSet::new(),
         }
     }
 
     pub fn enqueue_ready_step(&mut self, step: StepRef) {
+        // Deduplicate: skip if this step is already enqueued
+        if !self.enqueued_step_ids.insert(step.step_id.clone()) {
+            return;
+        }
+
         let user_id = step.user_id.clone();
         let queue = self.user_queues.entry(user_id.clone()).or_default();
         queue.ready_steps.push_back(step);
@@ -257,6 +264,7 @@ impl SchedulerState {
                 if let Some(q) = queue {
                     if q.has_capacity() {
                         if let Some(step) = q.ready_steps.pop_front() {
+                            self.enqueued_step_ids.remove(&step.step_id);
                             q.running_count += 1;
                             if !q.ready_steps.is_empty() {
                                 self.schedulable_users.push_back(user_id);
@@ -461,7 +469,7 @@ pub fn check_run_completion(step_statuses: &[(String, StepStatus)]) -> Option<Ru
 
     let any_failed = step_statuses
         .iter()
-        .any(|(_, s)| *s == StepStatus::Failed);
+        .any(|(_, s)| *s == StepStatus::Failed || *s == StepStatus::Skipped);
 
     if any_failed {
         Some(RunStatus::Failed)

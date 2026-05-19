@@ -1,9 +1,12 @@
+use std::collections::HashMap;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 
 use axum::extract::ws::{Message, WebSocket};
 use axum::extract::{State, WebSocketUpgrade};
-use axum::response::IntoResponse;
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
@@ -12,6 +15,7 @@ use cortex_core::protocol::{BrainMessage, WorkerMessage, PROTOCOL_VERSION};
 use cortex_engine::captain::SchedulerEvent;
 
 use crate::clerk;
+use crate::mission_control::MissionControlEvent;
 use crate::state::AppState;
 
 const GRACE_PERIOD_MS: i64 = 60_000;
@@ -20,8 +24,12 @@ const REGISTER_TIMEOUT_SECS: u64 = 10;
 pub async fn ws_handler(
     ws: WebSocketUpgrade,
     State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+) -> Response {
+    if state.is_shutting_down.load(Ordering::SeqCst) {
+        return (StatusCode::SERVICE_UNAVAILABLE, "server is shutting down").into_response();
+    }
     ws.on_upgrade(move |socket| handle_worker_connection(socket, state))
+        .into_response()
 }
 
 async fn handle_worker_connection(mut socket: WebSocket, state: Arc<AppState>) {
@@ -44,6 +52,7 @@ async fn handle_worker_connection(mut socket: WebSocket, state: Arc<AppState>) {
 
     let mut registered = false;
     let mut authed_user_id: Option<String> = None;
+    let mut step_run_cache: HashMap<String, String> = HashMap::new();
 
     // --- Registration timeout: first message must be a valid Register within REGISTER_TIMEOUT_SECS ---
     let first_msg = match tokio::time::timeout(
@@ -103,6 +112,7 @@ async fn handle_worker_connection(mut socket: WebSocket, state: Arc<AppState>) {
             &mut authed_user_id,
             &brain_tx,
             register_msg,
+            &mut step_run_cache,
         )
         .await;
     }
@@ -137,7 +147,8 @@ async fn handle_worker_connection(mut socket: WebSocket, state: Arc<AppState>) {
                         handle_worker_msg(
                             &state, &worker_id, &session_id,
                             &mut registered, &mut authed_user_id,
-                            &brain_tx, worker_msg
+                            &brain_tx, worker_msg,
+                            &mut step_run_cache,
                         ).await;
                     }
                     Some(Ok(Message::Close(_))) | None => break,
@@ -169,6 +180,16 @@ async fn handle_worker_connection(mut socket: WebSocket, state: Arc<AppState>) {
                 worker_id: worker_id.clone(),
             })
             .await;
+
+        // Emit MC event for worker disconnected
+        state
+            .emit_mc_event(
+                user_id,
+                MissionControlEvent::WorkerDisconnected {
+                    worker_id: worker_id.clone(),
+                },
+            )
+            .await;
     }
 }
 
@@ -180,6 +201,7 @@ async fn handle_worker_msg(
     authed_user_id: &mut Option<String>,
     brain_tx: &mpsc::Sender<BrainMessage>,
     msg: WorkerMessage,
+    step_run_cache: &mut HashMap<String, String>,
 ) {
     match msg {
         WorkerMessage::Register {
@@ -241,10 +263,13 @@ async fn handle_worker_msg(
             // Clear any disabled providers from previous sessions (re-auth resets)
             state.clear_disabled_providers(worker_id).await;
 
+            // Capture provider strings before moving provider_ids
+            let provider_strings: Vec<String> = provider_ids.iter().map(|p| p.to_string()).collect();
+
             state
                 .register_worker(
                     worker_id.to_string(),
-                    user_id,
+                    user_id.clone(),
                     provider_ids,
                     brain_tx.clone(),
                 )
@@ -254,6 +279,17 @@ async fn handle_worker_msg(
                 .emit_scheduler_event(SchedulerEvent::WorkerConnected {
                     worker_id: worker_id.to_string(),
                 })
+                .await;
+
+            // Emit MC event for worker connected
+            state
+                .emit_mc_event(
+                    &user_id,
+                    MissionControlEvent::WorkerConnected {
+                        worker_id: worker_id.to_string(),
+                        providers: provider_strings,
+                    },
+                )
                 .await;
         }
 
@@ -265,10 +301,45 @@ async fn handle_worker_msg(
             ..
         } => {
             tracing::info!("step {step_id} started: {provider}/{model} (msg={message_id})");
+
+            // Emit MC event
+            if let Some(user_id) = authed_user_id.as_deref() {
+                let run_id = resolve_run_id(step_run_cache, state, &step_id);
+                if let Some(run_id) = run_id {
+                    state
+                        .emit_mc_event(
+                            user_id,
+                            MissionControlEvent::StepStarted {
+                                run_id,
+                                step_id: step_id.clone(),
+                                provider: provider.clone(),
+                                model: model.clone(),
+                            },
+                        )
+                        .await;
+                }
+            }
         }
 
         WorkerMessage::StepOutput { step_id, line, .. } => {
             tracing::debug!("step {step_id}: {}", &line[..line.len().min(80)]);
+
+            // Emit MC event (throttled by the MC connection handler)
+            if let Some(user_id) = authed_user_id.as_deref() {
+                let run_id = resolve_run_id(step_run_cache, state, &step_id);
+                if let Some(run_id) = run_id {
+                    state
+                        .emit_mc_event(
+                            user_id,
+                            MissionControlEvent::StepOutput {
+                                run_id,
+                                step_id: step_id.clone(),
+                                line: line.clone(),
+                            },
+                        )
+                        .await;
+                }
+            }
         }
 
         WorkerMessage::StepCompleted {
@@ -300,34 +371,59 @@ async fn handle_worker_msg(
             );
 
             let files_json = serde_json::to_string(&output.files_changed).ok();
+            let truncated_summary = if output.summary.len() > 2000 {
+                format!("{}...[truncated]", &output.summary[..2000])
+            } else {
+                output.summary.clone()
+            };
             if let Some(db) = &state.db {
-                db.complete_step(
+                let step_updated = db.complete_step(
                     &step_id,
                     lease_gen,
-                    Some(&output.summary),
+                    Some(&truncated_summary),
                     files_json.as_deref(),
                     base_commit.as_deref(),
                     head_commit.as_deref(),
                 );
-                db.complete_attempt(&step_id, lease_gen);
-
-                // If this step produced a branch, record it on the run
-                if let Some(ref branch_name) = branch {
-                    if let Some(run_id) = db.get_step_run_id(&step_id) {
-                        db.record_run_branch(&run_id, branch_name);
-                    }
+                if !step_updated {
+                    tracing::warn!(
+                        "complete_step returned false for step {step_id} lease_gen={lease_gen} — \
+                         likely stale lease_gen (step may have been re-leased or already completed)"
+                    );
                 }
+                db.complete_attempt(&step_id, lease_gen);
 
                 // Record usage for pressure tracking
                 record_step_usage(db, &step_id, lease_gen, authed_user_id.as_deref(), output.tokens_in, output.tokens_out);
 
-                if let Some(run_id) = db.get_step_run_id(&step_id) {
+                if let Some(run_id) = resolve_run_id(step_run_cache, state, &step_id) {
+                    // If this step produced a branch, record it on the run
+                    if let Some(ref branch_name) = branch {
+                        db.record_run_branch(&run_id, branch_name);
+                    }
+
                     state
                         .emit_scheduler_event(SchedulerEvent::StepCompleted {
-                            run_id,
+                            run_id: run_id.clone(),
                             step_id: step_id.clone(),
                         })
                         .await;
+
+                    // Emit MC event
+                    if let Some(user_id) = authed_user_id.as_deref() {
+                        state
+                            .emit_mc_event(
+                                user_id,
+                                MissionControlEvent::StepCompleted {
+                                    run_id,
+                                    step_id: step_id.clone(),
+                                    exit_code,
+                                    files_changed: output.files_changed.clone(),
+                                    cost_estimate: output.cost_estimate,
+                                },
+                            )
+                            .await;
+                    }
                 }
             }
         }
@@ -371,13 +467,28 @@ async fn handle_worker_msg(
                 // Record usage even on failure (still consumed tokens/time)
                 record_step_usage(db, &step_id, lease_gen, authed_user_id.as_deref(), None, None);
 
-                if let Some(run_id) = db.get_step_run_id(&step_id) {
+                if let Some(run_id) = resolve_run_id(step_run_cache, state, &step_id) {
                     state
                         .emit_scheduler_event(SchedulerEvent::StepFailed {
-                            run_id,
+                            run_id: run_id.clone(),
                             step_id: step_id.clone(),
                         })
                         .await;
+
+                    // Emit MC event
+                    if let Some(user_id) = authed_user_id.as_deref() {
+                        state
+                            .emit_mc_event(
+                                user_id,
+                                MissionControlEvent::StepFailed {
+                                    run_id,
+                                    step_id: step_id.clone(),
+                                    error: error_msg.to_string(),
+                                    failure_kind: kind_str.clone(),
+                                },
+                            )
+                            .await;
+                    }
                 }
 
                 // Emit ProviderAuthExpired so scheduler disables the provider on this worker
@@ -432,6 +543,25 @@ async fn handle_worker_msg(
 
         WorkerMessage::Pong => {}
     }
+}
+
+/// Resolve step_id to run_id using a per-connection cache to avoid repeated DB lookups.
+/// A step producing 100 output lines would otherwise trigger 100 DB queries with Mutex locks.
+fn resolve_run_id(
+    cache: &mut HashMap<String, String>,
+    state: &AppState,
+    step_id: &str,
+) -> Option<String> {
+    if let Some(cached) = cache.get(step_id) {
+        return Some(cached.clone());
+    }
+    if let Some(db) = &state.db {
+        if let Some(rid) = db.get_step_run_id(step_id) {
+            cache.insert(step_id.to_string(), rid.clone());
+            return Some(rid);
+        }
+    }
+    None
 }
 
 fn record_step_usage(

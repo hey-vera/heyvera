@@ -5,6 +5,30 @@ use tracing_subscriber::EnvFilter;
 use cortex_api::scheduler;
 use cortex_api::state::AppState;
 
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("failed to install SIGINT handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("failed to install SIGTERM handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => tracing::info!("received SIGINT"),
+        _ = terminate => tracing::info!("received SIGTERM"),
+    }
+}
+
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
@@ -30,7 +54,7 @@ async fn main() {
     let scheduler_tx = scheduler::spawn_scheduler(state.clone());
     state.set_scheduler_tx(scheduler_tx).await;
 
-    let app = cortex_api::build_router(state);
+    let app = cortex_api::build_router(state.clone());
 
     let port: u16 = std::env::var("CORTEX_PORT")
         .ok()
@@ -41,5 +65,13 @@ async fn main() {
     tracing::info!("cortex server listening on {addr}");
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-    axum::serve(listener, app).await.unwrap();
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await
+        .unwrap();
+
+    // Signal received — run graceful shutdown logic
+    tracing::info!("server stopped accepting connections, running shutdown sequence");
+    state.shutdown().await;
+    tracing::info!("cortex server exited cleanly");
 }
