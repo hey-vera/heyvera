@@ -111,6 +111,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/soma/identity", get(soma_identity))
         // Soma delegation bridge (Clerk user → Soma session)
         .route("/api/soma/session", post(soma_bridge::create_session))
+        .route("/api/soma/revoke", post(soma_bridge::revoke_delegation))
         .route("/api/soma/me", get(soma_bridge::get_user_identity))
         // Protected — lightweight
         .route("/api/providers", get(routes::get_providers))
@@ -148,6 +149,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         // Merge rate-limited routes
         .merge(rate_limited)
         .layer(DefaultBodyLimit::max(2 * 1024 * 1024)) // 2MB max request body
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            soma::soma_headers_middleware,
+        ))
         .layer(cors_layer())
         .with_state(state)
 }

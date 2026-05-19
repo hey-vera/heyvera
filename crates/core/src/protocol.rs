@@ -29,6 +29,8 @@ pub enum BrainMessage {
         task: TaskContract,
         decision: RoutingDecision,
         context: StepContext,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        delegation: Option<serde_json::Value>,
     },
     CancelStep {
         step_id: String,

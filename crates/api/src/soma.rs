@@ -22,6 +22,7 @@ pub struct CortexHeart {
     pub identity: HeartIdentity,
     pub heartbeat_chain: std::sync::Mutex<HeartbeatChain>,
     pub spend_logs: std::sync::Mutex<std::collections::HashMap<String, SpendLog>>,
+    pub revoked_delegations: std::sync::Mutex<std::collections::HashSet<String>>,
     pub lineage: Option<HeartLineage>,
     pub root_did: Option<String>,
 }
@@ -84,11 +85,14 @@ impl CortexHeart {
         };
 
         let heartbeat_chain = Self::load_heartbeats();
+        let spend_logs = Self::load_spend_logs();
+        let revoked = Self::load_revoked();
 
         Ok(Self {
             identity,
             heartbeat_chain: std::sync::Mutex::new(heartbeat_chain),
-            spend_logs: std::sync::Mutex::new(std::collections::HashMap::new()),
+            spend_logs: std::sync::Mutex::new(spend_logs),
+            revoked_delegations: std::sync::Mutex::new(revoked),
             lineage,
             root_did,
         })
@@ -157,7 +161,7 @@ impl CortexHeart {
         HeartbeatChain::new()
     }
 
-    /// Record a spend against a delegation.
+    /// Record a spend against a delegation. Persists after every write.
     pub fn record_spend(
         &self,
         delegation_id: &str,
@@ -168,13 +172,15 @@ impl CortexHeart {
         let log = logs
             .entry(delegation_id.to_string())
             .or_insert_with(|| SpendLog::new(delegation_id));
-        log.record(
+        let receipt = log.record(
             amount,
             capability,
             &self.identity.did,
             &self.identity.secret_key,
             &self.identity.public_key,
-        )
+        )?;
+        Self::persist_spend_logs_inner(&logs);
+        Ok(receipt)
     }
 
     /// Get cumulative spend for a delegation.
@@ -183,6 +189,123 @@ impl CortexHeart {
         logs.get(delegation_id)
             .map(|l| l.cumulative())
             .unwrap_or(0.0)
+    }
+
+    fn spend_logs_path() -> std::path::PathBuf {
+        dirs_next::home_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from("."))
+            .join(".cortex")
+            .join("spend-logs.json")
+    }
+
+    fn persist_spend_logs_inner(logs: &std::collections::HashMap<String, SpendLog>) {
+        let path = Self::spend_logs_path();
+        match serde_json::to_string(logs) {
+            Ok(json) => {
+                if let Err(e) = std::fs::write(&path, json) {
+                    tracing::warn!("failed to persist spend logs: {e}");
+                }
+            }
+            Err(e) => tracing::warn!("failed to serialize spend logs: {e}"),
+        }
+    }
+
+    pub fn persist_spend_logs(&self) {
+        let logs = self.spend_logs.lock().unwrap();
+        Self::persist_spend_logs_inner(&logs);
+        tracing::info!("spend logs persisted ({} delegations)", logs.len());
+    }
+
+    fn load_spend_logs() -> std::collections::HashMap<String, SpendLog> {
+        let path = Self::spend_logs_path();
+        if path.exists() {
+            match std::fs::read_to_string(&path) {
+                Ok(json) => match serde_json::from_str(&json) {
+                    Ok(logs) => {
+                        let logs: std::collections::HashMap<String, SpendLog> = logs;
+                        tracing::info!("spend logs loaded: {} delegations", logs.len());
+                        return logs;
+                    }
+                    Err(e) => tracing::warn!("failed to parse spend logs: {e}"),
+                },
+                Err(e) => tracing::warn!("failed to read spend logs: {e}"),
+            }
+        }
+        std::collections::HashMap::new()
+    }
+
+    pub fn revoke_delegation(&self, delegation_id: &str) {
+        let mut revoked = self.revoked_delegations.lock().unwrap();
+        revoked.insert(delegation_id.to_string());
+        Self::persist_revoked_inner(&revoked);
+        self.record_heartbeat(
+            HeartbeatEventType::DelegationRevoked,
+            &serde_json::json!({
+                "delegation_id": delegation_id,
+            })
+            .to_string(),
+        );
+        tracing::info!("delegation revoked: {delegation_id}");
+    }
+
+    pub fn is_revoked(&self, delegation_id: &str) -> bool {
+        self.revoked_delegations.lock().unwrap().contains(delegation_id)
+    }
+
+    fn revoked_path() -> std::path::PathBuf {
+        dirs_next::home_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from("."))
+            .join(".cortex")
+            .join("revoked-delegations.json")
+    }
+
+    fn persist_revoked_inner(revoked: &std::collections::HashSet<String>) {
+        let path = Self::revoked_path();
+        match serde_json::to_string(revoked) {
+            Ok(json) => {
+                if let Err(e) = std::fs::write(&path, json) {
+                    tracing::warn!("failed to persist revocation set: {e}");
+                }
+            }
+            Err(e) => tracing::warn!("failed to serialize revocation set: {e}"),
+        }
+    }
+
+    fn load_revoked() -> std::collections::HashSet<String> {
+        let path = Self::revoked_path();
+        if path.exists() {
+            match std::fs::read_to_string(&path) {
+                Ok(json) => match serde_json::from_str(&json) {
+                    Ok(set) => {
+                        let set: std::collections::HashSet<String> = set;
+                        tracing::info!("revocation set loaded: {} entries", set.len());
+                        return set;
+                    }
+                    Err(e) => tracing::warn!("failed to parse revocation set: {e}"),
+                },
+                Err(e) => tracing::warn!("failed to read revocation set: {e}"),
+            }
+        }
+        std::collections::HashSet::new()
+    }
+
+    /// Prune spend logs for delegations with no activity in the given retention window.
+    pub fn prune_spend_logs(&self, retention_ms: u64) -> usize {
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+        let cutoff = now_ms.saturating_sub(retention_ms);
+
+        let mut logs = self.spend_logs.lock().unwrap();
+        let before = logs.len();
+        logs.retain(|_, log| log.last_activity_ms() > cutoff);
+        let pruned = before - logs.len();
+        if pruned > 0 {
+            Self::persist_spend_logs_inner(&logs);
+            tracing::info!("pruned {pruned} expired spend logs ({} remaining)", logs.len());
+        }
+        pruned
     }
 
     pub fn did(&self) -> &str {
@@ -278,10 +401,16 @@ async fn verify_soma_token(
     parts: &Parts,
     state: &Arc<AppState>,
 ) -> Result<AuthenticatedIdentity, AuthError> {
-    // Parse the delegation token
     let delegation: Delegation = serde_json::from_str(token).map_err(|e| {
         AuthError::InvalidToken(format!("malformed soma delegation token: {e}"))
     })?;
+
+    // Check revocation set before expensive crypto verification
+    if let Some(heart) = &state.soma_heart {
+        if heart.is_revoked(&delegation.id) {
+            return Err(AuthError::Unauthorized("delegation has been revoked".into()));
+        }
+    }
 
     // Check for delegation chain header
     let chain_header = parts
@@ -289,24 +418,30 @@ async fn verify_soma_token(
         .get(SOMA_DELEGATION_CHAIN_HEADER)
         .and_then(|v| v.to_str().ok());
 
+    // Look up cumulative spend for this delegation (budget enforcement)
+    let cumulative_spend = state
+        .soma_heart
+        .as_ref()
+        .map(|h| h.cumulative_spend(&delegation.id));
+
+    let cortex_did = state
+        .soma_heart
+        .as_ref()
+        .map(|h| h.did().to_string())
+        .unwrap_or_default();
+
+    let ctx = InvocationContext {
+        invoker_did: delegation.subject_did.clone(),
+        audience_did: Some(cortex_did),
+        capability: "route:*".into(),
+        cumulative_credits_spent: cumulative_spend,
+        ..Default::default()
+    };
+
     if let Some(chain_json) = chain_header {
-        // Full chain verification
         let chain: Vec<Delegation> = serde_json::from_str(chain_json).map_err(|e| {
             AuthError::InvalidToken(format!("malformed delegation chain: {e}"))
         })?;
-
-        let cortex_did = state
-            .soma_heart
-            .as_ref()
-            .map(|h| h.did().to_string())
-            .unwrap_or_default();
-
-        let ctx = InvocationContext {
-            invoker_did: delegation.subject_did.clone(),
-            audience_did: Some(cortex_did),
-            capability: "route:*".into(),
-            ..Default::default()
-        };
 
         let result = verify_delegation_chain(&chain, &ctx).map_err(|e| {
             AuthError::VerificationFailed(format!("chain verification error: {e}"))
@@ -318,20 +453,6 @@ async fn verify_soma_token(
             )));
         }
     } else {
-        // Single delegation verification
-        let cortex_did = state
-            .soma_heart
-            .as_ref()
-            .map(|h| h.did().to_string())
-            .unwrap_or_default();
-
-        let ctx = InvocationContext {
-            invoker_did: delegation.subject_did.clone(),
-            audience_did: Some(cortex_did),
-            capability: "route:*".into(),
-            ..Default::default()
-        };
-
         let result = verify_delegation(&delegation, &ctx).map_err(|e| {
             AuthError::VerificationFailed(format!("delegation verification error: {e}"))
         })?;
@@ -412,36 +533,23 @@ impl IntoResponse for AuthError {
     }
 }
 
-/// Soma response headers per SOMA-DELEGATION-SPEC.
-pub fn soma_response_headers(
-    delegation: &Delegation,
-    heart: &CortexHeart,
-) -> Vec<(String, String)> {
-    let mut headers = Vec::new();
-    headers.push((
-        "X-Soma-Protocol".into(),
-        "soma-delegation/0.1".into(),
-    ));
-    headers.push((
-        "X-Soma-Delegation-Depth".into(),
-        "1".into(),
-    ));
-    headers.push((
-        "X-Soma-Heart-DID".into(),
-        heart.did().to_string(),
-    ));
+/// Axum middleware that adds Soma provenance headers to every response.
+pub async fn soma_headers_middleware(
+    State(state): State<Arc<AppState>>,
+    request: axum::http::Request<axum::body::Body>,
+    next: axum::middleware::Next,
+) -> Response {
+    let mut response = next.run(request).await;
 
-    // Mask the delegation ID for privacy (first 4 + last 4 chars)
-    let masked = if delegation.id.len() > 8 {
-        format!(
-            "{}...{}",
-            &delegation.id[..4],
-            &delegation.id[delegation.id.len() - 4..]
-        )
-    } else {
-        delegation.id.clone()
-    };
-    headers.push(("X-Soma-Delegation-Root".into(), masked));
+    if let Some(heart) = &state.soma_heart {
+        let headers = response.headers_mut();
+        headers.insert("X-Soma-Protocol", "soma-delegation/0.1".parse().unwrap());
+        headers.insert("X-Soma-Heart-DID", heart.did().parse().unwrap());
+        let chain = heart.heartbeat_chain.lock().unwrap();
+        if let Ok(val) = chain.head_hash().parse() {
+            headers.insert("X-Soma-Heartbeat-Head", val);
+        }
+    }
 
-    headers
+    response
 }

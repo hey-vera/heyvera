@@ -21,6 +21,7 @@ pub struct SpendReceipt {
 }
 
 /// Append-only spend log for a single delegation.
+#[derive(Serialize, Deserialize)]
 pub struct SpendLog {
     delegation_id: String,
     receipts: Vec<SpendReceipt>,
@@ -99,6 +100,10 @@ impl SpendLog {
 
     pub fn receipts(&self) -> &[SpendReceipt] {
         &self.receipts
+    }
+
+    pub fn last_activity_ms(&self) -> u64 {
+        self.receipts.last().map(|r| r.timestamp).unwrap_or(0)
     }
 
     /// Verify the integrity of the spend chain.

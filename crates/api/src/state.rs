@@ -335,6 +335,7 @@ impl AppState {
                 task,
                 decision,
                 context: StepContext::default(),
+                delegation: None,
             })
             .await
             .map_err(|_| "worker connection lost".to_string())?;
@@ -467,9 +468,10 @@ impl AppState {
             }
         }
 
-        // Persist heartbeat chain on shutdown
+        // Persist Soma state on shutdown
         if let Some(heart) = &self.soma_heart {
             heart.persist_heartbeats();
+            heart.persist_spend_logs();
         }
 
         let final_workers = self.workers.read().await.len();

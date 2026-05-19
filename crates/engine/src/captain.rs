@@ -178,7 +178,7 @@ impl EdgeType {
 #[derive(Debug, Clone)]
 pub enum SchedulerEvent {
     RunCreated { run_id: String },
-    StepCompleted { run_id: String, step_id: String },
+    StepCompleted { run_id: String, step_id: String, cost_estimate: Option<f64> },
     StepFailed { run_id: String, step_id: String },
     WorkerConnected { worker_id: String },
     WorkerDisconnected { worker_id: String },

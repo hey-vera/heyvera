@@ -189,6 +189,54 @@ pub async fn create_session(
     }))
 }
 
+/// POST /api/soma/revoke — Revoke a delegation (admin/self-service).
+pub async fn revoke_delegation(
+    State(state): State<Arc<AppState>>,
+    user: ClerkUser,
+    Json(req): Json<RevokeRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    let heart = state.soma_heart.as_ref().ok_or_else(|| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ErrorResponse {
+                error: "soma heart not configured".into(),
+            }),
+        )
+    })?;
+
+    // Users can only revoke their own delegations (by subject_did match)
+    let user_dir = user_soma_dir(&state, &user.user_id);
+    let user_identity_path = user_dir.join("soma-identity.json");
+    let user_did = HeartIdentity::load(&user_identity_path)
+        .ok()
+        .map(|id| id.did);
+
+    let is_own = user_did.as_deref() == Some(&req.subject_did);
+    let is_admin = user.user_id.starts_with("user_admin");
+
+    if !is_own && !is_admin {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse {
+                error: "can only revoke your own delegations".into(),
+            }),
+        ));
+    }
+
+    heart.revoke_delegation(&req.delegation_id);
+
+    Ok(Json(serde_json::json!({
+        "revoked": true,
+        "delegation_id": req.delegation_id,
+    })))
+}
+
+#[derive(Deserialize)]
+pub struct RevokeRequest {
+    pub delegation_id: String,
+    pub subject_did: String,
+}
+
 /// GET /api/soma/me — Get the authenticated user's Soma identity.
 pub async fn get_user_identity(
     State(state): State<Arc<AppState>>,
