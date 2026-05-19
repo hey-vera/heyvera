@@ -18,8 +18,11 @@ interface WorkSurfaceProps {
   workEvents: WorkEventItem[];
   isStreaming: boolean;
   runProfile: RunProfile;
+  runBridgeGoal: string | null;
+  runBridgeNonce: number;
   open: boolean;
   onClose: () => void;
+  onRunBridgeConsumed: () => void;
   onApprovalAction: (messageId: string, nextState: ApprovalState) => void;
 }
 
@@ -84,8 +87,21 @@ function WorkSurfaceContent({
   workEvents,
   isStreaming,
   runProfile,
+  runBridgeGoal,
+  runBridgeNonce,
+  onRunBridgeConsumed,
   onApprovalAction,
-}: Pick<WorkSurfaceProps, 'messages' | 'workEvents' | 'isStreaming' | 'runProfile' | 'onApprovalAction'>) {
+}: Pick<
+  WorkSurfaceProps,
+  | 'messages'
+  | 'workEvents'
+  | 'isStreaming'
+  | 'runProfile'
+  | 'runBridgeGoal'
+  | 'runBridgeNonce'
+  | 'onRunBridgeConsumed'
+  | 'onApprovalAction'
+>) {
   const [copiedEventId, setCopiedEventId] = useState<string | null>(null);
   const approvals = collectApprovals(messages);
   const pendingApprovals = approvals.filter((approval) => approval.state === 'pending');
@@ -138,7 +154,12 @@ function WorkSurfaceContent({
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
         <div className="space-y-5">
-          <RunPanel profile={runProfile} />
+          <RunPanel
+            profile={runProfile}
+            bridgeGoal={runBridgeGoal}
+            bridgeNonce={runBridgeNonce}
+            onBridgeConsumed={onRunBridgeConsumed}
+          />
           <LedgerView />
 
           {!hasWork ? (
@@ -296,8 +317,11 @@ export default function WorkSurface({
   workEvents,
   isStreaming,
   runProfile,
+  runBridgeGoal,
+  runBridgeNonce,
   open,
   onClose,
+  onRunBridgeConsumed,
   onApprovalAction,
 }: WorkSurfaceProps) {
   return (
@@ -308,6 +332,9 @@ export default function WorkSurface({
           workEvents={workEvents}
           isStreaming={isStreaming}
           runProfile={runProfile}
+          runBridgeGoal={runBridgeGoal}
+          runBridgeNonce={runBridgeNonce}
+          onRunBridgeConsumed={onRunBridgeConsumed}
           onApprovalAction={onApprovalAction}
         />
       </aside>
@@ -334,6 +361,9 @@ export default function WorkSurface({
               workEvents={workEvents}
               isStreaming={isStreaming}
               runProfile={runProfile}
+              runBridgeGoal={runBridgeGoal}
+              runBridgeNonce={runBridgeNonce}
+              onRunBridgeConsumed={onRunBridgeConsumed}
               onApprovalAction={onApprovalAction}
             />
           </div>

@@ -1,10 +1,13 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { GitBranch, Loader2, Play, RefreshCcw } from 'lucide-react';
 import { CortexApiError, createRun, getRun, type RunSummary, type RunStep } from '../../lib/cortexApi';
 import type { RunProfile } from '../../types';
 
 interface RunPanelProps {
   profile: RunProfile;
+  bridgeGoal: string | null;
+  bridgeNonce: number;
+  onBridgeConsumed: () => void;
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -43,7 +46,12 @@ function getWorkerSignal(run: RunSummary | null) {
   return { label: 'Worker status unknown', className: 'border-white/8 bg-white/4 text-[var(--muted)]' };
 }
 
-export default function RunPanel({ profile }: RunPanelProps) {
+export default function RunPanel({
+  profile,
+  bridgeGoal,
+  bridgeNonce,
+  onBridgeConsumed,
+}: RunPanelProps) {
   const [goal, setGoal] = useState('');
   const [runId, setRunId] = useState<string | null>(null);
   const [run, setRun] = useState<RunSummary | null>(null);
@@ -78,8 +86,8 @@ export default function RunPanel({ profile }: RunPanelProps) {
     return () => window.clearInterval(interval);
   }, [runId]);
 
-  async function submitRun() {
-    const nextGoal = goal.trim();
+  const submitRun = useCallback(async (goalOverride?: string) => {
+    const nextGoal = (goalOverride ?? goal).trim();
     if (!nextGoal || isSubmitting) return;
     setIsSubmitting(true);
     setError(null);
@@ -98,7 +106,14 @@ export default function RunPanel({ profile }: RunPanelProps) {
     } finally {
       setIsSubmitting(false);
     }
-  }
+  }, [goal, isSubmitting, profile]);
+
+  useEffect(() => {
+    if (!bridgeGoal) return;
+    setGoal(bridgeGoal);
+    void submitRun(bridgeGoal);
+    onBridgeConsumed();
+  }, [bridgeGoal, bridgeNonce, onBridgeConsumed, submitRun]);
 
   return (
     <section className="space-y-3">

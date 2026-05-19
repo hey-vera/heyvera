@@ -61,6 +61,14 @@ function readRunProfile(): RunProfile {
   }
 }
 
+function looksLikeRunGoal(value: string) {
+  const text = value.trim().toLowerCase();
+  if (text.length < 28) return false;
+  const connectiveMatches = text.match(/\b(and|then|after|also|plus)\b/g)?.length ?? 0;
+  const actionMatches = text.match(/\b(fix|add|update|refactor|test|review|commit|deploy|wire|build|implement)\b/g)?.length ?? 0;
+  return connectiveMatches > 0 && actionMatches >= 2;
+}
+
 const SettingsPanel = lazy(() => import('./components/SettingsPanel'));
 const WorkSurface = lazy(() => import('./components/work-surface/WorkSurface'));
 
@@ -77,6 +85,8 @@ export default function App() {
     readSessionControls,
   );
   const [runProfile, setRunProfile] = useState<RunProfile>(readRunProfile);
+  const [runBridgeGoal, setRunBridgeGoal] = useState<string | null>(null);
+  const [runBridgeNonce, setRunBridgeNonce] = useState(0);
 
   const handleConversationCreated = useCallback((conversationId: string) => {
     setActiveConversationId(conversationId);
@@ -150,9 +160,22 @@ export default function App() {
     setDraft(prompt);
   }, [setDraft]);
 
+  const bridgeDraftToRun = useCallback(() => {
+    const nextGoal = draft.trim();
+    if (!nextGoal) return;
+    setRunBridgeGoal(nextGoal);
+    setRunBridgeNonce((nonce) => nonce + 1);
+    setWorkSurfaceOpen(true);
+  }, [draft]);
+
+  const clearRunBridgeGoal = useCallback(() => {
+    setRunBridgeGoal(null);
+  }, []);
+
   const headerTitle = activeConversationTitle?.trim() || 'New chat';
   const approvalCount = messages.filter((message) => message.approvalRequest?.state === 'pending').length;
   const showWorkBadge = isStreaming || approvalCount > 0;
+  const showRunBridge = looksLikeRunGoal(draft) && !isStreaming;
 
   useEffect(() => {
     if (!renamingTitle) return;
@@ -385,6 +408,22 @@ export default function App() {
             onChange={setSessionControls}
             onRunProfileChange={setRunProfile}
           />
+          {showRunBridge && (
+            <div className="border-t border-white/6 px-3 py-2 sm:px-4">
+              <div className="mx-auto flex w-full max-w-3xl items-center justify-between gap-3 rounded-xl border border-[var(--accent)]/20 bg-[var(--accent)]/10 px-3 py-2">
+                <p className="min-w-0 truncate text-xs text-[var(--muted-strong)]">
+                  This looks like a multi-step coding goal.
+                </p>
+                <button
+                  type="button"
+                  onClick={bridgeDraftToRun}
+                  className="shrink-0 rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-medium text-black transition hover:brightness-110 active:scale-95"
+                >
+                  Create run
+                </button>
+              </div>
+            </div>
+          )}
           <ChatComposer
             draft={draft}
             disabled={isStreaming}
@@ -401,8 +440,11 @@ export default function App() {
           workEvents={workEvents}
           isStreaming={isStreaming}
           runProfile={runProfile}
+          runBridgeGoal={runBridgeGoal}
+          runBridgeNonce={runBridgeNonce}
           open={workSurfaceOpen}
           onClose={() => setWorkSurfaceOpen(false)}
+          onRunBridgeConsumed={clearRunBridgeGoal}
           onApprovalAction={updateApproval}
         />
       </Suspense>
