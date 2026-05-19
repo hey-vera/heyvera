@@ -8,22 +8,15 @@ import {
   Terminal,
   X,
 } from 'lucide-react';
-import type { ApprovalRequest, ApprovalState, ChatMessage } from '../../types';
+import type { ApprovalRequest, ApprovalState, ChatMessage, WorkEventItem } from '../../types';
 
 interface WorkSurfaceProps {
   messages: ChatMessage[];
+  workEvents: WorkEventItem[];
   isStreaming: boolean;
   open: boolean;
   onClose: () => void;
   onApprovalAction: (messageId: string, nextState: ApprovalState) => void;
-}
-
-interface WorkEvent {
-  id: string;
-  title: string;
-  detail: string;
-  timestamp: string;
-  state: 'active' | 'done' | 'waiting' | 'failed';
 }
 
 const APPROVAL_LABELS: Record<ApprovalState, string> = {
@@ -39,16 +32,16 @@ function collectApprovals(messages: ChatMessage[]): ApprovalRequest[] {
     .filter((request): request is ApprovalRequest => Boolean(request));
 }
 
-function collectEvents(messages: ChatMessage[]): WorkEvent[] {
+function collectEvents(messages: ChatMessage[]): WorkEventItem[] {
   return messages
     .filter((message) => message.role === 'assistant' && message.id !== 'm-init')
     .slice(-8)
-    .map((message): WorkEvent => {
+    .map((message): WorkEventItem => {
       const failed = message.statusLabel?.toLowerCase().includes('failed')
         || message.statusLabel?.toLowerCase().includes('error');
       const waiting = message.approvalRequest?.state === 'pending'
         || message.statusLabel?.toLowerCase().includes('approval');
-      const state: WorkEvent['state'] = message.isStreaming
+      const state: WorkEventItem['state'] = message.isStreaming
         ? 'active'
         : failed
           ? 'failed'
@@ -75,7 +68,7 @@ function formatTime(timestamp: string) {
   });
 }
 
-function stateIcon(state: WorkEvent['state']) {
+function stateIcon(state: WorkEventItem['state']) {
   if (state === 'active') return <Clock3 className="h-3.5 w-3.5 animate-pulse text-emerald-300" />;
   if (state === 'failed') return <Circle className="h-3.5 w-3.5 fill-red-400 text-red-400" />;
   if (state === 'waiting') return <Circle className="h-3.5 w-3.5 fill-amber-300 text-amber-300" />;
@@ -84,12 +77,13 @@ function stateIcon(state: WorkEvent['state']) {
 
 function WorkSurfaceContent({
   messages,
+  workEvents,
   isStreaming,
   onApprovalAction,
-}: Pick<WorkSurfaceProps, 'messages' | 'isStreaming' | 'onApprovalAction'>) {
+}: Pick<WorkSurfaceProps, 'messages' | 'workEvents' | 'isStreaming' | 'onApprovalAction'>) {
   const approvals = collectApprovals(messages);
   const pendingApprovals = approvals.filter((approval) => approval.state === 'pending');
-  const events = collectEvents(messages);
+  const events = workEvents.length > 0 ? workEvents : collectEvents(messages);
   const hasWork = events.length > 0 || approvals.length > 0 || isStreaming;
 
   return (
@@ -255,6 +249,7 @@ function WorkSurfaceContent({
 
 export default function WorkSurface({
   messages,
+  workEvents,
   isStreaming,
   open,
   onClose,
@@ -265,6 +260,7 @@ export default function WorkSurface({
       <aside className="hidden h-full w-80 shrink-0 border-l border-white/6 bg-[var(--panel)] xl:block">
         <WorkSurfaceContent
           messages={messages}
+          workEvents={workEvents}
           isStreaming={isStreaming}
           onApprovalAction={onApprovalAction}
         />
@@ -289,6 +285,7 @@ export default function WorkSurface({
             </button>
             <WorkSurfaceContent
               messages={messages}
+              workEvents={workEvents}
               isStreaming={isStreaming}
               onApprovalAction={onApprovalAction}
             />

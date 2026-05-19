@@ -151,3 +151,16 @@ export interface ChatSessionControls {
   intelligence: SessionIntelligence;
   autonomy: SessionAutonomy;
 }
+
+export type WorkEventState = 'active' | 'done' | 'waiting' | 'failed';
+
+export interface WorkEventItem {
+  id: string;
+  taskId?: string;
+  title: string;
+  detail: string;
+  timestamp: string;
+  state: WorkEventState;
+  provider?: string;
+  model?: string;
+}

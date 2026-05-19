@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ApprovalState, ChatMessage, ChatProject } from '../types';
+import type { ApprovalState, ChatMessage, ChatProject, WorkEventItem } from '../types';
 import {
   addMessageToConversation,
   createConversation,
@@ -147,6 +147,7 @@ export function useChatSession({
   const [isStreaming, setIsStreaming] = useState(false);
   const [isLoadingConversation, setIsLoadingConversation] = useState(false);
   const [activeConversationTitle, setActiveConversationTitle] = useState<string | null>(null);
+  const [workEvents, setWorkEvents] = useState<WorkEventItem[]>([]);
   const abortRef = useRef<AbortController | null>(null);
   const activeConversationIdRef = useRef<string | null>(activeConversationId);
   const messagesRef = useRef<ChatMessage[]>(messages);
@@ -174,6 +175,7 @@ export function useChatSession({
     abortRef.current = null;
     setIsStreaming(false);
     setIsLoadingConversation(false);
+    setWorkEvents([]);
 
     const requestVersion = ++requestVersionRef.current;
 
@@ -184,6 +186,7 @@ export function useChatSession({
     }
 
     setMessages([]);
+    setWorkEvents([]);
     setIsLoadingConversation(true);
 
     void (async () => {
@@ -278,6 +281,23 @@ export function useChatSession({
       ),
     );
     setIsStreaming(false);
+    setWorkEvents((currentEvents) => [
+      {
+        id: createId('work-stopped'),
+        taskId: streamingMessage.id,
+        title: 'Stopped',
+        detail: 'User stopped the current response.',
+        timestamp: new Date().toISOString(),
+        state: 'done' as const,
+        provider: streamingMessage.provider,
+        model: streamingMessage.model,
+      },
+      ...currentEvents.map((workEvent) =>
+        workEvent.state === 'active'
+          ? { ...workEvent, state: 'done' as const }
+          : workEvent,
+      ),
+    ].slice(0, 24));
 
     if (conversationId) {
       void addMessageToConversation(
@@ -320,6 +340,16 @@ export function useChatSession({
     setDraft('');
     setIsStreaming(true);
     setMessages((cur) => [...cur, userMsg, assistantMsg]);
+    setWorkEvents([
+      {
+        id: createId('work-routing'),
+        taskId: assistantId,
+        title: 'Routing',
+        detail: 'Cortex is choosing a provider and execution path.',
+        timestamp: new Date().toISOString(),
+        state: 'active',
+      },
+    ]);
 
     void (async () => {
       const streamVersion = requestVersionRef.current;
@@ -402,6 +432,23 @@ export function useChatSession({
               case 'started':
                 assistantProvider = event.provider ?? assistantProvider;
                 assistantModel = event.model ?? assistantModel;
+                setWorkEvents((currentEvents) => [
+                  {
+                    id: createId('work-started'),
+                    taskId: event.task_id,
+                    title: 'Started',
+                    detail: `${event.provider ?? 'Provider'}${event.model ? ` · ${event.model}` : ''} is working.`,
+                    timestamp: new Date().toISOString(),
+                    state: 'active' as const,
+                    provider: event.provider,
+                    model: event.model,
+                  },
+                  ...currentEvents.map((workEvent) =>
+                    workEvent.state === 'active'
+                      ? { ...workEvent, state: 'done' as const }
+                      : workEvent,
+                  ),
+                ]);
                 setMessages((cur) =>
                   cur.map((m) =>
                     m.id === assistantId
@@ -421,6 +468,21 @@ export function useChatSession({
                 assistantContent = assistantContent
                   ? `${assistantContent}\n\n${event.line ?? ''}`
                   : (event.line ?? '');
+                if (event.line) {
+                  setWorkEvents((currentEvents) => [
+                    {
+                      id: createId('work-output'),
+                      taskId: event.task_id,
+                      title: 'Output',
+                      detail: event.line ?? '',
+                      timestamp: new Date().toISOString(),
+                      state: 'active' as const,
+                      provider: assistantProvider,
+                      model: assistantModel,
+                    },
+                    ...currentEvents,
+                  ].slice(0, 24));
+                }
                 setMessages((cur) =>
                   cur.map((m) =>
                     m.id === assistantId
@@ -431,6 +493,23 @@ export function useChatSession({
                 break;
 
               case 'completed':
+                setWorkEvents((currentEvents) => [
+                  {
+                    id: createId('work-completed'),
+                    taskId: event.task_id,
+                    title: 'Completed',
+                    detail: `Worker completed${typeof event.exit_code === 'number' ? ` with exit code ${event.exit_code}` : ''}.`,
+                    timestamp: new Date().toISOString(),
+                    state: 'done' as const,
+                    provider: assistantProvider,
+                    model: assistantModel,
+                  },
+                  ...currentEvents.map((workEvent) =>
+                    workEvent.state === 'active'
+                      ? { ...workEvent, state: 'done' as const }
+                      : workEvent,
+                  ),
+                ].slice(0, 24));
                 finalizeAssistant({
                   provider: assistantProvider,
                   model: assistantModel,
@@ -445,6 +524,23 @@ export function useChatSession({
                   ? `${assistantContent}\n\nError: ${event.error}`
                   : `Error: ${event.error}`;
                 assistantContent = failedContent;
+                setWorkEvents((currentEvents) => [
+                  {
+                    id: createId('work-failed'),
+                    taskId: event.task_id,
+                    title: 'Failed',
+                    detail: event.error ?? 'Worker failed.',
+                    timestamp: new Date().toISOString(),
+                    state: 'failed' as const,
+                    provider: assistantProvider,
+                    model: assistantModel,
+                  },
+                  ...currentEvents.map((workEvent) =>
+                    workEvent.state === 'active'
+                      ? { ...workEvent, state: 'failed' as const }
+                      : workEvent,
+                  ),
+                ].slice(0, 24));
                 finalizeAssistant({
                   provider: assistantProvider,
                   model: assistantModel,
@@ -458,6 +554,23 @@ export function useChatSession({
           },
           () => {
             if (requestVersionRef.current !== streamVersion || finalized) return;
+            setWorkEvents((currentEvents) => [
+              {
+                id: createId('work-completed'),
+                taskId: assistantId,
+                title: 'Completed',
+                detail: 'Cortex finished streaming the response.',
+                timestamp: new Date().toISOString(),
+                state: 'done' as const,
+                provider: assistantProvider,
+                model: assistantModel,
+              },
+              ...currentEvents.map((workEvent) =>
+                workEvent.state === 'active'
+                  ? { ...workEvent, state: 'done' as const }
+                  : workEvent,
+              ),
+            ].slice(0, 24));
             finalizeAssistant({
               provider: assistantProvider,
               model: assistantModel,
@@ -472,6 +585,23 @@ export function useChatSession({
               ? `${assistantContent}\n\nError: Could not reach Cortex backend: ${err.message}`
               : `Could not reach Cortex backend: ${err.message}`;
             assistantContent = errorContent;
+            setWorkEvents((currentEvents) => [
+              {
+                id: createId('work-error'),
+                taskId: assistantId,
+                title: 'Connection error',
+                detail: err.message,
+                timestamp: new Date().toISOString(),
+                state: 'failed' as const,
+                provider: assistantProvider,
+                model: assistantModel,
+              },
+              ...currentEvents.map((workEvent) =>
+                workEvent.state === 'active'
+                  ? { ...workEvent, state: 'failed' as const }
+                  : workEvent,
+              ),
+            ].slice(0, 24));
             finalizeAssistant({
               provider: assistantProvider,
               model: assistantModel,
@@ -498,6 +628,21 @@ export function useChatSession({
           ),
         );
         setIsStreaming(false);
+        setWorkEvents((currentEvents) => [
+          {
+            id: createId('work-send-failed'),
+            taskId: assistantId,
+            title: 'Send failed',
+            detail: message,
+            timestamp: new Date().toISOString(),
+            state: 'failed' as const,
+          },
+          ...currentEvents.map((workEvent) =>
+            workEvent.state === 'active'
+              ? { ...workEvent, state: 'failed' as const }
+              : workEvent,
+          ),
+        ].slice(0, 24));
         if (conversationId) {
           void persistAssistant(`Could not send message: ${message}`);
         }
@@ -512,6 +657,7 @@ export function useChatSession({
     isStreaming,
     isLoadingConversation,
     activeConversationTitle,
+    workEvents,
     setDraft,
     sendMessage,
     stopStreaming,

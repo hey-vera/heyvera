@@ -81,6 +81,7 @@ export default function App() {
     isStreaming,
     isLoadingConversation,
     activeConversationTitle,
+    workEvents,
     setDraft,
     sendMessage,
     stopStreaming,
@@ -362,6 +363,7 @@ export default function App() {
       <Suspense fallback={null}>
         <WorkSurface
           messages={messages}
+          workEvents={workEvents}
           isStreaming={isStreaming}
           open={workSurfaceOpen}
           onClose={() => setWorkSurfaceOpen(false)}
