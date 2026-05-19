@@ -131,6 +131,24 @@ fn verify_token(token: &str, keys: &[JwkKey]) -> Result<ClerkClaims, String> {
     Ok(token_data.claims)
 }
 
+/// Verify a Clerk JWT and return the user_id. Called by the Soma auth layer
+/// for backward-compatible Clerk JWT authentication.
+pub async fn verify_clerk_jwt(token: &str, state: &Arc<AppState>) -> Result<String, String> {
+    let clerk_secret = state
+        .clerk_secret_key
+        .as_ref()
+        .ok_or("clerk auth not configured")?;
+
+    let keys = get_or_refresh_jwks(&state.jwks_cache, clerk_secret, false).await?;
+    match verify_token(token, &keys) {
+        Ok(claims) => Ok(claims.sub),
+        Err(_) => {
+            let keys = get_or_refresh_jwks(&state.jwks_cache, clerk_secret, true).await?;
+            verify_token(token, &keys).map(|c| c.sub)
+        }
+    }
+}
+
 impl<S> FromRequestParts<S> for ClerkUser
 where
     Arc<AppState>: FromRef<S>,

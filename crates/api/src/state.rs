@@ -23,6 +23,7 @@ use crate::db::Database;
 use crate::github::GitHubClient;
 use crate::mission_control::{McSubscriber, MissionControlEvent, SubscriberId};
 use crate::ratelimit::RateLimiter;
+use crate::soma::CortexHeart;
 use crate::storage::Storage;
 
 pub struct ConnectedWorker {
@@ -56,6 +57,8 @@ pub struct AppState {
     pub cortex_store: Option<Mutex<CortexStore>>,
     /// UCB bandit scorer for adaptive provider selection.
     pub ucb_scorer: RwLock<UcbScorer>,
+    /// Cortex's Soma heart — cryptographic identity for this agent.
+    pub soma_heart: Option<CortexHeart>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -183,6 +186,17 @@ impl AppState {
             }
         };
 
+        let soma_heart = match CortexHeart::new() {
+            Ok(heart) => {
+                tracing::info!("soma heart alive — DID: {}", heart.did());
+                Some(heart)
+            }
+            Err(e) => {
+                tracing::error!("failed to initialize soma heart: {e}");
+                None
+            }
+        };
+
         Arc::new(Self {
             providers: RwLock::new(providers),
             ledger: Ledger::new(ledger_path),
@@ -202,6 +216,7 @@ impl AppState {
             github_client,
             cortex_store,
             ucb_scorer: RwLock::new(ucb_scorer),
+            soma_heart,
         })
     }
 

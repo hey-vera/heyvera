@@ -36,8 +36,22 @@ pub struct ErrorResponse {
     pub error: String,
 }
 
-pub async fn health() -> impl IntoResponse {
-    Json(serde_json::json!({ "status": "ok", "service": "cortex" }))
+pub async fn health(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let soma_did = state.soma_heart.as_ref().map(|h| h.did().to_string());
+    let heartbeat_count = state
+        .soma_heart
+        .as_ref()
+        .map(|h| h.heartbeat_chain.lock().unwrap().len())
+        .unwrap_or(0);
+    Json(serde_json::json!({
+        "status": "ok",
+        "service": "cortex",
+        "soma": {
+            "did": soma_did,
+            "protocol": "soma-delegation/0.1",
+            "heartbeats": heartbeat_count,
+        }
+    }))
 }
 
 pub async fn route_task(

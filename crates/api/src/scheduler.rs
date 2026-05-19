@@ -88,6 +88,12 @@ async fn apply_event(state: &AppState, sched: &mut SchedulerState, event: &Sched
 
         SchedulerEvent::StepCompleted { run_id, step_id } => {
             tracing::info!("scheduler: step completed {step_id} in run {run_id}");
+            if let Some(heart) = &state.soma_heart {
+                heart.record_heartbeat(
+                    soma::heartbeat::HeartbeatEventType::RouteCompleted,
+                    &serde_json::json!({"step_id": step_id, "run_id": run_id}).to_string(),
+                );
+            }
             if let Some(db) = &state.db {
                 let user_id = get_run_user(db, run_id);
                 sched.mark_step_done(&user_id);
@@ -99,6 +105,12 @@ async fn apply_event(state: &AppState, sched: &mut SchedulerState, event: &Sched
 
         SchedulerEvent::StepFailed { run_id, step_id } => {
             tracing::info!("scheduler: step failed {step_id} in run {run_id}");
+            if let Some(heart) = &state.soma_heart {
+                heart.record_heartbeat(
+                    soma::heartbeat::HeartbeatEventType::RouteFailed,
+                    &serde_json::json!({"step_id": step_id, "run_id": run_id}).to_string(),
+                );
+            }
             if let Some(db) = &state.db {
                 let user_id = get_run_user(db, run_id);
                 sched.mark_step_done(&user_id);
@@ -261,6 +273,21 @@ async fn dispatch_step(state: &AppState, step: &StepRef) -> bool {
                 confidence,
             );
         }
+    }
+
+    // --- Soma heartbeat: record routing decision ---
+    if let Some(heart) = &state.soma_heart {
+        heart.record_heartbeat(
+            soma::heartbeat::HeartbeatEventType::RouteSelected,
+            &serde_json::json!({
+                "step_id": step.step_id,
+                "provider": decision.provider.to_string(),
+                "model": decision.model_id,
+                "risk": format!("{:?}", risk),
+                "tier": format!("{:?}", tier),
+                "score": decision.score,
+            }).to_string(),
+        );
     }
 
     // Don't dispatch if no provider is actually available
@@ -604,6 +631,19 @@ async fn update_bandit_from_outcome(state: &AppState, db: &Database, step_id: &s
         "bandit update: {:?}/{:?}/{:?} reward={:.2} contamination={:.2} trials={}",
         task_family, risk, provider, reward, contamination, trials,
     );
+
+    // Record Soma spend receipt for completed steps (1 credit per step)
+    if success {
+        if let Some(heart) = &state.soma_heart {
+            if let Err(e) = heart.record_spend(
+                step_id,
+                1.0,
+                &format!("route:{:?}", intent),
+            ) {
+                tracing::warn!("soma spend receipt failed: {e}");
+            }
+        }
+    }
 
     // Emit MC event for real-time routing intelligence visibility
     if let Some(db) = &state.db {

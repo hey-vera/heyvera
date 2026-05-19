@@ -17,6 +17,8 @@ path = "src/main.rs"
 cortex-core = { path = "../core" }
 cortex-engine = { path = "../engine" }
 cortex-worker = { path = "../worker" }
+soma = { path = "../soma" }
+dirs-next = "2"
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

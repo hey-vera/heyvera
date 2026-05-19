@@ -4,6 +4,7 @@ members = [
     "crates/engine",
     "crates/api",
     "crates/worker",
+    "crates/soma",
 ]
 resolver = "3"
 
@@ -30,6 +31,11 @@ tokio-stream = "0.1"
 jsonwebtoken = "10"
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 rusqlite = { version = "0.35", features = ["bundled"] }
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+sha2 = "0.10"
+hmac = "0.12"
+base64 = "0.22"
+hex = "0.4"
 async-stream = "0.3"
 futures-util = "0.3"
 tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }

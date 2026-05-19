@@ -12,6 +12,7 @@ pub mod storage;
 pub mod routes;
 mod run_stream;
 pub mod scheduler;
+pub mod soma;
 mod sse;
 pub mod state;
 mod usage_api;
@@ -27,6 +28,32 @@ use axum::Router;
 use tower_http::cors::{AllowHeaders, AllowMethods, AllowOrigin, CorsLayer};
 
 use state::AppState;
+
+async fn soma_identity(
+    axum::extract::State(state): axum::extract::State<Arc<AppState>>,
+) -> impl axum::response::IntoResponse {
+    match &state.soma_heart {
+        Some(heart) => {
+            let chain = heart.heartbeat_chain.lock().unwrap();
+            let capabilities = heart.lineage.as_ref()
+                .map(|l| ::soma::lineage::effective_capabilities(l))
+                .unwrap_or_else(|| vec!["*".into()]);
+            axum::Json(serde_json::json!({
+                "did": heart.did(),
+                "genome": heart.identity.genome,
+                "protocol": "soma-delegation/0.1",
+                "heartbeats": chain.len(),
+                "head_hash": chain.head_hash(),
+                "capabilities": capabilities,
+                "root_did": heart.root_did,
+                "has_lineage": heart.lineage.is_some(),
+            }))
+        }
+        None => axum::Json(serde_json::json!({
+            "error": "soma heart not initialized"
+        })),
+    }
+}
 
 fn cors_layer() -> CorsLayer {
     let allowed_origins = std::env::var("CORTEX_ALLOWED_ORIGINS").ok();
@@ -79,6 +106,8 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         // Public
         .route("/api/health", get(routes::health))
         .route("/api/auth/status", get(auth::auth_status))
+        // Soma identity (public — lets clients discover Cortex's DID)
+        .route("/api/soma/identity", get(soma_identity))
         // Protected — lightweight
         .route("/api/providers", get(routes::get_providers))
         .route("/api/ledger", get(routes::get_ledger))
