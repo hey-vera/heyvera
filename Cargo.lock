@@ -236,8 +236,10 @@ dependencies = [
 name = "cortex-engine"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "chrono",
  "cortex-core",
+ "rusqlite",
  "serde",
  "serde_json",
  "thiserror",

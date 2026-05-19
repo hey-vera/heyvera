@@ -7,3 +7,5 @@ pub mod protocol;
 pub mod evaluator;
 pub mod failure;
 pub mod usage;
+pub mod contamination;
+pub mod autonomy;

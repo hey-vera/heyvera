@@ -6,3 +6,8 @@ pub mod models;
 pub mod risk;
 pub mod router;
 pub mod scorer;
+pub mod bandit;
+pub mod evidence_floor;
+pub mod templates;
+pub mod pipeline;
+pub mod store;
