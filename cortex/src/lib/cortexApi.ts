@@ -210,6 +210,7 @@ export interface SomaDelegation {
   issuer_did: string;
   subject_did: string;
   capabilities: string[];
+  caveats?: Array<{ type?: string; timestamp?: number; [key: string]: unknown }>;
   issued_at: number;
   signature: string;
 }

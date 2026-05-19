@@ -21,6 +21,7 @@ pub struct SpendReceipt {
 }
 
 /// Append-only spend log for a single delegation.
+#[derive(Serialize, Deserialize)]
 pub struct SpendLog {
     delegation_id: String,
     receipts: Vec<SpendReceipt>,

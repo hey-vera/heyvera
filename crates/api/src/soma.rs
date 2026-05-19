@@ -84,11 +84,12 @@ impl CortexHeart {
         };
 
         let heartbeat_chain = Self::load_heartbeats();
+        let spend_logs = Self::load_spend_logs();
 
         Ok(Self {
             identity,
             heartbeat_chain: std::sync::Mutex::new(heartbeat_chain),
-            spend_logs: std::sync::Mutex::new(std::collections::HashMap::new()),
+            spend_logs: std::sync::Mutex::new(spend_logs),
             lineage,
             root_did,
         })
@@ -157,7 +158,7 @@ impl CortexHeart {
         HeartbeatChain::new()
     }
 
-    /// Record a spend against a delegation.
+    /// Record a spend against a delegation. Persists after every write.
     pub fn record_spend(
         &self,
         delegation_id: &str,
@@ -168,13 +169,15 @@ impl CortexHeart {
         let log = logs
             .entry(delegation_id.to_string())
             .or_insert_with(|| SpendLog::new(delegation_id));
-        log.record(
+        let receipt = log.record(
             amount,
             capability,
             &self.identity.did,
             &self.identity.secret_key,
             &self.identity.public_key,
-        )
+        )?;
+        Self::persist_spend_logs_inner(&logs);
+        Ok(receipt)
     }
 
     /// Get cumulative spend for a delegation.
@@ -183,6 +186,49 @@ impl CortexHeart {
         logs.get(delegation_id)
             .map(|l| l.cumulative())
             .unwrap_or(0.0)
+    }
+
+    fn spend_logs_path() -> std::path::PathBuf {
+        dirs_next::home_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from("."))
+            .join(".cortex")
+            .join("spend-logs.json")
+    }
+
+    fn persist_spend_logs_inner(logs: &std::collections::HashMap<String, SpendLog>) {
+        let path = Self::spend_logs_path();
+        match serde_json::to_string(logs) {
+            Ok(json) => {
+                if let Err(e) = std::fs::write(&path, json) {
+                    tracing::warn!("failed to persist spend logs: {e}");
+                }
+            }
+            Err(e) => tracing::warn!("failed to serialize spend logs: {e}"),
+        }
+    }
+
+    pub fn persist_spend_logs(&self) {
+        let logs = self.spend_logs.lock().unwrap();
+        Self::persist_spend_logs_inner(&logs);
+        tracing::info!("spend logs persisted ({} delegations)", logs.len());
+    }
+
+    fn load_spend_logs() -> std::collections::HashMap<String, SpendLog> {
+        let path = Self::spend_logs_path();
+        if path.exists() {
+            match std::fs::read_to_string(&path) {
+                Ok(json) => match serde_json::from_str(&json) {
+                    Ok(logs) => {
+                        let logs: std::collections::HashMap<String, SpendLog> = logs;
+                        tracing::info!("spend logs loaded: {} delegations", logs.len());
+                        return logs;
+                    }
+                    Err(e) => tracing::warn!("failed to parse spend logs: {e}"),
+                },
+                Err(e) => tracing::warn!("failed to read spend logs: {e}"),
+            }
+        }
+        std::collections::HashMap::new()
     }
 
     pub fn did(&self) -> &str {

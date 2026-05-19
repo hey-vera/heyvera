@@ -468,9 +468,10 @@ impl AppState {
             }
         }
 
-        // Persist heartbeat chain on shutdown
+        // Persist Soma state on shutdown
         if let Some(heart) = &self.soma_heart {
             heart.persist_heartbeats();
+            heart.persist_spend_logs();
         }
 
         let final_workers = self.workers.read().await.len();

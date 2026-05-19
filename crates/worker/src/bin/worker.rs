@@ -142,8 +142,31 @@ async fn connect_and_run(
                             }
                             BrainMessage::ExecuteStep {
                                 step_id, attempt_id, lease_gen,
-                                task, decision, ..
+                                task, decision, delegation, ..
                             } => {
+                                if let Some(ref deleg_val) = delegation {
+                                    match serde_json::from_value::<soma::delegation::Delegation>(deleg_val.clone()) {
+                                        Ok(deleg) => {
+                                            let ctx = soma::delegation::InvocationContext {
+                                                invoker_did: deleg.issuer_did.clone(),
+                                                capability: format!("execute:step:{step_id}"),
+                                                ..Default::default()
+                                            };
+                                            match soma::delegation::verify_delegation(&deleg, &ctx) {
+                                                Ok(result) if result.is_valid() => {
+                                                    tracing::debug!("step {step_id}: delegation verified");
+                                                }
+                                                Ok(result) => {
+                                                    tracing::warn!("step {step_id}: delegation invalid: {result:?} — executing anyway");
+                                                }
+                                                Err(e) => {
+                                                    tracing::warn!("step {step_id}: delegation verification error: {e} — executing anyway");
+                                                }
+                                            }
+                                        }
+                                        Err(e) => tracing::warn!("step {step_id}: failed to parse delegation: {e}"),
+                                    }
+                                }
                                 tracing::info!("step {step_id}: {}", task.objective);
                                 let out = out_tx.clone();
                                 let dir = PathBuf::from(&ws_dir);
