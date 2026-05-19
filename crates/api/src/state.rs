@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -6,6 +6,7 @@ use cortex_core::protocol::{BrainMessage, StepContext};
 use cortex_core::provider::{ProviderId, ProviderStatus, Tier};
 use cortex_core::routing::RoutingDecision;
 use cortex_core::task::TaskContract;
+use cortex_core::usage::UsageLimits;
 use cortex_engine::captain::SchedulerEvent;
 use cortex_engine::ledger::Ledger;
 use cortex_worker::executor::detect_available_providers;
@@ -21,6 +22,7 @@ pub struct ConnectedWorker {
     pub worker_id: String,
     pub user_id: String,
     pub available_providers: Vec<ProviderId>,
+    pub disabled_providers: HashSet<ProviderId>,
     pub tx: mpsc::Sender<BrainMessage>,
 }
 
@@ -36,6 +38,8 @@ pub struct AppState {
     pub step_senders: RwLock<HashMap<String, mpsc::Sender<StepEvent>>>,
     pub scheduler_tx: RwLock<Option<mpsc::Sender<SchedulerEvent>>>,
     pub rate_limiter: Arc<RateLimiter>,
+    pub billing_enforced: bool,
+    pub usage_limits: UsageLimits,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -100,6 +104,38 @@ impl AppState {
         let db = Database::open(&db_path);
         tracing::info!("database opened at {}", db_path.display());
 
+        // Billing enforcement: default true, unless CORTEX_AUTH_DISABLED is set
+        let auth_disabled = std::env::var("CORTEX_AUTH_DISABLED")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
+        let billing_enforced = std::env::var("CORTEX_BILLING_ENFORCE")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(!auth_disabled); // default true in production, false when auth disabled
+
+        // Configurable usage limits
+        let usage_limits = UsageLimits {
+            daily_cost_limit: std::env::var("CORTEX_DAILY_COST_LIMIT")
+                .ok()
+                .and_then(|v| v.parse::<f64>().ok())
+                .unwrap_or(10.0),
+            daily_step_limit: std::env::var("CORTEX_DAILY_STEP_LIMIT")
+                .ok()
+                .and_then(|v| v.parse::<i64>().ok())
+                .unwrap_or(100),
+            monthly_cost_limit: std::env::var("CORTEX_MONTHLY_COST_LIMIT")
+                .ok()
+                .and_then(|v| v.parse::<f64>().ok())
+                .unwrap_or(200.0),
+        };
+
+        tracing::info!(
+            "billing: enforced={}, daily_cost=${:.0}, daily_steps={}, monthly_cost=${:.0}",
+            billing_enforced,
+            usage_limits.daily_cost_limit,
+            usage_limits.daily_step_limit,
+            usage_limits.monthly_cost_limit,
+        );
+
         Arc::new(Self {
             providers: RwLock::new(providers),
             ledger: Ledger::new(ledger_path),
@@ -112,6 +148,8 @@ impl AppState {
             step_senders: RwLock::new(HashMap::new()),
             scheduler_tx: RwLock::new(None),
             rate_limiter: Arc::new(RateLimiter::default_per_user()),
+            billing_enforced,
+            usage_limits,
         })
     }
 
@@ -130,6 +168,7 @@ impl AppState {
                 worker_id,
                 user_id,
                 available_providers,
+                disabled_providers: HashSet::new(),
                 tx,
             },
         );
@@ -146,8 +185,42 @@ impl AppState {
         let workers = self.workers.read().await;
         workers
             .values()
-            .find(|w| w.user_id == user_id)
+            .find(|w| {
+                w.user_id == user_id && {
+                    // Skip workers whose every provider is disabled
+                    let has_usable = w.available_providers.iter()
+                        .any(|p| !w.disabled_providers.contains(p));
+                    has_usable || w.available_providers.is_empty()
+                }
+            })
             .map(|w| w.tx.clone())
+    }
+
+    /// Mark a specific provider as unhealthy on a worker (e.g. auth expired).
+    /// The worker will not be selected for dispatch if all its providers are disabled.
+    pub async fn mark_provider_unhealthy(&self, worker_id: &str, provider: ProviderId) {
+        let mut workers = self.workers.write().await;
+        if let Some(w) = workers.get_mut(worker_id) {
+            w.disabled_providers.insert(provider);
+            tracing::warn!(
+                "provider {} disabled on worker {} — disabled: {:?}, available: {:?}",
+                provider, worker_id, w.disabled_providers, w.available_providers
+            );
+        }
+    }
+
+    /// Clear all disabled providers for a worker (called on re-registration).
+    pub async fn clear_disabled_providers(&self, worker_id: &str) {
+        let mut workers = self.workers.write().await;
+        if let Some(w) = workers.get_mut(worker_id) {
+            if !w.disabled_providers.is_empty() {
+                tracing::info!(
+                    "clearing disabled providers for worker {} (re-registered)",
+                    worker_id
+                );
+                w.disabled_providers.clear();
+            }
+        }
     }
 
     pub async fn dispatch_step(

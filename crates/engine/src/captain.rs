@@ -182,6 +182,11 @@ pub enum SchedulerEvent {
     StepFailed { run_id: String, step_id: String },
     WorkerConnected { worker_id: String },
     WorkerDisconnected { worker_id: String },
+    ProviderAuthExpired {
+        worker_id: String,
+        provider: String,
+        user_id: String,
+    },
     Reconcile,
 }
 

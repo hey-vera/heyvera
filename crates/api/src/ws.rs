@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::extract::ws::{Message, WebSocket};
 use axum::extract::{State, WebSocketUpgrade};
@@ -6,6 +7,7 @@ use axum::response::IntoResponse;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
+use cortex_core::failure::WorkerFailureKind;
 use cortex_core::protocol::{BrainMessage, WorkerMessage, PROTOCOL_VERSION};
 use cortex_engine::captain::SchedulerEvent;
 
@@ -13,6 +15,7 @@ use crate::clerk;
 use crate::state::AppState;
 
 const GRACE_PERIOD_MS: i64 = 60_000;
+const REGISTER_TIMEOUT_SECS: u64 = 10;
 
 pub async fn ws_handler(
     ws: WebSocketUpgrade,
@@ -42,6 +45,76 @@ async fn handle_worker_connection(mut socket: WebSocket, state: Arc<AppState>) {
     let mut registered = false;
     let mut authed_user_id: Option<String> = None;
 
+    // --- Registration timeout: first message must be a valid Register within REGISTER_TIMEOUT_SECS ---
+    let first_msg = match tokio::time::timeout(
+        Duration::from_secs(REGISTER_TIMEOUT_SECS),
+        socket.recv(),
+    )
+    .await
+    {
+        Ok(Some(Ok(Message::Text(text)))) => {
+            match serde_json::from_str::<WorkerMessage>(&text) {
+                Ok(msg @ WorkerMessage::Register { .. }) => Some(msg),
+                Ok(_) => {
+                    tracing::warn!(
+                        "worker {worker_id}: first message was not Register, closing connection"
+                    );
+                    let _ = socket.send(Message::Close(None)).await;
+                    return;
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "worker {worker_id}: invalid first message: {e}, closing connection"
+                    );
+                    let _ = socket.send(Message::Close(None)).await;
+                    return;
+                }
+            }
+        }
+        Ok(Some(Ok(Message::Close(_)))) | Ok(None) => {
+            tracing::info!("worker {worker_id}: disconnected before registration");
+            return;
+        }
+        Ok(Some(Err(e))) => {
+            tracing::warn!("worker {worker_id}: socket error before registration: {e}");
+            return;
+        }
+        Ok(_) => {
+            tracing::warn!("worker {worker_id}: non-text message before registration, closing");
+            let _ = socket.send(Message::Close(None)).await;
+            return;
+        }
+        Err(_) => {
+            tracing::warn!(
+                "worker {worker_id}: registration timeout ({REGISTER_TIMEOUT_SECS}s), closing connection"
+            );
+            let _ = socket.send(Message::Close(None)).await;
+            return;
+        }
+    };
+
+    // Process the Register message
+    if let Some(register_msg) = first_msg {
+        handle_worker_msg(
+            &state,
+            &worker_id,
+            &session_id,
+            &mut registered,
+            &mut authed_user_id,
+            &brain_tx,
+            register_msg,
+        )
+        .await;
+    }
+
+    // If registration/auth failed, close immediately
+    if !registered {
+        tracing::warn!("worker {worker_id}: registration failed, closing connection");
+        let _ = socket.send(Message::Close(None)).await;
+        return;
+    }
+
+    // --- Main event loop (only reached after successful registration) ---
     loop {
         tokio::select! {
             Some(msg) = brain_rx.recv() => {
@@ -165,6 +238,9 @@ async fn handle_worker_msg(
                 }
             }
 
+            // Clear any disabled providers from previous sessions (re-auth resets)
+            state.clear_disabled_providers(worker_id).await;
+
             state
                 .register_worker(
                     worker_id.to_string(),
@@ -206,6 +282,17 @@ async fn handle_worker_msg(
             branch,
             ..
         } => {
+            // Verify this worker owns the step
+            if let Some(db) = &state.db {
+                if !db.verify_step_worker(&step_id, worker_id) {
+                    tracing::warn!(
+                        "SECURITY: worker {worker_id} attempted StepCompleted for step {step_id} \
+                         which is not assigned to it — dropping message (msg={message_id})"
+                    );
+                    return;
+                }
+            }
+
             tracing::info!(
                 "step {step_id} completed (exit {exit_code}, files_changed={}, branch={:?}) msg={message_id}",
                 output.files_changed.len(),
@@ -232,7 +319,7 @@ async fn handle_worker_msg(
                 }
 
                 // Record usage for pressure tracking
-                record_step_usage(db, &step_id, lease_gen, authed_user_id.as_deref());
+                record_step_usage(db, &step_id, lease_gen, authed_user_id.as_deref(), output.tokens_in, output.tokens_out);
 
                 if let Some(run_id) = db.get_step_run_id(&step_id) {
                     state
@@ -252,6 +339,17 @@ async fn handle_worker_msg(
             failure,
             ..
         } => {
+            // Verify this worker owns the step
+            if let Some(db) = &state.db {
+                if !db.verify_step_worker(&step_id, worker_id) {
+                    tracing::warn!(
+                        "SECURITY: worker {worker_id} attempted StepFailed for step {step_id} \
+                         which is not assigned to it — dropping message (msg={message_id})"
+                    );
+                    return;
+                }
+            }
+
             tracing::warn!(
                 "step {step_id} failed: {:?} msg={message_id}",
                 failure.kind
@@ -259,12 +357,19 @@ async fn handle_worker_msg(
 
             let error_msg = failure.stderr_excerpt.as_deref().unwrap_or("unknown error");
             let kind_str = format!("{:?}", failure.kind);
+
+            // Classify the failure to detect auth expiry
+            let is_auth_expired = matches!(
+                failure.kind,
+                WorkerFailureKind::CliNotAuthenticated | WorkerFailureKind::CliAuthExpired
+            );
+
             if let Some(db) = &state.db {
                 db.fail_step(&step_id, lease_gen, error_msg, Some(&kind_str));
                 db.fail_attempt(&step_id, lease_gen, Some(&kind_str), Some(error_msg));
 
                 // Record usage even on failure (still consumed tokens/time)
-                record_step_usage(db, &step_id, lease_gen, authed_user_id.as_deref());
+                record_step_usage(db, &step_id, lease_gen, authed_user_id.as_deref(), None, None);
 
                 if let Some(run_id) = db.get_step_run_id(&step_id) {
                     state
@@ -274,10 +379,37 @@ async fn handle_worker_msg(
                         })
                         .await;
                 }
+
+                // Emit ProviderAuthExpired so scheduler disables the provider on this worker
+                if is_auth_expired {
+                    let provider_name = failure.tool.clone().unwrap_or_else(|| "unknown".to_string());
+                    let user_id = authed_user_id.clone().unwrap_or_else(|| "local".to_string());
+                    tracing::warn!(
+                        "provider auth expired: provider={provider_name}, worker={worker_id}, user={user_id}"
+                    );
+                    state
+                        .emit_scheduler_event(SchedulerEvent::ProviderAuthExpired {
+                            worker_id: worker_id.to_string(),
+                            provider: provider_name,
+                            user_id,
+                        })
+                        .await;
+                }
             }
         }
 
         WorkerMessage::LeaseRenew { step_id, lease_gen } => {
+            // Verify this worker owns the step
+            if let Some(db) = &state.db {
+                if !db.verify_step_worker(&step_id, worker_id) {
+                    tracing::warn!(
+                        "SECURITY: worker {worker_id} attempted LeaseRenew for step {step_id} \
+                         which is not assigned to it — dropping message"
+                    );
+                    return;
+                }
+            }
+
             if let Some(db) = &state.db {
                 // Extend lease by 5 minutes from now
                 let new_deadline = chrono::Utc::now().timestamp_millis() + 5 * 60 * 1000;
@@ -307,6 +439,8 @@ fn record_step_usage(
     step_id: &str,
     lease_gen: i64,
     user_id: Option<&str>,
+    tokens_in: Option<i64>,
+    tokens_out: Option<i64>,
 ) {
     let user_id = user_id.unwrap_or("local");
 
@@ -326,8 +460,8 @@ fn record_step_usage(
             &tier,
             &model,
             None,
-            None,
-            None,
+            tokens_in,
+            tokens_out,
             Some(duration_ms),
         );
     }

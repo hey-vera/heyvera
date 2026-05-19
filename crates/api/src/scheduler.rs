@@ -99,6 +99,18 @@ async fn apply_event(state: &AppState, sched: &mut SchedulerState, event: &Sched
             tracing::info!("scheduler: worker disconnected {worker_id}");
         }
 
+        SchedulerEvent::ProviderAuthExpired { worker_id, provider, user_id } => {
+            tracing::warn!(
+                "scheduler: provider {provider} auth expired for worker {worker_id} — \
+                 user {user_id} needs to re-authenticate"
+            );
+
+            // Resolve provider string to ProviderId and mark unhealthy
+            if let Some(provider_id) = parse_provider_id(provider) {
+                state.mark_provider_unhealthy(worker_id, provider_id).await;
+            }
+        }
+
         SchedulerEvent::Reconcile => {
             tracing::debug!("scheduler: reconcile tick");
         }
@@ -139,12 +151,11 @@ async fn dispatch_step(state: &AppState, step: &StepRef) -> bool {
         None => return false,
     };
 
-    // --- Billing gate check (soft by default) ---
-    let limits = cortex_core::usage::UsageLimits::default();
-    let gate = crate::billing::check_usage_gate(db, &step.user_id, &limits, false);
+    // --- Billing gate check ---
+    let gate = crate::billing::check_usage_gate(db, &step.user_id, &state.usage_limits, state.billing_enforced);
     if !gate.allowed {
         tracing::warn!(
-            "billing gate blocked step {} for user {} — {:?}",
+            "billing gate blocked step {} for user {} — {:?} (step stays pending, will retry next tick)",
             step.step_id,
             step.user_id,
             gate.violation
@@ -215,15 +226,20 @@ async fn dispatch_step(state: &AppState, step: &StepRef) -> bool {
     // Build step context from predecessors
     let context = build_step_context(db, &step.run_id, &step.step_id);
 
+    // Workspace context: use run_id as logical workspace, look up latest commit
+    // from predecessor steps, and pass file_paths from the run's goal
+    let base_commit = db.get_run_latest_commit(&step.run_id);
+    let allowed_paths = db.get_run_file_paths(&step.run_id);
+
     let msg = BrainMessage::ExecuteStep {
         run_id: step.run_id.clone(),
         step_id: step.step_id.clone(),
         attempt_id,
         lease_gen,
         lease_deadline_ms: deadline,
-        workspace_id: "default".to_string(),
-        base_commit: None,
-        allowed_paths: vec![],
+        workspace_id: step.run_id.clone(),
+        base_commit,
+        allowed_paths,
         task,
         decision,
         context,
@@ -522,6 +538,29 @@ async fn try_heal(state: &AppState, sched: &mut SchedulerState, run_id: &str, st
 
     let now_ms = chrono::Utc::now().timestamp_millis();
 
+    // Calculate exponential backoff with jitter before re-dispatching heal steps.
+    // base_delay * 2^(attempt-1), capped at 120s, with ±25% hash-based jitter.
+    let attempt = heal_count as u32 + 1;
+    let base_delay_ms: i64 = 5_000;
+    let max_delay_ms: i64 = 120_000;
+    let raw_delay = base_delay_ms.saturating_mul(1_i64 << (attempt - 1).min(20));
+    let capped_delay = raw_delay.min(max_delay_ms);
+
+    // Hash-based jitter: use step_id bytes to get a deterministic ±25% offset
+    let hash_val: u64 = step_id
+        .bytes()
+        .fold(0xcbf29ce484222325_u64, |h, b| {
+            h.wrapping_mul(0x100000001b3).wrapping_add(b as u64)
+        });
+    let jitter_range = capped_delay / 4; // 25%
+    let jitter = if jitter_range > 0 {
+        (hash_val % (jitter_range as u64 * 2)) as i64 - jitter_range
+    } else {
+        0
+    };
+    let backoff_delay = (capped_delay + jitter).max(1_000); // at least 1s
+    let earliest_dispatch_at = now_ms + backoff_delay;
+
     db.create_step_with_id(
         &plan.heal_step_id,
         run_id,
@@ -531,6 +570,7 @@ async fn try_heal(state: &AppState, sched: &mut SchedulerState, run_id: &str, st
         &plan.heal_objective,
         now_ms,
     );
+    db.set_step_earliest_dispatch(&plan.heal_step_id, earliest_dispatch_at);
     db.add_step_dependency(
         &plan.heal_step_id,
         step_id,
@@ -555,9 +595,10 @@ async fn try_heal(state: &AppState, sched: &mut SchedulerState, run_id: &str, st
     db.increment_heal_count(run_id);
 
     tracing::info!(
-        "inserted heal chain for step {step_id}: heal={} → retry={}",
+        "inserted heal chain for step {step_id}: heal={} → retry={} (backoff {backoff_delay}ms, dispatch after {})",
         plan.heal_step_id,
-        plan.retry_step_id
+        plan.retry_step_id,
+        earliest_dispatch_at,
     );
 }
 
@@ -776,7 +817,7 @@ pub async fn create_run_from_goal(
     let db = state.db.as_ref().ok_or("database not available")?;
     let now_ms = chrono::Utc::now().timestamp_millis();
 
-    let run_id = db.create_run(user_id, goal, profile);
+    let run_id = db.create_run(user_id, goal, profile, file_paths);
 
     for step in builder.steps() {
         db.create_step_with_id(

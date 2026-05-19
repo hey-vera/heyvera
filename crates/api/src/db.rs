@@ -51,7 +51,7 @@ pub struct ConversationSummary {
 
 // --- Schema version ---
 
-const SCHEMA_VERSION: i64 = 3;
+const SCHEMA_VERSION: i64 = 5;
 
 fn apply_migrations(conn: &Connection) {
     conn.execute_batch(
@@ -72,6 +72,12 @@ fn apply_migrations(conn: &Connection) {
     }
     if current < 3 {
         migrate_v3(conn);
+    }
+    if current < 4 {
+        migrate_v4(conn);
+    }
+    if current < 5 {
+        migrate_v5(conn);
     }
 }
 
@@ -347,6 +353,30 @@ fn migrate_v3(conn: &Connection) {
     tracing::info!("applied migration v3: runs.branch column for PR creation");
 }
 
+fn migrate_v4(conn: &Connection) {
+    // Add earliest_dispatch_at column for retry backoff on heal steps.
+    // NULL means "dispatch immediately" (backwards-compatible default).
+    conn.execute_batch(
+        "ALTER TABLE steps ADD COLUMN earliest_dispatch_at INTEGER;
+
+        UPDATE schema_version SET version = 4;"
+    ).expect("migration v4 failed");
+
+    tracing::info!("applied migration v4: steps.earliest_dispatch_at for retry backoff");
+}
+
+fn migrate_v5(conn: &Connection) {
+    // Add file_paths column to runs for workspace context.
+    // Stored as JSON text (array of strings). NULL means no specific paths.
+    conn.execute_batch(
+        "ALTER TABLE runs ADD COLUMN file_paths TEXT;
+
+        UPDATE schema_version SET version = 5;"
+    ).expect("migration v5 failed");
+
+    tracing::info!("applied migration v5: runs.file_paths for workspace context");
+}
+
 // --- Database implementation ---
 
 impl Database {
@@ -552,13 +582,18 @@ impl Database {
 
     // --- Runs ---
 
-    pub fn create_run(&self, user_id: &str, goal: &str, profile: &str) -> String {
+    pub fn create_run(&self, user_id: &str, goal: &str, profile: &str, file_paths: &[String]) -> String {
         let conn = self.conn.lock().unwrap();
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().timestamp_millis();
+        let file_paths_json = if file_paths.is_empty() {
+            None
+        } else {
+            serde_json::to_string(file_paths).ok()
+        };
         conn.execute(
-            "INSERT INTO runs (id, user_id, goal, status, profile, created_at, updated_at) VALUES (?1, ?2, ?3, 'pending', ?4, ?5, ?5)",
-            params![id, user_id, goal, profile, now],
+            "INSERT INTO runs (id, user_id, goal, status, profile, file_paths, created_at, updated_at) VALUES (?1, ?2, ?3, 'pending', ?4, ?5, ?6, ?6)",
+            params![id, user_id, goal, profile, file_paths_json, now],
         ).expect("failed to create run");
         id
     }
@@ -585,6 +620,32 @@ impl Database {
             params![run_id],
             |row| row.get::<_, Option<String>>(0),
         ).ok().flatten()
+    }
+
+    /// Get the latest head_commit from any completed step in the given run.
+    /// Used to pass as base_commit to subsequent steps for workspace continuity.
+    pub fn get_run_latest_commit(&self, run_id: &str) -> Option<String> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT head_commit FROM steps
+             WHERE run_id = ?1 AND status = 'succeeded' AND head_commit IS NOT NULL
+             ORDER BY updated_at DESC LIMIT 1",
+            params![run_id],
+            |row| row.get::<_, String>(0),
+        ).ok()
+    }
+
+    /// Get the file_paths stored for a run (from the original goal decomposition).
+    pub fn get_run_file_paths(&self, run_id: &str) -> Vec<String> {
+        let conn = self.conn.lock().unwrap();
+        let json: Option<String> = conn.query_row(
+            "SELECT file_paths FROM runs WHERE id = ?1",
+            params![run_id],
+            |row| row.get::<_, Option<String>>(0),
+        ).ok().flatten();
+
+        json.and_then(|j| serde_json::from_str::<Vec<String>>(&j).ok())
+            .unwrap_or_default()
     }
 
     pub fn update_run_status(&self, run_id: &str, status: &str, failure_reason: Option<&str>) -> bool {
@@ -630,9 +691,11 @@ impl Database {
 
     pub fn find_ready_steps(&self, run_id: &str) -> Vec<String> {
         let conn = self.conn.lock().unwrap();
+        let now = Utc::now().timestamp_millis();
         let mut stmt = conn.prepare(
             "SELECT s.id FROM steps s
              WHERE s.run_id = ?1 AND s.status = 'pending'
+             AND (s.earliest_dispatch_at IS NULL OR s.earliest_dispatch_at <= ?2)
              AND NOT EXISTS (
                  SELECT 1 FROM step_dependencies sd
                  JOIN steps dep ON dep.id = sd.depends_on_id
@@ -644,7 +707,7 @@ impl Database {
              )"
         ).unwrap();
 
-        stmt.query_map(params![run_id], |row| row.get::<_, String>(0))
+        stmt.query_map(params![run_id, now], |row| row.get::<_, String>(0))
             .unwrap()
             .filter_map(|r| r.ok())
             .collect()
@@ -818,19 +881,53 @@ impl Database {
         ).ok();
     }
 
+    /// Compute pressure per (provider, tier) using exponential time-decay.
+    ///
+    /// Each usage event's tokens are weighted by `exp(-lambda * age_seconds)` where
+    /// `lambda = ln(2) / HALF_LIFE_SECS`. This means usage from 1 hour ago counts 50%,
+    /// 2 hours ago 25%, etc. Events older than `window_ms` are still excluded entirely.
     pub fn pressure_for_user(&self, user_id: &str, window_ms: i64) -> Vec<(String, String, i64)> {
+        const HALF_LIFE_SECS: f64 = 3600.0; // 1 hour
+        let lambda = (2.0_f64).ln() / HALF_LIFE_SECS;
+
         let conn = self.conn.lock().unwrap();
-        let cutoff = Utc::now().timestamp_millis() - window_ms;
+        let now_ms = Utc::now().timestamp_millis();
+        let cutoff = now_ms - window_ms;
+
+        // Fetch individual events so we can apply per-event decay weights
         let mut stmt = conn.prepare(
-            "SELECT provider, tier, COALESCE(SUM(COALESCE(tokens_in, 0) + COALESCE(tokens_out, 0)), 0)
+            "SELECT provider, tier, timestamp, COALESCE(tokens_in, 0) + COALESCE(tokens_out, 0)
              FROM usage_events
              WHERE user_id = ?1 AND timestamp > ?2
-             GROUP BY provider, tier"
+             ORDER BY provider, tier"
         ).unwrap();
 
-        stmt.query_map(params![user_id, cutoff], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?))
-        }).unwrap().filter_map(|r| r.ok()).collect()
+        let rows: Vec<(String, String, i64, i64)> = stmt
+            .query_map(params![user_id, cutoff], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                ))
+            })
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+
+        // Aggregate with exponential decay
+        let mut accum: std::collections::HashMap<(String, String), f64> =
+            std::collections::HashMap::new();
+        for (provider, tier, ts, tokens) in rows {
+            let age_secs = ((now_ms - ts) as f64 / 1000.0).max(0.0);
+            let weight = (-lambda * age_secs).exp();
+            *accum.entry((provider, tier)).or_insert(0.0) += tokens as f64 * weight;
+        }
+
+        accum
+            .into_iter()
+            .map(|((provider, tier), weighted)| (provider, tier, weighted.round() as i64))
+            .collect()
     }
 
     // --- Provider Reliability ---
@@ -1336,6 +1433,20 @@ impl Database {
             .collect()
     }
 
+    /// Verify that a step is currently assigned to the given worker.
+    /// Used to prevent workers from spoofing step completion for steps they don't own.
+    pub fn verify_step_worker(&self, step_id: &str, worker_id: &str) -> bool {
+        let conn = self.conn.lock().unwrap();
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM steps WHERE id = ?1 AND assigned_worker = ?2",
+                params![step_id, worker_id],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+        count > 0
+    }
+
     pub fn renew_lease(&self, step_id: &str, lease_gen: i64, new_deadline: i64) -> bool {
         let conn = self.conn.lock().unwrap();
         let now = Utc::now().timestamp_millis();
@@ -1345,6 +1456,16 @@ impl Database {
             params![new_deadline, now, step_id, lease_gen],
         ).unwrap_or(0);
         rows > 0
+    }
+
+    pub fn set_step_earliest_dispatch(&self, step_id: &str, earliest_ms: i64) {
+        let conn = self.conn.lock().unwrap();
+        let now = Utc::now().timestamp_millis();
+        conn.execute(
+            "UPDATE steps SET earliest_dispatch_at = ?1, updated_at = ?2
+             WHERE id = ?3",
+            params![earliest_ms, now, step_id],
+        ).ok();
     }
 
     pub fn orphan_step(&self, step_id: &str) {

@@ -149,10 +149,20 @@ impl Executor {
             let mut last_text = String::new();
             let mut collected_output = Vec::new();
             let mut files_changed = Vec::new();
+            let mut usage: Option<(i64, i64)> = None;
             while let Ok(Some(line)) = lines.next_line().await {
                 // Extract file changes from Claude's tool_use results
                 if provider == ProviderId::Claude {
                     extract_claude_files(&line, &mut files_changed);
+                    if let Some(u) = extract_claude_usage(&line) {
+                        usage = Some(u);
+                    }
+                }
+
+                if provider == ProviderId::Openai {
+                    if let Some(u) = extract_codex_usage(&line) {
+                        usage = Some(u);
+                    }
                 }
 
                 let output = match provider {
@@ -176,7 +186,7 @@ impl Executor {
                     }
                 }
             }
-            (collected_output, files_changed)
+            (collected_output, files_changed, usage)
         });
 
         let stderr_handle = tokio::spawn(async move {
@@ -203,9 +213,9 @@ impl Executor {
             .await
             .map_err(|e| CortexError::WorkerExecution(e.to_string()))?;
 
-        let (collected_output, files_changed) = reader_handle
+        let (collected_output, files_changed, usage) = reader_handle
             .await
-            .unwrap_or_else(|_| (Vec::new(), Vec::new()));
+            .unwrap_or_else(|_| (Vec::new(), Vec::new(), None));
         let stderr_text = stderr_handle.await.unwrap_or_default();
 
         let code = status.code().unwrap_or(-1);
@@ -278,6 +288,20 @@ impl Executor {
                 }
             }
 
+            let (tokens_in, tokens_out) = match usage {
+                Some((i, o)) => (Some(i), Some(o)),
+                None => (None, None),
+            };
+            let cost_estimate = tokens_in.and_then(|ti| {
+                tokens_out.map(|to| {
+                    cortex_core::usage::estimate_cost(
+                        &decision.provider.to_string(),
+                        ti,
+                        to,
+                    )
+                })
+            });
+
             WorkerEvent::Completed {
                 step_id: step.step_id.clone(),
                 attempt_id: step.attempt_id.clone(),
@@ -290,6 +314,9 @@ impl Executor {
                     summary,
                     files_found: Vec::new(),
                     files_changed,
+                    tokens_in,
+                    tokens_out,
+                    cost_estimate,
                     structured: serde_json::Value::Null,
                 },
             }
@@ -405,6 +432,39 @@ pub fn detect_available_providers() -> Vec<ProviderId> {
         .into_iter()
         .filter(|p| check_cli_available(*p))
         .collect()
+}
+
+/// Extract token usage from Claude's final `result` event in stream-json output.
+/// The event looks like:
+/// `{"type":"result","result":"...","is_error":false,"duration_ms":1234,"num_turns":1,
+///   "usage":{"input_tokens":1234,"output_tokens":567,"cache_creation_input_tokens":0,
+///            "cache_read_input_tokens":0}}`
+fn extract_claude_usage(line: &str) -> Option<(i64, i64)> {
+    let v: serde_json::Value = serde_json::from_str(line).ok()?;
+    if v.get("type")?.as_str()? != "result" {
+        return None;
+    }
+    let usage = v.get("usage")?;
+    let input = usage.get("input_tokens")?.as_i64()?;
+    let output = usage.get("output_tokens")?.as_i64()?;
+    Some((input, output))
+}
+
+/// Extract token usage from Codex CLI output.
+/// Codex output format may vary; this is a best-effort extractor.
+/// Returns None if the format isn't recognized.
+fn extract_codex_usage(line: &str) -> Option<(i64, i64)> {
+    let v: serde_json::Value = serde_json::from_str(line).ok()?;
+    // Try common field names for token usage
+    let input = v
+        .get("usage")
+        .and_then(|u| u.get("input_tokens").or_else(|| u.get("prompt_tokens")))
+        .and_then(|t| t.as_i64())?;
+    let output = v
+        .get("usage")
+        .and_then(|u| u.get("output_tokens").or_else(|| u.get("completion_tokens")))
+        .and_then(|t| t.as_i64())?;
+    Some((input, output))
 }
 
 fn extract_claude_files(line: &str, files: &mut Vec<String>) {

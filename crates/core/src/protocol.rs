@@ -118,6 +118,12 @@ pub struct StepOutput {
     pub summary: String,
     pub files_found: Vec<String>,
     pub files_changed: Vec<String>,
+    #[serde(default)]
+    pub tokens_in: Option<i64>,
+    #[serde(default)]
+    pub tokens_out: Option<i64>,
+    #[serde(default)]
+    pub cost_estimate: Option<f64>,
     pub structured: serde_json::Value,
 }
 
@@ -127,6 +133,9 @@ impl Default for StepOutput {
             summary: String::new(),
             files_found: Vec::new(),
             files_changed: Vec::new(),
+            tokens_in: None,
+            tokens_out: None,
+            cost_estimate: None,
             structured: serde_json::Value::Null,
         }
     }
