@@ -19,6 +19,7 @@ pub mod state;
 pub mod stripe_client;
 mod usage_api;
 mod user;
+mod validate;
 mod ws;
 
 use std::sync::Arc;

@@ -76,12 +76,14 @@ pub async fn chat(
     if req.file_paths.len() > MAX_FILE_PATHS {
         return Err((StatusCode::BAD_REQUEST, Json(ErrorResponse { error: format!("too many file paths (max {MAX_FILE_PATHS})") })));
     }
+    let file_paths = crate::validate::sanitize_file_paths(&req.file_paths)
+        .map_err(|e| (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: e })))?;
     let intent = classify_intent(&req.message);
     let (tx, rx) = mpsc::channel::<StepEvent>(64);
 
     if intent.is_some() {
         let providers = state.providers.read().await;
-        let path_refs: Vec<&str> = req.file_paths.iter().map(|s| s.as_str()).collect();
+        let path_refs: Vec<&str> = file_paths.iter().map(|s| s.as_str()).collect();
 
         let (task, decision) =
             Router::route(&req.message, &path_refs, &providers).map_err(|e| {

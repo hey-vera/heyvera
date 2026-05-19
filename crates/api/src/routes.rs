@@ -64,8 +64,10 @@ pub async fn route_task(
     if req.input.len() > 32_768 {
         return Err((StatusCode::PAYLOAD_TOO_LARGE, Json(ErrorResponse { error: "input exceeds 32KB".into() })));
     }
+    let file_paths = crate::validate::sanitize_file_paths(&req.file_paths)
+        .map_err(|e| (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: e })))?;
     let providers = state.providers.read().await;
-    let path_refs: Vec<&str> = req.file_paths.iter().map(|s| s.as_str()).collect();
+    let path_refs: Vec<&str> = file_paths.iter().map(|s| s.as_str()).collect();
 
     let (task, decision) = Router::route(&req.input, &path_refs, &providers).map_err(|e| {
         (
@@ -131,6 +133,8 @@ pub async fn create_run(
     if req.file_paths.len() > 50 {
         return Err((StatusCode::BAD_REQUEST, Json(ErrorResponse { error: "too many file paths (max 50)".into() })));
     }
+    let file_paths = crate::validate::sanitize_file_paths(&req.file_paths)
+        .map_err(|e| (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: e })))?;
     let scheduler_tx = state.scheduler_tx.read().await;
     let tx = scheduler_tx.as_ref().ok_or_else(|| {
         (
@@ -148,7 +152,7 @@ pub async fn create_run(
         tx,
         user_id,
         &req.goal,
-        &req.file_paths,
+        &file_paths,
         &req.profile,
     )
     .await
@@ -563,8 +567,10 @@ pub async fn estimate_run(
         )
     })?;
 
+    let file_paths = crate::validate::sanitize_file_paths(&req.file_paths)
+        .map_err(|e| (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: e })))?;
     // Decompose the goal into steps (same as create_run)
-    let builder = decompose_goal(&user.user_id, &req.goal, &req.file_paths, &req.profile)
+    let builder = decompose_goal(&user.user_id, &req.goal, &file_paths, &req.profile)
         .map_err(|e| {
             (
                 StatusCode::BAD_REQUEST,
