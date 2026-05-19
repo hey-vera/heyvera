@@ -1091,6 +1091,25 @@ impl Database {
         ).expect("failed to create step");
     }
 
+    /// Returns (provider, kind, risk) for bandit outcome tracking.
+    pub fn get_step_info(&self, step_id: &str) -> Option<(String, String, String)> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT COALESCE(a.provider, 'Claude'), s.kind, s.risk
+             FROM steps s
+             LEFT JOIN step_attempts a ON a.step_id = s.id
+             WHERE s.id = ?1
+             ORDER BY a.attempt_number DESC
+             LIMIT 1",
+            params![step_id],
+            |row| Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            )),
+        ).ok()
+    }
+
     pub fn get_step_details(&self, step_id: &str) -> Option<(String, String, String, String)> {
         let conn = self.conn.lock().unwrap();
         conn.query_row(

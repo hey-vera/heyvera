@@ -91,6 +91,7 @@ async fn apply_event(state: &AppState, sched: &mut SchedulerState, event: &Sched
             if let Some(db) = &state.db {
                 let user_id = get_run_user(db, run_id);
                 sched.mark_step_done(&user_id);
+                update_bandit_from_outcome(state, db, step_id, true).await;
             }
             load_ready_steps_for_run(state, sched, run_id).await;
             check_run_done(state, run_id).await;
@@ -101,6 +102,7 @@ async fn apply_event(state: &AppState, sched: &mut SchedulerState, event: &Sched
             if let Some(db) = &state.db {
                 let user_id = get_run_user(db, run_id);
                 sched.mark_step_done(&user_id);
+                update_bandit_from_outcome(state, db, step_id, false).await;
 
                 // Check for auth-related failures — these are not healable
                 let last_error = db.get_step_last_error(step_id);
@@ -204,7 +206,62 @@ async fn dispatch_step(state: &AppState, step: &StepRef) -> bool {
     let tier = parse_tier(&step.tier);
     let risk = parse_risk(&step.risk);
 
-    let (decision, evidence) = route_step(db, &step.user_id, step, tier, risk);
+    let ucb_guard = state.ucb_scorer.read().await;
+    let (decision, evidence) = route_step(
+        db,
+        &step.user_id,
+        step,
+        tier,
+        risk,
+        Some(&*ucb_guard),
+    );
+    drop(ucb_guard);
+
+    // --- Evidence floor check ---
+    // For high/critical risk, the evidence floor may block dispatch until
+    // sufficient clean evidence is gathered. Currently signals are empty at
+    // dispatch time (evidence accumulates after execution), so we log a warning
+    // for high-risk steps to ensure observability.
+    {
+        use cortex_engine::evidence_floor::{check_floor, FloorVerdict};
+        let verdict = check_floor(risk, &[]);
+        match verdict {
+            FloorVerdict::Blocked { missing, .. } => {
+                tracing::info!(
+                    "evidence floor for step {} ({:?} risk): {} requirement(s) must be satisfied post-execution: {}",
+                    step.step_id,
+                    risk,
+                    missing.len(),
+                    missing.join(", "),
+                );
+            }
+            FloorVerdict::Satisfied { .. } => {}
+        }
+    }
+
+    // --- Autonomy gate ---
+    // Determine if this step can proceed autonomously or needs user approval.
+    {
+        let confidence = decision.score / 100.0; // normalize evaluator score to 0-1
+        let is_first = state.cortex_store.as_ref()
+            .and_then(|s| s.lock().ok())
+            .and_then(|s| s.event_count().ok())
+            .map(|c| c == 0)
+            .unwrap_or(false);
+        let autonomy = cortex_core::autonomy::decide_autonomy(
+            confidence.clamp(0.0, 1.0),
+            risk,
+            is_first,
+        );
+        if autonomy.requires_user_input() && risk >= RiskLevel::Critical {
+            tracing::warn!(
+                "autonomy gate: step {} requires explicit approval ({:?} risk, confidence={:.2})",
+                step.step_id,
+                risk,
+                confidence,
+            );
+        }
+    }
 
     // Don't dispatch if no provider is actually available
     if decision.rationale.iter().any(|r| {
@@ -353,6 +410,7 @@ fn route_step(
     step: &StepRef,
     tier: Tier,
     risk: RiskLevel,
+    ucb_scorer: Option<&cortex_engine::bandit::UcbScorer>,
 ) -> (RoutingDecision, DecisionEvidence) {
     let intent_ev = IntentEvidence {
         intent: kind_to_intent(step.kind),
@@ -431,14 +489,41 @@ fn route_step(
             StepKind::Gate => 30_000,
         };
 
+        // Blend UCB bandit history into success rate for adaptive learning.
+        // The bandit tracks contamination-weighted outcomes per (TaskFamily, RiskLevel, Provider),
+        // which is more granular than the DB's per-provider reliability.
+        let (blended_rate, blended_count) = if let Some(scorer) = ucb_scorer {
+            use cortex_engine::bandit::{ArmKey, TaskFamily};
+            let intent = kind_to_intent(step.kind);
+            let task_family = TaskFamily::from_intent(&intent);
+            let arm_key = ArmKey { task_family, risk_level: risk, provider };
+            if let Some(arm_stats) = scorer.arms.get(&arm_key) {
+                let bandit_rate = arm_stats.mean_reward();
+                let bandit_count = arm_stats.trials as u64;
+                // Weighted blend: bandit history + DB reliability
+                match (success_rate, sample_count) {
+                    (Some(db_rate), db_count) if db_count > 0 => {
+                        let total = db_count + bandit_count;
+                        let blended = (db_rate * db_count as f64 + bandit_rate * bandit_count as f64) / total as f64;
+                        (Some(blended), total)
+                    }
+                    _ => (Some(bandit_rate), bandit_count),
+                }
+            } else {
+                (success_rate, sample_count)
+            }
+        } else {
+            (success_rate, sample_count)
+        };
+
         candidates.push(CandidateScore {
             provider,
             tier,
             worker_id: None,
             authenticated,
             pressure,
-            success_rate,
-            sample_count,
+            success_rate: blended_rate,
+            sample_count: blended_count,
             estimated_duration_ms: estimated_duration,
         });
     }
@@ -467,6 +552,77 @@ fn route_step(
     let decision = policy.decide(&evidence, profile, auto_mode);
 
     (decision, evidence)
+}
+
+async fn update_bandit_from_outcome(state: &AppState, db: &Database, step_id: &str, success: bool) {
+    use cortex_engine::bandit::{ArmKey, TaskFamily};
+
+    let step_info = db.get_step_info(step_id);
+    let (provider_str, kind_str, risk_str) = match step_info {
+        Some(info) => info,
+        None => return,
+    };
+
+    let provider = match parse_provider_id(&provider_str) {
+        Some(p) => p,
+        None => return,
+    };
+    let risk = parse_risk(&risk_str);
+    let kind = parse_step_kind(&kind_str);
+    let intent = kind_to_intent(kind);
+    let task_family = TaskFamily::from_intent(&intent);
+
+    // Contamination: AI-executed steps have base contamination of 0.3.
+    // Success from compiler/test evidence would be lower, but we don't have
+    // signal details at this point. Use a conservative default.
+    let contamination = 0.3;
+
+    let arm_key = ArmKey {
+        task_family,
+        risk_level: risk,
+        provider,
+    };
+
+    let reward = if success { 1.0 } else { 0.0 };
+
+    let mut scorer = state.ucb_scorer.write().await;
+    scorer.update(arm_key, reward, contamination);
+
+    // Persist to store
+    if let Some(store_mutex) = &state.cortex_store {
+        if let Ok(store) = store_mutex.lock() {
+            if let Some(stats) = scorer.arms.get(&arm_key) {
+                let _ = store.save_arm_stats(&arm_key, stats);
+            }
+        }
+    }
+
+    let trials = scorer.arms.get(&arm_key).map(|s| s.trials).unwrap_or(0);
+    let mean_reward = scorer.arms.get(&arm_key).map(|s| s.mean_reward()).unwrap_or(0.0);
+
+    tracing::debug!(
+        "bandit update: {:?}/{:?}/{:?} reward={:.2} contamination={:.2} trials={}",
+        task_family, risk, provider, reward, contamination, trials,
+    );
+
+    // Emit MC event for real-time routing intelligence visibility
+    if let Some(db) = &state.db {
+        let user_id = db.get_step_run_id(step_id)
+            .and_then(|run_id| db.get_run_user_id(&run_id));
+        if let Some(user_id) = user_id {
+            state.emit_mc_event(
+                &user_id,
+                MissionControlEvent::BanditUpdate {
+                    provider: provider.to_string(),
+                    task_family: format!("{:?}", task_family),
+                    risk: format!("{:?}", risk),
+                    trials,
+                    mean_reward,
+                    success,
+                },
+            ).await;
+        }
+    }
 }
 
 fn record_evidence(db: &Database, decision_id: &str, evidence: &DecisionEvidence) {

@@ -8,8 +8,11 @@ use cortex_core::provider::{ProviderId, ProviderStatus, Tier};
 use cortex_core::routing::RoutingDecision;
 use cortex_core::task::TaskContract;
 use cortex_core::usage::UsageLimits;
+use cortex_engine::bandit::UcbScorer;
 use cortex_engine::captain::SchedulerEvent;
 use cortex_engine::ledger::Ledger;
+use cortex_engine::store::CortexStore;
+use std::sync::Mutex;
 use cortex_worker::executor::detect_available_providers;
 use tokio::process::ChildStdin;
 use tokio::sync::{mpsc, RwLock};
@@ -49,6 +52,10 @@ pub struct AppState {
     pub mc_subscribers: RwLock<HashMap<String, Vec<McSubscriber>>>,
     /// GitHub API client, initialized from `GITHUB_TOKEN` env var.
     pub github_client: Option<GitHubClient>,
+    /// Cortex routing intelligence store (UCB bandit stats, evidence signals).
+    pub cortex_store: Option<Mutex<CortexStore>>,
+    /// UCB bandit scorer for adaptive provider selection.
+    pub ucb_scorer: RwLock<UcbScorer>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -152,6 +159,30 @@ impl AppState {
             tracing::info!("GitHub API client not available (no GITHUB_TOKEN), will fall back to gh CLI");
         }
 
+        let cortex_store_path = workspace_dir.join(".cortex").join("routing.db");
+        let (cortex_store, ucb_scorer) = match CortexStore::open(&cortex_store_path) {
+            Ok(store) => {
+                let arm_stats = store.load_arm_stats().unwrap_or_default();
+                let total_trials = arm_stats.values().map(|s| s.trials).sum();
+                let scorer = UcbScorer {
+                    arms: arm_stats,
+                    exploration_weight: UcbScorer::exploration_weight_for_dial(5),
+                    total_trials,
+                };
+                tracing::info!(
+                    "cortex routing store opened at {} ({} arms, {} total trials)",
+                    cortex_store_path.display(),
+                    scorer.arms.len(),
+                    scorer.total_trials,
+                );
+                (Some(Mutex::new(store)), scorer)
+            }
+            Err(e) => {
+                tracing::warn!("failed to open cortex routing store: {e} — bandit scoring disabled");
+                (None, UcbScorer::new(1.0))
+            }
+        };
+
         Arc::new(Self {
             providers: RwLock::new(providers),
             ledger: Ledger::new(ledger_path),
@@ -169,6 +200,8 @@ impl AppState {
             is_shutting_down: AtomicBool::new(false),
             mc_subscribers: RwLock::new(HashMap::new()),
             github_client,
+            cortex_store,
+            ucb_scorer: RwLock::new(ucb_scorer),
         })
     }
 

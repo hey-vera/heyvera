@@ -71,6 +71,14 @@ pub enum MissionControlEvent {
         rationale: String,
         pressure: f64,
     },
+    BanditUpdate {
+        provider: String,
+        task_family: String,
+        risk: String,
+        trials: u32,
+        mean_reward: f64,
+        success: bool,
+    },
 }
 
 /// Unique ID for each subscriber so we can remove the right one on disconnect.
