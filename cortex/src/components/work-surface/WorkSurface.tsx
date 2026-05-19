@@ -1,13 +1,14 @@
 import {
+  Check,
   CheckCircle2,
   Circle,
   Clock3,
-  FileCode2,
+  Copy,
   GitCommitHorizontal,
   ListChecks,
-  Terminal,
   X,
 } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import type { ApprovalRequest, ApprovalState, ChatMessage, WorkEventItem } from '../../types';
 
 interface WorkSurfaceProps {
@@ -81,10 +82,31 @@ function WorkSurfaceContent({
   isStreaming,
   onApprovalAction,
 }: Pick<WorkSurfaceProps, 'messages' | 'workEvents' | 'isStreaming' | 'onApprovalAction'>) {
+  const [copiedEventId, setCopiedEventId] = useState<string | null>(null);
   const approvals = collectApprovals(messages);
   const pendingApprovals = approvals.filter((approval) => approval.state === 'pending');
   const events = workEvents.length > 0 ? workEvents : collectEvents(messages);
+  const latestEvent = events[0] ?? null;
+  const latestProvider = events.find((event) => event.provider)?.provider ?? 'Not routed yet';
+  const latestModel = events.find((event) => event.model)?.model ?? 'Pending';
   const hasWork = events.length > 0 || approvals.length > 0 || isStreaming;
+
+  useEffect(() => {
+    if (!copiedEventId) return;
+    const timeout = window.setTimeout(() => setCopiedEventId(null), 1400);
+    return () => window.clearTimeout(timeout);
+  }, [copiedEventId]);
+
+  async function copyEvent(event: WorkEventItem) {
+    try {
+      await navigator.clipboard.writeText(
+        `${formatTime(event.timestamp)} ${event.title}\n${event.detail}`,
+      );
+      setCopiedEventId(event.id);
+    } catch {
+      setCopiedEventId(null);
+    }
+  }
 
   return (
     <div className="flex h-full flex-col">
@@ -129,27 +151,40 @@ function WorkSurfaceContent({
                 <span className="text-[11px] text-[var(--muted)]">{events.length} events</span>
               </div>
               <div className="space-y-2">
-                {events.map((event) => (
-                  <div
-                    key={event.id}
-                    className="rounded-xl border border-white/8 bg-white/[0.03] px-3 py-2.5"
-                  >
-                    <div className="flex items-start gap-2">
-                      <div className="mt-0.5">{stateIcon(event.state)}</div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="truncate text-sm font-medium text-white">{event.title}</p>
-                          <span className="shrink-0 text-[11px] text-[var(--muted)]">
-                            {formatTime(event.timestamp)}
-                          </span>
+                {events.map((event) => {
+                  const copied = copiedEventId === event.id;
+                  return (
+                    <div
+                      key={event.id}
+                      className="group rounded-xl border border-white/8 bg-white/[0.03] px-3 py-2.5"
+                    >
+                      <div className="flex items-start gap-2">
+                        <div className="mt-0.5">{stateIcon(event.state)}</div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="truncate text-sm font-medium text-white">{event.title}</p>
+                            <div className="flex shrink-0 items-center gap-1">
+                              <span className="text-[11px] text-[var(--muted)]">
+                                {formatTime(event.timestamp)}
+                              </span>
+                              <button
+                                type="button"
+                                aria-label="Copy event"
+                                onClick={() => void copyEvent(event)}
+                                className="rounded-md p-1 text-[var(--muted)] opacity-0 transition hover:bg-white/6 hover:text-white active:scale-95 group-hover:opacity-100 group-focus-within:opacity-100"
+                              >
+                                {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                              </button>
+                            </div>
+                          </div>
+                          <p className="mt-1 line-clamp-2 text-xs leading-5 text-[var(--muted)]">
+                            {event.detail}
+                          </p>
                         </div>
-                        <p className="mt-1 line-clamp-2 text-xs leading-5 text-[var(--muted)]">
-                          {event.detail}
-                        </p>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </section>
 
@@ -219,23 +254,23 @@ function WorkSurfaceContent({
 
             <section>
               <h3 className="mb-2 text-xs font-medium uppercase tracking-[0.08em] text-[var(--muted)]">
-                Review Surfaces
+                Session Signals
               </h3>
               <div className="grid gap-2">
                 {[
-                  { label: 'Diff', icon: FileCode2 },
-                  { label: 'Files', icon: ListChecks },
-                  { label: 'Terminal', icon: Terminal },
-                ].map(({ label, icon: Icon }) => (
+                  { label: 'Provider', value: latestProvider },
+                  { label: 'Model', value: latestModel },
+                  { label: 'Latest', value: latestEvent?.title ?? 'Idle' },
+                ].map(({ label, value }) => (
                   <div
                     key={label}
                     className="flex items-center justify-between rounded-xl border border-white/8 bg-white/[0.02] px-3 py-2.5"
                   >
                     <span className="inline-flex items-center gap-2 text-sm text-[var(--muted-strong)]">
-                      <Icon className="h-3.5 w-3.5 text-[var(--muted)]" />
+                      <ListChecks className="h-3.5 w-3.5 text-[var(--muted)]" />
                       {label}
                     </span>
-                    <span className="text-[11px] text-[var(--muted)]">Waiting for backend data</span>
+                    <span className="max-w-36 truncate text-[11px] text-[var(--muted)]">{value}</span>
                   </div>
                 ))}
               </div>

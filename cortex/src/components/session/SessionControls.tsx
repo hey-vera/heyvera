@@ -63,8 +63,7 @@ const CONTROL_CONFIGS: [
   },
 ];
 
-const spendOrder = ['lean', 'balanced', 'elevated', 'high'] as const;
-type SpendLevel = (typeof spendOrder)[number];
+type SpendLevel = 'lean' | 'balanced' | 'elevated' | 'high';
 
 const usageLabels: Record<SpendLevel, string> = {
   lean: 'Lean',
