@@ -7,6 +7,7 @@ import Sidebar from './components/Sidebar';
 import OnboardingFlow from './components/onboarding/OnboardingFlow';
 import { useChatSession } from './lib/useChatSession';
 import { useAuthGate } from './lib/useAuthGate';
+import { useSomaSession } from './lib/useSomaSession';
 import { getUserRouting, setAuthTokenGetter, updateUserRouting } from './lib/cortexApi';
 import { isOnboarded, markOnboarded } from './lib/onboarding';
 import type { ChatSessionControls, RunProfile } from './types';
@@ -76,6 +77,8 @@ const WorkSurface = lazy(() => import('./components/work-surface/WorkSurface'));
 
 export default function App() {
   const { isLoaded, isSignedIn, userId, AuthScreen, getToken, clerkEnabled } = useAuthGate();
+  // Auto-creates user's Soma identity + session-scoped delegation on sign-in
+  useSomaSession(userId ?? 'anonymous', isSignedIn);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [workSurfaceOpen, setWorkSurfaceOpen] = useState(false);
