@@ -1,19 +1,20 @@
 import { useCallback, useState } from 'react';
 import ProviderStep from './ProviderStep';
 import GitHubStep from './GitHubStep';
-import CompleteStep from './CompleteStep';
+import IdentityStep from './IdentityStep';
 
 interface OnboardingFlowProps {
   userId: string;
   onComplete: () => void;
 }
 
-const STEPS = ['providers', 'github', 'complete'] as const;
+const STEPS = ['providers', 'github', 'identity'] as const;
 type Step = (typeof STEPS)[number];
 
 export default function OnboardingFlow({ userId, onComplete }: OnboardingFlowProps) {
   const [step, setStep] = useState<Step>('providers');
   const currentIndex = STEPS.indexOf(step);
+  void userId;
 
   const next = useCallback(() => {
     const i = STEPS.indexOf(step);
@@ -61,7 +62,7 @@ export default function OnboardingFlow({ userId, onComplete }: OnboardingFlowPro
         <div className="rounded-2xl border border-white/8 bg-[var(--panel)] shadow-2xl">
           {step === 'providers' && <ProviderStep onNext={next} />}
           {step === 'github' && <GitHubStep onNext={next} onBack={back} />}
-          {step === 'complete' && <CompleteStep userId={userId} onFinish={onComplete} onBack={back} />}
+          {step === 'identity' && <IdentityStep onFinish={onComplete} onBack={back} />}
         </div>
       </div>
     </div>

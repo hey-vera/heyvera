@@ -60,27 +60,27 @@ export function useSomaSession(userId: string, isSignedIn: boolean): SomaSession
   const requested = useRef(false);
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const scheduleRefresh = (session: SomaSession, uid: string) => {
-    if (refreshTimer.current) clearTimeout(refreshTimer.current);
-    const expiresAt = getSessionExpiry(session);
-    const refreshAt = expiresAt - REFRESH_MARGIN_MS;
-    const delay = Math.max(refreshAt - Date.now(), 0);
-    refreshTimer.current = setTimeout(() => {
-      createSomaSession()
-        .then((newSession) => {
-          storeSession(uid, newSession);
-          setState(applySession(newSession));
-          scheduleRefresh(newSession, uid);
-        })
-        .catch((err) => {
-          console.warn('Soma session refresh failed:', err);
-        });
-    }, delay);
-  };
-
   useEffect(() => {
     if (!isSignedIn || !userId || userId === 'local' || userId === 'anonymous') return;
     if (requested.current) return;
+
+    const scheduleRefresh = (session: SomaSession, uid: string) => {
+      if (refreshTimer.current) clearTimeout(refreshTimer.current);
+      const expiresAt = getSessionExpiry(session);
+      const refreshAt = expiresAt - REFRESH_MARGIN_MS;
+      const delay = Math.max(refreshAt - Date.now(), 0);
+      refreshTimer.current = setTimeout(() => {
+        createSomaSession()
+          .then((newSession) => {
+            storeSession(uid, newSession);
+            setState(applySession(newSession));
+            scheduleRefresh(newSession, uid);
+          })
+          .catch((err) => {
+            console.warn('Soma session refresh failed:', err);
+          });
+      }, delay);
+    };
 
     const cached = getStoredSession(userId);
     if (cached) {
