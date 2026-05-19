@@ -128,21 +128,27 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="relative w-full max-w-lg rounded-2xl border border-white/8 bg-[var(--panel)] shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 backdrop-blur-sm sm:p-6">
+      <div className="relative flex max-h-[min(44rem,calc(100dvh-1.5rem))] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-white/8 bg-[var(--panel)] shadow-2xl sm:max-h-[min(44rem,calc(100dvh-3rem))]">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-white/6 px-5 py-4">
-          <h2 className="text-base font-semibold text-white">Settings</h2>
-          <button
-            onClick={onClose}
-            className="rounded-lg p-1.5 text-[var(--muted)] transition hover:bg-white/8 hover:text-white active:scale-95"
-          >
-            <X className="h-4 w-4" />
-          </button>
+        <div className="shrink-0 border-b border-white/6 px-5 py-4">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h2 className="text-base font-semibold text-white">Settings</h2>
+              <p className="mt-0.5 text-xs text-[var(--muted)]">Provider subscriptions and account connections.</p>
+            </div>
+            <button
+              onClick={onClose}
+              className="rounded-lg p-1.5 text-[var(--muted)] transition hover:bg-white/8 hover:text-white active:scale-95"
+              aria-label="Close settings"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </div>
 
         {/* Tabs */}
-        <div className="border-b border-white/6 px-5">
+        <div className="shrink-0 border-b border-white/6 px-5">
           <button
             onClick={() => setTab('providers')}
             className={`border-b-2 px-1 py-2.5 text-sm font-medium transition ${
@@ -154,7 +160,7 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
         </div>
 
         {/* Content */}
-        <div className="p-5">
+        <div className="min-h-0 flex-1 overflow-y-auto p-5">
           {loading ? (
             <div className="flex items-center justify-center gap-2 py-8 text-sm text-[var(--muted)]">
               <Loader2 className="h-4 w-4 animate-spin" />
