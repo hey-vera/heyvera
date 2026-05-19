@@ -15,6 +15,35 @@ const DEFAULT_SESSION_CONTROLS: ChatSessionControls = {
   autonomy: 'guided',
 };
 
+const SESSION_CONTROLS_STORAGE_KEY = 'cortex:session-controls';
+
+function isSessionControls(value: unknown): value is ChatSessionControls {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<ChatSessionControls>;
+  return (
+    (candidate.speed === 'steady' || candidate.speed === 'balanced' || candidate.speed === 'rapid')
+    && (candidate.intelligence === 'focused'
+      || candidate.intelligence === 'balanced'
+      || candidate.intelligence === 'deep')
+    && (candidate.autonomy === 'manual'
+      || candidate.autonomy === 'guided'
+      || candidate.autonomy === 'smart_auto'
+      || candidate.autonomy === 'full_auto'
+      || candidate.autonomy === 'custom')
+  );
+}
+
+function readSessionControls(): ChatSessionControls {
+  try {
+    const raw = window.localStorage.getItem(SESSION_CONTROLS_STORAGE_KEY);
+    if (!raw) return DEFAULT_SESSION_CONTROLS;
+    const parsed = JSON.parse(raw);
+    return isSessionControls(parsed) ? parsed : DEFAULT_SESSION_CONTROLS;
+  } catch {
+    return DEFAULT_SESSION_CONTROLS;
+  }
+}
+
 const SettingsPanel = lazy(() => import('./components/SettingsPanel'));
 const WorkSurface = lazy(() => import('./components/work-surface/WorkSurface'));
 
@@ -28,12 +57,23 @@ export default function App() {
   const [titleDraft, setTitleDraft] = useState('');
   const [conversationListVersion, setConversationListVersion] = useState(0);
   const [sessionControls, setSessionControls] = useState<ChatSessionControls>(
-    DEFAULT_SESSION_CONTROLS,
+    readSessionControls,
   );
 
   useEffect(() => {
     if (getToken) setAuthTokenGetter(getToken);
   }, [getToken]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        SESSION_CONTROLS_STORAGE_KEY,
+        JSON.stringify(sessionControls),
+      );
+    } catch {
+      // ignore local preference persistence failures
+    }
+  }, [sessionControls]);
 
   const {
     messages,
