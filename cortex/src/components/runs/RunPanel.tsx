@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { GitBranch, Loader2, Play, RefreshCcw } from 'lucide-react';
-import { CortexApiError, createRun, getRun, type RunSummary, type RunStep } from '../../lib/cortexApi';
+import {
+  CortexApiError,
+  createRun,
+  getAuthStatus,
+  getRun,
+  type RunSummary,
+  type RunStep,
+} from '../../lib/cortexApi';
 import type { RunProfile } from '../../types';
 
 interface RunPanelProps {
@@ -58,6 +65,7 @@ export default function RunPanel({
   const [expectedSteps, setExpectedSteps] = useState<number | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isPolling, setIsPolling] = useState(false);
+  const [providerReady, setProviderReady] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
   const workerSignal = useMemo(() => getWorkerSignal(run), [run]);
 
@@ -86,9 +94,35 @@ export default function RunPanel({
     return () => window.clearInterval(interval);
   }, [runId]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function fetchProviderReadiness() {
+      try {
+        const providers = await getAuthStatus();
+        if (!cancelled) {
+          setProviderReady(providers.some((provider) => provider.authenticated));
+        }
+      } catch {
+        if (!cancelled) setProviderReady(null);
+      }
+    }
+
+    void fetchProviderReadiness();
+    const interval = window.setInterval(fetchProviderReadiness, 10_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, []);
+
   const submitRun = useCallback(async (goalOverride?: string) => {
     const nextGoal = (goalOverride ?? goal).trim();
     if (!nextGoal || isSubmitting) return;
+    if (providerReady === false) {
+      setError('Connect at least one provider before creating a run.');
+      return;
+    }
     setIsSubmitting(true);
     setError(null);
     try {
@@ -106,7 +140,7 @@ export default function RunPanel({
     } finally {
       setIsSubmitting(false);
     }
-  }, [goal, isSubmitting, profile]);
+  }, [goal, isSubmitting, profile, providerReady]);
 
   useEffect(() => {
     if (!bridgeGoal) return;
@@ -141,11 +175,11 @@ export default function RunPanel({
         />
         <div className="flex items-center justify-between gap-2 border-t border-white/6 pt-2">
           <span className="truncate px-1 text-[11px] text-[var(--muted)]">
-            Profile: {profile.replace('_', '-')}
+            {providerReady === false ? 'Provider required' : `Profile: ${profile.replace('_', '-')}`}
           </span>
           <button
             type="button"
-            disabled={!goal.trim() || isSubmitting}
+            disabled={!goal.trim() || isSubmitting || providerReady === false}
             onClick={() => void submitRun()}
             className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-medium text-black transition hover:brightness-110 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
           >
