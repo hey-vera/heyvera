@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use axum::extract::{Query, State};
@@ -9,12 +10,39 @@ use crate::clerk::ClerkUser;
 use crate::routes::ErrorResponse;
 use crate::state::AppState;
 
+fn is_admin(_state: &AppState, user_id: &str) -> bool {
+    let admins: HashSet<String> = std::env::var("CORTEX_ADMIN_USERS")
+        .unwrap_or_default()
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    admins.is_empty() || admins.contains(user_id)
+}
+
+fn require_admin(
+    state: &AppState,
+    user: &ClerkUser,
+) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+    if !is_admin(state, &user.user_id) {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse {
+                error: "admin access required".into(),
+            }),
+        ));
+    }
+    Ok(())
+}
+
 // --- Worker status ---
 
 pub async fn get_workers(
     State(state): State<Arc<AppState>>,
-    _user: ClerkUser,
-) -> Json<serde_json::Value> {
+    user: ClerkUser,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    require_admin(&state, &user)?;
+
     let in_memory: Vec<serde_json::Value> = {
         let workers = state.workers.read().await;
         workers
@@ -37,19 +65,20 @@ pub async fn get_workers(
         .map(|db| db.get_worker_list())
         .unwrap_or_default();
 
-    Json(serde_json::json!({
+    Ok(Json(serde_json::json!({
         "connected": in_memory,
         "all": db_workers,
         "count": in_memory.len(),
-    }))
+    })))
 }
 
 // --- System stats ---
 
 pub async fn system_stats(
     State(state): State<Arc<AppState>>,
-    _user: ClerkUser,
-) -> Json<serde_json::Value> {
+    user: ClerkUser,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    require_admin(&state, &user)?;
     let stats = state
         .db
         .as_ref()
@@ -66,7 +95,7 @@ pub async fn system_stats(
         );
     }
 
-    Json(stats)
+    Ok(Json(stats))
 }
 
 // --- Decision transparency ---
@@ -84,16 +113,17 @@ fn default_limit() -> usize {
 
 pub async fn list_decisions(
     State(state): State<Arc<AppState>>,
-    _user: ClerkUser,
+    user: ClerkUser,
     Query(query): Query<DecisionQuery>,
-) -> Json<Vec<serde_json::Value>> {
+) -> Result<Json<Vec<serde_json::Value>>, (StatusCode, Json<ErrorResponse>)> {
+    require_admin(&state, &user)?;
     let decisions = state
         .db
         .as_ref()
         .map(|db| db.list_decisions(query.limit, query.user_id.as_deref()))
         .unwrap_or_default();
 
-    Json(decisions)
+    Ok(Json(decisions))
 }
 
 // --- Run listing (all users) ---
@@ -108,9 +138,10 @@ pub struct RunListQuery {
 
 pub async fn list_all_runs(
     State(state): State<Arc<AppState>>,
-    _user: ClerkUser,
+    user: ClerkUser,
     Query(query): Query<RunListQuery>,
-) -> Json<Vec<serde_json::Value>> {
+) -> Result<Json<Vec<serde_json::Value>>, (StatusCode, Json<ErrorResponse>)> {
+    require_admin(&state, &user)?;
     let runs = state
         .db
         .as_ref()
@@ -130,16 +161,17 @@ pub async fn list_all_runs(
         })
         .unwrap_or_default();
 
-    Json(runs)
+    Ok(Json(runs))
 }
 
 // --- Run detail with full step DAG ---
 
 pub async fn get_run_detail(
     State(state): State<Arc<AppState>>,
-    _user: ClerkUser,
+    user: ClerkUser,
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    require_admin(&state, &user)?;
     let db = state.db.as_ref().ok_or_else(|| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,

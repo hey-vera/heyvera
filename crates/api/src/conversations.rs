@@ -31,34 +31,39 @@ fn get_user_id(req_user_id: Option<&str>) -> String {
     req_user_id.unwrap_or("local").to_string()
 }
 
+fn db_ref(state: &AppState) -> Result<&crate::db::Database, (StatusCode, Json<ErrorResponse>)> {
+    state.db.as_ref().ok_or_else(|| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: "database not available".into() }),
+        )
+    })
+}
+
 pub async fn list_conversations(
     State(state): State<Arc<AppState>>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
-) -> Json<serde_json::Value> {
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     let user_id = get_user_id(params.get("user_id").map(|s| s.as_str()));
+    let db = db_ref(&state)?;
 
-    let conversations = tokio::task::spawn_blocking({
-        let db = Arc::clone(&state);
-        let user_id = user_id.clone();
-        move || db.db.as_ref().unwrap().list_conversations(&user_id)
-    }).await.unwrap();
-
-    Json(serde_json::to_value(conversations).unwrap())
+    let conversations = db.list_conversations(&user_id);
+    serde_json::to_value(conversations)
+        .map(Json)
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: "serialization failed".into() })))
 }
 
 pub async fn create_conversation(
     State(state): State<Arc<AppState>>,
     Json(req): Json<CreateConversationRequest>,
-) -> (StatusCode, Json<serde_json::Value>) {
+) -> Result<(StatusCode, Json<serde_json::Value>), (StatusCode, Json<ErrorResponse>)> {
     let user_id = get_user_id(req.user_id.as_deref());
-    let title = req.title.clone();
+    let db = db_ref(&state)?;
 
-    let conversation = tokio::task::spawn_blocking({
-        let db = Arc::clone(&state);
-        move || db.db.as_ref().unwrap().create_conversation(&user_id, title.as_deref())
-    }).await.unwrap();
-
-    (StatusCode::CREATED, Json(serde_json::to_value(conversation).unwrap()))
+    let conversation = db.create_conversation(&user_id, req.title.as_deref());
+    let value = serde_json::to_value(conversation)
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: "serialization failed".into() })))?;
+    Ok((StatusCode::CREATED, Json(value)))
 }
 
 pub async fn get_conversation(
@@ -67,16 +72,13 @@ pub async fn get_conversation(
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     let user_id = get_user_id(params.get("user_id").map(|s| s.as_str()));
+    let db = db_ref(&state)?;
 
-    let result = tokio::task::spawn_blocking({
-        let db = Arc::clone(&state);
-        let id = id.clone();
-        move || db.db.as_ref().unwrap().get_conversation(&id, &user_id)
-    }).await.unwrap();
-
-    match result {
-        Some(conv) => Ok(Json(serde_json::to_value(conv).unwrap())),
-        None => Err((StatusCode::NOT_FOUND, Json(ErrorResponse { error: "conversation not found".to_string() }))),
+    match db.get_conversation(&id, &user_id) {
+        Some(conv) => serde_json::to_value(conv)
+            .map(Json)
+            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: "serialization failed".into() }))),
+        None => Err((StatusCode::NOT_FOUND, Json(ErrorResponse { error: "conversation not found".into() }))),
     }
 }
 
@@ -86,14 +88,11 @@ pub async fn delete_conversation(
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> StatusCode {
     let user_id = get_user_id(params.get("user_id").map(|s| s.as_str()));
-
-    let deleted = tokio::task::spawn_blocking({
-        let db = Arc::clone(&state);
-        let id = id.clone();
-        move || db.db.as_ref().unwrap().delete_conversation(&id, &user_id)
-    }).await.unwrap();
-
-    if deleted { StatusCode::NO_CONTENT } else { StatusCode::NOT_FOUND }
+    match &state.db {
+        Some(db) if db.delete_conversation(&id, &user_id) => StatusCode::NO_CONTENT,
+        Some(_) => StatusCode::NOT_FOUND,
+        None => StatusCode::INTERNAL_SERVER_ERROR,
+    }
 }
 
 pub async fn update_conversation(
@@ -103,33 +102,29 @@ pub async fn update_conversation(
     Json(req): Json<UpdateTitleRequest>,
 ) -> StatusCode {
     let user_id = get_user_id(params.get("user_id").map(|s| s.as_str()));
-
-    let updated = tokio::task::spawn_blocking({
-        let db = Arc::clone(&state);
-        let id = id.clone();
-        let title = req.title.clone();
-        move || db.db.as_ref().unwrap().update_conversation_title(&id, &user_id, &title)
-    }).await.unwrap();
-
-    if updated { StatusCode::OK } else { StatusCode::NOT_FOUND }
+    match &state.db {
+        Some(db) if db.update_conversation_title(&id, &user_id, &req.title) => StatusCode::OK,
+        Some(_) => StatusCode::NOT_FOUND,
+        None => StatusCode::INTERNAL_SERVER_ERROR,
+    }
 }
 
 pub async fn add_message(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
     Json(req): Json<AddMessageRequest>,
-) -> (StatusCode, Json<serde_json::Value>) {
-    let message = tokio::task::spawn_blocking({
-        let db = Arc::clone(&state);
-        let id = id.clone();
-        move || db.db.as_ref().unwrap().add_message(
-            &id,
-            &req.role,
-            &req.content,
-            req.provider.as_deref(),
-            req.model.as_deref(),
-        )
-    }).await.unwrap();
+) -> Result<(StatusCode, Json<serde_json::Value>), (StatusCode, Json<ErrorResponse>)> {
+    let db = db_ref(&state)?;
 
-    (StatusCode::CREATED, Json(serde_json::to_value(message).unwrap()))
+    let message = db.add_message(
+        &id,
+        &req.role,
+        &req.content,
+        req.provider.as_deref(),
+        req.model.as_deref(),
+    );
+
+    let value = serde_json::to_value(message)
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: "serialization failed".into() })))?;
+    Ok((StatusCode::CREATED, Json(value)))
 }

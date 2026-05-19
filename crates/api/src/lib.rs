@@ -20,12 +20,40 @@ mod ws;
 
 use std::sync::Arc;
 
+use axum::extract::DefaultBodyLimit;
 use axum::middleware;
 use axum::routing::{delete, get, patch, post};
 use axum::Router;
-use tower_http::cors::CorsLayer;
+use tower_http::cors::{AllowHeaders, AllowMethods, AllowOrigin, CorsLayer};
 
 use state::AppState;
+
+fn cors_layer() -> CorsLayer {
+    let allowed_origins = std::env::var("CORTEX_ALLOWED_ORIGINS").ok();
+    match allowed_origins {
+        Some(origins) if !origins.is_empty() => {
+            let origins: Vec<_> = origins
+                .split(',')
+                .filter_map(|s| s.trim().parse().ok())
+                .collect();
+            CorsLayer::new()
+                .allow_origin(AllowOrigin::list(origins))
+                .allow_methods(AllowMethods::any())
+                .allow_headers(AllowHeaders::any())
+        }
+        _ => {
+            if std::env::var("CORTEX_PRODUCTION").ok().map(|v| v == "1" || v.eq_ignore_ascii_case("true")).unwrap_or(false) {
+                tracing::warn!("CORTEX_PRODUCTION=true but no CORTEX_ALLOWED_ORIGINS set — CORS will reject cross-origin requests");
+                CorsLayer::new()
+                    .allow_origin(AllowOrigin::exact("https://cortex.heyvera.org".parse().unwrap()))
+                    .allow_methods(AllowMethods::any())
+                    .allow_headers(AllowHeaders::any())
+            } else {
+                CorsLayer::permissive()
+            }
+        }
+    }
+}
 
 /// Build the full axum Router with all routes, given an initialized AppState.
 pub fn build_router(state: Arc<AppState>) -> Router {
@@ -86,6 +114,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/mc", get(mission_control::mc_handler))
         // Merge rate-limited routes
         .merge(rate_limited)
-        .layer(CorsLayer::permissive())
+        .layer(DefaultBodyLimit::max(2 * 1024 * 1024)) // 2MB max request body
+        .layer(cors_layer())
         .with_state(state)
 }
