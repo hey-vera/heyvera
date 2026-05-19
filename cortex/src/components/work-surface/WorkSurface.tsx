@@ -9,6 +9,7 @@ import {
   X,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import AdminView from '../admin/AdminView';
 import LedgerView from '../ledger/LedgerView';
 import RunPanel from '../runs/RunPanel';
 import UsageView from '../usage/UsageView';
@@ -163,6 +164,7 @@ function WorkSurfaceContent({
           />
           <UsageView />
           <LedgerView />
+          <AdminView />
 
           {!hasWork ? (
             <div className="flex min-h-64 flex-col items-center justify-center rounded-2xl border border-dashed border-white/10 bg-white/[0.02] px-5 text-center">

@@ -253,6 +253,28 @@ export async function getDailyUsage(days = 30): Promise<DailyUsage[]> {
   return requestJson<DailyUsage[]>(`/api/usage/daily?days=${days}`);
 }
 
+export interface AdminStats {
+  runs?: unknown;
+  steps?: unknown;
+  workers?: unknown;
+  users?: unknown;
+  decisions?: unknown;
+}
+
+export interface AdminWorkers {
+  connected?: unknown[];
+  all?: unknown[];
+  count?: number;
+}
+
+export async function getAdminStats(): Promise<AdminStats> {
+  return requestJson<AdminStats>('/api/admin/stats');
+}
+
+export async function getAdminWorkers(): Promise<AdminWorkers> {
+  return requestJson<AdminWorkers>('/api/admin/workers');
+}
+
 // Decision ledger
 
 export interface LedgerEntry {
