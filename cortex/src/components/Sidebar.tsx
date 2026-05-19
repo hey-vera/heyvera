@@ -17,8 +17,10 @@ import {
   getProviders,
   listConversations,
   updateConversationTitle,
+  type BillingStatus,
   type ConversationSummary,
 } from '../lib/cortexApi';
+import CreditIndicator from './billing/CreditIndicator';
 import SomaIdentityBadge from './SomaIdentityBadge';
 import {
   readSidebarConversationMeta,
@@ -34,7 +36,8 @@ interface SidebarProps {
   onNewChat: () => void;
   onSelectConversation: (id: string) => void;
   onConversationsChanged: () => void;
-  onOpenSettings: () => void;
+  onOpenSettings: (tab?: 'providers' | 'spend' | 'billing') => void;
+  billing: BillingStatus | null;
 }
 
 interface MenuState {
@@ -135,6 +138,7 @@ export default function Sidebar({
   onSelectConversation,
   onConversationsChanged,
   onOpenSettings,
+  billing,
 }: SidebarProps) {
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -589,6 +593,9 @@ export default function Sidebar({
         <div className="mb-2">
           <SomaIdentityBadge userId={userId} isSignedIn={isSignedIn} />
         </div>
+        <div className="mb-2">
+          <CreditIndicator billing={billing} onOpenBilling={() => onOpenSettings('billing')} />
+        </div>
         <div className="mb-2 rounded-xl border border-white/8 bg-white/[0.03] px-3 py-2.5">
           <div className="mb-2 flex items-center justify-between gap-2">
             <span className="text-[10px] font-medium uppercase tracking-[0.08em] text-[var(--muted)]">
@@ -615,7 +622,7 @@ export default function Sidebar({
           )}
         </div>
         <button
-          onClick={onOpenSettings}
+          onClick={() => onOpenSettings()}
           className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-xs text-[var(--muted)] transition hover:bg-white/4 hover:text-white active:scale-[0.98]"
         >
           <Settings className="h-4 w-4" />

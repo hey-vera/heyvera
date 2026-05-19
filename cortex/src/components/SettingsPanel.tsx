@@ -5,12 +5,16 @@ import {
   startAuth,
   submitAuthCode,
   refreshAuth,
+  type BillingStatus,
   type ProviderAuthInfo,
 } from '../lib/cortexApi';
+import BillingPage from './billing/BillingPage';
 import SpendDashboard from './spend/SpendDashboard';
 
 interface SettingsPanelProps {
   onClose: () => void;
+  initialTab?: 'providers' | 'spend' | 'billing';
+  billing: BillingStatus | null;
 }
 
 interface ProviderAuthState {
@@ -29,8 +33,12 @@ const INITIAL_STATE: ProviderAuthState = {
   error: null,
 };
 
-export default function SettingsPanel({ onClose }: SettingsPanelProps) {
-  const [tab, setTab] = useState<'providers' | 'spend'>('providers');
+export default function SettingsPanel({
+  onClose,
+  initialTab = 'providers',
+  billing,
+}: SettingsPanelProps) {
+  const [tab, setTab] = useState<'providers' | 'spend' | 'billing'>(initialTab);
   const [providers, setProviders] = useState<ProviderAuthInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [authStates, setAuthStates] = useState<Record<string, ProviderAuthState>>({});
@@ -123,7 +131,7 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 backdrop-blur-sm sm:p-6">
-      <div className="relative flex max-h-[min(44rem,calc(100dvh-1.5rem))] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-white/8 bg-[var(--panel)] shadow-2xl sm:max-h-[min(44rem,calc(100dvh-3rem))]">
+      <div className={`relative flex max-h-[min(44rem,calc(100dvh-1.5rem))] w-full flex-col overflow-hidden rounded-2xl border border-white/8 bg-[var(--panel)] shadow-2xl sm:max-h-[min(44rem,calc(100dvh-3rem))] ${tab === 'billing' ? 'max-w-2xl' : 'max-w-lg'}`}>
         {/* Header */}
         <div className="shrink-0 border-b border-white/6 px-5 py-4">
           <div className="flex items-center justify-between gap-4">
@@ -159,11 +167,21 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
           >
             Soma spend
           </button>
+          <button
+            onClick={() => setTab('billing')}
+            className={`border-b-2 px-1 py-2.5 text-sm font-medium transition ${
+              tab === 'billing' ? 'border-[var(--accent)] text-white' : 'border-transparent text-[var(--muted)] hover:text-white'
+            }`}
+          >
+            Billing
+          </button>
         </div>
 
         {/* Content */}
         <div className="min-h-0 flex-1 overflow-y-auto p-5">
-          {tab === 'spend' ? (
+          {tab === 'billing' ? (
+            <BillingPage billing={billing} />
+          ) : tab === 'spend' ? (
             <SpendDashboard />
           ) : loading ? (
             <div className="flex items-center justify-center gap-2 py-8 text-sm text-[var(--muted)]">

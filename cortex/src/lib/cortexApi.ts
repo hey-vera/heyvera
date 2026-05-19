@@ -42,6 +42,16 @@ async function authedFetch(url: string, init?: RequestInit): Promise<Response> {
   return fetch(url, { ...init, headers });
 }
 
+async function bearerFetch(url: string, init?: RequestInit): Promise<Response> {
+  const headers = new Headers(init?.headers);
+  const token = await getAuthToken();
+  if (token) headers.set('Authorization', `Bearer ${token}`);
+  if (!headers.has('Content-Type') && init?.method && init.method !== 'GET') {
+    headers.set('Content-Type', 'application/json');
+  }
+  return fetch(url, { ...init, headers });
+}
+
 export class CortexApiError extends Error {
   status: number;
   retryAfter: string | null;
@@ -70,6 +80,14 @@ async function readErrorMessage(res: Response): Promise<string> {
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await authedFetch(apiUrl(path), init);
+  if (!res.ok) {
+    throw new CortexApiError(res.status, await readErrorMessage(res), res.headers.get('Retry-After'));
+  }
+  return res.json() as Promise<T>;
+}
+
+async function requestBillingJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await bearerFetch(apiUrl(path), init);
   if (!res.ok) {
     throw new CortexApiError(res.status, await readErrorMessage(res), res.headers.get('Retry-After'));
   }
@@ -276,6 +294,117 @@ export async function revokeSomaDelegation(delegationId: string, subjectDid: str
     method: 'POST',
     body: JSON.stringify({ delegation_id: delegationId, subject_did: subjectDid }),
   });
+}
+
+export type BillingAccessState =
+  | 'signed_out'
+  | 'needs_phone'
+  | 'needs_checkout'
+  | 'trial_active'
+  | 'active'
+  | 'credits_exhausted'
+  | 'payment_failed'
+  | 'cancelled';
+
+export interface BillingStatus {
+  access_state: BillingAccessState;
+  plan: {
+    plan_type: 'monthly' | 'annual';
+    status: 'trialing' | 'active' | 'past_due' | 'cancelled' | 'paused';
+    billing_period_end: string;
+    next_charge_amount_cents: number | null;
+    next_charge_date: string | null;
+    started_at: string;
+  } | null;
+  credits: {
+    subscription_remaining: number;
+    subscription_total: number;
+    pack_remaining: number;
+    total_remaining: number;
+    billing_period_end: string | null;
+  };
+  trial: {
+    trial_end: string;
+    days_remaining: number;
+    auto_charge_amount_cents: number;
+    auto_charge_plan: 'monthly' | 'annual';
+  } | null;
+  delegation: {
+    status: 'active' | 'pending' | 'expired' | 'revoked' | 'not_issued';
+    budget_enforced: boolean;
+    delegation_id: string | null;
+    expires_at: string | null;
+  };
+  payment_method: {
+    last4: string;
+    brand: string;
+    exp_month: number;
+    exp_year: number;
+  } | null;
+  referral: {
+    code: string;
+    uses_remaining: number;
+    total_uses: number;
+    credits_earned: number;
+  } | null;
+}
+
+export interface CheckoutResponse {
+  checkout_url: string;
+  session_id: string;
+}
+
+export interface ReferralValidateResponse {
+  valid: boolean;
+  creator_name: string | null;
+  options: Array<'discount_25_annual' | 'extra_2_weeks'>;
+  uses_remaining: number | null;
+  error: string | null;
+}
+
+export interface BillingHistoryEntry {
+  date: string;
+  amount_cents: number;
+  description: string;
+  status: string;
+}
+
+export async function getBillingStatus(): Promise<BillingStatus> {
+  return requestBillingJson<BillingStatus>('/api/billing/status');
+}
+
+export async function createBillingCheckout(body: {
+  plan: 'monthly' | 'annual';
+  email?: string;
+  referral_code?: string;
+  referral_choice?: 'discount_25_annual' | 'extra_2_weeks';
+}): Promise<CheckoutResponse> {
+  return requestBillingJson<CheckoutResponse>('/api/billing/checkout', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function createBillingPortal(): Promise<{ portal_url: string }> {
+  return requestBillingJson<{ portal_url: string }>('/api/billing/portal', { method: 'POST' });
+}
+
+export async function purchaseCreditPack(): Promise<{ checkout_url: string; new_credits_total: number }> {
+  return requestBillingJson<{ checkout_url: string; new_credits_total: number }>('/api/billing/credits', {
+    method: 'POST',
+    body: JSON.stringify({ pack: 'credits_100' }),
+  });
+}
+
+export async function validateReferralCode(code: string): Promise<ReferralValidateResponse> {
+  return requestBillingJson<ReferralValidateResponse>('/api/billing/referral/validate', {
+    method: 'POST',
+    body: JSON.stringify({ code }),
+  });
+}
+
+export async function getBillingHistory(): Promise<BillingHistoryEntry[]> {
+  return requestBillingJson<BillingHistoryEntry[]>('/api/billing/history');
 }
 
 export interface GitHubStatus {

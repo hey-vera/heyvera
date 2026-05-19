@@ -1,5 +1,9 @@
 import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 import { PanelRight, Loader2, Menu } from 'lucide-react';
+import CreditExhausted from './components/billing/CreditExhausted';
+import PaymentFailed from './components/billing/PaymentFailed';
+import PricingCards from './components/billing/PricingCards';
+import TrialBanner from './components/billing/TrialBanner';
 import ChatComposer from './components/chat/ChatComposer';
 import ChatTimeline from './components/chat/ChatTimeline';
 import SessionControls from './components/session/SessionControls';
@@ -8,6 +12,7 @@ import OnboardingFlow from './components/onboarding/OnboardingFlow';
 import { useChatSession } from './lib/useChatSession';
 import { useAuthGate } from './lib/useAuthGate';
 import { useSomaSession } from './lib/useSomaSession';
+import { useBilling } from './lib/useBilling';
 import { getUserRouting, setAuthTokenGetter, updateUserRouting } from './lib/cortexApi';
 import { isOnboarded, markOnboarded } from './lib/onboarding';
 import type { ChatSessionControls, RunProfile } from './types';
@@ -80,6 +85,7 @@ export default function App() {
   // Auto-creates user's Soma identity + session-scoped delegation on sign-in
   useSomaSession(userId ?? 'anonymous', isSignedIn);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsInitialTab, setSettingsInitialTab] = useState<'providers' | 'spend' | 'billing'>('providers');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [workSurfaceOpen, setWorkSurfaceOpen] = useState(false);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
@@ -93,6 +99,7 @@ export default function App() {
   const [runBridgeGoal, setRunBridgeGoal] = useState<string | null>(null);
   const [runBridgeNonce, setRunBridgeNonce] = useState(0);
   const [onboarded, setOnboarded] = useState(() => !clerkEnabled || isOnboarded(userId ?? 'local'));
+  const billingEnabled = clerkEnabled && isSignedIn;
 
   const handleConversationCreated = useCallback((conversationId: string) => {
     setActiveConversationId(conversationId);
@@ -105,6 +112,8 @@ export default function App() {
   useEffect(() => {
     if (getToken) setAuthTokenGetter(getToken);
   }, [getToken]);
+
+  const billing = useBilling(billingEnabled);
 
   useEffect(() => {
     setOnboarded(!clerkEnabled || isOnboarded(userId ?? 'local'));
@@ -181,7 +190,8 @@ export default function App() {
     setSidebarOpen(false);
   }, []);
 
-  const handleOpenSettings = useCallback(() => {
+  const handleOpenSettings = useCallback((tab: 'providers' | 'spend' | 'billing' = 'providers') => {
+    setSettingsInitialTab(tab);
     setSettingsOpen(true);
     setSidebarOpen(false);
   }, []);
@@ -213,6 +223,8 @@ export default function App() {
   const approvalCount = messages.filter((message) => message.approvalRequest?.state === 'pending').length;
   const showWorkBadge = isStreaming || approvalCount > 0;
   const showRunBridge = looksLikeRunGoal(draft) && !isStreaming;
+  const accessState = billing.status?.access_state;
+  const creditsExhausted = accessState === 'credits_exhausted';
 
   useEffect(() => {
     if (!renamingTitle) return;
@@ -316,6 +328,63 @@ export default function App() {
     return <AuthScreen />;
   }
 
+  if (billingEnabled && billing.loading && !billing.status) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[var(--bg)]">
+        <div className="flex items-center gap-2 text-sm text-[var(--muted)]">
+          <Loader2 className="h-5 w-5 animate-spin" />
+          Checking billing...
+        </div>
+      </div>
+    );
+  }
+
+  if (billingEnabled && billing.error && !billing.status) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[var(--bg)] p-4 text-[var(--fg)]">
+        <div className="w-full max-w-md rounded-2xl border border-white/8 bg-[var(--panel)] p-5 text-center">
+          <h1 className="text-lg font-semibold text-white">Billing unavailable</h1>
+          <p className="mt-2 text-sm text-[var(--muted)]">{billing.error}</p>
+          <button
+            type="button"
+            onClick={() => void billing.refresh()}
+            className="mt-4 rounded-xl bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-black transition hover:brightness-110 active:scale-95"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (billingEnabled && (accessState === 'needs_checkout' || accessState === 'cancelled')) {
+    return <PricingCards />;
+  }
+
+  if (billingEnabled && accessState === 'needs_phone') {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[var(--bg)] p-4 text-[var(--fg)]">
+        <div className="w-full max-w-md rounded-2xl border border-white/8 bg-[var(--panel)] p-5 text-center">
+          <h1 className="text-lg font-semibold text-white">Verify your phone</h1>
+          <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
+            Phone verification is required before starting a Cortex trial. Complete verification in your account, then refresh billing.
+          </p>
+          <button
+            type="button"
+            onClick={() => void billing.refresh()}
+            className="mt-4 rounded-xl bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-black transition hover:brightness-110 active:scale-95"
+          >
+            Refresh
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (billingEnabled && accessState === 'payment_failed') {
+    return <PaymentFailed billing={billing.status} />;
+  }
+
   if (clerkEnabled && isSignedIn && !onboarded) {
     return (
       <OnboardingFlow
@@ -342,6 +411,7 @@ export default function App() {
             setConversationListVersion((version) => version + 1);
           }}
           onOpenSettings={handleOpenSettings}
+          billing={billing.status}
         />
       </aside>
 
@@ -365,6 +435,7 @@ export default function App() {
                 setConversationListVersion((version) => version + 1);
               }}
               onOpenSettings={handleOpenSettings}
+              billing={billing.status}
             />
           </div>
         </div>
@@ -444,6 +515,7 @@ export default function App() {
             </button>
           </div>
         </header>
+        <TrialBanner billing={billing.status} onOpenBilling={() => handleOpenSettings('billing')} />
 
         <main className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col">
           <ChatTimeline
@@ -475,12 +547,13 @@ export default function App() {
               </div>
             </div>
           )}
+          {creditsExhausted && <CreditExhausted resetDate={billing.status?.credits.billing_period_end ?? null} />}
           <ChatComposer
             draft={draft}
-            disabled={isStreaming}
+            disabled={isStreaming || creditsExhausted}
             onDraftChange={setDraft}
             onSend={sendMessage}
-            onStop={stopStreaming}
+            onStop={isStreaming ? stopStreaming : undefined}
           />
         </main>
       </div>
@@ -503,7 +576,11 @@ export default function App() {
       {/* Settings modal */}
       {settingsOpen && (
         <Suspense fallback={null}>
-          <SettingsPanel onClose={() => setSettingsOpen(false)} />
+          <SettingsPanel
+            onClose={() => setSettingsOpen(false)}
+            initialTab={settingsInitialTab}
+            billing={billing.status}
+          />
         </Suspense>
       )}
     </div>
