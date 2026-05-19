@@ -625,6 +625,16 @@ async fn authenticate_worker(state: &AppState, token: &str) -> Result<String, St
             ..Default::default()
         };
 
+        // Verify issuer is Cortex's heart — reject self-issued delegations
+        if let Some(heart) = &state.soma_heart {
+            if delegation.issuer_did != heart.did() {
+                return Err(format!(
+                    "delegation issuer {} is not Cortex heart {}",
+                    delegation.issuer_did, heart.did()
+                ));
+            }
+        }
+
         let result = soma::delegation::verify_delegation(&delegation, &ctx)
             .map_err(|e| format!("soma verification error: {e}"))?;
 

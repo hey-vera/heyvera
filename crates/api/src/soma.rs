@@ -520,10 +520,27 @@ async fn verify_soma_token(
         ..Default::default()
     };
 
+    // Verify the delegation issuer is Cortex's own heart (trusted root).
+    // Without this check, anyone could self-issue a delegation.
+    let cortex_did_ref = state
+        .soma_heart
+        .as_ref()
+        .map(|h| h.did().to_string());
+
     if let Some(chain_json) = chain_header {
         let chain: Vec<Delegation> = serde_json::from_str(chain_json).map_err(|e| {
             AuthError::InvalidToken(format!("malformed delegation chain: {e}"))
         })?;
+
+        // Chain root must be issued by Cortex's heart
+        if let (Some(first), Some(cortex_did)) = (chain.first(), &cortex_did_ref) {
+            if first.issuer_did != *cortex_did {
+                return Err(AuthError::Unauthorized(format!(
+                    "delegation chain root issuer {} is not Cortex heart {}",
+                    first.issuer_did, cortex_did
+                )));
+            }
+        }
 
         let result = verify_delegation_chain(&chain, &ctx).map_err(|e| {
             AuthError::VerificationFailed(format!("chain verification error: {e}"))
@@ -535,6 +552,16 @@ async fn verify_soma_token(
             )));
         }
     } else {
+        // Single delegation must be issued by Cortex's heart
+        if let Some(ref cortex_did) = cortex_did_ref {
+            if delegation.issuer_did != *cortex_did {
+                return Err(AuthError::Unauthorized(format!(
+                    "delegation issuer {} is not Cortex heart {}",
+                    delegation.issuer_did, cortex_did
+                )));
+            }
+        }
+
         let result = verify_delegation(&delegation, &ctx).map_err(|e| {
             AuthError::VerificationFailed(format!("delegation verification error: {e}"))
         })?;
