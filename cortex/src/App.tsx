@@ -110,6 +110,65 @@ export default function App() {
     void renameConversation(nextTitle);
   }, [cancelTitleRename, renameConversation, titleDraft]);
 
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const isTextInput = target?.tagName === 'INPUT'
+        || target?.tagName === 'TEXTAREA'
+        || target?.isContentEditable;
+
+      if (event.key === 'Escape') {
+        if (settingsOpen) {
+          setSettingsOpen(false);
+          return;
+        }
+        if (workSurfaceOpen) {
+          setWorkSurfaceOpen(false);
+          return;
+        }
+        if (sidebarOpen) {
+          setSidebarOpen(false);
+          return;
+        }
+        if (isStreaming) {
+          stopStreaming();
+        }
+        return;
+      }
+
+      if (isTextInput) return;
+
+      const hasModifier = event.metaKey || event.ctrlKey;
+      if (!hasModifier) return;
+
+      const key = event.key.toLowerCase();
+      if (key === 'n') {
+        event.preventDefault();
+        handleNewChat();
+      } else if (key === 'b') {
+        event.preventDefault();
+        setSidebarOpen((open) => !open);
+      } else if (key === 'j') {
+        event.preventDefault();
+        setWorkSurfaceOpen((open) => !open);
+      } else if (key === ',') {
+        event.preventDefault();
+        handleOpenSettings();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [
+    handleNewChat,
+    handleOpenSettings,
+    isStreaming,
+    settingsOpen,
+    sidebarOpen,
+    stopStreaming,
+    workSurfaceOpen,
+  ]);
+
   if (!isLoaded) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[var(--bg)]">
@@ -169,6 +228,7 @@ export default function App() {
               type="button"
               className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-[var(--muted)] transition hover:bg-white/6 hover:text-white active:scale-95 lg:hidden"
               aria-label="Open conversations"
+              title="Open conversations (Ctrl+B)"
               onClick={() => setSidebarOpen(true)}
             >
               <Menu className="h-4 w-4" />
@@ -224,6 +284,7 @@ export default function App() {
               type="button"
               className="relative inline-flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-xs text-[var(--muted)] transition hover:bg-white/6 hover:text-white active:scale-95 xl:hidden"
               aria-label="Open work surface"
+              title="Open work surface (Ctrl+J)"
               onClick={() => setWorkSurfaceOpen(true)}
             >
               <PanelRight className="h-4 w-4" />
