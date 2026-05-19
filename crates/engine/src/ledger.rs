@@ -88,6 +88,8 @@ mod tests {
             risk: RiskLevel::Medium,
             rationale: vec![RationaleCode::BestAvailableForTier],
             score: 135.0,
+            model: Some("claude-sonnet-4-6".into()),
+            alternatives_considered: vec![],
         });
 
         ledger.append(&entry).unwrap();

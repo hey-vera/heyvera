@@ -21,6 +21,7 @@ pub enum Intent {
     Think,
     Test,
     Refactor,
+    Ship,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -70,7 +71,7 @@ impl Intent {
     pub fn default_tier(&self) -> Tier {
         match self {
             Self::Explore => Tier::Search,
-            Self::Fix | Self::Add | Self::Test | Self::Refactor => Tier::Execute,
+            Self::Fix | Self::Add | Self::Test | Self::Refactor | Self::Ship => Tier::Execute,
             Self::Review | Self::Think => Tier::Think,
         }
     }

@@ -2,19 +2,20 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use cortex_core::protocol::BrainMessage;
+use cortex_core::protocol::{BrainMessage, StepContext};
 use cortex_core::provider::{ProviderId, ProviderStatus, Tier};
 use cortex_core::routing::RoutingDecision;
 use cortex_core::task::TaskContract;
+use cortex_engine::captain::SchedulerEvent;
 use cortex_engine::ledger::Ledger;
 use cortex_worker::executor::detect_available_providers;
-use cortex_worker::stream::WorkerEvent;
 use tokio::process::ChildStdin;
 use tokio::sync::{mpsc, RwLock};
 use uuid::Uuid;
 
 use crate::clerk::JwksCache;
 use crate::db::Database;
+use crate::ratelimit::RateLimiter;
 
 pub struct ConnectedWorker {
     pub worker_id: String,
@@ -32,7 +33,31 @@ pub struct AppState {
     pub pending_auths: RwLock<HashMap<String, ChildStdin>>,
     pub db: Option<Database>,
     pub workers: RwLock<HashMap<String, ConnectedWorker>>,
-    pub task_senders: RwLock<HashMap<Uuid, mpsc::Sender<WorkerEvent>>>,
+    pub step_senders: RwLock<HashMap<String, mpsc::Sender<StepEvent>>>,
+    pub scheduler_tx: RwLock<Option<mpsc::Sender<SchedulerEvent>>>,
+    pub rate_limiter: Arc<RateLimiter>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum StepEvent {
+    Started {
+        step_id: String,
+        provider: String,
+        model: String,
+    },
+    Output {
+        step_id: String,
+        line: String,
+    },
+    Completed {
+        step_id: String,
+        exit_code: i32,
+    },
+    Failed {
+        step_id: String,
+        error: String,
+    },
 }
 
 impl AppState {
@@ -57,7 +82,11 @@ impl AppState {
         tracing::info!(
             "detected {} provider(s): {}",
             providers.len(),
-            providers.iter().map(|p| p.provider.to_string()).collect::<Vec<_>>().join(", ")
+            providers
+                .iter()
+                .map(|p| p.provider.to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
         );
 
         tracing::info!("workspace directory: {}", workspace_dir.display());
@@ -80,7 +109,9 @@ impl AppState {
             pending_auths: RwLock::new(HashMap::new()),
             db: Some(db),
             workers: RwLock::new(HashMap::new()),
-            task_senders: RwLock::new(HashMap::new()),
+            step_senders: RwLock::new(HashMap::new()),
+            scheduler_tx: RwLock::new(None),
+            rate_limiter: Arc::new(RateLimiter::default_per_user()),
         })
     }
 
@@ -93,12 +124,15 @@ impl AppState {
     ) {
         tracing::info!("registering worker {worker_id} for user {user_id}");
         let mut workers = self.workers.write().await;
-        workers.insert(worker_id.clone(), ConnectedWorker {
-            worker_id,
-            user_id,
-            available_providers,
-            tx,
-        });
+        workers.insert(
+            worker_id.clone(),
+            ConnectedWorker {
+                worker_id,
+                user_id,
+                available_providers,
+                tx,
+            },
+        );
         tracing::info!("active workers: {}", workers.len());
     }
 
@@ -110,32 +144,74 @@ impl AppState {
 
     pub async fn find_worker_for_user(&self, user_id: &str) -> Option<mpsc::Sender<BrainMessage>> {
         let workers = self.workers.read().await;
-        workers.values()
+        workers
+            .values()
             .find(|w| w.user_id == user_id)
             .map(|w| w.tx.clone())
     }
 
-    pub async fn dispatch_task(
+    pub async fn dispatch_step(
         &self,
         user_id: &str,
         task: TaskContract,
         decision: RoutingDecision,
-        result_tx: mpsc::Sender<WorkerEvent>,
-    ) -> Result<(), String> {
-        let worker_tx = self.find_worker_for_user(user_id).await
-            .ok_or_else(|| "no connected worker — run `npx cortex connect` in your environment".to_string())?;
+        result_tx: mpsc::Sender<StepEvent>,
+    ) -> Result<String, String> {
+        let worker_tx = self
+            .find_worker_for_user(user_id)
+            .await
+            .ok_or_else(|| {
+                "no connected worker — run `npx cortex connect` in your environment".to_string()
+            })?;
 
-        self.task_senders.write().await.insert(task.id, result_tx);
+        let step_id = Uuid::new_v4().to_string();
+        let attempt_id = Uuid::new_v4().to_string();
+        let run_id = Uuid::new_v4().to_string();
+        let lease_gen = 1;
+        let lease_deadline_ms = chrono::Utc::now().timestamp_millis() + 600_000;
 
-        worker_tx.send(BrainMessage::ExecuteTask { task, decision }).await
-            .map_err(|_| "worker connection lost".to_string())
+        self.step_senders
+            .write()
+            .await
+            .insert(step_id.clone(), result_tx);
+
+        worker_tx
+            .send(BrainMessage::ExecuteStep {
+                run_id,
+                step_id: step_id.clone(),
+                attempt_id,
+                lease_gen,
+                lease_deadline_ms,
+                workspace_id: "default".to_string(),
+                base_commit: None,
+                allowed_paths: vec![],
+                task,
+                decision,
+                context: StepContext::default(),
+            })
+            .await
+            .map_err(|_| "worker connection lost".to_string())?;
+
+        Ok(step_id)
     }
 
-    pub async fn get_task_sender(&self, task_id: Uuid) -> Option<mpsc::Sender<WorkerEvent>> {
-        self.task_senders.read().await.get(&task_id).cloned()
+    pub async fn get_step_sender(&self, step_id: &str) -> Option<mpsc::Sender<StepEvent>> {
+        self.step_senders.read().await.get(step_id).cloned()
     }
 
-    pub async fn remove_task_sender(&self, task_id: Uuid) {
-        self.task_senders.write().await.remove(&task_id);
+    pub async fn remove_step_sender(&self, step_id: &str) {
+        self.step_senders.write().await.remove(step_id);
+    }
+
+    pub async fn set_scheduler_tx(&self, tx: mpsc::Sender<SchedulerEvent>) {
+        *self.scheduler_tx.write().await = Some(tx);
+    }
+
+    pub async fn emit_scheduler_event(&self, event: SchedulerEvent) {
+        if let Some(tx) = self.scheduler_tx.read().await.as_ref() {
+            if tx.send(event).await.is_err() {
+                tracing::error!("scheduler channel closed");
+            }
+        }
     }
 }

@@ -195,3 +195,84 @@ pub async fn select_repos(
     })?;
     Ok(Json(serde_json::json!({ "ok": true })))
 }
+
+// --- Routing profile ---
+
+#[derive(Deserialize)]
+pub struct UpdateProfileRequest {
+    pub profile: String,
+}
+
+pub async fn update_profile(
+    State(state): State<Arc<AppState>>,
+    user: ClerkUser,
+    Json(req): Json<UpdateProfileRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    use cortex_core::evaluator::Profile;
+
+    let profile = Profile::from_alias(&req.profile).ok_or_else(|| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: format!(
+                    "unknown profile '{}' — use: auto, balanced, cost-saver, quality-first",
+                    req.profile
+                ),
+            }),
+        )
+    })?;
+
+    let canonical = match profile {
+        Profile::Auto => "auto",
+        Profile::Balanced => "balanced",
+        Profile::CostSaver => "cost-saver",
+        Profile::QualityFirst => "quality-first",
+    };
+
+    if let Some(db) = &state.db {
+        db.upsert_user_profile(&user.user_id, canonical);
+    }
+
+    Ok(Json(serde_json::json!({
+        "profile": canonical,
+        "user_id": user.user_id,
+    })))
+}
+
+pub async fn get_routing_profile(
+    State(state): State<Arc<AppState>>,
+    user: ClerkUser,
+) -> Json<serde_json::Value> {
+    let (profile, auto_mode) = state
+        .db
+        .as_ref()
+        .and_then(|db| db.get_full_user_profile(&user.user_id))
+        .unwrap_or_else(|| ("auto".into(), "normal".into()));
+
+    let pressure = state
+        .db
+        .as_ref()
+        .map(|db| {
+            let raw = db.pressure_for_user(
+                &user.user_id,
+                cortex_core::evaluator::WINDOW_SECS * 1000,
+            );
+            raw.into_iter()
+                .map(|(provider, tier, tokens)| {
+                    serde_json::json!({
+                        "provider": provider,
+                        "tier": tier,
+                        "tokens": tokens,
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    Json(serde_json::json!({
+        "user_id": user.user_id,
+        "profile": profile,
+        "auto_mode": auto_mode,
+        "pressure": pressure,
+    }))
+}

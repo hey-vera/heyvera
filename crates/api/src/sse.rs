@@ -10,10 +10,11 @@ use serde::Deserialize;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::StreamExt;
+use uuid::Uuid;
 
 use cortex_core::ledger::{LedgerEntry, LedgerEvent};
 use cortex_engine::router::Router;
-use cortex_worker::executor::Executor;
+use cortex_worker::executor::{Executor, StepExecution};
 use cortex_worker::stream::WorkerEvent;
 
 use crate::clerk::ClerkUser;
@@ -51,6 +52,8 @@ pub async fn execute_task(
         risk: task.risk,
         rationale: decision.rationale.clone(),
         score: decision.score,
+        model: Some(decision.model_id.clone()),
+        alternatives_considered: decision.alternatives_considered.clone(),
     });
     let _ = state.ledger.append(&entry);
 
@@ -63,7 +66,20 @@ pub async fn execute_task(
     let state_clone = state.clone();
 
     tokio::spawn(async move {
-        let result = Executor::execute(&task_clone, &decision_clone, worker_tx, Some(state_clone.workspace_dir.as_path())).await;
+        let step = StepExecution {
+            step_id: Uuid::new_v4().to_string(),
+            attempt_id: Uuid::new_v4().to_string(),
+            lease_gen: 1,
+        };
+
+        let result = Executor::execute(
+            &task_clone,
+            &decision_clone,
+            &step,
+            worker_tx,
+            Some(state_clone.workspace_dir.as_path()),
+        )
+        .await;
 
         let status = match &result {
             Ok(0) => cortex_core::task::TaskStatus::Completed,

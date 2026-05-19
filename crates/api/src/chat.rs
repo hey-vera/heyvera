@@ -10,35 +10,32 @@ use serde::Deserialize;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::StreamExt;
-use uuid::Uuid;
 
 use cortex_core::ledger::{LedgerEntry, LedgerEvent};
 use cortex_engine::classifier::classify_intent;
 use cortex_engine::router::Router;
-use cortex_worker::stream::WorkerEvent;
 
+use crate::clerk::ClerkUser;
 use crate::routes::ErrorResponse;
-use crate::state::AppState;
+use crate::state::{AppState, StepEvent};
 
 #[derive(Deserialize)]
 pub struct ChatRequest {
     pub message: String,
     #[serde(default)]
     pub file_paths: Vec<String>,
-    #[serde(default = "default_user_id")]
-    pub user_id: String,
-}
-
-fn default_user_id() -> String {
-    "local".to_string()
+    /// Ignored when auth is enabled — the authenticated user's ID is used instead.
+    #[serde(default)]
+    pub user_id: Option<String>,
 }
 
 pub async fn chat(
     State(state): State<Arc<AppState>>,
+    user: ClerkUser,
     Json(req): Json<ChatRequest>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, (StatusCode, Json<ErrorResponse>)> {
     let intent = classify_intent(&req.message);
-    let (tx, rx) = mpsc::channel::<WorkerEvent>(64);
+    let (tx, rx) = mpsc::channel::<StepEvent>(64);
 
     if intent.is_some() {
         let providers = state.providers.read().await;
@@ -61,6 +58,8 @@ pub async fn chat(
             risk: task.risk,
             rationale: decision.rationale.clone(),
             score: decision.score,
+            model: Some(decision.model_id.clone()),
+            alternatives_considered: decision.alternatives_considered.clone(),
         });
         let _ = state.ledger.append(&entry);
 
@@ -69,43 +68,47 @@ pub async fn chat(
         let task_clone = task.clone();
         let decision_clone = decision.clone();
         let state_clone = state.clone();
-        let user_id = req.user_id.clone();
+        let user_id = user.user_id.clone();
 
         tokio::spawn(async move {
-            match state_clone.dispatch_task(&user_id, task_clone.clone(), decision_clone.clone(), tx.clone()).await {
-                Ok(()) => {
-                    // Task dispatched to worker — results will stream back via WebSocket
+            match state_clone
+                .dispatch_step(&user_id, task_clone.clone(), decision_clone.clone(), tx.clone())
+                .await
+            {
+                Ok(step_id) => {
+                    tracing::info!("step dispatched: {step_id}");
                 }
                 Err(e) => {
-                    let _ = tx.send(WorkerEvent::Failed {
-                        task_id: task_clone.id,
-                        error: e,
-                    }).await;
+                    let _ = tx
+                        .send(StepEvent::Failed {
+                            step_id: "none".into(),
+                            error: e,
+                        })
+                        .await;
                 }
             }
         });
     } else {
-        let task_id = Uuid::new_v4();
         tokio::spawn(async move {
             let _ = tx
-                .send(WorkerEvent::Started {
-                    task_id,
-                    provider: "cortex".to_string(),
-                    model: "conversation".to_string(),
+                .send(StepEvent::Started {
+                    step_id: "conversation".into(),
+                    provider: "cortex".into(),
+                    model: "conversation".into(),
                 })
                 .await;
 
             let response = handle_conversation(&req.message);
             let _ = tx
-                .send(WorkerEvent::Output {
-                    task_id,
+                .send(StepEvent::Output {
+                    step_id: "conversation".into(),
                     line: response,
                 })
                 .await;
 
             let _ = tx
-                .send(WorkerEvent::Completed {
-                    task_id,
+                .send(StepEvent::Completed {
+                    step_id: "conversation".into(),
                     exit_code: 0,
                 })
                 .await;
@@ -131,12 +134,11 @@ fn handle_conversation(message: &str) -> String {
         return "I'm a multi-provider orchestration engine. I route tasks across Claude and OpenAI based on complexity and risk.\n\n**What I can do:**\n- **fix/add** — Execute-tier work (edits, tests, git)\n- **explore/find** — Search-tier work (read-only lookups)\n- **review/think** — Think-tier work (architecture, decisions)\n\nJust describe what you need in natural language.".to_string();
     }
 
-    format!(
-        "I'm not sure what to do with that. Try phrasing it as a task:\n\
-        - \"fix the login bug\"\n\
-        - \"explore the auth module\"\n\
-        - \"add a health check endpoint\"\n\
-        - \"review the recent changes\"\n\n\
-        Or say \"help\" to see what I can do."
-    )
+    "I'm not sure what to do with that. Try phrasing it as a task:\n\
+     - \"fix the login bug\"\n\
+     - \"explore the auth module\"\n\
+     - \"add a health check endpoint\"\n\
+     - \"review the recent changes\"\n\n\
+     Or say \"help\" to see what I can do."
+        .to_string()
 }

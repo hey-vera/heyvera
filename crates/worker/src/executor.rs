@@ -1,6 +1,8 @@
 use std::process::Stdio;
 
 use cortex_core::error::CortexError;
+use cortex_core::failure::{WorkerFailureKind, WorkerFailureReport};
+use cortex_core::protocol::StepOutput;
 use cortex_core::provider::ProviderId;
 use cortex_core::routing::RoutingDecision;
 use cortex_core::task::TaskContract;
@@ -9,6 +11,13 @@ use tokio::process::Command;
 use tokio::sync::mpsc;
 
 use crate::stream::WorkerEvent;
+use crate::worktree;
+
+pub struct StepExecution {
+    pub step_id: String,
+    pub attempt_id: String,
+    pub lease_gen: i64,
+}
 
 pub struct Executor;
 
@@ -16,18 +25,46 @@ impl Executor {
     pub async fn execute(
         task: &TaskContract,
         decision: &RoutingDecision,
+        step: &StepExecution,
         tx: mpsc::Sender<WorkerEvent>,
         working_dir: Option<&std::path::Path>,
     ) -> Result<i32, CortexError> {
         let (cmd, args) = build_command(decision)?;
 
         tx.send(WorkerEvent::Started {
-            task_id: task.id,
+            step_id: step.step_id.clone(),
+            attempt_id: step.attempt_id.clone(),
+            lease_gen: step.lease_gen,
             provider: decision.provider.to_string(),
             model: decision.model_id.clone(),
         })
         .await
         .ok();
+
+        // Create an isolated worktree so parallel steps don't conflict.
+        // If worktree creation fails (not a git repo, etc.), fall back to the
+        // original working_dir — worktree isolation is best-effort.
+        let mut worktree_guard = None;
+        let effective_dir: Option<std::path::PathBuf> = if let Some(dir) = working_dir {
+            match worktree::create_worktree(dir, &step.step_id) {
+                Ok(guard) => {
+                    let wt_path = guard.path().to_path_buf();
+                    worktree_guard = Some(guard);
+                    Some(wt_path)
+                }
+                Err(e) => {
+                    tracing::debug!(
+                        step_id = %step.step_id,
+                        error = %e,
+                        "worktree creation failed, falling back to direct execution"
+                    );
+                    Some(dir.to_path_buf())
+                }
+            }
+        } else {
+            None
+        };
+        let effective_dir_ref = effective_dir.as_deref();
 
         let mut command = Command::new(&cmd);
         command
@@ -36,20 +73,73 @@ impl Executor {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
-        if let Some(dir) = working_dir {
+        if let Some(dir) = effective_dir_ref {
             command.current_dir(dir);
         }
 
-        let mut child = command
-            .spawn()
-            .map_err(|e| CortexError::WorkerExecution(format!("{cmd}: {e}")))?;
+        let base_commit = get_git_head(effective_dir_ref);
+
+        let result = Self::run_child(
+            command, &cmd, step, &tx, decision, effective_dir_ref, base_commit,
+            task, &mut worktree_guard,
+        )
+        .await;
+
+        // Clean up the worktree regardless of success or failure.
+        if let Some(mut guard) = worktree_guard {
+            if let Err(e) = guard.cleanup() {
+                tracing::warn!(error = %e, "worktree cleanup failed");
+            }
+        }
+
+        result
+    }
+
+    /// Inner helper that spawns the child process, streams output, and emits
+    /// the final Completed/Failed event. Factored out so that worktree cleanup
+    /// in `execute()` runs unconditionally after this returns.
+    async fn run_child(
+        mut command: Command,
+        cmd: &str,
+        step: &StepExecution,
+        tx: &mpsc::Sender<WorkerEvent>,
+        decision: &RoutingDecision,
+        effective_dir: Option<&std::path::Path>,
+        base_commit: Option<String>,
+        task: &TaskContract,
+        worktree_guard: &mut Option<crate::worktree::WorktreeGuard>,
+    ) -> Result<i32, CortexError> {
+        let mut child = match command.spawn() {
+            Ok(c) => c,
+            Err(e) => {
+                let failure = WorkerFailureReport {
+                    kind: WorkerFailureKind::CliNotFound,
+                    exit_code: None,
+                    stderr_excerpt: Some(e.to_string()),
+                    tool: Some(cmd.to_string()),
+                };
+                let _ = tx
+                    .send(WorkerEvent::Failed {
+                        step_id: step.step_id.clone(),
+                        attempt_id: step.attempt_id.clone(),
+                        lease_gen: step.lease_gen,
+                        failure,
+                    })
+                    .await;
+                return Err(CortexError::WorkerExecution(format!("{cmd}: {e}")));
+            }
+        };
 
         let stdout = child
             .stdout
             .take()
             .ok_or_else(|| CortexError::WorkerExecution("no stdout".into()))?;
 
-        let task_id = task.id;
+        let stderr = child.stderr.take();
+
+        let step_id = step.step_id.clone();
+        let attempt_id = step.attempt_id.clone();
+        let lease_gen = step.lease_gen;
         let tx_lines = tx.clone();
         let provider = decision.provider;
 
@@ -57,7 +147,14 @@ impl Executor {
             let reader = BufReader::new(stdout);
             let mut lines = reader.lines();
             let mut last_text = String::new();
+            let mut collected_output = Vec::new();
+            let mut files_changed = Vec::new();
             while let Ok(Some(line)) = lines.next_line().await {
+                // Extract file changes from Claude's tool_use results
+                if provider == ProviderId::Claude {
+                    extract_claude_files(&line, &mut files_changed);
+                }
+
                 let output = match provider {
                     ProviderId::Claude => extract_claude_text(&line),
                     _ => Some(line),
@@ -65,11 +162,39 @@ impl Executor {
                 if let Some(text) = output {
                     if text != last_text {
                         last_text.clone_from(&text);
+                        if collected_output.len() < 50 {
+                            collected_output.push(text.clone());
+                        }
                         let _ = tx_lines
-                            .send(WorkerEvent::Output { task_id, line: text })
+                            .send(WorkerEvent::Output {
+                                step_id: step_id.clone(),
+                                attempt_id: attempt_id.clone(),
+                                lease_gen,
+                                line: text,
+                            })
                             .await;
                     }
                 }
+            }
+            (collected_output, files_changed)
+        });
+
+        let stderr_handle = tokio::spawn(async move {
+            if let Some(stderr) = stderr {
+                let reader = BufReader::new(stderr);
+                let mut lines = reader.lines();
+                let mut collected = String::new();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    if collected.len() < 500 {
+                        if !collected.is_empty() {
+                            collected.push('\n');
+                        }
+                        collected.push_str(&line);
+                    }
+                }
+                collected
+            } else {
+                String::new()
             }
         });
 
@@ -78,24 +203,134 @@ impl Executor {
             .await
             .map_err(|e| CortexError::WorkerExecution(e.to_string()))?;
 
-        reader_handle.await.ok();
+        let (collected_output, files_changed) = reader_handle
+            .await
+            .unwrap_or_else(|_| (Vec::new(), Vec::new()));
+        let stderr_text = stderr_handle.await.unwrap_or_default();
 
         let code = status.code().unwrap_or(-1);
 
         let event = if status.success() {
+            let summary = if collected_output.is_empty() {
+                String::new()
+            } else {
+                let last_lines: Vec<&str> = collected_output
+                    .iter()
+                    .rev()
+                    .take(5)
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                    .map(|s| s.as_str())
+                    .collect();
+                last_lines.join("\n")
+            };
+
+            // Auto-commit any uncommitted changes left by the CLI tool.
+            // Only for execute-tier tasks (not search/think) that actually
+            // produced file changes.
+            let mut branch_name: Option<String> = None;
+            if let Some(guard) = worktree_guard.as_ref() {
+                let is_execute_tier = task.tier == cortex_core::provider::Tier::Execute;
+                if is_execute_tier && guard.has_uncommitted_changes() {
+                    let commit_msg = format!("cortex: {}", task.objective);
+                    match guard.commit_changes(&commit_msg) {
+                        Ok(Some(hash)) => {
+                            tracing::info!(
+                                step_id = %step.step_id,
+                                commit = %hash,
+                                "auto-committed uncommitted changes"
+                            );
+                        }
+                        Ok(None) => {
+                            tracing::debug!(
+                                step_id = %step.step_id,
+                                "no staged changes after git add"
+                            );
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                step_id = %step.step_id,
+                                error = %e,
+                                "auto-commit failed, changes may be lost"
+                            );
+                        }
+                    }
+                }
+            }
+
+            let head_commit = get_git_head(effective_dir);
+
+            // If head moved from base, keep the branch for PR creation.
+            let has_changes = match (&base_commit, &head_commit) {
+                (Some(base), Some(head)) => base != head,
+                _ => false,
+            };
+            if has_changes {
+                if let Some(guard) = worktree_guard.as_mut() {
+                    guard.set_keep_branch(true);
+                    branch_name = Some(guard.branch_name().to_string());
+                    tracing::info!(
+                        step_id = %step.step_id,
+                        branch = %branch_name.as_deref().unwrap_or("?"),
+                        "branch preserved for PR creation"
+                    );
+                }
+            }
+
             WorkerEvent::Completed {
-                task_id: task.id,
+                step_id: step.step_id.clone(),
+                attempt_id: step.attempt_id.clone(),
+                lease_gen: step.lease_gen,
                 exit_code: code,
+                base_commit: base_commit.clone(),
+                head_commit,
+                branch: branch_name,
+                output: StepOutput {
+                    summary,
+                    files_found: Vec::new(),
+                    files_changed,
+                    structured: serde_json::Value::Null,
+                },
             }
         } else {
+            let kind = classify_exit(code, &stderr_text);
             WorkerEvent::Failed {
-                task_id: task.id,
-                error: format!("process exited with code {code}"),
+                step_id: step.step_id.clone(),
+                attempt_id: step.attempt_id.clone(),
+                lease_gen: step.lease_gen,
+                failure: WorkerFailureReport {
+                    kind,
+                    exit_code: Some(code),
+                    stderr_excerpt: if stderr_text.is_empty() {
+                        None
+                    } else {
+                        Some(stderr_text)
+                    },
+                    tool: Some(decision.provider.cli_name().to_string()),
+                },
             }
         };
         tx.send(event).await.ok();
 
         Ok(code)
+    }
+}
+
+fn classify_exit(code: i32, stderr: &str) -> WorkerFailureKind {
+    let lower = stderr.to_lowercase();
+    if lower.contains("not found") || lower.contains("command not found") {
+        WorkerFailureKind::CliNotFound
+    } else if lower.contains("not authenticated") || lower.contains("login") {
+        WorkerFailureKind::CliNotAuthenticated
+    } else if lower.contains("rate limit") || lower.contains("429") {
+        WorkerFailureKind::CliRateLimited
+    } else if lower.contains("timeout") {
+        WorkerFailureKind::ProcessTimeout
+    } else if code == 137 || code == -9 {
+        WorkerFailureKind::ProcessKilled
+    } else {
+        WorkerFailureKind::Unknown
     }
 }
 
@@ -112,11 +347,16 @@ fn extract_claude_text(line: &str) -> Option<String> {
                     }
                 }
             }
-            if texts.is_empty() { None } else { Some(texts.join("")) }
+            if texts.is_empty() {
+                None
+            } else {
+                Some(texts.join(""))
+            }
         }
-        "result" => {
-            v.get("result").and_then(|r| r.as_str()).map(|s| s.to_string())
-        }
+        "result" => v
+            .get("result")
+            .and_then(|r| r.as_str())
+            .map(|s| s.to_string()),
         _ => None,
     }
 }
@@ -147,10 +387,7 @@ fn build_command(decision: &RoutingDecision) -> Result<(String, Vec<String>), Co
                 "approval_policy=never".to_string(),
             ],
         )),
-        ProviderId::Gemini => Ok((
-            "gemini".to_string(),
-            vec![],
-        )),
+        ProviderId::Gemini => Ok(("gemini".to_string(), vec![])),
     }
 }
 
@@ -168,4 +405,50 @@ pub fn detect_available_providers() -> Vec<ProviderId> {
         .into_iter()
         .filter(|p| check_cli_available(*p))
         .collect()
+}
+
+fn extract_claude_files(line: &str, files: &mut Vec<String>) {
+    let v: serde_json::Value = match serde_json::from_str(line) {
+        Ok(v) => v,
+        Err(_) => return,
+    };
+    if v.get("type").and_then(|t| t.as_str()) != Some("assistant") {
+        return;
+    }
+    let content = match v.get("message").and_then(|m| m.get("content")).and_then(|c| c.as_array()) {
+        Some(c) => c,
+        None => return,
+    };
+    for item in content {
+        if item.get("type").and_then(|t| t.as_str()) != Some("tool_use") {
+            continue;
+        }
+        let name = item.get("name").and_then(|n| n.as_str()).unwrap_or("");
+        let input = match item.get("input") {
+            Some(i) => i,
+            None => continue,
+        };
+        let path = match name {
+            "Write" | "Edit" | "Read" => input.get("file_path").and_then(|p| p.as_str()),
+            _ => None,
+        };
+        if let Some(p) = path {
+            let p = p.to_string();
+            if !files.contains(&p) {
+                files.push(p);
+            }
+        }
+    }
+}
+
+fn get_git_head(working_dir: Option<&std::path::Path>) -> Option<String> {
+    let mut cmd = std::process::Command::new("git");
+    cmd.args(["rev-parse", "HEAD"]);
+    if let Some(dir) = working_dir {
+        cmd.current_dir(dir);
+    }
+    cmd.output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
 }

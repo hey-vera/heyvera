@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::provider::{ProviderId, Tier};
-use crate::routing::{RationaleCode, RiskLevel};
+use crate::routing::{RationaleCode, RiskLevel, ScoredRoute};
 use crate::task::TaskStatus;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -23,6 +23,10 @@ pub enum LedgerEvent {
         risk: RiskLevel,
         rationale: Vec<RationaleCode>,
         score: f64,
+        #[serde(default)]
+        model: Option<String>,
+        #[serde(default)]
+        alternatives_considered: Vec<ScoredRoute>,
     },
     TaskOutcome {
         task_id: Uuid,

@@ -1,22 +1,9 @@
-mod auth;
-mod chat;
-mod clerk;
-mod conversations;
-mod db;
-mod routes;
-mod sse;
-mod state;
-mod user;
-mod ws;
-
 use std::net::SocketAddr;
 
-use axum::routing::{delete, get, patch, post};
-use axum::Router;
-use tower_http::cors::CorsLayer;
 use tracing_subscriber::EnvFilter;
 
-use state::AppState;
+use cortex_api::scheduler;
+use cortex_api::state::AppState;
 
 #[tokio::main]
 async fn main() {
@@ -39,34 +26,11 @@ async fn main() {
 
     let state = AppState::new(ledger_path, workspace_dir, clerk_secret_key);
 
-    let app = Router::new()
-        // Public
-        .route("/api/health", get(routes::health))
-        .route("/api/auth/status", get(auth::auth_status))
-        // Protected
-        .route("/api/route", post(routes::route_task))
-        .route("/api/providers", get(routes::get_providers))
-        .route("/api/ledger", get(routes::get_ledger))
-        .route("/api/execute", post(sse::execute_task))
-        .route("/api/chat", post(chat::chat))
-        .route("/api/auth/start", post(auth::auth_start))
-        .route("/api/auth/submit", post(auth::auth_submit))
-        .route("/api/auth/refresh", post(auth::auth_refresh))
-        // Conversations
-        .route("/api/conversations", get(conversations::list_conversations))
-        .route("/api/conversations", post(conversations::create_conversation))
-        .route("/api/conversations/{id}", get(conversations::get_conversation))
-        .route("/api/conversations/{id}", patch(conversations::update_conversation))
-        .route("/api/conversations/{id}", delete(conversations::delete_conversation))
-        .route("/api/conversations/{id}/messages", post(conversations::add_message))
-        // Worker WebSocket
-        .route("/api/ws", get(ws::ws_handler))
-        // User endpoints
-        .route("/api/user/profile", get(user::get_profile))
-        .route("/api/user/github/status", get(user::github_status))
-        .route("/api/user/repos/select", post(user::select_repos))
-        .layer(CorsLayer::permissive())
-        .with_state(state);
+    // Start the scheduler loop
+    let scheduler_tx = scheduler::spawn_scheduler(state.clone());
+    state.set_scheduler_tx(scheduler_tx).await;
+
+    let app = cortex_api::build_router(state);
 
     let port: u16 = std::env::var("CORTEX_PORT")
         .ok()

@@ -1,28 +1,36 @@
+use std::collections::HashMap;
 use std::env;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use futures_util::{SinkExt, StreamExt};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
 use tracing_subscriber::EnvFilter;
 use uuid::Uuid;
 
-use cortex_core::protocol::{BrainMessage, WorkerMessage};
-use cortex_worker::executor::{detect_available_providers, Executor};
+use cortex_core::failure::{WorkerFailureKind, WorkerFailureReport};
+use cortex_core::protocol::{
+    BrainMessage, ProviderClaim, RepoInfo, WorkerMessage, PROTOCOL_VERSION,
+};
+use cortex_worker::executor::{detect_available_providers, Executor, StepExecution};
 use cortex_worker::stream::WorkerEvent;
+
+/// Map of step_id -> cancel signal sender. Shared between the connection loop
+/// (which receives CancelStep) and spawned execution tasks (which register on start).
+type CancelMap = Arc<Mutex<HashMap<String, oneshot::Sender<()>>>>;
 
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".parse().unwrap()))
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".parse().unwrap()),
+        )
         .init();
 
-    let brain_url = env::var("CORTEX_BRAIN_URL")
-        .unwrap_or_else(|_| "wss://cortex.heyvera.org/api/ws".to_string());
-
-    let user_id = env::var("CORTEX_USER_ID")
-        .unwrap_or_else(|_| "local".to_string());
+    let brain_url =
+        env::var("CORTEX_BRAIN_URL").unwrap_or_else(|_| "wss://cortex.heyvera.org/api/ws".into());
 
     let token = env::var("CORTEX_TOKEN").unwrap_or_default();
 
@@ -31,26 +39,39 @@ async fn main() {
         .to_string_lossy()
         .to_string();
 
-    let worker_id = format!("worker-{}", &Uuid::new_v4().to_string()[..8]);
     let available_providers = detect_available_providers();
 
-    tracing::info!("cortex worker {worker_id}");
-    tracing::info!("user: {user_id}");
+    tracing::info!("cortex worker v{PROTOCOL_VERSION}");
     tracing::info!("brain: {brain_url}");
     tracing::info!("workspace: {workspace_dir}");
     tracing::info!(
         "providers: {}",
-        if available_providers.is_empty() { "none".to_string() }
-        else { available_providers.iter().map(|p| p.to_string()).collect::<Vec<_>>().join(", ") }
+        if available_providers.is_empty() {
+            "none".to_string()
+        } else {
+            available_providers
+                .iter()
+                .map(|p| p.to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        }
     );
 
     if available_providers.is_empty() {
         tracing::warn!("no CLI providers found — install and authenticate claude or codex first");
     }
 
+    let providers: Vec<ProviderClaim> = available_providers
+        .iter()
+        .map(|p| ProviderClaim {
+            provider: *p,
+            cli_version: None,
+        })
+        .collect();
+
     loop {
         tracing::info!("connecting to brain...");
-        match connect_and_run(&brain_url, &worker_id, &user_id, &token, &available_providers, &workspace_dir).await {
+        match connect_and_run(&brain_url, &token, &providers, &workspace_dir).await {
             Ok(()) => tracing::info!("disconnected"),
             Err(e) => tracing::error!("connection error: {e}"),
         }
@@ -61,45 +82,48 @@ async fn main() {
 
 async fn connect_and_run(
     url: &str,
-    worker_id: &str,
-    user_id: &str,
     token: &str,
-    available_providers: &[cortex_core::provider::ProviderId],
+    providers: &[ProviderClaim],
     workspace_dir: &str,
 ) -> Result<(), String> {
-    let (ws, _) = connect_async(url).await.map_err(|e| format!("connect: {e}"))?;
+    let (ws, _) = connect_async(url)
+        .await
+        .map_err(|e| format!("connect: {e}"))?;
     let (mut write, mut read) = ws.split();
 
     tracing::info!("connected");
 
-    // Channel for sending messages to the WebSocket from task threads
     let (out_tx, mut out_rx) = mpsc::channel::<WorkerMessage>(64);
 
-    // Send registration
     let register = WorkerMessage::Register {
-        worker_id: worker_id.to_string(),
-        user_id: user_id.to_string(),
         token: token.to_string(),
-        available_providers: available_providers.to_vec(),
+        protocol_version: PROTOCOL_VERSION,
+        providers: providers.to_vec(),
         workspace_dir: workspace_dir.to_string(),
+        repos: detect_repos(workspace_dir),
     };
     let json = serde_json::to_string(&register).unwrap();
-    write.send(Message::Text(json.into())).await.map_err(|e| format!("send: {e}"))?;
+    write
+        .send(Message::Text(json.into()))
+        .await
+        .map_err(|e| format!("send: {e}"))?;
     tracing::info!("registered");
 
     let ws_dir = workspace_dir.to_string();
+    #[allow(unused_assignments)]
+    let mut worker_id = String::new();
+
+    let cancel_map: CancelMap = Arc::new(Mutex::new(HashMap::new()));
 
     loop {
         tokio::select! {
-            // Forward outbound messages (task results) to WebSocket
             Some(msg) = out_rx.recv() => {
                 let json = serde_json::to_string(&msg).unwrap();
                 if write.send(Message::Text(json.into())).await.is_err() {
-                    return Err("write failed".to_string());
+                    return Err("write failed".into());
                 }
             }
 
-            // Receive inbound messages (tasks) from Brain
             result = read.next() => {
                 match result {
                     Some(Ok(Message::Text(text))) => {
@@ -112,19 +136,52 @@ async fn connect_and_run(
                         };
 
                         match brain_msg {
-                            BrainMessage::Welcome { session_id } => {
-                                tracing::info!("session: {session_id}");
+                            BrainMessage::Welcome { session_id, worker_id: wid, protocol_version } => {
+                                worker_id = wid;
+                                tracing::info!("session: {session_id}, worker: {worker_id}, protocol: v{protocol_version}");
                             }
-                            BrainMessage::ExecuteTask { task, decision } => {
-                                tracing::info!("task {}: {}", task.id, task.objective);
+                            BrainMessage::ExecuteStep {
+                                step_id, attempt_id, lease_gen,
+                                task, decision, ..
+                            } => {
+                                tracing::info!("step {step_id}: {}", task.objective);
                                 let out = out_tx.clone();
                                 let dir = PathBuf::from(&ws_dir);
+                                let step_exec = StepExecution {
+                                    step_id: step_id.clone(),
+                                    attempt_id,
+                                    lease_gen,
+                                };
+
+                                // Create cancel channel and register it
+                                let (cancel_tx, cancel_rx) = oneshot::channel::<()>();
+                                {
+                                    let mut map = cancel_map.lock().await;
+                                    map.insert(step_id.clone(), cancel_tx);
+                                }
+
+                                let cmap = cancel_map.clone();
+                                let sid = step_id.clone();
                                 tokio::spawn(async move {
-                                    execute_and_report(task, decision, dir, out).await;
+                                    execute_and_report(task, decision, step_exec, dir, out, cancel_rx).await;
+                                    // Clean up cancel map entry when done
+                                    cmap.lock().await.remove(&sid);
                                 });
                             }
-                            BrainMessage::CancelTask { task_id } => {
-                                tracing::info!("cancel {task_id} (not implemented)");
+                            BrainMessage::CancelStep { step_id, reason } => {
+                                tracing::info!("cancel step {step_id}: {reason}");
+                                let mut map = cancel_map.lock().await;
+                                if let Some(tx) = map.remove(&step_id) {
+                                    let _ = tx.send(());
+                                    tracing::info!("sent cancel signal for step {step_id}");
+                                } else {
+                                    tracing::warn!("no active execution found for step {step_id}");
+                                }
+                            }
+                            BrainMessage::StaleLeaseNotice { step_id, your_lease_gen, current_lease_gen, disposition } => {
+                                tracing::warn!(
+                                    "stale lease for step {step_id}: gen {your_lease_gen} < {current_lease_gen}, {disposition}"
+                                );
                             }
                             BrainMessage::Ping => {
                                 let pong = serde_json::to_string(&WorkerMessage::Pong).unwrap();
@@ -147,31 +204,204 @@ async fn connect_and_run(
 async fn execute_and_report(
     task: cortex_core::task::TaskContract,
     decision: cortex_core::routing::RoutingDecision,
+    step: StepExecution,
     dir: PathBuf,
     out: mpsc::Sender<WorkerMessage>,
+    cancel_rx: oneshot::Receiver<()>,
 ) {
     let (tx, mut rx) = mpsc::channel::<WorkerEvent>(64);
 
     let task_clone = task.clone();
     let decision_clone = decision.clone();
 
-    tokio::spawn(async move {
-        let _ = Executor::execute(&task_clone, &decision_clone, tx, Some(dir.as_path())).await;
+    let step_id = step.step_id.clone();
+    let attempt_id = step.attempt_id.clone();
+    let lease_gen = step.lease_gen;
+
+    // Spawn the actual executor
+    let exec_handle = tokio::spawn(async move {
+        Executor::execute(&task_clone, &decision_clone, &step, tx, Some(dir.as_path())).await
     });
 
-    while let Some(event) = rx.recv().await {
-        let msg = match event {
-            WorkerEvent::Started { task_id, provider, model } =>
-                WorkerMessage::TaskStarted { task_id, provider, model },
-            WorkerEvent::Output { task_id, line } =>
-                WorkerMessage::TaskOutput { task_id, line },
-            WorkerEvent::Completed { task_id, exit_code } =>
-                WorkerMessage::TaskCompleted { task_id, exit_code },
-            WorkerEvent::Failed { task_id, error } =>
-                WorkerMessage::TaskFailed { task_id, error },
-        };
-        if out.send(msg).await.is_err() {
-            break;
+    // Lease renewal: send LeaseRenew every 30 seconds
+    let lease_out = out.clone();
+    let lease_step_id = step_id.clone();
+    let (lease_stop_tx, mut lease_stop_rx) = oneshot::channel::<()>();
+    let lease_handle = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
+        interval.tick().await; // first tick is immediate, skip it
+        loop {
+            tokio::select! {
+                _ = interval.tick() => {
+                    let msg = WorkerMessage::LeaseRenew {
+                        step_id: lease_step_id.clone(),
+                        lease_gen,
+                    };
+                    if lease_out.send(msg).await.is_err() {
+                        break;
+                    }
+                    tracing::debug!("sent lease renewal for step {}", lease_step_id);
+                }
+                _ = &mut lease_stop_rx => {
+                    break;
+                }
+            }
         }
+    });
+
+    // cancel_rx is consumed once when cancellation fires; we break immediately after.
+    let mut cancel_rx = cancel_rx;
+
+    loop {
+        tokio::select! {
+            event = rx.recv() => {
+                match event {
+                    Some(ev) => {
+                        let msg = worker_event_to_message(ev);
+                        if out.send(msg).await.is_err() {
+                            break;
+                        }
+                    }
+                    None => {
+                        // Executor finished, event channel closed
+                        break;
+                    }
+                }
+            }
+            _ = &mut cancel_rx => {
+                tracing::info!("cancelling step {step_id} — aborting executor");
+
+                // Abort the executor task which holds the child process
+                exec_handle.abort();
+
+                // Send a Failed event for the cancelled step
+                let failure = WorkerFailureReport {
+                    kind: WorkerFailureKind::Cancelled,
+                    exit_code: None,
+                    stderr_excerpt: Some("step cancelled by brain".to_string()),
+                    tool: None,
+                };
+                let msg = WorkerMessage::StepFailed {
+                    message_id: Uuid::new_v4().to_string(),
+                    step_id: step_id.clone(),
+                    attempt_id: attempt_id.clone(),
+                    lease_gen,
+                    failure,
+                };
+                let _ = out.send(msg).await;
+                break;
+            }
+        }
+    }
+
+    // Stop lease renewal
+    let _ = lease_stop_tx.send(());
+    let _ = lease_handle.await;
+}
+
+fn worker_event_to_message(event: WorkerEvent) -> WorkerMessage {
+    match event {
+        WorkerEvent::Started {
+            step_id,
+            attempt_id,
+            lease_gen,
+            provider,
+            model,
+        } => WorkerMessage::StepStarted {
+            message_id: Uuid::new_v4().to_string(),
+            step_id,
+            attempt_id,
+            lease_gen,
+            provider,
+            model,
+        },
+        WorkerEvent::Output {
+            step_id,
+            attempt_id,
+            lease_gen,
+            line,
+        } => WorkerMessage::StepOutput {
+            step_id,
+            attempt_id,
+            lease_gen,
+            line,
+        },
+        WorkerEvent::Completed {
+            step_id,
+            attempt_id,
+            lease_gen,
+            exit_code,
+            base_commit,
+            head_commit,
+            branch,
+            output,
+        } => WorkerMessage::StepCompleted {
+            message_id: Uuid::new_v4().to_string(),
+            step_id,
+            attempt_id,
+            lease_gen,
+            exit_code,
+            base_commit,
+            head_commit,
+            branch,
+            output,
+        },
+        WorkerEvent::Failed {
+            step_id,
+            attempt_id,
+            lease_gen,
+            failure,
+        } => WorkerMessage::StepFailed {
+            message_id: Uuid::new_v4().to_string(),
+            step_id,
+            attempt_id,
+            lease_gen,
+            failure,
+        },
+    }
+}
+
+fn detect_repos(workspace_dir: &str) -> Vec<RepoInfo> {
+    let output = std::process::Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .current_dir(workspace_dir)
+        .output();
+
+    match output {
+        Ok(o) if o.status.success() => {
+            let path = String::from_utf8_lossy(&o.stdout).trim().to_string();
+
+            let remote_url = std::process::Command::new("git")
+                .args(["remote", "get-url", "origin"])
+                .current_dir(&path)
+                .output()
+                .ok()
+                .filter(|o| o.status.success())
+                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
+
+            let branch = std::process::Command::new("git")
+                .args(["branch", "--show-current"])
+                .current_dir(&path)
+                .output()
+                .ok()
+                .filter(|o| o.status.success())
+                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
+
+            let head_commit = std::process::Command::new("git")
+                .args(["rev-parse", "HEAD"])
+                .current_dir(&path)
+                .output()
+                .ok()
+                .filter(|o| o.status.success())
+                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
+
+            vec![RepoInfo {
+                path,
+                remote_url,
+                branch,
+                head_commit,
+            }]
+        }
+        _ => Vec::new(),
     }
 }

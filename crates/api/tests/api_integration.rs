@@ -1,0 +1,323 @@
+use axum::body::Body;
+use axum::http::{Request, StatusCode};
+use http_body_util::BodyExt;
+use tower::ServiceExt;
+
+use cortex_api::scheduler;
+use cortex_api::state::AppState;
+
+/// Build a test app with auth disabled and a temp workspace directory.
+/// Returns the Router and the temp dir handle (must be kept alive).
+async fn test_app() -> (axum::Router, tempfile::TempDir) {
+    let tmp = tempfile::tempdir().expect("failed to create temp dir");
+    let workspace = tmp.path().to_path_buf();
+    std::fs::create_dir_all(workspace.join(".cortex")).unwrap();
+
+    let ledger_path = workspace.join(".cortex/ledger.jsonl");
+    let state = AppState::new(ledger_path, workspace, None);
+
+    // Start the scheduler so run creation works
+    let scheduler_tx = scheduler::spawn_scheduler(state.clone());
+    state.set_scheduler_tx(scheduler_tx).await;
+
+    let app = cortex_api::build_router(state);
+    (app, tmp)
+}
+
+/// Helper to read a response body as a serde_json::Value.
+async fn body_json(resp: axum::response::Response) -> serde_json::Value {
+    let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+    serde_json::from_slice(&bytes).expect("response body is not valid JSON")
+}
+
+// ─── Health ──────────────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_health() {
+    let (app, _tmp) = test_app().await;
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/health")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let json = body_json(resp).await;
+    assert_eq!(json["status"], "ok");
+    assert_eq!(json["service"], "cortex");
+}
+
+// ─── Route Task ──────────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_route_task() {
+    let (app, _tmp) = test_app().await;
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/route")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({"input": "fix the auth bug"}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Route returns 200 when providers are available, 400 when none can handle it.
+    // In the test environment, provider availability depends on installed CLIs.
+    let status = resp.status();
+    assert!(
+        status == StatusCode::OK || status == StatusCode::BAD_REQUEST,
+        "expected 200 or 400, got {status}",
+    );
+
+    let json = body_json(resp).await;
+    if status == StatusCode::OK {
+        assert!(json.get("task").is_some(), "response should contain 'task'");
+        assert!(json.get("decision").is_some(), "response should contain 'decision'");
+    } else {
+        assert!(json.get("error").is_some(), "400 should contain 'error'");
+    }
+}
+
+#[tokio::test]
+async fn test_route_empty_input() {
+    let (app, _tmp) = test_app().await;
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/route")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({"input": ""}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+}
+
+// ─── Runs ────────────────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_create_run() {
+    let (app, _tmp) = test_app().await;
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/runs")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({"goal": "explore the codebase"}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let json = body_json(resp).await;
+    assert!(json.get("run_id").is_some(), "response should contain 'run_id'");
+    let run_id = json["run_id"].as_str().unwrap();
+    assert!(!run_id.is_empty(), "run_id should not be empty");
+}
+
+#[tokio::test]
+async fn test_get_run() {
+    let (app, _tmp) = test_app().await;
+
+    // First, create a run
+    let create_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/runs")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({"goal": "explore the codebase"}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(create_resp.status(), StatusCode::OK);
+    let create_json = body_json(create_resp).await;
+    let run_id = create_json["run_id"].as_str().unwrap();
+
+    // Now fetch it
+    let get_resp = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/runs/{run_id}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(get_resp.status(), StatusCode::OK);
+
+    let json = body_json(get_resp).await;
+    assert_eq!(json["id"], run_id);
+    assert_eq!(json["goal"], "explore the codebase");
+    assert!(json.get("steps").is_some(), "response should contain 'steps'");
+}
+
+#[tokio::test]
+async fn test_get_run_not_found() {
+    let (app, _tmp) = test_app().await;
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/runs/nonexistent-id-12345")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+// ─── Admin ───────────────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_admin_stats() {
+    let (app, _tmp) = test_app().await;
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/admin/stats")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let json = body_json(resp).await;
+    // The stats endpoint returns a JSON object with various count fields
+    assert!(json.is_object(), "stats should be a JSON object");
+}
+
+#[tokio::test]
+async fn test_admin_workers() {
+    let (app, _tmp) = test_app().await;
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/admin/workers")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let json = body_json(resp).await;
+    assert!(json.get("connected").is_some(), "should have 'connected' field");
+    assert!(json.get("count").is_some(), "should have 'count' field");
+    assert_eq!(json["count"], 0, "no workers connected in test");
+}
+
+// ─── Chat (SSE) ──────────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_chat_with_greeting() {
+    let (app, _tmp) = test_app().await;
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/chat")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({"message": "hello"}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    // SSE responses have content-type text/event-stream
+    let content_type = resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    assert!(
+        content_type.contains("text/event-stream"),
+        "expected text/event-stream, got: {content_type}"
+    );
+}
+
+// ─── Rate Limiting ───────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_rate_limit() {
+    let (app, _tmp) = test_app().await;
+
+    // The rate limiter allows 60 requests burst for "anonymous" user.
+    // Send 61 requests to a rate-limited endpoint and verify the last one is 429.
+    let mut last_status = StatusCode::OK;
+    for i in 0..=60 {
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/route")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::json!({"input": "fix something"}).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        last_status = resp.status();
+
+        // Once we hit 429, we can stop early
+        if last_status == StatusCode::TOO_MANY_REQUESTS {
+            assert!(
+                i >= 60,
+                "rate limit triggered too early at request {i}, expected at least 60"
+            );
+            break;
+        }
+    }
+
+    assert_eq!(
+        last_status,
+        StatusCode::TOO_MANY_REQUESTS,
+        "61st request should be rate-limited"
+    );
+}

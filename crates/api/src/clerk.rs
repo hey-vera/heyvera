@@ -30,7 +30,7 @@ struct JwksResponse {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-struct JwkKey {
+pub struct JwkKey {
     kid: String,
     kty: String,
     n: String,
@@ -90,6 +90,18 @@ async fn get_or_refresh_jwks(
     c.keys = keys.clone();
     c.fetched_at = std::time::Instant::now();
     Ok(keys)
+}
+
+pub async fn get_or_refresh_jwks_pub(
+    cache: &RwLock<JwksCache>,
+    clerk_secret_key: &str,
+    force: bool,
+) -> Result<Vec<JwkKey>, String> {
+    get_or_refresh_jwks(cache, clerk_secret_key, force).await
+}
+
+pub fn verify_token_pub(token: &str, keys: &[JwkKey]) -> Result<String, String> {
+    verify_token(token, keys).map(|claims| claims.sub)
 }
 
 fn verify_token(token: &str, keys: &[JwkKey]) -> Result<ClerkClaims, String> {
