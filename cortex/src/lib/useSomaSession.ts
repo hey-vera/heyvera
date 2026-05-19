@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { createSomaSession, type SomaSession } from './cortexApi';
+import { createSomaSession, setSomaDelegation, type SomaSession } from './cortexApi';
 
 const STORAGE_PREFIX = 'cortex:soma-session:';
 
@@ -47,6 +47,7 @@ export function useSomaSession(userId: string, isSignedIn: boolean): SomaSession
     // Check for cached session first
     const cached = getStoredSession(userId);
     if (cached) {
+      setSomaDelegation(cached.delegation);
       setState({
         session: cached,
         loading: false,
@@ -62,6 +63,7 @@ export function useSomaSession(userId: string, isSignedIn: boolean): SomaSession
     createSomaSession()
       .then((session) => {
         storeSession(userId, session);
+        setSomaDelegation(session.delegation);
         setState({
           session,
           loading: false,
@@ -70,6 +72,7 @@ export function useSomaSession(userId: string, isSignedIn: boolean): SomaSession
         });
       })
       .catch((err) => {
+        setSomaDelegation(null);
         setState({
           session: null,
           loading: false,

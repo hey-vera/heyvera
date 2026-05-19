@@ -83,25 +83,78 @@ impl CortexHeart {
             (None, None)
         };
 
+        let heartbeat_chain = Self::load_heartbeats();
+
         Ok(Self {
             identity,
-            heartbeat_chain: std::sync::Mutex::new(HeartbeatChain::new()),
+            heartbeat_chain: std::sync::Mutex::new(heartbeat_chain),
             spend_logs: std::sync::Mutex::new(std::collections::HashMap::new()),
             lineage,
             root_did,
         })
     }
 
-    /// Record a heartbeat event.
+    /// Record a heartbeat event. Persists to disk every 50 heartbeats.
     pub fn record_heartbeat(
         &self,
         event_type: HeartbeatEventType,
         event_data: &str,
     ) -> soma::heartbeat::Heartbeat {
-        self.heartbeat_chain
-            .lock()
-            .unwrap()
-            .record(event_type, event_data)
+        let mut chain = self.heartbeat_chain.lock().unwrap();
+        let hb = chain.record(event_type, event_data);
+        if chain.len() % 50 == 0 {
+            Self::persist_chain_inner(&chain);
+        }
+        hb
+    }
+
+    fn heartbeat_path() -> std::path::PathBuf {
+        dirs_next::home_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from("."))
+            .join(".cortex")
+            .join("heartbeats.json")
+    }
+
+    fn persist_chain_inner(chain: &HeartbeatChain) {
+        let path = Self::heartbeat_path();
+        match serde_json::to_string(chain) {
+            Ok(json) => {
+                if let Err(e) = std::fs::write(&path, json) {
+                    tracing::warn!("failed to persist heartbeat chain: {e}");
+                }
+            }
+            Err(e) => tracing::warn!("failed to serialize heartbeat chain: {e}"),
+        }
+    }
+
+    pub fn persist_heartbeats(&self) {
+        let chain = self.heartbeat_chain.lock().unwrap();
+        Self::persist_chain_inner(&chain);
+        tracing::info!("heartbeat chain persisted ({} entries)", chain.len());
+    }
+
+    fn load_heartbeats() -> HeartbeatChain {
+        let path = Self::heartbeat_path();
+        if path.exists() {
+            match std::fs::read_to_string(&path) {
+                Ok(json) => match serde_json::from_str::<HeartbeatChain>(&json) {
+                    Ok(chain) => {
+                        if chain.verify() {
+                            tracing::info!(
+                                "heartbeat chain loaded: {} entries, head={}",
+                                chain.len(),
+                                &chain.head_hash()[..12]
+                            );
+                            return chain;
+                        }
+                        tracing::warn!("persisted heartbeat chain failed verification — starting fresh");
+                    }
+                    Err(e) => tracing::warn!("failed to parse heartbeat chain: {e}"),
+                },
+                Err(e) => tracing::warn!("failed to read heartbeat chain: {e}"),
+            }
+        }
+        HeartbeatChain::new()
     }
 
     /// Record a spend against a delegation.

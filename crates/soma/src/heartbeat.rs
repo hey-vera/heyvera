@@ -47,6 +47,7 @@ pub struct Heartbeat {
 }
 
 /// A tamper-evident hash chain recording every computational step.
+#[derive(Serialize, Deserialize)]
 pub struct HeartbeatChain {
     chain: Vec<Heartbeat>,
     current_hash: String,
@@ -90,6 +91,19 @@ impl HeartbeatChain {
         self.sequence += 1;
         self.chain.push(heartbeat.clone());
         heartbeat
+    }
+
+    pub fn from_persisted(chain: Vec<Heartbeat>) -> Self {
+        let (current_hash, sequence) = if let Some(last) = chain.last() {
+            (last.hash.clone(), last.sequence + 1)
+        } else {
+            (sha256_hex("soma:genesis"), 0)
+        };
+        Self {
+            chain,
+            current_hash,
+            sequence,
+        }
     }
 
     pub fn head_hash(&self) -> &str {

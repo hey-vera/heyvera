@@ -13,9 +13,14 @@ function apiUrl(path: string) {
 }
 
 let _tokenGetter: (() => Promise<string | null>) | null = null;
+let _somaDelegation: SomaDelegation | null = null;
 
 export function setAuthTokenGetter(getter: () => Promise<string | null>) {
   _tokenGetter = getter;
+}
+
+export function setSomaDelegation(delegation: SomaDelegation | null) {
+  _somaDelegation = delegation;
 }
 
 async function getAuthToken(): Promise<string | null> {
@@ -24,9 +29,13 @@ async function getAuthToken(): Promise<string | null> {
 }
 
 async function authedFetch(url: string, init?: RequestInit): Promise<Response> {
-  const token = await getAuthToken();
   const headers = new Headers(init?.headers);
-  if (token) headers.set('Authorization', `Bearer ${token}`);
+  if (_somaDelegation) {
+    headers.set('Authorization', `Soma ${JSON.stringify(_somaDelegation)}`);
+  } else {
+    const token = await getAuthToken();
+    if (token) headers.set('Authorization', `Bearer ${token}`);
+  }
   if (!headers.has('Content-Type') && init?.method && init.method !== 'GET') {
     headers.set('Content-Type', 'application/json');
   }

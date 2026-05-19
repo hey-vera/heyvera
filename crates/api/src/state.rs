@@ -467,6 +467,11 @@ impl AppState {
             }
         }
 
+        // Persist heartbeat chain on shutdown
+        if let Some(heart) = &self.soma_heart {
+            heart.persist_heartbeats();
+        }
+
         let final_workers = self.workers.read().await.len();
         let final_steps = self.step_senders.read().await.len();
         tracing::info!(

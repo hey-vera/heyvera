@@ -12,6 +12,11 @@ AUTO_SWITCH_BRANCH="${AUTO_SWITCH_BRANCH:-0}"
 
 cd "$REPO_DIR"
 
+SUDO_AVAILABLE=0
+if command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
+  SUDO_AVAILABLE=1
+fi
+
 CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 if [ "$CURRENT_BRANCH" = "HEAD" ]; then
   echo "[git] ERROR: repo is in detached HEAD state."
@@ -144,14 +149,21 @@ if [ -f "$REPO_DIR/Cargo.toml" ] && [ -f "$REPO_DIR/cortex/package.json" ]; then
 
   if command -v cargo >/dev/null 2>&1; then
     cargo build --release
-    sudo cp "$REPO_DIR/target/release/cortex-server" /usr/local/bin/cortex-server
-    echo "[cortex] Installed cortex-server binary"
+    if [ "$SUDO_AVAILABLE" = "1" ]; then
+      sudo cp "$REPO_DIR/target/release/cortex-server" /usr/local/bin/cortex-server
+      echo "[cortex] Installed cortex-server binary"
 
-    if [ -f /etc/systemd/system/cortex.service ]; then
-      sudo systemctl restart cortex
-      echo "[cortex] Restarted cortex service"
+      if [ -f /etc/systemd/system/cortex.service ]; then
+        sudo systemctl restart cortex
+        echo "[cortex] Restarted cortex service"
+      else
+        echo "[cortex] WARNING: no systemd service found — run scripts/cortex-install-service.sh first"
+      fi
+    elif [ "${CORTEX_BACKEND_REQUIRED:-0}" = "1" ]; then
+      echo "[cortex] ERROR: passwordless sudo unavailable; cannot install required Cortex backend"
+      exit 1
     else
-      echo "[cortex] WARNING: no systemd service found — run scripts/cortex-install-service.sh first"
+      echo "[cortex] WARNING: passwordless sudo unavailable; skipped Cortex backend install/restart"
     fi
   elif [ "${CORTEX_BACKEND_REQUIRED:-0}" = "1" ]; then
     echo "[cortex] ERROR: cargo not found; cannot build required Cortex backend"
@@ -168,9 +180,13 @@ if [ -f "$REPO_DIR/Caddyfile" ]; then
   if command -v caddy >/dev/null 2>&1; then
     caddy validate --config "$REPO_DIR/Caddyfile"
   fi
-  sudo cp "$REPO_DIR/Caddyfile" /etc/caddy/Caddyfile
-  sudo systemctl reload caddy
-  echo "[caddy] Reloaded"
+  if [ "$SUDO_AVAILABLE" = "1" ]; then
+    sudo cp "$REPO_DIR/Caddyfile" /etc/caddy/Caddyfile
+    sudo systemctl reload caddy
+    echo "[caddy] Reloaded"
+  else
+    echo "[caddy] WARNING: passwordless sudo unavailable; skipped Caddyfile update/reload"
+  fi
 else
   echo "[caddy] No Caddyfile found - skipping"
 fi
