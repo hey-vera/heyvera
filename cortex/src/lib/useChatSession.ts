@@ -77,6 +77,7 @@ export function useChatSession({
   const [messages, setMessages] = useState<ChatMessage[]>(getEmptyMessages);
   const [draft, setDraft] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
+  const [isLoadingConversation, setIsLoadingConversation] = useState(false);
   const [activeConversationTitle, setActiveConversationTitle] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const activeConversationIdRef = useRef<string | null>(activeConversationId);
@@ -104,6 +105,7 @@ export function useChatSession({
     abortRef.current?.abort();
     abortRef.current = null;
     setIsStreaming(false);
+    setIsLoadingConversation(false);
 
     const requestVersion = ++requestVersionRef.current;
 
@@ -114,6 +116,7 @@ export function useChatSession({
     }
 
     setMessages([]);
+    setIsLoadingConversation(true);
 
     void (async () => {
       try {
@@ -126,6 +129,7 @@ export function useChatSession({
             : getEmptyMessages(),
         );
         setActiveConversationTitle(conversation.title);
+        setIsLoadingConversation(false);
       } catch {
         if (requestVersionRef.current !== requestVersion) return;
         setMessages([
@@ -139,6 +143,7 @@ export function useChatSession({
           },
         ]);
         setActiveConversationTitle(null);
+        setIsLoadingConversation(false);
       }
     })();
   }, [activeConversationId, userId]);
@@ -428,6 +433,7 @@ export function useChatSession({
     messages,
     draft,
     isStreaming,
+    isLoadingConversation,
     activeConversationTitle,
     setDraft,
     sendMessage,

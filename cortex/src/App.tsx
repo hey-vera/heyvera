@@ -39,6 +39,7 @@ export default function App() {
     messages,
     draft,
     isStreaming,
+    isLoadingConversation,
     activeConversationTitle,
     setDraft,
     sendMessage,
@@ -235,7 +236,11 @@ export default function App() {
         </header>
 
         <main className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col">
-          <ChatTimeline messages={messages} onApprovalAction={updateApproval} />
+          <ChatTimeline
+            messages={messages}
+            isLoading={isLoadingConversation}
+            onApprovalAction={updateApproval}
+          />
           <SessionControls value={sessionControls} onChange={setSessionControls} />
           <ChatComposer
             draft={draft}
