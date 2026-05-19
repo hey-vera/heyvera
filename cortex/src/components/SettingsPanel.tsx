@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { CheckCircle, Copy, ExternalLink, Loader2, X, XCircle } from 'lucide-react';
 import {
   getAuthStatus,
+  startAuth,
   submitAuthCode,
   refreshAuth,
   type ProviderAuthInfo,
@@ -62,18 +63,7 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
   const handleConnect = async (provider: string) => {
     updateState(provider, { phase: 'starting', error: null });
     try {
-      const base = import.meta.env.VITE_CORTEX_API ?? '';
-      const res = await fetch(`${base}/api/auth/start`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider }),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-        updateState(provider, { phase: 'idle', error: body.error ?? 'Failed to start auth' });
-        return;
-      }
-      const result = await res.json();
+      const result = await startAuth(provider);
       if (result.auth_url) {
         if (isDeviceCodeFlow(provider) && result.device_code) {
           updateState(provider, { phase: 'polling', authUrl: result.auth_url, deviceCode: result.device_code });
@@ -87,8 +77,11 @@ export default function SettingsPanel({ onClose }: SettingsPanelProps) {
       } else {
         updateState(provider, { phase: 'idle', error: result.message || 'Could not start' });
       }
-    } catch {
-      updateState(provider, { phase: 'idle', error: 'Failed to start authentication' });
+    } catch (err) {
+      updateState(provider, {
+        phase: 'idle',
+        error: err instanceof Error ? err.message : 'Failed to start authentication',
+      });
     }
   };
 

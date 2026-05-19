@@ -1,3 +1,5 @@
+import type { CortexState } from '../types';
+
 const BASE_URL = import.meta.env.VITE_CORTEX_API ?? '';
 
 let _tokenGetter: (() => Promise<string | null>) | null = null;
@@ -19,6 +21,34 @@ async function authedFetch(url: string, init?: RequestInit): Promise<Response> {
     headers.set('Content-Type', 'application/json');
   }
   return fetch(url, { ...init, headers });
+}
+
+export class CortexApiError extends Error {
+  status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = 'CortexApiError';
+    this.status = status;
+  }
+}
+
+async function readErrorMessage(res: Response): Promise<string> {
+  const fallback = res.status === 503 ? 'Starting up...' : `Cortex API ${res.status}`;
+  try {
+    const body = await res.json();
+    return typeof body?.error === 'string' ? body.error : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await authedFetch(`${BASE_URL}${path}`, init);
+  if (!res.ok) {
+    throw new CortexApiError(res.status, await readErrorMessage(res));
+  }
+  return res.json() as Promise<T>;
 }
 
 export interface WorkerEvent {
@@ -103,8 +133,7 @@ export interface AuthStartResponse {
 }
 
 export async function getAuthStatus(): Promise<ProviderAuthInfo[]> {
-  const res = await fetch(`${BASE_URL}/api/auth/status`);
-  return res.json();
+  return requestJson<ProviderAuthInfo[]>('/api/auth/status');
 }
 
 export async function startAuth(provider: string): Promise<AuthStartResponse> {
@@ -117,27 +146,26 @@ export async function startAuth(provider: string): Promise<AuthStartResponse> {
 }
 
 export async function submitAuthCode(provider: string, code: string): Promise<{ success: boolean; message: string }> {
-  const res = await fetch(`${BASE_URL}/api/auth/submit`, {
+  return requestJson<{ success: boolean; message: string }>('/api/auth/submit', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ provider, code }),
   });
-  return res.json();
 }
 
 export async function refreshAuth(): Promise<ProviderAuthInfo[]> {
-  const res = await fetch(`${BASE_URL}/api/auth/refresh`, { method: 'POST' });
-  return res.json();
+  return requestJson<ProviderAuthInfo[]>('/api/auth/refresh', { method: 'POST' });
 }
 
 export async function getProviders() {
-  const res = await authedFetch(`${BASE_URL}/api/providers`);
-  return res.json();
+  return requestJson('/api/providers');
 }
 
 export async function getHealth() {
-  const res = await fetch(`${BASE_URL}/api/health`);
-  return res.json();
+  return requestJson('/api/health');
+}
+
+export async function getCortexState(): Promise<CortexState> {
+  return requestJson<CortexState>('/api/cortex/state');
 }
 
 export interface GitHubStatus {
@@ -156,8 +184,7 @@ export interface GitHubRepo {
 }
 
 export async function getGitHubStatus(): Promise<GitHubStatus> {
-  const res = await authedFetch(`${BASE_URL}/api/user/github/status`);
-  return res.json();
+  return requestJson<GitHubStatus>('/api/user/github/status');
 }
 
 export async function selectRepos(repoIds: number[]): Promise<void> {
@@ -169,8 +196,46 @@ export async function selectRepos(repoIds: number[]): Promise<void> {
 }
 
 export async function getUserProfile() {
-  const res = await authedFetch(`${BASE_URL}/api/user/profile`);
-  return res.json();
+  return requestJson('/api/user/profile');
+}
+
+// Runs
+
+export type RunStepStatus = 'pending' | 'leased' | 'running' | 'succeeded' | 'failed' | string;
+
+export interface RunStep {
+  id: string;
+  status: RunStepStatus;
+  goal?: string;
+  title?: string;
+  error?: string | null;
+  parent_id?: string | null;
+}
+
+export interface RunSummary {
+  id: string;
+  goal: string;
+  steps: RunStep[];
+}
+
+export interface CreateRunResponse {
+  run_id: string;
+  steps: number;
+}
+
+export async function createRun(
+  goal: string,
+  profile: string,
+  filePaths: string[] = [],
+): Promise<CreateRunResponse> {
+  return requestJson<CreateRunResponse>('/api/runs', {
+    method: 'POST',
+    body: JSON.stringify({ goal, file_paths: filePaths, profile }),
+  });
+}
+
+export async function getRun(runId: string): Promise<RunSummary> {
+  return requestJson<RunSummary>(`/api/runs/${runId}`);
 }
 
 // Conversations

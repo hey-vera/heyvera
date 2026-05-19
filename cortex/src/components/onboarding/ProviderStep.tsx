@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { CheckCircle, Copy, ExternalLink, Loader2, XCircle } from 'lucide-react';
 import {
   getAuthStatus,
+  startAuth,
   submitAuthCode,
   refreshAuth,
   type ProviderAuthInfo,
@@ -66,17 +67,7 @@ export default function ProviderStep({ onNext }: ProviderStepProps) {
     updateState(provider, { phase: 'starting', error: null });
 
     try {
-      const res = await fetch(`${import.meta.env.VITE_CORTEX_API ?? ''}/api/auth/start`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider }),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-        updateState(provider, { phase: 'idle', error: body.error ?? 'Failed to start auth' });
-        return;
-      }
-      const result = await res.json();
+      const result = await startAuth(provider);
       if (result.auth_url) {
         if (isDeviceCodeFlow(provider) && result.device_code) {
           updateState(provider, {
@@ -101,8 +92,11 @@ export default function ProviderStep({ onNext }: ProviderStepProps) {
           error: result.message || 'Could not start authentication',
         });
       }
-    } catch {
-      updateState(provider, { phase: 'idle', error: 'Failed to start authentication' });
+    } catch (err) {
+      updateState(provider, {
+        phase: 'idle',
+        error: err instanceof Error ? err.message : 'Failed to start authentication',
+      });
     }
   };
 

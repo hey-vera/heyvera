@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import type { CortexState } from '../types';
+import { getCortexState } from './cortexApi';
 
 const EMPTY_STATE: CortexState = {
   providers: null,
@@ -18,11 +19,8 @@ export function useCortexState(pollMs = 3000): CortexState {
   useEffect(() => {
     async function poll() {
       try {
-        const res = await fetch('/api/cortex/state');
-        if (res.ok) {
-          const data = await res.json();
-          setState({ ...data, lastUpdated: new Date().toISOString() });
-        }
+        const data = await getCortexState();
+        setState({ ...data, lastUpdated: new Date().toISOString() });
       } catch {
         // server not available yet
       }

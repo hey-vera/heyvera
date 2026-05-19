@@ -9,12 +9,14 @@ import {
   X,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import type { ApprovalRequest, ApprovalState, ChatMessage, WorkEventItem } from '../../types';
+import RunPanel from '../runs/RunPanel';
+import type { ApprovalRequest, ApprovalState, ChatMessage, RunProfile, WorkEventItem } from '../../types';
 
 interface WorkSurfaceProps {
   messages: ChatMessage[];
   workEvents: WorkEventItem[];
   isStreaming: boolean;
+  runProfile: RunProfile;
   open: boolean;
   onClose: () => void;
   onApprovalAction: (messageId: string, nextState: ApprovalState) => void;
@@ -80,8 +82,9 @@ function WorkSurfaceContent({
   messages,
   workEvents,
   isStreaming,
+  runProfile,
   onApprovalAction,
-}: Pick<WorkSurfaceProps, 'messages' | 'workEvents' | 'isStreaming' | 'onApprovalAction'>) {
+}: Pick<WorkSurfaceProps, 'messages' | 'workEvents' | 'isStreaming' | 'runProfile' | 'onApprovalAction'>) {
   const [copiedEventId, setCopiedEventId] = useState<string | null>(null);
   const approvals = collectApprovals(messages);
   const pendingApprovals = approvals.filter((approval) => approval.state === 'pending');
@@ -133,16 +136,19 @@ function WorkSurfaceContent({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-        {!hasWork ? (
-          <div className="flex h-full min-h-64 flex-col items-center justify-center rounded-2xl border border-dashed border-white/10 bg-white/[0.02] px-5 text-center">
-            <ListChecks className="h-7 w-7 text-[var(--muted)]" />
-            <p className="mt-3 text-sm font-medium text-white">No active work yet</p>
-            <p className="mt-1 max-w-64 text-xs leading-5 text-[var(--muted)]">
-              Ask Cortex to inspect, edit, or review something. Live steps and approvals will appear here.
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-5">
+        <div className="space-y-5">
+          <RunPanel profile={runProfile} />
+
+          {!hasWork ? (
+            <div className="flex min-h-64 flex-col items-center justify-center rounded-2xl border border-dashed border-white/10 bg-white/[0.02] px-5 text-center">
+              <ListChecks className="h-7 w-7 text-[var(--muted)]" />
+              <p className="mt-3 text-sm font-medium text-white">No active chat work yet</p>
+              <p className="mt-1 max-w-64 text-xs leading-5 text-[var(--muted)]">
+                Ask Cortex to inspect, edit, or review something. Live steps and approvals will appear here.
+              </p>
+            </div>
+          ) : (
+            <>
             <section>
               <div className="mb-2 flex items-center justify-between">
                 <h3 className="text-xs font-medium uppercase tracking-[0.08em] text-[var(--muted)]">
@@ -275,8 +281,9 @@ function WorkSurfaceContent({
                 ))}
               </div>
             </section>
-          </div>
-        )}
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -286,6 +293,7 @@ export default function WorkSurface({
   messages,
   workEvents,
   isStreaming,
+  runProfile,
   open,
   onClose,
   onApprovalAction,
@@ -297,6 +305,7 @@ export default function WorkSurface({
           messages={messages}
           workEvents={workEvents}
           isStreaming={isStreaming}
+          runProfile={runProfile}
           onApprovalAction={onApprovalAction}
         />
       </aside>
@@ -322,6 +331,7 @@ export default function WorkSurface({
               messages={messages}
               workEvents={workEvents}
               isStreaming={isStreaming}
+              runProfile={runProfile}
               onApprovalAction={onApprovalAction}
             />
           </div>

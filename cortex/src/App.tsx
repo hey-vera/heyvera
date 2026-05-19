@@ -7,7 +7,7 @@ import Sidebar from './components/Sidebar';
 import { useChatSession } from './lib/useChatSession';
 import { useAuthGate } from './lib/useAuthGate';
 import { setAuthTokenGetter } from './lib/cortexApi';
-import type { ChatSessionControls } from './types';
+import type { ChatSessionControls, RunProfile } from './types';
 
 const DEFAULT_SESSION_CONTROLS: ChatSessionControls = {
   speed: 'balanced',
@@ -16,6 +16,7 @@ const DEFAULT_SESSION_CONTROLS: ChatSessionControls = {
 };
 
 const SESSION_CONTROLS_STORAGE_KEY = 'cortex:session-controls';
+const RUN_PROFILE_STORAGE_KEY = 'cortex:run-profile';
 
 function isSessionControls(value: unknown): value is ChatSessionControls {
   if (!value || typeof value !== 'object') return false;
@@ -44,6 +45,22 @@ function readSessionControls(): ChatSessionControls {
   }
 }
 
+function isRunProfile(value: unknown): value is RunProfile {
+  return value === 'auto'
+    || value === 'balanced'
+    || value === 'cost_saver'
+    || value === 'quality_first';
+}
+
+function readRunProfile(): RunProfile {
+  try {
+    const raw = window.localStorage.getItem(RUN_PROFILE_STORAGE_KEY);
+    return isRunProfile(raw) ? raw : 'auto';
+  } catch {
+    return 'auto';
+  }
+}
+
 const SettingsPanel = lazy(() => import('./components/SettingsPanel'));
 const WorkSurface = lazy(() => import('./components/work-surface/WorkSurface'));
 
@@ -59,6 +76,7 @@ export default function App() {
   const [sessionControls, setSessionControls] = useState<ChatSessionControls>(
     readSessionControls,
   );
+  const [runProfile, setRunProfile] = useState<RunProfile>(readRunProfile);
 
   const handleConversationCreated = useCallback((conversationId: string) => {
     setActiveConversationId(conversationId);
@@ -82,6 +100,14 @@ export default function App() {
       // ignore local preference persistence failures
     }
   }, [sessionControls]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(RUN_PROFILE_STORAGE_KEY, runProfile);
+    } catch {
+      // ignore local preference persistence failures
+    }
+  }, [runProfile]);
 
   const {
     messages,
@@ -353,7 +379,12 @@ export default function App() {
             onSelectStarter={handleSelectStarter}
             onApprovalAction={updateApproval}
           />
-          <SessionControls value={sessionControls} onChange={setSessionControls} />
+          <SessionControls
+            value={sessionControls}
+            runProfile={runProfile}
+            onChange={setSessionControls}
+            onRunProfileChange={setRunProfile}
+          />
           <ChatComposer
             draft={draft}
             disabled={isStreaming}
@@ -369,6 +400,7 @@ export default function App() {
           messages={messages}
           workEvents={workEvents}
           isStreaming={isStreaming}
+          runProfile={runProfile}
           open={workSurfaceOpen}
           onClose={() => setWorkSurfaceOpen(false)}
           onApprovalAction={updateApproval}

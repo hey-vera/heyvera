@@ -152,6 +152,8 @@ export interface ChatSessionControls {
   autonomy: SessionAutonomy;
 }
 
+export type RunProfile = 'auto' | 'balanced' | 'cost_saver' | 'quality_first';
+
 export type WorkEventState = 'active' | 'done' | 'waiting' | 'failed';
 
 export interface WorkEventItem {

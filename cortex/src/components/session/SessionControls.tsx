@@ -1,6 +1,7 @@
 import { Bot, Brain, Gauge } from 'lucide-react';
 import type {
   ChatSessionControls,
+  RunProfile,
   SessionAutonomy,
   SessionIntelligence,
   SessionSpeed,
@@ -8,7 +9,9 @@ import type {
 
 interface SessionControlsProps {
   value: ChatSessionControls;
+  runProfile: RunProfile;
   onChange: (next: ChatSessionControls) => void;
+  onRunProfileChange: (next: RunProfile) => void;
 }
 
 interface ControlConfig<TValue extends string> {
@@ -70,6 +73,13 @@ const usageLabels: Record<SpendLevel, string> = {
   balanced: 'Balanced',
   elevated: 'Elevated',
   high: 'High',
+};
+
+const PROFILE_LABELS: Record<RunProfile, string> = {
+  auto: 'Auto',
+  balanced: 'Balanced',
+  cost_saver: 'Cost-Saver',
+  quality_first: 'Quality-First',
 };
 
 function clampIndex(index: number, max: number) {
@@ -154,7 +164,12 @@ function Stepper<TValue extends string>({
   );
 }
 
-export default function SessionControls({ value, onChange }: SessionControlsProps) {
+export default function SessionControls({
+  value,
+  runProfile,
+  onChange,
+  onRunProfileChange,
+}: SessionControlsProps) {
   const spendLevel = getSpendLevel(value);
   const [speedConfig, intelligenceConfig, autonomyConfig] = CONTROL_CONFIGS;
 
@@ -190,6 +205,22 @@ export default function SessionControls({ value, onChange }: SessionControlsProp
             </span>
             <span className="text-white">{usageLabels[spendLevel]}</span>
           </div>
+          <label className="inline-flex h-11 shrink-0 items-center gap-2 rounded-xl border border-white/8 bg-white/[0.03] px-3 text-sm text-[var(--muted-strong)]">
+            <span className="text-[10px] font-medium uppercase tracking-[0.08em] text-[var(--muted)]">
+              Profile
+            </span>
+            <select
+              value={runProfile}
+              onChange={(event) => onRunProfileChange(event.target.value as RunProfile)}
+              className="bg-transparent text-sm text-white outline-none"
+            >
+              {(Object.keys(PROFILE_LABELS) as RunProfile[]).map((profile) => (
+                <option key={profile} value={profile} className="bg-[var(--panel)] text-white">
+                  {PROFILE_LABELS[profile]}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
         <p className="text-xs text-[var(--muted)]">
           {getSummary(value, spendLevel)} Estimate only; backend limits are not wired to these controls yet.
