@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import ChatMessage from './ChatMessage';
 import type { ApprovalState, ChatMessage as ChatMessageType } from '../../types';
 
@@ -16,6 +16,9 @@ const STARTER_PROMPTS = [
   'Review the app for production readiness gaps.',
   'Prepare a commit summary for this Cortex UI work.',
 ];
+
+const INITIAL_VISIBLE_MESSAGES = 80;
+const LOAD_MORE_MESSAGES = 80;
 
 function TimelineSkeleton() {
   return (
@@ -46,10 +49,22 @@ export default function ChatTimeline({
   onApprovalAction,
 }: ChatTimelineProps) {
   const endRef = useRef<HTMLDivElement | null>(null);
+  const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE_MESSAGES);
+  const hiddenCount = Math.max(messages.length - visibleCount, 0);
+  const visibleMessages = useMemo(
+    () => messages.slice(Math.max(messages.length - visibleCount, 0)),
+    [messages, visibleCount],
+  );
+
+  useEffect(() => {
+    if (messages.length <= INITIAL_VISIBLE_MESSAGES) {
+      setVisibleCount(INITIAL_VISIBLE_MESSAGES);
+    }
+  }, [messages.length]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [messages]);
+  }, [visibleMessages]);
 
   return (
     <section className="flex-1 overflow-y-auto px-3 py-4 sm:px-5">
@@ -57,7 +72,18 @@ export default function ChatTimeline({
         <TimelineSkeleton />
       ) : (
         <div className="mx-auto flex w-full max-w-2xl flex-col gap-4">
-          {messages.map((message) => (
+          {hiddenCount > 0 && (
+            <div className="flex justify-center">
+              <button
+                type="button"
+                onClick={() => setVisibleCount((count) => count + LOAD_MORE_MESSAGES)}
+                className="rounded-full border border-white/8 bg-white/[0.03] px-3 py-1.5 text-xs text-[var(--muted-strong)] transition hover:bg-white/[0.06] hover:text-white active:scale-95"
+              >
+                Show {Math.min(hiddenCount, LOAD_MORE_MESSAGES)} older messages
+              </button>
+            </div>
+          )}
+          {visibleMessages.map((message) => (
             <ChatMessage
               key={message.id}
               message={message}
