@@ -101,10 +101,10 @@ function parseProviderHealth(payload: unknown): SidebarProviderHealth[] {
       const rawId = String(record.provider ?? record.id ?? record.name ?? key ?? '').toLowerCase();
       if (!rawId) return null;
       const pressure = normalizePressure(
-        record.pressure_state ?? record.pressure ?? record.state ?? record.status,
+        record.pressure_state ?? record.pressure ?? record.health ?? record.state ?? record.status,
       );
       const connected = Boolean(
-        record.connected ?? record.authenticated ?? record.available ?? record.enabled ?? pressure !== 'unknown',
+        record.available ?? record.connected ?? record.authenticated ?? record.enabled ?? pressure !== 'unknown',
       );
       return {
         id: rawId,
