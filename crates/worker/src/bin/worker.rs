@@ -144,7 +144,11 @@ async fn connect_and_run(
                                 step_id, attempt_id, lease_gen,
                                 task, decision, delegation, ..
                             } => {
-                                if let Some(ref deleg_val) = delegation {
+                                let enforce = std::env::var("SOMA_ENFORCE_DELEGATION")
+                                    .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                                    .unwrap_or(true);
+
+                                let delegation_ok = if let Some(ref deleg_val) = delegation {
                                     match serde_json::from_value::<soma::delegation::Delegation>(deleg_val.clone()) {
                                         Ok(deleg) => {
                                             let ctx = soma::delegation::InvocationContext {
@@ -155,18 +159,48 @@ async fn connect_and_run(
                                             match soma::delegation::verify_delegation(&deleg, &ctx) {
                                                 Ok(result) if result.is_valid() => {
                                                     tracing::debug!("step {step_id}: delegation verified");
+                                                    true
                                                 }
                                                 Ok(result) => {
-                                                    tracing::warn!("step {step_id}: delegation invalid: {result:?} — executing anyway");
+                                                    tracing::warn!("step {step_id}: delegation invalid: {result:?}");
+                                                    !enforce
                                                 }
                                                 Err(e) => {
-                                                    tracing::warn!("step {step_id}: delegation verification error: {e} — executing anyway");
+                                                    tracing::warn!("step {step_id}: delegation verification error: {e}");
+                                                    !enforce
                                                 }
                                             }
                                         }
-                                        Err(e) => tracing::warn!("step {step_id}: failed to parse delegation: {e}"),
+                                        Err(e) => {
+                                            tracing::warn!("step {step_id}: failed to parse delegation: {e}");
+                                            !enforce
+                                        }
                                     }
+                                } else if enforce {
+                                    tracing::warn!("step {step_id}: no delegation provided — rejecting");
+                                    false
+                                } else {
+                                    true
+                                };
+
+                                if !delegation_ok {
+                                    tracing::error!("step {step_id}: rejected — invalid or missing delegation");
+                                    let fail_msg = cortex_core::protocol::WorkerMessage::StepFailed {
+                                        message_id: uuid::Uuid::new_v4().to_string(),
+                                        step_id: step_id.clone(),
+                                        attempt_id: attempt_id.clone(),
+                                        lease_gen,
+                                        failure: cortex_core::failure::WorkerFailureReport {
+                                            kind: cortex_core::failure::WorkerFailureKind::PermissionDenied,
+                                            exit_code: None,
+                                            stderr_excerpt: Some("step delegation verification failed".into()),
+                                            tool: None,
+                                        },
+                                    };
+                                    let _ = out_tx.send(fail_msg).await;
+                                    continue;
                                 }
+
                                 tracing::info!("step {step_id}: {}", task.objective);
                                 let out = out_tx.clone();
                                 let dir = PathBuf::from(&ws_dir);

@@ -38,6 +38,7 @@ pub fn spawn_scheduler(state: Arc<AppState>) -> SchedulerTx {
 async fn scheduler_loop(state: Arc<AppState>, mut rx: mpsc::Receiver<SchedulerEvent>) {
     let mut sched = SchedulerState::new();
     let mut reconcile_interval = tokio::time::interval(Duration::from_secs(30));
+    let mut prune_interval = tokio::time::interval(Duration::from_secs(600));
 
     tracing::info!("scheduler started");
 
@@ -56,6 +57,12 @@ async fn scheduler_loop(state: Arc<AppState>, mut rx: mpsc::Receiver<SchedulerEv
                 state.rate_limiter.cleanup();
                 reconcile_ready_steps(&state, &mut sched).await;
                 schedule_until_blocked(&state, &mut sched).await;
+            }
+            _ = prune_interval.tick() => {
+                // Prune spend logs for delegations inactive for 48h (2x default session TTL)
+                if let Some(heart) = &state.soma_heart {
+                    heart.prune_spend_logs(48 * 3600 * 1000);
+                }
             }
         }
     }

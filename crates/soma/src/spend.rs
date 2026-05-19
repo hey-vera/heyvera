@@ -102,6 +102,10 @@ impl SpendLog {
         &self.receipts
     }
 
+    pub fn last_activity_ms(&self) -> u64 {
+        self.receipts.last().map(|r| r.timestamp).unwrap_or(0)
+    }
+
     /// Verify the integrity of the spend chain.
     pub fn verify_chain(&self) -> Result<bool, SomaError> {
         let genesis = sha256_hex(&format!("soma-spend-log:genesis:{}", self.delegation_id));

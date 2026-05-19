@@ -22,6 +22,7 @@ pub struct CortexHeart {
     pub identity: HeartIdentity,
     pub heartbeat_chain: std::sync::Mutex<HeartbeatChain>,
     pub spend_logs: std::sync::Mutex<std::collections::HashMap<String, SpendLog>>,
+    pub revoked_delegations: std::sync::Mutex<std::collections::HashSet<String>>,
     pub lineage: Option<HeartLineage>,
     pub root_did: Option<String>,
 }
@@ -85,11 +86,13 @@ impl CortexHeart {
 
         let heartbeat_chain = Self::load_heartbeats();
         let spend_logs = Self::load_spend_logs();
+        let revoked = Self::load_revoked();
 
         Ok(Self {
             identity,
             heartbeat_chain: std::sync::Mutex::new(heartbeat_chain),
             spend_logs: std::sync::Mutex::new(spend_logs),
+            revoked_delegations: std::sync::Mutex::new(revoked),
             lineage,
             root_did,
         })
@@ -231,6 +234,80 @@ impl CortexHeart {
         std::collections::HashMap::new()
     }
 
+    pub fn revoke_delegation(&self, delegation_id: &str) {
+        let mut revoked = self.revoked_delegations.lock().unwrap();
+        revoked.insert(delegation_id.to_string());
+        Self::persist_revoked_inner(&revoked);
+        self.record_heartbeat(
+            HeartbeatEventType::DelegationRevoked,
+            &serde_json::json!({
+                "delegation_id": delegation_id,
+            })
+            .to_string(),
+        );
+        tracing::info!("delegation revoked: {delegation_id}");
+    }
+
+    pub fn is_revoked(&self, delegation_id: &str) -> bool {
+        self.revoked_delegations.lock().unwrap().contains(delegation_id)
+    }
+
+    fn revoked_path() -> std::path::PathBuf {
+        dirs_next::home_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from("."))
+            .join(".cortex")
+            .join("revoked-delegations.json")
+    }
+
+    fn persist_revoked_inner(revoked: &std::collections::HashSet<String>) {
+        let path = Self::revoked_path();
+        match serde_json::to_string(revoked) {
+            Ok(json) => {
+                if let Err(e) = std::fs::write(&path, json) {
+                    tracing::warn!("failed to persist revocation set: {e}");
+                }
+            }
+            Err(e) => tracing::warn!("failed to serialize revocation set: {e}"),
+        }
+    }
+
+    fn load_revoked() -> std::collections::HashSet<String> {
+        let path = Self::revoked_path();
+        if path.exists() {
+            match std::fs::read_to_string(&path) {
+                Ok(json) => match serde_json::from_str(&json) {
+                    Ok(set) => {
+                        let set: std::collections::HashSet<String> = set;
+                        tracing::info!("revocation set loaded: {} entries", set.len());
+                        return set;
+                    }
+                    Err(e) => tracing::warn!("failed to parse revocation set: {e}"),
+                },
+                Err(e) => tracing::warn!("failed to read revocation set: {e}"),
+            }
+        }
+        std::collections::HashSet::new()
+    }
+
+    /// Prune spend logs for delegations with no activity in the given retention window.
+    pub fn prune_spend_logs(&self, retention_ms: u64) -> usize {
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+        let cutoff = now_ms.saturating_sub(retention_ms);
+
+        let mut logs = self.spend_logs.lock().unwrap();
+        let before = logs.len();
+        logs.retain(|_, log| log.last_activity_ms() > cutoff);
+        let pruned = before - logs.len();
+        if pruned > 0 {
+            Self::persist_spend_logs_inner(&logs);
+            tracing::info!("pruned {pruned} expired spend logs ({} remaining)", logs.len());
+        }
+        pruned
+    }
+
     pub fn did(&self) -> &str {
         &self.identity.did
     }
@@ -324,10 +401,16 @@ async fn verify_soma_token(
     parts: &Parts,
     state: &Arc<AppState>,
 ) -> Result<AuthenticatedIdentity, AuthError> {
-    // Parse the delegation token
     let delegation: Delegation = serde_json::from_str(token).map_err(|e| {
         AuthError::InvalidToken(format!("malformed soma delegation token: {e}"))
     })?;
+
+    // Check revocation set before expensive crypto verification
+    if let Some(heart) = &state.soma_heart {
+        if heart.is_revoked(&delegation.id) {
+            return Err(AuthError::Unauthorized("delegation has been revoked".into()));
+        }
+    }
 
     // Check for delegation chain header
     let chain_header = parts
