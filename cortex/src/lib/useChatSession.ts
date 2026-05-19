@@ -429,13 +429,14 @@ export function useChatSession({
             if (requestVersionRef.current !== streamVersion) return;
 
             switch (event.type) {
-              case 'started':
+              case 'started': {
+                const stepId = event.step_id ?? event.task_id;
                 assistantProvider = event.provider ?? assistantProvider;
                 assistantModel = event.model ?? assistantModel;
                 setWorkEvents((currentEvents) => [
                   {
                     id: createId('work-started'),
-                    taskId: event.task_id,
+                    taskId: stepId,
                     title: 'Started',
                     detail: `${event.provider ?? 'Provider'}${event.model ? ` · ${event.model}` : ''} is working.`,
                     timestamp: new Date().toISOString(),
@@ -463,8 +464,10 @@ export function useChatSession({
                   ),
                 );
                 break;
+              }
 
-              case 'output':
+              case 'output': {
+                const stepId = event.step_id ?? event.task_id;
                 assistantContent = assistantContent
                   ? `${assistantContent}\n\n${event.line ?? ''}`
                   : (event.line ?? '');
@@ -472,7 +475,7 @@ export function useChatSession({
                   setWorkEvents((currentEvents) => [
                     {
                       id: createId('work-output'),
-                      taskId: event.task_id,
+                      taskId: stepId,
                       title: 'Output',
                       detail: event.line ?? '',
                       timestamp: new Date().toISOString(),
@@ -491,12 +494,14 @@ export function useChatSession({
                   ),
                 );
                 break;
+              }
 
-              case 'completed':
+              case 'completed': {
+                const stepId = event.step_id ?? event.task_id;
                 setWorkEvents((currentEvents) => [
                   {
                     id: createId('work-completed'),
-                    taskId: event.task_id,
+                    taskId: stepId,
                     title: 'Completed',
                     detail: `Worker completed${typeof event.exit_code === 'number' ? ` with exit code ${event.exit_code}` : ''}.`,
                     timestamp: new Date().toISOString(),
@@ -518,8 +523,10 @@ export function useChatSession({
                   isStreaming: false,
                 });
                 break;
+              }
 
               case 'failed': {
+                const stepId = event.step_id ?? event.task_id;
                 const failedContent = assistantContent
                   ? `${assistantContent}\n\nError: ${event.error}`
                   : `Error: ${event.error}`;
@@ -527,7 +534,7 @@ export function useChatSession({
                 setWorkEvents((currentEvents) => [
                   {
                     id: createId('work-failed'),
-                    taskId: event.task_id,
+                    taskId: stepId,
                     title: 'Failed',
                     detail: event.error ?? 'Worker failed.',
                     timestamp: new Date().toISOString(),

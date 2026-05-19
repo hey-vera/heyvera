@@ -1,6 +1,16 @@
 import type { CortexState } from '../types';
 
-const BASE_URL = import.meta.env.VITE_CORTEX_API ?? '';
+const CONFIGURED_API_BASE = import.meta.env.VITE_CORTEX_API as string | undefined;
+const BASE_URL = CONFIGURED_API_BASE ?? (import.meta.env.DEV ? 'http://localhost:3001' : '');
+
+function apiUrl(path: string) {
+  const base = BASE_URL.replace(/\/$/, '');
+  if (!base) return path;
+  if (base.endsWith('/api') && path.startsWith('/api/')) {
+    return `${base}${path.slice(4)}`;
+  }
+  return `${base}${path}`;
+}
 
 let _tokenGetter: (() => Promise<string | null>) | null = null;
 
@@ -25,16 +35,22 @@ async function authedFetch(url: string, init?: RequestInit): Promise<Response> {
 
 export class CortexApiError extends Error {
   status: number;
+  retryAfter: string | null;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, retryAfter: string | null = null) {
     super(message);
     this.name = 'CortexApiError';
     this.status = status;
+    this.retryAfter = retryAfter;
   }
 }
 
 async function readErrorMessage(res: Response): Promise<string> {
-  const fallback = res.status === 503 ? 'Starting up...' : `Cortex API ${res.status}`;
+  const fallback = res.status === 503
+    ? 'Starting up...'
+    : res.status === 429
+      ? 'Rate limit reached. Try again shortly.'
+      : `Cortex API ${res.status}`;
   try {
     const body = await res.json();
     return typeof body?.error === 'string' ? body.error : fallback;
@@ -44,16 +60,17 @@ async function readErrorMessage(res: Response): Promise<string> {
 }
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await authedFetch(`${BASE_URL}${path}`, init);
+  const res = await authedFetch(apiUrl(path), init);
   if (!res.ok) {
-    throw new CortexApiError(res.status, await readErrorMessage(res));
+    throw new CortexApiError(res.status, await readErrorMessage(res), res.headers.get('Retry-After'));
   }
   return res.json() as Promise<T>;
 }
 
 export interface WorkerEvent {
   type: 'started' | 'output' | 'completed' | 'failed';
-  task_id: string;
+  task_id?: string;
+  step_id?: string;
   provider?: string;
   model?: string;
   line?: string;
@@ -72,7 +89,7 @@ export function streamChat(
 
   (async () => {
     try {
-      const res = await authedFetch(`${BASE_URL}/api/chat`, {
+      const res = await authedFetch(apiUrl('/api/chat'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message, file_paths: filePaths }),
@@ -186,7 +203,7 @@ export async function getGitHubStatus(): Promise<GitHubStatus> {
 }
 
 export async function selectRepos(repoIds: number[]): Promise<void> {
-  await authedFetch(`${BASE_URL}/api/user/repos/select`, {
+  await authedFetch(apiUrl('/api/user/repos/select'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ repo_ids: repoIds }),
@@ -239,6 +256,8 @@ export interface RunStep {
   status: RunStepStatus;
   goal?: string;
   title?: string;
+  kind?: string;
+  objective?: string;
   error?: string | null;
   parent_id?: string | null;
 }
@@ -246,12 +265,30 @@ export interface RunStep {
 export interface RunSummary {
   id: string;
   goal: string;
+  status?: string;
+  profile?: string;
+  created_at?: string;
   steps: RunStep[];
+}
+
+export interface RunListItem {
+  id: string;
+  goal: string;
+  status: string;
+  profile: string;
+  created_at: string;
 }
 
 export interface CreateRunResponse {
   run_id: string;
   steps: number;
+}
+
+export interface RunStreamEvent {
+  type: 'run_update' | 'run_complete';
+  run_id: string;
+  steps?: RunStep[];
+  status?: string;
 }
 
 export async function createRun(
@@ -267,6 +304,70 @@ export async function createRun(
 
 export async function getRun(runId: string): Promise<RunSummary> {
   return requestJson<RunSummary>(`/api/runs/${runId}`);
+}
+
+export async function listRuns(limit = 10, offset = 0): Promise<RunListItem[]> {
+  return requestJson<RunListItem[]>(`/api/runs?limit=${limit}&offset=${offset}`);
+}
+
+export async function createRunPullRequest(
+  runId: string,
+  body: { title?: string; base?: string } = {},
+): Promise<{ pr_url: string; branch: string }> {
+  return requestJson<{ pr_url: string; branch: string }>(`/api/runs/${runId}/pr`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function streamRun(
+  runId: string,
+  onEvent: (event: RunStreamEvent) => void,
+  onError: (err: Error) => void,
+): AbortController {
+  const controller = new AbortController();
+
+  (async () => {
+    try {
+      const res = await authedFetch(apiUrl(`/api/runs/${runId}/stream`), {
+        signal: controller.signal,
+      });
+
+      if (!res.ok) {
+        throw new CortexApiError(res.status, await readErrorMessage(res), res.headers.get('Retry-After'));
+      }
+
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error('No response body');
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const json = line.slice(6).trim();
+          if (!json) continue;
+          try {
+            onEvent(JSON.parse(json) as RunStreamEvent);
+          } catch {
+            // skip malformed lines
+          }
+        }
+      }
+    } catch (err) {
+      if (err instanceof Error && err.name !== 'AbortError') onError(err);
+    }
+  })();
+
+  return controller;
 }
 
 // Conversations
@@ -299,12 +400,12 @@ export interface ConversationWithMessages {
 }
 
 export async function listConversations(userId = 'local'): Promise<ConversationSummary[]> {
-  const res = await authedFetch(`${BASE_URL}/api/conversations?user_id=${userId}`);
+  const res = await authedFetch(apiUrl(`/api/conversations?user_id=${userId}`));
   return res.json();
 }
 
 export async function createConversation(userId = 'local', title?: string): Promise<{ id: string }> {
-  const res = await authedFetch(`${BASE_URL}/api/conversations`, {
+  const res = await authedFetch(apiUrl('/api/conversations'), {
     method: 'POST',
     body: JSON.stringify({ user_id: userId, title }),
   });
@@ -312,16 +413,16 @@ export async function createConversation(userId = 'local', title?: string): Prom
 }
 
 export async function getConversation(id: string, userId = 'local'): Promise<ConversationWithMessages> {
-  const res = await authedFetch(`${BASE_URL}/api/conversations/${id}?user_id=${userId}`);
+  const res = await authedFetch(apiUrl(`/api/conversations/${id}?user_id=${userId}`));
   return res.json();
 }
 
 export async function deleteConversation(id: string, userId = 'local'): Promise<void> {
-  await authedFetch(`${BASE_URL}/api/conversations/${id}?user_id=${userId}`, { method: 'DELETE' });
+  await authedFetch(apiUrl(`/api/conversations/${id}?user_id=${userId}`), { method: 'DELETE' });
 }
 
 export async function updateConversationTitle(id: string, title: string, userId = 'local'): Promise<void> {
-  await authedFetch(`${BASE_URL}/api/conversations/${id}?user_id=${userId}`, {
+  await authedFetch(apiUrl(`/api/conversations/${id}?user_id=${userId}`), {
     method: 'PATCH',
     body: JSON.stringify({ title }),
   });
@@ -334,7 +435,7 @@ export async function addMessageToConversation(
   provider?: string,
   model?: string,
 ): Promise<ConversationMessage> {
-  const res = await authedFetch(`${BASE_URL}/api/conversations/${conversationId}/messages`, {
+  const res = await authedFetch(apiUrl(`/api/conversations/${conversationId}/messages`), {
     method: 'POST',
     body: JSON.stringify({ role, content, provider, model }),
   });

@@ -1,10 +1,14 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { GitBranch, Loader2, Play, RefreshCcw } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ExternalLink, GitBranch, GitPullRequest, Loader2, Play, RefreshCcw } from 'lucide-react';
 import {
   CortexApiError,
   createRun,
+  createRunPullRequest,
   getAuthStatus,
   getRun,
+  listRuns,
+  streamRun,
+  type RunListItem,
   type RunSummary,
   type RunStep,
 } from '../../lib/cortexApi';
@@ -38,7 +42,7 @@ function statusClass(status: string) {
 }
 
 function stepLabel(step: RunStep, index: number) {
-  return step.title || step.goal || `Step ${index + 1}`;
+  return step.title || step.objective || step.goal || `Step ${index + 1}`;
 }
 
 function getWorkerSignal(run: RunSummary | null) {
@@ -53,6 +57,18 @@ function getWorkerSignal(run: RunSummary | null) {
   return { label: 'Worker status unknown', className: 'border-white/8 bg-white/4 text-[var(--muted)]' };
 }
 
+function formatRunTime(timestamp: string) {
+  return new Date(timestamp).toLocaleDateString([], {
+    month: 'short',
+    day: 'numeric',
+  });
+}
+
+function mergeSteps(currentSteps: RunStep[], nextSteps: RunStep[]) {
+  const byId = new Map(currentSteps.map((step) => [step.id, step]));
+  return nextSteps.map((step) => ({ ...(byId.get(step.id) ?? {}), ...step }));
+}
+
 export default function RunPanel({
   profile,
   bridgeGoal,
@@ -62,15 +78,31 @@ export default function RunPanel({
   const [goal, setGoal] = useState('');
   const [runId, setRunId] = useState<string | null>(null);
   const [run, setRun] = useState<RunSummary | null>(null);
+  const [runs, setRuns] = useState<RunListItem[]>([]);
   const [expectedSteps, setExpectedSteps] = useState<number | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isPolling, setIsPolling] = useState(false);
+  const [isLoadingRun, setIsLoadingRun] = useState(false);
+  const [isLoadingRuns, setIsLoadingRuns] = useState(false);
+  const [isCreatingPr, setIsCreatingPr] = useState(false);
+  const [pullRequest, setPullRequest] = useState<{ pr_url: string; branch: string } | null>(null);
   const [providerReady, setProviderReady] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const streamRef = useRef<AbortController | null>(null);
   const workerSignal = useMemo(() => getWorkerSignal(run), [run]);
 
-  async function refreshRun(id: string) {
-    setIsPolling(true);
+  const refreshRuns = useCallback(async () => {
+    setIsLoadingRuns(true);
+    try {
+      setRuns(await listRuns(8));
+    } catch {
+      // run history is secondary to creating a run
+    } finally {
+      setIsLoadingRuns(false);
+    }
+  }, []);
+
+  const refreshRun = useCallback(async (id: string) => {
+    setIsLoadingRun(true);
     try {
       setRun(await getRun(id));
       setError(null);
@@ -81,18 +113,51 @@ export default function RunPanel({
         setError(err instanceof Error ? err.message : 'Could not load run status');
       }
     } finally {
-      setIsPolling(false);
+      setIsLoadingRun(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
     if (!runId) return;
+    streamRef.current?.abort();
+    streamRef.current = null;
+
     void refreshRun(runId);
-    const interval = window.setInterval(() => {
-      void refreshRun(runId);
-    }, 2500);
-    return () => window.clearInterval(interval);
-  }, [runId]);
+
+    const controller = streamRun(
+      runId,
+      (event) => {
+        setRun((currentRun) => {
+          if (!currentRun || currentRun.id !== event.run_id) return currentRun;
+          if (event.type === 'run_update' && event.steps) {
+            return { ...currentRun, steps: mergeSteps(currentRun.steps, event.steps) };
+          }
+          if (event.type === 'run_complete') {
+            return { ...currentRun, status: event.status ?? currentRun.status };
+          }
+          return currentRun;
+        });
+        if (event.type === 'run_complete') {
+          void refreshRuns();
+        }
+      },
+      (err) => {
+        setError(err instanceof CortexApiError && err.status === 503
+          ? 'Starting up...'
+          : err.message);
+      },
+    );
+    streamRef.current = controller;
+
+    return () => {
+      controller.abort();
+      if (streamRef.current === controller) streamRef.current = null;
+    };
+  }, [refreshRun, refreshRuns, runId]);
+
+  useEffect(() => {
+    void refreshRuns();
+  }, [refreshRuns]);
 
   useEffect(() => {
     let cancelled = false;
@@ -130,7 +195,9 @@ export default function RunPanel({
       setRunId(created.run_id);
       setExpectedSteps(created.steps);
       setRun({ id: created.run_id, goal: nextGoal, steps: [] });
+      setPullRequest(null);
       setGoal('');
+      void refreshRuns();
     } catch (err) {
       if (err instanceof CortexApiError && err.status === 503) {
         setError('Starting up...');
@@ -140,7 +207,7 @@ export default function RunPanel({
     } finally {
       setIsSubmitting(false);
     }
-  }, [goal, isSubmitting, profile, providerReady]);
+  }, [goal, isSubmitting, profile, providerReady, refreshRuns]);
 
   useEffect(() => {
     if (!bridgeGoal) return;
@@ -148,6 +215,25 @@ export default function RunPanel({
     void submitRun(bridgeGoal);
     onBridgeConsumed();
   }, [bridgeGoal, bridgeNonce, onBridgeConsumed, submitRun]);
+
+  async function selectRun(nextRunId: string) {
+    setRunId(nextRunId);
+    setPullRequest(null);
+    await refreshRun(nextRunId);
+  }
+
+  async function createPr() {
+    if (!runId || isCreatingPr) return;
+    setIsCreatingPr(true);
+    setError(null);
+    try {
+      setPullRequest(await createRunPullRequest(runId));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not create pull request');
+    } finally {
+      setIsCreatingPr(false);
+    }
+  }
 
   return (
     <section className="space-y-3">
@@ -206,12 +292,12 @@ export default function RunPanel({
             </div>
             <button
               type="button"
-              disabled={isPolling}
+              disabled={isLoadingRun}
               onClick={() => runId && void refreshRun(runId)}
               className="rounded-lg p-1.5 text-[var(--muted)] transition hover:bg-white/6 hover:text-white active:scale-95 disabled:opacity-50"
               aria-label="Refresh run"
             >
-              <RefreshCcw className={`h-3.5 w-3.5 ${isPolling ? 'animate-spin' : ''}`} />
+              <RefreshCcw className={`h-3.5 w-3.5 ${isLoadingRun ? 'animate-spin' : ''}`} />
             </button>
           </div>
 
@@ -237,8 +323,74 @@ export default function RunPanel({
               ))
             )}
           </div>
+
+          <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-white/6 pt-3">
+            <button
+              type="button"
+              disabled={isCreatingPr}
+              onClick={() => void createPr()}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-white/8 bg-white/4 px-2.5 py-1.5 text-xs text-white transition hover:bg-white/8 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isCreatingPr ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <GitPullRequest className="h-3.5 w-3.5" />}
+              Create PR
+            </button>
+            {pullRequest && (
+              <a
+                href={pullRequest.pr_url}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex min-w-0 items-center gap-1.5 rounded-lg border border-[var(--accent)]/20 bg-[var(--accent)]/10 px-2.5 py-1.5 text-xs text-[var(--accent)] transition hover:bg-[var(--accent)]/15"
+              >
+                <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">{pullRequest.branch}</span>
+              </a>
+            )}
+          </div>
         </div>
       )}
+
+      <div className="rounded-xl border border-white/8 bg-white/[0.02] p-3">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <h4 className="text-xs font-medium uppercase tracking-[0.08em] text-[var(--muted)]">
+            Recent Runs
+          </h4>
+          <button
+            type="button"
+            disabled={isLoadingRuns}
+            onClick={() => void refreshRuns()}
+            className="rounded-md p-1 text-[var(--muted)] transition hover:bg-white/6 hover:text-white active:scale-95 disabled:opacity-50"
+            aria-label="Refresh runs"
+          >
+            <RefreshCcw className={`h-3.5 w-3.5 ${isLoadingRuns ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
+        {runs.length === 0 ? (
+          <p className="text-xs text-[var(--muted)]">No runs yet.</p>
+        ) : (
+          <div className="space-y-1.5">
+            {runs.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => void selectRun(item.id)}
+                className={`flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left transition hover:bg-white/6 active:scale-[0.99] ${
+                  item.id === runId ? 'bg-white/8 text-white' : 'text-[var(--muted-strong)]'
+                }`}
+              >
+                <span className="min-w-0">
+                  <span className="block truncate text-xs font-medium">{item.goal}</span>
+                  <span className="mt-0.5 block text-[10px] text-[var(--muted)]">
+                    {item.profile} · {formatRunTime(item.created_at)}
+                  </span>
+                </span>
+                <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] ${statusClass(item.status)}`}>
+                  {STATUS_LABELS[item.status] ?? item.status}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
     </section>
   );
 }
