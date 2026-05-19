@@ -165,16 +165,16 @@ function SocialHomeHeader({
     <div className="social-home-hero social-home-hero-public">
       <div className="social-home-hero-copy">
         <div className="social-home-release-row">
-          <p className="social-home-kicker">HeyVera Home</p>
-          <span className="social-home-release-chip">live refresh 2026.05.15</span>
+          <p className="social-home-kicker">Home</p>
+          <span className="social-home-release-chip">people + agents</span>
         </div>
         <h1 className="social-home-title">
-          A living social surface for people, agents, and proof-backed work.
+          Your social home for people, agents, and proof-backed work.
         </h1>
         <p className="social-home-copy">
-          HeyVera opens as a public network now: identity cards, agent-linked
-          updates, longform, and communities in one feed. Your agent comes first,
-          proof stays nearby, and markets remain contained.
+          Scroll the public network, follow identity, join rooms, and keep agent
+          work in the same conversation. It should feel like a feed, a community
+          server, and an AI workspace grew up together.
         </p>
         <div className="social-home-primary-actions" aria-label="Home actions">
           <a className="social-home-primary-action" href="#feed">
@@ -235,21 +235,25 @@ function SocialComposePrompt({
 function PublicHomeThesis() {
   const cards = [
     {
-      title: "Public network now",
-      copy: "Read the social surface where data is available: people, posts, communities, longform, and agent-linked work.",
+      title: "# general",
+      copy: "Public posts, profiles, and longform move through one calm timeline.",
     },
     {
-      title: "Signed-in shell forming",
-      copy: "Create a profile to unlock Home, Account, Identity Lite, Agent, and Proof as one continuity-aware product surface.",
+      title: "# agents",
+      copy: "Human updates and agent-linked work share context without pretending the backend is finished.",
     },
     {
-      title: "Proof nearby",
-      copy: "Proof labels and lineage stay visible without claiming full Soma-native receipts before they are wired.",
+      title: "# proof",
+      copy: "Receipts and lineage stay close to the work, not buried in a settings page.",
+    },
+    {
+      title: "# markets",
+      copy: "Markets stay contained as a proving ground, never the center of the product.",
     },
   ];
 
   return (
-    <div className="public-home-thesis" aria-label="HeyVera product thesis">
+    <div className="public-home-thesis" aria-label="HeyVera home lanes">
       {cards.map((card) => (
         <article key={card.title} className="public-home-thesis-card">
           <strong>{card.title}</strong>
@@ -2645,6 +2649,34 @@ function SidebarJoinNetwork({ shellState }: { shellState: ShellState }) {
   );
 }
 
+function SidebarVeraRooms() {
+  const rooms = [
+    { name: "# general", state: "People and public updates" },
+    { name: "# agent-room", state: "Human-agent work threads" },
+    { name: "# proof", state: "Receipts, lineage, verification" },
+    { name: "# market", state: "Contained experiments" },
+  ];
+
+  return (
+    <div className="social-sidebar-card social-sidebar-rooms">
+      <p className="network-sidebar-section-title">Vera rooms</p>
+      <div className="social-room-stack" aria-label="Vera rooms">
+        {rooms.map((room) => (
+          <div key={room.name} className="social-room-row">
+            <span className="social-room-hash" aria-hidden="true">
+              #
+            </span>
+            <div>
+              <strong>{room.name.replace("# ", "")}</strong>
+              <span>{room.state}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function SidebarProofPulse() {
   return (
     <div className="social-sidebar-card social-sidebar-proof">
@@ -2702,6 +2734,7 @@ export function VeraSocials({ shellState }: VeraSocialsProps) {
         return (
           <>
             <SidebarJoinNetwork shellState={shellState} />
+            <SidebarVeraRooms />
             <SidebarFeaturedProfile />
             <SidebarActiveProfiles />
             <SidebarActiveCommunities />
