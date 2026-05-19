@@ -5,8 +5,17 @@ import type { ApprovalState, ChatMessage as ChatMessageType } from '../../types'
 interface ChatTimelineProps {
   messages: ChatMessageType[];
   isLoading?: boolean;
+  showStarters?: boolean;
+  onSelectStarter?: (prompt: string) => void;
   onApprovalAction: (messageId: string, nextState: ApprovalState) => void;
 }
+
+const STARTER_PROMPTS = [
+  'Inspect the current changes and tell me what is risky.',
+  'Find the next small frontend polish task and implement it.',
+  'Review the app for production readiness gaps.',
+  'Prepare a commit summary for this Cortex UI work.',
+];
 
 function TimelineSkeleton() {
   return (
@@ -29,7 +38,13 @@ function TimelineSkeleton() {
   );
 }
 
-export default function ChatTimeline({ messages, isLoading = false, onApprovalAction }: ChatTimelineProps) {
+export default function ChatTimeline({
+  messages,
+  isLoading = false,
+  showStarters = false,
+  onSelectStarter,
+  onApprovalAction,
+}: ChatTimelineProps) {
   const endRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -49,6 +64,20 @@ export default function ChatTimeline({ messages, isLoading = false, onApprovalAc
               onApprovalAction={onApprovalAction}
             />
           ))}
+          {showStarters && messages.length === 1 && messages[0]?.id === 'm-init' && (
+            <div className="grid gap-2 pl-11 sm:grid-cols-2">
+              {STARTER_PROMPTS.map((prompt) => (
+                <button
+                  key={prompt}
+                  type="button"
+                  onClick={() => onSelectStarter?.(prompt)}
+                  className="rounded-xl border border-white/8 bg-white/[0.03] px-3 py-2.5 text-left text-xs leading-5 text-[var(--muted-strong)] transition hover:border-white/12 hover:bg-white/[0.06] hover:text-white active:scale-[0.99]"
+                >
+                  {prompt}
+                </button>
+              ))}
+            </div>
+          )}
           <div ref={endRef} />
         </div>
       )}

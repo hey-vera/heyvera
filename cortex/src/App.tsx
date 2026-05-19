@@ -75,6 +75,10 @@ export default function App() {
     setSidebarOpen(false);
   }, []);
 
+  const handleSelectStarter = useCallback((prompt: string) => {
+    setDraft(prompt);
+  }, [setDraft]);
+
   const headerTitle = activeConversationTitle?.trim() || 'New chat';
   const approvalCount = messages.filter((message) => message.approvalRequest?.state === 'pending').length;
   const showWorkBadge = isStreaming || approvalCount > 0;
@@ -300,6 +304,8 @@ export default function App() {
           <ChatTimeline
             messages={messages}
             isLoading={isLoadingConversation}
+            showStarters={!activeConversationId && !isStreaming}
+            onSelectStarter={handleSelectStarter}
             onApprovalAction={updateApproval}
           />
           <SessionControls value={sessionControls} onChange={setSessionControls} />
