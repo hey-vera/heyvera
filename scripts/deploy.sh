@@ -120,12 +120,6 @@ fi
 CORTEX_WWW="${CORTEX_WWW:-/var/www/cortex}"
 echo "[cortex] Building Cortex backend and frontend..."
 if [ -f "$REPO_DIR/Cargo.toml" ] && [ -f "$REPO_DIR/cortex/package.json" ]; then
-  echo "[cortex] Building Rust backend..."
-  cd "$REPO_DIR"
-  cargo build --release
-  sudo cp "$REPO_DIR/target/release/cortex-server" /usr/local/bin/cortex-server
-  echo "[cortex] Installed cortex-server binary"
-
   echo "[cortex] Building Vite frontend..."
   cd "$REPO_DIR/cortex"
   npm ci
@@ -139,11 +133,31 @@ if [ -f "$REPO_DIR/Cargo.toml" ] && [ -f "$REPO_DIR/cortex/package.json" ]; then
   fi
   echo "[cortex] Synced cortex/dist/ to $CORTEX_WWW"
 
-  if [ -f /etc/systemd/system/cortex.service ]; then
-    sudo systemctl restart cortex
-    echo "[cortex] Restarted cortex service"
+  echo "[cortex] Building Rust backend..."
+  cd "$REPO_DIR"
+  if [ -f "$HOME/.cargo/env" ]; then
+    # GitHub Actions reaches the VPS through a non-login shell, so rustup's PATH
+    # shim may not be loaded even when Rust is installed for the deploy user.
+    # shellcheck disable=SC1091
+    source "$HOME/.cargo/env"
+  fi
+
+  if command -v cargo >/dev/null 2>&1; then
+    cargo build --release
+    sudo cp "$REPO_DIR/target/release/cortex-server" /usr/local/bin/cortex-server
+    echo "[cortex] Installed cortex-server binary"
+
+    if [ -f /etc/systemd/system/cortex.service ]; then
+      sudo systemctl restart cortex
+      echo "[cortex] Restarted cortex service"
+    else
+      echo "[cortex] WARNING: no systemd service found — run scripts/cortex-install-service.sh first"
+    fi
+  elif [ "${CORTEX_BACKEND_REQUIRED:-0}" = "1" ]; then
+    echo "[cortex] ERROR: cargo not found; cannot build required Cortex backend"
+    exit 1
   else
-    echo "[cortex] WARNING: no systemd service found — run scripts/cortex-install-service.sh first"
+    echo "[cortex] WARNING: cargo not found; skipped Cortex backend build"
   fi
 else
   echo "[cortex] Cargo.toml or cortex/package.json not found - skipping"
