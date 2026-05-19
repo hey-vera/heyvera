@@ -59,6 +59,10 @@ pub struct AppState {
     pub ucb_scorer: RwLock<UcbScorer>,
     /// Cortex's Soma heart — cryptographic identity for this agent.
     pub soma_heart: Option<CortexHeart>,
+    /// Stripe API client for billing operations.
+    pub stripe_client: Option<crate::stripe_client::StripeClient>,
+    /// Stripe webhook signing secret for verifying incoming events.
+    pub stripe_webhook_secret: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -197,6 +201,18 @@ impl AppState {
             }
         };
 
+        let (stripe_client, stripe_webhook_secret) =
+            match crate::stripe_client::StripeClient::from_env() {
+                Some((client, secret)) => {
+                    tracing::info!("Stripe billing configured");
+                    (Some(client), Some(secret))
+                }
+                None => {
+                    tracing::info!("STRIPE_SECRET_KEY not set — billing stubs active");
+                    (None, None)
+                }
+            };
+
         Arc::new(Self {
             providers: RwLock::new(providers),
             ledger: Ledger::new(ledger_path),
@@ -217,6 +233,8 @@ impl AppState {
             cortex_store,
             ucb_scorer: RwLock::new(ucb_scorer),
             soma_heart,
+            stripe_client,
+            stripe_webhook_secret,
         })
     }
 
@@ -255,19 +273,18 @@ impl AppState {
         tracing::info!("worker {worker_id} removed, active: {}", workers.len());
     }
 
-    pub async fn find_worker_for_user(&self, user_id: &str) -> Option<mpsc::Sender<BrainMessage>> {
+    pub async fn find_worker_for_user(&self, user_id: &str) -> Option<(String, mpsc::Sender<BrainMessage>)> {
         let workers = self.workers.read().await;
         workers
-            .values()
-            .find(|w| {
+            .iter()
+            .find(|(_, w)| {
                 w.user_id == user_id && {
-                    // Skip workers whose every provider is disabled
                     let has_usable = w.available_providers.iter()
                         .any(|p| !w.disabled_providers.contains(p));
                     has_usable || w.available_providers.is_empty()
                 }
             })
-            .map(|w| w.tx.clone())
+            .map(|(id, w)| (id.clone(), w.tx.clone()))
     }
 
     /// Mark a specific provider as unhealthy on a worker (e.g. auth expired).
@@ -304,7 +321,7 @@ impl AppState {
         decision: RoutingDecision,
         result_tx: mpsc::Sender<StepEvent>,
     ) -> Result<String, String> {
-        let worker_tx = self
+        let (_worker_id, worker_tx) = self
             .find_worker_for_user(user_id)
             .await
             .ok_or_else(|| {
@@ -472,6 +489,7 @@ impl AppState {
         if let Some(heart) = &self.soma_heart {
             heart.persist_heartbeats();
             heart.persist_spend_logs();
+            heart.persist_invocation_counts();
         }
 
         let final_workers = self.workers.read().await.len();

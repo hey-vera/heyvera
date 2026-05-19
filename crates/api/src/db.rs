@@ -49,9 +49,54 @@ pub struct ConversationSummary {
     pub last_message_preview: Option<String>,
 }
 
+pub struct ActiveRunSummary {
+    pub id: String,
+    pub goal: String,
+    pub status: String,
+    pub created_at: String,
+    pub step_count: usize,
+    pub steps_completed: usize,
+    pub steps_failed: usize,
+}
+
+// --- Billing types ---
+
+pub struct SubscriptionRecord {
+    pub clerk_user_id: String,
+    pub stripe_customer_id: String,
+    pub stripe_subscription_id: Option<String>,
+    pub plan_type: String,
+    pub status: String,
+    pub trial_end: Option<String>,
+    pub current_period_start: Option<String>,
+    pub current_period_end: Option<String>,
+}
+
+pub struct CreditBalanceRecord {
+    pub subscription_remaining: f64,
+    pub subscription_total: f64,
+    pub pack_remaining: f64,
+}
+
+pub struct BillingHistoryRecord {
+    pub id: String,
+    pub amount_cents: i64,
+    pub description: String,
+    pub status: String,
+    pub created_at: String,
+}
+
+pub struct ReferralCodeRecord {
+    pub code: String,
+    pub creator_user_id: String,
+    pub uses_remaining: i32,
+    pub total_uses: i32,
+    pub credits_earned: f64,
+}
+
 // --- Schema version ---
 
-const SCHEMA_VERSION: i64 = 5;
+const SCHEMA_VERSION: i64 = 6;
 
 fn apply_migrations(conn: &Connection) {
     conn.execute_batch(
@@ -78,6 +123,9 @@ fn apply_migrations(conn: &Connection) {
     }
     if current < 5 {
         migrate_v5(conn);
+    }
+    if current < 6 {
+        migrate_v6(conn);
     }
 }
 
@@ -375,6 +423,63 @@ fn migrate_v5(conn: &Connection) {
     ).expect("migration v5 failed");
 
     tracing::info!("applied migration v5: runs.file_paths for workspace context");
+}
+
+fn migrate_v6(conn: &Connection) {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS subscriptions (
+            clerk_user_id TEXT PRIMARY KEY,
+            stripe_customer_id TEXT NOT NULL,
+            stripe_subscription_id TEXT,
+            plan_type TEXT NOT NULL DEFAULT 'monthly',
+            status TEXT NOT NULL DEFAULT 'trialing',
+            trial_end TEXT,
+            current_period_start TEXT,
+            current_period_end TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS credit_balances (
+            clerk_user_id TEXT PRIMARY KEY,
+            subscription_remaining REAL NOT NULL DEFAULT 200.0,
+            subscription_total REAL NOT NULL DEFAULT 200.0,
+            pack_remaining REAL NOT NULL DEFAULT 0.0,
+            last_reset_at TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS credit_transactions (
+            id TEXT PRIMARY KEY,
+            clerk_user_id TEXT NOT NULL,
+            amount REAL NOT NULL,
+            balance_type TEXT NOT NULL,
+            description TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS billing_history (
+            id TEXT PRIMARY KEY,
+            clerk_user_id TEXT NOT NULL,
+            stripe_event_id TEXT UNIQUE,
+            amount_cents INTEGER NOT NULL,
+            description TEXT NOT NULL,
+            status TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS referral_codes (
+            code TEXT PRIMARY KEY,
+            creator_user_id TEXT NOT NULL,
+            uses_remaining INTEGER NOT NULL DEFAULT 1,
+            total_uses INTEGER NOT NULL DEFAULT 0,
+            credits_earned REAL NOT NULL DEFAULT 0.0,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        UPDATE schema_version SET version = 6;"
+    ).expect("migration v6 failed");
+
+    tracing::info!("applied migration v6: subscriptions, credit_balances, credit_transactions, billing_history, referral_codes");
 }
 
 // --- Database implementation ---
@@ -1430,6 +1535,34 @@ impl Database {
         ).ok()
     }
 
+    /// List runs with active (non-terminal) status for the MC snapshot.
+    pub fn list_active_runs(&self) -> Vec<ActiveRunSummary> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT r.id, r.goal, r.status, r.created_at,
+                    COUNT(s.id) as step_count,
+                    SUM(CASE WHEN s.status = 'succeeded' THEN 1 ELSE 0 END) as steps_completed,
+                    SUM(CASE WHEN s.status = 'failed' THEN 1 ELSE 0 END) as steps_failed
+             FROM runs r
+             LEFT JOIN steps s ON s.run_id = r.id
+             WHERE r.status IN ('pending', 'running', 'leased')
+             GROUP BY r.id
+             ORDER BY r.created_at DESC
+             LIMIT 50"
+        ).unwrap();
+        stmt.query_map([], |row| {
+            Ok(ActiveRunSummary {
+                id: row.get(0)?,
+                goal: row.get(1)?,
+                status: row.get(2)?,
+                created_at: row.get::<_, i64>(3)?.to_string(),
+                step_count: row.get::<_, i64>(4)? as usize,
+                steps_completed: row.get::<_, i64>(5)? as usize,
+                steps_failed: row.get::<_, i64>(6)? as usize,
+            })
+        }).unwrap().filter_map(|r| r.ok()).collect()
+    }
+
     // --- Admin queries ---
 
     pub fn list_all_runs(&self, limit: usize, offset: usize) -> Vec<(String, String, String, String, String)> {
@@ -1856,6 +1989,261 @@ impl Database {
             .timestamp_millis();
         let summary = self.get_user_usage_summary(user_id, first_ms);
         summary.total_cost_estimate
+    }
+
+    // --- Billing & Credits ---
+
+    pub fn get_subscription(&self, clerk_user_id: &str) -> Option<SubscriptionRecord> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT clerk_user_id, stripe_customer_id, stripe_subscription_id, plan_type, status,
+                    trial_end, current_period_start, current_period_end
+             FROM subscriptions WHERE clerk_user_id = ?1",
+            params![clerk_user_id],
+            |row| Ok(SubscriptionRecord {
+                clerk_user_id: row.get(0)?,
+                stripe_customer_id: row.get(1)?,
+                stripe_subscription_id: row.get(2)?,
+                plan_type: row.get(3)?,
+                status: row.get(4)?,
+                trial_end: row.get(5)?,
+                current_period_start: row.get(6)?,
+                current_period_end: row.get(7)?,
+            }),
+        ).ok()
+    }
+
+    pub fn upsert_subscription(&self, sub: &SubscriptionRecord) {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO subscriptions
+                (clerk_user_id, stripe_customer_id, stripe_subscription_id, plan_type, status,
+                 trial_end, current_period_start, current_period_end, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, datetime('now'))",
+            params![
+                sub.clerk_user_id,
+                sub.stripe_customer_id,
+                sub.stripe_subscription_id,
+                sub.plan_type,
+                sub.status,
+                sub.trial_end,
+                sub.current_period_start,
+                sub.current_period_end,
+            ],
+        ).expect("failed to upsert subscription");
+    }
+
+    pub fn get_subscription_by_customer(&self, stripe_customer_id: &str) -> Option<SubscriptionRecord> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT clerk_user_id, stripe_customer_id, stripe_subscription_id, plan_type, status,
+                    trial_end, current_period_start, current_period_end
+             FROM subscriptions WHERE stripe_customer_id = ?1",
+            params![stripe_customer_id],
+            |row| Ok(SubscriptionRecord {
+                clerk_user_id: row.get(0)?,
+                stripe_customer_id: row.get(1)?,
+                stripe_subscription_id: row.get(2)?,
+                plan_type: row.get(3)?,
+                status: row.get(4)?,
+                trial_end: row.get(5)?,
+                current_period_start: row.get(6)?,
+                current_period_end: row.get(7)?,
+            }),
+        ).ok()
+    }
+
+    pub fn get_credit_balance(&self, clerk_user_id: &str) -> CreditBalanceRecord {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT subscription_remaining, subscription_total, pack_remaining
+             FROM credit_balances WHERE clerk_user_id = ?1",
+            params![clerk_user_id],
+            |row| Ok(CreditBalanceRecord {
+                subscription_remaining: row.get(0)?,
+                subscription_total: row.get(1)?,
+                pack_remaining: row.get(2)?,
+            }),
+        ).unwrap_or(CreditBalanceRecord {
+            subscription_remaining: 200.0,
+            subscription_total: 200.0,
+            pack_remaining: 0.0,
+        })
+    }
+
+    pub fn deduct_credits(
+        &self,
+        clerk_user_id: &str,
+        amount: f64,
+        description: &str,
+    ) -> Result<CreditBalanceRecord, String> {
+        let conn = self.conn.lock().unwrap();
+
+        conn.execute("BEGIN IMMEDIATE", [])
+            .map_err(|e| format!("failed to begin transaction: {e}"))?;
+
+        let (sub_rem, pack_rem) = conn.query_row(
+            "SELECT subscription_remaining, pack_remaining FROM credit_balances WHERE clerk_user_id = ?1",
+            params![clerk_user_id],
+            |row| Ok((row.get::<_, f64>(0)?, row.get::<_, f64>(1)?)),
+        ).unwrap_or((200.0, 0.0));
+
+        let total_available = sub_rem + pack_rem;
+        if total_available < amount {
+            conn.execute("ROLLBACK", []).ok();
+            return Err(format!(
+                "insufficient credits: need {amount:.2}, have {total_available:.2}"
+            ));
+        }
+
+        let from_sub = amount.min(sub_rem);
+        let from_pack = amount - from_sub;
+
+        let new_sub_rem = sub_rem - from_sub;
+        let new_pack_rem = pack_rem - from_pack;
+
+        conn.execute(
+            "INSERT INTO credit_balances (clerk_user_id, subscription_remaining, subscription_total, pack_remaining)
+             VALUES (?1, ?2, 200.0, ?3)
+             ON CONFLICT(clerk_user_id) DO UPDATE SET
+                subscription_remaining = ?2, pack_remaining = ?3",
+            params![clerk_user_id, new_sub_rem, new_pack_rem],
+        ).map_err(|e| {
+            conn.execute("ROLLBACK", []).ok();
+            format!("failed to update credit balance: {e}")
+        })?;
+
+        if from_sub > 0.0 {
+            let tx_id = Uuid::new_v4().to_string();
+            conn.execute(
+                "INSERT INTO credit_transactions (id, clerk_user_id, amount, balance_type, description)
+                 VALUES (?1, ?2, ?3, 'subscription', ?4)",
+                params![tx_id, clerk_user_id, -from_sub, description],
+            ).map_err(|e| {
+                conn.execute("ROLLBACK", []).ok();
+                format!("failed to record subscription transaction: {e}")
+            })?;
+        }
+
+        if from_pack > 0.0 {
+            let tx_id = Uuid::new_v4().to_string();
+            conn.execute(
+                "INSERT INTO credit_transactions (id, clerk_user_id, amount, balance_type, description)
+                 VALUES (?1, ?2, ?3, 'pack', ?4)",
+                params![tx_id, clerk_user_id, -from_pack, description],
+            ).map_err(|e| {
+                conn.execute("ROLLBACK", []).ok();
+                format!("failed to record pack transaction: {e}")
+            })?;
+        }
+
+        conn.execute("COMMIT", [])
+            .map_err(|e| format!("failed to commit transaction: {e}"))?;
+
+        let sub_total = conn.query_row(
+            "SELECT subscription_total FROM credit_balances WHERE clerk_user_id = ?1",
+            params![clerk_user_id],
+            |row| row.get::<_, f64>(0),
+        ).unwrap_or(200.0);
+
+        Ok(CreditBalanceRecord {
+            subscription_remaining: new_sub_rem,
+            subscription_total: sub_total,
+            pack_remaining: new_pack_rem,
+        })
+    }
+
+    pub fn reset_subscription_credits(&self, clerk_user_id: &str, total: f64) {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO credit_balances (clerk_user_id, subscription_remaining, subscription_total, pack_remaining, last_reset_at)
+             VALUES (?1, ?2, ?2, 0.0, datetime('now'))
+             ON CONFLICT(clerk_user_id) DO UPDATE SET
+                subscription_remaining = ?2, subscription_total = ?2, last_reset_at = datetime('now')",
+            params![clerk_user_id, total],
+        ).expect("failed to reset subscription credits");
+    }
+
+    pub fn init_credit_balance(&self, clerk_user_id: &str, subscription_total: f64) {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT OR IGNORE INTO credit_balances (clerk_user_id, subscription_remaining, subscription_total, pack_remaining)
+             VALUES (?1, ?2, ?2, 0.0)",
+            params![clerk_user_id, subscription_total],
+        ).expect("failed to init credit balance");
+    }
+
+    pub fn add_pack_credits(&self, clerk_user_id: &str, amount: f64) {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO credit_balances (clerk_user_id, subscription_remaining, subscription_total, pack_remaining)
+             VALUES (?1, 200.0, 200.0, ?2)
+             ON CONFLICT(clerk_user_id) DO UPDATE SET pack_remaining = pack_remaining + ?2",
+            params![clerk_user_id, amount],
+        ).expect("failed to add pack credits");
+    }
+
+    pub fn record_billing_event(
+        &self,
+        clerk_user_id: &str,
+        stripe_event_id: &str,
+        amount_cents: i64,
+        description: &str,
+        status: &str,
+    ) -> bool {
+        let conn = self.conn.lock().unwrap();
+        let id = Uuid::new_v4().to_string();
+        let rows = conn.execute(
+            "INSERT OR IGNORE INTO billing_history (id, clerk_user_id, stripe_event_id, amount_cents, description, status)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![id, clerk_user_id, stripe_event_id, amount_cents, description, status],
+        ).unwrap_or(0);
+        rows > 0
+    }
+
+    pub fn get_billing_history(&self, clerk_user_id: &str, limit: i64) -> Vec<BillingHistoryRecord> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, amount_cents, description, status, created_at
+             FROM billing_history WHERE clerk_user_id = ?1
+             ORDER BY created_at DESC LIMIT ?2"
+        ).unwrap();
+
+        stmt.query_map(params![clerk_user_id, limit], |row| {
+            Ok(BillingHistoryRecord {
+                id: row.get(0)?,
+                amount_cents: row.get(1)?,
+                description: row.get(2)?,
+                status: row.get(3)?,
+                created_at: row.get(4)?,
+            })
+        }).unwrap().filter_map(|r| r.ok()).collect()
+    }
+
+    pub fn get_referral_code(&self, code: &str) -> Option<ReferralCodeRecord> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT code, creator_user_id, uses_remaining, total_uses, credits_earned
+             FROM referral_codes WHERE code = ?1",
+            params![code],
+            |row| Ok(ReferralCodeRecord {
+                code: row.get(0)?,
+                creator_user_id: row.get(1)?,
+                uses_remaining: row.get(2)?,
+                total_uses: row.get(3)?,
+                credits_earned: row.get(4)?,
+            }),
+        ).ok()
+    }
+
+    pub fn consume_referral(&self, code: &str) -> bool {
+        let conn = self.conn.lock().unwrap();
+        let rows = conn.execute(
+            "UPDATE referral_codes SET uses_remaining = uses_remaining - 1, total_uses = total_uses + 1
+             WHERE code = ?1 AND uses_remaining > 0",
+            params![code],
+        ).unwrap_or(0);
+        rows > 0
     }
 
 }

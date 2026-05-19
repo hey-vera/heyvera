@@ -23,6 +23,7 @@ pub struct CortexHeart {
     pub heartbeat_chain: std::sync::Mutex<HeartbeatChain>,
     pub spend_logs: std::sync::Mutex<std::collections::HashMap<String, SpendLog>>,
     pub revoked_delegations: std::sync::Mutex<std::collections::HashSet<String>>,
+    pub invocation_counts: std::sync::Mutex<std::collections::HashMap<String, u64>>,
     pub lineage: Option<HeartLineage>,
     pub root_did: Option<String>,
 }
@@ -87,12 +88,14 @@ impl CortexHeart {
         let heartbeat_chain = Self::load_heartbeats();
         let spend_logs = Self::load_spend_logs();
         let revoked = Self::load_revoked();
+        let invocation_counts = Self::load_invocation_counts();
 
         Ok(Self {
             identity,
             heartbeat_chain: std::sync::Mutex::new(heartbeat_chain),
             spend_logs: std::sync::Mutex::new(spend_logs),
             revoked_delegations: std::sync::Mutex::new(revoked),
+            invocation_counts: std::sync::Mutex::new(invocation_counts),
             lineage,
             root_did,
         })
@@ -308,6 +311,70 @@ impl CortexHeart {
         pruned
     }
 
+    /// Get the current invocation count for a delegation and increment it.
+    pub fn increment_invocations(&self, delegation_id: &str) -> u64 {
+        let mut counts = self.invocation_counts.lock().unwrap();
+        let count = counts.entry(delegation_id.to_string()).or_insert(0);
+        let current = *count;
+        *count += 1;
+        if *count % 100 == 0 {
+            Self::persist_invocation_counts_inner(&counts);
+        }
+        current
+    }
+
+    /// Get the current invocation count for a delegation without incrementing.
+    pub fn invocation_count(&self, delegation_id: &str) -> u64 {
+        self.invocation_counts
+            .lock()
+            .unwrap()
+            .get(delegation_id)
+            .copied()
+            .unwrap_or(0)
+    }
+
+    fn invocation_counts_path() -> std::path::PathBuf {
+        dirs_next::home_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from("."))
+            .join(".cortex")
+            .join("invocation-counts.json")
+    }
+
+    fn persist_invocation_counts_inner(counts: &std::collections::HashMap<String, u64>) {
+        let path = Self::invocation_counts_path();
+        match serde_json::to_string(counts) {
+            Ok(json) => {
+                if let Err(e) = std::fs::write(&path, json) {
+                    tracing::warn!("failed to persist invocation counts: {e}");
+                }
+            }
+            Err(e) => tracing::warn!("failed to serialize invocation counts: {e}"),
+        }
+    }
+
+    pub fn persist_invocation_counts(&self) {
+        let counts = self.invocation_counts.lock().unwrap();
+        Self::persist_invocation_counts_inner(&counts);
+    }
+
+    fn load_invocation_counts() -> std::collections::HashMap<String, u64> {
+        let path = Self::invocation_counts_path();
+        if path.exists() {
+            match std::fs::read_to_string(&path) {
+                Ok(json) => match serde_json::from_str(&json) {
+                    Ok(counts) => {
+                        let counts: std::collections::HashMap<String, u64> = counts;
+                        tracing::info!("invocation counts loaded: {} delegations", counts.len());
+                        return counts;
+                    }
+                    Err(e) => tracing::warn!("failed to parse invocation counts: {e}"),
+                },
+                Err(e) => tracing::warn!("failed to read invocation counts: {e}"),
+            }
+        }
+        std::collections::HashMap::new()
+    }
+
     pub fn did(&self) -> &str {
         &self.identity.did
     }
@@ -424,6 +491,19 @@ async fn verify_soma_token(
         .as_ref()
         .map(|h| h.cumulative_spend(&delegation.id));
 
+    // Look up invocation count for MaxInvocations enforcement
+    let invocation_count = state
+        .soma_heart
+        .as_ref()
+        .map(|h| h.invocation_count(&delegation.id));
+
+    // Extract host from request for HostAllowlist enforcement
+    let host = parts
+        .headers
+        .get("Host")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
     let cortex_did = state
         .soma_heart
         .as_ref()
@@ -435,6 +515,8 @@ async fn verify_soma_token(
         audience_did: Some(cortex_did),
         capability: "route:*".into(),
         cumulative_credits_spent: cumulative_spend,
+        invocation_count,
+        host,
         ..Default::default()
     };
 
@@ -464,8 +546,9 @@ async fn verify_soma_token(
         }
     }
 
-    // Record heartbeat for the authenticated request
+    // Increment invocation count and record heartbeat
     if let Some(heart) = &state.soma_heart {
+        heart.increment_invocations(&delegation.id);
         heart.record_heartbeat(
             HeartbeatEventType::QueryReceived,
             &serde_json::json!({

@@ -23,6 +23,8 @@ pub struct RouteRequest {
     pub input: String,
     #[serde(default)]
     pub file_paths: Vec<String>,
+    #[serde(default)]
+    pub routing_preferences: Option<crate::chat::RoutingPreferences>,
 }
 
 #[derive(Serialize)]

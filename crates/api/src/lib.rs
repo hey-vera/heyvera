@@ -16,6 +16,7 @@ pub mod soma;
 mod soma_bridge;
 mod sse;
 pub mod state;
+pub mod stripe_client;
 mod usage_api;
 mod user;
 mod ws;
@@ -95,6 +96,9 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/runs/{id}", get(routes::get_run))
         .route("/api/runs/{id}/pr", post(routes::create_pr))
         .route("/api/runs/{id}/stream", get(run_stream::stream_run))
+        // Chat intelligence
+        .route("/api/chat/suggestions", get(chat::chat_suggestions))
+        .route("/api/chat/options", post(chat::chat_options))
         .route("/api/conversations", post(conversations::create_conversation))
         .route("/api/conversations/{id}/messages", post(conversations::add_message))
         .layer(middleware::from_fn_with_state(
@@ -132,6 +136,15 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/user/routing", post(user::update_profile))
         .route("/api/user/github/status", get(user::github_status))
         .route("/api/user/repos/select", post(user::select_repos))
+        // Billing & Subscription
+        .route("/api/billing/status", get(billing::get_billing_status))
+        .route("/api/billing/checkout", post(billing::create_checkout))
+        .route("/api/billing/portal", post(billing::create_portal))
+        .route("/api/billing/credits", post(billing::purchase_credits))
+        .route("/api/billing/referral/validate", post(billing::validate_referral))
+        .route("/api/billing/history", get(billing::get_billing_history))
+        // Stripe webhook (no auth — verified by signature)
+        .route("/api/stripe/webhook", post(billing::stripe_webhook))
         // Usage
         .route("/api/usage", get(usage_api::get_usage))
         .route("/api/usage/daily", get(usage_api::get_daily_usage))
@@ -146,8 +159,9 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/admin/usage/users", get(usage_api::admin_usage_users))
         // Worker WebSocket
         .route("/api/ws", get(ws::ws_handler))
-        // Mission Control WebSocket (frontend observers)
+        // Mission Control WebSocket (frontend observers) + snapshot
         .route("/api/mc", get(mission_control::mc_handler))
+        .route("/api/mc/snapshot", get(mission_control::mc_snapshot))
         // Merge rate-limited routes
         .merge(rate_limited)
         .layer(DefaultBodyLimit::max(2 * 1024 * 1024)) // 2MB max request body

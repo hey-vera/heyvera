@@ -36,6 +36,9 @@ tokio-stream.workspace = true
 jsonwebtoken.workspace = true
 reqwest.workspace = true
 rusqlite.workspace = true
+hmac.workspace = true
+sha2.workspace = true
+hex.workspace = true
 async-stream.workspace = true
 
 [dev-dependencies]
