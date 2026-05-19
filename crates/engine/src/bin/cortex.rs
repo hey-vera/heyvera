@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand};
 use cortex_core::autonomy::AutonomyDecision;
+use cortex_core::contamination::*;
 use cortex_core::ledger::{LedgerEntry, LedgerEvent};
 use cortex_core::provider::ProviderId;
 use cortex_engine::bandit::{ArmStats, UcbScorer};
@@ -29,6 +30,7 @@ enum Commands {
     Ledger(LedgerArgs),
     Explain(ExplainArgs),
     Templates(TemplatesArgs),
+    Receipt(ReceiptArgs),
 }
 
 #[derive(Args, Debug)]
@@ -59,6 +61,17 @@ struct ExplainArgs {
 struct TemplatesArgs {
     #[arg(long)]
     dial: Option<u8>,
+}
+
+#[derive(Args, Debug)]
+struct ReceiptArgs {
+    goal: String,
+    #[arg(long = "files", value_name = "PATH", num_args = 1.., required = true)]
+    files: Vec<String>,
+    #[arg(long, default_value_t = 5)]
+    dial: u8,
+    #[arg(long = "evidence", value_name = "EVIDENCE", num_args = 0..)]
+    evidence: Vec<String>,
 }
 
 struct Palette {
@@ -116,6 +129,7 @@ fn main() -> Result<()> {
         Commands::Ledger(args) => cmd_ledger(&palette, args),
         Commands::Explain(args) => cmd_explain(&palette, args),
         Commands::Templates(args) => cmd_templates(&palette, args),
+        Commands::Receipt(args) => cmd_receipt(&palette, args),
     }
 }
 
@@ -549,6 +563,217 @@ where
         .map(ToString::to_string)
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+fn cmd_receipt(palette: &Palette, args: ReceiptArgs) -> Result<()> {
+    let store = open_default_store()?;
+    let context = routing_context(&store, args.dial)?;
+    let file_refs: Vec<&str> = args.files.iter().map(String::as_str).collect();
+
+    let signals = parse_evidence_args(&args.evidence);
+
+    println!("{}", palette.heading("Evidence Receipt"));
+    println!("{}", palette.muted("─".repeat(60)));
+
+    match plan_route(&args.goal, &file_refs, &context.config, &context.scorer) {
+        PipelineResult::Planned(plan) => {
+            println!("{} {:?}", palette.label("Intent:"), plan.intent);
+            println!("{} {:?}", palette.label("Risk:"), plan.risk_level);
+            println!("{} {:?}", palette.label("Template:"), plan.template);
+            println!("{} {}", palette.label("Provider:"), plan.provider);
+            println!("{} {:.2}", palette.label("Confidence:"), plan.confidence);
+
+            println!();
+            println!("{}", palette.heading("Evidence Signals"));
+            if signals.is_empty() {
+                println!("{}", palette.muted("  No evidence provided. Use --evidence to add signals."));
+                println!("{}", palette.muted("  Formats: compiler, human-review, ai-test:model, ai-review:gen:ver"));
+            } else {
+                for (i, signal) in signals.iter().enumerate() {
+                    let contamination_color = if signal.contamination.raw_value < 0.3 {
+                        palette.good(format!("{:.2}", signal.contamination.raw_value))
+                    } else if signal.contamination.raw_value < 0.7 {
+                        palette.warn(format!("{:.2}", signal.contamination.raw_value))
+                    } else {
+                        palette.bad(format!("{:.2}", signal.contamination.raw_value))
+                    };
+
+                    let penalty_tag = if signal.contamination.same_model_penalty {
+                        palette.bad(" [SAME-MODEL PENALTY]")
+                    } else {
+                        String::new()
+                    };
+
+                    println!(
+                        "  {}. {} {:?} | tier={:?} | contamination={}{} | effective_reward={:.2}",
+                        i + 1,
+                        palette.label(&signal.description),
+                        signal.source,
+                        signal.tier,
+                        contamination_color,
+                        penalty_tag,
+                        signal.effective_reward
+                    );
+                }
+            }
+
+            println!();
+            println!("{}", palette.heading("Floor Verdict"));
+            match check_floor(plan.risk_level, &signals) {
+                FloorVerdict::Satisfied { signals_met } => {
+                    if signals_met.is_empty() {
+                        println!("  {}", palette.good("PASS — no evidence required at this risk level"));
+                    } else {
+                        println!("  {}", palette.good("PASS — all requirements satisfied:"));
+                        for met in &signals_met {
+                            println!("    {} {}", palette.good("*"), met);
+                        }
+                    }
+                }
+                FloorVerdict::Blocked { missing, risk_level } => {
+                    println!(
+                        "  {} for {:?} risk:",
+                        palette.bad("BLOCKED"),
+                        risk_level,
+                    );
+                    for m in &missing {
+                        println!("    {} {}", palette.bad("x"), m);
+                    }
+                }
+            }
+
+            println!();
+            println!("{}", palette.heading("Autonomy"));
+            println!("  {} {:?}", palette.label("Decision:"), plan.autonomy);
+            if plan.autonomy.requires_user_input() {
+                println!("  {}", palette.warn("User checkpoint required before execution."));
+            } else {
+                println!("  {}", palette.good("Can proceed without user intervention."));
+            }
+
+            println!();
+            println!("{}", palette.muted("─".repeat(60)));
+
+            // Contamination summary
+            if !signals.is_empty() {
+                let total_raw: f64 = signals.iter().map(|s| s.raw_reward).sum();
+                let total_effective: f64 = signals.iter().map(|s| s.effective_reward).sum();
+                let avg_contamination: f64 = signals.iter().map(|s| s.contamination.raw_value).sum::<f64>() / signals.len() as f64;
+                let penalty_count = signals.iter().filter(|s| s.contamination.same_model_penalty).count();
+
+                println!("{}", palette.heading("Contamination Summary"));
+                println!("  {} {:.2}", palette.label("Avg contamination:"), avg_contamination);
+                println!(
+                    "  {} {:.2} -> {:.2} ({:.0}% retained)",
+                    palette.label("Reward:"),
+                    total_raw,
+                    total_effective,
+                    if total_raw > 0.0 { total_effective / total_raw * 100.0 } else { 0.0 }
+                );
+                if penalty_count > 0 {
+                    println!(
+                        "  {}",
+                        palette.bad(format!("{penalty_count} signal(s) penalized for same-model contamination"))
+                    );
+                }
+            }
+        }
+        PipelineResult::Blocked { reason, missing_evidence } => {
+            println!("{} {}", palette.label("Result:"), palette.bad("BLOCKED"));
+            println!("{} {}", palette.label("Reason:"), reason);
+            if !missing_evidence.is_empty() {
+                println!("{} {}", palette.label("Missing:"), missing_evidence.join(", "));
+            }
+        }
+        PipelineResult::NoProviders => {
+            println!("{} {}", palette.label("Result:"), palette.bad("NO PROVIDERS"));
+        }
+    }
+
+    Ok(())
+}
+
+fn parse_evidence_args(args: &[String]) -> Vec<EvidenceSignal> {
+    args.iter()
+        .filter_map(|arg| {
+            let parts: Vec<&str> = arg.split(':').collect();
+            match parts[0] {
+                "compiler" => Some(EvidenceSignal::new(
+                    SignalTier::HardObjective,
+                    EvidenceSource::CompilerOutput,
+                    None,
+                    None,
+                    1.0,
+                    "Compiler output",
+                )),
+                "ci" => Some(EvidenceSignal::new(
+                    SignalTier::HardObjective,
+                    EvidenceSource::CiPipeline,
+                    None,
+                    None,
+                    1.0,
+                    "CI pipeline",
+                )),
+                "linter" => Some(EvidenceSignal::new(
+                    SignalTier::HardObjective,
+                    EvidenceSource::Linter,
+                    None,
+                    None,
+                    1.0,
+                    "Linter output",
+                )),
+                "tests" => Some(EvidenceSignal::new(
+                    SignalTier::HardObjective,
+                    EvidenceSource::ExistingTestSuite,
+                    None,
+                    None,
+                    1.0,
+                    "Existing test suite",
+                )),
+                "human-review" => Some(EvidenceSignal::new(
+                    SignalTier::IndependentVerify,
+                    EvidenceSource::HumanReview,
+                    None,
+                    None,
+                    1.0,
+                    "Human review",
+                )),
+                "human-test" => Some(EvidenceSignal::new(
+                    SignalTier::HardObjective,
+                    EvidenceSource::HumanWrittenTest,
+                    None,
+                    None,
+                    1.0,
+                    "Human-written test",
+                )),
+                "ai-test" => {
+                    let model = parts.get(1).map(|s| s.to_string());
+                    let verifier = model.clone();
+                    Some(EvidenceSignal::new(
+                        SignalTier::IndependentVerify,
+                        EvidenceSource::AiGeneratedTest,
+                        model,
+                        verifier,
+                        1.0,
+                        format!("AI-generated test{}", parts.get(1).map(|m| format!(" ({m})")).unwrap_or_default()),
+                    ))
+                }
+                "ai-review" => {
+                    let generator = parts.get(1).map(|s| s.to_string());
+                    let verifier = parts.get(2).map(|s| s.to_string()).or_else(|| generator.clone());
+                    Some(EvidenceSignal::new(
+                        SignalTier::IndependentVerify,
+                        EvidenceSource::AiReview,
+                        generator,
+                        verifier,
+                        1.0,
+                        format!("AI review{}", parts.get(1).map(|m| format!(" ({m})")).unwrap_or_default()),
+                    ))
+                }
+                _ => None,
+            }
+        })
+        .collect()
 }
 
 fn percent(successes: u32, trials: u32) -> String {
