@@ -9,6 +9,7 @@ import {
   X,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import LedgerView from '../ledger/LedgerView';
 import RunPanel from '../runs/RunPanel';
 import type { ApprovalRequest, ApprovalState, ChatMessage, RunProfile, WorkEventItem } from '../../types';
 
@@ -138,6 +139,7 @@ function WorkSurfaceContent({
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
         <div className="space-y-5">
           <RunPanel profile={runProfile} />
+          <LedgerView />
 
           {!hasWork ? (
             <div className="flex min-h-64 flex-col items-center justify-center rounded-2xl border border-dashed border-white/10 bg-white/[0.02] px-5 text-center">
@@ -149,138 +151,138 @@ function WorkSurfaceContent({
             </div>
           ) : (
             <>
-            <section>
-              <div className="mb-2 flex items-center justify-between">
-                <h3 className="text-xs font-medium uppercase tracking-[0.08em] text-[var(--muted)]">
-                  Timeline
-                </h3>
-                <span className="text-[11px] text-[var(--muted)]">{events.length} events</span>
-              </div>
-              <div className="space-y-2">
-                {events.map((event) => {
-                  const copied = copiedEventId === event.id;
-                  return (
-                    <div
-                      key={event.id}
-                      className="group rounded-xl border border-white/8 bg-white/[0.03] px-3 py-2.5"
-                    >
-                      <div className="flex items-start gap-2">
-                        <div className="mt-0.5">{stateIcon(event.state)}</div>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center justify-between gap-2">
-                            <p className="truncate text-sm font-medium text-white">{event.title}</p>
-                            <div className="flex shrink-0 items-center gap-1">
-                              <span className="text-[11px] text-[var(--muted)]">
-                                {formatTime(event.timestamp)}
-                              </span>
-                              <button
-                                type="button"
-                                aria-label="Copy event"
-                                onClick={() => void copyEvent(event)}
-                                className="rounded-md p-1 text-[var(--muted)] opacity-0 transition hover:bg-white/6 hover:text-white active:scale-95 group-hover:opacity-100 group-focus-within:opacity-100"
-                              >
-                                {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-                              </button>
-                            </div>
-                          </div>
-                          <p className="mt-1 line-clamp-2 text-xs leading-5 text-[var(--muted)]">
-                            {event.detail}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-
-            <section>
-              <h3 className="mb-2 text-xs font-medium uppercase tracking-[0.08em] text-[var(--muted)]">
-                Approvals
-              </h3>
-              {approvals.length === 0 ? (
-                <div className="rounded-xl border border-white/8 bg-white/[0.02] px-3 py-3 text-xs text-[var(--muted)]">
-                  Nothing waiting for approval.
+              <section>
+                <div className="mb-2 flex items-center justify-between">
+                  <h3 className="text-xs font-medium uppercase tracking-[0.08em] text-[var(--muted)]">
+                    Timeline
+                  </h3>
+                  <span className="text-[11px] text-[var(--muted)]">{events.length} events</span>
                 </div>
-              ) : (
                 <div className="space-y-2">
-                  {approvals.map((approval) => {
-                    const resolved = approval.state === 'approved' || approval.state === 'rejected';
+                  {events.map((event) => {
+                    const copied = copiedEventId === event.id;
                     return (
                       <div
-                        key={`${approval.messageId}-${approval.title}`}
-                        className="rounded-xl border border-white/8 bg-black/15 p-3"
+                        key={event.id}
+                        className="group rounded-xl border border-white/8 bg-white/[0.03] px-3 py-2.5"
                       >
                         <div className="flex items-start gap-2">
-                          <GitCommitHorizontal className="mt-0.5 h-4 w-4 shrink-0 text-[var(--accent)]" />
+                          <div className="mt-0.5">{stateIcon(event.state)}</div>
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center justify-between gap-2">
-                              <p className="truncate text-sm font-medium text-white">{approval.title}</p>
-                              <span className="shrink-0 rounded-full border border-white/8 bg-white/4 px-2 py-0.5 text-[10px] text-[var(--muted)]">
-                                {APPROVAL_LABELS[approval.state]}
-                              </span>
+                              <p className="truncate text-sm font-medium text-white">{event.title}</p>
+                              <div className="flex shrink-0 items-center gap-1">
+                                <span className="text-[11px] text-[var(--muted)]">
+                                  {formatTime(event.timestamp)}
+                                </span>
+                                <button
+                                  type="button"
+                                  aria-label="Copy event"
+                                  onClick={() => void copyEvent(event)}
+                                  className="rounded-md p-1 text-[var(--muted)] opacity-0 transition hover:bg-white/6 hover:text-white active:scale-95 group-hover:opacity-100 group-focus-within:opacity-100"
+                                >
+                                  {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                                </button>
+                              </div>
                             </div>
-                            <p className="mt-1 text-xs leading-5 text-[var(--muted)]">
-                              {approval.filesChanged} files changed. {approval.diffSummary}
+                            <p className="mt-1 line-clamp-2 text-xs leading-5 text-[var(--muted)]">
+                              {event.detail}
                             </p>
-                            <div className="mt-3 flex flex-wrap gap-2">
-                              <button
-                                type="button"
-                                disabled={resolved}
-                                onClick={() => onApprovalAction(approval.messageId, 'reviewed')}
-                                className="rounded-lg border border-white/8 bg-white/4 px-2.5 py-1.5 text-xs text-white transition hover:bg-white/8 active:scale-95 disabled:cursor-not-allowed disabled:opacity-45"
-                              >
-                                Review
-                              </button>
-                              <button
-                                type="button"
-                                disabled={resolved}
-                                onClick={() => onApprovalAction(approval.messageId, 'approved')}
-                                className="rounded-lg bg-[var(--accent)] px-2.5 py-1.5 text-xs font-medium text-black transition hover:brightness-110 active:scale-95 disabled:cursor-not-allowed disabled:opacity-45"
-                              >
-                                Approve
-                              </button>
-                              <button
-                                type="button"
-                                disabled={resolved}
-                                onClick={() => onApprovalAction(approval.messageId, 'rejected')}
-                                className="rounded-lg border border-white/8 px-2.5 py-1.5 text-xs text-[var(--muted-strong)] transition hover:bg-white/5 active:scale-95 disabled:cursor-not-allowed disabled:opacity-45"
-                              >
-                                Reject
-                              </button>
-                            </div>
                           </div>
                         </div>
                       </div>
                     );
                   })}
                 </div>
-              )}
-            </section>
+              </section>
 
-            <section>
-              <h3 className="mb-2 text-xs font-medium uppercase tracking-[0.08em] text-[var(--muted)]">
-                Session Signals
-              </h3>
-              <div className="grid gap-2">
-                {[
-                  { label: 'Provider', value: latestProvider },
-                  { label: 'Model', value: latestModel },
-                  { label: 'Latest', value: latestEvent?.title ?? 'Idle' },
-                ].map(({ label, value }) => (
-                  <div
-                    key={label}
-                    className="flex items-center justify-between rounded-xl border border-white/8 bg-white/[0.02] px-3 py-2.5"
-                  >
-                    <span className="inline-flex items-center gap-2 text-sm text-[var(--muted-strong)]">
-                      <ListChecks className="h-3.5 w-3.5 text-[var(--muted)]" />
-                      {label}
-                    </span>
-                    <span className="max-w-36 truncate text-[11px] text-[var(--muted)]">{value}</span>
+              <section>
+                <h3 className="mb-2 text-xs font-medium uppercase tracking-[0.08em] text-[var(--muted)]">
+                  Approvals
+                </h3>
+                {approvals.length === 0 ? (
+                  <div className="rounded-xl border border-white/8 bg-white/[0.02] px-3 py-3 text-xs text-[var(--muted)]">
+                    Nothing waiting for approval.
                   </div>
-                ))}
-              </div>
-            </section>
+                ) : (
+                  <div className="space-y-2">
+                    {approvals.map((approval) => {
+                      const resolved = approval.state === 'approved' || approval.state === 'rejected';
+                      return (
+                        <div
+                          key={`${approval.messageId}-${approval.title}`}
+                          className="rounded-xl border border-white/8 bg-black/15 p-3"
+                        >
+                          <div className="flex items-start gap-2">
+                            <GitCommitHorizontal className="mt-0.5 h-4 w-4 shrink-0 text-[var(--accent)]" />
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center justify-between gap-2">
+                                <p className="truncate text-sm font-medium text-white">{approval.title}</p>
+                                <span className="shrink-0 rounded-full border border-white/8 bg-white/4 px-2 py-0.5 text-[10px] text-[var(--muted)]">
+                                  {APPROVAL_LABELS[approval.state]}
+                                </span>
+                              </div>
+                              <p className="mt-1 text-xs leading-5 text-[var(--muted)]">
+                                {approval.filesChanged} files changed. {approval.diffSummary}
+                              </p>
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                <button
+                                  type="button"
+                                  disabled={resolved}
+                                  onClick={() => onApprovalAction(approval.messageId, 'reviewed')}
+                                  className="rounded-lg border border-white/8 bg-white/4 px-2.5 py-1.5 text-xs text-white transition hover:bg-white/8 active:scale-95 disabled:cursor-not-allowed disabled:opacity-45"
+                                >
+                                  Review
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={resolved}
+                                  onClick={() => onApprovalAction(approval.messageId, 'approved')}
+                                  className="rounded-lg bg-[var(--accent)] px-2.5 py-1.5 text-xs font-medium text-black transition hover:brightness-110 active:scale-95 disabled:cursor-not-allowed disabled:opacity-45"
+                                >
+                                  Approve
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={resolved}
+                                  onClick={() => onApprovalAction(approval.messageId, 'rejected')}
+                                  className="rounded-lg border border-white/8 px-2.5 py-1.5 text-xs text-[var(--muted-strong)] transition hover:bg-white/5 active:scale-95 disabled:cursor-not-allowed disabled:opacity-45"
+                                >
+                                  Reject
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </section>
+
+              <section>
+                <h3 className="mb-2 text-xs font-medium uppercase tracking-[0.08em] text-[var(--muted)]">
+                  Session Signals
+                </h3>
+                <div className="grid gap-2">
+                  {[
+                    { label: 'Provider', value: latestProvider },
+                    { label: 'Model', value: latestModel },
+                    { label: 'Latest', value: latestEvent?.title ?? 'Idle' },
+                  ].map(({ label, value }) => (
+                    <div
+                      key={label}
+                      className="flex items-center justify-between rounded-xl border border-white/8 bg-white/[0.02] px-3 py-2.5"
+                    >
+                      <span className="inline-flex items-center gap-2 text-sm text-[var(--muted-strong)]">
+                        <ListChecks className="h-3.5 w-3.5 text-[var(--muted)]" />
+                        {label}
+                      </span>
+                      <span className="max-w-36 truncate text-[11px] text-[var(--muted)]">{value}</span>
+                    </div>
+                  ))}
+                </div>
+              </section>
             </>
           )}
         </div>

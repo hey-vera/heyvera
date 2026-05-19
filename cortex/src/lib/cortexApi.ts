@@ -137,12 +137,10 @@ export async function getAuthStatus(): Promise<ProviderAuthInfo[]> {
 }
 
 export async function startAuth(provider: string): Promise<AuthStartResponse> {
-  const res = await authedFetch(`${BASE_URL}/api/auth/start`, {
+  return requestJson<AuthStartResponse>('/api/auth/start', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ provider }),
   });
-  return res.json();
 }
 
 export async function submitAuthCode(provider: string, code: string): Promise<{ success: boolean; message: string }> {
@@ -197,6 +195,39 @@ export async function selectRepos(repoIds: number[]): Promise<void> {
 
 export async function getUserProfile() {
   return requestJson('/api/user/profile');
+}
+
+// Decision ledger
+
+export interface LedgerEntry {
+  id: string;
+  timestamp: string;
+  event: {
+    type: string;
+    task_id?: string;
+    provider?: string;
+    model?: string;
+    tier?: string;
+    risk?: string;
+    rationale?: string[];
+    score?: number;
+    alternatives_considered?: Array<{
+      provider?: string;
+      model?: string;
+      tier?: string;
+      score?: number;
+    }>;
+    status?: string;
+    duration_ms?: number;
+    files_changed?: number;
+    tests_passed?: boolean | null;
+    authenticated?: boolean;
+    pressure?: number;
+  };
+}
+
+export async function getLedger(): Promise<LedgerEntry[]> {
+  return requestJson<LedgerEntry[]>('/api/ledger');
 }
 
 // Runs
