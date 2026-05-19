@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 2,
+  "createdAt": "2026-05-17T15:05:01.925Z",
+  "updatedAt": "2026-05-17T15:21:54.531Z",
+  "workStyle": "auto",
+  "providers": {
+    "claude": {
+      "enabled": true
+    },
+    "openai": {
+      "enabled": true
+    }
+  },
+  "mode": "dual",
+  "bias": "auto",
+  "preferences": [],
+  "apiGuardrail": false,
+  "setupComplete": true,
+  "defaultShellAsked": true,
+  "isDefaultShell": true
+}

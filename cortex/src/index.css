@@ -1,0 +1,48 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: dark;
+  --bg: #0d0f0f;
+  --panel: #141717;
+  --composer: #1a1e1e;
+  --assistant-bubble: #191d1d;
+  --user-bubble: #2d3a37;
+  --accent: #9cc7b8;
+  --accent-soft: #263c36;
+  --fg: #f2f4f3;
+  --muted-strong: #c8d0cc;
+  --muted: #8f9a96;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family:
+    Inter,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+}
+
+button,
+textarea,
+input {
+  font: inherit;
+}
+
+::selection {
+  background: rgba(185, 201, 143, 0.35);
+}

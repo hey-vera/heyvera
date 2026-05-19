@@ -1,0 +1,9 @@
+const mod = require('../../node_modules/soma-heart/dist/core/genome.js');
+export const sha256: typeof mod.sha256 = mod.sha256;
+export const publicKeyToDid: typeof mod.publicKeyToDid = mod.publicKeyToDid;
+export const didToPublicKey: typeof mod.didToPublicKey = mod.didToPublicKey;
+export const createGenome: typeof mod.createGenome = mod.createGenome;
+export const computeHash: typeof mod.computeHash = mod.computeHash;
+export const commitGenome: typeof mod.commitGenome = mod.commitGenome;
+export const verifyCommitment: typeof mod.verifyCommitment = mod.verifyCommitment;
+export const mutateGenome: typeof mod.mutateGenome = mod.mutateGenome;

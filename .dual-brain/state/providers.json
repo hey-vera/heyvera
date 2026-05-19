@@ -1,0 +1,15 @@
+{
+  "timestamp": "2026-05-17T16:36:57.589Z",
+  "providers": {
+    "claude": {
+      "score": 0.92,
+      "dispatchCount": 47,
+      "degraded": false
+    },
+    "openai": {
+      "score": 0.85,
+      "dispatchCount": 31,
+      "degraded": false
+    }
+  }
+}

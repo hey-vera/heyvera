@@ -5,6 +5,31 @@
 # API:          localhost:3402 (Hono, Docker)
 # Dashboard:    /var/www/claw-net-dashboard/ (Soma Signing Authority SPA)
 
+cortex.heyvera.org {
+	handle /api/* {
+		reverse_proxy localhost:3001
+	}
+
+	handle /assets/* {
+		root * /var/www/cortex
+		file_server
+		header Cache-Control "public, max-age=31536000, immutable"
+	}
+
+	handle {
+		root * /var/www/cortex
+		try_files {path} /index.html
+		file_server
+		header Cache-Control "no-cache, no-store, must-revalidate"
+	}
+
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+	}
+}
+
 api.claw-net.org {
 	reverse_proxy localhost:3402
 }

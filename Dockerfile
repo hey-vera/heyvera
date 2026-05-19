@@ -1,20 +1,62 @@
-# Stage 1: Builder
-FROM node:22-alpine AS builder
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci
-COPY tsconfig.json ./
-COPY src ./src
-RUN npm run build
+# ── Stage 1: Build ──────────────────────────────────────────────
+FROM rust:1.87-slim AS builder
 
-# Stage 2: Runner
-FROM node:22-alpine AS runner
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci --omit=dev
-COPY --from=builder --chown=node:node /app/dist ./dist
-RUN mkdir -p data && chown -R node:node /app
-EXPOSE 3402
-ENV NODE_ENV=production
-USER node
-CMD ["node", "dist/index.js"]
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    pkg-config libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+
+# Cache dependency build: copy manifests first, create stub sources,
+# build once, then copy real sources and rebuild.
+COPY Cargo.toml Cargo.lock ./
+COPY crates/core/Cargo.toml crates/core/Cargo.toml
+COPY crates/engine/Cargo.toml crates/engine/Cargo.toml
+COPY crates/api/Cargo.toml crates/api/Cargo.toml
+COPY crates/worker/Cargo.toml crates/worker/Cargo.toml
+
+# Create minimal stub files so cargo can resolve the workspace
+RUN mkdir -p crates/core/src crates/engine/src crates/api/src crates/worker/src/bin \
+    && echo "pub fn _stub() {}" > crates/core/src/lib.rs \
+    && echo "pub fn _stub() {}" > crates/engine/src/lib.rs \
+    && echo "pub fn _stub() {}" > crates/api/src/lib.rs \
+    && echo "fn main() {}" > crates/api/src/main.rs \
+    && echo "fn main() {}" > crates/worker/src/bin/worker.rs
+
+# Build deps only (this layer is cached until Cargo.toml/lock changes)
+RUN cargo build --release -p cortex-api 2>/dev/null || true
+
+# Copy real sources and rebuild
+COPY crates/ crates/
+RUN touch crates/core/src/lib.rs crates/engine/src/lib.rs \
+         crates/api/src/lib.rs crates/api/src/main.rs \
+         crates/worker/src/bin/worker.rs \
+    && cargo build --release -p cortex-api
+
+# ── Stage 2: Runtime ───────────────────────────────────────────
+FROM debian:bookworm-slim AS runtime
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates git curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Non-root user
+RUN groupadd --gid 1001 cortex \
+    && useradd --uid 1001 --gid cortex --create-home cortex
+
+# Persistent data directory for SQLite
+RUN mkdir -p /data && chown cortex:cortex /data
+
+COPY --from=builder --chown=cortex:cortex /src/target/release/cortex-server /usr/local/bin/cortex-server
+
+USER cortex
+WORKDIR /home/cortex
+
+ENV CORTEX_PORT=3001
+ENV CORTEX_DB_PATH=/data/cortex.db
+EXPOSE 3001
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD curl -sf http://localhost:3001/api/health || exit 1
+
+ENTRYPOINT ["cortex-server"]

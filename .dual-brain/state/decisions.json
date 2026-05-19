@@ -1,0 +1,137 @@
+[
+  {
+    "timestamp": "2026-05-17T16:06:57.590Z",
+    "promptSummary": "Find all auth middleware files and check for session token storage",
+    "provider": "claude",
+    "model": "haiku",
+    "tier": "search",
+    "reason": "budget balance favors this provider",
+    "explored": true
+  },
+  {
+    "timestamp": "2026-05-17T16:08:57.590Z",
+    "promptSummary": "Refactor the billing module to use the new payment provider",
+    "provider": "openai",
+    "model": "sonnet",
+    "tier": "execute",
+    "reason": "best EMA score for task type",
+    "explored": false
+  },
+  {
+    "timestamp": "2026-05-17T16:10:57.590Z",
+    "promptSummary": "Should we use Redis or Memcached for session caching?",
+    "provider": "claude",
+    "model": "opus",
+    "tier": "think",
+    "reason": "best EMA score for task type",
+    "explored": false
+  },
+  {
+    "timestamp": "2026-05-17T16:12:57.590Z",
+    "promptSummary": "grep for deprecated API calls in the codebase",
+    "provider": "openai",
+    "model": "gpt-4.1-mini",
+    "tier": "search",
+    "reason": "budget balance favors this provider",
+    "explored": false
+  },
+  {
+    "timestamp": "2026-05-17T16:14:57.590Z",
+    "promptSummary": "Add rate limiting to the public API endpoints",
+    "provider": "claude",
+    "model": "gpt-5.4",
+    "tier": "execute",
+    "reason": "best EMA score for task type",
+    "explored": false
+  },
+  {
+    "timestamp": "2026-05-17T16:16:57.590Z",
+    "promptSummary": "Review the migration script for the users table",
+    "provider": "openai",
+    "model": "gpt-5.5",
+    "tier": "think",
+    "reason": "best EMA score for task type",
+    "explored": true
+  },
+  {
+    "timestamp": "2026-05-17T16:18:57.590Z",
+    "promptSummary": "Update the CI pipeline to run parallel test suites",
+    "provider": "claude",
+    "model": "haiku",
+    "tier": "search",
+    "reason": "budget balance favors this provider",
+    "explored": false
+  },
+  {
+    "timestamp": "2026-05-17T16:20:57.590Z",
+    "promptSummary": "Explore the logging infrastructure and find gaps",
+    "provider": "openai",
+    "model": "sonnet",
+    "tier": "execute",
+    "reason": "best EMA score for task type",
+    "explored": false
+  },
+  {
+    "timestamp": "2026-05-17T16:22:57.590Z",
+    "promptSummary": "Find all auth middleware files and check for session token storage",
+    "provider": "claude",
+    "model": "opus",
+    "tier": "think",
+    "reason": "best EMA score for task type",
+    "explored": false
+  },
+  {
+    "timestamp": "2026-05-17T16:24:57.590Z",
+    "promptSummary": "Refactor the billing module to use the new payment provider",
+    "provider": "openai",
+    "model": "gpt-4.1-mini",
+    "tier": "search",
+    "reason": "budget balance favors this provider",
+    "explored": false
+  },
+  {
+    "timestamp": "2026-05-17T16:26:57.590Z",
+    "promptSummary": "Should we use Redis or Memcached for session caching?",
+    "provider": "claude",
+    "model": "gpt-5.4",
+    "tier": "execute",
+    "reason": "best EMA score for task type",
+    "explored": true
+  },
+  {
+    "timestamp": "2026-05-17T16:28:57.590Z",
+    "promptSummary": "grep for deprecated API calls in the codebase",
+    "provider": "openai",
+    "model": "gpt-5.5",
+    "tier": "think",
+    "reason": "best EMA score for task type",
+    "explored": false
+  },
+  {
+    "timestamp": "2026-05-17T16:30:57.590Z",
+    "promptSummary": "Add rate limiting to the public API endpoints",
+    "provider": "claude",
+    "model": "haiku",
+    "tier": "search",
+    "reason": "budget balance favors this provider",
+    "explored": false
+  },
+  {
+    "timestamp": "2026-05-17T16:32:57.590Z",
+    "promptSummary": "Review the migration script for the users table",
+    "provider": "openai",
+    "model": "sonnet",
+    "tier": "execute",
+    "reason": "best EMA score for task type",
+    "explored": false
+  },
+  {
+    "timestamp": "2026-05-17T16:34:57.590Z",
+    "promptSummary": "Update the CI pipeline to run parallel test suites",
+    "provider": "claude",
+    "model": "opus",
+    "tier": "think",
+    "reason": "best EMA score for task type",
+    "explored": false
+  }
+]

@@ -1,0 +1,17 @@
+services:
+  brain:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    init: true
+    ports:
+      - "3001:3001"
+    env_file:
+      - .env
+    environment:
+      - CORTEX_PORT=3001
+      - CORTEX_DB_PATH=/data/cortex.db
+      - RUST_LOG=info,cortex_api=debug
+    volumes:
+      - ./.cortex:/data
+    restart: unless-stopped

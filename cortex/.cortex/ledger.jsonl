@@ -1,0 +1,2 @@
+{"id":"f797ba65-ae96-4a61-9f06-1acf7ffda195","timestamp":"2026-05-18T16:44:04.284191158Z","event":{"type":"routing_decision","task_id":"755b41c7-b220-40f4-9c52-8af5734f5313","provider":"claude","tier":"search","risk":"low","rationale":["best_available_for_tier"],"score":150.0}}
+{"id":"b5956b46-254c-485b-a3f7-a497d3e888ef","timestamp":"2026-05-18T16:44:29.960524237Z","event":{"type":"task_outcome","task_id":"755b41c7-b220-40f4-9c52-8af5734f5313","provider":"claude","status":"completed","duration_ms":25676,"files_changed":0,"tests_passed":null}}

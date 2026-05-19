@@ -1,8 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createSomaHeart, loadSomaHeart, type HeartRuntime } from 'soma-heart';
-import { createGenome, commitGenome } from 'soma-heart/core';
-import { getCryptoProvider } from 'soma-heart/crypto-provider';
+import { createGenome, commitGenome } from '../shims/soma-heart-core';
+import { getCryptoProvider } from '../shims/soma-heart-crypto-provider';
 import { env } from '../config/index';
 import { logger } from '../utils/logger';
 
