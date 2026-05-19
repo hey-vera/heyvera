@@ -23,7 +23,7 @@ function useClerkGate(): AuthGateResult {
   };
 }
 
-function useLocalGate(): AuthGateResult {
+function getLocalGate(): AuthGateResult {
   return {
     isLoaded: true,
     isSignedIn: true,
@@ -38,5 +38,5 @@ export function useAuthGate(): AuthGateResult {
     // eslint-disable-next-line react-hooks/rules-of-hooks
     return useClerkGate();
   }
-  return useLocalGate();
+  return getLocalGate();
 }

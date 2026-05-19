@@ -60,6 +60,14 @@ export default function App() {
     readSessionControls,
   );
 
+  const handleConversationCreated = useCallback((conversationId: string) => {
+    setActiveConversationId(conversationId);
+  }, []);
+
+  const handleConversationsChanged = useCallback(() => {
+    setConversationListVersion((version) => version + 1);
+  }, []);
+
   useEffect(() => {
     if (getToken) setAuthTokenGetter(getToken);
   }, [getToken]);
@@ -90,12 +98,8 @@ export default function App() {
   } = useChatSession({
     activeConversationId,
     userId: userId ?? 'local',
-    onConversationCreated: (conversationId) => {
-      setActiveConversationId(conversationId);
-    },
-    onConversationsChanged: () => {
-      setConversationListVersion((version) => version + 1);
-    },
+    onConversationCreated: handleConversationCreated,
+    onConversationsChanged: handleConversationsChanged,
   });
 
   const titleInputRef = useRef<HTMLInputElement | null>(null);

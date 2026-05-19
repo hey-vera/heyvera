@@ -648,7 +648,7 @@ export function useChatSession({
         }
       }
     })();
-  }, [draft, isStreaming]);
+  }, [draft, isStreaming, onConversationCreated, onConversationsChanged, userId]);
 
   return {
     project: PROJECT,

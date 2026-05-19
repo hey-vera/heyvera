@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Archive,
   ChevronDown,
@@ -71,7 +71,7 @@ export default function Sidebar({
   const renameInputRef = useRef<HTMLInputElement | null>(null);
   const skipRenameBlurSaveRef = useRef(false);
 
-  const fetchConversations = async () => {
+  const fetchConversations = useCallback(async () => {
     try {
       const list = await listConversations(userId);
       setConversations(list);
@@ -81,13 +81,13 @@ export default function Sidebar({
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [userId]);
 
   useEffect(() => {
     fetchConversations();
     const interval = window.setInterval(fetchConversations, 5000);
     return () => window.clearInterval(interval);
-  }, [userId, refreshKey]);
+  }, [fetchConversations, refreshKey]);
 
   useEffect(() => {
     setMeta(readSidebarConversationMeta(userId));
