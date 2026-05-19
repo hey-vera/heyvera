@@ -7,6 +7,7 @@ import {
   MoreHorizontal,
   Pencil,
   Pin,
+  RefreshCcw,
   Search,
   Settings,
   Trash2,
@@ -56,6 +57,8 @@ export default function Sidebar({
   onOpenSettings,
 }: SidebarProps) {
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [meta, setMeta] = useState<SidebarConversationMetaMap>({});
   const [archivedExpanded, setArchivedExpanded] = useState(false);
@@ -70,8 +73,11 @@ export default function Sidebar({
     try {
       const list = await listConversations(userId);
       setConversations(list);
-    } catch {
-      // silent
+      setLoadError(null);
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : 'Could not load conversations');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -374,6 +380,8 @@ export default function Sidebar({
   const noResults = pinnedConversations.length === 0
     && recentConversations.length === 0
     && archivedConversations.length === 0;
+  const showInitialLoading = isLoading && conversations.length === 0;
+  const showLoadError = Boolean(loadError) && conversations.length === 0;
 
   return (
     <div className="relative flex h-full w-72 flex-col border-r border-white/6 bg-[var(--bg)]">
@@ -401,7 +409,34 @@ export default function Sidebar({
       </div>
 
       <div className="flex-1 overflow-y-auto px-2 pb-3">
-        {noResults ? (
+        {showInitialLoading ? (
+          <div className="space-y-2 px-2 py-3">
+            {[0, 1, 2, 3].map((item) => (
+              <div key={item} className="rounded-xl px-3 py-2.5">
+                <div className="h-4 w-36 animate-pulse rounded-full bg-white/[0.06]" />
+                <div className="mt-2 h-3 w-24 animate-pulse rounded-full bg-white/[0.04]" />
+              </div>
+            ))}
+          </div>
+        ) : showLoadError ? (
+          <div className="mx-2 mt-4 rounded-xl border border-red-400/15 bg-red-400/8 px-3 py-3">
+            <p className="text-sm font-medium text-red-100">Conversation list unavailable</p>
+            <p className="mt-1 text-xs leading-5 text-red-100/70">
+              Cortex could not load saved chats. You can still start a new chat.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                setIsLoading(true);
+                void fetchConversations();
+              }}
+              className="mt-3 inline-flex items-center gap-2 rounded-lg border border-red-200/15 bg-red-200/10 px-2.5 py-1.5 text-xs text-red-50 transition hover:bg-red-200/15 active:scale-95"
+            >
+              <RefreshCcw className="h-3.5 w-3.5" />
+              Retry
+            </button>
+          </div>
+        ) : noResults ? (
           <p className="px-2 py-4 text-center text-xs text-[var(--muted)]">
             {normalizedSearch ? 'No matches' : 'No conversations yet'}
           </p>
