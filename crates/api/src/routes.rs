@@ -61,6 +61,9 @@ pub async fn route_task(
     _user: ClerkUser,
     Json(req): Json<RouteRequest>,
 ) -> Result<Json<RouteResponse>, (StatusCode, Json<ErrorResponse>)> {
+    if req.input.len() > 32_768 {
+        return Err((StatusCode::PAYLOAD_TOO_LARGE, Json(ErrorResponse { error: "input exceeds 32KB".into() })));
+    }
     let providers = state.providers.read().await;
     let path_refs: Vec<&str> = req.file_paths.iter().map(|s| s.as_str()).collect();
 
@@ -122,6 +125,12 @@ pub async fn create_run(
     user: ClerkUser,
     Json(req): Json<CreateRunRequest>,
 ) -> Result<Json<CreateRunResponse>, (StatusCode, Json<ErrorResponse>)> {
+    if req.goal.len() > 32_768 {
+        return Err((StatusCode::PAYLOAD_TOO_LARGE, Json(ErrorResponse { error: "goal exceeds 32KB".into() })));
+    }
+    if req.file_paths.len() > 50 {
+        return Err((StatusCode::BAD_REQUEST, Json(ErrorResponse { error: "too many file paths (max 50)".into() })));
+    }
     let scheduler_tx = state.scheduler_tx.read().await;
     let tx = scheduler_tx.as_ref().ok_or_else(|| {
         (

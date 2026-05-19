@@ -62,11 +62,20 @@ pub struct RoutingPreferences {
 fn default_balanced() -> String { "balanced".into() }
 fn default_guided() -> String { "guided".into() }
 
+const MAX_MESSAGE_LEN: usize = 32_768;
+const MAX_FILE_PATHS: usize = 50;
+
 pub async fn chat(
     State(state): State<Arc<AppState>>,
     user: ClerkUser,
     Json(req): Json<ChatRequest>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, (StatusCode, Json<ErrorResponse>)> {
+    if req.message.len() > MAX_MESSAGE_LEN {
+        return Err((StatusCode::PAYLOAD_TOO_LARGE, Json(ErrorResponse { error: format!("message exceeds {MAX_MESSAGE_LEN} bytes") })));
+    }
+    if req.file_paths.len() > MAX_FILE_PATHS {
+        return Err((StatusCode::BAD_REQUEST, Json(ErrorResponse { error: format!("too many file paths (max {MAX_FILE_PATHS})") })));
+    }
     let intent = classify_intent(&req.message);
     let (tx, rx) = mpsc::channel::<StepEvent>(64);
 

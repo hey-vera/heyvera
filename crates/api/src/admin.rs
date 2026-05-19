@@ -10,14 +10,19 @@ use crate::clerk::ClerkUser;
 use crate::routes::ErrorResponse;
 use crate::state::AppState;
 
-fn is_admin(_state: &AppState, user_id: &str) -> bool {
+pub fn is_admin(_state: &AppState, user_id: &str) -> bool {
     let admins: HashSet<String> = std::env::var("CORTEX_ADMIN_USERS")
         .unwrap_or_default()
         .split(',')
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .collect();
-    admins.is_empty() || admins.contains(user_id)
+    // When no admin list is configured AND no Clerk auth is set up, allow local dev access.
+    // In production (CLERK_SECRET_KEY set), an empty admin list means NO ONE is admin.
+    if admins.is_empty() {
+        return std::env::var("CLERK_SECRET_KEY").is_err();
+    }
+    admins.contains(user_id)
 }
 
 fn require_admin(

@@ -731,9 +731,12 @@ pub async fn stripe_webhook(
                     db.record_billing_event(user_id, event_id, 0, "Subscription created", "completed");
                     tracing::info!("subscription created for user {user_id}");
                 } else if mode == "payment" {
-                    db.add_pack_credits(user_id, 100.0);
-                    db.record_billing_event(user_id, event_id, 499, "Credit pack (100 credits)", "completed");
-                    tracing::info!("credit pack purchased for user {user_id}");
+                    if db.record_billing_event(user_id, event_id, 499, "Credit pack (100 credits)", "completed") {
+                        db.add_pack_credits(user_id, 100.0);
+                        tracing::info!("credit pack purchased for user {user_id}");
+                    } else {
+                        tracing::debug!("duplicate webhook ignored: {event_id}");
+                    }
                 }
             }
         }
@@ -786,9 +789,12 @@ pub async fn stripe_webhook(
             let customer_id = obj["customer"].as_str().unwrap_or("");
             let amount = obj["amount_paid"].as_i64().unwrap_or(0);
             if let Some(sub) = find_sub_by_customer(db, customer_id) {
-                db.reset_subscription_credits(&sub.clerk_user_id, 200.0);
-                db.record_billing_event(&sub.clerk_user_id, event_id, amount, "Invoice paid — credits reset", "paid");
-                tracing::info!("invoice paid, credits reset for customer {customer_id}");
+                if db.record_billing_event(&sub.clerk_user_id, event_id, amount, "Invoice paid — credits reset", "paid") {
+                    db.reset_subscription_credits(&sub.clerk_user_id, 200.0);
+                    tracing::info!("invoice paid, credits reset for customer {customer_id}");
+                } else {
+                    tracing::debug!("duplicate webhook ignored: {event_id}");
+                }
             }
         }
         "invoice.payment_failed" => {

@@ -79,8 +79,11 @@ pub struct DailyQuery {
 /// GET /api/admin/usage — system-wide usage summary (admin).
 pub async fn admin_usage(
     State(state): State<Arc<AppState>>,
-    _user: ClerkUser,
+    user: ClerkUser,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    if !crate::admin::is_admin(&state, &user.user_id) {
+        return Err((StatusCode::FORBIDDEN, Json(ErrorResponse { error: "admin access required".into() })));
+    }
     let db = state.db.as_ref().ok_or_else(|| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -106,9 +109,12 @@ pub async fn admin_usage(
 /// GET /api/admin/usage/users — per-user usage breakdown (admin).
 pub async fn admin_usage_users(
     State(state): State<Arc<AppState>>,
-    _user: ClerkUser,
+    user: ClerkUser,
     Query(query): Query<AdminUsersQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    if !crate::admin::is_admin(&state, &user.user_id) {
+        return Err((StatusCode::FORBIDDEN, Json(ErrorResponse { error: "admin access required".into() })));
+    }
     let db = state.db.as_ref().ok_or_else(|| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,

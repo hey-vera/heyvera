@@ -684,30 +684,30 @@ export interface ConversationWithMessages {
   messages: ConversationMessage[];
 }
 
-export async function listConversations(userId = 'local'): Promise<ConversationSummary[]> {
-  const res = await authedFetch(apiUrl(`/api/conversations?user_id=${userId}`));
+export async function listConversations(_userId = 'local'): Promise<ConversationSummary[]> {
+  const res = await authedFetch(apiUrl('/api/conversations'));
   return res.json();
 }
 
-export async function createConversation(userId = 'local', title?: string): Promise<{ id: string }> {
+export async function createConversation(_userId = 'local', title?: string): Promise<{ id: string }> {
   const res = await authedFetch(apiUrl('/api/conversations'), {
     method: 'POST',
-    body: JSON.stringify({ user_id: userId, title }),
+    body: JSON.stringify({ title }),
   });
   return res.json();
 }
 
-export async function getConversation(id: string, userId = 'local'): Promise<ConversationWithMessages> {
-  const res = await authedFetch(apiUrl(`/api/conversations/${id}?user_id=${userId}`));
+export async function getConversation(id: string, _userId = 'local'): Promise<ConversationWithMessages> {
+  const res = await authedFetch(apiUrl(`/api/conversations/${id}`));
   return res.json();
 }
 
-export async function deleteConversation(id: string, userId = 'local'): Promise<void> {
-  await authedFetch(apiUrl(`/api/conversations/${id}?user_id=${userId}`), { method: 'DELETE' });
+export async function deleteConversation(id: string, _userId = 'local'): Promise<void> {
+  await authedFetch(apiUrl(`/api/conversations/${id}`), { method: 'DELETE' });
 }
 
-export async function updateConversationTitle(id: string, title: string, userId = 'local'): Promise<void> {
-  await authedFetch(apiUrl(`/api/conversations/${id}?user_id=${userId}`), {
+export async function updateConversationTitle(id: string, title: string, _userId = 'local'): Promise<void> {
+  await authedFetch(apiUrl(`/api/conversations/${id}`), {
     method: 'PATCH',
     body: JSON.stringify({ title }),
   });
