@@ -61,6 +61,74 @@ function truncateTitle(text: string) {
   return `${normalized.slice(0, 57).trimEnd()}...`;
 }
 
+function approvalStorageKey(userId: string, conversationId: string) {
+  return `cortex:approvals:${userId}:${conversationId}`;
+}
+
+function isApprovalState(value: unknown): value is ApprovalState {
+  return value === 'pending'
+    || value === 'reviewed'
+    || value === 'approved'
+    || value === 'rejected';
+}
+
+function readApprovalStateMap(userId: string, conversationId: string): Record<string, ApprovalState> {
+  try {
+    const raw = window.localStorage.getItem(approvalStorageKey(userId, conversationId));
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return {};
+
+    return Object.fromEntries(
+      Object.entries(parsed as Record<string, unknown>).filter((entry): entry is [string, ApprovalState] =>
+        typeof entry[0] === 'string' && isApprovalState(entry[1]),
+      ),
+    );
+  } catch {
+    return {};
+  }
+}
+
+function writeApprovalState(
+  userId: string,
+  conversationId: string,
+  messageId: string,
+  nextState: ApprovalState,
+) {
+  try {
+    const current = readApprovalStateMap(userId, conversationId);
+    window.localStorage.setItem(
+      approvalStorageKey(userId, conversationId),
+      JSON.stringify({ ...current, [messageId]: nextState }),
+    );
+  } catch {
+    // ignore local approval persistence failures
+  }
+}
+
+function applyStoredApprovals(
+  messages: ChatMessage[],
+  userId: string,
+  conversationId: string,
+): ChatMessage[] {
+  const storedApprovals = readApprovalStateMap(userId, conversationId);
+  if (Object.keys(storedApprovals).length === 0) return messages;
+
+  return messages.map((message) => {
+    if (!message.approvalRequest) return message;
+    const storedState = storedApprovals[message.id];
+    if (!storedState) return message;
+
+    return {
+      ...message,
+      approvalRequest: {
+        ...message.approvalRequest,
+        state: storedState,
+      },
+    };
+  });
+}
+
 interface UseChatSessionOptions {
   activeConversationId: string | null;
   userId: string;
@@ -125,7 +193,11 @@ export function useChatSession({
 
         setMessages(
           conversation.messages.length > 0
-            ? conversation.messages.map(mapConversationMessage)
+            ? applyStoredApprovals(
+                conversation.messages.map(mapConversationMessage),
+                userId,
+                activeConversationId,
+              )
             : getEmptyMessages(),
         );
         setActiveConversationTitle(conversation.title);
@@ -149,13 +221,18 @@ export function useChatSession({
   }, [activeConversationId, userId]);
 
   const updateApproval = useCallback((messageId: string, nextState: ApprovalState) => {
+    const conversationId = activeConversationIdRef.current;
+    if (conversationId) {
+      writeApprovalState(userId, conversationId, messageId, nextState);
+    }
+
     setMessages((cur) =>
       cur.map((m) => {
         if (m.id !== messageId || !m.approvalRequest) return m;
         return { ...m, approvalRequest: { ...m.approvalRequest, state: nextState } };
       }),
     );
-  }, []);
+  }, [userId]);
 
   const renameConversation = useCallback(async (title: string) => {
     const conversationId = activeConversationIdRef.current;
