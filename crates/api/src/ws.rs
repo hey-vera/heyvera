@@ -598,25 +598,68 @@ fn record_step_usage(
 }
 
 async fn authenticate_worker(state: &AppState, token: &str) -> Result<String, String> {
+    if token.is_empty() {
+        // No Clerk configured — local dev mode
+        if state.clerk_secret_key.is_none() {
+            return Ok("local".to_string());
+        }
+        return Err("empty auth token".into());
+    }
+
+    // Try Soma delegation first (token is JSON starting with '{')
+    if token.starts_with('{') {
+        let delegation: soma::delegation::Delegation =
+            serde_json::from_str(token).map_err(|e| format!("invalid soma token: {e}"))?;
+
+        let cortex_did = state
+            .soma_heart
+            .as_ref()
+            .map(|h| h.did().to_string())
+            .unwrap_or_default();
+
+        let ctx = soma::delegation::InvocationContext {
+            invoker_did: delegation.subject_did.clone(),
+            audience_did: Some(cortex_did),
+            capability: "route:*".into(),
+            ..Default::default()
+        };
+
+        let result = soma::delegation::verify_delegation(&delegation, &ctx)
+            .map_err(|e| format!("soma verification error: {e}"))?;
+
+        if !result.is_valid() {
+            return Err(format!("soma delegation invalid: {result:?}"));
+        }
+
+        if let Some(heart) = &state.soma_heart {
+            heart.record_heartbeat(
+                soma::heartbeat::HeartbeatEventType::QueryReceived,
+                &serde_json::json!({
+                    "type": "worker_connect",
+                    "delegation_id": delegation.id,
+                    "subject_did": delegation.subject_did,
+                })
+                .to_string(),
+            );
+        }
+
+        tracing::info!("worker authenticated via soma delegation: {}", delegation.subject_did);
+        return Ok(delegation.subject_did);
+    }
+
+    // Fall back to Clerk JWT
     let clerk_secret = match &state.clerk_secret_key {
         Some(key) => key,
         None => {
-            // No Clerk configured — local dev mode
             return Ok("local".to_string());
         }
     };
 
-    if token.is_empty() {
-        return Err("empty auth token".into());
-    }
-
-    // Verify JWT using same JWKS as HTTP endpoints
     let keys = clerk::get_or_refresh_jwks_pub(&state.jwks_cache, clerk_secret, false).await?;
 
     match clerk::verify_token_pub(token, &keys) {
         Ok(user_id) => Ok(user_id),
         Err(_) => {
-            // Retry with fresh JWKS (key rotation)
             let keys =
                 clerk::get_or_refresh_jwks_pub(&state.jwks_cache, clerk_secret, true).await?;
             clerk::verify_token_pub(token, &keys)
