@@ -6,6 +6,10 @@ use crate::hash;
 use crate::suite::GENESIS_SUITE;
 use crate::Error;
 
+pub const MLDSA65_SIG_LEN: usize = ml_dsa_65::SIG_LEN;
+pub const MLDSA65_PK_LEN: usize = ml_dsa_65::PK_LEN;
+pub const MLDSA65_SK_LEN: usize = ml_dsa_65::SK_LEN;
+
 pub struct CompositeKeypair {
     pub ed25519_sk: ed25519_dalek::SigningKey,
     pub ed25519_pk: ed25519_dalek::VerifyingKey,
@@ -22,7 +26,7 @@ pub struct CompositePublicKey {
 pub struct CompositeSignature {
     pub suite_id: u8,
     pub ed25519_sig: ed25519_dalek::Signature,
-    pub mldsa65_sig: ml_dsa_65::Signature,
+    pub mldsa65_sig: [u8; MLDSA65_SIG_LEN],
 }
 
 impl CompositeKeypair {
@@ -72,6 +76,14 @@ impl CompositePublicKey {
     pub fn verify(&self, message: &[u8], sig: &CompositeSignature) -> bool {
         verify(&self.ed25519_pk, &self.mldsa65_pk, message, sig)
     }
+
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let pq_bytes = self.mldsa65_pk.clone().into_bytes();
+        let mut out = Vec::with_capacity(32 + pq_bytes.len());
+        out.extend_from_slice(self.ed25519_pk.as_bytes());
+        out.extend_from_slice(&pq_bytes);
+        out
+    }
 }
 
 pub fn sign(
@@ -82,7 +94,7 @@ pub fn sign(
 ) -> crate::Result<CompositeSignature> {
     let ed25519_sig = sk_ed.sign(message);
     let mldsa65_sig = sk_pq
-        .try_sign(message)
+        .try_sign(message, b"")
         .map_err(|_| Error::SigningFailed)?;
 
     Ok(CompositeSignature {
@@ -101,26 +113,15 @@ pub fn verify(
     if pk_ed.verify(message, &sig.ed25519_sig).is_err() {
         return false;
     }
-    pk_pq.verify(message, &sig.mldsa65_sig)
+    pk_pq.verify(message, &sig.mldsa65_sig, b"")
 }
 
 impl CompositeSignature {
     pub fn to_bytes(&self) -> Vec<u8> {
-        let pq_bytes = self.mldsa65_sig.clone().into_bytes();
-        let mut out = Vec::with_capacity(1 + 64 + pq_bytes.len());
+        let mut out = Vec::with_capacity(1 + 64 + MLDSA65_SIG_LEN);
         out.push(self.suite_id);
         out.extend_from_slice(&self.ed25519_sig.to_bytes());
-        out.extend_from_slice(&pq_bytes);
-        out
-    }
-}
-
-impl CompositePublicKey {
-    pub fn to_bytes(&self) -> Vec<u8> {
-        let pq_bytes = self.mldsa65_pk.clone().into_bytes();
-        let mut out = Vec::with_capacity(32 + pq_bytes.len());
-        out.extend_from_slice(self.ed25519_pk.as_bytes());
-        out.extend_from_slice(&pq_bytes);
+        out.extend_from_slice(&self.mldsa65_sig);
         out
     }
 }
@@ -159,10 +160,8 @@ mod tests {
         let msg = b"invariant CS-2 test pq";
         let sig = kp.sign(msg).unwrap();
 
-        let mut bad_pq_bytes = sig.mldsa65_sig.clone().into_bytes();
-        bad_pq_bytes[0] ^= 1;
-        let bad_pq_sig =
-            ml_dsa_65::Signature::try_from_bytes(bad_pq_bytes).unwrap();
+        let mut bad_pq_sig = sig.mldsa65_sig;
+        bad_pq_sig[0] ^= 1;
         let bad_sig = CompositeSignature {
             suite_id: sig.suite_id,
             ed25519_sig: sig.ed25519_sig,
@@ -233,7 +232,7 @@ mod tests {
         let sig = kp.sign(b"serialization test").unwrap();
         let bytes = sig.to_bytes();
         assert_eq!(bytes[0], GENESIS_SUITE);
-        assert!(bytes.len() > 65);
+        assert_eq!(bytes.len(), 1 + 64 + MLDSA65_SIG_LEN);
     }
 
     #[test]
@@ -249,14 +248,14 @@ mod tests {
             "composite_signature": [{
                 "description": "Valid composite signature over test message",
                 "ed25519_pk_hex": hex::encode(kp.ed25519_pk.as_bytes()),
-                "mldsa65_pk_hex": hex::encode(&kp.mldsa65_pk.clone().into_bytes()),
+                "mldsa65_pk_hex": hex::encode(kp.mldsa65_pk.clone().into_bytes()),
                 "composite_pk_hex": hex::encode(&pk_bytes),
                 "heart_id_hex": hex::encode(kp.heart_id()),
                 "message_hex": hex::encode(msg),
                 "suite_id": GENESIS_SUITE,
                 "signature_hex": hex::encode(&sig_bytes),
                 "ed25519_sig_hex": hex::encode(sig.ed25519_sig.to_bytes()),
-                "mldsa65_sig_hex": hex::encode(&sig.mldsa65_sig.clone().into_bytes()),
+                "mldsa65_sig_hex": hex::encode(sig.mldsa65_sig),
                 "valid": true,
             }],
         });

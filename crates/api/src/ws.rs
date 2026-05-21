@@ -16,7 +16,7 @@ use cortex_engine::captain::SchedulerEvent;
 
 use crate::clerk;
 use crate::mission_control::MissionControlEvent;
-use crate::state::AppState;
+use crate::state::{AppState, StepEvent};
 
 const GRACE_PERIOD_MS: i64 = 60_000;
 const REGISTER_TIMEOUT_SECS: u64 = 10;
@@ -324,6 +324,14 @@ async fn handle_worker_msg(
         WorkerMessage::StepOutput { step_id, line, .. } => {
             tracing::debug!("step {step_id}: {}", &line[..line.len().min(80)]);
 
+            // Forward to SSE channel (chat endpoint)
+            if let Some(tx) = state.get_step_sender(&step_id).await {
+                let _ = tx.send(StepEvent::Output {
+                    step_id: step_id.clone(),
+                    line: line.clone(),
+                }).await;
+            }
+
             // Emit MC event (throttled by the MC connection handler)
             if let Some(user_id) = authed_user_id.as_deref() {
                 let run_id = resolve_run_id(step_run_cache, state, &step_id);
@@ -426,7 +434,27 @@ async fn handle_worker_msg(
                             .await;
                     }
                 }
+
+                // Vera observes the completed step
+                if let Some(user_id) = authed_user_id.as_deref() {
+                    let duration_ms = if let Some((_, _, started_at)) = db.get_attempt_provider_model(&step_id, lease_gen) {
+                        let now = chrono::Utc::now().timestamp_millis();
+                        (now - started_at).max(0) as u64
+                    } else {
+                        0
+                    };
+                    state.vera_tracker.record_step_completed(user_id, duration_ms, exit_code, None);
+                }
             }
+
+            // Forward to SSE channel (chat endpoint)
+            if let Some(tx) = state.get_step_sender(&step_id).await {
+                let _ = tx.send(StepEvent::Completed {
+                    step_id: step_id.clone(),
+                    exit_code,
+                }).await;
+            }
+            state.remove_step_sender(&step_id).await;
         }
 
         WorkerMessage::StepFailed {
@@ -491,6 +519,20 @@ async fn handle_worker_msg(
                             .await;
                     }
                 }
+
+                // Vera observes the failed step
+                if let Some(user_id) = authed_user_id.as_deref() {
+                    state.vera_tracker.record_step_failed(user_id, &kind_str, None);
+                }
+
+                // Forward to SSE channel (chat endpoint)
+                if let Some(tx) = state.get_step_sender(&step_id).await {
+                    let _ = tx.send(StepEvent::Failed {
+                        step_id: step_id.clone(),
+                        error: error_msg.to_string(),
+                    }).await;
+                }
+                state.remove_step_sender(&step_id).await;
 
                 // Emit ProviderAuthExpired so scheduler disables the provider on this worker
                 if is_auth_expired {

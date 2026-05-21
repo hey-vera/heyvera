@@ -61,6 +61,15 @@ else
   echo "[env] External env file not found, falling back to repo-local .env"
 fi
 
+# Source VITE_* vars so frontend builds pick them up
+if [ -f "$ENV_FILE" ]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "$ENV_FILE"
+  set +a
+  echo "[env] Sourced env vars from $ENV_FILE"
+fi
+
 echo "[backup] Pre-deploy database backup..."
 if [ -f "$REPO_DIR/scripts/backup.sh" ]; then
   bash "$REPO_DIR/scripts/backup.sh" || echo "[backup] WARNING: backup failed - continuing deploy"
@@ -153,11 +162,21 @@ if [ -f "$REPO_DIR/Cargo.toml" ] && [ -f "$REPO_DIR/cortex/package.json" ]; then
       sudo cp "$REPO_DIR/target/release/cortex-server" /usr/local/bin/cortex-server
       echo "[cortex] Installed cortex-server binary"
 
+      if [ -f "$REPO_DIR/target/release/cortex-worker" ]; then
+        sudo cp "$REPO_DIR/target/release/cortex-worker" /usr/local/bin/cortex-worker
+        echo "[cortex] Installed cortex-worker binary"
+      fi
+
       if [ -f /etc/systemd/system/cortex.service ]; then
         sudo systemctl restart cortex
         echo "[cortex] Restarted cortex service"
       else
         echo "[cortex] WARNING: no systemd service found — run scripts/cortex-install-service.sh first"
+      fi
+
+      if [ -f /etc/systemd/system/cortex-worker.service ]; then
+        sudo systemctl restart cortex-worker
+        echo "[cortex] Restarted cortex-worker service"
       fi
     elif [ "${CORTEX_BACKEND_REQUIRED:-0}" = "1" ]; then
       echo "[cortex] ERROR: passwordless sudo unavailable; cannot install required Cortex backend"

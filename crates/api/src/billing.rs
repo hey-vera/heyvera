@@ -299,6 +299,33 @@ pub enum BillingRejection {
     PaymentRequired,
 }
 
+/// Quick check: can this user send chat messages?
+/// Returns None if allowed, Some(AccessState) if blocked.
+pub fn check_chat_access(state: &AppState, user_id: &str) -> Option<AccessState> {
+    // Dev mode (no Clerk) — always allow
+    if state.clerk_secret_key.is_none() {
+        return None;
+    }
+    let db = state.db.as_ref()?;
+    let sub = db.get_subscription(user_id);
+    match sub {
+        Some(s) => match s.status.as_str() {
+            "active" | "trialing" => {
+                let balance = db.get_credit_balance(user_id);
+                if balance.subscription_remaining <= 0.0 && balance.pack_remaining <= 0.0 {
+                    Some(AccessState::CreditsExhausted)
+                } else {
+                    None
+                }
+            }
+            "past_due" => Some(AccessState::PaymentFailed),
+            "cancelled" | "canceled" => Some(AccessState::Cancelled),
+            _ => None,
+        },
+        None => Some(AccessState::NeedsCheckout),
+    }
+}
+
 // --- Helpers ---
 
 fn build_delegation_status(state: &AppState) -> DelegationStatus {

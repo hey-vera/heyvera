@@ -38,19 +38,19 @@ pub fn open(
         .map_err(|_| Error::AeadOpenFailed)
 }
 
+use rand_core::RngCore;
+
 pub fn generate_nonce() -> [u8; NONCE_LEN] {
     let mut nonce = [0u8; NONCE_LEN];
-    rand_core::OsRng::default().fill_bytes(&mut nonce);
+    rand_core::OsRng.fill_bytes(&mut nonce);
     nonce
 }
 
 pub fn generate_key() -> [u8; KEY_LEN] {
     let mut key = [0u8; KEY_LEN];
-    rand_core::OsRng::default().fill_bytes(&mut key);
+    rand_core::OsRng.fill_bytes(&mut key);
     key
 }
-
-use rand_core::RngCore;
 
 #[cfg(test)]
 mod tests {

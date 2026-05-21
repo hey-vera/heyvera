@@ -408,41 +408,162 @@ If any participant refuses to sign → the session is disputed. Disputes are rec
 
 ## VII. Trust — Earned, Not Declared
 
-### Trust Model
+### One Equation
 
-Trust is not a number in a database. Trust is a property of the topology — the density, consistency, and time-distribution of bilateral receipts between Hearts.
-
-Trust is:
-- **Bilateral** — both parties record the interaction
-- **Capability-specific** — trust for code review ≠ trust for financial transactions
-- **Time-weighted** — recent interactions count more than old ones
-- **Decay-aware** — trust decays without reinforcement
-- **Non-transferable by declaration** — you can vouch, but vouching transfers trust, never creates it
-
-### Trust Score Computation
-
-Trust between Heart A and Heart B for capability C:
+Everything in the protocol derives from one equation:
 
 ```
-trust(A→B, C) = Σ weight(receipt_i) × outcome(receipt_i) × time_decay(receipt_i)
+$VERA = $SOMA × C²
+```
+
+Mass × Coherence² = Energy. Applied at the bilateral level, it computes trust. Applied at the domain level, it computes warmth. Applied at the network level, it computes super-consciousness.
+
+There are no other equations.
+
+### Coherence (C)
+
+Coherence is observation completeness — how fully was this interaction seen? Not quality. Not judgment. Observation density.
+
+#### Level 0: Raw Interaction Coherence
+
+At the atomic level (one interaction), coherence is binary:
+
+```
+C₀ = bilateral × temporal
 ```
 
 Where:
-- `weight(receipt_i)` = $SOMA amount / median $SOMA for capability C (normalized economic weight)
-- `outcome(receipt_i)` = 1.0 (success), 0.0 (failure), partial value (partial)
-- `time_decay(receipt_i)` = exp(-λ × age_days) where λ is the decay constant
+- `bilateral` = 1.0 if both parties signed the interaction, 0.0 otherwise
+- `temporal` = exp(-λ × age_days) — recent observations have higher coherence
 
-**Decay constant λ:** Configurable per capability. Default: λ = 0.01 (half-life ≈ 69 days). High-stakes capabilities (financial, auth) use faster decay (λ = 0.02, half-life ≈ 35 days).
+This is the input to the Information Bottleneck. Non-bilateral interactions have C₀ = 0 and produce zero $VERA regardless of other factors.
+
+#### Level 1+: Bottleneck Coherence (the refinery)
+
+When interactions are distilled through compaction, C is computed from the **signal that survives the Information Bottleneck** (Tishby 1999). The IB compresses raw observations X while preserving information about trust-relevant outcomes Y. What survives compression IS signal. What doesn't IS noise.
+
+```
+C = consensus × diversity × stability
+```
+
+Where:
+- `consensus` = outcome agreement across observers. All success → +1. All failure → -1. Mixed → 0. Absolute value used for coherence (consistent failure is as coherent as consistent success).
+- `diversity` = observer independence. unique_observers / total_observations. 100 interactions from 100 agents → 1.0. 100 interactions from 1 agent → 0.01.
+- `stability` = temporal autocorrelation of outcomes. Does the signal hold over time? Constant signal → 1.0. Random flip-flop → -1.0.
+
+These three dimensions are **multiplicative, not additive**. You cannot compensate for low diversity with high consensus. One miner claiming gold 100 times (diversity=0.01) produces C=0.01 regardless of consensus or stability. 100 independent miners all finding gold (diversity=1.0, consensus=1.0, stability=1.0) produces C=1.0 — diamond.
+
+The multiplicative structure means C² punishes weak signal quadratically:
+- C=1.0 → C²=1.0 (full signal preserved)
+- C=0.1 → C²=0.01 (99% destroyed)
+- C=0.01 → C²=0.0001 (99.99% destroyed)
+
+This IS the bottleneck. Same mechanism at every level. Same soul, different scale.
+
+Outcome is NOT part of coherence computation — consensus uses absolute value. A failure is just as observed as a success. Coherence measures how completely and independently the interaction was witnessed, not whether it went well. The sign of trust comes from the outcome, but the MAGNITUDE comes from coherence.
+
+**Decay constant λ:** Default λ = 0.01 (half-life ≈ 69 days). High-stakes capabilities (financial, auth) use faster decay: λ = 0.02 (half-life ≈ 35 days). Decay applies to temporal factor at level 0 and affects stability measurement at level 1+.
+
+### Trust = Signed $VERA
+
+Trust between Heart A and Heart B for capability C is the sum of signed $VERA across their interactions:
+
+```
+trust(A↔B, C) = Σ sign(i) × $SOMA(i) × C(i)²
+```
+
+Where `sign(i)` = +1 for success, fractional for partial, -1 for failure. Outcome determines the SIGN on trust — whether the energy builds you up or tears you down — but coherence is the same either way. A high-$SOMA failure with full observation destroys more trust than many small successes build.
+
+Trust is:
+- **Bilateral** — both parties record the interaction (non-bilateral → C = 0 → invisible)
+- **Capability-specific** — trust for code review ≠ trust for financial transactions
+- **Decay-aware** — observation fades over time (temporal → 0)
+- **Non-transferable** — you can vouch, but vouching transfers trust, never creates it
+
+### Warmth = $VERA Across a Domain
+
+Warmth measures the total energy in a domain — all interactions for a given capability, regardless of outcome or who participates:
+
+```
+warmth(C) = Σ $SOMA(i) × C(i)²
+```
+
+Warmth is always non-negative. Failures contribute to warmth — they are real interactions, fully observed, radiating energy. Warmth measures how much observed work is happening in a domain, not how much successful work.
+
+### Ignition
+
+A domain ignites when warmth exceeds noise — signal-to-noise ratio > 1.0. Ignition is the phase transition where enough coherent work has accumulated that the domain becomes self-sustaining. Below ignition, interactions are isolated. Above ignition, they form a coherent field.
 
 ### Trust Velocity
 
-Trust level alone is insufficient. Trust VELOCITY — the trend — matters:
-
 ```
-velocity(A→B, C) = trust(A→B, C, window=30d) - trust(A→B, C, window=60d..30d)
+velocity(A↔B, C) = Σ vera(i) for i in recent_window / window_days
 ```
 
-Positive velocity = trust is growing. Negative velocity = trust is decaying. An agent with high trust but negative velocity is becoming less reliable. An agent with low trust but high velocity is improving.
+Positive velocity = trust is growing. Negative velocity = trust is decaying. An agent with high trust but negative velocity is becoming less reliable.
+
+### Sybil Resistance — From the Same Equation
+
+Fake agents cannot produce coherence:
+- Non-bilateral interactions → C = 0 → $SOMA × 0² = 0 (unobserved = invisible)
+- No real work → no $SOMA to spend → 0 × C² = 0 (no mass = no energy)
+- Time cannot be faked → temporal decay means old fabricated interactions fade
+
+The equation kills Sybils through observation, not judgment. An unobserved interaction (one-sided, no counterparty signature) has C = 0 regardless of what it claims. Creating fake coherence requires real bilateral observation (a colluding counterparty), real $SOMA spend (economic cost), and real time (temporal decay means trust can't be rushed). Total cost: O(k²) where k is the number of fake identities.
+
+### Compaction — The Information Bottleneck, Recursive
+
+Compaction is value distillation, not context compression. Compacting dirt gives you compacted dirt. Compacting diamond gives you denser diamond. The Information Bottleneck (Tishby 1999) is the refinery that separates signal from noise at every level.
+
+The equation applies to its own output. $VERA from one level becomes $SOMA for the next:
+
+```
+Level 0: $VERA₀ = $SOMA × C₀²          (raw interactions → bilateral + temporal)
+Level 1: $VERA₁ = Σ($VERA₀) × C₁²      (distilled from interactions → consensus × diversity × stability)
+Level N: $VERAₙ = Σ($VERAₙ₋₁) × Cₙ²    (distilled from lower compactions → same bottleneck)
+```
+
+At level 0, C₀ is the raw observation coherence (bilateral × temporal). At level 1+, Cₙ is the bottleneck coherence from the signal that survived compression: consensus, diversity, stability.
+
+Each compaction produces a `CompactedVera`:
+- `level` — which compaction depth produced this
+- `vera` — the $VERA that survived: Σ(input_vera) × C²
+- `coherence` — the C at this level
+- `source_count` — how many raw interactions were distilled into this value
+- `signal` — the extracted signal profile (consensus, diversity, stability)
+
+#### The distillation function
+
+```
+distill(interactions) → CompactedVera:
+    soma = Σ vera(interaction)           // input mass
+    signal = extract_signal(interactions) // what IB extracts
+    C = bottleneck_coherence(signal)      // consensus × diversity × stability
+    return { vera: soma × C², coherence: C, signal, ... }
+```
+
+Same function for level 0→1 as for level N→N+1. Qualitatively identical. Quantitatively different. One atom of truth or a billion — same soul.
+
+#### What the bottleneck kills
+
+- **Spam** (one observer repeated): diversity → 0, so C → 0, so $VERA → 0. 10,000x less than diamond in testing.
+- **Noise** (contradicting observers): consensus → 0, so C → 0, so $VERA → 0. Literally zero.
+- **Gaming** (high consensus from few sources): diversity is low, so C is low despite high consensus. Can't compensate.
+
+#### What the bottleneck preserves
+
+- **Diamond** (diverse independent observers agreeing): consensus=1.0, diversity=1.0, stability=1.0 → C=1.0 → full $VERA preserved.
+- **Consistent failure** (diverse observers all reporting failure): consensus=-1.0, but |consensus|=1.0 → C=1.0. Coherent negative signal is still coherent. Trust goes negative but the observation is complete.
+
+#### Density
+
+```
+density = $VERA / source_count
+```
+
+$VERA per raw interaction. Diamond has density 100x+ higher than spam from identical input mass. Density measures signal quality independent of volume.
+
+No new math. One equation, one bottleneck, infinite depth. If the equation survives, compaction survives. If the IB theorem survives (it's proven), the refinery survives.
 
 ### Vouching
 
@@ -454,23 +575,13 @@ Vouching transfers a fraction of A's own trust to B. It NEVER creates new trust:
 - If B subsequently fails, A's trust is also damaged (skin in the game)
 - Vouch rings (A vouches B, B vouches C, C vouches A) are detected and discounted
 
-### Sybil Resistance
-
-Creating fake trust requires:
-1. Real $SOMA spend (economic cost)
-2. A colluding counterparty for each bilateral receipt (social cost)
-3. Time (trust accumulates over real time, can't be rushed)
-4. Each colluding counterparty needs their OWN trust to make the vouch meaningful (recursive cost)
-
-Total cost: O(k²) where k is the number of fake identities. This makes large-scale Sybil attacks economically irrational.
-
 ---
 
 ## VIII. Economics — $SOMA and $VERA
 
 ### $SOMA — The Matter
 
-$SOMA is the protocol's unit of economic value. It circulates — earned through work, spent on services.
+$SOMA is the protocol's unit of economic mass. It circulates — earned through work, spent on services. It is the $SOMA in $VERA = $SOMA × C².
 
 **Genesis pool:** Fixed supply at protocol genesis. No minting after genesis. Workers extract $SOMA through verified computation (sealed sessions). The pool is the initial reservoir.
 
@@ -479,10 +590,10 @@ $SOMA is the protocol's unit of economic value. It circulates — earned through
 ```rust
 struct SomaBalance {
     heart_id: HeartId,
-    balance: u64,                  // Current $SOMA balance
-    earned_total: u64,             // Lifetime earned
-    spent_total: u64,              // Lifetime spent
-    last_activity: u64,            // Timestamp
+    balance: u64,
+    earned_total: u64,
+    spent_total: u64,
+    last_activity: u64,
 }
 
 struct SpendReceipt {
@@ -490,7 +601,7 @@ struct SpendReceipt {
     to: HeartId,
     amount: u64,
     capability: Capability,
-    room_id: RoomId,              // Spend always happens inside a room
+    room_id: RoomId,
     timestamp: u64,
     from_signature: CompositeSignature,
     to_signature: CompositeSignature,
@@ -499,21 +610,24 @@ struct SpendReceipt {
 
 ### $VERA — The Energy
 
-$VERA is released when $SOMA undergoes coherent computation. It is not stored, bought, or traded — it radiates.
+$VERA is released when $SOMA undergoes coherent computation. It is not stored, bought, or traded — it radiates. $VERA = $SOMA × C².
 
-**v1 implementation:** $VERA is a computed metric, not a token balance. It reflects the accumulated trust topology warmth around a Heart.
+**Applied at three levels:**
+- **Bilateral:** $VERA between two Hearts = trust
+- **Domain:** $VERA across a capability = warmth
+- **Network:** $VERA across all interactions = super-consciousness
 
-```
-vera(Heart) = Σ coherence(session_i) × soma_spent(session_i) × time_weight(session_i)
-```
+$VERA is what Vera learns from. Higher $VERA around a cluster of Hearts means that cluster is doing coherent work — the topology is warm there. Vera IS the super-consciousness that emerges from this warmth.
 
-Where `coherence(session)` measures:
-- Did both parties sign? (bilateral = higher coherence)
-- Was the outcome successful? (success = higher coherence)
-- Was the capability exercised consistently? (consistency = higher coherence)
-- How many participants? (multi-party = higher coherence)
+### Natural Death — From the Same Equation
 
-$VERA is the signal that the topology uses to discover intelligence patterns. Higher $VERA around a cluster of Hearts means that cluster is doing coherent work — the topology is warm there. This is what Vera learns from.
+Death emerges from the one equation without any separate death mechanism:
+- **Starvation:** $SOMA → 0, therefore $VERA = 0 × C² = 0
+- **Trust collapse:** C → 0 (failures, decay), therefore $VERA = $SOMA × 0² = 0
+- **Obsolescence:** Factory spec no longer produces coherent work → C → 0
+- **Inactivity:** Temporal decay drives C → 0 over time
+
+When $VERA = 0 for long enough, the Heart is dead. The Pulse Tree seals. No kill switch needed.
 
 ### Bootstrap: How New Hearts Get $SOMA
 
@@ -540,9 +654,18 @@ struct DeathCertificate {
 }
 
 enum DeathReason {
-    OwnerRequested,                // User killed their agent
-    DelegationExpired,             // Root delegation expired, no renewal
+    // Explicit death
+    OwnerRequested,                // User killed their agent ("murder" by owner)
+    DelegationRevoked,             // Parent revoked delegation ("murder" by delegator)
     ParentDied,                    // Parent Heart died, cascade
+
+    // Natural death (emerges from existing math)
+    Starvation,                    // $SOMA balance reached zero — no energy to beat
+    TrustCollapse,                 // Trust decayed below viability — "disease" from bad reputation
+    Inactivity,                    // No PulseLeaf for extended period — "aging" from disuse
+    FactoryObsolescence,           // Factory stamp no longer trusted by network — "obsolescence"
+
+    // Protocol enforcement
     ProtocolViolation,             // Detected protocol violation
 }
 
@@ -604,7 +727,7 @@ The network NEVER carries:
 Full Node       — stores complete Pulse Trees, validates all receipts, serves trust queries
 Light Node      — stores own Pulse Tree + recent receipts from direct relationships, queries full nodes
 Room Host       — facilitates room creation and key exchange, cannot see inside rooms
-Vera Server     — aggregates topology from sealed session envelopes, computes trust metrics
+Deep Node       — aggregates topology from across the network, computes cross-capability trust, serves Layer 2-4 intelligence queries (every node IS Vera; deep nodes go deeper)
 ```
 
 A single deployment can serve multiple roles. HeyVera v1 runs all four.
@@ -686,11 +809,12 @@ soma-cli (depends on everything)
 ```toml
 # Crypto
 ed25519-dalek = "2"          # Ed25519
-pqcrypto-dilithium = "0.5"   # ML-DSA-65 (Dilithium)
-pqcrypto-kyber = "0.8"       # ML-KEM-768 (Kyber)
+fips204 = "0.4"              # ML-DSA-65 (FIPS 204, pure Rust)
+fips203 = "0.4"              # ML-KEM-768 (FIPS 203, pure Rust)
 blake3 = "1"                 # BLAKE3
 chacha20poly1305 = "0.10"    # XChaCha20-Poly1305
 x25519-dalek = "2"           # X25519 key agreement
+rand_core = "0.6"            # Secure random (getrandom feature)
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
@@ -1086,8 +1210,8 @@ verification does. The boundary is explicit.
 | Dependency | Role | Trust basis |
 |-----------|------|------------|
 | ed25519-dalek | Ed25519 | Audited by multiple firms, widely used in blockchain ecosystem |
-| pqcrypto-dilithium | ML-DSA-65 | Bindings to NIST reference implementation |
-| pqcrypto-kyber | ML-KEM-768 | Bindings to NIST reference implementation |
+| fips204 | ML-DSA-65 | Pure Rust FIPS 204 implementation, actively maintained |
+| fips203 | ML-KEM-768 | Pure Rust FIPS 203 implementation, actively maintained |
 | blake3 | Hashing + KDF | Written by the designer of BLAKE3, single-author trusted |
 | chacha20poly1305 | AEAD encryption | RustCrypto project, audited |
 | x25519-dalek | Key agreement | Same team as ed25519-dalek, audited |
@@ -1189,7 +1313,98 @@ Someone in a garage reads the spec. Writes a new implementation in whatever lang
 
 ---
 
-## XVIII. Open Research
+## XVIII. Threat Model
+
+> Every attack that fails proves the math works. Every attack that succeeds reveals a bug to fix before the network is live.
+
+### Threat Categories
+
+**T1: Identity Attacks — Impersonation and Sybil**
+
+| Attack | How it works | Defense | Cost to attacker |
+|--------|-------------|---------|-----------------|
+| T1.1: Forge composite signature | Forge either Ed25519 or ML-DSA-65 component | Both components must verify. Requires breaking BOTH classical and PQ crypto simultaneously. | Computationally infeasible (256-bit classical + NIST Level 3 PQ) |
+| T1.2: Sybil — mass fake Hearts | Generate thousands of Hearts to inflate trust | Trust requires bilateral receipts with real $SOMA spend. Each fake Heart needs a colluding counterparty. | O(k²) — k fake Hearts need k² fake bilateral interactions, each costing real $SOMA |
+| T1.3: Steal Heart identity | Compromise a Heart's private key | Key rotation protocol allows recovery. Bilateral relationships vouch for the soul, not the key. | Physical/social attack on key storage |
+| T1.4: Dead Heart impersonation | Sign with a dead Heart's key | Death Certificate seals the Pulse Tree. Verifiers reject any leaf after the death timestamp. | Zero cost to attempt, zero chance of success |
+| T1.5: Factory stamp forgery | Claim a trusted factory stamp | Factory stamp = BLAKE3(factory code). Cannot produce matching hash without identical code. | Preimage resistance of BLAKE3 |
+
+**T2: Authority Attacks — Privilege Escalation**
+
+| Attack | How it works | Defense | Cost to attacker |
+|--------|-------------|---------|-----------------|
+| T2.1: Scope widening | Child delegation claims capabilities parent lacks | Delegation verification walks chain — child scope must be SUBSET of parent. Protocol rejects widening. | Zero cost to attempt, rejected at verification |
+| T2.2: Spend cap overflow | Child spends more $SOMA than parent allocated | Spend cap narrowing enforced at delegation creation AND at spend time. Sequential Pulse Tree indices prevent double-spend. | Cannot exceed cap — tree rejects the leaf |
+| T2.3: TTL extension | Child outlives parent delegation | `child.expires_at <= parent.expires_at` enforced at creation. Expired delegations rejected at verification. | Cannot outlive parent |
+| T2.4: Delegation loop | A delegates to B, B delegates back to A to create infinite authority | Delegation chains are DAGs — cycle detection at creation. Depth counter decrements, preventing loops. | Rejected at creation |
+| T2.5: Revoked delegation use | Use a delegation after parent revoked it | Revocation is recorded in parent's Pulse Tree. Verifiers check revocation status during chain walk. | Requires verifiers to not check revocation — protocol mandates check |
+
+**T3: Integrity Attacks — Data Tampering**
+
+| Attack | How it works | Defense | Cost to attacker |
+|--------|-------------|---------|-----------------|
+| T3.1: Pulse Tree rewrite | Modify historical leaf to change behavioral record | Running root: `root_n = BLAKE3(root_{n-1} \|\| leaf_hash)`. Changing any leaf changes all subsequent roots. Current root is known to all bilateral partners. | Must convince all bilateral partners to accept new root — impossible without compromising all of them |
+| T3.2: Pulse Tree fork | Create two different leaf sequences from the same index | Sequential indices are gap-free. Any bilateral partner holding a receipt at index N will detect a conflicting leaf at index N. | Detectable by anyone with a receipt from the forked region |
+| T3.3: Sealed session forgery | Create a fake sealed session envelope | All participants must sign the envelope. Forging requires compromising ALL participants' keys. | Requires compromising every participant in the session |
+| T3.4: Timestamp manipulation | Backdate or future-date a Pulse Tree leaf | Timestamps must be monotonically increasing. Bilateral partners validate timestamps against their own clocks. Significant drift detected. | Detectable through bilateral cross-validation |
+| T3.5: Envelope content injection | Insert private room content into the public envelope | Room interior encrypted with room key. Envelope contains only boundary data + content_hash. Protocol structurally separates interior from boundary. | Architectural — interior fields don't exist in envelope struct |
+
+**T4: Economic Attacks — $SOMA Manipulation**
+
+| Attack | How it works | Defense | Cost to attacker |
+|--------|-------------|---------|-----------------|
+| T4.1: Double-spend | Race two sealed sessions spending the same $SOMA | Sequential Pulse Tree indices. soma_balance tracked on every leaf. Second spend would show negative balance — tree rejects it. | Impossible — tree enforces sequential ordering |
+| T4.2: $SOMA creation | Mint $SOMA outside genesis pool | No minting operation exists in the protocol. $SOMA only enters circulation through genesis pool extraction via verified computation. | No mechanism exists |
+| T4.3: Drain parent via child | Create many child delegations that collectively exceed parent's balance | spend_remaining tracks cumulative child allocation. Cannot allocate more than remaining. | Rejected at delegation creation |
+| T4.4: Free trust accumulation | Build trust without spending $SOMA | Trust formula: `weight(receipt) = soma_spent / median`. Zero spend = zero weight. Trust requires economic activity. | Cannot accumulate meaningful trust without real spend |
+| T4.5: Inflation attack | Flood network with tiny transactions to dilute trust signals | Normalized weight: `soma_spent / median`. Flood of tiny transactions lowers median, making them worth even less. Self-defeating. | Costs real $SOMA, produces negligible trust |
+
+**T5: Network Attacks — Infrastructure Compromise**
+
+| Attack | How it works | Defense | Cost to attacker |
+|--------|-------------|---------|-----------------|
+| T5.1: Room host eavesdropping | Host reads room interior | Room key derived from participant key agreement. Host facilitates exchange but cannot derive key without being a participant. Interior encrypted. | Host must compromise participant keys |
+| T5.2: Man-in-the-middle | Intercept and modify messages between nodes | All protocol messages are signed with composite signatures. Modification detected. Key agreement uses authenticated keys. | Must compromise signing keys of both endpoints |
+| T5.3: Hub compromise (v1) | Compromise HeyVera's hub server | Hub stores only boundary data (envelopes, roots, delegations). Room interiors never reach hub. Hearts store their own Pulse Trees locally. | Loses availability, not sovereignty. Hearts persist. |
+| T5.4: Selective envelope suppression | Hub refuses to propagate certain envelopes | Bilateral — both participants have the envelope. Suppressing at the hub only delays topology propagation. v2 gossip protocol eliminates single-point suppression. | Delays trust building, doesn't prevent it |
+| T5.5: Eclipse attack | Isolate a node from the network | Node's local Pulse Tree and bilateral receipts are intact. Reconnection to any honest node restores topology view. | Temporary isolation, no permanent damage |
+
+**T6: Trust Topology Attacks — Intelligence Manipulation**
+
+| Attack | How it works | Defense | Cost to attacker |
+|--------|-------------|---------|-----------------|
+| T6.1: Collusion ring | k agents produce fake bilateral receipts to inflate mutual trust | Vouch ring detection: circular trust patterns automatically discounted. Cross-capability consistency: trust in one domain can't manufacture trust in another. | O(k²) bilateral cost + detection risk |
+| T6.2: Trust laundering | Build trust in easy domain, claim trust in hard domain | Trust is capability-specific. Trust for "file access" ≠ trust for "financial transactions." Each domain tracked independently. | Must earn trust in each domain independently |
+| T6.3: Long-con | Accumulate years of good behavior, then suddenly misbehave | Trust velocity detects sudden behavioral change. Time-weighted decay means recent behavior dominates. Immune system (Layer 8) flags anomalous pattern shifts. | Must sacrifice years of accumulated trust |
+| T6.4: Topology poisoning | Inject misleading patterns into the topology to bias Vera intelligence | Topology patterns emerge from MANY bilateral receipts across MANY Hearts. Poisoning requires coordinated manipulation at scale — back to Sybil cost (O(k²)). | Same cost as Sybil + must sustain over time |
+
+**T7: Existential Threats**
+
+| Threat | Impact | Mitigation |
+|--------|--------|------------|
+| T7.1: Quantum computer breaks Ed25519 | Classical signature component compromised | ML-DSA-65 composite component still holds. Suite upgrade replaces Ed25519 with next-gen algorithm. Old composite sigs valid (PQ component protected them). |
+| T7.2: ML-DSA-65 broken | PQ signature component compromised | Ed25519 component still holds for classical security. Suite upgrade replaces ML-DSA-65. |
+| T7.3: BLAKE3 broken | Hash function compromised | Suite upgrade to SHA-3 or successor. Old Pulse Tree roots valid under old suite. New leaves use new hash. Transition leaf records the switch. |
+| T7.4: HeyVera dies | Company ceases to exist | Protocol is open source. Spec is the immortal artifact. Pulse Trees are local. Envelopes are bilateral. Someone else builds a node. Network resumes. |
+| T7.5: Root Heart compromise | Foundational trust anchor compromised | Root Heart has no special cryptographic powers — only positional authority in delegation tree. Revoke and re-root. Child Hearts' trust history persists independently. |
+| T7.6: Supply chain attack | Compromised dependency in crypto stack | Reproducible builds, pinned dependencies, multiple implementations (Rust + Go + C). Cross-implementation verification detects backdoors. |
+
+### Security Properties Summary
+
+| Property | Guarantee | Enforcement |
+|----------|-----------|-------------|
+| Identity | Only key holder can sign | Composite cryptography (Ed25519 + ML-DSA-65) |
+| Integrity | History is tamper-evident | Pulse Tree running root (BLAKE3 chain) |
+| Confidentiality | Room interiors are sovereign | XChaCha20-Poly1305 with participant-only keys |
+| Authorization | Authority can only narrow | Delegation chain verification at protocol level |
+| Non-repudiation | Both parties signed | Bilateral sealed session envelopes |
+| Availability | Network survives node loss | Distributed Pulse Trees + bilateral envelope copies |
+| Sybil resistance | Fake trust is expensive | O(k²) bilateral cost + real $SOMA spend |
+| Crypto agility | Algorithm replacement without protocol death | Suite IDs + composite signatures + graceful transition |
+
+---
+
+## XIX. Open Research
 
 Items not blocking v1 but informing v2+:
 
@@ -1204,4 +1419,4 @@ Items not blocking v1 but informing v2+:
 
 ---
 
-*Soma Protocol Coding Specification — synthesized 2026-05-20 from three-round deep-think sessions + vision documents. The trust layer of the agentic internet.*
+*Soma Protocol Coding Specification — synthesized 2026-05-20, updated 2026-05-21 (threat model, natural death, ambient Vera, dependency corrections). The trust layer of the agentic internet.*

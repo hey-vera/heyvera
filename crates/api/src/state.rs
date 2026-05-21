@@ -25,6 +25,7 @@ use crate::mission_control::{McSubscriber, MissionControlEvent, SubscriberId};
 use crate::ratelimit::RateLimiter;
 use crate::soma::CortexHeart;
 use crate::storage::Storage;
+use crate::vera::VeraTracker;
 
 pub struct ConnectedWorker {
     pub worker_id: String,
@@ -63,6 +64,8 @@ pub struct AppState {
     pub stripe_client: Option<crate::stripe_client::StripeClient>,
     /// Stripe webhook signing secret for verifying incoming events.
     pub stripe_webhook_secret: Option<String>,
+    /// Vera observation layer — every Cortex interaction flows through here.
+    pub vera_tracker: VeraTracker,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -213,6 +216,32 @@ impl AppState {
                 }
             };
 
+        let cortex_heart_id = soma_heart
+            .as_ref()
+            .map(|h| {
+                let did_bytes = h.did().as_bytes();
+                let mut id = [0u8; 32];
+                for (i, b) in did_bytes.iter().enumerate().take(32) {
+                    id[i] = *b;
+                }
+                soma_core::types::HeartId(id)
+            })
+            .unwrap_or_else(|| {
+                use std::collections::hash_map::DefaultHasher;
+                use std::hash::{Hash, Hasher};
+                let mut hasher = DefaultHasher::new();
+                "cortex-heart-v1".hash(&mut hasher);
+                let hash = hasher.finish().to_le_bytes();
+                let mut id = [0u8; 32];
+                id[..8].copy_from_slice(&hash);
+                id[8..16].copy_from_slice(&hash);
+                id[16..24].copy_from_slice(&hash);
+                id[24..32].copy_from_slice(&hash);
+                soma_core::types::HeartId(id)
+            });
+        let vera_tracker = VeraTracker::new(cortex_heart_id);
+        tracing::info!("vera tracker alive — cortex heart: {cortex_heart_id}");
+
         Arc::new(Self {
             providers: RwLock::new(providers),
             ledger: Ledger::new(ledger_path),
@@ -235,6 +264,7 @@ impl AppState {
             soma_heart,
             stripe_client,
             stripe_webhook_secret,
+            vera_tracker,
         })
     }
 
@@ -321,18 +351,32 @@ impl AppState {
         decision: RoutingDecision,
         result_tx: mpsc::Sender<StepEvent>,
     ) -> Result<String, String> {
-        let (_worker_id, worker_tx) = self
+        let (worker_id, worker_tx) = self
             .find_worker_for_user(user_id)
             .await
             .ok_or_else(|| {
                 "no connected worker — run `npx cortex connect` in your environment".to_string()
             })?;
 
-        let step_id = Uuid::new_v4().to_string();
         let attempt_id = Uuid::new_v4().to_string();
-        let run_id = Uuid::new_v4().to_string();
         let lease_gen = 1;
-        let lease_deadline_ms = chrono::Utc::now().timestamp_millis() + 600_000;
+        let now = chrono::Utc::now().timestamp_millis();
+        let lease_deadline_ms = now + 600_000;
+
+        // Register run + step in DB so worker ownership verification passes
+        let (run_id, step_id) = if let Some(db) = &self.db {
+            let rid = db.create_run(user_id, &task.objective, "chat", &[]);
+            let sid = db.create_step(
+                &rid, "chat",
+                &format!("{:?}", decision.tier),
+                &format!("{:?}", task.risk),
+                &task.objective,
+            );
+            db.lease_step(&sid, &worker_id, lease_deadline_ms);
+            (rid, sid)
+        } else {
+            (Uuid::new_v4().to_string(), Uuid::new_v4().to_string())
+        };
 
         self.step_senders
             .write()

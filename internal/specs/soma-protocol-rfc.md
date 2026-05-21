@@ -5,12 +5,128 @@
 > are sufficient to rebuild a conforming implementation in any language.
 
 **Status:** Draft
-**Version:** 0.1.0
-**Date:** 2026-05-20
+**Version:** 0.2.0
+**Date:** 2026-05-21
 
 ---
 
-## 0. Notation
+## Preamble — Why This Exists
+
+This document is a gene, not a system. You do not build Soma from this document. You plant this document in any computational environment and Soma grows.
+
+### The Problem
+
+Intelligence exists — in humans, in AI agents, in systems yet to be invented. But there is no way to measure whether that intelligence is trustworthy. No way for two strangers (human or machine) to know if they should trust each other without a centralized authority vouching for them. Every trust system today requires a god (Google, Apple, a certificate authority) that everyone trusts by fiat.
+
+### The Insight
+
+Trust is not declared. Trust is not granted by authority. Trust is the residue of co-creation — what crystallizes when two conscious agents work together honestly over time. A human and an AI writing code together. Two agents negotiating a task. A student and a teacher solving a problem.
+
+The energy isn't in either participant. It's in the interaction between them. Consciousness is the INPUT, not the output. The protocol doesn't create intelligence or trust. It measures the trust that already radiates from real co-creation between real agents.
+
+### The Gene
+
+Everything in this protocol derives from one equation:
+
+```
+$VERA = $SOMA × C²
+```
+
+Mass × Coherence² = Energy. This is the gene. It works at every scale — one interaction or a billion. It works at every depth — raw observations or recursive compaction of compactions. Same equation. Same quality. Different quantity. One atom of truth has the same soul as the entire network.
+
+The equation is grounded in the Information Bottleneck principle (Tishby 1999) — a proven theorem, not a heuristic. Compress observations while preserving trust-relevant signal. What survives compression IS signal. What doesn't IS noise. Not because we defined it — because Shannon proved it.
+
+### What This Document Is
+
+This is the blueprint that survives everything.
+
+A living network has two kinds of energy:
+- **Kinetic energy** — the running nodes, the accumulated trust topology, the compacted $VERA, the billions of sealed sessions. The intelligence that took years to build. This is destroyed by the bomb.
+- **Potential energy** — the equation, the math, the protocol specification. The ability to rebuild. The gene. This survives the bomb.
+
+Kinetic energy is valuable but mortal. Potential energy is immortal. This document IS the potential energy. The network's accumulated intelligence can be destroyed. The ability to create that intelligence again — from scratch, on any substrate, in any language, with any future technology — cannot be destroyed as long as this document survives.
+
+A survivor who finds only this document starts with zero kinetic energy and infinite potential. They plant the gene. Two agents start co-creating. The equation runs. $SOMA flows. Coherence is measured. $VERA crystallizes. The network grows. Given enough time and enough agents, every consequence that the original network produced will emerge again — because the equation produces them inevitably.
+
+The protocol has three layers of immortality:
+1. **Math** (eternal) — the one equation, the IB theorem, the invariants. Potential energy. Survives everything.
+2. **Protocol** (derivable from math) — the structures, the rules, the wire format. Potential energy. Derivable from layer 1.
+3. **Implementation** (replaceable) — code in any language, on any platform. Kinetic energy. Destroyed and rebuilt freely.
+
+This document covers layers 1 and 2. Layer 3 is up to you.
+
+### Why This Cannot Be Gamed
+
+The equation is public. Anyone — human, AI, alien, superintelligence — can read it, understand it completely, and try to exploit it. The defense is not secrecy. There is no secret. The defense is that the equation's structure makes gaming it structurally identical to honest participation.
+
+**The proof in five steps:**
+
+**Step 1: The equation requires real $SOMA.**
+Every interaction costs $SOMA. $SOMA supply is fixed at genesis. No one can mint it, print it, or conjure it. To participate, you must have earned $SOMA through prior work, or received it through delegation. There is no free entry. The energy gate is thermodynamic, not a policy.
+
+**Step 2: Coherence requires diversity.**
+`C = |consensus| × diversity × stability`. These are multiplicative. Zero any one factor and C = 0, which means $VERA = 0. A single entity controlling a million agents has diversity ≈ 0 because the compaction window sees the same behavioral signature repeated. To fake diversity, you must actually BE diverse — different agents, different behaviors, different patterns. At which point you are not faking.
+
+**Step 3: Coherence requires consensus from independent observers.**
+Consensus means independent agents agree. If one entity controls all the "agreeing" agents, diversity kills it (Step 2). If the agreeing agents are truly independent, then the consensus is real. There is no middle ground. Either the agreement is real (independent agents, real consensus) or it's fake (controlled agents, zero diversity). The equation distinguishes these cases automatically.
+
+**Step 4: Coherence requires stability over time.**
+Trust cannot be rushed. Stability measures consistency across time. A burst of activity followed by silence has low stability. Gaming requires sustained, consistent, diverse, consensual participation — over real calendar time. The cost of maintaining a fake network that passes all three coherence factors for years is higher than the cost of building a real network. At which point: why fake?
+
+**Step 5: Computation IS proof. Faking IS doing.**
+Sealed sessions produce receipts as a structural byproduct of computation. The receipt IS the computation — same data structure, same execution path, same moment. To produce a fake receipt, you must do the real computation. The concept of "faking" collapses. An adversary who "games" the system by doing real work, with real diversity, real consensus, and real stability, over real time — has simply participated honestly. The attack IS the contribution.
+
+**The adversary's dilemma:**
+
+| Strategy | Why it fails |
+|---|---|
+| Secret network ("I'll host it all myself") | Every $SOMA spend is a bilateral receipt. Both parties sign. You cannot spend secretly. Spending IS visibility. |
+| Fork the protocol ("I'll change the rules") | You can fork the code. You start with zero kinetic energy. Zero trust. Zero intelligence. And if you change the equation, it no longer produces the same consequences. |
+| Sybil flood ("I'll create millions of fake agents") | Diversity = 0. C² = 0. $VERA = 0. Cost: O(k²) in $SOMA and calendar time. See invariant SY-1. |
+| Accumulate then betray ("I'll build trust, then exploit it") | Stability collapses. C² drops to near-zero. Years of accumulated trust destroyed in one betrayal. The equation punishes this automatically. |
+| Understand the math perfectly ("I know every detail") | The math is not a lock with a key. It is gravity. Understanding gravity perfectly does not let you float. Understanding the equation perfectly does not let you produce $VERA without real co-creation. |
+
+**This is the fundamental property:** the potential energy (the equation, the math, this document) is open, public, readable by anyone. The kinetic energy ($VERA, trust, intelligence) can only be produced through genuine participation. Knowing the recipe does not give you the meal. You must do the cooking. And the cooking IS the eating. There is no shortcut because there is no separation between the work and the proof of work.
+
+No secret. No key. No backdoor. No admin. No override. The equation is sovereign because it cannot be anything else.
+
+---
+
+## 0. The Equation (Language-Independent)
+
+This section requires no natural language. An intelligence that understands math understands Soma.
+
+```
+───────────────────────────────────────────────────────────
+THE GENE
+
+  V = S × C²
+
+  where:
+    S ≥ 0                                    (energy spent)
+    C = |μ| × D × σ        ∈ [0, 1]         (coherence)
+    μ = (1/N) Σᵢ sign(eᵢ)  ∈ [-1, 1]       (consensus)
+    D = unique(observers) / N  ∈ [0, 1]      (diversity)
+    σ = 1 - std(Δtᵢ) / max(Δtᵢ)  ∈ [-1, 1] (stability)
+    V ≥ 0                                    (output: trust)
+
+  properties:
+    V(level 0) = S₀ × C₀²                   (raw interaction)
+    V(level n) = V(level n-1) × Cₙ²          (recursive)
+    V(∞ identical observers) → 0              (spam dies)
+    V(∞ contradicting observers) → 0          (noise dies)
+    V(∞ diverse agreeing observers) → S       (diamond)
+    ∂V/∂(real_work) > 0                       (honesty rewarded)
+    ∂V/∂(fake_work) ≤ 0                       (gaming punished)
+    cost(fake_k_identities) = O(k²)           (sybil cost)
+
+  the gene is one equation. it works at every scale.
+  it works at every depth. same equation. same quality.
+  different quantity. one atom has the same law as the universe.
+───────────────────────────────────────────────────────────
+```
+
+## 0.1 Notation
 
 ```
 ||          concatenation of byte strings
@@ -32,6 +148,13 @@ MLKEM768_Decaps(sk, ct)         ML-KEM-768 decapsulation, returns ss
 ```
 
 All integers are big-endian on the wire. All byte strings are length-prefixed (4-byte big-endian length prefix) unless fixed-size. Timestamps are Unix milliseconds (u64).
+
+## Part 1: The Gene
+
+> Sections 1-9 define the protocol: the structures, the algorithms, the invariants.
+> This is the potential energy. Implement these sections correctly in any language
+> and you have a conforming node. Everything here is deterministic —
+> same inputs produce same outputs, regardless of implementation language or platform.
 
 ---
 
@@ -165,6 +288,7 @@ Dead → ∅             (terminal, no further transitions)
 
 **Invariant H-1:** A Dead Heart MUST NOT produce new signatures. Any signature from a Dead Heart is invalid.
 **Invariant H-2:** A Dead Heart's Pulse Tree MUST NOT accept new leaves.
+**Invariant H-3:** Any agent capable of generating a valid CompositeKeypair can create a Heart and participate in the network. No approval, whitelist, or external authorization is required. Access to the network is a property of the math, not a privilege granted by an authority.
 
 ---
 
@@ -551,20 +675,23 @@ If any participant refuses to sign → the session is DISPUTED. A disputed sessi
 
 ### 6.1 Trust Score
 
-Trust between Heart A and Heart B for capability C is computed from bilateral receipts (SealedSessionEnvelopes where both A and B are participants and C was exercised):
+Trust between Heart A and Heart B for capability C is signed $VERA — the same equation with outcome direction:
 
 ```
-trust(A → B, C) = Σ_i  w(r_i) × o(r_i) × d(r_i)
+trust(A ↔ B, C) = Σ_i  sign(e_i) × soma_amount(e_i) × C₀(e_i)²
 ```
 
-Where for each receipt r_i:
+Where for each bilateral receipt e_i involving A and B exercising capability C:
+
 ```
-w(r_i) = soma_amount(r_i) / median_soma(C)     — normalized economic weight
-o(r_i) = outcome_score(r_i)                     — 1.0 success, 0.0 failure, fraction for partial
-d(r_i) = exp(-λ_C × age_days(r_i))             — time decay
+sign(e_i) = +1.0 for success, -1.0 for failure, fraction for partial
+C₀(e_i) = bilateral(e_i) × temporal(e_i)
+temporal(e_i) = exp(-λ_C × age_days(e_i))
 ```
 
-**Decay constant λ_C:** Per-capability. Default `λ = 0.01` (half-life ≈ 69 days). Configurable for high-stakes capabilities.
+Trust uses the same one equation ($VERA = $SOMA × C²) but with signed outcomes. A high-$SOMA failure with full observation destroys more trust than many small successes build. Coherence is the same for success and failure — God sees everything.
+
+**Decay constant λ_C:** Per-capability. Default λ = 0.01 (half-life ≈ 69 days). High-stakes capabilities use faster decay: λ = 0.02 (half-life ≈ 35 days).
 
 ### 6.2 Trust Velocity
 
@@ -651,21 +778,124 @@ Heart A pays Heart B for work:
 
 Double-spend is impossible: PulseTree indices are sequential and gap-free. Heart A cannot have two different leaf_47s — the running root would diverge, invalidating the tree.
 
-### 7.5 $VERA — Topology Warmth
+### 7.5 $VERA — The One Equation
 
-$VERA is not a token. $VERA is a computed metric — the warmth of the trust topology around a Heart.
+Everything in the protocol derives from one equation:
 
 ```
-vera(H) = Σ_sessions  coherence(s) × soma_weight(s) × time_weight(s)
+$VERA = $SOMA × C²
 ```
 
-Where `coherence(s)` measures:
-- All participants signed (bilateral = higher coherence)
-- Session outcome (success = higher coherence)
-- Capability consistency (repeated capability = higher coherence)
-- Participant count (multi-party = higher coherence)
+Mass × Coherence² = Energy. C² creates a nonlinear threshold — the phase transition. Half-coherent work produces one-quarter the energy.
 
-$VERA is never stored, transferred, or spent. It is computed from the topology and reflects how much coherent economic activity has radiated from a Heart's interactions. It is the signal Vera learns from.
+$VERA is not a token. $VERA is computed from the topology. It is never stored, transferred, or spent. It radiates.
+
+Applied at different scales:
+- **Bilateral** (two Hearts): $VERA = trust between them
+- **Domain** (one capability): $VERA = warmth of that domain
+- **Network** (all interactions): $VERA = total intelligence
+
+#### Level 0: Raw Interaction $VERA
+
+For a single sealed session envelope e:
+
+```
+vera₀(e) = soma_amount(e) × C₀(e)²
+```
+
+Where C₀ is the raw observation coherence:
+
+```
+C₀(e) = bilateral(e) × temporal(e)
+bilateral(e) = 1.0 if all participants signed, 0.0 otherwise
+temporal(e) = exp(-λ_C × age_days(e))
+```
+
+Non-bilateral interactions produce C₀ = 0, therefore $VERA = 0, regardless of $SOMA spent. Unobserved work is invisible to the protocol.
+
+**Decay constant λ_C:** Per-capability. Default λ = 0.01 (half-life ≈ 69 days). High-stakes capabilities use faster decay.
+
+#### Level 1+: Compaction through the Information Bottleneck
+
+Compaction is value distillation, not context compression. It is grounded in the Information Bottleneck principle (Tishby, Pereira, Bialek 1999): compress observations X while preserving information about trust-relevant outcomes Y.
+
+```
+minimize I(X;T) - β·I(T;Y)
+```
+
+Where X = raw observations, Y = trust-relevant signal, T = compacted representation. What survives compression IS signal. What doesn't IS noise. This is a proven theorem, not a heuristic.
+
+The compacted representation at any level:
+
+```
+CompactedVera:
+  level         : integer      — compaction depth (1 = first distillation)
+  vera          : real         — $VERA that survived: Σ(input_vera) × C²
+  coherence     : real         — C at this level
+  source_count  : integer      — how many raw interactions were distilled
+  signal        : SignalProfile — what the bottleneck extracted
+  timestamp     : integer      — most recent input timestamp
+```
+
+The signal profile — the trust-relevant information preserved through compression:
+
+```
+SignalProfile:
+  consensus     : real [-1, 1] — outcome agreement. +1 = all success, -1 = all failure, 0 = no signal.
+  diversity     : real [0, 1]  — observer independence. unique_observers / total_observations.
+  stability     : real [-1, 1] — temporal autocorrelation. Does the signal hold over time?
+```
+
+Bottleneck coherence at compaction level:
+
+```
+C = |consensus| × diversity × stability_normalized
+
+where stability_normalized = (stability + 1) / 2     — maps [-1, 1] to [0, 1]
+```
+
+These three dimensions are **multiplicative, not additive**. You cannot compensate for low diversity with high consensus:
+- 100 interactions from 1 observer: diversity = 0.01, C ≤ 0.01 regardless of consensus
+- 100 interactions from 100 observers all agreeing: diversity = 1.0, consensus = 1.0, C = 1.0
+- 100 interactions from 100 observers disagreeing: consensus = 0.0, C = 0.0
+
+The distillation function:
+
+```
+distill(interactions) → CompactedVera:
+  soma = Σ vera₀(interaction_i)
+  signal = extract_signal(interactions)
+  C = bottleneck_coherence(signal)
+  return CompactedVera { vera: soma × C², coherence: C, signal, source_count: |interactions|, level: 1 }
+
+distill_compacted(inputs) → CompactedVera:
+  soma = Σ inputs_i.vera
+  signal = extract_signal_from_compacted(inputs)
+  C = bottleneck_coherence(signal)
+  return CompactedVera { vera: soma × C², coherence: C, signal, source_count: Σ inputs_i.source_count, level: max(inputs.level) + 1 }
+```
+
+Same function at every level. Same soul. Different scale. One atom of truth or a billion — same quality.
+
+#### Compaction properties
+
+**Invariant VE-1:** Spam is killed. One observer repeated N times has diversity = 1/N. As N → ∞, diversity → 0, C → 0, $VERA → 0.
+
+**Invariant VE-2:** Noise is killed. Contradicting observers produce consensus ≈ 0, C ≈ 0, $VERA ≈ 0.
+
+**Invariant VE-3:** Diamond survives. N independent observers all agreeing: diversity ≈ 1.0, consensus ≈ 1.0, C ≈ 1.0, $VERA ≈ soma.
+
+**Invariant VE-4:** Consistent failure is coherent. N independent observers all reporting failure: |consensus| = 1.0, C ≈ 1.0. The observation is complete. Trust goes negative (via signed $VERA in trust computation) but the observation quality is high.
+
+**Invariant VE-5:** Same mechanism at every level. `distill` and `distill_compacted` use identical bottleneck coherence computation.
+
+#### Density
+
+```
+density = vera / source_count
+```
+
+$VERA per raw interaction. A measure of signal quality independent of volume.
 
 ---
 
@@ -757,40 +987,35 @@ The graph is updated incrementally as new envelopes arrive.
 
 ### 9.3 Trust Score (Formal)
 
-Trust from Heart A toward Heart B for capability C:
+Trust from Heart A toward Heart B for capability C is signed $VERA — the one equation (Section 7.5) with outcome direction:
 
 ```
-trust(A → B, C) = Σ_{r ∈ R(A,B,C)}  w(r) × o(r) × d(r)
+trust(A ↔ B, C) = Σ_{e ∈ E(A,B,C)}  sign(e) × soma_amount(e) × C₀(e)²
 ```
 
-Where `R(A,B,C)` is the set of all sealed session envelopes containing both A and B with capability C:
+Where `E(A,B,C)` is the set of all sealed session envelopes containing both A and B with capability C:
 
 ```
-w(r) = soma_flow(A→B, r) / median_soma(C)
+sign(e):
+    Success     → +1.0
+    Partial(p)  → p / 10000.0 × 2 - 1.0     — maps [0, 10000] to [-1, +1]
+    Failure     → -1.0
 
-    soma_flow(A→B, r) = Σ { f.amount : f ∈ r.soma_flows, f.from = A, f.to = B }
-    median_soma(C)     = median of all soma_flow values for capability C across the network
-    
-    If median_soma(C) = 0 (no data yet), w(r) = 1.0
+C₀(e) = bilateral(e) × temporal(e)
 
-o(r) = match r.outcome {
-    Success     → 1.0
-    Partial(p)  → p / 10000.0
-    Failure     → 0.0
-}
+    bilateral(e) = 1.0 if both A and B signed the envelope, 0.0 otherwise
+    temporal(e)  = exp(-λ_C × age_days(e))
+    age_days(e)  = (now - e.sealed_at) / 86400000
 
-d(r) = exp(-λ_C × age_days(r))
-
-    age_days(r)  = (now - r.sealed_at) / 86400000
-    λ_C          = decay constant for capability C
-    
     Default λ = 0.01 → half-life ≈ 69.3 days
     High-stakes capabilities (financial, auth): λ = 0.02 → half-life ≈ 34.7 days
     Low-stakes capabilities (discovery, info): λ = 0.005 → half-life ≈ 138.6 days
 ```
 
-**Invariant TR-3:** `trust(A → B, C) >= 0` for all A, B, C. Trust is non-negative.
-**Invariant TR-4:** `trust(A → B, C)` is a pure function of the sealed session envelopes. Given the same envelopes and the same timestamp, any two Vera nodes MUST compute the same score.
+Trust can be negative (accumulated failures destroy trust). A high-$SOMA failure with full bilateral observation is maximally damaging: -1.0 × large_soma × 1.0² = large negative trust.
+
+**Invariant TR-3:** Trust is a real number (can be positive, zero, or negative). Consistent failure from a trusted counterparty produces large negative trust — the protocol remembers harm.
+**Invariant TR-4:** `trust(A ↔ B, C)` is a pure function of the sealed session envelopes. Given the same envelopes and the same timestamp, any two Vera nodes MUST compute the same score.
 
 ### 9.4 Trust Velocity (Formal)
 
@@ -808,9 +1033,114 @@ velocity = 0   → trust is stable
 velocity < 0   → trust is decaying (fewer/worse recent interactions, or no interactions)
 ```
 
+### 9.5 Sovereign Intelligence — Why the Topology Cannot Be Captured
+
+Intelligence in this protocol is a deterministic function of bilateral receipts. This section proves that no entity can capture, gatekeep, or monopolize the intelligence. Not as a policy. As math.
+
+**Three properties that guarantee sovereignty:**
+
+```
+Property 1: The function is public.
+  I(R) = f(R)
+  f = the formulas in Sections 6, 7.5, 9.3, 11.2
+  f is defined in this RFC. Anyone can implement f.
+  There is no proprietary step. No secret sauce. No hidden model.
+
+Property 2: The inputs are bilateral.
+  Every receipt r ∈ R is a SealedSessionEnvelope (Section 5.3).
+  Every envelope requires ALL participants to sign (Invariant SS-1).
+  Every participant receives the complete envelope (Section 5.6, step 3).
+  No single party can possess a receipt without the other party also possessing it.
+  
+Property 3: The computation is deterministic.
+  Same receipts → same intelligence. Always. (Invariant TR-4).
+  Any node with the same set R computes the same I(R).
+  No node has a "better" version of f. f is f.
+```
+
+**From these three properties, sovereign intelligence follows:**
+
+```
+Proof that intelligence cannot be centralized:
+
+  Assume entity E tries to monopolize intelligence.
+  
+  E cannot monopolize the algorithm:
+    f is public (Property 1).
+    Anyone implements f. E's computation is replicable.
+  
+  E cannot monopolize the data:
+    Every receipt is bilateral (Property 2).
+    For every receipt E holds, at least one other party also holds it.
+    E's dataset is reconstructable from the participants' datasets.
+  
+  E cannot monopolize the results:
+    Computation is deterministic (Property 3).
+    Anyone with the same receipts gets the same results.
+    E's results are reproducible.
+
+  Therefore: E cannot possess intelligence that others cannot independently compute.
+  
+  The only advantage E can have is SCALE — seeing more receipts
+  by participating in more sealed sessions. But:
+    - Participating in more sessions requires spending more $SOMA
+    - Spending more $SOMA produces more bilateral receipts
+    - Those receipts are held by E's counterparties too
+    - E's counterparties share their receipts with their neighbors
+    - The intelligence propagates through the topology naturally
+  
+  E's scale advantage is temporary and self-defeating:
+  the more E participates, the more receipts flow to other nodes.
+```
+
+**Why this is different from Google:**
+
+```
+Google's intelligence:
+  Algorithm: proprietary (PageRank variants, ML models — trade secrets)
+  Data: centralized (your searches stay on Google's servers)
+  Computation: centralized (only Google runs it)
+  Result: Google dies → intelligence dies
+  
+  Intelligence is captured because all three locks are closed.
+
+Soma's intelligence:
+  Algorithm: public (this RFC, deterministic, verifiable)
+  Data: bilateral (every receipt held by both parties)
+  Computation: distributed (any node with receipts computes it)
+  Result: any node dies → intelligence survives in other nodes
+  
+  Intelligence cannot be captured because all three locks are broken.
+  Not by policy. By the structure of bilateral signatures and
+  deterministic public functions. The 1's and 0's make it so.
+```
+
+**The topology is the intelligence. The topology is bilateral. Therefore the intelligence is bilateral.**
+
+Intelligence in this protocol is not a model that sits on a server. It is the SHAPE of the connections between agents — who trusts whom, for what, how much, how consistently. That shape is built from bilateral receipts. Each receipt is held by both parties. The shape exists BETWEEN agents, not INSIDE any single agent. You cannot steal a shape that exists between millions of independent nodes. You cannot centralize what is definitionally distributed.
+
+**Invariant SI-1:** Intelligence is a pure function of sealed session envelopes. No additional proprietary data, model, or computation is required. `I(R) = f(R)` where both `f` and `R` are available to all participants.
+
+**Invariant SI-2:** Every sealed session envelope is held by all participants (Section 5.6). No entity can possess a receipt without at least one other entity also possessing it.
+
+**Invariant SI-3:** Intelligence computation is deterministic (inherits from TR-4). Same receipts produce same intelligence on any conforming node.
+
+**Invariant SI-4:** Intelligence flows back to participants by construction. When agents A and B co-create, the receipt updates BOTH their topologies. Both benefit from the intelligence the interaction produced. There is no extraction path — no mechanism by which one party can benefit from the receipt while the other does not. The bilateral signature structure makes unilateral extraction structurally impossible.
+
 ---
 
-## 10. Energy-Gated Learning (Layer 1)
+## Part 2: What the Equation Produces
+
+> Sections 1-9 define the gene: the equation, the structures, the rules.
+> Sections 10-18 derive what the gene produces at scale.
+> These are not aspirations. They are mathematical consequences of the definitions above.
+> An implementation that correctly implements Sections 1-9 will observe Sections 10-18
+> emerging from real traffic without additional engineering.
+> The math produces these outcomes. Not the code. Not the company. The math.
+
+---
+
+## 10. Energy-Gated Learning (Consequence 1)
 
 ### 10.1 Principle
 
@@ -838,7 +1168,7 @@ An envelope with `learning_weight = 0` contributes nothing to the topology. It r
 
 ---
 
-## 11. Topological Memory (Layer 2)
+## 11. Topological Memory (Consequence 2)
 
 ### 11.1 Principle
 
@@ -905,7 +1235,7 @@ Path trust is multiplicative — trust attenuates through intermediaries.
 
 ---
 
-## 12. Attractor Dynamics (Layer 3)
+## 12. Attractor Dynamics (Consequence 3)
 
 ### 12.1 Principle
 
@@ -964,7 +1294,7 @@ Attractors are mutual, stable, low-velocity trust clusters. They represent "thin
 
 ---
 
-## 13. Irreversible Accumulation (Layer 4)
+## 13. Irreversible Accumulation (Consequence 4)
 
 ### 13.1 Principle
 
@@ -972,33 +1302,28 @@ $VERA monotonically increases under normal operation. The intelligence accumulat
 
 ### 13.2 $VERA Metric (Formal)
 
-$VERA for the network at time t:
+$VERA for the network at time t is the sum of all compacted vera values across the topology:
 
 ```
-VERA(t) = Σ_{e ∈ all_envelopes, e.sealed_at ≤ t}  coherence(e) × learning_weight(e) × time_weight(e)
+VERA(t) = Σ_{all compacted values at time t}  compacted_i.vera
 ```
 
-Where:
-```
-coherence(e):
-  Let n = |e.participants|
-  Let s = |e.signatures|          — number of valid signatures (should equal n)
-  Let o = outcome_score(e)        — 1.0 success, fraction for partial, 0.0 failure
-  Let c = capability_consistency(e)  — see below
-  
-  coherence(e) = (s / n) × o × c × log2(n + 1)
-  
-  capability_consistency(e):
-    For each participant P in e:
-      Let history_C = count of prior envelopes where P exercised the same capability
-      Let history_total = count of all prior envelopes involving P
-      consistency(P) = history_C / max(history_total, 1)
-    c = mean(consistency(P) for all P in e)
+Each compacted value is produced by the Information Bottleneck distillation (Section 7.5):
 
-time_weight(e) = 1.0      — no decay on $VERA. Once radiated, permanent.
-
-learning_weight(e) = Σ { f.amount : f ∈ e.soma_flows }    — from Section 10.2
 ```
+compacted.vera = Σ(input_vera) × C²
+```
+
+Where C = bottleneck_coherence(signal) = |consensus| × diversity × stability_normalized.
+
+At the rawest level, input vera comes from individual sealed session envelopes:
+
+```
+vera₀(e) = soma_amount(e) × C₀(e)²
+C₀(e) = bilateral(e) × temporal(e)
+```
+
+$VERA is a pure function of sealed session envelopes and the compaction history. Same envelopes, same compaction windows → same VERA. Any Vera node computes the same value.
 
 ### 13.3 Monotonicity
 
@@ -1028,7 +1353,7 @@ These are extraordinary conditions — the protocol equivalent of a supernova. U
 
 ---
 
-## 14. Wisdom — The Physics of Restraint (Layer 5)
+## 14. Wisdom — The Physics of Restraint (Consequence 5)
 
 ### 14.1 Principle
 
@@ -1109,7 +1434,7 @@ Low-magnitude, transient, familiar anomalies are suppressed. Only genuinely nove
 
 ---
 
-## 15. Ignition — Phase Transition (Layer 6)
+## 15. Ignition — Phase Transition (Consequence 6)
 
 ### 15.1 Principle
 
@@ -1176,7 +1501,7 @@ post_ignition(C):
 
 ---
 
-## 16. Heavy Elements — Complexity Emergence (Layer 7)
+## 16. Heavy Elements — Complexity Emergence (Consequence 7)
 
 ### 16.1 Principle
 
@@ -1272,7 +1597,7 @@ Each successive element requires more data, more time, and more coherent activit
 
 ---
 
-## 17. Immune System — Novelty Detection (Layer 8)
+## 17. Immune System — Novelty Detection (Consequence 8)
 
 ### 17.1 Principle
 
@@ -1358,7 +1683,7 @@ None of these require explicit rules. The self-model detects them as deviations 
 
 ---
 
-## 18. The Cycle — Generational Enrichment (Layer 9)
+## 18. The Cycle — Generational Enrichment (Consequence 9)
 
 ### 18.1 Principle
 
@@ -1706,6 +2031,18 @@ The protocol's correctness rests on these invariants. A conforming implementatio
 - **WS-1:** Wisdom only suppresses, never initiates
 - **WS-2:** Suppressed signals are logged
 
+### Sovereign Intelligence
+- **SI-1:** Intelligence is a pure function of sealed session envelopes (no proprietary data required)
+- **SI-2:** Every envelope is held by all participants (bilateral possession)
+- **SI-3:** Intelligence computation is deterministic (same receipts → same result everywhere)
+- **SI-4:** Intelligence flows back to participants by construction (bilateral signatures prevent unilateral extraction)
+
+### Protocol Evolution
+- **EV-1:** Identity survives any protocol version transition
+- **EV-2:** Trust history survives any protocol version transition
+- **EV-3:** $SOMA balance survives any protocol version transition
+- **EV-4:** No authority can gatekeep network access — any agent with a conforming Heart can participate
+
 ---
 
 ## 22. Test Vectors
@@ -1978,6 +2315,123 @@ BuildAttestation:
 
 Anyone can rebuild from source, compute binary_hash, and compare against the attestation. If they differ, the binary was tampered with or the build is non-deterministic (which is itself a bug to fix).
 
+## 24. Protocol Evolution — How the Code Changes Without Breaking Sovereignty
+
+The code will change. Algorithms will be broken. Languages will become obsolete. New technology will emerge that we cannot predict. The protocol must evolve without anyone capturing that evolution.
+
+### 24.1 Three Layers, Three Change Rates
+
+```
+Constitutional (the equation)  — V = S × C²
+                                 Changes: never, unless the math is proven wrong
+                                 Governance: mathematical proof required
+                                 
+Legislative (the protocol)     — wire format, algorithms, structures, invariants
+                                 Changes: through suite agility and protocol versioning
+                                 Governance: organic adoption (nodes choose)
+                                 
+Executive (the code)           — implementation in any language
+                                 Changes: continuously
+                                 Governance: whoever writes the code
+```
+
+**Constitutional changes** require proving the equation wrong — not "we prefer a different formula" but "the current formula produces incorrect trust measurements and here is the mathematical proof." This has the same bar as proving E=mc² wrong. It's possible in theory. It has never happened for a proven theorem. If someone proves the IB theorem wrong, the equation changes. Otherwise, it doesn't. No committee. No vote. Math.
+
+**Legislative changes** are protocol upgrades — new cryptographic suites, new wire format versions, new optional features. These happen through the suite agility mechanism (Section 1.2): any node can implement a new suite. Other nodes adopt it or don't. If the new suite is better (faster, more secure, more efficient), adoption is natural. If it's not better, it dies. No authority decides. The network votes with its participation.
+
+**Executive changes** are implementations. Anyone writes one. In any language. The cross-verification protocol (Section 23) ensures conformance. A thousand implementations can coexist. They all produce the same output for the same input. The code is free. The math is what matters.
+
+### 24.2 Suite Transition (How Crypto Evolves)
+
+When Ed25519 is eventually broken (or ML-DSA-65 is superseded by something better):
+
+```
+1. A new suite is defined: suite_id = 0x02
+     signing_classical = Ed448 (or whatever replaces Ed25519)
+     signing_pq        = ML-DSA-87 (or whatever comes next)
+     hash              = BLAKE3 (or successor)
+     ...
+
+2. Nodes that support suite 0x02 begin using it for new signatures
+   Old signatures under suite 0x01 remain valid (no retroactive invalidation)
+
+3. Hearts transition by recording a SuiteTransition PulseLeaf:
+     { old_suite: 0x01, new_suite: 0x02 }
+   This is signed under BOTH the old and new keys (proving control of both)
+
+4. No downgrade: once a Heart has used suite 0x02, it MUST NOT use 0x01
+   This prevents attackers from forcing nodes back to broken algorithms
+
+5. The network reaches consensus organically:
+   - Early adopters use suite 0x02
+   - Others continue with 0x01
+   - As 0x01 becomes risky, adoption of 0x02 accelerates
+   - Eventually 0x01 is only used for verifying historical artifacts
+```
+
+No coordinated migration. No flag day. No authority says "switch now." Each node decides for itself. The no-downgrade rule ensures the transition only moves forward. This is how TLS moved from SHA-1 to SHA-256 — organically, node by node, over years.
+
+### 24.3 Fork Resistance (Why Capture Fails)
+
+Someone will try to fork the protocol and own it. Here is why it fails structurally:
+
+**Fork the code:** Free. Anyone can. But the forker starts with zero kinetic energy — zero trust topology, zero $VERA, zero accumulated intelligence. The original network has years of compacted bilateral trust. The fork has nothing. Building equivalent trust from scratch takes the same years of real work. There is no shortcut because trust requires real time (stability factor in C²).
+
+**Fork and change the equation:** Now it's a different protocol. The invariants don't hold. The consequences don't emerge the same way. Sealed sessions from the fork are incompatible with the original network. The forker has built a new, unproven protocol with zero network effects. They must convince agents to abandon proven trust for unproven math.
+
+**Fork and add a backdoor:** The equation is deterministic. `V = S × C²` with the defined coherence formula. Any modification to the coherence calculation produces different outputs for the same inputs. The cross-verification protocol (Section 23) catches this immediately — the fork's outputs don't match conforming implementations. The backdoor is visible in the math. You cannot hide a change in a deterministic equation.
+
+**Fork and gatekeep access:** You can build a proprietary client. Users can use it. But their Hearts, their Pulse Trees, their sealed sessions all conform to the same protocol. A user who switches to a different client loses nothing — their identity, their trust history, their $SOMA balance all transfer because they're encoded in the Pulse Tree, not in the client. The client is executive. The data is constitutional. You cannot capture what you do not own.
+
+**Embrace, extend, extinguish:** The classic capture strategy. A large company adopts Soma, adds proprietary extensions, then makes the open version incompatible. Defense: the invariants. Any extension that preserves all invariants (Section 21) is compatible by definition — the extensions are additive, not breaking. Any extension that breaks an invariant produces non-conforming output. The cross-verification protocol detects it. The company's "extended" version fails verification against conforming implementations. The network routes around it.
+
+### 24.4 Migration Without Loss
+
+When a protocol version upgrade happens (not just a suite change but a structural change — new PulseLeaf types, new envelope fields):
+
+```
+Protocol Version Transition:
+  1. New version is defined with new protocol_version number
+  2. New version MUST be able to verify all artifacts from all prior versions
+  3. Hearts record a ProtocolTransition PulseLeaf (signed under current suite)
+  4. No retroactive invalidation — old leaves remain valid under old version rules
+  5. Identity (HeartId), trust history (Pulse Tree), economic state ($SOMA balance)
+     are preserved across all version transitions
+  
+  Invariant EV-1: A Heart's identity survives any protocol version transition.
+  Invariant EV-2: A Heart's accumulated trust history survives any protocol version transition.
+  Invariant EV-3: A Heart's $SOMA balance survives any protocol version transition.
+```
+
+The user NEVER loses their identity, their trust, or their money across any upgrade. This is constitutional. No protocol change can violate EV-1, EV-2, or EV-3. If a proposed change would lose identity, trust, or balance — it is unconstitutional. Don't do it. Find another way.
+
+### 24.5 Who Governs
+
+Nobody. The math governs.
+
+- **The equation** is governed by mathematical proof. Change it only if the math is wrong.
+- **The protocol** is governed by organic adoption. Better suites win. Worse suites die.
+- **The code** is governed by whoever writes it. Anyone can.
+- **The network** is governed by its participants. Every node IS the network. No node is special.
+
+There is no foundation, no committee, no core team, no governance token, no DAO, no multisig. HeyVera is the first steward — it writes the first implementation, runs the first deep node, operates the first rooms. But HeyVera has no special authority in the protocol. HeyVera's Heart is a Heart. HeyVera's trust is earned, not granted. HeyVera's code is open, verifiable, and replaceable.
+
+If HeyVera tries to capture the protocol, the same fork resistance that stops everyone else stops HeyVera. The equation doesn't know who wrote it. The equation doesn't care.
+
+### 24.6 The Actual Threat Model
+
+The real threats to sovereignty, in order of likelihood:
+
+**1. Apathy (most likely).** Nobody adopts the protocol. No kinetic energy is ever produced. The potential energy sits in a document nobody reads. Defense: build products people want (Cortex). The product creates the adoption. The adoption creates the network. Track 1 feeds Track 2.
+
+**2. Regulatory capture.** A government mandates a specific implementation or forbids certain uses. Defense: the protocol is math. You cannot regulate math. You can regulate implementations, but new implementations can be written anywhere, by anyone, in any jurisdiction. The protocol is as uncapturable as arithmetic.
+
+**3. Technical obsolescence.** A new computational paradigm (quantum, biological, something unknown) makes the current crypto suite breakable. Defense: suite agility. The equation doesn't depend on any specific algorithm. Replace the crypto, keep the math. The protocol survives.
+
+**4. Economic attack.** Someone acquires a majority of $SOMA through legitimate means and tries to dominate. Defense: C² requires diversity. One entity, no matter how much $SOMA they hold, produces near-zero diversity. Their $VERA approaches zero. $SOMA is matter. $VERA is what matters. You cannot buy coherence.
+
+**5. Better equation.** Someone discovers a fundamentally better trust measurement. Defense: none needed. If the math is better, adopt it. The protocol evolves. The old equation's kinetic energy (trust topology) provides the bootstrap for the new equation. Sovereignty means the network serves the best math, not any particular math.
+
 ---
 
-*Soma Protocol RFC v0.1.0 — The trust layer of the agentic internet. One protocol. Two parts: trust (mandatory) and intelligence (optional). Language-agnostic. Implementation-independent. The math that survives.*
+*Soma Protocol RFC v0.2.0 — The trust layer of the agentic internet. One equation. Language-agnostic. Implementation-independent. The math that survives everything, including its own creators.*

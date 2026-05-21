@@ -34,6 +34,10 @@ web/vite.config.js
 .claude/dual-brain.permissions.json
 
 
-# Added by cargo
+# Local dev databases
+.cortex/
+*.db-shm
+*.db-wal
 
+# Added by cargo
 /target

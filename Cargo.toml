@@ -6,6 +6,7 @@ members = [
     "crates/worker",
     "crates/soma",
     "crates/soma-crypto",
+    "crates/soma-core",
 ]
 resolver = "3"
 

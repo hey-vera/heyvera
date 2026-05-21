@@ -78,6 +78,13 @@ pub async fn chat(
     }
     let file_paths = crate::validate::sanitize_file_paths(&req.file_paths)
         .map_err(|e| (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: e })))?;
+
+    if let Some(blocked) = crate::billing::check_chat_access(&state, &user.user_id) {
+        return Err((StatusCode::PAYMENT_REQUIRED, Json(ErrorResponse {
+            error: format!("billing: {blocked:?}"),
+        })));
+    }
+
     let intent = classify_intent(&req.message);
     let (tx, rx) = mpsc::channel::<StepEvent>(64);
 
@@ -114,6 +121,9 @@ pub async fn chat(
         let state_clone = state.clone();
         let user_id = user.user_id.clone();
 
+        // Vera sees the routing decision — each intent is a different sense
+        state.vera_tracker.record_routed(&user.user_id, intent.unwrap());
+
         tokio::spawn(async move {
             match state_clone
                 .dispatch_step(&user_id, task_clone.clone(), decision_clone.clone(), tx.clone())
@@ -121,6 +131,11 @@ pub async fn chat(
             {
                 Ok(step_id) => {
                     tracing::info!("step dispatched: {step_id}");
+                    let _ = tx.send(StepEvent::Started {
+                        step_id,
+                        provider: decision_clone.provider.to_string(),
+                        model: decision_clone.model_id.clone(),
+                    }).await;
                 }
                 Err(e) => {
                     let _ = tx
@@ -133,6 +148,8 @@ pub async fn chat(
             }
         });
     } else {
+        let state_conv = state.clone();
+        let user_id_conv = user.user_id.clone();
         tokio::spawn(async move {
             let _ = tx
                 .send(StepEvent::Started {
@@ -156,6 +173,8 @@ pub async fn chat(
                     exit_code: 0,
                 })
                 .await;
+
+            state_conv.vera_tracker.record_conversation(&user_id_conv);
         });
     }
 

@@ -20,6 +20,7 @@ pub mod stripe_client;
 mod usage_api;
 mod user;
 mod validate;
+pub mod vera;
 mod ws;
 
 use std::sync::Arc;
@@ -31,6 +32,39 @@ use axum::Router;
 use tower_http::cors::{AllowHeaders, AllowMethods, AllowOrigin, CorsLayer};
 
 use state::AppState;
+
+async fn vera_snapshot(
+    axum::extract::State(state): axum::extract::State<Arc<AppState>>,
+) -> impl axum::response::IntoResponse {
+    axum::Json(state.vera_tracker.snapshot())
+}
+
+async fn vera_personal(
+    axum::extract::State(state): axum::extract::State<Arc<AppState>>,
+    user: clerk::ClerkUser,
+) -> impl axum::response::IntoResponse {
+    axum::Json(state.vera_tracker.personal_view(&user.user_id))
+}
+
+#[derive(serde::Deserialize)]
+struct SimulateParams {
+    #[serde(default = "default_agent_count")]
+    agents: usize,
+    #[serde(default = "default_per_agent")]
+    per_agent: usize,
+}
+fn default_agent_count() -> usize { 20 }
+fn default_per_agent() -> usize { 10 }
+
+async fn vera_simulate(
+    axum::extract::State(state): axum::extract::State<Arc<AppState>>,
+    axum::extract::Query(params): axum::extract::Query<SimulateParams>,
+) -> impl axum::response::IntoResponse {
+    let agents = params.agents.min(1000);
+    let per_agent = params.per_agent.min(100);
+    state.vera_tracker.simulate_ecosystem(agents, per_agent);
+    axum::Json(state.vera_tracker.snapshot())
+}
 
 async fn soma_identity(
     axum::extract::State(state): axum::extract::State<Arc<AppState>>,
@@ -114,6 +148,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/auth/status", get(auth::auth_status))
         // Soma identity (public — lets clients discover Cortex's DID)
         .route("/api/soma/identity", get(soma_identity))
+        // Vera observation layer — live network state
+        .route("/api/vera/network", get(vera_snapshot))
+        .route("/api/vera/me", get(vera_personal))
+        .route("/api/vera/simulate", post(vera_simulate))
         // Soma delegation bridge (Clerk user → Soma session)
         .route("/api/soma/session", post(soma_bridge::create_session))
         .route("/api/soma/revoke", post(soma_bridge::revoke_delegation))

@@ -1,9 +1,11 @@
 use fips203::ml_kem_768;
-use fips203::traits::{Decaps, Encaps, SerDes};
+use fips203::traits::{Decaps, Encaps, KeyGen, SerDes};
 use x25519_dalek::{PublicKey as X25519Public, StaticSecret as X25519Secret};
 
 use crate::hash;
 use crate::Error;
+
+pub const MLKEM768_CT_LEN: usize = ml_kem_768::CT_LEN;
 
 pub struct HybridKeypair {
     pub x25519_secret: X25519Secret,
@@ -14,8 +16,8 @@ pub struct HybridKeypair {
 
 pub struct HybridEncapsResult {
     pub shared_secret: [u8; 32],
-    pub x25519_public: [u8; 32],
-    pub mlkem_ciphertext: Vec<u8>,
+    pub x25519_ephemeral: [u8; 32],
+    pub mlkem_ciphertext: [u8; MLKEM768_CT_LEN],
 }
 
 impl HybridKeypair {
@@ -24,7 +26,7 @@ impl HybridKeypair {
         let x25519_public = X25519Public::from(&x25519_secret);
 
         let (mlkem_ek, mlkem_dk) =
-            ml_kem_768::try_keygen().map_err(|_| Error::KeygenFailed)?;
+            ml_kem_768::KG::try_keygen().map_err(|_| Error::KeygenFailed)?;
 
         Ok(Self {
             x25519_secret,
@@ -44,16 +46,13 @@ impl HybridKeypair {
 
     pub fn decaps(
         &self,
-        peer_x25519_public: &[u8; 32],
-        mlkem_ciphertext: &[u8],
+        peer_x25519_ephemeral: &[u8; 32],
+        mlkem_ciphertext: &[u8; MLKEM768_CT_LEN],
     ) -> crate::Result<[u8; 32]> {
-        let peer_pk = X25519Public::from(*peer_x25519_public);
+        let peer_pk = X25519Public::from(*peer_x25519_ephemeral);
         let x25519_ss = self.x25519_secret.diffie_hellman(&peer_pk);
 
-        let ct_array: [u8; 1088] = mlkem_ciphertext
-            .try_into()
-            .map_err(|_| Error::DecapsFailed)?;
-        let mlkem_ct = ml_kem_768::CipherText::try_from_bytes(ct_array)
+        let mlkem_ct = ml_kem_768::CipherText::try_from_bytes(*mlkem_ciphertext)
             .map_err(|_| Error::DecapsFailed)?;
         let mlkem_ss = self
             .mlkem_dk
@@ -61,8 +60,7 @@ impl HybridKeypair {
             .map_err(|_| Error::DecapsFailed)?;
         let mlkem_ss_bytes = mlkem_ss.into_bytes();
 
-        let combined = combine_shared_secrets(x25519_ss.as_bytes(), &mlkem_ss_bytes);
-        Ok(combined)
+        Ok(combine_shared_secrets(x25519_ss.as_bytes(), &mlkem_ss_bytes))
     }
 }
 
@@ -76,17 +74,18 @@ pub fn encaps(
     let peer_pk = X25519Public::from(*peer_x25519_public);
     let x25519_ss = ephemeral_secret.diffie_hellman(&peer_pk);
 
-    let (mlkem_ct, mlkem_ss) = peer_mlkem_ek
+    let (mlkem_ss, mlkem_ct) = peer_mlkem_ek
         .try_encaps()
         .map_err(|_| Error::EncapsFailed)?;
     let mlkem_ss_bytes = mlkem_ss.into_bytes();
+    let mlkem_ct_bytes = mlkem_ct.into_bytes();
 
     let shared_secret = combine_shared_secrets(x25519_ss.as_bytes(), &mlkem_ss_bytes);
 
     Ok(HybridEncapsResult {
         shared_secret,
-        x25519_public: *ephemeral_public.as_bytes(),
-        mlkem_ciphertext: mlkem_ct.into_bytes().to_vec(),
+        x25519_ephemeral: *ephemeral_public.as_bytes(),
+        mlkem_ciphertext: mlkem_ct_bytes,
     })
 }
 
@@ -108,7 +107,6 @@ mod tests {
     #[test]
     fn hybrid_key_agreement_roundtrip() {
         let alice = HybridKeypair::generate().unwrap();
-        let bob = HybridKeypair::generate().unwrap();
 
         let encaps_result = encaps(
             alice.x25519_public.as_bytes(),
@@ -117,13 +115,10 @@ mod tests {
         .unwrap();
 
         let alice_ss = alice
-            .decaps(&encaps_result.x25519_public, &encaps_result.mlkem_ciphertext)
+            .decaps(&encaps_result.x25519_ephemeral, &encaps_result.mlkem_ciphertext)
             .unwrap();
 
         assert_eq!(alice_ss, encaps_result.shared_secret);
-
-        // Bob's key should produce a different shared secret
-        let _ = bob;
     }
 
     #[test]
@@ -134,5 +129,23 @@ mod tests {
         let r2 = encaps(alice.x25519_public.as_bytes(), &alice.mlkem_ek).unwrap();
 
         assert_ne!(r1.shared_secret, r2.shared_secret);
+    }
+
+    #[test]
+    fn wrong_key_fails_decaps() {
+        let alice = HybridKeypair::generate().unwrap();
+        let bob = HybridKeypair::generate().unwrap();
+
+        let encaps_result = encaps(
+            alice.x25519_public.as_bytes(),
+            &alice.mlkem_ek,
+        )
+        .unwrap();
+
+        let bob_ss = bob
+            .decaps(&encaps_result.x25519_ephemeral, &encaps_result.mlkem_ciphertext)
+            .unwrap();
+
+        assert_ne!(bob_ss, encaps_result.shared_secret);
     }
 }
