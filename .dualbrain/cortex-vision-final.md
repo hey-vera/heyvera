@@ -3005,3 +3005,27 @@ For scope clarity, the following topics are deliberately excluded from this visi
 7. **Regulatory compliance playbook.** SOC 2 preparation, GDPR data processing agreements, and financial compliance for x402 payments require dedicated legal and compliance analysis.
 
 8. **Hiring plan and organizational structure.** The team size estimates are in this document, but the specific roles, reporting structure, and hiring sequence are operational decisions not architectural ones.
+
+## Appendix J: Vision-First Development (Future Cortex Feature)
+
+**"Vision is cheap. Code is expensive."**
+
+Cortex should have a built-in vision tool — a mode where users iterate on natural language vision documents before any code is written. The workflow:
+
+1. **Vision mode**: User describes what they want to build in natural language. Cortex helps sharpen, challenge, and strengthen the vision through adversarial review and clarifying questions. Multiple rounds until the vision is solid.
+2. **Coding spec**: Once the vision is locked, Cortex translates it into a coding specification — types, schemas, architecture decisions, test strategy.
+3. **Build**: Cortex builds from the spec. The code matches the vision because the vision was complete before a single line was written.
+
+**Why this matters:**
+- Vision iteration costs almost nothing — it's just conversation
+- A bad vision discovered during coding costs days or weeks of wasted implementation
+- Most failed projects fail because the vision was unclear, not because the code was bad
+- This is how HeyVera's own Soma/Vera/Cortex architecture was built — vision docs first, then specs, then code
+
+**The tool:**
+- `cortex vision "build a trust protocol for AI agents"` → enters vision mode
+- Adversarial review built in — Cortex challenges weak spots
+- When the user says "lock it" → generates coding spec automatically
+- Vision docs persist as the canonical source of truth for what was intended
+
+This turns Cortex from "AI coding assistant" into "AI product development assistant" — the thinking before the doing.
