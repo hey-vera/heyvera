@@ -22,12 +22,7 @@ function shellContinuityLabel(shellState: ShellState) {
   if (shellState === "signed_out") return "Signed out";
   if (shellState === "loading") return "Loading";
   if (shellState === "profile_missing") return "Profile needed";
-  return "Signed-in shell";
-}
-
-function formatAgentAuthority(agent: { isPrimary: boolean; linkState: string }) {
-  const state = normalizeState(agent.linkState);
-  return agent.isPrimary ? `Primary · ${state}` : state;
+  return "Continuity active";
 }
 
 export function IdentityRegion({ shellState }: { shellState: ShellState }) {
@@ -42,7 +37,6 @@ export function IdentityRegion({ shellState }: { shellState: ShellState }) {
   } = useAuthContext();
   const profile = myProfile?.profile ?? null;
   const primaryAgent = linkedAgents.find((agent) => agent.isPrimary) ?? linkedAgents[0];
-  const isLoading = shellState === "loading" || myProfileLoading;
 
   return (
     <div className="identity-region">
@@ -72,7 +66,7 @@ export function IdentityRegion({ shellState }: { shellState: ShellState }) {
             </span>
           </div>
 
-          {isLoading ? (
+          {myProfileLoading ? (
             <div className="identity-empty">Loading profile state.</div>
           ) : profile ? (
             <>
@@ -123,7 +117,7 @@ export function IdentityRegion({ shellState }: { shellState: ShellState }) {
           </div>
           <div className="identity-credential-list">
             <div className="identity-credential-row">
-              <span className={`identity-credential-dot${isSignedIn ? " identity-credential-dot-live" : ""}`} />
+              <span className="identity-credential-dot identity-credential-dot-live" />
               <div>
                 <strong>Account session</strong>
                 <p>{isSignedIn ? viewerLabel ?? "Signed in" : "No signed-in session"}</p>
@@ -133,14 +127,14 @@ export function IdentityRegion({ shellState }: { shellState: ShellState }) {
               <span className={`identity-credential-dot${profile ? " identity-credential-dot-live" : ""}`} />
               <div>
                 <strong>HeyVera profile</strong>
-                <p>{isLoading ? "Loading profile state" : profile ? `@${profile.handle}` : "Profile has not been created"}</p>
+                <p>{profile ? `@${profile.handle}` : "Profile has not been created"}</p>
               </div>
             </div>
             <div className="identity-credential-row">
               <span className={`identity-credential-dot${primaryAgent ? " identity-credential-dot-live" : ""}`} />
               <div>
                 <strong>Linked agent</strong>
-                <p>{isLoading ? "Loading agent links" : primaryAgent ? `${primaryAgent.agentName} · ${normalizeState(primaryAgent.linkState)}` : "No linked agent yet"}</p>
+                <p>{primaryAgent ? `${primaryAgent.agentName} · ${normalizeState(primaryAgent.linkState)}` : "No linked agent yet"}</p>
               </div>
             </div>
             <div className="identity-credential-row">
@@ -158,9 +152,7 @@ export function IdentityRegion({ shellState }: { shellState: ShellState }) {
             <p className="region-summary-label">Linked Agents</p>
             <span className="identity-muted-pill">{linkedAgents.length}</span>
           </div>
-          {isLoading ? (
-            <div className="identity-empty">Loading linked-agent state.</div>
-          ) : linkedAgents.length > 0 ? (
+          {linkedAgents.length > 0 ? (
             <div className="identity-agent-list">
               {linkedAgents.map((agent) => (
                 <article key={agent.id} className="identity-agent-row">
@@ -172,7 +164,7 @@ export function IdentityRegion({ shellState }: { shellState: ShellState }) {
                     <span>{agent.agentSlug}</span>
                   </div>
                   <div className="identity-agent-state">
-                    {formatAgentAuthority(agent)}
+                    {agent.isPrimary ? "Primary" : normalizeState(agent.linkState)}
                   </div>
                 </article>
               ))}
