@@ -210,33 +210,41 @@ else
   echo "[caddy] No Caddyfile found - skipping"
 fi
 
-echo "[docker] Building and restarting containers..."
-docker compose up --build -d --remove-orphans
+# Docker compose is for legacy Node.js orchestrator. Skip if cortex systemd service is active.
+if systemctl is-active cortex >/dev/null 2>&1; then
+  echo "[docker] Skipping — cortex runs as native systemd service"
+else
+  echo "[docker] Building and restarting containers..."
+  docker compose up --build -d --remove-orphans
+fi
 
 echo -n "[health] Waiting for startup"
 HEALTHY=false
+HEALTH_PORT="${CORTEX_PORT:-$PORT}"
 for i in $(seq 1 "$MAX_WAIT"); do
   sleep 1
   echo -n "."
-  if curl -sf "http://localhost:${PORT}/health" >/dev/null 2>&1; then
+  if curl -sf "http://localhost:${HEALTH_PORT}/api/health" >/dev/null 2>&1; then
     HEALTHY=true
     break
   fi
-  if ! docker compose ps --status running | grep -q orchestrator; then
+  if systemctl is-active cortex >/dev/null 2>&1; then
+    : # native service — just keep waiting
+  elif ! docker compose ps --status running | grep -q orchestrator 2>/dev/null; then
     echo ""
-    echo "[fail] Orchestrator container is not running. Recent logs:"
-    docker compose logs --tail 60 orchestrator
+    echo "[fail] No running service found. Recent logs:"
+    docker compose logs --tail 60 orchestrator 2>/dev/null || journalctl -u cortex --no-pager -n 30
     exit 1
   fi
 done
 echo ""
 
 if $HEALTHY; then
-  echo "[done] ClawNet deployed successfully - healthy on port ${PORT}"
+  echo "[done] Cortex deployed — healthy on port ${HEALTH_PORT}"
   echo "       Commit: ${DEPLOY_COMMIT_SHORT} (${TARGET_BRANCH})"
-  echo "       View logs: docker compose logs -f orchestrator"
+  echo "       Logs: sudo journalctl -u cortex -f"
 else
   echo "[fail] Health check failed after ${MAX_WAIT}s. Recent logs:"
-  docker compose logs --tail 60 orchestrator
+  journalctl -u cortex --no-pager -n 30 2>/dev/null || docker compose logs --tail 60 orchestrator 2>/dev/null
   exit 1
 fi
